@@ -1,13 +1,12 @@
 """api/services/scanner.py — vista Scanner del módulo Renta Variable.
 
 SQL-NATIVE (decomiso Mongo): `Trading.{Cedears,CedearsSnapshot,PreciosAcciones,AdrSnapshot}`
-fueron migradas a `mercado.*` y dropeadas. La implementación viva es `scanner_sql`
-(lee Postgres). Este módulo conserva:
+fueron migradas a `mercado.*` y dropeadas. El master/ADR/returns/pivots/quant/scanner
+viven en `scanner_sql` (lee Postgres) y los call-sites lo invocan directo.
 
-  * `get_ccl_live`, `get_cedears_trades`, `get_cedears_intraday` — YA SQL-native
-    (dolar_sql / mercado.cedears_time_sales); `scanner_sql` los reusa desde acá.
-  * El resto (master/ADR/returns/pivots/quant/scanner) DELEGA en `scanner_sql` —
-    se mantiene por compat con los call-sites directos (rv_motor, router fallback).
+Acá quedan las 3 lecturas que NO están en `scanner_sql` (él las reusa desde este
+módulo): `get_ccl_live` (dolar_sql) + `get_cedears_trades` / `get_cedears_intraday`
+(mercado.cedears_time_sales).
 
 Retorno USD (`vs_1d_usd_pct`): los CEDEARs se mueven en ARS pero el underlying es un
 activo USD — parte del movimiento ARS es la devaluación implícita del CCL.
@@ -69,42 +68,6 @@ def get_ccl_live() -> dict:
         "vs_1d_pct": vs_1d_pct,
         "ts":        ts.isoformat() if isinstance(ts, datetime) else None,
     }
-
-
-# ── Delegaciones a scanner_sql (SQL-native; Trading.* dropeadas) ──────────────
-
-def _resolve_underlying(ticker_corto: str) -> str:
-    from api.services import scanner_sql
-    return scanner_sql._resolve_underlying(ticker_corto)
-
-
-def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
-    from api.services import scanner_sql
-    return scanner_sql._adr_metrics_para_todos(master)
-
-
-@cached(ttl=60)
-def get_ticker_returns(ticker: str) -> dict:
-    from api.services import scanner_sql
-    return scanner_sql.get_ticker_returns(ticker)
-
-
-@cached(ttl=60)
-def get_pivot_points(ticker: str) -> dict:
-    from api.services import scanner_sql
-    return scanner_sql.get_pivot_points(ticker)
-
-
-@cached(ttl=60)
-def get_quant_stats(ticker: str, window: int = 60) -> dict:
-    from api.services import scanner_sql
-    return scanner_sql.get_quant_stats(ticker, window=window)
-
-
-@cached(ttl=2)
-def get_cedears_scanner() -> list[dict]:
-    from api.services import scanner_sql
-    return scanner_sql.get_cedears_scanner()
 
 
 # ── Time & Sales intradía — SQL-native (mercado.cedears_time_sales) ───────────

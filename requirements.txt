@@ -10,12 +10,8 @@ rich==14.3.3
 pandas==2.3.3
 numpy==2.4.3
 scipy==1.17.1
-pymongo==4.16.0
 psycopg[binary]  # driver Postgres (Supabase, capa relacional). Re-pinear con lock_deps tras instalar.
 psycopg-pool  # pool de conexiones para la API (core.postgres.get_pool)
-# Compresión zstd del wire protocol de pymongo 4.16 (importa backports.zstd,
-# ya NO el paquete `zstandard`). Sin esto cae a snappy. Ver core/mongo.py.
-backports.zstd==1.5.0
 python-dotenv==1.2.2
 holidays==0.93
 requests==2.32.5

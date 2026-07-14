@@ -17,7 +17,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("VR_GGal")
 
 
-def actualizar_historico_ggal_mongo():
+def actualizar_historico_ggal():
+    """Descarga GGAL (ADR) + GGAL.BA (local) de Yahoo, calcula la volatilidad
+    realizada anualizada a 40 ruedas y persiste en SQL: la serie diaria en
+    `mercado.options_vr` y la vol de referencia en `mercado.options_metadata`
+    (fila type='vr_ggal')."""
     logger.info("📉 Descargando y procesando métricas de Yahoo Finance...")
     tickers = ["GGAL", "GGAL.BA"]
 
@@ -52,10 +56,9 @@ def actualizar_historico_ggal_mongo():
         final_df_sub = final_df.tail(40).copy()
         final_df_sub = final_df_sub.reset_index()
 
-        # 2. Serie diaria → mercado.options_vr SQL-NATIVE. Refresh atómico de toda la
-        #    serie (TRUNCATE + INSERT), igual semántica que el delete_many({}) + insert
-        #    que hacía en Mongo. PK = fecha (date). El doc resumen (SUMMARY_METRICS) NO
-        #    se persiste en options_vr (la vol referencia va a Metadata vr_ggal, abajo).
+        # 2. Serie diaria → mercado.options_vr. Refresh atómico de toda la serie
+        #    (TRUNCATE + INSERT en una transacción). PK = fecha (date). La vol de
+        #    referencia NO se persiste acá — va a options_metadata vr_ggal, abajo.
         registros = final_df_sub.to_dict('records')
         rows = []
         for rec in registros:
@@ -66,11 +69,10 @@ def actualizar_historico_ggal_mongo():
             rows.append({"fecha": fecha, "data": pg_mirror.doc_iso(rec)})
         pg_mirror.replace_native("options_vr", rows)
 
-        # 3. Vol de referencia (40R) → mercado.options_metadata.vr_ggal SQL-NATIVE.
-        #    Mergea solo la fila type='vr_ggal' (||) → no toca la config (tasa/expiries).
-        #    Ya NO escribe Mongo: tras el decomiso, sync_options_metadata se neutraliza,
-        #    así que esta es la única escritura de la vol de referencia. La lee el
-        #    dashboard vía get_opciones_meta (SQL, OPCIONES_SQL=1).
+        # 3. Vol de referencia (40R) → mercado.options_metadata, fila type='vr_ggal'.
+        #    Mergea solo esa fila (||) → no toca la config (tasa/expiries), que la
+        #    escriben el motor y el Manager. Es la ÚNICA escritura de la vol de
+        #    referencia; la lee el dashboard vía get_opciones_meta.
         pg_mirror.merge_jsonb_native(
             "options_metadata", ["type"], ["vr_ggal"],
             {
@@ -93,4 +95,4 @@ def actualizar_historico_ggal_mongo():
 
 
 if __name__ == "__main__":
-    actualizar_historico_ggal_mongo()
+    actualizar_historico_ggal()

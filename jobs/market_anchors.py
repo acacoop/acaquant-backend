@@ -8,9 +8,10 @@ guarda en el mismo doc de Market.Quotes.
 Luego la API, al leer las quotes, computa los retornos on-the-fly:
     ret_7d = (last - anchor_7d) / anchor_7d * 100
 
-FX: se computa con frankfurter.app (histórico por fecha).
+El bloque de anchors de FX (frankfurter.app) se eliminó junto con las monedas del
+watchlist: la mesa las sacó de la vista y la lista de símbolos quedó vacía.
 
-Cron sugerido:
+Cron:
     0 22 * * 1-5 cd /root/TradingAV && venv/bin/python -m jobs.market_anchors
 """
 from __future__ import annotations
@@ -19,22 +20,16 @@ import logging
 import sys
 from datetime import UTC, datetime, timedelta
 
-import requests
-
 from core.pg_mirror import merge_jsonb_native
 from core.yahoo import YahooError, stock_candle
 from jobs.market_quotes import (
-    EXTRA_STOCKS,
     HOME_FUTUROS,
-    HOME_FX,
     HOME_INDICES_YAHOO,
     HOME_STOCKS,
     HOME_TREASURIES,
 )
 
 logger = logging.getLogger(__name__)
-
-FRANKFURTER_DATE = "https://api.frankfurter.app"
 
 
 def _closest_close(times: list[int], closes: list[float], target_ts: int) -> float | None:
@@ -89,56 +84,15 @@ def update_stock_anchors(sym: str, now: datetime) -> bool:
     return True
 
 
-def _frankfurter_hist(base: str, target: str, date: str) -> float | None:
-    try:
-        r = requests.get(f"{FRANKFURTER_DATE}/{date}",
-                         params={"from": base, "to": target}, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return float((data.get("rates") or {}).get(target))
-    except Exception as e:
-        logger.warning("frankfurter hist %s→%s %s failed: %s", base, target, date, e)
-        return None
-
-
-def update_fx_anchors(display: str, base: str, target: str, now: datetime) -> bool:
-    """Para FX: 1 request por anchor. frankfurter cachea internamente ECB
-    reference rates, así que es rápido y gratis."""
-    date_7d  = (now - timedelta(days=7)).date().isoformat()
-    date_wtd = (now - timedelta(days=now.weekday() + 3)).date().isoformat()  # viernes previo
-    date_mtd = datetime(now.year, now.month, 1, tzinfo=UTC).date().isoformat()
-    date_ytd = datetime(now.year, 1, 1, tzinfo=UTC).date().isoformat()
-    date_1y  = (now - timedelta(days=365)).date().isoformat()
-
-    update = {
-        "anchor_7d":  _frankfurter_hist(base, target, date_7d),
-        "anchor_wtd": _frankfurter_hist(base, target, date_wtd),
-        "anchor_mtd": _frankfurter_hist(base, target, date_mtd),
-        "anchor_ytd": _frankfurter_hist(base, target, date_ytd),
-        "anchor_1y":  _frankfurter_hist(base, target, date_1y),
-        "anchors_updated_at": now,
-    }
-    merge_jsonb_native("market_quotes", ["symbol"], [display], update)
-    return any(update[k] is not None for k in ("anchor_7d", "anchor_mtd", "anchor_ytd", "anchor_1y"))
-
-
 def ingesta() -> int:
     now = datetime.now(UTC)
 
-    all_stocks = [sym for sym, _ in HOME_STOCKS + EXTRA_STOCKS]
     ok_s = fail_s = 0
-    for sym in all_stocks:
+    for sym, _grupo in HOME_STOCKS:
         if update_stock_anchors(sym, now):
             ok_s += 1
         else:
             fail_s += 1
-
-    ok_fx = fail_fx = 0
-    for display, base, target, _grupo in HOME_FX:
-        if update_fx_anchors(display, base, target, now):
-            ok_fx += 1
-        else:
-            fail_fx += 1
 
     # Treasury yields: el yahoo_sym es lo que fetchamos, pero el doc se
     # guarda bajo el display (UST 10Y, etc). Necesitamos update_stock_anchors
@@ -169,9 +123,9 @@ def ingesta() -> int:
             fail_f += 1
 
     logger.info(
-        "market_anchors — stocks ok=%d fail=%d · fx ok=%d fail=%d · "
-        "treasuries ok=%d fail=%d · indices ok=%d fail=%d · futuros ok=%d fail=%d",
-        ok_s, fail_s, ok_fx, fail_fx, ok_t, fail_t, ok_i, fail_i, ok_f, fail_f,
+        "market_anchors — stocks ok=%d fail=%d · treasuries ok=%d fail=%d · "
+        "indices ok=%d fail=%d · futuros ok=%d fail=%d",
+        ok_s, fail_s, ok_t, fail_t, ok_i, fail_i, ok_f, fail_f,
     )
     return 0
 

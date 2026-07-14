@@ -1,14 +1,21 @@
 """
-main_curvas.py — Motor de enriquecimiento en tiempo real para Trading.TimeSales.
+curvas.py — Motor de enriquecimiento analítico en tiempo real (SQL-only).
 
-Corre como servicio paralelo a main_valores.py. Cada 5 segundos busca docs
-nuevos en TimeSales (tickers de Trading.Curvas sin campo 'duration') y les
-agrega TEA, TEM, Duration y Paridad según el tipo de instrumento.
+Corre como servicio paralelo a engines/valores.py. Cada INTERVALO_SEGUNDOS lee el
+last_price live de mercado.market_snapshot (lo escribe valores.py) para los tickers
+de mercado.curvas y calcula TEA / TEM / duration / mod_duration / convexity /
+paridad según el tipo de curva (tasa_fija, cer, soberanos, dolar_linked, on*).
 
-No toca main_valores.py ni ningún otro motor.
+El resultado vuelve a mercado.market_snapshot con un upsert que toca SOLO las
+columnas analíticas → no pisa las de precio/book que escribe valores.py sobre la
+misma fila.
+
+Datos de referencia con recarga periódica: CER (macro.series_macro), MEP
+(valuaciones.dolar*) y A3500 (feed MAE mayorista). Cuando uno CAMBIA se invalida
+el cache de cálculo solo de las curvas que dependen de él (ver `curva_depende_de`).
 
 Uso:
-    /root/TradingAV/venv/bin/python /root/TradingAV/main_curvas.py
+    python -m engines.curvas
 """
 
 import logging
@@ -703,6 +710,40 @@ def dep_tasa_disponible(curva: str | None, mep: float | None, a3500: float | Non
     return False
 
 
+def curva_depende_de(curva: str | None, dep: str) -> bool:
+    """¿El resultado de `calcular_campos` para ESTA curva depende del dato externo
+    `dep` ('cer' | 'mep' | 'a3500')? Se usa para invalidar el cache de cálculo solo
+    donde hace falta cuando uno de los tres se recarga y CAMBIA.
+
+    Espejo de las ramas de `calcular_campos`:
+      - cer    → solo la curva `cer` usa cer_dict.
+      - mep    → `soberanos` (precio_soberano_a_usd) y ONs (rama moneda USD).
+      - a3500  → `dolar_linked` y ONs (rama moneda DL).
+
+    Las ONs quedan atadas a AMBOS TC porque la rama se elige por `moneda_flujo` y no
+    lo miramos acá: conservador a propósito (invalidar de más nunca cambia un número;
+    invalidar de menos sí).
+    """
+    c = curva or ""
+    es_on = c == "on" or c.startswith("on_")
+    if dep == "cer":
+        return c == "cer"
+    if dep == "mep":
+        return c == "soberanos" or es_on
+    if dep == "a3500":
+        return c == "dolar_linked" or es_on
+    return True  # dep desconocida → invalidar todo (conservador)
+
+
+def invalidar_por_dep(ultimo_calculado: dict, curvas: dict, dep: str) -> int:
+    """Saca del cache los tickers cuya curva depende de `dep`. Devuelve cuántos."""
+    afectados = [t for t in ultimo_calculado
+                 if curva_depende_de((curvas.get(t) or {}).get("curva"), dep)]
+    for t in afectados:
+        del ultimo_calculado[t]
+    return len(afectados)
+
+
 def run():
     logger.info("Motor Curvas iniciando...")
 
@@ -720,8 +761,9 @@ def run():
 
     # Cache RAM ticker → último last_price con el que YA calculamos.
     # Si el last_price actual coincide, skipeamos (cero cambio en mercado).
-    # Cualquier recarga de CER/MEP/A3500 invalida el cache (porque los
-    # cálculos cambian aunque el precio no se haya movido).
+    # Una recarga de CER/MEP/A3500 invalida el cache SOLO si el valor cambió, y
+    # SOLO de las curvas que dependen de ese valor (ver curva_depende_de): un MEP
+    # idéntico no puede mover la TEA de una Lecap → recalcularla es CPU tirada.
     ultimo_calculado: dict[str, float] = {}
 
     logger.info(
@@ -731,22 +773,28 @@ def run():
 
     while True:
         try:
-            # Recargas periódicas. Cualquier cambio invalida el cache de
-            # cálculos (los outputs dependen de CER/MEP/A3500).
+            # Recargas periódicas. Solo un cambio REAL del valor invalida cache, y
+            # solo el de las curvas que dependen de ese valor.
             if time.time() - ultimo_reload_cer > INTERVALO_RECARGA_CER:
-                cer_dict = cargar_cer()
+                nuevo_cer = cargar_cer()
                 ultimo_reload_cer = time.time()
-                ultimo_calculado.clear()
+                if nuevo_cer != cer_dict:
+                    cer_dict = nuevo_cer
+                    invalidar_por_dep(ultimo_calculado, curvas, "cer")
 
             if time.time() - ultimo_reload_mep > INTERVALO_RECARGA_MEP:
-                mep_actual = cargar_mep_actual()
+                nuevo_mep = cargar_mep_actual()
                 ultimo_reload_mep = time.time()
-                ultimo_calculado.clear()
+                if nuevo_mep != mep_actual:
+                    mep_actual = nuevo_mep
+                    invalidar_por_dep(ultimo_calculado, curvas, "mep")
 
             if time.time() - ultimo_reload_a3500 > INTERVALO_RECARGA_A3500:
-                tc_a3500_actual = cargar_a3500_actual()
+                nuevo_a3500 = cargar_a3500_actual()
                 ultimo_reload_a3500 = time.time()
-                ultimo_calculado.clear()
+                if nuevo_a3500 != tc_a3500_actual:
+                    tc_a3500_actual = nuevo_a3500
+                    invalidar_por_dep(ultimo_calculado, curvas, "a3500")
 
             # Lectura del snapshot live SQL-only (mercado.market_snapshot.last_price,
             # escrito por valores.py). Se arma el mismo shape {ticker, updated_at,

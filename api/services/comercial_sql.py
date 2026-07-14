@@ -19,8 +19,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from psycopg.rows import dict_row
-
+from api.services._sql import _q
 from api.services.comercial import (
     _CATS_OPERACIONES,
     _CATS_VOLUMEN,
@@ -29,7 +28,6 @@ from api.services.comercial import (
     _hoy_art,
     estado_comercial,
 )
-from core.postgres import get_pool
 
 # Ficha embebida en cada cliente (= _FICHA_FIELDS de comercial.py). denominacion sale de
 # `cuentas` (no de comitentes); el resto de `comitentes`.
@@ -41,12 +39,6 @@ _ANALISIS = ("denominacion", "telefono", "nivel_1", "nivel_2", "nivel_3", "nivel
 # Pesificación de un boleto (ARS directo; USD × mep del boleto). = _PESIF de comercial.py.
 _PESIF = ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
           "ELSE abs(COALESCE(importe, 0)) * COALESCE(mep, 0) END")
-
-
-def _q(sql: str, params: dict | None = None) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params or {})
-        return cur.fetchall()
 
 
 def _f(x) -> float:

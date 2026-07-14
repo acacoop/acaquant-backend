@@ -1,8 +1,10 @@
 """Cache in-process para endpoints FastAPI.
 
-Decorador `@cached(ttl=N)` para handlers síncronos. Llave = nombre fn + kwargs.
+Decorador `@cached(ttl=N)` para handlers síncronos. Llave = nombre fn +
+argumentos NORMALIZADOS contra la firma (`inspect.signature().bind()`), así que
+`f(3)`, `f(x=3)` y `f()` con `x=3` por default son la MISMA entrada de cache.
 No requiere Redis: el api.service es un único proceso, así que un dict con TTL
-alcanza y elimina 1 round-trip a Mongo por request repetido dentro de la ventana.
+alcanza y elimina 1 round-trip a la DB por request repetido dentro de la ventana.
 
 El `_store` está acotado: sweep de expiradas + LRU-eviction al pasar
 `_MAX_ENTRIES`. Antes de esto cada combinación única de kwargs se quedaba
@@ -21,16 +23,18 @@ cuestan a la base lo mismo que uno.
 from __future__ import annotations
 
 import functools
+import inspect
 import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any
 
-# Límite duro de entradas. Con ~30 endpoints cacheados y ~10 combinaciones
-# típicas de filtros, 512 deja buen margen. Cuando se sobrepasa, evictamos
-# por LRU (la entrada accedida hace más tiempo se cae).
-_MAX_ENTRIES = 512
+# Límite duro de entradas. Las vistas parametrizadas por cuenta/operador multiplican
+# combinaciones (n_usuarios × n_filtros), así que 512 evictaba entradas VIVAS justo
+# con carga alta. Son referencias a resultados ya en memoria: subir el cap es barato.
+# Cuando se sobrepasa, evictamos por LRU (la entrada accedida hace más tiempo se cae).
+_MAX_ENTRIES = 2048
 
 # Tope de espera de un waiter por el cómputo del líder. Si el líder tarda más
 # que esto (query muy lenta), el waiter cae a computar él mismo en vez de
@@ -67,14 +71,19 @@ def invalidate(*fn_names: str) -> int:
 def cached(ttl: int) -> Callable:
     """Cachea la respuesta de un handler por `ttl` segundos.
 
-    Usa todos los kwargs del handler como parte de la llave, así filtros
-    distintos se cachean por separado. Los args posicionales no son soportados
-    (los handlers de FastAPI los reciben como kwargs).
+    Usa todos los argumentos del handler como parte de la llave, así filtros
+    distintos se cachean por separado. Los argumentos se normalizan contra la
+    firma (posicionales → nombre, defaults aplicados): llamar `f(3)` o `f(x=3)`
+    da la MISMA llave. Los valores de los argumentos tienen que ser hasheables.
     """
     def decorator(fn: Callable) -> Callable:
+        sig = inspect.signature(fn)
+
         @functools.wraps(fn)
-        def wrapper(**kwargs):
-            key = (fn.__module__, fn.__name__, tuple(sorted(kwargs.items())))
+        def wrapper(*args, **kwargs):
+            bound = sig.bind(*args, **kwargs)   # TypeError si la llamada no matchea la firma
+            bound.apply_defaults()
+            key = (fn.__module__, fn.__name__, tuple(sorted(bound.arguments.items())))
             now = time.time()
             with _lock:
                 entry = _store.get(key)
@@ -99,11 +108,11 @@ def cached(ttl: int) -> Callable:
                         return entry[1]
                 # El líder no dejó valor (resultado vacío, excepción o timeout):
                 # caemos a computar nosotros — best-effort, sin re-registrar.
-                return fn(**kwargs)
+                return fn(*args, **kwargs)
 
             # Somos el líder: computamos y despertamos a los waiters al final.
             try:
-                result = fn(**kwargs)
+                result = fn(*args, **kwargs)
             except Exception:
                 with _lock:
                     _inflight.pop(key, None)

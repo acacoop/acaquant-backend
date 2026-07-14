@@ -30,9 +30,7 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
-from psycopg.rows import dict_row
-
-from core.postgres import get_pool
+from api.services._sql import _q
 
 logger = logging.getLogger("api.services.operativa_mep_sql")
 
@@ -41,12 +39,6 @@ def operativas_sql_on() -> bool:
     """Lectura del read-side de la operativa MEP desde SQL (default Mongo).
     Comparte flag con el read-side de órdenes (mismo dominio TRANSACCIONAL)."""
     return os.getenv("ORDENES_SQL") == "1"
-
-
-def _q(sql: str, params: tuple) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params)
-        return cur.fetchall()
 
 
 def _orden_doc(cl_ord_id: str | None) -> dict | None:

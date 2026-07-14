@@ -15,11 +15,19 @@ van SOLO al log. A Telegram va únicamente el **agotamiento** de reconexión
 mensaje por cada excepción y cada "reconectado", lo que floodeaba el canal con
 el mercado cerrado / flapping (ej. al bootear los motores fuera de horario).
 
+Agotamiento = muerte del proceso: al quemar los 6 intentos, el motor alerta y
+se mata (os._exit) para que systemd lo reinicie. Antes se rendía y seguía vivo
+("active" para systemd) pero sin datos hasta el restart del cron del día
+siguiente: un corte del broker de >4 min a las 14:00 dejaba a la mesa sin
+precios el resto de la rueda. Misma filosofía que core/threads.py — morir
+ruidosamente + renacer limpio > sobrevivir zombie.
+
 ⚠️ La reconexión NO se pudo testear contra el broker en dev — validar en el
 Droplet con el primer corte real (confirmar que reconecta y los datos vuelven
 a fluir; el diagnóstico de motores lo muestra).
 """
 import logging
+import os
 import re
 import time
 from typing import ClassVar
@@ -240,7 +248,15 @@ class WebSocketManager:
                 except Exception as e:
                     logger.error("WS %s: reconexión intento %d falló: %s", self._nombre, intento, e)
                     delay = min(delay * 2, 60)
-            self._alertar("❌ reconexión AGOTADA tras 6 intentos — motor sin datos")
+            self._alertar(
+                "❌ reconexión AGOTADA tras 6 intentos — motor sin datos, "
+                "me mato para que systemd reinicie y reconecte en frío"
+            )
+            # os._exit (no sys.exit): estamos en un thread no-main y queremos
+            # terminar el proceso YA, sin depender de que el main loop coopere.
+            # Se sale DESPUÉS de _alertar porque send_telegram es sincrónico
+            # (requests.post, timeout 5s) → la alerta ya salió cuando morimos.
+            os._exit(1)
         finally:
             self._reconectando = False
 

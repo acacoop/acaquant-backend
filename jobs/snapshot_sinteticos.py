@@ -107,8 +107,8 @@ def procesar(fecha_str: str, dry: bool) -> int:
     spot_source = data.get("spot_source")
     spot_ts = data.get("spot_ts")
 
-    n_ok = 0
     n_skip = 0
+    sql_rows: list[dict] = []
     for tipo_sintetico, (clave, builder) in _FAMILIAS.items():
         for row in data.get(clave) or []:
             ticker = row.get("ticker")
@@ -122,7 +122,7 @@ def procesar(fecha_str: str, dry: bool) -> int:
                 continue
 
             # Columnas fijas + resto del doc específico por tipo → jsonb `data`.
-            sql_row = {
+            sql_rows.append({
                 "ts_snapshot":    fecha_str,   # date: Postgres castea el string ISO
                 "tipo_sintetico": tipo_sintetico,
                 "ticker":         ticker,
@@ -132,17 +132,17 @@ def procesar(fecha_str: str, dry: bool) -> int:
                 "te":             base.get("te"),
                 "tna":            base.get("tna"),
                 "data":           {k: v for k, v in base.items() if k not in ("te", "tna")},
-            }
-            if dry:
-                n_ok += 1
-                continue
-            write_native(
-                "snapshots_sinteticos",
-                ["ts_snapshot", "tipo_sintetico", "ticker"],
-                [sql_row],
-            )
-            n_ok += 1
+            })
 
+    # Un solo upsert con todas las filas (patrón de jobs/snapshot_cierre).
+    if not dry and sql_rows:
+        write_native(
+            "snapshots_sinteticos",
+            ["ts_snapshot", "tipo_sintetico", "ticker"],
+            sql_rows,
+        )
+
+    n_ok = len(sql_rows)
     logger.info("[%s] %d sintéticos persistidos (%d skipped)", fecha_str, n_ok, n_skip)
     return n_ok
 

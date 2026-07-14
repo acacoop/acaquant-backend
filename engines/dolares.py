@@ -10,12 +10,13 @@ Calcula en cada snapshot:
 - CCL   = AL30_offer / AL30C_bid
 - canje = (CCL - MEP) / MEP * 100
 
-Persiste en Valuaciones.DolarSnapshot (1 doc, replaced cada SNAPSHOT_S).
-El histórico sigue siendo escrito por engines.dolar_mep (cron cada 15 min).
+Persiste en `valuaciones.dolar_snapshot` (1 fila viva, id='current', reescrita
+cada INTERVALO_SNAPSHOT_S). El histórico lo sigue escribiendo engines.dolar_mep
+(cron cada 15 min).
 
-El endpoint /api/cotizaciones/mep lee de DolarSnapshot primero (live),
-con fallback a Valuaciones.Dolar (último cierre del cron) si el snapshot
-no existe.
+El endpoint /api/cotizaciones/mep lee `dolar_snapshot` primero (live), con
+fallback a `valuaciones.dolar` (último cierre del cron) si la fila no existe.
+Lecturas centralizadas en core/dolar_sql.py.
 
 Ejecutar:
     python -m engines.dolares

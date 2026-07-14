@@ -1,4 +1,4 @@
-"""bateria_home.py — batería de 15 preguntas al copiloto de HOME.
+"""bateria_home.py — batería de preguntas al copiloto de HOME.
 
 Corre contra el copiloto REAL (datos vivos + DeepSeek) para mapear el pulso
 segmentado nuevo (renta fija por curva/tramo, acciones, dólares/tasas,
@@ -18,8 +18,8 @@ import time
 from api.services import copiloto
 
 PREGUNTAS = [
-    # la narración que falló en el shadow (verificación) — la primera a vigilar
-    copiloto._PREGUNTA_NARRAR_BRIEFING,
+    # La narración del briefing se eliminó del producto (commit 22421de: no
+    # funcionaba). Queda el pulso segmentado como primera a vigilar.
     "¿Cómo viene el mercado hoy?",
     # renta fija segmentada (el feedback central del shadow)
     "¿La renta fija está subiendo por la parte corta o la larga?",

@@ -57,7 +57,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorFuturosDLR")
 
 INTERVALO_SNAPSHOT_S = 5
-INTERVALO_REDISCOVERY_S = 300   # cada 5 min re-evalúa universo de tickers
+# get_detailed_instruments() baja el padrón COMPLETO de ROFEX (REST pesado) y el
+# resultado acá SOLO alimenta un log (no re-suscribe). A 5 min eran 12 descargas/h
+# por motor × 3 motores = trabajo tirado; el padrón cambia de a días, no de a minutos.
+INTERVALO_REDISCOVERY_S = 1800   # cada 30 min re-evalúa universo de tickers
 
 UNDERLYING_DLR = "Dólar USA A3500"
 CFICODE_OUTRIGHT = "FXXXSX"
@@ -249,7 +252,7 @@ class FuturosDLREngine:
                 logger.error("Error en snapshot_loop:\n%s", traceback.format_exc())
 
     def _maybe_rediscover(self):
-        """Re-discovery cada 5 min para captar vencimientos nuevos / vencidos.
+        """Re-discovery periódico para captar vencimientos nuevos / vencidos.
         En esta versión simple solo loggea diferencias — re-suscripción WS
         requiere extender WebSocketManager."""
         if time.time() - self._ultimo_discovery < INTERVALO_REDISCOVERY_S:

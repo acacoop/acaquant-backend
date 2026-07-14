@@ -1,27 +1,25 @@
-"""market_quotes.py — cotizaciones equity + forex para watchlists.
+"""market_quotes.py — cotizaciones de equity/futuros/índices para el watchlist HOME.
 
-Patrón eficiente: UN poller centralizado llena `Market.Quotes` con el último
-snapshot por símbolo. Los clientes (home, /renta-variable, asistente) leen
-de Mongo — cero hammering adicional sobre Finnhub aunque haya muchos tabs
-abiertos.
+Patrón eficiente: UN poller centralizado llena `home.market_quotes` con el último
+snapshot por símbolo. Los clientes (home, /renta-variable, briefing) leen esa tabla
+— cero hammering adicional sobre el proveedor aunque haya muchos tabs abiertos.
 
 Fuentes:
-- Equities (stocks, ETFs, índices vía ETF proxy): Finnhub /quote.
-- Forex: frankfurter.app (ECB reference rates, gratis, sin API key).
-  Finnhub free NO tiene forex.
+- Equities / ETFs de índice: Finnhub /quote.
+- Futuros (CME/CBOT/COMEX/NYMEX/ICE), cripto spot, treasuries e índices locales
+  (MERVAL): Yahoo. Finnhub free no cotiza ninguno de esos.
 
-Cron sugerido (cada 1 min en horario de mercado US, L-V):
-    * 13-21 * * 1-5 cd /root/TradingAV && venv/bin/python -m jobs.market_quotes
-    * 13-21 * * 1-5 cd /root/TradingAV && venv/bin/python -m jobs.market_quotes --extra
+El bloque de FOREX (frankfurter.app) se eliminó junto con las monedas del
+watchlist: la mesa las sacó y la lista quedó vacía.
+
+Cron (cada 1 min en horario de mercado, ver deploy/crontab.txt):
+    * 12-23 * * 1-5 cd /root/TradingAV && venv/bin/python -m jobs.market_quotes
 """
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
-from datetime import UTC, datetime, timedelta
-
-import requests
+from datetime import UTC, datetime
 
 from core.finnhub import FinnhubError, quote
 from core.pg_mirror import merge_jsonb_native
@@ -76,11 +74,6 @@ HOME_FUTUROS: list[tuple[str, str, str]] = [
     ("ETH-USD", "ETHUSDT",   "BINANCE"),
 ]
 
-# FX — la mesa pidió sacar las monedas de la watchlist (no aportaba).
-# Si querés volver a habilitar EURUSD/USDBRL/USDMXN, sumalos acá; el
-# fetcher (frankfurter.app, ECB, gratis sin API key) ya estaba listo.
-HOME_FX: list[tuple[str, str, str, str]] = []
-
 # US Treasury yields vía Yahoo (^IRX 13w, ^FVX 5y, ^TNX 10y, ^TYX 30y).
 # Finnhub free no cotiza yields. Yahoo los expone como "^" index tickers.
 HOME_TREASURIES: list[tuple[str, str]] = [
@@ -97,18 +90,6 @@ HOME_INDICES_YAHOO: list[tuple[str, str, str]] = [
     # (yahoo_symbol, display_label, grupo)
     ("^MERV", "MERVAL", "Índices"),
 ]
-
-FRANKFURTER_LATEST = "https://api.frankfurter.app/latest"
-FRANKFURTER_DATE   = "https://api.frankfurter.app"  # + /YYYY-MM-DD
-
-# Watchlist ampliada para /renta-variable.
-# IMPORTANTE: el upsert de _upsert_stock usa `{symbol}` como key — si un
-# ticker está acá Y en HOME_STOCKS, el último que carga pisa al primero.
-# YPF/GGAL/VIST viven en HOME_STOCKS grupo "Acciones". Big Tech idem.
-# Los bloques "ADR Argentina" y "ADR LATAM" se sacaron 2026-05-20 — la mesa
-# no los miraba en la watchlist del home.
-EXTRA_STOCKS: list[tuple[str, str]] = []
-
 
 def _upsert_stock(sym: str, grupo: str, q: dict, now: datetime) -> bool:
     if not q or q.get("c") in (None, 0):
@@ -138,65 +119,11 @@ def _upsert_stock(sym: str, grupo: str, q: dict, now: datetime) -> bool:
     return True
 
 
-def _frankfurter_rate(base: str, target: str, date: str | None = None) -> float | None:
-    """Fetch 1 {base} = X {target} desde frankfurter.app.
-    date=None → latest. date='YYYY-MM-DD' → histórico.
-    """
-    url = f"{FRANKFURTER_LATEST}" if date is None else f"{FRANKFURTER_DATE}/{date}"
-    try:
-        r = requests.get(url, params={"from": base, "to": target}, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return float((data.get("rates") or {}).get(target))
-    except Exception as e:
-        logger.warning("frankfurter %s→%s %s failed: %s", base, target, date or "latest", e)
-        return None
-
-
-def _upsert_forex(display: str, base: str, target: str, grupo: str, now: datetime) -> bool:
-    last = _frankfurter_rate(base, target)
-    if last is None:
-        return False
-    # Previous close = último día hábil previo. Frankfurter NO tiene fines de
-    # semana (ECB). Pedimos el día anterior hasta que haya datos.
-    prev = None
-    for dd in range(1, 5):
-        d = (now - timedelta(days=dd)).date().isoformat()
-        prev = _frankfurter_rate(base, target, d)
-        if prev is not None and prev != last:
-            break
-
-    pct_day = None
-    if prev:
-        try:
-            pct_day = (last - prev) / prev * 100
-        except ZeroDivisionError:
-            pass
-
-    doc = {
-        "symbol":     display,
-        "base":       base,
-        "target":     target,
-        "type":       "forex",
-        "grupo":      grupo,
-        "last":       last,
-        "prev_close": prev,
-        "pct_day":    pct_day,
-        "timestamp":  now,
-        "updated_at": now,
-    }
-    _write_quote(doc)
-    return True
-
-
-def ingesta(include_extra: bool = True) -> int:
+def ingesta() -> int:
     now = datetime.now(UTC)
-    # HOME + EXTRA se pullean juntos (~38 tickers, dentro del cap Finnhub free).
-    # El flag include_extra queda por compatibilidad pero el default es True.
-    stocks = HOME_STOCKS + (EXTRA_STOCKS if include_extra else [])
 
     ok = fail = 0
-    for sym, grupo in stocks:
+    for sym, grupo in HOME_STOCKS:
         try:
             q = quote(sym)
         except FinnhubError as e:
@@ -204,12 +131,6 @@ def ingesta(include_extra: bool = True) -> int:
             fail += 1
             continue
         if _upsert_stock(sym, grupo, q, now):
-            ok += 1
-        else:
-            fail += 1
-
-    for display, base, target, grupo in HOME_FX:
-        if _upsert_forex(display, base, target, grupo, now):
             ok += 1
         else:
             fail += 1
@@ -315,25 +236,20 @@ def ingesta(include_extra: bool = True) -> int:
         _write_quote(doc)
         ok += 1
 
-    # Limpieza SQL-native: eliminar filas cuyo grupo ya no existe (ej. los ETFs
-    # viejos de "Commodities" que migraron a "Futuros"). Idempotente. Reemplaza
-    # la vieja purga Mongo + el _delete_not_in del sync (neutralizado post-cutover).
-    # Filtra por `data->>'grupo'` (el grupo vive dentro del jsonb; la columna
-    # `grupo` queda NULL con el merge y no se lee). Incluye SIEMPRE los grupos de
-    # EXTRA_STOCKS aunque la corrida sea --no-extra (si no, la purga blanquearía
-    # esos símbolos de forma intermitente).
+    # Limpieza: eliminar filas cuyo grupo ya no existe (ej. los ETFs viejos de
+    # "Commodities" que migraron a "Futuros"). Idempotente. Filtra por
+    # `data->>'grupo'` (el grupo vive dentro del jsonb; la columna `grupo` queda
+    # NULL con el merge y no se lee).
     grupos_validos = (
         {g for _, g in HOME_STOCKS}
-        | {g for _, g in EXTRA_STOCKS}
-        | {g for _, _, _, g in HOME_FX}
         | {g for _, _, g in HOME_INDICES_YAHOO}
         | {"Futuros", "US Treasury"}
     )
     _purga_grupos_obsoletos(grupos_validos)
 
     logger.info(
-        "market_quotes — ok=%d fail=%d stocks=%d fx=%d futuros=%d treasuries=%d indices=%d",
-        ok, fail, len(stocks), len(HOME_FX), len(HOME_FUTUROS),
+        "market_quotes — ok=%d fail=%d stocks=%d futuros=%d treasuries=%d indices=%d",
+        ok, fail, len(HOME_STOCKS), len(HOME_FUTUROS),
         len(HOME_TREASURIES), len(HOME_INDICES_YAHOO),
     )
     return 0 if fail < ok else 1
@@ -358,14 +274,8 @@ def _purga_grupos_obsoletos(grupos_validos: set[str]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--no-extra", action="store_true",
-                        help="Solo HOME_STOCKS (skip ADRs + Big Tech). Default: todos.")
-    # Legacy: --extra ya no es necesario (default True), pero se acepta para compat con crons viejos.
-    parser.add_argument("--extra", action="store_true", help=argparse.SUPPRESS)
-    args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    return ingesta(include_extra=not args.no_extra)
+    return ingesta()
 
 
 if __name__ == "__main__":

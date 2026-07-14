@@ -515,7 +515,9 @@ def test_presupuesto_agotado_durante_la_llamada(monkeypatch):
 def test_vista_home_registrada():
     cfg = copiloto.VISTAS["home"]
     assert cfg["modulo"] == "home" and cfg["dominio"]
-    assert {c["label"] for c in cfg["chips"]} >= {"Narrame el briefing"}
+    # "Narrame el briefing" se eliminó a propósito (commit 22421de: la narración
+    # del briefing no funcionaba). El chip que queda es "¿Cómo viene el mercado?".
+    assert {c["label"] for c in cfg["chips"]} >= {"¿Cómo viene el mercado?"}
     assert all(c["pregunta"] for c in cfg["chips"])
 
 

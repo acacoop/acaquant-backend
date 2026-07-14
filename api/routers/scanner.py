@@ -11,13 +11,12 @@ roles no-admin).
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 
 from api.auth import require_admin, require_module
 from api.services import day_trading as svc_dt
 from api.services import scanner as svc
 from api.services import scanner_sql as svc_sql
-from api.services.operaciones_view import motor as _motor
 
 router = APIRouter(
     prefix="/api/scanner",
@@ -26,16 +25,8 @@ router = APIRouter(
 )
 
 
-def _scanner(_engine: str | None):
-    """Service del scanner (SQL o Mongo) según flag SCANNER_SQL / override ?_engine.
-    Default Mongo. SQL lee mercado.{cedears,cedears_snapshot,adr_snapshot,
-    precios_acciones,day_trading_stats}; el tape intradía + CCL live caen a Mongo
-    (no tienen fuente SQL con paridad — ver scanner_sql)."""
-    return svc_sql if _motor(_engine, "SCANNER_SQL") == "sql" else svc
-
-
 @router.get("/cedears")
-def cedears_scanner(_engine: str | None = Query(None, include_in_schema=False)):
+def cedears_scanner():
     """Lista de CEDEARs activos con master + snapshot live join.
 
     Returns:
@@ -46,23 +37,22 @@ def cedears_scanner(_engine: str | None = Query(None, include_in_schema=False)):
             intraday_pct, vs_1d_pct, vs_1d_usd_pct,
             updated_at
     """
-    return _scanner(_engine).get_cedears_scanner()
+    return svc_sql.get_cedears_scanner()
 
 
 @router.get("/cedears/trades")
-def cedears_trades(ticker: str, limite: int = 200,
-                   _engine: str | None = Query(None, include_in_schema=False)):
+def cedears_trades(ticker: str, limite: int = 200):
     """Time & Sales intradía del CEDEAR (tape). Trades inferidos por el motor
     en Trading.CedearsTimeSales (se vacía al cierre). `ticker` = ticker_corto.
 
     Returns:
         list[{timestamp, price, size, side, money}] desc por timestamp.
     """
-    return _scanner(_engine).get_cedears_trades(ticker=ticker, limite=limite)
+    return svc.get_cedears_trades(ticker=ticker, limite=limite)
 
 
 @router.get("/cedears/intraday")
-def cedears_intraday(ticker: str, _engine: str | None = Query(None, include_in_schema=False)):
+def cedears_intraday(ticker: str):
     """Serie intradía por minuto (OHLC + vol) del CEDEAR desde el Time & Sales
     de hoy. Para el chart LIVE del Scanner (mismo feed que tabla/tape, sin delay).
     `ticker` = ticker_corto.
@@ -70,21 +60,21 @@ def cedears_intraday(ticker: str, _engine: str | None = Query(None, include_in_s
     Returns:
         list[{t, o, h, l, c, vol}] asc por minuto (UTC ISO).
     """
-    return _scanner(_engine).get_cedears_intraday(ticker=ticker)
+    return svc.get_cedears_intraday(ticker=ticker)
 
 
 @router.get("/ccl")
-def ccl_live(_engine: str | None = Query(None, include_in_schema=False)):
+def ccl_live():
     """CCL live + variación 1D — para el KPI del shell de Renta Variable.
 
     Returns:
         {value: float|None, vs_1d_pct: float|None, ts: str|None}
     """
-    return _scanner(_engine).get_ccl_live()
+    return svc.get_ccl_live()
 
 
 @router.get("/returns/{ticker}")
-def returns(ticker: str, _engine: str | None = Query(None, include_in_schema=False)):
+def returns(ticker: str):
     """Serie de retornos diarios del último año (~252 puntos) desde
     Trading.PreciosAcciones. Para el histograma del Scanner.
 
@@ -96,11 +86,11 @@ def returns(ticker: str, _engine: str | None = Query(None, include_in_schema=Fal
           last_fecha: str | None,
         }
     """
-    return _scanner(_engine).get_ticker_returns(ticker=ticker)
+    return svc_sql.get_ticker_returns(ticker=ticker)
 
 
 @router.get("/quant/{ticker}")
-def quant_stats(ticker: str, _engine: str | None = Query(None, include_in_schema=False)):
+def quant_stats(ticker: str):
     """Stats rolling (beta/alpha/corr vs SPY y QQQ + vol realizada 30d/60d)
     sobre el subyacente USD del CEDEAR. Lee de Trading.PreciosAcciones.
 
@@ -113,11 +103,11 @@ def quant_stats(ticker: str, _engine: str | None = Query(None, include_in_schema
           vol:   {d30, d60},
         }
     """
-    return _scanner(_engine).get_quant_stats(ticker=ticker)
+    return svc_sql.get_quant_stats(ticker=ticker)
 
 
 @router.get("/pivot/{ticker}")
-def pivot_points(ticker: str, _engine: str | None = Query(None, include_in_schema=False)):
+def pivot_points(ticker: str):
     """4 timeframes de pivot points (diario/semanal/mensual/anual) sobre
     el subyacente USD del CEDEAR. Lee de Trading.PreciosAcciones, que
     alimenta el cron jobs.precios_acciones_daily.
@@ -125,7 +115,7 @@ def pivot_points(ticker: str, _engine: str | None = Query(None, include_in_schem
     El `ticker` que llega del frontend es ticker_corto (BYMA). Se
     resuelve el underlying antes de queryar la serie (caso YPFD → YPF).
     """
-    return _scanner(_engine).get_pivot_points(ticker=ticker)
+    return svc_sql.get_pivot_points(ticker=ticker)
 
 
 @router.get("/day-trading", dependencies=[Depends(require_admin)])

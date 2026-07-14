@@ -4,7 +4,6 @@ import queue
 import threading
 import time
 import traceback
-from collections import deque
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -22,24 +21,10 @@ logger = logging.getLogger("MotorValores")
 
 ART = ZoneInfo("America/Argentina/Buenos_Aires")
 
-VOLUME_BUCKET_SIZES = {
-    "MERV - XMEV - TZXM6 - 24hs": 1056003093,
-    "MERV - XMEV - S17A6 - 24hs": 1269958754, "MERV - XMEV - S30A6 - 24hs": 205979378,
-    "MERV - XMEV - S29Y6 - 24hs": 384357785, "MERV - XMEV - T30J6 - 24hs": 291213720,
-    "MERV - XMEV - S31L6 - 24hs": 93799093, "MERV - XMEV - S31G6 - 24hs": 39515420,
-    "MERV - XMEV - S30O6 - 24hs": 30698089, "MERV - XMEV - S30N6 - 24hs": 25196577,
-    "MERV - XMEV - T15E7 - 24hs": 157290278, "MERV - XMEV - T30A7 - 24hs": 438883807,
-    "MERV - XMEV - T31Y7 - 24hs": 98359279, "MERV - XMEV - T30J7 - 24hs": 21615689,
-    "MERV - XMEV - TY30P - 24hs": 26615939, "MERV - XMEV - X15Y6 - 24hs": 113153036,
-    "MERV - XMEV - X29Y6 - 24hs": 426532800, "MERV - XMEV - TZX26 - 24hs": 363769490,
-    "MERV - XMEV - X31L6 - 24hs": 67044105, "MERV - XMEV - TX26 - 24hs": 139822955,
-    "MERV - XMEV - TZXO6 - 24hs": 208287938, "MERV - XMEV - X30N6 - 24hs": 80774915,
-    "MERV - XMEV - TZXD6 - 24hs": 262315858, "MERV - XMEV - TZXM7 - 24hs": 176877365,
-    "MERV - XMEV - TZXY7 - 24hs": 133934, "MERV - XMEV - TZX27 - 24hs": 9495066,
-    "MERV - XMEV - TX28 - 24hs": 23072063, "MERV - XMEV - TZXD7 - 24hs": 156324283,
-    "MERV - XMEV - TZX28 - 24hs": 172279837, "MERV - XMEV - DICP - 24hs": 27262545,
-    "MERV - XMEV - PARP - 24hs": 4436050
-}
+# Cadencia de escritura del snapshot. El loop despierta cada 1s pero solo
+# persiste cada SNAPSHOT_INTERVAL_S — reescribe el estado COMPLETO de todos
+# los tickers, así que descartar iteraciones intermedias no pierde nada.
+SNAPSHOT_INTERVAL_S = 5.0
 
 # ==========================================
 # 1. EL CEREBRO: MicrostructureEngine (INTACTO)
@@ -59,8 +44,6 @@ class MicrostructureEngine:
                 "high_price":    0.0,
                 "low_price":     0.0,
                 "closing_price": 0.0,
-                "closed_vpins": deque(maxlen=50),
-                "vpin_stats": {"current_buy_vol": 0, "current_sell_vol": 0, "last_vpin": 0.0},
                 "daily_financials": {"total_money": 0.0, "buy_money": 0.0, "sell_money": 0.0, "total_nominals": 0.0},
                 "hourly_stats": {h: {"buy": 0.0, "sell": 0.0, "total": 0.0} for h in range(10, 18)}
             } for t in self.tickers
@@ -166,8 +149,6 @@ class MicrostructureEngine:
             "high_price":    0.0,
             "low_price":     0.0,
             "closing_price": 0.0,
-            "closed_vpins": deque(maxlen=50),
-            "vpin_stats": {"current_buy_vol": 0, "current_sell_vol": 0, "last_vpin": 0.0},
             "daily_financials": {"total_money": 0.0, "buy_money": 0.0, "sell_money": 0.0, "total_nominals": 0.0},
             "hourly_stats": {h: {"buy": 0.0, "sell": 0.0, "total": 0.0} for h in range(10, 18)},
         }
@@ -194,7 +175,8 @@ class MicrostructureEngine:
                 pass
 
     def _flush_loop(self):
-        """Thread dedicado: persiste trades en MongoDB sin bloquear el worker."""
+        """Thread dedicado: persiste los trades en Postgres (mercado.timesales),
+        en lotes de 1s, sin bloquear el worker."""
         while True:
             time.sleep(1.0)
             if not self.trade_buffer:
@@ -264,23 +246,6 @@ class MicrostructureEngine:
 
                 cash = (px / 100.0) * sz
 
-                bucket_limit = VOLUME_BUCKET_SIZES.get(ticker, 1000000)
-                rem_size = sz
-                while rem_size > 0:
-                    fill = st["vpin_stats"]["current_buy_vol"] + st["vpin_stats"]["current_sell_vol"]
-                    chunk = min(rem_size, bucket_limit - fill)
-                    if side == "BUY":
-                        st["vpin_stats"]["current_buy_vol"] += chunk
-                    elif side == "SELL":
-                        st["vpin_stats"]["current_sell_vol"] += chunk
-                    rem_size -= chunk
-                    if (st["vpin_stats"]["current_buy_vol"] + st["vpin_stats"]["current_sell_vol"]) >= bucket_limit:
-                        v_diff = abs(st["vpin_stats"]["current_buy_vol"] - st["vpin_stats"]["current_sell_vol"])
-                        vpin_val = v_diff / bucket_limit
-                        st["closed_vpins"].append(vpin_val)
-                        st["vpin_stats"]["last_vpin"] = sum(st["closed_vpins"]) / len(st["closed_vpins"])
-                        st["vpin_stats"]["current_buy_vol"], st["vpin_stats"]["current_sell_vol"] = 0, 0
-
                 st["daily_financials"]["total_nominals"] += sz
                 if side == "BUY":
                     st["daily_financials"]["buy_money"] += cash
@@ -305,9 +270,10 @@ class MicrostructureEngine:
 
         Deprecado y removido: micro_price, spread, imbalance, total_money,
         buy_money, sell_money, vpin_prom, vpin_vivo, progreso, buy_b, sell_b.
-        Eran útiles en el modo terminal original pero la app no los usa.
-        Si en el futuro los necesita alguien, el state interno del engine
-        los sigue calculando — solo no los persistimos.
+        Eran útiles en el modo terminal original pero la app no los usa. El
+        VPIN además dejó de calcularse (no lo leía nadie: ni el snapshot, ni
+        la API, ni el front). total_money/total_nominals sí siguen vivos en el
+        state porque alimentan el vwap.
 
         Los campos analíticos (TEA, TEM, duration, convexity, paridad) los
         escribe engines/curvas.py directamente en este mismo doc cuando
@@ -329,11 +295,19 @@ class MicrostructureEngine:
     def _snapshot_loop(self):
         """
         Escribe el estado completo de todos los tickers a mercado.market_snapshot
-        (SQL) cada 1s, con throttle de 5s.
+        (SQL) cada SNAPSHOT_INTERVAL_S.
+
+        El throttle se aplica ANTES de armar el payload: el loop despierta cada 1s
+        pero solo construye las rows en la iteración que efectivamente persiste.
         """
+        ultimo_flush = 0.0
         while True:
             time.sleep(1)
             try:
+                ahora = time.monotonic()
+                if ahora - ultimo_flush < SNAPSHOT_INTERVAL_S:
+                    continue
+
                 ts = datetime.now(UTC)
                 # SQL-only (mercado.market_snapshot): ya NO se escribe Trading.MarketSnapshot.
                 pg_rows = []
@@ -343,38 +317,41 @@ class MicrostructureEngine:
                     st = self.market_state[ticker]
                     metricas = self._calcular_metricas(ticker)
 
-                    # Defensivo: si no tenemos last_price real en memoria
-                    # (p.ej. _arranque_en_frio falló silencioso para este
-                    # ticker, o nunca recibimos tick del WS), no pisamos
-                    # el doc — preservamos lo que puso snapshot_rest o la
-                    # sesión previa.
-                    if metricas.get("last_price") is None:
-                        continue
-
                     # Upsert columnar parcial: solo los campos que este motor
                     # gobierna (book + métricas de precio del día). Los analíticos
                     # (tea/tem/duration/mod_duration/convexity/paridad) los escribe
                     # engines/curvas.py sobre sus propias columnas — el upsert SQL
-                    # actualiza SOLO las columnas presentes, sin pisar las del otro.
-                    pg_rows.append({
-                        "ticker":         ticker,
-                        "book":           {"bids":   list(st["book"]["bids"]),
-                                           "offers": list(st["book"]["offers"])},
-                        "last_price":     metricas.get("last_price"),
-                        "open_price":     metricas.get("open_price"),
-                        "high_price":     metricas.get("high_price"),
-                        "low_price":      metricas.get("low_price"),
-                        "closing_price":  metricas.get("closing_price"),
-                        "vwap":           metricas.get("vwap"),
-                        "total_nominals": metricas.get("total_nominals"),
-                        "updated_at":     ts,
-                    })
+                    # actualiza SOLO las columnas presentes en cada row, sin pisar
+                    # las del otro motor.
+                    row = {
+                        "ticker":     ticker,
+                        "book":       {"bids":   list(st["book"]["bids"]),
+                                       "offers": list(st["book"]["offers"])},
+                        "updated_at": ts,
+                    }
+
+                    # Defensivo: si no tenemos last_price real en memoria (p.ej.
+                    # _arranque_en_frio falló silencioso para este ticker, o todavía
+                    # no llegó ningún trade), OMITIMOS las columnas de precio en vez
+                    # de escribir ceros — el upsert parcial preserva así el cierre
+                    # previo. El book sí se escribe siempre: es live y hay tickers
+                    # (adhoc, ilíquidos) que tienen puntas sin haber operado nunca.
+                    if (metricas.get("last_price") or 0) > 0:
+                        row.update({
+                            "last_price":     metricas.get("last_price"),
+                            "open_price":     metricas.get("open_price"),
+                            "high_price":     metricas.get("high_price"),
+                            "low_price":      metricas.get("low_price"),
+                            "closing_price":  metricas.get("closing_price"),
+                            "vwap":           metricas.get("vwap"),
+                            "total_nominals": metricas.get("total_nominals"),
+                        })
+
+                    pg_rows.append(row)
 
                 if pg_rows:
-                    # SQL-native. min_interval=5: el loop reescribe el estado COMPLETO
-                    # cada 1s → descartar flushes intermedios no pierde nada.
-                    pg_mirror.write_snapshot("market_snapshot", ["ticker"],
-                                             pg_rows, min_interval=5.0)
+                    ultimo_flush = ahora
+                    pg_mirror.write_snapshot("market_snapshot", ["ticker"], pg_rows)
 
             except Exception as e:
                 logger.error(f"Error escribiendo snapshots: {e}")

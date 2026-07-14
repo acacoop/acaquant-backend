@@ -1,15 +1,15 @@
 """
 Motor de Opciones GGAL - Servicio Headless
 Idéntico a main_options.py pero sin UI (Textual/Rich).
-Arquitectura event-driven: cada tick del WebSocket escribe el snapshot
-en MongoDB de forma inmediata (throttle 300ms/símbolo).
+Arquitectura event-driven: el WS actualiza la RAM y dos hilos persisten a
+Postgres — el grid con Greeks (mercado.options_snapshot, upsert cada 5s) y los
+trades (mercado.options_data, en lotes de 1s).
 """
 import logging
 import signal
 import threading
 import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import pyRofex
@@ -44,43 +44,52 @@ signal.signal(signal.SIGINT, _handle_signal)
 # Escribe los ticks de la chain a mercado.options_data (Postgres). Antes escribía
 # Mongo Opciones.Data; tras el cutover de opciones la fuente es SQL.
 class OptionsDataWriter:
-    def guardar_operacion_unica(self, symbol, data, server_time=None, griegas=None):
-        """Persiste un tick individual SQL-NATIVE en mercado.options_data (append).
+    def guardar_operaciones(self, trades):
+        """Persiste un LOTE de ticks SQL-NATIVE en mercado.options_data (append).
 
-        SQL-native desde el cutover de opciones: ya NO escribe Mongo Opciones.Data
-        (la fuente es SQL). Solo vencimiento vigente (el symbol está en el mapa); la
-        purga de series viejas la hacen _purgar_snapshots_fuera_de_mapa +
-        jobs/archive_options_data. `ts` naive (datetime.now() ART) → timestamp SIN tz.
+        `trades` = [{symbol, data, server_time, griegas}]. Un solo append_native por
+        lote (un checkout de conexión + un executemany) en vez de un INSERT por trade.
+        Solo vencimiento vigente (el symbol está en el mapa); la purga de series viejas
+        la hacen _purgar_snapshots_fuera_de_mapa + jobs/archive_options_data. `ts` naive
+        (datetime.now() ART) → timestamp SIN tz.
         """
+        if not trades:
+            return
         try:
-            registro = {
-                "timestamp": server_time if server_time else datetime.now(),
-                "symbol": symbol,
-                "bid": data.get('bid', 0),
-                "bid_size": data.get('bid_size', 0),
-                "offer": data.get('offer', 0),
-                "offer_size": data.get('offer_size', 0),
-                "last": data.get('last', 0),
-                "last_size": data.get('last_size', 0),
-                "last_timestamp": data.get('last_timestamp'),
-                "strike": data.get('strike'),
-                "tipo": data.get('tipo'),
-                "spot": data.get('spot'),
-                "open": data.get('open', 0),
-                "high": data.get('high', 0),
-                "low": data.get('low', 0),
-                "ev": data.get('ev', 0),
-            }
-            if griegas and isinstance(griegas, dict):
-                registro.update(griegas)
             from core import pg_mirror
-            pg_mirror.append_native("options_data", [{
-                "symbol": symbol,
-                "ts": registro["timestamp"],
-                "data": pg_mirror.doc_iso(registro),
-            }])
+            rows = []
+            for t in trades:
+                symbol = t["symbol"]
+                data   = t["data"]
+                registro = {
+                    "timestamp": t.get("server_time") or datetime.now(),
+                    "symbol": symbol,
+                    "bid": data.get('bid', 0),
+                    "bid_size": data.get('bid_size', 0),
+                    "offer": data.get('offer', 0),
+                    "offer_size": data.get('offer_size', 0),
+                    "last": data.get('last', 0),
+                    "last_size": data.get('last_size', 0),
+                    "last_timestamp": data.get('last_timestamp'),
+                    "strike": data.get('strike'),
+                    "tipo": data.get('tipo'),
+                    "spot": data.get('spot'),
+                    "open": data.get('open', 0),
+                    "high": data.get('high', 0),
+                    "low": data.get('low', 0),
+                    "ev": data.get('ev', 0),
+                }
+                griegas = t.get("griegas")
+                if griegas and isinstance(griegas, dict):
+                    registro.update(griegas)
+                rows.append({
+                    "symbol": symbol,
+                    "ts": registro["timestamp"],
+                    "data": pg_mirror.doc_iso(registro),
+                })
+            pg_mirror.append_native("options_data", rows)
         except Exception as e:
-            logger.error(f"Error al guardar operacion: {e}")
+            logger.error(f"Error al guardar operaciones: {e}")
 
 
 # ==========================================
@@ -120,14 +129,19 @@ class OptionsEngine:
         self.last_trade_cache = {}
         self._cache_lock = threading.Lock()
 
+        # Buffer de trades + flush cada 1s (mismo patrón que engines/valores.py):
+        # el WS solo encola, y un hilo dedicado calcula Greeks y hace UN insert por
+        # lote. Antes era un INSERT (checkout de conexión + commit) por CADA trade.
+        self.trade_buffer = []
+        self._buffer_lock = threading.Lock()
+
         self._inicializar_estado_memoria()
         self._purgar_snapshots_fuera_de_mapa()
 
-        # Pool acotado para guardar trades históricos (evita explosión de threads)
-        self._trade_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="opt_trade")
-
-        # Hilo único de escritura de snapshots a MongoDB (bulk_write cada 1s)
+        # Hilo único de escritura del grid de opciones a Postgres (upsert cada 5s)
         lanzar_hilo_vital(self._batch_snapshot_loop, "batch_snapshot_loop")
+        # Hilo único de escritura de los trades a Postgres (lotes de 1s)
+        lanzar_hilo_vital(self._flush_trades_loop, "flush_trades_loop")
 
     @staticmethod
     def _read_config() -> dict:
@@ -288,7 +302,8 @@ class OptionsEngine:
 
     def update_price(self, ticker, data):
         """Maneja la entrada del WebSocket y actualiza la RAM.
-        Los snapshots a MongoDB los maneja _batch_snapshot_loop en segundo plano.
+        La persistencia a Postgres la hacen en segundo plano _batch_snapshot_loop
+        (grid) y _flush_trades_loop (trades).
         """
         if ticker not in self.market_state:
             return
@@ -315,18 +330,22 @@ class OptionsEngine:
             state['last_timestamp'] = ts
 
             if ticker in self.mapa_opciones:
-                spawn = False
+                nuevo = False
                 with self._cache_lock:
                     if self.last_trade_cache.get(ticker) != ts:
                         self.last_trade_cache[ticker] = ts
-                        spawn = True
-                if spawn:
-                    self._trade_pool.submit(self._persistir_trade, ticker, state.copy(), ts)
+                        nuevo = True
+                if nuevo:
+                    # `server_time` se sella ACÁ (no en el flush) para que la columna
+                    # `ts` de options_data siga siendo el instante en que vimos el
+                    # trade, igual que antes — el batch solo difiere la escritura.
+                    with self._buffer_lock:
+                        self.trade_buffer.append((ticker, state.copy(), datetime.now()))
 
     def _batch_snapshot_loop(self):
         """
         Hilo único de escritura del grid de opciones, SQL-NATIVE.
-        Cada 1s calcula los Greeks de todas las opciones activas y hace un único
+        Cada 5s calcula los Greeks de todas las opciones activas y hace un único
         write_native (UPSERT por symbol) a mercado.options_snapshot — un solo
         round-trip a Postgres sin importar cuántos activos haya. Ya NO escribe
         Mongo Opciones.OptionsSnapshot (la fuente es SQL).
@@ -445,13 +464,47 @@ class OptionsEngine:
             except Exception as e:
                 logger.error(f"Error en batch_snapshot_loop: {e}")
 
-    def _persistir_trade(self, ticker, state_copy, ts):
-        """Calcula Griegas y persiste el trade histórico en mercado.options_data (SQL)."""
-        S = self.market_state[self.spot_symbol]['last']
-        if S <= 0:
-            return
+    def _flush_trades_loop(self):
+        """Thread dedicado: persiste los trades en Postgres (mercado.options_data)
+        en lotes de 1s, sin bloquear el hilo del WebSocket."""
+        while True:
+            time.sleep(1.0)
+            self._flush_trades()
 
-        info = self.mapa_opciones[ticker]
+    def _flush_trades(self):
+        """Drena el buffer, calcula Greeks y escribe el lote.
+
+        Lo llama el loop cada 1s y TAMBIÉN el apagado del motor (para no perder el
+        último buffer). No levanta nunca: corre en un hilo vital, y una excepción
+        acá mataría el proceso entero.
+        """
+        if not self.trade_buffer:
+            return
+        with self._buffer_lock:
+            batch = self.trade_buffer[:]
+            self.trade_buffer = []
+        try:
+            trades = []
+            for ticker, state_copy, server_time in batch:
+                preparado = self._preparar_trade(ticker, state_copy, server_time)
+                if preparado:
+                    trades.append(preparado)
+            self.writer.guardar_operaciones(trades)
+        except Exception as e:
+            logger.error(f"Error en flush de trades: {e}")
+
+    def _preparar_trade(self, ticker, state_copy, server_time):
+        """Calcula Griegas del trade y arma el registro para mercado.options_data.
+        Devuelve None si el trade no se persiste (sin spot, o símbolo fuera del mapa)."""
+        S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
+        if S <= 0:
+            return None
+
+        # El mapa puede haber rotado (refrescar_mapa) entre el encolado y el flush.
+        info = self.mapa_opciones.get(ticker)
+        if not info:
+            return None
+
         K = info['strike']
         T = max((datetime.strptime(info['vence'], "%Y%m%d") - datetime.now()).days, 1) / 365.0
 
@@ -475,9 +528,8 @@ class OptionsEngine:
         state_copy['strike'] = K
         state_copy['tipo']   = info['tipo']
         state_copy['spot']   = S
-        self.writer.guardar_operacion_unica(
-            ticker, state_copy, server_time=datetime.now(), griegas=griegas
-        )
+        return {"symbol": ticker, "data": state_copy,
+                "server_time": server_time, "griegas": griegas}
 
 
 # ==========================================
@@ -542,6 +594,7 @@ def run():
         time.sleep(1)
 
     ws_manager.cerrar_ws()
+    engine._flush_trades()  # último lote: el hilo de flush puede estar en su sleep
     logger.info("Motor apagado.")
 
 

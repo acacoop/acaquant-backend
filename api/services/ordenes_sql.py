@@ -30,9 +30,7 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
-from psycopg.rows import dict_row
-
-from core.postgres import get_pool
+from api.services._sql import _q
 
 logger = logging.getLogger("api.services.ordenes_sql")
 
@@ -80,12 +78,6 @@ def _doc_desde_row(row: dict) -> dict:
     if doc.get("updated_at") is None and row.get("updated_at") is not None:
         doc["updated_at"] = _dt(row.get("updated_at"))
     return doc
-
-
-def _q(sql: str, params: tuple) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params)
-        return cur.fetchall()
 
 
 # ── LECTURAS (espejo exacto de api/services/ordenes.py / risk.py) ─────────────

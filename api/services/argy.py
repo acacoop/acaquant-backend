@@ -59,17 +59,28 @@ def _last_le(series: list[tuple[date, float]], target: date) -> float | None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _serie_dolar(field: str) -> list[tuple[date, float]]:
-    """Serie histórica del campo `field` (mep|ccl|canje) desde valuaciones.dolar
-    (SQL-native). Devuelve último valor por día (ART), ordenado ascendente."""
+_CAMPOS_DOLAR = ("mep", "ccl", "canje")
+
+
+def _series_dolar() -> dict[str, list[tuple[date, float]]]:
+    """Series históricas de mep/ccl/canje desde valuaciones.dolar (SQL-native):
+    último valor por día (ART), ordenado ascendente, por campo.
+
+    Las tres salen de UNA sola pasada de la tabla — este endpoint corre cada 5s
+    (TTL del cache) y las tres series se piden siempre juntas."""
     from core import dolar_sql
-    by_day: dict[date, float] = {}
-    for fecha_s, v in dolar_sql.por_dia(field).items():
+    by_day: dict[str, dict[date, float]] = {c: {} for c in _CAMPOS_DOLAR}
+    for fecha_s, vals in dolar_sql.por_dia_multi(_CAMPOS_DOLAR).items():
         try:
-            by_day[datetime.strptime(fecha_s, "%Y-%m-%d").date()] = float(v)
+            f = datetime.strptime(fecha_s, "%Y-%m-%d").date()
         except (ValueError, TypeError):
             continue
-    return sorted(by_day.items())
+        for campo, v in vals.items():
+            try:
+                by_day[campo][f] = float(v)
+            except (ValueError, TypeError):
+                continue
+    return {c: sorted(by_day[c].items()) for c in _CAMPOS_DOLAR}
 
 
 def _serie_caucion(moneda: str) -> list[tuple[date, float]]:
@@ -190,11 +201,7 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
 
     # ── MEP, CCL, canje ──
     dolar = _live_dolar()
-    series = {
-        "mep":   _serie_dolar("mep"),
-        "ccl":   _serie_dolar("ccl"),
-        "canje": _serie_dolar("canje"),
-    }
+    series = _series_dolar()
     metas = [
         ("DOLAR MEP", "mep",   "$"),
         ("DOLAR CCL", "ccl",   "$"),

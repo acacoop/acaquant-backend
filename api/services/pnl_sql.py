@@ -14,32 +14,20 @@ from __future__ import annotations
 
 from datetime import date
 
-from psycopg.rows import dict_row
-
 # Decomiso Mongo: el motor _pnl_por_cuenta_core acepta db_cf/db_v/db_t pero SOLO los
 # dereferencia en su rama de fallback (cuando los kwargs bulk vienen None). En el path
 # SQL `_deps_sql` provee TODOS los kwargs → esas ramas nunca corren → se pasa None.
 from api.cache import cached
 from api.services._mep import get_mep_for_date
+from api.services._sql import _f, _q
 from api.services.pnl import (
     _CATS_RELEVANTES,
     _PLACEHOLDERS_INSTRUMENTO,
     _pnl_por_cuenta_core,
     _ticker_corto_fallback,
 )
-from core.postgres import get_pool
 
 _PLACEHOLDERS = {"", "NO APLICA"}
-
-
-def _q(sql: str, params=None) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params or ())
-        return cur.fetchall()
-
-
-def _f(x):
-    return float(x) if x is not None else None
 
 
 def _iso(d):
@@ -109,6 +97,58 @@ def _pricing_cierre() -> dict:
     }
 
 
+# Cuentas por query al cargar los boletos en bulk. El cost-basis necesita TODOS los
+# boletos de una cuenta (sin cota de fecha, por diseño) → se batchea POR CUENTA: cada
+# query es acotada y NINGUNA crece con el total del sistema (antes era una sola query
+# con toda la historia de todas las cuentas → riesgo de cruzar el statement_timeout de
+# 15s y dejar `valuaciones.pnl_totales_cache` congelada).
+_CUENTAS_POR_LOTE = 100
+
+_SEL_BOLETOS = (
+    "SELECT id_cuenta, fecha, categoria, op, ticker, cantidad, precio, importe, "
+    "moneda, comprobante, mep FROM negocio_movimientos "
+    "WHERE categoria = ANY(%(cats)s) AND ticker IS NOT NULL"
+)
+
+
+def _boletos_by_cuenta(only_cuenta: str | None) -> dict[str, list]:
+    """Boletos relevantes agrupados por id_cuenta. Idéntico resultado que una única
+    query global: la partición por id_cuenta es exacta y dentro de cada lote se
+    mantiene el mismo `ORDER BY fecha, comprobante` → cada cuenta recibe su lista en
+    el mismo orden."""
+    cats = list(_CATS_RELEVANTES)
+    if only_cuenta is not None:
+        lotes = [(f"{_SEL_BOLETOS} AND id_cuenta = %(idc)s ORDER BY fecha, comprobante",
+                  {"cats": cats, "idc": only_cuenta})]
+    else:
+        ids = [
+            r["id_cuenta"] for r in _q(
+                "SELECT DISTINCT id_cuenta FROM negocio_movimientos "
+                "WHERE categoria = ANY(%(cats)s) AND ticker IS NOT NULL",
+                {"cats": cats},
+            ) if r["id_cuenta"] is not None
+        ]
+        lotes = [
+            (f"{_SEL_BOLETOS} AND id_cuenta = ANY(%(ids)s) ORDER BY fecha, comprobante",
+             {"cats": cats, "ids": ids[i:i + _CUENTAS_POR_LOTE]})
+            for i in range(0, len(ids), _CUENTAS_POR_LOTE)
+        ]
+
+    out: dict[str, list] = {}
+    for sql, params in lotes:
+        for b in _q(sql, params):
+            cid = str(b.get("id_cuenta") or "").strip()
+            if not cid:
+                continue
+            out.setdefault(cid, []).append({
+                "fecha": _iso(b["fecha"]), "categoria": b["categoria"], "op": b["op"],
+                "ticker": b["ticker"], "cantidad": _f(b["cantidad"]), "precio": _f(b["precio"]),
+                "importe": _f(b["importe"]), "moneda": b["moneda"],
+                "comprobante": b["comprobante"], "mep": _f(b["mep"]),
+            })
+    return out
+
+
 def _deps_sql(only_cuenta: str | None) -> dict:
     """Arma las deps del motor desde SQL (= _load_pnl_bulk_deps pero en Postgres)."""
     mapas = _mapas_assets()
@@ -118,25 +158,8 @@ def _deps_sql(only_cuenta: str | None) -> dict:
     portfolio_snap_by_ticker = _pricing_live()
     snapshots_cierre_by_ticker = _pricing_cierre()
 
-    # Boletos por cuenta (scopeado si only_cuenta).
-    where = "categoria = ANY(%(cats)s) AND ticker IS NOT NULL"
-    p: dict = {"cats": list(_CATS_RELEVANTES)}
-    if only_cuenta is not None:
-        where += " AND id_cuenta = %(idc)s"
-        p["idc"] = only_cuenta
-    boletos_by_id_cuenta: dict[str, list] = {}
-    for b in _q(f"SELECT id_cuenta, fecha, categoria, op, ticker, cantidad, precio, importe, "
-                f"moneda, comprobante, mep FROM negocio_movimientos WHERE {where} "
-                f"ORDER BY fecha, comprobante", p):
-        cid = str(b.get("id_cuenta") or "").strip()
-        if not cid:
-            continue
-        boletos_by_id_cuenta.setdefault(cid, []).append({
-            "fecha": _iso(b["fecha"]), "categoria": b["categoria"], "op": b["op"],
-            "ticker": b["ticker"], "cantidad": _f(b["cantidad"]), "precio": _f(b["precio"]),
-            "importe": _f(b["importe"]), "moneda": b["moneda"], "comprobante": b["comprobante"],
-            "mep": _f(b["mep"]),
-        })
+    # Boletos por cuenta (scopeado si only_cuenta; batcheado por cuenta si es global).
+    boletos_by_id_cuenta = _boletos_by_cuenta(only_cuenta)
 
     # AuM último snapshot global (posición).
     fecha_actual_aum_global = None

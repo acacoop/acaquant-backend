@@ -37,9 +37,8 @@ from __future__ import annotations
 import logging
 from datetime import UTC, date, datetime, timedelta
 
-from psycopg.rows import dict_row
-
 from api.cache import cached
+from api.services._sql import _f, _q
 
 # Helpers PUROS + passthroughs del path Mongo (drop-in del selector).
 # `_bonos_cer_fijados` NO se importa: acá es SQL-native (ver abajo).
@@ -52,20 +51,8 @@ from api.services.renta_fija import (  # noqa: F401  (reexport intencional)
     get_retorno_total_data,
     resolver_ticker_exacto,
 )
-from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
-
-
-def _f(v) -> float | None:
-    """numeric (Decimal) → float; None pasa. Mongo devuelve float → paridad."""
-    return float(v) if v is not None else None
-
-
-def _q(sql: str, params: tuple = ()) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params)
-        return cur.fetchall()
 
 
 def _ilike_param(instrumento: str) -> str:

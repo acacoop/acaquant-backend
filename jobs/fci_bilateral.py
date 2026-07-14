@@ -1,8 +1,8 @@
-"""jobs/fci_bilateral.py — lleva el FCI bilateral de CashFlow.NegocioMovimientos a
-CashFlow.Operaciones, con el campo `etapa`.
+"""jobs/fci_bilateral.py — lleva el FCI bilateral de `operaciones.negocio_movimientos`
+a `operaciones.operaciones`, con el campo `etapa`.
 
 Contexto: el API de informes (que alimenta Operaciones) NO trae los FCI bilateral;
-solo vienen por el feed de consolidados (NegocioMovimientos). El mismo FCI aparece
+solo vienen por el feed de consolidados (negocio_movimientos). El mismo FCI aparece
 en dos etapas:
   - SOLICITUD (comprobante `DOC…`, categoria `solicitud_*_fci`) = el movimiento del
     día (el pedido) → `etapa: "solicitud"`.
@@ -17,8 +17,9 @@ Las vistas suman por defecto excluyendo `etapa: "solicitud"` (ver _ops_match en
 api/routers/operaciones.py) → el volumen no se dobla.
 
 Idempotente: el primer run hace el backfill (taggea los CL históricos cargados a
-mano + trae los DOC); upsert NO destructivo (`$setOnInsert` preserva la carga
-manual, solo agrega `etapa`). Encadenado a negocio_movimientos en crontab.
+mano + trae los DOC); el upsert es NO destructivo — en INSERT setea todos los campos,
+pero ante conflicto de boleto SOLO pisa `etapa` + `ingestado_en`, preservando la carga
+manual (ver _SQL_FCI_UPSERT). Encadenado a negocio_movimientos en crontab.
 
 Uso:
     python -m jobs.fci_bilateral
@@ -40,7 +41,7 @@ from core.postgres import get_job_pool
 
 # Upsert NO destructivo a SQL operaciones.operaciones: en INSERT setea todos los
 # campos del FCI bilateral; en CONFLICT (boleto ya existe) SOLO pisa etapa +
-# ingestado_en → preserva la carga manual histórica ($setOnInsert de Mongo).
+# ingestado_en → preserva la carga manual histórica.
 _SQL_FCI_UPSERT = """
 INSERT INTO operaciones
  (boleto, concertacion, id_cuenta, denominacion, tipo_operacion, instrumento,
@@ -82,7 +83,7 @@ def _fci_params(etapa: str, base: dict, now: datetime) -> dict:
 _MERCADO = "FCI Bilateral"
 # El FCI bilateral se liquida en T+1/T+2 → solo hace falta mirar lo reciente.
 # Acota la lectura de NegocioMovimientos a esta ventana (usa índice fecha_categoria)
-# en vez de escanear toda la colección cada hora. `--full` ignora la ventana.
+# en vez de escanear toda la tabla cada hora. `--full` ignora la ventana.
 _LOOKBACK_DIAS = 10
 _CATS_LIQ = ("suscripcion_fci", "rescate_fci")                       # comprobante CL
 _CATS_SOL = ("solicitud_suscripcion_fci", "solicitud_rescate_fci")  # comprobante DOC
@@ -155,8 +156,8 @@ def run(full: bool = False) -> dict:
     with JobRunLogger("fci_bilateral") as jr:
         now = datetime.now(UTC)
 
-        # 1) Catálogo (idempotente) — TiposOperacion SQL-native (operaciones.tipos_operacion,
-        #    decomiso Mongo): upsert por tipo_operacion, doc completo en `data` jsonb.
+        # 1) Catálogo (idempotente) — operaciones.tipos_operacion: upsert por
+        #    tipo_operacion, doc completo en `data` jsonb.
         write_native("tipos_operacion", ["tipo_operacion"],
                      [{"tipo_operacion": c["tipo_operacion"], "data": c} for c in _CATALOGO])
 
@@ -180,8 +181,7 @@ def run(full: bool = False) -> dict:
         # 4) Leer FCI bilateral desde SQL operaciones.negocio_movimientos:
         #    liquidaciones SOLO CL (las BOL ya son boletos), solicitudes todas
         #    (son DOC). Acotado a los últimos _LOOKBACK_DIAS; --full = toda la
-        #    historia. Es el $or de Mongo partido en dos queries (LIQ con prefijo
-        #    CL + SOL sin prefijo).
+        #    historia. Son dos queries (LIQ con prefijo CL + SOL sin prefijo).
         fecha_gte = None if full else (
             ((now - timedelta(hours=3)).date()   # ART
              - timedelta(days=_LOOKBACK_DIAS)).isoformat())

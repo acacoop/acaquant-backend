@@ -16,20 +16,10 @@ from datetime import UTC, date, datetime
 from psycopg.rows import dict_row
 
 from api.cache import cached
+from api.services._sql import _f, _q
 from api.services.renta_fija import _CURVAS_VALIDAS, listar_curva
 from core import curvas_sql
 from core.postgres import get_pool
-
-
-def _q(sql: str, params: tuple = ()) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params)
-        return cur.fetchall()
-
-
-def _f(v):
-    """numeric (Decimal) → float, preservando None (shape idéntico al path Mongo)."""
-    return float(v) if v is not None else None
 
 
 @cached(ttl=300)

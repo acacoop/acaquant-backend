@@ -8,8 +8,8 @@ sobre exactamente la misma data SQL. Tres operaciones:
   - actualizar_precio_posicion → corrige el precio de una unidad/día → UPDATE en SQL,
     recalcula la valuación (cartera HD = paridad → cantidad × precio / 100).
 
-El `tc` (MEP por día, para dolarizar) sale de `get_mep_for_date` — es la ÚNICA lectura
-que todavía toca Mongo (Valuaciones.Dolar); la serie MEP se migra por separado.
+El `tc` (MEP por día, para dolarizar) sale de la serie SQL `valuaciones.dolar`
+(`core.dolar_sql`), con la misma semántica de arrastre que `get_mep_for_date`.
 """
 from __future__ import annotations
 
@@ -42,11 +42,20 @@ def _cartera_subq(cartera: str) -> str:
 
 
 def _tc(fecha: str) -> float | None:
-    """MEP del día (ARS/USD) para dolarizar. Única lectura que aún toca Mongo
-    (Valuaciones.Dolar vía get_mep_for_date); la serie MEP se migra aparte."""
+    """MEP del día (ARS/USD) para dolarizar — SQL `valuaciones.dolar` (arrastra el
+    último día con dato si la fecha no tiene tick)."""
     from api.services._mep import get_mep_for_date
     tc = get_mep_for_date(fecha)
     return round(tc, 2) if tc else None
+
+
+def _tc_map(fechas: list[str]) -> dict[str, float | None]:
+    """Igual que `_tc` pero para MUCHAS fechas en UNA query (misma semántica de
+    arrastre). La serie diaria de AuM pide el TC de cada día hábil: 1 SELECT por
+    fecha eran cientos de round-trips secuenciales por cada cache-miss."""
+    from core import dolar_sql
+    return {f: (round(tc, 2) if tc else None)
+            for f, tc in dolar_sql.mep_por_fecha(fechas).items()}
 
 
 @cached(ttl=300)
@@ -71,10 +80,12 @@ def tenencia_dias(cartera: str = "HD") -> dict[str, Any]:
             factor = _net_factor(float(cant or 0.0), marcas.get((c, str(unidad))), f_iso)
             byc = por_fecha.setdefault(f_iso, {})
             byc[c] = byc.get(c, 0.0) + float(val or 0.0) * factor
+    fechas = sorted(por_fecha)
+    tcs = _tc_map(fechas)
     dias = []
-    for f in sorted(por_fecha):
+    for f in fechas:
         byc = por_fecha[f]
-        fila = {"fecha": f, "tc": _tc(f), "total": round(sum(byc.values()), 2)}
+        fila = {"fecha": f, "tc": tcs.get(f), "total": round(sum(byc.values()), 2)}
         fila.update({c: round(byc.get(c, 0.0), 2) for c in CUENTAS})
         dias.append(fila)
     return {"cuentas": CUENTAS, "cartera": (cartera or "HD").upper(), "dias": dias,

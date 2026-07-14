@@ -10,6 +10,7 @@ from __future__ import annotations
 from psycopg.rows import dict_row
 
 from api.cache import cached
+from api.services._sql import _f
 from core.postgres import get_pool
 
 # Orden de presentación por estado (prefijo del label de Refinitiv → índice de fila).
@@ -88,10 +89,6 @@ def _rows(ric: str, freq: str) -> list[dict]:
             (ric, freq),
         )
         return cur.fetchall()
-
-
-def _f(v) -> float | None:
-    return float(v) if v is not None else None
 
 
 def _orden_item(statement: str, item: str) -> tuple[int, str]:

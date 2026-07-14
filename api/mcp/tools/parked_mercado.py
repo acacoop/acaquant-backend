@@ -19,7 +19,7 @@ from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
 from api.services import opciones_sql as svc_opt_sql
 from api.services import order_book as svc_ob
-from api.services import rem as svc_rem
+from api.services import rem_sql as svc_rem
 from api.services import renta_fija as svc_rf
 from api.services import repo as svc_repo
 from api.services import sensibilidad as svc_sens

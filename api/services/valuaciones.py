@@ -22,8 +22,12 @@ posiciones_cuenta, aum_raw, construir_consolidado y el helper puro `_es_cash`.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from datetime import date as _date
+from datetime import datetime as _datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from api.cache import cached
 from api.services._negocio_sql_read import negocio_movimientos_rows
@@ -45,10 +49,48 @@ _FLUJOS_EXTERNOS_ALL = _FLUJO_EXTERNO_DEPOSITO | _FLUJO_EXTERNO_EXTRACCION
 _MONEDAS_USD_EQUIV: set[str] = {"USD", "USDC", "USDL"}
 
 
+# ── Serie MEP precargada ──────────────────────────────────────────────────
+# `valuaciones.dolar` es append-only y el último MEP de un día YA CERRADO no se
+# mueve más → la serie diaria se precarga en UNA query y se cachea en proceso
+# (TTL corto, para tomar un backfill eventual). Antes cada fecha distinta era un
+# SELECT: dentro de los loops de movimientos, por cuenta, y `construir_consolidado`
+# lo repetía para TODAS las cuentas.
+# HOY (o una fecha futura) NO sale de la serie: el MEP del día sigue moviéndose
+# durante la rueda y tiene que leerse vivo de la DB, como hasta ahora.
+_MEP_SERIE_TTL_S = 300.0
+_ART = ZoneInfo("America/Argentina/Buenos_Aires")
+_mep_serie: list[tuple[str, float]] = []
+_mep_dias: list[str] = []
+_mep_serie_ts: float = 0.0
+_mep_lock = threading.Lock()
+
+
+def _mep_serie_cerrada() -> tuple[list[tuple[str, float]], list[str]]:
+    """Serie [(día ART, último MEP > 0)] + sus días, cacheada con TTL."""
+    global _mep_serie, _mep_dias, _mep_serie_ts
+    with _mep_lock:
+        if not _mep_dias or (time.monotonic() - _mep_serie_ts) > _MEP_SERIE_TTL_S:
+            from core import dolar_sql
+            serie = dolar_sql.mep_serie_dias()
+            if serie:   # serie vacía = DB caída → no se cachea, se reintenta
+                _mep_serie = serie
+                _mep_dias = [d for d, _ in serie]
+                _mep_serie_ts = time.monotonic()
+        return _mep_serie, _mep_dias
+
+
 def _get_mep_for_date(fecha_iso: str) -> float | None:
-    """MEP histórico — delega en la implementación ÚNICA (_mep.get_mep_for_date,
-    SQL). Acá vivía una copia idéntica (AUDITORIA M2): un fix en una dejaba a la
-    otra desfasada en cálculo de plata."""
+    """MEP histórico — misma semántica que la implementación ÚNICA
+    (_mep.get_mep_for_date: último MEP > 0 con timestamp <= fin-de-día ART,
+    arrastrando el último día CON DATO si la fecha no tiene tick).
+
+    Los días ya cerrados se resuelven contra la serie precargada; hoy / futuro
+    van a la DB (valor vivo). Cualquier `fecha_iso` que no sea 'YYYY-MM-DD' cae
+    también a la DB — la serie compara fechas como string."""
+    from core import dolar_sql
+    if dolar_sql.es_fecha_dia(fecha_iso) and fecha_iso < _datetime.now(_ART).date().isoformat():
+        serie, dias = _mep_serie_cerrada()
+        return dolar_sql.mep_en_serie(serie, dias, fecha_iso)
     from api.services._mep import get_mep_for_date
     return get_mep_for_date(fecha_iso)
 

@@ -61,11 +61,6 @@ from core.rofex_orders_session import (  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("MotorOrdenes")
 
-DB_NAME = "Operaciones"
-COL_LIVE = "OrdenesLive"
-COL_AUDIT = "OrdenesAudit"
-COL_HEARTBEAT = "MotorOrdenesHeartbeat"
-
 # Estados que consideramos terminales — no hace falta re-fetchearlos.
 ESTADOS_FINALES = {"FILLED", "CANCELLED", "REJECTED", "EXPIRED"}
 

@@ -141,27 +141,43 @@ def _en_universo_fit(
     return not (curva == "cer" and not bono.get("is_zero_coupon"))
 
 
-def _residuos_historicos(curva: str, ticker: str, fecha_ref: date) -> list[float]:
-    """Últimos VENTANA_TEMPORAL_DIAS residuos del bono, EXCLUYENDO el día actual
+def _residuos_historicos(
+    curva: str, tickers: list[str], fecha_ref: date,
+) -> dict[str, list[float]]:
+    """Últimos VENTANA_TEMPORAL_DIAS residuos de CADA ticker, EXCLUYENDO el día actual
     (que todavía no se persistió). Lee de SQL `mercado.fair_value_residuos`
-    (decomiso 2026-06-28). Orden no importa para media/desvío.
+    (decomiso 2026-06-28) en UNA query por curva.
+
+    La ventana por ticker la recorta `row_number()` con el MISMO criterio que el
+    `ORDER BY ts_cierre DESC LIMIT VENTANA_TEMPORAL_DIAS` por bono: la PK
+    (curva, ticker, ts_cierre) hace único el orden → entran exactamente las mismas
+    filas (las nulas ocupan lugar en la ventana y se descartan después, igual que
+    antes). Orden dentro de la lista no importa para media/desvío.
     """
+    if not tickers:
+        return {}
     desde = fecha_ref - timedelta(days=int(VENTANA_TEMPORAL_DIAS * 1.7))
     hasta = fecha_ref - timedelta(days=1)
-    out: list[float] = []
+    out: dict[str, list[float]] = {}
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT residuo_bps FROM mercado.fair_value_residuos "
-            "WHERE curva = %s AND ticker = %s AND ts_cierre >= %s AND ts_cierre <= %s "
-            "ORDER BY ts_cierre DESC LIMIT %s",
-            (curva, ticker, desde, hasta, VENTANA_TEMPORAL_DIAS),
+            "SELECT ticker, residuo_bps FROM ("
+            "  SELECT ticker, residuo_bps, row_number() OVER ("
+            "    PARTITION BY ticker ORDER BY ts_cierre DESC) AS rn"
+            "  FROM mercado.fair_value_residuos"
+            "  WHERE curva = %s AND ticker = ANY(%s)"
+            "    AND ts_cierre >= %s AND ts_cierre <= %s"
+            ") t WHERE rn <= %s",
+            (curva, list(tickers), desde, hasta, VENTANA_TEMPORAL_DIAS),
         )
-        for (v,) in cur.fetchall():
-            if v is not None:
-                try:
-                    out.append(float(v))
-                except (TypeError, ValueError):
-                    continue
+        for tk, v in cur.fetchall():
+            if v is None:
+                continue
+            try:
+                val = float(v)
+            except (TypeError, ValueError):
+                continue
+            out.setdefault(tk, []).append(val)
     return out
 
 
@@ -238,16 +254,24 @@ def procesar_curva(
 
     # Residuos para todos los bonos del snapshot con tea+duration disponibles
     # (filtrado o no — los que no tienen tea no se valúan).
+    valuables = [
+        b for b in snap
+        if b.get("tea") is not None and b.get("duration") is not None and b["duration"] > 0
+    ]
+    # Histórico de residuos de TODOS los bonos a valuar, en una sola query (antes
+    # era un SELECT por bono dentro del loop).
+    hist_by_ticker = _residuos_historicos(
+        curva, list(dict.fromkeys(b["ticker"] for b in valuables)), fecha_ref,
+    )
+
     res_rows: list[dict] = []
-    for b in snap:
-        tea = b.get("tea")
-        dur = b.get("duration")
-        if tea is None or dur is None or dur <= 0:
-            continue
+    for b in valuables:
+        tea = b["tea"]
+        dur = b["duration"]
         residuo_bps = (float(tea) - fit.predict(float(dur))) * 10000
         z_estatico = residuo_bps / sigma_dia if sigma_dia > 1e-9 else None
 
-        residuos_hist = _residuos_historicos(curva, b["ticker"], fecha_ref)
+        residuos_hist = hist_by_ticker.get(b["ticker"], [])
         n_obs = len(residuos_hist) + 1  # +1 por el de hoy que estamos guardando
         if n_obs >= N_OBS_TEMPORAL_MIN and len(residuos_hist) >= N_OBS_TEMPORAL_MIN - 1:
             # Calculamos sobre histórico + hoy.

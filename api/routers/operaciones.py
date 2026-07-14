@@ -404,26 +404,19 @@ def ops_niveles5():
 
 
 # ── COMERCIAL (lente por operador, estilo NEGOCIO) ───────────────────────────
-# Vista nueva en OPERACIONES. Lógica en api/services/comercial.py.
-
-def _com_motor(_engine: str | None):
-    """Comercial es SIEMPRE SQL (comercial_sql). El path Mongo (comercial.py) leía
-    Comitentes/NegocioMovimientos/ComercialCache — todas DROPEADAS → era código muerto
-    (decommission 2026-06-23). El `_engine` queda sin efecto (compat)."""
-    return _com_sql
-
+# Vista nueva en OPERACIONES. Lógica en api/services/comercial_sql.py.
 
 @router.get("/comercial/operadores")
-def comercial_operadores(_engine: str | None = Query(None, include_in_schema=False)) -> list[dict]:
+def comercial_operadores() -> list[dict]:
     """Operadores para el selector (email, nombre, # cuentas)."""
-    return _com_motor(_engine).listar_operadores_comercial()
+    return _com_sql.listar_operadores_comercial()
 
 
 @router.get("/comercial/dimensiones")
-def comercial_dimensiones(_engine: str | None = Query(None, include_in_schema=False)) -> dict:
+def comercial_dimensiones() -> dict:
     """Combos (operador, nivel_1, nivel_3) de cuentas activas → pueblan y cruzan
     los 3 filtros madre de la vista OPERADORES."""
-    return _com_motor(_engine).dimensiones_comercial()
+    return _com_sql.dimensiones_comercial()
 
 
 @router.get("/comercial/operador")
@@ -438,10 +431,9 @@ def comercial_operador(
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     fecha: str | None = Query(None, description="corte = HASTA (ISO). None = hoy"),
     desde: str | None = Query(None, description="inicio del período (ISO). Si viene, MES = [desde, fecha]"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Resumen (KPIs) + clientes (tabla + ficha) del operador, en una pasada."""
-    return _com_motor(_engine).operador_comercial(
+    return _com_sql.operador_comercial(
         operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
         referido=referido, nivel_4=nivel_4, nivel_5=nivel_5, fecha=fecha, desde=desde)
 
@@ -458,10 +450,9 @@ def comercial_serie(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Serie para el gráfico. Sin id_cuenta → operador; con id_cuenta → cliente."""
-    return _com_motor(_engine).serie_comercial(
+    return _com_sql.serie_comercial(
         operador=operador, metric=metric, moneda=moneda, id_cuenta=id_cuenta,
         nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3, referido=referido, nivel_4=nivel_4, nivel_5=nivel_5)
 
@@ -478,10 +469,9 @@ def comercial_clientes_por_fecha(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Clientes que operaron en el rango (click en una barra del chart de volumen)."""
-    return _com_motor(_engine).clientes_por_fecha(
+    return _com_sql.clientes_por_fecha(
         operador=operador, desde=desde, hasta=hasta, moneda=moneda,
         nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3, referido=referido, nivel_4=nivel_4, nivel_5=nivel_5)
 
@@ -489,20 +479,18 @@ def comercial_clientes_por_fecha(
 @router.get("/comercial/portafolio")
 def comercial_portafolio(
     id_cuenta: str = Query(..., description="id de la cuenta comitente"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Tenencia del cliente (posiciones de AuM, último snapshot)."""
-    return _com_motor(_engine).portafolio_cliente(id_cuenta=id_cuenta)
+    return _com_sql.portafolio_cliente(id_cuenta=id_cuenta)
 
 
 @router.get("/comercial/operaciones")
 def comercial_operaciones(
     id_cuenta: str = Query(..., description="id de la cuenta comitente"),
     limite: int = Query(300, ge=1, le=1000),
-    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Operaciones recientes del cliente (boletos operativos, fecha desc)."""
-    return _com_motor(_engine).operaciones_cliente(id_cuenta=id_cuenta, limite=limite)
+    return _com_sql.operaciones_cliente(id_cuenta=id_cuenta, limite=limite)
 
 
 @router.get("/comercial/analisis")
@@ -517,13 +505,12 @@ def comercial_analisis(
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     fecha: str | None = Query(None, description="foto al día X = HASTA (ISO). None = hoy"),
     desde: str | None = Query(None, description="inicio del período (ISO). Si viene, opero_mtd = operó en [desde, fecha]"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Dataset de la vista ANÁLISIS: clientes del operador con estado comercial,
     AuM, última op y niveles de segmentación (estado / churn / distribución).
     `fecha` = modo 'foto al día X': todo se calcula como estaba esa fecha (estado/activas/
     AuM/cuentas por nivel). El cupo queda en valor actual (no histórico aún)."""
-    return _com_motor(_engine).analisis_comercial(
+    return _com_sql.analisis_comercial(
         operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
         referido=referido, nivel_4=nivel_4, nivel_5=nivel_5, fecha=fecha, desde=desde)
 
@@ -591,12 +578,11 @@ def comercial_informe(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Tablas 2 y 3 del Informe: volumen + aranceles por comercial (ranking) y
     aranceles por segmento. Global (toda la mesa) salvo que se filtre por los
     filtros madre (operador/nivel_1..5/referido), que scopean el informe."""
-    return _com_motor(_engine).informe_comercial(
+    return _com_sql.informe_comercial(
         moneda=moneda, fecha=fecha, desde=desde, operador=operador,
         nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
         nivel_4=nivel_4, nivel_5=nivel_5, referido=referido)
@@ -614,11 +600,10 @@ def comercial_informe_segmento(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Tabla 1 del Informe: # cuentas por segmento (nivel_1), acumulado a la fecha de
     corte (`fecha` exacta, o fin del mes `hasta`) por fecha de alta. `operador` opcional."""
-    return _com_motor(_engine).informe_cuentas_por_segmento(
+    return _com_sql.informe_cuentas_por_segmento(
         hasta=hasta, operador=operador, fecha=fecha, desde=desde,
         nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
         nivel_4=nivel_4, nivel_5=nivel_5, referido=referido)
@@ -636,11 +621,10 @@ def comercial_informe_aranceles_segmento(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Q3 re-scopeada a un comercial: aranceles + ticket por segmento, solo de
     sus cuentas."""
-    return _com_motor(_engine).informe_aranceles_segmento(
+    return _com_sql.informe_aranceles_segmento(
         operador=operador, moneda=moneda, fecha=fecha, desde=desde,
         nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
         nivel_4=nivel_4, nivel_5=nivel_5, referido=referido)
@@ -658,13 +642,12 @@ def comercial_informe_segmento_detalle(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Detalle de un segmento (Q4 dinámica): clientes con su arancel +
     operaciones (boletos con arancel) que lo generaron. `segmento='todos'` →
     todos los segmentos (vista por defecto). `operador` opcional. `nivel_1` lo fija
     `segmento`; el resto de los niveles + referido scopean."""
-    return _com_motor(_engine).informe_segmento_detalle(
+    return _com_sql.informe_segmento_detalle(
         segmento=segmento, operador=operador, moneda=moneda, fecha=fecha, desde=desde,
         nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5, referido=referido)
 

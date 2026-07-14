@@ -160,7 +160,7 @@ def get_trade_analysis(ticker: str, monto: float, direccion: str = "long") -> di
 
     Pendiente (ver doc): escenarios de stress y niveles de entrada/salida.
     """
-    from api.services.scanner import get_quant_stats
+    from api.services.scanner_sql import get_quant_stats
 
     tk = ticker.strip().upper()
     es_long = direccion.strip().lower() != "short"
@@ -288,7 +288,7 @@ def get_book_analysis(posiciones: tuple[tuple[str, float], ...]) -> dict:
 
     Pendiente (ver doc): stress test, alertas, rebalanceo, conexión a AuM.
     """
-    from api.services.scanner import get_quant_stats
+    from api.services.scanner_sql import get_quant_stats
 
     consol: dict[str, float] = {}
     for tk, notional in posiciones:

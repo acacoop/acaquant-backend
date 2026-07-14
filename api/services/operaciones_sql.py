@@ -23,9 +23,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from psycopg.rows import dict_row
-
 from api.cache import cached
+from api.services._sql import _q
 from core.postgres import get_pool
 
 _SERIE_VENTANA_DIAS = 550  # ~18 meses (igual que operaciones.py)
@@ -36,12 +35,6 @@ _TON = (
 
 
 # ── infra ────────────────────────────────────────────────────────────────────
-def _q(sql: str, params: dict | None = None) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params or {})
-        return cur.fetchall()
-
-
 def _f(x) -> float:
     return float(x or 0)
 

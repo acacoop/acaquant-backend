@@ -28,6 +28,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from partner_api import store
+from partner_api.auth import _DUMMY_HASH
 from partner_api.ratelimit import limiter
 from partner_api.security import verify_password
 
@@ -68,7 +69,11 @@ def _basic_auth(request: Request) -> str:
         raise HTTPException(401, "Auth Basic malformado", headers=unauth) from None
     username = username.strip()
     user = store.find_user(username)
-    ok = verify_password(password, user["password_hash"]) if user else False
+    # Verificamos SIEMPRE (contra el hash real o el dummy) — misma mitigación que
+    # /v1/token: si cortáramos antes de PBKDF2 cuando el usuario no existe, la
+    # diferencia de tiempo (600k iteraciones) enumeraría usuarios válidos.
+    stored = user["password_hash"] if user else _DUMMY_HASH
+    ok = verify_password(password, stored)
     if not user or not ok or not user.get("enabled", False):
         raise HTTPException(401, "usuario o password inválidos", headers=unauth)
     return username

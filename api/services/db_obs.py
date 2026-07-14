@@ -9,22 +9,14 @@ from __future__ import annotations
 
 import os
 
-from psycopg.rows import dict_row
-
 from api.cache import cached
-from core.postgres import get_pool
+from api.services._sql import _q
 
 # Columnas de "última actualización" candidatas (orden de preferencia).
 _COLS_FECHA = ("updated_at", "ingestado_en", "generado_at", "ts", "ts_cierre",
                "fecha", "created_at")
 
 _LIMIT_BYTES = int(float(os.getenv("DB_DISK_LIMIT_GB", "8")) * 1024 ** 3)
-
-
-def _q(sql: str, params: tuple = ()) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params)
-        return cur.fetchall()
 
 
 def _cols(schema: str, tabla: str) -> set[str]:

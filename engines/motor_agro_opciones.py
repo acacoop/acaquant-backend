@@ -47,7 +47,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorAgroOpciones")
 
 INTERVALO_SNAPSHOT_S = 5
-INTERVALO_REDISCOVERY_S = 300
+# get_detailed_instruments() baja el padrón COMPLETO de ROFEX (REST pesado) y el
+# resultado acá SOLO alimenta un log (no re-suscribe). A 5 min eran 12 descargas/h
+# por motor × 3 motores = trabajo tirado; el padrón cambia de a días, no de a minutos.
+INTERVALO_REDISCOVERY_S = 1800
 
 CFICODE_CALL = "OCAFXS"
 CFICODE_PUT = "OPAFXS"

@@ -24,17 +24,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from psycopg.rows import dict_row
-
-from core.postgres import get_pool
+from api.services._sql import _q
 
 _AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
-
-
-def _q(sql: str, params=None) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params or ())
-        return cur.fetchall()
 
 
 def _fmt_ar(v: datetime | None) -> datetime | str | None:

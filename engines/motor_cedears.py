@@ -14,9 +14,9 @@ Patrón:
      en memoria (idéntico a motor_rofex). Sin esto, tickers ilíquidos
      arrancan en cero y el frontend muestra '0' hasta el primer tick.
   2. WS handler (update_price): actualiza market_state en cada tick.
-  3. _snapshot_loop(): cada 1s hace bulk_write a Cedears.Snapshot. SIN
-     dirty-check (no repetimos el bug de opciones — todos los docs se
-     reescriben siempre).
+  3. _snapshot_loop(): cada 1s upsertea mercado.cedears_snapshot con
+     dirty-check por huella (solo los tickers que se movieron) + resync
+     periódico que reescribe todo para refrescar `updated_at`.
 
 Cron L-V 13-20 UTC (BYMA horario). systemd unit en deploy/systemd/.
 """
@@ -246,22 +246,46 @@ class CedearsEngine:
     # ──────────────────────────────────────────────────────────────
 
     def _snapshot_loop(self):
-        """Cada 1s reescribe TODOS los docs en mercado.cedears_snapshot (SQL-native)
-        con el estado actual de market_state. SIN dirty-check: todos los tickers
-        siempre, incluso los que no recibieron tick (preserva updated_at fresco).
+        """Cada 1s upsertea mercado.cedears_snapshot (SQL-native) con el estado
+        actual de market_state.
+
+        Dirty-check por huella: se saltean los tickers cuyo estado no cambió desde
+        el tick anterior (en un CEDEAR ilíquido eso es casi siempre). Cada UPSERT
+        es una tupla nueva en Postgres (WAL + churn de índices), y el motor corre
+        7h por día.
+
+        RESYNC: cada _RESYNC_EVERY ticks se reescribe TODO igual, aunque no haya
+        cambiado nada, para que `updated_at` siga fresco (hay monitoreo de
+        staleness que mira ese campo).
 
         Cutover 2026-06-24: antes hacía bulk_write a Trading.CedearsSnapshot (Mongo)
         + espejo SQL bajo SNAPSHOT_SQL. Ahora escribe SOLO SQL (write_native).
         """
         from core import pg_mirror
+
+        _tick = 0
+        _last_seen: dict[str, tuple] = {}
+        _RESYNC_EVERY = 45  # ticks de 1s → reescritura completa cada ~45s
+
         while True:
             time.sleep(1)
+            _tick += 1
             try:
                 ts = datetime.now(UTC)
+                resync = (_tick % _RESYNC_EVERY) == 0
                 rows = []
                 for ticker in self.tickers:
                     st = self.market_state[ticker]
                     bid, offer, nv, ev = st["bid"], st["offer"], st["nv"], st["ev"]
+
+                    # Huella = todo lo que determina la fila persistida. spread y vwap
+                    # se derivan de bid/offer/nv/ev → no hace falta incluirlos.
+                    huella = (st["last"], st["open"], st["high"], st["low"], st["close"],
+                              bid, offer, nv, ev)
+                    if not resync and _last_seen.get(ticker) == huella:
+                        continue
+                    _last_seen[ticker] = huella
+
                     spread = round(offer - bid, 4) if (bid > 0 and offer > 0) else 0.0
                     # VWAP = cash efectivo / nominales. CEDEAR cotiza por acción →
                     # NO se multiplica por 100 (eso es convención de bonos).

@@ -23,6 +23,7 @@ _CRONS_IGNORADOS = {
     "jobs.triage",              # triage IA de fallas de jobs (P2 QuantAI) — observa al sistema
     "jobs.cleanup_curvas",      # limpieza
     "jobs.cleanup_futuros_dlr", # limpieza
+    "jobs.cleanup_retencion",   # limpieza (retención/TTL de tablas de log y auditoría)
     "jobs.archive_options_data",  # limpieza (prune intradía de mercado.options_data)
     "jobs.descubrir_cuentas",   # discovery interno
     "jobs.volatilidad_ggal",    # cálculo secundario GGAL

@@ -16,21 +16,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from psycopg.rows import dict_row
-
-from core.postgres import get_pool
+from api.services._sql import _f, _q
 
 _SRC = "portafolio.tenencia"   # fuente única del AuM SQL (filtrar siempre por aum='si')
-
-
-def _q(sql: str, params: dict | None = None) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params or {})
-        return cur.fetchall()
-
-
-def _f(x):
-    return float(x) if x is not None else None
 
 
 def _dt(d):

@@ -11,10 +11,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from psycopg.rows import dict_row
-
 from api.cache import cached
-from core.postgres import get_pool
+from api.services._sql import _q
 from quant.stats import cambio_pct, compute_stats
 
 # variable (lower) → `serie` en macro.series_macro. Derivado de macro._MACROS:
@@ -30,12 +28,6 @@ _VAR_TO_SERIE: dict[str, str] = {
     "dolar_oficial":   "DOLAR",
     "dolar_mayorista": "DOLAR",
 }
-
-
-def _q(sql: str, params: tuple) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params)
-        return cur.fetchall()
 
 
 def _serie_cruda(serie: str, desde: str | None, hasta: str | None) -> list[dict]:

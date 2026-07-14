@@ -84,6 +84,7 @@
 | 20:15 · L-V | `jobs.options_rollup'` |
 | 20:15 · L-V | `jobs.cedears_ohlc_daily'` |
 | 20:16 · L-V | `jobs.bonos_ohlc_daily'` |
+| 03:20 · diario | `jobs.cleanup_retencion'` |
 | 20:25 · L-V | `jobs.snapshot_cierre` + `jobs.fair_value'` |
 | 12:30 · L-V | `jobs.cleanup_curvas'` |
 | 12:30 · L-V | `jobs.cleanup_futuros_dlr'` |

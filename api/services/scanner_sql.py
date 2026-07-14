@@ -14,12 +14,12 @@ Paridad de datetime: el jsonb de los snapshots se escribió con datetime→isofo
 a lo que FastAPI emite en el path Mongo (jsonable_encoder usa isoformat).
 
 `get_ccl_live` NO se reimplementa acá: es el dominio DÓLAR (live-only, snapshot
-intradía + cierre previo) que vive en Mongo `Valuaciones.Dolar*` y aún no está
-en SQL con paridad. Se delega al path Mongo (`scanner.get_ccl_live`) para no
-romper el cálculo de retorno USD. Misma decisión que el resto de la migración:
-no se migra a ciegas lo que no tiene fuente SQL equivalente.
+intradía + cierre previo) y vive en `api/services/scanner.py` (SQL-native, sobre
+`core.dolar_sql`). Se reexporta desde allá para no duplicar el cálculo de retorno USD;
+lo mismo con el tape intradía (`get_cedears_trades` / `get_cedears_intraday`).
 
-Dual-run flag `SCANNER_SQL`. Selector en `api/routers/scanner.py::_scanner()`.
+El dual-run (flag `SCANNER_SQL` + selector `_scanner()` en el router) se ELIMINÓ: tras
+el decomiso de Mongo ambas ramas terminaban acá. El router invoca este módulo directo.
 """
 from __future__ import annotations
 

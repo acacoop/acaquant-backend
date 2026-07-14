@@ -28,7 +28,6 @@ Uso:
 import logging
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 
 from engines._curvas_loader import cargar_por_curva
@@ -115,8 +114,32 @@ def cargar_pares():
 
 
 # ─────────────────────────────────────────────
-# Lectura de mercado desde TimeSales
+# Lectura de mercado (mercado.market_snapshot)
 # ─────────────────────────────────────────────
+
+def obtener_metricas(tickers) -> dict[str, dict]:
+    """TEM + paridad + TEA + last_price de todos los tickers en UNA query.
+
+    Las 4 métricas viven en la misma fila de mercado.market_snapshot → pedirlas
+    por separado son 4 round-trips para leer exactamente las mismas filas. El loop
+    del motor usa esta; los helpers de abajo (una métrica c/u) quedan porque los
+    consume api/routers/manager/checks.py.
+    """
+    from core.market_snapshot import cols_map
+    return cols_map(tickers, ["tem", "paridad", "tea", "last_price"])
+
+
+def _filtrar(snap: dict[str, dict], tickers, col: str, positivo: bool = False) -> dict:
+    """{ticker: valor} de una columna del snapshot. Misma semántica que
+    core.market_snapshot.metric_map: descarta NULL y, si positivo, los <= 0."""
+    out = {}
+    for t in tickers:
+        v = (snap.get(t) or {}).get(col)
+        if v is None or (positivo and v <= 0):
+            continue
+        out[t] = v
+    return out
+
 
 def obtener_tems(client, tickers):
     """Última TEM por ticker Lecap (SQL-only: mercado.market_snapshot)."""
@@ -406,15 +429,11 @@ def run():
             fecha_ref  = ts.date()
             fecha_str  = fecha_ref.isoformat()
 
-            with ThreadPoolExecutor(max_workers=4) as ex:
-                f_tems      = ex.submit(obtener_tems,      client, lecap_tickers)
-                f_paridades = ex.submit(obtener_paridades, client, cer_tickers)
-                f_teas      = ex.submit(obtener_teas_cer,  client, cer_tickers)
-                f_precios   = ex.submit(obtener_precios,   client, lecap_tickers + cer_tickers)
-                tems       = f_tems.result()
-                paridades  = f_paridades.result()
-                teas_cer   = f_teas.result()
-                precios    = f_precios.result()
+            snap       = obtener_metricas(lecap_tickers + cer_tickers)
+            tems       = _filtrar(snap, lecap_tickers, "tem")
+            paridades  = _filtrar(snap, cer_tickers,   "paridad")
+            teas_cer   = _filtrar(snap, cer_tickers,   "tea")
+            precios    = _filtrar(snap, lecap_tickers + cer_tickers, "last_price", positivo=True)
 
             ipc_mes = ultimo_ipc_publicado(client)
             cer_max = ultimo_cer_publicado(client)

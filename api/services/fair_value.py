@@ -24,14 +24,11 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 from api.cache import cached
+from api.services._sql import _f
 from core import curvas_sql
 from core.postgres import get_pool
 
 _CURVAS_VALIDAS = ("tasa_fija", "cer")
-
-
-def _f(v) -> float | None:
-    return float(v) if v is not None else None
 
 
 def _norm_residuo(r: dict) -> dict:

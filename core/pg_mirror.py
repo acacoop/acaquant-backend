@@ -1,25 +1,25 @@
-"""core/pg_mirror.py — dual-write best-effort Mongo→Postgres (Fase 2, capa MERCADO).
+"""core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
 
-Los motores/jobs llaman a estas funciones DESPUÉS de su write a Mongo. Con el
-flag apagado son no-op instantáneo (cero cambio de comportamiento). NUNCA
-levantan: cualquier error se loguea y el caller sigue — Mongo es la base
-operativa, Postgres es espejo descartable (ver docs/SQL.md).
+Motores y jobs escriben acá y solo acá: no hay dual-write, ni flags, ni espejo
+descartable. Todas las funciones son INCONDICIONALES y best-effort — nunca
+levantan: cualquier error se loguea y el caller sigue (un fallo de SQL no puede
+tumbar un motor ni bloquear una orden al broker). Ver docs/SQL.md.
 
-Flags (env, default OFF):
-    SNAPSHOT_SQL=1       → motores live: market_snapshot (valores/curvas) +
-                           mercado_hist de los históricos intradía-mutables
-                           (breakevens/forwards, vía mirror_hist)
-    MERCADO_SQL_WRITE=1  → jobs batch de mercado (series_macro, rem,
-                           snapshots_cierre_hist, canje_cierre)
+API:
+    write_native / write_snapshot  UPSERT por PK (snapshot vs batch)
+    append_native                  INSERT append-only (streams sin PK natural)
+    write_hist                     doc histórico intradía-mutable → mercado_hist
+    merge_jsonb_native             merge atómico (`data || patch`) multi-writer
+    read_native_doc                lectura de la columna jsonb `data` por PK
+    prune_native / replace_native  retención por antigüedad / swap atómico
 
-Semántica: UPSERT por PK de SOLO las columnas presentes en cada fila (los rows
-se agrupan por set de claves) → replica el $set parcial de Mongo: un escritor
-nunca pisa columnas que no le pertenecen.
+Semántica del upsert: se escriben SOLO las columnas presentes en cada fila (los
+rows se agrupan por set de claves) → un escritor nunca pisa columnas que no le
+pertenecen.
 """
 from __future__ import annotations
 
 import logging
-import os
 import time
 
 logger = logging.getLogger("pg_mirror")
@@ -28,18 +28,10 @@ _CHUNK = 5000
 _last_flush: dict[str, float] = {}
 
 
-def snapshots_live_on() -> bool:
-    return os.getenv("SNAPSHOT_SQL") == "1"
-
-
-def jobs_on() -> bool:
-    return os.getenv("MERCADO_SQL_WRITE") == "1"
-
-
 def doc_iso(v):
-    """Conversión RECURSIVA datetime→ISO para guardar docs Mongo en jsonb.
-    Tiene que ser deep: los datetimes anidados (ej. flujos de BondsMaster)
-    rompen json.dumps si solo se convierte el nivel top."""
+    """Conversión RECURSIVA datetime→ISO para guardar un doc anidado en jsonb.
+    Tiene que ser deep: los datetimes anidados (ej. flujos de la master de renta
+    fija) rompen json.dumps si solo se convierte el nivel top."""
     from datetime import datetime
     if isinstance(v, datetime):
         return v.isoformat()
@@ -50,48 +42,12 @@ def doc_iso(v):
     return v
 
 
-def prune_job(table: str, col: str, days: int) -> int:
-    """Retención best-effort en el espejo (flag MERCADO_SQL_WRITE): borra filas con
-    `col` más viejo que `days` días. Para tablas cuya fuente Mongo tiene TTL (ej.
-    News.Headlines, 2 días) — sin esto el espejo acumularía lo que Mongo ya borró."""
-    if not jobs_on():
-        return 0
-    try:
-        from core.postgres import get_pool
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                f"DELETE FROM {table} WHERE {col} < now() - %s * interval '1 day'",
-                (days,),
-            )
-            return cur.rowcount or 0
-    except Exception as e:
-        logger.error("pg_mirror prune %s: %s", table, str(e).splitlines()[0][:200])
-        return 0
-
-
-def mirror_snapshot(table: str, key_cols: list[str], rows: list[dict],
-                    min_interval: float = 0.0) -> int:
-    """Espejo live desde un motor (flag SNAPSHOT_SQL). `min_interval` > 0
-    descarta flushes más frecuentes que eso — usarlo SOLO si el caller
-    re-escribe el estado COMPLETO en cada iteración (valores.py); un escritor
-    de deltas (curvas.py) debe pasar 0 o perdería updates hasta el próximo
-    cambio de precio."""
-    if not snapshots_live_on() or not rows:
-        return 0
-    if min_interval > 0:
-        now = time.monotonic()
-        if now - _last_flush.get(table, 0.0) < min_interval:
-            return 0
-        _last_flush[table] = now
-    return _mirror(table, key_cols, rows)
-
-
 def write_snapshot(table: str, key_cols: list[str], rows: list[dict],
                    min_interval: float = 0.0) -> int:
-    """SQL-native INCONDICIONAL (sin flag) para motores live tras el decommission
-    de Mongo — el SQL es la fuente, ya no hay dual-write a espejar. `min_interval`>0
-    descarta flushes más frecuentes (usar SOLO si el caller reescribe el estado
-    COMPLETO cada iteración, ej. valores.py; un escritor de deltas pasa 0)."""
+    """UPSERT para motores live. `min_interval`>0 descarta flushes más frecuentes
+    que eso — usarlo SOLO si el caller reescribe el estado COMPLETO en cada
+    iteración (ej. valores.py); un escritor de deltas (curvas.py) debe pasar 0 o
+    perdería updates hasta el próximo cambio de precio."""
     if not rows:
         return 0
     if min_interval > 0:
@@ -100,34 +56,6 @@ def write_snapshot(table: str, key_cols: list[str], rows: list[dict],
             return 0
         _last_flush[table] = now
     return _mirror(table, key_cols, rows)
-
-
-def mirror_job(table: str, key_cols: list[str], rows: list[dict]) -> int:
-    """Espejo batch desde un job de mercado (flag MERCADO_SQL_WRITE)."""
-    if not jobs_on() or not rows:
-        return 0
-    return _mirror(table, key_cols, rows)
-
-
-def ordenes_on() -> bool:
-    return os.getenv("ORDENES_SQL_WRITE") == "1"
-
-
-def mirror_ordenes(table: str, key_cols: list[str], rows: list[dict]) -> int:
-    """Espejo del MOTOR DE ÓRDENES (flag ORDENES_SQL_WRITE). UPSERT best-effort por
-    `key_cols`. CRÍTICO: el caller lo llama DESPUÉS del write a Mongo y dentro de su
-    propio try/except → un fallo de SQL NUNCA bloquea ni afecta la orden real al broker."""
-    if not ordenes_on() or not rows:
-        return 0
-    return _mirror(table, key_cols, rows)
-
-
-def append_ordenes(table: str, rows: list[dict]) -> int:
-    """Append-only del motor de órdenes (flag ORDENES_SQL_WRITE) — para OrdenesAudit
-    (PK surrogate, cada evento es una fila nueva). Best-effort, nunca levanta."""
-    if not ordenes_on() or not rows:
-        return 0
-    return _append(table, rows)
 
 
 def _append(table: str, rows: list[dict]) -> int:
@@ -165,44 +93,16 @@ def _append(table: str, rows: list[dict]) -> int:
         return 0
 
 
-def append_snapshot(table: str, rows: list[dict]) -> int:
-    """Append gateado por SNAPSHOT_SQL (motor en modo DUAL-write Mongo+SQL)."""
-    return _append(table, rows) if (snapshots_live_on() and rows) else 0
-
-
 def append_native(table: str, rows: list[dict]) -> int:
-    """Append INCONDICIONAL (motor SQL-native, sin Mongo). SQL es la única escritura."""
+    """Append INCONDICIONAL. SQL es la única escritura."""
     return _append(table, rows) if rows else 0
 
 
-def mirror_hist(coleccion: str, fecha_str: str, k: str, doc: dict) -> int:
-    """Espejo de un doc histórico intradía-mutable a `mercado_hist`, desde un MOTOR
-    (flag SNAPSHOT_SQL). BreakevensHistorico / ForwardsHistorico reviven la fila de
-    HOY con precios live → el sync horario la deja stale; el motor la mantiene
-    fresca acá. Aplica `doc_iso` (datetime→isoformat) IGUAL que `sync._jsonb` para
-    que `mercado_hist_sql` lea idéntico a Mongo. No-op con el flag apagado."""
-    if not snapshots_live_on() or not fecha_str:
-        return 0
-    try:
-        from datetime import date
-        row = {
-            "coleccion": coleccion,
-            "fecha": date.fromisoformat(str(fecha_str)[:10]),
-            "k": k or "",
-            "data": doc_iso(doc),
-        }
-        return _mirror("mercado_hist", ["coleccion", "fecha", "k"], [row])
-    except Exception as e:
-        logger.error("pg_mirror hist %s: %s", coleccion, str(e).splitlines()[0][:200])
-        return 0
-
-
 def write_hist(coleccion: str, fecha_str: str, k: str, doc: dict) -> int:
-    """SQL-native INCONDICIONAL (sin flag) de un doc histórico intradía-mutable a
-    `mercado_hist`. Twin de `mirror_hist` para MOTORES YA DECOMISADOS de Mongo
-    (breakevens/forwards): mismo shape de row (doc_iso → jsonb, fecha date, k subclave)
-    para que `mercado_hist_sql` lea IDÉNTICO a lo que escribía el sync desde Mongo, pero
-    sin gate SNAPSHOT_SQL — el SQL es la única escritura. Best-effort: nunca levanta."""
+    """Escribe un doc histórico intradía-mutable a `mercado_hist` (breakevens/forwards:
+    la fila de HOY revive con precios live en cada tick del motor). Shape del row:
+    `doc_iso` → jsonb, `fecha` date, `k` subclave — es el que espera `mercado_hist_sql`
+    para leerlo. Best-effort: nunca levanta."""
     if not fecha_str:
         return 0
     try:
@@ -257,19 +157,16 @@ def _mirror(table: str, key_cols: list[str], rows: list[dict]) -> int:
         return 0
 
 
-# ── SQL-NATIVE (decommission Mongo): upsert/prune INCONDICIONALES ─────────────
-# Para jobs que ya NO escriben Mongo (la fuente es SQL). A diferencia de mirror_job/
-# prune_job (gateados por MERCADO_SQL_WRITE = "dual-write"), estos siempre escriben.
 def write_native(table: str, key_cols: list[str], rows: list[dict]) -> int:
-    """Upsert incondicional a SQL (job SQL-native, sin Mongo)."""
+    """Upsert incondicional a SQL (el writer batch de los jobs)."""
     return _mirror(table, key_cols, rows) if rows else 0
 
 
 def merge_jsonb_native(table: str, key_cols: list[str], key_vals: list, patch: dict) -> int:
     """Merge ATÓMICO (shallow) de `patch` en la columna jsonb `data` de UNA fila, vía
-    `data = <table>.data || EXCLUDED.data` (ON CONFLICT). Es el equivalente SQL del
-    `$set` PARCIAL de Mongo: a nivel fila, sin read-modify-write → cero race entre
-    procesos que tocan campos DISTINTOS del MISMO doc.
+    `data = <table>.data || EXCLUDED.data` (ON CONFLICT). Update PARCIAL a nivel fila,
+    sin read-modify-write → cero race entre procesos que tocan campos DISTINTOS del
+    MISMO doc.
 
     Caso de uso: `mercado.options_metadata.config` es multi-writer — el motor
     (`engines/options.py`) escribe `tasa`/`expiries_disponibles`, el Manager
@@ -277,8 +174,8 @@ def merge_jsonb_native(table: str, key_cols: list[str], key_vals: list, patch: d
     `tasa`. Con un write_native (que reescribe el `data` entero) se pisarían entre
     sí; con `||` cada uno mergea solo sus campos sin perder los del otro.
 
-    Las `key_cols` se inyectan dentro de `data` (paridad con el doc Mongo, que lleva
-    `type` como campo). Best-effort: nunca levanta."""
+    Las `key_cols` se inyectan dentro de `data` (el doc lleva su propia clave, ej.
+    `type`). Best-effort: nunca levanta."""
     if not patch:
         return 0
     try:
@@ -312,9 +209,8 @@ def merge_jsonb_native(table: str, key_cols: list[str], key_vals: list, patch: d
 
 
 def read_native_doc(table: str, key_cols: list[str], key_vals: list) -> dict:
-    """Lee la columna jsonb `data` de UNA fila por su PK. Para lectores SQL-native que
-    antes hacían `find_one` en Mongo (ej. el motor de opciones leyendo su config:
-    tasa/expiries). Devuelve {} si no hay fila. Best-effort: nunca levanta."""
+    """Lee la columna jsonb `data` de UNA fila por su PK (ej. el motor de opciones
+    leyendo su config: tasa/expiries). Devuelve {} si no hay fila. Best-effort."""
     try:
         from core.postgres import get_pool
         where = " AND ".join(f"{c} = %s" for c in key_cols)
@@ -343,9 +239,9 @@ def prune_native(table: str, col: str, days: int) -> int:
 def replace_native(table: str, rows: list[dict]) -> int:
     """Swap atómico de TODA la tabla (TRUNCATE + INSERT en una transacción), para
     precomputes que reemplazan el set entero — sin PK natural sobre la que upsertar
-    (ej. acreencias: grano no-único, surrogate PK IDENTITY). Análogo a Mongo
-    reemplazar_coleccion_atomico. Best-effort: si falla, rollback y Mongo queda como
-    fuente. Las columnas IDENTITY se generan solas (no se pasan en los rows)."""
+    (ej. acreencias: grano no-único, surrogate PK IDENTITY). Best-effort: si falla,
+    rollback (la tabla queda con el set anterior, nunca vacía). Las columnas IDENTITY
+    se generan solas (no se pasan en los rows)."""
     if not rows:
         return 0
     try:

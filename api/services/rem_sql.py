@@ -1,37 +1,34 @@
 """api/services/rem_sql.py — Expectativas REM (IPC INDEC, BCRA) leyendo Postgres.
 
-Espejo SQL-native de `api/services/rem.py`. Fuente: `macro.rem` (1:1 con
-`Trading.REM` vía `jobs/sync_postgres.sync_rem`; medido 98=98). Mismo shape de
-salida que el path Mongo (mismas claves, mismo orden de período asc) para que el
-dual-run por flag `REM_SQL` no tenga drift.
+ÚNICA implementación (el shim `api/services/rem.py`, que solo delegaba acá, se borró
+en la limpieza del dual-run). Fuente: `macro.rem`.
+
+3 funciones públicas: `listar_informes` (meses con informe), `expectativas` (serie
+cruda por informe), `breakeven_acumulado` (IPC mensual → promedio geométrico acumulado).
 
 Tipos: las columnas son `numeric` → psycopg devuelve `Decimal`; se castean a
-`float` (Mongo los devuelve float). Son todos números que alimentan un chart →
-float es lo correcto para el consumidor; el gate compara por valor, no por tipo.
-
-Gate de paridad: `scripts/compare_rem_sql_vs_mongo.py` (read-only, corre en el
-Droplet contra ambas bases). NO migrar la lectura sin verde del comparador.
+`float`. Son todos números que alimentan un chart → float es lo correcto para el
+consumidor.
 """
 from __future__ import annotations
 
-from datetime import date
-
-from psycopg.rows import dict_row
+from datetime import date, timedelta
 
 from api.cache import cached
-from api.services.rem import _fin_de_mes  # pura (no toca Mongo) → se reusa
-from core.postgres import get_pool
+from api.services._sql import _f, _q
 
 
-def _q(sql: str, params: tuple | None = None) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params or ())
-        return cur.fetchall()
-
-
-def _f(v) -> float | None:
-    """Decimal/numeric → float; None pasa. Mongo emite float."""
-    return float(v) if v is not None else None
+def _fin_de_mes(yyyy_mm: str) -> date | None:
+    """'2026-04' → date(2026, 4, 30). Helper PURO (sin DB)."""
+    if not yyyy_mm or len(yyyy_mm) < 7:
+        return None
+    try:
+        y = int(yyyy_mm[:4])
+        m = int(yyyy_mm[5:7])
+    except ValueError:
+        return None
+    nxt = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+    return nxt - timedelta(days=1)
 
 
 def _resolver_informe(informe: str | None) -> str | None:

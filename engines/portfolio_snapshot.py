@@ -1,30 +1,24 @@
 """Motor dedicado a captura del último precio para tickers de tenencia.
 
 Suscribe via pyRofex WS a los activos que la mesa tiene en posición HOY
-(Valuaciones.AuM último snapshot + boletos del día) y mantiene su
-`last_price` y `closing_price` actualizado en Trading.PortfolioSnapshot.
+(`portafolio.tenencia`, último snapshot + boletos del día) y mantiene su
+`last_price` y `closing_price` actualizado en `valuaciones.portfolio_snapshot`.
 
 NO comparte estado con engines/valores.py:
 - Sesión pyRofex propia (segunda conexión, igual que motor_options).
 - Suscripción reducida a entries [LAST, CLOSING_PRICE] — sin BIDS,
   OFFERS, OHLC, NV. Tráfico WS estrictamente mínimo.
-- NO popula Trading.TimeSales — los trades históricos los captura
-  motor_rofex para los tickers de Trading.Curvas.
+- NO popula `mercado.timesales` — los trades históricos los captura
+  motor_rofex para los tickers de `mercado.curvas`.
 
-Persistencia: bulk_write con UpdateOne+upsert a Trading.PortfolioSnapshot
-cada 1s. Solo escribe los tickers que recibieron un cambio en el último
-intervalo (dirty flag). Schema:
-  {
-    ticker:        "MERV - XMEV - AL30 - 24hs",
-    last_price:    float,
-    closing_price: float,
-    updated_at:    datetime UTC
-  }
+Persistencia: UPSERT por ticker (`pg_mirror.write_snapshot`) cada 1s. Solo
+escribe los tickers que recibieron un cambio en el último intervalo (dirty
+flag). Columnas: ticker (PK), last_price, closing_price, updated_at.
 
 Refresh dinámico: thread separado cada 60 min revisa el universo de
 tenencia + boletos del día, agrega los tickers nuevos via
 WebSocketManager.agregar_suscripciones (aditivo, no reabre WS). Cada
-refresh persiste un doc en Manager.PortfolioSnapshotLog para auditoría.
+refresh audita una fila en `manager.portfolio_snapshot_log`.
 
 Ejecutar:
     python -m engines.portfolio_snapshot
@@ -179,7 +173,7 @@ def _refresh_loop(engine: PortfolioSnapshotEngine, ws: WebSocketManager):
     Orden estricto:
       1) engine.agregar_tickers(nuevos) → inicializa state local.
       2) ws.agregar_suscripciones(nuevos, entries=...) → pyRofex.
-      3) Persiste log a Manager.PortfolioSnapshotLog.
+      3) Persiste log a manager.portfolio_snapshot_log.
 
     Si pyRofex falla, motor sigue corriendo con el universo previo.
     """

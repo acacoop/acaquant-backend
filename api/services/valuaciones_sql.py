@@ -13,15 +13,7 @@ Pendiente: consolidado (es un cache iterativo, ver jobs/consolidado_cuentas + ta
 """
 from __future__ import annotations
 
-from psycopg.rows import dict_row
-
-from core.postgres import get_pool
-
-
-def _q(sql: str, params: dict | None = None) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params or {})
-        return cur.fetchall()
+from api.services._sql import _q
 
 
 def _f(x) -> float:

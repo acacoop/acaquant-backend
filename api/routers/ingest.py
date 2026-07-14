@@ -11,6 +11,8 @@ Auth en 2 capas:
   - X-Ingest-Token == config.DOLAR_INGEST_TOKEN (token DEDICADO; si se filtra,
     solo permite escribir el dólar, no da acceso a Mongo).
 """
+import secrets
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -25,7 +27,13 @@ def verify_ingest_token(x_ingest_token: str | None = Header(default=None)) -> No
     sin token seteado, nadie escribe)."""
     if not DOLAR_INGEST_TOKEN:
         raise HTTPException(status_code=503, detail="ingesta deshabilitada (falta DOLAR_INGEST_TOKEN)")
-    if not x_ingest_token or x_ingest_token != DOLAR_INGEST_TOKEN:
+    # compare_digest sobre bytes (mismo patrón que api/deps.py y api/mcp/auth.py):
+    # tiempo constante — con `==` el token se puede extraer byte a byte midiendo
+    # latencia. En bytes, un header con cualquier byte no-ASCII falla cerrado
+    # (401) en vez de romper con TypeError.
+    expected = DOLAR_INGEST_TOKEN.encode("utf-8")
+    received = x_ingest_token.encode("utf-8", "ignore") if x_ingest_token else b""
+    if not secrets.compare_digest(received, expected):
         raise HTTPException(status_code=401, detail="token de ingesta inválido")
 
 

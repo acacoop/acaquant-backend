@@ -1,39 +1,25 @@
+"""jobs/aum.py — CLIENTE Aunesa (librería, no es un job).
+
+El cron de AuM que vivía acá se eliminó (2026-06-15): la fuente única de
+tenencias es SQL `portafolio.tenencia`, que escribe `jobs/portafolio_backfill.py
+--diario`. Lo que sobrevive es el cliente HTTP de Aunesa + la regla de valuación,
+reusados por:
+  - jobs/portafolio_backfill.py        (_SESSION, POSICION_URL, autenticar,
+                                        obtener_cuentas, _calcular_valuacion)
+  - jobs/portafolio_reparar_timeouts.py (_SESSION, POSICION_URL, autenticar)
+  - api/routers/manager/aunesa.py       (autenticar, consultar_posicion)
+
+No tiene __main__: no se ejecuta, se importa.
+"""
 import os
 import sys
-from datetime import timedelta
 
-import holidays
 import pandas as pd
 import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import config
-from jobs._aum_filters import (
-    is_excluded,
-    load_contrapartes_id_cuentas,
-    load_contrapartes_names,
-)
-
-# Lazy singletons — se cargan al primer pedido y se reusan por los workers
-# del ThreadPoolExecutor. Las listas cambian con poca frecuencia (cuando
-# alguien edita Contrapartes), así que no vale la pena refrescar cada call.
-_CONTRAPARTES_IDS_CACHE: frozenset[str] | None = None
-_CONTRAPARTES_NAMES_CACHE: frozenset[str] | None = None
-
-
-def _contrapartes_ids() -> frozenset[str]:
-    global _CONTRAPARTES_IDS_CACHE
-    if _CONTRAPARTES_IDS_CACHE is None:
-        _CONTRAPARTES_IDS_CACHE = load_contrapartes_id_cuentas()
-    return _CONTRAPARTES_IDS_CACHE
-
-
-def _contrapartes_names() -> frozenset[str]:
-    global _CONTRAPARTES_NAMES_CACHE
-    if _CONTRAPARTES_NAMES_CACHE is None:
-        _CONTRAPARTES_NAMES_CACHE = load_contrapartes_names()
-    return _CONTRAPARTES_NAMES_CACHE
 
 AUTH_URL     = "https://aca.aunesa.com/Irmo/api/login"
 LISTADO_URL  = "https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas"
@@ -62,28 +48,6 @@ def autenticar():
     resp.raise_for_status()
     token = resp.json().get("token")
     return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
-
-
-# ── Calendario hábil ──────────────────────────────────────────────────────────
-# Regla H1 CONFIRMADA (bitácora docs/AUM_PROBLEMAS_Y_SOLUCIONES.md, medida contra
-# el contable con la cuenta 805): Aunesa con `desde=X` devuelve la posición del
-# día hábil ANTERIOR a X. Para tener la posición AL día D hay que pedir
-# `desde = próximo_hábil(D)` y etiquetar `fecha_snapshot = D`.
-_ARG_HOLIDAYS = holidays.Argentina()
-
-
-def _proximo_habil(d):
-    d += timedelta(days=1)
-    while d.weekday() >= 5 or d in _ARG_HOLIDAYS:
-        d += timedelta(days=1)
-    return d
-
-
-def _habil_anterior(d):
-    d -= timedelta(days=1)
-    while d.weekday() >= 5 or d in _ARG_HOLIDAYS:
-        d -= timedelta(days=1)
-    return d
 
 
 # ── Listado de cuentas activas ────────────────────────────────────────────────
@@ -172,57 +136,3 @@ def _calcular_valuacion(row):
     if tipo in TIPOS_DIVISOR_100:
         return round((precio * cantidad) / 100, 6)
     return round(precio * cantidad, 6)
-
-
-# ── Procesar respuesta → lista de dicts ──────────────────────────────────────
-def procesar(data, fecha_snapshot, timestamp):
-    items = [r for r in data if r.get("informacion") == "Acumulado"]
-    if not items:
-        return []
-
-    df = pd.DataFrame(items)
-    df["id_cuenta"] = df["cuenta"].str.extract(r"\[(\d+)\]")
-    df["cantidad"]  = pd.to_numeric(df["cantidad"], errors="coerce") * -1
-    df["precio"]    = pd.to_numeric(df["precio"],   errors="coerce")
-
-    df_g = df.groupby(
-        ["id_cuenta", "unidad", "tipoTitulo", "cuenta"],
-        as_index=False, dropna=False
-    ).agg({"cantidad": "sum", "precio": "max"})
-
-    df_g = df_g[df_g["cantidad"] != 0].copy()
-
-    # ── Filtros de limpieza ──────────────────────────────────────────────────
-    # Reglas centralizadas en `jobs._aum_filters` para que el backfill
-    # one-shot (`scripts/cleanup_aum_excluidos`) use exactamente el mismo
-    # criterio. Hoy cubre: OTC/CDC patterns, USDL, contrapartes por
-    # id_cuenta (CuentasAPI.ContrapartesAPI), contrapartes por nombre
-    # (CashFlow.Contrapartes.contraparte) y la tenencia ARS de [100]/[101].
-    contrapartes_ids = _contrapartes_ids()
-    contrapartes_names = _contrapartes_names()
-    df_g = df_g[~df_g.apply(
-        lambda row: is_excluded(
-            row.get("cuenta"), row.get("unidad"),
-            id_cuenta=row.get("id_cuenta"),
-            contrapartes_ids=contrapartes_ids,
-            contrapartes_names=contrapartes_names,
-        ),
-        axis=1,
-    )].copy()
-
-    # NOTA (removido 2026-05-05): antes filtrábamos cash con cantidad
-    # negativa (ARS/USD < 0). Eso ocultaba posiciones short de cash —
-    # legítimas cuando la cuenta compró más bonos que el saldo en
-    # efectivo (margen / debt position). La vista /valuaciones necesita
-    # ver esas posiciones para que el cuadre AuM ↔ posiciones sea fiel.
-
-    if df_g.empty:
-        return []
-
-    # ── Valuación ────────────────────────────────────────────────────────────
-    df_g["valuacion"] = df_g.apply(_calcular_valuacion, axis=1)
-
-    df_g["fecha_snapshot"] = fecha_snapshot
-    df_g["timestamp"]      = timestamp
-
-    return df_g.to_dict(orient="records")

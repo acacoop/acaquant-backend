@@ -66,11 +66,16 @@ logger = logging.getLogger("api")
 def _validar_postura_auth() -> None:
     """Chequea la config de auth al boot (EXT-AUTH1).
 
-    Fail-closed en prod: si `ENV=prod` y falta `API_KEY`, abortamos el
-    arranque — preferimos una caída ruidosa (systemd `failed`, 502 visible)
-    a que la API quede abierta sin bearer en silencio. En dev solo logueamos
-    un warning. Siempre dejamos un log con las capas de auth activas para
-    poder auditar la postura sin tener que adivinar.
+    Fail-closed en prod: si `ENV=prod` y falta `API_KEY` **o** falta el par
+    `CF_ACCESS_TEAM`/`CF_ACCESS_AUD`, abortamos el arranque — preferimos una
+    caída ruidosa (systemd `failed`, 502 visible) a que la API quede abierta
+    en silencio. Sin CF_ACCESS_TEAM/AUD, `get_user_email` no valida el JWT de
+    Cloudflare y cae al header forwardeado (spoofeable) → todo el RBAC queda
+    de adorno. En dev solo logueamos un warning. Siempre dejamos un log con
+    las capas de auth activas para poder auditar la postura sin adivinar.
+
+    Antes de deployar esto: `python -m scripts.diag_auth_postura` en el
+    Droplet confirma que las env vars están en el unit file.
     """
     capas = []
     if API_KEY:
@@ -85,9 +90,16 @@ def _validar_postura_auth() -> None:
                 "Configurá API_KEY en el unit de systemd (o poné ENV=dev si es local)."
             )
         if not (CF_ACCESS_TEAM and CF_ACCESS_AUD):
-            logger.error(
-                "EXT-AUTH1: ENV=prod sin CF_ACCESS_TEAM/AUD — el JWT de CF NO se "
-                "valida criptográficamente; la identidad cae al header forwardeado."
+            faltan = [
+                n for n, v in (("CF_ACCESS_TEAM", CF_ACCESS_TEAM), ("CF_ACCESS_AUD", CF_ACCESS_AUD))
+                if not v
+            ]
+            raise RuntimeError(
+                f"EXT-AUTH1: ENV=prod sin {'/'.join(faltan)} → fail-closed. Sin esas dos "
+                "variables el JWT de CF NO se valida criptográficamente y la identidad cae "
+                "al header forwardeado (spoofeable) → el RBAC no protege nada. Configuralas "
+                "en el unit de systemd (o poné ENV=dev si es local). "
+                "Chequeo previo: python -m scripts.diag_auth_postura"
             )
     elif not API_KEY:
         logger.warning(

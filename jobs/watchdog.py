@@ -42,7 +42,6 @@ load_dotenv()
 _GRACE_S = 5 * 60
 _BUDGETS_S: dict[str, int] = {
     # ── standalone ──
-    "descubrir_cuentas":       90 * 60 + _GRACE_S,   # run_job 90m (autocap propio 60m)
     "operaciones_informes":    25 * 60 + _GRACE_S,   # run_job 25m
     "consolidado_cuentas":     25 * 60 + _GRACE_S,   # run_job 25m
     "pnl_totales_precompute":  25 * 60 + _GRACE_S,   # run_job 25m
@@ -53,8 +52,6 @@ _BUDGETS_S: dict[str, int] = {
     "fci_bilateral":           25 * 60 + _GRACE_S,
     # ── cashflow (30m, standalone) ──
     "cashflow":                30 * 60 + _GRACE_S,
-    # ── flujo_contrapartes (30m, standalone) ──
-    "flujo_contrapartes":      30 * 60 + _GRACE_S,
     # ── cierre_chain (25m): snapshot_cierre → fair_value ──
     "snapshot_cierre":         25 * 60 + _GRACE_S,
     "fair_value":              25 * 60 + _GRACE_S,

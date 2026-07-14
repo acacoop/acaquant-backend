@@ -14,10 +14,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
+from api.services._sql import _q
 from api.services.sin_operador import cuentas_sin_operador
 from core.postgres import get_pool
 
@@ -43,12 +43,6 @@ _CUPO_COLS = ("cupo_transaccional_ars", "cupo_usado_ars", "cupo_utilizacion_pct"
 
 def _normalize_value(field: str, value: str) -> str:
     return value.upper() if field in _UPPERCASE_FIELDS else value
-
-
-def _q(sql: str, params=None) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params or {})
-        return cur.fetchall()
 
 
 def _row_to_cliente(r: dict) -> dict:
@@ -115,11 +109,14 @@ def list_clientes(
 @router.get("/clientes/values")
 def get_clientes_values() -> dict:
     """Valores únicos por campo manual (datalists) + operadores + combos de niveles."""
-    values: dict[str, list[str]] = {}
-    for f in _EDITABLE_FIELDS:
-        rows = _q(f"SELECT DISTINCT {f} AS v FROM comitentes "
-                  f"WHERE {f} IS NOT NULL AND {f} <> ''")
-        values[f] = sorted(str(r["v"]) for r in rows)
+    # UNA query para los 13 campos: array_agg(DISTINCT col) por columna en una sola
+    # pasada de la tabla (antes: un SELECT DISTINCT por campo = 13 round-trips).
+    sel = ", ".join(f"array_agg(DISTINCT {f}) FILTER (WHERE {f} IS NOT NULL AND {f} <> '') AS {f}"
+                    for f in _EDITABLE_FIELDS)
+    agg = _q(f"SELECT {sel} FROM comitentes")[0]
+    values: dict[str, list[str]] = {
+        f: sorted(str(v) for v in (agg[f] or [])) for f in _EDITABLE_FIELDS
+    }
     operadores = [
         {"email": r["operador_email"], "nombre": r["nombre"] or r["operador_email"]}
         for r in _q("SELECT c.operador_email, o.nombre FROM comitentes c "
@@ -142,12 +139,15 @@ def clientes_sin_operador() -> dict:
     return cuentas_sin_operador()
 
 
+_OP_UPSERT = ("INSERT INTO operadores (email, nombre) VALUES (%s, %s) "
+              "ON CONFLICT (email) DO UPDATE SET nombre = "
+              "COALESCE(EXCLUDED.nombre, operadores.nombre)")
+
+
 def _ensure_operador(cur, email: str | None, nombre: str | None) -> None:
     """Upsert del operador (FK destino) antes de asignarlo a un comitente."""
     if email:
-        cur.execute("INSERT INTO operadores (email, nombre) VALUES (%s, %s) "
-                    "ON CONFLICT (email) DO UPDATE SET nombre = COALESCE(EXCLUDED.nombre, operadores.nombre)",
-                    (email, nombre))
+        cur.execute(_OP_UPSERT, (email, nombre))
 
 
 def _one_cliente(idc: str) -> dict | None:
@@ -211,6 +211,19 @@ class _BulkReq(BaseModel):
     rows: list[dict] = Field(..., max_length=20000)
 
 
+# UN solo statement para TODAS las filas del bulk (executemany lo pipelinea) en vez de
+# armar un UPDATE distinto por fila. Los campos que la fila no trae viajan como NULL y el
+# COALESCE deja la columna como está → mismo efecto que omitirlos del SET. Los nombres de
+# columna salen de _EDITABLE_FIELDS (allowlist), nunca del payload.
+_BULK_UPD = (
+    "UPDATE comitentes SET "
+    + ", ".join(f"{f} = COALESCE(%({f})s::text, {f})" for f in _EDITABLE_FIELDS)
+    + ", operador_email = COALESCE(%(operador_email)s::text, operador_email)"
+      ", actualizado_por = %(actualizado_por)s, actualizado_at = %(actualizado_at)s "
+      "WHERE id_cuenta = %(idc)s"
+)
+
+
 @bulk_router.post("/clientes/bulk")
 def bulk_clientes(req: _BulkReq, actor: str = Depends(get_user_email)):
     """Carga masiva: update por id_cuenta de SOLO los campos manuales + operador. No crea cuentas."""
@@ -218,38 +231,37 @@ def bulk_clientes(req: _BulkReq, actor: str = Depends(get_user_email)):
     bulk_cols = set(_EDITABLE_FIELDS)
     ids: list[str] = []
     sin_id = sin_campos = 0
-    actualizadas = matched = 0
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        for row in req.rows:
-            id_cuenta = str(row.get("id_cuenta") or "").strip()
-            if not id_cuenta:
-                sin_id += 1
-                continue
-            sets: dict = {}
-            for k, v in row.items():
-                if k in bulk_cols:
-                    val = ("" if v is None else str(v)).strip()
-                    if val != "":
-                        sets[k] = _normalize_value(k, val)
-            op_email = str(row.get("operador_email") or "").strip() or None
-            op_nombre = str(row.get("operador_nombre") or "").strip() or None
-            if not sets and not op_email and not op_nombre:
-                sin_campos += 1
-                continue
-            sets["actualizado_por"] = actor
-            sets["actualizado_at"] = now
-            if op_email:
-                _ensure_operador(cur, op_email, op_nombre)
-                sets["operador_email"] = op_email
-            cols = ", ".join(f"{k} = %({k})s" for k in sets)
-            cur.execute(f"UPDATE comitentes SET {cols} WHERE id_cuenta = %(idc)s",
-                        {**sets, "idc": id_cuenta})
-            matched += cur.rowcount
-            actualizadas += cur.rowcount
-            ids.append(id_cuenta)
-        conn.commit()
+    ops: list[tuple[str, str | None]] = []
+    params: list[dict] = []
+    for row in req.rows:
+        id_cuenta = str(row.get("id_cuenta") or "").strip()
+        if not id_cuenta:
+            sin_id += 1
+            continue
+        sets: dict = {}
+        for k, v in row.items():
+            if k in bulk_cols:
+                val = ("" if v is None else str(v)).strip()
+                if val != "":
+                    sets[k] = _normalize_value(k, val)
+        op_email = str(row.get("operador_email") or "").strip() or None
+        op_nombre = str(row.get("operador_nombre") or "").strip() or None
+        if not sets and not op_email and not op_nombre:
+            sin_campos += 1
+            continue
+        if op_email:
+            ops.append((op_email, op_nombre))
+        params.append({**dict.fromkeys(_EDITABLE_FIELDS), **sets, "operador_email": op_email,
+                       "actualizado_por": actor, "actualizado_at": now, "idc": id_cuenta})
+        ids.append(id_cuenta)
     if not ids:
         raise HTTPException(400, "no hay filas válidas (falta id_cuenta o columnas con datos)")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        if ops:  # FK: los operadores tienen que existir antes de asignarlos
+            cur.executemany(_OP_UPSERT, ops)
+        cur.executemany(_BULK_UPD, params)
+        matched = actualizadas = max(cur.rowcount, 0)
+        conn.commit()
     existentes = {r["id_cuenta"] for r in
                   _q("SELECT id_cuenta FROM comitentes WHERE id_cuenta = ANY(%(ids)s)", {"ids": ids})}
     no_encontradas = sorted(set(ids) - existentes)
@@ -283,6 +295,20 @@ class _BulkFondeoReq(BaseModel):
     fuente: str | None = Field(None, max_length=128)
 
 
+# Ídem _BULK_UPD: un statement para todas las filas. `cupo_transaccional_ars`/`cupo_usado_ars`
+# van con COALESCE (la fila puede traer solo uno → el otro queda como está), pero
+# `cupo_utilizacion_pct` se asigna directo porque su NULL es significativo (se recalcula
+# siempre y puede quedar en NULL cuando no hay cupo transaccional).
+_FONDEO_UPD = (
+    "UPDATE comitentes SET "
+    "cupo_transaccional_ars = COALESCE(%(cupo_transaccional_ars)s::numeric, cupo_transaccional_ars), "
+    "cupo_usado_ars = COALESCE(%(cupo_usado_ars)s::numeric, cupo_usado_ars), "
+    "cupo_utilizacion_pct = %(cupo_utilizacion_pct)s, cupo_cargado_en = %(cupo_cargado_en)s, "
+    "cupo_fuente = %(cupo_fuente)s, actualizado_por = %(actualizado_por)s, "
+    "actualizado_at = %(actualizado_at)s WHERE id_cuenta = %(idc)s"
+)
+
+
 @bulk_router.post("/clientes/bulk-fondeo")
 def bulk_clientes_fondeo(req: _BulkFondeoReq, actor: str = Depends(get_user_email)):
     """Carga masiva del cupo de fondeo del custodio (ARS). No crea cuentas; toca solo
@@ -291,39 +317,35 @@ def bulk_clientes_fondeo(req: _BulkFondeoReq, actor: str = Depends(get_user_emai
     fuente = (req.fuente or "manager_bulk").strip()[:128]
     ids: list[str] = []
     sin_id = sin_campos = sin_numeros = 0
-    actualizadas = matched = 0
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        for row in req.rows:
-            id_cuenta = str(row.get("id_cuenta") or "").strip()
-            if not id_cuenta:
-                sin_id += 1
-                continue
-            raw_trans, raw_usado = row.get("cupo_transaccional"), row.get("cupo_usado")
-            trans, usado = _parse_num(raw_trans), _parse_num(raw_usado)
-            if raw_trans in (None, "") and raw_usado in (None, ""):
-                sin_campos += 1
-                continue
-            if (raw_trans not in (None, "") and trans is None) or (
-                    raw_usado not in (None, "") and usado is None):
-                sin_numeros += 1
-                continue
-            sets: dict = {"cupo_cargado_en": now, "cupo_fuente": fuente,
-                          "actualizado_por": actor, "actualizado_at": now}
-            if trans is not None:
-                sets["cupo_transaccional_ars"] = trans
-            if usado is not None:
-                sets["cupo_usado_ars"] = usado
-            sets["cupo_utilizacion_pct"] = (round(usado / trans * 100, 2)
-                                            if (trans and usado is not None and trans > 0) else None)
-            cols = ", ".join(f"{k} = %({k})s" for k in sets)
-            cur.execute(f"UPDATE comitentes SET {cols} WHERE id_cuenta = %(idc)s",
-                        {**sets, "idc": id_cuenta})
-            matched += cur.rowcount
-            actualizadas += cur.rowcount
-            ids.append(id_cuenta)
-        conn.commit()
+    params: list[dict] = []
+    for row in req.rows:
+        id_cuenta = str(row.get("id_cuenta") or "").strip()
+        if not id_cuenta:
+            sin_id += 1
+            continue
+        raw_trans, raw_usado = row.get("cupo_transaccional"), row.get("cupo_usado")
+        trans, usado = _parse_num(raw_trans), _parse_num(raw_usado)
+        if raw_trans in (None, "") and raw_usado in (None, ""):
+            sin_campos += 1
+            continue
+        if (raw_trans not in (None, "") and trans is None) or (
+                raw_usado not in (None, "") and usado is None):
+            sin_numeros += 1
+            continue
+        params.append({
+            "cupo_transaccional_ars": trans, "cupo_usado_ars": usado,
+            "cupo_utilizacion_pct": (round(usado / trans * 100, 2)
+                                     if (trans and usado is not None and trans > 0) else None),
+            "cupo_cargado_en": now, "cupo_fuente": fuente,
+            "actualizado_por": actor, "actualizado_at": now, "idc": id_cuenta,
+        })
+        ids.append(id_cuenta)
     if not ids:
         raise HTTPException(400, "no hay filas válidas (falta id_cuenta o ambos cupos vacíos/no numéricos)")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(_FONDEO_UPD, params)
+        matched = actualizadas = max(cur.rowcount, 0)
+        conn.commit()
     existentes = {r["id_cuenta"] for r in
                   _q("SELECT id_cuenta FROM comitentes WHERE id_cuenta = ANY(%(ids)s)", {"ids": ids})}
     no_encontradas = sorted(set(ids) - existentes)
@@ -352,19 +374,21 @@ def _reclasificar_nivel_3(ids_cuenta: list[str], actor: str) -> int:
     rows = _q("SELECT id_cuenta, tipo_cliente, nivel_3, cupo_transaccional_ars "
               "FROM comitentes WHERE id_cuenta = ANY(%(ids)s)", {"ids": ids_cuenta})
     now = datetime.now(UTC)
-    n = 0
+    pend: list[tuple] = []
+    for r in rows:
+        cupo_ars = r.get("cupo_transaccional_ars")
+        nuevo = clasificar_nivel_3(
+            r.get("tipo_cliente"), float(cupo_ars) if cupo_ars is not None else None,
+            mep=mep, uva=uva,
+            es_contraparte=str(r.get("id_cuenta") or "").strip() in contrapartes)
+        if nuevo != r.get("nivel_3"):
+            pend.append((nuevo, now, actor, r["id_cuenta"]))
+    if not pend:
+        return 0
     with get_pool().connection() as conn, conn.cursor() as cur:
-        for r in rows:
-            cupo_ars = r.get("cupo_transaccional_ars")
-            nuevo = clasificar_nivel_3(
-                r.get("tipo_cliente"), float(cupo_ars) if cupo_ars is not None else None,
-                mep=mep, uva=uva,
-                es_contraparte=str(r.get("id_cuenta") or "").strip() in contrapartes)
-            if nuevo != r.get("nivel_3"):
-                cur.execute("UPDATE comitentes SET nivel_3=%s, actualizado_at=%s, "
-                            "actualizado_por=%s WHERE id_cuenta=%s",
-                            (nuevo, now, actor, r["id_cuenta"]))
-                n += cur.rowcount
+        cur.executemany("UPDATE comitentes SET nivel_3=%s, actualizado_at=%s, "
+                        "actualizado_por=%s WHERE id_cuenta=%s", pend)
+        n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else len(pend)
         conn.commit()
     return n
 

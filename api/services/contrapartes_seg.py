@@ -21,8 +21,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from psycopg.rows import dict_row
-
+from api.services._sql import _q
 from api.services.segmentacion import _TIPOS_PH  # tipo_cliente de persona física
 from core import aunesa
 from core.postgres import get_pool
@@ -32,12 +31,6 @@ _PLACEHOLDERS: frozenset[str] = frozenset({"", "NO APLICA", "N/A", "NONE", "NULL
 _MIN_KEYWORD_LEN = 3
 # denominacion preferida: la de la fila; si NULL, la del JOIN a cuentas.
 _DEN = "COALESCE(c.denominacion, u.denominacion)"
-
-
-def _q(sql: str, params: dict | None = None) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(sql, params or {})
-        return cur.fetchall()
 
 
 def _exec(sql: str, params: dict) -> int:

@@ -1,19 +1,26 @@
-"""partner_export.py — exporta posiciones de cuentas puntuales a ACAPortfolio.Cartera.
+"""partner_export.py — exporta posiciones de cuentas puntuales a `partner.cartera` (SQL).
 
 Job AUTÓNOMO para la API externa del proveedor. Pega DIRECTO a Aunesa por
 las cuentas de `config.PARTNER_EXPORT_CUENTAS` y vuelca su posición a
-`ACAPortfolio.Cartera`.
+`partner.cartera` (Postgres), que es lo que sirve `data.acaquant.com`.
 
-NO depende de `Valuaciones.AuM` ni de `jobs/aum.py`, y NO aplica los filtros
+Postgres es el ÚNICO destino (decomiso Mongo 2026-06-29: `ACAPortfolio.Cartera`
+fue dropeada) → si una escritura falla, la cuenta NO se exporta y el proveedor
+queda con datos viejos. Por eso el job acumula las cuentas fallidas, las reporta
+y termina con exit code != 0 (nunca en ✅ con escrituras perdidas). Todo el run
+queda además en `manager.job_runs` (JobRunLogger) → visible para el triage y el
+informe de salud.
+
+NO depende de `portafolio.tenencia` ni de `jobs/aum.py`, y NO aplica los filtros
 de exclusión del AuM (`jobs/_aum_filters.py`) — el proveedor ve todas las
 posiciones de sus cuentas. Replica de `jobs/aum.py` solo las manipulaciones
 de datos legítimas: quedarse con las filas "Acumulado", el signo de
 `cantidad`, el agrupado por especie, el descarte de posiciones netas en 0
 y el cálculo de valuación.
 
-Schema de `ACAPortfolio.Cartera` (1 doc por (fecha, id_cuenta, unidad)):
+Schema de `partner.cartera` (1 fila por (fecha, id_cuenta, unidad)):
   {
-    fecha:       "YYYY-MM-DD",
+    fecha:       date,
     id_cuenta:   "463",
     cuenta:      "[463] NOMBRE",
     unidad:      "...",
@@ -23,8 +30,8 @@ Schema de `ACAPortfolio.Cartera` (1 doc por (fecha, id_cuenta, unidad)):
     exported_at: datetime UTC,
   }
 
-Idempotente por (fecha, id_cuenta): re-correr el mismo día reemplaza los
-docs de esa cuenta para esa fecha; el histórico de otras fechas queda
+Idempotente por (fecha, id_cuenta): re-correr el mismo día reemplaza las
+filas de esa cuenta para esa fecha; el histórico de otras fechas queda
 intacto. Una cuenta sin posiciones en Aunesa se saltea sin error — es un
 caso normal, no una falla.
 
@@ -37,6 +44,7 @@ Uso:  python -m jobs.partner_export
 """
 from __future__ import annotations
 
+import sys
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -45,42 +53,34 @@ import pandas as pd
 import requests
 
 import config
+from core.job_runs import JobRunLogger
 
-# SQL-native (decomiso Mongo): el export escribe SOLO Postgres `partner.cartera`.
-# ACAPortfolio.Cartera (Mongo) fue dropeada; la lectura del servicio sale de SQL
-# (PARTNER_SQL, ver partner_api/store.py).
 _DEST = "partner.cartera"
 
 
-def _sql_upsert_cuenta(cid: str, fecha: str, docs: list[dict]) -> None:
-    """Espejo SQL idempotente por (id_cuenta, fecha): borra las filas de ESA
-    cuenta para ESA fecha y reinserta. Mismo grano que el delete_many de Mongo →
-    el histórico de otras fechas queda intacto. Best-effort: si PG falla NO
-    rompe el job (Mongo es la fuente operativa mientras dura el dual-write)."""
-    try:
-        from partner_api import pg
-        pg.ensure_schema()
-        with pg.connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM partner.cartera WHERE id_cuenta = %s AND fecha = %s::date",
-                    (cid, fecha),
-                )
-                if docs:
-                    cur.executemany(
-                        "INSERT INTO partner.cartera (fecha, id_cuenta, unidad, "
-                        "cuenta, cantidad, precio, valuacion, exported_at) "
-                        "VALUES (%(fecha)s::date, %(id_cuenta)s, %(unidad)s, %(cuenta)s, "
-                        "%(cantidad)s, %(precio)s, %(valuacion)s, %(exported_at)s) "
-                        "ON CONFLICT (fecha, id_cuenta, unidad) DO UPDATE SET "
-                        "cuenta = EXCLUDED.cuenta, cantidad = EXCLUDED.cantidad, "
-                        "precio = EXCLUDED.precio, valuacion = EXCLUDED.valuacion, "
-                        "exported_at = EXCLUDED.exported_at",
-                        docs,
-                    )
-            conn.commit()
-    except Exception as e:
-        print(f"  [{cid}] ⚠ dual-write SQL falló (Mongo OK): {e}", flush=True)
+def _sql_upsert_cuenta(conn, cid: str, fecha: str, docs: list[dict]) -> None:
+    """Upsert idempotente por (id_cuenta, fecha): borra las filas de ESA cuenta para
+    ESA fecha y reinserta, en UNA transacción. El histórico de otras fechas queda
+    intacto. Postgres es el único destino → un fallo acá NO se traga: propaga y el
+    caller lo registra como cuenta perdida."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM partner.cartera WHERE id_cuenta = %s AND fecha = %s::date",
+            (cid, fecha),
+        )
+        if docs:
+            cur.executemany(
+                "INSERT INTO partner.cartera (fecha, id_cuenta, unidad, "
+                "cuenta, cantidad, precio, valuacion, exported_at) "
+                "VALUES (%(fecha)s::date, %(id_cuenta)s, %(unidad)s, %(cuenta)s, "
+                "%(cantidad)s, %(precio)s, %(valuacion)s, %(exported_at)s) "
+                "ON CONFLICT (fecha, id_cuenta, unidad) DO UPDATE SET "
+                "cuenta = EXCLUDED.cuenta, cantidad = EXCLUDED.cantidad, "
+                "precio = EXCLUDED.precio, valuacion = EXCLUDED.valuacion, "
+                "exported_at = EXCLUDED.exported_at",
+                docs,
+            )
+    conn.commit()
 
 
 # Zona horaria de Argentina — define el día de `fecha` del snapshot.
@@ -201,65 +201,100 @@ def _posiciones(data: list, cuenta_id: str) -> list[dict]:
     return df_g.to_dict(orient="records")
 
 
-def main() -> None:
+def _exportar(jr: JobRunLogger) -> int:
     cuentas = [str(c).strip() for c in config.PARTNER_EXPORT_CUENTAS if str(c).strip()]
     if not cuentas:
         # Fail-safe: sin cuentas configuradas NO exportamos nada.
-        print("⚠ config.PARTNER_EXPORT_CUENTAS está vacío — abortando.")
-        return
+        jr.log("⚠ config.PARTNER_EXPORT_CUENTAS está vacío — abortando.")
+        return 0
 
     # `fecha` = día hábil de Argentina (no UTC) para que las dos corridas
     # diarias (18:30 y 23:00 ART) caigan en el mismo snapshot.
     hoy_ar = datetime.now(_AR_TZ).date()
     fecha = hoy_ar.isoformat()
     desde = _fecha_desde(hoy_ar)
-    print(f"fecha={fecha}  desde(Aunesa)={desde}  cuentas={cuentas}", flush=True)
+    jr.log(f"fecha={fecha}  desde(Aunesa)={desde}  cuentas={cuentas}")
 
-    print("Autenticando con Aunesa...", flush=True)
+    jr.log("Autenticando con Aunesa...")
     headers = _autenticar()
-    print("Auth OK", flush=True)
+    jr.log("Auth OK")
+
+    from partner_api import pg
+    pg.ensure_schema()
 
     ahora = datetime.now(UTC)
     total_pos = 0
     con_datos = 0
-    for cid in cuentas:
-        data, reauth = _consultar_posicion(cid, dict(headers), desde)
-        if reauth:
-            headers = _autenticar()
-            data, _ = _consultar_posicion(cid, dict(headers), desde)
+    fallidas: list[str] = []
 
-        registros = _posiciones(data, cid) if isinstance(data, list) and data else []
+    # Una sola conexión para todo el run; el commit es por cuenta (grano de
+    # idempotencia). Si una cuenta falla, se hace rollback y se sigue con la
+    # siguiente — el fallo se acumula y define el exit code.
+    with pg.connect() as conn:
+        for cid in cuentas:
+            data, reauth = _consultar_posicion(cid, dict(headers), desde)
+            if reauth:
+                headers = _autenticar()
+                data, _ = _consultar_posicion(cid, dict(headers), desde)
 
-        if not registros:
-            print(f"  [{cid}] sin posiciones — se saltea "
-                  f"(cuenta vacía o sin datos en Aunesa).", flush=True)
-            # Idempotente: limpia la cuenta/fecha (cuenta vaciada). El histórico
-            # de otras fechas queda intacto.
-            _sql_upsert_cuenta(cid, fecha, [])
-            continue
+            registros = _posiciones(data, cid) if isinstance(data, list) and data else []
+            docs = [
+                {
+                    "fecha":       fecha,
+                    "id_cuenta":   cid,
+                    "cuenta":      r.get("cuenta"),
+                    "unidad":      r.get("unidad"),
+                    "cantidad":    r.get("cantidad"),
+                    "precio":      r.get("precio"),
+                    "valuacion":   r.get("valuacion"),
+                    "exported_at": ahora,
+                }
+                for r in registros
+            ]
 
-        docs = [
-            {
-                "fecha":       fecha,
-                "id_cuenta":   cid,
-                "cuenta":      r.get("cuenta"),
-                "unidad":      r.get("unidad"),
-                "cantidad":    r.get("cantidad"),
-                "precio":      r.get("precio"),
-                "valuacion":   r.get("valuacion"),
-                "exported_at": ahora,
-            }
-            for r in registros
-        ]
-        _sql_upsert_cuenta(cid, fecha, docs)
-        total_pos += len(docs)
-        con_datos += 1
-        print(f"  [{cid}] {len(docs)} posiciones exportadas.", flush=True)
+            try:
+                # docs vacío = cuenta vaciada: el DELETE limpia (fecha, cuenta) igual.
+                _sql_upsert_cuenta(conn, cid, fecha, docs)
+            except Exception as e:
+                conn.rollback()
+                fallidas.append(cid)
+                jr.error(
+                    f"[{cid}] escritura a {_DEST} FALLÓ — la cuenta NO se exportó "
+                    f"(el proveedor sigue viendo datos viejos): {e}"
+                )
+                continue
 
-    print(f"✅ {total_pos} posiciones de {con_datos}/{len(cuentas)} cuenta(s) "
-          f"exportadas a {_DEST} para {fecha} "
-          f"({ahora.isoformat()}).")
+            if not docs:
+                jr.log(f"  [{cid}] sin posiciones — se saltea "
+                       f"(cuenta vacía o sin datos en Aunesa).")
+                continue
+            total_pos += len(docs)
+            con_datos += 1
+            jr.log(f"  [{cid}] {len(docs)} posiciones exportadas.")
+
+    jr.set_stat("fecha", fecha)
+    jr.set_stat("cuentas", len(cuentas))
+    jr.set_stat("cuentas_con_datos", con_datos)
+    jr.set_stat("posiciones", total_pos)
+    jr.set_stat("cuentas_fallidas", fallidas)
+
+    if fallidas:
+        jr.log(
+            f"❌ export INCOMPLETO para {fecha}: {len(fallidas)}/{len(cuentas)} cuenta(s) "
+            f"NO se escribieron en {_DEST} ({', '.join(fallidas)}). "
+            f"{total_pos} posiciones de {con_datos} cuenta(s) sí se exportaron."
+        )
+        return 1
+
+    jr.log(f"✅ {total_pos} posiciones de {con_datos}/{len(cuentas)} cuenta(s) "
+           f"exportadas a {_DEST} para {fecha} ({ahora.isoformat()}).")
+    return 0
+
+
+def main() -> int:
+    with JobRunLogger("partner_export") as jr:
+        return _exportar(jr)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

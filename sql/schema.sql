@@ -523,6 +523,16 @@ CREATE TABLE IF NOT EXISTS portafolio.alquiler (
     PRIMARY KEY (id_cuenta, unidad)
 );
 
+-- PORTFOLIO ALQUILER (tab de "Títulos en Alquiler"): lista CURADA de títulos que
+-- el back office elige a mano (fila "+" con buscador). La vista los muestra como
+-- Tenencia Valorizada (serie diaria + PX/100/255/256/Total, valuación en bruto).
+-- La escribe/lee api/services/tenencia_hd.py (que además la self-crea).
+CREATE TABLE IF NOT EXISTS portafolio.alquiler_portfolio (
+    unidad      text PRIMARY KEY,
+    updated_by  text,
+    updated_at  timestamptz
+);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- VALUACIONES — cache de consolidado + feeds de precio para el PnL
 -- ─────────────────────────────────────────────────────────────────────────────

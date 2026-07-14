@@ -372,6 +372,140 @@ def set_alquiler_marca(*, id_cuenta: str, unidad: str, en_alquiler: bool,
             "hasta": h.isoformat() if h else None}
 
 
+# ── PORTFOLIO ALQUILER (lista curada de títulos — tab propia) ────────────────
+# Pedido de la mesa 2026-07-14: en vez de operar el netting por marcas, una
+# tabla tipo Tenencia Valorizada pero SOLO con los títulos que el back office
+# ELIGE a mano (fila "+" con buscador sobre todos los instrumentos). La
+# selección es DURABLE y compartida (tabla SQL self-create, como alquiler);
+# los valores salen de portafolio.tenencia EN BRUTO (sin netear marcas).
+_PORTFOLIO_ALQ_TABLE = "portafolio.alquiler_portfolio"
+
+
+def _ensure_portfolio_alq_table(cur) -> None:
+    cur.execute(
+        f"CREATE TABLE IF NOT EXISTS {_PORTFOLIO_ALQ_TABLE} ("
+        "unidad text PRIMARY KEY, updated_by text, updated_at timestamptz)")
+
+
+def portfolio_alquiler_unidades() -> list[str]:
+    """Títulos elegidos para la tab PORTFOLIO ALQUILER (orden alfabético).
+    Vacío si la tabla no existe / PG caído — la vista muestra el estado vacío."""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            _ensure_portfolio_alq_table(cur)
+            cur.execute(f"SELECT unidad FROM {_PORTFOLIO_ALQ_TABLE} ORDER BY unidad")
+            out = [r[0] for r in cur.fetchall()]
+            conn.commit()
+            return out
+    except Exception as e:
+        logger.warning("portfolio_alquiler: unidades no disponibles (%s)", e)
+        return []
+
+
+def portfolio_alquiler_dias() -> dict[str, Any]:
+    """Serie diaria de la tab PORTFOLIO ALQUILER: 1 fila por fecha con la
+    valuación de los títulos ELEGIDOS por cuenta propia + total + tc. Valuación
+    EN BRUTO (sin netear marcas de alquiler): acá se mira el portfolio elegido."""
+    unidades = portfolio_alquiler_unidades()
+    if not unidades:
+        return {"cuentas": CUENTAS, "unidades": [], "dias": [], "ultima_fecha": None}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT fecha, id_cuenta, SUM(valuacion) FROM portafolio.tenencia "
+            "WHERE aum = 'si' AND id_cuenta = ANY(%s) AND unidad = ANY(%s) "
+            "GROUP BY fecha, id_cuenta ORDER BY fecha", (CUENTAS, unidades))
+        filas = cur.fetchall()
+    por_fecha: dict[str, dict[str, float]] = {}
+    for fecha, idc, val in filas:
+        por_fecha.setdefault(fecha.isoformat(), {})[str(idc)] = float(val or 0.0)
+    fechas = sorted(por_fecha)
+    tcs = _tc_map(fechas)
+    dias = []
+    for f in fechas:
+        byc = por_fecha[f]
+        fila = {"fecha": f, "tc": tcs.get(f), "total": round(sum(byc.values()), 2)}
+        fila.update({c: round(byc.get(c, 0.0), 2) for c in CUENTAS})
+        dias.append(fila)
+    return {"cuentas": CUENTAS, "unidades": unidades, "dias": dias,
+            "ultima_fecha": dias[-1]["fecha"] if dias else None}
+
+
+def portfolio_alquiler_posiciones(*, fecha: str) -> dict[str, Any]:
+    """Posiciones del día SOLO de los títulos elegidos (desglose por cuenta,
+    mismas columnas que Tenencia Valorizada: PX · 100 · 255 · 256 · Total).
+    Un título elegido SIN posición ese día igual aparece (fila en cero) — la
+    vista lo muestra con '—' y deja quitarlo."""
+    unidades = portfolio_alquiler_unidades()
+    por_unidad: dict[str, dict[str, float]] = {}
+    cant_unidad: dict[str, dict[str, float]] = {}
+    precio_unidad: dict[str, float] = {}
+    if unidades:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT unidad, id_cuenta, SUM(valuacion), SUM(cantidad), MAX(precio) "
+                "FROM portafolio.tenencia "
+                "WHERE fecha = %s AND aum = 'si' AND id_cuenta = ANY(%s) AND unidad = ANY(%s) "
+                "GROUP BY unidad, id_cuenta", (fecha, CUENTAS, unidades))
+            for u, idc, val, cant, prec in cur.fetchall():
+                c = str(idc)
+                por_unidad.setdefault(u, {})[c] = float(val or 0.0)
+                cant_unidad.setdefault(u, {})[c] = float(cant or 0.0)
+                if prec is not None:
+                    precio_unidad[u] = float(prec)
+    posiciones = []
+    for u in unidades:
+        byc = por_unidad.get(u, {})
+        cantc = cant_unidad.get(u, {})
+        fila = {
+            "unidad": u,
+            "precio": round(precio_unidad[u], 4) if u in precio_unidad else None,
+            "total": round(sum(byc.values()), 2),
+            "total_cant": round(sum(cantc.values()), 4),
+            "cant": {c: round(cantc.get(c, 0.0), 4) for c in CUENTAS},
+        }
+        fila.update({c: round(byc.get(c, 0.0), 2) for c in CUENTAS})
+        posiciones.append(fila)
+    posiciones.sort(key=lambda p: -p["total"])
+    total = round(sum(p["total"] for p in posiciones), 2)
+    return {"fecha": fecha, "cuentas": CUENTAS, "tc": _tc(fecha),
+            "total": total, "posiciones": posiciones}
+
+
+@cached(ttl=300)
+def portfolio_alquiler_instrumentos() -> list[str]:
+    """Catálogo para el buscador del '+': todos los instrumentos conocidos —
+    el catálogo (portafolio.assets) ∪ lo que alguna vez apareció en la tenencia
+    de las cuentas propias (por si un título no tiene fila en assets)."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT unidad FROM portafolio.assets WHERE unidad IS NOT NULL "
+            "UNION "
+            "SELECT DISTINCT unidad FROM portafolio.tenencia "
+            "WHERE id_cuenta = ANY(%s) AND unidad IS NOT NULL "
+            "ORDER BY 1", (CUENTAS,))
+        return [r[0] for r in cur.fetchall()]
+
+
+def set_portfolio_alquiler(*, unidad: str, en_portfolio: bool, email: str) -> dict[str, Any]:
+    """Agrega (True) o quita (False) un título de la tab PORTFOLIO ALQUILER.
+    Idempotente: agregar dos veces no duplica; quitar lo ausente no falla."""
+    from datetime import UTC, datetime
+    u = (unidad or "").strip()
+    if not u:
+        return {"ok": False, "error": "unidad vacía"}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        _ensure_portfolio_alq_table(cur)
+        if en_portfolio:
+            cur.execute(
+                f"INSERT INTO {_PORTFOLIO_ALQ_TABLE} (unidad, updated_by, updated_at) "
+                f"VALUES (%s, %s, %s) ON CONFLICT (unidad) DO NOTHING",
+                (u, email, datetime.now(UTC)))
+        else:
+            cur.execute(f"DELETE FROM {_PORTFOLIO_ALQ_TABLE} WHERE unidad = %s", (u,))
+        conn.commit()
+    return {"ok": True, "unidad": u, "en_portfolio": bool(en_portfolio)}
+
+
 def actualizar_precio_posicion(*, fecha: str, unidad: str, precio: float,
                                dividir_100: bool = True, cartera: str = "HD") -> dict[str, Any]:
     """Corrige a mano el PRECIO de una unidad en un día → recalcula la valuación de

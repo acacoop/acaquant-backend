@@ -141,3 +141,46 @@ def tenencia_hd_alquiler(
     return svc_ten.set_alquiler_marca(
         id_cuenta=id_cuenta, unidad=unidad, en_alquiler=en_alquiler,
         cantidad=cantidad, desde=desde, hasta=hasta, email=email)
+
+
+# ── PORTFOLIO ALQUILER (tab dentro de Títulos en Alquiler) ──
+# Lista CURADA de títulos (el back office los agrega con el "+") mostrada como
+# Tenencia Valorizada: serie diaria + posiciones por día, cuentas 100/255/256,
+# valuación en bruto (sin netear marcas).
+@router.get("/tenencia-hd/portfolio-alquiler")
+def tenencia_hd_portfolio_alquiler(
+    _email: str = Depends(get_user_email),
+):
+    """Serie diaria (fecha · tc · 100/255/256 · total) de los títulos ELEGIDOS
+    + la lista de elegidos. Sin títulos elegidos → dias=[]."""
+    return svc_ten.portfolio_alquiler_dias()
+
+
+@router.get("/tenencia-hd/portfolio-alquiler/posiciones")
+def tenencia_hd_portfolio_alquiler_posiciones(
+    fecha: str = Query(..., description="ISO YYYY-MM-DD"),
+    _email: str = Depends(get_user_email),
+):
+    """Posiciones del día SOLO de los títulos elegidos (PX · 100/255/256 · Total).
+    Un elegido sin posición ese día aparece igual, en cero."""
+    return svc_ten.portfolio_alquiler_posiciones(fecha=fecha)
+
+
+@router.get("/tenencia-hd/portfolio-alquiler/instrumentos")
+def tenencia_hd_portfolio_alquiler_instrumentos(
+    _email: str = Depends(get_user_email),
+):
+    """Catálogo completo de instrumentos (assets ∪ tenencia de cuentas propias)
+    para el buscador del '+'."""
+    return {"unidades": svc_ten.portfolio_alquiler_instrumentos()}
+
+
+@router.post("/tenencia-hd/portfolio-alquiler")
+def tenencia_hd_portfolio_alquiler_set(
+    unidad:       str = Body(..., embed=True),
+    en_portfolio: bool = Body(..., embed=True, description="True = agregar, False = quitar"),
+    email: str = Depends(get_user_email),
+):
+    """Agrega o quita un título de la lista del Portfolio Alquiler (durable,
+    compartida por todo el back office)."""
+    return svc_ten.set_portfolio_alquiler(unidad=unidad, en_portfolio=en_portfolio, email=email)

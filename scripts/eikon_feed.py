@@ -13,7 +13,11 @@ Flujo por arranque:
      (el server SOLO llena vacíos: lo cargado a mano en Manager no se pisa).
   3. Loop: `ek.get_data(rics, FIELDS)` → POST /eikon/quotes SOLO de lo que cambió.
 
-Uso (en la PC de oficina, con las 3 constantes de abajo pegadas):
+Uso — DOS formas (misma mecánica que mae_forex_client.py):
+  · Jupyter/Spyder (Anaconda): editá los INTERRUPTORES del bloque CONFIG
+    (DRY_RUN / RUN_ONCE / TICKERS) y corré el archivo. Los flags no aplican
+    ahí (el kernel inyecta argumentos propios; se ignoran solos).
+  · Terminal: los flags pisan a los interruptores.
     python eikon_feed.py                     # feed continuo (Ctrl+C para cortar)
     python eikon_feed.py --once              # una sola pasada (para probar)
     python eikon_feed.py --once --dry-run    # muestra la data y NO postea nada
@@ -34,8 +38,20 @@ import sys
 import time
 from datetime import datetime
 
-import eikon as ek
-import requests
+# Import guardado: abierto con doble click, un ImportError cierra la ventana
+# antes de poder leer nada. Así el motivo queda en pantalla.
+try:
+    import eikon as ek
+    import requests
+except ImportError as e:
+    print(f"Falta una librería: {e.name!r}. Instalala con:\n\n    pip install eikon requests\n\n"
+          "(en la consola del MISMO Python con el que abrís este script — si usás "
+          "Anaconda, en el Anaconda Prompt).")
+    try:
+        input("\n[ENTER] para cerrar…")
+    except Exception:
+        pass
+    raise SystemExit(1) from None
 
 # ── Config: pegá tus valores ACÁ (no commitearlos — quedan solo en la PC).
 #    INGEST_TOKEN y el service token de CF Access son LOS MISMOS que ya tenés
@@ -45,6 +61,11 @@ API_BASE      = "https://api.acaquant.com"
 INGEST_TOKEN  = "PEGA_EL_X_INGEST_TOKEN_ACA"          # el mismo del feed MAE
 CF_CLIENT_ID  = ""                                     # service token CF Access
 CF_SECRET     = ""                                     #   (vacíos si no aplica)
+
+# Interruptores (para correr desde Jupyter/Spyder, donde no hay flags):
+DRY_RUN  = False             # True = pollea y MUESTRA, no postea nada
+RUN_ONCE = False             # True = una sola pasada y corta
+TICKERS  = ""                # subset separado por coma, ej. "AAPL,NVDA" ("" = todos)
 
 INTERVALO_SEG = 20
 CHUNK_RICS    = 100          # RICs por llamada a get_data (no saturar Eikon)
@@ -211,7 +232,13 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="no postea nada (solo muestra)")
     ap.add_argument("--tickers", help="subset separado por coma (ej. AAPL,NVDA)")
     ap.add_argument("--intervalo", type=int, default=INTERVALO_SEG, help="segundos entre pasadas")
-    args = ap.parse_args()
+    # parse_known_args: bajo Jupyter/Spyder el kernel mete argumentos propios
+    # (-f kernel.json) que no son nuestros — se ignoran en vez de reventar.
+    args, _ = ap.parse_known_args()
+    # Flags de terminal PISAN a los interruptores del CONFIG (default para Jupyter).
+    args.once = args.once or RUN_ONCE
+    args.dry_run = args.dry_run or DRY_RUN
+    args.tickers = args.tickers or TICKERS
 
     if "PEGA_TU" in EIKON_APP_KEY or "PEGA_EL" in INGEST_TOKEN:
         sys.exit("Pegá EIKON_APP_KEY e INGEST_TOKEN en las constantes del script antes de correr.")
@@ -263,7 +290,18 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Abierto con doble click en Windows, la consola se cierra al terminar y no
+    # se llega a leer nada → mostramos el motivo y esperamos un ENTER siempre.
     try:
         main()
     except KeyboardInterrupt:
         _log("cortado por teclado — chau.")
+    except SystemExit as e:
+        if str(e):
+            print(f"\n{e}")
+    except Exception as e:
+        _log(f"❌ error fatal: {e}")
+    try:
+        input("\n[ENTER] para cerrar…")
+    except Exception:
+        pass

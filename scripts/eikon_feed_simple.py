@@ -2,7 +2,8 @@
 
 Solo hace esto, nada más:
   1. Pide a la API la lista de RICs ya cargados (los sin RIC quedan afuera).
-  2. Loop: ek.get_data(rics, ["PRIMACT_1"]) → POST del last a la API.
+  2. Loop: ek.get_data(rics, CAMPOS) → POST a la API de last/bid/ask/high/low/
+     cierre anterior/volumen/var% (ver CAMPOS abajo).
 
 Sin symbology, sin flags, sin chunks. Config abajo (mismos valores que
 mae_forex_client.py). Correr con Workspace abierto y logueado:
@@ -73,10 +74,21 @@ HEADERS = {
 
 ultimo = {}   # cache para mandar solo lo que cambió (como last_outputs en el tuyo)
 
-# CF_LAST = last de ACCIONES; PRIMACT_1 = last de FUTUROS (el del script de
-# commodities). Se piden los dos y se usa el que venga con dato — Eikon avisa
+# Campo Eikon → nombre en el payload. CF_* son de acciones; PRIMACT_1 es el
+# last de FUTUROS (fallback, por si algún día se suscribe uno) — Eikon avisa
 # "Field not found" por el que no aplique a cada instrumento: es normal.
-FIELDS = ["CF_LAST", "PRIMACT_1"]
+CAMPOS = {
+    "CF_LAST":   "last",        # último precio negociado
+    "CF_BID":    "bid",         # compra
+    "CF_ASK":    "ask",         # venta
+    "CF_HIGH":   "high",        # máximo del día
+    "CF_LOW":    "low",         # mínimo del día
+    "CF_CLOSE":  "prev_close",  # cierre anterior
+    "CF_VOLUME": "volumen",     # volumen del día
+    "PCTCHNG":   "var_pct",     # variación % del día
+    "NETCHNG_1": "var_neta",    # cambio neto en precio del día
+}
+FIELDS = [*CAMPOS, "PRIMACT_1"]
 
 
 def actualizar_precios(universo):
@@ -92,15 +104,18 @@ def actualizar_precios(universo):
         docs = []
         for _, row in data.iterrows():
             ric = row["Instrument"]
-            last = None
-            for campo in FIELDS:
-                v = row.get(campo)
-                if v is not None and not pd.isna(v):
-                    last = float(v)
-                    break
-            if ric not in ric_a_ticker or last is None:
+            if ric not in ric_a_ticker:
                 continue
-            docs.append({"ticker": ric_a_ticker[ric], "ric": ric, "last": last})
+            doc = {"ticker": ric_a_ticker[ric], "ric": ric}
+            for campo, nombre in CAMPOS.items():
+                v = row.get(campo)
+                doc[nombre] = float(v) if v is not None and not pd.isna(v) else None
+            if doc["last"] is None:                    # fallback futuros
+                v = row.get("PRIMACT_1")
+                doc["last"] = float(v) if v is not None and not pd.isna(v) else None
+            if doc["last"] is None:                    # sin precio no se manda
+                continue
+            docs.append(doc)
 
         cambiados = [d for d in docs if ultimo.get(d["ticker"]) != d]
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

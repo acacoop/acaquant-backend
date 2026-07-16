@@ -35,14 +35,16 @@ def main() -> None:
             print(f"  {und:<8} → {ric or '(sin ric)'}")
 
         cur.execute(
-            "SELECT ticker, ric, data->>'last', data->>'var_pct', data->>'hora', updated_at "
+            "SELECT ticker, ric, data->>'last', data->>'bid', data->>'ask', "
+            "       data->>'var_pct', data->>'volumen', updated_at "
             "FROM mercado.eikon_snapshot ORDER BY updated_at DESC LIMIT 10")
         rows = cur.fetchall()
         if rows:
             print("\núltimos 10 quotes:")
-            for t, ric, last, var, hora, ts in rows:
+            for t, ric, last, bid, ask, var, vol, ts in rows:
                 print(f"  {t:<6} {ric or '—':<10} last={last or '—':<10} "
-                      f"var%={var or '—':<8} hora={hora or '—':<10} {ts}")
+                      f"bid={bid or '—':<10} ask={ask or '—':<10} "
+                      f"var%={var or '—':<8} vol={vol or '—':<12} {ts}")
         else:
             print("\n(sin quotes todavía — ¿el feed está corriendo en la PC de oficina?)")
 

@@ -12,8 +12,15 @@ mae_forex_client.py). Correr con Workspace abierto y logueado:
 import time
 from datetime import datetime
 
-import eikon as ek
-import requests
+# La ventana NUNCA se cierra sola: si falta una librería lo dice y espera ENTER.
+try:
+    import eikon as ek
+    import requests
+except ImportError as e:
+    print(f"Falta la librería {e.name!r} → en la consola de este Python:  "
+          f"pip install eikon requests")
+    input("\n[ENTER] para cerrar…")
+    raise SystemExit(1) from None
 
 # ════════════════════════════════════════════════════════════════════════════
 # CONFIG — completá estos valores (NO commitear la copia con las keys reales)
@@ -86,18 +93,35 @@ def actualizar_precios(universo):
             print("❌ Error general:", type(e).__name__, e)
 
 
-if __name__ == "__main__":
+def main():
+    if "PEGA_TU" in EIKON_APP_KEY or "PEGA_EL" in INGEST_TOKEN:
+        print("Te falta pegar EIKON_APP_KEY / INGEST_TOKEN en el bloque CONFIG del script.")
+        return
     ek.set_app_key(EIKON_APP_KEY)
 
     r = requests.get(f"{ACAQUANT_API_URL}/api/ingest/eikon/universo",
                      headers=HEADERS, timeout=15)
+    if "json" not in r.headers.get("content-type", ""):
+        print(f"La API no respondió JSON (HTTP {r.status_code}) — si es HTML de login, "
+              "el service token de CF Access no fue aceptado.")
+        return
     universo = [u for u in r.json()["universo"] if u.get("ric")]
+    if not universo:
+        print("No hay NINGÚN RIC cargado — cargalos en Manager → TÍTULOS → RENTA VARIABLE.")
+        return
     print(f"suscribiendo {len(universo)} RICs (los sin RIC quedan afuera) — "
           f"loop cada {INTERVALO_SEG}s, Ctrl+C corta")
 
+    while True:
+        actualizar_precios(universo)
+        time.sleep(INTERVALO_SEG)
+
+
+if __name__ == "__main__":
     try:
-        while True:
-            actualizar_precios(universo)
-            time.sleep(INTERVALO_SEG)
+        main()
     except KeyboardInterrupt:
         print("chau.")
+    except Exception as e:
+        print(f"❌ {type(e).__name__}: {e}")
+    input("\n[ENTER] para cerrar…")

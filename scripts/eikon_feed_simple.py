@@ -9,18 +9,27 @@ mae_forex_client.py). Correr con Workspace abierto y logueado:
 
     python eikon_feed_simple.py
 """
+import sys
 import time
 from datetime import datetime
+
+# En consolas Windows con codepage viejo (cp1252), imprimir un emoji CRASHEA
+# el script entero (UnicodeEncodeError) → nunca crashear por un print.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(errors="replace")
+    except Exception:
+        pass
 
 # La ventana NUNCA se cierra sola: si falta una librería lo dice y espera ENTER.
 try:
     import eikon as ek
     import requests
 except ImportError as e:
-    print(f"Falta la librería {e.name!r} → en la consola de este Python:  "
+    print(f"Falta la librería {e.name!r} -> en la consola de este Python:  "
           f"pip install eikon requests")
     try:
-        input("\n[ENTER] para cerrar…")
+        input("\n[ENTER] para cerrar...")
     except Exception:
         pass
     raise SystemExit(1) from None

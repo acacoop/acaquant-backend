@@ -5,7 +5,7 @@ el/los instrumento(s) acá; la API los persiste en SQL `valuaciones.dolar_oficia
 Así la oficina NO necesita acceso directo a la base. Ver docs/SECURITY.md.
 
 `/api/ingest/eikon/*` — mismo patrón para el feed Eikon/Workspace
-(`scripts/eikon_feed.py`, PRUEBA): universo de underlyings+RICs (GET), RICs
+(`scripts/eikon_feed_simple.py`, PRUEBA): universo de underlyings+RICs (GET), RICs
 resueltos por symbology (POST rics, solo llena vacíos) y quotes live del
 subyacente US (POST quotes → SQL `mercado.eikon_snapshot`). Ver `core/eikon_live.py`.
 

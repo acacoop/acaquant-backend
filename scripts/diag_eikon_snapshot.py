@@ -2,7 +2,7 @@
 
 Muestra qué llegó a `mercado.eikon_snapshot` (filas, frescura, sample) y cuántos
 CEDEARs tienen RIC cargado en el catálogo. Correr en el Droplet mientras el feed
-(`scripts/eikon_feed.py`, PC oficina) está prendido:
+(`scripts/eikon_feed_simple.py`, PC oficina) está prendido:
 
     python -m scripts.diag_eikon_snapshot
 

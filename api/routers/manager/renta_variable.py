@@ -4,7 +4,7 @@ Editor del catálogo de clasificación de CEDEARs (rubro de negocio + flag ecosi
 + RIC Refinitiv del subyacente). Análogo a la segmentación de clientes: el `rubro` NO se
 escribe libre — se elige del catálogo `mercado.rubros` o se crea con POST /rubro. El `ric`
 sí es texto libre (ej. 'AAPL.O'); lo usan RESEARCH (fundamentals) y el feed live de Eikon
-(`scripts/eikon_feed.py`). Todo SQL-native. Gate `manager_titulos`.
+(`scripts/eikon_feed_simple.py`). Todo SQL-native. Gate `manager_titulos`.
 
   GET   /api/manager/renta-variable          → grid de CEDEARs (ticker, nombre, rubro, es_ia, ric)
   GET   /api/manager/renta-variable/rubros   → catálogo de rubros (dropdown)

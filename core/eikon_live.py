@@ -1,7 +1,7 @@
 """Feed Eikon/Workspace — quotes LIVE del subyacente US de cada CEDEAR (PRUEBA).
 
 Mismo patrón que el dólar oficial MAE (`core/dolar_oficial.py`): un script local
-en la PC de la oficina (`scripts/eikon_feed.py`, necesita Workspace abierto y
+en la PC de la oficina (`scripts/eikon_feed_simple.py`, necesita Workspace abierto y
 logueado) pollea Eikon y le pega a `POST /api/ingest/eikon/quotes`; la API (este
 módulo) persiste en SQL `mercado.eikon_snapshot`. La PC NO toca la base directo.
 
@@ -9,9 +9,11 @@ Es un camino SEPARADO de `mercado.adr_snapshot` (Finnhub cada 15 min): conviven
 y de momento nadie lee esta tabla — primero validamos que el dato llegue bien.
 
 El RIC (identidad Refinitiv del subyacente, ej. AAPL.O) vive en
-`mercado.cedears.ric`. El feed lo resuelve solo (symbology de Eikon) para los
-underlyings que no lo tengan y lo persiste acá vía `set_rics` — que SOLO llena
-vacíos, nunca pisa un RIC ya cargado (ej. los de RESEARCH, `scripts/set_ric.py`).
+`mercado.cedears.ric` y se carga A MANO desde Manager → TÍTULOS → RENTA VARIABLE
+(o `scripts/set_ric.py`). El feed solo LEE los cargados; los sin RIC quedan fuera.
+(`set_rics` queda disponible para una futura resolución asistida — solo llena
+vacíos, nunca pisa una carga manual. La auto-resolución del feed se quitó
+2026-07-16: la symbology devolvía tickers pelados para NYSE y ensució el catálogo.)
 """
 from __future__ import annotations
 

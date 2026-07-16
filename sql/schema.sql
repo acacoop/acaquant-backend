@@ -963,7 +963,7 @@ CREATE TABLE IF NOT EXISTS mercado.adr_snapshot (
 );
 
 -- PRUEBA feed Eikon/Workspace (2026-07-16): quote LIVE del subyacente US de cada
--- CEDEAR, alimentado por scripts/eikon_feed.py (PC oficina, Workspace logueado)
+-- CEDEAR, alimentado por scripts/eikon_feed_simple.py (PC oficina, Workspace logueado)
 -- vía POST /api/ingest/eikon/quotes — mismo patrón que el dólar MAE. Camino
 -- SEPARADO de adr_snapshot (Finnhub 15 min): conviven, nadie lee esta tabla
 -- todavía. Passthrough: data jsonb = {ticker, ric, last, bid, ask, ...}.

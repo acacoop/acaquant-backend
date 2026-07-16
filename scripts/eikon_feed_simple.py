@@ -21,28 +21,38 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
+def _salir(motivo: str) -> None:
+    print(motivo)
+    try:
+        input("\n[ENTER] para cerrar...")
+    except Exception:
+        pass
+    raise SystemExit(1)
+
+
 # La ventana NUNCA se cierra sola: si falta una librería lo dice y espera ENTER.
 try:
     import eikon as ek
     import requests
 except ImportError as e:
-    print(f"Falta la librería {e.name!r} -> en la consola de este Python:  "
-          f"pip install eikon requests")
-    try:
-        input("\n[ENTER] para cerrar...")
-    except Exception:
-        pass
-    raise SystemExit(1) from None
+    _salir(f"Falta la librería {e.name!r} -> en la consola de este Python:  "
+           f"pip install eikon requests")
+
+# TRAMPA CLÁSICA: si guardaste ESTE archivo como 'eikon.py', el import de arriba
+# se importa a sí mismo en vez de la librería y nada funciona.
+if not hasattr(ek, "set_app_key"):
+    _salir("El archivo NO puede llamarse eikon.py (Python lo importa a sí mismo "
+           "en vez de la librería). Renombralo, por ejemplo a feed.py, y listo.")
 
 # ════════════════════════════════════════════════════════════════════════════
 # CONFIG — completá estos valores (NO commitear la copia con las keys reales)
 # ════════════════════════════════════════════════════════════════════════════
 EIKON_APP_KEY = "PEGA_TU_APP_KEY_ACA"
 
-ACAQUANT_API_URL = "https://api.acaquant.com"
+API_BASE = "https://api.acaquant.com"
 INGEST_TOKEN = "PEGA_EL_X_INGEST_TOKEN_ACA"      # el mismo del mae_forex_client
-CF_ACCESS_CLIENT_ID = ""                          # los mismos del mae_forex_client
-CF_ACCESS_CLIENT_SECRET = ""
+CF_CLIENT_ID = ""                          # los mismos del mae_forex_client
+CF_SECRET = ""
 
 DRY_RUN = False        # True = muestra lo que mandaría, no envía nada
 INTERVALO_SEG = 20
@@ -50,8 +60,8 @@ INTERVALO_SEG = 20
 
 HEADERS = {
     "X-Ingest-Token": INGEST_TOKEN.strip(),
-    "CF-Access-Client-Id": CF_ACCESS_CLIENT_ID.strip(),
-    "CF-Access-Client-Secret": CF_ACCESS_CLIENT_SECRET.strip(),
+    "CF-Access-Client-Id": CF_CLIENT_ID.strip(),
+    "CF-Access-Client-Secret": CF_SECRET.strip(),
     "Content-Type": "application/json",
 }
 
@@ -88,7 +98,7 @@ def actualizar_precios(universo):
         if not cambiados:
             print(f"[{now}] 🔄 sin cambios.")
             return
-        r = requests.post(f"{ACAQUANT_API_URL}/api/ingest/eikon/quotes",
+        r = requests.post(f"{API_BASE}/api/ingest/eikon/quotes",
                           json={"docs": cambiados}, headers=HEADERS, timeout=15)
         if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
             print(f"[{now}] ✅ {len(cambiados)} precios actualizados.")
@@ -111,7 +121,7 @@ def main():
         return
     ek.set_app_key(EIKON_APP_KEY)
 
-    r = requests.get(f"{ACAQUANT_API_URL}/api/ingest/eikon/universo",
+    r = requests.get(f"{API_BASE}/api/ingest/eikon/universo",
                      headers=HEADERS, timeout=15)
     if "json" not in r.headers.get("content-type", ""):
         print(f"La API no respondió JSON (HTTP {r.status_code}) — si es HTML de login, "

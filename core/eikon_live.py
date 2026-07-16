@@ -80,27 +80,36 @@ def tablero_reuters() -> list[dict]:
             "    AND activo IS TRUE"
             ") c ON TRUE "
             "ORDER BY e.ticker")
+        campos = [
+            "last", "bid", "ask", "open", "high", "low", "prev_close", "volumen",
+            "var_pct", "var_neta", "ah_last", "ah_vol", "pre_last",
+            "eod_close", "eod_open", "eod_high", "eod_low", "eod_vol",
+            "ret_1d", "ret_5d", "ret_wtd", "ret_mtd", "ret_qtd", "ret_ytd",
+            "ret_1m", "ret_3m", "ret_1y", "ret_5y",
+        ]
         filas = []
         for ticker, ric, data, updated_at, ratio in cur.fetchall():
             d = data or {}
-            filas.append({
-                "ticker":     ticker,
-                "ric":        ric,
-                "last":       d.get("last"),
-                "bid":        d.get("bid"),
-                "ask":        d.get("ask"),
-                "open":       d.get("open"),
-                "high":       d.get("high"),
-                "low":        d.get("low"),
-                "prev_close": d.get("prev_close"),
-                "volumen":    d.get("volumen"),
-                "var_pct":    d.get("var_pct"),
-                "var_neta":   d.get("var_neta"),
-                "ratio":      float(ratio) if ratio is not None else None,
-                "ccl":        None,        # pendiente: cedear_ars × ratio / adr_usd
-                "updated_at": updated_at,
-            })
+            fila = {"ticker": ticker, "ric": ric}
+            fila.update({c: d.get(c) for c in campos})
+            fila["ah_var_pct"] = _var_pct(d.get("ah_last"), d.get("last"))
+            fila["pre_var_pct"] = _var_pct(d.get("pre_last"), d.get("prev_close"))
+            fila["ratio"] = float(ratio) if ratio is not None else None
+            fila["ccl"] = None             # pendiente: cedear_ars × ratio / adr_usd
+            fila["updated_at"] = updated_at
+            filas.append(fila)
         return filas
+
+
+def _var_pct(precio, base) -> float | None:
+    """Variación % de `precio` contra `base` (after vs cierre de hoy, pre vs
+    cierre anterior). None si falta alguno o la base es 0."""
+    try:
+        if precio is None or base is None or not float(base):
+            return None
+        return (float(precio) / float(base) - 1.0) * 100.0
+    except (TypeError, ValueError):
+        return None
 
 
 def upsert_quotes(docs: list[dict]) -> int:

@@ -74,20 +74,39 @@ HEADERS = {
 
 ultimo = {}   # cache para mandar solo lo que cambió (como last_outputs en el tuyo)
 
-# Campo Eikon → nombre en el payload. CF_* son de acciones; PRIMACT_1 es el
-# last de FUTUROS (fallback, por si algún día se suscribe uno) — Eikon avisa
-# "Field not found" por el que no aplique a cada instrumento: es normal.
+# Campo Eikon → nombre en el payload (TODOS validados en vivo 2026-07-16 contra
+# RKLB.O). CF_*/AFTMKT/PREMKT son live; los TR.* son EOD (cambian 1 vez por día,
+# sirven para los retornos por período). PRIMACT_1 es el last de FUTUROS
+# (fallback) — Eikon avisa "Field not found" por el que no aplique: es normal.
 CAMPOS = {
-    "CF_LAST":   "last",        # último precio negociado
-    "CF_BID":    "bid",         # compra
-    "CF_ASK":    "ask",         # venta
-    "CF_OPEN":   "open",        # apertura del día
-    "CF_HIGH":   "high",        # máximo del día
-    "CF_LOW":    "low",         # mínimo del día
-    "CF_CLOSE":  "prev_close",  # cierre anterior
-    "CF_VOLUME": "volumen",     # volumen del día
-    "PCTCHNG":   "var_pct",     # variación % del día
-    "NETCHNG_1": "var_neta",    # cambio neto en precio del día
+    "CF_LAST":           "last",        # último precio negociado
+    "CF_BID":            "bid",         # compra
+    "CF_ASK":            "ask",         # venta
+    "CF_OPEN":           "open",        # apertura del día (no siempre viene)
+    "CF_HIGH":           "high",        # máximo del día
+    "CF_LOW":            "low",         # mínimo del día
+    "CF_CLOSE":          "prev_close",  # cierre anterior
+    "CF_VOLUME":         "volumen",     # volumen del día
+    "PCTCHNG":           "var_pct",     # variación % del día
+    "NETCHNG_1":         "var_neta",    # cambio neto en precio del día
+    "AFTMKT_PRC":        "ah_last",     # precio AFTER MARKET (post-cierre)
+    "AFTMKT_VOL":        "ah_vol",      # volumen del after
+    "PREMKT_PRC":        "pre_last",    # precio PRE MARKET
+    "TR.PriceClose":     "eod_close",   # EOD rueda anterior
+    "TR.PriceOpen":      "eod_open",
+    "TR.PriceHigh":      "eod_high",
+    "TR.PriceLow":       "eod_low",
+    "TR.Volume":         "eod_vol",
+    "TR.PricePctChg1D":  "ret_1d",      # retornos por período (EOD)
+    "TR.PricePctChg5D":  "ret_5d",
+    "TR.PricePctChgWTD": "ret_wtd",
+    "TR.PricePctChgMTD": "ret_mtd",
+    "TR.PricePctChgQTD": "ret_qtd",
+    "TR.PricePctChgYTD": "ret_ytd",
+    "TR.PricePctChg1M":  "ret_1m",
+    "TR.PricePctChg3M":  "ret_3m",
+    "TR.PricePctChg1Y":  "ret_1y",
+    "TR.PricePctChg5Y":  "ret_5y",
 }
 FIELDS = [*CAMPOS, "PRIMACT_1"]
 
@@ -95,7 +114,9 @@ FIELDS = [*CAMPOS, "PRIMACT_1"]
 def actualizar_precios(universo):
     ric_a_ticker = {u["ric"]: u["ticker"] for u in universo}
     try:
-        data, err = ek.get_data(list(ric_a_ticker), FIELDS)
+        # field_name=True → columnas con el nombre del campo pedido (en MAYÚSCULA),
+        # no el display name ("5-day Price PCT Change") que cambia y no se puede mapear.
+        data, err = ek.get_data(list(ric_a_ticker), FIELDS, field_name=True)
         if err and not ultimo:   # solo la primera pasada, para no spammear
             print("(avisos de Eikon en la 1ra pasada — 'Field not found' es normal):", err)
         if data is None or data.empty:
@@ -109,7 +130,7 @@ def actualizar_precios(universo):
                 continue
             doc = {"ticker": ric_a_ticker[ric], "ric": ric}
             for campo, nombre in CAMPOS.items():
-                v = row.get(campo)
+                v = row.get(campo.upper())
                 doc[nombre] = float(v) if v is not None and not pd.isna(v) else None
             if doc["last"] is None:                    # fallback futuros
                 v = row.get("PRIMACT_1")

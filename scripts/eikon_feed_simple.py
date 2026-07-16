@@ -82,7 +82,6 @@ CAMPOS = {
     "CF_LAST":           "last",        # último precio negociado
     "CF_BID":            "bid",         # compra
     "CF_ASK":            "ask",         # venta
-    "CF_OPEN":           "open",        # apertura del día (no siempre viene)
     "CF_HIGH":           "high",        # máximo del día
     "CF_LOW":            "low",         # mínimo del día
     "CF_CLOSE":          "prev_close",  # cierre anterior
@@ -118,7 +117,18 @@ def actualizar_precios(universo):
         # no el display name ("5-day Price PCT Change") que cambia y no se puede mapear.
         data, err = ek.get_data(list(ric_a_ticker), FIELDS, field_name=True)
         if err and not ultimo:   # solo la primera pasada, para no spammear
-            print("(avisos de Eikon en la 1ra pasada — 'Field not found' es normal):", err)
+            # PRIMACT_1 es el fallback de futuros: que falte en acciones es lo
+            # esperado — se filtra. Lo que queda son problemas REALES (ej. un
+            # RIC mal cargado: "record could not be found").
+            relevantes = [e for e in err if "PRIMACT_1" not in str(e.get("message", ""))]
+            if relevantes:
+                print(f"⚠️ avisos de Eikon en la 1ra pasada ({len(relevantes)}):")
+                vistos = set()
+                for e in relevantes:
+                    msg = str(e.get("message", ""))[:110]
+                    if msg not in vistos:
+                        vistos.add(msg)
+                        print(f"   {msg}")
         if data is None or data.empty:
             print("⚠️ get_data no devolvió datos.")
             return

@@ -2603,7 +2603,7 @@ VISTAS: dict[str, dict] = {
         "columnas": [
             ("ticker", "ticker"), ("ric", "codigo_reuters"),
             ("last", "ultimo_usd"), ("bid", "compra"), ("ask", "venta"),
-            ("open", "apertura"), ("high", "max_dia"), ("low", "min_dia"),
+            ("high", "max_dia"), ("low", "min_dia"),
             ("prev_close", "cierre_ant"), ("volumen", "volumen"),
             ("var_pct", "var_dia%"), ("var_neta", "var_neta_usd"),
             ("pre_last", "pre_market"), ("pre_var_pct", "pre_market%"),

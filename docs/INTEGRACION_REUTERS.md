@@ -177,6 +177,12 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
     el asistente ve el tablero completo — en especial los retornos por período —
     vía `<IaVistaPanel vista="reuters" />`. Gate `ia` + `trading`.
   - Noticias Reuters: ESTUDIADAS y validadas en vivo (§6b) — sin implementar.
+  - Ajustes de mesa (28 RICs cargados, feed en producción): se ELIMINÓ
+    APERTURA/`CF_OPEN` de todo el circuito (27/27 suscriptos sin el dato);
+    selector de COLUMNAS ocultables (preferencia persistente); PRE/AFTER
+    muestran solo la VARIACIÓN % (el precio sigue viajando en el payload);
+    "CIERRE ANT." → "CIERRE"; el log de 1ra pasada filtra los avisos de
+    PRIMACT_1 y dedupe — quedan solo problemas reales (ej. RIC mal cargado).
 
 ## 9. Pendientes
 

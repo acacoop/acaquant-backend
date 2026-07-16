@@ -80,8 +80,10 @@ def tablero_reuters() -> list[dict]:
             "    AND activo IS TRUE"
             ") c ON TRUE "
             "ORDER BY e.ticker")
+        # sin "open": CF_OPEN no viene para equities US (verificado 2026-07-16,
+        # 27/27 suscriptos sin el dato) — se quitó del feed y de la vista
         campos = [
-            "last", "bid", "ask", "open", "high", "low", "prev_close", "volumen",
+            "last", "bid", "ask", "high", "low", "prev_close", "volumen",
             "var_pct", "var_neta", "ah_last", "ah_vol", "pre_last",
             "eod_close", "eod_open", "eod_high", "eod_low", "eod_vol",
             "ret_1d", "ret_5d", "ret_wtd", "ret_mtd", "ret_qtd", "ret_ytd",

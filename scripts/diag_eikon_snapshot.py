@@ -26,6 +26,14 @@ def main() -> None:
         con_ric, activos = cur.fetchone()
         print(f"mercado.cedears activos: {activos} · con RIC: {con_ric}")
 
+        # TODOS los RICs cargados, tal cual los toma el feed (underlying → ric).
+        cur.execute(
+            "SELECT upper(COALESCE(underlying, ticker_corto)) AS und, max(NULLIF(ric,'')) "
+            "FROM mercado.cedears WHERE activo IS TRUE GROUP BY 1 ORDER BY 1")
+        print("\nuniverso del feed (underlying → RIC):")
+        for und, ric in cur.fetchall():
+            print(f"  {und:<8} → {ric or '(sin ric)'}")
+
         cur.execute(
             "SELECT ticker, ric, data->>'last', data->>'var_pct', data->>'hora', updated_at "
             "FROM mercado.eikon_snapshot ORDER BY updated_at DESC LIMIT 10")

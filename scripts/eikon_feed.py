@@ -68,15 +68,13 @@ RUN_ONCE = False             # True = una sola pasada y corta
 TICKERS  = ""                # subset separado por coma, ej. "AAPL,NVDA" ("" = todos)
 
 INTERVALO_SEG = 20
-CHUNK_RICS    = 100          # RICs por llamada a get_data (no saturar Eikon)
+CHUNK_RICS    = 25           # RICs por llamada a get_data (igual que el script de commodities)
 
-# Campos real-time (validar con dry-run) → nombre en payload. MINIMAL a pedido
-# de la mesa: solo last / bid / ask / variación %. Sumar campos acá si hace falta.
+# EXACTAMENTE los campos del script de commodities que YA funciona en esta PC:
+# PRIMACT_1 = último precio, SEC_ACT_1 = variación. Nada más.
 FIELDS = {
-    "CF_LAST": "last",       # último precio
-    "CF_BID":  "bid",
-    "CF_ASK":  "ask",
-    "PCTCHNG": "var_pct",    # variación % del día
+    "PRIMACT_1": "last",     # último precio
+    "SEC_ACT_1": "var",      # variación del día
 }
 
 

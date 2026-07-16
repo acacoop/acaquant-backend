@@ -1,15 +1,18 @@
-"""Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.
+"""Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet (PC de oficina).
 
-`POST /api/ingest/dolar-oficial` — la PC de oficina (mae_forex) pollea MAE y, en
-vez de escribir Mongo directo, manda el/los instrumento(s) acá; el Droplet (cuya
-IP SÍ está whitelisteada en Atlas) los persiste en Valuaciones.DolarOficialLive.
-Así la oficina NO necesita acceso directo a Mongo y Atlas se puede cerrar a la IP
-del Droplet (adiós 0.0.0.0/0). Ver docs/SECURITY.md.
+`POST /api/ingest/dolar-oficial` — la PC de oficina (mae_forex) pollea MAE y manda
+el/los instrumento(s) acá; la API los persiste en SQL `valuaciones.dolar_oficial_live`.
+Así la oficina NO necesita acceso directo a la base. Ver docs/SECURITY.md.
+
+`/api/ingest/eikon/*` — mismo patrón para el feed Eikon/Workspace
+(`scripts/eikon_feed.py`, PRUEBA): universo de underlyings+RICs (GET), RICs
+resueltos por symbology (POST rics, solo llena vacíos) y quotes live del
+subyacente US (POST quotes → SQL `mercado.eikon_snapshot`). Ver `core/eikon_live.py`.
 
 Auth en 2 capas:
   - CF Access (como todo api.acaquant.com): la oficina manda un service token.
-  - X-Ingest-Token == config.DOLAR_INGEST_TOKEN (token DEDICADO; si se filtra,
-    solo permite escribir el dólar, no da acceso a Mongo).
+  - X-Ingest-Token == config.DOLAR_INGEST_TOKEN (token DEDICADO de la ingesta de
+    la PC de oficina; si se filtra, solo permite escribir estas tablas de mercado).
 """
 import secrets
 
@@ -18,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from config import DOLAR_INGEST_TOKEN
 from core.dolar_oficial import upsert_oficial
+from core.eikon_live import set_rics, universo_rics, upsert_quotes
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 
@@ -52,4 +56,45 @@ def ingest_dolar_oficial(
     escritos = upsert_oficial(payload.docs)
     if escritos == 0:
         raise HTTPException(status_code=422, detail="ningún doc válido (falta data.ticker)")
+    return {"ok": True, "escritos": escritos}
+
+
+# ── Feed Eikon/Workspace (PRUEBA) ────────────────────────────────────────────
+
+
+@router.get("/eikon/universo")
+def eikon_universo(_: None = Depends(verify_ingest_token)) -> dict:
+    """Lista de suscripción del feed: underlyings US únicos de los CEDEARs activos
+    + su RIC (None si falta → el feed lo resuelve por symbology)."""
+    return {"universo": universo_rics()}
+
+
+class EikonRicsPayload(BaseModel):
+    # RICs resueltos por el feed: [{ticker: 'AAPL', ric: 'AAPL.O'}, ...]
+    rics: list[dict] = Field(..., min_length=1, max_length=500)
+
+
+@router.post("/eikon/rics")
+def eikon_rics(
+    payload: EikonRicsPayload,
+    _: None = Depends(verify_ingest_token),
+) -> dict:
+    """Persiste RICs resueltos en mercado.cedears.ric — SOLO llena vacíos
+    (lo cargado a mano desde Manager/set_ric no se pisa)."""
+    return {"ok": True, "actualizados": set_rics(payload.rics)}
+
+
+class EikonQuotesPayload(BaseModel):
+    # Quotes del subyacente US: [{ticker, ric, last, bid, ask, ...}, ...]
+    docs: list[dict] = Field(..., min_length=1, max_length=500)
+
+
+@router.post("/eikon/quotes")
+def eikon_quotes(
+    payload: EikonQuotesPayload,
+    _: None = Depends(verify_ingest_token),
+) -> dict:
+    escritos = upsert_quotes(payload.docs)
+    if escritos == 0:
+        raise HTTPException(status_code=422, detail="ningún doc válido (falta ticker)")
     return {"ok": True, "escritos": escritos}

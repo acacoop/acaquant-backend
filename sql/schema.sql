@@ -962,6 +962,18 @@ CREATE TABLE IF NOT EXISTS mercado.adr_snapshot (
     updated_at timestamptz DEFAULT now()
 );
 
+-- PRUEBA feed Eikon/Workspace (2026-07-16): quote LIVE del subyacente US de cada
+-- CEDEAR, alimentado por scripts/eikon_feed.py (PC oficina, Workspace logueado)
+-- vía POST /api/ingest/eikon/quotes — mismo patrón que el dólar MAE. Camino
+-- SEPARADO de adr_snapshot (Finnhub 15 min): conviven, nadie lee esta tabla
+-- todavía. Passthrough: data jsonb = {ticker, ric, last, bid, ask, ...}.
+CREATE TABLE IF NOT EXISTS mercado.eikon_snapshot (
+    ticker     text PRIMARY KEY,             -- underlying (US symbol)
+    ric        text,                          -- identidad Refinitiv (ej. AAPL.O)
+    data       jsonb,
+    updated_at timestamptz DEFAULT now()
+);
+
 -- Trading.PreciosAcciones → velas DIARIAS (EOD) del subyacente USD (Yahoo,
 -- jobs/precios_acciones_daily.py). Timeseries en Mongo; acá tabla columnar normal.
 -- Grano (ticker, fecha). `fecha` es DATE (en Mongo es datetime naive UTC a las 00h

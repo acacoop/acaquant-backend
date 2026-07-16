@@ -1,13 +1,15 @@
-"""Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia).
+"""Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia + ric).
 
-Editor del catálogo de clasificación de CEDEARs (rubro de negocio + flag ecosistema IA).
-Análogo a la segmentación de clientes: el `rubro` NO se escribe libre — se elige del catálogo
-`mercado.rubros` o se crea con POST /rubro. Todo SQL-native. Gate `manager_titulos`.
+Editor del catálogo de clasificación de CEDEARs (rubro de negocio + flag ecosistema IA
++ RIC Refinitiv del subyacente). Análogo a la segmentación de clientes: el `rubro` NO se
+escribe libre — se elige del catálogo `mercado.rubros` o se crea con POST /rubro. El `ric`
+sí es texto libre (ej. 'AAPL.O'); lo usan RESEARCH (fundamentals) y el feed live de Eikon
+(`scripts/eikon_feed.py`). Todo SQL-native. Gate `manager_titulos`.
 
-  GET   /api/manager/renta-variable          → grid de CEDEARs (ticker, nombre, rubro, es_ia)
+  GET   /api/manager/renta-variable          → grid de CEDEARs (ticker, nombre, rubro, es_ia, ric)
   GET   /api/manager/renta-variable/rubros   → catálogo de rubros (dropdown)
   POST  /api/manager/renta-variable/rubro    → crear un rubro nuevo
-  PATCH /api/manager/renta-variable          → setear rubro/es_ia de un CEDEAR (ticker en body)
+  PATCH /api/manager/renta-variable          → setear rubro/es_ia/ric de un CEDEAR (ticker en body)
 """
 from __future__ import annotations
 
@@ -25,7 +27,7 @@ def listar_renta_variable() -> list[dict]:
     """Todos los CEDEARs con su clasificación. `nombre` sale del data jsonb del master."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "SELECT ticker, ticker_corto, underlying, activo, rubro, es_ia, "
+            "SELECT ticker, ticker_corto, underlying, activo, rubro, es_ia, ric, "
             "  data->>'nombre' AS nombre "
             "FROM mercado.cedears ORDER BY ticker_corto")
         return cur.fetchall()
@@ -62,12 +64,13 @@ class _CedearPatch(BaseModel):
     ticker: str = Field(..., max_length=60)     # ticker BYMA completo (PK de mercado.cedears)
     rubro: str | None = None                    # debe existir en mercado.rubros (None = vaciar)
     es_ia: bool | None = None
+    ric: str | None = Field(default=None, max_length=40)   # RIC Refinitiv (None/'' = vaciar)
 
 
 @router.patch("/renta-variable")
 def patch_cedear(req: _CedearPatch = Body(...)) -> dict:
-    """Setea rubro/es_ia de un CEDEAR. El rubro NO se escribe libre: tiene que estar en el
-    catálogo (si no, 400 → crearlo primero con POST /rubro)."""
+    """Setea rubro/es_ia/ric de un CEDEAR. El rubro NO se escribe libre: tiene que estar en el
+    catálogo (si no, 400 → crearlo primero con POST /rubro). El ric es texto libre."""
     sets: dict = {}
     if "rubro" in req.model_fields_set:
         rub = (req.rubro or "").strip() or None
@@ -80,8 +83,10 @@ def patch_cedear(req: _CedearPatch = Body(...)) -> dict:
         sets["rubro"] = rub
     if "es_ia" in req.model_fields_set:
         sets["es_ia"] = req.es_ia
+    if "ric" in req.model_fields_set:
+        sets["ric"] = (req.ric or "").strip() or None
     if not sets:
-        raise HTTPException(400, "body sin campos editables (rubro / es_ia)")
+        raise HTTPException(400, "body sin campos editables (rubro / es_ia / ric)")
     cols = ", ".join(f"{k} = %({k})s" for k in sets)
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(f"UPDATE mercado.cedears SET {cols} WHERE ticker = %(ticker)s",

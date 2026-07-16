@@ -37,7 +37,9 @@ from datetime import datetime
 import eikon as ek
 import requests
 
-# ── Config: pegá tus valores ACÁ (no commitearlos — quedan solo en la PC) ────
+# ── Config: pegá tus valores ACÁ (no commitearlos — quedan solo en la PC).
+#    INGEST_TOKEN y el service token de CF Access son LOS MISMOS que ya tenés
+#    en mae_forex_client.py en esta PC — copialos de ahí. ─────────────────────
 EIKON_APP_KEY = "PEGA_TU_APP_KEY_ACA"
 API_BASE      = "https://api.acaquant.com"
 INGEST_TOKEN  = "PEGA_EL_X_INGEST_TOKEN_ACA"          # el mismo del feed MAE
@@ -63,11 +65,39 @@ FIELDS = {
 
 
 def _headers() -> dict:
-    h = {"X-Ingest-Token": INGEST_TOKEN}
-    if CF_CLIENT_ID and CF_SECRET:
-        h["CF-Access-Client-Id"] = CF_CLIENT_ID
-        h["CF-Access-Client-Secret"] = CF_SECRET
+    # .strip() defensivo: al copiar credenciales se cuelan espacios/saltos de
+    # línea y requests rechaza headers con whitespace (lección del feed MAE).
+    h = {"X-Ingest-Token": INGEST_TOKEN.strip()}
+    if CF_CLIENT_ID.strip() and CF_SECRET.strip():
+        h["CF-Access-Client-Id"] = CF_CLIENT_ID.strip()
+        h["CF-Access-Client-Secret"] = CF_SECRET.strip()
     return h
+
+
+def _es_login_cf(r: requests.Response) -> bool:
+    """CF Access devuelve su HTML de login con status 200 cuando el service
+    token NO es aceptado — '200' solo no alcanza, hay que exigir JSON."""
+    ct = r.headers.get("content-type", "")
+    return "text/html" in ct or "<html" in r.text[:200].lower()
+
+
+def _post(path: str, payload: dict, reintentos: int = 3) -> dict | None:
+    """POST a la API con reintentos. Devuelve el JSON de respuesta, o None si
+    no quedó persistido (mismo guard que mae_forex_client.py)."""
+    for i in range(reintentos):
+        try:
+            r = requests.post(f"{API_BASE}{path}", json=payload, headers=_headers(), timeout=30)
+            if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
+                return r.json()
+            if _es_login_cf(r):
+                _log("⚠️ CF Access devolvió el login HTML — el service token NO fue aceptado. "
+                     "Revisá la policy 'Service Auth' de la app api.acaquant.com.")
+            else:
+                _log(f"⚠️ API {r.status_code}: {r.text[:300]}")
+        except Exception as e:
+            _log(f"⚠️ error POST {path} (intento {i + 1}/{reintentos}): {e}")
+        time.sleep(2)
+    return None
 
 
 def _log(msg: str) -> None:
@@ -76,6 +106,9 @@ def _log(msg: str) -> None:
 
 def traer_universo() -> list[dict]:
     r = requests.get(f"{API_BASE}/api/ingest/eikon/universo", headers=_headers(), timeout=30)
+    if _es_login_cf(r):
+        sys.exit("CF Access devolvió el login HTML — el service token NO fue aceptado. "
+                 "Revisá la policy 'Service Auth' de la app api.acaquant.com.")
     r.raise_for_status()
     return r.json()["universo"]
 
@@ -109,10 +142,10 @@ def resolver_rics_faltantes(universo: list[dict], dry_run: bool) -> list[dict]:
 
     if resueltos and not dry_run:
         payload = {"rics": [{"ticker": t, "ric": r} for t, r in sorted(resueltos.items())]}
-        resp = requests.post(f"{API_BASE}/api/ingest/eikon/rics",
-                             headers=_headers(), json=payload, timeout=30)
-        resp.raise_for_status()
-        _log(f"✅ {resp.json().get('actualizados')} RICs persistidos en el catálogo.")
+        resp = _post("/api/ingest/eikon/rics", payload)
+        if resp is None:
+            sys.exit("No pude persistir los RICs en la API — corto acá (revisá arriba).")
+        _log(f"✅ {resp.get('actualizados')} RICs persistidos en el catálogo.")
     elif resueltos:
         _log(f"(dry-run) {len(resueltos)} RICs resueltos, NO persistidos.")
 
@@ -166,11 +199,10 @@ def _jsonable(v):
         return str(v)
 
 
-def postear_quotes(docs: list[dict]) -> int:
-    r = requests.post(f"{API_BASE}/api/ingest/eikon/quotes",
-                      headers=_headers(), json={"docs": docs}, timeout=30)
-    r.raise_for_status()
-    return r.json().get("escritos", 0)
+def postear_quotes(docs: list[dict]) -> int | None:
+    """None = no quedó persistido (el caller NO actualiza el cache → reintenta)."""
+    resp = _post("/api/ingest/eikon/quotes", {"docs": docs})
+    return None if resp is None else resp.get("escritos", 0)
 
 
 def main() -> None:
@@ -201,17 +233,23 @@ def main() -> None:
         try:
             docs = leer_quotes(universo)
             cambiados = [d for d in docs if ultimo.get(d["ticker"]) != d]
+            persistido = True
             if args.dry_run:
                 for d in docs[:10]:
                     _log(f"  {d}")
                 _log(f"(dry-run) {len(docs)} quotes leídos, {len(cambiados)} con cambios.")
             elif cambiados:
                 n = postear_quotes(cambiados)
-                _log(f"✅ {n} quotes actualizados ({len(docs) - len(cambiados)} sin cambios).")
+                persistido = n is not None
+                if persistido:
+                    _log(f"✅ {n} quotes actualizados ({len(docs) - len(cambiados)} sin cambios).")
+                else:
+                    _log("❌ POST falló — reintento estos cambios en el próximo ciclo.")
             else:
                 _log("🔄 sin cambios.")
-            for d in docs:
-                ultimo[d["ticker"]] = d
+            if persistido:
+                for d in docs:
+                    ultimo[d["ticker"]] = d
         except Exception as e:
             if "429" in str(e):
                 _log("⚠️ rate limit de Eikon (429) — espero 60s.")

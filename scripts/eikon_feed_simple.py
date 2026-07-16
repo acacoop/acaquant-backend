@@ -11,7 +11,12 @@ mae_forex_client.py). Correr con Workspace abierto y logueado:
 """
 import sys
 import time
+import warnings
 from datetime import datetime
+
+# La lib eikon (deprecada) usa una opción vieja de pandas → FutureWarning en
+# cada pasada. No afecta nada; se silencia para no ensuciar la consola.
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # En consolas Windows con codepage viejo (cp1252), imprimir un emoji CRASHEA
 # el script entero (UnicodeEncodeError) → nunca crashear por un print.

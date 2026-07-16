@@ -81,6 +81,7 @@ CAMPOS = {
     "CF_LAST":   "last",        # último precio negociado
     "CF_BID":    "bid",         # compra
     "CF_ASK":    "ask",         # venta
+    "CF_OPEN":   "open",        # apertura del día
     "CF_HIGH":   "high",        # máximo del día
     "CF_LOW":    "low",         # mínimo del día
     "CF_CLOSE":  "prev_close",  # cierre anterior

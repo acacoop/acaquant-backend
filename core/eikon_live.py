@@ -89,6 +89,7 @@ def tablero_reuters() -> list[dict]:
                 "last":       d.get("last"),
                 "bid":        d.get("bid"),
                 "ask":        d.get("ask"),
+                "open":       d.get("open"),
                 "high":       d.get("high"),
                 "low":        d.get("low"),
                 "prev_close": d.get("prev_close"),

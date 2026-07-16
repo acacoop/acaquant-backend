@@ -111,6 +111,37 @@ los 24 campos, se descubrió `AFTMKT_PRC`/`PREMKT_PRC`, se descartó `.PP` y se
 encontró `field_name=True`. **Ante cualquier duda sobre un campo/RIC: probarlo,
 no adivinar** (REGLA #2 con superpoderes). Requisito: Workspace abierto y logueado.
 
+## 6b. Noticias Reuters — ESTUDIO (validado en vivo 2026-07-16, sin implementar)
+
+Pedido de la mesa: sumar noticias de Reuters a la plataforma. Se estudió y se
+**probó en vivo** con la lib `eikon` actual (misma sesión Workspace):
+
+- **`ek.get_news_headlines(query, count)` FUNCIONA** → DataFrame con
+  `versionCreated`, `text`, `storyId`, `sourceCode`. Probado:
+  `R:RKLB.O L:EN` devolvió los titulares REALES del selloff de space stocks de
+  hoy; multi-RIC `R:AAPL.O OR R:NVDA.O L:EN` también OK.
+- **`ek.get_news_story(storyId)` FUNCIONA** → HTML string con el texto completo
+  (`<div class="storyContent">…`). Parsear con BeautifulSoup si se quiere texto
+  plano; el storyId es un URN (`urn:newsml:newswire.refinitiv.com:...`).
+- ⚠️ La query en español `L:ES AND "argentina"` devolvió **503 Backend error**
+  (también hubo un 503 transitorio al abrir sesión) — la sintaxis de queries
+  combinadas hay que refinarla probando (el operador va sin `AND` entre filtros:
+  `R:AAPL.O L:EN` funciona así, yuxtapuesto).
+- Operadores de query: `R:` RIC · `L:` idioma · `IN:` región · `NS:` fuente ·
+  `T:` tópico RCS (`T:MERG` M&A) · `"frase exacta"` · `AND/OR/NOT`.
+- Rate limit noticias: ~5.000 requests/hora. Para producción SIN Workspace
+  haría falta LSEG Data Platform (RDP) — hoy no lo tenemos: mientras tanto,
+  cualquier feed de noticias corre en la PC de oficina como el de precios.
+- Lib nueva `lseg-data` (`ld.news.get_headlines/get_story`): misma
+  funcionalidad, recomendada para proyecto nuevo — pero `eikon` ya está
+  instalada y probada en la notebook; decidir al implementar.
+
+**Camino sugerido cuando se decida implementar** (mismo patrón que precios):
+el feed local agrega un poll de titulares por RIC suscripto (cada N min, cache
+por storyId para no repetir) → `POST /api/ingest/eikon/news` → tabla
+`mercado.eikon_news` → panel derecho del tab REUTERS (el 40% reservado) y/o
+insumo del copiloto. **Sin implementar hasta que el user lo pida.**
+
 ## 7. Requisitos de entorno (la PC del feed)
 
 - Python con `eikon` (1.1.18, la última — lib deprecada pero funcional) y
@@ -140,13 +171,20 @@ no adivinar** (REGLA #2 con superpoderes). Requisito: Workspace abierto y loguea
   - `mercado.cedears.ratio` modelado (CEDEARs por acción) + editor en Manager.
   - After/pre market validados en vivo (`AFTMKT_PRC`/`AFTMKT_VOL`/`PREMKT_PRC`) +
     retornos por período `TR.PricePctChg*` → columnas PRE MKT / AFTER HS / 5D→5A.
+  - Tabla a **100% del ancho** (se liberó el panel derecho reservado) + **orden
+    por columna** con click (números desc, texto A→Z, nulls al final).
+  - **Copiloto vista `reuters`** (v1.51 del asistente, `docs/COPILOTO.md`):
+    el asistente ve el tablero completo — en especial los retornos por período —
+    vía `<IaVistaPanel vista="reuters" />`. Gate `ia` + `trading`.
+  - Noticias Reuters: ESTUDIADAS y validadas en vivo (§6b) — sin implementar.
 
 ## 9. Pendientes
 
 - **CCL implícito en vivo** (la razón de ser): `cedear_ars × ratio / adr_usd` por
   fila. Falta decidir de dónde sale el precio ARS live en el endpoint
   (`mercado.cedears_snapshot`) y cargar ratios en Manager.
-- Panel derecho del tab REUTERS (40%) — diseñar CON el user.
+- Noticias Reuters en la plataforma (estudio hecho, §6b) — diseñar CON el user
+  dónde viven (¿panel en REUTERS? ¿HOME?) y recién ahí implementar.
 - Cargar RICs del universo que la mesa quiera seguir (hoy: solo RKLB.O).
 - Al cerrar la prueba: borrar `scripts/diag_eikon_snapshot.py` y
   `scripts/fix_limpiar_rics.py` (REGLA #5) y evaluar si `eikon_snapshot` pasa a

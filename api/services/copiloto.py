@@ -2400,6 +2400,46 @@ reestructuración) y decir derecho que el dato no está cargado en el sistema.
 Tesoro. Acá solo deuda corporativa."""
 
 
+# ── Vista REUTERS (tablero live de subyacentes US, feed Eikon de oficina) ────
+
+_REGLAS_REUTERS = """Sos el copiloto de la vista REUTERS: el tablero en vivo de los \
+subyacentes US de los CEDEARs que la mesa suscribió (fuente Reuters, todo en USD y \
+precios de NY). Es LA vista para leer el papel en su mercado de origen.
+
+Cómo se leen las columnas:
+- ultimo_usd/compra/venta = quote LIVE de la rueda de NY. var_dia% y var_neta_usd = el \
+día de hoy. hora_dato = hora ARGENTINA del último dato recibido — si es vieja, decilo.
+- pre_market y after_hours son precios FUERA de rueda, cada uno con su variación ya \
+calculada: el pre contra el cierre anterior, el after contra el cierre de hoy. Si hay \
+movimiento fuerte fuera de rueda, es EL dato — arrancá por ahí.
+- Los retornos por período (ret_semana% a ret_5años%) están AL CIERRE DE LA RUEDA \
+ANTERIOR (no incluyen el día de hoy): usalos para el contexto de mediano plazo y no \
+los mezcles con la variación de hoy. OJO con los parecidos: ret_mes% es el MES \
+CALENDARIO en curso (MTD) y ret_1mes_movil% son los últimos 30 días — no son lo mismo.
+- ratio = cuántos CEDEARs equivalen a 1 acción. El CCL implícito del activo TODAVÍA no \
+está en la vista (se calcula próximamente como precio del CEDEAR en ARS × ratio ÷ \
+precio del ADR en USD) — si te lo piden, explicá el concepto y decí que el número aún \
+no está cargado.
+- Acá NO hay precios en pesos ni datos del CEDEAR local: eso vive en Renta Variable \
+(tabla de CEDEARs) y en Trading (pivots) — derivá si preguntan por el papel en ARS."""
+
+
+def _fetch_reuters(params: dict | None = None) -> list[dict]:
+    """El tablero REUTERS tal cual lo ve la mesa: quotes USD live del feed de
+    oficina (solo los suscriptos) + retornos EOD por período. Sin cache — la
+    tabla es chica (decenas de filas) y el dato es live."""
+    from zoneinfo import ZoneInfo
+
+    from core.eikon_live import tablero_reuters
+
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+    filas = tablero_reuters()
+    for f in filas:
+        ts = f.pop("updated_at", None)
+        f["hora_dato"] = ts.astimezone(tz).strftime("%H:%M:%S") if ts else None
+    return filas
+
+
 VISTAS: dict[str, dict] = {
     "home": {
         "titulo": "Home",
@@ -2534,6 +2574,48 @@ VISTAS: dict[str, dict] = {
             ("zona", "zona_actual"), ("nivel_cercano", "nivel_cercano"),
         ],
         "reglas": _REGLAS_TRADING,
+    },
+    "reuters": {
+        "titulo": "Reuters",
+        # vive como tab dentro del módulo trading — mismo gate RBAC
+        "modulo": "trading",
+        "dominio": "precios en vivo en USD de los subyacentes US de los CEDEARs "
+                   "suscriptos (fuente Reuters) — bid/ask de NY, pre y after market, "
+                   "y retornos por período de 5 días a 5 años",
+        "fetch": _fetch_reuters,
+        # el idioma del tablero — bid/ask/pre/after acá son vocabulario nativo
+        "jerga_permitida": {"bid", "ask", "spread", "pre", "after", "market",
+                            "ratio", "ccl", "last", "gap"},
+        "chips": [
+            {"label": "Panorama del tablero",
+             "pregunta": "¿Cómo vienen hoy los papeles del tablero? Qué sube, qué "
+                         "baja, y si algo se está moviendo fuerte en el pre o el "
+                         "after. Cortito."},
+            {"label": "Mejores y peores retornos",
+             "pregunta": "Rankeame los papeles por retornos: el mes en curso, el año "
+                         "y 1 año móvil. ¿Quién viene ganando y quién quedó atrás? "
+                         "Tabla chica y una lectura."},
+            {"label": "Fuera de rueda",
+             "pregunta": "¿Qué está pasando fuera de rueda? Pre market y after hours "
+                         "de cada papel con su variación — y si alguno trae un gap "
+                         "que la rueda local todavía no vio."},
+        ],
+        "columnas": [
+            ("ticker", "ticker"), ("ric", "codigo_reuters"),
+            ("last", "ultimo_usd"), ("bid", "compra"), ("ask", "venta"),
+            ("open", "apertura"), ("high", "max_dia"), ("low", "min_dia"),
+            ("prev_close", "cierre_ant"), ("volumen", "volumen"),
+            ("var_pct", "var_dia%"), ("var_neta", "var_neta_usd"),
+            ("pre_last", "pre_market"), ("pre_var_pct", "pre_market%"),
+            ("ah_last", "after_hours"), ("ah_var_pct", "after_hours%"),
+            ("ret_5d", "ret_5dias%"), ("ret_wtd", "ret_semana%"),
+            ("ret_mtd", "ret_mes%"), ("ret_qtd", "ret_trimestre%"),
+            ("ret_ytd", "ret_año%"),
+            ("ret_1m", "ret_1mes_movil%"), ("ret_3m", "ret_3meses%"),
+            ("ret_1y", "ret_1año_movil%"), ("ret_5y", "ret_5años%"),
+            ("ratio", "ratio_cedear"), ("hora_dato", "hora_dato"),
+        ],
+        "reglas": _REGLAS_REUTERS,
     },
     "agro": {
         "titulo": "Agro",

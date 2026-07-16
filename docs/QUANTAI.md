@@ -180,10 +180,11 @@ el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
 además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.49 (2026-07-14) — 7 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
-TRADING (+ el VIGÍA reactivo), RENTA FIJA, y las 3 nuevas AGRO, OPCIONES
-(derivados) y ONs** · Tipo: copiloto contextual por vista · Gate: `ia` + módulo
-RBAC de la vista
+**Estado: v1.51 (2026-07-16) — 8 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
+TRADING (+ el VIGÍA reactivo), RENTA FIJA, AGRO, OPCIONES (derivados), ONs y
+REUTERS (tablero live de subyacentes US, feed Eikon — ver
+`docs/INTEGRACION_REUTERS.md`)** · Tipo: copiloto contextual por vista · Gate:
+`ia` + módulo RBAC de la vista
 
 > **Rollout 2026-07-13:** el user sumó el módulo `ia` a **trader y sales** →
 > el copiloto y el briefing dejan el shadow admin-only y quedan disponibles

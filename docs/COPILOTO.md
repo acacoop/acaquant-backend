@@ -116,6 +116,18 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-16 — v1.51 (vista nueva: REUTERS)
+- **[vista +]** `reuters` (módulo `trading`, tab REUTERS de /trading): el tablero
+  live de subyacentes US del feed Eikon de oficina (`docs/INTEGRACION_REUTERS.md`).
+  Fetch: `core.eikon_live.tablero_reuters` (sin cache, tabla chica y live) con
+  `hora_dato` convertida a ART. Columnas: quote USD completo + pre/after market
+  con sus variaciones YA calculadas + retornos EOD 5D→5A. Reglas clave: los
+  retornos son al cierre anterior (no mezclar con el día), `ret_mes%` (MTD) ≠
+  `ret_1mes_movil%` (30d), CCL pendiente (explicar concepto, no inventar número),
+  precios en ARS derivan a Renta Variable/Trading. 3 chips (panorama / ranking
+  de retornos / fuera de rueda). Panel: `<IaVistaPanel vista="reuters" />` en
+  `reuters-view.tsx`. Pendiente: batería manual del user desde el panel.
+
 ### 2026-07-14 — v1.50 (post-batería de las 3 vistas nuevas: 41/45 buenas, 4 fallas → fixes)
 Corrida real en el Droplet (`scripts/bateria_nuevas_vistas`, 15×3): agro 14/15 ·
 opciones 15/15 · ons 12/15. Lo que se cazó y bajó a código:

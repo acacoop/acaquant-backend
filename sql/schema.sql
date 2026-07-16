@@ -932,6 +932,11 @@ ALTER TABLE mercado.cedears ADD COLUMN IF NOT EXISTS es_ia boolean;
 -- (ej. RKLB → 'RKLB.O'). Carga MANUAL. Clave para la capa ANÁLISIS/RESEARCH
 -- (fundamentals via lseg-data). Ver docs/RESEARCH_REFINITIV.md.
 ALTER TABLE mercado.cedears ADD COLUMN IF NOT EXISTS ric text;
+-- Ratio de conversión del CEDEAR (cuántos CEDEARs = 1 acción del subyacente,
+-- ej. AAPL 10:1 → 10). Carga MANUAL en Manager → TÍTULOS → RENTA VARIABLE.
+-- Insumo del CCL implícito de la vista TRADING → REUTERS:
+--   ccl = (precio_cedear_ars × ratio) / precio_adr_usd
+ALTER TABLE mercado.cedears ADD COLUMN IF NOT EXISTS ratio numeric;
 
 -- Catálogo CONTROLADO de rubros (renta variable). Lista cerrada que alimenta el dropdown
 -- del editor en Manager → TÍTULOS → RENTA VARIABLE (no se escribe libre: se elige uno o se

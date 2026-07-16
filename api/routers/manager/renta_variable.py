@@ -27,7 +27,7 @@ def listar_renta_variable() -> list[dict]:
     """Todos los CEDEARs con su clasificación. `nombre` sale del data jsonb del master."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "SELECT ticker, ticker_corto, underlying, activo, rubro, es_ia, ric, "
+            "SELECT ticker, ticker_corto, underlying, activo, rubro, es_ia, ric, ratio, "
             "  data->>'nombre' AS nombre "
             "FROM mercado.cedears ORDER BY ticker_corto")
         return cur.fetchall()
@@ -65,6 +65,7 @@ class _CedearPatch(BaseModel):
     rubro: str | None = None                    # debe existir en mercado.rubros (None = vaciar)
     es_ia: bool | None = None
     ric: str | None = Field(default=None, max_length=40)   # RIC Refinitiv (None/'' = vaciar)
+    ratio: float | None = Field(default=None, gt=0)        # CEDEARs por acción (None = vaciar)
 
 
 @router.patch("/renta-variable")
@@ -85,8 +86,10 @@ def patch_cedear(req: _CedearPatch = Body(...)) -> dict:
         sets["es_ia"] = req.es_ia
     if "ric" in req.model_fields_set:
         sets["ric"] = (req.ric or "").strip() or None
+    if "ratio" in req.model_fields_set:
+        sets["ratio"] = req.ratio
     if not sets:
-        raise HTTPException(400, "body sin campos editables (rubro / es_ia / ric)")
+        raise HTTPException(400, "body sin campos editables (rubro / es_ia / ric / ratio)")
     cols = ", ".join(f"{k} = %({k})s" for k in sets)
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(f"UPDATE mercado.cedears SET {cols} WHERE ticker = %(ticker)s",

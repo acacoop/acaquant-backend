@@ -10,8 +10,18 @@ from fastapi import APIRouter, Query
 
 from api.services import scanner_sql as scanner_svc
 from api.services import trading_pivots as svc
+from core.eikon_live import tablero_reuters
 
 router = APIRouter(prefix="/api/trading", tags=["Trading"])
+
+
+@router.get("/reuters")
+def reuters():
+    """Tablero del tab REUTERS: quotes live del subyacente US (feed Eikon de la
+    PC de oficina), SOLO los activos suscriptos. Cada fila: {ticker, ric, last,
+    bid, ask, high, low, prev_close, volumen, var_pct, var_neta, ratio,
+    ccl (None, pendiente), updated_at}."""
+    return tablero_reuters()
 
 
 @router.get("/pivots")

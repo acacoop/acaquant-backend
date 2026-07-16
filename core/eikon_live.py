@@ -65,6 +65,43 @@ def set_rics(items: list[dict]) -> int:
     return actualizados
 
 
+def tablero_reuters() -> list[dict]:
+    """Filas del tablero TRADING → REUTERS: un activo por fila, SOLO los que el
+    feed fue suscribiendo (los que tienen quote en `mercado.eikon_snapshot`),
+    con el ratio del CEDEAR del catálogo. `ccl` va None hasta que se implemente
+    el cálculo en vivo (precio_cedear × ratio / precio_adr)."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT e.ticker, e.ric, e.data, e.updated_at, c.ratio "
+            "FROM mercado.eikon_snapshot e "
+            "LEFT JOIN LATERAL ("
+            "  SELECT max(ratio) AS ratio FROM mercado.cedears "
+            "  WHERE upper(COALESCE(underlying, ticker_corto)) = e.ticker "
+            "    AND activo IS TRUE"
+            ") c ON TRUE "
+            "ORDER BY e.ticker")
+        filas = []
+        for ticker, ric, data, updated_at, ratio in cur.fetchall():
+            d = data or {}
+            filas.append({
+                "ticker":     ticker,
+                "ric":        ric,
+                "last":       d.get("last"),
+                "bid":        d.get("bid"),
+                "ask":        d.get("ask"),
+                "high":       d.get("high"),
+                "low":        d.get("low"),
+                "prev_close": d.get("prev_close"),
+                "volumen":    d.get("volumen"),
+                "var_pct":    d.get("var_pct"),
+                "var_neta":   d.get("var_neta"),
+                "ratio":      float(ratio) if ratio is not None else None,
+                "ccl":        None,        # pendiente: cedear_ars × ratio / adr_usd
+                "updated_at": updated_at,
+            })
+        return filas
+
+
 def upsert_quotes(docs: list[dict]) -> int:
     """Upsertea quotes del feed en `mercado.eikon_snapshot` (1 fila por ticker,
     no acumula histórico). `updated_at` lo pone el server (no se confía en el

@@ -19,7 +19,10 @@ try:
 except ImportError as e:
     print(f"Falta la librería {e.name!r} → en la consola de este Python:  "
           f"pip install eikon requests")
-    input("\n[ENTER] para cerrar…")
+    try:
+        input("\n[ENTER] para cerrar…")
+    except Exception:
+        pass
     raise SystemExit(1) from None
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -124,4 +127,7 @@ if __name__ == "__main__":
         print("chau.")
     except Exception as e:
         print(f"❌ {type(e).__name__}: {e}")
-    input("\n[ENTER] para cerrar…")
+    try:
+        input("\n[ENTER] para cerrar…")
+    except Exception:
+        pass

@@ -70,18 +70,13 @@ TICKERS  = ""                # subset separado por coma, ej. "AAPL,NVDA" ("" = t
 INTERVALO_SEG = 20
 CHUNK_RICS    = 100          # RICs por llamada a get_data (no saturar Eikon)
 
-# Campos real-time candidatos (validar con --once --dry-run) → nombre en payload.
+# Campos real-time (validar con dry-run) → nombre en payload. MINIMAL a pedido
+# de la mesa: solo last / bid / ask / variación %. Sumar campos acá si hace falta.
 FIELDS = {
-    "CF_LAST":   "last",       # último precio
-    "PCTCHNG":   "var_pct",    # variación % del día
-    "CF_BID":    "bid",
-    "CF_ASK":    "ask",
-    "CF_OPEN":   "open",
-    "CF_HIGH":   "high",
-    "CF_LOW":    "low",
-    "CF_CLOSE":  "prev_close",
-    "CF_VOLUME": "volumen",
-    "CF_TIME":   "hora",       # hora del último trade (exchange)
+    "CF_LAST": "last",       # último precio
+    "CF_BID":  "bid",
+    "CF_ASK":  "ask",
+    "PCTCHNG": "var_pct",    # variación % del día
 }
 
 
@@ -149,12 +144,17 @@ def resolver_rics_faltantes(universo: list[dict], dry_run: bool) -> list[dict]:
             df = ek.get_symbology(chunk, from_symbol_type="ticker",
                                   to_symbol_type="RIC", best_match=True)
         except Exception as e:
-            _log(f"⚠️ symbology falló para un chunk de {len(chunk)}: {e}")
+            _log(f"⚠️ symbology falló para un chunk de {len(chunk)} ({type(e).__name__}): {e}")
             continue
+        antes = len(resueltos)
         for ticker, row in df.iterrows():
             ric = row.get("RIC")
             if isinstance(ric, str) and ric.strip():
                 resueltos[str(ticker).upper()] = ric.strip()
+        if len(resueltos) == antes:
+            # No salió NI UNO del chunk → mostrar qué devolvió Eikon para diagnosticar.
+            _log(f"   symbology sin resultados en este chunk; muestra cruda: "
+                 f"{df.head(3).to_dict()}")
 
     sin_resolver = sorted(set(faltantes) - set(resueltos))
     if sin_resolver:
@@ -185,7 +185,14 @@ def leer_quotes(universo: list[dict]) -> list[dict]:
     docs: list[dict] = []
     for i in range(0, len(rics), CHUNK_RICS):
         chunk = rics[i:i + CHUNK_RICS]
-        data, err = ek.get_data(chunk, list(FIELDS))
+        try:
+            data, err = ek.get_data(chunk, list(FIELDS))
+        except Exception as e:
+            # Un chunk malo no mata la pasada entera; mostramos QUÉ chunk fue
+            # para poder aislar un RIC roto o un campo inválido.
+            _log(f"⚠️ get_data falló ({type(e).__name__}: {e}) en el chunk "
+                 f"{i}–{i + len(chunk) - 1} [{chunk[0]} … {chunk[-1]}] — lo salteo.")
+            continue
         if err:
             _log(f"⚠️ get_data devolvió errores (sigue con lo que vino): {err}")
         if data is None or data.empty:
@@ -282,7 +289,7 @@ def main() -> None:
                 _log("⚠️ rate limit de Eikon (429) — espero 60s.")
                 time.sleep(60)
             else:
-                _log(f"❌ error (reintento en el próximo ciclo): {e}")
+                _log(f"❌ error (reintento en el próximo ciclo) — {type(e).__name__}: {e}")
 
         if args.once:
             return

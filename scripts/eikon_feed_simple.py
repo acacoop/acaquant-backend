@@ -33,6 +33,7 @@ def _salir(motivo: str) -> None:
 # La ventana NUNCA se cierra sola: si falta una librería lo dice y espera ENTER.
 try:
     import eikon as ek
+    import pandas as pd
     import requests
 except ImportError as e:
     _salir(f"Falta la librería {e.name!r} -> en la consola de este Python:  "
@@ -67,13 +68,18 @@ HEADERS = {
 
 ultimo = {}   # cache para mandar solo lo que cambió (como last_outputs en el tuyo)
 
+# CF_LAST = last de ACCIONES; PRIMACT_1 = last de FUTUROS (el del script de
+# commodities). Se piden los dos y se usa el que venga con dato — Eikon avisa
+# "Field not found" por el que no aplique a cada instrumento: es normal.
+FIELDS = ["CF_LAST", "PRIMACT_1"]
+
 
 def actualizar_precios(universo):
     ric_a_ticker = {u["ric"]: u["ticker"] for u in universo}
     try:
-        data, err = ek.get_data(list(ric_a_ticker), ["PRIMACT_1"])
-        if err:
-            print("⚠️ Error al obtener datos:", err)
+        data, err = ek.get_data(list(ric_a_ticker), FIELDS)
+        if err and not ultimo:   # solo la primera pasada, para no spammear
+            print("(avisos de Eikon en la 1ra pasada — 'Field not found' es normal):", err)
         if data is None or data.empty:
             print("⚠️ get_data no devolvió datos.")
             return
@@ -81,10 +87,15 @@ def actualizar_precios(universo):
         docs = []
         for _, row in data.iterrows():
             ric = row["Instrument"]
-            last = row["PRIMACT_1"]
-            if ric not in ric_a_ticker or last is None or last != last:  # NaN
+            last = None
+            for campo in FIELDS:
+                v = row.get(campo)
+                if v is not None and not pd.isna(v):
+                    last = float(v)
+                    break
+            if ric not in ric_a_ticker or last is None:
                 continue
-            docs.append({"ticker": ric_a_ticker[ric], "ric": ric, "last": float(last)})
+            docs.append({"ticker": ric_a_ticker[ric], "ric": ric, "last": last})
 
         cambiados = [d for d in docs if ultimo.get(d["ticker"]) != d]
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

@@ -1,10 +1,15 @@
 """jobs/research_mail.py — Ingesta automática del research diario por mail (QuantAI P6).
 
-Lee la casilla por IMAP, detecta los mails de research (filtro por remitente),
-persiste el texto CRUDO en `ia.research` (fuente de verdad, citable) y genera un
-DESTILADO con el LLM ({resumen, temas, hechos}) que es lo que después se inyecta
-barato como contexto al copiloto/briefing. La memoria vive en Postgres, no en el
-modelo (docs/QUANTAI.md — nonparametric primero).
+Lee la casilla por IMAP, detecta los mails de research (filtro por remitente) y
+persiste el texto CRUDO en `ia.research` (fuente de verdad, citable) — que es lo
+que se MUESTRA en la vista Research (docs/VISTA_RESEARCH.md). La memoria vive en
+Postgres, no en el modelo (docs/QUANTAI.md — nonparametric primero).
+
+**La IA NO interviene por defecto (decisión del user 2026-07-17): cero tokens al
+ingestar.** El DESTILADO del LLM ({resumen, temas, hechos}) se genera SOLO con
+`--destilar` (opt-in). Sin el flag, el destilado queda NULL y el research se sirve
+tal cual; la IA se consume on-demand desde el copiloto (cuando alguien pregunta),
+no "por gastar".
 
 Idempotente: dedup por Message-ID (UNIQUE en la tabla) → re-correr no duplica.
 Degrada con gracia: si el LLM falla, el mail queda igual persistido con
@@ -255,6 +260,11 @@ def main() -> None:
                     help="muestra qué ingestaría; no escribe ni llama al LLM")
     ap.add_argument("--dias", type=int, default=_DIAS_DEFAULT,
                     help=f"ventana IMAP en días (default {_DIAS_DEFAULT})")
+    ap.add_argument("--destilar", action="store_true",
+                    help="además de guardar el crudo, genera el destilado IA "
+                         "(gasta tokens). Por DEFECTO OFF: decisión del user "
+                         "2026-07-17 — la IA no interviene por gastar, solo se "
+                         "consume el research on-demand desde el copiloto.")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -292,7 +302,10 @@ def main() -> None:
             for c in candidatos:
                 if c["message_id"] in vistos:
                     continue
-                destilado, modelo = _destilar(c["cuerpo"], c["fecha"])
+                # Por defecto NO se destila (cero tokens): se guarda solo el crudo,
+                # que es lo que se muestra en la vista Research. La IA se consume
+                # on-demand (copiloto), no "por gastar" (decisión del user).
+                destilado, modelo = _destilar(c["cuerpo"], c["fecha"]) if args.destilar else (None, None)
                 cur.execute(
                     "INSERT INTO ia.research (fecha, fuente, asunto, message_id, cuerpo,"
                     " destilado, destilado_modelo) VALUES (%s,%s,%s,%s,%s,%s,%s)"
@@ -302,9 +315,10 @@ def main() -> None:
                 )
                 n_nuevos += 1
                 n_destilados += 1 if destilado else 0
-                jr.log(f"ingestado research del {c['fecha']} "
-                       f"({'destilado ok' if destilado else 'destilado PENDIENTE'})")
-            n_reintentos = _reintentar_pendientes(cur, jr)
+                jr.log(f"ingestado research del {c['fecha']}"
+                       + (f" ({'destilado ok' if destilado else 'destilado PENDIENTE'})"
+                          if args.destilar else " (crudo, sin destilar)"))
+            n_reintentos = _reintentar_pendientes(cur, jr) if args.destilar else 0
         jr.set_stat("mails_vistos", len(candidatos))
         jr.set_stat("nuevos", n_nuevos)
         jr.set_stat("destilados", n_destilados)

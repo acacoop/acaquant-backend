@@ -64,6 +64,11 @@ del producto — la mesa lee a 1816 todas las mañanas.
 6. **Degrada con gracia.** Sin API key / sin créditos (HTTP 402) / 429 rate limit
    → el pilar A muestra lo último persistido y avisa; el pilar B es 100%
    independiente (mails) y sigue andando. Ninguna falla rompe la vista.
+7. **La IA NO interviene por defecto — solo on-demand (decisión del user
+   2026-07-17).** LO PRINCIPAL es que los textos del research aparezcan BIEN en
+   acaquant (el crudo, limpio y legible). NADA de gasto automático de tokens: el
+   destilado IA al ingestar se APAGÓ (queda opt-in con `--destilar`). La IA se
+   consume SOLO cuando alguien pregunta (el copiloto, Nivel 2) — no "por gastar".
 
 ---
 
@@ -466,6 +471,24 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 ---
 
 ## Registro de construcción (con fecha — qué y cómo)
+
+### 2026-07-17 (2) — IA OFF por defecto + el texto se muestra LIMPIO
+Pedido del user: la IA no interviene por gastar; lo principal es que los textos
+aparezcan bien. **Qué se hizo:**
+- **`jobs/research_mail.py`:** el destilado IA al ingestar pasó a ser **opt-in**
+  (`--destilar`); por defecto guarda SOLO el crudo → **cero tokens** en la corrida
+  del cron. La IA queda para on-demand (copiloto, Nivel 2).
+- **`api/services/research_sql.py`:** `_limpiar_para_mostrar()` sirve el research
+  LIMPIO (saca los headers del reenvío De:/Para:/Asunto: y el pie de 1816
+  Copyright/unsubscribe) — el crudo original queda intacto en la DB (FTS/citas). El
+  endpoint devuelve `texto` (limpio) en vez del crudo entero.
+- **`research-view.tsx`:** el texto del research se muestra DIRECTO, en párrafos
+  legibles (los títulos en MAYÚSCULA de 1816 resaltan solos), no escondido tras un
+  toggle. El "Resumen IA" aparece solo si algún día se destiló (opt-in).
+- Test del limpiador (`test_limpiar_para_mostrar`). Todo verde.
+- **Consecuencia para el user:** corré el ingest **sin** `--destilar`
+  (`python -m jobs.research_mail`) → guarda los mails sin gastar. La vista los
+  muestra lindos. (El cron ya corre sin el flag → correcto.)
 
 ### 2026-07-17 — NIVEL 1 (pilar B, research escrito) CONSTRUIDO
 La vista **RESEARCH** (nueva vista principal `/research`) con el research diario de

@@ -10,12 +10,51 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
 _MAX_LIMIT = 100
+
+# Limpieza para MOSTRAR el research lindo: el crudo (fuente de verdad, intacto en
+# la DB) trae los headers del reenvío y el pie de 1816. Se sacan al servir — no se
+# toca el `cuerpo` guardado (FTS y citas siguen sobre el original).
+_HEADER_LINE = re.compile(
+    r"^\s*(de|para|asunto|enviados?|sent|from|to|cc|subject|date|fecha)\s*:", re.IGNORECASE
+)
+_FOOTER_MARKERS = (
+    "cualquier duda estamos a disposici",   # "...disposición/disposicion"
+    "1816 | econom",
+    "www.1816.com.ar",
+    "copyright ©",
+    "copyright (c)",
+    "you can unsubscribe",
+    "unsubscribe from this list",
+)
+
+
+def _limpiar_para_mostrar(cuerpo: str | None) -> str:
+    """Crudo del mail → research legible: corta el pie (Copyright/unsubscribe/…) y
+    saca las líneas de header del reenvío (De:/Para:/Asunto:/…) y separadores
+    sueltos. Conservador: si no reconoce nada, devuelve el texto casi tal cual."""
+    if not cuerpo:
+        return ""
+    lineas = cuerpo.splitlines()
+    corte = len(lineas)
+    for i, ln in enumerate(lineas):
+        low = ln.lower()
+        if any(mk in low for mk in _FOOTER_MARKERS):
+            corte = i
+            break
+    visibles = []
+    for ln in lineas[:corte]:
+        if _HEADER_LINE.match(ln) or ln.strip() in ("---", "—"):
+            continue  # header del reenvío o separador suelto
+        visibles.append(ln)  # las líneas en blanco se conservan (separan párrafos)
+    texto = "\n".join(visibles)
+    return re.sub(r"\n{3,}", "\n\n", texto).strip()
 
 
 def _tipo_de_asunto(asunto: str | None) -> str:
@@ -48,7 +87,9 @@ def _fila(r: dict) -> dict:
         "fuente": r.get("fuente"),
         "asunto": r.get("asunto"),
         "tipo": _tipo_de_asunto(r.get("asunto")),
-        "cuerpo": r.get("cuerpo"),
+        # `texto` = crudo limpio para MOSTRAR (sin headers/pie del reenvío). El
+        # crudo original queda en la DB (fuente de verdad, FTS, citas).
+        "texto": _limpiar_para_mostrar(r.get("cuerpo")),
         "destilado": _parse_destilado(r.get("destilado")),
     }
 

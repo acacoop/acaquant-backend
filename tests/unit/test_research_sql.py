@@ -19,6 +19,36 @@ def test_tipo_de_asunto():
     assert svc._tipo_de_asunto(None) == "otro"
 
 
+def test_limpiar_para_mostrar():
+    """Saca headers del reenvío (De:/Para:/Asunto:/Enviados:) y el pie de 1816,
+    conserva el research y los párrafos. El crudo original no se toca."""
+    crudo = (
+        "De: Research 1816 <research@1816.com.ar>\n"
+        "Enviados: viernes, 17 de julio de 2026 7:41:43\n"
+        "Para: Mollo Nicolas <nicolas.mollo@acavalores.com.ar>\n"
+        "Asunto: El día en pocas líneas\n"
+        "\n"
+        "17 de julio de 2026\n"
+        "EL DÍA EN POCAS LÍNEAS\n"
+        "\n"
+        "EL CENTRAL COMPRÓ USD 230 MM. En las tres semanas anteriores...\n"
+        "\n"
+        "---\n"
+        "Cualquier duda estamos a disposición.\n"
+        "Saludos,\n"
+        "1816 | ECONOMÍA Y ESTRATEGIA\n"
+        "Copyright © 2026 1816\n"
+    )
+    out = svc._limpiar_para_mostrar(crudo)
+    assert "research@1816.com.ar" not in out      # header de reenvío fuera
+    assert "Para:" not in out and "Asunto:" not in out
+    assert "EL DÍA EN POCAS LÍNEAS" in out          # título del research queda
+    assert "EL CENTRAL COMPRÓ USD 230 MM" in out    # cuerpo queda
+    assert "Copyright" not in out and "disposición" not in out  # pie cortado
+    assert svc._limpiar_para_mostrar(None) == ""
+    assert svc._limpiar_para_mostrar("") == ""
+
+
 def test_parse_destilado():
     d = {"resumen": "x", "temas": ["a"], "hechos": []}
     assert svc._parse_destilado(d) == d                      # ya dict → tal cual

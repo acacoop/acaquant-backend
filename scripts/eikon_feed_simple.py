@@ -146,8 +146,24 @@ FUND_FY0 = {                    # último año fiscal, MILLONES de USD (Scale=6)
     "TR.FreeCashFlow":         "fcf",
     "TR.CapitalExpenditures":  "capex",
 }
-FUND_SERIE = ["TR.Revenue.date", "TR.Revenue", "TR.EBITDA", "TR.NetIncome",
-              "TR.FreeCashFlow"]   # 5 años fiscales, millones USD
+# Series de 5 años fiscales, en DOS llamadas (Scale=6 solo aplica a montos):
+#   A) monetarios (millones USD) — negocio + salud
+#   B) márgenes (%) — históricos REALES (verificado); los múltiplos (PE etc.)
+#      NO se piden como serie: Eikon devuelve precio de HOY / resultados de
+#      cada año, no el múltiplo que se pagaba entonces (verificado 2026-07-17).
+FUND_SERIE_USD = {
+    "TR.Revenue":            "revenue",
+    "TR.EBITDA":             "ebitda",
+    "TR.NetIncome":          "net_income",
+    "TR.FreeCashFlow":       "fcf",
+    "TR.TotalDebt":          "deuda",
+    "TR.CashAndEquivalents": "caja",
+}
+FUND_SERIE_PCT = {
+    "TR.GrossMargin":        "margen_bruto",
+    "TR.OperatingMargin":    "margen_operativo",
+    "TR.NetProfitMargin":    "margen_neto",
+}
 FUND_CADA_SEG = 24 * 3600
 
 
@@ -262,25 +278,28 @@ def actualizar_fundamentals(universo):
         d = doc_de(ric)
         for campo, nombre in FUND_FY0.items():
             d[nombre] = _num_o_texto(row.get(campo.upper()))
-    # 3) serie 5 años (revenue/ebitda/net income/fcf por año fiscal)
-    df, _err = ek.get_data(rics, FUND_SERIE, field_name=True,
-                           parameters={"SDate": "0", "EDate": "-4",
-                                       "Scale": "6", "Curn": "USD"})
-    for _, row in df.iterrows():
-        ric = row["Instrument"]
-        if ric not in ric_a_ticker:
-            continue
-        fecha = _num_o_texto(row.get("TR.REVENUE.DATE"))
-        if not fecha:
-            continue
-        d = doc_de(ric)
-        d.setdefault("serie_anual", []).append({
-            "fecha":      str(fecha)[:10],
-            "revenue":    _num_o_texto(row.get("TR.REVENUE")),
-            "ebitda":     _num_o_texto(row.get("TR.EBITDA")),
-            "net_income": _num_o_texto(row.get("TR.NETINCOME")),
-            "fcf":        _num_o_texto(row.get("TR.FREECASHFLOW")),
-        })
+    # 3) series 5 años — dos llamadas mergeadas por (ric, año fiscal)
+    series: dict[tuple, dict] = {}   # (ric, fecha) → {campo: valor}
+
+    def sumar_serie(campos: dict, params: dict):
+        df, _e = ek.get_data(rics, ["TR.Revenue.date", *campos], field_name=True,
+                             parameters=params)
+        for _, row in df.iterrows():
+            ric = row["Instrument"]
+            fecha = _num_o_texto(row.get("TR.REVENUE.DATE"))
+            if ric not in ric_a_ticker or not fecha:
+                continue
+            fila = series.setdefault((ric, str(fecha)[:10]), {})
+            for campo, nombre in campos.items():
+                v = _num_o_texto(row.get(campo.upper()))
+                if v is not None:
+                    fila[nombre] = v
+
+    sumar_serie(FUND_SERIE_USD, {"SDate": "0", "EDate": "-4", "Scale": "6", "Curn": "USD"})
+    sumar_serie(FUND_SERIE_PCT, {"SDate": "0", "EDate": "-4"})
+    for (ric, fecha), fila in sorted(series.items(), key=lambda kv: (kv[0][0], kv[0][1]),
+                                     reverse=True):
+        doc_de(ric).setdefault("serie_anual", []).append({"fecha": fecha, **fila})
 
     lista = list(docs.values())
     if not lista:

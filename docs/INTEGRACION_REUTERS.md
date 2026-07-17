@@ -215,9 +215,16 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
     fuera de la UI y del feed (TR.PriceTargetMean / TR.RecMean ya no se piden).
     El "próximo balance" (ExpectedReportDate) sobrevive en el header (es
     agenda, no consenso).
-  - Limitación honesta: la serie de 5 años existe solo para NEGOCIO; SALUD y
-    VALUACIÓN son foto actual. Si se quiere graficar deuda/caja históricas, el
-    feed puede traer esas series (pendiente, si el user lo pide).
+  - **v2.2 (mismo día): series de 5 años AMPLIADAS** — el feed trae también
+    deuda/caja (Scale=6 USD) y márgenes (sin Scale, son %) por año fiscal, en
+    dos llamadas mergeadas por (ric, fecha). El gráfico de abajo-derecha tiene
+    3 grupos: RESULTADOS / MÁRGENES / SALUD (sincronizado con el tab de
+    métricas, elegible a mano).
+  - ⚠️ **MÚLTIPLOS históricos: NO graficables** (verificado en vivo): pedir
+    TR.PE / TR.EVToEBITDA / TR.PriceToBVPerShare con SDate/EDate devuelve
+    precio de HOY ÷ resultados de cada año (AAPL "PE 38x" hace 5 años, falso —
+    cotizaba ~25x). Quedan como foto actual; si algún día se quieren de verdad,
+    buscar el data item de múltiplo histórico real en el Data Item Browser.
 
 ## 9. Pendientes
 

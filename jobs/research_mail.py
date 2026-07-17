@@ -15,9 +15,13 @@ Env vars (van al `.env` del Droplet — ver docs/SECRETS.md):
   RESEARCH_IMAP_PASSWORD  — app password de la casilla (NO la contraseña normal;
                             Gmail: Cuenta → Seguridad → Verificación en 2 pasos →
                             Contraseñas de aplicaciones).
-  RESEARCH_MAIL_FROM      — remitente(s) del research, separados por coma. El
-                            match es substring case-insensitive sobre el header
-                            From (alcanza el dominio: "consultora.com").
+  RESEARCH_MAIL_FROM      — remitente(s) del research, separados por coma
+                            (alcanza el dominio: "1816.com.ar"). Match substring
+                            case-insensitive sobre From + Asunto + Cuerpo → cubre
+                            los mails REENVIADOS a mano (el From pasa a ser el del
+                            que reenvía, pero el remitente original queda en el
+                            cuerpo). Usar el dominio del research original
+                            (1816.com.ar), NO tu propia dirección.
   RESEARCH_IMAP_HOST      — opcional, default imap.gmail.com.
 
 Uso:
@@ -154,8 +158,15 @@ def _buscar_mails(dias: int) -> list[email.message.Message]:
             if not partes or not isinstance(partes[0], tuple):
                 continue
             msg = email.message_from_bytes(partes[0][1])
+            # Match por remitente en From + Asunto + Cuerpo. Los mails REENVIADOS a
+            # mano (el caso del user: reenvía el research desde su corporativo)
+            # traen el From del que reenvía, NO el de 1816 — pero el remitente
+            # original queda en el cuerpo ("De: Research 1816 <research@1816.com.ar>")
+            # y el asunto suele conservarse. Por eso se busca en los tres.
             de = _decodificar_header(msg.get("From")).lower()
-            if any(r in de for r in remitentes):
+            asunto = _decodificar_header(msg.get("Subject")).lower()
+            cuerpo = _cuerpo_de(msg).lower()[:3000]
+            if any(r in f"{de}\n{asunto}\n{cuerpo}" for r in remitentes):
                 out.append(msg)
     finally:
         try:

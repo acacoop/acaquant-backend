@@ -239,11 +239,17 @@ Propuesta (a afinar al implementar, `sql/schema.sql` es la fuente):
 
 ### 5.2 Lo que falta para el pilar B
 
-1. **Credenciales IMAP (PENDIENTE del user — REGLA #6):** `RESEARCH_IMAP_USER` /
-   `RESEARCH_IMAP_PASSWORD` (app password de Gmail, NO la normal) / `RESEARCH_MAIL_FROM`
-   (`research@1816.com.ar` o el dominio `1816.com.ar`). El user reenvía los mails
-   a su casilla corporativa → apuntar el IMAP a esa casilla. Probar:
-   `python -m jobs.research_mail --dry-run`.
+1. **Credenciales IMAP (CONFIGURADAS 2026-07-17 por el user):** `RESEARCH_IMAP_USER`
+   (la Gmail que recibe los reenvíos, `mollonicolas95@gmail.com`) /
+   `RESEARCH_IMAP_PASSWORD` (app password de Gmail) / `RESEARCH_MAIL_FROM=1816.com.ar`.
+   **Flujo real del user:** 1816 → su corporativo → él **REENVÍA a mano** a la Gmail.
+   El reenvío reescribe el `From` (pasa a ser su corporativo), pero el remitente
+   original (`research@1816.com.ar`) queda en el CUERPO → por eso el job matchea el
+   remitente en **From + Asunto + Cuerpo** (fix 2026-07-17), no solo en From. Probar:
+   `python -m jobs.research_mail --dry-run`. **Nuance conocida:** para reenviados, la
+   `fecha` sale del header Date (día del reenvío) — si el user reenvía el mismo día
+   (su caso), coincide con la fecha del research; si reenvía tarde, habría que parsear
+   la fecha del cuerpo (diferido hasta que sea un problema real).
 2. **Distinguir DIARIO vs MENSUAL:** hoy `ia.research` no separa el tipo. Sumar una
    columna `tipo` ('diario'/'mensual'/'otro') derivada del asunto ("El día en pocas
    líneas" = diario; los reportes mensuales por su asunto) — así la vista los

@@ -279,6 +279,16 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
   - Briefing: 3ª columna **DÓLAR FUTURO (DLR)** (modal más ancho): ticker /
     días / último / TNA implícita desde `mercado.futuros_dlr_snapshot`.
 
+- **2026-07-17 — v3.1: tablero más sobrio (feedback del user: "mucha info de una").**
+  - Columnas VOLUMEN / MÍN / CIERRE / RATIO **ocultas por default** (se prenden
+    desde COLUMNAS; la preferencia vieja del navegador se pisa con key nueva
+    `reuters.cols.ocultas.v2`). CCL sigue visible.
+  - El bloque RETORNOS (5D→5A) queda visualmente SEPARADO dentro de la misma
+    tabla: fondo tintado propio (`--t-surface-2` al 40%) en cabeceras y celdas
+    + separador más grueso al entrar al bloque — se lee "día vs. acumulado"
+    sin partir la tabla. Descartado (user): presets de vista tipo
+    PRECIO/RETORNOS/COMPLETA — prefiere una sola tabla con corte visual.
+
 ## 9. Pendientes
 
 - **CCL implícito en vivo** (la razón de ser): `cedear_ars × ratio / adr_usd` por

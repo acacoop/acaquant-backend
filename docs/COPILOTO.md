@@ -11,7 +11,7 @@
 
 | Pieza | Archivo | Qué hace |
 |---|---|---|
-| **El cerebro** | `api/services/copiloto.py` | TODO el comportamiento: registro `VISTAS` (qué datos, columnas, reglas), system prompt, detección de tickers, bloques de detalle, serialización TSV, feedback. **Tocar el asistente = tocar este archivo.** |
+| **El cerebro** | `api/services/copiloto/` | Paquete (modularizado 2026-07-17, antes un `.py` de ~3.400 líneas). `base.py` (helpers puros + system prompt + tono por rol) · `verificacion.py` (guardrails de números/jerga/derrame) · **una `<vista>.py` por vista** (`renta_variable`, `renta_fija`, `trading`, `home`, `agro`, `opciones`, `ons`, `reuters`: fetch + extras + reglas + chips) · `registro.py` (el dict `VISTAS`) · `derivacion.py` (`[[VISTA:x]]` + acceso RBAC) · `motor.py` (`preguntar` + `vigia` + historial + feedback). **Tocar una vista = tocar SOLO su archivo.** `__init__.py` re-exporta la superficie pública. |
 | Transporte LLM | `core/ai.py` | Gateway único: tarea `copiloto_vista` (tier flash, max_tokens 2000), presupuesto diario, retry, traza de cada llamada. No sabe nada del copiloto. |
 | HTTP | `api/routers/ia.py` | 3 endpoints: `GET /api/ia/copiloto/vistas`, `POST /api/ia/copiloto`, `POST /api/ia/copiloto/feedback`. Solo plumbing; gate `ia` en el montaje. |
 | Panel UI | `acaquant-web/src/components/ia-vista-panel.tsx` | Drawer + botón "Consultale a la IA". Historial corto client-side. Se oculta si el backend no habilita la vista. |
@@ -53,7 +53,8 @@ Panel (browser) ── {vista, pregunta, historial} ──► POST /api/ia/copil
 
 ## Cómo se agrega una vista nueva
 
-1. Entrada en `VISTAS` (copiloto.py): `titulo`, `modulo` RBAC, `dominio`
+1. Módulo nuevo `copiloto/<vista>.py` con su fetch/extras/reglas/chips, y entrada
+   en `VISTAS` (`copiloto/registro.py`, importando esos símbolos): `titulo`, `modulo` RBAC, `dominio`
    (una línea de qué se pregunta ahí — alimenta la derivación entre vistas),
    `fetch` (el MISMO service @cached de la vista), `columnas`, `reglas` del
    dominio, y opcionales `enriquecer` / `extras`.
@@ -80,7 +81,7 @@ Adopciones decididas charlando con el user (TODO se implementa CON su ayuda y
 queda asentado acá):
 1. **Audiencia por rol RBAC** — **HECHO (2026-07-11, tono definido por el
    user):** trader = seco/numérico, sales = explicado y con frases repetibles
-   a un cliente, admin = neutro. `_TONO_POR_ROL` en copiloto.py vía
+   a un cliente, admin = neutro. `_TONO_POR_ROL` en `copiloto/base.py` vía
    `get_user_role` (best-effort: roles caídos → neutro).
 2. **Biblioteca de consultas de mesa** — **HECHO (2026-07-11, chips elegidos
    por el user):** 5 chips en el panel (Papeles de IA · Argentina · En zona
@@ -153,6 +154,14 @@ causas/conocimiento externo no).
   se dropean) + regla de humildad en `_REGLAS_TRADING` (no tratar de equivocado al
   trader por sus propias cards). Test `test_sanear_params_trading_cap_12` congela
   el cap para que CI cace el drift.
+- **[refactor, sin cambio de comportamiento]** `copiloto.py` (~3.400 líneas) →
+  paquete `api/services/copiloto/`: `base`, `verificacion`, una `<vista>.py` por
+  vista, `registro` (VISTAS), `derivacion` y `motor`. `__init__.py` re-exporta la
+  superficie pública histórica → `from api.services import copiloto; copiloto.X`
+  sigue igual. Los 3 tests que parcheaban `copiloto.X` de funciones cross-módulo
+  ahora parchean el submódulo donde el nombre se resuelve (renta_variable/home/
+  motor). 311 tests verdes, ruff limpio, import-chain OK. Ganancia: tocar una
+  vista = tocar SOLO su archivo; cada vista se testea aislada.
 
 ### 2026-07-17 — v1.52 (reuters: glosario "profesor de la vista")
 - **[reglas ~]** `reuters` suma un GLOSARIO (bid/ask, pre/after, market cap, EV,

@@ -1,0 +1,145 @@
+"""copiloto/verificacion.py — guardrails estructurales (anti-alucinación).
+
+Verificación mecánica de números (todo número del output debe existir en el
+contexto), detector de jerga interna y de derrame de razonamiento. Código, no
+prompt: el patrón rector del copiloto (lo que el modelo rompe dos veces baja a
+código). Autónomo — no importa otros submódulos.
+"""
+from __future__ import annotations
+
+import re
+
+_RE_NUM = re.compile(r"(-?\d[\d.,]*)(?:\s*([kKmMbB])(?![A-Za-z]))?")
+_ESCALAS = {"k": 1e3, "m": 1e6, "b": 1e9}
+
+
+def _candidatos_numericos(token: str) -> list[float]:
+    """Interpretaciones posibles de un número escrito: '10.793' puede ser
+    diez mil setecientos noventa y tres (formato es-AR, el de la mesa) o
+    10.793 — se prueban AMBAS contra el contexto. Bug real del shadow: la
+    vista trading (precios en miles) quedaba bloqueada entera porque el
+    modelo escribía a la argentina y el parser leía decimales."""
+    # Puntuación de FRASE pegada al final ("operó 634.100, y…" → token
+    # '634.100,'): rompía TODOS los parseos y bloqueaba respuestas correctas
+    # (batería ONs 2026-07-14 — 3 de las 4 fallas eran esto).
+    token = token.strip().lstrip("-").rstrip(".,")
+    out: list[float] = []
+    # es-AR: 1.234.567,89 o 10.793 (puntos de miles, coma decimal)
+    if re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?", token):
+        try:
+            out.append(float(token.replace(".", "").replace(",", ".")))
+        except ValueError:
+            pass
+    # coma decimal simple: 6,65
+    if re.fullmatch(r"\d+,\d+", token):
+        try:
+            out.append(float(token.replace(",", ".")))
+        except ValueError:
+            pass
+    # lectura literal (punto decimal, sin separadores)
+    try:
+        out.append(float(token.replace(",", "")))
+    except ValueError:
+        pass
+    return out
+
+
+def _numeros_sin_respaldo(respuesta: str, contexto: str) -> tuple[list[str], int]:
+    """(lista de números sin respaldo tal como aparecen, total_chequeados).
+    Un número 'tiene respaldo' si ALGUNA de sus interpretaciones (literal,
+    formato es-AR, abreviación K/M/B) aparece en el contexto con tolerancia
+    de redondeo. Se ignoran enteros chicos (rankings, cantidades) y años."""
+    ctx: set[float] = set()
+    for m in _RE_NUM.finditer(contexto):
+        try:
+            ctx.add(abs(float(m.group(1).replace(",", ""))))
+        except ValueError:
+            continue
+    total = 0
+    malos: list[str] = []
+    for m in _RE_NUM.finditer(respuesta):
+        candidatos = _candidatos_numericos(m.group(1))
+        if not candidatos:
+            continue
+        sufijo = (m.group(2) or "").lower()
+        es_entero = all(float(c).is_integer() for c in candidatos)
+        if not sufijo and es_entero and all(c <= 31 or 1900 <= c <= 2100 for c in candidatos):
+            continue  # rankings, cantidades, fechas
+        total += 1
+        if sufijo:
+            candidatos = candidatos + [c * _ESCALAS[sufijo] for c in candidatos]
+        # Redondeo legítimo: "5,9%" cuando el dato es 5.85 es media unidad del
+        # último decimal escrito — se acepta (batería home 2026-07-12: el
+        # modelo redondea a 1 decimal y la respuesta moría). "4,2" para 4.11
+        # NO pasa: eso es un redondeo mal hecho, sigue siendo error.
+        frac = re.search(r"[.,](\d+)\s*$", m.group(1))
+        tol_redondeo = 0.51 * 10 ** -len(frac.group(1)) if frac else 0.0
+
+        def _match(c: float) -> bool:
+            for v in candidatos:  # noqa: B023 — se consume dentro del mismo loop
+                if abs(c - v) <= max(0.011, 0.001 * v, tol_redondeo):  # noqa: B023
+                    return True
+                if v.is_integer() and round(c) == v:
+                    return True
+                if sufijo and abs(c - v) <= 0.015 * v:  # noqa: B023
+                    return True
+            return False
+
+        if not any(_match(c) for c in ctx):
+            malos.append(m.group(1) + (m.group(2) or ""))
+    return malos, total
+
+
+# Términos internos que JAMÁS deben llegar al usuario. El prompt ya lo pide,
+# pero el modelo lo rompe cada tanto (shadow: "ret_7d", "monto_usd_ny") →
+# guardrail estructural: se detectan por código y disparan la auto-corrección.
+_JERGA_FIJA = {"es_ia", "adr", "tsv", "zona_piv", "piv_anual", "piv_mensual",
+               "z-score", "zscore", "mtd", "wtd", "ytd", "columna", "header"}
+
+# Derrame de razonamiento en la respuesta visible (autocorrecciones tipo
+# "Corrijo:", "— no, X también…"): dispara la misma reescritura.
+_RE_DERRAME = re.compile(
+    r"[Cc]orrijo|[Rr]evisar:|[Pp]erd[óo]n|—\s*no,|[Ee]ntonces respuesta final"
+)
+# palabras de mesa legítimas aunque coincidan con headers
+_NO_ES_JERGA = {"nombre", "sector", "rubro", "pais", "ticker", "ratio", "vwap",
+                "spread", "compra", "venta", "nominales", "ia", "subyacente"}
+
+
+def _jerga_en_respuesta(respuesta: str, cfg: dict, pregunta: str) -> list[str]:
+    """Headers/campos del contexto que se colaron en la respuesta. Un término
+    queda permitido si el USUARIO lo usó en su pregunta (si él habla de
+    'zona_piv', se le puede contestar igual)."""
+    resp = respuesta.lower()
+    preg = (pregunta or "").lower()
+    terminos: set[str] = set(_JERGA_FIJA)
+    for c in cfg.get("columnas") or []:
+        campo, header = c if isinstance(c, tuple) else (c, c)
+        terminos.update((campo.strip("%").lower(), header.strip("%").lower()))
+    permitidos_vista = {str(t).lower() for t in cfg.get("jerga_permitida") or ()}
+    out = []
+    for t in sorted(terminos - _NO_ES_JERGA - permitidos_vista):
+        if len(t) < 3 or t in preg:
+            continue
+        # OJO: el "%" NO delimita — "ret_año%" en la respuesta ES el término
+        # "ret_año" (bug real del shadow: el % del header lo hacía invisible)
+        if re.search(rf"(?<![a-z0-9_]){re.escape(t)}(?![a-z0-9_])", resp):
+            out.append(t)
+    # Nomenclatura de pivots (PP/R1-R3/S1-S3): prohibida salvo que el usuario
+    # hable de pivots/niveles ("zona >R3 anual" seguía apareciendo — R1/S3
+    # esquivaban el filtro de longitud mínima). En vistas de trading es el
+    # idioma nativo (cfg permitir_pivots) y no se filtra.
+    if not cfg.get("permitir_pivots") and not re.search(r"pivot|nivel|\bpp\b|\b[rs][1-3]\b", preg):
+        if re.search(r"\b(?:PP|[RS][1-3])\b", respuesta):
+            out.append("nomenclatura de pivots (PP/R1/S3)")
+    return out
+
+
+# ── Derivación a otras vistas (pedido del user 2026-07-12) ──────────────────
+# "¿Qué bono rinde más?" preguntado en Renta Variable moría en "eso no está en
+# esta tabla". El modelo no puede RESPONDER fuera de su vista (no tiene esos
+# datos), pero sí puede DECIR dónde se responde: el prompt recibe la lista de
+# las otras vistas con copiloto que el usuario puede usar (RBAC — jamás derivar
+# a una puerta cerrada) y, si deriva, cierra con un marcador [[VISTA:clave]]
+# que el CÓDIGO valida contra el registro y convierte en botón en el panel.
+

@@ -380,13 +380,17 @@ def test_pulso_por_rubro_pondera_por_volumen():
 
 
 def test_enriquecer_no_muta_las_filas_originales(monkeypatch):
+    # tras la modularización se parchea el submódulo donde el nombre se RESUELVE
+    # (_enriquecer_cedears vive en copiloto.renta_variable y llama a estos same-module)
     monkeypatch.setattr(
-        copiloto, "_velas_periodo_previo",
+        copiloto.renta_variable, "_velas_periodo_previo",
         lambda: {"AAPL": {"anual": {"pp": 100.0, "r1": 110.0, "r2": 120.0, "r3": 130.0,
                                     "s1": 90.0, "s2": 80.0, "s3": 70.0}}},
     )
-    monkeypatch.setattr(copiloto, "_retornos_ruedas", lambda: {"AAPL": {"r30": 4.2, "r45": 9.9}})
-    monkeypatch.setattr(copiloto, "_extremos_serie", lambda: {"AAPL": {"max": 250.0, "min": 50.0}})
+    monkeypatch.setattr(copiloto.renta_variable, "_retornos_ruedas",
+                        lambda: {"AAPL": {"r30": 4.2, "r45": 9.9}})
+    monkeypatch.setattr(copiloto.renta_variable, "_extremos_serie",
+                        lambda: {"AAPL": {"max": 250.0, "min": 50.0}})
     original = [{"ticker_corto": "AAPL", "underlying": "AAPL", "adr_last": 125.0}]
     out = copiloto._enriquecer_cedears(original)
     assert out[0]["piv_anual"] == "R2-R3"
@@ -549,12 +553,14 @@ def test_fetch_home_una_fuente_caida_no_rompe(monkeypatch):
 
 
 def test_renta_fija_pulso_por_curva_y_tramo(monkeypatch):
-    monkeypatch.setattr(copiloto, "_fetch_renta_fija", lambda params=None: [
+    # _renta_fija_pulso vive en copiloto.home y usa los nombres que home importó
+    # de renta_fija → se parchea el binding de home
+    monkeypatch.setattr(copiloto.home, "_fetch_renta_fija", lambda params=None: [
         {"ticker_corto": "S31L6", "curva_label": "tasa_fija", "tea": 39.0, "meses_al_vto": 1},
         {"ticker_corto": "T15E7", "curva_label": "tasa_fija", "tea": 33.0, "meses_al_vto": 24},
         {"ticker_corto": "TX26", "curva_label": "cer", "tea": 10.0, "meses_al_vto": 8},
     ])
-    monkeypatch.setattr(copiloto, "_teas_cierre_anterior",
+    monkeypatch.setattr(copiloto.home, "_teas_cierre_anterior",
                         lambda: {"S31L6": 40.0, "T15E7": 32.5, "_fecha": "2026-07-11"})
     bloque = "\n".join(copiloto._renta_fija_pulso())
     # tasa_fija: corto comprime 100bps, largo descomprime 50bps — separado por tramo
@@ -808,7 +814,7 @@ def test_vigia_disparadores(monkeypatch):
          "dist_pct": 0.05},  # cerca de nivel pero NO es mover → no dispara
     ])
     # rueda viva forzada (el vigía no dispara fuera de rueda)
-    monkeypatch.setattr(copiloto, "_estado_mercado",
+    monkeypatch.setattr(copiloto.motor, "_estado_mercado",
                         lambda ahora, habil: ("RUEDA VIVA — tramo de la mañana", "x"))
 
     out = copiloto.vigia({"tickers": ["RKLB"]})
@@ -820,7 +826,7 @@ def test_vigia_disparadores(monkeypatch):
     assert all(a["ticker"] != "KO" for a in out["alertas"])  # no-mover no dispara
 
     # fuera de rueda: silencio total
-    monkeypatch.setattr(copiloto, "_estado_mercado",
+    monkeypatch.setattr(copiloto.motor, "_estado_mercado",
                         lambda ahora, habil: ("CERRADO (cerró 17:00)", "x"))
     assert copiloto.vigia({"tickers": ["RKLB"]})["alertas"] == []
 

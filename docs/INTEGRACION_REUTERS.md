@@ -255,6 +255,17 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
     reglas: rol "profesor de la vista" — explica cualquier métrica si le
     preguntan.
 
+- **2026-07-17 — v2.5: ficha rediseñada + SPY/QQQ de PIVOTS al feed.**
+  - Ficha: separadores nítidos entre cuadrantes, títulos en acento/negrita,
+    métricas en 2 columnas, negritas en labels/valores (modo claro legible),
+    botón ⛶ maximizar por cuadrante, gráfico de evolución dibujado al tamaño
+    real del panel (ResizeObserver — fin del espacio muerto).
+  - Los KPIs SPY/QQQ del toolbar de PIVOTS ahora salen de `/api/trading/reuters`
+    (real-time del feed) en vez de la watchlist externa.
+  - Ratios: el 2º Excel del user (17061.xlsx, 02-jul) resultó IDÉNTICO al 1º —
+    **los CEDEARs de ETF (SPY/QQQ/XLF…) NO están en ese listado de BYMA**; falta
+    el listado de ETFs para completarles el ratio (o cargarlos en Manager).
+
 ## 9. Pendientes
 
 - **CCL implícito en vivo** (la razón de ser): `cedear_ars × ratio / adr_usd` por

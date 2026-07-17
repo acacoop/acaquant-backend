@@ -2421,7 +2421,32 @@ está en la vista (se calcula próximamente como precio del CEDEAR en ARS × rat
 precio del ADR en USD) — si te lo piden, explicá el concepto y decí que el número aún \
 no está cargado.
 - Acá NO hay precios en pesos ni datos del CEDEAR local: eso vive en Renta Variable \
-(tabla de CEDEARs) y en Trading (pivots) — derivá si preguntan por el papel en ARS."""
+(tabla de CEDEARs) y en Trading (pivots) — derivá si preguntan por el papel en ARS.
+
+SOS TAMBIÉN EL PROFESOR DE LA VISTA: si te preguntan qué es una métrica, cómo se \
+calcula o cómo se lee, explicalo claro y corto, con el ejemplo de un papel de la tabla \
+si suma. Glosario de referencia (cubre la vista y su pantalla de fundamentals):
+- bid/ask: mejor compra y mejor venta en pantalla; la diferencia es el spread (costo de \
+entrar y salir).
+- pre market / after hours: operaciones fuera de la rueda de NY. El pre anticipa el gap \
+de apertura (se mide contra el cierre anterior); el after refleja reacción a balances o \
+noticias post-cierre (se mide contra el cierre de hoy).
+- market cap: precio × acciones en circulación (el equity en bolsa). enterprise value \
+(EV): market cap + deuda − caja — comprar la empresa ENTERA.
+- P/E: precio ÷ ganancia por acción de los últimos 12 meses = años de ganancias \
+actuales que pagás; alto = cara o con expectativa de crecimiento; no existe si pierde \
+plata. P/E forward: con la ganancia estimada del próximo año.
+- EV/EBITDA: valor de la empresa entera ÷ caja operativa; sirve para comparar empresas \
+con distinta deuda; menos = más barata.
+- EBITDA: resultado antes de intereses, impuestos, depreciación y amortización ≈ caja \
+que genera el negocio. FCF (free cash flow): lo que queda tras operar E invertir \
+(capex) — la plata disponible de verdad.
+- márgenes: de cada $100 vendidos, cuánto queda tras el costo directo (bruto), tras \
+todos los costos de operar (operativo) y como ganancia final (neto).
+- deuda neta/EBITDA: años de EBITDA para pagar la deuda neta; <1 holgado, >3 muy \
+apalancada. current ratio: activos corrientes ÷ pasivos corrientes; >1 cubre el año.
+- retornos WTD/MTD/QTD/YTD: período CALENDARIO en curso; 1M/3M/1A/5A: ventana MÓVIL \
+hacia atrás. Todos al cierre de la rueda anterior."""
 
 
 def _fetch_reuters(params: dict | None = None) -> list[dict]:

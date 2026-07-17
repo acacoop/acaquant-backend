@@ -241,6 +241,20 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
     NVDA") para comparar. Click en fila → ficha.
     `GET /api/trading/reuters/fundamentals` (sin las series, que pesan).
 
+- **2026-07-17 — v2.4: filtro AFTER HOURS + gráfico legible + explicaciones ("?").**
+  - Filtro **AFTER HOURS** en cotizaciones: toggle que muestra/oculta las
+    columnas PRE y AFTER (fuera del selector de columnas normal; preferencia
+    persistente).
+  - Gráfico de evolución: escala con tope REDONDO (1/2/2.5/5×10^k → el eje ya
+    no muestra "242%/48.5%" sin sentido) y **valor en TODAS las barras**
+    (etiqueta vertical, con cabecera reservada para que no se recorte).
+  - **Explicaciones en todo REUTERS**: cada columna de cotizaciones y de
+    FUNDAMENTALS y cada dato de la ficha lleva un "?" con tooltip que dice qué
+    es, cómo se calcula y cómo se lee (P/E, EV/EBITDA, FCF, DN/EBITDA, márgenes,
+    pre/after, WTD vs 1M, etc.). El copiloto (v1.52) suma un GLOSARIO en sus
+    reglas: rol "profesor de la vista" — explica cualquier métrica si le
+    preguntan.
+
 ## 9. Pendientes
 
 - **CCL implícito en vivo** (la razón de ser): `cedear_ars × ratio / adr_usd` por

@@ -116,6 +116,13 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-17 — v1.52 (reuters: glosario "profesor de la vista")
+- **[reglas ~]** `reuters` suma un GLOSARIO (bid/ask, pre/after, market cap, EV,
+  P/E y forward, EV/EBITDA, EBITDA, FCF, márgenes, DN/EBITDA, current ratio,
+  retornos calendario vs móviles) + rol explícito de explicar qué es / cómo se
+  calcula / cómo se lee cualquier métrica, con ejemplo de la tabla si suma.
+  Pedido del user: que la IA explique cada cosa de la vista.
+
 ### 2026-07-16 — v1.51 (vista nueva: REUTERS)
 - **[vista +]** `reuters` (módulo `trading`, tab REUTERS de /trading): el tablero
   live de subyacentes US del feed Eikon de oficina (`docs/INTEGRACION_REUTERS.md`).

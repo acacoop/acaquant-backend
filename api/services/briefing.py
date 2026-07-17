@@ -223,7 +223,7 @@ def _cauciones() -> list[dict[str, Any]]:
             tna = snap.get("tna_closing")
         plazo = snap.get("plazo_dias")
         out.append({
-            "label":   f"Caución {moneda}{f' {plazo}d' if plazo else ''} · TNA%",
+            "label":   f"Caución {moneda}{f' {plazo}d' if plazo else ''}",
             "hoy":     tna,
             "ret_1d":  None,
             "ret_wtd": None,

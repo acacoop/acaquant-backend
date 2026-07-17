@@ -45,6 +45,7 @@ from api.routers import (
     operativa,
     ordenes,
     research,
+    research1816,
     risk,
     scanner,
     titulos,
@@ -226,6 +227,7 @@ app.include_router(derivados_sinteticos.router, dependencies=_PUBLIC)
 app.include_router(back_office.router,        dependencies=_BACK_OFFICE)
 app.include_router(scanner.router,            dependencies=_PUBLIC)
 app.include_router(research.router,           dependencies=_PUBLIC)  # Análisis Fundamental (gate renta-variable en el router)
+app.include_router(research1816.router,       dependencies=_PUBLIC)  # vista RESEARCH (gate módulo `research` en el router) — docs/VISTA_RESEARCH.md
 app.include_router(trading.router,            dependencies=_TRADING)  # vista TRADING (admin)
 app.include_router(ia.router,                 dependencies=_IA)       # IA (QuantAI) — gate módulo `ia`
 

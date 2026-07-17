@@ -56,6 +56,9 @@ MODULES: tuple[str, ...] = (
     "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos
     "back-office",    # /back-office (títulos a enviar/recibir al mercado, conciliación)
+    "research",       # /research (vista Research: research diario 1816 por mail +
+                      # market data 1816 — docs/VISTA_RESEARCH.md). Gate de
+                      # /api/research1816/*. INTERNA — JAMÁS invitado (REGLA #8).
     "ia",             # features de IA (QuantAI, docs/QUANTAI.md) — gate de /api/ia/*.
                       # JAMÁS agregarlo a `invitado` (REGLA #8): es la marca AI interna.
     "manager",        # /manager + intel + jobs + logs (umbrella — tabs admin)

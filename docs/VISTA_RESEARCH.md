@@ -329,9 +329,10 @@ Agregar el módulo nuevo (patrón de `api/CLAUDE.md`, igual que `back-office`):
   → *entregable: "las series históricas de 1816, en la app".*
 - **Fase 2 — Catálogo + snapshot de hoy + calculadora teórica.** instrumentos/curvas
   + tabla de indicadores de hoy + el proxy de cálculo teórico on-demand.
-- **Fase 3 — Pilar B (mails) en la vista.** Encender P6 (creds), sumar `tipo`
-  diario/mensual, timeline + FTS en la vista. (Puede ir en paralelo a Fase 1 — es
-  independiente y ya casi todo está.)
+- **Fase 3 — Pilar B (mails) en la vista. ✅ HECHO 2026-07-17 (Nivel 1)** — timeline
+  + destilado + FTS en la mitad derecha de la vista. Ver Registro de construcción.
+  Falta solo el `tipo` mensual real (se deriva del asunto por ahora) y que el user
+  corra el ingest + tilde el módulo.
 - **Fase 4 — Cruces y copiloto.** El número al lado de la narrativa; y un copiloto
   de la vista Research (el research destilado + las series como contexto) — encaja
   en el patrón del copiloto por vista (`docs/COPILOTO.md`). El paso 2 de P6
@@ -464,7 +465,41 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ---
 
+## Registro de construcción (con fecha — qué y cómo)
+
+### 2026-07-17 — NIVEL 1 (pilar B, research escrito) CONSTRUIDO
+La vista **RESEARCH** (nueva vista principal `/research`) con el research diario de
+1816 funcionando de punta a punta. **Qué se hizo y cómo:**
+- **Ingesta ya andando (P6):** `jobs/research_mail.py` detecta los mails REENVIADOS
+  a mano (fix del match From+Asunto+Cuerpo, 2026-07-17) → probado con `--dry-run`:
+  ve los 4 reenvíos de la semana. El cron ya existía (`*/30 10-14 UTC L-V`) → apenas
+  llega el mail (reenviado a la mañana) se ingesta y destila solo.
+- **Módulo RBAC `research`** en `core/roles.py::MODULES` — INTERNO, no está en
+  `invitado` (REGLA #8). Default lo tiene `admin` (vía MODULES); el admin lo tilda
+  para trader/sales en Manager → ROLES Y PERMISOS (la matriz de prod pisa el
+  default, patrón `ia`). **PENDIENTE del user: tildar `research` en el panel.**
+- **Backend:** `api/services/research_sql.py` (lee `ia.research`: timeline
+  `listar_research` + búsqueda full-text español `buscar_research` con `ts_headline`
+  resaltado) + router `api/routers/research1816.py` (`GET /api/research1816/mails`,
+  `/mails/buscar`). **Prefijo `/api/research1816` a propósito** — el `/api/research`
+  existente es la Análisis Fundamental de RV (gate renta-variable); NO se pisa. Gate
+  a nivel router con `require_module("research")`. Montado en `api/main.py`.
+- **Frontend:** vista `research-view.tsx` + página `src/app/research/page.tsx`
+  (SSR). **Split 50/50:** izquierda = Market Data 1816 (placeholder hasta la API
+  key), derecha = research diario (timeline con destilado IA — resumen + temas +
+  hechos — + texto crudo expandible + buscador full-text con debounce + "cargar
+  más"). Entrada `RESEARCH` en la nav (`header.tsx`, gate módulo). Gating en
+  `proxy.ts` (página `/research` + API `/api/research1816`).
+- **`tipo` (diario/mensual)** se deriva del asunto al vuelo (`_tipo_de_asunto`) — sin
+  columna nueva todavía (cuando llegue un mensual real se evalúa, §5.2).
+- **Tests:** `tests/unit/test_research_sql.py` (derivación de tipo + parseo del
+  destilado). Backend: import-chain OK (313 rutas), ruff limpio. Frontend: typecheck OK.
+- **Qué falta para que el user lo VEA:** (1) correr el ingest real una vez
+  (`python -m jobs.research_mail`, sin `--dry-run`) para poblar `ia.research`;
+  (2) `git pull` + `systemctl restart api.service` en el Droplet; (3) el frontend
+  deploya solo en Vercel; (4) tildar el módulo `research` en el panel de roles.
+
 ## Hecho
 
-- *(vacío — el documento nace con el diseño; se va llenando a medida que las fases
-  se entregan. Mover acá cada fase cerrada con una línea.)*
+- **2026-07-17 — Nivel 1 (pilar B) — vista Research con el research diario de 1816**
+  (ver Registro de construcción). Pilar A (market data 1816) pendiente de la API key.

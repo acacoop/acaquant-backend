@@ -266,6 +266,19 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
     **los CEDEARs de ETF (SPY/QQQ/XLF…) NO están en ese listado de BYMA**; falta
     el listado de ETFs para completarles el ratio (o cargarlos en Manager).
 
+- **2026-07-17 — v3: MOTOR DE CCL IMPLÍCITO VIVO (server-side).**
+  - `core/eikon_live._ccl_implicito`: CCL = last del CEDEAR (ARS,
+    `mercado.cedears_snapshot`, motor propio) × ratio ÷ last del ADR (USD, feed
+    Eikon). Calculado en el BACKEND (el front solo muestra), y **nunca rompe**:
+    cualquier pata faltante (feed apagado, CEDEAR sin operar, ratio sin cargar)
+    → None → celda vacía. Guard de frescura: el last del CEDEAR debe ser de HOY
+    (ART) — mezclar un ARS viejo con un USD fresco fabrica un CCL falso.
+  - Columna CCL del tablero activa; copiloto ve `ccl_implicito` con su regla.
+  - KPIs de PIVOTS: SPY/QQQ = CEDEAR ARS (scanner) + **SPY ADR / QQQ ADR** en
+    USD (tablero Reuters), lado a lado.
+  - Briefing: 3ª columna **DÓLAR FUTURO (DLR)** (modal más ancho): ticker /
+    días / último / TNA implícita desde `mercado.futuros_dlr_snapshot`.
+
 ## 9. Pendientes
 
 - **CCL implícito en vivo** (la razón de ser): `cedear_ars × ratio / adr_usd` por

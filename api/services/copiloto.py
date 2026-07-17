@@ -2416,10 +2416,11 @@ movimiento fuerte fuera de rueda, es EL dato — arrancá por ahí.
 ANTERIOR (no incluyen el día de hoy): usalos para el contexto de mediano plazo y no \
 los mezcles con la variación de hoy. OJO con los parecidos: ret_mes% es el MES \
 CALENDARIO en curso (MTD) y ret_1mes_movil% son los últimos 30 días — no son lo mismo.
-- ratio = cuántos CEDEARs equivalen a 1 acción. El CCL implícito del activo TODAVÍA no \
-está en la vista (se calcula próximamente como precio del CEDEAR en ARS × ratio ÷ \
-precio del ADR en USD) — si te lo piden, explicá el concepto y decí que el número aún \
-no está cargado.
+- ratio = cuántos CEDEARs equivalen a 1 acción. ccl_implicito = last del CEDEAR en ARS \
+× ratio ÷ last del ADR en USD: a qué tipo de cambio está pagando el mercado ESE papel \
+ahora. Compararlo contra el CCL de referencia muestra papeles caros/baratos en dólares. \
+Viene vacío si falta una pata (feed apagado, CEDEAR sin operar hoy, ratio sin cargar) — \
+decilo derecho, no inventes el número.
 - Acá NO hay precios en pesos ni datos del CEDEAR local: eso vive en Renta Variable \
 (tabla de CEDEARs) y en Trading (pivots) — derivá si preguntan por el papel en ARS.
 
@@ -2638,7 +2639,8 @@ VISTAS: dict[str, dict] = {
             ("ret_ytd", "ret_año%"),
             ("ret_1m", "ret_1mes_movil%"), ("ret_3m", "ret_3meses%"),
             ("ret_1y", "ret_1año_movil%"), ("ret_5y", "ret_5años%"),
-            ("ratio", "ratio_cedear"), ("hora_dato", "hora_dato"),
+            ("ratio", "ratio_cedear"), ("ccl", "ccl_implicito"),
+            ("hora_dato", "hora_dato"),
         ],
         "reglas": _REGLAS_REUTERS,
     },

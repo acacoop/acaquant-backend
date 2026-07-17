@@ -186,6 +186,25 @@ def _financieros(cur, hoy_art: date) -> list[dict[str, Any]]:
     return out
 
 
+def _futuros_dlr(cur) -> list[dict[str, Any]]:
+    """Curva de futuros de DÓLAR (Matba Rofex): por vencimiento, ticker, días al
+    vto, último precio y TNA implícita (sobre el last; convención lineal de la
+    mesa). Fuente: mercado.futuros_dlr_snapshot (motor DLR). A las 10:00 ART el
+    motor todavía no arrancó → el dato puede ser del cierre anterior (por eso el
+    fallback a `closing`)."""
+    cur.execute("SELECT data FROM mercado.futuros_dlr_snapshot ORDER BY vencimiento")
+    out = []
+    for f in cur.fetchall():
+        d = f["data"] or {}
+        out.append({
+            "ticker": d.get("ticker"),
+            "dias":   d.get("dias_a_vto"),
+            "ultimo": d.get("last") or d.get("closing"),
+            "tna":    d.get("tasa_implicita_tna"),
+        })
+    return [r for r in out if r["ticker"] and r["ultimo"]]
+
+
 def _cauciones() -> list[dict[str, Any]]:
     """Caución ARS y USD tal cual la watchlist: el snapshot MÁS ACTUAL de cada
     moneda (el plazo que esté operando — 1d, 3d, el que sea), TNA en %.
@@ -224,6 +243,7 @@ def briefing_hoy() -> dict[str, Any]:
         mayorista = _mayorista(cur, hoy_art, serie_a3500)
         a3500 = _a3500(serie_a3500, hoy_art)
         financieros = _financieros(cur, hoy_art)
+        futuros_dlr = _futuros_dlr(cur)
     oficial = [mayorista] + ([a3500] if a3500 else [])
     # Bonos que pagan hoy (cupón/amort/vto). Estructural sobre curvas, filtrado a lo
     # que hay en cartera. Cacheado por día → el polling del modal no recomputa.
@@ -235,5 +255,6 @@ def briefing_hoy() -> dict[str, Any]:
         "oficial":     oficial,       # mayorista MAE (live) + A3500 (fixing)
         "financieros": financieros,   # MEP + CCL
         "cauciones":   _cauciones(),  # TNA ARS/USD del plazo vigente (watchlist)
+        "futuros_dlr": futuros_dlr,   # curva DLR: ticker/días/último/TNA
         "pagan_hoy":   pagan_hoy,     # [] si ninguno paga hoy
     }

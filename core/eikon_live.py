@@ -65,20 +65,49 @@ def set_rics(items: list[dict]) -> int:
     return actualizados
 
 
+def _ccl_implicito(cedear_data, cedear_upd, ratio, adr_last) -> float | None:
+    """CCL implícito del papel: (last del CEDEAR en ARS × ratio) ÷ last del ADR
+    en USD. REGLA: nunca rompe — si falta CUALQUIER pata (feed Eikon apagado,
+    CEDEAR sin operar, sin ratio cargado, dato local que no es de HOY), devuelve
+    None y la celda queda vacía."""
+    try:
+        if not cedear_data or ratio is None or adr_last is None:
+            return None
+        r = float(ratio)
+        adr = float(adr_last)
+        cedear = float(cedear_data.get("last") or 0)
+        if r <= 0 or adr <= 0 or cedear <= 0:
+            return None
+        # El last del CEDEAR debe ser de HOY (ART): mezclar un ARS viejo con un
+        # USD fresco fabrica un CCL falso — mejor celda vacía.
+        if cedear_upd is None:
+            return None
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("America/Argentina/Buenos_Aires")
+        if cedear_upd.astimezone(tz).date() != datetime.now(tz).date():
+            return None
+        return cedear * r / adr
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
 def tablero_reuters() -> list[dict]:
     """Filas del tablero TRADING → REUTERS: un activo por fila, SOLO los que el
     feed fue suscribiendo (los que tienen quote en `mercado.eikon_snapshot`),
-    con el ratio del CEDEAR del catálogo. `ccl` va None hasta que se implemente
-    el cálculo en vivo (precio_cedear × ratio / precio_adr)."""
+    con el ratio del CEDEAR del catálogo y el CCL implícito calculado
+    SERVER-SIDE (last CEDEAR ARS × ratio ÷ last ADR USD, ver _ccl_implicito)."""
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT e.ticker, e.ric, e.data, e.updated_at, c.ratio "
+            "SELECT e.ticker, e.ric, e.data, e.updated_at, c.ratio, "
+            "       cs.data AS cedear_data, cs.updated_at AS cedear_upd "
             "FROM mercado.eikon_snapshot e "
             "LEFT JOIN LATERAL ("
-            "  SELECT max(ratio) AS ratio FROM mercado.cedears "
-            "  WHERE upper(COALESCE(underlying, ticker_corto)) = e.ticker "
-            "    AND activo IS TRUE"
+            "  SELECT m.ticker AS cedear_ticker, m.ratio FROM mercado.cedears m "
+            "  WHERE upper(COALESCE(m.underlying, m.ticker_corto)) = e.ticker "
+            "    AND m.activo IS TRUE "
+            "  ORDER BY m.ratio IS NULL, m.ticker LIMIT 1"
             ") c ON TRUE "
+            "LEFT JOIN mercado.cedears_snapshot cs ON cs.ticker = c.cedear_ticker "
             "ORDER BY e.ticker")
         # sin "open": CF_OPEN no viene para equities US (verificado 2026-07-16,
         # 27/27 suscriptos sin el dato) — se quitó del feed y de la vista
@@ -90,14 +119,14 @@ def tablero_reuters() -> list[dict]:
             "ret_1m", "ret_3m", "ret_1y", "ret_5y",
         ]
         filas = []
-        for ticker, ric, data, updated_at, ratio in cur.fetchall():
+        for ticker, ric, data, updated_at, ratio, cedear_data, cedear_upd in cur.fetchall():
             d = data or {}
             fila = {"ticker": ticker, "ric": ric}
             fila.update({c: d.get(c) for c in campos})
             fila["ah_var_pct"] = _var_pct(d.get("ah_last"), d.get("last"))
             fila["pre_var_pct"] = _var_pct(d.get("pre_last"), d.get("prev_close"))
             fila["ratio"] = float(ratio) if ratio is not None else None
-            fila["ccl"] = None             # pendiente: cedear_ars × ratio / adr_usd
+            fila["ccl"] = _ccl_implicito(cedear_data, cedear_upd, ratio, d.get("last"))
             fila["updated_at"] = updated_at
             filas.append(fila)
         return filas

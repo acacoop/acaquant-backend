@@ -186,6 +186,33 @@ def _financieros(cur, hoy_art: date) -> list[dict[str, Any]]:
     return out
 
 
+def _cauciones() -> list[dict[str, Any]]:
+    """Caución ARS y USD tal cual la watchlist: el snapshot MÁS ACTUAL de cada
+    moneda (el plazo que esté operando — 1d, 3d, el que sea), TNA en %.
+    Fuente: mercado.caucion_snapshot (motor de caución), misma que /argy.
+    Sin histórico intradía acá → las columnas de retorno van None."""
+    from api.services import mercado_hist_sql
+    out = []
+    for moneda in ("ARS", "USD"):
+        docs = mercado_hist_sql.get_caucion(moneda=moneda)
+        docs = sorted(docs, key=lambda d: d.get("updated_at") or "", reverse=True)
+        snap = docs[0] if docs else None
+        if not snap:
+            continue
+        tna = snap.get("tna_last")
+        if tna is None:
+            tna = snap.get("tna_closing")
+        plazo = snap.get("plazo_dias")
+        out.append({
+            "label":   f"Caución {moneda}{f' {plazo}d' if plazo else ''} · TNA%",
+            "hoy":     tna,
+            "ret_1d":  None,
+            "ret_wtd": None,
+            "ret_mtd": None,
+        })
+    return out
+
+
 def briefing_hoy() -> dict[str, Any]:
     """Payload del modal. Tres bloques, cada fila con el mismo shape
     (label, hoy, ret_1d, ret_wtd, ret_mtd). Cada bloque puede venir []/None si su
@@ -207,5 +234,6 @@ def briefing_hoy() -> dict[str, Any]:
         "futuros":     futuros,       # índices US/energía/metales/granos/cripto
         "oficial":     oficial,       # mayorista MAE (live) + A3500 (fixing)
         "financieros": financieros,   # MEP + CCL
+        "cauciones":   _cauciones(),  # TNA ARS/USD del plazo vigente (watchlist)
         "pagan_hoy":   pagan_hoy,     # [] si ninguno paga hoy
     }

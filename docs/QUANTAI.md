@@ -126,6 +126,10 @@ calendario.
 ## Proyectos elegidos (orden = dependencias)
 
 ### P1 — Briefing de apertura — CERRADO COMO ESTÁ (decisión del user 2026-07-14)
+> 2026-07-17: única excepción pedida por el user — bloque **CAUCIONES** (TNA ARS
+> y USD del plazo vigente, misma fuente que la watchlist:
+> `mercado.caucion_snapshot`). `briefing.py::_cauciones` + sección en el modal.
+
 La feature queda VIVA tal cual corre (modal 10:00 ART + botón ☀ BRIEFING en el
 footer global + `GET /api/ia/briefing` + `api/services/briefing.py`, columnas
 HOY·1D·WTD·MTD, determinista sin LLM) pero **no se invierte más en ella**: los

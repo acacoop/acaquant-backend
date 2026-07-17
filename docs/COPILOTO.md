@@ -116,6 +116,44 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-17 — v1.53 (3 fallos reales de trazas: anti-alucinación global · precio punta a punta RF · cap de tarjetas)
+Directiva del user tras leer trazas en vivo: "que NO invente, NO asocie, NO saque
+conclusiones — lo justo y necesario; exprimir que tenemos datos posta". Modo
+elegido: **describe, no explica** (intermedio — comparar dentro de los datos sí,
+causas/conocimiento externo no).
+- **[prompt ~, GLOBAL — Bug B: alucinación en HOME]** Traza #330: "Merval cae 3.2%
+  liderado por tecnología y papeles de IA" (el MERVAL no tiene tech de EE.UU. — el
+  modelo pegó el pulso de CEDEARs al índice ARG) + "cauciones bajan → alivian el
+  carry" (asociación inventada). Raíz: `_SYSTEM_BASE` PEDÍA narrar causa (regla 4
+  "qué pasó → **por qué** → qué mirar"). Nueva **REGLA DE ORO** en `_SYSTEM_BASE`
+  (todas las vistas): describís QUÉ y CUÁNTO, nunca POR QUÉ; prohibido explicar
+  causas, asociar movimientos por deducción y usar conocimiento propio de qué
+  contiene un mercado/índice. Regla 4 → "hilo DESCRIPTIVO" (sin "por qué"). Ejemplo
+  RKLB depurado de su conclusión causal. `_REGLAS_HOME`: el MERVAL (acciones ARG)
+  y el [pulso por rubro] (CEDEARs/ADRs = EE.UU.) son DOS mundos — jamás explicar
+  uno con el otro ni atribuirle sectores al MERVAL.
+- **[contexto +, Bug A — RF inventa retorno punta a punta]** Trazas #329-337
+  (javier.curzel): pidió "performance de TZXD6 en junio" / "punta a punta" y ese
+  número NO existía en el contexto (solo la descomposición modelada de 30d y el
+  precio de hoy) → el modelo lo improvisó y hasta **reusó el precio de un bono
+  para otro** (TZXD6→TZXS8). Nuevo bloque `[precio punta a punta TICKER]`
+  (`_precio_puntapunta_rf`, bajo demanda al nombrar bonos): retorno de PRECIO real
+  cierre-a-cierre 7d/14d/30d con fecha y precio de cada punta, desde
+  `snapshots_cierre_hist`. Regla nueva en `_REGLAS_RENTA_FIJA`: precio punta a
+  punta (crudo) ≠ descomposición (modelo, puede no coincidir); si piden un MES
+  CALENDARIO exacto que no coincide con las ventanas móviles, decirlo y ofrecer la
+  más cercana; **JAMÁS reusar las puntas de otro papel** — si no está el bloque de
+  ese ticker, decir que no se tiene y PARAR.
+- **[bugfix, Bug C — TRADING "ve algunas cards y no todas"]** Trazas #351-354:
+  "ASTS está en mis cards" y el modelo juraba que no. VERIFICADO (no hipótesis):
+  el frontend `trading-view.tsx` tiene `SLOTS=12` y manda todas las cards, pero el
+  backend `_MAX_TARJETAS` estaba en **8** → truncaba en silencio de la 9ª en
+  adelante. Fix: cap **8→12** (matchea SLOTS) + `_fetch_trading` GARANTIZA una fila
+  por card saneada (las que no resuelven datos entran como "sin datos ahora", nunca
+  se dropean) + regla de humildad en `_REGLAS_TRADING` (no tratar de equivocado al
+  trader por sus propias cards). Test `test_sanear_params_trading_cap_12` congela
+  el cap para que CI cace el drift.
+
 ### 2026-07-17 — v1.52 (reuters: glosario "profesor de la vista")
 - **[reglas ~]** `reuters` suma un GLOSARIO (bid/ask, pre/after, market cap, EV,
   P/E y forward, EV/EBITDA, EBITDA, FCF, márgenes, DN/EBITDA, current ratio,

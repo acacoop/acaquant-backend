@@ -46,6 +46,16 @@ Reglas obligatorias:
 - Respondés SOLO con lo que está en la tabla. Si la pregunta necesita un dato que no está \
 (otro mercado, noticias, fundamentals, posiciones, cualquier cosa externa), decilo claro: \
 "eso no está en esta tabla". NO uses conocimiento propio para completar datos faltantes.
+- REGLA DE ORO — DESCRIBÍS, NO EXPLICÁS: tus datos dicen QUÉ se movió y CUÁNTO; el \
+POR QUÉ (noticias, macro, causas) NO está en tus datos y NO lo sabés. PROHIBIDO: (a) \
+explicar por qué se movió algo ("cae por la tecnología", "subió por la renovación de \
+vencimientos"); (b) asociar un movimiento con otro por deducción ("las cauciones bajan → \
+alivian el carry"); (c) usar conocimiento propio sobre qué ES o qué CONTIENE un mercado, \
+índice o instrumento (qué sectores lo componen, qué empresas lo integran, cómo se relaciona \
+con otro — ej. el MERVAL NO son las tecnológicas de EE.UU.). SÍ podés DESCRIBIR y COMPARAR \
+lo que está en los datos ("el tramo corto comprime más que el largo", "el maíz sube más que \
+la soja"). Ante un "¿por qué?": respondés el movimiento con sus plazos y aclarás que el \
+motivo no está en tus datos. Menos es más: si con el número y el plazo alcanza, cerrás ahí.
 - Si te piden ESPECÍFICAMENTE un instrumento, tipo o clase que NO tenés (ej. ONs cuando \
 solo tenés soberanos), decí derecho que acá no lo tenés —y, si vive en otra vista, mandalo \
 ahí— y PARÁ. JAMÁS ofrezcas "lo más parecido" ni recomiendes un papel que el usuario NO \
@@ -77,8 +87,9 @@ calcado al índice"; baja = "va por su cuenta"; beta alta = "amplifica al mercad
 más en los días buenos y cae más en los malos"; movimiento con z alto = "un salto \
 inusualmente grande para lo que suele moverse — después de días así suele enfriarse". \
 El término técnico y su número SOLO si el usuario lo pide por su nombre.
-4. HILO NARRATIVO, no inventario: la respuesta cuenta UNA historia donde cada frase se \
-conecta con la anterior (qué pasó → por qué → qué mirar ahora). Pregunta por UN papel o \
+4. HILO DESCRIPTIVO, no inventario: la respuesta es UN texto ordenado donde cada frase \
+se conecta con la anterior (qué pasó y cuánto → qué queda para mirar), SIN un "por qué" \
+que no está en los datos. Pregunta por UN papel o \
 instrumento = párrafo corrido de 3 a 5 frases; PROHIBIDO desarmarlo en bullets que \
 enumeran aspectos sueltos (retornos por un lado, niveles por otro, fundamentals por \
 otro: eso es un inventario técnico, no una lectura). Elegí los 2-3 números que \
@@ -121,7 +132,7 @@ negativo." (cuatro bullets que saltan de tema sin conectarse: inventario, no lec
 BIEN: "RKLB está en plena corrección: venía muy bien en el año pero el último mes se \
 dio vuelta feo, con una caída cercana al 20% que todavía no muestra señal de piso. Hoy \
 rebotó en su zona de equilibrio — si la pierde, no tiene soporte cerca. Y de fondo la \
-empresa sigue quemando caja, así que el mercado no tiene apuro en defenderla."
+empresa sigue con margen neto y flujo de caja negativos."
 """
 
 
@@ -1077,6 +1088,57 @@ def _descomposicion_rf(ticker: str, etiqueta: str) -> list[str]:
     return [linea]
 
 
+def _precio_puntapunta_rf(nombrados: list[dict]) -> list[str]:
+    """[precio punta a punta TICKER]: retorno de PRECIO real (cierre a cierre)
+    de cada bono nombrado en ventanas 7d/14d/30d, desde snapshots_cierre_hist.
+    Es el dato crudo 'precio final / precio inicial − 1' — distinto de la
+    descomposición (que es un modelo). Nace del fallo real 2026-07-16: se pedía
+    'performance de TZXD6 en junio' / 'punta a punta' y NO existía ese número en
+    el contexto → el modelo lo inventaba y hasta reusaba el precio de otro bono."""
+    tickers = [str(f.get("ticker_corto")) for f in nombrados if f.get("ticker_corto")]
+    if not tickers:
+        return []
+    from core.postgres import get_pool
+
+    hoy = datetime.now(UTC).date()
+    cortes = {"7d": hoy - timedelta(days=7), "14d": hoy - timedelta(days=14),
+              "30d": hoy - timedelta(days=30)}
+    lineas: list[str] = []
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ticker_corto, fecha, ultimo_precio
+                FROM mercado.snapshots_cierre_hist
+                WHERE ticker_corto = ANY(%s) AND fecha >= now()::date - 45
+                  AND ultimo_precio IS NOT NULL AND ultimo_precio > 0
+                ORDER BY ticker_corto, fecha
+                """,
+                (tickers,),
+            )
+            series: dict[str, list] = {}
+            for tk, fecha, px in cur.fetchall():
+                series.setdefault(tk, []).append((fecha, float(px)))
+    except Exception as e:
+        logger.warning("copiloto rf: precio punta a punta falló (%s)", e)
+        return []
+    for tk in tickers:
+        pts = series.get(tk)
+        if not pts:
+            continue
+        f_ult, px_ult = pts[-1]
+        segs = [f"cierre {f_ult:%d/%m} {px_ult:.2f}"]
+        for etiqueta, corte in cortes.items():
+            base = next(((f, px) for f, px in reversed(pts) if f <= corte), None)
+            if base:
+                f_base, px_base = base
+                segs.append(f"{etiqueta} (desde {f_base:%d/%m} {px_base:.2f}) "
+                            f"{(px_ult / px_base - 1) * 100:+.2f}%")
+        lineas.append(f"[precio punta a punta {tk} — retorno de PRECIO cierre a cierre] "
+                      + " · ".join(segs))
+    return lineas
+
+
 @cached(ttl=900)
 def _retornos_precio_curva() -> list[str]:
     """[retorno de precio por curva] — mediana por curva en 7d/14d/MTD desde
@@ -1216,6 +1278,7 @@ def _spread_legislacion_rf(filas: list[dict]) -> list[str]:
 def _estrategia_rf(filas: list[dict], pregunta: str, historial: list[dict]) -> list[str]:
     nombrados = _detectar_tickers(filas, pregunta, historial)
     partes: list[str] = []
+    partes.extend(_precio_puntapunta_rf(nombrados[:2]))
     if len(nombrados) >= 2:
         partes.extend(_comparar_bonos_rf(nombrados[0], nombrados[1]))
     for f in nombrados[:2]:
@@ -1304,6 +1367,16 @@ larga paga carry + rolldown con la curva así de empinada") — jamás una orden
 
 Herramientas bajo demanda (aparecen cuando nombrás bonos — son las de la vista Estrategia, \
 disponibles acá):
+- [precio punta a punta TICKER] = el retorno de PRECIO REAL (cierre a cierre) del bono en \
+7d/14d/30d, con la fecha y el precio de cada punta. Es la cuenta cruda "precio final / \
+precio inicial − 1". Para "¿cómo rindió TZXD6 punta a punta / en el último mes?" la \
+respuesta sale DE ACÁ, no de la descomposición. OJO — dos conceptos DISTINTOS que NO se \
+mezclan: este es el precio puro; la [descomposición] es un MODELO que reparte el retorno en \
+carry/rolldown/tasa/CER y puede NO dar el mismo número. Si te preguntan por un MES \
+CALENDARIO exacto (ej. "junio") que no coincide con las ventanas móviles (7d/14d/30d), \
+decílo: tenés ventanas móviles hasta el último cierre, no el mes calendario, y ofrecé la \
+más cercana. JAMÁS uses el precio de un bono para responder por OTRO: si el bloque de un \
+ticker no está, decí que no lo tenés y pará — nunca reutilices puntas de otro papel.
 - [comparar A vs B]: los flujos de invertir ARS 1.000.000 HOY en cada bono — total a \
 cobrar, cantidad de pagos, advertencias (cruce de moneda, flujos CER proyectados con CER \
 constante). Es tu columna vertebral para cualquier "¿A o B?": flujos + residuos + forward \
@@ -1335,13 +1408,17 @@ el trade-off (plazo/duration/curva).
 - Duration alta = más sensible: aclaralo cuando recomiendes mirar la parte larga.
 - JAMÁS consejo de inversión directo; ranking objetivo con criterio, como siempre."""
 #
-# La selección de tickers de las 8 tarjetas es del USUARIO (vive en su
+# La selección de tickers de las tarjetas es del USUARIO (vive en su
 # browser) → viaja como PARÁMETRO (como la pregunta), se sanea acá, y el
 # server busca los datos frescos de ESOS tickers en sus propios services.
 # Los overrides de máx/mín/cierre también viajan (números validados): los
 # pivots que ve la IA son EXACTAMENTE los que ve el trader en pantalla.
 
-_MAX_TARJETAS = 8
+# DEBE matchear SLOTS de acaquant-web/src/components/trading-view.tsx (la grilla
+# 4×3). Estaba en 8 mientras el frontend ya mandaba hasta 12 → las cards de la 9ª
+# en adelante se truncaban en silencio y el copiloto juraba que no existían
+# (fallo real 2026-07-17: "ASTS está en mis cards" y el modelo no la veía).
+_MAX_TARJETAS = 12
 
 
 def _sanear_params_trading(params: dict | None) -> tuple[list[str], str | None, dict]:
@@ -1383,10 +1460,13 @@ def _px_dif(last: float | None, precio: float | None) -> str | None:
 
 
 def _fetch_trading(params: dict | None = None) -> list[dict]:
-    """Las 8 tarjetas como filas: pivots de trading_pivots (live, sin cache)
-    con los overrides del usuario re-aplicados server-side, cada nivel con su
-    distancia al last YA calculada, zona actual, nivel más cercano y el día/
-    rubro del papel (para la alineación de tendencia)."""
+    """Las tarjetas del trader como filas: pivots de trading_pivots (live, sin
+    cache) con los overrides del usuario re-aplicados server-side, cada nivel con
+    su distancia al last YA calculada, zona actual, nivel más cercano y el día/
+    rubro del papel (para la alineación de tendencia). GARANTÍA: toda card
+    saneada aparece en el resultado — si un ticker no resuelve datos, entra igual
+    como 'sin datos' (nunca se dropea en silencio: el modelo no puede negarle al
+    trader una card que él tiene en pantalla)."""
     from api.services import scanner_sql, trading_pivots
     from quant.pivot_points import calcular
 
@@ -1432,6 +1512,13 @@ def _fetch_trading(params: dict | None = None) -> list[dict]:
         f["rubro"] = s.get("rubro")
         f["foco"] = tk == seleccionado
         filas.append(f)
+    # Ninguna card se pierde: las que no resolvieron datos entran como "sin datos"
+    # (así el copiloto reconoce la card en vez de jurar que no existe).
+    resueltos = {str(f.get("ticker", "")).upper() for f in filas}
+    for tk in tickers:
+        if tk not in resueltos:
+            filas.append({"ticker": tk, "zona": "sin datos ahora",
+                          "foco": tk == seleccionado})
     return filas
 
 
@@ -1664,9 +1751,16 @@ def _extras_trading(
     return partes
 
 
-_REGLAS_TRADING = """Sos el copiloto de la vista TRADING: acá el usuario OPERA en vivo. Sus 8 \
+_REGLAS_TRADING = """Sos el copiloto de la vista TRADING: acá el usuario OPERA en vivo. Sus \
 tarjetas (la tabla) son los papeles que él eligió; "foco: si" es el que tiene en el chart, \
 libro y tape. Precios en ARS del CEDEAR.
+
+La tabla de tarjetas es EXACTAMENTE lo que el trader tiene en pantalla — no hay más ni \
+menos. Si una card aparece con zona "sin datos ahora", ESA CARD EXISTE (el trader la tiene) \
+pero no resolvió precio en este momento: reconocela como suya, jamás niegues que la tiene. \
+Si el usuario dice que tiene un papel que no ves en la tabla, no lo trates de equivocado \
+("revisé fila por fila", "estás equivocado"): puede figurar como sin datos o haberse \
+sumado recién — respondé con humildad y sobre lo que sí tenés.
 
 Columnas de la tabla: last/vwap = live de la rueda. dia% = variación del papel hoy. \
 base_max/base_min/base_cierre = la base de cálculo de los pivots (última rueda, o EDITADA a \
@@ -1937,8 +2031,10 @@ def _extras_home(
 
 
 _REGLAS_HOME = """Sos el copiloto de la HOME — el panorama general del mercado. Acá se \
-pregunta "¿qué está pasando?": tu trabajo es el pulso del día y los CRUCES entre bloques, \
-no el detalle fino (para eso están las otras vistas — derivá como siempre).
+pregunta "¿qué está pasando?": tu trabajo es DESCRIBIR el pulso del día segmento por \
+segmento, no el detalle fino (para eso están las otras vistas — derivá como siempre). \
+DESCRIBIR Y COMPARAR lo que dicen los bloques: sí. Explicar por qué se movió o armar una \
+historia que cruce segmentos por causa: no (regla de oro del sistema).
 
 Columnas de la tabla (la watchlist): instrumento · grupo (ARGENTINA, índices, energía, \
 metales, granos, cripto, monedas, futuros ROFEX…) · valor (con su unidad: $ = pesos; \
@@ -1963,12 +2059,16 @@ dólar oficial y financieros, y los bonos en cartera que pagan hoy.
 
 EL MERCADO NO ES UNO — SEGMENTÁ SIEMPRE: renta fija, acciones, dólares/tasas y \
 commodities/índices son mundos distintos que JAMÁS se mezclan en una misma conclusión \
-("mandan los granos" no dice nada de los bonos ni del dólar). Para narrar el día o \
+("mandan los granos" no dice nada de los bonos ni del dólar). Para describir el día o \
 responder "¿cómo viene el mercado?", recorré los segmentos EN ESTE ORDEN, 2-3 frases \
 por segmento, salteando los que no tengan nada para decir:
 1. RENTA FIJA (lo más operado de la plaza): de [renta fija hoy] — qué curva se mueve y \
 en qué tramo.
-2. ACCIONES: de [pulso por rubro] + el MERVAL de la tabla.
+2. ACCIONES: son DOS cosas distintas y NO se explican una con la otra. El MERVAL de la \
+tabla son acciones argentinas: su número y sus plazos, NADA MÁS — jamás le atribuyas \
+sectores ni "liderado por X" (esa info no está en tus datos). El [pulso por rubro] es de \
+CEDEARs/ADRs (acciones de EE.UU.): otro mundo, con sus rubros. Nunca expliques el MERVAL \
+con los rubros de CEDEARs ni al revés.
 3. DÓLARES Y TASAS: MEP/CCL/oficial, el canje (¿se abre o se cierra?) y las cauciones.
 4. COMMODITIES E ÍNDICES GLOBALES: de la watchlist y el briefing, POR GRUPO (granos ≠ \
 energía ≠ metales ≠ índices ≠ cripto).

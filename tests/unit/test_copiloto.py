@@ -929,3 +929,14 @@ def test_verificador_puntuacion_final_pegada():
     malos, _ = copiloto._numeros_sin_respaldo(
         "La más líquida operó 634.100, y le siguió otra con 651.209.", contexto)
     assert malos == []
+
+
+def test_sanear_params_trading_cap_12():
+    """Fallo real 2026-07-17: el frontend (trading-view.tsx SLOTS=12) manda hasta
+    12 cards pero el backend topeaba en 8 → las de la 9ª en adelante se truncaban
+    en silencio y el copiloto negaba cards que el trader tenía. El cap DEBE ser 12
+    (matchea SLOTS). Este test congela el contrato para que CI cace el drift."""
+    doce = [f"TK{i}" for i in range(12)]
+    tickers, _sel, _ov = copiloto._sanear_params_trading({"tickers": doce})
+    assert len(tickers) == 12
+    assert "TK11" in tickers  # la 12ª ya no se pierde

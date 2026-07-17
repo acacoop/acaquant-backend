@@ -4,6 +4,7 @@ _estado_mercado, _sanear_params_trading y _fetch_trading para el VIGÍA."""
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 
 from .base import _num, _wavg, _zona
@@ -102,6 +103,7 @@ def _fetch_trading(params: dict | None = None) -> list[dict]:
         s = por_ticker.get(tk) or {}
         f["dia_pct"] = s.get("vs_1d_pct")
         f["rubro"] = s.get("rubro")
+        f["_underlying"] = s.get("underlying")  # subyacente US → key del feed Reuters
         f["foco"] = tk == seleccionado
         filas.append(f)
     # Ninguna card se pierde: las que no resolvieron datos entran como "sin datos"
@@ -301,6 +303,153 @@ def _tendencia_rubros_cards(filas_cards: list[dict]) -> list[str]:
     return ["[tendencia rubros de tus tarjetas] " + " · ".join(partes)] if partes else []
 
 
+# ── REUTERS: quote US live + fundamentals del feed Eikon (core.eikon_live) ──
+# El copiloto de TRADING accede a TODO lo de Reuters (cotizaciones + fundamentals)
+# de sus papeles. Se trae para el papel EN FOCO + los MENCIONADOS en la pregunta
+# (cap 3): dos queries únicas (tablero_reuters + tablero_fundamentals, la plaza
+# entera) filtradas en memoria — nada de N queries. Todo por SUBYACENTE US (la
+# key del feed); la card mapea vía su _underlying (fallback: el propio ticker).
+
+
+def _fp(v, dec: int = 2) -> str | None:
+    """Un valor que YA viene en % (var/retornos Reuters, márgenes, div yield) →
+    string con signo implícito, sin el ×100 de _pct. None si falta."""
+    try:
+        return f"{float(v):.{dec}f}"
+    except (TypeError, ValueError):
+        return None
+
+
+def _f_millones(v, absoluto: bool) -> str | None:
+    """Money del feed a MILLONES de USD (entero, sin separador → parser-safe).
+    `absoluto=True` divide por 1e6 (market_cap/deuda/caja vienen en USD absoluto);
+    False lo deja (revenue/ebitda/… ya vienen en millones)."""
+    try:
+        x = float(v) / 1e6 if absoluto else float(v)
+        return f"{x:.0f}"
+    except (TypeError, ValueError):
+        return None
+
+
+def _seg(pares: list[tuple[str, str | None]]) -> str:
+    """Une 'label valor' saltando los None (dato faltante = no se menciona)."""
+    return " · ".join(f"{lbl} {val}" for lbl, val in pares if val is not None)
+
+
+def _reuters_quote_lineas(tk: str, und: str, q: dict) -> list[str]:
+    dia = _seg([
+        ("last", _num(q.get("last"))), ("bid", _num(q.get("bid"))),
+        ("ask", _num(q.get("ask"))), ("var_dia", _fp(q.get("var_pct")) and
+         f"{_fp(q.get('var_pct'))}%"),
+    ])
+    fuera = _seg([
+        ("pre", _num(q.get("pre_last")) if q.get("pre_last") is not None else None),
+        ("pre var", _fp(q.get("pre_var_pct")) and f"{_fp(q.get('pre_var_pct'))}%"),
+        ("after", _num(q.get("ah_last")) if q.get("ah_last") is not None else None),
+        ("after var", _fp(q.get("ah_var_pct")) and f"{_fp(q.get('ah_var_pct'))}%"),
+    ])
+    rets = _seg([
+        ("5d", _fp(q.get("ret_5d")) and f"{_fp(q.get('ret_5d'))}%"),
+        ("semana", _fp(q.get("ret_wtd")) and f"{_fp(q.get('ret_wtd'))}%"),
+        ("mes", _fp(q.get("ret_mtd")) and f"{_fp(q.get('ret_mtd'))}%"),
+        ("trim", _fp(q.get("ret_qtd")) and f"{_fp(q.get('ret_qtd'))}%"),
+        ("año", _fp(q.get("ret_ytd")) and f"{_fp(q.get('ret_ytd'))}%"),
+        ("1m móvil", _fp(q.get("ret_1m")) and f"{_fp(q.get('ret_1m'))}%"),
+        ("3m", _fp(q.get("ret_3m")) and f"{_fp(q.get('ret_3m'))}%"),
+        ("1año móvil", _fp(q.get("ret_1y")) and f"{_fp(q.get('ret_1y'))}%"),
+        ("5años", _fp(q.get("ret_5y")) and f"{_fp(q.get('ret_5y'))}%"),
+    ])
+    out = [f"[reuters {tk} — quote US en vivo del subyacente {und}, USD (Reuters/Eikon)]"]
+    if dia:
+        out.append(dia)
+    if fuera:
+        out.append("fuera de rueda: " + fuera)
+    if rets:
+        out.append("retornos al cierre de la rueda anterior (calendario WTD/MTD/QTD/YTD "
+                   "· móvil 1m/3m/1año/5años): " + rets)
+    if q.get("ccl") is not None:
+        out.append(f"CCL implícito de este papel {_num(q.get('ccl'))} ARS/USD")
+    return out
+
+
+def _reuters_fund_lineas(tk: str, und: str, fu: dict) -> list[str]:
+    val = _seg([
+        ("market cap (M USD)", _f_millones(fu.get("market_cap"), absoluto=True)),
+        ("P/E", _fp(fu.get("pe"), 1)), ("P/E fwd", _fp(fu.get("fwd_pe"), 1)),
+        ("EV/EBITDA", _fp(fu.get("ev_ebitda"), 1)),
+        ("EV/EBITDA fwd", _fp(fu.get("fwd_ev_ebitda"), 1)),
+        ("P/VL", _fp(fu.get("p_bv"), 1)),
+        ("div yield", _fp(fu.get("div_yield"), 1) and f"{_fp(fu.get('div_yield'), 1)}%"),
+    ])
+    res = _seg([
+        ("ingresos", _f_millones(fu.get("revenue"), absoluto=False)),
+        ("ut. bruta", _f_millones(fu.get("gross_profit"), absoluto=False)),
+        ("EBITDA", _f_millones(fu.get("ebitda"), absoluto=False)),
+        ("resultado neto", _f_millones(fu.get("net_income"), absoluto=False)),
+        ("FCF", _f_millones(fu.get("fcf"), absoluto=False)),
+        ("capex", _f_millones(fu.get("capex"), absoluto=False)),
+    ])
+    mg = _seg([
+        ("bruto", _fp(fu.get("margen_bruto"), 1) and f"{_fp(fu.get('margen_bruto'), 1)}%"),
+        ("operativo", _fp(fu.get("margen_operativo"), 1) and
+         f"{_fp(fu.get('margen_operativo'), 1)}%"),
+        ("neto", _fp(fu.get("margen_neto"), 1) and f"{_fp(fu.get('margen_neto'), 1)}%"),
+    ])
+    sol = _seg([
+        ("deuda total (M USD)", _f_millones(fu.get("deuda_total"), absoluto=True)),
+        ("caja (M USD)", _f_millones(fu.get("caja"), absoluto=True)),
+        ("DN/EBITDA", _fp(fu.get("deuda_neta_ebitda"), 1)),
+        ("current ratio", _fp(fu.get("current_ratio"), 1)),
+    ])
+    out = [f"[fundamentals {tk} — {und} (Reuters/Eikon, anual, dato de balance NO live)]"]
+    if val:
+        out.append("valuación: " + val)
+    if res:
+        out.append("resultados último año fiscal (millones USD): " + res)
+    if mg:
+        out.append("márgenes: " + mg)
+    if sol:
+        out.append("solidez: " + sol)
+    if fu.get("proximo_balance"):
+        out.append(f"próximo balance estimado: {fu.get('proximo_balance')}")
+    return out
+
+
+def _reuters_bloques(filas: list[dict], pregunta: str, seleccionado: str | None) -> list[str]:
+    preg = (pregunta or "").upper()
+    orden: list[str] = []
+    if seleccionado:
+        orden.append(seleccionado)
+    for f in filas:
+        tk = str(f.get("ticker") or "").upper()
+        if tk and tk not in orden and re.search(rf"\b{re.escape(tk)}\b", preg):
+            orden.append(tk)
+    orden = orden[:3]
+    if not orden:
+        return []
+    und_de = {str(f.get("ticker") or "").upper(): str(f.get("_underlying")
+              or f.get("ticker") or "").upper() for f in filas}
+    try:
+        from core.eikon_live import tablero_fundamentals, tablero_reuters
+
+        quotes = {str(r.get("ticker") or "").upper(): r for r in tablero_reuters()}
+        funds = {str(r.get("ticker") or "").upper(): r for r in tablero_fundamentals()}
+    except Exception as e:
+        logger.warning("copiloto trading: Reuters no disponible (%s)", e)
+        return []
+    partes: list[str] = []
+    for tk in orden:
+        und = und_de.get(tk, tk)
+        q, fu = quotes.get(und), funds.get(und)
+        if q:
+            partes.extend(_reuters_quote_lineas(tk, und, q))
+        if fu:
+            partes.extend(_reuters_fund_lineas(tk, und, fu))
+        if not q and not fu:
+            partes.append(f"[reuters {tk}] sin dato del feed Reuters para {und} en este momento.")
+    return partes
+
+
 def _extras_trading(
     filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
 ) -> list[str]:
@@ -340,6 +489,7 @@ def _extras_trading(
         partes.extend(_libro_resumen(seleccionado))
         partes.extend(_tape_resumen(seleccionado))
     partes.extend(_movers_resumen())
+    partes.extend(_reuters_bloques(filas, pregunta, seleccionado))
     return partes
 
 
@@ -396,6 +546,20 @@ cuidado con entrar a mercado.
 "Agresión compradora" = trades ejecutados contra la punta vendedora.
 - [movers]: los que se mueven fuerte hoy (±4%), mismo criterio que el radar de la vista.
 - [CCL]/[SPY]/[QQQ]: contexto de mercado.
+- [reuters X — quote US]: el papel en su mercado de ORIGEN (Nueva York, en USD), del feed \
+Reuters/Eikon — bid/ask, pre y after market con su variación, y los retornos por período. \
+OJO: los retornos son AL CIERRE de la rueda anterior (no incluyen hoy) y "mes/año" son \
+CALENDARIO (MTD/YTD) mientras "1m/1año" son ventana MÓVIL — no los mezcles. El "CCL \
+implícito de este papel" es a qué dólar paga el CEDEAR ESE activo ahora. Todo esto es el \
+papel en USD; los pivots y el precio ARS que operás son la tabla de arriba.
+- [fundamentals X — Reuters]: los números de BALANCE de la empresa (anuales, dato contable, \
+NO live): valuación (market cap, P/E y forward, EV/EBITDA, P/VL, div yield), resultados del \
+último año (ingresos, EBITDA, resultado neto, FCF — en millones de USD), márgenes y solidez \
+(deuda, caja, DN/EBITDA, current ratio). Aparecen para el papel EN FOCO y los que nombres en \
+la pregunta. Sos también el PROFESOR: si te preguntan qué es o cómo se lee una métrica, \
+explicala clara y corta con el número del papel. Estos son fundamentales de LARGO plazo — \
+sirven para entender la empresa, NO para la decisión intradía de pivots (aclaralo si hace al \
+caso). Un dato que no está (—) no se menciona.
 
 TU ROL PRINCIPAL ES DE DISCIPLINA, no de mostrar datos: el bloque [reloj de mercado] manda.
 - En ZONA MUERTA (13-16): tu primera frase SIEMPRE lo recuerda. Si el usuario insinúa \

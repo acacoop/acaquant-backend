@@ -946,3 +946,48 @@ def test_sanear_params_trading_cap_12():
     tickers, _sel, _ov = copiloto._sanear_params_trading({"tickers": doce})
     assert len(tickers) == 12
     assert "TK11" in tickers  # la 12ª ya no se pierde
+
+
+def test_reuters_fundamentals_escalas_y_pct():
+    """REUTERS en TRADING (2026-07-17): market_cap/deuda/caja vienen en USD
+    ABSOLUTO (→ millones) pero revenue/ebitda YA vienen en millones; los % del
+    quote/márgenes NO se multiplican ×100 (bug potencial del verificador)."""
+    fu = {"market_cap": 8.5e9, "revenue": 12000.0, "ebitda": 3000.0,
+          "pe": 32.1, "margen_neto": 23.4, "deuda_total": 2.0e9, "caja": 5.0e8,
+          "div_yield": 1.2, "deuda_neta_ebitda": 0.5}
+    txt = "\n".join(copiloto.trading._reuters_fund_lineas("RKLB", "RKLB", fu))
+    assert "market cap (M USD) 8500" in txt      # 8.5e9 absoluto → 8500 M
+    assert "ingresos 12000" in txt               # ya en millones → tal cual
+    assert "EBITDA 3000" in txt
+    assert "P/E 32.1" in txt
+    assert "neto 23.4%" in txt                   # % plano, sin ×100
+    assert "deuda total (M USD) 2000" in txt     # 2e9 absoluto → 2000 M
+    q = {"last": 25.3, "var_pct": 2.5, "ret_ytd": 45.2, "ah_last": 25.8,
+         "ah_var_pct": 1.98}
+    qt = "\n".join(copiloto.trading._reuters_quote_lineas("RKLB", "RKLB", q))
+    assert "last 25.30" in qt
+    assert "var_dia 2.50%" in qt                 # 2.5%, NO 250%
+    assert "año 45.20%" in qt
+
+
+def test_reuters_bloques_detecta_foco_y_mencionados():
+    filas = [{"ticker": "RKLB", "_underlying": "RKLB"},
+             {"ticker": "MU", "_underlying": "MU"},
+             {"ticker": "GGAL", "_underlying": "GGAL"}]
+    # sin feed real, tablero_* fallará → degrada a []; pero el orden de interés
+    # se arma ANTES del fetch: probamos la selección con un fake del feed
+    import core.eikon_live as el
+    el_reuters = lambda: [{"ticker": "MU", "last": 100.0}]  # noqa: E731
+    el_funds = lambda: []  # noqa: E731
+    import pytest
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(el, "tablero_reuters", el_reuters)
+    monkeypatch.setattr(el, "tablero_fundamentals", el_funds)
+    try:
+        # foco RKLB + mención de MU en la pregunta → ambos, GGAL no
+        out = "\n".join(copiloto.trading._reuters_bloques(filas, "¿cómo viene MU?", "RKLB"))
+        assert "reuters RKLB" in out              # foco (sin dato → aviso)
+        assert "reuters MU — quote US" in out     # mencionado, con quote del fake
+        assert "GGAL" not in out                  # ni foco ni mencionado
+    finally:
+        monkeypatch.undo()

@@ -127,7 +127,8 @@ VISTAS: dict[str, dict] = {
         "titulo": "Trading",
         "modulo": "trading",
         "dominio": "el monitor intradía del que está operando — sus tarjetas, "
-                   "pivots en vivo, libro, tape, movers",
+                   "pivots en vivo, libro, tape, movers, y el quote US en vivo + "
+                   "los fundamentals Reuters de sus papeles",
         "permitir_pivots": True,  # acá la nomenclatura PP/R1/S3 ES el idioma
         "fetch": _fetch_trading,
         "extras": _extras_trading,

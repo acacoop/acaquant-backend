@@ -19,7 +19,7 @@
 | Observabilidad | tabla `ia.trazas` + Manager → OBSERVABILIDAD → pill IA | Cada pregunta: tokens, latencia, ok/error, feedback 👍/👎. |
 | Tests | `tests/unit/test_copiloto.py` | Congelan contrato: TSV, gates, caps, degradación, detección de tickers, verificador. |
 | Diag de contexto | `scripts/diag_contexto.py --vista <v>` | LA LUPA (todas las vistas): imprime el contexto exacto que ve el modelo, sin tokens. Primer comando ante cualquier rareza. |
-| Baterías | `scripts/bateria_rf.py`, `scripts/bateria_home.py` (+ `smoke_copiloto.py`, `eval_copiloto.py`) | Mapeo masivo de preguntas reales contra el copiloto vivo (gasta tokens del email que se pase). |
+| Baterías | `scripts/bateria_rf.py`, `scripts/bateria_home.py`, `scripts/bateria_reuters_trading.py` (+ `smoke_copiloto.py`, `eval_copiloto.py`) | Mapeo masivo de preguntas reales contra el copiloto vivo (gasta tokens del email que se pase). |
 
 ## Cómo fluye una pregunta
 
@@ -116,6 +116,34 @@ completas + 👍/👎 · presupuestos con kill switch editables.
 prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
+
+### 2026-07-17 — v1.54 (TRADING accede a TODO Reuters: quote US + fundamentals)
+Pedido del user: que el copiloto de TRADING tenga acceso a todo lo de Reuters que
+hicimos, cotizaciones Y fundamentals. Nota: los fundamentals NUNCA habían estado
+en ningún copiloto (ni el de la vista Reuters, cuya tabla es solo quotes) — es lo
+primero que los expone.
+- **[contexto +]** Dos bloques nuevos en `_extras_trading`, para el papel EN FOCO
+  + los MENCIONADOS en la pregunta (cap 3), vía el subyacente US (`_underlying` de
+  la card, fallback al ticker):
+  - `[reuters X — quote US]`: `core.eikon_live.tablero_reuters` — last/bid/ask,
+    pre y after con su variación, retornos EOD 5d→5años, CCL implícito. Los
+    retornos son al cierre anterior; MTD/YTD calendario ≠ 1m/1año móvil (se aclara
+    en las reglas).
+  - `[fundamentals X — Reuters]`: `core.eikon_live.tablero_fundamentals`
+    (`mercado.eikon_fundamentals`) — valuación (market cap, P/E y fwd, EV/EBITDA,
+    P/VL, div yield), resultados (ingresos, EBITDA, resultado neto, FCF, capex),
+    márgenes y solidez (deuda, caja, DN/EBITDA, current ratio), próximo balance.
+    El rol de PROFESOR (explicar cada métrica) se sumó a `_REGLAS_TRADING`.
+- **[eficiencia]** Dos queries únicas (la plaza entera) filtradas en memoria — no
+  N queries por card.
+- **[escalas, verificado del frontend — REGLA #2]** `market_cap`/`deuda_total`/
+  `caja` vienen en USD ABSOLUTO (→ se pasan a millones ÷1e6) pero
+  `revenue`/`ebitda`/`net_income`/`fcf`/`capex` YA vienen en millones; todo se
+  presenta en millones (parser-safe, sin separador de miles). Los % del quote y
+  los márgenes NO se multiplican ×100 (ya vienen en %). Congelado en
+  `test_reuters_fundamentals_escalas_y_pct` para que un cambio de escala no rompa
+  el verificador en silencio.
+- **[tests]** +2 casos (escalas/% y detección foco+mencionados).
 
 ### 2026-07-17 — v1.53 (3 fallos reales de trazas: anti-alucinación global · precio punta a punta RF · cap de tarjetas)
 Directiva del user tras leer trazas en vivo: "que NO invente, NO asocie, NO saque

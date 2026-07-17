@@ -8,6 +8,12 @@
 > (`docs/QUANTAI.md`), los fundamentals Refinitiv (otra cosa, en Renta Variable)
 > en `docs/RESEARCH_REFINITIV.md`, el modelo SQL en `docs/SQL.md`.
 
+> **ESTADO (2026-07-17):** DISEÑO CONGELADO, construcción EN ESPERA de credenciales
+> (API key de 1816 + creds IMAP — ver §10). Decisiones del user ya tomadas: (a) NO
+> snapshot intradía → solo cierre diario; (b) el universo de series se define
+> DESPUÉS de la Fase 0, con los créditos reales medidos en la mano. No arrancar a
+> codear hasta que estén las credenciales.
+
 ---
 
 ## 1. Objetivo — qué es la vista Research
@@ -197,8 +203,9 @@ Propuesta (a afinar al implementar, `sql/schema.sql` es la fuente):
   central del pilar A.
 - `jobs/mercado_1816_instrumentos.py` — refresco diario del catálogo (curvas +
   instrumentos), barato (1 créd c/u).
-- `jobs/mercado_1816_snapshot.py` — **DIFERIDO** (intradía cada 5 min). Solo si el
-  user pide el "hoy en vivo"; consume ~250k créditos/mes.
+- `jobs/mercado_1816_snapshot.py` — **DESCARTADO por ahora** (decisión del user
+  2026-07-17: alcanza con el cierre diario, sin intradía). El "hoy" se arma del
+  último cierre. Se reevalúa solo si el user pide el vivo (~250k créditos/mes).
 
 ### 4.8 Cliente y capa de servicio
 
@@ -339,16 +346,17 @@ Agregar el módulo nuevo (patrón de `api/CLAUDE.md`, igual que `back-office`):
 
 ## 11. Preguntas abiertas (para decidir CON el user antes de codear cada fase)
 
-1. **Universo de series:** ¿arrancamos con los ~13 recomendados, o querés una curva
-   entera (ej. todos los soberanos USD)? Cada ticker suma costo de series — se cura.
+1. **Universo de series:** ~~¿arrancamos con los ~13 recomendados o una curva
+   entera?~~ **DECIDIDO (user 2026-07-17): se define DESPUÉS de la Fase 0**, con el
+   costo real de créditos medido (`GET /balance`) — se elige con números, no a ojo.
 2. **Campos de series:** ¿los 10 sugeridos (precioDirty, paridad, tna, tea, duration,
    durationMod, currentYield, spread, valorTecnico, volumen) o un subset?
 3. **Parámetros default:** `fuente` (byma/mae), `plazo` (0/1/2), `moneda` (ars para
    pesos, mep/ccl para HD). ¿Fijamos byma/1/ars y toggles en la UI?
 4. **Rango del backfill:** ¿1 año (máximo por call) alcanza, o querés más profundidad
    (varios años = varios calls encadenados)?
-5. **Snapshot intradía:** ¿lo querés (cada 5 min, ~250k créditos/mes) o alcanza con
-   el cierre diario? (Tu foco es series → propongo diferirlo.)
+5. **Snapshot intradía:** ~~¿lo querés o alcanza con el cierre?~~ **DECIDIDO (user
+   2026-07-17): solo cierre diario, sin intradía.**
 6. **Reportes mensuales:** ¿vienen en el cuerpo del mail o como PDF adjunto?
 
 ---

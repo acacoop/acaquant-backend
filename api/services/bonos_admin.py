@@ -26,6 +26,39 @@ from core.postgres import get_pool
 CURVAS_BONO = ("tasa_fija", "cer", "soberanos", "dolar_linked", "tamar", "dual")
 
 
+def parse_flujos_bono(texto: str, tipo: str) -> dict:
+    """Parsea flujos pegados de Excel (formato BYMA/IAMC 'c/100 vn' o simple,
+    reutilizando el parser de ONs) y los DEVUELVE ya en la shape del TIPO de bono
+    elegido — así el form de alta de bonos gana el "pegar Excel" que ya tienen las
+    ONs, sin que el frontend tenga que conocer la conversión de shape.
+
+    Mapeo por tipo (ver docs raíz 'mercado.curvas — shape de flujos'):
+    - `bono` (tasa fija c/cupón) → {fecha, amortizacion, interes} (absoluto, directo).
+    - `soberano`/`dolar_linked`/`cer` → {fecha, amortizacion_pct, cupon_sobre_residual}:
+      en el formato 'c/100 vn' la amortización YA viene por 100 VN (= %) y el interés
+      YA es el cupón sobre residual resuelto (NO se re-multiplica).
+    - `dual` → {fecha, amortizacion_pct}.
+    - otros/desconocido → shape absoluto del parser tal cual.
+
+    Devuelve el mismo shape que `ons.parse_flujos_texto` ({flujos, tasa_cupon,
+    vencimiento, formato}) con `flujos` ya convertido."""
+    from api.services import ons
+
+    base = ons.parse_flujos_texto(texto)
+    t = (tipo or "").strip().lower()
+    out: list[dict] = []
+    for fl in base.get("flujos") or []:
+        amort, interes = fl.get("amortizacion"), fl.get("interes")
+        if t in ("soberano", "soberanos", "dolar_linked", "cer"):
+            out.append({"fecha": fl["fecha"], "amortizacion_pct": amort,
+                        "cupon_sobre_residual": interes})
+        elif t == "dual":
+            out.append({"fecha": fl["fecha"], "amortizacion_pct": amort})
+        else:  # bono / tasa_fija / desconocido → absoluto directo
+            out.append({"fecha": fl["fecha"], "amortizacion": amort, "interes": interes})
+    return {**base, "flujos": out}
+
+
 def list_bonos(curva: str | None = None) -> list[dict]:
     """Bonos NO-ON de mercado.curvas (excluye curva ^on, que son del editor de ONs)."""
     out = curvas_sql.por_curva(curva) if curva else curvas_sql.por_curva_not_like("on%")

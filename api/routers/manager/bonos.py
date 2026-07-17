@@ -80,6 +80,23 @@ def bonos_sin_tasa() -> dict:
     return svc.bonos_sin_tasa()
 
 
+class _ParseFlujosBono(BaseModel):
+    texto: str = Field(..., max_length=100_000)
+    tipo: str | None = Field(None, max_length=32)
+
+
+@router.post("/bonos/parse-flujos")
+def parse_flujos_bono(req: _ParseFlujosBono = Body(...)) -> dict:
+    """Parsea flujos pegados de Excel (BYMA/IAMC 'c/100 vn' o simple) y los devuelve
+    YA en la shape del tipo elegido (soberano/cer→pct, tasa fija→absoluto) para
+    previsualizar en el form de alta. Gemelo del `/ons/parse-flujos`."""
+    try:
+        return svc.parse_flujos_bono(req.texto, req.tipo or "")
+    except Exception as e:
+        return {"flujos": [], "tasa_cupon": None, "vencimiento": None,
+                "formato": "error", "error": str(e)}
+
+
 @router.post("/bonos")
 def upsert_bono(req: _BonoUpsert = Body(...), actor: str = Depends(get_user_email)) -> dict:
     try:

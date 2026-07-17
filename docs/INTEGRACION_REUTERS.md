@@ -226,6 +226,21 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
     cotizaba ~25x). Quedan como foto actual; si algún día se quieren de verdad,
     buscar el data item de múltiplo histórico real en el Data Item Browser.
 
+- **2026-07-17 — v2.3: gráfico con datos + serie TRIMESTRAL + screener FUNDAMENTALS.**
+  - Gráfico de evolución: eje Y con valores (gridlines), valor sobre cada barra
+    cuando hay ≤2 series activas, escala que banca pérdidas grandes (positivos
+    y negativos con su propio máximo — antes una pérdida se salía del lienzo).
+  - Toggle **ANUAL / TRIMESTRAL**: el feed baja también los últimos 8 trimestres
+    (validado: `Period=FQ0` + `Frq=FQ` + SDate/EDate — SIN `Period=FQ0` la
+    fuente repite el dato ANUAL por trimestre, trampa verificada). El trimestral
+    trae 2026.
+  - **Sub-vista FUNDAMENTALS** en el tab REUTERS (toggle a la derecha, junto al
+    copiloto): el "scanner" de fundamentals — cada fila una empresa, columnas =
+    métricas de la ficha (valuación/negocio/salud + fecha de reporte), orden por
+    columna, columnas ocultables y **buscador multi-empresa** ("AAPL, MSFT
+    NVDA") para comparar. Click en fila → ficha.
+    `GET /api/trading/reuters/fundamentals` (sin las series, que pesan).
+
 ## 9. Pendientes
 
 - **CCL implícito en vivo** (la razón de ser): `cedear_ars × ratio / adr_usd` por

@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from api.services import scanner_sql as scanner_svc
 from api.services import trading_pivots as svc
 from core.eikon_live import ficha as ficha_reuters
-from core.eikon_live import tablero_reuters
+from core.eikon_live import tablero_fundamentals, tablero_reuters
 
 router = APIRouter(prefix="/api/trading", tags=["Trading"])
 
@@ -25,6 +25,13 @@ def reuters_ficha(ticker: str):
     if out is None:
         raise HTTPException(404, f"sin datos para {ticker!r}")
     return out
+
+
+@router.get("/reuters/fundamentals")
+def reuters_fundamentals():
+    """Screener FUNDAMENTALS del tab REUTERS: una empresa por fila con las
+    métricas de la ficha (valuación/negocio/salud), para comparar en tabla."""
+    return tablero_fundamentals()
 
 
 @router.get("/reuters")

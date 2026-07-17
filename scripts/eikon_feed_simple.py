@@ -278,28 +278,37 @@ def actualizar_fundamentals(universo):
         d = doc_de(ric)
         for campo, nombre in FUND_FY0.items():
             d[nombre] = _num_o_texto(row.get(campo.upper()))
-    # 3) series 5 años — dos llamadas mergeadas por (ric, año fiscal)
-    series: dict[tuple, dict] = {}   # (ric, fecha) → {campo: valor}
+    # 3) series históricas — anual (5 FY) y trimestral (8 FQ, Period=FQ0+Frq=FQ,
+    #    validado 2026-07-17: sin Period=FQ0 devuelve el dato ANUAL repetido).
+    #    Cada una en dos llamadas (montos Scale=6 USD / márgenes sin Scale)
+    #    mergeadas por (ric, fecha).
+    def bajar_serie(clave: str, params_base: dict):
+        series: dict[tuple, dict] = {}   # (ric, fecha) → {campo: valor}
 
-    def sumar_serie(campos: dict, params: dict):
-        df, _e = ek.get_data(rics, ["TR.Revenue.date", *campos], field_name=True,
-                             parameters=params)
-        for _, row in df.iterrows():
-            ric = row["Instrument"]
-            fecha = _num_o_texto(row.get("TR.REVENUE.DATE"))
-            if ric not in ric_a_ticker or not fecha:
-                continue
-            fila = series.setdefault((ric, str(fecha)[:10]), {})
-            for campo, nombre in campos.items():
-                v = _num_o_texto(row.get(campo.upper()))
-                if v is not None:
-                    fila[nombre] = v
+        def sumar(campos: dict, params: dict):
+            df, _e = ek.get_data(rics, ["TR.Revenue.date", *campos], field_name=True,
+                                 parameters=params)
+            for _, row in df.iterrows():
+                ric = row["Instrument"]
+                fecha = _num_o_texto(row.get("TR.REVENUE.DATE"))
+                if ric not in ric_a_ticker or not fecha:
+                    continue
+                fila = series.setdefault((ric, str(fecha)[:10]), {})
+                for campo, nombre in campos.items():
+                    v = _num_o_texto(row.get(campo.upper()))
+                    if v is not None:
+                        fila[nombre] = v
 
-    sumar_serie(FUND_SERIE_USD, {"SDate": "0", "EDate": "-4", "Scale": "6", "Curn": "USD"})
-    sumar_serie(FUND_SERIE_PCT, {"SDate": "0", "EDate": "-4"})
-    for (ric, fecha), fila in sorted(series.items(), key=lambda kv: (kv[0][0], kv[0][1]),
-                                     reverse=True):
-        doc_de(ric).setdefault("serie_anual", []).append({"fecha": fecha, **fila})
+        sumar(FUND_SERIE_USD, {**params_base, "Scale": "6", "Curn": "USD"})
+        sumar(FUND_SERIE_PCT, params_base)
+        for (ric, fecha), fila in sorted(series.items(),
+                                         key=lambda kv: (kv[0][0], kv[0][1]),
+                                         reverse=True):
+            doc_de(ric).setdefault(clave, []).append({"fecha": fecha, **fila})
+
+    bajar_serie("serie_anual", {"SDate": "0", "EDate": "-4"})
+    bajar_serie("serie_trimestral", {"SDate": "0", "EDate": "-7",
+                                     "Period": "FQ0", "Frq": "FQ"})
 
     lista = list(docs.values())
     if not lista:

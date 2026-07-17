@@ -114,6 +114,24 @@ def _var_pct(precio, base) -> float | None:
         return None
 
 
+def tablero_fundamentals() -> list[dict]:
+    """Filas del screener FUNDAMENTALS del tab REUTERS: una empresa por fila con
+    todas las métricas de la ficha (sin las series históricas, que son pesadas
+    y viven en la ficha). Ordenado por ticker."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ticker, ric, data, updated_at "
+                    "FROM mercado.eikon_fundamentals ORDER BY ticker")
+        filas = []
+        for ticker, ric, data, updated_at in cur.fetchall():
+            d = {k: v for k, v in (data or {}).items()
+                 if k not in ("serie_anual", "serie_trimestral")}
+            d["ticker"] = ticker
+            d["ric"] = ric
+            d["updated_at"] = updated_at
+            filas.append(d)
+        return filas
+
+
 def upsert_fundamentals(docs: list[dict]) -> int:
     """Upsertea los fundamentals curados del feed en `mercado.eikon_fundamentals`
     (1 fila por ticker; el feed los manda ~1 vez por día). Mismo contrato que

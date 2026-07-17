@@ -216,7 +216,7 @@ tests/       # pytest — unit/ + integration/ (marker `integration`, excluido p
 sql/         # schema.sql — espejo relacional Postgres/Supabase (ver "Capa SQL")
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # settings.json + hooks + commands + skills + agents (ver .claude/INDEX.md)
-docs/        # ARQUITECTURA.md (DOC MADRE: arquitectura/datos/estrategia/roadmap/plan SQL). Referencia operativa: API.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md, RUNBOOK.md (operación/incidentes), SECRETS.md + SECURITY.md (seguridad), PARTNER_API*.md, GRUPOS.md, SEGMENTACION_PATRIMONIAL.md, INTEGRACION_REUTERS.md (feed Eikon live + tab REUTERS — doc vivo con changelog, LEER antes de tocar eikon_*), HERRAMIENTAS.md (auto-gen). vault/ (cerebro Obsidian, auto-generado)
+docs/        # ARQUITECTURA.md (DOC MADRE: arquitectura/datos/estrategia/roadmap/plan SQL). Referencia operativa: API.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md, RUNBOOK.md (operación/incidentes), SECRETS.md + SECURITY.md (seguridad), PARTNER_API*.md, GRUPOS.md, SEGMENTACION_PATRIMONIAL.md, INTEGRACION_REUTERS.md (feed Eikon live + tab REUTERS — doc vivo con changelog, LEER antes de tocar eikon_*), VISTA_RESEARCH.md (DOC MADRE de la vista Research: integración 1816 market data + research diario por mail — LEER antes de tocar mercado_1816 o la vista /research), HERRAMIENTAS.md (auto-gen). vault/ (cerebro Obsidian, auto-generado)
 ```
 
 ## Plano del sistema — `deploy/SISTEMA.md`

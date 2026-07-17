@@ -339,7 +339,9 @@ Agregar el módulo nuevo (patrón de `api/CLAUDE.md`, igual que `back-office`):
   al `.env` del Droplet. Sin esto, el pilar A no arranca (Fase 0).
 - **Credenciales IMAP** (pilar B, P6): `RESEARCH_IMAP_USER` /
   `RESEARCH_IMAP_PASSWORD` (app password) / `RESEARCH_MAIL_FROM`. Sin esto, el
-  pilar B no ingesta (pero no bloquea el pilar A).
+  pilar B no ingesta (pero no bloquea el pilar A). **NOTA (user 2026-07-17): esto
+  NUNCA se hizo ni se probó — es setup de cero, no un re-check. Ver la guía paso a
+  paso en el Apéndice.**
 - **Un mail MENSUAL real** de 1816 para ver si trae PDF adjunto (define §5.2.3).
 
 ---
@@ -374,6 +376,85 @@ Agregar el módulo nuevo (patrón de `api/CLAUDE.md`, igual que `back-office`):
 - **Full-text antes que vectores** (mails); **la API es fuente del número**, la app
   no recalcula; **degradar con gracia** en cada capa; **data provenance** (IA marcada
   como IA). Ver `docs/QUANTAI.md` (principios de ingeniería).
+
+---
+
+## Apéndice — Guía práctica para cargar las credenciales (paso a paso)
+
+> Escrito porque el user nunca hizo el app password de Gmail. Todo esto lo hace el
+> user (Claude no tiene acceso al Droplet ni a las cuentas — REGLA #0).
+
+### A) Editar el `.env` del Droplet (donde van TODAS las keys)
+
+En la consola del Droplet (o por SSH), el archivo vive en `/root/TradingAV/.env`.
+Se abre con el editor `nano`:
+
+```bash
+nano /root/TradingAV/.env
+```
+
+Al final del archivo, agregar cada credencial en una línea, formato **`CLAVE=valor`
+SIN espacios alrededor del `=` y SIN comillas** (una línea mal formada la ignora en
+silencio — de hecho hay un warning viejo de "line 33" por esto, conviene revisarla
+de paso):
+
+```
+MERCADO_1816_API_KEY=pegar_aca_la_api_key_de_1816
+RESEARCH_IMAP_USER=lacasilla@gmail.com
+RESEARCH_IMAP_PASSWORD=abcdefghijklmnop
+RESEARCH_MAIL_FROM=1816.com.ar
+```
+
+Guardar y salir de nano: **Ctrl+O** → **Enter** (guarda) → **Ctrl+X** (sale).
+
+Después:
+- La **API key** la usan jobs/scripts al correr (`load_dotenv` la lee sola en el
+  próximo `python -m ...`). Si algún endpoint de la API la necesita, reiniciar:
+  `systemctl restart api.service`.
+- Las creds **IMAP** las usa `jobs/research_mail.py` — no hace falta reiniciar
+  nada, se leen en la próxima corrida.
+
+### B) App password de Gmail — paso a paso (esto es lo que nunca hiciste)
+
+Un "app password" es una **contraseña de 16 letras que Google genera SOLO para que
+un programa entre a tu correo**, sin usar tu contraseña real ni pedirte el código de
+2 pasos cada vez. Es más seguro (la podés revocar cuando quieras) y es la ÚNICA
+forma de que un script lea Gmail por IMAP.
+
+**Requisito previo:** la cuenta tiene que tener la **Verificación en 2 pasos (2FA)
+ACTIVADA** — sin eso, Google no te deja crear app passwords.
+
+Pasos (en la cuenta de Gmail que va a RECIBIR los mails de 1816):
+
+1. Entrá a **myaccount.google.com** → **Seguridad**.
+2. Si no está, activá **"Verificación en 2 pasos"** (te pide el celular una vez).
+3. Buscá **"Contraseñas de aplicaciones"** (o andá directo a
+   **myaccount.google.com/apppasswords**).
+4. Poné un nombre cualquiera (ej. `acaquant research`) y **Crear**.
+5. Google muestra una clave de **16 letras** en 4 bloques (ej. `abcd efgh ijkl
+   mnop`). **Copiala SIN los espacios** → esa es `RESEARCH_IMAP_PASSWORD`.
+   (Se muestra UNA sola vez; si la perdés, borrás esa y creás otra.)
+6. En **Gmail → Configuración (⚙) → Ver toda la configuración → Reenvío y correo
+   POP/IMAP → Habilitar IMAP → Guardar cambios.** (Sin esto, el IMAP no entra.)
+
+**Cómo llegan los mails de 1816 a esa casilla:** los recibís en tu mail corporativo
+(`nicolas.mollo@acavalores.com.ar`). Dos opciones:
+- **(recomendada, la más simple):** en el corporativo, creá una **regla de reenvío
+  automático** de los mails de `research@1816.com.ar` hacia esa cuenta de Gmail.
+  Así el script lee Gmail y listo. → `RESEARCH_IMAP_USER` = esa Gmail.
+- **(alternativa):** leer el corporativo directo por IMAP. `acavalores.com.ar`
+  probablemente es Microsoft 365 (Outlook) → el host sería `outlook.office365.com`
+  (`RESEARCH_IMAP_HOST`) y el "app password" se saca del portal de Microsoft, no de
+  Google. Es más enroscado — si podés, andá por la de Gmail.
+
+**Probarlo (sin gastar tokens ni escribir nada):**
+
+```bash
+cd /root/TradingAV && python -m jobs.research_mail --dry-run
+```
+
+Eso lista qué mails de 1816 ve y cuáles ingestaría. Si dice "faltan env vars" →
+alguna línea del `.env` quedó mal escrita. Si lista los mails → está andando.
 
 ---
 

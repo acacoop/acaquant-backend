@@ -109,6 +109,49 @@ CAMPOS = {
 }
 FIELDS = [*CAMPOS, "PRIMACT_1"]
 
+# ── Fundamentals para la FICHA de empresa (1 pull por día; validados en vivo
+#    2026-07-17 contra AAPL/RKLB — ver docs/INTEGRACION_REUTERS.md) ──────────
+FUND_SNAPSHOT = {
+    "TR.CommonName":           "nombre",
+    "TR.TRBCIndustry":         "industria",
+    "TR.HeadquartersCountry":  "pais",
+    "TR.CompanyMarketCap":     "market_cap",        # USD (crudo)
+    "TR.EV":                   "ev",
+    "TR.PE":                   "pe",
+    "TR.FwdPE":                "fwd_pe",
+    "TR.EVToEBITDA":           "ev_ebitda",
+    "TR.FwdEVToEBITDA":        "fwd_ev_ebitda",
+    "TR.EVToEBIT":             "ev_ebit",
+    "TR.PriceToBVPerShare":    "p_bv",
+    "TR.GrossMargin":          "margen_bruto",      # %
+    "TR.OperatingMargin":      "margen_operativo",
+    "TR.NetProfitMargin":      "margen_neto",
+    "TR.NetDebtToEBITDA":      "deuda_neta_ebitda",
+    "TR.CurrentRatio":         "current_ratio",
+    "TR.QuickRatio":           "quick_ratio",
+    "TR.TotalDebt":            "deuda_total",       # USD (crudo)
+    "TR.CashAndEquivalents":   "caja",
+    "TR.DividendYield":        "div_yield",         # %
+    "TR.Price52WeekHigh":      "max_52s",
+    "TR.Price52WeekLow":       "min_52s",
+    "TR.PriceTargetMean":      "target_medio",
+    "TR.RecMean":              "rec_media",         # 1=compra fuerte … 5=venta
+    "TR.ExpectedReportDate":   "proximo_balance",
+    "TR.SharesOutstanding":    "acciones",
+}
+FUND_FY0 = {                    # último año fiscal, MILLONES de USD (Scale=6)
+    "TR.Revenue":              "revenue",
+    "TR.GrossProfit":          "gross_profit",
+    "TR.EBITDA":               "ebitda",
+    "TR.OperatingIncome":      "ebit",
+    "TR.NetIncome":            "net_income",
+    "TR.FreeCashFlow":         "fcf",
+    "TR.CapitalExpenditures":  "capex",
+}
+FUND_SERIE = ["TR.Revenue.date", "TR.Revenue", "TR.EBITDA", "TR.NetIncome",
+              "TR.FreeCashFlow"]   # 5 años fiscales, millones USD
+FUND_CADA_SEG = 24 * 3600
+
 
 def actualizar_precios(universo):
     ric_a_ticker = {u["ric"]: u["ticker"] for u in universo}
@@ -178,6 +221,82 @@ def actualizar_precios(universo):
             print("❌ Error general:", type(e).__name__, e)
 
 
+def _num_o_texto(v):
+    """Valor de Eikon → tipo JSON-serializable (NaN→None, numpy→nativo, str→str)."""
+    if v is None or (not isinstance(v, str) and pd.isna(v)):
+        return None
+    if isinstance(v, str):
+        return v
+    try:
+        return v.item()          # numpy scalar → python nativo
+    except AttributeError:
+        return float(v)
+
+
+def actualizar_fundamentals(universo):
+    """Pull DIARIO de fundamentals para la ficha: 3 llamadas (snapshot, año
+    fiscal FY0 en millones USD, serie 5 años) → POST /eikon/fundamentals.
+    Si falla, avisa y sigue — nunca voltea el feed de precios."""
+    ric_a_ticker = {u["ric"]: u["ticker"] for u in universo}
+    rics = list(ric_a_ticker)
+    docs: dict[str, dict] = {}
+
+    def doc_de(ric):
+        return docs.setdefault(ric, {"ticker": ric_a_ticker[ric], "ric": ric})
+
+    print(f"[fundamentals] bajando {len(rics)} fichas (1 vez por día)…")
+    # 1) snapshot (valuación / márgenes / salud / consenso / perfil)
+    df, _err = ek.get_data(rics, list(FUND_SNAPSHOT), field_name=True)
+    for _, row in df.iterrows():
+        ric = row["Instrument"]
+        if ric not in ric_a_ticker:
+            continue
+        d = doc_de(ric)
+        for campo, nombre in FUND_SNAPSHOT.items():
+            d[nombre] = _num_o_texto(row.get(campo.upper()))
+    # 2) resultados del último año fiscal (millones de USD)
+    df, _err = ek.get_data(rics, list(FUND_FY0), field_name=True,
+                           parameters={"Period": "FY0", "Scale": "6", "Curn": "USD"})
+    for _, row in df.iterrows():
+        ric = row["Instrument"]
+        if ric not in ric_a_ticker:
+            continue
+        d = doc_de(ric)
+        for campo, nombre in FUND_FY0.items():
+            d[nombre] = _num_o_texto(row.get(campo.upper()))
+    # 3) serie 5 años (revenue/ebitda/net income/fcf por año fiscal)
+    df, _err = ek.get_data(rics, FUND_SERIE, field_name=True,
+                           parameters={"SDate": "0", "EDate": "-4",
+                                       "Scale": "6", "Curn": "USD"})
+    for _, row in df.iterrows():
+        ric = row["Instrument"]
+        if ric not in ric_a_ticker:
+            continue
+        fecha = _num_o_texto(row.get("TR.REVENUE.DATE"))
+        if not fecha:
+            continue
+        d = doc_de(ric)
+        d.setdefault("serie_anual", []).append({
+            "fecha":      str(fecha)[:10],
+            "revenue":    _num_o_texto(row.get("TR.REVENUE")),
+            "ebitda":     _num_o_texto(row.get("TR.EBITDA")),
+            "net_income": _num_o_texto(row.get("TR.NETINCOME")),
+            "fcf":        _num_o_texto(row.get("TR.FREECASHFLOW")),
+        })
+
+    lista = list(docs.values())
+    if not lista:
+        print("[fundamentals] ⚠️ Eikon no devolvió nada — reintento en el próximo ciclo.")
+        return False
+    r = requests.post(f"{API_BASE}/api/ingest/eikon/fundamentals",
+                      json={"docs": lista}, headers=HEADERS, timeout=60)
+    if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
+        print(f"[fundamentals] ✅ {len(lista)} fichas actualizadas.")
+        return True
+    print(f"[fundamentals] ❌ API {r.status_code}: {r.text[:200]}")
+    return False
+
+
 def main():
     if "PEGA_TU" in EIKON_APP_KEY or "PEGA_EL" in INGEST_TOKEN:
         print("Te falta pegar EIKON_APP_KEY / INGEST_TOKEN en el bloque CONFIG del script.")
@@ -197,8 +316,16 @@ def main():
     print(f"suscribiendo {len(universo)} RICs (los sin RIC quedan afuera) — "
           f"loop cada {INTERVALO_SEG}s, Ctrl+C corta")
 
+    ultima_fund = 0.0
     while True:
         actualizar_precios(universo)
+        if time.time() - ultima_fund > FUND_CADA_SEG:
+            try:
+                if actualizar_fundamentals(universo):
+                    ultima_fund = time.time()
+            except Exception as e:
+                print(f"[fundamentals] ❌ {type(e).__name__}: {e} — sigo con precios.")
+                ultima_fund = time.time() - FUND_CADA_SEG + 1800   # reintenta en 30 min
         time.sleep(INTERVALO_SEG)
 
 

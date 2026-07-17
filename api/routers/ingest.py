@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from config import DOLAR_INGEST_TOKEN
 from core.dolar_oficial import upsert_oficial
-from core.eikon_live import set_rics, universo_rics, upsert_quotes
+from core.eikon_live import set_rics, universo_rics, upsert_fundamentals, upsert_quotes
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 
@@ -95,6 +95,22 @@ def eikon_quotes(
     _: None = Depends(verify_ingest_token),
 ) -> dict:
     escritos = upsert_quotes(payload.docs)
+    if escritos == 0:
+        raise HTTPException(status_code=422, detail="ningún doc válido (falta ticker)")
+    return {"ok": True, "escritos": escritos}
+
+
+class EikonFundamentalsPayload(BaseModel):
+    # Fundamentals curados por subyacente (1 doc por ticker, ~1 vez por día)
+    docs: list[dict] = Field(..., min_length=1, max_length=500)
+
+
+@router.post("/eikon/fundamentals")
+def eikon_fundamentals(
+    payload: EikonFundamentalsPayload,
+    _: None = Depends(verify_ingest_token),
+) -> dict:
+    escritos = upsert_fundamentals(payload.docs)
     if escritos == 0:
         raise HTTPException(status_code=422, detail="ningún doc válido (falta ticker)")
     return {"ok": True, "escritos": escritos}

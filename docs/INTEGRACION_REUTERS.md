@@ -184,6 +184,27 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
     "CIERRE ANT." → "CIERRE"; el log de 1ra pasada filtra los avisos de
     PRIMACT_1 y dedupe — quedan solo problemas reales (ej. RIC mal cargado).
 
+- **2026-07-17 — v2: FICHA DE EMPRESA (slice 1).**
+  - Concepto (decisión del user): el tablero es el "screener"; la ficha es el
+    módulo de empresa — **MENOS ES MÁS**, panel curado, nada de volcar el
+    balance entero (lección del RESEARCH de renta variable que no gustó).
+  - Campos TR.* del cheat sheet del user VALIDADOS en vivo (AAPL/RKLB):
+    valuación (PE/FwdPE/EV/EBITDA/EV/EBIT/P.BV), márgenes, salud (deuda, caja,
+    ratios), resultados FY0 en millones USD (Revenue/EBITDA/NI/FCF/Capex),
+    serie 5 años (SDate=0 EDate=-4), consenso (target medio, rec media,
+    PRÓXIMO BALANCE), 52 semanas, perfil. No vinieron: ROE/ROA/ROIC, EPS
+    diluido, Beta, P/Sales, Payout (nombres a refinar si se quieren).
+  - Feed: pull de fundamentals 1 vez/día (arranque + cada 24 h; si falla
+    reintenta a los 30 min, nunca voltea los precios) → POST
+    `/api/ingest/eikon/fundamentals` → tabla `mercado.eikon_fundamentals`.
+  - Ficha: `GET /api/trading/reuters/ficha?ticker=X` = quote live + fundamentals
+    + ratio + velas 1 año de `mercado.precios_acciones` (EOD ya en casa — el
+    chart NO depende de Eikon). UI `reuters-ficha.tsx`: header (precio live,
+    pre/after, rango 52s, próximo balance), chart 1 año (lightweight-charts),
+    bloques VALUACIÓN / NEGOCIO (FY0 + mini-barras 5 años) / SALUD / CONSENSO
+    (upside al target, recomendación en texto) / RETORNOS. Entrada: click en
+    fila del screener o buscador (Enter abre la primera coincidencia).
+
 ## 9. Pendientes
 
 - **CCL implícito en vivo** (la razón de ser): `cedear_ars × ratio / adr_usd` por

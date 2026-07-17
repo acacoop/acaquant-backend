@@ -114,6 +114,75 @@ def _var_pct(precio, base) -> float | None:
         return None
 
 
+def upsert_fundamentals(docs: list[dict]) -> int:
+    """Upsertea los fundamentals curados del feed en `mercado.eikon_fundamentals`
+    (1 fila por ticker; el feed los manda ~1 vez por día). Mismo contrato que
+    upsert_quotes: `updated_at` lo pone el server."""
+    if not docs:
+        return 0
+    now = datetime.now(UTC)
+    rows: list[dict] = []
+    for data in docs:
+        if not isinstance(data, dict):
+            continue
+        ticker = (data.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        rows.append({
+            "ticker":     ticker,
+            "ric":        data.get("ric"),
+            "data":       data,
+            "updated_at": now,
+        })
+    if not rows:
+        return 0
+    return write_native("mercado.eikon_fundamentals", ["ticker"], rows)
+
+
+def ficha(ticker: str) -> dict | None:
+    """La FICHA de una empresa del tab REUTERS: quote live (eikon_snapshot) +
+    fundamentals curados (eikon_fundamentals) + ratio del CEDEAR + velas
+    diarias de 1 año (mercado.precios_acciones, EOD ya en casa) para el chart.
+    None si el ticker no existe en ninguna fuente (→ 404)."""
+    t = (ticker or "").strip().upper()
+    if not t:
+        return None
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ric, data, updated_at FROM mercado.eikon_snapshot "
+                    "WHERE ticker = %s", (t,))
+        q = cur.fetchone()
+        cur.execute("SELECT ric, data, updated_at FROM mercado.eikon_fundamentals "
+                    "WHERE ticker = %s", (t,))
+        f = cur.fetchone()
+        cur.execute("SELECT max(ratio) FROM mercado.cedears "
+                    "WHERE upper(COALESCE(underlying, ticker_corto)) = %s "
+                    "  AND activo IS TRUE", (t,))
+        ratio = (cur.fetchone() or [None])[0]
+        cur.execute("SELECT fecha, close FROM mercado.precios_acciones "
+                    "WHERE ticker = %s AND close IS NOT NULL "
+                    "  AND fecha >= CURRENT_DATE - 380 ORDER BY fecha", (t,))
+        velas = [{"fecha": fe.isoformat(), "close": float(cl)} for fe, cl in cur.fetchall()]
+
+    if q is None and f is None and not velas:
+        return None
+    quote = dict(q[1] or {}) if q else {}
+    if q:
+        quote["updated_at"] = q[2].isoformat() if q[2] else None
+        quote["ah_var_pct"] = _var_pct(quote.get("ah_last"), quote.get("last"))
+        quote["pre_var_pct"] = _var_pct(quote.get("pre_last"), quote.get("prev_close"))
+    fund = dict(f[1] or {}) if f else None
+    if fund is not None and f:
+        fund["updated_at"] = f[2].isoformat() if f[2] else None
+    return {
+        "ticker": t,
+        "ric": (q and q[0]) or (f and f[0]),
+        "ratio": float(ratio) if ratio is not None else None,
+        "quote": quote or None,
+        "fundamentals": fund,
+        "velas": velas,
+    }
+
+
 def upsert_quotes(docs: list[dict]) -> int:
     """Upsertea quotes del feed en `mercado.eikon_snapshot` (1 fila por ticker,
     no acumula histórico). `updated_at` lo pone el server (no se confía en el

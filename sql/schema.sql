@@ -979,6 +979,18 @@ CREATE TABLE IF NOT EXISTS mercado.eikon_snapshot (
     updated_at timestamptz DEFAULT now()
 );
 
+-- Fundamentals CURADOS por subyacente (ficha de empresa del tab REUTERS,
+-- 2026-07-17). El feed de oficina los trae 1 vez por día por RIC suscripto
+-- (TR.* de Eikon: valuación, márgenes, salud financiera, consenso, serie 5
+-- años) vía POST /api/ingest/eikon/fundamentals. Passthrough jsonb — el
+-- contrato de campos vive en el feed (scripts/eikon_feed_simple.py).
+CREATE TABLE IF NOT EXISTS mercado.eikon_fundamentals (
+    ticker     text PRIMARY KEY,             -- underlying (US symbol)
+    ric        text,
+    data       jsonb,
+    updated_at timestamptz DEFAULT now()
+);
+
 -- Trading.PreciosAcciones → velas DIARIAS (EOD) del subyacente USD (Yahoo,
 -- jobs/precios_acciones_daily.py). Timeseries en Mongo; acá tabla columnar normal.
 -- Grano (ticker, fecha). `fecha` es DATE (en Mongo es datetime naive UTC a las 00h

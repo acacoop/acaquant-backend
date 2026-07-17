@@ -6,13 +6,25 @@ api/services/trading_pivots.py. Ver [[project_vista_trading]].
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from api.services import scanner_sql as scanner_svc
 from api.services import trading_pivots as svc
+from core.eikon_live import ficha as ficha_reuters
 from core.eikon_live import tablero_reuters
 
 router = APIRouter(prefix="/api/trading", tags=["Trading"])
+
+
+@router.get("/reuters/ficha")
+def reuters_ficha(ticker: str):
+    """FICHA de empresa del tab REUTERS: quote live + fundamentals curados +
+    ratio del CEDEAR + velas diarias de 1 año (chart). 404 si el ticker no
+    existe en ninguna fuente."""
+    out = ficha_reuters(ticker)
+    if out is None:
+        raise HTTPException(404, f"sin datos para {ticker!r}")
+    return out
 
 
 @router.get("/reuters")

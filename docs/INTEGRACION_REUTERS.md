@@ -205,6 +205,20 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
     (upside al target, recomendación en texto) / RETORNOS. Entrada: click en
     fila del screener o buscador (Enter abre la primera coincidencia).
 
+- **2026-07-17 — v2.1: ficha rediseñada a 2×2 (feedback del user sobre v2).**
+  - El chart de precio ocupaba demasiado (es secundario) → layout en 4
+    cuadrantes de 50%: arriba-izq precio 1 año · abajo-izq RETORNOS en tabla +
+    market cap + rango 52 semanas · arriba-der MÉTRICAS en tabs (NEGOCIO /
+    SALUD / VALUACIÓN) · abajo-der la EVOLUCIÓN 5 AÑOS graficada (barras por
+    año fiscal: ingresos/EBITDA/resultado/FCF, series apagables).
+  - **CONSENSO DE ANALISTAS ELIMINADO** (decisión del user: no le interesa) —
+    fuera de la UI y del feed (TR.PriceTargetMean / TR.RecMean ya no se piden).
+    El "próximo balance" (ExpectedReportDate) sobrevive en el header (es
+    agenda, no consenso).
+  - Limitación honesta: la serie de 5 años existe solo para NEGOCIO; SALUD y
+    VALUACIÓN son foto actual. Si se quiere graficar deuda/caja históricas, el
+    feed puede traer esas series (pendiente, si el user lo pide).
+
 ## 9. Pendientes
 
 - **CCL implícito en vivo** (la razón de ser): `cedear_ars × ratio / adr_usd` por

@@ -134,8 +134,6 @@ FUND_SNAPSHOT = {
     "TR.DividendYield":        "div_yield",         # %
     "TR.Price52WeekHigh":      "max_52s",
     "TR.Price52WeekLow":       "min_52s",
-    "TR.PriceTargetMean":      "target_medio",
-    "TR.RecMean":              "rec_media",         # 1=compra fuerte … 5=venta
     "TR.ExpectedReportDate":   "proximo_balance",
     "TR.SharesOutstanding":    "acciones",
 }

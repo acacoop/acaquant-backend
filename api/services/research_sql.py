@@ -33,7 +33,11 @@ _FOOTER_MARKERS = (
     "you can unsubscribe",
     "unsubscribe from this list",
 )
-_URL_BRACKET = re.compile(r"\[\s*https?://[^\]]*\]")        # [https://…imagen.png]
+# Links: primero los envueltos ([url] de imagen, (url), <url>), después los sueltos.
+# El suelto NO se come la puntuación final de la frase (deja el "." del "leerse acá.")
+# para no fundir dos items en un párrafo.
+_URL_WRAPPED = re.compile(r"[\[(<]\s*(?:https?://|www\.)[^\])>]*[\])>]", re.IGNORECASE)
+_URL_BARE = re.compile(r"(?:https?://|www\.)\S*[^\s.,;:!?]", re.IGNORECASE)
 _SEP_LINE = re.compile(r"^[\s_\-=–—─.·*]{5,}$")             # línea de separación
 _TITULO = re.compile(r"EL D[IÍ]A EN POCAS L[IÍ]NEAS", re.IGNORECASE)
 _MASTHEAD_INLINE = re.compile(                              # "16 de julio de 2026 EL DÍA…"
@@ -64,7 +68,8 @@ def _limpiar_para_mostrar(cuerpo: str | None) -> str:
     out: list[str] = []
     prev = ""
     for ln in lineas[:corte]:
-        ln = _URL_BRACKET.sub("", ln)
+        ln = _URL_WRAPPED.sub("", ln)       # [url]/(url)/<url> (imágenes, etc.)
+        ln = _URL_BARE.sub("", ln)          # links sueltos (deja el punto de la frase)
         ln = _MASTHEAD_INLINE.sub("", ln)   # masthead embebido (fecha+título)
         ln = _TITULO.sub("", ln)            # el título suelto (redundante con la card)
         if _HEADER_LINE.match(ln):
@@ -81,7 +86,9 @@ def _limpiar_para_mostrar(cuerpo: str | None) -> str:
             continue
         out.append(s)
         prev = s
-    texto = _ANTES_TITULAR.sub("\n\n", "\n".join(out))
+    texto = "\n".join(out)
+    texto = re.sub(r"\s+([.,;:])", r"\1", texto)   # espacio huérfano antes de puntuación
+    texto = _ANTES_TITULAR.sub("\n\n", texto)      # separar items en párrafos
     return re.sub(r"\n{3,}", "\n\n", texto).strip()
 
 

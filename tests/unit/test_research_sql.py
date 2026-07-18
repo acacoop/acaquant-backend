@@ -33,6 +33,7 @@ def test_limpiar_para_mostrar():
         "[https://gallery.mailchimp.com/x/images/y.png] 17 de julio de 2026 EL DÍA EN POCAS LÍNEAS\n"
         "\n"
         "EL CENTRAL COMPRÓ USD 230 MM EN EL MLC. En las tres semanas anteriores... "
+        "El aviso puede leerse acá https://mailchi.mp/abc/def. "
         "EL TESORO RETIRARÁ $2,4 B DEL SISTEMA HOY CON LA LIQUIDACIÓN. El stock subió.\n"
         "\n"
         "Cualquier duda estamos a disposición.\n"
@@ -43,6 +44,7 @@ def test_limpiar_para_mostrar():
     assert "research@1816.com.ar" not in out          # header de reenvío fuera
     assert "Para:" not in out and "Asunto:" not in out
     assert "mailchimp" not in out and "___" not in out  # imagen y separador fuera
+    assert "http" not in out and "mailchi" not in out    # links (inline y de imagen) fuera
     assert "EL DÍA EN POCAS LÍNEAS" not in out          # masthead redundante fuera
     assert "EL CENTRAL COMPRÓ USD 230 MM" in out        # cuerpo queda
     assert "Copyright" not in out and "disposici" not in out  # pie cortado

@@ -156,8 +156,10 @@ VISTAS: dict[str, dict] = {
     },
     "reuters": {
         "titulo": "Reuters",
-        # vive como tab dentro del módulo trading — mismo gate RBAC
-        "modulo": "trading",
+        # la vista vive en /research → tab RV INTERNACIONAL (movida desde
+        # /trading el 2026-07-18); gate = módulo `research` (habilitado a la
+        # mesa — trading quedó ADMIN-ONLY y ya no gatea este tablero)
+        "modulo": "research",
         "dominio": "precios en vivo en USD de los subyacentes US de los CEDEARs "
                    "suscriptos (fuente Reuters) — bid/ask de NY, pre y after market, "
                    "y retornos por período de 5 días a 5 años",

@@ -6,41 +6,16 @@ api/services/trading_pivots.py. Ver [[project_vista_trading]].
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from api.services import scanner_sql as scanner_svc
 from api.services import trading_pivots as svc
-from core.eikon_live import ficha as ficha_reuters
-from core.eikon_live import tablero_fundamentals, tablero_reuters
+
+# (Los endpoints /reuters* se mudaron a /api/research1816/reuters* el 2026-07-18:
+# la vista REUTERS vive en /research y trading es ADMIN-ONLY — ver
+# docs/INTEGRACION_REUTERS.md.)
 
 router = APIRouter(prefix="/api/trading", tags=["Trading"])
-
-
-@router.get("/reuters/ficha")
-def reuters_ficha(ticker: str):
-    """FICHA de empresa del tab REUTERS: quote live + fundamentals curados +
-    ratio del CEDEAR + velas diarias de 1 año (chart). 404 si el ticker no
-    existe en ninguna fuente."""
-    out = ficha_reuters(ticker)
-    if out is None:
-        raise HTTPException(404, f"sin datos para {ticker!r}")
-    return out
-
-
-@router.get("/reuters/fundamentals")
-def reuters_fundamentals():
-    """Screener FUNDAMENTALS del tab REUTERS: una empresa por fila con las
-    métricas de la ficha (valuación/negocio/salud), para comparar en tabla."""
-    return tablero_fundamentals()
-
-
-@router.get("/reuters")
-def reuters():
-    """Tablero del tab REUTERS: quotes live del subyacente US (feed Eikon de la
-    PC de oficina), SOLO los activos suscriptos. Cada fila: {ticker, ric, last,
-    bid, ask, high, low, prev_close, volumen, var_pct, var_neta, ratio,
-    ccl (None, pendiente), updated_at}."""
-    return tablero_reuters()
 
 
 @router.get("/pivots")

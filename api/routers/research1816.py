@@ -11,11 +11,13 @@ API key. Read-only.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import require_module
 from api.services import research_1816_sql as mkt
 from api.services import research_sql as svc
+from core.eikon_live import ficha as ficha_reuters
+from core.eikon_live import tablero_fundamentals, tablero_reuters
 
 router = APIRouter(
     prefix="/api/research1816",
@@ -68,6 +70,38 @@ def series(
 ) -> dict:
     """Serie del campo para cada ticker (overlay comparativo)."""
     return mkt.series(tickers=tickers, campo=campo, desde=desde, hasta=hasta)
+
+
+# ── REUTERS (tab RENTA VARIABLE INTERNACIONAL) — feed Eikon de oficina ───────
+# Movidos desde /api/trading/reuters* el 2026-07-18: la vista vive en /research
+# (habilitada a toda la mesa) y trading queda ADMIN-ONLY — el gate acá es
+# `research`, no `trading`. Backend del feed intacto (core/eikon_live).
+
+
+@router.get("/reuters")
+def reuters():
+    """Tablero RV Internacional: quotes live del subyacente US (feed Eikon de la
+    PC de oficina), SOLO los activos suscriptos. Cada fila: {ticker, ric, last,
+    bid, ask, high, low, prev_close, volumen, var_pct, var_neta, ratio, ccl,
+    updated_at}."""
+    return tablero_reuters()
+
+
+@router.get("/reuters/fundamentals")
+def reuters_fundamentals():
+    """Screener FUNDAMENTALS: una empresa por fila con las métricas de la ficha
+    (valuación/negocio/salud), para comparar en tabla."""
+    return tablero_fundamentals()
+
+
+@router.get("/reuters/ficha")
+def reuters_ficha(ticker: str):
+    """FICHA de empresa: quote live + fundamentals curados + ratio del CEDEAR +
+    velas diarias de 1 año (chart). 404 si el ticker no existe en ninguna fuente."""
+    out = ficha_reuters(ticker)
+    if out is None:
+        raise HTTPException(404, f"sin datos para {ticker!r}")
+    return out
 
 
 @router.get("/spread")

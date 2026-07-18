@@ -117,12 +117,15 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
-### 2026-07-18 — v1.55 (la vista reuters se mudó de página — sin cambio de comportamiento)
-- **[UI, sin cambio del asistente]** El tablero REUTERS (y su copiloto in-view,
-  vista `reuters`) ya no vive en /trading: ahora es la tab RENTA VARIABLE
-  INTERNACIONAL de **/research** (`research-view.tsx`). El contexto, reglas, chips
-  y gates del copiloto NO cambiaron (sigue módulo `trading` + `ia`). Solo cambia
-  dónde se abre el panel.
+### 2026-07-18 — v1.55 (la vista reuters se mudó a /research + RE-GATEADA a módulo `research`)
+- **[UI]** El tablero REUTERS (y su copiloto in-view, vista `reuters`) ya no vive
+  en /trading: ahora es la tab RENTA VARIABLE INTERNACIONAL de **/research**
+  (`research-view.tsx`).
+- **[gate ~]** Directiva del user: TRADING queda ADMIN-ONLY y RESEARCH se habilita
+  a toda la mesa → la vista `reuters` del copiloto pasó de módulo `trading` a
+  **`research`** (registro.py). Quien tenga `research` + `ia` puede usarla; ya no
+  exige trading. Contexto, reglas y chips sin cambios. Los endpoints HTTP del
+  tablero también se mudaron (`/api/trading/reuters*` → `/api/research1816/reuters*`).
 
 ### 2026-07-17 — v1.54 (TRADING accede a TODO Reuters: quote US + fundamentals)
 Pedido del user: que el copiloto de TRADING tenga acceso a todo lo de Reuters que

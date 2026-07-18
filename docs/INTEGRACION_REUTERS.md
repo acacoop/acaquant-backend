@@ -159,9 +159,10 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
   El tablero (`reuters-view.tsx`, con fundamentals, ficha y su copiloto in-view)
   ya no vive en /trading (que quedó con PIVOTS + INTRADAY) sino como segunda tab
   de la vista Research (`research-view.tsx` — ver docs/VISTA_RESEARCH.md).
-  **Backend intacto**: feed, ingest, `core/eikon_live.py` y los endpoints
-  `/api/trading/reuters*` no cambiaron (siguen gateados por módulo `trading` —
-  nuance RBAC anotada en VISTA_RESEARCH, pendiente de decidir si se re-gatea).
+  **Feed/ingest/`core/eikon_live.py` intactos**, pero los endpoints HTTP se
+  MUDARON: `/api/trading/reuters*` → **`/api/research1816/reuters*`** (gate módulo
+  `research` — directiva del user: TRADING queda admin-only y RESEARCH se habilita
+  a toda la mesa). El copiloto de la vista también pasó a `research` (COPILOTO v1.55).
 
 - **2026-07-16 — v1: nace la integración.**
   - Tabla `mercado.eikon_snapshot` + `/api/ingest/eikon/*` + `core/eikon_live.py`

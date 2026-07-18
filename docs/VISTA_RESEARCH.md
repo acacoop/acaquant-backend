@@ -483,10 +483,12 @@ Reestructura de la vista (pedido del user):
 - **Tab RV Internacional = el tablero REUTERS movido desde /trading** (el
   `ReutersView` completo con su copiloto in-view; `trading-shell` quedó con
   PIVOTS + INTRADAY, y los usuarios con `trading.tab=reuters` persistido caen a
-  pivots). ⚠️ **Nuance RBAC pendiente:** `ReutersView` fetchea `/api/trading/reuters`
-  (gate módulo `trading` en proxy y backend) — un usuario con `research` pero sin
-  `trading` ve la tab pero el tablero no carga. Hoy no afecta (admin tiene ambos);
-  mover el endpoint o abrir el gate se decide en la próxima sesión.
+  pivots). **Nuance RBAC RESUELTA (mismo día, directiva del user: "TRADING solo
+  admin; RESEARCH para todos"):** los endpoints del tablero se MUDARON de
+  `/api/trading/reuters*` a **`/api/research1816/reuters*`** (gate `research`) y
+  la vista `reuters` del copiloto pasó a módulo `research` (COPILOTO v1.55). Los
+  4 fetches del frontend actualizados (incluido el poll de trading-view, que es
+  admin-only y admin tiene research). Backend del feed intacto.
 - **Breakevens (vista Renta Fija) arreglado** (item 3 del pedido, misma tanda):
   el eje Y FORZABA el 3% dentro del dominio → con BEs en 1.5-2% las curvas quedaban
   aplastadas con media pantalla vacía (img_25). Ahora la escala se ajusta a los

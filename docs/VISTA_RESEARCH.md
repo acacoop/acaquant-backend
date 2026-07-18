@@ -472,6 +472,14 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 (6) — diseño temático (claro/oscuro) del laboratorio y Reportes
+Selects con fondo `--t-surface` (se terminó el select BLANCO en modo oscuro),
+paneles delineados `--t-panel` + rounded-lg, controles agrupados (segmented con
+`--t-surface`), stats bar y tarjetas de reporte con fondo de panel, colores de
+línea fijos legibles en ambos temas, tooltip/ejes con vars del tema. Toma el
+sistema de `globals.css` (mismo patrón que `_onInput` y las superficies del resto
+de la app). Regla: usar SIEMPRE las vars `--t-*`, nunca `bg-transparent` en inputs.
+
 ### 2026-07-18 (5) — el 404 del laboratorio: faltaba el route handler de Next
 La vista tiraba "Cargando universo… / HTTP 404" aunque el backend tenía las rutas y
 la query andaba (diag OK). **Causa (GOTCHA a recordar): acaquant-web NO proxea

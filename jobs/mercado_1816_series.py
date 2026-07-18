@@ -84,7 +84,9 @@ def main() -> None:
         return
 
     hoy = datetime.now(UTC).date()
-    desde = hoy - timedelta(days=365 if args.backfill else args.dias)
+    # 364 (no 365): la API rechaza rangos que SUPEREN 1 año, y con ambos extremos
+    # inclusive 365 días atrás = 366 días de span → HTTP 400. 364 queda justo abajo.
+    desde = hoy - timedelta(days=364 if args.backfill else args.dias)
 
     with get_pool().connection() as conn, conn.cursor() as cur:
         universo = _universo(cur)

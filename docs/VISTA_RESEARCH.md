@@ -502,6 +502,17 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 (13) — el research del día en el BRIEFING (pedido del user)
+El modal del briefing de las 10:00 (HOME) ahora muestra, **solo si HOY llegó el
+mail de 1816**, un panel lateral "📰 RESEARCH DEL DÍA" con el texto completo tal
+cual (limpio, la misma limpieza de la vista Reportes), con **scroll propio** —
+el modal se ensancha solo en ese caso; sin mail de hoy queda EXACTAMENTE como
+siempre. Backend: `briefing.py::_research_hoy` (query por fecha=hoy, failing
+gracefully) suma la key `research_hoy` al payload; el copiloto NO la consume
+(lee campos específicos — cero tokens, consistente con "la IA no interviene
+sola"). Frontend: aside en `briefing-modal.tsx` (oculto en pantallas chicas).
+Excepción P1 asentada en QUANTAI.
+
 ### 2026-07-18 (12) — sondeo con fecha hábil OK → plan por NIVELES + Nivel 1 implementado
 El sondeo re-corrido con `fechaOperacion=2026-07-17` (auto): **323/869 con dato
 fresco · 263 frescos fuera del watch · 166 frescos que ni están en mercado.curvas**.

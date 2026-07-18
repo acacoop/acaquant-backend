@@ -129,6 +129,11 @@ calendario.
 > 2026-07-17: única excepción pedida por el user — bloque **CAUCIONES** (TNA ARS
 > y USD del plazo vigente, misma fuente que la watchlist:
 > `mercado.caucion_snapshot`). `briefing.py::_cauciones` + sección en el modal.
+> 2026-07-18: segunda excepción pedida por el user — panel **RESEARCH DEL DÍA**
+> al costado de la tabla (el mail de 1816 de HOY desde `ia.research`, texto
+> limpio tal cual, scroll propio; si hoy no llegó mail, el panel ni aparece y el
+> modal queda como siempre). `briefing.py::_research_hoy` + aside en el modal.
+> Cero IA (el copiloto NO consume esta key — lee campos específicos).
 
 La feature queda VIVA tal cual corre (modal 10:00 ART + botón ☀ BRIEFING en el
 footer global + `GET /api/ia/briefing` + `api/services/briefing.py`, columnas

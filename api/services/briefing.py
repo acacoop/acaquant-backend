@@ -232,6 +232,30 @@ def _cauciones() -> list[dict[str, Any]]:
     return out
 
 
+def _research_hoy(hoy_art: date) -> dict[str, Any] | None:
+    """El reporte de research del DÍA (mail de 1816 en `ia.research`) — SOLO si
+    su fecha es HOY (pedido del user 2026-07-18: se lee al costado de la tabla
+    del briefing, tal cual está). Texto limpio (misma limpieza que la vista
+    Reportes). None si hoy no llegó mail → el modal ni muestra el panel."""
+    try:
+        from api.services.research_sql import _limpiar_para_mostrar
+
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT asunto, cuerpo FROM ia.research WHERE fecha = %s "
+                "ORDER BY id DESC LIMIT 1",
+                (hoy_art,),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        asunto, cuerpo = row
+        texto = _limpiar_para_mostrar(cuerpo)
+        return {"asunto": (asunto or "").strip(), "texto": texto} if texto else None
+    except Exception:
+        return None  # failing gracefully: sin research el briefing sigue igual
+
+
 def briefing_hoy() -> dict[str, Any]:
     """Payload del modal. Tres bloques, cada fila con el mismo shape
     (label, hoy, ret_1d, ret_wtd, ret_mtd). Cada bloque puede venir []/None si su
@@ -257,4 +281,5 @@ def briefing_hoy() -> dict[str, Any]:
         "cauciones":   _cauciones(),  # TNA ARS/USD del plazo vigente (watchlist)
         "futuros_dlr": futuros_dlr,   # curva DLR: ticker/días/último/TNA
         "pagan_hoy":   pagan_hoy,     # [] si ninguno paga hoy
+        "research_hoy": _research_hoy(hoy_art),  # mail 1816 del DÍA (None si no hay)
     }

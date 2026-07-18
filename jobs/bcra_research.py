@@ -118,13 +118,32 @@ def _refrescar_catalogo(cur) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backfill", action="store_true",
-                    help="historia completa de cada serie del watch (una vez)")
+                    help="historia de cada serie del watch (una vez; combinable con --desde)")
+    ap.add_argument("--desde", help="con --backfill: bajar desde esta fecha YYYY-MM-DD "
+                    "en vez de toda la historia (pedido del user: el TODO es al pedo)")
+    ap.add_argument("--purgar-antes", metavar="YYYY-MM-DD",
+                    help="borra de research.bcra_series los puntos ANTERIORES a esta "
+                    "fecha (limpieza one-off, scopeada; no pega a la API)")
     ap.add_argument("--dry-run", action="store_true",
                     help="muestra qué haría; no pega series ni escribe")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     hoy = datetime.now(UTC).date()
+
+    if args.purgar_antes:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            if args.dry_run:
+                cur.execute("SELECT count(*) FROM research.bcra_series WHERE fecha < %s",
+                            (args.purgar_antes,))
+                print(f"(DRY-RUN) purgaría {cur.fetchone()[0]} puntos anteriores a "
+                      f"{args.purgar_antes}")
+                return
+            cur.execute("DELETE FROM research.bcra_series WHERE fecha < %s",
+                        (args.purgar_antes,))
+            print(f"✅ purgados {cur.rowcount} puntos anteriores a {args.purgar_antes}")
+        return
+
     with get_pool().connection() as conn, conn.cursor() as cur:
         _seed_watch(cur)
         series = _watch(cur)
@@ -134,9 +153,11 @@ def main() -> None:
     if args.dry_run:
         for s in series:
             wm = marcas.get(s["id"])
-            desde = ("TODO (backfill)" if args.backfill or not wm
-                     else (datetime.fromisoformat(wm).date()
-                           - timedelta(days=_VENTANA_INCREMENTAL_D)).isoformat())
+            if args.backfill or not wm:
+                desde = args.desde or "TODA LA HISTORIA"
+            else:
+                desde = (datetime.fromisoformat(wm).date()
+                         - timedelta(days=_VENTANA_INCREMENTAL_D)).isoformat()
             print(f"  [{s['bloque']:12}] {s['id']:4} {s['etiqueta']:34} desde={desde}")
         print("(DRY-RUN — no se pegó a la API de series ni se escribió)")
         return
@@ -153,10 +174,11 @@ def main() -> None:
                 jr.log(f"catálogo ERROR: {e}")
             for s in series:
                 wm = marcas.get(s["id"])
-                desde = None if (args.backfill or not wm) else (
-                    datetime.fromisoformat(wm).date()
-                    - timedelta(days=_VENTANA_INCREMENTAL_D)
-                ).isoformat()
+                if args.backfill or not wm:
+                    desde = args.desde  # None = toda la historia
+                else:
+                    desde = (datetime.fromisoformat(wm).date()
+                             - timedelta(days=_VENTANA_INCREMENTAL_D)).isoformat()
                 try:
                     puntos = bcra_api.serie(s["id"], desde=desde, hasta=hoy.isoformat())
                     n = _upsert_puntos(cur, s["id"], puntos)

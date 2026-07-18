@@ -214,7 +214,17 @@ una vez, throttled, fuera de horario pico.
 
 ## Registro (con fecha)
 
-- **2026-07-18 (2) — CONSTRUIDO end-to-end (Fases 1+2 en una tanda).**
+- **2026-07-18 (3) — backfill OK en prod + `--desde`/`--purgar-antes`.**
+  Backfill real: **23/23 series, 121.818 puntos** (catálogo 1.581 refrescado).
+  Aclaración asentada: el catálogo (1.581) es SOLO metadata (~200 KB, el "menú"
+  para curar); los datos son las 23 series (~6 MB — no es problema real).
+  Feedback del user ("el TODO es al pedo, dejemos un desde") → el job ganó:
+  `--backfill --desde YYYY-MM-DD` (historia acotada) y `--purgar-antes
+  YYYY-MM-DD` (limpieza one-off de lo ya bajado, con dry-run). La limpieza quedó
+  como SECUNDARIA a decisión del user — cuando quiera:
+  `python -m jobs.bcra_research --purgar-antes 2020-01-01 --dry-run` → sin
+  `--dry-run` para ejecutarla. El incremental del cron no re-baja lo purgado
+  (watermark = max(fecha), que queda intacta).
   - **IDs VERIFICADOS contra el catálogo vivo** (2º fetch): 1 reservas · 4/5 TC
     minorista/mayorista · 7 BADLAR · 8 TM20 · 11 BAIBAR · 12 PF 30d · 13
     adelantos · 14 personales · 15/16/17 base/circulación/billetes · 26 préstamos

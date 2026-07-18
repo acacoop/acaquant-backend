@@ -472,6 +472,22 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 (3) — universo desde TUS bonos (no hardcodeado) + backfill OK + observabilidad
+- **Backfill 1 año OK:** 13.790 puntos en `research.mkt_1816_series` (fix del rango
+  a 364 días — 1816 rechaza >1 año). Auth+throttle andan (sin 429 con el espaciado).
+- **[universo NO hardcodeado — pedido del user]** `jobs/mercado_1816_discovery.py`:
+  cruza TUS bonos de `mercado.curvas` (los no-ON, vía `curvas_sql.por_curva_not_like
+  ('on%')`) contra el catálogo REAL de 1816 (`/instrumentos` por curva soberana) →
+  solo entran los que 1816 tiene, con su ticker canónico (normaliza especie AL30D→
+  AL30). Popula `mkt_1816_watch` (el seed hardcodeado queda solo de fallback si el
+  watch está vacío). Dry-run muestra match + tuyos-sin-match (transparente).
+  **PENDIENTE del user:** `discovery --dry-run` → `--apply` → re-`series --backfill`
+  para bajar la historia de TODO el universo real.
+- **[observabilidad — ya figura sola]** `db_obs.py` (Manager → OBSERVABILIDAD →
+  BASE) escanea TODOS los schemas/tablas → `research.mkt_1816_*` aparece
+  automáticamente (schema `research` + frescura por `ingestado_en`). Peso: 13.790
+  filas ≈ ~2-3 MB (despreciable vs el límite). Nada que agregar.
+
 ### 2026-07-18 (2) — Fase 0 + arranque Fase 1: motor de datos 1816 CONSTRUIDO
 Alma decidida por el user: **laboratorio de spreads / valor relativo** (series
 multi-activo + A−B en el tiempo + percentil histórico). Motor de datos hecho:

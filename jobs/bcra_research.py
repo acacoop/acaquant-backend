@@ -46,7 +46,6 @@ _SEED: list[tuple[str, int, str, str, int]] = [
     ("dinero",       26, "Préstamos al sector privado",   "M ARS", 4),
     ("inflacion",    27, "Inflación mensual",             "%",     1),
     ("inflacion",    28, "Inflación interanual",          "%",     2),
-    ("inflacion",    29, "REM: inflación esperada 12m",   "%",     3),
     ("indexacion",   30, "CER",                           "índice", 1),
     ("indexacion",   31, "UVA",                           "índice", 2),
     ("depositos",    21, "Depósitos ARS (total)",         "M ARS", 1),
@@ -57,19 +56,27 @@ _SEED: list[tuple[str, int, str, str, int]] = [
 
 _VENTANA_INCREMENTAL_D = 7  # re-lee 7 días: el BCRA revisa datos hacia atrás
 
+# Series RETIRADAS del producto (se desactivan SIEMPRE, aunque el watch ya esté
+# sembrado en prod). 29 = REM inflación esperada — sacada de la tab Inflación
+# por pedido del user (2026-07-18).
+_RETIRADAS = (29,)
+
 
 def _seed_watch(cur) -> None:
-    """Siembra el watch si está vacío (idempotente; lo editado a mano manda)."""
+    """Siembra el watch si está vacío (idempotente; lo editado a mano manda) y
+    aplica las RETIRADAS siempre."""
     cur.execute("SELECT count(*) FROM research.bcra_watch")
-    if cur.fetchone()[0]:
-        return
-    for bloque, idv, etiqueta, unidad, orden in _SEED:
-        cur.execute(
-            "INSERT INTO research.bcra_watch (id_variable, bloque, etiqueta, unidad, orden)"
-            " VALUES (%s,%s,%s,%s,%s) ON CONFLICT (id_variable) DO NOTHING",
-            (idv, bloque, etiqueta, unidad, orden),
-        )
-    logger.info("bcra_research: watch sembrado con %s series", len(_SEED))
+    if not cur.fetchone()[0]:
+        for bloque, idv, etiqueta, unidad, orden in _SEED:
+            cur.execute(
+                "INSERT INTO research.bcra_watch (id_variable, bloque, etiqueta, unidad, orden)"
+                " VALUES (%s,%s,%s,%s,%s) ON CONFLICT (id_variable) DO NOTHING",
+                (idv, bloque, etiqueta, unidad, orden),
+            )
+        logger.info("bcra_research: watch sembrado con %s series", len(_SEED))
+    if _RETIRADAS:
+        cur.execute("UPDATE research.bcra_watch SET activo = false "
+                    "WHERE id_variable = ANY(%s) AND activo", (list(_RETIRADAS),))
 
 
 def _watch(cur) -> list[dict]:

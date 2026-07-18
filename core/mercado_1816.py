@@ -147,6 +147,17 @@ def instrumentos(texto: str | None = None, curva_id: int | None = None) -> list[
     return _get("/v1/mercado/instrumentos", p)
 
 
+def indicadores(tickers: list[str], campos: list[str], fuente: str = "byma",
+                plazo: int = 1, moneda: str = "ars") -> dict:
+    """Indicadores a precio de mercado (≤50 tickers por llamada). Devuelve
+    {fechaOperacion, fuente, plazo, moneda, instrumentos: {ticker: {campo: v}}}.
+    Costo: tickers × campos."""
+    return _get("/v1/mercado/indicadores", {
+        "tickers": list(tickers)[:50], "campos": list(campos),
+        "fuente": fuente, "plazo": plazo, "moneda": moneda,
+    })
+
+
 def series(tickers: list[str], campos: list[str], desde: str, hasta: str,
            fuente: str = "byma", plazo: int = 1, moneda: str = "ars",
            convencion: str | None = None) -> dict:

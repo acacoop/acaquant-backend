@@ -12,6 +12,7 @@ import json
 import logging
 import re
 
+from api.cache import cached
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -140,10 +141,12 @@ def _fila(r: dict) -> dict:
     }
 
 
+@cached(ttl=60)
 def listar_research(limit: int = 30, offset: int = 0) -> dict:
-    """Timeline del research por fecha (más nuevo primero). Devuelve el crudo +
-    destilado de cada mail para que la vista muestre resumen/temas/hechos arriba y
-    el texto completo expandible."""
+    """Timeline del research por fecha (más nuevo primero), con el texto limpio.
+    Cache 60s (perf 2026-07-18): cada visita a /research lo pedía por SSR y
+    re-leía + re-limpiaba 30 cuerpos; los mails cambian ~1 vez por día.
+    OJO @cached → SIEMPRE invocar con kwargs (regla del repo)."""
     limit = max(1, min(int(limit), _MAX_LIMIT))
     offset = max(0, int(offset))
     try:

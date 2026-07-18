@@ -472,6 +472,33 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 (10) — cobertura 1816 sin sesgo · forwards siempre-con-par · fixes BCRA · pasada de perf
+1. **`scripts/diag_1816_cobertura.py`** (pedido del user: "saber de qué
+   instrumentos 1816 devuelve datos, SIN sesgar por los míos"): enumera TODO el
+   catálogo de 1816 por curva (default soberanas+BCRA; `--todas` = las 33 con
+   confirmación de gasto) y sondea `/indicadores` (ultimaOperacion+precioDirty,
+   2 créditos/instrumento) → reporta con dato/fresco/sin dato, cruzado con
+   `mercado.curvas` y el watch como INFO (no filtra). El cliente 1816 ganó
+   `indicadores()`. Con la salida se decide qué sumar al watch.
+2. **Tab renombrada: ARGENTINA → RENTA FIJA ARGENTINA.**
+3. **Forwards: siempre hay cruce** — el selector B solo ofrece los pares CON
+   datos para el A elegido (`paresConDatos` de la historia cargada; A cambia →
+   B se auto-corrige) y el rango default pasó a **Máx**. Chau "sin historia
+   para ese par".
+4. **BCRA:** eje Y de Reservas ya no dice "k" cuando son millones (M USD/M ARS:
+   número completo es-AR; ≥1e6 → "B") · Tipo de cambio SIN abreviar · **CER &
+   UVA e INFLACIÓN en split 50/50** (un chart por serie — bases/escalas
+   distintas) · **REM (id 29) RETIRADO** de Inflación: `_RETIRADAS` en el job
+   se aplica SIEMPRE (desactiva en el watch aunque ya esté sembrado en prod).
+5. **Perf (item 4 del user — primera pasada):** `perf_scan --strict` = sin
+   findings · `listar_research` ganó `@cached(60s)` (cada visita a /research
+   re-leía y re-limpiaba 30 cuerpos por SSR; los mails cambian 1×/día) · lo
+   nuevo ya nació frugal (bloques cacheados 300s, series batch por bloque
+   indexadas por PK, lazy+keep-alive, la vista BCRA jamás toca la API del
+   BCRA). **El "análisis mega-pro" de TODA la página necesita datos de PROD**
+   (REGLA #2): pg_stat de OBSERVABILIDAD→BASE + `scripts/diag_sql_perf.py` en
+   el Droplet — planificado como próxima sesión con esas salidas en la mano.
+
 ### 2026-07-18 (9) — texto legible + FORWARDS en el cuadrante libre + doc BCRA
 1. **Color de los reportes:** el cuerpo pasó de `--t-text-muted` (gris ilegible
    en ambos temas — feedback del user) a `--t-text`; el titular de cada item va

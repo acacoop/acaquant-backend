@@ -472,6 +472,18 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 (5) — el 404 del laboratorio: faltaba el route handler de Next
+La vista tiraba "Cargando universo… / HTTP 404" aunque el backend tenía las rutas y
+la query andaba (diag OK). **Causa (GOTCHA a recordar): acaquant-web NO proxea
+`/api/*` con un rewrite general — tiene un route handler de Next POR PREFIJO
+(`src/app/api/<x>/[...path]/route.ts`).** Los mails cargaban por SSR (`apiFetch`
+server-side, sin handler), pero los fetches del BROWSER (`/universo /series
+/spread`) caían en el 404 de Next antes de llegar al backend. Fix:
+`src/app/api/research1816/[...path]/route.ts` (catch-all que propaga la identidad
+para el gate `require_module("research")`, mismo patrón que `/api/ia/[...path]`).
+**Regla para el futuro:** todo endpoint nuevo que el browser consuma bajo un prefijo
+nuevo necesita su route handler en acaquant-web.
+
 ### 2026-07-18 (4) — Fase 1: LABORATORIO de spreads/valor relativo CONSTRUIDO
 Backfill desde 2026 OK (18.408 puntos nuevos, 60 bonos con historia en la base).
 Con eso, la mitad izquierda de RESEARCH dejó de ser placeholder y es el laboratorio:

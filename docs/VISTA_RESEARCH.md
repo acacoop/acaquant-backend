@@ -472,6 +472,19 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 (8) — pulido de los cuadrantes + RUBRO/CCL en RV Internacional
+Tres pedidos del user:
+1. **Header único en los charts de Argentina** (`research-lab.tsx`): la selección
+   A−B / chips y las stats (hoy · pct · z · rango · zona) pasaron AL MISMO NIVEL
+   que el título "Spread A−B"/"Comparar" (una sola barra flex-wrap, antes eran 3)
+   → más alto para el gráfico en los cuadrantes.
+2. **Reportes: acordeón TODO CERRADO por defecto** (antes el más reciente arrancaba
+   abierto) — solo fecha+título; se abre al click.
+3. **RV Internacional:** columna **CCL movida al lado de ÚLTIMO** (grupo PRECIO),
+   columna **RUBRO** nueva (del catálogo `mercado.cedears`, join agregado en
+   `tablero_reuters()` de `core/eikon_live.py`) + **filtro por rubro** (dropdown
+   en la toolbar). El copiloto de la vista también ve `rubro` (COPILOTO v1.56).
+
 ### 2026-07-18 (7) — TABS (Argentina · RV Internacional) + cuadrantes + REUTERS movido
 Reestructura de la vista (pedido del user):
 - **Tabs keep-alive** (patrón trading-shell): **ARGENTINA** y **RENTA VARIABLE

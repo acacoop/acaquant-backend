@@ -182,7 +182,7 @@ VISTAS: dict[str, dict] = {
                          "que la rueda local todavía no vio."},
         ],
         "columnas": [
-            ("ticker", "ticker"), ("ric", "codigo_reuters"),
+            ("ticker", "ticker"), ("ric", "codigo_reuters"), ("rubro", "rubro"),
             ("last", "ultimo_usd"), ("bid", "compra"), ("ask", "venta"),
             ("high", "max_dia"), ("low", "min_dia"),
             ("prev_close", "cierre_ant"), ("volumen", "volumen"),

@@ -117,6 +117,13 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-18 — v1.56 (reuters: columna `rubro` en el contexto)
+- **[contexto +]** `tablero_reuters()` ahora trae el `rubro` del catálogo de
+  CEDEARs (join a `mercado.cedears`) → la vista `reuters` del copiloto lo ve como
+  columna (`registro.py`). Habilita preguntas por rubro en el tablero RV
+  Internacional (la UI ganó columna RUBRO + filtro, y el CCL se movió al lado de
+  ÚLTIMO).
+
 ### 2026-07-18 — v1.55 (la vista reuters se mudó a /research + RE-GATEADA a módulo `research`)
 - **[UI]** El tablero REUTERS (y su copiloto in-view, vista `reuters`) ya no vive
   en /trading: ahora es la tab RENTA VARIABLE INTERNACIONAL de **/research**

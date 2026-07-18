@@ -98,11 +98,11 @@ def tablero_reuters() -> list[dict]:
     SERVER-SIDE (last CEDEAR ARS × ratio ÷ last ADR USD, ver _ccl_implicito)."""
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT e.ticker, e.ric, e.data, e.updated_at, c.ratio, "
+            "SELECT e.ticker, e.ric, e.data, e.updated_at, c.ratio, c.rubro, "
             "       cs.data AS cedear_data, cs.updated_at AS cedear_upd "
             "FROM mercado.eikon_snapshot e "
             "LEFT JOIN LATERAL ("
-            "  SELECT m.ticker AS cedear_ticker, m.ratio FROM mercado.cedears m "
+            "  SELECT m.ticker AS cedear_ticker, m.ratio, m.rubro FROM mercado.cedears m "
             "  WHERE upper(COALESCE(m.underlying, m.ticker_corto)) = e.ticker "
             "    AND m.activo IS TRUE "
             "  ORDER BY m.ratio IS NULL, m.ticker LIMIT 1"
@@ -119,13 +119,14 @@ def tablero_reuters() -> list[dict]:
             "ret_1m", "ret_3m", "ret_1y", "ret_5y",
         ]
         filas = []
-        for ticker, ric, data, updated_at, ratio, cedear_data, cedear_upd in cur.fetchall():
+        for ticker, ric, data, updated_at, ratio, rubro, cedear_data, cedear_upd in cur.fetchall():
             d = data or {}
             fila = {"ticker": ticker, "ric": ric}
             fila.update({c: d.get(c) for c in campos})
             fila["ah_var_pct"] = _var_pct(d.get("ah_last"), d.get("last"))
             fila["pre_var_pct"] = _var_pct(d.get("pre_last"), d.get("prev_close"))
             fila["ratio"] = float(ratio) if ratio is not None else None
+            fila["rubro"] = rubro  # rubro del catálogo de CEDEARs (columna + filtro)
             fila["ccl"] = _ccl_implicito(cedear_data, cedear_upd, ratio, d.get("last"))
             fila["updated_at"] = updated_at
             filas.append(fila)

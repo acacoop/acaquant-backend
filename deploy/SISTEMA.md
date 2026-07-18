@@ -102,6 +102,7 @@
 | 11:40 · diario | `jobs.economic_calendar'` |
 | 20:40 · L-V | `jobs.snapshot_sinteticos'` |
 | 12:45 · L-V | `jobs.acreencias` |
+| 20:45 · L-V | `jobs.guardrails'` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
 | 20:50 · L-V | `jobs.archive_options_data` |
 | 23:50 · L-V | `jobs.cleanup_cedears_timesales'` |

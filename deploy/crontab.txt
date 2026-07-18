@@ -257,6 +257,12 @@
 # Requiere RESEARCH_IMAP_USER/PASSWORD/MAIL_FROM en el .env. docs/QUANTAI.md.
 */30 10-14 * * 1-5 /root/TradingAV/deploy/run_job.sh research_mail 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.research_mail'
 
+# ─── Guardrails de datos (invariantes post-cierre) — docs/OBSERVABILIDAD_ROBUSTEZ.md
+# Corre DESPUÉS de snapshot_cierre (20:25). En CALIBRACIÓN (modo report, no
+# alerta): cuando el user fije los umbrales en config.GUARDRAILS_UMBRALES,
+# cambiar el comando a `... -m jobs.guardrails --alert` para activar Telegram.
+45 20 * * 1-5 /root/TradingAV/deploy/run_job.sh guardrails 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.guardrails'
+
 # ─── BCRA (tab BCRA de RESEARCH) — series monetarias v4 → research.bcra_series
 # 4×/día L-S (el BCRA publica 1×/día hábil con rezago 1-2d; la vista sirve de la
 # DB 24/7). Incremental por watermark (−7d, captura revisiones). docs/RESEARCH_BCRA.md.

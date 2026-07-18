@@ -50,22 +50,36 @@ El panel muestra datos a partir del primer flush (~1 min de uso real).
 
 ---
 
-## COMMIT 2 — Guardrails de datos (invariantes post-cierre) — EN CURSO
+## COMMIT 2 — Guardrails de datos (invariantes post-cierre) ✅ HECHO (2026-07-18)
 
-**Qué es:** un job post-cierre (`jobs/guardrails.py`) con un registry de
-**invariantes de sanidad** — funciones PURAS y testeables que reciben datos ya
-leídos y devuelven `{ok, check_id, severidad, mensaje, valor_medido, umbral}`.
+**Qué es:** `jobs/guardrails.py` — registry de **invariantes de sanidad**:
+funciones PURAS y testeables (`check_*(datos) → [{ok, check_id, severidad,
+mensaje, valor_medido, umbral}]`) + un runner que lee SQL scopeado (2 fechas
+puntuales por tabla, REGLA #4) y las corre post-cierre (cron 20:45 UTC L-V,
+después de snapshot_cierre 20:25).
 
-**Calibración obligatoria (REGLA #2):** nace en modo `--report` (default): NO
-alerta — imprime qué violaría con el VALOR REAL medido. El user lo corre varios
-días y con esos números CALIBRA los umbrales (en `config.py`, editables — nunca
-hardcodeados a ojo; `None` = sin calibrar = el check no alerta). Recién con
-`--alert` manda Telegram (metadata only, jamás datos de clientes) con cooldown
-reutilizando `manager.watchdog_alertas` keyeado `guardrail:<check_id>`.
+**Set inicial (4 checks sobre datos que EXISTEN):**
+1. `aum_delta` (alta) — AuM total día-contra-día (`portafolio.tenencia` aum='si';
+   la valuación YA viene con el divisor por cartera del writer — no se recalcula).
+2. `sanidad_cierre` (alta, ABSOLUTO sin umbral) — sin precios ≤0/null ni filas
+   sin ticker en el cierre.
+3. `salto_precio` (media) — |Δ%| de cierre por bono vs cierre previo.
+4. `cobertura_curva` (media) — % de bonos del master con cierre, por curva
+   (ONs excluidas a propósito: ilíquidas, darían falsos rojos).
 
-**Set inicial propuesto** (sobre datos que EXISTEN, lecturas scopeadas):
-AuM total día-contra-día · saltos de precio de cierre por bono · completitud de
-curvas en el cierre · sanidad básica (precios ≤0 / nulls obligatorios).
+**Calibración (REGLA #2, el corazón del diseño):** los umbrales viven en
+`config.GUARDRAILS_UMBRALES` y NACEN en `None` = sin calibrar → el check MIDE y
+reporta el valor real pero JAMÁS viola/alerta. **El user corre
+`python -m jobs.guardrails` (modo report) varios días, mira los valores medidos
+y fija los umbrales con esos números.** Recién entonces cambia el cron a
+`--alert`. Alertas: Telegram metadata-only con cooldown 20h en
+`manager.watchdog_alertas` keyeado `guardrail:<check_id>` (patrón del watchdog,
+sin tabla nueva). Idempotente por el cooldown.
+
+**Piezas:** `jobs/guardrails.py` · umbrales en `config.py` · cron en
+`deploy/crontab.txt` (modo report; el switch a --alert lo hace el user al
+calibrar) · SISTEMA.md regenerado · `tests/unit/test_guardrails.py` (7 tests de
+los checks puros, incl. la semántica None-no-viola).
 
 ---
 

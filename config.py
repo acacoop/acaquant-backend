@@ -162,3 +162,16 @@ CF_TRUSTED_SERVICE_TOKENS: set[str] = {
     for t in _trusted_cf_env.split(",")
     if t.strip()
 }
+
+# --- GUARDRAILS DE DATOS (docs/OBSERVABILIDAD_ROBUSTEZ.md, commit 2) ---
+# Umbrales de los invariantes de sanidad post-cierre (jobs/guardrails.py).
+# None = SIN CALIBRAR: el check corre en --report (muestra el valor real medido)
+# pero JAMÁS alerta. Calibrar corriendo varios días
+# `python -m jobs.guardrails --report` y fijando acá valores sensatos con esos
+# números en la mano (REGLA #2: nada de umbrales a ojo).
+GUARDRAILS_UMBRALES: dict[str, float | None] = {
+    "aum_delta_pct": None,        # |Δ%| del AuM total día-contra-día
+    "salto_precio_pct": None,     # |Δ%| del precio de cierre por bono vs cierre previo
+    "cobertura_curva_pct": None,  # % mínimo de bonos del master con cierre en el día
+}
+GUARDRAILS_COOLDOWN_H = 20        # horas sin re-alertar el mismo check (anti-spam)

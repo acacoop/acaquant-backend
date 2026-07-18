@@ -14,6 +14,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 
 from api.auth import require_module
+from api.services import research_1816_sql as mkt
 from api.services import research_sql as svc
 
 router = APIRouter(
@@ -47,3 +48,35 @@ def buscar(
         {items: [{..., fragmento}], total, q}
     """
     return svc.buscar_research(q=q, limit=limit)
+
+
+# ── Market Data 1816 (pilar A) — laboratorio de series/spreads ───────────────
+
+
+@router.get("/universo")
+def universo() -> dict:
+    """Bonos de 1816 con series bajadas, agrupados por curva (para los selectores)."""
+    return mkt.universo()
+
+
+@router.get("/series")
+def series(
+    tickers: list[str] = Query(..., description="tickers (hasta 8)"),
+    campo: str = Query("tea", description="tea | paridad | precioClean | duration"),
+    desde: str | None = Query(None, description="YYYY-MM-DD (default 6 meses)"),
+    hasta: str | None = Query(None, description="YYYY-MM-DD (default hoy)"),
+) -> dict:
+    """Serie del campo para cada ticker (overlay comparativo)."""
+    return mkt.series(tickers=tickers, campo=campo, desde=desde, hasta=hasta)
+
+
+@router.get("/spread")
+def spread(
+    a: str = Query(..., description="ticker A"),
+    b: str = Query(..., description="ticker B"),
+    campo: str = Query("tea", description="tea | paridad | precioClean | duration"),
+    desde: str | None = Query(None),
+    hasta: str | None = Query(None),
+) -> dict:
+    """Serie A−B en el tiempo + stats de valor relativo (percentil/z vs su historia)."""
+    return mkt.spread(a=a, b=b, campo=campo, desde=desde, hasta=hasta)

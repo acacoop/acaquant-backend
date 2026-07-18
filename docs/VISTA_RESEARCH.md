@@ -472,6 +472,24 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 (4) — Fase 1: LABORATORIO de spreads/valor relativo CONSTRUIDO
+Backfill desde 2026 OK (18.408 puntos nuevos, 60 bonos con historia en la base).
+Con eso, la mitad izquierda de RESEARCH dejó de ser placeholder y es el laboratorio:
+- **Backend `api/services/research_1816_sql.py`** (lee `research.mkt_1816_series`,
+  0 créditos): `universo()` (bonos con series, agrupados por curva, para los
+  selectores) · `series()` (overlay: N bonos, un campo) · `spread()` (serie A−B en
+  el tiempo + **stats de valor relativo**: percentil/z/mín/máx del spread de HOY vs
+  su propia historia). Endpoints en `research1816.py`: `/universo /series /spread`.
+- **Frontend `research-lab.tsx`** (mitad izquierda): dos modos — **Spread A−B**
+  (default: AL30−GD30, la prima de legislación) con la lectura "ancho/angosto vs su
+  historia" (percentil), y **Comparar** (overlay de hasta 8 series). Selector de
+  bono por curva, campo (TEA/Paridad/Precio/Duration), rango (1M/3M/6M/Máx),
+  gráfico recharts con línea de media y cero. tea/paridad se muestran en %.
+- import-chain OK (316 rutas), ruff limpio, typecheck OK.
+- **Pendiente:** deploy (`git pull` + restart api) + tildar módulo `research`.
+  Afinar con el user (colores, defaults, percentil como banda). Ideas siguientes:
+  evolución de curva (fecha X vs Y), sumar provinciales/corporativos (spread crédito).
+
 ### 2026-07-18 (3) — universo desde TUS bonos (no hardcodeado) + backfill OK + observabilidad
 - **Backfill 1 año OK:** 13.790 puntos en `research.mkt_1816_series` (fix del rango
   a 364 días — 1816 rechaza >1 año). Auth+throttle andan (sin 429 con el espaciado).

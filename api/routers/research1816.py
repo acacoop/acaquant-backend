@@ -14,10 +14,26 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import require_module
+from api.cache import cached
 from api.services import research_1816_sql as mkt
 from api.services import research_sql as svc
 from core.eikon_live import ficha as ficha_reuters
 from core.eikon_live import tablero_fundamentals, tablero_reuters
+
+
+# Cache COMPARTIDO del tablero (perf 2026-07-18, medido con diag_sql_perf: la
+# query LATERAL cuesta ~68ms y el front la pollea cada 5s POR USUARIO → sin
+# cache, N usuarios = N×68ms cada 5s). TTL 4s < poll 5s: sigue siendo "live"
+# (a lo sumo 4s de rezago) pero todos los usuarios comparten UNA query.
+@cached(ttl=4)
+def _tablero_cached() -> list[dict]:
+    return tablero_reuters()
+
+
+# Fundamentals cambian ~1 vez por día (el feed los manda a la mañana) → 60s.
+@cached(ttl=60)
+def _fundamentals_cached() -> list[dict]:
+    return tablero_fundamentals()
 
 router = APIRouter(
     prefix="/api/research1816",
@@ -83,15 +99,15 @@ def reuters():
     """Tablero RV Internacional: quotes live del subyacente US (feed Eikon de la
     PC de oficina), SOLO los activos suscriptos. Cada fila: {ticker, ric, last,
     bid, ask, high, low, prev_close, volumen, var_pct, var_neta, ratio, ccl,
-    updated_at}."""
-    return tablero_reuters()
+    updated_at}. Cache compartido 4s (ver _tablero_cached)."""
+    return _tablero_cached()
 
 
 @router.get("/reuters/fundamentals")
 def reuters_fundamentals():
     """Screener FUNDAMENTALS: una empresa por fila con las métricas de la ficha
-    (valuación/negocio/salud), para comparar en tabla."""
-    return tablero_fundamentals()
+    (valuación/negocio/salud), para comparar en tabla. Cache compartido 60s."""
+    return _fundamentals_cached()
 
 
 @router.get("/reuters/ficha")

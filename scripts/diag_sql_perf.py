@@ -38,7 +38,12 @@ def _host_port() -> None:
     # "postgres.<project>". El viejo check marcaba ⚠ por ver :5432 — falso
     # positivo (el session pooler TAMBIÉN es :5432; el :6543 es transaction
     # mode, que NO aplica a nuestros pools long-lived). Fix 2026-07-18.
-    es_pooler = "pooler.supabase.com" in host or user.startswith("postgres.")
+    # urlparse puede devolver el USER como "hostname" si la password trae
+    # caracteres especiales (visto en prod: host="postgres.<project>", user
+    # vacío) → el patrón "postgres.<project>" en CUALQUIERA de los dos campos
+    # identifica al session pooler de Supabase.
+    es_pooler = ("pooler.supabase.com" in host or user.startswith("postgres.")
+                 or host.startswith("postgres."))
     if es_pooler:
         modo = "POOLER Supabase (session mode :5432) ✅"
     elif port == 6543:

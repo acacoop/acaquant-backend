@@ -170,6 +170,36 @@ sensibilidad a tasa) · `currentYield` · `spread` (margen TNA, decimal) ·
 paridad vienen en **fracción** (0.0925), no en %. Al persistir se guarda tal cual y
 la UI/el copiloto formatean (mismo criterio que el resto del sistema).
 
+### 4.4b Cobertura REAL del catálogo 1816 (medida 2026-07-18 — referencia para crecer)
+
+Relevada con `scripts/diag_1816_cobertura.py --todas` (salida completa capturada
+ese día): **869 instrumentos en 28 curvas**. El mapa grueso:
+
+- **Soberanos**: todas las curvas conocidas (bonares, globales, CER, tasa fija,
+  duales, DLK/Lelink, TAMAR, Badlar, Botes) + **EUR Globales** (GE29→GE46, que
+  no tenemos) + rezagos (CUAP/PARP/DICP variantes, PR17, TO26, TY30P…).
+- **Duales DESDOBLADOS**: 1816 publica cada dual también por pata —
+  `TTD26 @TAMAR` / `@TASA FIJA`, `TXMD8 @CER` / `@TAMAR`, `TY30P @PUT` —
+  valuaciones por componente que nosotros no calculamos. Interesante para
+  análisis de la opcionalidad del dual.
+- **BCRA**: BOPREALes completos (BPO27/28, BPOA7/8, BPOB7/8, BPOC7, BPOD7) +
+  variantes `@AFIP`. Varios NO están en nuestro Curvas (solo teníamos BPOC7 en
+  el watch).
+- **Corporativos** (la masa grande): USD / USD Linked / ARS Badlar / ARS Tamar /
+  ARS Inflación / ARS Fijo / Caución. **Varias de NUESTRAS ONs figuran ahí**
+  (AER9O, AERBO, AFCHO/AFCIO/AFCJO, BACAO/BACGO, BF39O…) → 1816 puede darnos
+  la SERIE histórica de ONs que hoy solo tenemos live.
+- **Provinciales**: USD / ARS Tamar / Badlar / Fijo (BA37D, BDC28/31/33/36…) —
+  el bloque de spreads de crédito subsoberano que no tenemos de ninguna fuente.
+
+**Criterio asentado (decisión del user):** esto es un MAPA, no un plan de
+ingesta — "no armar una base de datos brutal al pedo". El watch crece **a
+demanda, en el día a día**: cuando un análisis pida un instrumento (una ON con
+historia, un provincial contra AL30, la pata de un dual), se agrega ESE al
+watch y listo. La herramienta para decidir es el diag de cobertura (con
+fechaOperacion hábil — la corrida de sábado dio 0 por el default =hoy, ya
+arreglado).
+
 ### 4.5 Universo inicial (recomendado por 1816)
 
 - **Bonares (USD, ley local):** AL29, AL30, AL35, AL41.
@@ -471,6 +501,21 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 ---
 
 ## Registro de construcción (con fecha — qué y cómo)
+
+### 2026-07-18 (11) — perf con números de PROD + cobertura 1816 consolidada
+- **diag_sql_perf extendido corrido en prod.** Lectura: RTT ~26ms (session pooler
+  OK — el ⚠ era un falso positivo de parseo, arreglado 2×), cache amortiguando
+  todo (CACHE≈0), queries nuevas de Research TODAS con índice y sub-ms.
+  **Finding real y FIX aplicado:** el tablero Reuters costaba ~68ms SIN cache y
+  el front lo pollea cada 5s POR USUARIO → cache compartido `@cached(4s)` en el
+  router (+ fundamentals 60s): N usuarios ahora comparten UNA query. Pendiente
+  de vigilar: `negocio_movimientos` por cuenta (86-107ms) — se decide con
+  pg_stat_statements si aparece en flujos frecuentes.
+- **Cobertura 1816 consolidada en §4.4b** (del relevamiento --todas: 869
+  instrumentos / 28 curvas; duales desdoblados por pata, BOPREALes, EUR
+  globales, nuestras ONs en corporativos, provinciales). Criterio del user:
+  MAPA sí, ingesta masiva no — el watch crece a demanda en el día a día.
+  (El scratch `docs/DATOS1816.txt` queda consolidado acá — borrable, REGLA #5.)
 
 ### 2026-07-18 (10) — cobertura 1816 sin sesgo · forwards siempre-con-par · fixes BCRA · pasada de perf
 1. **`scripts/diag_1816_cobertura.py`** (pedido del user: "saber de qué

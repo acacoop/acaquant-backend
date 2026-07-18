@@ -63,11 +63,33 @@ def _watch_tickers() -> set[str]:
         return set()
 
 
+def _fecha_habil_operativa(tickers_prueba: list[str]) -> str | None:
+    """La fecha de operación que la API acepta con datos: prueba HOY y retrocede
+    hasta 6 días (fin de semana / feriado) sondeando UN lote chico. Aprendido
+    2026-07-18: la corrida de sábado dio 0 datos porque el default es hoy."""
+    hoy = datetime.now(UTC).date()
+    for atras in range(0, 7):
+        f = (hoy - timedelta(days=atras))
+        if f.weekday() >= 5:      # sábado/domingo: ni probar
+            continue
+        try:
+            d = mercado_1816.indicadores(tickers_prueba[:5], ["precioDirty"],
+                                         fecha_operacion=f.isoformat())
+        except Exception:
+            continue
+        datos = d.get("instrumentos") or {}
+        if any((v or {}).get("precioDirty") is not None for v in datos.values()):
+            return f.isoformat()
+    return None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--todas", action="store_true",
                     help="TODAS las curvas de 1816 (provinciales + corporativos incluidos)")
     ap.add_argument("--curva", type=int, help="una curva puntual (id de 1816)")
+    ap.add_argument("--fecha", help="fechaOperacion YYYY-MM-DD (default: auto — "
+                    "el último día hábil con datos)")
     ap.add_argument("--si", action="store_true",
                     help="confirmar el gasto cuando el sondeo es grande (--todas)")
     args = ap.parse_args()
@@ -103,13 +125,21 @@ def main() -> None:
         print("✗ Sondeo grande — re-corré con --si para confirmar el gasto.")
         return
 
-    # 3) sondeo por lotes: ¿devuelve dato? ¿fresco?
+    # 3) fecha de operación con datos (fin de semana/feriado → retrocede)
+    fecha_op = args.fecha or _fecha_habil_operativa(tickers)
+    if not fecha_op:
+        print("✗ No encontré una fecha de operación con datos en los últimos 6 días "
+              "— probá con --fecha YYYY-MM-DD (un día hábil).")
+        return
+    print(f"fechaOperacion = {fecha_op}")
+
+    # 4) sondeo por lotes: ¿devuelve dato? ¿fresco?
     corte_fresco = datetime.now(UTC) - timedelta(days=_DIAS_FRESCO)
     resultado: dict[str, dict] = {}
     for i in range(0, len(tickers), _BATCH):
         lote = tickers[i:i + _BATCH]
         try:
-            d = mercado_1816.indicadores(lote, _CAMPOS_SONDA)
+            d = mercado_1816.indicadores(lote, _CAMPOS_SONDA, fecha_operacion=fecha_op)
         except Exception as e:
             print(f"  ⚠ lote {i // _BATCH + 1}: {e}")
             continue

@@ -32,10 +32,21 @@ def _host_port() -> None:
     from core.postgres import get_postgres_uri
     u = urlparse(get_postgres_uri())
     port = u.port or 5432
-    modo = "POOLER pgbouncer (transaction mode) ✅" if port == 6543 else (
-        "CONEXIÓN DIRECTA (:5432) ⚠️ — evaluá el pooler :6543 para latencia")
+    host = u.hostname or ""
+    user = u.username or ""
+    # Supabase SESSION pooler: host *.pooler.supabase.com:5432 y user
+    # "postgres.<project>". El viejo check marcaba ⚠ por ver :5432 — falso
+    # positivo (el session pooler TAMBIÉN es :5432; el :6543 es transaction
+    # mode, que NO aplica a nuestros pools long-lived). Fix 2026-07-18.
+    es_pooler = "pooler.supabase.com" in host or user.startswith("postgres.")
+    if es_pooler:
+        modo = "POOLER Supabase (session mode :5432) ✅"
+    elif port == 6543:
+        modo = "POOLER pgbouncer (transaction mode) ✅"
+    else:
+        modo = "CONEXIÓN DIRECTA ⚠️ — evaluá el session pooler de Supabase"
     print("\n① CONEXIÓN")
-    print(f"   host: {u.hostname}")
+    print(f"   host: {host} · user: {user[:24]}")
     print(f"   port: {port} → {modo}")
 
 
@@ -79,12 +90,27 @@ def _time_funcs() -> None:
     from api.cache import invalidate
     rf = __import__("api.services.renta_fija_sql", fromlist=["x"])
     cs = __import__("core.curvas_sql", fromlist=["x"])
+    r18 = __import__("api.services.research_1816_sql", fromlist=["x"])
+    rbc = __import__("api.services.research_bcra_sql", fromlist=["x"])
+    rsq = __import__("api.services.research_sql", fromlist=["x"])
+    ek = __import__("core.eikon_live", fromlist=["x"])
     casos = [
         ("get_renta_fija", "get_renta_fija", lambda: rf.get_renta_fija()),
         ("listar_curva(cer)", "listar_curva", lambda: rf.listar_curva(curva="cer")),
         ("listar_curva(tasa_fija)", "listar_curva", lambda: rf.listar_curva(curva="tasa_fija")),
         ("get_historico_curva(cer)", "get_historico_curva", lambda: rf.get_historico_curva(curva="cer")),
         ("curvas_sql.cargar_todos", None, lambda: cs.cargar_todos()),
+        # ── vista RESEARCH (agregado 2026-07-18) ──
+        ("1816 universo", "universo", lambda: r18.universo()),
+        ("1816 spread(AL30,GD30,tea)", None,
+         lambda: r18.spread(a="AL30", b="GD30", campo="tea")),
+        ("1816 series(AL30+GD30,tea)", None,
+         lambda: r18.series(tickers=["AL30", "GD30"], campo="tea")),
+        ("bcra bloques", "bloques", lambda: rbc.bloques()),
+        ("bcra series(1,5,7 ×1año)", None, lambda: rbc.series(ids=[1, 5, 7])),
+        ("reportes listar (mails)", "listar_research",
+         lambda: rsq.listar_research(limit=30, offset=0)),
+        ("reuters tablero (poll 5s!)", None, lambda: ek.tablero_reuters()),
     ]
     print(f"   {'función':36}{'frío':>9}{'recalc':>9}{'cache':>8}")
     for nombre, cache_fn, fn in casos:
@@ -118,6 +144,19 @@ _EXPLAIN_QUERIES = [
     ("negocio_movimientos por cuenta (PnL/comercial)",
      "SELECT id_cuenta, SUM(abs(COALESCE(importe,0))) FROM operaciones.negocio_movimientos "
      "WHERE fecha >= '2026-01-01' GROUP BY id_cuenta"),
+    # ── vista RESEARCH (agregado 2026-07-18) ──
+    ("mkt_1816 spread A−B (self-join)",
+     "SELECT x.fecha, (x.valor - y.valor) FROM research.mkt_1816_series x "
+     "JOIN research.mkt_1816_series y ON y.fecha = x.fecha AND y.ticker = 'GD30' "
+     "AND y.campo = 'tea' AND y.fuente='byma' AND y.moneda='ars' AND y.plazo=1 "
+     "WHERE x.ticker = 'AL30' AND x.campo = 'tea' AND x.fuente='byma' "
+     "AND x.moneda='ars' AND x.plazo=1 AND x.fecha >= now()::date - 182"),
+    ("bcra_series batch por bloque",
+     "SELECT id_variable, fecha, valor FROM research.bcra_series "
+     "WHERE id_variable = ANY(ARRAY[1,5,7]) AND fecha >= now()::date - 365 "
+     "ORDER BY id_variable, fecha"),
+    ("ia.research timeline (reportes)",
+     "SELECT id, fecha, asunto FROM ia.research ORDER BY fecha DESC, id DESC LIMIT 30"),
 ]
 
 

@@ -148,14 +148,18 @@ def instrumentos(texto: str | None = None, curva_id: int | None = None) -> list[
 
 
 def indicadores(tickers: list[str], campos: list[str], fuente: str = "byma",
-                plazo: int = 1, moneda: str = "ars") -> dict:
+                plazo: int = 1, moneda: str = "ars",
+                fecha_operacion: str | None = None) -> dict:
     """Indicadores a precio de mercado (≤50 tickers por llamada). Devuelve
     {fechaOperacion, fuente, plazo, moneda, instrumentos: {ticker: {campo: v}}}.
-    Costo: tickers × campos."""
-    return _get("/v1/mercado/indicadores", {
-        "tickers": list(tickers)[:50], "campos": list(campos),
-        "fuente": fuente, "plazo": plazo, "moneda": moneda,
-    })
+    Costo: tickers × campos. OJO: el default de la API es fechaOperacion=HOY —
+    en fin de semana/feriado devuelve vacío (aprendido 2026-07-18, corrida de
+    sábado con 0 datos): pasar `fecha_operacion` del último día hábil."""
+    p: dict = {"tickers": list(tickers)[:50], "campos": list(campos),
+               "fuente": fuente, "plazo": plazo, "moneda": moneda}
+    if fecha_operacion:
+        p["fechaOperacion"] = fecha_operacion
+    return _get("/v1/mercado/indicadores", p)
 
 
 def series(tickers: list[str], campos: list[str], desde: str, hasta: str,

@@ -477,12 +477,15 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 - **[backend]** El limpiador ahora saca TODO tipo de link (inline, `[imagen]`,
   `(url)`, `<url>`, `www.`) sin comerse el punto final de la frase (para no fundir
   párrafos). Test con link inline.
-- **[decisión del user — layout izquierdo]** Market Data va a ser **dos gráficos
-  de series COMPARABLES** lado a lado (Serie A | Serie B) — para comparar dos bonos
-  o dos métricas (ej. AL30 vs GD30, o TEA vs paridad). NO master-detail. Scaffold
-  visual armado (dos `ChartPanel` con selectores placeholder instrumento/campo/
-  rango); se llena con datos cuando esté la API key (§4). Actualiza el layout
-  propuesto de §6.
+- **[layout izquierdo — REVERTIDO, exploramos primero]** Se probó un scaffold de
+  dos gráficos comparables en la izquierda; el user lo REVIRTIÓ: primero exploramos
+  qué devuelve la API de 1816 y DESPUÉS modelamos el lado izquierdo. Por ahora el
+  50/50 simple (Market Data placeholder | Reportes). La idea de "dos series
+  comparables" queda anotada como candidata, sin construir.
+- **[herramienta]** `scripts/diag_1816.py`: explora TODOS los endpoints de 1816
+  (auth → balance → curvas → instrumentos → indicadores → teórico → series),
+  imprime status + créditos + respuesta de cada uno. Es el primer paso de la Fase 0
+  cuando llegue la API key — con esa salida decidimos qué modelar.
 
 ### 2026-07-17 (3) — rediseño de la vista (feedback del user sobre la 1ª versión)
 La 1ª versión mostraba todo apilado y con basura del mail. Rediseño:

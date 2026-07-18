@@ -27,9 +27,11 @@ from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
-# Campos que se guardan. Para COMPARAR conviene tea/tna/paridad/precioClean (el
-# precioDirty cae en cada cupón — verificado en el diag, ensucia la comparación).
-_CAMPOS = ["tea", "tna", "paridad", "precioClean", "duration", "spread"]
+# Campos que se guardan. 4 esenciales para el laboratorio de spreads/valor relativo:
+# tea (la tasa, para spreads A−B), paridad (nivel sin ruido de cupón), precioClean y
+# duration (para curva/DV01). Se dejó tna (redundante con tea) y spread afuera para
+# que el backfill de ~60 bonos entre en el límite diario (60×4×364 ≈ 87k < 100k).
+_CAMPOS = ["tea", "paridad", "precioClean", "duration"]
 
 # Seed si research.mkt_1816_watch está vacío: soberanos + hard dollar (para los
 # spreads AL−GD, pendiente de curva, etc.). Se amplía editando la tabla watch.
@@ -45,6 +47,18 @@ def _universo(cur) -> list[str]:
                 "ORDER BY orden NULLS LAST, ticker")
     filas = [r[0] for r in cur.fetchall()]
     return filas or _SEED
+
+
+def _ya_backfilleados(cur, minimo_dias: int = 250) -> set[str]:
+    """Tickers que YA tienen ≥ minimo_dias de historia → en backfill no se re-bajan
+    (resumible: si el pull se corta o se hace en 2 tandas por el límite diario, la
+    próxima corrida sigue con los que faltan, sin re-pagar créditos)."""
+    cur.execute(
+        "SELECT ticker FROM research.mkt_1816_series "
+        "GROUP BY ticker HAVING count(DISTINCT fecha) >= %s",
+        (minimo_dias,),
+    )
+    return {r[0] for r in cur.fetchall()}
 
 
 def _lotes(xs: list[str], n: int):
@@ -90,6 +104,17 @@ def main() -> None:
 
     with get_pool().connection() as conn, conn.cursor() as cur:
         universo = _universo(cur)
+        if args.backfill:
+            ya = _ya_backfilleados(cur)
+            if ya:
+                antes = len(universo)
+                universo = [t for t in universo if t not in ya]
+                print(f"Backfill resumible: {len(ya)} bonos ya tienen historia → "
+                      f"bajo {len(universo)} nuevos (de {antes}).")
+
+    if not universo:
+        print("✓ nada para bajar (todo el universo ya tiene historia). Listo.")
+        return
 
     dias = (hoy - desde).days + 1
     costo_est = len(universo) * len(_CAMPOS) * dias

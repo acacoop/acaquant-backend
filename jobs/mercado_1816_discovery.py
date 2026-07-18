@@ -25,13 +25,15 @@ from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
-# IDs de curvas SOBERANAS/cuasi de 1816 (docs/VISTA_RESEARCH.md §4.3). Son IDs de
-# CURVA (estables), no bonos hardcodeados: los bonos salen del cruce con los tuyos.
-_CURVAS_SOBERANAS = {
+# IDs de CURVA de 1816 a cruzar (docs/VISTA_RESEARCH.md §4.3). Son IDs de curva
+# (estables), no bonos hardcodeados: los bonos salen del cruce con los tuyos.
+# Soberanas + BCRA (BOPREALes como BPOC7 viven en la curva BCRA USD, id 24).
+_CURVAS_CRUCE = {
     1: "Soberanos ARS Badlar", 7: "Soberanos ARS CER", 8: "Soberanos USD Bonares",
     9: "Soberanos ARS tasa fija", 10: "Soberanos ARS Botes", 11: "Soberanos USD Globales",
     12: "Soberanos USD Linked", 13: "Soberanos ARS Letras CER", 14: "Soberanos Duales",
     17: "Soberanos USD Linked Lelink", 28: "Soberanos ARS Tamar", 31: "Soberanos EUR Globales",
+    24: "BCRA USD",
 }
 
 _RE_ESPECIE = re.compile(r"^([A-Z]+\d+)[DC]$")   # AL30D/GD30C → AL30/GD30
@@ -57,9 +59,9 @@ def _mis_tickers() -> dict[str, str]:
 
 
 def _instrumentos_1816() -> list[dict]:
-    """Todos los instrumentos de las curvas soberanas de 1816 (dedup por ticker)."""
+    """Todos los instrumentos de las curvas a cruzar en 1816 (dedup por ticker)."""
     vistos: dict[str, dict] = {}
-    for cid, nombre in _CURVAS_SOBERANAS.items():
+    for cid, nombre in _CURVAS_CRUCE.items():
         try:
             insts = mercado_1816.instrumentos(curva_id=cid) or []
         except Exception as e:
@@ -114,13 +116,13 @@ def main() -> None:
     match_tks = {(i["ticker"] or "").upper() for i in matches}
     sin_match = sorted(norm for norm, orig in mis.items() if norm not in match_tks)
 
-    print(f"Mis bonos no-ON: {len(mis)} · instrumentos soberanos en 1816: {len(insts)} "
-          f"· MATCH (los tuyos que 1816 tiene): {len(matches)}")
+    print(f"Mis bonos no-ON: {len(mis)} · instrumentos en 1816 (soberanas + BCRA): "
+          f"{len(insts)} · MATCH (los tuyos que 1816 tiene): {len(matches)}")
     print("\nMATCH (van al watch):")
     for i in sorted(matches, key=lambda x: x.get("ticker") or ""):
         print(f"  {i['ticker']:8} {i.get('curva','')}")
     if sin_match:
-        print(f"\nTuyos SIN match en 1816 soberanos ({len(sin_match)}) — quedan afuera "
+        print(f"\nTuyos SIN match en 1816 ({len(sin_match)}) — quedan afuera "
               f"(pueden ser ONs, o ticker distinto):\n  " + ", ".join(sin_match))
 
     if not args.apply or args.dry_run:

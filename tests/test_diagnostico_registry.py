@@ -22,6 +22,7 @@ _CRONS_IGNORADOS = {
     "jobs.watchdog",            # watchdog del propio sistema
     "jobs.triage",              # triage IA de fallas de jobs (P2 QuantAI) — observa al sistema
     "jobs.research_mail",       # ingesta del research diario → ia.research (P6 QuantAI)
+    "jobs.mercado_1816_series", # series históricas de 1816 → research.mkt_1816_* (vista RESEARCH)
     "jobs.cleanup_curvas",      # limpieza
     "jobs.cleanup_futuros_dlr", # limpieza
     "jobs.cleanup_retencion",   # limpieza (retención/TTL de tablas de log y auditoría)

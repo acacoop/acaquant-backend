@@ -28,5 +28,4 @@ Conecta con: lee `Market.Quotes` (poblada por `jobs.market_quotes`) y `Market.Ec
 - [[api.main]]  ·  _module_
 - [[web.api.api.market.calendar]]  ·  _route_
 - [[web.api.api.market.quotes]]  ·  _route_
-- [[web.cmp.trading-view]]  ·  _component_
 - [[web.cmp.watchlist-panel]]  ·  _component_

@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-160 notas.
+181 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -27,7 +27,7 @@
 - [[api.routers.derivados_agro]] — Router /api/derivados/agro — Pase Agro + Estrategias + Cámara + Mejoras Dispo.
 - [[api.routers.derivados_sinteticos]] — Router /api/derivados/sinteticos — sintéticos LECAP / DLK + futuro DLR.
 - [[api.routers.ia]] — api/routers/ia.py — endpoints del módulo IA (QuantAI, docs/QUANTAI.md).
-- [[api.routers.ingest]] — Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.
+- [[api.routers.ingest]] — Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet (PC de oficina).
 - [[api.routers.manager]] — Manager API — paquete con sub-routers por sub-dominio.
 - [[api.routers.manager._common]] — Constantes y helpers compartidos entre los sub-módulos de manager/.
 - [[api.routers.manager.aca_valores]] — Manager sub-router — set de cuentas ACA VALORES (módulo `manager_clientes`).
@@ -50,10 +50,11 @@
 - [[api.routers.manager.ons]] — Manager sub-router — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).
 - [[api.routers.manager.operaciones]] — Manager · Operaciones — backfill de operaciones.operaciones (SQL) por CSV.
 - [[api.routers.manager.options]] — GET/PUT /api/manager/options/expiries — config del engine de opciones (SQL-native).
-- [[api.routers.manager.renta_variable]] — Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia).
+- [[api.routers.manager.renta_variable]] — Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia + ric).
 - [[api.routers.manager.roles]] — Manager sub-router — matriz de roles + audit log.
 - [[api.routers.manager.status]] — GET /api/manager/status — estado unificado de motores y jobs batch.
 - [[api.routers.manager.users]] — Manager sub-router — CRUD de usuarios.
+- [[api.routers.manager.uso]] — Manager sub-router — telemetría de USO (usuario × módulo).
 - [[api.routers.manager.valuaciones]] — Manager · Valuaciones — debug XIRR mensual.
 - [[api.routers.manager_resources]] — Endpoints de recursos del servidor para el Manager.
 - [[api.routers.market]] — Router Market: watchlist quotes, economic calendar, candles históricos.
@@ -64,6 +65,8 @@
 - [[api.routers.operativa]] — Router /api/operativa — wrappers operativos sobre /api/ordenes.
 - [[api.routers.ordenes]] — Router /api/ordenes — envío/cancel/listado de órdenes contra ROFEX (LIVE).
 - [[api.routers.research]] — Router /api/research — vista Análisis Fundamental del módulo Renta Variable.
+- [[api.routers.research1816]] — Router /api/research1816 — vista RESEARCH (nueva vista principal).
+- [[api.routers.research_bcra]] — Router /api/research-bcra — tab BCRA de la vista Research.
 - [[api.routers.risk]] — Router /api/risk — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.routers.scanner]] — Router /api/scanner — vista Scanner del módulo Renta Variable.
 - [[api.routers.titulos]] — Router Titulos: assets + flujos, DIRECTO desde las fuentes (Valuaciones.Assets
@@ -106,7 +109,20 @@
 - [[api.services.control_automatico]] — Control Automático (Clientes): concilia un Excel de CUITs contra nuestras cuentas.
 - [[api.services.control_comercial_sql]] — api/services/control_comercial_sql.py — vista CONTROL COMERCIAL (jefatura).
 - [[api.services.controles_sql]] — api/services/controles_sql.py — lectura del auto-control de calidad de datos.
-- [[api.services.copiloto]] — api/services/copiloto.py — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).
+- [[api.services.copiloto]] — api/services/copiloto — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).
+- [[api.services.copiloto.agro]] — copiloto/agro.py — vista AGRO (granos): pase agro, pase con cobertura, cámara.
+- [[api.services.copiloto.base]] — copiloto/base.py — helpers puros y prompt base compartidos por todas las vistas.
+- [[api.services.copiloto.derivacion]] — copiloto/derivacion.py — derivación entre vistas: el marcador [[VISTA:x]], el
+- [[api.services.copiloto.home]] — copiloto/home.py — vista HOME (panorama del mercado): watchlist + briefing +
+- [[api.services.copiloto.motor]] — copiloto/motor.py — el orquestador: preguntar() (una pregunta → contexto →
+- [[api.services.copiloto.ons]] — copiloto/ons.py — vista ONs (deuda corporativa): curva por sector, pagos.
+- [[api.services.copiloto.opciones]] — copiloto/opciones.py — vista OPCIONES (derivados): cadena GGAL, IV, griegas.
+- [[api.services.copiloto.registro]] — copiloto/registro.py — el registro VISTAS: ensambla cada vista (fetch,
+- [[api.services.copiloto.renta_fija]] — copiloto/renta_fija.py — vista RF (bonos ARG): curvas, fair value, forwards,
+- [[api.services.copiloto.renta_variable]] — copiloto/renta_variable.py — vista RV (CEDEARs/ADRs): fetch, enriquecido,
+- [[api.services.copiloto.reuters]] — copiloto/reuters.py — vista REUTERS (tablero live subyacentes US, feed Eikon).
+- [[api.services.copiloto.trading]] — copiloto/trading.py — vista TRADING (monitor intradía): tarjetas con pivots
+- [[api.services.copiloto.verificacion]] — copiloto/verificacion.py — guardrails estructurales (anti-alucinación).
 - [[api.services.day_trading]] — day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).
 - [[api.services.db_obs]] — db_obs.py — observabilidad de espacio/salud de la base (Manager OBSERVABILIDAD → BASE).
 - [[api.services.debug_curva]] — Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
@@ -147,7 +163,10 @@
 - [[api.services.renta_fija]] — Capa de servicio — renta fija (MarketSnapshot + TimeSales + Curvas).
 - [[api.services.renta_fija_sql]] — api/services/renta_fija_sql.py — renta fija LIVE leyendo Postgres (mercado.*).
 - [[api.services.repo]] — Capa de servicio — mercado repo (caución).
+- [[api.services.research_1816_sql]] — api/services/research_1816_sql.py — lectura de las series de 1816 para el
+- [[api.services.research_bcra_sql]] — api/services/research_bcra_sql.py — lectura de las series BCRA para la tab
 - [[api.services.research_fundamentals]] — Capa de servicio — Análisis Fundamental (módulo Renta Variable).
+- [[api.services.research_sql]] — api/services/research_sql.py — lectura del research diario (mails de 1816) para
 - [[api.services.risk]] — Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.services.rv_motor]] — api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).
 - [[api.services.scanner]] — api/services/scanner.py — vista Scanner del módulo Renta Variable.
@@ -160,5 +179,7 @@
 - [[api.services.tesoreria]] — api/services/tesoreria.py — Back Office → Tesorería (ingresos/egresos del día).
 - [[api.services.titulos_flujos]] — api/services/titulos_flujos.py — flujos normalizados por instrumento.
 - [[api.services.trading_pivots]] — Pivots Floor Trader sobre el activo (ARS) — vista TRADING.
+- [[api.services.uso_modulos]] — api/services/uso_modulos.py — lectura de la telemetría de uso (Manager → USO).
 - [[api.services.valuaciones]] — Valuaciones — performance e historia por cuenta. SQL-only (decomiso Mongo).
 - [[api.services.valuaciones_sql]] — api/services/valuaciones_sql.py — espejo SQL de api/services/valuaciones.py.
+- [[api.telemetria]] — api/telemetria.py — telemetría de uso por módulo (usuario × módulo × hora).

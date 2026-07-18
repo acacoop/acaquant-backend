@@ -25,5 +25,8 @@ Conecta con: hook de cliente puro, sin red ni Mongo; lo usan las vistas del fron
 - [[web.cmp.ops-view]]  ·  _component_
 - [[web.cmp.referidos-view]]  ·  _component_
 - [[web.cmp.retorno-total-view]]  ·  _component_
+- [[web.cmp.reuters-ficha]]  ·  _component_
+- [[web.cmp.reuters-fundamentals]]  ·  _component_
+- [[web.cmp.reuters-view]]  ·  _component_
 - [[web.cmp.tenencia-valorizada-view]]  ·  _component_
 - [[web.cmp.trading-shell]]  ·  _component_

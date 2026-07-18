@@ -16,7 +16,7 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.routers.ia]]  ·  _module_
-- [[api.routers.market]]  ·  _module_
+- [[api.routers.research1816]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[api.routers.trading]]  ·  _module_
 - [[web.cmp.cedears-timesales-panel]]  ·  _component_

@@ -1,0 +1,127 @@
+{
+  "_doc": "Golden fixtures de la ingesta de operaciones (docs/OBSERVABILIDAD_ROBUSTEZ.md, commit 3). Filas CRUDAS estilo API informes / Excel histórico, ANONIMIZADAS (boletos 9xxxxx, cuentas y nombres de fantasía). Los `esperado_*` fueron CONGELADOS corriendo las funciones reales el 2026-07-18 (characterization): un cambio futuro que altere el output rompe el test A PROPÓSITO.",
+  "casos": [
+    {
+      "nombre": "contado_compra_excel_es_ar",
+      "cruda": {
+        "Boleto": 900001,
+        "Cuenta": 805.0,
+        "Concertación": "17/07/2026",
+        "Denominación": "CLIENTE EJEMPLO SA",
+        "Tipo de Operación": "Contado - Compra",
+        "Instrumento": "AL30",
+        "Condiciones": "ARS 24hs",
+        "CantidadTotal": "1.500",
+        "Bruto": "1.234.567,89",
+        "Aranceles": "1.234,56"
+      },
+      "esperado_normalizado": {
+        "boleto": "900001",
+        "cuenta": "805",
+        "concertacion": "2026-07-17",
+        "denominacion": "CLIENTE EJEMPLO SA",
+        "tipo_operacion": "Contado - Compra",
+        "instrumento": "AL30",
+        "condiciones": "ARS 24hs",
+        "cantidad": 1.5,
+        "bruto": 1234567.89,
+        "arancel": 1234.56,
+        "moneda": "ARS"
+      },
+      "_nota": "⚠ AMBIGÜEDAD REAL detectada al characterizar: '1.500' (Excel es-AR = mil quinientos) se parsea como 1.5 — _to_float trata un punto ÚNICO como decimal. Congelado como comportamiento ACTUAL; la decisión de cambiarlo es del user (ver commit 3 en el doc).",
+      "esperado_enriquecido_extra": {
+        "commodity": null,
+        "es_cierre": false,
+        "mep": 1234.5,
+        "mercado": "BYMA",
+        "operacion": "compra",
+        "segmento": "PRODUCTORES",
+        "nivel_3": "ZONA NORTE"
+      }
+    },
+    {
+      "nombre": "futuro_agro_soja_con_otc_en_denominacion",
+      "cruda": {
+        "Boleto": "900002",
+        "Cuenta": "1250",
+        "Concertacion": "2026-07-17T00:00:00",
+        "Denominacion": "PRODUCTOR OTC EJEMPLO",
+        "TipoOperacion": "Futuros Agropecuarios - Compra",
+        "Instrumento": "SOJ.ROS/JUL26",
+        "Condiciones": "USD 24hs",
+        "Cantidad": 100,
+        "Bruto": 50000.0,
+        "Arancel": "USD 12,50"
+      },
+      "esperado_normalizado": {
+        "boleto": "900002",
+        "cuenta": "1250",
+        "concertacion": "2026-07-17",
+        "denominacion": "PRODUCTOR OTC EJEMPLO",
+        "tipo_operacion": "Futuros Agropecuarios - Compra",
+        "instrumento": "SOJ.ROS/JUL26",
+        "condiciones": "USD 24hs",
+        "cantidad": 100.0,
+        "bruto": 50000.0,
+        "arancel": 12.5,
+        "moneda": "USD"
+      },
+      "_nota": "La excepción agro-OTC del 2026-06-03: 'Futuros Agropecuarios - Compra/Venta' ES agro aunque la denominación tenga OTC.",
+      "esperado_enriquecido_extra": {
+        "commodity": "SOJA",
+        "es_cierre": false,
+        "mep": 1234.5,
+        "mercado": "",
+        "operacion": "otro",
+        "segmento": "",
+        "nivel_3": ""
+      }
+    },
+    {
+      "nombre": "caucion_cierre",
+      "cruda": {
+        "Boleto": 900003,
+        "Cuenta": 33,
+        "Concertacion": "17/07/2026",
+        "Denominacion": "OTRO CLIENTE",
+        "Tipo de Operación": "Caución Colocadora - Cierre",
+        "Instrumento": "CAUCION $ 7D",
+        "Condiciones": "ARS Inm",
+        "Cantidad": null,
+        "Bruto": "82965,6",
+        "Arancel": null
+      },
+      "esperado_normalizado": {
+        "boleto": "900003",
+        "cuenta": "33",
+        "concertacion": "2026-07-17",
+        "denominacion": "OTRO CLIENTE",
+        "tipo_operacion": "Caución Colocadora - Cierre",
+        "instrumento": "CAUCION $ 7D",
+        "condiciones": "ARS Inm",
+        "cantidad": null,
+        "bruto": 82965.6,
+        "arancel": null,
+        "moneda": "ARS"
+      },
+      "_nota": "El arancel de caución vive SOLO en el cierre (regla del CLAUDE.md): es_cierre debe materializarse true.",
+      "esperado_enriquecido_extra": {
+        "commodity": null,
+        "es_cierre": true,
+        "mep": 1234.5,
+        "mercado": "BYMA",
+        "operacion": "caucion",
+        "segmento": "",
+        "nivel_3": ""
+      }
+    }
+  ],
+  "maps_enrich": {
+    "catalogo": {
+      "Contado - Compra": {"tipo_operacion": "Contado - Compra", "mercado": "BYMA", "operacion": "compra"},
+      "Caución Colocadora - Cierre": {"tipo_operacion": "Caución Colocadora - Cierre", "mercado": "BYMA", "operacion": "caucion"}
+    },
+    "niveles": {"805": {"n1": "PRODUCTORES", "n3": "ZONA NORTE"}},
+    "mep_cache": {"2026-07-17": 1234.5}
+  }
+}

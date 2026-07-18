@@ -25,7 +25,9 @@ _(pendiente de enriquecimiento)_
 - [[api.routers.cotizaciones]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.breakevens_admin]]  ·  _module_
-- [[api.services.copiloto]]  ·  _module_
+- [[api.services.briefing]]  ·  _module_
+- [[api.services.copiloto.home]]  ·  _module_
+- [[api.services.copiloto.renta_fija]]  ·  _module_
 - [[api.services.derivados]]  ·  _module_
 - [[api.services.macro_sql]]  ·  _module_
 - [[api.services.repo]]  ·  _module_

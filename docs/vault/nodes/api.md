@@ -16,4 +16,5 @@ Paquete raíz de la API FastAPI (`api/`). Es solo el marcador de paquete (`__ini
 
 Conecta con: agrupa todos los submódulos de la API; lo arranca uvicorn vía `api.main:app`.
 
-_Sin conexiones detectadas mecánicamente._
+## Lo usan (backlinks) ←
+- [[api.main]]  ·  _module_

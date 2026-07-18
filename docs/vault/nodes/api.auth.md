@@ -50,6 +50,9 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 - [[api.routers.operativa]]  ·  _module_
 - [[api.routers.ordenes]]  ·  _module_
 - [[api.routers.research]]  ·  _module_
+- [[api.routers.research1816]]  ·  _module_
+- [[api.routers.research_bcra]]  ·  _module_
 - [[api.routers.risk]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[api.services._grupos_scope]]  ·  _module_
+- [[api.telemetria]]  ·  _module_

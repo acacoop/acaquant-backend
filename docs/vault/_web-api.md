@@ -1,6 +1,6 @@
 # 🔌 web — rutas API (proxy)
 
-61 notas.
+64 notas.
 
 - [[web.api.api.analitica.[...path]]]
 - [[web.api.api.argy]]
@@ -24,6 +24,7 @@
 - [[web.api.api.derivados-agro]]
 - [[web.api.api.derivados-agro.camara]]
 - [[web.api.api.derivados-agro.camara.[cereal]]]
+- [[web.api.api.derivados-agro.costo-pase]]
 - [[web.api.api.derivados-agro.descuento-caucion]]
 - [[web.api.api.derivados-agro.dolares-referencia]]
 - [[web.api.api.derivados-agro.estrategia.simular]]
@@ -51,7 +52,9 @@
 - [[web.api.api.portfolio-cuentas]]
 - [[web.api.api.portfolio.niveles-1]]
 - [[web.api.api.portfolio.operadores]]
+- [[web.api.api.research-bcra.[...path]]]
 - [[web.api.api.research.[...path]]]
+- [[web.api.api.research1816.[...path]]]
 - [[web.api.api.risk.[[...path]]]]
 - [[web.api.api.scanner.[...path]]]
 - [[web.api.api.trades]]

@@ -28,4 +28,4 @@ Conecta con: lee `Trading.FitParams` (β del cierre), `Trading.FairValueResiduos
 ## Lo usan (backlinks) ←
 - [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
-- [[api.services.copiloto]]  ·  _module_
+- [[api.services.copiloto.renta_fija]]  ·  _module_

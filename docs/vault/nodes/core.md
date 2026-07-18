@@ -69,10 +69,14 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[engines.valores]]  ·  _module_
 - [[jobs.adr_live]]  ·  _module_
 - [[jobs.backfill_tasas]]  ·  _module_
+- [[jobs.bcra_research]]  ·  _module_
 - [[jobs.bonos_ohlc_daily]]  ·  _module_
 - [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
+- [[jobs.guardrails]]  ·  _module_
+- [[jobs.mercado_1816_discovery]]  ·  _module_
+- [[jobs.mercado_1816_series]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.precios_acciones_daily]]  ·  _module_
 - [[jobs.research_mail]]  ·  _module_

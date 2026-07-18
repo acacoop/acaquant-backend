@@ -28,6 +28,9 @@ Conecta con: hook de cliente; hace `fetch` con `cache: "no-store"` a route handl
 - [[web.cmp.forwards-panel]]  ·  _component_
 - [[web.cmp.ons-live]]  ·  _component_
 - [[web.cmp.renta-fija-live]]  ·  _component_
+- [[web.cmp.reuters-ficha]]  ·  _component_
+- [[web.cmp.reuters-fundamentals]]  ·  _component_
+- [[web.cmp.reuters-view]]  ·  _component_
 - [[web.cmp.scanner-view]]  ·  _component_
 - [[web.cmp.titulos-mercado-view]]  ·  _component_
 - [[web.cmp.trading-movers-scanner]]  ·  _component_

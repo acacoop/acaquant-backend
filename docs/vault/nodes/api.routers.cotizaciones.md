@@ -50,5 +50,6 @@ Conecta con: delega en services `macro`, `repo`, `derivados`, `renta_fija`, `opc
 - [[web.cmp.griegas-historico-chart]]  ·  _component_
 - [[web.cmp.opcion-historico-chart]]  ·  _component_
 - [[web.cmp.renta-fija-live]]  ·  _component_
+- [[web.cmp.research-forwards]]  ·  _component_
 - [[web.view.derivados.view]]  ·  _view_
 - [[web.view.renta-fija.view]]  ·  _view_

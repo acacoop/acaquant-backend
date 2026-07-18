@@ -1,6 +1,6 @@
 # 🚀 deploy — servicios + crons
 
-55 notas.
+58 notas.
 
 - [[cron.engines.dolar_mep]] — Tarea programada (cron).
 - [[cron.jobs.acreencias]] — Tarea programada (cron).
@@ -9,6 +9,7 @@
 - [[cron.jobs.archive_options_data]] — Tarea programada (cron).
 - [[cron.jobs.argentina_datos]] — Tarea programada (cron).
 - [[cron.jobs.bcra]] — Tarea programada (cron).
+- [[cron.jobs.bcra_research]] — Tarea programada (cron).
 - [[cron.jobs.bonos_ohlc_daily]] — Tarea programada (cron).
 - [[cron.jobs.cashflow]] — Tarea programada (cron).
 - [[cron.jobs.cedears_ohlc_daily]] — Tarea programada (cron).
@@ -23,9 +24,11 @@
 - [[cron.jobs.day_trading_stats]] — Tarea programada (cron).
 - [[cron.jobs.economic_calendar]] — Tarea programada (cron).
 - [[cron.jobs.forwards_zscore]] — Tarea programada (cron).
+- [[cron.jobs.guardrails]] — Tarea programada (cron).
 - [[cron.jobs.informe_salud]] — Tarea programada (cron).
 - [[cron.jobs.market_anchors]] — Tarea programada (cron).
 - [[cron.jobs.market_quotes]] — Tarea programada (cron).
+- [[cron.jobs.mercado_1816_series]] — Tarea programada (cron).
 - [[cron.jobs.negocio_movimientos]] — Tarea programada (cron).
 - [[cron.jobs.news_finnhub]] — Tarea programada (cron).
 - [[cron.jobs.news_ingesta]] — Tarea programada (cron).

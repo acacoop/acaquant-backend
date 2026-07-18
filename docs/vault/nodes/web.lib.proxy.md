@@ -23,6 +23,7 @@ Conecta con: src/lib/cf-access.ts (trustedEmail), el endpoint /api/me del backen
 - [[api.routers.operar]]  ·  _module_
 - [[api.routers.operativa]]  ·  _module_
 - [[api.routers.ordenes]]  ·  _module_
+- [[api.routers.research1816]]  ·  _module_
 - [[api.routers.risk]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[api.routers.titulos]]  ·  _module_

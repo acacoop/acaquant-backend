@@ -45,6 +45,7 @@ Conecta con: `api.auth::require_module` / `require_any_module` + `api.deps::veri
 - [[api.routers.manager.roles]]  ·  _module_
 - [[api.routers.manager.status]]  ·  _module_
 - [[api.routers.manager.users]]  ·  _module_
+- [[api.routers.manager.uso]]  ·  _module_
 - [[api.routers.manager.valuaciones]]  ·  _module_
 
 ## Lo usan (backlinks) ←

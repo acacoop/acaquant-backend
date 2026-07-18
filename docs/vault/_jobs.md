@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-49 notas.
+53 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -13,6 +13,7 @@
 - [[jobs.aum]] — jobs/aum.py — CLIENTE Aunesa (librería, no es un job).
 - [[jobs.backfill_tasas]] — backfill_tasas.py — recalcula TEA/TEM/duration/paridad de TODOS los bonos de
 - [[jobs.bcra]]
+- [[jobs.bcra_research]] — jobs/bcra_research.py — sincroniza las series del BCRA a Postgres (tab BCRA).
 - [[jobs.bonos_ohlc_daily]] — bonos_ohlc_daily.py — guarda el OHLC diario de cada bono (ventana móvil).
 - [[jobs.cashflow]]
 - [[jobs.cedears_ohlc_daily]] — cedears_ohlc_daily.py — guarda el OHLC diario de cada CEDEAR (ventana móvil).
@@ -30,9 +31,12 @@
 - [[jobs.fair_value]] — fair_value.py — fit cuadrático + residuos + z-scores diarios.
 - [[jobs.fci_bilateral]] — jobs/fci_bilateral.py — lleva el FCI bilateral de `operaciones.negocio_movimientos`
 - [[jobs.forwards_zscore]] — forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.
+- [[jobs.guardrails]] — jobs/guardrails.py — invariantes de sanidad de datos post-cierre.
 - [[jobs.informe_salud]] — informe_salud.py — Informe de salud de ACAQuant (health report a Telegram).
 - [[jobs.market_anchors]] — market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).
 - [[jobs.market_quotes]] — market_quotes.py — cotizaciones de equity/futuros/índices para el watchlist HOME.
+- [[jobs.mercado_1816_discovery]] — jobs/mercado_1816_discovery.py — arma el universo de la vista RESEARCH desde TUS
+- [[jobs.mercado_1816_series]] — jobs/mercado_1816_series.py — baja las series históricas de 1816 a Postgres.
 - [[jobs.negocio_movimientos]] — negocio_movimientos.py — pega a Aunesa, consolida y persiste boletos
 - [[jobs.news_finnhub]] — news_finnhub.py — ingesta de noticias desde Finnhub.
 - [[jobs.news_ingesta]] — news_ingesta.py — Ingesta de RSS de medios económicos argentinos.

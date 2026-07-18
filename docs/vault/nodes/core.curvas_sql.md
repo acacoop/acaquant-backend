@@ -42,4 +42,6 @@ _(pendiente de enriquecimiento)_
 - [[jobs.bonos_ohlc_daily]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.controles_datos]]  ·  _module_
+- [[jobs.guardrails]]  ·  _module_
+- [[jobs.mercado_1816_discovery]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_

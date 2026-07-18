@@ -37,6 +37,7 @@ Conecta con: lee la identidad verificada vía `web.lib.cf-access` (`trustedEmail
 - [[web.api.api.derivados-agro]]  ·  _route_
 - [[web.api.api.derivados-agro.camara]]  ·  _route_
 - [[web.api.api.derivados-agro.camara.[cereal]]]  ·  _route_
+- [[web.api.api.derivados-agro.costo-pase]]  ·  _route_
 - [[web.api.api.derivados-agro.descuento-caucion]]  ·  _route_
 - [[web.api.api.derivados-agro.dolares-referencia]]  ·  _route_
 - [[web.api.api.derivados-agro.estrategia.simular]]  ·  _route_
@@ -73,3 +74,4 @@ Conecta con: lee la identidad verificada vía `web.lib.cf-access` (`trustedEmail
 - [[web.view.ons.view]]  ·  _view_
 - [[web.view.renta-fija.view]]  ·  _view_
 - [[web.view.renta-variable.view]]  ·  _view_
+- [[web.view.research.view]]  ·  _view_

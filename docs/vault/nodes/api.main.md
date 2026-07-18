@@ -19,6 +19,7 @@ Entrypoint de la API FastAPI (`uvicorn api.main:app`). Arma la app: monta todos 
 Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, todos los `api.routers.*` y `api.mcp`; pinguea ambos singletons de `core.mongo` al arrancar.
 
 ## Usa / conecta con →
+- [[api]]  ·  _module_
 - [[api.auth]]  ·  _module_
 - [[api.deps]]  ·  _module_
 - [[api.mcp]]  ·  _module_
@@ -49,9 +50,12 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.routers.operativa]]  ·  _module_
 - [[api.routers.ordenes]]  ·  _module_
 - [[api.routers.research]]  ·  _module_
+- [[api.routers.research1816]]  ·  _module_
+- [[api.routers.research_bcra]]  ·  _module_
 - [[api.routers.risk]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[api.routers.titulos]]  ·  _module_
 - [[api.routers.trading]]  ·  _module_
 - [[api.routers.valuaciones]]  ·  _module_
+- [[api.telemetria]]  ·  _module_
 - [[config]]  ·  _module_

@@ -22,4 +22,5 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.market]]  ·  _module_
-- [[api.services.copiloto]]  ·  _module_
+- [[api.services.copiloto.home]]  ·  _module_
+- [[api.services.copiloto.trading]]  ·  _module_

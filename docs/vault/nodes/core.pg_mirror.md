@@ -30,6 +30,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.ordenes]]  ·  _module_
 - [[core.brackets]]  ·  _module_
 - [[core.dolar_oficial]]  ·  _module_
+- [[core.eikon_live]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 - [[core.roles]]  ·  _module_
 - [[engines.breakevens]]  ·  _module_
@@ -63,6 +64,7 @@ _(pendiente de enriquecimiento)_
 - [[jobs.fair_value]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.forwards_zscore]]  ·  _module_
+- [[jobs.guardrails]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_
 - [[jobs.market_anchors]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_

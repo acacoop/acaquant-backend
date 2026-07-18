@@ -9,7 +9,7 @@ path: api\routers\manager\renta_variable.py
 
 # api/routers/manager/renta_variable
 
-> Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia).
+> Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia + ric).
 
 **Archivo:** `api\routers\manager\renta_variable.py`
 

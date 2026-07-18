@@ -19,9 +19,10 @@ _(pendiente de enriquecimiento)_
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
 - [[api.services.acreencias]]  ·  _module_
+- [[api.services.mercado_hist_sql]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[db.Trading.DOLAR]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.ia]]  ·  _module_
-- [[api.services.copiloto]]  ·  _module_
+- [[api.services.copiloto.home]]  ·  _module_

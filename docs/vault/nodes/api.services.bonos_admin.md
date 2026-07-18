@@ -17,6 +17,7 @@ path: api\services\bonos_admin.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services]]  ·  _module_
 - [[api.services.ons]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_

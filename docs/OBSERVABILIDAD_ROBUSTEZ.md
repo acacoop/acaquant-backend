@@ -83,19 +83,62 @@ los checks puros, incl. la semántica None-no-viola).
 
 ---
 
-## COMMIT 3 — Golden tests del pipeline crítico — PENDIENTE
+## COMMIT 3 — Golden tests del pipeline crítico ✅ HECHO (2026-07-18)
 
-**Qué es:** characterization tests con fixtures ANONIMIZADOS commiteados:
-ingesta/normalización de `operaciones_informes.ingestar_filas_sql`,
-categorización de `negocio_movimientos`, y clasificación del AuM
-(`_aum_filters.is_excluded` + valuación por CARTERA — las "fórmulas no
-inferibles"). Todo unit (SQL/red mockeados). REGLA DE ORO: si un golden revela
-un bug real, NO se tapa — se marca y se decide con el user.
+**Qué es:** `tests/unit/test_golden_pipeline.py` (8 tests) + fixture anonimizado
+`tests/unit/fixtures/golden_operaciones.json`. Los outputs esperados se
+CONGELARON corriendo las funciones REALES (characterization) — un cambio futuro
+que altere el resultado rompe a propósito. Cobertura:
+1. **Ingesta de operaciones** (`operaciones_informes`): `normalizar_fila`
+   (headers con alias/acentos, montos es-AR, cuenta numérica→string, fechas
+   DD/MM e ISO), `_aplicar_enrich` (commodity con la excepción agro-OTC del
+   2026-06-03, es_cierre materializado, mep estampado, mercado/operacion/
+   segmento/nivel_3 con maps inyectados) y `es_otc_excluido` (NDF/Opciones sí,
+   Concurrencia no).
+2. **Negocio** (`negocio_movimientos`): `_boleto_a_doc` completo (con el mep
+   snapshot inmutable) + `_extract_id_cuenta`.
+3. **AuM** (`_aum_filters.is_excluded`): las 5 reglas de exclusión (USDL,
+   OTC/CDC, contraparte por id, contraparte por nombre, ARS de cuentas propias)
+   con sets inyectados — cero SQL.
+4. **Valuación por CARTERA** (`pnl._aplicar_normalizer` — la fórmula no
+   inferible): ÷100 para HD/DL/ARS, ×1 para MONEDAS/FCI, (precio+1)×cant para
+   futuros, fallback.
+
+NO hizo falta refactor: los núcleos ya eran puros/inyectables (maps, mep_cache,
+sets de contrapartes van por parámetro).
+
+### ⚠ HALLAZGO de la characterization (marcado, NO tapado — decide el user)
+
+**`_to_float("1.500")` → 1.5.** El parser trata un punto ÚNICO como decimal,
+pero en el Excel es-AR histórico "1.500" casi siempre es MIL QUINIENTOS. Es una
+ambigüedad intrínseca (una cantidad "1.500" ≠ un precio "1.500") y NO se tocó la
+lógica de producción (regla de oro). Mitigantes: la API informes manda números
+JSON (no strings) → el camino diario probablemente no lo pisa; el riesgo vive en
+cargas históricas por Excel. **Decisión pendiente del user:** (a) dejarlo así
+(documentado + golden congelado), o (b) cambiar la heurística (ej. un punto con
+exactamente 3 dígitos detrás y sin coma = miles) sabiendo que rompe el golden y
+obliga a revisar lo ya ingestado con ese patrón.
 
 ---
 
+## Qué corre el user en el Droplet (checklist de activación)
+
+```
+git pull
+python -m scripts.apply_schema        # crea manager.uso_modulos
+systemctl restart api.service          # activa el middleware de telemetría
+python -m jobs.guardrails              # 1ª corrida del report de calibración
+```
+- El panel **Manager → OBSERVABILIDAD → USO** muestra datos tras ~1 min de uso.
+- **Calibración de guardrails:** correr/leer el report unos días (el cron 20:45
+  ya lo corre solo y el output queda en `logs/guardrails.log`); con los valores
+  medidos, fijar los umbrales en `config.GUARDRAILS_UMBRALES` y cambiar el cron
+  a `--alert`.
+- **Decidir el hallazgo `_to_float("1.500")`** (ver commit 3).
+
 ## Registro (con fecha)
 
-- **2026-07-18 — Commit 1 (telemetría) construido y verde** (319 rutas, 6 tests
-  nuevos, ruff/typecheck OK). Borrado `MAR_14_JULIO_00_28_AM.md` (temporal,
-  auto-destruible, ya cumplió). Commits 2 y 3 a continuación.
+- **2026-07-18 — Los 3 commits construidos y verdes** (344 tests totales, ruff/
+  typecheck/import-chain OK; vault regenerado). Borrado `MAR_14_JULIO_00_28_AM.md`
+  (temporal, auto-destruible, ya cumplió). Hallazgo del golden (`_to_float`)
+  pendiente de decisión del user.

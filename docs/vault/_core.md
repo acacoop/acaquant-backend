@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-35 notas.
+38 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
@@ -8,6 +8,7 @@
 - [[core.ai_resumen]] — core/ai_resumen.py — lectura ejecutiva con IA para los informes operativos.
 - [[core.argentina_datos]] — Cliente de argentinadatos.com — indicadores macro AR públicos.
 - [[core.aunesa]] — core/aunesa.py — cliente único de la API del custodio Aunesa.
+- [[core.bcra_api]] — core/bcra_api.py — cliente de la API de Estadísticas Monetarias del BCRA (v4).
 - [[core.brackets]] — Brackets — entrada LIMIT + salida automática cuando la entrada se llena.
 - [[core.byma]] — Cliente BYMA Primarias Placements.
 - [[core.cafci]] — Extracción del código CAFCI desde un string `unidad`.
@@ -16,6 +17,7 @@
 - [[core.doc_fiscal]] — Documento fiscal (DNI/CUIT/CUIL) — parseo y claves de cruce. Lógica PURA.
 - [[core.dolar_oficial]] — Fuente única para el "dólar oficial" mayorista.
 - [[core.dolar_sql]] — core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje (decomiso Mongo).
+- [[core.eikon_live]] — Feed Eikon/Workspace — quotes LIVE del subyacente US de cada CEDEAR (PRUEBA).
 - [[core.finnhub]] — Cliente Finnhub con rate limiting interno.
 - [[core.fmp]] — Cliente FMP (financialmodelingprep) — calendario económico.
 - [[core.grupos]] — core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).
@@ -23,6 +25,7 @@
 - [[core.job_runs]] — Context manager para registrar runs de jobs automáticos en manager.job_runs (SQL).
 - [[core.mae]] — Cliente MAE MarketData.
 - [[core.market_snapshot]] — Lectura de mercado.market_snapshot (SQL) — estado live por ticker. SQL-only.
+- [[core.mercado_1816]] — core/mercado_1816.py — cliente de la API de Mercado de 1816 (vista RESEARCH).
 - [[core.notify]] — Notificaciones operativas (Telegram).
 - [[core.pg_mirror]] — core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
 - [[core.postgres]] — core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.

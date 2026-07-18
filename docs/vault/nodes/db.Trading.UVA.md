@@ -15,4 +15,5 @@ Valor de la UVA (carga manual) en la base `Trading`. Es la fuente del valor UVA 
 
 Conecta con: la lee `jobs/segmentar_patrimonial.py`, `api/services/macro.py` y `api/routers/manager/comercial.py`.
 
-_Sin conexiones detectadas mecánicamente._
+## Lo usan (backlinks) ←
+- [[jobs.bcra_research]]  ·  _module_

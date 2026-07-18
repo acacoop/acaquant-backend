@@ -28,5 +28,6 @@ _(pendiente de enriquecimiento)_
 - [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
+- [[api.services.copiloto.ons]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_

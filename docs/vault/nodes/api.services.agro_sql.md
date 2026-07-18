@@ -17,6 +17,7 @@ path: api\services\agro_sql.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.cache]]  ·  _module_
 - [[api.services]]  ·  _module_
 - [[api.services.agro_cobertura]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
@@ -30,3 +31,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.derivados_agro]]  ·  _module_
+- [[api.services.copiloto.agro]]  ·  _module_

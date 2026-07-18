@@ -36,6 +36,6 @@ Conecta con: lee `Trading.<BADLAR/CER/…>` y `Trading.MarketSnapshot.metrics`, 
 - [[api.routers.manager.clientes]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.comparar_inversion]]  ·  _module_
-- [[api.services.copiloto]]  ·  _module_
+- [[api.services.copiloto.renta_fija]]  ·  _module_
 - [[api.services.renta_fija_sql]]  ·  _module_
 - [[jobs.segmentar_patrimonial]]  ·  _module_

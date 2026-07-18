@@ -1,6 +1,6 @@
 # 🖥️ web — vistas
 
-21 notas.
+22 notas.
 
 - [[web.view.(home).error]]
 - [[web.view.(home).layout]]
@@ -19,6 +19,7 @@
 - [[web.view.referidos.view]]
 - [[web.view.renta-fija.view]]
 - [[web.view.renta-variable.view]]
+- [[web.view.research.view]]
 - [[web.view.retorno.view]]
 - [[web.view.sinteticos.view]]
 - [[web.view.trading.view]]

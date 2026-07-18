@@ -53,7 +53,10 @@ _(pendiente de enriquecimiento)_
 - [[api.services.control_automatico]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
 - [[api.services.controles_sql]]  ·  _module_
-- [[api.services.copiloto]]  ·  _module_
+- [[api.services.copiloto.motor]]  ·  _module_
+- [[api.services.copiloto.renta_fija]]  ·  _module_
+- [[api.services.copiloto.renta_variable]]  ·  _module_
+- [[api.services.copiloto.trading]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_
@@ -71,7 +74,10 @@ _(pendiente de enriquecimiento)_
 - [[api.services.ordenes]]  ·  _module_
 - [[api.services.order_book]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
+- [[api.services.research_1816_sql]]  ·  _module_
+- [[api.services.research_bcra_sql]]  ·  _module_
 - [[api.services.research_fundamentals]]  ·  _module_
+- [[api.services.research_sql]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
 - [[api.services.rv_motor]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
@@ -82,7 +88,9 @@ _(pendiente de enriquecimiento)_
 - [[api.services.tenencia_hd]]  ·  _module_
 - [[api.services.titulos_flujos]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_
+- [[api.services.uso_modulos]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
+- [[api.telemetria]]  ·  _module_
 - [[core.adhoc_subscriptions]]  ·  _module_
 - [[core.ai]]  ·  _module_
 - [[core.brackets]]  ·  _module_
@@ -90,6 +98,7 @@ _(pendiente de enriquecimiento)_
 - [[core.curvas_sql]]  ·  _module_
 - [[core.dolar_oficial]]  ·  _module_
 - [[core.dolar_sql]]  ·  _module_
+- [[core.eikon_live]]  ·  _module_
 - [[core.grupos_sql]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
@@ -110,6 +119,7 @@ _(pendiente de enriquecimiento)_
 - [[jobs.archive_options_data]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
 - [[jobs.backfill_tasas]]  ·  _module_
+- [[jobs.bcra_research]]  ·  _module_
 - [[jobs.bonos_ohlc_daily]]  ·  _module_
 - [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_
@@ -123,8 +133,11 @@ _(pendiente de enriquecimiento)_
 - [[jobs.fair_value]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.forwards_zscore]]  ·  _module_
+- [[jobs.guardrails]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
+- [[jobs.mercado_1816_discovery]]  ·  _module_
+- [[jobs.mercado_1816_series]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.options_rollup]]  ·  _module_

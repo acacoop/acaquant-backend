@@ -23,8 +23,10 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.routers.manager.assets]]  ·  _module_
 - [[api.routers.manager.logs]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
+- [[api.routers.research1816]]  ·  _module_
 - [[api.routers.titulos]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
+- [[api.services.agro_sql]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.back_office_titulos]]  ·  _module_
@@ -35,7 +37,8 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.compliance]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
-- [[api.services.copiloto]]  ·  _module_
+- [[api.services.copiloto.renta_fija]]  ·  _module_
+- [[api.services.copiloto.renta_variable]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.db_obs]]  ·  _module_
 - [[api.services.derivados]]  ·  _module_
@@ -57,7 +60,10 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.renta_fija_sql]]  ·  _module_
 - [[api.services.repo]]  ·  _module_
+- [[api.services.research_1816_sql]]  ·  _module_
+- [[api.services.research_bcra_sql]]  ·  _module_
 - [[api.services.research_fundamentals]]  ·  _module_
+- [[api.services.research_sql]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
 - [[api.services.rv_motor]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_

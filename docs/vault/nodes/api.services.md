@@ -38,6 +38,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.manager.ons]]  ·  _module_
 - [[api.routers.manager.operaciones]]  ·  _module_
 - [[api.routers.manager.roles]]  ·  _module_
+- [[api.routers.manager.uso]]  ·  _module_
 - [[api.routers.manager.valuaciones]]  ·  _module_
 - [[api.routers.market]]  ·  _module_
 - [[api.routers.news]]  ·  _module_
@@ -45,6 +46,8 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.operativa]]  ·  _module_
 - [[api.routers.ordenes]]  ·  _module_
 - [[api.routers.research]]  ·  _module_
+- [[api.routers.research1816]]  ·  _module_
+- [[api.routers.research_bcra]]  ·  _module_
 - [[api.routers.risk]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[api.routers.trading]]  ·  _module_
@@ -53,9 +56,17 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.agro_cobertura]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
+- [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
-- [[api.services.copiloto]]  ·  _module_
+- [[api.services.copiloto.agro]]  ·  _module_
+- [[api.services.copiloto.home]]  ·  _module_
+- [[api.services.copiloto.motor]]  ·  _module_
+- [[api.services.copiloto.ons]]  ·  _module_
+- [[api.services.copiloto.opciones]]  ·  _module_
+- [[api.services.copiloto.renta_fija]]  ·  _module_
+- [[api.services.copiloto.renta_variable]]  ·  _module_
+- [[api.services.copiloto.trading]]  ·  _module_
 - [[api.services.derivados]]  ·  _module_
 - [[api.services.descomposicion_retorno]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_

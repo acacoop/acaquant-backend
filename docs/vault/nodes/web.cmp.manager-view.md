@@ -30,6 +30,7 @@ Conecta con: no hace fetch propio relevante — orquesta los sub-paneles, cada u
 - [[api.routers.manager.ons]]  ·  _module_
 - [[api.routers.manager.operaciones]]  ·  _module_
 - [[api.routers.manager.options]]  ·  _module_
+- [[api.routers.manager.uso]]  ·  _module_
 - [[web.lib.use-persisted-state]]  ·  _lib_
 
 ## Lo usan (backlinks) ←

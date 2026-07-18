@@ -48,6 +48,7 @@
 "path": "api\\main.py",
 "summary": "TradingAV API — FastAPI entrypoint.",
 "links": [
+"api",
 "api.auth",
 "api.deps",
 "api.mcp",
@@ -78,11 +79,14 @@
 "api.routers.operativa",
 "api.routers.ordenes",
 "api.routers.research",
+"api.routers.research1816",
+"api.routers.research_bcra",
 "api.routers.risk",
 "api.routers.scanner",
 "api.routers.titulos",
 "api.routers.trading",
 "api.routers.valuaciones",
+"api.telemetria",
 "config"
 ]
 },
@@ -367,10 +371,11 @@
 "layer": "api",
 "repo": "backend",
 "path": "api\\routers\\ingest.py",
-"summary": "Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.",
+"summary": "Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet (PC de oficina).",
 "links": [
 "config",
-"core.dolar_oficial"
+"core.dolar_oficial",
+"core.eikon_live"
 ]
 },
 {
@@ -407,6 +412,7 @@
 "api.routers.manager.roles",
 "api.routers.manager.status",
 "api.routers.manager.users",
+"api.routers.manager.uso",
 "api.routers.manager.valuaciones"
 ]
 },
@@ -698,7 +704,7 @@
 "layer": "api",
 "repo": "backend",
 "path": "api\\routers\\manager\\renta_variable.py",
-"summary": "Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia).",
+"summary": "Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia + ric).",
 "links": [
 "core.postgres"
 ]
@@ -746,6 +752,18 @@
 "links": [
 "api.auth",
 "core.roles"
+]
+},
+{
+"id": "api.routers.manager.uso",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\routers\\manager\\uso.py",
+"summary": "Manager sub-router — telemetría de USO (usuario × módulo).",
+"links": [
+"api.services",
+"api.services.uso_modulos"
 ]
 },
 {
@@ -892,6 +910,35 @@
 "api.auth",
 "api.services",
 "api.services.research_fundamentals"
+]
+},
+{
+"id": "api.routers.research1816",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\routers\\research1816.py",
+"summary": "Router /api/research1816 — vista RESEARCH (nueva vista principal).",
+"links": [
+"api.auth",
+"api.cache",
+"api.services",
+"api.services.research_1816_sql",
+"api.services.research_sql",
+"core.eikon_live"
+]
+},
+{
+"id": "api.routers.research_bcra",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\routers\\research_bcra.py",
+"summary": "Router /api/research-bcra — tab BCRA de la vista Research.",
+"links": [
+"api.auth",
+"api.services",
+"api.services.research_bcra_sql"
 ]
 },
 {
@@ -1121,6 +1168,7 @@
 "path": "api\\services\\agro_sql.py",
 "summary": "api/services/agro_sql.py — dominio AGRO / Derivados Agro leyendo Postgres.",
 "links": [
+"api.cache",
 "api.services",
 "api.services.agro_cobertura",
 "api.services.camara_cereales",
@@ -1236,6 +1284,7 @@
 "path": "api\\services\\bonos_admin.py",
 "summary": "api/services/bonos_admin.py — alta/edición de bonos NO-ON directo en Trading.Curvas.",
 "links": [
+"api.services",
 "api.services.ons",
 "core",
 "core.curvas_sql",
@@ -1265,6 +1314,7 @@
 "links": [
 "api.services",
 "api.services.acreencias",
+"api.services.mercado_hist_sql",
 "core.postgres",
 "db.Trading.DOLAR"
 ]
@@ -1455,35 +1505,188 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api\\services\\copiloto.py",
-"summary": "api/services/copiloto.py — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).",
+"path": "api\\services\\copiloto\\__init__.py",
+"summary": "api/services/copiloto — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).",
+"links": []
+},
+{
+"id": "api.services.copiloto.agro",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\agro.py",
+"summary": "copiloto/agro.py — vista AGRO (granos): pase agro, pase con cobertura, cámara.",
 "links": [
-"api.cache",
+"api.services",
+"api.services.agro_cobertura",
+"api.services.agro_sql",
+"api.services.camara_cereales"
+]
+},
+{
+"id": "api.services.copiloto.base",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\base.py",
+"summary": "copiloto/base.py — helpers puros y prompt base compartidos por todas las vistas.",
+"links": []
+},
+{
+"id": "api.services.copiloto.derivacion",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\derivacion.py",
+"summary": "copiloto/derivacion.py — derivación entre vistas: el marcador [[VISTA:x]], el",
+"links": [
+"core.roles"
+]
+},
+{
+"id": "api.services.copiloto.home",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\home.py",
+"summary": "copiloto/home.py — vista HOME (panorama del mercado): watchlist + briefing +",
+"links": [
 "api.services",
 "api.services.argy",
 "api.services.briefing",
-"api.services.canje",
-"api.services.carry_trade",
-"api.services.comparar_inversion",
 "api.services.derivados",
-"api.services.descomposicion_retorno",
-"api.services.fair_value",
-"api.services.macro",
 "api.services.market_sql",
-"api.services.mercado_hist_sql",
-"api.services.order_book",
-"api.services.rem_sql",
-"api.services.renta_fija",
-"api.services.research_fundamentals",
-"api.services.scanner",
+"api.services.mercado_hist_sql"
+]
+},
+{
+"id": "api.services.copiloto.motor",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\motor.py",
+"summary": "copiloto/motor.py — el orquestador: preguntar() (una pregunta → contexto →",
+"links": [
+"api.services",
 "api.services.scanner_sql",
-"api.services.sensibilidad",
 "api.services.trading_pivots",
 "core.ai",
 "core.postgres",
-"core.roles",
+"core.roles"
+]
+},
+{
+"id": "api.services.copiloto.ons",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\ons.py",
+"summary": "copiloto/ons.py — vista ONs (deuda corporativa): curva por sector, pagos.",
+"links": [
+"api.services",
+"api.services.renta_fija",
+"api.services.renta_fija_sql"
+]
+},
+{
+"id": "api.services.copiloto.opciones",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\opciones.py",
+"summary": "copiloto/opciones.py — vista OPCIONES (derivados): cadena GGAL, IV, griegas.",
+"links": [
+"api.services",
+"api.services.opciones_sql"
+]
+},
+{
+"id": "api.services.copiloto.registro",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\registro.py",
+"summary": "copiloto/registro.py — el registro VISTAS: ensambla cada vista (fetch,",
+"links": []
+},
+{
+"id": "api.services.copiloto.renta_fija",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\renta_fija.py",
+"summary": "copiloto/renta_fija.py — vista RF (bonos ARG): curvas, fair value, forwards,",
+"links": [
+"api.cache",
+"api.services",
+"api.services.canje",
+"api.services.carry_trade",
+"api.services.comparar_inversion",
+"api.services.descomposicion_retorno",
+"api.services.fair_value",
+"api.services.macro",
+"api.services.mercado_hist_sql",
+"api.services.rem_sql",
+"api.services.renta_fija",
+"api.services.sensibilidad",
+"core.postgres"
+]
+},
+{
+"id": "api.services.copiloto.renta_variable",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\renta_variable.py",
+"summary": "copiloto/renta_variable.py — vista RV (CEDEARs/ADRs): fetch, enriquecido,",
+"links": [
+"api.cache",
+"api.services",
+"api.services.research_fundamentals",
+"api.services.scanner",
+"api.services.scanner_sql",
+"core.postgres",
 "quant.pivot_points"
 ]
+},
+{
+"id": "api.services.copiloto.reuters",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\reuters.py",
+"summary": "copiloto/reuters.py — vista REUTERS (tablero live subyacentes US, feed Eikon).",
+"links": [
+"core.eikon_live"
+]
+},
+{
+"id": "api.services.copiloto.trading",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\trading.py",
+"summary": "copiloto/trading.py — vista TRADING (monitor intradía): tarjetas con pivots",
+"links": [
+"api.services",
+"api.services.market_sql",
+"api.services.order_book",
+"api.services.scanner",
+"api.services.scanner_sql",
+"api.services.trading_pivots",
+"core.eikon_live",
+"core.postgres",
+"quant.pivot_points"
+]
+},
+{
+"id": "api.services.copiloto.verificacion",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\verificacion.py",
+"summary": "copiloto/verificacion.py — guardrails estructurales (anti-alucinación).",
+"links": []
 },
 {
 "id": "api.services.day_trading",
@@ -2022,6 +2225,30 @@
 ]
 },
 {
+"id": "api.services.research_1816_sql",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\research_1816_sql.py",
+"summary": "api/services/research_1816_sql.py — lectura de las series de 1816 para el",
+"links": [
+"api.cache",
+"core.postgres"
+]
+},
+{
+"id": "api.services.research_bcra_sql",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\research_bcra_sql.py",
+"summary": "api/services/research_bcra_sql.py — lectura de las series BCRA para la tab",
+"links": [
+"api.cache",
+"core.postgres"
+]
+},
+{
 "id": "api.services.research_fundamentals",
 "type": "module",
 "layer": "api",
@@ -2031,6 +2258,18 @@
 "links": [
 "api.cache",
 "api.services._sql",
+"core.postgres"
+]
+},
+{
+"id": "api.services.research_sql",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\research_sql.py",
+"summary": "api/services/research_sql.py — lectura del research diario (mails de 1816) para",
+"links": [
+"api.cache",
 "core.postgres"
 ]
 },
@@ -2208,6 +2447,17 @@
 ]
 },
 {
+"id": "api.services.uso_modulos",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\uso_modulos.py",
+"summary": "api/services/uso_modulos.py — lectura de la telemetría de uso (Manager → USO).",
+"links": [
+"core.postgres"
+]
+},
+{
 "id": "api.services.valuaciones",
 "type": "module",
 "layer": "api",
@@ -2240,6 +2490,18 @@
 "api.services._cuentas_filter",
 "api.services._sql",
 "api.services.valuaciones"
+]
+},
+{
+"id": "api.telemetria",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\telemetria.py",
+"summary": "api/telemetria.py — telemetría de uso por módulo (usuario × módulo × hora).",
+"links": [
+"api.auth",
+"core.postgres"
 ]
 },
 {
@@ -2312,6 +2574,15 @@
 "links": [
 "config"
 ]
+},
+{
+"id": "core.bcra_api",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core\\bcra_api.py",
+"summary": "core/bcra_api.py — cliente de la API de Estadísticas Monetarias del BCRA (v4).",
+"links": []
 },
 {
 "id": "core.brackets",
@@ -2401,6 +2672,18 @@
 ]
 },
 {
+"id": "core.eikon_live",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core\\eikon_live.py",
+"summary": "Feed Eikon/Workspace — quotes LIVE del subyacente US de cada CEDEAR (PRUEBA).",
+"links": [
+"core.pg_mirror",
+"core.postgres"
+]
+},
+{
 "id": "core.finnhub",
 "type": "module",
 "layer": "core",
@@ -2479,6 +2762,15 @@
 "links": [
 "core.postgres"
 ]
+},
+{
+"id": "core.mercado_1816",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core\\mercado_1816.py",
+"summary": "core/mercado_1816.py — cliente de la API de Mercado de 1816 (vista RESEARCH).",
+"links": []
 },
 {
 "id": "core.notify",
@@ -2707,6 +2999,17 @@
 ]
 },
 {
+"id": "cron.jobs.bcra_research",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.bcra_research"
+]
+},
+{
 "id": "cron.jobs.bonos_ohlc_daily",
 "type": "cron",
 "layer": "deploy",
@@ -2861,6 +3164,17 @@
 ]
 },
 {
+"id": "cron.jobs.guardrails",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.guardrails"
+]
+},
+{
 "id": "cron.jobs.informe_salud",
 "type": "cron",
 "layer": "deploy",
@@ -2891,6 +3205,17 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.market_quotes"
+]
+},
+{
+"id": "cron.jobs.mercado_1816_series",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.mercado_1816_series"
 ]
 },
 {
@@ -3727,6 +4052,21 @@
 ]
 },
 {
+"id": "jobs.bcra_research",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs\\bcra_research.py",
+"summary": "jobs/bcra_research.py — sincroniza las series del BCRA a Postgres (tab BCRA).",
+"links": [
+"core",
+"core.bcra_api",
+"core.job_runs",
+"core.postgres",
+"db.Trading.UVA"
+]
+},
+{
 "id": "jobs.bonos_ohlc_daily",
 "type": "module",
 "layer": "jobs",
@@ -3953,6 +4293,24 @@
 ]
 },
 {
+"id": "jobs.guardrails",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs\\guardrails.py",
+"summary": "jobs/guardrails.py — invariantes de sanidad de datos post-cierre.",
+"links": [
+"config",
+"core",
+"core.curvas_sql",
+"core.job_runs",
+"core.notify",
+"core.pg_mirror",
+"core.postgres",
+"jobs.watchdog"
+]
+},
+{
 "id": "jobs.informe_salud",
 "type": "module",
 "layer": "jobs",
@@ -3991,6 +4349,34 @@
 "core.pg_mirror",
 "core.postgres",
 "core.yahoo"
+]
+},
+{
+"id": "jobs.mercado_1816_discovery",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs\\mercado_1816_discovery.py",
+"summary": "jobs/mercado_1816_discovery.py — arma el universo de la vista RESEARCH desde TUS",
+"links": [
+"core",
+"core.curvas_sql",
+"core.mercado_1816",
+"core.postgres"
+]
+},
+{
+"id": "jobs.mercado_1816_series",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs\\mercado_1816_series.py",
+"summary": "jobs/mercado_1816_series.py — baja las series históricas de 1816 a Postgres.",
+"links": [
+"core",
+"core.job_runs",
+"core.mercado_1816",
+"core.postgres"
 ]
 },
 {
@@ -4841,6 +5227,17 @@
 ]
 },
 {
+"id": "web.api.api.derivados-agro.costo-pase",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src\\app\\api\\derivados-agro\\costo-pase\\route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
 "id": "web.api.api.derivados-agro.descuento-caucion",
 "type": "route",
 "layer": "web-api",
@@ -5135,6 +5532,15 @@
 ]
 },
 {
+"id": "web.api.api.research-bcra.[...path]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src\\app\\api\\research-bcra\\[...path]\\route.ts",
+"summary": "",
+"links": []
+},
+{
 "id": "web.api.api.research.[...path]",
 "type": "route",
 "layer": "web-api",
@@ -5145,6 +5551,15 @@
 "api.routers.research",
 "web.lib.api"
 ]
+},
+{
+"id": "web.api.api.research1816.[...path]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src\\app\\api\\research1816\\[...path]\\route.ts",
+"summary": "",
+"links": []
 },
 {
 "id": "web.api.api.risk.[[...path]]",
@@ -6010,6 +6425,7 @@
 "api.routers.manager.ons",
 "api.routers.manager.operaciones",
 "api.routers.manager.options",
+"api.routers.manager.uso",
 "web.lib.use-persisted-state"
 ]
 },
@@ -6314,6 +6730,52 @@
 ]
 },
 {
+"id": "web.cmp.research-bcra",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\research-bcra.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.research-forwards",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\research-forwards.tsx",
+"summary": "",
+"links": [
+"api.routers.cotizaciones"
+]
+},
+{
+"id": "web.cmp.research-lab",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\research-lab.tsx",
+"summary": "",
+"links": [
+"api.routers.research1816"
+]
+},
+{
+"id": "web.cmp.research-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\research-view.tsx",
+"summary": "",
+"links": [
+"api.routers.research1816",
+"web.cmp.research-bcra",
+"web.cmp.research-forwards",
+"web.cmp.research-lab",
+"web.cmp.reuters-view"
+]
+},
+{
 "id": "web.cmp.retorno-total-mini",
 "type": "component",
 "layer": "web-component",
@@ -6333,6 +6795,48 @@
 "summary": "",
 "links": [
 "web.lib.use-persisted-state"
+]
+},
+{
+"id": "web.cmp.reuters-ficha",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\reuters-ficha.tsx",
+"summary": "",
+"links": [
+"api.routers.research1816",
+"web.lib.use-persisted-state",
+"web.lib.use-poll"
+]
+},
+{
+"id": "web.cmp.reuters-fundamentals",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\reuters-fundamentals.tsx",
+"summary": "",
+"links": [
+"api.routers.research1816",
+"web.lib.use-persisted-state",
+"web.lib.use-poll"
+]
+},
+{
+"id": "web.cmp.reuters-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\reuters-view.tsx",
+"summary": "",
+"links": [
+"api.routers.research1816",
+"web.cmp.ia-vista-panel",
+"web.cmp.reuters-ficha",
+"web.cmp.reuters-fundamentals",
+"web.lib.use-persisted-state",
+"web.lib.use-poll"
 ]
 },
 {
@@ -6481,7 +6985,7 @@
 "summary": "",
 "links": [
 "api.routers.ia",
-"api.routers.market",
+"api.routers.research1816",
 "api.routers.scanner",
 "api.routers.trading",
 "web.cmp.cedears-timesales-panel",
@@ -6635,6 +7139,7 @@
 "api.routers.operar",
 "api.routers.operativa",
 "api.routers.ordenes",
+"api.routers.research1816",
 "api.routers.risk",
 "api.routers.scanner",
 "api.routers.titulos",
@@ -6914,6 +7419,19 @@
 "web.cmp.renta-variable-shell",
 "web.lib.api",
 "web.lib.types-scanner"
+]
+},
+{
+"id": "web.view.research.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src\\app\\research\\page.tsx",
+"summary": "",
+"links": [
+"api.routers.research1816",
+"web.cmp.research-view",
+"web.lib.api"
 ]
 },
 {

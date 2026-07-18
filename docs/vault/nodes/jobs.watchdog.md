@@ -26,3 +26,4 @@ Conecta con: lee procesos vía `ps`, slow queries vía `core.atlas_api`, alerta 
 
 ## Lo usan (backlinks) ←
 - [[cron.jobs.watchdog]]  ·  _cron_
+- [[jobs.guardrails]]  ·  _module_

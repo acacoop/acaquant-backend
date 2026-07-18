@@ -45,5 +45,6 @@ Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_sessi
 - [[jobs.cashflow]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_
 - [[jobs.comercial_warm]]  ·  _module_
+- [[jobs.guardrails]]  ·  _module_
 - [[jobs.partner_export]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_

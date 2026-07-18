@@ -30,6 +30,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.argentina_datos]]  ·  _module_
 - [[jobs.backfill_tasas]]  ·  _module_
 - [[jobs.bcra]]  ·  _module_
+- [[jobs.bcra_research]]  ·  _module_
 - [[jobs.bonos_ohlc_daily]]  ·  _module_
 - [[jobs.cashflow]]  ·  _module_
 - [[jobs.cedears_ohlc_daily]]  ·  _module_
@@ -39,7 +40,9 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
+- [[jobs.guardrails]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_
+- [[jobs.mercado_1816_series]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.partner_export]]  ·  _module_

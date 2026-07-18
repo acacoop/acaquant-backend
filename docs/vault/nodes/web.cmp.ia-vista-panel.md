@@ -19,4 +19,5 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[web.cmp.header]]  ·  _component_
+- [[web.cmp.reuters-view]]  ·  _component_
 - [[web.cmp.trading-view]]  ·  _component_

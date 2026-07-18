@@ -9,7 +9,7 @@ path: api\routers\ingest.py
 
 # api/routers/ingest
 
-> Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.
+> Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet (PC de oficina).
 
 **Archivo:** `api\routers\ingest.py`
 
@@ -21,6 +21,7 @@ Conecta con: `core.dolar_oficial::upsert_oficial` que escribe en `Valuaciones.Do
 ## Usa / conecta con →
 - [[config]]  ·  _module_
 - [[core.dolar_oficial]]  ·  _module_
+- [[core.eikon_live]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

@@ -472,6 +472,25 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 — Fase 0 arrancada: diag REAL contra la API (verificado, ya no hipótesis)
+`scripts/diag_1816.py` corrido con la key real. **Hechos (REGLA #2):**
+- **Base URL: `https://api.1816.com.ar` ✓.** Auth OK (token 24h, user
+  `acavalores@1816.com.ar`, project mercado). Balance OK: hoy 263/100.000, mes
+  264/3.100.000 → créditos SOBRAN.
+- **RATE LIMIT DURO (HTTP 429 "Demasiadas solicitudes") al encadenar llamadas.**
+  Las 6 llamadas seguidas cayeron; series (espaciada) pasó. **Shapea el diseño:**
+  todo pull va con THROTTLE (sleep entre calls), batcheado y por cron — NADA de
+  hammering. El header `x-1816-credits` no vino (los créditos se leen del balance).
+- **`/series` ANDA y es la joya.** Shape: `instrumentos.<ticker>.<campo> =
+  [[fecha, valor], …]` (tidy, EOD diario). TNA/TEA en FRACCIÓN (0.0879). OJO:
+  `precioDirty` CAE en la fecha de cupón (AL30: 98.480 el 07-07 → 85.600 el 07-08,
+  pagó el 07-09) → para COMPARAR usar paridad/TEA/precioClean, no dirty.
+- **Decisión de arquitectura (ver análisis 2026-07-18 abajo / mensaje):** el módulo
+  es el LENTE HISTÓRICO/COMPARATIVO (series multi-activo + spreads en el tiempo),
+  NO otro "renta fija de hoy" (eso ya existe y NO se pisa). Diferencial de 1816:
+  historia profunda y consistente + BREADTH (provinciales/corporativos → spreads
+  de crédito que nuestra data no tiene).
+
 ### 2026-07-17 (4) — pulido + decisión del layout Market Data
 - **[frontend]** Sacado el bloque "Resumen IA" de la card (pedido del user).
 - **[backend]** El limpiador ahora saca TODO tipo de link (inline, `[imagen]`,

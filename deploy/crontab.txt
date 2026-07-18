@@ -256,3 +256,9 @@
 # → re-correr no duplica ni re-gasta tokens; un run sin mail nuevo = 0 tokens.
 # Requiere RESEARCH_IMAP_USER/PASSWORD/MAIL_FROM en el .env. docs/QUANTAI.md.
 */30 10-14 * * 1-5 /root/TradingAV/deploy/run_job.sh research_mail 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.research_mail'
+
+# ─── Market Data 1816 (vista RESEARCH) — series históricas EOD → research.mkt_1816_series
+# Diario post-cierre L-V (22 UTC = 19 ART). Modo diario (últimos 7 días, idempotente).
+# El backfill de 1 año se corre A MANO UNA VEZ (--backfill). Feed separado de la RF.
+# Requiere MERCADO_1816_API_KEY. Cliente con throttle+backoff (rate limit 429).
+0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh mercado_1816_series 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mercado_1816_series'

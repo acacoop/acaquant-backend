@@ -472,6 +472,26 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 (2) — Fase 0 + arranque Fase 1: motor de datos 1816 CONSTRUIDO
+Alma decidida por el user: **laboratorio de spreads / valor relativo** (series
+multi-activo + A−B en el tiempo + percentil histórico). Motor de datos hecho:
+- **`core/mercado_1816.py`** — cliente: auth (token 24h cacheado, re-auth en 401),
+  **THROTTLE (2,5s entre calls) + BACKOFF exponencial en 429** (la restricción real),
+  `balance/curvas/instrumentos/series` + `parse_series()` puro (aplana
+  `instrumentos.<tk>.<campo>=[[fecha,valor]]` → tidy). Env `MERCADO_1816_API_KEY`.
+- **Tablas `research.mkt_1816_*`** (schema.sql): `series` (tidy EOD, PK por
+  ticker×fecha×campo×fuente×moneda×plazo → idempotente), `watch` (universo curado,
+  seed soberanos+HD si vacío), `instrumentos` (catálogo). Feed SEPARADO de
+  mercado.curvas — no se pisan.
+- **`jobs/mercado_1816_series.py`** — `--backfill` (1 año, una vez, batcheado ≤10
+  tickers, chequeo de créditos antes — REGLA #4) + diario (últimos 7d, idempotente).
+  Cron `0 22 * * 1-5` (post-cierre). SISTEMA.md regenerado.
+- **Tests** del parseo puro (`test_mercado_1816.py`). ruff + imports OK.
+- **PENDIENTE del user (Droplet):** `apply_schema` (crea las tablas) → correr el
+  backfill UNA vez: `python -m jobs.mercado_1816_series --backfill` (o `--dry-run`
+  primero para ver el costo). Después el cron mantiene solo. Luego: la lectura SQL
+  + la vista (Fase 1 frontend — el laboratorio de spreads).
+
 ### 2026-07-18 — Fase 0 arrancada: diag REAL contra la API (verificado, ya no hipótesis)
 `scripts/diag_1816.py` corrido con la key real. **Hechos (REGLA #2):**
 - **Base URL: `https://api.1816.com.ar` ✓.** Auth OK (token 24h, user

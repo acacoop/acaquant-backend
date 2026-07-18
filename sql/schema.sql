@@ -1574,6 +1574,55 @@ CREATE TABLE IF NOT EXISTS research.market_snapshot (
     updated_at  timestamptz DEFAULT now()
 );
 
+-- ── Market Data 1816 (vista RESEARCH — laboratorio de series y spreads) ───────
+-- API de 1816 (docs/VISTA_RESEARCH.md). Feed SEPARADO de mercado.curvas (que es
+-- nuestro motor RF de HOY): acá vive la HISTORIA consistente de 1816 para comparar
+-- activos y spreads en el tiempo. Se puebla por job (throttled, EOD + snapshot).
+
+-- Series históricas EOD (tidy: 1 fila por activo × fecha × campo). Escritura por
+-- jobs/mercado_1816_series.py (backfill 1 año + append diario, idempotente por PK).
+CREATE TABLE IF NOT EXISTS research.mkt_1816_series (
+    ticker         text NOT NULL,
+    fecha          date NOT NULL,
+    campo          text NOT NULL,            -- tea/tna/paridad/precioClean/duration/spread/…
+    valor          double precision,
+    fuente         text NOT NULL DEFAULT 'byma',
+    moneda         text NOT NULL DEFAULT 'ars',
+    plazo          smallint NOT NULL DEFAULT 1,
+    convencion_tna text,
+    ingestado_en   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (ticker, fecha, campo, fuente, moneda, plazo)
+);
+CREATE INDEX IF NOT EXISTS ix_mkt1816_series_tk_campo
+    ON research.mkt_1816_series (ticker, campo, fecha);
+
+-- Universo curado de la vista (qué activos se bajan). Editable; si está vacío el
+-- job usa un seed por defecto (soberanos + HD).
+CREATE TABLE IF NOT EXISTS research.mkt_1816_watch (
+    ticker      text PRIMARY KEY,
+    curva       text,
+    curva_id    int,
+    activo      boolean NOT NULL DEFAULT true,
+    orden       int,
+    agregado_en timestamptz NOT NULL DEFAULT now()
+);
+
+-- Catálogo de instrumentos (denominación, ISIN, vencimientos) de /instrumentos.
+CREATE TABLE IF NOT EXISTS research.mkt_1816_instrumentos (
+    ticker            text PRIMARY KEY,
+    denominacion      text,
+    curva             text,
+    curva_id          int,
+    isin              text,
+    fecha_emision     date,
+    fecha_vencimiento date,
+    moneda_denom      text,
+    moneda_pago       text,
+    emisor            text,
+    activo            boolean,
+    actualizado_en    timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PERFORMANCE — autovacuum agresivo + fillfactor en tablas de ALTA ROTACIÓN
 -- (perf 2026-06-29). Los motores upsertean estas tablas cada ~1s; con el

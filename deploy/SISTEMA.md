@@ -80,6 +80,7 @@
 | 22:00 · L-V | `jobs.precios_acciones_daily'` |
 | 22:00 · L-V | `jobs.bcra` |
 | 22:00 · L-V | `jobs.market_anchors'` |
+| 22:00 · L-V | `jobs.mercado_1816_series'` |
 | 23:00 · diario | `jobs.informe_salud'` |
 | 20:15 · L-V | `jobs.options_rollup'` |
 | 20:15 · L-V | `jobs.cedears_ohlc_daily'` |

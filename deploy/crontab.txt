@@ -257,6 +257,11 @@
 # Requiere RESEARCH_IMAP_USER/PASSWORD/MAIL_FROM en el .env. docs/QUANTAI.md.
 */30 10-14 * * 1-5 /root/TradingAV/deploy/run_job.sh research_mail 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.research_mail'
 
+# ─── BCRA (tab BCRA de RESEARCH) — series monetarias v4 → research.bcra_series
+# 4×/día L-S (el BCRA publica 1×/día hábil con rezago 1-2d; la vista sirve de la
+# DB 24/7). Incremental por watermark (−7d, captura revisiones). docs/RESEARCH_BCRA.md.
+0 12,16,20,23 * * 1-6 /root/TradingAV/deploy/run_job.sh bcra_research 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra_research'
+
 # ─── Market Data 1816 (vista RESEARCH) — series históricas EOD → research.mkt_1816_series
 # Diario post-cierre L-V (22 UTC = 19 ART). Modo diario (últimos 7 días, idempotente).
 # El backfill de 1 año se corre A MANO UNA VEZ (--backfill). Feed separado de la RF.

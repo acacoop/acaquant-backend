@@ -2,8 +2,14 @@
 
 > **DOC VIVO** de la tab BCRA de la vista Research (doc madre de la vista:
 > `docs/VISTA_RESEARCH.md`). Misma regla: todo avance/decisión se asienta acá
-> en el mismo commit. Estado: **DISEÑO — análisis exhaustivo hecho (2026-07-18),
-> construcción pendiente de arrancar.**
+> en el mismo commit. Estado: **CONSTRUIDO (2026-07-18) — pendiente del user:
+> apply_schema + backfill + restart (ver Registro).**
+>
+> **Decisiones del user (2026-07-18, posteriores al análisis):** (a) la tab BCRA
+> se organiza en **SUB-TABS por BLOQUE, cada una con su propia lógica** (no
+> cuadrantes); (b) **CAMBIARIAS DESCARTADAS** (la canasta USD/EUR/BRL/CNY/XAU no
+> interesa) — solo Monetarias v4; (c) eficiencia primero: universo curado,
+> incremental, una request batch por bloque, nada de consumir al pedo.
 
 ---
 
@@ -208,7 +214,42 @@ una vez, throttled, fuera de horario pico.
 
 ## Registro (con fecha)
 
+- **2026-07-18 (2) — CONSTRUIDO end-to-end (Fases 1+2 en una tanda).**
+  - **IDs VERIFICADOS contra el catálogo vivo** (2º fetch): 1 reservas · 4/5 TC
+    minorista/mayorista · 7 BADLAR · 8 TM20 · 11 BAIBAR · 12 PF 30d · 13
+    adelantos · 14 personales · 15/16/17 base/circulación/billetes · 26 préstamos
+    priv. · 21/24 depósitos ARS · 27/28 IPC m/i.a. · 29 REM 12m · 30 CER · 31
+    UVA · **103/104 depósitos USD púb.+priv./priv.** (el bloque estrella del
+    research 1816). Nota: 35 y 45 duplican BADLAR/TAMAR en el catálogo — se usan
+    7 y 44; el diag del Droplet puede refinar.
+  - **Backend:** `core/bcra_api.py` (throttle 1,5s + backoff; catálogo paginado;
+    `serie()` con desde/hasta MÁS re-filtro client-side defensivo — el
+    comportamiento exacto de esos params se confirma con la primera corrida
+    real) · tablas `research.bcra_{variables,watch,series}` (watch con columna
+    **`bloque`** = la sub-tab; seed de 23 series en `jobs/bcra_research.py`) ·
+    job con `--dry-run`/`--backfill`/incremental (watermark −7d, captura
+    revisiones del BCRA) + refresh del catálogo 1×/corrida + JobRunLogger ·
+    endpoints `GET /api/research-bcra/{bloques,series}` (gate `research`;
+    `series` es batch: 1 request por bloque) · cron `0 12,16,20,23 * * 1-6` ·
+    SISTEMA.md regenerado · cron registrado en el test del Diagnóstico.
+  - **Frontend:** `research-bcra.tsx` — tab **BCRA** en Research (ARGENTINA ·
+    BCRA · RV INTERNACIONAL), con **sub-tabs por bloque** (RESERVAS · TIPO DE
+    CAMBIO · TASAS · DINERO · INFLACIÓN · CER & UVA · DEPÓSITOS), cada una:
+    header único (chips por serie con toggle + valor de HOY inline + rango
+    3M/6M/1A/5A) + chart multi-serie con el diseño existente. Lazy por sub-tab
+    (keep-alive), formato por unidad (%, M ARS/M USD compactos). Route handler
+    Next `research-bcra/[...path]` + gating en proxy.ts (el gotcha, cubierto de
+    entrada).
+  - **PENDIENTE del user (Droplet):** `git pull` → `python -m scripts.apply_schema`
+    (crea las tablas) → `python -m jobs.bcra_research --dry-run` (ver el plan) →
+    `--backfill` (historia completa, una vez) → `systemctl restart api.service`.
+    El cron después mantiene solo. La 1ª corrida confirma el comportamiento de
+    `desde/hasta` (si la API los ignorara, el filtro client-side protege pero el
+    incremental bajaría series enteras → se revisa el log de puntos y se ajusta).
+  - **Fuera del alcance ahora:** cambiarias (descartadas), cruces Fase 3 (brecha
+    A3500-MEP, tasas reales, IPC vs REM vs breakevens) y copiloto Fase 4.
+
 - **2026-07-18 — Análisis exhaustivo + verificación contra la API viva.** Catálogo
   v4 (1.581 variables, shape completo), serie id 1 (7.515 puntos, rezago 1-2 días
   hábiles), maestro cambiario (43 divisas, incl. XAU). Diseño de la tab, universo
-  curado, arquitectura de sync y fases asentados. Construcción: pendiente de arrancar.
+  curado, arquitectura de sync y fases asentados.

@@ -1623,6 +1623,46 @@ CREATE TABLE IF NOT EXISTS research.mkt_1816_instrumentos (
     actualizado_en    timestamptz NOT NULL DEFAULT now()
 );
 
+-- ── BCRA (tab BCRA de la vista RESEARCH — docs/RESEARCH_BCRA.md) ─────────────
+-- Feed SEPARADO de macro.series_macro (que alimenta motores vía jobs/bcra.py y
+-- NO se toca). Solo Monetarias v4; cambiarias descartadas (user 2026-07-18).
+
+-- Espejo del catálogo (~1.581 filas de metadata — chico; para explorar/curar).
+CREATE TABLE IF NOT EXISTS research.bcra_variables (
+    id_variable     int PRIMARY KEY,
+    descripcion     text,
+    categoria       text,
+    periodicidad    text,
+    unidad          text,
+    moneda          text,
+    primer_fecha    date,
+    ultima_fecha    date,
+    ultimo_valor    double precision,
+    actualizado_en  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Universo CURADO (jamás las 1.581): qué series se sincronizan y en qué BLOQUE
+-- (sub-tab) de la vista viven. Editable; seed en jobs/bcra_research.py.
+CREATE TABLE IF NOT EXISTS research.bcra_watch (
+    id_variable  int PRIMARY KEY,
+    bloque       text NOT NULL,      -- reservas / tipo_cambio / tasas / dinero / inflacion / indexacion / depositos
+    etiqueta     text NOT NULL,      -- label corto para la UI ("Reservas", "BADLAR"…)
+    unidad       text,               -- "M USD" / "ARS" / "%" / "M ARS" / "índice"
+    orden        int,
+    activo       boolean NOT NULL DEFAULT true
+);
+
+-- Los puntos de las series del watch (tidy, idempotente por PK).
+CREATE TABLE IF NOT EXISTS research.bcra_series (
+    id_variable   int NOT NULL,
+    fecha         date NOT NULL,
+    valor         double precision,
+    ingestado_en  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (id_variable, fecha)
+);
+CREATE INDEX IF NOT EXISTS ix_bcra_series_id_fecha
+    ON research.bcra_series (id_variable, fecha DESC);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PERFORMANCE — autovacuum agresivo + fillfactor en tablas de ALTA ROTACIÓN
 -- (perf 2026-06-29). Los motores upsertean estas tablas cada ~1s; con el

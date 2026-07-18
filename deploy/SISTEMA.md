@@ -69,6 +69,7 @@
 | cada 5min · *h · diario | `jobs.watchdog'` |
 | 11:00 · L-V | `jobs.portafolio_backfill` |
 | 12:00 · diario | `jobs.argentina_datos'` |
+| 12,16,20,23:0 · 1-6 | `jobs.bcra_research'` |
 | cada hora · 13-20h · L-V | `jobs.informe_salud'` |
 | 14:00 · L-V | `jobs.sync_comitentes'` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |

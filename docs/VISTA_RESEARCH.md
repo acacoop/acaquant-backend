@@ -510,12 +510,19 @@ fresco · 263 frescos fuera del watch · 166 frescos que ni están en mercado.cu
   MEP/CCL → el diag ganó `--moneda mep|ccl` para re-sondear antes de darlas por
   muertas. El "546 sin dato" está inflado por esto.
 - **Plan por NIVELES (asentado con el user):**
-  - **Nivel 1 (IMPLEMENTADO)** — `_EXTRA_WATCH` en el discovery (lista curada,
-    versionada en el repo — editar la lista + `--apply` = el mecanismo del "día
-    a día"): nuestras ONs frescas (AER9O, AERBO, AFCIO, BACGO, BYCWO, ZPC3O,
-    ZZC1O) + BOPREALes frescos (BPOA7/A8, BPOB7/B8, BPOD7) + GD46. El discovery
-    releva además las curvas 16 y 3 (corporativos) SOLO para el metadata de los
-    extras (no cruzan). Backfill ~10k créditos.
+  - **Nivel 1 (DECIDIDO por el user y acotado): BOPREALes + GD46** —
+    `_EXTRA_WATCH` en el discovery (lista curada versionada en el repo — editar
+    + `--apply` = el mecanismo del "día a día"): BPOA7/A8, BPOB7/B8, BPOD7 y
+    GD46 (~5k créditos de backfill). **Las 7 ONs nuestras que operan (AER9O,
+    AERBO, AFCIO, BACGO, BYCWO, ZPC3O, ZZC1O) quedaron AFUERA por decisión del
+    user** — siguen acá como opción para cuando se quiera su historia.
+  - **Aclaración conceptual asentada (pregunta del user): el watch de 1816 y
+    `mercado.curvas` son RIELES SEPARADOS.** Watch = solo la historia de 1816
+    para el laboratorio (sin flujos, sin Manager, sin motor). Renta Fija propia
+    = alta en Manager → Títulos → Bonos con cronograma (TEA propia, live,
+    acreencias). Sumar a uno NO suma al otro. Estado hoy: BPOA7/B7/B8/C7/D7 ya
+    están en curvas; **GD46 y BPOA8 NO están en la Renta Fija propia** —
+    si se los quiere ahí, es un alta en Manager (decisión aparte).
   - **Nivel 2 (propuesto, espera OK del user):** ~10 provinciales líquidos
     (BA37D, BB37D, BC37D, BDC33, BDC36, SA24D, PBA27, BAF27, BDC28, BL2S6) →
     spread de crédito subsoberano vs AL30.

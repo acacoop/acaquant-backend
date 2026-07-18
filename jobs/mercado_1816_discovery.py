@@ -39,18 +39,18 @@ _CURVAS_CRUCE = {
 # EXTRAS curados a mano (el "watch a demanda" del día a día — docs/VISTA_RESEARCH
 # §4.4b): tickers que NO salen del cruce con mercado.curvas pero se quieren en el
 # watch de series. Editar esta lista + correr `--apply` = agregar uno.
-# Nivel 1 (2026-07-18, frescos verificados en el sondeo del 17-jul):
-#   - Nuestras ONs con operación en 1816 (serie histórica de NUESTROS papeles).
-#   - BOPREALes frescos (completan la curva BCRA; solo BPOC7 estaba).
-#   - GD46 (opera y no está ni en mercado.curvas — quedaba como "otros").
+# Decisión del user (2026-07-18): BOPREALes + GD46. Las 7 ONs nuestras que
+# operan en 1816 (AER9O, AERBO, AFCIO, BACGO, BYCWO, ZPC3O, ZZC1O) quedaron
+# AFUERA por ahora — documentadas en el doc como opción.
+# NOTA: sumar acá NO da de alta en mercado.curvas/Renta Fija (rieles separados:
+# esto es solo la historia de 1816 para el laboratorio de Research).
 _EXTRA_WATCH = {
-    "AER9O", "AERBO", "AFCIO", "BACGO", "BYCWO", "ZPC3O", "ZZC1O",   # ONs nuestras
-    "BPOA7", "BPOA8", "BPOB7", "BPOB8", "BPOD7",                     # BOPREALes
-    "GD46",                                                          # global suelto
+    "BPOA7", "BPOA8", "BPOB7", "BPOB8", "BPOD7",   # BOPREALes (BPOC7 ya estaba)
+    "GD46",                                        # global que faltaba
 }
-# Curvas extra SOLO para conseguir el metadata de los _EXTRA_WATCH corporativos
-# (no se cruzan contra mis bonos): 16 = Corporativos USD, 3 = Corp. USD Linked.
-_CURVAS_METADATA_EXTRA = {16: "Corporativos USD", 3: "Corporativos USD Linked"}
+# Curvas extra SOLO para el metadata de extras fuera de las curvas de cruce
+# (hoy vacío: BOPREALes/GD46 salen de BCRA/Globales, que ya se relevan).
+_CURVAS_METADATA_EXTRA: dict[int, str] = {}
 
 _RE_ESPECIE = re.compile(r"^([A-Z]+\d+)[DC]$")   # AL30D/GD30C → AL30/GD30
 

@@ -36,6 +36,22 @@ _CURVAS_CRUCE = {
     24: "BCRA USD",
 }
 
+# EXTRAS curados a mano (el "watch a demanda" del día a día — docs/VISTA_RESEARCH
+# §4.4b): tickers que NO salen del cruce con mercado.curvas pero se quieren en el
+# watch de series. Editar esta lista + correr `--apply` = agregar uno.
+# Nivel 1 (2026-07-18, frescos verificados en el sondeo del 17-jul):
+#   - Nuestras ONs con operación en 1816 (serie histórica de NUESTROS papeles).
+#   - BOPREALes frescos (completan la curva BCRA; solo BPOC7 estaba).
+#   - GD46 (opera y no está ni en mercado.curvas — quedaba como "otros").
+_EXTRA_WATCH = {
+    "AER9O", "AERBO", "AFCIO", "BACGO", "BYCWO", "ZPC3O", "ZZC1O",   # ONs nuestras
+    "BPOA7", "BPOA8", "BPOB7", "BPOB8", "BPOD7",                     # BOPREALes
+    "GD46",                                                          # global suelto
+}
+# Curvas extra SOLO para conseguir el metadata de los _EXTRA_WATCH corporativos
+# (no se cruzan contra mis bonos): 16 = Corporativos USD, 3 = Corp. USD Linked.
+_CURVAS_METADATA_EXTRA = {16: "Corporativos USD", 3: "Corporativos USD Linked"}
+
 _RE_ESPECIE = re.compile(r"^([A-Z]+\d+)[DC]$")   # AL30D/GD30C → AL30/GD30
 
 
@@ -59,9 +75,11 @@ def _mis_tickers() -> dict[str, str]:
 
 
 def _instrumentos_1816() -> list[dict]:
-    """Todos los instrumentos de las curvas a cruzar en 1816 (dedup por ticker)."""
+    """Todos los instrumentos de las curvas a cruzar en 1816 (dedup por ticker),
+    más las curvas de metadata de los _EXTRA_WATCH (no se cruzan, solo aportan
+    denominación/vencimiento de los extras corporativos)."""
     vistos: dict[str, dict] = {}
-    for cid, nombre in _CURVAS_CRUCE.items():
+    for cid, nombre in {**_CURVAS_CRUCE, **_CURVAS_METADATA_EXTRA}.items():
         try:
             insts = mercado_1816.instrumentos(curva_id=cid) or []
         except Exception as e:
@@ -112,15 +130,33 @@ def main() -> None:
 
     mis = _mis_tickers()
     insts = _instrumentos_1816()
-    matches = [i for i in insts if (i.get("ticker") or "").upper() in mis]
+    # el cruce automático es SOLO contra las curvas de cruce (las de metadata
+    # extra no cruzan — aportan info de los _EXTRA_WATCH corporativos)
+    matches = [i for i in insts
+               if (i.get("ticker") or "").upper() in mis
+               and i.get("_curva_id") in _CURVAS_CRUCE]
     match_tks = {(i["ticker"] or "").upper() for i in matches}
     sin_match = sorted(norm for norm, orig in mis.items() if norm not in match_tks)
 
-    print(f"Mis bonos no-ON: {len(mis)} · instrumentos en 1816 (soberanas + BCRA): "
-          f"{len(insts)} · MATCH (los tuyos que 1816 tiene): {len(matches)}")
+    # extras curados (lista _EXTRA_WATCH, editable en el repo)
+    extras = [i for i in insts
+              if (i.get("ticker") or "").upper() in _EXTRA_WATCH
+              and (i.get("ticker") or "").upper() not in match_tks]
+    extras_hallados = {(i["ticker"] or "").upper() for i in extras}
+    extras_perdidos = sorted(_EXTRA_WATCH - extras_hallados - match_tks)
+
+    print(f"Mis bonos no-ON: {len(mis)} · instrumentos relevados en 1816: "
+          f"{len(insts)} · MATCH: {len(matches)} · EXTRAS curados: {len(extras)}")
     print("\nMATCH (van al watch):")
     for i in sorted(matches, key=lambda x: x.get("ticker") or ""):
         print(f"  {i['ticker']:8} {i.get('curva','')}")
+    if extras:
+        print("\nEXTRAS curados (lista _EXTRA_WATCH — van al watch):")
+        for i in sorted(extras, key=lambda x: x.get("ticker") or ""):
+            print(f"  {i['ticker']:8} {i.get('curva','')}")
+    if extras_perdidos:
+        print(f"\n⚠ EXTRAS no hallados en las curvas relevadas: {', '.join(extras_perdidos)} "
+              "(¿faltó su curva en _CURVAS_METADATA_EXTRA?)")
     if sin_match:
         print(f"\nTuyos SIN match en 1816 ({len(sin_match)}) — quedan afuera "
               f"(pueden ser ONs, o ticker distinto):\n  " + ", ".join(sin_match))
@@ -129,8 +165,8 @@ def main() -> None:
         print("\n(DRY-RUN — no se escribió. Corré con --apply para popular el universo.)")
         return
 
-    _upsert(matches)
-    print(f"\n✅ {len(matches)} bonos en research.mkt_1816_watch. "
+    _upsert(matches + extras)
+    print(f"\n✅ {len(matches) + len(extras)} bonos en research.mkt_1816_watch. "
           f"Ahora corré: python -m jobs.mercado_1816_series --backfill")
 
 

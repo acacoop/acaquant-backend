@@ -502,6 +502,28 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 (12) — sondeo con fecha hábil OK → plan por NIVELES + Nivel 1 implementado
+El sondeo re-corrido con `fechaOperacion=2026-07-17` (auto): **323/869 con dato
+fresco · 263 frescos fuera del watch · 166 frescos que ni están en mercado.curvas**.
+- **Caveat REGLA #2:** el sondeo corrió `moneda=ars` — las ONs hard-dollar
+  (BACAO, AFCHO, BF39O…) figuran "sin dato" probablemente porque operan en
+  MEP/CCL → el diag ganó `--moneda mep|ccl` para re-sondear antes de darlas por
+  muertas. El "546 sin dato" está inflado por esto.
+- **Plan por NIVELES (asentado con el user):**
+  - **Nivel 1 (IMPLEMENTADO)** — `_EXTRA_WATCH` en el discovery (lista curada,
+    versionada en el repo — editar la lista + `--apply` = el mecanismo del "día
+    a día"): nuestras ONs frescas (AER9O, AERBO, AFCIO, BACGO, BYCWO, ZPC3O,
+    ZZC1O) + BOPREALes frescos (BPOA7/A8, BPOB7/B8, BPOD7) + GD46. El discovery
+    releva además las curvas 16 y 3 (corporativos) SOLO para el metadata de los
+    extras (no cruzan). Backfill ~10k créditos.
+  - **Nivel 2 (propuesto, espera OK del user):** ~10 provinciales líquidos
+    (BA37D, BB37D, BC37D, BDC33, BDC36, SA24D, PBA27, BAF27, BDC28, BL2S6) →
+    spread de crédito subsoberano vs AL30.
+  - **Nivel 3 (a demanda):** corporativos masivos y duales por pata.
+- **Perlas del relevamiento:** GD46 opera y no estaba NI en mercado.curvas;
+  TZXA7/TZXD8/TZXM8/TZXO7 (CER soberanos frescos) tampoco están en la vista RF
+  propia — candidato a alta vía Manager (decisión aparte del user).
+
 ### 2026-07-18 (11) — perf con números de PROD + cobertura 1816 consolidada
 - **diag_sql_perf extendido corrido en prod.** Lectura: RTT ~26ms (session pooler
   OK — el ⚠ era un falso positivo de parseo, arreglado 2×), cache amortiguando

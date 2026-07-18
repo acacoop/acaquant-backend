@@ -90,6 +90,10 @@ def main() -> None:
     ap.add_argument("--curva", type=int, help="una curva puntual (id de 1816)")
     ap.add_argument("--fecha", help="fechaOperacion YYYY-MM-DD (default: auto — "
                     "el último día hábil con datos)")
+    ap.add_argument("--moneda", default="ars", choices=["ars", "mep", "ccl"],
+                    help="moneda de operación del sondeo (default ars). Las ONs "
+                    "hard-dollar pueden operar SOLO en mep/ccl → un 'sin dato' en "
+                    "ars no las mata: re-sondear con --moneda mep")
     ap.add_argument("--si", action="store_true",
                     help="confirmar el gasto cuando el sondeo es grande (--todas)")
     args = ap.parse_args()
@@ -139,7 +143,8 @@ def main() -> None:
     for i in range(0, len(tickers), _BATCH):
         lote = tickers[i:i + _BATCH]
         try:
-            d = mercado_1816.indicadores(lote, _CAMPOS_SONDA, fecha_operacion=fecha_op)
+            d = mercado_1816.indicadores(lote, _CAMPOS_SONDA, fecha_operacion=fecha_op,
+                                         moneda=args.moneda)
         except Exception as e:
             print(f"  ⚠ lote {i // _BATCH + 1}: {e}")
             continue

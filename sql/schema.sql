@@ -1417,6 +1417,20 @@ CREATE TABLE IF NOT EXISTS manager.portfolio_snapshot_log (
     data        jsonb                    -- {nuevos, sin_match}
 );
 
+-- ── TELEMETRÍA DE USO (usuario × módulo, agregado por HORA) ──────────────────
+-- Contador agregado, NO log por request (no crece sin control: ~usuarios ×
+-- módulos × horas activas). Lo escribe el flush del middleware (api/telemetria.py,
+-- upsert incremental cada ~60s, best-effort); lo lee GET /api/manager/uso.
+-- Observabilidad de producto: qué usuario pasa tiempo en qué módulo.
+CREATE TABLE IF NOT EXISTS manager.uso_modulos (
+    email   text NOT NULL,
+    modulo  text NOT NULL,
+    hora    timestamptz NOT NULL,        -- truncado a la hora
+    hits    integer NOT NULL DEFAULT 0,
+    PRIMARY KEY (email, modulo, hora)
+);
+CREATE INDEX IF NOT EXISTS ix_uso_modulos_hora ON manager.uso_modulos (hora DESC);
+
 -- ── FAIR VALUE (curva cuadrática TEA=β0+β1·d+β2·d² + residuos + z-scores) ─────
 -- Decomiso 2026-06-28: jobs/fair_value.py pasa de Mongo a SQL-NATIVE (write_native,
 -- incondicional). Antes escribía Trading.{FitParams,FairValueResiduos} (Mongo) y leía

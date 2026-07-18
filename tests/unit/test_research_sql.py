@@ -28,23 +28,26 @@ def test_limpiar_para_mostrar():
         "Para: Mollo Nicolas <nicolas.mollo@acavalores.com.ar>\n"
         "Asunto: El día en pocas líneas\n"
         "\n"
-        "17 de julio de 2026\n"
-        "EL DÍA EN POCAS LÍNEAS\n"
+        "________________________________\n"
         "\n"
-        "EL CENTRAL COMPRÓ USD 230 MM. En las tres semanas anteriores...\n"
+        "[https://gallery.mailchimp.com/x/images/y.png] 17 de julio de 2026 EL DÍA EN POCAS LÍNEAS\n"
         "\n"
-        "---\n"
+        "EL CENTRAL COMPRÓ USD 230 MM EN EL MLC. En las tres semanas anteriores... "
+        "EL TESORO RETIRARÁ $2,4 B DEL SISTEMA HOY CON LA LIQUIDACIÓN. El stock subió.\n"
+        "\n"
         "Cualquier duda estamos a disposición.\n"
-        "Saludos,\n"
         "1816 | ECONOMÍA Y ESTRATEGIA\n"
         "Copyright © 2026 1816\n"
     )
     out = svc._limpiar_para_mostrar(crudo)
-    assert "research@1816.com.ar" not in out      # header de reenvío fuera
+    assert "research@1816.com.ar" not in out          # header de reenvío fuera
     assert "Para:" not in out and "Asunto:" not in out
-    assert "EL DÍA EN POCAS LÍNEAS" in out          # título del research queda
-    assert "EL CENTRAL COMPRÓ USD 230 MM" in out    # cuerpo queda
-    assert "Copyright" not in out and "disposición" not in out  # pie cortado
+    assert "mailchimp" not in out and "___" not in out  # imagen y separador fuera
+    assert "EL DÍA EN POCAS LÍNEAS" not in out          # masthead redundante fuera
+    assert "EL CENTRAL COMPRÓ USD 230 MM" in out        # cuerpo queda
+    assert "Copyright" not in out and "disposici" not in out  # pie cortado
+    # los dos items quedan en párrafos separados (split por titular)
+    assert "\n\nEL TESORO RETIRARÁ" in out
     assert svc._limpiar_para_mostrar(None) == ""
     assert svc._limpiar_para_mostrar("") == ""
 

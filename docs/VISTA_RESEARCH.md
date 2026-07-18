@@ -472,6 +472,24 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-17 (3) — rediseño de la vista (feedback del user sobre la 1ª versión)
+La 1ª versión mostraba todo apilado y con basura del mail. Rediseño:
+- **Título derecho = "REPORTES"** (uno solo) con **selector de FUENTE** estilo News
+  (1816, y a futuro ACA VALORES, etc.) — `_fuente_label()` detecta la fuente por
+  contenido (no por el From, que es el que reenvía). Filtra por la fuente elegida.
+- **Acordeón:** cada reporte es una fila [▶ fecha · tipo · título]; se **clickea y
+  se abre** el contenido (arranca abierto el más reciente). Se terminó el "todo
+  uno abajo del otro". Cabecera con color distinto del cuerpo.
+- **Buscador SACADO del título** (pedido del user — quedaba horrible). El endpoint
+  de búsqueda queda en el backend para reubicarlo mejor más adelante.
+- **Texto MUCHO más prolijo:** `_limpiar_para_mostrar()` ahora saca también las
+  imágenes `[https://…png]`, los separadores `____`, el masthead repetido (fecha +
+  "EL DÍA EN POCAS LÍNEAS") y líneas duplicadas, y **separa los items en párrafos**
+  por su titular en mayúscula. El frontend **resalta el titular** de cada item.
+- Tests del limpiador actualizados a la conducta nueva. **Es iteración** — se sigue
+  afinando (ej. si un mail viene con html→texto muy roto, mejorar la extracción en
+  el ingest y re-ingestar).
+
 ### 2026-07-17 (2) — IA OFF por defecto + el texto se muestra LIMPIO
 Pedido del user: la IA no interviene por gastar; lo principal es que los textos
 aparezcan bien. **Qué se hizo:**

@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 _MAX_LIMIT = 100
 
 # Limpieza para MOSTRAR el research lindo: el crudo (fuente de verdad, intacto en
-# la DB) trae los headers del reenvío y el pie de 1816. Se sacan al servir — no se
-# toca el `cuerpo` guardado (FTS y citas siguen sobre el original).
+# la DB) trae basura del reenvío/HTML (headers, imágenes [url], masthead repetido,
+# separadores, pie). Se saca al servir — no se toca el `cuerpo` guardado (FTS/citas).
 _HEADER_LINE = re.compile(
     r"^\s*(de|para|asunto|enviados?|sent|from|to|cc|subject|date|fecha)\s*:", re.IGNORECASE
 )
@@ -33,28 +33,66 @@ _FOOTER_MARKERS = (
     "you can unsubscribe",
     "unsubscribe from this list",
 )
+_URL_BRACKET = re.compile(r"\[\s*https?://[^\]]*\]")        # [https://…imagen.png]
+_SEP_LINE = re.compile(r"^[\s_\-=–—─.·*]{5,}$")             # línea de separación
+_TITULO = re.compile(r"EL D[IÍ]A EN POCAS L[IÍ]NEAS", re.IGNORECASE)
+_MASTHEAD_INLINE = re.compile(                              # "16 de julio de 2026 EL DÍA…"
+    r"\d{1,2}\s+de\s+[a-záéíóúñ]+\s+de\s+\d{4}\s+EL D[IÍ]A EN POCAS L[IÍ]NEAS", re.IGNORECASE
+)
+_SOLO_FECHA = re.compile(r"^\d{1,2}\s+de\s+[a-záéíóúñ]+\s+de\s+\d{4}$", re.IGNORECASE)
+# TITULAR de 1816 = 4+ palabras seguidas SIN minúsculas → separa items en párrafos
+# (el mail viene como un bloque) sin partir acrónimos sueltos (USD/BCRA/MLC).
+_ANTES_TITULAR = re.compile(
+    r"(?<=[.;:])\s+(?=(?:[A-ZÁÉÍÓÚÑ0-9$«][^\sa-záéíóúñ]*\s+){3,}[A-ZÁÉÍÓÚÑ])"
+)
 
 
 def _limpiar_para_mostrar(cuerpo: str | None) -> str:
-    """Crudo del mail → research legible: corta el pie (Copyright/unsubscribe/…) y
-    saca las líneas de header del reenvío (De:/Para:/Asunto:/…) y separadores
-    sueltos. Conservador: si no reconoce nada, devuelve el texto casi tal cual."""
+    """Crudo del mail → research legible y en párrafos. Saca: pie (Copyright/
+    unsubscribe), headers del reenvío (De:/Para:/…), imágenes [url], separadores,
+    el masthead repetido (fecha + 'EL DÍA EN POCAS LÍNEAS') y líneas duplicadas.
+    Después separa los items en párrafos por su titular en mayúscula. Conservador:
+    ante la duda deja el texto. El `cuerpo` de la DB no se toca."""
     if not cuerpo:
         return ""
     lineas = cuerpo.splitlines()
     corte = len(lineas)
     for i, ln in enumerate(lineas):
-        low = ln.lower()
-        if any(mk in low for mk in _FOOTER_MARKERS):
+        if any(mk in ln.lower() for mk in _FOOTER_MARKERS):
             corte = i
             break
-    visibles = []
+    out: list[str] = []
+    prev = ""
     for ln in lineas[:corte]:
-        if _HEADER_LINE.match(ln) or ln.strip() in ("---", "—"):
-            continue  # header del reenvío o separador suelto
-        visibles.append(ln)  # las líneas en blanco se conservan (separan párrafos)
-    texto = "\n".join(visibles)
+        ln = _URL_BRACKET.sub("", ln)
+        ln = _MASTHEAD_INLINE.sub("", ln)   # masthead embebido (fecha+título)
+        ln = _TITULO.sub("", ln)            # el título suelto (redundante con la card)
+        if _HEADER_LINE.match(ln):
+            continue
+        s = " ".join(ln.split())            # colapsa espacios/tabs internos
+        if not s:
+            if prev:                        # UNA línea en blanco entre bloques
+                out.append("")
+                prev = ""
+            continue
+        if _SEP_LINE.match(s) or _SOLO_FECHA.match(s) or s.lower().startswith(("http://", "https://")):
+            continue
+        if s == prev:                       # dedupe de líneas repetidas
+            continue
+        out.append(s)
+        prev = s
+    texto = _ANTES_TITULAR.sub("\n\n", "\n".join(out))
     return re.sub(r"\n{3,}", "\n\n", texto).strip()
+
+
+def _fuente_label(asunto: str | None, cuerpo: str | None) -> str:
+    """La FUENTE del reporte para el selector de la vista (1816 / ACA VALORES / …).
+    Se detecta por contenido, no por el From (que es el que reenvía). Hoy todo es
+    1816; se amplía cuando entren otras fuentes."""
+    hay = f"{asunto or ''} {(cuerpo or '')[:600]}".lower()
+    if "1816" in hay:
+        return "1816"
+    return "Otra"
 
 
 def _tipo_de_asunto(asunto: str | None) -> str:
@@ -87,6 +125,7 @@ def _fila(r: dict) -> dict:
         "fuente": r.get("fuente"),
         "asunto": r.get("asunto"),
         "tipo": _tipo_de_asunto(r.get("asunto")),
+        "fuente_label": _fuente_label(r.get("asunto"), r.get("cuerpo")),
         # `texto` = crudo limpio para MOSTRAR (sin headers/pie del reenvío). El
         # crudo original queda en la DB (fuente de verdad, FTS, citas).
         "texto": _limpiar_para_mostrar(r.get("cuerpo")),

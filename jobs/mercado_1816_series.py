@@ -49,14 +49,15 @@ def _universo(cur) -> list[str]:
     return filas or _SEED
 
 
-def _ya_backfilleados(cur, minimo_dias: int = 250) -> set[str]:
-    """Tickers que YA tienen ≥ minimo_dias de historia → en backfill no se re-bajan
-    (resumible: si el pull se corta o se hace en 2 tandas por el límite diario, la
-    próxima corrida sigue con los que faltan, sin re-pagar créditos)."""
+def _ya_backfilleados(cur, desde) -> set[str]:
+    """Tickers cuya historia YA llega hasta `desde` (min(fecha) <= desde) → en
+    backfill no se re-bajan. Resumible por RANGO (independiente del largo de la
+    ventana): no re-paga, y si el pull se corta por el límite diario, la próxima
+    corrida sigue con los que faltan."""
     cur.execute(
         "SELECT ticker FROM research.mkt_1816_series "
-        "GROUP BY ticker HAVING count(DISTINCT fecha) >= %s",
-        (minimo_dias,),
+        "GROUP BY ticker HAVING min(fecha) <= %s",
+        (desde,),
     )
     return {r[0] for r in cur.fetchall()}
 
@@ -85,7 +86,9 @@ def _upsert(filas: list[dict]) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backfill", action="store_true",
-                    help="baja 1 año (carga inicial, una vez). Default: últimos días.")
+                    help="carga inicial (default: desde el 1-ene del año en curso). Diario si no.")
+    ap.add_argument("--desde", help="backfill desde esta fecha YYYY-MM-DD "
+                    "(default 1-ene del año; máx 1 año atrás por límite de la API)")
     ap.add_argument("--dias", type=int, default=7,
                     help="ventana del modo diario (default 7, cubre correcciones/feriados)")
     ap.add_argument("--dry-run", action="store_true",
@@ -98,18 +101,28 @@ def main() -> None:
         return
 
     hoy = datetime.now(UTC).date()
-    # 364 (no 365): la API rechaza rangos que SUPEREN 1 año, y con ambos extremos
-    # inclusive 365 días atrás = 366 días de span → HTTP 400. 364 queda justo abajo.
-    desde = hoy - timedelta(days=364 if args.backfill else args.dias)
+    if args.desde:
+        desde = datetime.strptime(args.desde, "%Y-%m-%d").date()
+    elif args.backfill:
+        desde = hoy.replace(month=1, day=1)          # desde el 1-ene del año en curso
+    else:
+        desde = hoy - timedelta(days=args.dias)
+    # La API rechaza rangos > 1 año → cap defensivo (364 días queda justo abajo).
+    tope = hoy - timedelta(days=364)
+    if desde < tope:
+        desde = tope
 
     with get_pool().connection() as conn, conn.cursor() as cur:
         universo = _universo(cur)
         if args.backfill:
-            ya = _ya_backfilleados(cur)
+            # Resumible por RANGO: salta los que ya tienen historia hasta `desde`
+            # (min(fecha) <= desde) → no re-paga, y si se corta por el límite diario
+            # se continúa al día siguiente con los que faltan.
+            ya = _ya_backfilleados(cur, desde)
             if ya:
                 antes = len(universo)
                 universo = [t for t in universo if t not in ya]
-                print(f"Backfill resumible: {len(ya)} bonos ya tienen historia → "
+                print(f"Backfill resumible: {len(ya)} bonos ya cubren desde {desde} → "
                       f"bajo {len(universo)} nuevos (de {antes}).")
 
     if not universo:
@@ -119,8 +132,8 @@ def main() -> None:
     dias = (hoy - desde).days + 1
     costo_est = len(universo) * len(_CAMPOS) * dias
     print(f"Universo: {len(universo)} tickers · {len(_CAMPOS)} campos · {dias} días "
-          f"→ costo estimado ~{costo_est} créditos "
-          f"({'BACKFILL 1 año' if args.backfill else f'diario {args.dias}d'})")
+          f"({desde} → {hoy}) → costo estimado ~{costo_est} créditos "
+          f"({'BACKFILL' if args.backfill else f'diario {args.dias}d'})")
 
     if args.dry_run:
         print("Tickers:", ", ".join(universo))
@@ -156,7 +169,7 @@ def main() -> None:
         jr.set_stat("modo", "backfill" if args.backfill else "diario")
         jr.set_stat("tickers", len(universo))
     print(f"✅ {n_total} puntos upserteados en research.mkt_1816_series "
-          f"({'backfill 1 año' if args.backfill else f'últimos {args.dias} días'})")
+          f"({'backfill desde ' + str(desde) if args.backfill else f'últimos {args.dias} días'})")
 
 
 if __name__ == "__main__":

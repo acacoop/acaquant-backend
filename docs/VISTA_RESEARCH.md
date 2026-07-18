@@ -488,9 +488,14 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
     curva BCRA (id 24) al discovery → ahora 60/60.
   - **Ajuste de créditos:** 60 bonos × 6 campos × 364d = 131k > límite diario (100k).
     → campos bajados a **4** (tea/paridad/precioClean/duration; tea es lo que manda
-    para spreads) → 60×4×364 ≈ 87k. Y el **backfill es RESUMIBLE**
-    (`_ya_backfilleados`: saltea los que ya tienen ≥250 días → no re-paga, y si se
-    corta por el límite se continúa al otro día).
+    para spreads).
+  - **Ventana del backfill = desde el 1-ene del año en curso (decisión del user
+    2026-07-18: "no hace falta un año, desde 2026").** Default `--backfill` arranca
+    en enero (`--desde YYYY-MM-DD` para override; cap de 1 año por la API). 60×4×
+    ~199d ≈ 48k → entra cómodo. **Resumible por RANGO** (`_ya_backfilleados`:
+    salta los tickers cuya historia ya llega a `desde` vía min(fecha) — así los 13
+    del primer backfill se saltan y solo baja los ~47 nuevos, sin re-pagar; si se
+    corta por el límite, se continúa al otro día).
 - **[observabilidad — ya figura sola]** `db_obs.py` (Manager → OBSERVABILIDAD →
   BASE) escanea TODOS los schemas/tablas → `research.mkt_1816_*` aparece
   automáticamente (schema `research` + frescura por `ingestado_en`). Peso: 13.790

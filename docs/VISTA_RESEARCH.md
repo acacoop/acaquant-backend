@@ -472,6 +472,26 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 (9) — texto legible + FORWARDS en el cuadrante libre + doc BCRA
+1. **Color de los reportes:** el cuerpo pasó de `--t-text-muted` (gris ilegible
+   en ambos temas — feedback del user) a `--t-text`; el titular de cada item va
+   en **bold + acento** (se distingue por peso, no por gris).
+2. **Cuadrante libre (superior-derecho de Argentina) = FORWARDS HISTÓRICO**
+   (`research-forwards.tsx`): la serie del forward implícito entre dos bonos —
+   el gráfico que vive dentro de Forwards en Renta Fija — con el diseño de los
+   otros charts (header único: título + curva tasa_fija/CER + par A→B + rango +
+   "hoy/media" inline). Fuente: `GET /api/cotizaciones/historico/forwards`
+   (endpoint YA existente, `mercado.mercado_hist`; matrix en fracción → ×100,
+   misma convención que forwards-panel). Cero backend nuevo.
+3. **Doc nuevo `docs/RESEARCH_BCRA.md`** — análisis exhaustivo de la futura tab
+   BCRA (pedido del user): las 3 APIs verificadas contra la API VIVA (catálogo
+   v4 = 1.581 variables con shape completo; serie id 1 = 7.515 puntos, rezago
+   1-2 días hábiles; maestro cambiario = 43 divisas incl. oro), decisión v3
+   redundante → solo v4+cambiarias, universo curado ~40 series, 4 cuadrantes
+   propuestos con cruces propios (brecha A3500-MEP, tasas reales, IPC vs REM vs
+   breakevens, depósitos USD), arquitectura de sync 24/7 (DB-first + cron 4×/día,
+   watermark con re-lectura 7d) y fases. NO pisa `jobs/bcra.py` (motores).
+
 ### 2026-07-18 (8) — pulido de los cuadrantes + RUBRO/CCL en RV Internacional
 Tres pedidos del user:
 1. **Header único en los charts de Argentina** (`research-lab.tsx`): la selección

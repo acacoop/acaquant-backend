@@ -117,6 +117,13 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-18 — v1.55 (la vista reuters se mudó de página — sin cambio de comportamiento)
+- **[UI, sin cambio del asistente]** El tablero REUTERS (y su copiloto in-view,
+  vista `reuters`) ya no vive en /trading: ahora es la tab RENTA VARIABLE
+  INTERNACIONAL de **/research** (`research-view.tsx`). El contexto, reglas, chips
+  y gates del copiloto NO cambiaron (sigue módulo `trading` + `ia`). Solo cambia
+  dónde se abre el panel.
+
 ### 2026-07-17 — v1.54 (TRADING accede a TODO Reuters: quote US + fundamentals)
 Pedido del user: que el copiloto de TRADING tenga acceso a todo lo de Reuters que
 hicimos, cotizaciones Y fundamentals. Nota: los fundamentals NUNCA habían estado

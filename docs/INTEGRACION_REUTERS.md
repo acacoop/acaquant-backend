@@ -155,6 +155,14 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
 
 ## 8. Changelog
 
+- **2026-07-18 — la vista se MUDÓ a /research → tab RENTA VARIABLE INTERNACIONAL.**
+  El tablero (`reuters-view.tsx`, con fundamentals, ficha y su copiloto in-view)
+  ya no vive en /trading (que quedó con PIVOTS + INTRADAY) sino como segunda tab
+  de la vista Research (`research-view.tsx` — ver docs/VISTA_RESEARCH.md).
+  **Backend intacto**: feed, ingest, `core/eikon_live.py` y los endpoints
+  `/api/trading/reuters*` no cambiaron (siguen gateados por módulo `trading` —
+  nuance RBAC anotada en VISTA_RESEARCH, pendiente de decidir si se re-gatea).
+
 - **2026-07-16 — v1: nace la integración.**
   - Tabla `mercado.eikon_snapshot` + `/api/ingest/eikon/*` + `core/eikon_live.py`
     (patrón feed MAE). RIC editable en Manager.

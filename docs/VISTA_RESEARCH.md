@@ -472,6 +472,29 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-18 (7) — TABS (Argentina · RV Internacional) + cuadrantes + REUTERS movido
+Reestructura de la vista (pedido del user):
+- **Tabs keep-alive** (patrón trading-shell): **ARGENTINA** y **RENTA VARIABLE
+  INTERNACIONAL**.
+- **Tab Argentina = 4 cuadrantes 50/50**: superior-izq **Spread A−B** ·
+  inferior-izq **Comparar** (el lab se partió en dos paneles vía prop `modoFijo`
+  en `research-lab.tsx`) · inferior-der **Reportes** (acordeón 1816) ·
+  superior-der **LIBRE** (placeholder "próximo módulo").
+- **Tab RV Internacional = el tablero REUTERS movido desde /trading** (el
+  `ReutersView` completo con su copiloto in-view; `trading-shell` quedó con
+  PIVOTS + INTRADAY, y los usuarios con `trading.tab=reuters` persistido caen a
+  pivots). ⚠️ **Nuance RBAC pendiente:** `ReutersView` fetchea `/api/trading/reuters`
+  (gate módulo `trading` en proxy y backend) — un usuario con `research` pero sin
+  `trading` ve la tab pero el tablero no carga. Hoy no afecta (admin tiene ambos);
+  mover el endpoint o abrir el gate se decide en la próxima sesión.
+- **Breakevens (vista Renta Fija) arreglado** (item 3 del pedido, misma tanda):
+  el eje Y FORZABA el 3% dentro del dominio → con BEs en 1.5-2% las curvas quedaban
+  aplastadas con media pantalla vacía (img_25). Ahora la escala se ajusta a los
+  datos (la línea del 3% se dibuja solo si cae en el rango visible) + **leyenda**
+  (BE mercado / REM mensual / REM prom. acum. — antes no se sabía qué línea era
+  qué) + grilla horizontal + divisor tabla↔gráfico + colores consistentes con el
+  lab (#e0803c / #3a9bd5).
+
 ### 2026-07-18 (6) — diseño temático (claro/oscuro) del laboratorio y Reportes
 Selects con fondo `--t-surface` (se terminó el select BLANCO en modo oscuro),
 paneles delineados `--t-panel` + rounded-lg, controles agrupados (segmented con

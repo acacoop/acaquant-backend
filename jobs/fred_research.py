@@ -58,6 +58,26 @@ _SEED: list[tuple[str, str, str, str, str, str, int]] = [
     ("commodities", "DCOILWTICO",       "Petróleo WTI",            "USD/bbl",   "D", "Global", 7),
     ("commodities", "DCOILBRENTEU",     "Petróleo Brent",          "USD/bbl",   "D", "Global", 8),
     ("commodities", "DHHNGSP",          "Gas natural (Henry Hub)", "USD/MMBtu", "D", "Global", 9),
+    # ── Bloque EEUU MACRO (vista 3). IDs canónicos verificados. Unidades MUY
+    # mixtas (índice/miles/%/claims) → se leen con las transformaciones de la vista
+    # (Base 100 / Var %). Default Nivel muestra los 3 índices de precios (misma escala).
+    ("eeuu_macro", "CPIAUCSL", "CPI (nivel)",                  "índice", "M", "EEUU", 1),
+    ("eeuu_macro", "CPILFESL", "CPI núcleo",                   "índice", "M", "EEUU", 2),
+    ("eeuu_macro", "PCEPILFE", "PCE núcleo (target Fed)",      "índice", "M", "EEUU", 3),
+    ("eeuu_macro", "PAYEMS",   "Nóminas no agrícolas",         "miles",  "M", "EEUU", 4),
+    ("eeuu_macro", "UNRATE",   "Desempleo",                    "%",      "M", "EEUU", 5),
+    ("eeuu_macro", "ICSA",     "Pedidos seguro desempleo",     "claims", "W", "EEUU", 6),
+    ("eeuu_macro", "GDPC1",    "PBI real",                     "MM USD", "Q", "EEUU", 7),
+    ("eeuu_macro", "INDPRO",   "Producción industrial",        "índice", "M", "EEUU", 8),
+    ("eeuu_macro", "UMCSENT",  "Confianza consumidor (UMich)", "índice", "M", "EEUU", 9),
+    ("eeuu_macro", "T10YIE",   "Breakeven inflación 10Y",      "%",      "D", "EEUU", 10),
+    # ── Bloque ÍNDICES (bolsa) — SP500/Nasdaq/Dow. Diarios. Sirven de sub-tab Y de
+    # referencia para superponer (2º eje Y) en cualquier otro bloque de la vista.
+    # OJO: SP500 y DJIA tienen tope de 10 años en FRED (licencia S&P DJ); como el
+    # backfill arranca en 2020, no nos afecta. Nasdaq trae historia completa.
+    ("indices", "SP500",     "S&P 500",          "índice", "D", "EEUU", 1),
+    ("indices", "NASDAQCOM", "Nasdaq Composite", "índice", "D", "EEUU", 2),
+    ("indices", "DJIA",      "Dow Jones",        "índice", "D", "EEUU", 3),
 ]
 
 # Series RETIRADAS: se fuerzan activo=false SIEMPRE (aunque ya estén sembradas en

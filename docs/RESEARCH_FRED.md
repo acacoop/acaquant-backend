@@ -610,6 +610,28 @@ Encaja con el patrón `home.market_quotes`.
 
 ## Registro (con fecha)
 
+- **2026-07-19 (5) — Vista 3 (EEUU Macro) + transformaciones + índice de referencia.**
+  Tres pedidos del user, construidos juntos porque el macro los necesita.
+  - **Vista 3 — bloque `eeuu_macro`** (10 series canónicas VERIFICADAS: CPIAUCSL,
+    CPILFESL, PCEPILFE, PAYEMS, UNRATE, ICSA, GDPC1, INDPRO, UMCSENT, T10YIE).
+    Unidades muy mixtas (índice/miles/%/claims) → se leen con las transformaciones.
+  - **Bloque `indices`** (SP500, NASDAQCOM, DJIA) — sub-tab ÍNDICES BOLSA Y fuente
+    del selector "+ índice…" para superponer. Verificado: SP500 y DJIA tienen tope
+    de 10 años en FRED (licencia S&P DJ) pero como el backfill arranca en 2020 NO
+    afecta; Nasdaq trae historia completa.
+  - **Transformaciones (frontend, TODAS las vistas):** Nivel / Base 100 (rebase al
+    inicio de la ventana) / Var % (retorno acumulado desde el inicio). Se calculan
+    on-the-fly sobre el nivel guardado — sin pedir nada nuevo a FRED. Resuelven el
+    comparar series de escalas distintas (clave en macro).
+  - **Índice de referencia (2º eje Y):** selector por bloque para superponer un
+    índice de bolsa. En Nivel va en un 2º eje a la derecha (violeta, dashed); en
+    Base 100 / Var % se rebasa y comparte el eje único (comparación directa).
+  - Backend: seed a 32 series (10+9+10+3). `_seed_watch` incremental ya existente →
+    el cron siembra + backfillea los bloques nuevos desde 2020 solo. Frontend:
+    `research-fred.tsx` reescrito (transform + ref overlay). Typecheck OK.
+  - **Del user (Droplet):** `git pull` + `python -m jobs.fred_research` (siembra +
+    backfillea eeuu_macro e indices). Vercel deploya el front al pushear.
+
 - **2026-07-19 (4) — Oro retirado (no existe en FRED).** En la 1ª corrida del
   bloque commodities, `GOLDPMGBD228NLBM` tiró HTTP 400 "series does not exist".
   Verificado por WebSearch: FRED **eliminó las series LBMA de oro el 2022-01-31**

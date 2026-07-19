@@ -621,6 +621,10 @@ Encaja con el patrón `home.market_quotes`.
   vive en el componente (`CUADRANTES`, editable; sumar `commodities` u otro es una
   línea). El resto de los bloques siguen como single-chart con transform + índice de
   referencia. Solo frontend (`research-fred.tsx`), typecheck OK.
+  - **(6b)** Commodities también a cuadrantes: COMPLEJO SOJA · GRANOS · ENERGÍA ·
+    METALES. Default **Nivel** (a diferencia del macro que va Base 100): en
+    commodities querés ver el precio real y los cuadrantes de granos ya son
+    homogéneos en USD/t. Default por bloque en `CUADRANTES_MODO`.
 
 - **2026-07-19 (5) — Vista 3 (EEUU Macro) + transformaciones + índice de referencia.**
   Tres pedidos del user, construidos juntos porque el macro los necesita.

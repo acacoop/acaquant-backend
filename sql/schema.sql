@@ -1677,6 +1677,52 @@ CREATE TABLE IF NOT EXISTS research.bcra_series (
 CREATE INDEX IF NOT EXISTS ix_bcra_series_id_fecha
     ON research.bcra_series (id_variable, fecha DESC);
 
+-- ── FRED (tab "Datos Internacionales" — docs/RESEARCH_FRED.md) ────────────────
+-- Feed SEPARADO de jobs/bcra.py y jobs/argentina_datos.py. Molde = las bcra_*
+-- de arriba, con 2 diferencias no inferibles: (1) series_id es TEXTO (ej DGS10),
+-- no int; (2) frecuencias MIXTAS D/W/M/Q → freq vive en el watch (clave para el
+-- colchón del watermark y para saber si graficar continuo o escalonado).
+-- El catálogo FRED es ~800k series → NO se espeja entero: fred_series guarda
+-- metadata SOLO de las series del watch (poblada vía /fred/series por id).
+
+CREATE TABLE IF NOT EXISTS research.fred_series (
+    series_id         text PRIMARY KEY,
+    title             text,
+    frequency         text,        -- Daily / Weekly / Monthly / Quarterly
+    units             text,        -- units de origen ("Percent", "Index 2017=100"…)
+    seasonal_adj      text,        -- SA / NSA
+    observation_start date,
+    observation_end   date,
+    last_updated      timestamptz, -- de FRED (para detectar cambios / calendario)
+    notes             text,
+    actualizado_en    timestamptz NOT NULL DEFAULT now()
+);
+
+-- Universo CURADO (jamás las 800k): qué series se sincronizan y en qué BLOQUE
+-- (sub-tab) viven. Editable; seed en jobs/fred_research.py.
+CREATE TABLE IF NOT EXISTS research.fred_watch (
+    series_id text PRIMARY KEY,
+    bloque    text NOT NULL,      -- tasas_usa / commodities / eeuu_macro / china …
+    etiqueta  text NOT NULL,      -- label corto para la UI ("UST 10Y", "Soja")
+    unidad    text,               -- unidad DISPLAY nuestra ("%", "USD/t", "índice")
+    freq      text,               -- D / W / M / Q (clave por frecuencias mixtas)
+    pais      text,               -- EEUU / Global / China / …
+    orden     int,
+    activo    boolean NOT NULL DEFAULT true
+);
+
+-- Los puntos del watch (tidy, idempotente por PK). valor NULL permitido (aunque
+-- el cliente descarta los "." de FRED antes de insertar).
+CREATE TABLE IF NOT EXISTS research.fred_observations (
+    series_id    text NOT NULL,
+    fecha        date NOT NULL,
+    valor        double precision,
+    ingestado_en timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (series_id, fecha)
+);
+CREATE INDEX IF NOT EXISTS ix_fred_obs_id_fecha
+    ON research.fred_observations (series_id, fecha DESC);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PERFORMANCE — autovacuum agresivo + fillfactor en tablas de ALTA ROTACIÓN
 -- (perf 2026-06-29). Los motores upsertean estas tablas cada ~1s; con el

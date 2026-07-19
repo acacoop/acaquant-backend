@@ -24,6 +24,7 @@ _CRONS_IGNORADOS = {
     "jobs.research_mail",       # ingesta del research diario → ia.research (P6 QuantAI)
     "jobs.mercado_1816_series", # series históricas de 1816 → research.mkt_1816_* (vista RESEARCH)
     "jobs.bcra_research",       # series BCRA v4 → research.bcra_* (tab BCRA de RESEARCH)
+    "jobs.fred_research",       # series FRED → research.fred_* (tab DATOS INTERNACIONALES de RESEARCH)
     "jobs.guardrails",          # invariantes de sanidad post-cierre — observa al sistema
     "jobs.cleanup_curvas",      # limpieza
     "jobs.cleanup_futuros_dlr", # limpieza

@@ -610,6 +610,18 @@ Encaja con el patrón `home.market_quotes`.
 
 ## Registro (con fecha)
 
+- **2026-07-19 (6) — CUADRANTES 2x2 para bloques de escala heterogénea (frontend).**
+  Feedback del user: EEUU MACRO no se puede leer en un eje único (índice ~300 vs
+  empleo ~150.000 vs % ~4). Solución: los bloques listados en `CUADRANTES`
+  (hoy solo `eeuu_macro`) se muestran en **2x2, un mini-chart con su propio eje Y
+  por sub-grupo**: INFLACIÓN (CPI/coreCPI/corePCE) · EMPLEO (nóminas/desempleo/
+  claims) · ACTIVIDAD (PBI/prod. industrial) · EXPECTATIVAS (confianza UMich/
+  breakeven 10Y). Arrancan en **Base 100** por default (así se lee el macro; dentro
+  de un cuadrante puede haber unidades mixtas). Sin cambio de backend — el grupeo
+  vive en el componente (`CUADRANTES`, editable; sumar `commodities` u otro es una
+  línea). El resto de los bloques siguen como single-chart con transform + índice de
+  referencia. Solo frontend (`research-fred.tsx`), typecheck OK.
+
 - **2026-07-19 (5) — Vista 3 (EEUU Macro) + transformaciones + índice de referencia.**
   Tres pedidos del user, construidos juntos porque el macro los necesita.
   - **Vista 3 — bloque `eeuu_macro`** (10 series canónicas VERIFICADAS: CPIAUCSL,

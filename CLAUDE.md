@@ -11,7 +11,7 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > Mongo en el código (`grep -rE "from core.mongo|import pymongo|MongoClient"` → 0).
 > El cliente Mongo (`core/mongo.py`), `api/db.py` y el tooling Mongo fueron borrados.
 > Si ves "Mongo"/"colección"/"Atlas" en algún doc viejo, es residual — la fuente de
-> verdad es `sql/schema.sql` + `docs/SQL.md`. Registro del decomiso: `docs/HANDOFF_DECOMISO_MONGO.md`.
+> verdad es `sql/schema.sql` + `docs/SQL.md`.
 
 > **⚡ PROGRAMA DE IA EN CURSO → `docs/QUANTAI.md` (LEER al arrancar la sesión).**
 > Es el roadmap VIVO del programa "QuantAI": proveedor DeepSeek, marca AI
@@ -31,11 +31,11 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 - `portafolio` — `tenencia` (AuM, fuente única), `assets` (catálogo de títulos), `backfill_log`.
 - `operaciones` — `operaciones` (vista MOVIMIENTOS), `negocio_movimientos` (cost-basis), `acreencias`, `movimientos`, `tipos_operacion`; órdenes `ordenes_live`, `ordenes_audit`, `ordenes_idempotency`, `triggers_mep`, `brackets_live`, `operativas_mep`, `motor_heartbeat`, `accounts_descubiertas`.
 - `clientes` — `comitentes`, `cuentas`, `contrapartes`, `accionistas`, `actividad_mensual`, `operadores`, `objetivos_comerciales` (segmentación/operador).
-- `manager` — `manager_users`, `role_matrix`, `role_audit`, `grupos`, `job_runs`, `health_reports`, `watchdog_alertas`, `pyrofex_instruments`/`pyrofex_discovery`.
+- `manager` — `manager_users`, `role_matrix`, `role_audit`, `grupos`, `job_runs`, `health_reports`, `watchdog_alertas`, `pyrofex_instruments`/`pyrofex_discovery`; `uso_modulos` (telemetría de uso usuario × módulo × hora — contador agregado que flushea el middleware `api/telemetria.py`, lo lee `GET /api/manager/uso`).
 - `home` — `market_quotes` (watchlist HOME), `market_calendar`, `news_headlines`.
 - `mcp` — `oauth_clients`/`oauth_codes`/`oauth_tokens` (TTL automático).
-- `ia` — observabilidad del gateway de IA (`core/ai.py`, ver `docs/QUANTAI.md`): `trazas` (cada llamada LLM: tarea, modelo, tokens, latencia, ok/error, feedback, detalle/respuesta/razonamiento, conv_id) y `config` (presupuestos editables desde Manager). Router HTTP: `api/routers/ia.py` (bearer + `require_module("ia")`): briefing, observabilidad, presupuestos/saldo, y el COPILOTO de mesa (`/api/ia/copiloto*` — **doc vivo con changelog OBLIGATORIO: `docs/COPILOTO.md`**, leerlo antes de tocar `api/services/copiloto.py`).
-- `research` — fundamentals Refinitiv: `companies`, `fundamentals`, `market_snapshot` (ver `docs/RESEARCH_REFINITIV.md`).
+- `ia` — observabilidad del gateway de IA (`core/ai.py`, ver `docs/QUANTAI.md`): `trazas` (cada llamada LLM: tarea, modelo, tokens, latencia, ok/error, feedback, detalle/respuesta/razonamiento, conv_id) y `config` (presupuestos editables desde Manager). Router HTTP: `api/routers/ia.py` (bearer + `require_module("ia")`): briefing, observabilidad, presupuestos/saldo, y el COPILOTO de mesa (`/api/ia/copiloto*` — **doc vivo con changelog OBLIGATORIO: `docs/COPILOTO.md`**, leerlo antes de tocar `api/services/copiloto.py`). También: `triage_incidentes`/`triage_estado` (triage IA de jobs fallidos, `jobs/triage.py` cada 10') y `research` (mail diario 1816 vía IMAP, `jobs/research_mail.py` — cuerpo crudo + destilado LLM + FTS español).
+- `research` — fundamentals Refinitiv: `companies`, `fundamentals`, `market_snapshot` (ver `docs/RESEARCH_REFINITIV.md`); market data 1816 para la vista Research: `mkt_1816_series`/`mkt_1816_watch`/`mkt_1816_instrumentos` (feed SEPARADO de `mercado.curvas` — ver `docs/VISTA_RESEARCH.md`); tab BCRA: `bcra_variables`/`bcra_watch`/`bcra_series` (ver `docs/RESEARCH_BCRA.md`).
 - `partner` — app separada `partner_api`: `cartera`, `api_users` (antes Mongo `ACAPortfolio`).
 
 ## Contexto por subdirectorio
@@ -381,6 +381,6 @@ Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `pytho
 > (lee `portafolio.assets`). Las viejas colecciones espejo `*API` y los syncs Mongo→Mongo
 > (`sync_api_copies`, `api_migrate`) ya no existen.
 
-Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.portafolio_backfill --diario` (11 UTC L-V, writer de tenencias SQL — reemplazó a `jobs.aum`/Mongo, eliminado), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `mercado.market_snapshot` y persiste cierre por bono en `mercado.snapshots_cierre`), `jobs.negocio_movimientos` (cada hora 15-22 UTC L-V, pega a Aunesa `consolidadosGenerales`, parsea/categoriza/agrupa por boleto y persiste idempotente en **SQL `operaciones.negocio_movimientos`** para la vista `/operaciones/negocio`).
+Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.portafolio_backfill --diario` (11 UTC L-V, writer de tenencias SQL — reemplazó a `jobs.aum`/Mongo, eliminado), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `mercado.market_snapshot` y persiste cierre por bono en `mercado.snapshots_cierre`), `jobs.negocio_movimientos` (cada hora 15-22 UTC L-V, pega a Aunesa `consolidadosGenerales`, parsea/categoriza/agrupa por boleto y persiste idempotente en **SQL `operaciones.negocio_movimientos`** para la vista `/operaciones/negocio`), `jobs.guardrails` (20:45 UTC L-V, post-cierre — invariantes de sanidad de datos; sin `--alert` no manda Telegram), `jobs.research_mail` (cada 30' 10-14 UTC L-V, ingesta el mail 1816 a `ia.research`), `jobs.mercado_1816_series` (22 UTC L-V, append diario a `research.mkt_1816_series`), `jobs.bcra_research` (12/16/20/23 UTC L-S).
 
 Dólar oficial: única fuente live es `valuaciones.dolar_oficial_live` (feed MAE mayorista UST$T plazo 000, script local en PC oficina). Histórico/anchors (7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule histórico suficiente. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `macro.series_macro` clave DOLAR (BCRA A3500 fixing diario).

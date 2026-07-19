@@ -44,6 +44,21 @@ _SEED: list[tuple[str, str, str, str, str, str, int]] = [
     ("tasas_usa", "SOFR",     "SOFR",                "%", "D", "EEUU", 8),
     ("tasas_usa", "FEDFUNDS", "Fed Funds (efectiva)", "%", "M", "EEUU", 9),
     ("tasas_usa", "DFF",      "Fed Funds (diaria)",  "%", "D", "EEUU", 10),
+    # ── Bloque COMMODITIES / AGRO (IDs verificados 2026-07-19). OJO: los granos y
+    # el cobre son MENSUALES (precio global del FMI, con rezago); WTI/Brent/oro/gas
+    # son DIARIOS. Unidades MIXTAS → el default de la vista muestra el complejo soja
+    # (misma escala USD/t); comparar series de escalas distintas es para el índice
+    # base 100 (transform on-the-fly, pendiente).
+    ("commodities", "PSOYBUSDM",        "Soja",                    "USD/t",     "M", "Global", 1),
+    ("commodities", "PSMEAUSDM",        "Harina de soja",          "USD/t",     "M", "Global", 2),
+    ("commodities", "PSOILUSDM",        "Aceite de soja",          "USD/t",     "M", "Global", 3),
+    ("commodities", "PMAIZMTUSDM",      "Maíz",                    "USD/t",     "M", "Global", 4),
+    ("commodities", "PWHEAMTUSDM",      "Trigo",                   "USD/t",     "M", "Global", 5),
+    ("commodities", "PCOPPUSDM",        "Cobre",                   "USD/t",     "M", "Global", 6),
+    ("commodities", "DCOILWTICO",       "Petróleo WTI",            "USD/bbl",   "D", "Global", 7),
+    ("commodities", "DCOILBRENTEU",     "Petróleo Brent",          "USD/bbl",   "D", "Global", 8),
+    ("commodities", "GOLDPMGBD228NLBM", "Oro (LBMA)",              "USD/oz",    "D", "Global", 9),
+    ("commodities", "DHHNGSP",          "Gas natural (Henry Hub)", "USD/MMBtu", "D", "Global", 10),
 ]
 
 _BACKFILL_DESDE_DEFAULT = "2020-01-01"   # decisión del user: de 2020 a hoy
@@ -57,17 +72,22 @@ def _colchon_dias(freq: str | None) -> int:
 
 
 def _seed_watch(cur) -> None:
-    """Siembra el watch si está vacío (idempotente; lo editado a mano manda)."""
-    cur.execute("SELECT count(*) FROM research.fred_watch")
-    if not cur.fetchone()[0]:
-        for bloque, sid, etiqueta, unidad, freq, pais, orden in _SEED:
-            cur.execute(
-                "INSERT INTO research.fred_watch (series_id, bloque, etiqueta, unidad,"
-                " freq, pais, orden) VALUES (%s,%s,%s,%s,%s,%s,%s)"
-                " ON CONFLICT (series_id) DO NOTHING",
-                (sid, bloque, etiqueta, unidad, freq, pais, orden),
-            )
-        logger.info("fred_research: watch sembrado con %s series", len(_SEED))
+    """Siembra/actualiza el watch desde _SEED (idempotente por series_id; lo
+    editado a mano se preserva vía ON CONFLICT DO NOTHING). Agregar un bloque
+    nuevo = sumar filas a _SEED: el próximo run inserta SOLO las nuevas sin tocar
+    el resto, y como no tienen watermark el incremental las backfillea desde 2020
+    solo (no hace falta correr --backfill de nuevo)."""
+    nuevas = 0
+    for bloque, sid, etiqueta, unidad, freq, pais, orden in _SEED:
+        cur.execute(
+            "INSERT INTO research.fred_watch (series_id, bloque, etiqueta, unidad,"
+            " freq, pais, orden) VALUES (%s,%s,%s,%s,%s,%s,%s)"
+            " ON CONFLICT (series_id) DO NOTHING",
+            (sid, bloque, etiqueta, unidad, freq, pais, orden),
+        )
+        nuevas += cur.rowcount
+    if nuevas:
+        logger.info("fred_research: watch +%s series nuevas (seed total %s)", nuevas, len(_SEED))
 
 
 def _watch(cur) -> list[dict]:

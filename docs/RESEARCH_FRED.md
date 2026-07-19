@@ -610,6 +610,20 @@ Encaja con el patrón `home.market_quotes`.
 
 ## Registro (con fecha)
 
+- **2026-07-19 (3) — Vista 2: bloque COMMODITIES / AGRO.** El user aprobó los 10
+  IDs marcados (soja, harina, aceite, maíz, trigo, cobre — mensuales del FMI; WTI,
+  Brent, oro, gas — diarios). Seed sumado a `jobs/fred_research.py` (ahora 20 series).
+  `_seed_watch()` pasó a ser **incremental** (INSERT ON CONFLICT DO NOTHING para
+  TODO el seed, no solo si el watch está vacío) → agregar un bloque = sumar filas al
+  seed; el próximo run del cron inserta solo las nuevas y, como no tienen watermark,
+  las backfillea desde 2020 solo (NO hace falta `--backfill` ni `apply_schema`).
+  Frontend: la sub-tab COMMODITIES aparece sola (el componente ya la tenía en su
+  orden/labels). **Del user (Droplet):** `git pull` + `python -m jobs.fred_research`
+  (una corrida default siembra + backfillea el bloque nuevo). Caveat honesto asentado:
+  los granos en FRED son MENSUALES (FMI, no el board de Chicago diario) y el bloque
+  tiene unidades MIXTAS (el default muestra el complejo soja, misma escala USD/t;
+  comparar escalas distintas es para el índice base 100, pendiente).
+
 - **2026-07-19 (2) — FASE 1 + tab TASAS USA construidas.** Decisión del user: ir de
   menos a más, **vista por vista**; primera vista = **Tasas USA**; scope de países
   USA + China (+ Argentina vía cruces); backfill **desde 2020**.

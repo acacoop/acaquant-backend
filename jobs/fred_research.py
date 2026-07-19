@@ -57,9 +57,15 @@ _SEED: list[tuple[str, str, str, str, str, str, int]] = [
     ("commodities", "PCOPPUSDM",        "Cobre",                   "USD/t",     "M", "Global", 6),
     ("commodities", "DCOILWTICO",       "Petróleo WTI",            "USD/bbl",   "D", "Global", 7),
     ("commodities", "DCOILBRENTEU",     "Petróleo Brent",          "USD/bbl",   "D", "Global", 8),
-    ("commodities", "GOLDPMGBD228NLBM", "Oro (LBMA)",              "USD/oz",    "D", "Global", 9),
-    ("commodities", "DHHNGSP",          "Gas natural (Henry Hub)", "USD/MMBtu", "D", "Global", 10),
+    ("commodities", "DHHNGSP",          "Gas natural (Henry Hub)", "USD/MMBtu", "D", "Global", 9),
 ]
+
+# Series RETIRADAS: se fuerzan activo=false SIEMPRE (aunque ya estén sembradas en
+# prod). GOLDPMGBD228NLBM = LBMA Gold PM Fix, que FRED ELIMINÓ el 2022-01-31 por
+# licencia (ICE Benchmark Administration) → la API responde "series does not exist".
+# No hay un spot diario de oro bueno en FRED post-2022; si se quiere oro, se sourcea
+# de otro lado. (El verificador del workflow lo dio por bueno por error.)
+_RETIRADAS: tuple[str, ...] = ("GOLDPMGBD228NLBM",)
 
 _BACKFILL_DESDE_DEFAULT = "2020-01-01"   # decisión del user: de 2020 a hoy
 
@@ -88,6 +94,9 @@ def _seed_watch(cur) -> None:
         nuevas += cur.rowcount
     if nuevas:
         logger.info("fred_research: watch +%s series nuevas (seed total %s)", nuevas, len(_SEED))
+    if _RETIRADAS:
+        cur.execute("UPDATE research.fred_watch SET activo = false "
+                    "WHERE series_id = ANY(%s) AND activo", (list(_RETIRADAS),))
 
 
 def _watch(cur) -> list[dict]:

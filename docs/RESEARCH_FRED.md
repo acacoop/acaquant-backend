@@ -200,7 +200,7 @@ verificación — se valida contra `/fred/series` antes de sembrar). Freq: D/W/M
 | PWHEAMTUSDM | Trigo | M | USD/t | ✅ |
 | DCOILWTICO | Petróleo WTI | D | USD/bbl | ✅ |
 | DCOILBRENTEU | Petróleo Brent | D | USD/bbl | ✅ |
-| GOLDPMGBD228NLBM | Oro (LBMA PM fixing) | D | USD/oz | ✅ |
+| ~~GOLDPMGBD228NLBM~~ | Oro (LBMA PM fixing) — **FRED lo ELIMINÓ 2022-01-31** (licencia ICE); NO existe. Sin reemplazo spot diario bueno en FRED. | — | — | ❌ |
 | PCOPPUSDM | Cobre (Dr. Copper) | M | USD/t | ✅ |
 | DHHNGSP | Gas natural (Henry Hub) | D | USD/MMBtu | ✅ |
 | PIORECRUSDM | Hierro (cadena China→Brasil) | M | USD/t | ⏳ |
@@ -609,6 +609,16 @@ Encaja con el patrón `home.market_quotes`.
 ---
 
 ## Registro (con fecha)
+
+- **2026-07-19 (4) — Oro retirado (no existe en FRED).** En la 1ª corrida del
+  bloque commodities, `GOLDPMGBD228NLBM` tiró HTTP 400 "series does not exist".
+  Verificado por WebSearch: FRED **eliminó las series LBMA de oro el 2022-01-31**
+  (ICE Benchmark Administration retiró sus datos) — el verificador del workflow lo
+  había dado ✅ por error. No hay spot diario de oro bueno en FRED post-2022. Se
+  sacó del seed (quedan 9 commodities) y se agregó a `_RETIRADAS` (fuerza
+  `activo=false` en cada corrida → la fila ya sembrada se desactiva sola, sin tocar
+  la DB). Si se quiere oro, se sourcea de otro lado o se verifica una serie IMF con
+  la key. Backfill real de commodities: 9/9 con oro afuera.
 
 - **2026-07-19 (3) — Vista 2: bloque COMMODITIES / AGRO.** El user aprobó los 10
   IDs marcados (soja, harina, aceite, maíz, trigo, cobre — mensuales del FMI; WTI,

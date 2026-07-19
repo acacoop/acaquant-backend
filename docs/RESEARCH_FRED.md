@@ -622,9 +622,17 @@ Encaja con el patrón `home.market_quotes`.
   línea). El resto de los bloques siguen como single-chart con transform + índice de
   referencia. Solo frontend (`research-fred.tsx`), typecheck OK.
   - **(6b)** Commodities también a cuadrantes: COMPLEJO SOJA · GRANOS · ENERGÍA ·
-    METALES. Default **Nivel** (a diferencia del macro que va Base 100): en
-    commodities querés ver el precio real y los cuadrantes de granos ya son
-    homogéneos en USD/t. Default por bloque en `CUADRANTES_MODO`.
+    METALES.
+  - **(6c) Selección EXCLUYENTE por grupo de escala (fix del user).** Feedback: dentro
+    de un cuadrante las series igual NO combinan en el eje Y (ej. Empleo: nóminas
+    ~159k vs desempleo ~4%). Regla nueva: en los cuadrantes las series se MARCAN
+    (chips) y solo coexisten las del MISMO grupo de escala (`SCALE_GROUP`); marcar una
+    de otro grupo apaga las incompatibles. Grupos: cpi (CPI+CPI núcleo), empleo
+    (nóminas+claims), pct (desempleo/breakeven), grano (USD/t), oil (WTI+Brent); el
+    resto (PCE, PBI, prod. ind., confianza, gas, cobre) va solo. Default de cada
+    cuadrante = el grupo de su 1ª serie (Inflación abre con CPI+CPI núcleo juntos).
+    Default de transformación en cuadrantes vuelve a **Nivel** (con la exclusividad,
+    el nivel ya combina). Solo frontend.
 
 - **2026-07-19 (5) — Vista 3 (EEUU Macro) + transformaciones + índice de referencia.**
   Tres pedidos del user, construidos juntos porque el macro los necesita.

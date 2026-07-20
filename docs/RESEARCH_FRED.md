@@ -610,6 +610,26 @@ Encaja con el patrón `home.market_quotes`.
 
 ## Registro (con fecha)
 
+- **2026-07-19 (7) — 4 bloques nuevos: Volatilidad · Dólar/FX · Riesgo-Crédito ·
+    Macro Global.** El user los eligió todos. IDs verificados por WebSearch (datos
+    recientes) — hallazgos: FRED **eliminó Russell 2000 y Wilshire 5000** (licencia,
+    2019/2024) → no hay más índices de acciones amplios; los spreads **ICE BofA solo
+    tienen ~3 años de historia** en FRED (recorte abril 2026); CPI China (OECD) con
+    algo de rezago. Seed a 58 series.
+  - **volatilidad** (single-chart, homogéneo ~pts): VIX, VXN, VXD, RVX, OVX, GVZ
+    (familia CBOE, historia completa). Combinan en una sola vista.
+  - **dolar_fx** (single-chart, **default Base 100**): dólar amplio, BRL, CNY, MXN,
+    JPY, EUR. Escalas distintas → rebaseado por default (`BLOQUE_MODO_DEFAULT`).
+  - **riesgo_credito** (CUADRANTES): CRÉDITO USA (HY+IG) · CRÉDITO EM (corp+HY) ·
+    CONDICIONES (NFCI+STLFSI4). Spreads con ~3 años de historia.
+  - **macro_global** (CUADRANTES): CHINA (CPI/exports/reservas) · BRASIL (Selic/IPCA)
+    · LIQUIDEZ FED (balance/reservas/M2).
+  - Índices de bolsa ahora también **default Base 100** (los 3 no se leían juntos en
+    Nivel). Backend: seed (el cron siembra+backfillea desde 2020 solo). Frontend:
+    labels/orden + CUADRANTES + SCALE_GROUP (spreads/condiciones/liquidez) +
+    BLOQUE_MODO_DEFAULT. Typecheck OK.
+  - **Del user (Droplet):** `git pull` + `python -m jobs.fred_research`.
+
 - **2026-07-19 (6) — CUADRANTES 2x2 para bloques de escala heterogénea (frontend).**
   Feedback del user: EEUU MACRO no se puede leer en un eje único (índice ~300 vs
   empleo ~150.000 vs % ~4). Solución: los bloques listados en `CUADRANTES`

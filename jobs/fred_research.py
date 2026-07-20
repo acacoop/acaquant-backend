@@ -78,6 +78,41 @@ _SEED: list[tuple[str, str, str, str, str, str, int]] = [
     ("indices", "SP500",     "S&P 500",          "índice", "D", "EEUU", 1),
     ("indices", "NASDAQCOM", "Nasdaq Composite", "índice", "D", "EEUU", 2),
     ("indices", "DJIA",      "Dow Jones",        "índice", "D", "EEUU", 3),
+    # ── Bloque VOLATILIDAD (familia VIX, CBOE) — todas en la MISMA escala (~10-80
+    # pts) → combinan en una sola vista. Historia completa, sin límite de licencia.
+    ("volatilidad", "VIXCLS", "VIX (S&P 500)",      "pts", "D", "EEUU",   1),
+    ("volatilidad", "VXNCLS", "VXN (Nasdaq 100)",   "pts", "D", "EEUU",   2),
+    ("volatilidad", "VXDCLS", "VXD (Dow)",          "pts", "D", "EEUU",   3),
+    ("volatilidad", "RVXCLS", "RVX (Russell 2000)", "pts", "D", "EEUU",   4),
+    ("volatilidad", "OVXCLS", "OVX (petróleo)",     "pts", "D", "Global", 5),
+    ("volatilidad", "GVZCLS", "GVZ (oro)",          "pts", "D", "Global", 6),
+    # ── Bloque DÓLAR / FX global — escalas MUY distintas (índice ~120 vs BRL ~5 vs
+    # JPY ~150) → la vista arranca en Base 100 (frontend BLOQUE_MODO_DEFAULT).
+    ("dolar_fx", "DTWEXBGS", "Dólar amplio (índice)", "índice", "D", "EEUU",     1),
+    ("dolar_fx", "DEXBZUS",  "Real (BRL/USD)",        "BRL",    "D", "Brasil",   2),
+    ("dolar_fx", "DEXCHUS",  "Yuan (CNY/USD)",        "CNY",    "D", "China",    3),
+    ("dolar_fx", "DEXMXUS",  "Peso mex. (MXN/USD)",   "MXN",    "D", "Mexico",   4),
+    ("dolar_fx", "DEXJPUS",  "Yen (JPY/USD)",         "JPY",    "D", "Japon",    5),
+    ("dolar_fx", "DEXUSEU",  "Euro (USD/EUR)",        "USD",    "D", "Eurozona", 6),
+    # ── Bloque RIESGO / CRÉDITO — CUADRANTES (crédito USA · EM · condiciones). OJO:
+    # los spreads ICE BofA solo tienen ~3 años de historia en FRED (recorte 2026).
+    ("riesgo_credito", "BAMLH0A0HYM2",      "High Yield USA",       "pp",     "D", "EEUU", 1),
+    ("riesgo_credito", "BAMLC0A0CM",        "Investment Grade USA", "pp",     "D", "EEUU", 2),
+    ("riesgo_credito", "BAMLEMCBPIOAS",     "EM Corporativo",       "pp",     "D", "EM",   3),
+    ("riesgo_credito", "BAMLEMHBHYCRPIOAS", "EM High Yield",        "pp",     "D", "EM",   4),
+    ("riesgo_credito", "NFCI",              "Cond. fin. (Chicago Fed)", "índice", "W", "EEUU", 5),
+    ("riesgo_credito", "STLFSI4",           "Estrés fin. (St. Louis Fed)", "índice", "W", "EEUU", 6),
+    # ── Bloque MACRO GLOBAL — CUADRANTES (China · Brasil · Liquidez Fed). China vía
+    # OECD (CPI con algo de rezago); liquidez Fed en millones (WALCL/WRESBAL) y M2 en
+    # miles de millones → distinta escala, se separan por grupo.
+    ("macro_global", "CHNCPIALLMINMEI", "CPI China",             "índice", "M", "China",  1),
+    ("macro_global", "XTEXVA01CNM667S", "Exportaciones China",   "USD",    "M", "China",  2),
+    ("macro_global", "TRESEGCNM052N",   "Reservas China",        "USD",    "M", "China",  3),
+    ("macro_global", "IRSTCB01BRM156N", "Selic (Brasil)",        "%",      "M", "Brasil", 4),
+    ("macro_global", "BRACPIALLMINMEI", "IPCA (CPI Brasil)",     "índice", "M", "Brasil", 5),
+    ("macro_global", "WALCL",           "Balance de la Fed",     "M USD",  "W", "EEUU",   6),
+    ("macro_global", "WRESBAL",         "Reservas bancarias Fed", "M USD", "W", "EEUU",   7),
+    ("macro_global", "M2SL",            "M2 (EEUU)",             "MM USD", "M", "EEUU",   8),
 ]
 
 # Series RETIRADAS: se fuerzan activo=false SIEMPRE (aunque ya estén sembradas en

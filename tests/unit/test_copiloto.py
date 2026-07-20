@@ -1263,3 +1263,20 @@ def test_rankings_omiten_empates_en_cero():
     assert "top año" in out and "peores año" in out
     assert "top semana" not in out          # todos 0.00 → omitido
     assert "top mes" not in out             # sin datos → omitido
+
+
+def test_marcador_malformado_se_limpia_y_rescata():
+    """v1.71 (caso real): '[[VISTA:clave:ayuda]]' malformado LLEGABA CRUDO al
+    usuario. Todo residuo [[VISTA…]] se borra siempre; si adentro hay una
+    clave registrada, la sugerencia se rescata igual."""
+    from api.services.copiloto.derivacion import _extraer_vista_sugerida
+
+    texto, sug = _extraer_vista_sugerida(
+        "Eso se responde desde la Guía.\n[[VISTA:clave:ayuda]]", "home", None)
+    assert "[[" not in texto and "VISTA" not in texto     # jamás llega al usuario
+    # (sin usuario no hay validación RBAC → sin sugerencia, pero limpio)
+    texto2, _ = _extraer_vista_sugerida(
+        "Mirá acá.\n[[vista: cualquier_cosa]]", "home", None)
+    assert "[[" not in texto2
+    texto3, _ = _extraer_vista_sugerida("Sin marcador.", "home", None)
+    assert texto3 == "Sin marcador."

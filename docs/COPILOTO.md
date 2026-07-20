@@ -117,6 +117,22 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.71 (marcador de derivación: nunca más crudo al usuario + navegación genérica)
+Caso real desde HOME ("¿cómo veo qué títulos están en garantía?"): la
+respuesta inventó nombres de secciones y mostró el marcador interno CRUDO
+("[[VISTA:clave:ayuda]]"). Causa doble: (a) el modelo copió la palabra
+"clave" del EJEMPLO de nuestra instrucción (misma lección de v1.67: las
+instrucciones se escriben con valores reales, no placeholders); (b) la regex
+de limpieza era estricta → el marcador malformado no se borraba.
+- **[fix] limpieza a prueba de balas**: TODO residuo `[[VISTA…]]` (bien o mal
+  formado) se borra SIEMPRE antes de mostrar; si adentro hay una clave
+  registrada, la sugerencia se rescata igual (testeado).
+- **[reglas ~] instrucción sin placeholder** ("EXACTAMENTE la palabra entre
+  paréntesis de la lista: [[VISTA:renta_fija]], [[VISTA:ayuda]]").
+- **[reglas +] navegación GENÉRICA**: "¿cómo/dónde VEO tal cosa?" preguntado
+  en cualquier vista de datos → prohibido adivinar secciones; una frase +
+  derivación a la Guía ([[VISTA:ayuda]]), que es quien tiene el mapa real.
+
 ### 2026-07-20 — v1.70 (la lupa de RKLB reveló 2 datos podridos en el contexto)
 El user corrió `diag_contexto --vista renta_variable --pregunta RKLB` y la
 foto (a) CONFIRMÓ el fix v1.69 (extremos del año presentes: máx 151 el 27/05 —

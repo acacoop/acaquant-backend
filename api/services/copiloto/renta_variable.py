@@ -245,21 +245,29 @@ def _rankings(filas: list[dict]) -> list[str]:
     """Tops YA ordenados por código. El modelo ordenando 187 filas a ojo se
     comía al líder (shadow: faltó SNDK en el top del año) — esto lo hace
     determinista."""
-    def top(campo: str, titulo: str, peor: bool = False) -> str:
+    def top(campo: str, titulo: str, peor: bool = False) -> str | None:
         vals = sorted(
             ((f[campo], f.get("ticker_corto")) for f in filas if f.get(campo) is not None),
             reverse=not peor,
         )[:5]
+        # un ranking donde todos empataron en ~0 es RUIDO (lunes a la mañana el
+        # WTD de todos es 0.00 → "top semana: ARM +0.00%, …" invitaba a
+        # conclusiones falsas; visto en la lupa 2026-07-20) → se omite
+        if not vals or all(abs(v) < 0.05 for v, _t in vals):
+            return None
         return f"{titulo}: " + ", ".join(f"{t} {v:+.2f}%" for v, t in vals)
 
-    return [
-        "[rankings ya calculados — para 'los que más/menos…' usá ESTOS, no ordenes a mano]",
+    lineas = [x for x in (
         top("adr_ret_ytd_pct", "top año"),
         top("adr_ret_ytd_pct", "peores año", peor=True),
         top("adr_ret_mtd_pct", "top mes"),
         top("adr_ret_wtd_pct", "top semana"),
         top("adr_vs_1d_pct", "top día"),
-    ]
+    ) if x]
+    if not lineas:
+        return []
+    return ["[rankings ya calculados — para 'los que más/menos…' usá ESTOS, "
+            "no ordenes a mano]", *lineas]
 
 
 # ── Bloques de detalle por ticker (vista renta_variable) ────────────────────
@@ -303,11 +311,16 @@ def _detalle_ticker(f: dict) -> list[str]:
             fr = (pv.get("frames") or {}).get(marco)
             lv = (fr or {}).get("levels")
             if lv:
-                partes.append(
-                    f"pivots {marco}: PP {_num(lv.get('pp'))}"
-                    f" · R1 {_num(lv.get('r1'))} R2 {_num(lv.get('r2'))} R3 {_num(lv.get('r3'))}"
-                    f" · S1 {_num(lv.get('s1'))} S2 {_num(lv.get('s2'))} S3 {_num(lv.get('s3'))}"
+                # niveles ≤ 0 NO se muestran: la fórmula con un rango anual muy
+                # ancho da soportes negativos (RKLB: S2 -10.35, S3 -35.42 — visto
+                # en la lupa 2026-07-20) y un precio negativo no existe.
+                niveles = " · ".join(
+                    f"{n.upper()} {_num(lv.get(n))}"
+                    for n in ("pp", "r1", "r2", "r3", "s1", "s2", "s3")
+                    if lv.get(n) is not None and lv.get(n) > 0
                 )
+                if niveles:
+                    partes.append(f"pivots {marco}: {niveles}")
     except Exception as e:
         logger.warning("copiloto: pivots de %s fallaron (%s)", tk, e)
     try:

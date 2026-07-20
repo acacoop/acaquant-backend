@@ -1251,3 +1251,15 @@ def test_periodos_fantasma():
     assert _periodos_sin_respaldo("Sube fuerte en el año.", ctx) == []
     # varios inventados → todos
     assert _periodos_sin_respaldo("Entre 2023 y 2024 voló.", ctx) == ["2023", "2024"]
+
+
+def test_rankings_omiten_empates_en_cero():
+    """v1.70 (lupa RKLB): 'top semana: ARM +0.00%, …' un lunes a la mañana es
+    ruido — un ranking donde todos empataron en ~0 se omite entero."""
+    filas = [{"ticker_corto": t, "adr_ret_ytd_pct": v, "adr_ret_wtd_pct": 0.0,
+              "adr_ret_mtd_pct": None, "adr_vs_1d_pct": None}
+             for t, v in (("A", 10.0), ("B", -5.0), ("C", 3.0))]
+    out = "\n".join(copiloto.renta_variable._rankings(filas))
+    assert "top año" in out and "peores año" in out
+    assert "top semana" not in out          # todos 0.00 → omitido
+    assert "top mes" not in out             # sin datos → omitido

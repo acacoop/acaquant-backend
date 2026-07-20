@@ -117,6 +117,23 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.70 (la lupa de RKLB reveló 2 datos podridos en el contexto)
+El user corrió `diag_contexto --vista renta_variable --pregunta RKLB` y la
+foto (a) CONFIRMÓ el fix v1.69 (extremos del año presentes: máx 151 el 27/05 —
+el "96.63" era el **R3 semanal** re-etiquetado) y (b) mostró dos datos basura
+que se inyectaban al modelo:
+- **[fix] pivots con precios NEGATIVOS**: la fórmula con el rango anual ancho
+  de RKLB daba "S2 -10.35 · S3 -35.42" — un precio negativo no existe. Los
+  niveles ≤0 ya no se muestran.
+- **[fix] rankings con empate en cero**: "top semana: ARM +0.00%, NXE +0.00%…"
+  un lunes a la mañana (WTD de todos = 0) es ruido que invita a conclusiones
+  falsas — un ranking donde todos empataron en ~0 se OMITE entero.
+- Nota de límite: los fundamentals traen los años 2021-2025 (balances) → para
+  papeles CON fundamentals, "2025" está respaldado en el contexto y el candado
+  de períodos fantasma no dispara; un juicio de PRECIO sobre 2025 apoyado en
+  años de balance sigue siendo posible — lo contienen la regla de nombres
+  exactos y el caso de eval.
+
 ### 2026-07-20 — v1.69 (caso RKLB: RE-ETIQUETADO — "máximo del año" respondido con el R3 anual)
 Clase de error NUEVA (no la caza el grounding): preguntaron "¿máximo del año?"
 y el modelo respondió 96.63 — número que SÍ existe en el contexto… como pivot

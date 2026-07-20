@@ -117,6 +117,20 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.73 (HANDOFF transparente a la guía: "te tiene que guiar DIRECTO")
+Corrección del user sobre v1.72b: derivar a la guía con un botón es un REBOTE
+("¿qué FCI se operó más hoy?" desde HOME tiene que devolver la receta, no "no
+lo tengo, tocá acá").
+- **[motor +] handoff transparente**: cuando un copiloto de DATOS deriva a
+  [[VISTA:ayuda]], el motor re-hace la MISMA pregunta a la vista ayuda ahí
+  adentro y devuelve SU respuesta (la receta: Operaciones → tipo Suscripción/
+  Rescate → por título ves los fondos). Profundidad 1 (ayuda no deriva a
+  ayuda); si falla, cae a la respuesta original. Testeado.
+- **[mapa ~]** equivalencia FCI + regla de "hoy": las vistas abren por defecto
+  en el día en curso — no hay que tocar fechas (dato del user).
+- (v1.72b, mismo día: dominio desconocido → prohibido inventar nombres de
+  vistas; deriva a la guía — ahora ese camino termina en el handoff.)
+
 ### 2026-07-20 — v1.72 (guía: mapa PROFUNDO verificado contra el frontend + EQUIVALENCIAS)
 El user señaló el límite estructural: el mapa curado no sabía del filtro SOLO
 GAR ("títulos en garantía" SÍ existe: Back Office → Tenencia Valorizada) ni

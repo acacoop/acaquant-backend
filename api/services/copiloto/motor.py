@@ -239,6 +239,21 @@ def preguntar(
 
     texto, vista_sugerida = _extraer_vista_sugerida(texto, vista, usuario)
 
+    # HANDOFF TRANSPARENTE A LA GUÍA (pedido user 2026-07-20: "te tiene que
+    # guiar DIRECTO"): si un copiloto de DATOS derivó a la guía ([[VISTA:ayuda]]),
+    # mandarle al usuario "no lo tengo + botón" es un REBOTE. En su lugar, la
+    # misma pregunta se le hace a la vista ayuda acá adentro y se devuelve SU
+    # respuesta (la receta concreta de navegación). Profundidad 1: ayuda jamás
+    # deriva a ayuda. Si el handoff falla, cae a la respuesta original.
+    if (vista != "ayuda" and (vista_sugerida or {}).get("vista") == "ayuda"):
+        try:
+            guia = preguntar("ayuda", pregunta, historial=historial,
+                             usuario=usuario, conv_id=conv_id)
+            if guia.get("ok"):
+                return guia
+        except Exception as e:
+            logger.warning("copiloto %s: handoff a la guía falló (%s)", vista, e)
+
     _marcar_conversacion(traza_id, conv_id)
     return {
         "ok": True,

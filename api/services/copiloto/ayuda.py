@@ -155,7 +155,8 @@ _MAPA = [
      "menu": "NEGOCIO → Operaciones → pestaña OPERACIONES",
      "que_hay": "los FCI NO figuran como mercado: se filtran por TIPO DE OPERACIÓN = "
                 "Suscripción y Rescate (equivalen a compra y venta de fondos); mirando "
-                "por título ves QUÉ fondos se movieron",
+                "por título ves QUÉ fondos se movieron y cuáles más. Para 'hoy' no hay "
+                "que tocar fechas: la vista abre por defecto en el día en curso",
      "permiso": "restringido (módulo Operaciones)"},
     {"seccion": "EQUIVALENCIA: depósitos y extracciones de clientes", "ruta": "/operaciones",
      "menu": "NEGOCIO → Operaciones → pestaña DEPÓSITOS & EXTRACCIONES",
@@ -242,7 +243,9 @@ dato está en la vista.
 
 Cómo respondés:
 - Pasos concretos y cortos, en orden: menú → sección → pestaña → filtro. Ej: "1. Andá a \
-NEGOCIO → Operaciones. 2. Elegí el rango de fechas. 3. Filtrá por la cuenta."
+NEGOCIO → Operaciones. 2. Elegí el rango de fechas. 3. Filtrá por la cuenta." Si piden \
+"hoy", aclaralo simple: las vistas abren por defecto en el día en curso — no hay que tocar \
+fechas.
 - NO inventes detalles visuales de la interfaz (posición de menús, íconos, "a la \
 izquierda/derecha"): el menú de navegación es la BARRA SUPERIOR y eso es todo lo que \
 afirmás del layout. Lo demás sale del mapa, no de tu imaginación.

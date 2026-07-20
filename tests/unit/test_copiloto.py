@@ -1271,7 +1271,7 @@ def test_marcador_malformado_se_limpia_y_rescata():
     clave registrada, la sugerencia se rescata igual."""
     from api.services.copiloto.derivacion import _extraer_vista_sugerida
 
-    texto, sug = _extraer_vista_sugerida(
+    texto, _sug = _extraer_vista_sugerida(
         "Eso se responde desde la Guía.\n[[VISTA:clave:ayuda]]", "home", None)
     assert "[[" not in texto and "VISTA" not in texto     # jamás llega al usuario
     # (sin usuario no hay validación RBAC → sin sugerencia, pero limpio)
@@ -1280,3 +1280,33 @@ def test_marcador_malformado_se_limpia_y_rescata():
     assert "[[" not in texto2
     texto3, _ = _extraer_vista_sugerida("Sin marcador.", "home", None)
     assert texto3 == "Sin marcador."
+
+
+def test_handoff_transparente_a_la_guia(monkeypatch):
+    """v1.73 (pedido user: 'te tiene que guiar DIRECTO'): un copiloto de datos
+    que deriva a [[VISTA:ayuda]] NO devuelve el rebote — la pregunta se
+    re-hace a la guía adentro y se devuelve SU respuesta."""
+    llamadas = []
+
+    def fake_completar(tarea, system=None, user=None, usuario=None, detalle=None):
+        # 1ra llamada (vista fake): deriva a ayuda; 2da (ayuda): la receta
+        if any("GUÍA" in (system or "") for _ in [0]) and "guía" in (system or "").lower():
+            return "1. Andá a NEGOCIO → Operaciones y filtrá por tipo Suscripción.", 99
+        llamadas.append(tarea)
+        return "Acá no tengo ese dato.\n[[VISTA:ayuda]]", 42
+
+    monkeypatch.setitem(
+        copiloto.VISTAS, "fake",
+        {"titulo": "Fake", "modulo": "renta-variable",
+         "fetch": lambda params=None: [{"ticker_corto": "X", "last": 1.0}],
+         "columnas": [("ticker_corto", "t"), ("last", "l")], "reglas": "reglas"})
+    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    monkeypatch.setattr("core.ai.motivo_presupuesto", lambda u: None)
+    monkeypatch.setattr("core.roles.has_access", lambda u, m: True)
+    monkeypatch.setattr("core.roles.get_user_role", lambda u: "admin")
+
+    out = copiloto.preguntar("fake", "¿qué FCI se operó más hoy?", usuario="u@x.com")
+    assert out["ok"] is True
+    assert "Suscripción" in out["respuesta"]          # la receta de la GUÍA
+    assert "no tengo ese dato" not in out["respuesta"]  # el rebote no se muestra
+    assert out["fuente"]["vista"] == "ayuda"

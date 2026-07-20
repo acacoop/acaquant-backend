@@ -15,6 +15,13 @@ from .renta_variable import (
     _extras_renta_variable,
     _fetch_cedears,
 )
+from .research import (
+    _CHIPS_RESEARCH,
+    _COLUMNAS_RESEARCH,
+    _REGLAS_RESEARCH,
+    _extras_research,
+    _fetch_research,
+)
 from .reuters import _REGLAS_REUTERS, _fetch_reuters
 from .trading import _REGLAS_TRADING, _extras_trading, _fetch_trading
 
@@ -161,6 +168,24 @@ VISTAS: dict[str, dict] = {
             ("zona", "zona_actual"), ("nivel_cercano", "nivel_cercano"),
         ],
         "reglas": _REGLAS_TRADING,
+    },
+    "research": {
+        "titulo": "Research",
+        # UN copiloto para toda /research (decisión user 2026-07-20): el panel
+        # manda params.tab y el contexto cambia según la tab activa. La tab
+        # RV INTERNACIONAL queda afuera — tiene su propia vista `reuters`.
+        "modulo": "research",
+        "dominio": "el research de mercado: series 1816 de renta fija argentina "
+                   "(TEA/paridad/duration por bono), variables BCRA, datos "
+                   "internacionales FRED, reportes cargados por el equipo y los "
+                   "mails diarios de research de 1816 (citables con fecha)",
+        "fetch": _fetch_research,
+        "extras": _extras_research,
+        "jerga_permitida": {"tea", "tna", "paridad", "duration", "ccl", "cer",
+                            "carry", "bps", "pb", "spread", "fed", "ipc"},
+        "chips": _CHIPS_RESEARCH,
+        "columnas": _COLUMNAS_RESEARCH,
+        "reglas": _REGLAS_RESEARCH,
     },
     "reuters": {
         "titulo": "Reuters",

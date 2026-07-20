@@ -117,6 +117,29 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.58 (vista RESEARCH unificada: un copiloto para toda /research)
+El "Nivel 2" que VISTA_RESEARCH.md §2.7 dejó anotado ("la IA se consume SOLO
+cuando alguien pregunta"). Decisión del user: **UN copiloto para toda la vista**
+— el panel manda `params.tab` y el contexto es el de la tab activa (la tab
+RV INTERNACIONAL queda afuera: ya tiene su vista `reuters`).
+- **[vista +] `research`** (`copiloto/research.py`, módulo RBAC `research`).
+  Tabla por tab, columnas genéricas + específicas: `argentina` = watch 1816
+  (último TEA%/paridad%/precio/duration por bono + cambios de TEA 7/30d en pp;
+  TEA/paridad se pasan de fracción a % en código) · `bcra`/`internacional` =
+  watch BCRA/FRED (último valor + cambios 7/30d como DIFERENCIA absoluta en la
+  unidad) · `reportes` = ficha de documentos + comentario del equipo (el PDF no
+  se lee — declarado en reglas). Derivación pura `_ultimo_y_cambios` (testeada).
+- **[contexto +] el research ESCRITO, citable con fecha**: `[research más
+  reciente]` (el último mail, recortado) SIEMPRE + `[1816 dijo]` = **FTS
+  determinista** sobre `ia.research` con los términos de la pregunta
+  (`_terminos_busqueda`, stoplist + cap 3 términos / 4 fragmentos, índice GIN ya
+  existente). Regla dura: "1816 dijo X" SOLO citando esos bloques con fecha; sin
+  resultados → "no encuentro menciones" (jamás parafrasear de memoria).
+- **[UI]** botón del copiloto en la barra de tabs de `/research`
+  (`research-view.tsx`, `getParams={() => ({tab})}`), oculto en RV INT.
+- **[chips]** El día en pocas líneas · ¿Qué se movió? · Número + narrativa ·
+  ¿Qué estoy viendo?
+
 ### 2026-07-20 — v1.57 (TRADING: memoria de ruedas + modo propositivo)
 Pedido del user: que el copiloto de trading recomiende y guíe ("¿dónde está el
 trade?", "¿cómo busco ganar $X?"), detecte patrones entre días, y siga forzando

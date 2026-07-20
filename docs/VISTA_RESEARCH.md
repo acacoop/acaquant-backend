@@ -502,6 +502,20 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-07-20 (14) — COPILOTO de Research (el "Nivel 2" de §2.7, HECHO)
+La IA on-demand que este doc dejó anotada. Decisión del user: **UN copiloto
+para toda /research** — el panel manda la tab activa y el contexto es el de esa
+tab (RV INTERNACIONAL queda con su vista `reuters` propia). Vista `research` en
+`api/services/copiloto/research.py` (módulo RBAC `research`, gate `ia`):
+- Tabla por tab: watch 1816 (último TEA%/paridad%/precio/duration + cambios de
+  TEA 7/30d en pp) · BCRA/FRED (último valor + diferencia 7/30d) · reportes
+  (ficha + comentario; el PDF no se lee).
+- **Mails citables con fecha**: el mail más reciente SIEMPRE + FTS determinista
+  (`buscar_research`, índice GIN existente) con los términos de la pregunta —
+  el modelo solo puede citar fragmentos que el código trajo. Cero tokens extra
+  de ingesta: consistente con "la IA no interviene sola".
+- Detalle completo y changelog: `docs/COPILOTO.md` v1.58.
+
 ### 2026-07-18 (13) — el research del día en el BRIEFING (pedido del user)
 El modal del briefing de las 10:00 (HOME) ahora muestra, **solo si HOY llegó el
 mail de 1816**, un panel lateral "📰 RESEARCH DEL DÍA" con el texto completo tal

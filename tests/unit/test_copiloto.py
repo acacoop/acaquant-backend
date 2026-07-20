@@ -1040,3 +1040,42 @@ def test_setups_resumen_vacio_lo_dice():
         [{"ticker": "SNDK", "_nivel_dist": 3.0, "_nivel_nombre": "PP",
           "_nivel_precio": 100.0, "_piv": {"pp": 100.0}}]))
     assert "ninguna de tus tarjetas" in out
+
+
+# ── vista research unificada (un copiloto para toda /research, 2026-07-20) ───
+
+def test_research_registrada_y_contrato():
+    r = copiloto.VISTAS["research"]
+    assert r["modulo"] == "research" and r["dominio"] and r["chips"]
+    assert any(c[0] == "tea" for c in r["columnas"])          # 1816
+    assert any(c[0] == "ultimo" for c in r["columnas"])       # bcra/fred
+    assert any(c[0] == "comentario" for c in r["columnas"])   # reportes
+
+
+def test_research_sanear_tab():
+    f = copiloto.research._sanear_params_research
+    assert f({"tab": "bcra"}) == "bcra"
+    assert f({"tab": "RV-INT"}) == "argentina"    # esa tab tiene su propia vista
+    assert f({"tab": "cualquiera"}) == "argentina"
+    assert f(None) == "argentina"
+
+
+def test_research_ultimo_y_cambios():
+    from datetime import date
+
+    puntos = [(date(2026, 6, 1), 0.50), (date(2026, 6, 24), 0.55),
+              (date(2026, 7, 1), 0.60), (date(2026, 7, 8), 0.62)]
+    d = copiloto.research._ultimo_y_cambios(puntos, escala=100.0)
+    assert d["ultimo"] == 62.0
+    assert d["fecha_ultimo"] == "2026-07-08"
+    assert d["cambio_7d"] == 2.0     # vs 01/07 (>=7 días atrás)
+    assert d["cambio_30d"] == 12.0   # vs 01/06
+    vacio = copiloto.research._ultimo_y_cambios([])
+    assert vacio["ultimo"] is None and vacio["cambio_7d"] is None
+
+
+def test_research_terminos_busqueda():
+    f = copiloto.research._terminos_busqueda
+    assert f("¿Qué viene diciendo 1816 sobre el carry con TX26?") == ["carry", "TX26"]
+    assert f("resumime el research de hoy") == []          # todo stopwords
+    assert len(f("bopreal brecha reservas licitacion dolar")) == 3   # cap

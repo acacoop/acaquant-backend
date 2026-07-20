@@ -47,7 +47,14 @@ def _bloque_otras_vistas(usuario: str | None, vista_actual: str) -> str:
         "corchetes. No es texto para el usuario: el panel lo convierte en un botón. "
         "Y si la pregunta es de NAVEGACIÓN (\"¿cómo/dónde VEO tal cosa en la "
         "plataforma?\"): NO adivines nombres de secciones — decí en una frase que eso "
-        "te lo responde la Guía de la plataforma y cerrá con [[VISTA:ayuda]]."
+        "te lo responde la Guía de la plataforma y cerrá con [[VISTA:ayuda]]. "
+        "REGLA DE CIERRE: si la consulta pide un dato que NO tenés y su dominio "
+        "TAMPOCO está en la lista de arriba (ej. operaciones de clientes, carteras, "
+        "back office, cosas del negocio), la respuesta es SIEMPRE la misma: una frase "
+        "(\"acá no tengo ese dato\") + [[VISTA:ayuda]] para que la Guía le muestre "
+        "dónde vive. PROHIBIDO TERMINANTEMENTE inventar o adivinar nombres de vistas, "
+        "secciones o módulos que no estén en la lista — nombrar una vista que no "
+        "existe es peor que no responder."
     )
 
 

@@ -92,6 +92,37 @@ def _extremos_serie() -> dict:
 
 
 @cached(ttl=900)
+def _extremos_del_anio(under: str) -> dict | None:
+    """Máximo/mínimo del AÑO EN CURSO del subyacente, con sus fechas, desde la
+    serie diaria (mercado.precios_acciones). El dato que faltaba en el caso
+    RKLB (2026-07-20). kwargs-only por el @cached."""
+    from core.postgres import get_pool
+
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT max(high), min(low),
+                   (SELECT fecha FROM mercado.precios_acciones
+                    WHERE ticker = %(t)s AND fecha >= date_trunc('year', current_date)
+                    ORDER BY high DESC NULLS LAST LIMIT 1),
+                   (SELECT fecha FROM mercado.precios_acciones
+                    WHERE ticker = %(t)s AND fecha >= date_trunc('year', current_date)
+                    ORDER BY low ASC NULLS LAST LIMIT 1)
+            FROM mercado.precios_acciones
+            WHERE ticker = %(t)s AND fecha >= date_trunc('year', current_date)
+            """,
+            {"t": under},
+        )
+        fila = cur.fetchone()
+    if not fila or fila[0] is None or fila[1] is None:
+        return None
+    mx, mn, f_mx, f_mn = fila
+    return {"max": float(mx), "min": float(mn),
+            "fecha_max": f_mx.isoformat() if f_mx else "-",
+            "fecha_min": f_mn.isoformat() if f_mn else "-"}
+
+
+@cached(ttl=900)
 def _retornos_ruedas() -> dict:
     """{underlying: {"r30": pct, "r45": pct}} — retornos a 30/45 RUEDAS (días
     de mercado) desde mercado.precios_acciones. Lente de trading pedido por la
@@ -253,6 +284,21 @@ def _detalle_ticker(f: dict) -> list[str]:
         pv = scanner_sql.get_pivot_points(ticker=tk) or {}
         if pv.get("last") is not None:
             partes.append(f"último precio subyacente: {_num(pv['last'])} USD")
+    except Exception as e:
+        logger.warning("copiloto: last de %s falló (%s)", tk, e)
+    # extremos del AÑO en curso (v1.69, caso RKLB: preguntaron "máximo del año",
+    # el dato no existía en el contexto y el modelo re-etiquetó el R3 anual
+    # como máximo — se le da el dato REAL para que no tenga que inventar)
+    try:
+        ex = _extremos_del_anio(under=str(f.get("underlying") or tk).upper())
+        if ex:
+            partes.append(
+                f"extremos del AÑO en curso (desde el 1 de enero): máximo {_num(ex['max'])}"
+                f" USD ({ex['fecha_max']}) · mínimo {_num(ex['min'])} USD ({ex['fecha_min']})"
+            )
+    except Exception as e:
+        logger.warning("copiloto: extremos del año de %s fallaron (%s)", tk, e)
+    try:
         for marco in ("diario", "semanal", "mensual", "anual"):
             fr = (pv.get("frames") or {}).get(marco)
             lv = (fr or {}).get("levels")

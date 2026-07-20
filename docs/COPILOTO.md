@@ -117,6 +117,21 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.69 (caso RKLB: RE-ETIQUETADO — "máximo del año" respondido con el R3 anual)
+Clase de error NUEVA (no la caza el grounding): preguntaron "¿máximo del año?"
+y el modelo respondió 96.63 — número que SÍ existe en el contexto… como pivot
+R3 ANUAL. No inventó el número: le inventó el SIGNIFICADO (el máximo del año
+real no estaba en el contexto; el histórico 151 sí, y lo citó bien al ser
+corregido). Doble fix:
+- **[contexto +] extremos del AÑO en curso** en el [detalle] por ticker: máx/
+  mín desde el 1 de enero CON FECHAS, desde la serie diaria
+  (`_extremos_del_anio`, cache 900s). La pregunta ahora tiene el dato real.
+- **[reglas +]** "cada número se cita con SU NOMBRE EXACTO": prohibido
+  responder un dato pedido con otro número 'parecido' — re-etiquetar es
+  INVENTAR aunque el número exista; sin el dato con ese nombre → "no lo tengo".
+- Debugging asentado: `diag_contexto --vista renta_variable --pregunta "RKLB"`
+  muestra el contexto exacto — así se rastreó que 96.63 era el R3 anual.
+
 ### 2026-07-20 — v1.68 (caso EWZ parte 4/final: PERÍODOS FANTASMA — el invento del "2025 flojo")
 La falla más grave de la serie: el modelo justificó una recomendación con "un
 2025 flojo" — período INVENTADO (los datos arrancan en 2026). Se escapó por la

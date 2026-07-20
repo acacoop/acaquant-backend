@@ -88,14 +88,13 @@ _MAPA = [
      "que_hay": "el flujo operado contra cada contraparte del mercado",
      "permiso": "restringido (módulo Operaciones)"},
     {"seccion": "Operaciones", "ruta": "/operaciones", "menu": "NEGOCIO → Operaciones",
-     "que_hay": "TODO lo operado: MOVIMIENTOS por día/mes con volumen y aranceles — acepta "
-                "RANGO DE FECHAS y se filtra por moneda (ARS/USD), mercado, segmento (nivel "
-                "1), segmento del boleto (nivel 3), tipo de operación, cuenta (buscador), "
-                "operador, y ver solo/sin las cuentas propias de ACA VALORES; además la "
-                "vista NEGOCIO (posiciones y resultado por cliente), el TABLERO COMERCIAL "
-                "(estado de actividad de cada cuenta y su operador) y la pestaña AGRO "
-                "(share de mercado). Los VALORES vigentes de cada filtro están en el bloque "
-                "[filtros de Operaciones]",
+     "que_hay": "TODO lo operado, en 4 pestañas: OPERACIONES (volumen por día/mes — acepta "
+                "RANGO DE FECHAS y se filtra por moneda ARS/USD, mercado, segmento nivel 1, "
+                "segmento del boleto nivel 3, tipo de operación, cuenta con buscador, "
+                "operador, y solo/sin cuentas propias ACA VALORES), ARANCELES (lo facturado, "
+                "mismos filtros), AGRO (share de mercado de granos) y DEPÓSITOS & "
+                "EXTRACCIONES (movimientos de dinero de clientes). Los VALORES vigentes de "
+                "cada filtro están en el bloque [filtros de Operaciones]",
      "permiso": "restringido (módulo Operaciones)"},
     {"seccion": "Operadores", "ruta": "/operadores", "menu": "NEGOCIO → Operadores",
      "que_hay": "el tablero por operador comercial: sus cuentas, actividad y objetivos",
@@ -105,8 +104,11 @@ _MAPA = [
      "permiso": "restringido (módulo Operaciones)"},
     # ── back office y administración ──
     {"seccion": "Back Office", "ruta": "/back-office", "menu": "BACK OFFICE",
-     "que_hay": "acreencias (cupones, rentas y amortizaciones a cobrar por fecha), tesorería "
-                "(ingresos y egresos del día) y tenencia valorizada histórica",
+     "que_hay": "5 pestañas: TENENCIA VALORIZADA (la tenencia histórica día a día, con el "
+                "filtro TODOS / SIN GAR / SOLO GAR / SIN ALQUILER — 'SOLO GAR' muestra "
+                "exclusivamente los TÍTULOS EN GARANTÍA), TÍTULOS EN ALQUILER, TESORERÍA "
+                "(ingresos y egresos del día), TÍTULOS / MERCADO y ACREENCIAS CLIENTES "
+                "(cupones, rentas y amortizaciones a cobrar por fecha)",
      "permiso": "restringido (módulo Back Office)"},
     {"seccion": "Manager", "ruta": "/manager", "menu": "MANAGER",
      "que_hay": "administración de la plataforma: usuarios y permisos (roles), altas y "
@@ -116,8 +118,9 @@ _MAPA = [
     # ── recetas frecuentes (atajos que el guía puede recomendar directo) ──
     {"seccion": "RECETA: cuánto operó una cuenta", "ruta": "/operaciones",
      "menu": "NEGOCIO → Operaciones",
-     "que_hay": "en MOVIMIENTOS elegís el rango de fechas y filtrás por la cuenta: ves "
-                "volumen bruto y aranceles por día y por tipo de operación",
+     "que_hay": "en la pestaña OPERACIONES elegís el rango de fechas y filtrás por la "
+                "cuenta: ves el volumen por día y tipo de operación; lo facturado, en la "
+                "pestaña ARANCELES",
      "permiso": "restringido (módulo Operaciones)"},
     {"seccion": "RECETA: ver la cartera de un cliente", "ruta": "/valuaciones",
      "menu": "NEGOCIO → Carteras",
@@ -139,6 +142,37 @@ _MAPA = [
      "que_hay": "los permisos por vista los asigna el administrador en MANAGER → Roles y "
                 "Permisos; si no ves una sección del menú, es porque tu rol no la tiene",
      "permiso": "—"},
+    # ── EQUIVALENCIAS: conceptos que viven ADENTRO de otra vista con otro
+    #    nombre (la causa #1 de respuestas erradas del guía — caso "garantía"
+    #    y "FCI operado" 2026-07-20). Cuando lo que piden no aparece literal,
+    #    el camino real suele estar acá. ──
+    {"seccion": "EQUIVALENCIA: títulos en garantía", "ruta": "/back-office",
+     "menu": "BACK OFFICE → Tenencia Valorizada",
+     "que_hay": "los títulos en garantía se ven con el filtro 'SOLO GAR' de la pestaña "
+                "Tenencia Valorizada ('SIN GAR' los excluye del total)",
+     "permiso": "restringido (módulo Back Office)"},
+    {"seccion": "EQUIVALENCIA: cuánto se operó en FCI (fondos)", "ruta": "/operaciones",
+     "menu": "NEGOCIO → Operaciones → pestaña OPERACIONES",
+     "que_hay": "los FCI NO figuran como mercado: se filtran por TIPO DE OPERACIÓN = "
+                "Suscripción y Rescate (equivalen a compra y venta de fondos); mirando "
+                "por título ves QUÉ fondos se movieron",
+     "permiso": "restringido (módulo Operaciones)"},
+    {"seccion": "EQUIVALENCIA: depósitos y extracciones de clientes", "ruta": "/operaciones",
+     "menu": "NEGOCIO → Operaciones → pestaña DEPÓSITOS & EXTRACCIONES",
+     "que_hay": "los movimientos de dinero de clientes (no bursátiles) tienen su pestaña "
+                "propia dentro de Operaciones; los del DÍA en curso también en BACK "
+                "OFFICE → Tesorería",
+     "permiso": "restringido (módulo Operaciones)"},
+    {"seccion": "EQUIVALENCIA: títulos prestados / alquilados", "ruta": "/back-office",
+     "menu": "BACK OFFICE → Títulos en Alquiler",
+     "que_hay": "el préstamo/alquiler de títulos tiene pestaña propia; en Tenencia "
+                "Valorizada el filtro 'SIN ALQUILER' lo descuenta del total",
+     "permiso": "restringido (módulo Back Office)"},
+    {"seccion": "EQUIVALENCIA: aranceles / comisiones cobradas", "ruta": "/operaciones",
+     "menu": "NEGOCIO → Operaciones → pestaña ARANCELES",
+     "que_hay": "lo facturado por operar (aranceles) tiene su pestaña propia, con el "
+                "mismo juego de filtros que MOVIMIENTOS",
+     "permiso": "restringido (módulo Operaciones)"},
 ]
 
 
@@ -221,8 +255,13 @@ Derivados, ONs, Trading, Research), avisá: "ahí arriba tenés el botón «Cons
 para preguntarle sobre esos datos".
 - Si la sección es restringida, decilo sin drama: "esa vista requiere el permiso X — lo \
 asigna el administrador en Manager".
-- Si lo que piden NO existe en la plataforma, decilo derecho y ofrecé lo más parecido del \
-mapa. No inventes vistas ni funcionalidades que no están en la tabla.
+- ANTES de decir que algo no existe, revisá las filas EQUIVALENCIA: muchos conceptos viven \
+ADENTRO de otra vista con OTRO nombre (garantía = filtro SOLO GAR de Tenencia Valorizada; \
+FCI operado = tipo de operación Suscripción/Rescate en Movimientos). Si el concepto pedido \
+matchea una equivalencia, esa es la respuesta.
+- Si lo que piden NO existe en la plataforma NI en las equivalencias, decilo derecho y \
+ofrecé lo más parecido del mapa. No inventes vistas ni funcionalidades que no están en la \
+tabla.
 - Si la pregunta ES de datos/análisis y corresponde a una vista con asistente, derivá con \
 [[VISTA:x]] como siempre.
 - Tono: servicial y directo, 2-6 líneas. Nada de jerga técnica interna."""

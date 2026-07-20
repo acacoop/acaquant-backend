@@ -117,6 +117,24 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.72 (guía: mapa PROFUNDO verificado contra el frontend + EQUIVALENCIAS)
+El user señaló el límite estructural: el mapa curado no sabía del filtro SOLO
+GAR ("títulos en garantía" SÍ existe: Back Office → Tenencia Valorizada) ni
+que "FCI operado" = tipo de operación Suscripción/Rescate — "esto va a pasar
+con miles de cosas más". Doble respuesta:
+- **[mapa ~] releído del CÓDIGO del frontend**: Back Office con sus 5 pestañas
+  reales + el filtro TODOS/SIN GAR/SOLO GAR/SIN ALQUILER · /operaciones con
+  sus 4 pestañas reales (OPERACIONES/ARANCELES/AGRO/DEPÓSITOS & EXTRACCIONES —
+  la vista NEGOCIO se había mudado a Manager y el mapa tenía info vieja).
+- **[mapa +] filas EQUIVALENCIA** (concepto → dónde vive con OTRO nombre):
+  garantía→SOLO GAR · FCI operado→Suscripción/Rescate por título · depósitos/
+  extracciones · alquiler de títulos · aranceles. Regla nueva: ANTES de decir
+  "no existe", revisar equivalencias.
+- **[tooling] `scripts/gen_guia_check.py`** (contrato gen_sistema): extrae del
+  frontend TODOS los destinos navegables (menú + labels de pestañas) y avisa
+  cuáles no están en el mapa (--strict para CI). Corrido hoy: 29/29 cubiertos.
+  El mapa ya no puede pudrirse en silencio.
+
 ### 2026-07-20 — v1.71 (marcador de derivación: nunca más crudo al usuario + navegación genérica)
 Caso real desde HOME ("¿cómo veo qué títulos están en garantía?"): la
 respuesta inventó nombres de secciones y mostró el marcador interno CRUDO

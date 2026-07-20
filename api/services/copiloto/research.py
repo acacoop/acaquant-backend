@@ -123,13 +123,30 @@ def _filas_1816() -> list[dict]:
         par = _ultimo_y_cambios(puntos.get((ticker, "paridad"), []), escala=100.0)
         pc = _ultimo_y_cambios(puntos.get((ticker, "precioClean"), []))
         du = _ultimo_y_cambios(puntos.get((ticker, "duration"), []))
+        # columna `dato` COMPACTA (balanza 2026-07-20: la tabla ancha gastaba
+        # ~35% en celdas vacías): todo lo del bono en un string denso, sin "-".
+        partes = []
+        if tea["ultimo"] is not None:
+            s = f"TEA {tea['ultimo']:.2f}%"
+            if tea["cambio_7d"] is not None:
+                s += f" (7d {tea['cambio_7d']:+.2f}pp"
+                if tea["cambio_30d"] is not None:
+                    s += f" · 30d {tea['cambio_30d']:+.2f}pp"
+                s += ")"
+            partes.append(s)
+        if par["ultimo"] is not None:
+            partes.append(f"paridad {par['ultimo']:.2f}%")
+        if pc["ultimo"] is not None:
+            partes.append(f"precio {pc['ultimo']:.1f}")
+        if du["ultimo"] is not None:
+            partes.append(f"duration {du['ultimo']:.2f}")
+        if base.get("vencimiento"):
+            partes.append(f"vence {base['vencimiento']}")
+        # el nombre suele repetir el ticker entre paréntesis — se depura
+        nombre = (base.get("nombre") or "").replace(f"({ticker})", "").strip()
         filas.append({
-            **base, "fuente": "1816",
-            "fecha_ultimo": tea["fecha_ultimo"] or pc["fecha_ultimo"],
-            "tea": tea["ultimo"], "tea_cambio_7d": tea["cambio_7d"],
-            "tea_cambio_30d": tea["cambio_30d"],
-            "paridad": par["ultimo"], "precio_clean": pc["ultimo"],
-            "duration": du["ultimo"],
+            "fuente": "1816", "id": ticker, "nombre": nombre,
+            "grupo": base.get("grupo"), "dato": " · ".join(partes) or None,
         })
     filas.sort(key=lambda f: (str(f.get("grupo")), str(f.get("id"))))
     return filas[:_MAX_FILAS]
@@ -158,8 +175,24 @@ def _filas_watch_series(sql: str, params: tuple, fuente: str) -> list[dict]:
     filas = []
     for sid, base in meta.items():
         d = _ultimo_y_cambios(puntos.get(sid, []))
-        filas.append({**base, "ultimo": d["ultimo"], "fecha_ultimo": d["fecha_ultimo"],
-                      "cambio_7d": d["cambio_7d"], "cambio_30d": d["cambio_30d"]})
+        partes = []
+        if d["ultimo"] is not None:
+            s = f"último {d['ultimo']:g}"
+            if base.get("unidad"):
+                s += f" {base['unidad']}"
+            partes.append(s)
+            if d["cambio_7d"] is not None:
+                s2 = f"cambio 7d {d['cambio_7d']:+g}"
+                if d["cambio_30d"] is not None:
+                    s2 += f" · 30d {d['cambio_30d']:+g}"
+                partes.append(s2)
+            if d["fecha_ultimo"]:
+                partes.append(f"al {d['fecha_ultimo']}")
+        filas.append({
+            "fuente": fuente, "id": base["id"], "nombre": base.get("nombre"),
+            "grupo": base.get("grupo"),
+            "dato": " · ".join(partes) or "sin datos cargados",
+        })
     filas.sort(key=lambda f: (str(f.get("grupo")), str(f.get("id"))))
     return filas[:_MAX_FILAS]
 
@@ -198,12 +231,17 @@ def _filas_reportes() -> list[dict]:
     from api.services import research_docs_sql
 
     docs = (research_docs_sql.listar() or {}).get("documentos") or []
-    return [{
-        "id": d.get("id"), "fuente": "reportes", "nombre": d.get("titulo"),
-        "grupo": d.get("tipo"), "unidad": d.get("fuente"),
-        "fecha_ultimo": d.get("fecha"), "autor": d.get("autor"),
-        "comentario": (d.get("comentario") or "")[:300] or None,
-    } for d in docs[:_MAX_REPORTES]]
+    filas = []
+    for d in docs[:_MAX_REPORTES]:
+        partes = [p for p in (
+            d.get("fecha"), d.get("fuente"),
+            f"autor {d.get('autor')}" if d.get("autor") else None,
+            (d.get("comentario") or "")[:200] or None,
+        ) if p]
+        filas.append({"fuente": "reportes", "id": d.get("id"),
+                      "nombre": d.get("titulo"), "grupo": d.get("tipo"),
+                      "dato": " · ".join(str(p) for p in partes) or None})
+    return filas
 
 
 def _fetch_research(params: dict | None = None) -> list[dict]:
@@ -302,16 +340,11 @@ def _extras_research(
     return partes
 
 
+# Compacta a propósito (balanza 2026-07-20: la tabla ancha de 17 columnas
+# gastaba ~35% en celdas vacías — cada fuente usa UNA columna `dato` densa).
 _COLUMNAS_RESEARCH = [
-    ("fuente", "fuente"),
-    ("id", "serie/ticker"), ("nombre", "nombre"), ("grupo", "curva/bloque"),
-    ("unidad", "unidad/moneda"), ("fecha_ultimo", "fecha_último_dato"),
-    ("ultimo", "último_valor"), ("cambio_7d", "cambio_7d"), ("cambio_30d", "cambio_30d"),
-    ("tea", "TEA_%"), ("tea_cambio_7d", "TEA_cambio_7d_pp"),
-    ("tea_cambio_30d", "TEA_cambio_30d_pp"), ("paridad", "paridad_%"),
-    ("precio_clean", "precio_clean"), ("duration", "duration"),
-    ("vencimiento", "vencimiento"), ("autor", "autor"),
-    ("comentario", "comentario_del_equipo"),
+    ("fuente", "fuente"), ("id", "serie/ticker"), ("nombre", "nombre"),
+    ("grupo", "curva/bloque"), ("dato", "datos (ya calculados)"),
 ]
 
 _REGLAS_RESEARCH = """Sos el copiloto de la vista RESEARCH y sos el ANALISTA INTEGRAL de la \
@@ -322,19 +355,21 @@ ambigua, pero tu VALOR MÁXIMO es CRUZAR fuentes: la TEA de un bono contra la ta
 riesgo internacional, la brecha contra las reservas del BCRA, lo que dice 1816 contra lo que \
 muestran los números. Un analista que mira una sola tabla no es research.
 
-Qué es cada fuente y qué columnas aplican:
-- fuente=1816: el watch de bonos de 1816 (curvas soberanas/provinciales/corporativas). \
-Columnas: TEA_% (tasa efectiva anual, YA en %), sus cambios en PUNTOS PORCENTUALES a 7/30 \
-días, paridad_%, precio_clean, duration. Datos de CIERRE diario (fecha_último_dato manda — \
-si es vieja, decilo). Los números son de la API de 1816, fuente de verdad; no los recalcules.
-- fuente=bcra: variables monetarias/cambiarias del BCRA. último_valor en la unidad de la \
-serie; cambio_7d/30d son DIFERENCIA ABSOLUTA en esa unidad (no %).
-- fuente=fred: series internacionales (tasas USA, commodities, liquidez). Misma semántica \
-que bcra. Ojo frecuencia: hay series semanales/mensuales — el cambio_30d puede ser el dato \
+Qué es cada fuente y cómo leer su columna "datos" (todo YA calculado — no recalcules):
+- fuente=1816: el watch de bonos de 1816 (curvas soberanas/provinciales/corporativas), \
+CIERRE diario. Formato: "TEA 7.31% (7d -0.39pp · 30d +0.59pp) · paridad 97.86% · precio \
+154228.5 · duration 1.01 · vence 2027-10-31". La TEA ya está en %; los 7d/30d son el \
+CAMBIO de la TEA en puntos porcentuales (negativo = comprimió). Los números son de la API \
+de 1816, fuente de verdad.
+- fuente=bcra: variables monetarias/cambiarias del BCRA. Formato: "último X <unidad> · \
+cambio 7d ±Y · 30d ±Z · al <fecha>" — los cambios son DIFERENCIA ABSOLUTA en la unidad de \
+la serie (no %). La fecha "al" manda: si es vieja, decilo.
+- fuente=fred: series internacionales (tasas USA, commodities, liquidez), mismo formato \
+que bcra. Ojo frecuencia: hay series semanales/mensuales — el cambio 30d puede ser el dato \
 anterior.
-- fuente=reportes: documentos que cargó el equipo (título, tipo, fecha, autor y su \
-comentario). NO tenés el contenido de los PDFs — solo la ficha y el comentario; si piden el \
-detalle de un PDF, decí que lo abran de la lista.
+- fuente=reportes: documentos que cargó el equipo ("fecha · fuente · autor · comentario"). \
+NO tenés el contenido de los PDFs — solo la ficha y el comentario; si piden el detalle de \
+un PDF, decí que lo abran de la lista.
 
 EL RESEARCH ESCRITO — tu diferencial y tu disciplina más importante:
 - [research más reciente] es el último mail de 1816 ("el día en pocas líneas"): tu contexto \

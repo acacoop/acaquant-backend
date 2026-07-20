@@ -89,7 +89,9 @@ def test_contexto_y_respuesta_ok(monkeypatch):
     assert out["ok"] is True and out["respuesta"] == "AAPL sube 1.23%"
     assert out["traza_id"] == 42
     assert out["fuente"]["vista"] == "fake" and out["fuente"]["filas"] == 2
-    assert capturado["tarea"] == "copiloto_vista" and capturado["usuario"] == "u@x.com"
+    # historial de 6 turnos → conversación profunda → el ruteo escala a PRO
+    # (v1.65: la tarea es dinámica por pregunta; ver test_es_profunda_*)
+    assert capturado["tarea"] == "copiloto_vista_pro" and capturado["usuario"] == "u@x.com"
     assert "reglas de la vista fake" in capturado["system"]
     assert "<datos>" in capturado["user"] and "PREGUNTA: ¿cómo está AAPL?" in capturado["user"]
     # historial capado a los últimos 4 pares
@@ -1047,9 +1049,9 @@ def test_setups_resumen_vacio_lo_dice():
 def test_research_registrada_y_contrato():
     r = copiloto.VISTAS["research"]
     assert r["modulo"] == "research" and r["dominio"] and r["chips"]
-    assert any(c[0] == "tea" for c in r["columnas"])          # 1816
-    assert any(c[0] == "ultimo" for c in r["columnas"])       # bcra/fred
-    assert any(c[0] == "comentario" for c in r["columnas"])   # reportes
+    # tabla COMPACTA (v1.65): una columna `dato` densa por fila, sin celdas "-"
+    assert [c[0] for c in r["columnas"]] == ["fuente", "id", "nombre", "grupo", "dato"]
+    assert r["celda_max"] >= 200                              # el dato no se mutila
 
 
 def test_research_sanear_tab():
@@ -1163,3 +1165,16 @@ def test_mail_reciente_usa_el_campo_texto(monkeypatch):
     out = "\n".join(copiloto.research._mail_reciente())
     assert "El BCRA compró reservas" in out
     assert "2026-07-20" in out
+
+
+def test_es_profunda_rutea_flash_vs_pro():
+    """El ruteo de tier por pregunta (user 2026-07-20): ambigua corta → flash
+    (la regla 8 contesta corto + repregunta); análisis/conversación → pro."""
+    f = copiloto.base._es_profunda
+    assert f("¿Cómo ves EWZ?", []) is False                    # ambigua → flash
+    assert f("¿Cuánto pagan las cauciones?", []) is False
+    assert f("Armame la tesis de NVDA con escenarios", []) is True
+    assert f("¿Me conviene rotar de CER a tasa fija?", []) is True
+    assert f("Lo miro para invertir a largo plazo", []) is True # el follow-up escala
+    assert f("¿y?", [{"p": 1}] * 3) is True                    # conversación profunda
+    assert f("x" * 250, []) is True                            # consigna larga

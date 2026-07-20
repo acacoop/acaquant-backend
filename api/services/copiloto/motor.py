@@ -114,9 +114,15 @@ def preguntar(
 
     from core.ai import completar_con_traza
 
-    # La vista elige su tarea del gateway (tier de modelo). Default flash;
-    # trading corre en PRO (decisión user 2026-07-20: ahí se opera en vivo).
-    tarea = cfg.get("tarea") or "copiloto_vista"
+    # Tier de modelo: la vista puede fijarlo (trading → siempre PRO, ahí se
+    # opera en vivo); si no, se decide POR PREGUNTA: análisis profundo /
+    # conversación avanzada / consigna larga → pro, el resto → flash
+    # (_es_profunda, determinista). Decisión user 2026-07-20.
+    from .base import _es_profunda
+
+    tarea = cfg.get("tarea") or (
+        "copiloto_vista_pro" if _es_profunda(pregunta, historial) else "copiloto_vista"
+    )
 
     # Audiencia por rol RBAC: el mismo dato, contado distinto según quién pregunta
     tono = ""

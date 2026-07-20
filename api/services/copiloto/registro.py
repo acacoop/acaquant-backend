@@ -215,6 +215,9 @@ VISTAS: dict[str, dict] = {
                    "mails diarios de research de 1816 (citables con fecha)",
         "fetch": _fetch_research,
         "extras": _extras_research,
+        # la columna `dato` es un string denso por bono/serie (~150 chars) —
+        # con el cap default de 60 se mutilaría (lección de la vista ayuda)
+        "celda_max": 220,
         "jerga_permitida": {"tea", "tna", "paridad", "duration", "ccl", "cer",
                             "carry", "bps", "pb", "spread", "fed", "ipc"},
         "chips": _CHIPS_RESEARCH,

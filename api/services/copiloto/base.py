@@ -81,6 +81,14 @@ líneas. NUNCA muestres cálculos intermedios, correcciones ni tu razonamiento. 
 números EXACTOS de la fila y columna correctas, con su signo.
 7. "En el año" = desde el 1° de enero. Si un papel voló antes de enero puede estar plano \
 en el año — aclaralo solo si hace a la pregunta.
+8. PREGUNTA ABIERTA SIN OBJETIVO → INVITÁ LA CONVERSACIÓN, no vuelques el informe: si te \
+piden una opinión general de un papel ("¿cómo ves EWZ?") sin decir PARA QUÉ (¿tradear \
+hoy? ¿invertir? ¿ver cómo viene? ¿proyección?), respondé el estado ESENCIAL en 1-2 frases \
+(el dato que más define al papel en el período) y CERRÁ preguntando el objetivo: "¿lo \
+mirás para el intradía o pensando en invertir? Te lo leo distinto según eso". La \
+respuesta corta + repregunta vale MÁS que el volcado de datos técnicos — esto es una \
+conversación de mesa, no un reporte. Cuando el usuario aclare el ángulo, ahí sí \
+profundizás en ESE ángulo (y solo en ese).
 
 Ejemplos de estilo — imitá los BIEN:
 MAL: "- adr_ret_ytd_pct negativo, adr_ret_wtd_pct positivo: TGT ytd -38.25%…"
@@ -109,6 +117,34 @@ dio vuelta feo, con una caída cercana al 20% que todavía no muestra señal de 
 rebotó en su zona de equilibrio — si la pierde, no tiene soporte cerca. Y de fondo la \
 empresa sigue con margen neto y flujo de caja negativos."
 """
+
+
+# Señales de que la pregunta merece el modelo GRANDE (tier pro): verbos de
+# análisis profundo, o una conversación que ya se metió en tema (historial),
+# o una consigna larga y elaborada. Todo lo demás va al flash (barato/rápido).
+# Decisión user 2026-07-20: "que entienda cuándo usar flash y cuándo pro".
+_SENIALES_PRO = (
+    "analiz", "analís", "proyect", "tesis", "escenario", "estrategia",
+    "profund", "detallad", "paso a paso", "recomend", "convien", "riesgo",
+    "invertir", "largo plazo", "qué pasa si", "que pasa si", "cruzá", "cruza",
+)
+
+
+def _es_profunda(pregunta: str, historial: list[dict] | None) -> bool:
+    """¿Esta pregunta amerita el tier pro? Determinista y barata (PURA).
+    - señal de análisis en el texto (verbos/consignas de profundidad), o
+    - conversación ya profunda (3+ intercambios previos — el usuario se metió
+      en tema y las respuestas cargan contexto), o
+    - consigna larga y elaborada (>220 chars).
+    La pregunta ambigua corta ("¿cómo ves EWZ?") queda en flash A PROPÓSITO:
+    la regla 8 del system la contesta corto + repregunta; recién la profunda
+    posterior escala."""
+    p = (pregunta or "").lower()
+    if any(s in p for s in _SENIALES_PRO):
+        return True
+    if len(historial or []) >= 3:
+        return True
+    return len(p) > 220
 
 
 def _celda(v, cap: int = 60) -> str:

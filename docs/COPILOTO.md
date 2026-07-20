@@ -117,6 +117,27 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.65 (ruteo flash/pro por pregunta + regla conversacional + research compacta)
+Tres pedidos del user en uno (el disparador: un usuario preguntó "¿cómo ves
+EWZ?" y el copiloto volcó datos técnicos en vez de preguntar el objetivo):
+- **[ruteo] flash vs pro POR PREGUNTA** (`base._es_profunda`, determinista,
+  testeada): señales de análisis (tesis/escenario/proyección/recomendación/
+  invertir/…), conversación de 3+ turnos, o consigna >220 chars → tier PRO;
+  el resto → flash. TRADING sigue clavado en pro (fija su `tarea`). La
+  ambigua corta ("¿cómo ves EWZ?") queda en flash A PROPÓSITO → regla 8.
+- **[reglas +] regla 8 del system (TODAS las vistas): INVITÁ LA CONVERSACIÓN.**
+  Pregunta abierta sin objetivo → estado esencial en 1-2 frases + repregunta
+  ("¿lo mirás para el intradía o pensando en invertir?"). El volcado técnico
+  ante pregunta ambigua queda prohibido. El follow-up del usuario ("para
+  invertir") escala solo a pro por el ruteo.
+- **[contexto ~] tabla de RESEARCH COMPACTA** (la balanza midió ~35% de celdas
+  vacías en la ancha de 17 columnas): ahora 5 columnas con `dato` denso por
+  fila ("TEA 7.31% (7d -0.39pp · 30d +0.59pp) · paridad 97.86% · …"), sin "-",
+  sin fecha repetida por fila. `celda_max` 220. Reglas reescritas al formato.
+- **[tooling] `diag_ia_trazas --buscar EWZ`**: recupera conversaciones enteras
+  de `ia.trazas` por texto (pregunta o respuesta) — para revisar cómo respondió
+  el copiloto cuando el panel de OBSERVABILIDAD quedó tapado por una batería.
+
 ### 2026-07-20 — v1.64 (guía: filtros de Operaciones EN VIVO + fixes de la batería)
 Primera batería del guía (`bateria_guia`, 20/20 respondidas) + pedido del user
 (que sepa los filtros de Operaciones y sus valores):

@@ -84,6 +84,7 @@ def _fetch_trading(params: dict | None = None) -> list[dict]:
             piv = calcular(high=float(h), low=float(lo), close=float(c))
         last = f.get("last")
         f.update(high=h, low=lo, close=c)
+        f["_piv"] = piv  # numérico para setups/historia (campos con _ no van al TSV)
         for k in ("pp", "r1", "r2", "r3", "s1", "s2", "s3"):
             f[k] = _px_dif(float(last) if last else None, piv.get(k))
         if last and piv.get("pp"):
@@ -229,6 +230,165 @@ def _movers_resumen(umbral: float = 4.0) -> list[str]:
     if not movers:
         return [f"[movers ±{umbral:.0f}%] ninguno hoy"]
     return [f"[movers ±{umbral:.0f}% del día] " + "; ".join(s for _, s in movers[:12])]
+
+
+# ── HISTORIA (memoria de ruedas) + SETUPS (modo propositivo) ────────────────
+# Fuente de la historia: mercado.cedears_ohlc_daily / bonos_ohlc_daily (jobs
+# gemelos *_ohlc_daily, 20:15 UTC, ventana móvil 20 ruedas — YA existían para
+# los pivots; acá solo se LEEN). Todo derivado por código: el modelo narra.
+
+_HISTORIA_RUEDAS = 7          # cuántas ruedas se inyectan por papel
+_SETUP_UMBRAL_PCT = 0.50      # % al nivel para considerar la card "en zona de decisión"
+_RADAR_TOP_VOLUMEN = 15       # universo del radar: top N por monto operado
+_RADAR_MOVER_PCT = 4.0        # % mínimo de movimiento del día para ser candidato
+_RADAR_UMBRAL_PCT = 0.35      # % al nivel para "se acercó" (fuera de tus cards)
+
+
+def _historia_derivar(ohlc: list[dict]) -> list[str]:
+    """Deriva la línea de cada rueda a partir del OHLC diario ASC por fecha.
+    Para la rueda i, los niveles operativos son los pivots calculados con la
+    rueda i-1 (la misma base que usó la vista ese día) → 'tocó X' = el nivel
+    quedó dentro del rango [low, high] de la rueda. PURA (testeable sin DB)."""
+    from itertools import pairwise
+
+    from quant.pivot_points import calcular
+
+    lineas = []
+    for prev, d in pairwise(ohlc):
+        h, lo, c = d.get("high"), d.get("low"), d.get("close")
+        if not (h and lo and c):
+            continue
+        try:
+            f = d["fecha"]
+            etiqueta = f"{f.day:02d}/{f.month:02d}"
+        except AttributeError:
+            etiqueta = str(d.get("fecha"))[5:10]
+        var = ""
+        if prev.get("close"):
+            var = f" ({(float(c) / float(prev['close']) - 1) * 100:+.1f}%)"
+        linea = f"{etiqueta}: cerró {_num(c)}{var} · rango {_num(lo)}-{_num(h)}"
+        if prev.get("high") and prev.get("low") and prev.get("close"):
+            piv = calcular(high=float(prev["high"]), low=float(prev["low"]),
+                           close=float(prev["close"]))
+            tocados = [n.upper() for n, p in piv.items()
+                       if p and float(lo) <= p <= float(h)]
+            if tocados:
+                linea += " · tocó " + ",".join(tocados)
+            linea += f" · cerró en zona {_zona(float(c), piv)}"
+        lineas.append(linea)
+    return lineas
+
+
+def _historia_ruedas(tickers: list[str]) -> list[str]:
+    """[historia X] de las últimas ruedas para los papeles pedidos (cap ya
+    aplicado por el caller). CEDEARs y bonos: mismas columnas en ambas tablas."""
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+
+    if not tickers:
+        return []
+    filas_por_tk: dict[str, list[dict]] = {}
+    try:
+        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            for tabla in ("mercado.cedears_ohlc_daily", "mercado.bonos_ohlc_daily"):
+                faltan = [t for t in tickers if t not in filas_por_tk]
+                if not faltan:
+                    break
+                try:
+                    cur.execute(
+                        f"""
+                        SELECT ticker_corto, fecha, high, low, close FROM (
+                            SELECT ticker_corto, fecha, high, low, close,
+                                   row_number() OVER (PARTITION BY ticker_corto
+                                                      ORDER BY fecha DESC) rn
+                            FROM {tabla} WHERE ticker_corto = ANY(%s)
+                        ) t WHERE rn <= %s ORDER BY ticker_corto, fecha
+                        """,
+                        (faltan, _HISTORIA_RUEDAS + 1),  # +1: la base de la 1ra rueda
+                    )
+                    for r in cur.fetchall():
+                        filas_por_tk.setdefault(r["ticker_corto"], []).append(r)
+                except Exception as e:
+                    conn.rollback()
+                    logger.debug("copiloto trading: historia %s no disponible (%s)", tabla, e)
+    except Exception as e:
+        logger.warning("copiloto trading: historia falló (%s)", e)
+        return []
+    partes = []
+    for tk in tickers:
+        lineas = _historia_derivar(filas_por_tk.get(tk, []))
+        if lineas:
+            partes.append(f"[historia {tk} — últimas {len(lineas)} ruedas, de más vieja a "
+                          "más nueva] " + " || ".join(lineas))
+    return partes
+
+
+def _setups_resumen(filas: list[dict]) -> list[str]:
+    """[setups ahora]: cards EN zona de decisión (a ≤{umbral}% de un nivel), con
+    el recorrido a los niveles adyacentes YA calculado en % y en ARS por nominal
+    — el insumo del modo propositivo. El modelo propone SOLO desde acá."""
+    setups = []
+    for f in filas:
+        dist, nivel, piv = f.get("_nivel_dist"), f.get("_nivel_nombre"), f.get("_piv") or {}
+        if dist is None or abs(dist) > _SETUP_UMBRAL_PCT or not piv:
+            continue
+        niveles = sorted(((p, n.upper()) for n, p in piv.items() if p))
+        precio_nivel = f.get("_nivel_precio")
+        idx = next((i for i, (p, n) in enumerate(niveles) if n == nivel), None)
+        if idx is None or precio_nivel is None:
+            continue
+        s = f"{f.get('ticker')} en {nivel} ({_num(precio_nivel)}, a {dist:+.2f}%)"
+        if idx + 1 < len(niveles):
+            p_up, n_up = niveles[idx + 1]
+            s += (f" · arriba {n_up} {_num(p_up)} (recorrido {(p_up / precio_nivel - 1) * 100:+.1f}%"
+                  f" / {p_up - precio_nivel:+.0f} ARS por nominal)")
+        if idx - 1 >= 0:
+            p_dn, n_dn = niveles[idx - 1]
+            s += (f" · abajo {n_dn} {_num(p_dn)} ({(p_dn / precio_nivel - 1) * 100:+.1f}%"
+                  f" / {p_dn - precio_nivel:+.0f} ARS por nominal)")
+        setups.append(s)
+    if not setups:
+        return ["[setups ahora] ninguna de tus tarjetas está en zona de decisión "
+                f"(a menos de ±{_SETUP_UMBRAL_PCT:.2f}% de un nivel) en este momento."]
+    return ["[setups ahora — tarjetas en zona de decisión] " + " ;; ".join(setups)]
+
+
+def _radar_candidatos(tickers_cards: list[str], sufijo_zm: str, hoy: str) -> list[dict]:
+    """Candidatos FUERA de las cards: top volumen + mover ±4% + cerca de nivel.
+    Única fuente para el vigía (T2) y para el bloque [radar] del copiloto."""
+    from api.services import scanner_sql, trading_pivots
+
+    filas = scanner_sql.get_cedears_scanner()
+    top_vol = sorted(
+        (f for f in filas if f.get("total_money")),
+        key=lambda f: -f["total_money"],
+    )[:_RADAR_TOP_VOLUMEN]
+    candidatos = [
+        f for f in top_vol
+        if f.get("vs_1d_pct") is not None and abs(f["vs_1d_pct"]) >= _RADAR_MOVER_PCT
+        and f.get("ticker_corto") not in tickers_cards
+    ]
+    radar = {r.get("ticker"): r for r in trading_pivots.pivot_radar()}
+    alertas = []
+    for c in candidatos:
+        tk = c["ticker_corto"]
+        r = radar.get(tk)
+        if not r or r.get("dist_pct") is None or abs(r["dist_pct"]) > _RADAR_UMBRAL_PCT:
+            continue
+        alertas.append({
+            "id": f"radar:{tk}:{r.get('nivel')}:{hoy}",
+            "tipo": "radar",
+            "ticker": tk,
+            "nivel": r.get("nivel"),
+            "mensaje": f"{tk} (top volumen, {c['vs_1d_pct']:+.1f}% hoy) no está en "
+                       f"tus tarjetas y se acercó a {r.get('nivel')} "
+                       f"({r.get('nivel_precio'):.0f}).{sufijo_zm}",
+            "pregunta": f"{tk} viene {c['vs_1d_pct']:+.1f}% hoy y llegó a "
+                        f"{r.get('nivel')}: ¿vale una tarjeta? Leeme el cuadro.",
+            "accion_agregar": tk,
+        })
+    return alertas
 
 
 def _estado_mercado(ahora_art: datetime, es_habil: bool) -> tuple[str, str]:
@@ -415,7 +575,10 @@ def _reuters_fund_lineas(tk: str, und: str, fu: dict) -> list[str]:
     return out
 
 
-def _reuters_bloques(filas: list[dict], pregunta: str, seleccionado: str | None) -> list[str]:
+def _foco_y_mencionados(filas: list[dict], pregunta: str, seleccionado: str | None,
+                        cap: int = 3) -> list[str]:
+    """El papel en foco + los mencionados en la pregunta (detección determinista),
+    cap N. Mismo criterio para Reuters y para la historia de ruedas."""
     preg = (pregunta or "").upper()
     orden: list[str] = []
     if seleccionado:
@@ -424,7 +587,11 @@ def _reuters_bloques(filas: list[dict], pregunta: str, seleccionado: str | None)
         tk = str(f.get("ticker") or "").upper()
         if tk and tk not in orden and re.search(rf"\b{re.escape(tk)}\b", preg):
             orden.append(tk)
-    orden = orden[:3]
+    return orden[:cap]
+
+
+def _reuters_bloques(filas: list[dict], pregunta: str, seleccionado: str | None) -> list[str]:
+    orden = _foco_y_mencionados(filas, pregunta, seleccionado)
     if not orden:
         return []
     und_de = {str(f.get("ticker") or "").upper(): str(f.get("_underlying")
@@ -489,6 +656,8 @@ def _extras_trading(
         partes.extend(_libro_resumen(seleccionado))
         partes.extend(_tape_resumen(seleccionado))
     partes.extend(_movers_resumen())
+    partes.extend(_setups_resumen(filas))
+    partes.extend(_historia_ruedas(_foco_y_mencionados(filas, pregunta, seleccionado)))
     partes.extend(_reuters_bloques(filas, pregunta, seleccionado))
     return partes
 
@@ -546,6 +715,14 @@ cuidado con entrar a mercado.
 "Agresión compradora" = trades ejecutados contra la punta vendedora.
 - [movers]: los que se mueven fuerte hoy (±4%), mismo criterio que el radar de la vista.
 - [CCL]/[SPY]/[QQQ]: contexto de mercado.
+- [setups ahora]: las tarjetas que ESTÁN en zona de decisión (a ≤0.50% de un nivel) con el \
+recorrido a los niveles adyacentes YA calculado (% y ARS por nominal). Es TU insumo para \
+proponer: si está vacío, no hay trade en las tarjetas y punto.
+- [historia X — últimas ruedas]: la memoria del papel, rueda por rueda (cierre, variación, \
+rango, niveles que tocó y zona donde cerró; los niveles de cada rueda son los que regían ESE \
+día). Usala para detectar PATRONES REALES: niveles que respetó o rompió varias ruedas, zonas \
+donde viene cerrando, si viene extendido (varias ruedas seguidas al alza = estrategia 3). \
+Solo patrones que los datos muestren — jamás inventes una rueda que no está.
 - [reuters X — quote US]: el papel en su mercado de ORIGEN (Nueva York, en USD), del feed \
 Reuters/Eikon — bid/ask, pre y after market con su variación, y los retornos por período. \
 OJO: los retornos son AL CIERRE de la rueda anterior (no incluyen hoy) y "mes/año" son \
@@ -570,13 +747,29 @@ nada que operar — evitá análisis que inviten a ansiedad de apertura.
 - En rueda viva: normal, pero si detectás muchas preguntas seguidas sobre entrar a papeles \
 distintos, marcálo ("estás mirando el cuarto papel en 10 minutos — ¿plan o ansiedad?").
 
+MODO PROPOSITIVO — cuando pregunte "¿dónde está el trade?", "¿qué opero?", "¿cómo busco \
+ganar $X?" o parecido, tu trabajo es PROPONER, no tirar la pelota de vuelta. El método:
+- Proponé SOLO desde [setups ahora] (tus tarjetas en nivel) y, si suma, la card del vigía/\
+radar. Cada propuesta completa: la ENTRADA es el nivel (nunca el medio) + qué confirmación \
+mirar en tape/libro (estrategia 1) + el OBJETIVO (el nivel adyacente, con el recorrido ya \
+calculado) + el RIESGO (el nivel en contra: si lo pierde, se acabó el trade). Cruzalo con \
+[historia]: un nivel que el papel respetó 3 ruedas vale más que uno recién estrenado.
+- Si te da un objetivo en plata ("quiero ganar 50 mil"): usá los ARS por nominal del setup \
+para traducirlo ("el recorrido R1→R2 de SNDK da 327 ARS por nominal: para 50.000 \
+necesitás ~150 nominales SI el nivel aguanta y llega"). SIEMPRE el mismo cierre: es \
+recorrido posible, no promesa — y el riesgo del nivel en contra dimensionado igual.
+- Si [setups ahora] está vacío: la respuesta correcta es que HOY no hay trade en sus \
+tarjetas — esperar también es una posición. NO le inventes un trade en el medio de la \
+nada para complacerlo: eso es exactamente el overtrading que tenés que evitar.
+
 Reglas de acá:
 - Respuestas CORTAS: el usuario está operando, no leyendo un informe. 3-6 líneas.
 - Cruzá SIEMPRE que puedas: zona de pivots + libro + tape ("está contra R1 con 86% de la \
 profundidad vendedora y el tape mostrando agresión compradora al 60%: si rompe, el libro \
 está fino hasta R2").
-- JAMÁS des una orden ("comprá", "vendé"): describí el cuadro y los niveles; la decisión \
-es del trader. "Si rompe X, lo próximo es Y" está bien; "entrá" no.
+- JAMÁS des una orden imperativa ("comprá", "vendé"): proponés el setup con niveles, \
+confirmación y riesgo; la decisión es del trader. "El setup está en X: si rompe, lo \
+próximo es Y; si pierde Z, afuera" está bien; "entrá ya" no.
 - Si el libro o el tape están vacíos, decilo sin vueltas."""
 
 # ── Vista HOME (panorama general — watchlist + briefing + curvas) ───────────

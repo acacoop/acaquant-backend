@@ -17,7 +17,12 @@ from .base import (
 )
 from .derivacion import _RE_VISTA_MARKER, _bloque_otras_vistas, _extraer_vista_sugerida
 from .registro import VISTAS
-from .trading import _estado_mercado, _fetch_trading, _sanear_params_trading
+from .trading import (
+    _estado_mercado,
+    _fetch_trading,
+    _radar_candidatos,
+    _sanear_params_trading,
+)
 from .verificacion import _RE_DERRAME, _jerga_en_respuesta, _numeros_sin_respaldo
 
 logger = logging.getLogger(__name__)
@@ -221,9 +226,7 @@ def preguntar(
 # "¿lo miramos?" del toast recién ahí abre el copiloto (una llamada).
 
 _VIGIA_UMBRAL_CARDS = 0.20   # % al nivel para "tocó / muy cerca" en tus tarjetas
-_VIGIA_UMBRAL_RADAR = 0.35   # % para "se acerca" en el radar de candidatos
-_VIGIA_TOP_VOLUMEN = 15
-_VIGIA_MOVER_PCT = 4.0
+# (los umbrales del radar T2 viven en trading.py junto a _radar_candidatos)
 
 
 def vigia(params: dict | None = None) -> dict:
@@ -264,41 +267,11 @@ def vigia(params: dict | None = None) -> dict:
     except Exception as e:
         logger.warning("vigía T1 falló (%s)", e)
 
-    # T2 — radar: top volumen + mover ±4% + cerca de nivel, fuera de tus cards
+    # T2 — radar: top volumen + mover ±4% + cerca de nivel, fuera de tus cards.
+    # La lógica vive en trading._radar_candidatos (compartida con el bloque
+    # [radar] del copiloto — una sola fuente de candidatos).
     try:
-        from api.services import scanner_sql, trading_pivots
-
-        filas = scanner_sql.get_cedears_scanner()
-        top_vol = sorted(
-            (f for f in filas if f.get("total_money")),
-            key=lambda f: -f["total_money"],
-        )[:_VIGIA_TOP_VOLUMEN]
-        candidatos = [
-            f for f in top_vol
-            if f.get("vs_1d_pct") is not None
-            and abs(f["vs_1d_pct"]) >= _VIGIA_MOVER_PCT
-            and f.get("ticker_corto") not in tickers_cards
-        ]
-        radar = {r.get("ticker"): r for r in trading_pivots.pivot_radar()}
-        for c in candidatos:
-            tk = c["ticker_corto"]
-            r = radar.get(tk)
-            if not r or r.get("dist_pct") is None:
-                continue
-            if abs(r["dist_pct"]) > _VIGIA_UMBRAL_RADAR:
-                continue
-            alertas.append({
-                "id": f"radar:{tk}:{r.get('nivel')}:{hoy}",
-                "tipo": "radar",
-                "ticker": tk,
-                "nivel": r.get("nivel"),
-                "mensaje": f"{tk} (top volumen, {c['vs_1d_pct']:+.1f}% hoy) no está en "
-                           f"tus tarjetas y se acercó a {r.get('nivel')} "
-                           f"({r.get('nivel_precio'):.0f}).{sufijo_zm}",
-                "pregunta": f"{tk} viene {c['vs_1d_pct']:+.1f}% hoy y llegó a "
-                            f"{r.get('nivel')}: ¿vale una tarjeta? Leeme el cuadro.",
-                "accion_agregar": tk,
-            })
+        alertas.extend(_radar_candidatos(tickers_cards, sufijo_zm, hoy))
     except Exception as e:
         logger.warning("vigía T2 falló (%s)", e)
 

@@ -189,8 +189,9 @@ el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
 además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.54 (2026-07-17) — 8 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
-TRADING (+ el VIGÍA reactivo), RENTA FIJA, AGRO, OPCIONES (derivados), ONs y
+**Estado: v1.57 (2026-07-20) — 8 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
+TRADING (+ el VIGÍA reactivo + memoria de 7 ruedas + modo propositivo de setups),
+RENTA FIJA, AGRO, OPCIONES (derivados), ONs y
 REUTERS (tablero live de subyacentes US, feed Eikon — ver
 `docs/INTEGRACION_REUTERS.md`)** · Tipo: copiloto contextual por vista · Gate:
 `ia` + módulo RBAC de la vista

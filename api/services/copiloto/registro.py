@@ -142,6 +142,14 @@ VISTAS: dict[str, dict] = {
             {"label": "Movers en juego",
              "pregunta": "¿Qué se está moviendo fuerte hoy y cuáles de mis tarjetas "
                          "están en juego?"},
+            {"label": "¿Dónde está el trade?",
+             "pregunta": "¿Dónde está el trade ahora? Proponeme desde mis tarjetas en "
+                         "zona de decisión: entrada en el nivel, confirmación, objetivo "
+                         "y riesgo. Si no hay setup, decímelo derecho."},
+            {"label": "Memoria del papel",
+             "pregunta": "Leeme la historia de las últimas ruedas del papel enfocado: "
+                         "¿qué niveles viene respetando o rompiendo y dónde viene "
+                         "cerrando? ¿Cambia el plan de hoy?"},
         ],
         "columnas": [
             ("ticker", "ticker"), ("foco", "foco"),

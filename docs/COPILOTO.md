@@ -117,6 +117,30 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.57 (TRADING: memoria de ruedas + modo propositivo)
+Pedido del user: que el copiloto de trading recomiende y guíe ("¿dónde está el
+trade?", "¿cómo busco ganar $X?"), detecte patrones entre días, y siga forzando
+la disciplina de operar EN los niveles. Dos piezas nuevas, ambas server-side y
+deterministas (el modelo narra, el código calcula):
+- **[contexto +] `[historia X — últimas 7 ruedas]`** para el papel en foco + los
+  mencionados (cap 3, helper compartido `_foco_y_mencionados`). Fuente: las
+  tablas YA existentes `mercado.cedears_ohlc_daily` / `bonos_ohlc_daily`
+  (ventana 20 ruedas, jobs 20:15 UTC) — sin tabla ni job nuevos. Por rueda:
+  cierre, var%, rango, **niveles tocados** (pivots re-calculados con la base que
+  regía ESE día) y zona de cierre. Derivación pura `_historia_derivar` (testeada).
+- **[contexto +] `[setups ahora]`**: cards a ≤0.50% de un nivel con recorrido a
+  los niveles adyacentes YA calculado (% y ARS por nominal). Si no hay, el bloque
+  lo dice explícito (el modelo no puede inventar un setup).
+- **[reglas ~] MODO PROPOSITIVO**: ante "¿dónde está el trade?" propone SOLO
+  desde [setups]/radar con entrada-confirmación-objetivo-riesgo; objetivos en
+  plata se traducen con los ARS/nominal precalculados ("~150 nominales SI el
+  nivel aguanta"), siempre como recorrido posible, nunca promesa; sin setups la
+  respuesta correcta es "hoy no hay trade" (anti-overtrading). Sigue prohibido
+  el imperativo ("entrá ya").
+- **[refactor]** El radar T2 del vigía se extrajo a `trading._radar_candidatos`
+  (motor.py lo consume) — una sola fuente de candidatos para vigía y copiloto.
+- **[chips +]** "¿Dónde está el trade?" y "Memoria del papel".
+
 ### 2026-07-18 — v1.56 (reuters: columna `rubro` en el contexto)
 - **[contexto +]** `tablero_reuters()` ahora trae el `rubro` del catálogo de
   CEDEARs (join a `mercado.cedears`) → la vista `reuters` del copiloto lo ve como

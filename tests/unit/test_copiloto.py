@@ -991,3 +991,52 @@ def test_reuters_bloques_detecta_foco_y_mencionados():
         assert "GGAL" not in out                  # ni foco ni mencionado
     finally:
         monkeypatch.undo()
+
+
+# ── historia de ruedas + setups (memoria y modo propositivo, 2026-07-20) ─────
+
+def test_historia_derivar_niveles_y_zonas():
+    from datetime import date
+
+    # 3 ruedas: la 1ra es solo base; la 2da toca R1 (calculado de la 1ra);
+    # la 3ra cae y cierra bajo el PP de la 2da.
+    ohlc = [
+        {"fecha": date(2026, 7, 14), "high": 110.0, "low": 100.0, "close": 105.0},
+        {"fecha": date(2026, 7, 15), "high": 112.0, "low": 104.0, "close": 111.0},
+        {"fecha": date(2026, 7, 16), "high": 108.0, "low": 98.0, "close": 99.0},
+    ]
+    lineas = copiloto.trading._historia_derivar(ohlc)
+    assert len(lineas) == 2                      # la primera rueda es la base
+    assert lineas[0].startswith("15/07")
+    assert "(+5.7%)" in lineas[0]                # 111/105-1
+    assert "tocó" in lineas[0] and "cerró en zona" in lineas[0]
+    assert "(-10.8%)" in lineas[1]               # 99/111-1
+
+
+def test_historia_derivar_sin_datos_no_rompe():
+    assert copiloto.trading._historia_derivar([]) == []
+    assert copiloto.trading._historia_derivar([{"fecha": None, "high": None,
+                                                "low": None, "close": None}] * 3) == []
+
+
+def test_setups_resumen_en_nivel_y_recorridos():
+    piv = {"pp": 100.0, "r1": 104.0, "r2": 108.0, "r3": 112.0,
+           "s1": 96.0, "s2": 92.0, "s3": 88.0}
+    filas = [
+        {"ticker": "SNDK", "_nivel_dist": 0.2, "_nivel_nombre": "R1",
+         "_nivel_precio": 104.0, "_piv": piv},
+        {"ticker": "MU", "_nivel_dist": 2.5, "_nivel_nombre": "PP",
+         "_nivel_precio": 100.0, "_piv": piv},           # lejos → no es setup
+    ]
+    out = "\n".join(copiloto.trading._setups_resumen(filas))
+    assert "SNDK en R1" in out
+    assert "arriba R2 108" in out and "+4 ARS por nominal" in out
+    assert "abajo PP 100" in out
+    assert "MU" not in out
+
+
+def test_setups_resumen_vacio_lo_dice():
+    out = "\n".join(copiloto.trading._setups_resumen(
+        [{"ticker": "SNDK", "_nivel_dist": 3.0, "_nivel_nombre": "PP",
+          "_nivel_precio": 100.0, "_piv": {"pp": 100.0}}]))
+    assert "ninguna de tus tarjetas" in out

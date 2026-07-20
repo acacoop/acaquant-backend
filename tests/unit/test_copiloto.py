@@ -1178,3 +1178,44 @@ def test_es_profunda_rutea_flash_vs_pro():
     assert f("Lo miro para invertir a largo plazo", []) is True # el follow-up escala
     assert f("¿y?", [{"p": 1}] * 3) is True                    # conversación profunda
     assert f("x" * 250, []) is True                            # consigna larga
+
+
+# ── candados del caso EWZ (2026-07-20): lo que rompió dos veces baja a código ─
+
+def test_jerga_caza_niveles_deletreados_y_estadistica():
+    from api.services.copiloto.verificacion import _jerga_en_respuesta
+
+    cfg = {"columnas": []}
+    # niveles deletreados (esquivaban el filtro de PP/R1) → se cazan
+    r = _jerga_en_respuesta(
+        "Está apoyado en su punto pivote anual con la resistencia anual en 36.96.",
+        cfg, "¿qué pensás de EWZ?")
+    assert any("niveles técnicos" in x for x in r)
+    # estadística nombrada → se caza
+    r2 = _jerga_en_respuesta(
+        "La volatilidad anualizada es 23.5% y el beta 0.74.", cfg, "¿cómo ves EWZ?")
+    assert any("estadística nombrada" in x for x in r2)
+    # …salvo que el USUARIO la haya pedido por su nombre
+    r3 = _jerga_en_respuesta("El beta es 0.74.", cfg, "¿qué beta tiene EWZ?")
+    assert not any("estadística" in x for x in r3)
+    # en trading (permitir_pivots) los niveles son idioma nativo
+    r4 = _jerga_en_respuesta("Está en el punto pivote anual.",
+                             {"columnas": [], "permitir_pivots": True}, "¿cómo va?")
+    assert not any("niveles" in x for x in r4)
+
+
+def test_exceso_de_cifras():
+    from api.services.copiloto.verificacion import _exceso_de_cifras
+
+    ewz = ("Suma 11.68% en el año, el pivote anual en 29.61, resistencia 36.96, "
+           "precio 35.48, vol 23.5%, beta 0.74 y 0.29 contra QQQ.")
+    assert _exceso_de_cifras(ewz, "¿compro EWZ y mantengo?") > 5   # el caso real
+    assert _exceso_de_cifras("Sube 2.5% en el año contra 25% del SPY: quedó atrás.",
+                             "¿cómo viene EWZ?") == 0              # 3 cifras, ok
+    assert _exceso_de_cifras(ewz, "Dame la tabla comparativa de ETFs") == 0  # tablas ok
+
+
+def test_senales_pro_decision_de_posicion():
+    f = copiloto.base._es_profunda
+    assert f("Pensando si compro ahora, y mantengo hasta fin de año", []) is True
+    assert f("¿salgo de la posición?", []) is True

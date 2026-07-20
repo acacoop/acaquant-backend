@@ -132,7 +132,57 @@ def _jerga_en_respuesta(respuesta: str, cfg: dict, pregunta: str) -> list[str]:
     if not cfg.get("permitir_pivots") and not re.search(r"pivot|nivel|\bpp\b|\b[rs][1-3]\b", preg):
         if re.search(r"\b(?:PP|[RS][1-3])\b", respuesta):
             out.append("nomenclatura de pivots (PP/R1/S3)")
+        # …y también DELETREADA: el modelo esquivaba el filtro escribiendo
+        # "punto pivote semanal", "resistencia anual en 36.96" (caso EWZ
+        # 2026-07-20). Fuera de trading, los niveles técnicos no se nombran:
+        # se piensan y se traducen ("no está extendido", "zona razonable de
+        # entrada, no estás comprando un techo").
+        if _RE_NIVELES_NOMBRADOS.search(respuesta):
+            out.append("niveles técnicos con nombre (punto pivote/resistencia/soporte) — "
+                       "traducilos: 'no está extendido', 'zona razonable de entrada'")
+    # Estadística NOMBRADA (beta/z-score/correlación/volatilidad anualizada):
+    # la regla del system exige traducirla y el modelo la siguió nombrando
+    # (caso EWZ 2026-07-20: "beta 0.74, correlación 0.41, vol anualizada
+    # 23.5% a 60 ruedas") → baja a código. Permitida SOLO si el usuario usó
+    # el término en su pregunta.
+    for m in _RE_ESTAT_NOMBRADA.finditer(respuesta):
+        t = m.group(0).lower()
+        if t not in preg:
+            out.append(f"'{m.group(0)}' (estadística nombrada: traducila a lenguaje "
+                       "de mesa, sin el término técnico ni su valor crudo)")
+            break  # con señalar una alcanza para la reescritura
     return out
+
+
+_RE_NIVELES_NOMBRADOS = re.compile(
+    r"punto\s+pivote|pivote\s+(?:anual|mensual|semanal|diario)|"
+    r"(?:resistencia|soporte)\s+(?:anual|mensual|semanal|diaria?|de\s+corto|de\s+largo)",
+    re.IGNORECASE)
+
+_RE_ESTAT_NOMBRADA = re.compile(
+    r"z[- ]?score|\bbeta\b|correlaci[oó]n|volatilidad\s+anualizada|"
+    r"vol\.?\s+anualizada|desv[ií]o\s+est[aá]ndar|a\s+\d+\s+ruedas",
+    re.IGNORECASE)
+
+
+def _exceso_de_cifras(respuesta: str, pregunta: str) -> int:
+    """Cifras 'de dato' en la respuesta (excluye enteros chicos y años). El
+    caso EWZ (2026-07-20): pregunta por UN papel respondida con 8+ números —
+    ilegible. Si la pregunta NO pide lista/ranking/tabla, más de 5 cifras es
+    exceso → devuelve el conteo para el mensaje de autocorrección (0 = ok)."""
+    if re.search(r"top|ranking|tabla|cu[aá]les|list[aá]|mejores|peores|compar",
+                 (pregunta or "").lower()):
+        return 0
+    n = 0
+    for m in _RE_NUM.finditer(respuesta):
+        try:
+            v = abs(float(m.group(1).replace(",", "")))
+        except ValueError:
+            continue
+        if not m.group(2) and v.is_integer() and (v <= 31 or 1900 <= v <= 2100):
+            continue
+        n += 1
+    return n if n > 5 else 0
 
 
 # ── Derivación a otras vistas (pedido del user 2026-07-12) ──────────────────

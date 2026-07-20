@@ -117,6 +117,31 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.66 (caso EWZ parte 2: 3 candados de CÓDIGO contra el tecnicismo)
+El user revisó las respuestas reales de EWZ: "extremadamente técnica, no se
+entiende nada" (punto pivote/resistencia con precio, beta/vol anualizada/
+z-score, 8+ cifras) y un error de RAZONAMIENTO: "+11.68% en el año viene bien"
+sin compararlo con el mercado. Lo que el prompt no logró dos veces baja a
+código (patrón rector):
+- **[verificación +] niveles DELETREADOS**: el filtro solo cazaba PP/R1/S3 y
+  el modelo los esquivaba escribiendo "punto pivote semanal", "resistencia
+  anual en 36.96" → regex nueva (fuera de trading, y salvo que el usuario
+  hable de niveles) dispara la autocorrección.
+- **[verificación +] estadística NOMBRADA**: beta/correlación/z-score/vol
+  anualizada/"a N ruedas" en la respuesta (sin que el usuario los pida) →
+  autocorrección "traducila a lenguaje de mesa".
+- **[verificación +] EXCESO DE CIFRAS**: pregunta puntual (no ranking/tabla)
+  respondida con >5 números de dato → autocorrección "máximo 3 cifras, el
+  resto en palabras".
+- **[reglas ~] regla 8 nueva: TODO JUICIO ES RELATIVO AL MERCADO** — prohibido
+  "viene bien/flojo" sin el benchmark de la tabla (SPY/QQQ): "+12% con el S&P
+  +25% = quedó atrás". Sin benchmark en datos → número sin adjetivo.
+- **[reglas ~] niveles traducidos a lectura de ENTRADA** (pedido textual del
+  user): equilibrio sin corrida previa = "zona razonable para entrar: no estás
+  comprando un techo"; extendido = "entrar acá es perseguir la suba".
+- **[ruteo ~] señales pro nuevas**: compro/mantener/fin de año/posición/vender
+  ("pensando si compro ahora y mantengo hasta fin de año" ahora escala a pro).
+
 ### 2026-07-20 — v1.65 (ruteo flash/pro por pregunta + regla conversacional + research compacta)
 Tres pedidos del user en uno (el disparador: un usuario preguntó "¿cómo ves
 EWZ?" y el copiloto volcó datos técnicos en vez de preguntar el objetivo):

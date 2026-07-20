@@ -23,7 +23,12 @@ from .trading import (
     _radar_candidatos,
     _sanear_params_trading,
 )
-from .verificacion import _RE_DERRAME, _jerga_en_respuesta, _numeros_sin_respaldo
+from .verificacion import (
+    _RE_DERRAME,
+    _exceso_de_cifras,
+    _jerga_en_respuesta,
+    _numeros_sin_respaldo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,10 +165,12 @@ def preguntar(
     malos, chequeados = _numeros_sin_respaldo(texto, contexto)
     jerga = _jerga_en_respuesta(texto, cfg, pregunta)
     derrame = bool(_RE_DERRAME.search(texto))
-    if malos or jerga or derrame:
+    exceso = _exceso_de_cifras(texto, pregunta)
+    if malos or jerga or derrame or exceso:
         logger.warning(
-            "copiloto %s: %d/%d números sin respaldo %s · jerga %s · derrame=%s — autocorrección",
-            vista, len(malos), chequeados, malos, jerga, derrame,
+            "copiloto %s: %d/%d números sin respaldo %s · jerga %s · derrame=%s · "
+            "exceso_cifras=%d — autocorrección",
+            vista, len(malos), chequeados, malos, jerga, derrame, exceso,
         )
         problemas = []
         if malos:
@@ -183,6 +190,13 @@ def preguntar(
                 "mostraste correcciones o razonamiento intermedio — entregá SOLO la "
                 "respuesta final, limpia"
             )
+        if exceso:
+            problemas.append(
+                f"usaste {exceso} cifras para una pregunta puntual — elegí MÁXIMO 3 "
+                "números (los que sostienen la conclusión) y contá el resto en "
+                "palabras (fuerte, apenas, casi plano); la respuesta tiene que "
+                "leerse de un tirón"
+            )
         correccion = (
             f"{contexto}\n[tu respuesta previa]\n{texto}\n"
             f"[verificación automática] {'; '.join(problemas)}. Reescribí la respuesta "
@@ -199,8 +213,9 @@ def preguntar(
             malos2, _ = _numeros_sin_respaldo(texto2, contexto)
             jerga2 = _jerga_en_respuesta(texto2, cfg, pregunta)
             derrame2 = bool(_RE_DERRAME.search(texto2))
-            if (len(malos2) + len(jerga2) + int(derrame2)
-                    < len(malos) + len(jerga) + int(derrame)):
+            exceso2 = _exceso_de_cifras(texto2, pregunta)
+            if (len(malos2) + len(jerga2) + int(derrame2) + int(bool(exceso2))
+                    < len(malos) + len(jerga) + int(derrame) + int(bool(exceso))):
                 texto, traza_id, malos = texto2, traza_id2, malos2
 
     # Política estricta (user 2026-07-11: "lo que se dice TIENE QUE SER, y si

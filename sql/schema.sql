@@ -1723,6 +1723,27 @@ CREATE TABLE IF NOT EXISTS research.fred_observations (
 CREATE INDEX IF NOT EXISTS ix_fred_obs_id_fecha
     ON research.fred_observations (series_id, fecha DESC);
 
+-- ── Documentos MANUALES de la vista REPORTES FINANCIEROS ─────────────────────
+-- Contexto que NO llega por mail: PDFs (ej. el "Semanal") y comentarios sueltos,
+-- cargados a mano desde Manager. El PDF se guarda como bytea (decisión: cero infra;
+-- si crece se migra a un bucket sin que cambie la UX). Lo escribe el Manager
+-- (api/routers/manager/documentos.py, gate manager), lo lee la vista Research
+-- (api/routers/research_docs.py, gate research). Doc: docs/RESEARCH_FRED.md.
+CREATE TABLE IF NOT EXISTS research.documentos (
+    id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    titulo         text NOT NULL,
+    fecha          date NOT NULL,          -- fecha del CONTENIDO (no la de carga)
+    tipo           text NOT NULL,          -- 'pdf' | 'comentario'
+    fuente         text,                   -- etiqueta libre ("Semanal", "Nota mesa"…)
+    comentario     text,                   -- cuerpo (comentario) o nota del PDF
+    archivo        bytea,                  -- el PDF (tipo=pdf); NULL si comentario
+    mime           text,                   -- 'application/pdf'
+    nombre_archivo text,
+    autor          text,                   -- email de quien lo cargó
+    created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_research_docs_fecha ON research.documentos (fecha DESC);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PERFORMANCE — autovacuum agresivo + fillfactor en tablas de ALTA ROTACIÓN
 -- (perf 2026-06-29). Los motores upsertean estas tablas cada ~1s; con el

@@ -35,6 +35,7 @@ from api.routers.manager import (
     control_automatico,
     controles,
     diagnostico,
+    documentos,
     grupos,
     import_tenencia,
     instrumentos,
@@ -81,6 +82,7 @@ router.include_router(grupos.router,      dependencies=_MGR)
 router.include_router(aunesa.router,      dependencies=_MGR)
 router.include_router(valuaciones.router, dependencies=_MGR)
 router.include_router(operaciones.router, dependencies=_MGR)
+router.include_router(documentos.router,  dependencies=_MGR)  # REPORTES FINANCIEROS — carga manual
 router.include_router(import_tenencia.router, dependencies=_AUNESA)
 
 # Tabs accesibles a `asistente_comercial`:

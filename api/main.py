@@ -47,6 +47,7 @@ from api.routers import (
     research,
     research1816,
     research_bcra,
+    research_docs,
     research_fred,
     risk,
     scanner,
@@ -255,6 +256,7 @@ app.include_router(research.router,           dependencies=_PUBLIC)  # Análisis
 app.include_router(research1816.router,       dependencies=_PUBLIC)  # vista RESEARCH (gate módulo `research` en el router) — docs/VISTA_RESEARCH.md
 app.include_router(research_bcra.router,      dependencies=_PUBLIC)  # tab BCRA de Research (gate módulo `research` en el router) — docs/RESEARCH_BCRA.md
 app.include_router(research_fred.router,      dependencies=_PUBLIC)  # tab Datos Internacionales / FRED (gate módulo `research` en el router) — docs/RESEARCH_FRED.md
+app.include_router(research_docs.router,      dependencies=_PUBLIC)  # documentos manuales de REPORTES FINANCIEROS (gate módulo `research` en el router)
 app.include_router(trading.router,            dependencies=_TRADING)  # vista TRADING (admin)
 app.include_router(ia.router,                 dependencies=_IA)       # IA (QuantAI) — gate módulo `ia`
 

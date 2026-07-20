@@ -610,6 +610,25 @@ Encaja con el patrón `home.market_quotes`.
 
 ## Registro (con fecha)
 
+- **2026-07-19 (8) — Vista REPORTES FINANCIEROS + carga manual de documentos.**
+  Nueva tab en Research que junta el contexto de texto/documento. Dos piezas:
+  - **Migración:** el panel de reportes 1816/ACA VALORES (mails) salió de RENTA FIJA
+    ARGENTINA (que quedó con 3 paneles) a la tab nueva REPORTES FINANCIEROS.
+  - **Carga manual (Manager → DOCUMENTOS):** PDFs (ej. el "Semanal") y comentarios que
+    NO llegan por mail. **Storage decidido: bytea en Postgres** (`research.documentos`)
+    — cero infra; la UX es idéntica a un bucket (si crece, se migra sin que cambie).
+    Backend: `research_docs_sql.py` (service) · `api/routers/research_docs.py` (LECTURA,
+    gate research: `/api/research-docs/list` + `/{id}/pdf` que sirve el PDF inline) ·
+    `api/routers/manager/documentos.py` (ESCRITURA, gate manager: POST base64 / DELETE).
+    Frontend: Manager tab DOCUMENTOS (form PDF/comentario + lista) · REPORTES
+    FINANCIEROS con sub-tabs Automáticos (mail) / Documentos (master-detail: lista +
+    PDF embebido en iframe / comentario como texto) · route handler Next
+    `research-docs/[...path]` (pasa BINARIO con arrayBuffer) + proxy. Import-chain +
+    ruff + typecheck OK.
+  - **Del user (Droplet):** `git pull` → `python -m scripts.apply_schema` (crea
+    `research.documentos`) → `systemctl restart api.service`. Vercel deploya el front.
+    Después: Manager → DOCUMENTOS → subir el Semanal y verlo en Research.
+
 - **2026-07-19 (7) — 4 bloques nuevos: Volatilidad · Dólar/FX · Riesgo-Crédito ·
     Macro Global.** El user los eligió todos. IDs verificados por WebSearch (datos
     recientes) — hallazgos: FRED **eliminó Russell 2000 y Wilshire 5000** (licencia,

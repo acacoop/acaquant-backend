@@ -154,8 +154,13 @@ def _jerga_en_respuesta(respuesta: str, cfg: dict, pregunta: str) -> list[str]:
     return out
 
 
+# CUALQUIER mención de pivots/equilibrio fuera de trading (v1.67: "zona de
+# pivots anual" y "quedó en equilibrio" esquivaban la regex de formas
+# puntuales — se prohíbe la familia entera de términos). "inflación de
+# equilibrio" queda exenta (es el lenguaje legítimo de breakevens en RF).
 _RE_NIVELES_NOMBRADOS = re.compile(
-    r"punto\s+pivote|pivote\s+(?:anual|mensual|semanal|diario)|"
+    r"\bpivots?\b|\bpivotes?\b|"
+    r"(?<!inflación de )\bequilibrio\b|"
     r"(?:resistencia|soporte)\s+(?:anual|mensual|semanal|diaria?|de\s+corto|de\s+largo)",
     re.IGNORECASE)
 

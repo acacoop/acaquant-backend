@@ -1219,3 +1219,19 @@ def test_senales_pro_decision_de_posicion():
     f = copiloto.base._es_profunda
     assert f("Pensando si compro ahora, y mantengo hasta fin de año", []) is True
     assert f("¿salgo de la posición?", []) is True
+
+
+def test_niveles_prohibidos_familia_completa_y_exencion():
+    """v1.67: 'zona de pivots anual' y 'quedó en equilibrio' esquivaban la
+    regex puntual → se prohíbe la familia entera. 'inflación de equilibrio'
+    (breakevens de RF) queda exenta."""
+    from api.services.copiloto.verificacion import _jerga_en_respuesta
+
+    cfg = {"columnas": []}
+    for frase in ("Está en su zona de pivots anual.",
+                  "Quedó en equilibrio tras la corrección.",
+                  "Los pivotes marcan el rumbo."):
+        assert any("niveles" in x for x in _jerga_en_respuesta(frase, cfg, "¿cómo ves EWZ?")), frase
+    ok = _jerga_en_respuesta("La inflación de equilibrio del tramo corto es 2.1% mensual.",
+                             cfg, "¿breakevens?")
+    assert not any("niveles" in x for x in ok)

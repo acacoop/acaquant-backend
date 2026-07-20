@@ -117,6 +117,23 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.67 (caso EWZ parte 3: pivots/equilibrio prohibidos como FAMILIA + sin intradía por defecto)
+Tercera vuelta del user sobre EWZ (la conversación ya venía mucho mejor:
+benchmark citado, disculpa correcta ante el "2025 flojo" inventado). Dos
+residuos, ambos con la MISMA causa raíz: el modelo copiaba vocabulario de
+NUESTRAS PROPIAS reglas ("equilibrio" y "¿intradía?" estaban en los textos
+de la v1.65/66). Lección asentada: las reglas se escriben en el idioma final.
+- **[verificación ~]** la regex de niveles pasa de formas puntuales a la
+  FAMILIA entera: `pivot/pivots/pivote/s`, `equilibrio` (exenta "inflación de
+  equilibrio" — breakevens de RF) y resistencia/soporte con marco temporal.
+  "Zona de pivots anual" y "quedó en equilibrio" ya no se escapan.
+- **[reglas ~]** regla 3 reescrita SIN la palabra equilibrio: "al usuario le
+  importa UNA cosa: ¿es buen momento para comprar o vender?" + traducciones
+  ("no estás comprando caro" / "perseguir la suba" / "cuchillo cayendo").
+- **[reglas ~]** regla 9: la repregunta de objetivo ya NO ofrece intradía
+  ("¿lo estás pensando para comprar, o querés ver cómo viene?"); fuera de
+  trading el day-trading aparece SOLO si el usuario lo pide él mismo.
+
 ### 2026-07-20 — v1.66 (caso EWZ parte 2: 3 candados de CÓDIGO contra el tecnicismo)
 El user revisó las respuestas reales de EWZ: "extremadamente técnica, no se
 entiende nada" (punto pivote/resistencia con precio, beta/vol anualizada/

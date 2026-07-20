@@ -117,6 +117,28 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.64 (guía: filtros de Operaciones EN VIVO + fixes de la batería)
+Primera batería del guía (`bateria_guia`, 20/20 respondidas) + pedido del user
+(que sepa los filtros de Operaciones y sus valores):
+- **[contexto +] `[filtros de Operaciones]`**: los VALORES vigentes de los
+  selectores de MOVIMIENTOS (mercado / segmento nivel 1 / nivel 3) leídos EN
+  VIVO de los mismos catálogos que usa la vista (`ops_mercados/segmentos/
+  niveles3`), cache 1h. Nada hardcodeado → nunca queda stale. + fila del mapa
+  de Operaciones reescrita con todos los filtros (rango de fechas, moneda,
+  cuenta, operador, solo/sin ACA VALORES).
+- **[mapa ~] fixes cazados por la batería**: cauciones (cuánto pagan hoy) y
+  futuros de dólar con devaluación implícita → están en HOME, no en Agro/
+  Sintéticos (el guía mandaba mal); Agro aclara "cauciones/pases CON COBERTURA
+  del agro".
+- **[reglas +]** prohibido inventar detalles visuales de la interfaz (la
+  batería lo pescó diciendo "primer ícono del menú de la izquierda" — el menú
+  es la barra superior y es lo único que afirma del layout).
+- **[perf] `jerga_permitida` del guía** (sección/ruta/menú/…): el detector de
+  jerga disparaba la autocorrección al pedo en 3 de 20 preguntas (re-llamada
+  al LLM por usar la palabra "sección" — que en un guía es idioma nativo).
+- **[batería]** +3 preguntas de filtros ("cuánto se operó en BYMA", valores
+  por filtro, rango de fechas/segmento) → 23.
+
 ### 2026-07-20 — v1.63 (fix research: el mail del día llegaba VACÍO al copiloto)
 Cazado por LA BALANZA en su primera corrida en prod (el bloque [research más
 reciente] pesaba 19 tokens = sin cuerpo): `_mail_reciente` leía `cuerpo` pero

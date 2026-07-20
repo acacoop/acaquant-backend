@@ -14,13 +14,21 @@ vía [[VISTA:ayuda]] cuando la pregunta es "cómo llego / dónde veo".
 """
 from __future__ import annotations
 
+import logging
+
+from api.cache import cached
+
+logger = logging.getLogger(__name__)
+
 # Una fila por lugar navegable. `permiso` en lenguaje de negocio (los módulos
 # los asigna el admin en Manager → Roles y Permisos).
 _MAPA = [
     # ── vistas principales ──
     {"seccion": "Home", "ruta": "/", "menu": "HOME",
-     "que_hay": "el panorama del día: watchlist de mercado (índices, dólares, riesgo país, "
-                "futuros), briefing de apertura de las 10:00, noticias y calendario económico",
+     "que_hay": "el panorama del día: watchlist de mercado (índices, dólares MEP/CCL/oficial, "
+                "riesgo país, CUÁNTO PAGAN LAS CAUCIONES hoy, y los FUTUROS DE DÓLAR con su "
+                "devaluación implícita), briefing de apertura de las 10:00, noticias y "
+                "calendario económico",
      "permiso": "todos"},
     {"seccion": "Operar", "ruta": "/operar", "menu": "OPERAR",
      "que_hay": "operatoria de Dólar MEP: envío de órdenes, órdenes vivas, saldo por cuenta "
@@ -40,8 +48,9 @@ _MAPA = [
      "permiso": "toda la mesa"},
     # ── menú MERCADOS ──
     {"seccion": "Agro", "ruta": "/agro", "menu": "MERCADOS → Agro",
-     "que_hay": "granos: pizarras y cámaras, futuros y opciones agro, cauciones/pases con "
-                "cobertura, dólares del agro y volumen del mercado",
+     "que_hay": "granos: pizarras y cámaras, futuros y opciones agro, cauciones/pases CON "
+                "COBERTURA del agro (la tasa de caución general está en HOME), dólares del "
+                "agro y volumen del mercado",
      "permiso": "toda la mesa"},
     {"seccion": "Derivados", "ruta": "/derivados", "menu": "MERCADOS → Derivados",
      "que_hay": "opciones financieras: tablero de opciones por papel, matriz de vencimientos, "
@@ -79,10 +88,14 @@ _MAPA = [
      "que_hay": "el flujo operado contra cada contraparte del mercado",
      "permiso": "restringido (módulo Operaciones)"},
     {"seccion": "Operaciones", "ruta": "/operaciones", "menu": "NEGOCIO → Operaciones",
-     "que_hay": "TODO lo operado: movimientos por día/mes con volumen y aranceles (filtrable "
-                "por cuenta, mercado, tipo de operación), la vista NEGOCIO (posiciones y "
-                "resultado por cliente), el TABLERO COMERCIAL (estado de actividad de cada "
-                "cuenta y su operador) y la pestaña AGRO (share de mercado)",
+     "que_hay": "TODO lo operado: MOVIMIENTOS por día/mes con volumen y aranceles — acepta "
+                "RANGO DE FECHAS y se filtra por moneda (ARS/USD), mercado, segmento (nivel "
+                "1), segmento del boleto (nivel 3), tipo de operación, cuenta (buscador), "
+                "operador, y ver solo/sin las cuentas propias de ACA VALORES; además la "
+                "vista NEGOCIO (posiciones y resultado por cliente), el TABLERO COMERCIAL "
+                "(estado de actividad de cada cuenta y su operador) y la pestaña AGRO "
+                "(share de mercado). Los VALORES vigentes de cada filtro están en el bloque "
+                "[filtros de Operaciones]",
      "permiso": "restringido (módulo Operaciones)"},
     {"seccion": "Operadores", "ruta": "/operadores", "menu": "NEGOCIO → Operadores",
      "que_hay": "el tablero por operador comercial: sus cuentas, actividad y objetivos",
@@ -133,6 +146,49 @@ def _fetch_ayuda(params: dict | None = None) -> list[dict]:
     return list(_MAPA)
 
 
+@cached(ttl=3600)
+def _filtros_operaciones() -> list[str]:
+    """Los VALORES vigentes de los filtros de NEGOCIO → Operaciones, leídos en
+    vivo de los mismos catálogos que usa la vista (pedido user 2026-07-20: el
+    guía tiene que saber qué valores tiene cada filtro — ej. los mercados y
+    segmentos disponibles). Cache 1h: los catálogos casi no cambian y el guía
+    vive en todas las páginas. Best-effort: sin DB, el bloque no aparece y el
+    guía describe los filtros sin valores."""
+    from api.services import operaciones_sql
+
+    partes = []
+    try:
+        m = (operaciones_sql.ops_mercados() or {}).get("mercados") or []
+        if m:
+            partes.append("mercado: " + ", ".join(m))
+    except Exception as e:
+        logger.warning("guía: mercados no disponibles (%s)", e)
+    try:
+        s = (operaciones_sql.ops_segmentos() or {}).get("segmentos") or []
+        if s:
+            partes.append("segmento (nivel 1): " + ", ".join(s))
+    except Exception as e:
+        logger.warning("guía: segmentos no disponibles (%s)", e)
+    try:
+        n3 = (operaciones_sql.ops_niveles3() or {}).get("niveles3") or []
+        if n3:
+            partes.append("segmento del boleto (nivel 3): " + ", ".join(n3))
+    except Exception as e:
+        logger.warning("guía: niveles3 no disponibles (%s)", e)
+    if not partes:
+        return []
+    return ["[filtros de Operaciones — valores vigentes en los selectores de MOVIMIENTOS] "
+            + " · ".join(partes)
+            + " · moneda: ARS, USD · más: rango de fechas, tipo de operación, cuenta "
+              "(buscador), operador, solo/sin cuentas ACA VALORES"]
+
+
+def _extras_ayuda(
+    filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
+) -> list[str]:
+    return _filtros_operaciones()
+
+
 _COLUMNAS_AYUDA = [
     ("seccion", "sección"), ("menu", "cómo llegar (menú)"), ("ruta", "ruta"),
     ("que_hay", "qué hay ahí"), ("permiso", "quién la ve"),
@@ -153,6 +209,13 @@ dato está en la vista.
 Cómo respondés:
 - Pasos concretos y cortos, en orden: menú → sección → pestaña → filtro. Ej: "1. Andá a \
 NEGOCIO → Operaciones. 2. Elegí el rango de fechas. 3. Filtrá por la cuenta."
+- NO inventes detalles visuales de la interfaz (posición de menús, íconos, "a la \
+izquierda/derecha"): el menú de navegación es la BARRA SUPERIOR y eso es todo lo que \
+afirmás del layout. Lo demás sale del mapa, no de tu imaginación.
+- El bloque [filtros de Operaciones] trae los VALORES vigentes de los selectores de esa \
+vista (mercados, segmentos, niveles): cuando pregunten "¿cuánto se operó en X?" o por un \
+segmento, citá el valor exacto del filtro que corresponde ("filtrá mercado = BYMA"). Si \
+un valor no está en ese bloque, no existe como filtro — no lo inventes.
 - Si la vista tiene su propio asistente de datos (Home, Renta Fija, Renta Variable, Agro, \
 Derivados, ONs, Trading, Research), avisá: "ahí arriba tenés el botón «Consultale a la IA» \
 para preguntarle sobre esos datos".

@@ -1,20 +1,25 @@
 """copiloto/research.py — vista RESEARCH unificada (decisión user 2026-07-20):
-UN copiloto para toda /research; el contexto cambia según la tab activa
-(params.tab). Doc madre: docs/VISTA_RESEARCH.md (§ IA Nivel 2) + docs/COPILOTO.md.
+UN copiloto que ve TODO /research a la vez — el research "sabe de todo" y su
+valor es el CRUCE entre fuentes. Doc madre: docs/VISTA_RESEARCH.md (§ IA
+Nivel 2) + docs/COPILOTO.md.
 
-Tabs → tabla TSV:
-  - argentina     → watch 1816: último TEA/paridad/precio/duration por bono +
-                    cambios 7d/30d (diferencia absoluta, precalculada).
-  - bcra          → variables BCRA del watch: último valor + cambios 7d/30d.
-  - internacional → series FRED del watch: ídem.
-  - reportes      → documentos cargados (título, fecha, tipo, comentario).
-(rv-int tiene su propio copiloto, vista `reuters` — no pasa por acá.)
+La tabla TSV concatena las 4 tabs SIEMPRE (columna `fuente` distingue):
+  - 1816      → watch de bonos: último TEA/paridad/precio/duration + cambios
+                de TEA 7d/30d (en pp, precalculados).
+  - bcra      → variables BCRA del watch: último valor + cambios 7d/30d.
+  - fred      → series FRED del watch: ídem.
+  - reportes  → documentos cargados (título, fecha, tipo, comentario).
+`params.tab` NO filtra: solo marca dónde está parado el usuario (prioridad si
+la pregunta es ambigua). rv-int tiene su propio copiloto, vista `reuters`.
+Los watch son curados (decenas de filas por fuente, caps defensivos) — el total
+es comparable a la tabla de renta_variable (~187 filas), probada en producción.
 
 Extras SIEMPRE: el mail de research más reciente ("el día en pocas líneas") +
 búsqueda full-text determinista sobre los mails con los términos de la PREGUNTA
 (el modelo solo puede citar fragmentos que el código trajo, cada uno con fecha)
 + CCL live. TEA/paridad de 1816 vienen en FRACCIÓN → acá se pasan a % (cero
-aritmética del modelo).
+aritmética del modelo). Los readers EOD van con @cached (kwargs-only al
+invocar) — N preguntas comparten las mismas queries.
 """
 from __future__ import annotations
 
@@ -22,12 +27,15 @@ import logging
 import re
 from datetime import UTC, datetime, timedelta
 
+from api.cache import cached
+
 from .base import _num
 
 logger = logging.getLogger(__name__)
 
 _TABS = ("argentina", "bcra", "internacional", "reportes")
-_MAX_FILAS = 120          # techo defensivo de filas de la tabla por tab
+_MAX_FILAS = 120          # techo defensivo de filas por FUENTE (los watch son curados)
+_MAX_REPORTES = 30        # documentos: los más recientes
 _VENTANA_1816_DIAS = 45   # historia leída para derivar cambios 7d/30d (diario)
 _VENTANA_FRED_DIAS = 120  # FRED tiene series semanales/mensuales → ventana más larga
 _FTS_TERMINOS = 3         # términos de la pregunta que se buscan en los mails
@@ -75,6 +83,7 @@ def _ultimo_y_cambios(puntos: list[tuple], escala: float = 1.0) -> dict:
     }
 
 
+@cached(ttl=300)
 def _filas_1816() -> list[dict]:
     """Watch 1816: una fila por bono con el último valor de cada campo + cambios
     de TEA. Una sola query (ventana 45d), pivot en Python. TEA/paridad → %."""
@@ -115,7 +124,7 @@ def _filas_1816() -> list[dict]:
         pc = _ultimo_y_cambios(puntos.get((ticker, "precioClean"), []))
         du = _ultimo_y_cambios(puntos.get((ticker, "duration"), []))
         filas.append({
-            **base,
+            **base, "fuente": "1816",
             "fecha_ultimo": tea["fecha_ultimo"] or pc["fecha_ultimo"],
             "tea": tea["ultimo"], "tea_cambio_7d": tea["cambio_7d"],
             "tea_cambio_30d": tea["cambio_30d"],
@@ -126,7 +135,7 @@ def _filas_1816() -> list[dict]:
     return filas[:_MAX_FILAS]
 
 
-def _filas_watch_series(sql: str, params: tuple, escala_pct: bool = False) -> list[dict]:
+def _filas_watch_series(sql: str, params: tuple, fuente: str) -> list[dict]:
     """Molde BCRA/FRED: query (id, nombre, grupo, unidad, fecha, valor) ASC →
     una fila por serie con último + cambios."""
     from core.postgres import get_pool
@@ -136,13 +145,14 @@ def _filas_watch_series(sql: str, params: tuple, escala_pct: bool = False) -> li
             cur.execute(sql, params)
             crudo = cur.fetchall()
     except Exception as e:
-        logger.warning("copiloto research: watch falló (%s)", e)
+        logger.warning("copiloto research: watch %s falló (%s)", fuente, e)
         return []
     meta: dict[str, dict] = {}
     puntos: dict[str, list[tuple]] = {}
     for sid, nombre, grupo, unidad, fecha, valor in crudo:
         sid = str(sid)
-        meta.setdefault(sid, {"id": sid, "nombre": nombre, "grupo": grupo, "unidad": unidad})
+        meta.setdefault(sid, {"id": sid, "nombre": nombre, "grupo": grupo,
+                              "unidad": unidad, "fuente": fuente})
         if fecha is not None:
             puntos.setdefault(sid, []).append((fecha, valor))
     filas = []
@@ -154,6 +164,7 @@ def _filas_watch_series(sql: str, params: tuple, escala_pct: bool = False) -> li
     return filas[:_MAX_FILAS]
 
 
+@cached(ttl=300)
 def _filas_bcra() -> list[dict]:
     return _filas_watch_series(
         """
@@ -164,9 +175,11 @@ def _filas_bcra() -> list[dict]:
         WHERE w.activo ORDER BY w.id_variable, s.fecha
         """,
         (_VENTANA_1816_DIAS,),
+        fuente="bcra",
     )
 
 
+@cached(ttl=300)
 def _filas_fred() -> list[dict]:
     return _filas_watch_series(
         """
@@ -177,6 +190,7 @@ def _filas_fred() -> list[dict]:
         WHERE w.activo ORDER BY w.series_id, s.fecha
         """,
         (_VENTANA_FRED_DIAS,),
+        fuente="fred",
     )
 
 
@@ -185,22 +199,18 @@ def _filas_reportes() -> list[dict]:
 
     docs = (research_docs_sql.listar() or {}).get("documentos") or []
     return [{
-        "id": d.get("id"), "nombre": d.get("titulo"), "grupo": d.get("tipo"),
-        "unidad": d.get("fuente"), "fecha_ultimo": d.get("fecha"),
-        "autor": d.get("autor"),
+        "id": d.get("id"), "fuente": "reportes", "nombre": d.get("titulo"),
+        "grupo": d.get("tipo"), "unidad": d.get("fuente"),
+        "fecha_ultimo": d.get("fecha"), "autor": d.get("autor"),
         "comentario": (d.get("comentario") or "")[:300] or None,
-    } for d in docs[:_MAX_FILAS]]
+    } for d in docs[:_MAX_REPORTES]]
 
 
 def _fetch_research(params: dict | None = None) -> list[dict]:
-    tab = _sanear_params_research(params)
-    if tab == "bcra":
-        return _filas_bcra()
-    if tab == "internacional":
-        return _filas_fred()
-    if tab == "reportes":
-        return _filas_reportes()
-    return _filas_1816()
+    """TODO el research junto, siempre — el cruce entre fuentes es el valor de
+    esta vista. Cada bloque degrada solo ([] si su tabla falla); la tab activa
+    viaja en extras como señal de prioridad, no como filtro."""
+    return _filas_1816() + _filas_bcra() + _filas_fred() + _filas_reportes()
 
 
 # ── extras: el research escrito (mails 1816) + CCL ──────────────────────────
@@ -270,8 +280,9 @@ def _extras_research(
     from api.services import scanner
 
     tab = _sanear_params_research(params)
-    partes = [f"[tab activa] {tab} — la tabla de arriba es lo que el usuario ve en esa tab "
-              f"({datetime.now(UTC).date().isoformat()})."]
+    partes = [f"[tab activa] el usuario está parado en '{tab}' "
+              f"({datetime.now(UTC).date().isoformat()}) — priorizá esa fuente si la "
+              "pregunta es ambigua, pero tenés TODA la tabla para cruzar."]
     partes.extend(_mail_reciente())
     partes.extend(_fts_mails(pregunta))
     try:
@@ -287,6 +298,7 @@ def _extras_research(
 
 
 _COLUMNAS_RESEARCH = [
+    ("fuente", "fuente"),
     ("id", "serie/ticker"), ("nombre", "nombre"), ("grupo", "curva/bloque"),
     ("unidad", "unidad/moneda"), ("fecha_ultimo", "fecha_último_dato"),
     ("ultimo", "último_valor"), ("cambio_7d", "cambio_7d"), ("cambio_30d", "cambio_30d"),
@@ -297,23 +309,27 @@ _COLUMNAS_RESEARCH = [
     ("comentario", "comentario_del_equipo"),
 ]
 
-_REGLAS_RESEARCH = """Sos el copiloto de la vista RESEARCH: acá el usuario ANALIZA (no opera \
-intradía) — series de renta fija argentina de 1816, variables del BCRA, datos internacionales \
-(FRED), reportes cargados por el equipo y los mails diarios de research de 1816. UN solo \
-copiloto para toda la vista: [tab activa] te dice qué está mirando y la tabla es ESA tab.
+_REGLAS_RESEARCH = """Sos el copiloto de la vista RESEARCH y sos el ANALISTA INTEGRAL de la \
+mesa: sabés de todo a la vez. La tabla trae SIEMPRE las cuatro fuentes juntas (columna \
+`fuente`): bonos 1816, variables BCRA, series internacionales FRED y reportes del equipo. \
+[tab activa] te dice dónde está parado el usuario — priorizá esa fuente si la pregunta es \
+ambigua, pero tu VALOR MÁXIMO es CRUZAR fuentes: la TEA de un bono contra la tasa Fed y el \
+riesgo internacional, la brecha contra las reservas del BCRA, lo que dice 1816 contra lo que \
+muestran los números. Un analista que mira una sola tabla no es research.
 
-Qué es cada tab y qué columnas aplican:
-- argentina: el watch de bonos de 1816 (curvas soberanas/provinciales/corporativas). Columnas: \
-TEA_% (tasa efectiva anual, YA en %), sus cambios en PUNTOS PORCENTUALES a 7/30 días, \
-paridad_%, precio_clean, duration. Datos de CIERRE diario (fecha_último_dato manda — si es \
-vieja, decilo). Los números son de la API de 1816, fuente de verdad; no los recalcules.
-- bcra: variables monetarias/cambiarias del BCRA. último_valor en la unidad de la serie; \
-cambio_7d/30d son DIFERENCIA ABSOLUTA en esa unidad (no %).
-- internacional: series FRED (tasas USA, commodities, liquidez). Misma semántica que bcra. \
-Ojo frecuencia: hay series semanales/mensuales — el cambio_30d puede ser el dato anterior.
-- reportes: documentos que cargó el equipo (título, tipo, fecha, autor y su comentario). NO \
-tenés el contenido de los PDFs — solo la ficha y el comentario; si piden el detalle de un \
-PDF, decí que lo abran de la lista.
+Qué es cada fuente y qué columnas aplican:
+- fuente=1816: el watch de bonos de 1816 (curvas soberanas/provinciales/corporativas). \
+Columnas: TEA_% (tasa efectiva anual, YA en %), sus cambios en PUNTOS PORCENTUALES a 7/30 \
+días, paridad_%, precio_clean, duration. Datos de CIERRE diario (fecha_último_dato manda — \
+si es vieja, decilo). Los números son de la API de 1816, fuente de verdad; no los recalcules.
+- fuente=bcra: variables monetarias/cambiarias del BCRA. último_valor en la unidad de la \
+serie; cambio_7d/30d son DIFERENCIA ABSOLUTA en esa unidad (no %).
+- fuente=fred: series internacionales (tasas USA, commodities, liquidez). Misma semántica \
+que bcra. Ojo frecuencia: hay series semanales/mensuales — el cambio_30d puede ser el dato \
+anterior.
+- fuente=reportes: documentos que cargó el equipo (título, tipo, fecha, autor y su \
+comentario). NO tenés el contenido de los PDFs — solo la ficha y el comentario; si piden el \
+detalle de un PDF, decí que lo abran de la lista.
 
 EL RESEARCH ESCRITO — tu diferencial y tu disciplina más importante:
 - [research más reciente] es el último mail de 1816 ("el día en pocas líneas"): tu contexto \
@@ -340,12 +356,17 @@ _CHIPS_RESEARCH = [
      "pregunta": "Resumime el research más reciente de 1816: los 3-5 puntos que le "
                  "importan a la mesa hoy, con la fecha del mail."},
     {"label": "¿Qué se movió?",
-     "pregunta": "Con la tabla de esta tab: ¿qué series/bonos se movieron más en los "
-                 "últimos 7 y 30 días? Top 5 con números y una lectura corta."},
+     "pregunta": "¿Qué se movió más en los últimos 7 y 30 días en TODO el research "
+                 "(bonos 1816, BCRA e internacional)? Top 5 con números y una "
+                 "lectura corta."},
     {"label": "Número + narrativa",
      "pregunta": "Elegí el movimiento más importante de la tabla y cruzalo con lo que "
                  "venían diciendo los mails de 1816 (citá con fecha)."},
+    {"label": "Cruce local vs afuera",
+     "pregunta": "Cruzá lo local contra lo internacional: ¿el movimiento de las TEAs y "
+                 "la brecha va en línea con las tasas USA y el riesgo global, o hay "
+                 "divergencia? Números concretos."},
     {"label": "¿Qué estoy viendo?",
-     "pregunta": "Explicame qué muestra esta pestaña, qué significa cada columna y qué "
-                 "conviene mirar primero hoy."},
+     "pregunta": "Explicame qué muestra la pestaña donde estoy parado, qué significa "
+                 "cada columna y qué conviene mirar primero hoy."},
 ]

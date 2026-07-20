@@ -1079,3 +1079,16 @@ def test_research_terminos_busqueda():
     assert f("¿Qué viene diciendo 1816 sobre el carry con TX26?") == ["carry", "TX26"]
     assert f("resumime el research de hoy") == []          # todo stopwords
     assert len(f("bopreal brecha reservas licitacion dolar")) == 3   # cap
+
+
+def test_research_fetch_concatena_todas_las_fuentes(monkeypatch):
+    """El fetch trae TODO el research junto (decisión user 2026-07-20): la tab
+    activa NO filtra — solo prioriza en extras."""
+    r = copiloto.research
+    monkeypatch.setattr(r, "_filas_1816", lambda: [{"id": "TX26", "fuente": "1816"}])
+    monkeypatch.setattr(r, "_filas_bcra", lambda: [{"id": "1", "fuente": "bcra"}])
+    monkeypatch.setattr(r, "_filas_fred", lambda: [{"id": "DGS10", "fuente": "fred"}])
+    monkeypatch.setattr(r, "_filas_reportes", lambda: [{"id": 9, "fuente": "reportes"}])
+    for tab in ("argentina", "bcra", "internacional", "reportes", None):
+        filas = r._fetch_research({"tab": tab} if tab else None)
+        assert [f["fuente"] for f in filas] == ["1816", "bcra", "fred", "reportes"]

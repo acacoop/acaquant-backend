@@ -117,6 +117,17 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.59 (research: el copiloto ve las 4 fuentes JUNTAS, siempre)
+Corrección de alcance sobre v1.58, a pedido del user ("el research tiene que
+saber de todo"): la tabla ya NO es la de la tab activa — **concatena SIEMPRE
+las 4 fuentes** (columna `fuente`: 1816 · bcra · fred · reportes) y
+`params.tab` pasa a ser solo señal de prioridad en extras, no filtro. Volumen
+total comparable a la tabla de renta_variable (~187 filas, probada) — los watch
+son curados y hay caps por fuente (120; reportes 30). Los 3 readers EOD van con
+`@cached(ttl=300)` (N preguntas comparten queries). Reglas reescritas: "analista
+integral — tu valor máximo es CRUZAR fuentes" + chip nuevo "Cruce local vs
+afuera". Test: el fetch concatena las 4 fuentes sea cual sea la tab.
+
 ### 2026-07-20 — v1.58 (vista RESEARCH unificada: un copiloto para toda /research)
 El "Nivel 2" que VISTA_RESEARCH.md §2.7 dejó anotado ("la IA se consume SOLO
 cuando alguien pregunta"). Decisión del user: **UN copiloto para toda la vista**

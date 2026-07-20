@@ -504,12 +504,14 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ### 2026-07-20 (14) — COPILOTO de Research (el "Nivel 2" de §2.7, HECHO)
 La IA on-demand que este doc dejó anotada. Decisión del user: **UN copiloto
-para toda /research** — el panel manda la tab activa y el contexto es el de esa
-tab (RV INTERNACIONAL queda con su vista `reuters` propia). Vista `research` en
-`api/services/copiloto/research.py` (módulo RBAC `research`, gate `ia`):
-- Tabla por tab: watch 1816 (último TEA%/paridad%/precio/duration + cambios de
-  TEA 7/30d en pp) · BCRA/FRED (último valor + diferencia 7/30d) · reportes
-  (ficha + comentario; el PDF no se lee).
+para toda /research que ve las 4 fuentes JUNTAS, siempre** ("el research tiene
+que saber de todo") — la tab activa viaja solo como señal de prioridad, no
+filtra (RV INTERNACIONAL queda con su vista `reuters` propia). Vista `research`
+en `api/services/copiloto/research.py` (módulo RBAC `research`, gate `ia`):
+- Tabla = concatenación con columna `fuente`: watch 1816 (último TEA%/paridad%/
+  precio/duration + cambios de TEA 7/30d en pp) · BCRA/FRED (último valor +
+  diferencia 7/30d) · reportes (ficha + comentario; el PDF no se lee). Readers
+  EOD con @cached(300).
 - **Mails citables con fecha**: el mail más reciente SIEMPRE + FTS determinista
   (`buscar_research`, índice GIN existente) con los términos de la pregunta —
   el modelo solo puede citar fragmentos que el código trajo. Cero tokens extra

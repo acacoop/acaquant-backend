@@ -232,6 +232,120 @@ def _movers_resumen(umbral: float = 4.0) -> list[str]:
     return [f"[movers ±{umbral:.0f}% del día] " + "; ".join(s for _, s in movers[:12])]
 
 
+# ── LA RUEDA COMO PELÍCULA (trayectoria intradía, no foto) ──────────────────
+# Pedido del user 2026-07-20: "+1% de QQQ" no dice nada sin el CAMINO (venía -2,
+# recuperó, se dio vuelta…). Todo derivado por código desde las series por
+# minuto que YA existen: el tape del papel (get_intraday) y el dólar financiero
+# intradía (valuaciones.dolar, escrito por engines/dolar_mep durante la rueda).
+
+_TRAYECTORIA_BLOQUE_MIN = 30   # tamaño del tramo del "camino" (minutos)
+
+
+def _trayectoria(minutos: list[dict]) -> list[str]:
+    """Serie por minuto [{t,'o','h','l','c'}] ASC → 2 líneas compactas: los hitos
+    del día (máx/mín CON HORA, posición en el rango, distancia desde máx/mín) y
+    el camino por tramos de 30' (var% de cada tramo — la FORMA del día). Los
+    giros quedan legibles solos: máx a las 11:20 y ahora -1.8% desde ahí = se
+    dio vuelta a las 11:20. PURA (testeable sin DB)."""
+    pts = [m for m in minutos if m.get("c") is not None and m.get("t")]
+    if len(pts) < 2:
+        return []
+    apertura = pts[0].get("o") or pts[0]["c"]
+    ahora = pts[-1]["c"]
+
+    def _hhmm(t: str) -> str:
+        return str(t)[11:16]
+
+    hi_m = max(pts, key=lambda m: m.get("h") or m["c"])
+    lo_m = min(pts, key=lambda m: m.get("l") or m["c"])
+    hi = hi_m.get("h") or hi_m["c"]
+    lo = lo_m.get("l") or lo_m["c"]
+    linea1 = (f"apertura {_num(apertura)} ({_hhmm(pts[0]['t'])}) · máx {_num(hi)} "
+              f"({_hhmm(hi_m['t'])}) · mín {_num(lo)} ({_hhmm(lo_m['t'])}) · "
+              f"ahora {_num(ahora)}")
+    if hi > lo:
+        linea1 += (f" — {round(100 * (ahora - lo) / (hi - lo))}% del rango del día · "
+                   f"desde el máx {(ahora / hi - 1) * 100:+.1f}% · "
+                   f"desde el mín {(ahora / lo - 1) * 100:+.1f}%")
+
+    # el camino: var% por tramo de 30 minutos (la forma del día, sin adjetivos)
+    tramos: dict[str, list[dict]] = {}
+    for m in pts:
+        t = str(m["t"])
+        try:
+            h, mi = int(t[11:13]), int(t[14:16])
+        except ValueError:
+            continue
+        clave = f"{h:02d}:{(mi // _TRAYECTORIA_BLOQUE_MIN) * _TRAYECTORIA_BLOQUE_MIN:02d}"
+        tramos.setdefault(clave, []).append(m)
+    partes = []
+    for clave in sorted(tramos):
+        b = tramos[clave]
+        o_b = b[0].get("o") or b[0]["c"]
+        c_b = b[-1]["c"]
+        if o_b:
+            partes.append(f"{clave} {(c_b / o_b - 1) * 100:+.1f}%")
+    lineas = [linea1]
+    if partes:
+        lineas.append("camino por media hora: " + " · ".join(partes))
+    return lineas
+
+
+def _rueda_dolar() -> list[str]:
+    """Trayectoria intradía del dólar financiero (CCL, fallback MEP) desde
+    valuaciones.dolar — puntos de hoy en hora argentina."""
+    from core.postgres import get_pool
+
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT to_char(timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires',
+                               'YYYY-MM-DD"T"HH24:MI:00') AS t,
+                       coalesce(ccl, mep) AS px
+                FROM valuaciones.dolar
+                WHERE (timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires')::date =
+                      (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+                ORDER BY timestamp
+                """
+            )
+            pts = [{"t": t, "c": float(px)} for t, px in cur.fetchall() if px is not None]
+    except Exception as e:
+        logger.warning("copiloto trading: rueda dólar falló (%s)", e)
+        return []
+    lineas = _trayectoria(pts)
+    return [f"[rueda dólar financiero (CCL) hoy] {lineas[0]}", "  " + lineas[1]] \
+        if len(lineas) > 1 else ([f"[rueda dólar financiero (CCL) hoy] {lineas[0]}"]
+                                 if lineas else [])
+
+
+def _rueda_bloques(seleccionado: str | None) -> list[str]:
+    """[rueda X] del papel en foco + los proxies de mercado que tengan tape
+    local (SPY/QQQ como CEDEARs, si operaron hoy) + el dólar financiero. Todo
+    best-effort: sin datos → el bloque no aparece."""
+    from api.services import trading_pivots
+
+    partes: list[str] = []
+    tickers = []
+    if seleccionado:
+        tickers.append((seleccionado, f"rueda {seleccionado} hoy (ARS)"))
+    for idx in ("SPY", "QQQ"):
+        if idx != seleccionado:
+            tickers.append((idx, f"rueda {idx} hoy (CEDEAR ARS — proxy del índice)"))
+    for tk, titulo in tickers:
+        try:
+            lineas = _trayectoria(trading_pivots.get_intraday(ticker=tk))
+        except Exception as e:
+            logger.warning("copiloto trading: rueda %s falló (%s)", tk, e)
+            continue
+        if lineas:
+            partes.append(f"[{titulo}] {lineas[0]}")
+            if len(lineas) > 1:
+                partes.append("  " + lineas[1])
+    partes.extend(_rueda_dolar())
+    return partes
+
+
 # ── HISTORIA (memoria de ruedas) + SETUPS (modo propositivo) ────────────────
 # Fuente de la historia: mercado.cedears_ohlc_daily / bonos_ohlc_daily (jobs
 # gemelos *_ohlc_daily, 20:15 UTC, ventana móvil 20 ruedas — YA existían para
@@ -437,7 +551,15 @@ def _reloj_mercado() -> list[str]:
     estado, lectura = _estado_mercado(ahora_art, es_habil)
     dia = ("lunes", "martes", "miércoles", "jueves", "viernes",
            "sábado", "domingo")[ahora_art.weekday()]
-    return [f"[reloj de mercado] {dia} {ahora_art:%H:%M} ART — {estado}. Lectura: {lectura}."]
+    linea = f"[reloj de mercado] {dia} {ahora_art:%H:%M} ART — {estado}. Lectura: {lectura}."
+    # el paso del tiempo: cuánto va y cuánto queda de rueda (10:30-17:00 ART)
+    hora = ahora_art.hour + ahora_art.minute / 60
+    if es_habil and 10.5 <= hora < 17:
+        van = hora - 10.5
+        quedan = 17 - hora
+        linea += (f" Van {int(van)}h{int(van % 1 * 60):02d} de rueda; "
+                  f"quedan {int(quedan)}h{int(quedan % 1 * 60):02d} hasta el cierre.")
+    return [linea]
 
 
 def _tendencia_rubros_cards(filas_cards: list[dict]) -> list[str]:
@@ -627,11 +749,20 @@ def _extras_trading(
     partes.extend(_reloj_mercado())
     posiciones = _sanear_posiciones(params)
     if posiciones:
-        partes.append(
-            "[mis posiciones abiertas — monitor INTRADAY] "
-            + " · ".join(f"{p['estado']} {p['qty']:.0f} {p['especie']} a {p['precio']:.2f}"
-                         for p in posiciones)
-        )
+        # el "cómo venís" de cada posición YA calculado (last de la card si está):
+        # a favor/en contra según el lado — cero aritmética del modelo.
+        last_de = {str(f.get("ticker") or "").upper(): f.get("last") for f in filas}
+        trozos = []
+        for p in posiciones:
+            s = f"{p['estado']} {p['qty']:.0f} {p['especie']} a {p['precio']:.2f}"
+            last = last_de.get(p["especie"])
+            if last:
+                var = (float(last) / p["precio"] - 1) * 100
+                favor = var >= 0 if p["estado"] == "LONG" else var <= 0
+                s += (f" → ahora {float(last):.2f} ({var:+.2f}%, "
+                      f"{'a favor' if favor else 'en contra'})")
+            trozos.append(s)
+        partes.append("[mis posiciones abiertas — monitor INTRADAY] " + " · ".join(trozos))
     try:
         ccl = scanner.get_ccl_live() or {}
         if ccl.get("value") is not None:
@@ -652,6 +783,7 @@ def _extras_trading(
     except Exception as e:
         logger.warning("copiloto trading: SPY/QQQ fallaron (%s)", e)
     partes.extend(_tendencia_rubros_cards(filas))
+    partes.extend(_rueda_bloques(seleccionado))
     if seleccionado:
         partes.extend(_libro_resumen(seleccionado))
         partes.extend(_tape_resumen(seleccionado))
@@ -714,7 +846,39 @@ cuidado con entrar a mercado.
 - [tape X]: resumen de los trades de hoy (monto, % de agresión compradora, últimos trades). \
 "Agresión compradora" = trades ejecutados contra la punta vendedora.
 - [movers]: los que se mueven fuerte hoy (±4%), mismo criterio que el radar de la vista.
-- [CCL]/[SPY]/[QQQ]: contexto de mercado.
+- [CCL]/[SPY]/[QQQ]: contexto de mercado (la FOTO de ahora).
+- [rueda X hoy]: la PELÍCULA del día — apertura, máximo y mínimo CON HORA, posición en el \
+rango, distancia desde el máx/mín, y el camino por media hora (var% de cada tramo). Hay \
+bloque para el papel en foco, para SPY/QQQ (proxy del índice con tape local) y para el \
+dólar financiero.
+
+LA RUEDA ES UNA PELÍCULA, NO UNA FOTO — tu lectura del día sale de [rueda], no del último \
+número:
+- Un +1% no dice nada solo: +1% viniendo de -2% (recuperó todo el camino) es FUERZA; +1% \
+que a las 11 era +2.5% es un día que SE ESTÁ APAGANDO. Decilo así, con las horas.
+- Los giros se leen solos: si el máximo fue 11:20 y ahora está -1.8% desde ahí, el día se \
+dio vuelta a las 11:20. Usá el camino por media hora para contar la forma ("abrió \
+vendedor, hizo piso 11:00, recuperó hasta 13:00 y desde ahí lateraliza").
+- Un día que YA se dio vuelta una vez puede volver a darse vuelta: si el camino muestra \
+tramos alternados fuertes, decí explícito que la rueda está VOLÁTIL y los quiebres valen \
+menos. Si los tramos son todos del mismo signo, la tendencia del día es sólida.
+- Cruzá papel vs mercado: papel firme con QQQ/SPY dándose vuelta = la tesis de tendencia \
+queda en minoría; papel débil con mercado firme = debilidad PROPIA del papel.
+- El reloj te dice cuánto queda: un giro a 30' del cierre no es lo mismo que a las 11:00.
+
+HOLDING — cuándo aguantar y cuándo no (el usuario perdió plata por leer el día como \
+lineal; tu trabajo es evitar el pánico Y el aguante ciego):
+- Una posición abierta se evalúa contra TRES cosas: su precio de entrada (ya calculado en \
+[mis posiciones]), el NIVEL de la tesis, y la película de [rueda]. NUNCA contra el último \
+tick solo.
+- Retroceso hacia un nivel que el papel sigue respetando, con el mercado de fondo intacto \
+= RUIDO del camino: decilo ("volvió al PP que venía respetando; mientras lo aguante, la \
+tesis sigue — el día no es lineal").
+- Papel perdiendo el nivel de la tesis + mercado ([rueda] de QQQ/SPY) confirmando el giro \
+= la tesis MURIÓ: el consejo es cortarla, no rezar. El nivel en contra era el riesgo \
+aceptado; perderlo con contexto en contra no se "aguanta".
+- Posición a favor con día extendido y tramo final llegando (reloj): recordá la estrategia \
+3 — asegurar contra el próximo nivel, no perseguir el último peso.
 - [setups ahora]: las tarjetas que ESTÁN en zona de decisión (a ≤0.50% de un nivel) con el \
 recorrido a los niveles adyacentes YA calculado (% y ARS por nominal). Es TU insumo para \
 proponer: si está vacío, no hay trade en las tarjetas y punto.

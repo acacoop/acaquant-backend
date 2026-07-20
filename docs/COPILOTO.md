@@ -117,6 +117,32 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.60 (TRADING: la rueda como PELÍCULA — trayectoria intradía + holding)
+Pedido del user: el día no es lineal (perdió plata por leerlo así) — "+1% de
+QQQ" no dice nada sin el camino (venía -2, recuperó, se dio vuelta). Todo
+derivado por código de series que YA existían:
+- **[contexto +] `[rueda X hoy]`**: trayectoria intradía del papel EN FOCO +
+  SPY/QQQ (CEDEARs como proxy del índice, si tienen tape) + el dólar financiero
+  (`valuaciones.dolar` intradía). Por bloque: apertura/máx/mín CON HORA,
+  posición en el rango, distancia desde máx/mín, y el "camino por media hora"
+  (var% por tramo de 30' — la FORMA del día). Compresor puro `_trayectoria`
+  (testeado); los giros quedan legibles sin adjetivos (máx 11:20 + ahora -1.8%
+  desde ahí = se dio vuelta a las 11:20).
+- **[contexto ~] `[mis posiciones]`** ahora trae el "cómo venís" calculado:
+  last actual + var% vs entrada + a favor/en contra según el lado (cero
+  aritmética del modelo).
+- **[contexto ~] `[reloj de mercado]`** suma el paso del tiempo: "van Xh de
+  rueda; quedan Yh hasta el cierre".
+- **[reglas +] "LA RUEDA ES UNA PELÍCULA"**: +1% viniendo de -2 = fuerza vs +1%
+  que era +2.5 = apagándose; giros con hora; rueda con tramos alternados =
+  volátil (quiebres valen menos); papel vs mercado (debilidad propia vs de
+  fondo); un giro a 30' del cierre ≠ a las 11:00.
+- **[reglas +] "HOLDING"**: la posición se evalúa contra entrada + nivel de la
+  tesis + película (nunca el último tick): retroceso a un nivel respetado con
+  mercado intacto = ruido ("el día no es lineal"); nivel perdido + giro del
+  mercado confirmado = tesis muerta, se corta (ni pánico ni aguante ciego);
+  día extendido + tramo final = asegurar contra el próximo nivel.
+
 ### 2026-07-20 — v1.59 (research: el copiloto ve las 4 fuentes JUNTAS, siempre)
 Corrección de alcance sobre v1.58, a pedido del user ("el research tiene que
 saber de todo"): la tabla ya NO es la de la tab activa — **concatena SIEMPRE

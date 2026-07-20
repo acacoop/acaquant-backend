@@ -1092,3 +1092,28 @@ def test_research_fetch_concatena_todas_las_fuentes(monkeypatch):
     for tab in ("argentina", "bcra", "internacional", "reportes", None):
         filas = r._fetch_research({"tab": tab} if tab else None)
         assert [f["fuente"] for f in filas] == ["1816", "bcra", "fred", "reportes"]
+
+
+# ── la rueda como película (trayectoria intradía, 2026-07-20) ────────────────
+
+def test_trayectoria_hitos_y_camino():
+    # abre 100, sube a 104 (11:10), cae a 98 (12:40), cierra 99 → giro visible
+    minutos = [
+        {"t": "2026-07-20T10:30:00", "o": 100.0, "h": 100.5, "l": 99.8, "c": 100.2},
+        {"t": "2026-07-20T11:10:00", "o": 103.0, "h": 104.0, "l": 102.5, "c": 103.8},
+        {"t": "2026-07-20T12:40:00", "o": 99.0, "h": 99.5, "l": 98.0, "c": 98.5},
+        {"t": "2026-07-20T13:05:00", "o": 98.8, "h": 99.2, "l": 98.6, "c": 99.0},
+    ]
+    lineas = copiloto.trading._trayectoria(minutos)
+    assert len(lineas) == 2
+    assert "máx 104.00 (11:10)" in lineas[0]
+    assert "mín 98.00 (12:40)" in lineas[0]
+    assert "desde el máx -4.8%" in lineas[0]   # 99/104-1
+    assert lineas[1].startswith("camino por media hora:")
+    assert "10:30" in lineas[1] and "12:30" in lineas[1] and "13:00" in lineas[1]
+
+
+def test_trayectoria_degrada_sin_datos():
+    assert copiloto.trading._trayectoria([]) == []
+    assert copiloto.trading._trayectoria([{"t": "2026-07-20T10:30:00", "c": 1.0}]) == []
+    assert copiloto.trading._trayectoria([{"t": None, "c": None}] * 5) == []

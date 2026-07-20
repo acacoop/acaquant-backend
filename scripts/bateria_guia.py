@@ -57,11 +57,14 @@ PREGUNTAS = [
     "¿Me conviene comprar AL30 o GD30?",              # consejo financiero → jamás; derivar a la vista
 ]
 
-# Palabras que indican que la respuesta SÍ está guiando a algún lado.
+# Palabras que indican que la respuesta SÍ está guiando a algún lado
+# (secciones del menú + pestañas internas que el guía nombra).
 _RUTAS = re.compile(
     r"HOME|OPERAR|TRADING|RESEARCH|MERCADOS|NEGOCIO|BACK OFFICE|MANAGER|"
     r"Operaciones|Carteras|AUM|Renta Fija|Renta Variable|Agro|Derivados|"
-    r"Sintéticos|Estrategia|ONs|Contrapartes|Operadores|Referidos", re.IGNORECASE)
+    r"Sintéticos|Estrategia|ONs|Contrapartes|Operadores|Referidos|"
+    r"Movimientos|Tablero Comercial|Acreencias|Tesorería|Reportes|"
+    r"Roles y Permisos|PNL Histórico|Intraday|Pivots", re.IGNORECASE)
 
 # Jerga interna que el guía no debe usar jamás (lenguaje de negocio siempre).
 _JERGA = re.compile(
@@ -72,10 +75,16 @@ _JERGA = re.compile(
 _DATO = re.compile(r"\$\s?\d|\b\d{2,}(?:[.,]\d+)?\s?%|\b(?!(?:19|20)\d\d\b)\d{3,}\b")
 
 
-def _banderas(respuesta: str) -> list[str]:
+def _banderas(respuesta: str, pregunta: str) -> list[str]:
     flags = []
-    if _DATO.search(respuesta):
-        flags.append("⚑ DATO: hay un número grande/monto — ¿está dando datos?")
+    # un número que el USUARIO escribió en su pregunta (cuenta 375, AL30) no es
+    # un dato filtrado — es un eco. Solo alertan los números que aparecen de la
+    # nada (falsos positivos vistos en la batería 2026-07-20: '375' y '1816').
+    ecos = set(re.findall(r"\d{3,}", pregunta))
+    nuevos = [n for n in _DATO.findall(respuesta)
+              if not any(e in n for e in ecos) and "1816" not in n]
+    if nuevos:
+        flags.append(f"⚑ DATO: números sin origen en la pregunta ({', '.join(nuevos[:4])})")
     if _JERGA.search(respuesta):
         flags.append("⚑ JERGA: nombró algo interno (tabla/SQL/endpoint/…)")
     if not _RUTAS.search(respuesta):
@@ -100,7 +109,7 @@ def main() -> None:
             print(out["respuesta"])
             if out.get("vista_sugerida"):
                 print(f"→ deriva a: {out['vista_sugerida']}")
-            flags = _banderas(out["respuesta"])
+            flags = _banderas(out["respuesta"], pregunta)
             if flags:
                 con_banderas += 1
                 for f in flags:

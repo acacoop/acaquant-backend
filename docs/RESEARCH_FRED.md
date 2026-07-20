@@ -610,6 +610,16 @@ Encaja con el patrón `home.market_quotes`.
 
 ## Registro (con fecha)
 
+- **2026-07-19 (9) — REPORTES FINANCIEROS: feed unificado + fix del PDF embebido.**
+  Feedback del user: no sub-tabs — UN solo lugar, lista a la izquierda (mails +
+  documentos MEZCLADOS por fecha), contenido a la derecha (texto/PDF/comentario).
+  Rehecho como master-detail; se borró el ReportesPanel/ReporteItem viejo (dead code).
+  **Fix del PDF que no embebía** ("rechazó la conexión"): `next.config.ts` pone
+  `X-Frame-Options: DENY` global (NO se toca — protección anti-clickjacking) → el
+  iframe al endpoint queda bloqueado. Solución: el visor BAJA el PDF como blob y lo
+  muestra desde una URL `blob:` (que no lleva ese header) → se ve embebido, interno,
+  sin bajar la seguridad. Solo frontend.
+
 - **2026-07-19 (8) — Vista REPORTES FINANCIEROS + carga manual de documentos.**
   Nueva tab en Research que junta el contexto de texto/documento. Dos piezas:
   - **Migración:** el panel de reportes 1816/ACA VALORES (mails) salió de RENTA FIJA

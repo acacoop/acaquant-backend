@@ -238,7 +238,12 @@ def _mail_reciente() -> list[str]:
     if not items:
         return ["[research de hoy] todavía no hay mails de 1816 ingestados."]
     m = items[0]
-    cuerpo = (m.get("cuerpo") or "").strip()
+    # el campo es `texto` (el crudo LIMPIO para mostrar) — no `cuerpo`, que no
+    # viaja en la salida de listar_research. Bug cazado por la balanza
+    # (diag_contexto --pesos): el bloque salía con el mail vacío (19 tokens).
+    cuerpo = (m.get("texto") or "").strip()
+    if not cuerpo:
+        return ["[research de hoy] el mail más reciente vino sin texto legible."]
     if len(cuerpo) > _MAIL_HOY_CHARS:
         cuerpo = cuerpo[:_MAIL_HOY_CHARS] + " (…sigue)"
     return [f"[research más reciente — {m.get('fecha')} · {m.get('asunto')}] {cuerpo}"]

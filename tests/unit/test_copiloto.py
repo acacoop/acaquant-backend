@@ -1150,3 +1150,16 @@ def test_celda_max_por_vista():
     assert len(copiloto._tsv([{"a": largo}], ["a"]).splitlines()[1]) == 60
     assert len(copiloto._tsv([{"a": largo}], ["a"], celda_max=400).splitlines()[1]) == 300
     assert copiloto.VISTAS["ayuda"]["celda_max"] == 400
+
+
+def test_mail_reciente_usa_el_campo_texto(monkeypatch):
+    """Bug cazado por la balanza en prod (2026-07-20): el bloque del mail salía
+    VACÍO porque leía `cuerpo` y listar_research expone `texto`."""
+    from api.services import research_sql
+
+    monkeypatch.setattr(research_sql, "listar_research", lambda limit=1: {
+        "items": [{"fecha": "2026-07-20", "asunto": "El día en pocas líneas",
+                   "texto": "El BCRA compró reservas y la brecha comprimió."}]})
+    out = "\n".join(copiloto.research._mail_reciente())
+    assert "El BCRA compró reservas" in out
+    assert "2026-07-20" in out

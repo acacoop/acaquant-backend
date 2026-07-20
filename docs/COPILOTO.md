@@ -117,6 +117,13 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.63 (fix research: el mail del día llegaba VACÍO al copiloto)
+Cazado por LA BALANZA en su primera corrida en prod (el bloque [research más
+reciente] pesaba 19 tokens = sin cuerpo): `_mail_reciente` leía `cuerpo` pero
+`listar_research` expone `texto` (el crudo limpio). Fix + test que congela el
+campo. Lección asentada: la balanza no solo mide costo — delata bloques rotos
+(un bloque sospechosamente liviano es un bloque vacío).
+
 ### 2026-07-20 — v1.62 (optimización: TRADING a tier PRO + balanza de tokens + caché)
 Plan de optimización acordado con el user (técnicas 1 y 2 + escalado de modelo):
 - **[modelo ~] TRADING corre en tier PRO** ("TRADING jamás en flash" — ahí se

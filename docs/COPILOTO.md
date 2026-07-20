@@ -117,6 +117,24 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.61 (vista AYUDA: el GUÍA de la plataforma en toda página)
+Pedido del user: un asistente estilo DigitalOcean/Supabase que funcione en TODA
+la página y NO hable de datos — solo te lleva a donde querés ir.
+- **[vista +] `ayuda`** (`copiloto/ayuda.py`, módulo `home` → todos los
+  internos con `ia`). La tabla es el **mapa del producto curado a mano**
+  (secciones, cómo llegar por menú, qué hay, quién la ve, + RECETAS frecuentes
+  tipo "cuánto operó una cuenta" → pasos). Lenguaje de negocio, cero nombres
+  internos. **Mantener el mapa al mover/crear vistas es parte de este doc vivo.**
+- **[reglas]** PROHIBICIÓN TOTAL de datos/números/consejos: ante "¿cuánto operó
+  X?" responde CÓMO verlo (menú → vista → filtro), jamás el dato. Deriva a los
+  copilotos de datos con [[VISTA:x]] cuando la pregunta es de análisis. No
+  inventa vistas que no están en el mapa.
+- **[UI]** `header.tsx`: el slot derecho ahora SIEMPRE tiene un panel — rutas
+  con copiloto de datos propio muestran el suyo; el resto (operar, operaciones,
+  aum, valuaciones, manager, back-office, …) muestran el GUÍA. El invitado
+  jamás lo ve (sin módulo `ia`, default-deny — REGLA #8 intacta).
+- Sin extras ni queries: contexto 100% estático → barato y cacheable.
+
 ### 2026-07-20 — v1.60 (TRADING: la rueda como PELÍCULA — trayectoria intradía + holding)
 Pedido del user: el día no es lineal (perdió plata por leerlo así) — "+1% de
 QQQ" no dice nada sin el camino (venía -2, recuperó, se dio vuelta). Todo

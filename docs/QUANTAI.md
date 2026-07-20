@@ -189,13 +189,13 @@ el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
 además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.60 (2026-07-20) — 9 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
+**Estado: v1.61 (2026-07-20) — 10 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
 TRADING (+ el VIGÍA reactivo + memoria de 7 ruedas + modo propositivo de setups),
 RENTA FIJA, AGRO, OPCIONES (derivados), ONs,
 REUTERS (tablero live de subyacentes US, feed Eikon — ver
-`docs/INTEGRACION_REUTERS.md`) y RESEARCH (unificada: series 1816 + BCRA + FRED +
+`docs/INTEGRACION_REUTERS.md`), RESEARCH (unificada: series 1816 + BCRA + FRED +
 reportes + mails de 1816 citables con fecha vía FTS — el "Nivel 2" de
-VISTA_RESEARCH.md)** · Tipo: copiloto contextual por vista · Gate:
+VISTA_RESEARCH.md) y AYUDA (el GUÍA de navegación en toda página — jamás datos)** · Tipo: copiloto contextual por vista · Gate:
 `ia` + módulo RBAC de la vista
 
 > **Rollout 2026-07-13:** el user sumó el módulo `ia` a **trader y sales** →

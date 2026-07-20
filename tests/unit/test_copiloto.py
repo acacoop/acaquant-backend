@@ -1117,3 +1117,16 @@ def test_trayectoria_degrada_sin_datos():
     assert copiloto.trading._trayectoria([]) == []
     assert copiloto.trading._trayectoria([{"t": "2026-07-20T10:30:00", "c": 1.0}]) == []
     assert copiloto.trading._trayectoria([{"t": None, "c": None}] * 5) == []
+
+
+# ── el GUÍA de la plataforma (vista ayuda — navegación, jamás datos) ─────────
+
+def test_ayuda_registrada_y_mapa_no_vacio():
+    a = copiloto.VISTAS["ayuda"]
+    assert a["modulo"] == "home" and a["dominio"] and a["chips"]
+    filas = a["fetch"]()
+    assert len(filas) >= 15                      # el mapa cubre la plataforma
+    assert all(f.get("seccion") and f.get("que_hay") for f in filas)
+    rutas = {f["ruta"] for f in filas}
+    assert {"/", "/operaciones", "/valuaciones", "/research"} <= rutas
+    assert "NO hablás de datos" in a["reglas"]   # la prohibición es explícita

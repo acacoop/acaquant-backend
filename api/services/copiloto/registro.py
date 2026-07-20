@@ -4,6 +4,7 @@ de qué vistas existen; lo consumen motor y derivacion."""
 from __future__ import annotations
 
 from .agro import _REGLAS_AGRO, _extras_agro, _fetch_agro
+from .ayuda import _CHIPS_AYUDA, _COLUMNAS_AYUDA, _REGLAS_AYUDA, _fetch_ayuda
 from .home import _REGLAS_HOME, _extras_home, _fetch_home
 from .ons import _REGLAS_ONS, _extras_ons, _fetch_ons
 from .opciones import _REGLAS_OPCIONES, _extras_opciones, _fetch_opciones
@@ -26,6 +27,20 @@ from .reuters import _REGLAS_REUTERS, _fetch_reuters
 from .trading import _REGLAS_TRADING, _extras_trading, _fetch_trading
 
 VISTAS: dict[str, dict] = {
+    "ayuda": {
+        "titulo": "Guía de la plataforma",
+        # el GUÍA de navegación (no habla de datos): disponible para todos los
+        # usuarios internos (gate `ia` + `home`). Vive en el header de las
+        # páginas SIN copiloto de datos propio.
+        "modulo": "home",
+        "dominio": "cómo usar la plataforma: dónde está cada vista, cómo llegar a "
+                   "un dato o función, qué permisos hacen falta — navegación y "
+                   "ayuda, NUNCA datos ni análisis",
+        "fetch": _fetch_ayuda,
+        "chips": _CHIPS_AYUDA,
+        "columnas": _COLUMNAS_AYUDA,
+        "reglas": _REGLAS_AYUDA,
+    },
     "home": {
         "titulo": "Home",
         "modulo": "home",

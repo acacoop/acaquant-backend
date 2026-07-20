@@ -589,6 +589,19 @@ CREATE TABLE IF NOT EXISTS valuaciones.pnl_totales_cache (
     computed_at timestamptz DEFAULT now()
 );
 
+-- valuaciones.pnl_historico — cuaderno de PnL diario de carga MANUAL (vista TRADING
+-- → PNL HISTÓRICO). NO lo alimenta el motor de PnL: el usuario tipea el PnL de cada
+-- día hábil y el acumulado (total desde el 1-jul-2026 + mensual) se calcula al leer.
+-- `cuenta` es etiqueta LIBRE ('General' por defecto); cada cuenta es su propio
+-- cuaderno → clave (fecha, cuenta). Borrar el monto = borrar la fila.
+CREATE TABLE IF NOT EXISTS valuaciones.pnl_historico (
+    fecha        date        NOT NULL,
+    cuenta       text        NOT NULL DEFAULT 'General',
+    monto        numeric     NOT NULL,
+    actualizado  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fecha, cuenta)
+);
+
 -- Valuaciones.Dolar — feed MEP (timestamp, mep). get_mep_for_date: último mep <= eod(fecha).
 CREATE TABLE IF NOT EXISTS valuaciones.dolar (
     timestamp timestamptz PRIMARY KEY,

@@ -1235,3 +1235,19 @@ def test_niveles_prohibidos_familia_completa_y_exencion():
     ok = _jerga_en_respuesta("La inflación de equilibrio del tramo corto es 2.1% mensual.",
                              cfg, "¿breakevens?")
     assert not any("niveles" in x for x in ok)
+
+
+def test_periodos_fantasma():
+    """v1.68 (caso EWZ, el invento del '2025 flojo'): ningún año puede aparecer
+    en la respuesta si no existe en los datos."""
+    from api.services.copiloto.verificacion import _periodos_sin_respaldo
+
+    ctx = "TABLA datos al 2026-07-20\nAAPL\t12.5\t2026-01-02"
+    # año inventado → se caza
+    assert _periodos_sin_respaldo("Quedó en equilibrio tras un 2025 flojo.", ctx) == ["2025"]
+    # año presente en los datos → permitido
+    assert _periodos_sin_respaldo("En 2026 suma 12.5%.", ctx) == []
+    # sin años → nada que chequear
+    assert _periodos_sin_respaldo("Sube fuerte en el año.", ctx) == []
+    # varios inventados → todos
+    assert _periodos_sin_respaldo("Entre 2023 y 2024 voló.", ctx) == ["2023", "2024"]

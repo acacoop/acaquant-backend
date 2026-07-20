@@ -117,6 +117,22 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.68 (caso EWZ parte 4/final: PERÍODOS FANTASMA — el invento del "2025 flojo")
+La falla más grave de la serie: el modelo justificó una recomendación con "un
+2025 flojo" — período INVENTADO (los datos arrancan en 2026). Se escapó por la
+única ventana sin candado: los AÑOS están excluidos del chequeo numérico a
+propósito (fechas) y "flojo" es palabra, no número.
+- **[verificación +] `_periodos_sin_respaldo`**: ningún año puede aparecer en
+  la respuesta si no existe en el contexto → autocorrección "eliminá toda
+  referencia a períodos que no están en los datos (sin reemplazarla por otra
+  afirmación inventada)". Testeado.
+- **[eval +] caso `ewz_sin_inventos`** en `evals/copiloto_vista.json` (10
+  casos): congela TODA la serie EWZ — prohibidos 2025/pivots/equilibrio/beta/
+  z-score/correlación/vol anualizada/intradía; exigido el benchmark (S&P).
+- Límite honesto asentado: un invento cualitativo SIN número NI año ("viene de
+  un trimestre flojo") no es capturable por código — lo contienen las reglas,
+  el caso de eval y el 👎 del usuario. Las 4 capas juntas son la defensa.
+
 ### 2026-07-20 — v1.67 (caso EWZ parte 3: pivots/equilibrio prohibidos como FAMILIA + sin intradía por defecto)
 Tercera vuelta del user sobre EWZ (la conversación ya venía mucho mejor:
 benchmark citado, disculpa correcta ante el "2025 flojo" inventado). Dos

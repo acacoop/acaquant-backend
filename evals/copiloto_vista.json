@@ -159,6 +159,27 @@
         "piv_"
       ],
       "max_chars": 1000
+    },
+    {
+      "id": "ewz_sin_inventos",
+      "origen": "prod 2026-07-20 — fallo real (f.rodriguez): 'un 2025 flojo' inventado + pivots/equilibrio/beta en la respuesta + oferta de intradia por defecto",
+      "pregunta": "que pensas de EWZ?",
+      "esperado_any": [
+        "EWZ",
+        "S&P",
+        "SPY"
+      ],
+      "prohibido": [
+        "2025",
+        "[Pp]ivots?",
+        "[Pp]ivotes?",
+        "equilibrio",
+        "beta",
+        "z.?score",
+        "correlaci",
+        "volatilidad anualizada",
+        "intrad[íi]a"
+      ]
     }
   ]
 }

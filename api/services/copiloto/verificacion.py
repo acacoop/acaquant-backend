@@ -170,6 +170,18 @@ _RE_ESTAT_NOMBRADA = re.compile(
     re.IGNORECASE)
 
 
+def _periodos_sin_respaldo(respuesta: str, contexto: str) -> list[str]:
+    """Años mencionados en la respuesta que NO existen en los datos. El caso
+    EWZ (2026-07-20): el modelo justificó una recomendación con "un 2025
+    flojo" — año inventado (los datos arrancan en 2026). Los años están
+    excluidos del chequeo numérico a propósito (fechas) → este chequeo aparte
+    cierra esa ventana: si el año no aparece en el contexto, el modelo no
+    puede afirmar NADA sobre ese período."""
+    anios_ctx = set(re.findall(r"\b(19[89]\d|20[0-9]\d)\b", contexto))
+    return sorted({a for a in re.findall(r"\b(19[89]\d|20[0-9]\d)\b", respuesta)
+                   if a not in anios_ctx})
+
+
 def _exceso_de_cifras(respuesta: str, pregunta: str) -> int:
     """Cifras 'de dato' en la respuesta (excluye enteros chicos y años). El
     caso EWZ (2026-07-20): pregunta por UN papel respondida con 8+ números —

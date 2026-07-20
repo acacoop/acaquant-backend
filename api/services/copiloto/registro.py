@@ -37,6 +37,9 @@ VISTAS: dict[str, dict] = {
                    "un dato o función, qué permisos hacen falta — navegación y "
                    "ayuda, NUNCA datos ni análisis",
         "fetch": _fetch_ayuda,
+        # el mapa curado tiene descripciones largas — sin esto el cap de 60
+        # chars del TSV las mutilaba y el guía veía medio mapa
+        "celda_max": 400,
         "chips": _CHIPS_AYUDA,
         "columnas": _COLUMNAS_AYUDA,
         "reglas": _REGLAS_AYUDA,
@@ -154,6 +157,9 @@ VISTAS: dict[str, dict] = {
         "permitir_pivots": True,  # acá la nomenclatura PP/R1/S3 ES el idioma
         "fetch": _fetch_trading,
         "extras": _extras_trading,
+        # TRADING jamás en flash (user 2026-07-20): acá se opera plata en vivo →
+        # tier pro del gateway. Las demás vistas quedan en el default flash.
+        "tarea": "copiloto_vista_pro",
         "chips": [
             {"label": "Mis tarjetas",
              "pregunta": "Estado de mis tarjetas: en qué zona está cada una y cuál "

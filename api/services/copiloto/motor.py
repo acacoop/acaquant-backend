@@ -84,8 +84,12 @@ def preguntar(
             logger.warning("copiloto %s: enriquecer falló (%s) — sigo sin derivadas", vista, e)
 
     truncado = len(filas) > _MAX_FILAS
-    tabla = _tsv(filas[:_MAX_FILAS], cfg["columnas"])
-    generado = datetime.now(UTC).isoformat(timespec="seconds")
+    tabla = _tsv(filas[:_MAX_FILAS], cfg["columnas"], cfg.get("celda_max", 60))
+    # timespec MINUTES a propósito: el proveedor cachea el prefijo repetido del
+    # prompt (~10x más barato). Con segundos, el encabezado cambiaba en CADA
+    # pregunta y rompía el prefijo; al minuto, las preguntas seguidas sobre la
+    # misma tabla comparten caché. La precisión al segundo no aportaba nada.
+    generado = datetime.now(UTC).isoformat(timespec="minutes")
 
     partes = [
         f"TABLA: {cfg['titulo']} — {min(len(filas), _MAX_FILAS)} instrumentos"
@@ -110,6 +114,10 @@ def preguntar(
 
     from core.ai import completar_con_traza
 
+    # La vista elige su tarea del gateway (tier de modelo). Default flash;
+    # trading corre en PRO (decisión user 2026-07-20: ahí se opera en vivo).
+    tarea = cfg.get("tarea") or "copiloto_vista"
+
     # Audiencia por rol RBAC: el mismo dato, contado distinto según quién pregunta
     tono = ""
     if usuario:
@@ -124,7 +132,7 @@ def preguntar(
 
     contexto = "\n".join(partes)
     texto, traza_id = completar_con_traza(
-        "copiloto_vista",
+        tarea,
         system=system,
         user=contexto,
         usuario=usuario,
@@ -175,7 +183,7 @@ def preguntar(
             "COMPLETA corregida, mismo formato y largo, sin mencionar esta corrección."
         )
         texto2, traza_id2 = completar_con_traza(
-            "copiloto_vista",
+            tarea,  # la autocorrección usa el MISMO tier que la respuesta original
             system=system,
             user=correccion,
             usuario=usuario,

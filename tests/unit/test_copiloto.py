@@ -1130,3 +1130,23 @@ def test_ayuda_registrada_y_mapa_no_vacio():
     rutas = {f["ruta"] for f in filas}
     assert {"/", "/operaciones", "/valuaciones", "/research"} <= rutas
     assert "NO hablás de datos" in a["reglas"]   # la prohibición es explícita
+
+
+def test_trading_corre_en_tier_pro():
+    """TRADING jamás en flash (decisión user 2026-07-20): su entrada del
+    registro elige la tarea pro del gateway; el resto usa el default."""
+    assert copiloto.VISTAS["trading"]["tarea"] == "copiloto_vista_pro"
+    from core.ai import _TAREAS
+    assert _TAREAS["copiloto_vista_pro"]["tier"] == "pro"
+    for v, cfg in copiloto.VISTAS.items():
+        if v != "trading":
+            assert cfg.get("tarea") is None    # default flash
+
+
+def test_celda_max_por_vista():
+    """El cap de celda es configurable por vista: 60 default (tablas de
+    mercado), 400 en ayuda (el mapa curado tiene descripciones largas)."""
+    largo = "x" * 300
+    assert len(copiloto._tsv([{"a": largo}], ["a"]).splitlines()[1]) == 60
+    assert len(copiloto._tsv([{"a": largo}], ["a"], celda_max=400).splitlines()[1]) == 300
+    assert copiloto.VISTAS["ayuda"]["celda_max"] == 400

@@ -66,6 +66,13 @@ _TAREAS: dict[str, dict] = {
     # (shadow 2026-07-11). max_tokens generoso — lección del P2.
     "copiloto_vista": {"tier": "flash", "max_tokens": 3000, "timeout_s": 60,
                        "thinking": "disabled"},
+    # Variante tier PRO del copiloto (decisión user 2026-07-20: "TRADING jamás
+    # en flash" — ahí se juega plata en vivo). Mismo contrato que copiloto_vista;
+    # la vista elige la tarea vía `tarea` en su entrada del registro. thinking
+    # disabled igual (el dato ya viene dado; queremos respuesta, no cadena);
+    # timeout más holgado porque el pro es más lento.
+    "copiloto_vista_pro": {"tier": "pro", "max_tokens": 3000, "timeout_s": 90,
+                           "thinking": "disabled"},
     # P6 memoria de research (jobs/research_mail.py): destila el mail diario de
     # research (prosa larga) a JSON {resumen, temas, hechos} para inyectarlo
     # barato como contexto. Extracción, no razonamiento → flash sin thinking;

@@ -111,7 +111,7 @@ empresa sigue con margen neto y flujo de caja negativos."
 """
 
 
-def _celda(v) -> str:
+def _celda(v, cap: int = 60) -> str:
     if v is None:
         return "-"
     if isinstance(v, bool):  # antes que float: bool es subclase de int
@@ -121,12 +121,14 @@ def _celda(v) -> str:
         # con ~4900 celdas por pregunta la diferencia es real (medido 22k in)
         return f"{v:.2f}"
     if isinstance(v, str):
-        # sanitización: una celda jamás rompe el TSV ni mete saltos de línea
-        return v.replace("\t", " ").replace("\n", " ").strip()[:60]
+        # sanitización: una celda jamás rompe el TSV ni mete saltos de línea.
+        # `cap` por vista (registro `celda_max`): 60 protege las tablas de
+        # mercado; la vista ayuda necesita descripciones largas (mapa curado).
+        return v.replace("\t", " ").replace("\n", " ").strip()[:cap]
     return str(v)
 
 
-def _tsv(filas: list[dict], columnas: list) -> str:
+def _tsv(filas: list[dict], columnas: list, celda_max: int = 60) -> str:
     """columnas: campo str, o tupla (campo, header). Los headers van en
     lenguaje claro y bien distintos entre sí — con 26 columnas por fila, un
     header críptico ('adr_ret_mtd_pct' vs 'ytd') hacía que el modelo citara
@@ -134,7 +136,7 @@ def _tsv(filas: list[dict], columnas: list) -> str:
     cols = [c if isinstance(c, tuple) else (c, c) for c in columnas]
     lineas = ["\t".join(h for _campo, h in cols)]
     for f in filas:
-        lineas.append("\t".join(_celda(f.get(campo)) for campo, _h in cols))
+        lineas.append("\t".join(_celda(f.get(campo), celda_max) for campo, _h in cols))
     return "\n".join(lineas)
 
 

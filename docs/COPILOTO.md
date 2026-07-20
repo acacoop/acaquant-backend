@@ -117,6 +117,24 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.62 (optimización: TRADING a tier PRO + balanza de tokens + caché)
+Plan de optimización acordado con el user (técnicas 1 y 2 + escalado de modelo):
+- **[modelo ~] TRADING corre en tier PRO** ("TRADING jamás en flash" — ahí se
+  opera plata en vivo). Tarea nueva `copiloto_vista_pro` en el gateway (pro,
+  thinking disabled, timeout 90s); la vista la elige vía `tarea` en su entrada
+  del registro (default sigue flash). La autocorrección usa el MISMO tier.
+  En `ia.trazas` las dos tareas se distinguen → se puede comparar calidad/costo.
+- **[medición] LA BALANZA**: `diag_contexto --pesos` estima tokens por pieza
+  del prompt (system base, reglas, tabla, cada bloque extra) ordenado desc con
+  %. Es la base para recortar contexto CON DATOS (REGLA #2 aplicada a la IA).
+  Ya pagó en dev: (1) el system base pesa ~2k tokens él solo; (2) detectó que
+  el cap de 60 chars por celda MUTILABA el mapa de la vista ayuda.
+- **[fix] `celda_max` por vista** en el TSV (default 60; ayuda 400): el mapa
+  del guía ya no se trunca.
+- **[caché] timestamp del encabezado a MINUTOS** (era segundos): el proveedor
+  cachea el prefijo repetido del prompt (~10x más barato); con segundos, cada
+  pregunta rompía el prefijo aunque la tabla no cambiara.
+
 ### 2026-07-20 — v1.61 (vista AYUDA: el GUÍA de la plataforma en toda página)
 Pedido del user: un asistente estilo DigitalOcean/Supabase que funcione en TODA
 la página y NO hable de datos — solo te lleva a donde querés ir.

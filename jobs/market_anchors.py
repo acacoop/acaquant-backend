@@ -2,8 +2,10 @@
 
 Corre 1×/día post-cierre US (22:00 UTC = 19:00 ART). Para cada símbolo fetchea
 candle diario de ~13 meses, calcula el cierre más cercano a cada anchor
-(7 días atrás, primer día del mes, primer día del año, 365 días atrás) y lo
-guarda en el mismo doc de Market.Quotes.
+(7 días atrás, inicio de semana, primer día del mes, primer día del año,
+365 días atrás) y lo guarda en el mismo doc de Market.Quotes. Las anclas se
+calculan para el PRÓXIMO día hábil — que es la rueda que las va a consumir
+(ver _anchor_timestamps).
 
 Luego la API, al leer las quotes, computa los retornos on-the-fly:
     ret_7d = (last - anchor_7d) / anchor_7d * 100
@@ -43,17 +45,31 @@ def _closest_close(times: list[int], closes: list[float], target_ts: int) -> flo
     return last
 
 
+def _proximo_habil(now: datetime) -> datetime:
+    """Próximo día hábil (L-V) a las 00:00 UTC."""
+    d = datetime(now.year, now.month, now.day, tzinfo=UTC) + timedelta(days=1)
+    while d.weekday() >= 5:  # 5=sáb, 6=dom
+        d += timedelta(days=1)
+    return d
+
+
 def _anchor_timestamps(now: datetime) -> dict[str, int]:
-    # WTD = week-to-date: cierre de la última rueda ANTES del lunes de esta semana
+    # El job corre POST-CIERRE (22 UTC) y sus anclas se consumen recién la rueda
+    # SIGUIENTE → se calculan para el próximo día hábil, no para el día que corre.
+    # Sin esto, la corrida del viernes anclaba el WTD al viernes ANTERIOR y todo
+    # el lunes el briefing/watchlist mostraba WTD ≠ 1D (bug 2026-07-20). Ídem MTD
+    # e YTD el primer día hábil de mes/año.
+    # WTD = cierre de la última rueda ANTES del lunes de la semana del target
     # (típicamente el viernes). Distinto de anchor_7d (rolling 7 días), que se
     # mantiene para /argy. _closest_close toma el cierre <= al target.
-    inicio_semana = datetime(now.year, now.month, now.day, tzinfo=UTC) - timedelta(days=now.weekday())
+    target = _proximo_habil(now)
+    inicio_semana = target - timedelta(days=target.weekday())
     return {
-        "anchor_7d":  int((now - timedelta(days=7)).timestamp()),
+        "anchor_7d":  int((target - timedelta(days=7)).timestamp()),
         "anchor_wtd": int((inicio_semana - timedelta(seconds=1)).timestamp()),
-        "anchor_mtd": int(datetime(now.year, now.month, 1, tzinfo=UTC).timestamp()),
-        "anchor_ytd": int(datetime(now.year, 1, 1, tzinfo=UTC).timestamp()),
-        "anchor_1y":  int((now - timedelta(days=365)).timestamp()),
+        "anchor_mtd": int(datetime(target.year, target.month, 1, tzinfo=UTC).timestamp()),
+        "anchor_ytd": int(datetime(target.year, 1, 1, tzinfo=UTC).timestamp()),
+        "anchor_1y":  int((target - timedelta(days=365)).timestamp()),
     }
 
 

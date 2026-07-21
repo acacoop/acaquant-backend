@@ -412,7 +412,14 @@ auto-stoplist basada en datos; (2) **vocabulario de negocio** nunca es
 candidato ('total'/'administrado' de la pregunta terminaban tachados como
 clientes); (3) **sufijos societarios absorbidos** en la tachadura ('SA'
 suelto al lado de la ficha delataba la forma societaria); (4) **fuzzy 0.95**
-default (medido: 14% de cruce entre apellidos a 0.90 vs 1% a 0.95).
+default (medido: 14% de cruce entre apellidos a 0.90 vs 1% a 0.95);
+(5) **texto generado ≠ texto de usuario** (trazas del primer uso real en
+panel): con 1836 ids de cuenta, los agregados de las tools se hacían trizas
+(el AuM 605.25 viajaba como CTA_10.CTA_9) → `tokenize(texto_generado=True)`
+respeta los números del texto producido por NUESTRO código (tools, turnos
+previos del asistente) y sigue tachando nombres; el texto del usuario
+conserva la aduana completa, pero sin partir decimales/porcentajes.
+Etiquetas de segmento nivel_1 sumadas a la stoplist.
 
 **Milestone 2 (2026-07-21, mismo día — decisión del user: "es siempre el
 mismo asistente"):** NADA de pantalla nueva — el asistente de negocio es la

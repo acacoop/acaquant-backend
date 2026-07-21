@@ -187,6 +187,36 @@ def test_corte_por_frecuencia_en_catalogo(monkeypatch):
     assert cat["tokens"].get("unico") == "9"    # único dueño → resuelve
 
 
+def test_texto_generado_respeta_numeros(monkeypatch):
+    """Incidente real (trazas 2026-07-21): con 1836 ids de cuenta, los
+    agregados de las tools se hacían trizas — el AuM 605.25 viajó como
+    CTA_10.CTA_9 y '893 cuentas' como CTA_8. En texto GENERADO por el código
+    los números se respetan; los NOMBRES se tachan igual."""
+    cat = {**CATALOGO_FAKE, "ids": {"605", "25", "893", "9", "126"}}
+    monkeypatch.setattr(pg, "_catalogo", lambda: cat)
+    crudo = ("AuM total: 605.25 mil millones ARS en 893 cuentas. "
+             "COOPERATIVAS: 126.32 mil millones (20.9%). Mayor tenedor: Juan Perez")
+    limpio, _m = pg.tokenize(crudo, texto_generado=True)
+    assert "605.25" in limpio and "893" in limpio and "126.32" in limpio
+    assert "COOPERATIVAS" in limpio and "(20.9%)" in limpio
+    assert "Juan" not in limpio and "Perez" not in limpio  # nombres igual se tachan
+
+
+def test_texto_de_usuario_no_rompe_decimales(monkeypatch):
+    """En texto del USUARIO los números pelados siguen tachándose (pueden ser
+    cuentas), pero un decimal o un % jamás se parte."""
+    cat = {**CATALOGO_FAKE, "ids": {"805", "20", "9"}}
+    monkeypatch.setattr(pg, "_catalogo", lambda: cat)
+    limpio, _m = pg.tokenize("subió 20.9% y la cuenta 805 operó")
+    assert "20.9%" in limpio          # decimal intacto
+    assert "805" not in limpio        # la cuenta pelada SÍ se tacha
+
+
+def test_etiquetas_de_segmento_no_son_clientes():
+    limpio, _m = pg.tokenize("COOPERATIVAS y PRODUCTORES concentran el AuM")
+    assert limpio == "COOPERATIVAS y PRODUCTORES concentran el AuM"
+
+
 def test_nombre_de_pila_se_absorbe_con_el_apellido():
     """Caso real del primer uso en panel: 'Nicolas Mollo' — 'mollo' matchea
     por catálogo pero 'Nicolas' (fuera del índice por el corte de frecuencia)

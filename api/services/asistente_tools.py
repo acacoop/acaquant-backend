@@ -200,5 +200,7 @@ def ejecutar(nombre: str, args: dict, *, mapping: dict) -> str:
     except Exception as e:
         logger.warning("asistente_tools.%s falló: %s: %s", nombre, type(e).__name__, e)
         return "la herramienta falló — respondé con lo que tengas y avisá que faltó ese dato"
-    limpio, _ = pii_gateway.tokenize(crudo, mapping)
+    # texto_generado: los números del resultado son agregados producidos por
+    # el código (AuM, conteos, %) — se respetan; los NOMBRES se tachan igual
+    limpio, _ = pii_gateway.tokenize(crudo, mapping, texto_generado=True)
     return limpio

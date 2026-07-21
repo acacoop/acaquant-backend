@@ -119,7 +119,11 @@ def responder(*, mensaje: str, email: str, chat_id: str | None = None) -> dict:
     # ── LA ADUANA: de acá para abajo solo viaja texto tokenizado ─────────────
     historial_limpio: list[dict] = []
     for rol, contenido in _cargar_historial(chat_id):
-        limpio, mapping = pii_gateway.tokenize(contenido, mapping)
+        # los turnos del ASISTENTE son texto generado (sus números son
+        # agregados legítimos — no re-tacharlos); los del usuario van con la
+        # aduana completa (un número suelto SÍ puede ser una cuenta)
+        limpio, mapping = pii_gateway.tokenize(
+            contenido, mapping, texto_generado=(rol == "assistant"))
         historial_limpio.append(
             {"role": "assistant" if rol == "assistant" else "user", "content": limpio})
     mensaje_limpio, mapping = pii_gateway.tokenize(mensaje, mapping)

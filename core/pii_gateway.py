@@ -91,6 +91,10 @@ _STOPLIST_BASE = {
     "movimientos", "operaciones", "valores", "inversora", "nacional",
     "provincial", "renta", "fija", "variable", "ahorro", "pesos", "plus",
     "abierto", "abierta", "mixta", "mixto", "pymes", "acciones", "bonos",
+    # etiquetas de segmentación nivel_1 (aparecen en los agregados de las
+    # tools — "COOPERATIVAS: 126 MM" no es un cliente; incidente 2026-07-21)
+    "cooperativas", "productores", "institucionales", "institucional",
+    "empleados", "empleado", "referidos", "segmento",
 }
 
 # Sufijos societarios: no identifican a nadie por sí solos (quedan FUERA del
@@ -284,7 +288,11 @@ def detokenize(texto: str, mapping: dict) -> str:
 # o toda mayúscula (los nombres en el catálogo suelen venir en MAYÚSCULAS).
 _PALABRA_RE = re.compile(r"[A-Za-zÁÉÍÓÚÑÜáéíóúñü]{2,}")
 _CUIT_RE = re.compile(r"\b\d{2}-?\d{7,9}-?\d\b")
-_DIGITOS_LARGOS_RE = re.compile(r"\b\d{7,11}\b")
+# números pelados: JAMÁS dentro de un decimal ni pegados a % — "605.25" o
+# "20.9%" son montos/porcentajes, no cuentas (incidente 2026-07-21: el AuM
+# 605.25 viajó como CTA_10.CTA_9 porque "605" y "25"... eran ids de cuenta)
+_DIGITOS_LARGOS_RE = re.compile(r"(?<![\d.,])\d{7,11}(?![\d.,])")
+_NUM_PELADO_RE = re.compile(r"(?<![\d.,])\d{1,6}(?![\d.,%])")
 _CUENTA_KEYWORD_RE = re.compile(
     r"\b(?:cuenta|comitente|cta|cte)\.?\s*(?:n[°ºo]?\.?\s*)?(\d{1,8})\b", re.IGNORECASE)
 # "dni 20.123.456", "cuit 20-12345678-9": el keyword es la señal — un número
@@ -308,19 +316,29 @@ _NOMBRE_PROPIO_RE = re.compile(
     r"(?:(?:\s+(?:de|del|la|los|las|y|e))?\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñü]{2,})+")
 
 
-def _spans_numeros(texto: str, catalogo: dict | None) -> list[tuple[int, int, str, str]]:
-    """Capa 1: CUIT/DNI, 'cuenta N', ids del catálogo como palabra suelta."""
+def _spans_numeros(texto: str, catalogo: dict | None,
+                   numeros_pelados: bool = True) -> list[tuple[int, int, str, str]]:
+    """Capa 1: CUIT/DNI, 'cuenta N', ids del catálogo como palabra suelta.
+
+    `numeros_pelados=False` (texto GENERADO por nuestras tools/respuestas):
+    los números sueltos son agregados legítimos producidos por el código
+    (AuM, conteos, %) — NO referencias a cuentas. Solo se tachan los números
+    con keyword ("cuenta 805", "dni X") y los CUIT. Sin esto, con 1836 ids
+    de cuenta casi cualquier cifra de un resultado colisionaba con alguno y
+    el modelo veía basura (incidente 2026-07-21: AuM 605.25 → CTA_10.CTA_9)."""
     spans: list[tuple[int, int, str, str]] = []
     for m in _CUIT_RE.finditer(texto):
-        spans.append((m.start(), m.end(), "DOC", m.group(0)))
-    for m in _DIGITOS_LARGOS_RE.finditer(texto):
         spans.append((m.start(), m.end(), "DOC", m.group(0)))
     for m in _CUENTA_KEYWORD_RE.finditer(texto):
         spans.append((m.start(1), m.end(1), "CTA", m.group(1)))
     for m in _DOC_KEYWORD_RE.finditer(texto):
         spans.append((m.start(1), m.end(1), "DOC", m.group(1)))
+    if not numeros_pelados:
+        return spans
+    for m in _DIGITOS_LARGOS_RE.finditer(texto):
+        spans.append((m.start(), m.end(), "DOC", m.group(0)))
     if catalogo:
-        for m in re.finditer(r"\b\d{1,6}\b", texto):
+        for m in _NUM_PELADO_RE.finditer(texto):
             if m.group(0) in catalogo["ids"]:
                 spans.append((m.start(), m.end(), "CTA", m.group(0)))
         # documentos del catálogo escritos con puntos ("20.123.456")
@@ -429,9 +447,13 @@ def _aplicar_spans(texto: str, spans: list[tuple[int, int, str, str]], mapping: 
     return texto
 
 
-def tokenize(texto: str, mapping: dict | None = None) -> tuple[str, dict]:
+def tokenize(texto: str, mapping: dict | None = None,
+             texto_generado: bool = False) -> tuple[str, dict]:
     """Tacha toda identidad detectada y devuelve (texto_limpio, mapping).
     El mapping entra/sale para que las fichas sean estables en el chat.
+    `texto_generado=True` = el texto lo produjo NUESTRO código (resultado de
+    tool, respuesta previa del asistente): los nombres se tachan igual, pero
+    los números sueltos se respetan (son agregados, no cuentas).
     NUNCA levanta: ante error interno devuelve el texto ÍNTEGRAMENTE tachado
     (fail-closed: jamás dejar pasar texto sin procesar)."""
     mapping = mapping if mapping is not None else _mapping_nuevo()
@@ -440,7 +462,7 @@ def tokenize(texto: str, mapping: dict | None = None) -> tuple[str, dict]:
     try:
         texto = texto[:_MAX_TEXTO_CHARS]
         catalogo = _catalogo()
-        spans = _spans_numeros(texto, catalogo)
+        spans = _spans_numeros(texto, catalogo, numeros_pelados=not texto_generado)
         if catalogo:
             spans += _spans_catalogo(texto, catalogo)
         # fichas ya presentes (texto re-tokenizado, ej. resultados de tools):

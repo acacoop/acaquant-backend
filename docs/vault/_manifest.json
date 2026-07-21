@@ -1269,9 +1269,9 @@
 "links": [
 "api.services",
 "api.services.asistente_tools",
+"api.services.operaciones_sql",
 "core",
 "core.ai",
-"core.llm",
 "core.pii_gateway",
 "core.postgres"
 ]
@@ -1284,6 +1284,8 @@
 "path": "api\\services\\asistente_tools.py",
 "summary": "asistente_tools — tools curadas READ-ONLY del asistente de negocio (QuantAI P7).",
 "links": [
+"api.services",
+"api.services.operaciones_sql",
 "core",
 "core.pii_gateway",
 "core.postgres"
@@ -1660,6 +1662,19 @@
 "core.ai",
 "core.postgres",
 "core.roles"
+]
+},
+{
+"id": "api.services.copiloto.navegacion",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\navegacion.py",
+"summary": "copiloto/navegacion.py — NAVEGACIÓN ASISTIDA: el guía te LLEVA (idea del user).",
+"links": [
+"api.cache",
+"api.services",
+"api.services.operaciones_sql"
 ]
 },
 {
@@ -2909,7 +2924,7 @@
 "layer": "core",
 "repo": "backend",
 "path": "core\\llm.py",
-"summary": "core/llm.py — transporte LLM único, provider-agnostic (QuantAI, docs/QUANTAI.md).",
+"summary": "core/llm.py — transporte LLM único y RUTEO de proveedores (QuantAI, docs/QUANTAI.md).",
 "links": []
 },
 {
@@ -5988,7 +6003,8 @@
 "path": "src\\components\\aranceles-view.tsx",
 "summary": "",
 "links": [
-"api.routers.operaciones"
+"api.routers.operaciones",
+"web.lib.use-persisted-state"
 ]
 },
 {
@@ -6055,7 +6071,9 @@
 "repo": "frontend",
 "path": "src\\components\\back-office-shell.tsx",
 "summary": "",
-"links": []
+"links": [
+"web.lib.use-persisted-state"
+]
 },
 {
 "id": "web.cmp.breakevens-block",
@@ -6511,7 +6529,8 @@
 "path": "src\\components\\ia-vista-panel.tsx",
 "summary": "",
 "links": [
-"api.routers.ia"
+"api.routers.ia",
+"web.lib.aplicar-estado"
 ]
 },
 {
@@ -7390,6 +7409,15 @@
 "links": []
 },
 {
+"id": "web.lib.aplicar-estado",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src\\lib\\aplicar-estado.ts",
+"summary": "",
+"links": []
+},
+{
 "id": "web.lib.cf-access",
 "type": "lib",
 "layer": "web-lib",
@@ -7492,7 +7520,9 @@
 "repo": "frontend",
 "path": "src\\lib\\use-persisted-state.ts",
 "summary": "",
-"links": []
+"links": [
+"web.lib.aplicar-estado"
+]
 },
 {
 "id": "web.lib.use-poll",

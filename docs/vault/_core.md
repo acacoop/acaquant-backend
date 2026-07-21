@@ -24,7 +24,7 @@
 - [[core.grupos]] — core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).
 - [[core.grupos_sql]] — core/grupos_sql.py — lectura + escritura del scope de cuentas (grupos) desde Postgres.
 - [[core.job_runs]] — Context manager para registrar runs de jobs automáticos en manager.job_runs (SQL).
-- [[core.llm]] — core/llm.py — transporte LLM único, provider-agnostic (QuantAI, docs/QUANTAI.md).
+- [[core.llm]] — core/llm.py — transporte LLM único y RUTEO de proveedores (QuantAI, docs/QUANTAI.md).
 - [[core.mae]] — Cliente MAE MarketData.
 - [[core.market_snapshot]] — Lectura de mercado.market_snapshot (SQL) — estado live por ticker. SQL-only.
 - [[core.mercado_1816]] — core/mercado_1816.py — cliente de la API de Mercado de 1816 (vista RESEARCH).

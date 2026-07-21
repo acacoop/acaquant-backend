@@ -16,5 +16,8 @@ Contenedor con tabs de la sección Back Office. Por ahora expone una sola pesta�
 
 Conecta con: monta `titulos-mercado-view`, que consume los endpoints `/api/back-office` (service `back_office_titulos.py`).
 
+## Usa / conecta con →
+- [[web.lib.use-persisted-state]]  ·  _lib_
+
 ## Lo usan (backlinks) ←
 - [[web.view.back-office.view]]  ·  _view_

@@ -16,6 +16,7 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.routers.ia]]  ·  _module_
+- [[web.lib.aplicar-estado]]  ·  _lib_
 
 ## Lo usan (backlinks) ←
 - [[web.cmp.header]]  ·  _component_

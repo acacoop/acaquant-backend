@@ -38,6 +38,7 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.compliance]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
 - [[api.services.copiloto.ayuda]]  ·  _module_
+- [[api.services.copiloto.navegacion]]  ·  _module_
 - [[api.services.copiloto.renta_fija]]  ·  _module_
 - [[api.services.copiloto.renta_variable]]  ·  _module_
 - [[api.services.copiloto.research]]  ·  _module_

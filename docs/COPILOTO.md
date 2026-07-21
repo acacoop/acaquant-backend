@@ -117,6 +117,39 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.82 (NAVEGACIÓN ASISTIDA: el guía no te explica, te LLEVA)
+Idea del user, tras ver el caso Curzel: en vez de que la IA te dé el dato (y
+para eso lo tenga que ver), **que te abra la vista con los filtros puestos**.
+El dato lo pinta la vista → cero datos al proveedor, cero alucinación posible.
+- **[vista ~] el guía (`ayuda`) gana la tool `abrir_vista`** — resuelve una
+  INTENCIÓN de navegación (destino + filtros) y el panel la aplica. La regla
+  nueva es "TE LLEVO > TE EXPLICO": los pasos dictados quedan como fallback
+  para lo que no es navegable.
+- **[módulo +] `copiloto/navegacion.py`** — catálogo de DESTINOS (Operaciones
+  volumen/aranceles/depósitos/agro, Back Office tenencia/acreencias/tesorería,
+  Referidos) con sus filtros mapeados a las claves que las vistas ya persisten
+  (`ops.mercado`, `ar.dim`, `tenencia.garMode.v2`…). **LA JAULA**: destino,
+  filtro y valor se validan contra los catálogos VIVOS (los mismos de los
+  selectores) y se canonizan ("byma" → "BYMA"); lo inválido se rechaza con el
+  listado de válidos y NUNCA llega al frontend. RBAC-aware: solo se ofrecen
+  los destinos que el usuario puede ver.
+- **[motor +] buzón de tools → panel**: `tools_ejecutar` pasa a ser una
+  FACTORY `(contenedor, usuario) → ejecutar` (research adaptado con un
+  lambda). Hay resultados que no son prosa para el modelo sino datos para el
+  frontend: la navegación viaja en `navegacion` del payload. + hook
+  `bloque_usuario(usuario)` para inyectar al system lo que depende del RBAC.
+- **[web] cero cambios por vista**: `aplicarEstado()` escribe las claves de
+  sessionStorage y emite un evento; `usePersistedState` lo escucha y relee →
+  funciona tanto si la vista está montada como si no. Migradas a estado
+  persistido las dos que faltaban (tab de Back Office y filtros de
+  ARANCELES) — de paso ganan persistencia de filtros, útil sin IA.
+- **[candado] test de CONTRATO CRUZADO**: cada clave declarada en el catálogo
+  debe existir como `usePersistedState("clave")` en acaquant-web. Si alguien
+  la renombra allá, el botón abriría la vista sin filtros EN SILENCIO — ahora
+  la CI local lo caza (skipea si el repo hermano no está).
+- **Privacidad:** esta capacidad NO ve datos (solo metadata de filtros) → se
+  queda en el proveedor barato. Ver QUANTAI.
+
 ### 2026-07-21 — v1.81 (RUTEO de proveedor: el asistente de negocio sale por OpenAI)
 El user planteó el punto de fondo: aunque las identidades no salen, los
 NÚMEROS del negocio sí iban a un proveedor cuyos términos permiten entrenar

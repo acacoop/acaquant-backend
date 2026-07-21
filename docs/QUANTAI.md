@@ -453,10 +453,25 @@ vocabulario vivo (mercados/tipos/segmentos de los catálogos reales +
 equivalencias) + tools `volumen_operado`/`aranceles_consolidado` sobre
 `ops_consolidado` (mismas reglas SQL que la vista). Ver COPILOTO.md v1.79.
 
-**PENDIENTE (en orden):** shadow del admin unos días desde el panel (cada
-fallo real → caso del eval) · más tools (actividad comercial, acreencias
-próximas) · restore de conversaciones de negocio en el panel + derivación
-negocio→guía (anotados en COPILOTO.md v1.78).
+**NAVEGACIÓN ASISTIDA (2026-07-21, idea del user — ver COPILOTO.md v1.82):**
+tercera vía, y la más segura: el guía **te abre la vista con los filtros
+puestos** en vez de darte el dato. El modelo solo ve metadata de filtros (qué
+mercados/segmentos existen) y emite una intención validada; **el número lo
+pinta la vista**, así que no hay dato que filtrar ni número que alucinar.
+Se queda en el proveedor barato. Doctrina de uso:
+- "llevame / quiero ver / dónde está" → **navegación** (gratis, sin datos).
+- "contestame / compará / resumime" → **asistente de negocio** (tools +
+  aduana + proveedor con no-retención).
+Si la navegación cubre el grueso de las consultas, el gasto del proveedor
+caro queda solo para lo que realmente necesita síntesis.
+
+**PENDIENTE (en orden):** ⚠ `asistente_negocio` DEVUELVE HTTP 400 del
+proveedor nuevo ("Unsupported…", traza del 2026-07-21 16:54) — falta
+identificar qué parámetro rechaza (candidatos: el modelo, `reasoning_effort`
+o `store`) · probar la navegación en prod · shadow del admin desde el panel
+(cada fallo real → caso del eval) · más tools (actividad comercial,
+acreencias próximas) · restore de conversaciones de negocio en el panel +
+derivación negocio→guía (anotados en COPILOTO.md v1.78).
 
 ### P5 — Analista ad-hoc de datos — OJO: alcanzado por la decisión "datos del negocio no salen al proveedor" (2026-07-13, MODIFICADA 2026-07-21: ver la decisión de la aduana); el patrón del P7 (jaula + aduana) es la antesala
 **Estado: PENDIENTE** · Tipo: agente con generación de SQL · Gate: `ia`,

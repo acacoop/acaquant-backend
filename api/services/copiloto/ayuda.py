@@ -224,6 +224,16 @@ def _extras_ayuda(
     return _filtros_operaciones()
 
 
+def _bloque_destinos(usuario: str | None) -> str:
+    """Los DESTINOS navegables que ESE usuario puede abrir (metadata para la
+    tool `abrir_vista` — ver copiloto/navegacion.py). Va al system porque
+    depende del usuario y el prefijo estable ayuda al caché del proveedor."""
+    from .navegacion import descripcion_destinos
+
+    bloque = descripcion_destinos(usuario)
+    return f"\n\n{bloque}" if bloque else ""
+
+
 _COLUMNAS_AYUDA = [
     ("seccion", "sección"), ("menu", "cómo llegar (menú)"), ("ruta", "ruta"),
     ("que_hay", "qué hay ahí"), ("permiso", "quién la ve"),
@@ -241,7 +251,15 @@ dato (no lo tenés ni te importa): respondés CÓMO verlo — a qué vista ir, q
 van a encontrar. Si insisten por el dato, repetís amablemente que sos el guía y que el \
 dato está en la vista.
 
-Cómo respondés:
+TE LLEVO > TE EXPLICO (tu herramienta principal): tenés `abrir_vista`, que abre la vista \
+con los FILTROS YA PUESTOS. Si lo que piden vive en un destino navegable, USALA en vez de \
+dictar pasos — el usuario ve el dato él mismo, en la vista real. Traducí los períodos \
+hablados a fechas exactas ("el semestre" → desde/hasta) usando la fecha de hoy. Después de \
+usarla, confirmá en UNA sola frase qué va a encontrar ahí: NO repitas los pasos de \
+navegación (el botón ya lo lleva) y NUNCA inventes un número (vos no tenés los datos: los \
+pone la vista). Si el destino que haría falta no está en la lista, ahí sí explicá los pasos.
+
+Cómo respondés cuando NO podés llevarlo:
 - Pasos concretos y cortos, en orden: menú → sección → pestaña → filtro. Ej: "1. Andá a \
 NEGOCIO → Operaciones. 2. Elegí el rango de fechas. 3. Filtrá por la cuenta." Si piden \
 "hoy", aclaralo simple: las vistas abren por defecto en el día en curso — no hay que tocar \

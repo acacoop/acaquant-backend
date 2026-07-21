@@ -1289,11 +1289,13 @@ def test_handoff_transparente_a_la_guia(monkeypatch):
     llamadas = []
 
     def fake_completar(tarea, system=None, user=None, usuario=None, detalle=None):
-        # 1ra llamada (vista fake): deriva a ayuda; 2da (ayuda): la receta
-        if any("GUÍA" in (system or "") for _ in [0]) and "guía" in (system or "").lower():
-            return "1. Andá a NEGOCIO → Operaciones y filtrá por tipo Suscripción.", 99
         llamadas.append(tarea)
         return "Acá no tengo ese dato.\n[[VISTA:ayuda]]", 42
+
+    def fake_completar_tools(tarea, system=None, user=None, tools=None, ejecutar=None,
+                             usuario=None, detalle=None, historial=None):
+        # la GUÍA ahora pasa por el loop de tools (navegación asistida v1.82)
+        return "1. Andá a NEGOCIO → Operaciones y filtrá por tipo Suscripción.", 99, ""
 
     monkeypatch.setitem(
         copiloto.VISTAS, "fake",
@@ -1301,6 +1303,7 @@ def test_handoff_transparente_a_la_guia(monkeypatch):
          "fetch": lambda params=None: [{"ticker_corto": "X", "last": 1.0}],
          "columnas": [("ticker_corto", "t"), ("last", "l")], "reglas": "reglas"})
     monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    monkeypatch.setattr("core.ai.completar_con_tools", fake_completar_tools)
     monkeypatch.setattr("core.ai.motivo_presupuesto", lambda u: None)
     monkeypatch.setattr("core.roles.has_access", lambda u, m: True)
     monkeypatch.setattr("core.roles.get_user_role", lambda u: "admin")

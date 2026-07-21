@@ -147,19 +147,33 @@ def preguntar(
             tono = _TONO_POR_ROL.get(get_user_role(usuario), "")
         except Exception:  # roles caídos → tono neutro, jamás corta la pregunta
             tono = ""
+    # Bloque del system que depende del USUARIO (hoy: los destinos navegables
+    # del guía, filtrados por RBAC). Va al system y no a extras porque extras
+    # no recibe la identidad — y un prefijo estable por usuario cachea mejor.
+    bloque_usuario = ""
+    if cfg.get("bloque_usuario"):
+        try:
+            bloque_usuario = cfg["bloque_usuario"](usuario) or ""
+        except Exception as e:
+            logger.warning("copiloto %s: bloque de usuario falló (%s)", vista, e)
     system = (_SYSTEM_BASE + (f"\n{tono}" if tono else "") + "\n" + cfg["reglas"]
-              + _bloque_otras_vistas(usuario, vista))
+              + bloque_usuario + _bloque_otras_vistas(usuario, vista))
 
     contexto = "\n".join(partes)
     # PILOTO TOOLS (vista research, 2026-07-20): si la vista declara tools, el
     # modelo puede PEDIR datos (JIT retrieval) y el código los resuelve. Lo que
     # las tools devuelven se SUMA al contexto para la verificación de números.
+    # Buzón de las tools hacia el PANEL: hay resultados que no son prosa para
+    # el modelo sino datos para el frontend (la navegación resuelta del guía).
+    # `tools_ejecutar` es una factory (contenedor, usuario) → ejecutar.
+    salida_tools: dict = {}
     if cfg.get("tools"):
         from core.ai import completar_con_tools
 
         texto, traza_id, ctx_tools = completar_con_tools(
             tarea, system=system, user=contexto, tools=cfg["tools"],
-            ejecutar=cfg["tools_ejecutar"], usuario=usuario, detalle=pregunta,
+            ejecutar=cfg["tools_ejecutar"](salida_tools, usuario),
+            usuario=usuario, detalle=pregunta,
         )
         if ctx_tools:
             contexto = contexto + "\n" + ctx_tools
@@ -281,6 +295,9 @@ def preguntar(
         "respuesta": texto,
         "traza_id": traza_id,
         "vista_sugerida": vista_sugerida,
+        # navegación asistida: {ruta, estado, titulo, resumen} — el panel la
+        # ofrece como botón que aplica los filtros y abre la vista
+        "navegacion": salida_tools.get("navegacion"),
         "numeros_sin_respaldo": [],
         "fuente": {
             "vista": vista,

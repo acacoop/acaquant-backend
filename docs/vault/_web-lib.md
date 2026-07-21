@@ -1,8 +1,9 @@
 # 📚 web — lib
 
-14 notas.
+15 notas.
 
 - [[web.lib.api]]
+- [[web.lib.aplicar-estado]]
 - [[web.lib.cf-access]]
 - [[web.lib.estrategias]]
 - [[web.lib.fmt-money]]

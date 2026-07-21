@@ -16,7 +16,12 @@ Hook `usePersistedState` — un `useState` que sobrevive a la navegación entre 
 
 Conecta con: hook de cliente puro, sin red ni Mongo; lo usan las vistas del frontend con filtros persistentes (ej. clave `"ops.moneda"`).
 
+## Usa / conecta con →
+- [[web.lib.aplicar-estado]]  ·  _lib_
+
 ## Lo usan (backlinks) ←
+- [[web.cmp.aranceles-view]]  ·  _component_
+- [[web.cmp.back-office-shell]]  ·  _component_
 - [[web.cmp.comercial-operaciones-view]]  ·  _component_
 - [[web.cmp.manager-jobs-panel]]  ·  _component_
 - [[web.cmp.manager-view]]  ·  _component_

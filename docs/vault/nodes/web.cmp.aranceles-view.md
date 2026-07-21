@@ -18,3 +18,4 @@ Conecta con: pollea `GET /api/operaciones/ops/aranceles`; usa `ops-bar-chart`. L
 
 ## Usa / conecta con →
 - [[api.routers.operaciones]]  ·  _module_
+- [[web.lib.use-persisted-state]]  ·  _lib_

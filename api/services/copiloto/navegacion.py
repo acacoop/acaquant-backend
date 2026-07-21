@@ -1,0 +1,369 @@
+"""copiloto/navegacion.py — NAVEGACIÓN ASISTIDA: el guía te LLEVA (idea del user).
+
+En vez de dictar los pasos ("andá a Operaciones, filtrá mercado BYMA, poné el
+rango"), el guía resuelve una INTENCIÓN de navegación y el frontend la aplica:
+abre la vista con los filtros ya puestos.
+
+## Por qué esto es lo más seguro que tenemos
+
+El modelo NO ve ni un dato del negocio: para llevarte a un lugar solo necesita
+el CATÁLOGO de filtros (qué mercados existen, qué segmentos), que es metadata.
+Lo que viaja al proveedor es una intención ("mercado BYMA, junio"), jamás un
+número. Y como el dato lo pinta la VISTA, es imposible que lo alucine: no hay
+número que inventar. Por eso esta capacidad puede vivir en el proveedor barato
+sin ninguna consideración de privacidad.
+
+## La jaula
+
+El modelo elige un DESTINO de la whitelist y valores de filtro; el código
+valida TODO contra los catálogos vivos (los mismos que llenan los selectores
+de la vista) y arma el estado. Un destino inexistente, un filtro desconocido o
+un valor fuera del catálogo se RECHAZAN con un mensaje que le enseña los
+válidos — nunca se pasa nada crudo al frontend.
+
+## Cómo se aplica del otro lado
+
+Las vistas ya persisten sus filtros con `usePersistedState` (sessionStorage,
+claves estables tipo `ops.mercado`). El panel escribe esas claves y navega:
+la vista rehidrata sola. NO hay que tocar cada vista — solo declarar acá qué
+clave corresponde a qué filtro.
+"""
+from __future__ import annotations
+
+import logging
+import re
+from datetime import UTC, datetime, timedelta
+
+from api.cache import cached
+
+logger = logging.getLogger(__name__)
+
+_RE_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# Catálogos vivos: nombre → función que devuelve la lista de valores válidos.
+# Son los MISMOS que llenan los selectores de la vista → nunca quedan stale.
+_CATALOGOS = {
+    "mercados": lambda: (_ops().ops_mercados() or {}).get("mercados") or [],
+    "segmentos": lambda: (_ops().ops_segmentos() or {}).get("segmentos") or [],
+    "niveles3": lambda: (_ops().ops_niveles3() or {}).get("niveles3") or [],
+    "tipos_operacion": lambda: (_ops().ops_tipos_operacion() or {}).get("tipos") or [],
+}
+
+
+def _ops():
+    from api.services import operaciones_sql
+    return operaciones_sql
+
+
+@cached(ttl=3600)
+def _valores(catalogo: str) -> list[str]:
+    """Valores vigentes de un catálogo (cache 1h — casi no cambian)."""
+    try:
+        return [str(v) for v in _CATALOGOS[catalogo]() if v]
+    except Exception as e:
+        logger.warning("navegacion: catálogo %s no disponible (%s)", catalogo, e)
+        return []
+
+
+# ── Filtros reutilizables ────────────────────────────────────────────────────
+# `clave` = la clave de sessionStorage que persiste ese filtro en la vista
+# (usePersistedState). `con` = estado extra que hay que setear junto (ej. las
+# fechas solo aplican si el modo del selector es RANGO).
+
+def _f(clave: str, tipo: str, *, catalogo: str | None = None,
+       valores: list[str] | None = None, con: dict | None = None,
+       ayuda: str = "") -> dict:
+    return {"clave": clave, "tipo": tipo, "catalogo": catalogo,
+            "valores": valores, "con": con or {}, "ayuda": ayuda}
+
+
+_RANGO = {"ops.modo": "RANGO"}
+_RANGO_AR = {"ar.modo": "RANGO"}
+
+_DESTINOS: dict[str, dict] = {
+    "operaciones_volumen": {
+        "titulo": "Operaciones → OPERACIONES",
+        "ruta": "/operaciones",
+        "modulo": "operaciones",
+        "cuando": "cuánto se OPERÓ (volumen, boletos): por mercado, segmento, tipo de "
+                  "operación, cuenta o título, en un día o un rango de fechas",
+        "estado_base": {"operaciones.tab": "operaciones"},
+        "filtros": {
+            "mercado": _f("ops.mercado", "enum", catalogo="mercados"),
+            "segmento": _f("ops.segmento", "enum", catalogo="segmentos",
+                           ayuda="segmento nivel 1 del cliente"),
+            "nivel_3": _f("ops.nivel3", "enum", catalogo="niveles3",
+                          ayuda="segmento del boleto (nivel 3)"),
+            "moneda": _f("ops.moneda", "enum", valores=["ARS", "USD", "USD_DOL"]),
+            "cuenta": _f("ops.search", "texto",
+                         ayuda="texto del buscador de cuenta (nombre o número)"),
+            "desde": _f("ops.desde", "fecha", con=_RANGO),
+            "hasta": _f("ops.hasta", "fecha", con=_RANGO),
+        },
+    },
+    "operaciones_aranceles": {
+        "titulo": "Operaciones → ARANCELES",
+        "ruta": "/operaciones",
+        "modulo": "operaciones",
+        "cuando": "lo FACTURADO (aranceles, comisiones cobradas) por período, segmento "
+                  "u operador",
+        "estado_base": {"operaciones.tab": "aranceles"},
+        "filtros": {
+            "segmento": _f("ar.segmento", "enum", catalogo="segmentos"),
+            "desde": _f("ar.desde", "fecha", con=_RANGO_AR),
+            "hasta": _f("ar.hasta", "fecha", con=_RANGO_AR),
+            "abrir_por": _f("ar.dim", "enum",
+                            valores=["nivel3", "operacion", "operador"],
+                            ayuda="cómo se abre la tabla principal"),
+        },
+    },
+    "operaciones_depositos": {
+        "titulo": "Operaciones → DEPÓSITOS & EXTRACCIONES",
+        "ruta": "/operaciones",
+        "modulo": "operaciones",
+        "cuando": "movimientos de DINERO de clientes (depósitos y extracciones), no "
+                  "operaciones bursátiles",
+        "estado_base": {"operaciones.tab": "depositos"},
+        "filtros": {},
+    },
+    "operaciones_agro": {
+        "titulo": "Operaciones → AGRO",
+        "ruta": "/operaciones",
+        "modulo": "operaciones",
+        "cuando": "share de mercado de granos (volumen agro contra el mercado)",
+        "estado_base": {"operaciones.tab": "agro"},
+        "filtros": {},
+    },
+    "back_office_tenencia": {
+        "titulo": "Back Office → TENENCIA VALORIZADA",
+        "ruta": "/back-office",
+        "modulo": "back-office",
+        "cuando": "tenencia histórica día a día; incluye los TÍTULOS EN GARANTÍA "
+                  "(filtro SOLO GAR) y el alquiler",
+        "estado_base": {"backoffice.tab": "tenencia"},
+        "filtros": {
+            "garantia": _f("tenencia.garMode.v2", "enum",
+                           valores=["todos", "sin_gar", "solo_gar", "sin_alquiler"],
+                           ayuda="solo_gar = SOLO los títulos en garantía"),
+            "cartera": _f("tenencia.cartera", "enum", valores=["HD", "ARS"]),
+        },
+    },
+    "back_office_acreencias": {
+        "titulo": "Back Office → ACREENCIAS CLIENTES",
+        "ruta": "/back-office",
+        "modulo": "back-office",
+        "cuando": "cupones, rentas y amortizaciones a cobrar por fecha",
+        "estado_base": {"backoffice.tab": "acreencias"},
+        "filtros": {},
+    },
+    "back_office_tesoreria": {
+        "titulo": "Back Office → TESORERÍA",
+        "ruta": "/back-office",
+        "modulo": "back-office",
+        "cuando": "ingresos y egresos de dinero del DÍA",
+        "estado_base": {"backoffice.tab": "tesoreria"},
+        "filtros": {},
+    },
+    "referidos": {
+        "titulo": "Referidos",
+        "ruta": "/referidos",
+        "modulo": "operaciones",
+        "cuando": "comisiones por saldos de FCI referidos, por gerente o cooperativa",
+        "estado_base": {},
+        "filtros": {
+            "moneda": _f("referidos.moneda", "enum", valores=["ARS", "USD"]),
+            # valores REALES del selector (RANGOS en referidos-view.tsx)
+            "rango": _f("referidos.rango", "enum",
+                        valores=["MTD", "1M", "3M", "YTD", "1A", "ALL"]),
+        },
+    },
+}
+
+
+# ── Resolución de fechas habladas ────────────────────────────────────────────
+
+def _hoy() -> datetime:
+    return datetime.now(UTC) - timedelta(hours=3)  # ART
+
+
+def _validar_fecha(v: str) -> str | None:
+    v = str(v).strip()
+    return v if _RE_ISO.match(v) else None
+
+
+def _match_catalogo(valor: str, opciones: list[str]) -> str | None:
+    """Match tolerante (sin acentos ni mayúsculas) → devuelve el valor CANÓNICO
+    del catálogo. Así 'byma' del modelo entra como 'BYMA' de la vista."""
+    v = str(valor).strip().lower()
+    for o in opciones:
+        if o.lower() == v:
+            return o
+    for o in opciones:  # match parcial (una sola coincidencia)
+        if v and v in o.lower():
+            coincidencias = [x for x in opciones if v in x.lower()]
+            if len(coincidencias) == 1:
+                return coincidencias[0]
+            break
+    return None
+
+
+def destinos_para(usuario: str | None) -> list[dict]:
+    """Destinos que ESE usuario puede abrir (gate por módulo RBAC). El guía
+    solo ofrece lo que la persona puede ver."""
+    from .derivacion import _acceso
+
+    out = []
+    for clave, d in _DESTINOS.items():
+        try:
+            if usuario and not _acceso(usuario, d):
+                continue
+        except Exception as e:
+            logger.warning("navegacion: no pude validar acceso a %s (%s)", clave, e)
+            continue
+        out.append({"id": clave, **d})
+    return out
+
+
+def descripcion_destinos(usuario: str | None) -> str:
+    """Bloque para el prompt: qué destinos hay, cuándo usarlos y qué filtros
+    acepta cada uno CON sus valores vigentes. Es metadata pura (cero datos)."""
+    destinos = destinos_para(usuario)
+    if not destinos:
+        return ""
+    lineas = ["[destinos navegables — para la herramienta abrir_vista]"]
+    for d in destinos:
+        lineas.append(f"- {d['id']} → {d['titulo']}: {d['cuando']}")
+        for nombre, f in (d["filtros"] or {}).items():
+            if f["tipo"] == "enum":
+                vals = f["valores"] or _valores(f["catalogo"]) if (
+                    f["valores"] or f["catalogo"]) else []
+                # sin catálogo NO se ofrece el filtro como libre: `resolver`
+                # lo rechazaría igual (jaula) — mejor decirlo acá
+                detalle = ("uno de: " + ", ".join(vals[:25])) if vals else (
+                    "no disponible ahora — no lo uses")
+            elif f["tipo"] == "fecha":
+                detalle = "fecha YYYY-MM-DD"
+            else:
+                detalle = "texto libre"
+            extra = f" ({f['ayuda']})" if f["ayuda"] else ""
+            lineas.append(f"    · {nombre}{extra}: {detalle}")
+    return "\n".join(lineas)
+
+
+def resolver(destino: str, filtros: dict | None, usuario: str | None) -> dict:
+    """Valida la intención y devuelve {ok, ruta, estado, resumen} o {ok:false,
+    error}. TODO se valida contra la whitelist y los catálogos vivos: es la
+    jaula que impide que el modelo mande cualquier cosa al frontend."""
+    d = _DESTINOS.get(str(destino or "").strip())
+    if d is None:
+        validos = [x["id"] for x in destinos_para(usuario)]
+        return {"ok": False, "error": f"destino desconocido: {destino!r}. "
+                                     f"Válidos: {', '.join(validos)}"}
+    from .derivacion import _acceso
+    try:
+        if usuario and not _acceso(usuario, d):
+            return {"ok": False,
+                    "error": f"el usuario no tiene permiso para {d['titulo']} — "
+                             "decíselo y no ofrezcas ese destino"}
+    except Exception as e:
+        logger.warning("navegacion: acceso no verificable (%s)", e)
+        return {"ok": False, "error": "no pude verificar el permiso de esa vista"}
+
+    estado = dict(d["estado_base"])
+    resumen: list[str] = []
+    rechazos: list[str] = []
+    for nombre, valor in (filtros or {}).items():
+        f = (d["filtros"] or {}).get(str(nombre).strip())
+        if f is None:
+            rechazos.append(f"{nombre} (no existe en {d['titulo']})")
+            continue
+        if valor is None or str(valor).strip() == "":
+            continue
+        if f["tipo"] == "enum":
+            opciones = f["valores"] or _valores(f["catalogo"]) if (
+                f["valores"] or f["catalogo"]) else []
+            canonico = _match_catalogo(str(valor), opciones) if opciones else None
+            if canonico is None:
+                rechazos.append(
+                    f"{nombre}={valor!r} (valores: {', '.join(opciones[:15]) or 'ninguno'})")
+                continue
+            estado[f["clave"]] = canonico
+            resumen.append(f"{nombre}: {canonico}")
+        elif f["tipo"] == "fecha":
+            iso = _validar_fecha(str(valor))
+            if iso is None:
+                rechazos.append(f"{nombre}={valor!r} (formato YYYY-MM-DD)")
+                continue
+            estado[f["clave"]] = iso
+            resumen.append(f"{nombre}: {iso}")
+        else:
+            estado[f["clave"]] = str(valor)[:80]
+            resumen.append(f"{nombre}: {valor}")
+        estado.update(f["con"])
+
+    if rechazos:
+        return {"ok": False, "error": "no pude aplicar: " + " · ".join(rechazos)}
+    return {"ok": True, "ruta": d["ruta"], "titulo": d["titulo"],
+            "estado": estado, "resumen": " · ".join(resumen)}
+
+
+# ── La tool que ve el modelo ─────────────────────────────────────────────────
+
+TOOLS_NAVEGACION = [
+    {
+        "type": "function",
+        "function": {
+            "name": "abrir_vista",
+            "description": (
+                "Abre una vista de la plataforma con los filtros YA APLICADOS, para "
+                "que el usuario vea el dato él mismo. Usala SIEMPRE que pidan ver o "
+                "saber algo que vive en una vista ('cuánto se operó en BYMA', 'quiero "
+                "ver los títulos en garantía', 'mostrame lo facturado del semestre'): "
+                "es mejor que explicar los pasos. Elegí el destino de la lista de "
+                "destinos navegables y pasá los filtros que la pregunta pida. Traducí "
+                "los períodos hablados a fechas exactas."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "destino": {
+                        "type": "string",
+                        "description": "El id del destino, tal cual figura en la lista "
+                                       "de destinos navegables (ej. operaciones_volumen).",
+                    },
+                    "filtros": {
+                        "type": "object",
+                        "description": "Filtros a aplicar, con los nombres y valores "
+                                       "que ese destino declara. Vacío si no hace falta "
+                                       "filtrar.",
+                        "additionalProperties": {"type": "string"},
+                    },
+                },
+                "required": ["destino"],
+            },
+        },
+    }
+]
+
+
+def ejecutor(contenedor: dict, usuario: str | None):
+    """Factory del ejecutor de tools del guía. `contenedor` es el buzón donde
+    se deja la navegación resuelta para que el motor la devuelva al panel
+    (el texto del modelo NO es el canal: el frontend necesita datos, no prosa)."""
+
+    def _ejecutar(nombre: str, args: dict) -> str:
+        if nombre != "abrir_vista":
+            return f"herramienta desconocida: {nombre}"
+        r = resolver(args.get("destino", ""), args.get("filtros") or {}, usuario)
+        if not r.get("ok"):
+            return r["error"]
+        contenedor["navegacion"] = {
+            "ruta": r["ruta"], "estado": r["estado"],
+            "titulo": r["titulo"], "resumen": r["resumen"],
+        }
+        return (f"listo: se le va a ofrecer abrir {r['titulo']}"
+                + (f" con {r['resumen']}" if r["resumen"] else " sin filtros")
+                + ". Confirmale en UNA frase qué va a ver ahí (sin listar los pasos "
+                  "de navegación, el botón ya lo lleva) y NO inventes ningún número.")
+
+    return _ejecutar

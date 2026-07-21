@@ -8,10 +8,13 @@ from .ayuda import (
     _CHIPS_AYUDA,
     _COLUMNAS_AYUDA,
     _REGLAS_AYUDA,
+    _bloque_destinos,
     _extras_ayuda,
     _fetch_ayuda,
 )
 from .home import _REGLAS_HOME, _extras_home, _fetch_home
+from .navegacion import TOOLS_NAVEGACION
+from .navegacion import ejecutor as _ejecutor_navegacion
 from .negocio import _handler_negocio
 from .ons import _REGLAS_ONS, _extras_ons, _fetch_ons
 from .opciones import _REGLAS_OPCIONES, _extras_opciones, _fetch_opciones
@@ -80,6 +83,12 @@ VISTAS: dict[str, dict] = {
         "chips": _CHIPS_AYUDA,
         "columnas": _COLUMNAS_AYUDA,
         "reglas": _REGLAS_AYUDA,
+        # NAVEGACIÓN ASISTIDA (2026-07-21): el guía no dicta pasos, LLEVA — la
+        # tool resuelve una intención validada y el panel la aplica. El bloque
+        # de destinos depende del usuario (RBAC) → va al system.
+        "bloque_usuario": _bloque_destinos,
+        "tools": TOOLS_NAVEGACION,
+        "tools_ejecutar": _ejecutor_navegacion,   # factory(contenedor, usuario)
     },
     "home": {
         "titulo": "Home",
@@ -241,8 +250,10 @@ VISTAS: dict[str, dict] = {
         "extras": _extras_research,
         # PILOTO function-calling (2026-07-20): el modelo puede pedir series
         # históricas y buscar en los mails — JIT retrieval, canon Anthropic.
+        # `tools_ejecutar` es una FACTORY (contenedor, usuario) → ejecutar:
+        # research no usa el contenedor, la navegación del guía sí.
         "tools": _TOOLS_RESEARCH,
-        "tools_ejecutar": _ejecutar_tool_research,
+        "tools_ejecutar": lambda _cont, _usr: _ejecutar_tool_research,
         # la columna `dato` es un string denso por bono/serie (~150 chars) —
         # con el cap default de 60 se mutilaría (lección de la vista ayuda)
         "celda_max": 220,

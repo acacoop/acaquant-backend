@@ -17,6 +17,8 @@ path: api\services\asistente_tools.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services]]  ·  _module_
+- [[api.services.operaciones_sql]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.pii_gateway]]  ·  _module_
 - [[core.postgres]]  ·  _module_

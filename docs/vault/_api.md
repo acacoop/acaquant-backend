@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-192 notas.
+193 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -121,6 +121,7 @@
 - [[api.services.copiloto.derivacion]] — copiloto/derivacion.py — derivación entre vistas: el marcador [[VISTA:x]], el
 - [[api.services.copiloto.home]] — copiloto/home.py — vista HOME (panorama del mercado): watchlist + briefing +
 - [[api.services.copiloto.motor]] — copiloto/motor.py — el orquestador: preguntar() (una pregunta → contexto →
+- [[api.services.copiloto.navegacion]] — copiloto/navegacion.py — NAVEGACIÓN ASISTIDA: el guía te LLEVA (idea del user).
 - [[api.services.copiloto.negocio]] — copiloto/negocio.py — vista NEGOCIO: el asistente de negocio (QuantAI P7)
 - [[api.services.copiloto.ons]] — copiloto/ons.py — vista ONs (deuda corporativa): curva por sector, pagos.
 - [[api.services.copiloto.opciones]] — copiloto/opciones.py — vista OPCIONES (derivados): cadena GGAL, IV, griegas.

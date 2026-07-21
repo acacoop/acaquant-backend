@@ -60,12 +60,14 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.asistente]]  ·  _module_
+- [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.copiloto.agro]]  ·  _module_
 - [[api.services.copiloto.ayuda]]  ·  _module_
 - [[api.services.copiloto.home]]  ·  _module_
+- [[api.services.copiloto.navegacion]]  ·  _module_
 - [[api.services.copiloto.negocio]]  ·  _module_
 - [[api.services.copiloto.ons]]  ·  _module_
 - [[api.services.copiloto.opciones]]  ·  _module_

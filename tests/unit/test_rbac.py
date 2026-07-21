@@ -113,3 +113,16 @@ def test_invitado_ia_con_condiciones():
 def test_prefijo_api_ia_mapea_al_modulo_ia():
     from api.auth import get_module_for_path
     assert get_module_for_path("/api/ia/cualquier-endpoint-futuro") == "ia"
+
+
+def test_invitado_research_habilitado():
+    # Decisión user 2026-07-21: los invitados son OTRO SECTOR de la MISMA
+    # empresa (no terceros) → research completo habilitado (sin problema de
+    # redistribución de licencias). El negocio de la mesa sigue excluido.
+    assert "research" in roles.INVITADO_MODULES
+    from api.services import copiloto
+    g = f"{roles.GUEST_PREFIX}otro.sector@aca.com"
+    assert copiloto.puede_usar(g, "research") is True
+    assert copiloto.puede_usar(g, "reuters") is True
+    for privada in ("operaciones", "portfolios", "back-office", "manager", "trading"):
+        assert privada not in roles.INVITADO_MODULES

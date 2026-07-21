@@ -45,10 +45,11 @@ del producto — la mesa lee a 1816 todas las mañanas.
    "persistir en MongoDB" — eso está **decomisado** en este sistema (CLAUDE.md).
    Series, snapshots y catálogo van a tablas SQL nuevas (schema `research`, ya
    existe para Refinitiv → se le suman tablas `research.mkt_1816_*`).
-2. **La vista es INTERNA — jamás para el invitado (REGLA #8).** Es research
-   propietario de 1816 (pago, con créditos) + contenido que la empresa recibe
-   bajo licencia. El módulo `research` NO entra a `INVITADO_MODULES`. Default
-   para admin/trader/sales internos; el admin lo asigna en la matriz.
+2. **ABIERTA al invitado desde 2026-07-21** (decisión user, SUPERADA la
+   restricción original): los "invitados" del portal www son OTRO SECTOR de la
+   MISMA empresa (grupo ACA), no terceros → el research licenciado (1816/
+   Reuters) no sale de la compañía. `research` está en `INVITADO_MODULES`.
+   Para la mesa: default admin/trader/sales; el admin lo asigna en la matriz.
 3. **Los créditos son el recurso escaso — se administran como el presupuesto de
    IA.** La API cobra por request (`x-1816-credits`); series cuesta
    `tickers × campos × días`. La estrategia es **leer una vez, persistir, servir

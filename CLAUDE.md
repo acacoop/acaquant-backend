@@ -162,22 +162,24 @@ resolver lo pedido:
 
 Ver memorias [[feedback_proactive_architect]] y [[feedback_autonomy_lanes]].
 
-## ⚠️ REGLA #8 — Portal INVITADO (www.acaquant.com): SOLO mercado, nunca filtrar datos privados
+## ⚠️ REGLA #8 — Portal INVITADO (www.acaquant.com): SOLO mercado/research, nunca filtrar datos del negocio
 
-**Bloqueante. Es exposición de datos a gente externa a la empresa.** Conviven
-dos portales:
+**Bloqueante.** Conviven dos portales:
 
-- **trading.acaquant.com** — app interna de la mesa. Usuarios de la empresa
+- **trading.acaquant.com** — app interna de la mesa. Usuarios de la mesa
   (admin/trader/sales/etc.), ven todo según su rol.
-- **www.acaquant.com** — **portal INVITADO**, lo usan **personas AJENAS a la
-  empresa**. Es **EXCLUSIVO para datos de MERCADO** (home + módulos de mercado,
-  read-only).
+- **www.acaquant.com** — **portal INVITADO**: lo usa gente de **OTRO SECTOR de
+  la MISMA empresa** (grupo ACA — aclaración del user 2026-07-21; NO son
+  terceros, así que el contenido licenciado 1816/Reuters no sale de la
+  compañía). Ven **mercado + research** (read-only) + los copilotos de IA de
+  esas vistas (identidad `guest:<email>`, tope 100k/día c/u, sin la guía).
 
-En CADA desarrollo, JAMÁS pasar por alto: cualquier cosa de trading que **no sea
-home o mercados** (portfolios, operaciones, manager, back-office, acreencias,
-gestión de ONs, clientes, AuM, P&L, contrapartes, segmentación, etc.) **NUNCA**
-puede quedar accesible al invitado. Si un desarrollo nuevo no es de mercado, no
-se mete en el portal www — punto.
+Lo que NO cambia y JAMÁS se pasa por alto: cualquier cosa del **NEGOCIO de la
+mesa** (portfolios, operaciones, manager, back-office, acreencias, gestión de
+ONs, clientes, AuM, P&L, contrapartes, segmentación, la guía de la plataforma,
+etc.) **NUNCA** puede quedar accesible al invitado — otro sector tampoco ve el
+negocio de la mesa. Si un desarrollo nuevo no es de mercado/research, no se
+mete en el portal www — punto.
 
 - El backend fuerza rol `invitado` (default-deny) cuando ve el header
   `x-acaquant-portal: guest` (`api/auth.py::is_guest_portal` + check contra
@@ -213,11 +215,40 @@ api/mcp/     # MCP server (FastMCP) + OAuth 2.1 provider + discovery
 partner_api/ # app FastAPI SEPARADA (no monta en api/main) — datos para proveedor externo
 scripts/     # one-shot / migraciones / smoke
 tests/       # pytest — unit/ + integration/ (marker `integration`, excluido por defecto via addopts)
+evals/       # datasets de evaluación del programa QuantAI (ver docs/QUANTAI.md)
 sql/         # schema.sql — espejo relacional Postgres/Supabase (ver "Capa SQL")
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # settings.json + hooks + commands + skills + agents (ver .claude/INDEX.md)
-docs/        # ARQUITECTURA.md (DOC MADRE: arquitectura/datos/estrategia/roadmap/plan SQL). Referencia operativa: API.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md, RUNBOOK.md (operación/incidentes), SECRETS.md + SECURITY.md (seguridad), PARTNER_API*.md, GRUPOS.md, SEGMENTACION_PATRIMONIAL.md, INTEGRACION_REUTERS.md (feed Eikon live + tab REUTERS — doc vivo con changelog, LEER antes de tocar eikon_*), VISTA_RESEARCH.md (DOC MADRE de la vista Research: integración 1816 market data + research diario por mail — LEER antes de tocar mercado_1816 o la vista /research), RESEARCH_BCRA.md (tab BCRA de Research: integración APIs BCRA — diseño), HERRAMIENTAS.md (auto-gen). vault/ (cerebro Obsidian, auto-generado)
+docs/        # documentación (ver "Mapa de docs" abajo) + vault/ (cerebro Obsidian, auto-generado)
 ```
+
+## Mapa de docs — cuál leer ANTES de tocar cada dominio
+
+`docs/ARQUITECTURA.md` es el **DOC MADRE** (arquitectura/datos/estrategia/roadmap).
+Los marcados **[VIVO]** tienen changelog obligatorio: si tocás ese dominio y no
+actualizaste su doc en el mismo commit, el trabajo está incompleto.
+
+| Dominio / si vas a tocar… | Doc |
+|---|---|
+| Arquitectura, datos, roadmap | `ARQUITECTURA.md` (madre) |
+| Modelo SQL / schema | `SQL.md` + `SQL_MODELO.md` + `sql/schema.sql` |
+| Programa de IA (gateway `core/ai`, briefing, triage) | `QUANTAI.md` **[VIVO]** |
+| Copiloto de mesa (`api/services/copiloto.py`) | `COPILOTO.md` **[VIVO]** |
+| Vista `/research` (1816, mail diario) | `VISTA_RESEARCH.md` **[VIVO]** |
+| Research → tab BCRA / FRED / Refinitiv | `RESEARCH_BCRA.md` · `RESEARCH_FRED.md` · `RESEARCH_REFINITIV.md` |
+| Feed Eikon live / tab REUTERS (`eikon_*`) | `INTEGRACION_REUTERS.md` **[VIVO]** |
+| Renta fija / curvas | `RENTA_FIJA.md` · `SALUD_CURVAS.md` |
+| Renta variable / scanner | `RENTA_VARIABLE.md` |
+| Derivados · sintéticos · agro | `DERIVADOS.md` · `SINTETICOS.md` · `AGRO.md` |
+| Valuaciones / PnL | `MOTOR_VALUACIONES.md` |
+| MCP server / tools | `MCP.md` · `MCP_TOOLS.md` |
+| Partner API | `PARTNER_API.md` · `PARTNER_API_PROVEEDOR.md` |
+| Operación, incidentes, monitoreo | `RUNBOOK.md` · `OBSERVABILIDAD_ROBUSTEZ.md` |
+| Seguridad / credenciales | `SECURITY.md` · `SECRETS.md` |
+| Clientes / grupos / segmentación | `GRUPOS.md` · `SEGMENTACION_PATRIMONIAL.md` |
+| API HTTP (contratos) | `API.md` |
+
+Auto-generados (NO editar a mano): `HERRAMIENTAS.md`, `vault/`, `deploy/SISTEMA.md`.
 
 ## Plano del sistema — `deploy/SISTEMA.md`
 

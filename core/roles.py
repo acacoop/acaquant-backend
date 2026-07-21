@@ -58,9 +58,11 @@ MODULES: tuple[str, ...] = (
     "back-office",    # /back-office (títulos a enviar/recibir al mercado, conciliación)
     "research",       # /research (vista Research: research diario 1816 por mail +
                       # market data 1816 — docs/VISTA_RESEARCH.md). Gate de
-                      # /api/research1816/*. INTERNA — JAMÁS invitado (REGLA #8).
+                      # /api/research1816/*. Abierta al invitado desde 2026-07-21
+                      # (otro sector de la MISMA empresa — sin redistribución).
     "ia",             # features de IA (QuantAI, docs/QUANTAI.md) — gate de /api/ia/*.
-                      # JAMÁS agregarlo a `invitado` (REGLA #8): es la marca AI interna.
+                      # El invitado lo tiene desde 2026-07-21 con condiciones (ver
+                      # el bloque invitado de DEFAULT_MATRIX).
     "manager",        # /manager + intel + jobs + logs (umbrella — tabs admin)
     # Sub-módulos de Manager: cobertura granular para el rol `asistente_comercial`
     # (acceso SOLO a la tab Clientes, sin ver el resto). El sub-router
@@ -124,15 +126,22 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     # tasa R read-only en derivados) las aplica el frontend del portal guest, no
     # el gate de módulo. Se asigna por venir de www (no por email) — ver el
     # forzado de rol en api/auth.py, no por Manager.Users.
+    # ACLARACIÓN DEL USER (2026-07-21): los "invitados" del portal www son
+    # gente de OTRO SECTOR de la MISMA empresa (grupo ACA), no terceros — el
+    # contenido licenciado (1816/Reuters) no sale de la compañía. El
+    # default-deny sobre datos del NEGOCIO de la mesa (operaciones, carteras,
+    # clientes, manager) sigue intacto: otro sector tampoco los ve.
     "invitado": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
-        # `ia` para invitados: DECISIÓN DEL USER 2026-07-21 (pisa la decisión
-        # original de QUANTAI "invitado jamás tiene ia"). Solo habilita los
-        # copilotos de las vistas de MERCADO que el invitado ya ve; la vista
-        # `ayuda` (mapa interno del producto) queda EXCLUIDA (solo_internos en
-        # el registro del copiloto) y el presupuesto es COMPARTIDO entre todos
-        # los invitados con tope propio (GUEST_USER, 100k/día default).
+        # research: decisión user 2026-07-21 (misma empresa → sin problema de
+        # licencias). Abre la vista completa: 1816 + reportes + BCRA + FRED +
+        # RV internacional, con sus copilotos.
+        "research",
+        # `ia` para invitados: decisión user 2026-07-21. Copilotos de las
+        # vistas que el invitado ve; la `ayuda` (mapa interno del producto)
+        # queda EXCLUIDA (solo_internos) y cada invitado tiene identidad
+        # propia "guest:<email>" con tope diario bajo (100k default).
         "ia",
     ),
 }

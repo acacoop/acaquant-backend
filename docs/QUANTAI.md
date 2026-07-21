@@ -194,7 +194,7 @@ el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
 además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.76 (2026-07-21) — 10 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
+**Estado: v1.77 (2026-07-21) — 10 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
 TRADING (+ el VIGÍA reactivo + memoria de 7 ruedas + modo propositivo de setups),
 RENTA FIJA, AGRO, OPCIONES (derivados), ONs,
 REUTERS (tablero live de subyacentes US, feed Eikon — ver

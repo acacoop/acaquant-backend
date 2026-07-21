@@ -117,6 +117,21 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.77 (RESEARCH abierto al invitado — premisa del portal CORREGIDA)
+El user aclaró que los "invitados" del portal www son OTRO SECTOR de la MISMA
+empresa (grupo ACA), no terceros — la premisa "personas ajenas" de los docs
+estaba mal, y con ella caía la objeción de licencias (1816/Reuters no salen de
+la compañía).
+- **[RBAC]** `research` en INVITADO_MODULES → la vista completa (1816 series/
+  spreads + mails + reportes + BCRA + FRED + RV internacional) y sus copilotos
+  (`research` + `reuters`) quedan disponibles en www.
+- **[docs ~]** REGLA #8 (CLAUDE.md), VISTA_RESEARCH.md §2.2 y la memoria del
+  asistente corregidas a la premisa real. El default-deny sobre el NEGOCIO de
+  la mesa (operaciones/carteras/clientes/manager/trading/guía) sigue intacto:
+  otro sector tampoco lo ve.
+- **[test]** `test_invitado_research_habilitado` congela: research/reuters sí,
+  negocio no.
+
 ### 2026-07-21 — v1.76 (IA para INVITADOS — decisión user, con condiciones de seguridad)
 El user habilitó la IA en el portal público www (pisa el default-deny original
 de QUANTAI, asentado allá). El paquete acordado:

@@ -223,6 +223,23 @@ def test_texto_de_usuario_no_rompe_decimales(monkeypatch):
     assert "805" not in limpio        # la cuenta pelada SÍ se tacha
 
 
+def test_vocabulario_protegido_no_se_tacha(monkeypatch):
+    """Incidente real (2026-07-21): en una tabla de aranceles los TIPOS DE
+    OPERACIÓN salieron como CLIENTE_12 porque compartían una palabra con el
+    nombre de algún cliente. El caller marca su vocabulario como intocable."""
+    cat = {**CATALOGO_FAKE, "tokens": {**CATALOGO_FAKE["tokens"], "compras": "77"}}
+    monkeypatch.setattr(pg, "_catalogo", lambda: cat)
+    texto = "Compras A3: 272,8 millones · Compras PPT: 23,3 millones · Juan Perez"
+    # sin protección, 'Compras' se tacharía (está en el índice de tokens)
+    sucio, _m = pg.tokenize(texto, texto_generado=True)
+    assert "Compras" not in sucio
+    # con protección, el vocabulario sobrevive y el NOMBRE se sigue tachando
+    limpio, _m2 = pg.tokenize(texto, texto_generado=True,
+                              protegidos=["Compras A3", "Compras PPT"])
+    assert "Compras A3" in limpio and "Compras PPT" in limpio
+    assert "Perez" not in limpio and "CLIENTE_" in limpio
+
+
 def test_etiquetas_de_segmento_no_son_clientes():
     limpio, _m = pg.tokenize("COOPERATIVAS y PRODUCTORES concentran el AuM")
     assert limpio == "COOPERATIVAS y PRODUCTORES concentran el AuM"

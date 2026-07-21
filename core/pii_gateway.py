@@ -494,13 +494,31 @@ def _aplicar_spans(texto: str, spans: list[tuple[int, int, str, str]], mapping: 
     return texto
 
 
+def _spans_protegidos(texto: str, protegidos) -> list[tuple[int, int]]:
+    """Tramos INTOCABLES: literales que el caller garantiza que son
+    vocabulario del sistema (tipos de operación, mercados, segmentos…), no
+    identidades. Sin esto, un tipo de operación que comparte una palabra con
+    algún cliente terminaba tachado como CLIENTE_n en un resultado de tool
+    (incidente real 2026-07-21: 'Compras A3' → 'CLIENTE_12 A3')."""
+    spans: list[tuple[int, int]] = []
+    for lit in protegidos or ():
+        s = str(lit or "").strip()
+        if len(s) < 3:
+            continue
+        for m in re.finditer(re.escape(s), texto, re.IGNORECASE):
+            spans.append((m.start(), m.end()))
+    return spans
+
+
 def tokenize(texto: str, mapping: dict | None = None,
-             texto_generado: bool = False) -> tuple[str, dict]:
+             texto_generado: bool = False, protegidos=None) -> tuple[str, dict]:
     """Tacha toda identidad detectada y devuelve (texto_limpio, mapping).
     El mapping entra/sale para que las fichas sean estables en el chat.
     `texto_generado=True` = el texto lo produjo NUESTRO código (resultado de
     tool, respuesta previa del asistente): los nombres se tachan igual, pero
     los números sueltos se respetan (son agregados, no cuentas).
+    `protegidos` = literales que JAMÁS se tachan (vocabulario del sistema:
+    tipos de operación, mercados, segmentos…) — el caller los garantiza.
     NUNCA levanta: ante error interno devuelve el texto ÍNTEGRAMENTE tachado
     (fail-closed: jamás dejar pasar texto sin procesar)."""
     mapping = mapping if mapping is not None else _mapping_nuevo()
@@ -512,15 +530,20 @@ def tokenize(texto: str, mapping: dict | None = None,
         spans = _spans_numeros(texto, catalogo, numeros_pelados=not texto_generado)
         if catalogo:
             spans += _spans_catalogo(texto, catalogo)
-        # fichas ya presentes (texto re-tokenizado, ej. resultados de tools):
-        # intocables — jamás re-tachar una ficha
-        fichas = [(m.start(), m.end()) for m in _FICHA_RE.finditer(texto)]
+        # Tramos intocables: fichas ya presentes (texto re-tokenizado) y el
+        # vocabulario del sistema que el caller protege explícitamente.
+        intocables = [(m.start(), m.end()) for m in _FICHA_RE.finditer(texto)]
+        intocables += _spans_protegidos(texto, protegidos)
         spans = [s for s in spans
-                 if all(s[1] <= f0 or s[0] >= f1 for f0, f1 in fichas)]
+                 if all(s[1] <= f0 or s[0] >= f1 for f0, f1 in intocables)]
         limpio = _aplicar_spans(texto, spans, mapping)
         # capa defensiva sobre el texto YA tachado (las fichas no re-matchean:
-        # CLIENTE_1 no tiene forma de nombre propio)
-        limpio = _aplicar_spans(limpio, _spans_defensivos(limpio), mapping)
+        # CLIENTE_1 no tiene forma de nombre propio) — respetando lo protegido
+        defensivos = _spans_defensivos(limpio)
+        prot2 = _spans_protegidos(limpio, protegidos)
+        defensivos = [s for s in defensivos
+                      if all(s[1] <= p0 or s[0] >= p1 for p0, p1 in prot2)]
+        limpio = _aplicar_spans(limpio, defensivos, mapping)
         return limpio, mapping
     except Exception as e:
         logger.error("pii_gateway.tokenize: fallo interno (%s) — texto retenido", e)

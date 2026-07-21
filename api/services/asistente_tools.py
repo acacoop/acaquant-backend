@@ -23,10 +23,13 @@ from __future__ import annotations
 
 import logging
 
+from api.cache import cached as _cached_vocab_factory
 from core import pii_gateway
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
+
+_cached_vocab = _cached_vocab_factory(ttl=3600)
 
 _DIMENSIONES = ["mercado", "operacion", "segmento", "nivel_3", "instrumento", "operador"]
 _PARAMS_CONSOLIDADO = {
@@ -50,6 +53,10 @@ _PARAMS_CONSOLIDADO = {
                            "description": "Filtrar a las cuentas de UN operador, por "
                                           "su referencia (OPERADOR_1) tal cual "
                                           "aparece en la conversación (opcional)."},
+        "ficha_cuenta": {"type": "string",
+                         "description": "Filtrar a UN cliente por su referencia "
+                                        "(CLIENTE_1). Es lo que responde '¿cuánto "
+                                        "operó tal cliente?' (opcional)."},
     },
     "required": ["desde", "hasta", "por"],
 }
@@ -76,10 +83,12 @@ TOOLS: list[dict] = [
         "function": {
             "name": "rendimiento_cuenta",
             "description": (
-                "AuM y P&L (realizado, no realizado, pasivo) de UNA cuenta puntual. "
-                "El parámetro es la FICHA con la que la cuenta aparece en la "
-                "conversación (CLIENTE_1, CTA_2...). Usala cuando pregunten por un "
-                "cliente o cuenta específica."
+                "PATRIMONIO de UNA cuenta: AuM (tenencia valorizada) y P&L "
+                "acumulado. El parámetro es la FICHA con la que la cuenta aparece "
+                "en la conversación (CLIENTE_1, CTA_2...). Usala cuando pregunten "
+                "qué TIENE un cliente, su cartera, su posición o su resultado. "
+                "OJO: NO sirve para '¿cuánto operó?' — eso es volumen operado y "
+                "va por volumen_operado con ficha_cuenta."
             ),
             "parameters": {
                 "type": "object",
@@ -122,11 +131,12 @@ TOOLS: list[dict] = [
         "function": {
             "name": "volumen_operado",
             "description": (
-                "Volumen bruto operado (ARS) consolidado por una dimensión en un "
-                "período: por mercado, tipo de operación, segmento o título. Usala "
-                "para '¿cuánto se operó?', comparativos por mercado, consolidados "
-                "del mes/semestre. El volumen excluye los cierres de caución "
-                "(regla de la mesa, ya aplicada)."
+                "Volumen bruto operado (ARS) en un período, consolidado por una "
+                "dimensión y opcionalmente filtrado a UN cliente o UN operador. "
+                "ESTA es la herramienta de '¿cuánto operó X?' y '¿cuánto se operó?' "
+                "— lo OPERADO es volumen de compras/ventas, NO el patrimonio ni el "
+                "resultado (para eso está rendimiento_cuenta, que es otra cosa). El "
+                "volumen excluye los cierres de caución (regla de la mesa, aplicada)."
             ),
             "parameters": _PARAMS_CONSOLIDADO,
         },
@@ -272,14 +282,36 @@ def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
     Dimensión operador (decisión b, 2026-07-21): los EMPLEADOS tampoco salen
     — cada nombre de operador se ficha OPERADOR_n ANTES de volver al LLM."""
     from api.services import operaciones_sql
+    from api.services.copiloto.navegacion import clasificar_persona
 
     ficha_op = str(args.get("ficha_operador") or "").strip()
     operador_sel = None
     if ficha_op:
         operador_sel = pii_gateway.operador_de_ficha(ficha_op, mapping)
         if not operador_sel:
+            quien = clasificar_persona(ficha_op, mapping)
+            if quien["cuenta"]:
+                return (f"{ficha_op} NO es un operador, es una CUENTA de cliente — "
+                        "volvé a llamarme con ficha_cuenta en vez de ficha_operador")
             return (f"no pude identificar al operador {ficha_op} — pedile al usuario "
                     "el nombre completo del operador")
+
+    # cuenta de cliente: resuelto DENTRO del perímetro; la denominación real
+    # va al SQL, nunca vuelve al modelo
+    ficha_cta = str(args.get("ficha_cuenta") or "").strip()
+    denominacion = None
+    if ficha_cta:
+        quien = clasificar_persona(ficha_cta, mapping)
+        if quien["cuenta"] and quien["operador"]:
+            return (f"{ficha_cta} figura como cuenta Y como operador — preguntale al "
+                    "usuario cuál quiere antes de traer números")
+        if not quien["cuenta"]:
+            if quien["operador"]:
+                return (f"{ficha_cta} NO es una cuenta de cliente, es un OPERADOR — "
+                        "volvé a llamarme con ficha_operador")
+            return (f"no encontré la cuenta {ficha_cta} — pedile al usuario el número "
+                    "de cuenta o el nombre como figura")
+        denominacion = quien["cuenta"]
     r = operaciones_sql.ops_consolidado(
         metrica=metrica,
         desde=str(args.get("desde", "")), hasta=str(args.get("hasta", "")),
@@ -287,7 +319,7 @@ def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
         mercado=(str(args["mercado"]) if args.get("mercado") else None),
         excluir_segmento=(str(args["excluir_segmento"])
                           if args.get("excluir_segmento") else None),
-        operador_sel=operador_sel,
+        operador_sel=operador_sel, denominacion=denominacion,
     )
     if r.get("error"):
         return r["error"]
@@ -307,6 +339,28 @@ def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
                       f"({pct:.1f}%) · {f['n']} boletos")
     lineas.append(f"TOTAL: {_monto(r['total'])}")
     return "\n".join(lineas)
+
+
+@_cached_vocab
+def _vocabulario_protegido() -> tuple[str, ...]:
+    """Valores de NUESTROS catálogos (tipos de operación, mercados, segmentos,
+    niveles 3). La aduana no los puede tachar: son vocabulario del negocio, no
+    identidades — un tipo de operación que comparte una palabra con el nombre
+    de algún cliente terminaba saliendo como CLIENTE_n en la tabla de
+    resultados (incidente real 2026-07-21)."""
+    from api.services import operaciones_sql as ops
+
+    vals: list[str] = []
+    for getter, clave in ((ops.ops_tipos_operacion, "tipos"),
+                          (ops.ops_mercados, "mercados"),
+                          (ops.ops_segmentos, "segmentos"),
+                          (ops.ops_niveles3, "niveles3")):
+        try:
+            vals += [str(v) for v in (getter() or {}).get(clave) or [] if v]
+        except Exception as e:
+            logger.warning("asistente_tools: catálogo %s no disponible (%s)", clave, e)
+    # los más largos primero: protege "Compras A3" antes que "Compras"
+    return tuple(sorted(set(vals), key=len, reverse=True))
 
 
 def quien_es(ficha: str, *, mapping: dict) -> str:
@@ -356,6 +410,9 @@ def ejecutar(nombre: str, args: dict, *, mapping: dict) -> str:
         logger.warning("asistente_tools.%s falló: %s: %s", nombre, type(e).__name__, e)
         return "la herramienta falló — respondé con lo que tengas y avisá que faltó ese dato"
     # texto_generado: los números del resultado son agregados producidos por
-    # el código (AuM, conteos, %) — se respetan; los NOMBRES se tachan igual
-    limpio, _ = pii_gateway.tokenize(crudo, mapping, texto_generado=True)
+    # el código (AuM, conteos, %) — se respetan; los NOMBRES se tachan igual.
+    # `protegidos`: el vocabulario del negocio (tipos de operación, mercados,
+    # segmentos) NO es identidad y no se puede tachar.
+    limpio, _ = pii_gateway.tokenize(crudo, mapping, texto_generado=True,
+                                     protegidos=_vocabulario_protegido())
     return limpio

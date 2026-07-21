@@ -222,6 +222,38 @@ def test_consolidado_por_operador_ficha_los_nombres(monkeypatch):
     assert mapping["fichas"]["OPERADOR_1"] == "Martin Operetti"  # detokeniza al user
 
 
+def test_consolidado_filtra_por_cuenta_de_cliente(monkeypatch):
+    """'¿cuánto operó tal cliente?' — la pregunta que NO tenía herramienta y
+    terminaba respondida con el patrimonio (caso real 2026-07-21)."""
+    import api.services.copiloto.navegacion as nv
+    monkeypatch.setattr(nv, "_cuentas", lambda: [("805", "CURZEL, JAVIER")])
+    monkeypatch.setattr(nv, "_operadores", lambda: [])
+    capturado = _mock_consolidado(monkeypatch, {
+        "metrica": "bruto", "por": "operacion", "desde": "2026-06-01",
+        "hasta": "2026-06-30", "moneda": "ARS",
+        "filas": [{"clave": "Compras", "valor": 5_000_000.0, "n": 12}],
+        "total": 5_000_000.0,
+    })
+    mapping = {"fichas": {"CLIENTE_1": "javier curzel"}}
+    r = at.ejecutar("volumen_operado",
+                    {"desde": "2026-06-01", "hasta": "2026-06-30",
+                     "por": "operacion", "ficha_cuenta": "CLIENTE_1"}, mapping=mapping)
+    assert capturado["denominacion"] == "CURZEL, JAVIER"   # resuelto en perímetro
+    assert "CURZEL" not in r                               # no vuelve al modelo
+    assert "5.0 millones" in r
+
+
+def test_consolidado_cuenta_que_es_operador_corrige(monkeypatch):
+    import api.services.copiloto.navegacion as nv
+    monkeypatch.setattr(nv, "_cuentas", lambda: [])
+    monkeypatch.setattr(nv, "_operadores", lambda: [("jc@aca.com", "Javier Curzel")])
+    r = at.ejecutar("volumen_operado",
+                    {"desde": "2026-06-01", "hasta": "2026-06-30", "por": "mercado",
+                     "ficha_cuenta": "CLIENTE_1"},
+                    mapping={"fichas": {"CLIENTE_1": "javier curzel"}})
+    assert "OPERADOR" in r and "ficha_operador" in r
+
+
 def test_consolidado_filtro_por_ficha_operador(monkeypatch):
     capturado = _mock_consolidado(monkeypatch, {
         "metrica": "bruto", "por": "mercado", "desde": "2026-07-01",

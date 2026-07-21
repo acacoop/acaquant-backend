@@ -356,7 +356,7 @@ def ops_consolidado(
     metrica: str, desde: str, hasta: str, por: str = "mercado",
     moneda: str = "ARS", mercado: str | None = None,
     excluir_segmento: str | None = None, operador_sel: str | None = None,
-    top: int = 25,
+    denominacion: str | None = None, top: int = 25,
 ) -> dict:
     """Consolidado de VOLUMEN ('bruto') o ARANCELES ('arancel') agrupado por
     una dimensión, en [desde, hasta]. MISMAS reglas que la vista Operaciones
@@ -364,7 +364,9 @@ def ops_consolidado(
     con arancel (caución) y va SIEMPRE en pesos (ABS). `excluir_segmento`
     saca un segmento nivel 1 (ej. consolidado sin agro). `por='operador'`
     agrupa por el operador del comitente (join, mismo criterio que la vista
-    Aranceles); `operador_sel` filtra a las cuentas de UN operador."""
+    Aranceles); `operador_sel` filtra a las cuentas de UN operador;
+    `denominacion` filtra a UNA cuenta de cliente (es lo que responde
+    "¿cuánto operó tal cliente?" — que NO es su patrimonio)."""
     por_operador = por == "operador"
     col = _DIMENSIONES_CONSOLIDADO.get(por)
     if col is None and not por_operador:
@@ -381,6 +383,9 @@ def ops_consolidado(
     if excluir_segmento:
         where += " AND COALESCE(segmento, '') <> %(excl_seg)s"
         p["excl_seg"] = excluir_segmento
+    if denominacion:
+        where += " AND denominacion = %(f_den)s"
+        p["f_den"] = denominacion
     if operador_sel:
         frag, fp = _op_pred(operador_sel)
         # calificado: con el join de por='operador', `id_cuenta` a secas sería

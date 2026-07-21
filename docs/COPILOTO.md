@@ -117,6 +117,37 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.86 (la aduana tachaba el VOCABULARIO del negocio)
+Bug feo visto en una tabla de aranceles: los TIPOS DE OPERACIÓN salieron como
+`CLIENTE_12 A3`, `CLIENTE_10`… La aduana los tachó porque comparten alguna
+palabra con el nombre de un cliente. El dato era correcto pero ilegible, y el
+modelo tampoco podía razonar sobre él.
+- **[aduana +] `tokenize(protegidos=[...])`**: tramos INTOCABLES que el caller
+  garantiza que son vocabulario del sistema. Se respetan en las dos pasadas
+  (catálogo y defensiva).
+- **[tools ~]** el asistente pasa como protegido su propio vocabulario vivo
+  (tipos de operación, mercados, segmentos, niveles 3; los literales más
+  largos primero, así "Compras A3" gana sobre "Compras"). Los NOMBRES se
+  siguen tachando igual — test que lo congela.
+- Lección: la aduana solo puede tachar lo que NO es vocabulario propio; el
+  caller que genera el texto es quien sabe cuál es el suyo.
+
+### 2026-07-21 — v1.85 (OPERADO ≠ PATRIMONIO: la herramienta que faltaba)
+El user preguntó "cuánto operó [cliente] en junio" y el asistente le devolvió
+**AuM y P&L**. Causa raíz: NO EXISTÍA herramienta de volumen POR CUENTA (los
+consolidados agrupan pero no filtraban por cliente) → el modelo usó la única
+que tenía. Culpa del diseño de tools, no del modelo.
+- **[tool ~] `ops_consolidado` gana `denominacion`** y las tools de volumen/
+  aranceles ganan `ficha_cuenta`: resuelta DENTRO del perímetro (y con la
+  misma clasificación cliente/operador: si la ficha es un operador, la tool
+  le dice que use `ficha_operador`, y al revés). Ahora "¿cuánto operó tal
+  cliente?" tiene su número.
+- **[reglas +] cada pregunta tiene SU dato**: operó→volumen · facturó→
+  aranceles · tiene/cartera/resultado→patrimonio. Sustituir uno por otro es
+  responder otra cosa: preferible "no tengo ese dato".
+- **[reglas +] largo proporcional**: una pregunta simple se contesta en UNA
+  línea con el número pedido (el volcado de desgloses fue el otro reclamo).
+
 ### 2026-07-21 — v1.84 (CLIENTE vs OPERADOR: no se adivina, se CONSULTA)
 Bronca justificada del user probando: preguntó por una persona y el asistente
 **asumió que era un operador** (y ni preguntó). El sistema tiene los DOS

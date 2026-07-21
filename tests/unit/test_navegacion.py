@@ -194,6 +194,16 @@ def test_match_tolera_typos():
     assert nav._match_catalogo("nasdaq", CATALOGOS_FAKE["mercados"]) is None
 
 
+def test_filtro_cartera(monkeypatch):
+    """Filtro nuevo (2026-07-21): la cartera del TÍTULO operado. El join
+    quedó MEDIDO: assets.unidad = instrumento, 99% del volumen."""
+    monkeypatch.setattr(nav, "_valores",
+                        lambda c: ["HD", "DL", "ARS", "FCI"] if c == "carteras"
+                        else CATALOGOS_FAKE.get(c, []))
+    r = nav.resolver("operaciones_volumen", {"cartera": "fci"}, "u@x.com")
+    assert r["ok"] and r["estado"]["ops.cartera"] == "FCI"
+
+
 def test_sin_filtros_igual_navega():
     r = nav.resolver("operaciones_depositos", {}, "u@x.com")
     assert r["ok"] and r["estado"] == {"operaciones.tab": "depositos"}

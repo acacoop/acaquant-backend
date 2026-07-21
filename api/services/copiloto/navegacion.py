@@ -47,6 +47,7 @@ _CATALOGOS = {
     "segmentos": lambda: (_ops().ops_segmentos() or {}).get("segmentos") or [],
     "niveles3": lambda: (_ops().ops_niveles3() or {}).get("niveles3") or [],
     "tipos_operacion": lambda: (_ops().ops_tipos_operacion() or {}).get("tipos") or [],
+    "carteras": lambda: (_ops().ops_carteras() or {}).get("carteras") or [],
 }
 
 
@@ -94,6 +95,8 @@ _DESTINOS: dict[str, dict] = {
                            ayuda="segmento nivel 1 del cliente"),
             "nivel_3": _f("ops.nivel3", "enum", catalogo="niveles3",
                           ayuda="segmento del boleto (nivel 3)"),
+            "cartera": _f("ops.cartera", "enum", catalogo="carteras",
+                          ayuda="cartera del TÍTULO operado (HD, DL, ARS, FCI…)"),
             "moneda": _f("ops.moneda", "enum", valores=["ARS", "USD", "USD_DOL"]),
             # tipo `cuenta`: el CÓDIGO resuelve el nombre/número que dio el
             # usuario contra el catálogo real de cuentas y deja seleccionada la

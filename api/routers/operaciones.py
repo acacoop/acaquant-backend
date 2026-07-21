@@ -177,6 +177,14 @@ def ops_mercados():
     return _ops_sql.ops_mercados()
 
 
+@router.get("/ops/carteras")
+@cached(ttl=300)
+def ops_carteras():
+    """Carteras del catálogo de títulos (HD, DL, ARS, FCI…) que aparecen en
+    los boletos — selector del filtro de cartera. Cacheado."""
+    return _ops_sql.ops_carteras()
+
+
 @router.get("/ops/fechas")
 @cached(ttl=120)
 def ops_fechas():
@@ -269,6 +277,7 @@ def ops_serie(
     nivel_3: str | None = Query(None, description="Filtra por nivel_3 (segmento del boleto)"),
     aca_valores: str | None = Query(None, description="'solo' | 'sin' cuentas del set ACA VALORES"),
     operador: str | None = Query(None, description="Filtra por operador (operador_email)"),
+    cartera: str | None = Query(None, description="Filtra por cartera del título (assets)"),
     excluir: str | None = Query(None, description="Cuentas a ocultar (denominaciones separadas por \\n)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
@@ -282,7 +291,7 @@ def ops_serie(
     return _ops_sql.ops_serie(moneda=moneda, mercado=mercado, operacion=operacion,
                               denominacion=denominacion, cuenta=cuenta, segmento=segmento,
                               scope=scope, operador=operador, excluir=_split_excluir(excluir),
-                              nivel_3=nivel_3, aca_valores=aca_valores)
+                              nivel_3=nivel_3, aca_valores=aca_valores, cartera=cartera)
 
 
 @router.get("/ops/resumen")
@@ -300,6 +309,7 @@ def ops_resumen(
     nivel_3: str | None = Query(None, description="Filtra por nivel_3 (segmento del boleto)"),
     aca_valores: str | None = Query(None, description="'solo' | 'sin' cuentas del set ACA VALORES"),
     operador: str | None = Query(None, description="Filtra por operador (operador_email)"),
+    cartera: str | None = Query(None, description="Filtra por cartera del título (assets)"),
     excluir: str | None = Query(None, description="Cuentas a ocultar (denominaciones separadas por \\n)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
@@ -315,7 +325,7 @@ def ops_resumen(
                                 operacion=operacion, denominacion=denominacion, cuenta=cuenta,
                                 segmento=segmento, scope=scope, instrumento=instrumento,
                                 operador=operador, excluir=_split_excluir(excluir),
-                                nivel_3=nivel_3, aca_valores=aca_valores)
+                                nivel_3=nivel_3, aca_valores=aca_valores, cartera=cartera)
 
 
 @router.get("/ops/agro")

@@ -28,6 +28,9 @@ from api.services._sql import _q
 from core.postgres import get_pool
 
 _SERIE_VENTANA_DIAS = 550  # ~18 meses (igual que operaciones.py)
+# Valor especial del filtro de cartera: los títulos que NO están en el
+# catálogo de assets o no tienen cartera cargada (~1% del volumen, medido).
+_CARTERA_SIN = "(SIN CARTERA)"
 _TON = (
     "ABS(COALESCE(cantidad, 0)) * "
     "(CASE WHEN COALESCE(instrumento, '') ~* 'MIN' THEN 10 ELSE 100 END)"
@@ -113,7 +116,7 @@ def _ops_where(
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
     scope: tuple[str, ...] | None = None, *, arancel: bool = False, operador: str | None = None,
     excluir: tuple[str, ...] | None = None, nivel_3: str | None = None,
-    aca_valores: str | None = None,
+    aca_valores: str | None = None, cartera: str | None = None,
 ) -> tuple[str, dict]:
     """Devuelve (where_sql, params). `arancel=True` → sin filtro de moneda, incluye los
     cierres con arancel (caución), igual que _arancel_match."""
@@ -157,6 +160,23 @@ def _ops_where(
         # NO el vigente del comitente — es el segmento al momento de la operación.
         conds.append("nivel_3 = %(nivel_3)s")
         p["nivel_3"] = nivel_3
+    # CARTERA del título (pedido user 2026-07-21). El catálogo es
+    # portafolio.assets y la clave es `unidad` = `operaciones.instrumento`:
+    # MEDIDO con scripts/diag_ops_cartera → 99.0% del volumen y 879
+    # instrumentos (ticker: 12.9% / assets.instrumento: 0%). Se usa EXISTS y
+    # NO un JOIN: `unidad` es PK así que no duplicaría, pero con EXISTS el
+    # filtro no puede alterar jamás las sumas aunque el catálogo cambie.
+    # 'SIN' = el ~1% que no está en el catálogo o no tiene cartera cargada.
+    if cartera and cartera.lower() not in ("todas", ""):
+        if cartera.upper() == _CARTERA_SIN:
+            conds.append(
+                "NOT EXISTS (SELECT 1 FROM portafolio.assets a "
+                "WHERE a.unidad = operaciones.instrumento AND a.cartera IS NOT NULL)")
+        else:
+            conds.append(
+                "EXISTS (SELECT 1 FROM portafolio.assets a "
+                "WHERE a.unidad = operaciones.instrumento AND a.cartera = %(cartera)s)")
+            p["cartera"] = cartera
     if aca_valores == "solo":
         conds.append("id_cuenta IN (SELECT id_cuenta FROM clientes.aca_valores)")
     elif aca_valores == "sin":
@@ -194,6 +214,27 @@ def ops_niveles3() -> dict:
     rows = _q("SELECT DISTINCT nivel_3 FROM operaciones "
               "WHERE nivel_3 IS NOT NULL AND nivel_3 <> '' ORDER BY nivel_3")
     return {"niveles3": [r["nivel_3"] for r in rows]}
+
+
+def ops_carteras() -> dict:
+    """Carteras (portafolio.assets.cartera) que REALMENTE aparecen en los
+    boletos — catálogo del filtro nuevo de Operaciones. Se listan solo las que
+    tienen operaciones para no ofrecer filtros que devuelven vacío. Suma
+    '(SIN CARTERA)' si hay volumen de títulos fuera del catálogo (~1%)."""
+    rows = _q(
+        "SELECT DISTINCT a.cartera FROM portafolio.assets a "
+        "WHERE a.cartera IS NOT NULL AND a.cartera <> '' "
+        "  AND EXISTS (SELECT 1 FROM operaciones o WHERE o.instrumento = a.unidad) "
+        "ORDER BY a.cartera")
+    carteras = [r["cartera"] for r in rows]
+    huerfanos = _q(
+        "SELECT 1 AS x FROM operaciones o WHERE o.instrumento IS NOT NULL "
+        "  AND NOT EXISTS (SELECT 1 FROM portafolio.assets a "
+        "                  WHERE a.unidad = o.instrumento AND a.cartera IS NOT NULL) "
+        "LIMIT 1")
+    if huerfanos:
+        carteras.append(_CARTERA_SIN)
+    return {"carteras": carteras}
 
 
 def ops_tipos_operacion() -> dict:
@@ -262,10 +303,10 @@ def ops_serie(
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
     scope: tuple[str, ...] | None = None, operador: str | None = None,
     excluir: tuple[str, ...] | None = None, nivel_3: str | None = None,
-    aca_valores: str | None = None,
+    aca_valores: str | None = None, cartera: str | None = None,
 ) -> dict:
     where, p = _ops_where(moneda, mercado, operacion, denominacion, cuenta, segmento, scope,
-                          operador=operador, excluir=excluir, nivel_3=nivel_3,
+                          operador=operador, excluir=excluir, nivel_3=nivel_3, cartera=cartera,
                           aca_valores=aca_valores)
     rows = _q(
         f"SELECT concertacion AS fecha, {_bruto_expr(moneda)} AS bruto "
@@ -282,11 +323,11 @@ def ops_resumen(
     segmento: str | None = None, scope: tuple[str, ...] | None = None,
     instrumento: str | None = None, operador: str | None = None,
     excluir: tuple[str, ...] | None = None, nivel_3: str | None = None,
-    aca_valores: str | None = None,
+    aca_valores: str | None = None, cartera: str | None = None,
 ) -> dict:
     base, p = _ops_where(moneda, mercado, cuenta=cuenta, segmento=segmento, scope=scope,
                          operador=operador, excluir=excluir, nivel_3=nivel_3,
-                         aca_valores=aca_valores)
+                         aca_valores=aca_valores, cartera=cartera)
     p.update({"desde": desde, "hasta": hasta})
     base = f"{base} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
     bexpr = _bruto_expr(moneda)
@@ -349,7 +390,14 @@ _DIMENSIONES_CONSOLIDADO: dict[str, str] = {
     "segmento": "segmento",     # nivel 1 congelado en el boleto
     "nivel_3": "nivel_3",       # segmento fino del boleto
     "instrumento": "instrumento",
+    # cartera del TÍTULO (assets.unidad = instrumento): subconsulta correlada,
+    # no columna — se resuelve aparte en la query (ver _CLAVE_CARTERA).
+    "cartera": None,
 }
+_CLAVE_CARTERA = (
+    "COALESCE((SELECT a.cartera FROM portafolio.assets a "
+    " WHERE a.unidad = operaciones.instrumento), '(SIN CARTERA)')"
+)
 
 
 def ops_consolidado(
@@ -368,8 +416,9 @@ def ops_consolidado(
     `denominacion` filtra a UNA cuenta de cliente (es lo que responde
     "¿cuánto operó tal cliente?" — que NO es su patrimonio)."""
     por_operador = por == "operador"
+    por_cartera = por == "cartera"
     col = _DIMENSIONES_CONSOLIDADO.get(por)
-    if col is None and not por_operador:
+    if col is None and not por_operador and not por_cartera:
         return {"error": f"dimension invalida: {por!r} (validas: "
                          f"{sorted([*_DIMENSIONES_CONSOLIDADO, 'operador'])})"}
     if metrica == "arancel":
@@ -399,6 +448,9 @@ def ops_consolidado(
         clave_expr = "COALESCE(o.nombre, o.email, '(sin operador)')"
         from_sql = ("operaciones LEFT JOIN comitentes c ON c.id_cuenta = operaciones.id_cuenta "
                     "LEFT JOIN operadores o ON o.email = c.operador_email")
+    elif por_cartera:
+        clave_expr = _CLAVE_CARTERA
+        from_sql = "operaciones"
     else:
         clave_expr = f"COALESCE(NULLIF({col}, ''), '(sin)')"
         from_sql = "operaciones"

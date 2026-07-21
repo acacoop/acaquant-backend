@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 _cached_vocab = _cached_vocab_factory(ttl=3600)
 
-_DIMENSIONES = ["mercado", "operacion", "segmento", "nivel_3", "instrumento", "operador"]
+_DIMENSIONES = ["mercado", "operacion", "segmento", "nivel_3", "instrumento",
+                "operador", "cartera"]
 _PARAMS_CONSOLIDADO = {
     "type": "object",
     "properties": {
@@ -41,9 +42,10 @@ _PARAMS_CONSOLIDADO = {
                 "description": "Dimensión de agrupado: mercado (BYMA/MAV/A3/MAE/FCI "
                                "Bilateral), operacion (tipo de operación), segmento "
                                "(nivel 1, ej. PRODUCTORES), nivel_3 (segmento fino "
-                               "del boleto), instrumento (título) u operador (el "
+                               "del boleto), instrumento (título), operador (el "
                                "comercial que atiende las cuentas — aparecen como "
-                               "referencias OPERADOR_n)."},
+                               "referencias OPERADOR_n) o cartera (la del TÍTULO "
+                               "operado: HD, DL, ARS, FCI…)."},
         "mercado": {"type": "string",
                     "description": "Filtrar a UN mercado puntual (opcional)."},
         "excluir_segmento": {"type": "string",

@@ -149,6 +149,8 @@ def test_schemas_declarados():
     assert "ficha_cuenta" in rc["function"]["parameters"]["properties"]
     vo = next(t for t in at.TOOLS if t["function"]["name"] == "volumen_operado")
     assert vo["function"]["parameters"]["required"] == ["desde", "hasta", "por"]
+    # la cartera del título es dimensión desde 2026-07-21
+    assert "cartera" in vo["function"]["parameters"]["properties"]["por"]["enum"]
 
 
 # ── consolidados (volumen / aranceles por dimensión) ─────────────────────────

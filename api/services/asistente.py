@@ -111,13 +111,15 @@ def _vocabulario_negocio() -> str:
         tipos = ops.ops_tipos_operacion()["tipos"]
         segmentos = ops.ops_segmentos()["segmentos"]
         niveles3 = ops.ops_niveles3()["niveles3"]
+        carteras = ops.ops_carteras()["carteras"]
         return (
             "\n\nVOCABULARIO DEL NEGOCIO (valores reales vigentes — usalos tal "
             "cual en las herramientas):\n"
             f"- mercados: {', '.join(mercados)}\n"
             f"- tipos de operación: {', '.join(tipos[:40])}\n"
-            f"- segmentos (nivel 1): {', '.join(segmentos)}\n"
+            f"- segmentos del CLIENTE (nivel 1): {', '.join(segmentos)}\n"
             f"- segmentos del boleto (nivel 3): {', '.join(niveles3[:40])}\n"
+            f"- carteras del TÍTULO operado: {', '.join(carteras)}\n"
             "- EQUIVALENCIAS que la gente usa: 'Rofex'/'Matba Rofex' → mercado "
             "A3 · 'FCI operado' → tipos Suscripción y Rescate · 'lo facturado' "
             "→ aranceles. Si nombran un mercado/segmento que NO está en las "

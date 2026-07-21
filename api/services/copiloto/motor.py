@@ -66,6 +66,29 @@ def preguntar(
     if not pregunta:
         return {"ok": False, "error": "pregunta_vacia"}
 
+    # ── LA ADUANA (vistas con `aduana: True`) ────────────────────────────────
+    # Hay vistas donde el USUARIO puede escribir el nombre de un cliente aunque
+    # la vista no maneje datos de clientes (caso real: "¿cuánto operó Nicolás
+    # Mollo?" preguntado al guía). Esas identidades se tachan ANTES de salir:
+    # el modelo ve CLIENTE_1 y las tools lo resuelven adentro del perímetro
+    # (ver navegacion._resolver_cuenta). Contrato: la vista debe garantizar que
+    # su tabla y sus extras NO traen identidades — acá solo se tokeniza lo que
+    # escribe el usuario (pregunta e historial), que es el vector abierto.
+    mapping = None
+    pregunta_llm = pregunta
+    if cfg.get("aduana") and usuario:
+        try:
+            from core import pii_gateway
+
+            mapping = pii_gateway.cargar_mapping(conv_id or "", usuario)
+            if mapping is None:  # conversación de otro usuario
+                mapping = pii_gateway._mapping_nuevo()
+            pregunta_llm, mapping = pii_gateway.tokenize(pregunta, mapping)
+        except Exception as e:
+            logger.error("copiloto %s: la aduana falló (%s) — corto por seguridad",
+                         vista, e)
+            return {"ok": False, "error": "ia_no_disponible"}
+
     # Vistas con HANDLER propio (negocio → asistente de negocio, QuantAI P7):
     # el flujo completo (aduana PII, tools, presupuesto, transcript) vive en
     # su cerebro — el motor solo despacha. El gate RBAC ya pasó en el router.
@@ -122,9 +145,13 @@ def preguntar(
     for h in (historial or [])[-_MAX_HISTORIAL:]:
         p, r = (h.get("pregunta") or "").strip(), (h.get("respuesta") or "").strip()
         if p and r:
+            if mapping is not None:  # el historial también lo escribió el usuario
+                from core import pii_gateway
+                p, mapping = pii_gateway.tokenize(p, mapping)
+                r, mapping = pii_gateway.tokenize(r, mapping, texto_generado=True)
             partes.append(f"[pregunta previa] {p[:_MAX_CHARS_MENSAJE]}")
             partes.append(f"[tu respuesta previa] {r[:_MAX_CHARS_MENSAJE]}")
-    partes.append(f"PREGUNTA: {pregunta}")
+    partes.append(f"PREGUNTA: {pregunta_llm}")
 
     from core.ai import completar_con_traza
 
@@ -167,13 +194,16 @@ def preguntar(
     # el modelo sino datos para el frontend (la navegación resuelta del guía).
     # `tools_ejecutar` es una factory (contenedor, usuario) → ejecutar.
     salida_tools: dict = {}
+    if mapping is not None:
+        # las tools resuelven fichas → identidad real DENTRO del perímetro
+        salida_tools["_mapping"] = mapping
     if cfg.get("tools"):
         from core.ai import completar_con_tools
 
         texto, traza_id, ctx_tools = completar_con_tools(
             tarea, system=system, user=contexto, tools=cfg["tools"],
             ejecutar=cfg["tools_ejecutar"](salida_tools, usuario),
-            usuario=usuario, detalle=pregunta,
+            usuario=usuario, detalle=pregunta_llm,
         )
         if ctx_tools:
             contexto = contexto + "\n" + ctx_tools
@@ -183,7 +213,9 @@ def preguntar(
             system=system,
             user=contexto,
             usuario=usuario,
-            detalle=pregunta,  # queda en la traza → panel OBSERVABILIDAD
+            # la traza guarda lo que SALIÓ (tokenizado si hay aduana) — es el
+            # registro auditable de qué cruzó el perímetro
+            detalle=pregunta_llm,
         )
     if not texto:
         # Si el presupuesto se agotó DURANTE la llamada (el pre-chequeo de
@@ -250,7 +282,7 @@ def preguntar(
             system=system,
             user=correccion,
             usuario=usuario,
-            detalle=f"[autocorrección] {pregunta}",
+            detalle=f"[autocorrección] {pregunta_llm}",
         )
         if texto2:
             malos2, _ = _numeros_sin_respaldo(texto2, contexto)
@@ -288,6 +320,16 @@ def preguntar(
                 return guia
         except Exception as e:
             logger.warning("copiloto %s: handoff a la guía falló (%s)", vista, e)
+
+    # Vuelta de la aduana: el usuario ve los nombres REALES (la traducción es
+    # server-side), y el mapping queda persistido para que las fichas sigan
+    # siendo las mismas en los próximos turnos de esta conversación.
+    if mapping is not None:
+        from core import pii_gateway
+
+        texto = pii_gateway.detokenize(texto, mapping)
+        if conv_id and usuario:
+            pii_gateway.guardar_mapping(conv_id, usuario, mapping)
 
     _marcar_conversacion(traza_id, conv_id)
     return {

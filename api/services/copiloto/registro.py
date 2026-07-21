@@ -87,6 +87,12 @@ VISTAS: dict[str, dict] = {
         # tool resuelve una intención validada y el panel la aplica. El bloque
         # de destinos depende del usuario (RBAC) → va al system.
         "bloque_usuario": _bloque_destinos,
+        # ADUANA (decisión user 2026-07-21): el guía no maneja datos de
+        # clientes, pero el USUARIO le escribe nombres ("¿cuánto operó Fulano?")
+        # y esta vista habla con el proveedor barato → las identidades se
+        # tachan antes de salir y las tools las resuelven adentro. Política
+        # pareja: ninguna persona cruza el perímetro.
+        "aduana": True,
         "tools": TOOLS_NAVEGACION,
         "tools_ejecutar": _ejecutor_navegacion,   # factory(contenedor, usuario)
     },

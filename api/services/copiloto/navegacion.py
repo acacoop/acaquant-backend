@@ -207,7 +207,10 @@ def _cuentas() -> list[tuple[str, str]]:
         return []
 
 
-def _resolver_cuenta(texto: str) -> str | None:
+_RE_FICHA = re.compile(r"^(?:CLIENTE|CTA|DOC)_\d+$")
+
+
+def _resolver_cuenta(texto: str, mapping: dict | None = None) -> str | None:
     """Resuelve lo que dijo el usuario ('nicolas mollo', '805') a la
     DENOMINACIÓN EXACTA del catálogo ('MOLLO, NICOLAS EZEQUIEL') — que es lo
     que la vista usa para filtrar de verdad.
@@ -220,6 +223,14 @@ def _resolver_cuenta(texto: str) -> str | None:
     t = str(texto or "").strip()
     if not t:
         return None
+    # TOKEN-IN: si la vista tiene aduana, el modelo nos pasa una FICHA
+    # (CLIENTE_1) porque jamás vio el nombre. Acá adentro (perímetro) se
+    # recupera lo que escribió el usuario y se resuelve contra el catálogo.
+    if mapping and _RE_FICHA.match(t):
+        original = (mapping.get("fichas") or {}).get(t)
+        if not original:
+            return None
+        t = str(original).strip()
     cuentas = _cuentas()
     if not cuentas:
         return None
@@ -312,7 +323,8 @@ def descripcion_destinos(usuario: str | None) -> str:
     return "\n".join(lineas)
 
 
-def resolver(destino: str, filtros: dict | None, usuario: str | None) -> dict:
+def resolver(destino: str, filtros: dict | None, usuario: str | None,
+             mapping: dict | None = None) -> dict:
     """Valida la intención y devuelve {ok, ruta, estado, resumen} o {ok:false,
     error}. TODO se valida contra la whitelist y los catálogos vivos: es la
     jaula que impide que el modelo mande cualquier cosa al frontend."""
@@ -362,7 +374,7 @@ def resolver(destino: str, filtros: dict | None, usuario: str | None) -> dict:
             resumen.append(f"{nombre}: {iso}")
             resumen_llm.append(f"{nombre}: {iso}")
         elif f["tipo"] == "cuenta":
-            den = _resolver_cuenta(str(valor))
+            den = _resolver_cuenta(str(valor), mapping)
             if den is None:
                 rechazos.append(
                     f"no encontré una cuenta única para {str(valor)[:40]!r} — pedile "
@@ -435,7 +447,10 @@ def ejecutor(contenedor: dict, usuario: str | None):
     def _ejecutar(nombre: str, args: dict) -> str:
         if nombre != "abrir_vista":
             return f"herramienta desconocida: {nombre}"
-        r = resolver(args.get("destino", ""), args.get("filtros") or {}, usuario)
+        # el mapping de la aduana (si la vista la tiene) viaja en el buzón:
+        # con él las fichas se resuelven a identidad real acá adentro
+        r = resolver(args.get("destino", ""), args.get("filtros") or {}, usuario,
+                     mapping=contenedor.get("_mapping"))
         if not r.get("ok"):
             return r["error"]
         contenedor["navegacion"] = {

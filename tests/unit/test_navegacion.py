@@ -192,6 +192,71 @@ def test_ejecutor_tool_desconocida():
     assert "desconocida" in nav.ejecutor(buzon, "u@x.com")("rm_rf", {})
 
 
+# ── LA ADUANA en el guía (decisión user 2026-07-21) ──────────────────────────
+
+def test_ficha_se_resuelve_a_la_cuenta_real(cuentas):
+    """TOKEN-IN: el modelo nunca vio el nombre (llegó como CLIENTE_1); el
+    código recupera lo que escribió el usuario y resuelve la cuenta."""
+    mapping = {"fichas": {"CLIENTE_1": "Nicolas Mollo"}}
+    r = nav.resolver("operaciones_volumen", {"cuenta": "CLIENTE_1"}, "u@x.com",
+                     mapping=mapping)
+    assert r["ok"]
+    assert r["estado"]["ops.denominacion"] == "MOLLO, NICOLAS EZEQUIEL"
+
+
+def test_ficha_sin_mapping_no_resuelve(cuentas):
+    r = nav.resolver("operaciones_volumen", {"cuenta": "CLIENTE_9"}, "u@x.com",
+                     mapping={"fichas": {}})
+    assert r["ok"] is False
+
+
+def test_guia_no_manda_identidades_al_proveedor(monkeypatch, cuentas):
+    """EL CIRCUITO COMPLETO, con el caso real del user: pregunta con nombre →
+    a la IA sale tokenizado → la tool resuelve adentro → el botón trae la
+    cuenta exacta → el usuario ve el nombre real."""
+    from api.services import copiloto
+    from core import pii_gateway as pg
+
+    monkeypatch.setattr(pg, "_catalogo", lambda: {
+        "ids": {"805"}, "nombres": {"mollo, nicolas ezequiel": "805"},
+        "tokens": {"mollo": "805", "ezequiel": "805"}, "documentos": set(),
+        "operadores": {}, "operadores_tokens": {}})
+    monkeypatch.setattr(pg, "cargar_mapping", lambda cid, em: pg._mapping_nuevo())
+    guardado: dict = {}
+    monkeypatch.setattr(pg, "guardar_mapping",
+                        lambda cid, em, m: guardado.update(m))
+
+    visto = {}
+
+    def fake_tools(tarea, system=None, user=None, tools=None, ejecutar=None,
+                   usuario=None, detalle=None, historial=None):
+        visto["user"] = user
+        visto["detalle"] = detalle
+        # el modelo devuelve la ficha tal cual la vio
+        ejecutar("abrir_vista", {"destino": "operaciones_volumen",
+                                 "filtros": {"cuenta": "CLIENTE_1"}})
+        return "Te llevo a las operaciones de CLIENTE_1.", 7, ""
+
+    monkeypatch.setattr("core.ai.completar_con_tools", fake_tools)
+    monkeypatch.setattr("core.ai.motivo_presupuesto", lambda u: None)
+    monkeypatch.setattr("core.roles.has_access", lambda u, m: True)
+    monkeypatch.setattr("core.roles.get_user_role", lambda u: "admin")
+
+    out = copiloto.preguntar("ayuda", "cuánto operó Nicolas Mollo en julio",
+                             usuario="jefe@x.com", conv_id="c1")
+    assert out["ok"] is True
+    # 1. NADA del nombre salió al proveedor
+    for pieza in (visto["user"], visto["detalle"]):
+        assert "Mollo" not in pieza and "mollo" not in pieza.lower()
+    assert "CLIENTE_1" in visto["user"]
+    # 2. la tool resolvió la cuenta EXACTA adentro del perímetro
+    assert out["navegacion"]["estado"]["ops.denominacion"] == "MOLLO, NICOLAS EZEQUIEL"
+    # 3. el usuario ve el nombre real (detokenizado)
+    assert "Nicolas Mollo" in out["respuesta"] and "CLIENTE_1" not in out["respuesta"]
+    # 4. las fichas quedan persistidas para los próximos turnos
+    assert guardado["fichas"]["CLIENTE_1"] == "Nicolas Mollo"
+
+
 def test_claves_de_estado_existen_en_el_frontend():
     """CONTRATO CRUZADO: cada clave que declara el catálogo tiene que existir
     como `usePersistedState("<clave>"…)` en acaquant-web. Si alguien renombra

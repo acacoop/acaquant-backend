@@ -163,6 +163,19 @@ El dato lo pinta la vista → cero datos al proveedor, cero alucinación posible
   dueño único. **Privacidad:** la denominación canónica va al FRONTEND, jamás
   vuelve al modelo (el guía habla con el proveedor barato) — el resumen se
   parte en uno para el botón y otro para el LLM.
+- **[aduana en el GUÍA — decisión user 2026-07-21]** La navegación no maneja
+  datos de clientes, pero el USUARIO le escribe nombres ("¿cuánto operó
+  Fulano?") y esta vista habla con el proveedor barato. Flag `aduana: True`
+  en el registro → el motor tokeniza la pregunta y el historial ANTES de
+  salir, las tools reciben la ficha y resuelven la identidad ADENTRO
+  (`_resolver_cuenta` recupera del mapping lo que escribió el usuario), y la
+  respuesta se detokeniza para el usuario. El mapping persiste por `conv_id`
+  (mismo store que el asistente → las fichas no cambian entre turnos). La
+  traza guarda el texto tokenizado = auditoría de qué cruzó. Contrato del
+  flag: la vista debe garantizar que su tabla y sus extras no traen
+  identidades — se tokeniza lo que escribe el usuario, que es el vector real.
+  **Política pareja: ninguna persona cruza el perímetro** (clientes,
+  empleados, y ahora tampoco por el camino del guía).
 - **Privacidad:** esta capacidad NO ve datos (solo metadata de filtros) → se
   queda en el proveedor barato. Ver QUANTAI.
 

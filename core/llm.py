@@ -84,6 +84,9 @@ _PROVEEDORES: dict[str, dict] = {
         "dialecto": "deepseek",
         # ¿el proveedor se compromete a no entrenar con lo que le mandamos?
         "no_entrena": False,
+        # prefijos de ID de modelo → para saber a qué proveedor pertenece una
+        # traza vieja (observabilidad). El cableado vive acá, como todo.
+        "prefijos": ("deepseek",),
     },
     "openai": {
         "key_env": "OPENAI_API_KEY",
@@ -97,8 +100,36 @@ _PROVEEDORES: dict[str, dict] = {
         "max_tokens_param": "max_completion_tokens",
         "dialecto": "openai",
         "no_entrena": True,
+        "prefijos": ("gpt-", "o1", "o3", "o4"),
     },
 }
+
+
+def proveedor_de_modelo(modelo: str | None) -> str | None:
+    """A qué proveedor pertenece un ID de modelo (para leer trazas viejas en
+    OBSERVABILIDAD). None si no se reconoce."""
+    m = str(modelo or "").strip().lower()
+    if not m:
+        return None
+    for nombre, cfg in _PROVEEDORES.items():
+        if any(m.startswith(p) for p in cfg["prefijos"]):
+            return nombre
+    return None
+
+
+def estado_proveedores() -> list[dict]:
+    """Foto de cada proveedor para el panel: si está configurado, sus modelos
+    por tier, si se compromete a no entrenar y su saldo (si lo expone)."""
+    out = []
+    for nombre, cfg in _PROVEEDORES.items():
+        out.append({
+            "proveedor": nombre,
+            "configurado": bool(os.getenv(cfg["key_env"])),
+            "no_entrena": bool(cfg["no_entrena"]),
+            "modelos": {tier: modelo(tier, nombre) for tier in cfg["modelos"]},
+            "saldo": saldo_cuenta(nombre),
+        })
+    return out
 
 
 def proveedores() -> tuple[str, ...]:

@@ -131,6 +131,20 @@ calendario.
    gate módulo `ia`) → pill **IA** en Manager → OBSERVABILIDAD (resumen de
    hoy con % del presupuesto, por tarea, por día, últimas llamadas). La pill
    solo aparece con el módulo `ia` en /api/me.
+   **Rediseño del panel (2026-07-21, pedido del user "queda fea, demasiado
+   espacio libre, pocas llamadas y sin historial"):** tira de KPIs compacta
+   arriba (tokens de hoy, % del presupuesto con barra, llamadas/errores y una
+   tarjeta POR PROVEEDOR con su saldo, sus modelos y si se compromete a no
+   entrenar) · los límites pasan a un acordeón (`⚙ LÍMITES`) en vez de ocupar
+   el 70% siempre · **HISTORIAL de llamadas a altura completa, paginado
+   server-side y filtrable** (tarea, usuario, solo errores, búsqueda de texto
+   en pedido/respuesta/error; clickear una fila de POR TAREA filtra el
+   historial) · el DETALLE pasa a un drawer que entra al elegir una llamada
+   (antes era medio panel vacío permanente) · tab **POR PROVEEDOR** nueva.
+   Backend: `observabilidad()` gana paginación + filtros + `por_proveedor`
+   (el mapeo modelo→proveedor vive en `core/llm.py::proveedor_de_modelo`,
+   la invariante se respeta) y `/saldo` devuelve el estado de TODOS los
+   proveedores configurados.
    **Presupuestos editables desde el panel (2026-07-11, pedido del user):**
    tabla `ia.config` (precedencia tabla > env > default; cache 60s en el
    gateway) + `GET/POST /api/ia/presupuesto` (editar = SOLO admin, auditado

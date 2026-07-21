@@ -15,11 +15,21 @@ from core.postgres import get_pool
 
 
 def saldo() -> dict:
-    """Saldo REAL de la cuenta del proveedor LLM (GET /user/balance,
-    cache 5 min en core/llm). disponible=None → sin dato (key ausente o fallo)."""
-    from core.ai import saldo_proveedor
+    """Estado de TODOS los proveedores configurados (ruteo multi-proveedor,
+    2026-07-21): cuál está activo, qué modelos usa, si se compromete a no
+    entrenar con lo que le mandamos, y su saldo si lo expone. Se mantiene
+    `saldos` plano para compat del panel viejo."""
+    from core import llm
 
-    return saldo_proveedor() or {"disponible": None, "saldos": []}
+    proveedores = llm.estado_proveedores()
+    principal = next((p for p in proveedores if p["saldo"]), None)
+    return {
+        "proveedores": proveedores,
+        # compat: el saldo del que expone uno (hoy solo el default)
+        "disponible": (principal or {}).get("saldo", {}).get("disponible")
+        if principal else None,
+        "saldos": (principal or {}).get("saldo", {}).get("saldos", []) if principal else [],
+    }
 
 
 def get_presupuestos() -> dict:
@@ -128,9 +138,31 @@ def set_presupuestos(
     return get_presupuestos()
 
 
-def observabilidad(dias: int = 14, limit: int = 30) -> dict:
+def observabilidad(dias: int = 14, limit: int = 60, offset: int = 0,
+                   tarea: str | None = None, usuario: str | None = None,
+                   solo_error: bool = False, q: str | None = None) -> dict:
+    """Payload del panel. `limit`/`offset` paginan las llamadas (historial);
+    `tarea`/`usuario`/`solo_error`/`q` las filtran server-side (la tabla es
+    grande y el front no debería traérsela entera para filtrar)."""
     dias = max(1, min(int(dias), 90))
     limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+
+    # WHERE de las llamadas (los agregados NO se filtran: son el panorama)
+    cond, params = ["TRUE"], {}
+    if tarea:
+        cond.append("tarea = %(tarea)s")
+        params["tarea"] = tarea
+    if usuario:
+        cond.append("usuario ILIKE %(usuario)s")
+        params["usuario"] = f"%{usuario}%"
+    if solo_error:
+        cond.append("NOT ok")
+    if q:
+        cond.append("(detalle ILIKE %(q)s OR respuesta ILIKE %(q)s OR error ILIKE %(q)s)")
+        params["q"] = f"%{q}%"
+    where_llamadas = " AND ".join(cond)
+
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
@@ -179,18 +211,46 @@ def observabilidad(dias: int = 14, limit: int = 30) -> dict:
         )
         por_tarea = cur.fetchall()
 
+        # Agregado por MODELO (hoy) → se pliega a proveedor en Python: los IDs
+        # de modelo los conoce core/llm.py, no este service (invariante).
         cur.execute(
             """
+            SELECT modelo,
+                   count(*)                                              AS llamadas,
+                   count(*) FILTER (WHERE NOT ok)                        AS errores,
+                   coalesce(sum(coalesce(tokens_in, 0)
+                              + coalesce(tokens_out, 0)), 0)::bigint     AS tokens,
+                   round(avg(latencia_ms))::int                          AS latencia_ms_avg
+            FROM ia.trazas
+            WHERE ts >= date_trunc('day', now()) - %s * interval '1 day'
+            GROUP BY modelo
+            """,
+            (dias,),
+        )
+        por_modelo = cur.fetchall()
+
+        cur.execute(
+            f"SELECT count(*) AS n FROM ia.trazas WHERE {where_llamadas}", params)
+        total_llamadas = int(cur.fetchone()["n"])
+
+        cur.execute(
+            f"""
             SELECT id, ts, tarea, modelo, usuario, tokens_in, tokens_out,
                    latencia_ms, ok, error, feedback, detalle, respuesta, razonamiento
             FROM ia.trazas
+            WHERE {where_llamadas}
             ORDER BY id DESC
-            LIMIT %s
+            LIMIT %(limit)s OFFSET %(offset)s
             """,
-            (limit,),
+            {**params, "limit": limit, "offset": offset},
         )
         ultimas = cur.fetchall()
 
+        cur.execute(
+            "SELECT DISTINCT tarea FROM ia.trazas ORDER BY tarea")
+        tareas = [r["tarea"] for r in cur.fetchall()]
+
+    por_proveedor = _plegar_por_proveedor(por_modelo)
     presupuesto = presupuesto_dia_global()
     tokens_hoy = int(hoy["tokens_in"]) + int(hoy["tokens_out"])
     return {
@@ -202,6 +262,37 @@ def observabilidad(dias: int = 14, limit: int = 30) -> dict:
         },
         "por_dia": por_dia,
         "por_tarea": por_tarea,
+        "por_proveedor": por_proveedor,
         "ultimas": ultimas,
+        "total_llamadas": total_llamadas,
+        "offset": offset,
+        "limit": limit,
+        "tareas": tareas,
         "ventana_dias": dias,
     }
+
+
+def _plegar_por_proveedor(por_modelo: list[dict]) -> list[dict]:
+    """Agrupa el uso por PROVEEDOR (deepseek/openai) a partir de los IDs de
+    modelo. La correspondencia modelo→proveedor la sabe core/llm.py."""
+    from core import llm
+
+    acc: dict[str, dict] = {}
+    for r in por_modelo:
+        prov = llm.proveedor_de_modelo(r["modelo"]) or "otro"
+        e = acc.setdefault(prov, {
+            "proveedor": prov, "modelos": [], "llamadas": 0, "errores": 0,
+            "tokens": 0, "latencia_ms_avg": None,
+            "no_entrena": llm.no_entrena(prov) if prov != "otro" else None,
+        })
+        e["modelos"].append(r["modelo"])
+        e["llamadas"] += int(r["llamadas"] or 0)
+        e["errores"] += int(r["errores"] or 0)
+        e["tokens"] += int(r["tokens"] or 0)
+        # promedio ponderado por llamadas
+        if r["latencia_ms_avg"] is not None:
+            prev, n = e["latencia_ms_avg"], e["llamadas"]
+            aporte = int(r["latencia_ms_avg"]) * int(r["llamadas"] or 0)
+            e["latencia_ms_avg"] = round(
+                ((prev * (n - int(r["llamadas"] or 0))) if prev else 0) + aporte) // max(n, 1)
+    return sorted(acc.values(), key=lambda e: -e["tokens"])

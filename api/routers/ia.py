@@ -16,10 +16,14 @@ router = APIRouter(prefix="/api/ia", tags=["ia"])
 
 
 @router.get("/observabilidad")
-def observabilidad(dias: int = 14, limit: int = 30):
+def observabilidad(dias: int = 14, limit: int = 60, offset: int = 0,
+                   tarea: str | None = None, usuario: str | None = None,
+                   solo_error: bool = False, q: str | None = None):
     """Trazas del gateway de IA para OBSERVABILIDAD → IA: resumen de hoy
-    (+% presupuesto), serie por día, agregado por tarea y últimas llamadas."""
-    return ia_obs.observabilidad(dias=dias, limit=limit)
+    (+% presupuesto), serie por día, agregados por tarea y por PROVEEDOR, y
+    el historial de llamadas paginado y filtrable (tarea/usuario/errores/texto)."""
+    return ia_obs.observabilidad(dias=dias, limit=limit, offset=offset, tarea=tarea,
+                                 usuario=usuario, solo_error=solo_error, q=q)
 
 
 class PresupuestosBody(BaseModel):
@@ -35,7 +39,8 @@ def presupuesto_get():
 
 @router.get("/saldo")
 def saldo_proveedor():
-    """Saldo REAL de la cuenta del proveedor LLM (/user/balance)."""
+    """Estado de los proveedores LLM configurados: modelos por tier, si se
+    comprometen a no entrenar, y saldo real del que lo expone."""
     return ia_obs.saldo()
 
 

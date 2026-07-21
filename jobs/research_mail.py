@@ -216,7 +216,8 @@ def _destilar(cuerpo: str, fecha) -> tuple[dict | None, str | None]:
     try:
         obj = json.loads(s[s.index("{"): s.rindex("}") + 1])
         if isinstance(obj, dict) and obj.get("resumen"):
-            return obj, os.getenv("AI_MODEL_FLASH", "deepseek-v4-flash")
+            from core import llm
+            return obj, llm.modelo_flash()
     except (ValueError, json.JSONDecodeError):
         pass
     logger.warning("research_mail: el modelo no devolvió el JSON esperado — queda pendiente")

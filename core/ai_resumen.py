@@ -6,14 +6,14 @@ transporte (proveedor, modelo, timeout, reintentos, presupuesto, traza) lo
 resuelve el gateway core/ai.py — este módulo NO habla con el proveedor.
 
 Contrato intacto para el caller: resumen_ejecutivo() devuelve str o None (sin
-DEEPSEEK_API_KEY o ante cualquier fallo → None y el caller usa su render
-determinista). NUNCA propaga excepción.
+credencial del proveedor — core/llm — o ante cualquier fallo → None y el
+caller usa su render determinista). NUNCA propaga excepción.
 
 Regla del canal: al prompt solo entra metadata operativa (conteos, tickers,
 nombres de jobs) — el caller es responsable de NO pasar datos de clientes.
 
-Env vars (las lee el gateway): DEEPSEEK_API_KEY; AI_RESUMEN_MODEL (override
-del modelo solo para esta tarea).
+Env vars: AI_RESUMEN_MODEL (override del modelo solo para esta tarea); la
+credencial del proveedor la lee core/llm.py.
 """
 from __future__ import annotations
 

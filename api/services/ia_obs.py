@@ -15,8 +15,8 @@ from core.postgres import get_pool
 
 
 def saldo() -> dict:
-    """Saldo REAL de la cuenta DeepSeek (GET /user/balance del proveedor,
-    cache 5 min en core/ai). disponible=None → sin dato (key ausente o fallo)."""
+    """Saldo REAL de la cuenta del proveedor LLM (GET /user/balance,
+    cache 5 min en core/llm). disponible=None → sin dato (key ausente o fallo)."""
     from core.ai import saldo_proveedor
 
     return saldo_proveedor() or {"disponible": None, "saldos": []}

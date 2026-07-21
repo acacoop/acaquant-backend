@@ -35,7 +35,7 @@ def presupuesto_get():
 
 @router.get("/saldo")
 def saldo_proveedor():
-    """Saldo REAL de la cuenta DeepSeek (/user/balance del proveedor)."""
+    """Saldo REAL de la cuenta del proveedor LLM (/user/balance)."""
     return ia_obs.saldo()
 
 

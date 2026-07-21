@@ -5,9 +5,10 @@ ninguna feature debería resolver por su cuenta:
 
 - **Tareas registradas** (_TAREAS): cada llamada declara una tarea y de ahí
   salen modelo (tier flash/pro), max_tokens y timeout. El PROMPT vive en el
-  módulo de la feature (ej. core/ai_resumen.py) — acá solo el transporte.
-- **Proveedor**: DeepSeek (API OpenAI-compatible). Cambiar de proveedor =
-  tocar SOLO este módulo (URL base + mapeo de modelos).
+  módulo de la feature (ej. core/ai_resumen.py).
+- **Transporte**: delegado a `core/llm.py` — el ÚNICO módulo que conoce al
+  proveedor (HTTP, auth, retry, wire format). Cambiar/rutear proveedor =
+  tocar SOLO core/llm.py; este gateway no sabe con quién habla.
 - **Presupuesto diario de tokens** (global y por usuario) contra ia.trazas:
   superado → la llamada se niega y la feature degrada. Kill switch de costos.
 - **Reintentos**: 1 retry ante timeout / error de conexión / 5xx. Nunca ante 4xx.
@@ -19,11 +20,7 @@ CONTRATO (mismo que core/notify.py): completar() NUNCA propaga excepción.
 Devuelve el texto o None; el caller SIEMPRE tiene su camino determinista
 (regla de oro 4 del roadmap: todo degrada con gracia).
 
-Env vars:
-  DEEPSEEK_API_KEY   — sin ella el gateway está apagado (completar → None).
-  DEEPSEEK_BASE_URL  — override de la URL base (default https://api.deepseek.com).
-  AI_MODEL_FLASH     — override del modelo tier flash (default deepseek-v4-flash).
-  AI_MODEL_PRO       — override del modelo tier pro   (default deepseek-v4-pro).
+Env vars (las del proveedor viven en core/llm.py):
   AI_BUDGET_TOKENS_DIA          — tope global de tokens/día (default 2.000.000).
   AI_BUDGET_TOKENS_DIA_USUARIO  — tope por usuario/día (default 200.000).
 """
@@ -34,6 +31,8 @@ import os
 import time
 
 from dotenv import load_dotenv
+
+from core import llm
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
@@ -96,9 +95,7 @@ def _modelo(cfg: dict) -> str:
     override_env = cfg.get("model_env")
     if override_env and os.getenv(override_env):
         return os.environ[override_env]
-    if cfg.get("tier") == "pro":
-        return os.getenv("AI_MODEL_PRO", "deepseek-v4-pro")
-    return os.getenv("AI_MODEL_FLASH", "deepseek-v4-flash")
+    return llm.modelo_pro() if cfg.get("tier") == "pro" else llm.modelo_flash()
 
 
 # ── Config editable (ia.config, editable desde Manager → OBSERVABILIDAD → IA) ──
@@ -130,52 +127,10 @@ def invalidate_config_cache() -> None:
     _config_db_cache["ts"] = 0.0
 
 
-# ── Saldo REAL de la cuenta del proveedor ────────────────────────────────────
-# GET /user/balance (verificado contra la doc de DeepSeek 2026-07-11:
-# is_available + balance_infos[{currency, total_balance, granted_balance,
-# topped_up_balance}]). Es el dato de la CUENTA, no una inferencia. El
-# proveedor NO expone "tokens restantes" — convertir plata→tokens exigiría
-# asumir tabla de precios y mix de modelos, así que no se hace.
-
-_SALDO_TTL_S = 300
-_saldo_cache: dict = {"ts": 0.0, "valor": None}
-
-
 def saldo_proveedor() -> dict | None:
-    """Saldo real de la cuenta DeepSeek, cacheado 5 min. None si no hay key
-    ni valor previo. Nunca levanta."""
-    key = os.getenv("DEEPSEEK_API_KEY")
-    if not key:
-        return None
-    ahora = time.monotonic()
-    if ahora - _saldo_cache["ts"] < _SALDO_TTL_S and _saldo_cache["valor"] is not None:
-        return _saldo_cache["valor"]
-    try:
-        import requests
-        url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com") + "/user/balance"
-        resp = requests.get(url, headers={"Authorization": f"Bearer {key}"}, timeout=10)
-        if resp.status_code != 200:
-            logger.warning("core.ai: /user/balance HTTP %s: %s",
-                           resp.status_code, resp.text[:120])
-            return _saldo_cache["valor"]
-        data = resp.json()
-        valor = {
-            "disponible": bool(data.get("is_available")),
-            "saldos": [
-                {
-                    "moneda": b.get("currency"),
-                    "total": b.get("total_balance"),
-                    "otorgado": b.get("granted_balance"),
-                    "cargado": b.get("topped_up_balance"),
-                }
-                for b in (data.get("balance_infos") or [])
-            ],
-        }
-        _saldo_cache.update(ts=ahora, valor=valor)
-        return valor
-    except Exception as e:
-        logger.warning("core.ai: no pude leer el saldo del proveedor (%s)", e)
-        return _saldo_cache["valor"]
+    """Saldo real de la cuenta del proveedor, cacheado 5 min (core/llm.py).
+    None si no hay key ni valor previo. Nunca levanta."""
+    return llm.saldo_cuenta()
 
 
 def presupuesto_dia_global() -> int:
@@ -325,16 +280,20 @@ def completar_con_tools(
     ejecutar,
     usuario: str | None = None,
     detalle: str | None = None,
+    historial: list[dict] | None = None,
 ) -> tuple[str | None, int | None, str]:
     """Function calling (piloto 2026-07-20, ver docs/QUANTAI.md): el modelo puede
     PEDIR datos vía `tools` (schema OpenAI) y `ejecutar(nombre, args) -> str`
     los resuelve en código (resultados compactos, capados). Devuelve
     (texto, traza_id, contexto_tools) — contexto_tools acumula TODO lo que las
     tools devolvieron, para que el caller verifique los números contra eso.
+    `historial`: turnos previos [{role, content}] que se insertan entre el
+    system y el user (memoria conversacional del caller — ya saneada por él).
     Mismo contrato que completar(): NUNCA levanta; cualquier fallo → (None, None, "")."""
     try:
         return _completar_tools_loop(tarea, system=system, user=user, tools=tools,
-                                     ejecutar=ejecutar, usuario=usuario, detalle=detalle)
+                                     ejecutar=ejecutar, usuario=usuario, detalle=detalle,
+                                     historial=historial)
     except Exception as e:
         logger.warning("core.ai: fallo inesperado en %s (tools): %s: %s",
                        tarea, type(e).__name__, e)
@@ -343,19 +302,17 @@ def completar_con_tools(
 
 def _completar_tools_loop(
     tarea: str, *, system: str, user: str, tools: list[dict], ejecutar,
-    usuario: str | None, detalle: str | None,
+    usuario: str | None, detalle: str | None, historial: list[dict] | None = None,
 ) -> tuple[str | None, int | None, str]:
     import json as _json
 
-    import requests
-
-    key = os.getenv("DEEPSEEK_API_KEY")
-    if not key:
+    if not llm.configurado():
         return None, None, ""
     cfg = _config(tarea)
     modelo = _modelo(cfg)
-    url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com") + "/chat/completions"
-    mensajes = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    mensajes = [{"role": "system", "content": system}]
+    mensajes.extend(historial or [])
+    mensajes.append({"role": "user", "content": user})
     contexto_tools: list[str] = []
     traza_id = None
 
@@ -365,55 +322,30 @@ def _completar_tools_loop(
             _trazar(tarea, modelo, usuario, None, None, None, False,
                     f"presupuesto diario agotado ({motivo})", detalle=detalle)
             return None, None, "\n".join(contexto_tools)
-        body = {
-            "model": modelo, "max_tokens": cfg["max_tokens"],
-            "thinking": {"type": cfg.get("thinking", "disabled")},
-            "messages": mensajes, "tools": tools,
-        }
-        t0 = time.perf_counter()
-        try:
-            resp = requests.post(url, headers={"Authorization": f"Bearer {key}"},
-                                 json=body, timeout=cfg["timeout_s"])
-        except requests.RequestException as e:
-            _trazar(tarea, modelo, usuario, None, None, None, False,
-                    f"{type(e).__name__}: {e}", detalle=detalle)
-            return None, None, "\n".join(contexto_tools)
-        latencia_ms = int((time.perf_counter() - t0) * 1000)
-        if resp.status_code != 200:
-            _trazar(tarea, modelo, usuario, None, None, latencia_ms, False,
-                    f"HTTP {resp.status_code}: {resp.text[:200]}", detalle=detalle)
-            return None, None, "\n".join(contexto_tools)
-        try:
-            data = resp.json()
-            msg = data["choices"][0]["message"]
-            usage = data.get("usage") or {}
-        except Exception as e:
-            _trazar(tarea, modelo, usuario, None, None, latencia_ms, False,
-                    f"respuesta inparseable: {e}", detalle=detalle)
+        r = llm.chat(mensajes, modelo=modelo, max_tokens=cfg["max_tokens"],
+                     timeout_s=cfg["timeout_s"], thinking=cfg.get("thinking", "disabled"),
+                     tools=tools, reintentos=0)
+        if not r.ok:
+            _trazar(tarea, modelo, usuario, None, None, r.latencia_ms, False,
+                    r.error, detalle=detalle)
             return None, None, "\n".join(contexto_tools)
 
-        llamadas = msg.get("tool_calls") or []
-        if not llamadas:
-            texto = (msg.get("content") or "").strip()
+        if not r.tool_calls:
+            texto = r.texto or ""
             traza_id = _trazar(
-                tarea, modelo, usuario, usage.get("prompt_tokens"),
-                usage.get("completion_tokens"), latencia_ms, bool(texto),
-                None if texto else "respuesta vacía", detalle=detalle,
-                respuesta=texto or None,
-                cache_hit=usage.get("prompt_cache_hit_tokens"),
-                cache_miss=usage.get("prompt_cache_miss_tokens"))
+                tarea, modelo, usuario, r.tokens_in, r.tokens_out, r.latencia_ms,
+                bool(texto), None if texto else "respuesta vacía", detalle=detalle,
+                respuesta=texto or None, cache_hit=r.cache_hit, cache_miss=r.cache_miss)
             return (texto or None), traza_id, "\n".join(contexto_tools)
 
         # el modelo pidió datos: el CÓDIGO los resuelve y se le devuelven
-        _trazar(tarea, modelo, usuario, usage.get("prompt_tokens"),
-                usage.get("completion_tokens"), latencia_ms, True, None,
-                detalle=f"[tools ronda {ronda}] " + (detalle or ""),
+        _trazar(tarea, modelo, usuario, r.tokens_in, r.tokens_out, r.latencia_ms,
+                True, None, detalle=f"[tools ronda {ronda}] " + (detalle or ""),
                 respuesta="; ".join(
-                    (c.get("function") or {}).get("name", "?") for c in llamadas),
-                cache_hit=usage.get("prompt_cache_hit_tokens"),
-                cache_miss=usage.get("prompt_cache_miss_tokens"))
-        mensajes.append(msg)
-        for c in llamadas:
+                    (c.get("function") or {}).get("name", "?") for c in r.tool_calls),
+                cache_hit=r.cache_hit, cache_miss=r.cache_miss)
+        mensajes.append(r.mensaje)
+        for c in r.tool_calls:
             fn = (c.get("function") or {})
             nombre = fn.get("name") or ""
             try:
@@ -456,8 +388,7 @@ def completar_con_traza(
 def _completar(
     tarea: str, *, system: str, user: str, usuario: str | None, detalle: str | None = None
 ) -> tuple[str | None, int | None]:
-    key = os.getenv("DEEPSEEK_API_KEY")
-    if not key:
+    if not llm.configurado():
         return None, None  # gateway apagado — sin traza (sería ruido en cada corrida)
     cfg = _config(tarea)
     modelo = _modelo(cfg)
@@ -467,61 +398,23 @@ def _completar(
                 f"presupuesto diario agotado ({motivo})", detalle=detalle)
         return None, None
 
-    import requests
-    url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com") + "/chat/completions"
-    body = {
-        "model": modelo,
-        "max_tokens": cfg["max_tokens"],
-        # shape verificado contra la doc del proveedor (2026-07-11): default es
-        # "enabled" → hay que mandar el switch SIEMPRE, explícito por tarea.
-        "thinking": {"type": cfg.get("thinking", "disabled")},
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-    }
-    t0 = time.perf_counter()
-    ultimo_error: str | None = None
-    for _intento in (1, 2):
-        try:
-            resp = requests.post(
-                url, headers={"Authorization": f"Bearer {key}"}, json=body,
-                timeout=cfg["timeout_s"],
-            )
-        except requests.RequestException as e:  # timeout / conexión → retry
-            ultimo_error = f"{type(e).__name__}: {e}"
-            continue
-        if resp.status_code >= 500:  # error del proveedor → retry
-            ultimo_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
-            continue
-        latencia_ms = int((time.perf_counter() - t0) * 1000)
-        if resp.status_code != 200:  # 4xx: pedido mal armado / key inválida — sin retry
-            err = f"HTTP {resp.status_code}: {resp.text[:200]}"
-            logger.warning("core.ai %s → %s", tarea, err)
-            _trazar(tarea, modelo, usuario, None, None, latencia_ms, False, err, detalle=detalle)
-            return None, None
-        try:
-            data = resp.json()
-            msg = data["choices"][0]["message"]
-            texto = (msg.get("content") or "").strip()
-            razonamiento = (msg.get("reasoning_content") or "").strip() or None
-            usage = data.get("usage") or {}
-        except Exception as e:
-            _trazar(tarea, modelo, usuario, None, None, latencia_ms, False,
-                    f"respuesta inparseable: {e}", detalle=detalle)
-            return None, None
-        traza_id = _trazar(tarea, modelo, usuario, usage.get("prompt_tokens"),
-                           usage.get("completion_tokens"), latencia_ms, bool(texto),
-                           None if texto else "respuesta vacía",
-                           detalle=detalle, respuesta=texto or None,
-                           razonamiento=razonamiento,
-                           # telemetría del caché de prefijo (~10x más barato el
-                           # hit): mide el ahorro real del diseño prefijo-estable
-                           cache_hit=usage.get("prompt_cache_hit_tokens"),
-                           cache_miss=usage.get("prompt_cache_miss_tokens"))
-        return (texto or None), traza_id
-
-    latencia_ms = int((time.perf_counter() - t0) * 1000)
-    logger.warning("core.ai %s falló tras reintentos: %s", tarea, ultimo_error)
-    _trazar(tarea, modelo, usuario, None, None, latencia_ms, False, ultimo_error, detalle=detalle)
-    return None, None
+    r = llm.chat(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        modelo=modelo, max_tokens=cfg["max_tokens"], timeout_s=cfg["timeout_s"],
+        thinking=cfg.get("thinking", "disabled"), reintentos=1,
+    )
+    if not r.ok:
+        logger.warning("core.ai %s → %s", tarea, r.error)
+        _trazar(tarea, modelo, usuario, None, None, r.latencia_ms, False,
+                r.error, detalle=detalle)
+        return None, None
+    texto = r.texto or ""
+    traza_id = _trazar(tarea, modelo, usuario, r.tokens_in, r.tokens_out,
+                       r.latencia_ms, bool(texto),
+                       None if texto else "respuesta vacía",
+                       detalle=detalle, respuesta=texto or None,
+                       razonamiento=r.razonamiento,
+                       # telemetría del caché de prefijo (~10x más barato el
+                       # hit): mide el ahorro real del diseño prefijo-estable
+                       cache_hit=r.cache_hit, cache_miss=r.cache_miss)
+    return (texto or None), traza_id

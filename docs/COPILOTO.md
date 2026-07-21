@@ -147,6 +147,13 @@ El dato lo pinta la vista → cero datos al proveedor, cero alucinación posible
   debe existir como `usePersistedState("clave")` en acaquant-web. Si alguien
   la renombra allá, el botón abriría la vista sin filtros EN SILENCIO — ahora
   la CI local lo caza (skipea si el repo hermano no está).
+- **[degradación] negocio → guía**: si el asistente de negocio no puede
+  responder (proveedor caído/sin credencial), el panel NO queda muerto: cae al
+  guía, que sin ver un dato igual LLEVA a la vista con los filtros. El cupo
+  agotado es la excepción (navegar no lo arregla → se informa derecho).
+  Efecto lateral útil: con el asistente en falla, la navegación sigue viva.
+- **[matcher] tolera typos**: "byam" → BYMA (fuzzy con dueño único, tras las
+  pasadas exacta y parcial). Caso real de la primera prueba del user.
 - **Privacidad:** esta capacidad NO ve datos (solo metadata de filtros) → se
   queda en el proveedor barato. Ver QUANTAI.
 

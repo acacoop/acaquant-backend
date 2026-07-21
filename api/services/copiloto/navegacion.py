@@ -192,19 +192,23 @@ def _validar_fecha(v: str) -> str | None:
 
 
 def _match_catalogo(valor: str, opciones: list[str]) -> str | None:
-    """Match tolerante (sin acentos ni mayúsculas) → devuelve el valor CANÓNICO
-    del catálogo. Así 'byma' del modelo entra como 'BYMA' de la vista."""
+    """Match tolerante → devuelve el valor CANÓNICO del catálogo. Tres pasadas:
+    exacta (case-insensitive), parcial con dueño único, y por ÚLTIMO fuzzy —
+    la gente escribe 'byam' por BYMA y el filtro no tiene por qué fallar por
+    un typo (caso real 2026-07-21). El fuzzy exige una sola candidata."""
+    import difflib
+
     v = str(valor).strip().lower()
-    for o in opciones:
-        if o.lower() == v:
-            return o
-    for o in opciones:  # match parcial (una sola coincidencia)
-        if v and v in o.lower():
-            coincidencias = [x for x in opciones if v in x.lower()]
-            if len(coincidencias) == 1:
-                return coincidencias[0]
-            break
-    return None
+    if not v or not opciones:
+        return None
+    por_lower = {o.lower(): o for o in opciones}
+    if v in por_lower:
+        return por_lower[v]
+    parciales = [o for o in opciones if v in o.lower()]
+    if len(parciales) == 1:
+        return parciales[0]
+    cerca = difflib.get_close_matches(v, list(por_lower), n=2, cutoff=0.75)
+    return por_lower[cerca[0]] if len(cerca) == 1 else None
 
 
 def destinos_para(usuario: str | None) -> list[dict]:

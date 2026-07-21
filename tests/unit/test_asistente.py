@@ -203,6 +203,39 @@ def test_handler_negocio_adapta_respuesta(monkeypatch):
     assert r["ok"] and r["respuesta"] == "todo bien" and r["traza_id"] == 9
 
 
+def test_handler_negocio_cae_al_guia_si_el_asistente_no_va(monkeypatch):
+    """Degradación con gracia (v1.82): si el asistente de negocio no puede
+    responder, el panel NO queda muerto — el guía igual puede LLEVAR al
+    usuario a la vista (sin ver ningún dato)."""
+    from api.services import asistente as asx
+    from api.services.copiloto.negocio import _handler_negocio
+    monkeypatch.setattr(asx, "responder",
+                        lambda **kw: {"ok": False, "motivo": "llm", "mensaje": "x"})
+    monkeypatch.setattr("api.services.copiloto.motor.preguntar",
+                        lambda vista, pregunta, **kw: {
+                            "ok": True, "respuesta": "Te llevo a Operaciones.",
+                            "navegacion": {"ruta": "/operaciones", "estado": {}},
+                            "fuente": {"vista": vista}})
+    r = _handler_negocio(pregunta="cuánto se operó en BYMA", usuario="jefe@x.com",
+                         conv_id=None, historial=None, params=None)
+    assert r["ok"] and r["navegacion"]["ruta"] == "/operaciones"
+
+
+def test_handler_negocio_presupuesto_no_cae_al_guia(monkeypatch):
+    """El cupo agotado no se arregla navegando: ahí sí se informa derecho."""
+    from api.services import asistente as asx
+    from api.services.copiloto.negocio import _handler_negocio
+    monkeypatch.setattr(asx, "responder",
+                        lambda **kw: {"ok": False, "motivo": "presupuesto",
+                                      "cual": "usuario", "mensaje": "x"})
+    llamadas = []
+    monkeypatch.setattr("api.services.copiloto.motor.preguntar",
+                        lambda *a, **kw: llamadas.append(1))
+    r = _handler_negocio(pregunta="x", usuario="jefe@x.com", conv_id=None,
+                         historial=None, params=None)
+    assert r == {"ok": False, "error": "presupuesto_usuario"} and not llamadas
+
+
 def test_handler_negocio_mapea_presupuesto(monkeypatch):
     from api.services import asistente as asx
     from api.services.copiloto.negocio import _handler_negocio

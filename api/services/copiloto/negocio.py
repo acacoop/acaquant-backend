@@ -22,13 +22,35 @@ from __future__ import annotations
 def _handler_negocio(*, pregunta: str, usuario: str | None, conv_id: str | None,
                      historial: list[dict] | None, params: dict | None) -> dict:
     """Adapta asistente.responder al contrato del panel. El conv_id del panel
-    ES el chat_id del asistente (misma conversación = mismas fichas)."""
+    ES el chat_id del asistente (misma conversación = mismas fichas).
+
+    Si el asistente no puede responder (su proveedor caído o sin credencial),
+    NO se devuelve un panel muerto: se cae al GUÍA, que sin ver un solo dato
+    igual puede LLEVAR al usuario a la vista con los filtros puestos
+    (navegación asistida, v1.82). Degradar con gracia, no romper."""
+    import logging
+
     from api.services import asistente
+
+    logger = logging.getLogger(__name__)
 
     r = asistente.responder(mensaje=pregunta, email=usuario or "", chat_id=conv_id)
     if not r.get("ok"):
         if r.get("motivo") == "presupuesto":
             return {"ok": False, "error": f"presupuesto_{r.get('cual') or 'usuario'}"}
+        # El presupuesto es del usuario y no se arregla navegando; el resto
+        # (proveedor caído/sin key/aduana) sí tiene un plan B útil.
+        logger.warning("negocio: asistente no disponible (%s) — caigo al guía",
+                       r.get("motivo"))
+        try:
+            from .motor import preguntar
+
+            guia = preguntar("ayuda", pregunta, historial=historial,
+                             usuario=usuario, conv_id=conv_id)
+            if guia.get("ok"):
+                return guia
+        except Exception as e:
+            logger.warning("negocio: el guía tampoco respondió (%s)", e)
         return {"ok": False, "error": "ia_no_disponible"}
 
     traza_id = r.get("traza_id")

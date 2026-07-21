@@ -97,6 +97,15 @@ def test_match_tolerante_de_valores():
     assert nav._match_catalogo("nada", CATALOGOS_FAKE["mercados"]) is None
 
 
+def test_match_tolera_typos():
+    """Caso real: el usuario escribió 'byam'. Un filtro no tiene por qué
+    fallar por una letra cambiada."""
+    assert nav._match_catalogo("byam", CATALOGOS_FAKE["mercados"]) == "BYMA"
+    assert nav._match_catalogo("cooperativa", CATALOGOS_FAKE["segmentos"]) == "COOPERATIVAS"
+    # pero sigue sin inventar: algo lejano no matchea con nada
+    assert nav._match_catalogo("nasdaq", CATALOGOS_FAKE["mercados"]) is None
+
+
 def test_sin_filtros_igual_navega():
     r = nav.resolver("operaciones_depositos", {}, "u@x.com")
     assert r["ok"] and r["estado"] == {"operaciones.tab": "depositos"}

@@ -117,6 +117,26 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-20 — v1.74 (canon aplicado: telemetría de caché + PILOTO function-calling en Research)
+Tras revisar las guías oficiales (Anthropic "Building effective agents" +
+"Context engineering", OpenAI "Practical guide to building agents", doc
+DeepSeek), dos implementaciones:
+- **[telemetría] caché del proveedor medido**: `ia.trazas` suma
+  `cache_hit_tokens`/`cache_miss_tokens` (el hit cuesta ~10x menos) — mide el
+  ahorro real del diseño prefijo-estable. Columnas nuevas → correr
+  `apply_schema` al deployar.
+- **[gateway +] `core.ai.completar_con_tools`**: loop de function calling
+  (máx 4 rondas, presupuesto chequeado por ronda, resultados capados a 4k
+  chars, traza por llamada, contrato nunca-levanta). Devuelve también el
+  contexto acumulado de las tools → la verificación de números lo cubre.
+- **[piloto] vista RESEARCH con 2 tools (JIT retrieval, canon)**:
+  `serie_de(ticker, campo, desde, hasta)` (serie 1816 resumida por código:
+  stats + ≤24 puntos) y `buscar_en_mails(tema)` (FTS con fechas). El modelo
+  PIDE lo que la pregunta necesita ("¿cómo venía la TEA de TX26 en abril?")
+  en vez de responder "no lo tengo". Motor: vistas con `tools` en el registro
+  usan el loop; el resto sigue igual. Trading queda para el final (latencia).
+- Testeado: ejecutor de tools + loop completo del gateway con proveedor fake.
+
 ### 2026-07-20 — v1.73 (HANDOFF transparente a la guía: "te tiene que guiar DIRECTO")
 Corrección del user sobre v1.72b: derivar a la guía con un botón es un REBOTE
 ("¿qué FCI se operó más hoy?" desde HOME tiene que devolver la receta, no "no

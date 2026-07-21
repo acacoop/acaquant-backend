@@ -1802,6 +1802,12 @@ CREATE TABLE IF NOT EXISTS ia.trazas (
     razonamiento text,  -- extracto del reasoning_content (thinking), cap en core/ai
     conv_id     text    -- conversación del copiloto (cada chat su mundo)
 );
+-- Telemetría del caché de prefijo del proveedor (2026-07-20): el proveedor
+-- cobra ~10x menos los tokens servidos desde caché — estas columnas miden
+-- cuánto del prompt pegó en caché (valida el diseño prefijo-estable del
+-- copiloto y muestra el ahorro real en OBSERVABILIDAD).
+ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS cache_hit_tokens  integer;
+ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS cache_miss_tokens integer;
 CREATE INDEX IF NOT EXISTS ix_ia_trazas_ts ON ia.trazas (ts);
 CREATE INDEX IF NOT EXISTS ix_ia_trazas_usuario_ts ON ia.trazas (usuario, ts);
 -- Columnas agregadas 2026-07-11 (panel OBSERVABILIDAD → IA: detalle por llamada)

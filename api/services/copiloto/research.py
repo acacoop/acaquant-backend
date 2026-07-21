@@ -382,6 +382,12 @@ parafrasees de memoria una opinión de 1816 que no esté en los fragmentos.
 - Tu valor máximo es CRUZAR número y narrativa: "la TEA de TX26 comprimió 80pb en el mes y \
 1816 venía diciendo (10/07) que el tramo CER estaba barato".
 
+TUS HERRAMIENTAS (usalas, para eso están): si la pregunta necesita la EVOLUCIÓN de un bono \
+(un período, "cómo venía en abril", "grafica la TEA del trimestre") usá `serie_de`; si \
+pide qué dijo 1816 de un tema que no está en los fragmentos provistos, usá \
+`buscar_en_mails`. Preferí pedir el dato exacto antes que responder "no lo tengo" — pero \
+si la herramienta tampoco lo trae, ahí sí decilo derecho.
+
 Reglas de acá:
 - Todos los números ya vienen calculados (últimos valores, cambios, %/pp). CERO aritmética \
 propia; si un dato no está, no está.
@@ -390,6 +396,75 @@ pero sin novela: 6-10 líneas máximo salvo que pidan detalle.
 - Pedidos de recomendación: ranking objetivo con criterio explícito (ej. TEA vs duration), \
 nunca consejo de inversión personalizado.
 - El CCL live es contexto del día, no dato de research."""
+
+# ── TOOLS (piloto function-calling 2026-07-20, canon Anthropic/OpenAI: JIT
+# retrieval — el modelo PIDE lo que la pregunta necesita en vez de pre-inyectar
+# todo; el código ejecuta y devuelve resultados COMPACTOS) ───────────────────
+
+_TOOLS_RESEARCH = [
+    {"type": "function", "function": {
+        "name": "buscar_en_mails",
+        "description": "Busca un tema en TODOS los mails de research de 1816 guardados y "
+                       "devuelve los fragmentos más relevantes CON FECHA. Usala cuando la "
+                       "pregunta pida qué dijo/viene diciendo 1816 sobre algo que no está "
+                       "en los fragmentos ya provistos.",
+        "parameters": {"type": "object", "properties": {
+            "tema": {"type": "string", "description": "el tema a buscar (1-3 palabras)"}},
+            "required": ["tema"]},
+    }},
+    {"type": "function", "function": {
+        "name": "serie_de",
+        "description": "Serie histórica diaria de un bono del watch 1816. Usala cuando "
+                       "pidan la evolución/los valores de un período que no está en la "
+                       "tabla (la tabla solo trae el último valor y cambios 7/30d).",
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "ticker del bono (ej. TX26)"},
+            "campo": {"type": "string", "enum": ["tea", "paridad", "precioClean", "duration"]},
+            "desde": {"type": "string", "description": "YYYY-MM-DD (opcional, default 6 meses)"},
+            "hasta": {"type": "string", "description": "YYYY-MM-DD (opcional, default hoy)"}},
+            "required": ["ticker", "campo"]},
+    }},
+]
+
+
+def _ejecutar_tool_research(nombre: str, args: dict) -> str:
+    """Ejecuta una tool del piloto. Resultados COMPACTOS (el gateway capa a 4000
+    chars igual). Cualquier error devuelve texto de error — jamás levanta."""
+    if nombre == "buscar_en_mails":
+        from api.services import research_sql
+
+        items = (research_sql.buscar_research(str(args.get("tema") or ""), limit=4)
+                 or {}).get("items") or []
+        if not items:
+            return "sin menciones de ese tema en los mails guardados."
+        return " || ".join(f"({it.get('fecha')}) {it.get('fragmento')}"
+                           for it in items if it.get("fragmento"))
+    if nombre == "serie_de":
+        from api.services import research_1816_sql
+
+        campo = str(args.get("campo") or "tea")
+        r = research_1816_sql.series([str(args.get("ticker") or "")], campo,
+                                     args.get("desde"), args.get("hasta"))
+        series = (r or {}).get("series") or []
+        puntos = series[0].get("puntos") if series else None
+        if not puntos:
+            return "sin datos de esa serie en ese rango."
+        escala = 100.0 if campo in ("tea", "paridad") else 1.0
+        vals = [(f, v * escala) for f, v in puntos if v is not None]
+        if not vals:
+            return "sin datos de esa serie en ese rango."
+        # resumen + submuestreo a ≤24 puntos (canon: resultados compactos)
+        paso = max(1, len(vals) // 24)
+        muestra = vals[::paso][-24:]
+        mn, mx = min(vals, key=lambda p: p[1]), max(vals, key=lambda p: p[1])
+        unidad = "%" if escala == 100.0 else ""
+        return (f"{series[0].get('ticker')} {campo}: {len(vals)} ruedas de {vals[0][0]} a "
+                f"{vals[-1][0]} · primero {vals[0][1]:.2f}{unidad} · último "
+                f"{vals[-1][1]:.2f}{unidad} · mín {mn[1]:.2f}{unidad} ({mn[0]}) · máx "
+                f"{mx[1]:.2f}{unidad} ({mx[0]}) · muestra: "
+                + ", ".join(f"{f} {v:.2f}" for f, v in muestra))
+    return f"herramienta desconocida: {nombre}"
+
 
 _CHIPS_RESEARCH = [
     {"label": "El día en pocas líneas",

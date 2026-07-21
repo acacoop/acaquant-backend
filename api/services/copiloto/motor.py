@@ -143,13 +143,26 @@ def preguntar(
               + _bloque_otras_vistas(usuario, vista))
 
     contexto = "\n".join(partes)
-    texto, traza_id = completar_con_traza(
-        tarea,
-        system=system,
-        user=contexto,
-        usuario=usuario,
-        detalle=pregunta,  # queda en la traza → panel OBSERVABILIDAD
-    )
+    # PILOTO TOOLS (vista research, 2026-07-20): si la vista declara tools, el
+    # modelo puede PEDIR datos (JIT retrieval) y el código los resuelve. Lo que
+    # las tools devuelven se SUMA al contexto para la verificación de números.
+    if cfg.get("tools"):
+        from core.ai import completar_con_tools
+
+        texto, traza_id, ctx_tools = completar_con_tools(
+            tarea, system=system, user=contexto, tools=cfg["tools"],
+            ejecutar=cfg["tools_ejecutar"], usuario=usuario, detalle=pregunta,
+        )
+        if ctx_tools:
+            contexto = contexto + "\n" + ctx_tools
+    else:
+        texto, traza_id = completar_con_traza(
+            tarea,
+            system=system,
+            user=contexto,
+            usuario=usuario,
+            detalle=pregunta,  # queda en la traza → panel OBSERVABILIDAD
+        )
     if not texto:
         # Si el presupuesto se agotó DURANTE la llamada (el pre-chequeo de
         # arriba había pasado justo por debajo del tope), el genérico "IA no

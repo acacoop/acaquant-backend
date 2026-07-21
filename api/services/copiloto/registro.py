@@ -26,6 +26,8 @@ from .research import (
     _CHIPS_RESEARCH,
     _COLUMNAS_RESEARCH,
     _REGLAS_RESEARCH,
+    _TOOLS_RESEARCH,
+    _ejecutar_tool_research,
     _extras_research,
     _fetch_research,
 )
@@ -215,6 +217,10 @@ VISTAS: dict[str, dict] = {
                    "mails diarios de research de 1816 (citables con fecha)",
         "fetch": _fetch_research,
         "extras": _extras_research,
+        # PILOTO function-calling (2026-07-20): el modelo puede pedir series
+        # históricas y buscar en los mails — JIT retrieval, canon Anthropic.
+        "tools": _TOOLS_RESEARCH,
+        "tools_ejecutar": _ejecutar_tool_research,
         # la columna `dato` es un string denso por bono/serie (~150 chars) —
         # con el cap default de 60 se mutilaría (lección de la vista ayuda)
         "celda_max": 220,

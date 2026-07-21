@@ -257,6 +257,8 @@ def _trazar(
     detalle: str | None = None,
     respuesta: str | None = None,
     razonamiento: str | None = None,
+    cache_hit: int | None = None,
+    cache_miss: int | None = None,
 ) -> int | None:
     """Persiste la traza y devuelve su id (para asociar feedback 👍/👎),
     o None si la DB no respondió — best-effort, nunca corta la llamada.
@@ -267,14 +269,16 @@ def _trazar(
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO ia.trazas (tarea, modelo, usuario, tokens_in, tokens_out,"
-                " latencia_ms, ok, error, detalle, respuesta, razonamiento)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                " latencia_ms, ok, error, detalle, respuesta, razonamiento,"
+                " cache_hit_tokens, cache_miss_tokens)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
                 " RETURNING id",
                 (tarea, modelo, usuario, tokens_in, tokens_out, latencia_ms, ok,
                  error[:_MAX_ERROR_CHARS] if error else None,
                  detalle[:_MAX_DETALLE_CHARS] if detalle else None,
                  respuesta[:_MAX_RESPUESTA_CHARS] if respuesta else None,
-                 razonamiento[:_MAX_RAZONAMIENTO_CHARS] if razonamiento else None),
+                 razonamiento[:_MAX_RAZONAMIENTO_CHARS] if razonamiento else None,
+                 cache_hit, cache_miss),
             )
             return cur.fetchone()[0]
     except Exception as e:
@@ -298,6 +302,129 @@ def completar(
         tarea, system=system, user=user, usuario=usuario, detalle=detalle
     )
     return texto
+
+
+_MAX_TOOL_RESULT_CHARS = 4000   # resultados de tools COMPACTOS (canon Anthropic)
+_MAX_RONDAS_TOOLS = 4           # techo de idas y vueltas del loop de tools
+
+
+def completar_con_tools(
+    tarea: str,
+    *,
+    system: str,
+    user: str,
+    tools: list[dict],
+    ejecutar,
+    usuario: str | None = None,
+    detalle: str | None = None,
+) -> tuple[str | None, int | None, str]:
+    """Function calling (piloto 2026-07-20, ver docs/QUANTAI.md): el modelo puede
+    PEDIR datos vía `tools` (schema OpenAI) y `ejecutar(nombre, args) -> str`
+    los resuelve en código (resultados compactos, capados). Devuelve
+    (texto, traza_id, contexto_tools) — contexto_tools acumula TODO lo que las
+    tools devolvieron, para que el caller verifique los números contra eso.
+    Mismo contrato que completar(): NUNCA levanta; cualquier fallo → (None, None, "")."""
+    try:
+        return _completar_tools_loop(tarea, system=system, user=user, tools=tools,
+                                     ejecutar=ejecutar, usuario=usuario, detalle=detalle)
+    except Exception as e:
+        logger.warning("core.ai: fallo inesperado en %s (tools): %s: %s",
+                       tarea, type(e).__name__, e)
+        return None, None, ""
+
+
+def _completar_tools_loop(
+    tarea: str, *, system: str, user: str, tools: list[dict], ejecutar,
+    usuario: str | None, detalle: str | None,
+) -> tuple[str | None, int | None, str]:
+    import json as _json
+
+    import requests
+
+    key = os.getenv("DEEPSEEK_API_KEY")
+    if not key:
+        return None, None, ""
+    cfg = _config(tarea)
+    modelo = _modelo(cfg)
+    url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com") + "/chat/completions"
+    mensajes = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    contexto_tools: list[str] = []
+    traza_id = None
+
+    for ronda in range(1, _MAX_RONDAS_TOOLS + 1):
+        motivo = motivo_presupuesto(usuario)
+        if motivo:
+            _trazar(tarea, modelo, usuario, None, None, None, False,
+                    f"presupuesto diario agotado ({motivo})", detalle=detalle)
+            return None, None, "\n".join(contexto_tools)
+        body = {
+            "model": modelo, "max_tokens": cfg["max_tokens"],
+            "thinking": {"type": cfg.get("thinking", "disabled")},
+            "messages": mensajes, "tools": tools,
+        }
+        t0 = time.perf_counter()
+        try:
+            resp = requests.post(url, headers={"Authorization": f"Bearer {key}"},
+                                 json=body, timeout=cfg["timeout_s"])
+        except requests.RequestException as e:
+            _trazar(tarea, modelo, usuario, None, None, None, False,
+                    f"{type(e).__name__}: {e}", detalle=detalle)
+            return None, None, "\n".join(contexto_tools)
+        latencia_ms = int((time.perf_counter() - t0) * 1000)
+        if resp.status_code != 200:
+            _trazar(tarea, modelo, usuario, None, None, latencia_ms, False,
+                    f"HTTP {resp.status_code}: {resp.text[:200]}", detalle=detalle)
+            return None, None, "\n".join(contexto_tools)
+        try:
+            data = resp.json()
+            msg = data["choices"][0]["message"]
+            usage = data.get("usage") or {}
+        except Exception as e:
+            _trazar(tarea, modelo, usuario, None, None, latencia_ms, False,
+                    f"respuesta inparseable: {e}", detalle=detalle)
+            return None, None, "\n".join(contexto_tools)
+
+        llamadas = msg.get("tool_calls") or []
+        if not llamadas:
+            texto = (msg.get("content") or "").strip()
+            traza_id = _trazar(
+                tarea, modelo, usuario, usage.get("prompt_tokens"),
+                usage.get("completion_tokens"), latencia_ms, bool(texto),
+                None if texto else "respuesta vacía", detalle=detalle,
+                respuesta=texto or None,
+                cache_hit=usage.get("prompt_cache_hit_tokens"),
+                cache_miss=usage.get("prompt_cache_miss_tokens"))
+            return (texto or None), traza_id, "\n".join(contexto_tools)
+
+        # el modelo pidió datos: el CÓDIGO los resuelve y se le devuelven
+        _trazar(tarea, modelo, usuario, usage.get("prompt_tokens"),
+                usage.get("completion_tokens"), latencia_ms, True, None,
+                detalle=f"[tools ronda {ronda}] " + (detalle or ""),
+                respuesta="; ".join(
+                    (c.get("function") or {}).get("name", "?") for c in llamadas),
+                cache_hit=usage.get("prompt_cache_hit_tokens"),
+                cache_miss=usage.get("prompt_cache_miss_tokens"))
+        mensajes.append(msg)
+        for c in llamadas:
+            fn = (c.get("function") or {})
+            nombre = fn.get("name") or ""
+            try:
+                args = _json.loads(fn.get("arguments") or "{}")
+            except ValueError:
+                args = {}
+            try:
+                resultado = str(ejecutar(nombre, args))[:_MAX_TOOL_RESULT_CHARS]
+            except Exception as e:
+                resultado = f"error de la herramienta: {type(e).__name__}: {e}"
+            contexto_tools.append(f"[tool {nombre}({_json.dumps(args, ensure_ascii=False)})] "
+                                  f"{resultado}")
+            mensajes.append({"role": "tool", "tool_call_id": c.get("id"),
+                             "content": resultado})
+
+    # se agotaron las rondas con el modelo todavía pidiendo tools
+    _trazar(tarea, modelo, usuario, None, None, None, False,
+            f"tools: {_MAX_RONDAS_TOOLS} rondas sin respuesta final", detalle=detalle)
+    return None, None, "\n".join(contexto_tools)
 
 
 def completar_con_traza(
@@ -379,7 +506,11 @@ def _completar(
                            usage.get("completion_tokens"), latencia_ms, bool(texto),
                            None if texto else "respuesta vacía",
                            detalle=detalle, respuesta=texto or None,
-                           razonamiento=razonamiento)
+                           razonamiento=razonamiento,
+                           # telemetría del caché de prefijo (~10x más barato el
+                           # hit): mide el ahorro real del diseño prefijo-estable
+                           cache_hit=usage.get("prompt_cache_hit_tokens"),
+                           cache_miss=usage.get("prompt_cache_miss_tokens"))
         return (texto or None), traza_id
 
     latencia_ms = int((time.perf_counter() - t0) * 1000)

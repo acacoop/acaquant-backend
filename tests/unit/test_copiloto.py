@@ -1310,3 +1310,72 @@ def test_handoff_transparente_a_la_guia(monkeypatch):
     assert "Suscripción" in out["respuesta"]          # la receta de la GUÍA
     assert "no tengo ese dato" not in out["respuesta"]  # el rebote no se muestra
     assert out["fuente"]["vista"] == "ayuda"
+
+
+# ── piloto function-calling (v1.74, canon Anthropic/OpenAI: JIT retrieval) ───
+
+def test_tool_serie_de_resume_compacto(monkeypatch):
+    from datetime import date, timedelta
+
+    from api.services import research_1816_sql
+
+    puntos = [[(date(2026, 1, 2) + timedelta(days=i)).isoformat(), 0.05 + i * 0.001]
+              for i in range(120)]
+    monkeypatch.setattr(research_1816_sql, "series",
+                        lambda tks, campo, desde=None, hasta=None:
+                        {"series": [{"ticker": "TX26", "puntos": puntos}]})
+    out = copiloto.research._ejecutar_tool_research(
+        "serie_de", {"ticker": "TX26", "campo": "tea"})
+    assert "TX26 tea: 120 ruedas" in out
+    assert "primero 5.00%" in out and "máx" in out
+    assert out.count(",") <= 30                       # submuestreo: ≤24 puntos
+
+
+def test_tool_buscar_en_mails_y_desconocida(monkeypatch):
+    from api.services import research_sql
+
+    monkeypatch.setattr(research_sql, "buscar_research", lambda q, limit=4: {
+        "items": [{"fecha": "2026-07-10", "fragmento": "«el carry sigue»"}]})
+    out = copiloto.research._ejecutar_tool_research("buscar_en_mails", {"tema": "carry"})
+    assert "(2026-07-10)" in out and "carry" in out
+    assert "desconocida" in copiloto.research._ejecutar_tool_research("nada", {})
+
+
+def test_gateway_loop_de_tools(monkeypatch):
+    """El loop completo: 1ra respuesta pide una tool → el código la ejecuta →
+    2da respuesta contesta. El contexto de tools vuelve para la verificación."""
+    import core.ai as ai
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test")
+    monkeypatch.setattr(ai, "motivo_presupuesto", lambda u: None)
+    monkeypatch.setattr(ai, "_trazar", lambda *a, **k: 7)
+
+    respuestas = [
+        {"choices": [{"message": {"tool_calls": [
+            {"id": "c1", "function": {"name": "serie_de",
+                                      "arguments": '{"ticker": "TX26", "campo": "tea"}'}}]}}],
+         "usage": {}},
+        {"choices": [{"message": {"content": "La TEA de TX26 comprimió."}}], "usage": {}},
+    ]
+
+    class _Resp:
+        status_code = 200
+        text = ""
+        def __init__(s, d): s._d = d
+        def json(s): return s._d
+
+    import requests
+    llamadas = []
+    monkeypatch.setattr(requests, "post",
+                        lambda url, **kw: (llamadas.append(kw), _Resp(respuestas[len(llamadas) - 1]))[1])
+
+    texto, traza_id, ctx = ai.completar_con_tools(
+        "smoke", system="sos", user="dame la serie", tools=[{"type": "function"}],
+        ejecutar=lambda n, a: f"{n} ok con {a.get('ticker')}")
+    assert texto == "La TEA de TX26 comprimió."
+    assert traza_id == 7
+    assert "[tool serie_de" in ctx and "TX26" in ctx
+    assert len(llamadas) == 2
+    # la 2da llamada llevó el resultado de la tool como mensaje role=tool
+    roles = [m.get("role") for m in llamadas[1]["json"]["messages"]]
+    assert "tool" in roles

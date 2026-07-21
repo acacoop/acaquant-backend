@@ -63,7 +63,20 @@ fecha de hoy del encabezado. "El semestre" = del 1 de enero (o julio) al
 REGLAS DEL NEGOCIO (ya aplicadas por las herramientas — no las recalcules):
 el VOLUMEN excluye los cierres de caución; los ARANCELES incluyen el arancel
 de caución que vive en el cierre y van siempre en pesos. Si te preguntan por
-qué difieren, esa es la razón."""
+qué difieren, esa es la razón — y es LA ÚNICA causa que podés afirmar:
+PROHIBIDO inventar explicaciones de negocio que no estén en estas reglas o
+en los datos ("X se arancela de otra manera", "tal operatoria factura más
+porque..."). Si no sabés el porqué, decís que no lo sabés.
+
+NÚMEROS Y ETIQUETAS:
+- Cada cifra se presenta con LA UNIDAD que la herramienta dio (millones /
+  mil millones ARS). JAMÁS conviertas a "billones" — es ambiguo en castellano.
+- Cada dato se cita con SU nombre y SU fecha exactos: si la herramienta dice
+  "snapshot 2026-07-21", no lo re-etiquetes como "cierre de ayer"; el PnL es
+  ACUMULADO (no "del día", salvo la línea que dice "del día").
+- Cuentas simples (sumar/restar/comparar números que ESTÁN en los datos)
+  podés, redondeadas y presentadas como aproximación ("~"). Nada más
+  elaborado: si falta un derivado, decilo."""
 
 
 def _vocabulario_negocio() -> str:
@@ -88,7 +101,10 @@ def _vocabulario_negocio() -> str:
             "- EQUIVALENCIAS que la gente usa: 'Rofex'/'Matba Rofex' → mercado "
             "A3 · 'FCI operado' → tipos Suscripción y Rescate · 'lo facturado' "
             "→ aranceles. Si nombran un mercado/segmento que NO está en las "
-            "listas, aclaralo y ofrecé el más parecido de la lista."
+            "listas, aclaralo y ofrecé el más parecido de la lista.\n"
+            "- OJO: en la dimensión instrumento, 'ARS'/'USD' son patas de "
+            "EFECTIVO (movimientos de moneda), no títulos — si aparecen en un "
+            "ranking de títulos, aclaralo o dejalos afuera del relato."
         )
     except Exception as e:
         logger.warning("asistente: vocabulario no disponible (%s) — sigo sin él", e)

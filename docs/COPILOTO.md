@@ -117,6 +117,24 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.79b (post-batería de negocio: 13/15 buenas, 5 fixes finos)
+`bateria_negocio` corrida en prod (15 preguntas, trazas 503-529). PASÓ: caso
+Curzel completo (#6), equivalencias Rofex→A3 y FCI (#9/10), fechas habladas,
+y las DOS trampas de honestidad (#13 cuenta puntual, #15 dimensión operador:
+"no tengo esa herramienta" — cero invento). Lo cazado y bajado a código:
+- **[reglas +]** unidades de las tools tal cual (JAMÁS "billones" — ambiguo);
+  fechas/etiquetas exactas (dijo "cierre de ayer" sin que la tool lo diga);
+  anti-confabulación causal (#12 inventó "los FCI se arancelan de otra
+  manera" — solo puede afirmar las reglas dadas); aritmética simple permitida
+  SOLO entre números presentes, redondeada y marcada con "~".
+- **[tool ~]** `rendimiento_cuenta` etiqueta el PnL como ACUMULADO línea por
+  línea (#3 lo narró como "resultado del día").
+- **[vocabulario +]** 'ARS'/'USD' en la dimensión instrumento son patas de
+  EFECTIVO, no títulos (#11 los rankeó como título más operado).
+- **Decisión pendiente del user:** dimensión OPERADOR para los consolidados
+  (#15 la pidió la mesa) — implica mandar nombres de EMPLEADOS al proveedor
+  o extender la aduana con fichas OPERADOR_n. No se hace sin decisión.
+
 ### 2026-07-21 — v1.79 (negocio: el asistente APRENDE el idioma de Operaciones + consolidados con números)
 Caso disparador (traza real de la mesa): pidieron "consolidado del semestre
 de aranceles por mercado, sin agro" y el guía solo pudo contestar CÓMO

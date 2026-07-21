@@ -222,11 +222,12 @@ def rendimiento_cuenta(ficha_cuenta: str, *, mapping: dict) -> str:
     if pnl:
         t = pnl["totales"]
         lineas += [
-            f"PnL títulos (motor de valuaciones, al {pnl['computed_at'][:16]}):",
-            f"  - no realizado: {_monto(t.get('pnl_no_realizado'))}",
-            f"  - pasivo (cupones/divs/amorts): {_monto(t.get('pnl_pasivo'))}",
-            f"  - realizado del día: {_monto(t.get('pnl_realizado_dia'))}",
-            f"  - total: {_monto(t.get('pnl_total'))}",
+            f"PnL títulos ACUMULADO (no es del día; motor de valuaciones, "
+            f"al {pnl['computed_at'][:16]}):",
+            f"  - no realizado (acumulado): {_monto(t.get('pnl_no_realizado'))}",
+            f"  - pasivo acumulado (cupones/divs/amorts): {_monto(t.get('pnl_pasivo'))}",
+            f"  - realizado del día de hoy: {_monto(t.get('pnl_realizado_dia'))}",
+            f"  - total acumulado: {_monto(t.get('pnl_total'))}",
         ]
     else:
         lineas.append("PnL: la cuenta no está en el cache del motor (sin posiciones con "

@@ -366,6 +366,11 @@ def tokenize(texto: str, mapping: dict | None = None) -> tuple[str, dict]:
         spans = _spans_numeros(texto, catalogo)
         if catalogo:
             spans += _spans_catalogo(texto, catalogo)
+        # fichas ya presentes (texto re-tokenizado, ej. resultados de tools):
+        # intocables — jamás re-tachar una ficha
+        fichas = [(m.start(), m.end()) for m in _FICHA_RE.finditer(texto)]
+        spans = [s for s in spans
+                 if all(s[1] <= f0 or s[0] >= f1 for f0, f1 in fichas)]
         limpio = _aplicar_spans(texto, spans, mapping)
         # capa defensiva sobre el texto YA tachado (las fichas no re-matchean:
         # CLIENTE_1 no tiene forma de nombre propio)

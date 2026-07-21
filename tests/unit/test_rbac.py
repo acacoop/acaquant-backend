@@ -79,17 +79,35 @@ def test_ia_es_modulo_canonico():
 
 def test_ia_default_solo_admin():
     # Canary del rollout (2026-07-10): en el bootstrap solo admin lo tiene.
+    # Excepción 2026-07-21: `invitado` lo tiene por decisión del user (con las
+    # condiciones congeladas en test_invitado_ia_con_condiciones).
     for role, mods in DEFAULT_MATRIX.items():
-        if role == "admin":
+        if role in ("admin", "invitado"):
             assert "ia" in mods
         else:
             assert "ia" not in mods, f"{role} no debe tener `ia` por default"
 
 
-def test_invitado_jamas_tiene_ia():
-    # REGLA #8: el portal público jamás ve features de IA. INVITADO_MODULES es
-    # la fuente única del gate del invitado (no depende de la matriz viva).
-    assert "ia" not in roles.INVITADO_MODULES
+def test_invitado_ia_con_condiciones():
+    # DECISIÓN DEL USER 2026-07-21 (pisa el default-deny original): el invitado
+    # SÍ tiene `ia` — pero SOLO los copilotos de vistas de mercado, JAMÁS la
+    # guía (mapea el producto entero) y con presupuesto COMPARTIDO y bajo.
+    assert "ia" in roles.INVITADO_MODULES
+    # CADA invitado conserva su identidad ("guest:<email>": persiste SU
+    # conversación y tiene SU tope). La guía queda solo-internos: el guest no
+    # la puede usar ni listar; las vistas privadas tampoco.
+    from api.services import copiloto
+    g = f"{roles.GUEST_PREFIX}cliente@externo.com"
+    assert roles.es_invitado_id(g) and not roles.es_invitado_id("nico@acavalores.com")
+    assert copiloto.VISTAS["ayuda"]["solo_internos"] is True
+    assert copiloto.puede_usar(g, "ayuda") is False
+    assert copiloto.puede_usar(g, "home") is True      # mercado sí
+    assert copiloto.puede_usar(g, "trading") is False  # privada no
+    vistas = {v["vista"] for v in copiloto.vistas_para(email=g)}
+    assert "ayuda" not in vistas and "home" in vistas
+    # tope diario propio y BAJO por invitado (kill switch de costos)
+    from core import ai
+    assert ai.presupuesto_dia_usuario(g) == 100_000
 
 
 def test_prefijo_api_ia_mapea_al_modulo_ia():

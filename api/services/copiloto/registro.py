@@ -41,6 +41,10 @@ VISTAS: dict[str, dict] = {
         # usuarios internos (gate `ia` + `home`). Vive en el header de las
         # páginas SIN copiloto de datos propio.
         "modulo": "home",
+        # el mapa del guía describe TODO el producto (vistas privadas incluidas)
+        # → JAMÁS para el portal de invitados (REGLA #8), aunque `ia` esté
+        # habilitado para ellos (decisión 2026-07-21: IA sí, guía no).
+        "solo_internos": True,
         "dominio": "cómo usar la plataforma: dónde está cada vista, cómo llegar a "
                    "un dato o función, qué permisos hacen falta — navegación y "
                    "ayuda, NUNCA datos ni análisis",

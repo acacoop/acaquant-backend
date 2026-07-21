@@ -6,10 +6,10 @@ y el prefijo /api/ia ya mapea al módulo en ENDPOINT_MODULE_PREFIXES.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from api.auth import get_user_email, require_admin
+from api.auth import get_user_email, is_guest_portal, require_admin
 from api.services import briefing, copiloto, ia_obs
 
 router = APIRouter(prefix="/api/ia", tags=["ia"])
@@ -93,30 +93,45 @@ class FeedbackCopiloto(BaseModel):
     feedback: int  # 1 = 👍, -1 = 👎
 
 
+def _identidad(request: Request, email: str) -> str:
+    """Portal invitado (2026-07-21, decisión user: IA para invitados): cada
+    invitado conserva SU identidad, marcada con el prefijo "guest:" — así
+    persiste su propia conversación, tiene su tope diario propio (100k default
+    en core/ai) y el acceso a vistas se resuelve contra INVITADO_MODULES (la
+    guía queda excluida), nunca por rol-del-email."""
+    from core.roles import GUEST_PREFIX
+
+    return f"{GUEST_PREFIX}{email}" if is_guest_portal(request) else email
+
+
 @router.get("/copiloto/vistas")
-def copiloto_vistas(email: str = Depends(get_user_email)):
+def copiloto_vistas(request: Request, email: str = Depends(get_user_email)):
     """Vistas del copiloto habilitadas para este usuario (gate por módulo
     RBAC de cada vista). El frontend lo usa como probe: 403 del montaje =
     sin módulo `ia` = ocultar el botón."""
-    return {"vistas": copiloto.vistas_para(email=email)}
+    return {"vistas": copiloto.vistas_para(email=_identidad(request, email))}
 
 
 @router.get("/copiloto/historial")
-def copiloto_historial(limit: int = 8, email: str = Depends(get_user_email)):
+def copiloto_historial(request: Request, limit: int = 8, email: str = Depends(get_user_email)):
     """Última CONVERSACIÓN del usuario con el copiloto (memoria persistente
-    desde ia.trazas — cada chat es su propio mundo)."""
-    return copiloto.historial_persistido(usuario=email, limit=limit)
+    desde ia.trazas — cada chat es su propio mundo). Los invitados también
+    persisten LA SUYA (identidad guest:<email> — pedido del user 2026-07-21:
+    cada correo conserva lo que usó)."""
+    return copiloto.historial_persistido(usuario=_identidad(request, email), limit=limit)
 
 
 @router.post("/copiloto")
-def copiloto_preguntar(body: PreguntaCopiloto, email: str = Depends(get_user_email)):
+def copiloto_preguntar(request: Request, body: PreguntaCopiloto,
+                       email: str = Depends(get_user_email)):
     """Una pregunta sobre la tabla de una vista de mercado. La IA solo ve los
     datos de ESA vista (armados server-side); degrada con ok=False."""
-    if body.vista in copiloto.VISTAS and not copiloto.puede_usar(email, body.vista):
+    quien = _identidad(request, email)
+    if body.vista in copiloto.VISTAS and not copiloto.puede_usar(quien, body.vista):
         raise HTTPException(status_code=403, detail="módulo de la vista no autorizado")
     return copiloto.preguntar(
         vista=body.vista, pregunta=body.pregunta,
-        historial=body.historial, usuario=email, conv_id=body.conv_id,
+        historial=body.historial, usuario=quien, conv_id=body.conv_id,
         params=body.params,
     )
 
@@ -135,8 +150,10 @@ def copiloto_vigia(body: VigiaBody, email: str = Depends(get_user_email)):
 
 
 @router.post("/copiloto/feedback")
-def copiloto_feedback(body: FeedbackCopiloto, email: str = Depends(get_user_email)):
+def copiloto_feedback(request: Request, body: FeedbackCopiloto,
+                      email: str = Depends(get_user_email)):
     """👍/👎 del usuario sobre una respuesta del copiloto → ia.trazas.feedback."""
     return copiloto.registrar_feedback(
-        traza_id=body.traza_id, valor=body.feedback, usuario=email,
+        traza_id=body.traza_id, valor=body.feedback,
+        usuario=_identidad(request, email),
     )

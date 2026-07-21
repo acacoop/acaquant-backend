@@ -22,12 +22,10 @@ def _bloque_otras_vistas(usuario: str | None, vista_actual: str) -> str:
     if not usuario:
         return ""
     try:
-        from core.roles import has_access
-
         otras = [
             (clave, c) for clave, c in VISTAS.items()
             if clave != vista_actual and c.get("dominio")
-            and has_access(usuario, c["modulo"])
+            and _acceso(usuario, c)
         ]
     except Exception as e:
         logger.warning("copiloto: otras vistas no disponibles (%s)", e)
@@ -83,24 +81,33 @@ def _extraer_vista_sugerida(
     if not cfg or clave == vista_actual:
         return texto, None
     try:
-        from core.roles import has_access
-
-        if usuario and has_access(usuario, cfg["modulo"]):
+        if usuario and _acceso(usuario, cfg):
             return texto, {"vista": clave, "titulo": cfg["titulo"]}
     except Exception as e:
         logger.warning("copiloto: no pude validar la vista sugerida (%s)", e)
     return texto, None
 
 
+def _acceso(email: str, cfg: dict) -> bool:
+    """Acceso a una vista del copiloto. Los invitados del portal www llegan
+    con identidad "guest:<email>" (2026-07-21) y NO pasan por roles-por-email
+    (caerían en el rol default de empleados): se chequea EXPLÍCITO contra
+    INVITADO_MODULES, y las vistas solo_internos (la guía, que mapea el
+    producto entero) quedan afuera para ellos."""
+    from core.roles import INVITADO_MODULES, es_invitado_id, has_access
+
+    if es_invitado_id(email):
+        return cfg["modulo"] in INVITADO_MODULES and not cfg.get("solo_internos")
+    return has_access(email, cfg["modulo"])
+
+
 def vistas_para(email: str) -> list[dict]:
     """Vistas del copiloto que este usuario puede usar (gate por módulo RBAC
     de cada vista — el gate del módulo `ia` ya lo puso el montaje del router).
     Los alias (misma config bajo dos claves) se devuelven una sola vez."""
-    from core.roles import has_access
-
     out, vistos = [], set()
     for clave, cfg in VISTAS.items():
-        if id(cfg) in vistos or not has_access(email, cfg["modulo"]):
+        if id(cfg) in vistos or not _acceso(email, cfg):
             continue
         vistos.add(id(cfg))
         out.append({"vista": clave, "titulo": cfg["titulo"],
@@ -109,9 +116,7 @@ def vistas_para(email: str) -> list[dict]:
 
 
 def puede_usar(email: str, vista: str) -> bool:
-    from core.roles import has_access
-
     cfg = VISTAS.get(vista)
-    return bool(cfg) and has_access(email, cfg["modulo"])
+    return bool(cfg) and _acceso(email, cfg)
 
 

@@ -197,6 +197,14 @@ def presupuesto_dia_usuario(usuario: str | None = None) -> int:
         propio = cfgdb.get(f"budget_dia_usuario:{usuario}")
         if propio:
             return propio
+        # Invitados del portal www (2026-07-21): CADA email de invitado tiene
+        # su propio tope diario, más BAJO que el de la mesa (default 100k) —
+        # editable por email como excepción personal en Manager (la clave de
+        # arriba pisa este default).
+        from core.roles import es_invitado_id
+
+        if es_invitado_id(usuario):
+            return int(os.getenv("AI_BUDGET_TOKENS_DIA_INVITADO", "100000"))
     v = cfgdb.get("budget_dia_usuario")
     return v if v else int(os.getenv("AI_BUDGET_TOKENS_DIA_USUARIO", "1000000"))
 

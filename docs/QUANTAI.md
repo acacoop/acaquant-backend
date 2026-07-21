@@ -27,8 +27,13 @@ calendario.
   endpoints con `require_module("ia")` (el front es cosmético, el gate real es
   el server). Sirve de rollout gradual (primero el admin, después la mesa),
   control de costos por usuario y kill switch (sacar el módulo = la IA
-  desaparece en ~60s, TTL del cache de roles). El rol `invitado` JAMÁS tiene
-  `ia` (default-deny del portal público, REGLA #8).
+  desaparece en ~60s, TTL del cache de roles). El rol `invitado`: la decisión
+  original era default-deny total; el 2026-07-21 el user decidió habilitarle
+  `ia` CON CONDICIONES (congeladas en test): solo los copilotos de vistas de
+  MERCADO que ya ve, JAMÁS la guía de la plataforma (mapea el producto entero),
+  cada invitado con SU identidad ("guest:<email>" — persiste su propia
+  conversación) y SU tope diario bajo (100k default, editable por email en
+  Manager).
 - **Sin MCP como base.** El copiloto y todo lo interactivo va NATIVO en la app
   (endpoints propios + panel propio). El MCP server existente queda como está
   (conector de claude.ai para RV) pero no es la plataforma de esto.
@@ -189,7 +194,7 @@ el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
 además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.74 (2026-07-20) — 10 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
+**Estado: v1.76 (2026-07-21) — 10 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
 TRADING (+ el VIGÍA reactivo + memoria de 7 ruedas + modo propositivo de setups),
 RENTA FIJA, AGRO, OPCIONES (derivados), ONs,
 REUTERS (tablero live de subyacentes US, feed Eikon — ver

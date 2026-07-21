@@ -127,8 +127,26 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "invitado": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
+        # `ia` para invitados: DECISIÓN DEL USER 2026-07-21 (pisa la decisión
+        # original de QUANTAI "invitado jamás tiene ia"). Solo habilita los
+        # copilotos de las vistas de MERCADO que el invitado ya ve; la vista
+        # `ayuda` (mapa interno del producto) queda EXCLUIDA (solo_internos en
+        # el registro del copiloto) y el presupuesto es COMPARTIDO entre todos
+        # los invitados con tope propio (GUEST_USER, 100k/día default).
+        "ia",
     ),
 }
+
+# Prefijo de identidad de los invitados del portal www en presupuesto/trazas/
+# historial: "guest:<email>". Cada invitado conserva SU identidad (persiste su
+# conversación, tiene su propio tope diario bajo) pero queda marcado como
+# externo — el acceso a vistas del copiloto se resuelve contra
+# INVITADO_MODULES, nunca por rol-del-email (caería en el rol default).
+GUEST_PREFIX = "guest:"
+
+
+def es_invitado_id(usuario: str | None) -> bool:
+    return bool(usuario) and str(usuario).startswith(GUEST_PREFIX)
 # `operar` (DOLAR MEP + envío de órdenes) queda SOLO para admin de momento
 # — decisión 2026-05-17. Si Manager.RoleMatrix ya está poblada, además hay
 # que sacarlo de trader/sales desde /manager → ROLES Y PERMISOS (la DB pisa

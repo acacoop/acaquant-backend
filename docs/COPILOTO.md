@@ -117,6 +117,26 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.76 (IA para INVITADOS — decisión user, con condiciones de seguridad)
+El user habilitó la IA en el portal público www (pisa el default-deny original
+de QUANTAI, asentado allá). El paquete acordado:
+- **[RBAC]** `ia` en INVITADO_MODULES: el invitado ve los copilotos de las
+  vistas de MERCADO que ya tenía (home/RF/RV/agro/derivados/ONs).
+- **[seguridad] la GUÍA queda EXCLUIDA** (`solo_internos` en el registro —
+  mapea el producto entero, REGLA #8): el acceso del invitado se resuelve
+  EXPLÍCITO contra INVITADO_MODULES en `derivacion._acceso()` (listado,
+  pregunta, derivación y sugerencias — la identidad compartida no puede pasar
+  por roles-por-email, caería en el rol default). Header: sin botón guía para
+  guests.
+- **[identidad] cada invitado ES su email** (corrección del user sobre la
+  primera versión compartida): identidad "guest:<email>" → persiste SU
+  conversación (la memoria del panel funciona igual que para la mesa) y tiene
+  SU tope diario propio de **100k tokens/día** (default en core/ai, editable
+  por email como excepción personal en Manager). El prefijo además marca al
+  externo en las trazas de OBSERVABILIDAD.
+- Tests de seguridad actualizados: `test_invitado_ia_con_condiciones` congela
+  el paquete completo (guía excluida, trading excluido, tope 100k por guest).
+
 ### 2026-07-21 — v1.75 (veredicto del piloto de tools: FUNCIONA + fix "herramienta ofrecida")
 Piloto corrido en prod por el user (3 preguntas): (1) "¿cómo evolucionó la TEA
 de TX26 desde abril?" → pidió la serie solo y respondió con fechas/valores

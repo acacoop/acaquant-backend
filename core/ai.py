@@ -41,7 +41,7 @@ load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
 
 logger = logging.getLogger(__name__)
 
-_MAX_ERROR_CHARS = 300  # techo del texto de error que se persiste en la traza
+_MAX_ERROR_CHARS = 700  # techo del texto de error que se persiste en la traza
 
 # Registro de tareas: tier "flash" = redacción/clasificación barata; "pro" =
 # razonamiento pesado. `thinking`: "enabled"/"disabled" — VERIFICADO contra la

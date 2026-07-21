@@ -49,7 +49,10 @@ load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
 
 logger = logging.getLogger(__name__)
 
-_MAX_ERROR_BODY = 200  # chars del body de error que viajan en RespuestaLLM.error
+# Body de error que viaja en RespuestaLLM.error. Generoso a propósito: un 400
+# del proveedor recién dice QUÉ parámetro rechaza en el medio del JSON, y con
+# 200 chars el diagnóstico quedaba cortado (caso 2026-07-21).
+_MAX_ERROR_BODY = 500
 
 PROVEEDOR_DEFAULT = "deepseek"
 

@@ -45,13 +45,27 @@ def _resumen(cur, limite: int, tarea: str | None) -> None:
     print(f"{'ts (UTC)':<20} {'tarea':<20} {'usuario':<22} {'ok':<3} "
           f"{'tok_in':>7} {'tok_out':>7} {'cache%':>6} {'lat_ms':>7}  detalle/error")
     print("─" * 124)
+    errores: list[tuple] = []
     for ts, tar, usr, _mod, ok, ti, to, lat, hit, det, err in filas:
         estado = "✓" if ok else "✗"
         # % del input que pegó en el caché del proveedor (~10x más barato)
         cache = f"{round(100 * hit / ti)}%" if (hit is not None and ti) else "-"
-        extra = (err or det or "")[:52]
+        # una línea por traza: el error se resume acá y va COMPLETO abajo
+        extra = " ".join((err or det or "").split())[:52]
         print(f"{str(ts)[:19]:<20} {(tar or '')[:20]:<20} {(usr or '')[:22]:<22} "
               f"{estado:<3} {_n(ti):>7} {_n(to):>7} {cache:>6} {_n(lat):>7}  {extra}")
+        if err:
+            errores.append((ts, tar, usr, err))
+
+    # Los errores ENTEROS al final: cortados a 52 chars no se puede diagnosticar
+    # nada (un 400 del proveedor dice QUÉ parámetro rechaza recién en el medio).
+    if errores:
+        print("\n" + "═" * 124)
+        print("ERRORES COMPLETOS")
+        for ts, tar, usr, err in errores:
+            print("─" * 124)
+            print(f"{str(ts)[:19]} · {tar} · {usr or '-'}")
+            print(err)
 
 
 def _buscar(cur, texto: str, limite: int) -> None:

@@ -38,26 +38,44 @@ _TITULOS_TIPO = {
 def _marcar(pedido_id: int, estado: str, nota: str | None) -> None:
     if estado not in _ESTADOS:
         raise SystemExit(f"estado inválido: {estado!r} (válidos: {', '.join(_ESTADOS)})")
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE manager.pedidos SET estado = %s, "
-            "notas = COALESCE(%s, notas) WHERE id = %s",
-            (estado, nota, pedido_id))
-        if cur.rowcount == 0:
-            raise SystemExit(f"no existe el pedido #{pedido_id}")
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE manager.pedidos SET estado = %s, "
+                "notas = COALESCE(%s, notas) WHERE id = %s",
+                (estado, nota, pedido_id))
+            if cur.rowcount == 0:
+                raise SystemExit(f"no existe el pedido #{pedido_id}")
+    except Exception as e:
+        if "manager.pedidos" in str(e) and "exist" in str(e).lower():
+            raise SystemExit(_FALTA_TABLA) from None
+        raise
     print(f"#{pedido_id} → {estado}" + (f" · {nota}" if nota else ""))
+
+
+_FALTA_TABLA = (
+    "La tabla manager.pedidos todavía no existe en la base.\n"
+    "Aplicá el schema y volvé a correr:\n"
+    "    python -m scripts.apply_schema && systemctl restart api.service"
+)
 
 
 def _leer(estado: str | None) -> list[dict]:
     cond, params = "", ()
     if estado:
         cond, params = "WHERE estado = %s", (estado,)
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            f"SELECT id, ts, usuario, vista, tipo, titulo, texto, contexto, estado, notas "
-            f"FROM manager.pedidos {cond} ORDER BY ts DESC", params)
-        cols = [c.name for c in cur.description]
-        return [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT id, ts, usuario, vista, tipo, titulo, texto, contexto, estado, notas "
+                f"FROM manager.pedidos {cond} ORDER BY ts DESC", params)
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
+    except Exception as e:
+        # un traceback de psycopg no le dice a nadie QUÉ hacer
+        if "manager.pedidos" in str(e) and "exist" in str(e).lower():
+            raise SystemExit(_FALTA_TABLA) from None
+        raise
 
 
 def _render(pedidos: list[dict]) -> str:

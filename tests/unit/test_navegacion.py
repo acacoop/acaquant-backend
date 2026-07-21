@@ -52,9 +52,46 @@ def test_fecha_mal_formada_se_rechaza():
     assert r["ok"] is False and "YYYY-MM-DD" in r["error"]
 
 
-def test_texto_libre_se_capa():
-    r = nav.resolver("operaciones_volumen", {"cuenta": "x" * 300}, "u@x.com")
-    assert r["ok"] and len(r["estado"]["ops.search"]) <= 80
+# ── resolución de CUENTA (el paso que faltaba, cazado por el user) ──────────
+
+CUENTAS_FAKE = [("805", "MOLLO, NICOLAS EZEQUIEL"), ("900", "PEREZ, JUAN")]
+
+
+@pytest.fixture
+def cuentas(monkeypatch):
+    monkeypatch.setattr(nav, "_cuentas", lambda: CUENTAS_FAKE)
+
+
+def test_cuenta_se_resuelve_a_la_denominacion_exacta(cuentas):
+    """El user dijo 'nicolas mollo' pero la cuenta es 'MOLLO, NICOLAS
+    EZEQUIEL': el código resuelve, y setea el filtro REAL (ops.denominacion),
+    no solo el texto del buscador."""
+    r = nav.resolver("operaciones_volumen", {"cuenta": "nicolas mollo"}, "u@x.com")
+    assert r["ok"]
+    assert r["estado"]["ops.denominacion"] == "MOLLO, NICOLAS EZEQUIEL"
+    assert r["estado"]["ops.search"] == "MOLLO, NICOLAS EZEQUIEL"
+
+
+def test_cuenta_por_numero(cuentas):
+    r = nav.resolver("operaciones_volumen", {"cuenta": "805"}, "u@x.com")
+    assert r["ok"] and r["estado"]["ops.denominacion"] == "MOLLO, NICOLAS EZEQUIEL"
+
+
+def test_cuenta_ambigua_o_inexistente_se_rechaza(cuentas):
+    r = nav.resolver("operaciones_volumen", {"cuenta": "zzz"}, "u@x.com")
+    assert r["ok"] is False and "no encontré" in r["error"]
+
+
+def test_la_denominacion_real_NO_vuelve_al_modelo(cuentas):
+    """PRIVACIDAD: el guía habla con el proveedor barato — la denominación
+    canónica del cliente va al FRONTEND, nunca al modelo."""
+    buzon: dict = {}
+    salida = nav.ejecutor(buzon, "u@x.com")(
+        "abrir_vista", {"destino": "operaciones_volumen",
+                        "filtros": {"cuenta": "nicolas mollo"}})
+    assert "EZEQUIEL" not in salida and "MOLLO" not in salida
+    assert buzon["navegacion"]["estado"]["ops.denominacion"] == "MOLLO, NICOLAS EZEQUIEL"
+    assert "MOLLO" in buzon["navegacion"]["resumen"]  # el botón sí lo muestra
 
 
 # ── el contrato con el frontend (claves de sessionStorage) ───────────────────

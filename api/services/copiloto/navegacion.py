@@ -95,8 +95,12 @@ _DESTINOS: dict[str, dict] = {
             "nivel_3": _f("ops.nivel3", "enum", catalogo="niveles3",
                           ayuda="segmento del boleto (nivel 3)"),
             "moneda": _f("ops.moneda", "enum", valores=["ARS", "USD", "USD_DOL"]),
-            "cuenta": _f("ops.search", "texto",
-                         ayuda="texto del buscador de cuenta (nombre o número)"),
+            # tipo `cuenta`: el CÓDIGO resuelve el nombre/número que dio el
+            # usuario contra el catálogo real de cuentas y deja seleccionada la
+            # denominación EXACTA (el filtro de verdad de la vista). Sin esto
+            # solo se escribía texto en el buscador y no filtraba nada.
+            "cuenta": _f("ops.denominacion", "cuenta",
+                         ayuda="nombre o número de cuenta tal como lo dijo el usuario"),
             "desde": _f("ops.desde", "fecha", con=_RANGO),
             "hasta": _f("ops.hasta", "fecha", con=_RANGO),
         },
@@ -191,6 +195,57 @@ def _validar_fecha(v: str) -> str | None:
     return v if _RE_ISO.match(v) else None
 
 
+@cached(ttl=3600)
+def _cuentas() -> list[tuple[str, str]]:
+    """(id_cuenta, denominación) del catálogo real. Cache 1h."""
+    try:
+        filas = (_ops().ops_cuentas_list() or {}).get("cuentas") or []
+        return [(str(c.get("cuenta") or ""), str(c.get("denominacion") or ""))
+                for c in filas if c.get("denominacion")]
+    except Exception as e:
+        logger.warning("navegacion: catálogo de cuentas no disponible (%s)", e)
+        return []
+
+
+def _resolver_cuenta(texto: str) -> str | None:
+    """Resuelve lo que dijo el usuario ('nicolas mollo', '805') a la
+    DENOMINACIÓN EXACTA del catálogo ('MOLLO, NICOLAS EZEQUIEL') — que es lo
+    que la vista usa para filtrar de verdad.
+
+    Corre DENTRO del perímetro y el resultado va al FRONTEND, no al modelo
+    (ver `ejecutor`): el proveedor nunca recibe la denominación canónica.
+    Match por número de cuenta exacto, denominación exacta, y por PALABRAS
+    (todas las que dijo el usuario tienen que estar) con dueño único —
+    'nicolas mollo' matchea 'MOLLO, NICOLAS EZEQUIEL' aunque esté al revés."""
+    t = str(texto or "").strip()
+    if not t:
+        return None
+    cuentas = _cuentas()
+    if not cuentas:
+        return None
+    tl = _norm_txt(t)
+    for idc, den in cuentas:
+        if idc and idc.lower() == tl:
+            return den
+    for _idc, den in cuentas:
+        if _norm_txt(den) == tl:
+            return den
+    palabras = [p for p in tl.split() if len(p) >= 3]
+    if not palabras:
+        return None
+    candidatas = [den for _i, den in cuentas
+                  if all(p in _norm_txt(den) for p in palabras)]
+    return candidatas[0] if len(candidatas) == 1 else None
+
+
+def _norm_txt(s: str) -> str:
+    """minúsculas, sin acentos ni puntuación — para comparar nombres."""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(s or ""))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9 ]+", " ", re.sub(r"\s+", " ", s.lower())).strip()
+
+
 def _match_catalogo(valor: str, opciones: list[str]) -> str | None:
     """Match tolerante → devuelve el valor CANÓNICO del catálogo. Tres pasadas:
     exacta (case-insensitive), parcial con dueño único, y por ÚLTIMO fuzzy —
@@ -247,6 +302,9 @@ def descripcion_destinos(usuario: str | None) -> str:
                     "no disponible ahora — no lo uses")
             elif f["tipo"] == "fecha":
                 detalle = "fecha YYYY-MM-DD"
+            elif f["tipo"] == "cuenta":
+                detalle = ("pasá el nombre o número TAL CUAL lo dijo el usuario — "
+                           "el sistema lo resuelve a la cuenta exacta")
             else:
                 detalle = "texto libre"
             extra = f" ({f['ayuda']})" if f["ayuda"] else ""
@@ -274,7 +332,8 @@ def resolver(destino: str, filtros: dict | None, usuario: str | None) -> dict:
         return {"ok": False, "error": "no pude verificar el permiso de esa vista"}
 
     estado = dict(d["estado_base"])
-    resumen: list[str] = []
+    resumen: list[str] = []        # para el BOTÓN (frontend, usuario autorizado)
+    resumen_llm: list[str] = []    # para el MODELO — sin identidades
     rechazos: list[str] = []
     for nombre, valor in (filtros or {}).items():
         f = (d["filtros"] or {}).get(str(nombre).strip())
@@ -293,6 +352,7 @@ def resolver(destino: str, filtros: dict | None, usuario: str | None) -> dict:
                 continue
             estado[f["clave"]] = canonico
             resumen.append(f"{nombre}: {canonico}")
+            resumen_llm.append(f"{nombre}: {canonico}")
         elif f["tipo"] == "fecha":
             iso = _validar_fecha(str(valor))
             if iso is None:
@@ -300,15 +360,32 @@ def resolver(destino: str, filtros: dict | None, usuario: str | None) -> dict:
                 continue
             estado[f["clave"]] = iso
             resumen.append(f"{nombre}: {iso}")
+            resumen_llm.append(f"{nombre}: {iso}")
+        elif f["tipo"] == "cuenta":
+            den = _resolver_cuenta(str(valor))
+            if den is None:
+                rechazos.append(
+                    f"no encontré una cuenta única para {str(valor)[:40]!r} — pedile "
+                    "al usuario el número de cuenta o el nombre como figura")
+                continue
+            estado[f["clave"]] = den
+            # el buscador muestra el texto; el filtro real es la denominación
+            estado["ops.search"] = den
+            resumen.append(f"cuenta: {den}")
+            # al MODELO no le vuelve la denominación canónica (es identidad de
+            # un cliente y este copiloto habla con el proveedor barato)
+            resumen_llm.append("cuenta: la que pidió el usuario")
         else:
             estado[f["clave"]] = str(valor)[:80]
             resumen.append(f"{nombre}: {valor}")
+            resumen_llm.append(f"{nombre}: {valor}")
         estado.update(f["con"])
 
     if rechazos:
         return {"ok": False, "error": "no pude aplicar: " + " · ".join(rechazos)}
     return {"ok": True, "ruta": d["ruta"], "titulo": d["titulo"],
-            "estado": estado, "resumen": " · ".join(resumen)}
+            "estado": estado, "resumen": " · ".join(resumen),
+            "resumen_llm": " · ".join(resumen_llm)}
 
 
 # ── La tool que ve el modelo ─────────────────────────────────────────────────
@@ -365,8 +442,11 @@ def ejecutor(contenedor: dict, usuario: str | None):
             "ruta": r["ruta"], "estado": r["estado"],
             "titulo": r["titulo"], "resumen": r["resumen"],
         }
+        # OJO: al modelo le vuelve el resumen SIN identidades (resumen_llm);
+        # el completo (con la denominación real de la cuenta) va en el buzón,
+        # que lo consume el frontend del usuario autorizado.
         return (f"listo: se le va a ofrecer abrir {r['titulo']}"
-                + (f" con {r['resumen']}" if r["resumen"] else " sin filtros")
+                + (f" con {r['resumen_llm']}" if r["resumen_llm"] else " sin filtros")
                 + ". Confirmale en UNA frase qué va a ver ahí (sin listar los pasos "
                   "de navegación, el botón ya lo lleva) y NO inventes ningún número.")
 

@@ -154,6 +154,15 @@ El dato lo pinta la vista → cero datos al proveedor, cero alucinación posible
   Efecto lateral útil: con el asistente en falla, la navegación sigue viva.
 - **[matcher] tolera typos**: "byam" → BYMA (fuzzy con dueño único, tras las
   pasadas exacta y parcial). Caso real de la primera prueba del user.
+- **[cuenta] el paso que faltaba (cazado por el user)**: `ops.search` es SOLO
+  el texto del buscador — el filtro real es `selDenom`, que no se persistía →
+  el guía escribía el nombre y no filtraba nada. Ahora: `selDenom` persiste
+  (`ops.denominacion`) y el filtro es de tipo `cuenta`: el CÓDIGO resuelve lo
+  que dijo el usuario ("nicolas mollo", "805") a la denominación EXACTA del
+  catálogo ("MOLLO, NICOLAS EZEQUIEL") por número, exacta o por palabras con
+  dueño único. **Privacidad:** la denominación canónica va al FRONTEND, jamás
+  vuelve al modelo (el guía habla con el proveedor barato) — el resumen se
+  parte en uno para el botón y otro para el LLM.
 - **Privacidad:** esta capacidad NO ve datos (solo metadata de filtros) → se
   queda en el proveedor barato. Ver QUANTAI.
 

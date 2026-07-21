@@ -149,6 +149,57 @@ def test_rbac_modulo_asistente_existe_y_es_admin_only():
     assert "asistente" not in INVITADO_MODULES  # REGLA #8 — jamás el portal www
 
 
-def test_rbac_prefijo_mapeado():
-    from api.auth import get_module_for_path
-    assert get_module_for_path("/api/asistente/chat") == "asistente"
+# ── 3. la vista `negocio` del copiloto (M2: un solo asistente, mismo panel) ──
+
+def test_negocio_registrada_con_gate_y_handler():
+    from api.services.copiloto import VISTAS
+    cfg = VISTAS["negocio"]
+    assert cfg["modulo"] == "asistente"          # gate fino: solo jefes
+    assert cfg.get("solo_internos") is True      # REGLA #8: jamás el portal www
+    assert callable(cfg.get("handler"))
+    assert "fetch" not in cfg                    # sin tabla: el cerebro es el asistente
+
+
+def test_negocio_invitado_jamas():
+    from api.services.copiloto.derivacion import _acceso
+    from api.services.copiloto.registro import VISTAS
+    assert _acceso("guest:alguien@aca.com.ar", VISTAS["negocio"]) is False
+
+
+def test_motor_despacha_al_handler(monkeypatch):
+    from api.services import copiloto
+    visto = {}
+
+    def handler_fake(**kw):
+        visto.update(kw)
+        return {"ok": True, "respuesta": "hola", "traza_id": 1,
+                "vista_sugerida": None, "numeros_sin_respaldo": []}
+
+    monkeypatch.setitem(copiloto.VISTAS["negocio"], "handler", handler_fake)
+    r = copiloto.preguntar(vista="negocio", pregunta="resumen",
+                           usuario="jefe@x.com", conv_id="c1")
+    assert r["ok"] and visto["conv_id"] == "c1" and visto["usuario"] == "jefe@x.com"
+
+
+def test_handler_negocio_adapta_respuesta(monkeypatch):
+    from api.services import asistente as asx
+    from api.services.copiloto.negocio import _handler_negocio
+    monkeypatch.setattr(asx, "responder",
+                        lambda **kw: {"ok": True, "chat_id": kw["chat_id"],
+                                      "respuesta": "todo bien", "traza_id": 9})
+    monkeypatch.setattr("api.services.copiloto.motor._marcar_conversacion",
+                        lambda t, c: None)
+    r = _handler_negocio(pregunta="resumen", usuario="jefe@x.com",
+                         conv_id="c9", historial=None, params=None)
+    assert r["ok"] and r["respuesta"] == "todo bien" and r["traza_id"] == 9
+
+
+def test_handler_negocio_mapea_presupuesto(monkeypatch):
+    from api.services import asistente as asx
+    from api.services.copiloto.negocio import _handler_negocio
+    monkeypatch.setattr(asx, "responder",
+                        lambda **kw: {"ok": False, "motivo": "presupuesto",
+                                      "cual": "global", "mensaje": "x"})
+    r = _handler_negocio(pregunta="resumen", usuario="jefe@x.com",
+                         conv_id=None, historial=None, params=None)
+    assert r == {"ok": False, "error": "presupuesto_global"}

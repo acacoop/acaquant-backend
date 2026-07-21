@@ -26,4 +26,4 @@ _(pendiente de enriquecimiento)_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.routers.asistente]]  ·  _module_
+- [[api.services.copiloto.negocio]]  ·  _module_

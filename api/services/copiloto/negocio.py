@@ -1,0 +1,54 @@
+"""copiloto/negocio.py — vista NEGOCIO: el asistente de negocio (QuantAI P7)
+DENTRO del mismo panel "Consultale a la IA" de siempre (decisión del user
+2026-07-21: UN solo asistente, ninguna pantalla nueva).
+
+A diferencia de las vistas de mercado, acá no hay tabla TSV: el cerebro es
+`api/services/asistente.py` (la ADUANA core/pii_gateway + tools token-in/
+token-out + transcript propio por conversación). Esta vista es el ADAPTADOR:
+traduce el contrato del copiloto (pregunta/conv_id) al del asistente y su
+respuesta al shape del panel. El motor la despacha por `handler` (sin fetch,
+sin verificación de números — el asistente tiene su propia garantía: la IA
+solo narra lo que las tools devuelven, ya tokenizado).
+
+Gate: módulo RBAC `asistente` (admin-only por default) + `solo_internos`
+(JAMÁS el portal invitado — REGLA #8). La memoria es server-side: el
+transcript vive en manager.asistente_chats por conv_id — el historial que
+manda el panel se ignora (contiene nombres reales ya detokenizados; el
+asistente re-tokeniza el suyo propio al cargarlo).
+"""
+from __future__ import annotations
+
+_CHIPS_NEGOCIO = [
+    {"label": "Resumen de la mesa",
+     "pregunta": "Dame el resumen del negocio de hoy: AuM total administrado, "
+                 "cuántas cuentas con tenencia y cómo se reparte por segmento. "
+                 "Cortito y ejecutivo, conclusión primero."},
+    {"label": "¿Cómo viene un cliente?",
+     "pregunta": "Quiero ver cómo viene una cuenta puntual (tenencia y "
+                 "resultado). Decime qué datos necesitás de mi parte."},
+]
+
+
+def _handler_negocio(*, pregunta: str, usuario: str | None, conv_id: str | None,
+                     historial: list[dict] | None, params: dict | None) -> dict:
+    """Adapta asistente.responder al contrato del panel. El conv_id del panel
+    ES el chat_id del asistente (misma conversación = mismas fichas)."""
+    from api.services import asistente
+
+    r = asistente.responder(mensaje=pregunta, email=usuario or "", chat_id=conv_id)
+    if not r.get("ok"):
+        if r.get("motivo") == "presupuesto":
+            return {"ok": False, "error": f"presupuesto_{r.get('cual') or 'usuario'}"}
+        return {"ok": False, "error": "ia_no_disponible"}
+
+    traza_id = r.get("traza_id")
+    if traza_id and conv_id:
+        from .motor import _marcar_conversacion
+        _marcar_conversacion(traza_id, conv_id)
+    return {
+        "ok": True,
+        "respuesta": r["respuesta"],
+        "traza_id": traza_id,
+        "vista_sugerida": None,
+        "numeros_sin_respaldo": [],
+    }

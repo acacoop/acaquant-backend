@@ -105,7 +105,7 @@ def responder(*, mensaje: str, email: str, chat_id: str | None = None) -> dict:
                 "mensaje": "el asistente no está disponible en este momento"}
     motivo = ai.motivo_presupuesto(email)
     if motivo:
-        return {"ok": False, "motivo": "presupuesto",
+        return {"ok": False, "motivo": "presupuesto", "cual": motivo,
                 "mensaje": ("se agotó tu cupo diario de IA"
                             if motivo == "usuario" else
                             "se agotó el cupo diario de IA del sistema")}
@@ -139,9 +139,11 @@ def responder(*, mensaje: str, email: str, chat_id: str | None = None) -> dict:
 
     if not texto:
         motivo = ai.motivo_presupuesto(email)
+        if motivo:
+            return {"ok": False, "motivo": "presupuesto", "cual": motivo,
+                    "chat_id": chat_id, "mensaje": "se agotó el cupo diario de IA"}
         return {"ok": False, "motivo": "llm", "chat_id": chat_id,
-                "mensaje": ("se agotó el cupo diario de IA" if motivo else
-                            "el asistente no pudo responder — probá de nuevo en un rato")}
+                "mensaje": "el asistente no pudo responder — probá de nuevo en un rato"}
 
     respuesta = pii_gateway.detokenize(texto, mapping)
     _persistir(chat_id, email, [("user", mensaje), ("assistant", respuesta)])

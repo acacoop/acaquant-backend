@@ -60,7 +60,6 @@
 "api.ratelimit",
 "api.routers",
 "api.routers.analitica",
-"api.routers.asistente",
 "api.routers.back_office",
 "api.routers.calendario",
 "api.routers.carteras",
@@ -90,9 +89,7 @@
 "api.routers.trading",
 "api.routers.valuaciones",
 "api.telemetria",
-"config",
-"core",
-"core.llm"
+"config"
 ]
 },
 {
@@ -248,20 +245,6 @@
 "api.services.renta_fija",
 "api.services.renta_fija_sql",
 "api.services.sensibilidad"
-]
-},
-{
-"id": "api.routers.asistente",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api\\routers\\asistente.py",
-"summary": "api/routers/asistente.py — ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md).",
-"links": [
-"api.auth",
-"api.ratelimit",
-"api.services",
-"api.services.asistente"
 ]
 },
 {
@@ -1677,6 +1660,18 @@
 "core.ai",
 "core.postgres",
 "core.roles"
+]
+},
+{
+"id": "api.services.copiloto.negocio",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\negocio.py",
+"summary": "copiloto/negocio.py — vista NEGOCIO: el asistente de negocio (QuantAI P7)",
+"links": [
+"api.services",
+"api.services.asistente"
 ]
 },
 {

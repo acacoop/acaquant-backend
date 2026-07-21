@@ -19,7 +19,6 @@ Regla dura: `core/` no importa nada del resto del proyecto salvo `config` — es
 Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 
 ## Lo usan (backlinks) ←
-- [[api.main]]  ·  _module_
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.routers.manager.options]]  ·  _module_
 - [[api.routers.titulos]]  ·  _module_

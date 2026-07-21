@@ -60,6 +60,11 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = copiloto.VISTAS[args.vista]
+    if cfg.get("handler"):
+        print(f"la vista {args.vista!r} no arma contexto TSV: la despacha su handler "
+              "(el asistente de negocio — su 'contexto' son las tools + la aduana; "
+              "auditar qué salió del perímetro se hace en ia.trazas, columna detalle)")
+        return
     filas = cfg["fetch"](None)
     enriquecer = cfg.get("enriquecer")
     if enriquecer:

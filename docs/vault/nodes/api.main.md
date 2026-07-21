@@ -31,7 +31,6 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.ratelimit]]  ·  _module_
 - [[api.routers]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
-- [[api.routers.asistente]]  ·  _module_
 - [[api.routers.back_office]]  ·  _module_
 - [[api.routers.calendario]]  ·  _module_
 - [[api.routers.carteras]]  ·  _module_
@@ -62,5 +61,3 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.routers.valuaciones]]  ·  _module_
 - [[api.telemetria]]  ·  _module_
 - [[config]]  ·  _module_
-- [[core]]  ·  _module_
-- [[core.llm]]  ·  _module_

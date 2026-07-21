@@ -239,10 +239,10 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     # queda cableado ANTES de que exista el primer endpoint: cualquier router
     # futuro bajo /api/ia nace default-deny (solo roles con el módulo tildado).
     ("/api/ia",          "ia"),
-    # /api/asistente → ASISTENTE DE NEGOCIO (QuantAI P7): datos del negocio →
-    # admin-only por default, nunca invitado (REGLA #8).
-    ("/api/asistente",   "asistente"),
 )
+# Nota: el módulo `asistente` (ASISTENTE DE NEGOCIO, QuantAI P7) no tiene
+# prefijo propio — vive como vista `negocio` del copiloto bajo /api/ia y el
+# gate fino lo aplica el registro del copiloto (derivacion._acceso).
 
 
 def get_module_for_path(path: str) -> str | None:

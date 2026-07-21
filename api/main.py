@@ -26,7 +26,6 @@ from api.profiling import maybe_add_profiler
 from api.ratelimit import limiter
 from api.routers import (
     analitica,
-    asistente,
     back_office,
     calendario,
     carteras,
@@ -259,20 +258,10 @@ app.include_router(research_bcra.router,      dependencies=_PUBLIC)  # tab BCRA 
 app.include_router(research_fred.router,      dependencies=_PUBLIC)  # tab Datos Internacionales / FRED (gate módulo `research` en el router) — docs/RESEARCH_FRED.md
 app.include_router(research_docs.router,      dependencies=_PUBLIC)  # documentos manuales de REPORTES FINANCIEROS (gate módulo `research` en el router)
 app.include_router(trading.router,            dependencies=_TRADING)  # vista TRADING (admin)
+# ia.router incluye el copiloto y su vista `negocio` (ASISTENTE DE NEGOCIO,
+# QuantAI P7): mismo panel para todo; el gate fino de negocio es el módulo
+# `asistente` en el registro del copiloto (admin-only, jamás invitado).
 app.include_router(ia.router,                 dependencies=_IA)       # IA (QuantAI) — gate módulo `ia`
-
-# ASISTENTE DE NEGOCIO (QuantAI P7): feature flag = credencial del transporte
-# LLM (patrón MCP: sin credencial, el endpoint NO existe). Gate módulo
-# `asistente` (admin-only por default, jamás invitado — REGLA #8).
-from core import llm as _llm  # noqa: E402  (flag de montaje, no lógica)
-
-if _llm.configurado():
-    app.include_router(
-        asistente.router,
-        dependencies=[Depends(verify_api_key), Depends(require_module("asistente"))],
-    )
-else:
-    logger.info("asistente de negocio deshabilitado (transporte LLM sin credencial)")
 
 # Restringidos a roles con el módulo respectivo:
 app.include_router(carteras.router,          dependencies=_PORTFOLIOS)

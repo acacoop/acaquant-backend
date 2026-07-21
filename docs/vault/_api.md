@@ -19,7 +19,6 @@
 - [[api.ratelimit]] — Rate limiter compartido — instancia única de slowapi.
 - [[api.routers]]
 - [[api.routers.analitica]] — Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.
-- [[api.routers.asistente]] — api/routers/asistente.py — ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md).
 - [[api.routers.back_office]] — Router /api/back-office — sección Back Office.
 - [[api.routers.calendario]] — GET /api/calendario — calendario económico (watchlist HOME, tab CALENDARIO).
 - [[api.routers.carteras]] — Router Portfolio — thin wrappers sobre `api.services.portfolio`.
@@ -122,6 +121,7 @@
 - [[api.services.copiloto.derivacion]] — copiloto/derivacion.py — derivación entre vistas: el marcador [[VISTA:x]], el
 - [[api.services.copiloto.home]] — copiloto/home.py — vista HOME (panorama del mercado): watchlist + briefing +
 - [[api.services.copiloto.motor]] — copiloto/motor.py — el orquestador: preguntar() (una pregunta → contexto →
+- [[api.services.copiloto.negocio]] — copiloto/negocio.py — vista NEGOCIO: el asistente de negocio (QuantAI P7)
 - [[api.services.copiloto.ons]] — copiloto/ons.py — vista ONs (deuda corporativa): curva por sector, pagos.
 - [[api.services.copiloto.opciones]] — copiloto/opciones.py — vista OPCIONES (derivados): cadena GGAL, IV, griegas.
 - [[api.services.copiloto.registro]] — copiloto/registro.py — el registro VISTAS: ensambla cada vista (fetch,

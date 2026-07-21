@@ -66,6 +66,14 @@ def preguntar(
     if not pregunta:
         return {"ok": False, "error": "pregunta_vacia"}
 
+    # Vistas con HANDLER propio (negocio → asistente de negocio, QuantAI P7):
+    # el flujo completo (aduana PII, tools, presupuesto, transcript) vive en
+    # su cerebro — el motor solo despacha. El gate RBAC ya pasó en el router.
+    handler = cfg.get("handler")
+    if handler:
+        return handler(pregunta=pregunta, usuario=usuario, conv_id=conv_id,
+                       historial=historial, params=params)
+
     # Presupuesto ANTES de armar nada: si el tope ya está agotado, el error
     # dice CUÁL ("tu límite" vs "el del sistema") — el gateway re-chequea igual.
     from core.ai import motivo_presupuesto

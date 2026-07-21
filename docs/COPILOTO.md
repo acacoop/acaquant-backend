@@ -117,6 +117,41 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.78 (vista NEGOCIO: el asistente de negocio DENTRO del mismo panel)
+Decisión del user: "es siempre el mismo asistente" — el chatbot de negocio
+(QuantAI P7, Milestone 1 construido hoy) NO tiene pantalla ni endpoint
+propios: es una vista más del copiloto de siempre.
+- **[vista +] `negocio`** (módulo RBAC `asistente` — admin-only default —,
+  `solo_internos`): sin tabla TSV; el registro declara `handler` y el motor
+  despacha a `copiloto/negocio.py::_handler_negocio`, que adapta al cerebro
+  `api/services/asistente.py` (la ADUANA core/pii_gateway + tools token-in/
+  token-out + transcript propio en manager.asistente_chats por conv_id — el
+  conv_id del panel ES el chat_id del asistente, mismas fichas toda la
+  conversación). El historial del panel se IGNORA (traería nombres reales
+  detokenizados); la memoria es server-side.
+- **[motor +]** rama `handler` en `preguntar()`: una vista puede delegar el
+  flujo entero a su propio cerebro (sin fetch/TSV/verificación — el asistente
+  tiene su garantía propia: la IA solo narra lo que las tools devuelven, ya
+  tokenizado por la aduana).
+- **[API −]** `POST /api/asistente/chat` ELIMINADO (creado horas antes en el
+  M1 — REGLA #5): una sola puerta, `/api/ia/copiloto` con vista=negocio. El
+  módulo RBAC `asistente` queda (gate fino en el registro); el prefijo
+  `/api/asistente` se quitó de ENDPOINT_MODULE_PREFIXES.
+- **[UI]** `header.tsx`: en las rutas SIN copiloto de datos (operaciones,
+  carteras, back office, manager…) el slot monta `<IaVistaPanel
+  vista="negocio" fallback="ayuda">`: el probe del backend resuelve — jefes
+  con `asistente` ven el asistente de negocio, el resto sigue viendo el GUÍA.
+  `ia-vista-panel.tsx` ganó la prop `fallback` (+ `vistaActiva` resuelta) y
+  `RUTA_VISTA.negocio = /operaciones` para el botón de derivación.
+- **[derivación]** `negocio` entra sola al bloque de otras vistas (RBAC-aware):
+  un jefe preguntando AuM en Renta Fija recibe "consultalo desde Negocio" con
+  botón; el resto ni se entera de que existe.
+- **Pendientes anotados:** el restore de conversación del panel
+  (`/copiloto/historial`) filtra tarea `copiloto_vista` → las charlas de
+  negocio no se restauran al recargar (el transcript del asistente SÍ las
+  tiene — unificar cuando duela) · derivación negocio→guía (hoy el asistente
+  responde "no lo tengo" sin botón a la guía).
+
 ### 2026-07-21 — v1.77 (RESEARCH abierto al invitado — premisa del portal CORREGIDA)
 El user aclaró que los "invitados" del portal www son OTRO SECTOR de la MISMA
 empresa (grupo ACA), no terceros — la premisa "personas ajenas" de los docs

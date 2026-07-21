@@ -414,11 +414,21 @@ clientes); (3) **sufijos societarios absorbidos** en la tachadura ('SA'
 suelto al lado de la ficha delataba la forma societaria); (4) **fuzzy 0.95**
 default (medido: 14% de cruce entre apellidos a 0.90 vs 1% a 0.95).
 
-**PENDIENTE (en orden):** re-correr `eval_asistente` + `smoke_asistente`
-tras el deploy de la calibración · tildar el módulo `asistente` para admin
-en Manager → ROLES · shadow del admin unos días (cada fallo real → caso del
-eval) · Milestone 2: frontend `/asistente` en acaquant-web (admin-only) +
-más tools (actividad comercial, acreencias próximas) — recién tras validar M1.
+**Milestone 2 (2026-07-21, mismo día — decisión del user: "es siempre el
+mismo asistente"):** NADA de pantalla nueva — el asistente de negocio es la
+vista `negocio` del copiloto de siempre (ver COPILOTO.md v1.78): mismo panel
+"Consultale a la IA", en las rutas de negocio (operaciones/carteras/back
+office/manager) los jefes con módulo `asistente` lo ven y el resto sigue con
+el guía. `POST /api/asistente/chat` fue ELIMINADO (una sola puerta:
+`/api/ia/copiloto`); el cerebro sigue siendo `api/services/asistente.py`
+(aduana + tools + transcript). Evals validados en prod: 2/2 PASS
+(aum_total exacto + no-leak e2e con cliente real).
+
+**PENDIENTE (en orden):** tildar el módulo `asistente` para admin en Manager
+→ ROLES · shadow del admin unos días desde el panel (cada fallo real → caso
+del eval) · más tools (actividad comercial, acreencias próximas) · restore
+de conversaciones de negocio en el panel + derivación negocio→guía (anotados
+en COPILOTO.md v1.78).
 
 ### P5 — Analista ad-hoc de datos — OJO: alcanzado por la decisión "datos del negocio no salen al proveedor" (2026-07-13, MODIFICADA 2026-07-21: ver la decisión de la aduana); el patrón del P7 (jaula + aduana) es la antesala
 **Estado: PENDIENTE** · Tipo: agente con generación de SQL · Gate: `ia`,

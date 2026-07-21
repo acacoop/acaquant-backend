@@ -20,7 +20,6 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.mcp.tools.renta_variable]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
-- [[api.routers.asistente]]  ·  _module_
 - [[api.routers.back_office]]  ·  _module_
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
@@ -67,6 +66,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.copiloto.agro]]  ·  _module_
 - [[api.services.copiloto.ayuda]]  ·  _module_
 - [[api.services.copiloto.home]]  ·  _module_
+- [[api.services.copiloto.negocio]]  ·  _module_
 - [[api.services.copiloto.ons]]  ·  _module_
 - [[api.services.copiloto.opciones]]  ·  _module_
 - [[api.services.copiloto.renta_fija]]  ·  _module_

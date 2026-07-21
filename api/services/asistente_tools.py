@@ -15,6 +15,9 @@ de vincular a una persona desde afuera (decisión user 2026-07-21, QUANTAI P7).
 Set inicial CHICO (se amplía con uso real, no por las dudas):
   resumen_mesa()            — agregados del día: AuM total, cuentas, top segmentos.
   rendimiento_cuenta(ficha) — AuM + PnL de UNA cuenta, referida por su ficha.
+  volumen_operado(...)      — volumen bruto consolidado por mercado/operación/
+                              segmento/título en un período (reglas de la vista).
+  aranceles_consolidado(...) — lo facturado (aranceles) consolidado igual.
 """
 from __future__ import annotations
 
@@ -24,6 +27,26 @@ from core import pii_gateway
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
+
+_DIMENSIONES = ["mercado", "operacion", "segmento", "nivel_3", "instrumento"]
+_PARAMS_CONSOLIDADO = {
+    "type": "object",
+    "properties": {
+        "desde": {"type": "string", "description": "Fecha inicial ISO (YYYY-MM-DD)."},
+        "hasta": {"type": "string", "description": "Fecha final ISO (YYYY-MM-DD)."},
+        "por": {"type": "string", "enum": _DIMENSIONES,
+                "description": "Dimensión de agrupado: mercado (BYMA/MAV/A3/MAE/FCI "
+                               "Bilateral), operacion (tipo de operación), segmento "
+                               "(nivel 1, ej. PRODUCTORES), nivel_3 (segmento fino "
+                               "del boleto) o instrumento (título)."},
+        "mercado": {"type": "string",
+                    "description": "Filtrar a UN mercado puntual (opcional)."},
+        "excluir_segmento": {"type": "string",
+                             "description": "Excluir un segmento nivel 1 (opcional, "
+                                            "ej. 'AGRO' para un consolidado sin agro)."},
+    },
+    "required": ["desde", "hasta", "por"],
+}
 
 
 # ── Schemas para el function-calling (formato OpenAI) ────────────────────────
@@ -62,6 +85,34 @@ TOOLS: list[dict] = [
                 },
                 "required": ["ficha_cuenta"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "volumen_operado",
+            "description": (
+                "Volumen bruto operado (ARS) consolidado por una dimensión en un "
+                "período: por mercado, tipo de operación, segmento o título. Usala "
+                "para '¿cuánto se operó?', comparativos por mercado, consolidados "
+                "del mes/semestre. El volumen excluye los cierres de caución "
+                "(regla de la mesa, ya aplicada)."
+            ),
+            "parameters": _PARAMS_CONSOLIDADO,
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "aranceles_consolidado",
+            "description": (
+                "Aranceles facturados (SIEMPRE en pesos) consolidados por una "
+                "dimensión en un período: por mercado, tipo de operación, segmento "
+                "o título. Usala para 'lo facturado', consolidados de aranceles. "
+                "Incluye el arancel de caución que vive en los cierres (regla de "
+                "la mesa, ya aplicada)."
+            ),
+            "parameters": _PARAMS_CONSOLIDADO,
         },
     },
 ]
@@ -183,6 +234,35 @@ def rendimiento_cuenta(ficha_cuenta: str, *, mapping: dict) -> str:
     return "\n".join(lineas)
 
 
+def _consolidado(metrica: str, args: dict) -> str:
+    """volumen_operado / aranceles_consolidado — envuelven ops_consolidado
+    (api/services/operaciones_sql.py): MISMO _ops_where que la vista, con las
+    reglas del negocio adentro (es_cierre, FCI por solicitud/liquidación)."""
+    from api.services import operaciones_sql
+
+    r = operaciones_sql.ops_consolidado(
+        metrica=metrica,
+        desde=str(args.get("desde", "")), hasta=str(args.get("hasta", "")),
+        por=str(args.get("por", "mercado")),
+        mercado=(str(args["mercado"]) if args.get("mercado") else None),
+        excluir_segmento=(str(args["excluir_segmento"])
+                          if args.get("excluir_segmento") else None),
+    )
+    if r.get("error"):
+        return r["error"]
+    if not r["filas"]:
+        return (f"sin operaciones para ese corte ({r['desde']} a {r['hasta']}, "
+                f"por {r['por']})")
+    titulo = "volumen bruto" if metrica == "bruto" else "aranceles"
+    lineas = [f"[{titulo} por {r['por']} — {r['desde']} a {r['hasta']}, {r['moneda']}]"]
+    for f in r["filas"]:
+        pct = 100 * f["valor"] / r["total"] if r["total"] else 0
+        lineas.append(f"  - {f['clave']}: {_monto(f['valor'])} "
+                      f"({pct:.1f}%) · {f['n']} boletos")
+    lineas.append(f"TOTAL: {_monto(r['total'])}")
+    return "\n".join(lineas)
+
+
 # ── Dispatcher (lo invoca el loop de tools del gateway) ──────────────────────
 
 def ejecutar(nombre: str, args: dict, *, mapping: dict) -> str:
@@ -195,6 +275,10 @@ def ejecutar(nombre: str, args: dict, *, mapping: dict) -> str:
             crudo = resumen_mesa()
         elif nombre == "rendimiento_cuenta":
             crudo = rendimiento_cuenta(str(args.get("ficha_cuenta", "")), mapping=mapping)
+        elif nombre == "volumen_operado":
+            crudo = _consolidado("bruto", args)
+        elif nombre == "aranceles_consolidado":
+            crudo = _consolidado("arancel", args)
         else:
             return f"herramienta desconocida: {nombre}"
     except Exception as e:

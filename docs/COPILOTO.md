@@ -117,6 +117,27 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.79 (negocio: el asistente APRENDE el idioma de Operaciones + consolidados con números)
+Caso disparador (traza real de la mesa): pidieron "consolidado del semestre
+de aranceles por mercado, sin agro" y el guía solo pudo contestar CÓMO
+clickear. Ahora el asistente de negocio responde con el DATO. "Entrenarlo" =
+context engineering + tools (QUANTAI: nonparametric, nada de fine-tuning):
+- **[contexto +] VOCABULARIO DEL NEGOCIO vivo** en el system del asistente:
+  mercados, tipos de operación y segmentos nivel 1/3 leídos de los MISMOS
+  catálogos que los filtros de la vista Operaciones (patrón del guía v1.64 —
+  jamás hardcodeado, nunca stale; cache 30 min) + EQUIVALENCIAS ("Rofex" →
+  A3 · "FCI operado" → Suscripción/Rescate · "lo facturado" → aranceles) +
+  la fecha de HOY y la regla de traducir períodos hablados a fechas ISO.
+- **[tools +] `volumen_operado` y `aranceles_consolidado`** (desde/hasta/
+  por mercado|operacion|segmento|nivel_3|instrumento, filtro de mercado y
+  exclusión de segmento): envuelven `operaciones_sql.ops_consolidado` nuevo,
+  que reusa el MISMO `_ops_where` de la vista — las reglas del negocio
+  (volumen excluye cierres; arancel INCLUYE el cierre de caución y va en
+  pesos; FCI una vez por solicitud/liquidación) viven en el SQL, jamás en el
+  LLM. Dimensión whitelisteada (jaula: el modelo elige clave, no compone SQL).
+- **[reglas +]** el system explica por qué volumen y arancel difieren (los
+  cierres) para que el asistente lo cuente en vez de recalcular.
+
 ### 2026-07-21 — v1.78 (vista NEGOCIO: el asistente de negocio DENTRO del mismo panel)
 Decisión del user: "es siempre el mismo asistente" — el chatbot de negocio
 (QuantAI P7, Milestone 1 construido hoy) NO tiene pantalla ni endpoint

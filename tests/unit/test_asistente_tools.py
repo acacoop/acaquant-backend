@@ -108,6 +108,72 @@ def test_token_out_tacha_identidad_que_colara(monkeypatch):
 
 def test_schemas_declarados():
     nombres = {t["function"]["name"] for t in at.TOOLS}
-    assert nombres == {"resumen_mesa", "rendimiento_cuenta"}
+    assert nombres == {"resumen_mesa", "rendimiento_cuenta",
+                       "volumen_operado", "aranceles_consolidado"}
     rc = next(t for t in at.TOOLS if t["function"]["name"] == "rendimiento_cuenta")
     assert "ficha_cuenta" in rc["function"]["parameters"]["properties"]
+    vo = next(t for t in at.TOOLS if t["function"]["name"] == "volumen_operado")
+    assert vo["function"]["parameters"]["required"] == ["desde", "hasta", "por"]
+
+
+# ── consolidados (volumen / aranceles por dimensión) ─────────────────────────
+
+def _mock_consolidado(monkeypatch, esperado: dict):
+    capturado = {}
+
+    def fake(**kw):
+        capturado.update(kw)
+        return esperado
+
+    import api.services.operaciones_sql as ops
+    monkeypatch.setattr(ops, "ops_consolidado", fake)
+    return capturado
+
+
+def test_volumen_operado_formatea_y_pasa_params(monkeypatch):
+    capturado = _mock_consolidado(monkeypatch, {
+        "metrica": "bruto", "por": "mercado", "desde": "2026-01-01",
+        "hasta": "2026-06-30", "moneda": "ARS",
+        "filas": [{"clave": "BYMA", "valor": 900_000_000.0, "n": 1200},
+                  {"clave": "MAV", "valor": 100_000_000.0, "n": 300}],
+        "total": 1_000_000_000.0,
+    })
+    r = at.ejecutar("volumen_operado",
+                    {"desde": "2026-01-01", "hasta": "2026-06-30", "por": "mercado",
+                     "excluir_segmento": "AGRO"}, mapping={"fichas": {}})
+    assert capturado["metrica"] == "bruto"
+    assert capturado["excluir_segmento"] == "AGRO"
+    assert "BYMA" in r and "90.0%" in r and "1200 boletos" in r
+    assert "TOTAL" in r
+
+
+def test_aranceles_consolidado_usa_metrica_arancel(monkeypatch):
+    capturado = _mock_consolidado(monkeypatch, {
+        "metrica": "arancel", "por": "mercado", "desde": "2026-01-01",
+        "hasta": "2026-06-30", "moneda": "ARS",
+        "filas": [{"clave": "BYMA", "valor": 5_000_000.0, "n": 800}],
+        "total": 5_000_000.0,
+    })
+    r = at.ejecutar("aranceles_consolidado",
+                    {"desde": "2026-01-01", "hasta": "2026-06-30", "por": "mercado"},
+                    mapping={"fichas": {}})
+    assert capturado["metrica"] == "arancel"
+    assert "aranceles por mercado" in r and "5.0 millones" in r
+
+
+def test_consolidado_dimension_invalida_es_jaula():
+    from api.services.operaciones_sql import ops_consolidado
+    r = ops_consolidado(metrica="bruto", desde="2026-01-01", hasta="2026-06-30",
+                        por="; DROP TABLE operaciones")
+    assert "invalida" in r["error"]
+
+
+def test_consolidado_sin_filas(monkeypatch):
+    _mock_consolidado(monkeypatch, {
+        "metrica": "bruto", "por": "segmento", "desde": "2026-01-01",
+        "hasta": "2026-01-02", "moneda": "ARS", "filas": [], "total": 0.0,
+    })
+    r = at.ejecutar("volumen_operado",
+                    {"desde": "2026-01-01", "hasta": "2026-01-02", "por": "segmento"},
+                    mapping={"fichas": {}})
+    assert "sin operaciones" in r

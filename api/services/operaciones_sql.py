@@ -196,6 +196,14 @@ def ops_niveles3() -> dict:
     return {"niveles3": [r["nivel_3"] for r in rows]}
 
 
+def ops_tipos_operacion() -> dict:
+    """Valores distintos de `operacion` presentes en los boletos — catálogo
+    vivo para el vocabulario del asistente de negocio (P7)."""
+    rows = _q("SELECT DISTINCT operacion FROM operaciones "
+              "WHERE operacion IS NOT NULL AND operacion <> '' ORDER BY operacion")
+    return {"tipos": [r["operacion"] for r in rows]}
+
+
 def ops_fechas() -> dict:
     rows = _q("SELECT concertacion AS fecha, count(*) AS n FROM operaciones "
               "WHERE concertacion IS NOT NULL GROUP BY concertacion ORDER BY concertacion DESC")
@@ -329,6 +337,58 @@ def ops_resumen(
         "moneda": moneda, "mercado": mercado, "desde": desde, "hasta": hasta,
         "por_operacion": por_operacion, "por_denominacion": por_denominacion,
         "por_instrumento": por_instrumento, "total": total,
+    }
+
+
+# ── Consolidado por dimensión (lo consume el ASISTENTE DE NEGOCIO, P7) ──────
+# Whitelist de dimensiones → columna real. El LLM elige la CLAVE, jamás
+# compone SQL (la jaula: cualquier valor fuera de acá se rechaza).
+_DIMENSIONES_CONSOLIDADO: dict[str, str] = {
+    "mercado": "mercado",
+    "operacion": "operacion",
+    "segmento": "segmento",     # nivel 1 congelado en el boleto
+    "nivel_3": "nivel_3",       # segmento fino del boleto
+    "instrumento": "instrumento",
+}
+
+
+def ops_consolidado(
+    metrica: str, desde: str, hasta: str, por: str = "mercado",
+    moneda: str = "ARS", mercado: str | None = None,
+    excluir_segmento: str | None = None, top: int = 25,
+) -> dict:
+    """Consolidado de VOLUMEN ('bruto') o ARANCELES ('arancel') agrupado por
+    una dimensión, en [desde, hasta]. MISMAS reglas que la vista Operaciones
+    (via _ops_where): volumen excluye cierres; el arancel INCLUYE los cierres
+    con arancel (caución) y va SIEMPRE en pesos (ABS). `excluir_segmento`
+    saca un segmento nivel 1 (ej. consolidado sin agro)."""
+    col = _DIMENSIONES_CONSOLIDADO.get(por)
+    if col is None:
+        return {"error": f"dimension invalida: {por!r} "
+                         f"(validas: {sorted(_DIMENSIONES_CONSOLIDADO)})"}
+    if metrica == "arancel":
+        where, p = _ops_where(mercado=mercado, arancel=True)
+        expr = _ARANCEL
+    else:
+        where, p = _ops_where(moneda=moneda, mercado=mercado)
+        expr = _bruto_expr(moneda)
+    p.update({"desde": desde, "hasta": hasta})
+    where = f"{where} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
+    if excluir_segmento:
+        where += " AND COALESCE(segmento, '') <> %(excl_seg)s"
+        p["excl_seg"] = excluir_segmento
+    rows = _q(
+        f"SELECT COALESCE(NULLIF({col}, ''), '(sin)') AS clave, {expr} AS valor, "
+        f"count(*) AS n FROM operaciones WHERE {where} "
+        f"GROUP BY 1 HAVING {expr} <> 0 ORDER BY valor DESC LIMIT %(top)s",
+        {**p, "top": max(1, min(int(top), 100))},
+    )
+    return {
+        "metrica": metrica, "por": por, "desde": desde, "hasta": hasta,
+        "moneda": "ARS" if metrica == "arancel" else moneda,
+        "filas": [{"clave": r["clave"], "valor": round(_f(r["valor"]), 2), "n": r["n"]}
+                  for r in rows],
+        "total": round(sum(_f(r["valor"]) for r in rows), 2),
     }
 
 

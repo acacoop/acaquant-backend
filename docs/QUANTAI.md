@@ -431,11 +431,15 @@ el guía. `POST /api/asistente/chat` fue ELIMINADO (una sola puerta:
 (aduana + tools + transcript). Evals validados en prod: 2/2 PASS
 (aum_total exacto + no-leak e2e con cliente real).
 
-**PENDIENTE (en orden):** tildar el módulo `asistente` para admin en Manager
-→ ROLES · shadow del admin unos días desde el panel (cada fallo real → caso
-del eval) · más tools (actividad comercial, acreencias próximas) · restore
-de conversaciones de negocio en el panel + derivación negocio→guía (anotados
-en COPILOTO.md v1.78).
+**v1.79 (2026-07-21): el asistente aprendió el idioma de Operaciones** —
+vocabulario vivo (mercados/tipos/segmentos de los catálogos reales +
+equivalencias) + tools `volumen_operado`/`aranceles_consolidado` sobre
+`ops_consolidado` (mismas reglas SQL que la vista). Ver COPILOTO.md v1.79.
+
+**PENDIENTE (en orden):** shadow del admin unos días desde el panel (cada
+fallo real → caso del eval) · más tools (actividad comercial, acreencias
+próximas) · restore de conversaciones de negocio en el panel + derivación
+negocio→guía (anotados en COPILOTO.md v1.78).
 
 ### P5 — Analista ad-hoc de datos — OJO: alcanzado por la decisión "datos del negocio no salen al proveedor" (2026-07-13, MODIFICADA 2026-07-21: ver la decisión de la aduana); el patrón del P7 (jaula + aduana) es la antesala
 **Estado: PENDIENTE** · Tipo: agente con generación de SQL · Gate: `ia`,

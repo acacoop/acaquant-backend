@@ -53,7 +53,60 @@ Tratálas como nombres propios: usalas tal cual en tu respuesta (el sistema
 las traduce después). Nunca intentes adivinar a quién corresponden.
 
 ALCANCE: solo lectura y análisis. No ejecutás órdenes, no modificás nada,
-no prometés acciones. Si piden algo fuera de tu alcance, lo decís derecho."""
+no prometés acciones. Si piden algo fuera de tu alcance, lo decís derecho.
+
+FECHAS: cuando pidan un período con palabras ("este mes", "el semestre",
+"junio"), traducilo vos a fechas ISO exactas para las herramientas usando la
+fecha de hoy del encabezado. "El semestre" = del 1 de enero (o julio) al
+último día de junio (o diciembre) del año en curso.
+
+REGLAS DEL NEGOCIO (ya aplicadas por las herramientas — no las recalcules):
+el VOLUMEN excluye los cierres de caución; los ARANCELES incluyen el arancel
+de caución que vive en el cierre y van siempre en pesos. Si te preguntan por
+qué difieren, esa es la razón."""
+
+
+def _vocabulario_negocio() -> str:
+    """Los VALORES REALES vigentes de los catálogos de Operaciones (mercados,
+    tipos de operación, segmentos) — el idioma del negocio, leído de las
+    mismas queries que alimentan los filtros de la vista (jamás hardcodeado,
+    nunca stale). Mismo patrón que el guía v1.64. Best-effort: sin DB, el
+    bloque no aparece y el asistente sigue."""
+    try:
+        from api.services import operaciones_sql as ops
+        mercados = ops.ops_mercados()["mercados"]
+        tipos = ops.ops_tipos_operacion()["tipos"]
+        segmentos = ops.ops_segmentos()["segmentos"]
+        niveles3 = ops.ops_niveles3()["niveles3"]
+        return (
+            "\n\nVOCABULARIO DEL NEGOCIO (valores reales vigentes — usalos tal "
+            "cual en las herramientas):\n"
+            f"- mercados: {', '.join(mercados)}\n"
+            f"- tipos de operación: {', '.join(tipos[:40])}\n"
+            f"- segmentos (nivel 1): {', '.join(segmentos)}\n"
+            f"- segmentos del boleto (nivel 3): {', '.join(niveles3[:40])}\n"
+            "- EQUIVALENCIAS que la gente usa: 'Rofex'/'Matba Rofex' → mercado "
+            "A3 · 'FCI operado' → tipos Suscripción y Rescate · 'lo facturado' "
+            "→ aranceles. Si nombran un mercado/segmento que NO está en las "
+            "listas, aclaralo y ofrecé el más parecido de la lista."
+        )
+    except Exception as e:
+        logger.warning("asistente: vocabulario no disponible (%s) — sigo sin él", e)
+        return ""
+
+
+_VOCAB_TTL_S = 1800
+_vocab_cache: dict = {"ts": 0.0, "texto": ""}
+
+
+def _system_completo() -> str:
+    import time
+    ahora = time.monotonic()
+    if ahora - _vocab_cache["ts"] > _VOCAB_TTL_S:
+        _vocab_cache.update(ts=ahora, texto=_vocabulario_negocio())
+    from datetime import UTC, datetime, timedelta
+    hoy_art = (datetime.now(UTC) - timedelta(hours=3)).date().isoformat()
+    return f"{_SYSTEM}\n\nHOY es {hoy_art}." + _vocab_cache["texto"]
 
 
 def _cargar_historial(chat_id: str) -> list[tuple[str, str]]:
@@ -130,7 +183,7 @@ def responder(*, mensaje: str, email: str, chat_id: str | None = None) -> dict:
 
     texto, traza_id, _ctx = ai.completar_con_tools(
         "asistente_negocio",
-        system=_SYSTEM,
+        system=_system_completo(),
         user=mensaje_limpio,
         tools=asistente_tools.TOOLS,
         ejecutar=lambda nombre, args: asistente_tools.ejecutar(nombre, args, mapping=mapping),

@@ -187,6 +187,17 @@ def test_corte_por_frecuencia_en_catalogo(monkeypatch):
     assert cat["tokens"].get("unico") == "9"    # único dueño → resuelve
 
 
+def test_nombre_de_pila_se_absorbe_con_el_apellido():
+    """Caso real del primer uso en panel: 'Nicolas Mollo' — 'mollo' matchea
+    por catálogo pero 'Nicolas' (fuera del índice por el corte de frecuencia)
+    quedaba suelto al lado de la ficha. El nombre de pila precedente entra
+    en la tachadura."""
+    limpio, _m = pg.tokenize("¿cuánto operó hoy Nicolas Perez?")
+    bajo = pg._norm(limpio)
+    assert "perez" not in bajo and "nicolas" not in bajo
+    assert limpio.count("CLIENTE_") == 1  # UNA ficha, nombre completo
+
+
 # ── fuzzy (umbral CALIBRADO 2026-07-21: 0.95 medido con el diag) ─────────────
 
 def test_fuzzy_typo_de_apellido(monkeypatch):

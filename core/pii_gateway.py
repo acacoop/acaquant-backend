@@ -296,6 +296,9 @@ _DOC_KEYWORD_RE = re.compile(
 # previo. El caller verifica que ANTES haya espacio/inicio (no comerse la
 # última letra de una palabra como "cliente").
 _INICIAL_RE = re.compile(r"[A-Za-zÁÉÍÓÚÑ]\.\s*$")
+# Nombre de pila Capitalizado INMEDIATAMENTE antes de un apellido matcheado
+# ("Nicolas |Mollo"): palabra con mayúscula inicial + espacio(s) al final.
+_NOMBRE_PILA_PREVIO_RE = re.compile(r"(?:^|\s)([A-ZÁÉÍÓÚÑ][a-záéíóúñü]{2,})\s+$")
 # Par (o más) de palabras Capitalizadas consecutivas — la forma de un nombre
 # propio (con conectores: "Juan de Souza"). NO matchea tickers (AL30, GGAL:
 # sin minúsculas después de la 1ra) ni palabras sueltas (el arranque de
@@ -371,6 +374,18 @@ def _spans_catalogo(texto: str, catalogo: dict) -> list[tuple[int, int, str, str
             m_ini = _INICIAL_RE.search(previo)
             if m_ini and (m_ini.start() == 0 or previo[m_ini.start() - 1].isspace()):
                 ini = m_ini.start()
+            else:
+                # "Nicolas Mollo" → el/los nombres de pila Capitalizados que
+                # PRECEDEN al apellido matcheado también se absorben (un
+                # nombre de pila suelto al lado de la ficha debilita el
+                # anonimato — caso real del primer uso en panel, 2026-07-21).
+                # El corte por frecuencia ya sacó los nombres de pila del
+                # índice, así que sin esto quedaban afuera de la tachadura.
+                for _ in range(2):
+                    m_pila = _NOMBRE_PILA_PREVIO_RE.search(texto[:ini])
+                    if not m_pila or _norm(m_pila.group(1)) in _WHITELIST_DEFENSIVA:
+                        break
+                    ini = m_pila.start(1)
             spans.append((ini, fin, "CLIENTE", texto[ini:fin]))
     return _absorber_sufijos(texto, spans)
 

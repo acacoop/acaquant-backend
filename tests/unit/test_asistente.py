@@ -26,7 +26,10 @@ PROHIBIDAS = ("juan", "perez", "805")
 
 @pytest.fixture(autouse=True)
 def entorno(monkeypatch):
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "k-test")
+    # la tarea del asistente rutea al proveedor con no-retención (ver
+    # core/ai::_TAREAS) — su credencial es la que habilita la feature
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k-deepseek")
+    monkeypatch.setenv("OPENAI_API_KEY", "k-openai")
     monkeypatch.setattr(pg, "_catalogo", lambda: CATALOGO_FAKE)
     monkeypatch.setattr(pg, "cargar_mapping", lambda cid, em: pg._mapping_nuevo())
     monkeypatch.setattr(pg, "guardar_mapping", lambda cid, em, m: None)
@@ -117,10 +120,16 @@ def test_chat_ajeno_rechazado(monkeypatch):
     assert r["ok"] is False and r["motivo"] == "chat_ajeno"
 
 
-def test_sin_credencial_apagado(monkeypatch):
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+def test_sin_credencial_del_proveedor_apagado(monkeypatch):
+    """FAIL-CLOSED del ruteo: sin la credencial de SU proveedor el asistente
+    se apaga — aunque el proveedor barato esté disponible, jamás cae ahí
+    (mandaría datos del negocio adonde el ruteo los evita)."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k-deepseek")   # el otro SÍ está
+    llamadas = _espiar_llm(monkeypatch)
     r = asistente.responder(mensaje="hola", email="jefe@x.com")
     assert r["ok"] is False and r["motivo"] == "ia_apagada"
+    assert not llamadas  # ni un byte salió
 
 
 def test_presupuesto_agotado_mensaje_claro(monkeypatch):

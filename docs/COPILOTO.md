@@ -117,6 +117,30 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.81 (RUTEO de proveedor: el asistente de negocio sale por OpenAI)
+El user planteó el punto de fondo: aunque las identidades no salen, los
+NÚMEROS del negocio sí iban a un proveedor cuyos términos permiten entrenar
+con lo enviado y aloja en China. Decisión: rutear SOLO esa tarea a un
+proveedor con no-entrenamiento contractual + borrado a 30 días.
+- **[ruteo] `core/llm.py` pasa de transporte a TRANSPORTE + RUTEO**: registro
+  de proveedores con su credencial, URL, modelos por tier y **dialecto**
+  (OpenAI: `max_completion_tokens` — `max_tokens` está deprecado y es
+  incompatible con los modelos que razonan —, `reasoning_effort` en vez de
+  `thinking`, y `store=false` SIEMPRE, sin depender del toggle de la
+  organización). Tokens de caché normalizados entre dialectos.
+- **[gateway] cada tarea declara `proveedor`**: `asistente_negocio` → openai
+  (`gpt-5.6-luna` default); TODO el copiloto de mercado sigue en el default
+  barato. `ai.disponible(tarea)` chequea la credencial de SU proveedor.
+- **[seguridad] FAIL-CLOSED de ruteo**: sin la credencial del proveedor de la
+  tarea, NO se llama a nadie — jamás se cae al otro (sería mandar datos del
+  negocio adonde el ruteo los evita). Congelado por 2 tests.
+- **[invariante ~]** el test de arquitectura ahora congela el CABLEADO (env
+  de credencial, URLs, IDs de modelo) fuera de core/llm.py, no la mención del
+  formato de wire — más preciso y ahora cubre los dos proveedores.
+- **[tooling] `smoke_asistente --ruteo`**: tabla tarea → proveedor → modelo →
+  ¿no entrena? → ¿credencial puesta?, sin gastar un token. Es la verificación
+  operativa de que el ruteo de privacidad quedó bien.
+
 ### 2026-07-21 — v1.79b (post-batería de negocio: 13/15 buenas, 5 fixes finos)
 `bateria_negocio` corrida en prod (15 preguntas, trazas 503-529). PASÓ: caso
 Curzel completo (#6), equivalencias Rofex→A3 y FCI (#9/10), fechas habladas,

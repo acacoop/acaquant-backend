@@ -15,12 +15,27 @@ calendario.
 
 ## Decisiones tomadas (no re-litigar sin el user)
 
-- **Proveedor: DeepSeek** (API OpenAI-compatible, `https://api.deepseek.com`).
-  Modelo default `deepseek-v4-flash` (barato, sobra para redacción/clasificación);
-  `deepseek-v4-pro` reservado para razonamiento pesado (triage, analista).
-  Thinking mode: apagado para tareas simples, prendido para diagnóstico.
-  A nuestro volumen el costo es despreciable (<$1/mes los pipelines) — las
-  decisiones se toman por calidad/privacidad, no por precio.
+- **Proveedores: DOS, ruteados por tarea** (`core/llm.py` es el único módulo
+  que los cablea; cada tarea de `core/ai.py::_TAREAS` declara el suyo).
+  - **DeepSeek** (default) para todo lo de MERCADO — copiloto, triage,
+    research. Tier flash barato; `-pro` para razonamiento pesado. Thinking
+    apagado en tareas simples, prendido en diagnóstico. Es el grueso del
+    volumen y ve datos públicos. ⚠ Sus términos permiten entrenar con lo
+    enviado y aloja en China → jamás datos del negocio.
+  - **OpenAI** SOLO para `asistente_negocio` (decisión user 2026-07-21, tras
+    el M1): es la única tarea que ve números del negocio (sin identidades —
+    la aduana las tacha). Se paga ~3x por token a cambio de no-entrenamiento
+    contractual + borrado a 30 días + DPA; a nuestro volumen la diferencia
+    es de dólares al mes. Modelo default `gpt-5.6-luna` (env-overridable).
+    Dialecto propio manejado en `core/llm.py`: `max_completion_tokens`,
+    `reasoning_effort` y `store=false` SIEMPRE.
+  - **FAIL-CLOSED de ruteo:** si el proveedor de una tarea no tiene
+    credencial, la tarea NO corre y NO cae a otro proveedor (caer al default
+    mandaría datos del negocio justo adonde el ruteo los evita). Verificable
+    sin gastar tokens: `python -m scripts.smoke_asistente --ruteo`.
+  A nuestro volumen el costo es despreciable (<$1/mes los pipelines de
+  mercado, ~$10/mes el asistente en su techo) — las decisiones se toman por
+  calidad/privacidad, no por precio.
 - **Marca AI = módulo `ia` del RBAC existente.** Se agrega a `MODULES`
   (core/roles.py) + matriz editable en Manager → ROLES Y PERMISOS. El frontend
   muestra features de IA solo si `/api/me` trae `ia`; el backend gatea los

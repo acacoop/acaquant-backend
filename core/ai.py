@@ -4,11 +4,13 @@ TODA llamada a un LLM del sistema pasa por acá. El gateway resuelve lo que
 ninguna feature debería resolver por su cuenta:
 
 - **Tareas registradas** (_TAREAS): cada llamada declara una tarea y de ahí
-  salen modelo (tier flash/pro), max_tokens y timeout. El PROMPT vive en el
-  módulo de la feature (ej. core/ai_resumen.py).
-- **Transporte**: delegado a `core/llm.py` — el ÚNICO módulo que conoce al
-  proveedor (HTTP, auth, retry, wire format). Cambiar/rutear proveedor =
-  tocar SOLO core/llm.py; este gateway no sabe con quién habla.
+  salen proveedor, modelo (tier flash/pro), max_tokens y timeout. El PROMPT
+  vive en el módulo de la feature (ej. core/ai_resumen.py).
+- **Transporte y ruteo**: delegados a `core/llm.py` — el ÚNICO módulo que
+  conoce a los proveedores (HTTP, auth, retry, dialecto). Una tarea elige su
+  proveedor con la clave `proveedor`; cambiar/agregar uno = tocar SOLO
+  core/llm.py. Si el proveedor de una tarea no está configurado, la llamada
+  NO se hace y NO cae a otro (fail-closed — ver el ruteo del asistente).
 - **Presupuesto diario de tokens** (global y por usuario) contra ia.trazas:
   superado → la llamada se niega y la feature degrada. Kill switch de costos.
 - **Reintentos**: 1 retry ante timeout / error de conexión / 5xx. Nunca ante 4xx.
@@ -80,10 +82,18 @@ _TAREAS: dict[str, dict] = {
                           "thinking": "disabled"},
     # P7 asistente de negocio (api/services/asistente.py): chat con tools para
     # jefes sobre datos del negocio (SIEMPRE tokenizados por la aduana —
-    # core/pii_gateway). Tier pro (razona sobre qué tool usar y sintetiza);
-    # thinking disabled (mismo criterio que copiloto_vista_pro: queremos
-    # respuesta, no cadena); max_tokens holgado — lección del P2.
-    "asistente_negocio": {"tier": "pro", "max_tokens": 2500, "timeout_s": 90,
+    # core/pii_gateway). Tier flash del proveedor con no-retención; thinking
+    # disabled (queremos respuesta, no cadena); max_tokens holgado — lección
+    # del P2 (el razonamiento cuenta como output y deja la respuesta vacía).
+    #
+    # ⚠ PROVEEDOR "openai" (decisión del user 2026-07-21): es la ÚNICA tarea
+    # que ve datos del NEGOCIO (aunque sin identidades: la aduana las tacha).
+    # Va a un proveedor que NO entrena con datos de API y borra a 30 días, en
+    # vez del default barato. Sin la credencial de ESE proveedor la tarea NO
+    # corre y NO cae al default — sería mandar los números de la empresa justo
+    # a donde este ruteo los quiere evitar. El cableado vive en core/llm.py.
+    "asistente_negocio": {"tier": "flash", "proveedor": "openai",
+                          "max_tokens": 3000, "timeout_s": 90,
                           "thinking": "disabled"},
 }
 
@@ -98,11 +108,23 @@ def _config(tarea: str) -> dict:
     return cfg
 
 
+def _proveedor(cfg: dict) -> str:
+    return cfg.get("proveedor") or llm.PROVEEDOR_DEFAULT
+
+
 def _modelo(cfg: dict) -> str:
     override_env = cfg.get("model_env")
     if override_env and os.getenv(override_env):
         return os.environ[override_env]
-    return llm.modelo_pro() if cfg.get("tier") == "pro" else llm.modelo_flash()
+    return llm.modelo(cfg.get("tier", "flash"), _proveedor(cfg))
+
+
+def disponible(tarea: str) -> bool:
+    """True si el PROVEEDOR de esa tarea tiene credencial. Las features lo
+    consultan para apagarse con un mensaje claro en vez de intentar y fallar
+    (y para NO caer a otro proveedor: el ruteo es una decisión de privacidad,
+    no un balanceo)."""
+    return llm.configurado(_proveedor(_config(tarea)))
 
 
 # ── Config editable (ia.config, editable desde Manager → OBSERVABILIDAD → IA) ──
@@ -135,8 +157,10 @@ def invalidate_config_cache() -> None:
 
 
 def saldo_proveedor() -> dict | None:
-    """Saldo real de la cuenta del proveedor, cacheado 5 min (core/llm.py).
-    None si no hay key ni valor previo. Nunca levanta."""
+    """Saldo real de la cuenta del proveedor DEFAULT, cacheado 5 min
+    (core/llm.py). None si no hay key ni valor previo. Nunca levanta.
+    Los proveedores secundarios (ej. el del asistente) no exponen saldo —
+    su gasto se sigue por `ia.trazas` y por el panel del proveedor."""
     return llm.saldo_cuenta()
 
 
@@ -313,9 +337,9 @@ def _completar_tools_loop(
 ) -> tuple[str | None, int | None, str]:
     import json as _json
 
-    if not llm.configurado():
-        return None, None, ""
     cfg = _config(tarea)
+    if not llm.configurado(_proveedor(cfg)):
+        return None, None, ""
     modelo = _modelo(cfg)
     mensajes = [{"role": "system", "content": system}]
     mensajes.extend(historial or [])
@@ -331,7 +355,7 @@ def _completar_tools_loop(
             return None, None, "\n".join(contexto_tools)
         r = llm.chat(mensajes, modelo=modelo, max_tokens=cfg["max_tokens"],
                      timeout_s=cfg["timeout_s"], thinking=cfg.get("thinking", "disabled"),
-                     tools=tools, reintentos=0)
+                     tools=tools, reintentos=0, proveedor=_proveedor(cfg))
         if not r.ok:
             _trazar(tarea, modelo, usuario, None, None, r.latencia_ms, False,
                     r.error, detalle=detalle)
@@ -395,9 +419,9 @@ def completar_con_traza(
 def _completar(
     tarea: str, *, system: str, user: str, usuario: str | None, detalle: str | None = None
 ) -> tuple[str | None, int | None]:
-    if not llm.configurado():
-        return None, None  # gateway apagado — sin traza (sería ruido en cada corrida)
     cfg = _config(tarea)
+    if not llm.configurado(_proveedor(cfg)):
+        return None, None  # proveedor apagado — sin traza (sería ruido en cada corrida)
     modelo = _modelo(cfg)
     motivo = motivo_presupuesto(usuario)
     if motivo:
@@ -409,6 +433,7 @@ def _completar(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
         modelo=modelo, max_tokens=cfg["max_tokens"], timeout_s=cfg["timeout_s"],
         thinking=cfg.get("thinking", "disabled"), reintentos=1,
+        proveedor=_proveedor(cfg),
     )
     if not r.ok:
         logger.warning("core.ai %s → %s", tarea, r.error)

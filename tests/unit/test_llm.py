@@ -129,12 +129,16 @@ def test_thinking_y_tools_en_el_body(monkeypatch):
     assert "thinking" not in capturado
 
 
-def test_invariante_solo_llm_nombra_al_proveedor():
-    """ARQUITECTURA (congelado 2026-07-21): en core/ y api/ el string del
-    proveedor aparece SOLO en core/llm.py. Si este test falla, alguien metió
-    una referencia directa al proveedor fuera del transporte — moverla a
-    core/llm.py (el ruteo multi-proveedor depende de esta invariante)."""
-    patron = re.compile(r"deepseek", re.IGNORECASE)
+def test_invariante_solo_llm_cablea_proveedores():
+    """ARQUITECTURA (congelado 2026-07-21): en core/ y api/ el CABLEADO de los
+    proveedores (env vars de credencial, URLs base, IDs de modelo) vive SOLO en
+    core/llm.py. Mencionar el formato de wire ("schema OpenAI") está bien; leer
+    OPENAI_API_KEY fuera del transporte, NO. Si este test falla, alguien salteó
+    el ruteo — y el ruteo es una decisión de PRIVACIDAD (qué datos van a qué
+    proveedor), no un detalle de implementación."""
+    patron = re.compile(
+        r"DEEPSEEK_API_KEY|OPENAI_API_KEY|api\.deepseek\.com|api\.openai\.com"
+        r"|deepseek-v4|gpt-5\.", re.IGNORECASE)
     violaciones = []
     for carpeta in ("core", "api"):
         for dirpath, _dirs, files in os.walk(os.path.join(RAIZ, carpeta)):
@@ -148,8 +152,106 @@ def test_invariante_solo_llm_nombra_al_proveedor():
                     if patron.search(fh.read()):
                         violaciones.append(os.path.relpath(path, RAIZ))
     assert not violaciones, (
-        f"referencias al proveedor fuera de core/llm.py: {violaciones}"
+        f"cableado de proveedor fuera de core/llm.py: {violaciones}"
     )
+
+
+# ── Ruteo multi-proveedor (decisión user 2026-07-21) ─────────────────────────
+
+def test_openai_usa_su_dialecto(monkeypatch):
+    """El body cambia por proveedor: max_completion_tokens (max_tokens está
+    deprecado y es incompatible con los modelos que razonan), reasoning_effort
+    en vez de thinking, y store=false SIEMPRE (que no quede almacenado del
+    lado del proveedor sin depender del toggle de la organización)."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k-openai")
+    capturado = {}
+
+    def post(url, headers=None, json=None, timeout=None):
+        capturado.update(url=url, body=json)
+        return _resp(payload=_payload())
+
+    import requests
+    monkeypatch.setattr(requests, "post", post)
+    llm.chat(MENSAJES, modelo="gpt-x", max_tokens=1234, timeout_s=5,
+             thinking="disabled", proveedor="openai")
+    body = capturado["body"]
+    assert body["max_completion_tokens"] == 1234 and "max_tokens" not in body
+    assert body["store"] is False
+    assert body["reasoning_effort"] == "minimal" and "thinking" not in body
+    assert "openai" in capturado["url"]
+
+
+def test_deepseek_conserva_su_dialecto(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    capturado = {}
+
+    def post(url, headers=None, json=None, timeout=None):
+        capturado.update(body=json)
+        return _resp(payload=_payload())
+
+    import requests
+    monkeypatch.setattr(requests, "post", post)
+    llm.chat(MENSAJES, modelo="ds", max_tokens=10, timeout_s=5, thinking="disabled")
+    assert capturado["body"]["max_tokens"] == 10
+    assert capturado["body"]["thinking"] == {"type": "disabled"}
+    assert "store" not in capturado["body"]
+
+
+def test_cache_de_openai_se_normaliza(monkeypatch):
+    """OpenAI expone prompt_tokens_details.cached_tokens; DeepSeek,
+    prompt_cache_hit_tokens. La traza guarda lo mismo para los dos."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    payload = _payload(usage={"prompt_tokens": 100, "completion_tokens": 20,
+                              "prompt_tokens_details": {"cached_tokens": 80}})
+    import requests
+    monkeypatch.setattr(requests, "post", lambda *a, **kw: _resp(payload=payload))
+    r = llm.chat(MENSAJES, modelo="gpt-x", max_tokens=10, timeout_s=5, proveedor="openai")
+    assert r.cache_hit == 80 and r.cache_miss == 20
+
+
+def test_proveedor_sin_key_no_llama_ni_cae_a_otro(monkeypatch):
+    """FAIL-CLOSED del ruteo: sin la key del proveedor de la tarea NO se
+    llama a nadie. Caer al proveedor default mandaría datos del negocio
+    justo adonde el ruteo los quiere evitar."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k-deepseek")   # el otro SÍ está
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    llamadas = []
+    import requests
+    monkeypatch.setattr(requests, "post", lambda *a, **kw: llamadas.append(1))
+    r = llm.chat(MENSAJES, modelo="gpt-x", max_tokens=10, timeout_s=5, proveedor="openai")
+    assert r.ok is False and not llamadas
+    assert llm.configurado("openai") is False and llm.configurado("deepseek") is True
+
+
+def test_proveedor_desconocido_no_levanta():
+    r = llm.chat(MENSAJES, modelo="x", max_tokens=10, timeout_s=5, proveedor="inventado")
+    assert r.ok is False and "desconocido" in r.error
+
+
+def test_tarea_del_asistente_rutea_a_no_retencion(monkeypatch):
+    """CONGELA LA DECISIÓN (user 2026-07-21): la única tarea que ve datos del
+    negocio va a un proveedor que NO entrena con lo que le mandamos."""
+    from core import ai
+    cfg = ai._config("asistente_negocio")
+    proveedor = ai._proveedor(cfg)
+    assert proveedor == "openai"
+    assert llm.no_entrena(proveedor) is True
+    # y las de MERCADO siguen en el default barato
+    assert ai._proveedor(ai._config("copiloto_vista")) == llm.PROVEEDOR_DEFAULT
+    assert ai._proveedor(ai._config("copiloto_vista_pro")) == llm.PROVEEDOR_DEFAULT
+    # el modelo se resuelve por (tier, proveedor)
+    monkeypatch.delenv("AI_MODEL_OPENAI_FLASH", raising=False)
+    assert ai._modelo(cfg).startswith("gpt-")
+
+
+def test_disponible_por_tarea(monkeypatch):
+    from core import ai
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert ai.disponible("copiloto_vista") is True
+    assert ai.disponible("asistente_negocio") is False
+    monkeypatch.setenv("OPENAI_API_KEY", "k2")
+    assert ai.disponible("asistente_negocio") is True
 
 
 def test_gateway_delega_en_llm(monkeypatch):

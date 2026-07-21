@@ -33,10 +33,11 @@ import logging
 import uuid
 
 from api.services import asistente_tools
-from core import ai, llm, pii_gateway
+from core import ai, pii_gateway
 
 logger = logging.getLogger(__name__)
 
+_TAREA = "asistente_negocio"   # su proveedor lo declara core/ai.py::_TAREAS
 _MAX_HISTORIAL_TURNOS = 8   # turnos previos que se re-inyectan (re-tokenizados)
 
 _SYSTEM = """Sos el asistente de negocio de la mesa de ACA Valores, para los jefes.
@@ -163,7 +164,11 @@ def responder(*, mensaje: str, email: str, chat_id: str | None = None) -> dict:
     mensaje = (mensaje or "").strip()
     if not mensaje:
         return {"ok": False, "motivo": "vacio", "mensaje": "escribí una pregunta"}
-    if not llm.configurado():
+    # FAIL-CLOSED de RUTEO: la tarea del asistente va a un proveedor con
+    # no-retención (ver core/llm.py). Si ESE proveedor no está configurado, el
+    # asistente se apaga — jamás cae al proveedor barato, que es adonde los
+    # datos del negocio no deben ir (decisión del user 2026-07-21).
+    if not ai.disponible(_TAREA):
         return {"ok": False, "motivo": "ia_apagada",
                 "mensaje": "el asistente no está configurado en este entorno"}
     # FAIL-CLOSED: sin el catálogo de clientes la aduana no garantiza el
@@ -198,7 +203,7 @@ def responder(*, mensaje: str, email: str, chat_id: str | None = None) -> dict:
     mensaje_limpio, mapping = pii_gateway.tokenize(mensaje, mapping)
 
     texto, traza_id, _ctx = ai.completar_con_tools(
-        "asistente_negocio",
+        _TAREA,
         system=_system_completo(),
         user=mensaje_limpio,
         tools=asistente_tools.TOOLS,

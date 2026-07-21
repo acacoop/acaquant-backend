@@ -1444,6 +1444,21 @@ CREATE TABLE IF NOT EXISTS manager.uso_modulos (
 );
 CREATE INDEX IF NOT EXISTS ix_uso_modulos_hora ON manager.uso_modulos (hora DESC);
 
+-- ── ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md) ────────────────────────
+-- Mapping ficha↔identidad de la ADUANA (core/pii_gateway.py). Es la tabla de
+-- traducción CLIENTE_1 → nombre real de cada chat: VIVE EN EL PERÍMETRO y
+-- JAMÁS viaja al proveedor LLM. TTL corto (48h) — la limpia oportunista
+-- guardar_mapping() en cada escritura.
+CREATE TABLE IF NOT EXISTS manager.asistente_mappings (
+    chat_id     text PRIMARY KEY,
+    email       text NOT NULL,             -- dueño del chat (nadie continúa el de otro)
+    mapping     jsonb NOT NULL,            -- {fichas, valores, contadores}
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_asistente_mappings_updated
+    ON manager.asistente_mappings (updated_at);
+
 -- ── FAIR VALUE (curva cuadrática TEA=β0+β1·d+β2·d² + residuos + z-scores) ─────
 -- Decomiso 2026-06-28: jobs/fair_value.py pasa de Mongo a SQL-NATIVE (write_native,
 -- incondicional). Antes escribía Trading.{FitParams,FairValueResiduos} (Mongo) y leía

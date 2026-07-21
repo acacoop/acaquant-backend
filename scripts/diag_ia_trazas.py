@@ -29,7 +29,8 @@ def _resumen(cur, limite: int, tarea: str | None) -> None:
         cond = "WHERE tarea = %s"
         params.append(tarea)
     cur.execute(
-        f"SELECT ts, tarea, usuario, modelo, ok, tokens_in, tokens_out, latencia_ms, error "
+        f"SELECT ts, tarea, usuario, modelo, ok, tokens_in, tokens_out, latencia_ms, "
+        f"cache_hit_tokens, detalle, error "
         f"FROM ia.trazas {cond} ORDER BY ts DESC LIMIT %s",
         (*params, limite),
     )
@@ -41,13 +42,16 @@ def _resumen(cur, limite: int, tarea: str | None) -> None:
     def _n(v) -> str:
         return "-" if v is None else str(v)
 
-    print(f"{'ts (UTC)':<20} {'tarea':<20} {'usuario':<26} {'ok':<3} "
-          f"{'tok_in':>7} {'tok_out':>7} {'lat_ms':>7}  error")
-    print("─" * 118)
-    for ts, tar, usr, _mod, ok, ti, to, lat, err in filas:
+    print(f"{'ts (UTC)':<20} {'tarea':<20} {'usuario':<22} {'ok':<3} "
+          f"{'tok_in':>7} {'tok_out':>7} {'cache%':>6} {'lat_ms':>7}  detalle/error")
+    print("─" * 124)
+    for ts, tar, usr, _mod, ok, ti, to, lat, hit, det, err in filas:
         estado = "✓" if ok else "✗"
-        print(f"{str(ts)[:19]:<20} {(tar or '')[:20]:<20} {(usr or '')[:26]:<26} "
-              f"{estado:<3} {_n(ti):>7} {_n(to):>7} {_n(lat):>7}  {(err or '')[:60]}")
+        # % del input que pegó en el caché del proveedor (~10x más barato)
+        cache = f"{round(100 * hit / ti)}%" if (hit is not None and ti) else "-"
+        extra = (err or det or "")[:52]
+        print(f"{str(ts)[:19]:<20} {(tar or '')[:20]:<20} {(usr or '')[:22]:<22} "
+              f"{estado:<3} {_n(ti):>7} {_n(to):>7} {cache:>6} {_n(lat):>7}  {extra}")
 
 
 def _buscar(cur, texto: str, limite: int) -> None:

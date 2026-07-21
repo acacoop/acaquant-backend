@@ -12,7 +12,7 @@ from .ayuda import (
     _fetch_ayuda,
 )
 from .home import _REGLAS_HOME, _extras_home, _fetch_home
-from .negocio import _CHIPS_NEGOCIO, _handler_negocio
+from .negocio import _handler_negocio
 from .ons import _REGLAS_ONS, _extras_ons, _fetch_ons
 from .opciones import _REGLAS_OPCIONES, _extras_opciones, _fetch_opciones
 from .renta_fija import _REGLAS_RENTA_FIJA, _extras_renta_fija, _fetch_renta_fija
@@ -49,9 +49,9 @@ VISTAS: dict[str, dict] = {
                    "reparto por segmento — datos internos, solo para quien "
                    "tenga el permiso",
         # sin fetch/tabla: el motor despacha al handler (el cerebro es
-        # api/services/asistente.py — aduana PII + tools + transcript propio)
+        # api/services/asistente.py — aduana PII + tools + transcript propio).
+        # SIN chips (pedido del user 2026-07-21): el jefe escribe lo suyo.
         "handler": _handler_negocio,
-        "chips": _CHIPS_NEGOCIO,
     },
     "ayuda": {
         "titulo": "Guía de la plataforma",

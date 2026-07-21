@@ -122,7 +122,8 @@ Decisión del user: "es siempre el mismo asistente" — el chatbot de negocio
 (QuantAI P7, Milestone 1 construido hoy) NO tiene pantalla ni endpoint
 propios: es una vista más del copiloto de siempre.
 - **[vista +] `negocio`** (módulo RBAC `asistente` — admin-only default —,
-  `solo_internos`): sin tabla TSV; el registro declara `handler` y el motor
+  `solo_internos`, SIN chips — pedido del user): sin tabla TSV; el registro
+  declara `handler` y el motor
   despacha a `copiloto/negocio.py::_handler_negocio`, que adapta al cerebro
   `api/services/asistente.py` (la ADUANA core/pii_gateway + tools token-in/
   token-out + transcript propio en manager.asistente_chats por conv_id — el

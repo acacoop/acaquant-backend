@@ -18,17 +18,6 @@ asistente re-tokeniza el suyo propio al cargarlo).
 """
 from __future__ import annotations
 
-_CHIPS_NEGOCIO = [
-    {"label": "Resumen de la mesa",
-     "pregunta": "Dame el resumen del negocio de hoy: AuM total administrado, "
-                 "cuántas cuentas con tenencia y cómo se reparte por segmento. "
-                 "Cortito y ejecutivo, conclusión primero."},
-    {"label": "¿Cómo viene un cliente?",
-     "pregunta": "Quiero ver cómo viene una cuenta puntual (tenencia y "
-                 "resultado). Decime qué datos necesitás de mi parte."},
-]
-
-
 def _handler_negocio(*, pregunta: str, usuario: str | None, conv_id: str | None,
                      historial: list[dict] | None, params: dict | None) -> dict:
     """Adapta asistente.responder al contrato del panel. El conv_id del panel

@@ -20,6 +20,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services]]  ·  _module_
 - [[api.services.acreencias]]  ·  _module_
 - [[api.services.mercado_hist_sql]]  ·  _module_
+- [[api.services.research_sql]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[db.Trading.DOLAR]]  ·  _collection_
 

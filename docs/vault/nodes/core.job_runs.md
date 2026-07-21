@@ -40,6 +40,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
+- [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_
 - [[jobs.mercado_1816_series]]  ·  _module_

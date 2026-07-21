@@ -6,10 +6,10 @@
 
 ## Qué hay adentro
 
-- **308** module
-- **117** component
-- **64** route
-- **43** cron
+- **323** module
+- **124** component
+- **66** route
+- **44** cron
 - **29** collection
 - **22** view
 - **15** service

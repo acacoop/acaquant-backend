@@ -27,5 +27,6 @@ Conecta con: joina `Trading.Cedears` (master categórico) con `Trading.CedearsSn
 ## Lo usan (backlinks) ←
 - [[api.routers.scanner]]  ·  _module_
 - [[api.services.copiloto.renta_variable]]  ·  _module_
+- [[api.services.copiloto.research]]  ·  _module_
 - [[api.services.copiloto.trading]]  ·  _module_
 - [[api.services.scanner_sql]]  ·  _module_

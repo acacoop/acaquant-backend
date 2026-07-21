@@ -37,15 +37,16 @@ calendario.
 - **Sin MCP como base.** El copiloto y todo lo interactivo va NATIVO en la app
   (endpoints propios + panel propio). El MCP server existente queda como está
   (conector de claude.ai para RV) pero no es la plataforma de esto.
-- **Datos del NEGOCIO no van a proveedores LLM — punto (decisión del user
-  2026-07-13).** Se evaluó llevar la IA al lado negocio (prep de reuniones,
-  resumen semanal por operador, triage de excepciones de back office) con
-  doble candado (anonimización en el gateway + proveedor con no-retención
-  contractual tipo OpenAI/Anthropic) y el user lo DESCARTÓ: no quiere datos
-  de la empresa saliendo a ningún proveedor, y el valor determinista (las
-  listas: cuentas enfriadas, cupones próximos, excepciones) se puede lograr
-  con scripts/vistas sin LLM. La IA queda para DATOS PÚBLICOS DE MERCADO.
-  No re-proponer sin novedad (ej. modelo local on-premise viable).
+- **Datos del NEGOCIO hacia el LLM: SOLO a través de la ADUANA (decisión del
+  user 2026-07-21 — pisa el descarte del 2026-07-13).** El user habilitó el
+  Asistente de Negocio (P7) con esta semántica, innegociable: las IDENTIDADES
+  de clientes (nombres, cuentas, documentos) JAMÁS salen al proveedor — la
+  aduana `core/pii_gateway.py` las tacha con fichas (CLIENTE_1) antes de
+  viajar; las CIFRAS (AuM, P&L) salen pseudonimizadas, atadas a la ficha,
+  imposibles de vincular a una persona desde afuera (el diseño que el viejo
+  P4 ya había aprobado: "números y placeholders"). El resto de la decisión
+  original sigue: nada del negocio va al proveedor SIN tokenizar, y las
+  features de mercado no necesitan aduana (datos públicos).
 - **Reglas de oro (aplican a TODOS los proyectos):**
   1. La IA nunca es la fuente de un número: todo dato sale de una tool que
      llama a `api/services` / SQL. La IA redacta, traduce, agrupa, propone.
@@ -73,6 +74,9 @@ calendario.
 - **Fase 0: 3 de 4 hechos** (gateway, RBAC, observabilidad). Falta solo la
   suite de evals (punto 4), diferida A PROPÓSITO hasta tener outputs reales
   que congelar como casos (hoy no hay ninguna tarea LLM corriendo en prod).
+- **P7 Asistente de Negocio: M1 construido (2026-07-21)** — ver su sección.
+  Pendiente del user: apply_schema + deploy + calibración del matcher + tilde
+  del módulo `asistente` en Manager.
 - **Cabos sueltos:**
   1. `.env` del Droplet tiene una línea mal formada (warning python-dotenv
      "line 33", sigue apareciendo al 2026-07-14) — no rompe, pero si esa línea
@@ -362,7 +366,52 @@ del briefing. Después de validar en shadow: ¿el contexto mejora respuestas?
 pgvector sigue DIFERIDO — recencia + FTS cubren el uso actual; se activa solo si
 aparece la pregunta semántica sobre meses de historia.
 
-### P5 — Analista ad-hoc de datos — OJO: alcanzado por la decisión "datos del negocio no salen al proveedor" (2026-07-13); requiere re-decisión explícita antes de arrancar
+### P7 — ASISTENTE DE NEGOCIO (chatbot de jefes) — EN CURSO
+**Estado: Milestone 1 CONSTRUIDO (2026-07-21) — pendiente deploy + calibración
+del matcher** · Tipo: agente con tools curadas (ReAct simple) · Gate: módulo
+RBAC nuevo `asistente` (admin-only default, JAMÁS invitado — REGLA #8)
+
+Chatbot para los jefes: preguntas en lenguaje natural sobre el negocio
+(operaciones/cartera/mercado), respuesta en castellano. **La restricción
+central**: identidades de clientes JAMÁS salen al proveedor (ver la decisión
+de la aduana arriba). Namespace nuevo: `/api/asistente/*` (el viejo
+`api/agent` + `/api/chat` está BORRADO y no se recrea).
+
+**Milestone 1 (construido en 5 commits, 2026-07-21):**
+1. `core/llm.py` — transporte LLM único provider-agnostic (extraído de
+   core/ai.py): el proveedor se nombra en UN archivo; rutear/cambiar =
+   tocar solo ese. Invariante congelada por test.
+2. `core/pii_gateway.py` — LA ADUANA: tokenize/detokenize con fichas
+   estables por chat (CLIENTE_1/CTA_1/DOC_1, mapping en
+   `manager.asistente_mappings`, TTL 48h, nunca viaja). 3 capas: catálogo
+   real (`clientes.cuentas`+`comitentes`, match exacto/parcial/inicial/
+   fuzzy), regex de cuentas/documentos, y enmascarado defensivo de lo que
+   PARECE nombre. Fail-closed: sin catálogo, el asistente se niega.
+3. `api/services/asistente_tools.py` — tools read-only token-in/token-out:
+   `resumen_mesa()` (AuM total + segmentos, agregado sin nombres) y
+   `rendimiento_cuenta(ficha)` (resuelve la ficha DENTRO del perímetro).
+   El LLM jamás escribe SQL.
+4. `POST /api/asistente/chat` (router thin + service
+   `api/services/asistente.py`): tokenize → loop de tools del gateway
+   (tarea `asistente_negocio`, tier pro, presupuestos/trazas heredados;
+   la traza guarda el texto TOKENIZADO = registro auditable de qué salió)
+   → detokenize → transcript real en `manager.asistente_chats`. Feature
+   flag: sin credencial del transporte, el router NI SE MONTA (patrón MCP).
+   Rate limit 10/min·150/día. Invariante testeada: a core.llm no llega
+   NUNCA texto sin aduana (mensaje, historial y tools).
+5. `scripts/eval_asistente.py` + `evals/asistente.json` — harness de
+   regresión con casos de respuesta conocida + NO-LEAK end-to-end en seco
+   (0 tokens).
+
+**PENDIENTE (en orden):** el user corre `apply_schema` + deploy · calibrar el
+matcher con `scripts/diag_pii_matcher.py` (REGLA #2: umbral fuzzy
+`ASISTENTE_FUZZY_UMBRAL` + stoplist `ASISTENTE_STOPLIST_EXTRA` se ajustan con
+los nombres reales) · tildar el módulo `asistente` para admin en Manager →
+ROLES · primera pregunta real por curl · shadow del admin unos días ·
+Milestone 2: frontend `/asistente` en acaquant-web (admin-only) + más tools
+(actividad comercial, acreencias próximas) — recién tras validar M1.
+
+### P5 — Analista ad-hoc de datos — OJO: alcanzado por la decisión "datos del negocio no salen al proveedor" (2026-07-13, MODIFICADA 2026-07-21: ver la decisión de la aduana); el patrón del P7 (jaula + aduana) es la antesala
 **Estado: PENDIENTE** · Tipo: agente con generación de SQL · Gate: `ia`,
 inicialmente solo admin
 

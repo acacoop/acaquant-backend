@@ -60,6 +60,7 @@
 "api.ratelimit",
 "api.routers",
 "api.routers.analitica",
+"api.routers.asistente",
 "api.routers.back_office",
 "api.routers.calendario",
 "api.routers.carteras",
@@ -81,13 +82,17 @@
 "api.routers.research",
 "api.routers.research1816",
 "api.routers.research_bcra",
+"api.routers.research_docs",
+"api.routers.research_fred",
 "api.routers.risk",
 "api.routers.scanner",
 "api.routers.titulos",
 "api.routers.trading",
 "api.routers.valuaciones",
 "api.telemetria",
-"config"
+"config",
+"core",
+"core.llm"
 ]
 },
 {
@@ -246,6 +251,20 @@
 ]
 },
 {
+"id": "api.routers.asistente",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\routers\\asistente.py",
+"summary": "api/routers/asistente.py — ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md).",
+"links": [
+"api.auth",
+"api.ratelimit",
+"api.services",
+"api.services.asistente"
+]
+},
+{
 "id": "api.routers.back_office",
 "type": "module",
 "layer": "api",
@@ -362,7 +381,8 @@
 "api.services",
 "api.services.briefing",
 "api.services.copiloto",
-"api.services.ia_obs"
+"api.services.ia_obs",
+"core.roles"
 ]
 },
 {
@@ -400,6 +420,7 @@
 "api.routers.manager.control_automatico",
 "api.routers.manager.controles",
 "api.routers.manager.diagnostico",
+"api.routers.manager.documentos",
 "api.routers.manager.grupos",
 "api.routers.manager.import_tenencia",
 "api.routers.manager.instrumentos",
@@ -593,6 +614,19 @@
 "links": [
 "api.services.db_obs",
 "api.services.diagnostico"
+]
+},
+{
+"id": "api.routers.manager.documentos",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\routers\\manager\\documentos.py",
+"summary": "Manager sub-router — carga de documentos manuales de REPORTES FINANCIEROS.",
+"links": [
+"api.auth",
+"api.services",
+"api.services.research_docs_sql"
 ]
 },
 {
@@ -942,6 +976,32 @@
 ]
 },
 {
+"id": "api.routers.research_docs",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\routers\\research_docs.py",
+"summary": "Router /api/research-docs — LECTURA de los documentos manuales de la vista",
+"links": [
+"api.auth",
+"api.services",
+"api.services.research_docs_sql"
+]
+},
+{
+"id": "api.routers.research_fred",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\routers\\research_fred.py",
+"summary": "Router /api/research-fred — tab \"Datos Internacionales\" (FRED) de Research.",
+"links": [
+"api.auth",
+"api.services",
+"api.services.research_fred_sql"
+]
+},
+{
 "id": "api.routers.risk",
 "type": "module",
 "layer": "api",
@@ -995,6 +1055,7 @@
 "summary": "Router /api/trading — vista TRADING (módulo `trading`, admin-only).",
 "links": [
 "api.services",
+"api.services.pnl_historico",
 "api.services.scanner_sql",
 "api.services.trading_pivots"
 ]
@@ -1216,6 +1277,36 @@
 ]
 },
 {
+"id": "api.services.asistente",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\asistente.py",
+"summary": "asistente — orquestador del ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md).",
+"links": [
+"api.services",
+"api.services.asistente_tools",
+"core",
+"core.ai",
+"core.llm",
+"core.pii_gateway",
+"core.postgres"
+]
+},
+{
+"id": "api.services.asistente_tools",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\asistente_tools.py",
+"summary": "asistente_tools — tools curadas READ-ONLY del asistente de negocio (QuantAI P7).",
+"links": [
+"core",
+"core.pii_gateway",
+"core.postgres"
+]
+},
+{
 "id": "api.services.assets_sql",
 "type": "module",
 "layer": "api",
@@ -1315,6 +1406,7 @@
 "api.services",
 "api.services.acreencias",
 "api.services.mercado_hist_sql",
+"api.services.research_sql",
 "core.postgres",
 "db.Trading.DOLAR"
 ]
@@ -1524,6 +1616,21 @@
 ]
 },
 {
+"id": "api.services.copiloto.ayuda",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\ayuda.py",
+"summary": "copiloto/ayuda.py — el GUÍA de la plataforma (pedido user 2026-07-20).",
+"links": [
+"api.cache",
+"api.services",
+"api.services.operaciones_sql",
+"db.CashFlow.Contrapartes",
+"db.CashFlow.Operaciones"
+]
+},
+{
 "id": "api.services.copiloto.base",
 "type": "module",
 "layer": "api",
@@ -1567,9 +1674,6 @@
 "path": "api\\services\\copiloto\\motor.py",
 "summary": "copiloto/motor.py — el orquestador: preguntar() (una pregunta → contexto →",
 "links": [
-"api.services",
-"api.services.scanner_sql",
-"api.services.trading_pivots",
 "core.ai",
 "core.postgres",
 "core.roles"
@@ -1647,6 +1751,23 @@
 "api.services.scanner_sql",
 "core.postgres",
 "quant.pivot_points"
+]
+},
+{
+"id": "api.services.copiloto.research",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\research.py",
+"summary": "copiloto/research.py — vista RESEARCH unificada (decisión user 2026-07-20):",
+"links": [
+"api.cache",
+"api.services",
+"api.services.research_1816_sql",
+"api.services.research_docs_sql",
+"api.services.research_sql",
+"api.services.scanner",
+"core.postgres"
 ]
 },
 {
@@ -2127,6 +2248,17 @@
 ]
 },
 {
+"id": "api.services.pnl_historico",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\pnl_historico.py",
+"summary": "api/services/pnl_historico.py — Cuaderno de PnL diario de carga MANUAL.",
+"links": [
+"core.postgres"
+]
+},
+{
 "id": "api.services.pnl_sql",
 "type": "module",
 "layer": "api",
@@ -2243,6 +2375,29 @@
 "repo": "backend",
 "path": "api\\services\\research_bcra_sql.py",
 "summary": "api/services/research_bcra_sql.py — lectura de las series BCRA para la tab",
+"links": [
+"api.cache",
+"core.postgres"
+]
+},
+{
+"id": "api.services.research_docs_sql",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\research_docs_sql.py",
+"summary": "api/services/research_docs_sql.py — documentos manuales de REPORTES FINANCIEROS.",
+"links": [
+"core.postgres"
+]
+},
+{
+"id": "api.services.research_fred_sql",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\research_fred_sql.py",
+"summary": "api/services/research_fred_sql.py — lectura de las series FRED para la tab",
 "links": [
 "api.cache",
 "core.postgres"
@@ -2541,7 +2696,10 @@
 "path": "core\\ai.py",
 "summary": "core/ai.py — gateway único de IA (QuantAI Fase 0, ver docs/QUANTAI.md).",
 "links": [
-"core.postgres"
+"core",
+"core.llm",
+"core.postgres",
+"core.roles"
 ]
 },
 {
@@ -2706,6 +2864,15 @@
 ]
 },
 {
+"id": "core.fred_api",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core\\fred_api.py",
+"summary": "core/fred_api.py — cliente de la FRED API (Federal Reserve Bank of St. Louis).",
+"links": []
+},
+{
 "id": "core.grupos",
 "type": "module",
 "layer": "core",
@@ -2740,6 +2907,15 @@
 "core.notify",
 "core.pg_mirror"
 ]
+},
+{
+"id": "core.llm",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core\\llm.py",
+"summary": "core/llm.py — transporte LLM único, provider-agnostic (QuantAI, docs/QUANTAI.md).",
+"links": []
 },
 {
 "id": "core.mae",
@@ -2790,6 +2966,17 @@
 "repo": "backend",
 "path": "core\\pg_mirror.py",
 "summary": "core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).",
+"links": [
+"core.postgres"
+]
+},
+{
+"id": "core.pii_gateway",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core\\pii_gateway.py",
+"summary": "core/pii_gateway.py — la ADUANA de datos privados hacia el LLM (asistente de negocio).",
 "links": [
 "core.postgres"
 ]
@@ -3161,6 +3348,17 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.forwards_zscore"
+]
+},
+{
+"id": "cron.jobs.fred_research",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.fred_research"
 ]
 },
 {
@@ -4293,6 +4491,20 @@
 ]
 },
 {
+"id": "jobs.fred_research",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs\\fred_research.py",
+"summary": "jobs/fred_research.py — sincroniza series de FRED a Postgres (tab Datos",
+"links": [
+"core",
+"core.fred_api",
+"core.job_runs",
+"core.postgres"
+]
+},
+{
 "id": "jobs.guardrails",
 "type": "module",
 "layer": "jobs",
@@ -4526,6 +4738,7 @@
 "core",
 "core.ai",
 "core.job_runs",
+"core.llm",
 "core.postgres"
 ]
 },
@@ -5541,6 +5754,24 @@
 "links": []
 },
 {
+"id": "web.api.api.research-docs.[...path]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src\\app\\api\\research-docs\\[...path]\\route.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.api.api.research-fred.[...path]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src\\app\\api\\research-fred\\[...path]\\route.ts",
+"summary": "",
+"links": []
+},
+{
 "id": "web.api.api.research.[...path]",
 "type": "route",
 "layer": "web-api",
@@ -5744,6 +5975,15 @@
 "links": [
 "api.routers.operaciones"
 ]
+},
+{
+"id": "web.cmp.anuncio-research-modal",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\anuncio-research-modal.tsx",
+"summary": "",
+"links": []
 },
 {
 "id": "web.cmp.aranceles-view",
@@ -6264,7 +6504,6 @@
 "web.cmp.canje-tab",
 "web.cmp.futuros-dlr-curve-chart",
 "web.cmp.news-panel",
-"web.cmp.retorno-total-mini",
 "web.cmp.tradingview-chart",
 "web.cmp.watchlist-panel"
 ]
@@ -6382,6 +6621,17 @@
 ]
 },
 {
+"id": "web.cmp.manager-documentos-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\manager-documentos-view.tsx",
+"summary": "",
+"links": [
+"api.routers.manager.documentos"
+]
+},
+{
 "id": "web.cmp.manager-ia-panel",
 "type": "component",
 "layer": "web-component",
@@ -6428,6 +6678,15 @@
 "api.routers.manager.uso",
 "web.lib.use-persisted-state"
 ]
+},
+{
+"id": "web.cmp.maximizable",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\maximizable.tsx",
+"summary": "",
+"links": []
 },
 {
 "id": "web.cmp.metricas-panel",
@@ -6605,6 +6864,19 @@
 ]
 },
 {
+"id": "web.cmp.pnl-historico-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\pnl-historico-view.tsx",
+"summary": "",
+"links": [
+"api.routers.trading",
+"web.lib.fmt-money",
+"web.lib.use-persisted-state"
+]
+},
+{
 "id": "web.cmp.pnl-titulos-view",
 "type": "component",
 "layer": "web-component",
@@ -6739,6 +7011,15 @@
 "links": []
 },
 {
+"id": "web.cmp.research-documentos",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\research-documentos.tsx",
+"summary": "",
+"links": []
+},
+{
 "id": "web.cmp.research-forwards",
 "type": "component",
 "layer": "web-component",
@@ -6748,6 +7029,15 @@
 "links": [
 "api.routers.cotizaciones"
 ]
+},
+{
+"id": "web.cmp.research-fred",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\research-fred.tsx",
+"summary": "",
+"links": []
 },
 {
 "id": "web.cmp.research-lab",
@@ -6761,6 +7051,17 @@
 ]
 },
 {
+"id": "web.cmp.research-retorno-total",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\research-retorno-total.tsx",
+"summary": "",
+"links": [
+"api.routers.analitica"
+]
+},
+{
 "id": "web.cmp.research-view",
 "type": "component",
 "layer": "web-component",
@@ -6769,9 +7070,14 @@
 "summary": "",
 "links": [
 "api.routers.research1816",
+"web.cmp.ia-vista-panel",
+"web.cmp.maximizable",
 "web.cmp.research-bcra",
+"web.cmp.research-documentos",
 "web.cmp.research-forwards",
+"web.cmp.research-fred",
 "web.cmp.research-lab",
+"web.cmp.research-retorno-total",
 "web.cmp.reuters-view"
 ]
 },
@@ -7237,6 +7543,7 @@
 "path": "src\\app\\layout.tsx",
 "summary": "",
 "links": [
+"web.cmp.anuncio-research-modal",
 "web.cmp.briefing-modal",
 "web.cmp.header",
 "web.cmp.theme-toggle",

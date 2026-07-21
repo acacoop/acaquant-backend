@@ -18,6 +18,7 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
+- [[api.services.pnl_historico]]  ·  _module_
 - [[api.services.scanner_sql]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_
 
@@ -26,6 +27,7 @@ _(pendiente de enriquecimiento)_
 - [[web.api.api.trading.[...path]]]  ·  _route_
 - [[web.cmp.cedears-timesales-panel]]  ·  _component_
 - [[web.cmp.live-intraday-chart]]  ·  _component_
+- [[web.cmp.pnl-historico-view]]  ·  _component_
 - [[web.cmp.trading-pivot-radar]]  ·  _component_
 - [[web.cmp.trading-renta-fija-scanner]]  ·  _component_
 - [[web.cmp.trading-view]]  ·  _component_

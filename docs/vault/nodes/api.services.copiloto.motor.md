@@ -17,9 +17,6 @@ path: api\services\copiloto\motor.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
-- [[api.services]]  ·  _module_
-- [[api.services.scanner_sql]]  ·  _module_
-- [[api.services.trading_pivots]]  ·  _module_
 - [[core.ai]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[core.roles]]  ·  _module_

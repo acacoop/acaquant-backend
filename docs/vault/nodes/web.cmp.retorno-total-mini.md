@@ -16,6 +16,3 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.routers.analitica]]  ·  _module_
-
-## Lo usan (backlinks) ←
-- [[web.cmp.home-view]]  ·  _component_

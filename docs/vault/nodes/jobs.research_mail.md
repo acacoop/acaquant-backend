@@ -20,6 +20,7 @@ _(pendiente de enriquecimiento)_
 - [[core]]  ·  _module_
 - [[core.ai]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
+- [[core.llm]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←

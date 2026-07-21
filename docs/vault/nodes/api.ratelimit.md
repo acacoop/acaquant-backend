@@ -20,6 +20,7 @@ Conecta con: lee headers de CF Access; lo monta `api.main` en `app.state.limiter
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
+- [[api.routers.asistente]]  ·  _module_
 - [[api.routers.manager.jobs]]  ·  _module_
 - [[api.routers.news]]  ·  _module_
 - [[api.routers.ordenes]]  ·  _module_

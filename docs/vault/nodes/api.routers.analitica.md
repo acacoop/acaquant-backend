@@ -40,6 +40,7 @@ Conecta con: delega en los services `renta_fija`, `macro`, `descomposicion_retor
 - [[web.cmp.curvas-chart]]  ·  _component_
 - [[web.cmp.descomposicion-tab]]  ·  _component_
 - [[web.cmp.ons-live]]  ·  _component_
+- [[web.cmp.research-retorno-total]]  ·  _component_
 - [[web.cmp.retorno-total-mini]]  ·  _component_
 - [[web.cmp.sensibilidad-table]]  ·  _component_
 - [[web.view.ons.view]]  ·  _view_

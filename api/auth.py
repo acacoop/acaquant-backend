@@ -239,6 +239,9 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     # queda cableado ANTES de que exista el primer endpoint: cualquier router
     # futuro bajo /api/ia nace default-deny (solo roles con el módulo tildado).
     ("/api/ia",          "ia"),
+    # /api/asistente → ASISTENTE DE NEGOCIO (QuantAI P7): datos del negocio →
+    # admin-only por default, nunca invitado (REGLA #8).
+    ("/api/asistente",   "asistente"),
 )
 
 

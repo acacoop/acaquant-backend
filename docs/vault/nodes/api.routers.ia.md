@@ -22,6 +22,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.briefing]]  ·  _module_
 - [[api.services.copiloto]]  ·  _module_
 - [[api.services.ia_obs]]  ·  _module_
+- [[core.roles]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

@@ -20,7 +20,6 @@ Conecta con: compone `WatchlistPanel`, `NewsPanel`, `TradingViewChart` y `Futuro
 - [[web.cmp.canje-tab]]  ·  _component_
 - [[web.cmp.futuros-dlr-curve-chart]]  ·  _component_
 - [[web.cmp.news-panel]]  ·  _component_
-- [[web.cmp.retorno-total-mini]]  ·  _component_
 - [[web.cmp.tradingview-chart]]  ·  _component_
 - [[web.cmp.watchlist-panel]]  ·  _component_
 

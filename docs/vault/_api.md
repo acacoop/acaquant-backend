@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-181 notas.
+192 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -19,6 +19,7 @@
 - [[api.ratelimit]] — Rate limiter compartido — instancia única de slowapi.
 - [[api.routers]]
 - [[api.routers.analitica]] — Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.
+- [[api.routers.asistente]] — api/routers/asistente.py — ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md).
 - [[api.routers.back_office]] — Router /api/back-office — sección Back Office.
 - [[api.routers.calendario]] — GET /api/calendario — calendario económico (watchlist HOME, tab CALENDARIO).
 - [[api.routers.carteras]] — Router Portfolio — thin wrappers sobre `api.services.portfolio`.
@@ -42,6 +43,7 @@
 - [[api.routers.manager.control_automatico]] — POST /api/manager/control-automatico/* — conciliación Excel↔cuentas + segmentar.
 - [[api.routers.manager.controles]] — GET /api/manager/controles — anomalías del auto-control de calidad de datos.
 - [[api.routers.manager.diagnostico]] — GET /api/manager/diagnostico — árbol de salud por vista (motores/jobs/apis).
+- [[api.routers.manager.documentos]] — Manager sub-router — carga de documentos manuales de REPORTES FINANCIEROS.
 - [[api.routers.manager.grupos]] — Manager sub-router — grupos de acceso por cuenta.
 - [[api.routers.manager.import_tenencia]] — Manager sub-router — import masivo de tenencia a Valuaciones.AuM (admin).
 - [[api.routers.manager.instrumentos]] — Manager sub-router — Títulos → Instrumentos (solo lectura).
@@ -67,6 +69,8 @@
 - [[api.routers.research]] — Router /api/research — vista Análisis Fundamental del módulo Renta Variable.
 - [[api.routers.research1816]] — Router /api/research1816 — vista RESEARCH (nueva vista principal).
 - [[api.routers.research_bcra]] — Router /api/research-bcra — tab BCRA de la vista Research.
+- [[api.routers.research_docs]] — Router /api/research-docs — LECTURA de los documentos manuales de la vista
+- [[api.routers.research_fred]] — Router /api/research-fred — tab "Datos Internacionales" (FRED) de Research.
 - [[api.routers.risk]] — Router /api/risk — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.routers.scanner]] — Router /api/scanner — vista Scanner del módulo Renta Variable.
 - [[api.routers.titulos]] — Router Titulos: assets + flujos, DIRECTO desde las fuentes (Valuaciones.Assets
@@ -88,6 +92,8 @@
 - [[api.services.agro_sql]] — api/services/agro_sql.py — dominio AGRO / Derivados Agro leyendo Postgres.
 - [[api.services.analitica]] — Capa de servicio — analítica Tier 2 sobre data existente.
 - [[api.services.argy]] — Capa de servicio — métricas argentinas con returns calculados.
+- [[api.services.asistente]] — asistente — orquestador del ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md).
+- [[api.services.asistente_tools]] — asistente_tools — tools curadas READ-ONLY del asistente de negocio (QuantAI P7).
 - [[api.services.assets_sql]] — api/services/assets_sql.py — lectura del catálogo de títulos desde SQL
 - [[api.services.aunesa_aranceles]] — Backfill de aranceles desde Aunesa /operaciones/informes a SQL
 - [[api.services.aunesa_informes]] — api/services/aunesa_informes.py — aranceles por boleto desde Aunesa /operaciones/informes.
@@ -111,6 +117,7 @@
 - [[api.services.controles_sql]] — api/services/controles_sql.py — lectura del auto-control de calidad de datos.
 - [[api.services.copiloto]] — api/services/copiloto — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).
 - [[api.services.copiloto.agro]] — copiloto/agro.py — vista AGRO (granos): pase agro, pase con cobertura, cámara.
+- [[api.services.copiloto.ayuda]] — copiloto/ayuda.py — el GUÍA de la plataforma (pedido user 2026-07-20).
 - [[api.services.copiloto.base]] — copiloto/base.py — helpers puros y prompt base compartidos por todas las vistas.
 - [[api.services.copiloto.derivacion]] — copiloto/derivacion.py — derivación entre vistas: el marcador [[VISTA:x]], el
 - [[api.services.copiloto.home]] — copiloto/home.py — vista HOME (panorama del mercado): watchlist + briefing +
@@ -120,6 +127,7 @@
 - [[api.services.copiloto.registro]] — copiloto/registro.py — el registro VISTAS: ensambla cada vista (fetch,
 - [[api.services.copiloto.renta_fija]] — copiloto/renta_fija.py — vista RF (bonos ARG): curvas, fair value, forwards,
 - [[api.services.copiloto.renta_variable]] — copiloto/renta_variable.py — vista RV (CEDEARs/ADRs): fetch, enriquecido,
+- [[api.services.copiloto.research]] — copiloto/research.py — vista RESEARCH unificada (decisión user 2026-07-20):
 - [[api.services.copiloto.reuters]] — copiloto/reuters.py — vista REUTERS (tablero live subyacentes US, feed Eikon).
 - [[api.services.copiloto.trading]] — copiloto/trading.py — vista TRADING (monitor intradía): tarjetas con pivots
 - [[api.services.copiloto.verificacion]] — copiloto/verificacion.py — guardrails estructurales (anti-alucinación).
@@ -156,6 +164,7 @@
 - [[api.services.ordenes_sql]] — api/services/ordenes_sql.py — READ-SIDE del motor de órdenes leyendo Postgres.
 - [[api.services.order_book]] — Capa de servicio — Order Book (LOB) live.
 - [[api.services.pnl]] — Motor de PnL por (cuenta, ticker) con cost-basis weighted-average.
+- [[api.services.pnl_historico]] — api/services/pnl_historico.py — Cuaderno de PnL diario de carga MANUAL.
 - [[api.services.pnl_sql]] — api/services/pnl_sql.py — PnL Títulos leyendo de Postgres, REUSANDO el motor de pnl.py.
 - [[api.services.portfolio]] — Capa de servicio — portfolio / AuM / FCI: helpers PUROS compartidos.
 - [[api.services.portfolio_sql]] — api/services/portfolio_sql.py — vista PORTFOLIO / AuM leyendo de Postgres (Supabase).
@@ -165,6 +174,8 @@
 - [[api.services.repo]] — Capa de servicio — mercado repo (caución).
 - [[api.services.research_1816_sql]] — api/services/research_1816_sql.py — lectura de las series de 1816 para el
 - [[api.services.research_bcra_sql]] — api/services/research_bcra_sql.py — lectura de las series BCRA para la tab
+- [[api.services.research_docs_sql]] — api/services/research_docs_sql.py — documentos manuales de REPORTES FINANCIEROS.
+- [[api.services.research_fred_sql]] — api/services/research_fred_sql.py — lectura de las series FRED para la tab
 - [[api.services.research_fundamentals]] — Capa de servicio — Análisis Fundamental (módulo Renta Variable).
 - [[api.services.research_sql]] — api/services/research_sql.py — lectura del research diario (mails de 1816) para
 - [[api.services.risk]] — Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).

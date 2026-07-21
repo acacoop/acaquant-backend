@@ -63,6 +63,11 @@ MODULES: tuple[str, ...] = (
     "ia",             # features de IA (QuantAI, docs/QUANTAI.md) — gate de /api/ia/*.
                       # El invitado lo tiene desde 2026-07-21 con condiciones (ver
                       # el bloque invitado de DEFAULT_MATRIX).
+    "asistente",      # ASISTENTE DE NEGOCIO (QuantAI P7) — chatbot de jefes sobre
+                      # datos del negocio, gate de /api/asistente/*. SOLO admin por
+                      # default (DEFAULT_MATRIX) y JAMÁS en INVITADO_MODULES: habla
+                      # del NEGOCIO de la mesa → REGLA #8, default-deny absoluto
+                      # para el portal www. Congelado por test.
     "manager",        # /manager + intel + jobs + logs (umbrella — tabs admin)
     # Sub-módulos de Manager: cobertura granular para el rol `asistente_comercial`
     # (acceso SOLO a la tab Clientes, sin ver el resto). El sub-router

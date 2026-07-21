@@ -27,10 +27,12 @@ Conecta con: lee/escribe `Manager.Users`, `Manager.RoleMatrix`, `Manager.RoleAud
 
 ## Lo usan (backlinks) ←
 - [[api.auth]]  ·  _module_
+- [[api.routers.ia]]  ·  _module_
 - [[api.routers.manager.roles]]  ·  _module_
 - [[api.routers.manager.users]]  ·  _module_
 - [[api.routers.me]]  ·  _module_
 - [[api.services.copiloto.derivacion]]  ·  _module_
 - [[api.services.copiloto.motor]]  ·  _module_
+- [[core.ai]]  ·  _module_
 - [[core.grupos]]  ·  _module_
 - [[core.roles_sql]]  ·  _module_

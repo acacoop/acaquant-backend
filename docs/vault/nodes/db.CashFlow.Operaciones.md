@@ -18,6 +18,7 @@ Conecta con: la escriben `jobs/operaciones_informes.py` y `api/services/operacio
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.status]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
+- [[api.services.copiloto.ayuda]]  ·  _module_
 - [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.operativa_mep]]  ·  _module_
 - [[api.services.ordenes]]  ·  _module_

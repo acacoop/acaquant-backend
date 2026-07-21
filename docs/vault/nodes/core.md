@@ -19,6 +19,7 @@ Regla dura: `core/` no importa nada del resto del proyecto salvo `config` — es
 Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 
 ## Lo usan (backlinks) ←
+- [[api.main]]  ·  _module_
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.routers.manager.options]]  ·  _module_
 - [[api.routers.titulos]]  ·  _module_
@@ -27,6 +28,8 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
+- [[api.services.asistente]]  ·  _module_
+- [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.aunesa_informes]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
@@ -54,6 +57,7 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[api.services.titulos_flujos]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
+- [[core.ai]]  ·  _module_
 - [[core.brackets]]  ·  _module_
 - [[core.grupos]]  ·  _module_
 - [[core.roles]]  ·  _module_
@@ -74,6 +78,7 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
+- [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.mercado_1816_discovery]]  ·  _module_
 - [[jobs.mercado_1816_series]]  ·  _module_

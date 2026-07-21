@@ -20,6 +20,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.mcp.tools.renta_variable]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
+- [[api.routers.asistente]]  ·  _module_
 - [[api.routers.back_office]]  ·  _module_
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
@@ -33,6 +34,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.manager.compliance]]  ·  _module_
 - [[api.routers.manager.contrapartes]]  ·  _module_
 - [[api.routers.manager.control_automatico]]  ·  _module_
+- [[api.routers.manager.documentos]]  ·  _module_
 - [[api.routers.manager.import_tenencia]]  ·  _module_
 - [[api.routers.manager.jobs]]  ·  _module_
 - [[api.routers.manager.ons]]  ·  _module_
@@ -48,6 +50,8 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.research]]  ·  _module_
 - [[api.routers.research1816]]  ·  _module_
 - [[api.routers.research_bcra]]  ·  _module_
+- [[api.routers.research_docs]]  ·  _module_
+- [[api.routers.research_fred]]  ·  _module_
 - [[api.routers.risk]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[api.routers.trading]]  ·  _module_
@@ -56,16 +60,18 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.agro_cobertura]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
+- [[api.services.asistente]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.copiloto.agro]]  ·  _module_
+- [[api.services.copiloto.ayuda]]  ·  _module_
 - [[api.services.copiloto.home]]  ·  _module_
-- [[api.services.copiloto.motor]]  ·  _module_
 - [[api.services.copiloto.ons]]  ·  _module_
 - [[api.services.copiloto.opciones]]  ·  _module_
 - [[api.services.copiloto.renta_fija]]  ·  _module_
 - [[api.services.copiloto.renta_variable]]  ·  _module_
+- [[api.services.copiloto.research]]  ·  _module_
 - [[api.services.copiloto.trading]]  ·  _module_
 - [[api.services.derivados]]  ·  _module_
 - [[api.services.descomposicion_retorno]]  ·  _module_

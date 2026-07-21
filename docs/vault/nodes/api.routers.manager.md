@@ -33,6 +33,7 @@ Conecta con: `api.auth::require_module` / `require_any_module` + `api.deps::veri
 - [[api.routers.manager.control_automatico]]  ·  _module_
 - [[api.routers.manager.controles]]  ·  _module_
 - [[api.routers.manager.diagnostico]]  ·  _module_
+- [[api.routers.manager.documentos]]  ·  _module_
 - [[api.routers.manager.grupos]]  ·  _module_
 - [[api.routers.manager.import_tenencia]]  ·  _module_
 - [[api.routers.manager.instrumentos]]  ·  _module_

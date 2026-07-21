@@ -25,6 +25,7 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
 - [[api.mcp.oauth]]  ·  _module_
+- [[api.routers.asistente]]  ·  _module_
 - [[api.routers.back_office]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
 - [[api.routers.derivados_agro]]  ·  _module_
@@ -39,6 +40,7 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 - [[api.routers.manager.clientes]]  ·  _module_
 - [[api.routers.manager.contrapartes]]  ·  _module_
 - [[api.routers.manager.control_automatico]]  ·  _module_
+- [[api.routers.manager.documentos]]  ·  _module_
 - [[api.routers.manager.grupos]]  ·  _module_
 - [[api.routers.manager.import_tenencia]]  ·  _module_
 - [[api.routers.manager.ons]]  ·  _module_
@@ -52,6 +54,8 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 - [[api.routers.research]]  ·  _module_
 - [[api.routers.research1816]]  ·  _module_
 - [[api.routers.research_bcra]]  ·  _module_
+- [[api.routers.research_docs]]  ·  _module_
+- [[api.routers.research_fred]]  ·  _module_
 - [[api.routers.risk]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[api.services._grupos_scope]]  ·  _module_

@@ -37,8 +37,10 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.compliance]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
+- [[api.services.copiloto.ayuda]]  ·  _module_
 - [[api.services.copiloto.renta_fija]]  ·  _module_
 - [[api.services.copiloto.renta_variable]]  ·  _module_
+- [[api.services.copiloto.research]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.db_obs]]  ·  _module_
 - [[api.services.derivados]]  ·  _module_
@@ -62,6 +64,7 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.repo]]  ·  _module_
 - [[api.services.research_1816_sql]]  ·  _module_
 - [[api.services.research_bcra_sql]]  ·  _module_
+- [[api.services.research_fred_sql]]  ·  _module_
 - [[api.services.research_fundamentals]]  ·  _module_
 - [[api.services.research_sql]]  ·  _module_
 - [[api.services.risk]]  ·  _module_

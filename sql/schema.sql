@@ -1459,6 +1459,21 @@ CREATE TABLE IF NOT EXISTS manager.asistente_mappings (
 CREATE INDEX IF NOT EXISTS ix_asistente_mappings_updated
     ON manager.asistente_mappings (updated_at);
 
+-- Transcript del asistente de negocio (nombres REALES — perímetro; el acceso
+-- lo gatea el módulo RBAC `asistente`, admin-only). Escrito por
+-- api/services/asistente.py en cada turno; el historial que se re-inyecta al
+-- LLM se RE-tokeniza al cargar (jamás viaja crudo).
+CREATE TABLE IF NOT EXISTS manager.asistente_chats (
+    id        bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    chat_id   text NOT NULL,
+    email     text NOT NULL,
+    ts        timestamptz NOT NULL DEFAULT now(),
+    rol       text NOT NULL,               -- 'user' | 'assistant'
+    contenido text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_asistente_chats_chat  ON manager.asistente_chats (chat_id, ts);
+CREATE INDEX IF NOT EXISTS ix_asistente_chats_email ON manager.asistente_chats (email, ts);
+
 -- ── FAIR VALUE (curva cuadrática TEA=β0+β1·d+β2·d² + residuos + z-scores) ─────
 -- Decomiso 2026-06-28: jobs/fair_value.py pasa de Mongo a SQL-NATIVE (write_native,
 -- incondicional). Antes escribía Trading.{FitParams,FairValueResiduos} (Mongo) y leía

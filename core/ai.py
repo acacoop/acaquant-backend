@@ -78,6 +78,13 @@ _TAREAS: dict[str, dict] = {
     # max_tokens holgado porque el JSON con ~10 hechos ocupa (lección del P2).
     "research_destilar": {"tier": "flash", "max_tokens": 2000, "timeout_s": 90,
                           "thinking": "disabled"},
+    # P7 asistente de negocio (api/services/asistente.py): chat con tools para
+    # jefes sobre datos del negocio (SIEMPRE tokenizados por la aduana —
+    # core/pii_gateway). Tier pro (razona sobre qué tool usar y sintetiza);
+    # thinking disabled (mismo criterio que copiloto_vista_pro: queremos
+    # respuesta, no cadena); max_tokens holgado — lección del P2.
+    "asistente_negocio": {"tier": "pro", "max_tokens": 2500, "timeout_s": 90,
+                          "thinking": "disabled"},
 }
 
 _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60, "thinking": "disabled"}

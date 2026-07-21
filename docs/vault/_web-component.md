@@ -1,12 +1,13 @@
 # 🧩 web — componentes
 
-117 notas.
+124 notas.
 
 - [[web.cmp.acreencias-view]]
 - [[web.cmp.agro-datos]]
 - [[web.cmp.agro-mejoras-dispo]]
 - [[web.cmp.agro-shell]]
 - [[web.cmp.agro-view]]
+- [[web.cmp.anuncio-research-modal]]
 - [[web.cmp.aranceles-view]]
 - [[web.cmp.aum-view]]
 - [[web.cmp.aunesa-aum-panel]]
@@ -62,9 +63,11 @@
 - [[web.cmp.manager-controles-panel]]
 - [[web.cmp.manager-debug-tea]]
 - [[web.cmp.manager-debug-xirr]]
+- [[web.cmp.manager-documentos-view]]
 - [[web.cmp.manager-ia-panel]]
 - [[web.cmp.manager-jobs-panel]]
 - [[web.cmp.manager-view]]
+- [[web.cmp.maximizable]]
 - [[web.cmp.metricas-panel]]
 - [[web.cmp.news-panel]]
 - [[web.cmp.news-reader]]
@@ -80,6 +83,7 @@
 - [[web.cmp.order-book-panel]]
 - [[web.cmp.payoff-chart]]
 - [[web.cmp.pivot-points-panel]]
+- [[web.cmp.pnl-historico-view]]
 - [[web.cmp.pnl-titulos-view]]
 - [[web.cmp.pnl-totales-view]]
 - [[web.cmp.por-cuenta-view]]
@@ -91,8 +95,11 @@
 - [[web.cmp.renta-fija-table]]
 - [[web.cmp.renta-variable-shell]]
 - [[web.cmp.research-bcra]]
+- [[web.cmp.research-documentos]]
 - [[web.cmp.research-forwards]]
+- [[web.cmp.research-fred]]
 - [[web.cmp.research-lab]]
+- [[web.cmp.research-retorno-total]]
 - [[web.cmp.research-view]]
 - [[web.cmp.retorno-total-mini]]
 - [[web.cmp.retorno-total-view]]

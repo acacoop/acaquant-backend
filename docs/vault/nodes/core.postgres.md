@@ -38,6 +38,8 @@ _(pendiente de enriquecimiento)_
 - [[api.services.acreencias]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
+- [[api.services.asistente]]  ·  _module_
+- [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.assets_sql]]  ·  _module_
 - [[api.services.aunesa_aranceles]]  ·  _module_
 - [[api.services.back_office_titulos]]  ·  _module_
@@ -56,6 +58,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.copiloto.motor]]  ·  _module_
 - [[api.services.copiloto.renta_fija]]  ·  _module_
 - [[api.services.copiloto.renta_variable]]  ·  _module_
+- [[api.services.copiloto.research]]  ·  _module_
 - [[api.services.copiloto.trading]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
@@ -74,8 +77,11 @@ _(pendiente de enriquecimiento)_
 - [[api.services.ordenes]]  ·  _module_
 - [[api.services.order_book]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
+- [[api.services.pnl_historico]]  ·  _module_
 - [[api.services.research_1816_sql]]  ·  _module_
 - [[api.services.research_bcra_sql]]  ·  _module_
+- [[api.services.research_docs_sql]]  ·  _module_
+- [[api.services.research_fred_sql]]  ·  _module_
 - [[api.services.research_fundamentals]]  ·  _module_
 - [[api.services.research_sql]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
@@ -102,6 +108,7 @@ _(pendiente de enriquecimiento)_
 - [[core.grupos_sql]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
+- [[core.pii_gateway]]  ·  _module_
 - [[core.roles]]  ·  _module_
 - [[core.roles_sql]]  ·  _module_
 - [[core.series_macro]]  ·  _module_
@@ -133,6 +140,7 @@ _(pendiente de enriquecimiento)_
 - [[jobs.fair_value]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.forwards_zscore]]  ·  _module_
+- [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_

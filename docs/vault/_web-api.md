@@ -1,6 +1,6 @@
 # 🔌 web — rutas API (proxy)
 
-64 notas.
+66 notas.
 
 - [[web.api.api.analitica.[...path]]]
 - [[web.api.api.argy]]
@@ -53,6 +53,8 @@
 - [[web.api.api.portfolio.niveles-1]]
 - [[web.api.api.portfolio.operadores]]
 - [[web.api.api.research-bcra.[...path]]]
+- [[web.api.api.research-docs.[...path]]]
+- [[web.api.api.research-fred.[...path]]]
 - [[web.api.api.research.[...path]]]
 - [[web.api.api.research1816.[...path]]]
 - [[web.api.api.risk.[[...path]]]]

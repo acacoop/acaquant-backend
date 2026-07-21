@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-38 notas.
+41 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
@@ -20,14 +20,17 @@
 - [[core.eikon_live]] — Feed Eikon/Workspace — quotes LIVE del subyacente US de cada CEDEAR (PRUEBA).
 - [[core.finnhub]] — Cliente Finnhub con rate limiting interno.
 - [[core.fmp]] — Cliente FMP (financialmodelingprep) — calendario económico.
+- [[core.fred_api]] — core/fred_api.py — cliente de la FRED API (Federal Reserve Bank of St. Louis).
 - [[core.grupos]] — core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).
 - [[core.grupos_sql]] — core/grupos_sql.py — lectura + escritura del scope de cuentas (grupos) desde Postgres.
 - [[core.job_runs]] — Context manager para registrar runs de jobs automáticos en manager.job_runs (SQL).
+- [[core.llm]] — core/llm.py — transporte LLM único, provider-agnostic (QuantAI, docs/QUANTAI.md).
 - [[core.mae]] — Cliente MAE MarketData.
 - [[core.market_snapshot]] — Lectura de mercado.market_snapshot (SQL) — estado live por ticker. SQL-only.
 - [[core.mercado_1816]] — core/mercado_1816.py — cliente de la API de Mercado de 1816 (vista RESEARCH).
 - [[core.notify]] — Notificaciones operativas (Telegram).
 - [[core.pg_mirror]] — core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
+- [[core.pii_gateway]] — core/pii_gateway.py — la ADUANA de datos privados hacia el LLM (asistente de negocio).
 - [[core.postgres]] — core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.
 - [[core.profiler]] — Stopwatch mínimo para instrumentar pasos dentro de una función.
 - [[core.rofex_orders_session]] — Sesión pyRofex dedicada a envío/seguimiento de órdenes.

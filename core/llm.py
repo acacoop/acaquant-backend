@@ -105,6 +105,39 @@ _PROVEEDORES: dict[str, dict] = {
 }
 
 
+# ── Precios (USD por 1M de tokens) ───────────────────────────────────────────
+# VERIFICADOS contra las páginas de precios de cada proveedor el 2026-07-21.
+# Sirven para estimar el gasto en OBSERVABILIDAD: DeepSeek expone saldo real
+# (/user/balance) pero OpenAI NO tiene endpoint de saldo — ni con admin key —,
+# así que el gasto se calcula desde los tokens que ya guardamos en ia.trazas.
+# (entrada, salida, entrada_cacheada). Si el proveedor cambia los precios, se
+# actualizan ACÁ (el cableado del proveedor vive en este archivo y nada más).
+_PRECIOS: dict[str, tuple[float, float, float]] = {
+    "deepseek-v4-flash": (0.14, 0.28, 0.0028),
+    "deepseek-v4-pro":   (0.435, 0.87, 0.003625),
+    "gpt-5.6-luna":  (1.00, 6.00, 0.10),
+    "gpt-5.6-terra": (2.50, 15.00, 0.25),
+    "gpt-5.6-sol":   (5.00, 30.00, 0.50),
+    "gpt-5.4-mini":  (0.75, 4.50, 0.075),
+    "gpt-5.4-nano":  (0.20, 1.25, 0.02),
+}
+
+
+def costo_estimado(modelo: str | None, tokens_in: int | None, tokens_out: int | None,
+                   cache_hit: int | None = None) -> float | None:
+    """USD estimados de una llamada (o de un agregado por modelo). None si el
+    modelo no está en la tabla de precios — mejor sin dato que un número
+    inventado. Los tokens servidos desde caché se cobran mucho menos y se
+    descuentan del input."""
+    precios = _PRECIOS.get(str(modelo or "").strip().lower())
+    if precios is None:
+        return None
+    p_in, p_out, p_cache = precios
+    ti, to = int(tokens_in or 0), int(tokens_out or 0)
+    hit = min(int(cache_hit or 0), ti)
+    return ((ti - hit) * p_in + hit * p_cache + to * p_out) / 1_000_000
+
+
 def proveedor_de_modelo(modelo: str | None) -> str | None:
     """A qué proveedor pertenece un ID de modelo (para leer trazas viejas en
     OBSERVABILIDAD). None si no se reconoce."""

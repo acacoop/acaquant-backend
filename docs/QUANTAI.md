@@ -145,6 +145,16 @@ calendario.
    (el mapeo modelo→proveedor vive en `core/llm.py::proveedor_de_modelo`,
    la invariante se respeta) y `/saldo` devuelve el estado de TODOS los
    proveedores configurados.
+   **GASTO ESTIMADO (2026-07-21):** DeepSeek expone saldo real
+   (`/user/balance`) pero **OpenAI NO tiene endpoint de saldo — ni con admin
+   key** (verificado: los endpoints de billing devuelven 403). Como ya
+   guardamos tokens in/out/caché por llamada, el gasto se **calcula**:
+   tabla de precios USD/1M en `core/llm._PRECIOS` (verificada 2026-07-21,
+   actualizar ahí si cambian) + `costo_estimado()`, que descuenta los tokens
+   servidos desde caché. El panel muestra el gasto de hoy y el de la ventana
+   por proveedor; un modelo sin precio queda en "—" (jamás un número
+   inventado). Tests: `tests/unit/test_costos_ia.py` — incluye uno que exige
+   que TODOS los modelos default del registro tengan precio.
    **Presupuestos editables desde el panel (2026-07-11, pedido del user):**
    tabla `ia.config` (precedencia tabla > env > default; cache 60s en el
    gateway) + `GET/POST /api/ia/presupuesto` (editar = SOLO admin, auditado

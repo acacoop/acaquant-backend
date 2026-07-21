@@ -220,7 +220,17 @@ def observabilidad(dias: int = 14, limit: int = 60, offset: int = 0,
                    count(*) FILTER (WHERE NOT ok)                        AS errores,
                    coalesce(sum(coalesce(tokens_in, 0)
                               + coalesce(tokens_out, 0)), 0)::bigint     AS tokens,
-                   round(avg(latencia_ms))::int                          AS latencia_ms_avg
+                   round(avg(latencia_ms))::int                          AS latencia_ms_avg,
+                   -- para estimar el GASTO hace falta el detalle in/out/caché
+                   coalesce(sum(tokens_in), 0)::bigint                   AS tokens_in,
+                   coalesce(sum(tokens_out), 0)::bigint                  AS tokens_out,
+                   coalesce(sum(cache_hit_tokens), 0)::bigint            AS cache_hit,
+                   coalesce(sum(tokens_in) FILTER (
+                       WHERE ts >= date_trunc('day', now())), 0)::bigint  AS tokens_in_hoy,
+                   coalesce(sum(tokens_out) FILTER (
+                       WHERE ts >= date_trunc('day', now())), 0)::bigint  AS tokens_out_hoy,
+                   coalesce(sum(cache_hit_tokens) FILTER (
+                       WHERE ts >= date_trunc('day', now())), 0)::bigint  AS cache_hit_hoy
             FROM ia.trazas
             WHERE ts >= date_trunc('day', now()) - %s * interval '1 day'
             GROUP BY modelo
@@ -274,25 +284,42 @@ def observabilidad(dias: int = 14, limit: int = 60, offset: int = 0,
 
 def _plegar_por_proveedor(por_modelo: list[dict]) -> list[dict]:
     """Agrupa el uso por PROVEEDOR (deepseek/openai) a partir de los IDs de
-    modelo. La correspondencia modelo→proveedor la sabe core/llm.py."""
+    modelo, y estima el GASTO en USD desde los tokens (la tabla de precios
+    vive en core/llm.py). OpenAI no expone saldo por API — ni con admin key —
+    así que el gasto calculado es la única forma de seguirlo desde el panel."""
     from core import llm
 
     acc: dict[str, dict] = {}
+    lat_acc: dict[str, list[tuple[int, int]]] = {}
     for r in por_modelo:
         prov = llm.proveedor_de_modelo(r["modelo"]) or "otro"
         e = acc.setdefault(prov, {
             "proveedor": prov, "modelos": [], "llamadas": 0, "errores": 0,
             "tokens": 0, "latencia_ms_avg": None,
+            "costo_usd": 0.0, "costo_usd_hoy": 0.0, "costo_estimable": True,
             "no_entrena": llm.no_entrena(prov) if prov != "otro" else None,
         })
         e["modelos"].append(r["modelo"])
         e["llamadas"] += int(r["llamadas"] or 0)
         e["errores"] += int(r["errores"] or 0)
         e["tokens"] += int(r["tokens"] or 0)
-        # promedio ponderado por llamadas
         if r["latencia_ms_avg"] is not None:
-            prev, n = e["latencia_ms_avg"], e["llamadas"]
-            aporte = int(r["latencia_ms_avg"]) * int(r["llamadas"] or 0)
-            e["latencia_ms_avg"] = round(
-                ((prev * (n - int(r["llamadas"] or 0))) if prev else 0) + aporte) // max(n, 1)
+            lat_acc.setdefault(prov, []).append(
+                (int(r["latencia_ms_avg"]), int(r["llamadas"] or 0)))
+        c = llm.costo_estimado(r["modelo"], r["tokens_in"], r["tokens_out"], r["cache_hit"])
+        c_hoy = llm.costo_estimado(r["modelo"], r["tokens_in_hoy"], r["tokens_out_hoy"],
+                                   r["cache_hit_hoy"])
+        if c is None:
+            e["costo_estimable"] = False  # modelo sin precio conocido
+        else:
+            e["costo_usd"] += c
+            e["costo_usd_hoy"] += c_hoy or 0.0
+
+    for prov, pares in lat_acc.items():  # promedio ponderado por llamadas
+        n = sum(c for _lat, c in pares)
+        if n:
+            acc[prov]["latencia_ms_avg"] = round(sum(lat * c for lat, c in pares) / n)
+    for e in acc.values():
+        e["costo_usd"] = round(e["costo_usd"], 4)
+        e["costo_usd_hoy"] = round(e["costo_usd_hoy"], 4)
     return sorted(acc.values(), key=lambda e: -e["tokens"])

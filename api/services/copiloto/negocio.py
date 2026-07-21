@@ -18,6 +18,7 @@ asistente re-tokeniza el suyo propio al cargarlo).
 """
 from __future__ import annotations
 
+
 def _handler_negocio(*, pregunta: str, usuario: str | None, conv_id: str | None,
                      historial: list[dict] | None, params: dict | None) -> dict:
     """Adapta asistente.responder al contrato del panel. El conv_id del panel

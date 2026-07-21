@@ -82,6 +82,57 @@ def test_cuenta_ambigua_o_inexistente_se_rechaza(cuentas):
     assert r["ok"] is False and "no encontré" in r["error"]
 
 
+# ── CLIENTE vs OPERADOR: no se adivina, se consulta ─────────────────────────
+
+OPERADORES_FAKE = [("jc@aca.com", "Javier Curzel"), ("mm@aca.com", "MOLLO, NICOLAS EZEQUIEL")]
+
+
+@pytest.fixture
+def personas(monkeypatch):
+    monkeypatch.setattr(nav, "_cuentas", lambda: CUENTAS_FAKE)
+    monkeypatch.setattr(nav, "_operadores", lambda: [("jc@aca.com", "Javier Curzel")])
+
+
+def test_persona_que_es_operador_no_se_trata_como_cuenta(personas):
+    """El caso que enojó al user: asumía 'operador' sin consultar. Ahora, si
+    NO es cuenta pero SÍ operador, la tool se lo dice y le pide reintentar."""
+    r = nav.resolver("operaciones_volumen", {"cuenta": "javier curzel"}, "u@x.com")
+    assert r["ok"] is False
+    assert "OPERADOR" in r["error"] and "`operador`" in r["error"]
+
+
+def test_filtro_operador_resuelve_a_email(personas):
+    r = nav.resolver("operaciones_volumen", {"operador": "javier curzel"}, "u@x.com")
+    assert r["ok"] and r["estado"]["ops.operador"] == "jc@aca.com"
+    assert "Javier Curzel" in r["resumen"]          # el botón muestra el nombre
+    assert "Curzel" not in r["resumen_llm"]         # al modelo NO
+
+
+def test_persona_ambigua_obliga_a_preguntar(monkeypatch):
+    """Mismo nombre como cuenta Y como operador → el sistema NO elige: manda
+    al modelo a preguntarle al usuario."""
+    monkeypatch.setattr(nav, "_cuentas", lambda: CUENTAS_FAKE)
+    monkeypatch.setattr(nav, "_operadores", lambda: OPERADORES_FAKE)
+    r = nav.resolver("operaciones_volumen", {"cuenta": "mollo"}, "u@x.com")
+    assert r["ok"] is False and r.get("ambiguo") is True
+    assert "preguntale al usuario" in r["error"].lower()
+
+
+def test_clasificar_persona_los_tres_casos(monkeypatch):
+    monkeypatch.setattr(nav, "_cuentas", lambda: CUENTAS_FAKE)
+    monkeypatch.setattr(nav, "_operadores", lambda: [("jc@aca.com", "Javier Curzel")])
+    assert nav.clasificar_persona("nicolas mollo")["cuenta"] == "MOLLO, NICOLAS EZEQUIEL"
+    assert nav.clasificar_persona("nicolas mollo")["operador"] is None
+    assert nav.clasificar_persona("javier curzel")["operador"] == "jc@aca.com"
+    assert nav.clasificar_persona("javier curzel")["cuenta"] is None
+    assert nav.clasificar_persona("nadie xyz") == {"cuenta": None, "operador": None}
+
+
+def test_clasificar_acepta_ficha_de_la_aduana(personas):
+    quien = nav.clasificar_persona("CLIENTE_1", {"fichas": {"CLIENTE_1": "nicolas mollo"}})
+    assert quien["cuenta"] == "MOLLO, NICOLAS EZEQUIEL"
+
+
 def test_la_denominacion_real_NO_vuelve_al_modelo(cuentas):
     """PRIVACIDAD: el guía habla con el proveedor barato — la denominación
     canónica del cliente va al FRONTEND, nunca al modelo."""

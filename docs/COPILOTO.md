@@ -117,6 +117,26 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.84 (CLIENTE vs OPERADOR: no se adivina, se CONSULTA)
+Bronca justificada del user probando: preguntó por una persona y el asistente
+**asumió que era un operador** (y ni preguntó). El sistema tiene los DOS
+catálogos — dejar que el modelo adivine era el error de diseño.
+- **[navegacion +] `clasificar_persona(texto|ficha)`**: consulta cuentas Y
+  operadores y devuelve qué resolvió de cada lado (match por palabras con
+  dueño único, tolera orden invertido y fichas de la aduana). Con eso:
+  · solo cuenta → filtra por cuenta · solo operador → la tool le RESPONDE al
+  modelo "eso no es una cuenta, es un OPERADOR: usá el filtro `operador`"
+  · **ambos → se niega a elegir** y lo manda a preguntarle al usuario
+  · ninguno → pide el número de cuenta.
+- **[navegacion +] filtro `operador`** en Operaciones (resuelve nombre →
+  email, que es lo que filtra la vista). El botón muestra el nombre; al
+  modelo vuelve "el que pidió el usuario" (privacidad).
+- **[asistente +] tool `quien_es`** + regla en el system: antes de responder
+  sobre una persona tiene que averiguar qué es. Prohibido asumir.
+- El patrón acá es el rector del programa: **lo que el sistema puede
+  consultar, el modelo no lo adivina** — y cuando de verdad es ambiguo, la
+  respuesta correcta es preguntar, no elegir.
+
 ### 2026-07-21 — v1.82 (NAVEGACIÓN ASISTIDA: el guía no te explica, te LLEVA)
 Idea del user, tras ver el caso Curzel: en vez de que la IA te dé el dato (y
 para eso lo tenga que ver), **que te abra la vista con los filtros puestos**.

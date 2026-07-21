@@ -100,7 +100,11 @@ _DESTINOS: dict[str, dict] = {
             # denominación EXACTA (el filtro de verdad de la vista). Sin esto
             # solo se escribía texto en el buscador y no filtraba nada.
             "cuenta": _f("ops.denominacion", "cuenta",
-                         ayuda="nombre o número de cuenta tal como lo dijo el usuario"),
+                         ayuda="el CLIENTE: nombre o número de cuenta tal como lo "
+                               "dijo el usuario"),
+            "operador": _f("ops.operador", "operador",
+                           ayuda="el COMERCIAL que atiende las cuentas (empleado), "
+                                 "no el cliente"),
             "desde": _f("ops.desde", "fecha", con=_RANGO),
             "hasta": _f("ops.hasta", "fecha", con=_RANGO),
         },
@@ -207,7 +211,70 @@ def _cuentas() -> list[tuple[str, str]]:
         return []
 
 
-_RE_FICHA = re.compile(r"^(?:CLIENTE|CTA|DOC)_\d+$")
+_RE_FICHA = re.compile(r"^(?:CLIENTE|CTA|DOC|OPERADOR)_\d+$")
+
+
+@cached(ttl=3600)
+def _operadores() -> list[tuple[str, str]]:
+    """(email, nombre) de los operadores comerciales — el otro catálogo de
+    PERSONAS del sistema. La vista filtra por EMAIL."""
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT email, COALESCE(nombre, email) FROM clientes.operadores")
+            return [(str(e), str(n)) for e, n in cur.fetchall() if e]
+    except Exception as e:
+        logger.warning("navegacion: catálogo de operadores no disponible (%s)", e)
+        return []
+
+
+def _texto_original(texto: str, mapping: dict | None) -> str:
+    """Si viene una FICHA de la aduana, recupera lo que escribió el usuario
+    (adentro del perímetro). Si no, devuelve el texto tal cual."""
+    t = str(texto or "").strip()
+    if mapping and _RE_FICHA.match(t):
+        return str((mapping.get("fichas") or {}).get(t) or "").strip()
+    return t
+
+
+def _match_persona(tl: str, catalogo: list[tuple[str, str]]) -> str | None:
+    """Match de una persona por palabras: TODAS las que dijo el usuario tienen
+    que estar en el nombre, y el dueño tiene que ser único. Tolera el orden
+    invertido ('nicolas mollo' ↔ 'MOLLO, NICOLAS EZEQUIEL')."""
+    palabras = [p for p in tl.split() if len(p) >= 3]
+    if not palabras:
+        return None
+    hits = [clave for clave, nombre in catalogo
+            if all(p in _norm_txt(nombre) for p in palabras)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def clasificar_persona(texto: str, mapping: dict | None = None) -> dict:
+    """¿Lo que nombró el usuario es una CUENTA (cliente) o un OPERADOR
+    (empleado)? El sistema tiene los dos catálogos: esto NO se adivina, se
+    consulta (caso real 2026-07-21: el asistente asumía 'operador' y erraba).
+
+    Devuelve {cuenta, operador} con lo que resolvió de cada lado — si los dos
+    vienen con valor, es AMBIGUO y hay que preguntarle al usuario."""
+    t = _texto_original(texto, mapping)
+    if not t:
+        return {"cuenta": None, "operador": None}
+    tl = _norm_txt(t)
+    cuentas = _cuentas()
+    cuenta = None
+    for idc, den in cuentas:
+        if idc and idc.lower() == tl:
+            cuenta = den
+            break
+    if cuenta is None:
+        for _idc, den in cuentas:
+            if _norm_txt(den) == tl:
+                cuenta = den
+                break
+    if cuenta is None:
+        cuenta = _match_persona(tl, [(den, den) for _i, den in cuentas])
+    operador = _match_persona(tl, _operadores())
+    return {"cuenta": cuenta, "operador": operador}
 
 
 def _resolver_cuenta(texto: str, mapping: dict | None = None) -> str | None:
@@ -300,7 +367,14 @@ def descripcion_destinos(usuario: str | None) -> str:
     destinos = destinos_para(usuario)
     if not destinos:
         return ""
-    lineas = ["[destinos navegables — para la herramienta abrir_vista]"]
+    lineas = [
+        "[destinos navegables — para la herramienta abrir_vista]",
+        "REGLA DE PERSONAS: cuando el usuario nombra a alguien, NO adivines si es "
+        "un CLIENTE (cuenta) o un OPERADOR comercial (empleado de la mesa): pasalo "
+        "en el filtro `cuenta` y el sistema lo resuelve contra los dos catálogos y "
+        "te corrige si es lo otro. Si te avisa que el nombre existe en AMBOS, "
+        "preguntale al usuario cuál quiere — no elijas vos.",
+    ]
     for d in destinos:
         lineas.append(f"- {d['id']} → {d['titulo']}: {d['cuando']}")
         for nombre, f in (d["filtros"] or {}).items():
@@ -313,9 +387,10 @@ def descripcion_destinos(usuario: str | None) -> str:
                     "no disponible ahora — no lo uses")
             elif f["tipo"] == "fecha":
                 detalle = "fecha YYYY-MM-DD"
-            elif f["tipo"] == "cuenta":
+            elif f["tipo"] in ("cuenta", "operador"):
                 detalle = ("pasá el nombre o número TAL CUAL lo dijo el usuario — "
-                           "el sistema lo resuelve a la cuenta exacta")
+                           "el sistema lo resuelve y te avisa si te equivocaste "
+                           "de tipo de persona")
             else:
                 detalle = "texto libre"
             extra = f" ({f['ayuda']})" if f["ayuda"] else ""
@@ -374,11 +449,24 @@ def resolver(destino: str, filtros: dict | None, usuario: str | None,
             resumen.append(f"{nombre}: {iso}")
             resumen_llm.append(f"{nombre}: {iso}")
         elif f["tipo"] == "cuenta":
-            den = _resolver_cuenta(str(valor), mapping)
+            # NO se asume qué es la persona: se consulta a los dos catálogos.
+            quien = clasificar_persona(str(valor), mapping)
+            if quien["cuenta"] and quien["operador"]:
+                return {"ok": False, "ambiguo": True,
+                        "error": "ese nombre existe COMO CUENTA de cliente Y COMO "
+                                 "OPERADOR comercial. NO elijas vos: preguntale al "
+                                 "usuario cuál de los dos quiere ver, y volvé a "
+                                 "llamarme con el filtro `cuenta` o `operador`."}
+            if not quien["cuenta"] and quien["operador"]:
+                return {"ok": False,
+                        "error": "eso NO es una cuenta de cliente: es un OPERADOR "
+                                 "comercial. Volvé a llamarme usando el filtro "
+                                 "`operador` en vez de `cuenta`."}
+            den = quien["cuenta"]
             if den is None:
                 rechazos.append(
-                    f"no encontré una cuenta única para {str(valor)[:40]!r} — pedile "
-                    "al usuario el número de cuenta o el nombre como figura")
+                    f"no encontré una cuenta ni un operador para {str(valor)[:40]!r} — "
+                    "pedile al usuario el número de cuenta o el nombre como figura")
                 continue
             estado[f["clave"]] = den
             # el buscador muestra el texto; el filtro real es la denominación
@@ -387,6 +475,19 @@ def resolver(destino: str, filtros: dict | None, usuario: str | None,
             # al MODELO no le vuelve la denominación canónica (es identidad de
             # un cliente y este copiloto habla con el proveedor barato)
             resumen_llm.append("cuenta: la que pidió el usuario")
+        elif f["tipo"] == "operador":
+            quien = clasificar_persona(str(valor), mapping)
+            if not quien["operador"]:
+                rechazos.append(
+                    f"{str(valor)[:40]!r} no figura como operador comercial"
+                    + (" (sí como cuenta de cliente: usá el filtro `cuenta`)"
+                       if quien["cuenta"] else ""))
+                continue
+            estado[f["clave"]] = quien["operador"]   # la vista filtra por email
+            nombre = next((n for e, n in _operadores() if e == quien["operador"]),
+                          quien["operador"])
+            resumen.append(f"operador: {nombre}")
+            resumen_llm.append("operador: el que pidió el usuario")
         else:
             estado[f["clave"]] = str(valor)[:80]
             resumen.append(f"{nombre}: {valor}")

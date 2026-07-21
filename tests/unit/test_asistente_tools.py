@@ -91,6 +91,39 @@ def test_ejecutar_tool_desconocida():
     assert "desconocida" in at.ejecutar("drop_tables", {}, mapping={"fichas": {}})
 
 
+# ── quien_es: cliente vs operador NO se adivina (caso real 2026-07-21) ──────
+
+def _mock_personas(monkeypatch, cuentas, operadores):
+    import api.services.copiloto.navegacion as nv
+    monkeypatch.setattr(nv, "_cuentas", lambda: cuentas)
+    monkeypatch.setattr(nv, "_operadores", lambda: operadores)
+
+
+def test_quien_es_distingue_cliente_de_operador(monkeypatch):
+    _mock_personas(monkeypatch, [("805", "MOLLO, NICOLAS EZEQUIEL")],
+                   [("jc@aca.com", "Javier Curzel")])
+    mapping = {"fichas": {"CLIENTE_1": "nicolas mollo", "CLIENTE_2": "javier curzel"}}
+    r1 = at.ejecutar("quien_es", {"ficha": "CLIENTE_1"}, mapping=mapping)
+    assert "CUENTA de cliente" in r1 and "MOLLO" not in r1   # habla en fichas
+    r2 = at.ejecutar("quien_es", {"ficha": "CLIENTE_2"}, mapping=mapping)
+    assert "OPERADOR" in r2 and "Curzel" not in r2
+
+
+def test_quien_es_ambiguo_manda_a_preguntar(monkeypatch):
+    _mock_personas(monkeypatch, [("805", "MOLLO, NICOLAS EZEQUIEL")],
+                   [("mm@aca.com", "MOLLO, NICOLAS EZEQUIEL")])
+    r = at.ejecutar("quien_es", {"ficha": "CLIENTE_1"},
+                    mapping={"fichas": {"CLIENTE_1": "mollo"}})
+    assert "AMBIGUO" in r and "preguntale al usuario" in r.lower()
+
+
+def test_quien_es_desconocido(monkeypatch):
+    _mock_personas(monkeypatch, [], [])
+    r = at.ejecutar("quien_es", {"ficha": "CLIENTE_9"},
+                    mapping={"fichas": {"CLIENTE_9": "nadie"}})
+    assert "no encontré" in r
+
+
 def test_ejecutar_tool_que_explota_no_filtra(monkeypatch):
     def _boom():
         raise RuntimeError("secreto interno: cuenta 805 de Juan Perez")
@@ -110,7 +143,7 @@ def test_token_out_tacha_identidad_que_colara(monkeypatch):
 
 def test_schemas_declarados():
     nombres = {t["function"]["name"] for t in at.TOOLS}
-    assert nombres == {"resumen_mesa", "rendimiento_cuenta",
+    assert nombres == {"resumen_mesa", "rendimiento_cuenta", "quien_es",
                        "volumen_operado", "aranceles_consolidado"}
     rc = next(t for t in at.TOOLS if t["function"]["name"] == "rendimiento_cuenta")
     assert "ficha_cuenta" in rc["function"]["parameters"]["properties"]

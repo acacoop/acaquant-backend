@@ -96,6 +96,30 @@ TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "quien_es",
+            "description": (
+                "Averigua si la persona que nombró el usuario es un CLIENTE (una "
+                "cuenta) o un OPERADOR comercial (empleado de la mesa). Usala "
+                "SIEMPRE antes de responder sobre una persona: son cosas distintas "
+                "y se consultan con herramientas distintas. Si devuelve ambiguo, "
+                "preguntale al usuario cuál quiere — no elijas vos."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ficha": {
+                        "type": "string",
+                        "description": "La referencia de la persona tal cual aparece "
+                                       "en la conversación (CLIENTE_1, OPERADOR_2…).",
+                    },
+                },
+                "required": ["ficha"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "volumen_operado",
             "description": (
                 "Volumen bruto operado (ARS) consolidado por una dimensión en un "
@@ -285,6 +309,29 @@ def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
     return "\n".join(lineas)
 
 
+def quien_es(ficha: str, *, mapping: dict) -> str:
+    """¿Cliente u operador? Se CONSULTA a los dos catálogos, no se adivina
+    (caso real 2026-07-21: el asistente asumía 'operador' por el nombre y
+    respondía cualquier cosa). La respuesta habla en fichas."""
+    from api.services.copiloto.navegacion import clasificar_persona
+
+    f = (ficha or "").strip()
+    quien = clasificar_persona(f, mapping)
+    es_cuenta, es_operador = bool(quien["cuenta"]), bool(quien["operador"])
+    if es_cuenta and es_operador:
+        return (f"AMBIGUO: {f} figura como CUENTA de cliente Y como OPERADOR "
+                "comercial. Preguntale al usuario cuál de los dos quiere ver "
+                "antes de traer ningún número.")
+    if es_cuenta:
+        return (f"{f} es una CUENTA de cliente → usá rendimiento_cuenta para su "
+                "tenencia y resultado, o los consolidados si te piden lo operado.")
+    if es_operador:
+        return (f"{f} es un OPERADOR comercial (empleado) → usá los consolidados "
+                "con por='operador' para ver su producción.")
+    return (f"no encontré a {f} ni entre las cuentas ni entre los operadores — "
+            "pedile al usuario el número de cuenta o el nombre como figura.")
+
+
 # ── Dispatcher (lo invoca el loop de tools del gateway) ──────────────────────
 
 def ejecutar(nombre: str, args: dict, *, mapping: dict) -> str:
@@ -295,6 +342,8 @@ def ejecutar(nombre: str, args: dict, *, mapping: dict) -> str:
     try:
         if nombre == "resumen_mesa":
             crudo = resumen_mesa()
+        elif nombre == "quien_es":
+            crudo = quien_es(str(args.get("ficha", "")), mapping=mapping)
         elif nombre == "rendimiento_cuenta":
             crudo = rendimiento_cuenta(str(args.get("ficha_cuenta", "")), mapping=mapping)
         elif nombre == "volumen_operado":

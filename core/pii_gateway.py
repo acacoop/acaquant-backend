@@ -69,9 +69,11 @@ _MAX_TEXTO_CHARS = 8000   # techo de texto a procesar (un mensaje de chat sobra)
 _CATALOGO_TTL_S = 600
 _MAPPING_TTL_HORAS = 48   # TTL del mapping persistido (espejo del chat, corto)
 
-# Palabras que JAMÁS disparan match de catálogo por token suelto: genéricos
-# societarios/comerciales que aparecen en miles de denominaciones y en el
-# habla normal. La lista se EXTIENDE con lo que revele el diag (env
+# Palabras que JAMÁS disparan match de catálogo por token suelto (ni como
+# token del catálogo ni como candidato del texto): genéricos societarios +
+# vocabulario de NEGOCIO que aparece en las preguntas normales de un jefe
+# ("¿cuál es el AuM total administrado?" no puede tacharse — incidente del
+# primer smoke 2026-07-21). Se EXTIENDE con lo que revele el diag (env
 # ASISTENTE_STOPLIST_EXTRA) — no se achica sin correr el diag de nuevo.
 _STOPLIST_BASE = {
     "cooperativa", "agricola", "agropecuaria", "ganadera", "limitada",
@@ -81,7 +83,27 @@ _STOPLIST_BASE = {
     "comercial", "industrial", "servicios", "inversiones", "consultora",
     "asociacion", "federacion", "mutual", "centro", "union", "casa",
     "santa", "santo", "gral", "general", "norte", "sur", "este", "oeste",
+    # vocabulario de negocio (preguntas típicas — jamás son un cliente)
+    "total", "totales", "administrado", "administrada", "administradora",
+    "administracion", "resumen", "rendimiento", "rendimientos", "cartera",
+    "carteras", "patrimonio", "saldo", "saldos", "fondo", "fondos",
+    "comision", "comisiones", "arancel", "aranceles", "movimiento",
+    "movimientos", "operaciones", "valores", "inversora", "nacional",
+    "provincial", "renta", "fija", "variable", "ahorro", "pesos", "plus",
+    "abierto", "abierta", "mixta", "mixto", "pymes", "acciones", "bonos",
 }
+
+# Sufijos societarios: no identifican a nadie por sí solos (quedan FUERA del
+# índice de tokens) pero se ABSORBEN en la tachadura cuando siguen a un
+# nombre matcheado ("Molinos Rio SA" → CLIENTE_1 entero, sin dejar el "SA").
+_SUFIJOS_SOCIETARIOS = {
+    "sa", "s.a", "s.a.", "srl", "s.r.l", "s.r.l.", "sacif", "s.a.c.i.f",
+    "saic", "saica", "sca", "scs", "ltda", "ltda.", "ltd", "inc", "llc",
+    "sas", "s.a.s", "s.a.s.", "sau", "s.a.u", "bvsa", "coop",
+}
+_SUFIJO_RE = re.compile(
+    r"^(?:[\s,]+(?:s\.?a\.?(?:c\.?i\.?f\.?)?(?:u\.?|s\.?)?|s\.?r\.?l\.?|ltda\.?|ltd\.?"
+    r"|inc\.?|llc|saic|saica|coop\.?|bvsa))+", re.IGNORECASE)
 
 # Vocabulario de dominio que la capa DEFENSIVA no tacha aunque venga
 # Capitalizado ("Renta Fija", "Banco Nación", "Buenos Aires"...).
@@ -102,12 +124,24 @@ _FICHA_RE = re.compile(r"\b(CLIENTE|CTA|DOC)_(\d+)\b")
 
 
 def _fuzzy_umbral() -> float:
-    """Umbral del fuzzy — CONFIGURABLE, pendiente de calibración con el diag
-    (scripts/diag_pii_matcher.py) contra los nombres reales de prod."""
+    """Umbral del fuzzy — CALIBRADO con el diag el 2026-07-21 (catálogo real,
+    1907 tokens): a 0.90 el 14% de los tokens confunde OTRO apellido; a 0.95
+    solo el 1%. Default 0.95 (medido, no a ojo). Override: ASISTENTE_FUZZY_UMBRAL."""
     try:
-        return float(os.getenv("ASISTENTE_FUZZY_UMBRAL", "0.90"))
+        return float(os.getenv("ASISTENTE_FUZZY_UMBRAL", "0.95"))
     except ValueError:
-        return 0.90
+        return 0.95
+
+
+def _token_max_clientes() -> int:
+    """Corte por FRECUENCIA (calibrable): un token que aparece en más de N
+    clientes distintos no identifica a nadie (el diag midió 'ltda' en 97,
+    'renta' en 84, nombres de pila en 20-54) → queda FUERA del índice de
+    match. Auto-stoplist basada en datos. Override: ASISTENTE_TOKEN_MAX_CLIENTES."""
+    try:
+        return int(os.getenv("ASISTENTE_TOKEN_MAX_CLIENTES", "5"))
+    except ValueError:
+        return 5
 
 
 def _stoplist() -> set[str]:
@@ -141,7 +175,7 @@ def _leer_catalogo_sql() -> dict:
 
     ids: set[str] = set()
     nombres: dict[str, str] = {}
-    tokens: dict[str, str] = {}
+    duenios_por_token: dict[str, set[str]] = {}
     documentos: set[str] = set()
     stop = _stoplist()
     with get_pool().connection() as conn, conn.cursor() as cur:
@@ -163,14 +197,25 @@ def _leer_catalogo_sql() -> dict:
             n = _norm(nombre)
             if len(n) < 3:
                 continue
-            nombres[n] = str(id_cuenta).strip()
+            idc = str(id_cuenta).strip()
+            nombres[n] = idc
+            # el nombre SIN sufijos societarios también matchea completo
+            # ("Molinos Rio" pregunta vs "molinos rio s.a." catálogo)
+            sin_suf = " ".join(t for t in n.split() if t not in _SUFIJOS_SOCIETARIOS)
+            if sin_suf and sin_suf != n and len(sin_suf) >= 3:
+                nombres.setdefault(sin_suf, idc)
             for tok in n.split():
-                if len(tok) >= _MIN_TOKEN_LEN and tok not in stop and not tok.isdigit():
-                    # mismo apellido en 2+ clientes → "" (detecta igual, pero
-                    # id_cuenta_de_ficha no resuelve un token ambiguo)
-                    previo = tokens.get(tok)
-                    tokens[tok] = "" if (previo is not None and previo != str(id_cuenta).strip()) \
-                        else str(id_cuenta).strip()
+                if (len(tok) >= _MIN_TOKEN_LEN and tok not in stop
+                        and tok not in _SUFIJOS_SOCIETARIOS and not tok.isdigit()):
+                    duenios_por_token.setdefault(tok, set()).add(idc)
+    # Corte por FRECUENCIA (auto-stoplist medida): token en >N clientes no
+    # identifica → fuera del índice. 2..N dueños → "" (detecta, no resuelve).
+    corte = _token_max_clientes()
+    tokens = {
+        tok: (duenios.copy().pop() if len(duenios) == 1 else "")
+        for tok, duenios in duenios_por_token.items()
+        if len(duenios) <= corte
+    }
     return {"ids": ids, "nombres": nombres, "tokens": tokens, "documentos": documentos}
 
 
@@ -289,6 +334,7 @@ def _spans_catalogo(texto: str, catalogo: dict) -> list[tuple[int, int, str, str
     palabras = [(m.start(), m.end(), m.group(0)) for m in _PALABRA_RE.finditer(texto)]
     normales = [_norm(p[2]) for p in palabras]
     umbral = _fuzzy_umbral()
+    stop = _stoplist()
     tokens_idx = catalogo["tokens"]
     claves_tokens = list(tokens_idx.keys())
 
@@ -304,12 +350,14 @@ def _spans_catalogo(texto: str, catalogo: dict) -> list[tuple[int, int, str, str
                 spans.append((ini, fin, "CLIENTE", texto[ini:fin]))
                 usadas.update(range(i, i + largo))
 
-    # tokens sueltos + fuzzy
+    # tokens sueltos + fuzzy — el vocabulario de negocio/sufijos JAMÁS es
+    # candidato (lado texto): "total"/"administrado" de una pregunta normal
+    # no puede terminar tachado (incidente del primer smoke 2026-07-21)
     for i, (ini, fin, _cruda) in enumerate(palabras):
         if i in usadas:
             continue
         n = normales[i]
-        if len(n) < _MIN_TOKEN_LEN:
+        if len(n) < _MIN_TOKEN_LEN or n in stop or n in _SUFIJOS_SOCIETARIOS:
             continue
         match = n in tokens_idx
         if not match and claves_tokens:
@@ -324,7 +372,21 @@ def _spans_catalogo(texto: str, catalogo: dict) -> list[tuple[int, int, str, str
             if m_ini and (m_ini.start() == 0 or previo[m_ini.start() - 1].isspace()):
                 ini = m_ini.start()
             spans.append((ini, fin, "CLIENTE", texto[ini:fin]))
-    return spans
+    return _absorber_sufijos(texto, spans)
+
+
+def _absorber_sufijos(texto: str,
+                      spans: list[tuple[int, int, str, str]]) -> list[tuple[int, int, str, str]]:
+    """'Molinos Rio SA' → la tachadura del nombre se EXTIENDE sobre el sufijo
+    societario que lo sigue: el 'SA' suelto al lado de una ficha delata la
+    forma societaria del cliente (leak del primer no-leak e2e, 2026-07-21)."""
+    extendidos = []
+    for ini, fin, tipo, _valor in spans:
+        m = _SUFIJO_RE.match(texto[fin:])
+        if m:
+            fin += m.end()
+        extendidos.append((ini, fin, tipo, texto[ini:fin]))
+    return extendidos
 
 
 def _spans_defensivos(texto: str) -> list[tuple[int, int, str, str]]:

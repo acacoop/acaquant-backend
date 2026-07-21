@@ -403,13 +403,22 @@ de la aduana arriba). Namespace nuevo: `/api/asistente/*` (el viejo
    regresión con casos de respuesta conocida + NO-LEAK end-to-end en seco
    (0 tokens).
 
-**PENDIENTE (en orden):** el user corre `apply_schema` + deploy · calibrar el
-matcher con `scripts/diag_pii_matcher.py` (REGLA #2: umbral fuzzy
-`ASISTENTE_FUZZY_UMBRAL` + stoplist `ASISTENTE_STOPLIST_EXTRA` se ajustan con
-los nombres reales) · tildar el módulo `asistente` para admin en Manager →
-ROLES · primera pregunta real por curl · shadow del admin unos días ·
-Milestone 2: frontend `/asistente` en acaquant-web (admin-only) + más tools
-(actividad comercial, acreencias próximas) — recién tras validar M1.
+**Calibración del matcher (2026-07-21, MEDIDA con el diag en prod —
+catálogo real: 1836 cuentas, 1907 tokens):** el primer smoke/no-leak cazó
+dos fallas → fixes estructurales: (1) **corte por frecuencia** (default 5,
+`ASISTENTE_TOKEN_MAX_CLIENTES`): un token en >N clientes ('ltda' 97,
+'renta' 84, nombres de pila 20-54) no identifica a nadie → fuera del índice,
+auto-stoplist basada en datos; (2) **vocabulario de negocio** nunca es
+candidato ('total'/'administrado' de la pregunta terminaban tachados como
+clientes); (3) **sufijos societarios absorbidos** en la tachadura ('SA'
+suelto al lado de la ficha delataba la forma societaria); (4) **fuzzy 0.95**
+default (medido: 14% de cruce entre apellidos a 0.90 vs 1% a 0.95).
+
+**PENDIENTE (en orden):** re-correr `eval_asistente` + `smoke_asistente`
+tras el deploy de la calibración · tildar el módulo `asistente` para admin
+en Manager → ROLES · shadow del admin unos días (cada fallo real → caso del
+eval) · Milestone 2: frontend `/asistente` en acaquant-web (admin-only) +
+más tools (actividad comercial, acreencias próximas) — recién tras validar M1.
 
 ### P5 — Analista ad-hoc de datos — OJO: alcanzado por la decisión "datos del negocio no salen al proveedor" (2026-07-13, MODIFICADA 2026-07-21: ver la decisión de la aduana); el patrón del P7 (jaula + aduana) es la antesala
 **Estado: PENDIENTE** · Tipo: agente con generación de SQL · Gate: `ia`,

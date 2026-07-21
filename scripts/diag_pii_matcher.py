@@ -50,8 +50,11 @@ def main() -> None:
     print("── 1. catálogo ──")
     print(f"ids de cuenta: {len(cat['ids'])} · nombres completos: {len(cat['nombres'])} · "
           f"tokens de match: {len(cat['tokens'])} · documentos: {len(cat['documentos'])}")
+    print(f"calibración vigente: fuzzy umbral {pii_gateway._fuzzy_umbral()} · "
+          f"corte por frecuencia {pii_gateway._token_max_clientes()} clientes "
+          "(un token en más clientes que eso queda FUERA del índice — auto-stoplist)")
 
-    print("\n── 2. tokens más repetidos entre clientes (candidatos a stoplist) ──")
+    print("\n── 2. tokens más repetidos entre clientes AÚN activos en el índice ──")
     conteo: Counter = Counter()
     for nombre in cat["nombres"]:
         for tok in set(nombre.split()):

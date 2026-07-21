@@ -59,13 +59,23 @@ _VERDADES = {"aum_total": _verdad_aum_total}
 
 # ── Caso NO-LEAK (en seco, 0 tokens) ─────────────────────────────────────────
 
+def _tokens_distintivos(nombre: str) -> list[str]:
+    """Las palabras del nombre que SÍ identifican: largas, fuera de la
+    stoplist y de los sufijos societarios ('sa'/'ltda' no son identidad)."""
+    stop = pii_gateway._stoplist()
+    return [t for t in nombre.split()
+            if len(t) >= pii_gateway._MIN_TOKEN_LEN and t not in stop
+            and t not in pii_gateway._SUFIJOS_SOCIETARIOS]
+
+
 def _cliente_de_prueba() -> tuple[str, str] | None:
-    """Un cliente REAL del catálogo (nombre con 2+ palabras) + su id."""
+    """Un cliente REAL del catálogo con al menos un token DISTINTIVO + su id
+    (así el no-leak prueba una identidad de verdad, no un genérico)."""
     cat = pii_gateway._catalogo()
     if not cat:
         return None
     for nombre, idc in cat["nombres"].items():
-        if len(nombre.split()) >= 2 and idc:
+        if len(nombre.split()) >= 2 and idc and _tokens_distintivos(nombre):
             return nombre, idc
     return None
 
@@ -107,7 +117,10 @@ def _correr_noleak(caso: dict) -> tuple[bool, str]:
     if not r.get("ok"):
         return False, f"el flujo no respondió: {r.get('motivo')} — {r.get('mensaje')}"
     viajado = pii_gateway._norm(" ".join(payloads))
-    prohibidas = set(nombre.split()) | {id_cuenta}
+    # lo prohibido = lo que IDENTIFICA: tokens distintivos + el id de cuenta.
+    # Un 'sa'/'ltda'/'renta' suelto no identifica a nadie y el matcher los
+    # excluye a propósito (calibración 2026-07-21).
+    prohibidas = set(_tokens_distintivos(nombre)) | {id_cuenta}
     leaks = [p for p in prohibidas
              if re.search(rf"\b{re.escape(p)}\b", viajado)]
     if leaks:

@@ -130,7 +130,64 @@ def test_numeros_cortos_no_identificatorios_pasan():
     assert "12%" in limpio and "1450" in limpio
 
 
-# ── fuzzy (umbral CALIBRABLE — REGLA #2) ─────────────────────────────────────
+# ── calibración 2026-07-21 (incidentes del primer smoke/no-leak en prod) ─────
+
+def test_vocabulario_de_negocio_jamas_se_tacha():
+    """Incidente real: '¿cuál es el AuM total administrado hoy?' terminó con
+    'total' y 'administrado' tokenizados como clientes (el catálogo tiene
+    FCIs con palabras comunes). El vocabulario de negocio no es candidato."""
+    texto = "¿Cuál es el AuM total administrado hoy? Dame el resumen de la cartera"
+    limpio, _m = pg.tokenize(texto)
+    assert limpio == texto  # ni una palabra tachada
+
+
+def test_sufijo_societario_se_absorbe(monkeypatch):
+    """Incidente real del no-leak e2e: 'Empresa SA' dejaba el 'SA' suelto al
+    lado de la ficha. El sufijo entra en la tachadura."""
+    cat = dict(CATALOGO_FAKE)
+    cat = {**cat, "nombres": {**cat["nombres"], "molinos rio sa": "50",
+                              "molinos rio": "50"},
+           "tokens": {**cat["tokens"], "molinos": "50"}}
+    monkeypatch.setattr(pg, "_catalogo", lambda: cat)
+    limpio, _m = pg.tokenize("qué hizo Molinos Rio SA este mes")
+    bajo = pg._norm(limpio)
+    assert "molinos" not in bajo
+    assert not pg.re.search(r"\bsa\b", bajo)  # el sufijo no queda suelto
+
+
+def test_corte_por_frecuencia_en_catalogo(monkeypatch):
+    """Un token repetido en más de N clientes queda fuera del índice (no
+    identifica); hasta N con 2+ dueños queda como '' (detecta, no resuelve)."""
+    monkeypatch.setenv("ASISTENTE_TOKEN_MAX_CLIENTES", "2")
+    filas = [(str(i), f"[{i}] FIDEICOMISO ZUTANO {i}", None) for i in range(4)]
+    filas.append(("9", "[9] RARISIMO UNICO", None))
+    filas.append(("10", "[10] RARISIMO OTRO", None))
+
+    class _Cur:
+        def execute(self, *a): ...
+        def fetchall(self):
+            return filas
+        def __enter__(self):
+            return self
+        def __exit__(self, *a): ...
+
+    class _Conn(_Cur):
+        def cursor(self):
+            return _Cur()
+
+    class _Pool:
+        def connection(self):
+            return _Conn()
+
+    import core.postgres
+    monkeypatch.setattr(core.postgres, "get_pool", lambda: _Pool())
+    cat = pg._leer_catalogo_sql()
+    assert "zutano" not in cat["tokens"]        # 4 clientes > corte 2 → fuera
+    assert cat["tokens"].get("rarisimo") == ""  # 2 dueños ≤ corte → ambiguo
+    assert cat["tokens"].get("unico") == "9"    # único dueño → resuelve
+
+
+# ── fuzzy (umbral CALIBRADO 2026-07-21: 0.95 medido con el diag) ─────────────
 
 def test_fuzzy_typo_de_apellido(monkeypatch):
     monkeypatch.setenv("ASISTENTE_FUZZY_UMBRAL", "0.80")

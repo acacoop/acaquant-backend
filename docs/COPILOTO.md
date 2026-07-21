@@ -117,6 +117,19 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.75 (veredicto del piloto de tools: FUNCIONA + fix "herramienta ofrecida")
+Piloto corrido en prod por el user (3 preguntas): (1) "¿cómo evolucionó la TEA
+de TX26 desde abril?" → pidió la serie solo y respondió con fechas/valores
+reales — EL OBJETIVO, cumplido; (3) control sin tools → no las usó y respondió
+fino del cuadro. (2) reveló el defecto nuevo: ofreció "profundizar con la
+herramienta de búsqueda" al usuario — plomería a la vista y un permiso que
+nadie puede dar. Fix: regla "las herramientas son TUYAS e INVISIBLES: jamás
+las ofrezcas ni las nombres — usalas y respondé". + señales pro nuevas
+(evolución/tendencia: la pregunta 1 corrió en flash y merecía pro).
+VEREDICTO: piloto aprobado — extender tools a más vistas queda como próximo
+paso del programa (candidatas: renta_fija con series de curvas, RV con series
+del subyacente).
+
 ### 2026-07-20 — v1.74 (canon aplicado: telemetría de caché + PILOTO function-calling en Research)
 Tras revisar las guías oficiales (Anthropic "Building effective agents" +
 "Context engineering", OpenAI "Practical guide to building agents", doc

@@ -147,6 +147,7 @@ _SENIALES_PRO = (
     "analiz", "analís", "proyect", "tesis", "escenario", "estrategia",
     "profund", "detallad", "paso a paso", "recomend", "convien", "riesgo",
     "invertir", "largo plazo", "qué pasa si", "que pasa si", "cruzá", "cruza",
+    "evolucion", "evolución", "tendencia",
     # decisiones de posición (caso EWZ: "pensando si compro ahora y mantengo
     # hasta fin de año" tiene que escalar a pro)
     "compro", "comprar", "mantengo", "mantener", "fin de año", "entrar",

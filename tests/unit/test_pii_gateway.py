@@ -29,6 +29,9 @@ CATALOGO_FAKE = {
         "armstrong": "77",
     },
     "documentos": {"20123456789", "27998877665"},
+    # empleados de la mesa (decisión b 2026-07-21: tampoco salen al proveedor)
+    "operadores": {"martin operetti": "Martin Operetti"},
+    "operadores_tokens": {"operetti": "Martin Operetti"},
 }
 
 
@@ -164,11 +167,19 @@ def test_corte_por_frecuencia_en_catalogo(monkeypatch):
     filas.append(("10", "[10] RARISIMO OTRO", None))
 
     class _Cur:
-        def execute(self, *a): ...
+        def __init__(self):
+            self._sql = ""
+
+        def execute(self, sql, *a):
+            self._sql = sql
+
         def fetchall(self):
-            return filas
+            # la 1ra query del catálogo es la de operadores (2 columnas)
+            return [] if "operadores" in self._sql else filas
+
         def __enter__(self):
             return self
+
         def __exit__(self, *a): ...
 
     class _Conn(_Cur):
@@ -264,6 +275,38 @@ def test_apellido_ambiguo_no_resuelve():
 
 def test_ficha_inexistente_no_resuelve():
     assert pg.id_cuenta_de_ficha("CLIENTE_9", {"fichas": {}}) is None
+
+
+# ── operadores (empleados — decisión b 2026-07-21: tampoco salen) ────────────
+
+def test_operador_en_pregunta_se_tacha_como_operador():
+    limpio, mapping = pg.tokenize("¿cuánto facturó Martin Operetti este mes?")
+    bajo = pg._norm(limpio)
+    assert "operetti" not in bajo and "OPERADOR_" in limpio
+    ficha = next(f for f in mapping["fichas"] if f.startswith("OPERADOR_"))
+    assert pg.operador_de_ficha(ficha, mapping) == "Martin Operetti"
+
+
+def test_operador_roundtrip():
+    original = "los números de Martin Operetti"
+    limpio, mapping = pg.tokenize(original)
+    assert pg.detokenize(limpio, mapping) == original
+
+
+def test_asignar_ficha_directa_estable():
+    m = pg._mapping_nuevo()
+    f1 = pg.asignar_ficha(m, "OPERADOR", "Ana Gomez")
+    f2 = pg.asignar_ficha(m, "OPERADOR", "ANA GOMEZ")  # normalizado → misma
+    assert f1 == f2 == "OPERADOR_1"
+    with pytest.raises(ValueError):
+        pg.asignar_ficha(m, "JEFE", "x")
+
+
+def test_apellido_operador_suelto_resuelve():
+    limpio, mapping = pg.tokenize("qué hizo Operetti")
+    assert "Operetti" not in limpio
+    ficha = next(f for f in mapping["fichas"] if f.startswith("OPERADOR_"))
+    assert pg.operador_de_ficha(ficha, mapping) == "Martin Operetti"
 
 
 # ── fail-closed ──────────────────────────────────────────────────────────────

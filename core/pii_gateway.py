@@ -124,7 +124,7 @@ _WHITELIST_DEFENSIVA = {
     "aum", "carry", "trade", "research", "manager",
 }
 
-_FICHA_RE = re.compile(r"\b(CLIENTE|CTA|DOC)_(\d+)\b")
+_FICHA_RE = re.compile(r"\b(CLIENTE|CTA|DOC|OPERADOR)_(\d+)\b")
 
 
 def _fuzzy_umbral() -> float:
@@ -174,6 +174,10 @@ def _leer_catalogo_sql() -> dict:
       tokens     — {token_normalizado: id_cuenta} (palabras del nombre, len≥4,
                     fuera de la stoplist)
       documentos — set de nro_doc normalizados (solo dígitos)
+      operadores — {nombre_normalizado: sel} — EMPLEADOS de la mesa (decisión
+                    user 2026-07-21, opción b: tampoco salen al proveedor).
+                    sel = COALESCE(nombre, email), la clave de filtrado.
+      operadores_tokens — {token: sel|""} (apellido suelto del operador)
     """
     from core.postgres import get_pool
 
@@ -181,8 +185,22 @@ def _leer_catalogo_sql() -> dict:
     nombres: dict[str, str] = {}
     duenios_por_token: dict[str, set[str]] = {}
     documentos: set[str] = set()
+    operadores: dict[str, str] = {}
+    op_tokens: dict[str, str] = {}
     stop = _stoplist()
     with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT email, nombre FROM clientes.operadores")
+        for email, nombre_op in cur.fetchall():
+            sel = (nombre_op or email or "").strip()
+            if not sel:
+                continue
+            n_op = _norm(sel)
+            if len(n_op) >= 3:
+                operadores[n_op] = sel
+            for tok in n_op.split():
+                if len(tok) >= _MIN_TOKEN_LEN and tok not in stop and not tok.isdigit():
+                    previo = op_tokens.get(tok)
+                    op_tokens[tok] = "" if (previo is not None and previo != sel) else sel
         cur.execute(
             "SELECT c.id_cuenta, c.denominacion, m.nro_doc "
             "FROM clientes.cuentas c LEFT JOIN clientes.comitentes m USING (id_cuenta)"
@@ -220,7 +238,8 @@ def _leer_catalogo_sql() -> dict:
         for tok, duenios in duenios_por_token.items()
         if len(duenios) <= corte
     }
-    return {"ids": ids, "nombres": nombres, "tokens": tokens, "documentos": documentos}
+    return {"ids": ids, "nombres": nombres, "tokens": tokens, "documentos": documentos,
+            "operadores": operadores, "operadores_tokens": op_tokens}
 
 
 def _catalogo() -> dict | None:
@@ -405,6 +424,34 @@ def _spans_catalogo(texto: str, catalogo: dict) -> list[tuple[int, int, str, str
                         break
                     ini = m_pila.start(1)
             spans.append((ini, fin, "CLIENTE", texto[ini:fin]))
+
+    # OPERADORES (empleados — decisión b 2026-07-21: tampoco salen): mismos
+    # mecanismos que clientes, ficha OPERADOR. Ante un apellido compartido
+    # cliente/operador gana el span de CLIENTE (se agregó primero y el dedup
+    # de _aplicar_spans conserva el primero) — tachado queda igual.
+    ops_noms = catalogo.get("operadores") or {}
+    ops_toks = catalogo.get("operadores_tokens") or {}
+    for largo in (3, 2):
+        for i in range(len(palabras) - largo + 1):
+            if any(j in usadas for j in range(i, i + largo)):
+                continue
+            frase = " ".join(normales[i:i + largo])
+            if frase in ops_noms:
+                ini, fin = palabras[i][0], palabras[i + largo - 1][1]
+                spans.append((ini, fin, "OPERADOR", texto[ini:fin]))
+                usadas.update(range(i, i + largo))
+    for i, (ini, fin, _c) in enumerate(palabras):
+        if i in usadas:
+            continue
+        n = normales[i]
+        if len(n) < _MIN_TOKEN_LEN or n in stop or n in _SUFIJOS_SOCIETARIOS:
+            continue
+        if n in ops_toks:
+            previo = texto[:ini]
+            m_pila = _NOMBRE_PILA_PREVIO_RE.search(previo)
+            if m_pila and _norm(m_pila.group(1)) not in _WHITELIST_DEFENSIVA:
+                ini = m_pila.start(1)
+            spans.append((ini, fin, "OPERADOR", texto[ini:fin]))
     return _absorber_sufijos(texto, spans)
 
 
@@ -478,6 +525,36 @@ def tokenize(texto: str, mapping: dict | None = None,
     except Exception as e:
         logger.error("pii_gateway.tokenize: fallo interno (%s) — texto retenido", e)
         return "[TEXTO RETENIDO POR LA ADUANA]", mapping
+
+
+def asignar_ficha(mapping: dict, tipo: str, valor: str) -> str:
+    """Asignación DIRECTA de ficha para valores que NUESTRO código sabe que
+    son identidades (ej. el nombre del operador que devuelve una query) — sin
+    pasar por el matching de texto. Estable dentro del mapping."""
+    if tipo not in ("CLIENTE", "CTA", "DOC", "OPERADOR"):
+        raise ValueError(f"tipo de ficha desconocido: {tipo!r}")
+    return _asignar_ficha(mapping, tipo, valor)
+
+
+def operador_de_ficha(ficha: str, mapping: dict) -> str | None:
+    """Resuelve una ficha OPERADOR_n al sel real (COALESCE(nombre, email) —
+    la clave con la que filtran las vistas). SOLO dentro del perímetro."""
+    valor = (mapping or {}).get("fichas", {}).get((ficha or "").strip())
+    if not valor:
+        return None
+    catalogo = _catalogo()
+    if not catalogo:
+        return None
+    n = _norm(valor)
+    sel = (catalogo.get("operadores") or {}).get(n)
+    if sel:
+        return sel
+    duenios = {(catalogo.get("operadores_tokens") or {})[t]
+               for t in n.split() if t in (catalogo.get("operadores_tokens") or {})}
+    if len(duenios) == 1:
+        unico = duenios.pop()
+        return unico or None
+    return None
 
 
 # ── Resolución ficha → cuenta (para las tools, DENTRO del perímetro) ────────

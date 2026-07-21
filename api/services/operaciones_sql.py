@@ -355,17 +355,21 @@ _DIMENSIONES_CONSOLIDADO: dict[str, str] = {
 def ops_consolidado(
     metrica: str, desde: str, hasta: str, por: str = "mercado",
     moneda: str = "ARS", mercado: str | None = None,
-    excluir_segmento: str | None = None, top: int = 25,
+    excluir_segmento: str | None = None, operador_sel: str | None = None,
+    top: int = 25,
 ) -> dict:
     """Consolidado de VOLUMEN ('bruto') o ARANCELES ('arancel') agrupado por
     una dimensión, en [desde, hasta]. MISMAS reglas que la vista Operaciones
     (via _ops_where): volumen excluye cierres; el arancel INCLUYE los cierres
     con arancel (caución) y va SIEMPRE en pesos (ABS). `excluir_segmento`
-    saca un segmento nivel 1 (ej. consolidado sin agro)."""
+    saca un segmento nivel 1 (ej. consolidado sin agro). `por='operador'`
+    agrupa por el operador del comitente (join, mismo criterio que la vista
+    Aranceles); `operador_sel` filtra a las cuentas de UN operador."""
+    por_operador = por == "operador"
     col = _DIMENSIONES_CONSOLIDADO.get(por)
-    if col is None:
-        return {"error": f"dimension invalida: {por!r} "
-                         f"(validas: {sorted(_DIMENSIONES_CONSOLIDADO)})"}
+    if col is None and not por_operador:
+        return {"error": f"dimension invalida: {por!r} (validas: "
+                         f"{sorted([*_DIMENSIONES_CONSOLIDADO, 'operador'])})"}
     if metrica == "arancel":
         where, p = _ops_where(mercado=mercado, arancel=True)
         expr = _ARANCEL
@@ -377,9 +381,25 @@ def ops_consolidado(
     if excluir_segmento:
         where += " AND COALESCE(segmento, '') <> %(excl_seg)s"
         p["excl_seg"] = excluir_segmento
+    if operador_sel:
+        frag, fp = _op_pred(operador_sel)
+        # calificado: con el join de por='operador', `id_cuenta` a secas sería
+        # ambiguo (operaciones y comitentes lo tienen)
+        frag = frag.replace("id_cuenta ", "operaciones.id_cuenta ", 1)
+        where += f" AND {frag}"
+        p.update(fp)
+    if por_operador:
+        # mismo criterio que la vista Aranceles (dim=operador): el operador
+        # VIGENTE del comitente, '(sin operador)' para cuentas huérfanas
+        clave_expr = "COALESCE(o.nombre, o.email, '(sin operador)')"
+        from_sql = ("operaciones LEFT JOIN comitentes c ON c.id_cuenta = operaciones.id_cuenta "
+                    "LEFT JOIN operadores o ON o.email = c.operador_email")
+    else:
+        clave_expr = f"COALESCE(NULLIF({col}, ''), '(sin)')"
+        from_sql = "operaciones"
     rows = _q(
-        f"SELECT COALESCE(NULLIF({col}, ''), '(sin)') AS clave, {expr} AS valor, "
-        f"count(*) AS n FROM operaciones WHERE {where} "
+        f"SELECT {clave_expr} AS clave, {expr} AS valor, "
+        f"count(*) AS n FROM {from_sql} WHERE {where} "
         f"GROUP BY 1 HAVING {expr} <> 0 ORDER BY valor DESC LIMIT %(top)s",
         {**p, "top": max(1, min(int(top), 100))},
     )

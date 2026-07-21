@@ -131,9 +131,13 @@ y las DOS trampas de honestidad (#13 cuenta puntual, #15 dimensión operador:
   línea (#3 lo narró como "resultado del día").
 - **[vocabulario +]** 'ARS'/'USD' en la dimensión instrumento son patas de
   EFECTIVO, no títulos (#11 los rankeó como título más operado).
-- **Decisión pendiente del user:** dimensión OPERADOR para los consolidados
-  (#15 la pidió la mesa) — implica mandar nombres de EMPLEADOS al proveedor
-  o extender la aduana con fichas OPERADOR_n. No se hace sin decisión.
+- **Dimensión OPERADOR — decisión del user: opción (b), HECHA mismo día:**
+  los EMPLEADOS tampoco salen al proveedor. La aduana ganó el tipo de ficha
+  `OPERADOR_n` (catálogo `clientes.operadores` con detección en preguntas +
+  `asignar_ficha` directa + `operador_de_ficha` para resolver), y los
+  consolidados ganaron `por='operador'` (join al operador vigente del
+  comitente, criterio de la vista Aranceles) + filtro `ficha_operador`.
+  Política pareja: NINGUNA persona física cruza el perímetro.
 
 ### 2026-07-21 — v1.79 (negocio: el asistente APRENDE el idioma de Operaciones + consolidados con números)
 Caso disparador (traza real de la mesa): pidieron "consolidado del semestre

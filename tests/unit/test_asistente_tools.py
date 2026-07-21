@@ -19,6 +19,8 @@ CATALOGO_FAKE = {
     "nombres": {"juan perez": "805"},
     "tokens": {"perez": "805"},
     "documentos": set(),
+    "operadores": {"martin operetti": "Martin Operetti"},
+    "operadores_tokens": {"operetti": "Martin Operetti"},
 }
 
 
@@ -166,6 +168,40 @@ def test_consolidado_dimension_invalida_es_jaula():
     r = ops_consolidado(metrica="bruto", desde="2026-01-01", hasta="2026-06-30",
                         por="; DROP TABLE operaciones")
     assert "invalida" in r["error"]
+
+
+def test_consolidado_por_operador_ficha_los_nombres(monkeypatch):
+    """Decisión b (2026-07-21): los EMPLEADOS tampoco salen — la dimensión
+    operador vuelve al LLM con fichas OPERADOR_n, jamás nombres."""
+    _mock_consolidado(monkeypatch, {
+        "metrica": "arancel", "por": "operador", "desde": "2026-01-01",
+        "hasta": "2026-06-30", "moneda": "ARS",
+        "filas": [{"clave": "Martin Operetti", "valor": 3_000_000.0, "n": 40},
+                  {"clave": "(sin operador)", "valor": 500_000.0, "n": 9}],
+        "total": 3_500_000.0,
+    })
+    mapping = pg._mapping_nuevo()
+    r = at.ejecutar("aranceles_consolidado",
+                    {"desde": "2026-01-01", "hasta": "2026-06-30", "por": "operador"},
+                    mapping=mapping)
+    assert "Operetti" not in r and "OPERADOR_1" in r
+    assert "(sin operador)" in r          # la huérfana no es una identidad
+    assert mapping["fichas"]["OPERADOR_1"] == "Martin Operetti"  # detokeniza al user
+
+
+def test_consolidado_filtro_por_ficha_operador(monkeypatch):
+    capturado = _mock_consolidado(monkeypatch, {
+        "metrica": "bruto", "por": "mercado", "desde": "2026-07-01",
+        "hasta": "2026-07-21", "moneda": "ARS",
+        "filas": [{"clave": "BYMA", "valor": 1_000_000.0, "n": 5}],
+        "total": 1_000_000.0,
+    })
+    mapping = pg._mapping_nuevo()
+    ficha = pg.asignar_ficha(mapping, "OPERADOR", "Martin Operetti")
+    at.ejecutar("volumen_operado",
+                {"desde": "2026-07-01", "hasta": "2026-07-21", "por": "mercado",
+                 "ficha_operador": ficha}, mapping=mapping)
+    assert capturado["operador_sel"] == "Martin Operetti"  # resuelto en perímetro
 
 
 def test_consolidado_sin_filas(monkeypatch):

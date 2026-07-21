@@ -46,7 +46,9 @@ calendario.
   imposibles de vincular a una persona desde afuera (el diseño que el viejo
   P4 ya había aprobado: "números y placeholders"). El resto de la decisión
   original sigue: nada del negocio va al proveedor SIN tokenizar, y las
-  features de mercado no necesitan aduana (datos públicos).
+  features de mercado no necesitan aduana (datos públicos). Ampliación
+  2026-07-21 (decisión b): los EMPLEADOS tampoco — los operadores viajan como
+  fichas OPERADOR_n. Ninguna persona física cruza el perímetro.
 - **Reglas de oro (aplican a TODOS los proyectos):**
   1. La IA nunca es la fuente de un número: todo dato sale de una tool que
      llama a `api/services` / SQL. La IA redacta, traduce, agrupa, propone.

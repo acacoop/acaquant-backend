@@ -28,7 +28,7 @@ from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
-_DIMENSIONES = ["mercado", "operacion", "segmento", "nivel_3", "instrumento"]
+_DIMENSIONES = ["mercado", "operacion", "segmento", "nivel_3", "instrumento", "operador"]
 _PARAMS_CONSOLIDADO = {
     "type": "object",
     "properties": {
@@ -38,12 +38,18 @@ _PARAMS_CONSOLIDADO = {
                 "description": "Dimensión de agrupado: mercado (BYMA/MAV/A3/MAE/FCI "
                                "Bilateral), operacion (tipo de operación), segmento "
                                "(nivel 1, ej. PRODUCTORES), nivel_3 (segmento fino "
-                               "del boleto) o instrumento (título)."},
+                               "del boleto), instrumento (título) u operador (el "
+                               "comercial que atiende las cuentas — aparecen como "
+                               "referencias OPERADOR_n)."},
         "mercado": {"type": "string",
                     "description": "Filtrar a UN mercado puntual (opcional)."},
         "excluir_segmento": {"type": "string",
                              "description": "Excluir un segmento nivel 1 (opcional, "
                                             "ej. 'AGRO' para un consolidado sin agro)."},
+        "ficha_operador": {"type": "string",
+                           "description": "Filtrar a las cuentas de UN operador, por "
+                                          "su referencia (OPERADOR_1) tal cual "
+                                          "aparece en la conversación (opcional)."},
     },
     "required": ["desde", "hasta", "por"],
 }
@@ -235,12 +241,21 @@ def rendimiento_cuenta(ficha_cuenta: str, *, mapping: dict) -> str:
     return "\n".join(lineas)
 
 
-def _consolidado(metrica: str, args: dict) -> str:
+def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
     """volumen_operado / aranceles_consolidado — envuelven ops_consolidado
     (api/services/operaciones_sql.py): MISMO _ops_where que la vista, con las
-    reglas del negocio adentro (es_cierre, FCI por solicitud/liquidación)."""
+    reglas del negocio adentro (es_cierre, FCI por solicitud/liquidación).
+    Dimensión operador (decisión b, 2026-07-21): los EMPLEADOS tampoco salen
+    — cada nombre de operador se ficha OPERADOR_n ANTES de volver al LLM."""
     from api.services import operaciones_sql
 
+    ficha_op = str(args.get("ficha_operador") or "").strip()
+    operador_sel = None
+    if ficha_op:
+        operador_sel = pii_gateway.operador_de_ficha(ficha_op, mapping)
+        if not operador_sel:
+            return (f"no pude identificar al operador {ficha_op} — pedile al usuario "
+                    "el nombre completo del operador")
     r = operaciones_sql.ops_consolidado(
         metrica=metrica,
         desde=str(args.get("desde", "")), hasta=str(args.get("hasta", "")),
@@ -248,6 +263,7 @@ def _consolidado(metrica: str, args: dict) -> str:
         mercado=(str(args["mercado"]) if args.get("mercado") else None),
         excluir_segmento=(str(args["excluir_segmento"])
                           if args.get("excluir_segmento") else None),
+        operador_sel=operador_sel,
     )
     if r.get("error"):
         return r["error"]
@@ -255,10 +271,15 @@ def _consolidado(metrica: str, args: dict) -> str:
         return (f"sin operaciones para ese corte ({r['desde']} a {r['hasta']}, "
                 f"por {r['por']})")
     titulo = "volumen bruto" if metrica == "bruto" else "aranceles"
+    por_operador = r["por"] == "operador"
     lineas = [f"[{titulo} por {r['por']} — {r['desde']} a {r['hasta']}, {r['moneda']}]"]
     for f in r["filas"]:
+        clave = f["clave"]
+        if por_operador and clave != "(sin operador)":
+            # identidad de EMPLEADO → ficha directa (el LLM jamás ve el nombre)
+            clave = pii_gateway.asignar_ficha(mapping, "OPERADOR", clave)
         pct = 100 * f["valor"] / r["total"] if r["total"] else 0
-        lineas.append(f"  - {f['clave']}: {_monto(f['valor'])} "
+        lineas.append(f"  - {clave}: {_monto(f['valor'])} "
                       f"({pct:.1f}%) · {f['n']} boletos")
     lineas.append(f"TOTAL: {_monto(r['total'])}")
     return "\n".join(lineas)
@@ -277,9 +298,9 @@ def ejecutar(nombre: str, args: dict, *, mapping: dict) -> str:
         elif nombre == "rendimiento_cuenta":
             crudo = rendimiento_cuenta(str(args.get("ficha_cuenta", "")), mapping=mapping)
         elif nombre == "volumen_operado":
-            crudo = _consolidado("bruto", args)
+            crudo = _consolidado("bruto", args, mapping=mapping)
         elif nombre == "aranceles_consolidado":
-            crudo = _consolidado("arancel", args)
+            crudo = _consolidado("arancel", args, mapping=mapping)
         else:
             return f"herramienta desconocida: {nombre}"
     except Exception as e:

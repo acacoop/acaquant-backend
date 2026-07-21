@@ -1444,6 +1444,27 @@ CREATE TABLE IF NOT EXISTS manager.uso_modulos (
 );
 CREATE INDEX IF NOT EXISTS ix_uso_modulos_hora ON manager.uso_modulos (hora DESC);
 
+-- BUZÓN DE PEDIDOS (decisión user 2026-07-21): sugerencias, faltantes y bugs
+-- que la gente le dice AL COPILOTO mientras trabaja ("estaría bueno filtrar
+-- por cartera"). Los registra la tool `registrar_pedido` (api/services/
+-- copiloto/pedidos.py) con una clasificación del propio modelo. Se exportan a
+-- docs/PEDIDOS.md con `python -m scripts.gen_pedidos` para revisarlos versionados.
+CREATE TABLE IF NOT EXISTS manager.pedidos (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts         timestamptz NOT NULL DEFAULT now(),
+    usuario    text,
+    vista      text,                     -- desde qué vista lo pidieron
+    tipo       text,                     -- mejora | falta_dato | bug | otro
+    titulo     text,                     -- normalizado por el modelo (revisable de un vistazo)
+    texto      text NOT NULL,            -- lo que escribió la persona, textual
+    contexto   text,                     -- la pregunta previa, si venía de una conversación
+    estado     text NOT NULL DEFAULT 'nuevo',  -- nuevo | aceptado | descartado | hecho
+    notas      text,                     -- triage a mano (o desde el export)
+    traza_id   bigint                    -- la llamada donde se pidió (ia.trazas)
+);
+CREATE INDEX IF NOT EXISTS ix_pedidos_estado ON manager.pedidos (estado, ts DESC);
+CREATE INDEX IF NOT EXISTS ix_pedidos_ts     ON manager.pedidos (ts DESC);
+
 -- ── ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md) ────────────────────────
 -- Mapping ficha↔identidad de la ADUANA (core/pii_gateway.py). Es la tabla de
 -- traducción CLIENTE_1 → nombre real de cada chat: VIVE EN EL PERÍMETRO y

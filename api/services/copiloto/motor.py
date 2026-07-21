@@ -197,26 +197,34 @@ def preguntar(
     if mapping is not None:
         # las tools resuelven fichas → identidad real DENTRO del perímetro
         salida_tools["_mapping"] = mapping
-    if cfg.get("tools"):
-        from core.ai import completar_con_tools
 
-        texto, traza_id, ctx_tools = completar_con_tools(
-            tarea, system=system, user=contexto, tools=cfg["tools"],
-            ejecutar=cfg["tools_ejecutar"](salida_tools, usuario),
-            usuario=usuario, detalle=pregunta_llm,
-        )
-        if ctx_tools:
-            contexto = contexto + "\n" + ctx_tools
-    else:
-        texto, traza_id = completar_con_traza(
-            tarea,
-            system=system,
-            user=contexto,
-            usuario=usuario,
-            # la traza guarda lo que SALIÓ (tokenizado si hay aduana) — es el
-            # registro auditable de qué cruzó el perímetro
-            detalle=pregunta_llm,
-        )
+    # TOOLS: las propias de la vista (si declara) + las COMUNES a todas. Hoy la
+    # común es el BUZÓN DE PEDIDOS: el usuario tiene que poder pedir una mejora
+    # desde donde le surgió, no solo desde la guía (decisión user 2026-07-21).
+    from .pedidos import NOMBRE_TOOL as _TOOL_PEDIDO_NOMBRE
+    from .pedidos import TOOL_PEDIDO, ejecutar_pedido
+
+    tools = list(cfg.get("tools") or []) + [TOOL_PEDIDO]
+    ejec_vista = cfg["tools_ejecutar"](salida_tools, usuario) if cfg.get("tools") else None
+
+    def _ejecutar(nombre: str, args: dict) -> str:
+        if nombre == _TOOL_PEDIDO_NOMBRE:
+            return ejecutar_pedido(args, usuario=usuario, vista=vista,
+                                   mapping=mapping, contexto=pregunta)
+        if ejec_vista is not None:
+            return ejec_vista(nombre, args)
+        return f"herramienta desconocida: {nombre}"
+
+    from core.ai import completar_con_tools
+
+    texto, traza_id, ctx_tools = completar_con_tools(
+        tarea, system=system, user=contexto, tools=tools, ejecutar=_ejecutar,
+        # la traza guarda lo que SALIÓ (tokenizado si hay aduana) — es el
+        # registro auditable de qué cruzó el perímetro
+        usuario=usuario, detalle=pregunta_llm,
+    )
+    if ctx_tools:
+        contexto = contexto + "\n" + ctx_tools
     if not texto:
         # Si el presupuesto se agotó DURANTE la llamada (el pre-chequeo de
         # arriba había pasado justo por debajo del tope), el genérico "IA no

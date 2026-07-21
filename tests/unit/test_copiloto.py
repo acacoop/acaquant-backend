@@ -22,6 +22,22 @@ _FILAS = [
 ]
 
 
+def _patch_llm(monkeypatch, fake):
+    """Desde 2026-07-21 TODAS las vistas pasan por el loop de tools (la tool
+    común del BUZÓN DE PEDIDOS está en todas), así que la llamada principal es
+    `completar_con_tools`. La autocorrección sigue usando `completar_con_traza`.
+    Este helper adapta un fake con la firma vieja a los dos caminos."""
+    monkeypatch.setattr("core.ai.completar_con_traza", fake)
+
+    def _tools(tarea, system=None, user=None, tools=None, ejecutar=None,
+               usuario=None, detalle=None, historial=None):
+        texto, traza = fake(tarea, system=system, user=user,
+                            usuario=usuario, detalle=detalle)
+        return texto, traza, ""
+
+    monkeypatch.setattr("core.ai.completar_con_tools", _tools)
+
+
 def _vista_fake(monkeypatch, filas=None):
     monkeypatch.setitem(
         copiloto.VISTAS, "fake",
@@ -68,7 +84,7 @@ def test_fetch_que_explota_degrada(monkeypatch):
 
 def test_proveedor_caido_degrada(monkeypatch):
     _vista_fake(monkeypatch)
-    monkeypatch.setattr("core.ai.completar_con_traza", lambda *a, **k: (None, None))
+    _patch_llm(monkeypatch, lambda *a, **k: (None, None))
     assert copiloto.preguntar("fake", "¿cómo está AAPL?") == {
         "ok": False, "error": "ia_no_disponible",
     }
@@ -82,7 +98,7 @@ def test_contexto_y_respuesta_ok(monkeypatch):
         capturado.update(tarea=tarea, system=system, user=user, usuario=usuario)
         return "AAPL sube 1.23%", 42
 
-    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    _patch_llm(monkeypatch, fake_completar)
     historial = [{"pregunta": f"p{i}", "respuesta": f"r{i}"} for i in range(6)]
     out = copiloto.preguntar("fake", "¿cómo está AAPL?", historial=historial, usuario="u@x.com")
 
@@ -109,7 +125,7 @@ def test_cap_de_filas(monkeypatch):
         capturado["user"] = user
         return "ok", 1
 
-    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    _patch_llm(monkeypatch, fake_completar)
     out = copiloto.preguntar("fake", "¿cuántos hay?")
     assert out["fuente"]["filas"] == copiloto._MAX_FILAS
     assert "(recortada de 500)" in capturado["user"]
@@ -168,7 +184,7 @@ def test_extras_entran_al_contexto_y_su_fallo_no_rompe(monkeypatch):
         capturado["user"] = user
         return "ok", 1
 
-    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    _patch_llm(monkeypatch, fake_completar)
 
     _vista_fake(monkeypatch)
     copiloto.VISTAS["fake"]["extras"] = (
@@ -240,7 +256,7 @@ def test_autocorreccion_reintenta_con_numeros_malos(monkeypatch):
             return "AAPL subió 99.99%", 1  # número inventado → dispara reflexion
         return "AAPL subió 1.23%", 2       # corregido con el dato real
 
-    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    _patch_llm(monkeypatch, fake_completar)
     out = copiloto.preguntar("fake", "¿cómo viene AAPL?")
     assert len(llamadas) == 2
     assert "99.99" in llamadas[1]["user"] and "autocorrección" in llamadas[1]["detalle"]
@@ -314,7 +330,7 @@ def test_derrame_dispara_autocorreccion(monkeypatch):
             return "V sube 1.23% — no, V pierde. Corrijo: solo AAPL.", 1
         return "Solo AAPL sube 1.23%.", 2
 
-    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    _patch_llm(monkeypatch, fake_completar)
     out = copiloto.preguntar("fake", "¿quién sube?")
     assert len(llamadas) == 2 and "razonamiento intermedio" in llamadas[1]
     assert out["respuesta"] == "Solo AAPL sube 1.23%."
@@ -328,7 +344,7 @@ def test_tono_por_rol_entra_al_system(monkeypatch):
         capturado["system"] = system
         return "ok", 1
 
-    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    _patch_llm(monkeypatch, fake_completar)
     monkeypatch.setattr("core.roles.get_user_role", lambda email: "sales")
     copiloto.preguntar("fake", "¿cómo viene AAPL?", usuario="v@x.com")
     assert "COMERCIAL" in capturado["system"]
@@ -409,7 +425,7 @@ def test_verificacion_estricta_bloquea(monkeypatch):
     def fake_completar(tarea, *, system, user, usuario=None, detalle=None):
         return "AAPL subió 99.99%", 1  # inventa el número SIEMPRE (también en el retry)
 
-    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    _patch_llm(monkeypatch, fake_completar)
     out = copiloto.preguntar("fake", "¿cómo viene AAPL?")
     # política estricta: verificada o no se muestra
     assert out == {"ok": False, "error": "verificacion"}
@@ -469,7 +485,7 @@ def test_derivacion_a_otra_vista(monkeypatch):
         capturado["system"] = system
         return "Eso es de bonos: consultalo desde la vista Renta Fija.\n[[VISTA:renta_fija]]", 7
 
-    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    _patch_llm(monkeypatch, fake_completar)
     out = copiloto.preguntar("fake", "¿qué bono rinde más este mes?", usuario="u@x.com")
     assert out["ok"] is True
     assert "OTRAS VISTAS CON COPILOTO" in capturado["system"]
@@ -488,7 +504,7 @@ def test_derivacion_sin_acceso_se_descarta(monkeypatch):
         capturado["system"] = system
         return "Andá a Renta Fija.\n[[VISTA:renta_fija]]", 7
 
-    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    _patch_llm(monkeypatch, fake_completar)
     out = copiloto.preguntar("fake", "¿qué bono rinde más?", usuario="u@x.com")
     assert "OTRAS VISTAS CON COPILOTO" not in capturado["system"]
     assert out["vista_sugerida"] is None
@@ -506,7 +522,7 @@ def test_presupuesto_agotado_durante_la_llamada(monkeypatch):
     # el pre-chequeo pasa (había margen) pero el gasto cruza el tope durante
     # la llamada → el error nombra el presupuesto, no el genérico
     _vista_fake(monkeypatch)
-    monkeypatch.setattr("core.ai.completar_con_traza", lambda *a, **k: (None, None))
+    _patch_llm(monkeypatch, lambda *a, **k: (None, None))
     llamadas = {"n": 0}
 
     def fake_motivo(usuario):
@@ -1288,22 +1304,23 @@ def test_handoff_transparente_a_la_guia(monkeypatch):
     re-hace a la guía adentro y se devuelve SU respuesta."""
     llamadas = []
 
-    def fake_completar(tarea, system=None, user=None, usuario=None, detalle=None):
-        llamadas.append(tarea)
-        return "Acá no tengo ese dato.\n[[VISTA:ayuda]]", 42
-
     def fake_completar_tools(tarea, system=None, user=None, tools=None, ejecutar=None,
                              usuario=None, detalle=None, historial=None):
-        # la GUÍA ahora pasa por el loop de tools (navegación asistida v1.82)
-        return "1. Andá a NEGOCIO → Operaciones y filtrá por tipo Suscripción.", 99, ""
+        # las DOS vistas pasan por el loop de tools; se distinguen por el
+        # system (el de la guía trae su rol de GUÍA de la plataforma)
+        llamadas.append(tarea)
+        if "GUÍA" in (system or ""):
+            return "1. Andá a NEGOCIO → Operaciones y filtrá por tipo Suscripción.", 99, ""
+        return "Acá no tengo ese dato.\n[[VISTA:ayuda]]", 42, ""
 
     monkeypatch.setitem(
         copiloto.VISTAS, "fake",
         {"titulo": "Fake", "modulo": "renta-variable",
          "fetch": lambda params=None: [{"ticker_corto": "X", "last": 1.0}],
          "columnas": [("ticker_corto", "t"), ("last", "l")], "reglas": "reglas"})
-    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
     monkeypatch.setattr("core.ai.completar_con_tools", fake_completar_tools)
+    monkeypatch.setattr("core.ai.completar_con_traza",
+                        lambda *a, **k: ("no debería usarse acá", 1))
     monkeypatch.setattr("core.ai.motivo_presupuesto", lambda u: None)
     monkeypatch.setattr("core.roles.has_access", lambda u, m: True)
     monkeypatch.setattr("core.roles.get_user_role", lambda u: "admin")

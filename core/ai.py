@@ -355,7 +355,10 @@ def _completar_tools_loop(
             return None, None, "\n".join(contexto_tools)
         r = llm.chat(mensajes, modelo=modelo, max_tokens=cfg["max_tokens"],
                      timeout_s=cfg["timeout_s"], thinking=cfg.get("thinking", "disabled"),
-                     tools=tools, reintentos=0, proveedor=_proveedor(cfg))
+                     # 1 retry como el camino simple: desde que TODAS las vistas
+                     # del copiloto pasan por acá (tool común del buzón), un
+                     # timeout transitorio no puede costar la respuesta
+                     tools=tools, reintentos=1, proveedor=_proveedor(cfg))
         if not r.ok:
             _trazar(tarea, modelo, usuario, None, None, r.latencia_ms, False,
                     r.error, detalle=detalle)

@@ -465,10 +465,12 @@ Se queda en el proveedor barato. Doctrina de uso:
 Si la navegación cubre el grueso de las consultas, el gasto del proveedor
 caro queda solo para lo que realmente necesita síntesis.
 
-**PENDIENTE (en orden):** ⚠ `asistente_negocio` DEVUELVE HTTP 400 del
-proveedor nuevo ("Unsupported…", traza del 2026-07-21 16:54) — falta
-identificar qué parámetro rechaza (candidatos: el modelo, `reasoning_effort`
-o `store`) · probar la navegación en prod · shadow del admin desde el panel
+**PENDIENTE (en orden):** ~~HTTP 400 del proveedor nuevo~~ **RESUELTO
+2026-07-21**: era `reasoning_effort: 'minimal'`, que gpt-5.6 no acepta
+(válidos: none/low/medium/high/xhigh) — apagado pasa a `none`, env-overridable
+(`AI_OPENAI_REASONING_OFF`). El resto del dialecto (`store`,
+`max_completion_tokens`) ya estaba bien · probar la navegación en prod ·
+shadow del admin desde el panel
 (cada fallo real → caso del eval) · más tools (actividad comercial,
 acreencias próximas) · restore de conversaciones de negocio en el panel +
 derivación negocio→guía (anotados en COPILOTO.md v1.78).

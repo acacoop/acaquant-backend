@@ -34,6 +34,9 @@ Env vars (las únicas de proveedores, leídas SOLO acá):
   OPENAI_API_KEY   / OPENAI_BASE_URL     — proveedor openai.
   AI_MODEL_FLASH / AI_MODEL_PRO                 — modelos deepseek por tier.
   AI_MODEL_OPENAI_FLASH / AI_MODEL_OPENAI_PRO   — modelos openai por tier.
+  AI_OPENAI_REASONING_OFF / _ON — esfuerzo de razonamiento de openai cuando la
+      tarea pide thinking disabled/enabled (default none/medium; válidos:
+      none, low, medium, high, xhigh — 'minimal' NO existe en gpt-5.6).
 """
 from __future__ import annotations
 
@@ -56,11 +59,18 @@ _MAX_ERROR_BODY = 500
 
 PROVEEDOR_DEFAULT = "deepseek"
 
-# Dialecto de razonamiento por proveedor. OpenAI usa `reasoning_effort`
-# (none|minimal|low|medium|high|xhigh); "none" tiene reportes de ser ignorado
-# cuando se manda max_completion_tokens, así que para "apagado" usamos
-# "minimal" — predecible y barato. DeepSeek usa `thinking: {type}`.
-_REASONING_OPENAI = {"disabled": "minimal", "enabled": "medium"}
+# Dialecto de razonamiento por proveedor. DeepSeek usa `thinking: {type}`;
+# OpenAI usa `reasoning_effort`.
+#
+# ⚠ VERIFICADO CONTRA EL PROVEEDOR (2026-07-21, HTTP 400 real): gpt-5.6 acepta
+# 'none', 'low', 'medium', 'high', 'xhigh' — **NO acepta 'minimal'** (lo
+# habíamos elegido por un reporte de que 'none' se ignoraba en otro modelo).
+# Apagado → 'none'. Env-overridable para poder ajustar sin deploy si algún
+# modelo futuro se comporta distinto.
+def _reasoning_openai(thinking: str) -> str:
+    if thinking == "enabled":
+        return os.getenv("AI_OPENAI_REASONING_ON", "medium")
+    return os.getenv("AI_OPENAI_REASONING_OFF", "none")
 
 _PROVEEDORES: dict[str, dict] = {
     "deepseek": {
@@ -173,7 +183,7 @@ def _armar_body(cfg: dict, *, modelo_id: str, mensajes: list[dict], max_tokens: 
         # la organización esté bien puesto (defensa en profundidad).
         body["store"] = False
         if thinking is not None:
-            body["reasoning_effort"] = _REASONING_OPENAI.get(thinking, "minimal")
+            body["reasoning_effort"] = _reasoning_openai(thinking)
     elif thinking is not None:
         # Shape verificado contra la doc del proveedor (2026-07-11): el default
         # es "enabled" → los callers lo mandan SIEMPRE explícito por tarea.

@@ -177,8 +177,28 @@ def test_openai_usa_su_dialecto(monkeypatch):
     body = capturado["body"]
     assert body["max_completion_tokens"] == 1234 and "max_tokens" not in body
     assert body["store"] is False
-    assert body["reasoning_effort"] == "minimal" and "thinking" not in body
+    assert "thinking" not in body
+    # VERIFICADO contra el proveedor (400 real 2026-07-21): gpt-5.6 acepta
+    # none/low/medium/high/xhigh y NO 'minimal' — este assert congela el fix
+    assert body["reasoning_effort"] in ("none", "low", "medium", "high", "xhigh")
+    assert body["reasoning_effort"] != "minimal"
     assert "openai" in capturado["url"]
+
+
+def test_reasoning_effort_configurable_por_env(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("AI_OPENAI_REASONING_OFF", "low")
+    capturado = {}
+
+    def post(url, headers=None, json=None, timeout=None):
+        capturado.update(json)
+        return _resp(payload=_payload())
+
+    import requests
+    monkeypatch.setattr(requests, "post", post)
+    llm.chat(MENSAJES, modelo="gpt-x", max_tokens=10, timeout_s=5,
+             thinking="disabled", proveedor="openai")
+    assert capturado["reasoning_effort"] == "low"  # sin deploy, por env
 
 
 def test_deepseek_conserva_su_dialecto(monkeypatch):

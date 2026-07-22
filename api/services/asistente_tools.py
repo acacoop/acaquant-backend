@@ -93,12 +93,15 @@ TOOLS: list[dict] = [
         "function": {
             "name": "rendimiento_cuenta",
             "description": (
-                "PATRIMONIO de UNA cuenta: AuM (tenencia valorizada) y P&L "
-                "acumulado. El parámetro es la FICHA con la que la cuenta aparece "
-                "en la conversación (CLIENTE_1, CTA_2...). Usala cuando pregunten "
-                "qué TIENE un cliente, su cartera, su posición o su resultado. "
-                "OJO: NO sirve para '¿cuánto operó?' — eso es volumen operado y "
-                "va por volumen_operado con ficha_cuenta."
+                "TOTALES de patrimonio de UNA cuenta: cuánto vale su tenencia "
+                "(AuM) y su P&L acumulado (no realizado, pasivo, realizado del "
+                "día). El parámetro es la FICHA con la que la cuenta aparece en "
+                "la conversación (CLIENTE_1, CTA_2...). "
+                "DEVUELVE SOLO TOTALES: no trae el detalle de qué títulos tiene "
+                "ni cuánto pesa cada uno — si preguntan EN QUÉ está invertido, "
+                "decí que tenés el total pero no la composición. "
+                "Tampoco sirve para '¿cuánto operó?' (eso es volumen operado, "
+                "va por volumen_operado con ficha_cuenta)."
             ),
             "parameters": {
                 "type": "object",
@@ -493,11 +496,33 @@ def quien_es(ficha: str, *, mapping: dict) -> str:
 
 # ── Dispatcher (lo invoca el loop de tools del gateway) ──────────────────────
 
-def ejecutar(nombre: str, args: dict, *, mapping: dict) -> str:
+def puede_control_comercial(usuario: str | None) -> bool:
+    """¿Este usuario tiene el permiso de CONTROL COMERCIAL? Es un permiso POR
+    USUARIO (`api/auth.py::require_control_comercial`) que NO mira la matriz de
+    roles: tener el módulo `asistente` NO alcanza. Cualquier tool que exponga
+    datos que la web gatea con ese permiso tiene que chequearlo acá, o el chat
+    se vuelve una puerta trasera (hallazgo de la auditoría 2026-07-21).
+    Fail-closed: sin usuario o ante error → False."""
+    if not usuario:
+        return False
+    try:
+        from core.roles import user_has_control_comercial
+        return bool(user_has_control_comercial(usuario))
+    except Exception as e:
+        logger.warning("asistente_tools: no pude validar control comercial (%s)", e)
+        return False
+
+
+def ejecutar(nombre: str, args: dict, *, mapping: dict,
+             usuario: str | None = None) -> str:
     """Ejecuta la tool pedida y devuelve el resultado YA pasado por la aduana
     (token-out): si algún dato colara una identidad, se tacha con las MISMAS
     fichas del chat antes de volver al LLM. Errores → mensaje corto, jamás
-    excepción con datos adentro."""
+    excepción con datos adentro.
+
+    `usuario` es QUIÉN pregunta: hace falta para los permisos que NO son por
+    rol sino por usuario (ver puede_control_comercial). Sin él, una tool
+    gateada no puede decidir y debe negarse."""
     try:
         if nombre == "resumen_mesa":
             crudo = resumen_mesa()

@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 _CURVAS_RF = ("cer", "tasa_fija", "soberanos", "dolar_linked")
 _CURVAS_FIT = ("cer", "tasa_fija")  # fair value solo existe para estas
 _MAX_RESIDUO_REAL_BPS = 500  # residuo mayor = precio viejo/iliquidez → se excluye
-_MAX_CARRY_REAL_PCT = 15     # |carry USD| 14d mayor = dato roto → se excluye
+# |carry USD| 14d mayor = dato roto → se excluye. OJO: se compara contra el
+# valor TAL CUAL viene del service, que ya está EN PORCENTAJE.
+_MAX_CARRY_REAL_PCT = 15
 
 
 def _fetch_renta_fija(params: dict | None = None) -> list[dict]:
@@ -514,20 +516,25 @@ def _carry_canje_rf() -> list[str]:
         for curva in ("tasa_fija", "cer"):
             r = carry_trade.serie_carry_trade(curva=curva, desde=desde) or {}
             # SOLO señales reales: |carry| > 15% en 14 días = precio viejo /
-            # bono ilíquido (batería: PARP +464%) → se excluye del bloque
+            # bono ilíquido (batería: PARP +464%) → se excluye del bloque.
+            # ⚠ `carry_usd` YA VIENE EN % (carry_trade.py:235 lo redondea como
+            # `carry_usd * 100`). Multiplicarlo de nuevo hacía dos daños a la
+            # vez: el filtro dejaba pasar solo |carry| ≤ 0,15% (el bloque salía
+            # casi siempre VACÍO) y lo que pasaba se imprimía 100× inflado.
+            # Cazado por la auditoría de tools 2026-07-21.
             tabla = [t for t in r.get("tabla") or []
                      if t.get("carry_usd") is not None
-                     and abs(t["carry_usd"] * 100) <= _MAX_CARRY_REAL_PCT]
+                     and abs(t["carry_usd"]) <= _MAX_CARRY_REAL_PCT]
             if not tabla:
                 continue
             vals = sorted(tabla, key=lambda t: t["carry_usd"])
-            med = median(t["carry_usd"] for t in tabla) * 100
+            med = median(t["carry_usd"] for t in tabla)
             peor, mejor = vals[0], vals[-1]
             partes.append(
                 f"carry USD 14d {curva} (filtrado a señales reales): mediana "
                 f"{med:+.1f}% · mejor {mejor.get('ticker')} "
-                f"{mejor['carry_usd'] * 100:+.1f}% · peor {peor.get('ticker')} "
-                f"{peor['carry_usd'] * 100:+.1f}%"
+                f"{mejor['carry_usd']:+.1f}% · peor {peor.get('ticker')} "
+                f"{peor['carry_usd']:+.1f}%"
             )
     except Exception as e:
         logger.warning("copiloto rf: carry falló (%s)", e)

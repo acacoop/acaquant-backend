@@ -79,6 +79,23 @@
 
 ### Tanda 0 — Plomería (antes de la primera tool nueva)
 
+> ✅ **HECHA el 2026-07-21** (commit tras la auditoría). Lo cerrado:
+> · el dispatcher recibe `usuario` + helper `puede_control_comercial`
+>   (fail-closed) → ya se puede gatear una tool por permiso POR USUARIO;
+> · la aduana pasa de 4 a 7 tipos de ficha (suma REFERIDO, CONTRAPARTE,
+>   USUARIO) y `asignar_ficha` normaliza el mapping;
+> · **bug del carry ARREGLADO** (comparaba y reimprimía ×100 un valor que ya
+>   venía en %: el bloque salía vacío o 100× inflado);
+> · **hint falso del REM ARREGLADO** (decía "falta job jobs/rem.py" cuando
+>   `macro.rem` la escribe `jobs/argentina_datos`);
+> · `rendimiento_cuenta` ahora declara que devuelve SOLO totales;
+> · diccionario de métricas en el system del asistente (volumen / comisiones /
+>   cartera / rendimiento significan cosas distintas según la vista).
+>
+> **Queda pendiente de la Tanda 0:** declarar `tools` en las vistas de mercado
+> (wiring por vista) y arreglar los 3 services que escanean la tabla entera
+> (`listar_flujos`, `ops_serie`, `total_snapshot`) ANTES de exponerlos.
+
 No es opcional: **seis propuestas confirmadas no se pueden construir bien sin esto**, y dos cosas de acá son bugs vivos hoy.
 
 | Ítem | Por qué bloquea |

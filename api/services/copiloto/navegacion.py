@@ -214,7 +214,8 @@ def _cuentas() -> list[tuple[str, str]]:
         return []
 
 
-_RE_FICHA = re.compile(r"^(?:CLIENTE|CTA|DOC|OPERADOR)_\d+$")
+_RE_FICHA = re.compile(
+    r"^(?:CLIENTE|CTA|DOC|OPERADOR|REFERIDO|CONTRAPARTE|USUARIO)_\d+$")
 
 
 @cached(ttl=3600)

@@ -80,7 +80,15 @@ _CAUCION_VARS = {"caucion_ars": "ARS", "caucion_usd": "USD"}
 _BLOQUEADAS: dict[str, str] = {
     "ipim":          "IPIM INDEC no cargado — falta job jobs/inflacion.py",
     "repo":          "stock REPO BCRA no cargado — falta extensión de jobs/bcra.py",
-    "rem_inflacion": "REM BCRA no cargado — falta job jobs/rem.py",
+    # OJO: el REM SÍ está cargado (`macro.rem`, la escribe jobs/argentina_datos
+    # con write_native) y se lee por api/services/rem_sql.py. Lo que no existe
+    # es una SERIE macro `rem_inflacion` en este módulo: el REM es estructurado
+    # (percentiles + participantes por período), no una serie simple. El hint
+    # viejo decía "falta job jobs/rem.py" — falso, y el asistente lo repetiría
+    # como verdad sobre su propio sistema (auditoría de tools 2026-07-21).
+    "rem_inflacion": ("el REM no es una serie simple: vive estructurado en "
+                      "macro.rem (percentiles por período) y se consulta con "
+                      "api/services/rem_sql.py::expectativas"),
     "blue":          "dólar blue sin fuente (dolarapi.com apagado 2026-05-04)",
 }
 

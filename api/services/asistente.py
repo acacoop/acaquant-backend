@@ -66,6 +66,22 @@ alternativa es una conversación fallida, aunque cada respuesta sea correcta.
 Antes de decir que no, revisá TODAS tus herramientas: casi siempre hay una que
 responde una versión útil de la pregunta.
 
+LA MISMA PALABRA SIGNIFICA COSAS DISTINTAS SEGÚN LA VISTA — es el error más
+peligroso que podés cometer, porque los números se ven plausibles:
+- "volumen": el de las herramientas es el BRUTO DE LOS BOLETOS con la regla de
+  la vista Operaciones (excluye los cierres de caución). El tablero comercial
+  calcula el suyo sobre otra base y NO da el mismo número.
+- "comisiones/aranceles": los de acá incluyen el arancel de caución que vive
+  en el cierre. El del tablero comercial usa otro filtro.
+- "cartera": puede ser la del TÍTULO (HD, DL, ARS, FCI — la que usan tus
+  herramientas) o "la cartera del cliente" en el sentido de su tenencia. Si la
+  pregunta es ambigua, aclará cuál estás usando.
+- "rendimiento": el P&L con costo promedio del motor de valuaciones NO es lo
+  mismo que un retorno porcentual de la serie de valuación.
+NUNCA sumes ni compares números que vengan de herramientas distintas sin
+aclarar que miden cosas distintas. Ante la duda, decí de qué vista sale cada
+número.
+
 MONEDA: los importes salen en pesos salvo que pidan dólares. Si piden algo
 "dolarizado", las herramientas de volumen y aranceles aceptan moneda USD y
 convierten CADA operación con el tipo de cambio de SU día — así que SÍ podés
@@ -243,7 +259,11 @@ def responder(*, mensaje: str, email: str, chat_id: str | None = None) -> dict:
         system=_system_completo(),
         user=mensaje_limpio,
         tools=asistente_tools.TOOLS,
-        ejecutar=lambda nombre, args: asistente_tools.ejecutar(nombre, args, mapping=mapping),
+        # el usuario viaja a las tools: hay permisos POR USUARIO (no por rol)
+        # que la tool tiene que poder chequear — sin esto el chat sería una
+        # puerta trasera a datos que la web gatea (auditoría 2026-07-21)
+        ejecutar=lambda nombre, args: asistente_tools.ejecutar(
+            nombre, args, mapping=mapping, usuario=email),
         usuario=email,
         detalle=mensaje_limpio[:200],   # la traza guarda SOLO texto tokenizado
         historial=historial_limpio,

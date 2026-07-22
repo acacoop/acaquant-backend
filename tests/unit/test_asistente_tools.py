@@ -87,6 +87,57 @@ def test_ejecutar_dispatcher_y_token_out():
     assert ficha in r and "805" not in r and "Perez" not in r
 
 
+# ── Tanda 0 de la auditoría: el dispatcher sabe QUIÉN pregunta ─────────────
+
+def test_ejecutar_pasa_el_usuario_a_las_tools():
+    """Sin el usuario adentro de la tool, un permiso POR USUARIO (Control
+    Comercial, que NO mira la matriz de roles) no se puede chequear y el chat
+    se vuelve una puerta trasera. Hallazgo de la auditoría 2026-07-21."""
+    import inspect
+    sig = inspect.signature(at.ejecutar)
+    assert "usuario" in sig.parameters
+
+
+def test_control_comercial_es_fail_closed(monkeypatch):
+    assert at.puede_control_comercial(None) is False       # sin usuario, no
+    monkeypatch.setattr("core.roles.user_has_control_comercial",
+                        lambda e: (_ for _ in ()).throw(RuntimeError("db")))
+    assert at.puede_control_comercial("x@y.com") is False  # ante error, no
+    monkeypatch.setattr("core.roles.user_has_control_comercial", lambda e: True)
+    assert at.puede_control_comercial("x@y.com") is True
+
+
+def test_asistente_le_pasa_el_email_al_dispatcher(monkeypatch):
+    """El circuito completo: responder() → completar_con_tools → ejecutar."""
+    from api.services import asistente as asx
+    from core import ai, llm
+    from core import pii_gateway as pg
+
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setattr(pg, "_catalogo", lambda: {
+        "ids": set(), "nombres": {}, "tokens": {}, "documentos": set(),
+        "operadores": {}, "operadores_tokens": {}})
+    monkeypatch.setattr(pg, "cargar_mapping", lambda c, e: pg._mapping_nuevo())
+    monkeypatch.setattr(pg, "guardar_mapping", lambda c, e, m: None)
+    monkeypatch.setattr(asx, "_cargar_historial", lambda c: [])
+    monkeypatch.setattr(asx, "_persistir", lambda c, e, t: None)
+    monkeypatch.setattr(ai, "motivo_presupuesto", lambda u: None)
+    monkeypatch.setattr(ai, "_trazar", lambda *a, **kw: 1)
+    visto = {}
+    monkeypatch.setattr(at, "ejecutar",
+                        lambda n, a, **kw: visto.update(kw) or "ok")
+
+    def chat_fake(mensajes, **kw):
+        return llm.RespuestaLLM(ok=True, texto="listo", mensaje={"content": "x"})
+
+    monkeypatch.setattr(llm, "chat", chat_fake)
+    # forzamos una llamada a tool para ver qué recibe el dispatcher
+    monkeypatch.setattr(ai, "completar_con_tools",
+                        lambda tarea, **kw: (kw["ejecutar"]("resumen_mesa", {}), 1, ""))
+    asx.responder(mensaje="hola", email="jefe@acavalores.com.ar")
+    assert visto["usuario"] == "jefe@acavalores.com.ar"
+
+
 def test_ejecutar_tool_desconocida():
     assert "desconocida" in at.ejecutar("drop_tables", {}, mapping={"fichas": {}})
 

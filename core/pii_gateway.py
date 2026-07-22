@@ -124,7 +124,8 @@ _WHITELIST_DEFENSIVA = {
     "aum", "carry", "trade", "research", "manager",
 }
 
-_FICHA_RE = re.compile(r"\b(CLIENTE|CTA|DOC|OPERADOR)_(\d+)\b")
+_FICHA_RE = re.compile(
+    r"\b(CLIENTE|CTA|DOC|OPERADOR|REFERIDO|CONTRAPARTE|USUARIO)_(\d+)\b")
 
 
 def _fuzzy_umbral() -> float:
@@ -572,13 +573,24 @@ def tokenize(texto: str, mapping: dict | None = None,
         return "[TEXTO RETENIDO POR LA ADUANA]", mapping
 
 
+# Tipos de ficha. El negocio tiene MÁS identidades que clientes y operadores
+# (auditoría 2026-07-21): los referidos (que además suelen ser cooperativas
+# QUE TAMBIÉN son comitentes), las contrapartes institucionales y los usuarios
+# de la plataforma. Meterlos en el vocabulario protegido en vez de ficharlos
+# sería peor: lo protegido es intocable en todo el chat, y destaparía la
+# identidad de un cliente que se llama igual.
+TIPOS_FICHA = ("CLIENTE", "CTA", "DOC", "OPERADOR", "REFERIDO",
+               "CONTRAPARTE", "USUARIO")
+
+
 def asignar_ficha(mapping: dict, tipo: str, valor: str) -> str:
     """Asignación DIRECTA de ficha para valores que NUESTRO código sabe que
     son identidades (ej. el nombre del operador que devuelve una query) — sin
     pasar por el matching de texto. Estable dentro del mapping."""
-    if tipo not in ("CLIENTE", "CTA", "DOC", "OPERADOR"):
-        raise ValueError(f"tipo de ficha desconocido: {tipo!r}")
-    return _asignar_ficha(mapping, tipo, valor)
+    if tipo not in TIPOS_FICHA:
+        raise ValueError(f"tipo de ficha desconocido: {tipo!r} "
+                         f"(válidos: {', '.join(TIPOS_FICHA)})")
+    return _asignar_ficha(_normalizar_mapping(mapping), tipo, valor)
 
 
 def operador_de_ficha(ficha: str, mapping: dict) -> str | None:

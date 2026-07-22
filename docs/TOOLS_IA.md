@@ -151,6 +151,24 @@ Incluí a propósito los tres de **meta-sistema** (#7 jobs, #8 costo IA, #9 cont
 > ✅ **Prerequisito de perf resuelto:** `listar_flujos` ya filtra fechas en SQL
 > (era full scan + transferencia de ~2 años por llamada) → `flujo_de_fondos`
 > (#22) queda desbloqueada.
+> ✅ **#22 `flujo_de_fondos` HECHA (2026-07-22)** — entradas/salidas/neto por
+> moneda sobre `cashflow_sql.flujos_resumen`, sin emitir cuentas. Es lo único
+> que separa "el AuM subió por mercado" de "subió porque entró plata nueva";
+> la salida se lo dice explícito al modelo para que no confunda una cosa con
+> la otra.
+>
+> ⚠️ **Hallazgo transversal del control de calidad (2026-07-22): tres tools ya
+> entregadas estaban MUDAS.** `aum_composicion` (leía `rows`, el service emite
+> `docs`), `controles_calidad_datos` (iteraba un nivel de más) y
+> `rendimiento_esperado` de renta fija (filtraba por `total`, el campo es
+> `total_esperado`) devolvían "sin datos" SIEMPRE. El patrón culpable es
+> `r.get("a") or r.get("b")`: escrito como defensa, funciona como tapadera —
+> el shape cambia y la tool no falla, enmudece, y el modelo improvisa en vez
+> de avisar. Los unit tests no lo detectaban porque **mockean el service con
+> la clave inventada**. Candados nuevos: `scripts.smoke_asistente --tools`
+> (corre cada tool contra la DB real) y `scripts.smoke_copiloto --contexto`
+> (arma el contexto de cada vista y lista sus bloques). **Antes de dar por
+> entregada cualquier tool nueva, tiene que salir ✓ en el sondeo real.**
 
 **Criterio de corte:** requiere plegar/agregar en Python o escribir un reader, o la pregunta es semanal/mensual en vez de diaria. Acá está el grueso del valor pero también el grueso del trabajo.
 

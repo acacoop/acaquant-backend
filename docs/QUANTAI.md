@@ -710,6 +710,23 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
+- **2026-07-22 — Control de calidad del código de IA (v1.92).** Pasada completa
+  sobre `asistente_tools` + `copiloto/*` pedida por el user ("prolijo, escalable,
+  eficiente, sin cosas hardcodeadas"). Lo que apareció no fue estilo: **tres
+  tools ya entregadas estaban mudas** — leían una clave que su service nunca
+  emitió (`aum_composicion`, `controles_calidad_datos`, `rendimiento_esperado`
+  de renta fija) y contestaban "sin datos" siempre. **Lección de ingeniería que
+  vale para todo el programa: una tool no falla, ENMUDECE** — el modelo no
+  reporta "no me trajo nada", improvisa; y los unit tests no lo ven porque
+  mockean el service (el mock se escribió con la misma clave inventada). Se
+  eliminó el patrón `r.get("a") or r.get("b")` de todo el código de IA, se
+  agregaron dos sondas contra la DB real (`smoke_asistente --tools`,
+  `smoke_copiloto --contexto`) y un test de contrato que obliga a que toda tool
+  nueva tenga sonda. Además: dispatcher por registro en vez de if/elif, y los
+  **enums que ve el modelo derivados del dueño del dato** (dimensiones, campos
+  1816, curvas) para que no existan listas paralelas. Detalle:
+  `docs/COPILOTO.md` v1.92.
+
 - **2026-07-11/12 — P3 v1→v1.46: copiloto de mesa COMPLETO en shadow** (4
   vistas: RV, TRADING + vigía reactivo, y RENTA FIJA con marco de portfolio;
   doctrina del trader; verificación estricta con auto-corrección; memoria

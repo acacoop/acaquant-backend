@@ -22,6 +22,8 @@ Set inicial CHICO (se amplía con uso real, no por las dudas):
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from typing import NamedTuple
 
 from api.cache import cached as _cached_vocab_factory
 from core import pii_gateway
@@ -31,8 +33,27 @@ logger = logging.getLogger(__name__)
 
 _cached_vocab = _cached_vocab_factory(ttl=3600)
 
-_DIMENSIONES = ["mercado", "operacion", "segmento", "nivel_3", "instrumento",
-                "operador", "cartera", "cliente", "mes"]
+def _dimensiones() -> list[str]:
+    """DERIVADAS del SQL (fuente única): agregar una dimensión es tocar UN
+    archivo. Si la DB no responde al importar, el modelo igual arranca con el
+    set base — pero jamás con uno que el SQL no acepte."""
+    from api.services.operaciones_sql import dimensiones_consolidado
+    return sorted(dimensiones_consolidado())
+
+
+_DIMENSIONES = _dimensiones()
+
+# Monedas en las que el asistente puede expresar plata. Un solo lugar: el enum
+# que ve el modelo y la validación de entrada salen de acá, así no pueden
+# divergir (el modelo pidiendo una que el código rebota a ARS en silencio).
+_MONEDAS = ("ARS", "USD")
+
+
+def _moneda_ok(v) -> str:
+    m = str(v or "").upper()
+    return m if m in _MONEDAS else _MONEDAS[0]
+
+
 _PARAMS_CONSOLIDADO = {
     "type": "object",
     "properties": {
@@ -66,7 +87,7 @@ _PARAMS_CONSOLIDADO = {
         "cartera": {"type": "string",
                     "description": "Filtrar a una cartera del título (HD, DL, ARS, "
                                    "FCI…) (opcional)."},
-        "moneda": {"type": "string", "enum": ["ARS", "USD"],
+        "moneda": {"type": "string", "enum": list(_MONEDAS),
                    "description": "Moneda del resultado (default ARS). USD convierte "
                                   "CADA boleto con el tipo de cambio de SU día, no con "
                                   "una cotización de hoy — por eso sí se puede "
@@ -141,7 +162,33 @@ TOOLS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "moneda": {"type": "string", "enum": ["ARS", "USD"]},
+                    "moneda": {"type": "string", "enum": list(_MONEDAS)},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "flujo_de_fondos",
+            "description": (
+                "Plata que ENTRA y SALE de las cuentas de clientes (depósitos, "
+                "extracciones, transferencias) en un período, agregada por moneda. "
+                "Es la única forma de contestar si el patrimonio se movió por "
+                "MERCADO o por PLATA NUEVA: el AuM sube tanto si el cliente "
+                "deposita como si su bono valorizó, y esta herramienta separa "
+                "una cosa de la otra. Usala para 'cuánta plata entró', 'hubo "
+                "retiros', 'el AuM subió, ¿es aporte o mercado?'. No devuelve "
+                "cuentas ni clientes: son totales."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "desde": {"type": "string",
+                              "description": "Fecha inicial YYYY-MM-DD. Default: 1º del mes actual."},
+                    "hasta": {"type": "string",
+                              "description": "Fecha final YYYY-MM-DD. Default: hoy."},
                 },
                 "required": [],
             },
@@ -540,7 +587,8 @@ def posiciones_cuenta(args: dict, *, mapping: dict) -> str:
         return f"no pude resolver {ficha} a un número de cuenta"
     top = max(1, min(int(args.get("top") or 10), 25))
     r = valuaciones_sql.posiciones_actuales(id_cuenta=id_cuenta) or {}
-    filas = [p for p in (r.get("posiciones") or r.get("rows") or [])
+    # clave VERIFICADA (valuaciones_sql.posiciones_actuales): `posiciones`
+    filas = [p for p in (r.get("posiciones") or [])
              if float(p.get("valuacion") or 0) != 0]
     if not filas:
         return f"{ficha} no tiene posiciones en el último cierre"
@@ -573,12 +621,14 @@ def aum_composicion(args: dict, *, mapping: dict) -> str:
     if not fecha:
         return "sin snapshots de tenencia todavía"
     r = portfolio_sql.total_snapshot(fecha=fecha, moneda="ARS") or {}
-    filas = r.get("rows") or r.get("por_cartera") or []
+    # clave VERIFICADA (portfolio_sql.total_snapshot): `docs`. Antes decía
+    # `rows or por_cartera` — ninguna de las dos existe, así que la tool
+    # contestaba "no hay tenencia" SIEMPRE y el modelo improvisaba.
     acc: dict[str, float] = {}
-    for f in filas:
+    for f in r.get("docs") or []:
         # se agrega por cartera y se DESCARTA cuenta/id_cuenta (vienen por fila)
-        acc[str(f.get("cartera") or "OTROS")] = acc.get(
-            str(f.get("cartera") or "OTROS"), 0.0) + float(f.get("valuacion") or 0)
+        cart = str(f.get("cartera") or "OTROS")
+        acc[cart] = acc.get(cart, 0.0) + float(f.get("valuacion") or 0)
     if not acc:
         return f"no hay tenencia valorizada al {fecha}"
     total = sum(acc.values())
@@ -633,28 +683,65 @@ def pulso_mesa(args: dict, *, usuario: str | None) -> str:
                 "usuario no tiene — decíselo y no muestres ningún número")
     from api.services import control_comercial_sql
 
-    moneda = str(args.get("moneda") or "ARS").upper()
-    r = control_comercial_sql.datos_totales_alyc(
-        moneda=moneda if moneda in ("ARS", "USD") else "ARS") or {}
-    filas = r.get("filas") or r.get("periodos") or r.get("rows") or []
+    moneda = _moneda_ok(args.get("moneda"))
+    r = control_comercial_sql.datos_totales_alyc(moneda=moneda) or {}
+    filas = r.get("filas") or []
     if not filas:
         return "sin datos de totales de la mesa"
-    lineas = [f"[pulso de la mesa — {moneda}, contra el período anterior equivalente]"]
+    # Shape VERIFICADO en control_comercial_sql.datos_totales_alyc: cada fila
+    # es {periodo, clientes_activos, volumen, comisiones, <campo>_pct}. Nada
+    # de adivinar nombres de campos con fallbacks.
+    campos = (("volumen", "volumen", True), ("comisiones", "comisiones", True),
+              ("clientes_activos", "cuentas activas", False))
+    lineas = [f"[pulso de la mesa — {moneda}, cada período contra el anterior "
+              f"equivalente · ancla {r.get('ancla', 's/f')}]"]
     for f in filas:
-        etq = f.get("label") or f.get("periodo") or "?"
         partes = []
-        for clave, nombre in (("volumen", "volumen"), ("arancel", "comisiones"),
-                              ("aranceles", "comisiones"), ("cuentas", "cuentas activas"),
-                              ("n_cuentas", "cuentas activas")):
-            if f.get(clave) is not None:
-                v = f[clave]
-                txt = _monto(float(v), moneda) if "cuenta" not in clave else f"{int(v)}"
-                var = f.get(f"var_{clave}") or f.get(f"{clave}_var")
-                if var is not None:
-                    txt += f" ({float(var):+.1f}% vs anterior)"
-                partes.append(f"{nombre} {txt}")
+        for clave, etiqueta, es_plata in campos:
+            v = f.get(clave)
+            if v is None:
+                continue
+            txt = _monto(float(v), moneda) if es_plata else f"{int(v)}"
+            pct = f.get(f"{clave}_pct")
+            if pct is not None:
+                txt += f" ({float(pct):+.1f}%)"
+            partes.append(f"{etiqueta} {txt}")
         if partes:
-            lineas.append(f"  - {etq}: " + " · ".join(partes))
+            lineas.append(f"  - {f.get('periodo', '?')}: " + " · ".join(partes))
+    return "\n".join(lineas)
+
+
+def flujo_de_fondos(args: dict, *, mapping: dict) -> str:
+    """QUÉ PLATA ENTRA Y SALE (depósitos, extracciones, transferencias). Es la
+    pregunta que el AuM no responde: "subió 8% — ¿es mercado o plata nueva?".
+    Agregado por moneda; las cuentas NO se emiten."""
+    from datetime import UTC, datetime, timedelta
+
+    from api.services import cashflow_sql
+
+    hoy = (datetime.now(UTC) - timedelta(hours=3)).date()
+    desde = str(args.get("desde") or "").strip() or hoy.replace(day=1).isoformat()
+    hasta = str(args.get("hasta") or "").strip() or hoy.isoformat()
+    r = cashflow_sql.flujos_resumen(desde=desde, hasta=hasta) or {}
+    filas = r.get("filas") if isinstance(r, dict) else r
+    if not filas:
+        return f"no hay movimientos de fondos entre {desde} y {hasta}"
+    por_unidad: dict[str, dict] = {}
+    for f in filas:
+        e = por_unidad.setdefault(str(f.get("unidad") or "?"),
+                                  {"entradas": 0.0, "salidas": 0.0, "n": 0})
+        e["entradas"] += float(f.get("entradas") or 0)
+        e["salidas"] += float(f.get("salidas") or 0)
+        e["n"] += int(f.get("n") or 0)
+    lineas = [f"[flujo de fondos de clientes — {desde} a {hasta}]"]
+    for unidad, e in sorted(por_unidad.items(), key=lambda x: -abs(x[1]["entradas"])):
+        neto = e["entradas"] + e["salidas"]      # salidas ya vienen negativas
+        lineas.append(
+            f"  - {unidad}: entraron {_monto(e['entradas'], unidad)} · salieron "
+            f"{_monto(abs(e['salidas']), unidad)} · NETO {_monto(neto, unidad)} "
+            f"({e['n']} movimientos)")
+    lineas.append("El neto es plata NUEVA (o retirada): no confundir con la "
+                  "variación del AuM, que además incluye el efecto del mercado.")
     return "\n".join(lineas)
 
 
@@ -713,17 +800,22 @@ def controles_calidad_datos(args: dict) -> str:
     from api.services import controles_sql
 
     r = controles_sql.listar_controles() or {}
-    grupos = r if isinstance(r, dict) else {}
-    activos = {k: v for k, v in grupos.items()
-               if isinstance(v, dict) and (v.get("activos") or [])}
+    # shape VERIFICADO: {controles: {<id>: {activos[], resueltos[]}}, totales, …}
+    # Antes se iteraba el dict de PRIMER nivel (cuyas claves son "controles" y
+    # "totales", no controles) → la tool decía "todo limpio" siempre, incluso
+    # con anomalías abiertas: el peor error posible en una tool de calidad.
+    activos = {cid: g["activos"] for cid, g in (r.get("controles") or {}).items()
+               if g.get("activos")}
     if not activos:
-        return "no hay anomalías de datos activas — todo limpio"
+        return ("no hay anomalías de datos activas — todo limpio"
+                + (f" (último chequeo {r['ultima_corrida']})"
+                   if r.get("ultima_corrida") else ""))
     lineas = [f"[calidad de datos — {len(activos)} controles con anomalías activas]"]
-    for control, g in sorted(activos.items(), key=lambda x: -len(x[1]["activos"])):
-        items = g["activos"]
+    for control, items in sorted(activos.items(), key=lambda x: -len(x[1])):
+        # `detalle` puede traer denominaciones → solo se emite el CONTEO.
+        mas_viejo = min((i["desde"] for i in items if i.get("desde")), default=None)
         lineas.append(f"  - {control}: {len(items)} casos"
-                      + (f" (el más viejo desde {items[0].get('desde')})"
-                         if items[0].get("desde") else ""))
+                      + (f" (el más viejo desde {mas_viejo})" if mas_viejo else ""))
     lineas.append("Detalle por caso: Manager → OBSERVABILIDAD → CONTROLES.")
     return "\n".join(lineas)
 
@@ -765,7 +857,7 @@ def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
             return (f"no encontré la cuenta {ficha_cta} — pedile al usuario el número "
                     "de cuenta o el nombre como figura")
         denominacion = quien["cuenta"]
-    moneda = str(args.get("moneda") or "ARS").upper()
+    moneda = _moneda_ok(args.get("moneda"))
     r = operaciones_sql.ops_consolidado(
         metrica=metrica,
         desde=str(args.get("desde", "")), hasta=str(args.get("hasta", "")),
@@ -775,7 +867,7 @@ def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
                           if args.get("excluir_segmento") else None),
         operador_sel=operador_sel, denominacion=denominacion,
         cartera_filtro=(str(args["cartera"]) if args.get("cartera") else None),
-        moneda=moneda if moneda in ("ARS", "USD") else "ARS",
+        moneda=moneda,
     )
     if r.get("error"):
         return r["error"]
@@ -852,6 +944,51 @@ def quien_es(ficha: str, *, mapping: dict) -> str:
 
 
 # ── Dispatcher (lo invoca el loop de tools del gateway) ──────────────────────
+#
+# REGISTRO ÚNICO nombre → handler. Antes esto era una cadena de if/elif que
+# podía DESINCRONIZARSE del schema en silencio: una tool declarada en TOOLS
+# pero sin rama caía en "herramienta desconocida" y el modelo se quedaba sin
+# entender por qué. Ahora hay un solo lugar y un test congela que el set de
+# schemas y el de handlers sean idénticos.
+#
+# El handler recibe siempre (args, ctx) — ctx trae lo transversal (el mapping
+# de la aduana y quién pregunta), así sumar una tool no cambia ninguna firma.
+
+class _Ctx(NamedTuple):
+    mapping: dict
+    usuario: str | None
+
+
+def _serie_handler(args: dict, _ctx: _Ctx) -> str:
+    from api.services.copiloto.series import ejecutar_serie
+    return ejecutar_serie("serie_historica", args)
+
+
+_HANDLERS: dict[str, Callable[[dict, _Ctx], str]] = {
+    "resumen_mesa":            lambda a, c: resumen_mesa(),
+    "quien_es":                lambda a, c: quien_es(str(a.get("ficha", "")),
+                                                     mapping=c.mapping),
+    "rendimiento_cuenta":      lambda a, c: rendimiento_cuenta(
+                                   str(a.get("ficha_cuenta", "")), mapping=c.mapping),
+    "posiciones_cuenta":       lambda a, c: posiciones_cuenta(a, mapping=c.mapping),
+    "aum_composicion":         lambda a, c: aum_composicion(a, mapping=c.mapping),
+    "aum_historico":           lambda a, c: aum_historico(a, mapping=c.mapping),
+    "cobros_futuros":          lambda a, c: cobros_futuros(a, mapping=c.mapping),
+    "flujo_de_fondos":         lambda a, c: flujo_de_fondos(a, mapping=c.mapping),
+    "pulso_mesa":              lambda a, c: pulso_mesa(a, usuario=c.usuario),
+    "jobs_fallidos":           lambda a, c: jobs_fallidos(a),
+    "costo_ia":                lambda a, c: costo_ia(a),
+    "controles_calidad_datos": lambda a, c: controles_calidad_datos(a),
+    "serie_historica":         _serie_handler,
+    "volumen_operado":         lambda a, c: _consolidado("bruto", a, mapping=c.mapping),
+    "aranceles_consolidado":   lambda a, c: _consolidado("arancel", a, mapping=c.mapping),
+}
+
+
+def herramientas_declaradas() -> set[str]:
+    """Los nombres que el modelo ve en los schemas — para el test de contrato."""
+    return {t["function"]["name"] for t in TOOLS}
+
 
 def puede_control_comercial(usuario: str | None) -> bool:
     """¿Este usuario tiene el permiso de CONTROL COMERCIAL? Es un permiso POR
@@ -880,38 +1017,11 @@ def ejecutar(nombre: str, args: dict, *, mapping: dict,
     `usuario` es QUIÉN pregunta: hace falta para los permisos que NO son por
     rol sino por usuario (ver puede_control_comercial). Sin él, una tool
     gateada no puede decidir y debe negarse."""
+    handler = _HANDLERS.get(nombre)
+    if handler is None:
+        return f"herramienta desconocida: {nombre}"
     try:
-        if nombre == "resumen_mesa":
-            crudo = resumen_mesa()
-        elif nombre == "quien_es":
-            crudo = quien_es(str(args.get("ficha", "")), mapping=mapping)
-        elif nombre == "aum_historico":
-            crudo = aum_historico(args, mapping=mapping)
-        elif nombre == "posiciones_cuenta":
-            crudo = posiciones_cuenta(args, mapping=mapping)
-        elif nombre == "aum_composicion":
-            crudo = aum_composicion(args, mapping=mapping)
-        elif nombre == "cobros_futuros":
-            crudo = cobros_futuros(args, mapping=mapping)
-        elif nombre == "pulso_mesa":
-            crudo = pulso_mesa(args, usuario=usuario)
-        elif nombre == "jobs_fallidos":
-            crudo = jobs_fallidos(args)
-        elif nombre == "costo_ia":
-            crudo = costo_ia(args)
-        elif nombre == "controles_calidad_datos":
-            crudo = controles_calidad_datos(args)
-        elif nombre == "serie_historica":
-            from api.services.copiloto.series import ejecutar_serie
-            crudo = ejecutar_serie(nombre, args)
-        elif nombre == "rendimiento_cuenta":
-            crudo = rendimiento_cuenta(str(args.get("ficha_cuenta", "")), mapping=mapping)
-        elif nombre == "volumen_operado":
-            crudo = _consolidado("bruto", args, mapping=mapping)
-        elif nombre == "aranceles_consolidado":
-            crudo = _consolidado("arancel", args, mapping=mapping)
-        else:
-            return f"herramienta desconocida: {nombre}"
+        crudo = handler(args, _Ctx(mapping=mapping, usuario=usuario))
     except Exception as e:
         logger.warning("asistente_tools.%s falló: %s: %s", nombre, type(e).__name__, e)
         return "la herramienta falló — respondé con lo que tengas y avisá que faltó ese dato"

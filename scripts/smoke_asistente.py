@@ -6,6 +6,7 @@ del .env. Gasta tokens de UNA pregunta.
 
 Correr en el Droplet:
     python -m scripts.smoke_asistente --ruteo          # a dónde va cada tarea (0 tokens)
+    python -m scripts.smoke_asistente --tools          # ¿cada tool trae datos? (0 tokens)
     python -m scripts.smoke_asistente
     python -m scripts.smoke_asistente --pregunta "¿Cuál es el AuM total hoy?"
     python -m scripts.smoke_asistente --chat-id <id>   # continuar la conversación
@@ -38,10 +39,97 @@ def _ruteo() -> None:
           "apaga (NO cae al otro proveedor).")
 
 
+# Argumentos de sonda por tool. Los valores son genéricos a propósito: no
+# buscamos el número correcto, buscamos que la tool DEVUELVA ALGO. Las tools
+# sin sonda (o que necesitan una ficha de una conversación real) se declaran
+# acá igual, con el motivo — así el reporte nunca las omite en silencio.
+_SONDAS: dict[str, dict | None] = {
+    "resumen_mesa":            {},
+    "aum_composicion":         {},
+    "cobros_futuros":          {"dias": 30},
+    "flujo_de_fondos":         {},
+    "pulso_mesa":              {},
+    "jobs_fallidos":           {"dias": 7},
+    "costo_ia":                {"dias": 7},
+    "controles_calidad_datos": {},
+    "serie_historica":         {"que": "macro", "clave": "cer"},
+    "volumen_operado":         {"por": "mercado"},
+    "aranceles_consolidado":   {"por": "mercado"},
+    # necesitan una FICHA que solo existe dentro de un chat con la aduana
+    "quien_es":           None,
+    "rendimiento_cuenta": None,
+    "posiciones_cuenta":  None,
+    "aum_historico":      None,
+}
+
+# Lo que delata a una tool muerta: contesta, pero contesta que no hay nada.
+# (Los tres bugs de shape encontrados el 2026-07-22 se veían exactamente así.)
+_SEÑALES_VACIO = ("sin datos", "no hay", "sin operaciones", "sin menciones",
+                  "todo limpio", "sin snapshots", "sin movimientos")
+
+
+def _sondear_tools() -> None:
+    """Ejecuta CADA tool del asistente contra la DB real (read-only, 0 tokens)
+    y muestra qué devuelve. Existe porque los tests mockean el resultado de los
+    services: si la tool lee una clave que el service no emite, el unit test
+    pasa igual y la tool queda MUDA en producción — el modelo lo tapa
+    improvisando y nadie se entera. Esto lo hace visible en una corrida."""
+    from datetime import UTC, datetime, timedelta
+
+    from api.services import asistente_tools as at
+
+    hoy = (datetime.now(UTC) - timedelta(hours=3)).date()
+    rango = {"desde": (hoy - timedelta(days=30)).isoformat(), "hasta": hoy.isoformat()}
+    declaradas = sorted(at.herramientas_declaradas())
+    sin_sonda = [n for n in declaradas if n not in _SONDAS]
+    vacias, rotas = [], []
+
+    print(f"sondeando {len(declaradas)} tools declaradas (read-only, sin LLM)\n")
+    for nombre in declaradas:
+        sonda = _SONDAS.get(nombre, {})
+        if sonda is None:
+            print(f"— {nombre:<26} SALTEADA (necesita una ficha de un chat real)")
+            continue
+        args = {**rango, **sonda} if sonda is not None else {}
+        try:
+            out = at.ejecutar(nombre, args, mapping={"fichas": {}},
+                              usuario=os.getenv("EVAL_EMAIL", "smoke@acaquant.local"))
+        except Exception as e:                      # no debería: ejecutar() atrapa
+            rotas.append(nombre)
+            print(f"✗ {nombre:<26} EXCEPCIÓN {type(e).__name__}: {e}")
+            continue
+        una_linea = " ".join(out.split())[:110]
+        bajo = out.lower()
+        if "falló" in bajo or "desconocida" in bajo:
+            rotas.append(nombre)
+            marca = "✗"
+        elif any(s in bajo for s in _SEÑALES_VACIO):
+            vacias.append(nombre)
+            marca = "?"
+        else:
+            marca = "✓"
+        print(f"{marca} {nombre:<26} {una_linea}")
+
+    print("\n" + "-" * 78)
+    if sin_sonda:
+        print(f"SIN SONDA (agregar a _SONDAS): {', '.join(sin_sonda)}")
+    if rotas:
+        print(f"ROTAS: {', '.join(rotas)}  ← la tool falla o no existe el handler")
+    if vacias:
+        print(f"VACÍAS: {', '.join(vacias)}\n"
+              "  Puede ser legítimo (no hay anomalías, no hubo movimientos) o puede\n"
+              "  ser que lea una clave que el service no devuelve. Verificar contra\n"
+              "  la vista equivalente de la web antes de darlo por bueno.")
+    if not (rotas or vacias or sin_sonda):
+        print("todas las tools devolvieron datos.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ruteo", action="store_true",
                     help="mostrar a qué proveedor va cada tarea (no gasta tokens)")
+    ap.add_argument("--tools", action="store_true",
+                    help="ejecutar cada tool contra la DB real (no gasta tokens)")
     ap.add_argument("--pregunta", default="¿Cuál es el AuM total administrado hoy?")
     ap.add_argument("--chat-id", default=None)
     ap.add_argument("--email", default=os.getenv("EVAL_EMAIL", "smoke@acaquant.local"))
@@ -49,6 +137,9 @@ def main() -> None:
 
     if args.ruteo:
         _ruteo()
+        return
+    if args.tools:
+        _sondear_tools()
         return
 
     from api.services import asistente

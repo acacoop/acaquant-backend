@@ -403,6 +403,14 @@ _DIMENSIONES_CONSOLIDADO: dict[str, str] = {
     "mes": None,
 }
 _CLAVE_MES = "to_char(concertacion, 'YYYY-MM')"
+
+
+def dimensiones_consolidado() -> tuple[str, ...]:
+    """Las dimensiones válidas de `ops_consolidado`. FUENTE ÚNICA: el enum que
+    ve el modelo se DERIVA de acá (antes había una lista duplicada en
+    asistente_tools y agregar una dimensión exigía tocar dos archivos, con el
+    riesgo de que el modelo pidiera algo que el SQL rechazaba)."""
+    return (*_DIMENSIONES_CONSOLIDADO, "operador")
 _CLAVE_CARTERA = (
     "COALESCE((SELECT a.cartera FROM portafolio.assets a "
     " WHERE a.unidad = operaciones.instrumento), '(SIN CARTERA)')"

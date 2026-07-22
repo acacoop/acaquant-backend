@@ -117,6 +117,50 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-22 — v1.92 (control de calidad: 3 tools estaban MUDAS y nadie lo veía)
+Pasada de calidad sobre todo el código de IA (pedido del user). El hallazgo no
+fue estético: **tres tools leían una clave que su service nunca devolvió**, así
+que contestaban "sin datos" SIEMPRE. Como el modelo no dice "la herramienta no
+me trajo nada" sino que improvisa con lo que tiene, el síntoma era invisible.
+- **[bug] `aum_composicion`** leía `rows`/`por_cartera`; `portfolio_sql.total_snapshot`
+  devuelve **`docs`**. La composición del AuM nunca funcionó.
+- **[bug] `controles_calidad_datos`** iteraba el dict de primer nivel, cuyas
+  claves son `controles`/`totales`; los controles están un nivel adentro.
+  Respondía "todo limpio" incluso con anomalías abiertas — el peor error
+  posible en una tool de calidad de datos.
+- **[bug] `rendimiento_esperado` (renta fija)** filtraba por `total`;
+  `rolldown_esperado` emite **`total_esperado`** (en FRACCIÓN). Además ahora en
+  CER usa `total_esperado_ars`, que es el retorno que le importa a un peso, y
+  se eliminó un heurístico `si abs(x)<1 multiplicá por 100` que habría
+  deformado cualquier bono que rindiera menos de 1%.
+- **[causa raíz]** el patrón `r.get("a") or r.get("b") or r.get("c")`: escrito
+  como defensa, funciona como **tapadera** — si el shape cambia, no falla,
+  enmudece. Se eliminó de todo el código de IA; cada acceso quedó atado a la
+  clave verificada contra el service, con el comentario de dónde se verificó.
+- **[por qué los tests no lo vieron]** los unit tests **mockean** el service:
+  el mock se escribió con la clave inventada, así que el test confirmaba el
+  error. Los mocks se corrigieron al shape real.
+- **[candado nuevo] `scripts.smoke_asistente --tools`** ejecuta CADA tool contra
+  la DB real (0 tokens, read-only) y marca ✓ / ? (vacía) / ✗ (rota). Un test de
+  contrato exige que toda tool declarada tenga sonda ahí, así una tool nueva no
+  puede quedar sin verificación real.
+- **[candado nuevo] `scripts.smoke_copiloto --contexto`** arma el contexto de
+  TODAS las vistas contra la DB y lista los bloques que trae cada una — la
+  misma clase de falla del lado del copiloto (un `extras` mudo desaparece del
+  prompt sin avisar).
+- **[escalabilidad]** dispatcher de `asistente_tools` pasó de un if/elif de 15
+  ramas a un **registro `_HANDLERS`**, con test de contrato
+  `set(_HANDLERS) == herramientas_declaradas()`; `research` pasó al mismo
+  patrón. Los **enums que ve el modelo se DERIVAN del dueño del dato**
+  (dimensiones ← `operaciones_sql`, campos 1816 ← `research_1816_sql.CAMPOS`,
+  curvas ← `descomposicion_retorno.curvas_soportadas()`), con test que lo
+  verifica: se acabaron las listas paralelas que se desincronizan.
+- **[tool +] `flujo_de_fondos`** — plata que ENTRA y SALE (depósitos,
+  extracciones, transferencias) por moneda. Es lo único que separa "el AuM
+  subió por mercado" de "subió porque entró plata nueva".
+- **[números mágicos]** `_MONEDAS`, `_MUESTRA_MAX`, `_HORIZONTE_DEFAULT/MAX`
+  quedaron como constantes con nombre en un solo lugar.
+
 ### 2026-07-22 — v1.91 (SERIE HISTÓRICA genérica: el sistema aprende a decir "contra qué")
 La pieza central de la Tanda 2 y la respuesta al hallazgo #1 de la auditoría:
 17 de 55 propuestas eran la MISMA pregunta ("¿está alto o bajo contra su

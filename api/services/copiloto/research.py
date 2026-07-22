@@ -405,6 +405,17 @@ nunca consejo de inversión personalizado.
 # retrieval — el modelo PIDE lo que la pregunta necesita en vez de pre-inyectar
 # todo; el código ejecuta y devuelve resultados COMPACTOS) ───────────────────
 
+def _campos_1816() -> list[str]:
+    """El enum que ve el modelo sale del service dueño de la tabla: si mañana
+    se guarda un campo nuevo, la tool lo ofrece sola."""
+    from api.services.research_1816_sql import CAMPOS
+    return list(CAMPOS)
+
+
+# Tope de puntos de una serie que vuelven al modelo. Un solo lugar: subirlo es
+# una decisión de costo (tokens), no un número suelto en cada tool.
+_MUESTRA_MAX = 24
+
 _TOOLS_RESEARCH = [
     {"type": "function", "function": {
         "name": "buscar_en_mails",
@@ -423,7 +434,7 @@ _TOOLS_RESEARCH = [
                        "tabla (la tabla solo trae el último valor y cambios 7/30d).",
         "parameters": {"type": "object", "properties": {
             "ticker": {"type": "string", "description": "ticker del bono (ej. TX26)"},
-            "campo": {"type": "string", "enum": ["tea", "paridad", "precioClean", "duration"]},
+            "campo": {"type": "string", "enum": _campos_1816()},
             "desde": {"type": "string", "description": "YYYY-MM-DD (opcional, default 6 meses)"},
             "hasta": {"type": "string", "description": "YYYY-MM-DD (opcional, default hoy)"}},
             "required": ["ticker", "campo"]},
@@ -438,7 +449,7 @@ _TOOLS_RESEARCH = [
         "parameters": {"type": "object", "properties": {
             "a": {"type": "string", "description": "ticker del bono largo (ej. AL30)"},
             "b": {"type": "string", "description": "ticker del bono corto (ej. GD30)"},
-            "campo": {"type": "string", "enum": ["tea", "paridad", "precioClean", "duration"]},
+            "campo": {"type": "string", "enum": _campos_1816()},
             "desde": {"type": "string", "description": "YYYY-MM-DD (opcional)"},
             "hasta": {"type": "string", "description": "YYYY-MM-DD (opcional)"}},
             "required": ["a", "b", "campo"]},
@@ -446,67 +457,81 @@ _TOOLS_RESEARCH = [
 ]
 
 
+def _tool_buscar_en_mails(args: dict) -> str:
+    from api.services import research_sql
+
+    items = (research_sql.buscar_research(str(args.get("tema") or ""), limit=4)
+             or {}).get("items") or []
+    if not items:
+        return "sin menciones de ese tema en los mails guardados."
+    return " || ".join(f"({it.get('fecha')}) {it.get('fragmento')}"
+                       for it in items if it.get("fragmento"))
+
+
+def _tool_serie_de(args: dict) -> str:
+    from api.services import research_1816_sql as r1816
+
+    campo = str(args.get("campo") or "tea")
+    r = r1816.series([str(args.get("ticker") or "")], campo,
+                     args.get("desde"), args.get("hasta"))
+    series = (r or {}).get("series") or []
+    puntos = series[0].get("puntos") if series else None
+    if not puntos:
+        return "sin datos de esa serie en ese rango."
+    esc = r1816.escala(campo)
+    vals = [(f, v * esc) for f, v in puntos if v is not None]
+    if not vals:
+        return "sin datos de esa serie en ese rango."
+    # resumen + submuestreo a ≤24 puntos (canon: resultados compactos)
+    paso = max(1, len(vals) // _MUESTRA_MAX)
+    muestra = vals[::paso][-_MUESTRA_MAX:]
+    mn, mx = min(vals, key=lambda p: p[1]), max(vals, key=lambda p: p[1])
+    u = "%" if esc != 1.0 else ""
+    return (f"{series[0].get('ticker')} {campo}: {len(vals)} ruedas de {vals[0][0]} a "
+            f"{vals[-1][0]} · primero {vals[0][1]:.2f}{u} · último "
+            f"{vals[-1][1]:.2f}{u} · mín {mn[1]:.2f}{u} ({mn[0]}) · máx "
+            f"{mx[1]:.2f}{u} ({mx[0]}) · muestra: "
+            + ", ".join(f"{f} {v:.2f}" for f, v in muestra))
+
+
+def _tool_spread_entre(args: dict) -> str:
+    from api.services import research_1816_sql as r1816
+
+    campo = str(args.get("campo") or "tea")
+    r = r1816.spread(str(args.get("a") or ""), str(args.get("b") or ""),
+                     campo, args.get("desde"), args.get("hasta")) or {}
+    puntos = [p for p in (r.get("puntos") or []) if p and p[1] is not None]
+    st = r.get("stats") or {}
+    if not puntos:
+        return "sin historia común para esos dos bonos en ese rango."
+    # el service ya calcula percentil/z: el modelo NO tiene que inferirlos
+    esc = r1816.escala(campo)
+    u = "pp" if esc != 1.0 else ""
+    partes = [f"spread {r.get('a')}−{r.get('b')} ({campo}): hoy "
+              f"{puntos[-1][1] * esc:+.2f}{u} · {len(puntos)} ruedas de "
+              f"{puntos[0][0]} a {puntos[-1][0]}"]
+    if st.get("percentil") is not None:
+        partes.append(f"percentil {st['percentil']:.0f} de su propia historia")
+    if st.get("z") is not None:
+        partes.append(f"z {st['z']:+.2f}")
+    for k, etq in (("min", "mín"), ("max", "máx"), ("media", "media")):
+        if st.get(k) is not None:
+            partes.append(f"{etq} {st[k] * esc:+.2f}{u}")
+    return " · ".join(partes)
+
+
+_EJECUTORES_RESEARCH = {
+    "buscar_en_mails": _tool_buscar_en_mails,
+    "serie_de":        _tool_serie_de,
+    "spread_entre":    _tool_spread_entre,
+}
+
+
 def _ejecutar_tool_research(nombre: str, args: dict) -> str:
     """Ejecuta una tool del piloto. Resultados COMPACTOS (el gateway capa a 4000
     chars igual). Cualquier error devuelve texto de error — jamás levanta."""
-    if nombre == "buscar_en_mails":
-        from api.services import research_sql
-
-        items = (research_sql.buscar_research(str(args.get("tema") or ""), limit=4)
-                 or {}).get("items") or []
-        if not items:
-            return "sin menciones de ese tema en los mails guardados."
-        return " || ".join(f"({it.get('fecha')}) {it.get('fragmento')}"
-                           for it in items if it.get("fragmento"))
-    if nombre == "serie_de":
-        from api.services import research_1816_sql
-
-        campo = str(args.get("campo") or "tea")
-        r = research_1816_sql.series([str(args.get("ticker") or "")], campo,
-                                     args.get("desde"), args.get("hasta"))
-        series = (r or {}).get("series") or []
-        puntos = series[0].get("puntos") if series else None
-        if not puntos:
-            return "sin datos de esa serie en ese rango."
-        escala = 100.0 if campo in ("tea", "paridad") else 1.0
-        vals = [(f, v * escala) for f, v in puntos if v is not None]
-        if not vals:
-            return "sin datos de esa serie en ese rango."
-        # resumen + submuestreo a ≤24 puntos (canon: resultados compactos)
-        paso = max(1, len(vals) // 24)
-        muestra = vals[::paso][-24:]
-        mn, mx = min(vals, key=lambda p: p[1]), max(vals, key=lambda p: p[1])
-        unidad = "%" if escala == 100.0 else ""
-        return (f"{series[0].get('ticker')} {campo}: {len(vals)} ruedas de {vals[0][0]} a "
-                f"{vals[-1][0]} · primero {vals[0][1]:.2f}{unidad} · último "
-                f"{vals[-1][1]:.2f}{unidad} · mín {mn[1]:.2f}{unidad} ({mn[0]}) · máx "
-                f"{mx[1]:.2f}{unidad} ({mx[0]}) · muestra: "
-                + ", ".join(f"{f} {v:.2f}" for f, v in muestra))
-    if nombre == "spread_entre":
-        from api.services import research_1816_sql
-
-        campo = str(args.get("campo") or "tea")
-        r = research_1816_sql.spread(str(args.get("a") or ""), str(args.get("b") or ""),
-                                     campo, args.get("desde"), args.get("hasta")) or {}
-        puntos = [p for p in (r.get("puntos") or []) if p and p[1] is not None]
-        st = r.get("stats") or {}
-        if not puntos:
-            return "sin historia común para esos dos bonos en ese rango."
-        # el service ya calcula percentil/z: el modelo NO tiene que inferirlos
-        escala = 100.0 if campo in ("tea", "paridad") else 1.0
-        u = "pp" if escala == 100.0 else ""
-        ult = puntos[-1][1] * escala
-        partes = [f"spread {r.get('a')}−{r.get('b')} ({campo}): hoy {ult:+.2f}{u} "
-                  f"· {len(puntos)} ruedas de {puntos[0][0]} a {puntos[-1][0]}"]
-        if st.get("percentil") is not None:
-            partes.append(f"percentil {st['percentil']:.0f} de su propia historia")
-        if st.get("z") is not None:
-            partes.append(f"z {st['z']:+.2f}")
-        for k, etq in (("min", "mín"), ("max", "máx"), ("media", "media")):
-            if st.get(k) is not None:
-                partes.append(f"{etq} {st[k] * escala:+.2f}{u}")
-        return " · ".join(partes)
-    return f"herramienta desconocida: {nombre}"
+    fn = _EJECUTORES_RESEARCH.get(nombre)
+    return fn(args) if fn else f"herramienta desconocida: {nombre}"
 
 
 _CHIPS_RESEARCH = [

@@ -392,10 +392,11 @@ def _descomposicion_rf(ticker: str, etiqueta: str) -> list[str]:
         return []
     if not r or r.get("error"):
         return []
-    bonos = r.get("bonos") or r.get("detalle") or []
-    bono = next((x for x in bonos
-                 if ticker in (x.get("ticker_corto"), x.get("ticker"), x.get("label"))),
-                None)
+    # Claves VERIFICADAS contra descomposicion_realizada: `bonos[]`, cada uno
+    # con ticker/ticker_corto (no hay `detalle` ni `label` — eran fallbacks
+    # inventados que tapaban un cambio de shape en vez de exponerlo).
+    bono = next((x for x in (r.get("bonos") or [])
+                 if ticker in (x.get("ticker_corto"), x.get("ticker"))), None)
     if not bono or bono.get("r_total") is None:
         return []
     linea = (f"[descomposición {ticker} — últimos 30 días] retorno {_pct(bono['r_total'])}"
@@ -648,6 +649,13 @@ def _extras_renta_fija(
 # ── TOOLS de la vista (primera vista de MERCADO con function calling, además
 # de research — cierra el wiring pendiente de la auditoría 2026-07-21) ───────
 
+def _curvas_descomponibles() -> list[str]:
+    from api.services.descomposicion_retorno import curvas_soportadas
+    return list(curvas_soportadas())
+
+
+_HORIZONTE_DEFAULT, _HORIZONTE_MAX = 30, 365
+
 _TOOLS_RENTA_FIJA = [
     {"type": "function", "function": {
         "name": "rendimiento_esperado",
@@ -657,40 +665,58 @@ _TOOLS_RENTA_FIJA = [
                        "comparar bonos por retorno esperado — el contexto solo trae la "
                        "foto de hoy, no la proyección.",
         "parameters": {"type": "object", "properties": {
-            "curva": {"type": "string", "enum": ["tasa_fija", "cer"]},
-            "horizonte_dias": {"type": "integer",
-                               "description": "días hacia adelante (default 30, máx 365)"}},
+            "curva": {"type": "string", "enum": _curvas_descomponibles()},
+            "horizonte_dias": {
+                "type": "integer",
+                "description": f"días hacia adelante (default {_HORIZONTE_DEFAULT}, "
+                               f"máx {_HORIZONTE_MAX})"}},
             "required": ["curva"]},
     }},
 ]
 
 
 def _ejecutar_tool_renta_fija(nombre: str, args: dict) -> str:
-    """Ejecutor de las tools de RF. Resultados COMPACTOS; nunca levanta."""
+    """Ejecutor de las tools de RF. Resultados COMPACTOS; nunca levanta.
+
+    El shape de `rolldown_esperado` está VERIFICADO contra el service, no
+    adivinado con `or`: devuelve `bonos[]` con `total_esperado` en FRACCIÓN
+    (y, sólo en CER, `total_esperado_ars`, que es el retorno que le importa a
+    un peso). La versión anterior filtraba por un campo `total` que el service
+    nunca emitió → la tool contestaba "sin datos" SIEMPRE, y el modelo lo
+    tapaba improvisando con el contexto."""
     if nombre != "rendimiento_esperado":
         return f"herramienta desconocida: {nombre}"
     from api.services import descomposicion_retorno
 
-    curva = str(args.get("curva") or "tasa_fija")
-    dias = int(args.get("horizonte_dias") or 30)
-    r = descomposicion_retorno.rolldown_esperado(
-        horizonte_dias=max(1, min(dias, 365)), curva=curva) or {}
+    curva = str(args.get("curva") or _curvas_descomponibles()[0])
+    dias = max(1, min(int(args.get("horizonte_dias") or _HORIZONTE_DEFAULT),
+                      _HORIZONTE_MAX))
+    r = descomposicion_retorno.rolldown_esperado(horizonte_dias=dias, curva=curva) or {}
     if r.get("error"):
         return str(r["error"])
-    filas = [f for f in (r.get("bonos") or r.get("tabla") or r.get("rows") or [])
-             if f.get("total") is not None]
+    # En CER el total en pesos incluye el CER esperado del REM; el service usa
+    # esa misma clave para ordenar.
+    clave = "total_esperado_ars" if curva == "cer" else "total_esperado"
+
+    def _valor(f: dict) -> float | None:
+        v = f.get(clave)
+        if v is None:
+            v = f.get("total_esperado")
+        return float(v) * 100 if v is not None else None      # fracción → %
+
+    filas = [(f.get("ticker_corto") or f.get("ticker"), v)
+             for f in (r.get("bonos") or [])
+             if (v := _valor(f)) is not None]
     if not filas:
         return f"sin datos de rendimiento esperado para {curva}."
-    filas.sort(key=lambda f: -float(f["total"]))
-    def _pct(v):  # el service devuelve fracción en algunas curvas y % en otras
-        x = float(v)
-        return x * 100 if abs(x) < 1 else x
+    filas.sort(key=lambda x: -x[1])
+    en_pesos = " en ARS (incluye el CER esperado del REM)" if clave.endswith("_ars") else ""
     top = filas[:10]
-    return (f"rendimiento esperado {curva} a {dias} días (si la curva no se mueve, "
-            f"{len(filas)} bonos): "
-            + " · ".join(f"{f.get('ticker')} {_pct(f['total']):+.2f}%" for f in top)
-            + f" || mejor {top[0].get('ticker')} · peor {filas[-1].get('ticker')} "
-              f"{_pct(filas[-1]['total']):+.2f}%")
+    return (f"rendimiento esperado {curva} a {dias} días{en_pesos}, si la curva no se "
+            f"mueve ({len(filas)} bonos, carry + rolldown): "
+            + " · ".join(f"{t} {v:+.2f}%" for t, v in top)
+            + f" || mejor {top[0][0]} {top[0][1]:+.2f}% · peor {filas[-1][0]} "
+              f"{filas[-1][1]:+.2f}%")
 
 
 _REGLAS_RENTA_FIJA = """Sos el copiloto de la vista RENTA FIJA (bonos ARG). El idioma acá es \

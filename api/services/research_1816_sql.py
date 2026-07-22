@@ -21,7 +21,16 @@ logger = logging.getLogger(__name__)
 
 # Campos guardados (jobs/mercado_1816_series._CAMPOS). tea/paridad son FRACCIÓN.
 CAMPOS = ("tea", "paridad", "precioClean", "duration")
+# Qué campos vienen en FRACCIÓN (0.42 = 42%). Dato del ALMACENAMIENTO: vive acá,
+# donde se guarda, y no repetido en cada consumidor — un `campo in ("tea",
+# "paridad")` suelto en otro módulo se desincroniza en silencio al sumar un campo.
+CAMPOS_FRACCION = ("tea", "paridad")
 _CAMPO_DEFAULT = "tea"
+
+
+def escala(campo: str) -> float:
+    """Factor para mostrar el campo en % (1.0 si ya viene en su unidad)."""
+    return 100.0 if campo in CAMPOS_FRACCION else 1.0
 
 
 def _campo_ok(campo: str) -> str:

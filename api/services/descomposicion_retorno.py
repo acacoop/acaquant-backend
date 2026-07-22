@@ -56,6 +56,13 @@ _TIPOS_LECAP = ("lecap", "boncap")
 _METODOS = ("lineal", "cuadratica")
 _CURVAS_SOPORTADAS = ("tasa_fija", "cer")
 
+
+def curvas_soportadas() -> tuple[str, ...]:
+    """Las curvas que este motor sabe descomponer. Lo usa el copiloto para
+    DERIVAR el enum que ve el modelo: sumar una curva acá la habilita en el
+    chat sin tocar la tool (y sin que el modelo pida una que rebota)."""
+    return _CURVAS_SOPORTADAS
+
 # Config por curva: cómo se mapean los campos genéricos del cálculo
 # (valor, tasa, frecuencia) a los datos reales del snapshot.
 _CONFIG_CURVA: dict[str, dict[str, Any]] = {

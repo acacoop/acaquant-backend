@@ -12,7 +12,12 @@ capa está fallando:
   200 con renta_variable → backend PERFECTO: el problema es el browser/Vercel
                      (hard refresh Ctrl+Shift+R, o esperar el deploy del front)
 
+Además, `--contexto` arma el contexto de TODAS las vistas contra la DB real
+(0 tokens) y muestra qué bloques trae cada una — la forma de detectar un
+bloque que quedó MUDO porque el service que lo alimenta cambió de shape.
+
 Uso (Droplet):
+    python -m scripts.smoke_copiloto --contexto        # ¿qué ve la IA en cada vista?
     python -m scripts.smoke_copiloto --email tu@email.com
     python -m scripts.smoke_copiloto --email tu@email.com --pregunta "¿qué sube hoy?"
 """
@@ -27,13 +32,63 @@ import requests
 from config import API_KEY
 
 
+def _contexto() -> None:
+    """Arma el contexto de CADA vista contra la DB real (0 tokens) y muestra
+    cuántas filas y qué bloques trajo.
+
+    Por qué existe: el copiloto no se rompe con una excepción, se rompe en
+    SILENCIO. Un bloque `extras` que lee una clave que el service ya no emite
+    devuelve [] y desaparece del prompt; el modelo contesta igual, con menos
+    datos, y nadie lo nota. Los unit tests no lo ven porque mockean el service.
+    Acá se ve de una: bloque que falta = bloque que hay que ir a mirar."""
+    from api.services.copiloto.registro import VISTAS
+
+    _MAX = 400   # mismo tope que usa el motor para la tabla
+    for vista, cfg in sorted(VISTAS.items()):
+        fetch = cfg.get("fetch")
+        if not fetch:
+            print(f"— {vista:<16} sin fetch (handler propio: {cfg.get('titulo')})")
+            continue
+        try:
+            filas = fetch({}) or []
+        except Exception as e:
+            print(f"✗ {vista:<16} FETCH ROTO — {type(e).__name__}: {e}")
+            continue
+        if not filas:
+            print(f"✗ {vista:<16} 0 filas → el copiloto responde 'datos_no_disponibles'")
+            continue
+        bloques: list[str] = []
+        extras = cfg.get("extras")
+        if extras:
+            try:
+                bloques = [b for b in (extras(filas[:_MAX], "", [], {}) or []) if b]
+            except Exception as e:
+                print(f"? {vista:<16} {len(filas):>4} filas · EXTRAS ROTOS — "
+                      f"{type(e).__name__}: {e}")
+                continue
+        # el título de cada bloque es su primera línea entre corchetes
+        titulos = [b.split("\n", 1)[0][:38] for b in bloques]
+        marca = "✓" if (filas and (bloques or not extras)) else "?"
+        print(f"{marca} {vista:<16} {len(filas):>4} filas · {len(bloques)} bloques"
+              + (f" · {', '.join(titulos[:4])}" if titulos else ""))
+    print("\n" + "-" * 78)
+    print("Los bloques se arman con la vista en su estado por DEFECTO (sin filtros).\n"
+          "Un ✗ o un conteo de bloques más bajo del esperado es la señal de que un\n"
+          "service cambió de shape y el bloque quedó mudo.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--email", default=(os.getenv("MANAGER_EMAILS", "").split(",")[0] or None),
                     help="email con el que probar (default: primero de MANAGER_EMAILS)")
     ap.add_argument("--base", default="http://127.0.0.1:8000", help="URL base del api local")
     ap.add_argument("--pregunta", help="si se pasa, hace una pregunta end-to-end (gasta tokens)")
+    ap.add_argument("--contexto", action="store_true",
+                    help="armar el contexto de cada vista contra la DB (no gasta tokens)")
     args = ap.parse_args()
+    if args.contexto:
+        _contexto()
+        return
     if not args.email:
         raise SystemExit("falta --email (o MANAGER_EMAILS en el .env)")
 

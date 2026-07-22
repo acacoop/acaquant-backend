@@ -1361,6 +1361,51 @@ def test_tool_buscar_en_mails_y_desconocida(monkeypatch):
     assert "desconocida" in copiloto.research._ejecutar_tool_research("nada", {})
 
 
+def test_tool_rendimiento_esperado_lee_el_shape_real(monkeypatch):
+    """REGRESIÓN: la tool filtraba por un campo `total` que el service NUNCA
+    devuelve (la clave es `total_esperado`, en FRACCIÓN) → contestaba "sin
+    datos" siempre y el modelo lo tapaba improvisando. Este test congela el
+    shape real de descomposicion_retorno.rolldown_esperado."""
+    from api.services import descomposicion_retorno as dr
+
+    monkeypatch.setattr(dr, "rolldown_esperado", lambda **kw: {
+        "curva": kw["curva"], "horizonte_dias": kw["horizonte_dias"], "bonos": [
+            {"ticker": "S30J5", "ticker_corto": "S30J5", "total_esperado": 0.0312},
+            {"ticker": "T15D5", "ticker_corto": "T15D5", "total_esperado": 0.0180},
+        ]})
+    out = copiloto.renta_fija._ejecutar_tool_renta_fija(
+        "rendimiento_esperado", {"curva": "tasa_fija", "horizonte_dias": 30})
+    assert "S30J5 +3.12%" in out and "T15D5 +1.80%" in out   # fracción → %
+    assert "mejor S30J5" in out and "peor T15D5" in out
+    assert "sin datos" not in out
+
+
+def test_tool_rendimiento_esperado_en_cer_usa_el_total_ars(monkeypatch):
+    """En CER el número que le importa a un peso es el que incluye el CER
+    esperado del REM — la misma clave por la que ordena el service."""
+    from api.services import descomposicion_retorno as dr
+
+    monkeypatch.setattr(dr, "rolldown_esperado", lambda **kw: {"bonos": [
+        {"ticker_corto": "TZXD5", "total_esperado": 0.01, "total_esperado_ars": 0.09}]})
+    out = copiloto.renta_fija._ejecutar_tool_renta_fija(
+        "rendimiento_esperado", {"curva": "cer"})
+    assert "TZXD5 +9.00%" in out and "ARS" in out
+
+
+def test_enums_de_tools_derivan_de_su_service():
+    """Nada de listas paralelas: el enum que ve el modelo sale del dueño del
+    dato. Si divergen, el modelo pide algo que el service rechaza."""
+    from api.services.descomposicion_retorno import curvas_soportadas
+    from api.services.research_1816_sql import CAMPOS
+
+    rf = copiloto.renta_fija._TOOLS_RENTA_FIJA[0]["function"]["parameters"]
+    assert rf["properties"]["curva"]["enum"] == list(curvas_soportadas())
+    for t in copiloto.research._TOOLS_RESEARCH:
+        campo = t["function"]["parameters"]["properties"].get("campo")
+        if campo:
+            assert campo["enum"] == list(CAMPOS)
+
+
 def test_gateway_loop_de_tools(monkeypatch):
     """El loop completo: 1ra respuesta pide una tool → el código la ejecuta →
     2da respuesta contesta. El contexto de tools vuelve para la verificación."""

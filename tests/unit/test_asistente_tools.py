@@ -192,15 +192,36 @@ def test_token_out_tacha_identidad_que_colara(monkeypatch):
     assert "Perez" not in r and "CLIENTE_" in r
 
 
+def test_contrato_schemas_handlers():
+    """El test que hace ESCALABLE sumar una tool: declarar el schema y olvidar
+    el handler (o al revés) es un 'herramienta desconocida' en producción, y el
+    modelo no lo reporta — improvisa. Acá revienta al agregarla, no en el chat.
+    Reemplaza a la lista de nombres escrita a mano, que había que editar dos
+    veces por tool."""
+    assert set(at._HANDLERS) == at.herramientas_declaradas()
+
+
+def test_toda_tool_tiene_sonda_en_el_smoke():
+    """Los unit tests MOCKEAN los services: si una tool lee una clave que el
+    service no emite, el test pasa en verde y la tool queda muda en producción
+    (pasó 3 veces el 2026-07-22). El único que lo detecta es
+    `scripts.smoke_asistente --tools`, que las corre contra la DB real — así
+    que una tool nueva sin sonda ahí es una tool sin verificar de verdad.
+    Declararla como None (necesita ficha de un chat) cuenta como declarada."""
+    from scripts.smoke_asistente import _SONDAS
+    assert at.herramientas_declaradas() <= set(_SONDAS)
+
+
+def test_dimensiones_derivadas_del_sql():
+    """El enum que ve el modelo sale del SQL, no de una lista paralela: si
+    divergen, el modelo pide una dimensión que la jaula rechaza."""
+    from api.services.operaciones_sql import dimensiones_consolidado
+    vo = next(t for t in at.TOOLS if t["function"]["name"] == "volumen_operado")
+    assert set(vo["function"]["parameters"]["properties"]["por"]["enum"]) == \
+        set(dimensiones_consolidado())
+
+
 def test_schemas_declarados():
-    nombres = {t["function"]["name"] for t in at.TOOLS}
-    assert nombres == {"resumen_mesa", "rendimiento_cuenta", "quien_es",
-                       "aum_historico", "posiciones_cuenta", "aum_composicion",
-                       "cobros_futuros", "volumen_operado", "aranceles_consolidado",
-                       "pulso_mesa", "jobs_fallidos", "costo_ia",
-                       "controles_calidad_datos",
-                       # genérica, compartida con el copiloto (dueña: series.py)
-                       "serie_historica"}
     rc = next(t for t in at.TOOLS if t["function"]["name"] == "rendimiento_cuenta")
     assert "ficha_cuenta" in rc["function"]["parameters"]["properties"]
     vo = next(t for t in at.TOOLS if t["function"]["name"] == "volumen_operado")
@@ -370,10 +391,14 @@ def test_posiciones_cuenta_da_composicion_y_concentracion(monkeypatch):
 
 def test_aum_composicion_descarta_las_cuentas(monkeypatch):
     """PII: total_snapshot trae `cuenta` e `id_cuenta` por fila — la tool
-    agrega por cartera y NO puede emitir esos campos."""
+    agrega por cartera y NO puede emitir esos campos.
+
+    El mock usa la clave REAL del service (`docs`): la versión anterior
+    mockeaba `rows`, una clave inventada, así que el test pasaba en verde
+    mientras la tool en producción nunca encontraba nada."""
     import api.services.portfolio_sql as ps
     monkeypatch.setattr(at, "_fecha_snapshot", lambda: "2026-07-21")
-    monkeypatch.setattr(ps, "total_snapshot", lambda **kw: {"rows": [
+    monkeypatch.setattr(ps, "total_snapshot", lambda **kw: {"docs": [
         {"cartera": "HD", "valuacion": 600.0, "cuenta": "[805] PEREZ, JUAN", "id_cuenta": "805"},
         {"cartera": "FCI", "valuacion": 400.0, "cuenta": "[9] OTRO", "id_cuenta": "9"},
     ]})
@@ -398,9 +423,15 @@ def test_pulso_mesa_respeta_el_permiso_por_usuario(monkeypatch):
     permiso POR USUARIO que NO es el rol. Sin el flag, ni un número."""
     import api.services.control_comercial_sql as cc
     llamadas = []
+    # shape REAL de control_comercial_sql.datos_totales_alyc (verificado):
+    # {moneda, ancla, filas:[{periodo, clientes_activos, volumen, comisiones,
+    #                         <campo>_pct}]}
     monkeypatch.setattr(cc, "datos_totales_alyc",
-                        lambda **kw: llamadas.append(1) or {"filas": [
-                            {"label": "Mes", "volumen": 1_000_000.0, "var_volumen": 12.5}]})
+                        lambda **kw: llamadas.append(1) or {
+                            "moneda": "ARS", "ancla": "2026-07-21",
+                            "filas": [{"periodo": "Mes", "volumen": 1_000_000.0,
+                                       "volumen_pct": 12.5, "comisiones": 50_000.0,
+                                       "clientes_activos": 33}]})
 
     monkeypatch.setattr(at, "puede_control_comercial", lambda u: False)
     r = at.ejecutar("pulso_mesa", {}, mapping={"fichas": {}}, usuario="sin@flag.com")
@@ -409,6 +440,31 @@ def test_pulso_mesa_respeta_el_permiso_por_usuario(monkeypatch):
     monkeypatch.setattr(at, "puede_control_comercial", lambda u: True)
     r2 = at.ejecutar("pulso_mesa", {}, mapping={"fichas": {}}, usuario="jefe@x.com")
     assert "Mes" in r2 and "+12.5%" in r2
+    assert "cuentas activas 33" in r2
+
+
+def test_flujo_de_fondos_separa_mercado_de_plata_nueva(monkeypatch):
+    """La pregunta que el AuM no contesta: si subió, ¿es aporte o valorización?
+    Agrega por MONEDA; las cuentas de las filas no salen del perímetro."""
+    import api.services.cashflow_sql as cf
+    monkeypatch.setattr(cf, "flujos_resumen", lambda **kw: {"filas": [
+        {"dia": "2026-07-01", "cuenta": "[805] PEREZ, JUAN", "unidad": "ARS",
+         "entradas": 1_000.0, "salidas": -400.0, "n": 3},
+        {"dia": "2026-07-02", "cuenta": "[9] OTRO", "unidad": "ARS",
+         "entradas": 500.0, "salidas": 0.0, "n": 1},
+    ]})
+    r = at.ejecutar("flujo_de_fondos", {"desde": "2026-07-01", "hasta": "2026-07-31"},
+                    mapping={"fichas": {}})
+    assert "NETO 1100 ARS" in r and "4 movimientos" in r
+    assert "PEREZ" not in r and "805" not in r
+
+
+def test_flujo_de_fondos_sin_movimientos(monkeypatch):
+    import api.services.cashflow_sql as cf
+    monkeypatch.setattr(cf, "flujos_resumen", lambda **kw: {"filas": []})
+    r = at.ejecutar("flujo_de_fondos", {"desde": "2019-01-01", "hasta": "2019-01-31"},
+                    mapping={"fichas": {}})
+    assert "no hay movimientos" in r
 
 
 def test_jobs_fallidos_resume_lo_roto(monkeypatch):
@@ -447,13 +503,20 @@ def test_costo_ia_reporta_por_proveedor(monkeypatch):
 
 
 def test_controles_calidad_solo_cuenta_no_expone_casos(monkeypatch):
-    """PII: dos controles traen denominaciones. La tool devuelve el CONTEO."""
+    """PII: dos controles traen denominaciones. La tool devuelve el CONTEO.
+
+    Mock con la clave REAL (`controles`): mockeando el dict plano el test
+    pasaba mientras la tool en producción decía "todo limpio" siempre."""
     import api.services.controles_sql as cs
     monkeypatch.setattr(cs, "listar_controles", lambda **kw: {
-        "comitentes_sin_nivel1": {"activos": [
-            {"item": "805", "detalle": "PEREZ, JUAN sin nivel 1", "desde": "2026-07-01"}],
-            "resueltos": []},
-        "todo_bien": {"activos": [], "resueltos": []},
+        "controles": {
+            "comitentes_sin_nivel1": {"activos": [
+                {"item": "805", "detalle": "PEREZ, JUAN sin nivel 1",
+                 "desde": "2026-07-01"}], "resueltos": []},
+            "todo_bien": {"activos": [], "resueltos": []},
+        },
+        "totales": {"comitentes_sin_nivel1": 1, "todo_bien": 0},
+        "ultima_corrida": "2026-07-21 20:00:00",
     })
     r = at.ejecutar("controles_calidad_datos", {}, mapping={"fichas": {}})
     assert "comitentes_sin_nivel1: 1 casos" in r

@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 _cached_vocab = _cached_vocab_factory(ttl=3600)
 
 _DIMENSIONES = ["mercado", "operacion", "segmento", "nivel_3", "instrumento",
-                "operador", "cartera"]
+                "operador", "cartera", "cliente", "mes"]
 _PARAMS_CONSOLIDADO = {
     "type": "object",
     "properties": {
@@ -44,8 +44,12 @@ _PARAMS_CONSOLIDADO = {
                                "(nivel 1, ej. PRODUCTORES), nivel_3 (segmento fino "
                                "del boleto), instrumento (título), operador (el "
                                "comercial que atiende las cuentas — aparecen como "
-                               "referencias OPERADOR_n) o cartera (la del TÍTULO "
-                               "operado: HD, DL, ARS, FCI…)."},
+                               "referencias OPERADOR_n), cartera (la del TÍTULO "
+                               "operado: HD, DL, ARS, FCI…), **cliente** (el "
+                               "RANKING de clientes: quiénes son los que más "
+                               "operaron o más dejaron) o **mes** (la SERIE mes a "
+                               "mes del período, para comparar contra el mes "
+                               "anterior)."},
         "mercado": {"type": "string",
                     "description": "Filtrar a UN mercado puntual (opcional)."},
         "excluir_segmento": {"type": "string",
@@ -112,6 +116,71 @@ TOOLS: list[dict] = [
                     },
                 },
                 "required": ["ficha_cuenta"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "posiciones_cuenta",
+            "description": (
+                "EN QUÉ está invertido un cliente: sus principales posiciones "
+                "con cuánto pesa cada una y qué tan concentrada está la cartera. "
+                "Usala cuando pregunten 'en qué está', 'qué tiene', 'cómo está "
+                "compuesta su cartera'. Complementa rendimiento_cuenta, que solo "
+                "da los totales."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ficha_cuenta": {"type": "string",
+                                     "description": "La referencia del cliente (CLIENTE_1)."},
+                    "top": {"type": "integer",
+                            "description": "Cuántas posiciones listar (default 10)."},
+                },
+                "required": ["ficha_cuenta"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "aum_composicion",
+            "description": (
+                "CÓMO está repartido el AuM de toda la mesa por cartera (pesos, "
+                "hard dollar, FCI…) en el último cierre. Usala para '¿cómo está "
+                "compuesto el AuM?', '¿cuánto está en dólares?'. Es agregado: no "
+                "trae clientes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fecha": {"type": "string",
+                              "description": "Cierre a mirar (YYYY-MM-DD). Sin esto, el último."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cobros_futuros",
+            "description": (
+                "QUÉ PLATA ENTRA: cupones, rentas y amortizaciones que van a "
+                "cobrar los clientes, por fecha, con el día pico. Usala para "
+                "'¿qué se cobra este mes?', '¿cuándo entra plata?', 'acreencias "
+                "próximas'. Agregado por día y moneda, sin clientes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dias": {"type": "integer",
+                             "description": "Ventana hacia adelante desde hoy (default 30)."},
+                    "desde": {"type": "string", "description": "Alternativa: fecha inicial."},
+                    "hasta": {"type": "string", "description": "Alternativa: fecha final."},
+                },
+                "required": [],
             },
         },
     },
@@ -378,6 +447,105 @@ def aum_historico(args: dict, *, mapping: dict) -> str:
     ])
 
 
+def posiciones_cuenta(args: dict, *, mapping: dict) -> str:
+    """EN QUÉ está invertido un cliente: top posiciones y concentración. Es lo
+    que `rendimiento_cuenta` NO da (esa devuelve solo totales)."""
+    from api.services import valuaciones_sql
+    from api.services.copiloto.navegacion import clasificar_persona
+
+    ficha = str(args.get("ficha_cuenta") or "").strip()
+    quien = clasificar_persona(ficha, mapping)
+    if not quien["cuenta"]:
+        return (f"no encontré la cuenta {ficha or '(vacía)'} — pedile el número "
+                "de cuenta o el nombre como figura")
+    id_cuenta = pii_gateway.id_cuenta_de_ficha(ficha, mapping)
+    if not id_cuenta:
+        return f"no pude resolver {ficha} a un número de cuenta"
+    top = max(1, min(int(args.get("top") or 10), 25))
+    r = valuaciones_sql.posiciones_actuales(id_cuenta=id_cuenta) or {}
+    filas = [p for p in (r.get("posiciones") or r.get("rows") or [])
+             if float(p.get("valuacion") or 0) != 0]
+    if not filas:
+        return f"{ficha} no tiene posiciones en el último cierre"
+    filas.sort(key=lambda p: -float(p.get("valuacion") or 0))
+    total = sum(float(p.get("valuacion") or 0) for p in filas)
+    lineas = [f"[posiciones de {ficha} — cierre {r.get('fecha') or 's/f'}, "
+              f"{len(filas)} títulos · total {_monto(total)}]"]
+    for p in filas[:top]:
+        val = float(p.get("valuacion") or 0)
+        pct = 100 * val / total if total else 0
+        etq = p.get("ticker") or p.get("unidad") or "?"
+        cart = p.get("cartera") or "sin cartera"
+        lineas.append(f"  - {etq} ({cart}): {_monto(val)} · {pct:.1f}%")
+    if len(filas) > top:
+        resto = sum(float(p.get("valuacion") or 0) for p in filas[top:])
+        lineas.append(f"  - resto ({len(filas) - top} títulos): {_monto(resto)} "
+                      f"· {100 * resto / total if total else 0:.1f}%")
+    top5 = sum(float(p.get("valuacion") or 0) for p in filas[:5])
+    lineas.append(f"CONCENTRACIÓN: el top 5 es el {100 * top5 / total if total else 0:.1f}% "
+                  "de la cartera")
+    return "\n".join(lineas)
+
+
+def aum_composicion(args: dict, *, mapping: dict) -> str:
+    """CÓMO está repartido el AuM de la mesa: por cartera (pesos / hard dollar
+    / FCI…) en el último cierre. Agregado — no emite cuentas ni clientes."""
+    from api.services import portfolio_sql
+
+    fecha = str(args.get("fecha") or "").strip() or _fecha_snapshot()
+    if not fecha:
+        return "sin snapshots de tenencia todavía"
+    r = portfolio_sql.total_snapshot(fecha=fecha, moneda="ARS") or {}
+    filas = r.get("rows") or r.get("por_cartera") or []
+    acc: dict[str, float] = {}
+    for f in filas:
+        # se agrega por cartera y se DESCARTA cuenta/id_cuenta (vienen por fila)
+        acc[str(f.get("cartera") or "OTROS")] = acc.get(
+            str(f.get("cartera") or "OTROS"), 0.0) + float(f.get("valuacion") or 0)
+    if not acc:
+        return f"no hay tenencia valorizada al {fecha}"
+    total = sum(acc.values())
+    lineas = [f"[composición del AuM al {fecha} — total {_monto(total)}]"]
+    for cart, val in sorted(acc.items(), key=lambda x: -x[1]):
+        lineas.append(f"  - {cart}: {_monto(val)} ({100 * val / total if total else 0:.1f}%)")
+    return "\n".join(lineas)
+
+
+def cobros_futuros(args: dict, *, mapping: dict) -> str:
+    """QUÉ PLATA ENTRA: cupones, rentas y amortizaciones que cobran los
+    clientes, por fecha. El dominio 'plata' que el asistente no veía."""
+    from datetime import UTC, datetime, timedelta
+
+    from api.services import cashflow_sql
+
+    hoy = (datetime.now(UTC) - timedelta(hours=3)).date()
+    dias = max(1, min(int(args.get("dias") or 30), 365))
+    desde = str(args.get("desde") or "").strip() or hoy.isoformat()
+    hasta = str(args.get("hasta") or "").strip() or (hoy + timedelta(days=dias)).isoformat()
+    filas = cashflow_sql.por_dia(desde=desde, hasta=hasta) or []
+    if not filas:
+        return f"no hay cobros agendados entre {desde} y {hasta}"
+    por_moneda: dict[str, float] = {}
+    for f in filas:
+        for mon, monto in (f.get("por_moneda") or {}).items():
+            por_moneda[mon] = por_moneda.get(mon, 0.0) + float(monto or 0)
+    lineas = [f"[cobros de clientes — {desde} a {hasta}, {len(filas)} días con pagos]",
+              "TOTAL: " + " · ".join(f"{_monto(v, m)}" for m, v in
+                                     sorted(por_moneda.items(), key=lambda x: -x[1]))]
+    pico = max(filas, key=lambda f: sum((f.get("por_moneda") or {}).values()))
+    lineas.append("día pico: " + str(pico.get("fecha")) + " → " + " · ".join(
+        f"{_monto(v, m)}" for m, v in (pico.get("por_moneda") or {}).items()))
+    lineas.append("por fecha:")
+    for f in filas[:20]:
+        montos = " · ".join(f"{_monto(v, m)}"
+                            for m, v in (f.get("por_moneda") or {}).items())
+        lineas.append(f"  - {f.get('fecha')}: {montos} "
+                      f"({f.get('n_clientes', '?')} clientes, {f.get('n_pagos', '?')} pagos)")
+    if len(filas) > 20:
+        lineas.append(f"  (+{len(filas) - 20} días más en el período)")
+    return "\n".join(lineas)
+
+
 def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
     """volumen_operado / aranceles_consolidado — envuelven ops_consolidado
     (api/services/operaciones_sql.py): MISMO _ops_where que la vista, con las
@@ -436,12 +604,19 @@ def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
     if moneda == "USD":
         titulo += " (convertido a USD con el TC de cada boleto)"
     por_operador = r["por"] == "operador"
+    # la dimensión CLIENTE devuelve NOMBRES → se fichan antes de volver al
+    # modelo (es un ranking de clientes, el dato más sensible que emitimos)
+    por_cliente = r["por"] == "cliente"
     lineas = [f"[{titulo} por {r['por']} — {r['desde']} a {r['hasta']}, {r['moneda']}]"]
     for f in r["filas"]:
         clave = f["clave"]
         if por_operador and clave != "(sin operador)":
             # identidad de EMPLEADO → ficha directa (el LLM jamás ve el nombre)
             clave = pii_gateway.asignar_ficha(mapping, "OPERADOR", clave)
+        elif por_cliente and clave != "(sin)":
+            # identidad de CLIENTE → ficha. El usuario ve el nombre real
+            # porque la respuesta se destokeniza al final del turno.
+            clave = pii_gateway.asignar_ficha(mapping, "CLIENTE", clave)
         pct = 100 * f["valor"] / r["total"] if r["total"] else 0
         lineas.append(f"  - {clave}: {_monto(f['valor'], r['moneda'])} "
                       f"({pct:.1f}%) · {f['n']} boletos")
@@ -530,6 +705,12 @@ def ejecutar(nombre: str, args: dict, *, mapping: dict,
             crudo = quien_es(str(args.get("ficha", "")), mapping=mapping)
         elif nombre == "aum_historico":
             crudo = aum_historico(args, mapping=mapping)
+        elif nombre == "posiciones_cuenta":
+            crudo = posiciones_cuenta(args, mapping=mapping)
+        elif nombre == "aum_composicion":
+            crudo = aum_composicion(args, mapping=mapping)
+        elif nombre == "cobros_futuros":
+            crudo = cobros_futuros(args, mapping=mapping)
         elif nombre == "rendimiento_cuenta":
             crudo = rendimiento_cuenta(str(args.get("ficha_cuenta", "")), mapping=mapping)
         elif nombre == "volumen_operado":

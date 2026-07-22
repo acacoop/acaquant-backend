@@ -390,10 +390,19 @@ _DIMENSIONES_CONSOLIDADO: dict[str, str] = {
     "segmento": "segmento",     # nivel 1 congelado en el boleto
     "nivel_3": "nivel_3",       # segmento fino del boleto
     "instrumento": "instrumento",
+    # CLIENTE: la dimensión que faltaba. Sin ella el asistente podía filtrar a
+    # un cliente pero NUNCA rankear ("los 10 que más operaron") — la forma de
+    # pregunta #1 del negocio (auditoría 2026-07-21). OJO: la clave es el
+    # NOMBRE del cliente → quien la use tiene que ficharla antes de devolverla.
+    "cliente": "denominacion",
     # cartera del TÍTULO (assets.unidad = instrumento): subconsulta correlada,
     # no columna — se resuelve aparte en la query (ver _CLAVE_CARTERA).
     "cartera": None,
+    # MES: la serie del negocio ("¿cómo viene mes a mes?"), otra pregunta que
+    # era incontestable. Se resuelve con to_char, no es columna.
+    "mes": None,
 }
+_CLAVE_MES = "to_char(concertacion, 'YYYY-MM')"
 _CLAVE_CARTERA = (
     "COALESCE((SELECT a.cartera FROM portafolio.assets a "
     " WHERE a.unidad = operaciones.instrumento), '(SIN CARTERA)')"
@@ -418,8 +427,9 @@ def ops_consolidado(
     "¿cuánto operó tal cliente?" — que NO es su patrimonio)."""
     por_operador = por == "operador"
     por_cartera = por == "cartera"
+    por_mes = por == "mes"
     col = _DIMENSIONES_CONSOLIDADO.get(por)
-    if col is None and not por_operador and not por_cartera:
+    if col is None and not por_operador and not por_cartera and not por_mes:
         return {"error": f"dimension invalida: {por!r} (validas: "
                          f"{sorted([*_DIMENSIONES_CONSOLIDADO, 'operador'])})"}
     if metrica == "arancel":
@@ -454,13 +464,18 @@ def ops_consolidado(
     elif por_cartera:
         clave_expr = _CLAVE_CARTERA
         from_sql = "operaciones"
+    elif por_mes:
+        clave_expr = _CLAVE_MES
+        from_sql = "operaciones"
     else:
         clave_expr = f"COALESCE(NULLIF({col}, ''), '(sin)')"
         from_sql = "operaciones"
     rows = _q(
         f"SELECT {clave_expr} AS clave, {expr} AS valor, "
         f"count(*) AS n FROM {from_sql} WHERE {where} "
-        f"GROUP BY 1 HAVING {expr} <> 0 ORDER BY valor DESC LIMIT %(top)s",
+        # el mes se ordena cronológicamente (es una serie, no un ranking)
+        f"GROUP BY 1 HAVING {expr} <> 0 "
+        f"ORDER BY {'clave' if por_mes else 'valor DESC'} LIMIT %(top)s",
         {**p, "top": max(1, min(int(top), 100))},
     )
     return {

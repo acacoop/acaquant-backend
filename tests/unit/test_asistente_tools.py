@@ -195,7 +195,8 @@ def test_token_out_tacha_identidad_que_colara(monkeypatch):
 def test_schemas_declarados():
     nombres = {t["function"]["name"] for t in at.TOOLS}
     assert nombres == {"resumen_mesa", "rendimiento_cuenta", "quien_es",
-                       "aum_historico", "volumen_operado", "aranceles_consolidado"}
+                       "aum_historico", "posiciones_cuenta", "aum_composicion",
+                       "cobros_futuros", "volumen_operado", "aranceles_consolidado"}
     rc = next(t for t in at.TOOLS if t["function"]["name"] == "rendimiento_cuenta")
     assert "ficha_cuenta" in rc["function"]["parameters"]["properties"]
     vo = next(t for t in at.TOOLS if t["function"]["name"] == "volumen_operado")
@@ -307,6 +308,85 @@ def test_aum_historico_sin_datos_lo_dice(monkeypatch):
 def test_aum_historico_sin_periodo():
     r = at.ejecutar("aum_historico", {"cartera": "FCI"}, mapping={"fichas": {}})
     assert "necesito el período" in r
+
+
+# ── Tanda 1: rankings (Patrón 2) y el dominio PLATA (Patrón 3) ─────────────
+
+def test_ranking_de_clientes_ficha_los_nombres(monkeypatch):
+    """La pregunta #1 del negocio, que era estructuralmente incontestable:
+    '¿quiénes son los 10 que más operaron?'. Los NOMBRES se fichan."""
+    _mock_consolidado(monkeypatch, {
+        "metrica": "bruto", "por": "cliente", "desde": "2026-07-01",
+        "hasta": "2026-07-31", "moneda": "ARS",
+        "filas": [{"clave": "MOLLO, NICOLAS EZEQUIEL", "valor": 900.0, "n": 5},
+                  {"clave": "(sin)", "valor": 100.0, "n": 1}],
+        "total": 1000.0,
+    })
+    mapping = pg._mapping_nuevo()
+    r = at.ejecutar("volumen_operado",
+                    {"desde": "2026-07-01", "hasta": "2026-07-31", "por": "cliente"},
+                    mapping=mapping)
+    assert "MOLLO" not in r and "CLIENTE_1" in r
+    assert "(sin)" in r                      # el hueco no es una identidad
+    assert mapping["fichas"]["CLIENTE_1"] == "MOLLO, NICOLAS EZEQUIEL"
+
+
+def test_serie_mensual_ordena_cronologicamente(monkeypatch):
+    capturado = _mock_consolidado(monkeypatch, {
+        "metrica": "bruto", "por": "mes", "desde": "2026-01-01",
+        "hasta": "2026-07-31", "moneda": "ARS",
+        "filas": [{"clave": "2026-06", "valor": 100.0, "n": 2},
+                  {"clave": "2026-07", "valor": 200.0, "n": 3}],
+        "total": 300.0})
+    r = at.ejecutar("volumen_operado", {"desde": "2026-01-01", "hasta": "2026-07-31",
+                                        "por": "mes"}, mapping={"fichas": {}})
+    assert capturado["por"] == "mes"
+    # ojo: el encabezado trae el rango de fechas → se mira SOLO el cuerpo
+    filas = [ln for ln in r.splitlines() if ln.startswith("  - ")]
+    assert filas[0].startswith("  - 2026-06") and filas[1].startswith("  - 2026-07")
+
+
+def test_posiciones_cuenta_da_composicion_y_concentracion(monkeypatch):
+    import api.services.copiloto.navegacion as nv
+    import api.services.valuaciones_sql as vs
+    monkeypatch.setattr(nv, "_cuentas", lambda: [("805", "PEREZ, JUAN")])
+    monkeypatch.setattr(nv, "_operadores", lambda: [])
+    monkeypatch.setattr(vs, "posiciones_actuales", lambda **kw: {
+        "fecha": "2026-07-21",
+        "posiciones": [
+            {"ticker": "AL30", "cartera": "HD", "valuacion": 700.0},
+            {"ticker": "TX26", "cartera": "ARS", "valuacion": 300.0},
+        ]})
+    mapping = {"fichas": {"CLIENTE_1": "juan perez"}, "valores": {}, "contadores": {}}
+    r = at.ejecutar("posiciones_cuenta", {"ficha_cuenta": "CLIENTE_1"}, mapping=mapping)
+    assert "AL30" in r and "70.0%" in r
+    assert "CONCENTRACIÓN" in r
+    assert "PEREZ" not in r          # el nombre real no vuelve al modelo
+
+
+def test_aum_composicion_descarta_las_cuentas(monkeypatch):
+    """PII: total_snapshot trae `cuenta` e `id_cuenta` por fila — la tool
+    agrega por cartera y NO puede emitir esos campos."""
+    import api.services.portfolio_sql as ps
+    monkeypatch.setattr(at, "_fecha_snapshot", lambda: "2026-07-21")
+    monkeypatch.setattr(ps, "total_snapshot", lambda **kw: {"rows": [
+        {"cartera": "HD", "valuacion": 600.0, "cuenta": "[805] PEREZ, JUAN", "id_cuenta": "805"},
+        {"cartera": "FCI", "valuacion": 400.0, "cuenta": "[9] OTRO", "id_cuenta": "9"},
+    ]})
+    r = at.ejecutar("aum_composicion", {}, mapping={"fichas": {}})
+    assert "HD" in r and "60.0%" in r
+    assert "PEREZ" not in r and "805" not in r
+
+
+def test_cobros_futuros_resume_y_marca_el_pico(monkeypatch):
+    import api.services.cashflow_sql as cf
+    monkeypatch.setattr(cf, "por_dia", lambda **kw: [
+        {"fecha": "2026-08-01", "por_moneda": {"ARS": 100.0}, "n_clientes": 3, "n_pagos": 4},
+        {"fecha": "2026-08-09", "por_moneda": {"ARS": 900.0}, "n_clientes": 7, "n_pagos": 9},
+    ])
+    r = at.ejecutar("cobros_futuros", {"dias": 30}, mapping={"fichas": {}})
+    assert "día pico: 2026-08-09" in r
+    assert "TOTAL" in r and "1000 ARS" in r
 
 
 def test_consolidado_dimension_invalida_es_jaula():

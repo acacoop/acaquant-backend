@@ -117,6 +117,28 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.89 (auditoría de tools: Tanda 0 completa + 5 de la Tanda 1)
+Tras la auditoría multi-agente (`docs/TOOLS_IA.md`), con cada hallazgo
+verificado en el código antes de tocarlo:
+- **[bugs vivos]** el bloque de carry de RF comparaba y reimprimía ×100 un
+  valor que ya venía en % (salía vacío o 100× inflado) · `macro_sql` daba un
+  hint FALSO sobre el REM ("falta job jobs/rem.py" cuando `macro.rem` la
+  escribe `argentina_datos`) · `rendimiento_cuenta` prometía composición y
+  devuelve solo totales.
+- **[seguridad]** el dispatcher de tools recibe `usuario` + helper
+  `puede_control_comercial` (fail-closed): sin eso, exponer datos gateados por
+  un permiso POR USUARIO habría sido una puerta trasera.
+- **[aduana]** 7 tipos de ficha (suma REFERIDO, CONTRAPARTE, USUARIO).
+- **[reglas]** diccionario de métricas: volumen/comisiones/cartera/rendimiento
+  significan cosas distintas según la vista y no se suman entre sí.
+- **[tools +] rankings y series**: dimensiones `cliente` (con fichado) y `mes`
+  (orden cronológico) en los consolidados → "los 10 que más operaron" y "mes a
+  mes" dejan de ser incontestables.
+- **[tools +] `posiciones_cuenta`** (en qué está invertido + concentración),
+  **`aum_composicion`** (reparto por cartera, agregado sin clientes) y
+  **`cobros_futuros`** (qué plata entra, con día pico) — este último abre el
+  dominio PLATA, que tenía cobertura cero.
+
 ### 2026-07-21 — v1.88 (revisión de una conversación REAL que salió mal: 4 fixes)
 El user trajo 12 trazas de una charla de la mesa ("se volvió horrible desde el
 segundo mensaje"). Leerla entera dio cuatro problemas, tres de ellos por

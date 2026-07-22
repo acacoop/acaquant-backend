@@ -110,6 +110,22 @@ No es opcional: **seis propuestas confirmadas no se pueden construir bien sin es
 
 ### Tanda 1 — "Ya está servido y me lo preguntan todos los días" (ítems 1-11)
 
+> ✅ **HECHOS (2026-07-21):** #1 dimensión `cliente` · #2 dimensión `mes` ·
+> #3 `posiciones_cuenta` · #5 `cobros_futuros` · #10 `aum_composicion`.
+> Con #1 y #2 el asistente deja de ser solo un filtro: **ya puede rankear y
+> comparar mes a mes**, que eran las dos formas de pregunta más frecuentes y
+> estructuralmente incontestables (Patrón 2). Con #5 arranca el dominio PLATA
+> (Patrón 3). Notas de implementación:
+> · la dimensión `cliente` devuelve NOMBRES → se fichan en el perímetro antes
+>   de volver al modelo (es el dato más sensible que emitimos);
+> · `mes` ordena cronológicamente, no por valor (es una serie, no un ranking);
+> · `aum_composicion` agrega por cartera y DESCARTA `cuenta`/`id_cuenta`, que
+>   `total_snapshot` trae por fila.
+>
+> **Quedan de esta tanda:** #4 `pulso_mesa` (ya se puede: el gate de Control
+> Comercial está listo), #6 `spread_1816`, #7 `jobs_fallidos`, #8 `costo_ia`,
+> #9 `controles_calidad_datos`, #11 `rendimiento_esperado_curva`.
+
 **Criterio de corte:** el service ya devuelve el shape correcto (no hay que plegar, agregar ni escribir SQL), la pregunta es de rutina diaria, y no hay decisión de producto pendiente. Todo esto es wrapper + ficha.
 
 Once piezas. Dos de ellas (#1 y #2) ni siquiera son tools: son entradas en una whitelist que ya tiene el `ORDER BY … LIMIT` puesto — con eso el asistente pasa de "solo puedo filtrar a un cliente" a "puedo rankear el universo y darte la serie mensual", que son las dos formas de pregunta más frecuentes del jefe comercial.

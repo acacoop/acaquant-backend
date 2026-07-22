@@ -138,6 +138,50 @@ def test_duplicado_exacto_no_gasta_tokens():
     assert triage._duplicado_exacto({"id": 9, "texto": ""}, previos) is None
 
 
+# ── Persistencia: las dos ramas, sin CASE WHEN sobre un parámetro ──────────
+
+class _CursorFalso:
+    def __init__(self):
+        self.sql = None
+        self.params = None
+
+    def execute(self, sql, params):
+        self.sql, self.params = sql, params
+
+
+def test_persistir_pedido_normal_no_toca_el_estado():
+    """Un pedido triado sigue 'nuevo': la decisión de aceptarlo o descartarlo
+    es humana. Si acá se tocara el estado, el triaje estaría decidiendo."""
+    cur = _CursorFalso()
+    triage._persistir(cur, 7, {"impacto": "alto", "esfuerzo": "chico",
+                               "spec": "hacer X", "duplicado_de": None})
+    assert "estado" not in cur.sql
+    assert "triado_at = now()" in cur.sql
+    assert cur.params == ("alto", "chico", "hacer X", None, 7)
+
+
+def test_persistir_duplicado_lo_descarta_apuntando_al_original():
+    cur = _CursorFalso()
+    triage._persistir(cur, 9, {"impacto": "bajo", "esfuerzo": "chico",
+                               "spec": None, "duplicado_de": 4})
+    assert "estado = 'descartado'" in cur.sql
+    assert "duplicado del #4" in cur.params
+
+
+def test_persistir_no_usa_case_when_sobre_un_parametro():
+    """REGRESIÓN (primera corrida real 2026-07-22): la versión anterior hacía
+    `CASE WHEN %s IS NULL` y Postgres no puede inferir el tipo de un parámetro
+    suelto dentro de un IS NULL → IndeterminateDatatype. Reventaba DESPUÉS de
+    haber gastado la llamada al LLM, que es lo caro. La rama se decide en
+    Python."""
+    for dup in (None, 4):
+        cur = _CursorFalso()
+        triage._persistir(cur, 1, {"impacto": "alto", "esfuerzo": "chico",
+                                   "spec": "x", "duplicado_de": dup})
+        assert "CASE" not in cur.sql.upper()
+        assert cur.sql.count("%s") == len(cur.params)
+
+
 # ── Prioridad: el orden de lectura es el orden de trabajo ───────────────────
 
 def test_la_cola_ordena_por_lo_que_mas_rinde():

@@ -208,16 +208,21 @@ def _triar_uno(pedido: dict, previos: list[dict]) -> dict | None:
 
 
 def _persistir(cur, pedido_id: int, t: dict) -> None:
-    cur.execute(
-        "UPDATE manager.pedidos SET impacto = %s, esfuerzo = %s, spec = %s, "
-        "duplicado_de = %s, triado_at = now(), "
-        # un duplicado no se revisa dos veces: queda descartado apuntando al original
-        "estado = CASE WHEN %s IS NULL THEN estado ELSE 'descartado' END, "
-        "notas = CASE WHEN %s IS NULL THEN notas "
-        "             ELSE COALESCE(notas || ' · ', '') || 'duplicado del #' || %s END "
-        "WHERE id = %s",
-        (t["impacto"], t["esfuerzo"], t["spec"], t["duplicado_de"],
-         t["duplicado_de"], t["duplicado_de"], t["duplicado_de"], pedido_id))
+    """Guarda el triaje. La rama del duplicado se decide en PYTHON, no con un
+    CASE WHEN sobre el parámetro: Postgres no puede inferir el tipo de un `%s`
+    suelto en un `IS NULL` y tira IndeterminateDatatype (visto en la primera
+    corrida real, 2026-07-22). Además así se lee de una qué hace cada caso."""
+    campos = ["impacto = %s", "esfuerzo = %s", "spec = %s",
+              "duplicado_de = %s", "triado_at = now()"]
+    params: list = [t["impacto"], t["esfuerzo"], t["spec"], t["duplicado_de"]]
+    if t["duplicado_de"] is not None:
+        # un duplicado no se revisa dos veces: descartado, apuntando al original
+        campos += ["estado = 'descartado'",
+                   "notas = COALESCE(notas || ' · ', '') || %s"]
+        params.append(f"duplicado del #{t['duplicado_de']}")
+    params.append(pedido_id)
+    cur.execute(f"UPDATE manager.pedidos SET {', '.join(campos)} WHERE id = %s",
+                tuple(params))
 
 
 def _orden(p: dict) -> tuple:
@@ -284,9 +289,19 @@ def main() -> None:
                 if t is None:
                     run.error(f"#{p['id']} sin triar (el gateway no respondió)")
                     continue
-            with conn.cursor() as cur:
-                _persistir(cur, int(p["id"]), t)
-            conn.commit()
+            # El triaje ya se PAGÓ (tokens gastados). Si guardar UNO falla, no
+            # puede llevarse puesto el trabajo de los demás ni el aviso: se
+            # registra el error y se sigue. Lección de la primera corrida real
+            # (2026-07-22): un fallo al persistir abortó la corrida entera
+            # después de haber llamado al modelo.
+            try:
+                with conn.cursor() as cur:
+                    _persistir(cur, int(p["id"]), t)
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                run.error(f"#{p['id']} triado pero NO guardado: {type(e).__name__}: {e}")
+                continue
             if t["duplicado_de"] is not None:
                 run.log(f"  #{p['id']} → duplicado del #{t['duplicado_de']} (descartado)")
                 continue

@@ -198,7 +198,9 @@ def test_schemas_declarados():
                        "aum_historico", "posiciones_cuenta", "aum_composicion",
                        "cobros_futuros", "volumen_operado", "aranceles_consolidado",
                        "pulso_mesa", "jobs_fallidos", "costo_ia",
-                       "controles_calidad_datos"}
+                       "controles_calidad_datos",
+                       # genérica, compartida con el copiloto (dueña: series.py)
+                       "serie_historica"}
     rc = next(t for t in at.TOOLS if t["function"]["name"] == "rendimiento_cuenta")
     assert "ficha_cuenta" in rc["function"]["parameters"]["properties"]
     vo = next(t for t in at.TOOLS if t["function"]["name"] == "volumen_operado")

@@ -141,6 +141,17 @@ Incluí a propósito los tres de **meta-sistema** (#7 jobs, #8 costo IA, #9 cont
 
 ### Tanda 2 — La máquina de series + el tablero comercial (ítems 12-27, 29-30)
 
+> ✅ **#17 `serie_historica` HECHA (2026-07-22)** — la pieza de la que colgaban
+> 8 propuestas. `api/services/copiloto/series.py`: registro de series (agregar
+> una es una FILA, no una tool), contrato único de salida (stats + muestra
+> ralificada, nunca puntos crudos), percentil/z calculados por CÓDIGO con su
+> lectura. Común a todas las vistas + al asistente. Familias: macro, bono_1816,
+> aum, bcra, internacional. **Las 8 propuestas que colgaban de ella se
+> resuelven agregando filas al registro, no tools nuevas.**
+> ✅ **Prerequisito de perf resuelto:** `listar_flujos` ya filtra fechas en SQL
+> (era full scan + transferencia de ~2 años por llamada) → `flujo_de_fondos`
+> (#22) queda desbloqueada.
+
 **Criterio de corte:** requiere plegar/agregar en Python o escribir un reader, o la pregunta es semanal/mensual en vez de diaria. Acá está el grueso del valor pero también el grueso del trabajo.
 
 El orden interno importa: **primero `serie_historica` genérica (#17)**, porque de ella cuelgan 8 propuestas confirmadas y define el contrato de "cómo se devuelve una serie" (stats, no puntos crudos) que después reutiliza todo. Después el bloque comercial completo (#20, #21, #24, #27, #29), que se hace de una porque comparte el mismo problema de fichas y el mismo gate de permisos.

@@ -78,7 +78,15 @@ _PARAMS_CONSOLIDADO = {
 
 # ── Schemas para el function-calling (formato OpenAI) ────────────────────────
 
+def _tool_serie() -> dict:
+    """La serie histórica genérica también sirve al asistente de negocio (AuM
+    por cartera, macro). Se importa del módulo dueño para no duplicar schema."""
+    from api.services.copiloto.series import TOOL_SERIE
+    return TOOL_SERIE
+
+
 TOOLS: list[dict] = [
+    _tool_serie(),
     {
         "type": "function",
         "function": {
@@ -893,6 +901,9 @@ def ejecutar(nombre: str, args: dict, *, mapping: dict,
             crudo = costo_ia(args)
         elif nombre == "controles_calidad_datos":
             crudo = controles_calidad_datos(args)
+        elif nombre == "serie_historica":
+            from api.services.copiloto.series import ejecutar_serie
+            crudo = ejecutar_serie(nombre, args)
         elif nombre == "rendimiento_cuenta":
             crudo = rendimiento_cuenta(str(args.get("ficha_cuenta", "")), mapping=mapping)
         elif nombre == "volumen_operado":

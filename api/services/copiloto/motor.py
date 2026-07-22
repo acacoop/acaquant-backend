@@ -203,14 +203,20 @@ def preguntar(
     # desde donde le surgió, no solo desde la guía (decisión user 2026-07-21).
     from .pedidos import NOMBRE_TOOL as _TOOL_PEDIDO_NOMBRE
     from .pedidos import TOOL_PEDIDO, ejecutar_pedido
+    from .series import TOOL_SERIE, ejecutar_serie
 
-    tools = list(cfg.get("tools") or []) + [TOOL_PEDIDO]
+    # comunes a TODAS las vistas: el buzón de pedidos y la SERIE HISTÓRICA
+    # (el contexto de cada vista es la foto de HOY — sin esta tool ninguna
+    # puede contestar "¿contra qué?", que era el hueco #1 de la auditoría)
+    tools = list(cfg.get("tools") or []) + [TOOL_PEDIDO, TOOL_SERIE]
     ejec_vista = cfg["tools_ejecutar"](salida_tools, usuario) if cfg.get("tools") else None
 
     def _ejecutar(nombre: str, args: dict) -> str:
         if nombre == _TOOL_PEDIDO_NOMBRE:
             return ejecutar_pedido(args, usuario=usuario, vista=vista,
                                    mapping=mapping, contexto=pregunta)
+        if nombre == TOOL_SERIE["function"]["name"]:
+            return ejecutar_serie(nombre, args)
         if ejec_vista is not None:
             return ejec_vista(nombre, args)
         return f"herramienta desconocida: {nombre}"

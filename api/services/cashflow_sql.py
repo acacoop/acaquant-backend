@@ -77,6 +77,21 @@ def listar_flujos(
         conds.append("unidad = %(unidad)s")
         p["unidad"] = unidad
 
+    # RANGO DE FECHAS EN SQL (2026-07-22): antes se traía la tabla ENTERA
+    # (~2 años de movimientos) y se descartaba en Python — un full scan + la
+    # transferencia completa en cada llamada, en el mismo pool que sirve la web.
+    # El regex blinda el to_date contra fechas malformadas (que quedan afuera
+    # igual que antes: `iso is None` se descartaba). El filtro de Python sigue
+    # abajo como cinturón, ahora sobre un conjunto ya acotado.
+    if desde or hasta:
+        conds.append(r"fecha ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$'")
+        if desde:
+            conds.append("to_date(fecha, 'DD/MM/YYYY') >= %(f_desde)s")
+            p["f_desde"] = desde
+        if hasta:
+            conds.append("to_date(fecha, 'DD/MM/YYYY') <= %(f_hasta)s")
+            p["f_hasta"] = hasta
+
     where = (" WHERE " + " AND ".join(conds)) if conds else ""
     rows = _q(
         "SELECT comprobante, cuenta, fecha, informacion, total, unidad "

@@ -117,6 +117,33 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-22 — v1.91 (SERIE HISTÓRICA genérica: el sistema aprende a decir "contra qué")
+La pieza central de la Tanda 2 y la respuesta al hallazgo #1 de la auditoría:
+17 de 55 propuestas eran la MISMA pregunta ("¿está alto o bajo contra su
+historia / el período anterior?"). La causa raíz no era falta de datos — la
+historia está guardada — sino que los services devuelven la foto de hoy y al
+modelo le está PROHIBIDO restar: si el código no calcula la comparación, la
+comparación no existe.
+- **[módulo +] `copiloto/series.py`** — UNA tool con REGISTRO de series (mismo
+  patrón que `copiloto/registro.py`): agregar una serie es una FILA
+  (`etiqueta, unidad, reader, ayuda`), no una tool nueva con su description.
+  Familias iniciales: `macro` (CER, inflación, riesgo país, MEP/CCL, caución),
+  `bono_1816` ('TICKER:campo'), `aum` (por cartera), `bcra`, `internacional`
+  (FRED). El enum del schema se DERIVA del registro, no se escribe a mano.
+- **[contrato único de salida]** siempre stats + muestra RALIFICADA (≤24
+  puntos, con el último SIEMPRE incluido), jamás los puntos crudos: el control
+  de tokens vive en un solo lugar. Y el **percentil y el z los calcula el
+  código**, con su lectura ("alto/bajo contra su historia") — el modelo no
+  infiere nada.
+- **[común a TODAS las vistas]** se suma como tool común (junto al buzón), así
+  que cualquier copiloto puede contestar la evolución de lo que muestra; el
+  asistente de negocio la comparte importándola del módulo dueño.
+- **[perf, prerequisito]** `cashflow_sql.listar_flujos` bajaba la tabla ENTERA
+  (~2 años) y filtraba en Python. Ahora el rango va en SQL con un regex que
+  blinda el `to_date` de fechas malformadas (que quedan afuera igual que
+  antes). Sin esto, exponer flujos al chat era un full scan por pregunta en el
+  pool que sirve la web.
+
 ### 2026-07-22 — v1.90 (Tanda 1 COMPLETA: el negocio, el sistema y la proyección)
 Seis tools más y el wiring de tools en vistas de mercado:
 - **[negocio] `pulso_mesa`** — cómo viene el mes/YTD CON la comparación contra

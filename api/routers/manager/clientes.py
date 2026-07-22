@@ -81,10 +81,16 @@ _SEL = (
 def list_clientes(
     operador:    str | None = Query(None, description="Filtrar por operador_email exacto"),
     nivel_1:     str | None = Query(None, description="Filtrar por nivel_1 exacto"),
+    nivel_2:     str | None = Query(None, description="Filtrar por nivel_2 exacto"),
     campo_vacio: str | None = Query(None, description="Solo los que tienen ese campo manual vacío/null"),
     q:           str | None = Query(None, description="Búsqueda en id_cuenta o denominación"),
 ) -> dict:
-    """Lista clientes desde SQL. Sin filtros: todo el master."""
+    """Lista clientes desde SQL. Sin filtros: todo el master.
+
+    Los niveles se combinan con AND (nivel_1=AGRO + nivel_2=SOJA = las dos
+    cosas). El nombre de la columna NO viene del request: sale de
+    `_EDITABLE_FIELDS`, así el filtro no puede apuntar a una columna arbitraria.
+    """
     where: list[str] = []
     p: dict = {}
     if operador == "__vacio__":
@@ -92,9 +98,12 @@ def list_clientes(
     elif operador:
         where.append("c.operador_email = %(op)s")
         p["op"] = operador
-    if nivel_1:
-        where.append("c.nivel_1 = %(n1)s")
-        p["n1"] = nivel_1
+    # Un solo lugar para los filtros de nivel: sumar nivel_3 mañana es agregar
+    # el Query param y una entrada acá, no copiar el bloque otra vez.
+    for col, valor in (("nivel_1", nivel_1), ("nivel_2", nivel_2)):
+        if valor and col in _EDITABLE_FIELDS:
+            where.append(f"c.{col} = %({col})s")
+            p[col] = valor
     if campo_vacio and campo_vacio in _EDITABLE_FIELDS:
         where.append(f"(c.{campo_vacio} IS NULL OR c.{campo_vacio} = '')")
     if q and q.strip():

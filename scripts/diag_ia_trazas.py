@@ -93,17 +93,55 @@ def _buscar(cur, texto: str, limite: int) -> None:
         print()
 
 
+def _ultimas_full(cur, limite: int, tarea: str | None) -> None:
+    """Las últimas N llamadas ENTERAS (pregunta + respuesta + error), en orden
+    cronológico para poder LEER la conversación. El resumen corta a 52 chars y
+    con eso no se puede juzgar si el asistente respondió bien."""
+    cond, params = "", []
+    if tarea:
+        cond = "WHERE tarea = %s"
+        params.append(tarea)
+    cur.execute(
+        f"SELECT ts, tarea, usuario, modelo, ok, tokens_in, tokens_out, latencia_ms, "
+        f"       detalle, respuesta, error, feedback "
+        f"FROM ia.trazas {cond} ORDER BY id DESC LIMIT %s",
+        (*params, limite),
+    )
+    filas = list(reversed(cur.fetchall()))
+    if not filas:
+        print("ia.trazas sin filas para ese filtro.")
+        return
+    print(f"Últimas {len(filas)} llamadas, de la más VIEJA a la más nueva "
+          "(así se lee la conversación en orden):\n")
+    for (ts, tarea_, usr, modelo, ok, ti, to, lat, det, resp, err, fb) in filas:
+        print("═" * 100)
+        print(f"{str(ts)[:19]} · {tarea_} · {usr or '-'} · {modelo} · "
+              f"in {ti or '-'} / out {to or '-'} · {lat or '-'} ms"
+              + ("" if ok else "  ⚠ ERROR")
+              + (f" · feedback {'👍' if fb == 1 else '👎'}" if fb in (1, -1) else ""))
+        if err:
+            print(f"\nERROR:\n{err}")
+        print(f"\nPEDIDO:\n{(det or '(vacío)').strip()}")
+        print(f"\nRESPUESTA:\n{(resp or '(vacía)').strip()}")
+        print()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limite", type=int, default=15)
     ap.add_argument("--tarea", default=None, help="filtrar el resumen a una tarea")
     ap.add_argument("--buscar", default=None,
                     help="texto a buscar en pregunta/respuesta → imprime las conversaciones")
+    ap.add_argument("--full", action="store_true",
+                    help="imprime las últimas N llamadas ENTERAS (para revisar la "
+                         "conversación, no solo el resumen)")
     args = ap.parse_args()
 
     with connect() as conn, conn.cursor() as cur:
         if args.buscar:
             _buscar(cur, args.buscar, args.limite)
+        elif args.full:
+            _ultimas_full(cur, args.limite, args.tarea)
         else:
             _resumen(cur, args.limite, args.tarea)
         cur.execute(

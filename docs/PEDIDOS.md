@@ -13,24 +13,16 @@ tiene la idea la dice donde le surgió, sin abrir un ticket. Después
 esfuerzo, propuesta técnica) y avisa por Telegram con botones para
 aprobar; `jobs/pedidos_inbox.py` aplica esa decisión.
 
-**1 pedidos** · nuevo: 0 · aceptado: 1 · descartado: 0 · hecho: 0
+**1 pedidos** · nuevo: 0 · aceptado: 0 · descartado: 0 · hecho: 1
 
-## 🛠 COLA DE TRABAJO (1)
+## 🛠 COLA DE TRABAJO
 
-Aprobados y sin hacer, **ordenados por lo que más rinde** (impacto alto /
-esfuerzo chico primero). Al terminar uno:
-`python -m scripts.gen_pedidos --marcar <id> hecho`.
-
-### #1 · Agregar filtro de segmentación nivel 2
-<sub>impacto **bajo** · esfuerzo **chico** · pedido desde `negocio` · aprobó telegram:5745588571</sub>
-
-**Propuesta:** En la vista Manager - Clients, dentro de la sección 'Segmentación' de sección, agregar un filtro desplegable para el nivel 2, junto al existente de nivel 1.
-
-> _Lo que pidieron:_ Agregar el nivel 2 como filtro en Manager - Clients, dentro de la sección Segmentación. Actualmente solo está disponible el filtro por nivel 1.
+_Nada aprobado pendiente._ Los pedidos nuevos los tría
+`jobs/pedidos_triage.py` y se aprueban desde Telegram.
 
 ---
 
-## ACEPTADO (1)
+## HECHO (1)
 
 ### Mejoras pedidas
 

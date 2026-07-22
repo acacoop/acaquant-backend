@@ -710,6 +710,21 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
+- **2026-07-22 — Buzón de pedidos AUTÓNOMO (del comentario al código).** El
+  buzón existía pero estaba muerto: los pedidos entraban a `manager.pedidos` y
+  nadie se enteraba hasta que alguien corría el export a mano. Ahora el
+  circuito se cierra solo hasta la decisión: `jobs/pedidos_triage.py` (1×/día)
+  detecta duplicados, estima impacto/esfuerzo y **escribe una propuesta técnica**,
+  y manda UN mensaje al celular con botones ✅/❌ por pedido;
+  `jobs/pedidos_inbox.py` (cron 1') recoge el tap y mueve el estado; el export
+  arma una **COLA DE TRABAJO priorizada** en `docs/PEDIDOS.md` que Claude Code
+  levanta con `/pedidos`. **La IA tría y propone; la decisión de qué se
+  construye sigue siendo humana** — el job nunca acepta ni descarta solo.
+  Implica que el server ahora LEE de Telegram: se hizo con consulta saliente
+  (sin webhook ni puerto abierto), lista blanca de ids, y una jaula que solo
+  acepta `pedido:(aceptar|descartar):<id>` — nada de texto libre interpretado.
+  Doc del circuito y de la postura de seguridad: `docs/PEDIDOS_FLUJO.md`.
+
 - **2026-07-22 — Control de calidad del código de IA (v1.92).** Pasada completa
   sobre `asistente_tools` + `copiloto/*` pedida por el user ("prolijo, escalable,
   eficiente, sin cosas hardcodeadas"). Lo que apareció no fue estilo: **tres

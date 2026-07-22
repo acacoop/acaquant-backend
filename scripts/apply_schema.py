@@ -72,7 +72,10 @@ def _statements(sql: str) -> list[str]:
 
 
 def main(dry: bool) -> int:
-    sql = SCHEMA_PATH.read_text()
+    # encoding EXPLÍCITO: schema.sql tiene comentarios con acentos y el default
+    # del sistema no es UTF-8 en todos lados (en Windows revienta con
+    # UnicodeDecodeError y no se puede ni validar el archivo antes de subirlo).
+    sql = SCHEMA_PATH.read_text(encoding="utf-8")
     stmts = _statements(sql)
     print(f"schema.sql: {len(stmts)} statements\n")
 

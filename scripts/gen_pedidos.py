@@ -67,7 +67,8 @@ def _leer(estado: str | None) -> list[dict]:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                f"SELECT id, ts, usuario, vista, tipo, titulo, texto, contexto, estado, notas "
+                f"SELECT id, ts, usuario, vista, tipo, titulo, texto, contexto, estado, "
+                f"notas, impacto, esfuerzo, spec, duplicado_de, decidido_por "
                 f"FROM manager.pedidos {cond} ORDER BY ts DESC", params)
             cols = [c.name for c in cur.description]
             return [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
@@ -76,6 +77,43 @@ def _leer(estado: str | None) -> list[dict]:
         if "manager.pedidos" in str(e) and "exist" in str(e).lower():
             raise SystemExit(_FALTA_TABLA) from None
         raise
+
+
+# Orden de la cola de trabajo: lo que más rinde primero. Mismos pesos que
+# jobs/pedidos_triage.py — se importan de ahí para que no puedan divergir.
+def _peso(p: dict) -> tuple:
+    from jobs.pedidos_triage import _PESO_ESFUERZO, _PESO_IMPACTO
+    return (_PESO_IMPACTO.get(p.get("impacto"), 1),
+            _PESO_ESFUERZO.get(p.get("esfuerzo"), 1), p["id"])
+
+
+def _cola(pedidos: list[dict]) -> list[str]:
+    """La COLA DE TRABAJO: lo aceptado, priorizado, con su especificación.
+
+    Va arriba de todo y es lo único que hace falta leer para ponerse a
+    trabajar — el resto del archivo es historial. Lo levanta el comando
+    `/pedidos` de Claude Code."""
+    aceptados = sorted((p for p in pedidos if p["estado"] == "aceptado"), key=_peso)
+    if not aceptados:
+        return ["## 🛠 COLA DE TRABAJO", "",
+                "_Nada aprobado pendiente._ Los pedidos nuevos los tría",
+                "`jobs/pedidos_triage.py` y se aprueban desde Telegram.", ""]
+    out = [f"## 🛠 COLA DE TRABAJO ({len(aceptados)})", "",
+           "Aprobados y sin hacer, **ordenados por lo que más rinde** (impacto alto /",
+           "esfuerzo chico primero). Al terminar uno:",
+           "`python -m scripts.gen_pedidos --marcar <id> hecho`.", ""]
+    for p in aceptados:
+        out.append(f"### #{p['id']} · {p['titulo']}")
+        out.append(f"<sub>impacto **{p.get('impacto') or '?'}** · esfuerzo "
+                   f"**{p.get('esfuerzo') or '?'}** · pedido desde "
+                   f"`{p['vista'] or '—'}` · aprobó {p.get('decidido_por') or '—'}</sub>")
+        out.append("")
+        if p.get("spec"):
+            out.append(f"**Propuesta:** {p['spec'].strip()}")
+            out.append("")
+        out.append(f"> _Lo que pidieron:_ {(p['texto'] or '').strip()}")
+        out.append("")
+    return out
 
 
 def _render(pedidos: list[dict]) -> str:
@@ -94,10 +132,16 @@ def _render(pedidos: list[dict]) -> str:
         "",
         "Los carga la gente hablándole al copiloto mientras trabaja (tool",
         "`registrar_pedido`, ver `api/services/copiloto/pedidos.py`): el que",
-        "tiene la idea la dice donde le surgió, sin abrir un ticket.",
+        "tiene la idea la dice donde le surgió, sin abrir un ticket. Después",
+        "`jobs/pedidos_triage.py` los tría con IA (duplicados, impacto,",
+        "esfuerzo, propuesta técnica) y avisa por Telegram con botones para",
+        "aprobar; `jobs/pedidos_inbox.py` aplica esa decisión.",
         "",
         f"**{len(pedidos)} pedidos** · "
         + " · ".join(f"{e}: {len(por_estado.get(e, []))}" for e in _ESTADOS),
+        "",
+        *_cola(pedidos),
+        "---",
         "",
     ]
 
@@ -117,9 +161,16 @@ def _render(pedidos: list[dict]) -> str:
             for p in items:
                 fecha = str(p["ts"])[:16]
                 quien = (p["usuario"] or "—").split("@")[0]
+                triaje = ""
+                if p.get("impacto") or p.get("esfuerzo"):
+                    triaje = (f" · impacto {p.get('impacto') or '?'}"
+                              f" / esfuerzo {p.get('esfuerzo') or '?'}")
                 out.append(f"- **#{p['id']} · {p['titulo']}**  ")
-                out.append(f"  <sub>{fecha} · {quien} · desde `{p['vista'] or '—'}`</sub>  ")
+                out.append(f"  <sub>{fecha} · {quien} · desde "
+                           f"`{p['vista'] or '—'}`{triaje}</sub>  ")
                 out.append(f"  {(p['texto'] or '').strip()}")
+                if p.get("spec"):
+                    out.append(f"  <sub>💡 {p['spec'].strip()}</sub>")
                 if p.get("contexto") and p["contexto"] != p["texto"]:
                     out.append(f"  <sub>contexto: {p['contexto'].strip()}</sub>")
                 if p.get("notas"):

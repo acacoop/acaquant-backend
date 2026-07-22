@@ -56,6 +56,7 @@
 <!-- AUTOGEN:crons -->
 | Horario | Módulo(s) |
 |---|---|
+| *:* · diario | `jobs.pedidos_inbox'` |
 | cada hora · 0-3h · Mar-Sáb | `jobs.market_quotes'` |
 | cada hora · 12-23h · L-V | `jobs.market_quotes'` |
 | cada 10min · *h · diario | `jobs.triage'` |
@@ -92,6 +93,7 @@
 | 12:30 · L-V | `jobs.cleanup_curvas'` |
 | 12:30 · L-V | `jobs.cleanup_futuros_dlr'` |
 | 12:30 · L-V | `jobs.consolidado_cuentas'` |
+| 12:30 · L-V | `jobs.pedidos_triage'` |
 | cada hora · 13-21h · L-V | `jobs.operaciones_informes'` |
 | 16:30 · L-V | `jobs.controles_datos'` |
 | 20:30 · L-V | `jobs.forwards_zscore'` |

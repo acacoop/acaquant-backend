@@ -103,6 +103,30 @@ def _lente_operadores(args: dict, mapping: dict, moneda: str) -> str:
     return "\n".join(lineas)
 
 
+def _aviso_periodo_parcial(desde: str, hasta: str) -> str | None:
+    """Los objetivos se cargan POR MES. Si el período pedido no cubre meses
+    enteros, se está comparando un objetivo mensual completo contra un mes a
+    medias: el % alcanzado sale bajo y parece un problema de gestión cuando es
+    un problema de recorte. El número se da igual, pero JAMÁS sin este aviso —
+    un porcentaje plausible y mal calibrado es peor que no tenerlo."""
+    try:
+        d0, d1 = date.fromisoformat(desde), date.fromisoformat(hasta)
+    except ValueError:
+        return None
+    arranca_el_1 = d0.day == 1
+    fin_de_mes = (d1 + timedelta(days=1)).day == 1
+    if arranca_el_1 and fin_de_mes:
+        return None
+    if arranca_el_1 and d1.year == d0.year and d1.month == d0.month:
+        # el mes en curso, incompleto: es el caso normal y esperable
+        return ("⚠ El mes todavía no terminó: el objetivo es del mes ENTERO, así que "
+                "el % alcanzado va a subir hasta fin de mes. Decilo al responder.")
+    return (f"⚠ El período {desde}–{hasta} NO cubre meses enteros, y los objetivos se "
+            "cargan por mes: el % alcanzado compara un objetivo mensual completo "
+            "contra un período recortado y sale artificialmente bajo. Avisá esto y, "
+            "si podés, ofrecé rehacerlo sobre meses completos.")
+
+
 def _lente_objetivos(args: dict, mapping: dict, moneda: str) -> str:
     from api.services import control_comercial_sql as cc
 
@@ -116,6 +140,9 @@ def _lente_objetivos(args: dict, mapping: dict, moneda: str) -> str:
     filas.sort(key=lambda f: (f.get("pct_alcanzado") is None, f.get("pct_alcanzado") or 0))
     lineas = [f"[objetivos vs real — {desde} a {hasta}, {moneda}; el objetivo es la "
               f"suma de los objetivos mensuales que caen en el rango]"]
+    aviso = _aviso_periodo_parcial(desde, hasta)
+    if aviso:
+        lineas.append(aviso)
     for f in filas[:_TOP_FILAS]:
         pct = f.get("pct_alcanzado")
         lineas.append(

@@ -97,6 +97,29 @@ def test_objetivos_ordena_por_lo_mas_lejos_del_objetivo(monkeypatch):
     assert "Beto" not in r and "Ana" not in r
 
 
+@pytest.mark.parametrize("desde,hasta,espera", [
+    ("2026-06-01", "2026-06-30", None),                 # mes entero → sin aviso
+    ("2026-05-01", "2026-06-30", None),                 # dos meses enteros
+    ("2026-07-01", "2026-07-22", "todavía no terminó"),  # mes en curso
+    ("2026-06-22", "2026-07-22", "NO cubre meses enteros"),  # recorte a caballo
+])
+def test_objetivos_avisa_cuando_el_periodo_no_es_de_meses_enteros(
+        monkeypatch, desde, hasta, espera):
+    """Los objetivos se cargan POR MES. Contra un período recortado el %
+    alcanzado sale bajo y parece un problema de gestión cuando es un problema
+    de recorte — un porcentaje plausible y mal calibrado es peor que ninguno."""
+    import api.services.control_comercial_sql as cc
+    monkeypatch.setattr(cc, "objetivos_vs_actual", lambda **kw: {"filas": [
+        {"operador_nombre": "Ana", "volumen_actual": 50.0, "volumen_objetivo": 100.0,
+         "comisiones_actual": 5.0, "comisiones_objetivo": 10.0, "pct_alcanzado": 50.0}]})
+    r = ac.tablero_comercial({"que": "objetivos", "desde": desde, "hasta": hasta},
+                             mapping=_mapping(), usuario="x@y")
+    if espera is None:
+        assert "⚠" not in r
+    else:
+        assert espera in r
+
+
 def test_objetivos_sin_objetivos_cargados_lo_dice(monkeypatch):
     import api.services.control_comercial_sql as cc
     monkeypatch.setattr(cc, "objetivos_vs_actual", lambda **kw: {"filas": [

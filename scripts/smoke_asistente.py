@@ -43,24 +43,30 @@ def _ruteo() -> None:
 # buscamos el número correcto, buscamos que la tool DEVUELVA ALGO. Las tools
 # sin sonda (o que necesitan una ficha de una conversación real) se declaran
 # acá igual, con el motivo — así el reporte nunca las omite en silencio.
+#
+# `"_rango": True` inyecta un período PASADO (últimos 30 días). Va solo donde
+# corresponde: metérselo a una tool que mira hacia ADELANTE (cobros futuros)
+# hace que la sonda mienta — el primer sondeo la mostró leyendo el pasado y
+# pareciendo vacía (2026-07-22). Sin la marca, la tool usa SUS defaults, que
+# es además lo que va a pasar en el chat real.
 _SONDAS: dict[str, dict | None] = {
     "resumen_mesa":            {},
     "aum_composicion":         {},
     "cobros_futuros":          {"dias": 30},
-    "flujo_de_fondos":         {},
+    "flujo_de_fondos":         {"_rango": True},
     "pulso_mesa":              {},
     "jobs_fallidos":           {"dias": 7},
     "costo_ia":                {"dias": 7},
     "controles_calidad_datos": {},
-    "serie_historica":         {"que": "macro", "clave": "cer"},
+    "serie_historica":         {"que": "macro", "clave": "cer", "_rango": True},
     "aum_variacion":           {},
     # una sonda por LENTE: son cuatro readers distintos detrás de una tool
-    "tablero_comercial":       {"que": "operadores"},
-    "tablero_comercial#objetivos":    {"que": "objetivos"},
+    "tablero_comercial":       {"que": "operadores", "_rango": True},
+    "tablero_comercial#objetivos":    {"que": "objetivos"},   # su default = mes en curso
     "tablero_comercial#cartera":      {"que": "cartera"},
     "tablero_comercial#sin_operador": {"que": "sin_operador"},
-    "volumen_operado":         {"por": "mercado"},
-    "aranceles_consolidado":   {"por": "mercado"},
+    "volumen_operado":         {"por": "mercado", "_rango": True},
+    "aranceles_consolidado":   {"por": "mercado", "_rango": True},
     # necesitan una FICHA que solo existe dentro de un chat con la aduana
     "quien_es":           None,
     "rendimiento_cuenta": None,
@@ -99,7 +105,9 @@ def _sondear_tools() -> None:
         if sonda is None:
             print(f"— {clave:<30} SALTEADA (necesita una ficha de un chat real)")
             continue
-        args = {**rango, **sonda}
+        args = dict(sonda)
+        if args.pop("_rango", False):
+            args = {**rango, **args}
         try:
             out = at.ejecutar(nombre, args, mapping={"fichas": {}},
                               usuario=os.getenv("EVAL_EMAIL", "smoke@acaquant.local"))

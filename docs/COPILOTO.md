@@ -117,6 +117,40 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-22 — v1.93 (bloque COMERCIAL completo, en UNA tool con registro)
+Cierra los ítems #20, #21, #27, #29 y #30 de `docs/TOOLS_IA.md` de una sola
+vez, como decía la auditoría: comparten gate, tratamiento de identidades y
+forma de salida.
+- **[módulo +] `api/services/asistente_comercial.py`** — el bloque comercial en
+  su propio módulo. `asistente_tools` pasa a ser **aggregator**: sumar un
+  dominio es un módulo nuevo + dos líneas, no 300 líneas más en un archivo de
+  mil. Los handlers de dominio se enganchan con firma común
+  `(args, *, mapping, usuario)`.
+- **[tool +] `tablero_comercial`** — UNA tool con **registro de lentes**
+  (`operadores`, `objetivos`, `cartera`, `sin_operador`). Cinco tools gemelas
+  eran cinco descriptions entre las que el modelo rutea mal (patrón #4 de la
+  auditoría); acá agregar una lente es una fila, y **el enum y la propia
+  description se derivan del registro**.
+  - `operadores` (#29): ranking de comerciales con volumen/comisiones/AuM y
+    clientes activos, cada uno con su % contra el período anterior.
+  - `objetivos` (#27): actual vs objetivo del período, **ordenado de menos a
+    más alcanzado** — la lista arranca por el que está más lejos.
+  - `cartera` (#20): clientes por estado comercial (activa/enfriándose/dormida/
+    nueva) con su AuM, y **los dormidos más grandes**, que es la acción concreta
+    que sale de la pregunta. Con `ficha_operador`, la cartera de ese comercial.
+  - `sin_operador` (#30): comisión sin dueño, separando clientes reales de
+    cuentas internas.
+- **[tool +] `aum_variacion` (#21)** — por QUIÉN se movió el AuM entre dos
+  cierres: quién sumó, quién restó, cuántas cuentas entraron/salieron y qué tan
+  concentrado estuvo. La description le aclara al modelo que esto mezcla
+  mercado con aportes y que "¿entró plata nueva?" es `flujo_de_fondos`.
+- **[PII]** los COMERCIALES son empleados y tampoco cruzan el perímetro: salen
+  como `OPERADOR_n`. Los **emails NO salen nunca, ni fichados** — un comercial
+  sin nombre cargado se reporta como tal en vez de caer al email.
+- **[sondas]** el smoke acepta claves `tool#variante`, así se sondea **cada
+  lente** por separado contra la DB real, y marca 🔒 lo que quedó gateado en vez
+  de contarlo como falla.
+
 ### 2026-07-22 — v1.92 (control de calidad: 3 tools estaban MUDAS y nadie lo veía)
 Pasada de calidad sobre todo el código de IA (pedido del user). El hallazgo no
 fue estético: **tres tools leían una clave que su service nunca devolvió**, así

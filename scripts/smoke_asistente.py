@@ -53,6 +53,12 @@ _SONDAS: dict[str, dict | None] = {
     "costo_ia":                {"dias": 7},
     "controles_calidad_datos": {},
     "serie_historica":         {"que": "macro", "clave": "cer"},
+    "aum_variacion":           {},
+    # una sonda por LENTE: son cuatro readers distintos detrás de una tool
+    "tablero_comercial":       {"que": "operadores"},
+    "tablero_comercial#objetivos":    {"que": "objetivos"},
+    "tablero_comercial#cartera":      {"que": "cartera"},
+    "tablero_comercial#sin_operador": {"que": "sin_operador"},
     "volumen_operado":         {"por": "mercado"},
     "aranceles_consolidado":   {"por": "mercado"},
     # necesitan una FICHA que solo existe dentro de un chat con la aduana
@@ -80,35 +86,40 @@ def _sondear_tools() -> None:
 
     hoy = (datetime.now(UTC) - timedelta(hours=3)).date()
     rango = {"desde": (hoy - timedelta(days=30)).isoformat(), "hasta": hoy.isoformat()}
-    declaradas = sorted(at.herramientas_declaradas())
-    sin_sonda = [n for n in declaradas if n not in _SONDAS]
+    declaradas = at.herramientas_declaradas()
+    sin_sonda = sorted(declaradas - {k.split("#")[0] for k in _SONDAS})
     vacias, rotas = [], []
 
-    print(f"sondeando {len(declaradas)} tools declaradas (read-only, sin LLM)\n")
-    for nombre in declaradas:
-        sonda = _SONDAS.get(nombre, {})
+    print(f"sondeando {len(_SONDAS)} sondas sobre {len(declaradas)} tools "
+          "(read-only, sin LLM)\n")
+    for clave in sorted(_SONDAS):
+        # "tool#variante" permite sondear varias lentes de una misma tool
+        nombre = clave.split("#")[0]
+        sonda = _SONDAS[clave]
         if sonda is None:
-            print(f"— {nombre:<26} SALTEADA (necesita una ficha de un chat real)")
+            print(f"— {clave:<30} SALTEADA (necesita una ficha de un chat real)")
             continue
-        args = {**rango, **sonda} if sonda is not None else {}
+        args = {**rango, **sonda}
         try:
             out = at.ejecutar(nombre, args, mapping={"fichas": {}},
                               usuario=os.getenv("EVAL_EMAIL", "smoke@acaquant.local"))
         except Exception as e:                      # no debería: ejecutar() atrapa
-            rotas.append(nombre)
-            print(f"✗ {nombre:<26} EXCEPCIÓN {type(e).__name__}: {e}")
+            rotas.append(clave)
+            print(f"✗ {clave:<30} EXCEPCIÓN {type(e).__name__}: {e}")
             continue
-        una_linea = " ".join(out.split())[:110]
+        una_linea = " ".join(out.split())[:104]
         bajo = out.lower()
         if "falló" in bajo or "desconocida" in bajo:
-            rotas.append(nombre)
+            rotas.append(clave)
             marca = "✗"
+        elif "permiso" in bajo:
+            marca = "🔒"                              # gateado: no es una falla
         elif any(s in bajo for s in _SEÑALES_VACIO):
-            vacias.append(nombre)
+            vacias.append(clave)
             marca = "?"
         else:
             marca = "✓"
-        print(f"{marca} {nombre:<26} {una_linea}")
+        print(f"{marca} {clave:<30} {una_linea}")
 
     print("\n" + "-" * 78)
     if sin_sonda:
@@ -122,6 +133,9 @@ def _sondear_tools() -> None:
               "  la vista equivalente de la web antes de darlo por bueno.")
     if not (rotas or vacias or sin_sonda):
         print("todas las tools devolvieron datos.")
+    print("\nEl 🔒 es una tool gateada por Control Comercial: el usuario del smoke "
+          "no tiene\nel permiso. Para probarlas de verdad, correr con "
+          "EVAL_EMAIL=<un email con el flag>.")
 
 
 def main() -> None:

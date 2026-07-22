@@ -170,6 +170,19 @@ Incluí a propósito los tres de **meta-sistema** (#7 jobs, #8 costo IA, #9 cont
 > (arma el contexto de cada vista y lista sus bloques). **Antes de dar por
 > entregada cualquier tool nueva, tiene que salir ✓ en el sondeo real.**
 
+> ✅ **Bloque COMERCIAL HECHO (2026-07-22): #20, #27, #29, #30 en UNA tool.**
+> `api/services/asistente_comercial.py` → `tablero_comercial` con registro de
+> lentes (`operadores`, `objetivos`, `cartera`, `sin_operador`). Se hizo en una
+> sola tool y no en cuatro justamente por el patrón #4 de este documento: mismo
+> gate (Control Comercial), mismo tratamiento de identidades, misma forma de
+> salida → cuatro descriptions gemelas solo le dan al modelo cuatro formas de
+> rutear mal. **Los comerciales salen como `OPERADOR_n` y sus emails no salen
+> nunca**, ni fichados.
+> ✅ **#21 `aum_variacion` HECHA** — por quién se movió el AuM entre dos cierres,
+> con concentración. La description le aclara al modelo que mezcla mercado con
+> aportes, y que "¿entró plata nueva?" se contesta con `flujo_de_fondos`.
+> 📌 **Queda de la tanda:** #12, #13, #14, #15, #16, #18, #19, #23, #24, #25, #26.
+
 **Criterio de corte:** requiere plegar/agregar en Python o escribir un reader, o la pregunta es semanal/mensual en vez de diaria. Acá está el grueso del valor pero también el grueso del trabajo.
 
 El orden interno importa: **primero `serie_historica` genérica (#17)**, porque de ella cuelgan 8 propuestas confirmadas y define el contrato de "cómo se devuelve una serie" (stats, no puntos crudos) que después reutiliza todo. Después el bloque comercial completo (#20, #21, #24, #27, #29), que se hace de una porque comparte el mismo problema de fichas y el mismo gate de permisos.

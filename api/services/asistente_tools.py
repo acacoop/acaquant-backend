@@ -106,8 +106,17 @@ def _tool_serie() -> dict:
     return TOOL_SERIE
 
 
+def _tools_comercial() -> list[dict]:
+    """El bloque COMERCIAL vive en su propio módulo (`asistente_comercial`).
+    Este archivo es el aggregator: sumar un dominio es un módulo nuevo + dos
+    líneas acá, no 300 líneas más en un archivo de mil."""
+    from api.services.asistente_comercial import TOOLS_COMERCIAL
+    return TOOLS_COMERCIAL
+
+
 TOOLS: list[dict] = [
     _tool_serie(),
+    *_tools_comercial(),
     {
         "type": "function",
         "function": {
@@ -281,6 +290,36 @@ TOOLS: list[dict] = [
                 "properties": {
                     "fecha": {"type": "string",
                               "description": "Cierre a mirar (YYYY-MM-DD). Sin esto, el último."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "aum_variacion",
+            "description": (
+                "POR QUIÉN se movió el AuM entre dos cierres: qué cuentas "
+                "sumaron, cuáles restaron, cuántas entraron y cuántas se "
+                "fueron, y qué tan concentrado estuvo el movimiento. Es la "
+                "pregunta que sigue a '¿cuánto subió el AuM?': si subió, ¿fue "
+                "una cuenta grande o todo el mundo? Las cuentas vuelven como "
+                "referencias CLIENTE_n. Ojo: mide el VALOR de la tenencia, así "
+                "que mezcla efecto mercado con aportes — si quieren saber si "
+                "entró plata nueva, eso es flujo_de_fondos."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "desde": {"type": "string",
+                              "description": "Cierre inicial (YYYY-MM-DD). Default: fin "
+                                             "del mes anterior."},
+                    "hasta": {"type": "string",
+                              "description": "Cierre final (YYYY-MM-DD). Default: el último."},
+                    "moneda": {"type": "string", "enum": list(_MONEDAS)},
+                    "top": {"type": "integer",
+                            "description": "Cuántas cuentas mostrar de cada lado (default 8)."},
                 },
                 "required": [],
             },
@@ -609,6 +648,60 @@ def posiciones_cuenta(args: dict, *, mapping: dict) -> str:
     top5 = sum(float(p.get("valuacion") or 0) for p in filas[:5])
     lineas.append(f"CONCENTRACIÓN: el top 5 es el {100 * top5 / total if total else 0:.1f}% "
                   "de la cartera")
+    return "\n".join(lineas)
+
+
+def aum_variacion(args: dict, *, mapping: dict) -> str:
+    """POR QUIÉN se movió el AuM entre dos cierres: quién sumó, quién restó,
+    cuántas cuentas entraron y cuántas se fueron. Es la pregunta que sigue a
+    'el AuM subió 8%': ¿es una cuenta grande o es todo el mundo?
+
+    Las cuentas salen FICHADAS (cada fila trae la denominación real)."""
+    from datetime import date, timedelta
+
+    from api.services import portfolio_sql
+
+    hasta = str(args.get("hasta") or "").strip() or _fecha_snapshot()
+    if not hasta:
+        return "sin snapshots de tenencia todavía"
+    desde = str(args.get("desde") or "").strip()
+    if not desde:
+        # default: contra el cierre del mes anterior — el corte natural del
+        # negocio. total_diff resuelve el snapshot real más cercano.
+        d = date.fromisoformat(hasta).replace(day=1) - timedelta(days=1)
+        desde = d.isoformat()
+    moneda = _moneda_ok(args.get("moneda"))
+    r = portfolio_sql.total_diff(fecha_actual=hasta, fecha_anterior=desde,
+                                 moneda=moneda) or {}
+    filas = r.get("filas") or []
+    if not filas:
+        return f"no hay tenencia comparable entre {desde} y {hasta}"
+    if r.get("mep_missing_actual") or r.get("mep_missing_anterior"):
+        return ("falta el tipo de cambio de alguna de las dos fechas — pedí el "
+                "dato en pesos o cambiá las fechas")
+    total = float(r.get("total_diff") or 0)
+    lineas = [f"[variación del AuM entre {r.get('fecha_anterior_resuelta')} y "
+              f"{r.get('fecha_actual_resuelta')} — {moneda}] "
+              f"NETO {_monto(total, moneda)} · {int(r.get('n_total') or 0)} cuentas "
+              f"({int(r.get('n_nuevas') or 0)} nuevas, "
+              f"{int(r.get('n_cerradas') or 0)} sin tenencia al final)"]
+    top = max(1, min(int(args.get("top") or 8), 20))
+    suben = [f for f in filas if f["diff"] > 0][:top]
+    bajan = [f for f in reversed([f for f in filas if f["diff"] < 0])][:top]
+    for etiqueta, grupo in (("SUMARON", suben), ("RESTARON", bajan)):
+        if not grupo:
+            continue
+        lineas.append(f"{etiqueta}:")
+        for f in grupo:
+            ficha = pii_gateway.asignar_ficha(mapping, "CLIENTE", f.get("cuenta") or "?")
+            marca = " (nueva)" if f.get("es_nueva") else (
+                " (se fue)" if f.get("es_cerrada") else "")
+            lineas.append(f"  - {ficha}{marca}: {_monto(f['diff'], moneda)}")
+    concentracion = sum(abs(f["diff"]) for f in filas[:5])
+    bruto = sum(abs(f["diff"]) for f in filas)
+    if bruto:
+        lineas.append(f"CONCENTRACIÓN: las 5 cuentas que más se movieron explican el "
+                      f"{100 * concentracion / bruto:.1f}% del movimiento total.")
     return "\n".join(lineas)
 
 
@@ -982,7 +1075,23 @@ _HANDLERS: dict[str, Callable[[dict, _Ctx], str]] = {
     "serie_historica":         _serie_handler,
     "volumen_operado":         lambda a, c: _consolidado("bruto", a, mapping=c.mapping),
     "aranceles_consolidado":   lambda a, c: _consolidado("arancel", a, mapping=c.mapping),
+    "aum_variacion":           lambda a, c: aum_variacion(a, mapping=c.mapping),
 }
+
+
+def _enganchar_dominios() -> None:
+    """Engancha los handlers de los módulos de dominio. Firma común
+    `(args, *, mapping, usuario)` → así un dominio nuevo se suma con una línea
+    y sin que el aggregator sepa nada de lo que hace adentro."""
+    from api.services.asistente_comercial import HANDLERS_COMERCIAL
+
+    for nombre, fn in HANDLERS_COMERCIAL.items():
+        _HANDLERS[nombre] = (
+            lambda f: lambda a, c: f(a, mapping=c.mapping, usuario=c.usuario)
+        )(fn)
+
+
+_enganchar_dominios()
 
 
 def herramientas_declaradas() -> set[str]:

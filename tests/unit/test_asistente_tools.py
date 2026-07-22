@@ -209,7 +209,8 @@ def test_toda_tool_tiene_sonda_en_el_smoke():
     que una tool nueva sin sonda ahí es una tool sin verificar de verdad.
     Declararla como None (necesita ficha de un chat) cuenta como declarada."""
     from scripts.smoke_asistente import _SONDAS
-    assert at.herramientas_declaradas() <= set(_SONDAS)
+    # las claves admiten "tool#variante" para sondear varias lentes de una tool
+    assert at.herramientas_declaradas() <= {k.split("#")[0] for k in _SONDAS}
 
 
 def test_dimensiones_derivadas_del_sql():
@@ -405,6 +406,39 @@ def test_aum_composicion_descarta_las_cuentas(monkeypatch):
     r = at.ejecutar("aum_composicion", {}, mapping={"fichas": {}})
     assert "HD" in r and "60.0%" in r
     assert "PEREZ" not in r and "805" not in r
+
+
+def test_aum_variacion_dice_por_quien_se_movio(monkeypatch):
+    """'El AuM subió 8%' no es una respuesta: la pregunta real es POR QUIÉN.
+    Mock con el shape REAL de portfolio_sql.total_diff."""
+    import api.services.portfolio_sql as ps
+    monkeypatch.setattr(ps, "total_diff", lambda **kw: {
+        "fecha_actual_resuelta": "2026-07-21", "fecha_anterior_resuelta": "2026-06-30",
+        "moneda": kw["moneda"], "mep_missing_actual": False, "mep_missing_anterior": False,
+        "filas": [
+            {"id_cuenta": "805", "cuenta": "[805] PEREZ, JUAN", "saldo_actual": 900.0,
+             "saldo_anterior": 100.0, "diff": 800.0, "es_nueva": False, "es_cerrada": False},
+            {"id_cuenta": "9", "cuenta": "[9] GOMEZ, ANA", "saldo_actual": None,
+             "saldo_anterior": 50.0, "diff": -50.0, "es_nueva": False, "es_cerrada": True},
+        ],
+        "total_diff": 750.0, "n_total": 2, "n_nuevas": 0, "n_cerradas": 1})
+    mapping = pg._mapping_nuevo()
+    r = at.ejecutar("aum_variacion", {"desde": "2026-06-30", "hasta": "2026-07-21"},
+                    mapping=mapping)
+    assert "SUMARON" in r and "RESTARON" in r and "(se fue)" in r
+    assert "PEREZ" not in r and "GOMEZ" not in r and "CLIENTE_1" in r
+    assert "CONCENTRACIÓN" in r
+
+
+def test_aum_variacion_sin_tipo_de_cambio_no_inventa(monkeypatch):
+    import api.services.portfolio_sql as ps
+    monkeypatch.setattr(ps, "total_diff", lambda **kw: {
+        "filas": [{"id_cuenta": "1", "cuenta": "x", "diff": 1.0,
+                   "es_nueva": False, "es_cerrada": False}],
+        "mep_missing_actual": True, "mep_missing_anterior": False})
+    r = at.ejecutar("aum_variacion", {"hasta": "2026-07-21", "moneda": "USD"},
+                    mapping={"fichas": {}})
+    assert "falta el tipo de cambio" in r
 
 
 def test_cobros_futuros_resume_y_marca_el_pico(monkeypatch):

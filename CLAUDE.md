@@ -234,6 +234,7 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Modelo SQL / schema | `SQL.md` + `SQL_MODELO.md` + `sql/schema.sql` |
 | Programa de IA (gateway `core/ai`, briefing, triage) | `QUANTAI.md` **[VIVO]** |
 | Copiloto de mesa (`api/services/copiloto.py`) | `COPILOTO.md` **[VIVO]** |
+| Agregar una TOOL al asistente/copiloto | `TOOLS_IA.md` **[VIVO]** (auditoría de huecos + tandas) |
 | Vista `/research` (1816, mail diario) | `VISTA_RESEARCH.md` **[VIVO]** |
 | Research → tab BCRA / FRED / Refinitiv | `RESEARCH_BCRA.md` · `RESEARCH_FRED.md` · `RESEARCH_REFINITIV.md` |
 | Feed Eikon live / tab REUTERS (`eikon_*`) | `INTEGRACION_REUTERS.md` **[VIVO]** |

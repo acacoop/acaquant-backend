@@ -493,11 +493,35 @@ caro queda solo para lo que realmente necesita síntesis.
 2026-07-21**: era `reasoning_effort: 'minimal'`, que gpt-5.6 no acepta
 (válidos: none/low/medium/high/xhigh) — apagado pasa a `none`, env-overridable
 (`AI_OPENAI_REASONING_OFF`). El resto del dialecto (`store`,
-`max_completion_tokens`) ya estaba bien · probar la navegación en prod ·
-shadow del admin desde el panel
-(cada fallo real → caso del eval) · más tools (actividad comercial,
-acreencias próximas) · restore de conversaciones de negocio en el panel +
-derivación negocio→guía (anotados en COPILOTO.md v1.78).
+`max_completion_tokens`) ya estaba bien · **Tanda 0 de `docs/TOOLS_IA.md`**
+(plomería + los bugs vivos que encontró la auditoría) · shadow del admin desde
+el panel (cada fallo real → caso del eval) · Tanda 1 de TOOLS_IA · restore de
+conversaciones de negocio en el panel + derivación negocio→guía (anotados en
+COPILOTO.md v1.78).
+
+**AUDITORÍA DE TOOLS (2026-07-21) → `docs/TOOLS_IA.md` [VIVO]:** barrido
+multi-agente de los 9 dominios del producto, con verificación adversarial de
+cada propuesta contra el código (55 confirmadas de 63). **Leerlo antes de
+agregar cualquier tool.** Los tres hallazgos que ordenan el trabajo:
+1. **El sistema no sabe contestar "contra qué"** — 17 de 55 propuestas son la
+   misma pregunta (¿está alto o bajo contra su historia / el período
+   anterior?). La historia ESTÁ guardada; los services devuelven la foto de
+   hoy y al modelo le está prohibido restar, así que si el código no calcula
+   la comparación, la comparación no existe. Solución: UNA tool genérica
+   `serie_historica` con registro de series (el patrón de `copiloto/registro`)
+   en vez de ocho tools con ocho descriptions.
+2. **El asistente puede filtrar pero no ORDENAR** — ninguna dimensión de
+   `ops_consolidado` es el cliente: puede decir cuánto operó uno, jamás
+   quiénes son los 10 que más operaron. Rankings y concentración son la
+   pregunta #1 del negocio y hoy son estructuralmente incontestables (se
+   arregla con 2 entradas en una whitelist).
+3. **El dominio PLATA no existe** — flujos de fondeo, acreencias, tesorería y
+   liquidación: cobertura CERO. Es donde vive "el AuM subió 8%: ¿es mercado o
+   es plata nueva?".
+**Riesgo de gobierno detectado:** el dispatcher de tools NO recibe el usuario,
+y hay datos gateados por permiso POR USUARIO (`require_control_comercial`, que
+NO mira la matriz de roles) → exponerlos sin ese fix le daría a un admin sin
+el flag un dato que la web le niega. Es Tanda 0, bloqueante.
 
 ### P5 — Analista ad-hoc de datos — OJO: alcanzado por la decisión "datos del negocio no salen al proveedor" (2026-07-13, MODIFICADA 2026-07-21: ver la decisión de la aduana); el patrón del P7 (jaula + aduana) es la antesala
 **Estado: PENDIENTE** · Tipo: agente con generación de SQL · Gate: `ia`,

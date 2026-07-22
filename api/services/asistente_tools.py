@@ -771,9 +771,11 @@ def pulso_mesa(args: dict, *, usuario: str | None) -> str:
     contra el período anterior equivalente. ⚠ GATEADO: la web protege esto con
     Control Comercial, un permiso POR USUARIO — sin el chequeo, el chat sería
     una puerta trasera (hallazgo de la auditoría 2026-07-21)."""
+    from core.roles import LABEL_CONTROL_COMERCIAL
+
     if not puede_control_comercial(usuario):
-        return ("ese dato requiere el permiso de Control Comercial, que este "
-                "usuario no tiene — decíselo y no muestres ningún número")
+        return (f"ese dato requiere el permiso de {LABEL_CONTROL_COMERCIAL}, que "
+                "este usuario no tiene — decíselo y no muestres ningún número")
     from api.services import control_comercial_sql
 
     moneda = _moneda_ok(args.get("moneda"))
@@ -999,8 +1001,11 @@ def _vocabulario_protegido() -> tuple[str, ...]:
     de algún cliente terminaba saliendo como CLIENTE_n en la tabla de
     resultados (incidente real 2026-07-21)."""
     from api.services import operaciones_sql as ops
+    from core.roles import LABEL_CONTROL_COMERCIAL
 
-    vals: list[str] = []
+    # Etiquetas del propio sistema (nombres de permisos, de vistas): no son
+    # identidades y salen del módulo dueño, no escritas de nuevo acá.
+    vals: list[str] = [LABEL_CONTROL_COMERCIAL]
     for getter, clave in ((ops.ops_tipos_operacion, "tipos"),
                           (ops.ops_mercados, "mercados"),
                           (ops.ops_segmentos, "segmentos"),

@@ -218,6 +218,11 @@ VISTAS: dict[str, dict] = {
                    "pivots en vivo, libro, tape, movers, y el quote US en vivo + "
                    "los fundamentals Reuters de sus papeles",
         "permitir_pivots": True,  # acá la nomenclatura PP/R1/S3 ES el idioma
+        # El contexto sale de las TARJETAS que el trader tiene en pantalla (van
+        # en `params`), no de un dataset global: sin params, 0 filas es lo
+        # correcto, no una falla. Lo lee el sondeo `smoke_copiloto --contexto`
+        # para no reportarla como rota.
+        "depende_de_params": True,
         "fetch": _fetch_trading,
         "extras": _extras_trading,
         # TRADING jamás en flash (user 2026-07-20): acá se opera plata en vivo →

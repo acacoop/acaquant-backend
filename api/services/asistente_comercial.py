@@ -273,10 +273,12 @@ def tablero_comercial(args: dict, *, mapping: dict, usuario: str | None) -> str:
     """Despacha a la lente pedida. GATEADO por Control Comercial (permiso POR
     USUARIO): sin el flag no se consulta nada — ni siquiera se toca la DB."""
     from api.services.asistente_tools import _moneda_ok, puede_control_comercial
+    from core.roles import LABEL_CONTROL_COMERCIAL
 
     if not puede_control_comercial(usuario):
-        return ("el tablero comercial requiere el permiso de Control Comercial, "
-                "que este usuario no tiene — decíselo y no muestres ningún número")
+        return (f"el tablero comercial requiere el permiso de "
+                f"{LABEL_CONTROL_COMERCIAL}, que este usuario no tiene — decíselo "
+                "y no muestres ningún número")
     que = str(args.get("que") or "").strip()
     lente = _LENTES.get(que)
     if not lente:

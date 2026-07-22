@@ -255,8 +255,10 @@ def test_vocabulario_protegido_no_se_tacha(monkeypatch):
     cat = {**CATALOGO_FAKE, "tokens": {**CATALOGO_FAKE["tokens"], "compras": "77"}}
     monkeypatch.setattr(pg, "_catalogo", lambda: cat)
     texto = "Compras A3: 272,8 millones · Compras PPT: 23,3 millones · Juan Perez"
-    # sin protección, 'Compras' se tacharía (está en el índice de tokens)
-    sucio, _m = pg.tokenize(texto, texto_generado=True)
+    # En una PREGUNTA del usuario 'Compras' sí se tacharía (está en el índice
+    # de tokens y ahí el match por palabra suelta sigue activo). Es justamente
+    # la razón por la que el caller declara su vocabulario como protegido.
+    sucio, _m = pg.tokenize(texto)
     assert "Compras" not in sucio
     # con protección, el vocabulario sobrevive y el NOMBRE se sigue tachando
     limpio, _m2 = pg.tokenize(texto, texto_generado=True,
@@ -370,3 +372,64 @@ def test_fallo_interno_retiene_el_texto(monkeypatch):
 def test_texto_vacio():
     limpio, mapping = pg.tokenize("")
     assert limpio == "" and mapping["fichas"] == {}
+
+
+# ── texto GENERADO por nuestro código: la aduana no puede romper las etiquetas ─
+
+_CATALOGO_CON_PALABRAS_COMUNES = {
+    **CATALOGO_FAKE,
+    # tokens REALES del catálogo de producción que son también palabras
+    # comunes del castellano — el sondeo 2026-07-22 encontró estos tres
+    # rompiendo las etiquetas de las tools.
+    "tokens": {**CATALOGO_FAKE["tokens"],
+               "control": "11", "entre": "12", "pico": "13"},
+}
+
+
+def test_texto_generado_no_tacha_palabras_sueltas(monkeypatch):
+    """CASOS REALES del sondeo: "el permiso de Control Comercial" salía como
+    "el permiso de CLIENTE_1", "AuM entre X e Y" perdía el "entre" y "día
+    pico" perdía el "pico". Nuestras etiquetas coincidían con un token del
+    nombre de algún cliente. En texto que escribió NUESTRO código el match por
+    palabra suelta se apaga: las identidades que las tools emiten ya vienen
+    fichadas desde adentro del perímetro."""
+    monkeypatch.setattr(pg, "_catalogo", lambda: _CATALOGO_CON_PALABRAS_COMUNES)
+    texto = "variación del AuM entre 2026-06-30 y 2026-07-21 · día pico: 2026-08-09"
+    limpio, _m = pg.tokenize(texto, texto_generado=True)
+    assert "entre" in limpio and "pico" in limpio
+    assert "CLIENTE_" not in limpio
+
+
+def test_en_la_pregunta_del_usuario_el_token_suelto_SIGUE_tachando(monkeypatch):
+    """La contracara: lo que escribe el USUARIO es libre (puede tirar un
+    apellido solo) → ahí el match por token es imprescindible y no se toca."""
+    monkeypatch.setattr(pg, "_catalogo", lambda: _CATALOGO_CON_PALABRAS_COMUNES)
+    limpio, _m = pg.tokenize("cuánto operó Perez")
+    assert "Perez" not in limpio and "CLIENTE_1" in limpio
+
+
+def test_texto_generado_igual_tacha_un_nombre_completo_que_colara(monkeypatch):
+    """Lo que NO se debilita: si una tool emitiera un nombre real completo,
+    la aduana lo sigue tachando (es la red de seguridad del token-out)."""
+    monkeypatch.setattr(pg, "_catalogo", lambda: _CATALOGO_CON_PALABRAS_COMUNES)
+    limpio, _m = pg.tokenize("el mayor tenedor es Juan Perez", texto_generado=True)
+    assert "Perez" not in limpio and "CLIENTE_" in limpio
+
+
+def test_texto_generado_igual_tacha_documentos(monkeypatch):
+    monkeypatch.setattr(pg, "_catalogo", lambda: _CATALOGO_CON_PALABRAS_COMUNES)
+    limpio, _m = pg.tokenize("CUIT 20123456789 del titular", texto_generado=True)
+    assert "20123456789" not in limpio
+
+
+def test_etiqueta_del_sistema_protegida_no_se_tacha(monkeypatch):
+    """"Control Comercial" es el nombre de un PERMISO, no de una persona: la
+    capa defensiva lo veía como un par Capitalizado. Se protege desde el
+    módulo dueño (core.roles.LABEL_CONTROL_COMERCIAL), no con un literal."""
+    from core.roles import LABEL_CONTROL_COMERCIAL
+
+    monkeypatch.setattr(pg, "_catalogo", lambda: _CATALOGO_CON_PALABRAS_COMUNES)
+    limpio, _m = pg.tokenize(
+        f"ese dato requiere el permiso de {LABEL_CONTROL_COMERCIAL}",
+        texto_generado=True, protegidos=(LABEL_CONTROL_COMERCIAL,))
+    assert LABEL_CONTROL_COMERCIAL in limpio and "CLIENTE_" not in limpio

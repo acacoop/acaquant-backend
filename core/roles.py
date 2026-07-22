@@ -439,6 +439,13 @@ def has_access(email: str, module: str) -> bool:
     return module in get_user_modules(email)
 
 
+# Cómo se llama el permiso EN LA PANTALLA. Es una etiqueta del sistema, no una
+# identidad: la aduana del asistente la protege desde acá para no tacharla como
+# si fuera el nombre de alguien ("el permiso de Control Comercial" salía como
+# "el permiso de CLIENTE_1" — sondeo 2026-07-22).
+LABEL_CONTROL_COMERCIAL = "Control Comercial"
+
+
 def user_has_control_comercial(email: str) -> bool:
     """Permiso PER-USUARIO (no por rol) para VER/EDITAR Control Comercial.
 

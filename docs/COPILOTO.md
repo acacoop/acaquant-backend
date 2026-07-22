@@ -117,6 +117,35 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-22 — v1.94 (la aduana rompía NUESTRAS propias etiquetas)
+El primer sondeo real (`smoke_asistente --tools` en el Droplet) mostró el
+resultado de las tools deformado: *"ese dato requiere el permiso de
+**CLIENTE_1**"*, *"variación del AuM **CLIENTE_17** 2026-06-30 y 2026-07-21"*
+(se comió el "entre"), *"día **CLIENTE_1**: 2026-08-09"* (se comió el "pico").
+Palabras comunes del castellano —`control`, `entre`, `pico`— son también
+tokens del nombre de algún cliente real, y el matcher por palabra suelta las
+tachaba. El modelo recibía la etiqueta rota y contestaba sobre eso.
+- **[fix estructural]** la aduana ahora es **asimétrica a propósito**: en la
+  PREGUNTA del usuario el match por palabra suelta sigue igual de agresivo
+  (el usuario puede tirar un apellido solo, mal escrito), pero en el texto que
+  generó NUESTRO código **se apaga**. Ahí las identidades que las tools emiten
+  ya vienen fichadas explícitamente desde adentro del perímetro
+  (`asignar_ficha`), así que el token suelto no protegía casi nada y en cambio
+  deformaba. **Lo que NO se debilitó**: nombres completos, documentos/CUIT/DNI,
+  cuentas y la capa defensiva siguen actuando sobre el texto generado — hay
+  tests que lo congelan.
+- **[por qué no se amplió la stoplist]** el catálogo tiene ~1900 tokens: cada
+  etiqueta nueva puede pisar uno. Agregar `control`, `entre` y `pico` a mano
+  arreglaba estos tres casos y garantizaba el cuarto.
+- **[etiquetas del sistema]** "Control Comercial" es el nombre de un PERMISO y
+  la capa defensiva lo leía como un par Capitalizado. Se protege desde el
+  módulo dueño (`core.roles.LABEL_CONTROL_COMERCIAL`), no con un literal
+  repetido en cada mensaje.
+- **[sondeo]** `trading` reportaba ✗ con 0 filas: su contexto sale de las
+  tarjetas que el trader tiene en pantalla, no de un dataset global. El
+  registro lo declara (`depende_de_params`) y la sonda deja de contarlo como
+  falla — el dato vive en el registro, no en el script.
+
 ### 2026-07-22 — v1.93 (bloque COMERCIAL completo, en UNA tool con registro)
 Cierra los ítems #20, #21, #27, #29 y #30 de `docs/TOOLS_IA.md` de una sola
 vez, como decía la auditoría: comparten gate, tratamiento de identidades y

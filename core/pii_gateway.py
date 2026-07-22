@@ -389,9 +389,28 @@ def _spans_numeros(texto: str, catalogo: dict | None,
     return spans
 
 
-def _spans_catalogo(texto: str, catalogo: dict) -> list[tuple[int, int, str, str]]:
+def _spans_catalogo(texto: str, catalogo: dict,
+                    tokens_sueltos: bool = True) -> list[tuple[int, int, str, str]]:
     """Capa 2: nombres del catálogo — n-gramas completos, tokens sueltos
-    (apellido), inicial+apellido y fuzzy por token."""
+    (apellido), inicial+apellido y fuzzy por token.
+
+    `tokens_sueltos=False` apaga el match por PALABRA SUELTA (deja los nombres
+    completos). Se usa con el texto que generó NUESTRO código. El motivo es
+    asimétrico y a propósito:
+
+    - Lo que escribe el USUARIO es libre: puede tirar un apellido solo, mal
+      escrito, en cualquier orden → ahí el match por token es imprescindible.
+    - Lo que escribe NUESTRO código son etiquetas que elegimos nosotros, y las
+      identidades que emite ya vienen fichadas explícitamente desde adentro del
+      perímetro (`asignar_ficha`). Ahí el match por token no protege casi nada
+      y en cambio DEFORMA el texto: cualquier palabra común que sea token del
+      nombre de algún cliente se tacha. Casos reales del sondeo 2026-07-22:
+      "el permiso de Control Comercial" → "el permiso de CLIENTE_1", "AuM
+      entre X e Y" → "AuM CLIENTE_17 X e Y", "día pico" → "día CLIENTE_1".
+      El modelo recibía la etiqueta rota y contestaba sobre eso.
+
+    Ampliar la stoplist palabra por palabra era perder la carrera: el catálogo
+    tiene ~1900 tokens y cualquier etiqueta nueva puede pisar uno."""
     spans: list[tuple[int, int, str, str]] = []
     palabras = [(m.start(), m.end(), m.group(0)) for m in _PALABRA_RE.finditer(texto)]
     normales = [_norm(p[2]) for p in palabras]
@@ -415,7 +434,7 @@ def _spans_catalogo(texto: str, catalogo: dict) -> list[tuple[int, int, str, str
     # tokens sueltos + fuzzy — el vocabulario de negocio/sufijos JAMÁS es
     # candidato (lado texto): "total"/"administrado" de una pregunta normal
     # no puede terminar tachado (incidente del primer smoke 2026-07-21)
-    for i, (ini, fin, _cruda) in enumerate(palabras):
+    for i, (ini, fin, _cruda) in enumerate(palabras if tokens_sueltos else []):
         if i in usadas:
             continue
         n = normales[i]
@@ -462,7 +481,7 @@ def _spans_catalogo(texto: str, catalogo: dict) -> list[tuple[int, int, str, str
                 ini, fin = palabras[i][0], palabras[i + largo - 1][1]
                 spans.append((ini, fin, "OPERADOR", texto[ini:fin]))
                 usadas.update(range(i, i + largo))
-    for i, (ini, fin, _c) in enumerate(palabras):
+    for i, (ini, fin, _c) in enumerate(palabras if tokens_sueltos else []):
         if i in usadas:
             continue
         n = normales[i]
@@ -537,8 +556,13 @@ def tokenize(texto: str, mapping: dict | None = None,
     """Tacha toda identidad detectada y devuelve (texto_limpio, mapping).
     El mapping entra/sale para que las fichas sean estables en el chat.
     `texto_generado=True` = el texto lo produjo NUESTRO código (resultado de
-    tool, respuesta previa del asistente): los nombres se tachan igual, pero
-    los números sueltos se respetan (son agregados, no cuentas).
+    tool, respuesta previa del asistente). Ahí la aduana es DELIBERADAMENTE
+    menos agresiva, porque el riesgo es otro: los números sueltos se respetan
+    (son agregados, no cuentas) y el match por PALABRA SUELTA del catálogo se
+    apaga (siguen los nombres completos, los documentos y la capa defensiva).
+    El motivo, con casos reales, está en `_spans_catalogo`: nuestras propias
+    etiquetas terminaban tachadas por coincidir con un token del nombre de
+    algún cliente, y el modelo recibía el texto roto.
     `protegidos` = literales que JAMÁS se tachan (vocabulario del sistema:
     tipos de operación, mercados, segmentos…) — el caller los garantiza.
     NUNCA levanta: ante error interno devuelve el texto ÍNTEGRAMENTE tachado
@@ -551,7 +575,10 @@ def tokenize(texto: str, mapping: dict | None = None,
         catalogo = _catalogo()
         spans = _spans_numeros(texto, catalogo, numeros_pelados=not texto_generado)
         if catalogo:
-            spans += _spans_catalogo(texto, catalogo)
+            # en texto NUESTRO, solo nombres completos (ver _spans_catalogo):
+            # el match por palabra suelta deformaba las etiquetas del sistema.
+            spans += _spans_catalogo(texto, catalogo,
+                                     tokens_sueltos=not texto_generado)
         # Tramos intocables: fichas ya presentes (texto re-tokenizado) y el
         # vocabulario del sistema que el caller protege explícitamente.
         intocables = [(m.start(), m.end()) for m in _FICHA_RE.finditer(texto)]

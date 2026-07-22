@@ -55,7 +55,12 @@ def _contexto() -> None:
             print(f"✗ {vista:<16} FETCH ROTO — {type(e).__name__}: {e}")
             continue
         if not filas:
-            print(f"✗ {vista:<16} 0 filas → el copiloto responde 'datos_no_disponibles'")
+            if cfg.get("depende_de_params"):
+                print(f"— {vista:<16} 0 filas SIN PARÁMETROS (su contexto sale de lo "
+                      "que el usuario tiene en pantalla) — esperado")
+            else:
+                print(f"✗ {vista:<16} 0 filas → el copiloto responde "
+                      "'datos_no_disponibles'")
             continue
         bloques: list[str] = []
         extras = cfg.get("extras")

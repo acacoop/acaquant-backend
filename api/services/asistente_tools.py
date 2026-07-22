@@ -122,6 +122,75 @@ TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "pulso_mesa",
+            "description": (
+                "Cómo viene el NEGOCIO por períodos (mes, año, semana…) CON la "
+                "comparación contra el período anterior equivalente: volumen, "
+                "comisiones y cuentas activas. Usala para '¿cómo venimos este "
+                "mes?', '¿mejoramos contra el mes pasado?', 'el YTD'. Requiere "
+                "un permiso especial: si el usuario no lo tiene, decíselo."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "moneda": {"type": "string", "enum": ["ARS", "USD"]},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "jobs_fallidos",
+            "description": (
+                "Salud de los procesos automáticos: cuáles vienen fallando y "
+                "cuándo corrió cada uno. Usala para '¿está todo andando?', "
+                "'¿corrió el proceso de X?', '¿por qué no se actualizó tal dato?'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dias": {"type": "integer", "description": "Ventana (default 7)."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "costo_ia",
+            "description": (
+                "Cuánto se está gastando en IA (por proveedor) y qué porcentaje "
+                "del presupuesto diario va consumido. Usala para '¿cuánto nos "
+                "cuesta la IA?', '¿cuánto del cupo llevamos?'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dias": {"type": "integer", "description": "Ventana (default 14)."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "controles_calidad_datos",
+            "description": (
+                "Qué está mal cargado HOY: las anomalías de datos vigentes "
+                "(cuentas sin segmentar, títulos sin cartera, bonos sin tasa…). "
+                "Usala cuando pregunten por qué un total no cuadra o qué hay que "
+                "corregir. Devuelve el CONTEO por control, no los casos."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "posiciones_cuenta",
             "description": (
                 "EN QUÉ está invertido un cliente: sus principales posiciones "
@@ -546,6 +615,111 @@ def cobros_futuros(args: dict, *, mapping: dict) -> str:
     return "\n".join(lineas)
 
 
+def pulso_mesa(args: dict, *, usuario: str | None) -> str:
+    """Totales del negocio por períodos fijos (mes, YTD…) CON la variación
+    contra el período anterior equivalente. ⚠ GATEADO: la web protege esto con
+    Control Comercial, un permiso POR USUARIO — sin el chequeo, el chat sería
+    una puerta trasera (hallazgo de la auditoría 2026-07-21)."""
+    if not puede_control_comercial(usuario):
+        return ("ese dato requiere el permiso de Control Comercial, que este "
+                "usuario no tiene — decíselo y no muestres ningún número")
+    from api.services import control_comercial_sql
+
+    moneda = str(args.get("moneda") or "ARS").upper()
+    r = control_comercial_sql.datos_totales_alyc(
+        moneda=moneda if moneda in ("ARS", "USD") else "ARS") or {}
+    filas = r.get("filas") or r.get("periodos") or r.get("rows") or []
+    if not filas:
+        return "sin datos de totales de la mesa"
+    lineas = [f"[pulso de la mesa — {moneda}, contra el período anterior equivalente]"]
+    for f in filas:
+        etq = f.get("label") or f.get("periodo") or "?"
+        partes = []
+        for clave, nombre in (("volumen", "volumen"), ("arancel", "comisiones"),
+                              ("aranceles", "comisiones"), ("cuentas", "cuentas activas"),
+                              ("n_cuentas", "cuentas activas")):
+            if f.get(clave) is not None:
+                v = f[clave]
+                txt = _monto(float(v), moneda) if "cuenta" not in clave else f"{int(v)}"
+                var = f.get(f"var_{clave}") or f.get(f"{clave}_var")
+                if var is not None:
+                    txt += f" ({float(var):+.1f}% vs anterior)"
+                partes.append(f"{nombre} {txt}")
+        if partes:
+            lineas.append(f"  - {etq}: " + " · ".join(partes))
+    return "\n".join(lineas)
+
+
+def jobs_fallidos(args: dict) -> str:
+    """Salud de los procesos automáticos: qué viene fallando y cuándo corrió
+    cada uno por última vez."""
+    from datetime import UTC, datetime, timedelta
+
+    from api.services import manager_infra_sql
+
+    dias = max(1, min(int(args.get("dias") or 7), 90))
+    desde = datetime.now(UTC) - timedelta(days=dias)
+    filas = manager_infra_sql.jobs_history_stats_sql(desde) or []
+    if not filas:
+        return f"no hay corridas de procesos en los últimos {dias} días"
+    malos = [f for f in filas if int(f.get("error") or 0) > 0
+             or f.get("last_status") == "error"]
+    lineas = [f"[procesos automáticos — últimos {dias} días, {len(filas)} tipos]"]
+    if not malos:
+        lineas.append("  todo OK: ningún proceso con errores en la ventana")
+    for f in sorted(malos, key=lambda x: -int(x.get("error") or 0)):
+        lineas.append(
+            f"  - {f.get('tipo')}: {f.get('error')} errores de {f.get('total')} corridas"
+            f" · última {f.get('last_run')} ({f.get('last_status')})")
+    return "\n".join(lineas)
+
+
+def costo_ia(args: dict) -> str:
+    """Cuánto se está gastando en IA y cuánto del presupuesto va consumido."""
+    from api.services import ia_obs
+
+    dias = max(1, min(int(args.get("dias") or 14), 90))
+    r = ia_obs.observabilidad(dias=dias, limit=1) or {}
+    hoy = r.get("hoy") or {}
+    lineas = [
+        f"[consumo de IA — hoy y últimos {dias} días]",
+        f"  hoy: {int(hoy.get('tokens_total') or 0):,} tokens"
+        + (f" ({hoy['presupuesto_pct']}% del presupuesto diario)"
+           if hoy.get("presupuesto_pct") is not None else "")
+        + f" · {int(hoy.get('llamadas') or 0)} consultas"
+        + (f" · {int(hoy['errores'])} con error" if int(hoy.get("errores") or 0) else ""),
+    ]
+    for p in r.get("por_proveedor") or []:
+        if not p.get("costo_estimable"):
+            continue
+        lineas.append(f"  - {p['proveedor']}: USD {p['costo_usd']:.4f} en la ventana "
+                      f"(hoy USD {p['costo_usd_hoy']:.4f}) · "
+                      f"{int(p['llamadas'])} llamadas"
+                      + (" · no entrena con nuestros datos" if p.get("no_entrena") else ""))
+    return "\n".join(lineas)
+
+
+def controles_calidad_datos(args: dict) -> str:
+    """Qué está mal cargado HOY: las anomalías de datos vigentes. Es lo que
+    explica por qué un consolidado no cuadra."""
+    from api.services import controles_sql
+
+    r = controles_sql.listar_controles() or {}
+    grupos = r if isinstance(r, dict) else {}
+    activos = {k: v for k, v in grupos.items()
+               if isinstance(v, dict) and (v.get("activos") or [])}
+    if not activos:
+        return "no hay anomalías de datos activas — todo limpio"
+    lineas = [f"[calidad de datos — {len(activos)} controles con anomalías activas]"]
+    for control, g in sorted(activos.items(), key=lambda x: -len(x[1]["activos"])):
+        items = g["activos"]
+        lineas.append(f"  - {control}: {len(items)} casos"
+                      + (f" (el más viejo desde {items[0].get('desde')})"
+                         if items[0].get("desde") else ""))
+    lineas.append("Detalle por caso: Manager → OBSERVABILIDAD → CONTROLES.")
+    return "\n".join(lineas)
+
+
 def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
     """volumen_operado / aranceles_consolidado — envuelven ops_consolidado
     (api/services/operaciones_sql.py): MISMO _ops_where que la vista, con las
@@ -711,6 +885,14 @@ def ejecutar(nombre: str, args: dict, *, mapping: dict,
             crudo = aum_composicion(args, mapping=mapping)
         elif nombre == "cobros_futuros":
             crudo = cobros_futuros(args, mapping=mapping)
+        elif nombre == "pulso_mesa":
+            crudo = pulso_mesa(args, usuario=usuario)
+        elif nombre == "jobs_fallidos":
+            crudo = jobs_fallidos(args)
+        elif nombre == "costo_ia":
+            crudo = costo_ia(args)
+        elif nombre == "controles_calidad_datos":
+            crudo = controles_calidad_datos(args)
         elif nombre == "rendimiento_cuenta":
             crudo = rendimiento_cuenta(str(args.get("ficha_cuenta", "")), mapping=mapping)
         elif nombre == "volumen_operado":

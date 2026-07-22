@@ -428,6 +428,21 @@ _TOOLS_RESEARCH = [
             "hasta": {"type": "string", "description": "YYYY-MM-DD (opcional, default hoy)"}},
             "required": ["ticker", "campo"]},
     }},
+    {"type": "function", "function": {
+        "name": "spread_entre",
+        "description": "Spread A−B entre dos bonos a lo largo del tiempo Y su valor "
+                       "relativo: en qué percentil está el spread de HOY contra su "
+                       "propia historia, y a cuántos desvíos. Usala cuando pregunten si "
+                       "un spread está CARO o BARATO, o si conviene cambiar un bono por "
+                       "otro — sin esto solo podés decir cuánto vale, no si es mucho.",
+        "parameters": {"type": "object", "properties": {
+            "a": {"type": "string", "description": "ticker del bono largo (ej. AL30)"},
+            "b": {"type": "string", "description": "ticker del bono corto (ej. GD30)"},
+            "campo": {"type": "string", "enum": ["tea", "paridad", "precioClean", "duration"]},
+            "desde": {"type": "string", "description": "YYYY-MM-DD (opcional)"},
+            "hasta": {"type": "string", "description": "YYYY-MM-DD (opcional)"}},
+            "required": ["a", "b", "campo"]},
+    }},
 ]
 
 
@@ -467,6 +482,30 @@ def _ejecutar_tool_research(nombre: str, args: dict) -> str:
                 f"{vals[-1][1]:.2f}{unidad} · mín {mn[1]:.2f}{unidad} ({mn[0]}) · máx "
                 f"{mx[1]:.2f}{unidad} ({mx[0]}) · muestra: "
                 + ", ".join(f"{f} {v:.2f}" for f, v in muestra))
+    if nombre == "spread_entre":
+        from api.services import research_1816_sql
+
+        campo = str(args.get("campo") or "tea")
+        r = research_1816_sql.spread(str(args.get("a") or ""), str(args.get("b") or ""),
+                                     campo, args.get("desde"), args.get("hasta")) or {}
+        puntos = [p for p in (r.get("puntos") or []) if p and p[1] is not None]
+        st = r.get("stats") or {}
+        if not puntos:
+            return "sin historia común para esos dos bonos en ese rango."
+        # el service ya calcula percentil/z: el modelo NO tiene que inferirlos
+        escala = 100.0 if campo in ("tea", "paridad") else 1.0
+        u = "pp" if escala == 100.0 else ""
+        ult = puntos[-1][1] * escala
+        partes = [f"spread {r.get('a')}−{r.get('b')} ({campo}): hoy {ult:+.2f}{u} "
+                  f"· {len(puntos)} ruedas de {puntos[0][0]} a {puntos[-1][0]}"]
+        if st.get("percentil") is not None:
+            partes.append(f"percentil {st['percentil']:.0f} de su propia historia")
+        if st.get("z") is not None:
+            partes.append(f"z {st['z']:+.2f}")
+        for k, etq in (("min", "mín"), ("max", "máx"), ("media", "media")):
+            if st.get(k) is not None:
+                partes.append(f"{etq} {st[k] * escala:+.2f}{u}")
+        return " · ".join(partes)
     return f"herramienta desconocida: {nombre}"
 
 

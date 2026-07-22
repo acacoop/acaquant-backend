@@ -196,7 +196,9 @@ def test_schemas_declarados():
     nombres = {t["function"]["name"] for t in at.TOOLS}
     assert nombres == {"resumen_mesa", "rendimiento_cuenta", "quien_es",
                        "aum_historico", "posiciones_cuenta", "aum_composicion",
-                       "cobros_futuros", "volumen_operado", "aranceles_consolidado"}
+                       "cobros_futuros", "volumen_operado", "aranceles_consolidado",
+                       "pulso_mesa", "jobs_fallidos", "costo_ia",
+                       "controles_calidad_datos"}
     rc = next(t for t in at.TOOLS if t["function"]["name"] == "rendimiento_cuenta")
     assert "ficha_cuenta" in rc["function"]["parameters"]["properties"]
     vo = next(t for t in at.TOOLS if t["function"]["name"] == "volumen_operado")
@@ -387,6 +389,74 @@ def test_cobros_futuros_resume_y_marca_el_pico(monkeypatch):
     r = at.ejecutar("cobros_futuros", {"dias": 30}, mapping={"fichas": {}})
     assert "día pico: 2026-08-09" in r
     assert "TOTAL" in r and "1000 ARS" in r
+
+
+def test_pulso_mesa_respeta_el_permiso_por_usuario(monkeypatch):
+    """El gate que la auditoría marcó como fuga: la web protege esto con un
+    permiso POR USUARIO que NO es el rol. Sin el flag, ni un número."""
+    import api.services.control_comercial_sql as cc
+    llamadas = []
+    monkeypatch.setattr(cc, "datos_totales_alyc",
+                        lambda **kw: llamadas.append(1) or {"filas": [
+                            {"label": "Mes", "volumen": 1_000_000.0, "var_volumen": 12.5}]})
+
+    monkeypatch.setattr(at, "puede_control_comercial", lambda u: False)
+    r = at.ejecutar("pulso_mesa", {}, mapping={"fichas": {}}, usuario="sin@flag.com")
+    assert "permiso" in r and not llamadas          # ni siquiera consultó
+
+    monkeypatch.setattr(at, "puede_control_comercial", lambda u: True)
+    r2 = at.ejecutar("pulso_mesa", {}, mapping={"fichas": {}}, usuario="jefe@x.com")
+    assert "Mes" in r2 and "+12.5%" in r2
+
+
+def test_jobs_fallidos_resume_lo_roto(monkeypatch):
+    import api.services.manager_infra_sql as mi
+    monkeypatch.setattr(mi, "jobs_history_stats_sql", lambda d: [
+        {"tipo": "aranceles", "total": 7, "error": 3, "last_run": "21/07 20:00",
+         "last_status": "error"},
+        {"tipo": "bcra", "total": 7, "error": 0, "last_run": "21/07 22:00",
+         "last_status": "ok"},
+    ])
+    r = at.ejecutar("jobs_fallidos", {"dias": 7}, mapping={"fichas": {}})
+    assert "aranceles" in r and "3 errores" in r
+    assert "bcra" not in r          # lo que anda no ensucia la respuesta
+
+
+def test_jobs_fallidos_todo_ok(monkeypatch):
+    import api.services.manager_infra_sql as mi
+    monkeypatch.setattr(mi, "jobs_history_stats_sql", lambda d: [
+        {"tipo": "bcra", "total": 7, "error": 0, "last_run": "x", "last_status": "ok"}])
+    assert "todo OK" in at.ejecutar("jobs_fallidos", {}, mapping={"fichas": {}})
+
+
+def test_costo_ia_reporta_por_proveedor(monkeypatch):
+    import api.services.ia_obs as obs
+    monkeypatch.setattr(obs, "observabilidad", lambda **kw: {
+        "hoy": {"tokens_total": 500_000, "presupuesto_pct": 25.0, "llamadas": 40,
+                "errores": 0},
+        "por_proveedor": [
+            {"proveedor": "openai", "costo_usd": 0.42, "costo_usd_hoy": 0.11,
+             "llamadas": 12, "costo_estimable": True, "no_entrena": True},
+            {"proveedor": "raro", "costo_estimable": False},
+        ]})
+    r = at.ejecutar("costo_ia", {}, mapping={"fichas": {}})
+    assert "openai" in r and "0.4200" in r and "no entrena" in r
+    assert "raro" not in r          # sin precio no se inventa un costo
+
+
+def test_controles_calidad_solo_cuenta_no_expone_casos(monkeypatch):
+    """PII: dos controles traen denominaciones. La tool devuelve el CONTEO."""
+    import api.services.controles_sql as cs
+    monkeypatch.setattr(cs, "listar_controles", lambda **kw: {
+        "comitentes_sin_nivel1": {"activos": [
+            {"item": "805", "detalle": "PEREZ, JUAN sin nivel 1", "desde": "2026-07-01"}],
+            "resueltos": []},
+        "todo_bien": {"activos": [], "resueltos": []},
+    })
+    r = at.ejecutar("controles_calidad_datos", {}, mapping={"fichas": {}})
+    assert "comitentes_sin_nivel1: 1 casos" in r
+    assert "PEREZ" not in r and "805" not in r
+    assert "todo_bien" not in r
 
 
 def test_consolidado_dimension_invalida_es_jaula():

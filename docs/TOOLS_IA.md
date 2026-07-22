@@ -122,9 +122,16 @@ No es opcional: **seis propuestas confirmadas no se pueden construir bien sin es
 > · `aum_composicion` agrega por cartera y DESCARTA `cuenta`/`id_cuenta`, que
 >   `total_snapshot` trae por fila.
 >
-> **Quedan de esta tanda:** #4 `pulso_mesa` (ya se puede: el gate de Control
-> Comercial está listo), #6 `spread_1816`, #7 `jobs_fallidos`, #8 `costo_ia`,
-> #9 `controles_calidad_datos`, #11 `rendimiento_esperado_curva`.
+> ✅ **TANDA 1 COMPLETA (2026-07-21/22).** Se cerraron también #4 `pulso_mesa`
+> (GATEADO por Control Comercial — el permiso por usuario que la auditoría
+> marcó como fuga potencial), #6 `spread_entre` (en la vista research: el
+> service ya devuelve percentil y z, así que el modelo no infiere nada), #7
+> `jobs_fallidos`, #8 `costo_ia`, #9 `controles_calidad_datos` (devuelve el
+> CONTEO por control, nunca los casos — dos de ellos traen denominaciones) y
+> #11 `rendimiento_esperado` (en la vista renta_fija).
+>
+> De paso quedó cerrado el wiring de Tanda 0: **`renta_fija` es la primera
+> vista de MERCADO con tools propias** además de research.
 
 **Criterio de corte:** el service ya devuelve el shape correcto (no hay que plegar, agregar ni escribir SQL), la pregunta es de rutina diaria, y no hay decisión de producto pendiente. Todo esto es wrapper + ficha.
 

@@ -117,6 +117,25 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-22 — v1.90 (Tanda 1 COMPLETA: el negocio, el sistema y la proyección)
+Seis tools más y el wiring de tools en vistas de mercado:
+- **[negocio] `pulso_mesa`** — cómo viene el mes/YTD CON la comparación contra
+  el período anterior. **GATEADA por Control Comercial** (permiso POR USUARIO,
+  no por rol): sin el flag no consulta ni un número. Es el primer uso real del
+  `usuario` en el dispatcher.
+- **[meta-sistema] `jobs_fallidos`, `costo_ia`, `controles_calidad_datos`** —
+  el PM puede preguntarle a la IA por la salud de su propia plataforma sin
+  abrir Manager. `controles_calidad_datos` cierra un círculo: explica POR QUÉ
+  un consolidado no cuadra. Devuelve el CONTEO por control, nunca los casos
+  (dos de ellos traen denominaciones de clientes).
+- **[mercado] `spread_entre`** (vista research): spread A−B + **percentil y z
+  contra su propia historia** — el service ya los calcula, el modelo no infiere
+  nada. Responde "¿está caro o barato?", que era incontestable.
+- **[mercado] `rendimiento_esperado`** (vista renta_fija): qué rinde cada bono
+  a X días si la curva no se mueve (carry + rolldown). **`renta_fija` es la
+  primera vista de MERCADO con tools propias** además de research — cierra el
+  wiring que faltaba de la Tanda 0.
+
 ### 2026-07-21 — v1.89 (auditoría de tools: Tanda 0 completa + 5 de la Tanda 1)
 Tras la auditoría multi-agente (`docs/TOOLS_IA.md`), con cada hallazgo
 verificado en el código antes de tocarlo:

@@ -18,7 +18,13 @@ from .navegacion import ejecutor as _ejecutor_navegacion
 from .negocio import _handler_negocio
 from .ons import _REGLAS_ONS, _extras_ons, _fetch_ons
 from .opciones import _REGLAS_OPCIONES, _extras_opciones, _fetch_opciones
-from .renta_fija import _REGLAS_RENTA_FIJA, _extras_renta_fija, _fetch_renta_fija
+from .renta_fija import (
+    _REGLAS_RENTA_FIJA,
+    _TOOLS_RENTA_FIJA,
+    _ejecutar_tool_renta_fija,
+    _extras_renta_fija,
+    _fetch_renta_fija,
+)
 from .renta_variable import (
     _CHIPS_RENTA_VARIABLE,
     _REGLAS_RENTA_VARIABLE,
@@ -165,6 +171,11 @@ VISTAS: dict[str, dict] = {
                    "curvas, TEA, rendimientos, breakevens, carry, canje, fair value",
         "fetch": _fetch_renta_fija,
         "extras": _extras_renta_fija,
+        # tools de la vista (auditoría 2026-07-21): el contexto trae la foto de
+        # hoy; la PROYECCIÓN (qué rinde a X días si la curva no se mueve) solo
+        # se puede pedir. Factory: RF no usa el buzón de salida.
+        "tools": _TOOLS_RENTA_FIJA,
+        "tools_ejecutar": lambda _cont, _usr: _ejecutar_tool_renta_fija,
         # acá TEA/bps/duration/breakeven SON el idioma — no son jerga
         "jerga_permitida": {"tea", "tem", "paridad", "duration", "dur", "residuo",
                             "residuo_bps", "tc_breakeven", "tea_fit", "nominales_dia",

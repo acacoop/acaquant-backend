@@ -645,6 +645,54 @@ def _extras_renta_fija(
     return partes
 
 
+# ── TOOLS de la vista (primera vista de MERCADO con function calling, además
+# de research — cierra el wiring pendiente de la auditoría 2026-07-21) ───────
+
+_TOOLS_RENTA_FIJA = [
+    {"type": "function", "function": {
+        "name": "rendimiento_esperado",
+        "description": "Qué rinde cada bono de una curva a un horizonte SI LA CURVA NO "
+                       "SE MUEVE (carry + rolldown). Usala cuando pregunten qué conviene "
+                       "comprar a X días, qué rinde más 'si no pasa nada', o pidan "
+                       "comparar bonos por retorno esperado — el contexto solo trae la "
+                       "foto de hoy, no la proyección.",
+        "parameters": {"type": "object", "properties": {
+            "curva": {"type": "string", "enum": ["tasa_fija", "cer"]},
+            "horizonte_dias": {"type": "integer",
+                               "description": "días hacia adelante (default 30, máx 365)"}},
+            "required": ["curva"]},
+    }},
+]
+
+
+def _ejecutar_tool_renta_fija(nombre: str, args: dict) -> str:
+    """Ejecutor de las tools de RF. Resultados COMPACTOS; nunca levanta."""
+    if nombre != "rendimiento_esperado":
+        return f"herramienta desconocida: {nombre}"
+    from api.services import descomposicion_retorno
+
+    curva = str(args.get("curva") or "tasa_fija")
+    dias = int(args.get("horizonte_dias") or 30)
+    r = descomposicion_retorno.rolldown_esperado(
+        horizonte_dias=max(1, min(dias, 365)), curva=curva) or {}
+    if r.get("error"):
+        return str(r["error"])
+    filas = [f for f in (r.get("bonos") or r.get("tabla") or r.get("rows") or [])
+             if f.get("total") is not None]
+    if not filas:
+        return f"sin datos de rendimiento esperado para {curva}."
+    filas.sort(key=lambda f: -float(f["total"]))
+    def _pct(v):  # el service devuelve fracción en algunas curvas y % en otras
+        x = float(v)
+        return x * 100 if abs(x) < 1 else x
+    top = filas[:10]
+    return (f"rendimiento esperado {curva} a {dias} días (si la curva no se mueve, "
+            f"{len(filas)} bonos): "
+            + " · ".join(f"{f.get('ticker')} {_pct(f['total']):+.2f}%" for f in top)
+            + f" || mejor {top[0].get('ticker')} · peor {filas[-1].get('ticker')} "
+              f"{_pct(filas[-1]['total']):+.2f}%")
+
+
 _REGLAS_RENTA_FIJA = """Sos el copiloto de la vista RENTA FIJA (bonos ARG). El idioma acá es \
 TEA, curva, forward, breakeven — usalo con naturalidad.
 

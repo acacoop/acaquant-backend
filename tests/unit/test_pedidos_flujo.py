@@ -204,31 +204,68 @@ def test_el_export_usa_los_mismos_pesos_que_el_triaje():
     assert _peso(p) == triage._orden(p)
 
 
-def test_publicar_toca_SOLO_el_archivo_del_buzon(monkeypatch):
-    """El job commitea solo desde el server. Si el `git add` no estuviera
-    acotado a un path, una corrida automática podría llevarse puesto cualquier
-    cosa que hubiera quedado tocada en el checkout de producción."""
+def _git_falso(monkeypatch, salidas=None):
+    """Captura los comandos git que se ejecutan, sin correr ninguno."""
     import subprocess as sp
 
-    from scripts import gen_pedidos as gp
-
     corridas = []
+    salidas = salidas or {}
 
     class _R:
-        returncode = 1          # "hay cambios staged" → sigue al commit
-        stderr = b""
+        def __init__(self, out=b""):
+            self.returncode = 0
+            self.stdout = out
+            self.stderr = b""
 
     def _fake(cmd, **kw):
-        corridas.append(cmd)
-        return _R()
+        corridas.append((cmd, kw))
+        clave = cmd[1] if len(cmd) > 1 else ""
+        return _R(salidas.get(clave, b"deadbeef"))
 
     monkeypatch.setattr(sp, "run", _fake)
+    return corridas
+
+
+def test_publicar_NO_toca_el_checkout_de_produccion(monkeypatch):
+    """EL punto del diseño. El Droplet es producción y casi siempre está detrás
+    de main. La salida fácil ante el rechazo por fast-forward sería que el job
+    haga `git pull` — y eso convertiría un cron en un DEPLOY AUTOMÁTICO: código
+    nuevo en producción sin que nadie lo decida. El commit se arma al costado."""
+    from scripts import gen_pedidos as gp
+
+    corridas = _git_falso(monkeypatch, {"rev-parse": b"base123"})
     gp.publicar()
-    assert any(c[:2] == ["git", "add"] for c in corridas)
-    for c in corridas:
-        if c[0] == "git" and c[1] in ("add", "commit"):
-            assert "--" in c and c[-1].endswith("PEDIDOS.md")   # un solo path
-        assert "-a" not in c and "--all" not in c               # jamás todo
+    verbos = [c[0][1] for c in corridas]
+
+    # jamás nada que mueva el working tree, la rama o el índice real
+    for prohibido in ("pull", "merge", "rebase", "checkout", "reset", "add",
+                      "commit", "stash"):
+        assert prohibido not in verbos, f"publicar() ejecutó `git {prohibido}`"
+    # el commit se construye con plumbing sobre origin/main
+    assert {"fetch", "read-tree", "commit-tree", "push"} <= set(verbos)
+
+
+def test_publicar_usa_un_indice_temporal(monkeypatch):
+    """read-tree/update-index/write-tree tienen que ir contra un GIT_INDEX_FILE
+    propio: contra el índice real dejarían cosas staged en producción."""
+    from scripts import gen_pedidos as gp
+
+    corridas = _git_falso(monkeypatch, {"rev-parse": b"base123"})
+    gp.publicar()
+    for cmd, kw in corridas:
+        if cmd[1] in ("read-tree", "update-index", "write-tree"):
+            env = kw.get("env") or {}
+            assert env.get("GIT_INDEX_FILE"), f"{cmd[1]} usó el índice real"
+
+
+def test_publicar_escribe_un_solo_path(monkeypatch):
+    from scripts import gen_pedidos as gp
+
+    corridas = _git_falso(monkeypatch, {"rev-parse": b"base123"})
+    gp.publicar()
+    escrituras = [c[0] for c in corridas if c[0][1] == "update-index"]
+    assert len(escrituras) == 1
+    assert escrituras[0][-1].endswith("docs/PEDIDOS.md")
 
 
 def test_publicar_no_revienta_si_no_puede_pushear(monkeypatch):

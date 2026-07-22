@@ -191,30 +191,60 @@ def regenerar(estado: str | None = None) -> int:
     return len(pedidos)
 
 
+_RAMA_PUBLICACION = "main"
+
+
+def _git(*args: str, index: str | None = None) -> str:
+    """git con salida limpia. `index` usa un índice TEMPORAL (GIT_INDEX_FILE):
+    lo que se arma ahí no toca el staging real del checkout."""
+    env = {**os.environ, "GIT_INDEX_FILE": index} if index else None
+    r = subprocess.run(["git", *args], cwd=RAIZ, check=True, capture_output=True,
+                       timeout=120, env=env)
+    return r.stdout.decode(errors="replace").strip()
+
+
 def publicar() -> str:
-    """Commitea y pushea SOLO docs/PEDIDOS.md. Devuelve un mensaje de estado.
+    """Publica docs/PEDIDOS.md en el repo SIN TOCAR el checkout del server.
 
-    Existe para cerrar el último eslabón manual: el archivo se genera en el
-    Droplet y Claude Code lo lee desde el repo. Sin esto había que acordarse de
-    commitear a mano, que es exactamente el tipo de paso que hace que un
-    circuito automático deje de usarse.
+    Cierra el último eslabón manual: el archivo se genera en el Droplet y
+    Claude Code lo lee desde el repo. Sin esto había que acordarse de
+    commitear, que es el tipo de paso que hace que un circuito automático deje
+    de usarse.
 
-    Acotado a UN path a propósito: nunca commitea otra cosa que pueda haber
-    quedada tocada en el checkout del server. Si falla (sin credencial de push,
-    checkout raro), NO revienta: lo dice y el archivo queda igual en disco."""
-    rel = os.path.relpath(SALIDA, RAIZ)
+    POR QUÉ NO ES UN `git add` + `commit` + `push` NORMAL
+    El checkout del Droplet es PRODUCCIÓN y casi siempre está detrás de `main`
+    (el desarrollo se pushea desde otra máquina). Un commit local ahí no puede
+    pushearse — rechazado por fast-forward — y la salida fácil sería que el job
+    haga `git pull` antes. Eso convertiría un cron en un DEPLOY AUTOMÁTICO:
+    código nuevo apareciendo en producción sin que nadie lo decida, y jobs
+    posteriores corriendo una versión que nadie revisó ni reinició. No.
+
+    En su lugar se construye el commit "al costado", con plumbing de git:
+    se toma el árbol de `origin/main`, se le cambia UN archivo, y se pushea ese
+    commit. El working tree, la rama local y el índice quedan intactos: el
+    server sigue exactamente en la versión en la que estaba.
+
+    Nunca levanta: si algo falla, el archivo igual quedó escrito en disco."""
+    rel = os.path.relpath(SALIDA, RAIZ).replace(os.sep, "/")
+    indice_tmp = os.path.join(RAIZ, ".git", "index-pedidos.tmp")
     try:
-        subprocess.run(["git", "add", "--", rel], cwd=RAIZ, check=True,
-                       capture_output=True, timeout=30)
-        # ¿cambió algo? sin esto, un commit vacío falla y ensucia el log
-        if subprocess.run(["git", "diff", "--cached", "--quiet", "--", rel],
-                          cwd=RAIZ, timeout=30).returncode == 0:
-            return "sin cambios que publicar"
-        subprocess.run(["git", "commit", "-m", "docs(pedidos): actualizar buzón", "--", rel],
-                       cwd=RAIZ, check=True, capture_output=True, timeout=60)
-        subprocess.run(["git", "push"], cwd=RAIZ, check=True,
-                       capture_output=True, timeout=120)
-        return "publicado (commit + push de docs/PEDIDOS.md)"
+        _git("fetch", "origin", _RAMA_PUBLICACION)
+        base = _git("rev-parse", f"origin/{_RAMA_PUBLICACION}")
+        blob = _git("hash-object", "-w", rel)
+        # ¿el archivo ya es idéntico al publicado? entonces no hay nada que hacer
+        try:
+            if _git("rev-parse", f"{base}:{rel}") == blob:
+                return "sin cambios que publicar"
+        except subprocess.CalledProcessError:
+            pass                      # todavía no existe en el repo — se crea
+        _git("read-tree", base, index=indice_tmp)
+        _git("update-index", "--add", "--cacheinfo", f"100644,{blob},{rel}",
+             index=indice_tmp)
+        tree = _git("write-tree", index=indice_tmp)
+        commit = _git("commit-tree", tree, "-p", base,
+                      "-m", "docs(pedidos): actualizar buzón")
+        _git("push", "origin", f"{commit}:refs/heads/{_RAMA_PUBLICACION}")
+        return f"publicado en {_RAMA_PUBLICACION} ({commit[:8]}) — el checkout no se tocó"
     except subprocess.CalledProcessError as e:
         det = (e.stderr or b"").decode(errors="replace").strip().splitlines()
         return ("NO se pudo publicar: " + (det[-1] if det else str(e))
@@ -222,6 +252,9 @@ def publicar() -> str:
                   "commitealo a mano si querés que Claude lo vea")
     except Exception as e:
         return f"NO se pudo publicar ({type(e).__name__}: {e})"
+    finally:
+        if os.path.exists(indice_tmp):
+            os.remove(indice_tmp)
 
 
 def main() -> None:

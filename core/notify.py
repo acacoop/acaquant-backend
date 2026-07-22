@@ -177,6 +177,30 @@ def leer_taps(offset: int | None = None) -> tuple[list[dict], int | None]:
 
 def responder_tap(callback_id: str, texto: str) -> bool:
     """Confirma el tap (Telegram muestra un aviso arriba y saca el reloj del
-    botón). Sin esto el botón queda 'cargando' para siempre."""
-    return _api("answerCallbackQuery",
-                {"callback_query_id": callback_id, "text": texto[:200]}) is not None
+    botón). Sin esto el botón queda 'cargando' para siempre.
+
+    El aviso es COSMÉTICO: lo que importa (el cambio de estado) ya se hizo. Si
+    el tap es viejo Telegram rechaza la confirmación con 400 'query is too old'
+    — pasa cada vez que el job corre un rato después del tap, es esperable, y
+    loguearlo como WARNING en un cron de cada minuto solo ensucia. Se degrada a
+    debug: el resultado igual vuelve False y el caller decide."""
+    if not TELEGRAM_BOT_TOKEN:
+        return False
+    try:
+        import requests
+
+        resp = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery",
+            json={"callback_query_id": callback_id, "text": texto[:200]},
+            timeout=_TIMEOUT_S)
+        if resp.status_code == 200:
+            return True
+        if "query is too old" in resp.text or "query ID is invalid" in resp.text:
+            logger.debug("Telegram: tap viejo, sin confirmación visual (esperado)")
+            return False
+        logger.warning("Telegram answerCallbackQuery HTTP %s: %s",
+                       resp.status_code, resp.text[:200])
+        return False
+    except Exception as e:
+        logger.warning("Telegram answerCallbackQuery falló: %s", e)
+        return False

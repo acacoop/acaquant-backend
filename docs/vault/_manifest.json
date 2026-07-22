@@ -1277,6 +1277,24 @@
 ]
 },
 {
+"id": "api.services.asistente_comercial",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\asistente_comercial.py",
+"summary": "asistente_comercial — el bloque COMERCIAL del asistente de negocio.",
+"links": [
+"api.services",
+"api.services.asistente_tools",
+"api.services.comercial_sql",
+"api.services.control_comercial_sql",
+"api.services.sin_operador",
+"core",
+"core.pii_gateway",
+"core.roles"
+]
+},
+{
 "id": "api.services.asistente_tools",
 "type": "module",
 "layer": "api",
@@ -1284,11 +1302,23 @@
 "path": "api\\services\\asistente_tools.py",
 "summary": "asistente_tools — tools curadas READ-ONLY del asistente de negocio (QuantAI P7).",
 "links": [
+"api.cache",
 "api.services",
+"api.services.asistente_comercial",
+"api.services.cashflow_sql",
+"api.services.control_comercial_sql",
+"api.services.controles_sql",
+"api.services.copiloto.navegacion",
+"api.services.copiloto.series",
+"api.services.ia_obs",
+"api.services.manager_infra_sql",
 "api.services.operaciones_sql",
+"api.services.portfolio_sql",
+"api.services.valuaciones_sql",
 "core",
 "core.pii_gateway",
-"core.postgres"
+"core.postgres",
+"core.roles"
 ]
 },
 {
@@ -1659,7 +1689,9 @@
 "path": "api\\services\\copiloto\\motor.py",
 "summary": "copiloto/motor.py — el orquestador: preguntar() (una pregunta → contexto →",
 "links": [
+"core",
 "core.ai",
+"core.pii_gateway",
 "core.postgres",
 "core.roles"
 ]
@@ -1674,7 +1706,8 @@
 "links": [
 "api.cache",
 "api.services",
-"api.services.operaciones_sql"
+"api.services.operaciones_sql",
+"core.postgres"
 ]
 },
 {
@@ -1789,6 +1822,22 @@
 "summary": "copiloto/reuters.py — vista REUTERS (tablero live subyacentes US, feed Eikon).",
 "links": [
 "core.eikon_live"
+]
+},
+{
+"id": "api.services.copiloto.series",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\copiloto\\series.py",
+"summary": "copiloto/series.py — SERIE HISTÓRICA GENÉRICA: \"¿contra qué?\".",
+"links": [
+"api.services",
+"api.services.asistente_tools",
+"api.services.macro_sql",
+"api.services.research_1816_sql",
+"api.services.research_bcra_sql",
+"api.services.research_fred_sql"
 ]
 },
 {
@@ -1955,6 +2004,7 @@
 "links": [
 "core",
 "core.ai",
+"core.llm",
 "core.postgres"
 ]
 },

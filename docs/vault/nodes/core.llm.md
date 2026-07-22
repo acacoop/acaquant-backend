@@ -17,5 +17,6 @@ path: core\llm.py
 _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
+- [[api.services.ia_obs]]  ·  _module_
 - [[core.ai]]  ·  _module_
 - [[jobs.research_mail]]  ·  _module_

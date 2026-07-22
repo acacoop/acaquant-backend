@@ -67,9 +67,6 @@ _SONDAS: dict[str, dict | None] = {
     "tablero_comercial#sin_operador": {"que": "sin_operador"},
     "volumen_operado":         {"por": "mercado", "_rango": True},
     "aranceles_consolidado":   {"por": "mercado", "_rango": True},
-    # ESCRIBE: sondearla insertaría un pedido basura en el buzón. Es la única
-    # tool del asistente que no es read-only, y por eso no se prueba acá.
-    "registrar_pedido":   None,
     # necesitan una FICHA que solo existe dentro de un chat con la aduana
     "quien_es":           None,
     "rendimiento_cuenta": None,

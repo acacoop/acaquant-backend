@@ -28,6 +28,7 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.asistente]]  ·  _module_
+- [[api.services.asistente_comercial]]  ·  _module_
 - [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.aunesa_informes]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
@@ -36,6 +37,7 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.compliance]]  ·  _module_
 - [[api.services.contrapartes_seg]]  ·  _module_
+- [[api.services.copiloto.motor]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_

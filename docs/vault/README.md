@@ -6,7 +6,7 @@
 
 ## Qué hay adentro
 
-- **324** module
+- **326** module
 - **124** component
 - **66** route
 - **44** cron

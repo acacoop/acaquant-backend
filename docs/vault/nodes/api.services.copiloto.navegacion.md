@@ -20,3 +20,7 @@ _(pendiente de enriquecimiento)_
 - [[api.cache]]  ·  _module_
 - [[api.services]]  ·  _module_
 - [[api.services.operaciones_sql]]  ·  _module_
+- [[core.postgres]]  ·  _module_
+
+## Lo usan (backlinks) ←
+- [[api.services.asistente_tools]]  ·  _module_

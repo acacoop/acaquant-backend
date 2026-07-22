@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-193 notas.
+195 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -92,6 +92,7 @@
 - [[api.services.analitica]] — Capa de servicio — analítica Tier 2 sobre data existente.
 - [[api.services.argy]] — Capa de servicio — métricas argentinas con returns calculados.
 - [[api.services.asistente]] — asistente — orquestador del ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md).
+- [[api.services.asistente_comercial]] — asistente_comercial — el bloque COMERCIAL del asistente de negocio.
 - [[api.services.asistente_tools]] — asistente_tools — tools curadas READ-ONLY del asistente de negocio (QuantAI P7).
 - [[api.services.assets_sql]] — api/services/assets_sql.py — lectura del catálogo de títulos desde SQL
 - [[api.services.aunesa_aranceles]] — Backfill de aranceles desde Aunesa /operaciones/informes a SQL
@@ -130,6 +131,7 @@
 - [[api.services.copiloto.renta_variable]] — copiloto/renta_variable.py — vista RV (CEDEARs/ADRs): fetch, enriquecido,
 - [[api.services.copiloto.research]] — copiloto/research.py — vista RESEARCH unificada (decisión user 2026-07-20):
 - [[api.services.copiloto.reuters]] — copiloto/reuters.py — vista REUTERS (tablero live subyacentes US, feed Eikon).
+- [[api.services.copiloto.series]] — copiloto/series.py — SERIE HISTÓRICA GENÉRICA: "¿contra qué?".
 - [[api.services.copiloto.trading]] — copiloto/trading.py — vista TRADING (monitor intradía): tarjetas con pivots
 - [[api.services.copiloto.verificacion]] — copiloto/verificacion.py — guardrails estructurales (anti-alucinación).
 - [[api.services.day_trading]] — day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).

@@ -322,29 +322,6 @@ herramientas faltantes — el modelo se comportó bien con lo que tenía:
   QUÉ pasó, no para juzgar CÓMO respondió — sin esto no se detectaba nada de
   lo de arriba.
 
-### 2026-07-21 — v1.87 (BUZÓN DE PEDIDOS: la mesa le pide mejoras al copiloto)
-Idea del user: que la IA reciba sugerencias/faltantes/bugs y queden guardados
-para revisarlos. Decisiones suyas: entra SOLO por el chat (cero fricción — se
-pide donde surgió) y se revisa en un ARCHIVO VERSIONADO del repo.
-- **[tool COMÚN a todas las vistas] `registrar_pedido`** (`copiloto/pedidos.py`):
-  el modelo detecta que es un pedido de producto (no una consulta), lo
-  CLASIFICA (tipo mejora/falta_dato/bug/otro + título corto normalizado — lo
-  que hace revisables 40 pedidos de un vistazo) y lo guarda en
-  `manager.pedidos` con quién, cuándo, desde qué vista y la pregunta previa
-  como contexto. Confirma en una línea, sin prometer fechas.
-- **[motor ~] las tools comunes se suman a las de la vista**: el motor arma
-  `tools = propias + comunes` y despacha; **todas** las vistas pasan ahora por
-  el loop de tools (antes solo las que declaraban). El loop ganó `reintentos=1`
-  para no perder respuestas por un timeout transitorio (paridad con el camino
-  simple). Un fallo del buzón NUNCA rompe la respuesta.
-- **[privacidad]** en vistas con aduana el modelo manda el texto tokenizado:
-  el ejecutor lo DEStokeniza antes de guardar (la tabla es nuestra y queremos
-  el texto real).
-- **[revisión] `python -m scripts.gen_pedidos` → `docs/PEDIDOS.md`**,
-  agrupado por estado y tipo, versionado en git. Triage por CLI
-  (`--marcar <id> aceptado --nota "…"`). Etapa 2 pendiente: proponer pedidos
-  automáticamente desde `ia.trazas` (los 👎 y los "no tengo ese dato").
-
 ### 2026-07-21 — v1.86 (la aduana tachaba el VOCABULARIO del negocio)
 Bug feo visto en una tabla de aranceles: los TIPOS DE OPERACIÓN salieron como
 `CLIENTE_12 A3`, `CLIENTE_10`… La aduana los tachó porque comparten alguna

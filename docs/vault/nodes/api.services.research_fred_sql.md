@@ -22,3 +22,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.research_fred]]  ·  _module_
+- [[api.services.copiloto.series]]  ·  _module_

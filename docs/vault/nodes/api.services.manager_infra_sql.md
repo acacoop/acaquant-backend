@@ -22,4 +22,5 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.jobs]]  ·  _module_
 - [[api.routers.manager.roles]]  ·  _module_
+- [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_

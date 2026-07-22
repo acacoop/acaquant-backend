@@ -24,3 +24,5 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.operaciones]]  ·  _module_
+- [[api.services.asistente_comercial]]  ·  _module_
+- [[api.services.asistente_tools]]  ·  _module_

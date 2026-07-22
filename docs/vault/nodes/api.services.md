@@ -60,6 +60,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.asistente]]  ·  _module_
+- [[api.services.asistente_comercial]]  ·  _module_
 - [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
@@ -74,6 +75,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.copiloto.renta_fija]]  ·  _module_
 - [[api.services.copiloto.renta_variable]]  ·  _module_
 - [[api.services.copiloto.research]]  ·  _module_
+- [[api.services.copiloto.series]]  ·  _module_
 - [[api.services.copiloto.trading]]  ·  _module_
 - [[api.services.derivados]]  ·  _module_
 - [[api.services.descomposicion_retorno]]  ·  _module_

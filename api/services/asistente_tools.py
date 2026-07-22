@@ -106,16 +106,6 @@ def _tool_serie() -> dict:
     return TOOL_SERIE
 
 
-def _tool_pedido() -> dict:
-    """El BUZÓN DE PEDIDOS también acá. Faltaba (2026-07-22): los copilotos de
-    mercado lo tenían y el asistente de negocio no, así que cuando un jefe le
-    pedía una mejora el modelo no tenía CÓMO registrarla — y como no puede
-    decir "no tengo herramienta para esto", contestaba amablemente y el pedido
-    se perdía. El peor modo de falla: parece que quedó anotado y no quedó."""
-    from api.services.copiloto.pedidos import TOOL_PEDIDO
-    return TOOL_PEDIDO
-
-
 def _tools_comercial() -> list[dict]:
     """El bloque COMERCIAL vive en su propio módulo (`asistente_comercial`).
     Este archivo es el aggregator: sumar un dominio es un módulo nuevo + dos
@@ -126,7 +116,6 @@ def _tools_comercial() -> list[dict]:
 
 TOOLS: list[dict] = [
     _tool_serie(),
-    _tool_pedido(),
     *_tools_comercial(),
     {
         "type": "function",
@@ -1074,12 +1063,6 @@ def _serie_handler(args: dict, _ctx: _Ctx) -> str:
     return ejecutar_serie("serie_historica", args)
 
 
-def _pedido_handler(args: dict, ctx: _Ctx) -> str:
-    from api.services.copiloto.pedidos import ejecutar_pedido
-    return ejecutar_pedido(args, usuario=ctx.usuario, vista="negocio",
-                           mapping=ctx.mapping, contexto=ctx.pregunta)
-
-
 _HANDLERS: dict[str, Callable[[dict, _Ctx], str]] = {
     "resumen_mesa":            lambda a, c: resumen_mesa(),
     "quien_es":                lambda a, c: quien_es(str(a.get("ficha", "")),
@@ -1096,7 +1079,6 @@ _HANDLERS: dict[str, Callable[[dict, _Ctx], str]] = {
     "costo_ia":                lambda a, c: costo_ia(a),
     "controles_calidad_datos": lambda a, c: controles_calidad_datos(a),
     "serie_historica":         _serie_handler,
-    "registrar_pedido":        _pedido_handler,
     "volumen_operado":         lambda a, c: _consolidado("bruto", a, mapping=c.mapping),
     "aranceles_consolidado":   lambda a, c: _consolidado("arancel", a, mapping=c.mapping),
     "aum_variacion":           lambda a, c: aum_variacion(a, mapping=c.mapping),

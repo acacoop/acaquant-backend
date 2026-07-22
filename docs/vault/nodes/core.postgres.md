@@ -56,6 +56,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.control_comercial_sql]]  ·  _module_
 - [[api.services.controles_sql]]  ·  _module_
 - [[api.services.copiloto.motor]]  ·  _module_
+- [[api.services.copiloto.navegacion]]  ·  _module_
 - [[api.services.copiloto.renta_fija]]  ·  _module_
 - [[api.services.copiloto.renta_variable]]  ·  _module_
 - [[api.services.copiloto.research]]  ·  _module_

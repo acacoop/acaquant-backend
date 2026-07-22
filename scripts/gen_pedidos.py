@@ -182,31 +182,42 @@ def _render(pedidos: list[dict]) -> str:
     return "\n".join(out)
 
 
-def regenerar(estado: str | None = None) -> int:
-    """Reescribe docs/PEDIDOS.md desde la tabla. Devuelve cuántos pedidos hay.
-    Es función (no solo CLI) para que los jobs la llamen sin lanzar un proceso."""
+def contenido(estado: str | None = None) -> tuple[str, int]:
+    """El markdown del buzón, en memoria. (texto, cantidad de pedidos)."""
     pedidos = _leer(estado)
+    return _render(pedidos), len(pedidos)
+
+
+def regenerar(estado: str | None = None) -> int:
+    """Escribe docs/PEDIDOS.md EN DISCO. Para la máquina de desarrollo.
+
+    En el SERVER no se usa: ver `publicar()`. Dejar el archivo suelto en el
+    checkout de producción bloquea el `git pull` del deploy ("untracked working
+    tree files would be overwritten by merge") — pasó apenas se uso en serio,
+    2026-07-22."""
+    texto, n = contenido(estado)
     with open(SALIDA, "w", encoding="utf-8") as f:
-        f.write(_render(pedidos))
-    return len(pedidos)
+        f.write(texto)
+    return n
 
 
 _RAMA_PUBLICACION = "main"
 
 
-def _git(*args: str, index: str | None = None) -> str:
+def _git(*args: str, index: str | None = None, entrada: bytes | None = None) -> str:
     """git con salida limpia. `index` usa un índice TEMPORAL (GIT_INDEX_FILE):
     lo que se arma ahí no toca el staging real del checkout."""
     env = {**os.environ, "GIT_INDEX_FILE": index} if index else None
     r = subprocess.run(["git", *args], cwd=RAIZ, check=True, capture_output=True,
-                       timeout=120, env=env)
+                       timeout=120, env=env, input=entrada)
     return r.stdout.decode(errors="replace").strip()
 
 
-def publicar() -> str:
-    """Publica docs/PEDIDOS.md en el repo SIN TOCAR el checkout del server.
+def publicar(texto: str | None = None) -> str:
+    """Publica el buzón en el repo SIN TOCAR NADA del checkout del server:
+    ni el working tree, ni la rama, ni el índice, ni el disco.
 
-    Cierra el último eslabón manual: el archivo se genera en el Droplet y
+    Cierra el último eslabón manual: el buzón vive en la DB del Droplet y
     Claude Code lo lee desde el repo. Sin esto había que acordarse de
     commitear, que es el tipo de paso que hace que un circuito automático deje
     de usarse.
@@ -219,18 +230,25 @@ def publicar() -> str:
     código nuevo apareciendo en producción sin que nadie lo decida, y jobs
     posteriores corriendo una versión que nadie revisó ni reinició. No.
 
-    En su lugar se construye el commit "al costado", con plumbing de git:
-    se toma el árbol de `origin/main`, se le cambia UN archivo, y se pushea ese
-    commit. El working tree, la rama local y el índice quedan intactos: el
-    server sigue exactamente en la versión en la que estaba.
+    En su lugar se construye el commit "al costado" con plumbing: se toma el
+    árbol de `origin/main`, se le cambia UN archivo y se pushea ese commit.
 
-    Nunca levanta: si algo falla, el archivo igual quedó escrito en disco."""
+    POR QUÉ TAMPOCO ESCRIBE EN DISCO
+    La primera versión sí escribía, y el archivo quedaba SUELTO (untracked) en
+    el checkout de producción. Resultado: el `git pull` del deploy empezó a
+    abortar con "untracked working tree files would be overwritten by merge" —
+    o sea, el buzón bloqueaba los deploys. El contenido va del SQL al objeto de
+    git por stdin, sin pasar por el filesystem.
+
+    Nunca levanta: si algo falla lo dice y el buzón sigue intacto en la DB."""
     rel = os.path.relpath(SALIDA, RAIZ).replace(os.sep, "/")
     indice_tmp = os.path.join(RAIZ, ".git", "index-pedidos.tmp")
     try:
+        if texto is None:
+            texto, _n = contenido()
         _git("fetch", "origin", _RAMA_PUBLICACION)
         base = _git("rev-parse", f"origin/{_RAMA_PUBLICACION}")
-        blob = _git("hash-object", "-w", rel)
+        blob = _git("hash-object", "-w", "--stdin", entrada=texto.encode("utf-8"))
         # ¿el archivo ya es idéntico al publicado? entonces no hay nada que hacer
         try:
             if _git("rev-parse", f"{base}:{rel}") == blob:
@@ -248,8 +266,8 @@ def publicar() -> str:
     except subprocess.CalledProcessError as e:
         det = (e.stderr or b"").decode(errors="replace").strip().splitlines()
         return ("NO se pudo publicar: " + (det[-1] if det else str(e))
-                + " — el archivo está actualizado en el server; "
-                  "commitealo a mano si querés que Claude lo vea")
+                + " — los pedidos están a salvo en la base; se puede reintentar "
+                  "con: python -m scripts.gen_pedidos --publicar")
     except Exception as e:
         return f"NO se pudo publicar ({type(e).__name__}: {e})"
     finally:
@@ -264,18 +282,24 @@ def main() -> None:
                     help="cambiar el estado de un pedido y regenerar")
     ap.add_argument("--nota", default=None, help="nota de triage (con --marcar)")
     ap.add_argument("--publicar", action="store_true",
-                    help="además commitear y pushear docs/PEDIDOS.md")
+                    help="pushear al repo SIN escribir en disco (modo server)")
     args = ap.parse_args()
 
     if args.marcar:
         _marcar(int(args.marcar[0]), args.marcar[1], args.nota)
 
-    n = regenerar(args.estado)
-    print(f"{n} pedidos → {os.path.relpath(SALIDA, RAIZ)}")
+    # Dos modos EXCLUYENTES a propósito:
+    #   --publicar → va al repo, NO toca el disco (el server: escribir ahí un
+    #                archivo suelto rompe el `git pull` del deploy).
+    #   sin flag   → escribe el archivo (la máquina de desarrollo, para leerlo).
     if args.publicar:
-        print(publicar())
+        texto, n = contenido(args.estado)
+        print(f"{n} pedidos")
+        print(publicar(texto))
     else:
-        print("commiteá el archivo (o usá --publicar) para que Claude lo lea.")
+        n = regenerar(args.estado)
+        print(f"{n} pedidos → {os.path.relpath(SALIDA, RAIZ)}")
+        print("(en el server usá --publicar: no deja el archivo en el checkout)")
 
 
 if __name__ == "__main__":

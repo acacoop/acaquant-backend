@@ -23,8 +23,9 @@ Este doc explica el circuito.
      (humana, siempre)      → jobs/pedidos_inbox.py (cron cada minuto)
                             → estado = aceptado | descartado
 
-  4. la cola                el MISMO job regenera docs/PEDIDOS.md y lo
-     (automática)           commitea+pushea (solo ese archivo)
+  4. la cola                el MISMO job publica docs/PEDIDOS.md en el repo
+     (automática)           (solo ese archivo, y SIN escribirlo en el disco
+                            del server — ver más abajo)
                             → sección 🛠 COLA DE TRABAJO, ordenada por
                               impacto alto / esfuerzo chico
 
@@ -37,8 +38,17 @@ Este doc explica el circuito.
 
 Entre el tap y el trabajo **no queda ningún paso manual**: si la publicación
 quedara a cargo de acordarse de commitear, el circuito se muere ahí. Si el
-server no puede pushear (sin credencial), la aprobación igual quedó guardada y
-el archivo actualizado en disco — se dice en el log y se commitea a mano.
+server no puede pushear (sin credencial), los pedidos siguen a salvo en la base
+y se reintenta con `--publicar`.
+
+> **El server no escribe `docs/PEDIDOS.md` en disco.** El contenido va del SQL
+> al objeto de git por stdin. Suena rebuscado y tiene un motivo medido: la
+> primera versión sí lo escribía, quedaba SUELTO (untracked) en el checkout de
+> producción, y el `git pull` del deploy empezó a abortar con *"untracked
+> working tree files would be overwritten by merge"*. **El buzón bloqueaba los
+> deploys.** Por eso los dos modos del script son excluyentes: `--publicar` va
+> al repo sin tocar el disco (server); sin el flag escribe el archivo (máquina
+> de desarrollo, para leerlo).
 
 ## Las decisiones de diseño (y por qué)
 

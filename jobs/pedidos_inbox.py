@@ -141,11 +141,13 @@ def main() -> None:
         # el tap y el trabajo queda un "acordate de commitear" — que es
         # justamente el paso manual que mata los circuitos automáticos.
         if aplicados:
-            from scripts.gen_pedidos import publicar, regenerar
+            from scripts.gen_pedidos import contenido, publicar
 
             try:
-                run.log(f"docs/PEDIDOS.md regenerado ({regenerar()} pedidos)")
-                run.log(publicar())
+                # publicar SIN escribir en disco: un archivo suelto en el
+                # checkout de producción hace abortar el `git pull` del deploy
+                texto, n = contenido()
+                run.log(f"buzón publicado con {n} pedido(s): {publicar(texto)}")
             except Exception as e:
                 # publicar es un extra: que falle no invalida la aprobación,
                 # que ya quedó guardada en la base.

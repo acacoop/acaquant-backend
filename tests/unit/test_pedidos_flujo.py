@@ -226,6 +226,31 @@ def _git_falso(monkeypatch, salidas=None):
     return corridas
 
 
+def test_publicar_NO_escribe_en_disco(monkeypatch, tmp_path):
+    """REGRESIÓN: la primera versión escribía docs/PEDIDOS.md en el checkout
+    de producción y lo dejaba SUELTO (untracked). Resultado: el `git pull` del
+    deploy empezó a abortar con "untracked working tree files would be
+    overwritten by merge" — el buzón bloqueaba los deploys."""
+    from scripts import gen_pedidos as gp
+
+    _git_falso(monkeypatch, {"rev-parse": b"base123"})
+    monkeypatch.setattr(gp, "SALIDA", str(tmp_path / "PEDIDOS.md"))
+    gp.publicar("# contenido de prueba")
+    assert not (tmp_path / "PEDIDOS.md").exists()
+
+
+def test_publicar_manda_el_contenido_por_stdin(monkeypatch):
+    """El texto va del SQL al objeto de git sin pasar por el filesystem."""
+    from scripts import gen_pedidos as gp
+
+    corridas = _git_falso(monkeypatch, {"rev-parse": b"base123"})
+    gp.publicar("# hola buzón")
+    hash_obj = [c for c in corridas if c[0][1] == "hash-object"]
+    assert hash_obj, "no se creó el blob"
+    assert "--stdin" in hash_obj[0][0]
+    assert hash_obj[0][1]["input"] == "# hola buzón".encode()
+
+
 def test_publicar_NO_toca_el_checkout_de_produccion(monkeypatch):
     """EL punto del diseño. El Droplet es producción y casi siempre está detrás
     de main. La salida fácil ante el rechazo por fast-forward sería que el job
@@ -234,7 +259,7 @@ def test_publicar_NO_toca_el_checkout_de_produccion(monkeypatch):
     from scripts import gen_pedidos as gp
 
     corridas = _git_falso(monkeypatch, {"rev-parse": b"base123"})
-    gp.publicar()
+    gp.publicar("# buzón")
     verbos = [c[0][1] for c in corridas]
 
     # jamás nada que mueva el working tree, la rama o el índice real
@@ -251,7 +276,7 @@ def test_publicar_usa_un_indice_temporal(monkeypatch):
     from scripts import gen_pedidos as gp
 
     corridas = _git_falso(monkeypatch, {"rev-parse": b"base123"})
-    gp.publicar()
+    gp.publicar("# buzón")
     for cmd, kw in corridas:
         if cmd[1] in ("read-tree", "update-index", "write-tree"):
             env = kw.get("env") or {}
@@ -262,15 +287,15 @@ def test_publicar_escribe_un_solo_path(monkeypatch):
     from scripts import gen_pedidos as gp
 
     corridas = _git_falso(monkeypatch, {"rev-parse": b"base123"})
-    gp.publicar()
+    gp.publicar("# buzón")
     escrituras = [c[0] for c in corridas if c[0][1] == "update-index"]
     assert len(escrituras) == 1
     assert escrituras[0][-1].endswith("docs/PEDIDOS.md")
 
 
 def test_publicar_no_revienta_si_no_puede_pushear(monkeypatch):
-    """Sin credencial de push en el server, el archivo igual queda escrito: la
-    publicación es un extra, no puede tumbar la aprobación ya guardada."""
+    """Sin credencial de push en el server no revienta nada: la publicación es
+    un extra, y los pedidos ya están guardados en la base."""
     import subprocess as sp
 
     from scripts import gen_pedidos as gp
@@ -279,7 +304,7 @@ def test_publicar_no_revienta_si_no_puede_pushear(monkeypatch):
         raise sp.CalledProcessError(128, cmd, stderr=b"fatal: could not read Username")
 
     monkeypatch.setattr(sp, "run", _boom)
-    msg = gp.publicar()
+    msg = gp.publicar("# buzón")
     assert "NO se pudo publicar" in msg and "could not read Username" in msg
 
 

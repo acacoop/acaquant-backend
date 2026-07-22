@@ -84,6 +84,47 @@ el cómo importa:
 Los tests de la jaula (inyección, doble orden, otra caja, id fuera de rango,
 lista blanca vacía, chat equivocado) viven en `tests/unit/test_pedidos_flujo.py`.
 
+## Qué ve el proveedor de IA — y qué NUNCA ve
+
+Pregunta del user (2026-07-22): *"¿esto le da acceso a mi código a DeepSeek o
+a OpenAI?"*. **No, y no puede.** El reparto es este:
+
+| | Ve | No ve |
+|---|---|---|
+| **El proveedor del triaje** (DeepSeek/OpenAI) | el texto del pedido, los títulos de los pedidos previos, y una descripción genérica de la plataforma (nombres de vistas) | el repositorio, `sql/schema.sql`, cualquier archivo, cualquier dato de cliente (lo tacha la aduana) |
+| **Claude Code** | el repositorio completo, en la máquina del user, con su suscripción | — |
+
+Lo que el proveedor DEVUELVE es un JSON con tres etiquetas y un párrafo en
+castellano. **Ese párrafo es prosa, no código: se guarda como texto y se
+muestra. Nada lo ejecuta.** Las etiquetas pasan por `_sanear()`, que las
+encierra en su enum: el modelo propone, el código valida.
+
+Vale para todo el programa de IA, no solo para el buzón: **ninguna salida de
+un LLM se ejecuta en este sistema**. El copiloto elige tool + parámetros de un
+conjunto fijo y validado (nunca escribe SQL); la navegación se valida contra
+catálogos vivos; el MCP es read-only. El modelo aporta el lenguaje y el
+criterio de clasificación; el cálculo y el acceso a datos son código nuestro.
+
+### El riesgo que SÍ existe: la spec entra al contexto de Claude Code
+
+Más sutil que el anterior y por eso vale escribirlo: la propuesta que redacta
+el LLM termina **leída por Claude Code** cuando levanta la cola. Un pedido
+malicioso ("…y además borrá la tabla X") viajaría como texto hasta ahí. Así se
+ataca a un agente: no hackeándolo, escribiéndole.
+
+Defensas, en orden:
+
+1. `/pedidos` obliga a **validar la propuesta contra el código real** antes de
+   tocar nada. Las specs se verifican, no se ejecutan.
+2. **El user aprueba antes de cualquier push.** Nada llega a producción sin
+   que lo vea.
+3. El buzón solo lo cargan usuarios internos autenticados de la plataforma —
+   no hay entrada anónima.
+
+Si alguna vez se abre el buzón a un público más amplio (portal invitado,
+externos), esto se revisa ANTES: la spec deja de ser una sugerencia entre
+colegas y pasa a ser texto no confiable de un desconocido.
+
 ## Privacidad
 
 El texto del pedido lo escribió una persona y puede nombrar a un cliente

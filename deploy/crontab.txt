@@ -251,16 +251,6 @@
 # del LLM (guardas: dedup + watermark + presupuesto + severidad). docs/QUANTAI.md.
 */10 * * * * /root/TradingAV/deploy/run_job.sh triage 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.triage'
 
-# ─── BUZÓN DE PEDIDOS — lo que la mesa le pide al copiloto, triado y aprobable
-# desde el celular. Dos piezas (docs/PEDIDOS_FLUJO.md):
-#   1) triaje 1×/día 12:30 UTC (9:30 ART): duplicados + impacto/esfuerzo + una
-#      propuesta técnica, y manda UN mensaje con botones ✅/❌. Solo gasta
-#      tokens si hay pedidos nuevos sin triar; un día sin pedidos = 0 tokens.
-#   2) inbox cada minuto: recoge los taps y mueve el estado. Es una sola
-#      llamada HTTP SALIENTE (getUpdates) — sin webhook, sin puerto abierto.
-30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh pedidos_triage 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.pedidos_triage'
-* * * * * /root/TradingAV/deploy/run_job.sh pedidos_inbox 2m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.pedidos_inbox'
-
 # ─── Research diario por mail (QuantAI P6) — ingesta IMAP + destilado LLM → ia.research
 # Cada 30 min a la mañana L-V (el mail llega temprano ART): dedup por Message-ID
 # → re-correr no duplica ni re-gasta tokens; un run sin mail nuevo = 0 tokens.

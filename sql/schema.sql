@@ -1458,45 +1458,12 @@ CREATE TABLE IF NOT EXISTS manager.pedidos (
     titulo     text,                     -- normalizado por el modelo (revisable de un vistazo)
     texto      text NOT NULL,            -- lo que escribió la persona, textual
     contexto   text,                     -- la pregunta previa, si venía de una conversación
-    estado     text NOT NULL DEFAULT 'nuevo',  -- nuevo | triado | aceptado | descartado | hecho
+    estado     text NOT NULL DEFAULT 'nuevo',  -- nuevo | aceptado | descartado | hecho
     notas      text,                     -- triage a mano (o desde el export)
-    traza_id   bigint,                   -- la llamada donde se pidió (ia.trazas)
-    -- TRIAJE AUTOMÁTICO (jobs/pedidos_triage.py): lo que el LLM agrega antes
-    -- de que el humano decida. `spec` es lo que hace aprobable un pedido de un
-    -- vistazo: qué habría que hacer y dónde, no solo qué pidieron.
-    impacto      text,                   -- alto | medio | bajo
-    esfuerzo     text,                   -- chico | medio | grande
-    spec         text,                   -- propuesta técnica corta (la escribe el LLM)
-    duplicado_de bigint REFERENCES manager.pedidos (id),  -- mismo pedido ya registrado
-    triado_at    timestamptz,
-    -- APROBACIÓN (jobs/pedidos_inbox.py — botones de Telegram, o a mano)
-    decidido_por text,                   -- quién dio el OK (telegram id o email)
-    decidido_at  timestamptz
+    traza_id   bigint                    -- la llamada donde se pidió (ia.trazas)
 );
--- Las columnas del triaje/aprobación se agregaron después de crear la tabla:
--- CREATE TABLE IF NOT EXISTS no toca una tabla que ya existe, así que sin
--- estos ALTER la tabla vieja se quedaba sin ellas (2026-07-22).
-ALTER TABLE manager.pedidos ADD COLUMN IF NOT EXISTS impacto      text;
-ALTER TABLE manager.pedidos ADD COLUMN IF NOT EXISTS esfuerzo     text;
-ALTER TABLE manager.pedidos ADD COLUMN IF NOT EXISTS spec         text;
-ALTER TABLE manager.pedidos ADD COLUMN IF NOT EXISTS duplicado_de bigint;
-ALTER TABLE manager.pedidos ADD COLUMN IF NOT EXISTS triado_at    timestamptz;
-ALTER TABLE manager.pedidos ADD COLUMN IF NOT EXISTS decidido_por text;
-ALTER TABLE manager.pedidos ADD COLUMN IF NOT EXISTS decidido_at  timestamptz;
 CREATE INDEX IF NOT EXISTS ix_pedidos_estado ON manager.pedidos (estado, ts DESC);
 CREATE INDEX IF NOT EXISTS ix_pedidos_ts     ON manager.pedidos (ts DESC);
--- la cola del triaje: los que entraron y todavía no se miraron
-CREATE INDEX IF NOT EXISTS ix_pedidos_sin_triar ON manager.pedidos (ts)
-    WHERE triado_at IS NULL;
-
--- Cursor de lectura de Telegram (jobs/pedidos_inbox.py). Telegram entrega los
--- updates una sola vez si se confirma el offset; guardarlo acá hace que el job
--- sea idempotente y que un reinicio no re-procese aprobaciones viejas.
-CREATE TABLE IF NOT EXISTS manager.telegram_cursor (
-    id      text PRIMARY KEY,            -- 'pedidos'
-    offset_ bigint NOT NULL,
-    ts      timestamptz NOT NULL DEFAULT now()
-);
 
 -- ── ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md) ────────────────────────
 -- Mapping ficha↔identidad de la ADUANA (core/pii_gateway.py). Es la tabla de

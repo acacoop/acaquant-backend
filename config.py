@@ -47,12 +47,6 @@ API_PROFILING = os.getenv("API_PROFILING", "").strip().lower() in ("1", "true", 
 # un SECRETO → va en env (.env / systemd unit), nunca en el repo.
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
-# Quiénes pueden APROBAR pedidos desde Telegram (ids numéricos, coma-separados).
-# Lista blanca EXPLÍCITA: vacía = nadie aprueba desde Telegram (default-deny).
-# El id propio lo dice el bot al recibir un tap de alguien no autorizado.
-TELEGRAM_ADMIN_IDS = tuple(
-    i.strip() for i in os.getenv("TELEGRAM_ADMIN_IDS", "").split(",") if i.strip()
-)
 
 # --- MCP server (Model Context Protocol) ---
 # Auth en /mcp tiene 2 caminos:

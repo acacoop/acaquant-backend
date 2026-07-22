@@ -1,62 +1,26 @@
 """Notificaciones operativas (Telegram).
 
-Vía de salida principal: el server le manda mensajes a Telegram. Pensado para
-alertas de jobs/incidentes.
-
-⚠ AMPLIACIÓN 2026-07-22 (buzón de pedidos): el server ahora también LEE de
-Telegram, para poder aprobar un pedido con un tap. La postura de seguridad se
-mantiene, y el cómo importa:
-
-- **Sigue sin haber puerta de entrada.** Se usa `getUpdates` (consulta
-  SALIENTE del server), no un webhook: Telegram nunca inicia una conexión y no
-  se abre ningún puerto. Si el server está caído, no pasa nada.
-- **Lo que llega no es un comando, es un voto.** Lo único que un update puede
-  producir es el cambio de estado de UN pedido a aceptado/descartado. No hay
-  texto libre interpretado, no hay shell, no hay SQL armado con el contenido.
-- **Lista blanca explícita** (`TELEGRAM_ADMIN_IDS`) + chat fijo. Vacía = nadie
-  aprueba desde Telegram. Default-deny.
-- La regla vieja sigue en pie: las alertas llevan METADATA, jamás datos de
-  clientes.
+Vía de salida de UNA mano: el server le manda mensajes a Telegram; Telegram
+NUNCA entra al server. Pensado para alertas de jobs/incidentes.
 
 REGLA: las alertas llevan METADATA operativa (qué se rompió), NUNCA datos
 de clientes (nombres, cuentas, posiciones, montos) ni secretos. El detalle
-completo queda en `manager.job_runs`, privado; la alerta solo avisa.
+completo queda en Mongo (Manager.JobRuns), privado; la alerta solo avisa.
 
-Config (env, ver config.py): TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (+
-TELEGRAM_ADMIN_IDS para aprobar). Si falta token/chat queda deshabilitado
-(no-op silencioso). Nunca lanza excepción — un fallo al notificar no debe
-tumbar el job que lo llamó.
+Config (env, ver config.py): TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID. Si
+falta cualquiera, queda deshabilitado (no-op silencioso). Nunca lanza
+excepción — un fallo al notificar no debe tumbar el job que lo llamó.
 """
 from __future__ import annotations
 
 import logging
 
-from config import TELEGRAM_ADMIN_IDS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 logger = logging.getLogger(__name__)
 
 _TIMEOUT_S = 5
 _MAX_LEN = 3500  # Telegram corta a 4096; dejamos margen.
-
-
-def _api(metodo: str, payload: dict, *, timeout: int = _TIMEOUT_S) -> dict | None:
-    """Una llamada a la API del bot. None si no hay credencial o falló — nunca
-    propaga excepción (mismo contrato que el resto del módulo)."""
-    if not TELEGRAM_BOT_TOKEN:
-        return None
-    try:
-        import requests
-
-        resp = requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{metodo}",
-                             json=payload, timeout=timeout)
-        if resp.status_code != 200:
-            logger.warning("Telegram %s HTTP %s: %s", metodo, resp.status_code,
-                           resp.text[:200])
-            return None
-        return resp.json()
-    except Exception as e:
-        logger.warning("Telegram %s falló: %s", metodo, e)
-        return None
 
 
 def send_telegram(text: str, *, markdown: bool = True) -> bool:
@@ -114,93 +78,3 @@ def notify_job_failure(
         lines.append(f"último: `{snippet}`")
     lines.append("_detalle en Manager.JobRuns_")
     return send_telegram("\n".join(lines))
-
-
-# ── Aprobación con botones (buzón de pedidos) ────────────────────────────────
-#
-# Ver la nota de seguridad del encabezado: esto NO abre una puerta al server.
-# `botones` es una lista de filas, cada fila una lista de (texto, dato). El
-# `dato` vuelve tal cual cuando alguien toca el botón — se mantiene corto y
-# estructurado ("<accion>:<id>"), nunca texto libre.
-
-def send_telegram_botones(text: str, botones: list[list[tuple[str, str]]],
-                          *, markdown: bool = True) -> bool:
-    """Mensaje con teclado inline. True si se envió."""
-    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
-        return False
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text[:_MAX_LEN],
-        "disable_web_page_preview": True,
-        "reply_markup": {"inline_keyboard": [
-            [{"text": t, "callback_data": d[:64]} for t, d in fila] for fila in botones
-        ]},
-    }
-    if markdown:
-        payload["parse_mode"] = "Markdown"
-    return _api("sendMessage", payload) is not None
-
-
-def leer_taps(offset: int | None = None) -> tuple[list[dict], int | None]:
-    """Lee los TAPS de botones pendientes. Devuelve (taps, nuevo_offset).
-
-    Cada tap: {callback_id, dato, quien, autorizado, mensaje_id}. El filtro de
-    autorización se resuelve ACÁ (chat fijo + lista blanca de ids) para que
-    ningún caller pueda olvidárselo: si `autorizado` es False, el caller debe
-    limitarse a responderle que no puede.
-
-    Solo mira `callback_query` — los mensajes de texto que le manden al bot se
-    IGNORAN por completo. Menos superficie: no hay comandos que interpretar."""
-    r = _api("getUpdates", {"timeout": 0, "allowed_updates": ["callback_query"],
-                            **({"offset": offset} if offset is not None else {})},
-             timeout=10)
-    if not r or not r.get("ok"):
-        return [], offset
-    taps, ultimo = [], offset
-    for up in r.get("result") or []:
-        ultimo = int(up["update_id"]) + 1
-        cq = up.get("callback_query") or {}
-        if not cq:
-            continue
-        quien = str((cq.get("from") or {}).get("id") or "")
-        chat = str(((cq.get("message") or {}).get("chat") or {}).get("id") or "")
-        taps.append({
-            "callback_id": cq.get("id"),
-            "dato": str(cq.get("data") or ""),
-            "quien": quien,
-            "autorizado": bool(quien and quien in TELEGRAM_ADMIN_IDS
-                               and chat == str(TELEGRAM_CHAT_ID)),
-            "mensaje_id": (cq.get("message") or {}).get("message_id"),
-        })
-    return taps, ultimo
-
-
-def responder_tap(callback_id: str, texto: str) -> bool:
-    """Confirma el tap (Telegram muestra un aviso arriba y saca el reloj del
-    botón). Sin esto el botón queda 'cargando' para siempre.
-
-    El aviso es COSMÉTICO: lo que importa (el cambio de estado) ya se hizo. Si
-    el tap es viejo Telegram rechaza la confirmación con 400 'query is too old'
-    — pasa cada vez que el job corre un rato después del tap, es esperable, y
-    loguearlo como WARNING en un cron de cada minuto solo ensucia. Se degrada a
-    debug: el resultado igual vuelve False y el caller decide."""
-    if not TELEGRAM_BOT_TOKEN:
-        return False
-    try:
-        import requests
-
-        resp = requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery",
-            json={"callback_query_id": callback_id, "text": texto[:200]},
-            timeout=_TIMEOUT_S)
-        if resp.status_code == 200:
-            return True
-        if "query is too old" in resp.text or "query ID is invalid" in resp.text:
-            logger.debug("Telegram: tap viejo, sin confirmación visual (esperado)")
-            return False
-        logger.warning("Telegram answerCallbackQuery HTTP %s: %s",
-                       resp.status_code, resp.text[:200])
-        return False
-    except Exception as e:
-        logger.warning("Telegram answerCallbackQuery falló: %s", e)
-        return False

@@ -95,15 +95,6 @@ _TAREAS: dict[str, dict] = {
     "asistente_negocio": {"tier": "flash", "proveedor": "openai",
                           "max_tokens": 3000, "timeout_s": 90,
                           "thinking": "disabled"},
-    # BUZÓN DE PEDIDOS (jobs/pedidos_triage.py): toma UN pedido de producto tal
-    # como lo dijo la mesa y devuelve JSON {duplicado_de, impacto, esfuerzo,
-    # spec}. Es clasificación + una propuesta técnica corta, no razonamiento
-    # pesado → flash sin thinking. El texto del pedido puede nombrar a un
-    # cliente ("no encuentro las operaciones de Fulano") y por eso pasa por la
-    # ADUANA antes de salir: mismo criterio que el asistente, pero acá lo que
-    # viaja es una frase de producto, no los números del negocio.
-    "triage_pedido": {"tier": "flash", "max_tokens": 1200, "timeout_s": 90,
-                      "thinking": "disabled"},
 }
 
 _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60, "thinking": "disabled"}

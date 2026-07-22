@@ -59,6 +59,14 @@ _PARAMS_CONSOLIDADO = {
                          "description": "Filtrar a UN cliente por su referencia "
                                         "(CLIENTE_1). Es lo que responde '¿cuánto "
                                         "operó tal cliente?' (opcional)."},
+        "cartera": {"type": "string",
+                    "description": "Filtrar a una cartera del título (HD, DL, ARS, "
+                                   "FCI…) (opcional)."},
+        "moneda": {"type": "string", "enum": ["ARS", "USD"],
+                   "description": "Moneda del resultado (default ARS). USD convierte "
+                                  "CADA boleto con el tipo de cambio de SU día, no con "
+                                  "una cotización de hoy — por eso sí se puede "
+                                  "dolarizar un período largo."},
     },
     "required": ["desde", "hasta", "por"],
 }
@@ -101,6 +109,33 @@ TOOLS: list[dict] = [
                     },
                 },
                 "required": ["ficha_cuenta"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "aum_historico",
+            "description": (
+                "EVOLUCIÓN del AuM en un período, con promedio, mediana, mínimo y "
+                "máximo sobre los cierres diarios. Usala para '¿cuál fue el AuM "
+                "promedio de FCI en junio?', 'la mediana del mes', 'cómo evolucionó "
+                "el AuM'. Se puede acotar a una cartera (HD, DL, ARS, FCI…) y/o a un "
+                "cliente. OJO: resumen_mesa da el AuM de HOY; esta da la HISTORIA."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "desde": {"type": "string", "description": "Fecha inicial YYYY-MM-DD."},
+                    "hasta": {"type": "string", "description": "Fecha final YYYY-MM-DD."},
+                    "cartera": {"type": "string",
+                                "description": "Acotar a una cartera del título "
+                                               "(HD, DL, ARS, FCI…) (opcional)."},
+                    "ficha_cuenta": {"type": "string",
+                                     "description": "Acotar a un cliente por su "
+                                                    "referencia (CLIENTE_1) (opcional)."},
+                },
+                "required": ["desde", "hasta"],
             },
         },
     },
@@ -217,14 +252,14 @@ def _pnl_cuenta(id_cuenta: str) -> dict | None:
 
 # ── Formato (números legibles, sin identidades) ──────────────────────────────
 
-def _monto(v: float | None) -> str:
+def _monto(v: float | None, moneda: str = "ARS") -> str:
     if v is None:
         return "sin dato"
     if abs(v) >= 1e9:
-        return f"{v / 1e9:.2f} mil millones ARS"
+        return f"{v / 1e9:.2f} mil millones {moneda}"
     if abs(v) >= 1e6:
-        return f"{v / 1e6:.1f} millones ARS"
-    return f"{v:.0f} ARS"
+        return f"{v / 1e6:.1f} millones {moneda}"
+    return f"{v:.0f} {moneda}"
 
 
 # ── Las tools ────────────────────────────────────────────────────────────────
@@ -277,6 +312,69 @@ def rendimiento_cuenta(ficha_cuenta: str, *, mapping: dict) -> str:
     return "\n".join(lineas)
 
 
+def _aum_serie_diaria(desde: str, hasta: str, cartera: str | None,
+                      id_cuenta: str | None) -> list[tuple[str, float]]:
+    """AuM valorizado POR DÍA en [desde, hasta]. `portafolio.tenencia` es un
+    snapshot diario (writer 11 UTC) con `cartera` propia → la evolución y sus
+    estadísticas salen de ahí. Mismo filtro que el AuM: aum='si'."""
+    cond = ["fecha BETWEEN %(d)s AND %(h)s", "aum = 'si'"]
+    p: dict = {"d": desde, "h": hasta}
+    if cartera:
+        cond.append("cartera = %(c)s")
+        p["c"] = cartera
+    if id_cuenta:
+        cond.append("id_cuenta = %(idc)s")
+        p["idc"] = id_cuenta
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT fecha, coalesce(sum(valuacion), 0) AS v FROM portafolio.tenencia "
+            f"WHERE {' AND '.join(cond)} GROUP BY fecha ORDER BY fecha", p)
+        return [(str(f), float(v or 0)) for f, v in cur.fetchall()]
+
+
+def aum_historico(args: dict, *, mapping: dict) -> str:
+    """Evolución del AuM en un período + promedio, mediana, mínimo y máximo.
+    Responde "¿cuál fue el AuM promedio de FCI en junio?" — que NO es el AuM
+    de hoy (resumen_mesa) ni el volumen operado."""
+    import statistics
+
+    from api.services.copiloto.navegacion import clasificar_persona
+
+    desde, hasta = str(args.get("desde", "")), str(args.get("hasta", ""))
+    if not desde or not hasta:
+        return "necesito el período (desde y hasta, en formato YYYY-MM-DD)"
+    id_cuenta = None
+    ficha = str(args.get("ficha_cuenta") or "").strip()
+    if ficha:
+        quien = clasificar_persona(ficha, mapping)
+        if not quien["cuenta"]:
+            return (f"no encontré la cuenta {ficha} — pedile el número de cuenta "
+                    "o el nombre como figura")
+        id_cuenta = pii_gateway.id_cuenta_de_ficha(ficha, mapping)
+        if not id_cuenta:
+            return f"no pude resolver la cuenta {ficha} a un número de cuenta"
+    cartera = str(args.get("cartera") or "").strip() or None
+
+    serie = _aum_serie_diaria(desde, hasta, cartera, id_cuenta)
+    if not serie:
+        return (f"no hay snapshots de tenencia entre {desde} y {hasta}"
+                + (f" para la cartera {cartera}" if cartera else "")
+                + " — puede que el período sea anterior al primer cierre guardado")
+    valores = [v for _f, v in serie]
+    etiqueta = f"AuM{f' de {cartera}' if cartera else ''}{' de ' + ficha if ficha else ''}"
+    mn = min(serie, key=lambda x: x[1])
+    mx = max(serie, key=lambda x: x[1])
+    return "\n".join([
+        f"[{etiqueta} — {desde} a {hasta}, {len(serie)} días con snapshot]",
+        f"  promedio: {_monto(statistics.fmean(valores))}",
+        f"  mediana:  {_monto(statistics.median(valores))}",
+        f"  mínimo:   {_monto(mn[1])} ({mn[0]})",
+        f"  máximo:   {_monto(mx[1])} ({mx[0]})",
+        f"  primero:  {_monto(valores[0])} ({serie[0][0]})",
+        f"  último:   {_monto(valores[-1])} ({serie[-1][0]})",
+    ])
+
+
 def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
     """volumen_operado / aranceles_consolidado — envuelven ops_consolidado
     (api/services/operaciones_sql.py): MISMO _ops_where que la vista, con las
@@ -314,6 +412,7 @@ def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
             return (f"no encontré la cuenta {ficha_cta} — pedile al usuario el número "
                     "de cuenta o el nombre como figura")
         denominacion = quien["cuenta"]
+    moneda = str(args.get("moneda") or "ARS").upper()
     r = operaciones_sql.ops_consolidado(
         metrica=metrica,
         desde=str(args.get("desde", "")), hasta=str(args.get("hasta", "")),
@@ -322,6 +421,8 @@ def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
         excluir_segmento=(str(args["excluir_segmento"])
                           if args.get("excluir_segmento") else None),
         operador_sel=operador_sel, denominacion=denominacion,
+        cartera_filtro=(str(args["cartera"]) if args.get("cartera") else None),
+        moneda=moneda if moneda in ("ARS", "USD") else "ARS",
     )
     if r.get("error"):
         return r["error"]
@@ -329,6 +430,8 @@ def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
         return (f"sin operaciones para ese corte ({r['desde']} a {r['hasta']}, "
                 f"por {r['por']})")
     titulo = "volumen bruto" if metrica == "bruto" else "aranceles"
+    if moneda == "USD":
+        titulo += " (convertido a USD con el TC de cada boleto)"
     por_operador = r["por"] == "operador"
     lineas = [f"[{titulo} por {r['por']} — {r['desde']} a {r['hasta']}, {r['moneda']}]"]
     for f in r["filas"]:
@@ -337,9 +440,9 @@ def _consolidado(metrica: str, args: dict, *, mapping: dict) -> str:
             # identidad de EMPLEADO → ficha directa (el LLM jamás ve el nombre)
             clave = pii_gateway.asignar_ficha(mapping, "OPERADOR", clave)
         pct = 100 * f["valor"] / r["total"] if r["total"] else 0
-        lineas.append(f"  - {clave}: {_monto(f['valor'])} "
+        lineas.append(f"  - {clave}: {_monto(f['valor'], r['moneda'])} "
                       f"({pct:.1f}%) · {f['n']} boletos")
-    lineas.append(f"TOTAL: {_monto(r['total'])}")
+    lineas.append(f"TOTAL: {_monto(r['total'], r['moneda'])}")
     return "\n".join(lineas)
 
 
@@ -400,6 +503,8 @@ def ejecutar(nombre: str, args: dict, *, mapping: dict) -> str:
             crudo = resumen_mesa()
         elif nombre == "quien_es":
             crudo = quien_es(str(args.get("ficha", "")), mapping=mapping)
+        elif nombre == "aum_historico":
+            crudo = aum_historico(args, mapping=mapping)
         elif nombre == "rendimiento_cuenta":
             crudo = rendimiento_cuenta(str(args.get("ficha_cuenta", "")), mapping=mapping)
         elif nombre == "volumen_operado":

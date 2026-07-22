@@ -223,6 +223,31 @@ def test_texto_de_usuario_no_rompe_decimales(monkeypatch):
     assert "805" not in limpio        # la cuenta pelada SÍ se tacha
 
 
+def test_las_fechas_no_se_rompen(monkeypatch):
+    """Caso real 2026-07-21: 'al 31/05/2026' salió como 'al CTA_2/05/2026'
+    porque 31 era un id de cuenta. Una fecha no identifica a nadie; romperla
+    sí arruina la respuesta (el modelo recibe un período corrupto)."""
+    cat = {**CATALOGO_FAKE, "ids": {"31", "5", "2026", "1", "805"}}
+    monkeypatch.setattr(pg, "_catalogo", lambda: cat)
+    for texto in (
+        "aranceles desde 01/06/2025 al 31/05/2026",
+        "del 2026-05-31 al 2026-06-30",
+        "el mes de junio 2026",
+        "desde el 31 de mayo de 2026",
+        "entre 05/2026 y 06/2026",
+    ):
+        limpio, _m = pg.tokenize(texto)
+        assert limpio == texto, f"la aduana rompió una fecha: {limpio!r}"
+
+
+def test_cuenta_pelada_sigue_tachandose_fuera_de_fechas(monkeypatch):
+    """El fix de fechas no puede abrir la puerta: un id suelto se sigue tachando."""
+    cat = {**CATALOGO_FAKE, "ids": {"31", "805"}}
+    monkeypatch.setattr(pg, "_catalogo", lambda: cat)
+    limpio, _m = pg.tokenize("mirá la cuenta 805 y también 31")
+    assert "805" not in limpio and "CTA_" in limpio
+
+
 def test_vocabulario_protegido_no_se_tacha(monkeypatch):
     """Incidente real (2026-07-21): en una tabla de aranceles los TIPOS DE
     OPERACIÓN salieron como CLIENTE_12 porque compartían una palabra con el

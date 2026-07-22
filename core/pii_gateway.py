@@ -273,6 +273,16 @@ def _mapping_nuevo() -> dict:
     return {"fichas": {}, "valores": {}, "contadores": {}}
 
 
+def _normalizar_mapping(mapping: dict | None) -> dict:
+    """Un mapping incompleto (ej. solo {'fichas': …}) no puede hacer que la
+    aduana retenga todo el texto: se completan las claves que falten."""
+    m = mapping if isinstance(mapping, dict) else {}
+    for clave in ("fichas", "valores", "contadores"):
+        if not isinstance(m.get(clave), dict):
+            m[clave] = {}
+    return m
+
+
 def _asignar_ficha(mapping: dict, tipo: str, valor_original: str) -> str:
     """Ficha ESTABLE: el mismo valor (normalizado) recibe siempre la misma
     ficha dentro del mapping. La primera forma vista queda como canónica
@@ -312,6 +322,17 @@ _CUIT_RE = re.compile(r"\b\d{2}-?\d{7,9}-?\d\b")
 # 605.25 viajó como CTA_10.CTA_9 porque "605" y "25"... eran ids de cuenta)
 _DIGITOS_LARGOS_RE = re.compile(r"(?<![\d.,])\d{7,11}(?![\d.,])")
 _NUM_PELADO_RE = re.compile(r"(?<![\d.,])\d{1,6}(?![\d.,%])")
+# FECHAS y AÑOS: intocables SIEMPRE. Un "31/05/2026" tiene tres números que
+# pueden coincidir con ids de cuenta y la aduana los tachaba, dejándole al
+# modelo una fecha corrupta ("al CTA_2/05/2026" — caso real 2026-07-21). Una
+# fecha no identifica a nadie; romperla sí arruina la respuesta.
+_FECHA_RE = re.compile(
+    r"\b\d{1,2}\s*[/-]\s*\d{1,2}\s*[/-]\s*\d{2,4}\b"      # 31/05/2026 · 31-5-26
+    r"|\b\d{4}\s*-\s*\d{1,2}\s*-\s*\d{1,2}\b"              # 2026-05-31
+    r"|\b\d{1,2}\s*[/-]\s*\d{4}\b"                         # 05/2026
+    r"|\b(?:19|20)\d{2}\b"                                 # el año suelto
+    r"|\b\d{1,2}\s+de\s+[a-záéíóú]+(?:\s+de\s+\d{4})?\b",  # 31 de mayo (de 2026)
+    re.IGNORECASE)
 _CUENTA_KEYWORD_RE = re.compile(
     r"\b(?:cuenta|comitente|cta|cte)\.?\s*(?:n[°ºo]?\.?\s*)?(\d{1,8})\b", re.IGNORECASE)
 # "dni 20.123.456", "cuit 20-12345678-9": el keyword es la señal — un número
@@ -521,7 +542,7 @@ def tokenize(texto: str, mapping: dict | None = None,
     tipos de operación, mercados, segmentos…) — el caller los garantiza.
     NUNCA levanta: ante error interno devuelve el texto ÍNTEGRAMENTE tachado
     (fail-closed: jamás dejar pasar texto sin procesar)."""
-    mapping = mapping if mapping is not None else _mapping_nuevo()
+    mapping = _normalizar_mapping(mapping if mapping is not None else _mapping_nuevo())
     if not texto:
         return texto or "", mapping
     try:
@@ -533,6 +554,7 @@ def tokenize(texto: str, mapping: dict | None = None,
         # Tramos intocables: fichas ya presentes (texto re-tokenizado) y el
         # vocabulario del sistema que el caller protege explícitamente.
         intocables = [(m.start(), m.end()) for m in _FICHA_RE.finditer(texto)]
+        intocables += [(m.start(), m.end()) for m in _FECHA_RE.finditer(texto)]
         intocables += _spans_protegidos(texto, protegidos)
         spans = [s for s in spans
                  if all(s[1] <= f0 or s[0] >= f1 for f0, f1 in intocables)]

@@ -144,7 +144,7 @@ def test_token_out_tacha_identidad_que_colara(monkeypatch):
 def test_schemas_declarados():
     nombres = {t["function"]["name"] for t in at.TOOLS}
     assert nombres == {"resumen_mesa", "rendimiento_cuenta", "quien_es",
-                       "volumen_operado", "aranceles_consolidado"}
+                       "aum_historico", "volumen_operado", "aranceles_consolidado"}
     rc = next(t for t in at.TOOLS if t["function"]["name"] == "rendimiento_cuenta")
     assert "ficha_cuenta" in rc["function"]["parameters"]["properties"]
     vo = next(t for t in at.TOOLS if t["function"]["name"] == "volumen_operado")
@@ -196,6 +196,66 @@ def test_aranceles_consolidado_usa_metrica_arancel(monkeypatch):
                     mapping={"fichas": {}})
     assert capturado["metrica"] == "arancel"
     assert "aranceles por mercado" in r and "5.0 millones" in r
+
+
+def test_consolidado_dolariza(monkeypatch):
+    """Caso real: pidió el cuadro dolarizado y el asistente dijo 'no tengo
+    cotización'. SÍ se puede: cada boleto guarda su propio TC."""
+    capturado = _mock_consolidado(monkeypatch, {
+        "metrica": "arancel", "por": "operacion", "desde": "2025-07-01",
+        "hasta": "2026-06-30", "moneda": "USD",
+        "filas": [{"clave": "Ventas Futuros A3", "valor": 2_000_000.0, "n": 10}],
+        "total": 2_000_000.0,
+    })
+    r = at.ejecutar("aranceles_consolidado",
+                    {"desde": "2025-07-01", "hasta": "2026-06-30",
+                     "por": "operacion", "moneda": "USD"}, mapping={"fichas": {}})
+    assert capturado["moneda"] == "USD"
+    assert "USD" in r and "ARS" not in r          # la unidad acompaña al número
+    assert "TC de cada boleto" in r               # y se explica de dónde sale
+
+
+def test_consolidado_moneda_invalida_cae_a_ars(monkeypatch):
+    capturado = _mock_consolidado(monkeypatch, {
+        "metrica": "bruto", "por": "mercado", "desde": "2026-01-01",
+        "hasta": "2026-01-31", "moneda": "ARS", "filas": [], "total": 0.0})
+    at.ejecutar("volumen_operado", {"desde": "2026-01-01", "hasta": "2026-01-31",
+                                    "por": "mercado", "moneda": "EUR"},
+                mapping={"fichas": {}})
+    assert capturado["moneda"] == "ARS"
+
+
+# ── AuM histórico (la tool que faltaba: promedio/mediana de un período) ─────
+
+def test_aum_historico_calcula_estadisticas(monkeypatch):
+    serie = [("2026-06-01", 100.0), ("2026-06-02", 300.0), ("2026-06-03", 200.0)]
+    capturado = {}
+
+    def fake(desde, hasta, cartera, id_cuenta):
+        capturado.update(desde=desde, hasta=hasta, cartera=cartera, id_cuenta=id_cuenta)
+        return serie
+
+    monkeypatch.setattr(at, "_aum_serie_diaria", fake)
+    r = at.ejecutar("aum_historico",
+                    {"desde": "2026-06-01", "hasta": "2026-06-30", "cartera": "FCI"},
+                    mapping={"fichas": {}})
+    assert capturado["cartera"] == "FCI" and capturado["id_cuenta"] is None
+    assert "promedio: 200 ARS" in r        # (100+300+200)/3
+    assert "mediana:  200 ARS" in r
+    assert "máximo:   300 ARS (2026-06-02)" in r
+    assert "3 días con snapshot" in r
+
+
+def test_aum_historico_sin_datos_lo_dice(monkeypatch):
+    monkeypatch.setattr(at, "_aum_serie_diaria", lambda *a: [])
+    r = at.ejecutar("aum_historico", {"desde": "2019-01-01", "hasta": "2019-01-31"},
+                    mapping={"fichas": {}})
+    assert "no hay snapshots" in r
+
+
+def test_aum_historico_sin_periodo():
+    r = at.ejecutar("aum_historico", {"cartera": "FCI"}, mapping={"fichas": {}})
+    assert "necesito el período" in r
 
 
 def test_consolidado_dimension_invalida_es_jaula():

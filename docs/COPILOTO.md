@@ -117,6 +117,36 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-21 — v1.88 (revisión de una conversación REAL que salió mal: 4 fixes)
+El user trajo 12 trazas de una charla de la mesa ("se volvió horrible desde el
+segundo mensaje"). Leerla entera dio cuatro problemas, tres de ellos por
+herramientas faltantes — el modelo se comportó bien con lo que tenía:
+- **[aduana, GRAVE] las FECHAS se rompían**: "al 31/05/2026" salió como "al
+  CTA_2/05/2026" porque `31` era un id de cuenta. El modelo recibió un período
+  corrupto (acertó de casualidad). Fix: fechas y años son INTOCABLES siempre
+  (dd/mm/aaaa, aaaa-mm-dd, mm/aaaa, "31 de mayo de 2026", año suelto). Un id
+  pelado fuera de una fecha se sigue tachando — test que congela las dos cosas.
+- **[tool] "no tengo cotización para dolarizar" era MENTIRA**: cada boleto
+  guarda su propio MEP y el SQL ya dolarizaba; faltaba exponer `moneda` en las
+  tools de volumen y aranceles. Ahora se puede dolarizar un período largo
+  (cada operación con el TC de SU día, no una cotización de hoy) y la unidad
+  acompaña a cada número.
+- **[tool +] `aum_historico`**: promedio, mediana, mín, máx y puntas de la
+  evolución del AuM en un período, opcional por cartera y por cliente. El
+  usuario lo pidió tres veces ("mediana y promedio del AuM de FCI en junio") y
+  la respuesta fue "no tengo" — pero `portafolio.tenencia` ES un snapshot
+  diario con cartera. Se distingue de `resumen_mesa` (que es el AuM de HOY).
+- **[reglas] NUNCA DEJES AL USUARIO EN UN CALLEJÓN**: si no podés dar lo
+  pedido, ofrecé lo más cercano que SÍ tenés o preguntá lo que falta. Tres "no
+  puedo" seguidos son una conversación fallida aunque cada respuesta sea
+  correcta. + la regla de moneda y el ruteo AuM-histórico vs AuM-de-hoy.
+- **[robustez]** un mapping incompleto ya no hace que la aduana retenga todo
+  el texto (se completan las claves faltantes).
+- **[tooling] `diag_ia_trazas --full`**: imprime las últimas N llamadas
+  ENTERAS y en orden cronológico. El resumen corta a 52 chars: sirve para ver
+  QUÉ pasó, no para juzgar CÓMO respondió — sin esto no se detectaba nada de
+  lo de arriba.
+
 ### 2026-07-21 — v1.87 (BUZÓN DE PEDIDOS: la mesa le pide mejoras al copiloto)
 Idea del user: que la IA reciba sugerencias/faltantes/bugs y queden guardados
 para revisarlos. Decisiones suyas: entra SOLO por el chat (cero fricción — se

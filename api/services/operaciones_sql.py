@@ -404,7 +404,8 @@ def ops_consolidado(
     metrica: str, desde: str, hasta: str, por: str = "mercado",
     moneda: str = "ARS", mercado: str | None = None,
     excluir_segmento: str | None = None, operador_sel: str | None = None,
-    denominacion: str | None = None, top: int = 25,
+    denominacion: str | None = None, cartera_filtro: str | None = None,
+    top: int = 25,
 ) -> dict:
     """Consolidado de VOLUMEN ('bruto') o ARANCELES ('arancel') agrupado por
     una dimensión, en [desde, hasta]. MISMAS reglas que la vista Operaciones
@@ -422,10 +423,12 @@ def ops_consolidado(
         return {"error": f"dimension invalida: {por!r} (validas: "
                          f"{sorted([*_DIMENSIONES_CONSOLIDADO, 'operador'])})"}
     if metrica == "arancel":
-        where, p = _ops_where(mercado=mercado, arancel=True)
-        expr = _ARANCEL
+        where, p = _ops_where(mercado=mercado, arancel=True, cartera=cartera_filtro)
+        # el arancel se guarda en ARS; para USD se convierte con el mep DE CADA
+        # BOLETO (mismo criterio que la vista) — no con una cotización de hoy
+        expr = _arancel_expr(moneda)
     else:
-        where, p = _ops_where(moneda=moneda, mercado=mercado)
+        where, p = _ops_where(moneda=moneda, mercado=mercado, cartera=cartera_filtro)
         expr = _bruto_expr(moneda)
     p.update({"desde": desde, "hasta": hasta})
     where = f"{where} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"

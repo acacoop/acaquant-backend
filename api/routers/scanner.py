@@ -75,13 +75,13 @@ def ccl_live():
 
 @router.get("/returns/{ticker}")
 def returns(ticker: str):
-    """Serie de retornos diarios del último año (~252 puntos) desde
-    Trading.PreciosAcciones. Para el histograma del Scanner.
+    """Retornos diarios del subyacente USD desde `mercado.precios_acciones`.
 
     Returns:
         {
           ticker,
-          returns: [r1, r2, ...],   # aritméticos diarios
+          returns: [r1, r2, ...],              # aritméticos diarios (histograma)
+          serie:   [{fecha, ret_pct}, ...],    # los MISMOS, con su fecha (gráfico)
           last_return: float | None,
           last_fecha: str | None,
         }

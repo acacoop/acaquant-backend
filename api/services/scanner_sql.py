@@ -357,8 +357,17 @@ def get_universo() -> list[dict]:
 
 @cached(ttl=60)
 def get_ticker_returns(ticker: str) -> dict:
-    """Retornos diarios aritméticos del underlying (~252 puntos) desde
-    mercado.precios_acciones. Shape idéntico a scanner.get_ticker_returns."""
+    """Retornos diarios aritméticos del underlying desde
+    `mercado.precios_acciones`.
+
+    Devuelve los retornos sueltos (los consume el histograma) Y la SERIE con su
+    fecha (`serie`: [{fecha, ret_pct}]), que es lo que permite graficarlos en el
+    tiempo. Son los mismos números: `ret_pct` es el retorno × 100.
+
+    Las fechas se emparejan con los cierres ANTES de calcular: si un día viene
+    con `close` nulo se descarta el par completo. Antes los nulos se filtraban
+    solo del lado de los precios, así que un hueco corría todas las fechas
+    posteriores y cada retorno quedaba pegado al día equivocado."""
     from quant.rolling_stats import returns_from_prices
 
     underlying = _resolve_underlying(ticker)
@@ -369,21 +378,25 @@ def get_ticker_returns(ticker: str) -> dict:
             (underlying,),
         )
         docs = cur.fetchall()
+    vacio = {"ticker": ticker.upper(), "returns": [], "serie": [],
+             "last_return": None, "last_fecha": None}
     if not docs:
-        return {
-            "ticker": ticker.upper(),
-            "returns": [],
-            "last_return": None,
-            "last_fecha": None,
-        }
-    closes = [float(d["close"]) for d in docs if d.get("close") is not None]
-    rets = returns_from_prices(closes)
-    last_fecha = docs[-1].get("fecha")
+        return vacio
+    pares = [(d["fecha"], float(d["close"])) for d in docs if d.get("close") is not None]
+    if not pares:
+        return vacio
+    fechas = [f for f, _c in pares]
+    rets = returns_from_prices([c for _f, c in pares])
+    # el primer día no tiene retorno (no hay contra qué compararlo)
+    serie = [{"fecha": f.isoformat() if hasattr(f, "isoformat") else str(f),
+              "ret_pct": round(r * 100, 4)}
+             for f, r in zip(fechas[1:], rets, strict=True)]
     return {
         "ticker": ticker.upper(),
         "returns": rets,
+        "serie": serie,
         "last_return": rets[-1] if rets else None,
-        "last_fecha": last_fecha.isoformat() if hasattr(last_fecha, "isoformat") else None,
+        "last_fecha": serie[-1]["fecha"] if serie else None,
     }
 
 

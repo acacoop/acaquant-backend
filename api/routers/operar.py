@@ -19,6 +19,7 @@ Gate RBAC se aplica en api/main.py vía `_OPERAR`.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -66,15 +67,28 @@ def _existe_en_pyrofex(ticker_full: str) -> bool:
 
 
 def _tiene_puntas(book: dict) -> bool:
-    """True si el libro trae al menos una punta (bid u offer).
-
-    Una fila de `market_snapshot` puede quedar STALE con el libro vacío después de
-    que venció la suscripción adhoc (el motor deja de refrescarla). Devolver esa
-    fila como 200 haría que el endpoint NUNCA re-suscriba → DOM muerto para siempre.
-    Tratarla como 'sin libro' fuerza el camino de suscripción.
-    """
+    """True si el libro trae al menos una punta (bid u offer)."""
     b = book.get("book") or {}
     return bool(b.get("bids")) or bool(b.get("offers"))
+
+
+# Cuánto puede tener una fila sin refrescarse antes de considerarla abandonada.
+# Por debajo de esto, un libro vacío es un libro vacío DE VERDAD (mercado
+# cerrado, papel sin oferta) y hay que mostrarlo; por encima, es una fila que el
+# motor dejó de tocar y corresponde re-suscribir.
+_FRESCURA_S = 90
+
+
+def _segundos_desde(iso: str | None) -> float | None:
+    if not iso:
+        return None
+    try:
+        ts = datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - ts).total_seconds()
 
 
 @router.get("/order-book")
@@ -84,21 +98,39 @@ def get_book(
 ):
     """Top 5 niveles de un ticker arbitrario.
 
-    Si MarketSnapshot ya lo tiene → 200 con book.
-    Si no, y el ticker existe en pyRofex → 202 (suscribiendo) y se persiste
-    en Trading.AdhocSubscriptions; el motor lo levanta al próximo ciclo
-    (~5s) y aparece en MarketSnapshot.
+    Tres desenlaces, y la diferencia importa:
+
+    - **200 con puntas** — el caso normal.
+    - **200 con `sin_puntas: true`** — la fila está FRESCA pero el libro está
+      vacío: mercado cerrado, o papel sin oferta. NO es un problema: se
+      devuelve igual, con el último precio, para que la pantalla lo diga y el
+      usuario pueda mandar una orden límite. Antes esto caía al camino de
+      suscripción y el cliente recibía 202 para siempre — pantalla en blanco
+      con un spinner eterno y ninguna explicación (reporte del user
+      2026-07-22: "elegís un ticker y no trae nada").
+    - **202 suscribiendo** — no hay fila, o la que hay está abandonada (el
+      motor dejó de refrescarla). El motor la levanta en ~5s. El payload dice
+      hace cuánto que no se toca, para que el cliente pueda distinguir "recién
+      pedido" de "el motor no está corriendo".
     """
     book = get_order_book(ticker, plazo=plazo)
-    if book is not None and _tiene_puntas(book):
-        # Refresca TTL si era adhoc (no rompe nada si no estaba ahí).
-        try:
-            bump_last_used(book.get("ticker", ""))
-        except Exception:
-            pass
-        return book
-    # Sin fila, o fila STALE con libro vacío (suscripción vencida): caer al camino
-    # de suscripción para que el motor lo vuelva a levantar (no devolver un DOM muerto).
+    if book is not None:
+        edad = _segundos_desde(book.get("updated_at"))
+        fresca = edad is not None and edad <= _FRESCURA_S
+        if _tiene_puntas(book) or fresca:
+            # Refresca TTL si era adhoc (no rompe nada si no estaba ahí).
+            try:
+                bump_last_used(book.get("ticker", ""))
+            except Exception:
+                pass
+            if not _tiene_puntas(book):
+                book = {**book, "sin_puntas": True,
+                        "motivo": "el libro está vacío (mercado cerrado o sin "
+                                  "oferta) — el último precio sí es real"}
+            return book
+    # Sin fila, o fila abandonada: caer al camino de suscripción para que el
+    # motor la vuelva a levantar (no devolver un DOM muerto).
+    edad_fila = _segundos_desde(book.get("updated_at")) if book else None
 
     # No está en MarketSnapshot. Resolver el ticker FULL para registrar
     # en AdhocSubscriptions (necesitamos el full para que pyRofex lo
@@ -131,6 +163,11 @@ def get_book(
             "ticker":       ticker_full,
             "created":      bool(res.get("created", False)),
             "active_count": res.get("active_count"),
+            # hace cuánto que la fila no se refresca (None = nunca existió).
+            # Es LO ÚNICO que distingue "recién lo pedí" de "el motor está
+            # caído y esto no va a llegar nunca": sin este dato el cliente
+            # sigue reintentando a ciegas.
+            "fila_edad_s":  round(edad_fila) if edad_fila is not None else None,
             "message":      "Motor suscribiendo. Reintentá en ~5s.",
         },
     )

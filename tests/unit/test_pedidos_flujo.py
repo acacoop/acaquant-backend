@@ -204,6 +204,48 @@ def test_el_export_usa_los_mismos_pesos_que_el_triaje():
     assert _peso(p) == triage._orden(p)
 
 
+def test_publicar_toca_SOLO_el_archivo_del_buzon(monkeypatch):
+    """El job commitea solo desde el server. Si el `git add` no estuviera
+    acotado a un path, una corrida automática podría llevarse puesto cualquier
+    cosa que hubiera quedado tocada en el checkout de producción."""
+    import subprocess as sp
+
+    from scripts import gen_pedidos as gp
+
+    corridas = []
+
+    class _R:
+        returncode = 1          # "hay cambios staged" → sigue al commit
+        stderr = b""
+
+    def _fake(cmd, **kw):
+        corridas.append(cmd)
+        return _R()
+
+    monkeypatch.setattr(sp, "run", _fake)
+    gp.publicar()
+    assert any(c[:2] == ["git", "add"] for c in corridas)
+    for c in corridas:
+        if c[0] == "git" and c[1] in ("add", "commit"):
+            assert "--" in c and c[-1].endswith("PEDIDOS.md")   # un solo path
+        assert "-a" not in c and "--all" not in c               # jamás todo
+
+
+def test_publicar_no_revienta_si_no_puede_pushear(monkeypatch):
+    """Sin credencial de push en el server, el archivo igual queda escrito: la
+    publicación es un extra, no puede tumbar la aprobación ya guardada."""
+    import subprocess as sp
+
+    from scripts import gen_pedidos as gp
+
+    def _boom(cmd, **kw):
+        raise sp.CalledProcessError(128, cmd, stderr=b"fatal: could not read Username")
+
+    monkeypatch.setattr(sp, "run", _boom)
+    msg = gp.publicar()
+    assert "NO se pudo publicar" in msg and "could not read Username" in msg
+
+
 def test_el_mensaje_arma_un_par_de_botones_por_pedido():
     texto, botones = triage._mensaje([
         {"id": 7, "titulo": "Filtro por cartera", "impacto": "alto",

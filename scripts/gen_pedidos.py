@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 from collections import defaultdict
 
 from core.postgres import get_pool
@@ -181,22 +182,67 @@ def _render(pedidos: list[dict]) -> str:
     return "\n".join(out)
 
 
+def regenerar(estado: str | None = None) -> int:
+    """Reescribe docs/PEDIDOS.md desde la tabla. Devuelve cuántos pedidos hay.
+    Es función (no solo CLI) para que los jobs la llamen sin lanzar un proceso."""
+    pedidos = _leer(estado)
+    with open(SALIDA, "w", encoding="utf-8") as f:
+        f.write(_render(pedidos))
+    return len(pedidos)
+
+
+def publicar() -> str:
+    """Commitea y pushea SOLO docs/PEDIDOS.md. Devuelve un mensaje de estado.
+
+    Existe para cerrar el último eslabón manual: el archivo se genera en el
+    Droplet y Claude Code lo lee desde el repo. Sin esto había que acordarse de
+    commitear a mano, que es exactamente el tipo de paso que hace que un
+    circuito automático deje de usarse.
+
+    Acotado a UN path a propósito: nunca commitea otra cosa que pueda haber
+    quedada tocada en el checkout del server. Si falla (sin credencial de push,
+    checkout raro), NO revienta: lo dice y el archivo queda igual en disco."""
+    rel = os.path.relpath(SALIDA, RAIZ)
+    try:
+        subprocess.run(["git", "add", "--", rel], cwd=RAIZ, check=True,
+                       capture_output=True, timeout=30)
+        # ¿cambió algo? sin esto, un commit vacío falla y ensucia el log
+        if subprocess.run(["git", "diff", "--cached", "--quiet", "--", rel],
+                          cwd=RAIZ, timeout=30).returncode == 0:
+            return "sin cambios que publicar"
+        subprocess.run(["git", "commit", "-m", "docs(pedidos): actualizar buzón", "--", rel],
+                       cwd=RAIZ, check=True, capture_output=True, timeout=60)
+        subprocess.run(["git", "push"], cwd=RAIZ, check=True,
+                       capture_output=True, timeout=120)
+        return "publicado (commit + push de docs/PEDIDOS.md)"
+    except subprocess.CalledProcessError as e:
+        det = (e.stderr or b"").decode(errors="replace").strip().splitlines()
+        return ("NO se pudo publicar: " + (det[-1] if det else str(e))
+                + " — el archivo está actualizado en el server; "
+                  "commitealo a mano si querés que Claude lo vea")
+    except Exception as e:
+        return f"NO se pudo publicar ({type(e).__name__}: {e})"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--estado", default=None, help=f"filtrar ({'|'.join(_ESTADOS)})")
     ap.add_argument("--marcar", nargs=2, metavar=("ID", "ESTADO"),
                     help="cambiar el estado de un pedido y regenerar")
     ap.add_argument("--nota", default=None, help="nota de triage (con --marcar)")
+    ap.add_argument("--publicar", action="store_true",
+                    help="además commitear y pushear docs/PEDIDOS.md")
     args = ap.parse_args()
 
     if args.marcar:
         _marcar(int(args.marcar[0]), args.marcar[1], args.nota)
 
-    pedidos = _leer(args.estado)
-    with open(SALIDA, "w", encoding="utf-8") as f:
-        f.write(_render(pedidos))
-    print(f"{len(pedidos)} pedidos → {os.path.relpath(SALIDA, RAIZ)}")
-    print("commiteá el archivo para que quede versionado y Claude lo lea.")
+    n = regenerar(args.estado)
+    print(f"{n} pedidos → {os.path.relpath(SALIDA, RAIZ)}")
+    if args.publicar:
+        print(publicar())
+    else:
+        print("commiteá el archivo (o usá --publicar) para que Claude lo lea.")
 
 
 if __name__ == "__main__":

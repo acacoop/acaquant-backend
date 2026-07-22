@@ -136,6 +136,21 @@ def main() -> None:
             conn.commit()
         run.set_stat("aplicados", aplicados)
 
+        # Cerrar el circuito: la COLA DE TRABAJO vive en docs/PEDIDOS.md y
+        # Claude Code la lee DESDE EL REPO. Si esto no se publica solo, entre
+        # el tap y el trabajo queda un "acordate de commitear" — que es
+        # justamente el paso manual que mata los circuitos automáticos.
+        if aplicados:
+            from scripts.gen_pedidos import publicar, regenerar
+
+            try:
+                run.log(f"docs/PEDIDOS.md regenerado ({regenerar()} pedidos)")
+                run.log(publicar())
+            except Exception as e:
+                # publicar es un extra: que falle no invalida la aprobación,
+                # que ya quedó guardada en la base.
+                run.error(f"no pude actualizar docs/PEDIDOS.md: {type(e).__name__}: {e}")
+
 
 if __name__ == "__main__":
     main()

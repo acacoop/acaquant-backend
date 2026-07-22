@@ -23,9 +23,10 @@ Este doc explica el circuito.
      (humana, siempre)      → jobs/pedidos_inbox.py (cron cada minuto)
                             → estado = aceptado | descartado
 
-  4. la cola                python -m scripts.gen_pedidos
-                            → docs/PEDIDOS.md, sección 🛠 COLA DE TRABAJO,
-                              ordenada por impacto alto / esfuerzo chico
+  4. la cola                el MISMO job regenera docs/PEDIDOS.md y lo
+     (automática)           commitea+pushea (solo ese archivo)
+                            → sección 🛠 COLA DE TRABAJO, ordenada por
+                              impacto alto / esfuerzo chico
 
   5. el código              Claude Code: /pedidos
                             → toma el primero, valida la spec contra el código
@@ -33,6 +34,11 @@ Este doc explica el circuito.
 
   6. cierre                 python -m scripts.gen_pedidos --marcar <id> hecho
 ```
+
+Entre el tap y el trabajo **no queda ningún paso manual**: si la publicación
+quedara a cargo de acordarse de commitear, el circuito se muere ahí. Si el
+server no puede pushear (sin credencial), la aprobación igual quedó guardada y
+el archivo actualizado en disco — se dice en el log y se commitea a mano.
 
 ## Las decisiones de diseño (y por qué)
 

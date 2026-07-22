@@ -90,6 +90,36 @@ def main() -> None:
         print(f"  tachado  : {limpio}")
         print(f"  fichas   : {mapping['fichas']}")
 
+        # POR QUÉ se tachó cada palabra. Sin esto el diag muestra el síntoma
+        # ("desapareció una palabra") pero no el token del catálogo que lo
+        # causó, que es lo único con lo que se puede decidir la stoplist.
+        print("\n  ── por qué se tachó cada palabra ──")
+        stop = pii_gateway._stoplist()
+        umbral = pii_gateway._fuzzy_umbral()
+        claves = list(cat["tokens"].keys())
+        culpables = 0
+        for palabra in pii_gateway._PALABRA_RE.findall(args.frase):
+            n = pii_gateway._norm(palabra)
+            if len(n) < pii_gateway._MIN_TOKEN_LEN or n in stop:
+                continue
+            if n in cat["tokens"]:
+                duenio = cat["tokens"][n] or "(ambiguo: varios clientes)"
+                print(f"    {palabra!r:16} → token EXACTO del catálogo · {duenio}")
+                culpables += 1
+                continue
+            cerca = difflib.get_close_matches(n, claves, n=1, cutoff=umbral)
+            if cerca:
+                print(f"    {palabra!r:16} → FUZZY ({umbral}) contra {cerca[0]!r}")
+                culpables += 1
+        if not culpables:
+            print("    (ninguna palabra de la frase matcheó el catálogo)")
+        else:
+            print("\n  Si alguna de esas palabras NO es una identidad (una palabra")
+            print("  común que casualmente está en el nombre de algún cliente),")
+            print("  agregala al .env del Droplet y reiniciá el api:")
+            print("      ASISTENTE_STOPLIST_EXTRA=palabra1,palabra2")
+            print("  Se lee en runtime — no hace falta deploy ni tocar código.")
+
 
 if __name__ == "__main__":
     main()

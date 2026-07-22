@@ -106,6 +106,16 @@ def _tool_serie() -> dict:
     return TOOL_SERIE
 
 
+def _tool_pedido() -> dict:
+    """El BUZÓN DE PEDIDOS también acá. Faltaba (2026-07-22): los copilotos de
+    mercado lo tenían y el asistente de negocio no, así que cuando un jefe le
+    pedía una mejora el modelo no tenía CÓMO registrarla — y como no puede
+    decir "no tengo herramienta para esto", contestaba amablemente y el pedido
+    se perdía. El peor modo de falla: parece que quedó anotado y no quedó."""
+    from api.services.copiloto.pedidos import TOOL_PEDIDO
+    return TOOL_PEDIDO
+
+
 def _tools_comercial() -> list[dict]:
     """El bloque COMERCIAL vive en su propio módulo (`asistente_comercial`).
     Este archivo es el aggregator: sumar un dominio es un módulo nuevo + dos
@@ -116,6 +126,7 @@ def _tools_comercial() -> list[dict]:
 
 TOOLS: list[dict] = [
     _tool_serie(),
+    _tool_pedido(),
     *_tools_comercial(),
     {
         "type": "function",
@@ -1055,11 +1066,18 @@ def quien_es(ficha: str, *, mapping: dict) -> str:
 class _Ctx(NamedTuple):
     mapping: dict
     usuario: str | None
+    pregunta: str | None = None    # lo que escribió el usuario (contexto del buzón)
 
 
 def _serie_handler(args: dict, _ctx: _Ctx) -> str:
     from api.services.copiloto.series import ejecutar_serie
     return ejecutar_serie("serie_historica", args)
+
+
+def _pedido_handler(args: dict, ctx: _Ctx) -> str:
+    from api.services.copiloto.pedidos import ejecutar_pedido
+    return ejecutar_pedido(args, usuario=ctx.usuario, vista="negocio",
+                           mapping=ctx.mapping, contexto=ctx.pregunta)
 
 
 _HANDLERS: dict[str, Callable[[dict, _Ctx], str]] = {
@@ -1078,6 +1096,7 @@ _HANDLERS: dict[str, Callable[[dict, _Ctx], str]] = {
     "costo_ia":                lambda a, c: costo_ia(a),
     "controles_calidad_datos": lambda a, c: controles_calidad_datos(a),
     "serie_historica":         _serie_handler,
+    "registrar_pedido":        _pedido_handler,
     "volumen_operado":         lambda a, c: _consolidado("bruto", a, mapping=c.mapping),
     "aranceles_consolidado":   lambda a, c: _consolidado("arancel", a, mapping=c.mapping),
     "aum_variacion":           lambda a, c: aum_variacion(a, mapping=c.mapping),
@@ -1122,7 +1141,7 @@ def puede_control_comercial(usuario: str | None) -> bool:
 
 
 def ejecutar(nombre: str, args: dict, *, mapping: dict,
-             usuario: str | None = None) -> str:
+             usuario: str | None = None, pregunta: str | None = None) -> str:
     """Ejecuta la tool pedida y devuelve el resultado YA pasado por la aduana
     (token-out): si algún dato colara una identidad, se tacha con las MISMAS
     fichas del chat antes de volver al LLM. Errores → mensaje corto, jamás
@@ -1135,7 +1154,8 @@ def ejecutar(nombre: str, args: dict, *, mapping: dict,
     if handler is None:
         return f"herramienta desconocida: {nombre}"
     try:
-        crudo = handler(args, _Ctx(mapping=mapping, usuario=usuario))
+        crudo = handler(args, _Ctx(mapping=mapping, usuario=usuario,
+                                   pregunta=pregunta))
     except Exception as e:
         logger.warning("asistente_tools.%s falló: %s: %s", nombre, type(e).__name__, e)
         return "la herramienta falló — respondé con lo que tengas y avisá que faltó ese dato"

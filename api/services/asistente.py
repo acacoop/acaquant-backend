@@ -269,7 +269,7 @@ def responder(*, mensaje: str, email: str, chat_id: str | None = None) -> dict:
         # que la tool tiene que poder chequear — sin esto el chat sería una
         # puerta trasera a datos que la web gatea (auditoría 2026-07-21)
         ejecutar=lambda nombre, args: asistente_tools.ejecutar(
-            nombre, args, mapping=mapping, usuario=email),
+            nombre, args, mapping=mapping, usuario=email, pregunta=mensaje),
         usuario=email,
         detalle=mensaje_limpio[:200],   # la traza guarda SOLO texto tokenizado
         historial=historial_limpio,

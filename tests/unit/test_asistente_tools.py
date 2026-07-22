@@ -213,6 +213,28 @@ def test_toda_tool_tiene_sonda_en_el_smoke():
     assert at.herramientas_declaradas() <= {k.split("#")[0] for k in _SONDAS}
 
 
+def test_el_asistente_de_negocio_puede_registrar_un_pedido(monkeypatch):
+    """REGRESIÓN (2026-07-22): los copilotos de mercado tenían el buzón y el
+    asistente de negocio NO. Cuando un jefe pedía una mejora, el modelo no
+    tenía cómo anotarla — y como no sabe decir "no tengo herramienta para
+    esto", contestaba amablemente. El pedido se perdía PARECIENDO anotado, que
+    es el peor modo de falla posible."""
+    import api.services.copiloto.pedidos as ped
+    visto = {}
+    monkeypatch.setattr(ped, "registrar",
+                        lambda **kw: visto.update(kw) or 42)
+    assert "registrar_pedido" in at.herramientas_declaradas()
+    r = at.ejecutar("registrar_pedido",
+                    {"texto": "estaría bueno ver el AuM por operador",
+                     "titulo": "AuM por operador", "tipo": "mejora"},
+                    mapping={"fichas": {}}, usuario="jefe@x.com",
+                    pregunta="¿se puede ver el AuM por operador?")
+    assert "#42" in r
+    assert visto["usuario"] == "jefe@x.com"
+    assert visto["vista"] == "negocio"          # queda registrado de dónde salió
+    assert visto["contexto"] == "¿se puede ver el AuM por operador?"
+
+
 def test_dimensiones_derivadas_del_sql():
     """El enum que ve el modelo sale del SQL, no de una lista paralela: si
     divergen, el modelo pide una dimensión que la jaula rechaza."""

@@ -538,3 +538,90 @@ _CHIPS_RENTA_VARIABLE = [
 
 # Audiencia por rol RBAC (libro: "la audiencia manda más que el rol").
 # El registro cambia según QUIÉN pregunta — decisión del user 2026-07-11.
+
+
+# ── TOOL de ranking on-demand (cierra el hueco del "ranking por sector") ─────
+# Los rankings pre-calculados (_rankings) cubren el PANEL entero. Cuando el
+# operador pide un corte puntual —"rankeá el sector energético por retorno del
+# año"— ese corte no estaba pre-calculado y el modelo lo armaba a mano, mal
+# (traza real 2026-07-23: dijo "ordenado por YTD" y la tabla estaba desordenada).
+# Con esta tool el orden lo hace el CÓDIGO para cualquier rubro/métrica.
+
+_METRICAS_RV = {
+    "año":    ("adr_ret_ytd_pct", "retorno del año"),
+    "anio":   ("adr_ret_ytd_pct", "retorno del año"),
+    "ytd":    ("adr_ret_ytd_pct", "retorno del año"),
+    "mes":    ("adr_ret_mtd_pct", "retorno del mes"),
+    "mtd":    ("adr_ret_mtd_pct", "retorno del mes"),
+    "semana": ("adr_ret_wtd_pct", "retorno de la semana"),
+    "wtd":    ("adr_ret_wtd_pct", "retorno de la semana"),
+    "dia":    ("adr_vs_1d_pct", "retorno del día"),
+    "día":    ("adr_vs_1d_pct", "retorno del día"),
+}
+
+_TOOLS_RENTA_VARIABLE = [
+    {"type": "function", "function": {
+        "name": "rankear_papeles",
+        "description": "Ranking de papeles del panel ORDENADO POR CÓDIGO (no lo "
+                       "ordenes vos) por retorno de un plazo, opcionalmente acotado "
+                       "a UN sector/rubro. Usala SIEMPRE que pidan 'rankeá', 'los "
+                       "que más/menos rindieron', 'el top de un sector' — sobre "
+                       "todo si el corte es por rubro (energía, bancos, tecnología…), "
+                       "que no viene pre-calculado. Devuelve las filas YA ordenadas: "
+                       "vos solo las narrás.",
+        "parameters": {"type": "object", "properties": {
+            "metrica": {"type": "string", "enum": ["año", "mes", "semana", "dia"],
+                        "description": "el plazo del retorno por el que ordenar"},
+            "rubro": {"type": "string",
+                      "description": "acotar a un sector/rubro (ej. 'energía', "
+                                     "'bancos'). Vacío = todo el panel."},
+            "orden": {"type": "string", "enum": ["mejor", "peor"],
+                      "description": "mejor = los que más rindieron (default); "
+                                     "peor = los que menos"},
+            "n": {"type": "integer", "description": "cuántos mostrar (default 10, máx 25)"},
+        }, "required": ["metrica"]},
+    }},
+]
+
+
+def _ejecutar_tool_renta_variable(nombre: str, args: dict) -> str:
+    """Ejecutor de las tools de RV. Ordena en CÓDIGO; nunca levanta."""
+    if nombre != "rankear_papeles":
+        return f"herramienta desconocida: {nombre}"
+    from api.services import scanner_sql
+
+    metrica = str(args.get("metrica") or "año").lower()
+    campo, etiqueta = _METRICAS_RV.get(metrica, _METRICAS_RV["año"])
+    peor = str(args.get("orden") or "mejor").lower() == "peor"
+    n = max(1, min(int(args.get("n") or 10), 25))
+    rubro_pedido = str(args.get("rubro") or "").strip().lower()
+
+    filas = scanner_sql.get_cedears_scanner() or []
+    if rubro_pedido:
+        # match por substring case-insensitive ('energía' ~ 'ENERGIA')
+        def _norm(s: str) -> str:
+            import unicodedata
+            s = unicodedata.normalize("NFKD", s or "")
+            return "".join(c for c in s if not unicodedata.combining(c)).lower()
+        rp = _norm(rubro_pedido)
+        candidatas = [f for f in filas if rp in _norm(str(f.get("rubro") or ""))]
+        if not candidatas:
+            rubros = sorted({str(f.get("rubro")) for f in filas if f.get("rubro")})
+            return (f"no hay un sector que matchee '{args.get('rubro')}'. Sectores "
+                    f"disponibles: {', '.join(rubros)}")
+        filas = candidatas
+
+    conmetrica = [(float(f[campo]), f.get("ticker_corto"),
+                   f.get("adr_ret_wtd_pct"))
+                  for f in filas if f.get(campo) is not None and f.get("ticker_corto")]
+    if not conmetrica:
+        return f"sin datos de {etiqueta} para ese corte."
+    conmetrica.sort(reverse=not peor)
+    tope = conmetrica[:n]
+    ambito = f"sector {rubro_pedido}" if rubro_pedido else "todo el panel"
+    cab = (f"ranking {'peores' if peor else 'top'} por {etiqueta} — {ambito} "
+           f"({len(conmetrica)} papeles, YA ordenado):")
+    filas_txt = " · ".join(
+        f"{tk} {v:+.2f}%" + (f" (sem {float(sem):+.1f}%)" if sem is not None else "")
+        for v, tk, sem in tope)
+    return f"{cab} {filas_txt}"

@@ -1444,3 +1444,57 @@ def test_gateway_loop_de_tools(monkeypatch):
     # la 2da llamada llevó el resultado de la tool como mensaje role=tool
     roles = [m.get("role") for m in llamadas[1]["json"]["messages"]]
     assert "tool" in roles
+
+
+def test_rankear_papeles_ordena_en_codigo(monkeypatch):
+    """El bug de la traza 2026-07-23: el modelo dijo 'ordenado por YTD' y la
+    tabla estaba desordenada (USO +90% abajo de VIST +37%). Ahora ordena el
+    CÓDIGO: el ranking sale correcto sí o sí, el modelo solo narra."""
+    from api.services import scanner_sql
+    monkeypatch.setattr(scanner_sql, "get_cedears_scanner", lambda: [
+        {"ticker_corto": "VIST", "rubro": "Energía", "adr_ret_ytd_pct": 37.73,
+         "adr_ret_wtd_pct": 4.69},
+        {"ticker_corto": "USO", "rubro": "Energía", "adr_ret_ytd_pct": 90.40,
+         "adr_ret_wtd_pct": 6.23},
+        {"ticker_corto": "PBR", "rubro": "Energía", "adr_ret_ytd_pct": 59.41,
+         "adr_ret_wtd_pct": 5.12},
+        {"ticker_corto": "AAPL", "rubro": "Tecnología", "adr_ret_ytd_pct": 12.0,
+         "adr_ret_wtd_pct": 1.0},
+    ])
+    r = copiloto.renta_variable._ejecutar_tool_renta_variable(
+        "rankear_papeles", {"metrica": "año", "rubro": "energia"})
+    # sale ORDENADO: USO(90) > PBR(59) > VIST(37); AAPL (otro rubro) NO aparece
+    assert r.index("USO") < r.index("PBR") < r.index("VIST")
+    assert "AAPL" not in r
+    assert "sector energia" in r
+
+
+def test_rankear_papeles_peores_y_sin_rubro(monkeypatch):
+    from api.services import scanner_sql
+    monkeypatch.setattr(scanner_sql, "get_cedears_scanner", lambda: [
+        {"ticker_corto": "A", "rubro": "X", "adr_ret_ytd_pct": 10.0},
+        {"ticker_corto": "B", "rubro": "Y", "adr_ret_ytd_pct": -30.0},
+        {"ticker_corto": "C", "rubro": "Z", "adr_ret_ytd_pct": 5.0},
+    ])
+    r = copiloto.renta_variable._ejecutar_tool_renta_variable(
+        "rankear_papeles", {"metrica": "año", "orden": "peor"})
+    # buscar el ticker JUNTO a su valor para que 'A' no matchee 'YA ordenado'
+    assert r.index("B -30") < r.index("C +5") < r.index("A +10")   # peor primero
+    assert "todo el panel" in r
+
+
+def test_rankear_papeles_rubro_inexistente_lista_los_disponibles(monkeypatch):
+    from api.services import scanner_sql
+    monkeypatch.setattr(scanner_sql, "get_cedears_scanner", lambda: [
+        {"ticker_corto": "A", "rubro": "Bancos", "adr_ret_ytd_pct": 10.0}])
+    r = copiloto.renta_variable._ejecutar_tool_renta_variable(
+        "rankear_papeles", {"metrica": "año", "rubro": "petróleo"})
+    assert "no hay un sector" in r and "Bancos" in r
+
+
+def test_rankear_papeles_registrada_en_la_vista():
+    """La tool tiene que estar declarada en el registro de renta_variable, o el
+    modelo nunca la ve y sigue ordenando a mano."""
+    from api.services.copiloto.registro import VISTAS
+    tools = VISTAS["renta_variable"].get("tools") or []
+    assert any(t["function"]["name"] == "rankear_papeles" for t in tools)

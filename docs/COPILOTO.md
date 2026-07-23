@@ -117,6 +117,35 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-23 — v1.97 (patrones de agente aplicados al copiloto de mercado)
+Sale de una traza real (f.rodriguez, renta variable): el copiloto armó un
+ranking de energía A MANO, salió DESORDENADO (USO +90% abajo de VIST +37%) y
+encima dijo "ordenado por YTD" — un orden falso. Además encadenaba métricas sin
+sentido ("viene bien en pre-market, así que el año…") y deflectaba con dos
+preguntas por turno sin cerrar una idea. El pedido del user: sacar los patrones
+de cómo se construye un agente confiable y aplicarlos a TODA la IA, no a esa
+respuesta. La lección madre: la confiabilidad no viene de un modelo más
+inteligente (la traza usó el tier PRO y salió más larga, no mejor) sino de la
+DISCIPLINA DEL SISTEMA — código para lo mecánico, lenguaje para el juicio.
+- **[causa raíz: contradicción de prompt]** `base.py` prohibía la aritmética
+  propia ("los únicos agregados válidos son los YA calculados") pero DOS líneas
+  abajo permitía "armá un ranking objetivo con los datos de la tabla". El
+  modelo siguió el permiso y ordenó 187 filas a ojo. Reescrita: **VOS NO
+  ORDENÁS** — los rankings salen del código ya ordenados; si el corte no está,
+  se dice, no se arma a mano. Y PROHIBIDO afirmar "ordenado por X" sobre algo
+  hecho a mano.
+- **[tool +] `rankear_papeles`** (copiloto renta_variable): el corte por
+  SECTOR/rubro que faltaba, ordenado en CÓDIGO para cualquier métrica (año/mes/
+  semana/día) y rubro. Cierra el hueco por el que el modelo improvisaba. 4 tests
+  congelan que ordena bien (el caso exacto de la traza: USO>PBR>VIST).
+- **[regla anti-causalidad]** (b2) en la REGLA DE ORO: prohibido encadenar
+  métricas independientes ("la semana empuja el año", "el pre-market explica el
+  retorno anual"). Cada métrica se reporta por lo que es y su plazo.
+- **[regla anti-deflexión]** la regla 9 (invitar la conversación) se acotó a la
+  PRIMERA pregunta abierta: apenas el usuario da el objetivo o pide algo
+  concreto, se ENTREGA la lectura — máximo UNA repregunta, no un menú turno tras
+  turno. Deflectar es lo que impedía mantener una conversación.
+
 ### 2026-07-23 — v1.96 (SEGURIDAD: cerrado un leak de PII que introdujo v1.94)
 Un security review (3 analistas en paralelo sobre backend + frontend) encontró
 UN hallazgo HIGH, verificado a mano capa por capa: **la asimetría de v1.94

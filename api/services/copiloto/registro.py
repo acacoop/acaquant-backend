@@ -28,6 +28,8 @@ from .renta_fija import (
 from .renta_variable import (
     _CHIPS_RENTA_VARIABLE,
     _REGLAS_RENTA_VARIABLE,
+    _TOOLS_RENTA_VARIABLE,
+    _ejecutar_tool_renta_variable,
     _enriquecer_cedears,
     _extras_renta_variable,
     _fetch_cedears,
@@ -163,6 +165,11 @@ VISTAS: dict[str, dict] = {
             ("dist_max", "dist_al_max%"),
         ],
         "reglas": _REGLAS_RENTA_VARIABLE,
+        # tool de ranking on-demand: el corte por sector lo ordena el CÓDIGO,
+        # no el modelo (traza real 2026-07-23: hand-sort mal + "ordenado por YTD"
+        # falso). Ver base.py "RANKINGS: VOS NO ORDENÁS".
+        "tools": _TOOLS_RENTA_VARIABLE,
+        "tools_ejecutar": lambda _cont, _usr: _ejecutar_tool_renta_variable,
     },
     "renta_fija": {
         "titulo": "Renta Fija",

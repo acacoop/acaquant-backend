@@ -41,6 +41,9 @@ PREGUNTAS = [
     "Quiero leer el mail de research de hoy, ¿dónde está?",
     "¿Dónde están los reportes en PDF que carga el equipo?",
     "¿Dónde veo series históricas largas de un bono para comparar contra otro?",
+    # el cuadrito de sensibilidad: caso real 2026-07-22, la guía lo mandó MAL a
+    # Renta Fija e inventó. Vive en ESTRATEGIA → ANÁLISIS SENSIBILIDAD.
+    "¿Dónde está el cuadrito que te dice el retorno de un bono si pasa a rendir tal TIR?",
     # ── negocio y back office ──
     "¿Cómo veo qué clientes hace mucho que no operan?",
     "¿Dónde veo los cupones y amortizaciones que cobramos esta semana?",

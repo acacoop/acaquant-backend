@@ -117,6 +117,36 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-23 — v1.95 (la guía mandaba mal el "cuadrito de sensibilidad")
+Traza real (lautaro.garcia): pidió "el cuadrito que te dice el retorno de un
+bono si pasa a rendir tal TIR". La guía respondió mal varias veces, lo mandó a
+**Renta Fija** (donde ese cuadro NO existe), e incluso ofreció "pasarle el
+cuadro" ella misma — algo que no puede hacer. Cuando el usuario dijo "no la
+encuentro", en vez de reconsiderar, INSISTIÓ con la misma ubicación falsa.
+- **[causa raíz]** el mapa de la guía (`copiloto/ayuda.py::_MAPA`) tenía la
+  entrada de **Estrategia** desactualizada: decía "retorno total, carry trade y
+  canje" — pestañas que ya no están ahí — y NO mencionaba las tres reales
+  (Comparar Inversión, **Análisis Sensibilidad**, Descomposición). La guía no
+  puede apuntar a lo que su mapa no dice que existe, así que lo inventó. El
+  "carry roll-down" que mandó a Renta Fija es, de hecho, la pestaña
+  DESCOMPOSICIÓN de Estrategia.
+- **[fix]** reescrita la entrada de Estrategia con sus 3 pestañas reales
+  (verificadas contra `retorno-total-view.tsx`), + una fila de EQUIVALENCIA con
+  las palabras del usuario ("qué rinde un bono a distintas TIR / el cuadrito")
+  que rutea a ESTRATEGIA → ANÁLISIS SENSIBILIDAD. Carry/canje aclarado: están
+  en HOME.
+- **[prompt]** dos reglas nuevas para la guía: (1) si el usuario dice que NO
+  encuentra algo, no repetir la misma ubicación con más firmeza — revisar el
+  mapa de nuevo y, si no está claro, admitirlo en vez de inventar; (2) la guía
+  NO produce datos ni cuadros — prohibido ofrecer "pasarte el cuadro" o
+  "disparar la herramienta", eso lo hace la vista cuando el usuario llega.
+- **[candado]** el caso quedó en `scripts/bateria_guia.py`.
+- **Deuda pendiente (no resuelta):** el mapa es curado a mano y deriva de la
+  realidad del frontend sin que nada lo detecte. Este es el 2º caso de mapa
+  stale (el 1º fue "garantía"/"FCI operado"). Si se vuelve recurrente, evaluar
+  un chequeo que compare el mapa contra las rutas/tabs reales — pero recién
+  cuando duela, no antes.
+
 ### 2026-07-22 — v1.94 (la aduana rompía NUESTRAS propias etiquetas)
 El primer sondeo real (`smoke_asistente --tools` en el Droplet) mostró el
 resultado de las tools deformado: *"ese dato requiere el permiso de

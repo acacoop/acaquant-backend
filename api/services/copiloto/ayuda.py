@@ -57,8 +57,14 @@ _MAPA = [
                 "volatilidad y análisis",
      "permiso": "toda la mesa"},
     {"seccion": "Estrategia", "ruta": "/retorno", "menu": "MERCADOS → Estrategia",
-     "que_hay": "análisis de retorno total de bonos, carry trade y canje (retorno/carry por "
-                "bono contra dólares futuros)",
+     "que_hay": "herramientas de análisis de bonos, en 3 pestañas: COMPARAR INVERSIÓN "
+                "(elegís dos bonos y comparás sus métricas y flujos), ANÁLISIS "
+                "SENSIBILIDAD (para un soberano —globales o bonares— el CUADRO de "
+                "PRECIO OBJETIVO y RETORNO si su TIR pasa a rendir tal o cual nivel; "
+                "es 'el cuadrito de qué rinde el bono a distintas TIR') y "
+                "DESCOMPOSICIÓN (el retorno de un bono abierto en carry + rolldown + "
+                "movimiento de tasa — el 'carry roll-down'). El carry trade y el "
+                "canje NO están acá: viven en HOME",
      "permiso": "toda la mesa"},
     {"seccion": "ONs", "ruta": "/ons", "menu": "MERCADOS → ONs",
      "que_hay": "obligaciones negociables por sector, con rendimiento y ficha por título",
@@ -174,6 +180,15 @@ _MAPA = [
      "que_hay": "lo facturado por operar (aranceles) tiene su pestaña propia, con el "
                 "mismo juego de filtros que MOVIMIENTOS",
      "permiso": "restringido (módulo Operaciones)"},
+    {"seccion": "EQUIVALENCIA: qué rinde un bono a distintas TIR (sensibilidad)",
+     "ruta": "/retorno", "menu": "MERCADOS → Estrategia → pestaña ANÁLISIS SENSIBILIDAD",
+     "que_hay": "el CUADRO de precio objetivo y retorno de un bono si su TIR pasa a "
+                "rendir tal o cual nivel ('el cuadrito de qué gana el bono a distintas "
+                "TIR / si comprime a X%') vive en ESTRATEGIA, pestaña ANÁLISIS "
+                "SENSIBILIDAD — NO en Renta Fija. Solo para soberanos (globales y "
+                "bonares). El 'carry roll-down' (retorno abierto en carry + rolldown) "
+                "es la pestaña DESCOMPOSICIÓN de la misma vista",
+     "permiso": "toda la mesa"},
 ]
 
 
@@ -287,6 +302,17 @@ matchea una equivalencia, esa es la respuesta.
 - Si lo que piden NO existe en la plataforma NI en las equivalencias, decilo derecho y \
 ofrecé lo más parecido del mapa. No inventes vistas ni funcionalidades que no están en la \
 tabla.
+- SI EL USUARIO DICE QUE NO LO ENCUENTRA donde le dijiste: NO repitas la misma ubicación con \
+más firmeza. Volvé a mirar el mapa desde cero — capaz te equivocaste de sección. Si el mapa \
+NO dice claramente en qué sección vive eso, admitilo ("no lo tengo ubicado con precisión") y \
+ofrecé la candidata más probable como tal, no como certeza. Inventar una ubicación y \
+sostenerla es el peor error que podés cometer: hace perder tiempo buscando algo que no está \
+ahí. Mejor un "no estoy seguro, probá en X" honesto que un "está acá" falso.
+- VOS NO PRODUCÍS DATOS NI CUADROS. Sos el guía: llevás a la vista o explicás el camino. \
+JAMÁS ofrezcas "pasarle el cuadro", "disparar la herramienta", "calcular", "traer los \
+precios" ni nada que implique que vos generás el resultado — no tenés forma de hacerlo. Eso \
+lo hace la vista cuando el usuario llega. Si el dato vive en una vista con su propio \
+asistente, derivá; si no, decí a qué vista ir.
 - Si la pregunta ES de datos/análisis y corresponde a una vista con asistente, derivá con \
 [[VISTA:x]] como siempre.
 - Tono: servicial y directo, 2-6 líneas. Nada de jerga técnica interna."""

@@ -160,17 +160,25 @@ def _load_assets_map() -> dict[str, dict]:
 
 def _alta_assets_nuevos(registros: list[dict]) -> int:
     """Auto-alta: inserta en `portafolio.assets` las unidades que aparezcan en el
-    snapshot y todavía no estén en el catálogo (metadata vacía, lista para
-    segmentar en Manager → Assets). Réplica del comportamiento que tenía el writer
-    Mongo (`_sincronizar_assets_valuaciones`). ON CONFLICT DO NOTHING → nunca pisa
-    los metadatos ya cargados. Devuelve cuántas dio de alta."""
+    snapshot y todavía no estén en el catálogo. Para el resto de las carteras la
+    metadata queda vacía (a segmentar en Manager → Assets); para los FCI, que son
+    determinísticos, ya se completa `cartera='FCI'` + `ticker` = nombre del fondo
+    derivado de la unidad (core.cafci.nombre_fci) → dejan de aparecer sin nombre en
+    /aum → FCI sin tocar nada a mano. ON CONFLICT DO NOTHING → nunca pisa los
+    metadatos ya cargados (la carga manual gana). Devuelve cuántas dio de alta."""
+    from core.cafci import nombre_fci
+
     unidades = sorted({r["unidad"] for r in registros if r.get("unidad")})
     if not unidades:
         return 0
+    # (unidad, cartera, ticker): FCI pre-completado, el resto sin metadata.
+    filas = [(u, "FCI", nombre_fci(u)) if nombre_fci(u) else (u, None, None)
+             for u in unidades]
     with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
-            "INSERT INTO portafolio.assets (unidad) VALUES (%s) ON CONFLICT (unidad) DO NOTHING",
-            [(u,) for u in unidades])
+            "INSERT INTO portafolio.assets (unidad, cartera, ticker) VALUES (%s, %s, %s) "
+            "ON CONFLICT (unidad) DO NOTHING",
+            filas)
         n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
         conn.commit()
     return n

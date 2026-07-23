@@ -146,6 +146,28 @@ def _chk_assets_sin_cartera() -> list[dict]:
             for r in rows if r.get("unidad")]
 
 
+def _chk_fci_incompletos() -> list[dict]:
+    """Assets con cartera FCI sin `ticker` y/o sin `emisor`: salen SIN NOMBRE en el
+    detalle de /aum → FCI y, si comparten "vacío", se fusionan en un renglón mudo.
+    El `ticker` se autocompleta desde la unidad (writer diario + scripts.
+    backfill_fci_ticker); si acá aparece uno con ticker vacío es que la unidad no
+    matchea el formato CAFCI. El `emisor` se carga a mano (Manager → Assets)."""
+    rows = _q(
+        "SELECT unidad, "
+        "       (ticker IS NULL OR trim(ticker) = '') AS sin_ticker, "
+        "       (emisor IS NULL OR trim(emisor) = '') AS sin_emisor "
+        "FROM portafolio.assets "
+        "WHERE cartera IN ('FCI', 'CARTERA FCI') "
+        "  AND ((ticker IS NULL OR trim(ticker) = '') "
+        "       OR (emisor IS NULL OR trim(emisor) = '')) "
+        "ORDER BY unidad")
+    out: list[dict] = []
+    for r in rows:
+        faltan = [c for c, v in (("ticker", r["sin_ticker"]), ("emisor", r["sin_emisor"])) if v]
+        out.append({"key": r["unidad"], "detalle": f"{r['unidad']}: FCI sin {' y '.join(faltan)}"})
+    return out
+
+
 def _chk_comitentes_sin_nivel1() -> list[dict]:
     """Comitentes Activas sin nivel_1 → fuera de la segmentación (Clientes →
     Segmentación) y de los filtros madre. PRIVADO (keys = id_cuenta)."""
@@ -201,6 +223,7 @@ CONTROLES: list[Control] = [
     Control("forwards_faltantes", "Bonos ausentes de forwards", True, _chk_forwards_faltantes),
     Control("rf_sin_tasa", "Renta fija cotizando sin TEA/TNA", True, _chk_rf_sin_tasa),
     Control("assets_sin_cartera", "Assets sin cartera", True, _chk_assets_sin_cartera),
+    Control("fci_incompletos", "Assets FCI sin ticker/emisor", True, _chk_fci_incompletos),
     Control("simbolos_cuarentena", "Símbolos rechazados por ROFEX (cuarentena)", True,
             _chk_simbolos_cuarentena),
     Control("comitentes_sin_nivel1", "Comitentes activos sin nivel 1", False,

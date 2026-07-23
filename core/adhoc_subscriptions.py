@@ -14,7 +14,17 @@ Diseño:
   (semántica TTL en lectura) y un cron (`prune_expired`) borra las vencidas.
 - Cap TTL_DAYS desde `last_used_at`: cada subscribe()/bump_last_used() refresca
   expires_at = now + TTL_DAYS. Si nadie lo usa en 7 días, vence.
-- Cap CAP global: si hay >= CAP filas vivas al pedir una nueva, rechaza con 429.
+- Cap CAP global con DESALOJO LRU: si al pedir una nueva ya hay CAP filas vivas,
+  se desaloja la MENOS usada recientemente (la de `last_used_at` más viejo) para
+  hacerle lugar — SIEMPRE que esa no esté en uso ahora (ver PROTEGIDA abajo).
+  Solo se rechaza con 429 si las CAP están todas activas de verdad.
+
+Por qué LRU y no rechazo (fix 2026-07-23): cada ticker que alguien abre queda
+suscripto 7 días. El cupo se llenaba de papeles que la mesa miró hace días y ya
+no usa, y rechazar el ticker NUEVO era exactamente al revés — la card no traía
+nada aunque el mercado estuviera abierto (diag_operar_book mostró 50/50 con
+todas las filas de ayer). Desalojar la más vieja recupera esos slots muertos
+sin tocar lo que se está usando.
 """
 from __future__ import annotations
 
@@ -26,6 +36,11 @@ TABLE = "adhoc_subscriptions"            # mercado.adhoc_subscriptions (search_p
 
 TTL_DAYS = 7
 CAP = 50
+# Una card abierta pollea el book cada ~1s y eso refresca `last_used_at`. Por
+# encima de este umbral, una fila ya NO puede ser una card abierta → es basura
+# desalojable. Debajo, está PROTEGIDA: preferimos rechazar (429) antes que
+# tirar abajo la suscripción de algo que alguien está mirando en vivo.
+PROTEGIDA_S = 60
 
 
 def ensure_indexes() -> None:
@@ -64,8 +79,19 @@ def subscribe(ticker: str) -> dict:
         cur.execute(f"SELECT count(*) FROM {TABLE} WHERE expires_at > now()")
         active = cur.fetchone()[0]
         if active >= CAP:
-            return {"ok": False, "reason": "cap", "ticker": ticker,
-                    "active_count": active, "cap": CAP}
+            # Cupo lleno: hacer lugar desalojando la fila MENOS usada, pero solo
+            # si es basura (nadie la tocó en PROTEGIDA_S). Si TODAS las CAP están
+            # activas de verdad, no hay nada que tirar → 429 honesto.
+            cur.execute(
+                f"DELETE FROM {TABLE} WHERE ticker = ("
+                f"  SELECT ticker FROM {TABLE} "
+                f"  WHERE expires_at > now() AND last_used_at < %s "
+                f"  ORDER BY last_used_at ASC LIMIT 1)",
+                (now - timedelta(seconds=PROTEGIDA_S),))
+            if (cur.rowcount or 0) == 0:
+                return {"ok": False, "reason": "cap", "ticker": ticker,
+                        "active_count": active, "cap": CAP}
+            active -= 1
 
         # ON CONFLICT cubre el caso de una fila vencida (aún no pruneada) con el mismo ticker.
         cur.execute(

@@ -17,6 +17,7 @@ Uso (Droplet):
     python -m scripts.diag_operar_book AL30
     python -m scripts.diag_operar_book AL30 --plazo CI
     python -m scripts.diag_operar_book "MERV - XMEV - AL30 - 24hs"
+    python -m scripts.diag_operar_book --liberar-ociosas   # vacía el cupo de basura
 """
 from __future__ import annotations
 
@@ -44,11 +45,37 @@ def _edad(ts) -> tuple[float | None, str]:
     return s, f"hace {s / 3600:.1f} h"
 
 
+def _liberar_ociosas() -> None:
+    """Borra las suscripciones adhoc que nadie está mirando ahora (last_used_at
+    viejo). Alivio inmediato para un cupo lleno de basura, sin esperar al TTL de
+    7 días ni al desalojo perezoso del próximo pick. Las cards abiertas (que
+    pollean) NO se tocan: se refrescan solas al segundo siguiente."""
+    from core.adhoc_subscriptions import PROTEGIDA_S
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM mercado.adhoc_subscriptions "
+            "WHERE last_used_at < now() - make_interval(secs => %s)", (PROTEGIDA_S,))
+        borradas = cur.rowcount or 0
+        cur.execute("SELECT count(*) FROM mercado.adhoc_subscriptions")
+        quedan = cur.fetchone()[0]
+    print(f"{_OK} liberadas {borradas} suscripciones ociosas · quedan {quedan}/50")
+    print("  (las cards abiertas se re-suscriben solas en el próximo poll)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("ticker", help="corto (AL30) o full ('MERV - XMEV - AL30 - 24hs')")
+    ap.add_argument("ticker", nargs="?",
+                    help="corto (AL30) o full ('MERV - XMEV - AL30 - 24hs')")
     ap.add_argument("--plazo", default="24hs", help="CI | 24hs | 48hs (default 24hs)")
+    ap.add_argument("--liberar-ociosas", action="store_true",
+                    help="vaciar el cupo de suscripciones que nadie está usando")
     args = ap.parse_args()
+
+    if args.liberar_ociosas:
+        _liberar_ociosas()
+        return
+    if not args.ticker:
+        ap.error("falta el ticker (o usá --liberar-ociosas)")
 
     corto = args.ticker.strip()
     full = corto if " - " in corto else f"MERV - XMEV - {corto} - {args.plazo}"

@@ -281,6 +281,10 @@ TOOLS_COMERCIAL: list[dict] = [
                                              "que son la foto de hoy."},
                     "hasta": {"type": "string",
                               "description": "YYYY-MM-DD. Default: hoy."},
+                    # mismas monedas que el resto del asistente (_MONEDAS en
+                    # asistente_tools). Import a nivel módulo sería circular
+                    # (asistente_tools carga este archivo al armar TOOLS) → se
+                    # mantiene en sync con un test de contrato, no con un import.
                     "moneda": {"type": "string", "enum": ["ARS", "USD"]},
                     "ficha_operador": {
                         "type": "string",

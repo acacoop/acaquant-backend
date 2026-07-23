@@ -141,7 +141,7 @@ TOOLS: list[dict] = [
                 "la conversación (CLIENTE_1, CTA_2...). "
                 "DEVUELVE SOLO TOTALES: no trae el detalle de qué títulos tiene "
                 "ni cuánto pesa cada uno — si preguntan EN QUÉ está invertido, "
-                "decí que tenés el total pero no la composición. "
+                "eso lo da posiciones_cuenta, usá esa. "
                 "Tampoco sirve para '¿cuánto operó?' (eso es volumen operado, "
                 "va por volumen_operado con ficha_cuenta)."
             ),
@@ -353,10 +353,13 @@ TOOLS: list[dict] = [
             "name": "aum_historico",
             "description": (
                 "EVOLUCIÓN del AuM en un período, con promedio, mediana, mínimo y "
-                "máximo sobre los cierres diarios. Usala para '¿cuál fue el AuM "
-                "promedio de FCI en junio?', 'la mediana del mes', 'cómo evolucionó "
-                "el AuM'. Se puede acotar a una cartera (HD, DL, ARS, FCI…) y/o a un "
-                "cliente. OJO: resumen_mesa da el AuM de HOY; esta da la HISTORIA."
+                "máximo sobre los cierres diarios. Es la ÚNICA que acota a un "
+                "CLIENTE (por su ficha). Usala para '¿cuál fue el AuM promedio de "
+                "FCI en junio?', 'la mediana del mes', 'cómo evolucionó el AuM de "
+                "CLIENTE_1'. Se puede acotar a una cartera (HD, DL, ARS, FCI…) y/o "
+                "a un cliente. OJO: resumen_mesa da el AuM de HOY; esta da la "
+                "HISTORIA con su distribución. Si preguntan si el AuM está ALTO o "
+                "BAJO contra su historia (percentil/z), eso es serie_historica."
             ),
             "parameters": {
                 "type": "object",
@@ -418,11 +421,13 @@ TOOLS: list[dict] = [
         "function": {
             "name": "aranceles_consolidado",
             "description": (
-                "Aranceles facturados (SIEMPRE en pesos) consolidados por una "
-                "dimensión en un período: por mercado, tipo de operación, segmento "
-                "o título. Usala para 'lo facturado', consolidados de aranceles. "
-                "Incluye el arancel de caución que vive en los cierres (regla de "
-                "la mesa, ya aplicada)."
+                "Aranceles facturados consolidados por una dimensión en un "
+                "período: por mercado, tipo de operación, segmento o título. Se "
+                "facturan en pesos, pero acepta moneda USD y convierte cada "
+                "boleto con el TC de su día (igual que volumen_operado). Usala "
+                "para 'lo facturado', consolidados de aranceles. Incluye el "
+                "arancel de caución que vive en los cierres (regla de la mesa, "
+                "ya aplicada)."
             ),
             "parameters": _PARAMS_CONSOLIDADO,
         },
@@ -818,7 +823,8 @@ def flujo_de_fondos(args: dict, *, mapping: dict) -> str:
     desde = str(args.get("desde") or "").strip() or hoy.replace(day=1).isoformat()
     hasta = str(args.get("hasta") or "").strip() or hoy.isoformat()
     r = cashflow_sql.flujos_resumen(desde=desde, hasta=hasta) or {}
-    filas = r.get("filas") if isinstance(r, dict) else r
+    # clave VERIFICADA (cashflow_sql.flujos_resumen): siempre {"filas": [...]}.
+    filas = r.get("filas") or []
     if not filas:
         return f"no hay movimientos de fondos entre {desde} y {hasta}"
     por_unidad: dict[str, dict] = {}

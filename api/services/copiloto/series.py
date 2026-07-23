@@ -266,8 +266,10 @@ TOOL_SERIE = {
                     "enum": sorted(_SERIES),
                     "description": "Qué familia de serie: macro (CER, inflación, "
                                    "riesgo país, dólar), bono_1816 (TEA/paridad de "
-                                   "un bono), aum (AuM de la mesa por cartera), "
-                                   "bcra (variables monetarias), internacional "
+                                   "un bono), aum (AuM total de la mesa o por "
+                                   "CARTERA — NO por cliente; para el AuM de un "
+                                   "cliente puntual usá aum_historico), bcra "
+                                   "(variables monetarias), internacional "
                                    "(FRED: tasas US, commodities).",
                 },
                 "clave": {

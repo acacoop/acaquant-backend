@@ -221,3 +221,13 @@ def test_el_gate_recibe_el_usuario_real_desde_el_dispatcher(monkeypatch):
                     mapping={"fichas": {}}, usuario="jefe@x.com")
     assert vistos == ["jefe@x.com"]
     assert "permiso" in r
+
+
+def test_enum_moneda_coincide_con_la_fuente_unica():
+    """El enum de moneda del tablero comercial no se importa de asistente_tools
+    (sería un import circular al armar TOOLS), así que se mantiene en sync con
+    ESTE test: si _MONEDAS cambia, esto falla y avisa (hallazgo /ia-review)."""
+    from api.services.asistente_tools import _MONEDAS
+
+    schema = ac.TOOLS_COMERCIAL[0]["function"]["parameters"]["properties"]
+    assert schema["moneda"]["enum"] == list(_MONEDAS)

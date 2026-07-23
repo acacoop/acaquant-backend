@@ -245,3 +245,54 @@ def test_handler_negocio_mapea_presupuesto(monkeypatch):
     r = _handler_negocio(pregunta="resumen", usuario="jefe@x.com",
                          conv_id=None, historial=None, params=None)
     assert r == {"ok": False, "error": "presupuesto_global"}
+
+
+# ── Verificación de cifras (la red anti-invención, #2 del PRO 2026-07-23) ─────
+
+def test_verificar_cifras_no_toca_una_respuesta_respaldada(monkeypatch):
+    """Si cada cifra está en lo que devolvieron las tools, la respuesta pasa
+    tal cual — no se gasta una reescritura."""
+    from api.services import asistente as asx
+    llamado = []
+    monkeypatch.setattr(asx.ai, "completar_con_traza",
+                        lambda *a, **k: llamado.append(1) or ("no debería", 1))
+    ctx = "[tool resumen_mesa] AuM total: 626.68 mil millones ARS · 42 cuentas"
+    texto = "El AuM es 626.68 mil millones ARS, en 42 cuentas."
+    assert asx._verificar_cifras(texto, ctx, "x@y") == texto
+    assert not llamado                       # no hubo autocorrección
+
+
+def test_verificar_cifras_corrige_un_numero_inventado(monkeypatch):
+    """Una cifra que NO está en los datos dispara UNA reescritura corregida."""
+    from api.services import asistente as asx
+    visto = {}
+
+    def _fake(tarea, *, system, user, usuario, detalle):
+        visto["user"] = user
+        return "El AuM es 626.68 mil millones ARS.", 2   # corregida, respaldada
+
+    monkeypatch.setattr(asx.ai, "completar_con_traza", _fake)
+    ctx = "[tool resumen_mesa] AuM total: 626.68 mil millones ARS"
+    texto = "El AuM es 999.99 mil millones ARS."          # inventado
+    r = asx._verificar_cifras(texto, ctx, "x@y")
+    assert "999.99" not in r and "626.68" in r
+    assert "aparecen en los datos que consultaste" in visto["user"]  # instrucción de corrección
+
+
+def test_verificar_cifras_no_empeora(monkeypatch):
+    """Si la reescritura trae MÁS cifras sin respaldo que la original, se queda
+    la original — la red nunca deja peor de lo que estaba."""
+    from api.services import asistente as asx
+    monkeypatch.setattr(asx.ai, "completar_con_traza",
+                        lambda *a, **k: ("ahora digo 111.11 y 222.22 mil millones", 3))
+    ctx = "[tool] AuM 626.68 mil millones ARS"
+    texto = "El AuM es 999.99 mil millones ARS."
+    assert asx._verificar_cifras(texto, ctx, "x@y") == texto   # se queda la original
+
+
+def test_verificar_cifras_gateway_caido_deja_la_original(monkeypatch):
+    from api.services import asistente as asx
+    monkeypatch.setattr(asx.ai, "completar_con_traza", lambda *a, **k: (None, None))
+    ctx = "[tool] AuM 626.68 mil millones ARS"
+    texto = "El AuM es 999.99 mil millones."
+    assert asx._verificar_cifras(texto, ctx, "x@y") == texto

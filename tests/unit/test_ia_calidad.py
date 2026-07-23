@@ -79,3 +79,30 @@ def test_digest_no_lleva_markdown_que_pueda_romperse():
     assert "traza #644" in d and "GD41" in d
     # sin marcado propio que el contenido del modelo pueda dejar sin cerrar
     assert "*Calidad" not in d and "_Revisá" not in d
+
+
+# ── gen_evals_desde_flags: el harness que cierra detectar -> prevenir ─────────
+
+def test_caso_generado_tiene_pregunta_real_y_hint_por_modo():
+    """Un flag se convierte en un borrador de caso con la pregunta REAL y el
+    hint del modo — el punto de partida que el humano afina."""
+    import datetime
+
+    from scripts import gen_evals_desde_flags as gen
+    flag = {"traza_id": 656, "tarea": "copiloto_vista_pro", "modo": "ranking_a_mano",
+            "severidad": "medio", "nota": "tabla desordenada",
+            "ts": datetime.date(2026, 7, 23),
+            "pregunta": "rankeá el sector energía", "respuesta": "VIST +37% ... USO +90%"}
+    c = gen._caso(flag)
+    assert c["pregunta"] == "rankeá el sector energía"
+    assert "ranking_a_mano" in c["id"] and c["_REVISAR"]        # trae el hint
+    assert "USO +90%" in c["_respuesta_original"]
+
+
+def test_hay_hint_para_cada_modo_del_loop():
+    """Todo modo que el loop puede emitir tiene un hint — un flag nunca queda
+    sin punto de partida."""
+    from jobs.ia_calidad import _MODOS
+    from scripts.gen_evals_desde_flags import _HINT
+    for m in (*_MODOS, "voto_negativo"):
+        assert m in _HINT

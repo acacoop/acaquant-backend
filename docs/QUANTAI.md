@@ -710,6 +710,24 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
+- **2026-07-23 — Dos mejoras PRO de calidad del asistente.**
+  1. **Verificación de cifras en el asistente de negocio** (`asistente.py::_verificar_cifras`).
+     El copiloto ya tenía red anti-invención de números (`verificacion.py`); el
+     asistente de negocio —que maneja PLATA para los jefes— NO. Ahora reusa
+     `_numeros_sin_respaldo`: antes de que la respuesta salga, chequea que cada
+     cifra citada aparezca en lo que devolvieron las tools; si hay una sin
+     respaldo, UNA reescritura corregida (contempla las cuentas simples que el
+     asistente sí permite → o la marca aprox '~' o la corrige al valor exacto).
+     La corregida solo gana si no empeora. Cierra el peor modo de falla de una
+     herramienta de gestión: el número creíble y equivocado.
+  2. **Harness de evals desde las flags** (`scripts/gen_evals_desde_flags.py`).
+     Cierra el loop DETECTAR → PREVENIR: las conversaciones que
+     `jobs/ia_calidad.py` marca en `ia.calidad_flags` se convierten en BORRADORES
+     de casos de eval (pregunta real + hint por modo de falla). SEMI-automático a
+     propósito: el script hace lo tedioso, el humano afina el patrón y lo mueve
+     al set vivo (`evals/*.json`). Cada falla real queda como test de regresión
+     → el asistente mejora de forma acumulativa, no arreglando bugs sueltos.
+
 - **2026-07-23 — Loop de CALIDAD de conversaciones (`jobs/ia_calidad.py`).**
   Cierra el loop que era manual: hasta ahora los bugs de calidad de la IA
   (ranking a mano, deflexión, causalidad inventada, tool muda) los cazaba el

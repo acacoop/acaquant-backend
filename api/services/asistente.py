@@ -231,6 +231,41 @@ def _persistir(chat_id: str, email: str, turnos: list[tuple[str, str]]) -> None:
         logger.warning("asistente: no pude persistir el transcript de %s (%s)", chat_id, e)
 
 
+def _verificar_cifras(texto: str, ctx_tools: str, email: str) -> str:
+    """Red anti-invención de cifras: ninguna que cite el asistente puede FALTAR
+    en lo que devolvieron las tools. Reusa el chequeo del copiloto
+    (`_numeros_sin_respaldo`, con tolerancia de redondeo). Si hay cifras sin
+    respaldo, UNA reescritura corregida; si tras eso sigue habiendo, se deja lo
+    mejor que haya (nunca peor que la original) y se loguea.
+
+    A diferencia del copiloto —que PROHÍBE toda aritmética—, el asistente permite
+    cuentas simples: la corrección lo contempla (o marcás la cifra como aprox con
+    '~' dejando clara la operación, o la corregís al valor exacto del dato)."""
+    from api.services.copiloto.verificacion import _numeros_sin_respaldo
+
+    malos, _ = _numeros_sin_respaldo(texto, ctx_tools)
+    if not malos:
+        return texto
+    logger.warning("asistente: %d cifra(s) sin respaldo %s — autocorrección",
+                   len(malos), malos)
+    correccion = (
+        f"{ctx_tools}\n[tu respuesta previa]\n{texto}\n"
+        f"[verificación automática] estas cifras NO aparecen en los datos que "
+        f"consultaste: {', '.join(malos)}. Si son una cuenta tuya (suma/resta/%), "
+        "presentala como aproximación con '~' y dejá clara la operación; si no, "
+        "corregilas al valor EXACTO del dato. Reescribí la respuesta COMPLETA "
+        "corregida, mismo formato y largo, sin mencionar esta corrección."
+    )
+    texto2, _t = ai.completar_con_traza(
+        _TAREA, system=_system_completo(), user=correccion, usuario=email,
+        detalle="[autocorrección de cifras]")
+    if not texto2:
+        return texto                       # el gateway no respondió → dejamos la original
+    malos2, _ = _numeros_sin_respaldo(texto2, ctx_tools)
+    # la corregida solo gana si NO empeoró (menos cifras sin respaldo)
+    return texto2 if len(malos2) <= len(malos) else texto
+
+
 def responder(*, mensaje: str, email: str, chat_id: str | None = None) -> dict:
     """Un turno del chat. Devuelve {ok, chat_id, respuesta} o
     {ok: False, motivo, mensaje} — nunca levanta."""
@@ -289,6 +324,13 @@ def responder(*, mensaje: str, email: str, chat_id: str | None = None) -> dict:
         detalle=mensaje_limpio[:200],   # la traza guarda SOLO texto tokenizado
         historial=historial_limpio,
     )
+    # VERIFICACIÓN de cifras (misma red que el copiloto — el asistente maneja
+    # PLATA para los jefes): ninguna cifra que cite puede FALTAR en lo que
+    # devolvieron las tools. Corre sobre el texto TOKENIZADO contra el contexto
+    # TOKENIZADO (ambos con fichas) antes de detokenizar. Un número creíble y
+    # equivocado es el peor modo de falla de una herramienta de gestión.
+    if texto and _ctx:
+        texto = _verificar_cifras(texto, _ctx, email)
     # el mapping pudo crecer (tools que tokenizaron resultados) → persistir
     pii_gateway.guardar_mapping(chat_id, email, mapping)
 

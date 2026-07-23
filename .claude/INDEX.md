@@ -18,6 +18,8 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 | `/motor-status` | Estado systemd + última actividad Mongo de los motores. |
 | `/deploy` | Push a main + pull + `systemctl restart api.service` en el Droplet. |
 | `/sistema` | Regenera + muestra el plano único del sistema (`deploy/SISTEMA.md`) desde systemd + crontab. |
+| `/ia-review` | Review de CALIDAD del programa de IA (fan-out sobre prompts/tools/aduana/evals) → mejoras priorizadas. |
+| `/ia-salud` | Chequeo de salud del asistente/copiloto: ruteo de privacidad + tools que traen datos + contexto de vistas + no-leak. |
 
 ## Skills (procedimientos — Claude los aplica cuando la tarea matchea)
 
@@ -32,6 +34,9 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 | `safe-backfill` | Backfill/migración/`--full` que NO tira el CPU: medir → scopear → batchear+throttle → run_job → fuera de rueda (REGLA #4, post-incidente 2026-06-04). |
 | `index-health` | Auditar que los índices REALMENTE se usen (explain, no index_information). Caza el trap partial→COLLSCAN. |
 | `security-review` | Checklist de seguridad antes de exponer endpoint/auth/MCP: RBAC, secretos, CF Access. |
+| `add-tool-ia` | Agregar una tool al asistente/copiloto: el checklist que evita tool muda / PII filtrada / enum divergente. |
+| `tocar-aduana` | Candado antes de cambiar `core/pii_gateway.py`: qué verificar (3 vías) y qué correr (no-leak) SIEMPRE. |
+| `triage-conversacion` | Diagnosticar un chat de IA que salió mal: trazas reales → clasificar el modo de falla → fix + candado. |
 
 ## Agents (subagentes — corren en contexto limpio)
 

@@ -486,3 +486,63 @@ def test_valor_conocido_corto_no_masca_subcadenas(monkeypatch):
     limpio, _m = pg.tokenize("el mercado del Sur y la sursala", mapping,
                              texto_generado=True)
     assert "sursala" in limpio                   # subcadena intacta
+
+
+# ── Fixes del /ia-review 2026-07-23 (mi propio _spans_conocidos, incompleto) ──
+
+def test_red_final_no_deforma_numeros_agregados(monkeypatch):
+    """La red final es para NOMBRES, no números. Una cuenta fichada por su
+    numero ('cuenta 805' → CTA_1='805') NO debe tacharse dentro de un agregado
+    que emite una tool ('AuM 805.25 millones' o '100%'). Es la deformacion del
+    incidente '605.25 → CTA.CTA', que _spans_numeros ya maneja con su guard."""
+    monkeypatch.setattr(pg, "_catalogo", lambda: None)   # sin catálogo: solo keyword
+    _l, mapping = pg.tokenize("cuánto tiene la cuenta 805")   # CTA_1 = '805'
+    assert any(v == "805" for v in mapping["fichas"].values())
+    # turno generado por una tool: números agregados con '805' adentro
+    limpio, _m = pg.tokenize("AuM 805.25 millones · subió 100% este mes",
+                             mapping, texto_generado=True)
+    assert "805.25" in limpio and "100%" in limpio     # números intactos
+    assert "CTA_1" not in limpio                        # no se deformó
+
+
+def test_historial_no_sobrevive_al_mapping(monkeypatch):
+    """El leak reabierto: el mapping vence a las 48h pero el transcript no.
+    _cargar_historial debe acotar los turnos a la misma ventana del mapping —
+    si el mapping vencio (vacio), no se re-inyecta un turno viejo cuyos nombres
+    ya no se pueden re-enmascarar. Se verifica que la query lleva el filtro de
+    edad atado al TTL del mapping."""
+    from api.services import asistente as asx
+    from core.pii_gateway import _MAPPING_TTL_HORAS
+
+    visto = {}
+
+    class _Cur:
+        def execute(self, sql, params):
+            visto["sql"] = " ".join(sql.split())
+            visto["params"] = params
+
+        def fetchall(self):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    class _Conn:
+        def cursor(self):
+            return _Cur()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    import core.postgres
+    monkeypatch.setattr(core.postgres, "get_pool",
+                        lambda: type("P", (), {"connection": lambda s: _Conn()})())
+    asx._cargar_historial("chat-x")
+    assert "ts > now() - make_interval(hours =>" in visto["sql"]  # acotado por edad
+    assert _MAPPING_TTL_HORAS in visto["params"]                   # a la vida del mapping

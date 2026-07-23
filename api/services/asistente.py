@@ -186,16 +186,28 @@ def _system_completo() -> str:
 
 def _cargar_historial(chat_id: str) -> list[tuple[str, str]]:
     """Últimos turnos del transcript (rol, contenido REAL) — se re-tokenizan
-    antes de viajar. Best-effort: sin historial el chat arranca de cero."""
+    antes de viajar. Best-effort: sin historial el chat arranca de cero.
+
+    ACOTADO A LA VIDA DEL MAPPING (TTL 48h): el transcript no vence, pero la red
+    que re-enmascara identidades conocidas (`_spans_conocidos`) depende del
+    mapping, que SÍ vence a las 48h. Si re-inyectáramos un turno más viejo que
+    el mapping, sus nombres reales (sobre todo los que emitió una tool y el
+    usuario nunca tipeó — rankings de clientes) no tendrían con qué re-tacharse
+    y viajarían al proveedor. Historial y mapping tienen que vencer juntos
+    (leak reabierto encontrado en el /ia-review 2026-07-23). Un chat activo
+    bumpea `updated_at` en cada turno → nunca pierde su historial; el corte solo
+    afecta al chat que se retoma tras >48h de inactividad."""
+    from core.pii_gateway import _MAPPING_TTL_HORAS
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT rol, contenido FROM ("
                 "  SELECT rol, contenido, ts, id FROM manager.asistente_chats "
-                "  WHERE chat_id = %s ORDER BY ts DESC, id DESC LIMIT %s"
+                "  WHERE chat_id = %s AND ts > now() - make_interval(hours => %s) "
+                "  ORDER BY ts DESC, id DESC LIMIT %s"
                 ") ult ORDER BY ts ASC, id ASC",
-                (chat_id, _MAX_HISTORIAL_TURNOS))
+                (chat_id, _MAPPING_TTL_HORAS, _MAX_HISTORIAL_TURNOS))
             return [(r[0], r[1]) for r in cur.fetchall()]
     except Exception as e:
         logger.warning("asistente: no pude leer el historial de %s (%s)", chat_id, e)

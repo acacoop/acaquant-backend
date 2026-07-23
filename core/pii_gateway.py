@@ -556,6 +556,14 @@ def _spans_conocidos(texto: str, mapping: dict) -> list[tuple[int, int, str]]:
         v = str(valor or "").strip()
         if len(v) < 3:
             continue
+        # SOLO identidades con LETRAS (nombres). Las numéricas (cuentas,
+        # documentos: CTA_n/DOC_n) las maneja _spans_numeros de forma
+        # determinista, CON su guard decimal. Barrerlas acá rompería los
+        # agregados que emiten las tools: "805.25" con CTA_1="805" → "CTA_1.25"
+        # (el word-boundary deja pasar el punto). Es la misma deformación del
+        # incidente "605.25" — el /ia-review 2026-07-23 la cazó reintroducida.
+        if not any(c.isalpha() for c in v):
+            continue
         for m in re.finditer(rf"(?<!\w){re.escape(v)}(?!\w)", texto, re.IGNORECASE):
             spans.append((m.start(), m.end(), ficha))
     return spans

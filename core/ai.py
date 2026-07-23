@@ -92,7 +92,12 @@ _TAREAS: dict[str, dict] = {
     # vez del default barato. Sin la credencial de ESE proveedor la tarea NO
     # corre y NO cae al default — sería mandar los números de la empresa justo
     # a donde este ruteo los quiere evitar. El cableado vive en core/llm.py.
+    # `datos: "negocio"` = esta tarea ve números del negocio (aunque sin
+    # identidades: la aduana las tacha). La invariante `_ruteo_seguro` EXIGE que
+    # una tarea así corra en un proveedor con no_entrena=True: si alguien la
+    # ruteara mal, el gateway se NIEGA a correr en vez de confiar en el string.
     "asistente_negocio": {"tier": "flash", "proveedor": "openai",
+                          "datos": "negocio",
                           "max_tokens": 3000, "timeout_s": 90,
                           "thinking": "disabled"},
     # CONTROL DE CALIDAD de conversaciones (jobs/ia_calidad.py): toma UN turno
@@ -116,6 +121,26 @@ def _config(tarea: str) -> dict:
 
 def _proveedor(cfg: dict) -> str:
     return cfg.get("proveedor") or llm.PROVEEDOR_DEFAULT
+
+
+def _ruteo_seguro(cfg: dict) -> bool:
+    """Invariante de PRIVACIDAD: una tarea que ve datos del negocio
+    (`datos == "negocio"`) SOLO puede correr en un proveedor que no entrena.
+
+    Cierra el fail-open que el /ia-review encontró: sin esto, la garantía
+    dependía 100% de que el caller pasara el string de tarea correcto — una
+    tarea de negocio ruteada mal (o registrada con el proveedor equivocado)
+    mandaba los números de la empresa justo al proveedor que el ruteo evita. Con
+    esto el gateway se niega a correrla. Las tareas de mercado (datos públicos)
+    no llevan la marca → no las afecta."""
+    if cfg.get("datos") != "negocio":
+        return True
+    prov = _proveedor(cfg)
+    if llm.no_entrena(prov):
+        return True
+    logger.error("core.ai: RUTEO INSEGURO — tarea de negocio hacia %r (entrena). "
+                 "Se NIEGA la llamada (fail-closed).", prov)
+    return False
 
 
 def _modelo(cfg: dict) -> str:
@@ -344,7 +369,7 @@ def _completar_tools_loop(
     import json as _json
 
     cfg = _config(tarea)
-    if not llm.configurado(_proveedor(cfg)):
+    if not llm.configurado(_proveedor(cfg)) or not _ruteo_seguro(cfg):
         return None, None, ""
     modelo = _modelo(cfg)
     mensajes = [{"role": "system", "content": system}]
@@ -429,8 +454,8 @@ def _completar(
     tarea: str, *, system: str, user: str, usuario: str | None, detalle: str | None = None
 ) -> tuple[str | None, int | None]:
     cfg = _config(tarea)
-    if not llm.configurado(_proveedor(cfg)):
-        return None, None  # proveedor apagado — sin traza (sería ruido en cada corrida)
+    if not llm.configurado(_proveedor(cfg)) or not _ruteo_seguro(cfg):
+        return None, None  # proveedor apagado / ruteo inseguro — sin traza (ruido)
     modelo = _modelo(cfg)
     motivo = motivo_presupuesto(usuario)
     if motivo:

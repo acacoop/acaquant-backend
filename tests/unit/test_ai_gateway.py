@@ -90,3 +90,44 @@ def test_set_presupuesto_usuario_valida(monkeypatch):
     with pytest.raises(ValueError):
         # excepción personal tampoco puede superar el global
         ia_obs.set_presupuesto_usuario("x@y.com", 3_000_000, actor="a@b.com")
+
+
+# ── Invariante de privacidad del ruteo (fix del /ia-review) ──────────────────
+
+def test_toda_tarea_de_negocio_va_a_proveedor_que_no_entrena():
+    """La garantía madre: cada tarea marcada `datos: negocio` DEBE rutear a un
+    proveedor con no_entrena=True. Si alguien agrega una tarea de negocio y la
+    routea mal (o al default que entrena), este test la caza — la garantía deja
+    de depender de que el humano no se equivoque."""
+    from core import llm
+    for tarea, cfg in ai._TAREAS.items():
+        if cfg.get("datos") == "negocio":
+            prov = ai._proveedor(cfg)
+            assert llm.no_entrena(prov), (
+                f"tarea de negocio {tarea!r} rutea a {prov!r} que ENTRENA")
+
+
+def test_ruteo_seguro_niega_una_tarea_de_negocio_mal_ruteada(monkeypatch):
+    """Belt-and-suspenders en runtime: aunque una tarea de negocio quedara
+    apuntando a un proveedor que entrena, el gateway se NIEGA a correrla."""
+    # un proveedor que entrena
+    monkeypatch.setattr(ai.llm, "no_entrena", lambda p=None: False)
+    assert ai._ruteo_seguro({"datos": "negocio", "proveedor": "deepseek"}) is False
+    # una tarea de mercado (sin la marca) NO se ve afectada
+    assert ai._ruteo_seguro({"proveedor": "deepseek"}) is True
+
+
+def test_ruteo_inseguro_devuelve_none_sin_llamar_al_proveedor(monkeypatch):
+    """El circuito completo: tarea de negocio + proveedor que entrena → None,
+    sin tocar el proveedor (no se manda el dato)."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    monkeypatch.setattr(ai.llm, "configurado", lambda p=None: True)
+    monkeypatch.setattr(ai.llm, "no_entrena", lambda p=None: False)
+    monkeypatch.setattr(ai, "_config",
+                        lambda t: {"datos": "negocio", "proveedor": "deepseek",
+                                   "tier": "flash", "max_tokens": 100,
+                                   "timeout_s": 30, "thinking": "disabled"})
+    llamado = []
+    monkeypatch.setattr(ai.llm, "chat", lambda *a, **k: llamado.append(1))
+    assert ai.completar("x_negocio", system="s", user="u") is None
+    assert not llamado                       # el proveedor NUNCA se llamó

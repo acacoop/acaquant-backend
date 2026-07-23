@@ -28,6 +28,7 @@ Conecta con: delega en `api.services.ordenes` (que habla con `core.rofex_orders_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
-- [[web.cmp.operar-dashboard-view]]  ·  _component_
 - [[web.cmp.operar-fci-view]]  ·  _component_
+- [[web.cmp.operar-shared]]  ·  _component_
+- [[web.cmp.operar-titulos-fci-view]]  ·  _component_
 - [[web.lib.proxy]]  ·  _lib_

@@ -28,6 +28,5 @@ Conecta con: delega en `api.services.risk` (que consulta a ROFEX vía sesión de
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
 - [[web.cmp.dolar-mep-shell]]  ·  _component_
-- [[web.cmp.operar-dashboard-view]]  ·  _component_
-- [[web.cmp.operar-fci-view]]  ·  _component_
+- [[web.cmp.operar-shared]]  ·  _component_
 - [[web.lib.proxy]]  ·  _lib_

@@ -18,4 +18,3 @@ Conecta con: pega a los endpoints de búsqueda/cotización de FCI y a `/api/orde
 
 ## Usa / conecta con →
 - [[api.routers.ordenes]]  ·  _module_
-- [[api.routers.risk]]  ·  _module_

@@ -30,6 +30,6 @@ Conecta con: usa `order_book`, `ordenes.send_order`, `core.brackets`, `core.adho
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
-- [[web.cmp.operar-dashboard-view]]  ·  _component_
+- [[web.cmp.operar-titulos-fci-view]]  ·  _component_
 - [[web.cmp.order-book-panel]]  ·  _component_
 - [[web.lib.proxy]]  ·  _lib_

@@ -27,5 +27,6 @@ _(pendiente de enriquecimiento)_
 - [[api.services.copiloto.motor]]  ·  _module_
 - [[api.services.ia_obs]]  ·  _module_
 - [[core.ai_resumen]]  ·  _module_
+- [[jobs.ia_calidad]]  ·  _module_
 - [[jobs.research_mail]]  ·  _module_
 - [[jobs.triage]]  ·  _module_

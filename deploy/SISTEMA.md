@@ -96,6 +96,7 @@
 | 16:30 · L-V | `jobs.controles_datos'` |
 | 20:30 · L-V | `jobs.forwards_zscore'` |
 | 21:30 · L-V | `jobs.partner_export'` |
+| 21:30 · L-V | `jobs.ia_calidad'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |
 | 11:35 · diario | `jobs.news_ingesta'` |
 | 11:35 · diario | `jobs.news_finnhub'` |

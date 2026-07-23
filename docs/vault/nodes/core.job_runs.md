@@ -42,6 +42,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
+- [[jobs.ia_calidad]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_
 - [[jobs.mercado_1816_series]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_

@@ -251,6 +251,13 @@
 # del LLM (guardas: dedup + watermark + presupuesto + severidad). docs/QUANTAI.md.
 */10 * * * * /root/TradingAV/deploy/run_job.sh triage 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.triage'
 
+# ─── Control de CALIDAD de conversaciones de IA (jobs/ia_calidad.py) — cierra el
+# loop que era manual. 1x/dia 21:30 UTC (post-rueda): marca los 👎 + un critico
+# barato sobre los turnos con señal de falla, y manda un digest a Telegram con
+# las sospechosas ya clasificadas. NO auto-corrige. Solo gasta tokens en los
+# candidatos que pasan el pre-filtro deterministico; un dia sin señales = 0.
+30 21 * * 1-5 /root/TradingAV/deploy/run_job.sh ia_calidad 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ia_calidad'
+
 # ─── Research diario por mail (QuantAI P6) — ingesta IMAP + destilado LLM → ia.research
 # Cada 30 min a la mañana L-V (el mail llega temprano ART): dedup por Message-ID
 # → re-correr no duplica ni re-gasta tokens; un run sin mail nuevo = 0 tokens.

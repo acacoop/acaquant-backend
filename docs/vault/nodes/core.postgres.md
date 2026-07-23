@@ -143,6 +143,7 @@ _(pendiente de enriquecimiento)_
 - [[jobs.forwards_zscore]]  ·  _module_
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
+- [[jobs.ia_calidad]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
 - [[jobs.mercado_1816_discovery]]  ·  _module_

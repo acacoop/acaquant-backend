@@ -29,6 +29,7 @@ Conecta con: delega en `api.services.scanner` y `api.services.rv_motor` (leen `T
 - [[api.main]]  ·  _module_
 - [[web.api.api.scanner.[...path]]]  ·  _route_
 - [[web.cmp.pivot-points-panel]]  ·  _component_
+- [[web.cmp.retornos-chart]]  ·  _component_
 - [[web.cmp.scanner-view]]  ·  _component_
 - [[web.cmp.ticker-chart-panel]]  ·  _component_
 - [[web.cmp.trading-movers-scanner]]  ·  _component_

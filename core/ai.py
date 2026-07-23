@@ -95,6 +95,12 @@ _TAREAS: dict[str, dict] = {
     "asistente_negocio": {"tier": "flash", "proveedor": "openai",
                           "max_tokens": 3000, "timeout_s": 90,
                           "thinking": "disabled"},
+    # CONTROL DE CALIDAD de conversaciones (jobs/ia_calidad.py): toma UN turno
+    # (pregunta + respuesta, YA tokenizado — la traza es PII-safe) y devuelve
+    # JSON {sospechoso, modo, severidad, nota}. Clasificación barata contra los
+    # modos de falla conocidos → flash sin thinking, max_tokens chico.
+    "critico_calidad": {"tier": "flash", "max_tokens": 400, "timeout_s": 60,
+                        "thinking": "disabled"},
 }
 
 _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60, "thinking": "disabled"}

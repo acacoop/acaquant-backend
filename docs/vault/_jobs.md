@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-54 notas.
+55 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -33,6 +33,7 @@
 - [[jobs.forwards_zscore]] — forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.
 - [[jobs.fred_research]] — jobs/fred_research.py — sincroniza series de FRED a Postgres (tab Datos
 - [[jobs.guardrails]] — jobs/guardrails.py — invariantes de sanidad de datos post-cierre.
+- [[jobs.ia_calidad]] — jobs/ia_calidad.py — control de calidad de las conversaciones de IA.
 - [[jobs.informe_salud]] — informe_salud.py — Informe de salud de ACAQuant (health report a Telegram).
 - [[jobs.market_anchors]] — market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).
 - [[jobs.market_quotes]] — market_quotes.py — cotizaciones de equity/futuros/índices para el watchlist HOME.

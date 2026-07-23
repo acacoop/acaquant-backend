@@ -710,6 +710,20 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
+- **2026-07-23 — Loop de CALIDAD de conversaciones (`jobs/ia_calidad.py`).**
+  Cierra el loop que era manual: hasta ahora los bugs de calidad de la IA
+  (ranking a mano, deflexión, causalidad inventada, tool muda) los cazaba el
+  user leyendo trazas con `diag_ia_trazas --full`. Ahora un job diario (21:30
+  UTC, post-rueda) marca los 👎 del usuario (0 tokens) + corre un crítico LLM
+  barato SOLO sobre los turnos que pasan un pre-filtro determinista (una tabla
+  que dice "ordenado", una respuesta que termina preguntando, un "sin datos",
+  un "así que" que encadena métricas), y manda un digest a Telegram con las
+  sospechosas ya clasificadas por modo de falla. Mismo molde que `jobs/triage.py`
+  (watermark + guardas de costo). **NO auto-corrige, NO toca el repo, Telegram
+  solo de salida** (lección del buzón de pedidos). Las trazas guardan texto YA
+  tokenizado → el crítico lee PII-safe. Persiste en `ia.calidad_flags`. El
+  detector de bugs de la IA deja de ser "el user con los ojos".
+
 - **2026-07-22 — Control de calidad del código de IA (v1.92).** Pasada completa
   sobre `asistente_tools` + `copiloto/*` pedida por el user ("prolijo, escalable,
   eficiente, sin cosas hardcodeadas"). Lo que apareció no fue estilo: **tres

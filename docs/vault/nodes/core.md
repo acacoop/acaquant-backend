@@ -81,6 +81,7 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
+- [[jobs.ia_calidad]]  ·  _module_
 - [[jobs.mercado_1816_discovery]]  ·  _module_
 - [[jobs.mercado_1816_series]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_

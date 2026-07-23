@@ -1,0 +1,68 @@
+"""Tests de jobs/ia_calidad.py — el loop de calidad de conversaciones.
+
+Lo crítico: el PRE-FILTRO barato (qué turnos merecen mirada del crítico) y el
+SANEO del veredicto (el crítico propone, el código encierra). El LLM no se
+llama en los tests.
+"""
+from __future__ import annotations
+
+from jobs import ia_calidad as qa
+
+# ── pre-filtro: separa lo obviamente sano de lo que merece mirada ────────────
+
+def test_prefiltro_marca_tabla_ordenada():
+    """Una tabla que dice 'ordenado' es el caso exacto de la traza 2026-07-23."""
+    resp = ("| Papel | Año |\n|---|---|\n| VIST | +37% |\n\n"
+            "ordenado por retorno del año")
+    assert qa._senal_barata("rankeá energía", resp) is True
+
+
+def test_prefiltro_marca_deflexion():
+    assert qa._senal_barata("vist", "VIST viene bien. ¿La mirás para comprar?") is True
+    assert qa._senal_barata("x", "¿Querés A? ¿O preferís B?") is True
+
+
+def test_prefiltro_marca_tool_muda_y_compromiso():
+    assert qa._senal_barata("dame X", "eso no lo tengo acá") is True
+    assert qa._senal_barata("agregá Y", "lo dejo planteado como requerimiento") is True
+
+
+def test_prefiltro_marca_causalidad():
+    assert qa._senal_barata("vist", "subió la semana, así que el año se estira") is True
+
+
+def test_prefiltro_deja_pasar_lo_sano():
+    """Una respuesta breve, correcta, sin señales, NO va al crítico (ahorra tokens)."""
+    assert qa._senal_barata("precio de AL30", "AL30 cotiza 72.5 en pesos.") is False
+    assert qa._senal_barata("cuánto rinde", "Rinde 8.2% de TEA.") is False
+
+
+# ── saneo del veredicto: el crítico propone, el código valida ────────────────
+
+def test_saneo_encierra_modo_y_severidad(monkeypatch):
+    monkeypatch.setattr(qa.ai, "completar", lambda *a, **k:
+                        '{"sospechoso": true, "modo": "INVENTADO", '
+                        '"severidad": "critiquísimo", "nota": " x "}')
+    v = qa._criticar({"id": 1, "detalle": "q", "respuesta": "r"})
+    assert v["modo"] == "otro" and v["severidad"] == "medio"   # fuera del enum → default
+    assert v["nota"] == "x"
+
+
+def test_saneo_sano_no_es_sospechoso(monkeypatch):
+    monkeypatch.setattr(qa.ai, "completar", lambda *a, **k: '{"sospechoso": false}')
+    assert qa._criticar({"id": 1, "detalle": "q", "respuesta": "r"}) == {"sospechoso": False}
+
+
+def test_saneo_json_roto_no_marca(monkeypatch):
+    """Sin JSON usable, el turno NO se marca (mejor no marcar que marcar mal)."""
+    monkeypatch.setattr(qa.ai, "completar", lambda *a, **k: "no sé qué decir")
+    assert qa._criticar({"id": 1, "detalle": "q", "respuesta": "r"}) is None
+
+
+def test_gateway_caido_no_marca(monkeypatch):
+    monkeypatch.setattr(qa.ai, "completar", lambda *a, **k: None)
+    assert qa._criticar({"id": 1, "detalle": "q", "respuesta": "r"}) is None
+
+
+def test_parsear_acepta_json_envuelto():
+    assert qa._parsear('```json\n{"sospechoso": false}\n```')["sospechoso"] is False

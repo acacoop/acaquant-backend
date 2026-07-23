@@ -1,6 +1,6 @@
 # 🧩 web — componentes
 
-124 notas.
+126 notas.
 
 - [[web.cmp.acreencias-view]]
 - [[web.cmp.agro-datos]]
@@ -76,9 +76,10 @@
 - [[web.cmp.opciones-table-compact]]
 - [[web.cmp.operaciones-view]]
 - [[web.cmp.operadores-view]]
-- [[web.cmp.operar-dashboard-view]]
 - [[web.cmp.operar-fci-view]]
+- [[web.cmp.operar-shared]]
 - [[web.cmp.operar-shell]]
+- [[web.cmp.operar-titulos-fci-view]]
 - [[web.cmp.ops-view]]
 - [[web.cmp.order-book-panel]]
 - [[web.cmp.payoff-chart]]
@@ -103,6 +104,7 @@
 - [[web.cmp.research-view]]
 - [[web.cmp.retorno-total-mini]]
 - [[web.cmp.retorno-total-view]]
+- [[web.cmp.retornos-chart]]
 - [[web.cmp.reuters-ficha]]
 - [[web.cmp.reuters-fundamentals]]
 - [[web.cmp.reuters-view]]

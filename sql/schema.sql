@@ -1902,6 +1902,28 @@ CREATE TABLE IF NOT EXISTS ia.triage_estado (
     ultimo_procesado  timestamptz
 );
 
+-- CONTROL DE CALIDAD de las conversaciones de IA (jobs/ia_calidad.py). Cierra el
+-- loop: en vez de que un humano lea trazas a mano, un job diario marca las
+-- respuestas sospechosas (👎 del usuario + un crítico barato que busca los modos
+-- de falla YA conocidos: ranking a mano, deflexión, causalidad inventada, tool
+-- muda…). NO auto-corrige nada — solo las trae a revisión.
+CREATE TABLE IF NOT EXISTS ia.calidad_flags (
+    traza_id    bigint PRIMARY KEY,            -- la llamada marcada (ia.trazas.id)
+    ts          timestamptz NOT NULL DEFAULT now(),
+    tarea       text,
+    usuario     text,
+    modo        text,                          -- ranking_a_mano | deflexion | causalidad | tool_muda | voto_negativo | otro
+    severidad   text,                          -- alto | medio | bajo
+    nota        text,                          -- por qué (una línea del crítico)
+    revisado    boolean NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS ix_calidad_flags_ts ON ia.calidad_flags (ts DESC);
+
+CREATE TABLE IF NOT EXISTS ia.calidad_estado (
+    id                text PRIMARY KEY,        -- 'watermark'
+    ultimo_procesado  timestamptz
+);
+
 -- Research diario de mercado (QuantAI — memoria de mercado, docs/QUANTAI.md).
 -- jobs/research_mail.py lee la casilla por IMAP, persiste el mail CRUDO (fuente
 -- de verdad, siempre citable) + un DESTILADO del LLM (resumen/temas/hechos) que

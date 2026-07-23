@@ -3433,6 +3433,17 @@
 ]
 },
 {
+"id": "cron.jobs.ia_calidad",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.ia_calidad"
+]
+},
+{
 "id": "cron.jobs.informe_salud",
 "type": "cron",
 "layer": "deploy",
@@ -4580,6 +4591,21 @@
 "core.pg_mirror",
 "core.postgres",
 "jobs.watchdog"
+]
+},
+{
+"id": "jobs.ia_calidad",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs\\ia_calidad.py",
+"summary": "jobs/ia_calidad.py — control de calidad de las conversaciones de IA.",
+"links": [
+"core",
+"core.ai",
+"core.job_runs",
+"core.notify",
+"core.postgres"
 ]
 },
 {
@@ -6847,24 +6873,22 @@
 ]
 },
 {
-"id": "web.cmp.operar-dashboard-view",
-"type": "component",
-"layer": "web-component",
-"repo": "frontend",
-"path": "src\\components\\operar-dashboard-view.tsx",
-"summary": "",
-"links": [
-"api.routers.operar",
-"api.routers.ordenes",
-"api.routers.risk"
-]
-},
-{
 "id": "web.cmp.operar-fci-view",
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
 "path": "src\\components\\operar-fci-view.tsx",
+"summary": "",
+"links": [
+"api.routers.ordenes"
+]
+},
+{
+"id": "web.cmp.operar-shared",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\operar-shared.tsx",
 "summary": "",
 "links": [
 "api.routers.ordenes",
@@ -6879,6 +6903,18 @@
 "path": "src\\components\\operar-shell.tsx",
 "summary": "",
 "links": []
+},
+{
+"id": "web.cmp.operar-titulos-fci-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\operar-titulos-fci-view.tsx",
+"summary": "",
+"links": [
+"api.routers.operar",
+"api.routers.ordenes"
+]
 },
 {
 "id": "web.cmp.ops-view",
@@ -7165,6 +7201,17 @@
 "summary": "",
 "links": [
 "web.lib.use-persisted-state"
+]
+},
+{
+"id": "web.cmp.retornos-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\retornos-chart.tsx",
+"summary": "",
+"links": [
+"api.routers.scanner"
 ]
 },
 {

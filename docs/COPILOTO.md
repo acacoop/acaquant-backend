@@ -117,6 +117,33 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-23 — v1.96 (SEGURIDAD: cerrado un leak de PII que introdujo v1.94)
+Un security review (3 analistas en paralelo sobre backend + frontend) encontró
+UN hallazgo HIGH, verificado a mano capa por capa: **la asimetría de v1.94
+abrió un leak por el historial re-inyectado**.
+- **El leak (traza concreta, uso normal, sin atacante):** el usuario nombra a
+  un cliente por su APELLIDO SUELTO ("cómo viene Mollo") → se ficha (detector de
+  palabra suelta ON en texto del usuario). La respuesta se persiste con el
+  nombre REAL (el transcript vive en el perímetro, es correcto). En el turno
+  siguiente ese turno del asistente se re-inyecta como historial y se
+  re-tokeniza como texto GENERADO — donde v1.94 apagó el match por palabra
+  suelta. El apellido solo no lo agarra ni el n-grama (pide 2+ palabras) ni la
+  capa defensiva (`_NOMBRE_PROPIO_RE` pide par capitalizado), y `tokenize`
+  nunca re-barría los valores del mapping → el apellido real viajaba al
+  proveedor. Bounded (proveedor no-retención + admin-only), pero viola la
+  garantía "identidades JAMÁS salen del perímetro".
+- **Fix (`core/pii_gateway.py`):** RED FINAL `_spans_conocidos` — las
+  identidades YA fichadas de ESE chat se re-enmascaran SIEMPRE, en cualquier
+  texto, porque no depende de detección: el valor ya está en el mapping. No
+  reintroduce la deformación de v1.94: solo toca valores que el chat identificó
+  de verdad (las etiquetas del sistema tipo "entre"/"pico" nunca son valores
+  del mapping). 4 tests nuevos, incluido el de la traza exacta y el que congela
+  que no se re-rompe v1.94.
+- **El resto del review salió limpio:** RBAC de las tools (gate Control
+  Comercial fail-closed y bien propagado), SQL (todo parametrizado / columnas
+  desde whitelist), y el frontend (sin sinks inseguros — el único `href` nuevo
+  sale de una ruta validada por el backend).
+
 ### 2026-07-23 — v1.95 (la guía mandaba mal el "cuadrito de sensibilidad")
 Traza real (lautaro.garcia): pidió "el cuadrito que te dice el retorno de un
 bono si pasa a rendir tal TIR". La guía respondió mal varias veces, lo mandó a

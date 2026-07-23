@@ -535,6 +535,47 @@ def _aplicar_spans(texto: str, spans: list[tuple[int, int, str, str]], mapping: 
     return texto
 
 
+def _spans_conocidos(texto: str, mapping: dict) -> list[tuple[int, int, str]]:
+    """Re-enmascara valores que YA son identidades CONOCIDAS de este chat.
+
+    Una vez que un nombre/cuenta se fichó, CUALQUIER aparición literal posterior
+    se tacha con SU MISMA ficha — aunque el detector de palabra suelta esté
+    apagado (texto generado). Cierra el leak del historial (2026-07-23): un
+    apellido suelto entra en el turno 1, la respuesta se persiste con el nombre
+    real, y al re-inyectar ese turno como historial el detector suelto —apagado
+    para texto generado desde v1.94— no lo volvía a agarrar. Esto sí, porque no
+    depende de detección: el valor YA está en el mapping.
+
+    Solo toca valores que este chat identificó de verdad — no reintroduce la
+    deformación de v1.94 (etiquetas del sistema que coincidían con un token del
+    catálogo global): esas nunca son valores del mapping."""
+    fichas = (mapping or {}).get("fichas") or {}
+    spans: list[tuple[int, int, str]] = []
+    # más largo primero: "MOLLO, NICOLAS EZEQUIEL" antes que "mollo"
+    for ficha, valor in sorted(fichas.items(), key=lambda kv: -len(str(kv[1] or ""))):
+        v = str(valor or "").strip()
+        if len(v) < 3:
+            continue
+        for m in re.finditer(rf"(?<!\w){re.escape(v)}(?!\w)", texto, re.IGNORECASE):
+            spans.append((m.start(), m.end(), ficha))
+    return spans
+
+
+def _aplicar_conocidos(texto: str, spans: list[tuple[int, int, str]],
+                       intocables: list[tuple[int, int]]) -> str:
+    """Aplica los spans de identidades conocidas (ficha exacta, no re-asignada),
+    de derecha a izquierda, sin pisar tramos intocables ni solaparse."""
+    spans = [s for s in spans
+             if all(s[1] <= f0 or s[0] >= f1 for f0, f1 in intocables)]
+    elegidos: list[tuple[int, int, str]] = []
+    for s in sorted(spans, key=lambda x: (x[0], -(x[1] - x[0]))):
+        if all(s[0] >= e[1] or s[1] <= e[0] for e in elegidos):
+            elegidos.append(s)
+    for ini, fin, ficha in sorted(elegidos, key=lambda x: -x[0]):
+        texto = texto[:ini] + ficha + texto[fin:]
+    return texto
+
+
 def _spans_protegidos(texto: str, protegidos) -> list[tuple[int, int]]:
     """Tramos INTOCABLES: literales que el caller garantiza que son
     vocabulario del sistema (tipos de operación, mercados, segmentos…), no
@@ -594,6 +635,16 @@ def tokenize(texto: str, mapping: dict | None = None,
         defensivos = [s for s in defensivos
                       if all(s[1] <= p0 or s[0] >= p1 for p0, p1 in prot2)]
         limpio = _aplicar_spans(limpio, defensivos, mapping)
+        # RED FINAL: re-enmascarar identidades YA conocidas del chat. No depende
+        # de detección — cierra el caso del historial re-inyectado (un apellido
+        # suelto que el detector de palabra suelta, apagado para texto generado,
+        # no vuelve a agarrar). Corre SIEMPRE: una identidad conocida no puede
+        # salir del perímetro por ninguna vía.
+        conocidos = _spans_conocidos(limpio, mapping)
+        if conocidos:
+            intoc = [(m.start(), m.end()) for m in _FICHA_RE.finditer(limpio)]
+            intoc += _spans_protegidos(limpio, protegidos)
+            limpio = _aplicar_conocidos(limpio, conocidos, intoc)
         return limpio, mapping
     except Exception as e:
         logger.error("pii_gateway.tokenize: fallo interno (%s) — texto retenido", e)

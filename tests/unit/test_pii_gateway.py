@@ -433,3 +433,56 @@ def test_etiqueta_del_sistema_protegida_no_se_tacha(monkeypatch):
         f"ese dato requiere el permiso de {LABEL_CONTROL_COMERCIAL}",
         texto_generado=True, protegidos=(LABEL_CONTROL_COMERCIAL,))
     assert LABEL_CONTROL_COMERCIAL in limpio and "CLIENTE_" not in limpio
+
+
+# ── Leak del historial re-inyectado (hallazgo del security review 2026-07-23) ──
+
+def test_identidad_conocida_no_escapa_en_texto_generado(monkeypatch):
+    """EL LEAK: un apellido suelto entra en el turno 1 (detector de palabra
+    suelta ON), se ficha, y la respuesta se persiste con el nombre REAL. Al
+    re-inyectar ese turno como historial (texto_generado=True), el detector
+    suelto está apagado (v1.94) y el apellido volvía a viajar al proveedor.
+    La red final lo re-enmascara porque YA es una identidad conocida del chat."""
+    monkeypatch.setattr(pg, "_catalogo", lambda: _CATALOGO_CON_PALABRAS_COMUNES)
+    # turno 1: el usuario nombra a un cliente por su apellido suelto
+    _limpio1, mapping = pg.tokenize("cómo viene Perez")
+    ficha = next(f for f in mapping["fichas"] if f.startswith("CLIENTE_"))
+    assert mapping["fichas"][ficha]  # quedó fichado
+
+    # turno 2: se re-inyecta la respuesta previa (texto NUESTRO) con el nombre
+    # real — el caso que filtraba
+    limpio, _m = pg.tokenize("El mayor tenedor es Perez este mes.", mapping,
+                             texto_generado=True)
+    assert "Perez" not in limpio            # ya NO escapa
+    assert ficha in limpio                  # y sale con SU misma ficha
+
+
+def test_la_red_final_no_pisa_una_ficha_ya_puesta(monkeypatch):
+    """La red no debe tocar el interior de una ficha ya colocada."""
+    monkeypatch.setattr(pg, "_catalogo", lambda: _CATALOGO_CON_PALABRAS_COMUNES)
+    _l, mapping = pg.tokenize("cómo viene Perez")
+    limpio, _m = pg.tokenize("CLIENTE_1 operó mucho", mapping, texto_generado=True)
+    assert "CLIENTE_1" in limpio and "CLIENTE_CLIENTE" not in limpio
+
+
+def test_la_red_final_no_reintroduce_deformacion_v194(monkeypatch):
+    """La red SOLO toca valores que este chat fichó. Una etiqueta del sistema
+    ('entre', 'pico') que coincide con un token del catálogo global pero NUNCA
+    fue una identidad del chat sigue intacta — no se re-rompe lo de v1.94."""
+    monkeypatch.setattr(pg, "_catalogo", lambda: _CATALOGO_CON_PALABRAS_COMUNES)
+    mapping = pg._mapping_nuevo()   # chat SIN identidades fichadas
+    limpio, _m = pg.tokenize("AuM entre junio y julio · día pico 2026-08-09",
+                             mapping, texto_generado=True)
+    assert "entre" in limpio and "pico" in limpio and "CLIENTE_" not in limpio
+
+
+def test_valor_conocido_corto_no_masca_subcadenas(monkeypatch):
+    """Boundary check: un valor conocido no debe tacharse dentro de otra
+    palabra (word-boundary)."""
+    cat = {**_CATALOGO_CON_PALABRAS_COMUNES,
+           "tokens": {**_CATALOGO_CON_PALABRAS_COMUNES["tokens"], "sur": "50"}}
+    monkeypatch.setattr(pg, "_catalogo", lambda: cat)
+    _l, mapping = pg.tokenize("cliente Sur")     # ficha 'sur'
+    limpio, _m = pg.tokenize("el mercado del Sur y la sursala", mapping,
+                             texto_generado=True)
+    assert "sursala" in limpio                   # subcadena intacta

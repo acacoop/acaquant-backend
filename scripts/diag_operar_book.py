@@ -95,13 +95,13 @@ def main() -> None:
 
         # 3. suscripción adhoc + cupo
         cur.execute(
-            "SELECT ticker, last_used FROM mercado.adhoc_subscriptions WHERE ticker = %s",
+            "SELECT ticker, last_used_at FROM mercado.adhoc_subscriptions WHERE ticker = %s",
             (full,))
         sub = cur.fetchone()
         cur.execute("SELECT count(*) AS n FROM mercado.adhoc_subscriptions")
         n_subs = int((cur.fetchone() or {}).get("n") or 0)
         if sub:
-            _s, txt = _edad(sub.get("last_used"))
+            _s, txt = _edad(sub.get("last_used_at"))
             print(f"{_OK} 3. suscripción adhoc: registrada, último uso {txt} "
                   f"({n_subs} activas)")
         else:

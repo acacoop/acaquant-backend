@@ -67,24 +67,6 @@ DRY_RUN = False        # True = muestra lo que mandaría, no envía nada
 INTERVALO_SEG = 20
 # ════════════════════════════════════════════════════════════════════════════
 
-# Las keys pueden vivir en un archivo APARTE al lado de este script
-# (feed_keys.py, se escribe UNA vez y no se toca más):
-#     EIKON_APP_KEY = "..."
-#     INGEST_TOKEN  = "..."
-#     CF_CLIENT_ID  = "..."
-#     CF_SECRET     = "..."
-# Si existe, PISA los valores de arriba → actualizar el feed pasa a ser
-# solo reemplazar ESTE archivo con la versión nueva del repo, sin pegar nada.
-try:
-    import feed_keys as _keys
-    EIKON_APP_KEY = getattr(_keys, "EIKON_APP_KEY", EIKON_APP_KEY)
-    INGEST_TOKEN = getattr(_keys, "INGEST_TOKEN", INGEST_TOKEN)
-    CF_CLIENT_ID = getattr(_keys, "CF_CLIENT_ID", CF_CLIENT_ID)
-    CF_SECRET = getattr(_keys, "CF_SECRET", CF_SECRET)
-    print("(keys leídas de feed_keys.py)")
-except ImportError:
-    pass
-
 HEADERS = {
     "X-Ingest-Token": INGEST_TOKEN.strip(),
     "CF-Access-Client-Id": CF_CLIENT_ID.strip(),

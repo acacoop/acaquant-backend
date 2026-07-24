@@ -38,4 +38,3 @@ docs/*.xlsx
 security_audit_report.txt
 colecciones_baseline.json
 evals/_borrador_desde_flags.json
-feed_keys.py

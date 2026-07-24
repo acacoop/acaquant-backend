@@ -75,11 +75,8 @@ el motivo.
 
 **Verificar del lado del server** (Droplet): `python -m scripts.diag_eikon_snapshot`.
 
-**Si se toca `scripts/eikon_feed_simple.py`**: pisar la copia del Desktop con
-la versión nueva del repo, SIN pegar nada — las keys viven en `feed_keys.py`
-al lado de la copia (se escribió una vez, 2026-07-24; el script la importa y
-pisa el bloque CONFIG). Fallback: sin `feed_keys.py`, siguen valiendo las
-keys pegadas en el propio archivo (modelo viejo).
+**Si se toca `scripts/eikon_feed_simple.py`**: regenerar la copia del Desktop
+(mismo archivo con las 4 keys pegadas). Claude lo hace con un `sed` en un paso.
 
 ## 5. Campos — validados EN VIVO (2026-07-16, RKLB.O)
 
@@ -174,9 +171,6 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
     CHICAGO (`agro-chicago.tsx`, grilla de 5 tablas, poll 10s).
   - **Regenerar la copia del Desktop** (`feed.py` con las keys) para que tome
     Chicago — hasta entonces el feed viejo sigue andando igual (solo acciones).
-  - **Keys en `feed_keys.py`** (mismo día): el script importa las keys de un
-    archivo aparte junto a la copia del Desktop (se escribe una vez) → las
-    futuras actualizaciones del feed son solo pisar el archivo. Ver §4.
   - **Semáforo EN LÍNEA** (feedback del user, mismo día): Chicago manda las ~25
     filas en CADA loop como HEARTBEAT (sin cache-diff — payload mínimo; las
     acciones siguen con diff). El tablero devuelve `online` = último POST hace

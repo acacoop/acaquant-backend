@@ -16,6 +16,11 @@ Controles v1:
   * rf_sin_tasa           — bonos cotizando (last_price>0) sin TEA en la rueda.
   * assets_sin_cartera    — portafolio.assets con cartera vacía/'NO APLICA'
                             (rompen el divisor de valuación: quedan SIN CLASIFICAR).
+  * fci_incompletos       — assets FCI sin ticker/emisor (salen SIN NOMBRE y se
+                            fusionan en el detalle de /aum → FCI).
+  * rf_valuada_x1         — renta fija (HD/DL/ARS) valuada SIN ÷100 en el último
+                            snapshot de tenencia: firma de un tipoTitulo nuevo de
+                            Aunesa fuera de TIPOS_DIVISOR_100 (caso LEDE 2026-07-24).
   * comitentes_sin_nivel1 — comitentes Activas sin nivel_1 (quedan fuera de la
                             segmentación / filtros madre). Privado: solo conteo
                             en Telegram, detalle vía GET /api/manager/controles.
@@ -168,6 +173,29 @@ def _chk_fci_incompletos() -> list[dict]:
     return out
 
 
+def _chk_rf_valuada_x1() -> list[dict]:
+    """Renta fija (cartera HD/DL/ARS) cuya valuación en el ÚLTIMO snapshot de
+    tenencia quedó SIN dividir por 100 (cociente valuacion/(precio×cantidad)≈1).
+    Es la firma del bug LEDE (2026-07-24: Aunesa inventó el tipoTitulo 'LEDE',
+    no estaba en TIPOS_DIVISOR_100 → la S13N6 quedó ×100 en el AuM). Si Aunesa
+    inventa OTRO tipo nuevo, aparece acá al día siguiente. Acción: medir el
+    tipo con scripts/diag_tipotitulo_aunesa, sumarlo a las listas y corregir
+    la historia con scripts/fix_valuacion_lede."""
+    rows = _q(
+        "SELECT unidad, count(*) AS n, sum(valuacion) AS val "
+        "FROM portafolio.tenencia "
+        "WHERE fecha = (SELECT max(fecha) FROM portafolio.tenencia) "
+        "  AND cartera IN ('HD','DL','ARS') "
+        "  AND precio <> 0 AND cantidad <> 0 "
+        "  AND abs(valuacion / (precio * cantidad) - 1) < 0.05 "
+        "GROUP BY unidad ORDER BY sum(valuacion) DESC")
+    return [{
+        "key": r["unidad"],
+        "detalle": (f"{r['unidad']}: RF valuada SIN ÷100 en {r['n']} cuenta(s) "
+                    f"(${float(r['val'] or 0):,.0f}) — ¿tipoTitulo nuevo de Aunesa?"),
+    } for r in rows if r.get("unidad")]
+
+
 def _chk_comitentes_sin_nivel1() -> list[dict]:
     """Comitentes Activas sin nivel_1 → fuera de la segmentación (Clientes →
     Segmentación) y de los filtros madre. PRIVADO (keys = id_cuenta)."""
@@ -224,6 +252,8 @@ CONTROLES: list[Control] = [
     Control("rf_sin_tasa", "Renta fija cotizando sin TEA/TNA", True, _chk_rf_sin_tasa),
     Control("assets_sin_cartera", "Assets sin cartera", True, _chk_assets_sin_cartera),
     Control("fci_incompletos", "Assets FCI sin ticker/emisor", True, _chk_fci_incompletos),
+    Control("rf_valuada_x1", "Renta fija valuada sin ÷100 (¿tipo nuevo de Aunesa?)", True,
+            _chk_rf_valuada_x1),
     Control("simbolos_cuarentena", "Símbolos rechazados por ROFEX (cuarentena)", True,
             _chk_simbolos_cuarentena),
     Control("comitentes_sin_nivel1", "Comitentes activos sin nivel 1", False,

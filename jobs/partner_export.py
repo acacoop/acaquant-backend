@@ -98,6 +98,7 @@ _TIPOS_DIVISOR_100 = {
     "Letras del Tesoro Ajustables por CER en Pesos",
     "Letras de Liquidez del Banco Central",
     "LETES",
+    "LEDE",   # letras a descuento (ej. S13N6), cotizan en paridad — 2026-07-24
     "Títulos de Deuda",
     "Obligaciones Negociables",
     "Fideicomisos Financieros",

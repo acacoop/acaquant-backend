@@ -111,6 +111,10 @@ TIPOS_DIVISOR_100 = {
     "Letras del Tesoro Ajustables por CER en Pesos",
     "Letras de Liquidez del Banco Central",   # LELIQ/LEFI — cotizan en paridad
     "LETES",                      # Letras del Tesoro en USD (cotizan paridad)
+    "LEDE",                       # Letras a descuento (ej. S13N6) — Aunesa las manda
+                                  # con este tipo corto; cotizan en paridad. Medido
+                                  # 2026-07-24 (diag_tipotitulo_aunesa): sin esto el
+                                  # AuM las guardaba ×100.
     "Títulos de Deuda",
     "Obligaciones Negociables",
     "Fideicomisos Financieros",

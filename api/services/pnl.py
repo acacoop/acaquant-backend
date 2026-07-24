@@ -57,6 +57,7 @@ _TIPOS_DIVISOR_100 = {
     "Títulos Públicos",
     "Letras del Tesoro Capitalizables en Pesos",
     "Letras del Tesoro Ajustables por CER en Pesos",
+    "LEDE",   # letras a descuento (ej. S13N6), cotizan en paridad — 2026-07-24
     "Títulos de Deuda",
     "Obligaciones Negociables",
     "Fideicomisos Financieros",

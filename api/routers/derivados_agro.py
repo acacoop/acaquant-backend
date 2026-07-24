@@ -353,3 +353,19 @@ def mejoras_dispo(
     futuros DLR para mostrarle al productor cuánto cobra si se queda en
     LECAP + se cubre con futuro."""
     return _agro_svc(_engine).get_mejoras_dispo()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHICAGO (futuros CBOT del feed Eikon de oficina)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/agro/chicago")
+def chicago(_email: str = Depends(get_user_email)):
+    """Tab CHICAGO de AGRO: una tabla por familia (Soja / Aceite / Maíz / Trigo /
+    Harina), filas por posición de continuación CBOT, precios convertidos a
+    USD/tonelada server-side. Los datos entran por el feed Eikon de oficina
+    (POST /api/ingest/eikon/chicago/quotes) — si el feed está apagado la vista
+    muestra la última foto con su updated_at."""
+    from core.eikon_chicago import tablero_chicago
+    return tablero_chicago()

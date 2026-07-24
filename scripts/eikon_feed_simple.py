@@ -1,9 +1,11 @@
 """eikon_feed_simple.py — versión MÍNIMA, calcada del script de commodities.
 
 Solo hace esto, nada más:
-  1. Pide a la API la lista de RICs ya cargados (los sin RIC quedan afuera).
+  1. Pide a la API la lista de RICs ya cargados (los sin RIC quedan afuera)
+     + el universo de futuros CBOT (CHICAGO, ver abajo).
   2. Loop: ek.get_data(rics, CAMPOS) → POST a la API de last/bid/ask/high/low/
-     cierre anterior/volumen/var% (ver CAMPOS abajo).
+     cierre anterior/volumen/var% (ver CAMPOS abajo). En el mismo loop,
+     los futuros de Chicago (CAMPOS_CHICAGO) → POST /eikon/chicago/quotes.
 
 Sin symbology, sin flags, sin chunks. Config abajo (mismos valores que
 mae_forex_client.py). Correr con Workspace abierto y logueado:
@@ -235,6 +237,78 @@ def actualizar_precios(universo):
             print("❌ Error general:", type(e).__name__, e)
 
 
+# ── CHICAGO (futuros CBOT → AGRO → tab CHICAGO) ──────────────────────────────
+# RICs de continuación (Sc1, BOc4, …): los da la API (/eikon/chicago/universo,
+# constante core/eikon_chicago.py::FAMILIAS). Se mandan valores CRUDOS — los
+# factores a USD/tonelada los aplica el server al leer. PRIMACT_1 es el last
+# de FUTUROS (validado en el script de commodities original).
+CAMPOS_CHICAGO = {
+    "CONTR_MNTH": "mes",       # mes del contrato (ej. 'JUL6')
+    "PRIMACT_1":  "last",      # último precio del futuro (crudo, ¢/bu etc.)
+    "SEC_ACT_1":  "var_neta",  # variación neta del día (misma unidad)
+}
+ultimo_chicago = {}   # cache para mandar solo lo que cambió
+
+
+def actualizar_chicago(rics):
+    """Un get_data para TODOS los RICs CBOT → POST /eikon/chicago/quotes.
+    Llamada separada de las acciones (los campos difieren y los logs quedan
+    limpios). Cualquier error acá NUNCA voltea el loop de precios."""
+    try:
+        data, err = ek.get_data(rics, list(CAMPOS_CHICAGO), field_name=True)
+        if err and not ultimo_chicago:   # solo la primera pasada
+            vistos = set()
+            for e in err:
+                msg = str(e.get("message", ""))[:110]
+                if msg not in vistos:
+                    vistos.add(msg)
+                    print(f"   [chicago] aviso Eikon: {msg}")
+        if data is None or data.empty:
+            print("⚠️ [chicago] get_data no devolvió datos.")
+            return
+
+        docs = []
+        for _, row in data.iterrows():
+            doc = {"ric": row["Instrument"]}
+            for campo, nombre in CAMPOS_CHICAGO.items():
+                v = row.get(campo.upper())
+                if nombre == "mes":
+                    doc[nombre] = str(v) if v is not None and not pd.isna(v) else None
+                else:
+                    doc[nombre] = float(v) if v is not None and not pd.isna(v) else None
+            if doc["last"] is None:                    # sin precio no se manda
+                continue
+            docs.append(doc)
+
+        cambiados = [d for d in docs if ultimo_chicago.get(d["ric"]) != d]
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if DRY_RUN:
+            for d in docs[:10]:
+                print("  [chicago]", d)
+            print(f"[{now}] [chicago] DRY_RUN — {len(docs)} leídos, {len(cambiados)} con cambios.")
+            for d in docs:
+                ultimo_chicago[d["ric"]] = d
+            return
+        if not cambiados:
+            print(f"[{now}] 🔄 [chicago] sin cambios.")
+            return
+        r = requests.post(f"{API_BASE}/api/ingest/eikon/chicago/quotes",
+                          json={"docs": cambiados}, headers=HEADERS, timeout=15)
+        if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
+            print(f"[{now}] ✅ [chicago] {len(cambiados)} futuros actualizados.")
+            for d in docs:
+                ultimo_chicago[d["ric"]] = d
+        else:
+            print(f"[{now}] ❌ [chicago] API {r.status_code}: {r.text[:200]}")
+
+    except Exception as e:
+        if "429" in str(e):
+            print("⚠️ [chicago] límite de requests. Esperando 60s.")
+            time.sleep(60)
+        else:
+            print("❌ [chicago] error:", type(e).__name__, e)
+
+
 def _num_o_texto(v):
     """Valor de Eikon → tipo JSON-serializable (NaN→None, numpy→nativo, str→str)."""
     if v is None or (not isinstance(v, str) and pd.isna(v)):
@@ -342,9 +416,25 @@ def main():
     print(f"suscribiendo {len(universo)} RICs (los sin RIC quedan afuera) — "
           f"loop cada {INTERVALO_SEG}s, Ctrl+C corta")
 
+    # CHICAGO: universo de futuros CBOT. Tolerante — si la API todavía no tiene
+    # el endpoint (backend sin deployar), sigue solo con acciones.
+    rics_chicago = []
+    try:
+        rc = requests.get(f"{API_BASE}/api/ingest/eikon/chicago/universo",
+                          headers=HEADERS, timeout=15)
+        if rc.status_code == 200 and "json" in rc.headers.get("content-type", ""):
+            rics_chicago = [u["ric"] for u in rc.json()["universo"] if u.get("ric")]
+            print(f"[chicago] suscribiendo {len(rics_chicago)} futuros CBOT.")
+        else:
+            print(f"[chicago] API {rc.status_code} — sigo solo con acciones.")
+    except Exception as e:
+        print(f"[chicago] {type(e).__name__}: {e} — sigo solo con acciones.")
+
     ultima_fund = 0.0
     while True:
         actualizar_precios(universo)
+        if rics_chicago:
+            actualizar_chicago(rics_chicago)
         if time.time() - ultima_fund > FUND_CADA_SEG:
             try:
                 if actualizar_fundamentals(universo):

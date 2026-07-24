@@ -155,6 +155,23 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
 
 ## 8. Changelog
 
+- **2026-07-24 — el feed suma CHICAGO (futuros CBOT → AGRO → tab CHICAGO).**
+  El MISMO `scripts/eikon_feed_simple.py` (decisión del user: un solo file de
+  feed) ahora también:
+  - Pide `GET /api/ingest/eikon/chicago/universo` al arrancar (tolerante: si la
+    API vieja no tiene el endpoint, sigue solo con acciones) → RICs de
+    continuación CBOT de 5 familias (constante `core/eikon_chicago.py::FAMILIAS`,
+    viene del script de commodities original del user; sin catálogo editable).
+  - En el mismo loop de 20s: `ek.get_data(rics, [CONTR_MNTH, PRIMACT_1,
+    SEC_ACT_1])` (PRIMACT_1 = last de futuros, §5) → POST
+    `/api/ingest/eikon/chicago/quotes` con valores CRUDOS + cache-diff propio.
+  - Server: `mercado.eikon_chicago_snapshot` (1 fila por RIC, jsonb) y los
+    factores a USD/tonelada se aplican AL LEER (`tablero_chicago`) — la PC no
+    conoce el modelo. Vista: `GET /api/derivados/agro/chicago` → AGRO → tab
+    CHICAGO (`agro-chicago.tsx`, grilla de 5 tablas, poll 10s).
+  - **Regenerar la copia del Desktop** (`feed.py` con las keys) para que tome
+    Chicago — hasta entonces el feed viejo sigue andando igual (solo acciones).
+
 - **2026-07-18 — la vista se MUDÓ a /research → tab RENTA VARIABLE INTERNACIONAL.**
   El tablero (`reuters-view.tsx`, con fundamentals, ficha y su copiloto in-view)
   ya no vive en /trading (que quedó con PIVOTS + INTRADAY) sino como segunda tab

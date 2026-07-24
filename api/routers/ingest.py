@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from config import DOLAR_INGEST_TOKEN
 from core.dolar_oficial import upsert_oficial
+from core.eikon_chicago import universo_chicago, upsert_chicago
 from core.eikon_live import set_rics, universo_rics, upsert_fundamentals, upsert_quotes
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
@@ -97,6 +98,29 @@ def eikon_quotes(
     escritos = upsert_quotes(payload.docs)
     if escritos == 0:
         raise HTTPException(status_code=422, detail="ningún doc válido (falta ticker)")
+    return {"ok": True, "escritos": escritos}
+
+
+@router.get("/eikon/chicago/universo")
+def eikon_chicago_universo(_: None = Depends(verify_ingest_token)) -> dict:
+    """Lista de suscripción de futuros CBOT del feed: [{ric, familia}]. Sale de
+    la constante FAMILIAS (core/eikon_chicago.py) — no hay catálogo editable."""
+    return {"universo": universo_chicago()}
+
+
+class EikonChicagoPayload(BaseModel):
+    # Quotes de futuros CBOT: [{ric, mes, last, var_neta}, ...] crudos (sin factor)
+    docs: list[dict] = Field(..., min_length=1, max_length=100)
+
+
+@router.post("/eikon/chicago/quotes")
+def eikon_chicago_quotes(
+    payload: EikonChicagoPayload,
+    _: None = Depends(verify_ingest_token),
+) -> dict:
+    escritos = upsert_chicago(payload.docs)
+    if escritos == 0:
+        raise HTTPException(status_code=422, detail="ningún doc válido (RIC desconocido o falta ric)")
     return {"ok": True, "escritos": escritos}
 
 

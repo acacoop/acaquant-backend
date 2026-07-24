@@ -36,7 +36,7 @@ motores escriben SQL-native (vía `core.pg_mirror`) y los services leen SQL.
 
 ---
 
-## 2. Las 3 pestañas y sus endpoints
+## 2. Las 4 pestañas y sus endpoints
 
 > **Backend real:** los endpoints viven bajo el prefijo `/api/derivados/agro*`
 > (router `api/routers/derivados_agro.py`). El front los llama vía proxy con el
@@ -49,7 +49,18 @@ motores escriben SQL-native (vía `core.pg_mirror`) y los services leen SQL.
 | **Mercado** | Cadena de opciones | `GET /api/derivados/agro/opciones/{commodity}` (poll 5s) | `derivados_agro.py::get_panel_opciones` |
 | **Mercado** | Simulador cobertura | `POST /api/derivados/agro/estrategia/simular` | `derivados_agro.py::simular_estrategia` |
 | **Mejoras Precio Dispo** | LECAPs por commodity | `GET /api/derivados/agro/mejoras-dispo` (poll 5s) | `mejoras_dispo.py::get_mejoras_dispo` |
+| **Chicago** | Futuros CBOT (feed Eikon oficina) | `GET /api/derivados/agro/chicago` (poll 10s) | `core/eikon_chicago.py::tablero_chicago` |
 | **Datos** | Cámara Arbitral (carga manual) | `GET /api/derivados/agro/camara` (poll 10s) + `PATCH /agro/camara/{cereal}` | `camara_cereales.py` |
+
+> **Chicago (2026-07-24):** 5 familias CBOT (Soja `Sc1-5` / Aceite `BOc1-6` /
+> Maíz `Cc1-5` / Trigo `Wc1-5` / Harina `SMc1-6`; Aceite y Harina saltean la
+> posición 3), precios en **USD/tonelada** (factores server-side en
+> `core/eikon_chicago.py::FAMILIAS`; la tabla `mercado.eikon_chicago_snapshot`
+> guarda crudo ¢/bu·¢/lb·USD/st). Los datos entran SOLO cuando el user prende
+> el feed Eikon de oficina (mismo script que la RV internacional — ver
+> `docs/INTEGRACION_REUTERS.md`); con el feed apagado queda la última foto con
+> su hora. La vista es una grilla de 5 tablas (Mes / Precio USD-t / Var),
+> componente `agro-chicago.tsx`. Visible también para el invitado (mercado).
 
 Endpoints verificados en `api/routers/derivados_agro.py`.
 

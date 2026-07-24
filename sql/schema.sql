@@ -992,6 +992,18 @@ CREATE TABLE IF NOT EXISTS mercado.eikon_snapshot (
     updated_at timestamptz DEFAULT now()
 );
 
+-- Futuros de commodities de CHICAGO (CBOT) del feed Eikon de oficina —
+-- AGRO → tab CHICAGO (2026-07-24). 1 fila por RIC de continuación (Sc1, BOc4…),
+-- valores CRUDOS de Eikon (¢/bushel, ¢/libra, USD/short ton): los factores a
+-- USD/tonelada viven en core/eikon_chicago.py::FAMILIAS y se aplican al leer.
+-- POST /api/ingest/eikon/chicago/quotes. Passthrough jsonb (mes/last/var_neta).
+CREATE TABLE IF NOT EXISTS mercado.eikon_chicago_snapshot (
+    ric        text PRIMARY KEY,             -- RIC de continuación CBOT (ej. Sc1)
+    familia    text,                          -- soja | aceite_soja | maiz | trigo | harina_soja
+    data       jsonb,
+    updated_at timestamptz DEFAULT now()
+);
+
 -- Fundamentals CURADOS por subyacente (ficha de empresa del tab REUTERS,
 -- 2026-07-17). El feed de oficina los trae 1 vez por día por RIC suscripto
 -- (TR.* de Eikon: valuación, márgenes, salud financiera, consenso, serie 5

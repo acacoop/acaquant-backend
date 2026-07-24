@@ -22,9 +22,9 @@ from pydantic import BaseModel, Field
 from config import DOLAR_INGEST_TOKEN
 from core.dolar_oficial import upsert_oficial
 from core.eikon_bonos import universo_bonos_off, upsert_bonos_off
-from core.eikon_news import universo_news, upsert_news
 from core.eikon_chicago import universo_chicago, upsert_chicago
 from core.eikon_live import set_rics, universo_rics, upsert_fundamentals, upsert_quotes
+from core.eikon_news import universo_news, upsert_news
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 

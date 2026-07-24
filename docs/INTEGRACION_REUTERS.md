@@ -348,5 +348,4 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
 - Al cerrar la prueba: borrar `scripts/diag_eikon_snapshot.py` y
   `scripts/fix_limpiar_rics.py` (REGLA #5) y evaluar si `eikon_snapshot` pasa a
   tener frescura monitoreada (watchdog) como el resto de los feeds.
-- Futuro: migrar la lib `eikon` → `lseg-data` (la deprecación es real; `get_data`
-  está alineado, ver `docs/RESEARCH_REFINITIV.md` §1).
+- Futuro: migrar la lib `eikon` → `lseg-data` (la deprecación es real).

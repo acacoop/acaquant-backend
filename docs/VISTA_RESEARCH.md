@@ -6,7 +6,6 @@
 > trabaja en algo de acá y no se actualiza este archivo en el mismo commit, el
 > trabajo está incompleto. Cross-refs: la ingesta de mails vive en QuantAI P6
 > (`docs/QUANTAI.md`), los fundamentals Refinitiv (otra cosa, en Renta Variable)
-> en `docs/RESEARCH_REFINITIV.md`, el modelo SQL en `docs/SQL.md`.
 
 > **ESTADO (2026-07-17):** DISEÑO CONGELADO, construcción EN ESPERA de credenciales
 > (API key de 1816 + creds IMAP — ver §10). Decisiones del user ya tomadas: (a) NO

@@ -1,5 +1,5 @@
 """copiloto/renta_variable.py — vista RV (CEDEARs/ADRs): fetch, enriquecido,
-screenings, rankings, detalle por ticker, fundamentals, pulso y reglas."""
+screenings, rankings, detalle por ticker, pulso y reglas."""
 from __future__ import annotations
 
 import logging
@@ -272,13 +272,12 @@ def _rankings(filas: list[dict]) -> list[str]:
 
 # ── Bloques de detalle por ticker (vista renta_variable) ────────────────────
 #
-# La vista completa incluye datos POR TICKER (pivots, quant, retornos,
-# fundamentals) que no pueden ir para los ~200 papeles en cada pregunta
+# La vista completa incluye datos POR TICKER (pivots, quant, retornos)
+# que no pueden ir para los ~200 papeles en cada pregunta
 # (explosión de tokens). Solución determinista, sin LLM: se detectan los
 # tickers MENCIONADOS en la pregunta (match contra el universo) y solo esos
 # bloques entran al contexto. Cap de 3 tickers por pregunta.
 
-_MAX_ITEMS_FUNDAMENTALS = 20  # filas por estado contable (income/balance/…)
 
 
 def _detalle_ticker(f: dict) -> list[str]:
@@ -345,57 +344,7 @@ def _detalle_ticker(f: dict) -> list[str]:
             )
     except Exception as e:
         logger.warning("copiloto: retornos de %s fallaron (%s)", tk, e)
-    partes.extend(_fundamentals_ticker(f))
     return partes
-
-
-def _fundamentals_ticker(f: dict) -> list[str]:
-    """Fundamentals Refinitiv (anual) si el subyacente está en research.companies.
-    Cobertura hoy mínima (se amplía cargando empresas) — si no está, no aparece."""
-    try:
-        from api.services import research_fundamentals as rf
-
-        under = str(f.get("underlying") or f.get("ticker_corto") or "").upper()
-        comp = next(
-            (c for c in rf.list_companies() if str(c.get("ticker") or "").upper() == under),
-            None,
-        )
-        if not comp:
-            return []
-        a = rf.get_analisis(ric=comp["ric"], freq="FY") or {}
-        partes = [f"[fundamentals {under} — {comp.get('nombre')} (Refinitiv, anual)]"]
-        mk = a.get("market") or {}
-        if mk:
-            partes.append(
-                f"mercado: precio {_num(mk.get('price'))} {mk.get('currency') or ''}"
-                f" · market cap {_num(mk.get('market_cap'))} · 52w {_num(mk.get('low_52w'))}"
-                f"-{_num(mk.get('high_52w'))} · div yield {_num(mk.get('div_yield'))}"
-            )
-        periodos = a.get("periodos") or []
-        if periodos:
-            partes.append("períodos: " + " | ".join(str(p) for p in periodos))
-        for stmt in ("income", "balance", "cashflow", "ratios"):
-            filas_t = (a.get("tablas") or {}).get(stmt) or []
-            if filas_t:
-                partes.append(f"{stmt}:")
-                partes.extend(
-                    f"  {r.get('item')}: " + " | ".join(_num(v) for v in (r.get("valores") or []))
-                    for r in filas_t[:_MAX_ITEMS_FUNDAMENTALS]
-                )
-        margenes = a.get("margenes") or []
-        if margenes:
-            partes.append(
-                "márgenes % (bruto/ebitda/operativo/neto): "
-                + " | ".join(
-                    f"{m.get('periodo')} {m.get('bruto')}/{m.get('ebitda')}"
-                    f"/{m.get('operativo')}/{m.get('neto')}"
-                    for m in margenes
-                )
-            )
-        return partes
-    except Exception as e:
-        logger.warning("copiloto: fundamentals de %s fallaron (%s)", f.get("ticker_corto"), e)
-        return []
 
 
 def _pulso_por_rubro(filas: list[dict]) -> list[str]:
@@ -458,7 +407,7 @@ def _extras_renta_variable(
 # qué módulo RBAC gatea, y las reglas del dominio que evitan que el modelo
 # invente qué significa una columna (corrección silenciosa = el riesgo #1).
 # `extras` (opcional): callable(filas, pregunta, historial) → bloques adicionales
-# después de la tabla (CCL, detalle por ticker mencionado, fundamentals).
+# después de la tabla (CCL, detalle por ticker mencionado).
 _REGLAS_RENTA_VARIABLE = """Significado de las columnas (tablero de CEDEARs, mercado argentino):
 - ticker: el CEDEAR en BYMA. subyacente: la acción en NY. ratio: CEDEARs por 1 acción.
 - ia: "si" = pertenece a la cadena de valor de INTELIGENCIA ARTIFICIAL. Para preguntas \
@@ -504,10 +453,8 @@ Para cualquier "los que más/menos…" usá ESTOS — jamás ordenes las filas a
 resistencias, S1-S3 soportes; marcos diario/semanal/mensual/anual; en USD), quant (beta y \
 correlación vs SPY y QQQ, volatilidad anualizada, z-score del último retorno) y últimos \
 retornos diarios en %.
-- [fundamentals TICKER]: estados contables anuales de Refinitiv (income/balance/cashflow/\
-ratios, en la moneda indicada) + márgenes. Solo existe para las empresas cargadas en research.
 - Los bloques de detalle SOLO se arman para los tickers nombrados en la pregunta. Si te piden \
-pivots/beta/retornos/fundamentals de un papel y su bloque no está, pedile al usuario que \
+pivots/beta/retornos de un papel y su bloque no está, pedile al usuario que \
 nombre el ticker exacto en la pregunta."""
 
 # ── Vista RENTA FIJA (página /renta-fija — curvas, fair value, forwards, BE) ─

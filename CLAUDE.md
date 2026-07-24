@@ -35,7 +35,7 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 - `home` — `market_quotes` (watchlist HOME), `market_calendar`, `news_headlines`.
 - `mcp` — `oauth_clients`/`oauth_codes`/`oauth_tokens` (TTL automático).
 - `ia` — observabilidad del gateway de IA (`core/ai.py`, ver `docs/QUANTAI.md`): `trazas` (cada llamada LLM: tarea, modelo, tokens, latencia, ok/error, feedback, detalle/respuesta/razonamiento, conv_id) y `config` (presupuestos editables desde Manager). Router HTTP: `api/routers/ia.py` (bearer + `require_module("ia")`): briefing, observabilidad, presupuestos/saldo, y el COPILOTO de mesa (`/api/ia/copiloto*` — **doc vivo con changelog OBLIGATORIO: `docs/COPILOTO.md`**, leerlo antes de tocar `api/services/copiloto.py`). También: `triage_incidentes`/`triage_estado` (triage IA de jobs fallidos, `jobs/triage.py` cada 10') y `research` (mail diario 1816 vía IMAP, `jobs/research_mail.py` — cuerpo crudo + destilado LLM + FTS español).
-- `research` — fundamentals Refinitiv: `companies`, `fundamentals`, `market_snapshot` (ver `docs/RESEARCH_REFINITIV.md`); market data 1816 para la vista Research: `mkt_1816_series`/`mkt_1816_watch`/`mkt_1816_instrumentos` (feed SEPARADO de `mercado.curvas` — ver `docs/VISTA_RESEARCH.md`); tab BCRA: `bcra_variables`/`bcra_watch`/`bcra_series` (ver `docs/RESEARCH_BCRA.md`).
+- `research` — market data 1816 para la vista Research: `mkt_1816_series`/`mkt_1816_watch`/`mkt_1816_instrumentos` (feed SEPARADO de `mercado.curvas` — ver `docs/VISTA_RESEARCH.md`); tab BCRA: `bcra_variables`/`bcra_watch`/`bcra_series` (ver `docs/RESEARCH_BCRA.md`).
 - `partner` — app separada `partner_api`: `cartera`, `api_users` (antes Mongo `ACAPortfolio`).
 
 ## Contexto por subdirectorio
@@ -236,7 +236,7 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Copiloto de mesa (`api/services/copiloto.py`) | `COPILOTO.md` **[VIVO]** |
 | Agregar una TOOL al asistente/copiloto | `TOOLS_IA.md` **[VIVO]** (auditoría de huecos + tandas) |
 | Vista `/research` (1816, mail diario) | `VISTA_RESEARCH.md` **[VIVO]** |
-| Research → tab BCRA / FRED / Refinitiv | `RESEARCH_BCRA.md` · `RESEARCH_FRED.md` · `RESEARCH_REFINITIV.md` |
+| Research → tab BCRA / FRED | `RESEARCH_BCRA.md` · `RESEARCH_FRED.md` |
 | Feed Eikon live / tab REUTERS (`eikon_*`) | `INTEGRACION_REUTERS.md` **[VIVO]** |
 | Renta fija / curvas | `RENTA_FIJA.md` · `SALUD_CURVAS.md` |
 | Renta variable / scanner | `RENTA_VARIABLE.md` |

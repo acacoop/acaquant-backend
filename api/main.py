@@ -44,7 +44,6 @@ from api.routers import (
     operar,
     operativa,
     ordenes,
-    research,
     research1816,
     research_bcra,
     research_docs,
@@ -252,7 +251,6 @@ app.include_router(derivados_agro.router,    dependencies=_PUBLIC)
 app.include_router(derivados_sinteticos.router, dependencies=_PUBLIC)
 app.include_router(back_office.router,        dependencies=_BACK_OFFICE)
 app.include_router(scanner.router,            dependencies=_PUBLIC)
-app.include_router(research.router,           dependencies=_PUBLIC)  # Análisis Fundamental (gate renta-variable en el router)
 app.include_router(research1816.router,       dependencies=_PUBLIC)  # vista RESEARCH (gate módulo `research` en el router) — docs/VISTA_RESEARCH.md
 app.include_router(research_bcra.router,      dependencies=_PUBLIC)  # tab BCRA de Research (gate módulo `research` en el router) — docs/RESEARCH_BCRA.md
 app.include_router(research_fred.router,      dependencies=_PUBLIC)  # tab Datos Internacionales / FRED (gate módulo `research` en el router) — docs/RESEARCH_FRED.md

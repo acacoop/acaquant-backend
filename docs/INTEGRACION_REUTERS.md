@@ -140,7 +140,7 @@ Pedido de la mesa: sumar noticias de Reuters a la plataforma. Se estudió y se
 el feed local agrega un poll de titulares por RIC suscripto (cada N min, cache
 por storyId para no repetir) → `POST /api/ingest/eikon/news` → tabla
 `mercado.eikon_news` → panel derecho del tab REUTERS (el 40% reservado) y/o
-insumo del copiloto. **Sin implementar hasta que el user lo pida.**
+insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
 
 ## 7. Requisitos de entorno (la PC del feed)
 
@@ -154,6 +154,20 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
 - Workspace abierto y logueado (Desktop Session; sin la app no hay datos).
 
 ## 8. Changelog
+
+- **2026-07-24 — el feed suma NOTICIAS (titulares Reuters → watchlist HOME, tab NOTICIAS).**
+  v1 del estudio de §6b: SOLO titulares (sin nota completa — tamaño acotado).
+  - Universo CURADO server-side (`core/eikon_news.py::RICS_NEWS_EQUITIES` +
+    los RICs de BONOS_OFF) vía `GET /api/ingest/eikon/news/universo`.
+  - Feed: grupo `[news]` cada 10 min (NEWS_CADA_SEG), UNA llamada
+    `get_news_headlines("R:<ric> L:EN")` por RIC (titular mapeado a SU RIC),
+    cache de storyIds → postea solo lo nuevo a `POST /api/ingest/eikon/news`.
+    Errores por-RIC aislados (un 503 no corta el resto ni los precios).
+  - Server: `mercado.eikon_news` (story_id PK, dedup natural) con RETENCIÓN
+    de 7 días aplicada en la ingesta → la tabla queda en pocos MB para siempre.
+  - Vista: `GET /api/market/eikon-news` → chip NOTICIAS en la watchlist del
+    HOME (`watchlist-news.tsx`, poll 60s; nunca default).
+  - Regenerar la copia del Desktop del feed.
 
 - **2026-07-24 — el feed suma BONOS OFF (soberanos offshore → watchlist HOME + briefing).**
   Precio en USD de la pata que operan los extranjeros (páginas contribuidas

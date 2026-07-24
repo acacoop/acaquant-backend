@@ -31,6 +31,14 @@ def quotes(symbols: str | None = Query(None, description="CSV de símbolos; vac�
     return market_sql.quotes(syms)
 
 
+@router.get("/eikon-news")
+def eikon_news(limit: int = Query(80, ge=1, le=200)):
+    """Titulares Reuters del feed Eikon de oficina — tab NOTICIAS de la
+    watchlist HOME. Solo se mueven con el feed prendido; queda lo último."""
+    from core.eikon_news import listar_news
+    return {"news": listar_news(limit=limit)}
+
+
 @router.get("/calendar/economic")
 def calendar_economic(
     desde:       str | None = Query(None, description="ISO date; default = ahora"),

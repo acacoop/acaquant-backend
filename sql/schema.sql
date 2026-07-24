@@ -1027,6 +1027,19 @@ CREATE TABLE IF NOT EXISTS mercado.eikon_cierres (
     PRIMARY KEY (grupo, ric, fecha)
 );
 
+-- TITULARES Reuters del feed Eikon de oficina — tab NOTICIAS de la watchlist
+-- HOME (2026-07-24). Solo titulares (sin nota completa); retención 7 días
+-- aplicada por core/eikon_news.upsert_news → tabla acotada a pocos MB.
+CREATE TABLE IF NOT EXISTS mercado.eikon_news (
+    story_id   text PRIMARY KEY,             -- URN de Reuters (dedup natural)
+    ric        text,                          -- RIC por el que entró el titular
+    fecha      timestamptz,                   -- versionCreated de Reuters
+    titular    text,
+    fuente     text,                          -- sourceCode (ej. NS:RTRS)
+    updated_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_eikon_news_fecha ON mercado.eikon_news (fecha DESC);
+
 -- Fundamentals CURADOS por subyacente (ficha de empresa del tab REUTERS,
 -- 2026-07-17). El feed de oficina los trae 1 vez por día por RIC suscripto
 -- (TR.* de Eikon: valuación, márgenes, salud financiera, consenso, serie 5

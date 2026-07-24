@@ -379,6 +379,59 @@ def actualizar_bonos(rics):
             print("❌ [bonos] error:", type(e).__name__, e)
 
 
+# ── NOTICIAS (titulares Reuters → tab NOTICIAS de la watchlist HOME) ────────
+# Universo curado por el server (/eikon/news/universo). Una llamada por RIC
+# (count chico) cada NEWS_CADA_SEG — así cada titular queda mapeado a SU RIC.
+# Cache de storyIds para postear solo lo nuevo. Validado en vivo 2026-07-16
+# (ver docs/INTEGRACION_REUTERS.md §6b). Sus errores NUNCA voltean los precios.
+NEWS_CADA_SEG = 600          # 10 min — los titulares no cambian cada 20s
+NEWS_POR_RIC = 4
+_news_vistos = set()         # storyIds ya posteados (cache de la sesión)
+
+
+def actualizar_news(rics):
+    docs = []
+    for ric in rics:
+        try:
+            df = ek.get_news_headlines(f"R:{ric} L:EN", count=NEWS_POR_RIC)
+            if df is None or df.empty:
+                continue
+            for _, row in df.iterrows():
+                sid = str(row.get("storyId") or "").strip()
+                if not sid or sid in _news_vistos:
+                    continue
+                _news_vistos.add(sid)
+                ts = row.get("versionCreated")
+                docs.append({
+                    "story_id": sid,
+                    "ric":      ric,
+                    "fecha":    str(ts) if ts is not None and not pd.isna(ts) else None,
+                    "titular":  str(row.get("text") or "").strip(),
+                    "fuente":   str(row.get("sourceCode") or "").strip(),
+                })
+        except Exception as e:
+            # Por-RIC: un 503 de Reuters en uno no corta el resto.
+            print(f"⚠️ [news] {ric}: {type(e).__name__}: {str(e)[:80]}")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not docs:
+        print(f"[{now}] 🔄 [news] sin titulares nuevos.")
+        return
+    if DRY_RUN:
+        for d in docs[:5]:
+            print("  [news]", d["ric"], "—", d["titular"][:70])
+        print(f"[{now}] [news] DRY_RUN — {len(docs)} titulares nuevos.")
+        return
+    try:
+        r = requests.post(f"{API_BASE}/api/ingest/eikon/news",
+                          json={"docs": docs}, headers=HEADERS, timeout=15)
+        if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
+            print(f"[{now}] ✅ [news] {len(docs)} titulares nuevos.")
+        else:
+            print(f"[{now}] ❌ [news] API {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        print(f"❌ [news] POST: {type(e).__name__}: {e}")
+
+
 def _num_o_texto(v):
     """Valor de Eikon → tipo JSON-serializable (NaN→None, numpy→nativo, str→str)."""
     if v is None or (not isinstance(v, str) and pd.isna(v)):
@@ -504,14 +557,23 @@ def main():
                                    "futuros CBOT")
     rics_bonos = _universo_extra("bonos", "/api/ingest/eikon/bonos/universo",
                                  "soberanos offshore")
+    rics_news = _universo_extra("news", "/api/ingest/eikon/news/universo",
+                                "RICs con titulares")
 
     ultima_fund = 0.0
+    ultima_news = 0.0
     while True:
         actualizar_precios(universo)
         if rics_chicago:
             actualizar_chicago(rics_chicago)
         if rics_bonos:
             actualizar_bonos(rics_bonos)
+        if rics_news and time.time() - ultima_news > NEWS_CADA_SEG:
+            try:
+                actualizar_news(rics_news)
+            except Exception as e:
+                print(f"❌ [news] {type(e).__name__}: {e} — sigo con precios.")
+            ultima_news = time.time()
         if time.time() - ultima_fund > FUND_CADA_SEG:
             try:
                 if actualizar_fundamentals(universo):

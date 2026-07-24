@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from config import DOLAR_INGEST_TOKEN
 from core.dolar_oficial import upsert_oficial
 from core.eikon_bonos import universo_bonos_off, upsert_bonos_off
+from core.eikon_news import universo_news, upsert_news
 from core.eikon_chicago import universo_chicago, upsert_chicago
 from core.eikon_live import set_rics, universo_rics, upsert_fundamentals, upsert_quotes
 
@@ -146,6 +147,28 @@ def eikon_bonos_quotes(
     if escritos == 0:
         raise HTTPException(status_code=422, detail="ningún doc válido (RIC desconocido o falta ric)")
     return {"ok": True, "escritos": escritos}
+
+
+@router.get("/eikon/news/universo")
+def eikon_news_universo(_: None = Depends(verify_ingest_token)) -> dict:
+    """RICs a los que el feed pide titulares: [{ric}]. Constante curada
+    (core/eikon_news.py::RICS_NEWS_EQUITIES + bonos offshore)."""
+    return {"universo": universo_news()}
+
+
+class EikonNewsPayload(BaseModel):
+    # Titulares: [{story_id, ric, fecha, titular, fuente}, ...]
+    docs: list[dict] = Field(..., min_length=1, max_length=500)
+
+
+@router.post("/eikon/news")
+def eikon_news(
+    payload: EikonNewsPayload,
+    _: None = Depends(verify_ingest_token),
+) -> dict:
+    escritos = upsert_news(payload.docs)
+    # 0 insertados es normal acá (dedup por story_id) — no es error.
+    return {"ok": True, "insertados": escritos}
 
 
 class EikonFundamentalsPayload(BaseModel):

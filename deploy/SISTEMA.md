@@ -84,6 +84,7 @@
 | 22:00 · L-V | `jobs.market_anchors'` |
 | 22:00 · L-V | `jobs.mercado_1816_series'` |
 | 23:00 · diario | `jobs.informe_salud'` |
+| 21:10 · L-V | `jobs.eikon_cierres'` |
 | 20:15 · L-V | `jobs.options_rollup'` |
 | 20:15 · L-V | `jobs.cedears_ohlc_daily'` |
 | 20:16 · L-V | `jobs.bonos_ohlc_daily'` |

@@ -117,6 +117,19 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-24 — v1.98 (los feeds Eikon nuevos entran al copiloto; fuera fundamentals Refinitiv)
+Datos nuevos del día en las vistas → el copiloto los ve (regla de TOOLS_IA):
+- **AGRO**: bloque `[chicago]` — futuros CBOT por familia en US$/Tn con var
+  nominal del día y estado del feed (EN LÍNEA / APAGADO — la foto vieja se
+  declara). Regla nueva: comparar contra pizarra/futuros locales sí (mismo
+  US$/Tn), causas no.
+- **HOME**: bloque `[bonos offshore]` — precio USD de la pata externa de los
+  soberanos (GD/AL "OFF", MarketAxess) con var % del día y estado del feed.
+  Regla: comparar contra el precio local del mismo bono es válido (mismo
+  instrumento, dos mercados).
+- **RENTA VARIABLE**: se ELIMINÓ el bloque `[fundamentals TICKER]` (Refinitiv)
+  junto con toda la tab Análisis Fundamental — el prompt ya no lo promete.
+
 ### 2026-07-23 — v1.97 (patrones de agente aplicados al copiloto de mercado)
 Sale de una traza real (f.rodriguez, renta variable): el copiloto armó un
 ranking de energía A MANO, salió DESORDENADO (USO +90% abajo de VIST +37%) y

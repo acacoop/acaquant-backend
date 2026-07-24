@@ -112,6 +112,29 @@ def _extras_agro(
     except Exception as e:
         logger.warning("copiloto agro: datos de referencia fallaron (%s)", e)
 
+    # [chicago] — futuros CBOT en USD/t (tab CHICAGO, feed Eikon de oficina).
+    try:
+        from core.eikon_chicago import tablero_chicago
+
+        chi = tablero_chicago() or {}
+        lin_chi: list[str] = []
+        for fam in chi.get("familias") or []:
+            filas_f = [
+                f"{r.get('mes')}: {_fmtn(r.get('precio'))}"
+                + (f" ({'+' if (r.get('variacion') or 0) > 0 else ''}{_fmtn(r.get('variacion'))})"
+                   if r.get("variacion") is not None else "")
+                for r in fam.get("rows") or [] if r.get("precio") is not None
+            ]
+            if filas_f:
+                lin_chi.append(f"{fam.get('label')}: " + " · ".join(filas_f))
+        if lin_chi:
+            estado_chi = ("feed EN LÍNEA" if chi.get("online")
+                          else "feed APAGADO — última foto guardada")
+            lin_chi.insert(0, f"[chicago — futuros CBOT en US$/Tn, precio (var del día); {estado_chi}]")
+            partes.extend(lin_chi)
+    except Exception as e:
+        logger.warning("copiloto agro: bloque chicago falló (%s)", e)
+
     # Estado SIEMPRE explícito (batería 2026-07-14: sin esta línea el modelo no
     # podía confirmar si los futuros estaban operando en vivo).
     if data.get("data_fresh"):
@@ -144,6 +167,13 @@ sus números: ON (descuenta con el dólar Matba y la tasa ON) y Pagaré (descuen
 comprador T-1 y la tasa Pagaré). "Ganancia" es US$ por tonelada contra quedarse con el \
 grano: positiva = la vuelta paga; negativa = no paga. La elección es del usuario — vos \
 mostrás el trade-off, jamás ordenás uno.
+
+[chicago]: los futuros de CBOT (Chicago) por familia — Soja / Aceite de Soja / Maíz / \
+Trigo / Harina de Soja — ya convertidos a US$ por tonelada, con la variación NOMINAL del \
+día entre paréntesis (no es %). Cada entrada es un vencimiento (mes del contrato). Vienen \
+del feed Eikon de oficina: si dice "feed APAGADO", los precios son la última foto y hay \
+que decirlo. Sirven para comparar contra la pizarra/futuros locales (mismo US$/Tn) — \
+comparación directa: sí; explicar la diferencia por causas: no.
 
 Reglas duras de esta vista:
 - COSTO PASE = SOLO los gastos de mercado (derechos + apertura, ida y vuelta = 0,45% \

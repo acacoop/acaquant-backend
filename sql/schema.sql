@@ -1015,6 +1015,18 @@ CREATE TABLE IF NOT EXISTS mercado.eikon_bonos_snapshot (
     updated_at timestamptz DEFAULT now()
 );
 
+-- Cierres DIARIOS de los feeds Eikon nuevos (bonos offshore + Chicago), para
+-- anchors 7D/MTD/YTD y series (2026-07-24). Writer: jobs/eikon_cierres.py
+-- (cron 21:10 UTC L-V — post cierre NY y de la rueda diurna CBOT). `valor` es
+-- el precio "display": bonos en USD; Chicago ya convertido a USD/tonelada.
+CREATE TABLE IF NOT EXISTS mercado.eikon_cierres (
+    grupo text NOT NULL,                     -- 'bonos_off' | 'chicago'
+    ric   text NOT NULL,
+    fecha date NOT NULL,
+    valor numeric,
+    PRIMARY KEY (grupo, ric, fecha)
+);
+
 -- Fundamentals CURADOS por subyacente (ficha de empresa del tab REUTERS,
 -- 2026-07-17). El feed de oficina los trae 1 vez por día por RIC suscripto
 -- (TR.* de Eikon: valuación, márgenes, salud financiera, consenso, serie 5

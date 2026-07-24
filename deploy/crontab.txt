@@ -286,3 +286,7 @@
 # Incremental por watermark con colchón por frecuencia (D:−10d, M/Q:−95d, revisiones).
 # Requiere env FRED_API_KEY. Arranque: bloque Tasas USA. docs/RESEARCH_FRED.md.
 0 12,16,20,23 * * 1-5 /root/TradingAV/deploy/run_job.sh fred_research 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.fred_research'
+
+# ─── Cierres diarios de los feeds Eikon (bonos offshore + Chicago) → anchors 7D/MTD/YTD
+# 21:10 UTC L-V (post cierre NY 20:00 UTC y rueda diurna CBOT). Solo persiste si el feed corrió HOY.
+10 21 * * 1-5 /root/TradingAV/deploy/run_job.sh eikon_cierres 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.eikon_cierres'

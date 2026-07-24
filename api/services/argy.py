@@ -304,20 +304,43 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
 
     # ── Soberanos OFFSHORE (feed Eikon de oficina, ej. "GD30 OFF") ──
     # Precio en USD de la pata que operan los extranjeros (páginas MarketAxess).
-    # %Día viene del feed (PCTCHNG); 7d/MTD/YTD sin anchor por ahora ("—").
-    # `filas_bonos_off` nunca rompe: sin datos (feed jamás prendido) → sin filas.
-    from core.eikon_bonos import filas_bonos_off
+    # %Día del feed (PCTCHNG); 7d/MTD/YTD contra los cierres diarios que persiste
+    # jobs/eikon_cierres (mismo patrón de anchors que MEP/CCL — mientras el
+    # histórico no alcance, la celda queda "—"). Nunca rompe: sin datos → sin filas.
+    from core.eikon_bonos import BONOS_OFF, filas_bonos_off
+    series_off = _series_eikon_cierres("bonos_off")
+    bono_a_ric = {b: r for r, b in BONOS_OFF.items()}
     for b in filas_bonos_off():
+        s = series_off.get(bono_a_ric.get(b["bono"], ""), [])
+        actual = b["precio"]
         out.append({
             "label":   b["label"],
-            "value":   b["precio"],
+            "value":   actual,
             "unit":    "$",
-            "ret_day": round(b["var_pct"], 2) if b["var_pct"] is not None else None,
-            "ret_7d":  None,
-            "ret_mtd": None,
-            "ret_ytd": None,
+            "ret_day": round(b["var_pct"], 2) if b["var_pct"] is not None
+                       else _ret_pct(actual, _last_le(s, anchors["day"])),
+            "ret_7d":  _ret_pct(actual, _last_le(s, anchors["7d"])),
+            "ret_mtd": _ret_pct(actual, _last_le(s, anchors["mtd"])),
+            "ret_ytd": _ret_pct(actual, _last_le(s, anchors["ytd"])),
             "ts":      b["updated_at"].isoformat() if b["updated_at"] else None,
             "source":  "eikon_off",
         })
 
+    return out
+
+
+def _series_eikon_cierres(grupo: str) -> dict[str, list[tuple[date, float]]]:
+    """Series de cierres diarios por RIC desde mercado.eikon_cierres (writer:
+    jobs/eikon_cierres). ric → [(fecha, valor)] asc. Nunca rompe: tabla
+    inexistente/vacía → {} (anchors quedan None → celdas '—')."""
+    try:
+        from api.services._sql import _q
+        rows = _q("SELECT ric, fecha, valor FROM mercado.eikon_cierres "
+                  "WHERE grupo = %(g)s AND valor IS NOT NULL ORDER BY ric, fecha",
+                  {"g": grupo})
+    except Exception:
+        return {}
+    out: dict[str, list[tuple[date, float]]] = {}
+    for r in rows:
+        out.setdefault(r["ric"], []).append((r["fecha"], float(r["valor"])))
     return out

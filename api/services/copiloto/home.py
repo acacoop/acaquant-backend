@@ -198,6 +198,33 @@ def _futuros_dlr_bloque() -> list[str]:
             "implícita (TNA lineal %)]"] + lineas[:12]
 
 
+def _bonos_off_bloque() -> list[str]:
+    """[bonos offshore]: el precio en USD de la pata EXTERNA de los soberanos
+    (páginas MarketAxess vía feed Eikon de oficina) — las filas "GD30 OFF" de
+    la watchlist. Nunca rompe: feed jamás prendido → sin bloque."""
+    try:
+        from core.eikon_bonos import filas_bonos_off
+
+        filas_b = filas_bonos_off()
+        if not filas_b:
+            return []
+        online = any(b.get("online") for b in filas_b)
+        lineas = [
+            f"{b['label']}: {float(b['precio']):.2f}"
+            + (f" ({'+' if b['var_pct'] > 0 else ''}{b['var_pct']:.2f}%)"
+               if b.get("var_pct") is not None else "")
+            for b in filas_b if b.get("precio") is not None
+        ]
+        if not lineas:
+            return []
+        estado = "feed EN LÍNEA" if online else "feed APAGADO — última foto guardada"
+        return [f"[bonos offshore — precio USD de la pata externa de los soberanos "
+                f"(var % del día); {estado}]"] + lineas
+    except Exception as e:
+        logger.warning("copiloto home: bonos offshore fallaron (%s)", e)
+        return []
+
+
 def _extras_home(
     filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
 ) -> list[str]:
@@ -205,6 +232,7 @@ def _extras_home(
     # · briefing global) — la narración recorre segmentos, jamás los mezcla.
     partes: list[str] = []
     partes.extend(_renta_fija_pulso())
+    partes.extend(_bonos_off_bloque())
     try:
         partes.extend(_retornos_precio_curva())
     except Exception as e:
@@ -237,6 +265,10 @@ Bloques después de la tabla — UNO POR SEGMENTO del mercado:
 leés si comprime la parte corta o la larga, y si el movimiento es de los CER, la tasa \
 fija, los soberanos o los dollar-linked (son curvas DISTINTAS, nombralas por separado).
 - [retorno de PRECIO por curva] y [carry y canje]: los bonos en trazo grueso por ventana.
+- [bonos offshore]: el precio en USD de la pata EXTERNA de los soberanos (GD/AL "OFF" — \
+lo que operan los extranjeros vía MarketAxess). Comparar contra el precio local del mismo \
+bono: sí (mismo instrumento, dos mercados); si dice "feed APAGADO", los precios son la \
+última foto y hay que aclararlo.
 - [pulso por rubro]: el segmento ACCIONES (CEDEARs/ADRs, retornos en USD por rubro, ya \
 ponderados).
 - [futuros DLR ROFEX]: la curva de dólar futuro con la devaluación implícita (TNA lineal).

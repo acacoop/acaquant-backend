@@ -2,6 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **📌 REMOTES POR PROYECTO (actualizado 2026-07-24).** Cada proyecto puede
+> tener dos remotes: el **personal** y el de la **organización (ACA)**. Convención de
+> remotes:
+> - **Backend (este repo):** `origin` → personal
+>   (`github.com/NicolasEzequielMollo/TradingAV.git`); `org` →
+>   organización (`github.com/acacoop/acaquant-backend.git`).
+> - **Frontend (acaquant-web):** `origin` → personal
+>   (`github.com/NicolasEzequielMollo/acaquant-web.git`); `org` →
+>   organización (`github.com/acacoop/acaquant-frontend.git`).
+>
+> REGLA VIGENTE: priorizar `origin` (personal). El push a `org` queda opcional
+> y se retoma cuando se defina/ordene el flujo corporativo.
+
 ## Overview
 
 TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO), venv en `/root/TradingAV/venv`.

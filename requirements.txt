@@ -33,7 +33,7 @@ pytest==9.0.3
 pyinstrument==5.1.2  # profiling opt-in de requests (api/profiling.py, activado por API_PROFILING=1)
 
 # --- transitivas (pineadas automáticamente) ---
-altair==4.2.2
+altair==6.2.2
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.12.1

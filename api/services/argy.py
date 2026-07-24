@@ -302,4 +302,22 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
             "source":     "live" if live.get("ts") else "none",
         })
 
+    # ── Soberanos OFFSHORE (feed Eikon de oficina, ej. "GD30 OFF") ──
+    # Precio en USD de la pata que operan los extranjeros (páginas MarketAxess).
+    # %Día viene del feed (PCTCHNG); 7d/MTD/YTD sin anchor por ahora ("—").
+    # `filas_bonos_off` nunca rompe: sin datos (feed jamás prendido) → sin filas.
+    from core.eikon_bonos import filas_bonos_off
+    for b in filas_bonos_off():
+        out.append({
+            "label":   b["label"],
+            "value":   b["precio"],
+            "unit":    "$",
+            "ret_day": round(b["var_pct"], 2) if b["var_pct"] is not None else None,
+            "ret_7d":  None,
+            "ret_mtd": None,
+            "ret_ytd": None,
+            "ts":      b["updated_at"].isoformat() if b["updated_at"] else None,
+            "source":  "eikon_off",
+        })
+
     return out

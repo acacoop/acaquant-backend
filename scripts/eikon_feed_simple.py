@@ -307,6 +307,78 @@ def actualizar_chicago(rics):
             print("❌ [chicago] error:", type(e).__name__, e)
 
 
+# ── BONOS OFF (soberanos ARG offshore → watchlist HOME + briefing) ──────────
+# RICs "=1M" (páginas contribuidas MarketAxess): los da la API
+# (/eikon/bonos/universo, constante core/eikon_bonos.py::BONOS_OFF). Qué campos
+# publican esas páginas no está validado en vivo → set tolerante; el server
+# resuelve el precio con fallback last → primact → mid(bid,ask). Los avisos
+# "Field not found" de la 1ra pasada dicen qué campo no existe (normal).
+CAMPOS_BONOS = {
+    "CF_LAST":    "last",
+    "PRIMACT_1":  "primact",
+    "CF_BID":     "bid",
+    "CF_ASK":     "ask",
+    "CF_CLOSE":   "prev_close",
+    "PCTCHNG":    "var_pct",
+    "NETCHNG_1":  "var_neta",
+}
+_bonos_primera = {"hecha": False}
+
+
+def actualizar_bonos(rics):
+    """Un get_data para los soberanos offshore → POST /eikon/bonos/quotes.
+    Igual que Chicago: SIN cache-diff (heartbeat) y sus errores NUNCA voltean
+    el loop de precios."""
+    try:
+        data, err = ek.get_data(rics, list(CAMPOS_BONOS), field_name=True)
+        if err and not _bonos_primera["hecha"]:
+            vistos = set()
+            for e in err:
+                msg = str(e.get("message", ""))[:110]
+                if msg not in vistos:
+                    vistos.add(msg)
+                    print(f"   [bonos] aviso Eikon: {msg}")
+        _bonos_primera["hecha"] = True
+        if data is None or data.empty:
+            print("⚠️ [bonos] get_data no devolvió datos.")
+            return
+
+        docs = []
+        for _, row in data.iterrows():
+            doc = {"ric": row["Instrument"]}
+            for campo, nombre in CAMPOS_BONOS.items():
+                v = row.get(campo.upper())
+                doc[nombre] = float(v) if v is not None and not pd.isna(v) else None
+            # Sin NINGUNA pata de precio no se manda (page vacía / RIC muerto).
+            if doc["last"] is None and doc["primact"] is None \
+                    and doc["bid"] is None and doc["ask"] is None:
+                continue
+            docs.append(doc)
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if not docs:
+            print(f"[{now}] ⚠️ [bonos] ningún RIC con precio.")
+            return
+        if DRY_RUN:
+            for d in docs[:11]:
+                print("  [bonos]", d)
+            print(f"[{now}] [bonos] DRY_RUN — {len(docs)} leídos.")
+            return
+        r = requests.post(f"{API_BASE}/api/ingest/eikon/bonos/quotes",
+                          json={"docs": docs}, headers=HEADERS, timeout=15)
+        if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
+            print(f"[{now}] ✅ [bonos] {len(docs)} soberanos off (heartbeat).")
+        else:
+            print(f"[{now}] ❌ [bonos] API {r.status_code}: {r.text[:200]}")
+
+    except Exception as e:
+        if "429" in str(e):
+            print("⚠️ [bonos] límite de requests. Esperando 60s.")
+            time.sleep(60)
+        else:
+            print("❌ [bonos] error:", type(e).__name__, e)
+
+
 def _num_o_texto(v):
     """Valor de Eikon → tipo JSON-serializable (NaN→None, numpy→nativo, str→str)."""
     if v is None or (not isinstance(v, str) and pd.isna(v)):
@@ -414,25 +486,32 @@ def main():
     print(f"suscribiendo {len(universo)} RICs (los sin RIC quedan afuera) — "
           f"loop cada {INTERVALO_SEG}s, Ctrl+C corta")
 
-    # CHICAGO: universo de futuros CBOT. Tolerante — si la API todavía no tiene
-    # el endpoint (backend sin deployar), sigue solo con acciones.
-    rics_chicago = []
-    try:
-        rc = requests.get(f"{API_BASE}/api/ingest/eikon/chicago/universo",
-                          headers=HEADERS, timeout=15)
-        if rc.status_code == 200 and "json" in rc.headers.get("content-type", ""):
-            rics_chicago = [u["ric"] for u in rc.json()["universo"] if u.get("ric")]
-            print(f"[chicago] suscribiendo {len(rics_chicago)} futuros CBOT.")
-        else:
-            print(f"[chicago] API {rc.status_code} — sigo solo con acciones.")
-    except Exception as e:
-        print(f"[chicago] {type(e).__name__}: {e} — sigo solo con acciones.")
+    # Grupos extra (universo constante del server). Tolerante — si la API vieja
+    # no tiene el endpoint, sigue sin ese grupo.
+    def _universo_extra(nombre, path, key):
+        try:
+            rc = requests.get(f"{API_BASE}{path}", headers=HEADERS, timeout=15)
+            if rc.status_code == 200 and "json" in rc.headers.get("content-type", ""):
+                rics = [u["ric"] for u in rc.json()["universo"] if u.get("ric")]
+                print(f"[{nombre}] suscribiendo {len(rics)} {key}.")
+                return rics
+            print(f"[{nombre}] API {rc.status_code} — sigo sin este grupo.")
+        except Exception as e:
+            print(f"[{nombre}] {type(e).__name__}: {e} — sigo sin este grupo.")
+        return []
+
+    rics_chicago = _universo_extra("chicago", "/api/ingest/eikon/chicago/universo",
+                                   "futuros CBOT")
+    rics_bonos = _universo_extra("bonos", "/api/ingest/eikon/bonos/universo",
+                                 "soberanos offshore")
 
     ultima_fund = 0.0
     while True:
         actualizar_precios(universo)
         if rics_chicago:
             actualizar_chicago(rics_chicago)
+        if rics_bonos:
+            actualizar_bonos(rics_bonos)
         if time.time() - ultima_fund > FUND_CADA_SEG:
             try:
                 if actualizar_fundamentals(universo):

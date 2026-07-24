@@ -155,6 +155,22 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
 
 ## 8. Changelog
 
+- **2026-07-24 — el feed suma BONOS OFF (soberanos offshore → watchlist HOME + briefing).**
+  Precio en USD de la pata que operan los extranjeros (páginas contribuidas
+  MarketAxess, RICs "=1M" provistos por el user): 6 Globales (GD29/30/35/38/41/46)
+  + 5 Bonares (AL29/30/35, AE38, AL41). Mismo patrón que Chicago:
+  - Constante `core/eikon_bonos.py::BONOS_OFF` (RIC→bono) + tabla
+    `mercado.eikon_bonos_snapshot` + `/api/ingest/eikon/bonos/{universo,quotes}`.
+  - Feed: grupo `[bonos]` en el mismo loop, heartbeat sin diff. ⚠️ Los campos de
+    esas páginas NO están validados en vivo → set tolerante (CF_LAST/PRIMACT_1/
+    CF_BID/CF_ASK/PCTCHNG/…) y el server resuelve el precio con fallback
+    last → primact → mid(bid,ask). Mirar los avisos de la 1ra pasada.
+  - Consumers: watchlist HOME sección ARGENTINA (filas "GD30 OFF" agregadas por
+    `api/services/argy.py` — el front las renderiza solo, %día del feed,
+    7d/MTD/YTD sin anchor por ahora) y modal de briefing (bloque `bonos_off`,
+    sección "SOBERANOS EXTERIOR (OFF)" bajo la curva DLR).
+  - Regenerar la copia del Desktop del feed.
+
 - **2026-07-24 — el feed suma CHICAGO (futuros CBOT → AGRO → tab CHICAGO).**
   El MISMO `scripts/eikon_feed_simple.py` (decisión del user: un solo file de
   feed) ahora también:

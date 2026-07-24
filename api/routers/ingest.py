@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from config import DOLAR_INGEST_TOKEN
 from core.dolar_oficial import upsert_oficial
+from core.eikon_bonos import universo_bonos_off, upsert_bonos_off
 from core.eikon_chicago import universo_chicago, upsert_chicago
 from core.eikon_live import set_rics, universo_rics, upsert_fundamentals, upsert_quotes
 
@@ -119,6 +120,29 @@ def eikon_chicago_quotes(
     _: None = Depends(verify_ingest_token),
 ) -> dict:
     escritos = upsert_chicago(payload.docs)
+    if escritos == 0:
+        raise HTTPException(status_code=422, detail="ningún doc válido (RIC desconocido o falta ric)")
+    return {"ok": True, "escritos": escritos}
+
+
+@router.get("/eikon/bonos/universo")
+def eikon_bonos_universo(_: None = Depends(verify_ingest_token)) -> dict:
+    """Lista de suscripción de los soberanos OFFSHORE: [{ric, bono}]. Constante
+    BONOS_OFF (core/eikon_bonos.py) — sin catálogo editable."""
+    return {"universo": universo_bonos_off()}
+
+
+class EikonBonosPayload(BaseModel):
+    # Quotes offshore: [{ric, last, primact, bid, ask, var_pct, var_neta}, ...]
+    docs: list[dict] = Field(..., min_length=1, max_length=50)
+
+
+@router.post("/eikon/bonos/quotes")
+def eikon_bonos_quotes(
+    payload: EikonBonosPayload,
+    _: None = Depends(verify_ingest_token),
+) -> dict:
+    escritos = upsert_bonos_off(payload.docs)
     if escritos == 0:
         raise HTTPException(status_code=422, detail="ningún doc válido (RIC desconocido o falta ric)")
     return {"ok": True, "escritos": escritos}

@@ -1004,6 +1004,17 @@ CREATE TABLE IF NOT EXISTS mercado.eikon_chicago_snapshot (
     updated_at timestamptz DEFAULT now()
 );
 
+-- Precio OFFSHORE de los soberanos ARG (páginas contribuidas MarketAxess) del
+-- feed Eikon de oficina — watchlist HOME ("GD30 OFF") + briefing (2026-07-24).
+-- 1 fila por RIC "=1M", crudo; mapeo RIC→bono en core/eikon_bonos.py::BONOS_OFF.
+-- POST /api/ingest/eikon/bonos/quotes. Passthrough jsonb.
+CREATE TABLE IF NOT EXISTS mercado.eikon_bonos_snapshot (
+    ric        text PRIMARY KEY,             -- RIC página offshore (ej. 040114HS2=1M)
+    bono       text,                          -- ticker local (GD30, AL30, AE38…)
+    data       jsonb,
+    updated_at timestamptz DEFAULT now()
+);
+
 -- Fundamentals CURADOS por subyacente (ficha de empresa del tab REUTERS,
 -- 2026-07-17). El feed de oficina los trae 1 vez por día por RIC suscripto
 -- (TR.* de Eikon: valuación, márgenes, salud financiera, consenso, serie 5

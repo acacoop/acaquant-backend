@@ -269,6 +269,17 @@ def briefing_hoy() -> dict[str, Any]:
         financieros = _financieros(cur, hoy_art)
         futuros_dlr = _futuros_dlr(cur)
     oficial = [mayorista] + ([a3500] if a3500 else [])
+    # Soberanos OFFSHORE (feed Eikon de oficina): mismo shape MetricRow que el
+    # resto de los bloques (label/hoy/ret_1d/ret_wtd/ret_mtd) → el front reusa
+    # Row/ColHeader. Solo %día (del feed); wtd/mtd sin anchor por ahora.
+    from core.eikon_bonos import filas_bonos_off
+    bonos_off = [{
+        "label":   b["label"],
+        "hoy":     b["precio"],
+        "ret_1d":  round(b["var_pct"], 2) if b["var_pct"] is not None else None,
+        "ret_wtd": None,
+        "ret_mtd": None,
+    } for b in filas_bonos_off()]
     # Bonos que pagan hoy (cupón/amort/vto). Estructural sobre curvas, filtrado a lo
     # que hay en cartera. Cacheado por día → el polling del modal no recomputa.
     pagan_hoy = acreencias.bonos_pagan_en_fecha(hoy_art.isoformat())
@@ -280,6 +291,7 @@ def briefing_hoy() -> dict[str, Any]:
         "financieros": financieros,   # MEP + CCL
         "cauciones":   _cauciones(),  # TNA ARS/USD del plazo vigente (watchlist)
         "futuros_dlr": futuros_dlr,   # curva DLR: ticker/días/último/TNA
+        "bonos_off":   bonos_off,     # soberanos offshore (GD30 OFF…) — [] sin feed
         "pagan_hoy":   pagan_hoy,     # [] si ninguno paga hoy
         "research_hoy": _research_hoy(hoy_art),  # mail 1816 del DÍA (None si no hay)
     }

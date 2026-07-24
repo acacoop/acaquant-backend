@@ -171,6 +171,12 @@ insumo del copiloto. **Sin implementar hasta que el user lo pida.**
     CHICAGO (`agro-chicago.tsx`, grilla de 5 tablas, poll 10s).
   - **Regenerar la copia del Desktop** (`feed.py` con las keys) para que tome
     Chicago — hasta entonces el feed viejo sigue andando igual (solo acciones).
+  - **Semáforo EN LÍNEA** (feedback del user, mismo día): Chicago manda las ~25
+    filas en CADA loop como HEARTBEAT (sin cache-diff — payload mínimo; las
+    acciones siguen con diff). El tablero devuelve `online` = último POST hace
+    < 60s (`ONLINE_TTL_S`) y la vista muestra el punto verde/rojo (FEED EN
+    LÍNEA / FEED APAGADO) + hora de la última actualización. Requiere
+    re-regenerar la copia del Desktop.
 
 - **2026-07-18 — la vista se MUDÓ a /research → tab RENTA VARIABLE INTERNACIONAL.**
   El tablero (`reuters-view.tsx`, con fundamentals, ficha y su copiloto in-view)

@@ -247,22 +247,25 @@ CAMPOS_CHICAGO = {
     "PRIMACT_1":  "last",      # último precio del futuro (crudo, ¢/bu etc.)
     "SEC_ACT_1":  "var_neta",  # variación neta del día (misma unidad)
 }
-ultimo_chicago = {}   # cache para mandar solo lo que cambió
+_chicago_primera = {"hecha": False}   # para loguear avisos solo la 1ra pasada
 
 
 def actualizar_chicago(rics):
     """Un get_data para TODOS los RICs CBOT → POST /eikon/chicago/quotes.
     Llamada separada de las acciones (los campos difieren y los logs quedan
-    limpios). Cualquier error acá NUNCA voltea el loop de precios."""
+    limpios). SIN cache-diff a propósito: manda las ~25 filas en CADA loop
+    como HEARTBEAT — el semáforo EN LÍNEA de la vista se prende si el último
+    POST tiene <60s. Cualquier error acá NUNCA voltea el loop de precios."""
     try:
         data, err = ek.get_data(rics, list(CAMPOS_CHICAGO), field_name=True)
-        if err and not ultimo_chicago:   # solo la primera pasada
+        if err and not _chicago_primera["hecha"]:
             vistos = set()
             for e in err:
                 msg = str(e.get("message", ""))[:110]
                 if msg not in vistos:
                     vistos.add(msg)
                     print(f"   [chicago] aviso Eikon: {msg}")
+        _chicago_primera["hecha"] = True
         if data is None or data.empty:
             print("⚠️ [chicago] get_data no devolvió datos.")
             return
@@ -280,24 +283,19 @@ def actualizar_chicago(rics):
                 continue
             docs.append(doc)
 
-        cambiados = [d for d in docs if ultimo_chicago.get(d["ric"]) != d]
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if not docs:
+            print(f"[{now}] ⚠️ [chicago] ningún RIC con precio.")
+            return
         if DRY_RUN:
             for d in docs[:10]:
                 print("  [chicago]", d)
-            print(f"[{now}] [chicago] DRY_RUN — {len(docs)} leídos, {len(cambiados)} con cambios.")
-            for d in docs:
-                ultimo_chicago[d["ric"]] = d
-            return
-        if not cambiados:
-            print(f"[{now}] 🔄 [chicago] sin cambios.")
+            print(f"[{now}] [chicago] DRY_RUN — {len(docs)} leídos.")
             return
         r = requests.post(f"{API_BASE}/api/ingest/eikon/chicago/quotes",
-                          json={"docs": cambiados}, headers=HEADERS, timeout=15)
+                          json={"docs": docs}, headers=HEADERS, timeout=15)
         if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
-            print(f"[{now}] ✅ [chicago] {len(cambiados)} futuros actualizados.")
-            for d in docs:
-                ultimo_chicago[d["ric"]] = d
+            print(f"[{now}] ✅ [chicago] {len(docs)} futuros (heartbeat).")
         else:
             print(f"[{now}] ❌ [chicago] API {r.status_code}: {r.text[:200]}")
 

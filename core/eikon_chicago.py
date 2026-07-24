@@ -20,12 +20,17 @@ Modelado (viene del script de commodities original del user, 2026-07-24):
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from core.pg_mirror import write_native
 from core.postgres import get_pool
 
 TABLE = "mercado.eikon_chicago_snapshot"
+
+# Semáforo EN LÍNEA de la vista: el feed manda las 25 filas en CADA loop de 20s
+# (heartbeat, sin cache-diff — payload mínimo) → si el último updated_at tiene
+# menos de este TTL, el script de oficina está prendido. 60s = 3 loops perdidos.
+ONLINE_TTL_S = 60
 
 # familia (key estable) → label de la vista, RICs de continuación y factor de
 # conversión a USD/tonelada. Orden del dict = orden de las tablas en la vista.
@@ -134,4 +139,10 @@ def tablero_chicago() -> dict:
             "rows":       rows,
             "updated_at": max((r["updated_at"] for r in rows), default=None),
         })
-    return {"familias": familias, "unidad": "USD/t"}
+    # Semáforo: prendido si el heartbeat del feed llegó hace < ONLINE_TTL_S.
+    max_upd = max((f["updated_at"] for f in familias if f["updated_at"]), default=None)
+    online = bool(
+        max_upd and datetime.now(UTC) - max_upd < timedelta(seconds=ONLINE_TTL_S)
+    )
+    return {"familias": familias, "unidad": "USD/t",
+            "updated_at": max_upd, "online": online}

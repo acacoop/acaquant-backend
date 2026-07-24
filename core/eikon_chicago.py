@@ -27,10 +27,15 @@ from core.postgres import get_pool
 
 TABLE = "mercado.eikon_chicago_snapshot"
 
-# Semáforo EN LÍNEA de la vista: el feed manda las 25 filas en CADA loop de 20s
+# Semáforo EN LÍNEA de la vista: el feed manda las 25 filas en CADA loop
 # (heartbeat, sin cache-diff — payload mínimo) → si el último updated_at tiene
-# menos de este TTL, el script de oficina está prendido. 60s = 3 loops perdidos.
-ONLINE_TTL_S = 60
+# menos de este TTL, el script de oficina está prendido.
+# OJO con ajustar esto a la baja: el loop REAL del feed no es 20s — es 20s de
+# sleep + lo que tarden los get_data de Eikon (184 RICs de acciones + 25 CBOT),
+# ~30-40s típico y con picos peores cuando Eikon viene lento. Con TTL=60s el
+# semáforo TITILABA (rojo/verde) con el script prendido (visto 2026-07-24).
+# 180s = varios latidos de margen; "apagado" se detecta en ~3 minutos.
+ONLINE_TTL_S = 180
 
 # familia (key estable) → label de la vista, RICs de continuación y factor de
 # conversión a USD/tonelada. Orden del dict = orden de las tablas en la vista.

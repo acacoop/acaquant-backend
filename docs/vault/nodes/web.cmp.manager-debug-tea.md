@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\manager-debug-tea.tsx
+path: src/components/manager-debug-tea.tsx
 ---
 
 # web/components/manager-debug-tea
 
-**Archivo:** `src\components\manager-debug-tea.tsx`
+**Archivo:** `src/components/manager-debug-tea.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

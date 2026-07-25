@@ -1,6 +1,6 @@
 # 🚀 deploy — servicios + crons
 
-60 notas.
+59 notas.
 
 - [[cron.engines.dolar_mep]] — Tarea programada (cron).
 - [[cron.jobs.acreencias]] — Tarea programada (cron).
@@ -23,11 +23,11 @@
 - [[cron.jobs.controles_datos]] — Tarea programada (cron).
 - [[cron.jobs.day_trading_stats]] — Tarea programada (cron).
 - [[cron.jobs.economic_calendar]] — Tarea programada (cron).
+- [[cron.jobs.eikon_cierres]] — Tarea programada (cron).
 - [[cron.jobs.forwards_zscore]] — Tarea programada (cron).
 - [[cron.jobs.fred_research]] — Tarea programada (cron).
 - [[cron.jobs.guardrails]] — Tarea programada (cron).
 - [[cron.jobs.ia_calidad]] — Tarea programada (cron).
-- [[cron.jobs.informe_salud]] — Tarea programada (cron).
 - [[cron.jobs.market_anchors]] — Tarea programada (cron).
 - [[cron.jobs.market_quotes]] — Tarea programada (cron).
 - [[cron.jobs.mercado_1816_series]] — Tarea programada (cron).
@@ -46,7 +46,6 @@
 - [[cron.jobs.sync_comitentes]] — Tarea programada (cron).
 - [[cron.jobs.triage]] — Tarea programada (cron).
 - [[cron.jobs.volatilidad_ggal]] — Tarea programada (cron).
-- [[cron.jobs.watchdog]] — Tarea programada (cron).
 - [[svc.api]] — Servicio systemd.
 - [[svc.motor_agro]] — Servicio systemd.
 - [[svc.motor_agro_opciones]] — Servicio systemd.

@@ -77,8 +77,6 @@ TABLAS: list[tuple[str, str | None, str, str]] = [
     ("manager.role_audit",            None,                  "puede_vacio", "audit de roles"),
     ("manager.job_runs",              "finished_at",         "datos", "historial de jobs"),
     ("manager.pyrofex_instruments",   None,                  "datos", "instrumentos operables"),
-    ("manager.health_reports",        "ts",                  "puede_vacio", "informe de salud"),
-    ("manager.watchdog_alertas",      None,                  "puede_vacio", "cooldown watchdog"),
 ]
 
 

@@ -1,5 +1,5 @@
 ---
-id: cron.jobs.informe_salud
+id: cron.jobs.eikon_cierres
 type: cron
 layer: deploy
 repo: infra
@@ -7,7 +7,7 @@ tags: [cron, deploy, infra]
 path: deploy/crontab.txt
 ---
 
-# cron: jobs.informe_salud
+# cron: jobs.eikon_cierres
 
 > Tarea programada (cron).
 
@@ -17,4 +17,4 @@ path: deploy/crontab.txt
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
-- [[jobs.informe_salud]]  ·  _module_
+- [[jobs.eikon_cierres]]  ·  _module_

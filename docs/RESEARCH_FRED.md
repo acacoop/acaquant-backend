@@ -457,7 +457,7 @@ etiqueta, unidad, freq, pais, orden)`). Modos:
   throttled; `--desde` para acotar — las diarias con 30 años son grandes).
 - **(default) incremental por watermark:** `desde = max(fecha) − N días` por serie.
 - Refresca `fred_series` (metadata, 1 request por serie del watch) 1×/corrida.
-- `JobRunLogger` + alerta Telegram (estándar de la casa).
+- `JobRunLogger` (estándar de la casa).
 - `--purgar-antes YYYY-MM-DD` (limpieza one-off scopeada, con `--dry-run`).
 
 ### 6.4 El watermark con colchón (revisiones retroactivas)
@@ -574,8 +574,8 @@ Encaja con el patrón `home.market_quotes`.
   SA con NSA, no leer una mensual como si fuera diaria). Encaja directo en el patrón
   por vista.
 - **Futuro (no comprometido):** ALFRED/vintages (backtesting sin look-ahead,
-  `output_type=4`); calendario de releases (`/releases/dates`) + alerta Telegram al
-  salir un dato; export PPT/Excel para comercial; KPI tiles en el HOME.
+  `output_type=4`); calendario de releases (`/releases/dates`); export
+  PPT/Excel para comercial; KPI tiles en el HOME.
 
 ---
 

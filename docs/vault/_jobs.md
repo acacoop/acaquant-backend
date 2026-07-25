@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-55 notas.
+54 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -28,13 +28,13 @@
 - [[jobs.day_trading_stats]] — day_trading_stats.py — resumen diario de scalping por CEDEAR.
 - [[jobs.dias_habiles]] — dias_habiles.py — Carga días hábiles del calendario argentino a SQL (mercado.dias_habiles).
 - [[jobs.economic_calendar]] — economic_calendar.py — ingesta diaria del calendario económico (FMP).
+- [[jobs.eikon_cierres]] — jobs/eikon_cierres.py — persiste el CIERRE diario de los feeds Eikon nuevos
 - [[jobs.fair_value]] — fair_value.py — fit cuadrático + residuos + z-scores diarios.
 - [[jobs.fci_bilateral]] — jobs/fci_bilateral.py — lleva el FCI bilateral de `operaciones.negocio_movimientos`
 - [[jobs.forwards_zscore]] — forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.
 - [[jobs.fred_research]] — jobs/fred_research.py — sincroniza series de FRED a Postgres (tab Datos
 - [[jobs.guardrails]] — jobs/guardrails.py — invariantes de sanidad de datos post-cierre.
 - [[jobs.ia_calidad]] — jobs/ia_calidad.py — control de calidad de las conversaciones de IA.
-- [[jobs.informe_salud]] — informe_salud.py — Informe de salud de ACAQuant (health report a Telegram).
 - [[jobs.market_anchors]] — market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).
 - [[jobs.market_quotes]] — market_quotes.py — cotizaciones de equity/futuros/índices para el watchlist HOME.
 - [[jobs.mercado_1816_discovery]] — jobs/mercado_1816_discovery.py — arma el universo de la vista RESEARCH desde TUS
@@ -56,4 +56,3 @@
 - [[jobs.sync_comitentes]] — Sync de cuentas comitentes desde Aunesa → master SQL `clientes.comitentes`
 - [[jobs.triage]] — jobs/triage.py — Triage REACTIVO de incidentes (QuantAI P2, docs/QUANTAI.md).
 - [[jobs.volatilidad_ggal]]
-- [[jobs.watchdog]] — jobs/watchdog.py — "el agente que evalúa solo": detecta jobs colgados y alerta.

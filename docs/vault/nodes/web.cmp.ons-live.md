@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\ons-live.tsx
+path: src/components/ons-live.tsx
 ---
 
 # web/components/ons-live
 
-**Archivo:** `src\components\ons-live.tsx`
+**Archivo:** `src/components/ons-live.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src\app\api\derivados-agro\dolares-referencia\route.ts
+path: src/app/api/derivados-agro/dolares-referencia/route.ts
 ---
 
 # web /api/derivados-agro/dolares-referencia  (proxy)
 
-**Archivo:** `src\app\api\derivados-agro\dolares-referencia\route.ts`
+**Archivo:** `src/app/api/derivados-agro/dolares-referencia/route.ts`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

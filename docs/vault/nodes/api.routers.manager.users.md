@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\users.py
+path: api/routers/manager/users.py
 ---
 
 # api/routers/manager/users
 
 > Manager sub-router — CRUD de usuarios.
 
-**Archivo:** `api\routers\manager\users.py`
+**Archivo:** `api/routers/manager/users.py`
 
 ## Qué hace
 Sub-router `/api/manager/users` — CRUD de usuarios de la plataforma. GET lista usuarios + roles disponibles; POST crea o upsertea por email; PATCH edita rol/enabled/notes preservando los campos no enviados; DELETE elimina (self-delete permitido). Valida que el rol exista en la matriz vigente. Admin-only.

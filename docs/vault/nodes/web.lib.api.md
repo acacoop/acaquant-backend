@@ -4,12 +4,12 @@ type: lib
 layer: web-lib
 repo: frontend
 tags: [lib, web-lib, frontend]
-path: src\lib\api.ts
+path: src/lib/api.ts
 ---
 
 # web/lib/api
 
-**Archivo:** `src\lib\api.ts`
+**Archivo:** `src/lib/api.ts`
 
 ## Qué hace
 Cliente HTTP server-side del frontend para pegarle a la API de TradingAV (`api.acaquant.com`). Su función `apiFetch` arma cada request con el Bearer (`API_KEY`), el service token de Cloudflare Access (CF-Access-Client-Id/Secret) y, sobre todo, propaga la identidad del usuario (`x-acaquant-user-email` + `cf-access-authenticated-user-email`) para que el backend aplique RBAC. Maneja timeout (15s default), revalidate de Next y extrae el `detail` de los errores de FastAPI.

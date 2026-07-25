@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\pg_mirror.py
+path: core/pg_mirror.py
 ---
 
 # core/pg_mirror
 
 > core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
 
-**Archivo:** `core\pg_mirror.py`
+**Archivo:** `core/pg_mirror.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -30,6 +30,8 @@ _(pendiente de enriquecimiento)_
 - [[api.services.ordenes]]  ·  _module_
 - [[core.brackets]]  ·  _module_
 - [[core.dolar_oficial]]  ·  _module_
+- [[core.eikon_bonos]]  ·  _module_
+- [[core.eikon_chicago]]  ·  _module_
 - [[core.eikon_live]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 - [[core.roles]]  ·  _module_
@@ -64,8 +66,6 @@ _(pendiente de enriquecimiento)_
 - [[jobs.fair_value]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.forwards_zscore]]  ·  _module_
-- [[jobs.guardrails]]  ·  _module_
-- [[jobs.informe_salud]]  ·  _module_
 - [[jobs.market_anchors]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
 - [[jobs.news_finnhub]]  ·  _module_
@@ -76,4 +76,3 @@ _(pendiente de enriquecimiento)_
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.snapshot_sinteticos]]  ·  _module_
 - [[jobs.volatilidad_ggal]]  ·  _module_
-- [[jobs.watchdog]]  ·  _module_

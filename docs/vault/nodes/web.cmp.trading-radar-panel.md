@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\trading-radar-panel.tsx
+path: src/components/trading-radar-panel.tsx
 ---
 
 # web/components/trading-radar-panel
 
-**Archivo:** `src\components\trading-radar-panel.tsx`
+**Archivo:** `src/components/trading-radar-panel.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

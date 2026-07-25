@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\intraday-view.tsx
+path: src/components/intraday-view.tsx
 ---
 
 # web/components/intraday-view
 
-**Archivo:** `src\components\intraday-view.tsx`
+**Archivo:** `src/components/intraday-view.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

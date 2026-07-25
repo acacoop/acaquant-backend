@@ -99,20 +99,4 @@ class JobRunLogger:
         except Exception as e:
             print(f"⚠️  JobRunLogger: no se pudo persistir run en SQL: {e}", flush=True)
 
-        # Alerta operativa si el job no terminó OK. Solo metadata (el detalle
-        # ya quedó en manager.job_runs). No-op si Telegram no está configurado;
-        # nunca tira excepción (no debe tumbar el job).
-        if status in ("error", "partial"):
-            try:
-                from core.notify import notify_job_failure
-                notify_job_failure(
-                    self.tipo,
-                    status,
-                    elapsed_s=round(elapsed, 2),
-                    n_errors=len(self.errors),
-                    last_error=self.errors[-1] if self.errors else None,
-                )
-            except Exception as e:
-                print(f"⚠️  JobRunLogger: no se pudo alertar: {e}", flush=True)
-
         return False  # re-raise si hubo excepción

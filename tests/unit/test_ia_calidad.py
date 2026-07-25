@@ -68,19 +68,6 @@ def test_parsear_acepta_json_envuelto():
     assert qa._parsear('```json\n{"sospechoso": false}\n```')["sospechoso"] is False
 
 
-def test_digest_no_lleva_markdown_que_pueda_romperse():
-    """1ª corrida real: una nota del crítico con '*'/'[' rompió el parser
-    Markdown de Telegram (HTTP 400). El digest va en texto plano, y aunque la
-    nota traiga caracteres raros, no debe explotar."""
-    flags = [{"traza_id": 644, "modo": "ranking_a_mano", "severidad": "alto",
-              "nota": "dice que GD35 lidera con 8.25%, pero GD41 tiene 8.35% "
-                      "[mayor] *contradiciendo* el orden"}]
-    d = qa._digest(flags)
-    assert "traza #644" in d and "GD41" in d
-    # sin marcado propio que el contenido del modelo pueda dejar sin cerrar
-    assert "*Calidad" not in d and "_Revisá" not in d
-
-
 # ── gen_evals_desde_flags: el harness que cierra detectar -> prevenir ─────────
 
 def test_caso_generado_tiene_pregunta_real_y_hint_por_modo():

@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\reuters-fundamentals.tsx
+path: src/components/reuters-fundamentals.tsx
 ---
 
 # web/components/reuters-fundamentals
 
-**Archivo:** `src\components\reuters-fundamentals.tsx`
+**Archivo:** `src/components/reuters-fundamentals.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

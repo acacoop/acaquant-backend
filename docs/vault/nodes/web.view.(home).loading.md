@@ -4,12 +4,12 @@ type: view
 layer: web-view
 repo: frontend
 tags: [view, web-view, frontend]
-path: src\app\loading.tsx
+path: src/app/loading.tsx
 ---
 
 # web /(home)  (loading)
 
-**Archivo:** `src\app\loading.tsx`
+**Archivo:** `src/app/loading.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

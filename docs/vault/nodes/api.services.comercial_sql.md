@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\comercial_sql.py
+path: api/services/comercial_sql.py
 ---
 
 # api/services/comercial_sql
 
 > api/services/comercial_sql.py — vista COMERCIAL leyendo de Postgres (Supabase).
 
-**Archivo:** `api\services\comercial_sql.py`
+**Archivo:** `api/services/comercial_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -410,9 +410,8 @@ def _run_backfill() -> int:
 
 def main() -> int:
     """En modo --diario (cron) envuelve la corrida en JobRunLogger("aum") para
-    que el monitoreo (informe_salud.DAILIES) la vea fresca. jobs/aum.py se
-    eliminó (este es su reemplazo SQL), por eso el daily "aum" quedaba siempre
-    vencido: nadie lo logueaba. Los modos manuales (backfill/--force) no logean."""
+    que quede registrada en manager.job_runs. jobs/aum.py se eliminó (este es
+    su reemplazo SQL). Los modos manuales (backfill/--force) no logean."""
     if "--diario" in sys.argv:
         from core.job_runs import JobRunLogger
         with JobRunLogger("aum"):

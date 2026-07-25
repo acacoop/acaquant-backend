@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\day_trading.py
+path: api/services/day_trading.py
 ---
 
 # api/services/day_trading
 
 > day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).
 
-**Archivo:** `api\services\day_trading.py`
+**Archivo:** `api/services/day_trading.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

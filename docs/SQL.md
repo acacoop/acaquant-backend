@@ -46,7 +46,7 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 | `portafolio` | tenencia, assets, backfill_log |
 | `operaciones` | operaciones, negocio_movimientos, acreencias, movimientos, tipos_operacion, ordenes_live, ordenes_audit, ordenes_idempotency, triggers_mep, brackets_live, operativas_mep, motor_heartbeat, accounts_descubiertas |
 | `clientes` | comitentes, cuentas, contrapartes, accionistas, actividad_mensual, operadores, objetivos_comerciales |
-| `manager` | manager_users, role_matrix, role_audit, grupos, job_runs, health_reports, watchdog_alertas, pyrofex_instruments, pyrofex_discovery |
+| `manager` | manager_users, role_matrix, role_audit, grupos, job_runs, pyrofex_instruments, pyrofex_discovery |
 | `home` | market_quotes, market_calendar, news_headlines |
 | `mcp` | oauth_clients, oauth_codes, oauth_tokens |
 | `partner` | cartera, api_users |
@@ -165,8 +165,8 @@ en una request = 502):
   se persiste. El Tablero Comercial agrega EN VIVO con índices (no hay rollup-cache).
 
 ### MANAGER (plataforma)
-`manager.{manager_users, role_matrix, role_audit, grupos, job_runs, health_reports,
-watchdog_alertas, pyrofex_instruments, pyrofex_discovery}`. `job_runs` (historial de
+`manager.{manager_users, role_matrix, role_audit, grupos, job_runs,
+pyrofex_instruments, pyrofex_discovery}`. `job_runs` (historial de
 corridas) y `role_audit` (auditoría append-only de cambios de rol/usuario) alimentan
 el panel Manager (`/jobs/history`, `/roles/audit`) y la frescura del Diagnóstico, vía
 `manager_infra_sql.py`. PKs `run_id` / `audit_id`; timestamps `timestamptz` (los

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\analitica.py
+path: api/routers/analitica.py
 ---
 
 # api/routers/analitica
 
 > Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.
 
-**Archivo:** `api\routers\analitica.py`
+**Archivo:** `api/routers/analitica.py`
 
 ## Qué hace
 Router `/api/analitica`: expone como HTTP las herramientas analíticas Tier 1 + Tier 2 (listar curva, serie macro, descomposición de retorno, sensibilidad, canje, carry trade, comparar inversión, opciones). Son thin wrappers para consumo externo (acaquant-web, curl, debugging); el asistente legacy las llamaba directo por service registry sin loopback HTTP.

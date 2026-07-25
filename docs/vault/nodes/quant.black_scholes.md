@@ -4,12 +4,12 @@ type: module
 layer: quant
 repo: backend
 tags: [module, quant, backend]
-path: quant\black_scholes.py
+path: quant/black_scholes.py
 ---
 
 # quant/black_scholes
 
-**Archivo:** `quant\black_scholes.py`
+**Archivo:** `quant/black_scholes.py`
 
 ## Qué hace
 Modelo Black-Scholes para opciones: precio teórico (`bs_price`), las griegas (delta, gamma, vega, theta) y la volatilidad implícita por Newton-Raphson (`find_iv`). Suma helpers de valor intrínseco/extrínseco y un cálculo de volatilidad histórica a 40 ruedas anualizada (√260) que lee retornos logarítmicos directo de Mongo.

@@ -1,12 +1,12 @@
 """controles_datos.py — Auto-control de CALIDAD DE DATOS de ACAQuant.
 
-Complementa a jobs/informe_salud (frescura de motores/jobs) con controles de
-CONTENIDO: datos que existen pero están mal/incompletos. Cada control devuelve
-una lista de anomalías con una clave estable; el runner las diffea contra el
-estado persistido en SQL `manager.controles_datos` y alerta por Telegram
+Controles de CONTENIDO: datos que existen pero están mal/incompletos. Cada
+control devuelve una lista de anomalías con una clave estable; el runner las
+diffea contra el estado persistido en SQL `manager.controles_datos`,
 destacando lo NUEVO de hoy y lo RESUELTO (no repite lo ya conocido como si
-fuera novedad). Con DEEPSEEK_API_KEY seteada, core/ai_resumen (vía el gateway
-core/ai.py) agrega una lectura ejecutiva en criollo al final del mensaje.
+fuera novedad). El detalle se consume vía GET /api/manager/controles (tab de
+Manager). Con DEEPSEEK_API_KEY seteada, core/ai_resumen (vía el gateway
+core/ai.py) agrega una lectura ejecutiva en criollo al resumen.
 
 Controles v1:
   * forwards_faltantes    — bonos del master (mercado.curvas) que NO están en la
@@ -23,17 +23,16 @@ Controles v1:
                             Aunesa fuera de TIPOS_DIVISOR_100 (caso LEDE 2026-07-24).
   * comitentes_sin_nivel1 — comitentes Activas sin nivel_1 (quedan fuera de la
                             segmentación / filtros madre). Privado: solo conteo
-                            en Telegram, detalle vía GET /api/manager/controles.
+                            en el resumen, detalle vía GET /api/manager/controles.
   * contrapartes_pendientes — corre el conciliador de contrapartes (Aunesa live,
-                            el botón "Solicitar cuentas" de Manager) y alerta si
+                            el botón "Solicitar cuentas" de Manager) y marca si
                             hay cuentas candidatas sin dar de alta. Privado.
 
-Regla del canal Telegram (core/notify.py): NUNCA datos de clientes → los
-controles con publico=False mandan solo conteos; el detalle queda en la tabla
-y en el endpoint de Manager.
+Regla del resumen: NUNCA datos de clientes → los controles con publico=False
+muestran solo conteos; el detalle queda en la tabla y en el endpoint de Manager.
 
 Cron: L-V 16:30 UTC (media rueda: motores vivos → forwards/tasas medibles).
-Uso: python -m jobs.controles_datos [--dry] [--no-telegram]
+Uso: python -m jobs.controles_datos [--dry]
 """
 from __future__ import annotations
 
@@ -243,7 +242,7 @@ def _chk_contrapartes_pendientes() -> list[dict]:
 class Control:
     id: str
     titulo: str
-    publico: bool          # True → los keys pueden ir a Telegram (tickers/unidades)
+    publico: bool          # True → los keys pueden ir al resumen (tickers/unidades)
     fn: Callable[[], list[dict]]
 
 
@@ -308,15 +307,15 @@ def _diff_y_persistir(control_id: str, items: list[dict]) -> dict:
     }
 
 
-# ── Render Telegram ──────────────────────────────────────────────────────────
+# ── Render resumen (stdout / log del job) ────────────────────────────────────
 
 def _md(s) -> str:
     import re
     return re.sub(r"([_*\[`])", r"\\\1", str(s))
 
 
-def render_telegram(resultados: dict[str, dict], errores: dict[str, str],
-                    lectura_ai: str | None) -> str:
+def render_resumen(resultados: dict[str, dict], errores: dict[str, str],
+                   lectura_ai: str | None) -> str:
     total_nuevos = sum(len(r["nuevos"]) for r in resultados.values())
     icono = "🟢" if total_nuevos == 0 and not errores else ("🔴" if errores else "🟠")
     lines = [f"{icono} *Controles de datos ACAQuant* — {datetime.now(UTC):%Y-%m-%d %H:%M} UTC"]
@@ -342,7 +341,7 @@ def render_telegram(resultados: dict[str, dict], errores: dict[str, str],
             if len(r["nuevos"]) > 8:
                 lines.append(f"      … +{len(r['nuevos']) - 8} más")
         elif not c.publico and r["nuevos"]:
-            lines.append("      (detalle en Manager → controles, no va por Telegram)")
+            lines.append("      (detalle en Manager → controles)")
     if lectura_ai:
         lines.append("")
         lines.append(f"🧠 *Lectura:* {_md(lectura_ai)}")
@@ -353,7 +352,6 @@ def render_telegram(resultados: dict[str, dict], errores: dict[str, str],
 
 def main() -> int:
     dry = "--dry" in sys.argv
-    no_tg = "--no-telegram" in sys.argv
 
     from core.job_runs import JobRunLogger
     with JobRunLogger("controles_datos") as jr:
@@ -393,14 +391,10 @@ def main() -> int:
         })
         jr.set_stat("lectura_ai", bool(lectura))
 
-        msg = render_telegram(resultados, errores, lectura)
+        msg = render_resumen(resultados, errores, lectura)
+        print(msg)
         if dry:
-            print(msg)
-            print("\n[--dry: no se persiste ni se manda]")
-            return 0
-        if not no_tg:
-            from core.notify import send_telegram
-            send_telegram(msg)
+            print("\n[--dry: no se persiste]")
     return 0
 
 

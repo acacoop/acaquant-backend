@@ -83,13 +83,13 @@ propia), así que esto afecta el seguimiento, no el envío.
 
 ---
 
-## 🟠 Un job/cron falló (llegó alerta de Telegram)
+## 🟠 Un job/cron falló
 
-**Síntoma:** alerta `🔴 Job <x> → error` en Telegram (o número raro en una vista
-que alimenta un cron: aum, bcra, negocio_movimientos, etc.).
+**Síntoma:** run en rojo en /manager → JOBS (`manager.job_runs`), o número raro
+en una vista que alimenta un cron: aum, bcra, negocio_movimientos, etc.
 
 ```
-# Detalle completo del run (la alerta solo trae el resumen):
+# Detalle completo del run:
 # en /manager → JOBS, o consultá manager.job_runs por tipo=<x>.
 tail -100 logs/<x>.log                  # ej. logs/aum.log
 ```
@@ -100,16 +100,6 @@ venv/bin/python -m jobs.<x>             # ej. jobs.portafolio_backfill --diario,
 Jobs que mueven plata / críticos: `portafolio_backfill --diario` (11 UTC, tenencias SQL),
 `bcra --today` (22 UTC), `negocio_movimientos` (cada 30 min 14–22 UTC), `cashflow` (02 UTC),
 `argentina_datos` (12 UTC).
-
----
-
-## 🟠 No llegan las alertas de Telegram
-
-```
-venv/bin/python -m scripts.diag_telegram   # dice si el problema es token o chat_id
-```
-**Fix:** si `getMe` da 401 → token mal en `.env` (regeneralo en @BotFather).
-Si `sendMessage` da 400 → chat_id mal. Ver memoria `project_telegram_alertas`.
 
 ---
 

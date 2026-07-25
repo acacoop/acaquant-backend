@@ -144,8 +144,8 @@ Síntoma visible → causa → cómo detectarlo → cómo arreglarlo.
 Ideas para que el sistema **avise solo** en vez de descubrir los errores a ojo:
 
 1. **Job de sanity diario** (`jobs/curvas_healthcheck.py`, post-cierre) que corra
-   reglas sobre `mercado.market_snapshot` (metrics) + `mercado.curvas` y avise por **Telegram**
-   (ya existe el bot, wired en `JobRunLogger`):
+   reglas sobre `mercado.market_snapshot` (metrics) + `mercado.curvas` y persista
+   las violaciones (p.ej. en `manager.controles_datos`, visibles en Manager):
    - paridad fuera de `[40, 160]%`
    - `|TEA|` fuera de `[-30, 60]%` (revisar precio/pata)
    - `moneda_flujo` ≠ CARTERA (regla del `diag_ons_clasificacion`)

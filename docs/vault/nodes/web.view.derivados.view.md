@@ -4,12 +4,12 @@ type: view
 layer: web-view
 repo: frontend
 tags: [view, web-view, frontend]
-path: src\app\derivados\page.tsx
+path: src/app/derivados/page.tsx
 ---
 
 # web /derivados  (view)
 
-**Archivo:** `src\app\derivados\page.tsx`
+**Archivo:** `src/app/derivados/page.tsx`
 
 ## Qué hace
 Vista `/derivados` — ahora SOLO Opciones (Agro y Sintéticos se promovieron a `/agro` y `/sinteticos`). SSR de la meta de opciones (`/api/cotizaciones/opciones/meta`: tasa, VR local/ADR) en paralelo con `getMe()`; la chain de opciones se polleea client-side al montar. Pasa `isAdmin` al shell para habilitar el editor de tasa.

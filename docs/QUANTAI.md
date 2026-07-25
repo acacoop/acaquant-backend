@@ -196,8 +196,9 @@ anclado en el A3500 el 2026-07-14, ya deployado.
 
 ### P2 — Triage inteligente de incidentes
 **Estado: v1 FUNCIONANDO (2026-07-10) — probado con fallas reales, falta shadow** ·
-Tipo: watcher reactivo (NO batch — decisión del user) · Canal: Telegram
-(+ OBSERVABILIDAD pendiente)
+Tipo: watcher reactivo (NO batch — decisión del user) · Salida:
+`ia.triage_incidentes` (tab OBSERVABILIDAD pendiente; la pata Telegram se
+eliminó el 2026-07-25 — decomiso total de Telegram)
 
 Sobre `manager.job_runs` fallados (status='error'): agrupa por FIRMA del error,
 distingue HECHO de HIPÓTESIS y recomienda acción (modelo pro). **Nunca ejecuta nada.**
@@ -232,7 +233,8 @@ log tratado como DATO hostil (anti prompt-injection). Debug del gateway:
   centavos. El pipeline cuesta lo que el doc decía (<$1/mes).
 
 **Pendiente:** correr en shadow unos días (leer los diagnósticos antes de abrirlo) ·
-tab TRIAGE en OBSERVABILIDAD (hoy solo Telegram) · ~~thinking mode del pro~~
+tab TRIAGE en OBSERVABILIDAD (hoy solo la tabla `ia.triage_incidentes`) ·
+~~thinking mode del pro~~
 **CABLEADO (2026-07-11):** shape verificado contra la doc (`thinking: {type}`,
 default enabled → ahora explícito por tarea: triage enabled, flash disabled;
 el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
@@ -709,6 +711,16 @@ actual por decisión del user (2026-07); varias son extensiones naturales de la
 plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
+
+- **2026-07-25 — Decomiso TOTAL de Telegram.** El user desinstaló Telegram (no
+  lo usaba). Se eliminó `core/notify.py` y toda salida por Telegram del sistema:
+  `jobs/watchdog.py` y `jobs/informe_salud.py` se BORRARON enteros (su única
+  salida era Telegram; nada de la API leía `manager.watchdog_alertas` ni
+  `manager.health_reports` — tablas dropeadas vía `scripts/drop_tablas_telegram`).
+  `triage`, `ia_calidad`, `controles_datos` y `guardrails` siguen corriendo pero
+  su salida queda SOLO en SQL (`ia.triage_incidentes`, `ia.calidad_flags`,
+  `manager.controles_datos`, `manager.job_runs`) → refuerza el pendiente de la
+  tab OBSERVABILIDAD como único canal de lectura.
 
 - **2026-07-23 — Dos mejoras PRO de calidad del asistente.**
   1. **Verificación de cifras en el asistente de negocio** (`asistente.py::_verificar_cifras`).

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\ia.py
+path: api/routers/ia.py
 ---
 
 # api/routers/ia
 
 > api/routers/ia.py — endpoints del módulo IA (QuantAI, docs/QUANTAI.md).
 
-**Archivo:** `api\routers\ia.py`
+**Archivo:** `api/routers/ia.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

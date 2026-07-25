@@ -4,14 +4,14 @@ type: module
 layer: partner_api
 repo: backend
 tags: [module, partner_api, backend]
-path: partner_api\pg.py
+path: partner_api/pg.py
 ---
 
 # partner_api/pg
 
 > Conexión Postgres (Supabase) del partner_api — espejo SQL de `ACAPortfolio`.
 
-**Archivo:** `partner_api\pg.py`
+**Archivo:** `partner_api/pg.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

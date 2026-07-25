@@ -6,28 +6,16 @@
 # Esto previene el incidente de CPU del 2026-06-03 (jobs colgados/duplicados).
 # El redirect al log lo hace run_job.sh → el comando interno NO lleva >> log 2>&1.
 
-# ─── WATCHDOG: detecta jobs colgados y alerta por Telegram (cada 5 min, todos los días)
-# Escanea `ps` por jobs python que lleven más que su presupuesto y avisa. Es la
-# visibilidad que faltó el 2026-06-03. Solo alerta; matar lo hace el timeout de
-# run_job.sh. Timeout propio 2m (es liviano).
-*/5 * * * * /root/TradingAV/deploy/run_job.sh watchdog 2m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.watchdog'
-
-# ─── Informe de salud ACAQuant → Telegram (cada hora en rueda 13-20 UTC + 1x de noche)
-# Snapshot estructurado de salud (motores frescos, bases creciendo, jobs, SQL sync) a
-# Manager.HealthReports + resumen por Telegram. Read-only + count O(1) (no escanea).
-0 13-20 * * 1-5 /root/TradingAV/deploy/run_job.sh informe_salud 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.informe_salud'
-0 23 * * *      /root/TradingAV/deploy/run_job.sh informe_salud 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.informe_salud'
-
-# ─── Auto-control de CALIDAD DE DATOS → Telegram (media rueda, L-V)
-# Complementa al informe de salud (frescura) con controles de CONTENIDO: bonos
-# fuera de forwards, RF sin tasa, assets sin cartera, comitentes sin nivel_1,
-# contrapartes sin alta (conciliador Aunesa). Diffea contra manager.controles_datos
-# → alerta SOLO lo nuevo/resuelto. Con ANTHROPIC_API_KEY agrega lectura ejecutiva AI.
+# ─── Auto-control de CALIDAD DE DATOS (media rueda, L-V)
+# Controles de CONTENIDO: bonos fuera de forwards, RF sin tasa, assets sin
+# cartera, comitentes sin nivel_1, contrapartes sin alta (conciliador Aunesa).
+# Diffea contra manager.controles_datos → marca SOLO lo nuevo/resuelto (detalle
+# en Manager → controles). Con ANTHROPIC_API_KEY agrega lectura ejecutiva AI.
 30 16 * * 1-5 /root/TradingAV/deploy/run_job.sh controles_datos 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.controles_datos'
 
 # ─── Retención de tablas de log/auditoría (03:20 UTC = 00:20 ART, todos los días)
 # Postgres no tiene TTL nativo: `sql/schema.sql` prometía retención (job_runs 60d,
-# health_reports 45d, ia.trazas) pero el cron que la aplica nunca existió → bloat
+# ia.trazas) pero el cron que la aplica nunca existió → bloat
 # monótono contra el techo de storage de Supabase. Este job lo aplica: DELETE
 # BATCHEADO (5000 filas/lote) + sleep entre lotes + idempotente. FUERA DE RUEDA a
 # propósito (madrugada) → no compite con los motores. Ver impacto antes de borrar:
@@ -253,9 +241,9 @@
 
 # ─── Control de CALIDAD de conversaciones de IA (jobs/ia_calidad.py) — cierra el
 # loop que era manual. 1x/dia 21:30 UTC (post-rueda): marca los 👎 + un critico
-# barato sobre los turnos con señal de falla, y manda un digest a Telegram con
-# las sospechosas ya clasificadas. NO auto-corrige. Solo gasta tokens en los
-# candidatos que pasan el pre-filtro deterministico; un dia sin señales = 0.
+# barato sobre los turnos con señal de falla; las flags quedan en
+# ia.calidad_flags. NO auto-corrige. Solo gasta tokens en los candidatos que
+# pasan el pre-filtro deterministico; un dia sin señales = 0.
 30 21 * * 1-5 /root/TradingAV/deploy/run_job.sh ia_calidad 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ia_calidad'
 
 # ─── Research diario por mail (QuantAI P6) — ingesta IMAP + destilado LLM → ia.research
@@ -265,9 +253,9 @@
 */30 10-14 * * 1-5 /root/TradingAV/deploy/run_job.sh research_mail 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.research_mail'
 
 # ─── Guardrails de datos (invariantes post-cierre) — docs/OBSERVABILIDAD_ROBUSTEZ.md
-# Corre DESPUÉS de snapshot_cierre (20:25). En CALIBRACIÓN (modo report, no
-# alerta): cuando el user fije los umbrales en config.GUARDRAILS_UMBRALES,
-# cambiar el comando a `... -m jobs.guardrails --alert` para activar Telegram.
+# Corre DESPUÉS de snapshot_cierre (20:25). Report en el log del job + stat
+# `violaciones` en manager.job_runs; los umbrales se fijan en
+# config.GUARDRAILS_UMBRALES (None = sin calibrar, no marca violación).
 45 20 * * 1-5 /root/TradingAV/deploy/run_job.sh guardrails 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.guardrails'
 
 # ─── BCRA (tab BCRA de RESEARCH) — series monetarias v4 → research.bcra_series

@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\dolar-mep-detalle-drawer.tsx
+path: src/components/dolar-mep-detalle-drawer.tsx
 ---
 
 # web/components/dolar-mep-detalle-drawer
 
-**Archivo:** `src\components\dolar-mep-detalle-drawer.tsx`
+**Archivo:** `src/components/dolar-mep-detalle-drawer.tsx`
 
 ## Qué hace
 Drawer lateral con el detalle de una operativa MEP ejecutada: datos del wrapper (cuenta, rueda, actor, monto, MEP inicial, status) y las métricas calculadas post-trade (precios efectivos de cada pata, USD/ARS operados, MEP efectivo y costo al cliente, slippage).

@@ -168,8 +168,8 @@ para capturar la publicación apenas sale, sin martillar la API.
   - default (cron): **incremental por watermark** (`desde = max(fecha) − 7d` por
     variable → captura revisiones retroactivas del BCRA, que existen). Un run
     sin datos nuevos = ~40 requests baratos y 0 escrituras.
-  - `JobRunLogger` + alerta Telegram (estándar de la casa) — si el BCRA cambia
-    algo o se cae, se entera el triage.
+  - `JobRunLogger` (estándar de la casa) — si el BCRA cambia algo o se cae,
+    se entera el triage.
 - **Cron (`deploy/crontab.txt`):** `0 12,16,20,23 * * 1-6` UTC (≈ 9/13/17/20
   ART, lunes a sábado) — 4 pasadas diarias sobre una publicación que ocurre una
   vez: apenas el BCRA publica, a lo sumo horas después está en la vista. Domingo

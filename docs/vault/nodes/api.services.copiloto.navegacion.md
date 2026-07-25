@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\copiloto\navegacion.py
+path: api/services/copiloto/navegacion.py
 ---
 
 # api/services/copiloto/navegacion
 
 > copiloto/navegacion.py — NAVEGACIÓN ASISTIDA: el guía te LLEVA (idea del user).
 
-**Archivo:** `api\services\copiloto\navegacion.py`
+**Archivo:** `api/services/copiloto/navegacion.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

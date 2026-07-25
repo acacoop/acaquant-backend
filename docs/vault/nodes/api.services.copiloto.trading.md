@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\copiloto\trading.py
+path: api/services/copiloto/trading.py
 ---
 
 # api/services/copiloto/trading
 
 > copiloto/trading.py — vista TRADING (monitor intradía): tarjetas con pivots
 
-**Archivo:** `api\services\copiloto\trading.py`
+**Archivo:** `api/services/copiloto/trading.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

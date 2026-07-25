@@ -1405,27 +1405,6 @@ CREATE TABLE IF NOT EXISTS manager.pyrofex_discovery (
     generated_at      timestamptz
 );
 
--- Manager.HealthReports → informe de salud (jobs/informe_salud.py, insert cada hora,
--- TTL 45d via cron). Cabecera columnar + cuerpo (motores/bases/jobs/sql_sync/mongo) en jsonb.
-CREATE TABLE IF NOT EXISTS manager.health_reports (
-    id        bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    ts        timestamptz,
-    en_rueda  boolean,
-    veredicto text,                      -- 🟢 | 🟡 | 🔴
-    problemas jsonb,
-    data      jsonb                      -- {motores, bases, jobs, sql_sync, mongo}
-);
-CREATE INDEX IF NOT EXISTS ix_health_reports_ts ON manager.health_reports (ts DESC);
-
--- Manager.WatchdogAlertas → cooldown por job/motor (jobs/watchdog.py, upsert por _id).
-CREATE TABLE IF NOT EXISTS manager.watchdog_alertas (
-    id            text PRIMARY KEY,      -- job name | 'motor:<x>' | 'db_scan'
-    last_alert_at timestamptz,
-    etimes        integer,
-    pid           integer,
-    edad_s        integer
-);
-
 -- Auto-control de calidad de datos (jobs/controles_datos.py): una fila por anomalía
 -- detectada (control_id = chequeo, item_key = clave estable: ticker/unidad/cuenta).
 -- El runner diffea contra este estado para alertar SOLO lo nuevo y marcar resueltos.

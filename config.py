@@ -41,13 +41,6 @@ ENV = os.getenv("ENV", "dev").strip().lower()
 # estructura interna). Cero overhead cuando está OFF: el middleware ni se monta.
 API_PROFILING = os.getenv("API_PROFILING", "").strip().lower() in ("1", "true", "yes")
 
-# --- Alertas (Telegram) ---
-# Bot creado con @BotFather. Si falta cualquiera de los dos, las alertas
-# quedan deshabilitadas (no-op silencioso, ver core/notify.py). El token es
-# un SECRETO → va en env (.env / systemd unit), nunca en el repo.
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
-
 # --- MCP server (Model Context Protocol) ---
 # Auth en /mcp tiene 2 caminos:
 #   1) OAuth (para Claude Desktop / claude.ai / Claude Code via Custom
@@ -165,13 +158,12 @@ CF_TRUSTED_SERVICE_TOKENS: set[str] = {
 
 # --- GUARDRAILS DE DATOS (docs/OBSERVABILIDAD_ROBUSTEZ.md, commit 2) ---
 # Umbrales de los invariantes de sanidad post-cierre (jobs/guardrails.py).
-# None = SIN CALIBRAR: el check corre en --report (muestra el valor real medido)
-# pero JAMÁS alerta. Calibrar corriendo varios días
-# `python -m jobs.guardrails --report` y fijando acá valores sensatos con esos
+# None = SIN CALIBRAR: el check corre igual (muestra el valor real medido)
+# pero JAMÁS marca violación. Calibrar corriendo varios días
+# `python -m jobs.guardrails` y fijando acá valores sensatos con esos
 # números en la mano (REGLA #2: nada de umbrales a ojo).
 GUARDRAILS_UMBRALES: dict[str, float | None] = {
     "aum_delta_pct": None,        # |Δ%| del AuM total día-contra-día
     "salto_precio_pct": None,     # |Δ%| del precio de cierre por bono vs cierre previo
     "cobertura_curva_pct": None,  # % mínimo de bonos del master con cierre en el día
 }
-GUARDRAILS_COOLDOWN_H = 20        # horas sin re-alertar el mismo check (anti-spam)

@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\roles.py
+path: core/roles.py
 ---
 
 # core/roles
 
 > Roles y matriz de permisos por módulo.
 
-**Archivo:** `core\roles.py`
+**Archivo:** `core/roles.py`
 
 ## Qué hace
 El motor de RBAC: Cloudflare Access decide quién entra al sitio; este módulo decide qué módulos ve cada usuario una vez adentro. Resuelve email→role contra `Manager.Users` (con auto-registro en primera visita y fallback a `MANAGER_EMAILS`→admin / `DEFAULT_ROLE`→sales) y role→módulos contra `Manager.RoleMatrix` (con `DEFAULT_MATRIX` de bootstrap). Cachea por 60s, expone `has_access()`/`get_user_modules()`, y registra toda mutación de usuarios o matriz en `Manager.RoleAudit`. Las identidades de máquina/anon caen fail-closed (cero módulos).

@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\calendario-panel.tsx
+path: src/components/calendario-panel.tsx
 ---
 
 # web/components/calendario-panel
 
-**Archivo:** `src\components\calendario-panel.tsx`
+**Archivo:** `src/components/calendario-panel.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

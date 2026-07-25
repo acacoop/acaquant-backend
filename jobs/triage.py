@@ -3,8 +3,8 @@
 Lee las fallas NUEVAS de `manager.job_runs` (desde el watermark), las agrupa por
 FIRMA del error y solo una firma NUEVA gasta un diagnóstico del LLM. Para cada
 firma nueva, el modelo (pro) separa HECHO (lo que el error dice) de HIPÓTESIS (su
-inferencia) y recomienda una acción. Persiste en `ia.triage_incidentes` y avisa
-por Telegram. NUNCA ejecuta nada — recomienda, un humano actúa.
+inferencia) y recomienda una acción. Persiste en `ia.triage_incidentes` (se lee
+desde Manager → triage). NUNCA ejecuta nada — recomienda, un humano actúa.
 
 Guardas de costo (para no gastar tokens al pedo):
   1. Dedup por firma  — una firma conocida NO se re-diagnostica (0 tokens), solo
@@ -38,7 +38,6 @@ from typing import Any
 from psycopg.rows import dict_row
 
 from core import ai
-from core.notify import send_telegram
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -170,24 +169,6 @@ def _parse(txt: str) -> dict:
     return {"causa": txt[:200], "hecho": "", "hipotesis": "", "recomendacion": "", "confianza": "baja"}
 
 
-def _msg(tipo: str, ocur: int, diag: dict) -> str:
-    hecho = diag.get("hecho") or ""
-    hip = diag.get("hipotesis") or ""
-    reco = diag.get("recomendacion") or ""
-    cabecera = f"🔺 TRIAGE IA — {tipo} falló ({ocur}x)"
-    if not (hecho or hip or reco):
-        # El modelo no devolvió el JSON esperado: mostramos lo que haya (nunca vacío).
-        cuerpo = diag.get("causa") or "(el modelo no devolvió un diagnóstico legible)"
-        return f"{cabecera}\n{cuerpo}\n(diagnóstico IA, no ejecuta nada)"
-    return (
-        f"{cabecera}\n"
-        f"HECHO: {hecho or '—'}\n"
-        f"HIPÓTESIS: {hip or '—'}\n"
-        f"→ {reco or '—'}\n"
-        f"(confianza {diag.get('confianza') or '—'} · diagnóstico IA, no ejecuta nada)"
-    )
-
-
 def _get_watermark(cur, lookback_min: int) -> datetime:
     cur.execute("SELECT ultimo_procesado FROM ia.triage_estado WHERE id = 'watermark'")
     row = cur.fetchone()
@@ -255,7 +236,7 @@ def main() -> None:
             print("     · log:\n" + _ind(g["log_tail"] or "(sin log)"))
         for firma in conocidas:
             print(f"  conocida (bump): {firma[:80]}")
-        print("\n(DRY-RUN — no se llamó al LLM, no se escribió, no se avisó)")
+        print("\n(DRY-RUN — no se llamó al LLM, no se escribió)")
         return
 
     from core.job_runs import JobRunLogger
@@ -275,19 +256,16 @@ def main() -> None:
                 g = grupos[firma]
                 diag = _diagnosticar(g["tipo"], g["ocurrencias"], g["errores_txt"], g["log_tail"])
                 if diag:
-                    # markdown=False: los nombres de job (sync_postgres) tienen '_' que
-                    # el parser de Markdown de Telegram se comería.
-                    enviado = send_telegram(_msg(g["tipo"], g["ocurrencias"], diag), markdown=False)
                     cur.execute(
                         "INSERT INTO ia.triage_incidentes (firma, tipo, ocurrencias, "
-                        "muestra_error, diagnostico, modelo, estado, notificado_at) "
-                        "VALUES (%s,%s,%s,%s,%s,%s,'diagnosticado',%s) "
+                        "muestra_error, diagnostico, modelo, estado) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,'diagnosticado') "
                         "ON CONFLICT (firma) DO UPDATE SET ocurrencias=EXCLUDED.ocurrencias, "
                         "ultima_vez=now(), muestra_error=EXCLUDED.muestra_error, "
                         "diagnostico=EXCLUDED.diagnostico, modelo=EXCLUDED.modelo, "
-                        "estado='diagnosticado', notificado_at=EXCLUDED.notificado_at",
+                        "estado='diagnosticado'",
                         (firma, g["tipo"], g["ocurrencias"], g["muestra"], json.dumps(diag),
-                         "deepseek-v4-pro", datetime.now(UTC) if enviado else None),
+                         "deepseek-v4-pro"),
                     )
                     n_diag += 1
                 else:

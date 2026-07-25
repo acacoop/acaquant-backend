@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\triage.py
+path: jobs/triage.py
 ---
 
 # jobs/triage
 
 > jobs/triage.py — Triage REACTIVO de incidentes (QuantAI P2, docs/QUANTAI.md).
 
-**Archivo:** `jobs\triage.py`
+**Archivo:** `jobs/triage.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -20,7 +20,6 @@ _(pendiente de enriquecimiento)_
 - [[core]]  ·  _module_
 - [[core.ai]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
-- [[core.notify]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←

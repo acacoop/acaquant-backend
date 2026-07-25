@@ -4,19 +4,18 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\research-view.tsx
+path: src/components/research-view.tsx
 ---
 
 # web/components/research-view
 
-**Archivo:** `src\components\research-view.tsx`
+**Archivo:** `src/components/research-view.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.routers.research1816]]  ·  _module_
-- [[web.cmp.ia-vista-panel]]  ·  _component_
 - [[web.cmp.maximizable]]  ·  _component_
 - [[web.cmp.research-bcra]]  ·  _component_
 - [[web.cmp.research-documentos]]  ·  _component_

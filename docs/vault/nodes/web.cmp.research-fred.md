@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\research-fred.tsx
+path: src/components/research-fred.tsx
 ---
 
 # web/components/research-fred
 
-**Archivo:** `src\components\research-fred.tsx`
+**Archivo:** `src/components/research-fred.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

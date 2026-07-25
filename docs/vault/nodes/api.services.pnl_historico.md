@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\pnl_historico.py
+path: api/services/pnl_historico.py
 ---
 
 # api/services/pnl_historico
 
 > api/services/pnl_historico.py — Cuaderno de PnL diario de carga MANUAL.
 
-**Archivo:** `api\services\pnl_historico.py`
+**Archivo:** `api/services/pnl_historico.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

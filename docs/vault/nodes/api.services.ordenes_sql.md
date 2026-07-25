@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\ordenes_sql.py
+path: api/services/ordenes_sql.py
 ---
 
 # api/services/ordenes_sql
 
 > api/services/ordenes_sql.py — READ-SIDE del motor de órdenes leyendo Postgres.
 
-**Archivo:** `api\services\ordenes_sql.py`
+**Archivo:** `api/services/ordenes_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

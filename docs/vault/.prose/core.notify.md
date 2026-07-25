@@ -1,3 +1,0 @@
-Canal de alertas operativas a Telegram, de una sola mano (el server avisa, Telegram nunca entra). `send_telegram()` postea texto al chat configurado; `notify_job_failure()` arma la alerta de un job caído con SOLO metadata (tipo, status, duración, último error truncado a 180 chars). Regla dura: nunca manda datos de clientes ni secretos. Si faltan `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` queda como no-op silencioso, y nunca propaga excepción (un fallo al notificar no debe tumbar el job).
-
-Conecta con: la API de Telegram; lee `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` de `config.py`. Lo llaman `core.job_runs`, `jobs.watchdog` y `core.websocket` (agotamiento de reconexión). El detalle completo del incidente queda en `Manager.JobRuns`.

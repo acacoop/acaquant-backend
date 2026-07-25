@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src\app\api\aum-pnl-todas\route.ts
+path: src/app/api/aum-pnl-todas/route.ts
 ---
 
 # web /api/aum-pnl-todas  (proxy)
 
-**Archivo:** `src\app\api\aum-pnl-todas\route.ts`
+**Archivo:** `src/app/api/aum-pnl-todas/route.ts`
 
 ## Qué hace
 Versión agregada del PnL para TODAS las cuentas (no una sola): proxea con el parámetro `filtro_cuenta` (default "todas") al backend, que lo sirve desde la cache precalculada. Sin cache de edge.

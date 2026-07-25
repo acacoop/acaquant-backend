@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\copiloto\registro.py
+path: api/services/copiloto/registro.py
 ---
 
 # api/services/copiloto/registro
 
 > copiloto/registro.py — el registro VISTAS: ensambla cada vista (fetch,
 
-**Archivo:** `api\services\copiloto\registro.py`
+**Archivo:** `api/services/copiloto/registro.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

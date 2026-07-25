@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\import_tenencia_sql.py
+path: api/services/import_tenencia_sql.py
 ---
 
 # api/services/import_tenencia_sql
 
 > api/services/import_tenencia_sql.py — import manual a SQL `portafolio.tenencia`.
 
-**Archivo:** `api\services\import_tenencia_sql.py`
+**Archivo:** `api/services/import_tenencia_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\research_sql.py
+path: api/services/research_sql.py
 ---
 
 # api/services/research_sql
 
 > api/services/research_sql.py — lectura del research diario (mails de 1816) para
 
-**Archivo:** `api\services\research_sql.py`
+**Archivo:** `api/services/research_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

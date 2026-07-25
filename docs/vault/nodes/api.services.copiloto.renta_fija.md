@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\copiloto\renta_fija.py
+path: api/services/copiloto/renta_fija.py
 ---
 
 # api/services/copiloto/renta_fija
 
 > copiloto/renta_fija.py — vista RF (bonos ARG): curvas, fair value, forwards,
 
-**Archivo:** `api\services\copiloto\renta_fija.py`
+**Archivo:** `api/services/copiloto/renta_fija.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

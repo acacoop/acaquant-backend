@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\intraday.py
+path: api/services/intraday.py
 ---
 
 # api/services/intraday
 
 > api/services/intraday.py — monitor intradía de renta variable (FIFO).
 
-**Archivo:** `api\services\intraday.py`
+**Archivo:** `api/services/intraday.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

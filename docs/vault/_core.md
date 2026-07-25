@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-41 notas.
+43 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
@@ -11,13 +11,16 @@
 - [[core.bcra_api]] — core/bcra_api.py — cliente de la API de Estadísticas Monetarias del BCRA (v4).
 - [[core.brackets]] — Brackets — entrada LIMIT + salida automática cuando la entrada se llena.
 - [[core.byma]] — Cliente BYMA Primarias Placements.
-- [[core.cafci]] — Extracción del código CAFCI desde un string `unidad`.
+- [[core.cafci]] — Parseo de un string `unidad` de FCI.
 - [[core.calendario]] — Días hábiles del calendario argentino — SQL-ONLY (mercado.dias_habiles).
 - [[core.curvas_sql]] — core/curvas_sql.py — lectura del master de renta fija desde SQL (decomiso Mongo).
 - [[core.doc_fiscal]] — Documento fiscal (DNI/CUIT/CUIL) — parseo y claves de cruce. Lógica PURA.
 - [[core.dolar_oficial]] — Fuente única para el "dólar oficial" mayorista.
 - [[core.dolar_sql]] — core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje (decomiso Mongo).
+- [[core.eikon_bonos]] — Feed Eikon — precio OFFSHORE de los soberanos ARG (la pata que operan los
+- [[core.eikon_chicago]] — Feed Eikon — futuros de commodities de CHICAGO (CBOT) para AGRO → tab CHICAGO.
 - [[core.eikon_live]] — Feed Eikon/Workspace — quotes LIVE del subyacente US de cada CEDEAR (PRUEBA).
+- [[core.eikon_news]] — Feed Eikon — TITULARES de noticias Reuters para la watchlist del HOME.
 - [[core.finnhub]] — Cliente Finnhub con rate limiting interno.
 - [[core.fmp]] — Cliente FMP (financialmodelingprep) — calendario económico.
 - [[core.fred_api]] — core/fred_api.py — cliente de la FRED API (Federal Reserve Bank of St. Louis).
@@ -28,7 +31,6 @@
 - [[core.mae]] — Cliente MAE MarketData.
 - [[core.market_snapshot]] — Lectura de mercado.market_snapshot (SQL) — estado live por ticker. SQL-only.
 - [[core.mercado_1816]] — core/mercado_1816.py — cliente de la API de Mercado de 1816 (vista RESEARCH).
-- [[core.notify]] — Notificaciones operativas (Telegram).
 - [[core.pg_mirror]] — core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
 - [[core.pii_gateway]] — core/pii_gateway.py — la ADUANA de datos privados hacia el LLM (asistente de negocio).
 - [[core.postgres]] — core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.

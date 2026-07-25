@@ -4,14 +4,14 @@ type: service
 layer: deploy
 repo: infra
 tags: [service, deploy, infra]
-path: deploy\systemd\motor_cedears.service
+path: deploy/systemd/motor_cedears.service
 ---
 
 # systemd: motor_cedears
 
 > Servicio systemd.
 
-**Archivo:** `deploy\systemd\motor_cedears.service`
+**Archivo:** `deploy/systemd/motor_cedears.service`
 
 ## Qué hace
 Servicio systemd del motor de CEDEARs — corre `engines.motor_cedears`, el feed live de precios de CEDEARs vía pyRofex WS. Alimenta el Scanner de Renta Variable. Vive solo en rueda (cron restart 13:00 UTC / stop 20:05 UTC, L-V).

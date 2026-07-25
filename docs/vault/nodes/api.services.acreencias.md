@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\acreencias.py
+path: api/services/acreencias.py
 ---
 
 # api/services/acreencias
 
 > api/services/acreencias.py — motor de acreencias (cobros futuros por cliente).
 
-**Archivo:** `api\services\acreencias.py`
+**Archivo:** `api/services/acreencias.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

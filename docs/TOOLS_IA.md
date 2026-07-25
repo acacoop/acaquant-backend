@@ -49,7 +49,7 @@
 | 16 | **screener_fundamentals** | "De los papeles del tablero Reuters, ¿cuáles están baratos por P/E fwd y EV/EBITDA?" | `eikon_live.tablero_fundamentals` (:147) | chico | alto | 2 |
 | 17 | **serie_historica** *(genérica — ver §4)* | "¿Cómo rindió TZXD6 en junio? ¿Dónde estaba la UST10Y en abril? ¿La IV del call subió?" | 8 tablas distintas detrás de UN registro de series | grande (1ª vez) / chico (c/serie) | alto | 2 |
 | 18 | **pnl_mesa** | "¿Cuánto PnL no realizado tiene la mesa, en pesos y dólares? ¿Qué títulos ganan y pierden?" | `pnl_sql.pnl_todas_cuentas_sql` (:207) + groupby propio | medio | alto | 2 |
-| 19 | **salud_sistema** | "¿Está todo andando? ¿Cuántas veces se puso en rojo esta semana?" | `manager.health_reports` + `diagnostico.arbol` (:120) — **falta el reader** | medio | alto | 2 |
+| 19 | **salud_sistema** | "¿Está todo andando? ¿Qué jobs fallaron esta semana?" | `manager.job_runs` + `diagnostico.arbol` (:120) — **falta el reader** (`manager.health_reports` se eliminó con el decomiso Telegram 2026-07-25) | medio | alto | 2 |
 | 20 | **estado_cartera_comercial** | "¿Cuántos clientes de OPERADOR_1 están DORMIDOS y cuánto AuM representan?" | `comercial_sql.analisis_comercial` (:355) | medio | alto | 2 |
 | 21 | **aum_variacion_cuentas** | "Contra fin del mes pasado, ¿el AuM subió por quién? Altas y bajas" | `portfolio_sql.total_diff` (:265) | medio | alto | 2 |
 | 22 | **flujo_de_fondos** | "¿Cuánta plata entró y salió este mes, neto, en pesos y dólares?" | `cashflow_sql.flujos_resumen` (:104) — **arreglar el scan primero** | medio | alto | 2 |

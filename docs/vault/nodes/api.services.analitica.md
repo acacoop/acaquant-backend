@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\analitica.py
+path: api/services/analitica.py
 ---
 
 # api/services/analitica
 
 > Capa de servicio — analítica Tier 2 sobre data existente.
 
-**Archivo:** `api\services\analitica.py`
+**Archivo:** `api/services/analitica.py`
 
 ## Qué hace
 Capa de analítica "Tier 2" sobre la renta fija ya calculada. Tres herramientas: `snapshot_curva_historico` (la curva entera tal como cerró un día pasado), `calcular_pendiente_curva` (slope en bps de una métrica, con comparación contra otra fecha) y `liquidez_secundario` (volumen del día vs promedio de N ruedas). Aplica el patrón live-fallback: lee `Trading.SnapshotsCierre` y, si falta el día, agrega `TimeSales`. Resultados cacheados (TTL 300s).

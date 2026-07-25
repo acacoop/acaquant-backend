@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\referidos-view.tsx
+path: src/components/referidos-view.tsx
 ---
 
 # web/components/referidos-view
 
-**Archivo:** `src\components\referidos-view.tsx`
+**Archivo:** `src/components/referidos-view.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

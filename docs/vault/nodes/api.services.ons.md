@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\ons.py
+path: api/services/ons.py
 ---
 
 # api/services/ons
 
 > api/services/ons.py — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).
 
-**Archivo:** `api\services\ons.py`
+**Archivo:** `api/services/ons.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

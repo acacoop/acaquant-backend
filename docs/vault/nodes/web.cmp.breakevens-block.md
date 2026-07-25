@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\breakevens-block.tsx
+path: src/components/breakevens-block.tsx
 ---
 
 # web/components/breakevens-block
 
-**Archivo:** `src\components\breakevens-block.tsx`
+**Archivo:** `src/components/breakevens-block.tsx`
 
 ## Qué hace
 Bloque completo de Breakevens CER/Lecap: combina el breakeven mensual implícito por par (scatter + línea) con la inflación esperada del REM acumulada por mes, para ver si el mercado pricea por encima o por debajo de las expectativas. Incluye serie histórica (`BreakevenHistDoc`) y metadatos del CER (settlement, mes de IPC).

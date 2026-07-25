@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\research1816.py
+path: api/routers/research1816.py
 ---
 
 # api/routers/research1816
 
 > Router /api/research1816 — vista RESEARCH (nueva vista principal).
 
-**Archivo:** `api\routers\research1816.py`
+**Archivo:** `api/routers/research1816.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

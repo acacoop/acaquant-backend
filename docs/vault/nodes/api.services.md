@@ -4,12 +4,12 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\__init__.py
+path: api/services/__init__.py
 ---
 
 # api/services/__init__
 
-**Archivo:** `api\services\__init__.py`
+**Archivo:** `api/services/__init__.py`
 
 ## Qué hace
 Paquete `api/services` — marcador del paquete (archivo `__init__.py` vacío). Agrupa toda la capa de lógica de negocio pura de la API: services invocables tanto por los routers HTTP como por scripts, sin dependencia de FastAPI. Cada módulo hermano (portfolio, renta_fija, ordenes, pnl, etc.) resuelve un dominio.
@@ -46,7 +46,6 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.routers.operativa]]  ·  _module_
 - [[api.routers.ordenes]]  ·  _module_
-- [[api.routers.research]]  ·  _module_
 - [[api.routers.research1816]]  ·  _module_
 - [[api.routers.research_bcra]]  ·  _module_
 - [[api.routers.research_docs]]  ·  _module_

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\research_docs.py
+path: api/routers/research_docs.py
 ---
 
 # api/routers/research_docs
 
 > Router /api/research-docs — LECTURA de los documentos manuales de la vista
 
-**Archivo:** `api\routers\research_docs.py`
+**Archivo:** `api/routers/research_docs.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

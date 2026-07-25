@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\trading-renta-fija-scanner.tsx
+path: src/components/trading-renta-fija-scanner.tsx
 ---
 
 # web/components/trading-renta-fija-scanner
 
-**Archivo:** `src\components\trading-renta-fija-scanner.tsx`
+**Archivo:** `src/components/trading-renta-fija-scanner.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\briefing-modal.tsx
+path: src/components/briefing-modal.tsx
 ---
 
 # web/components/briefing-modal
 
-**Archivo:** `src\components\briefing-modal.tsx`
+**Archivo:** `src/components/briefing-modal.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

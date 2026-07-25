@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\research_fred.py
+path: api/routers/research_fred.py
 ---
 
 # api/routers/research_fred
 
 > Router /api/research-fred — tab "Datos Internacionales" (FRED) de Research.
 
-**Archivo:** `api\routers\research_fred.py`
+**Archivo:** `api/routers/research_fred.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

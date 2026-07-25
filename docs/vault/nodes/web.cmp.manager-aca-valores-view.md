@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\manager-aca-valores-view.tsx
+path: src/components/manager-aca-valores-view.tsx
 ---
 
 # web/components/manager-aca-valores-view
 
-**Archivo:** `src\components\manager-aca-valores-view.tsx`
+**Archivo:** `src/components/manager-aca-valores-view.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

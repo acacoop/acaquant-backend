@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\calendario.py
+path: api/services/calendario.py
 ---
 
 # api/services/calendario
 
 > calendario.py — calendario económico para la watchlist HOME (tab CALENDARIO).
 
-**Archivo:** `api\services\calendario.py`
+**Archivo:** `api/services/calendario.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

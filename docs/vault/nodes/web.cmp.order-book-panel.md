@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\order-book-panel.tsx
+path: src/components/order-book-panel.tsx
 ---
 
 # web/components/order-book-panel
 
-**Archivo:** `src\components\order-book-panel.tsx`
+**Archivo:** `src/components/order-book-panel.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

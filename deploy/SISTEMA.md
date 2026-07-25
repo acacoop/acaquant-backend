@@ -66,12 +66,10 @@
 | cada 30min · 12-23h · diario | `jobs.news_finnhub'` |
 | cada 30min · 14-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral'` |
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |
-| cada 5min · *h · diario | `jobs.watchdog'` |
 | 11:00 · L-V | `jobs.portafolio_backfill` |
 | 12:00 · diario | `jobs.argentina_datos'` |
 | 12,16,20,23:0 · L-V | `jobs.fred_research'` |
 | 12,16,20,23:0 · 1-6 | `jobs.bcra_research'` |
-| cada hora · 13-20h · L-V | `jobs.informe_salud'` |
 | 14:00 · L-V | `jobs.sync_comitentes'` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
 | 17:00 · L-V | `jobs.sync_comitentes'` |
@@ -83,7 +81,6 @@
 | 22:00 · L-V | `jobs.bcra` |
 | 22:00 · L-V | `jobs.market_anchors'` |
 | 22:00 · L-V | `jobs.mercado_1816_series'` |
-| 23:00 · diario | `jobs.informe_salud'` |
 | 21:10 · L-V | `jobs.eikon_cierres'` |
 | 20:15 · L-V | `jobs.options_rollup'` |
 | 20:15 · L-V | `jobs.cedears_ohlc_daily'` |

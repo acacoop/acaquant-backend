@@ -1,9 +1,9 @@
 """api/services/controles_sql.py — lectura del auto-control de calidad de datos.
 
 Servicio PURO (sin FastAPI). Lee `manager.controles_datos` (escrita por
-jobs/controles_datos.py) y devuelve las anomalías agrupadas por control, con lo
-que Telegram NO muestra: el detalle de los controles privados (cuentas de
-clientes). Consumido por GET /api/manager/controles (gate admin).
+jobs/controles_datos.py) y devuelve las anomalías agrupadas por control,
+incluido el detalle de los controles privados (cuentas de clientes).
+Consumido por GET /api/manager/controles (gate admin).
 """
 from __future__ import annotations
 

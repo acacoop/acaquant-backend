@@ -1,8 +1,7 @@
 """GET /api/manager/controles — anomalías del auto-control de calidad de datos.
 
-Detalle completo de lo que jobs/controles_datos detecta (incluye lo que Telegram
-solo resume por la regla de no mandar datos de clientes al canal): assets sin
-cartera, comitentes sin nivel_1, contrapartes sin alta, forwards faltantes, etc.
+Detalle completo de lo que jobs/controles_datos detecta: assets sin cartera,
+comitentes sin nivel_1, contrapartes sin alta, forwards faltantes, etc.
 Gate admin (`manager`), igual que Diagnóstico.
 """
 from __future__ import annotations

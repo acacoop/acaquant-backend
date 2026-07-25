@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\dolar-mep-shell.tsx
+path: src/components/dolar-mep-shell.tsx
 ---
 
 # web/components/dolar-mep-shell
 
-**Archivo:** `src\components\dolar-mep-shell.tsx`
+**Archivo:** `src/components/dolar-mep-shell.tsx`
 
 ## Qué hace
 Shell del módulo Dólar MEP: maneja el estado compartido entre las sub-tabs COMPRA y TRADING (rueda, monto ARS/USD, comisión, cuenta) y centraliza los polls de cotización y saldo para no duplicarlos. Trae las cuentas descubiertas una vez al montar.

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\comercial.py
+path: api/services/comercial.py
 ---
 
 # api/services/comercial
 
 > api/services/comercial.py — Tablero Comercial: funciones SQL-native vivas.
 
-**Archivo:** `api\services\comercial.py`
+**Archivo:** `api/services/comercial.py`
 
 ## Qué hace
 Motor del Tablero Comercial (lente por operador, solo manager). Cruza todo por `id_cuenta`: QUIÉN (operador asignado + segmentación), ACTIVIDAD y ARANCEL (operaciones de mercado), VOLUMEN (boletos pesificados), TAMAÑO (último AuM) y el join operador↔usuario para detectar cuentas huérfanas. Devuelve el resumen por operador con buckets de estado comercial (ACTIVA/ENFRIANDOSE/DORMIDA/NUEVA). Cacheado on-the-fly.

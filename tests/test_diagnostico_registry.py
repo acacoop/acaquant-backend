@@ -19,8 +19,9 @@ CRONTAB = ROOT / "deploy" / "crontab.txt"
 # Crons que NO representan una pieza de dato de una vista (infra / copias /
 # sub-pasos de enriquecimiento). Se excluyen a propósito del árbol del Diagnóstico.
 _CRONS_IGNORADOS = {
-    "jobs.watchdog",            # watchdog del propio sistema
     "jobs.triage",              # triage IA de fallas de jobs (P2 QuantAI) — observa al sistema
+    "jobs.ia_calidad",          # control de calidad de conversaciones IA — observa al sistema
+    "jobs.eikon_cierres",       # cierres diarios de los feeds Eikon (anchors OFF, sin vista propia)
     "jobs.research_mail",       # ingesta del research diario → ia.research (P6 QuantAI)
     "jobs.mercado_1816_series", # series históricas de 1816 → research.mkt_1816_* (vista RESEARCH)
     "jobs.bcra_research",       # series BCRA v4 → research.bcra_* (tab BCRA de RESEARCH)
@@ -38,7 +39,6 @@ _CRONS_IGNORADOS = {
     "jobs.partner_export",      # proveedor externo (no es vista acaquant)
     "jobs.options_rollup",      # rollup histórico opciones
     "jobs.cleanup_cedears_timesales",  # limpieza (vacía el tape al cierre)
-    "jobs.informe_salud",       # health report del propio sistema (infra)
 }
 
 

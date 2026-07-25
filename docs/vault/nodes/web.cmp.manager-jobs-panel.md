@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\manager-jobs-panel.tsx
+path: src/components/manager-jobs-panel.tsx
 ---
 
 # web/components/manager-jobs-panel
 
-**Archivo:** `src\components\manager-jobs-panel.tsx`
+**Archivo:** `src/components/manager-jobs-panel.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

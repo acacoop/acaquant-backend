@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\postgres.py
+path: core/postgres.py
 ---
 
 # core/postgres
 
 > core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.
 
-**Archivo:** `core\postgres.py`
+**Archivo:** `core/postgres.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -83,7 +83,6 @@ _(pendiente de enriquecimiento)_
 - [[api.services.research_bcra_sql]]  ·  _module_
 - [[api.services.research_docs_sql]]  ·  _module_
 - [[api.services.research_fred_sql]]  ·  _module_
-- [[api.services.research_fundamentals]]  ·  _module_
 - [[api.services.research_sql]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
 - [[api.services.rv_motor]]  ·  _module_
@@ -105,7 +104,10 @@ _(pendiente de enriquecimiento)_
 - [[core.curvas_sql]]  ·  _module_
 - [[core.dolar_oficial]]  ·  _module_
 - [[core.dolar_sql]]  ·  _module_
+- [[core.eikon_bonos]]  ·  _module_
+- [[core.eikon_chicago]]  ·  _module_
 - [[core.eikon_live]]  ·  _module_
+- [[core.eikon_news]]  ·  _module_
 - [[core.grupos_sql]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
@@ -138,13 +140,13 @@ _(pendiente de enriquecimiento)_
 - [[jobs.consolidado_cuentas]]  ·  _module_
 - [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
+- [[jobs.eikon_cierres]]  ·  _module_
 - [[jobs.fair_value]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.forwards_zscore]]  ·  _module_
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.ia_calidad]]  ·  _module_
-- [[jobs.informe_salud]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
 - [[jobs.mercado_1816_discovery]]  ·  _module_
 - [[jobs.mercado_1816_series]]  ·  _module_
@@ -160,5 +162,4 @@ _(pendiente de enriquecimiento)_
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_
 - [[jobs.triage]]  ·  _module_
-- [[jobs.watchdog]]  ·  _module_
 - [[quant.pivot_points]]  ·  _module_

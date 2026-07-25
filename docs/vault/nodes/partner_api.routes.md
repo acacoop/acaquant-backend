@@ -4,14 +4,14 @@ type: module
 layer: partner_api
 repo: backend
 tags: [module, partner_api, backend]
-path: partner_api\routes.py
+path: partner_api/routes.py
 ---
 
 # partner_api/routes
 
 > Endpoints de datos del partner_api — SOLO lectura del portfolio del proveedor.
 
-**Archivo:** `partner_api\routes.py`
+**Archivo:** `partner_api/routes.py`
 
 ## Qué hace
 Endpoints de datos del servicio, todos de solo lectura y con Bearer token obligatorio. `GET /v1/fechas` devuelve las fechas disponibles en el export (más reciente primero); `GET /v1/portfolio` devuelve las posiciones por (cuenta, instrumento) con cantidad/precio/valuación, filtrables por fecha e `id_cuenta`. Oculta campos internos (`_id`, `exported_at`) y, como la colección solo trae cuentas habilitadas, no se puede pedir una que no esté.

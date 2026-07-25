@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\trading-pivot-radar.tsx
+path: src/components/trading-pivot-radar.tsx
 ---
 
 # web/components/trading-pivot-radar
 
-**Archivo:** `src\components\trading-pivot-radar.tsx`
+**Archivo:** `src/components/trading-pivot-radar.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

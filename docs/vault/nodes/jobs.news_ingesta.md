@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\news_ingesta.py
+path: jobs/news_ingesta.py
 ---
 
 # jobs/news_ingesta
 
 > news_ingesta.py — Ingesta de RSS de medios económicos argentinos.
 
-**Archivo:** `jobs\news_ingesta.py`
+**Archivo:** `jobs/news_ingesta.py`
 
 ## Qué hace
 Job de ingesta de RSS de medios económicos argentinos (Ámbito, Cronista, iProfesional, Clarín, Infobae, La Nación). Parsea cada feed con feedparser, limpia el HTML del excerpt y guarda las headlines con dedup por URL. Si un feed rompe el XML, lo loggea y sigue con el resto. Corre cada 15 min por cron.

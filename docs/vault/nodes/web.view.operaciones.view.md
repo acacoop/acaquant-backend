@@ -4,12 +4,12 @@ type: view
 layer: web-view
 repo: frontend
 tags: [view, web-view, frontend]
-path: src\app\operaciones\page.tsx
+path: src/app/operaciones/page.tsx
 ---
 
 # web /operaciones  (view)
 
-**Archivo:** `src\app\operaciones\page.tsx`
+**Archivo:** `src/app/operaciones/page.tsx`
 
 ## Qué hace
 Vista `/operaciones` — flujo de negocio / boletos (movimientos consolidados). Wrapper `force-dynamic` que delega en `OperacionesView`, que hace sus fetches client-side.

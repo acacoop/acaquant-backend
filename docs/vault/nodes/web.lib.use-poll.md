@@ -4,12 +4,12 @@ type: lib
 layer: web-lib
 repo: frontend
 tags: [lib, web-lib, frontend]
-path: src\lib\use-poll.ts
+path: src/lib/use-poll.ts
 ---
 
 # web/lib/use-poll
 
-**Archivo:** `src\lib\use-poll.ts`
+**Archivo:** `src/lib/use-poll.ts`
 
 ## Qué hace
 Hook `usePoll` — refresca data de un endpoint cada N milisegundos manteniendo el `initial` (SSR) como fallback y exponiendo `lastAt` (epoch ms del último fetch exitoso, en hora del browser) para el indicador de "última actualización". Reemplaza el viejo AutoRefresh global. Resetea solo cuando cambia el endpoint (no por recreación del objeto `initial`), evitando saltos a data vieja. Conserva la data anterior si un poll puntual falla.

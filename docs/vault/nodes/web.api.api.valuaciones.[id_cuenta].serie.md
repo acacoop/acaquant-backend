@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src\app\api\valuaciones\[id_cuenta]\serie\route.ts
+path: src/app/api/valuaciones/[id_cuenta]/serie/route.ts
 ---
 
 # web /api/valuaciones/[id_cuenta]/serie  (proxy)
 
-**Archivo:** `src\app\api\valuaciones\[id_cuenta]\serie\route.ts`
+**Archivo:** `src/app/api/valuaciones/[id_cuenta]/serie/route.ts`
 
 ## Qué hace
 Route handler que proxea la serie temporal de valuación de una cuenta (rango ?desde/?hasta opcional) a /api/valuaciones/{id_cuenta}/serie. force-dynamic + no-store.

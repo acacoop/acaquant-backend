@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\anuncio-research-modal.tsx
+path: src/components/anuncio-research-modal.tsx
 ---
 
 # web/components/anuncio-research-modal
 
-**Archivo:** `src\components\anuncio-research-modal.tsx`
+**Archivo:** `src/components/anuncio-research-modal.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

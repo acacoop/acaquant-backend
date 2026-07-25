@@ -9,9 +9,7 @@ de Supabase. Este job es ese cron.
 TABLAS Y TTL (columna de timestamp LEÍDA del schema, no adivinada):
 
     manager.job_runs           started_at     60d   schema.sql: "TTL 60d lo aplica el writer/cleanup"
-    manager.health_reports     ts             45d   schema.sql: "TTL 45d via cron" (+ informe_salud.py)
     ia.trazas                  ts             90d   SIN TTL en el schema → default 90d (ver abajo)
-    manager.watchdog_alertas   last_alert_at  90d   SIN TTL en el schema → default 90d
     portafolio.backfill_log    actualizado    90d   SIN TTL en el schema → default 90d
     operaciones.ordenes_audit  ts            365d   SIN TTL en el schema → AUDITORÍA (ver abajo)
     manager.role_audit         ts            365d   SIN TTL en el schema → AUDITORÍA (ver abajo)
@@ -73,12 +71,8 @@ class Retencion:
 TABLAS: tuple[Retencion, ...] = (
     Retencion("manager.job_runs", "started_at", 60,
               "schema.sql: TTL 60d lo aplica el writer/cleanup"),
-    Retencion("manager.health_reports", "ts", 45,
-              "schema.sql + informe_salud.py: retención 45d via cron"),
     Retencion("ia.trazas", "ts", 90,
               "sin TTL en el schema → default 90d"),
-    Retencion("manager.watchdog_alertas", "last_alert_at", 90,
-              "sin TTL en el schema → default 90d (cooldown vencido hace rato)"),
     Retencion("portafolio.backfill_log", "actualizado", 90,
               "sin TTL en el schema → default 90d"),
     Retencion("operaciones.ordenes_audit", "ts", 365,

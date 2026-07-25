@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\pii_gateway.py
+path: core/pii_gateway.py
 ---
 
 # core/pii_gateway
 
 > core/pii_gateway.py — la ADUANA de datos privados hacia el LLM (asistente de negocio).
 
-**Archivo:** `core\pii_gateway.py`
+**Archivo:** `core/pii_gateway.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

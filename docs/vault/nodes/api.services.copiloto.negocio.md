@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\copiloto\negocio.py
+path: api/services/copiloto/negocio.py
 ---
 
 # api/services/copiloto/negocio
 
 > copiloto/negocio.py — vista NEGOCIO: el asistente de negocio (QuantAI P7)
 
-**Archivo:** `api\services\copiloto\negocio.py`
+**Archivo:** `api/services/copiloto/negocio.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

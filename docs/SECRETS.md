@@ -32,7 +32,6 @@ run es un proceso nuevo).
 | `AUNESA_CLIENT_ID` / `AUNESA_USERNAME` / `AUNESA_PASSWORD` | Credenciales del custodio (Aunesa) — fuente de movimientos/posiciones. | Coordinar con Aunesa. |
 | `MCP_JWT_SECRET` | Firma los JWT que emite el server MCP tras CF Access. | Random nuevo → restart API. Invalida tokens MCP vivos (re-login). |
 | `MCP_BEARER_TOKEN` | Bearer estático fallback para `/mcp` (curl/dev). | Random nuevo → restart API. |
-| `TELEGRAM_BOT_TOKEN` | Bot de alertas (@acaquantbot). | @BotFather → /mybots → Revoke token → actualizar `.env`. |
 | `BYMA_CLIENT_ID` / `BYMA_CLIENT_SECRET` | OAuth2 para licitaciones primarias BYMA. | Portal BYMA Developer. |
 | `MAE_API_KEY` | MarketData MAE (repos/cauciones wholesale). | Coordinar con MAE. |
 | `DOLAR_INGEST_TOKEN` | Token de `POST /api/ingest/dolar-oficial` (la PC de oficina lo manda en `X-Ingest-Token`). Va en el `.env` del Droplet **y** en la oficina (deben coincidir). Si se filtra: solo permite escribir el dólar oficial live, no da acceso a la DB. | Random nuevo → `.env` Droplet + oficina → restart API. |
@@ -77,7 +76,6 @@ higiene periódica para las críticas (broker, base de datos) — al menos 1 vez
 ## Higiene
 
 - El `.env` **nunca** se commitea (verificar que esté en `.gitignore`).
-- No pegar secretos en logs, chats, ni URLs (ej. la URL de `getUpdates` de
-  Telegram lleva el token — no compartirla).
+- No pegar secretos en logs, chats, ni URLs.
 - Revisión de accesos de usuarios: `/manager → USUARIOS` (último acceso + badge
   INACTIVO; ver `docs/RUNBOOK.md`).

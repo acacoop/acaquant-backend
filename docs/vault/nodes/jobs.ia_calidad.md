@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\ia_calidad.py
+path: jobs/ia_calidad.py
 ---
 
 # jobs/ia_calidad
 
 > jobs/ia_calidad.py — control de calidad de las conversaciones de IA.
 
-**Archivo:** `jobs\ia_calidad.py`
+**Archivo:** `jobs/ia_calidad.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -20,7 +20,6 @@ _(pendiente de enriquecimiento)_
 - [[core]]  ·  _module_
 - [[core.ai]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
-- [[core.notify]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←

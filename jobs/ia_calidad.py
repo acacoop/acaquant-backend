@@ -10,10 +10,10 @@ Una vez por día:
      que dice "ordenado", una respuesta que termina preguntando, un "sin datos",
      un "así que" que encadena métricas). Sobre ESOS —y solo esos— corre un
      crítico LLM barato que confirma y clasifica el modo de falla.
-  3. Digest a Telegram con las sospechosas del día, ya clasificadas.
+  3. Las flags quedan en `ia.calidad_flags` (revisar con diag_ia_trazas).
 
-Lo que NO hace (lección del buzón de pedidos): NO auto-corrige, NO toca el repo,
-NO lee de Telegram (solo manda). Es un DETECTOR, mismo molde que jobs/triage.py.
+Lo que NO hace (lección del buzón de pedidos): NO auto-corrige, NO toca el
+repo. Es un DETECTOR, mismo molde que jobs/triage.py.
 
 Las trazas guardan el texto YA TOKENIZADO (ia.trazas.detalle/respuesta) — la
 aduana ya paso, así que el crítico lee texto PII-safe por construcción.
@@ -25,10 +25,9 @@ Guardas de costo (mismo criterio que triage):
   4. Presupuesto — superado → se marca lo que se pudo, sin romper.
 
 Uso:
-    python -m jobs.ia_calidad --dry-run          # qué vería y qué mandaría (0 tokens)
+    python -m jobs.ia_calidad --dry-run          # qué vería y qué marcaría (0 tokens)
     python -m jobs.ia_calidad                     # corrida real
     python -m jobs.ia_calidad --lookback-horas 48 # ignora el watermark
-    python -m jobs.ia_calidad --sin-aviso         # marca pero no manda Telegram
 """
 from __future__ import annotations
 
@@ -42,7 +41,6 @@ from psycopg.rows import dict_row
 
 from core import ai
 from core.job_runs import JobRunLogger
-from core.notify import send_telegram
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -173,37 +171,14 @@ def _guardar_flag(cur, turno: dict, modo: str, severidad: str, nota: str) -> Non
          modo, severidad, nota))
 
 
-_SEV_ORD = {"alto": 0, "medio": 1, "bajo": 2}
-
-
-def _digest(flags: list[dict]) -> str:
-    """Digest en TEXTO PLANO (sin Markdown): las notas las escribe el crítico y
-    pueden traer cualquier caracter (`*`, `[`, `_`); interpoladas en Markdown
-    rompían el parser de Telegram con HTTP 400 (visto en la 1ª corrida real
-    2026-07-23). El digest se manda con markdown=False → nunca puede romperse
-    por el contenido del modelo."""
-    por_modo: dict[str, int] = {}
-    for f in flags:
-        por_modo[f["modo"]] = por_modo.get(f["modo"], 0) + 1
-    lineas = [f"🔎 Calidad IA — {len(flags)} respuesta(s) para revisar",
-              " · ".join(f"{m}: {n}" for m, n in sorted(por_modo.items())), ""]
-    for f in sorted(flags, key=lambda x: _SEV_ORD.get(x["severidad"], 1))[:10]:
-        lineas.append(f"[{f['severidad']}] {f['modo']} · traza #{f['traza_id']}")
-        if f.get("nota"):
-            lineas.append(f"  {f['nota']}")
-    lineas.append("\nRevisá con: python -m scripts.diag_ia_trazas --buscar <id>")
-    return "\n".join(lineas)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true",
-                    help="qué vería y qué mandaría — NO llama al LLM, NO escribe, NO avisa")
+                    help="qué vería y qué marcaría — NO llama al LLM, NO escribe")
     ap.add_argument("--lookback-horas", type=int, default=None,
                     help="lee desde now-N horas IGNORANDO el watermark")
     ap.add_argument("--max", type=int, default=_MAX_POR_CORRIDA,
                     help=f"techo de turnos a criticar por corrida (default {_MAX_POR_CORRIDA})")
-    ap.add_argument("--sin-aviso", action="store_true", help="marca pero no manda Telegram")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -230,7 +205,7 @@ def main() -> None:
                 run.log(f"  👎 traza #{t['id']} ({t['tarea']})")
             for t in candidatos[:args.max]:
                 run.log(f"  ? traza #{t['id']} ({t['tarea']}) → iría al crítico")
-            run.log("--dry-run: no se llamó al LLM, no se escribió, no se avisó.")
+            run.log("--dry-run: no se llamó al LLM, no se escribió.")
             return
 
         flags: list[dict] = []
@@ -264,13 +239,9 @@ def main() -> None:
             conn.commit()
 
         run.set_stat("marcadas", len(flags))
-        if flags and not args.sin_aviso:
-            # markdown=False: el digest lleva notas del crítico (contenido del
-            # modelo) que pueden romper el parser Markdown de Telegram.
-            if send_telegram(_digest(flags), markdown=False):
-                run.log(f"digest enviado con {len(flags)} respuesta(s)")
-            else:
-                run.log("Telegram no configurado — las flags quedan en ia.calidad_flags")
+        if flags:
+            run.log(f"{len(flags)} flag(s) en ia.calidad_flags — revisar con "
+                    "python -m scripts.diag_ia_trazas --buscar <id>")
 
 
 if __name__ == "__main__":

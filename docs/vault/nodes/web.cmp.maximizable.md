@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\maximizable.tsx
+path: src/components/maximizable.tsx
 ---
 
 # web/components/maximizable
 
-**Archivo:** `src\components\maximizable.tsx`
+**Archivo:** `src/components/maximizable.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

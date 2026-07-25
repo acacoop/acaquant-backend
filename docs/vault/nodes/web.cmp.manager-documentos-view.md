@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\manager-documentos-view.tsx
+path: src/components/manager-documentos-view.tsx
 ---
 
 # web/components/manager-documentos-view
 
-**Archivo:** `src\components\manager-documentos-view.tsx`
+**Archivo:** `src/components/manager-documentos-view.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

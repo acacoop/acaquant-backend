@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\comercial-control-view.tsx
+path: src/components/comercial-control-view.tsx
 ---
 
 # web/components/comercial-control-view
 
-**Archivo:** `src\components\comercial-control-view.tsx`
+**Archivo:** `src/components/comercial-control-view.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\live-intraday-chart.tsx
+path: src/components/live-intraday-chart.tsx
 ---
 
 # web/components/live-intraday-chart
 
-**Archivo:** `src\components\live-intraday-chart.tsx`
+**Archivo:** `src/components/live-intraday-chart.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

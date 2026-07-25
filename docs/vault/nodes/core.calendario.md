@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\calendario.py
+path: core/calendario.py
 ---
 
 # core/calendario
 
 > Días hábiles del calendario argentino — SQL-ONLY (mercado.dias_habiles).
 
-**Archivo:** `core\calendario.py`
+**Archivo:** `core/calendario.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

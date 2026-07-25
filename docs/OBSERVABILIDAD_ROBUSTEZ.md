@@ -10,8 +10,8 @@ lo que la plataforma muestra y saber cómo se usa?**
 
 1. **Telemetría de uso** — saber QUIÉN usa QUÉ (decidir producto con datos).
 2. **Guardrails de datos** — detectar un número PODRIDO antes de que alguien
-   decida con él (el watchdog vigila que el motor esté vivo; esto vigila que el
-   número esté bien).
+   decida con él (vigila que el número esté bien, no solo que el motor esté
+   vivo).
 3. **Golden tests** — red de regresión sobre el camino que produce los números
    (ingesta/normalización/AuM), hoy sin cobertura.
 
@@ -69,17 +69,15 @@ después de snapshot_cierre 20:25).
 
 **Calibración (REGLA #2, el corazón del diseño):** los umbrales viven en
 `config.GUARDRAILS_UMBRALES` y NACEN en `None` = sin calibrar → el check MIDE y
-reporta el valor real pero JAMÁS viola/alerta. **El user corre
-`python -m jobs.guardrails` (modo report) varios días, mira los valores medidos
-y fija los umbrales con esos números.** Recién entonces cambia el cron a
-`--alert`. Alertas: Telegram metadata-only con cooldown 20h en
-`manager.watchdog_alertas` keyeado `guardrail:<check_id>` (patrón del watchdog,
-sin tabla nueva). Idempotente por el cooldown.
+reporta el valor real pero JAMÁS marca violación. **El user corre
+`python -m jobs.guardrails` varios días, mira los valores medidos y fija los
+umbrales con esos números.** El resultado queda en el log del job y como stat
+`violaciones` en `manager.job_runs` (visible en Manager → jobs). *(2026-07-25:
+se eliminó la pata de alertas Telegram — decomiso total de Telegram.)*
 
 **Piezas:** `jobs/guardrails.py` · umbrales en `config.py` · cron en
-`deploy/crontab.txt` (modo report; el switch a --alert lo hace el user al
-calibrar) · SISTEMA.md regenerado · `tests/unit/test_guardrails.py` (7 tests de
-los checks puros, incl. la semántica None-no-viola).
+`deploy/crontab.txt` · SISTEMA.md regenerado · `tests/unit/test_guardrails.py`
+(7 tests de los checks puros, incl. la semántica None-no-viola).
 
 ---
 

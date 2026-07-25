@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\threads.py
+path: core/threads.py
 ---
 
 # core/threads
 
 > threads.py — lanzamiento de hilos VITALES en motores.
 
-**Archivo:** `core\threads.py`
+**Archivo:** `core/threads.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

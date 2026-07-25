@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\ai.py
+path: core/ai.py
 ---
 
 # core/ai
 
 > core/ai.py — gateway único de IA (QuantAI Fase 0, ver docs/QUANTAI.md).
 
-**Archivo:** `core\ai.py`
+**Archivo:** `core/ai.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

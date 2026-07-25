@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src\app\api\derivados-agro\costo-pase\route.ts
+path: src/app/api/derivados-agro/costo-pase/route.ts
 ---
 
 # web /api/derivados-agro/costo-pase  (proxy)
 
-**Archivo:** `src\app\api\derivados-agro\costo-pase\route.ts`
+**Archivo:** `src/app/api/derivados-agro/costo-pase/route.ts`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

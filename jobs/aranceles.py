@@ -16,8 +16,8 @@ duplicación.
 
 Tracking:
 - Manager.JobRuns: 1 doc por corrida, tipo="aranceles". Si hay errores no
-  fatales (cuentas que fallaron tras reintento), status=partial → alerta
-  Telegram automática (vía JobRunLogger).
+  fatales (cuentas que fallaron tras reintento), status=partial (vía
+  JobRunLogger — se ve en Manager → jobs).
 - También deja una fila en SQL aranceles_job_runs con actor="cron@aranceles"
   para que aparezca en el HISTORIAL de la UI (BOLETOS → BACKFILL).
 
@@ -139,7 +139,7 @@ def main() -> int:
                 on_progress=on_progress, progress_every=10,
             )
         except Exception as e:
-            # Excepción fatal → JobRunLogger marca error y dispara Telegram.
+            # Excepción fatal → JobRunLogger marca error en manager.job_runs.
             # Cerramos la fila UI con status=error antes de re-raise.
             if ui_job_id is not None:
                 ui_doc["status"]      = "error"
@@ -159,7 +159,7 @@ def main() -> int:
         run.set_stat("desde", desde_d.isoformat())
         run.set_stat("hasta", hasta_d.isoformat())
 
-        # Marcamos errores no-fatales como partial → Telegram automático.
+        # Marcamos errores no-fatales como partial (queda en manager.job_runs).
         for e in state["errores"]:
             run.error(f"cuenta {e['cuenta']}: {e['error']}")
 

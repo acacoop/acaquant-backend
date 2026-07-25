@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\uso.py
+path: api/routers/manager/uso.py
 ---
 
 # api/routers/manager/uso
 
 > Manager sub-router — telemetría de USO (usuario × módulo).
 
-**Archivo:** `api\routers\manager\uso.py`
+**Archivo:** `api/routers/manager/uso.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

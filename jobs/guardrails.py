@@ -1,9 +1,8 @@
 """jobs/guardrails.py — invariantes de sanidad de datos post-cierre.
 
-Doc vivo: docs/OBSERVABILIDAD_ROBUSTEZ.md (commit 2). El watchdog vigila que el
-motor esté VIVO; esto vigila que el NÚMERO esté BIEN: detecta un dato podrido
-(AuM que saltó, precio de cierre absurdo, curva incompleta, nulls donde no van)
-ANTES de que un usuario decida con él.
+Doc vivo: docs/OBSERVABILIDAD_ROBUSTEZ.md (commit 2). Vigila que el NÚMERO esté
+BIEN: detecta un dato podrido (AuM que saltó, precio de cierre absurdo, curva
+incompleta, nulls donde no van) ANTES de que un usuario decida con él.
 
 Arquitectura:
 - REGISTRY de checks: cada check es una función PURA (recibe datos ya leídos,
@@ -12,30 +11,20 @@ Arquitectura:
 - El runner lee los datos (queries SCOPEADAS por fecha — REGLA #4, cero full
   scans), corre los checks y junta violaciones.
 
-CALIBRACIÓN OBLIGATORIA (REGLA #2 — lo más importante):
-- Modo default `--report`: NO alerta. Imprime cada check con su VALOR REAL
-  medido. El user lo corre varios días y con esos números fija los umbrales en
-  `config.GUARDRAILS_UMBRALES` (None = sin calibrar = ese check no alerta jamás).
-- Con `--alert` (cron prod): alerta por Telegram (METADATA ONLY — jamás datos de
-  clientes) con cooldown en `manager.watchdog_alertas` keyeado
-  `guardrail:<check_id>` (mismo patrón que el watchdog usa para motores).
-  Idempotente: re-correrlo dentro del cooldown no duplica alertas.
+CALIBRACIÓN (REGLA #2): el report imprime cada check con su VALOR REAL medido;
+los umbrales se fijan en `config.GUARDRAILS_UMBRALES` (None = sin calibrar =
+ese check nunca marca violación). El resultado queda en el log del job y en
+`manager.job_runs` (stat `violaciones`).
 
 Uso:
-    python -m jobs.guardrails             # --report implícito (calibración)
-    python -m jobs.guardrails --alert     # prod (cron post-cierre)
+    python -m jobs.guardrails
 """
 from __future__ import annotations
 
-import argparse
 import logging
-from datetime import UTC, datetime, timedelta
 
-from config import GUARDRAILS_COOLDOWN_H, GUARDRAILS_UMBRALES
-from core.notify import send_telegram
-from core.pg_mirror import write_native
+from config import GUARDRAILS_UMBRALES
 from core.postgres import get_pool
-from jobs.watchdog import _last_alert_at
 
 logger = logging.getLogger(__name__)
 
@@ -225,33 +214,7 @@ def correr_checks() -> list[dict]:
     return resultados
 
 
-def _alertar(violaciones: list[dict]) -> int:
-    """Telegram con cooldown por check_id (metadata only). Idempotente."""
-    ahora = datetime.now(UTC)
-    enviados = 0
-    por_check: dict[str, list[dict]] = {}
-    for v in violaciones:
-        por_check.setdefault(v["check_id"], []).append(v)
-    for check_id, vs in por_check.items():
-        key = f"guardrail:{check_id}"
-        prev = _last_alert_at(key)
-        if prev and (ahora - prev) < timedelta(hours=GUARDRAILS_COOLDOWN_H):
-            continue
-        cuerpo = "\n".join(f"• {v['mensaje']}" for v in vs[:_MAX_ITEMS_MSG])
-        extra = f"\n(+{len(vs) - _MAX_ITEMS_MSG} más)" if len(vs) > _MAX_ITEMS_MSG else ""
-        send_telegram(f"🧪 Guardrail *{check_id}* ({vs[0]['severidad']}):\n"
-                      f"{cuerpo}{extra}\n_revisar antes de confiar en el dato_")
-        write_native("watchdog_alertas", ["id"],
-                     [{"id": key, "last_alert_at": ahora, "n": len(vs)}])
-        enviados += 1
-    return enviados
-
-
 def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--alert", action="store_true",
-                    help="manda alertas Telegram (default: --report, solo imprime)")
-    args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     from core.job_runs import JobRunLogger
@@ -261,7 +224,7 @@ def main() -> None:
         sin_calibrar = sorted({r["check_id"] for r in resultados if r["umbral"] is None})
 
         print(f"{'=' * 70}\nGUARDRAILS — {len(resultados)} resultados · "
-              f"{len(violaciones)} violaciones · modo {'ALERT' if args.alert else 'REPORT'}")
+              f"{len(violaciones)} violaciones")
         print(f"{'=' * 70}")
         for r in resultados:
             marca = "✅" if r["ok"] else "🔴"
@@ -269,16 +232,13 @@ def main() -> None:
             print(f"{marca} [{r['check_id']:16}] {r['mensaje']}  "
                   f"(medido={r['valor_medido']} · umbral={umbral})")
         if sin_calibrar:
-            print(f"\n⚠ Checks SIN calibrar (no alertan): {', '.join(sin_calibrar)} — "
+            print(f"\n⚠ Checks SIN calibrar (no marcan violación): {', '.join(sin_calibrar)} — "
                   "corré este report unos días y fijá los umbrales en "
                   "config.GUARDRAILS_UMBRALES con los valores medidos.")
 
-        enviados = _alertar(violaciones) if args.alert and violaciones else 0
         jr.set_stat("resultados", len(resultados))
         jr.set_stat("violaciones", len(violaciones))
-        jr.set_stat("alertas_enviadas", enviados)
-    print(f"\n{'✅ sin violaciones' if not violaciones else f'🔴 {len(violaciones)} violaciones'}"
-          f"{f' · {enviados} alertas enviadas' if args.alert else ' (REPORT — sin alertas)'}")
+    print(f"\n{'✅ sin violaciones' if not violaciones else f'🔴 {len(violaciones)} violaciones'}")
 
 
 if __name__ == "__main__":

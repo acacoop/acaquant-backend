@@ -4,12 +4,12 @@ type: view
 layer: web-view
 repo: frontend
 tags: [view, web-view, frontend]
-path: src\app\research\page.tsx
+path: src/app/research/page.tsx
 ---
 
 # web /research  (view)
 
-**Archivo:** `src\app\research\page.tsx`
+**Archivo:** `src/app/research/page.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

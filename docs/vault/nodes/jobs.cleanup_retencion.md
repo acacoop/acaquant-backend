@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\cleanup_retencion.py
+path: jobs/cleanup_retencion.py
 ---
 
 # jobs/cleanup_retencion
 
 > cleanup_retencion.py — aplica la RETENCIÓN que el schema ya prometía pero nadie ejecutaba.
 
-**Archivo:** `jobs\cleanup_retencion.py`
+**Archivo:** `jobs/cleanup_retencion.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

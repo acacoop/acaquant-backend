@@ -125,7 +125,7 @@ decomiso: `docs/HANDOFF_DECOMISO_MONGO.md`.
 
 | Fase | Qué | Estado |
 |---|---|---|
-| **0. Estabilizar** | CPU/índice/TTL, JobRunLogger en jobs, watchdog | ✅ hecho |
+| **0. Estabilizar** | CPU/índice/TTL, JobRunLogger en jobs | ✅ hecho |
 | **1. Confianza de datos** | Contratos de ingesta + reconciliación + SLAs de completitud (extender Diagnóstico de "¿vivo?" a "¿completo/correcto?") | 🔜 próximo foco |
 | **2. SQL como base única** | Migrar Mongo→Postgres dominio por dominio + decomiso de Mongo (§5) | ✅ hecho (2026-06-29) |
 | **3. Modularizar** | Partir megafiles; ordenar el código por dominio | parcial / continuo |

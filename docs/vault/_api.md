@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-195 notas.
+193 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -65,7 +65,6 @@
 - [[api.routers.operar]] — Router /api/operar — soporte para la vista "Operar Dashboard".
 - [[api.routers.operativa]] — Router /api/operativa — wrappers operativos sobre /api/ordenes.
 - [[api.routers.ordenes]] — Router /api/ordenes — envío/cancel/listado de órdenes contra ROFEX (LIVE).
-- [[api.routers.research]] — Router /api/research — vista Análisis Fundamental del módulo Renta Variable.
 - [[api.routers.research1816]] — Router /api/research1816 — vista RESEARCH (nueva vista principal).
 - [[api.routers.research_bcra]] — Router /api/research-bcra — tab BCRA de la vista Research.
 - [[api.routers.research_docs]] — Router /api/research-docs — LECTURA de los documentos manuales de la vista
@@ -179,7 +178,6 @@
 - [[api.services.research_bcra_sql]] — api/services/research_bcra_sql.py — lectura de las series BCRA para la tab
 - [[api.services.research_docs_sql]] — api/services/research_docs_sql.py — documentos manuales de REPORTES FINANCIEROS.
 - [[api.services.research_fred_sql]] — api/services/research_fred_sql.py — lectura de las series FRED para la tab
-- [[api.services.research_fundamentals]] — Capa de servicio — Análisis Fundamental (módulo Renta Variable).
 - [[api.services.research_sql]] — api/services/research_sql.py — lectura del research diario (mails de 1816) para
 - [[api.services.risk]] — Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.services.rv_motor]] — api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).

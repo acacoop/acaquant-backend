@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\day_trading_stats.py
+path: jobs/day_trading_stats.py
 ---
 
 # jobs/day_trading_stats
 
 > day_trading_stats.py — resumen diario de scalping por CEDEAR.
 
-**Archivo:** `jobs\day_trading_stats.py`
+**Archivo:** `jobs/day_trading_stats.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

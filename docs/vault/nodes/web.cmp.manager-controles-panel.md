@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\manager-controles-panel.tsx
+path: src/components/manager-controles-panel.tsx
 ---
 
 # web/components/manager-controles-panel
 
-**Archivo:** `src\components\manager-controles-panel.tsx`
+**Archivo:** `src/components/manager-controles-panel.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

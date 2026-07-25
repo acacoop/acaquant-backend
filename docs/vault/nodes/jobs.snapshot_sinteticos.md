@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\snapshot_sinteticos.py
+path: jobs/snapshot_sinteticos.py
 ---
 
 # jobs/snapshot_sinteticos
 
 > snapshot_sinteticos.py — materializa el cierre diario de sintéticos en mercado.snapshots_sinteticos (SQL).
 
-**Archivo:** `jobs\snapshot_sinteticos.py`
+**Archivo:** `jobs/snapshot_sinteticos.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

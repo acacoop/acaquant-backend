@@ -1,6 +1,6 @@
 # 🧩 web — componentes
 
-126 notas.
+122 notas.
 
 - [[web.cmp.acreencias-view]]
 - [[web.cmp.agro-datos]]
@@ -47,7 +47,6 @@
 - [[web.cmp.fair-value-view]]
 - [[web.cmp.forward-matrix-zscore]]
 - [[web.cmp.forwards-panel]]
-- [[web.cmp.fundamental-analysis-view]]
 - [[web.cmp.futuros-dlr-curve-chart]]
 - [[web.cmp.griegas-historico-chart]]
 - [[web.cmp.grupos-panel]]
@@ -76,15 +75,13 @@
 - [[web.cmp.opciones-table-compact]]
 - [[web.cmp.operaciones-view]]
 - [[web.cmp.operadores-view]]
+- [[web.cmp.operar-dashboard-view]]
 - [[web.cmp.operar-fci-view]]
-- [[web.cmp.operar-shared]]
 - [[web.cmp.operar-shell]]
-- [[web.cmp.operar-titulos-fci-view]]
 - [[web.cmp.ops-view]]
 - [[web.cmp.order-book-panel]]
 - [[web.cmp.payoff-chart]]
 - [[web.cmp.pivot-points-panel]]
-- [[web.cmp.pnl-historico-view]]
 - [[web.cmp.pnl-titulos-view]]
 - [[web.cmp.pnl-totales-view]]
 - [[web.cmp.por-cuenta-view]]
@@ -104,7 +101,6 @@
 - [[web.cmp.research-view]]
 - [[web.cmp.retorno-total-mini]]
 - [[web.cmp.retorno-total-view]]
-- [[web.cmp.retornos-chart]]
 - [[web.cmp.reuters-ficha]]
 - [[web.cmp.reuters-fundamentals]]
 - [[web.cmp.reuters-view]]

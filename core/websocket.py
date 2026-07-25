@@ -10,12 +10,10 @@ Ahora:
   - los handlers de error/excepción LOGUEAN y disparan reconexión con backoff.
 
 Política de alertas (2026-05-25): los cortes transitorios y las reconexiones
-van SOLO al log. A Telegram va únicamente el **agotamiento** de reconexión
-(motor sin datos), y throttleado a 1×/30min por motor — antes se mandaba un
-mensaje por cada excepción y cada "reconectado", lo que floodeaba el canal con
-el mercado cerrado / flapping (ej. al bootear los motores fuera de horario).
+van SOLO al log; el agotamiento de reconexión (motor sin datos) se loguea
+fuerte como error.
 
-Agotamiento = muerte del proceso: al quemar los 6 intentos, el motor alerta y
+Agotamiento = muerte del proceso: al quemar los 6 intentos, el motor loguea y
 se mata (os._exit) para que systemd lo reinicie. Antes se rendía y seguía vivo
 ("active" para systemd) pero sin datos hasta el restart del cron del día
 siguiente: un corte del broker de >4 min a las 14:00 dejaba a la mesa sin
@@ -40,11 +38,6 @@ logger = logging.getLogger("core.websocket")
 
 
 class WebSocketManager:
-    # Anti-flood: un mismo motor no manda Telegram más de 1×/30min. Los
-    # eventos transitorios (excepción, reintento, reconectado) van SOLO al log;
-    # a Telegram va únicamente el agotamiento de reconexión (motor sin datos).
-    _ALERT_COOLDOWN_S: ClassVar[int] = 1800
-
     def __init__(self, market_manager):
         """market_manager: instancia del cerebro que guarda los precios."""
         self.mm = market_manager
@@ -52,7 +45,6 @@ class WebSocketManager:
         self._sub: tuple | None = None          # (tickers, depth, entries) para reconectar
         self._handler_registrado = False
         self._reconectando = False
-        self._last_telegram = 0.0
 
     def _handler_mercado(self, message):
         """Traduce el mensaje de Rofex para el MarketManager.
@@ -137,21 +129,9 @@ class WebSocketManager:
     # ── Resiliencia ──────────────────────────────────────────────────────────
 
     def _alertar(self, texto: str) -> None:
-        """Log fuerte + alerta Telegram THROTTLEADA (1×/30min por motor).
-
-        Reservada para eventos accionables (agotamiento de reconexión). Los
-        cortes transitorios NO pasan por acá — van solo al log, para no
-        floodear el canal cuando el mercado está cerrado o hay flapping."""
+        """Log fuerte para eventos accionables (agotamiento de reconexión).
+        Los cortes transitorios NO pasan por acá — van al log normal."""
         logger.error("WS %s: %s", self._nombre, texto)
-        now = time.time()
-        if now - self._last_telegram < self._ALERT_COOLDOWN_S:
-            return
-        self._last_telegram = now
-        try:
-            from core.notify import send_telegram
-            send_telegram(f"🔌 WS motor {self._nombre}: {texto[:150]}")
-        except Exception as e:
-            logger.warning("WS %s: no pude alertar: %s", self._nombre, e)
 
     # ROFEX, ante un símbolo inválido en la suscripción, devuelve un msg de
     # error con `description: "Product <symbol>:<market> don't exist"`. Capturamos
@@ -209,8 +189,8 @@ class WebSocketManager:
             _cuarentenar(bad, motivo=f"ROFEX: Product don't exist (WS {self._nombre})")
             self._reconectar()
             return
-        # Resto de errores: transitorio → solo log (no Telegram). El loop de
-        # reconexión avisa únicamente si se agota.
+        # Resto de errores: transitorio → solo log. El loop de reconexión
+        # loguea fuerte únicamente si se agota.
         logger.error("WS %s: error de WS: %s", self._nombre, message)
         self._reconectar()
 
@@ -242,7 +222,7 @@ class WebSocketManager:
                         exception_handler=self._on_exception,
                     )
                     self.agregar_suscripciones(tickers, depth=depth, entries=entries)
-                    # Recuperación transitoria → solo log (se auto-sanó; no spamear Telegram).
+                    # Recuperación transitoria → solo log (se auto-sanó).
                     logger.info("WS %s: reconectado OK (intento %d)", self._nombre, intento)
                     return
                 except Exception as e:
@@ -254,8 +234,6 @@ class WebSocketManager:
             )
             # os._exit (no sys.exit): estamos en un thread no-main y queremos
             # terminar el proceso YA, sin depender de que el main loop coopere.
-            # Se sale DESPUÉS de _alertar porque send_telegram es sincrónico
-            # (requests.post, timeout 5s) → la alerta ya salió cuando morimos.
             os._exit(1)
         finally:
             self._reconectando = False

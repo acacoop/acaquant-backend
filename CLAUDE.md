@@ -2,21 +2,24 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **📌 REMOTES POR PROYECTO (actualizado 2026-07-24).** Cada proyecto puede
-> tener dos remotes: el **personal** y el de la **organización (ACA)**. Convención de
-> remotes:
+> **📌 REMOTES POR PROYECTO (actualizado 2026-07-25).** Cada proyecto tiene
+> TRES remotes: el **personal**, el de la **organización (ACA)** y el del
+> **usuario corporativo**. Convención:
 > - **Backend (este repo):** `origin` → personal
 >   (`github.com/NicolasEzequielMollo/TradingAV.git`); `org` →
->   organización (`github.com/acacoop/acaquant-backend.git`).
+>   organización (`github.com/acacoop/acaquant-backend.git`); `corp` →
+>   usuario corporativo (`github.com/NMolloAV/acaquant-backend.git`).
 > - **Frontend (acaquant-web):** `origin` → personal
 >   (`github.com/NicolasEzequielMollo/acaquant-web.git`); `org` →
->   organización (`github.com/acacoop/acaquant-frontend.git`).
+>   organización (`github.com/acacoop/acaquant-frontend.git`); `corp` →
+>   usuario corporativo (`github.com/NMolloAV/acaquant-frontend.git`).
 >
-> REGLA VIGENTE (2026-07-25): los dos remotes se mantienen SINCRONIZADOS —
-> todo push a `main` va a `origin` Y a `org` (los dos comandos, siempre).
-> El push a `org` usa la cuenta corporativa `NMolloAV`: `gh auth switch -u
-> NMolloAV` antes / `gh auth switch -u NicolasEzequielMollo` después (gh es
-> el credential helper — la cuenta ACTIVA es la que firma el push HTTPS).
+> REGLA VIGENTE: los tres remotes se mantienen SINCRONIZADOS — todo push a
+> `main` va a `origin`, `org` Y `corp`, siempre. Los pushes a `org`/`corp`
+> usan la cuenta corporativa: `gh auth switch -u NMolloAV` antes /
+> `gh auth switch -u NicolasEzequielMollo` después (gh es el credential
+> helper — la cuenta ACTIVA es la que firma el push HTTPS; dejar SIEMPRE la
+> personal activa al terminar, Vercel deploya del personal).
 
 ## Overview
 

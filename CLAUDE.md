@@ -12,8 +12,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >   (`github.com/NicolasEzequielMollo/acaquant-web.git`); `org` →
 >   organización (`github.com/acacoop/acaquant-frontend.git`).
 >
-> REGLA VIGENTE: priorizar `origin` (personal). El push a `org` queda opcional
-> y se retoma cuando se defina/ordene el flujo corporativo.
+> REGLA VIGENTE (2026-07-25): los dos remotes se mantienen SINCRONIZADOS —
+> todo push a `main` va a `origin` Y a `org` (los dos comandos, siempre).
+> El push a `org` usa la cuenta corporativa `NMolloAV`: `gh auth switch -u
+> NMolloAV` antes / `gh auth switch -u NicolasEzequielMollo` después (gh es
+> el credential helper — la cuenta ACTIVA es la que firma el push HTTPS).
 
 ## Overview
 

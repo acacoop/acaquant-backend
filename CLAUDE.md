@@ -2,38 +2,31 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **📌 REMOTES POR PROYECTO (actualizado 2026-07-27).** Cada proyecto tiene
-> TRES remotes con la MISMA convención en backend y frontend:
-> - **`origin` → usuario corporativo (PRINCIPAL)** — es el remote por defecto.
+> **📌 REMOTES POR PROYECTO (actualizado 2026-07-27).** DOS remotes por repo, ambos
+> de la MISMA cuenta corporativa **NMolloAV** (por eso nunca piden login aparte):
+> - **`origin` → NMolloAV (PRINCIPAL, default)**
 >   - Backend: `github.com/NMolloAV/acaquant-backend.git`
 >   - Frontend: `github.com/NMolloAV/acaquant-frontend.git`
-> - **`org` → organización (ACA)**
+> - **`org` → organización ACA (acacoop) — misma cuenta NMolloAV**
 >   - Backend: `github.com/acacoop/acaquant-backend.git`
 >   - Frontend: `github.com/acacoop/acaquant-frontend.git`
-> - **`personal` → usuario personal**
->   - Backend: `github.com/NicolasEzequielMollo/TradingAV.git`
->   - Frontend: `github.com/NicolasEzequielMollo/acaquant-web.git`
 >
-> Ya NO existe un remote llamado `corp` (ese URL ahora ES `origin`), ni push-URLs
-> múltiples cruzados. Cada remote tiene UN solo fetch/push URL a su propio repo.
+> El remote `personal` (cuenta NicolasEzequielMollo) fue ELIMINADO: usaba OTRA
+> cuenta y pedía login en cada push. Tampoco existe ya un remote `corp` (ese URL
+> ES `origin`). Cada remote tiene UN solo fetch/push URL a su propio repo.
 >
-> **AUTH automática (Git Credential Manager, Windows local).** GCM elige la cuenta
-> de GitHub sola según el dueño del repo — NO hay que hacer `gh auth switch` ni
-> loguearse manualmente. Está pinneado en `~/.gitconfig` global:
+> **AUTH automática (Git Credential Manager, Windows local).** Los dos remotes usan
+> la cuenta **NMolloAV**, pinneada en `~/.gitconfig` global:
 > `credential.https://github.com/NMolloAV.username = NMolloAV`,
-> `credential.https://github.com/acacoop.username = NMolloAV`,
-> `credential.https://github.com/NicolasEzequielMollo.username = NicolasEzequielMollo`
-> (+ `credential.usehttppath = true`). O sea: `NMolloAV/*` y `acacoop/*` → cuenta
-> **NMolloAV** (corp); `NicolasEzequielMollo/*` → cuenta **NicolasEzequielMollo**.
+> `credential.https://github.com/acacoop.username = NMolloAV`
+> (+ `credential.usehttppath = true`). NO hay que hacer `gh auth switch` ni loguearse.
 >
-> **REGLA — sincronizar los 3 remotes:** para pushear a los tres a la vez usar el
-> alias global **`git pushall`** (= `git push origin HEAD && git push org HEAD &&
-> git push personal HEAD`). Un `git push` normal va solo a `origin` (corp). Si
-> querés mantener los tres sincronizados, usá SIEMPRE `git pushall`.
+> **REGLA — sincronizar los 2 remotes:** alias global **`git pushall`** (= `git push
+> origin HEAD && git push org HEAD`). Un `git push` normal va solo a `origin`.
 >
-> Vercel deploya del frontend en `origin` (corp `NMolloAV/acaquant-frontend`) desde
-> 2026-07-27 — un `git push origin` (o `git pushall`) dispara el deploy de producción.
-> PENDIENTE: el Droplet (backend) todavía apunta al remote viejo; migrar a corp.
+> Vercel (frontend) deploya de `origin` (`NMolloAV/acaquant-frontend`) y el Droplet
+> (backend) tira de `origin` corp — ambos migrados 2026-07-27. Un push a `origin`
+> (o `git pushall`) cubre deploy + Droplet.
 
 ## Overview
 

@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from config import DOLAR_INGEST_TOKEN
 from core.dolar_oficial import upsert_oficial
-from core.eikon_bonos import universo_bonos_off, upsert_bonos_off
+from core.eikon_bonos import universo_bonos_off, upsert_bonos_off, upsert_cierres_off
 from core.eikon_chicago import universo_chicago, upsert_chicago
 from core.eikon_live import set_rics, universo_rics, upsert_fundamentals, upsert_quotes
 from core.eikon_news import universo_news, upsert_news
@@ -146,6 +146,25 @@ def eikon_bonos_quotes(
     escritos = upsert_bonos_off(payload.docs)
     if escritos == 0:
         raise HTTPException(status_code=422, detail="ningún doc válido (RIC desconocido o falta ric)")
+    return {"ok": True, "escritos": escritos}
+
+
+class EikonCierresPayload(BaseModel):
+    # Cierres diarios HISTÓRICOS offshore para backfill: [{ric, fecha, valor}, ...]
+    docs: list[dict] = Field(..., min_length=1, max_length=5000)
+
+
+@router.post("/eikon/cierres")
+def eikon_cierres(
+    payload: EikonCierresPayload,
+    _: None = Depends(verify_ingest_token),
+) -> dict:
+    """BACKFILL one-shot: persiste cierres diarios históricos de los bonos
+    offshore en `mercado.eikon_cierres` (grupo='bonos_off') — llena las columnas
+    7D/MTD/YTD de la watchlist mientras el cron acumula histórico. Idempotente."""
+    escritos = upsert_cierres_off(payload.docs)
+    if escritos == 0:
+        raise HTTPException(status_code=422, detail="ningún cierre válido (RIC desconocido o falta fecha/valor)")
     return {"ok": True, "escritos": escritos}
 
 

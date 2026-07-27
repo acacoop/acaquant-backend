@@ -18,7 +18,7 @@ por el user (watchlist MarketAxess, 2026-07-24).
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from core.pg_mirror import write_native
 from core.postgres import get_pool
@@ -67,6 +67,45 @@ def upsert_bonos_off(docs: list[dict]) -> int:
     if not rows:
         return 0
     return write_native(TABLE, ["ric"], rows)
+
+
+_SQL_UPSERT_CIERRE = (
+    "INSERT INTO mercado.eikon_cierres (grupo, ric, fecha, valor) "
+    "VALUES (%s, %s, %s, %s) "
+    "ON CONFLICT (grupo, ric, fecha) DO UPDATE SET valor = EXCLUDED.valor"
+)
+
+
+def upsert_cierres_off(docs: list[dict]) -> int:
+    """Upsertea cierres diarios HISTÓRICOS de los bonos offshore en
+    `mercado.eikon_cierres` (grupo='bonos_off'). Cada doc: {ric, fecha, valor}
+    (fecha ISO 'YYYY-MM-DD', valor numérico). Solo RICs del universo conocido.
+    Idempotente por (grupo, ric, fecha) — re-postear pisa el mismo día con el
+    último valor. Lo usa el backfill one-shot desde la PC de oficina; el forward
+    diario lo sigue haciendo el cron jobs/eikon_cierres."""
+    if not docs:
+        return 0
+    filas: list[tuple] = []
+    for data in docs:
+        if not isinstance(data, dict):
+            continue
+        ric = (data.get("ric") or "").strip()
+        if ric not in BONOS_OFF:
+            continue
+        valor = _num(data.get("valor"))
+        if valor is None:
+            continue
+        try:
+            fecha_d = date.fromisoformat(str(data.get("fecha"))[:10])
+        except (TypeError, ValueError):
+            continue
+        filas.append(("bonos_off", ric, fecha_d, valor))
+    if not filas:
+        return 0
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(_SQL_UPSERT_CIERRE, filas)
+        conn.commit()
+    return len(filas)
 
 
 def _num(v) -> float | None:

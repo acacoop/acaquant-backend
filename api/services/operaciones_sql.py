@@ -806,3 +806,93 @@ def ops_dolar_futuro(
         "por_tipo": por_tipo, "por_cuenta": por_cuenta,
         "por_instrumento": por_instrumento, "serie": serie,
     }
+
+
+# ── Diferencias diarias (liquidación de futuros ROFEX/CME) ──────────────────
+# El instrumento NO es una columna: se parsea del texto `informacion`
+# ("Diferencias diarias - [INSTRUMENTO] - fecha - Cierre precio"). El token
+# entre corchetes es el instrumento (ej. SOJ.ROS/MAY26, DLR062026); su prefijo
+# de letras es el PRODUCTO (SOJ/MAI/TRI/DLR/WTI/SOY).
+_DIF_INSTR = r"substring(informacion from '\[([^\]]+)\]')"
+_DIF_PROD = r"substring(informacion from '\[([A-Za-z]+)')"
+
+
+def ops_diferencias_diarias(
+    desde: str = "", hasta: str = "", moneda: str = "USDL",
+    producto: str | None = None, cuenta: str | None = None, instrumento: str | None = None,
+    scope: tuple[str, ...] | None = None, nivel5: str | None = None,
+) -> dict:
+    """Diferencias diarias de futuros (liquidación mark-to-market) desde
+    operaciones.negocio_movimientos. NO hay tipo de operación ni instrumento
+    nativos: la única métrica es `importe` (± y SIN nulos) y el instrumento se
+    parsea del texto `informacion`. Como ARS y USDL NO se pueden sumar juntas,
+    `moneda` filtra SIEMPRE (default USDL). Devuelve `por_producto` (prefijo del
+    instrumento), `por_cuenta`, `por_instrumento` (token completo) y `serie`
+    (Σ importe por día, la vista acumula en cliente). Cross-filter 3-way
+    (producto/cuenta/instrumento). Todo acotado a [desde, hasta]. Prefiltra por
+    categoria='otro' (verificado: 129.855/129.855 filas) para pegar al índice
+    ix_nm_categoria(categoria, fecha)."""
+    base = "categoria = 'otro' AND informacion ILIKE %(dif)s AND moneda = %(moneda)s"
+    bp: dict = {"dif": "Diferencias diarias%", "moneda": moneda}
+    if scope is not None:
+        base += " AND id_cuenta = ANY(%(scope)s)"
+        bp["scope"] = list(scope)
+    if nivel5:
+        base += " AND id_cuenta IN (SELECT id_cuenta FROM comitentes WHERE nivel_5 = %(nivel5)s)"
+        bp["nivel5"] = nivel5
+    date_w = f"{base} AND fecha >= %(desde)s AND fecha <= %(hasta)s"
+    dp = {**bp, "desde": desde, "hasta": hasta}
+
+    # Fragmentos de cross-filter (WHERE parcial, params).
+    f_prod = (f" AND {_DIF_PROD} = %(f_prod)s", {"f_prod": producto}) if producto else ("", {})
+    f_cta = (" AND cuenta = %(f_cta)s", {"f_cta": cuenta}) if cuenta else ("", {})
+    f_ins = (f" AND {_DIF_INSTR} = %(f_ins)s", {"f_ins": instrumento}) if instrumento else ("", {})
+
+    # por_producto (prefijo) — aplica cuenta + instrumento.
+    w = date_w + f_cta[0] + f_ins[0]
+    por_producto = [
+        {"producto": r["p"] or "(sin)", "importe": _f(r["imp"]), "n": r["n"]}
+        for r in _q(f"SELECT {_DIF_PROD} AS p, SUM(importe) AS imp, COUNT(*) AS n "
+                    f"FROM negocio_movimientos WHERE {w} GROUP BY 1 "
+                    f"ORDER BY SUM(ABS(importe)) DESC NULLS LAST", {**dp, **f_cta[1], **f_ins[1]})
+    ]
+    # por_cuenta — aplica producto + instrumento.
+    w = date_w + f_prod[0] + f_ins[0]
+    por_cuenta = [
+        {"cuenta": r["c"] or "(sin)", "importe": _f(r["imp"]), "n": r["n"]}
+        for r in _q(f"SELECT cuenta AS c, SUM(importe) AS imp, COUNT(*) AS n "
+                    f"FROM negocio_movimientos WHERE {w} GROUP BY cuenta "
+                    f"ORDER BY SUM(ABS(importe)) DESC NULLS LAST", {**dp, **f_prod[1], **f_ins[1]})
+    ]
+    # por_instrumento (token completo) — aplica producto + cuenta.
+    w = date_w + f_prod[0] + f_cta[0]
+    por_instrumento = [
+        {"instrumento": r["i"] or "(sin)", "importe": _f(r["imp"]), "n": r["n"]}
+        for r in _q(f"SELECT {_DIF_INSTR} AS i, SUM(importe) AS imp, COUNT(*) AS n "
+                    f"FROM negocio_movimientos WHERE {w} GROUP BY 1 "
+                    f"ORDER BY SUM(ABS(importe)) DESC NULLS LAST", {**dp, **f_prod[1], **f_cta[1]})
+    ]
+    # serie DIARIA (Σ importe por día) — aplica los 3 filtros.
+    w = date_w + f_prod[0] + f_cta[0] + f_ins[0]
+    serie = [
+        {"periodo": r["per"], "importe": round(_f(r["imp"]) or 0.0, 2), "n": r["n"]}
+        for r in _q(f"SELECT to_char(fecha, 'YYYY-MM-DD') AS per, SUM(importe) AS imp, "
+                    f"COUNT(*) AS n FROM negocio_movimientos WHERE {w} GROUP BY per ORDER BY per",
+                    {**dp, **f_prod[1], **f_cta[1], **f_ins[1]})
+    ]
+    # total (header) — aplica los 3 filtros.
+    w = date_w + f_prod[0] + f_cta[0] + f_ins[0]
+    tr = _q(f"SELECT SUM(importe) AS imp, COUNT(*) AS n, "
+            f"COUNT(*) FILTER (WHERE importe > 0) AS pos, "
+            f"COUNT(*) FILTER (WHERE importe < 0) AS neg "
+            f"FROM negocio_movimientos WHERE {w}",
+            {**dp, **f_prod[1], **f_cta[1], **f_ins[1]})
+    total = ({"importe": _f(tr[0]["imp"]) or 0.0, "n": tr[0]["n"],
+              "pos": tr[0]["pos"], "neg": tr[0]["neg"]}
+             if tr else {"importe": 0.0, "n": 0, "pos": 0, "neg": 0})
+
+    return {
+        "desde": desde, "hasta": hasta, "moneda": moneda, "total": total,
+        "por_producto": por_producto, "por_cuenta": por_cuenta,
+        "por_instrumento": por_instrumento, "serie": serie,
+    }

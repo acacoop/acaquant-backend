@@ -339,6 +339,17 @@ CREATE INDEX IF NOT EXISTS ix_nm_cuenta    ON operaciones.negocio_movimientos(cu
 -- ops_diferencias_diarias/_fechas llevan el ILIKE literal inline para matchear.
 CREATE INDEX IF NOT EXISTS ix_nm_dif ON operaciones.negocio_movimientos(moneda, fecha)
     WHERE categoria = 'otro' AND informacion ILIKE 'Diferencias diarias%';
+-- MATERIALIZACIÓN (2026-07-28): el instrumento/producto de una diferencia diaria vivía
+-- atrapado en el texto `informacion` ("Diferencias diarias - [SOJ.ROS/MAY26] - ...") →
+-- cada query lo re-extraía con regex sobre ~45k filas. Columnas GENERADAS: Postgres las
+-- calcula en cada INSERT/UPDATE y en el ALTER inicial (backfill automático) — una sola
+-- fuente de verdad, sin cambios en el job de ingesta. NULL para filas no-diferencia.
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS dif_instrumento text
+    GENERATED ALWAYS AS (CASE WHEN informacion LIKE 'Diferencias diarias%'
+        THEN substring(informacion from '\[([^\]]+)\]') END) STORED;
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS dif_producto text
+    GENERATED ALWAYS AS (CASE WHEN informacion LIKE 'Diferencias diarias%'
+        THEN substring(informacion from '\[([A-Za-z]+)') END) STORED;
 
 -- CashFlow.Movimientos → depósitos / extracciones / transferencias (vista FLUJOS,
 -- /api/operaciones/flujos). La escribe jobs/cashflow.py ($setOnInsert por

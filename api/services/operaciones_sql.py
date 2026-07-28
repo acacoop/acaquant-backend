@@ -811,12 +811,13 @@ def ops_dolar_futuro(
 
 
 # ── Diferencias diarias (liquidación de futuros ROFEX/CME) ──────────────────
-# El instrumento NO es una columna: se parsea del texto `informacion`
-# ("Diferencias diarias - [INSTRUMENTO] - fecha - Cierre precio"). El token
-# entre corchetes es el instrumento (ej. SOJ.ROS/MAY26, DLR062026); su prefijo
-# de letras es el PRODUCTO (SOJ/MAI/TRI/DLR/WTI/SOY).
-_DIF_INSTR = r"substring(informacion from '\[([^\]]+)\]')"
-_DIF_PROD = r"substring(informacion from '\[([A-Za-z]+)')"
+# El instrumento NO viene como dato nativo de Aunesa: viaja en el texto `informacion`
+# ("Diferencias diarias - [INSTRUMENTO] - fecha - Cierre precio"). Está MATERIALIZADO
+# en columnas GENERADAS por Postgres (sql/schema.sql): `dif_instrumento` = token entre
+# corchetes (ej. SOJ.ROS/MAY26, DLR062026), `dif_producto` = su prefijo de letras
+# (SOJ/MAI/TRI/DLR/WTI/SOY). Antes se extraían con regex por fila en cada query.
+_DIF_INSTR = "dif_instrumento"
+_DIF_PROD = "dif_producto"
 
 
 def ops_diferencias_diarias(
@@ -825,9 +826,10 @@ def ops_diferencias_diarias(
     scope: tuple[str, ...] | None = None, nivel5: str | None = None,
 ) -> dict:
     """Diferencias diarias de futuros (liquidación mark-to-market) desde
-    operaciones.negocio_movimientos. NO hay tipo de operación ni instrumento
-    nativos: la única métrica es `importe` (± y SIN nulos) y el instrumento se
-    parsea del texto `informacion`. Como ARS y USDL NO se pueden sumar juntas,
+    operaciones.negocio_movimientos. NO hay tipo de operación nativo: la única
+    métrica es `importe` (± y SIN nulos); el instrumento/producto salen de las
+    columnas GENERADAS `dif_instrumento`/`dif_producto` (materializadas por
+    Postgres desde `informacion`). Como ARS y USDL NO se pueden sumar juntas,
     `moneda` filtra SIEMPRE (default USDL). Devuelve `por_producto` (prefijo del
     instrumento), `por_cuenta`, `por_instrumento` (token completo) y `serie`
     (Σ importe por día, la vista acumula en cliente). Cross-filter 3-way

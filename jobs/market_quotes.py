@@ -12,8 +12,9 @@ Fuentes:
 El bloque de FOREX (frankfurter.app) se eliminó junto con las monedas del
 watchlist: la mesa las sacó y la lista quedó vacía.
 
-Cron (cada 1 min en horario de mercado, ver deploy/crontab.txt):
-    * 12-23 * * 1-5 cd /root/TradingAV && venv/bin/python -m jobs.market_quotes
+Cron (cada 1 min, ventana 07:00-23:00 ART, ver deploy/crontab.txt):
+    * 10-23 * * 1-5 cd /root/TradingAV && venv/bin/python -m jobs.market_quotes
+    * 0-1   * * 2-6 cd /root/TradingAV && venv/bin/python -m jobs.market_quotes
 """
 from __future__ import annotations
 

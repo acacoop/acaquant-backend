@@ -896,3 +896,20 @@ def ops_diferencias_diarias(
         "por_producto": por_producto, "por_cuenta": por_cuenta,
         "por_instrumento": por_instrumento, "serie": serie,
     }
+
+
+def ops_diferencias_fechas(moneda: str = "USDL") -> dict:
+    """Universo de fechas PROPIO de Diferencias Diarias (desc), por moneda.
+
+    Distinto de ops_fechas() — ése devuelve las fechas de operaciones.operaciones
+    (que llegan hasta hoy). Las diferencias diarias tienen su propio calendario
+    (pueden estar rezagadas respecto de las operaciones). Los botones de rango
+    ULTIMA/SEMANA/MES deben anclarse en ESTAS fechas para caer sobre datos reales."""
+    rows = _q(
+        "SELECT to_char(fecha, 'YYYY-MM-DD') AS fecha, COUNT(*) AS n "
+        "FROM negocio_movimientos "
+        "WHERE categoria = 'otro' AND informacion ILIKE %(dif)s AND moneda = %(moneda)s "
+        "GROUP BY fecha ORDER BY fecha DESC",
+        {"dif": "Diferencias diarias%", "moneda": moneda},
+    )
+    return {"fechas": [{"fecha": r["fecha"], "n": r["n"]} for r in rows]}

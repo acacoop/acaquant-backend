@@ -397,6 +397,17 @@ def ops_diferencias_diarias(
                                              instrumento=instrumento, scope=scope, nivel5=nivel5)
 
 
+@router.get("/ops/diferencias-fechas")
+@cached(ttl=300)
+def ops_diferencias_fechas(
+    moneda: str = Query("USDL", description="USDL | ARS"),
+):
+    """Fechas (desc) con Diferencias Diarias para la moneda dada — el universo
+    de fechas PROPIO de esta vista (no el de operaciones.operaciones). Ancla los
+    botones ULTIMA/SEMANA/MES sobre fechas que realmente tienen datos."""
+    return _ops_sql.ops_diferencias_fechas(moneda=moneda)
+
+
 @router.get("/ops/aranceles")
 @cached(ttl=300)
 def ops_aranceles(

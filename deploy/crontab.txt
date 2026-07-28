@@ -217,11 +217,11 @@
 40 11 * * * /root/TradingAV/deploy/run_job.sh economic_calendar 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.economic_calendar'
 
 # ─── Market quotes (watchlist HOME / vista GENERAL) — cada 1 min.
-# Los futuros globales (ES/NQ/CL/cripto) cotizan casi 24h → corre toda la ventana de
-# Atlas prendido (12-23 UTC L-V + 0-3 UTC Mar-Sáb), no solo hs US. Índices/Treasury
-# fuera de hs devuelven su último cierre (sin daño). Timeout 50s (< intervalo 60s).
-*    12-23 * * 1-5 /root/TradingAV/deploy/run_job.sh market_quotes 50s 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_quotes'
-*    0-3  * * 2-6 /root/TradingAV/deploy/run_job.sh market_quotes 50s 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_quotes'
+# Los futuros globales (ES/NQ/CL/cripto) cotizan casi 24h → corre la ventana
+# 07:00-23:00 ART (10-23 UTC L-V + 0-1 UTC Mar-Sáb). Índices/Treasury fuera de
+# hs devuelven su último cierre (sin daño). Timeout 50s (< intervalo 60s).
+*    10-23 * * 1-5 /root/TradingAV/deploy/run_job.sh market_quotes 50s 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_quotes'
+*    0-1  * * 2-6 /root/TradingAV/deploy/run_job.sh market_quotes 50s 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_quotes'
 
 # ─── Market anchors (retornos 7d/MTD/YTD/1Y) — 1x/día post-cierre US (22:00 UTC, L-V)
 0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh market_anchors 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_anchors'

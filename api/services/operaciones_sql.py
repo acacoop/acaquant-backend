@@ -716,3 +716,93 @@ def ops_agro(
         "serie": serie, "serie_cuenta": serie_cuenta, "serie_share": serie_share,
         "totales": tot, "por_cuenta": por_cuenta, "por_instrumento": por_instrumento,
     }
+
+
+# ── DÓLAR FUTURO (nocional en USD; 1 contrato = USD 1000) ─────────────────────
+# Verificado sobre prod (2026-07-28): instrumento '[DLRmmYYYY]',
+# mercado 'A3', tipo_operacion 'Futuros Financieros - Compra/Venta', es_cierre
+# SIEMPRE false, etapa SIEMPRE NULL, bruto SIEMPRE 0 (inútil). `cantidad` es el
+# nº de contratos (entero, sin fraccionarios) → NOCIONAL (USD) = |cantidad| × 1000.
+# `arancel` va en ARS. No hay cierres ni liquidaciones que doble-contar, así que
+# el filtro es sólo el instrumento DLR (a diferencia de la vista Operaciones).
+_DLR_NOCIONAL = "ABS(COALESCE(cantidad, 0)) * 1000"
+_DLR_TIPO = "CASE WHEN strpos(COALESCE(tipo_operacion, ''), 'Compra') > 0 THEN 'Compra' ELSE 'Venta' END"
+_DLR_METRIC = (
+    f"SUM({_DLR_NOCIONAL}) AS noc, SUM(ABS(COALESCE(arancel, 0))) AS ar, count(*) AS n"
+)
+
+
+def ops_dolar_futuro(
+    desde: str = "", hasta: str = "", agg: str = "MENSUAL",
+    tipo: str | None = None, cuenta: str | None = None, instrumento: str | None = None,
+    scope: tuple[str, ...] | None = None, nivel5: str | None = None,
+) -> dict:
+    """Dólar futuro (DLR): NOCIONAL (USD) + arancel (ARS) + boletos, agregado en
+    vivo sobre operaciones.operaciones. Devuelve `por_tipo` (Compra/Venta),
+    `por_cuenta`, `por_instrumento` (vencimientos) y `serie` (nocional por
+    periodo, split Compra/Venta). Cross-filter 3-way: cada tabla aplica las
+    selecciones de las OTRAS (la serie no se filtra por `tipo`, lo separa en
+    series). Todo acotado a [desde, hasta]."""
+    fmt = "YYYY-MM" if agg.upper() == "MENSUAL" else "YYYY-MM-DD"
+    base = "instrumento ILIKE %(dlr)s"
+    bp: dict = {"dlr": "%DLR%"}
+    if scope is not None:
+        base += " AND id_cuenta = ANY(%(scope)s)"
+        bp["scope"] = list(scope)
+    if nivel5:
+        base += " AND id_cuenta IN (SELECT id_cuenta FROM comitentes WHERE nivel_5 = %(nivel5)s)"
+        bp["nivel5"] = nivel5
+    date_w = f"{base} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
+    dp = {**bp, "desde": desde, "hasta": hasta}
+
+    # Fragmentos de cross-filter (WHERE parcial, params).
+    f_tipo = (f" AND {_DLR_TIPO} = %(f_tipo)s", {"f_tipo": tipo}) if tipo else ("", {})
+    f_cta = (" AND denominacion = %(f_cta)s", {"f_cta": cuenta}) if cuenta else ("", {})
+    f_ins = (" AND instrumento = %(f_ins)s", {"f_ins": instrumento}) if instrumento else ("", {})
+
+    # por_tipo (Compra/Venta) — aplica cuenta + instrumento.
+    w = date_w + f_cta[0] + f_ins[0]
+    por_tipo = [
+        {"tipo": r["t"], "nocional": _f(r["noc"]), "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
+        for r in _q(f"SELECT {_DLR_TIPO} AS t, {_DLR_METRIC} FROM operaciones "
+                    f"WHERE {w} GROUP BY t ORDER BY t", {**dp, **f_cta[1], **f_ins[1]})
+    ]
+    # por_cuenta — aplica tipo + instrumento.
+    w = date_w + f_tipo[0] + f_ins[0]
+    por_cuenta = [
+        {"denominacion": r["d"] or "(sin)", "nocional": _f(r["noc"]),
+         "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
+        for r in _q(f"SELECT denominacion AS d, {_DLR_METRIC} FROM operaciones "
+                    f"WHERE {w} GROUP BY denominacion ORDER BY noc DESC NULLS LAST",
+                    {**dp, **f_tipo[1], **f_ins[1]})
+    ]
+    # por_instrumento (vencimientos) — aplica tipo + cuenta.
+    w = date_w + f_tipo[0] + f_cta[0]
+    por_instrumento = [
+        {"instrumento": r["i"] or "(sin)", "nocional": _f(r["noc"]),
+         "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
+        for r in _q(f"SELECT instrumento AS i, {_DLR_METRIC} FROM operaciones "
+                    f"WHERE {w} GROUP BY instrumento ORDER BY noc DESC NULLS LAST",
+                    {**dp, **f_tipo[1], **f_cta[1]})
+    ]
+    # serie (nocional por periodo, split Compra/Venta) — aplica cuenta + instrumento.
+    w = date_w + f_cta[0] + f_ins[0]
+    serie_map: dict[str, dict] = {}
+    for r in _q(f"SELECT to_char(concertacion, %(fmt)s) AS per, {_DLR_TIPO} AS t, "
+                f"SUM({_DLR_NOCIONAL}) AS noc FROM operaciones WHERE {w} GROUP BY per, t",
+                {**dp, **f_cta[1], **f_ins[1], "fmt": fmt}):
+        d = serie_map.setdefault(r["per"], {"periodo": r["per"], "Compra": 0.0, "Venta": 0.0})
+        d[r["t"]] = round(_f(r["noc"]), 0)
+    serie = [serie_map[k] for k in sorted(serie_map)]
+    # total (header) — aplica los 3 filtros.
+    w = date_w + f_tipo[0] + f_cta[0] + f_ins[0]
+    tr = _q(f"SELECT {_DLR_METRIC} FROM operaciones WHERE {w}",
+            {**dp, **f_tipo[1], **f_cta[1], **f_ins[1]})
+    total = ({"nocional": _f(tr[0]["noc"]), "arancel": round(_f(tr[0]["ar"]), 2), "n": tr[0]["n"]}
+             if tr else {"nocional": 0.0, "arancel": 0.0, "n": 0})
+
+    return {
+        "desde": desde, "hasta": hasta, "agg": agg, "total": total,
+        "por_tipo": por_tipo, "por_cuenta": por_cuenta,
+        "por_instrumento": por_instrumento, "serie": serie,
+    }

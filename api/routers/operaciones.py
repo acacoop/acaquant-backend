@@ -352,6 +352,28 @@ def ops_agro(
                              cuenta=cuenta, scope=scope, nivel5=nivel5)
 
 
+@router.get("/ops/dolar-futuro")
+@cached(ttl=300)
+def ops_dolar_futuro(
+    desde: str = Query(..., description="YYYY-MM-DD"),
+    hasta: str = Query(..., description="YYYY-MM-DD"),
+    agg: str = Query("MENSUAL", description="MENSUAL | DIARIO"),
+    tipo: str | None = Query(None, description="Compra | Venta (cross-filter)"),
+    cuenta: str | None = Query(None, description="Filtra a una cuenta (denominación exacta)"),
+    instrumento: str | None = Query(None, description="Filtra a un vencimiento (instrumento exacto)"),
+    nivel5: str | None = Query(None, description="Filtra por nivel_5 de Clientes.Comitentes"),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+):
+    """Dólar futuro (DLR, mercado A3): NOCIONAL en USD (1 contrato = USD 1000),
+    arancel (ARS) y boletos. Devuelve `por_tipo` (Compra/Venta), `por_cuenta`,
+    `por_instrumento` (vencimientos), `serie` (nocional por periodo, split
+    Compra/Venta) y `total` (header) — todo acotado a [desde,hasta] con
+    cross-filter 3-way por tipo/cuenta/instrumento."""
+    return _ops_sql.ops_dolar_futuro(desde=desde, hasta=hasta, agg=agg, tipo=tipo,
+                                     cuenta=cuenta, instrumento=instrumento,
+                                     scope=scope, nivel5=nivel5)
+
+
 @router.get("/ops/aranceles")
 @cached(ttl=300)
 def ops_aranceles(

@@ -744,8 +744,10 @@ def ops_dolar_futuro(
     selecciones de las OTRAS (la serie no se filtra por `tipo`, lo separa en
     series). Todo acotado a [desde, hasta]."""
     fmt = "YYYY-MM" if agg.upper() == "MENSUAL" else "YYYY-MM-DD"
-    base = "instrumento ILIKE %(dlr)s"
-    bp: dict = {"dlr": "%DLR%"}
+    # Literal inline (no param): el planner solo usa el índice parcial ix_ops_dlr_concert
+    # si ve el predicado idéntico al del índice. Constante nuestra, no input de usuario.
+    base = "instrumento ILIKE '%%DLR%%'"
+    bp: dict = {}
     if scope is not None:
         base += " AND id_cuenta = ANY(%(scope)s)"
         bp["scope"] = list(scope)
@@ -830,10 +832,11 @@ def ops_diferencias_diarias(
     instrumento), `por_cuenta`, `por_instrumento` (token completo) y `serie`
     (Σ importe por día, la vista acumula en cliente). Cross-filter 3-way
     (producto/cuenta/instrumento). Todo acotado a [desde, hasta]. Prefiltra por
-    categoria='otro' (verificado: 129.855/129.855 filas) para pegar al índice
-    ix_nm_categoria(categoria, fecha)."""
-    base = "categoria = 'otro' AND informacion ILIKE %(dif)s AND moneda = %(moneda)s"
-    bp: dict = {"dif": "Diferencias diarias%", "moneda": moneda}
+    categoria='otro' (verificado: 129.855/129.855 filas). El predicado va con
+    LITERALES inline para matchear el índice parcial ix_nm_dif(moneda, fecha)."""
+    base = ("categoria = 'otro' AND informacion ILIKE 'Diferencias diarias%%' "
+            "AND moneda = %(moneda)s")
+    bp: dict = {"moneda": moneda}
     if scope is not None:
         base += " AND id_cuenta = ANY(%(scope)s)"
         bp["scope"] = list(scope)
@@ -908,8 +911,9 @@ def ops_diferencias_fechas(moneda: str = "USDL") -> dict:
     rows = _q(
         "SELECT to_char(fecha, 'YYYY-MM-DD') AS fecha, COUNT(*) AS n "
         "FROM negocio_movimientos "
-        "WHERE categoria = 'otro' AND informacion ILIKE %(dif)s AND moneda = %(moneda)s "
+        "WHERE categoria = 'otro' AND informacion ILIKE 'Diferencias diarias%%' "
+        "AND moneda = %(moneda)s "
         "GROUP BY fecha ORDER BY fecha DESC",
-        {"dif": "Diferencias diarias%", "moneda": moneda},
+        {"moneda": moneda},
     )
     return {"fechas": [{"fecha": r["fecha"], "n": r["n"]} for r in rows]}

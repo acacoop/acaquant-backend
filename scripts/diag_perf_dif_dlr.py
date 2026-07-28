@@ -54,31 +54,31 @@ def _explain(label: str, sql: str, params: dict):
 
 def bloque_b():
     print("\n=== B) EXPLAIN ANALYZE (query representativa de cada vista) ===")
-    # DLR por_cuenta — la query tipo de ops_dolar_futuro:
+    # DLR por_cuenta — la query tipo de ops_dolar_futuro (literal inline, como el service):
     _explain(
         "DLR por_cuenta (YTD)",
         "SELECT denominacion, SUM(ABS(COALESCE(cantidad,0))*1000) AS noc, count(*) AS n "
-        "FROM operaciones WHERE instrumento ILIKE %(dlr)s "
+        "FROM operaciones WHERE instrumento ILIKE '%%DLR%%' "
         "AND concertacion >= %(d)s AND concertacion <= %(h)s "
         "GROUP BY denominacion ORDER BY noc DESC NULLS LAST",
-        {"dlr": "%DLR%", "d": YTD, "h": HOY},
+        {"d": YTD, "h": HOY},
     )
-    # DIF por_cuenta — la query tipo de ops_diferencias_diarias:
+    # DIF por_cuenta — la query tipo de ops_diferencias_diarias (literal inline):
     _explain(
         "DIF por_cuenta (YTD, USDL)",
         "SELECT cuenta, SUM(importe) AS imp, COUNT(*) AS n FROM negocio_movimientos "
-        "WHERE categoria = 'otro' AND informacion ILIKE %(dif)s AND moneda = %(m)s "
-        "AND fecha >= %(d)s AND fecha <= %(h)s "
+        "WHERE categoria = 'otro' AND informacion ILIKE 'Diferencias diarias%%' "
+        "AND moneda = %(m)s AND fecha >= %(d)s AND fecha <= %(h)s "
         "GROUP BY cuenta ORDER BY SUM(ABS(importe)) DESC NULLS LAST",
-        {"dif": "Diferencias diarias%", "m": "USDL", "d": YTD, "h": HOY},
+        {"m": "USDL", "d": YTD, "h": HOY},
     )
-    # DIF fechas — el scan sin cota de fecha:
+    # DIF fechas — el scan sin cota de fecha (literal inline):
     _explain(
         "DIF fechas (todo el histórico)",
         "SELECT fecha, COUNT(*) AS n FROM negocio_movimientos "
-        "WHERE categoria = 'otro' AND informacion ILIKE %(dif)s AND moneda = %(m)s "
-        "GROUP BY fecha",
-        {"dif": "Diferencias diarias%", "m": "USDL"},
+        "WHERE categoria = 'otro' AND informacion ILIKE 'Diferencias diarias%%' "
+        "AND moneda = %(m)s GROUP BY fecha",
+        {"m": "USDL"},
     )
 
 

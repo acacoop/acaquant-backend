@@ -285,6 +285,12 @@ CREATE INDEX IF NOT EXISTS ix_ops_arancel_cuenta ON operaciones.operaciones(id_c
     WHERE arancel <> 0 AND etapa IS DISTINCT FROM 'solicitud';
 CREATE INDEX IF NOT EXISTS ix_ops_arancel_concert ON operaciones.operaciones(concertacion)
     WHERE arancel <> 0 AND etapa IS DISTINCT FROM 'solicitud';
+-- DÓLAR FUTURO (perf 2026-07-28, medido con EXPLAIN): la vista /ops/dolar-futuro corre
+-- 5 agregaciones con `instrumento ILIKE '%DLR%'` — comodín adelante = no indexable →
+-- leía 92k filas YTD para quedarse con 1k (1,1%). Parcial: solo filas DLR. Las queries
+-- de ops_dolar_futuro llevan el literal inline para que el planner matchee el predicado.
+CREATE INDEX IF NOT EXISTS ix_ops_dlr_concert ON operaciones.operaciones(concertacion)
+    WHERE instrumento ILIKE '%DLR%';
 
 -- CashFlow.NegocioMovimientos (~339k). Grano único (fecha, comprobante). La escribe
 -- directo jobs/negocio_movimientos.py (SQL-native).
@@ -327,6 +333,12 @@ ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS aranceles  
 CREATE INDEX IF NOT EXISTS ix_nm_id_cuenta ON operaciones.negocio_movimientos(id_cuenta, fecha);
 CREATE INDEX IF NOT EXISTS ix_nm_categoria ON operaciones.negocio_movimientos(categoria, fecha);
 CREATE INDEX IF NOT EXISTS ix_nm_cuenta    ON operaciones.negocio_movimientos(cuenta, fecha);
+-- DIFERENCIAS DIARIAS (perf 2026-07-28, medido con EXPLAIN): el planner elegía la PKEY
+-- (fecha, comprobante) para el rango → 89k buffers y 5 queries de ~290ms por request.
+-- Parcial que calza EXACTO con la vista (moneda + fecha, solo filas de diferencias).
+-- ops_diferencias_diarias/_fechas llevan el ILIKE literal inline para matchear.
+CREATE INDEX IF NOT EXISTS ix_nm_dif ON operaciones.negocio_movimientos(moneda, fecha)
+    WHERE categoria = 'otro' AND informacion ILIKE 'Diferencias diarias%';
 
 -- CashFlow.Movimientos → depósitos / extracciones / transferencias (vista FLUJOS,
 -- /api/operaciones/flujos). La escribe jobs/cashflow.py ($setOnInsert por

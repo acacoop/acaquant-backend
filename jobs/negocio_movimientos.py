@@ -9,9 +9,14 @@ se actualiza; si es nuevo, inserta. No duplica.
 Cron: una corrida por hora de 12 ART a 22 ART (15-22 UTC) L-V.
 Ver deploy/crontab.txt.
 
+Lookback: por default ingiere hoy + `_LOOKBACK_HABILES` días hábiles previos.
+Las diferencias diarias de futuros llegan a Aunesa T+1/T+2 → ingerir SÓLO "hoy"
+las perdía (corte del 2026-05-06). Idempotente: re-ingerir no duplica.
+
 Uso:
-    python -m jobs.negocio_movimientos              # día de hoy ART
+    python -m jobs.negocio_movimientos              # hoy + últimos hábiles (lookback)
     python -m jobs.negocio_movimientos --fecha 2026-05-04
+    python -m jobs.negocio_movimientos --desde 2026-05-07 --hasta 2026-07-25   # backfill
     python -m jobs.negocio_movimientos --fecha 2026-05-04 --dry
 
 Schema doc en CashFlow.NegocioMovimientos:
@@ -43,6 +48,7 @@ import argparse
 import logging
 import re
 import sys
+import time
 from datetime import UTC, date, datetime, timedelta
 
 sys.path.insert(0, ".")
@@ -50,6 +56,14 @@ sys.path.insert(0, ".")
 from api.services import aunesa_negocio as svc
 from api.services._mep import get_mep_for_date
 from core.postgres import get_job_pool
+
+# Ventana de lookback (días hábiles hacia atrás, hoy incluido aparte). Las
+# "Diferencias diarias" de futuros llegan a Aunesa T+1 (a veces T+2): cuando el
+# cron corre el día T, todavía NO están → hay que re-ingerir los últimos días
+# hábiles para capturarlas (idempotente por (fecha, comprobante), no duplica).
+# Ver scripts/diag_diferencias_freshness.py: el corte del 2026-05-06 fue por
+# ingerir SOLO "hoy". También recupera correcciones tardías de cualquier boleto.
+_LOOKBACK_HABILES = 2
 
 # `cuenta` viene "[805] NOMBRE" → id de la cuenta comitente. Denormalizado en
 # el doc para que las queries por cuenta usen índice (en vez de regex). Lo
@@ -60,6 +74,18 @@ _RE_ID_CUENTA = re.compile(r"^\[(\d+)\]")
 def _extract_id_cuenta(cuenta: str | None) -> str | None:
     m = _RE_ID_CUENTA.match(cuenta or "")
     return m.group(1) if m else None
+
+
+def _ultimos_habiles(hoy: date, n_atras: int) -> list[date]:
+    """`hoy` + los `n_atras` días hábiles previos (asc). Cuenta por días hábiles
+    (no calendario) → la ventana no se come los fines de semana."""
+    dias: list[date] = []
+    d = hoy
+    while len(dias) < n_atras + 1:
+        if d.weekday() < 5:  # 0=lun .. 4=vie
+            dias.append(d)
+        d -= timedelta(days=1)
+    return sorted(dias)
 
 
 def _boleto_a_doc(b: dict, fecha_iso: str, ahora: datetime, mep: float | None) -> dict:
@@ -162,27 +188,55 @@ def run(fecha_d: date, dry: bool = False) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--fecha", help="YYYY-MM-DD; default: hoy ART")
+    parser.add_argument("--fecha", help="YYYY-MM-DD; ingesta SÓLO ese día")
+    parser.add_argument("--desde", help="YYYY-MM-DD; default hoy-lookback hábiles ART")
+    parser.add_argument("--hasta", help="YYYY-MM-DD; default hoy ART")
     parser.add_argument("--dry", action="store_true",
                         help="No escribe a SQL, solo reporta cuántos persistirían")
     args = parser.parse_args()
 
+    hoy = (datetime.now(UTC) - timedelta(hours=3)).date()  # ART
+
     if args.fecha:
         try:
-            d = datetime.strptime(args.fecha, "%Y-%m-%d").date()
+            dias = [datetime.strptime(args.fecha, "%Y-%m-%d").date()]
         except ValueError:
             print(f"--fecha mal formada: {args.fecha}")
             return 1
+    elif args.desde or args.hasta:
+        # Rango explícito (backfill). Ingesta cada día hábil de [desde, hasta].
+        try:
+            desde_d = (datetime.strptime(args.desde, "%Y-%m-%d").date() if args.desde else hoy)
+            hasta_d = (datetime.strptime(args.hasta, "%Y-%m-%d").date() if args.hasta else hoy)
+        except ValueError:
+            print("--desde/--hasta mal formadas (YYYY-MM-DD)")
+            return 1
+        if desde_d > hasta_d:
+            print("--desde no puede ser mayor que --hasta")
+            return 1
+        dias = []
+        d = desde_d
+        while d <= hasta_d:
+            if d.weekday() < 5:  # feriados devuelven vacío igual, no rompe
+                dias.append(d)
+            d += timedelta(days=1)
     else:
-        d = (datetime.now(UTC) - timedelta(hours=3)).date()
+        # Default del cron: hoy + últimos días hábiles (captura diferencias T+1).
+        dias = _ultimos_habiles(hoy, _LOOKBACK_HABILES)
 
     from core.job_runs import JobRunLogger
     with JobRunLogger("negocio_movimientos") as jr:
-        res = run(fecha_d=d, dry=args.dry)
-        if isinstance(res, dict):
-            for k, v in res.items():
-                jr.set_stat(k, v)
-    print(f"\n→ {res}")
+        agg = {"dias": len(dias), "rango": f"{dias[0]}..{dias[-1]}" if dias else "",
+               "boletos": 0, "skipped": 0, "upsertados": 0}
+        for i, d in enumerate(dias):
+            res = run(fecha_d=d, dry=args.dry)
+            for k in ("boletos", "skipped", "upsertados"):
+                agg[k] += res.get(k, 0) or 0
+            if i < len(dias) - 1:
+                time.sleep(2)  # throttle suave entre días (REGLA #4)
+        for k, v in agg.items():
+            jr.set_stat(k, v)
+    print(f"\n→ {agg}")
     return 0
 
 

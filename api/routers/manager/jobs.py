@@ -34,7 +34,6 @@ def _set_job(job_id: str, **kwargs):
 _CMDS: dict[str, list[str]] = {
     "cashflow":        ["jobs.cashflow", "--today"],
     "bcra":            ["jobs.bcra", "--today"],
-    "crear_indices":   ["scripts.crear_indices"],
     "cleanup_curvas":  ["jobs.cleanup_curvas", "--dry"],
     "backfill_tasas":  ["jobs.backfill_tasas"],
     # Auto-control de calidad de datos: re-corre los controles y actualiza

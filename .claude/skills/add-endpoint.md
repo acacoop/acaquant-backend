@@ -87,8 +87,7 @@ Sumar al catálogo de `docs/API.md` con:
 
 ## 7. Test
 
-- **Smoke**: sumar al array de endpoints de `scripts/test_api.py` si es relevante.
-- **Unit**: si la lógica tiene ramas interesantes, test en `tests/unit/test_<modulo>.py` mockeando `get_mongo_client_read()` o usando fixtures.
+- **Unit**: si la lógica tiene ramas interesantes, test en `tests/unit/test_<modulo>.py` usando fixtures.
 
 ## Criterios de éxito
 

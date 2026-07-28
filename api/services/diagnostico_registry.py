@@ -17,8 +17,7 @@ Frescura por tipo de pieza:
                  cae a su colección de salida (`db/coll/field`).
 
 ⚠️ Los `run_tipo` de los jobs son el `tipo` con que cada cron registra en
-Manager.JobRuns. Se confirman con `python -m scripts.diag_jobruns_tipos`
-(read-only) — si una fila sale "sin_datos", el run_tipo no coincide y se ajusta.
+Manager.JobRuns. Si una fila sale "sin_datos", el run_tipo no coincide y se ajusta.
 """
 from __future__ import annotations
 

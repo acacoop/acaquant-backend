@@ -2,7 +2,7 @@
 
 Doc madre: docs/VISTA_RESEARCH.md. Cambiar de proveedor / URL = tocar solo acá.
 
-Lo que resuelve (verificado con scripts/diag_1816.py el 2026-07-18):
+Lo que resuelve (verificado el 2026-07-18):
 - **Auth**: POST /v1/auth/token (apiKey + module=mercado) → JWT 24h. Cacheado en
   memoria del proceso; re-auth automático al vencer o ante 401.
 - **RATE LIMIT DURO (429)**: la API tira "Demasiadas solicitudes" al encadenar

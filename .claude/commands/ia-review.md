@@ -40,7 +40,7 @@ Superficie: `api/services/asistente.py`, `asistente_tools.py`,
    - **Gateway/ruteo** (`core/ai.py`, `core/llm.py`): ¿tareas ruteadas al
      proveedor equivocado (privacidad)? ¿fail-closed intacto? ¿max_tokens/
      thinking mal seteados para la tarea?
-   - **Evals/observabilidad** (`scripts/eval_*`, `bateria_*`, `diag_ia_trazas`):
+   - **Evals/observabilidad** (`scripts/eval_*`, `diag_ia_trazas`):
      ¿qué NO está cubierto por un candado? ¿casos reales que salieron mal y no
      quedaron en una batería?
 

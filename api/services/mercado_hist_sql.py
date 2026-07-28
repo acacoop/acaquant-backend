@@ -15,7 +15,7 @@ Filtros: `fecha` por la columna `date` (== comparación lexicográfica del strin
 Mongo 'YYYY-MM-DD'); subclave por la columna `k` (k=ticker en FuturosDLR, moneda
 en Caucion, curva en ForwardsHistorico, '' en BreakevensHistorico).
 
-Dual-run flag `MERCADO_HIST_SQL`. Gate: `scripts/compare_mercado_hist_sql_vs_mongo.py`.
+Lee de Postgres (Supabase); las tablas espejo son el system of record.
 """
 from __future__ import annotations
 

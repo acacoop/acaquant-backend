@@ -1,12 +1,10 @@
 """api/services/operaciones_sql.py — vista OPERACIONES leyendo de Postgres (Supabase).
 
-Servicio PURO (sin FastAPI). Espejo SQL de los endpoints `/api/operaciones/ops/*` que hoy
-leen Mongo (`api/routers/operaciones.py`). Cada función devuelve EXACTAMENTE el mismo shape
-que su endpoint para poder hacer dual-run y comparar SQL vs Mongo (ver
-scripts/compare_ops_sql_vs_mongo.py). Agrega EN VIVO (sin rollup): Postgres agrega 490k
-filas con índice en milisegundos. Ver docs/SQL.md y el plan de migración.
+Servicio PURO (sin FastAPI). Sirve los endpoints `/api/operaciones/ops/*`
+(`api/routers/operaciones.py`) leyendo Postgres. Agrega EN VIVO (sin rollup):
+Postgres agrega 490k filas con índice en milisegundos. Ver docs/SQL.md.
 
-Reglas de traducción Mongo→SQL blindadas (verificadas con diag_ops_sql_nulls):
+Reglas de traducción de campos blindadas (verificadas contra los datos reales):
   * etapa: `IS DISTINCT FROM 'solicitud'` (98% de los docs tienen etapa NULL; `<> 'solicitud'`
     NO matchea NULL en SQL → perdería todo). Equivale al `$ne` de Mongo.
   * es_cierre: `COALESCE(es_cierre, false) = false`. NULL = NO es cierre (ej. FCI

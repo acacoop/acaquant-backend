@@ -7,7 +7,7 @@ aparte por el lado del mercado. Aparecen en `NegocioMovimientos` con
 Si NO se filtran, inflan:
 - el volumen operado por operador (KPI comercial),
 - los gráficos de NEGOCIO de `/operaciones/negocio`,
-- el matching de `backfill_aranceles.py` contra `/operaciones/informes`
+- el matching de `jobs/aranceles.py` contra `/operaciones/informes`
   (los futuros nunca van a tener arancel ahí → quedan como "sin match" falso).
 
 Sumar unidades nuevas acá las propaga a todos los consumidores en un único

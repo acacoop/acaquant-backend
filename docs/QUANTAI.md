@@ -271,7 +271,7 @@ VISTA_RESEARCH.md) y AYUDA (el GUÍA de navegación en toda página — jamás d
 > auto-corrección (reflexion), voz de operador, tono por rol, chips curados,
 > conversaciones separadas · EL VIGÍA: watchers deterministas → toasts
 > cero-tokens con "¿lo miramos?" y agregar-tarjeta 1-click. Tooling:
-> bateria_rf/bateria_home (preguntas reales, cazaron ~20 bugs) +
+> baterías de preguntas reales (cazaron ~20 bugs) +
 > diag_contexto --vista (el contexto exacto sin tokens, todas las vistas). v1.40/41: derivación entre vistas (pregunta de otro
 > dominio → "consultalo desde X" + botón RBAC-aware con HANDOFF: la vista
 > destino re-pregunta sola, misma conversación), mensajes de presupuesto

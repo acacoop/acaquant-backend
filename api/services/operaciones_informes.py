@@ -60,8 +60,8 @@ def _norm_header(h: str) -> str:
 # "Rueda OTC NDF OTC - Compra/Venta" y "Rueda OTC Opciones OTC - Compra/Venta"
 # eran ~22% de la colección (107k docs, ~49 MB) bajo operacion="otro",
 # mercado=None y volumen despreciable (~7,9M USD en 3,5 años) → ruido para la
-# vista OPERACIONES. Se purgaron (scripts/delete_otc_ndf_opciones.py) y se
-# bloquean acá para que no vuelvan a entrar. OJO: NO excluye "Concurrencia OTC".
+# vista OPERACIONES. Se purgaron una vez y se bloquean acá para que no vuelvan
+# a entrar. OJO: NO excluye "Concurrencia OTC".
 _OTC_EXCLUIR_RE = re.compile(r"NDF\s*OTC|Opciones\s*OTC", re.IGNORECASE)
 
 

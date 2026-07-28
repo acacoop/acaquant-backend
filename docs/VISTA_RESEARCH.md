@@ -172,7 +172,7 @@ la UI/el copiloto formatean (mismo criterio que el resto del sistema).
 
 ### 4.4b Cobertura REAL del catálogo 1816 (medida 2026-07-18 — referencia para crecer)
 
-Relevada con `scripts/diag_1816_cobertura.py --todas` (salida completa capturada
+Relevada el 2026-07-18 (salida completa capturada
 ese día): **869 instrumentos en 28 curvas**. El mapa grueso:
 
 - **Soberanos**: todas las curvas conocidas (bonares, globales, CER, tasa fija,

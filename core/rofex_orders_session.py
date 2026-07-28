@@ -74,7 +74,7 @@ def normalizar_cuenta(account: str | None) -> str:
     (listado de cuentas, id que el front reenvía).
 
     OJO — historia: antes esto padeaba a 3 dígitos ('9' → '009') asumiendo que ROFEX
-    exigía padding. FALSO: se midió contra el broker (scripts/diag_rofex_cuenta) y NO hay
+    exigía padding. FALSO: se midió contra el broker y NO hay
     regla — algunas cuentas ROFEX las quiere crudas ('15'), otras con cero ('009'), sin
     patrón. La traducción al número que ROFEX acepta la hace `resolver_cuenta_rofex`
     (prueba contra el broker + cachea), NO un formateo."""

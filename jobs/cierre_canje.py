@@ -9,7 +9,7 @@ Lee el último trade del día desde Trading.TimeSales (1 doc por ticker vía ín
 (ticker, timestamp)). GUARD: precio <= 0 → skip (no persiste cierres stale).
 
 IDEMPOTENTE: upsert por (ticker, fecha). Re-correr el mismo día pisa con el
-mismo valor. Backfill histórico inicial: scripts/backfill_cierre_canje.py.
+mismo valor.
 
 Uso:
     python -m jobs.cierre_canje              # cierre del día UTC actual

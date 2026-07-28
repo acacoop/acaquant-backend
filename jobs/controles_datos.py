@@ -177,9 +177,8 @@ def _chk_rf_valuada_x1() -> list[dict]:
     tenencia quedó SIN dividir por 100 (cociente valuacion/(precio×cantidad)≈1).
     Es la firma del bug LEDE (2026-07-24: Aunesa inventó el tipoTitulo 'LEDE',
     no estaba en TIPOS_DIVISOR_100 → la S13N6 quedó ×100 en el AuM). Si Aunesa
-    inventa OTRO tipo nuevo, aparece acá al día siguiente. Acción: medir el
-    tipo con scripts/diag_tipotitulo_aunesa, sumarlo a las listas y corregir
-    la historia con scripts/fix_valuacion_lede."""
+    inventa OTRO tipo nuevo, aparece acá al día siguiente. Acción: sumar el
+    tipo nuevo a las listas de divisor y corregir la historia de tenencia."""
     rows = _q(
         "SELECT unidad, count(*) AS n, sum(valuacion) AS val "
         "FROM portafolio.tenencia "

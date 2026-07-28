@@ -4,7 +4,7 @@ Flujo: el Excel (cualquier columnas; el CUIT está en 'Nº ident.fis.1') se cruz
 contra Clientes.Comitentes y se parte en LAS QUE TENEMOS (con su id_cuenta) y LAS
 QUE NO. Sobre las que tenemos, un botón segmenta → nivel_1 = "PRODUCTORES".
 
-Matcher (no inferible, verificado con scripts/diag_titular_cuit):
+Matcher (no inferible, verificado contra las cuentas reales):
   Nuestras cuentas guardan en `tipo_doc`/`nro_doc` (derivados del `titular` de
   Aunesa) un DNI (físicas, 7-8 díg) o un CUIT/CUIL/CDI (jurídicas, 11 díg). El
   Excel trae CUIT (11). Un CUIT contiene el DNI de 8 en el medio (TT-DDDDDDDD-V),

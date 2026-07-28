@@ -235,7 +235,7 @@ con regex `\bCAFCI\d+-\d+\b`.
 - `backfill_assets_instrumento.py` valida candidatos contra
   `manager.pyrofex_instruments` (lista canónica de pyRofex 24hs).
 - Solo setea si el INSTRUMENTO existe en pyRofex — los strings inválidos
-  quedan visibles via `audit_assets_instrumento.py`.
+  quedan visibles en /manager → DIAGNÓSTICO.
 
 ---
 
@@ -522,12 +522,6 @@ git pull && sudo systemctl restart api.service
 # Si tocás motor portfolio_snapshot:
 sudo systemctl restart motor_portfolio_snapshot.service
 journalctl -u motor_portfolio_snapshot.service -f
-
-# Diagnóstico de cobertura live:
-python -m scripts.diagnose_live_coverage
-
-# Auditar Assets.INSTRUMENTO contra pyRofex:
-python -m scripts.audit_assets_instrumento --top 30
 
 # Ver motor en /manager → DIAGNÓSTICO (incluye PortfolioSnapshot
 # como motor + Aunesa como API externa).

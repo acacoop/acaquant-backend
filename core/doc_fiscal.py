@@ -4,7 +4,7 @@ Vive en core/ (no importa nada del proyecto) para que la puedan usar por igual
 `jobs/sync_comitentes` (al persistir) y `api/services/control_automatico` (al
 cruzar) sin romper la regla de capas.
 
-Verificado con scripts/diag_titular_cuit: nuestras cuentas guardan DNI (físicas,
+Verificado contra las cuentas reales: guardan DNI (físicas,
 7-8 díg) o CUIT/CUIL/CDI (jurídicas, 11) en el `titular` de Aunesa; el Excel del
 Control Automático trae CUIT (11). Un CUIT contiene el DNI de 8 en el medio
 (TT-DDDDDDDD-V) → el cruce se hace por claves equivalentes.

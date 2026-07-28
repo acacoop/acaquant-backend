@@ -84,8 +84,8 @@ def listar_bonos_seleccionables() -> list[dict]:
     Lee metadata de Curvas directo (NO usa listar_curva): el selector solo
     necesita ticker/vto/tipo/moneda/cer_fijado, y listar_curva enriquece cada
     bono con precio/TEA/duration/tc_breakeven desde MarketSnapshot — cómputo
-    caro (~90% del tiempo) que acá se descartaba. Equivalencia verificada con
-    scripts/diag_comparar_seleccionables (868ms→24ms, output idéntico).
+    caro (~90% del tiempo) que acá se descartaba. Equivalencia verificada
+    (868ms→24ms, output idéntico).
     """
     fijados = _bonos_cer_fijados()
     ahora = datetime.now(UTC)

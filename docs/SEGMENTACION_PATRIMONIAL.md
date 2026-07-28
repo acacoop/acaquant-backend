@@ -58,8 +58,7 @@ moneda/unidad correspondiente.
 ### Distinguir PH vs PJ
 
 Source of truth: campo **`tipo_cliente`** de `Comitentes`. Mapping confirmado
-contra los valores reales (ver `scripts/diag_tipo_cliente.py`, corrida
-2026-05-28 sobre 1773 cuentas):
+contra los valores reales (corrida 2026-05-28 sobre 1773 cuentas):
 
 | `tipo_cliente`              | Clasificación | n    |
 |-----------------------------|---------------|------|
@@ -359,8 +358,8 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
   `MANUAL_SUBDOCS = ("limite_fondeo",)` que se inicializa como `{}` en
   `$setOnInsert` para que dot-notation funcione desde el primer write.
   Imports validados (REGLA #1) — 205 routes OK.
-- **2026-05-28** — **Mapping PH/PJ confirmado contra datos reales.** Diag
-  `scripts/diag_tipo_cliente.py` corrido sobre 1773 cuentas reveló 7 valores
+- **2026-05-28** — **Mapping PH/PJ confirmado contra datos reales.** Un diag
+  corrido sobre 1773 cuentas reveló 7 valores
   de `tipo_cliente` + 53 nulls. Mapping fijado: PH = `{Persona, Empleado}`,
   PJ = `{Empresa, Fondo Común de Inversión, Compañía de seguros, Fideicomiso,
   Institucional}`, null = sin clasificar. Se cerró la decisión abierta de

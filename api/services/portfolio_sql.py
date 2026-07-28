@@ -5,7 +5,7 @@ salida → dual-run (carteras.py elige Mongo o SQL por `?_engine` / `PORTFOLIO_S
 frontend de /aum no cambia; solo cambia de dónde salen los datos.
 
 Fuente: **`portafolio.tenencia`** (fechas reales corregidas, regla H1). Solo cuentan las
-filas marcadas `aum = 'si'` (columna seteada por `scripts/marcar_aum_tenencia` con el
+filas marcadas `aum = 'si'` (columna seteada por el writer diario con el
 filtro probado `_aum_filters`). La columna de fecha es `fecha` (se expone como
 `fecha_snapshot` en el SELECT para no tocar el resto). La 255 SÍ aparece en SQL (se sacó
 la exclusión de la vista, a pedido del usuario; el path Mongo la sigue ocultando). `cartera`/`emisor`/`ticker` se

@@ -23,8 +23,7 @@ consume **`jobs/portafolio_backfill.py`** (el writer diario SQL, `--diario`,
 5. `unidad == "ARS"` para `[100]` y `[101]` (cash de cuentas propias).
 
 Las reglas 3 y 4 viven en BD (SQL `contrapartes`) — el equipo edita
-Contrapartes y se respeta solo en el próximo run. (El docstring del módulo y
-`scripts/cleanup_aum_excluidos.py` son legacy: el cleanup ya se borró.)
+Contrapartes y se respeta solo en el próximo run.
 
 **Cuenta 255**: `portfolio_sql.py` la incluye en el AuM. Sigue
 capturándose para verla individualmente.

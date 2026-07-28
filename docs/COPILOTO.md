@@ -19,7 +19,7 @@
 | Observabilidad | tabla `ia.trazas` + Manager → OBSERVABILIDAD → pill IA | Cada pregunta: tokens, latencia, ok/error, feedback 👍/👎. |
 | Tests | `tests/unit/test_copiloto.py` | Congelan contrato: TSV, gates, caps, degradación, detección de tickers, verificador. |
 | Diag de contexto | `scripts/diag_contexto.py --vista <v>` | LA LUPA (todas las vistas): imprime el contexto exacto que ve el modelo, sin tokens. Primer comando ante cualquier rareza. |
-| Baterías | `scripts/bateria_rf.py`, `scripts/bateria_home.py`, `scripts/bateria_reuters_trading.py` (+ `smoke_copiloto.py`, `eval_copiloto.py`) | Mapeo masivo de preguntas reales contra el copiloto vivo (gasta tokens del email que se pase). |
+| Baterías | `scripts/smoke_copiloto.py`, `scripts/eval_copiloto.py` | Mapeo masivo de preguntas reales contra el copiloto vivo (gasta tokens del email que se pase). |
 
 ## Cómo fluye una pregunta
 
@@ -209,7 +209,7 @@ encuentro", en vez de reconsiderar, INSISTIÓ con la misma ubicación falsa.
   mapa de nuevo y, si no está claro, admitirlo en vez de inventar; (2) la guía
   NO produce datos ni cuadros — prohibido ofrecer "pasarte el cuadro" o
   "disparar la herramienta", eso lo hace la vista cuando el usuario llega.
-- **[candado]** el caso quedó en `scripts/bateria_guia.py`.
+- **[candado]** el caso quedó en el eval set (`scripts/eval_copiloto.py`).
 - **Deuda pendiente (no resuelta):** el mapa es curado a mano y deriva de la
   realidad del frontend sin que nada lo detecte. Este es el 2º caso de mapa
   stale (el 1º fue "garantía"/"FCI operado"). Si se vuelve recurrente, evaluar
@@ -559,7 +559,7 @@ proveedor con no-entrenamiento contractual + borrado a 30 días.
   operativa de que el ruteo de privacidad quedó bien.
 
 ### 2026-07-21 — v1.79b (post-batería de negocio: 13/15 buenas, 5 fixes finos)
-`bateria_negocio` corrida en prod (15 preguntas, trazas 503-529). PASÓ: caso
+Batería de negocio corrida en prod (15 preguntas, trazas 503-529). PASÓ: caso
 Curzel completo (#6), equivalencias Rofex→A3 y FCI (#9/10), fechas habladas,
 y las DOS trampas de honestidad (#13 cuenta puntual, #15 dimensión operador:
 "no tengo esa herramienta" — cero invento). Lo cazado y bajado a código:
@@ -865,7 +865,7 @@ EWZ?" y el copiloto volcó datos técnicos en vez de preguntar el objetivo):
   el copiloto cuando el panel de OBSERVABILIDAD quedó tapado por una batería.
 
 ### 2026-07-20 — v1.64 (guía: filtros de Operaciones EN VIVO + fixes de la batería)
-Primera batería del guía (`bateria_guia`, 20/20 respondidas) + pedido del user
+Primera batería del guía (20/20 respondidas) + pedido del user
 (que sepa los filtros de Operaciones y sus valores):
 - **[contexto +] `[filtros de Operaciones]`**: los VALORES vigentes de los
   selectores de MOVIMIENTOS (mercado / segmento nivel 1 / nivel 3) leídos EN
@@ -1124,7 +1124,7 @@ causas/conocimiento externo no).
   `reuters-view.tsx`. Pendiente: batería manual del user desde el panel.
 
 ### 2026-07-14 — v1.50 (post-batería de las 3 vistas nuevas: 41/45 buenas, 4 fallas → fixes)
-Corrida real en el Droplet (`scripts/bateria_nuevas_vistas`, 15×3): agro 14/15 ·
+Corrida real en el Droplet (batería de las 3 vistas nuevas, 15×3): agro 14/15 ·
 opciones 15/15 · ons 12/15. Lo que se cazó y bajó a código:
 - **[bugfix verificador, causa de 3 de las 4 fallas]** La puntuación de FRASE
   pegada al número ("operó 634.100, y…" → token `634.100,`) rompía TODOS los
@@ -1291,7 +1291,7 @@ opciones 15/15 · ons 12/15. Lo que se cazó y bajó a código:
 - **[prompt +]** PROHIBIDO promediar grupos a mano ("los granos +4%"): para
   hablar de un grupo se nombra el que más se mueve con SU número — hipótesis
   principal del bloqueo de verificación de "Narrame el briefing" del shadow.
-- **[tooling]** `scripts/bateria_home.py`: 15 preguntas (narración incluida
+- **[tooling]** batería de HOME: 15 preguntas (narración incluida
   como #1) cubriendo segmentos, honestidad y derivación — para correr en el
   Droplet y cazar los bloqueos con su motivo.
 
@@ -1417,7 +1417,7 @@ opciones 15/15 · ons 12/15. Lo que se cazó y bajó a código:
   histórico de memoria).
 
 ### 2026-07-12 — v1.34 (batería de 15: cluster de escalas y contratos)
-- **[bugfix ×5, todos cazados por scripts/bateria_rf]** (1) TEA/TEM/tea_fit
+- **[bugfix ×5, todos cazados por la batería de RF]** (1) TEA/TEM/tea_fit
   llegan en FRACCIÓN de los services → normalizados a % en el fetch ("lecaps
   al 0.22% TEA" era esto; también cierres, forwards, breakevens y shocks de
   sensibilidad, cada uno en su bloque). (2) `get_ultimo_mep` vive en

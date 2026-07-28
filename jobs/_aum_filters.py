@@ -1,8 +1,7 @@
 """Reglas de exclusión aplicadas a `Valuaciones.AuM`.
 
 Single source of truth: usado por `jobs/aum.py` para no persistir registros
-nuevos que matcheen, y por `scripts/cleanup_aum_excluidos.py` para limpiar
-los que ya están en la colección (backfill one-shot).
+nuevos que matcheen.
 
 Reglas:
   1. `unidad == "USDL"` (cash USD link, no contabiliza).

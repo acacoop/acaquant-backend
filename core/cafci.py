@@ -6,8 +6,8 @@ parseado de los boletos de negocio_movimientos); la descripción es el NOMBRE de
 fondo (lo que se muestra como `ticker` en el detalle de /aum → FCI).
 
 Fuente única del patrón FCI (código + nombre). Usado por el writer diario
-(`jobs/portafolio_backfill.py` — auto-alta de assets), el backfill
-`scripts/backfill_fci_ticker.py` y el control `controles_datos.fci_incompletos`.
+(`jobs/portafolio_backfill.py` — auto-alta de assets) y el control
+`controles_datos.fci_incompletos`.
 """
 from __future__ import annotations
 

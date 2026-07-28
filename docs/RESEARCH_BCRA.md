@@ -191,7 +191,7 @@ una vez, throttled, fuera de horario pico.
 
 ## 6. Fases
 
-- **Fase 0 — Verificación (1 diag, sin infra):** `scripts/diag_bcra.py`: catálogo
+- **Fase 0 — Verificación (1 diag, sin infra):** relevar el catálogo
   completo → confirmar `desde/hasta/offset` en series v4, shape de
   `Cotizaciones/{moneda}`, ids exactos del seed §4.2, y TLS desde el Droplet.
   Con esa salida se congela el watch inicial CON el user.

@@ -123,7 +123,7 @@ def _ensure_schema():
         # filtra aum='si'. Se setea al insertar (acá) — no hace falta correr marcar_aum aparte.
         "ALTER TABLE portafolio.tenencia ADD COLUMN IF NOT EXISTS aum text",
         # tipoTitulo crudo de Aunesa — lo usa el motor PnL (_aplicar_normalizer). Lo
-        # llena el writer; el histórico se backfillea con scripts.migrar_tipotitulo_tenencia.
+        # llena el writer diario.
         "ALTER TABLE portafolio.tenencia ADD COLUMN IF NOT EXISTS tipo_titulo text",
         # gar_cantidad: nominales del título que Aunesa marca en GARANTÍA (estado='GAR').
         # Se llena desde el writer (parte de la cantidad total). NULL = sin GAR / histórico

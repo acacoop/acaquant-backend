@@ -8,8 +8,7 @@ Este job lo calcula offline (sin límite de tiempo) y lo persiste SQL-native en
 `valuaciones.consolidado`. El endpoint `/api/valuaciones/consolidado` lo lee
 (VALUACIONES_SQL=1) — instantáneo.
 
-Cutover 2026-06-26: dejó de escribir `Valuaciones.ConsolidadoCuentas` (Mongo). SQL es
-la fuente; Mongo quedó huérfana y se dropea (scripts/drop_mongo_migradas).
+SQL es la única fuente (Mongo decomisado 2026-06-29).
 
 Corre como cron diario después del AuM final.
   python -m jobs.consolidado_cuentas

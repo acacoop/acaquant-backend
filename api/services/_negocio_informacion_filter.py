@@ -4,11 +4,9 @@ Lista canónica de substrings que NO deben entrar a la base — son movimientos
 administrativos / regulatorios que ensucian el control comercial sin aportar
 información operativa.
 
-Aplicado en 2 lugares:
-- INGESTA (`jobs.negocio_movimientos` via `api/services/aunesa_negocio.py`):
-  se descartan ANTES del upsert → nunca entran a la base.
-- CLEANUP (`scripts/cleanup_negocio_informacion.py`): borra de la base los
-  que ya están persistidos.
+Aplicado en la INGESTA (`jobs.negocio_movimientos` via
+`api/services/aunesa_negocio.py`): se descartan ANTES del upsert → nunca
+entran a la base.
 
 Match: `informacion` debe contener (substring, case-sensitive) cualquiera
 de los strings de `EXCLUIR_INFORMACION_CONTAINS`. Aunesa los manda con

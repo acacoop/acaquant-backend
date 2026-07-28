@@ -39,7 +39,7 @@ _EDITABLE_FIELDS: tuple[str, ...] = (
     "CARTERA", "EMISOR", "INSTRUMENTO",
     "CLASE_ACTIVO", "CALIFICACION", "TICKER", "VENCIMIENTO",
     # CODIGO_CNV: código CNV del instrumento (string; puede tener ceros a la
-    # izquierda). Se edita a mano o se carga masivo (scripts/backfill_codigo_cnv).
+    # izquierda). Se edita a mano desde el manager.
     "CODIGO_CNV",
 )
 

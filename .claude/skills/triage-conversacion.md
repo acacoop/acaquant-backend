@@ -44,7 +44,7 @@ distinto y un precedente real:
 | Números que no cuadran entre sí | El modelo aritmetizó (tiene PROHIBIDO) o mezcló datos de tools distintas | El cálculo va en CÓDIGO; el prompt prohíbe sumar/comparar entre tools sin aclarar que miden distinto. |
 
 Si no matchea ninguno, es un modo NUEVO: describilo, y una vez resuelto va a la
-tabla de este skill y a una batería (`scripts/bateria_*`).
+tabla de este skill y al eval set (`scripts/eval_asistente.py`).
 
 ## 3. Confirmar la causa en el código (no reportar sin verificar)
 
@@ -55,9 +55,8 @@ Antes de proponer el fix, confirmá contra el código que la causa es esa —
 ## 4. Proponer UN fix + dejar el candado
 
 - Una causa por vez, con su explicación ejecutiva (REGLA #3).
-- **Dejá el caso en una batería** para que no vuelva: `scripts/bateria_negocio.py`
-  (asistente), `scripts/bateria_guia.py` (guía), `bateria_rf.py` / `bateria_home.py`
-  / etc. (copilotos de vista). Un bug sin candado vuelve.
+- **Dejá el caso en un eval set** para que no vuelva: `scripts/eval_asistente.py`
+  (asistente), `scripts/eval_copiloto.py` (copilotos de vista). Un bug sin candado vuelve.
 - Doc [VIVO]: si el fix tocó el copiloto/asistente, changelog en `docs/COPILOTO.md`.
 
 ## Criterios de éxito

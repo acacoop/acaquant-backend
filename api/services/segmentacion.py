@@ -26,7 +26,7 @@ sistema para todos los nivel_1..5 (evita duplicados por capitalización:
 `.upper()` antes de persistir.
 
 PH/PJ se distingue por `tipo_cliente` (mapping confirmado contra 1773 cuentas
-reales, ver `scripts/diag_tipo_cliente.py`).
+reales).
 
 Devuelve `None` (= sin clasificar) cuando falta input:
 - `cupo_transaccional_ars` ausente o ≤ 0.
@@ -36,8 +36,8 @@ Devuelve `None` (= sin clasificar) cuando falta input:
 from __future__ import annotations
 
 # Mapping PH/PJ desde tipo_cliente — confirmado 2026-05-28 sobre 1773 cuentas
-# (commit 988d8f3 / scripts/diag_tipo_cliente.py). Si Aunesa agrega tipos
-# nuevos, caen en `None` (sin clasificar) y el diag los detecta al re-correr.
+# (commit 988d8f3). Si Aunesa agrega tipos nuevos, caen en `None` (sin
+# clasificar) → aparecen como no clasificados.
 _TIPOS_PH: frozenset[str] = frozenset({"Persona", "Empleado"})
 _TIPOS_PJ: frozenset[str] = frozenset({
     "Empresa",

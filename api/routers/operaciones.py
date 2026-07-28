@@ -150,9 +150,9 @@ def flujos_resumen(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OPERACIONES (vista MOVIMIENTOS) — lee CashFlow.Operaciones (fuente: API
-# informes), enriquecida con moneda/mercado/operacion por
-# scripts/enrich_operaciones.py. Reemplaza a NEGOCIO (consolidados) para
+# OPERACIONES (vista MOVIMIENTOS) — lee operaciones.operaciones (fuente: API
+# informes), enriquecida con moneda/mercado/operacion en la ingesta
+# (jobs.operaciones_informes). Reemplaza a NEGOCIO (consolidados) para
 # operaciones de mercado. Importe = |bruto|, agrupado por `operacion`.
 # ─────────────────────────────────────────────────────────────────────────────
 

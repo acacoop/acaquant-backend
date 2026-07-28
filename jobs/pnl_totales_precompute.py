@@ -8,8 +8,7 @@ Este job hace ese cálculo offline (sin límite de tiempo) y lo persiste SQL-nat
 `valuaciones.pnl_totales_cache` — un documento por cuenta, con sus filas y el detalle
 de boletos. El endpoint `/api/portfolio/pnl-todas` lo lee (PNL_TOTALES_SQL=1) — instantáneo.
 
-Cutover 2026-06-26: dejó de escribir `Valuaciones.PnLTotalesCache` (Mongo). SQL es la
-fuente; Mongo quedó huérfana y se dropea (scripts/drop_mongo_migradas).
+SQL es la única fuente (Mongo decomisado 2026-06-29).
 
 Corre por cron cada 30 min en la rueda (:05 y :35), después de
 `negocio_movimientos`.

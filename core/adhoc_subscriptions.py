@@ -22,7 +22,7 @@ Diseño:
 Por qué LRU y no rechazo (fix 2026-07-23): cada ticker que alguien abre queda
 suscripto 7 días. El cupo se llenaba de papeles que la mesa miró hace días y ya
 no usa, y rechazar el ticker NUEVO era exactamente al revés — la card no traía
-nada aunque el mercado estuviera abierto (diag_operar_book mostró 50/50 con
+nada aunque el mercado estuviera abierto (se midió 50/50 con
 todas las filas de ayer). Desalojar la más vieja recupera esos slots muertos
 sin tocar lo que se está usando.
 """

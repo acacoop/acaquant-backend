@@ -93,8 +93,7 @@ def scope_cuenta_match(
     """Sub-doc `$match` Mongo que restringe al scope. `None` si `scope` es None
     (sin restricción). Tuple vacío → `{$in: []}` (no matchea nada).
 
-    El formato del campo DIFIERE por colección (verificado 2026-06-03,
-    scripts/diag_scope_cuenta):
+    El formato del campo DIFIERE por colección (verificado 2026-06-03):
       - `campo` dado → igualdad INDEXABLE `{campo: {$in: scope}}`. Usar para
         `campo="cuenta"` en Operaciones (cuenta == id pelado "100", índice
         cuenta_concertacion) y `campo="id_cuenta"` en NegocioMovimientos

@@ -112,10 +112,6 @@ y una en **dólares** (sufijo `D`, `VSCIOD`, precio ~100). `mercado.curvas` guar
 | Herramienta | Qué hace | Cuándo usarla |
 |---|---|---|
 | **DEBUG TEA** (`/manager → checks`, `api/services/debug_curva.py`) | Replica el motor para 1 ticker: muestra precio, TC, flujos, cashflow XIRR y compara calculado vs persistido | Entender por qué un bono da `--` o una TEA rara |
-| **`scripts/diag_ons_clasificacion.py`** | Cruza `portafolio.assets.CARTERA` vs `moneda_flujo` vs escala precio↔flujo de TODAS las ONs; marca `MONEDA?` / `ESCALA?` | Auditar clasificación masiva |
-| **`scripts/fix_ons_moneda_from_cartera.py`** | Alinea `moneda_flujo` ← CARTERA | Cuando la moneda no condice con CARTERA |
-| **`scripts/fix_ons_flujo_a_per100.py`** | Normaliza flujos DL de escala peso a ~100 | Flujo cargado en pesos |
-| **`scripts/fix_ons_valor_residual.py`** | Recalcula `valor_residual = Σ amort futura` | Si la paridad explota por residual mal escalado |
 | **`scripts/perf_scan.py`** | Anti-patterns de queries SQL | CI / antes de pushear |
 
 > El DEBUG TEA lee el precio de **`mercado.market_snapshot`** (la misma fuente que
@@ -129,9 +125,9 @@ Síntoma visible → causa → cómo detectarlo → cómo arreglarlo.
 
 | # | Síntoma | Causa | Detección | Fix |
 |---|---|---|---|---|
-| 1 | TEA `--` o falsa | `moneda_flujo` ≠ tipo real (CARTERA) | `diag_ons_clasificacion` flag `MONEDA?` | `fix_ons_moneda_from_cartera` |
-| 2 | XIRR no converge | Flujo en escala peso vs precio USD (o al revés) | `diag` flag `ESCALA?` / DEBUG: precio_usd vs monto flujo | `fix_ons_flujo_a_per100` |
-| 3 | **Paridad explotada** (ej. 144.500%) | `valor_residual` en otra escala que el flujo | Paridad >> 150% en la vista | Motor ya usa Σ amort; `fix_ons_valor_residual` limpia el dato |
+| 1 | TEA `--` o falsa | `moneda_flujo` ≠ tipo real (CARTERA) | DEBUG TEA: moneda vs CARTERA | Corregir `moneda_flujo` en `portafolio.assets` |
+| 2 | XIRR no converge | Flujo en escala peso vs precio USD (o al revés) | DEBUG TEA: precio_usd vs monto flujo | Normalizar el flujo a ~100 en `portafolio.assets` |
+| 3 | **Paridad explotada** (ej. 144.500%) | `valor_residual` en otra escala que el flujo | Paridad >> 150% en la vista | Motor ya usa Σ amort; corregir `valor_residual` en el dato |
 | 4 | TEA negativa/inflada en HD | **Pata peso** guardada en un HD → ÷MEP infla el precio | DEBUG: precio_usd > ~108 con paridad rara | **Frente #③**: usar la pata USD |
 | 5 | TEA absurda (>50% o <−50%) | **Precio stale/ilíquido** (last viejo) o bono distressed | DEBUG: comparar precio vs último trade real | Verificar precio; no es bug de cálculo |
 | 6 | Bono sin TEA pero con precio | Precio de pantalla sin trade (market data) | DEBUG muestra precio, `mercado.timesales` vacío | Normal; revisar si el precio es representativo |
@@ -148,7 +144,7 @@ Ideas para que el sistema **avise solo** en vez de descubrir los errores a ojo:
    las violaciones (p.ej. en `manager.controles_datos`, visibles en Manager):
    - paridad fuera de `[40, 160]%`
    - `|TEA|` fuera de `[-30, 60]%` (revisar precio/pata)
-   - `moneda_flujo` ≠ CARTERA (regla del `diag_ons_clasificacion`)
+   - `moneda_flujo` ≠ CARTERA
    - escala flujo ≠ escala precio (ARS con precio peso y flujo ~100)
    - bono con `flujos` pero sin TEA hace > N días
    - bono en `mercado.curvas` sin espejo en `portafolio.assets` (no entra a AuM)
@@ -171,5 +167,4 @@ Ideas para que el sistema **avise solo** en vez de descubrir los errores a ojo:
 - Motor: `engines/curvas.py` · precios: `engines/valores.py`
 - DEBUG: `api/services/debug_curva.py` · vista: `api/services/renta_fija.py`
 - TC: `core/dolar_oficial.py` (dólar oficial live) · MEP: `get_ultimo_mep`
-- Diags/fixes: `scripts/diag_ons_clasificacion.py`, `scripts/fix_ons_*.py`
 - Modelo/fórmulas no inferibles: **`CLAUDE.md` raíz** (sección "Trading.Curvas")

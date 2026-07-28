@@ -21,7 +21,7 @@ from core.eikon_live import ficha as ficha_reuters
 from core.eikon_live import tablero_fundamentals, tablero_reuters
 
 
-# Cache COMPARTIDO del tablero (perf 2026-07-18, medido con diag_sql_perf: la
+# Cache COMPARTIDO del tablero (perf 2026-07-18, medido: la
 # query LATERAL cuesta ~68ms y el front la pollea cada 5s POR USUARIO → sin
 # cache, N usuarios = N×68ms cada 5s). TTL 4s < poll 5s: sigue siendo "live"
 # (a lo sumo 4s de rezago) pero todos los usuarios comparten UNA query.

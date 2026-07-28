@@ -1,12 +1,9 @@
 """api/services/comercial_sql.py — vista COMERCIAL leyendo de Postgres (Supabase).
 
-Servicio PURO (sin FastAPI). Espejo SQL de `api/services/comercial.py` (los endpoints
-`/api/operaciones/comercial/*`). Mismo shape de salida → dual-run + comparación
-(scripts/compare_comercial_sql_vs_mongo.py). Ver docs/MIGRACION_MONGO_SUPABASE.md.
-
-Reusa de comercial.py la lógica de presentación que NO toca Mongo: `_cv` (dolarización al
-MEP actual), `_factor_usd`, `estado_comercial`, `_hoy_art`, y las tuplas de categorías. Las
-agregaciones (que en Mongo eran pipelines) se hacen en vivo en SQL.
+Servicio PURO (sin FastAPI). Sirve los endpoints `/api/operaciones/comercial/*`
+leyendo Postgres. Reusa de comercial.py la lógica de presentación: `_cv`
+(dolarización al MEP actual), `_factor_usd`, `estado_comercial`, `_hoy_art`, y
+las tuplas de categorías. Las agregaciones se hacen en vivo en SQL.
 
 Reglas SQL: `unidad IS DISTINCT FROM 'USDL'` (excluir futuros), pesificación por `mep` del
 boleto, AuM "último snapshot" = `max(fecha_snapshot)` GLOBAL, `etapa IS DISTINCT FROM

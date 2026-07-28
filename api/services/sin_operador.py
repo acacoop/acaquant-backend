@@ -6,8 +6,8 @@ están en Comitentes las categoriza (propia / contraparte / FCI / OTC) con la l�
 de jobs/_aum_filters, así se distinguen los CLIENTES REALES sin operador (hay que
 asignarles) de los no-clientes (ruido esperado del ranking).
 
-Portado de scripts/diag_sin_operador.py para servir la tab MANAGER → CLIENTES →
-SIN OPERADOR. Cacheado (TTL 5min): es un barrido agregado, no de cada request.
+Sirve la tab MANAGER → CLIENTES → SIN OPERADOR. Cacheado (TTL 5min): es un
+barrido agregado, no de cada request.
 """
 from __future__ import annotations
 

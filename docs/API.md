@@ -653,7 +653,7 @@ Every mutation invalidates the in-process cache (`core/roles_sql.py::invalidate_
 
 | Method | Path | Limit | Description |
 |---|---|---|---|
-| POST | `/jobs/run` | 5/h, 20/d | Body `{tipo, args[]}`. Spawns a job (`tipo ∈ cashflow, flujo, bcra, crear_indices, cleanup_curvas` — ver `_CMDS` en `manager/jobs.py`). Worker is `subprocess.run` with 360 s timeout. |
+| POST | `/jobs/run` | 5/h, 20/d | Body `{tipo, args[]}`. Spawns a job (`tipo ∈ cashflow, bcra, cleanup_curvas, backfill_tasas, controles_datos` — ver `_CMDS` en `manager/jobs.py`). Worker is `subprocess.run` with 360 s timeout. |
 | GET | `/jobs/{job_id}` | — | `status ∈ {running, done, error}`, `rc`, last 1500 chars of stdout/stderr |
 | GET | `/jobs/history` | — | Runs from `manager.job_runs` (TTL 60 d). Filters: `tipo`, `status`, `desde`, `hasta`, `limit≤500` |
 | GET | `/jobs/history/stats` | — | Per-tipo aggregates since `desde` (default 7 d) |

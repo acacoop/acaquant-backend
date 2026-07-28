@@ -279,6 +279,16 @@ def _excluir(mov: dict) -> bool:
     if _es_info_excluida(mov.get("informacion")):
         return True
     info_norm = _normalizar(mov.get("informacion") or "")
+    # Excepción quirúrgica: las "Diferencias diarias" (MtM de futuros, categoria
+    # 'otro') NO se excluyen aunque la CUENTA se llame "OTC COOPERATIVA ..." —
+    # son cooperativas agro legítimas, no OTC bilateral. Esta data alimenta SOLO
+    # la vista Diferencias Diarias, que filtra categoria='otro' + informacion
+    # ILIKE 'Diferencias diarias%'. Ningún otro consumidor de negocio_movimientos
+    # lee categoria='otro' (Comercial/Control/PnL/Actividad/Sin-operador filtran
+    # por _CATS_VOLUMEN/_CATS_OPERACIONES; Back-office por compra/venta; Universo
+    # por ticker IS NOT NULL y las diferencias tienen ticker NULL) → cero impacto.
+    if info_norm.startswith("diferencias diarias"):
+        return False
     cuenta_norm = _normalizar(mov.get("cuenta") or "")
     return any(s in info_norm or s in cuenta_norm for s in EXCLUIR_SUBSTRINGS)
 

@@ -23,6 +23,7 @@ Uso (en el Droplet):
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 
 import requests
@@ -31,6 +32,20 @@ from api.services import aunesa_negocio as svc
 from core.postgres import get_pool
 
 DIF_LIKE = "Diferencias diarias%"
+
+
+def _motivo_exclusion(r: dict) -> str:
+    """Qué substring de _excluir mata a la fila (y sobre qué campo)."""
+    info = svc._normalizar(r.get("informacion") or "")
+    cta = svc._normalizar(r.get("cuenta") or "")
+    if svc._es_info_excluida(r.get("informacion")):
+        return "es_info_excluida(informacion)"
+    for s in svc.EXCLUIR_SUBSTRINGS:
+        if s in info:
+            return f"'{s}' en informacion"
+        if s in cta:
+            return f"'{s}' en cuenta -> {r.get('cuenta')!r}"
+    return "?"
 
 
 def _dias_habiles_recientes(n: int) -> list[date]:
@@ -137,6 +152,74 @@ def bloque_aunesa(dias: int) -> None:
             print("      (Aunesa NO devolvió ningún movimiento con 'Diferencia' este día)")
 
 
+def bloque_boletos(dia: date) -> None:
+    """D) Corre el pipeline COMPLETO (fetch_y_consolidar) sobre un día con
+    diferencias y ubica DÓNDE mueren: exclusión, agrupación (sin comprobante),
+    importe/moneda nulos, o categoría distinta de 'otro'."""
+    print("\n" + "=" * 72)
+    print(f"D) PIPELINE COMPLETO — fetch_y_consolidar({dia.isoformat()})")
+    print("=" * 72)
+    try:
+        consolidado = svc.fetch_y_consolidar(fecha=dia)
+    except Exception as e:
+        print(f"    ERROR: {e}")
+        return
+
+    meta = consolidado["meta"]
+    boletos = consolidado["boletos"]
+    print(f"    meta: raw_total={meta['raw_total']:,}  excluidos={meta['excluidos']:,}  "
+          f"n_boletos={len(boletos):,}")
+
+    # --- 1) exclusión: de las diferencias RAW, motivos por los que se excluyen.
+    headers = svc._autenticar()
+    resp = requests.get(
+        svc.OPS_URL,
+        params={"tiposCuenta": "Comitente",
+                "concertacionDesde": dia.strftime("%d/%m/%Y"),
+                "concertacionHasta": dia.strftime("%d/%m/%Y")},
+        headers=headers, timeout=180,
+    )
+    resp.raise_for_status()
+    raw = resp.json() if (resp.text or "").strip() else []
+    dif_raw = [r for r in raw
+               if str(r.get("informacion") or "").lower().startswith("diferencias diarias")]
+    dif_excl = [r for r in dif_raw if svc._excluir(r)]
+    print(f"\n    RAW 'Diferencias diarias'={len(dif_raw):,}  "
+          f"excluidas por _excluir={len(dif_excl):,}  "
+          f"sobreviven={len(dif_raw) - len(dif_excl):,}")
+    motivos = Counter(_motivo_exclusion(r) for r in dif_excl)
+    print("    Motivos de exclusión (top):")
+    for m, n in motivos.most_common(8):
+        print(f"      {n:>6,}  {m}")
+
+    # ¿Las RAW que sobreviven tienen comprobante? ¿qué 'unidad' (=moneda) traen?
+    sobreviven = [r for r in dif_raw if not svc._excluir(r)]
+    con_comp = sum(1 for r in sobreviven if r.get("comprobante"))
+    unidades = Counter(str(r.get("unidad") or "(vacío)") for r in sobreviven)
+    print(f"\n    De las que SOBREVIVEN a _excluir ({len(sobreviven):,}):")
+    print(f"      con comprobante={con_comp:,}   sin comprobante={len(sobreviven) - con_comp:,}")
+    print(f"      unidades (campo que define moneda): {dict(unidades)}")
+
+    # --- 2) boletos: ¿cuántos boletos consolidados son diferencias y cómo salen?
+    dif_bol = [b for b in boletos
+               if str(b.get("informacion") or "").lower().startswith("diferencias diarias")]
+    con_comp_b = sum(1 for b in dif_bol if b.get("comprobante"))
+    con_imp = sum(1 for b in dif_bol if b.get("importe") is not None)
+    cats = Counter(b.get("categoria") for b in dif_bol)
+    mons = Counter(b.get("moneda") for b in dif_bol)
+    print(f"\n    BOLETOS consolidados 'Diferencias diarias'={len(dif_bol):,}")
+    print(f"      con comprobante={con_comp_b:,}   con importe!=null={con_imp:,}")
+    print(f"      categorias={dict(cats)}")
+    print(f"      monedas={dict(mons)}")
+    print("      (el job SOLO persiste boletos con comprobante; la vista filtra "
+          "categoria='otro' AND moneda IN (USDL,ARS))")
+    print("    Muestras de boleto:")
+    for b in dif_bol[:8]:
+        print(f"      comp={b.get('comprobante')!s:14} imp={b.get('importe')!s:14} "
+              f"mon={b.get('moneda')!s:6} cat={b.get('categoria')!s:8} "
+              f"nlin={b.get('n_lineas')} info={str(b.get('informacion'))[:50]!r}")
+
+
 def bloque_job_runs() -> None:
     print("\n" + "=" * 72)
     print("C) job_runs — últimas corridas de negocio_movimientos")
@@ -158,6 +241,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dias-aunesa", type=int, default=5,
                     help="Cuántas jornadas hábiles recientes pegar a Aunesa (default 5)")
+    ap.add_argument("--dia", help="YYYY-MM-DD para el pipeline completo (default: penúltima hábil)")
     ap.add_argument("--skip-aunesa", action="store_true",
                     help="Sólo mirar la base (no pega a Aunesa)")
     args = ap.parse_args()
@@ -165,6 +249,12 @@ def main() -> int:
     bloque_base()
     if not args.skip_aunesa:
         bloque_aunesa(args.dias_aunesa)
+        if args.dia:
+            dia = datetime.strptime(args.dia, "%Y-%m-%d").date()
+        else:
+            # Penúltima hábil: hoy suele NO tener diferencias liquidadas todavía.
+            dia = _dias_habiles_recientes(2)[-1]
+        bloque_boletos(dia)
     bloque_job_runs()
     print("\n" + "=" * 72)
     print("Listo. Interpretación rápida:")

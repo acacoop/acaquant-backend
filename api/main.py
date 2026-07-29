@@ -33,6 +33,7 @@ from api.routers import (
     cuentas,
     derivados_agro,
     derivados_sinteticos,
+    estrategia,
     ia,
     ingest,
     manager,
@@ -256,6 +257,7 @@ app.include_router(research_bcra.router,      dependencies=_PUBLIC)  # tab BCRA 
 app.include_router(research_fred.router,      dependencies=_PUBLIC)  # tab Datos Internacionales / FRED (gate módulo `research` en el router) — docs/RESEARCH_FRED.md
 app.include_router(research_docs.router,      dependencies=_PUBLIC)  # documentos manuales de REPORTES FINANCIEROS (gate módulo `research` en el router)
 app.include_router(trading.router,            dependencies=_TRADING)  # vista TRADING (admin)
+app.include_router(estrategia.router,          dependencies=_TRADING)  # TRADING → tab ESTRATEGIA (docs/ESTRATEGIA_QUANT.md)
 # ia.router incluye el copiloto y su vista `negocio` (ASISTENTE DE NEGOCIO,
 # QuantAI P7): mismo panel para todo; el gate fino de negocio es el módulo
 # `asistente` en el registro del copiloto (admin-only, jamás invitado).

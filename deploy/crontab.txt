@@ -57,6 +57,15 @@
 5 20 * * 1-5 systemctl stop    motor_agro_opciones.service
 20 13 * * 1-5 systemctl restart motor_portfolio_snapshot.service
 5 20 * * 1-5 systemctl stop    motor_portfolio_snapshot.service
+20 13 * * 1-5 systemctl restart motor_estrategia.service
+5 20 * * 1-5 systemctl stop    motor_estrategia.service
+
+# ─── ESTRATEGIA QUANT — resolver de señales (docs/ESTRATEGIA_QUANT.md)
+# Corre INTRADÍA a propósito: el tape cedears_time_sales se VACÍA al cierre —
+# si el resolver esperara a la noche, el resultado de la señal sería imposible
+# de medir. --cierre a las 20:10 etiqueta parciales antes de perder el tape.
+*/5 13-20 * * 1-5 /root/TradingAV/deploy/run_job.sh estrategia_resolver 4m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.estrategia_resolver'
+10 20 * * 1-5 /root/TradingAV/deploy/run_job.sh estrategia_resolver_cierre 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.estrategia_resolver --cierre'
 
 # ─── Motor de órdenes (10:30 ART → 17:05 ART = 13:30 UTC → 20:05 UTC)
 30 13 * * 1-5 systemctl restart motor_ordenes.service

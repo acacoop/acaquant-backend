@@ -100,6 +100,25 @@ TICKERS_EXTRA_PRECIOS: list[str] = [
     "MERV - XMEV - AL30D - 24hs",
 ]
 
+# --- ESTRATEGIA QUANT (vista TRADING → tab ESTRATEGIA) ---
+# Doc vivo: docs/ESTRATEGIA_QUANT.md. Universo FIJO que vigila el motor
+# engines/estrategia.py (fijo a propósito: el track-record necesita un universo
+# estable — si emite solo para lo que el trader mira, el dataset queda sesgado).
+ESTRATEGIA_TICKERS: list[str] = [
+    "NVDA", "TSLA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "MELI",
+    "RKLB", "ASTS", "SNDK", "PLTR", "AMD", "KO", "VIST", "GGAL",
+]
+# Índices de referencia posibles (deben ser CEDEARs activos con snapshot live).
+ESTRATEGIA_INDICES: list[str] = ["QQQ", "SPY"]
+# Emisión al ledger: |score| mínimo + cooldown por ticker (no spamear señales).
+ESTRATEGIA_SCORE_UMBRAL = 40.0
+ESTRATEGIA_COOLDOWN_MIN = 15
+# Horizontes de resolución (min) y objetivo/stop del "toco_objetivo" (%).
+ESTRATEGIA_HORIZONTES: list[int] = [15, 30, 60]
+ESTRATEGIA_OBJETIVO_PCT = 0.5
+ESTRATEGIA_STOP_PCT = 0.5
+
+
 # --- Canje (par CCL/MEP por bono) ---
 # Tickers C (CCL) y D (MEP) de cada par para la vista /analitica/canje. Vive en
 # config (no en el service) para que jobs/cierre_canje.py lo comparta sin que

@@ -662,7 +662,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     corte = date.fromisoformat(fecha) if fecha else hoy
     corte_iso = corte.isoformat() if fecha else None
     # arancel_total = período [desde, hasta]; arancel_mes = el MES CALENDARIO del HASTA.
-    mes_ini = hoy.replace(day=1).isoformat()
+    mes_ini = corte.replace(day=1).isoformat()
     where = "c.estado = 'Activa'"
     p: dict = {}
     if not segmento or segmento == "todos":

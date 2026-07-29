@@ -41,6 +41,14 @@ def resumen(
     return _svc.resumen(desde=desde, hasta=hasta)
 
 
+@router.get("/resultados")
+def resultados(
+    desde: str | None = Query(None, description="YYYY-MM-DD"),
+    hasta: str | None = Query(None, description="YYYY-MM-DD"),
+) -> dict:
+    return _svc.resultados(desde=desde, hasta=hasta)
+
+
 @router.get("/opciones")
 def opciones(actor: str = Depends(get_user_email)) -> dict:
     return _svc.opciones(email=actor)

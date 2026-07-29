@@ -325,6 +325,72 @@ def resumen(desde: str | None = None, hasta: str | None = None) -> dict:
     }
 
 
+def resultados(desde: str | None = None, hasta: str | None = None) -> dict:
+    """Tab RESULTADOS: agregados del período por CLIENTE y por COMERCIAL
+    (= observación: "Mesa" u operador), en ARS y USD.
+
+    USD op por op con el TC manual del día (`mesa_dinero_tc`); las ops de días
+    SIN TC no suman USD → `dias_sin_tc` avisa que el USD está incompleto.
+    El lado comercial lista TODO el catálogo (Mesa + operadores) aunque estén
+    en cero, como la planilla de la mesa."""
+    conds, params = [], {}
+    if desde:
+        conds.append("o.fecha >= %(desde)s")
+        params["desde"] = desde
+    if hasta:
+        conds.append("o.fecha <= %(hasta)s")
+        params["hasta"] = hasta
+    where = f"WHERE {' AND '.join(conds)}" if conds else ""
+    rows = _q(
+        "SELECT o.fecha, o.cliente, o.observacion, o.resultado, t.tc "
+        "FROM operaciones.mesa_dinero o "
+        "LEFT JOIN operaciones.mesa_dinero_tc t ON t.fecha = o.fecha "
+        f"{where}",
+        params,
+    )
+
+    def _acum(bucket: dict, clave: str, ars: float, usd: float | None) -> None:
+        b = bucket.setdefault(clave, {"resultado_ars": 0.0, "resultado_usd": 0.0, "n": 0})
+        b["resultado_ars"] += ars
+        if usd is not None:
+            b["resultado_usd"] += usd
+        b["n"] += 1
+
+    por_cliente: dict[str, dict] = {}
+    por_comercial: dict[str, dict] = {}
+    total_ars, total_usd, n_total = 0.0, 0.0, 0
+    fechas_sin_tc: set = set()
+    for r in rows:
+        ars = _f(r["resultado"]) or 0.0
+        tc = _f(r["tc"])
+        usd = (ars / tc) if tc else None
+        if tc is None:
+            fechas_sin_tc.add(r["fecha"])
+        _acum(por_cliente, (r["cliente"] or "").strip() or "(sin cliente)", ars, usd)
+        _acum(por_comercial, (r["observacion"] or "").strip() or "(sin observación)", ars, usd)
+        total_ars += ars
+        if usd is not None:
+            total_usd += usd
+        n_total += 1
+
+    # Comercial: catálogo completo (Mesa + operadores) aunque estén en cero.
+    for obs in _observaciones_validas():
+        por_comercial.setdefault(obs, {"resultado_ars": 0.0, "resultado_usd": 0.0, "n": 0})
+
+    clientes = [{"cliente": k, **v} for k, v in por_cliente.items()]
+    clientes.sort(key=lambda x: x["resultado_ars"], reverse=True)
+    comerciales = [{"observacion": k, **v} for k, v in por_comercial.items()]
+    comerciales.sort(key=lambda x: (-x["resultado_ars"], x["observacion"]))
+    return {
+        "por_cliente": clientes,
+        "por_comercial": comerciales,
+        "total_ars": total_ars,
+        "total_usd": total_usd,
+        "n_total": n_total,
+        "dias_sin_tc": len(fechas_sin_tc),
+    }
+
+
 def set_tc(fecha: str, tc: float, actor: str) -> dict:
     if not fecha:
         raise ValueError("falta 'fecha'")

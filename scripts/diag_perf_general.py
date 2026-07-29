@@ -52,7 +52,7 @@ def main() -> None:
             cur.execute(
                 f"""
                 SELECT round(total_exec_time)::bigint AS total_ms, calls,
-                       round(mean_exec_time, 1) AS mean_ms,
+                       round(mean_exec_time::numeric, 1) AS mean_ms,
                        rows / greatest(calls, 1) AS rows_x_call,
                        left(regexp_replace(query, '\\s+', ' ', 'g'), 130) AS q
                 FROM {pss}
@@ -67,7 +67,7 @@ def main() -> None:
             print("\n  (mismo ranking por MEAN — las lentas por request):")
             cur.execute(
                 f"""
-                SELECT round(mean_exec_time, 1) AS mean_ms, calls,
+                SELECT round(mean_exec_time::numeric, 1) AS mean_ms, calls,
                        left(regexp_replace(query, '\\s+', ' ', 'g'), 130) AS q
                 FROM {pss}
                 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())

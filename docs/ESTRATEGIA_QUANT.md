@@ -61,7 +61,7 @@ inputs live (tablas existentes)          schema estrategia (nuevo)
 | Emisor | `engines/estrategia.py` | motor always-on L-V 13:20-20:05 UTC (`motor_estrategia.service`) |
 | Resolver | `jobs/estrategia_resolver.py` | cron `*/5 13-20` + `--cierre` 20:10 |
 | API | `api/services/estrategia.py` + `api/routers/estrategia.py` | `/api/estrategia/{live,track-record,senales}` — gate módulo `trading` (admin) |
-| Vista | `acaquant-web` → TRADING → tab ESTRATEGIA | `estrategia-view.tsx` |
+| Vista | `acaquant-web` → TRADING → PIVOTS → radar, tab ESTRATEGIA | `trading-estrategia-radar.tsx` (compacta) + `estrategia-view.tsx` (overlay TRACK-RECORD) |
 | Config | `config.py::ESTRATEGIA_*` | universo, umbrales, horizontes |
 | Schema | `sql/schema.sql` → schema `estrategia` | senales, resultados, modelo_pesos, eval_live |
 
@@ -152,6 +152,13 @@ systemctl restart api.service
   pendiente: leer `mercado.adr_snapshot`/`eikon_snapshot` si está fresco.
 
 ## Changelog
+
+- **2026-07-29 (2)** — La vista se muda ADENTRO de la pantalla de trading (pedido
+  del user: "mejor en vez de una nueva vista, meterlo donde ya miro"): la caja de
+  abajo del RADAR pasa a tener tabs PIVOTES | ESTRATEGIA. La tab muestra la señal
+  live compacta (click en fila = carga el ticker en el chart, como el radar de
+  pivotes) y un botón TRACK-RECORD abre la trazabilidad completa en overlay.
+  Se eliminó la tab ESTRATEGIA del shell de /trading. Backend sin cambios.
 
 - **2026-07-29** — Nace el proyecto. Fases 1-3 completas: schema `estrategia`
   (senales/resultados/modelo_pesos/eval_live), cerebro puro

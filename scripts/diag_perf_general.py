@@ -33,16 +33,29 @@ def _explain(cur, titulo: str, sql: str, params=None) -> None:
 
 def main() -> None:
     with get_pool().connection() as conn, conn.cursor() as cur:
-        # 1) pg_stat_statements — la verdad medida de prod
+        # 1) pg_stat_statements — la verdad medida de prod.
+        # En Supabase la extensión vive en el schema `extensions` (no en public),
+        # así que resolvemos el schema real en vez de asumir el search_path.
         print(f"\n{LINEA}\n▶ 1) TOP QUERIES por tiempo total (pg_stat_statements)\n{LINEA}")
         try:
             cur.execute(
                 """
+                SELECT n.nspname
+                FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+                WHERE e.extname = 'pg_stat_statements'
+                """
+            )
+            row = cur.fetchone()
+            if not row:
+                raise RuntimeError("extensión pg_stat_statements no instalada")
+            pss = f'"{row[0]}".pg_stat_statements'
+            cur.execute(
+                f"""
                 SELECT round(total_exec_time)::bigint AS total_ms, calls,
                        round(mean_exec_time, 1) AS mean_ms,
                        rows / greatest(calls, 1) AS rows_x_call,
                        left(regexp_replace(query, '\\s+', ' ', 'g'), 130) AS q
-                FROM pg_stat_statements
+                FROM {pss}
                 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
                   AND query NOT ILIKE '%pg_stat%' AND query NOT ILIKE 'EXPLAIN%'
                 ORDER BY total_exec_time DESC LIMIT 15
@@ -53,10 +66,10 @@ def main() -> None:
                 print(f"{total_ms:>10} {calls:>8} {mean_ms:>9} {rpc:>7}  {q}")
             print("\n  (mismo ranking por MEAN — las lentas por request):")
             cur.execute(
-                """
+                f"""
                 SELECT round(mean_exec_time, 1) AS mean_ms, calls,
                        left(regexp_replace(query, '\\s+', ' ', 'g'), 130) AS q
-                FROM pg_stat_statements
+                FROM {pss}
                 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
                   AND calls >= 20 AND query NOT ILIKE '%pg_stat%'
                 ORDER BY mean_exec_time DESC LIMIT 10
@@ -64,7 +77,7 @@ def main() -> None:
             )
             for mean_ms, calls, q in cur.fetchall():
                 print(f"  {mean_ms:>9}ms × {calls:<7} {q}")
-        except Exception as e:  # extensión no habilitada
+        except Exception as e:  # extensión no habilitada / sin permisos
             conn.rollback()
             print(f"  pg_stat_statements NO disponible: {e}")
 

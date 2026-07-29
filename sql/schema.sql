@@ -333,6 +333,12 @@ ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS aranceles  
 CREATE INDEX IF NOT EXISTS ix_nm_id_cuenta ON operaciones.negocio_movimientos(id_cuenta, fecha);
 CREATE INDEX IF NOT EXISTS ix_nm_categoria ON operaciones.negocio_movimientos(categoria, fecha);
 CREATE INDEX IF NOT EXISTS ix_nm_cuenta    ON operaciones.negocio_movimientos(cuenta, fecha);
+-- ARANCELES (perf 2026-07-29, medido con pg_stat_statements + hypopg): el UPDATE de
+-- aranceles (api/services/aunesa_aranceles.py) filtra SOLO por `comprobante`, pero la
+-- PK es (fecha, comprobante) con `fecha` primero → NO usable → seq scan de 123MB en
+-- cada una de las ~361k llamadas = 2,3 hs acumuladas (#2 consumidor de toda la DB).
+-- Índice dedicado por comprobante → lookup directo (seq scan → index scan).
+CREATE INDEX IF NOT EXISTS ix_nm_comprobante ON operaciones.negocio_movimientos(comprobante);
 -- DIFERENCIAS DIARIAS (perf 2026-07-28, medido con EXPLAIN): el planner elegía la PKEY
 -- (fecha, comprobante) para el rango → 89k buffers y 5 queries de ~290ms por request.
 -- Parcial que calza EXACTO con la vista (moneda + fecha, solo filas de diferencias).

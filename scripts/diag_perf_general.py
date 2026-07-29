@@ -107,6 +107,44 @@ def main() -> None:
                      "SELECT id_cuenta, SUM(valuacion) FROM portafolio.tenencia "
                      "WHERE fecha = %(f)s AND aum = 'si' GROUP BY id_cuenta", {"f": f})
 
+        # 4) VERIFICACIÓN con hypopg — índice hipotético negocio_movimientos(comprobante).
+        # El UPDATE de aranceles (aunesa_aranceles.py:56) filtra SOLO por comprobante,
+        # pero la PK es (fecha, comprobante) con fecha primero → el índice NO es usable
+        # → seq scan de 123MB en cada una de las ~361k llamadas (2,3 hs acumuladas).
+        # hypopg mide el antes/después SIN crear el índice real (zero riesgo).
+        print(f"\n{LINEA}\n▶ 4) hypopg: ¿ayuda un índice en negocio_movimientos(comprobante)?\n{LINEA}")
+        try:
+            cur.execute(
+                "SELECT n.nspname FROM pg_extension e "
+                "JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = 'hypopg'"
+            )
+            row = cur.fetchone()
+            if not row:
+                raise RuntimeError("extensión hypopg no instalada")
+            hp = f'"{row[0]}"'
+            cur.execute(
+                "SELECT comprobante FROM operaciones.negocio_movimientos "
+                "WHERE comprobante IS NOT NULL LIMIT 1"
+            )
+            comp = cur.fetchone()[0]
+            q = "SELECT ctid FROM operaciones.negocio_movimientos WHERE comprobante = %s"
+            cur.execute(f"EXPLAIN (ANALYZE, BUFFERS) {q}", (comp,))
+            print("ANTES (situación real — se espera Seq Scan):")
+            for r in cur.fetchall():
+                print("  " + r[0])
+            cur.execute(
+                f"SELECT {hp}.hypopg_create_index("
+                "'CREATE INDEX ON operaciones.negocio_movimientos (comprobante)')"
+            )
+            cur.execute(f"EXPLAIN {q}", (comp,))
+            print("\nDESPUÉS (índice hipotético hypopg — se espera Index Scan y cost << ):")
+            for r in cur.fetchall():
+                print("  " + r[0])
+            cur.execute(f"SELECT {hp}.hypopg_reset()")
+        except Exception as e:
+            conn.rollback()
+            print(f"  hypopg no disponible: {e}")
+
     print(f"\n{LINEA}\nListo. Pegame el output y decidimos si algún índice vale la pena.\n{LINEA}")
 
 

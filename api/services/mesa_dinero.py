@@ -104,11 +104,13 @@ def puede_escribir(email: str) -> bool:
 
 def opciones(email: str = "") -> dict:
     """Opciones del formulario: traders válidos + observaciones válidas +
-    si el usuario actual puede escribir (el front esconde la edición sin esto,
-    pero el enforcement real es server-side en cada write)."""
+    clientes ya usados (sugerencias, no restrictivo) + si el usuario actual
+    puede escribir (el front esconde la edición sin esto, pero el enforcement
+    real es server-side en cada write)."""
     return {
         "traders": _traders_validos(),
         "observaciones": _observaciones_validas(),
+        "clientes": _clientes_usados(),
         "puede_escribir": puede_escribir(email),
     }
 
@@ -116,6 +118,14 @@ def opciones(email: str = "") -> dict:
 def _traders_validos() -> list[str]:
     return [r["nombre"] for r in _q(
         "SELECT nombre FROM operaciones.mesa_dinero_traders ORDER BY nombre")]
+
+
+def _clientes_usados() -> list[str]:
+    """Clientes distintos ya cargados en mesa_dinero — sugerencias del form
+    (suelen repetirse); NO es un catálogo cerrado, se puede tipear uno nuevo."""
+    return [r["cliente"] for r in _q(
+        "SELECT DISTINCT cliente FROM operaciones.mesa_dinero "
+        "WHERE cliente IS NOT NULL AND cliente <> '' ORDER BY cliente")]
 
 
 def _observaciones_validas() -> list[str]:

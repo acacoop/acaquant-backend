@@ -443,13 +443,12 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
         f"FROM comitentes WHERE {where} GROUP BY COALESCE(nivel_1, '(sin segmentar)') "
         f"ORDER BY n DESC", p)]
 
-    # Operativas por segmento: cuentas DISTINTAS que operaron (>=1 op) en la ventana
-    # [desde, corte] (si hay `desde`) o [primer día del mes del corte, corte] — mismo criterio
-    # que CTAS OPS del ranking ("operó al menos una vez"). Comparte el filtro de operador.
-    mes_start = desde if desde else date(anio, mes, 1).isoformat()
-    p2: dict = {"cats": list(_CATS_VOLUMEN), "mes": mes_start, "corte": corte}
+    # Operativas por segmento: cuentas DISTINTAS que operaron (>=1 op) en el mes calendario
+    # EN CURSO (mismo criterio que CTAS OPS del ranking). Independiente del período elegido.
+    mes_ini = date(hoy.year, hoy.month, 1).isoformat()
+    p2: dict = {"cats": list(_CATS_VOLUMEN), "mes": mes_ini}
     w_op = ("nm.categoria = ANY(%(cats)s) AND nm.unidad IS DISTINCT FROM 'USDL' "
-            "AND nm.fecha >= %(mes)s AND nm.fecha <= %(corte)s")
+            "AND nm.fecha >= %(mes)s")
     if operador:
         w_op += " AND c.operador_email = %(op)s"
         p2["op"] = operador
@@ -475,31 +474,49 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
     }
 
 
-def _rollup_por_cuenta(mes_start: str, scope: str | None, p: dict,
-                       corte: str | None = None) -> dict[str, dict]:
-    """{id_cuenta: {vol_total, vol_mes, n_ops, ar_total, ar_mes}} en vivo (reemplaza
-    ComercialCache). vol/n_ops de negocio_movimientos (cats), arancel de operaciones.
-    `corte` (ISO) = fecha de corte: TOTAL acumula hasta corte, MES = [mes_start, corte]."""
+def _rollup_por_cuenta(scope: str | None, p: dict,
+                       desde: str | None = None,
+                       hasta: str | None = None) -> dict[str, dict]:
+    """{id_cuenta: {vol_total, vol_mes, n_ops, n_ops_mes, ar_total, ar_mes}} en vivo.
+    vol/n_ops de negocio_movimientos (cats), arancel de operaciones.
+    TOTAL (vol_total/ar_total/n_ops) = período elegido [desde, hasta]: sin `desde` no hay
+    límite inferior (histórico), sin `hasta` corre hasta hoy. MES (vol_mes/ar_mes/n_ops_mes)
+    = mes calendario EN CURSO [1º del mes actual, hoy], SIEMPRE, independiente del período."""
     p["cats"] = list(_CATS_VOLUMEN)
-    p["mes"] = mes_start
-    w_vol = "unidad IS DISTINCT FROM 'USDL' AND categoria = ANY(%(cats)s)"
-    w_ar = "arancel > 0 AND etapa IS DISTINCT FROM 'solicitud'"
-    if corte is not None:
-        p["corte"] = corte
-        w_vol += " AND fecha <= %(corte)s"
-        w_ar += " AND concertacion <= %(corte)s"
+    mes_ini = _hoy_art().replace(day=1).isoformat()
+    p["mes_ini"] = mes_ini
+
+    # Condición de la ventana TOTAL (período). Vacía → TRUE = sin acotar (histórico).
+    tot_vol, tot_ar = [], []
+    if desde:
+        p["desde"] = desde
+        tot_vol.append("fecha >= %(desde)s")
+        tot_ar.append("concertacion >= %(desde)s")
+    if hasta:
+        p["hasta"] = hasta
+        tot_vol.append("fecha <= %(hasta)s")
+        tot_ar.append("concertacion <= %(hasta)s")
+    c_tot_vol = " AND ".join(tot_vol) if tot_vol else "TRUE"
+    c_tot_ar = " AND ".join(tot_ar) if tot_ar else "TRUE"
+
+    # WHERE externo = unión (ventana TOTAL ∪ mes en curso) para no escanear de más.
+    w_vol = (f"unidad IS DISTINCT FROM 'USDL' AND categoria = ANY(%(cats)s) "
+             f"AND (({c_tot_vol}) OR fecha >= %(mes_ini)s)")
+    w_ar = (f"arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
+            f"AND (({c_tot_ar}) OR concertacion >= %(mes_ini)s)")
     if scope:
         w_vol += f" AND {scope}"
         w_ar += f" AND {scope}"
     rows = _q(
         f"WITH vol AS (SELECT id_cuenta, "
-        f"  SUM({_PESIF}) AS vol_total, "
-        f"  SUM(CASE WHEN fecha >= %(mes)s THEN {_PESIF} ELSE 0 END) AS vol_mes, "
-        f"  count(*) AS n_ops, "
-        f"  SUM(CASE WHEN fecha >= %(mes)s THEN 1 ELSE 0 END) AS n_ops_mes "
+        f"  SUM(CASE WHEN {c_tot_vol} THEN {_PESIF} ELSE 0 END) AS vol_total, "
+        f"  SUM(CASE WHEN fecha >= %(mes_ini)s THEN {_PESIF} ELSE 0 END) AS vol_mes, "
+        f"  SUM(CASE WHEN {c_tot_vol} THEN 1 ELSE 0 END) AS n_ops, "
+        f"  SUM(CASE WHEN fecha >= %(mes_ini)s THEN 1 ELSE 0 END) AS n_ops_mes "
         f"  FROM negocio_movimientos WHERE {w_vol} GROUP BY id_cuenta), "
-        f"ar AS (SELECT id_cuenta, SUM(arancel) AS ar_total, "
-        f"  SUM(CASE WHEN concertacion >= %(mes)s THEN arancel ELSE 0 END) AS ar_mes "
+        f"ar AS (SELECT id_cuenta, "
+        f"  SUM(CASE WHEN {c_tot_ar} THEN arancel ELSE 0 END) AS ar_total, "
+        f"  SUM(CASE WHEN concertacion >= %(mes_ini)s THEN arancel ELSE 0 END) AS ar_mes "
         f"  FROM operaciones WHERE {w_ar} GROUP BY id_cuenta) "
         f"SELECT COALESCE(v.id_cuenta, a.id_cuenta) AS id_cuenta, "
         f"  COALESCE(v.vol_total,0) AS vol_total, COALESCE(v.vol_mes,0) AS vol_mes, "
@@ -517,19 +534,18 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
                       desde: str | None = None, operador=None, nivel_1=None,
                       nivel_2=None, nivel_3=None, nivel_4=None, nivel_5=None,
                       referido=None) -> dict:
-    # `fecha` = corte = HASTA: TOTAL acumula hasta corte. `desde` (si viene) hace que la
-    # columna MES (vol_mes/ar_mes) y CTAS OPS sean del período [desde, corte] en vez del mes.
+    # Columnas TOTAL (vol_total/ar_total/n_ops) = período elegido [desde, hasta] (=`fecha`).
+    # Columnas MES (vol_mes/ar_mes) + CTAS OPS = mes calendario EN CURSO, independiente del
+    # período. Sin desde/hasta: TOTAL = histórico hasta hoy, MES = mes actual (igual que antes).
     # Filtros madre (operador/nivel_1..5/referido): si HAY alguno, se scopea el rollup a
     # esas cuentas; sin filtro queda global (idéntico a siempre).
-    corte = date.fromisoformat(fecha) if fecha else _hoy_art()
     factor = _factor_usd(moneda)
-    mes_start = desde if desde else corte.replace(day=1).isoformat()
     p_scope: dict = {}
     scope = None
     if _madre_activa(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido):
         scope = _scope_cuentas(operador, p_scope, nivel_1, nivel_3, referido,
                                nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2)
-    por_cuenta = _rollup_por_cuenta(mes_start, scope, p_scope, corte=fecha)
+    por_cuenta = _rollup_por_cuenta(scope, p_scope, desde=desde, hasta=fecha)
 
     detalle = {r["id_cuenta"]: r for r in _q(
         "SELECT c.id_cuenta, c.operador_email, o.nombre AS operador_nombre, c.nivel_1 "
@@ -588,7 +604,8 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
     segmentos = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
     for s in segmentos:
         s["ticket_promedio"] = _ticket(s["vol_total"], s["n_ops"])
-    return {"mes_actual": f"{corte.year:04d}-{corte.month:02d}", "fecha": fecha,
+    hoy = _hoy_art()
+    return {"mes_actual": f"{hoy.year:04d}-{hoy.month:02d}", "fecha": fecha,
             "comerciales": comerciales, "aranceles_segmento": segmentos}
 
 
@@ -596,9 +613,7 @@ def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS",
                                fecha: str | None = None, desde: str | None = None,
                                nivel_1=None, nivel_2=None, nivel_3=None,
                                nivel_4=None, nivel_5=None, referido=None) -> dict:
-    corte = date.fromisoformat(fecha) if fecha else _hoy_art()
     factor = _factor_usd(moneda)
-    mes_start = desde if desde else corte.replace(day=1).isoformat()
     p_c: dict = {"op": operador}
     w_c = _append_niveles("operador_email = %(op)s AND estado = 'Activa'", p_c, "",
                           nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
@@ -607,7 +622,7 @@ def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS",
     if not cuentas:
         return {"operador": operador, "aranceles_segmento": []}
     scope = "id_cuenta = ANY(%(ids)s)"
-    por_cuenta = _rollup_por_cuenta(mes_start, scope, {"ids": list(cuentas)}, corte=fecha)
+    por_cuenta = _rollup_por_cuenta(scope, {"ids": list(cuentas)}, desde=desde, hasta=fecha)
     segs: dict[str, dict] = {}
     for idc, agg in por_cuenta.items():
         seg = cuentas.get(idc, "(sin segmentar)")
@@ -637,8 +652,8 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     factor = _factor_usd(moneda)
     corte = date.fromisoformat(fecha) if fecha else hoy
     corte_iso = corte.isoformat() if fecha else None
-    # `desde` (período) pisa el mes calendario para la columna "arancel_mes".
-    mes_start = desde if desde else corte.replace(day=1).isoformat()
+    # arancel_total = período [desde, hasta]; arancel_mes = mes calendario EN CURSO.
+    mes_ini = hoy.replace(day=1).isoformat()
     where = "c.estado = 'Activa'"
     p: dict = {}
     if not segmento or segmento == "todos":
@@ -662,16 +677,22 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
         return {"segmento": segmento or "todos", "n_clientes": 0,
                 "clientes": [], "operaciones": []}
 
-    pa = {"ids": ids, "mes": mes_start}
-    cap = ""
+    pa: dict = {"ids": ids, "mes_ini": mes_ini}
+    ct = []
+    if desde:
+        pa["desde"] = desde
+        ct.append("concertacion >= %(desde)s")
     if corte_iso:
         pa["corte"] = corte_iso
-        cap = " AND concertacion <= %(corte)s"   # TOTAL acumula hasta HASTA
+        ct.append("concertacion <= %(corte)s")
+    c_tot = " AND ".join(ct) if ct else "TRUE"   # ventana TOTAL = período [desde, hasta]
     clientes = []
-    for r in _q("SELECT id_cuenta, SUM(arancel) AS ar_total, "
-                "SUM(CASE WHEN concertacion >= %(mes)s THEN arancel ELSE 0 END) AS ar_mes "
-                "FROM operaciones WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 "
-                f"AND etapa IS DISTINCT FROM 'solicitud'{cap} GROUP BY id_cuenta", pa):
+    for r in _q(f"SELECT id_cuenta, "
+                f"SUM(CASE WHEN {c_tot} THEN arancel ELSE 0 END) AS ar_total, "
+                f"SUM(CASE WHEN concertacion >= %(mes_ini)s THEN arancel ELSE 0 END) AS ar_mes "
+                f"FROM operaciones WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 "
+                f"AND etapa IS DISTINCT FROM 'solicitud' "
+                f"AND (({c_tot}) OR concertacion >= %(mes_ini)s) GROUP BY id_cuenta", pa):
         idc = r["id_cuenta"]
         clientes.append({
             "id_cuenta": idc, "denominacion": detalle.get(idc) or "—",
@@ -680,7 +701,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
         })
     clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
 
-    # Lista de operaciones: si hay período [desde, corte] se acota a él; si no, las últimas 500.
+    # Lista de operaciones del período [desde, hasta] (todas las que cobraron arancel).
     pop: dict = {"ids": ids}
     bounds = ""
     if desde:
@@ -694,7 +715,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
                 "tipo_operacion, bruto, moneda, arancel FROM operaciones "
                 "WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 "
                 f"AND etapa IS DISTINCT FROM 'solicitud'{bounds} "
-                "ORDER BY concertacion DESC, boleto DESC LIMIT 500", pop):
+                "ORDER BY concertacion DESC, boleto DESC", pop):
         idc = r["id_cuenta"]
         operaciones.append({
             "fecha": _iso(r["concertacion"]), "id_cuenta": idc,
@@ -715,9 +736,7 @@ def debug_comercial(*, operador: str | None = None, segmento: str | None = None,
     segmento (nivel_1). Espejo SQL de comercial.debug_comercial — vol/n_ops de
     negocio_movimientos, arancel de operaciones (vía _rollup_por_cuenta). Volumen
     pesificado (incluye USD); `moneda='USD'` dolariza al MEP."""
-    hoy = _hoy_art()
     factor = _factor_usd(moneda)
-    mes_start = hoy.replace(day=1).isoformat()
 
     where = "c.estado = 'Activa'"
     p: dict = {}
@@ -740,7 +759,7 @@ def debug_comercial(*, operador: str | None = None, segmento: str | None = None,
                 "totales": {}, "cuentas": []}
 
     # vol/n_ops (negocio_movimientos) + arancel (operaciones) por cuenta, en vivo.
-    por_cuenta = _rollup_por_cuenta(mes_start, "id_cuenta = ANY(%(ids)s)", {"ids": ids})
+    por_cuenta = _rollup_por_cuenta("id_cuenta = ANY(%(ids)s)", {"ids": ids})
     filas = [{
         "id_cuenta": idc, "denominacion": cuentas.get(idc, "—"),
         "n_ops": int(agg["n_ops"] or 0),

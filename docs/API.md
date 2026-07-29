@@ -135,7 +135,8 @@ Enforcement:
   ```
   /api/portfolio, /api/titulos              → portfolios
   /api/ordenes, /api/operativa, /api/risk   → operar       (sales puede)
-  /api/operaciones, /api/cuentas            → operaciones  (admin + trader)
+  /api/operaciones, /api/cuentas,
+  /api/mesa-dinero                          → operaciones  (admin + trader)
   /api/chat                                 → asistente
   /api/mm                                   → mm           (admin only por default)
   /api/manager                              → manager
@@ -427,6 +428,24 @@ Categorías posibles (16):
 `importe` y `cantidad` están **siempre en perspectiva del cliente** (positivo = ingresa, negativo = egresa). Aunesa devuelve perspectiva broker; el service invierte el signo.
 
 La data la pobla `jobs/negocio_movimientos.py` cada hora 12-22 ART L-V (escritura SQL-native en `operaciones.negocio_movimientos`). Detalle del flujo en `docs/sesion_2026_05_05_negocio.md`.
+
+---
+
+### 7.5b Mesa de Dinero (`/api/mesa-dinero/*`) · op
+
+Carga manual de operaciones de la mesa (cada registro = pata compra + pata venta). Lectura con módulo `operaciones`; **escritura solo para emails en `operaciones.mesa_dinero_escritores`** (admin siempre puede) — allowlist gestionada desde Manager → MESA. `monto = vn × px / 100`, `resultado = monto_venta − monto_compra` y `pct = resultado / monto_compra` se derivan server-side (`resultado` manual solo si faltan patas, ej. "Pase OPS"). Todo cambio queda auditado en `operaciones.mesa_dinero_audit`.
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/ops` | Operaciones del rango `desde`/`hasta` (YYYY-MM-DD) |
+| GET | `/resumen` | Resultado diario: `resultado_ars`, `tc` (manual), `resultado_usd`, acumulados y totales |
+| GET | `/opciones` | Catálogos para el form: traders, observaciones (`Mesa` + operadores de `clientes.operadores`) y `puede_escribir` del actor |
+| POST | `/ops` | Alta (write-gated) |
+| PATCH | `/ops/{id}` | Edición (write-gated) |
+| DELETE | `/ops/{id}` | Baja (write-gated) |
+| PUT | `/tc` | Upsert del TC del día `{fecha, tc}` (write-gated) |
+
+Gestión admin-only bajo `/api/manager/mesa/*`: `GET/POST/DELETE /traders`, `GET /escritores`, `GET /escritores/candidatos?q=`, `POST/DELETE /escritores`.
 
 ---
 

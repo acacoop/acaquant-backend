@@ -40,6 +40,7 @@ from api.routers import (
     manager_resources,
     market,
     me,
+    mesa_dinero,
     news,
     operaciones,
     operar,
@@ -280,6 +281,9 @@ app.include_router(risk.router,              dependencies=_OPERAR)
 # Mesa / flujo / contrapartes: solo trader y admin
 app.include_router(operaciones.router,       dependencies=_OPERACIONES)
 app.include_router(cuentas.router,           dependencies=_OPERACIONES)
+# Mesa de Dinero (vista NEGOCIO): lectura módulo `operaciones`; la escritura
+# tiene un gate ADICIONAL per-usuario adentro del router (allowlist + admin).
+app.include_router(mesa_dinero.router,       dependencies=_OPERACIONES)
 # manager.router: gate FINO por sub-router (ver api/routers/manager/__init__.py).
 # Acá ponemos una base FAIL-CLOSED: exige al menos UN módulo manager. Así un
 # sub-router nuevo que se agregue sin su dependency NO queda abierto a cualquier

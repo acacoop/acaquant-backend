@@ -41,6 +41,7 @@ from api.routers.manager import (
     instrumentos,
     jobs,
     logs,
+    mesa,
     ons,
     operaciones,
     options,
@@ -83,6 +84,7 @@ router.include_router(aunesa.router,      dependencies=_MGR)
 router.include_router(valuaciones.router, dependencies=_MGR)
 router.include_router(operaciones.router, dependencies=_MGR)
 router.include_router(documentos.router,  dependencies=_MGR)  # REPORTES FINANCIEROS — carga manual
+router.include_router(mesa.router,        dependencies=_MGR)  # MESA DE DINERO — traders + allowlist de escritura
 router.include_router(import_tenencia.router, dependencies=_AUNESA)
 
 # Tabs accesibles a `asistente_comercial`:

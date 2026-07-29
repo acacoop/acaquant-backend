@@ -477,6 +477,65 @@ CREATE TABLE IF NOT EXISTS operaciones.accounts_descubiertas (
 );
 CREATE INDEX IF NOT EXISTS ix_accounts_desc_activa ON operaciones.accounts_descubiertas (activa);
 
+-- ── MESA DE DINERO (vista NEGOCIO → /mesa-dinero) — carga MANUAL de la mesa.
+-- Cada registro = pata compra + pata venta del mismo activo (monto = vn×px/100;
+-- resultado = monto_venta − monto_compra; pct = resultado/monto_compra). Los
+-- registros sin patas (ej. "Pase OPS") cargan `resultado` directo. El resultado
+-- DIARIO no se persiste: se deriva SUM(resultado) por fecha; el TC del día es
+-- carga manual (mesa_dinero_tc) y convierte a USD. Escritura: allowlist
+-- per-usuario (mesa_dinero_escritores) + admin; catálogo de traders y allowlist
+-- se gestionan en Manager → MESA. Todo cambio queda en mesa_dinero_audit.
+CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero (
+    id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    fecha           date NOT NULL,
+    trader          text NOT NULL,          -- de mesa_dinero_traders (validado en el service)
+    activo          text,                    -- ticker/etiqueta libre (TZXD6, Dolar mep, Pase OPS…)
+    vn_compra       numeric,
+    px_compra       numeric,
+    monto_compra    numeric,                 -- derivado: vn_compra × px_compra / 100
+    vn_venta        numeric,
+    px_venta        numeric,
+    monto_venta     numeric,                 -- derivado: vn_venta × px_venta / 100
+    resultado       numeric NOT NULL,        -- monto_venta − monto_compra (o manual sin patas)
+    pct             numeric,                 -- resultado / monto_compra
+    cliente         text,
+    observacion     text,                    -- "Mesa" u operador comercial (validado)
+    creado_por      text,
+    creado_at       timestamptz,
+    actualizado_por text,
+    actualizado_at  timestamptz
+);
+CREATE INDEX IF NOT EXISTS ix_mesa_dinero_fecha ON operaciones.mesa_dinero (fecha);
+
+CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_tc (
+    fecha           date PRIMARY KEY,
+    tc              numeric NOT NULL,        -- carga manual (decisión 2026-07-29: NO auto-MEP)
+    actualizado_por text,
+    actualizado_at  timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_traders (
+    nombre     text PRIMARY KEY,
+    creado_por text,
+    creado_at  timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_escritores (
+    email        text PRIMARY KEY,           -- usuario de la app con permiso de ESCRITURA
+    agregado_por text,
+    agregado_at  timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_audit (
+    id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts     timestamptz,
+    actor  text,                             -- email de quién hizo el cambio
+    action text,                             -- create_op/update_op/delete_op/set_tc/add_trader/…
+    target text,                             -- id de la op / fecha / nombre / email
+    data   jsonb                             -- before/after
+);
+CREATE INDEX IF NOT EXISTS ix_mesa_dinero_audit_ts ON operaciones.mesa_dinero_audit (ts DESC);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PORTAFOLIO — tenencias + catálogo de títulos (FUENTE DE VERDAD, SQL-native)
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1323,10 +1382,14 @@ CREATE TABLE IF NOT EXISTS mercado.cedears_time_sales (
 CREATE INDEX IF NOT EXISTS ix_cedears_ts_corto_ts
     ON mercado.cedears_time_sales (ticker_corto, ts DESC);
 
--- OHLC diario por CEDEAR (ventana móvil ~20 ruedas) para pivots sobre el CEDEAR
+-- OHLC diario por CEDEAR (ventana móvil ~60 ruedas) para pivots sobre el CEDEAR
 -- en ARS. Lo escribe jobs/cedears_ohlc_daily.py tras el cierre, copiando OP/HI/LO
 -- del snapshot + el last como close del día (el `close` del snapshot es el cierre
 -- de AYER, no se usa). El job poda las ruedas más viejas → la tabla no crece.
+-- `atr` = ATR-20 en ARS (rango típico diario, promedio de los últimos 20 true
+-- ranges) que el mismo job calcula una vez por rueda (quant.rango.atr); NULL
+-- hasta tener 21 ruedas de historia. La ventana subió de 20→60 justamente para
+-- que el ATR-20 sea calculable y quede algo de historia de ATR.
 CREATE TABLE IF NOT EXISTS mercado.cedears_ohlc_daily (
     ticker_corto text NOT NULL,
     fecha        date NOT NULL,
@@ -1334,10 +1397,33 @@ CREATE TABLE IF NOT EXISTS mercado.cedears_ohlc_daily (
     high         numeric,
     low          numeric,
     close        numeric,
+    atr          numeric,                 -- ATR-20 en ARS (quant.rango.atr), NULL sin historia
     PRIMARY KEY (ticker_corto, fecha)
 );
+ALTER TABLE mercado.cedears_ohlc_daily ADD COLUMN IF NOT EXISTS atr numeric;
 CREATE INDEX IF NOT EXISTS ix_cedears_ohlc_tk_fecha
     ON mercado.cedears_ohlc_daily (ticker_corto, fecha DESC);
+
+-- Barras de 1 MINUTO por CEDEAR, ARCHIVO PERMANENTE. Resamplea el tape intradía
+-- (mercado.cedears_time_sales, que se VACÍA al cierre) a OHLCV por minuto ANTES
+-- del cleanup y lo guarda para siempre (ventana móvil ~60 ruedas). Lo escribe
+-- jobs/cedears_bars_1m.py (cron 20:20 UTC L-V, con el motor ya parado → el tape
+-- es el día completo). Es la FUENTE DE VERDAD para derivar el Efficiency Ratio
+-- intradía (quant.rango.efficiency_ratio) en vivo e histórico, sin depender de
+-- que el tape siga vivo. `minuto` = inicio del minuto (UTC).
+CREATE TABLE IF NOT EXISTS mercado.cedears_bars_1m (
+    ticker_corto text NOT NULL,
+    minuto       timestamptz NOT NULL,     -- inicio del minuto (UTC)
+    open         numeric,
+    high         numeric,
+    low          numeric,
+    close        numeric,
+    volume       numeric,                  -- Σ size de los ticks del minuto
+    trades       integer,                  -- # de ticks agregados
+    PRIMARY KEY (ticker_corto, minuto)
+);
+CREATE INDEX IF NOT EXISTS ix_cedears_bars_1m_tk_min
+    ON mercado.cedears_bars_1m (ticker_corto, minuto DESC);
 
 -- Trading.SnapshotsSinteticos → histórico diario de sintéticos (jobs/snapshot_sinteticos.py,
 -- upsert por (ts_snapshot, tipo_sintetico, ticker)). Campos comunes columnar + el

@@ -82,6 +82,9 @@ def list_clientes(
     operador:    str | None = Query(None, description="Filtrar por operador_email exacto"),
     nivel_1:     str | None = Query(None, description="Filtrar por nivel_1 exacto"),
     nivel_2:     str | None = Query(None, description="Filtrar por nivel_2 exacto"),
+    nivel_3:     str | None = Query(None, description="Filtrar por nivel_3 exacto"),
+    nivel_4:     str | None = Query(None, description="Filtrar por nivel_4 exacto"),
+    nivel_5:     str | None = Query(None, description="Filtrar por nivel_5 exacto"),
     campo_vacio: str | None = Query(None, description="Solo los que tienen ese campo manual vacío/null"),
     q:           str | None = Query(None, description="Búsqueda en id_cuenta o denominación"),
 ) -> dict:
@@ -98,9 +101,10 @@ def list_clientes(
     elif operador:
         where.append("c.operador_email = %(op)s")
         p["op"] = operador
-    # Un solo lugar para los filtros de nivel: sumar nivel_3 mañana es agregar
+    # Un solo lugar para los filtros de nivel: sumar un nivel más es agregar
     # el Query param y una entrada acá, no copiar el bloque otra vez.
-    for col, valor in (("nivel_1", nivel_1), ("nivel_2", nivel_2)):
+    for col, valor in (("nivel_1", nivel_1), ("nivel_2", nivel_2), ("nivel_3", nivel_3),
+                       ("nivel_4", nivel_4), ("nivel_5", nivel_5)):
         if valor and col in _EDITABLE_FIELDS:
             where.append(f"c.{col} = %({col})s")
             p[col] = valor

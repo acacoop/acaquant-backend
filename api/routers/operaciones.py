@@ -633,6 +633,7 @@ def comercial_referido_fci(
 # ── INFORME (global, transversal a toda la mesa — no por operador) ───────────
 
 @router.get("/comercial/informe")
+@cached(ttl=300)
 def comercial_informe(
     moneda: str = Query("ARS", description="ARS | USD"),
     fecha: str | None = Query(None, description="corte = HASTA (ISO): TOTAL hasta corte. None = hoy"),
@@ -655,6 +656,7 @@ def comercial_informe(
 
 
 @router.get("/comercial/informe-segmento")
+@cached(ttl=300)
 def comercial_informe_segmento(
     hasta: str | None = Query(None, description="mes YYYY-MM (default actual); acumulado a fin de mes"),
     operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),
@@ -676,6 +678,7 @@ def comercial_informe_segmento(
 
 
 @router.get("/comercial/informe-aranceles-segmento")
+@cached(ttl=300)
 def comercial_informe_aranceles_segmento(
     operador: str = Query(..., description="operador_email a desglosar"),
     moneda: str = Query("ARS", description="ARS | USD"),
@@ -697,6 +700,7 @@ def comercial_informe_aranceles_segmento(
 
 
 @router.get("/comercial/informe-segmento-detalle")
+@cached(ttl=300)
 def comercial_informe_segmento_detalle(
     segmento: str = Query("todos", description="nivel_1 a desglosar; 'todos' = todos los segmentos"),
     operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),

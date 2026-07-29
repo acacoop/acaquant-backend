@@ -83,7 +83,11 @@ def cached(ttl: int) -> Callable:
         def wrapper(*args, **kwargs):
             bound = sig.bind(*args, **kwargs)   # TypeError si la llamada no matchea la firma
             bound.apply_defaults()
-            key = (fn.__module__, fn.__name__, tuple(sorted(bound.arguments.items())))
+            # Normaliza list → tuple: los filtros multi-select llegan como list (FastAPI
+            # Query(...)) y una list no es hasheable → rompería la key. Escalares sin cambio.
+            items = ((k, tuple(v) if isinstance(v, list) else v)
+                     for k, v in bound.arguments.items())
+            key = (fn.__module__, fn.__name__, tuple(sorted(items)))
             now = time.time()
             with _lock:
                 entry = _store.get(key)

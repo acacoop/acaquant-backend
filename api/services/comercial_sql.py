@@ -443,12 +443,13 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
         f"FROM comitentes WHERE {where} GROUP BY COALESCE(nivel_1, '(sin segmentar)') "
         f"ORDER BY n DESC", p)]
 
-    # Operativas por segmento: cuentas DISTINTAS que operaron (>=1 op) en el mes calendario
-    # EN CURSO (mismo criterio que CTAS OPS del ranking). Independiente del período elegido.
-    mes_ini = date(hoy.year, hoy.month, 1).isoformat()
-    p2: dict = {"cats": list(_CATS_VOLUMEN), "mes": mes_ini}
+    # Operativas por segmento: cuentas DISTINTAS que operaron (>=1 op) en el MES CALENDARIO
+    # del HASTA [1º de ese mes, corte] (mismo criterio que CTAS OPS del ranking). Independiente
+    # del `desde`.
+    mes_ini = date(anio, mes, 1).isoformat()
+    p2: dict = {"cats": list(_CATS_VOLUMEN), "mes": mes_ini, "corte": corte}
     w_op = ("nm.categoria = ANY(%(cats)s) AND nm.unidad IS DISTINCT FROM 'USDL' "
-            "AND nm.fecha >= %(mes)s")
+            "AND nm.fecha >= %(mes)s AND nm.fecha <= %(corte)s")
     if operador:
         w_op += " AND c.operador_email = %(op)s"
         p2["op"] = operador
@@ -481,41 +482,49 @@ def _rollup_por_cuenta(scope: str | None, p: dict,
     vol/n_ops de negocio_movimientos (cats), arancel de operaciones.
     TOTAL (vol_total/ar_total/n_ops) = período elegido [desde, hasta]: sin `desde` no hay
     límite inferior (histórico), sin `hasta` corre hasta hoy. MES (vol_mes/ar_mes/n_ops_mes)
-    = mes calendario EN CURSO [1º del mes actual, hoy], SIEMPRE, independiente del período."""
+    = el MES CALENDARIO del HASTA [1º de ese mes, hasta] (si no hay hasta, mes actual);
+    independiente del `desde`. Ej: hasta=30/06 → MES = junio; hasta=31/05 → MES = mayo."""
     p["cats"] = list(_CATS_VOLUMEN)
-    mes_ini = _hoy_art().replace(day=1).isoformat()
+    corte = date.fromisoformat(hasta) if hasta else _hoy_art()
+    mes_ini = corte.replace(day=1).isoformat()
     p["mes_ini"] = mes_ini
 
-    # Condición de la ventana TOTAL (período). Vacía → TRUE = sin acotar (histórico).
-    tot_vol, tot_ar = [], []
-    if desde:
-        p["desde"] = desde
-        tot_vol.append("fecha >= %(desde)s")
-        tot_ar.append("concertacion >= %(desde)s")
+    # Tope superior = HASTA: aplica a TODO (así el MES del hasta no arrastra meses futuros
+    # cuando el corte es una fecha pasada). Sin `hasta` no se acota (no hay datos a futuro).
+    ub_vol = ub_ar = ""
     if hasta:
         p["hasta"] = hasta
-        tot_vol.append("fecha <= %(hasta)s")
-        tot_ar.append("concertacion <= %(hasta)s")
-    c_tot_vol = " AND ".join(tot_vol) if tot_vol else "TRUE"
-    c_tot_ar = " AND ".join(tot_ar) if tot_ar else "TRUE"
+        ub_vol = " AND fecha <= %(hasta)s"
+        ub_ar = " AND concertacion <= %(hasta)s"
+    # Límite inferior de la ventana TOTAL = `desde`. Vacío → TRUE = histórico.
+    lb_vol = lb_ar = "TRUE"
+    if desde:
+        p["desde"] = desde
+        lb_vol = "fecha >= %(desde)s"
+        lb_ar = "concertacion >= %(desde)s"
+    # Piso del scan = min(desde, mes_ini): necesitamos filas del TOTAL (>=desde) y del MES
+    # (>=mes_ini). Sin `desde` el TOTAL es histórico → no se acota por abajo.
+    lo_vol = lo_ar = ""
+    if desde:
+        lo = min(desde, mes_ini)
+        p["lo"] = lo
+        lo_vol = " AND fecha >= %(lo)s"
+        lo_ar = " AND concertacion >= %(lo)s"
 
-    # WHERE externo = unión (ventana TOTAL ∪ mes en curso) para no escanear de más.
-    w_vol = (f"unidad IS DISTINCT FROM 'USDL' AND categoria = ANY(%(cats)s) "
-             f"AND (({c_tot_vol}) OR fecha >= %(mes_ini)s)")
-    w_ar = (f"arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
-            f"AND (({c_tot_ar}) OR concertacion >= %(mes_ini)s)")
+    w_vol = (f"unidad IS DISTINCT FROM 'USDL' AND categoria = ANY(%(cats)s){ub_vol}{lo_vol}")
+    w_ar = (f"arancel > 0 AND etapa IS DISTINCT FROM 'solicitud'{ub_ar}{lo_ar}")
     if scope:
         w_vol += f" AND {scope}"
         w_ar += f" AND {scope}"
     rows = _q(
         f"WITH vol AS (SELECT id_cuenta, "
-        f"  SUM(CASE WHEN {c_tot_vol} THEN {_PESIF} ELSE 0 END) AS vol_total, "
+        f"  SUM(CASE WHEN {lb_vol} THEN {_PESIF} ELSE 0 END) AS vol_total, "
         f"  SUM(CASE WHEN fecha >= %(mes_ini)s THEN {_PESIF} ELSE 0 END) AS vol_mes, "
-        f"  SUM(CASE WHEN {c_tot_vol} THEN 1 ELSE 0 END) AS n_ops, "
+        f"  SUM(CASE WHEN {lb_vol} THEN 1 ELSE 0 END) AS n_ops, "
         f"  SUM(CASE WHEN fecha >= %(mes_ini)s THEN 1 ELSE 0 END) AS n_ops_mes "
         f"  FROM negocio_movimientos WHERE {w_vol} GROUP BY id_cuenta), "
         f"ar AS (SELECT id_cuenta, "
-        f"  SUM(CASE WHEN {c_tot_ar} THEN arancel ELSE 0 END) AS ar_total, "
+        f"  SUM(CASE WHEN {lb_ar} THEN arancel ELSE 0 END) AS ar_total, "
         f"  SUM(CASE WHEN concertacion >= %(mes_ini)s THEN arancel ELSE 0 END) AS ar_mes "
         f"  FROM operaciones WHERE {w_ar} GROUP BY id_cuenta) "
         f"SELECT COALESCE(v.id_cuenta, a.id_cuenta) AS id_cuenta, "
@@ -604,8 +613,8 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
     segmentos = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
     for s in segmentos:
         s["ticket_promedio"] = _ticket(s["vol_total"], s["n_ops"])
-    hoy = _hoy_art()
-    return {"mes_actual": f"{hoy.year:04d}-{hoy.month:02d}", "fecha": fecha,
+    corte = date.fromisoformat(fecha) if fecha else _hoy_art()
+    return {"mes_actual": f"{corte.year:04d}-{corte.month:02d}", "fecha": fecha,
             "comerciales": comerciales, "aranceles_segmento": segmentos}
 
 
@@ -652,7 +661,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     factor = _factor_usd(moneda)
     corte = date.fromisoformat(fecha) if fecha else hoy
     corte_iso = corte.isoformat() if fecha else None
-    # arancel_total = período [desde, hasta]; arancel_mes = mes calendario EN CURSO.
+    # arancel_total = período [desde, hasta]; arancel_mes = el MES CALENDARIO del HASTA.
     mes_ini = hoy.replace(day=1).isoformat()
     where = "c.estado = 'Activa'"
     p: dict = {}
@@ -678,21 +687,24 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
                 "clientes": [], "operaciones": []}
 
     pa: dict = {"ids": ids, "mes_ini": mes_ini}
-    ct = []
-    if desde:
-        pa["desde"] = desde
-        ct.append("concertacion >= %(desde)s")
+    ub = ""                                    # tope superior = HASTA (aplica a todo)
     if corte_iso:
         pa["corte"] = corte_iso
-        ct.append("concertacion <= %(corte)s")
-    c_tot = " AND ".join(ct) if ct else "TRUE"   # ventana TOTAL = período [desde, hasta]
+        ub = " AND concertacion <= %(corte)s"
+    lb_tot = "TRUE"                            # piso de la ventana TOTAL = DESDE
+    if desde:
+        pa["desde"] = desde
+        lb_tot = "concertacion >= %(desde)s"
+    lo = ""                                     # piso del scan = min(desde, mes_ini)
+    if desde:
+        pa["lo"] = min(desde, mes_ini)
+        lo = " AND concertacion >= %(lo)s"
     clientes = []
     for r in _q(f"SELECT id_cuenta, "
-                f"SUM(CASE WHEN {c_tot} THEN arancel ELSE 0 END) AS ar_total, "
+                f"SUM(CASE WHEN {lb_tot} THEN arancel ELSE 0 END) AS ar_total, "
                 f"SUM(CASE WHEN concertacion >= %(mes_ini)s THEN arancel ELSE 0 END) AS ar_mes "
                 f"FROM operaciones WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 "
-                f"AND etapa IS DISTINCT FROM 'solicitud' "
-                f"AND (({c_tot}) OR concertacion >= %(mes_ini)s) GROUP BY id_cuenta", pa):
+                f"AND etapa IS DISTINCT FROM 'solicitud'{ub}{lo} GROUP BY id_cuenta", pa):
         idc = r["id_cuenta"]
         clientes.append({
             "id_cuenta": idc, "denominacion": detalle.get(idc) or "—",

@@ -126,6 +126,9 @@ def get_pase_agro() -> dict[str, Any]:
         # Cards + ganancia ON del "Pase con Cobertura" (calculado sobre estos
         # mismos bloques → única fuente de la fórmula).
         "pase_cobertura":   _cob.get_pase_cobertura(bloques),
+        # Misma tabla pero con el disponible de la Cámara de Bahía Blanca (el
+        # Pase Lleno se recalcula con la pizarra Bahía; el resto es idéntico).
+        "pase_cobertura_bahia": _cob.get_pase_cobertura(bloques, plaza="bahia"),
     }
 
 

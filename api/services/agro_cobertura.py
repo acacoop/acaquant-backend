@@ -294,9 +294,18 @@ def get_costo_pase() -> dict[str, Any]:
     }
 
 
-def get_pase_cobertura(bloques: list[dict[str, Any]]) -> dict[str, Any]:
+def get_pase_cobertura(
+    bloques: list[dict[str, Any]], *, plaza: str = "rosario",
+) -> dict[str, Any]:
     """Cards del Pase con Cobertura (ON) por commodity, a partir de los bloques
     del Pase Agro ya construidos (para no recalcular futuros/pizarra).
+
+    `plaza`: qué disponible (pizarra) se usa para la valuación.
+      - "rosario" (default): Cámara Arbitral Rosario. El Pase Lleno sale del
+        `pase` ya calculado en el bloque (pizarra Rosario − futuro).
+      - "bahia": Cámara Bahía Blanca. El Pase Lleno se RECALCULA con la pizarra
+        de Bahía (precio_usd Bahía − futuro). Todo lo demás (tasas, dólar Matba,
+        BNA T−1, sintéticos, futuros) es idéntico — solo cambia el disponible.
 
     Output:
         {
@@ -311,6 +320,7 @@ def get_pase_cobertura(bloques: list[dict[str, Any]]) -> dict[str, Any]:
     from api.services import derivados_agro as _agro
     from api.services.camara_cereales import (
         get_camara_cereales,
+        get_camara_cereales_bahia,
         get_dolares_referencia,
         get_tasas_cobertura,
     )
@@ -322,7 +332,11 @@ def get_pase_cobertura(bloques: list[dict[str, Any]]) -> dict[str, Any]:
     dolares = get_dolares_referencia()
     tc = dolares.get("dolar_matba")
     bna_t1 = dolares.get("bna_comprador_t1")
-    precios = {r["cereal"]: r.get("precio_ars") for r in get_camara_cereales()["cereales"]}
+    es_bahia = plaza == "bahia"
+    cam = get_camara_cereales_bahia() if es_bahia else get_camara_cereales()
+    # Disponible en ARS (venta) y en USD (pizarra) por cereal para la plaza.
+    precios = {r["cereal"]: r.get("precio_ars") for r in cam["cereales"]}
+    precios_usd = {r["cereal"]: r.get("precio_usd") for r in cam["cereales"]}
     hoy = date.today()
     # Sintéticos LONG ROFEX + LONG LECAP por mes: la columna Sintético toma la
     # TNA del sintético del MISMO mes que el pase (no es una tasa manual).
@@ -332,6 +346,7 @@ def get_pase_cobertura(bloques: list[dict[str, Any]]) -> dict[str, Any]:
     for b in bloques:
         commodity = b.get("commodity")
         vd = precios.get(commodity)
+        piz_us = precios_usd.get(commodity)  # pizarra USD de la plaza (para Bahía)
         monto_cau = descuento_caucion_7d(vd, tasa_caucion)  # display-only en la card
         cards: list[dict[str, Any]] = []
         for r in b.get("rows", []):
@@ -340,6 +355,14 @@ def get_pase_cobertura(bloques: list[dict[str, Any]]) -> dict[str, Any]:
             vto = r.get("vencimiento")
             # dias a hoy (valuado hoy siempre); fallback al dias_a_vto del snapshot.
             dias = _agro._dias_entre(vto, hoy) if vto else r.get("dias_a_vto")
+            # Pase bruto (pizarra − futuro): en Bahía se recalcula con la pizarra
+            # de Bahía; en Rosario se usa el `pase` que ya trae el bloque.
+            futuro_us = r.get("us")
+            if es_bahia:
+                pase_bruto = round(piz_us - futuro_us, 4) if (
+                    piz_us and futuro_us is not None) else None
+            else:
+                pase_bruto = r.get("pase")
             # Match del sintético por mes del futuro. Sin sintético en ese mes,
             # la columna Sintético queda vacía (no se inventa una tasa).
             sint = sinteticos.get(_ym(vto)) if vto else None
@@ -349,8 +372,8 @@ def get_pase_cobertura(bloques: list[dict[str, Any]]) -> dict[str, Any]:
                 ticker=r.get("ticker"),
                 vto=vto,
                 dias=dias,
-                pase_lleno=r.get("pase"),
-                valor_pase_agro_usd=r.get("us"),
+                pase_lleno=pase_bruto,
+                valor_pase_agro_usd=futuro_us,
                 tc=tc,
                 bna_comprador_t1=bna_t1,
                 venta_dispo_ars=vd,

@@ -56,6 +56,23 @@ def ohlc_ultima_rueda(tickers: list[str]) -> dict[str, dict]:
         return {r["ticker_corto"]: r for r in cur.fetchall()}
 
 
+def atr_ultima_rueda(tickers: list[str]) -> dict[str, dict]:
+    """{ticker_corto: {fecha, close, atr}} de la última rueda guardada
+    (mercado.cedears_ohlc_daily) — el ATR-20 en ARS que persiste el job diario.
+    `atr` puede ser None si todavía no hay 21 ruedas de historia."""
+    if not tickers:
+        return {}
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """SELECT DISTINCT ON (ticker_corto) ticker_corto, fecha, close, atr
+               FROM mercado.cedears_ohlc_daily
+               WHERE ticker_corto = ANY(%s)
+               ORDER BY ticker_corto, fecha DESC""",
+            (tickers,),
+        )
+        return {r["ticker_corto"]: r for r in cur.fetchall()}
+
+
 def snapshot_live(tickers_largos: list[str]) -> dict[str, dict]:
     """{ticker_largo: {last, open, high, low}} del snapshot live de CEDEARs
     (mercado.cedears_snapshot, data jsonb del motor_cedears)."""

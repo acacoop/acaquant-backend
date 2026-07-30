@@ -35,3 +35,12 @@ def senales(dias: int = Query(30, ge=1, le=365), limite: int = Query(200, ge=1, 
     """Tabla de señales resueltas (una fila por señal × horizonte, desc por ts)
     para auditar el ledger fila a fila."""
     return svc.get_senales(dias=dias, limite=limite)
+
+
+@router.get("/contexto")
+def contexto():
+    """Contexto determinista por ticker foco: ATR-20 (rango típico diario, ARS) +
+    Efficiency Ratio intradía (choppy). [{ticker, fecha, close, atr, atr_pct,
+    er_dia, er_reciente, choppy}]. El ATR sale del OHLC diario; el ER se deriva
+    en vivo del tape (None fuera de la rueda)."""
+    return svc.get_contexto()

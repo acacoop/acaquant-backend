@@ -12,7 +12,9 @@ emisor es el engine (si la API recalculara, habría dos verdades).
 """
 from __future__ import annotations
 
+import config
 from api.cache import cached
+from core import bars_sql
 from core import estrategia_sql as db
 
 
@@ -31,6 +33,38 @@ def get_live() -> list[dict]:
 def get_senales(dias: int = 30, limite: int = 200) -> list[dict]:
     """Señales con resultado (una fila por señal×horizonte), desc por ts."""
     return db.senales_resueltas(dias=dias, limite=limite)
+
+
+@cached(ttl=15)
+def get_contexto() -> list[dict]:
+    """Contexto determinista por ticker foco (config.ESTRATEGIA_CONTEXTO_TICKERS):
+    ATR-20 (rango típico diario, ARS) + Efficiency Ratio intradía (choppy).
+
+    Shape por fila: {ticker, fecha, close, atr, atr_pct, er_dia, er_reciente,
+    choppy}. `atr`/`atr_pct` None hasta juntar 21 ruedas; `er_*` None fuera de
+    la rueda (el tape se vacía al cierre). `choppy` = er_reciente por debajo del
+    umbral → los niveles no funcionan, no operar."""
+    tickers = config.ESTRATEGIA_CONTEXTO_TICKERS
+    atr = db.atr_ultima_rueda(tickers)
+    out: list[dict] = []
+    for t in tickers:
+        a = atr.get(t) or {}
+        close = float(a["close"]) if a.get("close") is not None else None
+        atr_val = float(a["atr"]) if a.get("atr") is not None else None
+        er = bars_sql.efficiency_ratio_live(t)
+        er_reciente = er.get("er_reciente")
+        out.append({
+            "ticker": t,
+            "fecha": a.get("fecha").isoformat() if a.get("fecha") else None,
+            "close": close,
+            "atr": round(atr_val, 2) if atr_val is not None else None,
+            "atr_pct": round(atr_val / close * 100, 2)
+            if (atr_val is not None and close) else None,
+            "er_dia": round(er["er_dia"], 3) if er.get("er_dia") is not None else None,
+            "er_reciente": round(er_reciente, 3) if er_reciente is not None else None,
+            "choppy": (er_reciente is not None and er_reciente < config.ESTRATEGIA_ER_CHOPPY),
+        })
+    return out
 
 
 # Muestra mínima para creer un stat (menos que esto es ruido, se devuelve igual

@@ -59,6 +59,8 @@ trader + sales). Verificado en `api/routers/scanner.py:16-18`.
 | **precios_acciones** | `mercado` | Cierres EOD del subyacente US (+ SPY/QQQ) | scanner (returns/quant/pivot), rv_motor | **`jobs/precios_acciones_daily.py`** (post-cierre US, Yahoo) |
 | **adr_snapshot** | `mercado` | ADR live (cada ~15 min en hs US) | scanner (pivot, adr) | `jobs/adr_live.py` (Finnhub) ⚠️ *job a confirmar* |
 | **day_trading_stats** | `mercado` | "Costumbre" de vueltas (~20 ruedas) | day_trading | `jobs/day_trading_stats.py` ⚠️ *a confirmar* |
+| **cedears_ohlc_daily** | `mercado` | OHLC diario ARS del CEDEAR (ventana 60 ruedas) + `atr` (ATR-20 en ARS) | pivots ARS, estrategia | `jobs/cedears_ohlc_daily.py` (post-cierre 20:15, calcula el ATR) |
+| **cedears_bars_1m** | `mercado` | Archivo permanente de barras 1-min ARS (OHLCV) — fuente del Efficiency Ratio intradía | `core/bars_sql.py` | `jobs/cedears_bars_1m.py` (20:20, resamplea el tape antes del cleanup) |
 | **dolar_snapshot / dolar** | `valuaciones` | CCL live / cierre | scanner (`/ccl`) | motores dólares (`engines/dolares.py` / `dolar_mep`) |
 
 ---

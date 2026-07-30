@@ -153,6 +153,32 @@ systemctl restart api.service
 
 ## Changelog
 
+- **2026-07-29 (4)** — El CONTEXTO ya se muestra en la vista. La tab ESTRATEGIA del
+  RADAR de TRADING deja de mostrar la señal (modelo v1 PARKEADO) y muestra el panel
+  de contexto de los 5 papeles foco (`config.ESTRATEGIA_CONTEXTO_TICKERS` = QQQ SPY
+  SNDK NVDA RKLB): **ATR%** (rango típico diario) + **ER 30 / ER día** (Efficiency
+  Ratio) con chip de régimen (CHOPPY / MIXTO / LIMPIO, umbral `ESTRATEGIA_ER_CHOPPY`
+  = 0.30). Backend nuevo: `GET /api/estrategia/contexto` (`svc.get_contexto`, lee
+  `core.estrategia_sql.atr_ultima_rueda` + `core.bars_sql.efficiency_ratio_live`).
+  Frontend: `trading-estrategia-radar.tsx` reescrito; `estrategia-view.tsx` (overlay
+  del track-record del modelo v1) queda sin usar pero no se borra.
+
+- **2026-07-29 (3)** — Cimientos de CONTEXTO determinista (arranque de un enfoque
+  nuevo; el modelo de señal v1 de arriba queda PARQUEADO, no se usa). Dos métricas
+  puras en `quant/rango.py` (`atr`, `efficiency_ratio` + tests
+  `tests/unit/test_rango.py`):
+  - **ATR-20 por ticker** (ARS) — se persiste en una columna nueva `atr` de
+    `mercado.cedears_ohlc_daily`; la ventana móvil del job `jobs/cedears_ohlc_daily.py`
+    subió de 20→60 ruedas (se necesitan 21 para el ATR-20 + deja historia). Se
+    calcula UNA vez por rueda, post-cierre.
+  - **Efficiency Ratio intradía (Kaufman)** — nuevo ARCHIVO permanente de barras de
+    1 minuto `mercado.cedears_bars_1m` (job `jobs/cedears_bars_1m.py`, 20:20 UTC L-V,
+    resamplea el tape ANTES del cleanup 23:50). El ER se DERIVA de las barras (vivo
+    desde el tape, histórico desde el archivo) con `core/bars_sql.py`
+    (`efficiency_ratio_live`/`_hist`); no se persiste el número — la fuente de verdad
+    son las barras. Universo foco: QQQ SPY SNDK NVDA RKLB (el job impacta a TODOS los
+    CEDEARs igual). Aún sin consumidor (motor/API): es la capa de datos.
+
 - **2026-07-29 (2)** — La vista se muda ADENTRO de la pantalla de trading (pedido
   del user: "mejor en vez de una nueva vista, meterlo donde ya miro"): la caja de
   abajo del RADAR pasa a tener tabs PIVOTES | ESTRATEGIA. La tab muestra la señal

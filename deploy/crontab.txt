@@ -196,9 +196,16 @@
 6 20 * * 1-5 /root/TradingAV/deploy/run_job.sh day_trading_stats 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.day_trading_stats'
 
 # OHLC diario de cada CEDEAR → mercado.cedears_ohlc_daily (para pivots sobre el
-# CEDEAR). Lee el SNAPSHOT (no el tape), así que no le afecta el cleanup; corre con
-# el motor ya parado (20:05) → valores finales del día. Ventana móvil 20 ruedas.
+# CEDEAR + ATR-20 en ARS). Lee el SNAPSHOT (no el tape), así que no le afecta el
+# cleanup; corre con el motor ya parado (20:05) → valores finales del día. Ventana
+# móvil 60 ruedas (≥21 para el ATR-20).
 15 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cedears_ohlc_daily 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cedears_ohlc_daily'
+
+# Archivo de barras de 1 MINUTO por CEDEAR → mercado.cedears_bars_1m. Resamplea el
+# tape (cedears_time_sales, que se VACÍA al cierre) a OHLCV/min y lo guarda para
+# siempre (fuente de verdad del Efficiency Ratio intradía). Corre con el motor ya
+# parado (20:05) y ANTES del cleanup del tape (23:50). Ventana móvil 60 ruedas.
+20 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cedears_bars_1m 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cedears_bars_1m'
 
 # OHLC diario de cada BONO (renta fija) → mercado.bonos_ohlc_daily (para pivots
 # sobre el bono en la vista TRADING). Lee mercado.market_snapshot (que escribe

@@ -118,6 +118,15 @@ ESTRATEGIA_HORIZONTES: list[int] = [15, 30, 60]
 ESTRATEGIA_OBJETIVO_PCT = 0.5
 ESTRATEGIA_STOP_PCT = 0.5
 
+# --- ESTRATEGIA: contexto determinista (ATR + Efficiency Ratio) ---
+# Universo FOCO del panel CONTEXTO de la vista ESTRATEGIA: ATR-20 (rango típico
+# diario, mercado.cedears_ohlc_daily) + Efficiency Ratio intradía (choppy, sobre
+# mercado.cedears_bars_1m / tape). Son ticker_corto. Se muestran estos aunque el
+# ATR/ER se calcule para TODOS los CEDEARs (ver docs/ESTRATEGIA_QUANT.md).
+ESTRATEGIA_CONTEXTO_TICKERS: list[str] = ["QQQ", "SPY", "SNDK", "NVDA", "RKLB"]
+# Umbral de ER por debajo del cual la rueda se considera choppy (no operar niveles).
+ESTRATEGIA_ER_CHOPPY = 0.30
+
 
 # --- Canje (par CCL/MEP por bono) ---
 # Tickers C (CCL) y D (MEP) de cada par para la vista /analitica/canje. Vive en

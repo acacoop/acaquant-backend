@@ -30,6 +30,7 @@ from api.services.camara_cereales import (
     get_dolares_referencia,
     get_tasas_cobertura,
     set_camara_cereal,
+    set_camara_cereal_bahia,
     set_dolares_referencia,
     set_tasas_cobertura,
 )
@@ -220,6 +221,53 @@ def patch_camara_cereal(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# CÁMARA DE CEREALES — BAHÍA (input manual, 5 cereales, SOLO USD)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/agro/camara-bahia")
+def camara_cereales_bahia(
+    _email: str = Depends(get_user_email),
+    _engine: str | None = Query(None, include_in_schema=False),
+):
+    """Lista los 5 cereales de la Cámara de Bahía — siempre los 5, vacíos si no cargados.
+    A diferencia de Rosario, el trader carga TODOS en USD (la ARS se deriva)."""
+    return _agro_svc(_engine).get_camara_cereales_bahia()
+
+
+class CamaraBahiaCerealIn(BaseModel):
+    precio_usd: float | None = Field(
+        default=None, gt=0,
+        description="Precio en USD (Cámara Bahía); null = no tocar",
+    )
+
+
+@router.patch("/agro/camara-bahia/{cereal}")
+def patch_camara_cereal_bahia(
+    cereal: str,
+    payload: CamaraBahiaCerealIn,
+    email: str = Depends(get_user_email),
+    _mod: None = Depends(require_module("agro")),
+    _noguest: None = Depends(require_no_invitado),   # escritura: bloquea invitado www (REGLA #8)
+):
+    """Upsert de un cereal de Bahía (precio_usd). Audit en camara_cereales_bahia_audit."""
+    cereal = cereal.upper()
+    if cereal not in CEREALES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"cereal inválido. Válidos: {CEREALES}",
+        )
+    try:
+        return set_camara_cereal_bahia(
+            cereal=cereal,
+            precio_usd=payload.precio_usd,
+            email=email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # TASAS DE COBERTURA (ON / Pagaré) — inputs manuales globales de la tab DATOS
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -353,6 +401,16 @@ def mejoras_dispo(
     futuros DLR para mostrarle al productor cuánto cobra si se queda en
     LECAP + se cubre con futuro."""
     return _agro_svc(_engine).get_mejoras_dispo()
+
+
+@router.get("/agro/mejoras-dispo-bahia")
+def mejoras_dispo_bahia(
+    _email: str = Depends(get_user_email),
+    _engine: str | None = Query(None, include_in_schema=False),
+):
+    """Igual que /agro/mejoras-dispo pero el precio disponible sale de la Cámara de
+    Bahía Blanca (cereales cargados en USD → precio_ars derivado con el dólar BNA)."""
+    return _agro_svc(_engine).get_mejoras_dispo_bahia()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

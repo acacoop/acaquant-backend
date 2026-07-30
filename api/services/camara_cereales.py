@@ -169,27 +169,140 @@ def set_camara_cereal(
     return new
 
 
-def _audit_camara_sql(cereal: str, prev: dict, new: dict, email: str, ts: datetime) -> None:
-    """Append del cambio a mercado.camara_cereales_audit (SQL). Reemplaza el audit Mongo."""
+def _audit_camara_sql(
+    cereal: str, prev: dict, new: dict, email: str, ts: datetime,
+    table: str = "mercado.camara_cereales_audit",
+) -> None:
+    """Append del cambio a la tabla de audit (SQL). Reemplaza el audit Mongo.
+    `table` permite reusarlo para la Cámara de Bahía (misma forma de fila)."""
     try:
         from psycopg.types.json import Jsonb
 
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "CREATE TABLE IF NOT EXISTS mercado.camara_cereales_audit ("
+                f"CREATE TABLE IF NOT EXISTS {table} ("
                 "id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, cereal text, "
                 "prev jsonb, new jsonb, updated_by text, updated_at timestamptz)")
             cur.execute(
-                "INSERT INTO mercado.camara_cereales_audit (cereal, prev, new, updated_by, updated_at) "
+                f"INSERT INTO {table} (cereal, prev, new, updated_by, updated_at) "
                 "VALUES (%s, %s, %s, %s, %s)",
                 (cereal,
                  Jsonb({"precio_ars": prev.get("precio_ars"), "precio_usd": prev.get("precio_usd")}),
-                 Jsonb({"precio_ars": new["precio_ars"], "precio_usd": new["precio_usd"]}),
+                 Jsonb({"precio_ars": new.get("precio_ars"), "precio_usd": new.get("precio_usd")}),
                  email, ts))
             conn.commit()
     except Exception:
         pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CÁMARA DE CEREALES — BAHÍA BLANCA (input manual, 5 cereales, SOLO USD)
+# ─────────────────────────────────────────────────────────────────────────────
+# Misma idea que Rosario, pero acá el trader carga TODOS los cereales en USD
+# (no hay excepción SOJA-en-ARS): la pata ARS se DERIVA con el dólar Banco Nación.
+# Tabla propia `mercado.camara_cereales_bahia` (self-create para tolerar drift de
+# schema). data jsonb = {cereal, precio_usd, updated_by, updated_at}.
+_CAMARA_BAHIA_TABLE = "mercado.camara_cereales_bahia"
+
+
+def _ensure_bahia_table(cur) -> None:
+    cur.execute(
+        f"CREATE TABLE IF NOT EXISTS {_CAMARA_BAHIA_TABLE} ("
+        "cereal text PRIMARY KEY, data jsonb, updated_at timestamptz)")
+
+
+def get_camara_cereales_bahia() -> dict[str, Any]:
+    """Los 5 cereales de la Cámara de Bahía Blanca (siempre los 5, aunque no estén
+    cargados). Solo se guarda la pata USD (manual); la ARS se DERIVA con el dólar
+    Banco Nación (get_dolares_referencia). Si el BNA no está cargado, la ARS sale None.
+
+    Mismo shape de salida que `get_camara_cereales` (Rosario) — con
+    `manual_leg` fijo en "usd" para los 5 cereales.
+    """
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    docs: dict[str, dict] = {}
+    try:
+        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            _ensure_bahia_table(cur)
+            cur.execute(f"SELECT cereal, data FROM {_CAMARA_BAHIA_TABLE}")
+            docs = {r["cereal"]: (r["data"] or {}) for r in cur.fetchall()}
+            conn.commit()
+    except Exception:
+        docs = {}
+
+    dolar_bna = get_dolares_referencia().get("dolar_bna")
+
+    rows: list[dict[str, Any]] = []
+    for cereal in CEREALES:
+        d = docs.get(cereal) or {}
+        precio_usd = d.get("precio_usd")
+        precio_ars = (precio_usd * dolar_bna) if (precio_usd is not None and dolar_bna) else None
+        rows.append({
+            "cereal":     cereal,
+            "precio_ars": precio_ars,
+            "precio_usd": precio_usd,
+            "manual_leg": "usd",
+            "updated_by": d.get("updated_by"),
+            "updated_at": d.get("updated_at"),
+        })
+
+    return {
+        "ts":        datetime.now(UTC),
+        "dolar_bna": dolar_bna,
+        "cereales":  rows,
+    }
+
+
+def _leer_bahia_sql(cereal: str) -> dict:
+    """Doc actual del cereal (jsonb `data`) desde la tabla de Bahía. {} si no existe."""
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    try:
+        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            _ensure_bahia_table(cur)
+            cur.execute(f"SELECT data FROM {_CAMARA_BAHIA_TABLE} WHERE cereal = %s", (cereal,))
+            row = cur.fetchone()
+            conn.commit()
+        return (row["data"] if row else None) or {}
+    except Exception:
+        return {}
+
+
+def set_camara_cereal_bahia(cereal: str, precio_usd: float | None, email: str) -> dict[str, Any]:
+    """Upsert de la pata USD (manual) de un cereal en Bahía. La ARS se deriva al
+    leer con el dólar BNA. Devuelve el doc guardado + inserta audit."""
+    c = _validate_cereal(cereal)
+    if precio_usd is None:
+        raise ValueError(f"{c} en Bahía se carga en USD: falta ese valor")
+    if precio_usd <= 0:
+        raise ValueError("el precio debe ser > 0")
+
+    from core import pg_mirror
+    from core.postgres import get_pool
+    now = datetime.now(UTC)
+    prev = _leer_bahia_sql(c)
+    new = {
+        "cereal":     c,
+        "precio_usd": float(precio_usd),
+        "updated_by": email,
+        "updated_at": now,
+    }
+
+    # Ensure table (self-create) antes del write_native, que falla en silencio si
+    # la tabla no existe todavía.
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        _ensure_bahia_table(cur)
+        conn.commit()
+    pg_mirror.write_native(
+        _CAMARA_BAHIA_TABLE, ["cereal"],
+        [{"cereal": c, "data": pg_mirror.doc_iso(new)}],
+    )
+    _audit_camara_sql(c, prev, new, email, now, table="mercado.camara_cereales_bahia_audit")
+    return new
 
 
 # ─────────────────────────────────────────────────────────────────────────────

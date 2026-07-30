@@ -968,6 +968,16 @@ CREATE TABLE IF NOT EXISTS mercado.camara_cereales (
     data   jsonb
 );
 
+-- Cámara de Cereales de BAHÍA BLANCA → carga MANUAL de la mesa (5 cereales, SOLO
+-- USD; la ARS se deriva con el dólar BNA). Lo escribe el service
+-- api/services/camara_cereales.py::set_camara_cereal_bahia (self-create + write_native).
+-- Passthrough jsonb; PK = cereal. data jsonb = {cereal, precio_usd, updated_by, updated_at}.
+CREATE TABLE IF NOT EXISTS mercado.camara_cereales_bahia (
+    cereal     text PRIMARY KEY,        -- TRIGO | MAIZ | GIRASOL | SOJA | SORGO
+    data       jsonb,
+    updated_at timestamptz
+);
+
 -- Breakevens overrides → curaduría manual de pares Lecap↔CER (Manager). Una fila
 -- por par EXCLUIDO. El reader api/services/mercado_hist_sql.get_breakevens filtra
 -- estos pares (el motor los sigue calculando; se ocultan en la vista). Lo escribe

@@ -310,21 +310,21 @@ def get_camara_cereales() -> dict[str, Any]:
     return _cam.get_camara_cereales()
 
 
-# ── MEJORAS PRECIO DISPONIBLE ────────────────────────────────────────────────
-def get_mejoras_dispo() -> dict[str, Any]:
-    """Mejoras dispo desde SQL. El ÚNICO read agro-propio es CamaraCereales; los
-    futuros DLR / LECAPs / TEA salen de Mongo igual que el path Mongo (esos dominios
-    no son de este agente). Reusa el builder puro `_build_filas`.
+def get_camara_cereales_bahia() -> dict[str, Any]:
+    """Los 5 cereales de la Cámara de Bahía Blanca. Delega en el service canónico,
+    que guarda solo la pata USD (manual) y deriva la ARS con el dólar BNA."""
+    return _cam.get_camara_cereales_bahia()
 
-    Mismo shape que `mejoras_dispo.get_mejoras_dispo` (no se cachea acá; el router
-    aplica el selector — el path Mongo conserva su `@cached`)."""
+
+# ── MEJORAS PRECIO DISPONIBLE ────────────────────────────────────────────────
+def _mejoras_dispo(camara_docs: dict[str, dict]) -> dict[str, Any]:
+    """Núcleo de Mejoras Dispo: dado el precio disponible por commodity
+    (`camara_docs`, ya con `precio_ars` derivado), cruza LECAPs + futuros DLR.
+    Rosario y Bahía comparten TODO menos la fuente del precio disponible."""
     today = date.today()
     hoy_str = today.strftime("%Y%m%d")
 
     spot = mid_oficial_live("oficial").get("value")
-
-    # Cámara con pata derivada calculada — MAIZ/TRIGO cargan USD → precio_ars derivado.
-    camara_docs = {c["cereal"]: c for c in _cam.get_camara_cereales()["cereales"]}
 
     # Futuros DLR vigentes desde mercado.futuros_dlr_snapshot (SQL-native; decomiso Mongo:
     # FuturosDLRSnapshot dropeada). Doc completo en jsonb `data`.
@@ -365,3 +365,22 @@ def get_mejoras_dispo() -> dict[str, Any]:
         })
 
     return {"ts": datetime.now(UTC), "spot": spot, "bloques": bloques}
+
+
+def get_mejoras_dispo() -> dict[str, Any]:
+    """Mejoras dispo (ROSARIO) desde SQL. El precio disponible sale de la Cámara de
+    Rosario; los futuros DLR / LECAPs / TEA salen de las tablas SQL de mercado.
+    Reusa el builder puro `_build_filas`.
+
+    Mismo shape que `mejoras_dispo.get_mejoras_dispo` (no se cachea acá; el router
+    aplica el selector — el path Mongo conserva su `@cached`)."""
+    # Cámara con pata derivada calculada — MAIZ/TRIGO cargan USD → precio_ars derivado.
+    camara_docs = {c["cereal"]: c for c in _cam.get_camara_cereales()["cereales"]}
+    return _mejoras_dispo(camara_docs)
+
+
+def get_mejoras_dispo_bahia() -> dict[str, Any]:
+    """Mejoras dispo (BAHÍA) — idéntico a Rosario pero el precio disponible sale de
+    la Cámara de Bahía Blanca (todos los cereales en USD → precio_ars derivado)."""
+    camara_docs = {c["cereal"]: c for c in _cam.get_camara_cereales_bahia()["cereales"]}
+    return _mejoras_dispo(camara_docs)

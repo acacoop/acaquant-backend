@@ -1,15 +1,18 @@
 """Service — Pase con Cobertura (AGRO).
 
 Hogar de los cálculos del "Pase con Cobertura": una card por commodity × pase,
-valuada SIEMPRE a hoy. Se construye por pasos junto con la mesa. Hoy solo vive
-el primer derivado (Descuento a Tasa de Caución 7D → "Monto Pesos Cau 7D"); el
-resto de la cadena (interés ON, tipo de cambio ON, compra USD/Tn, compra futuro,
-ganancia; y la columna Pagaré/Sintético) se agrega en las siguientes iteraciones.
+valuada SIEMPRE a hoy. Tres columnas de resultado (US$/Tn): ON, Pagaré y
+Sintético. ON y Pagaré comparten la fórmula de descuento con tasa manual (tab
+DATOS); la columna Sintético usa la misma fórmula que ON (mismo dólar Matba)
+pero la tasa NO es manual: sale de la TNA del sintético del mismo mes que el
+pase (Mercados → Sintéticos, tabla LONG ROFEX + LONG LECAP).
 
-Fuentes de los inputs (todos manuales de la tab DATOS por ahora):
+Fuentes de los inputs:
   - precio disponible por commodity → `camara_cereales.get_camara_cereales` (precio_ars)
   - tasa de caución a 7 días (TNA %)  → `camara_cereales.get_tasas_cobertura` (tasa_caucion_7d)
+  - tasas ON / Pagaré (TNA %, manual) → `camara_cereales.get_tasas_cobertura`
   - tipo de cambio Matba Rofex        → `camara_cereales.get_dolares_referencia` (dolar_matba)
+  - tasa Sintético (TNA %, por mes)   → `sinteticos.get_sinteticos` (long_rofex_long_lecap.tna)
 """
 from __future__ import annotations
 
@@ -133,6 +136,36 @@ def _interes_descontado(base_tc: float | None, tasa_pct: float | None,
     return base_tc - base_tc / (1 + (tasa_pct / 100.0) * (dias / _ANIO_BASE))
 
 
+def _ym(s: str | None) -> tuple[int, int] | None:
+    """(año, mes) de un vencimiento YYYYMMDD o YYYY-MM-DD. None si no parsea.
+    Se usa para matchear el pase (mes del futuro Matba) con el sintético del
+    mismo mes en la tabla LONG ROFEX + LONG LECAP."""
+    s = (s or "").replace("-", "")
+    if len(s) < 6:
+        return None
+    try:
+        return int(s[:4]), int(s[4:6])
+    except ValueError:
+        return None
+
+
+def _sinteticos_por_ym() -> dict[tuple[int, int], dict[str, Any]]:
+    """(año, mes) → fila del sintético LONG ROFEX + LONG LECAP de ese mes.
+
+    Fuente de la tasa de la columna Sintético del Pase con Cobertura: en vez de
+    una tasa manual (como ON/Pagaré), se usa la TNA del sintético del MISMO mes
+    que el pase (Mercados → Sintéticos). Si hay más de uno en el mes, gana el de
+    vencimiento más temprano (la lista viene ordenada por vto)."""
+    from api.services.sinteticos import get_sinteticos
+
+    out: dict[tuple[int, int], dict[str, Any]] = {}
+    for r in get_sinteticos().get("long_rofex_long_lecap", []):
+        ym = _ym(r.get("vto_fecha"))
+        if ym:
+            out.setdefault(ym, r)
+    return out
+
+
 def pase_card(
     *,
     posicion: str,
@@ -147,12 +180,17 @@ def pase_card(
     monto_pesos_cau_7d: float | None,
     tasa_on_pct: float | None,
     tasa_pagare_pct: float | None,
+    tasa_sintetico_pct: float | None = None,
+    sintetico_ticker: str | None = None,
 ) -> dict[str, Any]:
-    """Card de un pase con las columnas ON y Pagaré. Cada campo es None si le
-    falta algún input (los inputs manuales pueden no estar cargados todavía).
+    """Card de un pase con las columnas ON, Pagaré y Sintético. Cada campo es None
+    si le falta algún input (los inputs manuales pueden no estar cargados todavía).
 
     `monto_pesos_cau_7d` (descuento a caución) es display-only: se muestra en la
-    card pero la compra_usd usa la Venta Dispo directa (así lo da la planilla)."""
+    card pero la compra_usd usa la Venta Dispo directa (así lo da la planilla).
+
+    La columna Sintético usa la MISMA fórmula que ON (mismo TC dólar Matba), pero
+    la tasa NO es manual: sale del sintético del mismo mes (`tasa_sintetico_pct`)."""
     # Común: costo pase (gastos MATBA+ALyC) + compra futuro (misma para ON y Pagaré).
     total_gastos = compra_futuro = None
     if valor_pase_agro_usd is not None:
@@ -182,6 +220,14 @@ def pase_card(
     ganancia_pagare = (compra_usd_pagare - compra_futuro) if (
         compra_usd_pagare is not None and compra_futuro is not None) else None
 
+    # Columna Sintético (dólar Matba + TNA del sintético del mismo mes).
+    interes_sint = _interes_descontado(tc, tasa_sintetico_pct, dias)
+    tc_sint = (tc - interes_sint) if (tc is not None and interes_sint is not None) else None
+    compra_usd_sint = (venta_dispo_ars / tc_sint) if (
+        venta_dispo_ars is not None and tc_sint) else None
+    ganancia_sint = (compra_usd_sint - compra_futuro) if (
+        compra_usd_sint is not None and compra_futuro is not None) else None
+
     return {
         "posicion":             posicion,
         "ticker":               ticker,
@@ -209,6 +255,13 @@ def pase_card(
         "tc_pagare":            tc_pagare,
         "compra_usd_pagare":    compra_usd_pagare,
         "ganancia_pagare_usd":  ganancia_pagare,
+        # Sintético (tasa desde Mercados → Sintéticos, mismo mes)
+        "sintetico_ticker":     sintetico_ticker,
+        "tasa_sintetico":       tasa_sintetico_pct,
+        "interes_sintetico":    interes_sint,
+        "tc_sintetico":         tc_sint,
+        "compra_usd_sintetico": compra_usd_sint,
+        "ganancia_sintetico_usd": ganancia_sint,
     }
 
 
@@ -271,6 +324,9 @@ def get_pase_cobertura(bloques: list[dict[str, Any]]) -> dict[str, Any]:
     bna_t1 = dolares.get("bna_comprador_t1")
     precios = {r["cereal"]: r.get("precio_ars") for r in get_camara_cereales()["cereales"]}
     hoy = date.today()
+    # Sintéticos LONG ROFEX + LONG LECAP por mes: la columna Sintético toma la
+    # TNA del sintético del MISMO mes que el pase (no es una tasa manual).
+    sinteticos = _sinteticos_por_ym()
 
     commodities: list[dict[str, Any]] = []
     for b in bloques:
@@ -284,6 +340,10 @@ def get_pase_cobertura(bloques: list[dict[str, Any]]) -> dict[str, Any]:
             vto = r.get("vencimiento")
             # dias a hoy (valuado hoy siempre); fallback al dias_a_vto del snapshot.
             dias = _agro._dias_entre(vto, hoy) if vto else r.get("dias_a_vto")
+            # Match del sintético por mes del futuro. Sin sintético en ese mes,
+            # la columna Sintético queda vacía (no se inventa una tasa).
+            sint = sinteticos.get(_ym(vto)) if vto else None
+            tna_sint = sint.get("tna") if sint else None
             cards.append(pase_card(
                 posicion=_posicion_label(commodity, vto),
                 ticker=r.get("ticker"),
@@ -297,6 +357,8 @@ def get_pase_cobertura(bloques: list[dict[str, Any]]) -> dict[str, Any]:
                 monto_pesos_cau_7d=monto_cau,
                 tasa_on_pct=tasa_on,
                 tasa_pagare_pct=tasa_pagare,
+                tasa_sintetico_pct=(tna_sint * 100.0) if tna_sint is not None else None,
+                sintetico_ticker=(sint.get("ticker") if sint else None),
             ))
         commodities.append({
             "commodity":       commodity,

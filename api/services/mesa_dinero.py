@@ -222,7 +222,7 @@ def crear_op(payload: dict, actor: str) -> dict:
     d = _derivar(p)
     row = {
         "fecha": p["fecha"], "trader": p["trader"].strip(),
-        "activo": (p.get("activo") or "").strip() or None,
+        "activo": (p.get("activo") or "").strip().upper() or None,
         "vn_compra": _num(p.get("vn_compra")), "px_compra": _num(p.get("px_compra")),
         "vn_venta": _num(p.get("vn_venta")), "px_venta": _num(p.get("px_venta")),
         "cliente": (p.get("cliente") or "").strip() or None,
@@ -264,7 +264,7 @@ def editar_op(op_id: int, payload: dict, actor: str) -> dict:
     row = {
         "id": op_id,
         "fecha": p["fecha"], "trader": (p["trader"] or "").strip(),
-        "activo": (p.get("activo") or "").strip() or None,
+        "activo": (p.get("activo") or "").strip().upper() or None,
         "vn_compra": _num(p.get("vn_compra")), "px_compra": _num(p.get("px_compra")),
         "vn_venta": _num(p.get("vn_venta")), "px_venta": _num(p.get("px_venta")),
         "cliente": (p.get("cliente") or "").strip() or None,

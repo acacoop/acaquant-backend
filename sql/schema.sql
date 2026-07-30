@@ -251,6 +251,7 @@ CREATE TABLE IF NOT EXISTS operaciones.operaciones (
     segmento       text,
     nivel_3        text,
     commodity      text,
+    tipo_agro      text,                      -- FUTURO | OPCION | NULL (solo boletos agro clasificados)
     es_cierre      boolean,
     etapa          text,
     bruto          numeric,
@@ -268,6 +269,7 @@ ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS instrumento    text
 ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS tipo_operacion text;
 ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS condiciones    text;
 ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS ingestado_en   timestamptz;
+ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS tipo_agro      text;
 
 CREATE INDEX IF NOT EXISTS ix_ops_concertacion ON operaciones.operaciones(concertacion);
 CREATE INDEX IF NOT EXISTS ix_ops_id_cuenta    ON operaciones.operaciones(id_cuenta);

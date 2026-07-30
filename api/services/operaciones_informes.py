@@ -215,25 +215,30 @@ def cargar_maps_enrich(db=None) -> tuple[dict, dict]:
 def clasificar_commodity(
     tipo_operacion: str | None, denominacion: str | None, instrumento: str | None,
 ) -> str | None:
-    """Clasifica un boleto como futuro agro (SOJA/TRIGO/MAIZ) o None.
+    """Clasifica un boleto como agro (SOJA/TRIGO/MAIZ) o None.
 
-    Es agro si tipo_operacion contiene 'Futuros' y NO 'Financieros', y el
-    instrumento matchea SOJ/TRI/MAI.
+    Es agro si:
+      - FUTURO agro: tipo_operacion contiene 'Futuros' y NO 'Financieros', o
+      - OPCIÓN agro: tipo_operacion contiene 'Opciones' y 'Agropecuario',
+    y en ambos casos el instrumento matchea SOJ/TRI/MAI.
 
     OTC: por defecto excluye (ni denominación ni instrumento deben contener
-    'OTC'). EXCEPCIÓN (2026-06-03): los 'Futuros Agropecuarios - Compra/Venta'
-    SON agro aunque la cuenta o el instrumento tengan 'OTC' — ese tipo es la
-    señal autoritativa de futuro agro, así que no los excluimos por OTC.
+    'OTC'). EXCEPCIÓN (2026-06-03): los 'Futuros/Opciones Agropecuarios -
+    Compra/Venta' SON agro aunque la cuenta o el instrumento tengan 'OTC' — ese
+    tipo es la señal autoritativa de agro, así que no los excluimos por OTC.
+    (Las 'Opciones OTC' NDF ni siquiera se ingestan — ver _es_otc_excluir.)
 
     Materializado en la ingesta + replicado server-side en
-    scripts/backfill_commodity_operaciones.py (mantener ambos en sync). Indexado
-    vía índice parcial (ver ensure_indexes).
+    scripts/backfill_agro_tipo.py (mantener ambos en sync). El `tipo`
+    futuro/opción lo da clasificar_tipo_agro (columna `tipo_agro`).
     """
     t = (tipo_operacion or "").upper()
-    if "FUTUROS" not in t or "FINANCIEROS" in t:
+    es_fut = "FUTUROS" in t and "FINANCIEROS" not in t
+    es_opc = "OPCIONES" in t and "AGROPECUARIO" in t
+    if not (es_fut or es_opc):
         return None
     inst = (instrumento or "").upper()
-    # Excepción agro: 'Futuros Agropecuarios - Compra/Venta' no se excluyen por OTC.
+    # Excepción agro: los '... Agropecuarios - Compra/Venta' no se excluyen por OTC.
     agro_cv = "AGROPECUARIO" in t and ("COMPRA" in t or "VENTA" in t)
     if not agro_cv and ("OTC" in inst or "OTC" in (denominacion or "").upper()):
         return None
@@ -243,6 +248,19 @@ def clasificar_commodity(
         return "TRIGO"
     if "MAI" in inst:
         return "MAIZ"
+    return None
+
+
+def clasificar_tipo_agro(tipo_operacion: str | None) -> str | None:
+    """FUTURO | OPCION | None según el `tipo_operacion` de un boleto agro.
+
+    Solo tiene sentido para boletos ya clasificados como agro (commodity no
+    None): distingue la pata de derivado. Mismo criterio que clasificar_commodity."""
+    t = (tipo_operacion or "").upper()
+    if "FUTUROS" in t and "FINANCIEROS" not in t:
+        return "FUTURO"
+    if "OPCIONES" in t and "AGROPECUARIO" in t:
+        return "OPCION"
     return None
 
 
@@ -267,6 +285,8 @@ def _aplicar_enrich(doc: dict, maps: tuple[dict, dict] | None,
     doc["commodity"] = clasificar_commodity(
         doc.get("tipo_operacion"), doc.get("denominacion"), doc.get("instrumento"),
     )
+    # tipo_agro (FUTURO/OPCION) solo para boletos ya clasificados como agro.
+    doc["tipo_agro"] = clasificar_tipo_agro(doc.get("tipo_operacion")) if doc["commodity"] else None
     # es_cierre: cierre de caución (la apertura ya cuenta el volumen → no suma).
     # Materializado para que /ops/* filtre por índice en vez de un `$not /Cierre/`
     # (regex negada = scan completo). Replicado en backfill_es_cierre_operaciones.
@@ -287,18 +307,19 @@ def _aplicar_enrich(doc: dict, maps: tuple[dict, dict] | None,
 _SQL_INGEST = """
 INSERT INTO operaciones
  (boleto, concertacion, id_cuenta, denominacion, moneda, mercado, operacion,
-  segmento, nivel_3, commodity, es_cierre, bruto, arancel, mep, cantidad,
+  segmento, nivel_3, commodity, tipo_agro, es_cierre, bruto, arancel, mep, cantidad,
   instrumento, tipo_operacion, condiciones, ingestado_en)
 VALUES
  (%(boleto)s, %(concertacion)s, %(id_cuenta)s, %(denominacion)s, %(moneda)s,
   %(mercado)s, %(operacion)s, %(segmento)s, %(nivel_3)s, %(commodity)s,
-  %(es_cierre)s, %(bruto)s, %(arancel)s, %(mep)s, %(cantidad)s, %(instrumento)s,
-  %(tipo_operacion)s, %(condiciones)s, %(ingestado_en)s)
+  %(tipo_agro)s, %(es_cierre)s, %(bruto)s, %(arancel)s, %(mep)s, %(cantidad)s,
+  %(instrumento)s, %(tipo_operacion)s, %(condiciones)s, %(ingestado_en)s)
 ON CONFLICT (boleto) DO UPDATE SET
  concertacion=EXCLUDED.concertacion, id_cuenta=EXCLUDED.id_cuenta,
  denominacion=EXCLUDED.denominacion, moneda=EXCLUDED.moneda,
  mercado=EXCLUDED.mercado, operacion=EXCLUDED.operacion,
  segmento=EXCLUDED.segmento, nivel_3=EXCLUDED.nivel_3, commodity=EXCLUDED.commodity,
+ tipo_agro=EXCLUDED.tipo_agro,
  es_cierre=EXCLUDED.es_cierre, bruto=EXCLUDED.bruto, arancel=EXCLUDED.arancel,
  mep=EXCLUDED.mep, cantidad=EXCLUDED.cantidad, instrumento=EXCLUDED.instrumento,
  tipo_operacion=EXCLUDED.tipo_operacion, condiciones=EXCLUDED.condiciones,
@@ -323,6 +344,7 @@ def _row_to_sql_params(d: dict) -> dict:
         "segmento":       d.get("segmento"),
         "nivel_3":        d.get("nivel_3"),
         "commodity":      d.get("commodity"),
+        "tipo_agro":      d.get("tipo_agro"),
         "es_cierre":      d.get("es_cierre"),
         "bruto":          d.get("bruto"),
         "arancel":        d.get("arancel"),

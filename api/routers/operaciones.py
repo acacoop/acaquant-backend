@@ -337,19 +337,21 @@ def ops_agro(
     commodity: str | None = Query(None, description="SOJA/TRIGO/MAIZ (cross-filter)"),
     cuenta: str | None = Query(None, description="Filtra a una cuenta (denominación exacta)"),
     nivel5: str | None = Query(None, description="Filtra por nivel_5 de Clientes.Comitentes"),
+    tipo: str | None = Query(None, description="FUTURO | OPCION (filtra volumen; vacío = ambos)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
-    """Futuros agropecuarios: Σ TONELADAS por periodo (mes/día) y commodity
-    (SOJA/TRIGO/MAIZ). Lógica: tipo 'Futuros' sin 'Financieros', sin OTC;
-    toneladas = |cantidad| × (10 si 'MIN' en instrumento, sino 100).
+    """Futuros + opciones agropecuarios: Σ TONELADAS por periodo (mes/día) y
+    commodity (SOJA/TRIGO/MAIZ). Lógica: tipo 'Futuros'/'Opciones Agropecuarios'
+    sin 'Financieros', sin OTC; toneladas = |cantidad| × (10 si 'MIN' en
+    instrumento, sino 100). El filtro `tipo` (FUTURO/OPCION) acota el volumen.
 
     Devuelve: `serie` (Σ por periodo en [desde,hasta], chart de la izq),
     `serie_cuenta` (idem SOLO de la cuenta elegida, chart de la der; vacía sin `cuenta`),
-    `serie_share` (% mensual nuestro/mercado por commodity, tab "Share de
-    mercado"; lee CashFlow.VolumenMercadoAgro), `totales` (Σ por commodity),
-    `por_cuenta` y `por_instrumento` (acotados al rango [desde,hasta])."""
+    `serie_share` (% mensual nuestro/mercado por commodity — SOLO futuros),
+    `totales` (Σ por commodity), `totales_tipo` + `serie_tipo` (desglose
+    FUTURO/OPCION para la tab por tipo), `por_cuenta` y `por_instrumento`."""
     return _ops_sql.ops_agro(desde=desde, hasta=hasta, agg=agg, commodity=commodity,
-                             cuenta=cuenta, scope=scope, nivel5=nivel5)
+                             cuenta=cuenta, scope=scope, nivel5=nivel5, tipo=tipo)
 
 
 @router.get("/ops/dolar-futuro")

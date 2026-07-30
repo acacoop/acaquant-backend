@@ -629,6 +629,7 @@ def _agro_serie(rows: list[dict]) -> list[dict]:
 def ops_agro(
     desde: str = "", hasta: str = "", agg: str = "MENSUAL", commodity: str | None = None,
     cuenta: str | None = None, scope: tuple[str, ...] | None = None, nivel5: str | None = None,
+    tipo: str | None = None,
 ) -> dict:
     fmt = "YYYY-MM" if agg.upper() == "MENSUAL" else "YYYY-MM-DD"
     base = "commodity IN ('SOJA', 'TRIGO', 'MAIZ')"
@@ -639,24 +640,32 @@ def ops_agro(
     if nivel5:
         base += " AND id_cuenta IN (SELECT id_cuenta FROM comitentes WHERE nivel_5 = %(nivel5)s)"
         bp["nivel5"] = nivel5
+    # Filtro FUTURO/OPCION: aplica a las vistas de VOLUMEN (serie/tablas), NO a
+    # las vistas "por tipo" (que siempre muestran ambos) ni al share (futuros).
+    tipo_up = (tipo or "").upper()
+    tipo_clause = ""
+    if tipo_up in ("FUTURO", "OPCION"):
+        tipo_clause = " AND tipo_agro = %(tipo)s"
+        bp["tipo"] = tipo_up
     date_w = f"{base} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
     dp = {**bp, "desde": desde, "hasta": hasta}
+    vol_w = date_w + tipo_clause  # volumen = date range + filtro tipo
 
     # serie (global, por periodo×commodity).
     serie = _agro_serie(_q(
         f"SELECT to_char(concertacion, %(fmt)s) AS p, commodity AS c, SUM({_TON}) AS ton "
-        f"FROM operaciones WHERE {date_w} GROUP BY p, commodity", {**dp, "fmt": fmt},
+        f"FROM operaciones WHERE {vol_w} GROUP BY p, commodity", {**dp, "fmt": fmt},
     ))
     # serie_cuenta (solo si hay cuenta elegida).
     serie_cuenta: list[dict] = []
     if cuenta:
         serie_cuenta = _agro_serie(_q(
             f"SELECT to_char(concertacion, %(fmt)s) AS p, commodity AS c, SUM({_TON}) AS ton "
-            f"FROM operaciones WHERE {date_w} AND denominacion = %(cuenta)s "
+            f"FROM operaciones WHERE {vol_w} AND denominacion = %(cuenta)s "
             f"GROUP BY p, commodity", {**dp, "fmt": fmt, "cuenta": cuenta},
         ))
     # totales por commodity (cross-filter: cuenta → filtra commodities).
-    w_comm, p_comm = date_w, dict(dp)
+    w_comm, p_comm = vol_w, dict(dp)
     if cuenta:
         w_comm += " AND denominacion = %(cuenta)s"
         p_comm["cuenta"] = cuenta
@@ -665,7 +674,7 @@ def ops_agro(
                 f"WHERE {w_comm} GROUP BY commodity", p_comm):
         tot[r["c"]] = round(_f(r["ton"]), 0)
     # por_cuenta (cross-filter: commodity → filtra cuentas).
-    w_cta, p_cta = date_w, dict(dp)
+    w_cta, p_cta = vol_w, dict(dp)
     if commodity:
         w_cta += " AND commodity = %(commodity)s"
         p_cta["commodity"] = commodity
@@ -676,7 +685,7 @@ def ops_agro(
                     p_cta)
     ]
     # por_instrumento (cross-filter: cuenta + commodity).
-    w_ins, p_ins = date_w, dict(dp)
+    w_ins, p_ins = vol_w, dict(dp)
     if cuenta:
         w_ins += " AND denominacion = %(cuenta)s"
         p_ins["cuenta"] = cuenta
@@ -689,10 +698,37 @@ def ops_agro(
                     f"FROM operaciones WHERE {w_ins} GROUP BY instrumento ORDER BY ton DESC",
                     p_ins)
     ]
+    # POR TIPO (tab nueva): commodity × {FUTURO, OPCION} — SIEMPRE ambos (ignora
+    # el filtro tipo), acotado a [desde,hasta] + cross-filter de cuenta.
+    w_tipo, p_tipo = date_w, dict(dp)
+    if cuenta:
+        w_tipo += " AND denominacion = %(cuenta)s"
+        p_tipo["cuenta"] = cuenta
+    totales_tipo = {c: {"FUTURO": 0.0, "OPCION": 0.0} for c in ("SOJA", "TRIGO", "MAIZ")}
+    for r in _q(f"SELECT commodity AS c, COALESCE(tipo_agro, 'FUTURO') AS t, SUM({_TON}) AS ton "
+                f"FROM operaciones WHERE {w_tipo} "
+                f"GROUP BY commodity, COALESCE(tipo_agro, 'FUTURO')", p_tipo):
+        if r["c"] in totales_tipo and r["t"] in ("FUTURO", "OPCION"):
+            totales_tipo[r["c"]][r["t"]] = round(_f(r["ton"]), 0)
+    # serie_tipo: por periodo × {FUTURO, OPCION} (chart de la tab por tipo).
+    serie_tipo_map: dict[str, dict] = {}
+    for r in _q(f"SELECT to_char(concertacion, %(fmt)s) AS p, "
+                f"COALESCE(tipo_agro, 'FUTURO') AS t, SUM({_TON}) AS ton "
+                f"FROM operaciones WHERE {w_tipo} "
+                f"GROUP BY p, COALESCE(tipo_agro, 'FUTURO')",
+                {**p_tipo, "fmt": fmt}):
+        d = serie_tipo_map.setdefault(r["p"], {"periodo": r["p"], "FUTURO": 0.0, "OPCION": 0.0})
+        if r["t"] in ("FUTURO", "OPCION"):
+            d[r["t"]] = round(_f(r["ton"]), 0)
+    serie_tipo = [serie_tipo_map[p] for p in sorted(serie_tipo_map)]
+
     # nuestro_mensual (histórico completo, sin date) → numerador del share.
+    # SOLO FUTUROS: el share de mercado se calcula contra el volumen de futuros
+    # (las opciones no están en volumen_mercado_agro) → excluir OPCION.
     nuestro_m: dict[str, dict] = {}
     for r in _q(f"SELECT to_char(concertacion, 'YYYY-MM') AS p, commodity AS c, SUM({_TON}) AS ton "
-                f"FROM operaciones WHERE {base} GROUP BY p, commodity", bp):
+                f"FROM operaciones WHERE {base} AND tipo_agro IS DISTINCT FROM 'OPCION' "
+                f"GROUP BY p, commodity", bp):
         nuestro_m.setdefault(r["p"], {})[r["c"]] = _f(r["ton"])
 
     # share: denominador del market-share desde mercado.volumen_mercado_agro (SQL-native,
@@ -715,6 +751,7 @@ def ops_agro(
         "desde": desde, "hasta": hasta, "agg": agg,
         "serie": serie, "serie_cuenta": serie_cuenta, "serie_share": serie_share,
         "totales": tot, "por_cuenta": por_cuenta, "por_instrumento": por_instrumento,
+        "totales_tipo": totales_tipo, "serie_tipo": serie_tipo,
     }
 
 

@@ -29,24 +29,27 @@ def _exigir_escritura(actor: str) -> None:
 def listar_ops(
     desde: str | None = Query(None, description="YYYY-MM-DD"),
     hasta: str | None = Query(None, description="YYYY-MM-DD"),
+    trader: str | None = Query(None, description="filtrar por trader exacto"),
 ) -> dict:
-    return _svc.listar_ops(desde=desde, hasta=hasta)
+    return _svc.listar_ops(desde=desde, hasta=hasta, trader=trader)
 
 
 @router.get("/resumen")
 def resumen(
     desde: str | None = Query(None, description="YYYY-MM-DD"),
     hasta: str | None = Query(None, description="YYYY-MM-DD"),
+    trader: str | None = Query(None, description="filtrar por trader exacto"),
 ) -> dict:
-    return _svc.resumen(desde=desde, hasta=hasta)
+    return _svc.resumen(desde=desde, hasta=hasta, trader=trader)
 
 
 @router.get("/resultados")
 def resultados(
     desde: str | None = Query(None, description="YYYY-MM-DD"),
     hasta: str | None = Query(None, description="YYYY-MM-DD"),
+    trader: str | None = Query(None, description="filtrar por trader exacto"),
 ) -> dict:
-    return _svc.resultados(desde=desde, hasta=hasta)
+    return _svc.resultados(desde=desde, hasta=hasta, trader=trader)
 
 
 @router.get("/opciones")

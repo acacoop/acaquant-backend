@@ -155,7 +155,8 @@ def _fila_op(r: dict) -> dict:
     }
 
 
-def listar_ops(desde: str | None = None, hasta: str | None = None) -> dict:
+def listar_ops(desde: str | None = None, hasta: str | None = None,
+               trader: str | None = None) -> dict:
     """Operaciones del período (default: sin filtro = todas), más nuevas primero."""
     conds, params = [], {}
     if desde:
@@ -164,6 +165,9 @@ def listar_ops(desde: str | None = None, hasta: str | None = None) -> dict:
     if hasta:
         conds.append("fecha <= %(hasta)s")
         params["hasta"] = hasta
+    if trader:
+        conds.append("trader = %(trader)s")
+        params["trader"] = trader
     where = f"WHERE {' AND '.join(conds)}" if conds else ""
     rows = _q(
         f"SELECT * FROM operaciones.mesa_dinero {where} ORDER BY fecha DESC, id DESC",
@@ -293,7 +297,8 @@ def borrar_op(op_id: int, actor: str) -> dict:
 # Resultado diario (derivado) + TC manual
 # ─────────────────────────────────────────────────────────────
 
-def resumen(desde: str | None = None, hasta: str | None = None) -> dict:
+def resumen(desde: str | None = None, hasta: str | None = None,
+            trader: str | None = None) -> dict:
     """Resultado por día (SUM de las ops) + TC manual + resultado USD + acumulados.
 
     El resultado diario NO se persiste — es la suma de `resultado` de las ops de
@@ -306,6 +311,9 @@ def resumen(desde: str | None = None, hasta: str | None = None) -> dict:
     if hasta:
         conds.append("o.fecha <= %(hasta)s")
         params["hasta"] = hasta
+    if trader:
+        conds.append("o.trader = %(trader)s")
+        params["trader"] = trader
     where = f"WHERE {' AND '.join(conds)}" if conds else ""
     rows = _q(
         "SELECT o.fecha, SUM(o.resultado) AS resultado_ars, MAX(t.tc) AS tc "
@@ -335,7 +343,8 @@ def resumen(desde: str | None = None, hasta: str | None = None) -> dict:
     }
 
 
-def resultados(desde: str | None = None, hasta: str | None = None) -> dict:
+def resultados(desde: str | None = None, hasta: str | None = None,
+               trader: str | None = None) -> dict:
     """Tab RESULTADOS: agregados del período por CLIENTE y por COMERCIAL
     (= observación: "Mesa" u operador), en ARS y USD.
 
@@ -350,6 +359,9 @@ def resultados(desde: str | None = None, hasta: str | None = None) -> dict:
     if hasta:
         conds.append("o.fecha <= %(hasta)s")
         params["hasta"] = hasta
+    if trader:
+        conds.append("o.trader = %(trader)s")
+        params["trader"] = trader
     where = f"WHERE {' AND '.join(conds)}" if conds else ""
     rows = _q(
         "SELECT o.fecha, o.cliente, o.observacion, o.resultado, t.tc "

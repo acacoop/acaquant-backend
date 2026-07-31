@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/guardrails.py
+path: jobs\guardrails.py
 ---
 
 # jobs/guardrails
 
 > jobs/guardrails.py — invariantes de sanidad de datos post-cierre.
 
-**Archivo:** `jobs/guardrails.py`
+**Archivo:** `jobs\guardrails.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

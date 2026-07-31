@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/rem_sql.py
+path: api\services\rem_sql.py
 ---
 
 # api/services/rem_sql
 
 > api/services/rem_sql.py — Expectativas REM (IPC INDEC, BCRA) leyendo Postgres.
 
-**Archivo:** `api/services/rem_sql.py`
+**Archivo:** `api\services\rem_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

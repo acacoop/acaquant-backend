@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/copiloto/research.py
+path: api\services\copiloto\research.py
 ---
 
 # api/services/copiloto/research
 
 > copiloto/research.py — vista RESEARCH unificada (decisión user 2026-07-20):
 
-**Archivo:** `api/services/copiloto/research.py`
+**Archivo:** `api\services\copiloto\research.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

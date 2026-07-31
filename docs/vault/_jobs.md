@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-54 notas.
+55 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -16,6 +16,7 @@
 - [[jobs.bcra_research]] — jobs/bcra_research.py — sincroniza las series del BCRA a Postgres (tab BCRA).
 - [[jobs.bonos_ohlc_daily]] — bonos_ohlc_daily.py — guarda el OHLC diario de cada bono (ventana móvil).
 - [[jobs.cashflow]]
+- [[jobs.cedears_bars_1m]] — cedears_bars_1m.py — archiva el tape intradía de CEDEARs como barras de 1 min.
 - [[jobs.cedears_ohlc_daily]] — cedears_ohlc_daily.py — guarda el OHLC diario de cada CEDEAR (ventana móvil).
 - [[jobs.cierre_canje]] — cierre_canje.py — materializa el cierre diario de los tickers de canje.
 - [[jobs.cleanup_cedears_timesales]] — cleanup_cedears_timesales.py — vacía el Time & Sales intradía de CEDEARs.
@@ -29,6 +30,7 @@
 - [[jobs.dias_habiles]] — dias_habiles.py — Carga días hábiles del calendario argentino a SQL (mercado.dias_habiles).
 - [[jobs.economic_calendar]] — economic_calendar.py — ingesta diaria del calendario económico (FMP).
 - [[jobs.eikon_cierres]] — jobs/eikon_cierres.py — persiste el CIERRE diario de los feeds Eikon nuevos
+- [[jobs.estrategia_resolver]] — jobs/estrategia_resolver.py — resuelve el RESULTADO de cada señal ESTRATEGIA QUANT.
 - [[jobs.fair_value]] — fair_value.py — fit cuadrático + residuos + z-scores diarios.
 - [[jobs.fci_bilateral]] — jobs/fci_bilateral.py — lleva el FCI bilateral de `operaciones.negocio_movimientos`
 - [[jobs.forwards_zscore]] — forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.
@@ -44,7 +46,6 @@
 - [[jobs.news_ingesta]] — news_ingesta.py — Ingesta de RSS de medios económicos argentinos.
 - [[jobs.operaciones_informes]] — operaciones_informes.py — ingesta de operaciones desde Aunesa /informes a
 - [[jobs.options_rollup]] — options_rollup.py — rollup diario de mercado.options_data (SQL) → mercado.options_data_hist (SQL).
-- [[jobs.partner_export]] — partner_export.py — exporta posiciones de cuentas puntuales a `partner.cartera` (SQL).
 - [[jobs.pnl_totales_precompute]] — pnl_totales_precompute.py — precalcula el PnL de TODAS las cuentas.
 - [[jobs.portafolio_backfill]] — jobs/portafolio_backfill.py — backfill de portafolio.tenencia (SQL), self-healing.
 - [[jobs.portafolio_reparar_timeouts]] — jobs/portafolio_reparar_timeouts.py — recupera los TIMEOUT/ERROR del backfill.

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/sinteticos.py
+path: api\services\sinteticos.py
 ---
 
 # api/services/sinteticos
 
 > Sintéticos — combinaciones LECAP/DLK + futuro DLR.
 
-**Archivo:** `api/services/sinteticos.py`
+**Archivo:** `api\services\sinteticos.py`
 
 ## Qué hace
 Arma dos tablas de sintéticos combinando bonos con el futuro DLR, matcheando por año-mes de vencimiento (toma automáticamente cualquier ticker nuevo): (1) LONG ROFEX + LONG LECAP = sintético en dólares (comparás USD invertidos vs USD obtenidos, sale TE y TNA); (2) SHORT ROFEX + LONG DLK = lock de tasa en pesos. Cacheado.
@@ -28,4 +28,5 @@ Conecta con: lee precios de LECAP/DLK de `Trading.Curvas`/snapshots y los precio
 
 ## Lo usan (backlinks) ←
 - [[api.routers.derivados_sinteticos]]  ·  _module_
+- [[api.services.agro_cobertura]]  ·  _module_
 - [[jobs.snapshot_sinteticos]]  ·  _module_

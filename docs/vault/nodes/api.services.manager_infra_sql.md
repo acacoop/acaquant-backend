@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/manager_infra_sql.py
+path: api\services\manager_infra_sql.py
 ---
 
 # api/services/manager_infra_sql
 
 > api/services/manager_infra_sql.py — lecturas SQL de la infra de Manager.
 
-**Archivo:** `api/services/manager_infra_sql.py`
+**Archivo:** `api\services\manager_infra_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

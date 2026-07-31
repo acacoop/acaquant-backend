@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/mercado_1816_discovery.py
+path: jobs\mercado_1816_discovery.py
 ---
 
 # jobs/mercado_1816_discovery
 
 > jobs/mercado_1816_discovery.py — arma el universo de la vista RESEARCH desde TUS
 
-**Archivo:** `jobs/mercado_1816_discovery.py`
+**Archivo:** `jobs\mercado_1816_discovery.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

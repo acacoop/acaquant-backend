@@ -1,6 +1,6 @@
 # ⚙️ engines — motores WS→Mongo
 
-17 notas.
+18 notas.
 
 - [[engines]]
 - [[engines._curvas_loader]] — Carga común del master de renta fija para todos los motores.
@@ -10,6 +10,7 @@
 - [[engines.curvas]] — curvas.py — Motor de enriquecimiento analítico en tiempo real (SQL-only).
 - [[engines.dolar_mep]]
 - [[engines.dolares]] — Motor de dólares MEP/CCL/canje en tiempo real (WebSocket).
+- [[engines.estrategia]] — engines/estrategia.py — motor ESTRATEGIA QUANT (señal intradía con trazabilidad).
 - [[engines.forwards]] — main_forwards.py — Motor de tasas forward en tiempo real.
 - [[engines.futuros_dlr]] — Motor de futuros DLR (Dólar A3500) — outrights single-leg.
 - [[engines.motor_agro]] — Motor de Futuros Agro Rosario — Trigo / Maíz / Soja.

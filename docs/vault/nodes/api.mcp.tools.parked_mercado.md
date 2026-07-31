@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/mcp/tools/parked_mercado.py
+path: api\mcp\tools\parked_mercado.py
 ---
 
 # api/mcp/tools/parked_mercado
 
 > Tools MCP PAUSADAS — renta fija, derivados, opciones, forwards, breakevens,
 
-**Archivo:** `api/mcp/tools/parked_mercado.py`
+**Archivo:** `api\mcp\tools\parked_mercado.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

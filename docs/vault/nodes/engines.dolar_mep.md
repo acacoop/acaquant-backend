@@ -4,12 +4,12 @@ type: module
 layer: engines
 repo: backend
 tags: [module, engines, backend]
-path: engines/dolar_mep.py
+path: engines\dolar_mep.py
 ---
 
 # engines/dolar_mep
 
-**Archivo:** `engines/dolar_mep.py`
+**Archivo:** `engines\dolar_mep.py`
 
 ## Qué hace
 Job puntual (no es always-on) que calcula el dólar MEP, CCL y canje a partir de las puntas de AL30/AL30D/AL30C vía REST de pyRofex (offer de AL30 sobre bid de AL30D = MEP). Persiste un doc por corrida como serie histórica; el CCL es best-effort (si AL30C no tiene bid, no rompe).

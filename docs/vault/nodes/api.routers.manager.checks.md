@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/manager/checks.py
+path: api\routers\manager\checks.py
 ---
 
 # api/routers/manager/checks
 
 > GET /api/manager/checks/* — validaciones de consistencia sobre Mongo.
 
-**Archivo:** `api/routers/manager/checks.py`
+**Archivo:** `api\routers\manager\checks.py`
 
 ## Qué hace
 Sub-router `/api/manager/checks/*` — batería de validaciones de consistencia y debug paso-a-paso sobre los cálculos del sistema, para que la mesa diagnostique cuando un número se ve raro. Incluye: curvas pendientes de enriquecer, forwards (TEA por instrumento), CER usado en el último trade, tasa fija en AuM, debug-forward/soberano/curva-TEA, debug TNA de futuros DLR, debug de breakevens (Buscar Objetivo vs Fisher), pivot points, e introspección de instruments pyRofex por CFI. Solo lectura. Admin-only.
@@ -31,5 +31,3 @@ Conecta con: lee `Trading.Curvas/TimeSales/CER/DiasHabiles/FuturosDLRSnapshot/Pr
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_
-- [[web.cmp.manager-debug-tea]]  ·  _component_
-- [[web.cmp.manager-view]]  ·  _component_

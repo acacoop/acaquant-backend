@@ -6,14 +6,10 @@
 
 ## Qué hay adentro
 
-- **326** module
-- **122** component
-- **66** route
-- **44** cron
-- **29** collection
-- **22** view
+- **327** module
+- **45** cron
+- **28** collection
 - **15** service
-- **14** lib
 
 ## Regenerar
 

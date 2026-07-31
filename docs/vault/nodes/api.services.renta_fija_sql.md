@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/renta_fija_sql.py
+path: api\services\renta_fija_sql.py
 ---
 
 # api/services/renta_fija_sql
 
 > api/services/renta_fija_sql.py — renta fija LIVE leyendo Postgres (mercado.*).
 
-**Archivo:** `api/services/renta_fija_sql.py`
+**Archivo:** `api\services\renta_fija_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

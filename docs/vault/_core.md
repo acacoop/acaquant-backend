@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-43 notas.
+45 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
@@ -8,6 +8,7 @@
 - [[core.ai_resumen]] — core/ai_resumen.py — lectura ejecutiva con IA para los informes operativos.
 - [[core.argentina_datos]] — Cliente de argentinadatos.com — indicadores macro AR públicos.
 - [[core.aunesa]] — core/aunesa.py — cliente único de la API del custodio Aunesa.
+- [[core.bars_sql]] — bars_sql.py — readers de las barras de 1 minuto de CEDEARs (ARS).
 - [[core.bcra_api]] — core/bcra_api.py — cliente de la API de Estadísticas Monetarias del BCRA (v4).
 - [[core.brackets]] — Brackets — entrada LIMIT + salida automática cuando la entrada se llena.
 - [[core.byma]] — Cliente BYMA Primarias Placements.
@@ -21,6 +22,7 @@
 - [[core.eikon_chicago]] — Feed Eikon — futuros de commodities de CHICAGO (CBOT) para AGRO → tab CHICAGO.
 - [[core.eikon_live]] — Feed Eikon/Workspace — quotes LIVE del subyacente US de cada CEDEAR (PRUEBA).
 - [[core.eikon_news]] — Feed Eikon — TITULARES de noticias Reuters para la watchlist del HOME.
+- [[core.estrategia_sql]] — core/estrategia_sql.py — I/O SQL del modelo ESTRATEGIA QUANT.
 - [[core.finnhub]] — Cliente Finnhub con rate limiting interno.
 - [[core.fmp]] — Cliente FMP (financialmodelingprep) — calendario económico.
 - [[core.fred_api]] — core/fred_api.py — cliente de la FRED API (Federal Reserve Bank of St. Louis).

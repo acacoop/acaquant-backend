@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/aum.py
+path: jobs\aum.py
 ---
 
 # jobs/aum
 
 > jobs/aum.py — CLIENTE Aunesa (librería, no es un job).
 
-**Archivo:** `jobs/aum.py`
+**Archivo:** `jobs\aum.py`
 
 ## Qué hace
 El cron diario de AuM: autentica contra Aunesa, trae el listado de cuentas activas y consulta en paralelo (8 workers) la posición valuada de cada una a T+2. Procesa cada respuesta (agrupa por especie, aplica reglas de exclusión de `_aum_filters`, valúa según tipo de instrumento: renta fija ÷100, futuros +1, resto directo) y persiste idempotentemente. Al cerrar sincroniza unidades nuevas hacia Assets y pre-materializa el resumen FCI.

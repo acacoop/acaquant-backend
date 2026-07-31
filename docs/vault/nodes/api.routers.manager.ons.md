@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/manager/ons.py
+path: api\routers\manager\ons.py
 ---
 
 # api/routers/manager/ons
 
 > Manager sub-router — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).
 
-**Archivo:** `api/routers/manager/ons.py`
+**Archivo:** `api\routers\manager\ons.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -23,4 +23,3 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_
-- [[web.cmp.manager-view]]  ·  _component_

@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/eikon_live.py
+path: core\eikon_live.py
 ---
 
 # core/eikon_live
 
 > Feed Eikon/Workspace — quotes LIVE del subyacente US de cada CEDEAR (PRUEBA).
 
-**Archivo:** `core/eikon_live.py`
+**Archivo:** `core\eikon_live.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

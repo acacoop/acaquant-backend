@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-193 notas.
+198 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -26,6 +26,7 @@
 - [[api.routers.cuentas]] — Router Cuentas: accionistas y contrapartes (ambos SQL — fuente única;
 - [[api.routers.derivados_agro]] — Router /api/derivados/agro — Pase Agro + Estrategias + Cámara + Mejoras Dispo.
 - [[api.routers.derivados_sinteticos]] — Router /api/derivados/sinteticos — sintéticos LECAP / DLK + futuro DLR.
+- [[api.routers.estrategia]] — Router /api/estrategia — vista TRADING → tab ESTRATEGIA (módulo `trading`,
 - [[api.routers.ia]] — api/routers/ia.py — endpoints del módulo IA (QuantAI, docs/QUANTAI.md).
 - [[api.routers.ingest]] — Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet (PC de oficina).
 - [[api.routers.manager]] — Manager API — paquete con sub-routers por sub-dominio.
@@ -48,6 +49,7 @@
 - [[api.routers.manager.instrumentos]] — Manager sub-router — Títulos → Instrumentos (solo lectura).
 - [[api.routers.manager.jobs]] — POST /jobs/run + GET /jobs/history, /jobs/history/stats, /jobs/{id}.
 - [[api.routers.manager.logs]] — GET /api/manager/logs — últimos N logs de un servicio systemd.
+- [[api.routers.manager.mesa]] — Manager sub-router — MESA (gestión de Mesa de Dinero, módulo `manager`).
 - [[api.routers.manager.ons]] — Manager sub-router — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).
 - [[api.routers.manager.operaciones]] — Manager · Operaciones — backfill de operaciones.operaciones (SQL) por CSV.
 - [[api.routers.manager.options]] — GET/PUT /api/manager/options/expiries — config del engine de opciones (SQL-native).
@@ -60,6 +62,7 @@
 - [[api.routers.manager_resources]] — Endpoints de recursos del servidor para el Manager.
 - [[api.routers.market]] — Router Market: watchlist quotes, economic calendar, candles históricos.
 - [[api.routers.me]] — Router /api/me — identidad del caller.
+- [[api.routers.mesa_dinero]] — Router MESA DE DINERO — /api/mesa-dinero (vista NEGOCIO → /mesa-dinero).
 - [[api.routers.news]] — Router News: headlines agregados de RSS (News.Headlines) + reader mode.
 - [[api.routers.operaciones]] — Router Operaciones: endpoints para MesaAPI (flujo contrapartes), FlujosAPI
 - [[api.routers.operar]] — Router /api/operar — soporte para la vista "Operar Dashboard".
@@ -141,6 +144,7 @@
 - [[api.services.descomposicion_retorno]] — descomposicion_retorno.py — Atribución carry / rolldown / cambio_tasa.
 - [[api.services.diagnostico]] — Motor del Diagnóstico — arma el árbol vista→piezas con status, desde el registro.
 - [[api.services.diagnostico_registry]] — Registro ÚNICO del Diagnóstico: vista → motores / jobs / APIs que la alimentan.
+- [[api.services.estrategia]] — api/services/estrategia.py — lecturas de la vista ESTRATEGIA (TRADING).
 - [[api.services.fair_value]] — fair_value.py — service del módulo Fair Value relativo intra-curva.
 - [[api.services.ia_obs]] — api/services/ia_obs.py — observabilidad del gateway de IA (SQL ia.trazas).
 - [[api.services.import_tenencia]] — api/services/import_tenencia.py — parsers de celdas del import manual de tenencia.
@@ -153,6 +157,7 @@
 - [[api.services.market_sql]] — api/services/market_sql.py — Market (watchlist + calendario económico) leyendo Postgres.
 - [[api.services.mejoras_dispo]] — Service — Mejoras Precio Disponible (Agro).
 - [[api.services.mercado_hist_sql]] — api/services/mercado_hist_sql.py — históricos de mercado leyendo Postgres.
+- [[api.services.mesa_dinero]] — api/services/mesa_dinero.py — MESA DE DINERO (vista NEGOCIO → /mesa-dinero).
 - [[api.services.news_sql]] — api/services/news_sql.py — News (home) leyendo de Postgres. Espejo de los endpoints
 - [[api.services.ons]] — api/services/ons.py — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).
 - [[api.services.opciones]] — Capa de servicio — opciones: helpers puros + mutación de tasa (SQL-native).

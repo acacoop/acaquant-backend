@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/research_bcra.py
+path: api\routers\research_bcra.py
 ---
 
 # api/routers/research_bcra
 
 > Router /api/research-bcra — tab BCRA de la vista Research.
 
-**Archivo:** `api/routers/research_bcra.py`
+**Archivo:** `api\routers\research_bcra.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

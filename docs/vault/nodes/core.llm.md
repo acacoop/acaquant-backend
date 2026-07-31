@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/llm.py
+path: core\llm.py
 ---
 
 # core/llm
 
 > core/llm.py — transporte LLM único y RUTEO de proveedores (QuantAI, docs/QUANTAI.md).
 
-**Archivo:** `core/llm.py`
+**Archivo:** `core\llm.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

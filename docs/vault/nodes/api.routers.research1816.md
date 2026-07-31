@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/research1816.py
+path: api\routers\research1816.py
 ---
 
 # api/routers/research1816
 
 > Router /api/research1816 — vista RESEARCH (nueva vista principal).
 
-**Archivo:** `api/routers/research1816.py`
+**Archivo:** `api\routers\research1816.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -26,11 +26,3 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
-- [[web.cmp.research-lab]]  ·  _component_
-- [[web.cmp.research-view]]  ·  _component_
-- [[web.cmp.reuters-ficha]]  ·  _component_
-- [[web.cmp.reuters-fundamentals]]  ·  _component_
-- [[web.cmp.reuters-view]]  ·  _component_
-- [[web.cmp.trading-view]]  ·  _component_
-- [[web.lib.proxy]]  ·  _lib_
-- [[web.view.research.view]]  ·  _view_

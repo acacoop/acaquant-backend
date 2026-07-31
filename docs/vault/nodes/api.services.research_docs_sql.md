@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/research_docs_sql.py
+path: api\services\research_docs_sql.py
 ---
 
 # api/services/research_docs_sql
 
 > api/services/research_docs_sql.py — documentos manuales de REPORTES FINANCIEROS.
 
-**Archivo:** `api/services/research_docs_sql.py`
+**Archivo:** `api\services\research_docs_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

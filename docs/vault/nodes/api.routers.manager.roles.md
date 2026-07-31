@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/manager/roles.py
+path: api\routers\manager\roles.py
 ---
 
 # api/routers/manager/roles
 
 > Manager sub-router — matriz de roles + audit log.
 
-**Archivo:** `api/routers/manager/roles.py`
+**Archivo:** `api\routers\manager\roles.py`
 
 ## Qué hace
 Sub-router `/api/manager/roles` — administra la matriz de roles↔módulos (qué ve cada rol) y su audit log. GET devuelve la matriz completa más los módulos canónicos y la lista de roles; PATCH reemplaza los módulos de un rol (filtra módulos desconocidos para no dejar zombies); `/roles/audit` lista los últimos eventos. Admin-only.
@@ -26,4 +26,3 @@ Conecta con: `core.roles` (`MODULES`, `get_matrix`, `set_role_modules`, `list_au
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_
-- [[web.cmp.roles-panel]]  ·  _component_

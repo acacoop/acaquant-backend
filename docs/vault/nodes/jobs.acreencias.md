@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/acreencias.py
+path: jobs\acreencias.py
 ---
 
 # jobs/acreencias
 
 > jobs/acreencias.py — precompute diario del MOTOR DE ACREENCIAS.
 
-**Archivo:** `jobs/acreencias.py`
+**Archivo:** `jobs\acreencias.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

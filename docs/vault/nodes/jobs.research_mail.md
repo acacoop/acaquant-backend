@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/research_mail.py
+path: jobs\research_mail.py
 ---
 
 # jobs/research_mail
 
 > jobs/research_mail.py — Ingesta automática del research diario por mail (QuantAI P6).
 
-**Archivo:** `jobs/research_mail.py`
+**Archivo:** `jobs\research_mail.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

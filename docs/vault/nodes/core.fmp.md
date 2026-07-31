@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/fmp.py
+path: core\fmp.py
 ---
 
 # core/fmp
 
 > Cliente FMP (financialmodelingprep) — calendario económico.
 
-**Archivo:** `core/fmp.py`
+**Archivo:** `core\fmp.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

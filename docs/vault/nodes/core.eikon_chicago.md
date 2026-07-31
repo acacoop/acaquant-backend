@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/eikon_chicago.py
+path: core\eikon_chicago.py
 ---
 
 # core/eikon_chicago
 
 > Feed Eikon — futuros de commodities de CHICAGO (CBOT) para AGRO → tab CHICAGO.
 
-**Archivo:** `core/eikon_chicago.py`
+**Archivo:** `core\eikon_chicago.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

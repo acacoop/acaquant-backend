@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/macro_sql.py
+path: api\services\macro_sql.py
 ---
 
 # api/services/macro_sql
 
 > api/services/macro_sql.py — Series macro 100% SQL (decomiso Mongo).
 
-**Archivo:** `api/services/macro_sql.py`
+**Archivo:** `api\services\macro_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/copiloto/agro.py
+path: api\services\copiloto\agro.py
 ---
 
 # api/services/copiloto/agro
 
 > copiloto/agro.py — vista AGRO (granos): pase agro, pase con cobertura, cámara.
 
-**Archivo:** `api/services/copiloto/agro.py`
+**Archivo:** `api\services\copiloto\agro.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

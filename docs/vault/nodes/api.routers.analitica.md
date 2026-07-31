@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/analitica.py
+path: api\routers\analitica.py
 ---
 
 # api/routers/analitica
 
 > Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.
 
-**Archivo:** `api/routers/analitica.py`
+**Archivo:** `api\routers\analitica.py`
 
 ## Qué hace
 Router `/api/analitica`: expone como HTTP las herramientas analíticas Tier 1 + Tier 2 (listar curva, serie macro, descomposición de retorno, sensibilidad, canje, carry trade, comparar inversión, opciones). Son thin wrappers para consumo externo (acaquant-web, curl, debugging); el asistente legacy las llamaba directo por service registry sin loopback HTTP.
@@ -33,14 +33,3 @@ Conecta con: delega en los services `renta_fija`, `macro`, `descomposicion_retor
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
-- [[web.api.api.comparar]]  ·  _route_
-- [[web.api.api.comparar.bonos]]  ·  _route_
-- [[web.cmp.canje-tab]]  ·  _component_
-- [[web.cmp.costo-historico-chart]]  ·  _component_
-- [[web.cmp.curvas-chart]]  ·  _component_
-- [[web.cmp.descomposicion-tab]]  ·  _component_
-- [[web.cmp.ons-live]]  ·  _component_
-- [[web.cmp.research-retorno-total]]  ·  _component_
-- [[web.cmp.retorno-total-mini]]  ·  _component_
-- [[web.cmp.sensibilidad-table]]  ·  _component_
-- [[web.view.ons.view]]  ·  _view_

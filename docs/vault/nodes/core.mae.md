@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/mae.py
+path: core\mae.py
 ---
 
 # core/mae
 
 > Cliente MAE MarketData.
 
-**Archivo:** `core/mae.py`
+**Archivo:** `core\mae.py`
 
 ## Qué hace
 Cliente HTTP del mercado MAE (Mercado Abierto Electrónico). Autentica con header `x-api-key`, elige base URL prod o UAT según la env var `MAE_ENV`, y se auto-limita a 30 requests/minuto para no gatillar bloqueos. Hoy wrappea las cotizaciones de Repo (`/mercado/cotizaciones/repo`, paginado) con error handling tipado (auth, rate-limit, red). Diseñado genérico para sumar cauciones/títulos/acciones después sin tocar la infra de auth.

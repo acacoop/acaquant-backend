@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/bcra_api.py
+path: core\bcra_api.py
 ---
 
 # core/bcra_api
 
 > core/bcra_api.py — cliente de la API de Estadísticas Monetarias del BCRA (v4).
 
-**Archivo:** `core/bcra_api.py`
+**Archivo:** `core\bcra_api.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

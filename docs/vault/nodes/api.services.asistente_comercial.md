@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/asistente_comercial.py
+path: api\services\asistente_comercial.py
 ---
 
 # api/services/asistente_comercial
 
 > asistente_comercial — el bloque COMERCIAL del asistente de negocio.
 
-**Archivo:** `api/services/asistente_comercial.py`
+**Archivo:** `api\services\asistente_comercial.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

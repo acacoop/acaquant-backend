@@ -17,9 +17,9 @@ path: config.py
 Qué centraliza:
 - Credenciales de proveedores externos: ROFEX (`Config.USER/PASSWORD/...`), Aunesa, Finnhub, BYMA (OAuth2), MAE (x-api-key).
 - Seguridad/auth: `API_KEY`, `DOLAR_INGEST_TOKEN` (token acotado del endpoint de ingesta del dólar), `ENV` (en `prod` activa el fail-closed de auth), Cloudflare Access (`CF_ACCESS_TEAM/AUD`, service tokens "trusted"), `MANAGER_EMAILS` (acceso a la vista Manager) y bloque MCP (`MCP_BEARER_TOKEN`, `MCP_JWT_SECRET`, issuer y redirect hosts permitidos).
-- Listas de negocio no inferibles: `TICKERS_EXTRA_PRECIOS` (tickers que suscribe motor_rofex pero ignora motor_curvas), `PARES_CANJE` (par CCL/MEP por bono), `PARTNER_EXPORT_CUENTAS` (cuentas que se exportan a la API externa), Telegram para alertas y flags `API_PROFILING`.
+- Listas de negocio no inferibles: `TICKERS_EXTRA_PRECIOS` (tickers que suscribe motor_rofex pero ignora motor_curvas), `PARES_CANJE` (par CCL/MEP por bono), Telegram para alertas y flags `API_PROFILING`.
 
-Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_session` leen credenciales ROFEX; `core/aunesa`, `core/byma`, `core/mae`, `core/finnhub`, `core/notify` toman sus llaves de acá; `api/auth.py` usa `CF_ACCESS_*`/`MANAGER_EMAILS`, `api/mcp/*` los `MCP_*`, `api/routers/ingest.py` el `DOLAR_INGEST_TOKEN`; `jobs/cierre_canje.py` y `api/services/canje.py` comparten `PARES_CANJE`; `jobs/partner_export.py` usa `PARTNER_EXPORT_CUENTAS`.
+Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_session` leen credenciales ROFEX; `core/aunesa`, `core/byma`, `core/mae`, `core/finnhub`, `core/notify` toman sus llaves de acá; `api/auth.py` usa `CF_ACCESS_*`/`MANAGER_EMAILS`, `api/mcp/*` los `MCP_*`, `api/routers/ingest.py` el `DOLAR_INGEST_TOKEN`; `jobs/cierre_canje.py` y `api/services/canje.py` comparten `PARES_CANJE`.
 
 ## Lo usan (backlinks) ←
 - [[api.auth]]  ·  _module_
@@ -32,6 +32,7 @@ Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_sessi
 - [[api.routers.ingest]]  ·  _module_
 - [[api.services.aunesa_negocio]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
+- [[api.services.estrategia]]  ·  _module_
 - [[core.aunesa]]  ·  _module_
 - [[core.byma]]  ·  _module_
 - [[core.finnhub]]  ·  _module_
@@ -40,10 +41,11 @@ Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_sessi
 - [[core.rofex_session]]  ·  _module_
 - [[core.roles]]  ·  _module_
 - [[engines._curvas_loader]]  ·  _module_
+- [[engines.estrategia]]  ·  _module_
 - [[jobs.aum]]  ·  _module_
 - [[jobs.cashflow]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_
 - [[jobs.comercial_warm]]  ·  _module_
+- [[jobs.estrategia_resolver]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
-- [[jobs.partner_export]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_

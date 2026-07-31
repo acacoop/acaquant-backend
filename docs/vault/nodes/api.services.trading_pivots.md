@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/trading_pivots.py
+path: api\services\trading_pivots.py
 ---
 
 # api/services/trading_pivots
 
 > Pivots Floor Trader sobre el activo (ARS) — vista TRADING.
 
-**Archivo:** `api/services/trading_pivots.py`
+**Archivo:** `api\services\trading_pivots.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

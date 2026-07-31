@@ -1,8 +1,7 @@
 # 🗄️ base — colecciones Mongo
 
-29 notas.
+28 notas.
 
-- [[db.ACAPortfolio.Cartera]] — Colección Mongo en DB ACAPortfolio.
 - [[db.CashFlow.Contrapartes]] — Colección Mongo en DB CashFlow.
 - [[db.CashFlow.NegocioMovimientos]] — Colección Mongo en DB CashFlow.
 - [[db.CashFlow.Operaciones]] — Colección Mongo en DB CashFlow.

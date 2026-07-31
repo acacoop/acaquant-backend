@@ -4,14 +4,14 @@ type: service
 layer: deploy
 repo: infra
 tags: [service, deploy, infra]
-path: deploy/systemd/motor_options.service
+path: deploy\systemd\motor_options.service
 ---
 
 # systemd: motor_options
 
 > Servicio systemd.
 
-**Archivo:** `deploy/systemd/motor_options.service`
+**Archivo:** `deploy\systemd\motor_options.service`
 
 ## Qué hace
 Servicio systemd del motor de opciones GGAL — corre `engines.options`, el feed live de la cadena de opciones de GGAL (precios + griegas). Vive solo en rueda (cron restart 13:00 UTC / stop 20:05 UTC, L-V).

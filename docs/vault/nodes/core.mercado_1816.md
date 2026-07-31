@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/mercado_1816.py
+path: core\mercado_1816.py
 ---
 
 # core/mercado_1816
 
 > core/mercado_1816.py — cliente de la API de Mercado de 1816 (vista RESEARCH).
 
-**Archivo:** `core/mercado_1816.py`
+**Archivo:** `core\mercado_1816.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

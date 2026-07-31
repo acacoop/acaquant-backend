@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/manager/breakevens.py
+path: api\routers\manager\breakevens.py
 ---
 
 # api/routers/manager/breakevens
 
 > Manager sub-router — Títulos → Breakevens (curaduría de pares).
 
-**Archivo:** `api/routers/manager/breakevens.py`
+**Archivo:** `api\routers\manager\breakevens.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -23,4 +23,3 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_
-- [[web.cmp.manager-view]]  ·  _component_

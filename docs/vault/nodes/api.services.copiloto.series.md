@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/copiloto/series.py
+path: api\services\copiloto\series.py
 ---
 
 # api/services/copiloto/series
 
 > copiloto/series.py — SERIE HISTÓRICA GENÉRICA: "¿contra qué?".
 
-**Archivo:** `api/services/copiloto/series.py`
+**Archivo:** `api\services\copiloto\series.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/operaciones_view.py
+path: api\services\operaciones_view.py
 ---
 
 # api/services/operaciones_view
 
 > operaciones_view.py — helpers PUROS compartidos de la vista Operaciones.
 
-**Archivo:** `api/services/operaciones_view.py`
+**Archivo:** `api\services\operaciones_view.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

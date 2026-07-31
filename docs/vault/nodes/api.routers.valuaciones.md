@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/valuaciones.py
+path: api\routers\valuaciones.py
 ---
 
 # api/routers/valuaciones
 
 > Router /api/valuaciones — performance e historia por cuenta.
 
-**Archivo:** `api/routers/valuaciones.py`
+**Archivo:** `api\routers\valuaciones.py`
 
 ## Qué hace
 Router de performance e historia por cuenta. `GET /consolidado` da una fila por cuenta (valor, base-100, PnL acum, TEM, TEA en ARS y USD) para comparar carteras; `/{id}/serie` la curva diaria del portfolio; `/{id}/mensual` el cierre mensual con flujos externos; `/{id}/posiciones` el ledger cost-basis (PnL realizado/no-realizado, drill-down per-ticker).
@@ -26,13 +26,3 @@ Conecta con: delega en `api.services.valuaciones` (lee `Valuaciones.AuM`, `Conso
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
-- [[web.api.api.valuaciones.[id_cuenta].mensual]]  ·  _route_
-- [[web.api.api.valuaciones.[id_cuenta].movimientos]]  ·  _route_
-- [[web.api.api.valuaciones.[id_cuenta].posiciones]]  ·  _route_
-- [[web.api.api.valuaciones.[id_cuenta].posiciones-actuales]]  ·  _route_
-- [[web.api.api.valuaciones.[id_cuenta].serie]]  ·  _route_
-- [[web.api.api.valuaciones.[id_cuenta].variacion]]  ·  _route_
-- [[web.api.api.valuaciones.consolidado]]  ·  _route_
-- [[web.cmp.por-cuenta-view]]  ·  _component_
-- [[web.cmp.referidos-view]]  ·  _component_
-- [[web.cmp.valuaciones-view]]  ·  _component_

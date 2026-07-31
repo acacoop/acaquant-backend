@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/research_bcra_sql.py
+path: api\services\research_bcra_sql.py
 ---
 
 # api/services/research_bcra_sql
 
 > api/services/research_bcra_sql.py — lectura de las series BCRA para la tab
 
-**Archivo:** `api/services/research_bcra_sql.py`
+**Archivo:** `api\services\research_bcra_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

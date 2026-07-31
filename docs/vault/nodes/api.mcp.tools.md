@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/mcp/tools/__init__.py
+path: api\mcp\tools\__init__.py
 ---
 
 # api/mcp/tools/__init__
 
 > Tools del MCP server, agrupadas por dominio.
 
-**Archivo:** `api/mcp/tools/__init__.py`
+**Archivo:** `api\mcp\tools\__init__.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

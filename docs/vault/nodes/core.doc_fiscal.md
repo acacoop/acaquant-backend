@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/doc_fiscal.py
+path: core\doc_fiscal.py
 ---
 
 # core/doc_fiscal
 
 > Documento fiscal (DNI/CUIT/CUIL) — parseo y claves de cruce. Lógica PURA.
 
-**Archivo:** `core/doc_fiscal.py`
+**Archivo:** `core\doc_fiscal.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

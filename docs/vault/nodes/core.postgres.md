@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/postgres.py
+path: core\postgres.py
 ---
 
 # core/postgres
 
 > core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.
 
-**Archivo:** `core/postgres.py`
+**Archivo:** `core\postgres.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -70,6 +70,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.intraday]]  ·  _module_
 - [[api.services.jobs_catalogo]]  ·  _module_
 - [[api.services.mercado_hist_sql]]  ·  _module_
+- [[api.services.mesa_dinero]]  ·  _module_
 - [[api.services.ons]]  ·  _module_
 - [[api.services.opciones_sql]]  ·  _module_
 - [[api.services.operaciones_informes]]  ·  _module_
@@ -99,6 +100,7 @@ _(pendiente de enriquecimiento)_
 - [[api.telemetria]]  ·  _module_
 - [[core.adhoc_subscriptions]]  ·  _module_
 - [[core.ai]]  ·  _module_
+- [[core.bars_sql]]  ·  _module_
 - [[core.brackets]]  ·  _module_
 - [[core.calendario]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
@@ -108,6 +110,7 @@ _(pendiente de enriquecimiento)_
 - [[core.eikon_chicago]]  ·  _module_
 - [[core.eikon_live]]  ·  _module_
 - [[core.eikon_news]]  ·  _module_
+- [[core.estrategia_sql]]  ·  _module_
 - [[core.grupos_sql]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
@@ -131,6 +134,7 @@ _(pendiente de enriquecimiento)_
 - [[jobs.backfill_tasas]]  ·  _module_
 - [[jobs.bcra_research]]  ·  _module_
 - [[jobs.bonos_ohlc_daily]]  ·  _module_
+- [[jobs.cedears_bars_1m]]  ·  _module_
 - [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_
 - [[jobs.cleanup_cedears_timesales]]  ·  _module_

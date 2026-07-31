@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/curvas_sql.py
+path: core\curvas_sql.py
 ---
 
 # core/curvas_sql
 
 > core/curvas_sql.py — lectura del master de renta fija desde SQL (decomiso Mongo).
 
-**Archivo:** `core/curvas_sql.py`
+**Archivo:** `core\curvas_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

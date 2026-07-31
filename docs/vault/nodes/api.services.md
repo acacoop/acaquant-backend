@@ -4,12 +4,12 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/__init__.py
+path: api\services\__init__.py
 ---
 
 # api/services/__init__
 
-**Archivo:** `api/services/__init__.py`
+**Archivo:** `api\services\__init__.py`
 
 ## Qué hace
 Paquete `api/services` — marcador del paquete (archivo `__init__.py` vacío). Agrupa toda la capa de lógica de negocio pura de la API: services invocables tanto por los routers HTTP como por scripts, sin dependencia de FastAPI. Cada módulo hermano (portfolio, renta_fija, ordenes, pnl, etc.) resuelve un dominio.
@@ -24,6 +24,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
 - [[api.routers.derivados_agro]]  ·  _module_
+- [[api.routers.estrategia]]  ·  _module_
 - [[api.routers.ia]]  ·  _module_
 - [[api.routers.manager.aca_valores]]  ·  _module_
 - [[api.routers.manager.assets]]  ·  _module_
@@ -36,12 +37,14 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.manager.documentos]]  ·  _module_
 - [[api.routers.manager.import_tenencia]]  ·  _module_
 - [[api.routers.manager.jobs]]  ·  _module_
+- [[api.routers.manager.mesa]]  ·  _module_
 - [[api.routers.manager.ons]]  ·  _module_
 - [[api.routers.manager.operaciones]]  ·  _module_
 - [[api.routers.manager.roles]]  ·  _module_
 - [[api.routers.manager.uso]]  ·  _module_
 - [[api.routers.manager.valuaciones]]  ·  _module_
 - [[api.routers.market]]  ·  _module_
+- [[api.routers.mesa_dinero]]  ·  _module_
 - [[api.routers.news]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.routers.operativa]]  ·  _module_

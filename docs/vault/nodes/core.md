@@ -4,12 +4,12 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/__init__.py
+path: core\__init__.py
 ---
 
 # core/__init__
 
-**Archivo:** `core/__init__.py`
+**Archivo:** `core\__init__.py`
 
 ## Qué hace
 Paquete `core/` — capa de infraestructura del backend. Agrupa los clientes externos (Aunesa, BYMA, Finnhub, Yahoo, argentinadatos, MAE, Atlas), el acceso a Mongo y los helpers transversales (roles, grupos, job_runs, snapshot_writer, websocket). Su `__init__.py` está vacío: solo marca el paquete.
@@ -40,6 +40,7 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[api.services.copiloto.motor]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
+- [[api.services.estrategia]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.ia_obs]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
@@ -65,6 +66,7 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[engines._curvas_loader]]  ·  _module_
 - [[engines.caucion]]  ·  _module_
 - [[engines.curvas]]  ·  _module_
+- [[engines.estrategia]]  ·  _module_
 - [[engines.futuros_dlr]]  ·  _module_
 - [[engines.motor_agro]]  ·  _module_
 - [[engines.motor_agro_opciones]]  ·  _module_
@@ -76,9 +78,11 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[jobs.backfill_tasas]]  ·  _module_
 - [[jobs.bcra_research]]  ·  _module_
 - [[jobs.bonos_ohlc_daily]]  ·  _module_
+- [[jobs.cedears_bars_1m]]  ·  _module_
 - [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
+- [[jobs.estrategia_resolver]]  ·  _module_
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.ia_calidad]]  ·  _module_

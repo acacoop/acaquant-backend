@@ -1,6 +1,6 @@
 # 🚀 deploy — servicios + crons
 
-59 notas.
+60 notas.
 
 - [[cron.engines.dolar_mep]] — Tarea programada (cron).
 - [[cron.jobs.acreencias]] — Tarea programada (cron).
@@ -12,6 +12,7 @@
 - [[cron.jobs.bcra_research]] — Tarea programada (cron).
 - [[cron.jobs.bonos_ohlc_daily]] — Tarea programada (cron).
 - [[cron.jobs.cashflow]] — Tarea programada (cron).
+- [[cron.jobs.cedears_bars_1m]] — Tarea programada (cron).
 - [[cron.jobs.cedears_ohlc_daily]] — Tarea programada (cron).
 - [[cron.jobs.cierre_canje]] — Tarea programada (cron).
 - [[cron.jobs.cleanup_cedears_timesales]] — Tarea programada (cron).
@@ -24,6 +25,7 @@
 - [[cron.jobs.day_trading_stats]] — Tarea programada (cron).
 - [[cron.jobs.economic_calendar]] — Tarea programada (cron).
 - [[cron.jobs.eikon_cierres]] — Tarea programada (cron).
+- [[cron.jobs.estrategia_resolver]] — Tarea programada (cron).
 - [[cron.jobs.forwards_zscore]] — Tarea programada (cron).
 - [[cron.jobs.fred_research]] — Tarea programada (cron).
 - [[cron.jobs.guardrails]] — Tarea programada (cron).
@@ -36,7 +38,6 @@
 - [[cron.jobs.news_ingesta]] — Tarea programada (cron).
 - [[cron.jobs.operaciones_informes]] — Tarea programada (cron).
 - [[cron.jobs.options_rollup]] — Tarea programada (cron).
-- [[cron.jobs.partner_export]] — Tarea programada (cron).
 - [[cron.jobs.pnl_totales_precompute]] — Tarea programada (cron).
 - [[cron.jobs.portafolio_backfill]] — Tarea programada (cron).
 - [[cron.jobs.precios_acciones_daily]] — Tarea programada (cron).
@@ -54,10 +55,10 @@
 - [[svc.motor_cedears]] — Servicio systemd.
 - [[svc.motor_curvas]] — Servicio systemd.
 - [[svc.motor_dolares]] — Servicio systemd.
+- [[svc.motor_estrategia]] — Servicio systemd.
 - [[svc.motor_forwards]] — Servicio systemd.
 - [[svc.motor_futuros_dlr]] — Servicio systemd.
 - [[svc.motor_options]] — Servicio systemd.
 - [[svc.motor_ordenes]] — Servicio systemd.
 - [[svc.motor_portfolio_snapshot]] — Servicio systemd.
 - [[svc.motor_rofex]] — Servicio systemd.
-- [[svc.partner_api]] — Servicio systemd.

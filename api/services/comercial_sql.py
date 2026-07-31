@@ -663,7 +663,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
                              moneda: str = "ARS", fecha: str | None = None,
                              desde: str | None = None, nivel_1=None, nivel_2=None,
                              nivel_3=None, nivel_4=None, nivel_5=None, referido=None,
-                             division=None) -> dict:
+                             division=None, max_ops: int | None = None) -> dict:
     hoy = _hoy_art()
     factor = _factor_usd(moneda)
     corte = date.fromisoformat(fecha) if fecha else hoy
@@ -691,7 +691,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     ids = list(detalle)
     if not ids:
         return {"segmento": segmento or "todos", "n_clientes": 0,
-                "clientes": [], "operaciones": []}
+                "clientes": [], "operaciones": [], "n_operaciones": 0}
 
     pa: dict = {"ids": ids, "mes_ini": mes_ini}
     ub = ""                                    # tope superior = HASTA (aplica a todo)
@@ -721,6 +721,10 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
 
     # Lista de operaciones del período [desde, hasta] (todas las que cobraron arancel).
+    # `max_ops` capea el payload a las N más recientes (la tabla crece día a día y el costo
+    # real del endpoint es serializar/transferir miles de filas, no la query — medido).
+    # `count(*) OVER()` devuelve el TOTAL real en cada fila sin una segunda query, para
+    # que el front pueda avisar "mostrando N de M".
     pop: dict = {"ids": ids}
     bounds = ""
     if desde:
@@ -729,12 +733,19 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     if corte_iso:
         pop["corte"] = corte_iso
         bounds += " AND concertacion <= %(corte)s"
+    limit = ""
+    if max_ops:
+        pop["lim"] = max_ops
+        limit = " LIMIT %(lim)s"
     operaciones = []
+    n_operaciones = 0
     for r in _q("SELECT concertacion, id_cuenta, boleto, instrumento, operacion, "
-                "tipo_operacion, bruto, moneda, arancel FROM operaciones "
+                "tipo_operacion, bruto, moneda, arancel, count(*) OVER() AS n_total "
+                "FROM operaciones "
                 "WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 "
                 f"AND etapa IS DISTINCT FROM 'solicitud'{bounds} "
-                "ORDER BY concertacion DESC, boleto DESC", pop):
+                f"ORDER BY concertacion DESC, boleto DESC{limit}", pop):
+        n_operaciones = int(r["n_total"])
         idc = r["id_cuenta"]
         operaciones.append({
             "fecha": _iso(r["concertacion"]), "id_cuenta": idc,
@@ -745,7 +756,8 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
             "moneda": r["moneda"], "arancel": _cv(_f(r["arancel"]), factor),
         })
     return {"segmento": segmento or "todos", "n_clientes": len(clientes),
-            "clientes": clientes, "operaciones": operaciones}
+            "clientes": clientes, "operaciones": operaciones,
+            "n_operaciones": n_operaciones}
 
 
 def debug_comercial(*, operador: str | None = None, segmento: str | None = None,

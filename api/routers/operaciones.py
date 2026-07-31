@@ -726,15 +726,17 @@ def comercial_informe_segmento_detalle(
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+    max_ops: int = Query(1000, ge=1, le=20000, description="tope de operaciones en el detalle (payload)"),
 ) -> dict:
     """Detalle de un segmento (Q4 dinámica): clientes con su arancel +
     operaciones (boletos con arancel) que lo generaron. `segmento='todos'` →
     todos los segmentos (vista por defecto). `operador` opcional. `nivel_1` lo fija
-    `segmento`; el resto de los niveles + referido scopean."""
+    `segmento`; el resto de los niveles + referido scopean. `max_ops` capea la lista de
+    operaciones a las N más recientes (`n_operaciones` trae el total real)."""
     return _com_sql.informe_segmento_detalle(
         segmento=segmento, operador=operador, moneda=moneda, fecha=fecha, desde=desde,
         nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5, referido=referido,
-        division=division)
+        division=division, max_ops=max_ops)
 
 
 # ── CONTROL COMERCIAL (jefatura) — editor de objetivos (etapa 1) ──────────────

@@ -9,12 +9,10 @@ from api.services.pnl import _TIPOS_DIVISOR_100 as _lista_pnl
 from api.services.pnl import _aplicar_normalizer
 from jobs.aum import TIPOS_DIVISOR_100 as _lista_writer
 from jobs.aum import _calcular_valuacion
-from jobs.partner_export import _TIPOS_DIVISOR_100 as _lista_partner
 
 
-def test_lede_en_las_tres_listas():
+def test_lede_en_las_listas_activas():
     assert "LEDE" in _lista_writer
-    assert "LEDE" in _lista_partner
     assert "LEDE" in _lista_pnl
 
 

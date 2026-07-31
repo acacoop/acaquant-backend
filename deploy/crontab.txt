@@ -150,10 +150,6 @@
 # Proyecta cobros futuros por cliente (tenencias × calendario contractual). Liviano.
 45 12 * * 1-5 /root/TradingAV/deploy/run_job.sh acreencias 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.acreencias --commit'
 
-# ─── Export proveedor — 2 corridas diarias (21:30 UTC y 02:00 UTC del día sig.)
-30 21 * * 1-5 /root/TradingAV/deploy/run_job.sh partner_export 20m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export'
-0 2 * * 2-6 /root/TradingAV/deploy/run_job.sh partner_export 20m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export'
-
 # ─── PnL TOTALES precompute (cada 30 min en la rueda — :05 y :35, 15-22 UTC L-V)
 # Timeout 25m (< intervalo 30m) + lock → no se apila el cómputo pesado de ~883 cuentas.
 5,35 15-22 * * 1-5 /root/TradingAV/deploy/run_job.sh pnl_totales_precompute 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.pnl_totales_precompute'

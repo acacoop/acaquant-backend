@@ -8,7 +8,7 @@
 > **Docs de referencia operativa (separados, vivos):** `API.md` (endpoints),
 > `RUNBOOK.md` (operación/incidentes), `MCP.md`/`MCP_TOOLS.md` (MCP server),
 > `MOTOR_VALUACIONES.md` (PnL), `SECRETS.md` +
-> `SECURITY.md` (seguridad), `PARTNER_API*.md`,
+> `SECURITY.md` (seguridad),
 > `GRUPOS.md`, `SEGMENTACION_PATRIMONIAL.md`, `HERRAMIENTAS.md` (auto-gen).
 > El plano vivo de servicios/crons: `deploy/SISTEMA.md`. El grafo navegable:
 > `docs/vault/`.
@@ -24,7 +24,7 @@ pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → Next.j
 jobs/crons batch, caches precalculados donde pesa. ~30 usuarios hoy, objetivo 200+.
 
 > **Mongo decomisado (2026-06-29).** Postgres/Supabase es la **única** base de
-> datos: todos los motores, jobs, services y el partner_api leen/escriben SQL
+> datos: todos los motores, jobs y services leen/escriben SQL
 > nativo. El cluster Atlas M10 y el cliente Mongo del repo fueron eliminados.
 > Modelo y schemas: `docs/SQL.md`. Registro del decomiso:
 > `docs/HANDOFF_DECOMISO_MONGO.md`.
@@ -32,7 +32,7 @@ jobs/crons batch, caches precalculados donde pesa. ~30 usuarios hoy, objetivo 20
 - **Operativo (la mesa):** curvas, forwards, breakevens, opciones, órdenes (OPERAR),
   operaciones/negocio, portfolios/AuM, scanner.
 - **Comercial/back-office:** clientes, segmentación, operadores, aranceles, FCI.
-- **Plataforma:** Manager (RBAC, diagnóstico, ingesta), MCP server, Partner API.
+- **Plataforma:** Manager (RBAC, diagnóstico, ingesta), MCP server.
 
 ---
 
@@ -55,8 +55,8 @@ Tres principios:
 ## 3. Estado de los datos (post-decomiso Mongo, 2026-06-29)
 
 **Base única: Postgres/Supabase**, 10 schemas de dominio (`mercado`, `macro`,
-`valuaciones`, `portafolio`, `operaciones`, `clientes`, `manager`, `home`, `mcp`,
-`partner`). Modelo completo + inventario de tablas: `docs/SQL.md`. Schema fuente:
+`valuaciones`, `portafolio`, `operaciones`, `clientes`, `manager`, `home`, `mcp`).
+Modelo completo + inventario de tablas: `docs/SQL.md`. Schema fuente:
 `sql/schema.sql`.
 
 **Lo resuelto (recorrido completo):**
@@ -68,7 +68,7 @@ Tres principios:
   "espejo read-only". Cada dominio lee/escribe su schema SQL (`api/services/<x>_sql.py`,
   writers vía `core/pg_mirror` native).
 - ✅ **Renta variable, operaciones, negocio, tenencias/AuM, clientes, valuaciones,
-  órdenes, mercado, opciones, agro, macro, manager, home, partner** — todos SQL-native.
+  órdenes, mercado, opciones, agro, macro, manager, home** — todos SQL-native.
 - ✅ **`perf_scan` en CI** (anti-patrones de queries). Suite unit verde.
 
 **Lo pendiente (operación, no código):**

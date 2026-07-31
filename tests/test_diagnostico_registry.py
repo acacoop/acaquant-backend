@@ -36,7 +36,6 @@ _CRONS_IGNORADOS = {
     "jobs.aranceles",           # sub-paso del chain de negocio
     "jobs.fci_bilateral",       # sub-paso del chain de negocio
     "jobs.comercial_warm",      # cache-warming
-    "jobs.partner_export",      # proveedor externo (no es vista acaquant)
     "jobs.options_rollup",      # rollup histórico opciones
     "jobs.cleanup_cedears_timesales",  # limpieza (vacía el tape al cierre)
 }

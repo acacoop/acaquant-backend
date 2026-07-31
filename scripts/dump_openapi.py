@@ -1,13 +1,6 @@
-"""scripts/dump_openapi.py — exporta los specs OpenAPI de las dos APIs.
+"""scripts/dump_openapi.py — exporta el spec OpenAPI de la API principal.
 
-Escribe docs/postman/openapi_main.json y openapi_partner.json desde los apps
-FastAPI (`app.openapi()`). Importás esos archivos en Postman y tenés la
-colección completa autogenerada. **Re-corré esto cada vez que agregues o cambies
-endpoints** y re-importá en Postman para mantener todo en sync con el código.
-
-La Partner API tiene `openapi_url=None` (no sirve el spec por HTTP a propósito),
-pero `app.openapi()` lo genera igual desde acá.
-
+Escribe `docs/openapi/openapi_main.json` desde el app FastAPI (`app.openapi()`).
 Uso:
     python -m scripts.dump_openapi
 """
@@ -16,14 +9,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-_OUT = Path("docs/postman")
+_OUT = Path("docs/openapi")
 
 
 def _dump(app, nombre: str) -> None:
     _OUT.mkdir(parents=True, exist_ok=True)
-    # FastAPI emite OpenAPI 3.1 por default; muchas versiones de Postman solo
-    # importan 3.0 ("Incorrect format"). Forzamos 3.0.3 (limpiando la cache del
-    # schema para regenerar con esa versión).
+    # FastAPI emite OpenAPI 3.1 por default; forzamos 3.0.3 para maximizar
+    # compatibilidad con consumidores externos de spec.
     app.openapi_version = "3.0.3"
     app.openapi_schema = None
     spec = app.openapi()
@@ -33,12 +25,10 @@ def _dump(app, nombre: str) -> None:
 
 
 def main() -> int:
-    print("Generando specs OpenAPI para Postman:")
+    print("Generando spec OpenAPI de la API principal:")
     from api.main import app as api_app
     _dump(api_app, "openapi_main.json")
-    from partner_api.main import app as partner_app
-    _dump(partner_app, "openapi_partner.json")
-    print("Listo. En Postman: Import -> File -> elegi estos .json.")
+    print("Listo.")
     return 0
 
 

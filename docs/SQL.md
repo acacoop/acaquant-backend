@@ -5,7 +5,7 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase** (Postgres managed)
 > **2026-06-29 — DECOMISO COMPLETO DE MONGO.** Postgres/Supabase es la **ÚNICA**
 > base de datos del sistema. Ya NO hay dual-run, ni flags de engine, ni "espejo
 > read-only", ni migración en curso: la migración Mongo→Postgres **terminó**.
-> Todos los motores, jobs, services y el partner_api leen y escriben SQL nativo.
+> Todos los motores, jobs y services leen y escriben SQL nativo.
 > El cliente Mongo, `api/db.py`, `core/mongo*.py` y el tooling Mongo fueron
 > borrados del repo. Registro del decomiso: `docs/HANDOFF_DECOMISO_MONGO.md`.
 
@@ -18,9 +18,7 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase** (Postgres managed)
   los nombres sin calificar — los nombres de tabla son únicos entre schemas, no hay
   colisión.
 - **Conexión:** singleton `core.postgres.get_pool()` (un pool, sin `close()` por
-  llamada — mismo contrato que tenía el cliente Mongo). El partner_api usa su
-  conexión propia `partner_api/pg.py` (otro dominio, otra base lógica → siempre
-  califica `partner.<tabla>`, fuera del search_path de la mesa).
+  llamada — mismo contrato que tenía el cliente Mongo).
 - **Escritura nativa:** los motores y jobs escriben SQL directo vía los helpers de
   `core/pg_mirror.py` (ver §3) o SQL crudo en sus propios services. No hay capa de
   "espejo" intermedia.
@@ -49,7 +47,6 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 | `manager` | manager_users, role_matrix, role_audit, grupos, job_runs, pyrofex_instruments, pyrofex_discovery |
 | `home` | market_quotes, market_calendar, news_headlines |
 | `mcp` | oauth_clients, oauth_codes, oauth_tokens |
-| `partner` | cartera, api_users |
 
 **Diseño:**
 - **Dimensiones** (PK natural): `clientes.{comitentes, cuentas, operadores, contrapartes}`.
@@ -172,14 +169,11 @@ el panel Manager (`/jobs/history`, `/roles/audit`) y la frescura del Diagnóstic
 `manager_infra_sql.py`. PKs `run_id` / `audit_id`; timestamps `timestamptz` (los
 writers usan `datetime.now(UTC)` aware → el cast no corre la hora).
 
-### HOME / MCP / PARTNER
+### HOME / MCP
 - `home.{market_quotes, market_calendar, news_headlines}` — watchlist HOME, calendario
   económico, headlines (retención 2 días vía `prune_native`). Services `market_sql.py` /
   `news_sql.py`. `market_calendar` PK natural (evt_ts, country, event).
 - `mcp.{oauth_clients, oauth_codes, oauth_tokens}` — OAuth 2.1 del MCP server.
-- `partner.{cartera, api_users}` — base del servicio externo `partner_api/` (app
-  FastAPI separada). Lectura/escritura SQL-native vía `partner_api/store.py` +
-  `partner_api/pg.py` (conexión propia). Ver `docs/PARTNER_API.md`.
 
 ---
 

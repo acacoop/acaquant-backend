@@ -100,7 +100,7 @@ def check_config() -> list[str]:
     if logs:
         avisos.append(f"ℹ️  {len(logs)} línea(s) que mencionan un secreto en print/log — revisá que NO interpolen el valor:")
         avisos.extend(f"      {ln}" for ln in logs[:8])
-    if grep(r"verify\s*=\s*false", "api jobs core engines partner_api"):
+    if grep(r"verify\s*=\s*false", "api jobs core engines"):
         avisos.append("🟡 verify=False (TLS sin verificar) en alguna request — vector de man-in-the-middle.")
     if grep(r"shell\s*=\s*true", "api jobs core engines"):
         avisos.append("🟡 subprocess con shell=True — riesgo de command injection si entra input externo.")
@@ -144,11 +144,11 @@ def _emit() -> None:
     print("\n[3] CÓDIGO inseguro (análisis estático)")
     if shutil.which("bandit"):
         rc, out = _run(["bandit", "-r", "api", "jobs", "core", "engines", "quant",
-                        "partner_api", "-ll", "-q", "-f", "txt"])
+                        "-ll", "-q", "-f", "txt"])
         print("  " + (out.strip().replace("\n", "\n  ") or "(sin hallazgos de severidad media/alta)"))
     else:
         print("  ⚪ bandit no instalado. Instalá y corré (severidad media+):")
-        print("       pip install bandit && bandit -r api jobs core engines quant partner_api -ll")
+        print("       pip install bandit && bandit -r api jobs core engines quant -ll")
 
     # 4. Config
     print("\n[4] POSTURA de configuración")

@@ -33,7 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO), venv en `/root/TradingAV/venv`.
 
 > **MONGO DECOMISADO (2026-06-29).** El sistema es 100% Postgres/Supabase: motores,
-> jobs, API, MCP y partner_api leen y escriben SQL. NO queda una sola referencia a
+> jobs, API y MCP leen y escriben SQL. NO queda una sola referencia a
 > Mongo en el código (`grep -rE "from core.mongo|import pymongo|MongoClient"` → 0).
 > El cliente Mongo (`core/mongo.py`), `api/db.py` y el tooling Mongo fueron borrados.
 > Si ves "Mongo"/"colección"/"Atlas" en algún doc viejo, es residual — la fuente de
@@ -63,7 +63,6 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 - `ia` — observabilidad del gateway de IA (`core/ai.py`, ver `docs/QUANTAI.md`): `trazas` (cada llamada LLM: tarea, modelo, tokens, latencia, ok/error, feedback, detalle/respuesta/razonamiento, conv_id) y `config` (presupuestos editables desde Manager). Router HTTP: `api/routers/ia.py` (bearer + `require_module("ia")`): briefing, observabilidad, presupuestos/saldo, y el COPILOTO de mesa (`/api/ia/copiloto*` — **doc vivo con changelog OBLIGATORIO: `docs/COPILOTO.md`**, leerlo antes de tocar `api/services/copiloto.py`). También: `triage_incidentes`/`triage_estado` (triage IA de jobs fallidos, `jobs/triage.py` cada 10') y `research` (mail diario 1816 vía IMAP, `jobs/research_mail.py` — cuerpo crudo + destilado LLM + FTS español).
 - `research` — market data 1816 para la vista Research: `mkt_1816_series`/`mkt_1816_watch`/`mkt_1816_instrumentos` (feed SEPARADO de `mercado.curvas` — ver `docs/VISTA_RESEARCH.md`); tab BCRA: `bcra_variables`/`bcra_watch`/`bcra_series` (ver `docs/RESEARCH_BCRA.md`).
 - `estrategia` — ESTRATEGIA QUANT (señal intradía con trazabilidad, tab ESTRATEGIA de Trading — **doc vivo: `docs/ESTRATEGIA_QUANT.md`**): `senales` (ledger append-only), `resultados` (resolver intradía por horizonte), `modelo_pesos` (versionado), `eval_live` (última evaluación por ticker).
-- `partner` — app separada `partner_api`: `cartera`, `api_users` (antes Mongo `ACAPortfolio`).
 
 ## Contexto por subdirectorio
 
@@ -221,7 +220,7 @@ Ver memoria [[feedback_portal_invitado_www]].
 ## Reglas que rompen todo si se olvidan
 
 - **`python -m <módulo>` desde la raíz siempre**. `python engines/x.py` falla (`core` no es discoverable).
-- **Conexión SQL**: pool singleton `core.postgres.get_pool()` (no cerrarlo). El `partner_api` usa su propio `partner_api/pg.py`.
+- **Conexión SQL**: pool singleton `core.postgres.get_pool()` (no cerrarlo).
 - **Regla de capas**: `core/` no importa nada del proyecto. `engines/` y `jobs/` usan `core/` + `quant/`. `api/services/` es puro (sin FastAPI), `api/routers/` solo HTTP plumbing.
 - **Commits**: estilo `feat/fix/docs/refactor(scope): mensaje` en español, como el `git log`.
 - **Constantes globales y feature flags** viven en `config.py` (raíz): `TICKERS_EXTRA_PRECIOS`, `TICKERS_BOOK_FULL`, etc. Env vars en `.env` local / systemd unit files en el Droplet (`MANAGER_EMAILS`, `DEFAULT_ROLE`, `MCP_*`, `POSTGRES_URI`).
@@ -239,7 +238,6 @@ quant/       # cálculo puro (black_scholes, stats, curve_fit, pivot_points, rol
 api/services # lógica pura (invocada por routers y por el agente)
 api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers
 api/mcp/     # MCP server (FastMCP) + OAuth 2.1 provider + discovery
-partner_api/ # app FastAPI SEPARADA (no monta en api/main) — datos para proveedor externo
 scripts/     # one-shot / migraciones / smoke
 tests/       # pytest — unit/ + integration/ (marker `integration`, excluido por defecto via addopts)
 evals/       # datasets de evaluación del programa QuantAI (ver docs/QUANTAI.md)
@@ -271,7 +269,6 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Derivados · sintéticos · agro | `DERIVADOS.md` · `SINTETICOS.md` · `AGRO.md` |
 | Valuaciones / PnL | `MOTOR_VALUACIONES.md` |
 | MCP server / tools | `MCP.md` · `MCP_TOOLS.md` |
-| Partner API | `PARTNER_API.md` · `PARTNER_API_PROVEEDOR.md` |
 | Operación, incidentes, monitoreo | `RUNBOOK.md` · `OBSERVABILIDAD_ROBUSTEZ.md` |
 | Seguridad / credenciales | `SECURITY.md` · `SECRETS.md` |
 | Clientes / grupos / segmentación | `GRUPOS.md` · `SEGMENTACION_PATRIMONIAL.md` |
@@ -326,10 +323,6 @@ python -m scripts.perf_scan [--strict]         # anti-patterns de queries
 ```
 
 CI (`.github/workflows/ci.yml`): en cada push/PR a `main` corre `ruff check .` (bloqueante) + `perf_scan` (informativo, `continue-on-error`) + `pytest -ra` (solo unit). Python 3.12. No buildea el frontend.
-
-```bash
-uvicorn partner_api.main:app --port 8100   # Partner API (servicio externo, ver Estructura)
-```
 
 ## Frontend en repo hermano
 
@@ -404,24 +397,15 @@ server (sección siguiente).
 1. **CF Access path scoping**. App `acaquant-mcp-bypass` (BYPASS + Everyone) cubre 5 paths: `/mcp`, `/oauth/token`, `/oauth/register`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`. Si CF Access tapa `/mcp`, el cliente recibe HTML de login en vez de 401 → muere silencioso. `/oauth/authorize` SÍ debe estar protegido (ahí logea el user). 5/5 destinations al tope.
 2. **`TransportSecuritySettings` en `api/mcp/server.py`** con `allowed_hosts` (`api.acaquant.com`) y `allowed_origins` (`https://claude.ai`, `https://claude.com`). El default del SDK MCP solo acepta localhost → 421 Misdirected Request. El smoke local NO replica esta condición.
 
-## Partner API (servicio externo)
-
-`partner_api/` es una **app FastAPI independiente** — NO se monta en `api/main`. Sirve datos de portfolio a un proveedor externo. En el Droplet corre como systemd `partner_api.service`, bindeado a `127.0.0.1:8100`, expuesto vía nginx en `data.acaquant.com`. Sin Swagger/OpenAPI público (`docs_url=None`); la doc va por escrito al proveedor (`docs/PARTNER_API.md`, `docs/PARTNER_API_PROVEEDOR.md`).
-
-- Endpoints: `POST /v1/token` (login user/pass → JWT), `GET /v1/fechas`, `GET /v1/portfolio`, `GET /health`.
-- **DB: SQL schema `partner`** (`partner.cartera`, `partner.api_users`). SQL-only (decomiso Mongo 2026-06-29: `ACAPortfolio` eliminada). Conexión propia `partner_api/pg.py` (env `POSTGRES_URI`, NO `core.postgres`). Lectura `partner_api/store.py`; escritura `jobs/partner_export.py` (export diario) + `scripts/partner_user.py` (gestión de usuarios). Env vars `POSTGRES_URI` + `PARTNER_JWT_SECRET` (chequeadas al importar `main.py`).
-- Auth + rate limit propios (`partner_api/auth.py`, `security.py`, `ratelimit.py`) — no comparte código con `api/auth.py`. Ver `docs/PARTNER_API.md`.
-
 ## Capa SQL — Postgres/Supabase (ÚNICA base; Mongo decomisado 2026-06-29)
 
 **Postgres/Supabase ES el sistema.** Todo lee y escribe SQL: motores, jobs, API,
-MCP, partner_api. Mongo fue decomisado por completo — no hay dual-run, ni flags de
+MCP. Mongo fue decomisado por completo — no hay dual-run, ni flags de
 engine, ni espejo. Doc de referencia del modelo: **`docs/SQL.md`** + `sql/schema.sql`.
 
 Esquema: `sql/schema.sql` (OJO: NO siempre 100% aplicado en la DB real — algún
 `CREATE TABLE`/columna del archivo puede no existir en Postgres todavía; `scripts/apply_schema.py`
-las crea). Pool/conn: `core.postgres.get_pool` (lee `.env` propia). El `partner_api`
-tiene su propia conexión `partner_api/pg.py`.
+las crea). Pool/conn: `core.postgres.get_pool` (lee `.env` propia).
 
 - Convención: cada dominio tiene su módulo de lectura/escritura SQL (`*_sql.py`
   o helpers en `core/`): `curvas_sql`, `macro_sql`, `renta_fija_sql`, `comercial_sql`,

@@ -1,7 +1,7 @@
 """Genera el vault de Obsidian (docs/vault/) — el cerebro vivo de TODO el sistema.
 
 Mapea, en un único vault navegable, ambos repos + base + deploy:
-  - Backend (TradingAV): core / engines / jobs / quant / api(services·routers·mcp) / partner_api
+    - Backend (TradingAV): core / engines / jobs / quant / api(services·routers·mcp)
   - Frontend (acaquant-web): vistas (app), componentes, lib, rutas API (proxy)
   - Base: colecciones Mongo (quién escribe / quién lee)
   - Deploy: servicios systemd + crons (qué módulo corre cada uno)
@@ -40,7 +40,7 @@ PROSE = VAULT / ".prose"   # prosa de IA por nodo (sobrevive a la regeneración)
 # El cerebro = la ARQUITECTURA VIVA del sistema, NO los one-shots ni los tests:
 # scripts/ (migraciones/diag de una sola vez) y tests/ se dejan fuera a propósito
 # para que el grafo muestre cómo conecta lo que corre en prod, sin ruido.
-BACKEND_PKGS = {"core", "engines", "jobs", "quant", "api", "partner_api", "config"}
+BACKEND_PKGS = {"core", "engines", "jobs", "quant", "api", "config"}
 
 # Colecciones Mongo conocidas por DB (seed; el scanner igual auto-descubre más).
 KNOWN_COLLECTIONS: dict[str, list[str]] = {
@@ -53,7 +53,6 @@ KNOWN_COLLECTIONS: dict[str, list[str]] = {
     "Clientes": ["Comitentes", "ComercialCache"],
     "CuentasAPI": ["AccionistasAPI", "ContrapartesAPI"],
     "MCP": ["OAuthCodes", "OAuthTokens"],
-    "ACAPortfolio": ["Cartera"],
 }
 DB_NAMES = list(KNOWN_COLLECTIONS.keys())
 
@@ -399,7 +398,6 @@ LAYER_ORDER = [
     ("engines", "⚙️ engines — motores WS→Mongo"),
     ("jobs", "⏱️ jobs — batch / cron"),
     ("api", "🌐 api — services · routers · mcp"),
-    ("partner_api", "🤝 partner_api"),
     ("config", "⚙️ config"),
     ("db", "🗄️ base — colecciones Mongo"),
     ("deploy", "🚀 deploy — servicios + crons"),

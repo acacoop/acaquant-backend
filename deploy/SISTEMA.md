@@ -18,11 +18,9 @@
                  ▲  ▲                            │
             lee  │  └────────────────────────────┘
    api.service (:8000) ──────────────────────────┘   + /mcp (Custom Connector Claude)
-   partner_api (:8100)
         ▲  nginx → Cloudflare Access (gate de identidad)
         │ HTTPS
    acaquant-web (Vercel) ── trading.acaquant.com
-   proveedor externo ────── data.acaquant.com (partner_api → partner.cartera)
 ```
 
 ## Servicios always-on
@@ -30,7 +28,6 @@
 | Servicio | Puerto | Target | Qué hace |
 |---|---|---|---|
 | `api` | 8000 | `api.main:app` (uvicorn) | TradingAV API (FastAPI + uvicorn) |
-| `partner_api` | 8100 | `partner_api.main:app` (uvicorn) | Acaquant Partner API (servicio externo de datos de portfolio) |
 <!-- /AUTOGEN:servicios -->
 
 ## Motores de mercado (cron start/stop L-V)
@@ -76,7 +73,6 @@
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
 | 17:00 · L-V | `jobs.sync_comitentes'` |
 | 02:00 · Mar-Sáb | `jobs.cashflow` |
-| 02:00 · Mar-Sáb | `jobs.partner_export'` |
 | 20:00 · L-V | `jobs.volatilidad_ggal'` |
 | 21:00 · L-V | `jobs.sync_comitentes'` |
 | 22:00 · L-V | `jobs.precios_acciones_daily'` |
@@ -97,7 +93,6 @@
 | cada hora · 13-21h · L-V | `jobs.operaciones_informes'` |
 | 16:30 · L-V | `jobs.controles_datos'` |
 | 20:30 · L-V | `jobs.forwards_zscore'` |
-| 21:30 · L-V | `jobs.partner_export'` |
 | 21:30 · L-V | `jobs.ia_calidad'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |
 | 11:35 · diario | `jobs.news_ingesta'` |
@@ -145,8 +140,8 @@
   dólar-linked (`motor_curvas`, `futuros_dlr`, `/argy`, `macro`) se queda con el
   dólar viejo. Es el único proceso del sistema que depende de que un humano lo prenda.
 - **acaquant-web (Vercel)**: frontend Next.js, deploy auto sobre `main`. Sin crons propios.
-- **Postgres / Supabase**: la base (única, decomiso Mongo 2026-06-29). Acceso: `core.postgres.get_pool` (app) / `partner_api/pg.py` (partner).
-- **Cloudflare Access**: gate de identidad (quién entra). **nginx** (Droplet): reverse proxy `api`→:8000, `partner_api`→:8100.
+- **Postgres / Supabase**: la base única (decomiso Mongo 2026-06-29), acceso vía `core.postgres.get_pool`.
+- **Cloudflare Access**: gate de identidad (quién entra). **nginx** (Droplet): reverse proxy `api`→:8000.
 
 ## Integraciones externas (fuentes de datos)
 - **pyRofex** (ROFEX/MAE) — market data WS + envío de órdenes.
@@ -161,7 +156,6 @@
 - **`operaciones`** — `jobs.negocio_movimientos`/`jobs.operaciones_informes` + `motor_ordenes` (operaciones, negocio_movimientos, acreencias, ordenes_*).
 - **`clientes`** — comitentes, cuentas, contrapartes, accionistas, actividad_mensual.
 - **`manager`** — manager_users, role_matrix, grupos, job_runs · **`home`** — quotes/calendar/news · **`mcp`** — OAuth (TTL).
-- **`partner`** — `partner_api` (cartera, api_users).
 
 ## Cómo se opera
 - Servicios: `systemctl {start|stop|restart|status} <servicio>`; logs `journalctl -u <servicio>`.

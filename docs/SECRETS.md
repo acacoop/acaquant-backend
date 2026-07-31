@@ -17,12 +17,12 @@ run es un proceso nuevo).
 | Secreto | Qué es / dónde se usa | Cómo rotar | Si se filtra |
 |---|---|---|---|
 | `ROFEX_USER` / `ROFEX_PASSWORD` / `ROFEX_ACCOUNT` | Credenciales del broker (pyRofex). La API y `motor_ordenes` las usan para **enviar y seguir órdenes reales**. | Portal del broker / pyRofex (cambiar password). | Alguien podría **operar tu cuenta**. Máxima prioridad. |
-| `POSTGRES_URI` | Cadena de conexión a Postgres/Supabase (la lee `core/postgres.py`; `partner_api/pg.py` la reusa). Acceso total a las DBs SQL. | Supabase → Database → rotar el password del rol → actualizar la URI. | Acceso total a datos de clientes. Rotar + revisar reglas de red. |
+| `POSTGRES_URI` | Cadena de conexión a Postgres/Supabase (la lee `core/postgres.py`). Acceso total a las DBs SQL. | Supabase → Database → rotar el password del rol → actualizar la URI. | Acceso total a datos de clientes. Rotar + revisar reglas de red. |
 | `API_KEY` | Bearer de la API (`api/deps.py`). El frontend la manda en cada request. | Generar un random nuevo → `.env` del backend **y** env var en Vercel (deben coincidir) → restart API + redeploy front. | Acceso a la API saltando el bearer (pero CF Access sigue adelante). |
-| `PARTNER_JWT_SECRET` | Firma de JWT de `partner_api` (servicio externo). Su DB son las tablas `partner.*` en Postgres (vía `POSTGRES_URI`). | Random nuevo → restart `partner_api.service`. | Acceso a la API del proveedor. |
 
-> **Obsoletos (ya NO se leen — eliminables del `.env`):** `MONGO_URI`, `ATLAS_*`,
-> `PARTNER_MONGO_URI`. Quedaron del stack Mongo, decomisado 2026-06-29; el código
+> **Obsoletos (ya NO se leen — eliminables del `.env`):** `MONGO_URI`, `ATLAS_*`.
+> Quedaron del stack Mongo/proveedor,
+> decomisado 2026-06-29; el código
 > ya no los usa. El secreto vivo de base de datos es `POSTGRES_URI`.
 
 ## 🟠 Medios (acceso a datos o a servicios pagos)
@@ -65,8 +65,7 @@ run es un proceso nuevo).
 1. **Regenerar** la credencial en su fuente (portal del proveedor, Supabase, BotFather…).
 2. **Actualizar** donde viva: `.env` del Droplet (`nano /root/TradingAV/.env`) y/o
    env var en Vercel y/o el systemd unit.
-3. **Reiniciar** lo afectado: `systemctl restart api.service` (y `partner_api.service`
-   si aplica). Frontend: redeploy en Vercel.
+3. **Reiniciar** lo afectado: `systemctl restart api.service`. Frontend: redeploy en Vercel.
 4. **Verificar** que el servicio levantó OK (`systemctl status`, o un request de prueba).
 
 **Cuándo rotar:** ante sospecha de filtración (alguien vio un `.env`, un token en

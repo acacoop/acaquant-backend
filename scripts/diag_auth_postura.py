@@ -29,11 +29,6 @@ from config import (  # config.py hace load_dotenv() al importarse
 # ya cargado por el load_dotenv() de config, sin importar el pool.
 POSTGRES_URI = os.getenv("POSTGRES_URI", "")
 
-try:  # partner_api tiene su propio settings (no depende de config.py)
-    from partner_api.settings import PARTNER_JWT_SECRET
-except Exception:  # el diag no debe morir si falta el módulo/env
-    PARTNER_JWT_SECRET = ""
-
 
 def _estado(nombre: str, valor: str | None, *, requerida_en_prod: bool = False) -> bool:
     """Imprime SETEADA/FALTANTE + longitud (nunca el valor). Devuelve si está seteada."""
@@ -55,7 +50,6 @@ def main() -> None:
     ok_aud = _estado("CF_ACCESS_AUD", CF_ACCESS_AUD, requerida_en_prod=True)
     print()
     _estado("MCP_JWT_SECRET", MCP_JWT_SECRET)
-    _estado("PARTNER_JWT_SECRET", PARTNER_JWT_SECRET)
     _estado("DOLAR_INGEST_TOKEN", DOLAR_INGEST_TOKEN)
     _estado("POSTGRES_URI", POSTGRES_URI)
 

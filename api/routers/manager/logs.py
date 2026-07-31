@@ -25,7 +25,7 @@ router = APIRouter()
 # Los motores se DERIVAN del registro del Diagnóstico (`unidades_motores`) → si
 # se agrega/saca un motor, esta whitelist se sincroniza sola (anti-drift). Solo
 # los servicios de infra (no-motor) van listados a mano.
-_INFRA_SERVICES: set[str] = {"api", "partner_api", "cloudflared"}
+_INFRA_SERVICES: set[str] = {"api", "cloudflared"}
 _ALLOWED_SERVICES: set[str] = unidades_motores() | _INFRA_SERVICES
 
 # PRIORITY de syslog → label human-friendly

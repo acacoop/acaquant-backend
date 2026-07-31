@@ -5,8 +5,8 @@ project-wide.
 
 > **`scripts/` se mantiene MINIMALISTA (REGLA #5).** Lo que queda son
 > **herramientas recurrentes**: generadores (`gen_*`), perf (`perf_*`,
-> `profile_*`), DBA/monitoreo SQL, seguridad (`security_audit`), feeds/admin
-> (`partner_user`), y los referenciados por skills (index-health,
+> `profile_*`), DBA/monitoreo SQL, seguridad (`security_audit`), y los
+> referenciados por skills (index-health,
 > safe-backfill). **Un `diag_*`/`fix_*`/`backfill_*` que ya cumplió su función
 > se borra en el mismo commit del fix** — no se acumula.
 

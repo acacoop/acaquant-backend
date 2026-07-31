@@ -145,16 +145,6 @@ PARES_CANJE: dict[str, dict[str, str]] = {
     },
 }
 
-# --- EXPORT API PROVEEDOR (ACAPortfolio.Cartera) ---
-# id_cuenta de las cuentas cuyo AuM se expone a la API externa del
-# proveedor (jobs/partner_export.py). SOLO estas cuentas salen — el job
-# aborta si la lista está vacía (fail-safe: nunca exporta todo por error).
-PARTNER_EXPORT_CUENTAS: list[str] = [
-    "101",
-    "175",
-    "463",
-]
-
 # --- ACCESO MANAGER ---
 # Emails con acceso a la vista Manager. Separados por coma en MANAGER_EMAILS o hardcodeados aquí.
 _manager_env = os.getenv("MANAGER_EMAILS", "")

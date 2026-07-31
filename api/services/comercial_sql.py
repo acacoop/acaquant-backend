@@ -37,6 +37,9 @@ _ANALISIS = ("denominacion", "telefono", "nivel_1", "nivel_2", "nivel_3", "nivel
 _PESIF = ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
           "ELSE abs(COALESCE(importe, 0)) * COALESCE(mep, 0) END")
 
+# Valor interno para filtrar cuentas sin división (NULL o string vacío).
+SIN_CLASIFICAR_DIVISION = "__sin_clasificar__"
+
 
 def _f(x) -> float:
     return float(x or 0)
@@ -66,12 +69,27 @@ def _comitentes_where(operador, p: dict, nivel_1=None,
         ("operador_email", operador, "ops"),
         ("nivel_1", nivel_1, "n1"), ("nivel_2", nivel_2, "n2"), ("nivel_3", nivel_3, "n3"),
         ("nivel_4", nivel_4, "n4"), ("nivel_5", nivel_5, "n5"),
-        ("referido", referido, "ref"), ("division", division, "div"),
+        ("referido", referido, "ref"),
     ):
         vals = _lst(val)
         if vals:
             p[key] = vals
             conds.append(f"{a}{col} = ANY(%({key})s)")
+
+    # División: además de valores explícitos, permite incluir "sin clasificar"
+    # (division NULL o vacía) con un token interno dedicado.
+    div_vals = _lst(division)
+    if div_vals:
+        incluye_sin = SIN_CLASIFICAR_DIVISION in div_vals
+        div_norm = [v for v in div_vals if v != SIN_CLASIFICAR_DIVISION]
+        parts: list[str] = []
+        if div_norm:
+            p["div"] = div_norm
+            parts.append(f"{a}division = ANY(%(div)s)")
+        if incluye_sin:
+            parts.append(f"({a}division IS NULL OR btrim({a}division) = '')")
+        if parts:
+            conds.append("(" + " OR ".join(parts) + ")")
     return " AND ".join(conds)
 
 
@@ -105,12 +123,24 @@ def _append_niveles(where: str, p: dict, alias: str, nivel_1=None, nivel_2=None,
     for col, val, key in (
         ("nivel_1", nivel_1, "mn1"), ("nivel_2", nivel_2, "mn2"), ("nivel_3", nivel_3, "mn3"),
         ("nivel_4", nivel_4, "mn4"), ("nivel_5", nivel_5, "mn5"), ("referido", referido, "mref"),
-        ("division", division, "mdiv"),
     ):
         vals = _lst(val)
         if vals:
             p[key] = vals
             where += f" AND {a}{col} = ANY(%({key})s)"
+
+    div_vals = _lst(division)
+    if div_vals:
+        incluye_sin = SIN_CLASIFICAR_DIVISION in div_vals
+        div_norm = [v for v in div_vals if v != SIN_CLASIFICAR_DIVISION]
+        parts: list[str] = []
+        if div_norm:
+            p["mdiv"] = div_norm
+            parts.append(f"{a}division = ANY(%(mdiv)s)")
+        if incluye_sin:
+            parts.append(f"({a}division IS NULL OR btrim({a}division) = '')")
+        if parts:
+            where += " AND (" + " OR ".join(parts) + ")"
     return where
 
 
@@ -163,10 +193,14 @@ def dimensiones_comercial() -> dict:
     para poblar y CRUZAR los filtros madre en el frontend."""
     rows = _q(
         "SELECT c.operador_email, o.nombre AS operador_nombre, c.nivel_1, c.nivel_2, c.nivel_3, "
-        "c.nivel_4, c.nivel_5, c.referido, c.division, count(*) AS n FROM comitentes c "
+        "c.nivel_4, c.nivel_5, c.referido, "
+        "CASE WHEN c.division IS NULL OR btrim(c.division) = '' THEN %(sin)s ELSE c.division END AS division, "
+        "count(*) AS n FROM comitentes c "
         "LEFT JOIN operadores o ON o.email = c.operador_email "
         "WHERE c.estado = 'Activa' AND c.operador_email IS NOT NULL "
-        "GROUP BY c.operador_email, o.nombre, c.nivel_1, c.nivel_2, c.nivel_3, c.nivel_4, c.nivel_5, c.referido, c.division"
+        "GROUP BY c.operador_email, o.nombre, c.nivel_1, c.nivel_2, c.nivel_3, c.nivel_4, c.nivel_5, c.referido, "
+        "CASE WHEN c.division IS NULL OR btrim(c.division) = '' THEN %(sin)s ELSE c.division END",
+        {"sin": SIN_CLASIFICAR_DIVISION},
     )
     return {"combos": [
         {"operador_email": r["operador_email"], "operador_nombre": r["operador_nombre"],

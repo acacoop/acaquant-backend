@@ -497,13 +497,15 @@ def comercial_operador(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
     fecha: str | None = Query(None, description="corte = HASTA (ISO). None = hoy"),
     desde: str | None = Query(None, description="inicio del período (ISO). Si viene, MES = [desde, fecha]"),
 ) -> dict:
     """Resumen (KPIs) + clientes (tabla + ficha) del operador, en una pasada."""
     return _com_sql.operador_comercial(
         operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
-        referido=referido, nivel_4=nivel_4, nivel_5=nivel_5, fecha=fecha, desde=desde)
+        referido=referido, nivel_4=nivel_4, nivel_5=nivel_5, fecha=fecha, desde=desde,
+        division=division)
 
 
 @router.get("/comercial/serie")
@@ -518,11 +520,13 @@ def comercial_serie(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
 ) -> dict:
     """Serie para el gráfico. Sin id_cuenta → operador; con id_cuenta → cliente."""
     return _com_sql.serie_comercial(
         operador=operador, metric=metric, moneda=moneda, id_cuenta=id_cuenta,
-        nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3, referido=referido, nivel_4=nivel_4, nivel_5=nivel_5)
+        nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3, referido=referido, nivel_4=nivel_4, nivel_5=nivel_5,
+        division=division)
 
 
 @router.get("/comercial/clientes-por-fecha")
@@ -537,11 +541,13 @@ def comercial_clientes_por_fecha(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
 ) -> dict:
     """Clientes que operaron en el rango (click en una barra del chart de volumen)."""
     return _com_sql.clientes_por_fecha(
         operador=operador, desde=desde, hasta=hasta, moneda=moneda,
-        nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3, referido=referido, nivel_4=nivel_4, nivel_5=nivel_5)
+        nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3, referido=referido, nivel_4=nivel_4, nivel_5=nivel_5,
+        division=division)
 
 
 @router.get("/comercial/portafolio")
@@ -571,6 +577,7 @@ def comercial_analisis(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
     fecha: str | None = Query(None, description="foto al día X = HASTA (ISO). None = hoy"),
     desde: str | None = Query(None, description="inicio del período (ISO). Si viene, opero_mtd = operó en [desde, fecha]"),
 ) -> dict:
@@ -580,7 +587,8 @@ def comercial_analisis(
     AuM/cuentas por nivel). El cupo queda en valor actual (no histórico aún)."""
     return _com_sql.analisis_comercial(
         operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
-        referido=referido, nivel_4=nivel_4, nivel_5=nivel_5, fecha=fecha, desde=desde)
+        referido=referido, nivel_4=nivel_4, nivel_5=nivel_5, fecha=fecha, desde=desde,
+        division=division)
 
 
 @router.get("/comercial/cobros-futuros")
@@ -647,6 +655,7 @@ def comercial_informe(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
 ) -> dict:
     """Tablas 2 y 3 del Informe: volumen + aranceles por comercial (ranking) y
     aranceles por segmento. Global (toda la mesa) salvo que se filtre por los
@@ -654,7 +663,7 @@ def comercial_informe(
     return _com_sql.informe_comercial(
         moneda=moneda, fecha=fecha, desde=desde, operador=operador,
         nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
-        nivel_4=nivel_4, nivel_5=nivel_5, referido=referido)
+        nivel_4=nivel_4, nivel_5=nivel_5, referido=referido, division=division)
 
 
 @router.get("/comercial/informe-segmento")
@@ -670,13 +679,14 @@ def comercial_informe_segmento(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
 ) -> dict:
     """Tabla 1 del Informe: # cuentas por segmento (nivel_1), acumulado a la fecha de
     corte (`fecha` exacta, o fin del mes `hasta`) por fecha de alta. `operador` opcional."""
     return _com_sql.informe_cuentas_por_segmento(
         hasta=hasta, operador=operador, fecha=fecha, desde=desde,
         nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
-        nivel_4=nivel_4, nivel_5=nivel_5, referido=referido)
+        nivel_4=nivel_4, nivel_5=nivel_5, referido=referido, division=division)
 
 
 @router.get("/comercial/informe-aranceles-segmento")
@@ -692,6 +702,7 @@ def comercial_informe_aranceles_segmento(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
 ) -> dict:
     """Q3 re-scopeada a un comercial: aranceles + ticket por segmento, solo de
     sus cuentas."""
@@ -714,6 +725,7 @@ def comercial_informe_segmento_detalle(
     nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
 ) -> dict:
     """Detalle de un segmento (Q4 dinámica): clientes con su arancel +
     operaciones (boletos con arancel) que lo generaron. `segmento='todos'` →
@@ -721,7 +733,8 @@ def comercial_informe_segmento_detalle(
     `segmento`; el resto de los niveles + referido scopean."""
     return _com_sql.informe_segmento_detalle(
         segmento=segmento, operador=operador, moneda=moneda, fecha=fecha, desde=desde,
-        nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5, referido=referido)
+        nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5, referido=referido,
+        division=division)
 
 
 # ── CONTROL COMERCIAL (jefatura) — editor de objetivos (etapa 1) ──────────────
@@ -768,10 +781,11 @@ def _filtros_madre(
     nivel_4: list[str] = Query(default=[], description="filtro madre nivel_4 (multi)"),
     nivel_5: list[str] = Query(default=[], description="filtro madre nivel_5 (multi)"),
     referido: list[str] = Query(default=[], description="filtro madre referido (multi)"),
+    division: list[str] = Query(default=[], description="filtro madre division (multi)"),
 ) -> dict:
     return {"operador": tuple(operador), "nivel_1": tuple(nivel_1), "nivel_2": tuple(nivel_2),
             "nivel_3": tuple(nivel_3), "nivel_4": tuple(nivel_4), "nivel_5": tuple(nivel_5),
-            "referido": tuple(referido)}
+            "referido": tuple(referido), "division": tuple(division)}
 
 
 @router.get("/comercial/control/totales")

@@ -146,18 +146,18 @@ def _hay_filtro(*vals) -> bool:
     return False
 
 
-def _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido):
+def _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division=()):
     """Filtros madre → (ids_cuenta, operadores) del scope, o (None, None) si NO hay ningún
     filtro activo (= mesa completa, comportamiento histórico sin restricción).
 
     `ids` restringe las agregaciones a esas cuentas; `ops` es el set de comerciales de esas
     cuentas (para no mostrar operadores fuera del scope en Tablas 2 y 3). Reusa el mismo
     resolvedor de cuentas activas que las otras vistas comerciales (`_ids_operador`)."""
-    if not _hay_filtro(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido):
+    if not _hay_filtro(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division):
         return None, None
     from api.services.comercial_sql import _ids_operador
     ids = _ids_operador(operador, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido,
-                        nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2)
+                        nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
     ops = {r["operador_email"] for r in _q(
         "SELECT DISTINCT operador_email FROM comitentes WHERE estado='Activa' "
         "AND operador_email IS NOT NULL AND id_cuenta = ANY(%(ids)s)", {"ids": ids})}
@@ -234,7 +234,7 @@ def _nombres_operador() -> dict[str, str]:
 
 @cached(ttl=300)
 def datos_totales_alyc(*, moneda: str = "ARS", operador=(), nivel_1=(), nivel_2=(),
-                       nivel_3=(), nivel_4=(), nivel_5=(), referido=()) -> dict:
+                       nivel_3=(), nivel_4=(), nivel_5=(), referido=(), division=()) -> dict:
     """Tabla 1: totales de la mesa por períodos FIJOS (no usa Desde/Hasta) + % vs el período
     anterior inmediato equivalente. Ancla = última fecha con operaciones (siempre global — los
     períodos "Mes/YTD/…" son de la mesa; los filtros madre solo acotan los valores adentro).
@@ -247,7 +247,7 @@ def datos_totales_alyc(*, moneda: str = "ARS", operador=(), nivel_1=(), nivel_2=
     condicional (_agg_totales_batch) y se recalcula 1×/5min por combinación de
     moneda+filtros en vez de en cada hit del dashboard de jefatura."""
     factor = _factor_usd(moneda)
-    ids, _ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
+    ids, _ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division)
     a = _ancla()
     # (label, desde, hasta, prev_desde, prev_hasta). prev=None → sin comparación.
     pd = _prev_biz(a)
@@ -335,14 +335,14 @@ def _aum_por_operador(corte: date, factor, op_de: dict[str, str],
 
 
 def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS", operador=(), nivel_1=(),
-                       nivel_2=(), nivel_3=(), nivel_4=(), nivel_5=(), referido=()) -> dict:
+                       nivel_2=(), nivel_3=(), nivel_4=(), nivel_5=(), referido=(), division=()) -> dict:
     """Tabla 2: por comercial en [desde, hasta]: clientes activos/inactivos + AuM + volumen +
     comisiones, cada uno con % vs el rango ANTERIOR de igual largo. El AuM es la foto al
     snapshot <= `hasta` y su % compara contra el snapshot <= el día previo a `desde` (mismo
     criterio de período anterior que el resto). Filtros madre (operador/niveles/referido)
     acotan a las cuentas del scope; sin filtros = mesa completa."""
     factor = _factor_usd(moneda)
-    ids, _ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
+    ids, _ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division)
     d0, d1 = date.fromisoformat(desde), date.fromisoformat(hasta)
     dias = (d1 - d0).days
     pd1 = d0 - timedelta(days=1)            # rango anterior: termina el día previo a `desde`
@@ -385,13 +385,13 @@ def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS", operador=
 
 
 def objetivos_vs_actual(*, desde: str, hasta: str, moneda: str = "ARS", operador=(), nivel_1=(),
-                        nivel_2=(), nivel_3=(), nivel_4=(), nivel_5=(), referido=()) -> dict:
+                        nivel_2=(), nivel_3=(), nivel_4=(), nivel_5=(), referido=(), division=()) -> dict:
     """Tabla 3: por comercial, Volumen/Comisiones ACTUAL en [desde, hasta] vs OBJETIVO (suma de
     los objetivos mensuales que caen en el rango) + % alcanzado. Filtros madre acotan a las
     cuentas del scope y a los comerciales de ese scope; sin filtros = mesa completa."""
     _ensure()
     factor = _factor_usd(moneda)
-    ids, ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
+    ids, ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division)
     d0, d1 = date.fromisoformat(desde), date.fromisoformat(hasta)
     actual = _por_operador(d0, d1, moneda, factor, ids)
     # Meses que toca el rango [d0, d1] → suma de objetivos de esos (anio, mes).

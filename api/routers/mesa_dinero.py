@@ -13,6 +13,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
+from api.services import acavalores_retorno as _svc_ret
 from api.services import mesa_dinero as _svc
 
 router = APIRouter(prefix="/api/mesa-dinero", tags=["Mesa de Dinero"])
@@ -55,6 +56,12 @@ def resultados(
 @router.get("/opciones")
 def opciones(actor: str = Depends(get_user_email)) -> dict:
     return _svc.opciones(email=actor)
+
+
+@router.get("/retorno")
+def retorno(periodo: str | None = Query(None, description="'YYYY-MM'; default = más reciente")) -> dict:
+    """ACA VALORES RETORNO TOTAL — Σ Valor Nominal por operación / agente / papel."""
+    return _svc_ret.panel(periodo=periodo)
 
 
 # ── Escritura (allowlist + admin) ────────────────────────────────────────────

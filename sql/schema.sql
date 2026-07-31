@@ -538,6 +538,45 @@ CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_audit (
 );
 CREATE INDEX IF NOT EXISTS ix_mesa_dinero_audit_ts ON operaciones.mesa_dinero_audit (ts DESC);
 
+-- ACA VALORES RETORNO TOTAL — operaciones bursátiles del fondo "ACA R.TOTAL".
+-- Se cargan EXCLUSIVAMENTE desde el Excel "OP Aca Valores FCI - <mes>.xls"
+-- (informe de operaciones, NO diario) vía scripts/import_acavalores_retorno.py.
+-- Cada fila = una operación del archivo. La carga es idempotente por `periodo`
+-- (YYYY-MM del archivo): re-importar un mes borra y reinserta ese mes. Alimenta
+-- la tab "ACA VALORES RETORNO TOTAL" de Mesa de Dinero (Σ Valor Nominal por
+-- operación / agente / papel). Lectura: módulo `operaciones` (solo lectura).
+CREATE TABLE IF NOT EXISTS operaciones.acavalores_retorno (
+    id                 bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    periodo            text NOT NULL,        -- 'YYYY-MM' (de fecha_concertacion) — clave de re-import
+    fondo              text,                 -- Fondo Nombre (ej. "ACA R.TOTAL")
+    operacion          text,                 -- Operación Descripción (Compra, Venta, Caución…)
+    fecha_concertacion date,
+    plazo              int,
+    fecha_liquidacion  date,
+    papel_numero       text,
+    papel_descripcion  text,                 -- Papel Descripción (FCI…, Especies Varias, GOB…)
+    depositario        text,
+    valor_nominal      numeric,              -- Valor Nominal (la métrica que se suma)
+    moneda_simbolo     text,                 -- Moneda de Concertación Símbolo ($)
+    precio             numeric,              -- Moneda de Concertación Precio
+    bruto              numeric,              -- Moneda de Concertación Bruto
+    gastos_total       numeric,              -- Gastos Total
+    isin               text,                 -- Papel ISIN Code
+    agente_descripcion text,                 -- Agente Descripción (broker/ALyC)
+    liq_total          numeric,              -- Moneda de Liquidación Total
+    papel_codigo       text,                 -- Papel Código
+    liq_neto           numeric,              -- Moneda de Liquidación Neto
+    liq_precio         numeric,              -- Moneda de Liquidación Precio
+    fondo_neto         numeric,              -- Moneda del Fondo Neto
+    tipo_especie       text,                 -- Tipo de Especie Descripción
+    archivo            text,                 -- nombre del .xls de origen (trazabilidad)
+    importado_en       timestamptz
+);
+CREATE INDEX IF NOT EXISTS ix_acaret_periodo ON operaciones.acavalores_retorno (periodo);
+CREATE INDEX IF NOT EXISTS ix_acaret_operacion ON operaciones.acavalores_retorno (operacion);
+CREATE INDEX IF NOT EXISTS ix_acaret_agente ON operaciones.acavalores_retorno (agente_descripcion);
+CREATE INDEX IF NOT EXISTS ix_acaret_papel ON operaciones.acavalores_retorno (papel_descripcion);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PORTAFOLIO — tenencias + catálogo de títulos (FUENTE DE VERDAD, SQL-native)
 -- ─────────────────────────────────────────────────────────────────────────────

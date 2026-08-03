@@ -189,3 +189,101 @@ def test_todo_manager_tiene_gate():
         if p.startswith("/api/manager") and not _tiene_gate_modulo(deps)
     ]
     assert not sin_gate, f"rutas de manager sin gate de módulo: {sin_gate}"
+
+
+# ── 5. BOLA — endpoints con id_cuenta verifican pertenencia ──────────────────
+# Bug real (auditoría 2026-08-03): estos aceptaban cualquier `id_cuenta` y
+# devolvían la cartera / las operaciones / los cobros de esa cuenta sin mirar
+# si el usuario tenía acceso a ella.
+
+@pytest.mark.parametrize("path", [
+    "/api/operaciones/comercial/portafolio",
+    "/api/operaciones/comercial/operaciones",
+    "/api/operaciones/comercial/cobros-futuros/cliente",
+    "/api/back-office/acreencias/cliente",
+])
+def test_endpoints_con_id_cuenta_verifican_pertenencia(path):
+    encontrada = False
+    for p, _m, deps in _rutas():
+        if p != path:
+            continue
+        encontrada = True
+        assert "verificar_id_cuenta" in deps, (
+            f"{path} acepta id_cuenta sin verificar que la cuenta esté en el "
+            "grupo del usuario (BOLA/IDOR)"
+        )
+    assert encontrada, f"{path} no existe — si se renombró, actualizá el test"
+
+
+def test_serie_comercial_verifica_id_cuenta_opcional():
+    """`/comercial/serie` tiene id_cuenta OPCIONAL: usa la variante que no lo
+
+    vuelve obligatorio, pero que igual valida cuando viene.
+    """
+    for p, _m, deps in _rutas():
+        if p == "/api/operaciones/comercial/serie":
+            assert "verificar_id_cuenta_opcional" in deps
+            return
+    pytest.fail("/api/operaciones/comercial/serie no existe")
+
+
+# ── 6. Higiene de configuración ──────────────────────────────────────────────
+
+
+def test_swagger_cerrado_en_prod(monkeypatch):
+    """/docs, /redoc y /openapi.json publican el mapa entero de la API.
+
+    En prod tienen que estar apagados (los cubre CF Access, pero es una sola
+    capa). Se re-importa `api.main` con ENV=prod para ver la app real.
+    """
+    import importlib
+
+    import api.main as m
+
+    monkeypatch.setenv("ENV", "prod")
+    monkeypatch.setattr("config.ENV", "prod", raising=False)
+    recargado = importlib.reload(m)
+    try:
+        assert recargado._DOCS_ABIERTOS is False, (
+            "con ENV=prod los docs deben quedar cerrados"
+        )
+        paths = {getattr(r, "path", None) for r in recargado.app.routes}
+        assert "/docs" not in paths
+        assert "/openapi.json" not in paths
+    finally:
+        monkeypatch.undo()
+        importlib.reload(m)
+
+
+def test_rate_limit_tiene_default_global():
+    """Sin default, sólo un puñado de endpoints tenía techo y cualquier
+
+    cliente en loop podía saturar el pool de Postgres de toda la mesa.
+    """
+    from api.ratelimit import _DEFAULT_LIMITS, limiter
+
+    assert _DEFAULT_LIMITS, "default_limits vacío: la API no tiene techo global"
+    assert limiter._default_limits, "el Limiter se construyó sin default_limits"
+
+
+def test_rate_limit_keyea_por_usuario_real():
+    """El SSR pega con service token: sin mirar `x-acaquant-user-email` todos
+
+    los usuarios comparten un único bucket y el límite por usuario no existe.
+    """
+    from starlette.datastructures import Headers
+
+    from api.ratelimit import _key_by_user
+
+    class _Req:
+        def __init__(self, h):
+            self.headers = Headers(h)
+            self.client = None
+
+    assert _key_by_user(_Req({"x-acaquant-user-email": "Ana@Acme.com"})) == "ana@acme.com"
+    # el email del usuario gana sobre el JWT del service token
+    key = _key_by_user(_Req({
+        "x-acaquant-user-email": "ana@acme.com",
+        "cf-access-jwt-assertion": "xxx.yyy.zzz",
+    }))
+    assert key == "ana@acme.com"

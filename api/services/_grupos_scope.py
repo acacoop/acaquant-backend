@@ -52,6 +52,27 @@ def verificar_id_cuenta(
     return id_cuenta
 
 
+def verificar_id_cuenta_opcional(
+    id_cuenta: str | None = None,
+    email: str = Depends(get_user_email),
+) -> str | None:
+    """Igual que `verificar_id_cuenta` pero para endpoints donde `id_cuenta` es
+    OPCIONAL (ej. una serie que sin cuenta agrega por operador y con cuenta
+    baja al cliente). Usar la variante obligatoria ahí volvería el parámetro
+    requerido y rompería el endpoint.
+
+    Sin `id_cuenta` no hay objeto que verificar → pasa. El agregado que
+    devuelve el endpoint en ese caso debe venir ya scopeado por el service
+    (vía `scope_cuentas`), que es una defensa distinta.
+    """
+    if id_cuenta is None or str(id_cuenta).strip() == "":
+        return None
+    visibles = cuentas_visibles(email)
+    if visibles is not None and str(id_cuenta) not in visibles:
+        raise HTTPException(status_code=403, detail="no tenés acceso a esa cuenta")
+    return id_cuenta
+
+
 def verificar_account(account: str | None, scope: tuple[str, ...] | None) -> None:
     """403/400 si `account` no está en el scope. No-op si `scope` es None.
 

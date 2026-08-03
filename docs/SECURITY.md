@@ -167,39 +167,51 @@ Ya corregido en el commit de la auditoría:
   preserva el comportamiento previo y se loguea un warning, porque cerrar con
   la allowlist vacía dejaría a toda la mesa afuera.
 
-Pendiente, por orden de prioridad:
+- **Scope de cuenta faltante (BOLA).** `/api/operaciones/comercial/`
+  {`portafolio`, `operaciones`, `serie`, `cobros-futuros/cliente`} y
+  `/api/back-office/acreencias/cliente` aceptaban cualquier `id_cuenta` y
+  devolvían la cartera / las operaciones / los cobros de esa cuenta sin mirar
+  si el usuario tenía acceso. Ahora pasan por `verificar_id_cuenta`.
+  `/api/operaciones/ops/cuentas-list` recibía el scope y lo **descartaba**
+  (heredado del port desde Mongo), devolviendo el padrón completo de
+  comitentes con su denominación — o sea los nombres de todos los clientes de
+  la mesa — a cualquiera con el módulo `operaciones`. Ahora lo aplica.
+- **`POST /oauth/register`** ejecutaba `CREATE SCHEMA/TABLE IF NOT EXISTS` + 2
+  `DELETE` en el pool web **en cada request y antes de validar el body**, en un
+  path con BYPASS de CF Access (o sea anónimo). Ahora valida primero y el DDL
+  corre una única vez por proceso.
+- **Rate limiting**: `default_limits` estaba vacío (sólo 4 de ~360 rutas tenían
+  techo). Ahora hay un default global deliberadamente holgado —
+  600/min y 20000/h por identidad— que frena el runaway sin cortar uso normal.
+  Y `_key_by_user` ahora mira `x-acaquant-user-email` primero: antes, como el
+  SSR pega con service token, **todos los usuarios compartían un solo bucket**.
+- **`/docs`, `/redoc`, `/openapi.json`** quedan cerrados con `ENV=prod`
+  (publicaban el mapa completo de los ~360 endpoints). Siguen abiertos en dev.
+- **Security headers** (`nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`,
+  HSTS) y hardening de `api.service` (`NoNewPrivileges`, `PrivateTmp`,
+  `ProtectKernel*`, `RestrictSUIDSGID`).
+
+Pendiente — requiere acción en el Droplet o una decisión con datos de prod:
 
 1. **Configurar `CF_TRUSTED_SERVICE_TOKENS`** en el unit de systemd (hoy el
-   default es set vacío). Hasta que esté, el fix de arriba no endurece nada.
-   Verificar con `python -m scripts.diag_auth_postura`.
-2. **Scope de cuenta faltante (BOLA).** `/api/operaciones/comercial/*`
-   (`portafolio`, `operaciones`, `serie?id_cuenta`, `cobros-futuros/cliente`),
-   `/api/operaciones/ops/cuentas-list` (recibe el scope y lo descarta) y
-   `/api/back-office/acreencias/*` aceptan `id_cuenta` sin pasar por
-   `verificar_account`. Un usuario con el módulo lee cuentas fuera de su grupo.
-   **Impacto real desconocido**: `core/grupos.py::cuentas_visibles` devuelve
-   `None` (= sin restricción) para admin, para quien no está en ningún grupo y
-   ante cualquier excepción — si `manager.grupos` está vacío en prod, el scope
-   no está enforceando en ningún lado. **Medir primero** cuántos grupos y
-   usuarios asignados hay antes de decidir.
-3. **Rate limiting.** Cubre 4 de 361 rutas y `default_limits=[]`. Además
-   `_key_by_user` (`api/ratelimit.py`) deriva la clave de headers crudos
-   (`jwt[-16:]` o el email sin validar) → rotar el header da bucket nuevo, y
-   todos los requests del SSR comparten uno solo porque ignora
-   `x-acaquant-user-email`. Poner un default global y keyear por identidad ya
-   resuelta.
-4. **`POST /oauth/register`** (path con BYPASS de CF Access, sin auth ni rate
-   limit) ejecuta DDL + 2 `DELETE` en el pool web de Postgres antes de validar
-   el body. Mover el `_ensure_sql()` al arranque y ponerle rate limit.
-5. **Tokens del MCP**: no miran el RBAC y no se revocan al deshabilitar un
-   usuario en Manager.
-6. **`/docs`, `/redoc`, `/openapi.json`** están sin auth (los cubre CF Access,
-   pero publican el mapa completo de los 361 endpoints). Cerrarlos en prod con
-   `docs_url=None` si `ENV=prod`.
-7. **`api.service` corre como root** sin hardening de systemd
-   (`NoNewPrivileges`, `ProtectSystem`, `PrivateTmp`, `User=`).
-8. Sin security headers (HSTS, `X-Content-Type-Options`, `X-Frame-Options`) —
-   impacto bajo siendo una API JSON, pero es higiene barata.
+   default es set vacío). Hasta que esté, el fix del service token no endurece
+   nada. Verificar con `python -m scripts.diag_auth_postura`.
+2. **Medir la cobertura de grupos.** Los fixes de BOLA son *condicionales*:
+   `cuentas_visibles` devuelve `None` (= sin restricción) para admin, para
+   quien no está en ningún grupo y ante cualquier excepción de DB. Si
+   `manager.grupos` está vacío en prod, el scope no enforcea en ningún lado y
+   estos endpoints siguen devolviendo todo — igual que antes, sin romper nada,
+   pero sin proteger tampoco. Hay que contar cuántos grupos hay y cuántos
+   usuarios no-admin están asignados, y recién ahí decidir si el default pasa a
+   ser "sin grupo = no ve nada" (REGLA #2: no tocar sin ese número).
+3. **`api.service` corre como `User=root`.** Migrar a un usuario sin
+   privilegios implica crear el usuario, mover/chown el venv y revisar los
+   paths de logs — hay que hacerlo a mano y verificar el arranque. Lo mismo
+   para `ProtectSystem=strict` / `ProtectHome` (hoy romperían: el
+   `WorkingDirectory` está en `/root`).
+4. **Tokens del MCP**: no miran el RBAC y no se revocan al deshabilitar un
+   usuario en Manager. Requiere decidir el modelo (¿el token hereda el rol al
+   emitirse o se resuelve por request?).
 
 Lo que se auditó y salió **limpio**: no hay secretos commiteados ni `.env`
 trackeado; no hay SQL injection (los identificadores dinámicos pasan por

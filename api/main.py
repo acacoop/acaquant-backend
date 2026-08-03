@@ -153,6 +153,14 @@ async def lifespan(_app: FastAPI):
             await _shutdown_bg()
 
 
+# Swagger/ReDoc/openapi.json: ABIERTOS en dev, CERRADOS en prod. No llevan
+# `verify_api_key` (FastAPI los monta antes que cualquier dependency), así que
+# en prod publicaban el mapa completo de los ~360 endpoints con sus parámetros
+# a quien alcance el origen. Los tapa Cloudflare Access, pero eso es una sola
+# capa y el inventario de la superficie es justo lo que un atacante quiere
+# primero. En dev siguen disponibles porque son la forma de explorar la API.
+_DOCS_ABIERTOS = ENV != "prod"
+
 app = FastAPI(
     title="TradingAV API",
     version="0.1.0",
@@ -161,6 +169,9 @@ app = FastAPI(
     # (snapshots de portfolios, listas de boletos, series de TimeSales)
     # y aloca proporcionalmente menos RAM durante la serialización.
     default_response_class=ORJSONResponse,
+    docs_url="/docs" if _DOCS_ABIERTOS else None,
+    redoc_url="/redoc" if _DOCS_ABIERTOS else None,
+    openapi_url="/openapi.json" if _DOCS_ABIERTOS else None,
 )
 
 # Rate limiter compartido — keying por email CF (ver api/ratelimit.py).
@@ -184,6 +195,23 @@ def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRespons
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 app.add_middleware(SlowAPIMiddleware)
+
+
+# Security headers. La API sirve JSON (no hay superficie de XSS propia), así que
+# el valor es acotado — pero son gratis y cubren el caso de que algo renderice
+# una respuesta en un browser. `nosniff` evita que el browser adivine el tipo;
+# `DENY` impide que cualquier página embeba la API en un iframe; HSTS fuerza
+# HTTPS en el borde. No se agrega CSP: no servimos HTML propio.
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Strict-Transport-Security", "max-age=31536000; includeSubDomains",
+    )
+    return response
 
 # GZip: /historico/trades puede devolver hasta 10K trades JSON (~1-3 MB).
 # Compresión ~80% en JSON. minimum_size=1024 evita overhead en responses chicas.

@@ -16,5 +16,27 @@ RestartSec=10
 # UTC) no es problema: la base estaría caída de todos modos.
 RuntimeMaxSec=8h
 
+# ── Hardening (auditoría de seguridad 2026-08-03) ──
+# Sólo directivas que NO pueden romper un proceso Python que corre desde
+# /root/TradingAV. Acotan qué puede hacer el proceso si alguien logra ejecución
+# de código dentro de la API.
+#   NoNewPrivileges  — el proceso y sus hijos no pueden escalar vía setuid/setgid.
+#   PrivateTmp       — /tmp propio; no ve ni pisa archivos temporales de otros
+#                      servicios (ni ellos los suyos).
+#   ProtectKernel*   — sin escritura a /proc/sys, /sys ni carga de módulos.
+#   RestrictSUIDSGID — no puede crear binarios setuid (persistencia típica).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+
+# PENDIENTE (requiere trabajo en el Droplet, no se puede hacer desde el repo):
+# el servicio corre como User=root. Migrar a un usuario sin privilegios implica
+# crear el usuario, mover/chown el venv y /root/TradingAV, y revisar los paths
+# de logs — hay que hacerlo con la consola a mano y verificar el arranque. Lo
+# mismo para ProtectSystem=strict / ProtectHome (hoy romperían: el WorkingDirectory
+# ESTÁ en /root). Ver docs/SECURITY.md.
+
 [Install]
 WantedBy=multi-user.target

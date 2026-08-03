@@ -16,6 +16,8 @@ from api.services import operaciones_sql as _ops_sql
 from api.services._grupos_scope import (
     scope_cuentas,
     verificar_cuenta_str,
+    verificar_id_cuenta,
+    verificar_id_cuenta_opcional,
 )
 from api.services.operaciones_view import (
     OPS_MONEDAS as _OPS_MONEDAS,
@@ -508,7 +510,7 @@ def comercial_operador(
         division=division)
 
 
-@router.get("/comercial/serie")
+@router.get("/comercial/serie", dependencies=[Depends(verificar_id_cuenta_opcional)])
 def comercial_serie(
     operador: list[str] = Query(default=[], description="operador(es) — multi. Vacío = todos"),
     metric: str = Query("volumen", description="volumen | aum"),
@@ -550,15 +552,19 @@ def comercial_clientes_por_fecha(
         division=division)
 
 
-@router.get("/comercial/portafolio")
+@router.get("/comercial/portafolio", dependencies=[Depends(verificar_id_cuenta)])
 def comercial_portafolio(
     id_cuenta: str = Query(..., description="id de la cuenta comitente"),
 ) -> dict:
-    """Tenencia del cliente (posiciones de AuM, último snapshot)."""
+    """Tenencia del cliente (posiciones de AuM, último snapshot).
+
+    `verificar_id_cuenta` → 403 si la cuenta está fuera del grupo del usuario.
+    No-op para admin y para quien no está en ningún grupo (scope None), así
+    que no cambia nada hasta que se pueblen los grupos."""
     return _com_sql.portafolio_cliente(id_cuenta=id_cuenta)
 
 
-@router.get("/comercial/operaciones")
+@router.get("/comercial/operaciones", dependencies=[Depends(verificar_id_cuenta)])
 def comercial_operaciones(
     id_cuenta: str = Query(..., description="id de la cuenta comitente"),
     limite: int = Query(300, ge=1, le=1000),
@@ -609,7 +615,7 @@ def comercial_cobros_futuros(
         referido=referido, desde=desde, hasta=hasta)
 
 
-@router.get("/comercial/cobros-futuros/cliente")
+@router.get("/comercial/cobros-futuros/cliente", dependencies=[Depends(verificar_id_cuenta)])
 def comercial_cobros_futuros_cliente(
     id_cuenta: str = Query(..., description="id de la cuenta comitente"),
 ) -> dict:

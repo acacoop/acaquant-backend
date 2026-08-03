@@ -21,6 +21,7 @@ import base64
 import hashlib
 import logging
 import secrets
+import threading
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode, urlparse
 
@@ -78,9 +79,27 @@ def _ensure_sql() -> None:
         conn.commit()
 
 
+# El DDL + prune corre UNA vez por proceso, no una vez por request. `/oauth/register`
+# y `/oauth/token` están en la allowlist de BYPASS de CF Access (docs/MCP.md) — o sea
+# son alcanzables sin autenticar — y antes cada request disparaba
+# `CREATE SCHEMA/TABLE IF NOT EXISTS` + 2 `DELETE` en el pool WEB, el mismo que sirve
+# a la mesa. Eso convertía un endpoint anónimo en un amplificador de carga sobre la
+# base. El prune de vencidos no necesita correr por request: las filas expiradas ya
+# se rechazan por `expires_at` al validarlas.
+_ensure_lock = threading.Lock()
+_ensure_hecho = False
+
+
 def _ensure_indexes() -> None:
-    """Idempotente: crea tablas mcp.* + prune de vencidos (Postgres no tiene TTL index)."""
-    _ensure_sql()
+    """Idempotente y UNA sola vez por proceso: crea tablas mcp.* + prune de vencidos."""
+    global _ensure_hecho
+    if _ensure_hecho:
+        return
+    with _ensure_lock:
+        if _ensure_hecho:
+            return
+        _ensure_sql()
+        _ensure_hecho = True
 
 
 def _save_client(client_id: str, redirect_uris: list[str], client_name: str) -> None:
@@ -239,8 +258,11 @@ def _redirect_uri_permitido(uri: str) -> bool:
 
 @router.post("/oauth/register", response_model=_RegisterResponse)
 async def register_client(body: _RegisterRequest):
-    """RFC 7591: Dynamic Client Registration para clientes públicos (PKCE)."""
-    _ensure_indexes()
+    """RFC 7591: Dynamic Client Registration para clientes públicos (PKCE).
+
+    VALIDAR ANTES de tocar la base: el endpoint es anónimo (path con BYPASS de
+    CF Access), así que un body inválido tiene que costar cero I/O.
+    """
     invalidos = [u for u in body.redirect_uris if not _redirect_uri_permitido(u)]
     if invalidos:
         logger.warning("DCR rechazado: redirect_uris fuera de allowlist: %s", invalidos)
@@ -248,6 +270,7 @@ async def register_client(body: _RegisterRequest):
             400,
             f"redirect_uri no permitido (hosts válidos: {sorted(MCP_ALLOWED_REDIRECT_HOSTS)})",
         )
+    _ensure_indexes()
     client_id = "mcp_" + secrets.token_urlsafe(16)
     name = body.client_name or "unnamed"
     _save_client(client_id=client_id, redirect_uris=body.redirect_uris, client_name=name)

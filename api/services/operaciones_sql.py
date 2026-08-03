@@ -250,10 +250,25 @@ def ops_fechas() -> dict:
 
 
 def ops_cuentas_list(scope: tuple[str, ...] | None = None) -> dict:
-    # Igual que Mongo: NO aplica scope (el endpoint lo recibe pero no lo usa).
-    rows = _q("SELECT id_cuenta AS cuenta, max(denominacion) AS denominacion "
-              "FROM operaciones WHERE id_cuenta IS NOT NULL "
-              "GROUP BY id_cuenta ORDER BY denominacion")
+    """Denominaciones (+ id) distintas — fuente del buscador de la vista MOVIMIENTOS.
+
+    APLICA el scope de grupos. Antes lo recibía y lo descartaba (heredado del
+    port desde Mongo), así que cualquier usuario con el módulo `operaciones`
+    se llevaba el padrón COMPLETO de comitentes con su denominación — los
+    nombres de todos los clientes de la mesa. `scope=None` (admin o usuario
+    sin grupo) sigue viendo todo; un tuple vacío no devuelve nada, que es la
+    semántica de "está en un grupo sin cuentas" (docs/GRUPOS.md).
+
+    `id_cuenta` acá es el id pelado, mismo namespace que `manager.grupos`.
+    """
+    sql = ("SELECT id_cuenta AS cuenta, max(denominacion) AS denominacion "
+           "FROM operaciones WHERE id_cuenta IS NOT NULL")
+    params: dict = {}
+    if scope is not None:
+        sql += " AND id_cuenta = ANY(%(scope)s)"
+        params["scope"] = list(scope)
+    sql += " GROUP BY id_cuenta ORDER BY denominacion"
+    rows = _q(sql, params) if params else _q(sql)
     return {"cuentas": [{"cuenta": r["cuenta"], "denominacion": r["denominacion"]} for r in rows]}
 
 

@@ -12,6 +12,7 @@ from api.auth import get_user_email
 from api.services import acreencias as svc_acr
 from api.services import tenencia_hd as svc_ten
 from api.services import tesoreria as svc_tes
+from api.services._grupos_scope import verificar_id_cuenta
 from api.services.back_office_titulos import get_titulos_mercado
 
 router = APIRouter(prefix="/api/back-office", tags=["BackOffice"])
@@ -65,13 +66,16 @@ def acreencias_dia(
     return svc_acr.del_dia(fecha)
 
 
-@router.get("/acreencias/cliente")
+@router.get("/acreencias/cliente", dependencies=[Depends(verificar_id_cuenta)])
 def acreencias_cliente(
     id_cuenta: str = Query(..., description="id_cuenta del cliente"),
     desde: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
     _email: str = Depends(get_user_email),
 ):
-    """Próximos cobros de un cliente."""
+    """Próximos cobros de un cliente.
+
+    `verificar_id_cuenta` → 403 si la cuenta está fuera del grupo del usuario.
+    No-op para admin / usuarios sin grupo (scope None)."""
     return svc_acr.del_cliente(id_cuenta, desde=desde)
 
 

@@ -117,7 +117,101 @@ Rotación de `API_KEY`: manual — generar nueva, actualizar `.env` del Droplet
   Default: el más restrictivo que tenga sentido.
 - ¿Expone datos de cuentas/posiciones? → nunca `_PUBLIC`, nunca al MCP.
 - ¿Acción mutante o cara? → `@limiter.limit(...)`.
+- ¿Lectura ADMIN? → `require_admin`, no `require_module`. Si el par de
+  escritura es admin-only, la lectura casi siempre también (fue el bug de
+  `/api/ia/observabilidad`).
+- ¿Escritura en un módulo que el invitado VE (mercado/research/ia)? →
+  `require_no_invitado` además del gate de módulo.
 - En prod `API_KEY`, `CF_ACCESS_TEAM` y `CF_ACCESS_AUD` **tienen que** estar
   seteados — sin ellos la auth es fail-open.
 - Antes de pushear router/service: REGLA #1 (ver `api/CLAUDE.md`).
 - Revisión de cambios con impacto en auth/datos: `/security-review`.
+
+## Verificar la superficie HTTP
+
+El gate real de un endpoint se compone de tres lugares (montaje en
+`api/main.py` + `dependencies=` del sub-router + decorador). Leerlo a ojo no
+alcanza — hay que mirar el árbol de rutas ya resuelto:
+
+```bash
+python -m scripts.audit_superficie_http          # resumen por categoría
+python -m scripts.audit_superficie_http --todo   # inventario completo (361 rutas)
+```
+
+El enforcement automático está en `tests/unit/test_rbac_superficie.py` (corre
+en CI): recorre `app.routes` y falla si aparece una ruta `/api/*` sin bearer,
+una escritura sin gate de módulo, una ruta de `manager` sin gatear, o si al
+panel de IA le sacan el `require_admin`.
+
+## Auditoría 2026-08-03 — backlog pendiente
+
+Auditoría de código sobre las 361 rutas (6 dimensiones, cada hallazgo
+verificado de forma adversarial). **No hubo pentest contra prod** — todo lo de
+abajo sale de leer el código, y lo que depende de datos reales está marcado
+como no verificado (REGLA #2).
+
+Ya corregido en el commit de la auditoría:
+
+- **`GET /api/ia/observabilidad|presupuesto|saldo` sin `require_admin`.** El
+  gate era `require_module("ia")` y como `ia ∈ INVITADO_MODULES`, el portal
+  www podía leer `detalle`/`respuesta` de `ia.trazas` — las preguntas y
+  respuestas literales de las conversaciones de toda la mesa, con el email de
+  cada uno, filtrables por `?usuario=` y `?q=`. Violaba la REGLA #8. Lo
+  encontraron 5 de 6 cazadores por separado.
+- **Orden de chequeo en la rama de service token (`api/auth.py`).** Se
+  devolvía el email de `x-acaquant-user-email` **antes** de mirar
+  `CF_TRUSTED_SERVICE_TOKENS`, así que cualquier service token válido para el
+  AUD (el del portal www, el de la PC de ingesta, un cron) podía afirmar ser
+  admin. Ahora la allowlist se chequea primero. **Sólo endurece si
+  `CF_TRUSTED_SERVICE_TOKENS` está configurada**: con la env var vacía se
+  preserva el comportamiento previo y se loguea un warning, porque cerrar con
+  la allowlist vacía dejaría a toda la mesa afuera.
+
+Pendiente, por orden de prioridad:
+
+1. **Configurar `CF_TRUSTED_SERVICE_TOKENS`** en el unit de systemd (hoy el
+   default es set vacío). Hasta que esté, el fix de arriba no endurece nada.
+   Verificar con `python -m scripts.diag_auth_postura`.
+2. **Scope de cuenta faltante (BOLA).** `/api/operaciones/comercial/*`
+   (`portafolio`, `operaciones`, `serie?id_cuenta`, `cobros-futuros/cliente`),
+   `/api/operaciones/ops/cuentas-list` (recibe el scope y lo descarta) y
+   `/api/back-office/acreencias/*` aceptan `id_cuenta` sin pasar por
+   `verificar_account`. Un usuario con el módulo lee cuentas fuera de su grupo.
+   **Impacto real desconocido**: `core/grupos.py::cuentas_visibles` devuelve
+   `None` (= sin restricción) para admin, para quien no está en ningún grupo y
+   ante cualquier excepción — si `manager.grupos` está vacío en prod, el scope
+   no está enforceando en ningún lado. **Medir primero** cuántos grupos y
+   usuarios asignados hay antes de decidir.
+3. **Rate limiting.** Cubre 4 de 361 rutas y `default_limits=[]`. Además
+   `_key_by_user` (`api/ratelimit.py`) deriva la clave de headers crudos
+   (`jwt[-16:]` o el email sin validar) → rotar el header da bucket nuevo, y
+   todos los requests del SSR comparten uno solo porque ignora
+   `x-acaquant-user-email`. Poner un default global y keyear por identidad ya
+   resuelta.
+4. **`POST /oauth/register`** (path con BYPASS de CF Access, sin auth ni rate
+   limit) ejecuta DDL + 2 `DELETE` en el pool web de Postgres antes de validar
+   el body. Mover el `_ensure_sql()` al arranque y ponerle rate limit.
+5. **Tokens del MCP**: no miran el RBAC y no se revocan al deshabilitar un
+   usuario en Manager.
+6. **`/docs`, `/redoc`, `/openapi.json`** están sin auth (los cubre CF Access,
+   pero publican el mapa completo de los 361 endpoints). Cerrarlos en prod con
+   `docs_url=None` si `ENV=prod`.
+7. **`api.service` corre como root** sin hardening de systemd
+   (`NoNewPrivileges`, `ProtectSystem`, `PrivateTmp`, `User=`).
+8. Sin security headers (HSTS, `X-Content-Type-Options`, `X-Frame-Options`) —
+   impacto bajo siendo una API JSON, pero es higiene barata.
+
+Lo que se auditó y salió **limpio**: no hay secretos commiteados ni `.env`
+trackeado; no hay SQL injection (los identificadores dinámicos pasan por
+allowlist y los valores van parametrizados); los tres comparadores de token
+usan `secrets.compare_digest` sobre bytes; no hay CORS permisivo (no hay CORS
+en absoluto, que es la postura correcta acá); las escrituras de agro llevan
+`require_no_invitado`; y `/api/ingest/*` es fail-closed sin su token.
+
+**Nota de alcance**: el frontend (`acaquant-web`) NO se auditó — no está en el
+checkout ni accesible desde el entorno de la sesión. El borde de seguridad
+real es el backend (el front sólo esconde la navegación), pero queda
+pendiente revisar del lado del front: que `x-acaquant-portal: guest` se
+inyecte server-side sin poder forjarse desde el browser, que el proxy no
+reenvíe headers de identidad que vengan del cliente, y que no haya secretos en
+bundles `NEXT_PUBLIC_*`.

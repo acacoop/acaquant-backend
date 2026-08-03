@@ -137,6 +137,35 @@ def get_user_email(
             common_name = claims.get("common_name")
             if common_name:
                 cn = str(common_name).lower().strip()
+                # ORDEN CRÍTICO (fix de seguridad): la allowlist se chequea
+                # ANTES de creerle al email forwardeado. Antes era al revés:
+                # cualquier service token válido para el AUD —esté o no en la
+                # allowlist— podía mandar `x-acaquant-user-email: <admin>` y
+                # quedarse con esa identidad. Es la MISMA escalada que la rama
+                # 3 de abajo ya rechaza explícitamente; acá se colaba un bloque
+                # más arriba. Afecta a todo token de máquina que no sea el SSR
+                # de trading (el del portal www, el de la PC de ingesta, crons).
+                #
+                # Fail-closed SOLO si la allowlist está configurada: con
+                # CF_TRUSTED_SERVICE_TOKENS vacío (default de config.py) no
+                # podemos distinguir el SSR legítimo de un token cualquiera, y
+                # cerrar ahí dejaría a TODA la mesa afuera (cada request del
+                # frontend caería en anon). En ese caso se preserva el
+                # comportamiento previo y se loguea fuerte para que se
+                # configure. Chequeo: python -m scripts.diag_auth_postura
+                if CF_TRUSTED_SERVICE_TOKENS and cn not in CF_TRUSTED_SERVICE_TOKENS:
+                    logger.warning(
+                        "service token NO autorizado (cn=%r) intentó afirmar identidad "
+                        "email=%r — rechazado (agregalo a CF_TRUSTED_SERVICE_TOKENS si "
+                        "es legítimo)", cn, forwarded_email or cf_email,
+                    )
+                    return "anon"
+                if not CF_TRUSTED_SERVICE_TOKENS:
+                    logger.warning(
+                        "CF_TRUSTED_SERVICE_TOKENS vacío — no se puede validar el service "
+                        "token cn=%r; se acepta el email forwardeado SIN allowlist. "
+                        "Configurá la env var en el unit de systemd para cerrar esto.", cn,
+                    )
                 # 2a: el frontend propaga el email del user en
                 # x-acaquant-user-email (CF NO estripa este header — no es
                 # CF-controlled). Es el camino oficial. cf_email queda como
@@ -146,17 +175,15 @@ def get_user_email(
                     return str(user_email).lower().strip()
                 # 2b: service token sin email del user — request de máquina
                 # legítimo (cron, smoke). Devolvemos sintético "service:<cn>"
-                # que get_user_role() trata como DEFAULT_ROLE (sales). Si
-                # alguna integración de máquina necesita más permisos, hay
-                # que registrarla explícitamente en Manager.Users.
+                # que get_user_role() trata como _NO_ACCESS_ROLE (sin módulos).
+                # Si alguna integración de máquina necesita permisos, hay que
+                # registrarla explícitamente en manager.manager_users.
                 if cn in CF_TRUSTED_SERVICE_TOKENS:
                     return f"service:{cn}"
-                # 2c: service token desconocido — 401 para que notemos.
-                # Log el common_name en full para que puedas agregarlo a
-                # CF_TRUSTED_SERVICE_TOKENS si es legítimo.
+                # 2c: sin allowlist configurada y sin email — identidad de
+                # máquina no verificable. Fail-closed → anon.
                 logger.warning(
-                    "service token no autorizado: common_name=%r "
-                    "(agregalo a CF_TRUSTED_SERVICE_TOKENS si es legítimo)", cn,
+                    "service token sin email y sin allowlist (cn=%r) — anon", cn,
                 )
 
             # Rama 3: JWT válido pero no user ni service conocido.

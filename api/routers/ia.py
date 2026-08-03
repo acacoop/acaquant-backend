@@ -15,13 +15,22 @@ from api.services import briefing, copiloto, ia_obs
 router = APIRouter(prefix="/api/ia", tags=["ia"])
 
 
-@router.get("/observabilidad")
+@router.get("/observabilidad", dependencies=[Depends(require_admin)])
 def observabilidad(dias: int = 14, limit: int = 60, offset: int = 0,
                    tarea: str | None = None, usuario: str | None = None,
                    solo_error: bool = False, q: str | None = None):
     """Trazas del gateway de IA para OBSERVABILIDAD → IA: resumen de hoy
     (+% presupuesto), serie por día, agregados por tarea y por PROVEEDOR, y
-    el historial de llamadas paginado y filtrable (tarea/usuario/errores/texto)."""
+    el historial de llamadas paginado y filtrable (tarea/usuario/errores/texto).
+
+    ADMIN-ONLY (require_admin, no delegable desde la matriz). Devuelve
+    `detalle`/`respuesta`/`razonamiento` de ia.trazas — o sea la PREGUNTA y la
+    RESPUESTA literal de las conversaciones de TODOS los usuarios, más su email,
+    y acepta filtros `usuario`/`q` para buscar dentro de ellas. Con el gate del
+    módulo `ia` solamente quedaba alcanzable por cualquier rol con `ia` tildado
+    y —peor— por el portal INVITADO (`ia` ∈ INVITADO_MODULES, core/roles.py),
+    que habría leído conversaciones del NEGOCIO de la mesa (REGLA #8).
+    require_admin además rechaza al guest de forma dura."""
     return ia_obs.observabilidad(dias=dias, limit=limit, offset=offset, tarea=tarea,
                                  usuario=usuario, solo_error=solo_error, q=q)
 
@@ -31,16 +40,22 @@ class PresupuestosBody(BaseModel):
     usuario_dia: int | None = None  # tokens/día por usuario (≤ global)
 
 
-@router.get("/presupuesto")
+@router.get("/presupuesto", dependencies=[Depends(require_admin)])
 def presupuesto_get():
-    """Límites de tokens vigentes del gateway (tabla > env > default)."""
+    """Límites de tokens vigentes del gateway (tabla > env > default).
+
+    ADMIN-ONLY: es el par de lectura de `POST /presupuesto` (ya admin-only).
+    Config interna de costos — no la ve un invitado ni un rol con `ia`."""
     return ia_obs.get_presupuestos()
 
 
-@router.get("/saldo")
+@router.get("/saldo", dependencies=[Depends(require_admin)])
 def saldo_proveedor():
     """Estado de los proveedores LLM configurados: modelos por tier, si se
-    comprometen a no entrenar, y saldo real del que lo expone."""
+    comprometen a no entrenar, y saldo real del que lo expone.
+
+    ADMIN-ONLY: expone el saldo real de la cuenta del proveedor (dato
+    financiero de la empresa) — nunca para el portal invitado."""
     return ia_obs.saldo()
 
 

@@ -16,7 +16,9 @@ Reglas (mismo criterio que el master de Assets en aum.py):
     inicializan en null SOLO al insertar (`$setOnInsert`) y NUNCA se pisan →
     preservan lo que la mesa cargó a mano.
   - Filtra tipo=Comitente + estado=Activa (igual que el AuM). `--include-all`
-    trae todos los tipos/estados.
+    trae todos los tipos/estados. Las comitentes que dejaron de estar Activas NO
+    se insertan, pero si ya existen en SQL se les actualiza el `estado` (si no,
+    una baja quedaba 'Activa' para siempre y seguía contando como cliente).
 
 Uso:
     python -m jobs.sync_comitentes
@@ -180,12 +182,23 @@ def run(*, include_all: bool = False, dry_run: bool = False) -> None:
         if isinstance(data, dict):
             data = data.get("cuentas") or data.get("data") or [data]
         jr.set_stat("recibidas", len(data))
+        data_all = list(data)
 
         if not include_all:
             data = [c for c in data if (c.get("estado") or "") == "Activa"]
         jr.set_stat("a_procesar", len(data))
 
         now = datetime.now(UTC)
+        # Comitentes que Aunesa ya NO reporta Activa (PreAlta/Inhibida/Baja/Inactiva). NO se
+        # insertan (no son clientes del padrón), pero si YA existen en SQL hay que bajarles el
+        # estado: sin esto una cuenta dada de baja queda 'Activa' para siempre (el sync solo
+        # veía las Activas) y sigue contando en el padrón, el AuM y el Tablero Comercial.
+        no_activas = [
+            (c.get("estado"), now, str(c["id"]))
+            for c in data_all
+            if c.get("id") is not None and (c.get("estado") or "") != "Activa"
+        ]
+
         operadores: dict[str, str | None] = {}    # email → nombre
         cuentas: list[tuple] = []                 # (id_cuenta, denominacion)
         comitentes: list[tuple] = []
@@ -212,7 +225,8 @@ def run(*, include_all: bool = False, dry_run: bool = False) -> None:
 
         if dry_run:
             jr.set_stat("dry_run", True)
-            jr.log(f"DRY-RUN: {len(comitentes)} comitentes (no se escribió nada).")
+            jr.log(f"DRY-RUN: {len(comitentes)} comitentes, {len(no_activas)} no-activas a "
+                   f"actualizar (no se escribió nada).")
             return
 
         # Escritura SQL. Orden FK-safe: operadores + cuentas (destinos del FK) → comitentes.
@@ -242,9 +256,14 @@ def run(*, include_all: bool = False, dry_run: bool = False) -> None:
                 "provincia=EXCLUDED.provincia, telefono=EXCLUDED.telefono, email=EXCLUDED.email, "
                 "origen=EXCLUDED.origen, updated_at=EXCLUDED.updated_at",
                 comitentes)
+            if no_activas:
+                cur.executemany(
+                    "UPDATE comitentes SET estado = %s, updated_at = %s WHERE id_cuenta = %s",
+                    no_activas)
             conn.commit()
 
         jr.set_stat("upserted", len(comitentes))
+        jr.set_stat("estado_bajado", len(no_activas))
 
         # Pass aparte: cuentas Propia (mesa propia) → SOLO a `cuentas`. Defensivo:
         # un fallo acá NO debe romper el sync de comitentes (que ya commiteó).

@@ -149,6 +149,87 @@ def _filas_que_matchean(mercados: list[str]) -> None:
               f"importe={row['importe']} moneda={row['moneda']} estado={row['estado']!r}")
 
 
+def _informacion_y_ratio(mercados: list[str]) -> None:
+    """El precio de MAV no está GUARDADO, pero puede estar implícito.
+
+    Dos hipótesis a medir (no a asumir):
+      1. `informacion` (campo de texto que el diag anterior no miró) trae la
+         descripción del instrumento y quizá la tasa/precio.
+      2. importe / cantidad da un precio unitario coherente.
+    """
+    _titulo(5, "El campo `informacion` y el precio IMPLÍCITO (importe/cantidad)")
+    p = {"mercados": mercados}
+    base = (
+        "FROM operaciones.operaciones o "
+        "JOIN operaciones.negocio_movimientos n ON n.comprobante = o.boleto "
+        "WHERE o.mercado = ANY(%(mercados)s)"
+    )
+
+    print("     Patrones de `informacion` (primeros 45 chars, top 10):")
+    rows = _q(
+        f"SELECT COALESCE(left(n.informacion, 45), '(null)') AS info, count(*) AS c "
+        f"{base} GROUP BY 1 ORDER BY c DESC LIMIT 10", p,
+    )
+    for r in rows:
+        print(f"       {r['c']:>7,}  {r['info']}")
+
+    print("\n     Ratio importe/cantidad (candidato a precio unitario):")
+    r = _q(
+        f"SELECT count(*) FILTER (WHERE n.cantidad IS NOT NULL AND n.cantidad <> 0) AS calculables, "
+        f"       round(min(ABS(n.importe / NULLIF(n.cantidad,0)))::numeric, 4) AS minimo, "
+        f"       round(avg(ABS(n.importe / NULLIF(n.cantidad,0)))::numeric, 4) AS promedio, "
+        f"       round(max(ABS(n.importe / NULLIF(n.cantidad,0)))::numeric, 4) AS maximo "
+        f"{base}", p,
+    )[0]
+    print(f"       filas calculables  {r['calculables']:>10,}")
+    print(f"       mín / prom / máx   {r['minimo']} / {r['promedio']} / {r['maximo']}")
+    print("       (si el rango es angosto y creíble como precio, se puede derivar;")
+    print("        si va de 0.01 a 1e9, entonces NO es un precio)")
+
+
+def _ops_ya_lo_tiene(mercados: list[str]) -> None:
+    """¿Hace falta el JOIN? `operaciones` tiene bruto y cantidad: si bruto/cantidad
+    da el mismo ratio, el precio sale de UNA sola tabla y el cruce sobra."""
+    _titulo(6, "¿`operaciones` sola alcanza? (bruto/cantidad vs importe/cantidad)")
+    p = {"mercados": mercados}
+    r = _q(
+        "SELECT count(*) AS n, "
+        "  count(*) FILTER (WHERE o.cantidad IS NOT NULL AND o.cantidad <> 0) AS ops_calculable, "
+        "  count(*) FILTER (WHERE ABS(COALESCE(o.bruto,0) / NULLIF(o.cantidad,0)) "
+        "                   - ABS(COALESCE(n.importe,0) / NULLIF(n.cantidad,0)) BETWEEN -0.01 AND 0.01"
+        "                  ) AS coinciden "
+        "FROM operaciones.operaciones o "
+        "JOIN operaciones.negocio_movimientos n ON n.comprobante = o.boleto "
+        "WHERE o.mercado = ANY(%(mercados)s)", p,
+    )[0]
+    print(f"     filas comparadas            {r['n']:>10,}")
+    print(f"     con cantidad en operaciones {r['ops_calculable']:>10,}")
+    print(f"     ratios que COINCIDEN (±0,01){r['coinciden']:>10,}")
+    if r["n"] and r["coinciden"] == r["n"]:
+        print("\n  → El JOIN NO hace falta: `operaciones` sola ya permite derivar el precio.")
+    elif r["coinciden"]:
+        print("\n  → Coinciden en parte. Hay que mirar los casos que no.")
+    else:
+        print("\n  → NO coinciden: bruto y importe miden cosas distintas. El precio,")
+        print("     si se deriva, sale de negocio (importe/cantidad), no de operaciones.")
+
+    print("\n     Muestra lado a lado:")
+    for row in _q(
+        "SELECT o.boleto, o.operacion, o.tipo_operacion, o.instrumento, o.condiciones, "
+        "  o.cantidad AS ops_cant, o.bruto AS ops_bruto, "
+        "  n.cantidad AS nm_cant, n.importe AS nm_importe, n.plazo, n.lugar, n.informacion "
+        "FROM operaciones.operaciones o "
+        "JOIN operaciones.negocio_movimientos n ON n.comprobante = o.boleto "
+        "WHERE o.mercado = ANY(%(mercados)s) ORDER BY n.fecha DESC LIMIT 6", p,
+    ):
+        print(f"       {row['boleto']}  op={row['operacion']!r} tipo={row['tipo_operacion']!r}")
+        print(f"         instrumento={row['instrumento']!r} condiciones={row['condiciones']!r}")
+        print(f"         ops:  cantidad={row['ops_cant']} bruto={row['ops_bruto']}")
+        print(f"         nego: cantidad={row['nm_cant']} importe={row['nm_importe']} "
+              f"plazo={row['plazo']!r} lugar={row['lugar']!r}")
+        print(f"         informacion={row['informacion']!r}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Por qué `precio` viene vacío al cruzar MAV.")
     ap.add_argument("--mercado", default=None, help="valor EXACTO de `mercado` (default: los que contengan MAV)")
@@ -162,6 +243,8 @@ def main() -> None:
     _cobertura_global()
     _cobertura_por_categoria()
     _filas_que_matchean(mercados)
+    _informacion_y_ratio(mercados)
+    _ops_ya_lo_tiene(mercados)
     print(f"\n{'─' * 72}\nMandale esta salida completa a Claude para decidir el paso siguiente.\n")
 
 

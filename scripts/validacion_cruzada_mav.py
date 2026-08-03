@@ -62,62 +62,13 @@ from __future__ import annotations
 
 import argparse
 import csv
-import re
 import sys
 from datetime import date
 
 from psycopg.rows import dict_row
 
+from core.mav_tasa import parse_informacion
 from core.postgres import get_pool
-
-# ── Parseo de `informacion` ──────────────────────────────────────────────────
-# 'Compra [#UAC140770002] 100.000,00@6% (ARS 24hs)'
-#          └─ código ──┘  └ nominal ┘ └tasa┘
-# El parseo se hace en Python (no en SQL) por dos razones: el '%' literal
-# obligaría a escaparlo como '%%' para psycopg —trampa fácil de romper— y acá
-# un texto con formato inesperado devuelve None en vez de tumbar la corrida.
-_RE_TASA = re.compile(r"@\s*([\d.,]+)\s*%")
-_RE_COD = re.compile(r"\[([^\]]+)\]")
-_RE_NOMINAL = re.compile(r"\]\s*([\d.,]+)\s*@")
-
-
-def _num_ar(s: str | None) -> float | None:
-    """Número en formato argentino → float. '39,5'→39.5, '27.000.000,00'→27000000.0
-
-    Sin coma la cadena es ambigua ('39.5' puede ser 39,5 o 395): se asume punto
-    decimal sólo si hay UN punto con 1-2 dígitos detrás; si no, es separador de
-    miles. Los datos vistos usan siempre coma decimal, pero un 10x silencioso
-    por adivinar mal sería peor que devolver None.
-    """
-    t = (s or "").strip()
-    if not t:
-        return None
-    if "," in t:
-        t = t.replace(".", "").replace(",", ".")
-    elif t.count(".") == 1 and len(t.split(".")[1]) <= 2:
-        pass  # ya es decimal con punto
-    else:
-        t = t.replace(".", "")
-    try:
-        return float(t)
-    except ValueError:
-        return None
-
-
-def _parse_informacion(info: str | None) -> dict:
-    """Extrae tasa (= el precio para MAV), código de instrumento y nominal."""
-    if not info:
-        return {"tasa_pct": None, "tasa_raw": "", "cod_instrumento": "", "nominal_info": None}
-    m_tasa = _RE_TASA.search(info)
-    m_cod = _RE_COD.search(info)
-    m_nom = _RE_NOMINAL.search(info)
-    raw = m_tasa.group(1) if m_tasa else ""
-    return {
-        "tasa_pct": _num_ar(raw),
-        "tasa_raw": raw,
-        "cod_instrumento": m_cod.group(1) if m_cod else "",
-        "nominal_info": _num_ar(m_nom.group(1)) if m_nom else None,
-    }
 
 # Columnas del CSV. Prefijo `nm_` = viene de negocio_movimientos.
 CAMPOS = [
@@ -306,7 +257,7 @@ def main() -> None:
                         multiples.add(r["boleto"])
                     if r.get("nm_precio") is not None:
                         con_precio += 1
-                    r.update(_parse_informacion(r.get("nm_informacion")))
+                    r.update(parse_informacion(r.get("nm_informacion")))
                     if r["tasa_pct"] is not None:
                         con_tasa += 1
                     elif r.get("nm_informacion"):

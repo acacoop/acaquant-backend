@@ -62,7 +62,7 @@
 | cada 15min · 13-20h · L-V | `engines.dolar_mep'` |
 | cada 30min · 10-14h · L-V | `jobs.research_mail'` |
 | cada 30min · 12-23h · diario | `jobs.news_finnhub'` |
-| cada 30min · 14-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral'` |
+| cada 30min · 14-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral` + `jobs.ops_tasa_mav'` |
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |
 | cada 5min · 13-20h · L-V | `jobs.estrategia_resolver'` |
 | 11:00 · L-V | `jobs.portafolio_backfill` |

@@ -269,6 +269,14 @@ ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS tipo_operacion text
 ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS condiciones    text;
 ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS ingestado_en   timestamptz;
 ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS tipo_agro      text;
+-- TASA (2026-08-03): el "precio" de los boletos MAV (pagarés / cheques). Esos
+-- instrumentos NO tienen precio unitario — se negocian a tasa, y la tasa vive
+-- embebida en el texto `negocio_movimientos.informacion` ('...100.000,00@6%...').
+-- La rellena `jobs/ops_tasa_mav.py`, encadenado al negocio_chain. En PORCENTAJE
+-- tal cual figura en el texto (6 = 6%), NO en tanto por uno.
+-- Deliberadamente NO se llama `precio`: mezclar un precio en ARS y una tasa en %
+-- en una sola columna numérica invita a que alguien las sume o promedie junto.
+ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS tasa           numeric;
 
 CREATE INDEX IF NOT EXISTS ix_ops_concertacion ON operaciones.operaciones(concertacion);
 CREATE INDEX IF NOT EXISTS ix_ops_id_cuenta    ON operaciones.operaciones(id_cuenta);
@@ -276,6 +284,10 @@ CREATE INDEX IF NOT EXISTS ix_ops_moneda_cierre ON operaciones.operaciones(moned
 CREATE INDEX IF NOT EXISTS ix_ops_moneda_concert ON operaciones.operaciones(moneda, concertacion);
 CREATE INDEX IF NOT EXISTS ix_ops_segmento_concert ON operaciones.operaciones(segmento, concertacion);
 CREATE INDEX IF NOT EXISTS ix_ops_ingestado ON operaciones.operaciones(ingestado_en);
+-- MERCADO (2026-08-03): `_ops_where` filtra por `mercado = X` en toda la vista
+-- MOVIMIENTOS y no había índice — cada filtro por mercado era un scan. Lo usa
+-- además `jobs/ops_tasa_mav.py` para encontrar los boletos MAV pendientes de tasa.
+CREATE INDEX IF NOT EXISTS ix_ops_mercado_concert ON operaciones.operaciones(mercado, concertacion);
 CREATE INDEX IF NOT EXISTS ix_ops_commodity_concert ON operaciones.operaciones(commodity, concertacion)
     WHERE commodity IN ('SOJA', 'TRIGO', 'MAIZ');
 -- ARANCEL/comisiones (perf 2026-06-29): el predicado `arancel<>0 AND etapa<>'solicitud'`

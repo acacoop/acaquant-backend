@@ -107,7 +107,11 @@
 # LOOKBACK 2026-07-28 — `negocio_movimientos` (sin args) ingiere hoy + los últimos
 # días hábiles (const _LOOKBACK_HABILES). Las diferencias diarias de futuros llegan
 # a Aunesa T+1 → ingerir SÓLO "hoy" las perdía (corte del 2026-05-06). Idempotente.
-*/30 14-22 * * 1-5 /root/TradingAV/deploy/run_job.sh negocio_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos && /root/TradingAV/venv/bin/python -m jobs.aranceles && /root/TradingAV/venv/bin/python -m jobs.fci_bilateral'
+# ops_tasa_mav va ÚLTIMO de la cadena a propósito: extrae la tasa de los boletos
+# MAV desde `negocio_movimientos.informacion`, así que necesita que
+# negocio_movimientos ya haya escrito el texto. Rellena sólo lo que tiene tasa
+# NULL (idempotente, ventana de 7 días).
+*/30 14-22 * * 1-5 /root/TradingAV/deploy/run_job.sh negocio_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos && /root/TradingAV/venv/bin/python -m jobs.aranceles && /root/TradingAV/venv/bin/python -m jobs.fci_bilateral && /root/TradingAV/venv/bin/python -m jobs.ops_tasa_mav'
 
 # ─── Operaciones desde /informes (cada 30 min, 13:30-22:00 UTC L-V)
 # Fuente de verdad de operaciones (por CONCERTACIÓN). Idempotente + lookback.

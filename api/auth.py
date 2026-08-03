@@ -20,6 +20,7 @@ Uso:
 from __future__ import annotations
 
 import logging
+import threading
 from functools import lru_cache
 
 from fastapi import Depends, Header, HTTPException, Request
@@ -27,6 +28,28 @@ from fastapi import Depends, Header, HTTPException, Request
 from config import CF_ACCESS_AUD, CF_ACCESS_TEAM, CF_TRUSTED_SERVICE_TOKENS
 
 logger = logging.getLogger(__name__)
+
+
+# Evidencia POSITIVA de que la allowlist de service tokens está bien puesta.
+# El camino feliz (token en la allowlist) es silencioso por diseño: sólo se
+# loguean los rechazos. Eso deja un diagnóstico ambiguo — "no veo service
+# tokens en el log" puede significar "anda todo bien" o "no hay tráfico de
+# máquina", que son estados MUY distintos cuando la allowlist recién se activa.
+# Con esto queda una marca por common_name aceptado, una sola vez por proceso
+# (el unit recicla cada 8h, así que se re-emite sola y no envejece).
+# Lo lee `scripts.diag_auth_postura`.
+_service_tokens_ok: set[str] = set()
+_service_tokens_lock = threading.Lock()
+
+
+def _log_service_token_aceptado(cn: str) -> None:
+    if cn in _service_tokens_ok:
+        return
+    with _service_tokens_lock:
+        if cn in _service_tokens_ok:
+            return
+        _service_tokens_ok.add(cn)
+    logger.info("service token ACEPTADO por allowlist (cn=%r)", cn)
 
 
 def is_guest_portal(request: Request) -> bool:
@@ -166,6 +189,8 @@ def get_user_email(
                         "token cn=%r; se acepta el email forwardeado SIN allowlist. "
                         "Configurá la env var en el unit de systemd para cerrar esto.", cn,
                     )
+                else:
+                    _log_service_token_aceptado(cn)
                 # 2a: el frontend propaga el email del user en
                 # x-acaquant-user-email (CF NO estripa este header — no es
                 # CF-controlled). Es el camino oficial. cf_email queda como

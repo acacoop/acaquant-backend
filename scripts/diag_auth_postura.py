@@ -44,19 +44,21 @@ def _estado(nombre: str, valor: str | None, *, requerida_en_prod: bool = False) 
     return False
 
 
-# El common_name aparece en los dos warnings que emite api/auth.py rama 2:
-#   - allowlist vacía  → "...no se puede validar el service token cn='X'..."
-#   - token rechazado  → "service token NO autorizado (cn='X')..."
+# api/auth.py rama 2 emite TRES líneas distintas, y hay que separarlas porque
+# significan cosas opuestas:
+#   ACEPTADO   → "service token ACEPTADO por allowlist (cn='X')"   ✅ evidencia positiva
+#   RECHAZADO  → "service token NO autorizado (cn='X')"            ❌ nombre mal puesto
+#   SIN LISTA  → "...no se puede validar el service token cn='X'"  ⚠️  allowlist vacía
 _RE_CN = re.compile(r"cn=['\"]([^'\"]+)['\"]")
 
 
-def _service_tokens_vistos(horas: int = 168) -> tuple[set[str], str | None]:
-    """common_names de service token que la API vio en los últimos `horas`.
+def _scan_journal(horas: int = 168) -> tuple[dict[str, set[str]], str | None]:
+    """Clasifica los common_names vistos por la API en los últimos `horas`.
 
-    Los saca del journal (mismo mecanismo que la tab LOGS del Manager). Devuelve
-    (nombres, error). No son secretos: son identificadores de máquina, y el
-    propio auth.py ya los loguea.
+    Devuelve ({aceptados, rechazados, sin_lista}, error). No son secretos: son
+    identificadores de máquina, y el propio auth.py ya los loguea.
     """
+    vacio: dict[str, set[str]] = {"aceptados": set(), "rechazados": set(), "sin_lista": set()}
     try:
         proc = subprocess.run(
             ["journalctl", "-u", "api.service", f"--since={horas} hours ago",
@@ -64,17 +66,26 @@ def _service_tokens_vistos(horas: int = 168) -> tuple[set[str], str | None]:
             capture_output=True, text=True, timeout=30,
         )
     except FileNotFoundError:
-        return set(), "journalctl no está disponible (¿no es el Droplet?)"
+        return vacio, "journalctl no está disponible (¿no es el Droplet?)"
     except subprocess.TimeoutExpired:
-        return set(), "journalctl tardó demasiado"
+        return vacio, "journalctl tardó demasiado"
     if proc.returncode != 0:
-        return set(), (proc.stderr or "").strip()[:200] or "journalctl falló"
-    vistos = {
-        m.group(1).strip().lower()
-        for linea in proc.stdout.splitlines() if "service token" in linea
-        for m in [_RE_CN.search(linea)] if m
-    }
-    return vistos, None
+        return vacio, (proc.stderr or "").strip()[:200] or "journalctl falló"
+
+    for linea in proc.stdout.splitlines():
+        if "service token" not in linea:
+            continue
+        m = _RE_CN.search(linea)
+        if not m:
+            continue
+        cn = m.group(1).strip().lower()
+        if "ACEPTADO" in linea:
+            vacio["aceptados"].add(cn)
+        elif "NO autorizado" in linea:
+            vacio["rechazados"].add(cn)
+        else:
+            vacio["sin_lista"].add(cn)
+    return vacio, None
 
 
 def _reporte_service_tokens() -> None:
@@ -84,7 +95,7 @@ def _reporte_service_tokens() -> None:
     print("─" * 68)
 
     configurados = sorted(CF_TRUSTED_SERVICE_TOKENS)
-    vistos, err = _service_tokens_vistos()
+    scan, err = _scan_journal()
 
     if configurados:
         print(f"\n  CF_TRUSTED_SERVICE_TOKENS = {', '.join(configurados)}")
@@ -95,43 +106,61 @@ def _reporte_service_tokens() -> None:
 
     if err:
         print(f"\n  ⚠️  No pude leer el journal: {err}")
-        print("     Corré esto EN EL DROPLET para descubrir los tokens en uso.")
+        print("     Corré esto EN EL DROPLET para ver el estado real.")
         return
 
-    if not vistos:
-        print("\n  El journal (7 días) no registra NINGÚN service token.")
-        if configurados:
-            print("  ⚠️  Pero la allowlist tiene entradas. O no hubo tráfico de")
-            print("      máquina, o los nombres configurados no son los reales.")
-        else:
-            print("  Puede que el front no esté usando service token, o que el")
-            print("  tráfico sea más viejo que 7 días. Volvé a correrlo tras un")
-            print("  día hábil con la mesa operando.")
-        return
+    aceptados, rechazados = scan["aceptados"], scan["rechazados"]
+    sin_lista = scan["sin_lista"]
 
-    print(f"\n  Vistos en el journal (7 días): {', '.join(sorted(vistos))}")
+    # ── Lo urgente primero: tokens que se están rechazando AHORA ──
+    if rechazados:
+        print(f"\n  ❌ RECHAZÁNDOSE AHORA MISMO: {', '.join(sorted(rechazados))}")
+        print("     Esas integraciones están recibiendo 403. Si son legítimas,")
+        print("     agregalas y reiniciá:")
+        todos = sorted(set(configurados) | rechazados | aceptados)
+        print(f"\n     Environment=\"CF_TRUSTED_SERVICE_TOKENS={','.join(todos)}\"")
 
     if not configurados:
-        print("\n  ✅ VALOR A CONFIGURAR — copiá esta línea EXACTA al unit file:")
-        print(f"\n     Environment=\"CF_TRUSTED_SERVICE_TOKENS={','.join(sorted(vistos))}\"")
-        print("\n  ⚠️  TODO-O-NADA: apenas la variable tenga UN valor, cualquier")
-        print("      service token que no esté listado queda RECHAZADO (cae a")
-        print("      'anon' → 403 en todo). Por eso la lista debe salir de acá y")
-        print("      no de la memoria. Si una integración corre semanal, esperá a")
-        print("      que aparezca antes de configurar.")
+        # Allowlist vacía: el log trae todos los cn vistos → armar el valor.
+        candidatos = sin_lista | aceptados | rechazados
+        if candidatos:
+            print("\n  ✅ VALOR A CONFIGURAR — copiá esta línea EXACTA al unit file:")
+            print(f"\n     Environment=\"CF_TRUSTED_SERVICE_TOKENS={','.join(sorted(candidatos))}\"")
+            print("\n  ⚠️  TODO-O-NADA: apenas la variable tenga UN valor, cualquier")
+            print("      service token que no esté listado queda RECHAZADO (cae a")
+            print("      'anon' → 403 en todo). Por eso la lista sale de acá y no")
+            print("      de la memoria.")
+        else:
+            print("\n  El journal (7 días) no registra ningún service token.")
+            print("  Volvé a correrlo tras un día hábil con la mesa operando.")
         return
 
-    faltantes = vistos - set(configurados)
-    sobrantes = set(configurados) - vistos
-    if faltantes:
-        print(f"\n  ❌ ESTOS ESTÁN EN USO PERO NO EN LA ALLOWLIST: {', '.join(sorted(faltantes))}")
-        print("     Están siendo RECHAZADOS ahora mismo (403). Agregalos ya:")
-        print(f"\n     Environment=\"CF_TRUSTED_SERVICE_TOKENS={','.join(sorted(vistos | set(configurados)))}\"")
-    if sobrantes:
-        print(f"\n  ℹ️  Configurados pero sin tráfico en 7 días: {', '.join(sorted(sobrantes))}")
-        print("     Puede ser normal (integración esporádica). No los saques sin mirar.")
-    if not faltantes and not sobrantes:
-        print("\n  ✅ La allowlist coincide exactamente con lo que se está usando.")
+    # ── Allowlist configurada: ¿hay evidencia de que está BIEN puesta? ──
+    if aceptados:
+        print(f"\n  ✅ EN USO Y ACEPTADOS: {', '.join(sorted(aceptados))}")
+        print("     Hay tráfico real de máquina pasando la allowlist. La")
+        print("     configuración es correcta y está activa.")
+        sobrantes = set(configurados) - aceptados
+        if sobrantes:
+            print(f"\n  ℹ️  Listados pero sin tráfico: {', '.join(sorted(sobrantes))}")
+            print("     Puede ser normal (integración esporádica). No los saques")
+            print("     sin confirmar que ya no se usan.")
+        return
+
+    if not rechazados:
+        print("\n  ⏳ SIN EVIDENCIA TODAVÍA — y esto NO es un problema.")
+        print("     El camino feliz es silencioso: la API sólo loguea los")
+        print("     rechazos. Que no haya NADA en el log significa que no hubo")
+        print("     ningún token rechazado, que es justamente lo que se quiere.")
+        print("\n     Lo que falta es la confirmación positiva, que se emite una")
+        print("     vez por proceso desde esta versión. Para obtenerla:")
+        print("       1. systemctl restart api.service")
+        print("       2. entrá a la web y navegá un poco (genera tráfico del SSR)")
+        print("       3. volvé a correr este diagnóstico")
+        print("\n     Si entonces aparece '✅ EN USO Y ACEPTADOS', está todo bien.")
+        print("     Si aparece '❌ RECHAZÁNDOSE', el nombre configurado no es el")
+        print("     real: sacá la variable, reiniciá (volvés al estado anterior)")
+        print("     y usá el nombre que el propio diagnóstico te muestre.")
 
 
 def main() -> None:

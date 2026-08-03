@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from api.services._mep import get_mep_for_date
 from core.postgres import get_pool
@@ -94,19 +94,56 @@ def _to_cuenta(v) -> str | None:
     return s or None
 
 
-def _to_iso(raw) -> str | None:
-    """A 'YYYY-MM-DD'. Acepta ISO ya formado o DD/MM/YYYY."""
-    if not raw:
+# Excel cuenta los días desde el 1899-12-30 (el "bug" del año bisiesto 1900 ya
+# está compensado en ese ancla). Rango aceptado: 1990-01-01 .. 2100-12-31, para
+# no confundir un número cualquiera con una fecha.
+_EXCEL_EPOCH = date(1899, 12, 30)
+_FECHA_RE = re.compile(r"^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})")
+
+
+def _from_excel_serial(n) -> str | None:
+    try:
+        dias = int(float(n))
+    except (TypeError, ValueError):
         return None
+    if not 32874 <= dias <= 73415:
+        return None
+    return (_EXCEL_EPOCH + timedelta(days=dias)).isoformat()
+
+
+def _to_iso(raw) -> str | None:
+    """A 'YYYY-MM-DD'. Acepta date/datetime, ISO (con o sin hora), DD/MM/YYYY
+    (separador / - o .), año de 2 dígitos y el serial numérico de Excel.
+
+    Un mismo Excel suele traer la columna MEZCLADA (filas tipeadas como fecha
+    conviven con filas tipeadas como texto) → hay que cubrir todos los casos o
+    la mitad de los boletos entra sin fecha y desaparece de las series.
+    OJO: DD/MM, no MM/DD — un archivo en formato US cargaría el día por el mes.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw.date().isoformat()
+    if isinstance(raw, date):
+        return raw.isoformat()
+    if isinstance(raw, (int, float)):
+        return _from_excel_serial(raw)
     s = str(raw).strip()
+    if not s:
+        return None
     if len(s) >= 10 and s[4] == "-" and s[7] == "-":
         return s[:10]
-    if "/" in s:
+    m = _FECHA_RE.match(s)
+    if m:
+        d, mes, y = (int(x) for x in m.groups())
+        if y < 100:
+            y += 2000 if y < 70 else 1900
         try:
-            d, m, y = s[:10].split("/")
-            return f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
-        except (ValueError, IndexError):
+            return date(y, mes, d).isoformat()
+        except ValueError:
             return None
+    if re.fullmatch(r"\d+(?:[.,]0+)?", s):
+        return _from_excel_serial(s.replace(",", "."))
     return None
 
 
@@ -478,8 +515,10 @@ def ingestar_faltantes_sql(
             return out
 
         fechas = sorted(d["concertacion"] for d in nuevos if d.get("concertacion"))
+        sin_fecha = [d["boleto"] for d in nuevos if not d.get("concertacion")]
         out.update({
-            "sin_concertacion": sum(1 for d in nuevos if not d.get("concertacion")),
+            "sin_concertacion": len(sin_fecha),
+            "boletos_sin_fecha": sin_fecha[:100],
             "desde": fechas[0] if fechas else None,
             "hasta": fechas[-1] if fechas else None,
             "bruto_ars": sum(d["bruto"] or 0 for d in nuevos if d.get("moneda") == "ARS"),

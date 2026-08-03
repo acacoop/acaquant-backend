@@ -22,6 +22,7 @@ Conecta con: lee `Trading.TimeSales` (último trade del día por ticker), escrib
 
 ## Usa / conecta con →
 - [[config]]  ·  _module_
+- [[core.job_runs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 

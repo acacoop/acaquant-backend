@@ -27,6 +27,7 @@ import sys
 from collections import defaultdict
 from datetime import UTC, datetime
 
+from core.job_runs import JobRunLogger
 from core.postgres import get_pool
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -103,20 +104,10 @@ def _stats_curva(curva: str) -> tuple[dict, dict]:
     return stats, meta
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dry", action="store_true", help="No persiste, solo imprime resumen")
-    args = parser.parse_args()
-
-    # Curvas presentes en histórico (SQL mercado.mercado_hist).
-    curvas = _curvas_disponibles()
-    if not curvas:
-        logger.warning("ForwardsHistorico (mercado_hist) vacío — nada que calcular.")
-        return 0
-
-    ts = datetime.now(UTC)
-    fecha_calculo = ts.date().isoformat()
-
+def _procesar(
+    curvas: list[str], ts: datetime, fecha_calculo: str, dry: bool,
+    jr: JobRunLogger | None = None,
+) -> None:
     for curva in curvas:
         stats, meta = _stats_curva(curva)
         n_pares = sum(len(inner) for inner in stats.values())
@@ -125,10 +116,14 @@ def main() -> int:
             curva, meta["n_dias"], n_pares, N_OBS_MIN,
             meta["descartados_n_obs"], DESVIO_MIN, meta["descartados_desvio"],
         )
+        if jr:
+            jr.set_stat(curva, {"n_dias": meta["n_dias"], "n_pares": n_pares})
         if not stats:
+            if jr:
+                jr.error(f"{curva}: sin pares con historia suficiente")
             continue
 
-        if args.dry:
+        if dry:
             continue
 
         doc = {
@@ -145,8 +140,30 @@ def main() -> int:
         from core.pg_mirror import doc_iso, write_native
         write_native("forwards_zscore", ["curva"], [{"curva": curva, "data": doc_iso(doc)}])
 
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry", action="store_true", help="No persiste, solo imprime resumen")
+    args = parser.parse_args()
+
+    # Curvas presentes en histórico (SQL mercado.mercado_hist).
+    curvas = _curvas_disponibles()
+    if not curvas:
+        logger.warning("ForwardsHistorico (mercado_hist) vacío — nada que calcular.")
+        return 0
+
+    ts = datetime.now(UTC)
+    fecha_calculo = ts.date().isoformat()
+
     if args.dry:
+        _procesar(curvas, ts, fecha_calculo, dry=True)
         logger.info("(--dry: no se escribió nada)")
+        return 0
+
+    with JobRunLogger("forwards_zscore") as jr:
+        jr.set_stat("fecha_calculo", fecha_calculo)
+        jr.set_stat("curvas", len(curvas))
+        _procesar(curvas, ts, fecha_calculo, dry=False, jr=jr)
     return 0
 
 

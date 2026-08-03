@@ -17,6 +17,7 @@ Job puntual (no es always-on) que calcula el dólar MEP, CCL y canje a partir de
 Conecta con: escribe el histórico de MEP/CCL/canje en `Valuaciones.Dolar`; lee precios live vía `core.rofex_session` (pyRofex REST). Corre por cron cada ~15 min (`cron.engines.dolar_mep`). El live intradiario lo cubre `engines.dolares`; el endpoint `/api/cotizaciones/mep` usa este histórico como fallback.
 
 ## Usa / conecta con →
+- [[core.job_runs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
 

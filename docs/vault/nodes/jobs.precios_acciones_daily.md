@@ -20,6 +20,7 @@ Conecta con: lee underlyings de `Trading.Cedears`, baja precios de Yahoo vía `c
 
 ## Usa / conecta con →
 - [[core]]  ·  _module_
+- [[core.job_runs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[core.yahoo]]  ·  _module_

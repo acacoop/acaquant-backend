@@ -155,6 +155,19 @@ python -m jobs.guardrails              # 1ª corrida del report de calibración
   - **Pendiente [A]: 16 crons sin JobRunLogger** → si fallan, silencio total.
     Correr el script para la lista actualizada.
 
+- **2026-08-03 — Tanda [A]: rastro para los 5 jobs diarios ciegos.** Criterio: un job
+  de alta frecuencia (`market_quotes`, cada minuto, umbral 10') ya queda cubierto por
+  la frescura de su tabla; uno **diario con umbral de 3 días** puede fallar el lunes y
+  descubrirse el jueves. Se le puso `JobRunLogger` + `run_tipo` a `jobs.fair_value`,
+  `jobs.cierre_canje`, `jobs.forwards_zscore`, `jobs.precios_acciones_daily` y
+  `engines.dolar_mep` (que además se tragaba TODA excepción en un `except: print`).
+  Convención: los modos manuales (`--dry`, `--ticker`, `--backfill`) NO registran, para
+  no ensuciar `manager.job_runs` — mismo criterio que `portafolio_backfill`.
+  Fallas parciales (una curva/ticker) → `jr.error()` → status `partial`, que NO es
+  alerta: queda registrado sin pintar el panel de rojo. Solo un crash da `error`.
+  Quedan 10 en [A]: 6 de limpieza/infra (si no corren, no rompen nada) y 4 de alta
+  frecuencia ya cubiertos por frescura de tabla.
+
 - **2026-07-18 — Los 3 commits construidos y verdes** (344 tests totales, ruff/
   typecheck/import-chain OK; vault regenerado). Borrado `MAR_14_JULIO_00_28_AM.md`
   (temporal, auto-destruible, ya cumplió). Hallazgo del golden (`_to_float`)

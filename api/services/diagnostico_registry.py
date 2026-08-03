@@ -105,7 +105,7 @@ PIEZAS: list[Pieza] = [
           run_tipo="snapshot_cierre"),
     Pieza("MERCADOS", "job", "fair_value (fit)", grupo="RENTA FIJA", unidad="jobs.fair_value",
           cadencia="20:25 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
-          tabla="fair_value_residuos", ts_expr="ts_cierre"),
+          run_tipo="fair_value"),
     Pieza("MERCADOS", "job", "bonos_ohlc_daily (pivots RF)", grupo="RENTA FIJA",
           unidad="jobs.bonos_ohlc_daily",
           cadencia="20:16 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
@@ -136,15 +136,13 @@ PIEZAS: list[Pieza] = [
           tabla="dolar_snapshot", ts_expr="ts"),
     Pieza("MERCADOS", "job", "dolar_mep (histórico)", grupo="DERIVADOS", unidad="engines.dolar_mep",
           cadencia="cada 15m · 13-20 UTC L-V", ventana="rueda", umbral_s=30 * 60,
-          tabla="dolar", ts_expr="timestamp"),
+          run_tipo="dolar_mep"),
     Pieza("MERCADOS", "job", "forwards_zscore", grupo="DERIVADOS", unidad="jobs.forwards_zscore",
           cadencia="20:30 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
-          tabla="forwards_zscore", ts_expr="data->>'updated_at'"),
-    # cierre_canje escribe SQL-native (mercado.canje_cierre) desde el cutover 2026-06-24;
-    # Trading.CanjeCierre Mongo dropeada → ya no se chequea esa colección (el diagnostico no
-    # lee SQL todavía). TODO: wirear JobRunLogger + run_tipo="cierre_canje" para frescura fina.
+          run_tipo="forwards_zscore"),
     Pieza("MERCADOS", "job", "cierre_canje", grupo="DERIVADOS", unidad="jobs.cierre_canje",
-          cadencia="20:35 UTC L-V", ventana="diario", umbral_s=int(3 * _D)),
+          cadencia="20:35 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
+          run_tipo="cierre_canje"),
     Pieza("MERCADOS", "api", "MAE UST$T (dólar oficial, MANUAL)", grupo="DERIVADOS",
           cadencia="cada 30s en rueda (script PC oficina)", ventana="rueda", umbral_s=5 * 60,
           tabla="dolar_oficial_live"),
@@ -168,12 +166,9 @@ PIEZAS: list[Pieza] = [
     # que migren). El motor sigue vigilable por systemd `Active` / skill /motor-status.
     Pieza("MERCADOS", "motor", "motor_cedears", grupo="RENTA VARIABLE", unidad="motor_cedears",
           cadencia="live", ventana="rueda", umbral_s=60),
-    # precios_acciones_daily: PreciosAcciones (~43k docs) NO tiene índice por
-    # `fecha` global (solo {ticker, fecha}) → sortear por fecha sería COLLSCAN
-    # cada 10s (REGLA #4). No le ponemos fuente live; quedaría medible si se
-    # wirea JobRunLogger o se agrega un índice {fecha:-1}. Por ahora informativo.
     Pieza("MERCADOS", "job", "precios_acciones_daily", grupo="RENTA VARIABLE", unidad="jobs.precios_acciones_daily",
-          cadencia="22:00 UTC L-V", ventana="diario", umbral_s=int(3 * _D)),
+          cadencia="22:00 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
+          run_tipo="precios_acciones_daily"),
     Pieza("MERCADOS", "job", "adr_live", grupo="RENTA VARIABLE", unidad="jobs.adr_live",
           cadencia="cada 15m · 13-20 UTC L-V", ventana="rueda", umbral_s=30 * 60,
           run_tipo="adr_live"),

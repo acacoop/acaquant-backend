@@ -21,6 +21,7 @@ Cron: 20:30 UTC (17:30 ART), post-cierre del motor de forwards. `--dry` solo imp
 Conecta con: lee `Trading.ForwardsHistorico`, escribe `Trading.ForwardsZscore`. Lo consume la matriz de forwards en el front (que combina estos coeficientes con el live del motor).
 
 ## Usa / conecta con →
+- [[core.job_runs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 

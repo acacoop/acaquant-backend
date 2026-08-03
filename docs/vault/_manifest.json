@@ -4069,6 +4069,7 @@
 "path": "engines\\dolar_mep.py",
 "summary": "",
 "links": [
+"core.job_runs",
 "core.pg_mirror",
 "core.rofex_session"
 ]
@@ -4470,6 +4471,7 @@
 "summary": "cierre_canje.py — materializa el cierre diario de los tickers de canje.",
 "links": [
 "config",
+"core.job_runs",
 "core.pg_mirror",
 "core.postgres"
 ]
@@ -4626,6 +4628,7 @@
 "path": "jobs\\fair_value.py",
 "summary": "fair_value.py — fit cuadrático + residuos + z-scores diarios.",
 "links": [
+"core.job_runs",
 "core.pg_mirror",
 "core.postgres",
 "quant.curve_fit"
@@ -4655,6 +4658,7 @@
 "path": "jobs\\forwards_zscore.py",
 "summary": "forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.",
 "links": [
+"core.job_runs",
 "core.pg_mirror",
 "core.postgres"
 ]
@@ -4875,6 +4879,7 @@
 "summary": "precios_acciones_daily.py — agrega 1 vela daily por activo a",
 "links": [
 "core",
+"core.job_runs",
 "core.pg_mirror",
 "core.postgres",
 "core.yahoo"

@@ -21,6 +21,7 @@ Encadenado al cron de `snapshot_cierre`. Idempotente (upsert por ts_cierre/curva
 Conecta con: lee `Trading.SnapshotsCierre`, usa `quant.curve_fit.fit_quadratic`, escribe `Trading.FitParams` (β + R²) y `Trading.FairValueResiduos`. Lo consume `api/services/fair_value.py`.
 
 ## Usa / conecta con →
+- [[core.job_runs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[quant.curve_fit]]  ·  _module_

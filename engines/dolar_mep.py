@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pyRofex
 
+from core.job_runs import JobRunLogger
 from core.pg_mirror import write_native
 from core.rofex_session import inicializar_sesion
 
@@ -33,12 +34,14 @@ def obtener_bid(ticker):
     return float(bids[0]["price"])
 
 
-def run():
+def run(jr=None):
     ahora = datetime.now(tz=ART)
     print(f"[{ahora.strftime('%H:%M:%S')}] Calculando Dólar MEP...")
 
     if not inicializar_sesion():
         print("❌ No se pudo inicializar sesión.")
+        if jr:
+            jr.error("no se pudo inicializar la sesión pyRofex")
         return
 
     try:
@@ -73,6 +76,9 @@ def run():
             print(f"⚠ AL30C no disponible este turno: {e_ccl}. Se persiste solo MEP.")
 
         write_native("dolar", ["timestamp"], [doc])
+        if jr:
+            jr.set_stat("mep", mep)
+            jr.set_stat("ccl", doc.get("ccl"))
 
         if "ccl" in doc:
             print(
@@ -84,7 +90,10 @@ def run():
 
     except Exception as e:
         print(f"Error: {e}")
+        if jr:
+            jr.error(f"{type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":
-    run()
+    with JobRunLogger("dolar_mep") as _jr:
+        run(jr=_jr)

@@ -50,15 +50,27 @@ def _tipos_por_modulo() -> dict[str, set[str]]:
         for py in sorted((ROOT / carpeta).glob("*.py")):
             if py.name == "__init__.py":
                 continue
+            arbol = ast.parse(py.read_text(encoding="utf-8"))
+            # Algunos jobs pasan una constante de módulo (ej. TIPO_JOB) en vez del literal.
+            consts = {
+                t.id: n.value.value
+                for n in arbol.body if isinstance(n, ast.Assign)
+                for t in n.targets
+                if isinstance(t, ast.Name)
+                and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)
+            }
             tipos: set[str] = set()
-            for node in ast.walk(ast.parse(py.read_text(encoding="utf-8"))):
-                if (isinstance(node, ast.Call)
+            for node in ast.walk(arbol):
+                if not (isinstance(node, ast.Call)
                         and isinstance(node.func, ast.Name)
                         and node.func.id == "JobRunLogger"
-                        and node.args
-                        and isinstance(node.args[0], ast.Constant)
-                        and isinstance(node.args[0].value, str)):
-                    tipos.add(node.args[0].value)
+                        and node.args):
+                    continue
+                arg = node.args[0]
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    tipos.add(arg.value)
+                elif isinstance(arg, ast.Name) and arg.id in consts:
+                    tipos.add(consts[arg.id])
             out[f"{carpeta}.{py.stem}"] = tipos
     return out
 

@@ -23,6 +23,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 
 from config import PARES_CANJE
+from core.job_runs import JobRunLogger
 from core.pg_mirror import write_native
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -84,7 +85,18 @@ def main() -> None:
         datetime.strptime(args.fecha, "%Y-%m-%d").date()
         if args.fecha else datetime.now(UTC).date()
     )
-    run(fecha, dry=args.dry)
+    if args.dry:
+        run(fecha, dry=True)
+        return
+
+    esperados = len(_tickers())
+    with JobRunLogger("cierre_canje") as jr:
+        escritos = run(fecha, dry=False)
+        jr.set_stat("fecha", fecha.isoformat())
+        jr.set_stat("escritos", escritos)
+        jr.set_stat("esperados", esperados)
+        if escritos < esperados:
+            jr.error(f"{esperados - escritos} tickers sin trade en {fecha.isoformat()}")
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[core.pg_mirror]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[engines.dolar_mep]]  ·  _module_
 - [[jobs.acreencias]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.adr_live]]  ·  _module_
@@ -34,6 +35,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.cashflow]]  ·  _module_
 - [[jobs.cedears_bars_1m]]  ·  _module_
 - [[jobs.cedears_ohlc_daily]]  ·  _module_
+- [[jobs.cierre_canje]]  ·  _module_
 - [[jobs.cleanup_cedears_timesales]]  ·  _module_
 - [[jobs.cleanup_retencion]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
@@ -41,7 +43,9 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.eikon_cierres]]  ·  _module_
 - [[jobs.estrategia_resolver]]  ·  _module_
+- [[jobs.fair_value]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
+- [[jobs.forwards_zscore]]  ·  _module_
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.ia_calidad]]  ·  _module_
@@ -50,6 +54,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.pnl_totales_precompute]]  ·  _module_
 - [[jobs.portafolio_backfill]]  ·  _module_
+- [[jobs.precios_acciones_daily]]  ·  _module_
 - [[jobs.research_mail]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.snapshot_sinteticos]]  ·  _module_

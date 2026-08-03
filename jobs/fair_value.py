@@ -39,6 +39,7 @@ import statistics
 import sys
 from datetime import UTC, date, datetime, timedelta
 
+from core.job_runs import JobRunLogger
 from core.pg_mirror import write_native
 from core.postgres import get_pool
 from quant.curve_fit import fit_quadratic
@@ -340,11 +341,27 @@ def main() -> int:
 
     # SQL-native (decomiso 2026-06-28): escribe mercado.{fit_params,fair_value_residuos}.
     # Los índices/PK los garantiza sql/schema.sql (no se crean acá).
-    for curva in CURVAS_V1:
-        procesar_curva(curva, fecha_str, args.vol_min, args.dry)
-
     if args.dry:
+        for curva in CURVAS_V1:
+            procesar_curva(curva, fecha_str, args.vol_min, True)
         logger.info("(--dry: no se escribió en SQL)")
+        return 0
+
+    with JobRunLogger("fair_value") as jr:
+        jr.set_stat("fecha", fecha_str)
+        for curva in CURVAS_V1:
+            try:
+                r = procesar_curva(curva, fecha_str, args.vol_min, False)
+            except Exception as e:
+                jr.error(f"{curva}: {type(e).__name__}: {e}")
+                continue
+            jr.set_stat(curva, {
+                "n_universo": r.get("n_universo", 0),
+                "n_residuos": r.get("n_residuos", 0),
+                "r2": r.get("r2"),
+            })
+            if not r.get("n_residuos"):
+                jr.error(f"{curva}: sin residuos (sin cierre o universo insuficiente)")
     return 0
 
 

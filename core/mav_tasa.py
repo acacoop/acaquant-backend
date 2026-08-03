@@ -13,6 +13,7 @@ La tasa viaja embebida en el texto de `informacion`:
     'Compra  [#UAC140770002] 100.000,00@6%    (ARS 24hs)'  → 6
     'Compra  [*ACI120300125] 27.000.000,00@39,5% (ARS 24hs)' → 39,5
     'Subasta [#UCO310770001] 30.000,00@7%     (ARS Inm)'   → 7
+    'Compra  [#UMV131230011] 500.000,00@-0,5% (ARS Inm)'   → -0,5  ← negativas
 
 Formato: `<Operación> [<código>] <nominal>@<TASA>% (<moneda> <plazo>)`, números
 en formato argentino (punto de miles, coma decimal).
@@ -26,7 +27,11 @@ import re
 
 # 'Compra [#UAC140770002] 100.000,00@6% (ARS 24hs)'
 #          └─ código ──┘  └ nominal ┘ └tasa┘
-_RE_TASA = re.compile(r"@\s*([\d.,]+)\s*%")
+# El signo es OBLIGATORIO capturarlo: hay boletos a tasa NEGATIVA
+# ('...500.000,00@-0,5% (ARS Inm)', 132 casos medidos en prod 2026-08-03).
+# Quedarse con el valor absoluto guardaría 0,5 donde va -0,5 — un error peor
+# que dejar el dato vacío, porque no se nota.
+_RE_TASA = re.compile(r"@\s*([+-]?[\d.,]+)\s*%")
 _RE_COD = re.compile(r"\[([^\]]+)\]")
 _RE_NOMINAL = re.compile(r"\]\s*([\d.,]+)\s*@")
 

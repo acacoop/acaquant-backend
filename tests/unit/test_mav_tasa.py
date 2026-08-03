@@ -20,6 +20,11 @@ REALES = [
     ("Compra [*ARP110400156] 5.000.000,00@29,5% (ARS 24hs)", 29.5, "*ARP110400156", 5_000_000.0),
     ("Compra [*ARP121200166] 10.000.000,00@36% (ARS 24hs)", 36.0, "*ARP121200166", 10_000_000.0),
     ("Compra [*ACI250300289] 35.545.924,29@28% (ARS 24hs)", 28.0, "*ACI250300289", 35_545_924.29),
+    # TASAS NEGATIVAS — 132 boletos en prod. El signo NO se puede perder:
+    # guardar 0,5 donde va -0,5 es un error que no se nota.
+    ("Compra [#UMV131230011] 500.000,00@-0,5% (ARS Inm)", -0.5, "#UMV131230011", 500_000.0),
+    ("Subasta [#UMV201230037] 500.000,00@-0,5% (ARS 24hs)", -0.5, "#UMV201230037", 500_000.0),
+    ("Compra [#UMV311030030] 500.000,00@-0,25% (ARS 24hs)", -0.25, "#UMV311030030", 500_000.0),
 ]
 
 
@@ -45,6 +50,16 @@ def test_tasa_en_porcentaje_no_en_tanto_por_uno():
 def test_tasa_raw_conserva_el_token():
     """Para poder auditar el parseo desde el CSV sin volver a la base."""
     assert parse_informacion("Compra [#X] 100,00@39,5% (ARS)")["tasa_raw"] == "39,5"
+
+
+def test_tasa_negativa_conserva_el_signo():
+    """Regresión: la primera versión del regex no aceptaba '-' y estos 132
+
+    boletos quedaban sin tasa. Peor sería haberlos tomado como positivos.
+    """
+    r = parse_informacion("Compra [#UMV131230011] 500.000,00@-0,5% (ARS Inm)")
+    assert r["tasa_pct"] == -0.5
+    assert r["tasa_raw"] == "-0,5"
 
 
 class TestNumeroArgentino:

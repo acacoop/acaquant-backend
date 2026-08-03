@@ -1,9 +1,14 @@
 """Manager · Operaciones — backfill de operaciones.operaciones (SQL) por CSV.
 
 La UI (manager-view → tab OPERACIONES) parsea el CSV en el cliente y manda las
-filas crudas (header→valor) en lotes a `POST /operaciones/backfill`. El backend
-normaliza + enriquece (api/services/operaciones_informes.py) y upsertea por boleto
-en SQL. Admin-only (gate `manager` en api/routers/manager/__init__.py).
+filas crudas (header→valor) en lotes. El backend normaliza + enriquece
+(api/services/operaciones_informes.py) y escribe SQL. Admin-only (gate `manager`
+en api/routers/manager/__init__.py). Dos modos:
+
+  POST /operaciones/faltantes  → SOLO inserta boletos que no están (no pisa nada).
+                                 commit=false previsualiza. Es el modo por defecto
+                                 de la UI: tapar huecos del histórico.
+  POST /operaciones/backfill   → upsert por boleto (el Excel pisa lo que había).
 """
 import logging
 
@@ -25,6 +30,11 @@ class _BackfillReq(BaseModel):
     )
 
 
+class _FaltantesReq(BaseModel):
+    rows: list[dict] = Field(..., description="Filas crudas del Excel (header→valor).")
+    commit: bool = Field(False, description="false = previsualiza; true = inserta.")
+
+
 @router.post("/operaciones/backfill")
 def operaciones_backfill(req: _BackfillReq):
     """Normaliza + enriquece + upsertea un lote de filas en SQL operaciones."""
@@ -37,6 +47,23 @@ def operaciones_backfill(req: _BackfillReq):
         return svc.ingestar_filas_sql(req.rows, enrich_maps=maps)
     except Exception as e:
         logger.exception("operaciones_backfill failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/operaciones/faltantes")
+def operaciones_faltantes(req: _FaltantesReq):
+    """Carga SOLO los boletos que faltan (no pisa los existentes).
+
+    `commit=false` previsualiza: cuántos entran, rango de fechas, totales y qué
+    boletos quedarían sin mercado/segmento. `commit=true` inserta.
+    """
+    if not req.rows:
+        raise HTTPException(status_code=400, detail="Lote vacío.")
+    try:
+        maps = svc.cargar_maps_enrich()
+        return svc.ingestar_faltantes_sql(req.rows, enrich_maps=maps, commit=req.commit)
+    except Exception as e:
+        logger.exception("operaciones_faltantes failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

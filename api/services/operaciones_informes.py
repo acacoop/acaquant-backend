@@ -37,7 +37,10 @@ def _niveles_por_cuenta() -> dict[str, dict]:
 _ALIASES: dict[str, str] = {
     "boleto": "boleto",
     "cuenta": "cuenta",
+    "idcuenta": "cuenta",          # export con los nombres de columna SQL
+    "nrocuenta": "cuenta",
     "concertacion": "concertacion",
+    "fechaconcertacion": "concertacion",
     "denominacion": "denominacion",
     "tipodeoperacion": "tipo_operacion",
     "tipooperacion": "tipo_operacion",
@@ -48,6 +51,7 @@ _ALIASES: dict[str, str] = {
     "bruto": "bruto",
     "aranceles": "arancel",
     "arancel": "arancel",
+    "tasa": "tasa",
 }
 
 
@@ -168,6 +172,7 @@ def normalizar_fila(row: dict) -> dict | None:
         "cantidad":       _to_float(canon.get("cantidad")),
         "bruto":          _to_float(canon.get("bruto")),
         "arancel":        _to_float(canon.get("arancel")),
+        "tasa":           _to_float(canon.get("tasa")),
         "moneda":         _to_moneda(canon.get("condiciones")),
     }
 
@@ -304,16 +309,19 @@ def _aplicar_enrich(doc: dict, maps: tuple[dict, dict] | None,
     doc["nivel_3"] = nv.get("n3", "")
 
 
-_SQL_INGEST = """
-INSERT INTO operaciones
+_COLS_INGEST = """
  (boleto, concertacion, id_cuenta, denominacion, moneda, mercado, operacion,
   segmento, nivel_3, commodity, tipo_agro, es_cierre, bruto, arancel, mep, cantidad,
-  instrumento, tipo_operacion, condiciones, ingestado_en)
+  instrumento, tipo_operacion, condiciones, tasa, ingestado_en)
 VALUES
  (%(boleto)s, %(concertacion)s, %(id_cuenta)s, %(denominacion)s, %(moneda)s,
   %(mercado)s, %(operacion)s, %(segmento)s, %(nivel_3)s, %(commodity)s,
   %(tipo_agro)s, %(es_cierre)s, %(bruto)s, %(arancel)s, %(mep)s, %(cantidad)s,
-  %(instrumento)s, %(tipo_operacion)s, %(condiciones)s, %(ingestado_en)s)
+  %(instrumento)s, %(tipo_operacion)s, %(condiciones)s, %(tasa)s, %(ingestado_en)s)
+"""
+
+_SQL_INGEST = f"""
+INSERT INTO operaciones{_COLS_INGEST}
 ON CONFLICT (boleto) DO UPDATE SET
  concertacion=EXCLUDED.concertacion, id_cuenta=EXCLUDED.id_cuenta,
  denominacion=EXCLUDED.denominacion, moneda=EXCLUDED.moneda,
@@ -323,10 +331,18 @@ ON CONFLICT (boleto) DO UPDATE SET
  es_cierre=EXCLUDED.es_cierre, bruto=EXCLUDED.bruto, arancel=EXCLUDED.arancel,
  mep=EXCLUDED.mep, cantidad=EXCLUDED.cantidad, instrumento=EXCLUDED.instrumento,
  tipo_operacion=EXCLUDED.tipo_operacion, condiciones=EXCLUDED.condiciones,
+ tasa=COALESCE(EXCLUDED.tasa, operaciones.tasa),
  ingestado_en=EXCLUDED.ingestado_en
 """
 # OJO: `etapa` NO se toca en el UPDATE — la setea jobs/fci_bilateral (FCI bilateral).
-# Mismo comportamiento que el $set de Mongo (que tampoco incluía etapa).
+# `tasa` va con COALESCE: la ingesta de Aunesa NO la trae, y sin el COALESCE cada
+# corrida borraría la que dejó jobs/ops_tasa_mav.
+
+# Modo "solo faltantes": nunca toca un boleto ya cargado.
+_SQL_INSERT_FALTANTES = f"""
+INSERT INTO operaciones{_COLS_INGEST}
+ON CONFLICT (boleto) DO NOTHING
+"""
 
 
 def _row_to_sql_params(d: dict) -> dict:
@@ -353,6 +369,7 @@ def _row_to_sql_params(d: dict) -> dict:
         "instrumento":    d.get("instrumento"),
         "tipo_operacion": d.get("tipo_operacion"),
         "condiciones":    d.get("condiciones"),
+        "tasa":           d.get("tasa"),
         "ingestado_en":   d.get("ingestado_en"),
     }
 
@@ -399,6 +416,91 @@ def ingestar_filas_sql(
         "upsertadas":    len(params),
         "modificadas":   0,
     }
+
+
+def _preparar_docs(
+    rows: list[dict], enrich_maps: tuple[dict, dict] | None,
+) -> tuple[dict[str, dict], dict[str, int]]:
+    """Normaliza + enriquece un lote y lo dedupea por boleto (última gana).
+    Devuelve (boleto → doc, contadores de descarte)."""
+    ahora = datetime.now(UTC)
+    mep_cache: dict[str, float | None] = {}
+    por_boleto: dict[str, dict] = {}
+    cnt = {"sin_boleto": 0, "otc_excluidas": 0, "duplicadas_archivo": 0}
+    for row in rows:
+        doc = normalizar_fila(row)
+        if doc is None:
+            cnt["sin_boleto"] += 1
+            continue
+        if es_otc_excluido(doc.get("tipo_operacion")):
+            cnt["otc_excluidas"] += 1
+            continue
+        if doc["boleto"] in por_boleto:
+            cnt["duplicadas_archivo"] += 1
+        doc["ingestado_en"] = ahora
+        _aplicar_enrich(doc, enrich_maps, mep_cache)
+        por_boleto[doc["boleto"]] = doc
+    return por_boleto, cnt
+
+
+def ingestar_faltantes_sql(
+    rows: list[dict], enrich_maps: tuple[dict, dict] | None = None,
+    commit: bool = False,
+) -> dict:
+    """Carga SOLO los boletos que todavía NO están en operaciones.operaciones.
+
+    A diferencia de `ingestar_filas_sql` (upsert), acá un boleto ya cargado se
+    ignora por completo: el Excel nunca pisa lo que vino de Aunesa. Pensado para
+    tapar huecos del histórico.
+
+    `commit=False` previsualiza (no escribe) y reporta qué entraría, incluyendo
+    los boletos que quedarían sin `mercado` (tipo_operacion fuera del catálogo)
+    o sin `segmento` (cuenta que no está en clientes.comitentes) — esos ENTRAN
+    igual, pero no se ven bien filtrados en las vistas hasta corregir el maestro.
+    """
+    por_boleto, cnt = _preparar_docs(rows, enrich_maps)
+    out: dict = {
+        "recibidas": len(rows), **cnt,
+        "validas": len(por_boleto), "ya_existen": 0, "nuevos": 0,
+        "insertados": 0, "commit": commit,
+    }
+    if not por_boleto:
+        return out
+
+    boletos = list(por_boleto)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT boleto FROM operaciones WHERE boleto = ANY(%s)", (boletos,))
+        existentes = {b for (b,) in cur.fetchall()}
+        nuevos = [d for b, d in por_boleto.items() if b not in existentes]
+        out["ya_existen"] = len(existentes)
+        out["nuevos"] = len(nuevos)
+        if not nuevos:
+            return out
+
+        fechas = sorted(d["concertacion"] for d in nuevos if d.get("concertacion"))
+        out.update({
+            "sin_concertacion": sum(1 for d in nuevos if not d.get("concertacion")),
+            "desde": fechas[0] if fechas else None,
+            "hasta": fechas[-1] if fechas else None,
+            "bruto_ars": sum(d["bruto"] or 0 for d in nuevos if d.get("moneda") == "ARS"),
+            "bruto_usd": sum(d["bruto"] or 0 for d in nuevos if d.get("moneda") == "USD"),
+            "arancel_total": sum(d["arancel"] or 0 for d in nuevos),
+            "sin_mercado": sorted({d["tipo_operacion"] for d in nuevos
+                                   if not d.get("mercado") and d.get("tipo_operacion")}),
+            "cuentas_sin_segmento": sorted({d["cuenta"] for d in nuevos
+                                            if not d.get("segmento") and d.get("cuenta")}),
+            "muestra": [{k: d.get(k) for k in
+                         ("boleto", "concertacion", "cuenta", "moneda", "mercado",
+                          "bruto", "arancel", "tasa", "tipo_operacion")}
+                        for d in nuevos[:20]],
+        })
+        if not commit:
+            return out
+
+        cur.executemany(_SQL_INSERT_FALTANTES, [_row_to_sql_params(d) for d in nuevos])
+        conn.commit()
+    out["insertados"] = len(nuevos)
+    return out
 
 
 # enriquecer()/stats() (operaban Mongo CashFlow.Operaciones) ELIMINADAS — decomiso 2026-06-29:

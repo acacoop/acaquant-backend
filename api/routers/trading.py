@@ -61,6 +61,22 @@ def pivot_radar():
     return svc.pivot_radar()
 
 
+@router.get("/adr-zonas")
+def adr_zonas(ticker: str, dias: int = 180):
+    """Velas DIARIAS del ADR/subyacente USD + los 4 timeframes de pivots
+    (diario/semanal/mensual/anual) para el chart ZONAS de TRADING. Mismos
+    niveles que el panel MÉTRICAS de Renta Variable, pero graficables.
+
+    Vive acá (y no en /api/scanner) porque TRADING es su propio módulo RBAC:
+    un usuario con `trading` y sin `renta-variable` igual tiene que verlo.
+
+    Shape: {ticker, underlying, last, last_source, velas:[{t,o,h,l,c}],
+    frames:{semanal:{label,fecha_desde,fecha_hasta,h,l,c,levels}, ...}}
+    o {sin_datos: true} si el ticker no tiene serie USD (ej. un bono).
+    """
+    return svc.get_adr_zonas(ticker=ticker, dias=dias)
+
+
 @router.get("/universo")
 def universo():
     """Catálogo liviano para el selector: CEDEARs activos + bonos de renta fija.

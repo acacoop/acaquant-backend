@@ -296,3 +296,60 @@ def pivot_radar() -> list[dict]:
         })
     out.sort(key=lambda d: abs(d["dist_pct"]))
     return out
+
+
+# ── Zonas del ADR (velas diarias USD + pivots de los 4 timeframes) ────────────
+@cached(ttl=900)
+def _velas_adr(underlying: str, dias: int) -> list[dict]:
+    """Velas EOD del subyacente USD (mercado.precios_acciones) de los últimos
+    `dias` corridos, asc. `fecha` como 'YYYY-MM-DD' (el chart usa día, no tz)."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """SELECT fecha, open, high, low, close
+               FROM mercado.precios_acciones
+               WHERE ticker = %s AND fecha >= (CURRENT_DATE - %s::int)
+                 AND close IS NOT NULL
+               ORDER BY fecha""",
+            (underlying.upper(), dias),
+        )
+        rows = cur.fetchall()
+    velas = []
+    for r in rows:
+        c = float(r["close"])
+        velas.append({
+            "t": r["fecha"].isoformat(),
+            "o": float(r["open"]) if r["open"] is not None else c,
+            "h": float(r["high"]) if r["high"] is not None else c,
+            "l": float(r["low"]) if r["low"] is not None else c,
+            "c": c,
+        })
+    return velas
+
+
+def get_adr_zonas(*, ticker: str, dias: int = 180) -> dict:
+    """Velas diarias del ADR/subyacente USD + los 4 timeframes de pivots, para
+    el chart ZONAS de la vista TRADING.
+
+    Los niveles son EXACTAMENTE los del panel MÉTRICAS de Renta Variable
+    (`scanner_sql.get_pivot_points` → `quant.pivot_points`, calculados sobre el
+    subyacente USD con el `last` pisado por el live del ADR). Acá se le suman
+    las velas para poder dibujarlos en vez de tabularlos.
+
+    Un ticker sin serie en `mercado.precios_acciones` (típico: un bono de la
+    card, que no tiene ADR) devuelve `sin_datos: true`.
+    """
+    underlying = scanner_svc.resolve_underlying(ticker)
+    velas = _velas_adr(underlying, max(30, min(dias, 1825)))
+    if not velas:
+        return {"ticker": ticker.upper(), "underlying": underlying, "sin_datos": True,
+                "velas": [], "frames": {}}
+    piv = scanner_svc.get_pivot_points(ticker=ticker)
+    return {
+        "ticker": ticker.upper(),
+        "underlying": underlying,
+        "last": piv.get("last"),
+        "last_source": piv.get("last_source"),
+        "last_fecha": piv.get("last_fecha"),
+        "velas": velas,
+        "frames": piv.get("frames") or {},
+    }

@@ -40,6 +40,7 @@ __all__ = [
     "get_quant_stats",
     "get_ticker_returns",
     "get_universo",
+    "resolve_underlying",
 ]
 
 
@@ -72,6 +73,11 @@ def _resolve_underlying(ticker_corto: str) -> str:
         )
         row = cur.fetchone()
     return (row["underlying"] if row else None) or ticker_corto.upper()
+
+
+def resolve_underlying(ticker_corto: str) -> str:
+    """ticker_corto (BYMA) → underlying (US ticker). Público para otros services."""
+    return _resolve_underlying(ticker_corto)
 
 
 def _serie_closes(underlying: str) -> list[float]:

@@ -69,7 +69,6 @@ TABLAS: list[tuple[str, str | None, str, str]] = [
     ("portafolio.assets",             None,                  "datos", "catálogo de títulos"),
     # Home / manager
     ("home.market_quotes",            None,                  "datos", "watchlist HOME"),
-    ("home.market_calendar",          None,                  "datos", "calendario económico"),
     ("home.news_headlines",           "fecha_publicacion",   "datos", "noticias"),
     ("manager.manager_users",         None,                  "datos", "usuarios RBAC"),
     ("manager.role_matrix",           None,                  "datos", "matriz de roles"),

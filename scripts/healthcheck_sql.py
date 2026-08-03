@@ -35,7 +35,7 @@ from __future__ import annotations
 import sys
 import time
 import traceback
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
 # ── tipos de retorno de cada check ───────────────────────────────────────────
 # Un check devuelve (status, sample, detail). FAIL se infiere de una excepción.
@@ -174,9 +174,7 @@ def chk_agro():
 def chk_market():
     from api.services import market_sql
     q = market_sql.quotes()
-    ahora = datetime.now(UTC)
-    cal = market_sql.calendar_economic(ahora - timedelta(days=30), ahora + timedelta(days=30))
-    return _p(f"quotes={_n(q)} calendar(±30d)={_n(cal)}")
+    return _p(f"quotes={_n(q)}")
 
 
 def chk_news():

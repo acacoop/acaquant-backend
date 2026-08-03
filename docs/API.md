@@ -820,7 +820,7 @@ escriben motores (real-time) y jobs SQL-native (vía `core.pg_mirror`).
 | `valuaciones.dolar_snapshot` | — | `engines.dolares` (live, `_id='current'`) |
 | `valuaciones.dolar` | — | `engines.dolar_mep` (cron, histórico) |
 | `news.headlines` | — | `jobs.news_ingesta`, `jobs.news_finnhub` |
-| `market.quotes` / `market.economic_calendar` | — | `jobs.market_quotes`, `jobs.market_anchors`, `jobs.economic_calendar` |
+| `market.quotes` | — | `jobs.market_quotes`, `jobs.market_anchors` |
 | `manager.job_runs` | — | Background writers + TTL 60 d |
 | `manager.pyrofex_discovery` / `pyrofex_instruments` | — | `scripts.discovery_pyrofex` (one-shot manual) |
 | `manager.intel_docs` | — | `/api/manager/intel/*` |

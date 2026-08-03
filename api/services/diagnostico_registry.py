@@ -67,9 +67,6 @@ PIEZAS: list[Pieza] = [
     Pieza("HOME", "job", "market_anchors (retornos)", unidad="jobs.market_anchors",
           cadencia="diario 22:00 UTC L-V", ventana="diario", umbral_s=int(1.5 * _D),
           db="Market", coll="Quotes", field="anchors_updated_at"),
-    Pieza("HOME", "job", "economic_calendar", unidad="jobs.economic_calendar",
-          cadencia="diario ~11:30 UTC", ventana="diario", umbral_s=int(1.5 * _D),
-          db="Market", coll="EconomicCalendar", field="fetched_at"),
     # News.Headlines → SQL home.news_headlines (writers news_finnhub/news_ingesta SQL-native).
     Pieza("HOME", "api", "Finnhub news", grupo=None, unidad="jobs.news_finnhub",
           cadencia="*/30m · 12-23 UTC", ventana="always", umbral_s=3 * _H,

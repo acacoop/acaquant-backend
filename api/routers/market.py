@@ -1,7 +1,6 @@
-"""Router Market: watchlist quotes, economic calendar, candles históricos.
+"""Router Market: watchlist quotes, titulares Eikon, candles históricos.
 
-`/quotes` y `/calendar/economic` leen SQL (`api/services/market_sql`, tablas
-`market.*`) — decomiso Mongo: Market.{Quotes,EconomicCalendar} dropeadas.
+`/quotes` lee SQL (`api/services/market_sql`, tabla `home.market_quotes`).
 `/candle` y `/profile` pegan a APIs externas (Yahoo/Finnhub).
 """
 from datetime import UTC, datetime, timedelta
@@ -37,22 +36,6 @@ def eikon_news(limit: int = Query(80, ge=1, le=200)):
     watchlist HOME. Solo se mueven con el feed prendido; queda lo último."""
     from core.eikon_news import listar_news
     return {"news": listar_news(limit=limit)}
-
-
-@router.get("/calendar/economic")
-def calendar_economic(
-    desde:       str | None = Query(None, description="ISO date; default = ahora"),
-    hasta:       str | None = Query(None, description="ISO date; default = +30 días"),
-    importancia: int = Query(0, ge=0, le=3, description="0=todas, 1-3 = mínimo de impact"),
-    country:     str | None = Query(None, description="Ej: US, AR, BR, EU"),
-    limit:       int = Query(500, ge=1, le=1000),
-):
-    now = datetime.now(UTC)
-    d_desde = _parse(desde) or now
-    d_hasta = _parse(hasta) or (now + timedelta(days=30))
-    return market_sql.calendar_economic(
-        desde=d_desde, hasta=d_hasta, importancia=importancia,
-        country=country, limit=limit)
 
 
 @router.get("/candle")

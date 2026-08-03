@@ -167,7 +167,9 @@ systemctl restart api.service
 
   Tres cosas más, para que la CLASE de bug no se repita:
   - **El mismo hueco existía en `/api/calendario`** (calendario económico de la
-    watchlist HOME) → proxy nuevo `src/app/api/calendario/route.ts`.
+    watchlist HOME) → se le agregó proxy, y al destaparlo se descubrió que la
+    feature nunca había funcionado: se dio de baja completa el 2026-08-03 (FMP
+    dejó de servir el endpoint en el plan contratado).
   - **`usePoll` ahora devuelve `error`** (`src/lib/use-poll.ts`): antes un 404 /
     403 / 502 se descartaba en silencio y un panel ROTO se veía idéntico a uno
     legítimamente VACÍO. La tab ESTRATEGIA muestra "error de contexto · HTTP 404"

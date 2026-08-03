@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-55 notas.
+54 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -28,7 +28,6 @@
 - [[jobs.controles_datos]] — controles_datos.py — Auto-control de CALIDAD DE DATOS de ACAQuant.
 - [[jobs.day_trading_stats]] — day_trading_stats.py — resumen diario de scalping por CEDEAR.
 - [[jobs.dias_habiles]] — dias_habiles.py — Carga días hábiles del calendario argentino a SQL (mercado.dias_habiles).
-- [[jobs.economic_calendar]] — economic_calendar.py — ingesta diaria del calendario económico (FMP).
 - [[jobs.eikon_cierres]] — jobs/eikon_cierres.py — persiste el CIERRE diario de los feeds Eikon nuevos
 - [[jobs.estrategia_resolver]] — jobs/estrategia_resolver.py — resuelve el RESULTADO de cada señal ESTRATEGIA QUANT.
 - [[jobs.fair_value]] — fair_value.py — fit cuadrático + residuos + z-scores diarios.

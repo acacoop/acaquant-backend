@@ -9,7 +9,7 @@ path: api\routers\market.py
 
 # api/routers/market
 
-> Router Market: watchlist quotes, economic calendar, candles históricos.
+> Router Market: watchlist quotes, titulares Eikon, candles históricos.
 
 **Archivo:** `api\routers\market.py`
 

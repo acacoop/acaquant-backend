@@ -190,9 +190,11 @@ footer global + `GET /api/ia/briefing` + `api/services/briefing.py`, columnas
 HOY·1D·WTD·MTD, determinista sin LLM) pero **no se invierte más en ella**: los
 pendientes que tenía (bloque Agenda vía FMP, health de `titulos_sin_flujo`,
 frescura del feed MAE a las 10, verificación de "pagan hoy") quedan DESCARTADOS
-del roadmap — no re-proponer sin pedido del user. Mantenimiento correctivo
-solamente (si se rompe, se arregla). Nota: el mayorista MAE ganó WTD/MTD
-anclado en el A3500 el 2026-07-14, ya deployado.
+del roadmap — no re-proponer sin pedido del user. El bloque Agenda ya no tiene
+fuente posible: FMP dejó de servir el calendario económico en el plan contratado
+(HTTP 402) y la feature entera se dio de baja el 2026-08-03. Mantenimiento
+correctivo solamente (si se rompe, se arregla). Nota: el mayorista MAE ganó
+WTD/MTD anclado en el A3500 el 2026-07-14, ya deployado.
 
 ### P2 — Triage inteligente de incidentes
 **Estado: v1 FUNCIONANDO (2026-07-10) — probado con fallas reales, falta shadow** ·
@@ -796,7 +798,8 @@ plataforma del Copiloto si algún día se retoman.
   `market_anchors` extendido a futuros con ancla `anchor_wtd` (WTD real). Dólares:
   WTD/MTD al vuelo desde histórico. Bonos que pagan hoy: estructural sobre curvas ×
   held (`acreencias.bonos_pagan_en_fecha`). Diseño medido con diags (ya borrados,
-  REGLA #5). Agenda diferida (Finnhub free muerto → FMP/LSEG pendiente de fuente).
+  REGLA #5). Agenda diferida (Finnhub free muerto → FMP tampoco: descartado el
+  2026-08-03, sin fuente).
 - **2026-07-10 — Fase 0.1: gateway `core/ai.py`** (+ tabla `ia.trazas`, migración
   de `ai_resumen` adentro, `scripts/smoke_ai.py`, tests unit). Key DeepSeek
   seteada por el user en el Droplet el mismo día. Smoke OK E2E; IDs

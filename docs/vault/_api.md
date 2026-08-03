@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-198 notas.
+197 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -20,7 +20,6 @@
 - [[api.routers]]
 - [[api.routers.analitica]] — Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.
 - [[api.routers.back_office]] — Router /api/back-office — sección Back Office.
-- [[api.routers.calendario]] — GET /api/calendario — calendario económico (watchlist HOME, tab CALENDARIO).
 - [[api.routers.carteras]] — Router Portfolio — thin wrappers sobre `api.services.portfolio`.
 - [[api.routers.cotizaciones]] — Router Cotizaciones — thin wrappers sobre la capa de servicio.
 - [[api.routers.cuentas]] — Router Cuentas: accionistas y contrapartes (ambos SQL — fuente única;
@@ -60,7 +59,7 @@
 - [[api.routers.manager.uso]] — Manager sub-router — telemetría de USO (usuario × módulo).
 - [[api.routers.manager.valuaciones]] — Manager · Valuaciones — debug XIRR mensual.
 - [[api.routers.manager_resources]] — Endpoints de recursos del servidor para el Manager.
-- [[api.routers.market]] — Router Market: watchlist quotes, economic calendar, candles históricos.
+- [[api.routers.market]] — Router Market: watchlist quotes, titulares Eikon, candles históricos.
 - [[api.routers.me]] — Router /api/me — identidad del caller.
 - [[api.routers.mesa_dinero]] — Router MESA DE DINERO — /api/mesa-dinero (vista NEGOCIO → /mesa-dinero).
 - [[api.routers.news]] — Router News: headlines agregados de RSS (News.Headlines) + reader mode.
@@ -88,6 +87,7 @@
 - [[api.services._negocio_sql_read]] — Lectura de boletos desde SQL `operaciones.negocio_movimientos` devolviendo dicts
 - [[api.services._sql]] — Helper compartido de lectura SQL (canónico).
 - [[api.services.aca_valores]] — api/services/aca_valores.py — CRUD del set de cuentas "ACA VALORES" (SQL).
+- [[api.services.acavalores_retorno]] — ACA VALORES RETORNO TOTAL — lectura de `operaciones.acavalores_retorno`.
 - [[api.services.acreencias]] — api/services/acreencias.py — motor de acreencias (cobros futuros por cliente).
 - [[api.services.agro_cobertura]] — Service — Pase con Cobertura (AGRO).
 - [[api.services.agro_sql]] — api/services/agro_sql.py — dominio AGRO / Derivados Agro leyendo Postgres.
@@ -104,7 +104,6 @@
 - [[api.services.bonos_admin]] — api/services/bonos_admin.py — alta/edición de bonos NO-ON directo en Trading.Curvas.
 - [[api.services.breakevens_admin]] — api/services/breakevens_admin.py — curaduría de pares de breakevens.
 - [[api.services.briefing]] — api/services/briefing.py — Briefing de apertura (QuantAI P1, v1 DETERMINISTA).
-- [[api.services.calendario]] — calendario.py — calendario económico para la watchlist HOME (tab CALENDARIO).
 - [[api.services.camara_cereales]] — Service — Cámara Arbitral de Cereales de Rosario.
 - [[api.services.canje]] — Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).
 - [[api.services.carry_trade]] — Serie de carry trade en USD para una curva (tasa_fija / cer).
@@ -154,7 +153,7 @@
 - [[api.services.macro]] — Capa de servicio — series macro y clasificación.
 - [[api.services.macro_sql]] — api/services/macro_sql.py — Series macro 100% SQL (decomiso Mongo).
 - [[api.services.manager_infra_sql]] — api/services/manager_infra_sql.py — lecturas SQL de la infra de Manager.
-- [[api.services.market_sql]] — api/services/market_sql.py — Market (watchlist + calendario económico) leyendo Postgres.
+- [[api.services.market_sql]] — api/services/market_sql.py — Market (watchlist HOME) leyendo Postgres.
 - [[api.services.mejoras_dispo]] — Service — Mejoras Precio Disponible (Agro).
 - [[api.services.mercado_hist_sql]] — api/services/mercado_hist_sql.py — históricos de mercado leyendo Postgres.
 - [[api.services.mesa_dinero]] — api/services/mesa_dinero.py — MESA DE DINERO (vista NEGOCIO → /mesa-dinero).

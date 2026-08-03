@@ -32,7 +32,6 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.routers]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
 - [[api.routers.back_office]]  ·  _module_
-- [[api.routers.calendario]]  ·  _module_
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
 - [[api.routers.cuentas]]  ·  _module_

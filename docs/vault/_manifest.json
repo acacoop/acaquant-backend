@@ -61,7 +61,6 @@
 "api.routers",
 "api.routers.analitica",
 "api.routers.back_office",
-"api.routers.calendario",
 "api.routers.carteras",
 "api.routers.cotizaciones",
 "api.routers.cuentas",
@@ -262,17 +261,6 @@
 "api.services.back_office_titulos",
 "api.services.tenencia_hd",
 "api.services.tesoreria"
-]
-},
-{
-"id": "api.routers.calendario",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api\\routers\\calendario.py",
-"summary": "GET /api/calendario — calendario económico (watchlist HOME, tab CALENDARIO).",
-"links": [
-"api.services.calendario"
 ]
 },
 {
@@ -841,7 +829,7 @@
 "layer": "api",
 "repo": "backend",
 "path": "api\\routers\\market.py",
-"summary": "Router Market: watchlist quotes, economic calendar, candles históricos.",
+"summary": "Router Market: watchlist quotes, titulares Eikon, candles históricos.",
 "links": [
 "api.services",
 "api.services.market_sql",
@@ -872,6 +860,7 @@
 "links": [
 "api.auth",
 "api.services",
+"api.services.acavalores_retorno",
 "api.services.mesa_dinero"
 ]
 },
@@ -1207,6 +1196,17 @@
 ]
 },
 {
+"id": "api.services.acavalores_retorno",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\acavalores_retorno.py",
+"summary": "ACA VALORES RETORNO TOTAL — lectura de `operaciones.acavalores_retorno`.",
+"links": [
+"api.services._sql"
+]
+},
+{
 "id": "api.services.acreencias",
 "type": "module",
 "layer": "api",
@@ -1461,18 +1461,6 @@
 "core.eikon_bonos",
 "core.postgres",
 "db.Trading.DOLAR"
-]
-},
-{
-"id": "api.services.calendario",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api\\services\\calendario.py",
-"summary": "calendario.py — calendario económico para la watchlist HOME (tab CALENDARIO).",
-"links": [
-"api.cache",
-"core.postgres"
 ]
 },
 {
@@ -2160,7 +2148,7 @@
 "layer": "api",
 "repo": "backend",
 "path": "api\\services\\market_sql.py",
-"summary": "api/services/market_sql.py — Market (watchlist + calendario económico) leyendo Postgres.",
+"summary": "api/services/market_sql.py — Market (watchlist HOME) leyendo Postgres.",
 "links": [
 "api.cache",
 "api.services._sql"
@@ -3026,17 +3014,6 @@
 ]
 },
 {
-"id": "core.fmp",
-"type": "module",
-"layer": "core",
-"repo": "backend",
-"path": "core\\fmp.py",
-"summary": "Cliente FMP (financialmodelingprep) — calendario económico.",
-"links": [
-"config"
-]
-},
-{
 "id": "core.fred_api",
 "type": "module",
 "layer": "core",
@@ -3497,17 +3474,6 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.day_trading_stats"
-]
-},
-{
-"id": "cron.jobs.economic_calendar",
-"type": "cron",
-"layer": "deploy",
-"repo": "infra",
-"path": "deploy/crontab.txt",
-"summary": "Tarea programada (cron).",
-"links": [
-"jobs.economic_calendar"
 ]
 },
 {
@@ -4626,18 +4592,6 @@
 "path": "jobs\\dias_habiles.py",
 "summary": "dias_habiles.py — Carga días hábiles del calendario argentino a SQL (mercado.dias_habiles).",
 "links": [
-"core.pg_mirror"
-]
-},
-{
-"id": "jobs.economic_calendar",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs\\economic_calendar.py",
-"summary": "economic_calendar.py — ingesta diaria del calendario económico (FMP).",
-"links": [
-"core.fmp",
 "core.pg_mirror"
 ]
 },

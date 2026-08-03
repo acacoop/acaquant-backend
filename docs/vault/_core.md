@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-45 notas.
+44 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
@@ -24,7 +24,6 @@
 - [[core.eikon_news]] — Feed Eikon — TITULARES de noticias Reuters para la watchlist del HOME.
 - [[core.estrategia_sql]] — core/estrategia_sql.py — I/O SQL del modelo ESTRATEGIA QUANT.
 - [[core.finnhub]] — Cliente Finnhub con rate limiting interno.
-- [[core.fmp]] — Cliente FMP (financialmodelingprep) — calendario económico.
 - [[core.fred_api]] — core/fred_api.py — cliente de la FRED API (Federal Reserve Bank of St. Louis).
 - [[core.grupos]] — core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).
 - [[core.grupos_sql]] — core/grupos_sql.py — lectura + escritura del scope de cuentas (grupos) desde Postgres.

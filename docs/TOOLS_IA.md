@@ -44,7 +44,6 @@
 | 11 | **rendimiento_esperado_curva** | "Si la curva no se mueve, ¿qué LECAP/LECER rinde más a 30 días?" | `descomposicion_retorno.rolldown_esperado` (:427) | chico | alto | 1 |
 | 12 | **rendimiento_ranking** | "¿Qué cuentas rindieron mejor en dólares este año? ¿Qué TEA lleva CLIENTE_1?" | `valuaciones_sql.valuacion_consolidada` (:282) | chico | alto | 2 |
 | 13 | **expectativas_rem** | "¿Qué inflación espera el REM a 6 meses, con qué dispersión?" | `rem_sql.expectativas` (:82) | chico | alto | 2 |
-| 14 | **calendario_economico** | "¿Qué datos macro salen esta semana en AR y US?" | `calendario.get_calendario` (:17) | chico | alto | 2 |
 | 15 | **papeles_correlacionados** | "Estoy largo NVDA: ¿qué papeles del panel duplican la apuesta?" | `day_trading.get_companeros` (:342) | chico | alto | 2 |
 | 16 | **screener_fundamentals** | "De los papeles del tablero Reuters, ¿cuáles están baratos por P/E fwd y EV/EBITDA?" | `eikon_live.tablero_fundamentals` (:147) | chico | alto | 2 |
 | 17 | **serie_historica** *(genérica — ver §4)* | "¿Cómo rindió TZXD6 en junio? ¿Dónde estaba la UST10Y en abril? ¿La IV del call subió?" | 8 tablas distintas detrás de UN registro de series | grande (1ª vez) / chico (c/serie) | alto | 2 |

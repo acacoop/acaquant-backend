@@ -1,17 +1,14 @@
-"""api/services/market_sql.py — Market (watchlist + calendario económico) leyendo Postgres.
+"""api/services/market_sql.py — Market (watchlist HOME) leyendo Postgres.
 
-Espejo de los endpoints read-only de api/routers/market.py (`/quotes` y
-`/calendar/economic`). Mismo shape que el path Mongo: el doc completo viaja en
-`data jsonb` (fechas ya ISO, sin `_id`) y los retornos se computan on-the-fly
-desde los anchors con la MISMA regla (`compute_returns`, que el router también
-usa en su path Mongo para que no haya drift). Dual-run por flag `MARKET_SQL`.
+Espejo del endpoint read-only `/quotes` de api/routers/market.py: el doc completo
+viaja en `data jsonb` (fechas ya ISO) y los retornos se computan on-the-fly desde
+los anchors (`compute_returns`).
 
-`/candle` y `/profile` son APIs externas (Yahoo/Finnhub) — no tocan Mongo, no migran.
+`/candle` y `/profile` son APIs externas (Yahoo/Finnhub) — no tocan esta tabla.
 """
 from __future__ import annotations
 
 import re
-from datetime import datetime
 
 from api.cache import cached
 from api.services._sql import _q
@@ -72,21 +69,3 @@ def quotes(symbols: list[str] | None = None) -> list[dict]:
         docs.sort(key=lambda d: (d.get("grupo", "ZZZ"), d.get("symbol", "")))
         return docs
     return _quotes_all()
-
-
-def calendar_economic(desde: datetime, hasta: datetime, importancia: int = 0,
-                      country: str | None = None, limit: int = 500) -> list[dict]:
-    """Eventos macro en [desde, hasta]. Filtra por `evt_ts` (PK natural; los docs
-    Mongo cuyo `time` no es datetime no están en la tabla — tampoco matchean el
-    rango en el path Mongo, misma semántica)."""
-    conds = ["evt_ts >= %(desde)s", "evt_ts <= %(hasta)s"]
-    p: dict = {"desde": desde, "hasta": hasta, "limit": int(limit)}
-    if importancia:
-        conds.append("impact >= %(imp)s")
-        p["imp"] = int(importancia)
-    if country:
-        conds.append("country = %(country)s")
-        p["country"] = country.upper()
-    rows = _q(f"SELECT data FROM market_calendar WHERE {' AND '.join(conds)} "
-              f"ORDER BY evt_ts ASC LIMIT %(limit)s", p)
-    return [compute_returns(_fix_tz(dict(r["data"]))) for r in rows]

@@ -229,9 +229,6 @@
 35 11    * * *   /root/TradingAV/deploy/run_job.sh news_finnhub 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_finnhub'
 */30 12-23 * * * /root/TradingAV/deploy/run_job.sh news_finnhub 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_finnhub'
 
-# ─── Calendario económico global (FMP — reemplazó a Finnhub) — 1x/día post-resume 11:30
-40 11 * * * /root/TradingAV/deploy/run_job.sh economic_calendar 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.economic_calendar'
-
 # ─── Market quotes (watchlist HOME / vista GENERAL) — cada 1 min.
 # Los futuros globales (ES/NQ/CL/cripto) cotizan casi 24h → corre la ventana
 # 07:00-23:00 ART (10-23 UTC L-V + 0-1 UTC Mar-Sáb). Índices/Treasury fuera de

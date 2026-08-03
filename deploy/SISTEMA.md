@@ -98,7 +98,6 @@
 | 11:35 · diario | `jobs.news_ingesta'` |
 | 11:35 · diario | `jobs.news_finnhub'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |
-| 11:40 · diario | `jobs.economic_calendar'` |
 | 20:40 · L-V | `jobs.snapshot_sinteticos'` |
 | 12:45 · L-V | `jobs.acreencias` |
 | 20:45 · L-V | `jobs.guardrails'` |

@@ -31,7 +31,6 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.argy]]  ·  _module_
 - [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.back_office_titulos]]  ·  _module_
-- [[api.services.calendario]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_

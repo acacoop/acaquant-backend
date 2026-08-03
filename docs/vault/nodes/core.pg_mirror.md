@@ -63,7 +63,6 @@ _(pendiente de enriquecimiento)_
 - [[jobs.cierre_canje]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.dias_habiles]]  ·  _module_
-- [[jobs.economic_calendar]]  ·  _module_
 - [[jobs.fair_value]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.forwards_zscore]]  ·  _module_

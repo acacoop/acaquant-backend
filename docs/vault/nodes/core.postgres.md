@@ -46,7 +46,6 @@ _(pendiente de enriquecimiento)_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.breakevens_admin]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
-- [[api.services.calendario]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_

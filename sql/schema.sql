@@ -21,7 +21,7 @@
 --                 snapshots_cierre_hist, canje_cierre, mercado_hist
 --   macro       → series_macro, rem
 --   manager     → manager_users, role_matrix, grupos
---   home        → news_headlines, market_quotes, market_calendar
+--   home        → news_headlines, market_quotes
 --
 -- Los NOMBRES de tabla son únicos en todo el search_path (no hay colisión entre
 -- schemas) → una query sin calificar resuelve siempre a la tabla correcta.
@@ -112,8 +112,7 @@ BEGIN
     ('public','job_runs','manager'),
     ('public','role_audit','manager'),
     ('public','news_headlines','home'),
-    ('public','market_quotes','home'),
-    ('public','market_calendar','home')
+    ('public','market_quotes','home')
   ) AS t(src, tbl, dst)
   LOOP
     IF EXISTS (SELECT 1 FROM information_schema.tables
@@ -1345,25 +1344,10 @@ CREATE TABLE IF NOT EXISTS home.market_quotes (
     data   jsonb
 );
 
--- Market.EconomicCalendar — eventos macro. PK NATURAL (evt_ts, country, event) = el
--- unique index del ESCRITOR (jobs/economic_calendar upsertea por time/country/event) →
--- dual-write limpio. Migración v1 (hkey=md5 del doc, generaba fila nueva por update):
--- si quedó alguna instalación con la columna hkey, se dropea y la repuebla el sync.
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name = 'market_calendar' AND column_name = 'hkey') THEN
-    EXECUTE 'DROP TABLE ' || (SELECT table_schema FROM information_schema.tables
-                              WHERE table_name = 'market_calendar' LIMIT 1) || '.market_calendar';
-  END IF;
-END $$;
-CREATE TABLE IF NOT EXISTS home.market_calendar (
-    evt_ts  timestamptz NOT NULL,            -- el filtro de rango usa el prefijo de la PK
-    country text NOT NULL,
-    event   text NOT NULL,
-    impact  integer,
-    data    jsonb,
-    PRIMARY KEY (evt_ts, country, event)
-);
+-- home.market_calendar — ELIMINADA 2026-08-03. El calendario económico dependía de
+-- FMP, que dejó de servir el endpoint (HTTP 402 "Restricted Endpoint") en el plan
+-- contratado; la tabla nunca llegó a tener una sola fila. Feature dada de baja.
+DROP TABLE IF EXISTS home.market_calendar;
 
 -- ============================================================================
 -- DECOMISO MONGO — tablas faltantes (2026-06-28). Cada una es el destino SQL de

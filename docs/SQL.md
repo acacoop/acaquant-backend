@@ -45,7 +45,7 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 | `operaciones` | operaciones, negocio_movimientos, acreencias, movimientos, tipos_operacion, ordenes_live, ordenes_audit, ordenes_idempotency, triggers_mep, brackets_live, operativas_mep, motor_heartbeat, accounts_descubiertas |
 | `clientes` | comitentes, cuentas, contrapartes, accionistas, actividad_mensual, operadores, objetivos_comerciales |
 | `manager` | manager_users, role_matrix, role_audit, grupos, job_runs, pyrofex_instruments, pyrofex_discovery |
-| `home` | market_quotes, market_calendar, news_headlines |
+| `home` | market_quotes, news_headlines |
 | `mcp` | oauth_clients, oauth_codes, oauth_tokens |
 
 **Diseño:**
@@ -170,9 +170,10 @@ el panel Manager (`/jobs/history`, `/roles/audit`) y la frescura del Diagnóstic
 writers usan `datetime.now(UTC)` aware → el cast no corre la hora).
 
 ### HOME / MCP
-- `home.{market_quotes, market_calendar, news_headlines}` — watchlist HOME, calendario
-  económico, headlines (retención 2 días vía `prune_native`). Services `market_sql.py` /
-  `news_sql.py`. `market_calendar` PK natural (evt_ts, country, event).
+- `home.{market_quotes, news_headlines}` — watchlist HOME y headlines (retención 2 días
+  vía `prune_native`). Services `market_sql.py` / `news_sql.py`.
+  (`market_calendar` se eliminó el 2026-08-03 junto con el calendario económico: FMP
+  dejó de servir el endpoint en el plan contratado y la tabla nunca tuvo datos.)
 - `mcp.{oauth_clients, oauth_codes, oauth_tokens}` — OAuth 2.1 del MCP server.
 
 ---

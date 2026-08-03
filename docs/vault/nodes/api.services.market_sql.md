@@ -9,7 +9,7 @@ path: api\services\market_sql.py
 
 # api/services/market_sql
 
-> api/services/market_sql.py — Market (watchlist + calendario económico) leyendo Postgres.
+> api/services/market_sql.py — Market (watchlist HOME) leyendo Postgres.
 
 **Archivo:** `api\services\market_sql.py`
 

@@ -153,6 +153,33 @@ systemctl restart api.service
 
 ## Changelog
 
+- **2026-08-03** — **[fix] la tab ESTRATEGIA nunca mostró datos: faltaba el proxy
+  Next.** El frontend pega a `/api/estrategia/*` (mismo origen) pero en
+  `acaquant-web` NUNCA existió el route handler que reenvía al backend — el
+  directorio `src/app/api/estrategia/` no estaba en el repo. Next devolvía 404 y
+  `usePoll` se lo come en silencio (`if (!r.ok) return;`), así que el panel
+  quedaba en "sin datos de contexto" para siempre. Afectaba a TODOS los endpoints
+  del dominio (`/contexto`, `/live`, `/track-record`, `/senales`) — el backend y
+  el schema estaban bien. Fix: `src/app/api/estrategia/[...path]/route.ts`
+  (GET-only, copia del proxy de `/api/trading`, `force-dynamic` + `no-store`).
+  Diag de la cadena de datos: `python -m scripts.diag_estrategia_contexto`
+  (ruedas guardadas, cuántas con `atr`, tape vivo y la salida real del service).
+
+  Tres cosas más, para que la CLASE de bug no se repita:
+  - **El mismo hueco existía en `/api/calendario`** (calendario económico de la
+    watchlist HOME) → proxy nuevo `src/app/api/calendario/route.ts`.
+  - **`usePoll` ahora devuelve `error`** (`src/lib/use-poll.ts`): antes un 404 /
+    403 / 502 se descartaba en silencio y un panel ROTO se veía idéntico a uno
+    legítimamente VACÍO. La tab ESTRATEGIA muestra "error de contexto · HTTP 404"
+    en vez de "sin datos". Cambio aditivo: los callers que solo usan `data` /
+    `lastAt` no se tocan.
+  - **Check de contrato**: `python -m scripts.check_proxies_next [--strict]`
+    cruza los prefijos `APIRouter(prefix="/api/…")` de `api/routers/` contra los
+    directorios de `src/app/api/` del checkout del frontend y lista los routers
+    sin proxy. `IGNORAR` = los que no consume el browser (`/api/ingest` server-to-
+    server, `/api/titulos` solo SSR, `/api/cuentas` sin consumidor); `ALIAS` = los
+    que el frontend renombra (`/api/derivados` → `derivados-agro`/`-sinteticos`).
+
 - **2026-07-29 (4)** — El CONTEXTO ya se muestra en la vista. La tab ESTRATEGIA del
   RADAR de TRADING deja de mostrar la señal (modelo v1 PARKEADO) y muestra el panel
   de contexto de los 5 papeles foco (`config.ESTRATEGIA_CONTEXTO_TICKERS` = QQQ SPY

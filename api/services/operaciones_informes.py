@@ -542,6 +542,93 @@ def ingestar_faltantes_sql(
     return out
 
 
+_SQL_UPDATE_FECHA = """
+UPDATE operaciones
+   SET concertacion = %(concertacion)s
+ WHERE boleto = %(boleto)s
+   AND concertacion IS DISTINCT FROM %(concertacion)s
+"""
+
+
+def corregir_fechas_sql(rows: list[dict], commit: bool = False) -> dict:
+    """Corrige SOLO `concertacion` usando el Excel como fuente de verdad.
+
+    Existe porque una carga histórica vieja interpretó las fechas en formato
+    americano (MM/DD) y dejó filas con día y mes dados vuelta. La mezcla no se
+    puede arreglar con una regla ciega (hay filas ambiguas que SÍ están bien),
+    así que el arreglo va fila por fila contra el archivo.
+
+    NO toca ninguna otra columna: el UPDATE setea `concertacion` y nada más.
+    Idempotente (`IS DISTINCT FROM`): re-correrlo no reescribe lo ya correcto.
+    """
+    por_boleto: dict[str, str] = {}
+    cnt = {"sin_boleto": 0, "sin_fecha_archivo": 0, "duplicadas_archivo": 0}
+    for row in rows:
+        doc = normalizar_fila(row)
+        if doc is None:
+            cnt["sin_boleto"] += 1
+            continue
+        if not doc.get("concertacion"):
+            cnt["sin_fecha_archivo"] += 1
+            continue
+        if doc["boleto"] in por_boleto:
+            cnt["duplicadas_archivo"] += 1
+        por_boleto[doc["boleto"]] = doc["concertacion"]
+
+    out: dict = {
+        "recibidas": len(rows), **cnt, "con_fecha": len(por_boleto),
+        "iguales": 0, "swap": 0, "otra_dif": 0, "sin_fecha_base": 0,
+        "no_existen": 0, "a_corregir": 0, "corregidos": 0, "commit": commit,
+        "muestra": [],
+    }
+    if not por_boleto:
+        return out
+
+    boletos = list(por_boleto)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT boleto, concertacion FROM operaciones WHERE boleto = ANY(%s)",
+            (boletos,))
+        en_base = dict(cur.fetchall())
+        out["no_existen"] = len(por_boleto) - len(en_base)
+
+        cambios: list[dict] = []
+        for boleto, nueva_iso in por_boleto.items():
+            if boleto not in en_base:
+                continue
+            actual = en_base[boleto]
+            actual_iso = actual.isoformat() if actual else None
+            if actual_iso == nueva_iso:
+                out["iguales"] += 1
+                continue
+            if actual is None:
+                tipo = "sin fecha"
+                out["sin_fecha_base"] += 1
+            elif (actual.year == int(nueva_iso[:4])
+                  and actual.day == int(nueva_iso[5:7])
+                  and actual.month == int(nueva_iso[8:10])):
+                tipo = "dia/mes al reves"
+                out["swap"] += 1
+            else:
+                tipo = "otra diferencia"
+                out["otra_dif"] += 1
+            cambios.append({"boleto": boleto, "actual": actual_iso,
+                            "nueva": nueva_iso, "tipo": tipo})
+
+        out["a_corregir"] = len(cambios)
+        cambios.sort(key=lambda c: c["boleto"])
+        out["muestra"] = cambios[:30]
+        if not commit or not cambios:
+            return out
+
+        cur.executemany(_SQL_UPDATE_FECHA,
+                        [{"boleto": c["boleto"], "concertacion": c["nueva"]}
+                         for c in cambios])
+        conn.commit()
+    out["corregidos"] = len(cambios)
+    return out
+
+
 # enriquecer()/stats() (operaban Mongo CashFlow.Operaciones) ELIMINADAS — decomiso 2026-06-29:
 # la colección está DROPEADA y el path vivo es SQL (ingestar_filas_sql + _aplicar_enrich →
 # operaciones.operaciones). Eran dead code sin llamadores (manager/operaciones y el cron usan SQL).

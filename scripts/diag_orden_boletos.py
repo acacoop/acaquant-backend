@@ -81,7 +81,7 @@ def main() -> None:
 
         # Rango de fechas por día, para ver de un vistazo si un día pisa a otro.
         rango: dict[object, list] = {}
-        for num, boleto, fecha in items:
+        for num, _boleto, fecha in items:
             r = rango.setdefault(fecha, [num, num, 0])
             r[0] = min(r[0], num)
             r[1] = max(r[1], num)

@@ -37,6 +37,10 @@ ROOT = Path(__file__).resolve().parent.parent
 CRONTAB = ROOT / "deploy" / "crontab.txt"
 REGISTRY = ROOT / "api" / "services" / "diagnostico_registry.py"
 
+# Windows con la salida piped usa cp1252 y revienta con los acentos/flechas.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 
 def _crons_reales() -> set[str]:
     txt = CRONTAB.read_text(encoding="utf-8")

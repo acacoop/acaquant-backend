@@ -13,6 +13,7 @@ a la base y por lo tanto no existe para el Informe.
 
 Uso:
     python -m scripts.diag_aunesa_cuentas
+    python -m scripts.diag_aunesa_cuentas --por-tipo           # una llamada por cada tipo del selector
     python -m scripts.diag_aunesa_cuentas --tipo Comitente     # acota a un tipo
     python -m scripts.diag_aunesa_cuentas --crudo              # imprime 1 registro completo (OJO: PII)
 """
@@ -29,6 +30,11 @@ from core.postgres import get_pool
 
 AUTH_URL = "https://aca.aunesa.com/Irmo/api/login"
 LISTADO_URL = "https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas"
+
+# Los 8 tipos del selector de Aunesa. Se usan en --por-tipo: si el endpoint exige
+# `tipoCuenta` (o ignora la ausencia del param), una llamada por tipo garantiza el universo.
+TIPOS = ("Agente", "Comitente", "Contabilidad", "Ente", "Intermediación",
+         "Mercado", "Propia", "Proveedor")
 
 
 def _auth() -> dict[str, str]:
@@ -62,12 +68,30 @@ def _titulo(t: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Consulta cruda a Aunesa listadoCuentas.")
     ap.add_argument("--tipo", help="pasa tipoCuenta=<X> al endpoint (default: sin filtro).")
+    ap.add_argument("--por-tipo", action="store_true",
+                    help="una llamada por cada tipo conocido y une los resultados.")
     ap.add_argument("--crudo", action="store_true", help="imprime 1 registro completo (contiene PII).")
     args = ap.parse_args()
 
     headers = _auth()
-    params = {"tipoCuenta": args.tipo} if args.tipo else {}
-    cuentas = _listado(headers, params)
+    if args.por_tipo:
+        params = {"tipoCuenta": "(barrido por tipo)"}
+        vistos: dict[str, dict] = {}
+        print("Barrido por tipo:")
+        for t in TIPOS:
+            try:
+                lote = _listado(headers, {"tipoCuenta": t})
+            except requests.HTTPError as e:
+                print(f"  {t:<16} ERROR {e.response.status_code}")
+                continue
+            print(f"  {t:<16} {len(lote):>6}")
+            for c in lote:
+                if c.get("id") is not None:
+                    vistos[str(c["id"])] = c
+        cuentas = list(vistos.values())
+    else:
+        params = {"tipoCuenta": args.tipo} if args.tipo else {}
+        cuentas = _listado(headers, params)
 
     _titulo("1) RESPUESTA CRUDA")
     print(f"params enviados : {params or '(ninguno — sin filtro)'}")

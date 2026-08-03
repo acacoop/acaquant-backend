@@ -117,7 +117,8 @@ Endpoints verificados en `api/routers/derivados_agro.py`.
 - `mercado.futuros_dlr_snapshot` — futuros DLR (vivo + cierre)
 - `mercado.agro_pizarra` (+ `agro_pizarra_audit`) — pizarra manual
 - `mercado.camara_cereales` (+ `camara_cereales_audit`) — cámara manual
-- `mercado.volumen_mercado_agro` — denominador del market share (**carga manual mensual**)
+- `mercado.volumen_mercado_agro` — denominador del market share (**carga manual mensual**
+  vía `python -m scripts.cargar_volumen_agro`; `--listar` muestra qué meses están cargados)
 
 ### 5.2. Compartidas (también SQL)
 - `mercado.curvas` y `mercado.market_snapshot` (documentadas en RENTA_FIJA.md).

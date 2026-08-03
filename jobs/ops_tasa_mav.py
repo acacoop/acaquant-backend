@@ -90,22 +90,44 @@ def _pendientes(pool, desde: date | None, hasta: date | None) -> list[dict]:
         return cur.fetchall()
 
 
-def _resolver(rows: list[dict]) -> tuple[list[tuple[float, str]], int, int]:
-    """(actualizaciones, sin_tasa, ambiguos). Una tasa por boleto o ninguna."""
+def _resolver(rows: list[dict]) -> dict:
+    """Una tasa por boleto, o ninguna. Devuelve el detalle de por qué.
+
+    Distingue DOS motivos de "sin tasa" que no son lo mismo y se arreglan
+    distinto:
+      - `sin_texto`: el movimiento no tiene `informacion` → no hay nada que
+        parsear. Es un dato que falta en origen.
+      - `formato_desconocido`: hay texto pero no matchea `@<tasa>%` → apareció
+        un formato nuevo y hay que extender el parseo.
+    `muestras` trae ejemplos reales del segundo caso para poder verlo en el log
+    del cron sin tener que ir a la base.
+    """
     updates: list[tuple[float, str]] = []
-    sin_tasa = ambiguos = 0
+    sin_texto = formato_desconocido = ambiguos = 0
+    muestras: list[str] = []
     for r in rows:
+        infos = [i for i in (r["infos"] or []) if i]
         tasas = {
-            t for info in (r["infos"] or [])
+            t for info in infos
             if (t := parse_informacion(info)["tasa_pct"]) is not None
         }
         if len(tasas) == 1:
             updates.append((tasas.pop(), r["boleto"]))
-        elif not tasas:
-            sin_tasa += 1
-        else:
+        elif tasas:
             ambiguos += 1
-    return updates, sin_tasa, ambiguos
+        elif not infos:
+            sin_texto += 1
+        else:
+            formato_desconocido += 1
+            if len(muestras) < 8:
+                muestras.append(str(infos[0])[:110])
+    return {
+        "updates": updates,
+        "sin_texto": sin_texto,
+        "formato_desconocido": formato_desconocido,
+        "ambiguos": ambiguos,
+        "muestras": muestras,
+    }
 
 
 def _aplicar(pool, updates: list[tuple[float, str]], run: JobRunLogger) -> int:
@@ -141,9 +163,11 @@ def main() -> None:
         rows = _pendientes(pool, desde, hasta)
         run.log(f"boletos MAV sin tasa (con movimiento): {len(rows)}")
 
-        updates, sin_tasa, ambiguos = _resolver(rows)
-        run.log(f"con tasa parseada: {len(updates)} · sin tasa en el texto: {sin_tasa} "
-                f"· ambiguos (tasas distintas): {ambiguos}")
+        res = _resolver(rows)
+        updates = res["updates"]
+        run.log(f"con tasa parseada: {len(updates)} · sin `informacion`: {res['sin_texto']} "
+                f"· formato desconocido: {res['formato_desconocido']} "
+                f"· ambiguos (tasas distintas): {res['ambiguos']}")
 
         escritos = 0
         if args.dry_run:
@@ -153,17 +177,23 @@ def main() -> None:
         else:
             run.log("nada para actualizar")
 
-        if sin_tasa:
-            run.error(f"{sin_tasa} boleto(s) con movimiento pero sin tasa parseable "
-                      f"en `informacion` — formato distinto al conocido")
-        if ambiguos:
-            run.error(f"{ambiguos} boleto(s) con VARIAS tasas distintas — se dejan NULL "
+        if res["sin_texto"]:
+            run.error(f"{res['sin_texto']} boleto(s) cuyo movimiento NO trae `informacion` "
+                      f"— no hay texto del cual sacar la tasa (falta el dato en origen)")
+        if res["formato_desconocido"]:
+            run.error(f"{res['formato_desconocido']} boleto(s) con `informacion` que NO "
+                      f"matchea '@<tasa>%' — formato nuevo, hay que extender el parseo:")
+            for m in res["muestras"]:
+                run.log(f"    {m!r}")
+        if res["ambiguos"]:
+            run.error(f"{res['ambiguos']} boleto(s) con VARIAS tasas distintas — se dejan NULL "
                       f"a propósito (no se adivina)")
 
         run.set_stat("pendientes", len(rows))
         run.set_stat("escritos", escritos)
-        run.set_stat("sin_tasa", sin_tasa)
-        run.set_stat("ambiguos", ambiguos)
+        run.set_stat("sin_texto", res["sin_texto"])
+        run.set_stat("formato_desconocido", res["formato_desconocido"])
+        run.set_stat("ambiguos", res["ambiguos"])
         run.set_stat("todo", args.todo)
         run.set_stat("dry_run", args.dry_run)
 

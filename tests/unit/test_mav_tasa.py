@@ -78,28 +78,39 @@ class TestResolucionPorBoleto:
         return _resolver(rows)
 
     def test_un_movimiento_una_tasa(self):
-        u, sin, amb = self._resolver([{"boleto": "A", "infos": ["Compra [#X] 100,00@6% (ARS)"]}])
-        assert u == [(6.0, "A")]
-        assert (sin, amb) == (0, 0)
+        r = self._resolver([{"boleto": "A", "infos": ["Compra [#X] 100,00@6% (ARS)"]}])
+        assert r["updates"] == [(6.0, "A")]
+        assert (r["sin_texto"], r["formato_desconocido"], r["ambiguos"]) == (0, 0, 0)
 
     def test_varios_movimientos_misma_tasa_se_resuelve(self):
-        u, sin, amb = self._resolver([{"boleto": "B", "infos": [
+        r = self._resolver([{"boleto": "B", "infos": [
             "Compra [#X] 100,00@6% (ARS)", "Venta [#X] 100,00@6% (ARS)"]}])
-        assert u == [(6.0, "B")]
-        assert (sin, amb) == (0, 0)
+        assert r["updates"] == [(6.0, "B")]
+        assert r["ambiguos"] == 0
 
     def test_tasas_distintas_NO_se_adivina(self):
         """Con dos tasas distintas se deja NULL a propósito: escribir una
 
         inventada en la base es peor que dejar el dato vacío.
         """
-        u, _sin, amb = self._resolver([{"boleto": "C", "infos": [
+        r = self._resolver([{"boleto": "C", "infos": [
             "Compra [#X] 100,00@6% (ARS)", "Venta [#X] 100,00@9% (ARS)"]}])
-        assert u == []
-        assert amb == 1
+        assert r["updates"] == []
+        assert r["ambiguos"] == 1
 
-    @pytest.mark.parametrize("infos", [None, [], ["sin formato"]])
-    def test_sin_tasa_parseable_se_cuenta_aparte(self, infos):
-        u, sin, amb = self._resolver([{"boleto": "D", "infos": infos}])
-        assert u == []
-        assert (sin, amb) == (1, 0)
+    @pytest.mark.parametrize("infos", [None, [], [None], [""]])
+    def test_sin_informacion_se_cuenta_como_sin_texto(self, infos):
+        """Falta el dato en origen — distinto de 'formato nuevo'."""
+        r = self._resolver([{"boleto": "D", "infos": infos}])
+        assert r["updates"] == []
+        assert (r["sin_texto"], r["formato_desconocido"]) == (1, 0)
+
+    def test_texto_sin_tasa_es_formato_desconocido_y_deja_muestra(self):
+        """Hay texto pero no matchea: hay que extender el parseo. La muestra va
+
+        al log del cron para poder verlo sin entrar a la base.
+        """
+        r = self._resolver([{"boleto": "E", "infos": ["Canje [#X] 100,00 (ARS)"]}])
+        assert r["updates"] == []
+        assert (r["sin_texto"], r["formato_desconocido"]) == (0, 1)
+        assert r["muestras"] == ["Canje [#X] 100,00 (ARS)"]

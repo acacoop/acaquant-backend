@@ -63,10 +63,10 @@ PIEZAS: list[Pieza] = [
     # ── HOME ───────────────────────────────────────────────
     Pieza("HOME", "job", "market_quotes (watchlist)", unidad="jobs.market_quotes",
           cadencia="cada 1m · 13-21 UTC L-V", ventana="rueda", umbral_s=10 * 60,
-          db="Market", coll="Quotes", field="updated_at"),
+          tabla="market_quotes", ts_expr="data->>'updated_at'"),
     Pieza("HOME", "job", "market_anchors (retornos)", unidad="jobs.market_anchors",
           cadencia="diario 22:00 UTC L-V", ventana="diario", umbral_s=int(1.5 * _D),
-          db="Market", coll="Quotes", field="anchors_updated_at"),
+          tabla="market_quotes", ts_expr="data->>'anchors_updated_at'"),
     # News.Headlines → SQL home.news_headlines (writers news_finnhub/news_ingesta SQL-native).
     Pieza("HOME", "api", "Finnhub news", grupo=None, unidad="jobs.news_finnhub",
           cadencia="*/30m · 12-23 UTC", ventana="always", umbral_s=3 * _H,
@@ -81,12 +81,13 @@ PIEZAS: list[Pieza] = [
           tabla="market_snapshot"),
     Pieza("OPERAR", "motor", "motor_ordenes (ER WS)", unidad="motor_ordenes",
           cadencia="live (heartbeat 30s)", ventana="rueda_agro", umbral_s=90,
-          db="Operaciones", coll="MotorOrdenesHeartbeat", field="updated_at"),
+          tabla="motor_heartbeat", ts_expr="updated_at"),
 
     # ── MERCADOS · RENTA FIJA ──────────────────────────────
+    # `ts` del tape es NAIVE en hora ART (ver sql/schema.sql) → assume="AR".
     Pieza("MERCADOS", "motor", "motor_rofex (trades)", grupo="RENTA FIJA", unidad="motor_rofex",
           cadencia="live", ventana="rueda", umbral_s=300,
-          db="Trading", coll="TimeSales", field="timestamp", assume="AR"),
+          tabla="timesales", ts_expr="ts", assume="AR"),
     Pieza("MERCADOS", "motor", "motor_curvas (TEA/duration)", grupo="RENTA FIJA", unidad="motor_curvas",
           cadencia="live (2s)", ventana="rueda", umbral_s=120,
           tabla="market_snapshot"),
@@ -95,7 +96,7 @@ PIEZAS: list[Pieza] = [
           run_tipo="argentina_datos"),
     Pieza("MERCADOS", "job", "bcra (CER/TAMAR/DOLAR)", grupo="RENTA FIJA", unidad="jobs.bcra",
           cadencia="diario 22:00 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
-          db="Trading", coll="CER", field="fecha", ts_kind="iso"),
+          run_tipo="bcra"),
     # snapshot_cierre escribe SQL-native (mercado.snapshots_cierre + _hist) desde el cutover
     # 2026-06-24; Trading.SnapshotsCierre Mongo dropeada → frescura por JobRuns (el job usa
     # JobRunLogger("snapshot_cierre")), no por la colección Mongo.
@@ -104,7 +105,7 @@ PIEZAS: list[Pieza] = [
           run_tipo="snapshot_cierre"),
     Pieza("MERCADOS", "job", "fair_value (fit)", grupo="RENTA FIJA", unidad="jobs.fair_value",
           cadencia="20:25 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
-          db="Trading", coll="FairValueResiduos", field="ts_cierre", ts_kind="iso"),
+          tabla="fair_value_residuos", ts_expr="ts_cierre"),
     Pieza("MERCADOS", "job", "bonos_ohlc_daily (pivots RF)", grupo="RENTA FIJA",
           unidad="jobs.bonos_ohlc_daily",
           cadencia="20:16 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
@@ -216,14 +217,16 @@ PIEZAS: list[Pieza] = [
     # AuM Mongo (jobs.aum) eliminado 2026-06-15: el writer de tenencias es el
     # cron diario portafolio_backfill --diario → SQL portafolio.tenencia. La
     # frescura SQL no la chequea este registro (solo inventario).
+    # El JobRunLogger de portafolio_backfill --diario registra con tipo "aum" (legado).
     Pieza("PORTFOLIOS", "job", "tenencia (snapshot SQL)", unidad="jobs.portafolio_backfill",
-          cadencia="11:00 UTC L-V", ventana="diario", umbral_s=int(1.5 * _D)),
+          cadencia="11:00 UTC L-V", ventana="diario", umbral_s=int(1.5 * _D),
+          run_tipo="aum"),
     Pieza("PORTFOLIOS", "job", "pnl_totales_precompute", unidad="jobs.pnl_totales_precompute",
           cadencia="cada 30m :05,:35 · 15-22 UTC L-V", ventana="rueda", umbral_s=60 * 60,
-          db="Valuaciones", coll="PnLTotalesCache", field="computed_at"),
+          run_tipo="pnl_totales_precompute"),
     Pieza("PORTFOLIOS", "job", "consolidado_cuentas", unidad="jobs.consolidado_cuentas",
           cadencia="23:30 UTC L-V", ventana="diario", umbral_s=int(1.5 * _D),
-          db="Valuaciones", coll="ConsolidadoCuentas", field="computed_at"),
+          run_tipo="consolidado_cuentas"),
     # jobs/cashflow escribe SQL-native (operaciones.movimientos) desde el cutover 2026-06-24;
     # CashFlow.Movimientos Mongo dropeada → ya no se chequea esa colección. El job corre con
     # JobRunLogger("cashflow") → la frescura sale de Manager.JobRuns por run_tipo (no de la coll).

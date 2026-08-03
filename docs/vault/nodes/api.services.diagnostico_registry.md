@@ -16,12 +16,6 @@ path: api\services\diagnostico_registry.py
 ## Qué hace
 _(pendiente de enriquecimiento)_
 
-## Usa / conecta con →
-- [[db.CashFlow.Operaciones]]  ·  _collection_
-- [[db.Trading.TimeSales]]  ·  _collection_
-- [[db.Valuaciones.ConsolidadoCuentas]]  ·  _collection_
-- [[db.Valuaciones.PnLTotalesCache]]  ·  _collection_
-
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.logs]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_

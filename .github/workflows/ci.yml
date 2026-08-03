@@ -33,5 +33,9 @@ jobs:
         run: python -m scripts.perf_scan
         continue-on-error: true
 
+      - name: Observabilidad de jobs (informational)
+        run: python -m scripts.audit_jobs_observabilidad
+        continue-on-error: true
+
       - name: Pytest
         run: pytest -ra

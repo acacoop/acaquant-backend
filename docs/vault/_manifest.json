@@ -1998,12 +1998,7 @@
 "repo": "backend",
 "path": "api\\services\\diagnostico_registry.py",
 "summary": "Registro ÚNICO del Diagnóstico: vista → motores / jobs / APIs que la alimentan.",
-"links": [
-"db.CashFlow.Operaciones",
-"db.Trading.TimeSales",
-"db.Valuaciones.ConsolidadoCuentas",
-"db.Valuaciones.PnLTotalesCache"
-]
+"links": []
 },
 {
 "id": "api.services.estrategia",

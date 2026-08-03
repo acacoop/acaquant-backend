@@ -17,5 +17,4 @@ Conecta con: la escribe/enriquece `engines/curvas.py` (motor de enriquecimiento 
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.status]]  ·  _module_
-- [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.operativa_mep]]  ·  _module_

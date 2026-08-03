@@ -80,7 +80,7 @@ def _leer_frescura(p: Pieza) -> tuple[datetime | None, str | None]:
                 cur.execute(f"SELECT max(({p.ts_expr})::timestamptz) FROM {p.tabla}{where}")
                 row = cur.fetchone()
             ts = row[0] if row else None
-            return (asegurar_aware(ts, UTC) if ts else None), None
+            return _parse_ts(ts, p.ts_kind, p.assume), None
         except Exception:
             return None, None
     return None, None

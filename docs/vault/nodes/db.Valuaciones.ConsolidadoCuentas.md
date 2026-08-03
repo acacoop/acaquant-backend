@@ -15,5 +15,4 @@ Valuación consolidada por cuenta precalculada en la base `Valuaciones`. Materia
 
 Conecta con: la escribe el cron `jobs/consolidado_cuentas.py` (lee `SnapshotsCierre`); la leen `api/services/valuaciones.py` y `jobs/actividad_mensual.py`. Referenciada como singleton-friendly en `core/mongo.py`.
 
-## Lo usan (backlinks) ←
-- [[api.services.diagnostico_registry]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

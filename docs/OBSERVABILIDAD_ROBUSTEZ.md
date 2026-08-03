@@ -136,6 +136,25 @@ python -m jobs.guardrails              # 1ª corrida del report de calibración
 
 ## Registro (con fecha)
 
+- **2026-08-03 — Auditoría de observabilidad de jobs** (`scripts/audit_jobs_observabilidad.py`,
+  estática, sin DB ni deps; corre en CI como informativa). Nace del caso
+  `jobs.economic_calendar`: falló desde el día 1 sin dejar rastro (no usaba
+  JobRunLogger) y el Diagnóstico lo "vigilaba" contra una colección Mongo
+  decomisada. Cruza crontab × JobRunLogger × `diagnostico_registry`.
+  Hallazgos corregidos en el mismo commit:
+  - **8 piezas apuntaban a Mongo** (`db`/`coll` sin `tabla`) → daban `sin_datos`
+    permanente. Re-apuntadas a SQL o a `run_tipo`: market_quotes, market_anchors,
+    motor_ordenes, motor_rofex (trades), bcra, fair_value, pnl_totales_precompute,
+    consolidado_cuentas.
+  - **4 piezas ignoraban el JobRunLogger que el job ya emitía** → el árbol se caía
+    al frescor de la tabla y un run en ERROR con datos viejos se veía sano. Ojo con
+    `jobs.portafolio_backfill`, que registra con `tipo="aum"` (legado).
+  - **`diagnostico.py::_leer_frescura` ignoraba `ts_kind`/`assume` en el path SQL**
+    (hardcodeaba UTC) → ahora usa `_parse_ts`. Sin eso, el tape (`mercado.timesales`,
+    `ts` naive en ART) se leía 3h corrido y se veía crítico siempre.
+  - **Pendiente [A]: 16 crons sin JobRunLogger** → si fallan, silencio total.
+    Correr el script para la lista actualizada.
+
 - **2026-07-18 — Los 3 commits construidos y verdes** (344 tests totales, ruff/
   typecheck/import-chain OK; vault regenerado). Borrado `MAR_14_JULIO_00_28_AM.md`
   (temporal, auto-destruible, ya cumplió). Hallazgo del golden (`_to_float`)

@@ -27,14 +27,14 @@ from datetime import UTC, datetime, timedelta
 
 from core.postgres import get_pool
 
-# Tablas del dominio negocio + las que joinean sus vistas.
+# Tablas del dominio negocio + las que joinean sus vistas ('schema.tabla').
 _TABLAS = [
-    ("operaciones", "operaciones"),
-    ("operaciones", "negocio_movimientos"),
-    ("operaciones", "movimientos"),
-    ("operaciones", "acreencias"),
-    ("clientes", "comitentes"),
-    ("portafolio", "tenencia"),
+    "operaciones.operaciones",
+    "operaciones.negocio_movimientos",
+    "operaciones.movimientos",
+    "operaciones.acreencias",
+    "clientes.comitentes",
+    "portafolio.tenencia",
 ]
 
 
@@ -52,7 +52,7 @@ def _tabla_stats() -> None:
                to_char(s.last_autovacuum, 'MM-DD HH24:MI') AS last_av,
                to_char(s.last_autoanalyze, 'MM-DD HH24:MI') AS last_aa
         FROM pg_stat_user_tables s
-        WHERE (s.schemaname, s.relname) = ANY(%(tablas)s)
+        WHERE s.schemaname || '.' || s.relname = ANY(%(tablas)s)
         ORDER BY pg_total_relation_size(s.relid) DESC
     """
     with get_pool().connection() as conn, conn.cursor() as cur:
@@ -78,7 +78,7 @@ def _indices() -> None:
         SELECT i.schemaname, i.relname, i.indexrelname,
                pg_relation_size(i.indexrelid) AS bytes, i.idx_scan
         FROM pg_stat_user_indexes i
-        WHERE (i.schemaname, i.relname) = ANY(%(tablas)s)
+        WHERE i.schemaname || '.' || i.relname = ANY(%(tablas)s)
         ORDER BY i.relname, i.idx_scan DESC
     """
     with get_pool().connection() as conn, conn.cursor() as cur:

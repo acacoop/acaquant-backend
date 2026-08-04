@@ -61,6 +61,75 @@ _DOLARIZAR = "USD_DOL"
 
 
 # ── FLUJO CONTRAPARTES — resumen agregado (vista /operaciones → CONTRAPARTES) ─
+@cached(ttl=300)
+def flujo_operaciones(contraparte: str | None = None, moneda: str | None = None,
+                      segmento: str | None = None, desde: str | None = None,
+                      hasta: str | None = None) -> list[dict]:
+    """Flujo de contrapartes — operaciones individuales (drill-down de la vista
+    CONTRAPARTES; el agregado por día es `flujo_resumen`). Match por id_cuenta
+    contra clientes.contrapartes. Excluye Futuros/Opciones y las Caución
+    COLOCADORA (vienen en pares y duplican la vista; la tomadora se mantiene).
+
+    Todos los filtros bajan a SQL: `contraparte` reduce la lista de ids ANTES
+    de la query y `segmento` filtra por split_part(tipo_operacion) en el WHERE
+    — antes se traía TODO el scope y se descartaba en Python, y como el cache
+    es por combinación de parámetros, cada filtro re-ejecutaba el fetch
+    completo (el filtro multiplicaba el costo en vez de reducirlo)."""
+    # cuenta (id) → {contraparte, grupo}. La cuenta es la CLAVE.
+    cp_rows = _q("SELECT id_cuenta, contraparte, segmento FROM contrapartes "
+                 "WHERE id_cuenta IS NOT NULL AND id_cuenta <> ''")
+    cp_map = {
+        str(r["id_cuenta"]).strip(): {"contraparte": r["contraparte"] or "",
+                                      "grupo": r["segmento"] or ""}
+        for r in cp_rows if r["id_cuenta"] not in (None, "")
+    }
+    ids = list(cp_map)
+    if contraparte:
+        ids = [idc for idc, cp in cp_map.items() if cp["contraparte"] == contraparte]
+    if not ids:
+        return []
+
+    conds = ["id_cuenta = ANY(%(ids)s)",
+             "(tipo_operacion IS NULL OR tipo_operacion !~* 'Futuros|Opciones|colocadora')"]
+    p: dict = {"ids": ids}
+    if moneda:
+        conds.append("moneda = %(moneda)s")
+        p["moneda"] = moneda
+    if segmento:
+        conds.append("split_part(COALESCE(tipo_operacion, ''), ' ', 1) = %(seg)s")
+        p["seg"] = segmento
+    if desde:
+        conds.append("concertacion >= %(desde)s")
+        p["desde"] = desde
+    if hasta:
+        conds.append("concertacion <= %(hasta)s")
+        p["hasta"] = hasta
+
+    rows = _q(
+        f"SELECT boleto, concertacion::text AS concertacion, tipo_operacion, "
+        f"id_cuenta, denominacion, instrumento, bruto, moneda "
+        f"FROM operaciones WHERE {' AND '.join(conds)} ORDER BY concertacion", p)
+
+    out = []
+    for d in rows:
+        cuenta = str(d.get("id_cuenta") or "").strip()
+        cp = cp_map.get(cuenta, {})
+        tipo = d.get("tipo_operacion") or ""
+        out.append({
+            "boleto":        d.get("boleto"),
+            "concertacion":  d.get("concertacion"),
+            "tipoOperacion": tipo,
+            "cuenta":        cuenta,
+            "denominacion":  d.get("denominacion"),
+            "unidad":        d.get("instrumento"),
+            "bruto":         float(d["bruto"]) if d.get("bruto") is not None else None,
+            "segmento":      tipo.split()[0] if tipo else "",
+            "contraparte":   cp.get("contraparte"),
+            "moneda":        d.get("moneda"),
+        })
+    return out
+
+
 def flujo_resumen(desde: str | None = None, hasta: str | None = None) -> dict:
     """Agregado por (día, contraparte, moneda) del flujo de contrapartes.
 

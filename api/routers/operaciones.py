@@ -3,7 +3,6 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from psycopg.rows import dict_row
 from pydantic import BaseModel
 
 from api.auth import require_control_comercial
@@ -38,7 +37,6 @@ def _split_excluir(excluir: str | None) -> tuple[str, ...] | None:
     return vals or None
 
 @router.get("/flujo")
-@cached(ttl=300)
 def listar_flujo(
     contraparte: str | None = Query(None, description="Filtrar por contraparte"),
     moneda: str | None = Query(None, description="Filtrar por moneda (ARS/USD)"),
@@ -46,64 +44,12 @@ def listar_flujo(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
-    """Flujo de contrapartes — DIRECTO desde CashFlow.Operaciones (match por
-    `cuenta` con CashFlow.Contrapartes). Reemplaza la copia intermedia MesaAPI:
-    trae `tipoOperacion` y `cuenta` reales (que MesaAPI no tenía) y el `segmento`
-    (sesión de mercado) se deriva del tipo_operacion. Excluye Futuros/Opciones."""
-    # cuenta (id) → {contraparte, grupo}. SQL clientes.contrapartes. La cuenta es la CLAVE.
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id_cuenta, contraparte, segmento FROM contrapartes "
-                    "WHERE id_cuenta IS NOT NULL AND id_cuenta <> ''")
-        cp_map = {
-            str(idc).strip(): {"contraparte": cp or "", "grupo": seg or ""}
-            for idc, cp, seg in cur.fetchall() if idc not in (None, "")
-        }
-    # Excluye Futuros/Opciones y las Caución COLOCADORA (apertura+cierre): vienen
-    # en pares y duplican/ensucian la vista. La caución tomadora se mantiene.
-    # SQL operaciones.operaciones (cuenta→id_cuenta). NULL-safe en el NOT regex.
-    conds = ["id_cuenta = ANY(%(ids)s)",
-             "(tipo_operacion IS NULL OR tipo_operacion !~* 'Futuros|Opciones|colocadora')"]
-    p: dict = {"ids": list(cp_map)}
-    if moneda:
-        conds.append("moneda = %(moneda)s")
-        p["moneda"] = moneda
-    if desde:
-        conds.append("concertacion >= %(desde)s")
-        p["desde"] = desde
-    if hasta:
-        conds.append("concertacion <= %(hasta)s")
-        p["hasta"] = hasta
-
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            f"SELECT boleto, concertacion::text AS concertacion, tipo_operacion, "
-            f"id_cuenta, denominacion, instrumento, bruto, moneda "
-            f"FROM operaciones WHERE {' AND '.join(conds)} ORDER BY concertacion", p)
-        rows = cur.fetchall()
-
-    out = []
-    for d in rows:
-        cuenta = str(d.get("id_cuenta") or "").strip()
-        cp = cp_map.get(cuenta, {})
-        tipo = d.get("tipo_operacion") or ""
-        seg = tipo.split()[0] if tipo else ""  # sesión de mercado (Concurrencia/SENEBI/…)
-        if contraparte and cp.get("contraparte") != contraparte:
-            continue
-        if segmento and seg != segmento:
-            continue
-        out.append({
-            "boleto":        d.get("boleto"),
-            "concertacion":  d.get("concertacion"),
-            "tipoOperacion": tipo,
-            "cuenta":        cuenta,
-            "denominacion":  d.get("denominacion"),
-            "unidad":        d.get("instrumento"),
-            "bruto":         float(d["bruto"]) if d.get("bruto") is not None else None,
-            "segmento":      seg,
-            "contraparte":   cp.get("contraparte"),
-            "moneda":        d.get("moneda"),
-        })
-    return out
+    """Flujo de contrapartes — operaciones individuales (drill-down de la vista
+    CONTRAPARTES). Lógica + cache en operaciones_sql.flujo_operaciones."""
+    return _ops_sql.flujo_operaciones(
+        contraparte=contraparte, moneda=moneda, segmento=segmento,
+        desde=desde, hasta=hasta,
+    )
 
 
 @router.get("/flujo/resumen")

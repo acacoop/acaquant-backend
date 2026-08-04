@@ -10,7 +10,8 @@ el Droplet y devuelve los números que deciden QUÉ optimizar:
   2. Uso real de cada índice (idx_scan) — detecta índices muertos y tablas
      que están escaneando secuencial.
   3. Timing end-to-end de los services que sirven las vistas (1ª llamada =
-     fría, 2ª = cache) con parámetros típicos (últimos 30 días).
+     fría; la 2ª repetida distingue query lenta vs payload) con parámetros
+     típicos (últimos 30 días).
 
 Uso (Droplet):
     python -m scripts.diag_negocio_perf            # tablas + índices + timings
@@ -91,7 +92,8 @@ def _indices() -> None:
 def _timings() -> None:
     print()
     print("═" * 78)
-    print("3) TIMINGS de services (1ª llamada = FRÍA sin cache, 2ª = con cache)")
+    print("3) TIMINGS de services (1ª = FRÍA; 2ª = repetida: cache de app si el")
+    print("   service tiene @cached, o buffers de Postgres calientes si no)")
     print("═" * 78)
     hoy = (datetime.now(UTC) - timedelta(hours=3)).date()
     desde = (hoy - timedelta(days=30)).isoformat()

@@ -71,7 +71,7 @@ def preguntar(
     # la vista no maneje datos de clientes (caso real: "¿cuánto operó Nicolás
     # Mollo?" preguntado al guía). Esas identidades se tachan ANTES de salir:
     # el modelo ve CLIENTE_1 y las tools lo resuelven adentro del perímetro
-    # (ver navegacion._resolver_cuenta). Contrato: la vista debe garantizar que
+    # (ver navegacion.clasificar_persona). Contrato: la vista debe garantizar que
     # su tabla y sus extras NO traen identidades — acá solo se tokeniza lo que
     # escribe el usuario (pregunta e historial), que es el vector abierto.
     mapping = None
@@ -437,11 +437,18 @@ def historial_persistido(usuario: str, limit: int = 8) -> dict:
             if not fila:
                 return {"conv_id": None, "mensajes": []}
             conv_id = fila[0]
+            # OJO: el copiloto escribe DOS tareas — 'copiloto_vista' y
+            # 'copiloto_vista_pro' (trading siempre pro; otras vistas escalan
+            # por _es_profunda, ver la elección de tarea en preguntar()).
+            # Filtrar solo una perdía TODOS los turnos pro al restaurar:
+            # el panel de trading volvía vacío y las conversaciones mixtas
+            # quedaban sin los turnos profundos (bug v1.63).
             cur.execute(
                 """
                 SELECT id, detalle, respuesta, feedback
                 FROM ia.trazas
-                WHERE usuario = %s AND conv_id = %s AND tarea = 'copiloto_vista' AND ok
+                WHERE usuario = %s AND conv_id = %s
+                  AND tarea IN ('copiloto_vista', 'copiloto_vista_pro') AND ok
                   AND respuesta IS NOT NULL AND detalle IS NOT NULL
                   AND detalle NOT LIKE '[autocorrección]%%'
                 ORDER BY id DESC LIMIT %s

@@ -26,7 +26,8 @@
         "cantidad": 1.5,
         "bruto": 1234567.89,
         "arancel": 1234.56,
-        "moneda": "ARS"
+        "moneda": "ARS",
+        "tasa": null
       },
       "_nota": "⚠ AMBIGÜEDAD REAL detectada al characterizar: '1.500' (Excel es-AR = mil quinientos) se parsea como 1.5 — _to_float trata un punto ÚNICO como decimal. Congelado como comportamiento ACTUAL; la decisión de cambiarlo es del user (ver commit 3 en el doc).",
       "esperado_enriquecido_extra": {
@@ -64,7 +65,8 @@
         "cantidad": 100.0,
         "bruto": 50000.0,
         "arancel": 12.5,
-        "moneda": "USD"
+        "moneda": "USD",
+        "tasa": null
       },
       "_nota": "La excepción agro-OTC del 2026-06-03: 'Futuros Agropecuarios - Compra/Venta' ES agro aunque la denominación tenga OTC.",
       "esperado_enriquecido_extra": {
@@ -102,7 +104,8 @@
         "cantidad": null,
         "bruto": 82965.6,
         "arancel": null,
-        "moneda": "ARS"
+        "moneda": "ARS",
+        "tasa": null
       },
       "_nota": "El arancel de caución vive SOLO en el cierre (regla del CLAUDE.md): es_cierre debe materializarse true.",
       "esperado_enriquecido_extra": {
@@ -118,10 +121,25 @@
   ],
   "maps_enrich": {
     "catalogo": {
-      "Contado - Compra": {"tipo_operacion": "Contado - Compra", "mercado": "BYMA", "operacion": "compra"},
-      "Caución Colocadora - Cierre": {"tipo_operacion": "Caución Colocadora - Cierre", "mercado": "BYMA", "operacion": "caucion"}
+      "Contado - Compra": {
+        "tipo_operacion": "Contado - Compra",
+        "mercado": "BYMA",
+        "operacion": "compra"
+      },
+      "Caución Colocadora - Cierre": {
+        "tipo_operacion": "Caución Colocadora - Cierre",
+        "mercado": "BYMA",
+        "operacion": "caucion"
+      }
     },
-    "niveles": {"805": {"n1": "PRODUCTORES", "n3": "ZONA NORTE"}},
-    "mep_cache": {"2026-07-17": 1234.5}
+    "niveles": {
+      "805": {
+        "n1": "PRODUCTORES",
+        "n3": "ZONA NORTE"
+      }
+    },
+    "mep_cache": {
+      "2026-07-17": 1234.5
+    }
   }
 }

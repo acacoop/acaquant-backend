@@ -1,0 +1,62 @@
+# Contratos de CAPAS del backend (los enforcea CI: lint-imports).
+#
+# Son las reglas del CLAUDE.md convertidas en chequeo automático — un import
+# que rompa la arquitectura falla el build en vez de descubrirse en prod:
+#   - core/  no importa de api/engines/jobs. (quant/ SÍ está permitido: es
+#     matemática pura sin estado — core.bars_sql/estrategia_sql la usan.)
+#   - quant/ es cálculo puro: puede usar core/ (lecturas SQL) pero jamás
+#     api/engines/jobs.
+#   - engines/ no importa de api/ (motores standalone: core + quant).
+#   - api/services/ es puro, sin FastAPI (la única excepción declarada es
+#     _grupos_scope, que define dependencies de FastAPI vía api.auth).
+#
+# Nota honesta: jobs/ importa api/services en varios crons (reuso de lógica
+# pura) — es deuda declarada, NO se contrata hasta decidir si se promueve esa
+# lógica a core/ o se blanquea la regla.
+[importlinter]
+include_external_packages = True
+root_packages =
+    core
+    quant
+    engines
+    jobs
+    api
+
+[importlinter:contract:core-puro]
+name = core/ no importa nada del proyecto
+type = forbidden
+source_modules =
+    core
+forbidden_modules =
+    api
+    engines
+    jobs
+
+[importlinter:contract:quant-puro]
+name = quant/ solo usa core (cálculo puro)
+type = forbidden
+source_modules =
+    quant
+forbidden_modules =
+    api
+    engines
+    jobs
+
+[importlinter:contract:engines-sin-api]
+name = engines/ no importa de api/
+type = forbidden
+source_modules =
+    engines
+forbidden_modules =
+    api
+
+[importlinter:contract:services-sin-fastapi]
+name = api/services/ es puro (sin FastAPI)
+type = forbidden
+source_modules =
+    api.services
+forbidden_modules =
+    fastapi
+ignore_imports =
+    api.services._grupos_scope -> api.auth
+    api.services._grupos_scope -> fastapi

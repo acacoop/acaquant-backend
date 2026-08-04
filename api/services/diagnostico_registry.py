@@ -186,6 +186,16 @@ PIEZAS: list[Pieza] = [
           cadencia="live", ventana="rueda", umbral_s=180,
           tabla="options_snapshot"),
 
+    Pieza("MERCADOS", "motor", "motor_estrategia (señal intradía)", grupo="ESTRATEGIA",
+          unidad="motor_estrategia", cadencia="live", ventana="rueda", umbral_s=300,
+          tabla="estrategia.eval_live", ts_expr="ts"),
+    Pieza("MERCADOS", "job", "estrategia_resolver (horizontes)", grupo="ESTRATEGIA",
+          unidad="jobs.estrategia_resolver", cadencia="cada 5m · 13-20 UTC L-V",
+          ventana="rueda", umbral_s=15 * 60, run_tipo="estrategia_resolver"),
+    Pieza("MERCADOS", "job", "cedears_bars_1m (velas 1m)", grupo="RENTA VARIABLE",
+          unidad="jobs.cedears_bars_1m", cadencia="20:20 UTC L-V", ventana="diario",
+          umbral_s=int(3 * _D), run_tipo="cedears_bars_1m"),
+
     # ── NEGOCIO ────────────────────────────────────────────
     Pieza("NEGOCIO", "job", "operaciones_informes", unidad="jobs.operaciones_informes",
           cadencia="cada 30m · 13:30-22 UTC L-V", ventana="rueda", umbral_s=60 * 60,
@@ -196,6 +206,9 @@ PIEZAS: list[Pieza] = [
     Pieza("NEGOCIO", "job", "sync_comitentes (clientes)", unidad="jobs.sync_comitentes",
           cadencia="14/17/21 UTC L-V", ventana="diario", umbral_s=int(1.5 * _D),
           run_tipo="sync_comitentes"),
+    Pieza("NEGOCIO", "job", "ops_tasa_mav (tasa cauciones MAV)", unidad="jobs.ops_tasa_mav",
+          cadencia="cada 30m · 14-22 UTC L-V (cierra la cadena negocio)", ventana="rueda",
+          umbral_s=70 * 60, run_tipo="ops_tasa_mav"),
 
     # ── BACK OFFICE ────────────────────────────────────────
     Pieza("BACK_OFFICE", "api", "Aunesa boletos (negocio_movimientos)", unidad="jobs.negocio_movimientos",

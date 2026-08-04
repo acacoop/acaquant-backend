@@ -117,6 +117,18 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-08-04 — v1.99 (fix: el historial restaurado perdía TODOS los turnos pro)
+`historial_persistido` filtraba `tarea = 'copiloto_vista'`, pero el copiloto
+escribe DOS tareas desde el tier pro (v1.62): trading traza SIEMPRE
+`copiloto_vista_pro` y cualquier vista escala a pro con `_es_profunda`. Esas
+trazas quedaban excluidas del restore → al reabrir el panel, la conversación
+de TRADING volvía vacía y las conversaciones mixtas perdían los turnos
+profundos intermedios. Fix: `tarea IN ('copiloto_vista', 'copiloto_vista_pro')`
+en la query de restauración (motor.py). Gap hermano conocido (pendiente): si
+la autocorrección gana, el conv_id queda en la traza `[autocorrección]…` que
+el restore también excluye por `detalle` — ese turno puntual sigue sin
+restaurarse.
+
 ### 2026-07-24 — v1.98 (los feeds Eikon nuevos entran al copiloto; fuera fundamentals Refinitiv)
 Datos nuevos del día en las vistas → el copiloto los ve (regla de TOOLS_IA):
 - **AGRO**: bloque `[chicago]` — futuros CBOT por familia en US$/Tn con var
@@ -523,7 +535,7 @@ El dato lo pinta la vista → cero datos al proveedor, cero alucinación posible
   Fulano?") y esta vista habla con el proveedor barato. Flag `aduana: True`
   en el registro → el motor tokeniza la pregunta y el historial ANTES de
   salir, las tools reciben la ficha y resuelven la identidad ADENTRO
-  (`_resolver_cuenta` recupera del mapping lo que escribió el usuario), y la
+  (`clasificar_persona` recupera del mapping lo que escribió el usuario), y la
   respuesta se detokeniza para el usuario. El mapping persiste por `conv_id`
   (mismo store que el asistente → las fichas no cambian entre turnos). La
   traza guarda el texto tokenizado = auditoría de qué cruzó. Contrato del

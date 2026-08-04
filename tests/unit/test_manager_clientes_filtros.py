@@ -24,6 +24,7 @@ def _listar(**kw):
     `Query(...)` del default (no None) y el código se rompe más adelante. Los
     tests explicitan TODOS los parámetros — que además documenta el contrato."""
     args = {"operador": None, "nivel_1": None, "nivel_2": None,
+            "nivel_3": None, "nivel_4": None, "nivel_5": None,
             "campo_vacio": None, "q": None}
     args.update(kw)
     return mod.list_clientes(**args)

@@ -281,45 +281,6 @@ def clasificar_persona(texto: str, mapping: dict | None = None) -> dict:
     return {"cuenta": cuenta, "operador": operador}
 
 
-def _resolver_cuenta(texto: str, mapping: dict | None = None) -> str | None:
-    """Resuelve lo que dijo el usuario ('nicolas mollo', '805') a la
-    DENOMINACIÓN EXACTA del catálogo ('MOLLO, NICOLAS EZEQUIEL') — que es lo
-    que la vista usa para filtrar de verdad.
-
-    Corre DENTRO del perímetro y el resultado va al FRONTEND, no al modelo
-    (ver `ejecutor`): el proveedor nunca recibe la denominación canónica.
-    Match por número de cuenta exacto, denominación exacta, y por PALABRAS
-    (todas las que dijo el usuario tienen que estar) con dueño único —
-    'nicolas mollo' matchea 'MOLLO, NICOLAS EZEQUIEL' aunque esté al revés."""
-    t = str(texto or "").strip()
-    if not t:
-        return None
-    # TOKEN-IN: si la vista tiene aduana, el modelo nos pasa una FICHA
-    # (CLIENTE_1) porque jamás vio el nombre. Acá adentro (perímetro) se
-    # recupera lo que escribió el usuario y se resuelve contra el catálogo.
-    if mapping and _RE_FICHA.match(t):
-        original = (mapping.get("fichas") or {}).get(t)
-        if not original:
-            return None
-        t = str(original).strip()
-    cuentas = _cuentas()
-    if not cuentas:
-        return None
-    tl = _norm_txt(t)
-    for idc, den in cuentas:
-        if idc and idc.lower() == tl:
-            return den
-    for _idc, den in cuentas:
-        if _norm_txt(den) == tl:
-            return den
-    palabras = [p for p in tl.split() if len(p) >= 3]
-    if not palabras:
-        return None
-    candidatas = [den for _i, den in cuentas
-                  if all(p in _norm_txt(den) for p in palabras)]
-    return candidatas[0] if len(candidatas) == 1 else None
-
-
 def _norm_txt(s: str) -> str:
     """minúsculas, sin acentos ni puntuación — para comparar nombres."""
     import unicodedata

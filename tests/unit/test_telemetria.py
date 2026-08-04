@@ -1,73 +1,62 @@
-"""Tests de la telemetría de uso (api/telemetria.py + api/services/uso_modulos.py).
+"""Tests de la telemetría de LATENCIA (api/telemetria.py).
 
-Sin SQL ni red: congela los filtros del hot path (qué se cuenta y qué no), la
-acumulación en memoria y la matriz del panel. Doc: docs/OBSERVABILIDAD_ROBUSTEZ.md.
+Sin SQL ni red: congela los filtros del hot path (qué se registra y qué no),
+la normalización de paths y la acumulación en memoria.
 """
 from __future__ import annotations
 
 from api import telemetria
-from api.services.uso_modulos import _matriz
 
 
 def _reset():
     telemetria._reset_para_tests()
 
 
-def test_registrar_cuenta_modulo_del_path():
+def test_registrar_acumula_por_endpoint_normalizado():
     _reset()
-    # /api/manager/* mapea al módulo manager vía ENDPOINT_MODULE_PREFIXES (reusado)
-    assert telemetria.registrar_request("/api/manager/status", "ana@acavalores.com.ar")
-    assert telemetria.registrar_request("/api/manager/status", "ana@acavalores.com.ar")
+    assert telemetria.registrar_request("/api/valuaciones/805/mensual", 120.4, 200)
+    assert telemetria.registrar_request("/api/valuaciones/912/mensual", 300.9, 200)
     snap = telemetria._snapshot_para_tests()
-    assert len(snap) == 1
-    (email, modulo, _hora), hits = next(iter(snap.items()))
-    assert email == "ana@acavalores.com.ar" and modulo == "manager" and hits == 2
+    assert len(snap) == 1  # ambos ids colapsan al mismo endpoint
+    (endpoint, _hora), (n, total, mx, lentas, errores) = next(iter(snap.items()))
+    assert endpoint == "/api/valuaciones/{id}/mensual"
+    assert n == 2 and total == 420 and mx == 300
+    assert lentas == 0 and errores == 0
+
+
+def test_registrar_cuenta_lentas_y_errores():
+    _reset()
+    assert telemetria.registrar_request("/api/operaciones/ops/serie", 1500.0, 200)
+    assert telemetria.registrar_request("/api/operaciones/ops/serie", 80.0, 502)
+    snap = telemetria._snapshot_para_tests()
+    (_k, (n, _total, mx, lentas, errores)) = next(iter(snap.items()))
+    assert n == 2 and mx == 1500 and lentas == 1 and errores == 1
 
 
 def test_registrar_ignora_lo_que_debe():
     _reset()
-    assert not telemetria.registrar_request("/api/manager/status", None)          # sin email
-    assert not telemetria.registrar_request("/api/manager/status", "")            # vacío
-    assert not telemetria.registrar_request("/api/manager/status", "service:web") # service token
-    assert not telemetria.registrar_request("/api/health", "ana@x.com")           # health
-    assert not telemetria.registrar_request("/api/me", "ana@x.com")               # identidad
-    assert not telemetria.registrar_request("/mcp/tools", "ana@x.com")            # MCP
-    assert not telemetria.registrar_request("/oauth/token", "ana@x.com")          # OAuth
-    # path público sin módulo mapeado (get_module_for_path → None) tampoco cuenta
-    assert not telemetria.registrar_request("/api/analitica/curvas", "ana@x.com")
+    assert not telemetria.registrar_request("/api/health", 5.0, 200)      # health
+    assert not telemetria.registrar_request("/mcp", 5.0, 200)             # MCP
+    assert not telemetria.registrar_request("/oauth/token", 5.0, 200)     # OAuth
+    assert not telemetria.registrar_request("/favicon.ico", 5.0, 200)     # no /api
     assert telemetria._snapshot_para_tests() == {}
 
 
-def test_registrar_normaliza_email():
+def test_normalizar_colapsa_uuid_y_largos():
+    n = telemetria._normalizar
+    assert n("/api/ordenes/550e8400-e29b-41d4-a716-446655440000") == "/api/ordenes/{id}"
+    assert n("/api/ordenes/dia") == "/api/ordenes/dia"
+    assert n("/api/x/" + "a" * 60) == "/api/x/{id}"
+
+
+def test_buffer_con_techo():
     _reset()
-    telemetria.registrar_request("/api/manager/status", "  ANA@Acavalores.COM.ar ")
-    (email, _m, _h), _hits = next(iter(telemetria._snapshot_para_tests().items()))
-    assert email == "ana@acavalores.com.ar"
-
-
-def test_registrar_jamas_levanta(monkeypatch):
-    _reset()
-    # si el resolver de módulos explota, el hot path NO se rompe
-    import api.auth as auth
-    monkeypatch.setattr(auth, "get_module_for_path", lambda p: 1 / 0)
-    assert telemetria.registrar_request("/api/manager/status", "ana@x.com") is False
-
-
-def test_matriz_ordena_por_totales():
-    rows = [
-        ("ana@x.com", "manager", 10),
-        ("ana@x.com", "trading", 3),
-        ("beto@x.com", "trading", 50),
-    ]
-    m = _matriz(rows)
-    assert m["modulos"] == ["trading", "manager"]        # 53 vs 10
-    assert m["usuarios"] == ["beto@x.com", "ana@x.com"]  # 50 vs 13
-    assert m["celdas"]["ana@x.com"]["manager"] == 10
-    assert m["totales_modulo"] == {"manager": 10, "trading": 53}
-    assert m["total"] == 63
-
-
-def test_matriz_vacia():
-    m = _matriz([])
-    assert m == {"usuarios": [], "modulos": [], "celdas": {},
-                 "totales_modulo": {}, "totales_usuario": {}, "total": 0}
+    viejo = telemetria._MAX_BUFFER
+    telemetria._MAX_BUFFER = 3
+    try:
+        for i in range(5):
+            telemetria.registrar_request(f"/api/e{i}", 10.0, 200)
+        assert len(telemetria._snapshot_para_tests()) == 3  # descarta el resto
+    finally:
+        telemetria._MAX_BUFFER = viejo
+        _reset()

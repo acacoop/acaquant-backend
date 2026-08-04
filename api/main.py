@@ -218,24 +218,24 @@ async def _security_headers(request, call_next):
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
-# Telemetría de uso por módulo (manager.uso_modulos — docs/OBSERVABILIDAD_ROBUSTEZ.md).
-# POST-response y solo memoria (el flush a SQL corre en thread cada ~60s): cero
-# I/O en el hot path, y un fallo acá JAMÁS afecta al request. Solo requests OK
-# (<400), con email de usuario (headers saneados por el proxy) y NUNCA el portal
-# invitado (REGLA #8: lo del guest ni se mide acá).
+# Telemetría de LATENCIA por endpoint (manager.latencia_endpoints). Reemplaza a
+# la telemetría de USO (decomisada 2026-08-04 — nunca se usó). Solo memoria en
+# el hot path (el flush a SQL corre en thread cada ~60s); un fallo acá JAMÁS
+# afecta al request. Sin identidad — mide endpoints, no usuarios.
 @app.middleware("http")
-async def _telemetria_uso(request, call_next):
+async def _telemetria_latencia(request, call_next):
+    import time as _time
+    t0 = _time.perf_counter()
     response = await call_next(request)
     try:
-        if (response.status_code < 400
-                and request.url.path.startswith("/api/")
-                and request.headers.get("x-acaquant-portal") != "guest"):
-            email = (request.headers.get("x-acaquant-user-email")
-                     or request.headers.get("cf-access-authenticated-user-email"))
-            if email:
-                from api import telemetria
+        if request.url.path.startswith("/api/"):
+            from api import telemetria
 
-                telemetria.registrar_request(request.url.path, email)
+            telemetria.registrar_request(
+                request.url.path,
+                (_time.perf_counter() - t0) * 1000,
+                response.status_code,
+            )
     except Exception:  # jamás romper un request por telemetría
         pass
     return response

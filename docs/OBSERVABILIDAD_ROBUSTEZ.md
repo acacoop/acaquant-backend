@@ -17,7 +17,19 @@ lo que la plataforma muestra y saber cómo se usa?**
 
 ---
 
-## COMMIT 1 — Telemetría de uso por módulo ✅ HECHO (2026-07-18)
+## COMMIT 1 — Telemetría de uso por módulo ❌ DECOMISADA (2026-08-04)
+
+> **Reemplazada por la telemetría de LATENCIA por endpoint** (pedido del user:
+> la tab USO nunca se usó; lo operativamente útil es saber QUÉ endpoint está
+> lento y su tendencia). Piezas nuevas: `manager.latencia_endpoints` (schema),
+> `api/telemetria.py` (reescrito: acumula n/total_ms/max_ms/lentas/errores por
+> endpoint normalizado × hora, mismo patrón de flush best-effort), middleware
+> en `api/main.py` (mide `perf_counter` alrededor de cada request),
+> `api/services/latencia_endpoints.py` y `GET /api/manager/latencia`.
+> `manager.uso_modulos` se DROPea vía apply_schema. Lo que sigue abajo queda
+> como registro histórico del diseño original.
+
+## (histórico) Telemetría de uso por módulo — HECHO 2026-07-18, decomisada
 
 **Qué es:** contador **usuario × módulo × hora** en `manager.uso_modulos`
 (agregado, NO log por request → no crece sin control) + panel Manager →

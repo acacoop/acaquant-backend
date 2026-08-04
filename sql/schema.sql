@@ -1576,17 +1576,24 @@ CREATE TABLE IF NOT EXISTS manager.portfolio_snapshot_log (
 
 -- ── TELEMETRÍA DE USO (usuario × módulo, agregado por HORA) ──────────────────
 -- Contador agregado, NO log por request (no crece sin control: ~usuarios ×
--- módulos × horas activas). Lo escribe el flush del middleware (api/telemetria.py,
--- upsert incremental cada ~60s, best-effort); lo lee GET /api/manager/uso.
--- Observabilidad de producto: qué usuario pasa tiempo en qué módulo.
-CREATE TABLE IF NOT EXISTS manager.uso_modulos (
-    email   text NOT NULL,
-    modulo  text NOT NULL,
-    hora    timestamptz NOT NULL,        -- truncado a la hora
-    hits    integer NOT NULL DEFAULT 0,
-    PRIMARY KEY (email, modulo, hora)
+-- manager.uso_modulos — ELIMINADA 2026-08-04. La telemetría de USO
+-- (usuario × módulo) nunca se usó; la reemplaza la de LATENCIA (abajo).
+DROP TABLE IF EXISTS manager.uso_modulos;
+
+-- manager.latencia_endpoints — telemetría de LATENCIA por endpoint × hora.
+-- La alimenta el middleware de api/main.py vía api/telemetria.py (flush
+-- incremental cada ~60s, best-effort); la lee GET /api/manager/latencia.
+CREATE TABLE IF NOT EXISTS manager.latencia_endpoints (
+    endpoint text NOT NULL,                 -- path normalizado ({id} en segmentos variables)
+    hora     timestamptz NOT NULL,          -- bucket horario UTC
+    n        bigint  NOT NULL DEFAULT 0,    -- requests
+    total_ms bigint  NOT NULL DEFAULT 0,    -- suma de duraciones (avg = total/n)
+    max_ms   integer NOT NULL DEFAULT 0,
+    lentas   integer NOT NULL DEFAULT 0,    -- requests > 1s
+    errores  integer NOT NULL DEFAULT 0,    -- status >= 500
+    PRIMARY KEY (endpoint, hora)
 );
-CREATE INDEX IF NOT EXISTS ix_uso_modulos_hora ON manager.uso_modulos (hora DESC);
+CREATE INDEX IF NOT EXISTS ix_latencia_endpoints_hora ON manager.latencia_endpoints (hora DESC);
 
 -- ── ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md) ────────────────────────
 -- Mapping ficha↔identidad de la ADUANA (core/pii_gateway.py). Es la tabla de

@@ -74,7 +74,6 @@ MODULES: tuple[str, ...] = (
     # respectivo lleva su propio require_module() en api/routers/manager/__init__.py.
     "manager_clientes",       # /api/manager/clientes + /clientes/values + PATCH (edición fila)
     "manager_clientes_bulk",  # /api/manager/clientes/bulk + /bulk-fondeo (carga masiva — admin)
-    "manager_compliance",     # /api/manager/compliance/* (read-only: operador nuestro vs Aunesa)
     "manager_titulos",        # /api/manager/assets + /ons (Títulos: Assets + ONs, edición maestro)
     "manager_instrumentos",   # /api/manager/checks/{discovery-pyrofex,instruments-by-cfi} (Títulos→Instrumentos, SOLO lectura)
     "manager_contrapartes",   # /api/manager/contrapartes/* (segmentación + conciliador Aunesa)
@@ -110,14 +109,6 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
         "operaciones", "portfolios", "back-office",
         "manager_clientes", "manager_instrumentos",
         "manager_contrapartes", "manager_aunesa",
-    ),
-    # Compliance: HOME + todos los mercados + Manager SOLO Clientes + Compliance
-    # (sin `manager` umbrella → no ve las tabs de admin). Detecta diferencias de
-    # operador (nuestro vs Aunesa). Mismo patrón de gate fino que asistente_comercial.
-    "compliance": (
-        "home", "renta-fija", "derivados", "agro", "sinteticos",
-        "renta-variable", "estrategia",
-        "manager_clientes", "manager_compliance",
     ),
     # Back Office: SOLO Home + Back Office (títulos a enviar/recibir al mercado,
     # conciliación, tenencia valorizada). Default mínimo A PROPÓSITO — el admin amplía

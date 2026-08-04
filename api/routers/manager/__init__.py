@@ -30,7 +30,6 @@ from api.routers.manager import (
     breakevens,
     checks,
     clientes,
-    compliance,
     contrapartes,
     control_automatico,
     controles,
@@ -40,6 +39,7 @@ from api.routers.manager import (
     import_tenencia,
     instrumentos,
     jobs,
+    latencia,
     logs,
     mesa,
     ons,
@@ -49,7 +49,6 @@ from api.routers.manager import (
     roles,
     status,
     users,
-    uso,
     valuaciones,
 )
 
@@ -62,7 +61,6 @@ router = APIRouter(prefix="/api/manager", tags=["Manager"])
 _MGR             = [Depends(verify_api_key), Depends(require_module("manager"))]
 _CLIENTES        = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_clientes")))]
 _CLIENTES_BULK   = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_clientes_bulk")))]
-_COMPLIANCE      = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_compliance")))]
 _TITULOS         = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_titulos")))]
 _INSTRUMENTOS    = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_titulos", "manager_instrumentos")))]
 _CONTRAPARTES    = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_contrapartes")))]
@@ -70,7 +68,7 @@ _AUNESA          = [Depends(verify_api_key), Depends(require_any_module(("manage
 
 # Tabs admin (umbrella `manager`):
 router.include_router(status.router,      dependencies=_MGR)
-router.include_router(uso.router,         dependencies=_MGR)
+router.include_router(latencia.router,    dependencies=_MGR)
 router.include_router(controles.router, dependencies=_MGR)
 router.include_router(diagnostico.router, dependencies=_MGR)
 router.include_router(checks.router,      dependencies=_MGR)
@@ -92,7 +90,6 @@ router.include_router(clientes.router,            dependencies=_CLIENTES)
 router.include_router(aca_valores.router,         dependencies=_CLIENTES)
 router.include_router(control_automatico.router,  dependencies=_CLIENTES)
 router.include_router(clientes.bulk_router,       dependencies=_CLIENTES_BULK)
-router.include_router(compliance.router,      dependencies=_COMPLIANCE)
 router.include_router(assets.router,          dependencies=_TITULOS)
 router.include_router(ons.router,             dependencies=_TITULOS)
 router.include_router(bonos.router,           dependencies=_TITULOS)

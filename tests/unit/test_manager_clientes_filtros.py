@@ -14,20 +14,15 @@ from __future__ import annotations
 
 import pytest
 
-from api.routers.manager import clientes as mod
+from api.services import clientes_admin_sql as mod
 
 
 def _listar(**kw):
-    """Invoca el endpoint como lo haría FastAPI.
-
-    Llamándolo directo, los parámetros no pasados quedan como el objeto
-    `Query(...)` del default (no None) y el código se rompe más adelante. Los
-    tests explicitan TODOS los parámetros — que además documenta el contrato."""
-    args = {"operador": None, "nivel_1": None, "nivel_2": None,
-            "nivel_3": None, "nivel_4": None, "nivel_5": None,
-            "campo_vacio": None, "q": None}
-    args.update(kw)
-    return mod.list_clientes(**args)
+    """Invoca el SERVICE directo (la lógica vive en clientes_admin_sql; el
+    router es plumbing). Los defaults son None reales — ya no existe la trampa
+    de los objetos Query() que rompió estos tests cuando el endpoint sumó
+    params sin actualizar el harness."""
+    return mod.list_clientes(**kw)
 
 
 @pytest.fixture

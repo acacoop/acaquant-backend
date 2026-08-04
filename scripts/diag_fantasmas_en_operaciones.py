@@ -55,9 +55,6 @@ WITH ult AS (
 )
 """
 
-# Normalización de comprobante/boleto a sólo dígitos.
-_DIG = r"regexp_replace({0}, '\D', '', 'g')"
-
 # Pesificación de `operaciones.bruto` (ARS directo; el resto × mep del boleto).
 _PESIF_OPS = ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(bruto, 0)) "
               "ELSE abs(COALESCE(bruto, 0)) * COALESCE(mep, 0) END")
@@ -122,13 +119,12 @@ def main() -> int:
     print("  Estos 3 boletos NO existen en Aunesa (verificado a mano).")
     print("  Si aparecen abajo, están fosilizados en la vista MOVIMIENTOS.\n")
     for cta, fch, comp, desc in _VALIDADOS:
-        dig = "".join(c for c in comp if c.isdigit())
         filas = _q(
             "SELECT boleto, concertacion, id_cuenta, denominacion, tipo_operacion, "
             "       instrumento, moneda, bruto, arancel, es_cierre, etapa, ingestado_en "
             "  FROM operaciones.operaciones "
-            f" WHERE {_DIG.format('boleto')} = %(dig)s",
-            {"dig": dig})
+            " WHERE boleto = %(comp)s",
+            {"comp": comp})
         print(f"  ── [{cta}] {fch.isoformat()} · {comp}")
         print(f"     {desc}")
         if not filas:
@@ -154,15 +150,13 @@ def main() -> int:
             " WHERE id_cuenta = %(cta)s AND concertacion = %(f)s "
             " ORDER BY boleto",
             {"cta": cta, "f": fch})
-        fantasmas = {"".join(c for c in v[2] if c.isdigit())
-                     for v in _VALIDADOS if v[0] == cta and v[1] == fch}
+        fantasmas = {v[2] for v in _VALIDADOS if v[0] == cta and v[1] == fch}
         print(f"\n  ── CUENTA {cta} · {fch.isoformat()} · {len(filas)} boleto(s)")
         if not filas:
             print("     (sin boletos)")
             continue
         for f in filas:
-            dig = "".join(c for c in (f["boleto"] or "") if c.isdigit())
-            marca = "  ❌ ANULADO EN AUNESA" if dig in fantasmas else ""
+            marca = "  ❌ ANULADO EN AUNESA" if (f["boleto"] or "") in fantasmas else ""
             print(f"     {f['boleto']:<18} {(f['tipo_operacion'] or '—')[:22]:<22} "
                   f"{(f['instrumento'] or '—')[:12]:<12} {f['moneda'] or '—':<5} "
                   f"{_ar(f['bruto']):>22}{marca}")
@@ -170,38 +164,44 @@ def main() -> int:
     # ── 3. Cuántos fantasmas de negocio están también en operaciones ────────
     _sep("3. MEDICIÓN GLOBAL — fantasmas detectados que llegaron a operaciones")
     tot = _q(_CTE + """
-        SELECT count(*) FILTER (WHERE fantasma)                            AS n_fantasmas,
-               count(*) FILTER (WHERE fantasma AND comprobante LIKE 'BOL%') AS n_fant_bol
+        SELECT count(*) FILTER (WHERE fantasma)                             AS n_fantasmas,
+               count(*) FILTER (WHERE fantasma AND comprobante LIKE 'BOL%%') AS n_fant_bol
           FROM marcadas
     """, par)[0]
     print(f"  Fantasmas detectados en negocio_movimientos : {tot['n_fantasmas']:,}"
           .replace(",", "."))
     print(f"  De ésos, con prefijo BOL (boletos de mercado): {tot['n_fant_bol']:,}"
           .replace(",", "."))
-    print("  (los DOC/CL/CE son solicitudes y liquidaciones de FCI — no viajan por")
-    print("   el endpoint de informes, así que no deberían estar en operaciones)\n")
+    print("  (los DOC/CL/CE son solicitudes y liquidaciones de FCI)\n")
 
     cruce = _q(_CTE + f"""
         , fant AS (
-            SELECT DISTINCT {_DIG.format('comprobante')} AS dig, comprobante
-              FROM marcadas WHERE fantasma
+            SELECT DISTINCT comprobante FROM marcadas WHERE fantasma
         )
-        SELECT count(*)                     AS n_en_ops,
-               sum({_PESIF_OPS})            AS bruto_falso,
-               count(*) FILTER (WHERE o.es_cierre) AS n_cierres
+        SELECT count(*)                                               AS n_en_ops,
+               sum({_PESIF_OPS})                                      AS bruto_falso,
+               count(*) FILTER (WHERE o.es_cierre)                    AS n_cierres,
+               count(*) FILTER (WHERE COALESCE(o.etapa,'') = 'solicitud') AS n_solicitud,
+               sum({_PESIF_OPS}) FILTER (WHERE COALESCE(o.es_cierre, false) = false
+                                           AND COALESCE(o.etapa,'') <> 'solicitud')
+                                                                      AS bruto_falso_vol
           FROM operaciones.operaciones o
-          JOIN fant f ON f.dig = {_DIG.format('o.boleto')}
+          JOIN fant f ON f.comprobante = o.boleto
          WHERE o.concertacion >= %(desde)s
     """, par)[0]
     n = cruce["n_en_ops"] or 0
     print(f"  ►► FANTASMAS PRESENTES EN operaciones.operaciones : {n:,}".replace(",", "."))
-    print(f"     Bruto pesificado que aportan               : {_plata(cruce['bruto_falso'])}")
-    print(f"     (de ésos, {cruce['n_cierres'] or 0} son cierres de caución)")
+    print(f"     Bruto pesificado total que arrastran       : {_plata(cruce['bruto_falso'])}")
+    print(f"     De ésos, {cruce['n_solicitud'] or 0} son etapa='solicitud' y "
+          f"{cruce['n_cierres'] or 0} son cierres → la vista los EXCLUYE del volumen.")
+    print(f"     Bruto falso que SÍ entra al volumen        : "
+          f"{_plata(cruce['bruto_falso_vol'])}")
     if n == 0:
         print("\n  ✅ Ninguno llegó a operaciones — la vista MOVIMIENTOS está limpia.")
         print("     El problema sería SOLO de negocio_movimientos.")
     else:
         print("\n  ❌ CONFIRMADO: la vista MOVIMIENTOS también arrastra boletos anulados.")
+        print("     (aunque parte no sume al volumen, SÍ se ven en el detalle de cuenta)")
 
     # ── 4. Peso sobre el volumen de la vista MOVIMIENTOS, por mes ───────────
     if n:
@@ -209,15 +209,14 @@ def main() -> int:
         print("  (mismo filtro que la vista: es_cierre=false, etapa <> 'solicitud')\n")
         filas = _q(_CTE + f"""
             , fant AS (
-                SELECT DISTINCT {_DIG.format('comprobante')} AS dig
-                  FROM marcadas WHERE fantasma
+                SELECT DISTINCT comprobante FROM marcadas WHERE fantasma
             )
-            SELECT to_char(o.concertacion, 'YYYY-MM')                       AS mes,
-                   sum({_PESIF_OPS})                                        AS total,
-                   sum({_PESIF_OPS}) FILTER (WHERE f.dig IS NOT NULL)       AS falso,
-                   count(*) FILTER (WHERE f.dig IS NOT NULL)                AS n_falso
+            SELECT to_char(o.concertacion, 'YYYY-MM')                          AS mes,
+                   sum({_PESIF_OPS})                                           AS total,
+                   sum({_PESIF_OPS}) FILTER (WHERE f.comprobante IS NOT NULL)  AS falso,
+                   count(*) FILTER (WHERE f.comprobante IS NOT NULL)           AS n_falso
               FROM operaciones.operaciones o
-              LEFT JOIN fant f ON f.dig = {_DIG.format('o.boleto')}
+              LEFT JOIN fant f ON f.comprobante = o.boleto
              WHERE o.concertacion >= %(desde)s
                AND COALESCE(o.es_cierre, false) = false
                AND COALESCE(o.etapa, '') <> 'solicitud'
@@ -238,23 +237,44 @@ def main() -> int:
         print(f"  {'TOTAL':<9} {_plata(gt):>16} {_plata(gf):>16} "
               f"{_ar(gf / gt * 100 if gt else 0):>7}% {int(gn):>6}")
 
-        _sep("5. TOP CUENTAS AFECTADAS EN MOVIMIENTOS")
+        _sep("5. LOS FANTASMAS, UNO POR UNO (top 25 por plata)")
         filas = _q(_CTE + f"""
             , fant AS (
-                SELECT DISTINCT {_DIG.format('comprobante')} AS dig
-                  FROM marcadas WHERE fantasma
+                SELECT DISTINCT comprobante FROM marcadas WHERE fantasma
+            )
+            SELECT o.boleto, o.concertacion, o.id_cuenta, o.denominacion,
+                   o.tipo_operacion, o.instrumento, o.moneda, o.bruto,
+                   o.es_cierre, o.etapa, {_PESIF_OPS} AS pesos
+              FROM operaciones.operaciones o
+              JOIN fant f ON f.comprobante = o.boleto
+             WHERE o.concertacion >= %(desde)s
+             ORDER BY pesos DESC NULLS LAST LIMIT 25
+        """, par)
+        print(f"  {'FECHA':<11} {'CTA':<6} {'BOLETO':<17} {'OPERACIÓN':<24} "
+              f"{'PESOS':>13}  VOL?")
+        print("  " + "-" * 86)
+        for r in filas:
+            suma = (not r["es_cierre"]) and (r["etapa"] or "") != "solicitud"
+            print(f"  {r['concertacion']!s:<11} {r['id_cuenta'] or '—':<6} "
+                  f"{r['boleto']:<17} {(r['tipo_operacion'] or '—')[:24]:<24} "
+                  f"{_plata(r['pesos']):>13}  {'SÍ' if suma else 'no'}")
+
+        _sep("6. TOP CUENTAS AFECTADAS EN MOVIMIENTOS")
+        filas = _q(_CTE + f"""
+            , fant AS (
+                SELECT DISTINCT comprobante FROM marcadas WHERE fantasma
             )
             SELECT o.id_cuenta, max(o.denominacion) AS nom,
-                   sum({_PESIF_OPS})                                  AS total,
-                   sum({_PESIF_OPS}) FILTER (WHERE f.dig IS NOT NULL) AS falso,
-                   count(*) FILTER (WHERE f.dig IS NOT NULL)          AS n_falso
+                   sum({_PESIF_OPS})                                          AS total,
+                   sum({_PESIF_OPS}) FILTER (WHERE f.comprobante IS NOT NULL) AS falso,
+                   count(*) FILTER (WHERE f.comprobante IS NOT NULL)          AS n_falso
               FROM operaciones.operaciones o
-              LEFT JOIN fant f ON f.dig = {_DIG.format('o.boleto')}
+              LEFT JOIN fant f ON f.comprobante = o.boleto
              WHERE o.concertacion >= %(desde)s
                AND COALESCE(o.es_cierre, false) = false
                AND COALESCE(o.etapa, '') <> 'solicitud'
              GROUP BY o.id_cuenta
-            HAVING count(*) FILTER (WHERE f.dig IS NOT NULL) > 0
+            HAVING count(*) FILTER (WHERE f.comprobante IS NOT NULL) > 0
              ORDER BY 4 DESC NULLS LAST LIMIT 15
         """, par)
         print(f"  {'CTA':<7} {'NOMBRE':<34} {'FALSO':>14} {'TOTAL':>14} {'%':>7} {'#':>4}")

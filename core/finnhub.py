@@ -1,9 +1,9 @@
 """Cliente Finnhub con rate limiting interno.
 
 Finnhub free tier: 60 req/min por IP + key. Acá limitamos a 40 req/min para
-dejar margen y no ir a 429 ante ráfagas. El contador es thread-safe (lock
-compartido) — si mañana corren varios jobs en paralelo siguen respetando el
-límite.
+dejar margen y no ir a 429 ante ráfagas. El contador es thread-safe
+(core.http_base.RateLimiter) — si mañana corren varios jobs en paralelo siguen
+respetando el límite.
 
 Expone wrappers de alto nivel para los endpoints que usamos:
     - general_news, company_news
@@ -16,66 +16,35 @@ o loggea.
 from __future__ import annotations
 
 import logging
-import threading
-import time
 from typing import Any
 
-import requests
-
 from config import FINNHUB_API_KEY
+from core.http_base import RateLimiter, get_json
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://finnhub.io/api/v1"
 MAX_CALLS_PER_MIN = 40  # hard-budget bajo el 60 real de free tier
-_rate_lock = threading.Lock()
-_calls_ts: list[float] = []
+_limiter = RateLimiter(MAX_CALLS_PER_MIN)
 
 
 class FinnhubError(RuntimeError):
     """Error del cliente (auth, red, rate limit, respuesta inválida)."""
 
 
-def _wait_for_rate_limit() -> None:
-    with _rate_lock:
-        now = time.time()
-        # descartar calls > 60s atrás
-        _calls_ts[:] = [t for t in _calls_ts if now - t < 60]
-        if len(_calls_ts) >= MAX_CALLS_PER_MIN:
-            sleep_s = 60 - (now - _calls_ts[0]) + 0.2
-            if sleep_s > 0:
-                logger.debug("rate limit cerca; sleep %.2fs", sleep_s)
-                time.sleep(sleep_s)
-                now = time.time()
-                _calls_ts[:] = [t for t in _calls_ts if now - t < 60]
-        _calls_ts.append(now)
-
-
 def _get(path: str, params: dict[str, Any] | None = None, timeout: int = 15) -> Any:
     if not FINNHUB_API_KEY:
         raise FinnhubError("FINNHUB_API_KEY no configurada en .env")
-    _wait_for_rate_limit()
-
-    url = f"{BASE_URL}{path}"
     all_params: dict[str, Any] = dict(params or {})
     all_params["token"] = FINNHUB_API_KEY
-
-    try:
-        resp = requests.get(url, params=all_params, timeout=timeout)
-    except requests.RequestException as e:
-        raise FinnhubError(f"red: {e}") from e
-
-    if resp.status_code == 429:
-        raise FinnhubError("rate limit 429 (aun con throttle interno — raro)")
-    if resp.status_code == 401:
-        raise FinnhubError("auth: FINNHUB_API_KEY inválida")
-    if resp.status_code != 200:
-        raise FinnhubError(f"HTTP {resp.status_code}: {resp.text[:200]}")
-
-    try:
-        return resp.json()
-    except ValueError as e:
-        raise FinnhubError(f"respuesta no-JSON: {resp.text[:200]}") from e
+    return get_json(
+        f"{BASE_URL}{path}", params=all_params, timeout=timeout,
+        exc=FinnhubError, throttle=_limiter,
+        mensajes_status={
+            429: "rate limit 429 (aun con throttle interno — raro)",
+            401: "auth: FINNHUB_API_KEY inválida",
+        },
+    )
 
 
 # ── Wrappers por endpoint ───────────────────────────────────────────────────

@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import requests
+from core.http_base import get_json
 
 logger = logging.getLogger(__name__)
 
@@ -31,17 +31,7 @@ class ArgDataError(RuntimeError):
 
 
 def _get(path: str, timeout: float = 15.0) -> Any:
-    url = f"{_BASE_URL}{path}"
-    try:
-        r = requests.get(url, timeout=timeout)
-    except requests.RequestException as e:
-        raise ArgDataError(f"red falló en GET {path}: {e}") from e
-    if r.status_code != 200:
-        raise ArgDataError(f"{r.status_code} en {path}: {r.text[:200]}")
-    try:
-        return r.json()
-    except ValueError as e:
-        raise ArgDataError(f"respuesta no-JSON en {path}: {e}") from e
+    return get_json(f"{_BASE_URL}{path}", timeout=timeout, exc=ArgDataError)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

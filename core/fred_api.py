@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
-import time
+
+from core.http_base import Throttle, get_json
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +34,7 @@ _TIMEOUT = 30
 _MAX_REINTENTOS = 4
 _PAGE = 100000                  # límite máximo de observations por página
 
-_lock = threading.Lock()
-_ultima = {"t": 0.0}
+_throttle = Throttle(_MIN_INTERVALO_S)
 
 
 class ErrorFRED(RuntimeError):
@@ -49,36 +48,13 @@ def _api_key() -> str:
     return key
 
 
-def _throttle() -> None:
-    with _lock:
-        espera = _MIN_INTERVALO_S - (time.monotonic() - _ultima["t"])
-        if espera > 0:
-            time.sleep(espera)
-        _ultima["t"] = time.monotonic()
-
-
 def _get(path: str, params: dict | None = None) -> dict:
-    import requests
-
     p = {"api_key": _api_key(), "file_type": "json", **(params or {})}
-    ultimo = ""
-    for intento in range(_MAX_REINTENTOS):
-        _throttle()
-        try:
-            r = requests.get(f"{_BASE}{path}", params=p, timeout=_TIMEOUT)
-        except requests.RequestException as e:
-            ultimo = f"{type(e).__name__}: {e}"
-            time.sleep(3 * (intento + 1))
-            continue
-        if r.status_code == 200:
-            return r.json()
-        if r.status_code == 429 or r.status_code >= 500:
-            ultimo = f"HTTP {r.status_code}"
-            time.sleep(min(5 * 2 ** intento, 40))
-            continue
-        # 400/403: no reintentar (key inválida, series_id inexistente) — enmascarar la key
-        raise ErrorFRED(f"{path} HTTP {r.status_code}: {r.text[:200]}")
-    raise ErrorFRED(f"{path}: agotados {_MAX_REINTENTOS} reintentos ({ultimo})")
+    # 400/403 no se reintentan (key inválida, series_id inexistente).
+    return get_json(
+        f"{_BASE}{path}", params=p, timeout=_TIMEOUT,
+        exc=ErrorFRED, reintentos=_MAX_REINTENTOS, throttle=_throttle,
+    )
 
 
 def metadata(series_id: str) -> dict:

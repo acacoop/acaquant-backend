@@ -46,11 +46,12 @@ def _closest_close(times: list[int], closes: list[float], target_ts: int) -> flo
 
 
 def _proximo_habil(now: datetime) -> datetime:
-    """Próximo día hábil (L-V) a las 00:00 UTC."""
-    d = datetime(now.year, now.month, now.day, tzinfo=UTC) + timedelta(days=1)
-    while d.weekday() >= 5:  # 5=sáb, 6=dom
-        d += timedelta(days=1)
-    return d
+    """Próximo día hábil a las 00:00 UTC. Vía core.calendario → cuenta FERIADOS
+    AR (la copia local anterior solo salteaba findes: el ancla WTD/MTD podía
+    caer en un feriado y correr las métricas un día — bug clase 2026-07-20)."""
+    from core.calendario import proximo_habil
+    d = proximo_habil(now.date())
+    return datetime(d.year, d.month, d.day, tzinfo=UTC)
 
 
 def _anchor_timestamps(now: datetime) -> dict[str, int]:

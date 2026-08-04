@@ -76,16 +76,6 @@ def _extract_id_cuenta(cuenta: str | None) -> str | None:
     return m.group(1) if m else None
 
 
-def _ultimos_habiles(hoy: date, n_atras: int) -> list[date]:
-    """`hoy` + los `n_atras` días hábiles previos (asc). Cuenta por días hábiles
-    (no calendario) → la ventana no se come los fines de semana."""
-    dias: list[date] = []
-    d = hoy
-    while len(dias) < n_atras + 1:
-        if d.weekday() < 5:  # 0=lun .. 4=vie
-            dias.append(d)
-        d -= timedelta(days=1)
-    return sorted(dias)
 
 
 def _boleto_a_doc(b: dict, fecha_iso: str, ahora: datetime, mep: float | None) -> dict:
@@ -222,7 +212,11 @@ def main() -> int:
             d += timedelta(days=1)
     else:
         # Default del cron: hoy + últimos días hábiles (captura diferencias T+1).
-        dias = _ultimos_habiles(hoy, _LOOKBACK_HABILES)
+        # Calendario único (core.calendario): la copia local anterior contaba
+        # SOLO weekday<5 — un feriado consumía un lugar de la ventana T+1 y
+        # las diferencias de futuros que llegan tarde podían quedar afuera.
+        from core.calendario import ultimos_habiles
+        dias = ultimos_habiles(hoy, _LOOKBACK_HABILES)
 
     from core.job_runs import JobRunLogger
     with JobRunLogger("negocio_movimientos") as jr:

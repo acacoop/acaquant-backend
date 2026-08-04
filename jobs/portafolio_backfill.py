@@ -30,14 +30,16 @@ from __future__ import annotations
 import sys
 import threading
 import time
-from calendar import monthrange
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
-import holidays
 import requests
 
+from core.calendario import es_habil as _es_habil
+from core.calendario import habiles_entre as _habiles
+from core.calendario import proximo_habil as _prox_habil
+from core.calendario import ultimo_habil_del_mes as _ultimo_habil_del_mes
 from core.postgres import get_job_pool
 from jobs._aum_filters import (
     is_excluded,
@@ -57,7 +59,6 @@ _PARAMS_BASE = {
     "nivel": "Especie x cuenta", "ocultarCerradas": "true",
 }
 
-_FERIADOS = holidays.Argentina()
 _lock = threading.Lock()
 _hdr: dict = {}
 # Contrapartes para marcar `aum` ('si'/'no') al insertar. Se cargan en main().
@@ -65,33 +66,7 @@ _CONT_IDS: frozenset[str] = frozenset()
 _CONT_NAMES: frozenset[str] = frozenset()
 
 
-# ── fechas ────────────────────────────────────────────────────────────────────
-def _es_habil(d: date) -> bool:
-    return d.weekday() < 5 and d not in _FERIADOS
-
-
-def _prox_habil(d: date) -> date:
-    d = d + timedelta(days=1)
-    while not _es_habil(d):
-        d = d + timedelta(days=1)
-    return d
-
-
-def _habiles(desde: date, hasta: date) -> list[date]:
-    out, d = [], desde
-    while d <= hasta:
-        if _es_habil(d):
-            out.append(d)
-        d = d + timedelta(days=1)
-    return out
-
-
-def _ultimo_habil_del_mes(anio: int, mes: int) -> date:
-    """Último día hábil del mes (camina hacia atrás desde el último día calendario)."""
-    d = date(anio, mes, monthrange(anio, mes)[1])
-    while not _es_habil(d):
-        d = d - timedelta(days=1)
-    return d
+# ── fechas: calendario hábil AR único en core.calendario (antes copias locales) ──
 
 
 def _timeout_for(idc: str, denom: str) -> int:

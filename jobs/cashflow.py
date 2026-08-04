@@ -4,7 +4,6 @@ import sys
 import unicodedata
 from datetime import UTC, date, datetime, timedelta
 
-import holidays
 import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -43,14 +42,8 @@ def es_movimiento(informacion):
 
 
 def dias_habiles(desde, hasta):
-    arg_holidays = holidays.Argentina()
-    dias = []
-    d = desde
-    while d <= hasta:
-        if d.weekday() < 5 and d not in arg_holidays:
-            dias.append(d)
-        d += timedelta(days=1)
-    return dias
+    from core.calendario import habiles_entre
+    return habiles_entre(desde, hasta)
 
 
 def fetch_dia(dia_str, headers):

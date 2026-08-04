@@ -263,10 +263,10 @@ def main() -> int:
     from core.job_runs import JobRunLogger
     with JobRunLogger("negocio_movimientos") as jr:
         agg = {"dias": len(dias), "rango": f"{dias[0]}..{dias[-1]}" if dias else "",
-               "boletos": 0, "skipped": 0, "upsertados": 0}
+               "boletos": 0, "skipped": 0, "upsertados": 0, "anulados": 0}
         for i, d in enumerate(dias):
             res = run(fecha_d=d, dry=args.dry)
-            for k in ("boletos", "skipped", "upsertados"):
+            for k in ("boletos", "skipped", "upsertados", "anulados"):
                 agg[k] += res.get(k, 0) or 0
             if i < len(dias) - 1:
                 time.sleep(2)  # throttle suave entre días (REGLA #4)

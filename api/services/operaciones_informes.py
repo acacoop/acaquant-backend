@@ -448,6 +448,8 @@ WITH vivos(id_cuenta, concertacion, boleto) AS (
     SELECT * FROM unnest(%(ctas)s::text[], %(fechas)s::date[], %(boletos)s::text[])
 ), pares AS (
     SELECT DISTINCT id_cuenta, concertacion FROM vivos
+), prefijos AS (
+    SELECT DISTINCT split_part(boleto, ' ', 1) AS p FROM vivos
 )
 SELECT o.id, o.id_cuenta, o.concertacion,
        NOT EXISTS (SELECT 1 FROM vivos v
@@ -457,6 +459,7 @@ SELECT o.id, o.id_cuenta, o.concertacion,
   FROM operaciones o
   JOIN pares p ON p.id_cuenta = o.id_cuenta AND p.concertacion = o.concertacion
  WHERE o.anulado_en IS NULL
+   AND split_part(o.boleto, ' ', 1) IN (SELECT p FROM prefijos)
 """
 
 
@@ -467,6 +470,12 @@ def reconciliar_anulados_sql(vivos: list[tuple[str, str, str]]) -> dict:
     respondieron OK. Sólo se auditan los pares (cuenta, día) presentes ahí: si una
     cuenta no devolvió NADA para un día, ese día no se toca — preferimos no
     detectar una anulación antes que borrar un día por una respuesta vacía.
+
+    El filtro por PREFIJO es lo que evita el falso positivo grave: la tabla tiene
+    boletos de OTRAS fuentes (los 'CL '/'DOC ' del FCI bilateral los escribe
+    jobs/fci_bilateral, no el endpoint de informes). Sin esto, todo lo que no
+    viniera por informes se marcaba como anulado. Los prefijos habilitados salen
+    de lo que Aunesa devolvió en esta corrida — no hay lista hardcodeada.
     """
     if not vivos:
         return {"pares": 0, "anulados": 0, "pares_salteados": [], "abortado": False}

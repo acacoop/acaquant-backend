@@ -17,7 +17,7 @@ import pyRofex
 from core.rofex_session import inicializar_sesion
 from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
-from quant.black_scholes import bs_delta, bs_gamma, bs_theta, bs_vega, calc_intrinseco, find_iv
+from quant.black_scholes import bs_greeks, calc_intrinseco, find_iv
 
 logging.basicConfig(
     level=logging.INFO,
@@ -437,12 +437,13 @@ class OptionsEngine:
                             p_iv = p_mid if p_mid > vi else vi + 0.1
                             iv   = find_iv(p_iv, S, K, T, self.tasa, tipo)
                             if iv > 0:
+                                g = bs_greeks(S, K, T, self.tasa, iv, tipo)
                                 doc.update({
                                     "iv":    round(iv, 4),
-                                    "delta": round(bs_delta(S, K, T, self.tasa, iv, tipo), 3),
-                                    "gamma": round(bs_gamma(S, K, T, self.tasa, iv), 4),
-                                    "vega":  round(bs_vega(S, K, T, self.tasa, iv), 2),
-                                    "theta": round(bs_theta(S, K, T, self.tasa, iv, tipo), 2),
+                                    "delta": round(g["delta"], 3),
+                                    "gamma": round(g["gamma"], 4),
+                                    "vega":  round(g["vega"], 2),
+                                    "theta": round(g["theta"], 2),
                                 })
                         except Exception:
                             pass
@@ -515,12 +516,13 @@ class OptionsEngine:
         try:
             iv = find_iv(p_iv, S, K, T, self.tasa, info['tipo'])
             if iv > 0:
+                g = bs_greeks(S, K, T, self.tasa, iv, info['tipo'])
                 griegas = {
                     "iv":    round(iv, 4),
-                    "delta": round(bs_delta(S, K, T, self.tasa, iv, info['tipo']), 3),
-                    "gamma": round(bs_gamma(S, K, T, self.tasa, iv), 4),
-                    "vega":  round(bs_vega(S, K, T, self.tasa, iv), 2),
-                    "theta": round(bs_theta(S, K, T, self.tasa, iv, info['tipo']), 2)
+                    "delta": round(g["delta"], 3),
+                    "gamma": round(g["gamma"], 4),
+                    "vega":  round(g["vega"], 2),
+                    "theta": round(g["theta"], 2)
                 }
         except Exception:
             pass

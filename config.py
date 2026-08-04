@@ -64,22 +64,6 @@ MCP_ALLOWED_REDIRECT_HOSTS: set[str] = {
 # --- DATA DE MERCADO EXTERNA ---
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
 
-# --- BYMA Primarias Placements (licitaciones / colocaciones primarias) ---
-# OAuth2 client_credentials flow. Credenciales desde el portal BYMA Developer.
-# Scope requerido para los endpoints actuales: bymaPrimariasPlacements.read
-BYMA_CLIENT_ID     = os.getenv("BYMA_CLIENT_ID", "")
-BYMA_CLIENT_SECRET = os.getenv("BYMA_CLIENT_SECRET", "")
-BYMA_TOKEN_URL     = os.getenv("BYMA_TOKEN_URL", "https://apigw.byma.com.ar/oauth/token/")
-BYMA_BASE_URL      = os.getenv(
-    "BYMA_BASE_URL",
-    "https://apigw.byma.com.ar/byma-primarias-placements/v1",
-)
-
-# --- MAE MarketData (repos, cauciones, títulos wholesale) ---
-# Auth simple por x-api-key. 2 ambientes: prod y uat. Default prod.
-MAE_API_KEY = os.getenv("MAE_API_KEY", "")
-MAE_ENV     = os.getenv("MAE_ENV", "prod").lower()  # 'prod' | 'uat'
-
 # --- TICKERS EXTRA (precio crudo, sin enrichment) ---
 # motor_rofex se suscribe a estos para tener precio live en TimeSales,
 # pero motor_curvas los IGNORA (no calcula TEA/duration porque no están

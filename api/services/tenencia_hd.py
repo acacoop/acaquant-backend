@@ -188,8 +188,16 @@ def tenencia_posiciones(*, fecha: str, cartera: str = "HD") -> dict[str, Any]:
 # ALQUILER vía el filtro SIN ALQUILER). Tabla self-create.
 _ALQUILER_TABLE = "portafolio.alquiler"
 
+# DDL una sola vez por proceso: las tablas ya viven en sql/schema.sql +
+# apply_schema (paso estándar del deploy); el self-create es solo red de
+# seguridad y no tiene sentido pagar CREATE/ALTER IF NOT EXISTS (lock sobre
+# el catálogo + round-trips) en CADA lectura de una vista que se refresca.
+_ddl_done: set[str] = set()
+
 
 def _ensure_alquiler_table(cur) -> None:
+    if _ALQUILER_TABLE in _ddl_done:
+        return
     cur.execute(
         f"CREATE TABLE IF NOT EXISTS {_ALQUILER_TABLE} ("
         "id_cuenta text NOT NULL, unidad text NOT NULL, "
@@ -198,6 +206,7 @@ def _ensure_alquiler_table(cur) -> None:
         "PRIMARY KEY (id_cuenta, unidad))")
     # `hasta` se agregó después (período del alquiler) → ALTER para tablas viejas.
     cur.execute(f"ALTER TABLE {_ALQUILER_TABLE} ADD COLUMN IF NOT EXISTS hasta date")
+    _ddl_done.add(_ALQUILER_TABLE)
 
 
 # Arranque del proceso legal: se listan los títulos tenidos DESDE esta fecha, aunque
@@ -351,17 +360,23 @@ _PORTFOLIO_ALQ_DESDE = "2026-06-01"   # arranque del proceso legal
 
 
 def _ensure_portfolio_alq_table(cur) -> None:
+    if _PORTFOLIO_ALQ_TABLE in _ddl_done:
+        return
     cur.execute(
         f"CREATE TABLE IF NOT EXISTS {_PORTFOLIO_ALQ_TABLE} ("
         "unidad text PRIMARY KEY, updated_by text, updated_at timestamptz)")
+    _ddl_done.add(_PORTFOLIO_ALQ_TABLE)
 
 
 def _ensure_portfolio_alq_nom_table(cur) -> None:
+    if _PORTFOLIO_ALQ_NOM_TABLE in _ddl_done:
+        return
     cur.execute(
         f"CREATE TABLE IF NOT EXISTS {_PORTFOLIO_ALQ_NOM_TABLE} ("
         "unidad text NOT NULL, id_cuenta text NOT NULL, fecha date NOT NULL, "
         "cantidad numeric NOT NULL, updated_by text, updated_at timestamptz, "
         "PRIMARY KEY (unidad, id_cuenta, fecha))")
+    _ddl_done.add(_PORTFOLIO_ALQ_NOM_TABLE)
 
 
 def _portfolio_alq_overrides() -> dict[tuple[str, str], list[tuple[str, float]]]:

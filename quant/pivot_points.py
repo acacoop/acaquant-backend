@@ -174,6 +174,12 @@ def _ohlc_en_rango(
     Returns None si no hay docs en el rango.
     """
     docs = _sql_docs_en_rango(ticker, fecha_desde, fecha_hasta)
+    return _ohlc_de_docs(docs, solo_ultima=solo_ultima)
+
+
+def _ohlc_de_docs(docs: list[dict], solo_ultima: bool = False) -> dict | None:
+    """Parte PURA de `_ohlc_en_rango`: agrega H/L/C sobre velas ya traídas
+    (permite compartir UNA query entre los 4 timeframes)."""
     if not docs:
         return None
     if solo_ultima:
@@ -237,26 +243,52 @@ def obtener_4_timeframes(ticker: str) -> dict:
           }
         }
     """
-    # Último close = última vela disponible en la serie (cierre del día
-    # previo hasta que el cron diario meta el de hoy).
-    last_doc = _sql_last_doc(ticker)
-    last       = last_doc.get("close") if last_doc else None
-    last_fecha = last_doc.get("fecha") if last_doc else None
-
     diario_desde, diario_hasta   = _rango_diario_previo()
     semanal_desde, semanal_hasta = _rango_semanal_previo()
     mensual_desde, mensual_hasta = _rango_mensual_previo()
     anual_desde, anual_hasta     = _rango_anual_previo()
 
+    # UNA query cubre los 4 timeframes + el last close: el rango anual previo
+    # arranca antes que todos y el tope abierto (mañana) incluye la última vela.
+    # Antes eran 5 queries por ticker — y esto se llama en loop por ticker
+    # (scanner, motor estrategia).
+    manana = _hoy_utc_00() + timedelta(days=1)
+    docs = _sql_docs_en_rango(ticker, anual_desde, manana)
+
+    def _en(desde: datetime, hasta: datetime) -> list[dict]:
+        return [d for d in docs if desde <= d["fecha"] < hasta]
+
+    def _frame_de(label: str, desde: datetime, hasta: datetime,
+                  solo_ultima: bool = False) -> dict | None:
+        ohlc = _ohlc_de_docs(_en(desde, hasta), solo_ultima=solo_ultima)
+        if not ohlc:
+            return None
+        return {
+            "label":       label,
+            "fecha_desde": ohlc["fecha_desde"],
+            "fecha_hasta": ohlc["fecha_hasta"],
+            "n_velas":     ohlc["n_velas"],
+            "h":           ohlc["h"],
+            "l":           ohlc["l"],
+            "c":           ohlc["c"],
+            "levels":      calcular(high=ohlc["h"], low=ohlc["l"], close=ohlc["c"]),
+        }
+
+    # Último close = última vela disponible en la serie (cierre del día
+    # previo hasta que el cron diario meta el de hoy). Si el ticker no tiene
+    # velas desde el año previo (delisted/stale), cae a la última histórica
+    # para preservar el comportamiento original.
+    last_doc = docs[-1] if docs else _sql_last_doc(ticker)
+
     return {
         "ticker":     ticker,
-        "last":       last,
-        "last_fecha": last_fecha,
+        "last":       last_doc.get("close") if last_doc else None,
+        "last_fecha": last_doc.get("fecha") if last_doc else None,
         "frames": {
-            "diario":  _frame("Diario",  ticker, diario_desde,  diario_hasta, solo_ultima=True),
-            "semanal": _frame("Semanal", ticker, semanal_desde, semanal_hasta),
-            "mensual": _frame("Mensual", ticker, mensual_desde, mensual_hasta),
-            "anual":   _frame("Anual",   ticker, anual_desde,   anual_hasta),
+            "diario":  _frame_de("Diario",  diario_desde,  diario_hasta, solo_ultima=True),
+            "semanal": _frame_de("Semanal", semanal_desde, semanal_hasta),
+            "mensual": _frame_de("Mensual", mensual_desde, mensual_hasta),
+            "anual":   _frame_de("Anual",   anual_desde,   anual_hasta),
         },
     }
 

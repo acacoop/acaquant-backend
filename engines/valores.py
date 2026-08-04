@@ -294,13 +294,23 @@ class MicrostructureEngine:
 
     def _snapshot_loop(self):
         """
-        Escribe el estado completo de todos los tickers a mercado.market_snapshot
+        Escribe el estado de todos los tickers a mercado.market_snapshot
         (SQL) cada SNAPSHOT_INTERVAL_S.
 
         El throttle se aplica ANTES de armar el payload: el loop despierta cada 1s
         pero solo construye las rows en la iteración que efectivamente persiste.
+
+        Dirty-check por fila (mismo patrón que motor_cedears/options): se saltean
+        los tickers cuya fila no cambió desde el flush anterior — cada UPSERT es
+        una tupla nueva en Postgres (WAL + churn de índices) y este es el escritor
+        más pesado del sistema (universo completo de renta fija, 7h/día). RESYNC:
+        cada _RESYNC_EVERY flushes (~45s) se reescribe todo igual para que
+        `updated_at` siga fresco (el monitoreo de staleness usa umbral 120s).
         """
         ultimo_flush = 0.0
+        _last_seen: dict[str, dict] = {}
+        _flush_n = 0
+        _RESYNC_EVERY = 9  # flushes de 5s → reescritura completa cada ~45s
         while True:
             time.sleep(1)
             try:
@@ -309,6 +319,8 @@ class MicrostructureEngine:
                     continue
 
                 ts = datetime.now(UTC)
+                _flush_n += 1
+                resync = (_flush_n % _RESYNC_EVERY) == 0
                 # SQL-only (mercado.market_snapshot): ya NO se escribe Trading.MarketSnapshot.
                 pg_rows = []
                 # Copia defensiva — el adhoc_watcher puede agregar tickers
@@ -347,10 +359,18 @@ class MicrostructureEngine:
                             "total_nominals": metricas.get("total_nominals"),
                         })
 
+                    # Huella = la fila completa menos updated_at (cubre book-solo
+                    # y book+precios). Si no cambió desde el último flush y no
+                    # toca resync, no se reescribe.
+                    huella = {k: v for k, v in row.items() if k != "updated_at"}
+                    if not resync and _last_seen.get(ticker) == huella:
+                        continue
+                    _last_seen[ticker] = huella
+
                     pg_rows.append(row)
 
+                ultimo_flush = ahora
                 if pg_rows:
-                    ultimo_flush = ahora
                     pg_mirror.write_snapshot("market_snapshot", ["ticker"], pg_rows)
 
             except Exception as e:

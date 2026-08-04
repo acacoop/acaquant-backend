@@ -86,41 +86,52 @@ def _marcar(cur, tabla: str, col: str, boletos: list[str]) -> int:
 
 # ── barrido: qué hay HOY en la base con la marca (A) ─────────────────────────
 def detectar_marca_a(commit: bool = False) -> dict:
-    """Busca el sufijo `(A)` en las dos tablas y arrastra el gemelo sin marca.
+    """Busca el sufijo `(A)` y anula ese número en las DOS tablas.
 
-    El gemelo (mismo número, sin `(A)`) es la fila que se ingestó ANTES de que
-    Aunesa anulara: es la misma operación, así que también se anula.
+    Dos pasadas, y el orden importa: primero se junta el universo de números
+    anulados mirando las DOS tablas, y recién después se marca. Aunesa manda la
+    marca `(A)` por `/informes` (→ `operaciones`) pero NO por
+    `/consolidadosGenerales` (→ `negocio_movimientos`): si cada tabla se
+    resolviera sola, el negocio nunca se enteraría de la anulación.
+
+    Se anula el número completo: la fila con `(A)` y su gemelo sin marca (la que
+    se ingestó ANTES de que Aunesa anulara — misma operación, contada dos veces).
     """
+    bases: set[str] = set()
+    con_marca: dict[str, list[dict]] = {}
     res: dict = {"commit": commit, "tablas": {}, "marcadas": 0}
+
     with get_pool().connection() as conn:
         for tabla, col, sel in _TABLAS:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(
                     f"SELECT {sel} FROM {tabla} WHERE {col} LIKE %s ORDER BY 2, 1",
                     (_LIKE_A,))
-                con_marca = [_fila(r, tabla) for r in cur.fetchall()]
-                bases = sorted({base_boleto(f["boleto"]) for f in con_marca})
+                con_marca[tabla] = [_fila(r, tabla) for r in cur.fetchall()]
+            bases |= {base_boleto(f["boleto"]) for f in con_marca[tabla]}
+
+        variantes = [v for b in sorted(bases) for v in (b, f"{b} (A)")]
+        for tabla, col, sel in _TABLAS:
+            with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(f"SELECT {sel} FROM {tabla} WHERE {col} = ANY(%s) "
-                            f"ORDER BY 2, 1", (bases,))
-                gemelos = [_fila(r, tabla) for r in cur.fetchall()]
+                            f"ORDER BY 2, 1", (variantes,))
+                todas = [_fila(r, tabla) for r in cur.fetchall()]
+                n = _marcar(cur, tabla, col, [f["boleto"] for f in todas]) if commit else 0
+                res["marcadas"] += n
 
-                n = 0
-                if commit:
-                    objetivo = [f["boleto"] for f in con_marca + gemelos]
-                    n = _marcar(cur, tabla, col, objetivo)
-                    res["marcadas"] += n
-
+            marcados = {f["boleto"] for f in con_marca[tabla]}
             res["tablas"][tabla] = {
-                "con_marca_a": con_marca,
-                "gemelos_sin_marca": gemelos,
-                "n_con_marca": len(con_marca),
-                "n_gemelos": len(gemelos),
-                "n_ya_anuladas": sum(1 for f in con_marca + gemelos if f["ya_anulado"]),
+                "con_marca_a": con_marca[tabla],
+                "gemelos_sin_marca": [f for f in todas if f["boleto"] not in marcados],
+                "n_con_marca": len(con_marca[tabla]),
+                "n_gemelos": len(todas) - len(marcados),
+                "n_ya_anuladas": sum(1 for f in todas if f["ya_anulado"]),
                 "marcadas": n,
             }
         if commit:
             conn.commit()
     return res
+
 
 
 # ── carga manual: lista de boletos anulados (Excel de Aunesa) ────────────────

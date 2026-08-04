@@ -311,6 +311,31 @@ def _bruto_expr(moneda: str) -> str:
     return "SUM(COALESCE(bruto, 0))"
 
 
+def _peso_bruto_row(moneda: str) -> str:
+    """Volumen POR FILA (el mismo de `_bruto_expr` pero SIN el SUM externo) — es el
+    peso para ponderar la tasa. Así la tasa ponderada usa exactamente la misma medida
+    de volumen que la columna BRUTO que se muestra al lado."""
+    if moneda == _DOLARIZAR:
+        return ("CASE WHEN moneda = 'USD' THEN COALESCE(bruto, 0) "
+                "WHEN moneda = 'ARS' AND COALESCE(mep, 0) > 0 THEN COALESCE(bruto, 0) / mep "
+                "ELSE 0 END")
+    return "COALESCE(bruto, 0)"
+
+
+def _tasa_pond_expr(moneda: str) -> str:
+    """Tasa PONDERADA por volumen (bruto) de un grupo. En PORCENTAJE (6 = 6%), soporta
+    negativas. Cálculo hecho acá (no en el front): Σ(tasa·bruto) / Σ(bruto).
+
+    - Ignora las filas con `tasa` NULL (FILTER): no aportan ni al numerador ni al
+      peso, así una fila sin tasa no diluye el promedio hacia cero.
+    - NULL si NINGUNA fila del grupo tiene tasa (ej. mercado ≠ MAV) → la columna
+      queda vacía, que es justo lo pedido.
+    - NULLIF(...,0) evita división por cero si el volumen ponderable es 0."""
+    w = _peso_bruto_row(moneda)
+    return (f"SUM(tasa * ({w})) FILTER (WHERE tasa IS NOT NULL) "
+            f"/ NULLIF(SUM(({w})) FILTER (WHERE tasa IS NOT NULL), 0)")
+
+
 def ops_serie(
     moneda: str = "ARS", mercado: str | None = None, operacion: str | None = None,
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
@@ -361,29 +386,43 @@ def ops_resumen(
     # Sigue la MISMA dolarización que el bruto (USD/USD_DOL → /mep). El arancel de caución
     # (cierres, es_cierre=true) NO entra acá — ese vive en la tab ARANCELES dedicada.
     aexpr = _arancel_expr(moneda)
+    # TASA ponderada por volumen (bruto). NULL salvo mercado MAV (allí `tasa` está
+    # poblada por jobs.ops_tasa_mav). Se calcula server-side para que el front
+    # NO tenga que ponderar (evita el cálculo en el front, pedido explícito).
+    texpr = _tasa_pond_expr(moneda)
+
+    def _rt(v) -> float | None:
+        """Redondea la tasa a 4 decimales preservando None (vacío = sin tasa)."""
+        return None if v is None else round(float(v), 4)
 
     # por_operacion: cruzada por denominacion + instrumento, HAVING bruto<>0.
     w_op, p_op = _xf(denom=True, instr=True)
     por_operacion = [
         {"operacion": r["operacion"] or "(sin)", "bruto": round(_f(r["bruto"]), 2),
-         "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
-        for r in _q(f"SELECT operacion, {bexpr} AS bruto, {aexpr} AS ar, count(*) AS n FROM operaciones "
+         "arancel": round(_f(r["ar"]), 2), "n": r["n"], "tasa_pond": _rt(r["tasa_pond"])}
+        for r in _q(f"SELECT operacion, {bexpr} AS bruto, {aexpr} AS ar, count(*) AS n, "
+                    f"{texpr} AS tasa_pond FROM operaciones "
                     f"WHERE {w_op} GROUP BY operacion HAVING {bexpr} <> 0 ORDER BY bruto DESC", p_op)
     ]
     # por_denominacion: cruzada por operacion + instrumento.
     w_dn, p_dn = _xf(op=True, instr=True)
     por_denominacion = [
         {"denominacion": r["denominacion"] or "(sin)", "bruto": round(_f(r["bruto"]), 2),
-         "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
-        for r in _q(f"SELECT denominacion, {bexpr} AS bruto, {aexpr} AS ar, count(*) AS n FROM operaciones "
+         "arancel": round(_f(r["ar"]), 2), "n": r["n"], "tasa_pond": _rt(r["tasa_pond"])}
+        for r in _q(f"SELECT denominacion, {bexpr} AS bruto, {aexpr} AS ar, count(*) AS n, "
+                    f"{texpr} AS tasa_pond FROM operaciones "
                     f"WHERE {w_dn} GROUP BY denominacion ORDER BY bruto DESC", p_dn)
     ]
     # por_instrumento (títulos): cruzada por operacion + denominacion, HAVING bruto<>0.
+    # Acá `tasa_pond` es la tasa del TÍTULO: un título es un instrumento y sus boletos
+    # comparten tasa, así que la ponderada colapsa a ese único valor (si difirieran,
+    # es el promedio honesto por volumen). Es la columna del pedido "POR TÍTULO".
     w_in, p_in = _xf(op=True, denom=True)
     por_instrumento = [
         {"instrumento": r["instrumento"] or "(sin)", "bruto": round(_f(r["bruto"]), 2),
-         "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
-        for r in _q(f"SELECT instrumento, {bexpr} AS bruto, {aexpr} AS ar, count(*) AS n FROM operaciones "
+         "arancel": round(_f(r["ar"]), 2), "n": r["n"], "tasa_pond": _rt(r["tasa_pond"])}
+        for r in _q(f"SELECT instrumento, {bexpr} AS bruto, {aexpr} AS ar, count(*) AS n, "
+                    f"{texpr} AS tasa_pond FROM operaciones "
                     f"WHERE {w_in} GROUP BY instrumento HAVING {bexpr} <> 0 ORDER BY bruto DESC", p_in)
     ]
     total = round(sum(r["bruto"] for r in (por_denominacion if denominacion else por_operacion)), 2)

@@ -402,6 +402,21 @@ Mesa flow + cash movements (read-only). **Bloqueado al asistente y al MCP por po
 | GET | `/fondos` | Counterparties `grupo=Fondos` with at least one FCI asset |
 | GET | `/negocio` | Negocio del día consolidado por boleto desde `operaciones.negocio_movimientos` (param `fecha=YYYY-MM-DD`, default hoy ART). Devuelve `meta` + `agregados` por categoría + `top_tickers` + `boletos`. |
 | GET | `/negocio/fechas` | Lista de fechas con boletos persistidos en `operaciones.negocio_movimientos` ordenadas desc. Devuelve `[{fecha, n}]`. Usado por el frontend para limitar el selector. |
+| GET | `/ops/resumen` | Vista MOVIMIENTOS: `por_operacion` / `por_denominacion` / `por_instrumento` (cross-filter 3-way) + `total`. Cada fila trae `bruto`, `arancel`, `n` y **`tasa_pond`**. |
+
+**`tasa_pond` (2026-08-03)** — tasa PONDERADA POR VOLUMEN del grupo, en porcentaje
+(`6` = 6%, admite negativas). Se calcula server-side (`Σ(tasa·bruto)/Σ(bruto)`,
+misma dolarización que `bruto`) justamente para que el frontend NO tenga que
+ponderar: se pinta tal cual viene.
+
+- **`null` = sin dato, y hay que mostrarlo vacío** (no `0`, que sería una tasa
+  real). Es lo normal fuera de MAV: `operaciones.tasa` sólo está poblada para
+  los boletos MAV (pagarés/cheques, que se negocian a tasa y no a precio
+  unitario — la rellena `jobs/ops_tasa_mav.py`).
+- Las filas sin tasa se excluyen del promedio (no diluyen hacia cero): un grupo
+  mixto pondera sólo sobre el volumen que efectivamente tiene tasa.
+- En `por_instrumento` (POR TÍTULO) los boletos de un mismo título comparten
+  tasa, así que la ponderada colapsa a ese único valor.
 
 #### `/negocio` — schema del response
 

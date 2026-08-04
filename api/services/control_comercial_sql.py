@@ -130,7 +130,8 @@ def _add_months(d: date, n: int) -> date:
 def _ancla() -> date:
     """Última fecha con operaciones (negocio_movimientos), capeada a hoy. Si no hay, hoy."""
     hoy = _hoy_art()
-    r = _q("SELECT max(fecha) AS f FROM negocio_movimientos WHERE fecha <= %(h)s", {"h": hoy})
+    r = _q("SELECT max(fecha) AS f FROM negocio_movimientos "
+           "WHERE fecha <= %(h)s AND anulado_en IS NULL", {"h": hoy})
     return r[0]["f"] if r and r[0]["f"] else hoy
 
 
@@ -194,9 +195,11 @@ def _agg_totales_batch(defs: list[tuple], moneda: str, mep_hoy: float | None,
     p["hmax"] = pc["hmax"] = max(h for _, h in ranges)
     v = _q(f"SELECT {', '.join(sel_v)} FROM negocio_movimientos "
            f"WHERE categoria = ANY(%(cats)s) AND unidad IS DISTINCT FROM 'USDL' "
+           f"AND anulado_en IS NULL "
            f"AND fecha >= %(dmin)s AND fecha <= %(hmax)s{scope}", p)[0]
     c = _q(f"SELECT {', '.join(sel_c)} FROM operaciones "
            f"WHERE arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
+           f"AND anulado_en IS NULL "
            f"AND concertacion >= %(dmin)s AND concertacion <= %(hmax)s{scope}", pc)[0]
     idx = {r: i for i, r in enumerate(ranges)}
 
@@ -292,6 +295,7 @@ def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
         p["ids"] = pc["ids"] = ids
     for r in _q(f"SELECT id_cuenta, COALESCE(SUM({volx}),0) AS vol FROM negocio_movimientos "
                 f"WHERE categoria = ANY(%(cats)s) AND unidad IS DISTINCT FROM 'USDL' "
+                f"AND anulado_en IS NULL "
                 f"AND fecha >= %(d)s AND fecha <= %(h)s{scope} GROUP BY id_cuenta", p):
         op = op_de.get(r["id_cuenta"])
         if not op:
@@ -301,6 +305,7 @@ def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
         s["volumen"] += _f(r["vol"])
     for r in _q(f"SELECT id_cuenta, COALESCE(SUM({arax}),0) AS com FROM operaciones "
                 f"WHERE arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
+                f"AND anulado_en IS NULL "
                 f"AND concertacion >= %(d)s AND concertacion <= %(h)s{scope} GROUP BY id_cuenta",
                 pc):
         op = op_de.get(r["id_cuenta"])

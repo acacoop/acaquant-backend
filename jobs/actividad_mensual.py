@@ -44,7 +44,7 @@ def _agregar(cats: list[str], meses: list[str] | None) -> list[dict[str, Any]]:
     from core.postgres import get_job_pool
     pesif = ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
              "ELSE abs(COALESCE(importe, 0)) * COALESCE(mep, 0) END")
-    conds = ["categoria = ANY(%(cats)s)", "id_cuenta IS NOT NULL"]
+    conds = ["categoria = ANY(%(cats)s)", "id_cuenta IS NOT NULL", "anulado_en IS NULL"]
     p: dict[str, Any] = {"cats": cats}
     if meses:
         p["lo"] = min(meses) + "-01"

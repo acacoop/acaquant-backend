@@ -89,7 +89,7 @@ def flujo_operaciones(contraparte: str | None = None, moneda: str | None = None,
     if not ids:
         return []
 
-    conds = ["id_cuenta = ANY(%(ids)s)",
+    conds = ["id_cuenta = ANY(%(ids)s)", "anulado_en IS NULL",
              "(tipo_operacion IS NULL OR tipo_operacion !~* 'Futuros|Opciones|colocadora')"]
     p: dict = {"ids": ids}
     if moneda:
@@ -145,7 +145,7 @@ def flujo_resumen(desde: str | None = None, hasta: str | None = None) -> dict:
                     "WHERE id_cuenta IS NOT NULL AND id_cuenta <> ''")
         cp_map = {str(idc).strip(): (cp or "", seg or "")
                   for idc, cp, seg in cur.fetchall() if idc not in (None, "")}
-    conds = ["id_cuenta = ANY(%(ids)s)",
+    conds = ["id_cuenta = ANY(%(ids)s)", "anulado_en IS NULL",
              "(tipo_operacion IS NULL OR tipo_operacion !~* 'Futuros|Opciones|colocadora')"]
     p: dict = {"ids": list(cp_map)}
     if desde:
@@ -187,7 +187,7 @@ def _ops_where(
 ) -> tuple[str, dict]:
     """Devuelve (where_sql, params). `arancel=True` → sin filtro de moneda, incluye los
     cierres con arancel (caución), igual que _arancel_match."""
-    conds: list[str] = []
+    conds: list[str] = ["anulado_en IS NULL"]  # boletos que Aunesa anuló: fuera de toda vista
     p: dict = {}
     # es_cierre NULL (ej. FCI bilateral) = NO es cierre → COALESCE para no perderlos
     # (NULL = false en SQL da NULL, no TRUE, y descartaba esas filas). Ver docstring.
@@ -314,7 +314,8 @@ def ops_tipos_operacion() -> dict:
 
 def ops_fechas() -> dict:
     rows = _q("SELECT concertacion AS fecha, count(*) AS n FROM operaciones "
-              "WHERE concertacion IS NOT NULL GROUP BY concertacion ORDER BY concertacion DESC")
+              "WHERE concertacion IS NOT NULL AND anulado_en IS NULL "
+              "GROUP BY concertacion ORDER BY concertacion DESC")
     return {"fechas": [{"fecha": _iso(r["fecha"]), "n": r["n"]} for r in rows]}
 
 
@@ -331,7 +332,7 @@ def ops_cuentas_list(scope: tuple[str, ...] | None = None) -> dict:
     `id_cuenta` acá es el id pelado, mismo namespace que `manager.grupos`.
     """
     sql = ("SELECT id_cuenta AS cuenta, max(denominacion) AS denominacion "
-           "FROM operaciones WHERE id_cuenta IS NOT NULL")
+           "FROM operaciones WHERE id_cuenta IS NOT NULL AND anulado_en IS NULL")
     params: dict = {}
     if scope is not None:
         sql += " AND id_cuenta = ANY(%(scope)s)"
@@ -346,7 +347,7 @@ def ops_meta(fecha: str) -> dict:
     rows = _q(
         "SELECT count(*) AS n, max(ingestado_en) AS ultima, "
         "count(DISTINCT mercado) FILTER (WHERE mercado IS NOT NULL AND mercado <> '') AS ncat "
-        "FROM operaciones WHERE concertacion = %(fecha)s",
+        "FROM operaciones WHERE concertacion = %(fecha)s AND anulado_en IS NULL",
         {"fecha": fecha},
     )
     r = rows[0]
@@ -791,7 +792,7 @@ def ops_agro(
     tipo: str | None = None,
 ) -> dict:
     fmt = "YYYY-MM" if agg.upper() == "MENSUAL" else "YYYY-MM-DD"
-    base = "commodity IN ('SOJA', 'TRIGO', 'MAIZ')"
+    base = "commodity IN ('SOJA', 'TRIGO', 'MAIZ') AND anulado_en IS NULL"
     bp: dict = {}
     if scope is not None:
         base += " AND id_cuenta = ANY(%(scope)s)"
@@ -942,7 +943,7 @@ def ops_dolar_futuro(
     fmt = "YYYY-MM" if agg.upper() == "MENSUAL" else "YYYY-MM-DD"
     # Literal inline (no param): el planner solo usa el índice parcial ix_ops_dlr_concert
     # si ve el predicado idéntico al del índice. Constante nuestra, no input de usuario.
-    base = "instrumento ILIKE '%%DLR%%'"
+    base = "instrumento ILIKE '%%DLR%%' AND anulado_en IS NULL"
     bp: dict = {}
     if scope is not None:
         base += " AND id_cuenta = ANY(%(scope)s)"
@@ -1033,7 +1034,7 @@ def ops_diferencias_diarias(
     categoria='otro' (verificado: 129.855/129.855 filas). El predicado va con
     LITERALES inline para matchear el índice parcial ix_nm_dif(moneda, fecha)."""
     base = ("categoria = 'otro' AND informacion ILIKE 'Diferencias diarias%%' "
-            "AND moneda = %(moneda)s")
+            "AND moneda = %(moneda)s AND anulado_en IS NULL")
     bp: dict = {"moneda": moneda}
     if scope is not None:
         base += " AND id_cuenta = ANY(%(scope)s)"
@@ -1110,7 +1111,7 @@ def ops_diferencias_fechas(moneda: str = "USDL") -> dict:
         "SELECT to_char(fecha, 'YYYY-MM-DD') AS fecha, COUNT(*) AS n "
         "FROM negocio_movimientos "
         "WHERE categoria = 'otro' AND informacion ILIKE 'Diferencias diarias%%' "
-        "AND moneda = %(moneda)s "
+        "AND moneda = %(moneda)s AND anulado_en IS NULL "
         "GROUP BY fecha ORDER BY fecha DESC",
         {"moneda": moneda},
     )

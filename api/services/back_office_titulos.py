@@ -130,7 +130,7 @@ def get_titulos_mercado(fecha: str | None = None) -> dict[str, Any]:
         cur.execute(
             "SELECT fecha::text AS fecha, plazo, op, categoria, ticker, cantidad, precio, "
             "importe, cuenta, comprobante, moneda FROM negocio_movimientos "
-            "WHERE categoria = ANY(%s) AND "
+            "WHERE categoria = ANY(%s) AND anulado_en IS NULL AND "
             "((fecha = %s AND plazo = ANY(%s)) OR (fecha = %s AND plazo = ANY(%s)))",
             (list(CATEGORIAS_MERCADO), hoy_str, list(PLAZOS_T0), ayer_str, list(PLAZOS_T1)))
         docs = cur.fetchall()

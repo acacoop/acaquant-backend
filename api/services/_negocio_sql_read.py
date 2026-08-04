@@ -71,7 +71,7 @@ def negocio_movimientos_rows(
     """
     cols = list(fields)
     select = ", ".join(_EXPR[c] for c in cols)
-    conds: list[str] = []
+    conds: list[str] = ["anulado_en IS NULL"]  # boletos que Aunesa anuló: nunca se leen
     p: dict = {}
     if id_cuenta is not None:
         conds.append("id_cuenta = %(idc)s")

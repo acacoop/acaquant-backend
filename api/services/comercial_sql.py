@@ -295,7 +295,8 @@ def operaciones_cliente(*, id_cuenta: str, limite: int = 300) -> dict:
     rows = _q(
         "SELECT fecha, comprobante, categoria, op, ticker, cantidad, precio, importe, moneda, "
         "plazo FROM negocio_movimientos WHERE id_cuenta = %(idc)s AND categoria = ANY(%(cats)s) "
-        "AND unidad IS DISTINCT FROM 'USDL' ORDER BY fecha DESC, comprobante DESC LIMIT %(lim)s",
+        "AND unidad IS DISTINCT FROM 'USDL' AND anulado_en IS NULL "
+        "ORDER BY fecha DESC, comprobante DESC LIMIT %(lim)s",
         {"idc": str(id_cuenta), "cats": list(_CATS_OPERACIONES), "lim": int(limite)},
     )
     ops = [{
@@ -328,7 +329,7 @@ def serie_comercial(*, operador, metric: str = "volumen", moneda: str = "ARS",
         p["cats"] = list(_CATS_VOLUMEN)
         rows = _q(f"SELECT fecha, SUM({_PESIF}) AS v FROM negocio_movimientos "
                   f"WHERE {scope} AND categoria = ANY(%(cats)s) AND unidad IS DISTINCT FROM 'USDL' "
-                  f"GROUP BY fecha ORDER BY fecha", p)
+                  f"AND anulado_en IS NULL GROUP BY fecha ORDER BY fecha", p)
     serie = [{"fecha": _iso(r["fecha"]), "valor": _cv(_f(r["v"]), factor)} for r in rows]
     return {"operador": operador, "id_cuenta": id_cuenta, "metric": metric,
             "moneda": moneda, "serie": serie}
@@ -348,6 +349,7 @@ def clientes_por_fecha(*, operador, desde: str, hasta: str,
     for r in _q(
         f"SELECT id_cuenta, SUM({_PESIF}) AS v FROM negocio_movimientos "
         f"WHERE {scope} AND categoria = ANY(%(cats)s) AND unidad IS DISTINCT FROM 'USDL' "
+        f"AND anulado_en IS NULL "
         f"AND fecha >= %(desde)s AND fecha <= %(hasta)s GROUP BY id_cuenta", p,
     ):
         vol[r["id_cuenta"]] = _f(r["v"])
@@ -418,7 +420,7 @@ def operador_comercial(*, operador, moneda: str = "ARS", nivel_1=None,
         f"SUM(CASE WHEN fecha >= %(ytd)s THEN {_PESIF} ELSE 0 END) AS vy, "
         f"SUM(CASE WHEN fecha >= %(mtd)s THEN {_PESIF} ELSE 0 END) AS vm "
         f"FROM negocio_movimientos WHERE id_cuenta = ANY(%(ids_scope)s) "
-        f"AND categoria = ANY(%(cats)s) "
+        f"AND categoria = ANY(%(cats)s) AND anulado_en IS NULL "
         f"AND unidad IS DISTINCT FROM 'USDL'{cap} GROUP BY id_cuenta", p,
     ):
         vol_ytd[r["id_cuenta"]] = _f(r["vy"])
@@ -473,7 +475,7 @@ def analisis_comercial(*, operador, dias_activa: int = 45, dias_dormida: int = 9
     # Última operación por cuenta <= corte (Operaciones, fuente de verdad).
     p: dict = {"ids_scope": ids_scope}
     ult_sql = ("SELECT id_cuenta, max(concertacion) AS ult FROM operaciones "
-               "WHERE id_cuenta = ANY(%(ids_scope)s)")
+               "WHERE id_cuenta = ANY(%(ids_scope)s) AND anulado_en IS NULL")
     if fecha:
         ult_sql += " AND concertacion <= %(corte)s"
         p["corte"] = corte_iso
@@ -543,6 +545,7 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
     mes_ini = date(anio, mes, 1).isoformat()
     p2: dict = {"cats": list(_CATS_VOLUMEN), "mes": mes_ini, "corte": corte}
     w_op = ("nm.categoria = ANY(%(cats)s) AND nm.unidad IS DISTINCT FROM 'USDL' "
+            "AND nm.anulado_en IS NULL "
             "AND nm.fecha >= %(mes)s AND nm.fecha <= %(corte)s")
     if operador:
         w_op += " AND c.operador_email = %(op)s"
@@ -605,8 +608,10 @@ def _rollup_por_cuenta(scope: str | None, p: dict,
         lo_vol = " AND fecha >= %(lo)s"
         lo_ar = " AND concertacion >= %(lo)s"
 
-    w_vol = (f"unidad IS DISTINCT FROM 'USDL' AND categoria = ANY(%(cats)s){ub_vol}{lo_vol}")
-    w_ar = (f"arancel > 0 AND etapa IS DISTINCT FROM 'solicitud'{ub_ar}{lo_ar}")
+    w_vol = (f"unidad IS DISTINCT FROM 'USDL' AND categoria = ANY(%(cats)s) "
+             f"AND anulado_en IS NULL{ub_vol}{lo_vol}")
+    w_ar = (f"arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
+            f"AND anulado_en IS NULL{ub_ar}{lo_ar}")
     if scope:
         w_vol += f" AND {scope}"
         w_ar += f" AND {scope}"
@@ -800,6 +805,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
                 f"SUM(CASE WHEN {lb_tot} THEN arancel ELSE 0 END) AS ar_total, "
                 f"SUM(CASE WHEN concertacion >= %(mes_ini)s THEN arancel ELSE 0 END) AS ar_mes "
                 f"FROM operaciones WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 "
+                f"AND anulado_en IS NULL "
                 f"AND etapa IS DISTINCT FROM 'solicitud'{ub}{lo} GROUP BY id_cuenta", pa):
         idc = r["id_cuenta"]
         clientes.append({
@@ -831,7 +837,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     for r in _q("SELECT concertacion, id_cuenta, boleto, instrumento, operacion, "
                 "tipo_operacion, bruto, moneda, arancel, count(*) OVER() AS n_total "
                 "FROM operaciones "
-                "WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 "
+                "WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 AND anulado_en IS NULL "
                 f"AND etapa IS DISTINCT FROM 'solicitud'{bounds} "
                 f"ORDER BY concertacion DESC, boleto DESC{limit}", pop):
         n_operaciones = int(r["n_total"])

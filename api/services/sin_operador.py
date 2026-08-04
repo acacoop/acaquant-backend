@@ -53,6 +53,7 @@ def cuentas_sin_operador() -> dict:
             f"SELECT id_cuenta, SUM({_pesif}) AS v, (array_agg(cuenta))[1] AS cuenta, "
             f"(array_agg(unidad))[1] AS unidad FROM negocio_movimientos "
             f"WHERE categoria = ANY(%s) AND unidad IS DISTINCT FROM 'USDL' "
+            f"AND anulado_en IS NULL "
             f"AND id_cuenta IS NOT NULL GROUP BY id_cuenta", (list(_CATS_VOLUMEN),))
         agg = {str(r["id_cuenta"]): {"vol": float(r["v"] or 0.0),
                                      "cuenta": r["cuenta"], "unidad": r["unidad"]}

@@ -107,7 +107,7 @@ _CUENTAS_POR_LOTE = 100
 _SEL_BOLETOS = (
     "SELECT id_cuenta, fecha, categoria, op, ticker, cantidad, precio, importe, "
     "moneda, comprobante, mep FROM negocio_movimientos "
-    "WHERE categoria = ANY(%(cats)s) AND ticker IS NOT NULL"
+    "WHERE categoria = ANY(%(cats)s) AND ticker IS NOT NULL AND anulado_en IS NULL"
 )
 
 
@@ -124,7 +124,8 @@ def _boletos_by_cuenta(only_cuenta: str | None) -> dict[str, list]:
         ids = [
             r["id_cuenta"] for r in _q(
                 "SELECT DISTINCT id_cuenta FROM negocio_movimientos "
-                "WHERE categoria = ANY(%(cats)s) AND ticker IS NOT NULL",
+                "WHERE categoria = ANY(%(cats)s) AND ticker IS NOT NULL "
+                "AND anulado_en IS NULL",
                 {"cats": cats},
             ) if r["id_cuenta"] is not None
         ]

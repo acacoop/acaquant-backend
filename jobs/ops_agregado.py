@@ -63,7 +63,8 @@ def _dias_sucios(cur, full: bool) -> list:
         "  ON a.fecha = o.concertacion AND a.moneda_calc = 'ARS' "
         "WHERE o.concertacion IS NOT NULL "
         "  AND (a.fecha IS NULL OR o.ingestado_en IS NULL "
-        "       OR o.ingestado_en > a.actualizado_en) "
+        "       OR o.ingestado_en > a.actualizado_en "
+        "       OR o.anulado_en > a.actualizado_en) "
         "ORDER BY o.concertacion")
     return [r[0] for r in cur.fetchall()]
 
@@ -82,7 +83,7 @@ def _recomputar_dia(cur, dia) -> None:
             f"COALESCE((SELECT {expr_a} FROM operaciones.operaciones "
             f"          WHERE concertacion = %(dia)s AND {where_a}), 0), "
             f"(SELECT count(*) FROM operaciones.operaciones "
-            f" WHERE concertacion = %(dia)s), now()",
+            f" WHERE concertacion = %(dia)s AND anulado_en IS NULL), now()",
             {"dia": dia, "mon": moneda, "moneda": moneda},
         )
 

@@ -283,7 +283,7 @@ def _aranceles_por_cuenta(
 ) -> dict[str, dict[str, float]]:
     """{cuenta: {ar_total, ar_mes}} desde SQL operaciones.operaciones. `ids=None`
     → todas las cuentas. etapa != solicitud (NULL cuenta como no-solicitud)."""
-    conds = ["arancel > 0", "etapa IS DISTINCT FROM 'solicitud'"]
+    conds = ["arancel > 0", "etapa IS DISTINCT FROM 'solicitud'", "anulado_en IS NULL"]
     p: dict[str, Any] = {"mes": fecha_mes}
     if ids is not None:
         conds.append("id_cuenta = ANY(%(ids)s)")
@@ -331,6 +331,7 @@ def referido_clientes(*, referido: str, moneda: str = "ARS") -> dict[str, Any]:
             f"SUM(CASE WHEN fecha >= %(mtd)s THEN {_pesif} ELSE 0 END) AS mes "
             f"FROM negocio_movimientos "
             f"WHERE categoria = ANY(%(cats)s) AND unidad IS DISTINCT FROM 'USDL' "
+            f"AND anulado_en IS NULL "
             f"AND id_cuenta = ANY(%(ids)s) AND fecha >= %(ytd)s GROUP BY id_cuenta",
             {"cats": list(_CATS_VOLUMEN), "ids": list(ids),
              "ytd": ytd_desde, "mtd": mtd_desde})

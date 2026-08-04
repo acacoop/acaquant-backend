@@ -5,7 +5,7 @@ trader/sales tienen `operar`). Además, cada endpoint que toca una cuenta
 aplica SCOPE de grupos (`verificar_account`): un user scopeado solo opera/
 cancela/ve órdenes de sus cuentas; admin / sin-grupo (`scope=None`) opera
 todo. El scope es no-op hasta que el admin cree grupos en /manager.
-`Depends(get_user_email)` registra el actor en el audit log de Mongo.
+`Depends(get_user_email)` registra el actor en `operaciones.ordenes_audit`.
 
 Endpoints:
   POST   /api/ordenes              → envía (LIMIT|MARKET, BUY|SELL, DAY|IOC|FOK|GTC)
@@ -14,8 +14,9 @@ Endpoints:
   GET    /api/ordenes/{cl_ord_id}  → estado actual (lo mantiene el motor)
 
 Diseño: los routers son thin wrappers; toda la lógica está en
-`api/services/ordenes.py`. La sesión pyRofex es lazy — la primera llamada
-a send/cancel inicializa la sesión REST en el proceso uvicorn.
+`api/services/ordenes.py` (write-side) y `api/services/ordenes_sql.py`
+(read-side). La sesión pyRofex es lazy — la primera llamada a send/cancel
+inicializa la sesión REST en el proceso uvicorn.
 """
 from __future__ import annotations
 
@@ -27,33 +28,19 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.ratelimit import limiter
-from api.services import ordenes_sql as _ord_sql
 from api.services._grupos_scope import scope_cuentas, verificar_account
 from api.services.ordenes import (
     cancel_order,
     get_fci_quote,
-    get_order_status,
-    list_orders_dia,
     search_fci,
     search_symbols,
     send_fci_order,
     send_order,
 )
+from api.services.ordenes_sql import get_order_status, list_orders_dia
 
 router = APIRouter(prefix="/api/ordenes", tags=["ordenes"])
 logger = logging.getLogger("api.ordenes")
-
-
-def _read_sql(engine: str | None) -> bool:
-    """Dual-run de LECTURA: SQL si flag ORDENES_SQL=1, con override por request
-    (`?_engine=sql|mongo`). El path Mongo queda intacto → rollback = sacar el flag.
-    SOLO afecta de dónde sale el doc LOCAL de la orden; el merge con el broker es
-    idéntico en ambos motores."""
-    if engine == "sql":
-        return True
-    if engine == "mongo":
-        return False
-    return _ord_sql.ordenes_sql_on()
 
 
 class OrdenIn(BaseModel):
@@ -79,7 +66,7 @@ def enviar(
     email: str = Depends(get_user_email),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
-    """Envía la orden via REST y persiste request + respuesta en Mongo.
+    """Envía la orden via REST y persiste request + respuesta en SQL.
 
     Devuelve `{ok, cl_ord_id, status, error?, broker_response}`. Si el
     broker rechaza, `ok=False` y status indica si fue local (validación)
@@ -114,21 +101,16 @@ def cancelar(
         None,
         description="Opcional — para cancelar órdenes external (vinieron solo del broker, no de nuestra app)",
     ),
-    _engine: str | None = Query(None, include_in_schema=False),
     email: str = Depends(get_user_email),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Pide cancelación al broker. El estado real llega vía order_report
-    al motor de órdenes — acá solo registramos el intento.
-
-    El CANCEL en sí NO cambia: lo maneja `cancel_order` (write-side, Mongo). El
-    dual-run SOLO aplica a la lectura del doc para el chequeo de scope."""
+    al motor de órdenes — acá solo registramos el intento."""
     if scope is not None:
         # Resolver la cuenta de la orden y verificar que sea del scope antes
         # de cancelar (no alcanza el cl_ord_id: un user scopeado no puede
         # cancelar órdenes de cuentas ajenas).
-        doc = (_ord_sql.get_order_status(cl_ord_id) if _read_sql(_engine)
-               else get_order_status(cl_ord_id))
+        doc = get_order_status(cl_ord_id)
         if doc is None:
             raise HTTPException(status_code=404, detail="orden no encontrada")
         verificar_account(doc.get("account"), scope)
@@ -145,19 +127,15 @@ def listar_dia(
         None,
         description="ID de cuenta a filtrar; si se omite usa la cuenta default del .env",
     ),
-    _engine: str | None = Query(None, include_in_schema=False),
     _email: str = Depends(get_user_email),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> list[dict]:
     """Órdenes del día UTC actual. Filtrable por cuenta — el Dashboard
     de Operar manda la cuenta seleccionada en el toolbar, así no muestra
-    las del default cuando estás operando en otra.
-
-    Dual-run: el doc LOCAL sale de SQL (flag ORDENES_SQL) o Mongo; el merge con
-    el broker (verdad real-time) es idéntico en ambos."""
+    las del default cuando estás operando en otra. El doc LOCAL sale de
+    SQL; el merge con el broker es la verdad real-time."""
     verificar_account(account, scope)
-    fn = _ord_sql.list_orders_dia if _read_sql(_engine) else list_orders_dia
-    return fn(account=account)
+    return list_orders_dia(account=account)
 
 
 @router.get("/symbols")
@@ -236,14 +214,12 @@ def enviar_fci(
 @router.get("/{cl_ord_id}")
 def status(
     cl_ord_id: str,
-    _engine: str | None = Query(None, include_in_schema=False),
     _email: str = Depends(get_user_email),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Estado actual de una orden (lo mantiene el motor con cada ER).
-    Dual-run: lee SQL `operaciones.ordenes_live` o Mongo `OrdenesLive`."""
-    doc = (_ord_sql.get_order_status(cl_ord_id) if _read_sql(_engine)
-           else get_order_status(cl_ord_id))
+    Lee SQL `operaciones.ordenes_live`."""
+    doc = get_order_status(cl_ord_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="orden no encontrada")
     verificar_account(doc.get("account"), scope)

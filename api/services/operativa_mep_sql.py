@@ -1,44 +1,30 @@
-"""api/services/operativa_mep_sql.py — READ-SIDE de la operativa Dólar MEP leyendo Postgres.
+"""api/services/operativa_mep_sql.py — READ-SIDE de la operativa Dólar MEP (única implementación).
 
-Servicio PURO (sin FastAPI). Espejo SQL de las LECTURAS de
-`api/services/operativa_mep.py` que hoy leen Mongo (`Operaciones.{OperativasMep,
-OrdenesLive, OrdenesAudit}`): `listar_operativas_dia` + `obtener_detalle_operativa`.
-
-Dual-run: el selector del router elige SQL o Mongo según el flag `ORDENES_SQL`
-(el MISMO que gobierna `ordenes_sql.py` — el read-side de órdenes es un solo
-dominio). El path Mongo queda INTACTO → rollback = sacar el flag.
+Servicio PURO (sin FastAPI). Acá viven las LECTURAS de la operativa MEP:
+`listar_operativas_dia` (listado del día con join a órdenes + métricas) y
+`obtener_detalle_operativa` (drilldown con timeline de audit).
 
 ⚠️ Esto NO toca el write-side ni el envío al broker. La CREACIÓN de operativas
 (`crear_operativa`/`operativa_venta_mep`/…), el polling REST contra pyRofex y la
-persistencia (Mongo + dual-write best-effort a SQL bajo `ORDENES_SQL_WRITE`)
-siguen IGUAL en `operativa_mep.py`. Acá SOLO cambia de DÓNDE salen los docs para
-el listado del día y el drilldown.
+persistencia viven en `operativa_mep.py`, que también aporta los helpers PUROS
+reusados acá (`_enrich_pata`, `_serializar_doc`, constantes) para no duplicar la
+lógica de cálculo (usd/mep efectivo, slippage, duración) — que es lo único delicado.
 
 Contrato de las tablas (ver sql/schema.sql):
   operaciones.operativas_mep: id (PK=operativa_id) · account · rueda · ts · data jsonb
   operaciones.ordenes_live:   cl_ord_id (PK) · account · ticker · estado · updated_at · data
   operaciones.ordenes_audit:  id · ts · kind · cl_ord_id · account · actor_email · data
-`data` = doc Mongo completo con datetimes→ISO (doc_iso). El read reconstruye el
-MISMO shape que devolvía Mongo, reusando los helpers PUROS del módulo Mongo
-(`_enrich_pata`, `_serializar_doc`, constantes) para no duplicar la lógica de
-cálculo (usd/mep efectivo, slippage, duración) — que es lo único delicado.
+`data` = doc completo con datetimes→ISO (doc_iso).
 """
 from __future__ import annotations
 
 import logging
-import os
 from datetime import UTC, datetime
 from typing import Any
 
 from api.services._sql import _q
 
 logger = logging.getLogger("api.services.operativa_mep_sql")
-
-
-def operativas_sql_on() -> bool:
-    """Lectura del read-side de la operativa MEP desde SQL (default Mongo).
-    Comparte flag con el read-side de órdenes (mismo dominio TRANSACCIONAL)."""
-    return os.getenv("ORDENES_SQL") == "1"
 
 
 def _orden_doc(cl_ord_id: str | None) -> dict | None:
@@ -59,13 +45,11 @@ def _orden_doc(cl_ord_id: str | None) -> dict | None:
 
 
 def listar_operativas_dia(account: str | None = None) -> list[dict]:
-    """Operativas MEP del día UTC con join a OrdenesLive + métricas — MISMO shape
-    que `operativa_mep.listar_operativas_dia`, pero los docs salen de SQL.
+    """Operativas MEP del día UTC con join a órdenes + métricas calculadas.
 
     Filtra por `data->>'created_at'` (ISO estable en el jsonb), NO por la columna
-    `ts` (ambigua entre el baseline sync = created_at y el dual-write live =
-    updated_at). Es el mismo criterio que usa `ordenes_sql._orders_locales_dia`
-    y replica el filtro Mongo `created_at >= inicio`."""
+    `ts` (ambigua entre el baseline sync = created_at y el write live =
+    updated_at). Mismo criterio que `ordenes_sql._orders_locales_dia`."""
     from api.services.operativa_mep import (
         ESTADOS_FINALES_ORDEN,
         PRICE_FACTOR_BONOS,
@@ -115,8 +99,10 @@ def listar_operativas_dia(account: str | None = None) -> list[dict]:
         buy_ord = ordenes_by_id.get(buy_cid) if buy_cid else None
         sell_ord = ordenes_by_id.get(sell_cid) if sell_cid else None
 
-        # USD/MEP efectivo de MERCADO — lógica IDÉNTICA al path Mongo (ver
-        # operativa_mep.listar_operativas_dia para el racional del slippage).
+        # USD efectivo: cum_sell * avg_sell * 0.01 (los bonos cotizan por 100 VN).
+        # MEP efectivo de MERCADO = ARS_operados / USD_obtenidos — se usan los ARS
+        # realmente movidos por la BUY (no `monto_ars` bruto, que incluye la
+        # comisión e inflaría el slippage vs MEP_ini).
         usd_efectivo: float | None = None
         mep_efectivo: float | None = None
         if sell_ord and buy_ord:
@@ -140,8 +126,7 @@ def listar_operativas_dia(account: str | None = None) -> list[dict]:
         else:
             estado = op.get("status", "PENDING")
 
-        # created_at en el jsonb ya es ISO (doc_iso) → se pasa tal cual, idéntico
-        # al .isoformat() del datetime que devuelve el path Mongo.
+        # created_at en el jsonb ya es ISO (doc_iso) → se pasa tal cual.
         ts_created = op.get("created_at")
         out.append({
             "operativa_id":      op.get("operativa_id"),
@@ -171,10 +156,9 @@ def listar_operativas_dia(account: str | None = None) -> list[dict]:
 
 
 def obtener_detalle_operativa(operativa_id: str) -> dict[str, Any] | None:
-    """Detalle completo de una operativa MEP — MISMO shape que el path Mongo,
-    pero el doc + las patas (OrdenesLive) + el timeline (OrdenesAudit) salen de SQL.
-
-    Devuelve None si la operativa no existe."""
+    """Detalle completo de una operativa MEP para el drilldown: doc completo +
+    2 patas con sus órdenes live y timeline de audit + métricas derivadas
+    (slippage, duración). Devuelve None si la operativa no existe."""
     from api.services.operativa_mep import PRICE_FACTOR_BONOS, _serializar_doc
 
     rows = _q("SELECT data FROM operaciones.operativas_mep WHERE id = %s", (operativa_id,))
@@ -210,7 +194,7 @@ def obtener_detalle_operativa(operativa_id: str) -> dict[str, Any] | None:
     buy = _pata(buy_cid)
     sell = _pata(sell_cid)
 
-    # Métricas derivadas — código IDÉNTICO al path Mongo.
+    # Métricas derivadas (ver racional del slippage en listar_operativas_dia).
     metricas: dict[str, Any] = {}
     sell_live = sell.get("live") or {}
     buy_live = buy.get("live") or {}

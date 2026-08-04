@@ -1,19 +1,23 @@
-"""Servicio de órdenes — funciones puras invocables desde routers o scripts.
+"""Servicio de órdenes (WRITE-SIDE) — funciones puras invocables desde routers o scripts.
 
 Sin FastAPI ni HTTP. Pensado así para que también lo pueda usar un script
-de smoke o un job futuro. Las funciones que mutan persisten en Mongo
-ANTES de tocar al broker, así si pyRofex tira o se cuelga el doc queda
-trackeable y el motor (proceso aparte) lo va a ver vía recovery.
+de smoke o un job futuro. Las funciones que mutan persisten en SQL
+(`operaciones.ordenes_live` / `ordenes_audit`) ANTES de tocar al broker,
+así si pyRofex tira o se cuelga el doc queda trackeable y el motor
+(proceso aparte) lo va a ver vía recovery.
 
 Diseño:
   - El proceso uvicorn levanta su propia sesión pyRofex liviana
     (`inicializar_para_envio`) — REST-only, sin WS.
   - El motor de órdenes (proceso aparte) tiene su propia sesión con WS
     suscripto a order_report. Es el único que escribe los ER en
-    `Operaciones.OrdenesLive`.
+    `operaciones.ordenes_live`.
   - Acá escribimos el doc inicial (PENDING_NEW) y el audit del request.
     Cuando llega el primer ER del broker el motor lo upsertea con el
     estado real (NEW / REJECTED / etc.).
+  - Las LECTURAS (estado de una orden, listado del día con merge broker)
+    viven en `api/services/ordenes_sql.py` — acá solo queda el builder puro
+    `_broker_report_to_local` que ese módulo reusa.
 
 Idempotencia:
   En V1 confiamos en el clOrdId que devuelve el broker. Si un cliente
@@ -34,10 +38,6 @@ from core.postgres import get_pool
 from core.rofex_orders_session import cuenta_default, ensure_session_envio, resolver_cuenta_rofex
 
 logger = logging.getLogger("api.services.ordenes")
-
-DB_NAME = "Operaciones"
-COL_LIVE = "OrdenesLive"
-COL_AUDIT = "OrdenesAudit"
 
 
 # El singleton de inicialización pyRofex vive en core/rofex_orders_session.py
@@ -329,17 +329,6 @@ def cancel_order(
     return {"ok": ok, "broker_response": resp}
 
 
-def get_order_status(cl_ord_id: str) -> dict[str, Any] | None:
-    """Lee el estado de una orden de SQL operaciones.ordenes_live (lo mantiene el motor)."""
-    from psycopg.rows import dict_row
-
-    from core.postgres import get_pool
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute("SELECT data FROM operaciones.ordenes_live WHERE cl_ord_id = %s", (cl_ord_id,))
-        row = cur.fetchone()
-    return row["data"] if row else None
-
-
 def _broker_report_to_local(rep: dict[str, Any]) -> dict[str, Any]:
     """Mapea un orderReport del broker al shape de OrdenesLive.
 
@@ -408,114 +397,6 @@ def _broker_report_to_local(rep: dict[str, Any]) -> dict[str, Any]:
         "created_at":    created_at,
         "external":      True,  # marca: vino solo del broker, no de nuestra API
     }
-
-
-def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -> list[dict]:
-    """Lista órdenes del día — merge live de Mongo + broker.
-
-    Combina:
-      1. `Operaciones.OrdenesLive` (lo que pasó por nuestra API, con
-         actor_email + audit log + el clOrdId que motor_ordenes actualiza).
-      2. `pyRofex.get_all_orders_status(account=X)` (lo que el broker ve
-         hoy en esa cuenta, sin importar desde dónde se mandó — la web del
-         broker, otra plataforma, etc).
-
-    Join por clOrdId. Las que están en local + broker → broker pisa estado
-    (más fresco). Las que están solo en broker → se devuelven marcadas como
-    `external=true`. No persistimos nada nuevo — solo merge en memoria para
-    la respuesta del endpoint. Cancelar una external requiere también
-    `proprietary` que va en el payload.
-    """
-    acc = resolver_cuenta_rofex(account or cuenta_default())
-    if fecha is None:
-        fecha = datetime.now(UTC)
-    inicio = fecha.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    # SQL-native (decomiso 2026-06-29): set LOCAL desde operaciones.ordenes_live. Filtra por
-    # data->>'created_at' (ISO string, estable) — NO por updated_at (se mueve con cada ER).
-    from psycopg.rows import dict_row
-
-    from core.postgres import get_pool
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute("SELECT data FROM operaciones.ordenes_live "
-                    "WHERE account = %s AND data->>'created_at' >= %s",
-                    (acc, inicio.isoformat()))
-        local = [r["data"] for r in cur.fetchall()]
-    by_cl_ord: dict[str, dict[str, Any]] = {
-        o["cl_ord_id"]: o for o in local if o.get("cl_ord_id")
-    }
-
-    # Pegada al broker. Si falla, devolvemos solo lo local (degradación
-    # graceful — no rompemos la vista si pyRofex está flaky).
-    #
-    # CLAVE: pyRofex devuelve UNA entry por cada cambio de estado. Cada
-    # cancel request genera una entry NUEVA con su propio clOrdId que
-    # apunta al original via `origClOrdId`. Si la orden original ya fue
-    # cancelada/rejeada y alguien insiste con cancels, se acumulan N
-    # entries PENDING_CANCEL (caso GD41D — 17 cancel requests sobre 1
-    # sola orden REJECTED).
-    #
-    # Solución: resolver cadena origClOrdId → raíz, y por cada raíz
-    # quedarnos con el ER de mayor transactTime. El frontend ve UNA fila
-    # por orden con el estado actual.
-    try:
-        resp = pyRofex.get_all_orders_status(account=acc)
-        if resp and resp.get("status") == "OK":
-            reports = []
-            for o in resp.get("orders", []) or []:
-                rep = o.get("orderReport", o)
-                if rep.get("clOrdId"):
-                    reports.append(rep)
-
-            # Mapa clOrdId → orig (si tiene). Para resolver raíz.
-            parent_of = {
-                r["clOrdId"]: r.get("origClOrdId")
-                for r in reports
-            }
-
-            def _root(cid: str, depth: int = 0) -> str:
-                """Sigue origClOrdId hasta que se acabe. Cap profundidad
-                para evitar ciclos teóricos."""
-                if depth > 20:
-                    return cid
-                parent = parent_of.get(cid)
-                if not parent or parent == cid:
-                    return cid
-                return _root(parent, depth + 1)
-
-            # Agrupar por raíz: ER con mayor transactTime gana.
-            by_root: dict[str, tuple[str, dict]] = {}  # root → (transactTime, rep)
-            for rep in reports:
-                cid = rep["clOrdId"]
-                root = _root(cid)
-                tt = str(rep.get("transactTime") or "")
-                if root in by_root and by_root[root][0] >= tt:
-                    continue
-                by_root[root] = (tt, rep)
-
-            for root, (_tt, rep) in by_root.items():
-                mapped = _broker_report_to_local(rep)
-                # El cl_ord_id efectivo es el root (la orden original);
-                # el cancel request se "absorbe" en su estado actual.
-                mapped["cl_ord_id"] = root
-                if root in by_cl_ord:
-                    existing = by_cl_ord[root]
-                    mapped["external"] = False
-                    if existing.get("actor_email"):
-                        mapped["actor_email"] = existing["actor_email"]
-                    if existing.get("proprietary") and not mapped.get("proprietary"):
-                        mapped["proprietary"] = existing["proprietary"]
-                    if existing.get("created_at") and not mapped.get("created_at"):
-                        mapped["created_at"] = existing["created_at"]
-                    by_cl_ord[root] = {**existing, **mapped}
-                else:
-                    by_cl_ord[root] = mapped
-    except Exception as e:
-        logger.warning("list_orders_dia: merge broker falló (acc=%s): %s", acc, e)
-
-    out = list(by_cl_ord.values())
-    out.sort(key=lambda x: x.get("created_at") or datetime.min.replace(tzinfo=UTC), reverse=True)
-    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

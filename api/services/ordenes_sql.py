@@ -1,43 +1,29 @@
-"""api/services/ordenes_sql.py — READ-SIDE del motor de órdenes leyendo Postgres.
+"""api/services/ordenes_sql.py — READ-SIDE del motor de órdenes (única implementación).
 
-Servicio PURO (sin FastAPI). Espejo SQL de las LECTURAS de `api/services/ordenes.py`
-y `api/services/risk.py` que hoy leen Mongo (`Operaciones.{OrdenesLive,
-AccountsDescubiertas}`). Dual-run: el selector del router elige SQL o Mongo según el
-flag `ORDENES_SQL` (override por request `?_engine=sql|mongo`). El path Mongo queda
-INTACTO → rollback = sacar el flag.
+Servicio PURO (sin FastAPI). Acá viven las LECTURAS de órdenes: estado de una
+orden y listado del día con merge broker. El write-side (send/cancel/audit +
+sesión pyRofex) vive en `api/services/ordenes.py`, que también aporta el builder
+puro `_broker_report_to_local` (mapeo de cada execution report — lo único
+delicado, no se duplica).
 
-⚠️ Dominio TRANSACCIONAL en vivo. Esto NO toca el write-side ni el motor:
-  * El motor (`engines/motor_ordenes.py`) y los services de envío/cancel
-    (`ordenes.py::send_order/cancel`, `operativa_mep.py`) siguen escribiendo Mongo;
-    el dual-write best-effort a SQL (flag ORDENES_SQL_WRITE) lo hace el write-side.
-  * Acá SOLO se cambia de DÓNDE sale el doc LOCAL de la orden (Mongo OrdenesLive →
-    SQL operaciones.ordenes_live). El **merge con el broker** (pyRofex
-    get_all_orders_status), que es la verdad real-time, queda IDÉNTICO — usa el
-    builder puro `_broker_report_to_local` del módulo Mongo (no se duplica el mapeo
-    de cada execution report; sí se replica el bucle de merge para NO tocar
-    `ordenes.py`, que es write-side y lo edita otra tarea).
+⚠️ Dominio TRANSACCIONAL en vivo. Esto NO toca el write-side ni el motor
+(`engines/motor_ordenes.py`, único que escribe los ER). El **merge con el
+broker** (pyRofex get_all_orders_status) es la verdad real-time.
 
 Contrato de la tabla `operaciones.ordenes_live` (ver sql/schema.sql):
   cl_ord_id (PK) · account · ticker · estado · updated_at (timestamptz) · data (jsonb).
-`data` = doc OrdenesLive completo con datetimes→ISO (doc_iso). El read reconstruye el
-MISMO shape que devolvía Mongo (mismas claves, `created_at`/`updated_at` como datetime
-para que el merge y el sort funcionen igual).
+`data` = doc completo de la orden con datetimes→ISO (doc_iso). El read rehidrata
+`created_at`/`updated_at` a datetime para que el merge y el sort funcionen tipados.
 """
 from __future__ import annotations
 
 import logging
-import os
 from datetime import UTC, datetime
 from typing import Any
 
 from api.services._sql import _q
 
 logger = logging.getLogger("api.services.ordenes_sql")
-
-
-def ordenes_sql_on() -> bool:
-    """Lectura del read-side de órdenes desde SQL (default Mongo)."""
-    return os.getenv("ORDENES_SQL") == "1"
 
 
 # ── helpers de tipado ─────────────────────────────────────────────────────────
@@ -80,10 +66,10 @@ def _doc_desde_row(row: dict) -> dict:
     return doc
 
 
-# ── LECTURAS (espejo exacto de api/services/ordenes.py / risk.py) ─────────────
+# ── LECTURAS ──────────────────────────────────────────────────────────────────
 def get_order_status(cl_ord_id: str) -> dict[str, Any] | None:
-    """Estado de una orden desde SQL `operaciones.ordenes_live`. Espejo de
-    `ordenes.get_order_status` (find_one OrdenesLive, sin merge con broker)."""
+    """Estado de una orden desde SQL `operaciones.ordenes_live` (sin merge con
+    broker — lo mantiene el motor con cada ER)."""
     rows = _q(
         "SELECT cl_ord_id, account, ticker, estado, updated_at, data "
         "FROM operaciones.ordenes_live WHERE cl_ord_id = %s",
@@ -95,11 +81,9 @@ def get_order_status(cl_ord_id: str) -> dict[str, Any] | None:
 
 
 def _orders_locales_dia(acc: str, inicio: datetime) -> list[dict]:
-    """Docs LOCALES del día para la cuenta, desde SQL. Equivale al
-    `find({account, created_at>=inicio})` del path Mongo. Filtra por `created_at`
-    (vive en `data` jsonb, ISO) — NO por `updated_at` columnar, que se mueve con
-    cada ER y traería órdenes de días previos tocadas hoy (cambiaría la semántica
-    del path Mongo, que filtra por created_at)."""
+    """Docs LOCALES del día para la cuenta. Filtra por `created_at` (vive en
+    `data` jsonb, ISO) — NO por `updated_at` columnar, que se mueve con cada ER
+    y traería órdenes de días previos tocadas hoy."""
     inicio_iso = inicio.astimezone(UTC).isoformat()
     rows = _q(
         "SELECT cl_ord_id, account, ticker, estado, updated_at, data "
@@ -111,13 +95,13 @@ def _orders_locales_dia(acc: str, inicio: datetime) -> list[dict]:
 
 
 def _merge_broker(acc: str, local: list[dict]) -> list[dict]:
-    """Merge del set LOCAL (venga de SQL o Mongo) con lo que ve el broker AHORA.
+    """Merge del set LOCAL con lo que ve el broker AHORA.
 
-    Réplica EXACTA del bloque de merge de `ordenes.list_orders_dia` — se mantiene
-    acá (en vez de importarlo de `ordenes.py`) porque `ordenes.py` es write-side y
-    lo edita otra tarea en paralelo; reusar el builder puro `_broker_report_to_local`
-    evita duplicar el mapeo de cada execution report (que es lo único delicado). Si
-    el broker falla, degradación graceful: se devuelve solo lo local."""
+    pyRofex devuelve UNA entry por cada cambio de estado; cada cancel request
+    genera una entry nueva con su propio clOrdId que apunta al original vía
+    `origClOrdId`. Se resuelve la cadena hasta la raíz y por raíz gana el ER de
+    mayor transactTime → el frontend ve UNA fila por orden con el estado actual.
+    Si el broker falla, degradación graceful: se devuelve solo lo local."""
     import pyRofex
 
     from api.services.ordenes import _broker_report_to_local
@@ -177,10 +161,8 @@ def _merge_broker(acc: str, local: list[dict]) -> list[dict]:
 
 
 def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -> list[dict]:
-    """Órdenes del día — MISMO shape y MISMO merge que `ordenes.list_orders_dia`,
-    pero el doc LOCAL sale de SQL `operaciones.ordenes_live` en vez de Mongo
-    `Operaciones.OrdenesLive`. El merge con el broker (pyRofex) es la verdad
-    real-time y queda idéntico."""
+    """Órdenes del día: doc LOCAL desde SQL `operaciones.ordenes_live` + merge
+    con el broker (pyRofex), que es la verdad real-time."""
     from core.rofex_orders_session import cuenta_default, resolver_cuenta_rofex
 
     # El account llega crudo de clientes.cuentas → traducir al nº que ROFEX acepta
@@ -194,10 +176,3 @@ def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -
     return _merge_broker(acc, local)
 
 
-# ── listado_cuentas — UNA fuente: clientes.cuentas (ver risk.listado_cuentas) ──
-def listado_cuentas(solo_activas: bool = False) -> list[dict[str, Any]]:
-    """Cuentas para operar = espejo de las comitentes de SQL `clientes.cuentas`. El
-    descubrimiento al broker (`AccountsDescubiertas`) se eliminó — ya no hay dos paths:
-    delega en `risk.listado_cuentas` (fuente única)."""
-    from api.services.risk import listado_cuentas as _ls
-    return _ls(solo_activas)

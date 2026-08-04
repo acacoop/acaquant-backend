@@ -157,8 +157,9 @@ def _ids_operador(operador, nivel_1=None, nivel_3=None,
                   referido=None, corte: str | None = None,
                   nivel_4=None, nivel_5=None, nivel_2=None, division=None) -> list[str]:
     """ids de cuenta activas del scope (operador + niveles + referido + division). `corte`
-    (ISO) limita a las cuentas que YA existían a esa fecha (fecha_alta_legajo <= corte) — para
-    el modo 'foto al día X'."""
+    (ISO) limita a las cuentas que YA existían a esa fecha (fecha_alta_legajo <= corte).
+    Resolvedor liviano standalone (lo usa control_comercial_sql); las vistas que además
+    necesitan ficha/cupos usan `_universo_comercial` (una sola pasada)."""
     p: dict = {}
     where = _comitentes_where(operador, p, nivel_1, nivel_3, referido, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
     if corte is not None:
@@ -171,9 +172,13 @@ def _ids_operador(operador, nivel_1=None, nivel_3=None,
 def _aum_por_cuenta_sql(operador, nivel_1=None,
                         nivel_3=None, referido=None,
                         corte: str | None = None,
-                        nivel_4=None, nivel_5=None, nivel_2=None, division=None) -> dict[str, float]:
+                        nivel_4=None, nivel_5=None, nivel_2=None, division=None,
+                        ids: list[str] | None = None) -> dict[str, float]:
     """AuM por id_cuenta, scopeado al operador + filtros. Sin `corte` = último snapshot GLOBAL;
-    con `corte` (ISO) = el snapshot de `tenencia` más reciente <= corte (foto al día X)."""
+    con `corte` (ISO) = el snapshot de `tenencia` más reciente <= corte (foto al día X).
+    Con `ids` (lista ya materializada del scope) evita re-evaluar la subquery de
+    comitentes — es el camino de operador_comercial/analisis_comercial, que ya
+    resolvieron el universo en una pasada (`_universo_comercial`)."""
     if corte is not None:
         snap = _q("SELECT max(fecha) AS f FROM portafolio.tenencia "
                   "WHERE aum = 'si' AND fecha <= %(c)s", {"c": corte})[0]["f"]
@@ -182,10 +187,59 @@ def _aum_por_cuenta_sql(operador, nivel_1=None,
     if snap is None:
         return {}
     p: dict = {"f": snap}
-    scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
+    if ids is not None:
+        p["ids_scope"] = list(ids)
+        scope = "id_cuenta = ANY(%(ids_scope)s)"
+    else:
+        scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
     return {r["id_cuenta"]: _f(r["aum"]) for r in _q(
         f"SELECT id_cuenta, SUM(valuacion) AS aum FROM portafolio.tenencia "
         f"WHERE fecha = %(f)s AND aum = 'si' AND {scope} GROUP BY id_cuenta", p)}
+
+
+def _universo_comercial(operador, campos: tuple[str, ...], nivel_1=None,
+                        nivel_3=None, referido=None, corte: str | None = None,
+                        nivel_4=None, nivel_5=None, nivel_2=None, division=None,
+                        extra_cols: tuple[str, ...] = (),
+                        ) -> tuple[list[str], list[str], dict[str, dict]]:
+    """UNA pasada sobre `comitentes` para todo el request comercial.
+
+    Devuelve (ids_corte, ids_scope, ficha):
+      - `ids_scope`: TODAS las cuentas activas del scope (sin corte) — para las
+        queries de tenencia/operaciones, que en modo foto NO filtran por alta.
+      - `ids_corte`: las que YA existían a la fecha de corte
+        (fecha_alta_legajo <= corte); sin corte, == ids_scope.
+      - `ficha`: {id_cuenta: {campos + extra_cols}} con denominación (join
+        cuentas) y nombre del operador (join operadores).
+
+    Motivo: antes cada request evaluaba el MISMO predicado de comitentes 4-5
+    veces (_ids_operador + subquery del AuM + subquery de ult_op + _ficha +
+    cupos), con divergencia real latente — la query de cupos omitía
+    nivel_2/4/5. Una sola pasada = una sola definición del scope."""
+    def _col(c: str) -> str:
+        if c == "denominacion":
+            return "u.denominacion"
+        if c == "operador_nombre":
+            return "o.nombre AS operador_nombre"
+        return f"c.{c}"
+    cols = ", ".join(_col(c) for c in campos + tuple(extra_cols))
+    p: dict = {}
+    where = _comitentes_where(operador, p, nivel_1, nivel_3, referido, alias="c",
+                              nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
+    rows = _q(f"SELECT c.id_cuenta, c.fecha_alta_legajo, {cols} FROM comitentes c "
+              f"LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta "
+              f"LEFT JOIN operadores o ON o.email = c.operador_email WHERE {where}", p)
+    ficha = {r["id_cuenta"]: r for r in rows}
+    ids_scope = sorted(ficha.keys())
+    if corte is not None:
+        d_corte = date.fromisoformat(corte)
+        ids_corte = sorted(
+            r["id_cuenta"] for r in rows
+            if r.get("fecha_alta_legajo") is not None and r["fecha_alta_legajo"] <= d_corte
+        )
+    else:
+        ids_corte = ids_scope
+    return ids_corte, ids_scope, ficha
 
 
 def dimensiones_comercial() -> dict:
@@ -344,12 +398,15 @@ def operador_comercial(*, operador, moneda: str = "ARS", nivel_1=None,
     corte_iso = corte.isoformat() if fecha else None
     mtd = desde if desde else corte.replace(day=1).isoformat()
     ytd = corte.replace(month=1, day=1).isoformat()
-    ids = _ids_operador(operador, nivel_1, nivel_3, referido, corte=corte_iso, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
-    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3, referido, corte=corte_iso, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
+    # UNA pasada sobre comitentes: universo (con y sin corte) + ficha.
+    ids, ids_scope, ficha = _universo_comercial(
+        operador, _FICHA, nivel_1, nivel_3, referido, corte=corte_iso,
+        nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
+    aum = _aum_por_cuenta_sql(operador, corte=corte_iso, ids=ids_scope)
 
     # Volumen YTD y MTD por cuenta en una pasada.
-    p: dict = {"ytd": ytd, "mtd": mtd, "cats": list(_CATS_VOLUMEN)}
-    scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
+    p: dict = {"ytd": ytd, "mtd": mtd, "cats": list(_CATS_VOLUMEN),
+               "ids_scope": ids_scope}
     cap = ""
     if fecha:
         cap = " AND fecha <= %(corte)s"
@@ -360,13 +417,12 @@ def operador_comercial(*, operador, moneda: str = "ARS", nivel_1=None,
         f"SELECT id_cuenta, "
         f"SUM(CASE WHEN fecha >= %(ytd)s THEN {_PESIF} ELSE 0 END) AS vy, "
         f"SUM(CASE WHEN fecha >= %(mtd)s THEN {_PESIF} ELSE 0 END) AS vm "
-        f"FROM negocio_movimientos WHERE {scope} AND categoria = ANY(%(cats)s) "
+        f"FROM negocio_movimientos WHERE id_cuenta = ANY(%(ids_scope)s) "
+        f"AND categoria = ANY(%(cats)s) "
         f"AND unidad IS DISTINCT FROM 'USDL'{cap} GROUP BY id_cuenta", p,
     ):
         vol_ytd[r["id_cuenta"]] = _f(r["vy"])
         vol_mtd[r["id_cuenta"]] = _f(r["vm"])
-
-    ficha = _ficha_por_cuenta(operador, _FICHA, nivel_1, nivel_3, referido, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
     clientes = [{
         "id_cuenta": idc,
         "denominacion": (ficha.get(idc, {}).get("denominacion") or "—"),
@@ -397,32 +453,32 @@ def analisis_comercial(*, operador, dias_activa: int = 45, dias_dormida: int = 9
     # `fecha=None` → modo live (hoy). El cupo NO es histórico aún (valor actual) → ver paso 2.
     corte = date.fromisoformat(fecha) if fecha else _hoy_art()
     corte_iso = corte.isoformat() if fecha else None
-    ids = _ids_operador(operador, nivel_1, nivel_3, referido, corte=corte_iso, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
+    # UNA pasada sobre comitentes: universo (con y sin corte) + ficha + cupos —
+    # antes el mismo predicado se evaluaba 5 veces por request, y la query de
+    # cupos ya había divergido (omitía nivel_2/4/5 del scope).
+    ids, ids_scope, ficha = _universo_comercial(
+        operador, _ANALISIS, nivel_1, nivel_3, referido, corte=corte_iso,
+        nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division,
+        extra_cols=("cupo_transaccional_ars", "cupo_usado_ars"))
     if not ids and operador and operador != "__todos__":
         return {"operador": operador, "dias_activa": dias_activa,
                 "dias_dormida": dias_dormida, "fecha": fecha, "clientes": []}
     factor = _factor_usd(moneda)
     factor_cupo = _factor_usd("USD")  # cupo SIEMPRE en USD al MEP del día
-    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3, referido, corte=corte_iso, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
+    aum = _aum_por_cuenta_sql(operador, corte=corte_iso, ids=ids_scope)
     year_start = date(corte.year, 1, 1).isoformat()
     # `desde` (período) pisa el mes calendario para el flag opero_mtd → "operó en [desde, corte]".
     month_start = desde if desde else corte.replace(day=1).isoformat()
 
     # Última operación por cuenta <= corte (Operaciones, fuente de verdad).
-    p: dict = {}
-    scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
-    ult_sql = f"SELECT id_cuenta, max(concertacion) AS ult FROM operaciones WHERE {scope}"
+    p: dict = {"ids_scope": ids_scope}
+    ult_sql = ("SELECT id_cuenta, max(concertacion) AS ult FROM operaciones "
+               "WHERE id_cuenta = ANY(%(ids_scope)s)")
     if fecha:
         ult_sql += " AND concertacion <= %(corte)s"
         p["corte"] = corte_iso
     ult_sql += " GROUP BY id_cuenta"
     ult_op = {r["id_cuenta"]: _iso(r["ult"]) for r in _q(ult_sql, p) if r["ult"] is not None}
-
-    ficha = _ficha_por_cuenta(operador, _ANALISIS, nivel_1, nivel_3, referido, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
-    p_cupo: dict = {}
-    cupos = {r["id_cuenta"]: r for r in _q(
-        "SELECT id_cuenta, cupo_transaccional_ars, cupo_usado_ars FROM comitentes "
-        f"WHERE {_comitentes_where(operador, p_cupo, nivel_1, nivel_3, referido, division=division)}", p_cupo)}
 
     clientes = []
     for idc in ids:
@@ -431,8 +487,7 @@ def analisis_comercial(*, operador, dias_activa: int = 45, dias_dormida: int = 9
         dias_win = dias if (dias is not None and dias <= dias_dormida) else None
         est = estado_comercial(dias_win, ult is not None, dias_activa, dias_dormida)
         f = ficha.get(idc, {})
-        cupo = cupos.get(idc, {})
-        trans, usado = cupo.get("cupo_transaccional_ars"), cupo.get("cupo_usado_ars")
+        trans, usado = f.get("cupo_transaccional_ars"), f.get("cupo_usado_ars")
         clientes.append({
             "id_cuenta": idc, "denominacion": f.get("denominacion") or "—",
             "aum": _cv(aum.get(idc, 0.0), factor), "ultima_op": ult, "dias_sin_operar": dias,

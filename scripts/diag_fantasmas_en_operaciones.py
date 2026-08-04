@@ -70,6 +70,7 @@ def _plata(v: float | None) -> str:
     """Formato con la MISMA escala que el frontend: MM = miles de millones."""
     if v is None:
         return "—"
+    v = float(v)
     a = abs(v)
     for corte, suf in ((1e12, "B"), (1e9, "MM"), (1e6, "M"), (1e3, "k")):
         if a >= corte:
@@ -80,7 +81,7 @@ def _plata(v: float | None) -> str:
 def _ar(v: float | None, dec: int = 2) -> str:
     if v is None:
         return "—"
-    return f"{v:,.{dec}f}".replace(",", "@").replace(".", ",").replace("@", ".")
+    return f"{float(v):,.{dec}f}".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
 def _sep(titulo: str) -> None:
@@ -112,7 +113,8 @@ def main() -> int:
     print("  operaciones.operaciones.boleto:")
     for r in ej_op:
         print(f"      {r['boleto']!r}")
-    print("\n  → el cruce se hace por DÍGITOS, así que el prefijo no importa.")
+    print("\n  → el cruce se hace por el TEXTO COMPLETO: 'DOC 2026003497' y")
+    print("    'BOL 2026003497' son boletos DISTINTOS.")
 
     # ── 1. Los casos que el user validó a mano ──────────────────────────────
     _sep("1. LOS CASOS CONFIRMADOS POR BACK OFFICE — ¿están en operaciones?")

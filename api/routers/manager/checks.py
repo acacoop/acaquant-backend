@@ -283,12 +283,12 @@ def check_breakevens_debug():
 
     lecap_tickers = [p["lecap_ticker"] for p in pares]
     cer_tickers   = [p["cer_ticker"]   for p in pares]
-    tems          = obtener_tems(None, lecap_tickers)
-    paridades     = obtener_paridades(None, cer_tickers)
-    precios       = obtener_precios(None, lecap_tickers + cer_tickers)
-    dias_habiles  = cargar_dias_habiles(None)
-    fecha_cer_max = ultimo_cer_publicado(None)
-    cer_actual    = obtener_valor_cer(None, fecha_cer_max) if fecha_cer_max else None
+    tems          = obtener_tems(lecap_tickers)
+    paridades     = obtener_paridades(cer_tickers)
+    precios       = obtener_precios(lecap_tickers + cer_tickers)
+    dias_habiles  = cargar_dias_habiles()
+    fecha_cer_max = ultimo_cer_publicado()
+    cer_actual    = obtener_valor_cer(fecha_cer_max) if fecha_cer_max else None
 
     hoy = date.today()
     filas = []

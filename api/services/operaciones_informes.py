@@ -1,13 +1,13 @@
-"""operaciones_informes.py — normalización + ingesta a CashFlow.Operaciones.
+"""operaciones_informes.py — normalización + ingesta a SQL operaciones.operaciones.
 
-`CashFlow.Operaciones` es la FUENTE DE VERDAD de operaciones (desde la API
+`operaciones.operaciones` es la FUENTE DE VERDAD de operaciones (desde la API
 `informes` de Aunesa, que NO trae movimientos administrativos / FCI bilateral —
-esos siguen en NegocioMovimientos). Schema mínimo, 10 campos:
+esos viven en operaciones.negocio_movimientos). Schema mínimo, 10 campos:
 
-  boleto (🔑 único), cuenta, concertacion, denominacion, tipo_operacion,
+  boleto (🔑 único = PK), cuenta, concertacion, denominacion, tipo_operacion,
   instrumento, condiciones, cantidad, bruto, arancel
 
-LEY #1: un boleto = un documento → índice ÚNICO sobre `boleto`.
+LEY #1: un boleto = una fila → PK sobre `boleto` (upsert idempotente).
 
 Este service es puro (sin FastAPI). Lo usan:
   - api/routers/manager/operaciones.py (backfill por CSV desde la UI).
@@ -212,29 +212,6 @@ def normalizar_fila(row: dict) -> dict | None:
         "tasa":           _to_float(canon.get("tasa")),
         "moneda":         _to_moneda(canon.get("condiciones")),
     }
-
-
-def ensure_indexes(coll) -> None:
-    """LEY #1: índice único parcial sobre boleto + índices de consulta."""
-    coll.create_index(
-        [("boleto", 1)], name="uq_boleto", unique=True,
-        partialFilterExpression={"boleto": {"$type": ["string", "int", "long", "double"]}},
-    )
-    coll.create_index([("cuenta", 1), ("concertacion", -1)], name="cuenta_concertacion")
-    coll.create_index([("concertacion", -1)], name="concertacion")
-    # /ops/serie + /ops/aranceles + /ops/resumen filtran por moneda excluyendo
-    # cierres de caución. Con `es_cierre` materializado, este índice deja que el
-    # match (moneda + es_cierre) + group/sort por concertacion corran por índice
-    # en vez de escanear la colección (antes: `$not /Cierre/` = COLLSCAN).
-    coll.create_index([("moneda", 1), ("es_cierre", 1), ("concertacion", -1)],
-                      name="moneda_escierre_concertacion")
-    # /ops/agro: la serie es histórica (sin fecha) y los futuros agro son una
-    # MINORÍA de los boletos → índice PARCIAL sobre el `commodity` materializado
-    # (ver _clasificar_commodity) para que el match no escanee toda la colección.
-    coll.create_index(
-        [("commodity", 1), ("concertacion", -1)], name="commodity_concertacion",
-        partialFilterExpression={"commodity": {"$in": ["SOJA", "TRIGO", "MAIZ"]}},
-    )
 
 
 def cargar_maps_enrich(db=None) -> tuple[dict, dict]:

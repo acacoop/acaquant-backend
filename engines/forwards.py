@@ -31,7 +31,7 @@ INTERVALO = 30  # segundos
 # Carga de referencia
 # ─────────────────────────────────────────────
 
-def obtener_ultimas_teas(client, tickers):
+def obtener_ultimas_teas(tickers):
     """
     Devuelve la última TEA y duration disponibles por ticker.
     { ticker: {"TEA": float, "duration": float} }
@@ -154,7 +154,6 @@ def run():
     # SQL-NATIVE (decomiso Mongo): el motor no lee ni escribe Mongo. La TEA/duration
     # salen de SQL (market_snapshot) y el write va a mercado_hist. `obtener_ultimas_teas`
     # aún acepta `client` por firma histórica pero lo IGNORA → se le pasa None.
-    client = None
 
     grupos = cargar_por_curva()
     logger.info(f"Curvas cargadas: {list(grupos.keys())}")
@@ -172,7 +171,7 @@ def run():
             ts = datetime.now(UTC)
             fecha_str = ts.date().isoformat()
 
-            tasas_tea = obtener_ultimas_teas(client, todos_tickers)
+            tasas_tea = obtener_ultimas_teas(todos_tickers)
 
             for curva, instrumentos in grupos.items():
                 ordered, tasas, matrix = calcular_matriz(instrumentos, tasas_tea)

@@ -40,13 +40,6 @@ from api.services.ordenes import send_order
 
 logger = logging.getLogger("api.services.operativa_mep")
 
-DB_OPS = "Operaciones"
-COL_OPERATIVAS = "OperativasMep"
-COL_ORDENES = "OrdenesLive"
-
-DB_TRADING = "Trading"
-COL_TIMESALES = "TimeSales"
-
 # motor_rofex (engines/valores.py) escribe `timestamp` como naive ART
 # (utcnow() llevado a ART y replace(tzinfo=None)). Mongo lo guarda como UTC,
 # entonces los ts quedan -3h vs UTC real. Para devolver ts honestos en
@@ -647,9 +640,9 @@ def serie_mep_minuto(
     desde: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Serie del MEP por minuto. Para cada minuto donde hay trade de AL30 Y
-    AL30D, calcula MEP = last_price_AL30 / last_price_AL30D usando
-    aggregation pipelines de Mongo ($dateTrunc + $last) — la base hace el
-    heavy lifting, el proceso solo hace el merge.
+    AL30D, calcula MEP = last_price_AL30 / last_price_AL30D con un GROUP BY
+    por minuto (date_trunc + last por ts) sobre SQL `mercado.timesales` —
+    la base hace el heavy lifting, el proceso solo hace el merge.
 
     Default: desde el inicio del día (ART) de hoy. La mesa pidió no
     arrastrar datos del día anterior — el chart de TRADING tiene que

@@ -46,7 +46,6 @@ from collections import defaultdict
 from typing import Any
 
 from api.services._mep import get_mep_for_date
-from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +99,9 @@ def _valor_actual_live(
     tipoTitulo: str | None, valor_aum: float,
     *,
     cartera: str | None = None,
-    instrumentos_by_unidad: dict[str, str] | None = None,
-    portfolio_snap_by_ticker: dict[str, dict] | None = None,
-    snapshots_cierre_by_ticker: dict[str, dict] | None = None,
+    instrumentos_by_unidad: dict[str, str],
+    portfolio_snap_by_ticker: dict[str, dict],
+    snapshots_cierre_by_ticker: dict[str, dict],
 ) -> tuple[float, str]:
     """Cadena de fallback para `valor_actual` durante la rueda.
 
@@ -120,25 +119,21 @@ def _valor_actual_live(
       2. SnapshotsCierre.last_price (último cierre persistido).
       3. valor_aum directo (fallback definitivo).
 
-    Las lookups se hacen contra los dicts pre-cargados desde SQL
+    Las lookups se hacen SOLO contra los dicts pre-cargados en bulk desde SQL
     (`portfolio_snap_by_ticker`, `snapshots_cierre_by_ticker`,
-    `instrumentos_by_unidad`); este motor no lee Mongo (decomiso).
+    `instrumentos_by_unidad`) — obligatorios por firma para que un caller
+    futuro no pueda reintroducir el N+1 (2 queries por ticker por cuenta)
+    que la carga bulk eliminó.
     """
     if qty_efectiva == 0:
         return 0.0, "live"   # cerrado por operación — vale cero
     if not unidad:
         return valor_aum, "aum"
 
-    if instrumentos_by_unidad is not None:
-        instrumento = instrumentos_by_unidad.get(unidad, "")
-    else:
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT instrumento FROM portafolio.assets WHERE unidad = %s", (unidad,))
-            row = cur.fetchone()
-        instrumento = ((row[0] if row else "") or "").strip()
+    instrumento = instrumentos_by_unidad.get(unidad, "")
     if instrumento and instrumento not in _PLACEHOLDERS_INSTRUMENTO:
         # 1. PortfolioSnapshot (SQL bulk) — motor live de tenencia.
-        snap = (portfolio_snap_by_ticker or {}).get(instrumento)
+        snap = portfolio_snap_by_ticker.get(instrumento)
         if snap:
             for campo in ("last_price", "closing_price"):
                 px = snap.get(campo)
@@ -148,21 +143,9 @@ def _valor_actual_live(
                     px = None
                 if px is not None and px > 0:
                     return _aplicar_normalizer(px, qty_efectiva, cartera, tipoTitulo), "live"
-        # 2. snapshots_cierre (SQL) — último cierre persistido por ticker. Fallback de
-        # precio del PnL. Trading.SnapshotsCierre (Mongo) migrada → dropeada (2026-06-24);
-        # mercado.snapshots_cierre ya guarda 1 fila/ticker con el último (no hace falta sort).
-        if snapshots_cierre_by_ticker is not None:
-            snc = snapshots_cierre_by_ticker.get(instrumento)
-        else:
-            snc = None
-            with get_pool().connection() as conn, conn.cursor() as _cur:
-                _cur.execute(
-                    "SELECT last_price, fecha FROM mercado.snapshots_cierre WHERE ticker = %s",
-                    (instrumento,),
-                )
-                _row = _cur.fetchone()
-            if _row:
-                snc = {"last_price": _row[0], "fecha": _row[1]}
+        # 2. snapshots_cierre (SQL bulk) — último cierre persistido por ticker
+        # (1 fila/ticker con el último, no hace falta sort).
+        snc = snapshots_cierre_by_ticker.get(instrumento)
         if snc:
             try:
                 px = float(snc.get("last_price")) if snc.get("last_price") is not None else None
@@ -233,9 +216,9 @@ def _pnl_por_cuenta_core(
     id_cuenta: str,
     unidad_to_match: dict[str, str],
     match_to_display: dict[str, str],
-    instrumentos_by_unidad: dict[str, str] | None = None,
-    portfolio_snap_by_ticker: dict[str, dict] | None = None,
-    snapshots_cierre_by_ticker: dict[str, dict] | None = None,
+    instrumentos_by_unidad: dict[str, str],
+    portfolio_snap_by_ticker: dict[str, dict],
+    snapshots_cierre_by_ticker: dict[str, dict],
     boletos_by_id_cuenta: dict[str, list] | None = None,
     aum_rows_by_id_cuenta: dict[str, list] | None = None,
     fecha_actual_aum_global: str | None = None,

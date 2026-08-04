@@ -161,12 +161,8 @@ def saldo_para_rueda(rueda: str = "CI", account: str | None = None) -> dict[str,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Listado de cuentas — populadas por jobs.descubrir_cuentas (read-only)
+# Listado de cuentas — espejo de SQL clientes.cuentas (read-only)
 # ─────────────────────────────────────────────────────────────────────────────
-
-DB_OPS = "Operaciones"
-COL_ACCOUNTS = "AccountsDescubiertas"
-
 
 @cached(ttl=600)
 def _nombres_por_id_cuenta() -> dict[str, str]:

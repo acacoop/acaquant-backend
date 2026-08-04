@@ -141,32 +141,32 @@ def _filtrar(snap: dict[str, dict], tickers, col: str, positivo: bool = False) -
     return out
 
 
-def obtener_tems(client, tickers):
+def obtener_tems(tickers):
     """Última TEM por ticker Lecap (SQL-only: mercado.market_snapshot)."""
     from core.market_snapshot import metric_map
     return metric_map(tickers, "tem")
 
 
-def obtener_paridades(client, tickers):
+def obtener_paridades(tickers):
     """Última paridad por ticker CER (SQL-only: mercado.market_snapshot)."""
     from core.market_snapshot import metric_map
     return metric_map(tickers, "paridad")
 
 
-def obtener_precios(client, tickers):
+def obtener_precios(tickers):
     """Último precio (positivo) por ticker — SQL-only (mercado.market_snapshot.last_price,
     escrito por valores.py). Para el BE por método Buscar Objetivo (precio_lecap/precio_cer)."""
     from core.market_snapshot import metric_map
     return metric_map(tickers, "last_price", positivo=True)
 
 
-def obtener_valor_cer(client, fecha_iso: str) -> float | None:
+def obtener_valor_cer(fecha_iso: str) -> float | None:
     """Valor del CER publicado para una fecha ISO (SQL-only: macro.series_macro)."""
     from core.series_macro import valor_en_fecha
     return valor_en_fecha("CER", fecha_iso)
 
 
-def ultimo_ipc_publicado(client) -> str | None:
+def ultimo_ipc_publicado() -> str | None:
     """YYYY-MM del IPC más reciente en Trading.InflacionMensual (INDEC).
 
     Se usa para filtrar pares cuyo `mes_inflacion` ya salió — no tiene
@@ -180,7 +180,7 @@ def ultimo_ipc_publicado(client) -> str | None:
     return f[:7] if f else None
 
 
-def ultimo_cer_publicado(client) -> str | None:
+def ultimo_cer_publicado() -> str | None:
     """YYYY-MM-DD del CER más reciente en Trading.CER.
 
     Lo usa calcular_breakevens como fecha de referencia para contar los
@@ -190,7 +190,7 @@ def ultimo_cer_publicado(client) -> str | None:
     return ultima_fecha("CER")  # SQL-only (ya viene 'YYYY-MM-DD')
 
 
-def obtener_teas_cer(client, tickers):
+def obtener_teas_cer(tickers):
     """Última TEA por ticker CER (SQL-only: mercado.market_snapshot.tea)."""
     from core.market_snapshot import metric_map
     return metric_map(tickers, "tea")
@@ -397,7 +397,7 @@ def guardar(pares_result, ts, fecha_str):
 # Loop principal
 # ─────────────────────────────────────────────
 
-def cargar_dias_habiles(client):
+def cargar_dias_habiles():
     """Lista ASC de días hábiles desde mercado.dias_habiles (SQL-only)."""
     from core.calendario import dias_habiles_ordenados
     return dias_habiles_ordenados()
@@ -409,7 +409,6 @@ def run():
     # mercado salen de SQL (market_snapshot/series_macro/dias_habiles) y el write
     # va a mercado_hist. Las funciones helper aún aceptan `client` (las reusan
     # checks.py/backfills) pero lo IGNORAN → se les pasa None.
-    client = None
 
     pares         = cargar_pares()
     lecap_tickers = [p["lecap_ticker"] for p in pares]
@@ -417,7 +416,7 @@ def run():
     # Los días hábiles los cargamos una vez al arrancar — la tabla cambia
     # solo al fin de año (job dias_habiles corre 1×/año). Si el motor corre
     # por meses sin reinicio, la lista sigue siendo válida.
-    dias_habiles = cargar_dias_habiles(client)
+    dias_habiles = cargar_dias_habiles()
 
     logger.info(
         f"Monitoreando {len(pares)} pares Lecap/CER · {len(dias_habiles)} días hábiles cargados.",
@@ -435,9 +434,9 @@ def run():
             teas_cer   = _filtrar(snap, cer_tickers,   "tea")
             precios    = _filtrar(snap, lecap_tickers + cer_tickers, "last_price", positivo=True)
 
-            ipc_mes = ultimo_ipc_publicado(client)
-            cer_max = ultimo_cer_publicado(client)
-            cer_actual = obtener_valor_cer(client, cer_max) if cer_max else None
+            ipc_mes = ultimo_ipc_publicado()
+            cer_max = ultimo_cer_publicado()
+            cer_actual = obtener_valor_cer(cer_max) if cer_max else None
             pares_result = calcular_breakevens(
                 pares, tems, paridades, teas_cer, fecha_ref,
                 ultimo_ipc_mes=ipc_mes,

@@ -150,7 +150,7 @@ def get_cer_en_fecha(cer_dict, fecha_date):
 # Carga de datos de referencia
 # ─────────────────────────────────────────────
 
-def cargar_cer(_client=None, dias: int = 90):
+def cargar_cer(dias: int = 90):
     """Carga CER solo de los últimos N días.
 
     El enriquecimiento de trades usa T-10 días hábiles como settlement,
@@ -164,14 +164,14 @@ def cargar_cer(_client=None, dias: int = 90):
     return cer
 
 
-def cargar_dias_habiles(_client=None):
+def cargar_dias_habiles():
     from core.calendario import dias_habiles_ordenados
     dias = dias_habiles_ordenados()  # SQL-only (mercado.dias_habiles)
     logger.info(f"Días hábiles cargados: {len(dias)}")
     return dias
 
 
-def cargar_mep_actual(_client=None) -> float | None:
+def cargar_mep_actual() -> float | None:
     """Último MEP disponible. Prefiere DolarSnapshot live; cae al histórico.
 
     Usado para convertir precios de bonos soberanos ley-NY en pesos
@@ -187,7 +187,7 @@ def cargar_mep_actual(_client=None) -> float | None:
     return None
 
 
-def cargar_a3500_actual(_client=None) -> float | None:
+def cargar_a3500_actual() -> float | None:
     """TC para valuar dolar-linked en tiempo real durante horas de mercado.
 
     Fuente única: feed MAE mayorista (UST$T plazo 000) vía
@@ -200,9 +200,6 @@ def cargar_a3500_actual(_client=None) -> float | None:
     y daría paridades/TEAs erradas. Si MAE está caído (PC apagada,
     Internet, etc.), devolvemos None: prefiero no enriquecer a
     enriquecer con dato viejo del BCRA.
-
-    El parámetro `client` queda por compat con call sites — el feed lo
-    resuelve `core.dolar_oficial` con su propio cliente read.
     """
     from core.dolar_oficial import mid_oficial_live
 

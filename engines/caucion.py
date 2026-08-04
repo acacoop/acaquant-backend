@@ -3,7 +3,8 @@
 Suscribe via WS los 2 tickers de caución (pesos + dólares) cuyo plazo
 coincide con "días al próximo día hábil". Lun-jue = 1D, vie = 3D
 (cubre fin de semana), vie con lunes feriado = 4D, etc. El plazo se
-re-evalúa cada hora; si cambia (cruce de día), el motor se re-suscribe.
+re-evalúa cada hora; si cambia (cruce de día), el motor se re-suscribe
+EN CALIENTE a los tickers nuevos (antes quedaba mudo hasta el restart).
 
 Persistencia (SQL-NATIVE — ya NO escribe Mongo, decomiso 2026-06-28):
 - mercado.caucion_snapshot: 1 fila por moneda (data jsonb), UPSERT cada 5s.
@@ -15,39 +16,24 @@ Persistencia (SQL-NATIVE — ya NO escribe Mongo, decomiso 2026-06-28):
   {fecha, moneda, plazo_dias, tna_cierre, tna_open, tna_high, tna_low,
    vol_efectivo}
 
+Esqueleto del proceso (señales / WS / snapshot-loop / run): engines/_motor_base.
+
 Ejecutar:
     python -m engines.caucion
 """
 from __future__ import annotations
 
 import logging
-import signal
-import threading
 import time
-import traceback
 from datetime import UTC, date, datetime
 
-from core.rofex_session import inicializar_sesion
-from core.threads import lanzar_hilo_vital
-from core.websocket import WebSocketManager
+from engines._motor_base import SnapshotEngine, correr_motor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorCaucion")
 
 INTERVALO_SNAPSHOT_S = 5
 INTERVALO_RECARGA_PLAZO_S = 3600   # re-evaluar plazo cada 1h
-
-_running = True
-
-
-def _handle_signal(sig, frame):
-    global _running
-    logger.info("Señal de cierre recibida, vuelco snapshot a histórico y apago.")
-    _running = False
-
-
-signal.signal(signal.SIGTERM, _handle_signal)
-signal.signal(signal.SIGINT, _handle_signal)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -99,61 +85,24 @@ def _moneda_de_ticker(ticker: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class CaucionEngine:
+class CaucionEngine(SnapshotEngine):
     """Mantiene estado en RAM y persiste snapshot cada N segundos."""
+
+    INTERVALO_SNAPSHOT_S = INTERVALO_SNAPSHOT_S
 
     def __init__(self):
         self.dias_habiles = _cargar_dias_habiles()
         self.plazo_actual = _calcular_plazo(self.dias_habiles)
         self.tickers_actuales: list[str] = list(_tickers_para_plazo(self.plazo_actual))
-        logger.info(
+        self._ultima_recarga_plazo = time.time()
+        super().__init__(self.tickers_actuales)
+        self.logger.info(
             "Plazo inicial: %d día(s) — tickers: %s",
             self.plazo_actual, self.tickers_actuales,
         )
 
-        # market_state: {ticker: {bid, offer, last, open, high, low, closing, vol_*}}
-        self.market_state: dict[str, dict] = {t: {} for t in self.tickers_actuales}
-        self._state_lock = threading.Lock()
-        self._ultima_recarga_plazo = time.time()
-
-        lanzar_hilo_vital(self._snapshot_loop, "snapshot_loop")
-
-    # ─── WebSocket handler ────────────────────────────────────────────────
-    def update_price(self, ticker: str, data: dict):
-        """Llamado por WebSocketManager en cada tick."""
-        with self._state_lock:
-            if ticker not in self.market_state:
-                # No es un ticker que estemos trackeando ahora (cambió de plazo).
-                return
-            st = self.market_state[ticker]
-            if "BI" in data:
-                st["bid"] = data["BI"][0] if data["BI"] else None
-            if "OF" in data:
-                st["offer"] = data["OF"][0] if data["OF"] else None
-            if "LA" in data:
-                st["last"] = data["LA"]
-            if "OP" in data and data["OP"] is not None:
-                st["open"] = data["OP"]
-            if "HI" in data and data["HI"] is not None:
-                st["high"] = data["HI"]
-            if "LO" in data and data["LO"] is not None:
-                st["low"] = data["LO"]
-            if "CL" in data:
-                st["closing"] = data["CL"]
-            if "EV" in data and data["EV"] is not None:
-                st["vol_efectivo"] = data["EV"]
-            if "NV" in data and data["NV"] is not None:
-                st["vol_nominal"] = data["NV"]
-
-    # ─── Snapshot loop ────────────────────────────────────────────────────
-    def _snapshot_loop(self):
-        while _running:
-            time.sleep(INTERVALO_SNAPSHOT_S)
-            try:
-                self._chequear_cambio_plazo()
-                self._volcar_snapshot()
-            except Exception:
-                logger.error("Error en snapshot_loop:\n%s", traceback.format_exc())
+    def _pre_snapshot(self):
+        self._chequear_cambio_plazo()
 
     def _chequear_cambio_plazo(self):
         """Si pasó >1h y cambió el día, re-suscribe a tickers nuevos."""
@@ -166,7 +115,7 @@ class CaucionEngine:
             return
 
         nuevos_tickers = list(_tickers_para_plazo(nuevo_plazo))
-        logger.info(
+        self.logger.info(
             "Cambio de plazo: %d → %d días. Tickers viejos %s, nuevos %s.",
             self.plazo_actual, nuevo_plazo, self.tickers_actuales, nuevos_tickers,
         )
@@ -174,11 +123,11 @@ class CaucionEngine:
             self.plazo_actual = nuevo_plazo
             self.tickers_actuales = nuevos_tickers
             self.market_state = {t: {} for t in nuevos_tickers}
-        # NOTA: el WS sigue suscripto a los viejos pero no escriben nada porque
-        # el handler chequea ticker in market_state. Para suscribir los nuevos,
-        # llamar agregar_suscripciones() del manager (ver run() abajo).
-        # En la primera versión simple, asumimos un restart diario para tomar
-        # los plazos nuevos del día.
+            self._universo_tickers = set(nuevos_tickers)
+        # Re-suscripción EN CALIENTE (aditiva): sin esto el motor quedaba mudo
+        # hasta el restart diario — el WS seguía suscripto solo a los viejos.
+        if self._ws is not None:
+            self._ws.agregar_suscripciones(nuevos_tickers, depth=1)
 
     def _volcar_snapshot(self):
         ts = datetime.now(UTC)
@@ -191,7 +140,7 @@ class CaucionEngine:
                     docs.append(doc)
         if docs:
             # SQL-native (decomiso Mongo): snapshot live → mercado.caucion_snapshot
-            # (UPSERT por moneda, incondicional). Ya NO escribe Trading.CaucionSnapshot.
+            # (UPSERT por moneda, incondicional).
             from core import pg_mirror
             pg_mirror.write_native("caucion_snapshot", ["moneda"], [
                 {"moneda": d.get("moneda"), "data": pg_mirror.doc_iso(d)}
@@ -224,8 +173,8 @@ class CaucionEngine:
         (coleccion='Caucion', SQL-native). Shape del doc IDÉNTICO al que escribía
         Trading.Caucion → lo lee mercado_hist_sql.get_historico_caucion sin cambios.
 
-        Llamado al recibir SIGTERM/SIGINT antes de que el proceso muera.
-        Idempotente: UPSERT por (coleccion, fecha, k=moneda).
+        Lo llama correr_motor al recibir SIGTERM/SIGINT antes de que el proceso
+        muera. Idempotente: UPSERT por (coleccion, fecha, k=moneda).
         """
         from core import pg_mirror
         hoy = date.today().isoformat()
@@ -263,42 +212,8 @@ class CaucionEngine:
             logger.info("Vuelco de cierre OK: %d docs en mercado_hist (Caucion)", len(rows))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Bucle principal
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 def run():
-    logger.info("Motor Caución iniciando...")
-    if not inicializar_sesion():
-        return
-
-    engine = CaucionEngine()
-    ws = WebSocketManager(engine)
-
-    if not ws.iniciar_ws(engine.tickers_actuales, depth=1):
-        logger.error("No pude iniciar WS")
-        return
-
-    logger.info(
-        "WS arriba. Suscripto a %d tickers (plazo=%d). Snapshot cada %ds.",
-        len(engine.tickers_actuales), engine.plazo_actual, INTERVALO_SNAPSHOT_S,
-    )
-
-    try:
-        while _running:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        try:
-            engine.vuelco_cierre()
-        except Exception:
-            logger.exception("Vuelco de cierre falló")
-        try:
-            ws.cerrar_ws()
-        except Exception:
-            pass
+    correr_motor("MotorCaucion", CaucionEngine)
 
 
 if __name__ == "__main__":

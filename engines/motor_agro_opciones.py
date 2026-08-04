@@ -2,24 +2,26 @@
 
 Análogo a motor_agro.py pero para opciones (cficode OCAFXS = call,
 OPAFXS = put). Filtra opciones sobre futuros Rosario (excluye Chicago)
-y persiste 1 doc por ticker en Trading.AgroOpcionesSnapshot.
+y persiste 1 fila por ticker en mercado.agro_opciones_snapshot.
+Un strike nuevo listado durante la rueda se suscribe EN CALIENTE.
 
 Pipeline:
 - Discovery: pyRofex.get_detailed_instruments() filtrado por cficode +
   underlying matcheando trigo/maíz/soja Rosario (mismos matchers que
-  motor_agro). El strike NO viene como field separado en
+  motor_agro, en _motor_base). El strike NO viene como field separado en
   get_detailed_instruments — se parsea del symbol con el formato
   '{ROOT}.ROS/{MES}{YR} {STRIKE} {C|P}', ej. 'SOJ.ROS/NOV26 340 C'.
 - Subscription: WS pyRofex con depth=1 (alimenta el panel comprador/
   vendedor + último).
-- Persistence: Trading.AgroOpcionesSnapshot, ReplaceOne cada 5s,
-  shape:
+- Persistence: mercado.agro_opciones_snapshot, UPSERT cada 5s, shape:
     {ticker, commodity, underlying, vencimiento, strike, tipo,
      dias_a_vto, bid_price, bid_size, offer_price, offer_size,
      last_price, last_size, closing, vol_efectivo, updated_at}
-- NO se escribe TimeSales ni histórico de cierre (mismo criterio que
+- NO se escribe timesales ni histórico de cierre (mismo criterio que
   motor_agro). El simulador de estrategias trabaja con el último precio.
-- Re-discovery cada 5 min, log si hay altas/bajas.
+
+Esqueleto del proceso (señales / WS / snapshot-loop / run) y helpers de
+discovery: engines/_motor_base.
 
 Uso:
     python -m engines.motor_agro_opciones
@@ -30,39 +32,28 @@ from __future__ import annotations
 
 import logging
 import re
-import signal
-import threading
-import time
-import traceback
-import unicodedata
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
 import pyRofex
 
-from core.rofex_session import inicializar_sesion
-from core.threads import lanzar_hilo_vital
-from core.websocket import WebSocketManager
+from engines._motor_base import (
+    SnapshotEngine,
+    borrar_stale_sql,
+    classify_commodity,
+    correr_motor,
+    dias_a_vto,
+    maturity,
+    ticker_de,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorAgroOpciones")
 
 INTERVALO_SNAPSHOT_S = 5
-# get_detailed_instruments() baja el padrón COMPLETO de ROFEX (REST pesado) y el
-# resultado acá SOLO alimenta un log (no re-suscribe). A 5 min eran 12 descargas/h
-# por motor × 3 motores = trabajo tirado; el padrón cambia de a días, no de a minutos.
 INTERVALO_REDISCOVERY_S = 1800
 
 CFICODE_CALL = "OCAFXS"
 CFICODE_PUT = "OPAFXS"
-
-# Matcher por keywords normalizadas (lower + sin tildes). Cubre 'Trigo
-# Rosario', 'TRIGO ROSARIO', 'Maíz Rosario', 'Maiz Rosario', etc.
-# Idéntico al de motor_agro.py — solo Rosario, NO Chicago.
-COMMODITY_MATCHERS: dict[str, tuple[str, ...]] = {
-    "TRIGO": ("trigo", "rosario"),
-    "MAIZ":  ("maiz",  "rosario"),
-    "SOJA":  ("soja",  "rosario"),
-}
 
 # Symbol format: '{ROOT}.ROS/{MES}{YR} {STRIKE} {C|P}'
 # Ejemplos: 'SOJ.ROS/JUL26 312 C', 'MAI.ROS/DIC26 200 P', 'TRI.ROS/ENE27 248 C'.
@@ -71,53 +62,6 @@ TICKER_RE = re.compile(
     r"^(?P<root>[A-Z]{3})\.ROS/(?P<mes>[A-Z]{3})(?P<yr>\d{2})\s+"
     r"(?P<strike>\d+(?:\.\d+)?)\s+(?P<tipo>[CP])$"
 )
-
-_running = True
-
-
-def _handle_signal(sig, frame):
-    global _running
-    logger.info("Señal de cierre recibida — apago WS.")
-    _running = False
-
-
-signal.signal(signal.SIGTERM, _handle_signal)
-signal.signal(signal.SIGINT, _handle_signal)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _norm(s: str) -> str:
-    """lower + strip de tildes para matching robusto."""
-    if not s:
-        return ""
-    nfkd = unicodedata.normalize("NFKD", s)
-    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
-
-
-def _classify_commodity(underlying: str) -> str | None:
-    n = _norm(underlying)
-    if not n:
-        return None
-    for commodity, kws in COMMODITY_MATCHERS.items():
-        if all(kw in n for kw in kws):
-            return commodity
-    return None
-
-
-def _ticker_de(inst: dict) -> str:
-    sym = inst.get("symbol")
-    if isinstance(sym, str) and sym:
-        return sym
-    iid = inst.get("instrumentId") or {}
-    return iid.get("symbol") if isinstance(iid.get("symbol"), str) else ""
-
-
-def _maturity(inst: dict) -> str:
-    return inst.get("maturityDate") or inst.get("maturity_date") or ""
 
 
 def _parse_ticker(ticker: str) -> tuple[float, str] | None:
@@ -147,13 +91,13 @@ def descubrir_opciones_agro() -> list[dict]:
         if cfi not in (CFICODE_CALL, CFICODE_PUT):
             continue
         underlying = inst.get("underlying") or ""
-        commodity = _classify_commodity(underlying)
+        commodity = classify_commodity(underlying)
         if not commodity:
             continue
-        mat = _maturity(inst)
+        mat = maturity(inst)
         if mat <= hoy_str:
             continue
-        ticker = _ticker_de(inst)
+        ticker = ticker_de(inst)
         if not ticker:
             continue
         parsed = _parse_ticker(ticker)
@@ -190,39 +134,13 @@ def descubrir_opciones_agro() -> list[dict]:
     return out
 
 
-def _dias_a_vto(mat_str: str) -> int:
-    try:
-        vto = date(int(mat_str[:4]), int(mat_str[4:6]), int(mat_str[6:8]))
-        return max(1, (vto - date.today()).days)
-    except Exception:
-        return 1
+class AgroOpcionesEngine(SnapshotEngine):
 
+    INTERVALO_SNAPSHOT_S = INTERVALO_SNAPSHOT_S
+    INTERVALO_REDISCOVERY_S = INTERVALO_REDISCOVERY_S
+    # Las opciones no trackean OHLC ni volumen nominal — solo book/last/cierre/EV.
+    ENTRIES = ("BI", "OF", "LA", "CL", "EV")
 
-def _borrar_stale_sql(table: str, tickers_actuales: list[str]) -> None:
-    """Borra del espejo SQL los tickers que ya no están en el universo vigente.
-
-    Reemplaza el `delete_many` de Mongo (cutover SQL-native): sin esto, una opción
-    vencida / strike retirado quedaría zombie en la tabla y el GET lo renderearía.
-    Best-effort — un fallo de PG al arranque deja zombies hasta el próximo restart,
-    no tumba el motor (idéntico criterio al write_native del loop)."""
-    if not tickers_actuales:
-        return
-    try:
-        from core.postgres import get_pool
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(f"DELETE FROM {table} WHERE ticker <> ALL(%s)", (tickers_actuales,))
-            if cur.rowcount:
-                logger.info("Limpieza stale SQL: %d snapshots viejos borrados", cur.rowcount)
-    except Exception as e:
-        logger.error("Limpieza stale SQL %s: %s", table, str(e).splitlines()[0][:200])
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Engine
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class AgroOpcionesEngine:
     def __init__(self):
         self.universo: list[dict] = descubrir_opciones_agro()
         if not self.universo:
@@ -239,56 +157,25 @@ class AgroOpcionesEngine:
         # Limpieza stale: si una corrida anterior dejó tickers que ya no
         # están en el universo (vencimientos cumplidos, strikes retirados),
         # los borramos para que el GET no los rendere zombie.
-        _borrar_stale_sql("mercado.agro_opciones_snapshot", [u["ticker"] for u in self.universo])
+        borrar_stale_sql(
+            "mercado.agro_opciones_snapshot", [u["ticker"] for u in self.universo], logger)
 
-        self.market_state: dict[str, dict] = {u["ticker"]: {} for u in self.universo}
-        self._state_lock = threading.Lock()
-        self._ultimo_discovery = time.time()
+        super().__init__([u["ticker"] for u in self.universo])
 
-        lanzar_hilo_vital(self._snapshot_loop, "snapshot_loop")
+    # ─── Rediscovery (re-suscripción en caliente vía _motor_base) ─────────
+    def _pre_snapshot(self):
+        self._maybe_rediscover()
 
-    # ─── WS handler ───────────────────────────────────────────────────────
-    def update_price(self, ticker: str, data: dict):
-        with self._state_lock:
-            if ticker not in self.market_state:
-                return
-            st = self.market_state[ticker]
-            if "BI" in data:
-                st["bid"] = data["BI"][0] if data["BI"] else None
-            if "OF" in data:
-                st["offer"] = data["OF"][0] if data["OF"] else None
-            if "LA" in data:
-                st["last"] = data["LA"]
-            if "CL" in data:
-                st["closing"] = data["CL"]
-            if "EV" in data and data["EV"] is not None:
-                st["vol_efectivo"] = data["EV"]
+    def _descubrir(self):
+        return descubrir_opciones_agro()
 
-    # ─── Snapshot loop ────────────────────────────────────────────────────
-    def _snapshot_loop(self):
-        while _running:
-            time.sleep(INTERVALO_SNAPSHOT_S)
-            try:
-                self._maybe_rediscover()
-                self._volcar_snapshot()
-            except Exception:
-                logger.error("Error en snapshot_loop:\n%s", traceback.format_exc())
+    def _ticker_item(self, item):
+        return item["ticker"]
 
-    def _maybe_rediscover(self):
-        if time.time() - self._ultimo_discovery < INTERVALO_REDISCOVERY_S:
-            return
-        self._ultimo_discovery = time.time()
-        nuevos = descubrir_opciones_agro()
-        viejos_set = {u["ticker"] for u in self.universo}
-        nuevos_set = {u["ticker"] for u in nuevos}
-        if nuevos_set != viejos_set:
-            agregados = nuevos_set - viejos_set
-            sacados = viejos_set - nuevos_set
-            logger.info(
-                "Discovery cambió: +%d -%d (restart del motor para tomar cambios)",
-                len(agregados), len(sacados),
-            )
+    def _aplicar_universo(self, items):
+        self.universo = items
 
+    # ─── Snapshot ─────────────────────────────────────────────────────────
     def _volcar_snapshot(self):
         ts = datetime.now(UTC)
         docs = []
@@ -320,7 +207,7 @@ class AgroOpcionesEngine:
             "vencimiento":   u["maturity"],
             "strike":        u["strike"],
             "tipo":          u["tipo"],
-            "dias_a_vto":    _dias_a_vto(u["maturity"]),
+            "dias_a_vto":    dias_a_vto(u["maturity"]),
             "bid_price":     bid.get("price"),
             "bid_size":      bid.get("size"),
             "offer_price":   offer.get("price"),
@@ -333,45 +220,11 @@ class AgroOpcionesEngine:
         }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Bucle principal
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 def run():
-    logger.info("Motor Agro Opciones iniciando...")
-    if not inicializar_sesion():
-        return
-
-    try:
-        engine = AgroOpcionesEngine()
-    except RuntimeError as e:
-        logger.error(str(e))
-        return
-
-    ws = WebSocketManager(engine)
-    tickers = [u["ticker"] for u in engine.universo]
-
-    if not ws.iniciar_ws(tickers, depth=1):
-        logger.error("No pude iniciar WS")
-        return
-
-    logger.info(
-        "WS arriba. Suscripto a %d opciones agro. Snapshot cada %ds. "
-        "Re-discovery cada %ds.",
-        len(tickers), INTERVALO_SNAPSHOT_S, INTERVALO_REDISCOVERY_S,
+    correr_motor(
+        "MotorAgroOpciones", AgroOpcionesEngine,
+        log_arranque=f"Re-discovery cada {INTERVALO_REDISCOVERY_S}s.",
     )
-
-    try:
-        while _running:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        try:
-            ws.cerrar_ws()
-        except Exception:
-            pass
 
 
 if __name__ == "__main__":

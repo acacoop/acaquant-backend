@@ -18,22 +18,18 @@ El endpoint /api/cotizaciones/mep lee `dolar_snapshot` primero (live), con
 fallback a `valuaciones.dolar` (último cierre del cron) si la fila no existe.
 Lecturas centralizadas en core/dolar_sql.py.
 
+Esqueleto del proceso (señales / WS / snapshot-loop / run): engines/_motor_base.
+
 Ejecutar:
     python -m engines.dolares
 """
 from __future__ import annotations
 
 import logging
-import signal
-import threading
-import time
-import traceback
 from datetime import UTC, datetime
 
 from core.pg_mirror import write_snapshot
-from core.rofex_session import inicializar_sesion
-from core.threads import lanzar_hilo_vital
-from core.websocket import WebSocketManager
+from engines._motor_base import SnapshotEngine, correr_motor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorDolares")
@@ -45,68 +41,20 @@ TICKER_AL30D = "MERV - XMEV - AL30D - CI"
 TICKER_AL30C = "MERV - XMEV - AL30C - CI"
 TICKERS = [TICKER_AL30, TICKER_AL30D, TICKER_AL30C]
 
-_running = True
 
-
-def _handle_signal(sig, frame):
-    global _running
-    logger.info("Señal de cierre recibida, apago.")
-    _running = False
-
-
-signal.signal(signal.SIGTERM, _handle_signal)
-signal.signal(signal.SIGINT, _handle_signal)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Engine
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class DolaresEngine:
+class DolaresEngine(SnapshotEngine):
     """Mantiene book de los 3 tickers y publica MEP/CCL/canje."""
+
+    INTERVALO_SNAPSHOT_S = INTERVALO_SNAPSHOT_S
+    # Este motor no trackea volúmenes (EV/NV) — solo book + OHLC.
+    ENTRIES = ("BI", "OF", "LA", "OP", "HI", "LO", "CL")
 
     def __init__(self):
         # SQL-NATIVE (decomiso Mongo): el snapshot live va a valuaciones.dolar_snapshot
-        # (1 fila fija id='current', upsert cada 5s). Ya no toca Mongo.
+        # (1 fila fija id='current', upsert cada 5s).
+        super().__init__(TICKERS)
 
-        # market_state[ticker] = {bid: {price,size}, offer: {price,size}, last:..}
-        self.market_state: dict[str, dict] = {t: {} for t in TICKERS}
-        self._state_lock = threading.Lock()
-
-        lanzar_hilo_vital(self._snapshot_loop, "snapshot_loop")
-
-    # ─── WS handler ───────────────────────────────────────────────────────
-    def update_price(self, ticker: str, data: dict):
-        with self._state_lock:
-            if ticker not in self.market_state:
-                return
-            st = self.market_state[ticker]
-            if "BI" in data:
-                st["bid"] = data["BI"][0] if data["BI"] else None
-            if "OF" in data:
-                st["offer"] = data["OF"][0] if data["OF"] else None
-            if "LA" in data:
-                st["last"] = data["LA"]
-            if "OP" in data and data["OP"] is not None:
-                st["open"] = data["OP"]
-            if "HI" in data and data["HI"] is not None:
-                st["high"] = data["HI"]
-            if "LO" in data and data["LO"] is not None:
-                st["low"] = data["LO"]
-            if "CL" in data:
-                st["closing"] = data["CL"]
-
-    # ─── Snapshot loop ────────────────────────────────────────────────────
-    def _snapshot_loop(self):
-        while _running:
-            time.sleep(INTERVALO_SNAPSHOT_S)
-            try:
-                self._volcar()
-            except Exception:
-                logger.error("snapshot_loop error:\n%s", traceback.format_exc())
-
-    def _volcar(self):
+    def _volcar_snapshot(self):
         ts = datetime.now(UTC)
         with self._state_lock:
             al30  = self.market_state[TICKER_AL30]
@@ -160,38 +108,8 @@ class DolaresEngine:
             return None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Bucle principal
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 def run():
-    logger.info("Motor Dólares iniciando...")
-    if not inicializar_sesion():
-        return
-
-    engine = DolaresEngine()
-    ws = WebSocketManager(engine)
-
-    if not ws.iniciar_ws(TICKERS, depth=1):
-        logger.error("No pude iniciar WS")
-        return
-
-    logger.info(
-        "WS arriba. Suscripto a %d tickers. Snapshot cada %ds → Valuaciones.DolarSnapshot",
-        len(TICKERS), INTERVALO_SNAPSHOT_S,
-    )
-
-    try:
-        while _running:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        try:
-            ws.cerrar_ws()
-        except Exception:
-            pass
+    correr_motor("MotorDolares", DolaresEngine)
 
 
 if __name__ == "__main__":

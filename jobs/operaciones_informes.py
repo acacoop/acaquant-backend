@@ -22,6 +22,7 @@ from datetime import UTC, date, datetime, timedelta
 sys.path.insert(0, ".")
 
 from api.services import operaciones_informes as svc
+from api.services.anulados import detectar_marca_a
 from api.services.aunesa_informes import parse_monto
 from core import aunesa
 from core.job_runs import JobRunLogger
@@ -146,6 +147,10 @@ def run(desde_d: date, hasta_d: date, workers: int) -> dict:
 
         res = svc.ingestar_filas_sql(rows, enrich_maps=maps)
         anul = svc.reconciliar_anulados_sql(vivos)
+        # Aunesa marca el boleto anulado con el sufijo ' (A)' y lo manda como si
+        # fuera uno nuevo → convive con el original. Barre TODA la base (no solo
+        # la ventana del job) porque la marca puede aparecer meses después.
+        marca = detectar_marca_a(commit=True)
         jr.set_stat("cuentas", len(cuentas))
         jr.set_stat("cuentas_con_ops", con_ops)
         jr.set_stat("cuentas_fallidas", len(fallidas))
@@ -153,6 +158,9 @@ def run(desde_d: date, hasta_d: date, workers: int) -> dict:
         jr.set_stat("upsertadas", res["upsertadas"])
         jr.set_stat("modificadas", res["modificadas"])
         jr.set_stat("anulados", anul["anulados"])
+        jr.set_stat("marca_a", marca["marcadas"])
+        if marca["marcadas"]:
+            jr.log(f"Anulados {marca['marcadas']} registro(s) con la marca (A) de Aunesa.")
         if anul["abortado"]:
             jr.log(f"⚠ ANULACIÓN ABORTADA: {anul['candidatos']} candidatos superan el tope "
                    f"global. NO se marcó nada — revisar a mano.")
@@ -165,7 +173,7 @@ def run(desde_d: date, hasta_d: date, workers: int) -> dict:
             jr.log(f"⚠ {len(fallidas)} cuentas fallaron (timeout/error). Ej: {fallidas[:15]}")
         jr.log(f"OK: {len(rows)} filas → {res['upsertadas']} nuevas / {res['modificadas']} act "
                f"· {con_ops} cuentas con ops · {len(fallidas)} fallidas")
-        return res | {"anulados": anul["anulados"]}
+        return res | {"anulados": anul["anulados"], "marca_a": marca["marcadas"]}
 
 
 def main() -> int:

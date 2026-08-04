@@ -116,6 +116,31 @@ def main() -> int:
                       f"{(r['tipo_operacion'] or '—')[:28]:<28} {r['bruto'] or 0:>18,.2f}")
         else:
             print("\n  ✅ Ningún desacuerdo: todo lo anulado en NM ya está anulado en OPS.")
+
+        # ¿La propagación ALCANZA? Todo lo que operaciones anuló y NM ni siquiera
+        # tiene es un boleto que la propagación NUNCA podría marcar.
+        cur.execute("""
+            SELECT split_part(o.boleto, ' ', 1) AS prefijo,
+                   EXISTS (SELECT 1 FROM negocio_movimientos nm
+                            WHERE nm.comprobante = o.boleto) AS en_nm,
+                   count(*) AS n
+              FROM operaciones o
+             WHERE o.anulado_en IS NOT NULL AND o.concertacion BETWEEN %(d)s AND %(h)s
+             GROUP BY 1, 2 ORDER BY 1, 2
+        """, p)
+        print("\n  COBERTURA — ¿la propagación alcanza a todo lo que anuló /informes?")
+        print("  " + "-" * 74)
+        alcanza = huerfanos = 0
+        for f in cur.fetchall():
+            if f["en_nm"]:
+                alcanza += f["n"]
+                v = "✅ NM lo tiene → propagable"
+            else:
+                huerfanos += f["n"]
+                v = "❌ NM no lo tiene → la propagación NO llega"
+            print(f"  {f['prefijo']:<9} {f['n']:>6}  {v}")
+        print("  " + "-" * 74)
+        print(f"  Propagable: {alcanza}   ·   fuera de alcance: {huerfanos}")
     return 0
 
 

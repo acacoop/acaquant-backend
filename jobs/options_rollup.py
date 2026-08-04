@@ -104,12 +104,19 @@ def main():
                     help="Procesar todos los días con datos en mercado.options_data")
     args = ap.parse_args()
 
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("options_rollup") as jr:
+        return _correr(jr, args)
+
+
+def _correr(jr, args):
     if args.backfill:
         fechas = fechas_con_datos()
         print(f"Backfill: {len(fechas)} días encontrados")
         total = 0
         for d in fechas:
             total += procesar_dia(d)
+        jr.set_stat("backfill_rows", total)
         print(f"Backfill completo: {total} rows upserted")
         return
 

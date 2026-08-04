@@ -66,5 +66,8 @@ def run(dry: bool = False):
 
 
 if __name__ == "__main__":
+    from core.job_runs import JobRunLogger
     dry = "--dry" in sys.argv
-    run(dry=dry)
+    with JobRunLogger("cleanup_curvas") as jr:
+        jr.set_stat("dry", dry)
+        run(dry=dry)

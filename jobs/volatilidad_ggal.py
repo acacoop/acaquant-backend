@@ -95,4 +95,6 @@ def actualizar_historico_ggal():
 
 
 if __name__ == "__main__":
-    actualizar_historico_ggal()
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("volatilidad_ggal"):
+        actualizar_historico_ggal()

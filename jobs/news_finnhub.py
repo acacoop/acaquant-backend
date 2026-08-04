@@ -120,10 +120,12 @@ def main() -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    return ingesta(
-        categorias=not args.solo_adrs,
-        adrs=not args.solo_categorias,
-    )
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("news_finnhub"):
+        return ingesta(
+            categorias=not args.solo_adrs,
+            adrs=not args.solo_categorias,
+        )
 
 
 if __name__ == "__main__":

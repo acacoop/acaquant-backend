@@ -46,4 +46,8 @@ def run(dry: bool = False):
 
 
 if __name__ == "__main__":
-    run(dry="--dry" in sys.argv)
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("cleanup_futuros_dlr") as jr:
+        _dry = "--dry" in sys.argv
+        jr.set_stat("dry", _dry)
+        run(dry=_dry)

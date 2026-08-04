@@ -74,4 +74,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("comercial_warm"):
+        main()

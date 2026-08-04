@@ -148,4 +148,6 @@ def _update_anchors(yahoo_sym: str, display: str, now: datetime) -> bool:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    sys.exit(ingesta())
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("market_anchors"):
+        sys.exit(ingesta())

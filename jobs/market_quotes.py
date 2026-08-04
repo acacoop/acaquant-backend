@@ -225,7 +225,9 @@ def _purga_simbolos_obsoletos(simbolos_validos: set[str]) -> None:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    return ingesta()
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("market_quotes"):
+        return ingesta()
 
 
 if __name__ == "__main__":

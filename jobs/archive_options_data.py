@@ -62,7 +62,10 @@ def main() -> int:
                         help="Ejecuta de verdad. Sin este flag es dry-run.")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    return run(apply=args.apply)
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("archive_options_data") as jr:
+        jr.set_stat("apply", args.apply)
+        return run(apply=args.apply)
 
 
 if __name__ == "__main__":

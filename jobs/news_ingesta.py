@@ -138,6 +138,12 @@ def main() -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("news_ingesta") as jr:
+        return _correr(jr, args)
+
+
+def _correr(jr, args) -> int:
     feeds = NEWS_FEEDS
     if args.fuente:
         feeds = [f for f in feeds if f["fuente"].lower() == args.fuente.lower()]
@@ -162,6 +168,8 @@ def main() -> int:
     prune_native("news_headlines", "fecha_publicacion", RETENCION_DIAS)
 
     elapsed = time.time() - t0
+    jr.set_stat("feeds", len(feeds))
+    jr.set_stat("upserted", n)
     logger.info("DONE — feeds=%d headlines=%d upserted=%d %.1fs",
                 len(feeds), len(rows), n, elapsed)
     return 0

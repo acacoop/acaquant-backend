@@ -233,8 +233,8 @@ def _aunesa(cuenta: str, dia: date, ticker: str | None) -> None:
     print(f"  → FANTASMAS (en base, Aunesa ya NO los devuelve): {len(fantasmas)}")
     for r in fantasmas[:40]:
         print(
-            f"     {r['comprobante']:<20} cta={str(r['id_cuenta']):<8} "
-            f"{str(r['ticker']):<18} {str(r['categoria']):<24} "
+            f"     {r['comprobante']:<20} cta={r['id_cuenta']!s:<8} "
+            f"{r['ticker']!s:<18} {r['categoria']!s:<24} "
             f"cant={_num(r['cantidad']):>22} imp={_num(r['importe']):>22}"
         )
     if len(fantasmas) > 40:

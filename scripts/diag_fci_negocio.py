@@ -97,19 +97,11 @@ def _filas_negocio(cuenta: str, desde: date, hasta: date, ticker: str | None) ->
     return rows
 
 
-# ─── 2. ¿Existe la cuenta con ese id? ───────────────────────────────────────
+# ─── 2. ¿Cómo se llama la cuenta? ───────────────────────────────────────────
 
 
 def _resolver_cuenta(cuenta: str) -> None:
     _titulo(2, f"¿Cómo aparece la cuenta {cuenta} en la base?")
-    rows = _q(
-        "SELECT id_cuenta, denominacion FROM clientes.comitentes WHERE id_cuenta = %(c)s",
-        {"c": cuenta},
-    )
-    for r in rows:
-        print(f"  comitentes: [{r['id_cuenta']}] {r['denominacion']}")
-    if not rows:
-        print("  ⚠️ no está en clientes.comitentes con ese id_cuenta exacto")
     rows = _q(
         "SELECT DISTINCT cuenta FROM operaciones.negocio_movimientos "
         " WHERE id_cuenta = %(c)s LIMIT 5",
@@ -208,8 +200,50 @@ def _cruce_operaciones(cuenta: str, desde: date, hasta: date) -> None:
 
 
 def _aunesa(cuenta: str, dia: date, ticker: str | None) -> None:
-    _titulo(6, f"Aunesa EN VIVO — líneas crudas de {dia} para la cuenta {cuenta}")
+    _titulo(6, f"Aunesa EN VIVO — ¿qué comprobantes de {dia} SIGUEN existiendo?")
+    import requests
+
     from api.services import aunesa_negocio as svc
+
+    # Fetch CRUDO (sin `_excluir`) para que un comprobante filtrado por nuestras
+    # reglas no se confunda con uno que Aunesa dio de baja.
+    dia_str = dia.strftime("%d/%m/%Y")
+    resp = requests.get(
+        svc.OPS_URL,
+        params={
+            "tiposCuenta": "Comitente",
+            "concertacionDesde": dia_str,
+            "concertacionHasta": dia_str,
+        },
+        headers=svc._autenticar(),
+        timeout=180,
+    )
+    resp.raise_for_status()
+    crudo = resp.json() if (resp.text or "").strip() else []
+    comps_aunesa = {str(r.get("comprobante")) for r in crudo if r.get("comprobante")}
+    print(f"  Aunesa devuelve HOY {len(crudo)} líneas / {len(comps_aunesa)} comprobantes para {dia}")
+
+    en_base = _q(
+        "SELECT comprobante, id_cuenta, cuenta, ticker, categoria, cantidad, importe "
+        "  FROM operaciones.negocio_movimientos WHERE fecha = %(d)s",
+        {"d": dia},
+    )
+    fantasmas = [r for r in en_base if str(r["comprobante"]) not in comps_aunesa]
+    print(f"  En NUESTRA base hay {len(en_base)} comprobantes para {dia}")
+    print(f"  → FANTASMAS (en base, Aunesa ya NO los devuelve): {len(fantasmas)}")
+    for r in fantasmas[:40]:
+        print(
+            f"     {r['comprobante']:<20} cta={str(r['id_cuenta']):<8} "
+            f"{str(r['ticker']):<18} {str(r['categoria']):<24} "
+            f"cant={_num(r['cantidad']):>22} imp={_num(r['importe']):>22}"
+        )
+    if len(fantasmas) > 40:
+        print(f"     … y {len(fantasmas) - 40} más")
+
+    comps_base = {str(r["comprobante"]) for r in en_base}
+    faltan = comps_aunesa - comps_base
+    print(f"  → FALTANTES (Aunesa los da, la base no los tiene): {len(faltan)}"
+          "  (normal: los que filtramos por informacion/OTC/USDL)")
 
     cons = svc.fetch_y_consolidar(fecha=dia)
     boletos = [
@@ -218,7 +252,7 @@ def _aunesa(cuenta: str, dia: date, ticker: str | None) -> None:
     ]
     if ticker:
         boletos = [b for b in boletos if (b.get("ticker") or "") == ticker]
-    print(f"  {len(boletos)} boletos consolidados de esa cuenta"
+    print(f"\n  Detalle: {len(boletos)} boletos consolidados de la cuenta {cuenta}"
           + (f" con ticker {ticker}" if ticker else ""))
     for b in boletos:
         print(

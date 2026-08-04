@@ -74,31 +74,6 @@ def _anchor_timestamps(now: datetime) -> dict[str, int]:
     }
 
 
-def update_stock_anchors(sym: str, now: datetime) -> bool:
-    hasta = int(now.timestamp())
-    desde = hasta - 400 * 86400  # ~13 meses de colchón
-    try:
-        c = stock_candle(sym, "D", desde, hasta)
-    except YahooError as e:
-        logger.warning("candle %s failed: %s", sym, e)
-        return False
-    if c.get("s") != "ok":
-        logger.warning("candle %s status=%s", sym, c.get("s"))
-        return False
-
-    times  = c.get("t")  or []
-    closes = c.get("c")  or []
-    if not times or not closes:
-        return False
-
-    ts_map = _anchor_timestamps(now)
-    update = {k: _closest_close(times, closes, ts) for k, ts in ts_map.items()}
-    update["anchors_updated_at"] = now
-
-    # MERGE atómico (`data = data || patch`): solo toca los anchors, preserva el
-    # precio/intraday que escribe jobs.market_quotes en el MISMO doc jsonb.
-    merge_jsonb_native("market_quotes", ["symbol"], [sym], update)
-    return True
 
 
 def ingesta() -> int:
@@ -106,17 +81,17 @@ def ingesta() -> int:
 
     ok_s = fail_s = 0
     for sym, _grupo in HOME_STOCKS:
-        if update_stock_anchors(sym, now):
+        if _update_anchors(sym, sym, now):
             ok_s += 1
         else:
             fail_s += 1
 
     # Treasury yields: el yahoo_sym es lo que fetchamos, pero el doc se
-    # guarda bajo el display (UST 10Y, etc). Necesitamos update_stock_anchors
+    # guarda bajo el display (UST 10Y, etc).
     # usando yahoo_sym y luego guardar bajo display.
     ok_t = fail_t = 0
     for yahoo_sym, display in HOME_TREASURIES:
-        if _update_treasury_anchors(yahoo_sym, display, now):
+        if _update_anchors(yahoo_sym, display, now):
             ok_t += 1
         else:
             fail_t += 1
@@ -124,7 +99,7 @@ def ingesta() -> int:
     # Índices locales (MERVAL, etc) — mismo patrón display ≠ yahoo_sym.
     ok_i = fail_i = 0
     for yahoo_sym, display, _grupo in HOME_INDICES_YAHOO:
-        if _update_treasury_anchors(yahoo_sym, display, now):
+        if _update_anchors(yahoo_sym, display, now):
             ok_i += 1
         else:
             fail_i += 1
@@ -134,7 +109,7 @@ def ingesta() -> int:
     # los futuros del watchlist/briefing quedan sin retorno semana/mes.
     ok_f = fail_f = 0
     for yahoo_sym, display, _exchange in HOME_FUTUROS:
-        if _update_treasury_anchors(yahoo_sym, display, now):
+        if _update_anchors(yahoo_sym, display, now):
             ok_f += 1
         else:
             fail_f += 1
@@ -147,9 +122,10 @@ def ingesta() -> int:
     return 0
 
 
-def _update_treasury_anchors(yahoo_sym: str, display: str, now: datetime) -> bool:
-    """Variante de update_stock_anchors que guarda bajo display pero fetchea
-    con el yahoo_sym (^IRX, ^TNX, etc)."""
+def _update_anchors(yahoo_sym: str, display: str, now: datetime) -> bool:
+    """Anchors WTD/MTD/YTD/1Y de un símbolo: fetchea velas con `yahoo_sym` y
+    hace el merge bajo `display`. Para stocks ambos coinciden — la ex
+    update_stock_anchors era esta misma función con display == yahoo_sym."""
     hasta = int(now.timestamp())
     desde = hasta - 400 * 86400
     try:

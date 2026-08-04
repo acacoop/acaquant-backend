@@ -93,17 +93,52 @@ HOME_INDICES_YAHOO: list[tuple[str, str, str]] = [
     ("^MERV", "MERVAL", "Índices"),
 ]
 
+def _pct_day(last, prev_close):
+    """Variación % del día — cálculo ÚNICO (antes copiado en 4 bloques)."""
+    if last is None or not prev_close:
+        return None
+    try:
+        return (last - prev_close) / prev_close * 100
+    except (TypeError, ZeroDivisionError):
+        return None
+
+
+def _upsert_yahoo(yahoo_sym: str, display: str, tipo: str, grupo: str,
+                  extra: dict, now: datetime) -> bool:
+    """Fetch Yahoo → doc → upsert, para treasuries/futuros/índices (los 3
+    bloques de ingesta() eran el mismo código con 2 campos de diferencia).
+    Guarda con `display` como symbol (no el ticker ^/=F de Yahoo)."""
+    try:
+        q = yahoo_quote(yahoo_sym)
+    except YahooError as e:
+        logger.warning("%s %s failed: %s", tipo, yahoo_sym, e)
+        return False
+    if not q or q.get("c") is None:
+        return False
+    last = q.get("c")
+    prev = q.get("pc")
+    doc = {
+        "symbol":     display,
+        "yahoo_sym":  yahoo_sym,
+        **extra,
+        "type":       tipo,
+        "grupo":      grupo,
+        "last":       last,
+        "prev_close": prev,
+        "pct_day":    _pct_day(last, prev),
+        "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
+        "updated_at": now,
+    }
+    _write_quote(doc)
+    return True
+
+
 def _upsert_stock(sym: str, grupo: str, q: dict, now: datetime) -> bool:
     if not q or q.get("c") in (None, 0):
         return False
     last       = q.get("c")
     prev_close = q.get("pc")
-    pct_day    = None
-    if last is not None and prev_close:
-        try:
-            pct_day = (last - prev_close) / prev_close * 100
-        except (TypeError, ZeroDivisionError):
-            pct_day = None
+    pct_day    = _pct_day(last, prev_close)
     doc = {
         "symbol":     sym,
         "type":       "stock",
@@ -137,106 +172,18 @@ def ingesta() -> int:
         else:
             fail += 1
 
-    # US Treasury yields vía Yahoo
-    for yahoo_sym, display in HOME_TREASURIES:
-        try:
-            q = yahoo_quote(yahoo_sym)
-        except YahooError as e:
-            logger.warning("treasury %s failed: %s", yahoo_sym, e)
+    # Treasuries + futuros + índices vía Yahoo — un solo loop (antes 3 bloques
+    # casi idénticos); el shape por tipo lo dan (tipo, grupo, extra).
+    yahoo_targets = (
+        [(ys, disp, "treasury", "US Treasury", {}) for ys, disp in HOME_TREASURIES]
+        + [(ys, disp, "future", "Futuros", {"exchange": exch}) for ys, disp, exch in HOME_FUTUROS]
+        + [(ys, disp, "index", grupo, {}) for ys, disp, grupo in HOME_INDICES_YAHOO]
+    )
+    for yahoo_sym, display, tipo, grupo, extra in yahoo_targets:
+        if _upsert_yahoo(yahoo_sym, display, tipo, grupo, extra, now):
+            ok += 1
+        else:
             fail += 1
-            continue
-        if not q or q.get("c") is None:
-            fail += 1
-            continue
-        # Guardamos con el display como symbol (no el ^ de Yahoo)
-        last   = q.get("c")
-        prev   = q.get("pc")
-        pct_day = None
-        if last is not None and prev:
-            try:
-                pct_day = (last - prev) / prev * 100
-            except (TypeError, ZeroDivisionError):
-                pass
-        doc = {
-            "symbol":     display,
-            "yahoo_sym":  yahoo_sym,
-            "type":       "treasury",
-            "grupo":      "US Treasury",
-            "last":       last,
-            "prev_close": prev,
-            "pct_day":    pct_day,
-            "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
-            "updated_at": now,
-        }
-        _write_quote(doc)
-        ok += 1
-
-    # Futuros CME/CBOT/COMEX/NYMEX vía Yahoo (continuous front-month).
-    for yahoo_sym, display, exchange in HOME_FUTUROS:
-        try:
-            q = yahoo_quote(yahoo_sym)
-        except YahooError as e:
-            logger.warning("future %s failed: %s", yahoo_sym, e)
-            fail += 1
-            continue
-        if not q or q.get("c") is None:
-            fail += 1
-            continue
-        last = q.get("c")
-        prev = q.get("pc")
-        pct_day = None
-        if last is not None and prev:
-            try:
-                pct_day = (last - prev) / prev * 100
-            except (TypeError, ZeroDivisionError):
-                pass
-        doc = {
-            "symbol":     display,
-            "yahoo_sym":  yahoo_sym,
-            "exchange":   exchange,
-            "type":       "future",
-            "grupo":      "Futuros",
-            "last":       last,
-            "prev_close": prev,
-            "pct_day":    pct_day,
-            "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
-            "updated_at": now,
-        }
-        _write_quote(doc)
-        ok += 1
-
-    # Índices locales (MERVAL, etc) vía Yahoo
-    for yahoo_sym, display, grupo in HOME_INDICES_YAHOO:
-        try:
-            q = yahoo_quote(yahoo_sym)
-        except YahooError as e:
-            logger.warning("index %s failed: %s", yahoo_sym, e)
-            fail += 1
-            continue
-        if not q or q.get("c") is None:
-            fail += 1
-            continue
-        last = q.get("c")
-        prev = q.get("pc")
-        pct_day = None
-        if last is not None and prev:
-            try:
-                pct_day = (last - prev) / prev * 100
-            except (TypeError, ZeroDivisionError):
-                pass
-        doc = {
-            "symbol":     display,
-            "yahoo_sym":  yahoo_sym,
-            "type":       "index",
-            "grupo":      grupo,
-            "last":       last,
-            "prev_close": prev,
-            "pct_day":    pct_day,
-            "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
-            "updated_at": now,
-        }
-        _write_quote(doc)
-        ok += 1
 
     # Limpieza: eliminar filas cuyo símbolo ya no está configurado (baja de la
     # watchlist, ej. SPCX 2026-07-14) — cubre también los grupos obsoletos, porque

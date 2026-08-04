@@ -44,8 +44,7 @@ class MicrostructureEngine:
                 "high_price":    0.0,
                 "low_price":     0.0,
                 "closing_price": 0.0,
-                "daily_financials": {"total_money": 0.0, "buy_money": 0.0, "sell_money": 0.0, "total_nominals": 0.0},
-                "hourly_stats": {h: {"buy": 0.0, "sell": 0.0, "total": 0.0} for h in range(10, 18)}
+                "daily_financials": {"total_money": 0.0, "total_nominals": 0.0},
             } for t in self.tickers
         }
         # TimeSales y MarketSnapshot son SQL-native (mercado.*). Las
@@ -101,43 +100,36 @@ class MicrostructureEngine:
             except Exception as e:
                 print(f"⚠️ No se pudo obtener market data REST para {ticker}: {e}")
 
-        # 2) Reconstruir financials del día desde los trades en SQL (mercado.timesales,
-        # SQL-only desde 2026-06-22). Una sola query con ANY en vez de N find.
-        _art_now = datetime.utcnow() - timedelta(hours=3)
+        # 2) Reconstruir financials del día (VWAP) desde mercado.timesales —
+        # agregación SERVER-SIDE: una fila (money, nominals) por ticker. Antes
+        # se bajaban TODOS los trades del día por el wire y se agregaban en un
+        # loop Python, mayormente para poblar acumuladores (hourly_stats,
+        # buy/sell_money) que nadie leía — eliminados.
+        # naive ART (los ts de mercado.timesales son naive ART) — utcnow() está
+        # deprecado, mismo valor vía now(UTC) sin tz.
+        _art_now = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=3)
         inicio = _art_now.replace(hour=0, minute=0, second=0, microsecond=0)
         try:
             from core.postgres import get_pool
             with get_pool().connection() as _cn, _cn.cursor() as _cur:
                 _cur.execute(
-                    "SELECT ticker, price, size, side, ts FROM mercado.timesales "
-                    "WHERE ticker = ANY(%s) AND ts >= %s",
+                    "SELECT ticker, "
+                    "SUM((COALESCE(price, 0) / 100.0) * COALESCE(size, 0)) AS money, "
+                    "SUM(COALESCE(size, 0)) AS nominals "
+                    "FROM mercado.timesales WHERE ticker = ANY(%s) AND ts >= %s "
+                    "GROUP BY ticker",
                     (list(self.tickers), inicio),
                 )
-                trades_hoy = _cur.fetchall()
+                filas = _cur.fetchall()
         except Exception as e:
             print(f"⚠️ No se pudo reconstruir financials desde SQL: {e}")
             return
-        for ticker_t, px, sz, sd, ts in trades_hoy:
+        for ticker_t, money, nominals in filas:
             st = self.market_state.get(ticker_t)
             if not st:
                 continue
-            px = float(px or 0)
-            sz = float(sz or 0)
-            sd = sd or "MID"
-            cash = (px / 100.0) * sz
-            st["daily_financials"]["total_nominals"] += sz
-            st["daily_financials"]["total_money"] += cash
-            if sd == "BUY":
-                st["daily_financials"]["buy_money"] += cash
-            elif sd == "SELL":
-                st["daily_financials"]["sell_money"] += cash
-            h = ts.hour
-            if 10 <= h <= 17:
-                st["hourly_stats"][h]["total"] += cash
-                if sd == "BUY":
-                    st["hourly_stats"][h]["buy"] += cash
-                elif sd == "SELL":
-                    st["hourly_stats"][h]["sell"] += cash
+            st["daily_financials"]["total_money"] += float(money or 0)
+            st["daily_financials"]["total_nominals"] += float(nominals or 0)
 
     def add_ticker(self, ticker):
         """Agrega un ticker en runtime (adhoc subscriptions).
@@ -157,8 +149,7 @@ class MicrostructureEngine:
             "high_price":    0.0,
             "low_price":     0.0,
             "closing_price": 0.0,
-            "daily_financials": {"total_money": 0.0, "buy_money": 0.0, "sell_money": 0.0, "total_nominals": 0.0},
-            "hourly_stats": {h: {"buy": 0.0, "sell": 0.0, "total": 0.0} for h in range(10, 18)},
+            "daily_financials": {"total_money": 0.0, "total_nominals": 0.0},
         }
         if ticker not in self.tickers:
             # self.tickers puede ser list o set según cómo lo armó el caller.
@@ -255,19 +246,8 @@ class MicrostructureEngine:
                 cash = (px / 100.0) * sz
 
                 st["daily_financials"]["total_nominals"] += sz
-                if side == "BUY":
-                    st["daily_financials"]["buy_money"] += cash
-                elif side == "SELL":
-                    st["daily_financials"]["sell_money"] += cash
 
                 dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC).astimezone(ART).replace(tzinfo=None)
-                h = dt.hour
-                if 10 <= h <= 17:
-                    st["hourly_stats"][h]["total"] += cash
-                    if side == "BUY":
-                        st["hourly_stats"][h]["buy"] += cash
-                    elif side == "SELL":
-                        st["hourly_stats"][h]["sell"] += cash
 
                 trade = {"timestamp": dt, "price": px, "size": sz, "side": side, "money": cash}
                 with self._buffer_lock:

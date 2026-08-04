@@ -141,6 +141,30 @@ def main() -> int:
             print(f"  {f['prefijo']:<9} {f['n']:>6}  {v}")
         print("  " + "-" * 74)
         print(f"  Propagable: {alcanza}   ·   fuera de alcance: {huerfanos}")
+
+        cur.execute("""
+            SELECT o.boleto, o.concertacion, o.id_cuenta, o.denominacion,
+                   o.tipo_operacion, o.instrumento, o.bruto, o.moneda, o.arancel
+              FROM operaciones o
+             WHERE o.anulado_en IS NOT NULL AND o.concertacion BETWEEN %(d)s AND %(h)s
+               AND NOT EXISTS (SELECT 1 FROM negocio_movimientos nm
+                                WHERE nm.comprobante = o.boleto)
+             ORDER BY o.concertacion, o.id_cuenta, o.boleto
+        """, p)
+        orf = cur.fetchall()
+        if orf:
+            print("\n  LOS HUÉRFANOS, UNO POR UNO (anulados en operaciones, ausentes en NM)")
+            print("  Validalos en Aunesa: si NO existen, la anulación está bien puesta.")
+            print("  " + "-" * 116)
+            print(f"  {'FECHA':<12} {'CTA':<6} {'BOLETO':<17} {'CLIENTE':<24} "
+                  f"{'OPERACIÓN':<24} {'INSTR':<10} {'BRUTO':>16} {'MON':<4}")
+            print("  " + "-" * 116)
+            for r in orf:
+                print(f"  {r['concertacion']!s:<12} {r['id_cuenta'] or '—':<6} "
+                      f"{r['boleto']:<17} {(r['denominacion'] or '—')[:24]:<24} "
+                      f"{(r['tipo_operacion'] or '—')[:24]:<24} "
+                      f"{(r['instrumento'] or '—')[:10]:<10} "
+                      f"{r['bruto'] or 0:>16,.2f} {r['moneda'] or '—':<4}")
     return 0
 
 

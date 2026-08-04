@@ -79,17 +79,25 @@ class MicrostructureEngine:
                 )
                 data = md.get("marketData", {})
                 st = self.market_state[ticker]
-                if data.get("OP"):
-                    st["open_price"] = float(data["OP"])
-                if data.get("HI"):
-                    st["high_price"] = float(data["HI"])
-                if data.get("LO"):
-                    st["low_price"] = float(data["LO"])
-                if data.get("CL"):
-                    st["closing_price"] = float(data["CL"])
-                la = data.get("LA")
-                if la and la.get("price"):
-                    st["last_price"] = float(la["price"])
+
+                # pyRofex REST devuelve floats O dicts {price, size, date} según
+                # el entry (CL casi siempre dict) — misma defensa que _to_float
+                # del handler WS. Con float() crudo, el primer dict cortaba el
+                # warm-up del ticker entero (bug del commit que sumó CL/LAST).
+                def _px(v):
+                    if isinstance(v, dict):
+                        v = v.get("price")
+                    try:
+                        return float(v) if v else None
+                    except (TypeError, ValueError):
+                        return None
+
+                for entry, campo in (("OP", "open_price"), ("HI", "high_price"),
+                                     ("LO", "low_price"), ("CL", "closing_price"),
+                                     ("LA", "last_price")):
+                    px = _px(data.get(entry))
+                    if px:
+                        st[campo] = px
             except Exception as e:
                 print(f"⚠️ No se pudo obtener market data REST para {ticker}: {e}")
 

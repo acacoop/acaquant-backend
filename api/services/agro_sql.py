@@ -15,7 +15,7 @@ frescura, simulador) vive en funciones PURAS de `derivados_agro.py` que esperan
 `datetime`, acá re-parseamos `updated_at` a datetime y delegamos en esas funciones
 → shape de salida IDÉNTICO al path Mongo, sin duplicar fórmulas.
 
-Dual-run flag `AGRO_SQL` (+ `?_engine=sql|mongo`). Selector en
+SQL-only (decomiso Mongo). Consumido desde
 `api/routers/derivados_agro.py::_agro_svc()`.
 """
 from __future__ import annotations

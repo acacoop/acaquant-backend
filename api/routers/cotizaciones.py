@@ -10,8 +10,8 @@ que parsean query params y delegan al service. Separación por dominio:
 - opciones        → chain + meta + históricos
 - argy            → panel multi-métrica con returns
 
-Motivo de la capa de servicio: `api/agent/tools.py::dispatch` la invoca
-directamente, sin loopback HTTP.
+Motivo de la capa de servicio: la invocan también el copiloto/MCP,
+sin loopback HTTP.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -30,33 +30,6 @@ from api.services import renta_fija_sql as svc_rf_sql
 router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
 
 
-# Selectores SQL-only (decomiso Mongo): los servicios Mongo gemelos fueron
-# retirados de la ejecución; estos helpers quedan con la firma `(engine)` por
-# compat con los call-sites (`?_engine`) pero devuelven SIEMPRE el servicio SQL.
-def _rem(engine: str | None = None):
-    return svc_rem_sql
-
-
-def _macro(engine: str | None = None):
-    return svc_macro_sql
-
-
-def _hist(engine: str | None = None, mongo_svc=None):
-    return svc_mhist
-
-
-def _rf(engine: str | None = None):
-    return svc_rf_sql
-
-
-def _caucion(engine: str | None = None):
-    return svc_mhist
-
-
-def _fwbe(engine: str | None = None):
-    return svc_mhist
-
-
 # ── Series BCRA (BADLAR, CER, DOLAR) ──
 
 
@@ -64,27 +37,24 @@ def _fwbe(engine: str | None = None):
 def listar_badlar(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _macro(_engine).get_badlar(desde=desde, hasta=hasta)
+    return svc_macro_sql.get_badlar(desde=desde, hasta=hasta)
 
 
 @router.get("/cer")
 def listar_cer(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _macro(_engine).get_cer(desde=desde, hasta=hasta)
+    return svc_macro_sql.get_cer(desde=desde, hasta=hasta)
 
 
 @router.get("/dolar")
 def listar_dolar(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _macro(_engine).get_dolar(desde=desde, hasta=hasta)
+    return svc_macro_sql.get_dolar(desde=desde, hasta=hasta)
 
 
 # ── Dólar MEP ──
@@ -129,9 +99,8 @@ def argy():
 @router.get("/caucion")
 def caucion(
     moneda: str | None = Query(None, description="ARS o USD; vacío = ambas"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _caucion(_engine).get_caucion(moneda=moneda)
+    return svc_mhist.get_caucion(moneda=moneda)
 
 
 @router.get("/historico/caucion")
@@ -139,17 +108,16 @@ def historico_caucion(
     moneda: str | None = Query(None, description="ARS o USD"),
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _hist(_engine).get_historico_caucion(moneda=moneda, desde=desde, hasta=hasta)
+    return svc_mhist.get_historico_caucion(moneda=moneda, desde=desde, hasta=hasta)
 
 
 # ── Futuros DLR ──
 
 
 @router.get("/futuros-dlr")
-def futuros_dlr(_engine: str | None = Query(None, include_in_schema=False)):
-    return _fwbe(_engine).get_futuros_dlr()
+def futuros_dlr():
+    return svc_mhist.get_futuros_dlr()
 
 
 @router.get("/historico/futuros-dlr")
@@ -157,9 +125,8 @@ def historico_futuros_dlr(
     ticker: str | None = Query(None, description="Filtrar por ticker (DLR/MMMYY)"),
     desde:  str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta:  str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _hist(_engine).get_historico_futuros_dlr(ticker=ticker, desde=desde, hasta=hasta)
+    return svc_mhist.get_historico_futuros_dlr(ticker=ticker, desde=desde, hasta=hasta)
 
 
 # ── Forwards ──
@@ -168,9 +135,8 @@ def historico_futuros_dlr(
 @router.get("/forwards")
 def listar_forwards(
     curva: str | None = Query(None, description="Filtrar por curva (tasa_fija/cer)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _fwbe(_engine).get_forwards(curva=curva)
+    return svc_mhist.get_forwards(curva=curva)
 
 
 @router.get("/historico/forwards")
@@ -178,15 +144,13 @@ def historico_forwards(
     curva: str | None = Query(None, description="Filtrar por curva (tasa_fija/cer)"),
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _hist(_engine).get_historico_forwards(curva=curva, desde=desde, hasta=hasta)
+    return svc_mhist.get_historico_forwards(curva=curva, desde=desde, hasta=hasta)
 
 
 @router.get("/forwards-zscore")
 def forwards_zscore(
     curva: str | None = Query(None, description="Filtrar por curva (tasa_fija/cer)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Coeficientes (media, desvío, n_obs) por par para z-scoreo de forwards.
 
@@ -194,7 +158,7 @@ def forwards_zscore(
     se refresca 1x/día por jobs/forwards_zscore.py post-cierre del motor.
     Pares con n_obs<20 o desvío≈0 no aparecen en `stats` (front los pinta n/d).
     """
-    return _fwbe(_engine).get_forwards_zscore(curva=curva)
+    return svc_mhist.get_forwards_zscore(curva=curva)
 
 
 # ── Fair Value (curva cuadrática + residuos + z-scores) ──
@@ -233,12 +197,12 @@ def fair_value_historico(
 
 
 @router.get("/breakevens")
-def listar_breakevens(_engine: str | None = Query(None, include_in_schema=False)):
-    return _fwbe(_engine).get_breakevens()
+def listar_breakevens():
+    return svc_mhist.get_breakevens()
 
 
 @router.get("/snapshot-live")
-def snapshot_live(_engine: str | None = Query(None, include_in_schema=False)) -> dict:
+def snapshot_live() -> dict:
     """Bundle live de la pantalla RENTA FIJA: renta_fija + forwards +
     breakevens en una sola respuesta. Cada bloque viene del cache TTL
     propio del service (renta_fija=5s, forwards=30s, breakevens=30s),
@@ -256,9 +220,9 @@ def snapshot_live(_engine: str | None = Query(None, include_in_schema=False)) ->
     forwards/breakevens vengan del cache.
     """
     return {
-        "renta_fija": _rf(_engine).get_renta_fija(),
-        "forwards":   _fwbe(_engine).get_forwards(),
-        "breakevens": _fwbe(_engine).get_breakevens(),
+        "renta_fija": svc_rf_sql.get_renta_fija(),
+        "forwards":   svc_mhist.get_forwards(),
+        "breakevens": svc_mhist.get_breakevens(),
     }
 
 
@@ -266,18 +230,17 @@ def snapshot_live(_engine: str | None = Query(None, include_in_schema=False)) ->
 def historico_breakevens(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _hist(_engine).get_historico_breakevens(desde=desde, hasta=hasta)
+    return svc_mhist.get_historico_breakevens(desde=desde, hasta=hasta)
 
 
 # ── REM (Relevamiento de Expectativas de Mercado, BCRA) ──
 
 
 @router.get("/rem/informes")
-def rem_listar_informes(_engine: str | None = Query(None, include_in_schema=False)):
+def rem_listar_informes():
     """Informes REM disponibles (ordenados desc)."""
-    return _rem(_engine).listar_informes()
+    return svc_rem_sql.listar_informes()
 
 
 @router.get("/rem")
@@ -286,11 +249,10 @@ def rem_expectativas(
     periodo_tipo: str | None = Query(None, description="mensual | anual | trimestral"),
     periodo_desde: str | None = Query(None, description="Filtro mínimo de periodo ('YYYY-MM')"),
     periodo_hasta: str | None = Query(None, description="Filtro máximo de periodo ('YYYY-MM')"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Expectativas REM crudas (IPC nivel general INDEC): mediana / promedio /
     percentiles / participantes por período, ordenado asc."""
-    return _rem(_engine).expectativas(
+    return svc_rem_sql.expectativas(
         informe=informe, periodo_tipo=periodo_tipo,
         periodo_desde=periodo_desde, periodo_hasta=periodo_hasta,
     )
@@ -299,19 +261,18 @@ def rem_expectativas(
 @router.get("/rem/breakeven-acumulado")
 def rem_breakeven_acumulado(
     informe: str | None = Query(None, description="'YYYY-MM' o vacío=último"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """IPC mensual del REM → promedio mensual geométrico acumulado desde HOY
     hasta cada mes futuro. Formato listo para superponer con breakeven de
     mercado en el chart."""
-    return _rem(_engine).breakeven_acumulado(informe=informe)
+    return svc_rem_sql.breakeven_acumulado(informe=informe)
 
 
 @router.get("/rem/debug")
-def rem_debug(_engine: str | None = Query(None, include_in_schema=False)):
+def rem_debug():
     """Diagnóstico: qué informes / períodos hay y cuántos. Útil cuando el chart
     no dibuja."""
-    return _rem(_engine).debug_info()
+    return svc_rem_sql.debug_info()
 
 
 # ── Renta Fija ──
@@ -320,34 +281,24 @@ def rem_debug(_engine: str | None = Query(None, include_in_schema=False)):
 @router.get("/renta-fija")
 def listar_renta_fija(
     instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta ticker corto ('TX26') o completo ('MERV - XMEV - TX26 - 24hs')."),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _rf(_engine).get_renta_fija(instrumento=instrumento)
+    return svc_rf_sql.get_renta_fija(instrumento=instrumento)
 
 
 # ── Opciones ──
-
-
-def _opc(engine: str | None = None):
-    """Dominio OPCIONES: SQL-only (mercado.options_*). La DB `Opciones` (Mongo) fue
-    dropeada. Cubre chain (options_snapshot), meta (options_metadata), histórico intradía
-    (options_data), VR (options_vr) y griegas (options_data_hist). El parámetro `engine`
-    queda por compat con los call-sites (`?_engine`) — ya no selecciona nada."""
-    return svc_opt_sql
 
 
 @router.get("/opciones")
 def listar_opciones(
     instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta corto ('GFGC10950A') o completo ('MERV - XMEV - GFGC10950A - 24hs')."),
     tipo: str | None = Query(None, description="Filtrar por tipo (CALL/PUT)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _opc(_engine).get_opciones(instrumento=instrumento, tipo=tipo)
+    return svc_opt_sql.get_opciones(instrumento=instrumento, tipo=tipo)
 
 
 @router.get("/opciones/meta")
-def opciones_meta(_engine: str | None = Query(None, include_in_schema=False)):
-    return _opc(_engine).get_opciones_meta()
+def opciones_meta():
+    return svc_opt_sql.get_opciones_meta()
 
 
 @router.put("/opciones/tasa")
@@ -369,29 +320,24 @@ def opciones_update_tasa(
 def historico_opciones(
     instrumento: str | None = Query(None, description="Filtrar por instrumento (symbol)"),
     tipo: str | None = Query(None, description="Filtrar por tipo (CALL/PUT)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _opc(_engine).get_historico_opciones(instrumento=instrumento, tipo=tipo)
+    return svc_opt_sql.get_historico_opciones(instrumento=instrumento, tipo=tipo)
 
 
 @router.get("/vr-ggal")
-def vr_ggal(_engine: str | None = Query(None, include_in_schema=False)):
-    """Serie diaria GGAL local (ARS) + ADR (USD) de Opciones.VR-GGal.
+def vr_ggal():
+    """Serie diaria GGAL local (ARS) + ADR (USD) de mercado.options_vr.
 
     Para el 2º eje del chart de costo histórico (spot del subyacente).
     """
-    return _opc(_engine).get_vr_ggal_serie()
+    return svc_opt_sql.get_vr_ggal_serie()
 
 
 @router.get("/griegas/opciones")
 def griegas_opciones(
     instrumento: str = Query(..., description="Instrumento (symbol) del contrato"),
 ):
-    """Evolución diaria de griegas de un contrato (mercado.options_data_hist).
-
-    SQL-NATIVE: `Opciones.DataHistorica` (Mongo) fue migrada → dropeada. Esta vista lee
-    SIEMPRE SQL (no respeta `?_engine` ni el flag `OPCIONES_SQL`, a diferencia del resto del
-    dominio opciones cuyas colecciones Mongo siguen vivas)."""
+    """Evolución diaria de griegas de un contrato (mercado.options_data_hist)."""
     return svc_opt_sql.get_griegas_historico(instrumento=instrumento)
 
 
@@ -401,16 +347,14 @@ def griegas_opciones(
 @router.get("/historico/trades")
 def historico_trades(
     instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta corto ('TX26') o completo ('MERV - XMEV - TX26 - 24hs')."),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _rf(_engine).get_historico_trades(instrumento=instrumento)
+    return svc_rf_sql.get_historico_trades(instrumento=instrumento)
 
 
 @router.get("/historico/curva")
 def historico_curva(
     curva: str = Query(..., description="tasa_fija / cer"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _rf(_engine).get_historico_curva(curva=curva)
+    return svc_rf_sql.get_historico_curva(curva=curva)
 
 

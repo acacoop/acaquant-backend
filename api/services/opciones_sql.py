@@ -13,7 +13,7 @@ recalculan). Política "solo vigente" en `mercado.options_data`/`options_snapsho
 series viejas la hacen el motor (_purgar_snapshots_fuera_de_mapa) + jobs/archive_options_data
 (ts < hoy ART). El shape de cada función == el path Mongo de `opciones.py`.
 
-Dual-run flag `OPCIONES_SQL` (+ `?_engine`).
+SQL-only (decomiso Mongo).
 """
 from __future__ import annotations
 

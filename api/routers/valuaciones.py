@@ -33,7 +33,6 @@ def get_consolidado(
         description="todas | accionistas | sin_accionistas | cooperativas | productores",
     ),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Una fila por cuenta: valor, base 100, PnL acum, TEM, TEA (ARS y USD).
 
@@ -54,7 +53,6 @@ def get_serie(
     id_cuenta: str,
     desde: str | None = Query(None, description="YYYY-MM-DD inclusive"),
     hasta: str | None = Query(None, description="YYYY-MM-DD inclusive"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Serie diaria del valor total del portfolio (Valuaciones.AuM)."""
     _validate_id_cuenta(id_cuenta)
@@ -70,12 +68,12 @@ def get_serie(
 
 
 @router.get("/{id_cuenta}/mensual", dependencies=[Depends(verificar_id_cuenta)])
-def get_mensual(id_cuenta: str, _engine: str | None = Query(None, include_in_schema=False)):
+def get_mensual(id_cuenta: str):
     """Tabla mensual: cierre del mes (último fecha_snapshot) +
     flujos externos del mes (depósitos − extracciones)."""
     _validate_id_cuenta(id_cuenta)
     try:
-        return svc.valuacion_mensual(id_cuenta=id_cuenta, engine="sql")
+        return svc.valuacion_mensual(id_cuenta=id_cuenta)
     except Exception as e:
         logger.exception("valuaciones mensual failed: id_cuenta=%s", id_cuenta)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -113,7 +111,6 @@ def get_variacion(
         description="YYYY-MM-DD — fecha_snapshot del mes; se compara contra "
                     "el snapshot anterior.",
     ),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Descompone la variación del portfolio vs el snapshot anterior, por
     título, separando efecto mercado (precio) de efecto operado (cantidad).
@@ -142,7 +139,6 @@ def get_posiciones_actuales(
         None,
         description="YYYY-MM-DD. Si se omite, usa el último fecha_snapshot.",
     ),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Posiciones de un fecha_snapshot dado — por default, el más
     reciente. Pasar fecha=YYYY-MM-DD para ver una fecha histórica

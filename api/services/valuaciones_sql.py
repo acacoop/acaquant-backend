@@ -4,8 +4,7 @@ Migración progresiva de la vista Portfolio (/valuaciones, dentro de CARTERAS) a
 Lee `portafolio.tenencia` (fechas corregidas) filtrando `aum = 'si'` (mismas exclusiones
 que el AuM real). Enriquece con la tabla `assets` (igual que el path Mongo con Assets).
 
-Dual-run: el router elige Mongo o SQL por `?_engine=sql` / flag `VALUACIONES_SQL`.
-Default Mongo → la vista en vivo NO cambia hasta probar con ?_engine=sql. Mismo shape de
+SQL-only (decomiso Mongo — única implementación). Mismo shape de
 salida que valuaciones.py para que el frontend no cambie.
 
 Estado: posiciones_actuales, serie, mensual (vía cierres_fecha_data), variación.

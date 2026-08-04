@@ -1,7 +1,7 @@
 """api/services/portfolio_sql.py — vista PORTFOLIO / AuM leyendo de Postgres (Supabase).
 
 Servicio PURO (sin FastAPI). Espejo SQL de `api/services/portfolio.py`: MISMO shape de
-salida → dual-run (carteras.py elige Mongo o SQL por `?_engine` / `PORTFOLIO_SQL`). El
+salida (decomiso Mongo — única implementación). El
 frontend de /aum no cambia; solo cambia de dónde salen los datos.
 
 Fuente: **`portafolio.tenencia`** (fechas reales corregidas, regla H1). Solo cuentan las

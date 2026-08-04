@@ -308,26 +308,23 @@ def posiciones_cuenta(id_cuenta: str, hasta: str | None = None) -> dict[str, Any
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _cierres_fecha_data(id_cuenta: str, cartera: str | None = None,
-                        engine: str = "sql") -> list[dict]:
+def _cierres_fecha_data(id_cuenta: str, cartera: str | None = None) -> list[dict]:
     """Cierres por fecha_snapshot → [{_id, valuacion, n}] ordenado asc, desde SQL
-    `portafolio.tenencia` (vía valuaciones_sql). `engine` queda por compat de call sites
-    (Valuaciones.AuM Mongo eliminada — SQL es la única fuente). El resto del cálculo
-    mensual (flujos/MEP/XIRR/TWR) opera sobre esta lista sin cambios."""
+    `portafolio.tenencia` (vía valuaciones_sql). El resto del cálculo mensual
+    (flujos/MEP/XIRR/TWR) opera sobre esta lista sin cambios."""
     from api.services import valuaciones_sql as _vsql
     return _vsql.cierres_fecha_data(id_cuenta, cartera)
 
 
 @cached(ttl=300)
-def valuacion_mensual(id_cuenta: str, engine: str = "mongo") -> dict[str, Any]:
+def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     """Versión CACHEADA (flujo externo: depósitos/extracciones) — la usa Carteras.
-    `engine`: 'mongo' (default) o 'sql' (cierres desde portafolio.tenencia corregido).
     La variante con flujo custom (NEGOCIO→Valuaciones) es `_valuacion_mensual`."""
-    return _valuacion_mensual(id_cuenta=id_cuenta, engine=engine)
+    return _valuacion_mensual(id_cuenta=id_cuenta)
 
 
 def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
-                       cartera: str | None = None, engine: str = "mongo") -> dict[str, Any]:
+                       cartera: str | None = None) -> dict[str, Any]:
     """Tabla mensual: valor al cierre del mes + flujos externos del mes.
     Calcula métricas en ARS y USD paralelas.
 
@@ -379,7 +376,7 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
     # Sorted asc → el último snapshot que cae en el bucket gana → para
     # meses con daily, gana el del último día hábil; para meses cubiertos
     # solo por el snap del 1° del siguiente, gana ese.
-    fechas_data = _cierres_fecha_data(id_cuenta, cartera, engine)
+    fechas_data = _cierres_fecha_data(id_cuenta, cartera)
 
     # Bucket = mes calendario del snapshot. Sorted asc → el último snapshot
     # del mes gana en el dict overwrite. Para meses con backfill EOM
@@ -645,7 +642,7 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
     }
 
 
-def valuacion_mensual_debug(id_cuenta: str, engine: str = "mongo") -> dict[str, Any]:
+def valuacion_mensual_debug(id_cuenta: str) -> dict[str, Any]:
     """Versión expandida de `valuacion_mensual` para auditoría desde
     /manager. **No cacheada** — devuelve siempre los datos actuales.
 
@@ -677,7 +674,7 @@ def valuacion_mensual_debug(id_cuenta: str, engine: str = "mongo") -> dict[str, 
     """
 
     # 1. Cierres por mes (misma fuente swappable que valuacion_mensual).
-    fechas_data = _cierres_fecha_data(id_cuenta, None, engine)
+    fechas_data = _cierres_fecha_data(id_cuenta, None)
     cierres_buckets: dict[str, dict] = {}
     for f in fechas_data:
         fecha_str = str(f["_id"])
@@ -1158,9 +1155,7 @@ def construir_consolidado() -> list[dict[str, Any]]:
         if id_cta is None:
             continue
         try:
-            # engine="sql": los cierres salen de portafolio.tenencia (Valuaciones.AuM
-            # fue eliminado en la migración SQL). Los flujos ya salen de SQL.
-            m = valuacion_mensual(id_cuenta=str(id_cta), engine="sql")
+            m = valuacion_mensual(id_cuenta=str(id_cta))
         except Exception:
             continue
         meses = m.get("meses") or []

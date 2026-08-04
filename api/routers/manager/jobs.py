@@ -104,7 +104,6 @@ def get_jobs_history(
     desde: str | None = Query(None, description="ISO datetime o YYYY-MM-DD (UTC)"),
     hasta: str | None = Query(None, description="ISO datetime o YYYY-MM-DD (UTC)"),
     limit: int = Query(100, le=500),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Últimas corridas registradas en manager.job_runs (SQL-native, decomiso Mongo). TTL 60d."""
     from api.services import manager_infra_sql
@@ -119,7 +118,6 @@ def get_jobs_history(
 @router.get("/jobs/history/stats")
 def get_jobs_history_stats(
     desde: str | None = Query(None, description="YYYY-MM-DD (default: últimos 7 días)"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Resumen por tipo: runs totales, ok/partial/error y último run."""
     if desde:

@@ -28,7 +28,7 @@ REGLA #1 del 19/6 (Mongo se apaga; SQL nativo; lo muerto se borra, no se migra):
 Dependencia Mongo que falta para que sea 100% SQL-native: el MEP live (`DolarSnapshot`,
 feed WS, aún sin espejo SQL).
 
-Dual-run flag `RENTA_FIJA_SQL` (+ `?_engine` override). Validación: spot-check funcional
+SQL-only (decomiso Mongo). Validación: spot-check funcional
 SQL (no byte-parity contra Mongo — Mongo se va). Se apoya en el dual-write de
 market_snapshot (SNAPSHOT_SQL) en paridad (recon 2026-06-19, fresco a ~1s).
 """

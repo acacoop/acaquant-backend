@@ -6,7 +6,7 @@ Espejo SQL (Postgres) de las lecturas que hoy hacen contra Mongo:
 
 Funciones PURAS (sin FastAPI): replican EXACTAMENTE el shape que devuelven los
 paths Mongo de `api/routers/manager/jobs.py` y `core/roles.list_audit`. El
-selector dual-run vive en el router (flag `MANAGER_SQL=1` / `?_engine=`), con el
+es la única implementación (decomiso Mongo), con el
 path Mongo intacto → rollback = sacar la env.
 
 Reglas de traducción Mongo→SQL aplicadas:
@@ -122,15 +122,3 @@ def jobrun_ultimo_sql(run_tipo: str) -> tuple[datetime | None, str | None]:
         ft = ft.replace(tzinfo=UTC)
     return ft, rows[0]["status"]
 
-
-# ── RoleAudit → /roles/audit ─────────────────────────────────────────────────
-def list_audit_sql(limit: int = 50) -> list[dict]:
-    """Últimos N eventos del audit, más reciente primero. Mismo shape que
-    core.roles.list_audit (el doc completo sin _id). El doc vive en `data` jsonb;
-    `ts` queda como en Mongo (list_audit NO reformatea — devuelve el ts crudo, acá
-    ISO del jsonb), consistente con el path Mongo que serializa el datetime a ISO."""
-    rows = _q(
-        "SELECT data FROM manager.role_audit ORDER BY ts DESC LIMIT %s",
-        (int(limit),),
-    )
-    return [dict(r["data"] or {}) for r in rows]

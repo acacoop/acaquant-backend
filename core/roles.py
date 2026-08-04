@@ -234,9 +234,7 @@ def _audit_insert(doc: dict) -> None:
     `ts` es AWARE UTC → timestamptz no corre la hora. Best-effort: si SQL falla NO debe
     tumbar la mutación de usuario/rol (que ya persistió en su propio write).
 
-    Lectura del panel: api/routers/manager/roles.py → manager_infra_sql.list_audit_sql
-    cuando el flag de lectura MANAGER_SQL=1 está prendido. Con MANAGER_SQL=0 el router cae
-    a roles.list_audit (Mongo), que tras este cutover NO verá los eventos nuevos."""
+    Lectura del panel: api/routers/manager/roles.py → roles.list_audit."""
     try:
         from uuid import uuid4
 

@@ -22,23 +22,6 @@ from api.services import sensibilidad as svc_sens
 router = APIRouter(prefix="/api/analitica", tags=["Analítica"])
 
 
-def _macro(engine: str | None = None):
-    """Series macro: SQL-only (macro.series_macro). El gemelo Mongo fue retirado;
-    firma `(engine)` por compat con `?_engine`."""
-    return svc_macro_sql
-
-
-def _rf(engine: str | None = None):
-    """Renta fija LIVE: SQL-only (mercado.*). El gemelo Mongo fue retirado."""
-    return svc_rf_sql
-
-
-def _opc(engine: str | None = None):
-    """Dominio OPCIONES: SQL-only (mercado.options_data). La DB `Opciones` (Mongo) fue
-    dropeada. El parámetro `engine` queda por compat con `?_engine` — ya no selecciona."""
-    return svc_opc_sql
-
-
 @router.get("/listar-curva")
 def listar_curva(
     curva: str = Query(..., description="cer | tasa_fija | tamar | soberanos | dolar_linked | on | on_<sector>"),
@@ -46,9 +29,8 @@ def listar_curva(
     vencimiento_min_meses: float | None = Query(None, description="Filtrar ≥ N meses"),
     vencimiento_max_meses: float | None = Query(None, description="Filtrar ≤ N meses"),
     limit: int | None = Query(None, description="Top N después de ordenar"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _rf(_engine).listar_curva(
+    return svc_rf_sql.listar_curva(
         curva=curva,
         ordenar_por=ordenar_por,
         vencimiento_min_meses=vencimiento_min_meses,
@@ -69,18 +51,16 @@ def ons_calendario(
 def serie_macro(
     variable: str = Query(..., description="tamar|cer|dolar|badlar|mep|ccl|canje|ipc|ipim|riesgo_pais|repo|rem_inflacion o <TICKER>.<CAMPO>"),
     ventana_dias: int = Query(90, ge=1, le=3650),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _macro(_engine).obtener_serie_macro(variable=variable, ventana_dias=ventana_dias)
+    return svc_macro_sql.obtener_serie_macro(variable=variable, ventana_dias=ventana_dias)
 
 
 @router.get("/clasificar-nivel")
 def clasificar_nivel(
     variable: str = Query(..., description="Ver /serie-macro para valores válidos"),
     ventana_dias: int = Query(90, ge=1, le=3650),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _macro(_engine).clasificar_nivel(variable=variable, ventana_dias=ventana_dias)
+    return svc_macro_sql.clasificar_nivel(variable=variable, ventana_dias=ventana_dias)
 
 
 # ── Tier 2: extensiones sobre data existente ──
@@ -263,7 +243,6 @@ def rolldown_esperado(
 @router.post("/estrategia-historico")
 def estrategia_historico(
     req: _EstrategiaHistoricoReq = Body(...),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Serie intradía de costo de una estrategia de opciones.
 
@@ -277,7 +256,7 @@ def estrategia_historico(
     se omiten — la serie queda con huecos, no con ceros.
     """
     legs = [leg.model_dump() for leg in req.legs]
-    return _opc(_engine).estrategia_historico(
+    return svc_opc_sql.estrategia_historico(
         legs=legs,
         bucket_min=req.bucket_min,
         desde=req.desde,

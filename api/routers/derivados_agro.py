@@ -20,7 +20,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email, require_module, require_no_invitado
@@ -42,21 +42,12 @@ from api.services.derivados_agro import (
 router = APIRouter(prefix="/api/derivados", tags=["DerivadosAgro"])
 
 
-def _agro_svc(_engine: str | None = None):
-    """Lecturas AGRO (pase, opciones, simulador, cámara, mejoras-dispo): SQL-only
-    (`agro_sql` → mercado.agro_*). SQL-native (decomiso Mongo). Las escrituras (PATCH)
-    viven en los services originales y ya escriben SQL (write_native). El parámetro
-    `_engine` queda por compat con `?_engine` — ya no selecciona."""
-    return _agro_sql
-
-
 @router.get("/agro")
 def pase_agro(
     _email: str = Depends(get_user_email),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Tabla PASE AGRO completa (3 bloques: TRIGO/MAIZ/SOJA)."""
-    return _agro_svc(_engine).get_pase_agro()
+    return _agro_sql.get_pase_agro()
 
 
 class PizarraIn(BaseModel):
@@ -116,7 +107,6 @@ def patch_pizarra(
 def panel_opciones(
     commodity: str,
     _email: str = Depends(get_user_email),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Cadena de opciones agro para un commodity, agrupada por vencimiento.
 
@@ -129,7 +119,7 @@ def panel_opciones(
             status_code=400,
             detail=f"commodity inválido. Válidos: {COMMODITY_ORDER}",
         )
-    return _agro_svc(_engine).get_panel_opciones(commodity)
+    return _agro_sql.get_panel_opciones(commodity)
 
 
 class SimulacionIn(BaseModel):
@@ -150,7 +140,6 @@ class SimulacionIn(BaseModel):
 def post_simular_estrategia(
     payload: SimulacionIn,
     _email: str = Depends(get_user_email),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Simula put sintético o long put sobre el contrato (commodity, vencimiento, strike).
 
@@ -158,7 +147,7 @@ def post_simular_estrategia(
     (estrategia_vs_futuro y diferencias) listas para graficar.
     """
     try:
-        return _agro_svc(_engine).simular_estrategia(
+        return _agro_sql.simular_estrategia(
             commodity=payload.commodity,
             vencimiento=payload.vencimiento,
             tipo=payload.tipo,
@@ -177,10 +166,9 @@ def post_simular_estrategia(
 @router.get("/agro/camara")
 def camara_cereales(
     _email: str = Depends(get_user_email),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Lista los 5 cereales de la Cámara — siempre los 5, vacíos si no cargados."""
-    return _agro_svc(_engine).get_camara_cereales()
+    return _agro_sql.get_camara_cereales()
 
 
 class CamaraCerealIn(BaseModel):
@@ -228,11 +216,10 @@ def patch_camara_cereal(
 @router.get("/agro/camara-bahia")
 def camara_cereales_bahia(
     _email: str = Depends(get_user_email),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Lista los 5 cereales de la Cámara de Bahía — siempre los 5, vacíos si no cargados.
     A diferencia de Rosario, el trader carga TODOS en USD (la ARS se deriva)."""
-    return _agro_svc(_engine).get_camara_cereales_bahia()
+    return _agro_sql.get_camara_cereales_bahia()
 
 
 class CamaraBahiaCerealIn(BaseModel):
@@ -395,22 +382,20 @@ def descuento_caucion(
 @router.get("/agro/mejoras-dispo")
 def mejoras_dispo(
     _email: str = Depends(get_user_email),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """3 bloques (Soja/Maíz/Trigo). Combina Cámara.precio_ars + TNA LECAPs +
     futuros DLR para mostrarle al productor cuánto cobra si se queda en
     LECAP + se cubre con futuro."""
-    return _agro_svc(_engine).get_mejoras_dispo()
+    return _agro_sql.get_mejoras_dispo()
 
 
 @router.get("/agro/mejoras-dispo-bahia")
 def mejoras_dispo_bahia(
     _email: str = Depends(get_user_email),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Igual que /agro/mejoras-dispo pero el precio disponible sale de la Cámara de
     Bahía Blanca (cereales cargados en USD → precio_ars derivado con el dólar BNA)."""
-    return _agro_svc(_engine).get_mejoras_dispo_bahia()
+    return _agro_sql.get_mejoras_dispo_bahia()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

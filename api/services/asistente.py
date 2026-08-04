@@ -241,20 +241,24 @@ def _verificar_cifras(texto: str, ctx_tools: str, email: str) -> str:
     A diferencia del copiloto —que PROHÍBE toda aritmética—, el asistente permite
     cuentas simples: la corrección lo contempla (o marcás la cifra como aprox con
     '~' dejando clara la operación, o la corregís al valor exacto del dato)."""
-    from api.services.copiloto.verificacion import _numeros_sin_respaldo
+    from api.services.copiloto.verificacion import (
+        _numeros_sin_respaldo,
+        prompt_autocorreccion,
+    )
 
     malos, _ = _numeros_sin_respaldo(texto, ctx_tools)
     if not malos:
         return texto
     logger.warning("asistente: %d cifra(s) sin respaldo %s — autocorrección",
                    len(malos), malos)
-    correccion = (
-        f"{ctx_tools}\n[tu respuesta previa]\n{texto}\n"
-        f"[verificación automática] estas cifras NO aparecen en los datos que "
-        f"consultaste: {', '.join(malos)}. Si son una cuenta tuya (suma/resta/%), "
-        "presentala como aproximación con '~' y dejá clara la operación; si no, "
-        "corregilas al valor EXACTO del dato. Reescribí la respuesta COMPLETA "
-        "corregida, mismo formato y largo, sin mencionar esta corrección."
+    # Frame compartido con el copiloto; la INSTRUCCIÓN es propia (acá se
+    # permite aritmética con '~', el copiloto la prohíbe) — diferencia a
+    # propósito, igual que el keep-best con <= de abajo vs el < del copiloto.
+    correccion = prompt_autocorreccion(
+        ctx_tools, texto,
+        f"estas cifras NO aparecen en los datos que consultaste: {', '.join(malos)}. "
+        "Si son una cuenta tuya (suma/resta/%), presentala como aproximación con "
+        "'~' y dejá clara la operación; si no, corregilas al valor EXACTO del dato.",
     )
     texto2, _t = ai.completar_con_traza(
         _TAREA, system=_system_completo(), user=correccion, usuario=email,

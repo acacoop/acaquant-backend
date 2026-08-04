@@ -117,6 +117,21 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-08-04 — v2.00 (refactor del orquestador: la verificación vive UNA vez — cero cambio de comportamiento)
+`preguntar()` había crecido a ~300 líneas con la batería de 5 detectores
+copy-pasteada adentro (pre y post reintento) y el frame del prompt de
+autocorrección duplicado contra `asistente._verificar_cifras`. Ahora:
+- `verificacion.py` suma `detectar_problemas()` (detecciones CRUDAS — la
+  política estricta y el keep-best las necesitan), `score_problemas()`,
+  `mensajes_de_problemas()` y `prompt_autocorreccion()` (frame compartido,
+  verificado byte a byte idéntico a los strings viejos).
+- El armado de contexto (TSV + extras + historial tokenizado + pregunta) se
+  extrajo a `_armar_contexto()` — mismo código, ahora testeable aparte.
+- Las DIFERENCIAS INTENCIONALES entre copiloto y asistente quedan explícitas
+  en comentarios de ambos lados: el copiloto usa keep-best ESTRICTO (`<`) y
+  prohíbe aritmética; el asistente usa `<=` y permite cuentas con `~`. NO
+  unificar — es diseño, no drift.
+
 ### 2026-08-04 — v1.99 (fix: el historial restaurado perdía TODOS los turnos pro)
 `historial_persistido` filtraba `tarea = 'copiloto_vista'`, pero el copiloto
 escribe DOS tareas desde el tier pro (v1.62): trading traza SIEMPRE

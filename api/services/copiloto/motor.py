@@ -23,13 +23,6 @@ from .trading import (
     _radar_candidatos,
     _sanear_params_trading,
 )
-from .verificacion import (
-    _RE_DERRAME,
-    _exceso_de_cifras,
-    _jerga_en_respuesta,
-    _numeros_sin_respaldo,
-    _periodos_sin_respaldo,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +39,47 @@ def _marcar_conversacion(traza_id: int | None, conv_id: str | None) -> None:
                         (conv_id[:64], traza_id))
     except Exception as e:
         logger.warning("copiloto: no pude marcar la conversación (%s)", e)
+
+
+def _armar_contexto(vista, cfg, filas, pregunta, pregunta_llm, historial, mapping, params):
+    """Arma el bloque de contexto de un turno: tabla TSV + extras de la vista +
+    historial (tokenizado si hay aduana PII — por eso devuelve el mapping, que
+    puede mutar) + la pregunta. Extraído de preguntar() sin cambios.
+
+    Devuelve (partes, generado, mapping)."""
+    truncado = len(filas) > _MAX_FILAS
+    tabla = _tsv(filas[:_MAX_FILAS], cfg["columnas"], cfg.get("celda_max", 60))
+    # timespec MINUTES a propósito: el proveedor cachea el prefijo repetido del
+    # prompt (~10x más barato). Con segundos, el encabezado cambiaba en CADA
+    # pregunta y rompía el prefijo; al minuto, las preguntas seguidas sobre la
+    # misma tabla comparten caché. La precisión al segundo no aportaba nada.
+    generado = datetime.now(UTC).isoformat(timespec="minutes")
+
+    partes = [
+        f"TABLA: {cfg['titulo']} — {min(len(filas), _MAX_FILAS)} instrumentos"
+        + (f" (recortada de {len(filas)})" if truncado else "")
+        + f" — datos al {generado}",
+        "<datos>",
+        tabla,
+        "</datos>",
+    ]
+    extras = cfg.get("extras")
+    if extras:
+        try:
+            partes.extend(extras(filas[:_MAX_FILAS], pregunta, historial or [], params))
+        except Exception as e:
+            logger.warning("copiloto %s: extras fallaron (%s) — sigo sin detalle", vista, e)
+    for h in (historial or [])[-_MAX_HISTORIAL:]:
+        p, r = (h.get("pregunta") or "").strip(), (h.get("respuesta") or "").strip()
+        if p and r:
+            if mapping is not None:  # el historial también lo escribió el usuario
+                from core import pii_gateway
+                p, mapping = pii_gateway.tokenize(p, mapping)
+                r, mapping = pii_gateway.tokenize(r, mapping, texto_generado=True)
+            partes.append(f"[pregunta previa] {p[:_MAX_CHARS_MENSAJE]}")
+            partes.append(f"[tu respuesta previa] {r[:_MAX_CHARS_MENSAJE]}")
+    partes.append(f"PREGUNTA: {pregunta_llm}")
+    return partes, generado, mapping
 
 
 def preguntar(
@@ -120,38 +154,8 @@ def preguntar(
         except Exception as e:
             logger.warning("copiloto %s: enriquecer falló (%s) — sigo sin derivadas", vista, e)
 
-    truncado = len(filas) > _MAX_FILAS
-    tabla = _tsv(filas[:_MAX_FILAS], cfg["columnas"], cfg.get("celda_max", 60))
-    # timespec MINUTES a propósito: el proveedor cachea el prefijo repetido del
-    # prompt (~10x más barato). Con segundos, el encabezado cambiaba en CADA
-    # pregunta y rompía el prefijo; al minuto, las preguntas seguidas sobre la
-    # misma tabla comparten caché. La precisión al segundo no aportaba nada.
-    generado = datetime.now(UTC).isoformat(timespec="minutes")
-
-    partes = [
-        f"TABLA: {cfg['titulo']} — {min(len(filas), _MAX_FILAS)} instrumentos"
-        + (f" (recortada de {len(filas)})" if truncado else "")
-        + f" — datos al {generado}",
-        "<datos>",
-        tabla,
-        "</datos>",
-    ]
-    extras = cfg.get("extras")
-    if extras:
-        try:
-            partes.extend(extras(filas[:_MAX_FILAS], pregunta, historial or [], params))
-        except Exception as e:
-            logger.warning("copiloto %s: extras fallaron (%s) — sigo sin detalle", vista, e)
-    for h in (historial or [])[-_MAX_HISTORIAL:]:
-        p, r = (h.get("pregunta") or "").strip(), (h.get("respuesta") or "").strip()
-        if p and r:
-            if mapping is not None:  # el historial también lo escribió el usuario
-                from core import pii_gateway
-                p, mapping = pii_gateway.tokenize(p, mapping)
-                r, mapping = pii_gateway.tokenize(r, mapping, texto_generado=True)
-            partes.append(f"[pregunta previa] {p[:_MAX_CHARS_MENSAJE]}")
-            partes.append(f"[tu respuesta previa] {r[:_MAX_CHARS_MENSAJE]}")
-    partes.append(f"PREGUNTA: {pregunta_llm}")
+    partes, generado, mapping = _armar_contexto(
+        vista, cfg, filas, pregunta, pregunta_llm, historial, mapping, params)
 
     from core.ai import completar_con_traza
 
@@ -237,53 +241,26 @@ def preguntar(
     # NO se muestran — el modelo recibe su respuesta con el detalle exacto y
     # la reescribe. Solo si tras el reintento queda algo, sale la advertencia
     # de números (la jerga residual se loguea, no se le muestra al usuario).
-    malos, chequeados = _numeros_sin_respaldo(texto, contexto)
-    jerga = _jerga_en_respuesta(texto, cfg, pregunta)
-    derrame = bool(_RE_DERRAME.search(texto))
-    exceso = _exceso_de_cifras(texto, pregunta)
-    fantasmas = _periodos_sin_respaldo(texto, contexto)
-    if malos or jerga or derrame or exceso or fantasmas:
+    # La batería de detectores, los mensajes y el frame del prompt viven en
+    # verificacion.py (antes estaban copy-pasteados acá pre y post reintento).
+    from .verificacion import (
+        detectar_problemas,
+        mensajes_de_problemas,
+        prompt_autocorreccion,
+        score_problemas,
+    )
+
+    det = detectar_problemas(texto, contexto, cfg, pregunta)
+    malos = det["malos"]
+    if score_problemas(det):
         logger.warning(
             "copiloto %s: %d/%d números sin respaldo %s · jerga %s · derrame=%s · "
             "exceso_cifras=%d · períodos fantasma %s — autocorrección",
-            vista, len(malos), chequeados, malos, jerga, derrame, exceso, fantasmas,
+            vista, len(malos), det["chequeados"], malos, det["jerga"],
+            det["derrame"], det["exceso"], det["fantasmas"],
         )
-        problemas = []
-        if malos:
-            problemas.append(
-                f"estos números NO aparecen en los datos: {', '.join(malos)} — usá solo "
-                "números exactos de los datos (si abreviás un monto con M, redondeá el "
-                "real; y si redondeás un %, redondeá AL MÁS CERCANO con un decimal: "
-                "-83.56 se escribe -83.6, jamás -83)"
-            )
-        if jerga:
-            problemas.append(
-                "usaste jerga interna del sistema que el usuario JAMÁS debe ver: "
-                f"{', '.join(jerga)} — traducila a lenguaje de mesa"
-            )
-        if derrame:
-            problemas.append(
-                "mostraste correcciones o razonamiento intermedio — entregá SOLO la "
-                "respuesta final, limpia"
-            )
-        if exceso:
-            problemas.append(
-                f"usaste {exceso} cifras para una pregunta puntual — elegí MÁXIMO 3 "
-                "números (los que sostienen la conclusión) y contá el resto en "
-                "palabras (fuerte, apenas, casi plano); la respuesta tiene que "
-                "leerse de un tirón"
-            )
-        if fantasmas:
-            problemas.append(
-                f"afirmaste algo sobre {', '.join(fantasmas)} pero tus datos NO tienen "
-                "ese período — eliminá TODA referencia y juicio sobre períodos que no "
-                "están en los datos (no los reemplaces por otra afirmación inventada)"
-            )
-        correccion = (
-            f"{contexto}\n[tu respuesta previa]\n{texto}\n"
-            f"[verificación automática] {'; '.join(problemas)}. Reescribí la respuesta "
-            "COMPLETA corregida, mismo formato y largo, sin mencionar esta corrección."
-        )
+        correccion = prompt_autocorreccion(
+            contexto, texto, "; ".join(mensajes_de_problemas(det)) + ".")
         texto2, traza_id2 = completar_con_traza(
             tarea,  # la autocorrección usa el MISMO tier que la respuesta original
             system=system,
@@ -292,15 +269,11 @@ def preguntar(
             detalle=f"[autocorrección] {pregunta_llm}",
         )
         if texto2:
-            malos2, _ = _numeros_sin_respaldo(texto2, contexto)
-            jerga2 = _jerga_en_respuesta(texto2, cfg, pregunta)
-            derrame2 = bool(_RE_DERRAME.search(texto2))
-            exceso2 = _exceso_de_cifras(texto2, pregunta)
-            fant2 = _periodos_sin_respaldo(texto2, contexto)
-            if (len(malos2) + len(jerga2) + int(derrame2) + int(bool(exceso2)) + len(fant2)
-                    < len(malos) + len(jerga) + int(derrame) + int(bool(exceso))
-                    + len(fantasmas)):
-                texto, traza_id, malos = texto2, traza_id2, malos2
+            det2 = detectar_problemas(texto2, contexto, cfg, pregunta)
+            # keep-best ESTRICTO (<): la corregida solo gana si mejoró — el
+            # asistente usa <= a propósito (diferencia documentada allá).
+            if score_problemas(det2) < score_problemas(det):
+                texto, traza_id, malos = texto2, traza_id2, det2["malos"]
 
     # Política estricta (user 2026-07-11: "lo que se dice TIENE QUE SER, y si
     # no, no se dice"): si tras la auto-corrección siguen quedando números sin

@@ -210,3 +210,82 @@ def _exceso_de_cifras(respuesta: str, pregunta: str) -> int:
 # a una puerta cerrada) y, si deriva, cierra con un marcador [[VISTA:clave]]
 # que el CÓDIGO valida contra el registro y convierte en botón en el panel.
 
+
+
+# ── Batería completa + autocorrección (compartida por preguntar() del copiloto;
+#    el asistente reusa el FRAME del prompt con su propia regla — ver
+#    asistente._verificar_cifras: permite aritmética con '~' y compara con <=,
+#    diferencias A PROPÓSITO, no unificar) ─────────────────────────────────────
+
+
+def detectar_problemas(texto: str, contexto: str, cfg: dict, pregunta: str) -> dict:
+    """Corre los 5 detectores sobre una respuesta. Devuelve las detecciones
+    CRUDAS (la política estricta y el keep-best las necesitan, no solo los
+    mensajes): {malos, chequeados, jerga, derrame, exceso, fantasmas}.
+    Antes esta batería estaba copy-pasteada dos veces en motor.preguntar()
+    (pre y post reintento)."""
+    malos, chequeados = _numeros_sin_respaldo(texto, contexto)
+    return {
+        "malos": malos,
+        "chequeados": chequeados,
+        "jerga": _jerga_en_respuesta(texto, cfg, pregunta),
+        "derrame": bool(_RE_DERRAME.search(texto)),
+        "exceso": _exceso_de_cifras(texto, pregunta),
+        "fantasmas": _periodos_sin_respaldo(texto, contexto),
+    }
+
+
+def score_problemas(det: dict) -> int:
+    """Score para la regla 'la corregida solo gana si NO empeoró' — misma
+    aritmética que usaba preguntar() inline: exceso cuenta binario."""
+    return (len(det["malos"]) + len(det["jerga"]) + int(det["derrame"])
+            + int(bool(det["exceso"])) + len(det["fantasmas"]))
+
+
+def mensajes_de_problemas(det: dict) -> list[str]:
+    """Detecciones → instrucciones de corrección para el modelo (texto EXACTO
+    que venía inline en preguntar())."""
+    problemas: list[str] = []
+    if det["malos"]:
+        problemas.append(
+            f"estos números NO aparecen en los datos: {', '.join(det['malos'])} — usá solo "
+            "números exactos de los datos (si abreviás un monto con M, redondeá el "
+            "real; y si redondeás un %, redondeá AL MÁS CERCANO con un decimal: "
+            "-83.56 se escribe -83.6, jamás -83)"
+        )
+    if det["jerga"]:
+        problemas.append(
+            "usaste jerga interna del sistema que el usuario JAMÁS debe ver: "
+            f"{', '.join(det['jerga'])} — traducila a lenguaje de mesa"
+        )
+    if det["derrame"]:
+        problemas.append(
+            "mostraste correcciones o razonamiento intermedio — entregá SOLO la "
+            "respuesta final, limpia"
+        )
+    if det["exceso"]:
+        problemas.append(
+            f"usaste {det['exceso']} cifras para una pregunta puntual — elegí MÁXIMO 3 "
+            "números (los que sostienen la conclusión) y contá el resto en "
+            "palabras (fuerte, apenas, casi plano); la respuesta tiene que "
+            "leerse de un tirón"
+        )
+    if det["fantasmas"]:
+        problemas.append(
+            f"afirmaste algo sobre {', '.join(det['fantasmas'])} pero tus datos NO tienen "
+            "ese período — eliminá TODA referencia y juicio sobre períodos que no "
+            "están en los datos (no los reemplaces por otra afirmación inventada)"
+        )
+    return problemas
+
+
+def prompt_autocorreccion(contexto: str, texto: str, detalle: str) -> str:
+    """FRAME estándar del prompt de autocorrección (compartido con el
+    asistente): contexto + respuesta previa + verificación + consigna de
+    reescritura. `detalle` es la instrucción específica (los problemas del
+    copiloto, o la regla de cifras/aritmética del asistente)."""
+    return (
+        f"{contexto}\n[tu respuesta previa]\n{texto}\n"
+        f"[verificación automática] {detalle} Reescribí la respuesta "
+        "COMPLETA corregida, mismo formato y largo, sin mencionar esta corrección."
+    )

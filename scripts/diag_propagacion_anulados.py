@@ -85,7 +85,7 @@ def main() -> int:
             else:
                 v = "vivo en las dos"
             extra = f"  (+{f['dif_fecha']} con fecha distinta)" if f["dif_fecha"] else ""
-            print(f"  {f['prefijo']:<9} {str(f['en_nm']):<12} {str(f['en_ops']):<13} "
+            print(f"  {f['prefijo']:<9} {f['en_nm']!s:<12} {f['en_ops']!s:<13} "
                   f"{f['n']:>6}  {v}{extra}")
 
         cur.execute("""

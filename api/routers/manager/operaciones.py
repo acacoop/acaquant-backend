@@ -18,6 +18,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from api.services import anulados as svc_anul
 from api.services import operaciones_informes as svc
 from core.postgres import get_pool
 
@@ -102,3 +103,47 @@ def operaciones_stats():
     except Exception as e:
         logger.exception("operaciones_stats failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# ── ANULADOS ────────────────────────────────────────────────────────────────
+class _AnuladosReq(BaseModel):
+    boletos: list[str] = Field(..., description="Números de boleto, con o sin ' (A)'.")
+    commit: bool = Field(False, description="false = previsualiza; true = anula.")
+
+
+@router.post("/operaciones/anulados")
+def operaciones_anulados(req: _AnuladosReq):
+    """Anula una lista de boletos en las DOS tablas (operaciones + negocio).
+
+    Busca cada boleto probando las variantes CON y SIN la marca ` (A)` que
+    Aunesa le agrega al anularlo. `commit=false` devuelve el detalle de lo que
+    se encontró sin tocar nada.
+    """
+    if not req.boletos:
+        raise HTTPException(status_code=400, detail="Lista vacía.")
+    try:
+        return svc_anul.anular_lista(req.boletos, commit=req.commit)
+    except Exception as e:
+        logger.exception("operaciones_anulados failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/operaciones/anulados/resumen")
+def operaciones_anulados_resumen():
+    """Cuántas filas con marca `(A)` hay hoy en cada tabla y cuántas ya están anuladas."""
+    try:
+        return svc_anul.resumen_marca_a()
+    except Exception as e:
+        logger.exception("operaciones_anulados_resumen failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/operaciones/anulados/barrido")
+def operaciones_anulados_barrido(commit: bool = False):
+    """Barre las dos tablas buscando la marca `(A)` y arrastra el gemelo sin marca."""
+    try:
+        return svc_anul.detectar_marca_a(commit=commit)
+    except Exception as e:
+        logger.exception("operaciones_anulados_barrido failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+

@@ -346,11 +346,14 @@ ON CONFLICT (boleto) DO UPDATE SET
  mep=EXCLUDED.mep, cantidad=EXCLUDED.cantidad, instrumento=EXCLUDED.instrumento,
  tipo_operacion=EXCLUDED.tipo_operacion, condiciones=EXCLUDED.condiciones,
  tasa=COALESCE(EXCLUDED.tasa, operaciones.tasa),
- ingestado_en=EXCLUDED.ingestado_en
+ ingestado_en=EXCLUDED.ingestado_en,
+ anulado_en=NULL
 """
 # OJO: `etapa` NO se toca en el UPDATE — la setea jobs/fci_bilateral (FCI bilateral).
 # `tasa` va con COALESCE: la ingesta de Aunesa NO la trae, y sin el COALESCE cada
 # corrida borraría la que dejó jobs/ops_tasa_mav.
+# `anulado_en=NULL`: si Aunesa vuelve a devolver un boleto que habíamos marcado
+# como anulado, revive solo (ver reconciliar_anulados_sql).
 
 # Modo "solo faltantes": nunca toca un boleto ya cargado.
 _SQL_INSERT_FALTANTES = f"""
@@ -430,6 +433,76 @@ def ingestar_filas_sql(
         "upsertadas":    len(params),
         "modificadas":   0,
     }
+
+
+# ANULACIONES (2026-08-04). Ver sql/schema.sql. Topes de seguridad: una respuesta
+# PARCIAL de Aunesa para una cuenta haría anular boletos vivos. Si los candidatos de
+# un (cuenta, día) superan el tope, ese par se saltea entero; si el total de la
+# corrida supera el global, no se anula NADA.
+_TOPE_PAR_PCT = 0.30
+_TOPE_PAR_MIN = 3
+_TOPE_GLOBAL = 300
+
+_SQL_CANDIDATOS_ANULAR = """
+WITH vivos(id_cuenta, concertacion, boleto) AS (
+    SELECT * FROM unnest(%(ctas)s::text[], %(fechas)s::date[], %(boletos)s::text[])
+), pares AS (
+    SELECT DISTINCT id_cuenta, concertacion FROM vivos
+)
+SELECT o.id, o.id_cuenta, o.concertacion,
+       NOT EXISTS (SELECT 1 FROM vivos v
+                    WHERE v.id_cuenta = o.id_cuenta
+                      AND v.concertacion = o.concertacion
+                      AND v.boleto = o.boleto) AS falta
+  FROM operaciones o
+  JOIN pares p ON p.id_cuenta = o.id_cuenta AND p.concertacion = o.concertacion
+ WHERE o.anulado_en IS NULL
+"""
+
+
+def reconciliar_anulados_sql(vivos: list[tuple[str, str, str]]) -> dict:
+    """Marca `anulado_en` en los boletos que Aunesa dejó de devolver.
+
+    `vivos` son ternas (id_cuenta, concertacion_iso, boleto) de las cuentas que
+    respondieron OK. Sólo se auditan los pares (cuenta, día) presentes ahí: si una
+    cuenta no devolvió NADA para un día, ese día no se toca — preferimos no
+    detectar una anulación antes que borrar un día por una respuesta vacía.
+    """
+    if not vivos:
+        return {"pares": 0, "anulados": 0, "pares_salteados": [], "abortado": False}
+
+    ctas, fechas, boletos = (list(x) for x in zip(*vivos, strict=True))
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(_SQL_CANDIDATOS_ANULAR,
+                    {"ctas": ctas, "fechas": fechas, "boletos": boletos})
+        filas = cur.fetchall()
+
+        total: dict[tuple, int] = {}
+        cand: dict[tuple, list[int]] = {}
+        for _id, cta, conc, falta in filas:
+            k = (cta, conc)
+            total[k] = total.get(k, 0) + 1
+            if falta:
+                cand.setdefault(k, []).append(_id)
+
+        ids: list[int] = []
+        salteados: list[str] = []
+        for k, lista in cand.items():
+            tope = max(_TOPE_PAR_MIN, int(total[k] * _TOPE_PAR_PCT))
+            if len(lista) > tope:
+                salteados.append(f"{k[0]}@{k[1]} ({len(lista)}/{total[k]})")
+                continue
+            ids.extend(lista)
+
+        if len(ids) > _TOPE_GLOBAL:
+            return {"pares": len(total), "anulados": 0, "pares_salteados": salteados,
+                    "abortado": True, "candidatos": len(ids)}
+        if ids:
+            cur.execute("UPDATE operaciones SET anulado_en = now() WHERE id = ANY(%s)", (ids,))
+            conn.commit()
+
+    return {"pares": len(total), "anulados": len(ids),
+            "pares_salteados": salteados, "abortado": False}
 
 
 def _preparar_docs(

@@ -277,6 +277,18 @@ ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS tipo_agro      text
 -- Deliberadamente NO se llama `precio`: mezclar un precio en ARS y una tasa en %
 -- en una sola columna numérica invita a que alguien las sume o promedie junto.
 ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS tasa           numeric;
+-- ANULADOS (2026-08-04): mismo problema que en negocio_movimientos — jobs/
+-- operaciones_informes upsertea por boleto y nunca borraba. Medido: 450 boletos
+-- anulados fosilizados, $824 MM de volumen falso YTD (3,69%). La reconciliación
+-- corre POR CUENTA y sólo sobre las que Aunesa respondió OK (una cuenta con
+-- timeout no se toca nunca).
+ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS anulado_en     timestamptz;
+CREATE INDEX IF NOT EXISTS ix_ops_anulado ON operaciones.operaciones(concertacion)
+    WHERE anulado_en IS NOT NULL;
+-- La reconciliación busca por (cuenta, día) y `ix_ops_id_cuenta` es sólo por cuenta →
+-- traía toda la historia de la cuenta para después filtrar por fecha.
+CREATE INDEX IF NOT EXISTS ix_ops_cuenta_concert
+    ON operaciones.operaciones(id_cuenta, concertacion);
 
 CREATE INDEX IF NOT EXISTS ix_ops_concertacion ON operaciones.operaciones(concertacion);
 CREATE INDEX IF NOT EXISTS ix_ops_id_cuenta    ON operaciones.operaciones(id_cuenta);
@@ -387,6 +399,15 @@ ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS dif_instrum
 ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS dif_producto text
     GENERATED ALWAYS AS (CASE WHEN informacion LIKE 'Diferencias diarias%'
         THEN substring(informacion from '\[([A-Za-z]+)') END) STORED;
+-- ANULADOS (2026-08-04): Aunesa a veces carga un boleto mal, lo ANULA y emite uno
+-- corregido. La ingesta hace upsert y NUNCA borraba → el anulado quedaba pegado para
+-- siempre inflando volumen (medido: 855 fantasmas YTD, $591 MM falsos). Ahora
+-- jobs/negocio_movimientos reconcilia cada fecha: lo que Aunesa deja de devolver se
+-- MARCA (no se borra — trazabilidad + el fantasma a veces es la versión vieja de algo
+-- real). Si el boleto reaparece, el upsert lo revive (anulado_en=NULL).
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS anulado_en timestamptz;
+CREATE INDEX IF NOT EXISTS ix_nm_anulado ON operaciones.negocio_movimientos(fecha)
+    WHERE anulado_en IS NOT NULL;
 
 -- CashFlow.Movimientos → depósitos / extracciones / transferencias (vista FLUJOS,
 -- /api/operaciones/flujos). La escribe jobs/cashflow.py ($setOnInsert por

@@ -124,6 +124,10 @@ def run(desde_d: date, hasta_d: date, workers: int) -> dict:
         rows: list[dict] = []
         con_ops = 0
         fallidas: list[str] = []
+        # Ternas (cuenta, día, boleto) de las cuentas que respondieron OK — insumo
+        # de la reconciliación de anulados. Se arma con el normalizador crudo (SIN
+        # el filtro OTC) para no marcar como anulado algo que nosotros descartamos.
+        vivos: list[tuple[str, str, str]] = []
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futs = {ex.submit(_fetch_cuenta, c, conc_desde, conc_hasta, liq_desde, liq_hasta): c
                     for c in cuentas}
@@ -134,19 +138,34 @@ def run(desde_d: date, hasta_d: date, workers: int) -> dict:
                 if rows_c:
                     con_ops += 1
                     rows.extend(rows_c)
+                if ok:
+                    for r in rows_c:
+                        d = svc.normalizar_fila(r)
+                        if d and d.get("cuenta") and d.get("concertacion"):
+                            vivos.append((d["cuenta"], d["concertacion"], d["boleto"]))
 
         res = svc.ingestar_filas_sql(rows, enrich_maps=maps)
+        anul = svc.reconciliar_anulados_sql(vivos)
         jr.set_stat("cuentas", len(cuentas))
         jr.set_stat("cuentas_con_ops", con_ops)
         jr.set_stat("cuentas_fallidas", len(fallidas))
         jr.set_stat("filas", len(rows))
         jr.set_stat("upsertadas", res["upsertadas"])
         jr.set_stat("modificadas", res["modificadas"])
+        jr.set_stat("anulados", anul["anulados"])
+        if anul["abortado"]:
+            jr.log(f"⚠ ANULACIÓN ABORTADA: {anul['candidatos']} candidatos superan el tope "
+                   f"global. NO se marcó nada — revisar a mano.")
+        if anul["pares_salteados"]:
+            jr.log(f"⚠ {len(anul['pares_salteados'])} par(es) cuenta/día salteados por tope: "
+                   f"{anul['pares_salteados'][:10]}")
+        if anul["anulados"]:
+            jr.log(f"Anulados {anul['anulados']} boleto(s) que Aunesa dejó de devolver.")
         if fallidas:
             jr.log(f"⚠ {len(fallidas)} cuentas fallaron (timeout/error). Ej: {fallidas[:15]}")
         jr.log(f"OK: {len(rows)} filas → {res['upsertadas']} nuevas / {res['modificadas']} act "
                f"· {con_ops} cuentas con ops · {len(fallidas)} fallidas")
-        return res
+        return res | {"anulados": anul["anulados"]}
 
 
 def main() -> int:

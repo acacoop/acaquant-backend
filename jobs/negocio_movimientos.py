@@ -70,10 +70,51 @@ _LOOKBACK_HABILES = 2
 # consume la vista COMERCIAL (api/services/comercial.py).
 _RE_ID_CUENTA = re.compile(r"^\[(\d+)\]")
 
+# ANULACIONES (2026-08-04). Aunesa carga un boleto mal, lo ANULA y emite uno
+# corregido; el upsert no lo borraba nunca → quedaba inflando volumen para
+# siempre (medido: 855 fantasmas YTD). Ahora, tras escribir, se MARCA lo que
+# Aunesa dejó de devolver para esa fecha.
+# El tope existe porque una respuesta PARCIAL de Aunesa (timeout a mitad de
+# página, error transitorio) haría anular medio día de golpe. Si los candidatos
+# superan el tope, no se anula NADA y se grita en el log.
+_TOPE_ANULACION_PCT = 0.20
+_TOPE_ANULACION_MIN = 5
+
 
 def _extract_id_cuenta(cuenta: str | None) -> str | None:
     m = _RE_ID_CUENTA.match(cuenta or "")
     return m.group(1) if m else None
+
+
+def _reconciliar(cur, fecha_iso: str, vivos: list[str], logger) -> int:
+    """Marca `anulado_en` en los boletos de `fecha_iso` que Aunesa ya no devuelve.
+    Devuelve cuántos marcó (0 si el tope de seguridad lo abortó)."""
+    cur.execute(
+        "SELECT count(*) AS total, "
+        "       count(*) FILTER (WHERE anulado_en IS NULL "
+        "                          AND comprobante <> ALL(%(vivos)s)) AS candidatos "
+        "  FROM negocio_movimientos WHERE fecha = %(fecha)s",
+        {"fecha": fecha_iso, "vivos": vivos})
+    total, candidatos = cur.fetchone()
+    if not candidatos:
+        return 0
+
+    tope = max(_TOPE_ANULACION_MIN, int(total * _TOPE_ANULACION_PCT))
+    if candidatos > tope:
+        logger.error(
+            "ANULACIÓN ABORTADA en %s: %d candidatos sobre %d boletos (tope %d). "
+            "Aunesa probablemente respondió parcial. NO se marcó nada — revisar a mano.",
+            fecha_iso, candidatos, total, tope)
+        return 0
+
+    cur.execute(
+        "UPDATE negocio_movimientos SET anulado_en = now() "
+        " WHERE fecha = %(fecha)s AND anulado_en IS NULL "
+        "   AND comprobante <> ALL(%(vivos)s)",
+        {"fecha": fecha_iso, "vivos": vivos})
+    logger.warning("Anulados %d boleto(s) en %s (Aunesa dejó de devolverlos).",
+                   candidatos, fecha_iso)
+    return candidatos
 
 
 
@@ -165,14 +206,15 @@ def run(fecha_d: date, dry: bool = False) -> dict:
             "importe=EXCLUDED.importe, moneda=EXCLUDED.moneda, mep=EXCLUDED.mep, "
             "cuenta=EXCLUDED.cuenta, plazo=EXCLUDED.plazo, lugar=EXCLUDED.lugar, "
             "estado=EXCLUDED.estado, informacion=EXCLUDED.informacion, "
-            "ingestado_en=EXCLUDED.ingestado_en",
+            "ingestado_en=EXCLUDED.ingestado_en, anulado_en=NULL",
             docs)
         n = len(docs)
+        anulados = _reconciliar(cur, fecha_iso, [d["comprobante"] for d in docs], logger)
         conn.commit()
     logger.info("SQL upsert OK: %d boletos → operaciones.negocio_movimientos", n)
 
     return {"fecha": fecha_iso, "boletos": len(persistibles),
-            "skipped": skipped, "upsertados": n}
+            "skipped": skipped, "upsertados": n, "anulados": anulados}
 
 
 def main() -> int:

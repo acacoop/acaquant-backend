@@ -107,6 +107,12 @@
 # LOOKBACK 2026-07-28 — `negocio_movimientos` (sin args) ingiere hoy + los últimos
 # días hábiles (const _LOOKBACK_HABILES). Las diferencias diarias de futuros llegan
 # a Aunesa T+1 → ingerir SÓLO "hoy" las perdía (corte del 2026-05-06). Idempotente.
+# ops_agregado: mantiene el agregado HOT/COLD de operaciones (días cerrados
+# pre-agregados; recomputa solo días sucios via ingestado_en → barato si no hay
+# cambios). Cada hora en rueda para que una corrección histórica intradía se
+# re-agregue en <1h; la serie de MOVIMIENTOS lee de acá + HOY en vivo.
+25 14-22 * * 1-5 /root/TradingAV/deploy/run_job.sh ops_agregado 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ops_agregado'
+
 # ops_tasa_mav va ÚLTIMO de la cadena a propósito: extrae la tasa de los boletos
 # MAV desde `negocio_movimientos.informacion`, así que necesita que
 # negocio_movimientos ya haya escrito el texto. Rellena sólo lo que tiene tasa

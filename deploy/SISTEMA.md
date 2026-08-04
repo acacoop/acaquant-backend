@@ -86,6 +86,7 @@
 | 20:16 · L-V | `jobs.bonos_ohlc_daily'` |
 | 20:20 · L-V | `jobs.cedears_bars_1m'` |
 | 03:20 · diario | `jobs.cleanup_retencion'` |
+| cada hora · 14-22h · L-V | `jobs.ops_agregado'` |
 | 20:25 · L-V | `jobs.snapshot_cierre` + `jobs.fair_value'` |
 | 12:30 · L-V | `jobs.cleanup_curvas'` |
 | 12:30 · L-V | `jobs.cleanup_futuros_dlr'` |

@@ -412,15 +412,51 @@ def ops_serie(
     excluir: tuple[str, ...] | None = None, nivel_3: str | None = None,
     aca_valores: str | None = None, cartera: str | None = None,
 ) -> dict:
+    # HOT/COLD (decisión user 2026-08-04): el caso SIN filtros — el default de la
+    # vista, que agregaba TODA la historia en cada carga fría y crece con la
+    # tabla — lee los días cerrados del agregado (jobs/ops_agregado, drift-proof
+    # por recómputo de días sucios) y solo lo posterior al agregado EN VIVO.
+    # Cualquier filtro → 100% en vivo, igual que siempre (index-bounded).
+    sin_filtros = (
+        not any([mercado and mercado.lower() != "todos", operacion, denominacion,
+                 cuenta, segmento and segmento.lower() != "todos",
+                 nivel_3 and nivel_3.lower() != "todos",
+                 cartera and cartera.lower() not in ("todas", ""),
+                 operador, excluir, aca_valores in ("solo", "sin")])
+        and scope is None
+        and moneda in ("ARS", "USD", _DOLARIZAR)
+    )
+    serie_fria: list[dict] = []
+    corte = None
+    if sin_filtros:
+        try:
+            frias = _q(
+                "SELECT fecha, bruto FROM operaciones.ops_agregado_diario "
+                "WHERE moneda_calc = %(m)s ORDER BY fecha",
+                {"m": moneda},
+            )
+            if frias:
+                corte = frias[-1]["fecha"]
+                serie_fria = [{"fecha": _iso(r["fecha"]), "bruto": round(_f(r["bruto"]), 2)}
+                              for r in frias]
+        except Exception:
+            # tabla ausente / job nunca corrido → fallback silencioso al camino vivo
+            serie_fria, corte = [], None
+
     where, p = _ops_where(moneda, mercado, operacion, denominacion, cuenta, segmento, scope,
                           operador=operador, excluir=excluir, nivel_3=nivel_3, cartera=cartera,
                           aca_valores=aca_valores)
+    if corte is not None:
+        where += " AND concertacion > %(corte_agg)s"
+        p["corte_agg"] = corte
     rows = _q(
         f"SELECT concertacion AS fecha, {_bruto_expr(moneda)} AS bruto "
         f"FROM operaciones WHERE {where} GROUP BY concertacion ORDER BY concertacion",
         p,
     )
-    serie = [{"fecha": _iso(r["fecha"]), "bruto": round(_f(r["bruto"]), 2)} for r in rows]
+    serie = serie_fria + [
+        {"fecha": _iso(r["fecha"]), "bruto": round(_f(r["bruto"]), 2)} for r in rows
+    ]
     return {"moneda": moneda, "mercado": mercado, "serie": serie}
 
 

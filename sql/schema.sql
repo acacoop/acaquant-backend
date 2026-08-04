@@ -284,6 +284,24 @@ CREATE INDEX IF NOT EXISTS ix_ops_moneda_cierre ON operaciones.operaciones(moned
 CREATE INDEX IF NOT EXISTS ix_ops_moneda_concert ON operaciones.operaciones(moneda, concertacion);
 CREATE INDEX IF NOT EXISTS ix_ops_segmento_concert ON operaciones.operaciones(segmento, concertacion);
 CREATE INDEX IF NOT EXISTS ix_ops_ingestado ON operaciones.operaciones(ingestado_en);
+
+-- HOT/COLD (decisión user 2026-08-04): los días CERRADOS de operaciones se
+-- pre-agregan acá y las series los leen de una pasada; HOY se agrega en vivo.
+-- NO es el viejo rollup (que recalculaba a ciegas y drifteaba): jobs/ops_agregado
+-- recomputa POR DÍA SUCIO — cualquier día cuyo ingestado_en sea posterior al
+-- último cálculo (backfills incluidos) se re-agrega entero. Idempotente.
+-- moneda_calc = el param `moneda` de las vistas: ARS / USD nativos, USD_DOL
+-- dolarizado por mep del boleto. `bruto` excluye cierres (es_cierre=false);
+-- `arancel` los INCLUYE cuando traen arancel (misma regla que _ops_where).
+CREATE TABLE IF NOT EXISTS operaciones.ops_agregado_diario (
+    fecha          date NOT NULL,
+    moneda_calc    text NOT NULL,             -- 'ARS' | 'USD' | 'USD_DOL'
+    bruto          numeric NOT NULL DEFAULT 0,
+    arancel        numeric NOT NULL DEFAULT 0,
+    n_boletos      integer NOT NULL DEFAULT 0,
+    actualizado_en timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fecha, moneda_calc)
+);
 -- MERCADO (2026-08-03): `_ops_where` filtra por `mercado = X` en toda la vista
 -- MOVIMIENTOS y no había índice — cada filtro por mercado era un scan. Lo usa
 -- además `jobs/ops_tasa_mav.py` para encontrar los boletos MAV pendientes de tasa.
@@ -1908,6 +1926,11 @@ ALTER TABLE mercado.caucion_snapshot       SET (autovacuum_vacuum_scale_factor=0
 ALTER TABLE mercado.options_snapshot       SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
 ALTER TABLE mercado.snapshots_sinteticos   SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
 ALTER TABLE home.market_quotes             SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+-- negocio_movimientos: upserts cada 30-60 min generan muertas (medido 2026-08-04:
+-- 77k muertas vs 408k vivas, autovacuum una vez por semana con el default 20%).
+-- Umbral 2% → vacuum varias veces por día, bloat controlado.
+ALTER TABLE operaciones.negocio_movimientos SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_analyze_scale_factor=0.02);
+ALTER TABLE operaciones.operaciones         SET (autovacuum_vacuum_scale_factor=0.05, autovacuum_analyze_scale_factor=0.05);
 ALTER TABLE valuaciones.portfolio_snapshot SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
 
 -- ─────────────────────────────────────────────────────────────────────────────

@@ -79,13 +79,13 @@ def comitentes(
 def excel_preview(
     desde: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
     hasta: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
-    estado: str | None = Query(None, description="pendiente | completada"),
     actor: str = Depends(get_user_email),
 ) -> dict:
     """Espejo en vivo del Excel destino (tab EXCEL QUANTEX): mismas filas y
-    reglas que /export, en JSON. Marca presencia del caller."""
+    reglas que /export — SOLO pendientes no-MAE (lo completado ya se cargó
+    en Quantex). Marca presencia del caller."""
     try:
-        return _svc.excel_preview(desde=desde, hasta=hasta, estado=estado, email=actor)
+        return _svc.excel_preview(desde=desde, hasta=hasta, email=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -94,14 +94,13 @@ def excel_preview(
 def export(
     desde: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
     hasta: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
-    estado: str | None = Query(None, description="pendiente | completada"),
     _actor: str = Depends(get_user_email),
 ) -> Response:
     """Descarga el .xlsx que se carga en el sistema destino (ID · OPERACION ·
     INSTRUMENTO · PLAZO · PRECIO · CANTIDAD · CONTRAPARTE · COMITENTE ·
     CARTERA PROPIA · MERCADO)."""
     try:
-        contenido, nombre = _svc.export_xlsx(desde=desde, hasta=hasta, estado=estado)
+        contenido, nombre = _svc.export_xlsx(desde=desde, hasta=hasta)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     except RuntimeError as e:  # openpyxl no instalado en el venv

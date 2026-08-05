@@ -586,15 +586,22 @@ def _fila_export(o: dict) -> list:
             contraparte, comitente, _numero_si_se_puede(o["cp"]), o["mercado"]]
 
 
+def _filas_quantex(ordenes: list[dict]) -> list[dict]:
+    """Qué entra al Excel Quantex (espejo Y archivo — UNA sola regla): SOLO
+    'pendiente' y no-MAE. El back office sube el archivo varias veces por día:
+    lo completado YA está cargado en Quantex (re-exportarlo lo duplicaría) y
+    lo MAE se carga en el MAE."""
+    return sorted((o for o in ordenes if o["estado"] == "pendiente" and not o["es_mae"]),
+                  key=lambda o: o["id"])
+
+
 def excel_preview(desde: str | None = None, hasta: str | None = None,
-                  estado: str | None = None, email: str = "") -> dict:
+                  email: str = "") -> dict:
     """Espejo EN VIVO del Excel destino para la tab EXCEL QUANTEX: mismas filas
-    y mismas reglas que export_xlsx (una sola fuente de verdad: _fila_export),
-    en JSON. `estado` por fila para pintar pendiente/completada en el front.
-    Las órdenes MAE NO aparecen (se cargan en el MAE, no en Quantex)."""
-    data = listar_ops(desde=desde, hasta=hasta, estado=estado, email=email)
-    ordenes = sorted((o for o in data["ordenes"] if not o["es_mae"]),
-                     key=lambda o: o["id"])
+    y mismas reglas que export_xlsx (una sola fuente de verdad: _fila_export +
+    _filas_quantex), en JSON."""
+    data = listar_ops(desde=desde, hasta=hasta, email=email)
+    ordenes = _filas_quantex(data["ordenes"])
     return {
         "headers": list(_HEADERS_XLSX),
         "filas": [{"id": o["id"], "estado": o["estado"], "valores": _fila_export(o)}
@@ -605,12 +612,11 @@ def excel_preview(desde: str | None = None, hasta: str | None = None,
     }
 
 
-def export_xlsx(desde: str | None = None, hasta: str | None = None,
-                estado: str | None = None) -> tuple[bytes, str]:
-    """Devuelve (bytes del .xlsx, nombre de archivo) con las órdenes filtradas,
-    columnas EXACTAS del sistema destino (ID primero). Las órdenes van más
-    viejas primero (por ID asc = orden de carga). Las MAE quedan AFUERA
-    (se cargan en el MAE, no en Quantex)."""
+def export_xlsx(desde: str | None = None, hasta: str | None = None) -> tuple[bytes, str]:
+    """Devuelve (bytes del .xlsx, nombre de archivo), columnas EXACTAS del
+    sistema destino (ID primero), más viejas primero (por ID asc = orden de
+    carga). SOLO pendientes no-MAE (_filas_quantex) — el archivo se sube
+    varias veces por día y lo completado ya está cargado."""
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill
@@ -619,9 +625,8 @@ def export_xlsx(desde: str | None = None, hasta: str | None = None,
             "openpyxl no está instalado — correr `pip install -r requirements.txt` "
             "en el venv del Droplet") from e
 
-    data = listar_ops(desde=desde, hasta=hasta, estado=estado)
-    ordenes = sorted((o for o in data["ordenes"] if not o["es_mae"]),
-                     key=lambda o: o["id"])
+    data = listar_ops(desde=desde, hasta=hasta)
+    ordenes = _filas_quantex(data["ordenes"])
 
     wb = Workbook()
     ws = wb.active
@@ -646,5 +651,4 @@ def export_xlsx(desde: str | None = None, hasta: str | None = None,
     buf = BytesIO()
     wb.save(buf)
     hoy = datetime.now(_TZ_AR).strftime("%Y%m%d")
-    sufijo = f"_{estado}" if estado else ""
-    return buf.getvalue(), f"senebis_{hoy}{sufijo}.xlsx"
+    return buf.getvalue(), f"senebis_{hoy}.xlsx"

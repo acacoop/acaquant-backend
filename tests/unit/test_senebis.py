@@ -162,6 +162,18 @@ _FILA = {
 }
 
 
+def test_excel_solo_pendientes(monkeypatch):
+    # El archivo se sube varias veces por día: lo COMPLETADO ya está cargado
+    # en Quantex → re-exportarlo lo duplicaría. Solo pendientes no-MAE.
+    pendiente = {**_FILA, "id": 1}
+    completada = {**_FILA, "id": 2, "estado": "completada"}
+    monkeypatch.setattr(svc, "listar_ops",
+                        lambda **kw: {"ordenes": [pendiente, completada], "conectados": []})
+    monkeypatch.setattr(svc, "proximo_id", lambda: 3)
+    prev = svc.excel_preview()
+    assert [f["id"] for f in prev["filas"]] == [1]
+
+
 def test_mae_fija_tipo_y_queda_fuera_del_excel(monkeypatch):
     monkeypatch.setattr(svc, "_buscar_cuenta_exacta", lambda term: None)
     row = svc._row_de_payload(

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\bonos_admin.py
+path: api/services/bonos_admin.py
 ---
 
 # api/services/bonos_admin
 
 > api/services/bonos_admin.py — alta/edición de bonos NO-ON directo en Trading.Curvas.
 
-**Archivo:** `api\services\bonos_admin.py`
+**Archivo:** `api/services/bonos_admin.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

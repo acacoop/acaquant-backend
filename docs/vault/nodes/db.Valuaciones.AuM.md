@@ -15,5 +15,4 @@ Snapshot diario de tenencias valuadas por cuenta (Assets under Management) en la
 
 Conecta con: la escribe el cron `jobs/aum.py` (23 UTC L-V) con reglas de `jobs/_aum_filters.py`; la leen `api/services/portfolio.py`, `comercial.py`, `_mep.py` y routers de valuaciones. Backfill con `jobs/aum_backfill*.py`.
 
-## Lo usan (backlinks) ←
-- [[api.routers.manager.status]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

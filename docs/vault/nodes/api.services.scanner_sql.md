@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\scanner_sql.py
+path: api/services/scanner_sql.py
 ---
 
 # api/services/scanner_sql
 
 > api/services/scanner_sql.py — vista Scanner (Renta Variable) leyendo Postgres.
 
-**Archivo:** `api\services\scanner_sql.py`
+**Archivo:** `api/services/scanner_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

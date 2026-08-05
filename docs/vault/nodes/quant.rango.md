@@ -4,14 +4,14 @@ type: module
 layer: quant
 repo: backend
 tags: [module, quant, backend]
-path: quant\rango.py
+path: quant/rango.py
 ---
 
 # quant/rango
 
 > rango.py — carácter del rango de un papel: ATR diario y Efficiency Ratio.
 
-**Archivo:** `quant\rango.py`
+**Archivo:** `quant/rango.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

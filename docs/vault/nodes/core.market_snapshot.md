@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\market_snapshot.py
+path: core/market_snapshot.py
 ---
 
 # core/market_snapshot
 
 > Lectura de mercado.market_snapshot (SQL) — estado live por ticker. SQL-only.
 
-**Archivo:** `core\market_snapshot.py`
+**Archivo:** `core/market_snapshot.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

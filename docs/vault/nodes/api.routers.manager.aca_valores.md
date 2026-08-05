@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\aca_valores.py
+path: api/routers/manager/aca_valores.py
 ---
 
 # api/routers/manager/aca_valores
 
 > Manager sub-router — set de cuentas ACA VALORES (módulo `manager_clientes`).
 
-**Archivo:** `api\routers\manager\aca_valores.py`
+**Archivo:** `api/routers/manager/aca_valores.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

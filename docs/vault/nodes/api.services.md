@@ -4,12 +4,12 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\__init__.py
+path: api/services/__init__.py
 ---
 
 # api/services/__init__
 
-**Archivo:** `api\services\__init__.py`
+**Archivo:** `api/services/__init__.py`
 
 ## Qué hace
 Paquete `api/services` — marcador del paquete (archivo `__init__.py` vacío). Agrupa toda la capa de lógica de negocio pura de la API: services invocables tanto por los routers HTTP como por scripts, sin dependencia de FastAPI. Cada módulo hermano (portfolio, renta_fija, ordenes, pnl, etc.) resuelve un dominio.
@@ -31,29 +31,26 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.manager.aunesa]]  ·  _module_
 - [[api.routers.manager.bonos]]  ·  _module_
 - [[api.routers.manager.breakevens]]  ·  _module_
-- [[api.routers.manager.compliance]]  ·  _module_
+- [[api.routers.manager.checks]]  ·  _module_
+- [[api.routers.manager.clientes]]  ·  _module_
 - [[api.routers.manager.contrapartes]]  ·  _module_
 - [[api.routers.manager.control_automatico]]  ·  _module_
 - [[api.routers.manager.documentos]]  ·  _module_
 - [[api.routers.manager.import_tenencia]]  ·  _module_
 - [[api.routers.manager.jobs]]  ·  _module_
+- [[api.routers.manager.latencia]]  ·  _module_
 - [[api.routers.manager.mesa]]  ·  _module_
 - [[api.routers.manager.ons]]  ·  _module_
 - [[api.routers.manager.operaciones]]  ·  _module_
-- [[api.routers.manager.roles]]  ·  _module_
-- [[api.routers.manager.uso]]  ·  _module_
 - [[api.routers.manager.valuaciones]]  ·  _module_
 - [[api.routers.market]]  ·  _module_
 - [[api.routers.mesa_dinero]]  ·  _module_
 - [[api.routers.news]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
-- [[api.routers.operativa]]  ·  _module_
-- [[api.routers.ordenes]]  ·  _module_
 - [[api.routers.research1816]]  ·  _module_
 - [[api.routers.research_bcra]]  ·  _module_
 - [[api.routers.research_docs]]  ·  _module_
 - [[api.routers.research_fred]]  ·  _module_
-- [[api.routers.risk]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[api.routers.trading]]  ·  _module_
 - [[api.routers.valuaciones]]  ·  _module_

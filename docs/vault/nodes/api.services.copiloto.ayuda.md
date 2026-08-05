@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\copiloto\ayuda.py
+path: api/services/copiloto/ayuda.py
 ---
 
 # api/services/copiloto/ayuda
 
 > copiloto/ayuda.py — el GUÍA de la plataforma (pedido user 2026-07-20).
 
-**Archivo:** `api\services\copiloto\ayuda.py`
+**Archivo:** `api/services/copiloto/ayuda.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

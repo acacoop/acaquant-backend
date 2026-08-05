@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\documentos.py
+path: api/routers/manager/documentos.py
 ---
 
 # api/routers/manager/documentos
 
 > Manager sub-router — carga de documentos manuales de REPORTES FINANCIEROS.
 
-**Archivo:** `api\routers\manager\documentos.py`
+**Archivo:** `api/routers/manager/documentos.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

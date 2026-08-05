@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\asistente_tools.py
+path: api/services/asistente_tools.py
 ---
 
 # api/services/asistente_tools
 
 > asistente_tools — tools curadas READ-ONLY del asistente de negocio (QuantAI P7).
 
-**Archivo:** `api\services\asistente_tools.py`
+**Archivo:** `api/services/asistente_tools.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\deps.py
+path: api/deps.py
 ---
 
 # api/deps
 
 > Dependencias de FastAPI (auth). Decomiso Mongo: el reexport de los viejos
 
-**Archivo:** `api\deps.py`
+**Archivo:** `api/deps.py`
 
 ## Qué hace
 Dependencias de FastAPI más re-export de los helpers de DB. Aporta `verify_api_key` (valida el header `Authorization: Bearer <API_KEY>`; deja pasar todo si `API_KEY` no está seteada, modo dev) y re-exporta los `get_db_*` de `api/db.py` para que los routers viejos sigan importándolos desde acá.

@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\estrategia_sql.py
+path: core/estrategia_sql.py
 ---
 
 # core/estrategia_sql
 
 > core/estrategia_sql.py — I/O SQL del modelo ESTRATEGIA QUANT.
 
-**Archivo:** `core\estrategia_sql.py`
+**Archivo:** `core/estrategia_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

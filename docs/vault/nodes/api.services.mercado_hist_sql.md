@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\mercado_hist_sql.py
+path: api/services/mercado_hist_sql.py
 ---
 
 # api/services/mercado_hist_sql
 
 > api/services/mercado_hist_sql.py — históricos de mercado leyendo Postgres.
 
-**Archivo:** `api\services\mercado_hist_sql.py`
+**Archivo:** `api/services/mercado_hist_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

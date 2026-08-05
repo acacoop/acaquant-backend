@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\bcra_research.py
+path: jobs/bcra_research.py
 ---
 
 # jobs/bcra_research
 
 > jobs/bcra_research.py — sincroniza las series del BCRA a Postgres (tab BCRA).
 
-**Archivo:** `jobs\bcra_research.py`
+**Archivo:** `jobs/bcra_research.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

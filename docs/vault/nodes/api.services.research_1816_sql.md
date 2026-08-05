@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\research_1816_sql.py
+path: api/services/research_1816_sql.py
 ---
 
 # api/services/research_1816_sql
 
 > api/services/research_1816_sql.py — lectura de las series de 1816 para el
 
-**Archivo:** `api\services\research_1816_sql.py`
+**Archivo:** `api/services/research_1816_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

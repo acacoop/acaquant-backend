@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\cache.py
+path: api/cache.py
 ---
 
 # api/cache
 
 > Cache in-process para endpoints FastAPI.
 
-**Archivo:** `api\cache.py`
+**Archivo:** `api/cache.py`
 
 ## Qué hace
 Cache in-process para handlers de FastAPI vía decorador `@cached(ttl=N)`. Como la API es un único proceso, alcanza un dict con TTL (sin Redis): ahorra un round-trip a Mongo por request repetido dentro de la ventana. La llave es nombre de función + kwargs; el store está acotado (sweep de expiradas + eviction LRU al pasar 512 entradas) para evitar el leak de RAM que tuvo en producción. No cachea respuestas vacías (negative caching off).
@@ -35,7 +35,6 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.comparar_inversion]]  ·  _module_
-- [[api.services.compliance]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
 - [[api.services.copiloto.ayuda]]  ·  _module_
 - [[api.services.copiloto.navegacion]]  ·  _module_

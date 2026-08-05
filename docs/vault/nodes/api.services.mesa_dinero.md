@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\mesa_dinero.py
+path: api/services/mesa_dinero.py
 ---
 
 # api/services/mesa_dinero
 
 > api/services/mesa_dinero.py — MESA DE DINERO (vista NEGOCIO → /mesa-dinero).
 
-**Archivo:** `api\services\mesa_dinero.py`
+**Archivo:** `api/services/mesa_dinero.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

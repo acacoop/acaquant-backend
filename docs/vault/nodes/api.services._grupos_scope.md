@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\_grupos_scope.py
+path: api/services/_grupos_scope.py
 ---
 
 # api/services/_grupos_scope
 
 > Enforcement de grupos — scoping de cuentas por usuario (Fase 2).
 
-**Archivo:** `api\services\_grupos_scope.py`
+**Archivo:** `api/services/_grupos_scope.py`
 
 ## Qué hace
 Cara "router" del feature de grupos: aplica en la capa HTTP el scoping de cuentas por usuario. Provee dependencies FastAPI (`scope_cuentas` inyecta el tuple de id_cuenta visibles o `None` sin restricción; `verificar_id_cuenta`/`verificar_account` tiran 403 si la cuenta queda fuera) y helpers para filtrar listas ya materializadas. `None` = sin restricción (admin); tuple vacío = no ve nada.
@@ -23,6 +23,7 @@ Conecta con: resuelve las cuentas con `core.grupos.cuentas_visibles` (lee la con
 - [[core.grupos]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.routers.back_office]]  ·  _module_
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.routers.operar]]  ·  _module_

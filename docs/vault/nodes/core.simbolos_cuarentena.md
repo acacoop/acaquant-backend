@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\simbolos_cuarentena.py
+path: core/simbolos_cuarentena.py
 ---
 
 # core/simbolos_cuarentena
 
 > core/simbolos_cuarentena.py — cuarentena PERSISTENTE de símbolos que ROFEX rechaza.
 
-**Archivo:** `core\simbolos_cuarentena.py`
+**Archivo:** `core/simbolos_cuarentena.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

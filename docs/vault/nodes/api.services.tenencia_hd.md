@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\tenencia_hd.py
+path: api/services/tenencia_hd.py
 ---
 
 # api/services/tenencia_hd
 
 > Service Tenencia Valorizada (cartera HD, cuentas propias 100/255/256) — SQL-NATIVE.
 
-**Archivo:** `api\services\tenencia_hd.py`
+**Archivo:** `api/services/tenencia_hd.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

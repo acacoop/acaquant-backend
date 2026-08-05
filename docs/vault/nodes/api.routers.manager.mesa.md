@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\mesa.py
+path: api/routers/manager/mesa.py
 ---
 
 # api/routers/manager/mesa
 
 > Manager sub-router — MESA (gestión de Mesa de Dinero, módulo `manager`).
 
-**Archivo:** `api\routers\manager\mesa.py`
+**Archivo:** `api/routers/manager/mesa.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

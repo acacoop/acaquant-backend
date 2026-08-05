@@ -11,9 +11,8 @@
 - [[core.bars_sql]] — bars_sql.py — readers de las barras de 1 minuto de CEDEARs (ARS).
 - [[core.bcra_api]] — core/bcra_api.py — cliente de la API de Estadísticas Monetarias del BCRA (v4).
 - [[core.brackets]] — Brackets — entrada LIMIT + salida automática cuando la entrada se llena.
-- [[core.byma]] — Cliente BYMA Primarias Placements.
 - [[core.cafci]] — Parseo de un string `unidad` de FCI.
-- [[core.calendario]] — Días hábiles del calendario argentino — SQL-ONLY (mercado.dias_habiles).
+- [[core.calendario]] — Calendario hábil argentino — fuente ÚNICA del repo.
 - [[core.curvas_sql]] — core/curvas_sql.py — lectura del master de renta fija desde SQL (decomiso Mongo).
 - [[core.doc_fiscal]] — Documento fiscal (DNI/CUIT/CUIL) — parseo y claves de cruce. Lógica PURA.
 - [[core.dolar_oficial]] — Fuente única para el "dólar oficial" mayorista.
@@ -27,10 +26,11 @@
 - [[core.fred_api]] — core/fred_api.py — cliente de la FRED API (Federal Reserve Bank of St. Louis).
 - [[core.grupos]] — core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).
 - [[core.grupos_sql]] — core/grupos_sql.py — lectura + escritura del scope de cuentas (grupos) desde Postgres.
+- [[core.http_base]] — core/http_base.py — piezas HTTP compartidas por los clientes externos de core/.
 - [[core.job_runs]] — Context manager para registrar runs de jobs automáticos en manager.job_runs (SQL).
 - [[core.llm]] — core/llm.py — transporte LLM único y RUTEO de proveedores (QuantAI, docs/QUANTAI.md).
-- [[core.mae]] — Cliente MAE MarketData.
 - [[core.market_snapshot]] — Lectura de mercado.market_snapshot (SQL) — estado live por ticker. SQL-only.
+- [[core.mav_tasa]] — core/mav_tasa.py — parseo de la TASA de los boletos MAV.
 - [[core.mercado_1816]] — core/mercado_1816.py — cliente de la API de Mercado de 1816 (vista RESEARCH).
 - [[core.pg_mirror]] — core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
 - [[core.pii_gateway]] — core/pii_gateway.py — la ADUANA de datos privados hacia el LLM (asistente de negocio).

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\estrategia.py
+path: api/routers/estrategia.py
 ---
 
 # api/routers/estrategia
 
 > Router /api/estrategia — vista TRADING → tab ESTRATEGIA (módulo `trading`,
 
-**Archivo:** `api\routers\estrategia.py`
+**Archivo:** `api/routers/estrategia.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

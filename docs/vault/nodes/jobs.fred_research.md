@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\fred_research.py
+path: jobs/fred_research.py
 ---
 
 # jobs/fred_research
 
 > jobs/fred_research.py — sincroniza series de FRED a Postgres (tab Datos
 
-**Archivo:** `jobs\fred_research.py`
+**Archivo:** `jobs/fred_research.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

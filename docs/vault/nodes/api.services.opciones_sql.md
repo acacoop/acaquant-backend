@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\opciones_sql.py
+path: api/services/opciones_sql.py
 ---
 
 # api/services/opciones_sql
 
 > api/services/opciones_sql.py — opciones leyendo Postgres (chain + meta + charts).
 
-**Archivo:** `api\services\opciones_sql.py`
+**Archivo:** `api/services/opciones_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

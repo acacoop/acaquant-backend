@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\acavalores_retorno.py
+path: api/services/acavalores_retorno.py
 ---
 
 # api/services/acavalores_retorno
 
 > ACA VALORES RETORNO TOTAL — lectura de `operaciones.acavalores_retorno`.
 
-**Archivo:** `api\services\acavalores_retorno.py`
+**Archivo:** `api/services/acavalores_retorno.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

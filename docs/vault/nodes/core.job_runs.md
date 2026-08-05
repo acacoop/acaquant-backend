@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\job_runs.py
+path: core/job_runs.py
 ---
 
 # core/job_runs
 
 > Context manager para registrar runs de jobs automáticos en manager.job_runs (SQL).
 
-**Archivo:** `core\job_runs.py`
+**Archivo:** `core/job_runs.py`
 
 ## Qué hace
 Context manager `JobRunLogger("tipo")` para instrumentar los cron jobs: captura stdout, contadores estructurados (`set_stat`), errores non-fatal, duración y estado (ok/partial/error), y al salir persiste un doc resumen en `Manager.JobRuns` sin perder los logs de archivo. Guarda las últimas ~200 líneas de log.
@@ -27,6 +27,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.adr_live]]  ·  _module_
 - [[jobs.aranceles]]  ·  _module_
+- [[jobs.archive_options_data]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
 - [[jobs.backfill_tasas]]  ·  _module_
 - [[jobs.bcra]]  ·  _module_
@@ -37,7 +38,10 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_
 - [[jobs.cleanup_cedears_timesales]]  ·  _module_
+- [[jobs.cleanup_curvas]]  ·  _module_
+- [[jobs.cleanup_futuros_dlr]]  ·  _module_
 - [[jobs.cleanup_retencion]]  ·  _module_
+- [[jobs.comercial_warm]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
 - [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
@@ -49,9 +53,16 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.ia_calidad]]  ·  _module_
+- [[jobs.market_anchors]]  ·  _module_
+- [[jobs.market_quotes]]  ·  _module_
 - [[jobs.mercado_1816_series]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
+- [[jobs.news_finnhub]]  ·  _module_
+- [[jobs.news_ingesta]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
+- [[jobs.ops_agregado]]  ·  _module_
+- [[jobs.ops_tasa_mav]]  ·  _module_
+- [[jobs.options_rollup]]  ·  _module_
 - [[jobs.pnl_totales_precompute]]  ·  _module_
 - [[jobs.portafolio_backfill]]  ·  _module_
 - [[jobs.precios_acciones_daily]]  ·  _module_
@@ -60,3 +71,4 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.snapshot_sinteticos]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_
 - [[jobs.triage]]  ·  _module_
+- [[jobs.volatilidad_ggal]]  ·  _module_

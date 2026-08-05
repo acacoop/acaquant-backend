@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\trading.py
+path: api/routers/trading.py
 ---
 
 # api/routers/trading
 
 > Router /api/trading — vista TRADING (módulo `trading`, admin-only).
 
-**Archivo:** `api\routers\trading.py`
+**Archivo:** `api/routers/trading.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

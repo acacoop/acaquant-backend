@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\copiloto\reuters.py
+path: api/services/copiloto/reuters.py
 ---
 
 # api/services/copiloto/reuters
 
 > copiloto/reuters.py — vista REUTERS (tablero live subyacentes US, feed Eikon).
 
-**Archivo:** `api\services\copiloto\reuters.py`
+**Archivo:** `api/services/copiloto/reuters.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

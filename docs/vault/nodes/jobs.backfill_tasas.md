@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\backfill_tasas.py
+path: jobs/backfill_tasas.py
 ---
 
 # jobs/backfill_tasas
 
 > backfill_tasas.py — recalcula TEA/TEM/duration/paridad de TODOS los bonos de
 
-**Archivo:** `jobs\backfill_tasas.py`
+**Archivo:** `jobs/backfill_tasas.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

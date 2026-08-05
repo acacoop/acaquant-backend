@@ -669,11 +669,7 @@ Every mutation invalidates the in-process cache (`core/roles_sql.py::invalidate_
 
 | Path | Description |
 |---|---|
-| `GET /checks/curvas-pendientes` | TimeSales trades missing `duration`, grouped by ticker. **Obsoleto post 2026-05-04** — `motor_curvas` ya no enriquece TimeSales; todos los trades nuevos aparecen acá. Mantener sólo para auditar el universo histórico. |
-| `GET /checks/forwards` | Per-curve TEA availability vs `ForwardsLive.tickers` |
-| `GET /checks/cer` | CER used in the last enriched trade per CER bond |
 | `GET /checks/tasa-fija` | State of tasa-fija instruments in the latest AuM snapshot |
-| `GET /checks/debug-forward?tc_a=&tc_b=` | Step-by-step forward calculation between two tickers |
 | `GET /checks/tickers-curvas` | `ticker_corto` index of `mercado.curvas` |
 | `GET /checks/debug-soberano?ticker_corto=` | Inspect curve enrichment of a soberano |
 | `GET /checks/breakevens-debug` | Trace the live breakeven aggregation |

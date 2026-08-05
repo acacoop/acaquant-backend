@@ -4,14 +4,14 @@ type: service
 layer: deploy
 repo: infra
 tags: [service, deploy, infra]
-path: deploy\systemd\motor_estrategia.service
+path: deploy/systemd/motor_estrategia.service
 ---
 
 # systemd: motor_estrategia
 
 > Servicio systemd.
 
-**Archivo:** `deploy\systemd\motor_estrategia.service`
+**Archivo:** `deploy/systemd/motor_estrategia.service`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

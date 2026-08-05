@@ -4,14 +4,14 @@ type: module
 layer: engines
 repo: backend
 tags: [module, engines, backend]
-path: engines\estrategia.py
+path: engines/estrategia.py
 ---
 
 # engines/estrategia
 
 > engines/estrategia.py — motor ESTRATEGIA QUANT (señal intradía con trazabilidad).
 
-**Archivo:** `engines\estrategia.py`
+**Archivo:** `engines/estrategia.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

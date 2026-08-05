@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-54 notas.
+56 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -44,6 +44,8 @@
 - [[jobs.news_finnhub]] — news_finnhub.py — ingesta de noticias desde Finnhub.
 - [[jobs.news_ingesta]] — news_ingesta.py — Ingesta de RSS de medios económicos argentinos.
 - [[jobs.operaciones_informes]] — operaciones_informes.py — ingesta de operaciones desde Aunesa /informes a
+- [[jobs.ops_agregado]] — jobs/ops_agregado.py — mantiene el agregado diario HOT/COLD de operaciones.
+- [[jobs.ops_tasa_mav]] — ops_tasa_mav.py — completa `operaciones.operaciones.tasa` para los boletos MAV.
 - [[jobs.options_rollup]] — options_rollup.py — rollup diario de mercado.options_data (SQL) → mercado.options_data_hist (SQL).
 - [[jobs.pnl_totales_precompute]] — pnl_totales_precompute.py — precalcula el PnL de TODAS las cuentas.
 - [[jobs.portafolio_backfill]] — jobs/portafolio_backfill.py — backfill de portafolio.tenencia (SQL), self-healing.

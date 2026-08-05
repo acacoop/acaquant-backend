@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\agro_sql.py
+path: api/services/agro_sql.py
 ---
 
 # api/services/agro_sql
 
 > api/services/agro_sql.py — dominio AGRO / Derivados Agro leyendo Postgres.
 
-**Archivo:** `api\services\agro_sql.py`
+**Archivo:** `api/services/agro_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\copiloto\home.py
+path: api/services/copiloto/home.py
 ---
 
 # api/services/copiloto/home
 
 > copiloto/home.py — vista HOME (panorama del mercado): watchlist + briefing +
 
-**Archivo:** `api\services\copiloto\home.py`
+**Archivo:** `api/services/copiloto/home.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

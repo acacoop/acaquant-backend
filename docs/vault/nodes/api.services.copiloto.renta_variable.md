@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\copiloto\renta_variable.py
+path: api/services/copiloto/renta_variable.py
 ---
 
 # api/services/copiloto/renta_variable
 
 > copiloto/renta_variable.py — vista RV (CEDEARs/ADRs): fetch, enriquecido,
 
-**Archivo:** `api\services\copiloto\renta_variable.py`
+**Archivo:** `api/services/copiloto/renta_variable.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

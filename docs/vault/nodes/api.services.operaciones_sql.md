@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\operaciones_sql.py
+path: api/services/operaciones_sql.py
 ---
 
 # api/services/operaciones_sql
 
 > api/services/operaciones_sql.py — vista OPERACIONES leyendo de Postgres (Supabase).
 
-**Archivo:** `api\services\operaciones_sql.py`
+**Archivo:** `api/services/operaciones_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -29,3 +29,4 @@ _(pendiente de enriquecimiento)_
 - [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.copiloto.ayuda]]  ·  _module_
 - [[api.services.copiloto.navegacion]]  ·  _module_
+- [[jobs.ops_agregado]]  ·  _module_

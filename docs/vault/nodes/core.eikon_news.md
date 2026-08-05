@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\eikon_news.py
+path: core/eikon_news.py
 ---
 
 # core/eikon_news
 
 > Feed Eikon — TITULARES de noticias Reuters para la watchlist del HOME.
 
-**Archivo:** `core\eikon_news.py`
+**Archivo:** `core/eikon_news.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\news.py
+path: api/routers/news.py
 ---
 
 # api/routers/news
 
 > Router News: headlines agregados de RSS (News.Headlines) + reader mode.
 
-**Archivo:** `api\routers\news.py`
+**Archivo:** `api/routers/news.py`
 
 ## Qué hace
 Router de noticias. `GET /api/news` lista headlines de RSS agregados (filtrables por fuente/categoría/keyword/fecha, paginados), `/article` baja la nota y la limpia con trafilatura para un "reader mode" inline (cache 1h en memoria, rate-limited), y `/stats` agrega conteo por fuente. El fetch del reader tiene guard anti-SSRF que revalida cada redirect (bloquea IPs privadas/loopback/metadata cloud).

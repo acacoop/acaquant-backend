@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\mesa_dinero.py
+path: api/routers/mesa_dinero.py
 ---
 
 # api/routers/mesa_dinero
 
 > Router MESA DE DINERO — /api/mesa-dinero (vista NEGOCIO → /mesa-dinero).
 
-**Archivo:** `api\routers\mesa_dinero.py`
+**Archivo:** `api/routers/mesa_dinero.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

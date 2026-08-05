@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\_sql.py
+path: api/services/_sql.py
 ---
 
 # api/services/_sql
 
 > Helper compartido de lectura SQL (canónico).
 
-**Archivo:** `api\services\_sql.py`
+**Archivo:** `api/services/_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -20,17 +20,19 @@ _(pendiente de enriquecimiento)_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.routers.manager.clientes]]  ·  _module_
 - [[api.services.aca_valores]]  ·  _module_
 - [[api.services.acavalores_retorno]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
+- [[api.services.anulados]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.cashflow_sql]]  ·  _module_
+- [[api.services.clientes_admin_sql]]  ·  _module_
 - [[api.services.comercial_sql]]  ·  _module_
 - [[api.services.contrapartes_seg]]  ·  _module_
 - [[api.services.db_obs]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
+- [[api.services.latencia_endpoints]]  ·  _module_
 - [[api.services.macro_sql]]  ·  _module_
 - [[api.services.manager_infra_sql]]  ·  _module_
 - [[api.services.market_sql]]  ·  _module_

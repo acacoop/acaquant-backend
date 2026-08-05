@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\main.py
+path: api/main.py
 ---
 
 # api/main
 
 > TradingAV API — FastAPI entrypoint.
 
-**Archivo:** `api\main.py`
+**Archivo:** `api/main.py`
 
 ## Qué hace
 Entrypoint de la API FastAPI (`uvicorn api.main:app`). Arma la app: monta todos los routers (`analitica`, `carteras`, `cotizaciones`, `cuentas`, `manager`, `market`, `ordenes`, `risk`, `scanner`, etc.), aplica auth global (`verify_api_key`), rate-limit (slowapi), gzip y profiling opt-in. En el `lifespan` valida la postura de auth (fail-closed en prod si falta `API_KEY`), hace warmup del pool Mongo y lanza el sampler de recursos; monta el sub-app MCP si está configurado.

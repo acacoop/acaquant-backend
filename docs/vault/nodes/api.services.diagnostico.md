@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\diagnostico.py
+path: api/services/diagnostico.py
 ---
 
 # api/services/diagnostico
 
 > Motor del Diagnóstico — arma el árbol vista→piezas con status, desde el registro.
 
-**Archivo:** `api\services\diagnostico.py`
+**Archivo:** `api/services/diagnostico.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

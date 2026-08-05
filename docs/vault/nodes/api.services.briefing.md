@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\briefing.py
+path: api/services/briefing.py
 ---
 
 # api/services/briefing
 
 > api/services/briefing.py — Briefing de apertura (QuantAI P1, v1 DETERMINISTA).
 
-**Archivo:** `api\services\briefing.py`
+**Archivo:** `api/services/briefing.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

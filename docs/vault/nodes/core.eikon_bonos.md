@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\eikon_bonos.py
+path: core/eikon_bonos.py
 ---
 
 # core/eikon_bonos
 
 > Feed Eikon — precio OFFSHORE de los soberanos ARG (la pata que operan los
 
-**Archivo:** `core\eikon_bonos.py`
+**Archivo:** `core/eikon_bonos.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,12 +4,12 @@ type: module
 layer: quant
 repo: backend
 tags: [module, quant, backend]
-path: quant\__init__.py
+path: quant/__init__.py
 ---
 
 # quant/__init__
 
-**Archivo:** `quant\__init__.py`
+**Archivo:** `quant/__init__.py`
 
 ## Qué hace
 Paquete de cálculo puro de la plataforma: matemática financiera y estadística sin estado (sin Mongo, sin FastAPI, sin cache). Agrupa Black-Scholes/greeks, ajuste de curva cuadrático, pivot points, stats rolling (beta/alpha/vol), helpers estadísticos de clasificación y XIRR. El `__init__.py` está vacío — es solo el namespace del paquete; cada módulo se importa directo.

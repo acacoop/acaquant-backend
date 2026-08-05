@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\pnl_totales_precompute.py
+path: jobs/pnl_totales_precompute.py
 ---
 
 # jobs/pnl_totales_precompute
 
 > pnl_totales_precompute.py — precalcula el PnL de TODAS las cuentas.
 
-**Archivo:** `jobs\pnl_totales_precompute.py`
+**Archivo:** `jobs/pnl_totales_precompute.py`
 
 ## Qué hace
 Job de precompute del PnL de TODAS las cuentas (~880). La vista TOTALES recorría todas las cuentas en vivo por request y se pasaba del timeout (502); este job hace ese cálculo offline y lo persiste, un documento por cuenta con sus filas y el detalle de boletos. Swap atómico (sin ventana de vacío). Corre cada 30 min (:05 y :35), después de `negocio_movimientos`.

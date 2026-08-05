@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\pnl_sql.py
+path: api/services/pnl_sql.py
 ---
 
 # api/services/pnl_sql
 
 > api/services/pnl_sql.py — PnL Títulos leyendo de Postgres, REUSANDO el motor de pnl.py.
 
-**Archivo:** `api\services\pnl_sql.py`
+**Archivo:** `api/services/pnl_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

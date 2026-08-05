@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\bonos.py
+path: api/routers/manager/bonos.py
 ---
 
 # api/routers/manager/bonos
 
 > Manager sub-router — Títulos → Bonos (Trading.Curvas directo, NO-ON).
 
-**Archivo:** `api\routers\manager\bonos.py`
+**Archivo:** `api/routers/manager/bonos.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\estrategia_resolver.py
+path: jobs/estrategia_resolver.py
 ---
 
 # jobs/estrategia_resolver
 
 > jobs/estrategia_resolver.py — resuelve el RESULTADO de cada señal ESTRATEGIA QUANT.
 
-**Archivo:** `jobs\estrategia_resolver.py`
+**Archivo:** `jobs/estrategia_resolver.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

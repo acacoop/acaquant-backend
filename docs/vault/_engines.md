@@ -1,9 +1,10 @@
 # ⚙️ engines — motores WS→Mongo
 
-18 notas.
+19 notas.
 
 - [[engines]]
 - [[engines._curvas_loader]] — Carga común del master de renta fija para todos los motores.
+- [[engines._motor_base]] — engines/_motor_base.py — esqueleto común de los motores snapshot WS → SQL.
 - [[engines._universo_portfolio]] — Universo dinámico para motor_portfolio_snapshot.
 - [[engines.breakevens]] — main_breakevens.py — Motor de breakevens CER/Lecap en tiempo real.
 - [[engines.caucion]] — Motor de caución ARS y USD a corto plazo.

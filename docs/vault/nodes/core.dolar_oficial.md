@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\dolar_oficial.py
+path: core/dolar_oficial.py
 ---
 
 # core/dolar_oficial
 
 > Fuente única para el "dólar oficial" mayorista.
 
-**Archivo:** `core\dolar_oficial.py`
+**Archivo:** `core/dolar_oficial.py`
 
 ## Qué hace
 Fuente única del "dólar oficial" mayorista (A3500). Lee el último precio + variación del ticker MAE UST$T desde `Valuaciones.DolarOficialLive`, que escribe un script local (`mae_forex.py`) corriendo en una PC de oficina porque la IP del Droplet quedó bloqueada en MAE. Sin fallback retail: si la PC está caída, devuelve None y el front muestra "—". También expone el `upsert_oficial` que persiste lo que llega.

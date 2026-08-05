@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\profiler.py
+path: core/profiler.py
 ---
 
 # core/profiler
 
 > Stopwatch mínimo para instrumentar pasos dentro de una función.
 
-**Archivo:** `core\profiler.py`
+**Archivo:** `core/profiler.py`
 
 ## Qué hace
 Cronómetro mínimo (`Stopwatch`) para instrumentar pasos dentro de una función y ver dónde se va el tiempo. Se marca cada hito con `.step("nombre")` y `.done()` devuelve un dict con el total y el desglose por paso en milisegundos. Deliberadamente plano (sin pasos anidados).

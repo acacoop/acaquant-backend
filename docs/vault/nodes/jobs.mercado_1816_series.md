@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\mercado_1816_series.py
+path: jobs/mercado_1816_series.py
 ---
 
 # jobs/mercado_1816_series
 
 > jobs/mercado_1816_series.py — baja las series históricas de 1816 a Postgres.
 
-**Archivo:** `jobs\mercado_1816_series.py`
+**Archivo:** `jobs/mercado_1816_series.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\controles_datos.py
+path: jobs/controles_datos.py
 ---
 
 # jobs/controles_datos
 
 > controles_datos.py — Auto-control de CALIDAD DE DATOS de ACAQuant.
 
-**Archivo:** `jobs\controles_datos.py`
+**Archivo:** `jobs/controles_datos.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

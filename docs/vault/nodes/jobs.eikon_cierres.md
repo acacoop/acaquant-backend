@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\eikon_cierres.py
+path: jobs/eikon_cierres.py
 ---
 
 # jobs/eikon_cierres
 
 > jobs/eikon_cierres.py — persiste el CIERRE diario de los feeds Eikon nuevos
 
-**Archivo:** `jobs\eikon_cierres.py`
+**Archivo:** `jobs/eikon_cierres.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

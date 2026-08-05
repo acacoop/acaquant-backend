@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\__init__.py
+path: api/routers/manager/__init__.py
 ---
 
 # api/routers/manager/__init__
 
 > Manager API — paquete con sub-routers por sub-dominio.
 
-**Archivo:** `api\routers\manager\__init__.py`
+**Archivo:** `api/routers/manager/__init__.py`
 
 ## Qué hace
 Paquete `/api/manager` — `__init__.py` arma el `APIRouter` raíz del panel Manager y monta todos los sub-routers (status, checks, jobs, options, logs, users, roles, grupos, aunesa, assets, valuaciones, operaciones, comercial, clientes, compliance) cada uno con su gate RBAC propio. Las tabs admin van detrás del módulo `manager` (admin-only); `comercial`/`clientes`/`compliance` usan gates OR finos para que `asistente_comercial` entre solo a sus tabs sin abrirle el resto.
@@ -28,7 +28,6 @@ Conecta con: `api.auth::require_module` / `require_any_module` + `api.deps::veri
 - [[api.routers.manager.breakevens]]  ·  _module_
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.routers.manager.clientes]]  ·  _module_
-- [[api.routers.manager.compliance]]  ·  _module_
 - [[api.routers.manager.contrapartes]]  ·  _module_
 - [[api.routers.manager.control_automatico]]  ·  _module_
 - [[api.routers.manager.controles]]  ·  _module_
@@ -38,6 +37,7 @@ Conecta con: `api.auth::require_module` / `require_any_module` + `api.deps::veri
 - [[api.routers.manager.import_tenencia]]  ·  _module_
 - [[api.routers.manager.instrumentos]]  ·  _module_
 - [[api.routers.manager.jobs]]  ·  _module_
+- [[api.routers.manager.latencia]]  ·  _module_
 - [[api.routers.manager.logs]]  ·  _module_
 - [[api.routers.manager.mesa]]  ·  _module_
 - [[api.routers.manager.ons]]  ·  _module_
@@ -47,7 +47,6 @@ Conecta con: `api.auth::require_module` / `require_any_module` + `api.deps::veri
 - [[api.routers.manager.roles]]  ·  _module_
 - [[api.routers.manager.status]]  ·  _module_
 - [[api.routers.manager.users]]  ·  _module_
-- [[api.routers.manager.uso]]  ·  _module_
 - [[api.routers.manager.valuaciones]]  ·  _module_
 
 ## Lo usan (backlinks) ←

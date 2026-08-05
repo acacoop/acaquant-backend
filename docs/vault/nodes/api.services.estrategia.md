@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\estrategia.py
+path: api/services/estrategia.py
 ---
 
 # api/services/estrategia
 
 > api/services/estrategia.py — lecturas de la vista ESTRATEGIA (TRADING).
 
-**Archivo:** `api\services\estrategia.py`
+**Archivo:** `api/services/estrategia.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

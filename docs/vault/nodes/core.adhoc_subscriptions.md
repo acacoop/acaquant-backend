@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\adhoc_subscriptions.py
+path: core/adhoc_subscriptions.py
 ---
 
 # core/adhoc_subscriptions
 
 > Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
 
-**Archivo:** `core\adhoc_subscriptions.py`
+**Archivo:** `core/adhoc_subscriptions.py`
 
 ## Qué hace
 Maneja suscripciones live efímeras a tickers que el usuario pidió desde el Dashboard de Operar pero que no están ni en `Trading.Curvas` ni en `config.TICKERS_EXTRA_PRECIOS`. Hace upsert con TTL rodante de 7 días (cada poll refresca el vencimiento) y un cap global de 50 suscripciones activas (rechaza con 429 al pasarse).

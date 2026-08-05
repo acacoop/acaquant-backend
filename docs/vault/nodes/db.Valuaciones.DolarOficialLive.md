@@ -15,5 +15,4 @@ tags: [collection, db, infra]
 
 Conecta con: lo ingesta `api/routers/ingest.py` (endpoint de escritura), centralizado por `core/dolar_oficial.py`; lo leen `api/services/macro.py`, `argy.py`, `engines/curvas.py`, `engines/futuros_dlr.py` y el status del Manager.
 
-## Lo usan (backlinks) ←
-- [[api.routers.manager.status]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

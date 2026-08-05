@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\grupos_sql.py
+path: core/grupos_sql.py
 ---
 
 # core/grupos_sql
 
 > core/grupos_sql.py — lectura + escritura del scope de cuentas (grupos) desde Postgres.
 
-**Archivo:** `core\grupos_sql.py`
+**Archivo:** `core/grupos_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

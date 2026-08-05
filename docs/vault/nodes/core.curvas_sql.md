@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\curvas_sql.py
+path: core/curvas_sql.py
 ---
 
 # core/curvas_sql
 
 > core/curvas_sql.py — lectura del master de renta fija desde SQL (decomiso Mongo).
 
-**Archivo:** `core\curvas_sql.py`
+**Archivo:** `core/curvas_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -29,6 +29,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
+- [[api.services.debug_derivados]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.ons]]  ·  _module_
 - [[api.services.order_book]]  ·  _module_

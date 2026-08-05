@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\tz.py
+path: core/tz.py
 ---
 
 # core/tz
 
 > Zona horaria Argentina — ÚNICO lugar para now / tz / cálculo de frescura.
 
-**Archivo:** `core\tz.py`
+**Archivo:** `core/tz.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\asistente.py
+path: api/services/asistente.py
 ---
 
 # api/services/asistente
 
 > asistente — orquestador del ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md).
 
-**Archivo:** `api\services\asistente.py`
+**Archivo:** `api/services/asistente.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

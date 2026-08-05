@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\pg_mirror.py
+path: core/pg_mirror.py
 ---
 
 # core/pg_mirror
 
 > core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
 
-**Archivo:** `core\pg_mirror.py`
+**Archivo:** `core/pg_mirror.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -20,8 +20,8 @@ _(pendiente de enriquecimiento)_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.routers.manager.aunesa]]  ·  _module_
 - [[api.routers.manager.options]]  ·  _module_
+- [[api.services.aranceles_jobs]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
 - [[api.services.ons]]  ·  _module_

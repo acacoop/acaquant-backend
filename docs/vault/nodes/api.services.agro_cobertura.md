@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\agro_cobertura.py
+path: api/services/agro_cobertura.py
 ---
 
 # api/services/agro_cobertura
 
 > Service — Pase con Cobertura (AGRO).
 
-**Archivo:** `api\services\agro_cobertura.py`
+**Archivo:** `api/services/agro_cobertura.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

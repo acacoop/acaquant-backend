@@ -4,20 +4,19 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\telemetria.py
+path: api/telemetria.py
 ---
 
 # api/telemetria
 
-> api/telemetria.py — telemetría de uso por módulo (usuario × módulo × hora).
+> api/telemetria.py — telemetría de LATENCIA por endpoint (endpoint × hora).
 
-**Archivo:** `api\telemetria.py`
+**Archivo:** `api/telemetria.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
-- [[api.auth]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←

@@ -4,14 +4,14 @@ type: service
 layer: deploy
 repo: infra
 tags: [service, deploy, infra]
-path: deploy\systemd\motor_agro_opciones.service
+path: deploy/systemd/motor_agro_opciones.service
 ---
 
 # systemd: motor_agro_opciones
 
 > Servicio systemd.
 
-**Archivo:** `deploy\systemd\motor_agro_opciones.service`
+**Archivo:** `deploy/systemd/motor_agro_opciones.service`
 
 ## Qué hace
 Servicio systemd del motor de opciones agro — corre `engines.motor_agro_opciones`, el feed live de opciones sobre futuros de Trigo / Maíz / Soja en Rosario (calls/puts OCAFXS/OPAFXS). Vive solo en rueda (cron restart 13:00 UTC / stop 20:05 UTC, L-V).

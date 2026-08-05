@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-197 notas.
+199 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -32,12 +32,11 @@
 - [[api.routers.manager._common]] — Constantes y helpers compartidos entre los sub-módulos de manager/.
 - [[api.routers.manager.aca_valores]] — Manager sub-router — set de cuentas ACA VALORES (módulo `manager_clientes`).
 - [[api.routers.manager.assets]] — Manager sub-router — control del catálogo de títulos (segmentación).
-- [[api.routers.manager.aunesa]] — Manager · Aunesa — endpoint exploratorio en vivo.
+- [[api.routers.manager.aunesa]] — Manager · Aunesa — endpoints exploratorios + backfill de aranceles.
 - [[api.routers.manager.bonos]] — Manager sub-router — Títulos → Bonos (Trading.Curvas directo, NO-ON).
 - [[api.routers.manager.breakevens]] — Manager sub-router — Títulos → Breakevens (curaduría de pares).
-- [[api.routers.manager.checks]] — GET /api/manager/checks/* — validaciones de consistencia sobre Mongo.
+- [[api.routers.manager.checks]] — GET /api/manager/checks/* — validaciones de consistencia (SQL).
 - [[api.routers.manager.clientes]] — Manager sub-router — edición de `clientes.comitentes` (segmentación comercial, SQL).
-- [[api.routers.manager.compliance]] — Manager sub-router — COMPLIANCE: operador nuestro vs Aunesa.
 - [[api.routers.manager.contrapartes]] — Manager sub-router — vista CONTRAPARTES (módulo `manager_contrapartes`).
 - [[api.routers.manager.control_automatico]] — POST /api/manager/control-automatico/* — conciliación Excel↔cuentas + segmentar.
 - [[api.routers.manager.controles]] — GET /api/manager/controles — anomalías del auto-control de calidad de datos.
@@ -47,6 +46,7 @@
 - [[api.routers.manager.import_tenencia]] — Manager sub-router — import masivo de tenencia a Valuaciones.AuM (admin).
 - [[api.routers.manager.instrumentos]] — Manager sub-router — Títulos → Instrumentos (solo lectura).
 - [[api.routers.manager.jobs]] — POST /jobs/run + GET /jobs/history, /jobs/history/stats, /jobs/{id}.
+- [[api.routers.manager.latencia]] — Manager sub-router — telemetría de LATENCIA por endpoint.
 - [[api.routers.manager.logs]] — GET /api/manager/logs — últimos N logs de un servicio systemd.
 - [[api.routers.manager.mesa]] — Manager sub-router — MESA (gestión de Mesa de Dinero, módulo `manager`).
 - [[api.routers.manager.ons]] — Manager sub-router — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).
@@ -56,7 +56,6 @@
 - [[api.routers.manager.roles]] — Manager sub-router — matriz de roles + audit log.
 - [[api.routers.manager.status]] — GET /api/manager/status — estado unificado de motores y jobs batch.
 - [[api.routers.manager.users]] — Manager sub-router — CRUD de usuarios.
-- [[api.routers.manager.uso]] — Manager sub-router — telemetría de USO (usuario × módulo).
 - [[api.routers.manager.valuaciones]] — Manager · Valuaciones — debug XIRR mensual.
 - [[api.routers.manager_resources]] — Endpoints de recursos del servidor para el Manager.
 - [[api.routers.market]] — Router Market: watchlist quotes, titulares Eikon, candles históricos.
@@ -92,6 +91,8 @@
 - [[api.services.agro_cobertura]] — Service — Pase con Cobertura (AGRO).
 - [[api.services.agro_sql]] — api/services/agro_sql.py — dominio AGRO / Derivados Agro leyendo Postgres.
 - [[api.services.analitica]] — Capa de servicio — analítica Tier 2 sobre data existente.
+- [[api.services.anulados]] — api/services/anulados.py — anulación de boletos por la marca `(A)` de Aunesa.
+- [[api.services.aranceles_jobs]] — api/services/aranceles_jobs.py — runner + persistencia del backfill de aranceles.
 - [[api.services.argy]] — Capa de servicio — métricas argentinas con returns calculados.
 - [[api.services.asistente]] — asistente — orquestador del ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md).
 - [[api.services.asistente_comercial]] — asistente_comercial — el bloque COMERCIAL del asistente de negocio.
@@ -108,10 +109,10 @@
 - [[api.services.canje]] — Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).
 - [[api.services.carry_trade]] — Serie de carry trade en USD para una curva (tasa_fija / cer).
 - [[api.services.cashflow_sql]] — api/services/cashflow_sql.py — lecturas SQL (Supabase) de las colecciones CashFlow
+- [[api.services.clientes_admin_sql]] — api/services/clientes_admin_sql.py — edición del master `clientes.comitentes`.
 - [[api.services.comercial]] — api/services/comercial.py — Tablero Comercial: funciones SQL-native vivas.
 - [[api.services.comercial_sql]] — api/services/comercial_sql.py — vista COMERCIAL leyendo de Postgres (Supabase).
 - [[api.services.comparar_inversion]] — Comparar Inversión — service que compara 2 bonos de Trading.Curvas lado a lado.
-- [[api.services.compliance]] — Compliance — compara el operador asignado por la mesa vs el que reporta Aunesa.
 - [[api.services.contrapartes_seg]] — api/services/contrapartes_seg.py — segmentación + conciliador de `clientes.contrapartes` (SQL).
 - [[api.services.control_automatico]] — Control Automático (Clientes): concilia un Excel de CUITs contra nuestras cuentas.
 - [[api.services.control_comercial_sql]] — api/services/control_comercial_sql.py — vista CONTROL COMERCIAL (jefatura).
@@ -138,6 +139,7 @@
 - [[api.services.day_trading]] — day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).
 - [[api.services.db_obs]] — db_obs.py — observabilidad de espacio/salud de la base (Manager OBSERVABILIDAD → BASE).
 - [[api.services.debug_curva]] — Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
+- [[api.services.debug_derivados]] — api/services/debug_derivados.py — debugs paso-a-paso de renta fija/derivados.
 - [[api.services.derivados]] — Capa de servicio — derivados (futuros DLR, forwards, breakevens).
 - [[api.services.derivados_agro]] — Service puro — Pase Agro (Trigo / Maíz / Soja Rosario).
 - [[api.services.descomposicion_retorno]] — descomposicion_retorno.py — Atribución carry / rolldown / cambio_tasa.
@@ -150,6 +152,7 @@
 - [[api.services.import_tenencia_sql]] — api/services/import_tenencia_sql.py — import manual a SQL `portafolio.tenencia`.
 - [[api.services.intraday]] — api/services/intraday.py — monitor intradía de renta variable (FIFO).
 - [[api.services.jobs_catalogo]] — api/services/jobs_catalogo.py — catálogo COMPLETO de jobs agendados.
+- [[api.services.latencia_endpoints]] — api/services/latencia_endpoints.py — lectura de la telemetría de latencia.
 - [[api.services.macro]] — Capa de servicio — series macro y clasificación.
 - [[api.services.macro_sql]] — api/services/macro_sql.py — Series macro 100% SQL (decomiso Mongo).
 - [[api.services.manager_infra_sql]] — api/services/manager_infra_sql.py — lecturas SQL de la infra de Manager.
@@ -161,13 +164,13 @@
 - [[api.services.ons]] — api/services/ons.py — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).
 - [[api.services.opciones]] — Capa de servicio — opciones: helpers puros + mutación de tasa (SQL-native).
 - [[api.services.opciones_sql]] — api/services/opciones_sql.py — opciones leyendo Postgres (chain + meta + charts).
-- [[api.services.operaciones_informes]] — operaciones_informes.py — normalización + ingesta a CashFlow.Operaciones.
+- [[api.services.operaciones_informes]] — operaciones_informes.py — normalización + ingesta a SQL operaciones.operaciones.
 - [[api.services.operaciones_sql]] — api/services/operaciones_sql.py — vista OPERACIONES leyendo de Postgres (Supabase).
 - [[api.services.operaciones_view]] — operaciones_view.py — helpers PUROS compartidos de la vista Operaciones.
 - [[api.services.operativa_mep]] — Operativa Dólar MEP — wrapper de 2 órdenes MARKET (BUY AL30 + SELL AL30D).
-- [[api.services.operativa_mep_sql]] — api/services/operativa_mep_sql.py — READ-SIDE de la operativa Dólar MEP leyendo Postgres.
-- [[api.services.ordenes]] — Servicio de órdenes — funciones puras invocables desde routers o scripts.
-- [[api.services.ordenes_sql]] — api/services/ordenes_sql.py — READ-SIDE del motor de órdenes leyendo Postgres.
+- [[api.services.operativa_mep_sql]] — api/services/operativa_mep_sql.py — READ-SIDE de la operativa Dólar MEP (única implementación).
+- [[api.services.ordenes]] — Servicio de órdenes (WRITE-SIDE) — funciones puras invocables desde routers o scripts.
+- [[api.services.ordenes_sql]] — api/services/ordenes_sql.py — READ-SIDE del motor de órdenes (única implementación).
 - [[api.services.order_book]] — Capa de servicio — Order Book (LOB) live.
 - [[api.services.pnl]] — Motor de PnL por (cuenta, ticker) con cost-basis weighted-average.
 - [[api.services.pnl_historico]] — api/services/pnl_historico.py — Cuaderno de PnL diario de carga MANUAL.
@@ -195,7 +198,6 @@
 - [[api.services.tesoreria]] — api/services/tesoreria.py — Back Office → Tesorería (ingresos/egresos del día).
 - [[api.services.titulos_flujos]] — api/services/titulos_flujos.py — flujos normalizados por instrumento.
 - [[api.services.trading_pivots]] — Pivots Floor Trader sobre el activo (ARS) — vista TRADING.
-- [[api.services.uso_modulos]] — api/services/uso_modulos.py — lectura de la telemetría de uso (Manager → USO).
 - [[api.services.valuaciones]] — Valuaciones — performance e historia por cuenta. SQL-only (decomiso Mongo).
 - [[api.services.valuaciones_sql]] — api/services/valuaciones_sql.py — espejo SQL de api/services/valuaciones.py.
-- [[api.telemetria]] — api/telemetria.py — telemetría de uso por módulo (usuario × módulo × hora).
+- [[api.telemetria]] — api/telemetria.py — telemetría de LATENCIA por endpoint (endpoint × hora).

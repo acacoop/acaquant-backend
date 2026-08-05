@@ -15,6 +15,4 @@ Stream de trades (time & sales) por instrumento en la base `Trading`, enriquecid
 
 Conecta con: la escribe/enriquece `engines/curvas.py` (motor de enriquecimiento real-time); la leen `api/services/canje.py`, `carry_trade.py`, `cotizaciones.py` y validaciones del Manager. Para tasas live se prefiere `MarketSnapshot` (TimeSales agregado es más caro).
 
-## Lo usan (backlinks) ←
-- [[api.routers.manager.status]]  ·  _module_
-- [[api.services.operativa_mep]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

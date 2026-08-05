@@ -719,6 +719,25 @@ END $$;
 CREATE TABLE IF NOT EXISTS operaciones.senebis_agentes (
     nombre          text PRIMARY KEY,
     numero          text NOT NULL,
+    -- Código MAE del agente (formato AAAOO: agente + operador) — va a la
+    -- columna DESTINO del futuro Excel MAE. Convive con `numero` (BYMA/Quantex).
+    codigo_mae      text,
+    creado_por      text,
+    creado_at       timestamptz,
+    actualizado_por text,
+    actualizado_at  timestamptz
+);
+ALTER TABLE operaciones.senebis_agentes ADD COLUMN IF NOT EXISTS codigo_mae text;
+
+-- Destinos MAE por CUENTA COMITENTE (senebi interno): el código que espera el
+-- MAE en la columna DESTINO del Excel — FXXX (código del FCI, el flujo grande),
+-- CXXXXXXXXXXX (CUIT del comitente sin guiones), SXXX (aseguradora). No es
+-- derivable de clientes.*: lo carga el back office desde la vista SENEBIS
+-- (mismo patrón que senebis_agentes). Clave = la cc como se guarda en la orden.
+CREATE TABLE IF NOT EXISTS operaciones.senebis_destinos_mae (
+    cc              text PRIMARY KEY,
+    codigo          text NOT NULL,
+    descripcion     text,                    -- opcional, para leer el catálogo a ojo
     creado_por      text,
     creado_at       timestamptz,
     actualizado_por text,

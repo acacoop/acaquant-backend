@@ -287,6 +287,58 @@ def test_export_xlsx_orden_por_id(monkeypatch):
     assert ws.cell(row=3, column=1).value == 13629
 
 
+# ── destino MAE (catálogos para el futuro Excel MAE) ─────────────────────────
+
+def _sin_db(monkeypatch, q_rows: list | None = None) -> dict:
+    """Captura los params del _exec sin tocar la DB (y silencia audit y _q)."""
+    capturado: dict = {}
+    monkeypatch.setattr(svc, "_exec", lambda sql, params: capturado.update(params) or 1)
+    monkeypatch.setattr(svc, "_audit", lambda *a, **k: None)
+    monkeypatch.setattr(svc, "_q", lambda sql, params=None: q_rows or [])
+    return capturado
+
+
+def test_upsert_agente_normaliza_codigo_mae(monkeypatch):
+    capturado = _sin_db(monkeypatch)
+    r = svc.upsert_agente("cocos", "733", actor="A@x.com", codigo_mae=" abc01 ")
+    assert r == {"nombre": "COCOS", "numero": "733", "codigo_mae": "ABC01"}
+    assert capturado["cod"] == "ABC01"
+    # Sin código → None (el COALESCE del SQL preserva el ya cargado).
+    r = svc.upsert_agente("cocos", "733", actor="a@x.com")
+    assert r["codigo_mae"] is None
+
+
+def test_upsert_destino_mae_normaliza_y_valida(monkeypatch):
+    capturado = _sin_db(monkeypatch)
+    r = svc.upsert_destino_mae(" 805 ", " f062 ", actor="A@x.com",
+                               descripcion=" Fondo Retorno ")
+    assert r == {"cc": "805", "codigo": "F062", "descripcion": "Fondo Retorno"}
+    assert capturado["cod"] == "F062"
+    with pytest.raises(ValueError):
+        svc.upsert_destino_mae("", "F062", actor="a@x.com")
+    with pytest.raises(ValueError):
+        svc.upsert_destino_mae("805", "  ", actor="a@x.com")
+
+
+def test_upsert_destino_mae_descripcion_automatica(monkeypatch):
+    # Sin descripción, el nombre sale de clientes.contrapartes (los fondos
+    # ya viven ahí) — no se tipea a mano.
+    _sin_db(monkeypatch, q_rows=[{"contraparte": "FIMA PREMIUM"}])
+    r = svc.upsert_destino_mae("805", "F062", actor="a@x.com")
+    assert r["descripcion"] == "FIMA PREMIUM"
+    # Cuenta que no está en contrapartes → queda sin descripción.
+    _sin_db(monkeypatch, q_rows=[])
+    r = svc.upsert_destino_mae("999", "S010", actor="a@x.com")
+    assert r["descripcion"] is None
+
+
+def test_quitar_destino_mae_exige_cc(monkeypatch):
+    _sin_db(monkeypatch)
+    assert svc.quitar_destino_mae("805", actor="a@x.com") == {"borrado": 1}
+    with pytest.raises(ValueError):
+        svc.quitar_destino_mae(" ", actor="a@x.com")
+
+
 # ── marcas de edición (el amarillo que se pintaba a mano) ───────────────────
 
 def test_diff_campos_detecta_lo_tocado():

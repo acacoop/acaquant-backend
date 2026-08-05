@@ -39,12 +39,12 @@ pintaba a mano en la planilla vieja, y son PERSISTENTES:
 Se calculan en editar_op comparando before/after de los campos persistidos —
 no dependen de lo que mande el front (que suele echoar la fila entera).
 
-Destino MAE (2026-08-05, base del futuro Excel MAE): el MAE identifica cada
-destino con un código propio. Agente externo: AAAOO en
-senebis_agentes.codigo_mae (convive con el número BYMA/Quantex). Cuenta
-interna: el código es un ATRIBUTO de la contraparte y vive en
-clientes.contrapartes.codigo_mae (FXXX fondo / C+CUIT comitente / SXXX
-aseguradora), editable en Manager → CONTRAPARTES.
+Destino MAE (2026-08-05, base del Excel MAE): el MAE identifica cada destino
+con un código. En la base vive SOLO EL NÚMERO — la letra la pone el sistema
+según la orden (_destino_con_letra): interno → F (fondo), externo → A
+(agente). Agente externo: senebis_agentes.codigo_mae (convive con el número
+BYMA/Quantex). Cuenta interna: es un ATRIBUTO de la contraparte,
+clientes.contrapartes.codigo_mae, editable en Manager → CONTRAPARTES.
 
 Excel MAE (2026-08-05): tab EXCEL MAE espejo del archivo del MAE — SOLO
 pendientes es_mae (misma lógica temporal que Quantex; "cargan ellos" también
@@ -880,11 +880,24 @@ def _filas_mae(ordenes: list[dict]) -> list[dict]:
                   key=lambda o: o["id"])
 
 
+def _destino_con_letra(codigo: str | None, tipo_contraparte: str) -> str | None:
+    """La LETRA del destino la pone el SISTEMA según la orden — el usuario
+    carga solo el NÚMERO (ej. '062'): interno → F (fondo, el flujo grande),
+    externo → A (agente). Si lo cargado no es puramente numérico se respeta
+    tal cual (deja pasar C+CUIT / SXXX hasta afinar esa distinción)."""
+    s = str(codigo or "").strip()
+    if not s:
+        return None
+    if not s.isdigit():
+        return s
+    return ("A" if tipo_contraparte == "externo" else "F") + s
+
+
 def _destinos_mae(ordenes: list[dict]) -> dict[int, str | None]:
     """DESTINO por orden, resuelto EN VIVO contra la base (2 queries batch):
-        interno → clientes.contrapartes.codigo_mae por la cc
-                  (FXXX fondo / C+CUIT comitente / SXXX aseguradora)
-        externo → senebis_agentes.codigo_mae por el nombre del agente (AAAOO)
+        interno → clientes.contrapartes.codigo_mae por la cc → 'F' + número
+        externo → senebis_agentes.codigo_mae por el nombre  → 'A' + número
+    (la letra la agrega _destino_con_letra; en la base vive solo el número).
     Sin código cargado → None (celda vacía y marca en el espejo: se completa
     en Manager → CONTRAPARTES o en el catálogo de agentes, no acá)."""
     ccs = sorted({o["cc"] for o in ordenes
@@ -901,9 +914,10 @@ def _destinos_mae(ordenes: list[dict]) -> dict[int, str | None]:
         por_agente = {r["nombre"]: r["codigo_mae"] for r in _q(
             "SELECT nombre, codigo_mae FROM operaciones.senebis_agentes "
             "WHERE nombre = ANY(%(ags)s)", {"ags": agentes})}
-    return {o["id"]: (por_agente.get(o["agente"])
-                      if o["tipo_contraparte"] == "externo"
-                      else por_cc.get(o["cc"]))
+    return {o["id"]: _destino_con_letra(
+                por_agente.get(o["agente"]) if o["tipo_contraparte"] == "externo"
+                else por_cc.get(o["cc"]),
+                o["tipo_contraparte"])
             for o in ordenes}
 
 

@@ -196,11 +196,11 @@ CREATE TABLE IF NOT EXISTS clientes.contrapartes (
     id_cuenta       text PRIMARY KEY,        -- en Mongo: CashFlow.Contrapartes.cuenta
     contraparte     text,                    -- nombre
     segmento        text,                    -- grupo (Fondos, ALYC, ...)
-    -- Código del DESTINO en el MAE (2026-08-05): FXXX fondo (el flujo grande),
-    -- CXXXXXXXXXXX CUIT del comitente, SXXX aseguradora. Es un atributo de la
-    -- contraparte (como nombre/segmento), editable en Manager → CONTRAPARTES.
-    -- El futuro Excel MAE de SENEBIS resuelve DESTINO en vivo: cc de la orden
-    -- → id_cuenta → codigo_mae. No es derivable: lo asigna el MAE.
+    -- Nº del DESTINO en el MAE (2026-08-05) — SOLO el número (ej. '062'): la
+    -- letra la agrega el sistema según la orden (interno → 'F' fondo). Es un
+    -- atributo de la contraparte (como nombre/segmento), editable en Manager →
+    -- CONTRAPARTES. El Excel MAE de SENEBIS resuelve DESTINO en vivo: cc de la
+    -- orden → id_cuenta → codigo_mae. No es derivable: lo asigna el MAE.
     codigo_mae      text,
     origen          text,                    -- "manual" | "reconciler"
     actualizado_por text,
@@ -726,8 +726,8 @@ END $$;
 CREATE TABLE IF NOT EXISTS operaciones.senebis_agentes (
     nombre          text PRIMARY KEY,
     numero          text NOT NULL,
-    -- Código MAE del agente (formato AAAOO: agente + operador) — va a la
-    -- columna DESTINO del futuro Excel MAE. Convive con `numero` (BYMA/Quantex).
+    -- Nº MAE del agente — SOLO el número: la letra 'A' la agrega el sistema
+    -- al armar el DESTINO del Excel MAE. Convive con `numero` (BYMA/Quantex).
     codigo_mae      text,
     creado_por      text,
     creado_at       timestamptz,

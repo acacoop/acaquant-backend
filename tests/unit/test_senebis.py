@@ -370,19 +370,30 @@ def test_filas_mae_solo_pendientes_mae():
     assert [o["id"] for o in svc._filas_mae([normal, completada, cargan, mae])] == [1]
 
 
+def test_destino_con_letra_automatica():
+    # El usuario carga SOLO el número: la letra la pone el sistema según la
+    # orden — interno → F (fondo), externo → A (agente).
+    assert svc._destino_con_letra("062", "interno") == "F062"
+    assert svc._destino_con_letra("733", "externo") == "A733"
+    # Si lo cargado ya trae letra (C+CUIT, SXXX), se respeta tal cual.
+    assert svc._destino_con_letra("S010", "interno") == "S010"
+    assert svc._destino_con_letra(None, "interno") is None
+    assert svc._destino_con_letra("  ", "externo") is None
+
+
 def test_destinos_mae_resuelve_por_tipo(monkeypatch):
-    # interno → contrapartes.codigo_mae por cc; externo → agente (AAAOO).
+    # En la base vive solo el NÚMERO; acá sale con la letra ya puesta.
     def _q_fake(sql, params=None):
         if "clientes.contrapartes" in sql:
-            return [{"id_cuenta": "219", "codigo_mae": "F062"}]
-        return [{"nombre": "COCOS", "codigo_mae": "ABC01"}]
+            return [{"id_cuenta": "219", "codigo_mae": "062"}]
+        return [{"nombre": "COCOS", "codigo_mae": "733"}]
     monkeypatch.setattr(svc, "_q", _q_fake)
     interno = {**_FILA, "id": 1, "es_mae": True}                     # cc=219
     externo = {**_FILA, "id": 2, "es_mae": True,
                "tipo_contraparte": "externo", "agente": "COCOS", "cc": None}
     sin_codigo = {**_FILA, "id": 3, "es_mae": True, "cc": "999"}
     d = svc._destinos_mae([interno, externo, sin_codigo])
-    assert d == {1: "F062", 2: "ABC01", 3: None}
+    assert d == {1: "F062", 2: "A733", 3: None}
 
 
 def test_excel_mae_preview_marca_sin_destino(monkeypatch):

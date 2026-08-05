@@ -253,7 +253,7 @@ class _AgentePayload(BaseModel):
                         description="número de agente del sistema destino")
     # Vacío NO pisa el código ya cargado (el catálogo se completa de a poco).
     codigo_mae: str | None = Field(None, max_length=32,
-                                   description="código MAE del agente (AAAOO) — DESTINO del Excel MAE")
+                                   description="Nº MAE del agente (solo el número — la 'A' la pone el sistema)")
 
 
 @router.put("/agentes")

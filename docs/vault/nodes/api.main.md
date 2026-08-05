@@ -56,6 +56,7 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.routers.research_fred]]  ·  _module_
 - [[api.routers.risk]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
+- [[api.routers.senebis]]  ·  _module_
 - [[api.routers.titulos]]  ·  _module_
 - [[api.routers.trading]]  ·  _module_
 - [[api.routers.valuaciones]]  ·  _module_

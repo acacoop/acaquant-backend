@@ -1,0 +1,132 @@
+"""Router SENEBIS — /api/back-office/senebis (vista BACK OFFICE → SENEBIS).
+
+Órdenes que los TRADERS cargan para que el BACK OFFICE las procese afuera y
+las marque 'completada'. Gate: módulo `back-office` (se monta en api/main.py
+con _BACK_OFFICE — traders y back office lo tienen en la matriz).
+
+GET /ops además marca presencia del caller — el polling de la lista es el
+heartbeat; la respuesta trae `conectados` para que el equipo vea quién está
+en la vista y no se pisen. Thin HTTP plumbing: la lógica vive en
+api/services/senebis.py.
+"""
+from __future__ import annotations
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
+
+from api.auth import get_user_email
+from api.services import senebis as _svc
+
+router = APIRouter(prefix="/api/back-office/senebis", tags=["Senebis"])
+
+
+# ── Lectura ──────────────────────────────────────────────────────────────────
+
+@router.get("/ops")
+def listar_ops(
+    desde: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    hasta: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    estado: str | None = Query(None, description="pendiente | completada"),
+    especie: str | None = Query(None, description="filtro por especie (contiene)"),
+    actor: str = Depends(get_user_email),
+) -> dict:
+    """Lista de órdenes + `conectados` (presencia). Pollear esto mantiene vivo
+    el heartbeat del caller."""
+    try:
+        return _svc.listar_ops(desde=desde, hasta=hasta, estado=estado,
+                               especie=especie, email=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.post("/presencia")
+def presencia(actor: str = Depends(get_user_email)) -> dict:
+    """Heartbeat explícito (opcional — GET /ops ya marca presencia)."""
+    _svc.marcar_presencia(actor)
+    return {"conectados": _svc.conectados()}
+
+
+@router.get("/export")
+def export(
+    desde: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    hasta: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    estado: str | None = Query(None, description="pendiente | completada"),
+    _actor: str = Depends(get_user_email),
+) -> Response:
+    """Descarga el .xlsx que se carga en el sistema destino (ID · OPERACION ·
+    INSTRUMENTO · PLAZO · PRECIO · CANTIDAD · CONTRAPARTE · COMITENTE ·
+    CARTERA PROPIA · MERCADO)."""
+    try:
+        contenido, nombre = _svc.export_xlsx(desde=desde, hasta=hasta, estado=estado)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except RuntimeError as e:  # openpyxl no instalado en el venv
+        raise HTTPException(501, str(e)) from e
+    return Response(
+        content=contenido,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
+
+
+# ── Escritura ────────────────────────────────────────────────────────────────
+
+class _OpPayload(BaseModel):
+    operacion: str = Field(..., min_length=1, max_length=16, description="COMPRA | VENTA")
+    # Default HOY (lo pone el service, timezone ART).
+    concertacion: str | None = Field(None, min_length=10, max_length=10, description="YYYY-MM-DD")
+    # plazo ↔ liquidacion se infieren entre sí server-side (CI = mismo día,
+    # 24 = próximo hábil); mandar cualquiera de los dos alcanza.
+    liquidacion: str | None = Field(None, min_length=10, max_length=10, description="YYYY-MM-DD")
+    plazo: str | None = Field(None, max_length=8, description="CI | 24")
+    especie: str = Field(..., min_length=1, max_length=64)
+    vn: float | None = None
+    px: float | None = Field(None, description="precio cada 100 VN")
+    # Derivado server-side (vn × px / 100); mandarlo explícito lo pisa.
+    monto: float | None = None
+    cp: str | None = Field(None, max_length=32, description="cartera propia (default 255)")
+    cc: str | None = Field(None, max_length=128, description="cuenta comitente (texto o número)")
+    contraparte: str | None = Field(None, max_length=128)
+    nro_contraparte: str | None = Field(None, max_length=64)
+    mercado: str | None = Field(None, max_length=64, description="GARANTIZADO | NO GARANTIZADO | vacío")
+    cargan_ellos: str | None = Field(None, max_length=256, description="observación libre")
+    tipo: str | None = Field(None, max_length=256, description="observación libre")
+
+
+@router.post("/ops")
+def crear_op(req: _OpPayload = Body(...), actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc.crear_op(req.model_dump(), actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.patch("/ops/{op_id}")
+def editar_op(op_id: int, req: _OpPayload = Body(...),
+              actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc.editar_op(op_id, req.model_dump(), actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/ops/{op_id}")
+def borrar_op(op_id: int, actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc.borrar_op(op_id, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+class _EstadoPayload(BaseModel):
+    estado: str = Field(..., description="pendiente | completada")
+
+
+@router.post("/ops/{op_id}/estado")
+def set_estado(op_id: int, req: _EstadoPayload = Body(...),
+               actor: str = Depends(get_user_email)) -> dict:
+    """El back office marca la orden 'completada' (o la vuelve a 'pendiente')."""
+    try:
+        return _svc.set_estado(op_id, req.estado, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e

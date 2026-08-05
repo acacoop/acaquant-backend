@@ -52,6 +52,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.research_docs]]  ·  _module_
 - [[api.routers.research_fred]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
+- [[api.routers.senebis]]  ·  _module_
 - [[api.routers.trading]]  ·  _module_
 - [[api.routers.valuaciones]]  ·  _module_
 - [[api.services.acreencias]]  ·  _module_

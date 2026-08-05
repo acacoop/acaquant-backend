@@ -51,6 +51,7 @@ from api.routers import (
     research_fred,
     risk,
     scanner,
+    senebis,
     titulos,
     trading,
     valuaciones,
@@ -278,6 +279,7 @@ app.include_router(market.router,            dependencies=_PUBLIC)
 app.include_router(derivados_agro.router,    dependencies=_PUBLIC)
 app.include_router(derivados_sinteticos.router, dependencies=_PUBLIC)
 app.include_router(back_office.router,        dependencies=_BACK_OFFICE)
+app.include_router(senebis.router,            dependencies=_BACK_OFFICE)  # SENEBIS: órdenes trader → back office
 app.include_router(scanner.router,            dependencies=_PUBLIC)
 app.include_router(research1816.router,       dependencies=_PUBLIC)  # vista RESEARCH (gate módulo `research` en el router) — docs/VISTA_RESEARCH.md
 app.include_router(research_bcra.router,      dependencies=_PUBLIC)  # tab BCRA de Research (gate módulo `research` en el router) — docs/RESEARCH_BCRA.md

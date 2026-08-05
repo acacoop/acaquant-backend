@@ -45,4 +45,5 @@ _(pendiente de enriquecimiento)_
 - [[api.services.portfolio_sql]]  ·  _module_
 - [[api.services.rem_sql]]  ·  _module_
 - [[api.services.renta_fija_sql]]  ·  _module_
+- [[api.services.senebis]]  ·  _module_
 - [[api.services.valuaciones_sql]]  ·  _module_

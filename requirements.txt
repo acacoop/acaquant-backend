@@ -11,6 +11,7 @@ pandas==2.3.3
 numpy==2.4.3
 scipy==1.17.1
 xlrd==2.0.2  # lectura de .xls legacy (informe ACA Valores Retorno) — scripts/import_acavalores_retorno.py
+openpyxl==3.1.5  # escritura de .xlsx — export de SENEBIS (api/services/senebis.py)
 psycopg[binary]  # driver Postgres (Supabase, capa relacional). Re-pinear con lock_deps tras instalar.
 psycopg-pool  # pool de conexiones para la API (core.postgres.get_pool)
 python-dotenv==1.2.2

@@ -85,6 +85,7 @@
 "api.routers.research_fred",
 "api.routers.risk",
 "api.routers.scanner",
+"api.routers.senebis",
 "api.routers.titulos",
 "api.routers.trading",
 "api.routers.valuaciones",
@@ -1005,6 +1006,19 @@
 "api.services.day_trading",
 "api.services.scanner",
 "api.services.scanner_sql"
+]
+},
+{
+"id": "api.routers.senebis",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/senebis.py",
+"summary": "Router SENEBIS — /api/back-office/senebis (vista BACK OFFICE → SENEBIS).",
+"links": [
+"api.auth",
+"api.services",
+"api.services.senebis"
 ]
 },
 {
@@ -2610,6 +2624,19 @@
 "links": [
 "core.postgres",
 "db.CashFlow.Productores"
+]
+},
+{
+"id": "api.services.senebis",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/senebis.py",
+"summary": "api/services/senebis.py — SENEBIS (vista BACK OFFICE → SENEBIS).",
+"links": [
+"api.services._sql",
+"core.calendario",
+"core.postgres"
 ]
 },
 {

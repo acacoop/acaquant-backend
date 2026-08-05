@@ -21,6 +21,7 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.services.renta_fija_sql]]  ·  _module_
+- [[api.services.senebis]]  ·  _module_
 - [[engines.breakevens]]  ·  _module_
 - [[engines.caucion]]  ·  _module_
 - [[engines.curvas]]  ·  _module_

@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-199 notas.
+201 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -72,6 +72,7 @@
 - [[api.routers.research_fred]] — Router /api/research-fred — tab "Datos Internacionales" (FRED) de Research.
 - [[api.routers.risk]] — Router /api/risk — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.routers.scanner]] — Router /api/scanner — vista Scanner del módulo Renta Variable.
+- [[api.routers.senebis]] — Router SENEBIS — /api/back-office/senebis (vista BACK OFFICE → SENEBIS).
 - [[api.routers.titulos]] — Router Titulos: assets + flujos, DIRECTO desde las fuentes (Valuaciones.Assets
 - [[api.routers.trading]] — Router /api/trading — vista TRADING (módulo `trading`, admin-only).
 - [[api.routers.valuaciones]] — Router /api/valuaciones — performance e historia por cuenta.
@@ -191,6 +192,7 @@
 - [[api.services.scanner]] — api/services/scanner.py — vista Scanner del módulo Renta Variable.
 - [[api.services.scanner_sql]] — api/services/scanner_sql.py — vista Scanner (Renta Variable) leyendo Postgres.
 - [[api.services.segmentacion]] — Clasificación patrimonial de clientes (escribe a `Clientes.Comitentes.nivel_3`).
+- [[api.services.senebis]] — api/services/senebis.py — SENEBIS (vista BACK OFFICE → SENEBIS).
 - [[api.services.sensibilidad]] — Análisis de sensibilidad de retorno total a escenarios de TIR.
 - [[api.services.sin_operador]] — Cuentas sin operador asignado — el bucket "(sin operador)" del ranking comercial.
 - [[api.services.sinteticos]] — Sintéticos — combinaciones LECAP/DLK + futuro DLR.

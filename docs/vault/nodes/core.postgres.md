@@ -89,6 +89,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.scanner]]  ·  _module_
 - [[api.services.scanner_sql]]  ·  _module_
 - [[api.services.segmentacion]]  ·  _module_
+- [[api.services.senebis]]  ·  _module_
 - [[api.services.sin_operador]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
 - [[api.services.tenencia_hd]]  ·  _module_

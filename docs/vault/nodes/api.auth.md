@@ -58,4 +58,5 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 - [[api.routers.research_fred]]  ·  _module_
 - [[api.routers.risk]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
+- [[api.routers.senebis]]  ·  _module_
 - [[api.services._grupos_scope]]  ·  _module_

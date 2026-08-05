@@ -11,10 +11,16 @@ sabe cuál aplica de verdad.
 
 La matriz de roles se lee VIVA de Postgres (`core.roles.get_matrix`), que es la
 que edita el admin en /manager → ROLES Y PERMISOS. Si la DB no responde, cae a
-DEFAULT_MATRIX y lo avisa.
+DEFAULT_MATRIX y lo avisa. El rol `invitado` es la excepción: NO vive en la
+matriz editable sino en `INVITADO_MODULES` (código) — el portal www se define
+por el header, no por el rol del email (REGLA #8).
+
+LIMITACIÓN: soló ve gates declarados como dependency. Un chequeo hecho DENTRO
+del handler es invisible acá — por eso los permisos se declaran con `Depends`.
 
     python -m scripts.audit_rbac                    # todo
     python -m scripts.audit_rbac --rol back_office  # a qué llega ese rol
+    python -m scripts.audit_rbac --rol invitado     # qué alcanza www.acaquant.com
     python -m scripts.audit_rbac --modulo senebis   # endpoints de un módulo
     python -m scripts.audit_rbac --sin-gate         # SOLO lo abierto (lo que importa)
     python -m scripts.audit_rbac --escrituras       # POST/PATCH/PUT/DELETE
@@ -42,15 +48,23 @@ class Ruta:
     modulos: tuple[str, ...]      # módulos que habilitan (OR); () = sin gate de módulo
     gate_duro: str | None
     bearer: bool
+    token_ingesta: bool
     bloquea_invitado: bool
+    extras: tuple[str, ...]       # gates adicionales (allowlists per-usuario)
 
     @property
     def gate(self) -> str:
         if self.gate_duro:
-            return GATES_DUROS[self.gate_duro]
-        if self.modulos:
-            return " | ".join(self.modulos)
-        return "— SIN GATE DE MÓDULO —"
+            base = GATES_DUROS[self.gate_duro]
+        elif self.modulos:
+            base = " | ".join(self.modulos)
+        elif self.token_ingesta:
+            base = "TOKEN DE INGESTA (X-Ingest-Token)"
+        else:
+            base = "— SIN GATE DE MÓDULO —"
+        if self.extras:
+            base += " + " + " + ".join(self.extras)
+        return base
 
 
 def _deps(route) -> list:
@@ -85,13 +99,23 @@ def _rutas() -> list[Ruta]:
                 modulos = tuple(mods)
                 break
         duro = next((n for n in nombres if n in GATES_DUROS), None)
+        # Cualquier otro require_* declarado a mano (allowlists per-usuario).
+        extras = tuple(sorted(
+            n for n in nombres
+            if n.startswith("require_") and n not in GATES_DUROS
+            and not n.startswith(("require_module_", "require_any_module_"))
+            and n != "require_no_invitado"
+        ))
+        ingesta = "verify_ingest_token" in nombres
         rutas.append(Ruta(
             path=path,
             methods=sorted(methods),
             modulos=modulos,
             gate_duro=duro,
-            bearer="verify_api_key" in nombres or "verify_ingest_token" in nombres,
+            bearer="verify_api_key" in nombres,
+            token_ingesta=ingesta,
             bloquea_invitado="require_no_invitado" in nombres,
+            extras=extras,
         ))
     return sorted(rutas, key=lambda x: x.path)
 
@@ -108,10 +132,14 @@ def _matriz() -> dict[str, tuple[str, ...]]:
 
 
 def _alcanza(r: Ruta, rol: str, modulos_rol: tuple[str, ...]) -> bool:
+    if r.token_ingesta:
+        return False  # auth propia, no depende del rol
     if r.gate_duro == "require_admin":
         return rol == "admin"
     if r.gate_duro == "require_control_comercial":
         return False  # es por usuario, no por rol — no se puede saber acá
+    if rol == "invitado" and r.bloquea_invitado:
+        return False
     if not r.modulos:
         return True   # sin gate de módulo: lo alcanza cualquiera autenticado
     return any(m in modulos_rol for m in r.modulos)
@@ -127,6 +155,10 @@ def main() -> None:
 
     rutas = _rutas()
     matriz = _matriz()
+    # El invitado NO está en la matriz editable: se define por el header del
+    # portal www y sus módulos son la constante INVITADO_MODULES (REGLA #8).
+    from core.roles import INVITADO_MODULES
+    matriz.setdefault("invitado", tuple(INVITADO_MODULES))
 
     if args.rol:
         if args.rol not in matriz:
@@ -134,12 +166,11 @@ def main() -> None:
             return
         mods = tuple(matriz[args.rol])
         rutas = [r for r in rutas if _alcanza(r, args.rol, mods)]
-        if args.rol == "invitado":
-            rutas = [r for r in rutas if not r.bloquea_invitado]
     if args.modulo:
         rutas = [r for r in rutas if args.modulo in r.modulos]
     if args.sin_gate:
-        rutas = [r for r in rutas if not r.modulos and not r.gate_duro]
+        rutas = [r for r in rutas if not r.modulos and not r.gate_duro
+                 and not r.token_ingesta]
     if args.escrituras:
         rutas = [r for r in rutas if set(r.methods) & ESCRITURAS]
 
@@ -156,17 +187,19 @@ def main() -> None:
     print(f"{'MÉTODOS':<22} {'PATH':<52} GATE")
     print("-" * 110)
     for r in rutas:
-        marca = "" if r.bearer else "  ⚠ SIN BEARER"
+        marca = "" if (r.bearer or r.token_ingesta) else "  ⚠ SIN BEARER"
         guard = "  [no-invitado]" if r.bloquea_invitado else ""
         print(f"{','.join(r.methods):<22} {r.path:<52} {r.gate}{guard}{marca}")
 
     if not args.rol and not args.modulo:
         abiertas = [r for r in rutas if not r.modulos and not r.gate_duro
-                    and r.path.startswith("/api/")]
+                    and not r.token_ingesta and r.path.startswith("/api/")]
         print("\n" + "=" * 110)
         print(f"Rutas /api/* sin gate de módulo: {len(abiertas)} "
               "(revisar que sean públicas a propósito — health, /api/me, mercado abierto)")
-        print("Roles en la matriz: " + ", ".join(sorted(matriz)))
+        print("Roles: " + ", ".join(sorted(matriz)))
+        print("OJO: solo se ven gates declarados con Depends() — un chequeo dentro "
+              "del handler no aparece acá.")
 
 
 if __name__ == "__main__":

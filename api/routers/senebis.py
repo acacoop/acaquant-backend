@@ -20,22 +20,20 @@ from __future__ import annotations
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
-from api.auth import get_user_email
+from api.auth import get_user_email, require_admin
 from api.services import senebis as _svc
 
 router = APIRouter(prefix="/api/back-office/senebis", tags=["Senebis"])
 
 
-def _exigir_escritura(actor: str) -> None:
+# Dependency (no chequeo dentro del handler) para que la auditoría de superficie
+# lo vea: scripts/audit_rbac.py lee el árbol de deps, no el cuerpo de la función.
+def require_escritura_senebis(actor: str = Depends(get_user_email)) -> str:
     if not _svc.puede_escribir(actor):
         raise HTTPException(
             403, "sin permiso para cargar órdenes SENEBIS (misma allowlist "
                  "que Mesa de Dinero — se gestiona en Manager → MESA)")
-
-
-def _exigir_admin(actor: str) -> None:
-    if not _svc.es_admin(actor):
-        raise HTTPException(403, "mover la secuencia de IDs es solo para admin")
+    return actor
 
 
 # ── Lectura ──────────────────────────────────────────────────────────────────
@@ -149,28 +147,25 @@ class _OpPayload(BaseModel):
     es_mae: bool = False
 
 
-@router.post("/ops")
+@router.post("/ops", dependencies=[Depends(require_escritura_senebis)])
 def crear_op(req: _OpPayload = Body(...), actor: str = Depends(get_user_email)) -> dict:
-    _exigir_escritura(actor)
     try:
         return _svc.crear_op(req.model_dump(), actor=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
 
-@router.patch("/ops/{op_id}")
+@router.patch("/ops/{op_id}", dependencies=[Depends(require_escritura_senebis)])
 def editar_op(op_id: int, req: _OpPayload = Body(...),
               actor: str = Depends(get_user_email)) -> dict:
-    _exigir_escritura(actor)
     try:
         return _svc.editar_op(op_id, req.model_dump(), actor=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
 
-@router.delete("/ops/{op_id}")
+@router.delete("/ops/{op_id}", dependencies=[Depends(require_escritura_senebis)])
 def borrar_op(op_id: int, actor: str = Depends(get_user_email)) -> dict:
-    _exigir_escritura(actor)
     try:
         return _svc.borrar_op(op_id, actor=actor)
     except ValueError as e:
@@ -203,12 +198,11 @@ class _ProximoIdPayload(BaseModel):
     siguiente: int = Field(..., gt=0, description="próximo ID a asignar (último del Excel viejo + 1)")
 
 
-@router.post("/proximo-id")
+@router.post("/proximo-id", dependencies=[Depends(require_admin)])
 def set_proximo_id(req: _ProximoIdPayload = Body(...),
                    actor: str = Depends(get_user_email)) -> dict:
     """Alinea la secuencia de IDs con la numeración real (Excel viejo/Quantex).
     Solo admin: la secuencia es global y desalinearla afecta a todos."""
-    _exigir_admin(actor)
     try:
         return _svc.set_proximo_id(req.siguiente, actor=actor)
     except ValueError as e:

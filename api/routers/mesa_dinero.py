@@ -19,9 +19,12 @@ from api.services import mesa_dinero as _svc
 router = APIRouter(prefix="/api/mesa-dinero", tags=["Mesa de Dinero"])
 
 
-def _exigir_escritura(actor: str) -> None:
+def require_escritura_mesa(actor: str = Depends(get_user_email)) -> str:
+    """Dependency (no chequeo dentro del handler) para que la auditoría de
+    superficie lo vea: scripts/audit_rbac.py lee el árbol de deps."""
     if not _svc.puede_escribir(actor):
         raise HTTPException(403, "sin permiso de escritura en Mesa de Dinero")
+    return actor
 
 
 # ── Lectura ──────────────────────────────────────────────────────────────────
@@ -80,28 +83,25 @@ class _OpPayload(BaseModel):
     observacion: str | None = Field(None, max_length=128)
 
 
-@router.post("/ops")
+@router.post("/ops", dependencies=[Depends(require_escritura_mesa)])
 def crear_op(req: _OpPayload = Body(...), actor: str = Depends(get_user_email)) -> dict:
-    _exigir_escritura(actor)
     try:
         return _svc.crear_op(req.model_dump(), actor=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
 
-@router.patch("/ops/{op_id}")
+@router.patch("/ops/{op_id}", dependencies=[Depends(require_escritura_mesa)])
 def editar_op(op_id: int, req: _OpPayload = Body(...),
               actor: str = Depends(get_user_email)) -> dict:
-    _exigir_escritura(actor)
     try:
         return _svc.editar_op(op_id, req.model_dump(), actor=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
 
-@router.delete("/ops/{op_id}")
+@router.delete("/ops/{op_id}", dependencies=[Depends(require_escritura_mesa)])
 def borrar_op(op_id: int, actor: str = Depends(get_user_email)) -> dict:
-    _exigir_escritura(actor)
     try:
         return _svc.borrar_op(op_id, actor=actor)
     except ValueError as e:
@@ -113,9 +113,8 @@ class _TcPayload(BaseModel):
     tc: float = Field(..., gt=0)
 
 
-@router.put("/tc")
+@router.put("/tc", dependencies=[Depends(require_escritura_mesa)])
 def set_tc(req: _TcPayload = Body(...), actor: str = Depends(get_user_email)) -> dict:
-    _exigir_escritura(actor)
     try:
         return _svc.set_tc(req.fecha, req.tc, actor=actor)
     except ValueError as e:

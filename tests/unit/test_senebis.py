@@ -326,6 +326,73 @@ def test_update_contraparte_codigo_mae(monkeypatch):
     assert "codigo_mae" not in capturado            # None = no tocar
 
 
+# ── Excel MAE (espejo/export de las órdenes es_mae) ──────────────────────────
+
+def test_fila_export_mae_precio_unitario_y_forma():
+    o = {**_FILA, "es_mae": True, "px": 105.110}
+    fila = svc._fila_export_mae(o, "F062")
+    # Operacion capitalizada · Instrumento · Plazo · Moneda ARS · Precio ÷100
+    # (unitario) · Cantidad · Destino · Segmento manual (vacío).
+    assert fila == ["Compra", "TZXM7", "24", "ARS", pytest.approx(1.0511),
+                    500_000_000.0, "F062", None]
+
+
+def test_filas_mae_solo_pendientes_mae():
+    mae = {**_FILA, "id": 1, "es_mae": True}
+    normal = {**_FILA, "id": 2}
+    completada = {**_FILA, "id": 3, "es_mae": True, "estado": "completada"}
+    cargan = {**_FILA, "id": 4, "es_mae": True, "cargan_ellos": True}
+    assert [o["id"] for o in svc._filas_mae([normal, completada, cargan, mae])] == [1]
+
+
+def test_destinos_mae_resuelve_por_tipo(monkeypatch):
+    # interno → contrapartes.codigo_mae por cc; externo → agente (AAAOO).
+    def _q_fake(sql, params=None):
+        if "clientes.contrapartes" in sql:
+            return [{"id_cuenta": "219", "codigo_mae": "F062"}]
+        return [{"nombre": "COCOS", "codigo_mae": "ABC01"}]
+    monkeypatch.setattr(svc, "_q", _q_fake)
+    interno = {**_FILA, "id": 1, "es_mae": True}                     # cc=219
+    externo = {**_FILA, "id": 2, "es_mae": True,
+               "tipo_contraparte": "externo", "agente": "COCOS", "cc": None}
+    sin_codigo = {**_FILA, "id": 3, "es_mae": True, "cc": "999"}
+    d = svc._destinos_mae([interno, externo, sin_codigo])
+    assert d == {1: "F062", 2: "ABC01", 3: None}
+
+
+def test_excel_mae_preview_marca_sin_destino(monkeypatch):
+    mae_ok = {**_FILA, "id": 1, "es_mae": True}
+    mae_sin = {**_FILA, "id": 2, "es_mae": True, "cc": "999"}
+    normal = {**_FILA, "id": 3}
+    monkeypatch.setattr(svc, "listar_ops",
+                        lambda **kw: {"ordenes": [mae_ok, mae_sin, normal],
+                                      "conectados": []})
+    monkeypatch.setattr(svc, "_destinos_mae", lambda ords: {1: "F062", 2: None})
+    prev = svc.excel_mae_preview()
+    assert prev["headers"] == ["Operacion", "Instrumento", "Plazo", "Moneda",
+                               "Precio", "Cantidad", "Destino", "Segmento"]
+    assert [f["id"] for f in prev["filas"]] == [1, 2]   # la no-MAE afuera
+    assert prev["filas"][0]["sin_destino"] is False
+    assert prev["filas"][1]["sin_destino"] is True
+    assert prev["filas"][1]["valores"][6] is None       # DESTINO vacío
+
+
+def test_export_mae_xlsx(monkeypatch):
+    openpyxl = pytest.importorskip("openpyxl")
+    from io import BytesIO
+    mae = {**_FILA, "id": 1, "es_mae": True, "px": 346.1}
+    monkeypatch.setattr(svc, "listar_ops", lambda **kw: {"ordenes": [mae]})
+    monkeypatch.setattr(svc, "_destinos_mae", lambda ords: {1: "F700"})
+    contenido, nombre = svc.export_mae_xlsx()
+    assert nombre.startswith("senebis_mae_") and nombre.endswith(".xlsx")
+    ws = openpyxl.load_workbook(BytesIO(contenido)).active
+    assert [c.value for c in ws[1]] == list(svc._HEADERS_MAE)
+    fila = [c.value for c in ws[2]]
+    assert fila[0] == "Compra" and fila[3] == "ARS"
+    assert fila[4] == pytest.approx(3.461)              # px unitario
+    assert fila[6] == "F700"
+
+
 # ── marcas de edición (el amarillo que se pintaba a mano) ───────────────────
 
 def test_diff_campos_detecta_lo_tocado():

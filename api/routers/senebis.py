@@ -94,6 +94,42 @@ def excel_preview(
         raise HTTPException(400, str(e)) from e
 
 
+@router.get("/excel-mae")
+def excel_mae_preview(
+    desde: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    hasta: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    actor: str = Depends(get_user_email),
+) -> dict:
+    """Espejo en vivo del Excel MAE (tab EXCEL MAE): SOLO pendientes es_mae,
+    DESTINO resuelto en vivo (interno → contrapartes.codigo_mae por cc;
+    externo → senebis_agentes.codigo_mae). Marca presencia del caller."""
+    try:
+        return _svc.excel_mae_preview(desde=desde, hasta=hasta, email=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.get("/export-mae")
+def export_mae(
+    desde: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    hasta: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    _actor: str = Depends(get_user_email),
+) -> Response:
+    """Descarga el .xlsx del MAE (Operacion · Instrumento · Plazo · Moneda ·
+    Precio · Cantidad · Destino · Segmento)."""
+    try:
+        contenido, nombre = _svc.export_mae_xlsx(desde=desde, hasta=hasta)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except RuntimeError as e:  # openpyxl no instalado en el venv
+        raise HTTPException(501, str(e)) from e
+    return Response(
+        content=contenido,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
+
+
 @router.get("/export")
 def export(
     desde: str | None = Query(None, description="YYYY-MM-DD (concertación)"),

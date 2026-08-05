@@ -44,9 +44,17 @@ destino con un código propio. Agente externo: AAAOO en
 senebis_agentes.codigo_mae (convive con el número BYMA/Quantex). Cuenta
 interna: el código es un ATRIBUTO de la contraparte y vive en
 clientes.contrapartes.codigo_mae (FXXX fondo / C+CUIT comitente / SXXX
-aseguradora), editable en Manager → CONTRAPARTES. El Excel MAE (pendiente)
-resolverá DESTINO en vivo: cc de la orden → contrapartes.id_cuenta →
-codigo_mae — el trader no carga nada.
+aseguradora), editable en Manager → CONTRAPARTES.
+
+Excel MAE (2026-08-05): tab EXCEL MAE espejo del archivo del MAE — SOLO
+pendientes es_mae (misma lógica temporal que Quantex; "cargan ellos" también
+queda afuera). Columnas: Operacion · Instrumento · Plazo · Moneda ('ARS' fijo
+hasta que la orden tenga el campo) · Precio (UNITARIO: px÷100) · Cantidad ·
+Destino · Segmento (manual en el archivo). DESTINO se resuelve EN VIVO al
+generar (excel_mae_preview / export_mae_xlsx): interno → cc →
+contrapartes.codigo_mae; externo → agente → senebis_agentes.codigo_mae — el
+trader no carga nada; si falta el código la celda va vacía y el espejo lo
+marca (sin_destino).
 
 Cargan ellos (2026-08-05): flag SI/NO (antes era observación de texto libre).
 SI = la orden la carga la CONTRAPARTE en Quantex → queda FUERA del Excel y
@@ -104,6 +112,13 @@ _CAMPOS_OP = (
 # referencia 2026-08-05): el ID va primero y es la secuencia global de la tabla.
 _HEADERS_XLSX = ("ID", "OPERACION", "INSTRUMENTO", "PLAZO", "PRECIO", "CANTIDAD",
                  "CONTRAPARTE", "COMITENTE", "CARTERA PROPIA", "MERCADO")
+
+# Headers del Excel MAE (imagen de referencia 2026-08-05). Sin ID: el MAE no
+# usa la secuencia Quantex. SEGMENTO se completa a mano en el archivo
+# (Garantizado / Bilateral MAEClear / Bilateral Entre Partes) hasta que la
+# orden tenga el campo.
+_HEADERS_MAE = ("Operacion", "Instrumento", "Plazo", "Moneda", "Precio",
+                "Cantidad", "Destino", "Segmento")
 
 
 def _exec(sql: str, params: dict) -> int:
@@ -800,11 +815,8 @@ def excel_preview(desde: str | None = None, hasta: str | None = None,
     }
 
 
-def export_xlsx(desde: str | None = None, hasta: str | None = None) -> tuple[bytes, str]:
-    """Devuelve (bytes del .xlsx, nombre de archivo), columnas EXACTAS del
-    sistema destino (ID primero), más viejas primero (por ID asc = orden de
-    carga). SOLO pendientes no-MAE que no carguen ellos (_filas_quantex) — el
-    archivo se sube varias veces por día y lo completado ya está cargado."""
+def _armar_xlsx(headers: tuple, filas: list[list], titulo: str, anchos: tuple) -> bytes:
+    """Workbook estándar de los exports senebis: header azul, freeze, anchos."""
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill
@@ -812,31 +824,118 @@ def export_xlsx(desde: str | None = None, hasta: str | None = None) -> tuple[byt
         raise RuntimeError(
             "openpyxl no está instalado — correr `pip install -r requirements.txt` "
             "en el venv del Droplet") from e
-
-    data = listar_ops(desde=desde, hasta=hasta)
-    ordenes = _filas_quantex(data["ordenes"])
-
     wb = Workbook()
     ws = wb.active
-    ws.title = "SENEBIS"
+    ws.title = titulo
     header_font = Font(bold=True, color="FFFFFF")
     header_fill = PatternFill("solid", fgColor="1F4E79")
-    for col, titulo in enumerate(_HEADERS_XLSX, start=1):
-        cell = ws.cell(row=1, column=col, value=titulo)
+    for col, h in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col, value=h)
         cell.font = header_font
         cell.fill = header_fill
     ws.freeze_panes = "A2"
-
-    for i, o in enumerate(ordenes, start=2):
-        for col, valor in enumerate(_fila_export(o), start=1):
+    for i, valores in enumerate(filas, start=2):
+        for col, valor in enumerate(valores, start=1):
             ws.cell(row=i, column=col, value=valor)
-
-    # Anchos razonables para abrir y leer sin acomodar nada.
-    anchos = (8, 12, 14, 8, 14, 16, 16, 14, 15, 18)
     for col, ancho in enumerate(anchos, start=1):
         ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = ancho
-
     buf = BytesIO()
     wb.save(buf)
+    return buf.getvalue()
+
+
+def export_xlsx(desde: str | None = None, hasta: str | None = None) -> tuple[bytes, str]:
+    """Devuelve (bytes del .xlsx, nombre de archivo), columnas EXACTAS del
+    sistema destino (ID primero), más viejas primero (por ID asc = orden de
+    carga). SOLO pendientes no-MAE que no carguen ellos (_filas_quantex) — el
+    archivo se sube varias veces por día y lo completado ya está cargado."""
+    data = listar_ops(desde=desde, hasta=hasta)
+    ordenes = _filas_quantex(data["ordenes"])
+    contenido = _armar_xlsx(
+        _HEADERS_XLSX, [_fila_export(o) for o in ordenes], "SENEBIS",
+        anchos=(8, 12, 14, 8, 14, 16, 16, 14, 15, 18))
     hoy = datetime.now(_TZ_AR).strftime("%Y%m%d")
-    return buf.getvalue(), f"senebis_{hoy}.xlsx"
+    return contenido, f"senebis_{hoy}.xlsx"
+
+
+# ─────────────────────────────────────────────────────────────
+# Excel MAE (las órdenes es_mae, que NO van a Quantex)
+# ─────────────────────────────────────────────────────────────
+
+def _filas_mae(ordenes: list[dict]) -> list[dict]:
+    """Qué entra al Excel MAE (espejo Y archivo): SOLO 'pendiente' + es_mae,
+    y que no carguen ellos. Misma lógica temporal que Quantex: lo completado
+    ya está cargado en el MAE."""
+    return sorted((o for o in ordenes if o["estado"] == "pendiente"
+                   and o["es_mae"] and not o["cargan_ellos"]),
+                  key=lambda o: o["id"])
+
+
+def _destinos_mae(ordenes: list[dict]) -> dict[int, str | None]:
+    """DESTINO por orden, resuelto EN VIVO contra la base (2 queries batch):
+        interno → clientes.contrapartes.codigo_mae por la cc
+                  (FXXX fondo / C+CUIT comitente / SXXX aseguradora)
+        externo → senebis_agentes.codigo_mae por el nombre del agente (AAAOO)
+    Sin código cargado → None (celda vacía y marca en el espejo: se completa
+    en Manager → CONTRAPARTES o en el catálogo de agentes, no acá)."""
+    ccs = sorted({o["cc"] for o in ordenes
+                  if o["tipo_contraparte"] == "interno" and o["cc"]})
+    agentes = sorted({o["agente"] for o in ordenes
+                      if o["tipo_contraparte"] == "externo" and o["agente"]})
+    por_cc: dict = {}
+    if ccs:
+        por_cc = {r["id_cuenta"]: r["codigo_mae"] for r in _q(
+            "SELECT id_cuenta, codigo_mae FROM clientes.contrapartes "
+            "WHERE id_cuenta = ANY(%(ccs)s)", {"ccs": ccs})}
+    por_agente: dict = {}
+    if agentes:
+        por_agente = {r["nombre"]: r["codigo_mae"] for r in _q(
+            "SELECT nombre, codigo_mae FROM operaciones.senebis_agentes "
+            "WHERE nombre = ANY(%(ags)s)", {"ags": agentes})}
+    return {o["id"]: (por_agente.get(o["agente"])
+                      if o["tipo_contraparte"] == "externo"
+                      else por_cc.get(o["cc"]))
+            for o in ordenes}
+
+
+def _fila_export_mae(o: dict, destino: str | None) -> list:
+    """Una orden MAE → los 8 valores del Excel MAE.
+    Precio UNITARIO (px viene cada 100 VN → ÷100). MONEDA fija 'ARS' hasta que
+    la orden tenga el campo (pendiente). SEGMENTO va vacío: se completa a mano
+    (Garantizado / Bilateral MAEClear / Bilateral Entre Partes)."""
+    px_unit = (o["px"] / 100) if o["px"] is not None else None
+    return [(o["operacion"] or "").capitalize(), o["especie"], o["plazo"],
+            "ARS", px_unit, o["vn"], destino, None]
+
+
+def excel_mae_preview(desde: str | None = None, hasta: str | None = None,
+                      email: str = "") -> dict:
+    """Espejo EN VIVO del Excel MAE para la tab EXCEL MAE: mismas filas y
+    reglas que export_mae_xlsx. `sin_destino` marca las órdenes cuya
+    contraparte/agente todavía no tiene código MAE cargado."""
+    data = listar_ops(desde=desde, hasta=hasta, email=email)
+    ordenes = _filas_mae(data["ordenes"])
+    destinos = _destinos_mae(ordenes)
+    return {
+        "headers": list(_HEADERS_MAE),
+        "filas": [{"id": o["id"], "estado": o["estado"],
+                   "sin_destino": destinos.get(o["id"]) is None,
+                   "valores": _fila_export_mae(o, destinos.get(o["id"]))}
+                  for o in ordenes],
+        "conectados": data["conectados"],
+    }
+
+
+def export_mae_xlsx(desde: str | None = None, hasta: str | None = None) -> tuple[bytes, str]:
+    """El .xlsx del MAE: Operacion · Instrumento · Plazo · Moneda · Precio
+    (unitario) · Cantidad · Destino (resuelto en vivo) · Segmento (manual).
+    SOLO pendientes MAE (_filas_mae)."""
+    data = listar_ops(desde=desde, hasta=hasta)
+    ordenes = _filas_mae(data["ordenes"])
+    destinos = _destinos_mae(ordenes)
+    contenido = _armar_xlsx(
+        _HEADERS_MAE,
+        [_fila_export_mae(o, destinos.get(o["id"])) for o in ordenes],
+        "SENEBIS MAE", anchos=(12, 14, 8, 10, 12, 16, 14, 22))
+    hoy = datetime.now(_TZ_AR).strftime("%Y%m%d")
+    return contenido, f"senebis_mae_{hoy}.xlsx"

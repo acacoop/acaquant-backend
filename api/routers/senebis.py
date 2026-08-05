@@ -33,6 +33,11 @@ def _exigir_escritura(actor: str) -> None:
                  "que Mesa de Dinero — se gestiona en Manager → MESA)")
 
 
+def _exigir_admin(actor: str) -> None:
+    if not _svc.es_admin(actor):
+        raise HTTPException(403, "mover la secuencia de IDs es solo para admin")
+
+
 # ── Lectura ──────────────────────────────────────────────────────────────────
 
 @router.get("/ops")
@@ -183,6 +188,17 @@ def limpiar_marcas(op_id: int, actor: str = Depends(get_user_email)) -> dict:
         raise HTTPException(400, str(e)) from e
 
 
+@router.post("/ops/{op_id}/reasignar-id")
+def reasignar_id(op_id: int, actor: str = Depends(get_user_email)) -> dict:
+    """Le da a la orden el siguiente ID libre y quema el anterior — para cuando
+    Quantex ya consumió el número y la carga falló por mercado. Trabajo del
+    back office (todo el módulo), como marcar el estado."""
+    try:
+        return _svc.reasignar_id(op_id, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 class _ProximoIdPayload(BaseModel):
     siguiente: int = Field(..., gt=0, description="próximo ID a asignar (último del Excel viejo + 1)")
 
@@ -191,8 +207,8 @@ class _ProximoIdPayload(BaseModel):
 def set_proximo_id(req: _ProximoIdPayload = Body(...),
                    actor: str = Depends(get_user_email)) -> dict:
     """Alinea la secuencia de IDs con la numeración real (Excel viejo/Quantex).
-    Solo escritores + admin; nunca retrocede por debajo del último ID cargado."""
-    _exigir_escritura(actor)
+    Solo admin: la secuencia es global y desalinearla afecta a todos."""
+    _exigir_admin(actor)
     try:
         return _svc.set_proximo_id(req.siguiente, actor=actor)
     except ValueError as e:

@@ -214,7 +214,18 @@ def opciones(email: str = "") -> dict:
         # (+ admin). El front esconde la edición sin esto, pero el enforcement
         # real es server-side en cada write del router.
         "puede_escribir": puede_escribir(email),
+        # Mover la secuencia de IDs es SOLO admin: desalinearla rompe la
+        # numeración que espeja Quantex para todo el mundo.
+        "es_admin": es_admin(email),
     }
+
+
+def es_admin(email: str) -> bool:
+    e = (email or "").lower().strip()
+    if not e:
+        return False
+    from core.roles import get_user_role
+    return get_user_role(e) == "admin"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -616,6 +627,32 @@ def set_proximo_id(siguiente: int, actor: str) -> dict:
     _exec(f"ALTER TABLE operaciones.senebis ALTER COLUMN id RESTART WITH {n}", {})
     _audit(actor, "set_proximo_id", str(n), {"before": before, "after": n})
     return {"proximo_id": n}
+
+
+def reasignar_id(op_id: int, actor: str) -> dict:
+    """Le da a la orden el siguiente ID libre y QUEMA el anterior.
+
+    Quantex consume el número al cargar el archivo, aunque después la orden
+    falle por mercado: reintentar con el mismo ID lo rechaza. El viejo queda
+    muerto a propósito — es exactamente lo que pasó del otro lado. NO se
+    renumera nada más: las otras órdenes ya viajaron con su número.
+    """
+    before = _get_op(op_id)
+    if before["estado"] != "pendiente":
+        raise ValueError(
+            "solo se reasigna el ID de una orden PENDIENTE — la completada ya "
+            "entró en Quantex con su número")
+    max_id = int(_q("SELECT COALESCE(MAX(id), 0) AS m FROM operaciones.senebis")[0]["m"])
+    nuevo = max(proximo_id(), max_id + 1)
+    _exec(
+        "UPDATE operaciones.senebis SET id = %(nuevo)s, actualizado_por = %(por)s, "
+        "actualizado_at = %(at)s WHERE id = %(old)s",
+        {"nuevo": nuevo, "old": op_id, "por": (actor or "").lower() or None,
+         "at": datetime.now(UTC)},
+    )
+    _exec(f"ALTER TABLE operaciones.senebis ALTER COLUMN id RESTART WITH {nuevo + 1}", {})
+    _audit(actor, "reasignar_id", str(op_id), {"before": op_id, "after": nuevo})
+    return _get_op(nuevo)
 
 
 # ─────────────────────────────────────────────────────────────

@@ -326,6 +326,31 @@ def test_update_contraparte_codigo_mae(monkeypatch):
     assert "codigo_mae" not in capturado            # None = no tocar
 
 
+# ── estado: días anteriores bloqueados (salvo admin) ─────────────────────────
+
+def test_set_estado_bloquea_dias_anteriores(monkeypatch):
+    _sin_db(monkeypatch)
+    vieja = {**_FILA, "concertacion": "2020-01-02", "estado": "pendiente"}
+    monkeypatch.setattr(svc, "_get_op", lambda i: dict(vieja))
+    monkeypatch.setattr(svc, "es_admin", lambda e: False)
+    with pytest.raises(ValueError):
+        svc.set_estado(1, "completada", actor="t@x.com")
+    # Admin sí (corrección consciente, auditada).
+    monkeypatch.setattr(svc, "es_admin", lambda e: True)
+    assert svc.set_estado(1, "completada", actor="a@x.com")["estado"] == "pendiente"
+
+
+def test_set_estado_hoy_permitido(monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    _sin_db(monkeypatch)
+    hoy = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date().isoformat()
+    monkeypatch.setattr(svc, "_get_op",
+                        lambda i: {**_FILA, "concertacion": hoy, "estado": "pendiente"})
+    monkeypatch.setattr(svc, "es_admin", lambda e: False)
+    assert svc.set_estado(1, "completada", actor="t@x.com")["estado"] == "pendiente"
+
+
 # ── Excel MAE (espejo/export de las órdenes es_mae) ──────────────────────────
 
 def test_fila_export_mae_precio_unitario_y_forma():

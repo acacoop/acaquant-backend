@@ -679,12 +679,21 @@ def borrar_op(op_id: int, actor: str) -> dict:
 
 
 def set_estado(op_id: int, estado: str, actor: str) -> dict:
-    """Marca 'completada' (con quién y cuándo) o vuelve a 'pendiente'."""
+    """Marca 'completada' (con quién y cuándo) o vuelve a 'pendiente'.
+
+    Robustez (2026-08-05): el estado de una orden de un DÍA ANTERIOR no se
+    toca — navegando el histórico (FECHA → TODO) un click de más no debe
+    mover nada. Solo admin puede (corrección consciente, queda auditada)."""
     if estado not in ESTADOS:
         raise ValueError(f"estado {estado!r} inválido: {' | '.join(ESTADOS)}")
     before = _get_op(op_id)
     if before["estado"] == estado:
         return before  # idempotente: dos clicks simultáneos no duplican audit
+    conc = date.fromisoformat(before["concertacion"])
+    if conc < datetime.now(_TZ_AR).date() and not es_admin(actor):
+        raise ValueError(
+            f"la orden #{op_id} es del {conc.strftime('%d/%m/%Y')}: el estado de "
+            "días anteriores no se cambia (solo un admin puede corregirlo)")
     por = (actor or "").lower() or None
     at = datetime.now(UTC)
     _exec(

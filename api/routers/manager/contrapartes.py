@@ -46,25 +46,30 @@ def contrapartes_segmentos() -> dict:
 
 
 class _ContrapartePatch(BaseModel):
-    """cuenta va en el body (evita URL-encoding); contraparte/segmento opcionales.
+    """cuenta va en el body (evita URL-encoding); contraparte/segmento/codigo_mae
+    opcionales (None = no tocar; codigo_mae "" = borrar el código).
     coerce_numbers_to_str: hay docs sucios con cuenta/contraparte numéricos (CUIT) →
     si el front los reenvía como número, se coercen a string en vez de tirar 422."""
     model_config = ConfigDict(coerce_numbers_to_str=True)
     cuenta:      str = Field(..., min_length=1, max_length=128)
     contraparte: str | None = Field(None, max_length=512)
     segmento:    str | None = Field(None, max_length=256)
+    # Código DESTINO del MAE (FXXX fondo / C+CUIT / SXXX) — lo consume el
+    # futuro Excel MAE de SENEBIS resolviendo por la cc de la orden.
+    codigo_mae:  str | None = Field(None, max_length=32)
 
 
 @router.patch("/contrapartes")
 def patch_contraparte(req: _ContrapartePatch = Body(...), actor: str = Depends(get_user_email)) -> dict:
-    """Edita contraparte/segmento de una cuenta existente."""
+    """Edita contraparte/segmento/código MAE de una cuenta existente."""
     res = _svc.update_contraparte(
-        cuenta=req.cuenta, contraparte=req.contraparte, segmento=req.segmento, actor=actor)
+        cuenta=req.cuenta, contraparte=req.contraparte, segmento=req.segmento,
+        codigo_mae=req.codigo_mae, actor=actor)
     if not res.get("updated"):
         reason = res.get("reason")
         if reason == "not_found":
             raise HTTPException(404, f"cuenta no encontrada en Contrapartes: {req.cuenta!r}")
-        raise HTTPException(400, "body sin campos editables — pasá contraparte y/o segmento.")
+        raise HTTPException(400, "body sin campos editables — pasá contraparte, segmento y/o codigo_mae.")
     return res
 
 

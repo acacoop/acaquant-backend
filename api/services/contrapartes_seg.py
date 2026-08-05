@@ -5,8 +5,10 @@ SQL** (Mongo CashFlow.Contrapartes deprecado). Servicio puro (sin FastAPI).
 
 Tabla `clientes.contrapartes` (clave = `id_cuenta`):
   {id_cuenta, denominacion (de Aunesa), contraparte (editable), segmento (editable),
-   origen, actualizado_por/at}. `denominacion` se prefiere de la fila; si falta, del JOIN
-   a `cuentas`.
+   codigo_mae (editable — código DESTINO del MAE: FXXX fondo / C+CUIT comitente /
+   SXXX aseguradora; lo consume el futuro Excel MAE de SENEBIS resolviendo por la
+   cc de la orden), origen, actualizado_por/at}. `denominacion` se prefiere de la
+   fila; si falta, del JOIN a `cuentas`.
 
 ⚠️ Efectos colaterales (INTENCIONALES) al AGREGAR una contraparte — el front avisa:
   - la cuenta SALE del AuM (jobs/_aum_filters.py reglas 3 y 4: match por id o por nombre).
@@ -86,12 +88,14 @@ def listar_contrapartes(*, segmento: str | None = None, contraparte: str | None 
         where.append(f"({_DEN} ILIKE %(t{i})s OR c.id_cuenta ILIKE %(t{i})s)")
         p[f"t{i}"] = f"%{tok}%"
     rows = _q(
-        f"SELECT c.id_cuenta AS cuenta, {_DEN} AS denominacion, c.contraparte, c.segmento "
+        f"SELECT c.id_cuenta AS cuenta, {_DEN} AS denominacion, c.contraparte, c.segmento, "
+        f"c.codigo_mae "
         f"FROM contrapartes c LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta "
         f"WHERE {' AND '.join(where)} ORDER BY denominacion NULLS LAST LIMIT 5000", p)
     return {"contrapartes": [
         {"cuenta": _s(r["cuenta"]), "denominacion": _s(r["denominacion"]),
-         "contraparte": _s(r["contraparte"]), "segmento": _s(r["segmento"])}
+         "contraparte": _s(r["contraparte"]), "segmento": _s(r["segmento"]),
+         "codigo_mae": _s(r["codigo_mae"])}
         for r in rows], "n": len(rows)}
 
 
@@ -108,9 +112,11 @@ def segmentos_distinct() -> dict:
 
 
 def update_contraparte(*, cuenta: str, contraparte: str | None = None,
-                       segmento: str | None = None, actor: str | None = None) -> dict:
-    """Edita contraparte/segmento de una cuenta existente. El router traduce
-    updated=False/reason a 400/404."""
+                       segmento: str | None = None, codigo_mae: str | None = None,
+                       actor: str | None = None) -> dict:
+    """Edita contraparte/segmento/codigo_mae de una cuenta existente. El router
+    traduce updated=False/reason a 400/404. codigo_mae con string vacío BORRA
+    el código (queda NULL); None = no tocar (semántica PATCH)."""
     cuenta = _s(cuenta) or ""
     if not cuenta:
         return {"updated": False, "reason": "cuenta_vacia"}
@@ -119,6 +125,9 @@ def update_contraparte(*, cuenta: str, contraparte: str | None = None,
         sets["contraparte"] = _s(contraparte)
     if segmento is not None:
         sets["segmento"] = _s(segmento)
+    if codigo_mae is not None:
+        s = _s(codigo_mae)
+        sets["codigo_mae"] = s.upper() if s else None
     if not sets:
         return {"updated": False, "reason": "sin_campos"}
     sets["actualizado_por"] = actor
@@ -128,12 +137,14 @@ def update_contraparte(*, cuenta: str, contraparte: str | None = None,
               {**sets, "idc": cuenta})
     if n == 0:
         return {"updated": False, "reason": "not_found"}
-    row = _q(f"SELECT c.id_cuenta AS cuenta, {_DEN} AS denominacion, c.contraparte, c.segmento "
+    row = _q(f"SELECT c.id_cuenta AS cuenta, {_DEN} AS denominacion, c.contraparte, c.segmento, "
+             f"c.codigo_mae "
              f"FROM contrapartes c LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta "
              f"WHERE c.id_cuenta = %(idc)s", {"idc": cuenta})
     d = row[0] if row else {}
     return {"updated": True, "cuenta": str(d.get("cuenta")), "denominacion": d.get("denominacion"),
-            "contraparte": d.get("contraparte"), "segmento": d.get("segmento")}
+            "contraparte": d.get("contraparte"), "segmento": d.get("segmento"),
+            "codigo_mae": d.get("codigo_mae")}
 
 
 def add_contraparte(*, cuenta: str, denominacion: str | None, contraparte: str | None,

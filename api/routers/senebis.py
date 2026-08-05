@@ -239,48 +239,9 @@ def quitar_agente(nombre: str, actor: str = Depends(get_user_email)) -> dict:
         raise HTTPException(400, str(e)) from e
 
 
-class _DestinoMaePayload(BaseModel):
-    cc: str = Field(..., min_length=1, max_length=128,
-                    description="cuenta comitente, como se carga en la orden")
-    codigo: str = Field(..., min_length=1, max_length=32,
-                        description="destino MAE: FXXX fondo | C+CUIT comitente | SXXX aseguradora")
-    descripcion: str | None = Field(None, max_length=128)
-
-
-@router.get("/destinos-mae")
-def listar_destinos_mae(_actor: str = Depends(get_user_email)) -> dict:
-    """Catálogo DESTINO MAE por cuenta interna (para el futuro Excel MAE)."""
-    return {"destinos": _svc.listar_destinos_mae()}
-
-
-@router.get("/destinos-mae/sugerencias")
-def sugerencias_destinos_mae(
-    q: str | None = Query(None, description="filtro por cuenta o nombre (contiene)"),
-    _actor: str = Depends(get_user_email),
-) -> dict:
-    """Contrapartes de la base (fondos primero) con su código MAE si ya lo
-    tienen — la cuenta se ELIGE de acá, solo se tipea el código."""
-    return {"sugerencias": _svc.sugerencias_destinos_mae(q=q or "")}
-
-
-@router.put("/destinos-mae")
-def upsert_destino_mae(req: _DestinoMaePayload = Body(...),
-                       actor: str = Depends(get_user_email)) -> dict:
-    """Alta/edición de un destino MAE (cc → código). Mismo permiso que el
-    catálogo de agentes: todo el módulo `back-office`."""
-    try:
-        return _svc.upsert_destino_mae(req.cc, req.codigo, actor=actor,
-                                       descripcion=req.descripcion)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-
-
-@router.delete("/destinos-mae/{cc}")
-def quitar_destino_mae(cc: str, actor: str = Depends(get_user_email)) -> dict:
-    try:
-        return _svc.quitar_destino_mae(cc, actor=actor)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
+# El DESTINO MAE de cuentas internas NO tiene endpoints acá: es un atributo
+# de la contraparte (clientes.contrapartes.codigo_mae) y se edita en
+# Manager → CONTRAPARTES. El de agentes externos viaja en el PUT /agentes.
 
 
 class _EstadoPayload(BaseModel):

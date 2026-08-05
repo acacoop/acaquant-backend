@@ -308,35 +308,22 @@ def test_upsert_agente_normaliza_codigo_mae(monkeypatch):
     assert r["codigo_mae"] is None
 
 
-def test_upsert_destino_mae_normaliza_y_valida(monkeypatch):
-    capturado = _sin_db(monkeypatch)
-    r = svc.upsert_destino_mae(" 805 ", " f062 ", actor="A@x.com",
-                               descripcion=" Fondo Retorno ")
-    assert r == {"cc": "805", "codigo": "F062", "descripcion": "Fondo Retorno"}
-    assert capturado["cod"] == "F062"
-    with pytest.raises(ValueError):
-        svc.upsert_destino_mae("", "F062", actor="a@x.com")
-    with pytest.raises(ValueError):
-        svc.upsert_destino_mae("805", "  ", actor="a@x.com")
-
-
-def test_upsert_destino_mae_descripcion_automatica(monkeypatch):
-    # Sin descripción, el nombre sale de clientes.contrapartes (los fondos
-    # ya viven ahí) — no se tipea a mano.
-    _sin_db(monkeypatch, q_rows=[{"contraparte": "FIMA PREMIUM"}])
-    r = svc.upsert_destino_mae("805", "F062", actor="a@x.com")
-    assert r["descripcion"] == "FIMA PREMIUM"
-    # Cuenta que no está en contrapartes → queda sin descripción.
-    _sin_db(monkeypatch, q_rows=[])
-    r = svc.upsert_destino_mae("999", "S010", actor="a@x.com")
-    assert r["descripcion"] is None
-
-
-def test_quitar_destino_mae_exige_cc(monkeypatch):
-    _sin_db(monkeypatch)
-    assert svc.quitar_destino_mae("805", actor="a@x.com") == {"borrado": 1}
-    with pytest.raises(ValueError):
-        svc.quitar_destino_mae(" ", actor="a@x.com")
+def test_update_contraparte_codigo_mae(monkeypatch):
+    # El DESTINO MAE de cuentas internas vive en clientes.contrapartes:
+    # PATCH normaliza a MAYÚSCULAS, "" borra el código y None no lo toca.
+    from api.services import contrapartes_seg as cseg
+    capturado: dict = {}
+    monkeypatch.setattr(cseg, "_exec", lambda sql, params: capturado.update(params) or 1)
+    monkeypatch.setattr(cseg, "_q", lambda sql, params=None: [
+        {"cuenta": "805", "denominacion": "X", "contraparte": "FIMA",
+         "segmento": "Fondos", "codigo_mae": capturado.get("codigo_mae")}])
+    r = cseg.update_contraparte(cuenta="805", codigo_mae=" f062 ", actor="a@x.com")
+    assert r["updated"] and capturado["codigo_mae"] == "F062"
+    cseg.update_contraparte(cuenta="805", codigo_mae="", actor="a@x.com")
+    assert capturado["codigo_mae"] is None          # "" = borrar
+    capturado.clear()
+    cseg.update_contraparte(cuenta="805", segmento="Fondos", actor="a@x.com")
+    assert "codigo_mae" not in capturado            # None = no tocar
 
 
 # ── marcas de edición (el amarillo que se pintaba a mano) ───────────────────

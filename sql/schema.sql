@@ -196,11 +196,18 @@ CREATE TABLE IF NOT EXISTS clientes.contrapartes (
     id_cuenta       text PRIMARY KEY,        -- en Mongo: CashFlow.Contrapartes.cuenta
     contraparte     text,                    -- nombre
     segmento        text,                    -- grupo (Fondos, ALYC, ...)
+    -- Código del DESTINO en el MAE (2026-08-05): FXXX fondo (el flujo grande),
+    -- CXXXXXXXXXXX CUIT del comitente, SXXX aseguradora. Es un atributo de la
+    -- contraparte (como nombre/segmento), editable en Manager → CONTRAPARTES.
+    -- El futuro Excel MAE de SENEBIS resuelve DESTINO en vivo: cc de la orden
+    -- → id_cuenta → codigo_mae. No es derivable: lo asigna el MAE.
+    codigo_mae      text,
     origen          text,                    -- "manual" | "reconciler"
     actualizado_por text,
     actualizado_at  timestamptz
 );
 CREATE INDEX IF NOT EXISTS ix_contrapartes_segmento ON clientes.contrapartes(segmento);
+ALTER TABLE clientes.contrapartes ADD COLUMN IF NOT EXISTS codigo_mae text;
 
 -- CashFlow.Accionistas — set de cuentas accionistas (para el filtro de cuenta de NEGOCIO/
 -- portfolio: accionistas / sin_accionistas / cooperativas). Solo el string `cuenta`.
@@ -728,21 +735,6 @@ CREATE TABLE IF NOT EXISTS operaciones.senebis_agentes (
     actualizado_at  timestamptz
 );
 ALTER TABLE operaciones.senebis_agentes ADD COLUMN IF NOT EXISTS codigo_mae text;
-
--- Destinos MAE por CUENTA COMITENTE (senebi interno): el código que espera el
--- MAE en la columna DESTINO del Excel — FXXX (código del FCI, el flujo grande),
--- CXXXXXXXXXXX (CUIT del comitente sin guiones), SXXX (aseguradora). No es
--- derivable de clientes.*: lo carga el back office desde la vista SENEBIS
--- (mismo patrón que senebis_agentes). Clave = la cc como se guarda en la orden.
-CREATE TABLE IF NOT EXISTS operaciones.senebis_destinos_mae (
-    cc              text PRIMARY KEY,
-    codigo          text NOT NULL,
-    descripcion     text,                    -- opcional, para leer el catálogo a ojo
-    creado_por      text,
-    creado_at       timestamptz,
-    actualizado_por text,
-    actualizado_at  timestamptz
-);
 
 -- Presencia en la vista SENEBIS: quién la tiene abierta AHORA (heartbeat del
 -- front cada vez que pollea la lista; conectado = visto_at en los últimos 90s).

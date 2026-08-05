@@ -40,12 +40,13 @@ Se calculan en editar_op comparando before/after de los campos persistidos —
 no dependen de lo que mande el front (que suele echoar la fila entera).
 
 Destino MAE (2026-08-05, base del futuro Excel MAE): el MAE identifica cada
-destino con un código propio — agente: AAAOO (en senebis_agentes.codigo_mae,
-convive con el número BYMA/Quantex); cuenta interna: FXXX fondo / C+CUIT
-comitente / SXXX aseguradora (catálogo senebis_destinos_mae, clave = la cc de
-la orden). Ninguno es derivable de clientes.*: los carga el back office desde
-la vista. El Excel MAE (pendiente) resolverá DESTINO en vivo contra estos
-catálogos al generarse.
+destino con un código propio. Agente externo: AAAOO en
+senebis_agentes.codigo_mae (convive con el número BYMA/Quantex). Cuenta
+interna: el código es un ATRIBUTO de la contraparte y vive en
+clientes.contrapartes.codigo_mae (FXXX fondo / C+CUIT comitente / SXXX
+aseguradora), editable en Manager → CONTRAPARTES. El Excel MAE (pendiente)
+resolverá DESTINO en vivo: cc de la orden → contrapartes.id_cuenta →
+codigo_mae — el trader no carga nada.
 
 Cargan ellos (2026-08-05): flag SI/NO (antes era observación de texto libre).
 SI = la orden la carga la CONTRAPARTE en Quantex → queda FUERA del Excel y
@@ -66,10 +67,9 @@ openpyxl con import lazy para no tumbar la API si falta la lib (REGLA #1).
 
 Permisos: módulo `back-office` (gate en api/main.py) para LEER, marcar estado
 y gestionar el catálogo de agentes. CARGAR/EDITAR/BORRAR órdenes exige además
-la MISMA allowlist de escritura que Mesa de Dinero
-(`operaciones.mesa_dinero_escritores` + admin — decisión 2026-08-05: los que
-cargan senebis son los mismos que cargan en la mesa; se gestiona en un solo
-lugar, Manager → MESA). Trazabilidad: cada cambio inserta un evento en
+la allowlist PROPIA `operaciones.senebis_escritores` (+ admin — separada de la
+de Mesa de Dinero el 2026-08-05, se gestiona igual en Manager → MESA).
+Trazabilidad: cada cambio inserta un evento en
 `operaciones.senebis_audit` con before/after. Servicio puro (sin FastAPI).
 """
 from __future__ import annotations
@@ -218,85 +218,6 @@ def quitar_agente(nombre: str, actor: str) -> dict:
     return {"borrado": borrado}
 
 
-# ─────────────────────────────────────────────────────────────
-# Destinos MAE (catálogo cuenta comitente → código DESTINO del Excel MAE)
-# ─────────────────────────────────────────────────────────────
-# El MAE identifica al destino con un código propio que no vive en clientes.*:
-# FXXX (código del FCI — el flujo grande), CXXXXXXXXXXX (CUIT del comitente sin
-# guiones), SXXX (aseguradora). Para los AGENTES el código MAE (AAAOO) vive en
-# senebis_agentes.codigo_mae. Este catálogo cubre los senebis INTERNOS: clave =
-# la cc tal como queda guardada en la orden. Lo gestiona el back office desde
-# la vista (mismo patrón y permisos que el catálogo de agentes).
-
-def listar_destinos_mae() -> list[dict]:
-    return [{"cc": r["cc"], "codigo": r["codigo"], "descripcion": r["descripcion"]}
-            for r in _q("SELECT cc, codigo, descripcion "
-                        "FROM operaciones.senebis_destinos_mae ORDER BY cc")]
-
-
-def sugerencias_destinos_mae(q: str = "", limit: int = 500) -> list[dict]:
-    """Contrapartes de la base (clientes.contrapartes — ahí YA viven los
-    fondos con su id_cuenta) con su código MAE si lo tienen. El catálogo se
-    completa ELIGIENDO la cuenta de esta lista y tipeando solo el código —
-    no se tipea la cuenta a mano. Fondos primero (el flujo grande)."""
-    term = (q or "").strip()
-    conds, params = "", {"lim": int(limit)}
-    if term:
-        conds = "WHERE c.id_cuenta ILIKE %(pref)s OR c.contraparte ILIKE %(sub)s"
-        params |= {"pref": f"{term}%", "sub": f"%{term}%"}
-    rows = _q(
-        "SELECT c.id_cuenta, c.contraparte, c.segmento, d.codigo "
-        "FROM clientes.contrapartes c "
-        "LEFT JOIN operaciones.senebis_destinos_mae d ON d.cc = c.id_cuenta "
-        f"{conds} "
-        "ORDER BY (c.segmento ILIKE 'fondo%%') DESC, c.contraparte LIMIT %(lim)s",
-        params,
-    )
-    return [{"cc": r["id_cuenta"], "nombre": r["contraparte"],
-             "segmento": r["segmento"], "codigo": r["codigo"]} for r in rows]
-
-
-def upsert_destino_mae(cc: str, codigo: str, actor: str,
-                       descripcion: str | None = None) -> dict:
-    c = str(cc or "").strip()
-    cod = str(codigo or "").strip().upper()
-    desc = (descripcion or "").strip() or None
-    if not c:
-        raise ValueError("falta 'cc' (la cuenta comitente, como se carga en la orden)")
-    if not cod:
-        raise ValueError(
-            "falta 'codigo' (el destino MAE: FXXX fondo, C+CUIT comitente, SXXX aseguradora)")
-    if desc is None:
-        # Descripción automática: si la cuenta está en clientes.contrapartes
-        # (los fondos SIEMPRE están), el nombre sale de ahí — no se tipea.
-        hit = _q("SELECT contraparte FROM clientes.contrapartes "
-                 "WHERE id_cuenta = %(c)s", {"c": c})
-        desc = (hit[0]["contraparte"] or None) if hit else None
-    at = datetime.now(UTC)
-    por = (actor or "").lower() or None
-    _exec(
-        "INSERT INTO operaciones.senebis_destinos_mae "
-        "(cc, codigo, descripcion, creado_por, creado_at, actualizado_por, actualizado_at) "
-        "VALUES (%(c)s, %(cod)s, %(desc)s, %(por)s, %(at)s, %(por)s, %(at)s) "
-        "ON CONFLICT (cc) DO UPDATE SET codigo = EXCLUDED.codigo, "
-        "descripcion = COALESCE(EXCLUDED.descripcion, senebis_destinos_mae.descripcion), "
-        "actualizado_por = EXCLUDED.actualizado_por, actualizado_at = EXCLUDED.actualizado_at",
-        {"c": c, "cod": cod, "desc": desc, "por": por, "at": at},
-    )
-    _audit(actor, "upsert_destino_mae", c, {"codigo": cod, "descripcion": desc})
-    return {"cc": c, "codigo": cod, "descripcion": desc}
-
-
-def quitar_destino_mae(cc: str, actor: str) -> dict:
-    c = str(cc or "").strip()
-    if not c:
-        raise ValueError("falta 'cc'")
-    borrado = _exec(
-        "DELETE FROM operaciones.senebis_destinos_mae WHERE cc = %(c)s", {"c": c})
-    _audit(actor, "remove_destino_mae", c, {})
-    return {"borrado": borrado}
-
-
 def opciones(email: str = "") -> dict:
     """Opciones del form de carga: catálogo de agentes (desplegable del
     externo) + valores válidos. Marca presencia del caller."""
@@ -304,9 +225,6 @@ def opciones(email: str = "") -> dict:
         marcar_presencia(email)
     return {
         "agentes": listar_agentes(),
-        # Catálogo DESTINO MAE (cuentas internas) — lo edita el mismo modal
-        # que los agentes; el form solo lo muestra como referencia.
-        "destinos_mae": listar_destinos_mae(),
         "tipos_contraparte": list(TIPOS_CONTRAPARTE),
         "plazos": list(PLAZOS),
         "conectados": conectados(),

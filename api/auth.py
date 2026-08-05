@@ -359,6 +359,7 @@ def require_module(module: str):
 
     # Para que FastAPI diferencie cada instancia en la cache de deps
     _dep.__name__ = f"require_module_{module.replace('-', '_')}"
+    _dep.rbac_modules = (module,)  # lo lee scripts/audit_rbac.py (exacto, sin parsear)
     return _dep
 
 
@@ -450,4 +451,5 @@ def require_any_module(modules: tuple[str, ...]):
         )
 
     _dep.__name__ = "require_any_module_" + "_".join(m.replace("-", "_") for m in modules)
+    _dep.rbac_modules = tuple(modules)
     return _dep

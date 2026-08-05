@@ -62,6 +62,7 @@ def _last_le(series: list[tuple[date, float]], target: date) -> float | None:
 _CAMPOS_DOLAR = ("mep", "ccl", "canje")
 
 
+@cached(ttl=300)  # cierres diarios: cambian 1 vez/día, no cada 5s
 def _series_dolar() -> dict[str, list[tuple[date, float]]]:
     """Series históricas de mep/ccl/canje desde valuaciones.dolar (SQL-native):
     último valor por día (ART), ordenado ascendente, por campo.
@@ -83,6 +84,7 @@ def _series_dolar() -> dict[str, list[tuple[date, float]]]:
     return {c: sorted(by_day[c].items()) for c in _CAMPOS_DOLAR}
 
 
+@cached(ttl=300)  # cierres diarios
 def _serie_caucion(moneda: str) -> list[tuple[date, float]]:
     """Serie histórica de tna_cierre de caución por moneda desde SQL (mercado_hist Caucion).
     Antes leía Mongo Trading.Caucion (DROPEADA) → la watchlist mostraba —."""
@@ -175,6 +177,14 @@ def _live_oficial(casa: str) -> dict:
     return mid_oficial_live(casa)
 
 
+@cached(ttl=300)  # serie diaria (jobs/argentina_datos)
+def _serie_riesgo_pais() -> list[tuple[date, float]]:
+    from core.series_macro import serie_dict
+    rp = serie_dict("RiesgoPais")
+    return [(date.fromisoformat(f), v) for f, v in sorted(rp.items())] if rp else []
+
+
+@cached(ttl=300)  # fixing A3500 diario
 def _serie_oficial(today: date) -> list[tuple[date, float]]:
     """Serie de cierres del dólar mayorista = fixing A3500 del BCRA
     (`macro.series_macro` serie 'DOLAR', escrita por jobs/bcra).
@@ -253,7 +263,7 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
     live_oficial = _live_oficial("oficial")
     var_mae = live_oficial.get("variacion")
     val_oficial = live_oficial.get("value")
-    s_oficial = _serie_oficial(today)
+    s_oficial = _serie_oficial(today=today)
     out.append({
         "label":   "DOLAR OFICIAL",
         "value":   val_oficial,
@@ -267,10 +277,8 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
     })
 
     # ── Riesgo país (bps) — SQL-only (macro.series_macro, vía jobs/argentina_datos.py) ──
-    from core.series_macro import serie_dict
-    rp = serie_dict("RiesgoPais")
-    if rp:
-        rp_serie = [(date.fromisoformat(f), v) for f, v in sorted(rp.items())]
+    rp_serie = _serie_riesgo_pais()
+    if rp_serie:
         ult_fecha, actual = rp_serie[-1][0], (rp_serie[-1][1] or None)
         out.append({
             "label":   "RIESGO PAÍS",
@@ -288,7 +296,7 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
     for moneda, label in (("ARS", "CAUCION ARS"), ("USD", "CAUCION USD")):
         live = _live_caucion(moneda)
         actual = live.get("value")
-        s = _serie_caucion(moneda)
+        s = _serie_caucion(moneda=moneda)
         out.append({
             "label":      label,
             "value":      actual,
@@ -308,7 +316,7 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
     # jobs/eikon_cierres (mismo patrón de anchors que MEP/CCL — mientras el
     # histórico no alcance, la celda queda "—"). Nunca rompe: sin datos → sin filas.
     from core.eikon_bonos import BONOS_OFF, filas_bonos_off
-    series_off = _series_eikon_cierres("bonos_off")
+    series_off = _series_eikon_cierres(grupo="bonos_off")
     bono_a_ric = {b: r for r, b in BONOS_OFF.items()}
     for b in filas_bonos_off():
         s = series_off.get(bono_a_ric.get(b["bono"], ""), [])
@@ -329,6 +337,7 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
     return out
 
 
+@cached(ttl=300)  # cierres diarios (jobs/eikon_cierres)
 def _series_eikon_cierres(grupo: str) -> dict[str, list[tuple[date, float]]]:
     """Series de cierres diarios por RIC desde mercado.eikon_cierres (writer:
     jobs/eikon_cierres). ric → [(fecha, valor)] asc. Nunca rompe: tabla

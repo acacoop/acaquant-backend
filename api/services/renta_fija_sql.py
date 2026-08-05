@@ -35,6 +35,7 @@ market_snapshot (SNAPSHOT_SQL) en paridad (recon 2026-06-19, fresco a ~1s).
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 
 from api.cache import cached
@@ -159,16 +160,48 @@ def get_renta_fija(instrumento: str | None = None) -> list:
     if instrumento:
         where = "WHERE ticker ILIKE %s ESCAPE '\\'"
         params = (_ilike_param(instrumento),)
-    # `book` (order book JSONB depth-5) NO se trae: la vista /renta-fija no lo
-    # consume (no está en RentaFijaDoc) y traerlo para los ~301 instrumentos
-    # costaba ~120ms + payload pesado a Vercel. El order book vive en su propio
-    # endpoint (api/services/order_book.py). El path Mongo aún lo proyecta, pero
-    # ese path está retirándose y el campo igual quedaba sin usar.
-    rows = _q(
-        f"SELECT ticker, {', '.join(c for c, _ in _METRIC_COLS)} "
-        f"FROM mercado.market_snapshot {where}",
-        params,
-    )
+
+    def _leer_snapshot() -> list[dict]:
+        # `book` (order book JSONB depth-5) NO se trae: la vista /renta-fija no
+        # lo consume y traerlo para los ~301 instrumentos costaba ~120ms +
+        # payload pesado. El order book vive en api/services/order_book.py.
+        return _q(
+            f"SELECT ticker, {', '.join(c for c, _ in _METRIC_COLS)} "
+            f"FROM mercado.market_snapshot {where}",
+            params,
+        )
+
+    def _leer_flujos() -> dict[str, float]:
+        # TC breakeven: tasa fija nativa + CER ya fijados.
+        fijados = _bonos_cer_fijados()
+        cond = "curva = 'tasa_fija'"
+        cparams: list = []
+        if fijados:
+            cond = "(curva = 'tasa_fija' OR ticker = ANY(%s))"
+            cparams.append(list(fijados))
+        out: dict[str, float] = {}
+        for c in _q(
+            f"SELECT ticker, flujo_vencimiento FROM mercado.curvas WHERE {cond}",
+            tuple(cparams),
+        ):
+            fv = _f(c["flujo_vencimiento"])
+            if fv and fv > 0:
+                out[c["ticker"]] = fv
+        return out
+
+    def _leer_mep():
+        from api.services.macro import get_ultimo_mep  # lazy: evita ciclo
+        return get_ultimo_mep()
+
+    # Las 3 lecturas son independientes → en paralelo (telemetría 2026-08-05:
+    # 719ms avg en frío; en serie el endpoint pagaba la suma de round-trips).
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f_rows = ex.submit(_leer_snapshot)
+        f_flujos = ex.submit(_leer_flujos)
+        f_mep = ex.submit(_leer_mep)
+        rows = f_rows.result()
+        flujo_por_ticker = f_flujos.result()
+        mep_doc = f_mep.result()
 
     docs: list[dict] = []
     for r in rows:
@@ -179,25 +212,7 @@ def get_renta_fija(instrumento: str | None = None) -> list:
                 metrics[key] = v
         docs.append({"instrumento": r["ticker"], "metrics": metrics})
 
-    # ── Enriquecimiento TC breakeven (tasa fija nativa + CER ya fijados) ──
-    fijados = _bonos_cer_fijados()
-    cond = "curva = 'tasa_fija'"
-    cparams: list = []
-    if fijados:
-        cond = "(curva = 'tasa_fija' OR ticker = ANY(%s))"
-        cparams.append(list(fijados))
-    flujo_por_ticker: dict[str, float] = {}
-    for c in _q(
-        f"SELECT ticker, flujo_vencimiento FROM mercado.curvas WHERE {cond}",
-        tuple(cparams),
-    ):
-        fv = _f(c["flujo_vencimiento"])
-        if fv and fv > 0:
-            flujo_por_ticker[c["ticker"]] = fv
-
     if flujo_por_ticker:
-        from api.services.macro import get_ultimo_mep  # lazy: evita ciclo
-        mep_doc = get_ultimo_mep()
         mep = mep_doc.get("mep") if mep_doc else None
         for d in docs:
             fv = flujo_por_ticker.get(d.get("instrumento") or "")

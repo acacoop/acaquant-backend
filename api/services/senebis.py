@@ -71,7 +71,7 @@ _TZ_AR = ZoneInfo("America/Argentina/Buenos_Aires")
 _CAMPOS_OP = (
     "operacion", "concertacion", "liquidacion", "plazo", "especie",
     "vn", "px", "monto", "cp", "cc", "contraparte", "nro_contraparte",
-    "mercado", "cargan_ellos", "tipo", "tipo_contraparte", "agente",
+    "mercado", "cargan_ellos", "tipo", "tipo_contraparte", "agente", "es_mae",
 )
 
 # Headers del Excel que el back office carga en el otro sistema (imagen de
@@ -279,6 +279,7 @@ def _fila_op(r: dict) -> dict:
         "cargan_ellos": r["cargan_ellos"], "tipo": r["tipo"],
         "tipo_contraparte": r["tipo_contraparte"],
         "agente": r["agente"], "agente_numero": r["agente_numero"],
+        "es_mae": bool(r["es_mae"]),
         "estado": r["estado"],
         "completada_por": r["completada_por"],
         "completada_at": r["completada_at"].isoformat() if r["completada_at"] else None,
@@ -411,6 +412,10 @@ def _row_de_payload(p: dict, actor: str) -> dict:
     else:
         agente, numero = None, None
         cc, cc_den = _resolver_interno(p.get("cc"))
+    es_mae = bool(p.get("es_mae"))
+    # MAE se carga en el MAE, no en Quantex: el TIPO queda fijo 'MAE' (marca
+    # visible en la vista) y el export/espejo la excluyen.
+    tipo = "MAE" if es_mae else ((p.get("tipo") or "").strip() or None)
     return {
         "operacion": (p["operacion"] or "").strip().upper(),
         **fechas,
@@ -423,8 +428,9 @@ def _row_de_payload(p: dict, actor: str) -> dict:
         "nro_contraparte": (str(p.get("nro_contraparte") or "").strip()) or None,
         "mercado": (p.get("mercado") or "").strip().upper() or None,
         "cargan_ellos": (p.get("cargan_ellos") or "").strip() or None,
-        "tipo": (p.get("tipo") or "").strip() or None,
+        "tipo": tipo,
         "tipo_contraparte": tc, "agente": agente, "agente_numero": numero,
+        "es_mae": es_mae,
         "por": (actor or "").lower() or None, "at": datetime.now(UTC),
     }
 
@@ -438,13 +444,13 @@ def crear_op(payload: dict, actor: str) -> dict:
             "INSERT INTO operaciones.senebis "
             "(operacion, concertacion, liquidacion, plazo, especie, vn, px, monto, "
             " cp, cc, cc_denominacion, contraparte, nro_contraparte, mercado, "
-            " cargan_ellos, tipo, tipo_contraparte, agente, agente_numero, "
+            " cargan_ellos, tipo, tipo_contraparte, agente, agente_numero, es_mae, "
             " estado, creado_por, creado_at, actualizado_por, actualizado_at) "
             "VALUES (%(operacion)s, %(concertacion)s, %(liquidacion)s, %(plazo)s, "
             " %(especie)s, %(vn)s, %(px)s, %(monto)s, %(cp)s, %(cc)s, "
             " %(cc_denominacion)s, %(contraparte)s, %(nro_contraparte)s, %(mercado)s, "
             " %(cargan_ellos)s, %(tipo)s, %(tipo_contraparte)s, %(agente)s, "
-            " %(agente_numero)s, 'pendiente', %(por)s, %(at)s, %(por)s, %(at)s) "
+            " %(agente_numero)s, %(es_mae)s, 'pendiente', %(por)s, %(at)s, %(por)s, %(at)s) "
             "RETURNING id",
             row,
         )
@@ -480,7 +486,7 @@ def editar_op(op_id: int, payload: dict, actor: str) -> dict:
         "nro_contraparte=%(nro_contraparte)s, mercado=%(mercado)s, "
         "cargan_ellos=%(cargan_ellos)s, tipo=%(tipo)s, "
         "tipo_contraparte=%(tipo_contraparte)s, agente=%(agente)s, "
-        "agente_numero=%(agente_numero)s, "
+        "agente_numero=%(agente_numero)s, es_mae=%(es_mae)s, "
         "actualizado_por=%(por)s, actualizado_at=%(at)s WHERE id=%(id)s",
         row,
     )
@@ -553,9 +559,11 @@ def excel_preview(desde: str | None = None, hasta: str | None = None,
                   estado: str | None = None, email: str = "") -> dict:
     """Espejo EN VIVO del Excel destino para la tab EXCEL QUANTEX: mismas filas
     y mismas reglas que export_xlsx (una sola fuente de verdad: _fila_export),
-    en JSON. `estado` por fila para pintar pendiente/completada en el front."""
+    en JSON. `estado` por fila para pintar pendiente/completada en el front.
+    Las órdenes MAE NO aparecen (se cargan en el MAE, no en Quantex)."""
     data = listar_ops(desde=desde, hasta=hasta, estado=estado, email=email)
-    ordenes = sorted(data["ordenes"], key=lambda o: o["id"])
+    ordenes = sorted((o for o in data["ordenes"] if not o["es_mae"]),
+                     key=lambda o: o["id"])
     return {
         "headers": list(_HEADERS_XLSX),
         "filas": [{"id": o["id"], "estado": o["estado"], "valores": _fila_export(o)}
@@ -568,7 +576,8 @@ def export_xlsx(desde: str | None = None, hasta: str | None = None,
                 estado: str | None = None) -> tuple[bytes, str]:
     """Devuelve (bytes del .xlsx, nombre de archivo) con las órdenes filtradas,
     columnas EXACTAS del sistema destino (ID primero). Las órdenes van más
-    viejas primero (por ID asc = orden de carga)."""
+    viejas primero (por ID asc = orden de carga). Las MAE quedan AFUERA
+    (se cargan en el MAE, no en Quantex)."""
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill
@@ -578,7 +587,8 @@ def export_xlsx(desde: str | None = None, hasta: str | None = None,
             "en el venv del Droplet") from e
 
     data = listar_ops(desde=desde, hasta=hasta, estado=estado)
-    ordenes = sorted(data["ordenes"], key=lambda o: o["id"])
+    ordenes = sorted((o for o in data["ordenes"] if not o["es_mae"]),
+                     key=lambda o: o["id"])
 
     wb = Workbook()
     ws = wb.active

@@ -139,6 +139,9 @@ class _OpPayload(BaseModel):
     # o externo (agente del catálogo → el número sale del catálogo al Excel).
     tipo_contraparte: str = Field("interno", description="interno | externo")
     agente: str | None = Field(None, max_length=128, description="nombre del agente (externo)")
+    # MAE: se carga en el MAE (no en Quantex) → excluida del Excel/espejo,
+    # tipo queda 'MAE' automático.
+    es_mae: bool = False
 
 
 @router.post("/ops")

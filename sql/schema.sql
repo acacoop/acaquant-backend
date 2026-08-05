@@ -664,6 +664,9 @@ CREATE TABLE IF NOT EXISTS operaciones.senebis (
     agente          text,                    -- nombre del agente (externo, validado vs catálogo)
     agente_numero   text,                    -- snapshot del número al guardar (va al Excel)
     cc_denominacion text,                    -- snapshot denominación clientes.cuentas (interno)
+    -- Orden MAE: se carga en el MAE (otro sistema) → NO sale en el Excel
+    -- Quantex ni en su espejo; tipo se fija 'MAE' automático al guardar.
+    es_mae          boolean NOT NULL DEFAULT false,
     estado          text NOT NULL DEFAULT 'pendiente',  -- 'pendiente' | 'completada'
     completada_por  text,                    -- email del back office que la completó
     completada_at   timestamptz,
@@ -680,6 +683,7 @@ ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS tipo_contraparte text N
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS agente text;
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS agente_numero text;
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS cc_denominacion text;
+ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS es_mae boolean NOT NULL DEFAULT false;
 
 -- Catálogo de AGENTES externos (ALyCs de afuera: COCOS, ALLARIA…) con el NÚMERO
 -- que espera el sistema destino en CONTRAPARTE. Lo gestiona el back office desde

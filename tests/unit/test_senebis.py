@@ -156,9 +156,25 @@ _FILA = {
     "contraparte": None, "nro_contraparte": None,
     "mercado": "NO GARANTIZADO", "cargan_ellos": None, "tipo": None,
     "tipo_contraparte": "interno", "agente": None, "agente_numero": None,
+    "es_mae": False,
     "estado": "pendiente", "completada_por": None, "completada_at": None,
     "creado_por": "t@x.com", "creado_at": None, "actualizado_por": None,
 }
+
+
+def test_mae_fija_tipo_y_queda_fuera_del_excel(monkeypatch):
+    monkeypatch.setattr(svc, "_buscar_cuenta_exacta", lambda term: None)
+    row = svc._row_de_payload(
+        {**_payload_ok(), "es_mae": True, "tipo": "pasada"}, actor="t@x.com")
+    assert row["es_mae"] is True
+    assert row["tipo"] == "MAE"          # automático, pisa lo tipeado
+
+    mae = {**_FILA, "id": 1, "es_mae": True}
+    normal = {**_FILA, "id": 2}
+    monkeypatch.setattr(svc, "listar_ops",
+                        lambda **kw: {"ordenes": [mae, normal], "conectados": []})
+    prev = svc.excel_preview()
+    assert [f["id"] for f in prev["filas"]] == [2]   # la MAE no aparece
 
 
 def test_export_xlsx_columnas_y_valores(monkeypatch):

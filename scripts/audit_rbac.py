@@ -138,8 +138,11 @@ def _alcanza(r: Ruta, rol: str, modulos_rol: tuple[str, ...]) -> bool:
         return rol == "admin"
     if r.gate_duro == "require_control_comercial":
         return False  # es por usuario, no por rol — no se puede saber acá
-    if rol == "invitado" and r.bloquea_invitado:
-        return False
+    if rol == "invitado":
+        # Mismo corte que el middleware _guard_portal_invitado (REGLA #8).
+        from api.auth import path_permitido_invitado
+        if r.bloquea_invitado or not path_permitido_invitado(r.path):
+            return False
     if not r.modulos:
         return True   # sin gate de módulo: lo alcanza cualquiera autenticado
     return any(m in modulos_rol for m in r.modulos)

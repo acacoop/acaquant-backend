@@ -71,6 +71,37 @@ def is_guest_portal(request: Request) -> bool:
     return request.headers.get("x-acaquant-portal", "").strip().lower() == "guest"
 
 
+# REGLA #8 — allowlist de paths del portal INVITADO (www.acaquant.com).
+#
+# El check de `require_module` solo corre en routers GATEADOS: un endpoint sin
+# gate de módulo quedaba accesible al invitado por omisión. Esta lista invierte
+# eso a default-deny: lo que no está acá, el invitado no lo toca, exista el
+# router o no. Un router nuevo nace CERRADO para www hasta que se agregue acá
+# a propósito — que es una decisión de seguridad, no un descuido.
+#
+# Contenido = exactamente lo que el invitado ya alcanzaba (mercado + research +
+# copilotos de esas vistas), así que no cambia el comportamiento de hoy.
+GUEST_PATH_PREFIXES: tuple[str, ...] = (
+    "/api/health", "/api/me",
+    "/api/analitica", "/api/cotizaciones", "/api/derivados", "/api/titulos",
+    "/api/market", "/api/news", "/api/scanner",
+    "/api/research1816", "/api/research-bcra", "/api/research-fred",
+    "/api/research-docs",
+    "/api/ia",
+)
+
+
+def path_permitido_invitado(path: str) -> bool:
+    """Default-deny para el portal www: solo mercado/research (REGLA #8).
+
+    Se aplica únicamente a `/api/*`; el resto (oauth, mcp, discovery) no lo
+    consume el portal invitado y tiene su propia auth.
+    """
+    if not path.startswith("/api/"):
+        return True
+    return path.startswith(GUEST_PATH_PREFIXES)
+
+
 @lru_cache(maxsize=1)
 def _jwks_client():
     """Cliente JWKS de Cloudflare Access (cachea las claves públicas).

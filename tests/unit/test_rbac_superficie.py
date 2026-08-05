@@ -175,6 +175,46 @@ def test_escrituras_de_agro_llevan_require_no_invitado():
     )
 
 
+def test_portal_invitado_no_llega_al_negocio():
+    """Default-deny real del portal www: la allowlist de paths (REGLA #8).
+
+    El check de `require_module` sólo corre en routers gateados; el middleware
+    `_guard_portal_invitado` cierra el resto. Este test congela que ningún path
+    del NEGOCIO de la mesa entre a la allowlist, ni siquiera por un prefijo que
+    tape de más.
+    """
+    from api.auth import path_permitido_invitado
+
+    negocio = [
+        "/api/portfolio/posiciones", "/api/operaciones/ops", "/api/manager/roles",
+        "/api/mesa-dinero/ops", "/api/back-office/senebis/ops", "/api/cuentas",
+        "/api/ordenes/live", "/api/operar/mep", "/api/risk/limites",
+        "/api/trading/pivots", "/api/mm/book", "/api/ingest/eikon",
+    ]
+    filtrados = [p for p in negocio if path_permitido_invitado(p)]
+    assert not filtrados, f"el portal invitado alcanzaría negocio (REGLA #8): {filtrados}"
+
+
+def test_toda_ruta_alcanzable_por_invitado_es_de_mercado():
+    """Una ruta nueva bajo un prefijo de la allowlist entra sola al portal www.
+
+    Este test la hace visible: si aparece algo que no sea mercado/research/IA,
+    o se saca de ahí, o se agrega a la excepción a propósito.
+    """
+    from api.auth import GUEST_PATH_PREFIXES
+
+    permitidos = {
+        "/api/health", "/api/me", "/api/analitica", "/api/cotizaciones",
+        "/api/derivados", "/api/titulos", "/api/market", "/api/news",
+        "/api/scanner", "/api/research1816", "/api/research-bcra",
+        "/api/research-fred", "/api/research-docs", "/api/ia",
+    }
+    assert set(GUEST_PATH_PREFIXES) == permitidos, (
+        "cambió la superficie del portal invitado — es una decisión de "
+        "SEGURIDAD (REGLA #8), actualizá este test a conciencia"
+    )
+
+
 # ── 4. Todo /api/manager/* gateado ───────────────────────────────────────────
 
 

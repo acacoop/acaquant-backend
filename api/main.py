@@ -20,7 +20,12 @@ from slowapi.middleware import SlowAPIMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from api.auth import require_any_module, require_module
+from api.auth import (
+    is_guest_portal,
+    path_permitido_invitado,
+    require_any_module,
+    require_module,
+)
 from api.deps import verify_api_key
 from api.profiling import maybe_add_profiler
 from api.ratelimit import limiter
@@ -213,6 +218,20 @@ async def _security_headers(request, call_next):
         "Strict-Transport-Security", "max-age=31536000; includeSubDomains",
     )
     return response
+
+
+# REGLA #8 — corte duro del portal INVITADO (www.acaquant.com). El check dentro
+# de `require_module` solo alcanza a los routers gateados; acá se cierra todo lo
+# demás de una sola vez y en un solo lugar auditable. Va como middleware (no
+# dependency) para que cubra también a los routers que se agreguen mañana.
+@app.middleware("http")
+async def _guard_portal_invitado(request, call_next):
+    if is_guest_portal(request) and not path_permitido_invitado(request.url.path):
+        logger.warning("portal invitado bloqueado: %s", request.url.path)
+        return JSONResponse(
+            {"detail": "no disponible en el portal de invitados"}, status_code=403,
+        )
+    return await call_next(request)
 
 # GZip: /historico/trades puede devolver hasta 10K trades JSON (~1-3 MB).
 # Compresión ~80% en JSON. minimum_size=1024 evita overhead en responses chicas.

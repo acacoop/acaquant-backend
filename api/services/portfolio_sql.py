@@ -229,8 +229,18 @@ def total_serie(desde: str | None = None, hasta: str | None = None,
     return {"serie": serie, "moneda": moneda, "fechas_sin_mep": sorted(sin_mep)}
 
 
-def total_snapshot(fecha: str, cuenta_filter: str = "todas", moneda: str = "ARS",
+def total_snapshot(fecha: str | None = None, cuenta_filter: str = "todas", moneda: str = "ARS",
                    scope: tuple[str, ...] | None = None) -> dict:
+    if not fecha:
+        # Sin fecha → última disponible. Permite al frontend pedir serie y
+        # snapshot EN PARALELO al montar /aum (antes esperaba la serie solo
+        # para conocer la última fecha: un round-trip encadenado de más).
+        r = _q(f"SELECT max(fecha) AS f FROM {_SRC} WHERE aum = 'si'")
+        f_max = r[0]["f"] if r else None
+        if f_max is None:
+            return {"docs": [], "moneda": moneda, "mep_used": None,
+                    "mep_missing": False, "fecha": None}
+        fecha = _iso(f_max) or str(f_max)
     conds = ["v.fecha = %(f)s", "v.aum = 'si'"]
     p: dict = {"f": fecha}
     frag, fp = _cuenta_filter_sql(cuenta_filter)
@@ -259,7 +269,8 @@ def total_snapshot(fecha: str, cuenta_filter: str = "todas", moneda: str = "ARS"
             "cuenta": r["cuenta"] or "", "id_cuenta": r["id_cuenta"] or "",
             "valuacion": val, "cantidad": _f(r["cantidad"]) or 0.0,
         })
-    return {"docs": out, "moneda": moneda, "mep_used": mep, "mep_missing": mep_missing}
+    return {"docs": out, "moneda": moneda, "mep_used": mep,
+            "mep_missing": mep_missing, "fecha": fecha}
 
 
 def total_diff(fecha_actual: str, fecha_anterior: str, moneda: str = "ARS",

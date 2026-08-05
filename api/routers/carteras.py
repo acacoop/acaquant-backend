@@ -182,7 +182,7 @@ def diff(
 
 @router.get("/total-snapshot")
 def total_snapshot(
-    fecha: str = Query(..., description="Fecha snapshot (YYYY-MM-DD)"),
+    fecha: str | None = Query(None, description="Fecha snapshot (YYYY-MM-DD); ausente = última disponible"),
     cuenta_filter: str = Query(
         "todas",
         description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",

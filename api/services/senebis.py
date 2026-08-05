@@ -34,8 +34,9 @@ CONTRAPARTE · COMITENTE · CARTERA PROPIA · MERCADO. Reglas (2026-08-05):
     externo               → COMITENTE vacío, CONTRAPARTE = número del agente.
     interno GARANTIZADO   → COMITENTE = cp (la 255), CONTRAPARTE vacío.
     interno NO GARANT./s-d→ COMITENTE = cc, CONTRAPARTE vacío.
-El ID es el de la tabla: secuencia GLOBAL que arranca donde la fijemos
-(scripts/senebis_set_id.py) y nunca se resetea. Los campos numéricos salen
+El ID es el de la tabla: secuencia GLOBAL que espeja la numeración Quantex y
+nunca se resetea — visible y ajustable desde la vista ("PRÓXIMO ID",
+set_proximo_id, mientras conviva el Excel viejo). Los campos numéricos salen
 como número cuando el valor lo es (el sistema destino los espera así).
 openpyxl con import lazy para no tumbar la API si falta la lib (REGLA #1).
 
@@ -526,6 +527,36 @@ def set_estado(op_id: int, estado: str, actor: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
+# Próximo ID (la secuencia global que espeja la numeración Quantex)
+# ─────────────────────────────────────────────────────────────
+# Mientras conviven la app y el Excel viejo, la numeración real avanza AFUERA
+# y la app no puede verla → el contador se muestra SIEMPRE en la vista y el
+# back office lo alinea (último ID del Excel viejo + 1) antes de arrancar.
+
+def proximo_id() -> int:
+    """Próximo ID que va a asignar la identity de operaciones.senebis, SIN
+    consumirlo. El nombre de la secuencia sale de pg (no es input de usuario)."""
+    seq = _q("SELECT pg_get_serial_sequence('operaciones.senebis','id') AS s")[0]["s"]
+    r = _q(f"SELECT last_value, is_called FROM {seq}")[0]
+    return int(r["last_value"]) + (1 if r["is_called"] else 0)
+
+
+def set_proximo_id(siguiente: int, actor: str) -> dict:
+    """Fija el próximo ID (para alinear con la numeración del Excel viejo).
+    Solo mueve la secuencia — no toca filas — y se niega a retroceder por
+    debajo del máximo ID ya cargado (PK duplicada en el próximo insert)."""
+    n = int(siguiente)
+    max_id = int(_q("SELECT COALESCE(MAX(id), 0) AS m FROM operaciones.senebis")[0]["m"])
+    if n <= max_id:
+        raise ValueError(
+            f"el próximo ID ({n}) tiene que ser mayor al último ya cargado ({max_id})")
+    before = proximo_id()
+    _exec(f"ALTER TABLE operaciones.senebis ALTER COLUMN id RESTART WITH {n}", {})
+    _audit(actor, "set_proximo_id", str(n), {"before": before, "after": n})
+    return {"proximo_id": n}
+
+
+# ─────────────────────────────────────────────────────────────
 # Export Excel (el archivo que se carga en el sistema destino)
 # ─────────────────────────────────────────────────────────────
 
@@ -569,6 +600,8 @@ def excel_preview(desde: str | None = None, hasta: str | None = None,
         "filas": [{"id": o["id"], "estado": o["estado"], "valores": _fila_export(o)}
                   for o in ordenes],
         "conectados": data["conectados"],
+        # Siempre visible para detectar el desfase con el Excel viejo a ojo.
+        "proximo_id": proximo_id(),
     }
 
 

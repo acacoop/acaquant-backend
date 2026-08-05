@@ -172,6 +172,22 @@ def borrar_op(op_id: int, actor: str = Depends(get_user_email)) -> dict:
         raise HTTPException(400, str(e)) from e
 
 
+class _ProximoIdPayload(BaseModel):
+    siguiente: int = Field(..., gt=0, description="próximo ID a asignar (último del Excel viejo + 1)")
+
+
+@router.post("/proximo-id")
+def set_proximo_id(req: _ProximoIdPayload = Body(...),
+                   actor: str = Depends(get_user_email)) -> dict:
+    """Alinea la secuencia de IDs con la numeración real (Excel viejo/Quantex).
+    Solo escritores + admin; nunca retrocede por debajo del último ID cargado."""
+    _exigir_escritura(actor)
+    try:
+        return _svc.set_proximo_id(req.siguiente, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 class _AgentePayload(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=128)
     numero: str = Field(..., min_length=1, max_length=32,

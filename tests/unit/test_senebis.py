@@ -173,6 +173,7 @@ def test_mae_fija_tipo_y_queda_fuera_del_excel(monkeypatch):
     normal = {**_FILA, "id": 2}
     monkeypatch.setattr(svc, "listar_ops",
                         lambda **kw: {"ordenes": [mae, normal], "conectados": []})
+    monkeypatch.setattr(svc, "proximo_id", lambda: 3)
     prev = svc.excel_preview()
     assert [f["id"] for f in prev["filas"]] == [2]   # la MAE no aparece
 
@@ -217,11 +218,20 @@ def test_export_reglas_contraparte():
 def test_excel_preview_mismas_reglas(monkeypatch):
     monkeypatch.setattr(svc, "listar_ops",
                         lambda **kw: {"ordenes": [_FILA], "conectados": []})
+    monkeypatch.setattr(svc, "proximo_id", lambda: 13646)
     prev = svc.excel_preview()
+    assert prev["proximo_id"] == 13646
     assert prev["headers"][0] == "ID"
     fila = prev["filas"][0]
     assert fila["id"] == 13629 and fila["estado"] == "pendiente"
     assert fila["valores"] == svc._fila_export(_FILA)
+
+
+def test_set_proximo_id_no_retrocede(monkeypatch):
+    # Con 13640 ya cargado, fijar 13640 (o menos) rompería el próximo insert.
+    monkeypatch.setattr(svc, "_q", lambda sql, params=None: [{"m": 13640}])
+    with pytest.raises(ValueError):
+        svc.set_proximo_id(13640, actor="a@x.com")
 
 
 def test_export_xlsx_comitente_texto_queda_texto(monkeypatch):

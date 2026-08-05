@@ -635,8 +635,8 @@ CREATE INDEX IF NOT EXISTS ix_acaret_papel ON operaciones.acavalores_retorno (pa
 -- sí con día hábil. El export .xlsx (ID · OPERACION · INSTRUMENTO · PLAZO ·
 -- PRECIO · CANTIDAD · CONTRAPARTE · COMITENTE · CARTERA PROPIA · MERCADO) es lo
 -- que el back office carga en el sistema destino; el ID es esta secuencia
--- GLOBAL (arranca en 13630 continuando la numeración de la planilla vieja —
--- ajustable con scripts/senebis_set_id.py — y NO se resetea nunca).
+-- GLOBAL (espeja la numeración Quantex, NO se resetea nunca; mientras conviva
+-- el Excel viejo se alinea desde la vista — "PRÓXIMO ID", POST /proximo-id).
 -- Lectura/escritura: módulo `back-office` (traders y back office lo tienen).
 -- Todo cambio queda en senebis_audit (before/after).
 CREATE TABLE IF NOT EXISTS operaciones.senebis (

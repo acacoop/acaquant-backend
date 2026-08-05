@@ -19,13 +19,25 @@ marca presencia) → `operaciones.senebis_presencia` guarda el último visto_at
 por email; conectado = visto en los últimos PRESENCIA_TTL_S segundos. Así el
 equipo ve quién está en la vista y no se pisan al completar órdenes.
 
+Contraparte del senebi (la clave del Excel):
+    'interno'  → contra un cliente de la ALyC: el trader carga la cuenta (cc)
+                 por NÚMERO o por DENOMINACIÓN (se resuelve contra
+                 clientes.cuentas y se snapshotea cc + cc_denominacion).
+    'externo'  → contra un AGENTE de afuera (COCOS, ALLARIA…): el trader elige
+                 el NOMBRE del catálogo `operaciones.senebis_agentes`; el
+                 NÚMERO (el que espera el sistema destino) se snapshotea en
+                 agente_numero al guardar.
+
 Export: `export_xlsx()` arma el .xlsx EXACTO que el back office carga en el
 otro sistema: ID · OPERACION · INSTRUMENTO · PLAZO · PRECIO · CANTIDAD ·
-CONTRAPARTE · COMITENTE · CARTERA PROPIA · MERCADO. El ID es el de la tabla:
-secuencia GLOBAL que arranca donde la fijemos (scripts/senebis_set_id.py) y
-nunca se resetea. COMITENTE/CARTERA PROPIA salen numéricos cuando el valor es
-un número (el sistema destino los espera así). openpyxl con import lazy para
-no tumbar la API si la lib no está instalada todavía (REGLA #1).
+CONTRAPARTE · COMITENTE · CARTERA PROPIA · MERCADO. Reglas (2026-08-05):
+    externo               → COMITENTE vacío, CONTRAPARTE = número del agente.
+    interno GARANTIZADO   → COMITENTE = cp (la 255), CONTRAPARTE vacío.
+    interno NO GARANT./s-d→ COMITENTE = cc, CONTRAPARTE vacío.
+El ID es el de la tabla: secuencia GLOBAL que arranca donde la fijemos
+(scripts/senebis_set_id.py) y nunca se resetea. Los campos numéricos salen
+como número cuando el valor lo es (el sistema destino los espera así).
+openpyxl con import lazy para no tumbar la API si falta la lib (REGLA #1).
 
 Permisos: módulo `back-office` (gate en api/main.py) para TODO — traders y
 back office lo tienen en la matriz. Trazabilidad: cada cambio inserta un
@@ -47,6 +59,7 @@ from core.postgres import get_pool
 
 ESTADOS = ("pendiente", "completada")
 PLAZOS = ("CI", "24")
+TIPOS_CONTRAPARTE = ("interno", "externo")
 PRESENCIA_TTL_S = 90  # visto hace ≤90s = conectado (el front pollea cada ~30s)
 _TZ_AR = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -54,25 +67,13 @@ _TZ_AR = ZoneInfo("America/Argentina/Buenos_Aires")
 _CAMPOS_OP = (
     "operacion", "concertacion", "liquidacion", "plazo", "especie",
     "vn", "px", "monto", "cp", "cc", "contraparte", "nro_contraparte",
-    "mercado", "cargan_ellos", "tipo",
+    "mercado", "cargan_ellos", "tipo", "tipo_contraparte", "agente",
 )
 
-# Columnas del Excel que el back office carga en el otro sistema (imagen de
+# Headers del Excel que el back office carga en el otro sistema (imagen de
 # referencia 2026-08-05): el ID va primero y es la secuencia global de la tabla.
-_COLUMNAS_XLSX = (
-    ("ID", "id"),
-    ("OPERACION", "operacion"),
-    ("INSTRUMENTO", "especie"),
-    ("PLAZO", "plazo"),
-    ("PRECIO", "px"),
-    ("CANTIDAD", "vn"),
-    ("CONTRAPARTE", "contraparte"),
-    ("COMITENTE", "cc"),
-    ("CARTERA PROPIA", "cp"),
-    ("MERCADO", "mercado"),
-)
-# Columnas que el sistema destino espera como NÚMERO cuando el valor lo es.
-_COLS_NUMERICAS_SI_SE_PUEDE = {"cc", "cp"}
+_HEADERS_XLSX = ("ID", "OPERACION", "INSTRUMENTO", "PLAZO", "PRECIO", "CANTIDAD",
+                 "CONTRAPARTE", "COMITENTE", "CARTERA PROPIA", "MERCADO")
 
 
 def _exec(sql: str, params: dict) -> int:
@@ -137,6 +138,121 @@ def conectados() -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────
+# Agentes externos (catálogo nombre → número del sistema destino)
+# ─────────────────────────────────────────────────────────────
+
+def listar_agentes() -> list[dict]:
+    return [{"nombre": r["nombre"], "numero": r["numero"]} for r in _q(
+        "SELECT nombre, numero FROM operaciones.senebis_agentes ORDER BY nombre")]
+
+
+def _numero_agente(nombre: str) -> str | None:
+    rows = _q("SELECT numero FROM operaciones.senebis_agentes WHERE nombre = %(n)s",
+              {"n": nombre})
+    return rows[0]["numero"] if rows else None
+
+
+def upsert_agente(nombre: str, numero: str, actor: str) -> dict:
+    n = (nombre or "").strip().upper()
+    num = str(numero or "").strip()
+    if not n:
+        raise ValueError("falta 'nombre'")
+    if not num:
+        raise ValueError("falta 'numero' (el número de agente del sistema destino)")
+    at = datetime.now(UTC)
+    por = (actor or "").lower() or None
+    _exec(
+        "INSERT INTO operaciones.senebis_agentes "
+        "(nombre, numero, creado_por, creado_at, actualizado_por, actualizado_at) "
+        "VALUES (%(n)s, %(num)s, %(por)s, %(at)s, %(por)s, %(at)s) "
+        "ON CONFLICT (nombre) DO UPDATE SET numero = EXCLUDED.numero, "
+        "actualizado_por = EXCLUDED.actualizado_por, actualizado_at = EXCLUDED.actualizado_at",
+        {"n": n, "num": num, "por": por, "at": at},
+    )
+    _audit(actor, "upsert_agente", n, {"numero": num})
+    return {"nombre": n, "numero": num}
+
+
+def quitar_agente(nombre: str, actor: str) -> dict:
+    n = (nombre or "").strip().upper()
+    if not n:
+        raise ValueError("falta 'nombre'")
+    borrado = _exec("DELETE FROM operaciones.senebis_agentes WHERE nombre = %(n)s", {"n": n})
+    _audit(actor, "remove_agente", n, {})
+    return {"borrado": borrado}
+
+
+def opciones(email: str = "") -> dict:
+    """Opciones del form de carga: catálogo de agentes (desplegable del
+    externo) + valores válidos. Marca presencia del caller."""
+    if email:
+        marcar_presencia(email)
+    return {
+        "agentes": listar_agentes(),
+        "tipos_contraparte": list(TIPOS_CONTRAPARTE),
+        "plazos": list(PLAZOS),
+        "conectados": conectados(),
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# Comitentes (clientes de la ALyC) — búsqueda y resolución
+# ─────────────────────────────────────────────────────────────
+
+def _denominacion_limpia(d: str | None) -> str | None:
+    """clientes.cuentas.denominacion viene '[805] NOMBRE' o 'NOMBRE' a secas."""
+    s = (d or "").strip()
+    if s.startswith("[") and "]" in s:
+        s = s.split("]", 1)[1].strip()
+    return s or None
+
+
+def buscar_comitentes(q: str = "", limit: int = 20) -> list[dict]:
+    """Autocomplete del form (interno): matchea por NÚMERO de cuenta o por
+    DENOMINACIÓN, para que el trader cargue con lo que sepa de la cuenta."""
+    term = (q or "").strip()
+    if not term:
+        return []
+    rows = _q(
+        "SELECT id_cuenta, denominacion FROM clientes.cuentas "
+        "WHERE id_cuenta ILIKE %(pref)s OR denominacion ILIKE %(sub)s "
+        "ORDER BY id_cuenta LIMIT %(lim)s",
+        {"pref": f"{term}%", "sub": f"%{term}%", "lim": int(limit)},
+    )
+    return [{"id_cuenta": r["id_cuenta"],
+             "denominacion": _denominacion_limpia(r["denominacion"])} for r in rows]
+
+
+def _buscar_cuenta_exacta(term: str) -> dict | None:
+    """Cuenta cuyo id_cuenta O denominación matchea EXACTO (case-insensitive).
+    Devuelve {id_cuenta, denominacion} o None si no hay match único."""
+    rows = _q(
+        "SELECT id_cuenta, denominacion FROM clientes.cuentas "
+        "WHERE id_cuenta = %(t)s "
+        "   OR upper(denominacion) = upper(%(t)s) "
+        "   OR upper(denominacion) LIKE upper(%(brack)s) LIMIT 2",
+        {"t": term, "brack": f"[%] {term}"},
+    )
+    if len(rows) != 1:
+        return None  # 0 = no existe; 2+ = ambiguo → se guarda lo tipeado tal cual
+    return {"id_cuenta": rows[0]["id_cuenta"],
+            "denominacion": _denominacion_limpia(rows[0]["denominacion"])}
+
+
+def _resolver_interno(cc: str | None) -> tuple[str | None, str | None]:
+    """(cc, cc_denominacion) para un senebi interno: si lo tipeado matchea una
+    cuenta (por número o denominación) se normaliza al NÚMERO + snapshot de la
+    denominación; si no matchea queda lo tipeado tal cual (texto libre)."""
+    term = (str(cc or "")).strip()
+    if not term:
+        return None, None
+    hit = _buscar_cuenta_exacta(term)
+    if hit:
+        return hit["id_cuenta"], hit["denominacion"]
+    return term, None
+
+
+# ─────────────────────────────────────────────────────────────
 # Órdenes (CRUD + estado)
 # ─────────────────────────────────────────────────────────────
 
@@ -149,10 +265,12 @@ def _fila_op(r: dict) -> dict:
         "plazo": r["plazo"],
         "especie": r["especie"],
         "vn": _f(r["vn"]), "px": _f(r["px"]), "monto": _f(r["monto"]),
-        "cp": r["cp"], "cc": r["cc"],
+        "cp": r["cp"], "cc": r["cc"], "cc_denominacion": r["cc_denominacion"],
         "contraparte": r["contraparte"], "nro_contraparte": r["nro_contraparte"],
         "mercado": r["mercado"],
         "cargan_ellos": r["cargan_ellos"], "tipo": r["tipo"],
+        "tipo_contraparte": r["tipo_contraparte"],
+        "agente": r["agente"], "agente_numero": r["agente_numero"],
         "estado": r["estado"],
         "completada_por": r["completada_por"],
         "completada_at": r["completada_at"].isoformat() if r["completada_at"] else None,
@@ -263,23 +381,42 @@ def _validar(p: dict) -> None:
         raise ValueError("'operacion' tiene que ser COMPRA o VENTA")
     if not (p.get("especie") or "").strip():
         raise ValueError("falta 'especie'")
+    tc = (p.get("tipo_contraparte") or "interno").strip().lower()
+    if tc not in TIPOS_CONTRAPARTE:
+        raise ValueError(
+            f"tipo_contraparte {tc!r} inválido: {' | '.join(TIPOS_CONTRAPARTE)}")
+    if tc == "externo" and not (p.get("agente") or "").strip():
+        raise ValueError("senebi externo: falta 'agente' (elegirlo del catálogo)")
 
 
 def _row_de_payload(p: dict, actor: str) -> dict:
     fechas = _completar_fechas(p)
+    tc = (p.get("tipo_contraparte") or "interno").strip().lower()
+    if tc == "externo":
+        agente = (p.get("agente") or "").strip().upper()
+        numero = _numero_agente(agente)
+        if numero is None:
+            raise ValueError(
+                f"agente {agente!r} no está en el catálogo — el back office lo "
+                "agrega con su número desde la vista SENEBIS")
+        cc, cc_den = None, None
+    else:
+        agente, numero = None, None
+        cc, cc_den = _resolver_interno(p.get("cc"))
     return {
         "operacion": (p["operacion"] or "").strip().upper(),
         **fechas,
         "especie": (p.get("especie") or "").strip().upper(),
         "vn": _num(p.get("vn")), "px": _num(p.get("px")),
         "monto": _derivar_monto(p),
-        "cp": (str(p.get("cp") or "").strip()) or "255",   # default cuenta propia 255
-        "cc": (str(p.get("cc") or "").strip()) or None,
+        "cp": (str(p.get("cp") or "").strip()) or "255",   # default cartera propia 255
+        "cc": cc, "cc_denominacion": cc_den,
         "contraparte": (p.get("contraparte") or "").strip() or None,
         "nro_contraparte": (str(p.get("nro_contraparte") or "").strip()) or None,
         "mercado": (p.get("mercado") or "").strip().upper() or None,
         "cargan_ellos": (p.get("cargan_ellos") or "").strip() or None,
         "tipo": (p.get("tipo") or "").strip() or None,
+        "tipo_contraparte": tc, "agente": agente, "agente_numero": numero,
         "por": (actor or "").lower() or None, "at": datetime.now(UTC),
     }
 
@@ -292,12 +429,14 @@ def crear_op(payload: dict, actor: str) -> dict:
         cur.execute(
             "INSERT INTO operaciones.senebis "
             "(operacion, concertacion, liquidacion, plazo, especie, vn, px, monto, "
-            " cp, cc, contraparte, nro_contraparte, mercado, cargan_ellos, tipo, "
+            " cp, cc, cc_denominacion, contraparte, nro_contraparte, mercado, "
+            " cargan_ellos, tipo, tipo_contraparte, agente, agente_numero, "
             " estado, creado_por, creado_at, actualizado_por, actualizado_at) "
             "VALUES (%(operacion)s, %(concertacion)s, %(liquidacion)s, %(plazo)s, "
-            " %(especie)s, %(vn)s, %(px)s, %(monto)s, %(cp)s, %(cc)s, %(contraparte)s, "
-            " %(nro_contraparte)s, %(mercado)s, %(cargan_ellos)s, %(tipo)s, "
-            " 'pendiente', %(por)s, %(at)s, %(por)s, %(at)s) "
+            " %(especie)s, %(vn)s, %(px)s, %(monto)s, %(cp)s, %(cc)s, "
+            " %(cc_denominacion)s, %(contraparte)s, %(nro_contraparte)s, %(mercado)s, "
+            " %(cargan_ellos)s, %(tipo)s, %(tipo_contraparte)s, %(agente)s, "
+            " %(agente_numero)s, 'pendiente', %(por)s, %(at)s, %(por)s, %(at)s) "
             "RETURNING id",
             row,
         )
@@ -328,9 +467,12 @@ def editar_op(op_id: int, payload: dict, actor: str) -> dict:
         "UPDATE operaciones.senebis SET operacion=%(operacion)s, "
         "concertacion=%(concertacion)s, liquidacion=%(liquidacion)s, "
         "plazo=%(plazo)s, especie=%(especie)s, vn=%(vn)s, px=%(px)s, "
-        "monto=%(monto)s, cp=%(cp)s, cc=%(cc)s, contraparte=%(contraparte)s, "
+        "monto=%(monto)s, cp=%(cp)s, cc=%(cc)s, cc_denominacion=%(cc_denominacion)s, "
+        "contraparte=%(contraparte)s, "
         "nro_contraparte=%(nro_contraparte)s, mercado=%(mercado)s, "
         "cargan_ellos=%(cargan_ellos)s, tipo=%(tipo)s, "
+        "tipo_contraparte=%(tipo_contraparte)s, agente=%(agente)s, "
+        "agente_numero=%(agente_numero)s, "
         "actualizado_por=%(por)s, actualizado_at=%(at)s WHERE id=%(id)s",
         row,
     )
@@ -373,13 +515,30 @@ def set_estado(op_id: int, estado: str, actor: str) -> dict:
 # Export Excel (el archivo que se carga en el sistema destino)
 # ─────────────────────────────────────────────────────────────
 
-def _celda_export(campo: str, v: Any) -> Any:
-    """Valor de la celda: COMITENTE/CARTERA PROPIA numéricos cuando se puede
-    (el sistema destino los espera como número; si el CC es texto queda texto
-    y el back office lo resuelve a mano)."""
-    if campo in _COLS_NUMERICAS_SI_SE_PUEDE and isinstance(v, str) and v.isdigit():
+def _numero_si_se_puede(v: Any) -> Any:
+    """El sistema destino espera número en CONTRAPARTE/COMITENTE/CARTERA PROPIA;
+    si el valor es texto (cuenta sin resolver) queda texto y el back office lo
+    corrige a mano."""
+    if isinstance(v, str) and v.isdigit():
         return int(v)
     return v
+
+
+def _fila_export(o: dict) -> list:
+    """Una orden → los 10 valores del Excel destino. Acá viven las reglas de
+    contraparte (2026-08-05):
+        externo             → COMITENTE vacío, CONTRAPARTE = número del agente.
+        interno GARANTIZADO → COMITENTE = cp (cartera propia), CONTRAPARTE vacío.
+        interno resto       → COMITENTE = cc, CONTRAPARTE vacío."""
+    if o["tipo_contraparte"] == "externo":
+        contraparte = _numero_si_se_puede(o["agente_numero"])
+        comitente = None
+    else:
+        contraparte = None
+        fuente = o["cp"] if (o["mercado"] or "") == "GARANTIZADO" else o["cc"]
+        comitente = _numero_si_se_puede(fuente)
+    return [o["id"], o["operacion"], o["especie"], o["plazo"], o["px"], o["vn"],
+            contraparte, comitente, _numero_si_se_puede(o["cp"]), o["mercado"]]
 
 
 def export_xlsx(desde: str | None = None, hasta: str | None = None,
@@ -403,15 +562,15 @@ def export_xlsx(desde: str | None = None, hasta: str | None = None,
     ws.title = "SENEBIS"
     header_font = Font(bold=True, color="FFFFFF")
     header_fill = PatternFill("solid", fgColor="1F4E79")
-    for col, (titulo, _campo) in enumerate(_COLUMNAS_XLSX, start=1):
+    for col, titulo in enumerate(_HEADERS_XLSX, start=1):
         cell = ws.cell(row=1, column=col, value=titulo)
         cell.font = header_font
         cell.fill = header_fill
     ws.freeze_panes = "A2"
 
     for i, o in enumerate(ordenes, start=2):
-        for col, (_titulo, campo) in enumerate(_COLUMNAS_XLSX, start=1):
-            ws.cell(row=i, column=col, value=_celda_export(campo, o[campo]))
+        for col, valor in enumerate(_fila_export(o), start=1):
+            ws.cell(row=i, column=col, value=valor)
 
     # Anchos razonables para abrir y leer sin acomodar nada.
     anchos = (8, 12, 14, 8, 14, 16, 16, 14, 15, 18)

@@ -46,6 +46,22 @@ def presencia(actor: str = Depends(get_user_email)) -> dict:
     return {"conectados": _svc.conectados()}
 
 
+@router.get("/opciones")
+def opciones(actor: str = Depends(get_user_email)) -> dict:
+    """Opciones del form: catálogo de agentes externos + valores válidos."""
+    return _svc.opciones(email=actor)
+
+
+@router.get("/comitentes")
+def comitentes(
+    q: str = Query(..., min_length=1, description="número de cuenta o denominación (contiene)"),
+    _actor: str = Depends(get_user_email),
+) -> dict:
+    """Autocomplete de cuentas comitentes (senebi interno): el trader busca por
+    número O por nombre y el form completa el que falte."""
+    return {"comitentes": _svc.buscar_comitentes(q=q)}
+
+
 @router.get("/export")
 def export(
     desde: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
@@ -91,6 +107,10 @@ class _OpPayload(BaseModel):
     mercado: str | None = Field(None, max_length=64, description="GARANTIZADO | NO GARANTIZADO | vacío")
     cargan_ellos: str | None = Field(None, max_length=256, description="observación libre")
     tipo: str | None = Field(None, max_length=256, description="observación libre")
+    # Contraparte del senebi: interno (cliente ALyC → cc por número o denominación)
+    # o externo (agente del catálogo → el número sale del catálogo al Excel).
+    tipo_contraparte: str = Field("interno", description="interno | externo")
+    agente: str | None = Field(None, max_length=128, description="nombre del agente (externo)")
 
 
 @router.post("/ops")
@@ -114,6 +134,30 @@ def editar_op(op_id: int, req: _OpPayload = Body(...),
 def borrar_op(op_id: int, actor: str = Depends(get_user_email)) -> dict:
     try:
         return _svc.borrar_op(op_id, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+class _AgentePayload(BaseModel):
+    nombre: str = Field(..., min_length=1, max_length=128)
+    numero: str = Field(..., min_length=1, max_length=32,
+                        description="número de agente del sistema destino")
+
+
+@router.put("/agentes")
+def upsert_agente(req: _AgentePayload = Body(...),
+                  actor: str = Depends(get_user_email)) -> dict:
+    """Alta/edición de un agente externo (catálogo nombre → número)."""
+    try:
+        return _svc.upsert_agente(req.nombre, req.numero, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/agentes/{nombre}")
+def quitar_agente(nombre: str, actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc.quitar_agente(nombre, actor=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 

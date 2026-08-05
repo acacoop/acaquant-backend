@@ -656,6 +656,14 @@ CREATE TABLE IF NOT EXISTS operaciones.senebis (
     mercado         text,                    -- GARANTIZADO / NO GARANTIZADO / vacío
     cargan_ellos    text,                    -- observación (texto libre)
     tipo            text,                    -- observación (texto libre, ej. 'pasada')
+    -- Contraparte del senebi: 'interno' (cliente de la ALyC → cc) o 'externo'
+    -- (agente/ALyC de afuera → agente del catálogo senebis_agentes). Manda en
+    -- el Excel: externo → COMITENTE vacío + CONTRAPARTE = número del agente;
+    -- interno GARANTIZADO → COMITENTE = cp; interno NO GARANTIZADO → COMITENTE = cc.
+    tipo_contraparte text NOT NULL DEFAULT 'interno',   -- 'interno' | 'externo'
+    agente          text,                    -- nombre del agente (externo, validado vs catálogo)
+    agente_numero   text,                    -- snapshot del número al guardar (va al Excel)
+    cc_denominacion text,                    -- snapshot denominación clientes.cuentas (interno)
     estado          text NOT NULL DEFAULT 'pendiente',  -- 'pendiente' | 'completada'
     completada_por  text,                    -- email del back office que la completó
     completada_at   timestamptz,
@@ -666,6 +674,25 @@ CREATE TABLE IF NOT EXISTS operaciones.senebis (
 );
 CREATE INDEX IF NOT EXISTS ix_senebis_concertacion ON operaciones.senebis (concertacion DESC);
 CREATE INDEX IF NOT EXISTS ix_senebis_estado ON operaciones.senebis (estado);
+-- La tabla ya corre en prod desde 2026-08-05: las columnas de contraparte se
+-- agregan también por ALTER (idempotente) para los deploys que ya la tienen.
+ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS tipo_contraparte text NOT NULL DEFAULT 'interno';
+ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS agente text;
+ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS agente_numero text;
+ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS cc_denominacion text;
+
+-- Catálogo de AGENTES externos (ALyCs de afuera: COCOS, ALLARIA…) con el NÚMERO
+-- que espera el sistema destino en CONTRAPARTE. Lo gestiona el back office desde
+-- la vista (el nombre puede coincidir con clientes.contrapartes, pero el número
+-- del sistema destino solo vive acá). El trader elige por nombre (desplegable).
+CREATE TABLE IF NOT EXISTS operaciones.senebis_agentes (
+    nombre          text PRIMARY KEY,
+    numero          text NOT NULL,
+    creado_por      text,
+    creado_at       timestamptz,
+    actualizado_por text,
+    actualizado_at  timestamptz
+);
 
 -- Presencia en la vista SENEBIS: quién la tiene abierta AHORA (heartbeat del
 -- front cada vez que pollea la lista; conectado = visto_at en los últimos 90s).

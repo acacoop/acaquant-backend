@@ -91,7 +91,13 @@ def test_validar_rechaza(campo, valor):
         svc._validar(p)
 
 
-def test_row_normaliza_y_defaults():
+def test_validar_externo_exige_agente():
+    with pytest.raises(ValueError):
+        svc._validar({**_payload_ok(), "tipo_contraparte": "externo"})
+
+
+def test_row_normaliza_y_defaults(monkeypatch):
+    monkeypatch.setattr(svc, "_buscar_cuenta_exacta", lambda term: None)
     row = svc._row_de_payload(
         {**_payload_ok(), "vn": 1000, "px": 50, "mercado": "no garantizado"},
         actor="Trader@Acaquant.com")
@@ -101,7 +107,43 @@ def test_row_normaliza_y_defaults():
     assert row["monto"] == pytest.approx(500)
     assert row["cp"] == "255"          # default cartera propia
     assert row["plazo"] == "CI"        # default sin plazo ni liquidacion
+    assert row["tipo_contraparte"] == "interno"  # default
     assert row["por"] == "trader@acaquant.com"
+
+
+# ── contraparte: interno (resolución de cuenta) y externo (agente) ───────────
+
+def test_denominacion_limpia():
+    assert svc._denominacion_limpia("[805] ACME SA") == "ACME SA"
+    assert svc._denominacion_limpia("ACME SA") == "ACME SA"
+    assert svc._denominacion_limpia("  ") is None
+
+
+def test_resolver_interno_matchea_y_snapshotea(monkeypatch):
+    monkeypatch.setattr(
+        svc, "_buscar_cuenta_exacta",
+        lambda term: {"id_cuenta": "805", "denominacion": "ACME SA"}
+        if term in ("805", "ACME SA") else None)
+    assert svc._resolver_interno("805") == ("805", "ACME SA")
+    assert svc._resolver_interno("ACME SA") == ("805", "ACME SA")   # por nombre → número
+    assert svc._resolver_interno("BYMA") == ("BYMA", None)          # sin match → tal cual
+    assert svc._resolver_interno("") == (None, None)
+
+
+def test_row_externo_snapshotea_numero_de_agente(monkeypatch):
+    monkeypatch.setattr(svc, "_numero_agente",
+                        lambda n: "733" if n == "COCOS" else None)
+    row = svc._row_de_payload(
+        {**_payload_ok(), "tipo_contraparte": "externo", "agente": "cocos",
+         "cc": "219"},
+        actor="t@x.com")
+    assert row["agente"] == "COCOS"
+    assert row["agente_numero"] == "733"
+    assert row["cc"] is None            # externo: la cc no aplica
+    with pytest.raises(ValueError):     # agente fuera del catálogo → error claro
+        svc._row_de_payload(
+            {**_payload_ok(), "tipo_contraparte": "externo", "agente": "OTRO"},
+            actor="t@x.com")
 
 
 # ── export .xlsx (formato del sistema destino) ───────────────────────────────
@@ -110,8 +152,10 @@ _FILA = {
     "id": 13629, "operacion": "COMPRA", "concertacion": "2026-08-04",
     "liquidacion": "2026-08-05", "plazo": "24", "especie": "TZXM7",
     "vn": 500_000_000.0, "px": 217.2, "monto": 1_086_000_000.0,
-    "cp": "255", "cc": "219", "contraparte": None, "nro_contraparte": None,
+    "cp": "255", "cc": "219", "cc_denominacion": None,
+    "contraparte": None, "nro_contraparte": None,
     "mercado": "NO GARANTIZADO", "cargan_ellos": None, "tipo": None,
+    "tipo_contraparte": "interno", "agente": None, "agente_numero": None,
     "estado": "pendiente", "completada_por": None, "completada_at": None,
     "creado_por": "t@x.com", "creado_at": None, "actualizado_por": None,
 }
@@ -135,9 +179,23 @@ def test_export_xlsx_columnas_y_valores(monkeypatch):
     assert fila[3] == "24"
     assert fila[4] == pytest.approx(217.2)
     assert fila[5] == pytest.approx(500_000_000)
-    assert fila[7] == 219                         # COMITENTE numérico si se puede
+    assert fila[6] is None                        # interno → CONTRAPARTE vacío
+    assert fila[7] == 219                         # COMITENTE = cc, numérico
     assert fila[8] == 255                         # CARTERA PROPIA ídem
     assert fila[9] == "NO GARANTIZADO"
+
+
+def test_export_reglas_contraparte():
+    # interno NO GARANTIZADO → COMITENTE = cc
+    fila = svc._fila_export(_FILA)
+    assert fila[6] is None and fila[7] == 219
+    # interno GARANTIZADO → COMITENTE = cp (la 255)
+    fila = svc._fila_export({**_FILA, "mercado": "GARANTIZADO"})
+    assert fila[6] is None and fila[7] == 255
+    # externo → COMITENTE vacío, CONTRAPARTE = número del agente
+    fila = svc._fila_export({**_FILA, "tipo_contraparte": "externo",
+                             "agente": "COCOS", "agente_numero": "733", "cc": None})
+    assert fila[6] == 733 and fila[7] is None
 
 
 def test_export_xlsx_comitente_texto_queda_texto(monkeypatch):

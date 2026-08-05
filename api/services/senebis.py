@@ -39,10 +39,13 @@ El ID es el de la tabla: secuencia GLOBAL que arranca donde la fijemos
 como número cuando el valor lo es (el sistema destino los espera así).
 openpyxl con import lazy para no tumbar la API si falta la lib (REGLA #1).
 
-Permisos: módulo `back-office` (gate en api/main.py) para TODO — traders y
-back office lo tienen en la matriz. Trazabilidad: cada cambio inserta un
-evento en `operaciones.senebis_audit` con before/after. Servicio puro
-(sin FastAPI).
+Permisos: módulo `back-office` (gate en api/main.py) para LEER, marcar estado
+y gestionar el catálogo de agentes. CARGAR/EDITAR/BORRAR órdenes exige además
+la MISMA allowlist de escritura que Mesa de Dinero
+(`operaciones.mesa_dinero_escritores` + admin — decisión 2026-08-05: los que
+cargan senebis son los mismos que cargan en la mesa; se gestiona en un solo
+lugar, Manager → MESA). Trazabilidad: cada cambio inserta un evento en
+`operaciones.senebis_audit` con before/after. Servicio puro (sin FastAPI).
 """
 from __future__ import annotations
 
@@ -54,6 +57,7 @@ from zoneinfo import ZoneInfo
 from psycopg.types.json import Jsonb
 
 from api.services._sql import _f, _q
+from api.services.mesa_dinero import puede_escribir  # misma allowlist que la mesa
 from core.calendario import proximo_habil
 from core.postgres import get_pool
 
@@ -192,6 +196,10 @@ def opciones(email: str = "") -> dict:
         "tipos_contraparte": list(TIPOS_CONTRAPARTE),
         "plazos": list(PLAZOS),
         "conectados": conectados(),
+        # Cargar/editar/borrar órdenes: MISMA allowlist que Mesa de Dinero
+        # (+ admin). El front esconde la edición sin esto, pero el enforcement
+        # real es server-side en cada write del router.
+        "puede_escribir": puede_escribir(email),
     }
 
 

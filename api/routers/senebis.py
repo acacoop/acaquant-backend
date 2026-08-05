@@ -4,6 +4,12 @@
 las marque 'completada'. Gate: módulo `back-office` (se monta en api/main.py
 con _BACK_OFFICE — traders y back office lo tienen en la matriz).
 
+CARGAR/EDITAR/BORRAR órdenes exige además la MISMA allowlist de escritura de
+Mesa de Dinero (`mesa_dinero_escritores` + admin, Manager → MESA) —
+enforcement server-side en cada write, default-deny. Marcar estado y el
+catálogo de agentes quedan para todo el módulo (es el trabajo del back
+office, que no necesariamente carga en la mesa).
+
 GET /ops además marca presencia del caller — el polling de la lista es el
 heartbeat; la respuesta trae `conectados` para que el equipo vea quién está
 en la vista y no se pisen. Thin HTTP plumbing: la lógica vive en
@@ -18,6 +24,13 @@ from api.auth import get_user_email
 from api.services import senebis as _svc
 
 router = APIRouter(prefix="/api/back-office/senebis", tags=["Senebis"])
+
+
+def _exigir_escritura(actor: str) -> None:
+    if not _svc.puede_escribir(actor):
+        raise HTTPException(
+            403, "sin permiso para cargar órdenes SENEBIS (misma allowlist "
+                 "que Mesa de Dinero — se gestiona en Manager → MESA)")
 
 
 # ── Lectura ──────────────────────────────────────────────────────────────────
@@ -130,6 +143,7 @@ class _OpPayload(BaseModel):
 
 @router.post("/ops")
 def crear_op(req: _OpPayload = Body(...), actor: str = Depends(get_user_email)) -> dict:
+    _exigir_escritura(actor)
     try:
         return _svc.crear_op(req.model_dump(), actor=actor)
     except ValueError as e:
@@ -139,6 +153,7 @@ def crear_op(req: _OpPayload = Body(...), actor: str = Depends(get_user_email)) 
 @router.patch("/ops/{op_id}")
 def editar_op(op_id: int, req: _OpPayload = Body(...),
               actor: str = Depends(get_user_email)) -> dict:
+    _exigir_escritura(actor)
     try:
         return _svc.editar_op(op_id, req.model_dump(), actor=actor)
     except ValueError as e:
@@ -147,6 +162,7 @@ def editar_op(op_id: int, req: _OpPayload = Body(...),
 
 @router.delete("/ops/{op_id}")
 def borrar_op(op_id: int, actor: str = Depends(get_user_email)) -> dict:
+    _exigir_escritura(actor)
     try:
         return _svc.borrar_op(op_id, actor=actor)
     except ValueError as e:

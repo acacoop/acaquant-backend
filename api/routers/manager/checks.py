@@ -1,4 +1,4 @@
-"""GET /api/manager/checks/* — validaciones de consistencia sobre Mongo."""
+"""GET /api/manager/checks/* — validaciones de consistencia (SQL)."""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
@@ -20,35 +20,6 @@ def check_debug_comercial(
     arancel) + totales + ticket promedio, para un operador o un segmento."""
     from api.services.comercial_sql import debug_comercial
     return debug_comercial(operador=operador, segmento=segmento, moneda=moneda)
-
-
-_DEBUG_OBSOLETO = {
-    "deshabilitado_post_decomiso": True,
-    "nota": (
-        "Check obsoleto: debuggeaba el enriquecimiento por-trade en Trading.TimeSales "
-        "(Mongo, dropeada). El enriquecimiento (TEA/duration/paridad) ahora vive LIVE en "
-        "mercado.market_snapshot, no por-trade. Usá /api/manager/checks/debug-curva-tea "
-        "(SQL) o /api/manager/status para frescura."
-    ),
-}
-
-
-@router.get("/checks/curvas-pendientes")
-def check_curvas_pendientes():
-    """OBSOLETO post-decomiso Mongo — ver _DEBUG_OBSOLETO."""
-    return {"total": 0, "ok": True, "tickers": [], **_DEBUG_OBSOLETO}
-
-
-@router.get("/checks/forwards")
-def check_forwards():
-    """OBSOLETO post-decomiso Mongo — ver _DEBUG_OBSOLETO."""
-    return _DEBUG_OBSOLETO
-
-
-@router.get("/checks/cer")
-def check_cer():
-    """OBSOLETO post-decomiso Mongo — ver _DEBUG_OBSOLETO."""
-    return {"cer_reciente": None, "dias_habiles": 0, "instrumentos": [], **_DEBUG_OBSOLETO}
 
 
 @router.get("/checks/tasa-fija")
@@ -83,15 +54,6 @@ def check_tasa_fija():
             "sin_posicion": sum(1 for r in rows if r["estado"] == "sin_posicion"),
             "sin_assets": sum(1 for r in rows if r["estado"] == "sin_assets"),
             "instrumentos": rows}
-
-
-@router.get("/checks/debug-forward")
-def debug_forward(
-    tc_a: str = Query(..., description="ticker_corto instrumento A"),
-    tc_b: str = Query(..., description="ticker_corto instrumento B"),
-):
-    """OBSOLETO post-decomiso Mongo — leía TEA/duration por-trade de Trading.TimeSales."""
-    return {"tc_a": tc_a, "tc_b": tc_b, "forward": None, "pasos": [], **_DEBUG_OBSOLETO}
 
 
 @router.get("/checks/tickers-curvas")

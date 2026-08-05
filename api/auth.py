@@ -94,12 +94,13 @@ GUEST_PATH_PREFIXES: tuple[str, ...] = (
 def path_permitido_invitado(path: str) -> bool:
     """Default-deny para el portal www: solo mercado/research (REGLA #8).
 
-    Se aplica únicamente a `/api/*`; el resto (oauth, mcp, discovery) no lo
-    consume el portal invitado y tiene su propia auth.
+    Match por segmento, no por texto: `/api/me` NO puede habilitar
+    `/api/mesa-dinero`. Se aplica únicamente a `/api/*`; el resto (oauth, mcp,
+    discovery) no lo consume el portal invitado y tiene su propia auth.
     """
     if not path.startswith("/api/"):
         return True
-    return path.startswith(GUEST_PATH_PREFIXES)
+    return any(path == p or path.startswith(p + "/") for p in GUEST_PATH_PREFIXES)
 
 
 @lru_cache(maxsize=1)

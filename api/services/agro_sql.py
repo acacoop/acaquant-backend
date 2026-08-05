@@ -20,6 +20,7 @@ SQL-only (decomiso Mongo). Consumido desde
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -74,14 +75,24 @@ def get_pase_agro() -> dict[str, Any]:
     pregunta (fetch + extras) — con el cache la segunda es gratis y la frescura
     real no cambia (el motor escribe cada ~5s).
     """
-    pizarras = {p["commodity"]: p for p in _rows("agro_pizarra")
-                if p.get("commodity")}
-    # Cámara con la pata derivada YA calculada (SOJA en ARS → USD, resto USD → ARS,
-    # con el dólar BNA). _build_bloque usa `precio_usd`, que para SOJA es derivado.
-    camara = {c["cereal"]: c for c in _cam.get_camara_cereales()["cereales"]}
-    snapshots = _rows("agro_snapshot")
-
-    oficial = mid_oficial_live("oficial")
+    # Las 5 lecturas de abajo son independientes entre sí → en PARALELO.
+    # En serie el endpoint pagaba la SUMA de sus round-trips a Postgres
+    # (telemetría 2026-08-05: 662ms avg, el peor de la plataforma); en
+    # paralelo paga solo el más lento.
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        f_piz = ex.submit(_rows, "agro_pizarra")
+        f_cam = ex.submit(_cam.get_camara_cereales)
+        f_snap = ex.submit(_rows, "agro_snapshot")
+        f_ofi = ex.submit(mid_oficial_live, "oficial")
+        f_tas = ex.submit(_cam.get_tasas_cobertura)
+        pizarras = {p["commodity"]: p for p in f_piz.result()
+                    if p.get("commodity")}
+        # Cámara con la pata derivada YA calculada (SOJA en ARS → USD, resto
+        # USD → ARS, con el dólar BNA). _build_bloque usa `precio_usd`.
+        camara = {c["cereal"]: c for c in f_cam.result()["cereales"]}
+        snapshots = f_snap.result()
+        oficial = f_ofi.result()
+        tasas_cobertura = f_tas.result()
     oficial_value = oficial.get("value")
 
     hoy = date.today()
@@ -122,7 +133,7 @@ def get_pase_agro() -> dict[str, Any]:
         "bloques":          bloques,
         # Tasas manuales ON / Pagaré (tab DATOS) — alimentan las columnas
         # Pagaré / ON del "Pase con Cobertura".
-        "tasas_cobertura":  _cam.get_tasas_cobertura(),
+        "tasas_cobertura":  tasas_cobertura,
         # Cards + ganancia ON del "Pase con Cobertura" (calculado sobre estos
         # mismos bloques → única fuente de la fórmula).
         "pase_cobertura":   _cob.get_pase_cobertura(bloques),

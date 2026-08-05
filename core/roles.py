@@ -189,6 +189,14 @@ _CACHE_TTL = 60.0
 _cache_lock = threading.RLock()
 _role_by_email: dict[str, tuple[float, str | None]] = {}
 _matrix_cache: tuple[float, dict[str, tuple[str, ...]]] | None = None
+# control_comercial por email (TTL 60s) — antes cada /api/me hacía un SELECT.
+_cc_by_email: dict[str, tuple[float, bool]] = {}
+# Throttle LOCAL de _touch_last_seen: hora del último UPDATE que ESTE proceso
+# mandó por email. Sin esto, el "throttle" solo vivía en el WHERE del UPDATE
+# → el round-trip a Postgres viajaba igual EN CADA REQUEST autenticado
+# (hallazgo telemetría 2026-08-05: /api/me 176ms avg × 738 req/día, y ese
+# costo estaba en el hot path del RBAC de TODOS los endpoints).
+_last_touch: dict[str, float] = {}
 
 # Last-seen throttle: solo escribimos `last_seen_at` en Mongo si pasaron
 # más de N segundos del último valor — evita 1 write por request en horas
@@ -202,6 +210,7 @@ def invalidate_cache() -> None:
     global _matrix_cache
     with _cache_lock:
         _role_by_email.clear()
+        _cc_by_email.clear()
         _matrix_cache = None
 
 
@@ -282,6 +291,15 @@ def _touch_last_seen(email_norm: str) -> None:
     """
     if not email_norm or email_norm == "anon" or email_norm.startswith("service:"):
         return
+    # Throttle EN PROCESO primero: si este proceso ya tocó a este user hace
+    # menos de 5 min, ni siquiera armamos el UPDATE (el WHERE de abajo queda
+    # como red multi-worker). Convierte "1 round-trip SQL por request" en
+    # "1 cada 5 min por user".
+    now_m = time.monotonic()
+    with _cache_lock:
+        if now_m - _last_touch.get(email_norm, -_LAST_SEEN_THROTTLE_S * 2) < _LAST_SEEN_THROTTLE_S:
+            return
+        _last_touch[email_norm] = now_m
     now = datetime.now(UTC)
     threshold = now - timedelta(seconds=_LAST_SEEN_THROTTLE_S)
     # SQL-ONLY (decomiso Mongo 2026-06-28): manager.manager_users es la fuente de verdad.
@@ -377,16 +395,19 @@ def get_user_role(email: str) -> str:
         return _NO_ACCESS_ROLE
 
     now = time.time()
+    cached_role: str | None = None
+    hit_valido = False
     with _cache_lock:
         hit = _role_by_email.get(email_norm)
         if hit and now - hit[0] < _CACHE_TTL:
-            # Cache hit: igual marcamos visto (throttled). Sin esto el
-            # last_seen_at solo se actualizaría 1 vez/min en el primer
-            # tick del cache, lo que se ve como "no actualiza" cuando
-            # el user navega activamente.
-            _touch_last_seen(email_norm)
-            cached = hit[1]
-            return cached if cached is not None else DEFAULT_ROLE
+            hit_valido = True
+            cached_role = hit[1]
+    if hit_valido:
+        # Cache hit: igual marcamos visto (throttled EN PROCESO — casi siempre
+        # no-op). FUERA del lock: antes el UPDATE a Postgres corría con el lock
+        # global tomado y serializaba el RBAC de todos los requests en vuelo.
+        _touch_last_seen(email_norm)
+        return cached_role if cached_role is not None else DEFAULT_ROLE
 
     # Rama 2: lookup en manager.manager_users (SQL). None = no existe → auto-registra.
     role = _lookup_role(email_norm)
@@ -443,13 +464,23 @@ def user_has_control_comercial(email: str) -> bool:
     email_norm = (email or "").lower().strip()
     if get_user_role(email_norm) == "admin":
         return True
+    # Cache TTL 60s (mismo esquema que el role): /api/me corre en cada carga
+    # de página y este SELECT viajaba sin cache en todas.
+    now = time.time()
+    with _cache_lock:
+        hit = _cc_by_email.get(email_norm)
+        if hit and now - hit[0] < _CACHE_TTL:
+            return hit[1]
     try:
         from core import roles_sql
         u = roles_sql.get_user_sql(email_norm)
-        return bool(u and u.get("control_comercial"))
+        val = bool(u and u.get("control_comercial"))
     except Exception as e:
         logger.debug("user_has_control_comercial(%s): %s", email_norm, e)
         return False
+    with _cache_lock:
+        _cc_by_email[email_norm] = (now, val)
+    return val
 
 
 # ─────────────────────────────────────────────────────────────

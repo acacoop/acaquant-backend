@@ -12,6 +12,8 @@ Endpoints (prefix /api/manager lo agrega el paquete):
   GET    /mesa/escritores/candidatos  → usuarios de la app para agregar (q)
   POST   /mesa/escritores             → alta por email (idempotente)
   DELETE /mesa/escritores             → baja por email
+  …/senebis-escritores               → ídem para la vista SENEBIS (allowlist
+                                        propia: otro equipo, misma pantalla)
 """
 from __future__ import annotations
 
@@ -20,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services import mesa_dinero as _svc
+from api.services import senebis as _svc_sen
 
 router = APIRouter()
 
@@ -81,5 +84,37 @@ def delete_escritor(email: str = Query(..., min_length=3),
                     actor: str = Depends(get_user_email)) -> dict:
     try:
         return _svc.quitar_escritor(email, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+# ── Escritores de SENEBIS (allowlist propia, misma pantalla) ───────────────
+
+@router.get("/mesa/senebis-escritores")
+def list_escritores_senebis() -> dict:
+    return _svc_sen.listar_escritores()
+
+
+@router.get("/mesa/senebis-escritores/candidatos")
+def escritores_senebis_candidatos(
+    q: str = Query("", description="Substring sobre email"),
+) -> dict:
+    return _svc_sen.candidatos_escritores(q=q)
+
+
+@router.post("/mesa/senebis-escritores")
+def add_escritor_senebis(req: _EscritorNew = Body(...),
+                         actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc_sen.agregar_escritor(req.email, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/mesa/senebis-escritores")
+def delete_escritor_senebis(email: str = Query(..., min_length=3),
+                            actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc_sen.quitar_escritor(email, actor=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e

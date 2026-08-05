@@ -74,7 +74,6 @@ from zoneinfo import ZoneInfo
 from psycopg.types.json import Jsonb
 
 from api.services._sql import _f, _q
-from api.services.mesa_dinero import puede_escribir  # misma allowlist que la mesa
 from core.calendario import proximo_habil
 from core.postgres import get_pool
 
@@ -215,9 +214,9 @@ def opciones(email: str = "") -> dict:
         "tipos_contraparte": list(TIPOS_CONTRAPARTE),
         "plazos": list(PLAZOS),
         "conectados": conectados(),
-        # Cargar/editar/borrar órdenes: MISMA allowlist que Mesa de Dinero
-        # (+ admin). El front esconde la edición sin esto, pero el enforcement
-        # real es server-side en cada write del router.
+        # Cargar/editar/borrar órdenes: allowlist PROPIA de SENEBIS (+ admin),
+        # se gestiona en Manager → MESA. El front esconde la edición sin esto,
+        # pero el enforcement real es server-side en cada write del router.
         "puede_escribir": puede_escribir(email),
         # Mover la secuencia de IDs es SOLO admin: desalinearla rompe la
         # numeración que espeja Quantex para todo el mundo.
@@ -231,6 +230,65 @@ def es_admin(email: str) -> bool:
         return False
     from core.roles import get_user_role
     return get_user_role(e) == "admin"
+
+
+# ──────────────────────────────────────────────────────────
+# Allowlist de ESCRITURA (Manager → MESA). Separada de la de Mesa de Dinero:
+# los que cargan senebis no son necesariamente los que registran la mesa.
+# ──────────────────────────────────────────────────────────
+
+def puede_escribir(email: str) -> bool:
+    """True si puede crear/editar/borrar órdenes SENEBIS. Default-deny."""
+    e = (email or "").lower().strip()
+    if not e:
+        return False
+    if es_admin(e):
+        return True
+    return bool(_q("SELECT 1 FROM operaciones.senebis_escritores WHERE email = %(e)s",
+                   {"e": e}))
+
+
+def listar_escritores() -> dict:
+    rows = _q("SELECT email, agregado_por, agregado_at FROM operaciones.senebis_escritores "
+              "ORDER BY email")
+    return {"escritores": [
+        {"email": r["email"], "agregado_por": r["agregado_por"],
+         "agregado_at": r["agregado_at"].isoformat() if r["agregado_at"] else None}
+        for r in rows
+    ]}
+
+
+def candidatos_escritores(q: str = "", limit: int = 30) -> dict:
+    """Usuarios de la app que todavía no están en la allowlist de SENEBIS."""
+    rows = _q(
+        "SELECT u.email, u.role FROM manager.manager_users u "
+        "WHERE u.email NOT IN (SELECT email FROM operaciones.senebis_escritores) "
+        "AND u.email ILIKE %(t)s ORDER BY u.email LIMIT %(lim)s",
+        {"t": f"%{(q or '').strip()}%", "lim": limit},
+    )
+    return {"candidatos": rows}
+
+
+def agregar_escritor(email: str, actor: str) -> dict:
+    e = (email or "").lower().strip()
+    if not e:
+        raise ValueError("falta 'email'")
+    _exec(
+        "INSERT INTO operaciones.senebis_escritores (email, agregado_por, agregado_at) "
+        "VALUES (%(e)s, %(por)s, %(at)s) ON CONFLICT (email) DO NOTHING",
+        {"e": e, "por": (actor or "").lower() or None, "at": datetime.now(UTC)},
+    )
+    _audit(actor, "add_escritor", e, {})
+    return {"email": e}
+
+
+def quitar_escritor(email: str, actor: str) -> dict:
+    e = (email or "").lower().strip()
+    if not e:
+        raise ValueError("falta 'email'")
+    borrado = _exec("DELETE FROM operaciones.senebis_escritores WHERE email = %(e)s", {"e": e})
+    _audit(actor, "remove_escritor", e, {})
+    return {"borrado": borrado}
 
 
 # ─────────────────────────────────────────────────────────────

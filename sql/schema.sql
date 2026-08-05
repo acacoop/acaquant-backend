@@ -733,6 +733,23 @@ CREATE TABLE IF NOT EXISTS operaciones.senebis_presencia (
     visto_at timestamptz NOT NULL
 );
 
+-- Allowlist de ESCRITURA de SENEBIS (crear/editar/borrar órdenes), separada de
+-- la de Mesa de Dinero: son equipos distintos (traders + back office) aunque se
+-- gestionen en la misma pantalla (Manager → MESA). admin siempre puede.
+CREATE TABLE IF NOT EXISTS operaciones.senebis_escritores (
+    email        text PRIMARY KEY,
+    agregado_por text,
+    agregado_at  timestamptz
+);
+
+-- Semilla de una sola vez: SENEBIS usaba la allowlist de Mesa de Dinero, así
+-- que al separarlas hereda exactamente los mismos usuarios y nadie pierde el
+-- permiso que ya tenía. Corre solo si la tabla está vacía.
+INSERT INTO operaciones.senebis_escritores (email, agregado_por, agregado_at)
+SELECT email, 'migracion:mesa_dinero', now() FROM operaciones.mesa_dinero_escritores
+WHERE NOT EXISTS (SELECT 1 FROM operaciones.senebis_escritores)
+ON CONFLICT (email) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS operaciones.senebis_audit (
     id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     ts     timestamptz,

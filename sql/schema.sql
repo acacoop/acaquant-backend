@@ -654,7 +654,10 @@ CREATE TABLE IF NOT EXISTS operaciones.senebis (
     contraparte     text,                    -- texto libre (suele venir vacío)
     nro_contraparte text,                    -- ídem
     mercado         text,                    -- GARANTIZADO / NO GARANTIZADO / vacío
-    cargan_ellos    text,                    -- observación (texto libre)
+    -- SI/NO: la orden la carga la CONTRAPARTE en Quantex → no sale en el
+    -- Excel/espejo (igual que MAE), pero sí en la vista y sigue su flujo
+    -- pendiente → completada normal.
+    cargan_ellos    boolean NOT NULL DEFAULT false,
     tipo            text,                    -- observación (texto libre, ej. 'pasada')
     -- Contraparte del senebi: 'interno' (cliente de la ALyC → cc) o 'externo'
     -- (agente/ALyC de afuera → agente del catálogo senebis_agentes). Manda en
@@ -693,6 +696,21 @@ ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS cc_denominacion text;
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS es_mae boolean NOT NULL DEFAULT false;
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS campos_editados text[] NOT NULL DEFAULT '{}';
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS editada_completada boolean NOT NULL DEFAULT false;
+-- Migración 2026-08-05: cargan_ellos era text (observación libre) y pasó a
+-- boolean SI/NO (True = la carga la contraparte → fuera del Excel/espejo).
+-- Guardado en un DO para ser idempotente: solo convierte si todavía es text.
+-- Texto no vacío (y distinto de 'no') se interpreta como SI.
+DO $$
+BEGIN
+    IF (SELECT data_type FROM information_schema.columns
+        WHERE table_schema = 'operaciones' AND table_name = 'senebis'
+          AND column_name = 'cargan_ellos') = 'text' THEN
+        ALTER TABLE operaciones.senebis ALTER COLUMN cargan_ellos TYPE boolean
+            USING (lower(COALESCE(btrim(cargan_ellos), '')) NOT IN ('', 'no'));
+        ALTER TABLE operaciones.senebis ALTER COLUMN cargan_ellos SET DEFAULT false;
+        ALTER TABLE operaciones.senebis ALTER COLUMN cargan_ellos SET NOT NULL;
+    END IF;
+END $$;
 
 -- Catálogo de AGENTES externos (ALyCs de afuera: COCOS, ALLARIA…) con el NÚMERO
 -- que espera el sistema destino en CONTRAPARTE. Lo gestiona el back office desde

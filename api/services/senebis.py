@@ -39,6 +39,11 @@ pintaba a mano en la planilla vieja, y son PERSISTENTES:
 Se calculan en editar_op comparando before/after de los campos persistidos —
 no dependen de lo que mande el front (que suele echoar la fila entera).
 
+Cargan ellos (2026-08-05): flag SI/NO (antes era observación de texto libre).
+SI = la orden la carga la CONTRAPARTE en Quantex → queda FUERA del Excel y
+del espejo (igual que MAE), pero visible en la vista con su flujo
+pendiente → completada normal.
+
 Export: `export_xlsx()` arma el .xlsx EXACTO que el back office carga en el
 otro sistema: ID · OPERACION · INSTRUMENTO · PLAZO · PRECIO · CANTIDAD ·
 CONTRAPARTE · COMITENTE · CARTERA PROPIA · MERCADO. Reglas (2026-08-05):
@@ -301,7 +306,8 @@ def _fila_op(r: dict) -> dict:
         "cp": r["cp"], "cc": r["cc"], "cc_denominacion": r["cc_denominacion"],
         "contraparte": r["contraparte"], "nro_contraparte": r["nro_contraparte"],
         "mercado": r["mercado"],
-        "cargan_ellos": r["cargan_ellos"], "tipo": r["tipo"],
+        # bool(): tolera filas viejas con texto libre pre-migración a boolean.
+        "cargan_ellos": bool(r["cargan_ellos"]), "tipo": r["tipo"],
         "tipo_contraparte": r["tipo_contraparte"],
         "agente": r["agente"], "agente_numero": r["agente_numero"],
         "es_mae": bool(r["es_mae"]),
@@ -376,6 +382,15 @@ def _derivar_monto(p: dict) -> float | None:
     if vn is not None and px is not None:
         return vn * px / 100
     return None
+
+
+def _norm_cargan_ellos(v: Any) -> bool:
+    """SI/NO. Tolera el payload viejo de texto libre mientras conviven front y
+    back deployados en distinto momento: ''/'no'/'false' → False, otro texto
+    (algo anotado ahí significaba que cargaban ellos) → True."""
+    if isinstance(v, str):
+        return v.strip().lower() not in ("", "no", "false", "0")
+    return bool(v)
 
 
 def _norm_plazo(v: Any) -> str | None:
@@ -460,7 +475,7 @@ def _row_de_payload(p: dict, actor: str) -> dict:
         "contraparte": (p.get("contraparte") or "").strip() or None,
         "nro_contraparte": (str(p.get("nro_contraparte") or "").strip()) or None,
         "mercado": (p.get("mercado") or "").strip().upper() or None,
-        "cargan_ellos": (p.get("cargan_ellos") or "").strip() or None,
+        "cargan_ellos": _norm_cargan_ellos(p.get("cargan_ellos")),
         "tipo": tipo,
         "tipo_contraparte": tc, "agente": agente, "agente_numero": numero,
         "es_mae": es_mae,
@@ -687,10 +702,12 @@ def _fila_export(o: dict) -> list:
 
 def _filas_quantex(ordenes: list[dict]) -> list[dict]:
     """Qué entra al Excel Quantex (espejo Y archivo — UNA sola regla): SOLO
-    'pendiente' y no-MAE. El back office sube el archivo varias veces por día:
-    lo completado YA está cargado en Quantex (re-exportarlo lo duplicaría) y
-    lo MAE se carga en el MAE."""
-    return sorted((o for o in ordenes if o["estado"] == "pendiente" and not o["es_mae"]),
+    'pendiente', no-MAE y que NO carguen ellos. El back office sube el archivo
+    varias veces por día: lo completado YA está cargado en Quantex
+    (re-exportarlo lo duplicaría), lo MAE se carga en el MAE y lo que cargan
+    ellos lo carga la contraparte."""
+    return sorted((o for o in ordenes if o["estado"] == "pendiente"
+                   and not o["es_mae"] and not o["cargan_ellos"]),
                   key=lambda o: o["id"])
 
 
@@ -714,8 +731,8 @@ def excel_preview(desde: str | None = None, hasta: str | None = None,
 def export_xlsx(desde: str | None = None, hasta: str | None = None) -> tuple[bytes, str]:
     """Devuelve (bytes del .xlsx, nombre de archivo), columnas EXACTAS del
     sistema destino (ID primero), más viejas primero (por ID asc = orden de
-    carga). SOLO pendientes no-MAE (_filas_quantex) — el archivo se sube
-    varias veces por día y lo completado ya está cargado."""
+    carga). SOLO pendientes no-MAE que no carguen ellos (_filas_quantex) — el
+    archivo se sube varias veces por día y lo completado ya está cargado."""
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill

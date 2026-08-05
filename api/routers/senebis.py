@@ -86,8 +86,8 @@ def excel_preview(
     actor: str = Depends(get_user_email),
 ) -> dict:
     """Espejo en vivo del Excel destino (tab EXCEL QUANTEX): mismas filas y
-    reglas que /export — SOLO pendientes no-MAE (lo completado ya se cargó
-    en Quantex). Marca presencia del caller."""
+    reglas que /export — SOLO pendientes no-MAE que no carguen ellos (lo
+    completado ya se cargó en Quantex). Marca presencia del caller."""
     try:
         return _svc.excel_preview(desde=desde, hasta=hasta, email=actor)
     except ValueError as e:
@@ -136,7 +136,9 @@ class _OpPayload(BaseModel):
     contraparte: str | None = Field(None, max_length=128)
     nro_contraparte: str | None = Field(None, max_length=64)
     mercado: str | None = Field(None, max_length=64, description="GARANTIZADO | NO GARANTIZADO | vacío")
-    cargan_ellos: str | None = Field(None, max_length=256, description="observación libre")
+    # SI/NO: True = la carga la contraparte en Quantex → fuera del Excel/espejo
+    # (igual que MAE). `str` tolerado mientras conviva el front viejo (texto).
+    cargan_ellos: bool | str | None = Field(None, description="SI/NO — cargan ellos la orden")
     tipo: str | None = Field(None, max_length=256, description="observación libre")
     # Contraparte del senebi: interno (cliente ALyC → cc por número o denominación)
     # o externo (agente del catálogo → el número sale del catálogo al Excel).

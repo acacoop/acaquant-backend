@@ -154,7 +154,7 @@ _FILA = {
     "vn": 500_000_000.0, "px": 217.2, "monto": 1_086_000_000.0,
     "cp": "255", "cc": "219", "cc_denominacion": None,
     "contraparte": None, "nro_contraparte": None,
-    "mercado": "NO GARANTIZADO", "cargan_ellos": None, "tipo": None,
+    "mercado": "NO GARANTIZADO", "cargan_ellos": False, "tipo": None,
     "tipo_contraparte": "interno", "agente": None, "agente_numero": None,
     "es_mae": False,
     "estado": "pendiente", "completada_por": None, "completada_at": None,
@@ -188,6 +188,28 @@ def test_mae_fija_tipo_y_queda_fuera_del_excel(monkeypatch):
     monkeypatch.setattr(svc, "proximo_id", lambda: 3)
     prev = svc.excel_preview()
     assert [f["id"] for f in prev["filas"]] == [2]   # la MAE no aparece
+
+
+def test_cargan_ellos_es_si_no_y_queda_fuera_del_excel(monkeypatch):
+    # SI/NO desde el form nuevo (bool) + tolerancia al payload viejo (texto).
+    monkeypatch.setattr(svc, "_buscar_cuenta_exacta", lambda term: None)
+    row = svc._row_de_payload({**_payload_ok(), "cargan_ellos": True}, actor="t@x.com")
+    assert row["cargan_ellos"] is True
+    row = svc._row_de_payload({**_payload_ok(), "cargan_ellos": "pasada"}, actor="t@x.com")
+    assert row["cargan_ellos"] is True   # texto anotado = cargaban ellos
+    row = svc._row_de_payload({**_payload_ok(), "cargan_ellos": "no"}, actor="t@x.com")
+    assert row["cargan_ellos"] is False
+    row = svc._row_de_payload(_payload_ok(), actor="t@x.com")
+    assert row["cargan_ellos"] is False  # default NO
+
+    # Con SI, la orden NO entra al Excel/espejo (la carga la contraparte).
+    cargan = {**_FILA, "id": 1, "cargan_ellos": True}
+    normal = {**_FILA, "id": 2}
+    monkeypatch.setattr(svc, "listar_ops",
+                        lambda **kw: {"ordenes": [cargan, normal], "conectados": []})
+    monkeypatch.setattr(svc, "proximo_id", lambda: 3)
+    prev = svc.excel_preview()
+    assert [f["id"] for f in prev["filas"]] == [2]
 
 
 def test_export_xlsx_columnas_y_valores(monkeypatch):

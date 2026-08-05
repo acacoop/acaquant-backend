@@ -41,13 +41,14 @@ def listar_ops(
     hasta: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
     estado: str | None = Query(None, description="pendiente | completada"),
     especie: str | None = Query(None, description="filtro por especie (contiene)"),
+    mae: str | None = Query(None, description="solo | sin (vacío = todas, MAE incluidas)"),
     actor: str = Depends(get_user_email),
 ) -> dict:
     """Lista de órdenes + `conectados` (presencia). Pollear esto mantiene vivo
     el heartbeat del caller."""
     try:
         return _svc.listar_ops(desde=desde, hasta=hasta, estado=estado,
-                               especie=especie, email=actor)
+                               especie=especie, mae=mae, email=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -167,6 +168,17 @@ def borrar_op(op_id: int, actor: str = Depends(get_user_email)) -> dict:
     _exigir_escritura(actor)
     try:
         return _svc.borrar_op(op_id, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.post("/ops/{op_id}/visto")
+def limpiar_marcas(op_id: int, actor: str = Depends(get_user_email)) -> dict:
+    """Baja las marcas de edición (el * y el amarillo) — el back office ya
+    revisió el cambio en Quantex. No es escritura de la orden: lo puede hacer
+    todo el módulo `back-office`, que es quien las revisa."""
+    try:
+        return _svc.limpiar_marcas(op_id, actor=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 

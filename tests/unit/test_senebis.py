@@ -263,3 +263,20 @@ def test_export_xlsx_orden_por_id(monkeypatch):
     ws = openpyxl.load_workbook(BytesIO(contenido)).active
     assert ws.cell(row=2, column=1).value == 13618
     assert ws.cell(row=3, column=1).value == 13629
+
+
+# ── marcas de edición (el amarillo que se pintaba a mano) ───────────────────
+
+def test_diff_campos_detecta_lo_tocado():
+    after = {**_FILA, "px": 218.0, "vn": 400_000_000.0}
+    assert svc._diff_campos(_FILA, after) == ["vn", "px"]
+
+
+def test_diff_campos_ignora_metadata():
+    # actualizado_por/creado_at cambian en cada edición: no son "campos tocados".
+    after = {**_FILA, "actualizado_por": "otro@x.com", "creado_at": "2026-01-01"}
+    assert svc._diff_campos(_FILA, after) == []
+
+
+def test_diff_campos_sin_cambios():
+    assert svc._diff_campos(_FILA, dict(_FILA)) == []

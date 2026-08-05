@@ -28,6 +28,17 @@ Contraparte del senebi (la clave del Excel):
                  NÚMERO (el que espera el sistema destino) se snapshotea en
                  agente_numero al guardar.
 
+Marcas de edición (2026-08-05) — reemplazan al amarillo que el back office
+pintaba a mano en la planilla vieja, y son PERSISTENTES:
+    campos_editados    → qué campos se tocaron después del alta (acumulativo);
+                         el front les pone un * al lado. El estado no cambia:
+                         una pendiente editada sigue pendiente.
+    editada_completada → se editó algo que YA estaba 'completada' (el caso
+                         peligroso: el back office la cargó en Quantex y tiene
+                         que enterarse) → el front pinta toda la fila amarilla.
+Se calculan en editar_op comparando before/after de los campos persistidos —
+no dependen de lo que mande el front (que suele echoar la fila entera).
+
 Export: `export_xlsx()` arma el .xlsx EXACTO que el back office carga en el
 otro sistema: ID · OPERACION · INSTRUMENTO · PLAZO · PRECIO · CANTIDAD ·
 CONTRAPARTE · COMITENTE · CARTERA PROPIA · MERCADO. Reglas (2026-08-05):
@@ -65,6 +76,8 @@ from core.postgres import get_pool
 ESTADOS = ("pendiente", "completada")
 PLAZOS = ("CI", "24")
 TIPOS_CONTRAPARTE = ("interno", "externo")
+# Filtro MAE de la vista: sin valor = todas (con MAE incluidas).
+FILTROS_MAE = ("solo", "sin")
 PRESENCIA_TTL_S = 90  # visto hace ≤90s = conectado (el front pollea cada ~30s)
 _TZ_AR = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -281,6 +294,9 @@ def _fila_op(r: dict) -> dict:
         "tipo_contraparte": r["tipo_contraparte"],
         "agente": r["agente"], "agente_numero": r["agente_numero"],
         "es_mae": bool(r["es_mae"]),
+        # .get(): tolera un deploy de código anterior al apply_schema.
+        "campos_editados": list(r.get("campos_editados") or []),
+        "editada_completada": bool(r.get("editada_completada")),
         "estado": r["estado"],
         "completada_por": r["completada_por"],
         "completada_at": r["completada_at"].isoformat() if r["completada_at"] else None,
@@ -292,7 +308,7 @@ def _fila_op(r: dict) -> dict:
 
 def listar_ops(desde: str | None = None, hasta: str | None = None,
                estado: str | None = None, especie: str | None = None,
-               email: str = "") -> dict:
+               mae: str | None = None, email: str = "") -> dict:
     """Órdenes del período (default: todas), más nuevas primero, + presencia.
 
     Cada lectura marca presencia del caller — pollear la lista ES el heartbeat:
@@ -314,6 +330,11 @@ def listar_ops(desde: str | None = None, hasta: str | None = None,
     if especie:
         conds.append("especie ILIKE %(especie)s")
         params["especie"] = f"%{especie.strip()}%"
+    if mae:
+        if mae not in FILTROS_MAE:
+            raise ValueError(f"mae {mae!r} inválido: {' | '.join(FILTROS_MAE)}")
+        conds.append("es_mae = %(mae)s")
+        params["mae"] = (mae == "solo")
     where = f"WHERE {' AND '.join(conds)}" if conds else ""
     rows = _q(
         f"SELECT * FROM operaciones.senebis {where} ORDER BY concertacion DESC, id DESC",
@@ -468,6 +489,31 @@ def _get_op(op_id: int) -> dict:
     return _fila_op(rows[0])
 
 
+def _diff_campos(before: dict, after: dict) -> list[str]:
+    """Qué campos de la orden cambiaron (lógica pura, sobre los valores ya
+    persistidos — no sobre el payload, que el front echoa entero)."""
+    return [k for k in _CAMPOS_OP if before.get(k) != after.get(k)]
+
+
+def _marcar_edicion(op_id: int, before: dict, after: dict) -> dict:
+    """Marcas de edición persistentes (el amarillo que se pintaba a mano).
+
+    Acumula los campos tocados y, si la orden ya estaba 'completada', prende
+    editada_completada: el back office ya la cargó en Quantex y tiene que
+    revisarla."""
+    cambios = _diff_campos(before, after)
+    if not cambios:
+        return after
+    acumulado = sorted(set(before.get("campos_editados") or []) | set(cambios))
+    flag = bool(before.get("editada_completada")) or before["estado"] == "completada"
+    _exec(
+        "UPDATE operaciones.senebis SET campos_editados=%(campos)s, "
+        "editada_completada=%(flag)s WHERE id=%(id)s",
+        {"id": op_id, "campos": acumulado, "flag": flag},
+    )
+    return _get_op(op_id)
+
+
 def editar_op(op_id: int, payload: dict, actor: str) -> dict:
     before = _get_op(op_id)
     # Merge: lo que no viene en el payload se mantiene; el monto se recalcula
@@ -492,8 +538,24 @@ def editar_op(op_id: int, payload: dict, actor: str) -> dict:
         row,
     )
     after = _get_op(op_id)
+    after = _marcar_edicion(op_id, before, after)
     _audit(actor, "update_op", str(op_id), {"before": before, "after": after})
     return after
+
+
+def limpiar_marcas(op_id: int, actor: str) -> dict:
+    """"Visto": borra las marcas de edición de una orden (el back office ya la
+    revisó/corrigió en Quantex). No toca los datos ni el estado."""
+    before = _get_op(op_id)
+    _exec(
+        "UPDATE operaciones.senebis SET campos_editados='{}', "
+        "editada_completada=false WHERE id=%(id)s",
+        {"id": op_id},
+    )
+    _audit(actor, "limpiar_marcas", str(op_id),
+           {"before": {"campos_editados": before["campos_editados"],
+                       "editada_completada": before["editada_completada"]}})
+    return _get_op(op_id)
 
 
 def borrar_op(op_id: int, actor: str) -> dict:

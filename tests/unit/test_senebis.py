@@ -198,6 +198,16 @@ def test_export_reglas_contraparte():
     assert fila[6] == 733 and fila[7] is None
 
 
+def test_excel_preview_mismas_reglas(monkeypatch):
+    monkeypatch.setattr(svc, "listar_ops",
+                        lambda **kw: {"ordenes": [_FILA], "conectados": []})
+    prev = svc.excel_preview()
+    assert prev["headers"][0] == "ID"
+    fila = prev["filas"][0]
+    assert fila["id"] == 13629 and fila["estado"] == "pendiente"
+    assert fila["valores"] == svc._fila_export(_FILA)
+
+
 def test_export_xlsx_comitente_texto_queda_texto(monkeypatch):
     openpyxl = pytest.importorskip("openpyxl")
     fila = {**_FILA, "cc": "lombard ab plus por mae 733"}

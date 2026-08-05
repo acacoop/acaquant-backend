@@ -62,6 +62,21 @@ def comitentes(
     return {"comitentes": _svc.buscar_comitentes(q=q)}
 
 
+@router.get("/excel")
+def excel_preview(
+    desde: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    hasta: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    estado: str | None = Query(None, description="pendiente | completada"),
+    actor: str = Depends(get_user_email),
+) -> dict:
+    """Espejo en vivo del Excel destino (tab EXCEL QUANTEX): mismas filas y
+    reglas que /export, en JSON. Marca presencia del caller."""
+    try:
+        return _svc.excel_preview(desde=desde, hasta=hasta, estado=estado, email=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.get("/export")
 def export(
     desde: str | None = Query(None, description="YYYY-MM-DD (concertación)"),

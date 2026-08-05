@@ -541,6 +541,21 @@ def _fila_export(o: dict) -> list:
             contraparte, comitente, _numero_si_se_puede(o["cp"]), o["mercado"]]
 
 
+def excel_preview(desde: str | None = None, hasta: str | None = None,
+                  estado: str | None = None, email: str = "") -> dict:
+    """Espejo EN VIVO del Excel destino para la tab EXCEL QUANTEX: mismas filas
+    y mismas reglas que export_xlsx (una sola fuente de verdad: _fila_export),
+    en JSON. `estado` por fila para pintar pendiente/completada en el front."""
+    data = listar_ops(desde=desde, hasta=hasta, estado=estado, email=email)
+    ordenes = sorted(data["ordenes"], key=lambda o: o["id"])
+    return {
+        "headers": list(_HEADERS_XLSX),
+        "filas": [{"id": o["id"], "estado": o["estado"], "valores": _fila_export(o)}
+                  for o in ordenes],
+        "conectados": data["conectados"],
+    }
+
+
 def export_xlsx(desde: str | None = None, hasta: str | None = None,
                 estado: str | None = None) -> tuple[bytes, str]:
     """Devuelve (bytes del .xlsx, nombre de archivo) con las órdenes filtradas,

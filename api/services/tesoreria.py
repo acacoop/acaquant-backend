@@ -462,10 +462,12 @@ _FUENTE_FILA = {
     "egresos": f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO}) + REGISTROS MANUALES",
     "egresos_echeq": f"Movimientos de Aunesa · RIEL e-cheq (estado {ESTADO_EFECTIVO})",
     "ingresos_echeq": "Cheques RECIBIDOS finalizados (tab CHEQUES)",
-    "mercados": "Tab MERCADOS · ingreso (+) y pago (−)",
-    "fci": "Tab MERCADOS · rescate (+) y suscripcion (−)",
-    "bb_mas": "Tab BANCO A BANCO · recibido",
-    "bb_menos": "Tab BANCO A BANCO · enviado",
+    # Estas tres cuentan también lo `pendiente` (decisión del back office), así que el
+    # detalle muestra el estado REAL de cada fila: la columna ESTADO no lo disimula.
+    "mercados": "Tab MERCADOS · ingreso (+) y pago (−) — incluye pendientes",
+    "fci": "Tab MERCADOS · rescate (+) y suscripcion (−) — incluye pendientes",
+    "bb_mas": "Tab BANCO A BANCO · recibido — incluye pendientes",
+    "bb_menos": "Tab BANCO A BANCO · enviado — incluye pendientes",
     "saldo_final": "Suma de las filas de la grilla (ya con su signo)",
 }
 
@@ -536,10 +538,12 @@ def _detalle_dia(dia: date, cuentas: list[dict] | None = None) -> dict[str, dict
     for r in _items_sql(
             f"SELECT id, tipo, importe, creado_por, banco, unidad, sentido "
             f"FROM {_TABLA_REGISTROS} WHERE fecha = %(d)s ORDER BY id", {"d": dia}):
+        # ESTADO va vacío a propósito: un registro manual NO tiene estado, y poner
+        # "manual" ahí sería inventar uno. Que es manual ya lo dice el detalle.
         _push(r["banco"], r["unidad"],
               "ingresos" if r["sentido"] == "ingreso" else "egresos",
               "registro", r["id"], f"registro manual · {r['tipo']}",
-              f"cargado por {r['creado_por'] or '—'}", "manual", float(r["importe"] or 0))
+              f"cargado por {r['creado_por'] or '—'}", None, float(r["importe"] or 0))
 
     # 3) Cheques recibidos finalizados → fila ingresos_echeq.
     for r in _items_sql(

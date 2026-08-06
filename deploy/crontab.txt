@@ -127,6 +127,14 @@
 # Backfill inicial (una vez, fuera de rueda): python -m jobs.tesoreria_al2 --dias 60
 40 13-22 * * 1-5 /root/TradingAV/deploy/run_job.sh tesoreria_al2 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.tesoreria_al2'
 
+# ─── Tesorería → FOTO diaria de la grilla BANCOS (23:50 ART = 02:50 UTC del día
+# siguiente, por eso los días son 2-6 = martes a sábado UTC pero L-V en Argentina).
+# La vista del día es live contra Aunesa y no se persiste: esto congela, al cierre,
+# las filas de BANCOS + los movimientos que componen cada celda, para poder auditar
+# un día pasado. UNA foto por fecha (re-correrlo la actualiza) y TTL de 30 fechas.
+# Rellenar días viejos: python -m jobs.tesoreria_snapshot --fecha 2026-08-05
+50 2 * * 2-6 /root/TradingAV/deploy/run_job.sh tesoreria_snapshot 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.tesoreria_snapshot'
+
 # ─── Operaciones desde /informes (cada 30 min, 13:30-22:00 UTC L-V)
 # Fuente de verdad de operaciones (por CONCERTACIÓN). Idempotente + lookback.
 #

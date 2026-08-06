@@ -68,6 +68,48 @@ def tesoreria_detalle(
         raise HTTPException(400, str(e)) from e
 
 
+# ── FOTO de la grilla BANCOS (una por día, TTL 30) ────────────────────────────
+
+class _Snapshot(BaseModel):
+    fecha: str | None = None    # ISO YYYY-MM-DD; default = hoy
+
+
+@router.get("/tesoreria/foto")
+def tesoreria_foto(
+    fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
+    email: str = Depends(get_user_email),
+):
+    """La grilla BANCOS congelada de un día + el detalle de cada celda.
+
+    Es lo que sirve la vista cuando se elige una fecha pasada: el día viejo ya no se
+    puede reconstruir live contra Aunesa. `existe: false` = no hay foto de ese día.
+    """
+    return svc_tes.foto_dia(fecha, email=email)
+
+
+@router.get("/tesoreria/snapshots")
+def tesoreria_snapshots(
+    desde: str | None = Query(None, description="ISO YYYY-MM-DD"),
+    hasta: str | None = Query(None, description="ISO YYYY-MM-DD"),
+    _email: str = Depends(get_user_email),
+):
+    """Fotos guardadas (metadata + hash), sin el payload."""
+    return svc_tes.listar_snapshots(desde=desde, hasta=hasta)
+
+
+@router.post("/tesoreria/snapshots")
+def tesoreria_snapshot_tomar(req: _Snapshot = Body(default=_Snapshot()),
+                             actor: str = Depends(require_escritura_tesoreria)):
+    """Congela la grilla BANCOS de un día. Una foto por día: re-sacarla actualiza la
+    de esa fecha (la traza de cada toma queda en tesoreria_audit)."""
+    try:
+        return svc_tes.tomar_snapshot(fecha=req.fecha, actor=actor, origen="manual")
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 class _Exclusion(BaseModel):
     fecha: str | None = None
     fuente: str = Field(..., min_length=1, max_length=16)   # aunesa|cheque|mercado|bb|registro

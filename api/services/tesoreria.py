@@ -7,8 +7,15 @@ egreso), NO el signo del `monto` (siempre positivo). Plata efectiva = `estado`
 'Procesado' (default). Modelo verificado por discovery 2026-07-03.
 
 Puro (sin FastAPI): lo llama `api/routers/back_office.py`. Se sirve LIVE contra Aunesa
-sin persistir — volumen chico (~cientos de mov/día). El histórico de saldos (si se
-necesita) se congelará con un job aparte más adelante.
+sin persistir — volumen chico (~cientos de mov/día).
+
+FOTO (2026-08-06): el día se congela en `operaciones.tesoreria_snapshots` — la grilla
+BANCOS + el detalle de cada celda. UNA por fecha, TTL 30 fechas, la saca
+`jobs/tesoreria_snapshot.py` al cierre (y el botón de la vista a demanda). Es lo que
+sirve BANCOS cuando se elige una fecha pasada: el día viejo ya no se puede reconstruir
+live (Aunesa cambia estados hacia atrás y lo cargado a mano se edita). MOVIMIENTOS es
+SIEMPRE del día: el histórico se navega desde la celda que usa esos movimientos, así
+la misma data no se guarda dos veces.
 
 CUENTA OPERATIVA (2026-08-06): Aunesa la manda como objeto
 `{id: '57461ARS', denominacion: 'BANCO MARIVA TERCEROS'}`. Se aplana a la
@@ -39,9 +46,12 @@ guarda: la vista del día sigue siendo live.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import unicodedata
+from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -446,41 +456,18 @@ FILAS_DETALLE = ("saldo_inicial", "ingresos", "ingresos_echeq", "egresos",
 _SIGNO_FILA = {"saldo_inicial": 1, "ingresos": 1, "ingresos_echeq": 1, "egresos": -1,
                "egresos_echeq": -1, "mercados": 1, "fci": 1, "bb_mas": 1, "bb_menos": -1}
 
-
-def _items_aunesa(dia: date, banco: str, unidad: str, fila: str,
-                  exc: dict) -> list[dict]:
-    """Movimientos de Aunesa que componen ingresos / egresos / egresos_echeq.
-
-    Aplica EXACTAMENTE los mismos filtros que `ingresos_egresos_dia`: estado
-    Procesado, banco+moneda, y el corte e-cheq del RIEL.
-    """
-    yyyymmdd = dia.strftime("%Y%m%d")
-    quiere_echeq = fila == "egresos_echeq"
-    tipo = "ingreso" if fila == "ingresos" else "egreso"
-    out = []
-    for r in traer_crudas(dia, ESTADO_EFECTIVO):
-        m = aplanar(r, yyyymmdd)
-        if (m["cuentaOperativa"] != banco
-                or str(r.get("unidad") or "?").upper() != unidad
-                or m["_tipo"] != tipo):
-            continue
-        # ingresos/egresos excluyen e-cheq; egresos_echeq los toma solo a ellos.
-        if fila != "ingresos" and m["_echeq"] is not quiere_echeq:
-            continue
-        # Sin hora → destildado por default: el `id` no trae fecha-hora, así que no
-        # se puede distinguir de un duplicado. Se tilda a mano si corresponde.
-        fuera, obs = _estado_excl(exc, "aunesa", r.get("id"),
-                                  default_excluido=not m["_hora"],
-                                  obs_default=OBS_SIN_HORA)
-        out.append({
-            "fuente": "aunesa", "ref": str(r.get("id") or ""),
-            "detalle": m.get("persona_nombreCompleto") or r.get("cuenta") or "—",
-            "referencia": f"{m.get('_hora') or 'sin hora'} · {r.get('tipoDocSoli') or ''}".strip(" ·"),
-            "estado": r.get("estado"),
-            "importe": _num(r.get("monto")),
-            "excluido": fuera, "observacion": obs,
-        })
-    return out
+_FUENTE_FILA = {
+    "saldo_inicial": "Carga manual del back office (tesoreria_saldos)",
+    "ingresos": f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO}) + REGISTROS MANUALES",
+    "egresos": f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO}) + REGISTROS MANUALES",
+    "egresos_echeq": f"Movimientos de Aunesa · RIEL e-cheq (estado {ESTADO_EFECTIVO})",
+    "ingresos_echeq": "Cheques RECIBIDOS finalizados (tab CHEQUES)",
+    "mercados": "Tab MERCADOS · ingreso (+) y pago (−)",
+    "fci": "Tab MERCADOS · rescate (+) y suscripcion (−)",
+    "bb_mas": "Tab BANCO A BANCO · recibido",
+    "bb_menos": "Tab BANCO A BANCO · enviado",
+    "saldo_final": "Suma de las filas de la grilla (ya con su signo)",
+}
 
 
 def _items_sql(sql: str, params: dict) -> list[dict]:
@@ -489,6 +476,138 @@ def _items_sql(sql: str, params: dict) -> list[dict]:
     except Exception:
         _log.warning("tesoreria: no pude leer el detalle de la celda", exc_info=True)
         return []
+
+
+def clave_celda(banco: str, unidad: str, fila: str) -> str:
+    """Identificador de una celda dentro del mapa de detalle (y de la FOTO del día)."""
+    return f"{banco}|{str(unidad or '').upper()}|{fila}"
+
+
+def _detalle_dia(dia: date, cuentas: list[dict] | None = None) -> dict[str, dict]:
+    """Detalle de TODAS las celdas de la grilla del día, en UNA sola pasada.
+
+    Una llamada a Aunesa + una query por fuente, en vez de repetir ese trabajo celda
+    por celda. Lo usan el modal de auditoría (que pide una) y la FOTO del día (que
+    guarda todas), así que los dos ven exactamente lo mismo — no pueden divergir.
+
+    Aplica EXACTAMENTE los mismos filtros que `ingresos_egresos_dia` (estado
+    Procesado, corte e-cheq del RIEL, exclusiones) para que el detalle nunca pueda
+    contradecir al total de la celda.
+
+    `cuentas` = filas ya calculadas de la grilla. Si vienen, se agrega la celda
+    `saldo_final` (la ecuación fila por fila); si no, se omite y no se recalcula nada.
+    """
+    exc = _exclusiones_dia(dia)
+    celdas: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+
+    def _push(banco, unidad, fila, fuente_, ref, detalle, referencia, estado, importe,
+              *, default_excluido: bool = False, obs_default: str = "") -> None:
+        """Item del detalle con su tilde y su observación (traza de quién lo anuló)."""
+        fuera, obs = _estado_excl(exc, fuente_, ref, default_excluido=default_excluido,
+                                  obs_default=obs_default)
+        celdas[(banco, str(unidad or "?").upper(), fila)].append(
+            {"fuente": fuente_, "ref": str(ref), "detalle": detalle,
+             "referencia": referencia, "estado": estado, "importe": importe,
+             "excluido": fuera, "observacion": obs})
+
+    # 1) Aunesa → ingresos / egresos / egresos_echeq (los e-cheq solo del lado egreso).
+    yyyymmdd = dia.strftime("%Y%m%d")
+    try:
+        crudas = traer_crudas(dia, ESTADO_EFECTIVO)
+    except Exception:
+        _log.warning("tesoreria: no pude traer los movimientos de Aunesa", exc_info=True)
+        crudas = []
+    for r in crudas:
+        m = aplanar(r, yyyymmdd)
+        if not m["_tipo"]:
+            continue
+        fila = ("ingresos" if m["_tipo"] == "ingreso"
+                else "egresos_echeq" if m["_echeq"] else "egresos")
+        # Sin hora → destildado por default: el `id` no trae fecha-hora, así que no
+        # se puede distinguir de un duplicado. Se tilda a mano si corresponde.
+        _push(m["cuentaOperativa"], r.get("unidad"), fila, "aunesa", r.get("id") or "",
+              m.get("persona_nombreCompleto") or r.get("cuenta") or "—",
+              f"{m.get('_hora') or 'sin hora'} · {r.get('tipoDocSoli') or ''}".strip(" ·"),
+              r.get("estado"), _num(r.get("monto")),
+              default_excluido=not m["_hora"], obs_default=OBS_SIN_HORA)
+
+    # 2) Registros manuales: entran a la MISMA fila que Aunesa, pero se marcan — es lo
+    #    único que no viene de la API y tiene que verse de un vistazo.
+    for r in _items_sql(
+            f"SELECT id, tipo, importe, creado_por, banco, unidad, sentido "
+            f"FROM {_TABLA_REGISTROS} WHERE fecha = %(d)s ORDER BY id", {"d": dia}):
+        _push(r["banco"], r["unidad"],
+              "ingresos" if r["sentido"] == "ingreso" else "egresos",
+              "registro", r["id"], f"registro manual · {r['tipo']}",
+              f"cargado por {r['creado_por'] or '—'}", "manual", float(r["importe"] or 0))
+
+    # 3) Cheques recibidos finalizados → fila ingresos_echeq.
+    for r in _items_sql(
+            f"SELECT id, comitente, comitente_denominacion, tipo, estado, importe, "
+            f"banco, unidad FROM {_TABLA_CHEQUES} WHERE lado = 'recibido' "
+            f"AND estado = 'finalizado' "
+            f"AND (creado_at AT TIME ZONE '{_TZ_ART}')::date = %(d)s ORDER BY id",
+            {"d": dia}):
+        _push(r["banco"], r["unidad"], "ingresos_echeq", "cheque", r["id"],
+              r["comitente_denominacion"] or r["comitente"] or "—",
+              f"cheque {r['tipo'] or ''}".strip(), r["estado"], float(r["importe"] or 0))
+
+    # 4) Mercados / FCI: el signo lo define el tipo (el segundo de cada par resta).
+    _resta = {"pago", "suscripcion"}
+    for r in _items_sql(
+            f"SELECT id, entidad, tipo, estado, importe, banco, unidad "
+            f"FROM {_TABLA_MERCADOS} WHERE fecha = %(d)s ORDER BY id", {"d": dia}):
+        fila = "mercados" if r["tipo"] in ("ingreso", "pago") else "fci"
+        _push(r["banco"], r["unidad"], fila, "mercado", r["id"], r["entidad"] or "—",
+              r["tipo"], r["estado"],
+              float(r["importe"] or 0) * (-1 if r["tipo"] in _resta else 1))
+
+    # 5) Banco a banco: la misma transferencia suma en la cuenta de crédito y resta
+    #    en la de débito → una fila del detalle en cada banco.
+    for r in _items_sql(
+            f"SELECT id, cta_debito, cta_credito, estado, importe, unidad "
+            f"FROM {_TABLA_BB} WHERE fecha = %(d)s ORDER BY id", {"d": dia}):
+        imp = float(r["importe"] or 0)
+        _push(r["cta_credito"], r["unidad"], "bb_mas", "bb", r["id"],
+              f"recibido de {r['cta_debito']}", "transferencia interna", r["estado"], imp)
+        _push(r["cta_debito"], r["unidad"], "bb_menos", "bb", r["id"],
+              f"enviado a {r['cta_credito']}", "transferencia interna", r["estado"], imp)
+
+    # 6) Saldo inicial: la carga manual del back office.
+    for r in _items_sql(
+            "SELECT cuenta_operativa, unidad, saldo_inicial, actualizado_por, "
+            "actualizado_at FROM operaciones.tesoreria_saldos WHERE fecha = %(d)s",
+            {"d": dia}):
+        _push(r["cuenta_operativa"], r["unidad"], "saldo_inicial", "saldo", "",
+              f"Saldo inicial cargado por {r['actualizado_por'] or '—'}",
+              r["actualizado_at"].isoformat() if r["actualizado_at"] else "", None,
+              float(r["saldo_inicial"] or 0))
+
+    out: dict[str, dict] = {}
+    for (b, u, f), items in celdas.items():
+        out[clave_celda(b, u, f)] = {
+            "fila": f, "banco": b, "unidad": u, "fecha": dia.strftime("%d/%m/%Y"),
+            "fuente": _FUENTE_FILA[f],
+            # El TOTAL no cuenta lo destildado: tiene que dar exactamente lo de la celda.
+            "total": round(sum(i["importe"] for i in items if not i.get("excluido")), 2),
+            "excluidos": sum(1 for i in items if i.get("excluido")),
+            "items": items,
+        }
+
+    # 7) Saldo final: no tiene operaciones propias, es la ECUACIÓN. Se devuelve el
+    #    desglose fila por fila para auditar de dónde sale el número final.
+    for c in cuentas or []:
+        items = [{"fuente": "fila", "ref": k, "excluido": False, "observacion": "",
+                  "detalle": k, "referencia": "fila de la grilla", "estado": None,
+                  "importe": _SIGNO_FILA[k] * float(c.get(k) or 0)}
+                 for k in FILAS_DETALLE if k != "saldo_final"]
+        out[clave_celda(c["cuenta_operativa"], c["unidad"], "saldo_final")] = {
+            "fila": "saldo_final", "banco": c["cuenta_operativa"], "unidad": c["unidad"],
+            "fecha": dia.strftime("%d/%m/%Y"), "fuente": _FUENTE_FILA["saldo_final"],
+            "total": round(sum(i["importe"] for i in items), 2),
+            "excluidos": 0, "items": items,
+        }
+    return out
 
 
 def detalle_celda(*, fecha: str | None, banco: str, unidad: str, fila: str,
@@ -500,99 +619,167 @@ def detalle_celda(*, fecha: str | None, banco: str, unidad: str, fila: str,
     if not banco or not unidad:
         raise ValueError("faltan 'banco' y/o 'unidad'")
     dia = _dia(fecha)
-    p = {"d": dia, "b": banco, "u": unidad}
-    exc = _exclusiones_dia(dia)
-    items: list[dict] = []
-    fuente = ""
+    # La grilla solo se recalcula si se pide el saldo final (es la única celda que la
+    # necesita); el resto sale de las fuentes directamente.
+    cuentas = (ingresos_egresos_dia(fecha=fecha, email=email)["cuentas"]
+               if fila == "saldo_final" else None)
+    celda = _detalle_dia(dia, cuentas).get(clave_celda(banco, unidad, fila))
+    # Celda en cero: existe en la grilla pero no tiene operaciones detrás.
+    return celda or {"fila": fila, "banco": banco, "unidad": unidad,
+                     "fecha": dia.strftime("%d/%m/%Y"), "fuente": _FUENTE_FILA[fila],
+                     "total": 0.0, "excluidos": 0, "items": []}
 
-    def _fila(fuente_: str, ref, detalle: str, referencia: str, estado, importe: float):
-        """Item del detalle con su tilde y su observación (traza de quién lo anuló)."""
-        fuera, obs = _estado_excl(exc, fuente_, ref)
-        return {"fuente": fuente_, "ref": str(ref), "detalle": detalle,
-                "referencia": referencia, "estado": estado, "importe": importe,
-                "excluido": fuera, "observacion": obs}
 
-    if fila == "saldo_final":
-        # No tiene operaciones propias: es la ECUACIÓN. Se devuelve el desglose
-        # fila por fila para poder auditar de dónde sale el número final.
-        cta = next((c for c in ingresos_egresos_dia(fecha=fecha, email=email)["cuentas"]
-                    if c["cuenta_operativa"] == banco and c["unidad"] == unidad), None)
-        for k in FILAS_DETALLE:
-            if k == "saldo_final" or not cta:
-                continue
-            items.append({"fuente": "fila", "ref": k, "excluido": False,
-                          "observacion": "", "detalle": k,
-                          "referencia": "fila de la grilla", "estado": None,
-                          "importe": _SIGNO_FILA[k] * float(cta.get(k) or 0)})
-        return {"fila": fila, "banco": banco, "unidad": unidad,
-                "fecha": dia.strftime("%d/%m/%Y"),
-                "fuente": "Suma de las filas de la grilla (ya con su signo)",
-                "total": round(sum(i["importe"] for i in items), 2), "items": items}
+# ──────────────────────────────────────────────────────────────────────────────
+# FOTO de la grilla BANCOS — congela el día para poder auditarlo después.
+#
+# Por qué existe: la vista del día es casi toda LIVE contra Aunesa y no se
+# persiste. Pasado el día no hay forma de reconstruir lo que mostró la pantalla
+# (Aunesa puede cambiar estados hacia atrás, y lo cargado a mano se puede editar).
+# La foto lo deja congelado.
+#
+# QUÉ GUARDA: las filas de la grilla BANCOS del día (todos los bancos del catálogo ×
+# moneda) y, por cada CELDA, los movimientos que la componen — o sea, exactamente lo
+# que muestra el modal de auditoría. Con eso el histórico se navega desde BANCOS:
+# elegís la fecha, ves la grilla de ese día y clickeás una celda para ver sus
+# movimientos.
+#
+# SIN DUPLICAR: la tab MOVIMIENTOS es SIEMPRE del día (live) y no se guarda aparte —
+# los movimientos históricos ya viven acá, colgados de la celda que los usa. Guardar
+# también la lista plana sería la misma data dos veces.
+#
+# UNA POR DÍA + TTL: `fecha` es única (re-sacarla PISA la del día, no acumula) y solo
+# se conservan las últimas `TTL_SNAPSHOTS` fechas. `hash_sha256` del payload permite
+# DETECTAR una alteración hecha por fuera de la API.
+# ──────────────────────────────────────────────────────────────────────────────
 
-    if fila == "saldo_inicial":
-        fuente = "Carga manual del back office (tesoreria_saldos)"
-        items = [{"fuente": "saldo", "ref": "", "excluido": False, "observacion": "",
-                  "detalle": f"Saldo inicial cargado por {r['actualizado_por'] or '—'}",
-                  "referencia": r["actualizado_at"].isoformat() if r["actualizado_at"] else "",
-                  "estado": None, "importe": float(r["saldo_inicial"] or 0)}
-                 for r in _items_sql(
-                     "SELECT saldo_inicial, actualizado_por, actualizado_at FROM "
-                     "operaciones.tesoreria_saldos WHERE fecha = %(d)s AND "
-                     "cuenta_operativa = %(b)s AND unidad = %(u)s", p)]
-    elif fila in ("ingresos", "egresos", "egresos_echeq"):
-        fuente = f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO})"
-        items = _items_aunesa(dia, banco, unidad, fila, exc)
-        if fila in ("ingresos", "egresos"):
-            # Los registros manuales entran en la MISMA fila, pero se marcan: es lo
-            # único que no viene de la API y tiene que verse de un vistazo.
-            fuente += " + REGISTROS MANUALES"
-            items += [_fila("registro", r["id"], f"registro manual · {r['tipo']}",
-                            f"cargado por {r['creado_por'] or '—'}", "manual",
-                            float(r["importe"] or 0))
-                      for r in _items_sql(
-                          f"SELECT id, tipo, importe, creado_por FROM {_TABLA_REGISTROS} "
-                          "WHERE fecha = %(d)s AND banco = %(b)s AND unidad = %(u)s "
-                          "AND sentido = %(s)s ORDER BY id",
-                          {**p, "s": "ingreso" if fila == "ingresos" else "egreso"})]
-    elif fila == "ingresos_echeq":
-        fuente = "Cheques RECIBIDOS finalizados (tab CHEQUES)"
-        items = [_fila("cheque", r["id"],
-                       r["comitente_denominacion"] or r["comitente"] or "—",
-                       f"cheque {r['tipo'] or ''}".strip(), r["estado"],
-                       float(r["importe"] or 0))
-                 for r in _items_sql(
-                     f"SELECT id, comitente, comitente_denominacion, tipo, estado, importe "
-                     f"FROM {_TABLA_CHEQUES} WHERE lado = 'recibido' AND estado = 'finalizado' "
-                     f"AND banco = %(b)s AND unidad = %(u)s "
-                     f"AND (creado_at AT TIME ZONE '{_TZ_ART}')::date = %(d)s ORDER BY id", p)]
-    elif fila in ("mercados", "fci"):
-        tipos = ("ingreso", "pago") if fila == "mercados" else ("rescate", "suscripcion")
-        fuente = f"Tab MERCADOS · {tipos[0]} (+) y {tipos[1]} (−)"
-        # El signo lo define el tipo: el segundo de cada par resta.
-        items = [_fila("mercado", r["id"], r["entidad"] or "—", r["tipo"], r["estado"],
-                       float(r["importe"] or 0) * (-1 if r["tipo"] == tipos[1] else 1))
-                 for r in _items_sql(
-                     f"SELECT id, entidad, tipo, estado, importe FROM {_TABLA_MERCADOS} "
-                     "WHERE fecha = %(d)s AND banco = %(b)s AND unidad = %(u)s "
-                     "AND tipo = ANY(%(t)s) ORDER BY id", {**p, "t": list(tipos)})]
-    else:  # bb_mas / bb_menos
-        propia, otra = (("cta_credito", "cta_debito") if fila == "bb_mas"
-                        else ("cta_debito", "cta_credito"))
-        verbo = "recibido de" if fila == "bb_mas" else "enviado a"
-        fuente = f"Tab BANCO A BANCO · {verbo.split()[0]}"
-        items = [_fila("bb", r["id"], f"{verbo} {r['otra']}", "transferencia interna",
-                       r["estado"], float(r["importe"] or 0))
-                 for r in _items_sql(
-                     f"SELECT id, {otra} AS otra, estado, importe FROM {_TABLA_BB} "
-                     f"WHERE fecha = %(d)s AND {propia} = %(b)s AND unidad = %(u)s ORDER BY id", p)]
+_TABLA_SNAPSHOTS = "operaciones.tesoreria_snapshots"
+TTL_SNAPSHOTS = 30  # fotos que se conservan (una por día) — el resto se borra solo
 
-    # El TOTAL no cuenta lo destildado: tiene que dar exactamente lo de la celda.
-    return {"fila": fila, "banco": banco, "unidad": unidad,
-            "fecha": dia.strftime("%d/%m/%Y"), "fuente": fuente,
-            "total": round(sum(i["importe"] for i in items
-                               if not i.get("excluido")), 2),
-            "excluidos": sum(1 for i in items if i.get("excluido")),
-            "items": items}
+
+def _payload_dia(dia: date) -> dict:
+    """La grilla BANCOS del día + el detalle de cada celda.
+
+    Se reusan los mismos services que sirven la vista (no se re-consulta a mano)
+    para que la foto sea exactamente lo que vio el equipo, incluidas las
+    exclusiones y los defaults.
+    """
+    iso = dia.isoformat()
+    # `email=""` a propósito: la foto no marca presencia ni depende de quién la mira.
+    vista = ingresos_egresos_dia(fecha=iso, estado=ESTADO_EFECTIVO, email="")
+    bancos = vista.get("cuentas", [])
+    try:
+        detalle = _detalle_dia(dia, bancos)
+    except Exception as exc:
+        # Si el detalle falla, la foto se toma igual con la grilla y deja constancia
+        # del hueco, en vez de perderse entera.
+        _log.warning("foto tesorería: falló el detalle de las celdas", exc_info=True)
+        detalle = {"_error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "bancos": bancos,
+        "detalle": detalle,
+        "estado_bancos": vista.get("estado_bancos"),
+        "catalogo_bancos": listar_cuentas(),
+        "exclusiones": [{"fuente": f, "ref": r, **v}
+                        for (f, r), v in _exclusiones_dia(dia).items()],
+    }
+
+
+def tomar_snapshot(*, fecha: str | None = None, actor: str = "", origen: str = "manual",
+                   ) -> dict:
+    """Congela la grilla BANCOS de un día. Devuelve el resumen (sin el payload)."""
+    if origen not in ("manual", "cron"):
+        raise ValueError(f"origen inválido: {origen}")
+    if origen == "manual" and not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para sacar la foto de Tesorería")
+    dia = _dia(fecha)
+    datos = _payload_dia(dia)
+    # Hash del payload canónico (claves ordenadas): dos fotos iguales dan el mismo
+    # hash, y editar la fila a mano lo rompe.
+    crudo = json.dumps(datos, sort_keys=True, default=str, ensure_ascii=False)
+    h = hashlib.sha256(crudo.encode("utf-8")).hexdigest()
+    ahora = datetime.now(UTC)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        # Una foto por día: volver a sacarla actualiza la del día (la traza de cada
+        # toma queda en `tesoreria_audit`, así que no se pierde el historial de quién).
+        cur.execute(
+            f"INSERT INTO {_TABLA_SNAPSHOTS} (fecha, tomado_at, tomado_por, origen, "
+            "hash_sha256, datos) VALUES (%(f)s, %(t)s, %(p)s, %(o)s, %(h)s, %(d)s) "
+            "ON CONFLICT (fecha) DO UPDATE SET tomado_at = EXCLUDED.tomado_at, "
+            "tomado_por = EXCLUDED.tomado_por, origen = EXCLUDED.origen, "
+            "hash_sha256 = EXCLUDED.hash_sha256, datos = EXCLUDED.datos "
+            "RETURNING id",
+            {"f": dia, "t": ahora, "p": (actor or origen).lower() or origen,
+             "o": origen, "h": h, "d": Jsonb(datos)})
+        nuevo = cur.fetchone()[0]
+        # TTL: solo las últimas N fechas. Se limpia acá (no con un cron aparte) para
+        # que la tabla no pueda crecer aunque el job de limpieza no exista.
+        cur.execute(
+            f"DELETE FROM {_TABLA_SNAPSHOTS} WHERE fecha NOT IN "
+            f"(SELECT fecha FROM {_TABLA_SNAPSHOTS} ORDER BY fecha DESC LIMIT %(n)s)",
+            {"n": TTL_SNAPSHOTS})
+        purgadas = cur.rowcount
+        conn.commit()
+    _audit(actor or origen, "snapshot_tesoreria", str(nuevo),
+           {"fecha": dia.isoformat(), "origen": origen, "hash": h})
+    return {"id": int(nuevo), "fecha": dia.isoformat(),
+            "tomado_at": ahora.isoformat(), "origen": origen, "hash_sha256": h,
+            "bytes": len(crudo), "n_bancos": len(datos.get("bancos") or []),
+            "n_celdas": len(datos.get("detalle") or {}), "purgadas": purgadas}
+
+
+def listar_snapshots(*, desde: str | None = None, hasta: str | None = None,
+                     limit: int = 200) -> dict:
+    """Fotos guardadas, SIN el payload (que puede pesar cientos de KB)."""
+    rows = _q(
+        "SELECT id, fecha, tomado_at, tomado_por, origen, hash_sha256, "
+        "jsonb_array_length(COALESCE(datos->'bancos', '[]'::jsonb)) AS n_bancos "
+        f"FROM {_TABLA_SNAPSHOTS} "
+        "WHERE (%(d)s = '' OR fecha >= %(d)s::date) "
+        "AND (%(h)s = '' OR fecha <= %(h)s::date) "
+        "ORDER BY fecha DESC LIMIT %(lim)s",
+        {"d": desde or "", "h": hasta or "", "lim": max(1, min(int(limit), 1000))},
+    )
+    return {"ttl": TTL_SNAPSHOTS, "snapshots": [{
+        "id": int(r["id"]), "fecha": r["fecha"].isoformat(),
+        "tomado_at": r["tomado_at"].isoformat(), "tomado_por": r["tomado_por"],
+        "origen": r["origen"], "hash_sha256": r["hash_sha256"],
+        "n_bancos": r["n_bancos"],
+    } for r in rows]}
+
+
+def foto_dia(fecha: str | None = None, *, email: str = "") -> dict:
+    """La foto de un día — es lo que sirve BANCOS cuando se elige una fecha pasada.
+
+    Mismo shape que la vista live (`cuentas` + `catalogo`) para que el front la
+    renderice con la misma grilla, más el `detalle` de cada celda ya congelado (el
+    modal de auditoría de un día viejo NO vuelve a pegarle a Aunesa: lee de acá).
+    """
+    dia = _dia(fecha)
+    rows = _q("SELECT id, fecha, tomado_at, tomado_por, origen, hash_sha256, datos "
+              f"FROM {_TABLA_SNAPSHOTS} WHERE fecha = %(d)s", {"d": dia})
+    base = {"fecha": dia.strftime("%d/%m/%Y"), "fecha_iso": dia.isoformat(),
+            "puede_editar_saldo": puede_editar_saldo(email)}
+    if not rows:
+        # Sin foto de ese día no hay nada que mostrar: la vista live ya no lo puede
+        # reconstruir. El front lo dice explícito en vez de mostrar ceros.
+        return {**base, "existe": False, "cuentas": [], "catalogo": [], "detalle": {},
+                "ttl": TTL_SNAPSHOTS}
+    r = rows[0]
+    datos = r["datos"] or {}
+    crudo = json.dumps(datos, sort_keys=True, default=str, ensure_ascii=False)
+    return {
+        **base, "existe": True, "id": int(r["id"]),
+        "tomado_at": r["tomado_at"].isoformat(), "tomado_por": r["tomado_por"],
+        "origen": r["origen"], "hash_sha256": r["hash_sha256"],
+        # False = alguien tocó la fila por fuera de la API.
+        "hash_ok": hashlib.sha256(crudo.encode("utf-8")).hexdigest() == r["hash_sha256"],
+        "estado_bancos": datos.get("estado_bancos") or ESTADO_EFECTIVO,
+        "cuentas": datos.get("bancos") or [],
+        "catalogo": datos.get("catalogo_bancos") or [],
+        "detalle": datos.get("detalle") or {},
+        "ttl": TTL_SNAPSHOTS,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────

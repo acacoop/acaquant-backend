@@ -812,6 +812,21 @@ CREATE TABLE IF NOT EXISTS operaciones.tesoreria_presencia (
     visto_at timestamptz NOT NULL
 );
 
+-- Catálogo de CUENTAS OPERATIVAS (bancos). Aunesa no expone un endpoint de cuentas:
+-- el universo se descubre viendo movimientos. Sin esto la grilla BANCOS mostraría
+-- solo los bancos que ya operaron HOY (aparecen a media rueda) en vez del panel
+-- completo. Se auto-registra en cada carga de la vista y se puede sembrar hacia
+-- atrás con `python -m scripts.diag_tesoreria_cuentas --registrar`.
+CREATE TABLE IF NOT EXISTS operaciones.tesoreria_cuentas (
+    cuenta_operativa text NOT NULL,
+    unidad           text NOT NULL,
+    aunesa_id        text,
+    activa           boolean NOT NULL DEFAULT true,  -- false = ocultar de la grilla
+    primera_vez      date,
+    ultima_vez       date,
+    PRIMARY KEY (cuenta_operativa, unidad)
+);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PORTAFOLIO — tenencias + catálogo de títulos (FUENTE DE VERDAD, SQL-native)
 -- ─────────────────────────────────────────────────────────────────────────────

@@ -14,6 +14,11 @@ Uso (desde la raíz, en el Droplet):
     python -m scripts.diag_tesoreria_cuentas --dias 60
     python -m scripts.diag_tesoreria_cuentas --hasta 2026-07-31 --dias 30
     python -m scripts.diag_tesoreria_cuentas --estado ""      # sin filtro de estado
+    python -m scripts.diag_tesoreria_cuentas --dias 60 --registrar   # único modo con ESCRITURA
+
+`--registrar` siembra `operaciones.tesoreria_cuentas` con todo lo encontrado, para
+que la grilla BANCOS muestre el panel completo desde el arranque en vez de ir
+descubriendo bancos a medida que operan. Es idempotente.
 """
 from __future__ import annotations
 
@@ -68,6 +73,8 @@ def main() -> None:
     ap.add_argument("--dias", type=int, default=15, help="cuántos días hacia atrás (default 15)")
     ap.add_argument("--hasta", help="YYYY-MM-DD del último día a mirar (default: hoy ART)")
     ap.add_argument("--estado", default="Procesado", help="'' = sin filtro de estado")
+    ap.add_argument("--registrar", action="store_true",
+                    help="siembra operaciones.tesoreria_cuentas con lo encontrado")
     a = ap.parse_args()
 
     fin = date.fromisoformat(a.hasta) if a.hasta else _hoy_art().date()
@@ -92,9 +99,11 @@ def main() -> None:
             if isinstance(co, dict) and co.get("id"):
                 ids_por_den.setdefault(den, set()).add(str(co["id"]))
             k = (den, uni)
-            e = acc.setdefault(k, {"n": 0, "ing": 0.0, "egr": 0.0, "dias": set()})
+            e = acc.setdefault(k, {"n": 0, "ing": 0.0, "egr": 0.0, "dias": set(), "ids": set()})
             e["n"] += 1
             e["dias"].add(d)
+            if isinstance(co, dict) and co.get("id"):
+                e["ids"].add(str(co["id"]))
             sol = _norm(r.get("solicitud"))
             if sol == _INGRESO:
                 e["ing"] += _num(r.get("monto"))
@@ -123,6 +132,15 @@ def main() -> None:
     if multi:
         print(f"\n>>> OJO: {len(multi)} denominación(es) con más de un id "
               f"(la card agrupa por denominación+moneda): {sorted(multi)}")
+
+    if a.registrar:
+        from api.services.tesoreria import registrar_cuentas
+        for k, e in acc.items():
+            aid = sorted(e["ids"])[0] if e["ids"] else None
+            # dos pasadas: la vieja fija `primera_vez`, la nueva `ultima_vez`.
+            registrar_cuentas({k: aid}, min(e["dias"]))
+            registrar_cuentas({k: aid}, max(e["dias"]))
+        print(f"\n>>> registradas {len(acc)} cuentas en operaciones.tesoreria_cuentas")
 
 
 if __name__ == "__main__":

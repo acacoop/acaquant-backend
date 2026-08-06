@@ -20,6 +20,13 @@ SALDO INICIAL: lo único que Aunesa NO da. Se carga a mano por banco y por día 
 `operaciones.tesoreria_saldos` — con eso la card cierra en saldo final
 (inicial + ingresos − egresos). Escritura restringida a la allowlist
 `operaciones.tesoreria_escritores` (+ admin), gestionada en Manager → MESA.
+
+CATÁLOGO DE BANCOS (2026-08-06): Aunesa no tiene endpoint de cuentas operativas, así
+que el universo se descubre viendo movimientos y se persiste en
+`operaciones.tesoreria_cuentas`. La grilla se arma con el CATÁLOGO COMPLETO (no con
+quién operó hoy): los bancos sin movimientos aparecen en cero en vez de ir brotando
+a medida que avanza la rueda. Sembrado hacia atrás con
+`python -m scripts.diag_tesoreria_cuentas --registrar`.
 """
 from __future__ import annotations
 
@@ -98,8 +105,9 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
 
     Devuelve:
       - `resumen`: {unidad: {ingresos, egresos, neto, n}} por moneda (ARS/USD).
-      - `cuentas`: una entrada por CUENTA OPERATIVA (banco) × moneda, con el saldo
-        inicial cargado a mano y el saldo final resultante.
+      - `cuentas`: TODAS las cuentas operativas del catálogo × moneda (las que no
+        operaron ese día vienen en cero), con el saldo inicial cargado a mano y el
+        saldo final resultante.
       - `movimientos`: filas para la tabla (hora, cuenta, cliente, riel, unidad, tipo,
         monto, estado), ordenadas por hora desc.
     """
@@ -121,6 +129,7 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
 
     resumen: dict[str, dict] = {}
     por_cuenta: dict[tuple[str, str], dict] = {}
+    vistas: dict[tuple[str, str], str | None] = {}
     movimientos: list[dict] = []
     for r in rows:
         # El rango pedido es [día, día+1]; nos quedamos SOLO con las filas del día objetivo.
@@ -128,11 +137,13 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
             continue
         sol = _norm(r.get("solicitud"))
         es_ingreso, es_egreso = sol == _INGRESO, sol == _EGRESO
-        cta = _cuenta_operativa(r.get("cuentaOperativa")) or "SIN CUENTA OPERATIVA"
+        co = r.get("cuentaOperativa")
+        cta = _cuenta_operativa(co) or "SIN CUENTA OPERATIVA"
 
         if es_ingreso or es_egreso:
             unidad = (r.get("unidad") or "?").upper()
             monto = _num(r.get("monto"))
+            vistas[(cta, unidad)] = str(co["id"]) if isinstance(co, dict) and co.get("id") else None
             b = resumen.setdefault(unidad, {"ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0})
             c = por_cuenta.setdefault(
                 (cta, unidad),
@@ -162,10 +173,15 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
             round(b["ingresos"], 2), round(b["egresos"], 2), round(b["neto"], 2))
     movimientos.sort(key=lambda m: str(m.get("_hora") or ""), reverse=True)
 
-    # Saldo inicial (carga manual) → saldo final de cada banco.
+    # El panel de bancos es FIJO: sale del catálogo, no de quién operó hoy. Las cuentas
+    # nuevas que aparezcan en el día se registran solas y quedan para siempre.
+    registrar_cuentas(vistas, dia)
     saldos = _saldos_dia(dia)
     cuentas = []
-    for clave, c in sorted(por_cuenta.items()):
+    for clave in sorted(set(catalogo()) | set(por_cuenta)):
+        cta, uni = clave
+        c = por_cuenta.get(clave) or {"cuenta_operativa": cta, "unidad": uni,
+                                      "ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0}
         s = saldos.get(clave)
         ini = s["saldo_inicial"] if s else None
         c["ingresos"], c["egresos"], c["neto"] = (
@@ -181,6 +197,53 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
             "puede_editar_saldo": puede_editar_saldo(email),
             "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
             "movimientos": movimientos, "n": len(movimientos), "raw": len(movimientos)}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Catálogo de cuentas operativas (bancos). Aunesa no tiene endpoint de cuentas:
+# el universo se descubre viendo movimientos, así que se persiste acá.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def catalogo() -> list[tuple[str, str]]:
+    """[(cuenta_operativa, unidad)] activas. Vacío si la tabla no existe todavía."""
+    try:
+        rows = _q("SELECT cuenta_operativa, unidad FROM operaciones.tesoreria_cuentas "
+                  "WHERE activa ORDER BY cuenta_operativa, unidad")
+    except Exception:
+        _log.warning("tesoreria: no pude leer el catálogo de cuentas", exc_info=True)
+        return []
+    return [(r["cuenta_operativa"], r["unidad"]) for r in rows]
+
+
+def registrar_cuentas(vistas: dict[tuple[str, str], str | None], dia: date) -> None:
+    """Da de alta las cuentas vistas en un día (idempotente).
+
+    El UPDATE tiene guarda para que el poll de la vista (cada 20s) sea un no-op
+    cuando no hay nada nuevo que anotar.
+    """
+    if not vistas:
+        return
+    filas = [{"c": c, "u": u, "id": aid, "d": dia} for (c, u), aid in vistas.items()]
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO operaciones.tesoreria_cuentas "
+                "(cuenta_operativa, unidad, aunesa_id, primera_vez, ultima_vez) "
+                "VALUES (%(c)s, %(u)s, %(id)s, %(d)s, %(d)s) "
+                "ON CONFLICT (cuenta_operativa, unidad) DO UPDATE SET "
+                "aunesa_id = COALESCE(EXCLUDED.aunesa_id, operaciones.tesoreria_cuentas.aunesa_id), "
+                "primera_vez = LEAST(operaciones.tesoreria_cuentas.primera_vez, EXCLUDED.primera_vez), "
+                "ultima_vez = GREATEST(operaciones.tesoreria_cuentas.ultima_vez, EXCLUDED.ultima_vez) "
+                "WHERE operaciones.tesoreria_cuentas.ultima_vez IS NULL "
+                "   OR operaciones.tesoreria_cuentas.primera_vez IS NULL "
+                "   OR operaciones.tesoreria_cuentas.aunesa_id IS NULL "
+                "   OR EXCLUDED.ultima_vez > operaciones.tesoreria_cuentas.ultima_vez "
+                "   OR EXCLUDED.primera_vez < operaciones.tesoreria_cuentas.primera_vez",
+                filas,
+            )
+            conn.commit()
+    except Exception:
+        _log.warning("tesoreria: no pude registrar cuentas operativas", exc_info=True)
 
 
 # ─────────────────────────────────────────────────────────────────────

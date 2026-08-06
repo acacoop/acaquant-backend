@@ -337,6 +337,67 @@ def tesoreria_mercado_borrar(id_: int, actor: str = Depends(require_escritura_te
         raise HTTPException(403, str(e)) from e
 
 
+# ── Tab BANCO A BANCO: transferencias internas entre cuentas propias ──────────
+
+class _BancoABanco(BaseModel):
+    fecha: str | None = None                                    # ISO YYYY-MM-DD
+    cta_debito: str = Field(..., min_length=1, max_length=256)  # de dónde sale
+    cta_credito: str = Field(..., min_length=1, max_length=256)  # a dónde entra
+    unidad: str = Field("ARS", min_length=1, max_length=8)
+    importe: float
+    estado: str = Field("pendiente", max_length=32)
+
+
+@router.get("/tesoreria/banco-a-banco")
+def tesoreria_bb(
+    fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
+    email: str = Depends(get_user_email),
+):
+    """Transferencias internas del día + catálogo de bancos para el form."""
+    return svc_tes.banco_a_banco(fecha=fecha, email=email)
+
+
+@router.post("/tesoreria/banco-a-banco")
+def tesoreria_bb_crear(req: _BancoABanco = Body(...),
+                       actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.crear_bb(req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/tesoreria/banco-a-banco/{id_}")
+def tesoreria_bb_editar(id_: int, req: _BancoABanco = Body(...),
+                        actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.editar_bb(id_, req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/tesoreria/banco-a-banco/{id_}/estado")
+def tesoreria_bb_estado(id_: int, req: _EstadoCheque = Body(...),
+                        actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.set_estado_bb(id_, req.estado, actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/tesoreria/banco-a-banco/{id_}")
+def tesoreria_bb_borrar(id_: int, actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.borrar_bb(id_, actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+
+
 @router.get("/titulos-mercado")
 def titulos_mercado(
     fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),

@@ -186,7 +186,8 @@ def _bucket() -> dict:
     """Acumulador de una celda de la grilla. `egresos_echeq` va SEPARADO: es una
     fila propia y no entra ni en `egresos` ni, por lo tanto, en el saldo final."""
     return {"ingresos": 0.0, "ingresos_echeq": 0.0, "egresos": 0.0, "egresos_echeq": 0.0,
-            "mercados": 0.0, "fci": 0.0, "neto": 0.0, "n": 0}
+            "mercados": 0.0, "fci": 0.0, "bb_mas": 0.0, "bb_menos": 0.0,
+            "neto": 0.0, "n": 0}
 
 
 def mercados_por_banco(dia: date) -> dict[tuple[str, str], dict]:
@@ -236,8 +237,12 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     MERCADOS y FCI vienen de la tab MERCADOS (carga manual) y entran ya NETOS:
       mercados = ingresos − pagos          |  fci = rescates − suscripciones
 
+    BANCO A BANCO son transferencias INTERNAS: `bb_mas` (la cuenta recibió) y
+    `bb_menos` (entregó). Suman cero entre todos los bancos — mueven el reparto,
+    no el total.
+
     Saldo final = inicial + ingresos + ingresos_echeq − egresos − egresos_echeq
-                  + mercados + fci.
+                  + mercados + fci + bb_mas − bb_menos.
 
     OJO — `cuentas` (tab BANCOS) NO respeta el filtro `estado` de la barra: un
     movimiento Rechazado / Anulado / Pendiente nunca movió plata en el banco, así que
@@ -302,8 +307,11 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     ing_echeq = ingresos_echeq_dia(dia)
     # Filas MERCADOS y FCI: ya vienen netas y con signo (ver mercados_por_banco).
     mkt = mercados_por_banco(dia)
+    # Banco a banco: una transferencia interna suma en un banco y resta en el otro.
+    bb = banco_a_banco_por_banco(dia)
     cuentas = []
-    for clave in sorted(set(catalogo()) | set(por_cuenta) | set(ing_echeq) | set(mkt)):
+    for clave in sorted(set(catalogo()) | set(por_cuenta) | set(ing_echeq)
+                        | set(mkt) | set(bb)):
         cta, uni = clave
         c = por_cuenta.get(clave) or {"cuenta_operativa": cta, "unidad": uni, **_bucket()}
         s = saldos.get(clave)
@@ -311,8 +319,10 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         c["ingresos_echeq"] = ing_echeq.get(clave, 0.0)
         m = mkt.get(clave) or {}
         c["mercados"], c["fci"] = m.get("mercados", 0.0), m.get("fci", 0.0)
+        t = bb.get(clave) or {}
+        c["bb_mas"], c["bb_menos"] = t.get("bb_mas", 0.0), t.get("bb_menos", 0.0)
         for k in ("ingresos", "ingresos_echeq", "egresos", "egresos_echeq",
-                  "mercados", "fci", "neto"):
+                  "mercados", "fci", "bb_mas", "bb_menos", "neto"):
             c[k] = round(c[k], 2)
         # Sin carga manual el inicial es 0 (no null): así el saldo final siempre cierra
         # como número. `saldo_cargado` es lo que separa "cargado en 0" de "sin cargar".
@@ -322,7 +332,7 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         # distinga; las dos entran al saldo. `neto` ya es ingresos − egresos.
         c["saldo_final"] = round(
             c["saldo_inicial"] + c["neto"] + c["ingresos_echeq"] - c["egresos_echeq"]
-            + c["mercados"] + c["fci"], 2)
+            + c["mercados"] + c["fci"] + c["bb_mas"] - c["bb_menos"], 2)
         c["saldo_por"] = s["actualizado_por"] if s else None
         c["saldo_at"] = s["actualizado_at"] if s else None
         cuentas.append(c)
@@ -948,6 +958,154 @@ def borrar_mercado(id_: int, actor: str) -> dict:
         raise PermissionError("sin permiso para borrar movimientos de Mercados")
     n = _exec(f"DELETE FROM {_TABLA_MERCADOS} WHERE id = %(id)s", {"id": int(id_)})
     _audit(actor, "borrar_mercado", str(id_))
+    return {"borrado": n}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TAB BANCO A BANCO — transferencias INTERNAS entre cuentas propias. El equipo
+# mueve saldo de un banco a otro para dejarlos cubiertos; no es plata que entra o
+# sale de la ALyC, así que la SUMA de las dos patas es cero y el total del día no
+# cambia. Lo que cambia es CÓMO queda repartido entre bancos.
+#
+# Una fila toca DOS bancos → en la grilla BANCOS se abre en dos filas:
+#   banco a banco (+) → la cuenta CRÉDITO recibe   (suma)
+#   banco a banco (−) → la cuenta DÉBITO entrega   (resta)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_TABLA_BB = "operaciones.tesoreria_banco_a_banco"
+ESTADOS_BB = ("pendiente", "completado")
+_CAMPOS_BB = ("fecha", "cta_debito", "cta_credito", "unidad", "importe", "estado")
+
+
+def banco_a_banco(*, fecha: str | None = None, email: str = "") -> dict:
+    """Transferencias internas del día + catálogo de bancos para el form."""
+    marcar_presencia(email)
+    dia = _dia(fecha)
+    rows = _q(
+        f"SELECT id, fecha, cta_debito, cta_credito, unidad, importe, estado, creado_por "
+        f"FROM {_TABLA_BB} WHERE fecha = %(d)s ORDER BY id DESC", {"d": dia})
+    return {
+        "fecha": dia.strftime("%d/%m/%Y"), "fecha_iso": dia.isoformat(),
+        "filas": [{
+            "id": int(r["id"]), "fecha": r["fecha"].isoformat(),
+            "cta_debito": r["cta_debito"], "cta_credito": r["cta_credito"],
+            "unidad": r["unidad"], "importe": float(r["importe"] or 0),
+            "estado": r["estado"], "creado_por": r["creado_por"],
+        } for r in rows],
+        "bancos": [{"banco": c, "unidad": u} for c, u in catalogo()],
+        "estados": list(ESTADOS_BB),
+        "puede_editar": puede_editar_saldo(email),
+        "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def banco_a_banco_por_banco(dia: date) -> dict[tuple[str, str], dict]:
+    """{(banco, unidad): {bb_mas, bb_menos}} del día.
+
+    Cada fila aporta a DOS bancos, así que se desarma con un UNION ALL (crédito en
+    positivo, débito en negativo) y se agrupa: una sola pasada, sin traer las filas.
+    """
+    try:
+        rows = _q(
+            "SELECT banco, unidad, SUM(mas) AS bb_mas, SUM(menos) AS bb_menos FROM ("
+            "  SELECT cta_credito AS banco, unidad, importe AS mas, 0 AS menos "
+            f"  FROM {_TABLA_BB} WHERE fecha = %(d)s "
+            "  UNION ALL "
+            "  SELECT cta_debito AS banco, unidad, 0 AS mas, importe AS menos "
+            f"  FROM {_TABLA_BB} WHERE fecha = %(d)s"
+            ") t GROUP BY banco, unidad",
+            {"d": dia},
+        )
+    except Exception:
+        _log.warning("tesoreria: no pude leer banco a banco", exc_info=True)
+        return {}
+    return {(r["banco"], r["unidad"]): {"bb_mas": float(r["bb_mas"] or 0),
+                                        "bb_menos": float(r["bb_menos"] or 0)} for r in rows}
+
+
+def _validar_bb(datos: dict) -> dict:
+    """Las dos cuentas TIENEN que existir en el catálogo, ser distintas y de la
+    misma moneda (con un solo importe no se puede representar un cambio de divisa)."""
+    deb = str(datos.get("cta_debito") or "").strip()
+    cre = str(datos.get("cta_credito") or "").strip()
+    unidad = (str(datos.get("unidad") or "ARS").strip().upper() or "ARS")
+    if not deb or not cre:
+        raise ValueError("hay que elegir la cuenta de DÉBITO y la de CRÉDITO")
+    if deb == cre:
+        raise ValueError("la cuenta de débito y la de crédito tienen que ser distintas")
+    conocidos = catalogo()
+    if conocidos:
+        for etiqueta, cta in (("débito", deb), ("crédito", cre)):
+            if (cta, unidad) not in conocidos:
+                raise ValueError(
+                    f"la cuenta de {etiqueta} '{cta}' [{unidad}] no está en el "
+                    "catálogo de Tesorería")
+    try:
+        importe = float(datos.get("importe"))
+    except (TypeError, ValueError) as e:
+        raise ValueError("'importe' tiene que ser un número") from e
+    if importe <= 0:
+        raise ValueError("'importe' tiene que ser mayor a 0")
+    estado = str(datos.get("estado") or "pendiente").strip().lower()
+    if estado not in ESTADOS_BB:
+        raise ValueError(f"'estado' inválido: {estado} (válidos: {', '.join(ESTADOS_BB)})")
+    return {"fecha": _dia(str(datos.get("fecha") or "") or None),
+            "cta_debito": deb, "cta_credito": cre, "unidad": unidad,
+            "importe": importe, "estado": estado}
+
+
+def crear_bb(datos: dict, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para cargar transferencias banco a banco")
+    f = _validar_bb(datos) | {"por": (actor or "").lower() or None, "at": datetime.now(UTC)}
+    campos = ", ".join(_CAMPOS_BB)
+    valores = ", ".join(f"%({c})s" for c in _CAMPOS_BB)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(f"INSERT INTO {_TABLA_BB} ({campos}, creado_por, creado_at) "
+                    f"VALUES ({valores}, %(por)s, %(at)s) RETURNING id", f)
+        nuevo = cur.fetchone()[0]
+        conn.commit()
+    _audit(actor, "crear_banco_a_banco", str(nuevo),
+           {"debito": f["cta_debito"], "credito": f["cta_credito"], "unidad": f["unidad"]})
+    return {"id": int(nuevo)}
+
+
+def editar_bb(id_: int, datos: dict, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar transferencias banco a banco")
+    f = _validar_bb(datos) | {"id": int(id_), "por": (actor or "").lower() or None,
+                              "at": datetime.now(UTC)}
+    sets = ", ".join(f"{c} = %({c})s" for c in _CAMPOS_BB)
+    n = _exec(f"UPDATE {_TABLA_BB} SET {sets}, actualizado_por = %(por)s, "
+              "actualizado_at = %(at)s WHERE id = %(id)s", f)
+    if not n:
+        raise ValueError(f"no existe la transferencia {id_}")
+    _audit(actor, "editar_banco_a_banco", str(id_),
+           {"debito": f["cta_debito"], "credito": f["cta_credito"]})
+    return {"id": int(id_)}
+
+
+def set_estado_bb(id_: int, estado: str, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar transferencias banco a banco")
+    est = (estado or "").strip().lower()
+    if est not in ESTADOS_BB:
+        raise ValueError(f"'estado' inválido: {est} (válidos: {', '.join(ESTADOS_BB)})")
+    n = _exec(f"UPDATE {_TABLA_BB} SET estado = %(e)s, actualizado_por = %(por)s, "
+              "actualizado_at = %(at)s WHERE id = %(id)s",
+              {"id": int(id_), "e": est, "por": (actor or "").lower() or None,
+               "at": datetime.now(UTC)})
+    if not n:
+        raise ValueError(f"no existe la transferencia {id_}")
+    _audit(actor, "estado_banco_a_banco", str(id_), {"a": est})
+    return {"id": int(id_), "estado": est}
+
+
+def borrar_bb(id_: int, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para borrar transferencias banco a banco")
+    n = _exec(f"DELETE FROM {_TABLA_BB} WHERE id = %(id)s", {"id": int(id_)})
+    _audit(actor, "borrar_banco_a_banco", str(id_))
     return {"borrado": n}
 
 

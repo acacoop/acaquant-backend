@@ -20,6 +20,9 @@ SALDO INICIAL: lo único que Aunesa NO da. Se carga a mano por banco y por día 
 `operaciones.tesoreria_saldos` — con eso la card cierra en saldo final
 (inicial + ingresos − egresos). Escritura restringida a la allowlist
 `operaciones.tesoreria_escritores` (+ admin), gestionada en Manager → MESA.
+Si el back office NO cargó el saldo de un banco, el inicial vale **0** (no null):
+el saldo final siempre es un número y la grilla cierra sola. `saldo_cargado`
+distingue "cargado en cero" de "nunca lo tocaron" (el front lo muestra apagado).
 
 CATÁLOGO DE BANCOS (2026-08-06): Aunesa no tiene endpoint de cuentas operativas, así
 que el universo se descubre viendo movimientos y se persiste en
@@ -164,8 +167,8 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     Devuelve:
       - `resumen`: {unidad: {ingresos, egresos, neto, n}} por moneda (ARS/USD).
       - `cuentas`: TODAS las cuentas operativas del catálogo × moneda (las que no
-        operaron ese día vienen en cero), con el saldo inicial cargado a mano y el
-        saldo final resultante.
+        operaron ese día vienen en cero), con el saldo inicial cargado a mano (0 si
+        nadie lo cargó) y el saldo final = inicial + ingresos − egresos.
       - `movimientos`: filas para la tabla (hora, cuenta, cliente, riel, unidad, tipo,
         monto, estado), ordenadas por hora desc.
     """
@@ -220,8 +223,11 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         ini = s["saldo_inicial"] if s else None
         c["ingresos"], c["egresos"], c["neto"] = (
             round(c["ingresos"], 2), round(c["egresos"], 2), round(c["neto"], 2))
-        c["saldo_inicial"] = ini
-        c["saldo_final"] = round(ini + c["neto"], 2) if ini is not None else None
+        # Sin carga manual el inicial es 0 (no null): así el saldo final siempre cierra
+        # como número. `saldo_cargado` es lo que separa "cargado en 0" de "sin cargar".
+        c["saldo_cargado"] = ini is not None
+        c["saldo_inicial"] = round(ini if ini is not None else 0.0, 2)
+        c["saldo_final"] = round(c["saldo_inicial"] + c["neto"], 2)
         c["saldo_por"] = s["actualizado_por"] if s else None
         c["saldo_at"] = s["actualizado_at"] if s else None
         cuentas.append(c)

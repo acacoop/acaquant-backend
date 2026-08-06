@@ -38,6 +38,7 @@ from api.services.tesoreria import (
     _exec,
     _fechas,
     _num,
+    _saldos_dia,
     aplanar,
     catalogo,
 )
@@ -185,9 +186,56 @@ def main() -> None:
         print(f"    {e:<16} : {d['n']:>5} movimientos{extra}")
     sin_tipo = sum(1 for r in del_dia if not aplanar(r, "")["_tipo"])
     print(f"    sin tipo (ni Depósito ni Extracción, NO suman): {sin_tipo}")
+
+    # 8 — la grilla, banco por banco, calculada acá desde cero. Es EXACTAMENTE lo que
+    # deberia mostrar la pantalla: si una celda difiere, el bug esta en la vista.
+    print("\n[8] LA GRILLA BANCO POR BANCO (Procesado + fecha del día)")
+    grilla: defaultdict = defaultdict(lambda: {"n": 0, "ing": 0.0, "egr": 0.0})
+    for r in del_dia:
+        if str(r.get("estado") or "").strip() != "Procesado":
+            continue
+        m = aplanar(r, "")
+        if not m["_tipo"]:
+            continue
+        g = grilla[(m["cuentaOperativa"], str(r.get("unidad") or "?").upper())]
+        g["n"] += 1
+        g["ing" if m["_tipo"] == "ingreso" else "egr"] += _num(r.get("monto"))
+
+    try:
+        saldos = _saldos_dia(dia)
+    except Exception as exc:
+        saldos = {}
+        print(f"    (no pude leer tesoreria_saldos: {exc})")
+
+    claves = sorted(set(grilla) | set(cat))
+    if not a.montos:
+        print("    (sin importes — corré con --montos para ver los números y compararlos)")
+        for k in claves:
+            ini = saldos.get(k)
+            print(f"    {k[0]:<32} [{k[1]}]  movs={grilla[k]['n']:>3}  "
+                  f"saldo_inicial={'cargado' if ini else 'SIN CARGAR (=0)'}")
+    else:
+        cab = (f"    {'CUENTA OPERATIVA':<32} {'UNI':<4} {'MOVS':>5} {'SALDO INICIAL':>18} "
+               f"{'INGRESOS':>18} {'EGRESOS':>18} {'SALDO FINAL':>18}")
+        print(cab)
+        print("    " + "-" * (len(cab) - 4))
+        for k in claves:
+            g = grilla[k]
+            s = saldos.get(k)
+            ini = s["saldo_inicial"] if s else 0.0
+            fin = ini + g["ing"] - g["egr"]
+            marca = "" if s else "   <- saldo inicial SIN CARGAR (se toma 0)"
+            print(f"    {k[0]:<32} {k[1]:<4} {g['n']:>5} {ini:>18,.2f} "
+                  f"{g['ing']:>18,.2f} {g['egr']:>18,.2f} {fin:>18,.2f}{marca}")
+    print("    ^ Esto es inicial + ingresos - egresos, calculado fuera de la API.")
+    print("      Comparalo con la pantalla: si una celda no coincide, el bug es de la")
+    print("      vista; si coincide y aun asi el numero no es el que esperas, el")
+    print("      problema esta en el dato que manda Aunesa, no en la cuenta.")
+
     print("\n" + SEP)
-    print("Pegá en el chat las secciones [1] [2] [4] [5] [6] [7] (sin --montos no hay")
-    print("importes, son solo conteos). Con eso te digo exactamente qué corregir.")
+    print("Pegá las secciones [1] [2] [4] [5] [6] [7] sin problema (son conteos).")
+    print("La [8] con --montos tiene importes: NO hace falta que la pegues, miralá vos")
+    print("contra la pantalla y decime solo QUÉ celda no coincide.")
     print(SEP)
 
 

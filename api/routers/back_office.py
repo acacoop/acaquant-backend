@@ -200,6 +200,9 @@ class _CuentaNueva(BaseModel):
     cuenta_operativa: str = Field(..., min_length=1, max_length=256)
     unidad: str = Field(..., min_length=1, max_length=8)
     numero_cuenta: str | None = Field(None, max_length=64)
+    # Identificador del banco en HYGIRUS: se guarda para otra funcionalidad, NO se
+    # muestra en la grilla.
+    numero_hygirus: str | None = Field(None, max_length=64)
 
 
 class _CuentaEdit(_CuentaNueva):
@@ -219,7 +222,8 @@ def tesoreria_cuenta_crear(req: _CuentaNueva = Body(...),
     """Da de alta una cuenta operativa (banco) en el catálogo de Tesorería."""
     try:
         return svc_tes.crear_cuenta(req.cuenta_operativa, req.unidad, actor,
-                                    numero_cuenta=req.numero_cuenta)
+                                    numero_cuenta=req.numero_cuenta,
+                                    numero_hygirus=req.numero_hygirus)
     except PermissionError as e:
         raise HTTPException(403, str(e)) from e
     except ValueError as e:
@@ -233,7 +237,8 @@ def tesoreria_cuenta_editar(req: _CuentaEdit = Body(...),
     try:
         return svc_tes.editar_cuenta(
             req.cuenta_operativa, req.unidad, actor, numero_cuenta=req.numero_cuenta,
-            nuevo_nombre=req.nuevo_nombre, activa=req.activa)
+            numero_hygirus=req.numero_hygirus, nuevo_nombre=req.nuevo_nombre,
+            activa=req.activa)
     except PermissionError as e:
         raise HTTPException(403, str(e)) from e
     except ValueError as e:
@@ -416,6 +421,78 @@ def tesoreria_bb_borrar(id_: int, actor: str = Depends(require_escritura_tesorer
         return svc_tes.borrar_bb(id_, actor)
     except PermissionError as e:
         raise HTTPException(403, str(e)) from e
+
+
+# ── REGISTROS MANUALES (modal de la tab BANCOS) — fuente de movimientos que NO
+#    viene de la API; impacta el saldo del banco elegido según su sentido ────────
+
+class _Registro(BaseModel):
+    fecha: str | None = None
+    tipo: str = Field(..., min_length=1, max_length=64)
+    banco: str = Field(..., min_length=1, max_length=256)
+    unidad: str = Field("ARS", min_length=1, max_length=8)
+    importe: float
+    sentido: str = Field("egreso", max_length=16)   # egreso | ingreso
+
+
+class _SaldoRegistros(BaseModel):
+    fecha: str | None = None
+    unidad: str = Field("ARS", min_length=1, max_length=8)
+    importe: float
+
+
+@router.get("/tesoreria/registros")
+def tesoreria_registros(
+    fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
+    unidad: str = Query("ARS", description="Moneda del resumen"),
+    email: str = Depends(get_user_email),
+):
+    """Registros manuales del día + resumen por tipo (la fila SALDOS es manual)."""
+    return svc_tes.registros(fecha=fecha, unidad=unidad, email=email)
+
+
+@router.post("/tesoreria/registros")
+def tesoreria_registro_crear(req: _Registro = Body(...),
+                             actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.crear_registro(req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/tesoreria/registros/{id_}")
+def tesoreria_registro_editar(id_: int, req: _Registro = Body(...),
+                              actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.editar_registro(id_, req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/tesoreria/registros/{id_}")
+def tesoreria_registro_borrar(id_: int,
+                              actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.borrar_registro(id_, actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+
+
+@router.put("/tesoreria/registros-saldo")
+def tesoreria_registros_saldo(req: _SaldoRegistros = Body(...),
+                              actor: str = Depends(require_escritura_tesoreria)):
+    """Fila SALDOS del resumen: carga manual, no sale de los registros."""
+    try:
+        return svc_tes.set_saldo_registros(fecha=req.fecha, unidad=req.unidad,
+                                           importe=req.importe, actor=actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.get("/titulos-mercado")

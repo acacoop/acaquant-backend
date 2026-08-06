@@ -228,6 +228,10 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
       - `movimientos`: filas para la tabla (hora, cuenta, cliente, riel, unidad, tipo,
         monto, estado), ordenadas por hora desc.
 
+    Los REGISTROS MANUALES (modal de la tab BANCOS) entran a `ingresos`/`egresos`
+    según su sentido: son movimientos reales del banco, solo que cargados a mano en
+    vez de venir de la API. El detalle de la celda los marca como manuales.
+
     Las dos filas e-cheq salen SEPARADAS de los totales para que el back office las
     distinga (es lo único que buscaba la separación), pero las dos entran al saldo:
       - `egresos_echeq`  = RIEL e-cheq de Aunesa, fuera del total de `egresos`.
@@ -309,9 +313,12 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     mkt = mercados_por_banco(dia)
     # Banco a banco: una transferencia interna suma en un banco y resta en el otro.
     bb = banco_a_banco_por_banco(dia)
+    # Registros manuales: FUENTE NUEVA de movimientos, no vienen de la API. Se
+    # suman a Ingresos/Egresos según su sentido (el detalle los marca como manuales).
+    reg = registros_por_banco(dia)
     cuentas = []
     for clave in sorted(set(catalogo()) | set(por_cuenta) | set(ing_echeq)
-                        | set(mkt) | set(bb)):
+                        | set(mkt) | set(bb) | set(reg)):
         cta, uni = clave
         c = por_cuenta.get(clave) or {"cuenta_operativa": cta, "unidad": uni, **_bucket()}
         s = saldos.get(clave)
@@ -321,6 +328,11 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         c["mercados"], c["fci"] = m.get("mercados", 0.0), m.get("fci", 0.0)
         t = bb.get(clave) or {}
         c["bb_mas"], c["bb_menos"] = t.get("bb_mas", 0.0), t.get("bb_menos", 0.0)
+        if (rg := reg.get(clave)):
+            c["ingresos"] += rg["ingresos"]
+            c["egresos"] += rg["egresos"]
+            c["neto"] = c["ingresos"] - c["egresos"]
+            c["n"] += rg["n"]
         for k in ("ingresos", "ingresos_echeq", "egresos", "egresos_echeq",
                   "mercados", "fci", "bb_mas", "bb_menos", "neto"):
             c[k] = round(c[k], 2)
@@ -435,8 +447,20 @@ def detalle_celda(*, fecha: str | None, banco: str, unidad: str, fila: str,
                      "operaciones.tesoreria_saldos WHERE fecha = %(d)s AND "
                      "cuenta_operativa = %(b)s AND unidad = %(u)s", p)]
     elif fila in ("ingresos", "egresos", "egresos_echeq"):
-        fuente = f"Movimientos de Aunesa, estado {ESTADO_EFECTIVO}"
+        fuente = f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO})"
         items = _items_aunesa(dia, banco, unidad, fila)
+        if fila in ("ingresos", "egresos"):
+            # Los registros manuales entran en la MISMA fila, pero se marcan: es lo
+            # único que no viene de la API y tiene que verse de un vistazo.
+            fuente += " + REGISTROS MANUALES"
+            items += [{"detalle": f"registro manual · {r['tipo']}",
+                       "referencia": f"cargado por {r['creado_por'] or '—'}",
+                       "estado": "manual", "importe": float(r["importe"] or 0)}
+                      for r in _items_sql(
+                          f"SELECT tipo, importe, creado_por FROM {_TABLA_REGISTROS} "
+                          "WHERE fecha = %(d)s AND banco = %(b)s AND unidad = %(u)s "
+                          "AND sentido = %(s)s ORDER BY id",
+                          {**p, "s": "ingreso" if fila == "ingresos" else "egreso"})]
     elif fila == "ingresos_echeq":
         fuente = "Cheques RECIBIDOS finalizados (tab CHEQUES)"
         items = [{"detalle": r["comitente_denominacion"] or r["comitente"] or "—",
@@ -1090,6 +1114,176 @@ def borrar_mercado(id_: int, actor: str) -> dict:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# REGISTROS MANUALES (modal de la tab BANCOS) — FUENTE NUEVA de movimientos que NO
+# viene de la API. Cada registro impacta el saldo del banco elegido según su
+# `sentido` (egreso por default), sumándose a las filas Ingresos / Egresos de la
+# grilla. En el detalle de la celda salen marcados "registro manual" para que se
+# distingan de los de Aunesa.
+#
+# El modal es 50/50: izquierda la carga, derecha el resumen por TIPO. La fila
+# SALDOS del resumen es MANUAL y no sale de los registros → vive en su propia
+# tabla (`tesoreria_registros_saldo`), uno por día y moneda.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_TABLA_REGISTROS = "operaciones.tesoreria_registros"
+_TABLA_REG_SALDO = "operaciones.tesoreria_registros_saldo"
+SENTIDOS = ("egreso", "ingreso")
+# Tipos cargables. SALDOS queda AFUERA a propósito: es la fila manual del resumen.
+TIPOS_REGISTRO = ("PROVEEDORES", "FONDOS FIJOS", "VEP", "HABERES", "IMPUESTO",
+                  "TARJETA VISA", "OTROS")
+TIPO_SALDOS = "SALDOS"
+
+
+def registros(*, fecha: str | None = None, unidad: str = "ARS", email: str = "") -> dict:
+    """Modal REGISTROS MANUALES: las cargas del día + el resumen por tipo."""
+    marcar_presencia(email)
+    dia = _dia(fecha)
+    uni = (unidad or "ARS").strip().upper()
+    filas = [{
+        "id": int(r["id"]), "tipo": r["tipo"], "banco": r["banco"], "unidad": r["unidad"],
+        "importe": float(r["importe"] or 0), "sentido": r["sentido"],
+        "usuario": r["creado_por"],
+        "hora": r["creado_at"].astimezone(UTC).strftime("%H:%M") if r["creado_at"] else "",
+    } for r in _q(
+        f"SELECT id, tipo, banco, unidad, importe, sentido, creado_por, creado_at "
+        f"FROM {_TABLA_REGISTROS} WHERE fecha = %(d)s ORDER BY id DESC", {"d": dia})]
+
+    # Resumen: SALDOS (manual) primero, después la suma de lo cargado por tipo.
+    saldo = _q(f"SELECT importe, actualizado_por FROM {_TABLA_REG_SALDO} "
+               "WHERE fecha = %(d)s AND unidad = %(u)s", {"d": dia, "u": uni})
+    saldo_manual = float(saldo[0]["importe"] or 0) if saldo else 0.0
+    por_tipo = {t: 0.0 for t in TIPOS_REGISTRO}
+    for f in filas:
+        if f["unidad"] == uni:
+            por_tipo[f["tipo"]] = por_tipo.get(f["tipo"], 0.0) + f["importe"]
+    resumen = ([{"tipo": TIPO_SALDOS, "importe": round(saldo_manual, 2), "manual": True}]
+               + [{"tipo": t, "importe": round(por_tipo.get(t, 0.0), 2), "manual": False}
+                  for t in TIPOS_REGISTRO])
+    return {
+        "fecha": dia.strftime("%d/%m/%Y"), "fecha_iso": dia.isoformat(), "unidad": uni,
+        "filas": filas, "resumen": resumen,
+        "total": round(sum(r["importe"] for r in resumen), 2),
+        "saldo_manual": round(saldo_manual, 2),
+        "saldo_por": saldo[0]["actualizado_por"] if saldo else None,
+        "tipos": list(TIPOS_REGISTRO), "sentidos": list(SENTIDOS),
+        "bancos": [{"banco": c, "unidad": u} for c, u in catalogo()],
+        "puede_editar": puede_editar_saldo(email),
+        "actualizado_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def registros_por_banco(dia: date) -> dict[tuple[str, str], dict]:
+    """{(banco, unidad): {ingresos, egresos, n}} de los registros manuales del día.
+
+    Se suman a las filas Ingresos / Egresos de la grilla: son movimientos reales
+    del banco, solo que cargados a mano en vez de venir de la API.
+    """
+    try:
+        rows = _q(
+            "SELECT banco, unidad, "
+            "SUM(CASE WHEN sentido = 'ingreso' THEN importe ELSE 0 END) AS ing, "
+            "SUM(CASE WHEN sentido = 'egreso'  THEN importe ELSE 0 END) AS egr, "
+            f"COUNT(*) AS n FROM {_TABLA_REGISTROS} WHERE fecha = %(d)s "
+            "GROUP BY banco, unidad", {"d": dia})
+    except Exception:
+        _log.warning("tesoreria: no pude leer los registros manuales", exc_info=True)
+        return {}
+    return {(r["banco"], r["unidad"]): {"ingresos": float(r["ing"] or 0),
+                                        "egresos": float(r["egr"] or 0),
+                                        "n": int(r["n"])} for r in rows}
+
+
+def _validar_registro(datos: dict) -> dict:
+    tipo = " ".join(str(datos.get("tipo") or "").split()).upper()
+    if tipo not in TIPOS_REGISTRO:
+        raise ValueError(f"'tipo' inválido: {tipo} (válidos: {', '.join(TIPOS_REGISTRO)})")
+    banco = str(datos.get("banco") or "").strip()
+    unidad = (str(datos.get("unidad") or "ARS").strip().upper() or "ARS")
+    if not banco:
+        raise ValueError("falta 'banco' (elegí una cuenta operativa)")
+    conocidos = catalogo()
+    if conocidos and (banco, unidad) not in conocidos:
+        raise ValueError(f"'{banco}' [{unidad}] no es una cuenta operativa del catálogo")
+    sentido = str(datos.get("sentido") or "egreso").strip().lower()
+    if sentido not in SENTIDOS:
+        raise ValueError(f"'sentido' inválido: {sentido} (válidos: {', '.join(SENTIDOS)})")
+    try:
+        importe = float(datos.get("importe"))
+    except (TypeError, ValueError) as e:
+        raise ValueError("'importe' tiene que ser un número") from e
+    if importe <= 0:
+        raise ValueError("'importe' tiene que ser mayor a 0")
+    return {"fecha": _dia(str(datos.get("fecha") or "") or None), "tipo": tipo,
+            "banco": banco, "unidad": unidad, "importe": importe, "sentido": sentido}
+
+
+_CAMPOS_REGISTRO = ("fecha", "tipo", "banco", "unidad", "importe", "sentido")
+
+
+def crear_registro(datos: dict, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para cargar registros manuales")
+    f = _validar_registro(datos) | {"por": (actor or "").lower() or None,
+                                    "at": datetime.now(UTC)}
+    campos = ", ".join(_CAMPOS_REGISTRO)
+    valores = ", ".join(f"%({c})s" for c in _CAMPOS_REGISTRO)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(f"INSERT INTO {_TABLA_REGISTROS} ({campos}, creado_por, creado_at) "
+                    f"VALUES ({valores}, %(por)s, %(at)s) RETURNING id", f)
+        nuevo = cur.fetchone()[0]
+        conn.commit()
+    _audit(actor, "crear_registro", str(nuevo),
+           {"tipo": f["tipo"], "banco": f["banco"], "sentido": f["sentido"]})
+    return {"id": int(nuevo)}
+
+
+def editar_registro(id_: int, datos: dict, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar registros manuales")
+    f = _validar_registro(datos) | {"id": int(id_), "por": (actor or "").lower() or None,
+                                    "at": datetime.now(UTC)}
+    sets = ", ".join(f"{c} = %({c})s" for c in _CAMPOS_REGISTRO)
+    n = _exec(f"UPDATE {_TABLA_REGISTROS} SET {sets}, actualizado_por = %(por)s, "
+              "actualizado_at = %(at)s WHERE id = %(id)s", f)
+    if not n:
+        raise ValueError(f"no existe el registro {id_}")
+    _audit(actor, "editar_registro", str(id_), {"tipo": f["tipo"], "banco": f["banco"]})
+    return {"id": int(id_)}
+
+
+def borrar_registro(id_: int, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para borrar registros manuales")
+    n = _exec(f"DELETE FROM {_TABLA_REGISTROS} WHERE id = %(id)s", {"id": int(id_)})
+    _audit(actor, "borrar_registro", str(id_))
+    return {"borrado": n}
+
+
+def set_saldo_registros(*, fecha: str | None, unidad: str, importe: float,
+                        actor: str) -> dict:
+    """Fila SALDOS del resumen: carga manual, no sale de los registros."""
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar el saldo de registros manuales")
+    uni = (unidad or "ARS").strip().upper()
+    if uni not in UNIDADES:
+        raise ValueError(f"unidad inválida: {uni}")
+    try:
+        val = float(importe)
+    except (TypeError, ValueError) as e:
+        raise ValueError("'importe' tiene que ser un número") from e
+    dia = _dia(fecha)
+    _exec(f"INSERT INTO {_TABLA_REG_SALDO} (fecha, unidad, importe, actualizado_por, "
+          "actualizado_at) VALUES (%(d)s, %(u)s, %(i)s, %(por)s, %(at)s) "
+          "ON CONFLICT (fecha, unidad) DO UPDATE SET importe = EXCLUDED.importe, "
+          "actualizado_por = EXCLUDED.actualizado_por, "
+          "actualizado_at = EXCLUDED.actualizado_at",
+          {"d": dia, "u": uni, "i": val, "por": (actor or "").lower() or None,
+           "at": datetime.now(UTC)})
+    _audit(actor, "set_saldo_registros", f"{dia.isoformat()}|{uni}", {"importe": val})
+    return {"fecha": dia.isoformat(), "unidad": uni, "importe": val}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # TAB BANCO A BANCO — transferencias INTERNAS entre cuentas propias. El equipo
 # mueve saldo de un banco a otro para dejarlos cubiertos; no es plata que entra o
 # sale de la ALyC, así que la SUMA de las dos patas es cero y el total del día no
@@ -1259,8 +1453,9 @@ UNIDADES = ("ARS", "USD")
 def listar_cuentas(*, solo_activas: bool = False) -> list[dict]:
     """Catálogo de bancos con TODOS sus campos — alimenta el ABM de la vista."""
     try:
-        rows = _q("SELECT cuenta_operativa, unidad, numero_cuenta, aunesa_id, activa, "
-                  "primera_vez, ultima_vez FROM operaciones.tesoreria_cuentas "
+        rows = _q("SELECT cuenta_operativa, unidad, numero_cuenta, numero_hygirus, "
+                  "aunesa_id, activa, primera_vez, ultima_vez "
+                  "FROM operaciones.tesoreria_cuentas "
                   "WHERE (NOT %(act)s OR activa) ORDER BY cuenta_operativa, unidad",
                   {"act": bool(solo_activas)})
     except Exception:
@@ -1268,7 +1463,9 @@ def listar_cuentas(*, solo_activas: bool = False) -> list[dict]:
         return []
     return [{
         "cuenta_operativa": r["cuenta_operativa"], "unidad": r["unidad"],
-        "numero_cuenta": r["numero_cuenta"], "aunesa_id": r["aunesa_id"],
+        "numero_cuenta": r["numero_cuenta"],
+        # Identificador en HYGIRUS: se guarda pero NO se muestra en la grilla.
+        "numero_hygirus": r["numero_hygirus"], "aunesa_id": r["aunesa_id"],
         "activa": r["activa"],
         # `descubierta` = la trajo Aunesa sola; las de alta manual no tienen id hasta
         # que el banco opere por primera vez.
@@ -1288,7 +1485,8 @@ def _validar_cuenta(cuenta_operativa: str, unidad: str) -> tuple[str, str]:
 
 
 def crear_cuenta(cuenta_operativa: str, unidad: str, actor: str,
-                 numero_cuenta: str | None = None) -> dict:
+                 numero_cuenta: str | None = None,
+                 numero_hygirus: str | None = None) -> dict:
     """Alta MANUAL de una cuenta operativa (banco) desde la vista.
 
     Existe porque el catálogo se descubre viendo movimientos: un banco que todavía
@@ -1302,22 +1500,27 @@ def crear_cuenta(cuenta_operativa: str, unidad: str, actor: str,
     if (cta, uni) in set(catalogo()):
         raise ValueError(f"'{cta}' [{uni}] ya está en el catálogo")
     nro = (numero_cuenta or "").strip() or None
+    hyg = (numero_hygirus or "").strip() or None
     _exec(
         "INSERT INTO operaciones.tesoreria_cuentas "
-        "(cuenta_operativa, unidad, numero_cuenta, activa) "
-        "VALUES (%(c)s, %(u)s, %(n)s, true) "
+        "(cuenta_operativa, unidad, numero_cuenta, numero_hygirus, activa) "
+        "VALUES (%(c)s, %(u)s, %(n)s, %(h)s, true) "
         "ON CONFLICT (cuenta_operativa, unidad) DO UPDATE SET activa = true, "
         "numero_cuenta = COALESCE(EXCLUDED.numero_cuenta, "
-        "                         operaciones.tesoreria_cuentas.numero_cuenta)",
-        {"c": cta, "u": uni, "n": nro},
+        "                         operaciones.tesoreria_cuentas.numero_cuenta), "
+        "numero_hygirus = COALESCE(EXCLUDED.numero_hygirus, "
+        "                          operaciones.tesoreria_cuentas.numero_hygirus)",
+        {"c": cta, "u": uni, "n": nro, "h": hyg},
     )
-    _audit(actor, "crear_cuenta", f"{cta}|{uni}", {"numero_cuenta": nro})
-    return {"cuenta_operativa": cta, "unidad": uni, "numero_cuenta": nro}
+    _audit(actor, "crear_cuenta", f"{cta}|{uni}",
+           {"numero_cuenta": nro, "numero_hygirus": hyg})
+    return {"cuenta_operativa": cta, "unidad": uni, "numero_cuenta": nro,
+            "numero_hygirus": hyg}
 
 
 def editar_cuenta(cuenta_operativa: str, unidad: str, actor: str, *,
-                  numero_cuenta: str | None = None, nuevo_nombre: str | None = None,
-                  activa: bool | None = None) -> dict:
+                  numero_cuenta: str | None = None, numero_hygirus: str | None = None,
+                  nuevo_nombre: str | None = None, activa: bool | None = None) -> dict:
     """Edita una cuenta del catálogo (número, nombre y alta/baja lógica).
 
     OJO — la PK es (cuenta_operativa, unidad) y los saldos, cheques y movimientos de
@@ -1332,11 +1535,13 @@ def editar_cuenta(cuenta_operativa: str, unidad: str, actor: str, *,
         raise ValueError(f"'{nuevo}' [{uni}] ya está en el catálogo")
     p = {"c": cta, "u": uni, "nuevo": nuevo,
          "n": (numero_cuenta or "").strip() or None,
+         "h": (numero_hygirus or "").strip() or None,
          "act": activa, "set_act": activa is not None}
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE operaciones.tesoreria_cuentas SET cuenta_operativa = %(nuevo)s, "
-            "numero_cuenta = %(n)s, activa = CASE WHEN %(set_act)s THEN %(act)s ELSE activa END "
+            "numero_cuenta = %(n)s, numero_hygirus = %(h)s, "
+            "activa = CASE WHEN %(set_act)s THEN %(act)s ELSE activa END "
             "WHERE cuenta_operativa = %(c)s AND unidad = %(u)s", p)
         if not cur.rowcount:
             raise ValueError(f"no existe el banco '{cta}' [{uni}]")
@@ -1350,8 +1555,9 @@ def editar_cuenta(cuenta_operativa: str, unidad: str, actor: str, *,
         conn.commit()
     _audit(actor, "editar_cuenta", f"{cta}|{uni}",
            {"nuevo_nombre": nuevo if nuevo != cta else None,
-            "numero_cuenta": p["n"], "activa": activa})
-    return {"cuenta_operativa": nuevo, "unidad": uni, "numero_cuenta": p["n"]}
+            "numero_cuenta": p["n"], "numero_hygirus": p["h"], "activa": activa})
+    return {"cuenta_operativa": nuevo, "unidad": uni, "numero_cuenta": p["n"],
+            "numero_hygirus": p["h"]}
 
 
 def registrar_cuentas(vistas: dict[tuple[str, str], str | None], dia: date) -> None:

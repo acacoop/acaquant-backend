@@ -27,10 +27,17 @@ que el universo se descubre viendo movimientos y se persiste en
 quién operó hoy): los bancos sin movimientos aparecen en cero en vez de ir brotando
 a medida que avanza la rueda. Sembrado hacia atrás con
 `python -m scripts.diag_tesoreria_cuentas --registrar`.
+
+SALDO AL2 (2026-08-06): tab con los movimientos del banco FERSI SA (`[00001713]`) de
+los últimos N días + la sumatoria acumulada. Necesita SERIE, y Aunesa se pide día por
+día → los movimientos se persisten en `operaciones.tesoreria_movimientos`
+(`jobs/tesoreria_movimientos.py`, idempotente por `id`). La vista del día NO cambió:
+sigue siendo live.
 """
 from __future__ import annotations
 
 import logging
+import re
 import unicodedata
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -39,6 +46,7 @@ from psycopg.types.json import Jsonb
 
 from api.services._sql import _q
 from core import aunesa
+from core.pg_mirror import write_native
 from core.postgres import get_pool
 
 _log = logging.getLogger(__name__)
@@ -50,6 +58,16 @@ _ENDPOINT = "cuentas/consultaMovDocsSolicitados"
 _INGRESO = "deposito"   # 'Depósito'
 _EGRESO = "extraccion"  # 'Extracción'
 PRESENCIA_TTL_S = 90    # visto hace ≤90s = conectado (el front pollea cada ~20s)
+
+# Estados de Aunesa. El histórico se ingesta con TODOS (el estado se guarda como
+# columna y la lectura filtra) para no perder las filas que todavía no liquidaron.
+ESTADOS = ("Procesado", "Pendiente", "Pendiente de autorizar", "Demorado",
+           "Rechazado", "Anulado", "Incompleto")
+TODOS_ESTADOS = ";".join(ESTADOS)
+
+_TABLA_MOV = "operaciones.tesoreria_movimientos"
+AL2_BANCO_CODIGO = "00001713"   # FERSI SA — el banco de la tab SALDO AL2
+_RE_BANCO_COD = re.compile(r"\[(\w+)\]")
 
 
 def _norm(s: Any) -> str:
@@ -99,6 +117,46 @@ def _hora(id_: Any, yyyymmdd: str) -> str:
     return ""
 
 
+def traer_crudas(dia: date, estado: str) -> list[dict]:
+    """Filas crudas de Aunesa del día `dia`, ya filtradas al día objetivo.
+
+    Aunesa EXIGE desde < hasta (un rango de un día solo tira 400), así que se pide
+    [día, día+1] y se descartan las filas del día siguiente.
+    """
+    ddmmyyyy = dia.strftime("%d/%m/%Y")
+    params: dict[str, Any] = {
+        "liquidacionDesde": ddmmyyyy,
+        "liquidacionHasta": (dia + timedelta(days=1)).strftime("%d/%m/%Y"),
+    }
+    if estado:
+        params["estados"] = estado
+
+    resp = aunesa.get(_ENDPOINT, params)
+    if resp.status_code == 204:
+        return []
+    if resp.status_code != 200:
+        raise RuntimeError(f"Aunesa {_ENDPOINT} [{resp.status_code}]: {resp.text[:300]}")
+    body = resp.json()
+    rows = body if isinstance(body, list) else []
+    return [r for r in rows if str(r.get("fecha") or "").strip() == ddmmyyyy]
+
+
+def aplanar(r: dict, yyyymmdd: str) -> dict:
+    """Fila cruda de Aunesa → movimiento de la vista.
+
+    TODOS los campos crudos (persona aplanada a `persona_*`) + derivados
+    `_hora`/`_tipo`. Se devuelve todo para inspección directa en el front.
+    """
+    sol = _norm(r.get("solicitud"))
+    mov = {k: v for k, v in r.items() if k != "persona"}
+    for pk, pv in (r.get("persona") or {}).items():
+        mov[f"persona_{pk}"] = pv
+    mov["cuentaOperativa"] = _cuenta_operativa(r.get("cuentaOperativa")) or "SIN CUENTA OPERATIVA"
+    mov["_hora"] = _hora(r.get("id"), yyyymmdd)
+    mov["_tipo"] = "ingreso" if sol == _INGRESO else "egreso" if sol == _EGRESO else ""
+    return mov
+
+
 def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
                          email: str = "") -> dict:
     """Ingresos/egresos bancarios de un día (default hoy ART) desde Aunesa.
@@ -112,61 +170,37 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         monto, estado), ordenadas por hora desc.
     """
     dia = _dia(fecha)
-    ddmmyyyy, ddmmyyyy_hasta, yyyymmdd = _fechas(fecha)
+    ddmmyyyy, _, yyyymmdd = _fechas(fecha)
     marcar_presencia(email)  # pollear la vista ES el heartbeat
-    params: dict[str, Any] = {"liquidacionDesde": ddmmyyyy, "liquidacionHasta": ddmmyyyy_hasta}
-    if estado:
-        params["estados"] = estado
-
-    resp = aunesa.get(_ENDPOINT, params)
-    if resp.status_code == 204:
-        rows: list[dict] = []
-    elif resp.status_code == 200:
-        body = resp.json()
-        rows = body if isinstance(body, list) else []
-    else:
-        raise RuntimeError(f"Aunesa {_ENDPOINT} [{resp.status_code}]: {resp.text[:300]}")
+    crudas = traer_crudas(dia, estado)
 
     resumen: dict[str, dict] = {}
     por_cuenta: dict[tuple[str, str], dict] = {}
     vistas: dict[tuple[str, str], str | None] = {}
     movimientos: list[dict] = []
-    for r in rows:
-        # El rango pedido es [día, día+1]; nos quedamos SOLO con las filas del día objetivo.
-        if str(r.get("fecha") or "").strip() != ddmmyyyy:
-            continue
-        sol = _norm(r.get("solicitud"))
-        es_ingreso, es_egreso = sol == _INGRESO, sol == _EGRESO
-        co = r.get("cuentaOperativa")
-        cta = _cuenta_operativa(co) or "SIN CUENTA OPERATIVA"
-
-        if es_ingreso or es_egreso:
-            unidad = (r.get("unidad") or "?").upper()
-            monto = _num(r.get("monto"))
-            vistas[(cta, unidad)] = str(co["id"]) if isinstance(co, dict) and co.get("id") else None
-            b = resumen.setdefault(unidad, {"ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0})
-            c = por_cuenta.setdefault(
-                (cta, unidad),
-                {"cuenta_operativa": cta, "unidad": unidad,
-                 "ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0},
-            )
-            for d in (b, c):
-                if es_ingreso:
-                    d["ingresos"] += monto
-                else:
-                    d["egresos"] += monto
-                d["neto"] = d["ingresos"] - d["egresos"]
-                d["n"] += 1
-
-        # Movimiento = TODOS los campos crudos de Aunesa (persona aplanada a persona_*) +
-        # derivados `_hora`/`_tipo`. Se devuelve todo para inspección directa en el front.
-        mov = {k: v for k, v in r.items() if k != "persona"}
-        for pk, pv in (r.get("persona") or {}).items():
-            mov[f"persona_{pk}"] = pv
-        mov["cuentaOperativa"] = cta
-        mov["_hora"] = _hora(r.get("id"), yyyymmdd)
-        mov["_tipo"] = "ingreso" if es_ingreso else "egreso" if es_egreso else ""
+    for r in crudas:
+        mov = aplanar(r, yyyymmdd)
         movimientos.append(mov)
+        if not mov["_tipo"]:
+            continue
+        co = r.get("cuentaOperativa")
+        cta = mov["cuentaOperativa"]
+        unidad = (r.get("unidad") or "?").upper()
+        monto = _num(r.get("monto"))
+        vistas[(cta, unidad)] = str(co["id"]) if isinstance(co, dict) and co.get("id") else None
+        b = resumen.setdefault(unidad, {"ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0})
+        c = por_cuenta.setdefault(
+            (cta, unidad),
+            {"cuenta_operativa": cta, "unidad": unidad,
+             "ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0},
+        )
+        for d in (b, c):
+            if mov["_tipo"] == "ingreso":
+                d["ingresos"] += monto
+            else:
+                d["egresos"] += monto
+            d["neto"] = d["ingresos"] - d["egresos"]
+            d["n"] += 1
 
     for b in resumen.values():
         b["ingresos"], b["egresos"], b["neto"] = (
@@ -197,6 +231,134 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
             "puede_editar_saldo": puede_editar_saldo(email),
             "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
             "movimientos": movimientos, "n": len(movimientos), "raw": len(movimientos)}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HISTÓRICO de movimientos (operaciones.tesoreria_movimientos) — lo alimenta
+# `jobs/tesoreria_movimientos.py`. Lo necesita SALDO AL2: la serie de 60 días no
+# se puede armar live porque Aunesa se pide día por día.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _banco_codigo(v: Any) -> str | None:
+    """'[00001713] FERSI SA' → '00001713'. None si el banco no trae código."""
+    m = _RE_BANCO_COD.search(str(v or ""))
+    return m.group(1) if m else None
+
+
+def _fila_sql(mov: dict, dia: date) -> dict:
+    """Movimiento aplanado → fila de `operaciones.tesoreria_movimientos`."""
+    return {
+        "id": str(mov.get("id") or ""),
+        "fecha": dia,
+        "hora": str(mov.get("_hora") or "") or None,
+        "tipo": mov.get("_tipo") or None,
+        "monto": _num(mov.get("monto")),
+        "unidad": str(mov.get("unidad") or "?").upper(),
+        "estado": str(mov.get("estado") or "") or None,
+        "banco": str(mov.get("banco") or "") or None,
+        "banco_codigo": _banco_codigo(mov.get("banco")),
+        "cuenta": str(mov.get("cuenta") or "") or None,
+        "cuenta_operativa": mov.get("cuentaOperativa") or None,
+        "riel": str(mov.get("tipoDocSoli") or "") or None,
+        "persona": str(mov.get("persona_nombreCompleto") or "") or None,
+        # Normalizado (sin acentos, mayúscula) para que el filtro FISICA/JURIDICA
+        # no dependa de cómo venga escrito en Aunesa.
+        "persona_tipo": _norm(mov.get("persona_tipoPersona")).upper() or None,
+        "persona_doc": str(mov.get("persona_documento") or "") or None,
+        "persona_cuit": str(mov.get("persona_cuit") or "") or None,
+        "cbu_cvu": str(mov.get("cbuCVU") or "") or None,
+        "id_externo": str(mov.get("idExterno") or "") or None,
+        "data": mov,
+        "ingestado_en": datetime.now(UTC),
+    }
+
+
+def ingestar_dia(dia: date, estado: str = TODOS_ESTADOS) -> int:
+    """Persiste los movimientos de `dia` (upsert por `id`). Idempotente."""
+    return persistir(preparar_dia(dia, estado))
+
+
+def preparar_dia(dia: date, estado: str = TODOS_ESTADOS) -> list[dict]:
+    """Filas listas para `operaciones.tesoreria_movimientos` (sin escribir nada)."""
+    yyyymmdd = dia.strftime("%Y%m%d")
+    return [_fila_sql(aplanar(r, yyyymmdd), dia)
+            for r in traer_crudas(dia, estado) if r.get("id")]
+
+
+def persistir(filas: list[dict]) -> int:
+    """Upsert por `id` en `operaciones.tesoreria_movimientos`."""
+    return write_native(_TABLA_MOV, ["id"], filas)
+
+
+def saldo_al2(*, dias: int = 60, persona: str = "todas", unidad: str = "",
+              estado: str = "Procesado", banco: str = AL2_BANCO_CODIGO) -> dict:
+    """Movimientos + serie diaria acumulada de un banco (default FERSI SA).
+
+    `persona`: 'todas' | 'fisica' | 'juridica'. `unidad`: '' = todas las monedas.
+    La serie se agrega en SQL (no sobre la muestra de movimientos) para que el
+    acumulado sea correcto aunque la tabla se trunque en el LÍMITE de filas.
+    """
+    dias = max(1, min(int(dias or 60), 365))
+    desde = _hoy_art().date() - timedelta(days=dias - 1)
+    p = _norm(persona)
+    where = {
+        "cod": (banco or "").strip(),
+        "desde": desde,
+        "estado": (estado or "").strip(),
+        "persona": p.upper() if p in ("fisica", "juridica") else "",
+        "unidad": (unidad or "").strip().upper(),
+    }
+    filtro = (
+        "WHERE banco_codigo = %(cod)s AND fecha >= %(desde)s "
+        "AND (%(estado)s = '' OR estado = %(estado)s) "
+        "AND (%(persona)s = '' OR persona_tipo = %(persona)s) "
+        "AND (%(unidad)s = '' OR unidad = %(unidad)s)"
+    )
+
+    movs = _q(
+        "SELECT id, fecha, hora, tipo, monto, unidad, estado, cuenta, cuenta_operativa, "
+        f"riel, persona, persona_tipo, persona_doc, persona_cuit FROM {_TABLA_MOV} {filtro} "
+        "ORDER BY fecha DESC, hora DESC NULLS LAST LIMIT 5000",
+        where,
+    )
+    diario = _q(
+        "SELECT fecha, "
+        "SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END) AS ingresos, "
+        "SUM(CASE WHEN tipo = 'egreso'  THEN monto ELSE 0 END) AS egresos, "
+        f"COUNT(*) AS n FROM {_TABLA_MOV} {filtro} GROUP BY fecha ORDER BY fecha",
+        where,
+    )
+    unidades = [r["unidad"] for r in _q(
+        f"SELECT DISTINCT unidad FROM {_TABLA_MOV} "
+        "WHERE banco_codigo = %(cod)s AND fecha >= %(desde)s AND unidad IS NOT NULL "
+        "ORDER BY unidad", where)]
+
+    serie, acum = [], 0.0
+    tot_in = tot_out = 0.0
+    for r in diario:
+        ing, egr = float(r["ingresos"] or 0), float(r["egresos"] or 0)
+        acum += ing - egr
+        tot_in, tot_out = tot_in + ing, tot_out + egr
+        serie.append({"fecha": r["fecha"].isoformat(), "ingresos": round(ing, 2),
+                      "egresos": round(egr, 2), "neto": round(ing - egr, 2),
+                      "acumulado": round(acum, 2), "n": int(r["n"])})
+
+    return {
+        "banco_codigo": where["cod"], "desde": desde.isoformat(),
+        "hasta": _hoy_art().date().isoformat(), "dias": dias,
+        "persona": persona, "unidad": where["unidad"], "estado": where["estado"],
+        "unidades": unidades,
+        "movimientos": [
+            {**m, "fecha": m["fecha"].isoformat(), "monto": float(m["monto"] or 0)}
+            for m in movs
+        ],
+        "n": len(movs),
+        "serie": serie,
+        "resumen": {"ingresos": round(tot_in, 2), "egresos": round(tot_out, 2),
+                    "neto": round(tot_in - tot_out, 2),
+                    "n": sum(s["n"] for s in serie)},
+        "actualizado_at": datetime.now(UTC).isoformat(),
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────

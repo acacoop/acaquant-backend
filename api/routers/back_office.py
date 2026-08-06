@@ -41,6 +41,22 @@ class _SaldoInicial(BaseModel):
     saldo_inicial: float | None = None  # null = borrar la carga del día
 
 
+@router.get("/tesoreria/al2")
+def tesoreria_al2(
+    dias: int = Query(60, ge=1, le=365, description="Ventana hacia atrás (default 60)"),
+    persona: str = Query("todas", description="todas | fisica | juridica"),
+    unidad: str = Query("", description="ARS / USD; vacío = todas"),
+    estado: str = Query("Procesado", description="Estado Aunesa; vacío = todos"),
+    _email: str = Depends(get_user_email),
+):
+    """SALDO AL2 — movimientos del banco FERSI SA + serie diaria acumulada.
+
+    Lee el HISTÓRICO persistido (`operaciones.tesoreria_movimientos`, lo escribe
+    `jobs.tesoreria_movimientos`), no Aunesa: la serie de 60 días implicaría 60
+    llamadas por pantallazo."""
+    return svc_tes.saldo_al2(dias=dias, persona=persona, unidad=unidad, estado=estado)
+
+
 @router.put("/tesoreria/saldo-inicial")
 def tesoreria_saldo_inicial(
     req: _SaldoInicial = Body(...),

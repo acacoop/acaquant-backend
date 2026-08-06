@@ -347,6 +347,134 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# DETALLE DE CELDA — "¿de dónde sale este número?"
+#
+# Se calcula SERVER-SIDE, con las MISMAS fuentes y filtros que la grilla, para que
+# el detalle no pueda contradecir al total: si el modal y la celda no coinciden es
+# un bug, no una diferencia de criterio. El front no recalcula nada.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Cada fila de la grilla → de dónde sale y con qué signo entra al saldo final.
+FILAS_DETALLE = ("saldo_inicial", "ingresos", "ingresos_echeq", "egresos",
+                 "egresos_echeq", "mercados", "fci", "bb_mas", "bb_menos", "saldo_final")
+_SIGNO_FILA = {"saldo_inicial": 1, "ingresos": 1, "ingresos_echeq": 1, "egresos": -1,
+               "egresos_echeq": -1, "mercados": 1, "fci": 1, "bb_mas": 1, "bb_menos": -1}
+
+
+def _items_aunesa(dia: date, banco: str, unidad: str, fila: str) -> list[dict]:
+    """Movimientos de Aunesa que componen ingresos / egresos / egresos_echeq.
+
+    Aplica EXACTAMENTE los mismos filtros que `ingresos_egresos_dia`: estado
+    Procesado, banco+moneda, y el corte e-cheq del RIEL.
+    """
+    yyyymmdd = dia.strftime("%Y%m%d")
+    quiere_echeq = fila == "egresos_echeq"
+    tipo = "ingreso" if fila == "ingresos" else "egreso"
+    out = []
+    for r in traer_crudas(dia, ESTADO_EFECTIVO):
+        m = aplanar(r, yyyymmdd)
+        if (m["cuentaOperativa"] != banco
+                or str(r.get("unidad") or "?").upper() != unidad
+                or m["_tipo"] != tipo):
+            continue
+        # ingresos/egresos excluyen e-cheq; egresos_echeq los toma solo a ellos.
+        if fila != "ingresos" and m["_echeq"] is not quiere_echeq:
+            continue
+        out.append({
+            "detalle": m.get("persona_nombreCompleto") or r.get("cuenta") or "—",
+            "referencia": f"{m.get('_hora') or ''} · {r.get('tipoDocSoli') or ''}".strip(" ·"),
+            "estado": r.get("estado"),
+            "importe": _num(r.get("monto")),
+        })
+    return out
+
+
+def _items_sql(sql: str, params: dict) -> list[dict]:
+    try:
+        return [dict(r) for r in _q(sql, params)]
+    except Exception:
+        _log.warning("tesoreria: no pude leer el detalle de la celda", exc_info=True)
+        return []
+
+
+def detalle_celda(*, fecha: str | None, banco: str, unidad: str, fila: str,
+                  email: str = "") -> dict:
+    """Las operaciones individuales detrás de una celda de la grilla BANCOS."""
+    if fila not in FILAS_DETALLE:
+        raise ValueError(f"fila inválida: {fila} (válidas: {', '.join(FILAS_DETALLE)})")
+    banco, unidad = (banco or "").strip(), (unidad or "").strip().upper()
+    if not banco or not unidad:
+        raise ValueError("faltan 'banco' y/o 'unidad'")
+    dia = _dia(fecha)
+    p = {"d": dia, "b": banco, "u": unidad}
+    items: list[dict] = []
+    fuente = ""
+
+    if fila == "saldo_final":
+        # No tiene operaciones propias: es la ECUACIÓN. Se devuelve el desglose
+        # fila por fila para poder auditar de dónde sale el número final.
+        cta = next((c for c in ingresos_egresos_dia(fecha=fecha, email=email)["cuentas"]
+                    if c["cuenta_operativa"] == banco and c["unidad"] == unidad), None)
+        for k in FILAS_DETALLE:
+            if k == "saldo_final" or not cta:
+                continue
+            items.append({"detalle": k, "referencia": "fila de la grilla", "estado": None,
+                          "importe": _SIGNO_FILA[k] * float(cta.get(k) or 0)})
+        return {"fila": fila, "banco": banco, "unidad": unidad,
+                "fecha": dia.strftime("%d/%m/%Y"),
+                "fuente": "Suma de las filas de la grilla (ya con su signo)",
+                "total": round(sum(i["importe"] for i in items), 2), "items": items}
+
+    if fila == "saldo_inicial":
+        fuente = "Carga manual del back office (tesoreria_saldos)"
+        items = [{"detalle": f"Saldo inicial cargado por {r['actualizado_por'] or '—'}",
+                  "referencia": r["actualizado_at"].isoformat() if r["actualizado_at"] else "",
+                  "estado": None, "importe": float(r["saldo_inicial"] or 0)}
+                 for r in _items_sql(
+                     "SELECT saldo_inicial, actualizado_por, actualizado_at FROM "
+                     "operaciones.tesoreria_saldos WHERE fecha = %(d)s AND "
+                     "cuenta_operativa = %(b)s AND unidad = %(u)s", p)]
+    elif fila in ("ingresos", "egresos", "egresos_echeq"):
+        fuente = f"Movimientos de Aunesa, estado {ESTADO_EFECTIVO}"
+        items = _items_aunesa(dia, banco, unidad, fila)
+    elif fila == "ingresos_echeq":
+        fuente = "Cheques RECIBIDOS finalizados (tab CHEQUES)"
+        items = [{"detalle": r["comitente_denominacion"] or r["comitente"] or "—",
+                  "referencia": f"cheque {r['tipo'] or ''}".strip(),
+                  "estado": r["estado"], "importe": float(r["importe"] or 0)}
+                 for r in _items_sql(
+                     f"SELECT comitente, comitente_denominacion, tipo, estado, importe "
+                     f"FROM {_TABLA_CHEQUES} WHERE lado = 'recibido' AND estado = 'finalizado' "
+                     f"AND banco = %(b)s AND unidad = %(u)s "
+                     f"AND (creado_at AT TIME ZONE '{_TZ_ART}')::date = %(d)s ORDER BY id", p)]
+    elif fila in ("mercados", "fci"):
+        tipos = ("ingreso", "pago") if fila == "mercados" else ("rescate", "suscripcion")
+        fuente = f"Tab MERCADOS · {tipos[0]} (+) y {tipos[1]} (−)"
+        items = [{"detalle": r["entidad"] or "—", "referencia": r["tipo"],
+                  "estado": r["estado"],
+                  # El signo lo define el tipo: el segundo de cada par resta.
+                  "importe": float(r["importe"] or 0) * (-1 if r["tipo"] == tipos[1] else 1)}
+                 for r in _items_sql(
+                     f"SELECT entidad, tipo, estado, importe FROM {_TABLA_MERCADOS} "
+                     "WHERE fecha = %(d)s AND banco = %(b)s AND unidad = %(u)s "
+                     "AND tipo = ANY(%(t)s) ORDER BY id", {**p, "t": list(tipos)})]
+    else:  # bb_mas / bb_menos
+        propia, otra = (("cta_credito", "cta_debito") if fila == "bb_mas"
+                        else ("cta_debito", "cta_credito"))
+        verbo = "recibido de" if fila == "bb_mas" else "enviado a"
+        fuente = f"Tab BANCO A BANCO · {verbo.split()[0]}"
+        items = [{"detalle": f"{verbo} {r['otra']}", "referencia": "transferencia interna",
+                  "estado": r["estado"], "importe": float(r["importe"] or 0)}
+                 for r in _items_sql(
+                     f"SELECT {otra} AS otra, estado, importe FROM {_TABLA_BB} "
+                     f"WHERE fecha = %(d)s AND {propia} = %(b)s AND unidad = %(u)s ORDER BY id", p)]
+
+    return {"fila": fila, "banco": banco, "unidad": unidad,
+            "fecha": dia.strftime("%d/%m/%Y"), "fuente": fuente,
+            "total": round(sum(i["importe"] for i in items), 2), "items": items}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # SALDO AL2 — SOLO los movimientos del banco FERSI SA se persisten
 # (`operaciones.tesoreria_al2`, lo alimenta `jobs/tesoreria_al2.py`). El resto de
 # la tesorería NO se guarda: la serie de 60 días es lo único que no se puede

@@ -48,6 +48,26 @@ def tesoreria_dia(
     return svc_tes.ingresos_egresos_dia(fecha=fecha, estado=estado, email=email)
 
 
+@router.get("/tesoreria/detalle")
+def tesoreria_detalle(
+    banco: str = Query(..., min_length=1, max_length=256, description="Cuenta operativa"),
+    unidad: str = Query(..., min_length=1, max_length=8),
+    fila: str = Query(..., min_length=1, max_length=32,
+                      description="saldo_inicial | ingresos | ingresos_echeq | egresos | "
+                                  "egresos_echeq | mercados | fci | bb_mas | bb_menos | "
+                                  "saldo_final"),
+    fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
+    email: str = Depends(get_user_email),
+):
+    """Auditoría de una celda de la grilla BANCOS: las operaciones individuales que
+    componen ese número, calculadas con las MISMAS fuentes y filtros que la grilla."""
+    try:
+        return svc_tes.detalle_celda(fecha=fecha, banco=banco, unidad=unidad,
+                                     fila=fila, email=email)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 class _SaldoInicial(BaseModel):
     fecha: str | None = None
     cuenta_operativa: str = Field(..., min_length=1, max_length=256)

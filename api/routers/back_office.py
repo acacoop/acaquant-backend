@@ -94,15 +94,16 @@ class _EstadoCheque(BaseModel):
 
 @router.get("/tesoreria/cheques")
 def tesoreria_cheques(
-    incluir_cerrados: bool = Query(False, description="también los completados/finalizados"),
+    fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy (solo recibidos)"),
+    incluir_cerrados: bool = Query(False, description="emitidos: también los completados"),
     email: str = Depends(get_user_email),
 ):
     """Tab CHEQUES: `emitidos` + `recibidos`, los dos de carga manual.
 
-    NO se filtra por fecha — es un tablero de seguimiento, no un listado del día.
-    Por defecto solo las filas abiertas: cerrarlas ('completado' / 'finalizado')
-    las saca de la vista, pero la fila queda en la tabla."""
-    return svc_tes.cheques(incluir_cerrados=incluir_cerrados, email=email)
+    EMITIDOS no se filtran por fecha (tablero de seguimiento); solo se listan los
+    abiertos — 'completado' los saca de la vista, pero la fila queda en la tabla.
+    RECIBIDOS son todos del día (`fecha`): se registran intradía y no se arrastran."""
+    return svc_tes.cheques(fecha=fecha, incluir_cerrados=incluir_cerrados, email=email)
 
 
 @router.get("/tesoreria/cheques/comitentes")

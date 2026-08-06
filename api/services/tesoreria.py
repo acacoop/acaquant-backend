@@ -202,9 +202,13 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
       - `movimientos`: filas para la tabla (hora, cuenta, cliente, riel, unidad, tipo,
         monto, estado), ordenadas por hora desc.
 
-    Los egresos por RIEL e-cheq salen en `egresos_echeq`, FUERA de `egresos`: el back
-    office necesita distinguirlos, así que son una fila propia de la grilla y no restan
-    del saldo final (el e-cheq se paga en su `fecha de pago`, no el día que se emite).
+    Las dos filas e-cheq son propias y asimétricas a propósito:
+      - `egresos_echeq` (RIEL e-cheq de Aunesa) está FUERA de `egresos` y NO resta del
+        saldo final: el e-cheq se paga en su fecha de pago, no el día que se emite.
+      - `ingresos_echeq` (cheques recibidos finalizados, carga manual de la tab CHEQUES)
+        SÍ suma al saldo final: esa plata NO viene en los movimientos de Aunesa, así
+        que sumarla no duplica nada.
+    Saldo final = inicial + ingresos + ingresos_echeq − egresos.
 
     OJO — `cuentas` (tab BANCOS) NO respeta el filtro `estado` de la barra: un
     movimiento Rechazado / Anulado / Pendiente nunca movió plata en el banco, así que
@@ -280,7 +284,9 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         # como número. `saldo_cargado` es lo que separa "cargado en 0" de "sin cargar".
         c["saldo_cargado"] = ini is not None
         c["saldo_inicial"] = round(ini if ini is not None else 0.0, 2)
-        c["saldo_final"] = round(c["saldo_inicial"] + c["neto"], 2)
+        # Los ingresos e-cheq SÍ suman: esa plata no viene en los movimientos de
+        # Aunesa, se carga a mano. Los egresos e-cheq NO restan (se pagan a futuro).
+        c["saldo_final"] = round(c["saldo_inicial"] + c["neto"] + c["ingresos_echeq"], 2)
         c["saldo_por"] = s["actualizado_por"] if s else None
         c["saldo_at"] = s["actualizado_at"] if s else None
         cuentas.append(c)
@@ -474,25 +480,36 @@ def _fila_cheque(r: dict) -> dict:
     }
 
 
-def cheques(*, incluir_cerrados: bool = False, email: str = "", **_ignorado) -> dict:
-    """Las dos mitades de la tab CHEQUES — SIN filtro de fecha (es seguimiento).
+def cheques(*, fecha: str | None = None, incluir_cerrados: bool = False,
+            email: str = "") -> dict:
+    """Las dos mitades de la tab CHEQUES. Cada lado tiene su propio horizonte:
 
-    Por defecto sólo las filas ABIERTAS: las cerradas ('completado' / 'finalizado')
-    desaparecen de la vista. `incluir_cerrados=True` las trae igual (auditoría).
-    `**_ignorado` absorbe el viejo parámetro `fecha`, que ya no aplica.
+    EMITIDOS  — TABLERO DE SEGUIMIENTO, SIN filtro de fecha: un cheque de hace un año
+                sin cerrar sigue a la vista, y uno con pago futuro también. Solo las
+                filas abiertas ('completado' las saca); `incluir_cerrados=True` las
+                trae igual para auditoría.
+    RECIBIDOS — son TODOS DEL DÍA: se registran intradía y no se arrastran. Se filtran
+                por el día de carga (`creado_at` en hora ARG) y se muestran los dos
+                estados — los finalizados son los que alimentan BANCOS y hay que
+                poder verlos.
     """
     marcar_presencia(email)
-    cerrados = tuple(ESTADO_CIERRE.values())
-    rows = _q(
-        f"SELECT {_COLS_CHEQUE} FROM {_TABLA_CHEQUES} "
-        "WHERE (%(todos)s OR estado <> ALL(%(cerrados)s)) "
+    dia = _dia(fecha)
+    emitidos = _q(
+        f"SELECT {_COLS_CHEQUE} FROM {_TABLA_CHEQUES} WHERE lado = 'emitido' "
+        "AND (%(todos)s OR estado <> %(cierre)s) "
         "ORDER BY fecha_pago DESC NULLS LAST, id DESC LIMIT 5000",
-        {"todos": bool(incluir_cerrados), "cerrados": list(cerrados)},
+        {"todos": bool(incluir_cerrados), "cierre": ESTADO_CIERRE["emitido"]},
     )
-    filas = [_fila_cheque(r) for r in rows]
+    recibidos = _q(
+        f"SELECT {_COLS_CHEQUE} FROM {_TABLA_CHEQUES} WHERE lado = 'recibido' "
+        f"AND (creado_at AT TIME ZONE '{_TZ_ART}')::date = %(d)s ORDER BY id DESC",
+        {"d": dia},
+    )
     return {
-        "emitidos": [f for f in filas if f["lado"] == "emitido"],
-        "recibidos": [f for f in filas if f["lado"] == "recibido"],
+        "fecha_iso": dia.isoformat(), "fecha": dia.strftime("%d/%m/%Y"),
+        "emitidos": [_fila_cheque(r) for r in emitidos],
+        "recibidos": [_fila_cheque(r) for r in recibidos],
         "bancos": [{"banco": c, "unidad": u} for c, u in catalogo()],
         "estados": {k: list(v) for k, v in ESTADOS_CHEQUE.items()},
         "estado_cierre": ESTADO_CIERRE,
@@ -506,14 +523,16 @@ def cheques(*, incluir_cerrados: bool = False, email: str = "", **_ignorado) -> 
 def ingresos_echeq_dia(dia: date) -> dict[tuple[str, str], float]:
     """{(banco, unidad): importe} de los RECIBIDOS finalizados ese día.
 
-    Alimenta la fila "Ingresos e-cheqs" de BANCOS. Se imputa por `cerrado_at`
-    (cuándo el equipo lo marcó finalizado), no por cuándo se cargó la fila.
+    Alimenta la fila "Ingresos e-cheqs" de BANCOS, que **SÍ suma al saldo final**:
+    esta plata NO viene en los movimientos de Aunesa, así que no hay doble conteo.
+    Se imputa por el día de CARGA (`creado_at`) — el mismo con el que la tab CHEQUES
+    lista los recibidos, así lo que se ve en una pantalla es lo que suma en la otra.
     """
     try:
         rows = _q(
             f"SELECT banco, unidad, SUM(importe) AS total FROM {_TABLA_CHEQUES} "
-            "WHERE lado = 'recibido' AND estado = 'finalizado' AND cerrado_at IS NOT NULL "
-            f"AND (cerrado_at AT TIME ZONE '{_TZ_ART}')::date = %(d)s "
+            "WHERE lado = 'recibido' AND estado = 'finalizado' "
+            f"AND (creado_at AT TIME ZONE '{_TZ_ART}')::date = %(d)s "
             "GROUP BY banco, unidad",
             {"d": dia},
         )

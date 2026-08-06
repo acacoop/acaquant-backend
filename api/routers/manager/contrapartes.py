@@ -11,6 +11,7 @@ Endpoints (prefix /api/manager lo agrega el paquete):
   GET   /contrapartes/segmentos  → valores distintos (autocomplete). Dual-engine.
   PATCH /contrapartes            → edita contraparte/segmento (cuenta en body). Mongo.
   POST  /contrapartes            → alta desde el conciliador (idempotente). Mongo.
+  POST  /contrapartes/import     → import de Excel: completa campos de cuentas existentes.
   GET   /contrapartes/reconcile  → conciliador (pega Aunesa live, on-demand). Mongo.
 
 Fuente única SQL `clientes.contrapartes` (lecturas, escrituras y conciliador).
@@ -90,6 +91,27 @@ def add_contraparte(req: _ContraparteNew = Body(...), actor: str = Depends(get_u
     if not res.get("added"):
         raise HTTPException(400, "cuenta requerida.")
     return res
+
+
+class _ImportRow(BaseModel):
+    """Fila del Excel. Clave = cuenta o denominacion; el resto son los campos a completar."""
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+    cuenta:       str | None = Field(None, max_length=128)
+    denominacion: str | None = Field(None, max_length=512)
+    contraparte:  str | None = Field(None, max_length=512)
+    segmento:     str | None = Field(None, max_length=256)
+    codigo_mae:   str | None = Field(None, max_length=32)
+
+
+class _ImportReq(BaseModel):
+    rows: list[_ImportRow] = Field(..., min_length=1, max_length=20000)
+
+
+@router.post("/contrapartes/import")
+def import_contrapartes(req: _ImportReq = Body(...), actor: str = Depends(get_user_email)) -> dict:
+    """Import de Excel: completa contraparte/segmento/codigo_mae de cuentas ya existentes.
+    Nunca borra ni da de alta — las filas sin match se reportan."""
+    return _svc.importar_masivo([r.model_dump() for r in req.rows], actor=actor)
 
 
 @router.get("/contrapartes/reconcile")

@@ -20,6 +20,7 @@ contrapartes, y cuya `denominacion` contiene el nombre de alguna contraparte con
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import UTC, datetime
 from typing import Any
 
@@ -164,6 +165,91 @@ def add_contraparte(*, cuenta: str, denominacion: str | None, contraparte: str |
         "actualizado_por = EXCLUDED.actualizado_por, actualizado_at = EXCLUDED.actualizado_at", p)
     return {"added": True, "cuenta": cuenta, "denominacion": p["den"],
             "contraparte": p["cp"], "segmento": p["seg"]}
+
+
+_IMPORT_UPD = (
+    "UPDATE contrapartes SET "
+    "contraparte = COALESCE(%(contraparte)s::text, contraparte), "
+    "segmento = COALESCE(%(segmento)s::text, segmento), "
+    "codigo_mae = COALESCE(%(codigo_mae)s::text, codigo_mae), "
+    "actualizado_por = %(por)s, actualizado_at = %(at)s "
+    "WHERE id_cuenta = %(idc)s"
+)
+
+
+def _norm_den(v: Any) -> str | None:
+    """Denominación comparable: sin acentos, mayúsculas, espacios colapsados."""
+    s = _s(v)
+    if not s:
+        return None
+    s = unicodedata.normalize("NFD", s.upper())
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    return re.sub(r"\s+", " ", s).strip() or None
+
+
+def importar_masivo(rows: list[dict], *, actor: str | None = None) -> dict:
+    """Import de Excel: completa contraparte/segmento/codigo_mae de filas YA existentes.
+
+    Matchea por `cuenta` (exacta) o, si no vino, por `denominacion` normalizada.
+    Solo ESCRIBE: los valores vacíos no pisan nada y nunca da de alta cuentas nuevas
+    (una denominación que matchea 2+ cuentas se reporta ambigua y se saltea)."""
+    existentes = _q(
+        f"SELECT c.id_cuenta AS cuenta, {_DEN} AS denominacion "
+        f"FROM contrapartes c LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta", {})
+    cuentas = {str(r["cuenta"]).strip() for r in existentes if r["cuenta"] is not None}
+    por_den: dict[str, set[str]] = {}
+    for r in existentes:
+        d = _norm_den(r["denominacion"])
+        if d and r["cuenta"] is not None:
+            por_den.setdefault(d, set()).add(str(r["cuenta"]).strip())
+
+    # Última fila gana si el Excel repite la misma cuenta.
+    sets_por_cuenta: dict[str, dict] = {}
+    sin_datos = sin_clave = 0
+    no_encontradas: list[str] = []
+    ambiguas: list[str] = []
+    for row in rows:
+        vals = {k: _s(row.get(k)) for k in ("contraparte", "segmento", "codigo_mae")}
+        if vals["codigo_mae"]:
+            vals["codigo_mae"] = vals["codigo_mae"].upper()
+        if not any(vals.values()):
+            sin_datos += 1
+            continue
+        cuenta = _s(row.get("cuenta"))
+        den = _norm_den(row.get("denominacion"))
+        if cuenta:
+            if cuenta not in cuentas:
+                no_encontradas.append(cuenta)
+                continue
+        elif den:
+            hits = por_den.get(den) or set()
+            if not hits:
+                no_encontradas.append(str(row.get("denominacion") or "")[:120])
+                continue
+            if len(hits) > 1:
+                ambiguas.append(str(row.get("denominacion") or "")[:120])
+                continue
+            cuenta = next(iter(hits))
+        else:
+            sin_clave += 1
+            continue
+        sets_por_cuenta.setdefault(cuenta, {}).update({k: v for k, v in vals.items() if v})
+
+    if not sets_por_cuenta:
+        return {"actualizadas": 0, "sin_datos": sin_datos, "sin_clave": sin_clave,
+                "n_no_encontradas": len(no_encontradas), "no_encontradas": no_encontradas[:50],
+                "n_ambiguas": len(ambiguas), "ambiguas": ambiguas[:50]}
+
+    now = datetime.now(UTC)
+    params = [{"contraparte": None, "segmento": None, "codigo_mae": None, **s,
+               "por": actor, "at": now, "idc": idc}
+              for idc, s in sets_por_cuenta.items()]
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(_IMPORT_UPD, params)
+        conn.commit()
+    return {"actualizadas": len(params), "sin_datos": sin_datos, "sin_clave": sin_clave,
+            "n_no_encontradas": len(no_encontradas), "no_encontradas": no_encontradas[:50],
+            "n_ambiguas": len(ambiguas), "ambiguas": ambiguas[:50]}
 
 
 def reconciliar(*, limit: int = 500) -> dict:

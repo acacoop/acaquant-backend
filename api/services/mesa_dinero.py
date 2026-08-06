@@ -348,6 +348,19 @@ def resultados(desde: str | None = None, hasta: str | None = None,
     """Tab RESULTADOS: agregados del período por CLIENTE y por COMERCIAL
     (= observación: "Mesa" u operador), en ARS y USD.
 
+    REGLA 50/50 (lado COMERCIAL): la observación dice QUIÉN generó el trade. Si no
+    es "Mesa" es un operador comercial, y el resultado se REPARTE mitad y mitad
+    entre ese operador y la Mesa. Sin esto el comercial queda inflado al 100% y la
+    Mesa subvaluada. El reparto es SOLO de atribución: `total_ars`/`total_usd` y el
+    lado por CLIENTE no cambian — la plata es la misma, cambia a quién se le imputa.
+    Una observación vacía NO se reparte (no hay operador identificado): queda
+    íntegra en "(sin observación)" en vez de regalarle la mitad a la Mesa.
+
+    `n` sigue contando operaciones ORIGINADAS por ese comercial (no participaciones),
+    así que la fila de Mesa puede tener resultado sin ops propias: lo aclara
+    `desde_operadores_ars` / `desde_operadores_usd`, que es cuánto de la Mesa vino
+    del 50% de los operadores.
+
     USD op por op con el TC manual del día (`mesa_dinero_tc`); las ops de días
     SIN TC no suman USD → `dias_sin_tc` avisa que el USD está incompleto.
     El lado comercial lista TODO el catálogo (Mesa + operadores) aunque estén
@@ -371,12 +384,18 @@ def resultados(desde: str | None = None, hasta: str | None = None,
         params,
     )
 
-    def _acum(bucket: dict, clave: str, ars: float, usd: float | None) -> None:
-        b = bucket.setdefault(clave, {"resultado_ars": 0.0, "resultado_usd": 0.0, "n": 0})
+    def _bucket(d: dict, clave: str) -> dict:
+        return d.setdefault(clave, {"resultado_ars": 0.0, "resultado_usd": 0.0, "n": 0,
+                                    "desde_operadores_ars": 0.0, "desde_operadores_usd": 0.0})
+
+    def _acum(bucket: dict, clave: str, ars: float, usd: float | None,
+              cuenta_op: bool = True) -> None:
+        b = _bucket(bucket, clave)
         b["resultado_ars"] += ars
         if usd is not None:
             b["resultado_usd"] += usd
-        b["n"] += 1
+        if cuenta_op:
+            b["n"] += 1
 
     por_cliente: dict[str, dict] = {}
     por_comercial: dict[str, dict] = {}
@@ -389,7 +408,20 @@ def resultados(desde: str | None = None, hasta: str | None = None,
         if tc is None:
             fechas_sin_tc.add(r["fecha"])
         _acum(por_cliente, (r["cliente"] or "").strip() or "(sin cliente)", ars, usd)
-        _acum(por_comercial, (r["observacion"] or "").strip() or "(sin observación)", ars, usd)
+        # 50/50: el trade de un operador se reparte con la Mesa. Solo cambia la
+        # ATRIBUCIÓN — el total del período es el mismo (mitad + mitad = uno).
+        obs = (r["observacion"] or "").strip()
+        if obs and obs != OBSERVACION_MESA:
+            mitad_usd = (usd / 2) if usd is not None else None
+            _acum(por_comercial, obs, ars / 2, mitad_usd)
+            # La mitad de la Mesa NO cuenta como operación suya: la originó el operador.
+            _acum(por_comercial, OBSERVACION_MESA, ars / 2, mitad_usd, cuenta_op=False)
+            m = _bucket(por_comercial, OBSERVACION_MESA)
+            m["desde_operadores_ars"] += ars / 2
+            if mitad_usd is not None:
+                m["desde_operadores_usd"] += mitad_usd
+        else:
+            _acum(por_comercial, obs or "(sin observación)", ars, usd)
         total_ars += ars
         if usd is not None:
             total_usd += usd
@@ -397,7 +429,7 @@ def resultados(desde: str | None = None, hasta: str | None = None,
 
     # Comercial: catálogo completo (Mesa + operadores) aunque estén en cero.
     for obs in _observaciones_validas():
-        por_comercial.setdefault(obs, {"resultado_ars": 0.0, "resultado_usd": 0.0, "n": 0})
+        _bucket(por_comercial, obs)
 
     clientes = [{"cliente": k, **v} for k, v in por_cliente.items()]
     clientes.sort(key=lambda x: x["resultado_ars"], reverse=True)

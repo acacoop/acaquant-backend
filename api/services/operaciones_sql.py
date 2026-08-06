@@ -178,6 +178,21 @@ def flujo_resumen(desde: str | None = None, hasta: str | None = None) -> dict:
 
 
 # ── WHERE compartido (equivale a _ops_match / _arancel_match) ─────────────────
+def _multi(v: str | None) -> list[str]:
+    """'A,B,C' → ['A','B','C'] — los filtros de la vista OPERACIONES aceptan
+    SELECCIÓN MÚLTIPLE y la mandan separada por comas. Un valor solo sigue
+    funcionando igual (lista de 1), así que es compatible hacia atrás.
+    Descarta vacíos y los comodines 'todos'/'todas'.
+
+    Solo se usa en campos tipo enum (segmento, nivel_3, cartera, mercado, operador):
+    valores cortos y sin comas. NO aplicar a denominación/cuenta, que sí las tienen.
+    """
+    if not v:
+        return []
+    partes = [x.strip() for x in str(v).split(",") if x.strip()]
+    return [x for x in partes if x.lower() not in ("todos", "todas")]
+
+
 def _ops_where(
     moneda: str | None = None, mercado: str | None = None, operacion: str | None = None,
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
@@ -207,9 +222,9 @@ def _ops_where(
     conds.append(
         "NOT ((COALESCE(operacion,'') = 'Suscripción' AND COALESCE(etapa,'') = 'liquidacion') "
         "OR (COALESCE(operacion,'') = 'Rescate' AND COALESCE(etapa,'') = 'solicitud'))")
-    if mercado and mercado.lower() != "todos":
-        conds.append("mercado = %(mercado)s")
-        p["mercado"] = mercado
+    if (mm := _multi(mercado)):
+        conds.append("mercado = ANY(%(mercado)s)")
+        p["mercado"] = mm
     if operacion:
         conds.append("operacion = %(operacion)s")
         p["operacion"] = operacion
@@ -219,14 +234,14 @@ def _ops_where(
     if cuenta:
         conds.append("id_cuenta = %(cuenta)s")
         p["cuenta"] = cuenta
-    if segmento and segmento.lower() != "todos":
-        conds.append("segmento = %(segmento)s")
-        p["segmento"] = segmento
-    if nivel_3 and nivel_3.lower() != "todos":
+    if (ss := _multi(segmento)):
+        conds.append("segmento = ANY(%(segmento)s)")
+        p["segmento"] = ss
+    if (n3 := _multi(nivel_3)):
         # nivel_3 congelado en el boleto (columna propia de operaciones.operaciones),
         # NO el vigente del comitente — es el segmento al momento de la operación.
-        conds.append("nivel_3 = %(nivel_3)s")
-        p["nivel_3"] = nivel_3
+        conds.append("nivel_3 = ANY(%(nivel_3)s)")
+        p["nivel_3"] = n3
     # CARTERA del título (pedido user 2026-07-21). El catálogo es
     # portafolio.assets y la clave es `unidad` = `operaciones.instrumento`:
     # MEDIDO con scripts/diag_ops_cartera → 99.0% del volumen y 879
@@ -234,23 +249,29 @@ def _ops_where(
     # NO un JOIN: `unidad` es PK así que no duplicaría, pero con EXISTS el
     # filtro no puede alterar jamás las sumas aunque el catálogo cambie.
     # 'SIN' = el ~1% que no está en el catálogo o no tiene cartera cargada.
-    if cartera and cartera.lower() not in ("todas", ""):
-        if cartera.upper() == _CARTERA_SIN:
-            conds.append(
-                "NOT EXISTS (SELECT 1 FROM portafolio.assets a "
-                "WHERE a.unidad = operaciones.instrumento AND a.cartera IS NOT NULL)")
-        else:
-            conds.append(
-                "EXISTS (SELECT 1 FROM portafolio.assets a "
-                "WHERE a.unidad = operaciones.instrumento AND a.cartera = %(cartera)s)")
-            p["cartera"] = cartera
+    # Multi-selección: 'SIN CARTERA' y las carteras reales se combinan con OR
+    # (elegir HD + SIN CARTERA trae las dos cosas, no cero filas).
+    if (cc := _multi(cartera)):
+        sin = [c for c in cc if c.upper() == _CARTERA_SIN]
+        reales = [c for c in cc if c.upper() != _CARTERA_SIN]
+        ors = []
+        if sin:
+            ors.append("NOT EXISTS (SELECT 1 FROM portafolio.assets a "
+                       "WHERE a.unidad = operaciones.instrumento AND a.cartera IS NOT NULL)")
+        if reales:
+            ors.append("EXISTS (SELECT 1 FROM portafolio.assets a "
+                       "WHERE a.unidad = operaciones.instrumento "
+                       "AND a.cartera = ANY(%(cartera)s))")
+            p["cartera"] = reales
+        conds.append(f"({' OR '.join(ors)})")
     if aca_valores == "solo":
         conds.append("id_cuenta IN (SELECT id_cuenta FROM clientes.aca_valores)")
     elif aca_valores == "sin":
         conds.append("id_cuenta NOT IN (SELECT id_cuenta FROM clientes.aca_valores)")
-    if operador:
-        conds.append("id_cuenta IN (SELECT id_cuenta FROM comitentes WHERE operador_email = %(operador)s)")
-        p["operador"] = operador
+    if (oo := _multi(operador)):
+        conds.append("id_cuenta IN (SELECT id_cuenta FROM comitentes "
+                     "WHERE operador_email = ANY(%(operador)s))")
+        p["operador"] = oo
     if excluir:
         # Ocultar cuentas elegidas por el usuario. Compara contra la denominación tal
         # como se muestra ('(sin)' para NULL/'') → coincide con lo que llega del front.
@@ -653,8 +674,10 @@ def ops_consolidado(
     }
 
 
-# ── ARANCELES (_arancel_match; arancel siempre ABS y en pesos) ───────────────
-_ARANCEL = "SUM(ABS(COALESCE(arancel, 0)))"
+# ── ARANCELES (_arancel_match; el arancel se GUARDA siempre en ARS) ──────────
+# La vista puede pedirlo en USD: se convierte con el `mep` snapshot DE CADA BOLETO
+# vía `_arancel_expr`. Es la misma expresión agregada, así que sale en la MISMA
+# pasada — sin queries ni joins extra (`mep` ya es columna de `operaciones`).
 
 
 @cached(ttl=300)
@@ -698,10 +721,11 @@ def ops_aranceles(
         sp["cutoff"] = (datetime.now(UTC) - timedelta(hours=3)
                         - timedelta(days=_SERIE_VENTANA_DIAS)).date().isoformat()
         serie_where = f"{base} AND concertacion >= %(cutoff)s"
+    aexpr = _arancel_expr(moneda)   # ARS tal cual; USD → arancel/mep por boleto
     serie = [
         {"periodo": r["periodo"], "arancel": round(_f(r["ar"]), 2)}
         for r in _q(
-            f"SELECT to_char(concertacion, %(fmt)s) AS periodo, {_ARANCEL} AS ar "
+            f"SELECT to_char(concertacion, %(fmt)s) AS periodo, {aexpr} AS ar "
             f"FROM operaciones WHERE {serie_where} GROUP BY periodo ORDER BY periodo",
             {**sp, "fmt": fmt},
         )
@@ -733,9 +757,9 @@ def ops_aranceles(
         return [
             {key: r[key], "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
             for r in _q(
-                f"SELECT COALESCE({group_expr}, '(sin)') AS {key}, {_ARANCEL} AS ar, "
+                f"SELECT COALESCE({group_expr}, '(sin)') AS {key}, {aexpr} AS ar, "
                 f"count(*) AS n FROM operaciones WHERE {where} "
-                f"GROUP BY {group_expr} HAVING {_ARANCEL} > 0 ORDER BY ar DESC", p,
+                f"GROUP BY {group_expr} HAVING {aexpr} > 0 ORDER BY ar DESC", p,
             )
         ]
 
@@ -750,7 +774,7 @@ def ops_aranceles(
                 p.update(fp)
         acc: dict[str, dict] = {}
         for r in _q(
-            f"SELECT id_cuenta, {_ARANCEL} AS ar, count(*) AS n FROM operaciones "
+            f"SELECT id_cuenta, {aexpr} AS ar, count(*) AS n FROM operaciones "
             f"WHERE {' AND '.join(conds)} GROUP BY id_cuenta", p,
         ):
             op = det.get(str(r["id_cuenta"]), "(sin operador)")

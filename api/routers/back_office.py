@@ -76,26 +76,33 @@ def tesoreria_saldo_inicial(
 # ── Tab CHEQUES: recibidos (live, e-cheq de Aunesa) | emitidos (carga manual) ──
 
 class _Cheque(BaseModel):
+    lado: str = Field("emitido", max_length=16)                 # emitido | recibido
+    tipo: str | None = Field(None, max_length=16)               # recibidos: echeq | fisico
     comitente: str | None = Field(None, max_length=64)          # id_cuenta
     comitente_denominacion: str | None = Field(None, max_length=256)
     cuit: str | None = Field(None, max_length=32)
     banco: str = Field(..., min_length=1, max_length=256)       # cuenta operativa
     unidad: str = Field("ARS", min_length=1, max_length=8)
     importe: float
-    estado: str = Field("pendiente", max_length=32)             # pendiente | pagado
+    estado: str = Field("pendiente", max_length=32)
     fecha_pago: str | None = None                               # ISO YYYY-MM-DD
+
+
+class _EstadoCheque(BaseModel):
+    estado: str = Field(..., min_length=1, max_length=32)
 
 
 @router.get("/tesoreria/cheques")
 def tesoreria_cheques(
-    fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
-    estado: str = Query("", description="pendiente | pagado; vacío = todos (solo emitidos)"),
+    incluir_cerrados: bool = Query(False, description="también los completados/finalizados"),
     email: str = Depends(get_user_email),
 ):
-    """Las dos mitades de la tab CHEQUES: `recibidos` (e-cheq del día que manda
-    Aunesa, live) y `emitidos` (los que carga el back office a mano), más el
-    catálogo de bancos para el form."""
-    return svc_tes.cheques(fecha=fecha, estado=estado, email=email)
+    """Tab CHEQUES: `emitidos` + `recibidos`, los dos de carga manual.
+
+    NO se filtra por fecha — es un tablero de seguimiento, no un listado del día.
+    Por defecto solo las filas abiertas: cerrarlas ('completado' / 'finalizado')
+    las saca de la vista, pero la fila queda en la tabla."""
+    return svc_tes.cheques(incluir_cerrados=incluir_cerrados, email=email)
 
 
 @router.get("/tesoreria/cheques/comitentes")
@@ -123,6 +130,19 @@ def tesoreria_cheque_editar(id_: int, req: _Cheque = Body(...),
                             actor: str = Depends(get_user_email)):
     try:
         return svc_tes.editar_cheque(id_, req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/tesoreria/cheques/{id_}/estado")
+def tesoreria_cheque_estado(id_: int, req: _EstadoCheque = Body(...),
+                            actor: str = Depends(get_user_email)):
+    """Cambia SOLO el estado (el click en la celda ESTADO de la vista, sin reabrir
+    la operación). El estado de cierre saca la fila de la vista."""
+    try:
+        return svc_tes.set_estado_cheque(id_, req.estado, actor)
     except PermissionError as e:
         raise HTTPException(403, str(e)) from e
     except ValueError as e:

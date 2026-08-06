@@ -855,6 +855,27 @@ CREATE TABLE IF NOT EXISTS operaciones.tesoreria_al2 (
 CREATE INDEX IF NOT EXISTS ix_tesoreria_al2_fecha
     ON operaciones.tesoreria_al2 (fecha DESC);
 
+-- EXCLUSIONES del saldo (modal de auditoría de la grilla BANCOS). Cada movimiento
+-- se puede destildar para que NO cuente en el saldo final, y queda la traza de quién
+-- y cuándo. Solo se guardan los OVERRIDES: si no hay fila acá, manda el default.
+--
+-- Default por movimiento: los de Aunesa SIN HORA arrancan DESTILDADOS (el `id` no
+-- trae fecha-hora → no se puede distinguir de un duplicado). Tildarlos explícitamente
+-- inserta una fila con excluido=false y ahí sí cuentan.
+--
+-- `fuente` + `ref` identifican el movimiento: aunesa→id de Aunesa, y para el resto
+-- el id de su tabla (cheque / mercado / bb / registro).
+CREATE TABLE IF NOT EXISTS operaciones.tesoreria_exclusiones (
+    fecha       date NOT NULL,
+    fuente      text NOT NULL,           -- aunesa | cheque | mercado | bb | registro
+    ref         text NOT NULL,
+    excluido    boolean NOT NULL DEFAULT true,
+    observacion text,                    -- "anulado por x@y a las 14:32"
+    actor       text,
+    actualizado_at timestamptz,
+    PRIMARY KEY (fecha, fuente, ref)
+);
+
 -- Nº de cuenta en HYGIRUS (2026-08-06): identificador del banco en el otro sistema.
 -- NO se muestra en la grilla (a diferencia de `numero_cuenta`): se guarda para una
 -- funcionalidad futura y se edita desde el ABM de bancos.

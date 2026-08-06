@@ -205,7 +205,8 @@ def mercados_por_banco(dia: date) -> dict[tuple[str, str], dict]:
             "         WHEN tipo = 'pago' THEN -importe ELSE 0 END) AS mercados, "
             "SUM(CASE WHEN tipo = 'rescate' THEN importe "
             "         WHEN tipo = 'suscripcion' THEN -importe ELSE 0 END) AS fci "
-            f"FROM {_TABLA_MERCADOS} WHERE fecha = %(d)s GROUP BY banco, unidad",
+            f"FROM {_TABLA_MERCADOS} WHERE fecha = %(d)s "
+            f"AND {_sql_no_excluido('mercado')} GROUP BY banco, unidad",
             {"d": dia},
         )
     except Exception:
@@ -260,6 +261,8 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     marcar_presencia(email)  # pollear la vista ES el heartbeat
     crudas = traer_crudas(dia, TODOS_ESTADOS)
     pedidos = {e.strip() for e in (estado or "").split(";") if e.strip()}
+    # Movimientos destildados del saldo (y el default: sin hora no cuenta).
+    exc = _exclusiones_dia(dia)
 
     resumen: dict[str, dict] = {}
     por_cuenta: dict[tuple[str, str], dict] = {}
@@ -283,7 +286,10 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         destinos = []
         if en_tabla:
             destinos.append(resumen.setdefault(unidad, _bucket()))
-        if est == ESTADO_EFECTIVO:  # el saldo del banco, solo plata que se movió
+        # Sin hora → destildado por default; un override explícito lo puede tildar.
+        fuera, _ = _estado_excl(exc, "aunesa", r.get("id"),
+                                default_excluido=not mov["_hora"])
+        if est == ESTADO_EFECTIVO and not fuera:  # solo plata que se movió y cuenta
             destinos.append(por_cuenta.setdefault(
                 (cta, unidad),
                 {"cuenta_operativa": cta, "unidad": unidad, **_bucket()}))
@@ -366,6 +372,74 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
 # un bug, no una diferencia de criterio. El front no recalcula nada.
 # ──────────────────────────────────────────────────────────────────────────────
 
+# ── EXCLUSIONES: destildar un movimiento para que NO cuente en el saldo ───────
+#
+# Solo se persisten los OVERRIDES. El default de cada movimiento es contar, con UNA
+# excepción: los de Aunesa SIN HORA arrancan DESTILDADOS. El `id` de esos no trae
+# fecha-hora, así que no hay forma de distinguirlos de un duplicado — se prefiere no
+# contarlos y que alguien los tilde a mano si corresponde.
+_TABLA_EXCL = "operaciones.tesoreria_exclusiones"
+FUENTES_EXCL = ("aunesa", "cheque", "mercado", "bb", "registro")
+OBS_SIN_HORA = "por defecto deseleccionado por duplicidad (movimiento sin hora)"
+
+
+def _exclusiones_dia(dia: date) -> dict[tuple[str, str], dict]:
+    """{(fuente, ref): {excluido, observacion}} — los overrides cargados ese día."""
+    try:
+        rows = _q(f"SELECT fuente, ref, excluido, observacion FROM {_TABLA_EXCL} "
+                  "WHERE fecha = %(d)s", {"d": dia})
+    except Exception:
+        _log.warning("tesoreria: no pude leer las exclusiones", exc_info=True)
+        return {}
+    return {(r["fuente"], r["ref"]): {"excluido": r["excluido"],
+                                      "observacion": r["observacion"]} for r in rows}
+
+
+def _estado_excl(exc: dict, fuente: str, ref: str, *, default_excluido: bool = False,
+                 obs_default: str = "") -> tuple[bool, str]:
+    """(excluido, observación) de un movimiento: el override si existe, si no el default."""
+    o = exc.get((fuente, str(ref)))
+    if o is not None:
+        return bool(o["excluido"]), (o["observacion"] or "")
+    return default_excluido, (obs_default if default_excluido else "")
+
+
+def _sql_no_excluido(fuente: str, col_id: str = "id") -> str:
+    """Fragmento WHERE que deja afuera lo destildado. Se inyecta en cada agregación
+    para que la grilla y el detalle no puedan divergir."""
+    return (f"NOT EXISTS (SELECT 1 FROM {_TABLA_EXCL} e WHERE e.fecha = %(d)s "
+            f"AND e.fuente = '{fuente}' AND e.ref = {col_id}::text AND e.excluido)")
+
+
+def set_exclusion(*, fecha: str | None, fuente: str, ref: str, excluido: bool,
+                  actor: str) -> dict:
+    """Tilda/destilda un movimiento del saldo, dejando la traza en `observacion`."""
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para excluir movimientos del saldo")
+    if fuente not in FUENTES_EXCL:
+        raise ValueError(f"fuente inválida: {fuente} (válidas: {', '.join(FUENTES_EXCL)})")
+    ref = str(ref or "").strip()
+    if not ref:
+        raise ValueError("falta 'ref' (el identificador del movimiento)")
+    dia = _dia(fecha)
+    quien = (actor or "").lower() or "—"
+    hora = _hoy_art().strftime("%H:%M")
+    obs = (f"anulado por {quien} a las {hora}" if excluido
+           else f"reincorporado por {quien} a las {hora}")
+    _exec(
+        f"INSERT INTO {_TABLA_EXCL} (fecha, fuente, ref, excluido, observacion, actor, "
+        "actualizado_at) VALUES (%(d)s, %(f)s, %(r)s, %(e)s, %(o)s, %(a)s, %(at)s) "
+        "ON CONFLICT (fecha, fuente, ref) DO UPDATE SET excluido = EXCLUDED.excluido, "
+        "observacion = EXCLUDED.observacion, actor = EXCLUDED.actor, "
+        "actualizado_at = EXCLUDED.actualizado_at",
+        {"d": dia, "f": fuente, "r": ref, "e": bool(excluido), "o": obs,
+         "a": quien, "at": datetime.now(UTC)},
+    )
+    _audit(actor, "excluir_movimiento" if excluido else "reincorporar_movimiento",
+           f"{dia.isoformat()}|{fuente}|{ref}")
+    return {"fuente": fuente, "ref": ref, "excluido": bool(excluido), "observacion": obs}
+
+
 # Cada fila de la grilla → de dónde sale y con qué signo entra al saldo final.
 FILAS_DETALLE = ("saldo_inicial", "ingresos", "ingresos_echeq", "egresos",
                  "egresos_echeq", "mercados", "fci", "bb_mas", "bb_menos", "saldo_final")
@@ -373,7 +447,8 @@ _SIGNO_FILA = {"saldo_inicial": 1, "ingresos": 1, "ingresos_echeq": 1, "egresos"
                "egresos_echeq": -1, "mercados": 1, "fci": 1, "bb_mas": 1, "bb_menos": -1}
 
 
-def _items_aunesa(dia: date, banco: str, unidad: str, fila: str) -> list[dict]:
+def _items_aunesa(dia: date, banco: str, unidad: str, fila: str,
+                  exc: dict) -> list[dict]:
     """Movimientos de Aunesa que componen ingresos / egresos / egresos_echeq.
 
     Aplica EXACTAMENTE los mismos filtros que `ingresos_egresos_dia`: estado
@@ -392,11 +467,18 @@ def _items_aunesa(dia: date, banco: str, unidad: str, fila: str) -> list[dict]:
         # ingresos/egresos excluyen e-cheq; egresos_echeq los toma solo a ellos.
         if fila != "ingresos" and m["_echeq"] is not quiere_echeq:
             continue
+        # Sin hora → destildado por default: el `id` no trae fecha-hora, así que no
+        # se puede distinguir de un duplicado. Se tilda a mano si corresponde.
+        fuera, obs = _estado_excl(exc, "aunesa", r.get("id"),
+                                  default_excluido=not m["_hora"],
+                                  obs_default=OBS_SIN_HORA)
         out.append({
+            "fuente": "aunesa", "ref": str(r.get("id") or ""),
             "detalle": m.get("persona_nombreCompleto") or r.get("cuenta") or "—",
-            "referencia": f"{m.get('_hora') or ''} · {r.get('tipoDocSoli') or ''}".strip(" ·"),
+            "referencia": f"{m.get('_hora') or 'sin hora'} · {r.get('tipoDocSoli') or ''}".strip(" ·"),
             "estado": r.get("estado"),
             "importe": _num(r.get("monto")),
+            "excluido": fuera, "observacion": obs,
         })
     return out
 
@@ -419,8 +501,16 @@ def detalle_celda(*, fecha: str | None, banco: str, unidad: str, fila: str,
         raise ValueError("faltan 'banco' y/o 'unidad'")
     dia = _dia(fecha)
     p = {"d": dia, "b": banco, "u": unidad}
+    exc = _exclusiones_dia(dia)
     items: list[dict] = []
     fuente = ""
+
+    def _fila(fuente_: str, ref, detalle: str, referencia: str, estado, importe: float):
+        """Item del detalle con su tilde y su observación (traza de quién lo anuló)."""
+        fuera, obs = _estado_excl(exc, fuente_, ref)
+        return {"fuente": fuente_, "ref": str(ref), "detalle": detalle,
+                "referencia": referencia, "estado": estado, "importe": importe,
+                "excluido": fuera, "observacion": obs}
 
     if fila == "saldo_final":
         # No tiene operaciones propias: es la ECUACIÓN. Se devuelve el desglose
@@ -430,7 +520,9 @@ def detalle_celda(*, fecha: str | None, banco: str, unidad: str, fila: str,
         for k in FILAS_DETALLE:
             if k == "saldo_final" or not cta:
                 continue
-            items.append({"detalle": k, "referencia": "fila de la grilla", "estado": None,
+            items.append({"fuente": "fila", "ref": k, "excluido": False,
+                          "observacion": "", "detalle": k,
+                          "referencia": "fila de la grilla", "estado": None,
                           "importe": _SIGNO_FILA[k] * float(cta.get(k) or 0)})
         return {"fila": fila, "banco": banco, "unidad": unidad,
                 "fecha": dia.strftime("%d/%m/%Y"),
@@ -439,7 +531,8 @@ def detalle_celda(*, fecha: str | None, banco: str, unidad: str, fila: str,
 
     if fila == "saldo_inicial":
         fuente = "Carga manual del back office (tesoreria_saldos)"
-        items = [{"detalle": f"Saldo inicial cargado por {r['actualizado_por'] or '—'}",
+        items = [{"fuente": "saldo", "ref": "", "excluido": False, "observacion": "",
+                  "detalle": f"Saldo inicial cargado por {r['actualizado_por'] or '—'}",
                   "referencia": r["actualizado_at"].isoformat() if r["actualizado_at"] else "",
                   "estado": None, "importe": float(r["saldo_inicial"] or 0)}
                  for r in _items_sql(
@@ -448,38 +541,38 @@ def detalle_celda(*, fecha: str | None, banco: str, unidad: str, fila: str,
                      "cuenta_operativa = %(b)s AND unidad = %(u)s", p)]
     elif fila in ("ingresos", "egresos", "egresos_echeq"):
         fuente = f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO})"
-        items = _items_aunesa(dia, banco, unidad, fila)
+        items = _items_aunesa(dia, banco, unidad, fila, exc)
         if fila in ("ingresos", "egresos"):
             # Los registros manuales entran en la MISMA fila, pero se marcan: es lo
             # único que no viene de la API y tiene que verse de un vistazo.
             fuente += " + REGISTROS MANUALES"
-            items += [{"detalle": f"registro manual · {r['tipo']}",
-                       "referencia": f"cargado por {r['creado_por'] or '—'}",
-                       "estado": "manual", "importe": float(r["importe"] or 0)}
+            items += [_fila("registro", r["id"], f"registro manual · {r['tipo']}",
+                            f"cargado por {r['creado_por'] or '—'}", "manual",
+                            float(r["importe"] or 0))
                       for r in _items_sql(
-                          f"SELECT tipo, importe, creado_por FROM {_TABLA_REGISTROS} "
+                          f"SELECT id, tipo, importe, creado_por FROM {_TABLA_REGISTROS} "
                           "WHERE fecha = %(d)s AND banco = %(b)s AND unidad = %(u)s "
                           "AND sentido = %(s)s ORDER BY id",
                           {**p, "s": "ingreso" if fila == "ingresos" else "egreso"})]
     elif fila == "ingresos_echeq":
         fuente = "Cheques RECIBIDOS finalizados (tab CHEQUES)"
-        items = [{"detalle": r["comitente_denominacion"] or r["comitente"] or "—",
-                  "referencia": f"cheque {r['tipo'] or ''}".strip(),
-                  "estado": r["estado"], "importe": float(r["importe"] or 0)}
+        items = [_fila("cheque", r["id"],
+                       r["comitente_denominacion"] or r["comitente"] or "—",
+                       f"cheque {r['tipo'] or ''}".strip(), r["estado"],
+                       float(r["importe"] or 0))
                  for r in _items_sql(
-                     f"SELECT comitente, comitente_denominacion, tipo, estado, importe "
+                     f"SELECT id, comitente, comitente_denominacion, tipo, estado, importe "
                      f"FROM {_TABLA_CHEQUES} WHERE lado = 'recibido' AND estado = 'finalizado' "
                      f"AND banco = %(b)s AND unidad = %(u)s "
                      f"AND (creado_at AT TIME ZONE '{_TZ_ART}')::date = %(d)s ORDER BY id", p)]
     elif fila in ("mercados", "fci"):
         tipos = ("ingreso", "pago") if fila == "mercados" else ("rescate", "suscripcion")
         fuente = f"Tab MERCADOS · {tipos[0]} (+) y {tipos[1]} (−)"
-        items = [{"detalle": r["entidad"] or "—", "referencia": r["tipo"],
-                  "estado": r["estado"],
-                  # El signo lo define el tipo: el segundo de cada par resta.
-                  "importe": float(r["importe"] or 0) * (-1 if r["tipo"] == tipos[1] else 1)}
+        # El signo lo define el tipo: el segundo de cada par resta.
+        items = [_fila("mercado", r["id"], r["entidad"] or "—", r["tipo"], r["estado"],
+                       float(r["importe"] or 0) * (-1 if r["tipo"] == tipos[1] else 1))
                  for r in _items_sql(
-                     f"SELECT entidad, tipo, estado, importe FROM {_TABLA_MERCADOS} "
+                     f"SELECT id, entidad, tipo, estado, importe FROM {_TABLA_MERCADOS} "
                      "WHERE fecha = %(d)s AND banco = %(b)s AND unidad = %(u)s "
                      "AND tipo = ANY(%(t)s) ORDER BY id", {**p, "t": list(tipos)})]
     else:  # bb_mas / bb_menos
@@ -487,15 +580,19 @@ def detalle_celda(*, fecha: str | None, banco: str, unidad: str, fila: str,
                         else ("cta_debito", "cta_credito"))
         verbo = "recibido de" if fila == "bb_mas" else "enviado a"
         fuente = f"Tab BANCO A BANCO · {verbo.split()[0]}"
-        items = [{"detalle": f"{verbo} {r['otra']}", "referencia": "transferencia interna",
-                  "estado": r["estado"], "importe": float(r["importe"] or 0)}
+        items = [_fila("bb", r["id"], f"{verbo} {r['otra']}", "transferencia interna",
+                       r["estado"], float(r["importe"] or 0))
                  for r in _items_sql(
-                     f"SELECT {otra} AS otra, estado, importe FROM {_TABLA_BB} "
+                     f"SELECT id, {otra} AS otra, estado, importe FROM {_TABLA_BB} "
                      f"WHERE fecha = %(d)s AND {propia} = %(b)s AND unidad = %(u)s ORDER BY id", p)]
 
+    # El TOTAL no cuenta lo destildado: tiene que dar exactamente lo de la celda.
     return {"fila": fila, "banco": banco, "unidad": unidad,
             "fecha": dia.strftime("%d/%m/%Y"), "fuente": fuente,
-            "total": round(sum(i["importe"] for i in items), 2), "items": items}
+            "total": round(sum(i["importe"] for i in items
+                               if not i.get("excluido")), 2),
+            "excluidos": sum(1 for i in items if i.get("excluido")),
+            "items": items}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -732,6 +829,7 @@ def ingresos_echeq_dia(dia: date) -> dict[tuple[str, str], float]:
             f"SELECT banco, unidad, SUM(importe) AS total FROM {_TABLA_CHEQUES} "
             "WHERE lado = 'recibido' AND estado = 'finalizado' "
             f"AND (creado_at AT TIME ZONE '{_TZ_ART}')::date = %(d)s "
+            f"AND {_sql_no_excluido('cheque')} "
             "GROUP BY banco, unidad",
             {"d": dia},
         )
@@ -1184,7 +1282,7 @@ def registros_por_banco(dia: date) -> dict[tuple[str, str], dict]:
             "SUM(CASE WHEN sentido = 'ingreso' THEN importe ELSE 0 END) AS ing, "
             "SUM(CASE WHEN sentido = 'egreso'  THEN importe ELSE 0 END) AS egr, "
             f"COUNT(*) AS n FROM {_TABLA_REGISTROS} WHERE fecha = %(d)s "
-            "GROUP BY banco, unidad", {"d": dia})
+            f"AND {_sql_no_excluido('registro')} GROUP BY banco, unidad", {"d": dia})
     except Exception:
         _log.warning("tesoreria: no pude leer los registros manuales", exc_info=True)
         return {}
@@ -1331,10 +1429,10 @@ def banco_a_banco_por_banco(dia: date) -> dict[tuple[str, str], dict]:
         rows = _q(
             "SELECT banco, unidad, SUM(mas) AS bb_mas, SUM(menos) AS bb_menos FROM ("
             "  SELECT cta_credito AS banco, unidad, importe AS mas, 0 AS menos "
-            f"  FROM {_TABLA_BB} WHERE fecha = %(d)s "
+            f"  FROM {_TABLA_BB} WHERE fecha = %(d)s AND {_sql_no_excluido('bb')} "
             "  UNION ALL "
             "  SELECT cta_debito AS banco, unidad, 0 AS mas, importe AS menos "
-            f"  FROM {_TABLA_BB} WHERE fecha = %(d)s"
+            f"  FROM {_TABLA_BB} WHERE fecha = %(d)s AND {_sql_no_excluido('bb')}"
             ") t GROUP BY banco, unidad",
             {"d": dia},
         )

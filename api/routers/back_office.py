@@ -68,6 +68,27 @@ def tesoreria_detalle(
         raise HTTPException(400, str(e)) from e
 
 
+class _Exclusion(BaseModel):
+    fecha: str | None = None
+    fuente: str = Field(..., min_length=1, max_length=16)   # aunesa|cheque|mercado|bb|registro
+    ref: str = Field(..., min_length=1, max_length=128)
+    excluido: bool = True
+
+
+@router.put("/tesoreria/exclusion")
+def tesoreria_exclusion(req: _Exclusion = Body(...),
+                        actor: str = Depends(require_escritura_tesoreria)):
+    """Tilda/destilda un movimiento del saldo. Deja la traza en `observacion`
+    ('anulado por x@y a las 14:32') y el evento en tesoreria_audit."""
+    try:
+        return svc_tes.set_exclusion(fecha=req.fecha, fuente=req.fuente, ref=req.ref,
+                                     excluido=req.excluido, actor=actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 class _SaldoInicial(BaseModel):
     fecha: str | None = None
     cuenta_operativa: str = Field(..., min_length=1, max_length=256)

@@ -14,6 +14,7 @@ Endpoints (prefix /api/manager lo agrega el paquete):
   DELETE /mesa/escritores             → baja por email
   …/senebis-escritores               → ídem para la vista SENEBIS (allowlist
                                         propia: otro equipo, misma pantalla)
+  …/tesoreria-escritores            → ídem para el SALDO INICIAL de Tesorería
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ from pydantic import BaseModel, Field
 from api.auth import get_user_email
 from api.services import mesa_dinero as _svc
 from api.services import senebis as _svc_sen
+from api.services import tesoreria as _svc_tes
 
 router = APIRouter()
 
@@ -116,5 +118,37 @@ def delete_escritor_senebis(email: str = Query(..., min_length=3),
                             actor: str = Depends(get_user_email)) -> dict:
     try:
         return _svc_sen.quitar_escritor(email, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+# ── Escritores del SALDO INICIAL de Tesorería (allowlist propia) ───────────
+
+@router.get("/mesa/tesoreria-escritores")
+def list_escritores_tesoreria() -> dict:
+    return _svc_tes.listar_escritores()
+
+
+@router.get("/mesa/tesoreria-escritores/candidatos")
+def escritores_tesoreria_candidatos(
+    q: str = Query("", description="Substring sobre email"),
+) -> dict:
+    return _svc_tes.candidatos_escritores(q=q)
+
+
+@router.post("/mesa/tesoreria-escritores")
+def add_escritor_tesoreria(req: _EscritorNew = Body(...),
+                           actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc_tes.agregar_escritor(req.email, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/mesa/tesoreria-escritores")
+def delete_escritor_tesoreria(email: str = Query(..., min_length=3),
+                              actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc_tes.quitar_escritor(email, actor=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e

@@ -772,6 +772,40 @@ CREATE TABLE IF NOT EXISTS operaciones.senebis_audit (
 CREATE INDEX IF NOT EXISTS ix_senebis_audit_ts ON operaciones.senebis_audit (ts DESC);
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- TESORERÍA (Back Office → Tesorería). Los movimientos del día se sirven LIVE
+-- desde Aunesa y no se persisten; lo único que Aunesa NO da es el SALDO INICIAL
+-- de cada cuenta operativa (banco), que se carga a mano por día para que la card
+-- cierre en saldo final = inicial + ingresos − egresos.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS operaciones.tesoreria_saldos (
+    fecha            date NOT NULL,
+    cuenta_operativa text NOT NULL,        -- denominación (ej. 'BANCO MARIVA TERCEROS')
+    unidad           text NOT NULL,        -- ARS / USD
+    saldo_inicial    numeric NOT NULL,
+    actualizado_por  text,
+    actualizado_at   timestamptz,
+    PRIMARY KEY (fecha, cuenta_operativa, unidad)
+);
+
+-- Allowlist de ESCRITURA del saldo inicial (admin siempre puede). Ver la vista lo
+-- da el módulo `back-office`; esto decide quién puede cargar los saldos.
+CREATE TABLE IF NOT EXISTS operaciones.tesoreria_escritores (
+    email        text PRIMARY KEY,
+    agregado_por text,
+    agregado_at  timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS operaciones.tesoreria_audit (
+    id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts     timestamptz,
+    actor  text,
+    action text,                             -- set_saldo_inicial/add_escritor/remove_escritor
+    target text,                             -- fecha|cuenta_operativa|unidad o email
+    data   jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_tesoreria_audit_ts ON operaciones.tesoreria_audit (ts DESC);
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- PORTAFOLIO — tenencias + catálogo de títulos (FUENTE DE VERDAD, SQL-native)
 -- ─────────────────────────────────────────────────────────────────────────────
 

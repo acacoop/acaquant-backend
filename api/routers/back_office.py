@@ -6,7 +6,8 @@ Más sub-vistas se irán sumando acá conforme se vayan definiendo.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services import acreencias as svc_acr
@@ -23,13 +24,37 @@ def tesoreria_dia(
     fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
     estado: str = Query("Procesado", description="Estado Aunesa: Procesado | Pendiente | "
                         "Pendiente de autorizar | Demorado | Rechazado | Anulado | Incompleto"),
-    _email: str = Depends(get_user_email),
+    email: str = Depends(get_user_email),
 ):
     """Ingresos/egresos bancarios del día (Aunesa consultaMovDocsSolicitados).
 
     Ingreso = solicitud 'Depósito', Egreso = 'Extracción'. Resumen por moneda
-    (ARS/USD) + detalle de movimientos. Live contra Aunesa (sin persistir)."""
-    return svc_tes.ingresos_egresos_dia(fecha=fecha, estado=estado)
+    (ARS/USD) + una card por CUENTA OPERATIVA (banco) con su saldo inicial/final
+    + detalle de movimientos. Live contra Aunesa (sin persistir)."""
+    return svc_tes.ingresos_egresos_dia(fecha=fecha, estado=estado, email=email)
+
+
+class _SaldoInicial(BaseModel):
+    fecha: str | None = None
+    cuenta_operativa: str = Field(..., min_length=1, max_length=256)
+    unidad: str = Field(..., min_length=1, max_length=8)
+    saldo_inicial: float | None = None  # null = borrar la carga del día
+
+
+@router.put("/tesoreria/saldo-inicial")
+def tesoreria_saldo_inicial(
+    req: _SaldoInicial = Body(...),
+    actor: str = Depends(get_user_email),
+):
+    """Carga manual del saldo inicial de un banco para un día (allowlist + admin)."""
+    try:
+        return svc_tes.set_saldo_inicial(
+            fecha=req.fecha, cuenta_operativa=req.cuenta_operativa, unidad=req.unidad,
+            saldo=req.saldo_inicial, actor=actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.get("/titulos-mercado")

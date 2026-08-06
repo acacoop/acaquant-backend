@@ -73,6 +73,70 @@ def tesoreria_saldo_inicial(
         raise HTTPException(400, str(e)) from e
 
 
+# ── Tab CHEQUES: recibidos (live, e-cheq de Aunesa) | emitidos (carga manual) ──
+
+class _Cheque(BaseModel):
+    comitente: str | None = Field(None, max_length=64)          # id_cuenta
+    comitente_denominacion: str | None = Field(None, max_length=256)
+    cuit: str | None = Field(None, max_length=32)
+    banco: str = Field(..., min_length=1, max_length=256)       # cuenta operativa
+    unidad: str = Field("ARS", min_length=1, max_length=8)
+    importe: float
+    estado: str = Field("pendiente", max_length=32)             # pendiente | pagado
+    fecha_pago: str | None = None                               # ISO YYYY-MM-DD
+
+
+@router.get("/tesoreria/cheques")
+def tesoreria_cheques(
+    fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
+    estado: str = Query("", description="pendiente | pagado; vacío = todos (solo emitidos)"),
+    email: str = Depends(get_user_email),
+):
+    """Las dos mitades de la tab CHEQUES: `recibidos` (e-cheq del día que manda
+    Aunesa, live) y `emitidos` (los que carga el back office a mano), más el
+    catálogo de bancos para el form."""
+    return svc_tes.cheques(fecha=fecha, estado=estado, email=email)
+
+
+@router.get("/tesoreria/cheques/comitentes")
+def tesoreria_cheques_comitentes(
+    q: str = Query(..., min_length=1, description="número de cuenta o denominación"),
+    _email: str = Depends(get_user_email),
+):
+    """Autocomplete del form de cheques: busca por número o nombre y trae el CUIT."""
+    return {"comitentes": svc_tes.buscar_comitentes(q=q)}
+
+
+@router.post("/tesoreria/cheques")
+def tesoreria_cheque_crear(req: _Cheque = Body(...), actor: str = Depends(get_user_email)):
+    """Alta de un cheque emitido (allowlist de Tesorería + admin)."""
+    try:
+        return svc_tes.crear_cheque(req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/tesoreria/cheques/{id_}")
+def tesoreria_cheque_editar(id_: int, req: _Cheque = Body(...),
+                            actor: str = Depends(get_user_email)):
+    try:
+        return svc_tes.editar_cheque(id_, req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/tesoreria/cheques/{id_}")
+def tesoreria_cheque_borrar(id_: int, actor: str = Depends(get_user_email)):
+    try:
+        return svc_tes.borrar_cheque(id_, actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+
+
 @router.get("/titulos-mercado")
 def titulos_mercado(
     fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),

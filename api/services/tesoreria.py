@@ -76,6 +76,12 @@ ESTADO_EFECTIVO = "Procesado"
 # quedaría como una columna fantasma en la grilla para siempre.
 SIN_CUENTA = "SIN CUENTA OPERATIVA"
 
+# RIEL (campo `tipoDocSoli`) viene '[TR] Transferencia', '[MP] Transferencia MEP',
+# '[E CHEQ] E CHEQ'… Los e-cheq se separan del resto de los egresos: el back office
+# necesita distinguirlos, así que van en su PROPIA fila de la grilla y NO entran al
+# total de egresos (por lo tanto tampoco restan del saldo final).
+_RE_RIEL_COD = re.compile(r"\[([^\]]+)\]")
+
 _TABLA_AL2 = "operaciones.tesoreria_al2"
 AL2_BANCO_CODIGO = "00001713"   # FERSI SA — el único banco que se persiste
 _RE_BANCO_COD = re.compile(r"\[(\w+)\]")
@@ -85,6 +91,13 @@ def _norm(s: Any) -> str:
     """Minúscula + sin diacríticos, para comparar `solicitud` a prueba de NFC/NFD."""
     d = unicodedata.normalize("NFKD", str(s or ""))
     return "".join(c for c in d if not unicodedata.combining(c)).strip().lower()
+
+
+def es_echeq(riel: Any) -> bool:
+    """True si el RIEL es un e-cheq. Matchea por el código entre corchetes,
+    tolerante a 'E CHEQ' / 'ECHEQ' / 'E-CHEQ'."""
+    m = _RE_RIEL_COD.search(str(riel or ""))
+    return "cheq" in _norm(m.group(1) if m else riel).replace("-", " ")
 
 
 def _hoy_art() -> datetime:
@@ -165,7 +178,14 @@ def aplanar(r: dict, yyyymmdd: str) -> dict:
     mov["cuentaOperativa"] = _cuenta_operativa(r.get("cuentaOperativa")) or SIN_CUENTA
     mov["_hora"] = _hora(r.get("id"), yyyymmdd)
     mov["_tipo"] = "ingreso" if sol == _INGRESO else "egreso" if sol == _EGRESO else ""
+    mov["_echeq"] = es_echeq(r.get("tipoDocSoli"))
     return mov
+
+
+def _bucket() -> dict:
+    """Acumulador de una celda de la grilla. `egresos_echeq` va SEPARADO: es una
+    fila propia y no entra ni en `egresos` ni, por lo tanto, en el saldo final."""
+    return {"ingresos": 0.0, "egresos": 0.0, "egresos_echeq": 0.0, "neto": 0.0, "n": 0}
 
 
 def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
@@ -180,6 +200,10 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         nadie lo cargó) y el saldo final = inicial + ingresos − egresos.
       - `movimientos`: filas para la tabla (hora, cuenta, cliente, riel, unidad, tipo,
         monto, estado), ordenadas por hora desc.
+
+    Los egresos por RIEL e-cheq salen en `egresos_echeq`, FUERA de `egresos`: el back
+    office necesita distinguirlos, así que son una fila propia de la grilla y no restan
+    del saldo final (el e-cheq se paga en su `fecha de pago`, no el día que se emite).
 
     OJO — `cuentas` (tab BANCOS) NO respeta el filtro `estado` de la barra: un
     movimiento Rechazado / Anulado / Pendiente nunca movió plata en el banco, así que
@@ -215,24 +239,24 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         vistas[(cta, unidad)] = str(co["id"]) if isinstance(co, dict) and co.get("id") else None
         destinos = []
         if en_tabla:
-            destinos.append(resumen.setdefault(
-                unidad, {"ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0}))
+            destinos.append(resumen.setdefault(unidad, _bucket()))
         if est == ESTADO_EFECTIVO:  # el saldo del banco, solo plata que se movió
             destinos.append(por_cuenta.setdefault(
                 (cta, unidad),
-                {"cuenta_operativa": cta, "unidad": unidad,
-                 "ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0}))
+                {"cuenta_operativa": cta, "unidad": unidad, **_bucket()}))
         for d in destinos:
             if mov["_tipo"] == "ingreso":
                 d["ingresos"] += monto
+            elif mov["_echeq"]:
+                d["egresos_echeq"] += monto  # fila aparte: NO entra al total de egresos
             else:
                 d["egresos"] += monto
             d["neto"] = d["ingresos"] - d["egresos"]
             d["n"] += 1
 
     for b in resumen.values():
-        b["ingresos"], b["egresos"], b["neto"] = (
-            round(b["ingresos"], 2), round(b["egresos"], 2), round(b["neto"], 2))
+        for k in ("ingresos", "egresos", "egresos_echeq", "neto"):
+            b[k] = round(b[k], 2)
     movimientos.sort(key=lambda m: str(m.get("_hora") or ""), reverse=True)
 
     # El panel de bancos es FIJO: sale del catálogo, no de quién operó hoy. Las cuentas
@@ -242,12 +266,11 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     cuentas = []
     for clave in sorted(set(catalogo()) | set(por_cuenta)):
         cta, uni = clave
-        c = por_cuenta.get(clave) or {"cuenta_operativa": cta, "unidad": uni,
-                                      "ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0}
+        c = por_cuenta.get(clave) or {"cuenta_operativa": cta, "unidad": uni, **_bucket()}
         s = saldos.get(clave)
         ini = s["saldo_inicial"] if s else None
-        c["ingresos"], c["egresos"], c["neto"] = (
-            round(c["ingresos"], 2), round(c["egresos"], 2), round(c["neto"], 2))
+        for k in ("ingresos", "egresos", "egresos_echeq", "neto"):
+            c[k] = round(c[k], 2)
         # Sin carga manual el inicial es 0 (no null): así el saldo final siempre cierra
         # como número. `saldo_cargado` es lo que separa "cargado en 0" de "sin cargar".
         c["saldo_cargado"] = ini is not None
@@ -392,6 +415,178 @@ def saldo_al2(*, dias: int = 60, persona: str = "todas", unidad: str = "",
                     "n": sum(s["n"] for s in serie)},
         "actualizado_at": datetime.now(UTC).isoformat(),
     }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TAB CHEQUES — RECIBIDOS (izquierda, live) | EMITIDOS (derecha, carga manual)
+#
+# RECIBIDOS: no se persiste nada. Son los movimientos e-cheq que Aunesa ya manda
+#   (`_echeq` sobre el RIEL), del día pedido. Misma fuente que MOVIMIENTOS.
+# EMITIDOS: los carga el back office a mano, igual que una orden de SENEBIS →
+#   `operaciones.tesoreria_cheques`. El COMITENTE sale de `clientes.cuentas` y el
+#   BANCO del catálogo de cuentas operativas (las cards de BANCOS); de ambos se
+#   snapshotea la denominación para que la fila no dependa del catálogo.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_TABLA_CHEQUES = "operaciones.tesoreria_cheques"
+ESTADOS_CHEQUE = ("pendiente", "pagado")
+_CAMPOS_CHEQUE = ("comitente", "comitente_denominacion", "cuit", "banco", "unidad",
+                  "importe", "estado", "fecha_pago")
+
+
+def _fila_cheque(r: dict) -> dict:
+    return {
+        "id": int(r["id"]),
+        "comitente": r["comitente"],
+        "comitente_denominacion": r["comitente_denominacion"],
+        "cuit": r["cuit"],
+        "banco": r["banco"],
+        "unidad": r["unidad"],
+        "importe": float(r["importe"] or 0),
+        "estado": r["estado"],
+        "fecha_pago": r["fecha_pago"].isoformat() if r["fecha_pago"] else None,
+        "creado_por": r["creado_por"],
+        "creado_at": r["creado_at"].isoformat() if r["creado_at"] else None,
+    }
+
+
+def cheques(*, fecha: str | None = None, estado: str = "", email: str = "") -> dict:
+    """Las dos mitades de la tab CHEQUES.
+
+    `recibidos` = e-cheq del día que manda Aunesa (live, no se persisten).
+    `emitidos`  = los que cargó el back office a mano (`estado` los filtra:
+                  'pendiente' | 'pagado'; vacío = todos).
+    """
+    dia = _dia(fecha)
+    marcar_presencia(email)
+
+    yyyymmdd = dia.strftime("%Y%m%d")
+    recibidos = []
+    try:
+        for r in traer_crudas(dia, ESTADO_EFECTIVO):
+            m = aplanar(r, yyyymmdd)
+            if m["_echeq"] and m["_tipo"] == "ingreso":
+                recibidos.append({
+                    "hora": m["_hora"], "cliente": m.get("persona_nombreCompleto"),
+                    "cuit": m.get("persona_cuit") or m.get("persona_documento"),
+                    "banco": m["cuentaOperativa"], "importe": _num(r.get("monto")),
+                    "unidad": str(r.get("unidad") or "?").upper(),
+                    "estado": r.get("estado"), "cuenta": r.get("cuenta"),
+                })
+    except Exception as exc:
+        _log.warning("tesoreria: no pude traer los e-cheq recibidos", exc_info=True)
+        recibidos = []
+        recibidos_error = str(exc)
+    else:
+        recibidos_error = ""
+
+    est = (estado or "").strip().lower()
+    rows = _q(
+        f"SELECT id, comitente, comitente_denominacion, cuit, banco, unidad, importe, "
+        f"estado, fecha_pago, creado_por, creado_at FROM {_TABLA_CHEQUES} "
+        "WHERE (%(e)s = '' OR estado = %(e)s) "
+        "ORDER BY fecha_pago DESC NULLS LAST, id DESC LIMIT 2000",
+        {"e": est},
+    )
+    emitidos = [_fila_cheque(r) for r in rows]
+
+    return {
+        "fecha": dia.strftime("%d/%m/%Y"), "fecha_iso": dia.isoformat(), "estado": est,
+        "recibidos": recibidos, "recibidos_error": recibidos_error,
+        "emitidos": emitidos,
+        "bancos": [{"banco": c, "unidad": u} for c, u in catalogo()],
+        "estados": list(ESTADOS_CHEQUE),
+        "puede_editar": puede_editar_saldo(email),
+        "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def buscar_comitentes(q: str = "", limit: int = 20) -> list[dict]:
+    """Autocomplete del form de cheques emitidos. Reusa la búsqueda de SENEBIS
+    (misma tabla `clientes.cuentas`) y le suma el CUIT de `clientes.comitentes`
+    para que el back office no tenga que tipearlo."""
+    from api.services.senebis import buscar_comitentes as _buscar
+    encontrados = _buscar(q=q, limit=limit)
+    if not encontrados:
+        return []
+    docs = {
+        r["id_cuenta"]: r["nro_doc"]
+        for r in _q("SELECT id_cuenta, nro_doc FROM clientes.comitentes "
+                    "WHERE id_cuenta = ANY(%(ids)s) AND upper(COALESCE(tipo_doc, '')) "
+                    "LIKE '%%CUIT%%'",
+                    {"ids": [c["id_cuenta"] for c in encontrados]})
+    }
+    return [{**c, "cuit": docs.get(c["id_cuenta"])} for c in encontrados]
+
+
+def _validar_cheque(datos: dict) -> dict:
+    """Normaliza + valida el payload de un cheque emitido. Devuelve los campos listos."""
+    banco = str(datos.get("banco") or "").strip()
+    if not banco:
+        raise ValueError("falta 'banco' (elegí una cuenta operativa)")
+    try:
+        importe = float(datos.get("importe"))
+    except (TypeError, ValueError) as e:
+        raise ValueError("'importe' tiene que ser un número") from e
+    if importe <= 0:
+        raise ValueError("'importe' tiene que ser mayor a 0")
+    est = str(datos.get("estado") or "pendiente").strip().lower()
+    if est not in ESTADOS_CHEQUE:
+        raise ValueError(f"'estado' inválido: {est} (válidos: {', '.join(ESTADOS_CHEQUE)})")
+    fp = str(datos.get("fecha_pago") or "").strip()
+    cta = str(datos.get("comitente") or "").strip()
+    return {
+        "comitente": cta or None,
+        "comitente_denominacion": str(datos.get("comitente_denominacion") or "").strip() or None,
+        "cuit": str(datos.get("cuit") or "").strip() or None,
+        "banco": banco,
+        "unidad": (str(datos.get("unidad") or "ARS").strip().upper() or "ARS"),
+        "importe": importe,
+        "estado": est,
+        "fecha_pago": datetime.strptime(fp, "%Y-%m-%d").date() if fp else None,
+    }
+
+
+def crear_cheque(datos: dict, actor: str) -> dict:
+    """Alta de un cheque emitido (allowlist de Tesorería + admin)."""
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para cargar cheques de Tesorería")
+    f = _validar_cheque(datos)
+    f |= {"por": (actor or "").lower() or None, "at": datetime.now(UTC)}
+    campos = ", ".join(_CAMPOS_CHEQUE)
+    valores = ", ".join(f"%({c})s" for c in _CAMPOS_CHEQUE)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"INSERT INTO {_TABLA_CHEQUES} ({campos}, creado_por, creado_at) "
+            f"VALUES ({valores}, %(por)s, %(at)s) RETURNING id",
+            f,
+        )
+        nuevo = cur.fetchone()[0]
+        conn.commit()
+    _audit(actor, "crear_cheque", str(nuevo), {"banco": f["banco"], "estado": f["estado"]})
+    return {"id": int(nuevo)}
+
+
+def editar_cheque(id_: int, datos: dict, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar cheques de Tesorería")
+    f = _validar_cheque(datos)
+    f |= {"id": int(id_), "por": (actor or "").lower() or None, "at": datetime.now(UTC)}
+    sets = ", ".join(f"{c} = %({c})s" for c in _CAMPOS_CHEQUE)
+    n = _exec(f"UPDATE {_TABLA_CHEQUES} SET {sets}, "
+              "actualizado_por = %(por)s, actualizado_at = %(at)s WHERE id = %(id)s", f)
+    if not n:
+        raise ValueError(f"no existe el cheque {id_}")
+    _audit(actor, "editar_cheque", str(id_), {"banco": f["banco"], "estado": f["estado"]})
+    return {"id": int(id_)}
+
+
+def borrar_cheque(id_: int, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para borrar cheques de Tesorería")
+    n = _exec(f"DELETE FROM {_TABLA_CHEQUES} WHERE id = %(id)s", {"id": int(id_)})
+    _audit(actor, "borrar_cheque", str(id_))
+    return {"borrado": n}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

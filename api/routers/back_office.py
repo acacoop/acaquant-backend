@@ -19,6 +19,20 @@ from api.services.back_office_titulos import get_titulos_mercado
 router = APIRouter(prefix="/api/back-office", tags=["BackOffice"])
 
 
+# Escritura de Tesorería (saldo inicial + cheques): allowlist
+# `operaciones.tesoreria_escritores` + admin, gestionada en Manager → MESA.
+# Va como DEPENDENCY, no como chequeo dentro del handler, para que la auditoría
+# de superficie lo vea: `scripts/audit_rbac.py` lee el árbol de deps, no el
+# cuerpo de la función. El service igual revalida (defensa en profundidad: lo
+# invoca también el MCP/scripts, que no pasan por este router).
+def require_escritura_tesoreria(actor: str = Depends(get_user_email)) -> str:
+    if not svc_tes.puede_editar_saldo(actor):
+        raise HTTPException(
+            403, "sin permiso de escritura en Tesorería (allowlist propia — "
+                 "se gestiona en Manager → MESA)")
+    return actor
+
+
 @router.get("/tesoreria/dia")
 def tesoreria_dia(
     fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
@@ -60,7 +74,7 @@ def tesoreria_al2(
 @router.put("/tesoreria/saldo-inicial")
 def tesoreria_saldo_inicial(
     req: _SaldoInicial = Body(...),
-    actor: str = Depends(get_user_email),
+    actor: str = Depends(require_escritura_tesoreria),
 ):
     """Carga manual del saldo inicial de un banco para un día (allowlist + admin)."""
     try:
@@ -73,7 +87,7 @@ def tesoreria_saldo_inicial(
         raise HTTPException(400, str(e)) from e
 
 
-# ── Tab CHEQUES: recibidos (live, e-cheq de Aunesa) | emitidos (carga manual) ──
+# ── Tab CHEQUES: recibidos (del día) | emitidos (seguimiento). Los dos a mano. ──
 
 class _Cheque(BaseModel):
     lado: str = Field("emitido", max_length=16)                 # emitido | recibido
@@ -116,7 +130,8 @@ def tesoreria_cheques_comitentes(
 
 
 @router.post("/tesoreria/cheques")
-def tesoreria_cheque_crear(req: _Cheque = Body(...), actor: str = Depends(get_user_email)):
+def tesoreria_cheque_crear(req: _Cheque = Body(...),
+                           actor: str = Depends(require_escritura_tesoreria)):
     """Alta de un cheque emitido (allowlist de Tesorería + admin)."""
     try:
         return svc_tes.crear_cheque(req.model_dump(), actor)
@@ -128,7 +143,7 @@ def tesoreria_cheque_crear(req: _Cheque = Body(...), actor: str = Depends(get_us
 
 @router.put("/tesoreria/cheques/{id_}")
 def tesoreria_cheque_editar(id_: int, req: _Cheque = Body(...),
-                            actor: str = Depends(get_user_email)):
+                            actor: str = Depends(require_escritura_tesoreria)):
     try:
         return svc_tes.editar_cheque(id_, req.model_dump(), actor)
     except PermissionError as e:
@@ -139,7 +154,7 @@ def tesoreria_cheque_editar(id_: int, req: _Cheque = Body(...),
 
 @router.put("/tesoreria/cheques/{id_}/estado")
 def tesoreria_cheque_estado(id_: int, req: _EstadoCheque = Body(...),
-                            actor: str = Depends(get_user_email)):
+                            actor: str = Depends(require_escritura_tesoreria)):
     """Cambia SOLO el estado (el click en la celda ESTADO de la vista, sin reabrir
     la operación). El estado de cierre saca la fila de la vista."""
     try:
@@ -151,7 +166,7 @@ def tesoreria_cheque_estado(id_: int, req: _EstadoCheque = Body(...),
 
 
 @router.delete("/tesoreria/cheques/{id_}")
-def tesoreria_cheque_borrar(id_: int, actor: str = Depends(get_user_email)):
+def tesoreria_cheque_borrar(id_: int, actor: str = Depends(require_escritura_tesoreria)):
     try:
         return svc_tes.borrar_cheque(id_, actor)
     except PermissionError as e:

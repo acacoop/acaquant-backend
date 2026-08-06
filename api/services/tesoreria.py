@@ -569,6 +569,15 @@ def _validar_cheque(datos: dict) -> dict:
     banco = str(datos.get("banco") or "").strip()
     if not banco:
         raise ValueError("falta 'banco' (elegí una cuenta operativa)")
+    unidad = (str(datos.get("unidad") or "ARS").strip().upper() or "ARS")
+    # El banco DEBE existir en el catálogo: el desplegable del front no es una
+    # defensa (se puede pegarle al endpoint directo), y un banco inventado se
+    # colaría como columna fantasma en la grilla BANCOS con plata imputada.
+    # Si el catálogo no se puede leer viene vacío → no bloqueamos la carga.
+    conocidos = catalogo()
+    if conocidos and (banco, unidad) not in conocidos:
+        raise ValueError(
+            f"'{banco}' [{unidad}] no es una cuenta operativa del catálogo de Tesorería")
     try:
         importe = float(datos.get("importe"))
     except (TypeError, ValueError) as e:
@@ -593,7 +602,7 @@ def _validar_cheque(datos: dict) -> dict:
         "comitente_denominacion": str(datos.get("comitente_denominacion") or "").strip() or None,
         "cuit": str(datos.get("cuit") or "").strip() or None,
         "banco": banco,
-        "unidad": (str(datos.get("unidad") or "ARS").strip().upper() or "ARS"),
+        "unidad": unidad,
         "importe": importe,
         "estado": est,
         "fecha_pago": datetime.strptime(fp, "%Y-%m-%d").date() if fp else None,

@@ -42,6 +42,7 @@ _ENDPOINT = "cuentas/consultaMovDocsSolicitados"
 # el literal acentuado directo descartaba TODAS las filas (200 OK con 0 resultados).
 _INGRESO = "deposito"   # 'Depósito'
 _EGRESO = "extraccion"  # 'Extracción'
+PRESENCIA_TTL_S = 90    # visto hace ≤90s = conectado (el front pollea cada ~20s)
 
 
 def _norm(s: Any) -> str:
@@ -104,6 +105,7 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     """
     dia = _dia(fecha)
     ddmmyyyy, ddmmyyyy_hasta, yyyymmdd = _fechas(fecha)
+    marcar_presencia(email)  # pollear la vista ES el heartbeat
     params: dict[str, Any] = {"liquidacionDesde": ddmmyyyy, "liquidacionHasta": ddmmyyyy_hasta}
     if estado:
         params["estados"] = estado
@@ -177,7 +179,36 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     return {"fecha": ddmmyyyy, "fecha_iso": dia.isoformat(), "estado": estado,
             "resumen": resumen, "cuentas": cuentas,
             "puede_editar_saldo": puede_editar_saldo(email),
+            "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
             "movimientos": movimientos, "n": len(movimientos), "raw": len(movimientos)}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Presencia (quién tiene la vista abierta) — mismo patrón que SENEBIS
+# ─────────────────────────────────────────────────────────────────────
+
+def marcar_presencia(email: str) -> None:
+    e = (email or "").lower().strip()
+    if not e:
+        return
+    try:
+        _exec("INSERT INTO operaciones.tesoreria_presencia (email, visto_at) "
+              "VALUES (%(e)s, %(at)s) "
+              "ON CONFLICT (email) DO UPDATE SET visto_at = EXCLUDED.visto_at",
+              {"e": e, "at": datetime.now(UTC)})
+    except Exception:
+        _log.warning("tesoreria: no pude marcar presencia", exc_info=True)
+
+
+def conectados() -> list[dict]:
+    """Quiénes vieron la vista en los últimos PRESENCIA_TTL_S segundos."""
+    try:
+        rows = _q("SELECT email, visto_at FROM operaciones.tesoreria_presencia "
+                  "WHERE visto_at >= now() - make_interval(secs => %(ttl)s) ORDER BY email",
+                  {"ttl": PRESENCIA_TTL_S})
+    except Exception:
+        return []
+    return [{"email": r["email"], "visto_at": r["visto_at"].isoformat()} for r in rows]
 
 
 # ──────────────────────────────────────────────────────────────────────────────

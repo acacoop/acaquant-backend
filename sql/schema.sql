@@ -805,6 +805,13 @@ CREATE TABLE IF NOT EXISTS operaciones.tesoreria_audit (
 );
 CREATE INDEX IF NOT EXISTS ix_tesoreria_audit_ts ON operaciones.tesoreria_audit (ts DESC);
 
+-- Presencia en la vista TESORERÍA (mismo patrón que senebis_presencia): el poll
+-- de la vista marca el último visto_at; conectado = visto en los últimos 90s.
+CREATE TABLE IF NOT EXISTS operaciones.tesoreria_presencia (
+    email    text PRIMARY KEY,
+    visto_at timestamptz NOT NULL
+);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PORTAFOLIO — tenencias + catálogo de títulos (FUENTE DE VERDAD, SQL-native)
 -- ─────────────────────────────────────────────────────────────────────────────

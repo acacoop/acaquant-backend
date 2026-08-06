@@ -22,6 +22,7 @@ Uso (desde la raíz, en el Droplet):
     python -m scripts.diag_tesoreria_bancos                    # hoy
     python -m scripts.diag_tesoreria_bancos --fecha 2026-08-06
     python -m scripts.diag_tesoreria_bancos --fecha 2026-08-06 --montos
+    python -m scripts.diag_tesoreria_bancos --limpiar-fantasma   # único modo con ESCRITURA
 """
 from __future__ import annotations
 
@@ -31,8 +32,10 @@ from datetime import date
 
 from api.services.tesoreria import (
     _ENDPOINT,
+    SIN_CUENTA,
     TODOS_ESTADOS,
     _dia,
+    _exec,
     _fechas,
     _num,
     aplanar,
@@ -70,6 +73,8 @@ def main() -> None:
     ap.add_argument("--fecha", default=None, help="ISO YYYY-MM-DD; default = hoy ART")
     ap.add_argument("--montos", action="store_true",
                     help="además de contar filas, imprime importes (NO pegar en el chat)")
+    ap.add_argument("--limpiar-fantasma", action="store_true",
+                    help=f"único modo con ESCRITURA: borra '{SIN_CUENTA}' del catálogo")
     a = ap.parse_args()
 
     dia = _dia(a.fecha)
@@ -93,14 +98,15 @@ def main() -> None:
     print(f"    se descartan por no ser del día: {otros}")
     print(f"    quedan para la vista: {len(del_dia)}")
 
-    print("\n[2] ¿ESAS FILAS SE CREARON ESE DÍA? (`id` = YYYYMMDDHHMMSS)")
-    por_creacion = Counter(_fecha_del_id(r.get("id")) or "(id sin fecha)" for r in del_dia)
-    for f, n in sorted(por_creacion.items()):
-        marca = "  <-- creada ese día" if f == ddmmyyyy else "  <-- CREADA OTRO DÍA"
-        print(f"    {f:>14} : {n:>5} filas{marca}")
-    print("    Nota: `fecha` es la que la vista toma como 'el día'. Si hay filas creadas")
-    print("    otro día, es porque Aunesa las liquida/imputa en este — decidí vos si")
-    print("    esas TIENEN que contar para el saldo del día o no.")
+    print("\n[2] FORMATO DEL `id` (la vista saca la HORA de ahí: YYYYMMDDHHMMSS)")
+    raros = [r for r in del_dia if not _fecha_del_id(r.get("id"))]
+    print(f"    con id fecha-hora legible : {len(del_dia) - len(raros)}")
+    print(f"    con id de OTRO formato    : {len(raros)}  <-- salen sin HORA en MOVIMIENTOS")
+    for r in raros[:6]:
+        print(f"        id={r.get('id')!r}  riel={r.get('tipoDocSoli')!r}  "
+              f"estado={r.get('estado')!r}  idExterno={r.get('idExterno')!r}")
+    print("    OJO: un id que no arranca con YYYYMMDD NO significa que la fila sea de")
+    print("    otro día — el día lo define `fecha`, y [1] ya lo verificó.")
 
     # 3 — campos crudos (¿hay otra fecha además de `fecha`?)
     print("\n[3] CAMPOS QUE MANDA AUNESA (nombre : en cuántas filas viene con valor)")
@@ -151,6 +157,15 @@ def main() -> None:
         print(f"        · {c} [{u}]")
     if len(cat - operaron) > 15:
         print(f"        … y {len(cat - operaron) - 15} más")
+    fantasmas = sorted(c for c in cat if c[0] == SIN_CUENTA)
+    if fantasmas:
+        print(f"    ! {len(fantasmas)} entrada(s) FANTASMA en el catálogo "
+              f"('{SIN_CUENTA}' no es un banco): {fantasmas}")
+        print("      Se limpian con: python -m scripts.diag_tesoreria_bancos --limpiar-fantasma")
+    if a.limpiar_fantasma and fantasmas:
+        n = _exec("DELETE FROM operaciones.tesoreria_cuentas WHERE cuenta_operativa = %(c)s",
+                  {"c": SIN_CUENTA})
+        print(f"      -> borradas {n} fila(s) del catálogo.")
 
     # 7 — la reconciliación que importa
     print("\n[7] LO QUE ALIMENTA EL SALDO FINAL")

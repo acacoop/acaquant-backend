@@ -71,6 +71,11 @@ TODOS_ESTADOS = ";".join(ESTADOS)
 # Es lo único que puede entrar a un saldo (ver `ingresos_egresos_dia`).
 ESTADO_EFECTIVO = "Procesado"
 
+# Placeholder para las filas que llegan SIN `cuentaOperativa`. Su plata tiene que verse
+# (si no, el total del día no cierra), pero NO es un banco: nunca entra al catálogo, o
+# quedaría como una columna fantasma en la grilla para siempre.
+SIN_CUENTA = "SIN CUENTA OPERATIVA"
+
 _TABLA_AL2 = "operaciones.tesoreria_al2"
 AL2_BANCO_CODIGO = "00001713"   # FERSI SA — el único banco que se persiste
 _RE_BANCO_COD = re.compile(r"\[(\w+)\]")
@@ -157,7 +162,7 @@ def aplanar(r: dict, yyyymmdd: str) -> dict:
     mov = {k: v for k, v in r.items() if k != "persona"}
     for pk, pv in (r.get("persona") or {}).items():
         mov[f"persona_{pk}"] = pv
-    mov["cuentaOperativa"] = _cuenta_operativa(r.get("cuentaOperativa")) or "SIN CUENTA OPERATIVA"
+    mov["cuentaOperativa"] = _cuenta_operativa(r.get("cuentaOperativa")) or SIN_CUENTA
     mov["_hora"] = _hora(r.get("id"), yyyymmdd)
     mov["_tipo"] = "ingreso" if sol == _INGRESO else "egreso" if sol == _EGRESO else ""
     return mov
@@ -411,9 +416,12 @@ def registrar_cuentas(vistas: dict[tuple[str, str], str | None], dia: date) -> N
     El UPDATE tiene guarda para que el poll de la vista (cada 20s) sea un no-op
     cuando no hay nada nuevo que anotar.
     """
-    if not vistas:
+    # El placeholder de "fila sin cuenta operativa" no es un banco: si se persiste,
+    # queda como columna fantasma en la grilla aunque nunca más vuelva a aparecer.
+    filas = [{"c": c, "u": u, "id": aid, "d": dia}
+             for (c, u), aid in vistas.items() if c != SIN_CUENTA]
+    if not filas:
         return
-    filas = [{"c": c, "u": u, "id": aid, "d": dia} for (c, u), aid in vistas.items()]
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.executemany(

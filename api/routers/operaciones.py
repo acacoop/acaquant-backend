@@ -370,7 +370,7 @@ def ops_aranceles(
     sel_dim: str | None = Query(None, description="Cross-filter: valor seleccionado de la dim izquierda"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
     operador: str | None = Query(None, description="Filtra madre por operador (operador_email)"),
-    dim: str = Query("nivel3", description="Dimensión de la tabla izquierda: nivel3 | operacion | operador"),
+    dim: str = Query("nivel3", description="Dimensión de la tabla izquierda: nivel3 | operacion | mercado | operador"),
     serie_full: bool = Query(False, description="True = serie histórica completa (botón ALL); default ~18m"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):

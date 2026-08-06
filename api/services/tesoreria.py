@@ -680,6 +680,158 @@ def borrar_cheque(id_: int, actor: str) -> dict:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# TAB MERCADOS — 4 tableros de carga manual, todos del DÍA (igual que los cheques
+# recibidos: se registran intradía y no se arrastran). Son el MISMO modelo con
+# distinto `tipo`, por eso comparten tabla, validación, permisos y auditoría:
+#
+#   bloque MERCADO → ingreso (izq)  | pago        (der)
+#   bloque FCI     → rescate (izq)  | suscripcion (der)
+#
+# `entidad` es el mercado (BYMA, MAE…) o el nombre del FCI, según el bloque.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_TABLA_MERCADOS = "operaciones.tesoreria_mercados"
+# tipo → (bloque, lado). El front arma la grilla 2×2 con esto, sin hardcodear.
+TIPOS_MERCADO: dict[str, tuple[str, str]] = {
+    "ingreso": ("mercado", "izq"), "pago": ("mercado", "der"),
+    "rescate": ("fci", "izq"), "suscripcion": ("fci", "der"),
+}
+ESTADOS_MERCADO = ("pendiente", "completado")
+_CAMPOS_MERCADO = ("fecha", "tipo", "entidad", "banco", "unidad", "importe", "estado")
+_COLS_MERCADO = ("id, fecha, tipo, entidad, banco, unidad, importe, estado, "
+                 "creado_por, creado_at")
+
+
+def _fila_mercado(r: dict) -> dict:
+    return {
+        "id": int(r["id"]), "fecha": r["fecha"].isoformat(), "tipo": r["tipo"],
+        "entidad": r["entidad"], "banco": r["banco"], "unidad": r["unidad"],
+        "importe": float(r["importe"] or 0), "estado": r["estado"],
+        "creado_por": r["creado_por"],
+    }
+
+
+def mercados(*, fecha: str | None = None, email: str = "") -> dict:
+    """Los 4 tableros de la tab MERCADOS para un día."""
+    marcar_presencia(email)
+    dia = _dia(fecha)
+    filas = [_fila_mercado(r) for r in _q(
+        f"SELECT {_COLS_MERCADO} FROM {_TABLA_MERCADOS} "
+        "WHERE fecha = %(d)s ORDER BY id DESC", {"d": dia})]
+    return {
+        "fecha": dia.strftime("%d/%m/%Y"), "fecha_iso": dia.isoformat(),
+        # Un array por tipo: el front no tiene que filtrar ni conocer los tipos.
+        "filas": {t: [f for f in filas if f["tipo"] == t] for t in TIPOS_MERCADO},
+        "tipos": {t: {"bloque": b, "lado": l} for t, (b, l) in TIPOS_MERCADO.items()},
+        "estados": list(ESTADOS_MERCADO),
+        # Entidades ya usadas → sugerencias del form (sin catálogo aparte que mantener).
+        "entidades": _entidades_usadas(),
+        "bancos": [{"banco": c, "unidad": u} for c, u in catalogo()],
+        "puede_editar": puede_editar_saldo(email),
+        "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def _entidades_usadas() -> dict[str, list[str]]:
+    """{bloque: [entidades]} ya cargadas — alimenta el autocomplete del form."""
+    rows = _q(f"SELECT DISTINCT tipo, entidad FROM {_TABLA_MERCADOS} "
+              "WHERE entidad IS NOT NULL AND entidad <> '' ORDER BY entidad")
+    out: dict[str, set] = {"mercado": set(), "fci": set()}
+    for r in rows:
+        bloque = TIPOS_MERCADO.get(r["tipo"], ("mercado", ""))[0]
+        out[bloque].add(r["entidad"])
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def _validar_mercado(datos: dict) -> dict:
+    """Normaliza + valida una fila de MERCADOS. Mismas reglas que los cheques:
+    el banco tiene que existir en el catálogo (el desplegable no es una defensa)."""
+    tipo = str(datos.get("tipo") or "").strip().lower()
+    if tipo not in TIPOS_MERCADO:
+        raise ValueError(f"'tipo' inválido: {tipo} (válidos: {', '.join(TIPOS_MERCADO)})")
+    banco = str(datos.get("banco") or "").strip()
+    unidad = (str(datos.get("unidad") or "ARS").strip().upper() or "ARS")
+    if not banco:
+        raise ValueError("falta 'banco' (elegí una cuenta operativa)")
+    conocidos = catalogo()
+    if conocidos and (banco, unidad) not in conocidos:
+        raise ValueError(
+            f"'{banco}' [{unidad}] no es una cuenta operativa del catálogo de Tesorería")
+    try:
+        importe = float(datos.get("importe"))
+    except (TypeError, ValueError) as e:
+        raise ValueError("'importe' tiene que ser un número") from e
+    if importe <= 0:
+        raise ValueError("'importe' tiene que ser mayor a 0")
+    estado = str(datos.get("estado") or "pendiente").strip().lower()
+    if estado not in ESTADOS_MERCADO:
+        raise ValueError(f"'estado' inválido: {estado} "
+                         f"(válidos: {', '.join(ESTADOS_MERCADO)})")
+    return {
+        "fecha": _dia(str(datos.get("fecha") or "") or None),
+        "tipo": tipo,
+        "entidad": " ".join(str(datos.get("entidad") or "").split()).upper() or None,
+        "banco": banco, "unidad": unidad, "importe": importe, "estado": estado,
+    }
+
+
+def crear_mercado(datos: dict, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para cargar movimientos de Mercados")
+    f = _validar_mercado(datos)
+    f |= {"por": (actor or "").lower() or None, "at": datetime.now(UTC)}
+    campos = ", ".join(_CAMPOS_MERCADO)
+    valores = ", ".join(f"%({c})s" for c in _CAMPOS_MERCADO)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"INSERT INTO {_TABLA_MERCADOS} ({campos}, creado_por, creado_at) "
+            f"VALUES ({valores}, %(por)s, %(at)s) RETURNING id", f)
+        nuevo = cur.fetchone()[0]
+        conn.commit()
+    _audit(actor, "crear_mercado", str(nuevo), {"tipo": f["tipo"], "banco": f["banco"]})
+    return {"id": int(nuevo)}
+
+
+def editar_mercado(id_: int, datos: dict, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar movimientos de Mercados")
+    f = _validar_mercado(datos)
+    f |= {"id": int(id_), "por": (actor or "").lower() or None, "at": datetime.now(UTC)}
+    sets = ", ".join(f"{c} = %({c})s" for c in _CAMPOS_MERCADO)
+    n = _exec(f"UPDATE {_TABLA_MERCADOS} SET {sets}, actualizado_por = %(por)s, "
+              "actualizado_at = %(at)s WHERE id = %(id)s", f)
+    if not n:
+        raise ValueError(f"no existe el movimiento {id_}")
+    _audit(actor, "editar_mercado", str(id_), {"tipo": f["tipo"], "banco": f["banco"]})
+    return {"id": int(id_)}
+
+
+def set_estado_mercado(id_: int, estado: str, actor: str) -> dict:
+    """Cambia SOLO el estado — el click sobre la celda, sin reabrir la operación."""
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar movimientos de Mercados")
+    est = (estado or "").strip().lower()
+    if est not in ESTADOS_MERCADO:
+        raise ValueError(f"'estado' inválido: {est} (válidos: {', '.join(ESTADOS_MERCADO)})")
+    n = _exec(f"UPDATE {_TABLA_MERCADOS} SET estado = %(e)s, actualizado_por = %(por)s, "
+              "actualizado_at = %(at)s WHERE id = %(id)s",
+              {"id": int(id_), "e": est, "por": (actor or "").lower() or None,
+               "at": datetime.now(UTC)})
+    if not n:
+        raise ValueError(f"no existe el movimiento {id_}")
+    _audit(actor, "estado_mercado", str(id_), {"a": est})
+    return {"id": int(id_), "estado": est}
+
+
+def borrar_mercado(id_: int, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para borrar movimientos de Mercados")
+    n = _exec(f"DELETE FROM {_TABLA_MERCADOS} WHERE id = %(id)s", {"id": int(id_)})
+    _audit(actor, "borrar_mercado", str(id_))
+    return {"borrado": n}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Catálogo de cuentas operativas (bancos). Aunesa no tiene endpoint de cuentas:
 # el universo se descubre viendo movimientos, así que se persiste acá.
 # ──────────────────────────────────────────────────────────────────────────────
@@ -693,6 +845,37 @@ def catalogo() -> list[tuple[str, str]]:
         _log.warning("tesoreria: no pude leer el catálogo de cuentas", exc_info=True)
         return []
     return [(r["cuenta_operativa"], r["unidad"]) for r in rows]
+
+
+UNIDADES = ("ARS", "USD")
+
+
+def crear_cuenta(cuenta_operativa: str, unidad: str, actor: str) -> dict:
+    """Alta MANUAL de una cuenta operativa (banco) desde la vista.
+
+    Existe porque el catálogo se descubre viendo movimientos: un banco que todavía
+    no operó nunca no aparece, y el back office igual necesita cargarle el saldo.
+    Se modela EXACTAMENTE igual que las auto-descubiertas (misma tabla, misma PK)
+    — `aunesa_id` queda NULL y se completa solo la primera vez que el banco opere.
+    """
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para dar de alta bancos de Tesorería")
+    cta = " ".join((cuenta_operativa or "").split()).upper()   # colapsa espacios
+    uni = (unidad or "").strip().upper()
+    if not cta:
+        raise ValueError("falta el nombre de la cuenta operativa")
+    if uni not in UNIDADES:
+        raise ValueError(f"unidad inválida: {uni} (válidas: {', '.join(UNIDADES)})")
+    if (cta, uni) in set(catalogo()):
+        raise ValueError(f"'{cta}' [{uni}] ya está en el catálogo")
+    _exec(
+        "INSERT INTO operaciones.tesoreria_cuentas (cuenta_operativa, unidad, activa) "
+        "VALUES (%(c)s, %(u)s, true) "
+        "ON CONFLICT (cuenta_operativa, unidad) DO UPDATE SET activa = true",
+        {"c": cta, "u": uni},
+    )
+    _audit(actor, "crear_cuenta", f"{cta}|{uni}")
+    return {"cuenta_operativa": cta, "unidad": uni}
 
 
 def registrar_cuentas(vistas: dict[tuple[str, str], str | None], dia: date) -> None:

@@ -699,6 +699,12 @@ def _op_pred(sel: str) -> tuple[str, dict]:
             "WHERE COALESCE(o.nombre, o.email) = %(sel_op)s)", {"sel_op": sel})
 
 
+# Dimensión de la tabla izquierda de ARANCELES → columna de `operaciones`.
+# `operador` queda afuera a propósito: no es una columna, se resuelve por subquery
+# a comitentes (`_op_pred`). Lo que no esté acá cae a nivel_3 (el default).
+_ARANCEL_DIM_COL = {"nivel3": "nivel_3", "operacion": "operacion", "mercado": "mercado"}
+
+
 def ops_aranceles(
     moneda: str = "ARS", desde: str = "", hasta: str = "", agg: str = "MENSUAL",
     cuenta: str | None = None, instrumento: str | None = None, sel_dim: str | None = None,
@@ -739,8 +745,8 @@ def ops_aranceles(
     m_instr = ("instrumento = %(f_instr)s", {"f_instr": instrumento}) if instrumento else (None, {})
     if sel_dim and dim == "operador":
         m_dim = _op_pred(sel_dim)
-    elif sel_dim and dim == "operacion":
-        m_dim = ("operacion = %(f_dim)s", {"f_dim": sel_dim})
+    elif sel_dim and dim in _ARANCEL_DIM_COL:
+        m_dim = (f"{_ARANCEL_DIM_COL[dim]} = %(f_dim)s", {"f_dim": sel_dim})
     elif sel_dim:
         m_dim = ("nivel_3 = %(f_dim)s", {"f_dim": sel_dim})
     else:
@@ -787,7 +793,7 @@ def ops_aranceles(
             key=lambda x: x["arancel"], reverse=True,
         )
     else:
-        field = "operacion" if dim == "operacion" else "nivel_3"
+        field = _ARANCEL_DIM_COL.get(dim, "nivel_3")
         por_dim = _tabla(field, "clave", m_cuenta, m_instr)
 
     por_cuenta = _tabla("denominacion", "denominacion", m_dim, m_instr)

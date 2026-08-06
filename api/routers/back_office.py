@@ -173,6 +173,90 @@ def tesoreria_cheque_borrar(id_: int, actor: str = Depends(require_escritura_tes
         raise HTTPException(403, str(e)) from e
 
 
+# ── Catálogo de bancos: alta manual desde la vista (los descubiertos por Aunesa
+#    se auto-registran; esto es para los que todavía no operaron nunca) ─────────
+
+class _CuentaNueva(BaseModel):
+    cuenta_operativa: str = Field(..., min_length=1, max_length=256)
+    unidad: str = Field(..., min_length=1, max_length=8)
+
+
+@router.post("/tesoreria/cuentas")
+def tesoreria_cuenta_crear(req: _CuentaNueva = Body(...),
+                           actor: str = Depends(require_escritura_tesoreria)):
+    """Da de alta una cuenta operativa (banco) en el catálogo de Tesorería."""
+    try:
+        return svc_tes.crear_cuenta(req.cuenta_operativa, req.unidad, actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+# ── Tab MERCADOS: 4 tableros del día (mercado ingresos/pagos, FCI rescates/
+#    suscripciones). Carga manual, mismo modelo con distinto `tipo`. ───────────
+
+class _Mercado(BaseModel):
+    fecha: str | None = None                                # ISO YYYY-MM-DD
+    tipo: str = Field(..., min_length=1, max_length=16)     # ingreso|pago|rescate|suscripcion
+    entidad: str | None = Field(None, max_length=128)       # mercado o FCI
+    banco: str = Field(..., min_length=1, max_length=256)
+    unidad: str = Field("ARS", min_length=1, max_length=8)
+    importe: float
+    estado: str = Field("pendiente", max_length=32)
+
+
+@router.get("/tesoreria/mercados")
+def tesoreria_mercados(
+    fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
+    email: str = Depends(get_user_email),
+):
+    """Los 4 tableros de la tab MERCADOS del día + catálogo de bancos para el form."""
+    return svc_tes.mercados(fecha=fecha, email=email)
+
+
+@router.post("/tesoreria/mercados")
+def tesoreria_mercado_crear(req: _Mercado = Body(...),
+                            actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.crear_mercado(req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/tesoreria/mercados/{id_}")
+def tesoreria_mercado_editar(id_: int, req: _Mercado = Body(...),
+                             actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.editar_mercado(id_, req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/tesoreria/mercados/{id_}/estado")
+def tesoreria_mercado_estado(id_: int, req: _EstadoCheque = Body(...),
+                             actor: str = Depends(require_escritura_tesoreria)):
+    """Cambia SOLO el estado desde la celda (reusa el body {estado})."""
+    try:
+        return svc_tes.set_estado_mercado(id_, req.estado, actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/tesoreria/mercados/{id_}")
+def tesoreria_mercado_borrar(id_: int, actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.borrar_mercado(id_, actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+
+
 @router.get("/titulos-mercado")
 def titulos_mercado(
     fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),

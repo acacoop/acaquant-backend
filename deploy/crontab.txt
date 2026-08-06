@@ -119,13 +119,13 @@
 # NULL (idempotente, ventana de 7 días).
 */30 14-22 * * 1-5 /root/TradingAV/deploy/run_job.sh negocio_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos && /root/TradingAV/venv/bin/python -m jobs.aranceles && /root/TradingAV/venv/bin/python -m jobs.fci_bilateral && /root/TradingAV/venv/bin/python -m jobs.ops_tasa_mav'
 
-# ─── Tesorería: histórico de movimientos bancarios (cada hora 13-22 UTC L-V)
-# La vista del DÍA es live contra Aunesa; esto persiste el histórico que necesita la
-# tab SALDO AL2 (serie de 60 días del banco FERSI SA — Aunesa se pide día por día).
-# Idempotente (upsert por id) y con lookback de 3 días para capturar los cambios de
-# estado Pendiente → Procesado. Backfill inicial (una vez, fuera de rueda):
-#   python -m jobs.tesoreria_movimientos --dias 60
-40 13-22 * * 1-5 /root/TradingAV/deploy/run_job.sh tesoreria_movimientos 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.tesoreria_movimientos'
+# ─── Tesorería → SALDO AL2 (cada hora 13-22 UTC L-V)
+# SOLO los movimientos del banco FERSI SA (`[00001713]`): la vista de tesorería del día
+# es live contra Aunesa y no se persiste, pero la serie de 60 días de la tab SALDO AL2
+# no se puede armar live (Aunesa se pide día por día). Idempotente (upsert por id) y con
+# lookback de 3 días para capturar los cambios de estado Pendiente → Procesado.
+# Backfill inicial (una vez, fuera de rueda): python -m jobs.tesoreria_al2 --dias 60
+40 13-22 * * 1-5 /root/TradingAV/deploy/run_job.sh tesoreria_al2 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.tesoreria_al2'
 
 # ─── Operaciones desde /informes (cada 30 min, 13:30-22:00 UTC L-V)
 # Fuente de verdad de operaciones (por CONCERTACIÓN). Idempotente + lookback.

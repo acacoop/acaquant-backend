@@ -30,9 +30,9 @@ a medida que avanza la rueda. Sembrado hacia atrás con
 
 SALDO AL2 (2026-08-06): tab con los movimientos del banco FERSI SA (`[00001713]`) de
 los últimos N días + la sumatoria acumulada. Necesita SERIE, y Aunesa se pide día por
-día → los movimientos se persisten en `operaciones.tesoreria_movimientos`
-(`jobs/tesoreria_movimientos.py`, idempotente por `id`). La vista del día NO cambió:
-sigue siendo live.
+día → SOLO esos movimientos se persisten, en `operaciones.tesoreria_al2`
+(`jobs/tesoreria_al2.py`, idempotente por `id`). El resto de los movimientos NO se
+guarda: la vista del día sigue siendo live.
 """
 from __future__ import annotations
 
@@ -59,14 +59,14 @@ _INGRESO = "deposito"   # 'Depósito'
 _EGRESO = "extraccion"  # 'Extracción'
 PRESENCIA_TTL_S = 90    # visto hace ≤90s = conectado (el front pollea cada ~20s)
 
-# Estados de Aunesa. El histórico se ingesta con TODOS (el estado se guarda como
-# columna y la lectura filtra) para no perder las filas que todavía no liquidaron.
+# Estados de Aunesa. AL2 se ingesta con TODOS (el estado se guarda como columna y la
+# lectura filtra) para no perder las filas que todavía no liquidaron.
 ESTADOS = ("Procesado", "Pendiente", "Pendiente de autorizar", "Demorado",
            "Rechazado", "Anulado", "Incompleto")
 TODOS_ESTADOS = ";".join(ESTADOS)
 
-_TABLA_MOV = "operaciones.tesoreria_movimientos"
-AL2_BANCO_CODIGO = "00001713"   # FERSI SA — el banco de la tab SALDO AL2
+_TABLA_AL2 = "operaciones.tesoreria_al2"
+AL2_BANCO_CODIGO = "00001713"   # FERSI SA — el único banco que se persiste
 _RE_BANCO_COD = re.compile(r"\[(\w+)\]")
 
 
@@ -234,9 +234,10 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# HISTÓRICO de movimientos (operaciones.tesoreria_movimientos) — lo alimenta
-# `jobs/tesoreria_movimientos.py`. Lo necesita SALDO AL2: la serie de 60 días no
-# se puede armar live porque Aunesa se pide día por día.
+# SALDO AL2 — SOLO los movimientos del banco FERSI SA se persisten
+# (`operaciones.tesoreria_al2`, lo alimenta `jobs/tesoreria_al2.py`). El resto de
+# la tesorería NO se guarda: la serie de 60 días es lo único que no se puede
+# resolver live, porque Aunesa se pide día por día.
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _banco_codigo(v: Any) -> str | None:
@@ -245,8 +246,12 @@ def _banco_codigo(v: Any) -> str | None:
     return m.group(1) if m else None
 
 
+def es_al2(mov: dict) -> bool:
+    return _banco_codigo(mov.get("banco")) == AL2_BANCO_CODIGO
+
+
 def _fila_sql(mov: dict, dia: date) -> dict:
-    """Movimiento aplanado → fila de `operaciones.tesoreria_movimientos`."""
+    """Movimiento aplanado → fila de `operaciones.tesoreria_al2`."""
     return {
         "id": str(mov.get("id") or ""),
         "fecha": dia,
@@ -256,7 +261,6 @@ def _fila_sql(mov: dict, dia: date) -> dict:
         "unidad": str(mov.get("unidad") or "?").upper(),
         "estado": str(mov.get("estado") or "") or None,
         "banco": str(mov.get("banco") or "") or None,
-        "banco_codigo": _banco_codigo(mov.get("banco")),
         "cuenta": str(mov.get("cuenta") or "") or None,
         "cuenta_operativa": mov.get("cuentaOperativa") or None,
         "riel": str(mov.get("tipoDocSoli") or "") or None,
@@ -268,31 +272,30 @@ def _fila_sql(mov: dict, dia: date) -> dict:
         "persona_cuit": str(mov.get("persona_cuit") or "") or None,
         "cbu_cvu": str(mov.get("cbuCVU") or "") or None,
         "id_externo": str(mov.get("idExterno") or "") or None,
-        "data": mov,
         "ingestado_en": datetime.now(UTC),
     }
 
 
 def ingestar_dia(dia: date, estado: str = TODOS_ESTADOS) -> int:
-    """Persiste los movimientos de `dia` (upsert por `id`). Idempotente."""
+    """Persiste los movimientos AL2 de `dia` (upsert por `id`). Idempotente."""
     return persistir(preparar_dia(dia, estado))
 
 
 def preparar_dia(dia: date, estado: str = TODOS_ESTADOS) -> list[dict]:
-    """Filas listas para `operaciones.tesoreria_movimientos` (sin escribir nada)."""
+    """Filas AL2 de `dia` listas para SQL (sin escribir nada). Descarta el resto."""
     yyyymmdd = dia.strftime("%Y%m%d")
-    return [_fila_sql(aplanar(r, yyyymmdd), dia)
-            for r in traer_crudas(dia, estado) if r.get("id")]
+    movs = (aplanar(r, yyyymmdd) for r in traer_crudas(dia, estado) if r.get("id"))
+    return [_fila_sql(m, dia) for m in movs if es_al2(m)]
 
 
 def persistir(filas: list[dict]) -> int:
-    """Upsert por `id` en `operaciones.tesoreria_movimientos`."""
-    return write_native(_TABLA_MOV, ["id"], filas)
+    """Upsert por `id` en `operaciones.tesoreria_al2`."""
+    return write_native(_TABLA_AL2, ["id"], filas)
 
 
 def saldo_al2(*, dias: int = 60, persona: str = "todas", unidad: str = "",
-              estado: str = "Procesado", banco: str = AL2_BANCO_CODIGO) -> dict:
-    """Movimientos + serie diaria acumulada de un banco (default FERSI SA).
+              estado: str = "Procesado") -> dict:
+    """Movimientos + serie diaria acumulada del banco AL2 (FERSI SA).
 
     `persona`: 'todas' | 'fisica' | 'juridica'. `unidad`: '' = todas las monedas.
     La serie se agrega en SQL (no sobre la muestra de movimientos) para que el
@@ -302,14 +305,13 @@ def saldo_al2(*, dias: int = 60, persona: str = "todas", unidad: str = "",
     desde = _hoy_art().date() - timedelta(days=dias - 1)
     p = _norm(persona)
     where = {
-        "cod": (banco or "").strip(),
         "desde": desde,
         "estado": (estado or "").strip(),
         "persona": p.upper() if p in ("fisica", "juridica") else "",
         "unidad": (unidad or "").strip().upper(),
     }
     filtro = (
-        "WHERE banco_codigo = %(cod)s AND fecha >= %(desde)s "
+        "WHERE fecha >= %(desde)s "
         "AND (%(estado)s = '' OR estado = %(estado)s) "
         "AND (%(persona)s = '' OR persona_tipo = %(persona)s) "
         "AND (%(unidad)s = '' OR unidad = %(unidad)s)"
@@ -317,7 +319,7 @@ def saldo_al2(*, dias: int = 60, persona: str = "todas", unidad: str = "",
 
     movs = _q(
         "SELECT id, fecha, hora, tipo, monto, unidad, estado, cuenta, cuenta_operativa, "
-        f"riel, persona, persona_tipo, persona_doc, persona_cuit FROM {_TABLA_MOV} {filtro} "
+        f"riel, persona, persona_tipo, persona_doc, persona_cuit FROM {_TABLA_AL2} {filtro} "
         "ORDER BY fecha DESC, hora DESC NULLS LAST LIMIT 5000",
         where,
     )
@@ -325,13 +327,12 @@ def saldo_al2(*, dias: int = 60, persona: str = "todas", unidad: str = "",
         "SELECT fecha, "
         "SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END) AS ingresos, "
         "SUM(CASE WHEN tipo = 'egreso'  THEN monto ELSE 0 END) AS egresos, "
-        f"COUNT(*) AS n FROM {_TABLA_MOV} {filtro} GROUP BY fecha ORDER BY fecha",
+        f"COUNT(*) AS n FROM {_TABLA_AL2} {filtro} GROUP BY fecha ORDER BY fecha",
         where,
     )
     unidades = [r["unidad"] for r in _q(
-        f"SELECT DISTINCT unidad FROM {_TABLA_MOV} "
-        "WHERE banco_codigo = %(cod)s AND fecha >= %(desde)s AND unidad IS NOT NULL "
-        "ORDER BY unidad", where)]
+        f"SELECT DISTINCT unidad FROM {_TABLA_AL2} "
+        "WHERE fecha >= %(desde)s AND unidad IS NOT NULL ORDER BY unidad", where)]
 
     serie, acum = [], 0.0
     tot_in = tot_out = 0.0
@@ -344,7 +345,7 @@ def saldo_al2(*, dias: int = 60, persona: str = "todas", unidad: str = "",
                       "acumulado": round(acum, 2), "n": int(r["n"])})
 
     return {
-        "banco_codigo": where["cod"], "desde": desde.isoformat(),
+        "banco_codigo": AL2_BANCO_CODIGO, "desde": desde.isoformat(),
         "hasta": _hoy_art().date().isoformat(), "dias": dias,
         "persona": persona, "unidad": where["unidad"], "estado": where["estado"],
         "unidades": unidades,

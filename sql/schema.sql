@@ -827,13 +827,12 @@ CREATE TABLE IF NOT EXISTS operaciones.tesoreria_cuentas (
     PRIMARY KEY (cuenta_operativa, unidad)
 );
 
--- HISTÓRICO de movimientos bancarios (Aunesa consultaMovDocsSolicitados). La vista
--- del DÍA sigue siendo live; esto existe porque la tab SALDO AL2 necesita SERIE
--- (últimos 60 días del banco FERSI SA) y Aunesa se pide día por día — 60 llamadas
--- por pantallazo era inviable. Lo escribe `jobs/tesoreria_movimientos.py`
--- (idempotente por `id` de Aunesa; re-ingesta los últimos días para capturar los
--- cambios de estado Pendiente → Procesado).
-CREATE TABLE IF NOT EXISTS operaciones.tesoreria_movimientos (
+-- SALDO AL2 — movimientos del banco FERSI SA (`[00001713]`) y NADA MÁS. La vista del
+-- día sigue siendo live contra Aunesa y NO se persiste; esto existe solo porque la tab
+-- SALDO AL2 necesita SERIE (60 días) y Aunesa se pide día por día. Lo escribe
+-- `jobs/tesoreria_al2.py` (idempotente por `id` de Aunesa; re-ingesta los últimos días
+-- para capturar los cambios de estado Pendiente → Procesado).
+CREATE TABLE IF NOT EXISTS operaciones.tesoreria_al2 (
     id               text PRIMARY KEY,        -- id Aunesa (YYYYMMDDHHMMSS…)
     fecha            date NOT NULL,
     hora             text,                    -- HH:MM derivada del id
@@ -842,7 +841,6 @@ CREATE TABLE IF NOT EXISTS operaciones.tesoreria_movimientos (
     unidad           text,                    -- ARS / USD
     estado           text,                    -- Procesado / Pendiente / …
     banco            text,                    -- crudo, ej. '[00001713] FERSI SA'
-    banco_codigo     text,                    -- '00001713' extraído de `banco`
     cuenta           text,
     cuenta_operativa text,                    -- denominación
     riel             text,                    -- tipoDocSoli
@@ -852,13 +850,10 @@ CREATE TABLE IF NOT EXISTS operaciones.tesoreria_movimientos (
     persona_cuit     text,
     cbu_cvu          text,
     id_externo       text,
-    data             jsonb,                   -- fila cruda de Aunesa aplanada
     ingestado_en     timestamptz
 );
-CREATE INDEX IF NOT EXISTS ix_tes_mov_banco_fecha
-    ON operaciones.tesoreria_movimientos (banco_codigo, fecha DESC);
-CREATE INDEX IF NOT EXISTS ix_tes_mov_fecha
-    ON operaciones.tesoreria_movimientos (fecha DESC);
+CREATE INDEX IF NOT EXISTS ix_tesoreria_al2_fecha
+    ON operaciones.tesoreria_al2 (fecha DESC);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PORTAFOLIO — tenencias + catálogo de títulos (FUENTE DE VERDAD, SQL-native)

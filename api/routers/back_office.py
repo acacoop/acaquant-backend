@@ -51,9 +51,9 @@ def tesoreria_al2(
 ):
     """SALDO AL2 — movimientos del banco FERSI SA + serie diaria acumulada.
 
-    Lee el HISTÓRICO persistido (`operaciones.tesoreria_movimientos`, lo escribe
-    `jobs.tesoreria_movimientos`), no Aunesa: la serie de 60 días implicaría 60
-    llamadas por pantallazo."""
+    Lee `operaciones.tesoreria_al2` (lo escribe `jobs.tesoreria_al2`), no Aunesa: la
+    serie de 60 días implicaría 60 llamadas por pantallazo. Es lo ÚNICO que se
+    persiste de tesorería."""
     return svc_tes.saldo_al2(dias=dias, persona=persona, unidad=unidad, estado=estado)
 
 

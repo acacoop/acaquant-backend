@@ -134,13 +134,24 @@ def main() -> None:
               f"(la card agrupa por denominación+moneda): {sorted(multi)}")
 
     if a.registrar:
-        from api.services.tesoreria import registrar_cuentas
+        from api.services.tesoreria import catalogo, registrar_cuentas
         for k, e in acc.items():
             aid = sorted(e["ids"])[0] if e["ids"] else None
             # dos pasadas: la vieja fija `primera_vez`, la nueva `ultima_vez`.
             registrar_cuentas({k: aid}, min(e["dias"]))
             registrar_cuentas({k: aid}, max(e["dias"]))
-        print(f"\n>>> registradas {len(acc)} cuentas en operaciones.tesoreria_cuentas")
+        # Releemos la tabla: es la ÚNICA prueba de que la escritura realmente entró
+        # (si falta `apply_schema`, el registro no rompe nada pero tampoco persiste).
+        cat = catalogo()
+        print(f"\n=== operaciones.tesoreria_cuentas ({len(cat)}) ===")
+        for den, uni in cat:
+            print(f"  {den:<40} {uni}")
+        if len(cat) < len(acc):
+            print(f"\n>>> FALLÓ: se intentaron registrar {len(acc)} y la tabla tiene {len(cat)}.\n"
+                  ">>> Casi seguro falta correr `python -m scripts.apply_schema`.")
+        else:
+            print(f"\n>>> OK: {len(cat)} cuentas en el catálogo. La grilla BANCOS ya las muestra "
+                  "todas, operen o no.")
 
 
 if __name__ == "__main__":

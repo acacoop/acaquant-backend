@@ -6,11 +6,20 @@ existen, con qué id/moneda, cuántos movimientos y en cuántos días apareciero
 Sirve para saber de antemano qué cards van a salir en la vista y para cuáles hay
 que cargar saldo inicial — sin esperar a que un banco aparezca por primera vez.
 
-Si la DB es accesible, además cruza contra `operaciones.tesoreria_saldos` y marca
-qué cuentas nunca tuvieron saldo cargado.
+Si la DB es accesible, además cruza contra:
+  · `operaciones.tesoreria_cuentas` → **qué cuentas FALTAN en el catálogo** (operaron
+    pero no están, así que hoy no salen como columna en la grilla BANCOS), y cuáles
+    están en el catálogo sin movimientos en el rango.
+  · `operaciones.tesoreria_saldos`  → marca con '!' las que nunca tuvieron saldo.
+
+OJO con la ventana: es UNA llamada a Aunesa por día (Aunesa se pide día por día),
+con una pausa de 0.4s entre medio. 150 días ≈ 150 requests ≈ 1 minuto + latencia.
+Es read-only: no escribe nada salvo que pases --registrar.
 
 Uso (desde la raíz, en el Droplet):
     python -m scripts.diag_tesoreria_cuentas                  # últimos 15 días, Procesado
+    python -m scripts.diag_tesoreria_cuentas --dias 150       # qué bancos faltan (6 meses)
+    python -m scripts.diag_tesoreria_cuentas --dias 150 --estado ''   # sin filtro de estado
     python -m scripts.diag_tesoreria_cuentas --dias 60
     python -m scripts.diag_tesoreria_cuentas --hasta 2026-07-31 --dias 30
     python -m scripts.diag_tesoreria_cuentas --estado ""      # sin filtro de estado
@@ -55,6 +64,18 @@ def _filas_dia(dia: date, estado: str) -> list[dict]:
     body = resp.json()
     rows = body if isinstance(body, list) else []
     return [r for r in rows if str(r.get("fecha") or "").strip() == ddmmyyyy]
+
+
+def _catalogo_actual() -> set[tuple[str, str]] | None:
+    """{(cuenta_operativa, unidad)} que YA están en operaciones.tesoreria_cuentas.
+    None si no hay DB accesible (el inventario contra Aunesa igual se imprime)."""
+    try:
+        from api.services._sql import _q
+        rows = _q("SELECT cuenta_operativa, unidad FROM operaciones.tesoreria_cuentas")
+        return {(r["cuenta_operativa"], r["unidad"]) for r in rows}
+    except Exception as e:
+        print(f"(sin cruce contra tesoreria_cuentas: {type(e).__name__})")
+        return None
 
 
 def _saldos_cargados() -> set[tuple[str, str]] | None:
@@ -124,6 +145,30 @@ def main() -> None:
               f"{e['ing']:>18,.2f}{e['egr']:>18,.2f}")
     if cargados is not None:
         print("\n'!' = nunca tuvo saldo inicial cargado en operaciones.tesoreria_saldos.")
+
+    # ── Lo que importa: qué cuentas operativas vio Aunesa y NO están en el catálogo ──
+    # `SIN CUENTA OPERATIVA` es el cajón de las filas que llegan sin cuenta: no es un
+    # banco y a propósito nunca entra al catálogo (ver tesoreria.SIN_CUENTA).
+    catalogo_hoy = _catalogo_actual()
+    if catalogo_hoy is not None:
+        vistas = {k for k in acc if k[0] != "SIN CUENTA OPERATIVA"}
+        faltan = sorted(vistas - catalogo_hoy)
+        sobran = sorted(catalogo_hoy - vistas)
+        print(f"\n=== FALTAN EN EL CATÁLOGO ({len(faltan)}) ===")
+        if faltan:
+            print("Operaron en el rango pero NO están en operaciones.tesoreria_cuentas,")
+            print("así que hoy no salen como columna en la grilla BANCOS:")
+            for den, uni in faltan:
+                e = acc[(den, uni)]
+                print(f"  + {den:<40} [{uni}]  {e['n']:>5} mov · {len(e['dias'])} días")
+            print("\nPara darlas de alta: volvé a correr con --registrar "
+                  "(o cargalas a mano desde la vista, botón + BANCO).")
+        else:
+            print("  ninguna — el catálogo ya cubre todo lo que operó en el rango.")
+        print(f"\n=== EN EL CATÁLOGO PERO SIN MOVIMIENTOS EN EL RANGO ({len(sobran)}) ===")
+        for den, uni in sobran:
+            print(f"  · {den:<40} [{uni}]")
+        print("  (normal: bancos que no operaron esos días. Salen en cero en la grilla.)")
 
     multi = {d: ids for d, ids in ids_por_den.items() if len(ids) > 1}
     print("\n=== IDs de Aunesa por denominación ===")

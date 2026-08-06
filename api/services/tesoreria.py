@@ -67,6 +67,9 @@ PRESENCIA_TTL_S = 90    # visto hace ≤90s = conectado (el front pollea cada ~2
 ESTADOS = ("Procesado", "Pendiente", "Pendiente de autorizar", "Demorado",
            "Rechazado", "Anulado", "Incompleto")
 TODOS_ESTADOS = ";".join(ESTADOS)
+# Único estado que representa plata que EFECTIVAMENTE se movió en la cuenta del banco.
+# Es lo único que puede entrar a un saldo (ver `ingresos_egresos_dia`).
+ESTADO_EFECTIVO = "Procesado"
 
 _TABLA_AL2 = "operaciones.tesoreria_al2"
 AL2_BANCO_CODIGO = "00001713"   # FERSI SA — el único banco que se persiste
@@ -165,17 +168,26 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     """Ingresos/egresos bancarios de un día (default hoy ART) desde Aunesa.
 
     Devuelve:
-      - `resumen`: {unidad: {ingresos, egresos, neto, n}} por moneda (ARS/USD).
+      - `resumen`: {unidad: {ingresos, egresos, neto, n}} por moneda (ARS/USD), sobre
+        los movimientos del `estado` pedido (acompaña a la tabla de MOVIMIENTOS).
       - `cuentas`: TODAS las cuentas operativas del catálogo × moneda (las que no
         operaron ese día vienen en cero), con el saldo inicial cargado a mano (0 si
         nadie lo cargó) y el saldo final = inicial + ingresos − egresos.
       - `movimientos`: filas para la tabla (hora, cuenta, cliente, riel, unidad, tipo,
         monto, estado), ordenadas por hora desc.
+
+    OJO — `cuentas` (tab BANCOS) NO respeta el filtro `estado` de la barra: un
+    movimiento Rechazado / Anulado / Pendiente nunca movió plata en el banco, así que
+    no puede entrar en un saldo. La grilla se calcula SIEMPRE sobre `ESTADO_EFECTIVO`.
+    El filtro `estado` es de la tabla de MOVIMIENTOS (inspección), no del saldo.
+    Por eso se le pide a Aunesa TODOS los estados de una y se separa acá: una sola
+    llamada sirve a las dos tabs sin que una condicione a la otra.
     """
     dia = _dia(fecha)
     ddmmyyyy, _, yyyymmdd = _fechas(fecha)
     marcar_presencia(email)  # pollear la vista ES el heartbeat
-    crudas = traer_crudas(dia, estado)
+    crudas = traer_crudas(dia, TODOS_ESTADOS)
+    pedidos = {e.strip() for e in (estado or "").split(";") if e.strip()}
 
     resumen: dict[str, dict] = {}
     por_cuenta: dict[tuple[str, str], dict] = {}
@@ -183,21 +195,29 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     movimientos: list[dict] = []
     for r in crudas:
         mov = aplanar(r, yyyymmdd)
-        movimientos.append(mov)
+        est = str(r.get("estado") or "").strip()
+        en_tabla = not pedidos or est in pedidos
+        if en_tabla:
+            movimientos.append(mov)
         if not mov["_tipo"]:
             continue
         co = r.get("cuentaOperativa")
         cta = mov["cuentaOperativa"]
         unidad = (r.get("unidad") or "?").upper()
         monto = _num(r.get("monto"))
+        # El catálogo se alimenta con TODO lo visto: la cuenta operativa existe igual
+        # aunque el movimiento que la delató haya terminado rechazado.
         vistas[(cta, unidad)] = str(co["id"]) if isinstance(co, dict) and co.get("id") else None
-        b = resumen.setdefault(unidad, {"ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0})
-        c = por_cuenta.setdefault(
-            (cta, unidad),
-            {"cuenta_operativa": cta, "unidad": unidad,
-             "ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0},
-        )
-        for d in (b, c):
+        destinos = []
+        if en_tabla:
+            destinos.append(resumen.setdefault(
+                unidad, {"ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0}))
+        if est == ESTADO_EFECTIVO:  # el saldo del banco, solo plata que se movió
+            destinos.append(por_cuenta.setdefault(
+                (cta, unidad),
+                {"cuenta_operativa": cta, "unidad": unidad,
+                 "ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0}))
+        for d in destinos:
             if mov["_tipo"] == "ingreso":
                 d["ingresos"] += monto
             else:
@@ -233,6 +253,7 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         cuentas.append(c)
 
     return {"fecha": ddmmyyyy, "fecha_iso": dia.isoformat(), "estado": estado,
+            "estado_bancos": ESTADO_EFECTIVO,  # el front lo aclara en la tab BANCOS
             "resumen": resumen, "cuentas": cuentas,
             "puede_editar_saldo": puede_editar_saldo(email),
             "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),

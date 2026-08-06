@@ -202,13 +202,13 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
       - `movimientos`: filas para la tabla (hora, cuenta, cliente, riel, unidad, tipo,
         monto, estado), ordenadas por hora desc.
 
-    Las dos filas e-cheq son propias y asimétricas a propósito:
-      - `egresos_echeq` (RIEL e-cheq de Aunesa) está FUERA de `egresos` y NO resta del
-        saldo final: el e-cheq se paga en su fecha de pago, no el día que se emite.
-      - `ingresos_echeq` (cheques recibidos finalizados, carga manual de la tab CHEQUES)
-        SÍ suma al saldo final: esa plata NO viene en los movimientos de Aunesa, así
-        que sumarla no duplica nada.
-    Saldo final = inicial + ingresos + ingresos_echeq − egresos.
+    Las dos filas e-cheq salen SEPARADAS de los totales para que el back office las
+    distinga (es lo único que buscaba la separación), pero las dos entran al saldo:
+      - `egresos_echeq`  = RIEL e-cheq de Aunesa, fuera del total de `egresos`.
+      - `ingresos_echeq` = cheques recibidos finalizados (carga manual, tab CHEQUES).
+        No vienen en los movimientos de Aunesa, así que sumarlos no duplica nada.
+
+    Saldo final = inicial + ingresos + ingresos_echeq − egresos − egresos_echeq.
 
     OJO — `cuentas` (tab BANCOS) NO respeta el filtro `estado` de la barra: un
     movimiento Rechazado / Anulado / Pendiente nunca movió plata en el banco, así que
@@ -284,9 +284,10 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         # como número. `saldo_cargado` es lo que separa "cargado en 0" de "sin cargar".
         c["saldo_cargado"] = ini is not None
         c["saldo_inicial"] = round(ini if ini is not None else 0.0, 2)
-        # Los ingresos e-cheq SÍ suman: esa plata no viene en los movimientos de
-        # Aunesa, se carga a mano. Los egresos e-cheq NO restan (se pagan a futuro).
-        c["saldo_final"] = round(c["saldo_inicial"] + c["neto"] + c["ingresos_echeq"], 2)
+        # Las dos filas e-cheq están SEPARADAS solo para que el back office las
+        # distinga; las dos entran al saldo. `neto` ya es ingresos − egresos.
+        c["saldo_final"] = round(
+            c["saldo_inicial"] + c["neto"] + c["ingresos_echeq"] - c["egresos_echeq"], 2)
         c["saldo_por"] = s["actualizado_por"] if s else None
         c["saldo_at"] = s["actualizado_at"] if s else None
         cuentas.append(c)

@@ -179,6 +179,18 @@ def tesoreria_cheque_borrar(id_: int, actor: str = Depends(require_escritura_tes
 class _CuentaNueva(BaseModel):
     cuenta_operativa: str = Field(..., min_length=1, max_length=256)
     unidad: str = Field(..., min_length=1, max_length=8)
+    numero_cuenta: str | None = Field(None, max_length=64)
+
+
+class _CuentaEdit(_CuentaNueva):
+    nuevo_nombre: str | None = Field(None, max_length=256)
+    activa: bool | None = None
+
+
+@router.get("/tesoreria/cuentas")
+def tesoreria_cuentas(_email: str = Depends(get_user_email)):
+    """Catálogo de bancos con nombre, moneda y número de cuenta (ABM de la vista)."""
+    return {"cuentas": svc_tes.listar_cuentas()}
 
 
 @router.post("/tesoreria/cuentas")
@@ -186,7 +198,75 @@ def tesoreria_cuenta_crear(req: _CuentaNueva = Body(...),
                            actor: str = Depends(require_escritura_tesoreria)):
     """Da de alta una cuenta operativa (banco) en el catálogo de Tesorería."""
     try:
-        return svc_tes.crear_cuenta(req.cuenta_operativa, req.unidad, actor)
+        return svc_tes.crear_cuenta(req.cuenta_operativa, req.unidad, actor,
+                                    numero_cuenta=req.numero_cuenta)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/tesoreria/cuentas")
+def tesoreria_cuenta_editar(req: _CuentaEdit = Body(...),
+                            actor: str = Depends(require_escritura_tesoreria)):
+    """Edita un banco: número de cuenta, nombre (arrastra los históricos) y alta/baja."""
+    try:
+        return svc_tes.editar_cuenta(
+            req.cuenta_operativa, req.unidad, actor, numero_cuenta=req.numero_cuenta,
+            nuevo_nombre=req.nuevo_nombre, activa=req.activa)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+# ── Catálogo de MERCADOS / FCI (ABM en modal desde la tab MERCADOS) ───────────
+
+class _Entidad(BaseModel):
+    bloque: str = Field(..., min_length=1, max_length=16)   # mercado | fci
+    codigo: str | None = Field(None, max_length=64)
+    nombre: str = Field(..., min_length=1, max_length=128)
+
+
+@router.get("/tesoreria/entidades")
+def tesoreria_entidades(
+    bloque: str = Query("", description="mercado | fci; vacío = ambos"),
+    incluir_inactivas: bool = Query(False),
+    _email: str = Depends(get_user_email),
+):
+    """Catálogo de mercados y FCI."""
+    return {"entidades": svc_tes.catalogo_entidades(
+        bloque or None, solo_activas=not incluir_inactivas)}
+
+
+@router.post("/tesoreria/entidades")
+def tesoreria_entidad_crear(req: _Entidad = Body(...),
+                            actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.crear_entidad(req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/tesoreria/entidades/{id_}")
+def tesoreria_entidad_editar(id_: int, req: _Entidad = Body(...),
+                             actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.editar_entidad(id_, req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/tesoreria/entidades/{id_}")
+def tesoreria_entidad_baja(id_: int, actor: str = Depends(require_escritura_tesoreria)):
+    """Baja LÓGICA: la fila queda (los movimientos históricos la referencian), se
+    saca del desplegable."""
+    try:
+        return svc_tes.baja_entidad(id_, actor)
     except PermissionError as e:
         raise HTTPException(403, str(e)) from e
     except ValueError as e:

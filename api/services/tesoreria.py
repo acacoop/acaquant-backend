@@ -186,7 +186,32 @@ def _bucket() -> dict:
     """Acumulador de una celda de la grilla. `egresos_echeq` va SEPARADO: es una
     fila propia y no entra ni en `egresos` ni, por lo tanto, en el saldo final."""
     return {"ingresos": 0.0, "ingresos_echeq": 0.0, "egresos": 0.0, "egresos_echeq": 0.0,
-            "neto": 0.0, "n": 0}
+            "mercados": 0.0, "fci": 0.0, "neto": 0.0, "n": 0}
+
+
+def mercados_por_banco(dia: date) -> dict[tuple[str, str], dict]:
+    """{(banco, unidad): {mercados, fci}} del día, desde la tab MERCADOS.
+
+    Son DOS filas de la grilla BANCOS, ya netas y con signo listo para sumar:
+      mercados = ingresos − pagos          (bloque MERCADO, parte de arriba)
+      fci      = rescates − suscripciones  (bloque FCI, parte de abajo)
+    Se agrega en SQL con un CASE por tipo: una sola pasada, sin traer las filas.
+    """
+    try:
+        rows = _q(
+            "SELECT banco, unidad, "
+            "SUM(CASE WHEN tipo = 'ingreso' THEN importe "
+            "         WHEN tipo = 'pago' THEN -importe ELSE 0 END) AS mercados, "
+            "SUM(CASE WHEN tipo = 'rescate' THEN importe "
+            "         WHEN tipo = 'suscripcion' THEN -importe ELSE 0 END) AS fci "
+            f"FROM {_TABLA_MERCADOS} WHERE fecha = %(d)s GROUP BY banco, unidad",
+            {"d": dia},
+        )
+    except Exception:
+        _log.warning("tesoreria: no pude leer los movimientos de Mercados", exc_info=True)
+        return {}
+    return {(r["banco"], r["unidad"]): {"mercados": float(r["mercados"] or 0),
+                                        "fci": float(r["fci"] or 0)} for r in rows}
 
 
 def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
@@ -208,7 +233,11 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
       - `ingresos_echeq` = cheques recibidos finalizados (carga manual, tab CHEQUES).
         No vienen en los movimientos de Aunesa, así que sumarlos no duplica nada.
 
-    Saldo final = inicial + ingresos + ingresos_echeq − egresos − egresos_echeq.
+    MERCADOS y FCI vienen de la tab MERCADOS (carga manual) y entran ya NETOS:
+      mercados = ingresos − pagos          |  fci = rescates − suscripciones
+
+    Saldo final = inicial + ingresos + ingresos_echeq − egresos − egresos_echeq
+                  + mercados + fci.
 
     OJO — `cuentas` (tab BANCOS) NO respeta el filtro `estado` de la barra: un
     movimiento Rechazado / Anulado / Pendiente nunca movió plata en el banco, así que
@@ -271,14 +300,19 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     # Fila "Ingresos e-cheqs": los cheques RECIBIDOS que el equipo marcó finalizados
     # ese día (carga manual, tab CHEQUES). Fila propia, igual que los egresos e-cheq.
     ing_echeq = ingresos_echeq_dia(dia)
+    # Filas MERCADOS y FCI: ya vienen netas y con signo (ver mercados_por_banco).
+    mkt = mercados_por_banco(dia)
     cuentas = []
-    for clave in sorted(set(catalogo()) | set(por_cuenta) | set(ing_echeq)):
+    for clave in sorted(set(catalogo()) | set(por_cuenta) | set(ing_echeq) | set(mkt)):
         cta, uni = clave
         c = por_cuenta.get(clave) or {"cuenta_operativa": cta, "unidad": uni, **_bucket()}
         s = saldos.get(clave)
         ini = s["saldo_inicial"] if s else None
         c["ingresos_echeq"] = ing_echeq.get(clave, 0.0)
-        for k in ("ingresos", "ingresos_echeq", "egresos", "egresos_echeq", "neto"):
+        m = mkt.get(clave) or {}
+        c["mercados"], c["fci"] = m.get("mercados", 0.0), m.get("fci", 0.0)
+        for k in ("ingresos", "ingresos_echeq", "egresos", "egresos_echeq",
+                  "mercados", "fci", "neto"):
             c[k] = round(c[k], 2)
         # Sin carga manual el inicial es 0 (no null): así el saldo final siempre cierra
         # como número. `saldo_cargado` es lo que separa "cargado en 0" de "sin cargar".
@@ -287,7 +321,8 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
         # Las dos filas e-cheq están SEPARADAS solo para que el back office las
         # distinga; las dos entran al saldo. `neto` ya es ingresos − egresos.
         c["saldo_final"] = round(
-            c["saldo_inicial"] + c["neto"] + c["ingresos_echeq"] - c["egresos_echeq"], 2)
+            c["saldo_inicial"] + c["neto"] + c["ingresos_echeq"] - c["egresos_echeq"]
+            + c["mercados"] + c["fci"], 2)
         c["saldo_por"] = s["actualizado_por"] if s else None
         c["saldo_at"] = s["actualizado_at"] if s else None
         cuentas.append(c)
@@ -296,6 +331,7 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
             "estado_bancos": ESTADO_EFECTIVO,  # el front lo aclara en la tab BANCOS
             "resumen": resumen, "cuentas": cuentas,
             "puede_editar_saldo": puede_editar_saldo(email),
+            "catalogo": listar_cuentas(),   # ABM de bancos (nombre + número de cuenta)
             "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
             "movimientos": movimientos, "n": len(movimientos), "raw": len(movimientos)}
 
@@ -724,23 +760,100 @@ def mercados(*, fecha: str | None = None, email: str = "") -> dict:
         "filas": {t: [f for f in filas if f["tipo"] == t] for t in TIPOS_MERCADO},
         "tipos": {t: {"bloque": b, "lado": l} for t, (b, l) in TIPOS_MERCADO.items()},
         "estados": list(ESTADOS_MERCADO),
-        # Entidades ya usadas → sugerencias del form (sin catálogo aparte que mantener).
-        "entidades": _entidades_usadas(),
+        # Catálogo real (ABM en la vista), agrupado por bloque para el desplegable.
+        "entidades": {b: catalogo_entidades(b) for b in BLOQUES},
         "bancos": [{"banco": c, "unidad": u} for c, u in catalogo()],
         "puede_editar": puede_editar_saldo(email),
         "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
     }
 
 
-def _entidades_usadas() -> dict[str, list[str]]:
-    """{bloque: [entidades]} ya cargadas — alimenta el autocomplete del form."""
-    rows = _q(f"SELECT DISTINCT tipo, entidad FROM {_TABLA_MERCADOS} "
-              "WHERE entidad IS NOT NULL AND entidad <> '' ORDER BY entidad")
-    out: dict[str, set] = {"mercado": set(), "fci": set()}
-    for r in rows:
-        bloque = TIPOS_MERCADO.get(r["tipo"], ("mercado", ""))[0]
-        out[bloque].add(r["entidad"])
-    return {k: sorted(v) for k, v in out.items()}
+# ── Catálogo de MERCADOS / FCI (ABM desde la vista, con auditoría) ────────────
+
+_TABLA_ENTIDADES = "operaciones.tesoreria_entidades"
+BLOQUES = ("mercado", "fci")
+
+
+def _etiqueta(codigo: str | None, nombre: str) -> str:
+    """'[BYMA] BYMA' — como lo muestra el sistema de origen. Sin código, el nombre."""
+    return f"[{codigo}] {nombre}" if codigo else nombre
+
+
+def catalogo_entidades(bloque: str | None = None, *, solo_activas: bool = True) -> list[dict]:
+    """Mercados y FCI del catálogo. Es lo que se ofrece en el desplegable."""
+    try:
+        rows = _q(
+            f"SELECT id, bloque, codigo, nombre, activa FROM {_TABLA_ENTIDADES} "
+            "WHERE (%(b)s = '' OR bloque = %(b)s) AND (NOT %(act)s OR activa) "
+            "ORDER BY bloque, nombre, codigo",
+            {"b": (bloque or "").strip().lower(), "act": bool(solo_activas)},
+        )
+    except Exception:
+        _log.warning("tesoreria: no pude leer el catálogo de mercados", exc_info=True)
+        return []
+    return [{"id": int(r["id"]), "bloque": r["bloque"], "codigo": r["codigo"],
+             "nombre": r["nombre"], "activa": r["activa"],
+             "etiqueta": _etiqueta(r["codigo"], r["nombre"])} for r in rows]
+
+
+def _validar_entidad(datos: dict) -> dict:
+    bloque = str(datos.get("bloque") or "").strip().lower()
+    if bloque not in BLOQUES:
+        raise ValueError(f"'bloque' inválido: {bloque} (válidos: {', '.join(BLOQUES)})")
+    nombre = " ".join(str(datos.get("nombre") or "").split())
+    if not nombre:
+        raise ValueError("falta el nombre")
+    codigo = " ".join(str(datos.get("codigo") or "").split()) or None
+    return {"bloque": bloque, "codigo": codigo, "nombre": nombre}
+
+
+def crear_entidad(datos: dict, actor: str) -> dict:
+    """Alta de un mercado / FCI en el catálogo."""
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar el catálogo de Mercados")
+    f = _validar_entidad(datos) | {"por": (actor or "").lower() or None,
+                                   "at": datetime.now(UTC)}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"INSERT INTO {_TABLA_ENTIDADES} (bloque, codigo, nombre, creado_por, "
+                "creado_at) VALUES (%(bloque)s, %(codigo)s, %(nombre)s, %(por)s, %(at)s) "
+                "RETURNING id", f)
+            nuevo = cur.fetchone()[0]
+            conn.commit()
+    except Exception as e:  # el índice único es la defensa real contra duplicados
+        raise ValueError(f"ya existe una entidad con ese código/nombre en {f['bloque']}") from e
+    _audit(actor, "crear_entidad", str(nuevo), f | {"por": None, "at": None})
+    return {"id": int(nuevo)}
+
+
+def editar_entidad(id_: int, datos: dict, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar el catálogo de Mercados")
+    f = _validar_entidad(datos) | {"id": int(id_), "por": (actor or "").lower() or None,
+                                   "at": datetime.now(UTC)}
+    n = _exec(f"UPDATE {_TABLA_ENTIDADES} SET bloque = %(bloque)s, codigo = %(codigo)s, "
+              "nombre = %(nombre)s, actualizado_por = %(por)s, actualizado_at = %(at)s "
+              "WHERE id = %(id)s", f)
+    if not n:
+        raise ValueError(f"no existe la entidad {id_}")
+    _audit(actor, "editar_entidad", str(id_), {"nombre": f["nombre"], "codigo": f["codigo"]})
+    return {"id": int(id_)}
+
+
+def baja_entidad(id_: int, actor: str, *, activa: bool = False) -> dict:
+    """Baja LÓGICA: los movimientos históricos siguen apuntando a esta entidad, así
+    que nunca se borra la fila — se saca del desplegable."""
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar el catálogo de Mercados")
+    n = _exec(f"UPDATE {_TABLA_ENTIDADES} SET activa = %(a)s, actualizado_por = %(por)s, "
+              "actualizado_at = %(at)s WHERE id = %(id)s",
+              {"id": int(id_), "a": bool(activa), "por": (actor or "").lower() or None,
+               "at": datetime.now(UTC)})
+    if not n:
+        raise ValueError(f"no existe la entidad {id_}")
+    _audit(actor, "baja_entidad" if not activa else "alta_entidad", str(id_))
+    return {"id": int(id_), "activa": bool(activa)}
 
 
 def _validar_mercado(datos: dict) -> dict:
@@ -767,10 +880,17 @@ def _validar_mercado(datos: dict) -> dict:
     if estado not in ESTADOS_MERCADO:
         raise ValueError(f"'estado' inválido: {estado} "
                          f"(válidos: {', '.join(ESTADOS_MERCADO)})")
+    # La entidad tiene que existir en el catálogo del bloque (mercado o FCI). Igual
+    # que con el banco: el desplegable del front no es una defensa.
+    bloque = TIPOS_MERCADO[tipo][0]
+    entidad = " ".join(str(datos.get("entidad") or "").split()) or None
+    if entidad:
+        validas = {e["etiqueta"] for e in catalogo_entidades(bloque)}
+        if validas and entidad not in validas:
+            raise ValueError(f"'{entidad}' no está en el catálogo de {bloque}")
     return {
         "fecha": _dia(str(datos.get("fecha") or "") or None),
-        "tipo": tipo,
-        "entidad": " ".join(str(datos.get("entidad") or "").split()).upper() or None,
+        "tipo": tipo, "entidad": entidad,
         "banco": banco, "unidad": unidad, "importe": importe, "estado": estado,
     }
 
@@ -850,7 +970,39 @@ def catalogo() -> list[tuple[str, str]]:
 UNIDADES = ("ARS", "USD")
 
 
-def crear_cuenta(cuenta_operativa: str, unidad: str, actor: str) -> dict:
+def listar_cuentas(*, solo_activas: bool = False) -> list[dict]:
+    """Catálogo de bancos con TODOS sus campos — alimenta el ABM de la vista."""
+    try:
+        rows = _q("SELECT cuenta_operativa, unidad, numero_cuenta, aunesa_id, activa, "
+                  "primera_vez, ultima_vez FROM operaciones.tesoreria_cuentas "
+                  "WHERE (NOT %(act)s OR activa) ORDER BY cuenta_operativa, unidad",
+                  {"act": bool(solo_activas)})
+    except Exception:
+        _log.warning("tesoreria: no pude listar cuentas", exc_info=True)
+        return []
+    return [{
+        "cuenta_operativa": r["cuenta_operativa"], "unidad": r["unidad"],
+        "numero_cuenta": r["numero_cuenta"], "aunesa_id": r["aunesa_id"],
+        "activa": r["activa"],
+        # `descubierta` = la trajo Aunesa sola; las de alta manual no tienen id hasta
+        # que el banco opere por primera vez.
+        "descubierta": bool(r["aunesa_id"]),
+        "ultima_vez": r["ultima_vez"].isoformat() if r["ultima_vez"] else None,
+    } for r in rows]
+
+
+def _validar_cuenta(cuenta_operativa: str, unidad: str) -> tuple[str, str]:
+    cta = " ".join((cuenta_operativa or "").split()).upper()   # colapsa espacios
+    uni = (unidad or "").strip().upper()
+    if not cta:
+        raise ValueError("falta el nombre de la cuenta operativa")
+    if uni not in UNIDADES:
+        raise ValueError(f"unidad inválida: {uni} (válidas: {', '.join(UNIDADES)})")
+    return cta, uni
+
+
+def crear_cuenta(cuenta_operativa: str, unidad: str, actor: str,
+                 numero_cuenta: str | None = None) -> dict:
     """Alta MANUAL de una cuenta operativa (banco) desde la vista.
 
     Existe porque el catálogo se descubre viendo movimientos: un banco que todavía
@@ -860,22 +1012,60 @@ def crear_cuenta(cuenta_operativa: str, unidad: str, actor: str) -> dict:
     """
     if not puede_editar_saldo(actor):
         raise PermissionError("sin permiso para dar de alta bancos de Tesorería")
-    cta = " ".join((cuenta_operativa or "").split()).upper()   # colapsa espacios
-    uni = (unidad or "").strip().upper()
-    if not cta:
-        raise ValueError("falta el nombre de la cuenta operativa")
-    if uni not in UNIDADES:
-        raise ValueError(f"unidad inválida: {uni} (válidas: {', '.join(UNIDADES)})")
+    cta, uni = _validar_cuenta(cuenta_operativa, unidad)
     if (cta, uni) in set(catalogo()):
         raise ValueError(f"'{cta}' [{uni}] ya está en el catálogo")
+    nro = (numero_cuenta or "").strip() or None
     _exec(
-        "INSERT INTO operaciones.tesoreria_cuentas (cuenta_operativa, unidad, activa) "
-        "VALUES (%(c)s, %(u)s, true) "
-        "ON CONFLICT (cuenta_operativa, unidad) DO UPDATE SET activa = true",
-        {"c": cta, "u": uni},
+        "INSERT INTO operaciones.tesoreria_cuentas "
+        "(cuenta_operativa, unidad, numero_cuenta, activa) "
+        "VALUES (%(c)s, %(u)s, %(n)s, true) "
+        "ON CONFLICT (cuenta_operativa, unidad) DO UPDATE SET activa = true, "
+        "numero_cuenta = COALESCE(EXCLUDED.numero_cuenta, "
+        "                         operaciones.tesoreria_cuentas.numero_cuenta)",
+        {"c": cta, "u": uni, "n": nro},
     )
-    _audit(actor, "crear_cuenta", f"{cta}|{uni}")
-    return {"cuenta_operativa": cta, "unidad": uni}
+    _audit(actor, "crear_cuenta", f"{cta}|{uni}", {"numero_cuenta": nro})
+    return {"cuenta_operativa": cta, "unidad": uni, "numero_cuenta": nro}
+
+
+def editar_cuenta(cuenta_operativa: str, unidad: str, actor: str, *,
+                  numero_cuenta: str | None = None, nuevo_nombre: str | None = None,
+                  activa: bool | None = None) -> dict:
+    """Edita una cuenta del catálogo (número, nombre y alta/baja lógica).
+
+    OJO — la PK es (cuenta_operativa, unidad) y los saldos, cheques y movimientos de
+    Mercados referencian el NOMBRE. Renombrar tiene que arrastrar esas tablas o los
+    históricos quedan huérfanos: se hace todo en UNA transacción.
+    """
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar bancos de Tesorería")
+    cta, uni = _validar_cuenta(cuenta_operativa, unidad)
+    nuevo = " ".join((nuevo_nombre or "").split()).upper() or cta
+    if nuevo != cta and (nuevo, uni) in set(catalogo()):
+        raise ValueError(f"'{nuevo}' [{uni}] ya está en el catálogo")
+    p = {"c": cta, "u": uni, "nuevo": nuevo,
+         "n": (numero_cuenta or "").strip() or None,
+         "act": activa, "set_act": activa is not None}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE operaciones.tesoreria_cuentas SET cuenta_operativa = %(nuevo)s, "
+            "numero_cuenta = %(n)s, activa = CASE WHEN %(set_act)s THEN %(act)s ELSE activa END "
+            "WHERE cuenta_operativa = %(c)s AND unidad = %(u)s", p)
+        if not cur.rowcount:
+            raise ValueError(f"no existe el banco '{cta}' [{uni}]")
+        if nuevo != cta:
+            # Arrastre del renombre a todo lo que apunta al banco por nombre.
+            for tabla, col in (("operaciones.tesoreria_saldos", "cuenta_operativa"),
+                               ("operaciones.tesoreria_cheques", "banco"),
+                               ("operaciones.tesoreria_mercados", "banco")):
+                cur.execute(f"UPDATE {tabla} SET {col} = %(nuevo)s "
+                            f"WHERE {col} = %(c)s AND unidad = %(u)s", p)
+        conn.commit()
+    _audit(actor, "editar_cuenta", f"{cta}|{uni}",
+           {"nuevo_nombre": nuevo if nuevo != cta else None,
+            "numero_cuenta": p["n"], "activa": activa})
+    return {"cuenta_operativa": nuevo, "unidad": uni, "numero_cuenta": p["n"]}
 
 
 def registrar_cuentas(vistas: dict[tuple[str, str], str | None], dia: date) -> None:

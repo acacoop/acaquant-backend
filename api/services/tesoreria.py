@@ -369,6 +369,9 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     return {"fecha": ddmmyyyy, "fecha_iso": dia.isoformat(), "estado": estado,
             "estado_bancos": ESTADO_EFECTIVO,  # el front lo aclara en la tab BANCOS
             "resumen": resumen, "cuentas": cuentas,
+            # TOTAL del panel RESCATE ACA VALORES por moneda: la barra lo muestra al
+            # lado de SACAR FOTO para no tener que abrir el modal para verlo.
+            "rescate": totales_rescate(dia),
             "puede_editar_saldo": puede_editar_saldo(email),
             "catalogo": listar_cuentas(),   # ABM de bancos (nombre + número de cuenta)
             "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
@@ -535,15 +538,18 @@ def _detalle_dia(dia: date, cuentas: list[dict] | None = None) -> dict[str, dict
               default_excluido=not m["_hora"], obs_default=OBS_SIN_HORA)
 
     # 2) Registros manuales: entran a la MISMA fila que Aunesa, pero se marcan — es lo
-    #    único que no viene de la API y tiene que verse de un vistazo.
+    #    único que no viene de la API y tiene que verse de un vistazo. Los dos grupos
+    #    (rescate / otros) impactan igual el banco; el detalle dice de cuál viene.
     for r in _items_sql(
-            f"SELECT id, tipo, importe, creado_por, banco, unidad, sentido "
+            f"SELECT id, tipo, importe, creado_por, banco, unidad, sentido, "
+            f"{_SQL_GRUPO} AS grupo "
             f"FROM {_TABLA_REGISTROS} WHERE fecha = %(d)s ORDER BY id", {"d": dia}):
         # ESTADO va vacío a propósito: un registro manual NO tiene estado, y poner
         # "manual" ahí sería inventar uno. Que es manual ya lo dice el detalle.
         _push(r["banco"], r["unidad"],
               "ingresos" if r["sentido"] == "ingreso" else "egresos",
-              "registro", r["id"], f"registro manual · {r['tipo']}",
+              "registro", r["id"],
+              f"registro manual{'' if r['grupo'] == 'rescate' else ' (otros)'} · {r['tipo']}",
               f"cargado por {r['creado_por'] or '—'}", None, float(r["importe"] or 0))
 
     # 3) Cheques recibidos finalizados → fila ingresos_echeq.
@@ -1410,52 +1416,108 @@ def borrar_mercado(id_: int, actor: str) -> dict:
 # grilla. En el detalle de la celda salen marcados "registro manual" para que se
 # distingan de los de Aunesa.
 #
-# El modal es 50/50: izquierda la carga, derecha el resumen por TIPO. La fila
-# SALDOS del resumen es MANUAL y no sale de los registros → vive en su propia
-# tabla (`tesoreria_registros_saldo`), uno por día y moneda.
+# El modal tiene DOS tabs, y `grupo` es lo único que las separa:
+#   'rescate' → RESCATE ACA VALORES: `tipo` acotado al catálogo fijo (PROVEEDORES,
+#               VEP, …). Es el panel cuyo TOTAL se muestra en la barra de la vista.
+#   'otros'   → OTROS REGISTROS: `tipo` es texto LIBRE. Impacta el saldo del banco
+#               EXACTAMENTE igual, pero NO entra al resumen ni al TOTAL del rescate.
+#
+# Cada tab es 50/50: izquierda la carga, derecha el resumen por TIPO. La fila
+# SALDOS del resumen del rescate es MANUAL y no sale de los registros → vive en su
+# propia tabla (`tesoreria_registros_saldo`), uno por día y moneda.
 # ──────────────────────────────────────────────────────────────────────────────
 
 _TABLA_REGISTROS = "operaciones.tesoreria_registros"
 _TABLA_REG_SALDO = "operaciones.tesoreria_registros_saldo"
 SENTIDOS = ("egreso", "ingreso")
-# Tipos cargables. SALDOS queda AFUERA a propósito: es la fila manual del resumen.
+# Tipos cargables del grupo 'rescate'. SALDOS queda AFUERA a propósito: es la fila
+# manual del resumen. El grupo 'otros' NO valida contra esta lista (tipo libre).
 TIPOS_REGISTRO = ("PROVEEDORES", "FONDOS FIJOS", "VEP", "HABERES", "IMPUESTO",
                   "TARJETA VISA", "OTROS")
 TIPO_SALDOS = "SALDOS"
+GRUPOS_REGISTRO = ("rescate", "otros")
+GRUPO_DEFAULT = "rescate"
+# Las filas viejas (previas a la columna) son del rescate: ese era el único panel.
+_SQL_GRUPO = "COALESCE(NULLIF(grupo, ''), 'rescate')"
+
+
+def _rescate_por_unidad(dia: date) -> dict[str, dict]:
+    """{unidad: {por_tipo, saldo, saldo_por, total}} del panel RESCATE ACA VALORES.
+
+    Única fuente del panel: la usan el modal Y la leyenda de la barra, así que el
+    número de la barra no puede contradecir al del modal. Los registros del grupo
+    'otros' quedan afuera a propósito — impactan el banco, no el rescate.
+    """
+    out: dict[str, dict] = {}
+
+    def _u(uni: str) -> dict:
+        return out.setdefault((uni or "ARS").strip().upper(),
+                              {"por_tipo": {}, "saldo": 0.0, "saldo_por": None})
+
+    try:
+        for r in _q(f"SELECT unidad, importe, actualizado_por FROM {_TABLA_REG_SALDO} "
+                    "WHERE fecha = %(d)s", {"d": dia}):
+            u = _u(r["unidad"])
+            u["saldo"] = float(r["importe"] or 0)
+            u["saldo_por"] = r["actualizado_por"]
+    except Exception:
+        _log.warning("tesoreria: no pude leer el saldo manual del rescate", exc_info=True)
+    try:
+        for r in _q(f"SELECT unidad, tipo, SUM(importe) AS imp FROM {_TABLA_REGISTROS} "
+                    f"WHERE fecha = %(d)s AND {_SQL_GRUPO} = 'rescate' "
+                    "GROUP BY unidad, tipo", {"d": dia}):
+            _u(r["unidad"])["por_tipo"][r["tipo"]] = float(r["imp"] or 0)
+    except Exception:
+        _log.warning("tesoreria: no pude leer los registros del rescate", exc_info=True)
+
+    for u in out.values():
+        u["total"] = round(u["saldo"] + sum(u["por_tipo"].values()), 2)
+    return out
+
+
+def totales_rescate(dia: date) -> dict[str, float]:
+    """{unidad: TOTAL del panel RESCATE ACA VALORES} — lo que muestra la barra."""
+    return {u: v["total"] for u, v in _rescate_por_unidad(dia).items()}
 
 
 def registros(*, fecha: str | None = None, unidad: str = "ARS", email: str = "") -> dict:
-    """Modal REGISTROS MANUALES: las cargas del día + el resumen por tipo."""
+    """Modal REGISTROS MANUALES: las cargas del día + el resumen de cada tab."""
     marcar_presencia(email)
     dia = _dia(fecha)
     uni = (unidad or "ARS").strip().upper()
     filas = [{
         "id": int(r["id"]), "tipo": r["tipo"], "banco": r["banco"], "unidad": r["unidad"],
         "importe": float(r["importe"] or 0), "sentido": r["sentido"],
-        "usuario": r["creado_por"],
+        "grupo": r["grupo"], "usuario": r["creado_por"],
         "hora": r["creado_at"].astimezone(UTC).strftime("%H:%M") if r["creado_at"] else "",
     } for r in _q(
-        f"SELECT id, tipo, banco, unidad, importe, sentido, creado_por, creado_at "
+        f"SELECT id, tipo, banco, unidad, importe, sentido, {_SQL_GRUPO} AS grupo, "
+        f"creado_por, creado_at "
         f"FROM {_TABLA_REGISTROS} WHERE fecha = %(d)s ORDER BY id DESC", {"d": dia})]
 
-    # Resumen: SALDOS (manual) primero, después la suma de lo cargado por tipo.
-    saldo = _q(f"SELECT importe, actualizado_por FROM {_TABLA_REG_SALDO} "
-               "WHERE fecha = %(d)s AND unidad = %(u)s", {"d": dia, "u": uni})
-    saldo_manual = float(saldo[0]["importe"] or 0) if saldo else 0.0
-    por_tipo = {t: 0.0 for t in TIPOS_REGISTRO}
+    # Tab RESCATE: SALDOS (manual) primero, después la suma por tipo del catálogo.
+    r_uni = _rescate_por_unidad(dia).get(uni, {"por_tipo": {}, "saldo": 0.0,
+                                               "saldo_por": None, "total": 0.0})
+    resumen = ([{"tipo": TIPO_SALDOS, "importe": round(r_uni["saldo"], 2), "manual": True}]
+               + [{"tipo": t, "importe": round(r_uni["por_tipo"].get(t, 0.0), 2),
+                   "manual": False} for t in TIPOS_REGISTRO])
+    # Tab OTROS: el tipo es libre, así que el resumen se arma con los que hay cargados.
+    otros: dict[str, float] = {}
     for f in filas:
-        if f["unidad"] == uni:
-            por_tipo[f["tipo"]] = por_tipo.get(f["tipo"], 0.0) + f["importe"]
-    resumen = ([{"tipo": TIPO_SALDOS, "importe": round(saldo_manual, 2), "manual": True}]
-               + [{"tipo": t, "importe": round(por_tipo.get(t, 0.0), 2), "manual": False}
-                  for t in TIPOS_REGISTRO])
+        if f["grupo"] == "otros" and f["unidad"] == uni:
+            otros[f["tipo"]] = otros.get(f["tipo"], 0.0) + f["importe"]
+    resumen_otros = [{"tipo": t, "importe": round(v, 2)}
+                     for t, v in sorted(otros.items())]
     return {
         "fecha": dia.strftime("%d/%m/%Y"), "fecha_iso": dia.isoformat(), "unidad": uni,
         "filas": filas, "resumen": resumen,
-        "total": round(sum(r["importe"] for r in resumen), 2),
-        "saldo_manual": round(saldo_manual, 2),
-        "saldo_por": saldo[0]["actualizado_por"] if saldo else None,
+        "total": r_uni["total"],
+        "resumen_otros": resumen_otros,
+        "total_otros": round(sum(otros.values()), 2),
+        "saldo_manual": round(r_uni["saldo"], 2),
+        "saldo_por": r_uni["saldo_por"],
         "tipos": list(TIPOS_REGISTRO), "sentidos": list(SENTIDOS),
+        "grupos": list(GRUPOS_REGISTRO),
         "bancos": [{"banco": c, "unidad": u} for c, u in catalogo()],
         "puede_editar": puede_editar_saldo(email),
         "actualizado_at": datetime.now(UTC).isoformat(),
@@ -1466,7 +1528,8 @@ def registros_por_banco(dia: date) -> dict[tuple[str, str], dict]:
     """{(banco, unidad): {ingresos, egresos, n}} de los registros manuales del día.
 
     Se suman a las filas Ingresos / Egresos de la grilla: son movimientos reales
-    del banco, solo que cargados a mano en vez de venir de la API.
+    del banco, solo que cargados a mano en vez de venir de la API. Los DOS grupos
+    ('rescate' y 'otros') cuentan igual — el grupo solo separa los resúmenes.
     """
     try:
         rows = _q(
@@ -1484,9 +1547,16 @@ def registros_por_banco(dia: date) -> dict[tuple[str, str], dict]:
 
 
 def _validar_registro(datos: dict) -> dict:
+    grupo = str(datos.get("grupo") or GRUPO_DEFAULT).strip().lower()
+    if grupo not in GRUPOS_REGISTRO:
+        raise ValueError(f"'grupo' inválido: {grupo} (válidos: {', '.join(GRUPOS_REGISTRO)})")
     tipo = " ".join(str(datos.get("tipo") or "").split()).upper()
-    if tipo not in TIPOS_REGISTRO:
-        raise ValueError(f"'tipo' inválido: {tipo} (válidos: {', '.join(TIPOS_REGISTRO)})")
+    # El rescate valida contra el catálogo fijo; en 'otros' el tipo es texto libre.
+    if grupo == "rescate":
+        if tipo not in TIPOS_REGISTRO:
+            raise ValueError(f"'tipo' inválido: {tipo} (válidos: {', '.join(TIPOS_REGISTRO)})")
+    elif not tipo:
+        raise ValueError("falta 'tipo' (escribí de qué es el registro)")
     banco = str(datos.get("banco") or "").strip()
     unidad = (str(datos.get("unidad") or "ARS").strip().upper() or "ARS")
     if not banco:
@@ -1504,10 +1574,11 @@ def _validar_registro(datos: dict) -> dict:
     if importe <= 0:
         raise ValueError("'importe' tiene que ser mayor a 0")
     return {"fecha": _dia(str(datos.get("fecha") or "") or None), "tipo": tipo,
-            "banco": banco, "unidad": unidad, "importe": importe, "sentido": sentido}
+            "banco": banco, "unidad": unidad, "importe": importe, "sentido": sentido,
+            "grupo": grupo}
 
 
-_CAMPOS_REGISTRO = ("fecha", "tipo", "banco", "unidad", "importe", "sentido")
+_CAMPOS_REGISTRO = ("fecha", "tipo", "banco", "unidad", "importe", "sentido", "grupo")
 
 
 def crear_registro(datos: dict, actor: str) -> dict:
@@ -1523,7 +1594,8 @@ def crear_registro(datos: dict, actor: str) -> dict:
         nuevo = cur.fetchone()[0]
         conn.commit()
     _audit(actor, "crear_registro", str(nuevo),
-           {"tipo": f["tipo"], "banco": f["banco"], "sentido": f["sentido"]})
+           {"grupo": f["grupo"], "tipo": f["tipo"], "banco": f["banco"],
+            "sentido": f["sentido"]})
     return {"id": int(nuevo)}
 
 
@@ -1537,7 +1609,8 @@ def editar_registro(id_: int, datos: dict, actor: str) -> dict:
               "actualizado_at = %(at)s WHERE id = %(id)s", f)
     if not n:
         raise ValueError(f"no existe el registro {id_}")
-    _audit(actor, "editar_registro", str(id_), {"tipo": f["tipo"], "banco": f["banco"]})
+    _audit(actor, "editar_registro", str(id_),
+           {"grupo": f["grupo"], "tipo": f["tipo"], "banco": f["banco"]})
     return {"id": int(id_)}
 
 

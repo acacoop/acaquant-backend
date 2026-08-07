@@ -929,6 +929,13 @@ CREATE TABLE IF NOT EXISTS operaciones.tesoreria_registros (
 );
 CREATE INDEX IF NOT EXISTS ix_tesoreria_registros_fecha
     ON operaciones.tesoreria_registros (fecha DESC, banco);
+-- El modal tiene DOS tabs, y `grupo` es lo que las separa:
+--   'rescate' (default) → panel RESCATE ACA VALORES, `tipo` acotado al catálogo fijo.
+--   'otros'             → OTROS REGISTROS, `tipo` es texto LIBRE.
+-- Los dos impactan igual el saldo del banco: la diferencia es que 'otros' NO entra
+-- al resumen ni al TOTAL de Rescate ACA Valores (el que se ve en la barra).
+ALTER TABLE operaciones.tesoreria_registros
+    ADD COLUMN IF NOT EXISTS grupo text NOT NULL DEFAULT 'rescate';
 
 -- Fila SALDOS del resumen: es MANUAL y no sale de los registros (por eso no vive
 -- en la tabla de arriba). Uno por día y moneda.

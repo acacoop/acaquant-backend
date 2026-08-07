@@ -510,6 +510,9 @@ class _Registro(BaseModel):
     unidad: str = Field("ARS", min_length=1, max_length=8)
     importe: float
     sentido: str = Field("egreso", max_length=16)   # egreso | ingreso
+    # Tab del modal: 'rescate' (tipo del catálogo, entra al TOTAL de Rescate ACA
+    # Valores) | 'otros' (tipo libre, NO entra a ese total). Los dos tocan el banco.
+    grupo: str = Field("rescate", max_length=16)
 
 
 class _SaldoRegistros(BaseModel):
@@ -524,7 +527,10 @@ def tesoreria_registros(
     unidad: str = Query("ARS", description="Moneda del resumen"),
     email: str = Depends(get_user_email),
 ):
-    """Registros manuales del día + resumen por tipo (la fila SALDOS es manual)."""
+    """Registros manuales del día + resumen de cada tab (RESCATE / OTROS).
+
+    La fila SALDOS del rescate es manual y no sale de los registros.
+    """
     return svc_tes.registros(fecha=fecha, unidad=unidad, email=email)
 
 

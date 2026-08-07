@@ -1533,7 +1533,22 @@ def crear_registro(datos: dict, actor: str) -> dict:
     _audit(actor, "crear_registro", str(nuevo),
            {"grupo": f["grupo"], "tipo": f["tipo"], "banco": f["banco"],
             "sentido": f["sentido"]})
-    return {"id": int(nuevo)}
+    # Un registro de tipo VEP aparece SOLO en la tab VEPS, con lo que este registro
+    # sabe (importe/banco/moneda); el número, el concepto y el vencimiento se cargan
+    # después desde ahí. El espejo NO vuelve a sumar al saldo — el egreso ya lo puso
+    # este registro, y contarlo dos veces era el riesgo de tener las dos pantallas.
+    # El try//except es defensa en profundidad: acá arriba el INSERT del registro YA
+    # commiteó. Si el espejo explotara, propagar el error le mostraría "falló" al
+    # usuario por algo que en realidad se guardó, y lo cargaría DOS VECES — que en
+    # esta tabla sí mueve el saldo.
+    vep_id = None
+    if str(f["tipo"] or "").strip().upper() == "VEP":
+        try:
+            vep_id = espejar_vep_de_registro(int(nuevo), f, actor)
+        except Exception:
+            _log.warning("tesoreria: el registro %s se guardó pero no pude espejar el VEP",
+                         nuevo, exc_info=True)
+    return {"id": int(nuevo), "vep_id": vep_id}
 
 
 def editar_registro(id_: int, datos: dict, actor: str) -> dict:
@@ -1593,6 +1608,216 @@ def set_saldo_registros(*, fecha: str | None, unidad: str, importe: float,
 #   banco a banco (+) → la cuenta CRÉDITO recibe   (suma)
 #   banco a banco (−) → la cuenta DÉBITO entrega   (resta)
 # ──────────────────────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────────────────────
+# VEPS (tab VEPS) — agenda de vencimientos. TODOS egresos, no hay ingresos.
+#
+# Mismo horizonte que los cheques EMITIDOS: es un tablero de SEGUIMIENTO, NO filtra
+# por fecha (un VEP viejo sin pagar sigue a la vista) y la fila no se borra al
+# pagarse — queda para el histórico.
+#
+# NO IMPACTA EL SALDO de la grilla BANCOS, a propósito: el egreso ya entra al banco
+# por REGISTROS MANUALES (tipo 'VEP'). Si esta tabla también sumara, el mismo VEP se
+# contaría DOS VECES. Por eso ninguna función de acá la llama `ingresos_egresos_dia`.
+#
+# Dos formas de que nazca un VEP, y conviven:
+#   1) carga manual en la tab (`origen='manual'`);
+#   2) espejo automático al crear un registro manual de tipo 'VEP' (`origen='registro'`)
+#      — se copia lo que ese registro tiene (importe/banco/moneda) y el número, el
+#      concepto y el vencimiento se completan después desde la tab.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_TABLA_VEPS = "operaciones.tesoreria_veps"
+ESTADOS_VEP = ("pendiente", "pagado")
+ESTADO_VEP_CIERRE = "pagado"
+# El banco que viene precargado en el alta: es el que usa el back office casi siempre.
+VEP_BANCO_DEFAULT = "AL2"
+_CAMPOS_VEP = ("numero_vep", "concepto", "importe", "banco", "unidad", "vencimiento",
+               "estado")
+_COLS_VEP = ("id, numero_vep, concepto, importe, banco, unidad, vencimiento, estado, "
+             "origen, registro_id, pagado_at, creado_por, creado_at")
+
+
+def _fila_vep(r: dict, hoy: date) -> dict:
+    """Fila del tablero. `vencido` lo decide el BACKEND (no el front): es el que
+    sabe qué día es en ART, y así la marca amarilla no depende del reloj del navegador."""
+    venc = r["vencimiento"]
+    pagado = r["estado"] == ESTADO_VEP_CIERRE
+    return {
+        "id": int(r["id"]),
+        "numero_vep": r["numero_vep"],
+        "concepto": r["concepto"],
+        "importe": float(r["importe"] or 0),
+        "banco": r["banco"],
+        "unidad": r["unidad"],
+        "vencimiento": venc.isoformat() if venc else None,
+        "estado": r["estado"],
+        # AMARILLO en la vista: ya venció y todavía no se pagó. Un VEP pagado no se
+        # marca aunque su vencimiento haya pasado — ya no hay nada que hacer con él.
+        "vencido": bool(venc and venc < hoy and not pagado),
+        "origen": r["origen"],
+        "registro_id": int(r["registro_id"]) if r["registro_id"] is not None else None,
+        "pagado_at": r["pagado_at"].isoformat() if r["pagado_at"] else None,
+        "creado_por": r["creado_por"],
+        "creado_at": r["creado_at"].isoformat() if r["creado_at"] else None,
+    }
+
+
+def veps(*, incluir_pagados: bool = False, email: str = "") -> dict:
+    """Tab VEPS. Sin filtro de fecha (tablero de seguimiento).
+
+    Por default trae solo los PENDIENTES: 'pagado' saca la fila de la vista pero NO
+    la borra (`incluir_pagados=True` la trae igual, para auditoría).
+    """
+    marcar_presencia(email)
+    hoy = _hoy_art().date()
+    donde = "" if incluir_pagados else f"WHERE estado <> '{ESTADO_VEP_CIERRE}'"
+    try:
+        rows = _q(f"SELECT {_COLS_VEP} FROM {_TABLA_VEPS} {donde} "
+                  # NULLS LAST: un VEP sin vencimiento cargado (típico del espejo) no
+                  # puede encabezar el tablero como si fuera el más urgente.
+                  "ORDER BY vencimiento ASC NULLS LAST, id DESC")
+    except Exception:
+        _log.warning("tesoreria: no pude listar los VEPs", exc_info=True)
+        rows = []
+    items = [_fila_vep(r, hoy) for r in rows]
+    # Totales por moneda, separando lo ya vencido: es el número que el back office
+    # mira para saber cuánto tiene encima HOY.
+    tot: dict[str, dict] = {}
+    for v in items:
+        if v["estado"] == ESTADO_VEP_CIERRE:
+            continue
+        t = tot.setdefault(v["unidad"], {"total": 0.0, "vencido": 0.0, "n": 0})
+        t["total"] += v["importe"]
+        t["n"] += 1
+        if v["vencido"]:
+            t["vencido"] += v["importe"]
+    for t in tot.values():
+        t["total"], t["vencido"] = round(t["total"], 2), round(t["vencido"], 2)
+    return {"items": items, "totales": tot, "hoy": hoy.isoformat(),
+            "banco_default": VEP_BANCO_DEFAULT, "estados": list(ESTADOS_VEP),
+            "bancos": [{"banco": c, "unidad": u} for c, u in catalogo()],
+            "puede_editar": puede_editar_saldo(email)}
+
+
+def _validar_vep(datos: dict) -> dict:
+    banco = str(datos.get("banco") or VEP_BANCO_DEFAULT).strip()
+    unidad = (str(datos.get("unidad") or "ARS").strip().upper() or "ARS")
+    if not banco:
+        raise ValueError("falta 'banco' (elegí una cuenta operativa)")
+    conocidos = catalogo()
+    if conocidos and (banco, unidad) not in conocidos:
+        raise ValueError(f"'{banco}' [{unidad}] no es una cuenta operativa del catálogo")
+    try:
+        importe = float(datos.get("importe"))
+    except (TypeError, ValueError) as e:
+        raise ValueError("'importe' tiene que ser un número") from e
+    if importe <= 0:
+        raise ValueError("'importe' tiene que ser mayor a 0")
+    estado = str(datos.get("estado") or "pendiente").strip().lower()
+    if estado not in ESTADOS_VEP:
+        raise ValueError(f"estado inválido: {estado} (válidos: {', '.join(ESTADOS_VEP)})")
+    venc = str(datos.get("vencimiento") or "").strip()
+    return {
+        "numero_vep": str(datos.get("numero_vep") or "").strip() or None,
+        "concepto": str(datos.get("concepto") or "").strip() or None,
+        "importe": importe, "banco": banco, "unidad": unidad,
+        # El vencimiento puede faltar (el espejo nace sin él) y se completa después.
+        "vencimiento": _dia(venc) if venc else None,
+        "estado": estado,
+    }
+
+
+def crear_vep(datos: dict, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para cargar VEPs")
+    f = _validar_vep(datos) | {"por": (actor or "").lower() or None,
+                               "at": datetime.now(UTC)}
+    campos = ", ".join(_CAMPOS_VEP)
+    valores = ", ".join(f"%({c})s" for c in _CAMPOS_VEP)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(f"INSERT INTO {_TABLA_VEPS} ({campos}, origen, creado_por, creado_at) "
+                    f"VALUES ({valores}, 'manual', %(por)s, %(at)s) RETURNING id", f)
+        nuevo = cur.fetchone()[0]
+        conn.commit()
+    _audit(actor, "crear_vep", str(nuevo),
+           {"numero_vep": f["numero_vep"], "banco": f["banco"], "importe": f["importe"]})
+    return {"id": int(nuevo)}
+
+
+def espejar_vep_de_registro(registro_id: int, reg: dict, actor: str) -> int | None:
+    """Crea el VEP espejo de un registro manual de tipo 'VEP'.
+
+    BEST-EFFORT a propósito: si esto falla NO puede voltear la carga del registro
+    manual, que es lo que mueve el saldo. El VEP nace con lo único que el registro
+    sabe (importe, banco, moneda); número, concepto y vencimiento quedan vacíos para
+    completarlos desde la tab. `registro_id` es único → re-intentar no duplica.
+    """
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"INSERT INTO {_TABLA_VEPS} (importe, banco, unidad, estado, origen, "
+                "registro_id, creado_por, creado_at) "
+                "VALUES (%(importe)s, %(banco)s, %(unidad)s, 'pendiente', 'registro', "
+                "%(rid)s, %(por)s, %(at)s) "
+                "ON CONFLICT (registro_id) WHERE registro_id IS NOT NULL DO NOTHING "
+                "RETURNING id",
+                {"importe": reg["importe"], "banco": reg["banco"], "unidad": reg["unidad"],
+                 "rid": int(registro_id), "por": (actor or "").lower() or None,
+                 "at": datetime.now(UTC)})
+            fila = cur.fetchone()
+            conn.commit()
+        return int(fila[0]) if fila else None
+    except Exception:
+        _log.warning("tesoreria: no pude espejar el VEP del registro %s", registro_id,
+                     exc_info=True)
+        return None
+
+
+def editar_vep(id_: int, datos: dict, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para editar VEPs")
+    f = _validar_vep(datos) | {"id": int(id_), "por": (actor or "").lower() or None,
+                               "at": datetime.now(UTC)}
+    sets = ", ".join(f"{c} = %({c})s" for c in _CAMPOS_VEP)
+    n = _exec(f"UPDATE {_TABLA_VEPS} SET {sets}, actualizado_por = %(por)s, "
+              f"actualizado_at = %(at)s WHERE id = %(id)s", f)
+    if not n:
+        raise ValueError(f"no existe el VEP {id_}")
+    _audit(actor, "editar_vep", str(id_), {"numero_vep": f["numero_vep"]})
+    return {"id": int(id_), "actualizado": n}
+
+
+def set_estado_vep(id_: int, estado: str, actor: str) -> dict:
+    """Cambia SOLO el estado (click en la celda ESTADO). Sella `pagado_at` al cerrar."""
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para cambiar el estado de un VEP")
+    est = (estado or "").strip().lower()
+    if est not in ESTADOS_VEP:
+        raise ValueError(f"estado inválido: {est} (válidos: {', '.join(ESTADOS_VEP)})")
+    ahora = datetime.now(UTC)
+    n = _exec(f"UPDATE {_TABLA_VEPS} SET estado = %(e)s, "
+              # Volver a 'pendiente' limpia la marca de pago: si no, quedaría una
+              # fecha de pago de algo que no está pagado.
+              "pagado_at = CASE WHEN %(e)s = %(cierre)s THEN %(at)s ELSE NULL END, "
+              "actualizado_por = %(por)s, actualizado_at = %(at)s WHERE id = %(id)s",
+              {"e": est, "cierre": ESTADO_VEP_CIERRE, "at": ahora, "id": int(id_),
+               "por": (actor or "").lower() or None})
+    if not n:
+        raise ValueError(f"no existe el VEP {id_}")
+    _audit(actor, "estado_vep", str(id_), {"estado": est})
+    return {"id": int(id_), "estado": est}
+
+
+def borrar_vep(id_: int, actor: str) -> dict:
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para borrar VEPs")
+    n = _exec(f"DELETE FROM {_TABLA_VEPS} WHERE id = %(id)s", {"id": int(id_)})
+    if not n:
+        raise ValueError(f"no existe el VEP {id_}")
+    _audit(actor, "borrar_vep", str(id_), {})
+    return {"id": int(id_), "borrado": n}
+
 
 _TABLA_BB = "operaciones.tesoreria_banco_a_banco"
 ESTADOS_BB = ("pendiente", "completado")

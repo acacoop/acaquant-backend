@@ -173,6 +173,81 @@ class _EstadoCheque(BaseModel):
     estado: str = Field(..., min_length=1, max_length=32)
 
 
+# ── VEPS: agenda de vencimientos (todos EGRESOS). No toca el saldo de BANCOS —
+#    el egreso ya entra por REGISTROS MANUALES (tipo 'VEP'), ver el service. ──────
+class _Vep(BaseModel):
+    numero_vep: str | None = Field(None, max_length=64)
+    concepto: str | None = Field(None, max_length=512)
+    importe: float
+    # El default lo pone el service (VEP_BANCO_DEFAULT) si el front no manda banco.
+    banco: str | None = Field(None, max_length=256)
+    unidad: str = Field("ARS", min_length=1, max_length=8)
+    vencimiento: str | None = None                              # ISO YYYY-MM-DD
+    estado: str = Field("pendiente", max_length=32)
+
+
+class _EstadoVep(BaseModel):
+    estado: str = Field(..., min_length=1, max_length=32)
+
+
+@router.get("/tesoreria/veps")
+def tesoreria_veps(
+    incluir_pagados: bool = Query(False, description="también los ya pagados"),
+    email: str = Depends(get_user_email),
+):
+    """Tab VEPS: tablero de seguimiento, SIN filtro de fecha (igual que los cheques
+    emitidos). Cada fila trae `vencido` calculado server-side —vencimiento pasado y
+    todavía sin pagar— que es lo que la vista pinta de amarillo."""
+    return svc_tes.veps(incluir_pagados=incluir_pagados, email=email)
+
+
+@router.post("/tesoreria/veps")
+def tesoreria_vep_crear(req: _Vep = Body(...),
+                        actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.crear_vep(req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/tesoreria/veps/{id_}")
+def tesoreria_vep_editar(id_: int, req: _Vep = Body(...),
+                         actor: str = Depends(require_escritura_tesoreria)):
+    """Edición completa. Es también el camino para completar un VEP que nació como
+    espejo de un registro manual (sin número, concepto ni vencimiento)."""
+    try:
+        return svc_tes.editar_vep(id_, req.model_dump(), actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/tesoreria/veps/{id_}/estado")
+def tesoreria_vep_estado(id_: int, req: _EstadoVep = Body(...),
+                         actor: str = Depends(require_escritura_tesoreria)):
+    """Cambia SOLO el estado (click en la celda). 'pagado' saca la fila de la vista
+    pero NO la borra: el histórico se conserva."""
+    try:
+        return svc_tes.set_estado_vep(id_, req.estado, actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/tesoreria/veps/{id_}")
+def tesoreria_vep_borrar(id_: int, actor: str = Depends(require_escritura_tesoreria)):
+    try:
+        return svc_tes.borrar_vep(id_, actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.get("/tesoreria/cheques")
 def tesoreria_cheques(
     fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy (solo recibidos)"),

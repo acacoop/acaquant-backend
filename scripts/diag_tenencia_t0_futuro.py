@@ -44,7 +44,7 @@ from itertools import pairwise
 
 from core.calendario import es_habil, proximo_habil
 from core.postgres import get_pool
-from jobs.aum import _SESSION, POSICION_URL, autenticar
+from jobs.aum import _SESSION, LISTADO_URL, POSICION_URL, autenticar
 
 CUENTA_DEFAULT = "1839"
 PASOS_DEFAULT = 4          # escalones de la escalera después de T0
@@ -61,29 +61,66 @@ def _aunesa(d: date) -> str:
     return d.strftime("%d/%m/%Y")
 
 
-def _pedir(cuenta: str, desde: date, headers: dict) -> tuple[int, list | None, float, str]:
+def _pedir(cuenta: str, desde: date, headers: dict,
+           intentos: int = 3) -> tuple[int, list | None, float, str]:
     """GET crudo → (status, data, segundos, nota).
 
     NO se usa `jobs.aum.consultar_posicion` a propósito: esa colapsa 204/401/404/
     500 en un único `None` y el diag necesita justamente distinguirlos. El 204 no
     es un error — es "cuenta sin posición" (así lo trata producción).
+
+    REINTENTA igual que el writer (3 intentos con backoff): sin esto, un 500
+    intermitente de Aunesa se lee como "el endpoint no sirve" cuando producción
+    lo absorbe todos los días sin enterarse.
     """
     t0 = time.time()
+    ultimo: tuple[int, list | None, float, str] = (-1, None, 0.0, "sin intentos")
+    for i in range(1, intentos + 1):
+        try:
+            resp = _SESSION.get(POSICION_URL.format(cuenta),
+                                params={"desde": _aunesa(desde), **_PARAMS_BASE},
+                                headers=headers, timeout=TIMEOUT)
+        except Exception as e:
+            ultimo = (-1, None, time.time() - t0, f"{type(e).__name__}: {e}")
+            if i < intentos:
+                time.sleep(2 ** i)
+                continue
+            return ultimo
+        seg = time.time() - t0
+        if resp.status_code == 204:
+            return 204, [], seg, f"sin posición (intento {i})"
+        if resp.status_code == 200:
+            try:
+                return 200, resp.json(), seg, (f"OK en intento {i}" if i > 1 else "")
+            except Exception as e:
+                return 200, None, seg, f"body no-JSON: {type(e).__name__}"
+        cuerpo = (resp.text or "")[:130].replace("\n", " ")
+        ultimo = (resp.status_code, None, seg, f"[{i}/{intentos}] {cuerpo}")
+        if resp.status_code in (401, 400, 404) or i == intentos:
+            return ultimo      # no tiene sentido reintentar estos
+        time.sleep(2 ** i)
+    return ultimo
+
+
+def _ficha_aunesa(cuenta: str, headers: dict) -> tuple[dict | None, int]:
+    """La fila de `listadoCuentas` de esa cuenta + el total de cuentas.
+
+    Clave para leer un 500: el writer diario SOLO consulta cuentas con
+    `tipo` ∈ (Comitente, Propia) y `estado == 'Activa'` (ver
+    `jobs/aum.obtener_cuentas`). Si la cuenta no está o no cumple, producción
+    NUNCA la pide — y que Aunesa reviente con ella no dice nada del endpoint.
+    """
     try:
-        resp = _SESSION.get(POSICION_URL.format(cuenta),
-                            params={"desde": _aunesa(desde), **_PARAMS_BASE},
-                            headers=headers, timeout=TIMEOUT)
+        resp = _SESSION.get(LISTADO_URL, headers=headers, timeout=TIMEOUT)
+        resp.raise_for_status()
+        filas = resp.json()
     except Exception as e:
-        return -1, None, time.time() - t0, f"{type(e).__name__}: {e}"
-    seg = time.time() - t0
-    if resp.status_code == 204:
-        return 204, [], seg, "sin posición"
-    if resp.status_code != 200:
-        return resp.status_code, None, seg, (resp.text or "")[:160].replace("\n", " ")
-    try:
-        return 200, resp.json(), seg, ""
-    except Exception as e:
-        return 200, None, seg, f"body no-JSON: {type(e).__name__}"
+        print(f"  ⚠ no se pudo traer listadoCuentas: {type(e).__name__}: {e}")
+        return None, 0
+    if not isinstance(filas, list):
+        return None, 0
+    rec = next((r for r in filas if isinstance(r, dict) and str(r.get("id")) == str(cuenta)), None)
+    return rec, len(filas)
 
 
 def _candidatas(ayer: date, limite: int = 8) -> list[tuple[str, int, int]]:
@@ -198,6 +235,25 @@ def main() -> None:
             print("    (sin movimientos, T0 tiene que dar igual al cierre de ayer).")
             print("    El test de FUTURO sí sirve igual si tiene liquidaciones pendientes.")
 
+    # ── BLOQUE 0.5 · ¿producción consulta esta cuenta? ───────────────────────
+    # Un 500 en una cuenta que el writer NUNCA pide no dice nada del endpoint.
+    print("\n── BLOQUE 0.5 · la cuenta según Aunesa (listadoCuentas) ─────────────")
+    rec, total = _ficha_aunesa(cuenta, headers)
+    apta = False
+    if rec is None:
+        print(f"  ✗ la cuenta {cuenta} NO figura en listadoCuentas ({total} cuentas)")
+        print("    → el 500 es esperable: le estamos pidiendo una cuenta inexistente")
+    else:
+        tipo, estado = rec.get("tipo"), rec.get("estado")
+        apta = tipo in ("Comitente", "Propia") and estado == "Activa"
+        print(f"  denominación: {rec.get('denominacion')}")
+        print(f"  tipo={tipo!r}  estado={estado!r}  →  "
+              f"{'la consulta el cron diario' if apta else 'el cron diario la SALTEA'}")
+        print(f"  fila cruda: {json.dumps(rec, ensure_ascii=False, default=str)[:300]}")
+        if not apta:
+            print("    ⚠ producción solo pide tipo ∈ (Comitente, Propia) y estado='Activa'")
+            print("      → un error acá NO prueba nada sobre el endpoint")
+
     # ── Escalera de `desde`. Regla del endpoint: desde=X → posición al hábil
     #    anterior a X. Así que para la posición AL día D se pide desde=D+1 hábil.
     escalera: list[tuple[str, date, date]] = [
@@ -235,10 +291,28 @@ def main() -> None:
 
     if len(resultados) < 2:
         print("\n⚠ No se pudo comparar. Qué significa cada código:")
-        print("   204 → la cuenta NO tiene posición (no es un error).\n   400 → parámetro mal formado; la nota trae el detalle de Aunesa.")
+        print("   204 → la cuenta NO tiene posición (no es un error).")
+        print("   400 → parámetro mal formado; la nota trae el detalle de Aunesa.")
         print("   401 → token rechazado incluso tras re-auth (credenciales/permisos).")
         print("   404 → ese id de cuenta no existe en Aunesa.")
+        print("   500 → Aunesa reventó. Ver el CONTROL de acá abajo para saber si")
+        print("         es la cuenta o es el endpoint.")
         print("   -1  → no hubo respuesta (red/timeout); la nota dice la excepción.")
+
+        # ── CONTROL · misma llamada contra una cuenta que el cron SÍ procesa.
+        #    Es lo que separa "el endpoint no sirve" de "esta cuenta es especial".
+        if cands:
+            ctrl = cands[0][0]
+            print(f"\n── CONTROL · misma request contra la cuenta {ctrl} ──────────────")
+            st, dt, sg, nt = _pedir(ctrl, hoy, headers)
+            print(f"  desde={_aunesa(hoy)}  HTTP {st}  {sg:.1f}s  "
+                  f"filas={len(dt) if dt is not None else '—'}  {nt}")
+            if st == 200:
+                print(f"  → el endpoint ANDA. El problema es la cuenta {cuenta}.")
+                print(f"    Re-corré con: --cuenta {ctrl}")
+            else:
+                print("  → también falla en una cuenta sana: el problema es la request,")
+                print("    no la cuenta. Pasame este output.")
         return
 
     # ── BLOQUE 2: ¿cambian las cantidades al avanzar? ES LA PREGUNTA DEL DISEÑO.

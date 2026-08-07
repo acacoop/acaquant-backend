@@ -6,7 +6,9 @@ Más sub-vistas se irán sumando acá conforme se vayan definiendo.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from urllib.parse import quote
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
@@ -484,6 +486,25 @@ def tesoreria_bb_borrar(id_: int, actor: str = Depends(require_escritura_tesorer
         return svc_tes.borrar_bb(id_, actor)
     except PermissionError as e:
         raise HTTPException(403, str(e)) from e
+
+
+@router.get("/tesoreria/banco-a-banco/export-txt")
+def tesoreria_bb_txt(
+    fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
+    email: str = Depends(get_user_email),
+):
+    """Asiento de ajuste para HYGIRUS con las transferencias NO completadas."""
+    try:
+        txt = svc_tes.txt_banco_a_banco(fecha=fecha)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    nombre = quote(svc_tes.NOMBRE_TXT_BB)
+    return Response(
+        content=txt.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{nombre}",
+                 "Cache-Control": "no-store"},
+    )
 
 
 # ── REGISTROS MANUALES (modal de la tab BANCOS) — fuente de movimientos que NO

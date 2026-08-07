@@ -53,6 +53,7 @@ import re
 import unicodedata
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from psycopg.types.json import Jsonb
@@ -1718,6 +1719,69 @@ def borrar_bb(id_: int, actor: str) -> dict:
     n = _exec(f"DELETE FROM {_TABLA_BB} WHERE id = %(id)s", {"id": int(id_)})
     _audit(actor, "borrar_banco_a_banco", str(id_))
     return {"borrado": n}
+
+
+# ── Export TXT para HYGIRUS (asiento de ajuste) ────────────────────────────────
+# El back office hoy tipea el asiento a mano. El archivo es:
+#   línea 1  →  "DD/MM/AAAA HH:MM:SS Asiento de ajuste"
+#   luego, por cada transferencia NO completada, DOS líneas separadas por TAB:
+#     -importe <TAB> nro HYGIRUS de la cuenta DÉBITO  <TAB> moneda
+#      importe <TAB> nro HYGIRUS de la cuenta CRÉDITO <TAB> moneda
+# La cuenta que se escribe NO es la denominación del banco sino su
+# `numero_hygirus` (catálogo `tesoreria_cuentas`); si falta, el asiento saldría
+# con la cuenta vacía y HYGIRUS lo rechaza → se corta con error nombrándola.
+
+NOMBRE_TXT_BB = "Bco a Bco.txt"
+_SIN_HYGIRUS = {"", "-", "—", "--", "N/A", "S/D"}
+
+
+def _importe_hygirus(valor: Any) -> str:
+    """1234.5 → '1234,5' | 6000000000 → '6000000000'. Coma decimal, sin miles.
+
+    Se formatea desde Decimal (los importes vienen `numeric` de Postgres): pasar
+    por float redondearía mal los montos grandes.
+    """
+    d = Decimal(str(valor or 0)).quantize(Decimal("0.01"))
+    txt = format(d, "f").rstrip("0").rstrip(".")
+    return (txt or "0").replace(".", ",")
+
+
+def _hygirus_por_cuenta() -> dict[tuple[str, str], str]:
+    """{(cuenta_operativa, unidad): numero_hygirus}. La PK del catálogo es el par."""
+    return {(c["cuenta_operativa"], c["unidad"]): (c["numero_hygirus"] or "").strip()
+            for c in listar_cuentas()}
+
+
+def armar_txt_bb(filas: list[dict], hygirus: dict[tuple[str, str], str],
+                 ahora: datetime) -> tuple[str, list[str]]:
+    """Contenido del TXT + cuentas sin N° HYGIRUS cargado. Lógica pura."""
+    lineas = [f"{ahora.strftime('%d/%m/%Y %H:%M:%S')} Asiento de ajuste"]
+    faltantes: list[str] = []
+    for f in filas:
+        importe = _importe_hygirus(f["importe"])
+        unidad = f["unidad"]
+        for cta, signo in ((f["cta_debito"], "-"), (f["cta_credito"], "")):
+            num = (hygirus.get((cta, unidad)) or "").strip()
+            if num.upper() in _SIN_HYGIRUS:
+                faltantes.append(f"{cta} ({unidad})")
+                num = ""
+            lineas.append(f"{signo}{importe}\t{num}\t{unidad}")
+    return "\n".join(lineas) + "\n", sorted(set(faltantes))
+
+
+def txt_banco_a_banco(*, fecha: str | None = None) -> str:
+    """TXT del asiento de ajuste con las transferencias del día NO completadas."""
+    dia = _dia(fecha)
+    filas = _q(
+        f"SELECT cta_debito, cta_credito, unidad, importe FROM {_TABLA_BB} "
+        "WHERE fecha = %(d)s AND estado <> 'completado' ORDER BY id", {"d": dia})
+    if not filas:
+        raise ValueError("no hay transferencias pendientes para exportar")
+    txt, faltantes = armar_txt_bb([dict(f) for f in filas], _hygirus_por_cuenta(),
+                                  _hoy_art())
+    if faltantes:
+        raise ValueError("falta cargar el N° HYGIRUS de: " + ", ".join(faltantes))
+    return txt
 
 
 # ──────────────────────────────────────────────────────────────────────────────

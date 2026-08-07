@@ -502,6 +502,24 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 
 ## Registro de construcción (con fecha — qué y cómo)
 
+### 2026-08-07 (15) — RV Internacional: FUNDAMENTALS en 4 cuadrantes + rubro
+Etapa 1 del pedido del user sobre Research (doc completo del cambio y del
+discovery de segmentos: **`docs/INTEGRACION_REUTERS.md` §8, entrada v4**).
+- **RUBRO como filtro también en FUNDAMENTALS** (el tablero de COTIZACIONES ya
+  lo tenía desde 2026-07-18): `tablero_fundamentals()` resuelve el rubro del
+  catálogo propio y la sub-vista suma columna + dropdown que filtra los 4
+  paneles a la vez.
+- **La sub-vista FUNDAMENTALS pasó de una tabla sola a 2×2 de 50%**: SCREENER
+  (columnas curadas) · AGREGADO (el universo SUMADO en el tiempo, anual o
+  trimestral, endpoint nuevo `GET /reuters/fundamentals/agregado`) · DISPERSIÓN
+  (scatter de ejes elegibles, default P/E vs. margen neto) · COMPOSICIÓN POR
+  RUBRO. Motivo: la tabla contestaba cómo está UNA empresa, no cómo está el
+  conjunto — que es la pregunta de research.
+- El agregado se calcula SERVER-SIDE con canasta constante y alineación por
+  calendario (ver el detalle y los tests en INTEGRACION_REUTERS §8).
+- **Feed**: `FUND_SERIE_USD` suma utilidad bruta / EBIT / capex — hay que
+  regenerar la copia del Desktop para que esas 3 series se llenen.
+
 ### 2026-07-20 (14) — COPILOTO de Research (el "Nivel 2" de §2.7, HECHO)
 La IA on-demand que este doc dejó anotada. Decisión del user: **UN copiloto
 para toda /research que ve las 4 fuentes JUNTAS, siempre** ("el research tiene

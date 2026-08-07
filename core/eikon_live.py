@@ -144,22 +144,178 @@ def _var_pct(precio, base) -> float | None:
         return None
 
 
+# El rubro NO vive en el feed de Eikon: es la clasificación de negocio propia
+# (`mercado.rubros`, editable en Manager → TÍTULOS → RENTA VARIABLE) que ya usa
+# el tablero de cotizaciones. Se resuelve del CEDEAR cuyo underlying es el
+# ticker del feed — mismo LATERAL que `tablero_reuters`, pero prefiriendo la
+# fila que TIENE rubro cargado (en cotizaciones se prefiere la que tiene ratio).
+_RUBRO_LATERAL = (
+    "LEFT JOIN LATERAL ("
+    "  SELECT m.rubro FROM mercado.cedears m "
+    "  WHERE upper(COALESCE(m.underlying, m.ticker_corto)) = f.ticker "
+    "    AND m.activo IS TRUE "
+    "  ORDER BY m.rubro IS NULL, m.ticker LIMIT 1"
+    ") c ON TRUE "
+)
+
+
 def tablero_fundamentals() -> list[dict]:
     """Filas del screener FUNDAMENTALS del tab REUTERS: una empresa por fila con
     todas las métricas de la ficha (sin las series históricas, que son pesadas
-    y viven en la ficha). Ordenado por ticker."""
+    y viven en la ficha) + el `rubro` del catálogo propio, para filtrar y
+    comparar por sector. Ordenado por ticker."""
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT ticker, ric, data, updated_at "
-                    "FROM mercado.eikon_fundamentals ORDER BY ticker")
+        cur.execute("SELECT f.ticker, f.ric, f.data, f.updated_at, c.rubro "
+                    "FROM mercado.eikon_fundamentals f " + _RUBRO_LATERAL +
+                    "ORDER BY f.ticker")
         filas = []
-        for ticker, ric, data, updated_at in cur.fetchall():
+        for ticker, ric, data, updated_at, rubro in cur.fetchall():
             d = {k: v for k, v in (data or {}).items()
                  if k not in ("serie_anual", "serie_trimestral")}
             d["ticker"] = ticker
             d["ric"] = ric
+            d["rubro"] = rubro
             d["updated_at"] = updated_at
             filas.append(d)
         return filas
+
+
+# ── AGREGADO del universo (panel superior derecho del screener) ──────────────
+# Suma las series históricas de TODAS las empresas suscriptas (o las de un
+# rubro) para ver el conjunto en el tiempo: ingresos/EBITDA/resultado/FCF/capex.
+# Los MÁRGENES no se suman ni se promedian — se derivan de los montos sumados
+# (margen del agregado = Σ utilidad ÷ Σ ingresos), que es el margen real de la
+# canasta y no un promedio simple que le da el mismo peso a AAPL que a RKLB.
+_AGREGABLES = ("revenue", "gross_profit", "ebitda", "ebit", "net_income",
+               "fcf", "capex", "deuda", "caja")
+_VENTANA = {"anual": 5, "trimestral": 8}
+
+
+def _periodo_calendario(fecha: str, modo: str) -> str | None:
+    """Fecha de cierre de un período fiscal → etiqueta de calendario.
+
+    Las empresas NO comparten cierre de ejercicio (AAPL cierra en septiembre,
+    NVDA en enero), así que sumar "FY2025" mezclaría ventanas distintas. Se
+    alinea por el CALENDARIO del cierre: 2025-09-30 → '2025' (anual) o
+    '2025Q3' (trimestral). Es la convención estándar para agregados
+    cross-company y queda advertida en la vista.
+    """
+    try:
+        anio, mes = int(fecha[:4]), int(fecha[5:7])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if modo == "anual":
+        return str(anio)
+    return f"{anio}Q{(mes - 1) // 3 + 1}"
+
+
+def agregado_fundamentals(periodo: str = "anual", rubro: str | None = None,
+                          canasta: str = "constante") -> dict:
+    """Serie AGREGADA del universo del feed: una fila por período de calendario
+    con la SUMA de cada métrica sobre las empresas de la canasta.
+
+    Args:
+        periodo: 'anual' (últimos 5 años) o 'trimestral' (últimos 8 trimestres).
+        rubro: si viene, agrega SOLO las empresas de ese rubro.
+        canasta: 'constante' (default) suma únicamente las empresas con
+            ingresos en TODOS los períodos de la ventana — así un salto en la
+            curva es negocio y no una empresa que entró o salió del feed.
+            'todas' suma lo que haya en cada período (más cobertura, menos
+            comparable). Las excluidas se devuelven con su motivo.
+    """
+    modo = "trimestral" if str(periodo).lower().startswith("trim") else "anual"
+    sql = ("SELECT f.ticker, f.data "
+           "FROM mercado.eikon_fundamentals f " + _RUBRO_LATERAL)
+    params: tuple = ()
+    if rubro:
+        sql += "WHERE c.rubro = %s "
+        params = (rubro,)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(sql + "ORDER BY f.ticker", params)
+        series = {ticker: (data or {}) for ticker, data in cur.fetchall()}
+
+    out = _agregar(series, modo=modo, canasta=canasta)
+    out["rubro"] = rubro
+    return out
+
+
+def _agregar(series: dict[str, dict], modo: str, canasta: str) -> dict:
+    """Núcleo PURO del agregado (sin base): {ticker → doc de fundamentals} →
+    serie sumada. Separado para poder testearlo sin Postgres."""
+    clave = "serie_trimestral" if modo == "trimestral" else "serie_anual"
+
+    # ticker → {etiqueta de período → fila de métricas}. Si dos cierres fiscales
+    # caen en la misma etiqueta (pasa cuando la empresa mueve su ejercicio), se
+    # queda el más reciente.
+    por_ticker: dict[str, dict[str, dict]] = {}
+    ultima_fecha: dict[tuple[str, str], str] = {}
+    for ticker, data in series.items():
+        for fila in (data or {}).get(clave) or []:
+            fecha = str(fila.get("fecha") or "")
+            etiqueta = _periodo_calendario(fecha, modo)
+            if not etiqueta:
+                continue
+            previa = ultima_fecha.get((ticker, etiqueta))
+            if previa is not None and fecha <= previa:
+                continue
+            ultima_fecha[(ticker, etiqueta)] = fecha
+            por_ticker.setdefault(ticker, {})[etiqueta] = fila
+
+    etiquetas = sorted({e for filas in por_ticker.values() for e in filas})
+    etiquetas = etiquetas[-_VENTANA[modo]:]
+
+    incluidas, excluidas = [], []
+    for ticker in series:
+        filas = por_ticker.get(ticker) or {}
+        if not filas:
+            excluidas.append({"ticker": ticker, "motivo": "sin serie histórica"})
+            continue
+        completa = all(_num(filas.get(e, {}).get("revenue")) is not None for e in etiquetas)
+        if canasta == "constante" and not completa:
+            excluidas.append({"ticker": ticker, "motivo": "no cubre todos los períodos"})
+            continue
+        incluidas.append(ticker)
+
+    puntos = []
+    for etiqueta in etiquetas:
+        punto: dict = {"periodo": etiqueta, "n": 0}
+        for metrica in _AGREGABLES:
+            suma, n = 0.0, 0
+            for ticker in incluidas:
+                v = _num((por_ticker[ticker].get(etiqueta) or {}).get(metrica))
+                if v is not None:
+                    suma += v
+                    n += 1
+            punto[metrica] = suma if n else None
+            punto[f"{metrica}_n"] = n
+        punto["n"] = punto["revenue_n"]
+        # Márgenes del AGREGADO: Σ utilidad ÷ Σ ingresos (no promedio de márgenes).
+        ingresos = punto.get("revenue")
+        for margen, numerador in (("margen_bruto", "gross_profit"),
+                                  ("margen_operativo", "ebit"),
+                                  ("margen_neto", "net_income")):
+            valor = punto.get(numerador)
+            punto[margen] = (valor / ingresos * 100.0) if valor is not None and ingresos else None
+        puntos.append(punto)
+
+    return {
+        "periodo": modo,
+        "canasta": canasta,
+        "puntos": puntos,
+        "empresas": incluidas,
+        "excluidas": excluidas,
+    }
+
+
+def _num(v) -> float | None:
+    """Valor del jsonb → float, o None si no es un número usable."""
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f and f not in (float("inf"), float("-inf")) else None
 
 
 def upsert_fundamentals(docs: list[dict]) -> int:

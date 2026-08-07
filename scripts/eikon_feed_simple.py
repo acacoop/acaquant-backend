@@ -153,13 +153,19 @@ FUND_FY0 = {                    # último año fiscal, MILLONES de USD (Scale=6)
 #   B) márgenes (%) — históricos REALES (verificado); los múltiplos (PE etc.)
 #      NO se piden como serie: Eikon devuelve precio de HOY / resultados de
 #      cada año, no el múltiplo que se pagaba entonces (verificado 2026-07-17).
+#   Los 3 últimos (bruta / EBIT / capex) se sumaron 2026-08-07: el screener
+#   agrega el universo entero en el tiempo (Σ ingresos, Σ capex…) y sin serie
+#   solo se tenía la foto del último año fiscal.
 FUND_SERIE_USD = {
-    "TR.Revenue":            "revenue",
-    "TR.EBITDA":             "ebitda",
-    "TR.NetIncome":          "net_income",
-    "TR.FreeCashFlow":       "fcf",
-    "TR.TotalDebt":          "deuda",
-    "TR.CashAndEquivalents": "caja",
+    "TR.Revenue":              "revenue",
+    "TR.GrossProfit":          "gross_profit",
+    "TR.EBITDA":               "ebitda",
+    "TR.OperatingIncome":      "ebit",
+    "TR.NetIncome":            "net_income",
+    "TR.FreeCashFlow":         "fcf",
+    "TR.CapitalExpenditures":  "capex",
+    "TR.TotalDebt":            "deuda",
+    "TR.CashAndEquivalents":   "caja",
 }
 FUND_SERIE_PCT = {
     "TR.GrossMargin":        "margen_bruto",

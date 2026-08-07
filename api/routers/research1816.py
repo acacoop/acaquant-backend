@@ -17,8 +17,8 @@ from api.auth import require_module
 from api.cache import cached
 from api.services import research_1816_sql as mkt
 from api.services import research_sql as svc
+from core.eikon_live import agregado_fundamentals, tablero_fundamentals, tablero_reuters
 from core.eikon_live import ficha as ficha_reuters
-from core.eikon_live import tablero_fundamentals, tablero_reuters
 
 
 # Cache COMPARTIDO del tablero (perf 2026-07-18, medido: la
@@ -34,6 +34,14 @@ def _tablero_cached() -> list[dict]:
 @cached(ttl=60)
 def _fundamentals_cached() -> list[dict]:
     return tablero_fundamentals()
+
+
+# El agregado recorre las series de TODAS las empresas y suma en Python → es la
+# consulta más cara del tab. Misma frecuencia de cambio que los fundamentals
+# (1 vez por día) → 60s, cacheado POR combinación de filtros.
+@cached(ttl=60)
+def _agregado_cached(periodo: str, rubro: str | None, canasta: str) -> dict:
+    return agregado_fundamentals(periodo=periodo, rubro=rubro, canasta=canasta)
 
 router = APIRouter(
     prefix="/api/research1816",
@@ -108,6 +116,20 @@ def reuters_fundamentals():
     """Screener FUNDAMENTALS: una empresa por fila con las métricas de la ficha
     (valuación/negocio/salud), para comparar en tabla. Cache compartido 60s."""
     return _fundamentals_cached()
+
+
+@router.get("/reuters/fundamentals/agregado")
+def reuters_fundamentals_agregado(
+    periodo: str = Query("anual", description="anual (5 años) | trimestral (8 trimestres)"),
+    rubro: str | None = Query(None, description="agrega solo las empresas de ese rubro"),
+    canasta: str = Query("constante", description="constante | todas"),
+):
+    """El universo del feed SUMADO en el tiempo: una fila por período de
+    calendario con Σ ingresos / EBITDA / resultado / FCF / capex / deuda / caja
+    y los márgenes del agregado. `canasta=constante` suma solo las empresas con
+    datos en TODOS los períodos (una curva comparable); `todas` suma lo que haya.
+    Cache compartido 60s por combinación de filtros."""
+    return _agregado_cached(periodo=periodo, rubro=rubro, canasta=canasta)
 
 
 @router.get("/reuters/ficha")

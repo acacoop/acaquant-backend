@@ -155,6 +155,60 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
 
 ## 8. Changelog
 
+- **2026-08-07 — v4: FUNDAMENTALS en 4 cuadrantes + rubro como filtro + serie ampliada.**
+  Pedido del user: la tabla sola "no dice nada" — contesta cómo está UNA empresa,
+  no cómo está el CONJUNTO, que es la pregunta de research.
+  - **RUBRO en el screener**: `tablero_fundamentals` ahora resuelve el rubro del
+    catálogo propio (`mercado.cedears.rubro` → `mercado.rubros`, el mismo del
+    scanner de RV) con el mismo LATERAL que el tablero de cotizaciones, pero
+    prefiriendo la fila que TIENE rubro. Columna nueva + dropdown que filtra
+    los 4 paneles a la vez. (Cotizaciones ya tenía el filtro desde v3.1; lo que
+    faltaba era fundamentals.)
+  - **Layout 2×2 de 50%** (`reuters-fundamentals.tsx`, mismo patrón que la ficha,
+    con ⛶ por panel): arriba-izq SCREENER (columnas CURADAS por default — la
+    tabla ya no entra entera en medio ancho; el resto se prende desde COLUMNAS,
+    preferencia con key nueva `.v2`) · arriba-der AGREGADO · abajo-izq
+    DISPERSIÓN · abajo-der COMPOSICIÓN POR RUBRO.
+  - **AGREGADO** (`GET /reuters/fundamentals/agregado`, `core.eikon_live.agregado_fundamentals`):
+    el universo SUMADO en el tiempo (Σ ingresos / EBITDA / resultado / FCF /
+    capex / deuda / caja + márgenes), anual (5) o trimestral (8). Se calcula
+    SERVER-SIDE — el front no re-suma nada, así el panel no puede contradecir
+    al endpoint. Tres decisiones que hacen que la curva no mienta (tests en
+    `tests/unit/test_eikon_agregado.py`):
+      1. **Alineación por CALENDARIO**: las empresas no comparten cierre fiscal
+         (AAPL septiembre, NVDA enero) → el cierre se mapea al año/trimestre de
+         calendario en que cae. Sumar "FY2025" mezclaría ventanas distintas.
+      2. **Canasta CONSTANTE** (default, apagable): suma solo las empresas con
+         datos en TODOS los períodos → un salto de la curva es negocio y no una
+         empresa que entró o salió del feed. Las excluidas viajan con su motivo
+         y la vista dice cuántas quedaron afuera.
+      3. **Márgenes DERIVADOS** de los montos sumados (Σ utilidad ÷ Σ ingresos),
+         no promediados: un promedio simple le daría el mismo peso a AAPL que a
+         RKLB. Métrica sin datos viaja en `null` (nunca 0) + `<metrica>_n` con
+         sobre cuántas empresas se sumó.
+  - **DISPERSIÓN**: scatter con ejes ELEGIBLES (default P/E vs. margen neto),
+    color por rubro, click en el punto abre la ficha.
+  - **COMPOSICIÓN POR RUBRO**: cuánto pesa cada rubro (Σ market cap / ingresos /
+    EBITDA / resultado / capex) con su %; click en una barra filtra el panel.
+    Ignora a propósito el filtro de rubro (si no, quedaría una sola barra) y
+    resalta el elegido.
+  - **Feed — serie ampliada**: `FUND_SERIE_USD` suma `TR.GrossProfit`,
+    `TR.OperatingIncome` y `TR.CapitalExpenditures`. Sin esto solo existía la
+    FOTO del último año fiscal de esas tres y el agregado no podía graficar
+    capex en el tiempo. ⚠️ **Regenerar la copia del Desktop** — hasta que corra
+    el feed nuevo, esas 3 series vienen vacías (el panel lo muestra como
+    cobertura 0, no como cero).
+  - **Segmentos: DISCOVERY, sin implementar** — `scripts/diag_eikon_segmentos.py`
+    (read-only, corre en la notebook con Workspace). El user tenía ingresos por
+    segmento en su script viejo y hoy no están. La doc de LSEG apunta a la
+    familia **`TR.BGS.*`** (Business and Geographic Segments): negocio
+    `TR.BGS.BusTotalRevenue` + `.segmentName`, geográfico `TR.BGS.GeoTotalRevenue`.
+    NO está verificado contra nuestra licencia ni se sabe si trae historia
+    (REGLA #2) → el diag prueba las dos grafías, los campos de rentabilidad por
+    segmento, la historia anual/trimestral y si Σ segmentos cierra contra
+    `TR.Revenue`, y deja todo en `salida_segmentos.txt`. Se modela recién con
+    esa salida a la vista.
+
 - **2026-07-24 — el feed suma NOTICIAS (titulares Reuters → watchlist HOME, tab NOTICIAS).**
   v1 del estudio de §6b: SOLO titulares (sin nota completa — tamaño acotado).
   - Universo CURADO server-side (`core/eikon_news.py::RICS_NEWS_EQUITIES` +

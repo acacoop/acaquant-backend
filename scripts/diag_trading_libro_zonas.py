@@ -46,13 +46,14 @@ def _edad(iso) -> str:
 
 def libro(tk: str) -> None:
     print(f"\n── 1) LIBRO · {tk} ──────────────────────────────────────────")
+    # Columnas REALES de mercado.market_snapshot (ver sql/schema.sql): el book es una
+    # columna jsonb propia, no un `data` genérico, y el último precio es `last_price`.
     rows = _q(
-        "SELECT ticker, updated_at, "
-        "       jsonb_array_length(COALESCE(data->'book'->'bids','[]'::jsonb)) AS n_bids, "
-        "       jsonb_array_length(COALESCE(data->'book'->'offers','[]'::jsonb)) AS n_offers, "
-        "       data->'book'->'bids'->0->>'price'   AS mejor_bid, "
-        "       data->'book'->'offers'->0->>'price' AS mejor_offer, "
-        "       data->'metrics'->>'last' AS last "
+        "SELECT ticker, updated_at, last_price, "
+        "       jsonb_array_length(COALESCE(book->'bids','[]'::jsonb))   AS n_bids, "
+        "       jsonb_array_length(COALESCE(book->'offers','[]'::jsonb)) AS n_offers, "
+        "       book->'bids'->0->>'price'   AS mejor_bid, "
+        "       book->'offers'->0->>'price' AS mejor_offer "
         "FROM mercado.market_snapshot WHERE ticker ILIKE %(p)s ORDER BY ticker",
         {"p": f"%{tk}%"},
     )
@@ -65,7 +66,7 @@ def libro(tk: str) -> None:
         print(f"     refrescada hace : {_edad(r['updated_at'])}")
         print(f"     puntas          : {r['n_bids']} bids / {r['n_offers']} offers")
         print(f"     mejor bid/offer : {r['mejor_bid']} / {r['mejor_offer']}")
-        print(f"     last (metrics)  : {r['last']}")
+        print(f"     last_price      : {r['last_price']}")
         if (r["n_bids"] or r["n_offers"]) and r["updated_at"]:
             print("     NOTA: si la fila es RANCIA y aun asi tiene puntas, el endpoint la")
             print("           devuelve igual y la pantalla las muestra como si fueran de ahora.")
@@ -82,12 +83,13 @@ def zonas(tk: str) -> None:
     if not n:
         print(f"   ✗ {tk} NO tiene velas diarias en mercado.precios_acciones → el chart")
         print("     no tiene nada que dibujar. Por eso sale el marco vacío, sin error.")
-        # ¿Está el ticker en el universo? Si no, nunca lo va a bajar el job.
-        for tabla, col in (("mercado.cedears", "ticker"), ("mercado.adr_snapshot", "ticker")):
+        # ¿Está el papel en el universo? Si no figura, el job nunca le va a bajar velas.
+        # OJO: en mercado.cedears el símbolo US es `underlying` (`ticker` es el de BYMA).
+        for tabla, col in (("mercado.cedears", "underlying"), ("mercado.adr_snapshot", "ticker")):
             try:
                 hit = _q(f"SELECT {col} FROM {tabla} WHERE {col} ILIKE %(t)s LIMIT 3",
                          {"t": f"%{tk}%"})
-                print(f"     {tabla}: {[h[col] for h in hit] or 'NO figura'}")
+                print(f"     {tabla}.{col}: {[h[col] for h in hit] or 'NO figura'}")
             except Exception as e:
                 print(f"     {tabla}: no pude consultar ({type(e).__name__})")
     else:

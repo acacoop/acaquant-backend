@@ -117,7 +117,15 @@ def get_book(
     if book is not None:
         edad = _segundos_desde(book.get("updated_at"))
         fresca = edad is not None and edad <= _FRESCURA_S
-        if _tiene_puntas(book) or fresca:
+        # La FRESCURA manda, tenga puntas o no. Antes acá decía
+        # `if _tiene_puntas(book) or fresca`, y ese `or` servía la fila apenas
+        # tuviera puntas SIN mirar de cuándo eran: con el motor sin refrescar el
+        # papel, la pantalla pintaba un libro viejo como si fuera de ahora y nunca
+        # se llegaba al camino de re-suscripción de abajo. Caso real (2026-08-07):
+        # RKLB mostraba bid 9130 / ask 9170 de una fila de **16 días** mientras el
+        # último precio real era 10860. Un libro rancio es PEOR que uno vacío: uno
+        # avisa, el otro te deja mandar una orden límite contra puntas fantasma.
+        if fresca:
             # Refresca TTL si era adhoc (no rompe nada si no estaba ahí).
             try:
                 bump_last_used(book.get("ticker", ""))
@@ -168,6 +176,10 @@ def get_book(
             # caído y esto no va a llegar nunca": sin este dato el cliente
             # sigue reintentando a ciegas.
             "fila_edad_s":  round(edad_fila) if edad_fila is not None else None,
+            # Último precio conocido de la fila vieja. NO son puntas operables — es
+            # solo para que la pantalla diga "lo último que vi fue X, hace Y" en vez
+            # de quedarse en blanco mientras el motor levanta el papel.
+            "last_price":   ((book or {}).get("metrics") or {}).get("last_price"),
             "message":      "Motor suscribiendo. Reintentá en ~5s.",
         },
     )

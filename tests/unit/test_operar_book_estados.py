@@ -80,3 +80,30 @@ def test_sin_fila_es_202_con_edad_desconocida(monkeypatch, sin_efectos):
     assert r.status_code == 202
     import json
     assert json.loads(r.body)["fila_edad_s"] is None
+
+
+def test_con_puntas_pero_ABANDONADO_no_se_sirve_como_vigente(monkeypatch, sin_efectos):
+    """El agujero que faltaba cubrir, y por eso el bug vivió meses.
+
+    Había test para "vacío + abandonado" y para "con puntas + fresco", pero NINGUNO
+    para "con puntas + abandonado". El endpoint decía `_tiene_puntas(book) or fresca`,
+    así que una fila con puntas se servía sin mirar de cuándo eran y jamás llegaba al
+    camino de re-suscripción. Caso real (2026-08-07): RKLB mostraba bid 9130 / ask
+    9170 de una fila de 16 DÍAS mientras el último precio real era 10860.
+
+    Un libro rancio es peor que uno vacío: el vacío avisa, el viejo te deja mandar
+    una orden límite contra puntas que ya no existen. La frescura manda.
+    """
+    monkeypatch.setattr(mod, "get_order_book", lambda t, plazo=None: _book(
+        edad_s=16 * 24 * 3600,
+        bids=[{"price": 9130, "size": 10}], offers=[{"price": 9170, "size": 10}]))
+
+    import json
+
+    r = mod.get_book(ticker="RKLB", plazo="24hs")
+
+    assert getattr(r, "status_code", None) == 202, "una fila de 16 días NO es un libro"
+    cuerpo = json.loads(r.body)
+    assert cuerpo["status"] == "subscribing"
+    assert cuerpo["fila_edad_s"] > 1_000_000          # se ve que estaba abandonada
+    assert cuerpo["last_price"] == 1234.5             # el último precio conocido sí viaja

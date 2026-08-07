@@ -21,11 +21,9 @@ import sys
 import time
 from datetime import date
 
+from api.cache import invalidate
 from api.services import tesoreria as t
 from api.services._sql import _q
-
-# Queries del path caliente, con el mismo texto que corre en producción.
-EXPLAIN: list[tuple[str, str, dict]] = []
 
 
 def _seg(nombre: str, fn):
@@ -46,7 +44,11 @@ def _seg(nombre: str, fn):
 def fuentes(dia: date) -> None:
     print("\n── FUENTES de la grilla BANCOS (cada una por separado) ────────────────")
     total = 0.0
+    invalidate("traer_crudas")   # en FRÍO: si no, mide el cache y no Aunesa
     total += _seg("Aunesa (HTTP, movimientos del día)", lambda: t.traer_crudas(dia, t.TODOS_ESTADOS))
+    # Segunda llamada idéntica: tiene que salir del cache (@cached AUNESA_TTL_S). Es la
+    # que se ahorran el resto de los usuarios que pollean y el detalle de una celda.
+    _seg("  ↳ misma llamada, ya cacheada", lambda: t.traer_crudas(dia, t.TODOS_ESTADOS))
     total += _seg("catálogo de cuentas (catalogo)", lambda: t.catalogo())
     total += _seg("catálogo completo (listar_cuentas)", lambda: t.listar_cuentas())
     total += _seg("saldos iniciales", lambda: t._saldos_dia(dia))
@@ -64,9 +66,13 @@ def fuentes(dia: date) -> None:
 def requests_(dia: date) -> None:
     print("\n── REQUESTS completos (lo que ve el usuario) ──────────────────────────")
     iso = dia.isoformat()
-    # 3 corridas: la 1ra puede pagar warm-up de pool/DNS, interesa la mediana.
+    # La 1ra corrida es EN FRÍO (paga Aunesa, ~1.6s); las siguientes caen dentro del
+    # TTL del cache y muestran lo que ve el resto de la mesa mientras el dato sigue
+    # vigente. Las dos cosas importan: el primero que entra y todos los demás.
+    invalidate("traer_crudas")
     for i in range(3):
-        _seg(f"GET /tesoreria/dia  (corrida {i + 1}/3)",
+        etiqueta = "en FRÍO, paga Aunesa" if i == 0 else "con Aunesa cacheado"
+        _seg(f"GET /tesoreria/dia  ({etiqueta})",
              lambda: t.ingresos_egresos_dia(fecha=iso, email="")["cuentas"])
     _seg("GET /tesoreria/detalle  fila=ingresos",
          lambda: t._detalle_dia(dia))

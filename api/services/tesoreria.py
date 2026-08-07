@@ -52,6 +52,7 @@ from typing import Any
 
 from psycopg.types.json import Jsonb
 
+from api.cache import cached
 from api.services._sql import _q
 from core import aunesa
 from core.postgres import get_pool
@@ -65,6 +66,10 @@ _ENDPOINT = "cuentas/consultaMovDocsSolicitados"
 _INGRESO = "deposito"   # 'Depósito'
 _EGRESO = "extraccion"  # 'Extracción'
 PRESENCIA_TTL_S = 90    # visto hace ≤90s = conectado (el front pollea cada ~20s)
+# TTL del cache de la llamada a Aunesa. MENOR que el poll del front (20s) a propósito:
+# cada poll trae datos frescos igual, y el cache solo evita repetir la MISMA llamada
+# dentro de esa ventana (varios usuarios en la vista, o abrir el detalle de una celda).
+AUNESA_TTL_S = 15
 
 # Estados de Aunesa. Se piden TODOS de una (el selector ESTADO de la tab MOVIMIENTOS
 # filtra después en Python) para que una sola llamada sirva a las dos tabs.
@@ -141,11 +146,19 @@ def _hora(id_: Any, yyyymmdd: str) -> str:
     return ""
 
 
+@cached(ttl=AUNESA_TTL_S)
 def traer_crudas(dia: date, estado: str) -> list[dict]:
     """Filas crudas de Aunesa del día `dia`, ya filtradas al día objetivo.
 
     Aunesa EXIGE desde < hasta (un rango de un día solo tira 400), así que se pide
     [día, día+1] y se descartan las filas del día siguiente.
+
+    @cached(AUNESA_TTL_S): medido en el Droplet (2026-08-07), esta llamada HTTP son
+    ~1.6s de los ~2.0s que tarda armar la vista — el 82%. Todo lo demás (16 queries)
+    suma ~0.35s. El TTL es más corto que el poll del front (20s), así que la vista no
+    se atrasa; lo que evita es pagar Aunesa DE NUEVO cuando, dentro de esa ventana,
+    otro usuario pollea o alguien abre el detalle de `saldo_final` (que recalcula la
+    grilla entera y volvía a pedir los mismos movimientos).
     """
     ddmmyyyy = dia.strftime("%d/%m/%Y")
     params: dict[str, Any] = {
@@ -548,11 +561,18 @@ def _detalle_dia(dia: date, cuentas: list[dict] | None = None) -> dict[str, dict
     # 1) Aunesa → ingresos / egresos / egresos_echeq (los e-cheq solo del lado egreso).
     yyyymmdd = dia.strftime("%Y%m%d")
     try:
-        crudas = traer_crudas(dia, ESTADO_EFECTIVO)
+        # Se piden TODOS los estados y se filtra ESTADO_EFECTIVO acá, igual que hace la
+        # grilla. No es un capricho: pedirle a Aunesa el subconjunto era otra llamada
+        # HTTP de ~1.6s con distinta cache key, así que abrir el detalle de una celda
+        # volvía a pagar Aunesa aunque el poll acabara de traer esos mismos
+        # movimientos. Con el mismo pedido que la grilla, el detalle sale del cache.
+        crudas = traer_crudas(dia, TODOS_ESTADOS)
     except Exception:
         _log.warning("tesoreria: no pude traer los movimientos de Aunesa", exc_info=True)
         crudas = []
     for r in crudas:
+        if str(r.get("estado") or "").strip() != ESTADO_EFECTIVO:
+            continue
         m = aplanar(r, yyyymmdd)
         if not m["_tipo"]:
             continue

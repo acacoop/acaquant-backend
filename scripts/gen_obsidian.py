@@ -79,7 +79,9 @@ class Node:
         self.ntype = ntype          # module | collection | service | cron | view | component | lib | route
         self.layer = layer          # core, engines, ... db, deploy, web-view, ...
         self.repo = repo            # backend | frontend | infra
-        self.path = path
+        # Siempre con `/`, aunque el generador corra en Windows: si no, el vault
+        # quedaría distinto según la máquina y `--check` fallaría en CI (Linux).
+        self.path = path.replace("\\", "/")
         self.summary = summary
         self.links: set[str] = set()   # ids de nodos a los que apunta
         self.meta: dict[str, str] = {}

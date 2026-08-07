@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-44 notas.
+45 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
@@ -21,6 +21,7 @@
 - [[core.eikon_chicago]] — Feed Eikon — futuros de commodities de CHICAGO (CBOT) para AGRO → tab CHICAGO.
 - [[core.eikon_live]] — Feed Eikon/Workspace — quotes LIVE del subyacente US de cada CEDEAR (PRUEBA).
 - [[core.eikon_news]] — Feed Eikon — TITULARES de noticias Reuters para la watchlist del HOME.
+- [[core.eikon_segmentos]] — Ingresos POR SEGMENTO del feed Eikon (familia TR.BGS.*).
 - [[core.estrategia_sql]] — core/estrategia_sql.py — I/O SQL del modelo ESTRATEGIA QUANT.
 - [[core.finnhub]] — Cliente Finnhub con rate limiting interno.
 - [[core.fred_api]] — core/fred_api.py — cliente de la FRED API (Federal Reserve Bank of St. Louis).

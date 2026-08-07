@@ -827,34 +827,6 @@ CREATE TABLE IF NOT EXISTS operaciones.tesoreria_cuentas (
     PRIMARY KEY (cuenta_operativa, unidad)
 );
 
--- SALDO AL2 — movimientos del banco FERSI SA (`[00001713]`) y NADA MÁS. La vista del
--- día sigue siendo live contra Aunesa y NO se persiste; esto existe solo porque la tab
--- SALDO AL2 necesita SERIE (60 días) y Aunesa se pide día por día. Lo escribe
--- `jobs/tesoreria_al2.py` (idempotente por `id` de Aunesa; re-ingesta los últimos días
--- para capturar los cambios de estado Pendiente → Procesado).
-CREATE TABLE IF NOT EXISTS operaciones.tesoreria_al2 (
-    id               text PRIMARY KEY,        -- id Aunesa (YYYYMMDDHHMMSS…)
-    fecha            date NOT NULL,
-    hora             text,                    -- HH:MM derivada del id
-    tipo             text,                    -- ingreso (Depósito) / egreso (Extracción)
-    monto            numeric,                 -- siempre positivo; la dirección la da `tipo`
-    unidad           text,                    -- ARS / USD
-    estado           text,                    -- Procesado / Pendiente / …
-    banco            text,                    -- crudo, ej. '[00001713] FERSI SA'
-    cuenta           text,
-    cuenta_operativa text,                    -- denominación
-    riel             text,                    -- tipoDocSoli
-    persona          text,                    -- persona.nombreCompleto
-    persona_tipo     text,                    -- FISICA / JURIDICA (normalizado sin acentos)
-    persona_doc      text,
-    persona_cuit     text,
-    cbu_cvu          text,
-    id_externo       text,
-    ingestado_en     timestamptz
-);
-CREATE INDEX IF NOT EXISTS ix_tesoreria_al2_fecha
-    ON operaciones.tesoreria_al2 (fecha DESC);
-
 -- FOTO de la grilla BANCOS. La vista del día es casi toda LIVE contra Aunesa y no
 -- se persiste: una vez que pasa el día no hay forma de reconstruir lo que mostró la
 -- pantalla. Esto lo congela para auditoría.

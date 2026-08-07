@@ -25,6 +25,7 @@ Conecta con: `core.dolar_oficial::upsert_oficial` que escribe en `Valuaciones.Do
 - [[core.eikon_chicago]]  ·  _module_
 - [[core.eikon_live]]  ·  _module_
 - [[core.eikon_news]]  ·  _module_
+- [[core.eikon_segmentos]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

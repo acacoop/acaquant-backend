@@ -23,6 +23,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.research_1816_sql]]  ·  _module_
 - [[api.services.research_sql]]  ·  _module_
 - [[core.eikon_live]]  ·  _module_
+- [[core.eikon_segmentos]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

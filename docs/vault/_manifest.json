@@ -385,7 +385,8 @@
 "core.eikon_bonos",
 "core.eikon_chicago",
 "core.eikon_live",
-"core.eikon_news"
+"core.eikon_news",
+"core.eikon_segmentos"
 ]
 },
 {
@@ -940,7 +941,8 @@
 "api.services",
 "api.services.research_1816_sql",
 "api.services.research_sql",
-"core.eikon_live"
+"core.eikon_live",
+"core.eikon_segmentos"
 ]
 },
 {
@@ -2714,7 +2716,6 @@
 "api.services.senebis",
 "core",
 "core.aunesa",
-"core.pg_mirror",
 "core.postgres",
 "core.roles"
 ]
@@ -3017,6 +3018,18 @@
 "summary": "Feed Eikon — TITULARES de noticias Reuters para la watchlist del HOME.",
 "links": [
 "core.eikon_bonos",
+"core.postgres"
+]
+},
+{
+"id": "core.eikon_segmentos",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/eikon_segmentos.py",
+"summary": "Ingresos POR SEGMENTO del feed Eikon (familia TR.BGS.*).",
+"links": [
+"core.pg_mirror",
 "core.postgres"
 ]
 },
@@ -3756,17 +3769,6 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.sync_comitentes"
-]
-},
-{
-"id": "cron.jobs.tesoreria_al2",
-"type": "cron",
-"layer": "deploy",
-"repo": "infra",
-"path": "deploy/crontab.txt",
-"summary": "Tarea programada (cron).",
-"links": [
-"jobs.tesoreria_al2"
 ]
 },
 {
@@ -5074,19 +5076,6 @@
 "core.doc_fiscal",
 "core.job_runs",
 "core.postgres"
-]
-},
-{
-"id": "jobs.tesoreria_al2",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs/tesoreria_al2.py",
-"summary": "jobs/tesoreria_al2.py — movimientos del banco AL2 (FERSI SA) a SQL.",
-"links": [
-"api.services",
-"api.services.tesoreria",
-"core.job_runs"
 ]
 },
 {

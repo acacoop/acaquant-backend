@@ -28,12 +28,12 @@ _(pendiente de enriquecimiento)_
 - [[api.services.opciones]]  ·  _module_
 - [[api.services.operativa_mep]]  ·  _module_
 - [[api.services.ordenes]]  ·  _module_
-- [[api.services.tesoreria]]  ·  _module_
 - [[core.brackets]]  ·  _module_
 - [[core.dolar_oficial]]  ·  _module_
 - [[core.eikon_bonos]]  ·  _module_
 - [[core.eikon_chicago]]  ·  _module_
 - [[core.eikon_live]]  ·  _module_
+- [[core.eikon_segmentos]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 - [[core.roles]]  ·  _module_
 - [[engines.breakevens]]  ·  _module_

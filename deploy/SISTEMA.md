@@ -99,7 +99,6 @@
 | 11:35 · diario | `jobs.news_ingesta'` |
 | 11:35 · diario | `jobs.news_finnhub'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |
-| cada hora · 13-22h · L-V | `jobs.tesoreria_al2'` |
 | 20:40 · L-V | `jobs.snapshot_sinteticos'` |
 | 12:45 · L-V | `jobs.acreencias` |
 | 20:45 · L-V | `jobs.guardrails'` |

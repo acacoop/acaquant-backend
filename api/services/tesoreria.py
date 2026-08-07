@@ -37,12 +37,6 @@ que el universo se descubre viendo movimientos y se persiste en
 quién operó hoy): los bancos sin movimientos aparecen en cero en vez de ir brotando
 a medida que avanza la rueda. Sembrado hacia atrás con
 `python -m scripts.diag_tesoreria_cuentas --registrar`.
-
-SALDO AL2 (2026-08-06): tab con los movimientos del banco FERSI SA (`[00001713]`) de
-los últimos N días + la sumatoria acumulada. Necesita SERIE, y Aunesa se pide día por
-día → SOLO esos movimientos se persisten, en `operaciones.tesoreria_al2`
-(`jobs/tesoreria_al2.py`, idempotente por `id`). El resto de los movimientos NO se
-guarda: la vista del día sigue siendo live.
 """
 from __future__ import annotations
 
@@ -60,7 +54,6 @@ from psycopg.types.json import Jsonb
 
 from api.services._sql import _q
 from core import aunesa
-from core.pg_mirror import write_native
 from core.postgres import get_pool
 
 _log = logging.getLogger(__name__)
@@ -73,8 +66,8 @@ _INGRESO = "deposito"   # 'Depósito'
 _EGRESO = "extraccion"  # 'Extracción'
 PRESENCIA_TTL_S = 90    # visto hace ≤90s = conectado (el front pollea cada ~20s)
 
-# Estados de Aunesa. AL2 se ingesta con TODOS (el estado se guarda como columna y la
-# lectura filtra) para no perder las filas que todavía no liquidaron.
+# Estados de Aunesa. Se piden TODOS de una (el selector ESTADO de la tab MOVIMIENTOS
+# filtra después en Python) para que una sola llamada sirva a las dos tabs.
 ESTADOS = ("Procesado", "Pendiente", "Pendiente de autorizar", "Demorado",
            "Rechazado", "Anulado", "Incompleto")
 TODOS_ESTADOS = ";".join(ESTADOS)
@@ -92,10 +85,6 @@ SIN_CUENTA = "SIN CUENTA OPERATIVA"
 # necesita distinguirlos, así que van en su PROPIA fila de la grilla y NO entran al
 # total de egresos (por lo tanto tampoco restan del saldo final).
 _RE_RIEL_COD = re.compile(r"\[([^\]]+)\]")
-
-_TABLA_AL2 = "operaciones.tesoreria_al2"
-AL2_BANCO_CODIGO = "00001713"   # FERSI SA — el único banco que se persiste
-_RE_BANCO_COD = re.compile(r"\[(\w+)\]")
 
 
 def _norm(s: Any) -> str:
@@ -790,135 +779,6 @@ def foto_dia(fecha: str | None = None, *, email: str = "") -> dict:
         "catalogo": datos.get("catalogo_bancos") or [],
         "detalle": datos.get("detalle") or {},
         "ttl": TTL_SNAPSHOTS,
-    }
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# SALDO AL2 — SOLO los movimientos del banco FERSI SA se persisten
-# (`operaciones.tesoreria_al2`, lo alimenta `jobs/tesoreria_al2.py`). El resto de
-# la tesorería NO se guarda: la serie de 60 días es lo único que no se puede
-# resolver live, porque Aunesa se pide día por día.
-# ──────────────────────────────────────────────────────────────────────────────
-
-def _banco_codigo(v: Any) -> str | None:
-    """'[00001713] FERSI SA' → '00001713'. None si el banco no trae código."""
-    m = _RE_BANCO_COD.search(str(v or ""))
-    return m.group(1) if m else None
-
-
-def es_al2(mov: dict) -> bool:
-    return _banco_codigo(mov.get("banco")) == AL2_BANCO_CODIGO
-
-
-def _fila_sql(mov: dict, dia: date) -> dict:
-    """Movimiento aplanado → fila de `operaciones.tesoreria_al2`."""
-    return {
-        "id": str(mov.get("id") or ""),
-        "fecha": dia,
-        "hora": str(mov.get("_hora") or "") or None,
-        "tipo": mov.get("_tipo") or None,
-        "monto": _num(mov.get("monto")),
-        "unidad": str(mov.get("unidad") or "?").upper(),
-        "estado": str(mov.get("estado") or "") or None,
-        "banco": str(mov.get("banco") or "") or None,
-        "cuenta": str(mov.get("cuenta") or "") or None,
-        "cuenta_operativa": mov.get("cuentaOperativa") or None,
-        "riel": str(mov.get("tipoDocSoli") or "") or None,
-        "persona": str(mov.get("persona_nombreCompleto") or "") or None,
-        # Normalizado (sin acentos, mayúscula) para que el filtro FISICA/JURIDICA
-        # no dependa de cómo venga escrito en Aunesa.
-        "persona_tipo": _norm(mov.get("persona_tipoPersona")).upper() or None,
-        "persona_doc": str(mov.get("persona_documento") or "") or None,
-        "persona_cuit": str(mov.get("persona_cuit") or "") or None,
-        "cbu_cvu": str(mov.get("cbuCVU") or "") or None,
-        "id_externo": str(mov.get("idExterno") or "") or None,
-        "ingestado_en": datetime.now(UTC),
-    }
-
-
-def ingestar_dia(dia: date, estado: str = TODOS_ESTADOS) -> int:
-    """Persiste los movimientos AL2 de `dia` (upsert por `id`). Idempotente."""
-    return persistir(preparar_dia(dia, estado))
-
-
-def preparar_dia(dia: date, estado: str = TODOS_ESTADOS) -> list[dict]:
-    """Filas AL2 de `dia` listas para SQL (sin escribir nada). Descarta el resto."""
-    yyyymmdd = dia.strftime("%Y%m%d")
-    movs = (aplanar(r, yyyymmdd) for r in traer_crudas(dia, estado) if r.get("id"))
-    return [_fila_sql(m, dia) for m in movs if es_al2(m)]
-
-
-def persistir(filas: list[dict]) -> int:
-    """Upsert por `id` en `operaciones.tesoreria_al2`."""
-    return write_native(_TABLA_AL2, ["id"], filas)
-
-
-def saldo_al2(*, dias: int = 60, persona: str = "todas", unidad: str = "",
-              estado: str = "Procesado") -> dict:
-    """Movimientos + serie diaria acumulada del banco AL2 (FERSI SA).
-
-    `persona`: 'todas' | 'fisica' | 'juridica'. `unidad`: '' = todas las monedas.
-    La serie se agrega en SQL (no sobre la muestra de movimientos) para que el
-    acumulado sea correcto aunque la tabla se trunque en el LÍMITE de filas.
-    """
-    dias = max(1, min(int(dias or 60), 365))
-    desde = _hoy_art().date() - timedelta(days=dias - 1)
-    p = _norm(persona)
-    where = {
-        "desde": desde,
-        "estado": (estado or "").strip(),
-        "persona": p.upper() if p in ("fisica", "juridica") else "",
-        "unidad": (unidad or "").strip().upper(),
-    }
-    filtro = (
-        "WHERE fecha >= %(desde)s "
-        "AND (%(estado)s = '' OR estado = %(estado)s) "
-        "AND (%(persona)s = '' OR persona_tipo = %(persona)s) "
-        "AND (%(unidad)s = '' OR unidad = %(unidad)s)"
-    )
-
-    movs = _q(
-        "SELECT id, fecha, hora, tipo, monto, unidad, estado, cuenta, cuenta_operativa, "
-        f"riel, persona, persona_tipo, persona_doc, persona_cuit FROM {_TABLA_AL2} {filtro} "
-        "ORDER BY fecha DESC, hora DESC NULLS LAST LIMIT 5000",
-        where,
-    )
-    diario = _q(
-        "SELECT fecha, "
-        "SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END) AS ingresos, "
-        "SUM(CASE WHEN tipo = 'egreso'  THEN monto ELSE 0 END) AS egresos, "
-        f"COUNT(*) AS n FROM {_TABLA_AL2} {filtro} GROUP BY fecha ORDER BY fecha",
-        where,
-    )
-    unidades = [r["unidad"] for r in _q(
-        f"SELECT DISTINCT unidad FROM {_TABLA_AL2} "
-        "WHERE fecha >= %(desde)s AND unidad IS NOT NULL ORDER BY unidad", where)]
-
-    serie, acum = [], 0.0
-    tot_in = tot_out = 0.0
-    for r in diario:
-        ing, egr = float(r["ingresos"] or 0), float(r["egresos"] or 0)
-        acum += ing - egr
-        tot_in, tot_out = tot_in + ing, tot_out + egr
-        serie.append({"fecha": r["fecha"].isoformat(), "ingresos": round(ing, 2),
-                      "egresos": round(egr, 2), "neto": round(ing - egr, 2),
-                      "acumulado": round(acum, 2), "n": int(r["n"])})
-
-    return {
-        "banco_codigo": AL2_BANCO_CODIGO, "desde": desde.isoformat(),
-        "hasta": _hoy_art().date().isoformat(), "dias": dias,
-        "persona": persona, "unidad": where["unidad"], "estado": where["estado"],
-        "unidades": unidades,
-        "movimientos": [
-            {**m, "fecha": m["fecha"].isoformat(), "monto": float(m["monto"] or 0)}
-            for m in movs
-        ],
-        "n": len(movs),
-        "serie": serie,
-        "resumen": {"ingresos": round(tot_in, 2), "egresos": round(tot_out, 2),
-                    "neto": round(tot_in - tot_out, 2),
-                    "n": sum(s["n"] for s in serie)},
-        "actualizado_at": datetime.now(UTC).isoformat(),
     }
 
 

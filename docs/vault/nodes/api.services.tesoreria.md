@@ -21,12 +21,10 @@ _(pendiente de enriquecimiento)_
 - [[api.services.senebis]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.aunesa]]  ·  _module_
-- [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[core.roles]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.back_office]]  ·  _module_
 - [[api.routers.manager.mesa]]  ·  _module_
-- [[jobs.tesoreria_al2]]  ·  _module_
 - [[jobs.tesoreria_snapshot]]  ·  _module_

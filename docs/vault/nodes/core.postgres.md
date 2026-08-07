@@ -110,6 +110,7 @@ _(pendiente de enriquecimiento)_
 - [[core.eikon_chicago]]  ·  _module_
 - [[core.eikon_live]]  ·  _module_
 - [[core.eikon_news]]  ·  _module_
+- [[core.eikon_segmentos]]  ·  _module_
 - [[core.estrategia_sql]]  ·  _module_
 - [[core.grupos_sql]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_

@@ -91,5 +91,4 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
-- [[jobs.tesoreria_al2]]  ·  _module_
 - [[jobs.tesoreria_snapshot]]  ·  _module_

@@ -29,7 +29,7 @@ QUÉ RESPONDE (las dos preguntas, en orden)
 
 USO (en el Droplet)
 -------------------
-    python -m scripts.diag_tenencia_t0_futuro
+    python -m scripts.diag_tenencia_t0_futuro --auto     # elige una cuenta que operó hoy
     python -m scripts.diag_tenencia_t0_futuro --cuenta 1839 --pasos 4
     python -m scripts.diag_tenencia_t0_futuro --json   # payload crudo de 1 corrida
 """
@@ -44,11 +44,68 @@ from itertools import pairwise
 
 from core.calendario import es_habil, proximo_habil
 from core.postgres import get_pool
-from jobs.aum import autenticar, consultar_posicion
+from jobs.aum import _SESSION, POSICION_URL, autenticar
 
 CUENTA_DEFAULT = "1839"
 PASOS_DEFAULT = 4          # escalones de la escalera después de T0
 TIMEOUT = 120
+# Mismos params que el writer de producción (`portafolio_backfill._PARAMS_BASE`):
+# si el diag preguntara distinto, mediría otra cosa.
+_PARAMS_BASE = {"hasta": "", "tipoCuenta": "Comitentes y propias",
+                "nivel": "Especie x cuenta", "ocultarCerradas": "true"}
+
+
+def _pedir(cuenta: str, desde: str, headers: dict) -> tuple[int, list | None, float, str]:
+    """GET crudo → (status, data, segundos, nota).
+
+    NO se usa `jobs.aum.consultar_posicion` a propósito: esa colapsa 204/401/404/
+    500 en un único `None` y el diag necesita justamente distinguirlos. El 204 no
+    es un error — es "cuenta sin posición" (así lo trata producción).
+    """
+    t0 = time.time()
+    try:
+        resp = _SESSION.get(POSICION_URL.format(cuenta),
+                            params={"desde": desde, **_PARAMS_BASE},
+                            headers=headers, timeout=TIMEOUT)
+    except Exception as e:
+        return -1, None, time.time() - t0, f"{type(e).__name__}: {e}"
+    seg = time.time() - t0
+    if resp.status_code == 204:
+        return 204, [], seg, "sin posición"
+    if resp.status_code != 200:
+        return resp.status_code, None, seg, (resp.text or "")[:160].replace("\n", " ")
+    try:
+        return 200, resp.json(), seg, ""
+    except Exception as e:
+        return 200, None, seg, f"body no-JSON: {type(e).__name__}"
+
+
+def _candidatas(ayer: date, limite: int = 8) -> list[tuple[str, int, int]]:
+    """Cuentas que operaron desde `ayer` Y tienen tenencia en el último snapshot.
+
+    Son las únicas donde el test es CONCLUYENTE: si la cuenta no operó, T0 tiene
+    que dar igual que el cierre de ayer y no se prueba nada. Query scopeada (los
+    boletos del día son pocos), no un scan de la tabla entera.
+    """
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id_cuenta, count(*) AS n FROM operaciones "
+            "WHERE concertacion >= %s AND anulado_en IS NULL AND id_cuenta IS NOT NULL "
+            "GROUP BY id_cuenta ORDER BY n DESC LIMIT 40", (ayer,))
+        ops = {r[0]: int(r[1]) for r in cur.fetchall()}
+        if not ops:
+            return []
+        cur.execute("SELECT max(fecha) FROM portafolio.tenencia")
+        ult = cur.fetchone()[0]
+        if ult is None:
+            return []
+        cur.execute("SELECT id_cuenta, count(*) FROM portafolio.tenencia "
+                    "WHERE fecha = %s AND id_cuenta = ANY(%s) GROUP BY id_cuenta",
+                    (ult, list(ops)))
+        ten = {r[0]: int(r[1]) for r in cur.fetchall()}
+    out = [(idc, ops[idc], ten.get(idc, 0)) for idc in ops if ten.get(idc)]
+    out.sort(key=lambda x: (-x[1], -x[2]))
+    return out[:limite]
 
 
 def _opt(flag: str, default: str) -> str:
@@ -105,10 +162,29 @@ def main() -> None:
     print("=" * 78)
 
     headers = autenticar()
+    ayer = _habil_anterior(hoy - timedelta(days=1))
+
+    # ── BLOQUE 0 · elegir una cuenta donde el test SIRVA ─────────────────────
+    # Si la cuenta no operó, T0 tiene que dar igual que el cierre de ayer por
+    # definición y no se prueba nada. Con --auto se toma la que más operó hoy.
+    cands = _candidatas(ayer)
+    print("\n── BLOQUE 0 · cuentas donde el test es concluyente ──────────────────")
+    if cands:
+        print(f"  {'cuenta':<10} {'boletos desde ' + ayer.isoformat():<26} especies en tenencia")
+        for idc, n_ops, n_ten in cands:
+            marca = " ←" if idc == cuenta else ""
+            print(f"  {idc:<10} {n_ops:<26} {n_ten}{marca}")
+    else:
+        print("  (ninguna cuenta operó desde " + ayer.isoformat() + ")")
+    if "--auto" in sys.argv and cands:
+        cuenta = cands[0][0]
+        print(f"  --auto → se usa la cuenta {cuenta}")
+    elif cands and cuenta not in {c[0] for c in cands}:
+        print(f"  ⚠ la cuenta {cuenta} NO operó desde {ayer.isoformat()}: si T0 sale")
+        print("    igual al cierre de ayer, NO prueba nada. Re-corré con --auto.")
 
     # ── Escalera de `desde`. Regla del endpoint: desde=X → posición al hábil
     #    anterior a X. Así que para la posición AL día D se pide desde=D+1 hábil.
-    ayer = _habil_anterior(hoy - timedelta(days=1))
     escalera: list[tuple[str, date, date]] = [
         ("cierre de ayer (lo que guarda el cron)", hoy, ayer),
         ("T0 — HOY", proximo_habil(hoy), hoy),
@@ -120,28 +196,34 @@ def main() -> None:
         d_desde = proximo_habil(d_desde)
         escalera.append((f"futuro +{i} hábil", d_desde, d_pos))
 
-    print("\n── BLOQUE 1 · qué devuelve cada `desde` ─────────────────────────────")
-    print(f"{'etiqueta':<42} {'desde':<12} {'pos. esperada':<14} {'filas':>6} "
-          f"{'acum':>6} {'especies':>9} {'seg':>7}")
+    print(f"\n── BLOQUE 1 · qué devuelve cada `desde` (cuenta {cuenta}) ───────────")
+    print(f"{'etiqueta':<40} {'desde':<12} {'pos.esperada':<13} {'HTTP':>5} "
+          f"{'filas':>6} {'acum':>6} {'esp':>5} {'seg':>6}  nota")
     resultados: list[tuple[str, date, dict]] = []
     crudos: dict[str, list] = {}
     for etiqueta, desde, pos in escalera:
-        t0 = time.time()
-        data, _reauth = consultar_posicion(cuenta, headers, desde.isoformat(), timeout=TIMEOUT)
-        seg = time.time() - t0
+        status, data, seg, nota = _pedir(cuenta, desde.isoformat(), headers)
+        if status == 401:                     # token vencido: re-auth y un reintento
+            headers = autenticar()
+            status, data, seg, nota = _pedir(cuenta, desde.isoformat(), headers)
+            nota = (nota + " (tras re-auth)").strip()
         if data is None:
-            print(f"{etiqueta:<42} {desde.isoformat():<12} {pos.isoformat():<14} "
-                  f"{'ERROR / sin respuesta':>30} {seg:>6.1f}")
+            print(f"{etiqueta:<40} {desde.isoformat():<12} {pos.isoformat():<13} "
+                  f"{status:>5} {'—':>6} {'—':>6} {'—':>5} {seg:>6.1f}  {nota}")
             continue
         acum = _acumulado(data)
         n_acum = sum(1 for r in data if isinstance(r, dict) and r.get("informacion") == "Acumulado")
-        print(f"{etiqueta:<42} {desde.isoformat():<12} {pos.isoformat():<14} "
-              f"{len(data):>6} {n_acum:>6} {len(acum):>9} {seg:>7.1f}")
+        print(f"{etiqueta:<40} {desde.isoformat():<12} {pos.isoformat():<13} "
+              f"{status:>5} {len(data):>6} {n_acum:>6} {len(acum):>5} {seg:>6.1f}  {nota}")
         resultados.append((etiqueta, pos, acum))
         crudos[etiqueta] = data
 
     if len(resultados) < 2:
-        print("\n⚠ No se pudo comparar (Aunesa no respondió lo suficiente). Reintentar.")
+        print("\n⚠ No se pudo comparar. Qué significa cada código:")
+        print("   204 → la cuenta NO tiene posición (no es un error). Probá con --auto.")
+        print("   401 → token rechazado incluso tras re-auth (credenciales/permisos).")
+        print("   404 → ese id de cuenta no existe en Aunesa.")
+        print("   -1  → no hubo respuesta (red/timeout); la nota dice la excepción.")
         return
 
     # ── BLOQUE 2: ¿cambian las cantidades al avanzar? ES LA PREGUNTA DEL DISEÑO.

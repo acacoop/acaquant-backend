@@ -33,8 +33,16 @@ def test_txt_arma_cabecera_y_dos_lineas_por_fila():
 def test_cuenta_sin_hygirus_se_reporta_como_faltante():
     filas = [{"cta_debito": "BANCO A", "cta_credito": "BANCO SIN",
               "unidad": "ARS", "importe": Decimal("10")}]
-    _, faltantes = armar_txt_bb(filas, HYG, AHORA)
+    txt, faltantes = armar_txt_bb(filas, HYG, AHORA)
     assert faltantes == ["BANCO SIN (ARS)"]
+    # El archivo sale igual, con la cuenta vacía: avisar es tarea de la vista.
+    assert txt.splitlines()[2] == "10\t\tARS"
+
+
+def test_sin_pendientes_sale_solo_la_cabecera():
+    txt, faltantes = armar_txt_bb([], HYG, AHORA)
+    assert not faltantes
+    assert txt == "10/03/2025 13:03:15 Asiento de ajuste\n"
 
 
 def test_guion_largo_cuenta_como_sin_hygirus():

@@ -493,15 +493,11 @@ def tesoreria_bb_txt(
 ):
     """Asiento de ajuste para HYGIRUS con las transferencias NO completadas.
 
-    Devuelve el contenido DENTRO de un JSON (no como `text/plain`) porque el proxy
-    de Next parsea toda respuesta como JSON: un cuerpo de texto plano explota ahí
-    y el browser recibe un 502 que no dice nada. El archivo lo arma el front.
+    Responde SIEMPRE 200 con el contenido dentro de un JSON: el proxy de Next
+    parsea todo como JSON y mapea cualquier error a un 502 sin mensaje, así que
+    un `text/plain` o un 400 acá llegarían al browser como un 502 mudo.
     """
-    try:
-        return {"nombre": svc_tes.NOMBRE_TXT_BB,
-                "contenido": svc_tes.txt_banco_a_banco(fecha=fecha)}
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
+    return svc_tes.txt_banco_a_banco(fecha=fecha)
 
 
 # ── REGISTROS MANUALES (modal de la tab BANCOS) — fuente de movimientos que NO

@@ -1769,19 +1769,22 @@ def armar_txt_bb(filas: list[dict], hygirus: dict[tuple[str, str], str],
     return "\n".join(lineas) + "\n", sorted(set(faltantes))
 
 
-def txt_banco_a_banco(*, fecha: str | None = None) -> str:
-    """TXT del asiento de ajuste con las transferencias del día NO completadas."""
+def txt_banco_a_banco(*, fecha: str | None = None) -> dict:
+    """Asiento de ajuste del día con las transferencias NO completadas.
+
+    El archivo se genera SIEMPRE: si no quedan pendientes sale solo con la
+    cabecera y sin filas. Nunca levanta excepción — el diagnóstico (`filas`,
+    `faltantes`) viaja como dato, porque el proxy de Next mapea cualquier error
+    del backend a un 502 sin mensaje.
+    """
     dia = _dia(fecha)
     filas = _q(
         f"SELECT cta_debito, cta_credito, unidad, importe FROM {_TABLA_BB} "
         "WHERE fecha = %(d)s AND estado <> 'completado' ORDER BY id", {"d": dia})
-    if not filas:
-        raise ValueError("no hay transferencias pendientes para exportar")
     txt, faltantes = armar_txt_bb([dict(f) for f in filas], _hygirus_por_cuenta(),
                                   _hoy_art())
-    if faltantes:
-        raise ValueError("falta cargar el N° HYGIRUS de: " + ", ".join(faltantes))
-    return txt
+    return {"nombre": NOMBRE_TXT_BB, "contenido": txt,
+            "filas": len(filas), "faltantes": faltantes}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

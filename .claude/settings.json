@@ -37,14 +37,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/guardrail.sh",
+            "command": "python .claude/hooks/guardrail.py",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "bash .claude/hooks/check_imports.sh",
-            "if": "Bash(git push:*)",
-            "timeout": 30,
+            "command": "python .claude/hooks/check_imports.py",
+            "timeout": 120,
             "statusMessage": "Validando imports (REGLA #1)…"
           }
         ]

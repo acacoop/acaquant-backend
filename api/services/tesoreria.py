@@ -354,8 +354,14 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     # Registros manuales: FUENTE NUEVA de movimientos, no vienen de la API. Se
     # suman a Ingresos/Egresos según su sentido (el detalle los marca como manuales).
     reg = registros_por_banco(dia)
+    # El ABM de bancos y el catálogo de claves salen de la MISMA lectura de
+    # `tesoreria_cuentas`: `catalogo()` es un subconjunto de `listar_cuentas()`
+    # (las activas, solo nombre+moneda), así que pedir las dos era ir dos veces a
+    # la misma tabla en el request que el front pollea cada 20s.
+    bancos = listar_cuentas()
+    activas = {(b["cuenta_operativa"], b["unidad"]) for b in bancos if b["activa"]}
     cuentas = []
-    for clave in sorted(set(catalogo()) | set(por_cuenta) | set(ing_echeq) | set(emit_t1)
+    for clave in sorted(activas | set(por_cuenta) | set(ing_echeq) | set(emit_t1)
                         | set(mkt) | set(bb) | set(reg)):
         cta, uni = clave
         c = por_cuenta.get(clave) or {"cuenta_operativa": cta, "unidad": uni, **_bucket()}
@@ -395,7 +401,7 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
             # lado de SACAR FOTO para no tener que abrir el modal para verlo.
             "rescate": totales_rescate(dia),
             "puede_editar_saldo": puede_editar_saldo(email),
-            "catalogo": listar_cuentas(),   # ABM de bancos (nombre + número de cuenta)
+            "catalogo": bancos,             # ABM de bancos (nombre + número de cuenta)
             "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
             "movimientos": movimientos, "n": len(movimientos), "raw": len(movimientos)}
 

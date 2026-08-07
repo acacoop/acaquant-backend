@@ -55,7 +55,13 @@ _PARAMS_BASE = {"hasta": "", "tipoCuenta": "Comitentes y propias",
                 "nivel": "Especie x cuenta", "ocultarCerradas": "true"}
 
 
-def _pedir(cuenta: str, desde: str, headers: dict) -> tuple[int, list | None, float, str]:
+def _aunesa(d: date) -> str:
+    """Fecha como la quiere Aunesa: dd/mm/yyyy. Con ISO devuelve 400 ("Error en
+    formato de fechas"). Es lo que usa el writer (`_prox_habil(D).strftime`)."""
+    return d.strftime("%d/%m/%Y")
+
+
+def _pedir(cuenta: str, desde: date, headers: dict) -> tuple[int, list | None, float, str]:
     """GET crudo → (status, data, segundos, nota).
 
     NO se usa `jobs.aum.consultar_posicion` a propósito: esa colapsa 204/401/404/
@@ -65,7 +71,7 @@ def _pedir(cuenta: str, desde: str, headers: dict) -> tuple[int, list | None, fl
     t0 = time.time()
     try:
         resp = _SESSION.get(POSICION_URL.format(cuenta),
-                            params={"desde": desde, **_PARAMS_BASE},
+                            params={"desde": _aunesa(desde), **_PARAMS_BASE},
                             headers=headers, timeout=TIMEOUT)
     except Exception as e:
         return -1, None, time.time() - t0, f"{type(e).__name__}: {e}"
@@ -179,9 +185,18 @@ def main() -> None:
     if "--auto" in sys.argv and cands:
         cuenta = cands[0][0]
         print(f"  --auto → se usa la cuenta {cuenta}")
-    elif cands and cuenta not in {c[0] for c in cands}:
-        print(f"  ⚠ la cuenta {cuenta} NO operó desde {ayer.isoformat()}: si T0 sale")
-        print("    igual al cierre de ayer, NO prueba nada. Re-corré con --auto.")
+    else:
+        # Cuántos boletos tiene LA CUENTA PEDIDA (no alcanza con mirar el top:
+        # puede haber operado poco y no aparecer arriba).
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM operaciones WHERE id_cuenta = %s "
+                        "AND concertacion >= %s AND anulado_en IS NULL", (cuenta, ayer))
+            n_prop = int(cur.fetchone()[0])
+        print(f"\n  cuenta pedida {cuenta}: {n_prop} boletos desde {ayer.isoformat()}")
+        if n_prop == 0:
+            print("  ⚠ no operó → el test de T0 NO puede probar nada con esta cuenta")
+            print("    (sin movimientos, T0 tiene que dar igual al cierre de ayer).")
+            print("    El test de FUTURO sí sirve igual si tiene liquidaciones pendientes.")
 
     # ── Escalera de `desde`. Regla del endpoint: desde=X → posición al hábil
     #    anterior a X. Así que para la posición AL día D se pide desde=D+1 hábil.
@@ -202,25 +217,25 @@ def main() -> None:
     resultados: list[tuple[str, date, dict]] = []
     crudos: dict[str, list] = {}
     for etiqueta, desde, pos in escalera:
-        status, data, seg, nota = _pedir(cuenta, desde.isoformat(), headers)
+        status, data, seg, nota = _pedir(cuenta, desde, headers)
         if status == 401:                     # token vencido: re-auth y un reintento
             headers = autenticar()
-            status, data, seg, nota = _pedir(cuenta, desde.isoformat(), headers)
+            status, data, seg, nota = _pedir(cuenta, desde, headers)
             nota = (nota + " (tras re-auth)").strip()
         if data is None:
-            print(f"{etiqueta:<40} {desde.isoformat():<12} {pos.isoformat():<13} "
+            print(f"{etiqueta:<40} {_aunesa(desde):<12} {pos.isoformat():<13} "
                   f"{status:>5} {'—':>6} {'—':>6} {'—':>5} {seg:>6.1f}  {nota}")
             continue
         acum = _acumulado(data)
         n_acum = sum(1 for r in data if isinstance(r, dict) and r.get("informacion") == "Acumulado")
-        print(f"{etiqueta:<40} {desde.isoformat():<12} {pos.isoformat():<13} "
+        print(f"{etiqueta:<40} {_aunesa(desde):<12} {pos.isoformat():<13} "
               f"{status:>5} {len(data):>6} {n_acum:>6} {len(acum):>5} {seg:>6.1f}  {nota}")
         resultados.append((etiqueta, pos, acum))
         crudos[etiqueta] = data
 
     if len(resultados) < 2:
         print("\n⚠ No se pudo comparar. Qué significa cada código:")
-        print("   204 → la cuenta NO tiene posición (no es un error). Probá con --auto.")
+        print("   204 → la cuenta NO tiene posición (no es un error).\n   400 → parámetro mal formado; la nota trae el detalle de Aunesa.")
         print("   401 → token rechazado incluso tras re-auth (credenciales/permisos).")
         print("   404 → ese id de cuenta no existe en Aunesa.")
         print("   -1  → no hubo respuesta (red/timeout); la nota dice la excepción.")

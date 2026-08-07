@@ -83,7 +83,7 @@ SIN_CUENTA = "SIN CUENTA OPERATIVA"
 # RIEL (campo `tipoDocSoli`) viene '[TR] Transferencia', '[MP] Transferencia MEP',
 # '[E CHEQ] E CHEQ'… Los e-cheq se separan del resto de los egresos: el back office
 # necesita distinguirlos, así que van en su PROPIA fila de la grilla y NO entran al
-# total de egresos (por lo tanto tampoco restan del saldo final).
+# total de egresos. Igual sí restan del saldo final desde su fila propia.
 _RE_RIEL_COD = re.compile(r"\[([^\]]+)\]")
 
 
@@ -184,10 +184,34 @@ def aplanar(r: dict, yyyymmdd: str) -> dict:
 
 def _bucket() -> dict:
     """Acumulador de una celda de la grilla. `egresos_echeq` va SEPARADO: es una
-    fila propia y no entra ni en `egresos` ni, por lo tanto, en el saldo final."""
+    fila propia y no entra en `egresos`."""
     return {"ingresos": 0.0, "ingresos_echeq": 0.0, "egresos": 0.0, "egresos_echeq": 0.0,
             "mercados": 0.0, "fci": 0.0, "bb_mas": 0.0, "bb_menos": 0.0,
             "neto": 0.0, "n": 0}
+
+
+def _ref_cheques_emitidos_t1(banco: str, unidad: str) -> str:
+    return f"emitidos_t1|{banco}|{str(unidad or '').upper()}"
+
+
+def _cheques_emitidos_t1_rows(dia: date) -> list[dict]:
+    """Cheques EMITIDOS todavía abiertos cuyo `fecha_pago` ya venció para ese día.
+
+    Se agregan por banco+moneda porque en BANCOS tienen que impactar como un solo monto
+    y el modal de auditoría debe mostrar un único renglón ("cheques emitidos T-1"),
+    no el detalle cheque por cheque.
+    """
+    try:
+        return _items_sql(
+            f"SELECT banco, unidad, COUNT(*) AS cantidad, SUM(importe) AS total "
+            f"FROM {_TABLA_CHEQUES} WHERE lado = 'emitido' AND estado = 'emitido' "
+            "AND fecha_pago IS NOT NULL AND fecha_pago < %(d)s "
+            "GROUP BY banco, unidad ORDER BY banco, unidad",
+            {"d": dia},
+        )
+    except Exception:
+        _log.warning("tesoreria: no pude leer los cheques emitidos T-1", exc_info=True)
+        return []
 
 
 def mercados_por_banco(dia: date) -> dict[tuple[str, str], dict]:
@@ -235,7 +259,8 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
 
     Las dos filas e-cheq salen SEPARADAS de los totales para que el back office las
     distinga (es lo único que buscaba la separación), pero las dos entran al saldo:
-      - `egresos_echeq`  = RIEL e-cheq de Aunesa, fuera del total de `egresos`.
+      - `egresos_echeq`  = RIEL e-cheq de Aunesa + cheques EMITIDOS vencidos
+                           (`fecha_pago < día`), fuera del total de `egresos`.
       - `ingresos_echeq` = cheques recibidos finalizados (carga manual, tab CHEQUES).
         No vienen en los movimientos de Aunesa, así que sumarlos no duplica nada.
 
@@ -315,6 +340,13 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     # Fila "Ingresos e-cheqs": los cheques RECIBIDOS que el equipo marcó finalizados
     # ese día (carga manual, tab CHEQUES). Fila propia, igual que los egresos e-cheq.
     ing_echeq = ingresos_echeq_dia(dia)
+    emit_t1: dict[tuple[str, str], float] = {}
+    for r in _cheques_emitidos_t1_rows(dia):
+        banco, unidad = r["banco"], str(r["unidad"] or "").upper()
+        ref = _ref_cheques_emitidos_t1(banco, unidad)
+        fuera, _ = _estado_excl(exc, "cheque", ref)
+        if not fuera:
+            emit_t1[(banco, unidad)] = float(r["total"] or 0)
     # Filas MERCADOS y FCI: ya vienen netas y con signo (ver mercados_por_banco).
     mkt = mercados_por_banco(dia)
     # Banco a banco: una transferencia interna suma en un banco y resta en el otro.
@@ -323,13 +355,14 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     # suman a Ingresos/Egresos según su sentido (el detalle los marca como manuales).
     reg = registros_por_banco(dia)
     cuentas = []
-    for clave in sorted(set(catalogo()) | set(por_cuenta) | set(ing_echeq)
+    for clave in sorted(set(catalogo()) | set(por_cuenta) | set(ing_echeq) | set(emit_t1)
                         | set(mkt) | set(bb) | set(reg)):
         cta, uni = clave
         c = por_cuenta.get(clave) or {"cuenta_operativa": cta, "unidad": uni, **_bucket()}
         s = saldos.get(clave)
         ini = s["saldo_inicial"] if s else None
         c["ingresos_echeq"] = ing_echeq.get(clave, 0.0)
+        c["egresos_echeq"] += emit_t1.get(clave, 0.0)
         m = mkt.get(clave) or {}
         c["mercados"], c["fci"] = m.get("mercados", 0.0), m.get("fci", 0.0)
         t = bb.get(clave) or {}
@@ -453,7 +486,8 @@ _FUENTE_FILA = {
     "saldo_inicial": "Carga manual del back office (tesoreria_saldos)",
     "ingresos": f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO}) + REGISTROS MANUALES",
     "egresos": f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO}) + REGISTROS MANUALES",
-    "egresos_echeq": f"Movimientos de Aunesa · RIEL e-cheq (estado {ESTADO_EFECTIVO})",
+    "egresos_echeq": (f"Movimientos de Aunesa · RIEL e-cheq (estado {ESTADO_EFECTIVO}) + "
+                      "cheques EMITIDOS T-1"),
     "ingresos_echeq": "Cheques RECIBIDOS finalizados (tab CHEQUES)",
     # Estas tres cuentan también lo `pendiente` (decisión del back office), así que el
     # detalle muestra el estado REAL de cada fila: la columna ESTADO no lo disimula.
@@ -551,6 +585,23 @@ def _detalle_dia(dia: date, cuentas: list[dict] | None = None) -> dict[str, dict
         _push(r["banco"], r["unidad"], "ingresos_echeq", "cheque", r["id"],
               r["comitente_denominacion"] or r["comitente"] or "—",
               f"cheque {r['tipo'] or ''}".strip(), r["estado"], float(r["importe"] or 0))
+
+    # 3b) Cheques emitidos T-1 → misma fila `egresos_echeq`, pero compactados en UNA
+    #     sola línea por banco+moneda para que el modal no explote cheque por cheque.
+    for r in _cheques_emitidos_t1_rows(dia):
+        cantidad = int(r["cantidad"] or 0)
+        banco, unidad = r["banco"], str(r["unidad"] or "").upper()
+        _push(
+            banco,
+            unidad,
+            "egresos_echeq",
+            "cheque",
+            _ref_cheques_emitidos_t1(banco, unidad),
+            "cheques emitidos T-1",
+            f"{cantidad} cheque{'s' if cantidad != 1 else ''} · fecha de pago anterior al día",
+            "emitido",
+            float(r["total"] or 0),
+        )
 
     # 4) Mercados / FCI: el signo lo define el tipo (el segundo de cada par resta).
     _resta = {"pago", "suscripcion"}

@@ -6,9 +6,7 @@ Más sub-vistas se irán sumando acá conforme se vayan definiendo.
 """
 from __future__ import annotations
 
-from urllib.parse import quote
-
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
@@ -493,18 +491,17 @@ def tesoreria_bb_txt(
     fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
     email: str = Depends(get_user_email),
 ):
-    """Asiento de ajuste para HYGIRUS con las transferencias NO completadas."""
+    """Asiento de ajuste para HYGIRUS con las transferencias NO completadas.
+
+    Devuelve el contenido DENTRO de un JSON (no como `text/plain`) porque el proxy
+    de Next parsea toda respuesta como JSON: un cuerpo de texto plano explota ahí
+    y el browser recibe un 502 que no dice nada. El archivo lo arma el front.
+    """
     try:
-        txt = svc_tes.txt_banco_a_banco(fecha=fecha)
+        return {"nombre": svc_tes.NOMBRE_TXT_BB,
+                "contenido": svc_tes.txt_banco_a_banco(fecha=fecha)}
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    nombre = quote(svc_tes.NOMBRE_TXT_BB)
-    return Response(
-        content=txt.encode("utf-8"),
-        media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{nombre}",
-                 "Cache-Control": "no-store"},
-    )
 
 
 # ── REGISTROS MANUALES (modal de la tab BANCOS) — fuente de movimientos que NO

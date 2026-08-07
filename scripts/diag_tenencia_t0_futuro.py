@@ -94,8 +94,10 @@ def _pedir(cuenta: str, desde: date, headers: dict,
                 return 200, resp.json(), seg, (f"OK en intento {i}" if i > 1 else "")
             except Exception as e:
                 return 200, None, seg, f"body no-JSON: {type(e).__name__}"
-        cuerpo = (resp.text or "")[:130].replace("\n", " ")
-        ultimo = (resp.status_code, None, seg, f"[{i}/{intentos}] {cuerpo}")
+        cuerpo = (resp.text or "")[:110].replace("\n", " ")
+        # La URL preparada, para poder comparar a ojo contra la de producción.
+        ultimo = (resp.status_code, None, seg,
+                  f"[{i}/{intentos}] {cuerpo}  ←URL {resp.request.url}")
         if resp.status_code in (401, 400, 404) or i == intentos:
             return ultimo      # no tiene sentido reintentar estos
         time.sleep(2 ** i)
@@ -253,6 +255,31 @@ def main() -> None:
         if not apta:
             print("    ⚠ producción solo pide tipo ∈ (Comitente, Propia) y estado='Activa'")
             print("      → un error acá NO prueba nada sobre el endpoint")
+
+    # ── BLOQUE 0.6 · CONTROL con el CÓDIGO DE PRODUCCIÓN, sin intermediarios ──
+    # Si `_fetch_parse` (la función que corre el cron todos los días) también
+    # falla AHORA, entonces no hay nada mal en el diag: es Aunesa. Y si falla a
+    # esta hora pero el cron de las 08:00 ART anduvo, la sospecha es la HORA:
+    # el endpoint puede no estar disponible durante la rueda — lo que mataría
+    # de raíz la idea de refrescar la tenencia en T0 contra este endpoint.
+    print("\n── BLOQUE 0.6 · CONTROL con jobs/portafolio_backfill._fetch_parse ───")
+    prod_ok = False
+    try:
+        from jobs import portafolio_backfill as _pb
+        _pb._hdr["h"] = headers
+        _idc, st_prod, recs = _pb._fetch_parse(cuenta, "", _aunesa(hoy), hoy.isoformat(), {})
+        prod_ok = st_prod in ("ok", "vacia")
+        print(f"  cuenta {cuenta} · desde={_aunesa(hoy)} → status={st_prod!r} "
+              f"({len(recs)} registros)")
+        print("  → " + ("el código de producción ANDA en este momento."
+                        if prod_ok else
+                        "el CÓDIGO DE PRODUCCIÓN TAMBIÉN FALLA ahora mismo."))
+        if not prod_ok:
+            print("     No es el diag: es Aunesa. El cron corre 08:00 ART y ahora son")
+            print(f"     las {datetime.now().strftime('%H:%M')} — sospecha principal: el")
+            print("     endpoint no está disponible durante la rueda.")
+    except Exception as e:
+        print(f"  ⚠ no se pudo ejecutar el control de producción: {type(e).__name__}: {e}")
 
     # ── Escalera de `desde`. Regla del endpoint: desde=X → posición al hábil
     #    anterior a X. Así que para la posición AL día D se pide desde=D+1 hábil.

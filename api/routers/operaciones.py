@@ -543,6 +543,20 @@ def comercial_analisis(
         division=division)
 
 
+@router.get("/comercial/analisis/detalle", dependencies=[Depends(verificar_id_cuenta)])
+def comercial_analisis_detalle(
+    id_cuenta: str = Query(..., description="id de la cuenta comitente (fila clickeada)"),
+    fecha: str | None = Query(None, description="mismo corte que la tabla (ISO). None = hoy"),
+    limite: int = Query(25, ge=1, le=200, description="boletos del historial reciente"),
+) -> dict:
+    """Auditoría de una fila de ESTADO COMERCIAL: de QUÉ boleto salen los días sin operar.
+
+    Devuelve la última operación que cuenta (con todos los boletos de ese día), el
+    historial reciente y los boletos que NO cuentan con su motivo (anulados,
+    posteriores al corte). No recalcula nada: usa el mismo predicado que la tabla."""
+    return _com_sql.detalle_ultima_op(id_cuenta=id_cuenta, fecha=fecha, limite=limite)
+
+
 @router.get("/comercial/cobros-futuros")
 def comercial_cobros_futuros(
     operador: str = Query(..., description="operador_email o '__todos__'"),

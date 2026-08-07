@@ -20,6 +20,9 @@ _(pendiente de enriquecimiento)_
 - [[api.services._sql]]  ·  _module_
 - [[core.calendario]]  ·  _module_
 - [[core.postgres]]  ·  _module_
+- [[core.roles]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.routers.manager.mesa]]  ·  _module_
 - [[api.routers.senebis]]  ·  _module_
+- [[api.services.tesoreria]]  ·  _module_

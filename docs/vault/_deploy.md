@@ -1,6 +1,6 @@
 # 🚀 deploy — servicios + crons
 
-60 notas.
+62 notas.
 
 - [[cron.engines.dolar_mep]] — Tarea programada (cron).
 - [[cron.jobs.acreencias]] — Tarea programada (cron).
@@ -45,6 +45,8 @@
 - [[cron.jobs.snapshot_cierre]] — Tarea programada (cron).
 - [[cron.jobs.snapshot_sinteticos]] — Tarea programada (cron).
 - [[cron.jobs.sync_comitentes]] — Tarea programada (cron).
+- [[cron.jobs.tesoreria_al2]] — Tarea programada (cron).
+- [[cron.jobs.tesoreria_snapshot]] — Tarea programada (cron).
 - [[cron.jobs.triage]] — Tarea programada (cron).
 - [[cron.jobs.volatilidad_ggal]] — Tarea programada (cron).
 - [[svc.api]] — Servicio systemd.

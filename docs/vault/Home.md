@@ -5,18 +5,18 @@ Generado por `scripts/gen_obsidian.py` (no editar a mano).
 
 Abrí el **graph view** (Ctrl/Cmd+G) para ver cómo conecta todo con todo.
 
-**419 nodos** en total.
+**423 nodos** en total.
 
 ## Mapas por capa
 
 - [[_core|🧱 core — infraestructura]]  (44)
 - [[_quant|📐 quant — cálculo puro]]  (10)
 - [[_engines|⚙️ engines — motores WS→Mongo]]  (19)
-- [[_jobs|⏱️ jobs — batch / cron]]  (56)
+- [[_jobs|⏱️ jobs — batch / cron]]  (58)
 - [[_api|🌐 api — services · routers · mcp]]  (201)
 - [[_config|⚙️ config]]  (1)
 - [[_db|🗄️ base — colecciones Mongo]]  (28)
-- [[_deploy|🚀 deploy — servicios + crons]]  (60)
+- [[_deploy|🚀 deploy — servicios + crons]]  (62)
 
 ## Flujo de datos (alto nivel)
 

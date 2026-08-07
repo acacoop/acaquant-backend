@@ -93,6 +93,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.sin_operador]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
 - [[api.services.tenencia_hd]]  ·  _module_
+- [[api.services.tesoreria]]  ·  _module_
 - [[api.services.titulos_flujos]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_

@@ -20,6 +20,8 @@ _(pendiente de enriquecimiento)_
 - [[api.auth]]  ·  _module_
 - [[api.services]]  ·  _module_
 - [[api.services.mesa_dinero]]  ·  _module_
+- [[api.services.senebis]]  ·  _module_
+- [[api.services.tesoreria]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_

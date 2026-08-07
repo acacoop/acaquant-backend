@@ -223,6 +223,13 @@ PIEZAS: list[Pieza] = [
     Pieza("BACK_OFFICE", "job", "acreencias (cobros futuros)", unidad="jobs.acreencias",
           cadencia="23:45 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           run_tipo="acreencias"),
+    # Tesorería: las dos únicas piezas de esa vista que NO son live contra Aunesa.
+    Pieza("BACK_OFFICE", "job", "tesorería · saldo AL2 (FERSI)", unidad="jobs.tesoreria_al2",
+          cadencia="cada 60m · 13:40-22 UTC L-V", ventana="rueda", umbral_s=70 * 60,
+          run_tipo="tesoreria_al2"),
+    Pieza("BACK_OFFICE", "job", "tesorería · foto BANCOS", unidad="jobs.tesoreria_snapshot",
+          cadencia="02:50 UTC Ma-Sá (23:50 ART)", ventana="diario", umbral_s=int(1.5 * _D),
+          run_tipo="tesoreria_snapshot"),
 
     # ── PORTFOLIOS / Tenencias (SQL) ───────────────────────
     # AuM Mongo (jobs.aum) eliminado 2026-06-15: el writer de tenencias es el

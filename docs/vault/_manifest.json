@@ -687,7 +687,9 @@
 "links": [
 "api.auth",
 "api.services",
-"api.services.mesa_dinero"
+"api.services.mesa_dinero",
+"api.services.senebis",
+"api.services.tesoreria"
 ]
 },
 {
@@ -2636,7 +2638,8 @@
 "links": [
 "api.services._sql",
 "core.calendario",
-"core.postgres"
+"core.postgres",
+"core.roles"
 ]
 },
 {
@@ -2707,8 +2710,13 @@
 "path": "api/services/tesoreria.py",
 "summary": "api/services/tesoreria.py — Back Office → Tesorería (ingresos/egresos del día).",
 "links": [
+"api.services._sql",
+"api.services.senebis",
 "core",
-"core.aunesa"
+"core.aunesa",
+"core.pg_mirror",
+"core.postgres",
+"core.roles"
 ]
 },
 {
@@ -3748,6 +3756,28 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.sync_comitentes"
+]
+},
+{
+"id": "cron.jobs.tesoreria_al2",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.tesoreria_al2"
+]
+},
+{
+"id": "cron.jobs.tesoreria_snapshot",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.tesoreria_snapshot"
 ]
 },
 {
@@ -5044,6 +5074,32 @@
 "core.doc_fiscal",
 "core.job_runs",
 "core.postgres"
+]
+},
+{
+"id": "jobs.tesoreria_al2",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/tesoreria_al2.py",
+"summary": "jobs/tesoreria_al2.py — movimientos del banco AL2 (FERSI SA) a SQL.",
+"links": [
+"api.services",
+"api.services.tesoreria",
+"core.job_runs"
+]
+},
+{
+"id": "jobs.tesoreria_snapshot",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/tesoreria_snapshot.py",
+"summary": "jobs/tesoreria_snapshot.py — foto diaria de la grilla BANCOS de Tesorería.",
+"links": [
+"api.services",
+"api.services.tesoreria",
+"core.job_runs"
 ]
 },
 {

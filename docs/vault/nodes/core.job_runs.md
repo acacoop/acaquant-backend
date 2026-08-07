@@ -70,5 +70,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.snapshot_sinteticos]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_
+- [[jobs.tesoreria_al2]]  ·  _module_
+- [[jobs.tesoreria_snapshot]]  ·  _module_
 - [[jobs.triage]]  ·  _module_
 - [[jobs.volatilidad_ggal]]  ·  _module_

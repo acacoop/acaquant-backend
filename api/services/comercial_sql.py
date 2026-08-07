@@ -40,6 +40,13 @@ _PESIF = ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
 # Valor interno para filtrar cuentas sin división (NULL o string vacío).
 SIN_CLASIFICAR_DIVISION = "__sin_clasificar__"
 
+# Qué boleto CUENTA como "operación" para DÍAS SIN OPERAR: cualquiera de
+# `operaciones.operaciones` que no esté anulado — sin filtro de tipo, de etapa
+# ni de categoría. El predicado vive UNA sola vez acá porque lo comparten la
+# tabla (analisis_comercial) y su modal de auditoría (detalle_ultima_op): si
+# cada uno lo escribiera aparte, el modal podría contradecir a la tabla.
+_ULT_OP_WHERE = "anulado_en IS NULL"
+
 
 def _f(x) -> float:
     return float(x or 0)
@@ -473,9 +480,11 @@ def analisis_comercial(*, operador, dias_activa: int = 45, dias_dormida: int = 9
     month_start = desde if desde else corte.replace(day=1).isoformat()
 
     # Última operación por cuenta <= corte (Operaciones, fuente de verdad).
+    # El predicado de qué boleto cuenta es `_ULT_OP_WHERE` — el MISMO que audita
+    # el modal (`detalle_ultima_op`), para que no puedan divergir.
     p: dict = {"ids_scope": ids_scope}
-    ult_sql = ("SELECT id_cuenta, max(concertacion) AS ult FROM operaciones "
-               "WHERE id_cuenta = ANY(%(ids_scope)s) AND anulado_en IS NULL")
+    ult_sql = (f"SELECT id_cuenta, max(concertacion) AS ult FROM operaciones "
+               f"WHERE id_cuenta = ANY(%(ids_scope)s) AND {_ULT_OP_WHERE}")
     if fecha:
         ult_sql += " AND concertacion <= %(corte)s"
         p["corte"] = corte_iso
@@ -504,6 +513,138 @@ def analisis_comercial(*, operador, dias_activa: int = 45, dias_dormida: int = 9
     clientes.sort(key=lambda x: x["aum"], reverse=True)
     return {"operador": operador, "dias_activa": dias_activa,
             "dias_dormida": dias_dormida, "fecha": fecha, "clientes": clientes}
+
+
+# ── Auditoría de DÍAS SIN OPERAR (modal de la tabla ESTADO COMERCIAL) ────────
+#
+# Mismo principio que el detalle por celda de Tesorería: el número que muestra la
+# tabla tiene que poder abrirse y mostrar EXACTAMENTE de qué boleto sale. Antes,
+# "1 día sin operar" era un número sin respaldo — para saber qué operación lo
+# generó había que salir de la vista y buscar a mano en MOVIMIENTOS.
+#
+# El cálculo NO se rehace acá: se reusa `_ULT_OP_WHERE` (el predicado de la
+# tabla) y se listan los boletos crudos, marcando los que NO cuentan (anulados,
+# posteriores al corte) con su motivo — igual que los movimientos destildados
+# del modal de Tesorería.
+
+# Columnas del boleto que se muestran en la auditoría (crudas, sin derivar).
+_COLS_BOLETO = ("boleto, concertacion, operacion, tipo_operacion, instrumento, mercado, "
+                "moneda, bruto, arancel, cantidad, etapa, es_cierre, condiciones, "
+                "anulado_en, ingestado_en")
+
+
+def _dmy(d) -> str | None:
+    return d.strftime("%d/%m/%Y") if d is not None else None
+
+
+def _item_boleto(r: dict, *, corte: date, ult) -> dict:
+    """Fila de boleto → item del modal, con el motivo si NO cuenta."""
+    fecha = r["concertacion"]
+    excluido, obs = False, ""
+    if r.get("anulado_en") is not None:
+        excluido = True
+        obs = f"anulado el {_dmy(r['anulado_en'].date())} — no cuenta"
+    elif fecha is None:
+        excluido = True
+        obs = "boleto sin fecha de concertación — no cuenta"
+    elif fecha > corte:
+        excluido = True
+        obs = f"posterior al corte {_dmy(corte)} — no cuenta en la foto"
+    return {
+        "boleto": r["boleto"], "fecha": _dmy(fecha), "fecha_iso": _iso(fecha),
+        "operacion": r["operacion"], "tipo_operacion": r["tipo_operacion"],
+        "instrumento": r["instrumento"], "mercado": r["mercado"], "moneda": r["moneda"],
+        "bruto": _f(r["bruto"]) if r["bruto"] is not None else None,
+        "arancel": _f(r["arancel"]) if r["arancel"] is not None else None,
+        "cantidad": _f(r["cantidad"]) if r["cantidad"] is not None else None,
+        "etapa": r["etapa"], "es_cierre": bool(r["es_cierre"]),
+        "condiciones": r["condiciones"],
+        "ingestado_en": r["ingestado_en"].isoformat() if r["ingestado_en"] else None,
+        # `es_ultima`: ESTE es el boleto que fija los días sin operar.
+        "es_ultima": (not excluido) and ult is not None and fecha == ult,
+        "excluido": excluido, "observacion": obs,
+    }
+
+
+def detalle_ultima_op(*, id_cuenta: str, fecha: str | None = None,
+                      dias_activa: int = 45, dias_dormida: int = 90,
+                      limite: int = 25) -> dict:
+    """Auditoría de una fila de ESTADO COMERCIAL: qué boleto fija DÍAS SIN OPERAR.
+
+    Devuelve la última operación que cuenta (con TODOS los boletos de ese día),
+    el historial reciente y los boletos que NO cuentan con su motivo. `fecha`
+    (ISO) = mismo corte que usa la tabla en modo foto.
+    """
+    idc = str(id_cuenta)
+    corte = date.fromisoformat(fecha) if fecha else _hoy_art()
+    p: dict = {"idc": idc, "corte": corte, "lim": int(limite)}
+
+    cab = _q("SELECT u.denominacion, c.operador_email, o.nombre AS operador_nombre, "
+             "c.nivel_1, c.nivel_3, c.estado, c.fecha_alta_legajo "
+             "FROM cuentas u LEFT JOIN comitentes c ON c.id_cuenta = u.id_cuenta "
+             "LEFT JOIN operadores o ON o.email = c.operador_email "
+             "WHERE u.id_cuenta = %(idc)s", {"idc": idc})
+    cab = cab[0] if cab else {}
+
+    # 1) La última op que CUENTA — misma query que la tabla, para una sola cuenta.
+    ult = _q(f"SELECT max(concertacion) AS ult FROM operaciones "
+             f"WHERE id_cuenta = %(idc)s AND {_ULT_OP_WHERE} "
+             f"AND concertacion <= %(corte)s", p)[0]["ult"]
+
+    # 2) Los boletos de ESE día (pueden ser varios; se muestran todos) + el
+    #    historial reciente. Dos queries en vez de una con LIMIT: si la cuenta
+    #    tiene muchos boletos anulados posteriores, el LIMIT solo podría dejar
+    #    afuera justamente el boleto que fija el número.
+    vistos: dict[str, dict] = {}
+    if ult is not None:
+        for r in _q(f"SELECT {_COLS_BOLETO} FROM operaciones "
+                    f"WHERE id_cuenta = %(idc)s AND concertacion = %(ult)s "
+                    f"ORDER BY boleto DESC", {"idc": idc, "ult": ult}):
+            vistos[str(r["boleto"])] = r
+    for r in _q(f"SELECT {_COLS_BOLETO} FROM operaciones "
+                f"WHERE id_cuenta = %(idc)s AND concertacion <= %(corte)s "
+                f"ORDER BY concertacion DESC NULLS LAST, boleto DESC LIMIT %(lim)s", p):
+        vistos.setdefault(str(r["boleto"]), r)
+
+    # 3) Boletos POSTERIORES al corte (solo en modo foto): no cuentan, pero
+    #    explican por qué la foto muestra más días que la vista de hoy. Se listan
+    #    (capeados) y `count(*) OVER()` da el total real sin una segunda query.
+    n_posteriores = 0
+    if fecha:
+        for r in _q(f"SELECT {_COLS_BOLETO}, count(*) OVER() AS n_total FROM operaciones "
+                    f"WHERE id_cuenta = %(idc)s AND concertacion > %(corte)s "
+                    f"ORDER BY concertacion, boleto LIMIT %(lim)s", p):
+            n_posteriores = int(r["n_total"])
+            vistos.setdefault(str(r["boleto"]), r)
+
+    items = [_item_boleto(r, corte=corte, ult=ult) for r in vistos.values()]
+    items.sort(key=lambda i: (i["fecha_iso"] or "", i["boleto"] or ""), reverse=True)
+
+    dias = (corte - ult).days if ult is not None else None
+    dias_win = dias if (dias is not None and dias <= dias_dormida) else None
+    est = estado_comercial(dias_win, ult is not None, dias_activa, dias_dormida)
+    ecuacion = (f"{_dmy(corte)} ({'corte' if fecha else 'hoy'}) − {_dmy(ult)} "
+                f"(última op) = {dias} día{'s' if dias != 1 else ''}"
+                if ult is not None else "la cuenta no registra boletos — nunca operó")
+
+    return {
+        "id_cuenta": idc, "denominacion": cab.get("denominacion") or "—",
+        "operador_email": cab.get("operador_email"),
+        "operador_nombre": cab.get("operador_nombre"),
+        "nivel_1": cab.get("nivel_1"), "nivel_3": cab.get("nivel_3"),
+        "estado_legal": cab.get("estado"),
+        "fecha_alta_legajo": _iso(cab.get("fecha_alta_legajo")),
+        "corte": _iso(corte), "fecha": _dmy(corte), "es_foto": bool(fecha),
+        "fuente": ("operaciones.operaciones — cuenta CUALQUIER boleto no anulado "
+                   "(sin filtro de tipo, mercado ni etapa)"),
+        "ultima_op": _iso(ult), "ultima_op_dmy": _dmy(ult),
+        "dias_sin_operar": dias, "estado": est, "ecuacion": ecuacion,
+        "umbrales": {"activa": dias_activa, "dormida": dias_dormida},
+        "n_boletos_ultima_fecha": sum(1 for i in items if i["es_ultima"]),
+        "n_excluidos": sum(1 for i in items if i["excluido"]),
+        "n_posteriores_corte": n_posteriores,
+        "limite": int(limite), "items": items,
+    }
 
 
 # ── INFORME (global, transversal a la mesa) ──────────────────────────────────

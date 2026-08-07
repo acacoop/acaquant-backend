@@ -239,6 +239,7 @@ def test_todo_manager_tiene_gate():
 @pytest.mark.parametrize("path", [
     "/api/operaciones/comercial/portafolio",
     "/api/operaciones/comercial/operaciones",
+    "/api/operaciones/comercial/analisis/detalle",
     "/api/operaciones/comercial/cobros-futuros/cliente",
     "/api/back-office/acreencias/cliente",
 ])

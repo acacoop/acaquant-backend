@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-56 notas.
+58 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -56,5 +56,7 @@
 - [[jobs.snapshot_cierre]] — snapshot_cierre.py — materializa el cierre diario por bono SQL-NATIVE.
 - [[jobs.snapshot_sinteticos]] — snapshot_sinteticos.py — materializa el cierre diario de sintéticos en mercado.snapshots_sinteticos (SQL).
 - [[jobs.sync_comitentes]] — Sync de cuentas comitentes desde Aunesa → master SQL `clientes.comitentes`
+- [[jobs.tesoreria_al2]] — jobs/tesoreria_al2.py — movimientos del banco AL2 (FERSI SA) a SQL.
+- [[jobs.tesoreria_snapshot]] — jobs/tesoreria_snapshot.py — foto diaria de la grilla BANCOS de Tesorería.
 - [[jobs.triage]] — jobs/triage.py — Triage REACTIVO de incidentes (QuantAI P2, docs/QUANTAI.md).
 - [[jobs.volatilidad_ggal]]

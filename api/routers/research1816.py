@@ -19,6 +19,7 @@ from api.services import research_1816_sql as mkt
 from api.services import research_sql as svc
 from core.eikon_live import agregado_fundamentals, tablero_fundamentals, tablero_reuters
 from core.eikon_live import ficha as ficha_reuters
+from core.eikon_segmentos import agregado_segmentos
 from core.eikon_segmentos import segmentos as segmentos_empresa
 
 
@@ -49,6 +50,15 @@ def _agregado_cached(periodo: str, rubro: str | None, canasta: str) -> dict:
 @cached(ttl=60)
 def _segmentos_cached(ticker: str, tipo: str, periodo: str) -> dict:
     return segmentos_empresa(ticker=ticker, tipo=tipo, periodo=periodo)
+
+
+@cached(ttl=60)
+def _segmentos_agregado_cached(tipo: str, periodo: str, rubro: str | None,
+                               tickers: str | None) -> dict:
+    # `tickers` viaja como string separado por comas para que el cache key sea
+    # hasheable (una lista no lo es).
+    lista = [t for t in (tickers or "").split(",") if t.strip()]
+    return agregado_segmentos(tipo=tipo, periodo=periodo, rubro=rubro, tickers=lista)
 
 router = APIRouter(
     prefix="/api/research1816",
@@ -164,6 +174,23 @@ def reuters_segmentos(
     negocio, pero sin ellas la suma no cierra contra los ingresos totales).
     Cache 60s: cambia 1 vez por día con la pasada del feed."""
     return _segmentos_cached(ticker=ticker, tipo=tipo, periodo=periodo)
+
+
+@router.get("/reuters/segmentos/agregado")
+def reuters_segmentos_agregado(
+    tipo: str = Query("negocio", description="negocio | geografico"),
+    periodo: str = Query("anual", description="anual | trimestral"),
+    rubro: str | None = Query(None, description="solo las empresas de ese rubro"),
+    tickers: str | None = Query(None, description="lista separada por comas"),
+):
+    """De dónde sale la plata en el universo filtrado: ranking de segmentos (o
+    de países) con la suma del último período de cada empresa, su % del total y
+    de qué empresas viene. Acompaña al filtro de RUBRO y al buscador.
+
+    Las filas de eliminaciones/corporate NO entran al ranking (no son un negocio
+    ni un país) — viajan sumadas aparte en `ajustes`."""
+    return _segmentos_agregado_cached(tipo=tipo, periodo=periodo, rubro=rubro,
+                                      tickers=tickers)
 
 
 @router.get("/spread")

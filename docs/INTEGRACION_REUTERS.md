@@ -155,6 +155,44 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
 
 ## 8. Changelog
 
+- **2026-08-07 — v6: emprolijada del screener con el universo REAL (184 empresas).**
+  Con los datos cargados aparecieron tres cosas que con 28 papeles no se veían.
+
+  1. **BUG — el agregado trimestral daba VACÍO** ("0 en la canasta · 184 afuera")
+     y el anual solo juntaba 22 de 184. Causa: la ventana se tomaba SIEMPRE como
+     "los últimos N períodos", pero los cierres fiscales están desparramados y el
+     período más reciente lo tiene solo la minoría que ya reportó → casi ninguna
+     empresa cubría la ventana entera y la canasta constante las echaba a todas.
+     Fix (`core.eikon_live._elegir_ventana`): se corre la ventana sobre todos los
+     períodos y se elige **el tramo de N donde MÁS empresas tienen dato
+     completo** (empate → el más reciente). La respuesta ahora trae `ventana`
+     (desde/hasta) y `universo`. Test que lo fija:
+     `test_la_ventana_se_corre_a_donde_hay_datos`.
+  2. **Gráficos ilegibles.** La dispersión con 184 empresas: un P/E de 1.043x
+     (BIDU) aplastaba a las otras 183 contra el margen. Ahora el dominio va del
+     **percentil 2 al 98**; lo que cae afuera NO se esconde — se dibuja **hueco y
+     pegado al borde** — y un botón alterna a RANGO COMPLETO. Además: grilla en
+     los dos ejes, marco (eje Y y eje X dibujados), etiquetas de ticker solo si
+     entran (≤35 puntos) y al pasar el mouse si no, y aviso cuando los dos ejes
+     son la misma métrica. El agregado pasó a márgenes fijos con marcas parejas
+     y aire arriba — antes las barras se comían el margen y se salían del lienzo.
+  3. **Cuadrante de abajo-derecha: de un panel con dropdown a TRES TABS.**
+     - **COMPOSICIÓN**: era "elegí una métrica y te muestro barras". Ahora es una
+       tabla con **una columna por métrica** (mkt cap · ingresos · EBITDA ·
+       resultado · capex) y la barra de participación DENTRO de cada celda —
+       un rubro puede pesar 20% del market cap y 2% del capex, y esa comparación
+       es justamente la que interesa. Ordenable por columna, con fila de total.
+     - **SEGMENTOS** y **GEOGRAFÍA**: ranking de de-dónde-sale-la-plata sobre el
+       universo filtrado (`GET /reuters/segmentos/agregado`, suma el último
+       período de CADA empresa). Respetan el filtro de rubro y el buscador.
+       Las eliminaciones/corporate se excluyen del ranking (no son un negocio ni
+       un país) y se informan aparte.
+
+  ⚠️ La suma de segmentos usa el último período **de cada empresa**, no una
+  fecha común: esperar a que las 184 tengan la misma fecha dejaría el panel
+  vacío por el mismo motivo del punto 1. Por eso la vista muestra el rango de
+  fechas que está sumando.
+
 - **2026-08-07 — v5: INGRESOS POR SEGMENTO (`TR.BGS.*`) — de discovery a producción.**
   El user tenía el desglose en su script viejo y lo quería de vuelta. Se corrió
   el discovery en la notebook (AAPL.O / NVDA.O / KO.N / RKLB.O) y **todo lo de

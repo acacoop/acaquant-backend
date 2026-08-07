@@ -98,6 +98,41 @@ def test_cobertura_por_metrica_y_metricas_faltantes():
     assert punto["margen_neto"] is None       # sin resultado no se inventa margen
 
 
+def test_la_ventana_se_corre_a_donde_hay_datos():
+    """BUG REAL (2026-08-07, universo de 184 empresas): tomando SIEMPRE los
+    últimos N períodos, la canasta constante daba 0 empresas en trimestral —
+    el período más reciente lo tiene solo la minoría que ya reportó.
+
+    Acá: 3 empresas que cierran en diciembre (2020-2024) y UNA que cierra en
+    enero, así que sus ejercicios caen en 2021-2025. Con 'los últimos 5' la
+    ventana sería 2021-2025 y la canasta tendría UNA sola empresa. Corriendo la
+    ventana se elige 2020-2024, donde entran TRES — el tramo con datos de
+    verdad. La minoría adelantada queda afuera, dicho con su motivo.
+    """
+    series = {
+        "A": _doc(*[{"fecha": f"{a}-12-31", "revenue": 10.0} for a in range(2020, 2025)]),
+        "B": _doc(*[{"fecha": f"{a}-12-31", "revenue": 20.0} for a in range(2020, 2025)]),
+        "C": _doc(*[{"fecha": f"{a}-12-31", "revenue": 30.0} for a in range(2020, 2025)]),
+        "ADELANTADA": _doc(*[{"fecha": f"{a}-01-31", "revenue": 1.0}
+                             for a in range(2021, 2026)]),
+    }
+    out = _agregar(series, modo="anual", canasta="constante")
+    assert out["ventana"] == {"desde": "2020", "hasta": "2024"}
+    assert [p["periodo"] for p in out["puntos"]] == ["2020", "2021", "2022", "2023", "2024"]
+    assert sorted(out["empresas"]) == ["A", "B", "C"]
+    assert [p["revenue"] for p in out["puntos"]] == [60.0] * 5
+    assert [e["ticker"] for e in out["excluidas"]] == ["ADELANTADA"]
+
+
+def test_ante_igual_cobertura_gana_la_ventana_mas_reciente():
+    """Si dos ventanas cubren lo mismo, se muestra la más nueva — el research
+    mira para adelante."""
+    series = {"A": _doc(*[{"fecha": f"{a}-12-31", "revenue": 1.0}
+                          for a in range(2019, 2026)])}
+    out = _agregar(series, modo="anual", canasta="constante")
+    assert out["ventana"] == {"desde": "2021", "hasta": "2025"}
+
+
 def test_ventana_recorta_a_los_ultimos_periodos():
     """Anual muestra 5 puntos como máximo (lo que trae el feed)."""
     filas = [{"fecha": f"{a}-12-31", "revenue": float(a)} for a in range(2018, 2026)]

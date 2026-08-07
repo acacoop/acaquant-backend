@@ -172,6 +172,109 @@ def segmentos(ticker: str, tipo: str = "negocio", periodo: str = "anual") -> dic
     }
 
 
+# Códigos de las filas de AJUSTE (eliminaciones / corporate). En la ficha de UNA
+# empresa se muestran (hacen cerrar la cuenta contra sus ingresos totales), pero
+# en el ranking AGREGADO del universo son ruido: "Eliminations" no es un negocio
+# ni un país. Se excluyen del ranking y se informan aparte.
+CODIGOS_AJUSTE = {"ICELIM", "EXPOTH"}
+
+
+def agregado_segmentos(tipo: str = "negocio", periodo: str = "anual",
+                       rubro: str | None = None, tickers: list[str] | None = None,
+                       limite: int = 30) -> dict:
+    """De dónde sale la plata en TODO el universo (o en el rubro / las empresas
+    filtradas): suma el ÚLTIMO período disponible de cada empresa por segmento.
+
+    Se usa el último período DE CADA EMPRESA (no una fecha común): los cierres
+    fiscales no coinciden y esperar a que todas tengan la misma fecha dejaría el
+    panel vacío — el mismo problema que tuvo el agregado de resultados. Es la
+    foto "lo más fresco de cada una", y por eso viaja `fechas` con el rango real
+    que se está sumando.
+
+    Para `tipo='geografico'` los nombres se repiten entre empresas (United
+    States, China…) y la suma es directamente interpretable. Para
+    `tipo='negocio'` cada empresa nombra sus segmentos a su manera, así que el
+    ranking es por (segmento) pero cada fila dice de qué empresas viene.
+    """
+    tp = tipo if tipo in TIPOS else "negocio"
+    pe = periodo if periodo in PERIODOS else "anual"
+    limpios = [t.strip().upper() for t in (tickers or []) if t and t.strip()]
+
+    def where_de(alias: str) -> tuple[str, list]:
+        """Mismos filtros para la subconsulta y para la query externa. Se arma
+        con el alias como parámetro (nada de `replace` sobre el SQL: cambiar un
+        filtro después rompería la sustitución sin que nadie se entere)."""
+        cond, par = [f"{alias}.tipo = %s", f"{alias}.periodo = %s"], [tp, pe]
+        if rubro:
+            cond.append(
+                "EXISTS (SELECT 1 FROM mercado.cedears m "
+                "        WHERE upper(COALESCE(m.underlying, m.ticker_corto)) = "
+                f"              {alias}.ticker "
+                "          AND m.activo IS TRUE AND m.rubro = %s)")
+            par.append(rubro)
+        if limpios:
+            cond.append(f"{alias}.ticker = ANY(%s)")
+            par.append(limpios)
+        return " AND ".join(cond), par
+
+    w_int, p_int = where_de("s2")
+    w_ext, p_ext = where_de("s")
+    # La subconsulta marca, por empresa, cuál es su último período; el WHERE
+    # exterior se queda solo con las filas de ese período.
+    sql = (
+        "SELECT s.ticker, s.segmento, s.codigo, s.ingresos, s.fecha "
+        "FROM mercado.eikon_segmentos s "
+        "JOIN (SELECT ticker, max(fecha) AS fecha FROM mercado.eikon_segmentos s2 "
+        f"      WHERE {w_int} GROUP BY ticker) u "
+        "  ON u.ticker = s.ticker AND u.fecha = s.fecha "
+        f"WHERE {w_ext}")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, [*p_int, *p_ext])
+        filas = cur.fetchall()
+
+    acum: dict[str, dict] = {}
+    ajustes = 0.0
+    fechas: list[str] = []
+    empresas: set[str] = set()
+    for ticker, segmento, codigo, ingresos, fecha in filas:
+        valor = float(ingresos) if ingresos is not None else 0.0
+        empresas.add(ticker)
+        fechas.append(fecha.isoformat())
+        if (codigo or "").strip().upper() in CODIGOS_AJUSTE:
+            ajustes += valor
+            continue
+        fila = acum.setdefault(segmento, {"segmento": segmento, "ingresos": 0.0,
+                                          "tickers": []})
+        fila["ingresos"] += valor
+        fila["tickers"].append((valor, ticker))
+
+    total = sum(f["ingresos"] for f in acum.values())
+    ordenadas = sorted(acum.values(), key=lambda f: f["ingresos"], reverse=True)
+    out = []
+    for f in ordenadas[:limite]:
+        contribuyentes = [t for _v, t in sorted(f["tickers"], reverse=True)]
+        out.append({
+            "segmento": f["segmento"],
+            "ingresos": f["ingresos"],
+            "share":    (f["ingresos"] / total * 100.0) if total else None,
+            "empresas": len(contribuyentes),
+            "tickers":  contribuyentes[:4],
+        })
+    resto = ordenadas[limite:]
+    return {
+        "tipo": tp,
+        "periodo": pe,
+        "rubro": rubro,
+        "total": total,
+        "filas": out,
+        "otros": {"ingresos": sum(f["ingresos"] for f in resto), "segmentos": len(resto)}
+                 if resto else None,
+        "ajustes": ajustes,
+        "empresas": len(empresas),
+        "fechas": {"desde": min(fechas), "hasta": max(fechas)} if fechas else None,
+    }
+
+
 def tickers_con_segmentos() -> list[str]:
     """Underlyings que ya tienen desglose bajado (para que la vista sepa si el
     panel tiene sentido antes de pedirlo)."""

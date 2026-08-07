@@ -209,6 +209,36 @@ def _periodo_calendario(fecha: str, modo: str) -> str | None:
     return f"{anio}Q{(mes - 1) // 3 + 1}"
 
 
+def _elegir_ventana(por_ticker: dict[str, dict[str, dict]], largo: int) -> list[str]:
+    """Elige QUÉ períodos consecutivos se grafican: los `largo` en los que MÁS
+    empresas tienen dato completo.
+
+    Por qué no alcanza con "los últimos N" (bug real 2026-08-07, con el universo
+    de 184 empresas): los cierres fiscales están desparramados, así que el
+    período más reciente lo tiene solo la minoría que ya reportó. Tomando
+    siempre la cola, la canasta constante daba **0 empresas** en trimestral y
+    22 de 184 en anual — la vista quedaba vacía. Corriendo la ventana y
+    quedándose con la de mayor cobertura, se grafica el tramo donde realmente
+    hay datos. Empate → la ventana más reciente.
+    """
+    todas = sorted({e for filas in por_ticker.values() for e in filas})
+    if not todas:
+        return []
+    if len(todas) <= largo:
+        return todas
+    mejor: tuple[int, list[str]] | None = None
+    for i in range(len(todas) - largo + 1):
+        ventana = todas[i:i + largo]
+        cobertura = sum(
+            1 for filas in por_ticker.values()
+            if all(_num(filas.get(e, {}).get("revenue")) is not None for e in ventana))
+        # `>=` para que, ante igual cobertura, gane la ventana MÁS RECIENTE
+        # (las ventanas se recorren de vieja a nueva).
+        if mejor is None or cobertura >= mejor[0]:
+            mejor = (cobertura, ventana)
+    return mejor[1] if mejor else todas[-largo:]
+
+
 def agregado_fundamentals(periodo: str = "anual", rubro: str | None = None,
                           canasta: str = "constante") -> dict:
     """Serie AGREGADA del universo del feed: una fila por período de calendario
@@ -261,8 +291,7 @@ def _agregar(series: dict[str, dict], modo: str, canasta: str) -> dict:
             ultima_fecha[(ticker, etiqueta)] = fecha
             por_ticker.setdefault(ticker, {})[etiqueta] = fila
 
-    etiquetas = sorted({e for filas in por_ticker.values() for e in filas})
-    etiquetas = etiquetas[-_VENTANA[modo]:]
+    etiquetas = _elegir_ventana(por_ticker, _VENTANA[modo])
 
     incluidas, excluidas = [], []
     for ticker in series:
@@ -301,6 +330,8 @@ def _agregar(series: dict[str, dict], modo: str, canasta: str) -> dict:
     return {
         "periodo": modo,
         "canasta": canasta,
+        "ventana": {"desde": etiquetas[0], "hasta": etiquetas[-1]} if etiquetas else None,
+        "universo": len(series),
         "puntos": puntos,
         "empresas": incluidas,
         "excluidas": excluidas,

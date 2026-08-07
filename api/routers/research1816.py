@@ -19,6 +19,7 @@ from api.services import research_1816_sql as mkt
 from api.services import research_sql as svc
 from core.eikon_live import agregado_fundamentals, tablero_fundamentals, tablero_reuters
 from core.eikon_live import ficha as ficha_reuters
+from core.eikon_segmentos import segmentos as segmentos_empresa
 
 
 # Cache COMPARTIDO del tablero (perf 2026-07-18, medido: la
@@ -42,6 +43,12 @@ def _fundamentals_cached() -> list[dict]:
 @cached(ttl=60)
 def _agregado_cached(periodo: str, rubro: str | None, canasta: str) -> dict:
     return agregado_fundamentals(periodo=periodo, rubro=rubro, canasta=canasta)
+
+
+# Segmentos: los escribe el feed 1 vez por día → mismo TTL que fundamentals.
+@cached(ttl=60)
+def _segmentos_cached(ticker: str, tipo: str, periodo: str) -> dict:
+    return segmentos_empresa(ticker=ticker, tipo=tipo, periodo=periodo)
 
 router = APIRouter(
     prefix="/api/research1816",
@@ -140,6 +147,23 @@ def reuters_ficha(ticker: str):
     if out is None:
         raise HTTPException(404, f"sin datos para {ticker!r}")
     return out
+
+
+@router.get("/reuters/segmentos")
+def reuters_segmentos(
+    ticker: str,
+    tipo: str = Query("negocio", description="negocio | geografico"),
+    periodo: str = Query("anual", description="anual | trimestral"),
+):
+    """De dónde salen las ventas de una empresa: desglose por SEGMENTO DE
+    NEGOCIO o por REGIÓN, período a período, listo para apilar.
+
+    OJO conceptual: el "segmento de negocio" es el que publica la empresa —
+    Apple y Coca-Cola reportan por región, NVDA y Rocket Lab por producto.
+    Las filas de eliminaciones/corporate vienen marcadas en `ajustes` (no son
+    negocio, pero sin ellas la suma no cierra contra los ingresos totales).
+    Cache 60s: cambia 1 vez por día con la pasada del feed."""
+    return _segmentos_cached(ticker=ticker, tipo=tipo, periodo=periodo)
 
 
 @router.get("/spread")

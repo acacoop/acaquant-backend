@@ -25,6 +25,7 @@ from core.eikon_bonos import universo_bonos_off, upsert_bonos_off, upsert_cierre
 from core.eikon_chicago import universo_chicago, upsert_chicago
 from core.eikon_live import set_rics, universo_rics, upsert_fundamentals, upsert_quotes
 from core.eikon_news import universo_news, upsert_news
+from core.eikon_segmentos import upsert_segmentos
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 
@@ -203,4 +204,28 @@ def eikon_fundamentals(
     escritos = upsert_fundamentals(payload.docs)
     if escritos == 0:
         raise HTTPException(status_code=422, detail="ningún doc válido (falta ticker)")
+    return {"ok": True, "escritos": escritos}
+
+
+class EikonSegmentosPayload(BaseModel):
+    # Desglose de ingresos por segmento: una fila por
+    # (ticker, tipo, periodo, fecha, segmento). El universo entero son ~28
+    # tickers × ~7 segmentos × 13 períodos × 2 tipos → el feed lo manda por
+    # tandas; el tope cubre holgado la tanda más grande.
+    docs: list[dict] = Field(..., min_length=1, max_length=5000)
+
+
+@router.post("/eikon/segmentos")
+def eikon_segmentos(
+    payload: EikonSegmentosPayload,
+    _: None = Depends(verify_ingest_token),
+) -> dict:
+    """Ingresos por SEGMENTO de negocio / región (TR.BGS.*), 1 vez por día.
+    Las filas de TOTAL que manda Reuters se descartan server-side
+    (`core.eikon_segmentos.es_total`) — ver el módulo para el porqué."""
+    escritos = upsert_segmentos(payload.docs)
+    if escritos == 0:
+        raise HTTPException(
+            status_code=422,
+            detail="ningún doc válido (falta ticker/fecha/segmento/ingresos o eran todos totales)")
     return {"ok": True, "escritos": escritos}

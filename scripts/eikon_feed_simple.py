@@ -174,6 +174,43 @@ FUND_SERIE_PCT = {
 }
 FUND_CADA_SEG = 24 * 3600
 
+# ── INGRESOS POR SEGMENTO (familia TR.BGS.*) — validado en vivo 2026-08-07 ───
+# Desglose de las ventas: por segmento de NEGOCIO y por REGIÓN. Se baja junto
+# con los fundamentals (1 vez por día). Hallazgos del discovery que NO se
+# pueden re-inferir (doc: INTEGRACION_REUTERS.md §8):
+#
+#  · El campo es `TR.BGS.BusTotalRevenue` — la grafía `BusinessTotalRevenue`
+#    NO existe (devuelve "The formula must contain at least one field").
+#  · `.date` vuelve VACÍO en las llamadas con SDate/EDate → no se puede saber a
+#    qué período pertenece cada bloque leyendo la respuesta. Por eso se pide
+#    UN PERÍODO POR LLAMADA (SDate = EDate = -k): el período queda determinado
+#    por LA PREGUNTA, no por la respuesta. La fecha de cierre sale de la serie
+#    de resultados que este mismo feed ya baja (ahí `TR.Revenue.date` SÍ viene).
+#  · Los nombres de columna vuelven con el CAMPO en mayúscula pero el
+#    calificador tal cual (`TR.BGS.BUSTOTALREVENUE.segmentName`) → las columnas
+#    se buscan sin distinguir mayúsculas (_col_de).
+#  · Reuters devuelve además filas de TOTAL (`Segment Total` / `Consolidated
+#    Total`). Se mandan igual: el SERVER las descarta, así el criterio vive en
+#    un solo lugar y nadie puede leer la tabla mal.
+SEGMENTOS_CAMPO = {
+    "negocio":    "TR.BGS.BusTotalRevenue",
+    "geografico": "TR.BGS.GeoTotalRevenue",
+}
+# (tipo, período, cuántos períodos hacia atrás). Cada entrada = 1 llamada por
+# período → 18 llamadas por pasada diaria. El trimestral geográfico se dejó
+# afuera por costo/beneficio; se agrega sumando una línea acá.
+SEGMENTOS_PLAN = (
+    ("negocio", "anual", 5),
+    ("negocio", "trimestral", 8),
+    ("geografico", "anual", 5),
+)
+SEG_CHUNK = 2000          # filas por POST (el server acepta hasta 5000)
+
+# Fechas de cierre por (ticker, período), en orden nuevo→viejo. Las llena
+# actualizar_fundamentals con la serie de resultados y las usa
+# actualizar_segmentos para saber a qué fecha corresponde cada llamada.
+_fechas_series: dict[str, dict[str, list[str]]] = {}
+
 
 def actualizar_precios(universo):
     ric_a_ticker = {u["ric"]: u["ticker"] for u in universo}
@@ -513,6 +550,15 @@ def actualizar_fundamentals(universo):
     bajar_serie("serie_trimestral", {"SDate": "0", "EDate": "-7",
                                      "Period": "FQ0", "Frq": "FQ"})
 
+    # Fechas de cierre por ticker (nuevo→viejo) para el desglose por segmento:
+    # las llamadas de segmentos NO devuelven fecha, se la ponemos desde acá.
+    _fechas_series.clear()
+    for d in docs.values():
+        _fechas_series[d["ticker"]] = {
+            "anual":      [f["fecha"] for f in d.get("serie_anual") or []],
+            "trimestral": [f["fecha"] for f in d.get("serie_trimestral") or []],
+        }
+
     lista = list(docs.values())
     if not lista:
         print("[fundamentals] ⚠️ Eikon no devolvió nada — reintento en el próximo ciclo.")
@@ -524,6 +570,102 @@ def actualizar_fundamentals(universo):
         return True
     print(f"[fundamentals] ❌ API {r.status_code}: {r.text[:200]}")
     return False
+
+
+def _col_de(df, base: str, calificador: str = "") -> str | None:
+    """Encuentra la columna del campo pedido sin depender de mayúsculas.
+
+    Eikon devuelve el CAMPO en mayúscula pero el calificador tal cual lo
+    escribiste (`TR.BGS.BUSTOTALREVENUE.segmentName`) — y `.date` sí lo pasa a
+    mayúscula. Buscar case-insensitive evita adivinar."""
+    objetivo = (f"{base}.{calificador}" if calificador else base).upper()
+    for c in df.columns:
+        if isinstance(c, str) and c.upper() == objetivo:
+            return c
+    return None
+
+
+def actualizar_segmentos(universo):
+    """Ingresos POR SEGMENTO (negocio y región) → POST /eikon/segmentos.
+
+    UNA llamada por (tipo, período, offset): la respuesta de Eikon no dice a
+    qué período pertenece cada bloque, así que el período lo fija la pregunta.
+    La fecha de cierre sale de `_fechas_series` (la serie de resultados que ya
+    bajó actualizar_fundamentals) — por eso esta función corre DESPUÉS.
+    Sus errores NUNCA voltean el feed de precios."""
+    ric_a_ticker = {u["ric"]: u["ticker"] for u in universo}
+    rics = list(ric_a_ticker)
+    if not _fechas_series:
+        print("[segmentos] sin fechas de la serie de resultados — se salta esta pasada.")
+        return
+    docs = []
+    for tipo, periodo, cuantos in SEGMENTOS_PLAN:
+        base = SEGMENTOS_CAMPO[tipo]
+        campos = [f"{base}.segmentName", f"{base}.segmentCode",
+                  f"{base}.segmentDetailsOrder", base]
+        for k in range(cuantos):
+            params = {"SDate": str(-k), "EDate": str(-k), "Scale": "6", "Curn": "USD"}
+            if periodo == "trimestral":
+                params.update({"Period": "FQ0", "Frq": "FQ"})
+            try:
+                df, _e = ek.get_data(rics, campos, parameters=params, field_name=True)
+            except Exception as e:
+                print(f"⚠️ [segmentos] {tipo}/{periodo} -{k}: {type(e).__name__}: {str(e)[:80]}")
+                continue
+            if df is None or df.empty:
+                continue
+            c_nombre = _col_de(df, base, "segmentName")
+            c_codigo = _col_de(df, base, "segmentCode")
+            c_orden = _col_de(df, base, "segmentDetailsOrder")
+            c_valor = _col_de(df, base)
+            if not c_nombre or not c_valor:
+                print(f"⚠️ [segmentos] {tipo}/{periodo} -{k}: no vinieron las columnas esperadas.")
+                continue
+            for _, row in df.iterrows():
+                ticker = ric_a_ticker.get(row.get("Instrument"))
+                if not ticker:
+                    continue
+                fechas = _fechas_series.get(ticker, {}).get(periodo) or []
+                if k >= len(fechas):        # la empresa no tiene ese período
+                    continue
+                segmento = _num_o_texto(row.get(c_nombre))
+                valor = _num_o_texto(row.get(c_valor))
+                if not segmento or valor is None:
+                    continue
+                docs.append({
+                    "ticker":   ticker,
+                    "tipo":     tipo,
+                    "periodo":  periodo,
+                    "fecha":    str(fechas[k])[:10],
+                    "segmento": str(segmento),
+                    "codigo":   _num_o_texto(row.get(c_codigo)) if c_codigo else None,
+                    "orden":    _num_o_texto(row.get(c_orden)) if c_orden else None,
+                    "ingresos": valor,
+                })
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not docs:
+        print(f"[{now}] ⚠️ [segmentos] Eikon no devolvió desgloses.")
+        return
+    if DRY_RUN:
+        for d in docs[:10]:
+            print("  [segmentos]", d)
+        print(f"[{now}] [segmentos] DRY_RUN — {len(docs)} filas.")
+        return
+    escritos = 0
+    for i in range(0, len(docs), SEG_CHUNK):
+        tanda = docs[i:i + SEG_CHUNK]
+        try:
+            r = requests.post(f"{API_BASE}/api/ingest/eikon/segmentos",
+                              json={"docs": tanda}, headers=HEADERS, timeout=60)
+            if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
+                escritos += r.json().get("escritos", 0)
+            else:
+                print(f"[{now}] ❌ [segmentos] API {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            print(f"[{now}] ❌ [segmentos] POST: {type(e).__name__}: {e}")
+    print(f"[{now}] ✅ [segmentos] {escritos} filas guardadas "
+          f"(de {len(docs)} leídas — el server descarta las de total).")
 
 
 def main():
@@ -584,6 +726,13 @@ def main():
             try:
                 if actualizar_fundamentals(universo):
                     ultima_fund = time.time()
+                    # Los segmentos van DESPUÉS: necesitan las fechas de cierre
+                    # que dejó la serie de resultados. Si fallan, los
+                    # fundamentals ya quedaron guardados igual.
+                    try:
+                        actualizar_segmentos(universo)
+                    except Exception as e:
+                        print(f"[segmentos] ❌ {type(e).__name__}: {e} — sigo con precios.")
             except Exception as e:
                 print(f"[fundamentals] ❌ {type(e).__name__}: {e} — sigo con precios.")
                 ultima_fund = time.time() - FUND_CADA_SEG + 1800   # reintenta en 30 min

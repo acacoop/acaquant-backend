@@ -1691,6 +1691,39 @@ CREATE TABLE IF NOT EXISTS mercado.eikon_fundamentals (
     updated_at timestamptz DEFAULT now()
 );
 
+-- INGRESOS POR SEGMENTO (familia TR.BGS.* de Eikon, validada en vivo 2026-08-07
+-- — ver docs/INTEGRACION_REUTERS.md §8). NO va en el jsonb de eikon_fundamentals
+-- porque el grano es otro: ticker × tipo × período × segmento (una fila por
+-- pata del desglose). El feed la manda 1 vez por día vía
+-- POST /api/ingest/eikon/segmentos.
+--
+-- OJO con dos cosas que se verificaron y no son inferibles:
+--   · `codigo` (segmentCode) trae NAICS para los segmentos REALES y códigos
+--     especiales para las filas de cierre: SEGMTL (Segment Total) y CONSTL
+--     (Consolidated Total) — que NO se guardan, son totales, sumarlas duplica —
+--     más ICELIM (eliminaciones entre segmentos, puede ser negativa) y EXPOTH
+--     (corporate/otros), que SÍ se guardan porque son las que hacen cerrar la
+--     cuenta: Σ(filas guardadas) = ingresos consolidados exactos.
+--   · Los nombres de segmento CAMBIAN con el tiempo (Reuters re-expresa: NVDA
+--     tiene un trimestre con "Data Center - Hyperscale" y el resto con
+--     "Compute & Networking"). Por eso el segmento es parte de la PK y no hay
+--     catálogo cerrado: la vista tiene que bancar segmentos que aparecen y
+--     desaparecen.
+CREATE TABLE IF NOT EXISTS mercado.eikon_segmentos (
+    ticker     text NOT NULL,                -- underlying (US symbol)
+    tipo       text NOT NULL,                -- negocio | geografico
+    periodo    text NOT NULL,                -- anual | trimestral
+    fecha      date NOT NULL,                -- cierre del período fiscal
+    segmento   text NOT NULL,                -- nombre tal cual lo publica Reuters
+    codigo     text,                         -- segmentCode (NAICS | ICELIM | EXPOTH)
+    orden      integer,                      -- segmentDetailsOrder (orden de la memoria)
+    ingresos   numeric,                      -- MILLONES de USD (Scale=6, Curn=USD)
+    updated_at timestamptz DEFAULT now(),
+    PRIMARY KEY (ticker, tipo, periodo, fecha, segmento)
+);
+CREATE INDEX IF NOT EXISTS ix_eikon_segmentos_ticker
+    ON mercado.eikon_segmentos (ticker, tipo, periodo, fecha DESC);
+
 -- Trading.PreciosAcciones → velas DIARIAS (EOD) del subyacente USD (Yahoo,
 -- jobs/precios_acciones_daily.py). Timeseries en Mongo; acá tabla columnar normal.
 -- Grano (ticker, fecha). `fecha` es DATE (en Mongo es datetime naive UTC a las 00h

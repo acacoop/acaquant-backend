@@ -155,6 +155,62 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
 
 ## 8. Changelog
 
+- **2026-08-07 — v5: INGRESOS POR SEGMENTO (`TR.BGS.*`) — de discovery a producción.**
+  El user tenía el desglose en su script viejo y lo quería de vuelta. Se corrió
+  el discovery en la notebook (AAPL.O / NVDA.O / KO.N / RKLB.O) y **todo lo de
+  abajo está VERIFICADO EN VIVO** — no re-descubrir.
+
+  **Qué existe y qué no** (probado, no supuesto):
+  | Campo | Resultado |
+  |---|---|
+  | `TR.BGS.BusTotalRevenue` + `.segmentName` | ✅ anda — segmentos de negocio |
+  | `TR.BGS.BusinessTotalRevenue` (grafía larga) | ❌ NO existe ("The formula must contain at least one field") |
+  | `.segmentCode` · `.segmentDetailsOrder` | ✅ andan (NAICS + códigos especiales) |
+  | `TR.BGS.BusExternalRevenue` | ✅ anda (ventas sin las inter-segmento) |
+  | `TR.BGS.GeoTotalRevenue` + `.segmentName` | ✅ anda — ventas por región |
+  | `TR.BGS.BusOperatingIncome` · `BusCapitalExpenditures` | ❌ ni la columna vuelve |
+  | `TR.BGS.BusTotalAssets` | ⚠️ la columna vuelve pero TODO `<NA>` |
+  | Historia 5 años / 8 trimestres | ✅ anda (con `Scale=6`/`Curn=USD`) |
+  | `.date` en las llamadas con SDate/EDate | ❌ vuelve `<NA>` — ver abajo |
+
+  **Las cuatro trampas** (cada una está encapsulada en el código para que nadie
+  las pise; tests en `tests/unit/test_eikon_segmentos.py`):
+  1. **No hay fecha en la respuesta histórica.** `.date` viene vacío, así que
+     leyendo la respuesta no se sabe a qué período pertenece cada bloque. →
+     El feed pide **UN PERÍODO POR LLAMADA** (`SDate = EDate = -k`): el período
+     lo fija LA PREGUNTA. La fecha de cierre sale de la serie de resultados que
+     el feed ya baja (ahí `TR.Revenue.date` sí viene). 18 llamadas por pasada
+     diaria (negocio anual 5 + trimestral 8 + geográfico anual 5).
+  2. **Vienen filas de TOTAL**: `Segment Total` (SEGMTL) y `Consolidated Total`
+     (CONSTL). Sumarlas duplica todo → se descartan **server-side**
+     (`core.eikon_segmentos.es_total`), no en la vista: el criterio vive en un
+     solo lugar y la tabla no se puede leer mal.
+  3. **Las filas de AJUSTE sí se guardan**: `Eliminations` (ICELIM, puede ser
+     NEGATIVA) y `Corporate` (EXPOTH). Sin ellas la cuenta no cierra — KO: Σ
+     segmentos 48.806 pero consolidado 47.941 (−1.009 −eliminaciones− +144
+     −corporate−). Con ellas, **Σ(lo guardado) = ingresos consolidados
+     EXACTO** en los 4 casos probados. En la vista van con opacidad baja y `*`.
+  4. **Los nombres de segmento CAMBIAN con el tiempo.** NVDA tiene un trimestre
+     re-expresado como "Data Center - Hyperscale / AI Clouds / Edge Computing"
+     y el resto como "Compute & Networking / Graphics". Por eso el segmento es
+     parte de la PK, no hay catálogo cerrado, y el apilado banca segmentos que
+     aparecen y desaparecen (color por NOMBRE, no por posición).
+
+  **Ojo conceptual que la UI respeta**: "segmento de negocio" es el que publica
+  la empresa — **Apple y Coca-Cola reportan por REGIÓN**, NVDA y Rocket Lab por
+  producto. El panel se llama SEGMENTOS, nunca "por producto".
+
+  **Piezas**: tabla `mercado.eikon_segmentos` (grano ticker × tipo × período ×
+  fecha × segmento — NO entra en el jsonb de `eikon_fundamentals`, es otro
+  grano) · `core/eikon_segmentos.py` · `POST /api/ingest/eikon/segmentos` ·
+  `GET /api/research1816/reuters/segmentos?ticker&tipo&periodo` ·
+  `actualizar_segmentos()` en el feed (corre DESPUÉS de fundamentals, que es
+  quien deja las fechas; sus errores nunca voltean los precios) · panel
+  **SEGMENTOS** en el cuadrante abajo-derecha de la ficha (`reuters-ficha.tsx`),
+  apilado, con NEGOCIO/REGIÓN, USD/% del total y ANUAL/TRIMESTRAL.
+
+  ⚠️ Requiere `apply_schema` (tabla nueva) y **regenerar la copia del Desktop**.
+
 - **2026-08-07 — v4: FUNDAMENTALS en 4 cuadrantes + rubro como filtro + serie ampliada.**
   Pedido del user: la tabla sola "no dice nada" — contesta cómo está UNA empresa,
   no cómo está el CONJUNTO, que es la pregunta de research.
@@ -198,16 +254,9 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
     capex en el tiempo. ⚠️ **Regenerar la copia del Desktop** — hasta que corra
     el feed nuevo, esas 3 series vienen vacías (el panel lo muestra como
     cobertura 0, no como cero).
-  - **Segmentos: DISCOVERY, sin implementar** — `scripts/diag_eikon_segmentos.py`
-    (read-only, corre en la notebook con Workspace). El user tenía ingresos por
-    segmento en su script viejo y hoy no están. La doc de LSEG apunta a la
-    familia **`TR.BGS.*`** (Business and Geographic Segments): negocio
-    `TR.BGS.BusTotalRevenue` + `.segmentName`, geográfico `TR.BGS.GeoTotalRevenue`.
-    NO está verificado contra nuestra licencia ni se sabe si trae historia
-    (REGLA #2) → el diag prueba las dos grafías, los campos de rentabilidad por
-    segmento, la historia anual/trimestral y si Σ segmentos cierra contra
-    `TR.Revenue`, y deja todo en `salida_segmentos.txt`. Se modela recién con
-    esa salida a la vista.
+  - **Segmentos: discovery lanzado** (`scripts/diag_eikon_segmentos.py`) →
+    resuelto e implementado el mismo día, ver la entrada siguiente. El diag se
+    borró al cumplir su función (REGLA #5).
 
 - **2026-07-24 — el feed suma NOTICIAS (titulares Reuters → watchlist HOME, tab NOTICIAS).**
   v1 del estudio de §6b: SOLO titulares (sin nota completa — tamaño acotado).

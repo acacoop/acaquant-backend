@@ -626,3 +626,119 @@ def diagnostico(chequeo_id: str, *, evento_id: int | None = None,
         _log.warning("salud: no pude cachear el diagnóstico", exc_info=True)
     return {"chequeo_id": cid, "evento_id": int(evento_id), "texto": texto,
             "cacheado": False}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DETALLE de un chequeo — lo que reemplaza a las tabs JOBS y CONTROLES.
+#
+# Regla: NADA vacío ni incomprensible. Si algo salta como alerta, acá tiene que
+# estar el log completo, el código de error y las cifras — no un título de colores.
+# Cada familia trae lo suyo, y todo sale de la MISMA fuente que evaluó el chequeo,
+# así el detalle no puede contradecir al estado.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _detalle_job(chequeo: dict) -> dict:
+    """Las últimas corridas COMPLETAS: stats, errores y el log del JobRunLogger.
+
+    Es exactamente lo que mostraba la tab JOBS → HISTORIAL, pero colgado del
+    incidente en vez de en una pantalla aparte.
+    """
+    tipos: list[str] = []
+    for mod in (chequeo.get("modulos") or []):
+        tipos.append(str(mod).rsplit(".", 1)[-1])
+    # El label del cron suele ser el tipo con el que loguea (y `aum` es el alias
+    # histórico del backfill de tenencias, ver jobs_catalogo._ALIAS_TIPO).
+    tipos.append(str(chequeo.get("id", "")).split(":", 1)[-1])
+    try:
+        rows = _q(
+            "SELECT tipo, status, started_at, finished_at, data FROM manager.job_runs "
+            "WHERE tipo = ANY(%(t)s) ORDER BY started_at DESC LIMIT 15",
+            {"t": list({t for t in tipos if t})})
+    except Exception as e:
+        return {"tipo": "job", "error": f"{type(e).__name__}: {e}", "corridas": []}
+    corridas = []
+    for r in rows:
+        d = r["data"] if isinstance(r["data"], dict) else {}
+        corridas.append({
+            "tipo": r["tipo"], "status": r["status"],
+            "inicio": r["started_at"].isoformat() if r["started_at"] else None,
+            "fin": r["finished_at"].isoformat() if r["finished_at"] else None,
+            "elapsed_s": d.get("elapsed_s"),
+            "stats": d.get("stats") or {},
+            # Los errores COMPLETOS y el log del job: es lo que se venía perdiendo.
+            "errores": d.get("errors") or [],
+            "log": (d.get("log") or [])[-40:],
+        })
+    return {"tipo": "job", "corridas": corridas,
+            "explicacion": (
+                "Cada fila es una corrida del cron. `stats` dice cuánto procesó "
+                "(una corrida en 'ok' con stats vacío o en cero es sospechosa), "
+                "`errores` es lo que el job reportó, y `log` sus últimas líneas.")}
+
+
+def _detalle_dato(chequeo: dict) -> dict:
+    """Las últimas fechas cargadas de la tabla + cuántas filas tiene cada una."""
+    c = next((x for x in CONTRATOS if x["id"] == chequeo.get("id")), None)
+    if not c:
+        return {"tipo": "dato", "error": "el contrato ya no existe", "fechas": []}
+    try:
+        rows = _q(f"SELECT {c['columna']} AS fecha, COUNT(*) AS filas "
+                  f"FROM {c['tabla']} GROUP BY {c['columna']} "
+                  f"ORDER BY {c['columna']} DESC LIMIT 12")
+    except Exception as e:
+        return {"tipo": "dato", "tabla": c["tabla"], "columna": c["columna"],
+                "error": f"{type(e).__name__}: {e}", "fechas": []}
+    return {
+        "tipo": "dato", "tabla": c["tabla"], "columna": c["columna"],
+        "tolerancia_dias_habiles": c.get("max_dias_habiles"),
+        "fechas": [{"fecha": str(r["fecha"]), "filas": int(r["filas"])} for r in rows],
+        "explicacion": (
+            f"Últimas fechas de {c['tabla']}. El chequeo se pone en rojo cuando la "
+            f"más nueva queda a más de {c.get('max_dias_habiles')} días hábiles de hoy. "
+            "Un salto en la cantidad de filas también avisa: si un día cargó la mitad, "
+            "algo se cortó a mitad de camino."),
+    }
+
+
+def _detalle_control(chequeo: dict) -> dict:
+    """TODAS las anomalías del control, con su ítem y su detalle."""
+    cid = str(chequeo.get("id", "")).split(":", 1)[-1]
+    try:
+        from api.services.controles_sql import listar_controles
+        grupo = (listar_controles(incluir_resueltos_dias=7).get("controles") or {}).get(cid, {})
+    except Exception as e:
+        return {"tipo": "control", "error": f"{type(e).__name__}: {e}", "anomalias": []}
+    return {
+        "tipo": "control", "control_id": cid,
+        "anomalias": grupo.get("activos") or [],
+        "resueltas_7d": len(grupo.get("resueltos") or []),
+        "explicacion": (
+            "Cada fila es un caso concreto que hay que corregir en los datos. `desde` "
+            "es cuándo se detectó por primera vez: si lleva semanas, nadie lo está "
+            "mirando. Se resuelven corrigiendo el dato — el control las marca solas "
+            "en la próxima corrida."),
+    }
+
+
+def detalle(chequeo_id: str) -> dict:
+    """TODO lo que hay detrás de un chequeo. Reemplaza a las tabs JOBS y CONTROLES.
+
+    El detalle sale de la misma fuente que evaluó el chequeo, así no puede
+    contradecir al estado que se ve en la pantalla.
+    """
+    cid = (chequeo_id or "").strip()
+    if not cid:
+        raise ValueError("falta el chequeo")
+    ch = next((c for c in evaluar() if c["id"] == cid), None)
+    if ch is None:
+        raise ValueError(f"no existe el chequeo {cid}")
+    familia = ch.get("familia")
+    if familia == "job":
+        cuerpo = _detalle_job(ch)
+    elif familia == "dato":
+        cuerpo = _detalle_dato(ch)
+    elif familia == "control":
+        cuerpo = _detalle_control(ch)
+    else:
+        cuerpo = {"tipo": familia or "?"}
+    return {"chequeo": ch, "historial": historial(chequeo_id=cid, limite=20), **cuerpo}

@@ -95,3 +95,18 @@ def get_diagnostico(
         return svc.diagnostico(chequeo_id, evento_id=evento_id, forzar=forzar)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+
+
+@router.get("/salud/detalle")
+def get_detalle(chequeo_id: str = Query(..., min_length=1)):
+    """TODO lo que hay detrás de un chequeo — reemplaza a las tabs JOBS y CONTROLES.
+
+    Según la familia devuelve: las últimas corridas con sus stats, errores y log
+    (job), las últimas fechas cargadas con su conteo de filas (dato), o la lista
+    completa de anomalías (control). Siempre con el historial de transiciones y una
+    explicación de cómo leerlo: nada de pantallas vacías o incomprensibles.
+    """
+    try:
+        return svc.detalle(chequeo_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e

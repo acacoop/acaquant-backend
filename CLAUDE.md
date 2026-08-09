@@ -256,6 +256,7 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Dominio / si vas a tocar… | Doc |
 |---|---|
 | Arquitectura, datos, roadmap | `ARQUITECTURA.md` (madre) |
+| Qué vistas/tabs/endpoints/permisos hay (superficie completa) | `MAPA_APP.md` |
 | Modelo SQL / schema | `SQL.md` + `SQL_MODELO.md` + `sql/schema.sql` |
 | Programa de IA (gateway `core/ai`, briefing, triage) | `QUANTAI.md` **[VIVO]** |
 | Copiloto de mesa (`api/services/copiloto.py`) | `COPILOTO.md` **[VIVO]** |

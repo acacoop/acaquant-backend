@@ -42,14 +42,9 @@ from api.services.valuaciones import (
     _FLUJO_EXTERNO_DEPOSITO,
     _FLUJO_EXTERNO_EXTRACCION,
     _FLUJOS_EXTERNOS_ALL,
+    _get_mep_for_date,
 )
 from core.postgres import get_pool
-
-# Pesificación: misma regla que el motor de PnL (docs/MOTOR_VALUACIONES.md) —
-# el importe en USD se multiplica por el MEP snapshot de la fila. Si falta el
-# mep, la fila se cuenta aparte en vez de inventar una cotización.
-_IMPORTE_ARS = ("CASE WHEN COALESCE(m.moneda,'ARS') = 'ARS' THEN m.importe "
-                "     ELSE m.importe * m.mep END")
 
 
 def _fmt(v, dec: int = 0) -> str:
@@ -132,8 +127,8 @@ def main() -> None:
                     (list(_FLUJOS_EXTERNOS_ALL),))
         (sin_mep,) = cur.fetchone()
         if sin_mep:
-            print(f"⚠️ {_fmt(sin_mep)} movimientos en USD SIN mep snapshot → no se pueden "
-                  f"pesificar con la regla de producción (quedan fuera de los totales).")
+            print(f"ℹ️ {_fmt(sin_mep)} movimientos en USD sin mep snapshot → se pesifican "
+                  f"con el fallback de producción (cotización de esa fecha).")
 
         print("\n" + "=" * 78)
         print(f"4) EL IMPACTO — flujo neto por cuenta DESDE {desde_ancla}")
@@ -142,73 +137,116 @@ def main() -> None:
               f"(el caso hoy), la fecha {desde_ancla} pasada por --desde.")
         # `denominacion` NO vive en comitentes: es de clientes.cuentas (mismo join
         # que hace la vista comercial, comercial_sql.py::_col).
-        cur.execute(f"""
-            WITH cupo AS (
-                SELECT c.id_cuenta, c.cupo_transaccional_ars AS trans,
-                       c.cupo_usado_ars AS usado,
-                       COALESCE(c.cupo_cargado_en::date, %s::date) AS desde,
-                       u.denominacion
-                FROM clientes.comitentes c
-                LEFT JOIN clientes.cuentas u ON u.id_cuenta = c.id_cuenta
-                WHERE c.cupo_transaccional_ars IS NOT NULL
-            ),
-            flujo AS (
-                SELECT c.id_cuenta,
-                       sum(CASE WHEN m.categoria = ANY(%s) THEN {_IMPORTE_ARS} ELSE 0 END) AS dep,
-                       sum(CASE WHEN m.categoria = ANY(%s) THEN {_IMPORTE_ARS} ELSE 0 END) AS ext,
-                       count(*) AS n
-                FROM cupo c
-                JOIN operaciones.negocio_movimientos m
-                  ON m.id_cuenta = c.id_cuenta
-                 AND m.fecha >= c.desde
-                 AND m.categoria = ANY(%s)
-                GROUP BY 1
-            )
-            SELECT c.id_cuenta, c.denominacion, c.trans, c.usado,
-                   COALESCE(f.dep,0), COALESCE(f.ext,0), COALESCE(f.n,0)
-            FROM cupo c LEFT JOIN flujo f ON f.id_cuenta = c.id_cuenta
-        """, (desde_ancla, list(_FLUJO_EXTERNO_DEPOSITO), list(_FLUJO_EXTERNO_EXTRACCION),
-              list(_FLUJOS_EXTERNOS_ALL)))
-        filas = cur.fetchall()
+        cur.execute("""
+            SELECT c.id_cuenta, u.denominacion,
+                   c.cupo_transaccional_ars, c.cupo_usado_ars
+            FROM clientes.comitentes c
+            LEFT JOIN clientes.cuentas u ON u.id_cuenta = c.id_cuenta
+            WHERE c.cupo_transaccional_ars IS NOT NULL""")
+        cupos = {r[0]: {"den": r[1], "trans": float(r[2]),
+                        "usado": float(r[3] or 0)} for r in cur.fetchall()}
 
-    # El signo del importe ya viene "con signo cliente" (+ depósito, − extracción)
-    # según valuaciones.py, así que el neto es dep + ext (ext ya es negativo).
-    con_flujo = [f for f in filas if f[6]]
-    print(f"cuentas con cupo cargado          : {_fmt(len(filas))}")
-    print(f"cuentas CON flujo desde esa fecha : {_fmt(len(con_flujo))}"
+        # Los movimientos se traen FILA POR FILA (no agregados en SQL) para poder
+        # pesificar con la MISMA regla que producción: `mep` snapshot de la fila y,
+        # si viene NULL, fallback a get_mep_for_date (docs/MOTOR_VALUACIONES.md).
+        # Agregando en SQL había que tirar las filas sin mep — 434 movimientos.
+        cur.execute("""
+            SELECT id_cuenta, fecha, categoria, importe, moneda, mep
+            FROM operaciones.negocio_movimientos
+            WHERE categoria = ANY(%s) AND fecha >= %s::date
+              AND id_cuenta IS NOT NULL""",
+                    (list(_FLUJOS_EXTERNOS_ALL), desde_ancla))
+        movs = cur.fetchall()
+
+    # Pesificación con la regla de producción + fallback.
+    mep_cache: dict[str, float | None] = {}
+    agg: dict[str, dict] = {}
+    sin_cotizacion = 0
+    for idc, fecha, categoria, importe, moneda, mep in movs:
+        if idc not in cupos:
+            continue
+        try:
+            imp = float(importe or 0)
+        except (TypeError, ValueError):
+            continue
+        if (moneda or "ARS") == "ARS":
+            imp_ars = imp
+        else:
+            tc = float(mep) if mep is not None else None
+            if tc is None:
+                clave = fecha.isoformat()
+                if clave not in mep_cache:
+                    mep_cache[clave] = _get_mep_for_date(clave)
+                tc = mep_cache[clave]
+            if tc is None:
+                sin_cotizacion += 1
+                continue
+            imp_ars = imp * tc
+        a = agg.setdefault(idc, {"deposito": 0.0, "transferencia": 0.0,
+                                 "extraccion": 0.0, "n": 0})
+        a[categoria] = a.get(categoria, 0.0) + imp_ars
+        a["n"] += 1
+
+    if sin_cotizacion:
+        print(f"⚠️ {_fmt(sin_cotizacion)} movimientos en USD quedaron fuera: ni mep "
+              f"snapshot ni cotización para esa fecha.")
+
+    print(f"cuentas con cupo cargado          : {_fmt(len(cupos))}")
+    print(f"cuentas CON flujo desde esa fecha : {_fmt(len(agg))}"
           f"   <- a estas les cambia el número HOY")
-    if not con_flujo:
-        print("\n(no hay flujos posteriores a la carga: el cupo no se desvió)")
+    if not agg:
+        print("\n(no hay flujos posteriores al ancla: el cupo no se desvió)")
         return
 
-    enriquecidas = []
-    for idc, den, trans, usado, dep, ext, n in con_flujo:
-        neto = float(dep) + float(ext)
-        usado_hoy = float(usado or 0) + neto
-        disp_antes = float(trans) - float(usado or 0)
-        disp_ahora = float(trans) - usado_hoy
-        enriquecidas.append((idc, den, float(trans), float(usado or 0), neto,
-                             usado_hoy, disp_antes, disp_ahora, n))
+    # El importe ya viene con signo cliente (+ depósito, − extracción) según
+    # valuaciones.py, así que el neto es la suma de las tres categorías.
+    filas_out = []
+    for idc, a in agg.items():
+        c = cupos[idc]
+        neto = a["deposito"] + a["transferencia"] + a["extraccion"]
+        usado_real = c["usado"] + neto
+        filas_out.append({
+            "id": idc, "den": c["den"], "trans": c["trans"], "usado": c["usado"],
+            "dep": a["deposito"], "transf": a["transferencia"], "ext": a["extraccion"],
+            "neto": neto, "usado_real": usado_real,
+            "disp": c["trans"] - usado_real, "n": a["n"],
+        })
 
-    negativos = [e for e in enriquecidas if e[7] < 0]
-    print(f"quedarían con DISPONIBLE NEGATIVO : {_fmt(len(negativos))}"
-          f"   <- si son muchas, la semántica del cupo es otra")
+    negativos = [f for f in filas_out if f["disp"] < 0]
+    ya_excedidas = [f for f in negativos if f["trans"] - f["usado"] < 0]
+    nuevas = [f for f in negativos if f["trans"] - f["usado"] >= 0]
+    print(f"quedarían con DISPONIBLE NEGATIVO : {_fmt(len(negativos))}")
+    print(f"   · de esas, YA estaban excedidas antes del flujo : {_fmt(len(ya_excedidas))}")
+    print(f"   · las que se pasan POR EL FLUJO nuevo           : {_fmt(len(nuevas))}"
+          f"  <- estas son el hallazgo")
 
-    print(f"\nTOP {top} por magnitud del desvío (|flujo neto| desde la carga):")
-    print(f"{'cuenta':>8s}  {'denominación':30s} {'usado hoy(foto)':>16s} "
-          f"{'flujo neto':>16s} {'usado real':>16s} {'disp. real':>16s}")
-    for e in sorted(enriquecidas, key=lambda x: abs(x[4]), reverse=True)[:top]:
-        idc, den, trans, usado, neto, usado_hoy, _da, disp_ahora, _n = e
-        print(f"{idc:>8s}  {(den or '—')[:30]:30s} {_fmt(usado):>16s} "
-              f"{_fmt(neto):>16s} {_fmt(usado_hoy):>16s} {_fmt(disp_ahora):>16s}")
+    # ¿El exceso es real o un artefacto de contar `transferencia` como depósito?
+    # `transferencia` puede ser movimiento de TÍTULOS, no de plata: para TWR es un
+    # flujo externo válido, para el CUPO de fondeo puede no corresponder.
+    solo_transf = [f for f in nuevas if f["transf"] and
+                   (f["trans"] - (f["usado"] + f["dep"] + f["ext"])) >= 0]
+    if nuevas:
+        print(f"   · de las nuevas, se pasan SOLO por 'transferencia' : {_fmt(len(solo_transf))}"
+              f"  <- ojo: puede ser movimiento de TÍTULOS, no de plata")
 
-    total_neto = sum(e[4] for e in enriquecidas)
-    print(f"\nflujo neto TOTAL no reflejado en el cupo: {_fmt(total_neto)} ARS")
+    print(f"\nTOP {top} por magnitud del desvío (|flujo neto| desde el ancla):")
+    print(f"{'cuenta':>8s}  {'denominación':28s} {'usado(foto)':>15s} {'depósitos':>15s} "
+          f"{'transfer.':>15s} {'extracc.':>15s} {'usado real':>15s} {'disp. real':>15s}")
+    for f in sorted(filas_out, key=lambda x: abs(x["neto"]), reverse=True)[:top]:
+        print(f"{f['id']:>8s}  {(f['den'] or '—')[:28]:28s} {_fmt(f['usado']):>15s} "
+              f"{_fmt(f['dep']):>15s} {_fmt(f['transf']):>15s} {_fmt(f['ext']):>15s} "
+              f"{_fmt(f['usado_real']):>15s} {_fmt(f['disp']):>15s}")
+
+    print(f"\nflujo neto TOTAL no reflejado en el cupo: "
+          f"{_fmt(sum(f['neto'] for f in filas_out))} ARS")
+    print(f"  depósitos {_fmt(sum(f['dep'] for f in filas_out))} · "
+          f"transferencias {_fmt(sum(f['transf'] for f in filas_out))} · "
+          f"extracciones {_fmt(sum(f['ext'] for f in filas_out))}")
     print("\nCÓMO LEER ESTO:")
-    print("  · Si 'disponible negativo' es CERO o casi, la fórmula")
-    print("    usado_real = usado_foto + depósitos − extracciones  es correcta y el fix es directo.")
-    print("  · Si son muchas, el cupo NO es un acumulado histórico (probable ventana móvil o")
-    print("    reseteo anual) → hay que preguntarle a compliance antes de codear nada.")
+    print("  · 'se pasan POR EL FLUJO nuevo' son clientes operando por encima de su cupo")
+    print("    declarado HOY, y el sistema no lo muestra. Es un tema de compliance, no un bug.")
+    print("  · Si la mayoría se pasa SOLO por 'transferencia', antes de codear hay que")
+    print("    confirmar si una transferencia de TÍTULOS consume cupo de fondeo o no.")
 
 
 if __name__ == "__main__":

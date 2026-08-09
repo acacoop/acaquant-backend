@@ -28,7 +28,8 @@ QUÉ CONTESTA ESTE DIAG (hay que saberlo ANTES de codear el fix — REGLA #2)
 
 Uso (en el Droplet):
 
-    python -m scripts.diag_cupo_vs_flujos           # resumen
+    python -m scripts.diag_cupo_vs_flujos                      # ancla 2026-06-01
+    python -m scripts.diag_cupo_vs_flujos --desde 2026-06-01   # ancla explícita
     python -m scripts.diag_cupo_vs_flujos --top 40  # más filas en los rankings
 """
 from __future__ import annotations
@@ -63,6 +64,16 @@ def main() -> None:
         try:
             top = int(sys.argv[sys.argv.index("--top") + 1])
         except (IndexError, ValueError):
+            pass
+    # `cupo_cargado_en` está NULL en las 1.567 cuentas (medido 2026-08-09): la
+    # carga masiva nunca lo escribió. Sin esa fecha no hay desde cuándo acumular
+    # los flujos, así que se pasa a mano. Default = 2026-06-01, que es cuando el
+    # user dice haber cargado el cupo.
+    desde_ancla = "2026-06-01"
+    if "--desde" in sys.argv:
+        try:
+            desde_ancla = sys.argv[sys.argv.index("--desde") + 1]
+        except IndexError:
             pass
 
     with get_pool().connection() as conn, conn.cursor() as cur:
@@ -125,14 +136,21 @@ def main() -> None:
                   f"pesificar con la regla de producción (quedan fuera de los totales).")
 
         print("\n" + "=" * 78)
-        print("4) EL IMPACTO — flujo neto por cuenta DESDE su fecha de carga del cupo")
+        print(f"4) EL IMPACTO — flujo neto por cuenta DESDE {desde_ancla}")
         print("=" * 78)
+        print("ancla: se usa `cupo_cargado_en` cuando está cargado y, si está NULL "
+              f"(el caso hoy), la fecha {desde_ancla} pasada por --desde.")
+        # `denominacion` NO vive en comitentes: es de clientes.cuentas (mismo join
+        # que hace la vista comercial, comercial_sql.py::_col).
         cur.execute(f"""
             WITH cupo AS (
-                SELECT id_cuenta, cupo_transaccional_ars AS trans, cupo_usado_ars AS usado,
-                       cupo_cargado_en::date AS desde, denominacion
-                FROM clientes.comitentes
-                WHERE cupo_transaccional_ars IS NOT NULL AND cupo_cargado_en IS NOT NULL
+                SELECT c.id_cuenta, c.cupo_transaccional_ars AS trans,
+                       c.cupo_usado_ars AS usado,
+                       COALESCE(c.cupo_cargado_en::date, %s::date) AS desde,
+                       u.denominacion
+                FROM clientes.comitentes c
+                LEFT JOIN clientes.cuentas u ON u.id_cuenta = c.id_cuenta
+                WHERE c.cupo_transaccional_ars IS NOT NULL
             ),
             flujo AS (
                 SELECT c.id_cuenta,
@@ -149,7 +167,7 @@ def main() -> None:
             SELECT c.id_cuenta, c.denominacion, c.trans, c.usado,
                    COALESCE(f.dep,0), COALESCE(f.ext,0), COALESCE(f.n,0)
             FROM cupo c LEFT JOIN flujo f ON f.id_cuenta = c.id_cuenta
-        """, (list(_FLUJO_EXTERNO_DEPOSITO), list(_FLUJO_EXTERNO_EXTRACCION),
+        """, (desde_ancla, list(_FLUJO_EXTERNO_DEPOSITO), list(_FLUJO_EXTERNO_EXTRACCION),
               list(_FLUJOS_EXTERNOS_ALL)))
         filas = cur.fetchall()
 

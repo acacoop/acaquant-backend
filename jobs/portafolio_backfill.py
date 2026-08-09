@@ -299,7 +299,14 @@ def _opt(flag, default=None):
     return default
 
 
-def _run_backfill() -> int:
+def _run_backfill(logger=None) -> int:
+    """`logger` es el JobRunLogger del modo --diario (None en los modos manuales).
+
+    Se le REPORTAN los contadores: sin esto, manager.job_runs quedaba en `ok` aunque
+    la corrida no escribiera una sola fila — que es exactamente lo que pasó el
+    2026-08-07, cuando las 1868 cuentas devolvieron error_http_500 y el tablero
+    siguió en verde dos días.
+    """
     force = "--force" in sys.argv
     workers = int(_opt("--workers", MAX_WORKERS))
     subset = _opt("--cuentas")
@@ -341,6 +348,8 @@ def _run_backfill() -> int:
     print(f"  cuentas: {len(universo)}  ·  assets en mapa: {len(amap)}\n")
 
     t_run = time.monotonic()
+    tot = {"cuentas_ok": 0, "cuentas_vacia": 0, "timeouts": 0, "errores": 0,
+           "filas": 0, "dias_pedidos": len(dias), "dias_con_filas": 0}
     for D in dias:
         iso = D.isoformat()
         desde = _prox_habil(D).strftime("%d/%m/%Y")   # ← regla: desde = D + 1 hábil
@@ -374,12 +383,36 @@ def _run_backfill() -> int:
             print(f"  ✓ {iso}: OK={ok} vacía={vac} TIMEOUT={to} ERROR={er} · "
                   f"filas insertadas={len(registros)} · assets nuevos={altas} · "
                   f"{time.monotonic()-t0:.0f}s")
+            tot["cuentas_ok"] += ok
+            tot["cuentas_vacia"] += vac
+            tot["timeouts"] += to
+            tot["errores"] += er
+            tot["filas"] += len(registros)
+            if registros:
+                tot["dias_con_filas"] += 1
+            # Un día que intentó y no trajo NADA es la señal que faltaba: se registra
+            # como error del run (JobRunLogger → status `partial`), no solo en stdout.
+            if logger is not None and (to or er):
+                logger.error(f"{iso}: {er} errores y {to} timeouts sobre "
+                             f"{len(pend)} cuentas (filas escritas: {len(registros)})")
         except Exception as e:
             print(f"  ✗ {iso}: la fecha falló ({type(e).__name__}: {e}) — sigo con la próxima")
             continue
 
     print(f"\n🏁 Backfill terminado en {time.monotonic()-t_run:.0f}s. "
           f"Re-corré para reintentar lo que haya quedado en TIMEOUT/ERROR (self-healing).")
+    if logger is not None:
+        for k, v in tot.items():
+            logger.set_stat(k, v)
+        logger.set_stat("elapsed_run_s", round(time.monotonic() - t_run, 1))
+    # Un run que pidió días y no escribió NI UNA fila no es un éxito: se levanta para
+    # que quede `error` en job_runs y el cron devuelva exit != 0. Un run donde no había
+    # nada pendiente (todo ya hecho) NO entra acá — ese sí es un no-op legítimo.
+    if tot["dias_pedidos"] and not tot["filas"] and (tot["errores"] or tot["timeouts"]):
+        raise RuntimeError(
+            f"el backfill no escribió ninguna fila: {tot['errores']} errores y "
+            f"{tot['timeouts']} timeouts sobre {tot['dias_pedidos']} día(s). "
+            "Casi siempre es Aunesa devolviendo error (revisar portafolio.backfill_log).")
     return 0
 
 
@@ -389,8 +422,8 @@ def main() -> int:
     su reemplazo SQL). Los modos manuales (backfill/--force) no logean."""
     if "--diario" in sys.argv:
         from core.job_runs import JobRunLogger
-        with JobRunLogger("aum"):
-            return _run_backfill()
+        with JobRunLogger("aum") as jlog:
+            return _run_backfill(logger=jlog)
     return _run_backfill()
 
 

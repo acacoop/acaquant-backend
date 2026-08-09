@@ -7,9 +7,12 @@
 >
 > **Cómo se generó.** Relevado **leyendo el código** de los dos checkouts (`acaquant-backend`
 > FastAPI + `acaquant-frontend` Next.js 16) el **2026-08-09**, en 13 pasadas por dominio
-> (10 funcionales + RBAC + navegación + IA). El mapa endpoint→gate NO se dedujo a ojo: se
-> extrajo del árbol de `dependencies` de `api.main.app` ya armado (**423 rutas**), resolviendo
-> los `_IncludedRouter` lazy de FastAPI.
+> (10 funcionales + RBAC + navegación + IA).
+>
+> **Cómo se mantiene al día.** La §0 (inventario de endpoints, gate efectivo y matriz de roles)
+> es **auto-generada** por `python -m scripts.gen_mapa_app` desde la app FastAPI montada, y CI
+> corre `--check`: si agregás un router y no regenerás, **el build falla**. El resto del doc se
+> mantiene a mano — ver la regla de mantenimiento en `CLAUDE.md`.
 >
 > **⚠️ ADVERTENCIA — lo marcado `SIN VERIFICAR` NO está confirmado.** Aparece cuando el
 > relevador no pudo cerrar el dato leyendo el repo (típicamente: contenido real de tablas de
@@ -19,6 +22,102 @@
 > que es solo el BOOTSTRAP.** En runtime la tabla SQL `manager.role_matrix` **PISA** ese default
 > (`core/roles.py::_load_matrix`). Para saber qué ve hoy un rol hay que mirar
 > `/manager → USUARIOS → ROLES Y PERMISOS`. Nadie pudo leer la DB de prod desde el repo.
+
+---
+
+## 0. INVENTARIO AUTO-GENERADO (no editar a mano)
+
+> Los tres bloques de esta sección los regenera **`python -m scripts.gen_mapa_app`** desde la app
+> FastAPI montada. Son lo que más drift tiene (cada router nuevo desactualiza el inventario y la
+> matriz) y lo más caro de relevar a mano. **CI corre `--check` y falla si quedaron viejos**, así
+> que esta sección no puede mentir. El resto del doc —qué hace cada vista, sus tabs, sus filtros,
+> las rarezas— se mantiene A MANO: cambia despacio y ahí está el criterio.
+>
+> Para el listado completo de las 400+ rutas (no va al doc, lo hace ilegible):
+> `python -m scripts.gen_mapa_app --full`.
+
+<!-- AUTOGEN:resumen -->
+- **428 endpoints** montados en `api.main.app`, en **28 routers**.
+- **133 escriben** (POST/PUT/PATCH/DELETE); 295 son de solo lectura.
+- **22 módulos** canónicos y **6 roles** en `core/roles.py`.
+<!-- /AUTOGEN:resumen -->
+
+### 0.1 Endpoints y gate efectivo, por router
+
+<!-- AUTOGEN:routers -->
+| Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
+|---|---:|---:|---|---|---|
+| `(raíz)` | 121 | 54 | — | — | ⚠️ |
+| `/api/analitica` | 15 | 1 | — | — | ⚠️ |
+| `/api/back-office` | 55 | 32 | `back-office` + `require_escritura_tesoreria` | `back-office` |  |
+| `/api/back-office/senebis` | 17 | 10 | `back-office` + `require_admin`, `require_escritura_senebis` | `back-office` |  |
+| `/api/cotizaciones` | 33 | 1 | `manager` | — |  |
+| `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
+| `/api/derivados` | 18 | 6 | `agro` + `require_no_invitado` | — |  |
+| `/api/estrategia` | 4 | 0 | `trading` | — |  |
+| `/api/ia` | 11 | 5 | `ia` + `require_admin` | `ia` |  |
+| `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
+| `/api/manager` | 2 | 0 | `manager` + `require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
+| `/api/market` | 4 | 0 | — | — | ⚠️ |
+| `/api/mesa-dinero` | 9 | 4 | `operaciones` + `require_escritura_mesa` | `operaciones` |  |
+| `/api/news` | 3 | 0 | — | — | ⚠️ |
+| `/api/operaciones` | 44 | 4 | `operaciones` + `require_control_comercial` | `operaciones` |  |
+| `/api/operar` | 3 | 1 | `operar` | `operar` |  |
+| `/api/operativa` | 6 | 2 | `operar` | `operar` |  |
+| `/api/ordenes` | 8 | 3 | `operar` | `operar` |  |
+| `/api/portfolio` | 11 | 0 | `portfolios` | `portfolios` |  |
+| `/api/research-bcra` | 2 | 0 | `research` | — |  |
+| `/api/research-docs` | 2 | 0 | `research` | — |  |
+| `/api/research-fred` | 2 | 0 | `research` | — |  |
+| `/api/research1816` | 11 | 0 | `research` | — |  |
+| `/api/risk` | 5 | 0 | `operar` | `operar` |  |
+| `/api/scanner` | 9 | 0 | `renta-variable` + `require_admin` | — |  |
+| `/api/titulos` | 2 | 0 | — | `portfolios` | ⚠️ |
+| `/api/trading` | 9 | 1 | `trading` | `trading` |  |
+| `/api/valuaciones` | 7 | 0 | `portfolios` | — |  |
+
+**⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
+
+- `(raíz)` (sin gate de módulo)
+- `/api/analitica` (sin gate de módulo)
+- `/api/market` (sin gate de módulo)
+- `/api/news` (sin gate de módulo)
+- `/api/titulos` (declara `portfolios`, no lo aplica)
+
+No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtime** (solo lo consume un test), y para los módulos que todos los roles tienen se decidió no gatear. Lo que sí implica es que **destildar esos módulos en Manager → Roles no bloquea nada server-side**: solo esconde el link en el menú.
+
+<!-- /AUTOGEN:routers -->
+
+### 0.2 Matriz rol × módulo (default del código)
+
+<!-- AUTOGEN:rbac -->
+| Módulo | admin | trader | sales | asistente_comercial | back_office | invitado |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|
+| `home` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `renta-fija` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `derivados` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `agro` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `sinteticos` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `renta-variable` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `trading` | ✓ | · | · | · | · | · |
+| `estrategia` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `operar` | ✓ | · | · | · | · | · |
+| `operaciones` | ✓ | ✓ | · | ✓ | · | · |
+| `portfolios` | ✓ | ✓ | · | ✓ | · | · |
+| `back-office` | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| `research` | ✓ | · | · | · | · | ✓ |
+| `ia` | ✓ | · | · | · | · | ✓ |
+| `asistente` | ✓ | · | · | · | · | · |
+| `manager` | ✓ | · | · | · | · | · |
+| `manager_clientes` | ✓ | · | · | ✓ | · | · |
+| `manager_clientes_bulk` | ✓ | · | · | · | · | · |
+| `manager_titulos` | ✓ | · | · | · | · | · |
+| `manager_instrumentos` | ✓ | · | · | ✓ | · | · |
+| `manager_contrapartes` | ✓ | · | · | ✓ | · | · |
+| `manager_aunesa` | ✓ | · | · | ✓ | · | · |
+
+> Esta matriz es el **DEFAULT del código** (`core/roles.py::DEFAULT_MATRIX`). La tabla SQL `manager.role_matrix` la **PISA**: el enforcement real es lo que esté ahí, editable desde `/manager → ROLES Y PERMISOS`. Para ver la de producción hay que consultarla en la base.
+<!-- /AUTOGEN:rbac -->
 
 ---
 

@@ -40,5 +40,12 @@ jobs:
         run: python -m scripts.audit_jobs_observabilidad
         continue-on-error: true
 
+      # El inventario de endpoints y la matriz de permisos de docs/MAPA_APP.md
+      # se generan desde la app montada. Si alguien agrega un router y no
+      # regenera, el doc miente → esto lo frena. Bloqueante a propósito:
+      # el arreglo es una línea (`python -m scripts.gen_mapa_app`).
+      - name: Mapa de la app sincronizado
+        run: python -m scripts.gen_mapa_app --check
+
       - name: Pytest
         run: pytest -ra

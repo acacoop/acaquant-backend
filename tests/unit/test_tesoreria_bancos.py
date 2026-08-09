@@ -155,3 +155,43 @@ def test_detalle_solo_cuenta_los_movimientos_procesados(monkeypatch):
 
     assert celda["total"] == 100.0
     assert [i["ref"] for i in celda["items"]] == ["20260806103000"]
+
+
+# ── Aunesa caído: la vista degrada, NO devuelve 502 ──────────────────────────
+
+def test_si_aunesa_se_cae_la_vista_igual_responde(monkeypatch):
+    """Incidente 2026-08-07/09: Aunesa devolvió HTTP 500 durante dos días y la
+    Tesorería entera tiraba 502.
+
+    Aunesa es una dependencia EXTERNA y se va a volver a caer. Lo que no puede pasar
+    es que se lleve puesta la vista completa: los saldos, cheques, mercados, banco a
+    banco, registros manuales y VEPs viven en Postgres y están disponibles. La grilla
+    se arma con lo que hay y DICE que le falta Aunesa.
+    """
+    _patch_base(monkeypatch)
+
+    def _explota(dia, estado):
+        raise RuntimeError("500 Server Error: aca.aunesa.com/Irmo/api/login")
+
+    monkeypatch.setattr(tes, "traer_crudas", _explota)
+    monkeypatch.setattr(tes, "_cheques_emitidos_t1_rows", lambda dia: [
+        {"banco": "BANCO A", "unidad": "ARS", "cantidad": 1, "total": 80}])
+
+    out = tes.ingresos_egresos_dia(fecha="2026-08-06", email="")
+
+    assert out["aunesa_ok"] is False, "la vista tiene que declarar que le falta Aunesa"
+    assert "500" in (out["aunesa_error"] or ""), "y decir por qué"
+    # Lo que NO depende de Aunesa sigue estando: sin esto el back office se queda sin
+    # nada de lo que cargó a mano, que es lo que más duele.
+    assert out["cuentas"][0]["egresos_echeq"] == 80.0
+
+
+def test_con_aunesa_sano_la_marca_dice_que_esta_todo(monkeypatch):
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(tes, "traer_crudas", lambda dia, estado: [])
+    monkeypatch.setattr(tes, "_cheques_emitidos_t1_rows", lambda dia: [])
+
+    out = tes.ingresos_egresos_dia(fecha="2026-08-06", email="")
+
+    assert out["aunesa_ok"] is True
+    assert out["aunesa_error"] is None

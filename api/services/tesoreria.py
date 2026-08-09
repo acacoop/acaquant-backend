@@ -297,7 +297,20 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     dia = _dia(fecha)
     ddmmyyyy, _, yyyymmdd = _fechas(fecha)
     marcar_presencia(email)  # pollear la vista ES el heartbeat
-    crudas = traer_crudas(dia, TODOS_ESTADOS)
+    # Aunesa es una dependencia EXTERNA y se cae (2026-08-07/09: HTTP 500 en su
+    # login, dos días). Si su error sube, muere el endpoint entero y el back office
+    # pierde TODA la Tesorería — incluso los saldos, cheques, mercados, banco a banco,
+    # registros manuales y VEPs, que viven en Postgres y están perfectamente
+    # disponibles. La vista degrada: se arma con lo que hay y DICE qué falta, en vez
+    # de devolver un 502 en el que no se distingue "Aunesa caído" de "la API rota".
+    aunesa_error: str | None = None
+    try:
+        crudas = traer_crudas(dia, TODOS_ESTADOS)
+    except Exception as e:
+        aunesa_error = f"{type(e).__name__}: {e}"[:300]
+        _log.warning("tesoreria: Aunesa no responde, sirvo la vista sin sus movimientos",
+                     exc_info=True)
+        crudas = []
     pedidos = {e.strip() for e in (estado or "").split(";") if e.strip()}
     # Movimientos destildados del saldo (y el default: sin hora no cuenta).
     exc = _exclusiones_dia(dia)
@@ -416,6 +429,10 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
             "puede_editar_saldo": puede_editar_saldo(email),
             "catalogo": bancos,             # ABM de bancos (nombre + número de cuenta)
             "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
+            # La vista tiene que poder DECIR que le falta media fuente. Sin esto, una
+            # caída de Aunesa se ve igual que un día sin movimientos: todo en cero y
+            # nadie se entera de que los saldos están incompletos.
+            "aunesa_ok": aunesa_error is None, "aunesa_error": aunesa_error,
             "movimientos": movimientos, "n": len(movimientos), "raw": len(movimientos)}
 
 

@@ -84,6 +84,32 @@ def corridas() -> None:
             print(f"      errores: {err}")
 
 
+def detalle_corridas(n: int = 3) -> None:
+    """Los STATS y el LOG de las últimas corridas.
+
+    `JobRunLogger` marca `ok` cuando no hubo excepción NI errores registrados — así
+    que una corrida que no escribió una sola fila igual sale `ok`. Los stats son lo
+    único que dice cuántas cuentas se procesaron de verdad.
+    """
+    print(f"\n── 2b) STATS de las últimas {n} corridas ─────────────────────")
+    try:
+        rows = _q("SELECT tipo, status, started_at, data FROM manager.job_runs "
+                  "WHERE tipo ILIKE ANY(%(p)s) ORDER BY started_at DESC LIMIT %(n)s",
+                  {"p": [f"%{j}%" for j in JOBS], "n": int(n)})
+    except Exception as e:
+        print(f"   no pude leer: {type(e).__name__}: {e}")
+        return
+    for r in rows:
+        d = r["data"] if isinstance(r["data"], dict) else {}
+        print(f"\n   ▸ {r['started_at']}  [{r['status']}]  {r['tipo']}")
+        print(f"     elapsed_s : {d.get('elapsed_s')}")
+        print(f"     stats     : {d.get('stats')}")
+        errs = d.get("errors") or []
+        print(f"     errors    : {errs if errs else '(ninguno)'}")
+        for linea in (d.get("log") or [])[-12:]:
+            print(f"       | {linea}")
+
+
 def por_cartera() -> None:
     """Si la fecha SÍ está pero la vista se ve vacía, el filtro es el sospechoso."""
     print("\n── 3) La ÚLTIMA fecha cargada, abierta por cartera y AuM ─────")
@@ -104,6 +130,7 @@ def main() -> int:
     print(f"\n{'=' * 70}\nDIAG — tenencia atrasada (hoy {date.today().isoformat()})\n{'=' * 70}")
     ultimas_fechas()
     corridas()
+    detalle_corridas()
     por_cartera()
     print("\nCómo leerlo: si faltan días hábiles Y no hay corridas → el cron no ejecuta.")
     print("Si hay corridas con estado de error → el detalle dice por qué falló.")

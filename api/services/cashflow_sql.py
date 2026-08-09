@@ -31,6 +31,8 @@ from __future__ import annotations
 import os
 import re
 
+from api.cache import cached
+from api.services._mep import get_mep_for_date
 from api.services._sql import _q
 from api.services.operaciones_view import ddmmyyyy_a_iso as _ddmmyyyy_a_iso
 
@@ -114,6 +116,46 @@ def listar_flujos(
         })
     out.sort(key=lambda r: r["concertacion"] or "")
     return out
+
+
+@cached(ttl=300)
+def neto_por_cuenta(desde: str) -> dict[str, float]:
+    """`{id_cuenta: neto en ARS}` — la plata que entró menos la que salió de cada
+    cliente desde `desde`, con la MISMA fuente que la vista CASHFLOW.
+
+    Lo consume el CUPO TRANSACCIONAL: `cupo_usado_ars` es una foto y esto es lo
+    que se le suma para tener el usado real (ver config.CUPO_BASE_FECHA).
+
+    Dos detalles que no son inferibles:
+      * `total` ya viene con el signo invertido por el writer (entrada +), así
+        que el neto es la suma directa — no hay que separar entradas de salidas.
+      * `operaciones.movimientos` NO tiene snapshot de MEP (a diferencia de
+        negocio_movimientos), así que lo que está en USD se pesifica con la
+        cotización del día del movimiento. Un movimiento en USD sin cotización
+        para su fecha se DESCARTA en vez de contarse como si fueran pesos.
+    """
+    filas = listar_flujos(desde=desde)
+    mep_cache: dict[str, float | None] = {}
+    neto: dict[str, float] = {}
+    for f in filas:
+        m = _RE_ID_BRACKET.match(f.get("cuenta") or "")
+        bruto = f.get("bruto")
+        if not m or bruto is None:
+            continue
+        if (f.get("unidad") or "ARS").upper() == "ARS":
+            monto = float(bruto)
+        else:
+            fecha = f.get("concertacion")
+            if not fecha:
+                continue
+            if fecha not in mep_cache:
+                mep_cache[fecha] = get_mep_for_date(fecha)
+            tc = mep_cache[fecha]
+            if not tc:
+                continue
+            monto = float(bruto) * float(tc)
+        neto[m.group(1)] = neto.get(m.group(1), 0.0) + monto
+    return neto
 
 
 def flujos_resumen(

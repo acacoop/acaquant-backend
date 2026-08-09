@@ -166,3 +166,13 @@ GUARDRAILS_UMBRALES: dict[str, float | None] = {
     "salto_precio_pct": None,     # |Δ%| del precio de cierre por bono vs cierre previo
     "cobertura_curva_pct": None,  # % mínimo de bonos del master con cierre en el día
 }
+
+# --- CUPO TRANSACCIONAL ---
+# `clientes.comitentes.cupo_usado_ars` es una FOTO cargada a mano el 2026-06-01
+# (medido: `cupo_cargado_en` quedó NULL en las 1.567 cuentas, así que la fecha no
+# está en la base). Desde ese día el cupo usado REAL se mueve con la plata que
+# entra y sale de cada cliente — el mismo flujo que ya muestra la vista CASHFLOW.
+# El valor vivo se calcula al LEER (`cashflow_sql.neto_por_cuenta`), no se
+# persiste: así no hay job que pueda doble-contar ni backfill que revertir.
+# Si algún día se recarga el cupo, hay que mover esta fecha al día de la carga.
+CUPO_BASE_FECHA = "2026-06-01"

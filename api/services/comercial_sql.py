@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from api.services import cashflow_sql as _cf_sql
 from api.services._sql import _q
 from api.services.comercial import (
     _CATS_OPERACIONES,
@@ -25,6 +26,7 @@ from api.services.comercial import (
     _hoy_art,
     estado_comercial,
 )
+from config import CUPO_BASE_FECHA
 
 # Ficha embebida en cada cliente (= _FICHA_FIELDS de comercial.py). denominacion sale de
 # `cuentas` (no de comitentes); el resto de `comitentes`.
@@ -491,6 +493,13 @@ def analisis_comercial(*, operador, dias_activa: int = 45, dias_dormida: int = 9
     ult_sql += " GROUP BY id_cuenta"
     ult_op = {r["id_cuenta"]: _iso(r["ult"]) for r in _q(ult_sql, p) if r["ult"] is not None}
 
+    # CUPO VIVO: `cupo_usado_ars` es la FOTO del 2026-06-01 (config.CUPO_BASE_FECHA)
+    # y nada la actualiza. El usado REAL se mueve con la plata que entra y sale del
+    # cliente — el mismo flujo que ya muestra la vista CASHFLOW. Se suma al leer
+    # (una query cacheada para TODAS las cuentas), no se persiste: así no hay job
+    # que pueda doble-contar. `flujo_cupo` viene en ARS, igual que la foto.
+    flujo_cupo = _cf_sql.neto_por_cuenta(desde=CUPO_BASE_FECHA)
+
     clientes = []
     for idc in ids:
         ult = ult_op.get(idc)
@@ -499,6 +508,7 @@ def analisis_comercial(*, operador, dias_activa: int = 45, dias_dormida: int = 9
         est = estado_comercial(dias_win, ult is not None, dias_activa, dias_dormida)
         f = ficha.get(idc, {})
         trans, usado = f.get("cupo_transaccional_ars"), f.get("cupo_usado_ars")
+        usado_vivo = (float(usado) + flujo_cupo.get(idc, 0.0)) if usado is not None else None
         clientes.append({
             "id_cuenta": idc, "denominacion": f.get("denominacion") or "—",
             "aum": _cv(aum.get(idc, 0.0), factor), "ultima_op": ult, "dias_sin_operar": dias,
@@ -506,8 +516,11 @@ def analisis_comercial(*, operador, dias_activa: int = 45, dias_dormida: int = 9
             "opero_mtd": bool(ult) and ult >= month_start,
             "cupo_transaccional_usd": (_cv(float(trans), factor_cupo)
                                        if trans is not None and factor_cupo else None),
-            "cupo_usado_usd": (_cv(float(usado), factor_cupo)
-                               if usado is not None and factor_cupo else None),
+            "cupo_usado_usd": (_cv(usado_vivo, factor_cupo)
+                               if usado_vivo is not None and factor_cupo else None),
+            # El flujo aplicado, para poder auditar la diferencia contra la foto.
+            "cupo_flujo_usd": (_cv(flujo_cupo.get(idc, 0.0), factor_cupo)
+                               if factor_cupo else None),
             **{n: f.get(n) for n in _ANALISIS if n != "denominacion"},
         })
     clientes.sort(key=lambda x: x["aum"], reverse=True)

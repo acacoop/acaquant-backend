@@ -242,6 +242,47 @@ def _chequeo_dato(c: dict, ahora: datetime) -> dict:
 
 # ── Evaluación completa ──────────────────────────────────────────────────────
 
+# ── Chequeos de CONTROLES de datos (calidad del negocio) ─────────────────────
+#
+# La tab CONTROLES vivía aparte con un "!146" que nadie podía atender — un contador
+# así es ruido, no señal. Se absorbe como UNA FAMILIA MÁS de chequeos: mismo modelo,
+# misma pantalla, mismo silenciado, mismo historial. La regla del rediseño es que NO
+# haya observabilidad fuera de SALUD.
+#
+# Cada control_id es su propio chequeo, así se puede silenciar uno sin perder el
+# resto: hoy hay controles accionables (una cuenta sin segmentar) mezclados con
+# ruido que nadie va a mirar, y el contador único los tapaba a todos.
+
+def _chequeos_controles() -> list[dict]:
+    try:
+        from api.services.controles_sql import listar_controles
+        data = listar_controles(incluir_resueltos_dias=0)
+    except Exception:
+        _log.warning("salud: no pude leer los controles de datos", exc_info=True)
+        return []
+    out: list[dict] = []
+    for cid, grupo in (data.get("controles") or {}).items():
+        activos = grupo.get("activos") or []
+        if not activos:
+            continue
+        # Los controles NO son ERROR: son deuda de datos, no el sistema caído. Un
+        # comitente sin segmentar no rompe nada — hay que corregirlo, no correr.
+        ejemplos = " · ".join(str(a.get("detalle") or a.get("item"))[:60]
+                              for a in activos[:3])
+        out.append({
+            "id": f"control:{cid}",
+            "familia": "control",
+            "titulo": cid.replace("_", " "),
+            "estado": WARN,
+            "motivo": f"{len(activos)} anomalía{'s' if len(activos) != 1 else ''} sin resolver",
+            "evidencia": ejemplos or "(sin detalle)",
+            "detalle": "control de calidad de datos",
+            "n": len(activos),
+            "ultimo_at": data.get("ultima_corrida"),
+        })
+    return out
+
+
 def evaluar() -> list[dict]:
     """TODOS los chequeos, peor primero. Es la única función que arma el estado."""
     ahora = _ahora()
@@ -256,6 +297,7 @@ def evaluar() -> list[dict]:
             out.append(_chequeo_dato(c, ahora))
         except Exception:
             _log.warning("salud: no pude evaluar %s", c["id"], exc_info=True)
+    out.extend(_chequeos_controles())
     out.sort(key=lambda c: (_PESO.get(c["estado"], 3), c["titulo"]))
     return out
 

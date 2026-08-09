@@ -140,3 +140,60 @@ def test_lo_roto_va_primero(monkeypatch):
     assert r["chequeos"][0]["estado"] == salud.ERROR, "lo roto arriba"
     assert r["veredicto"] == salud.ERROR
     assert r["conteo"][salud.ERROR] == 1
+
+
+# ── Persistencia: transiciones, silenciado y vistos ──────────────────────────
+
+def _fake_sql(monkeypatch, *, previos=None, escrituras=None):
+    """Corta la capa SQL: interesa la LÓGICA de transición, no el INSERT."""
+    monkeypatch.setattr(salud, "_estados_previos", lambda: previos or {})
+    monkeypatch.setattr(salud, "_exec_salud",
+                        lambda sql, params: (escrituras.append(params)
+                                             if escrituras is not None else 0) or 1)
+
+
+def test_solo_se_registra_lo_que_CAMBIO(monkeypatch):
+    """Idempotencia: el panel se pide en cada carga de la vista. Si escribiera un
+    evento por vez, el historial sería basura en un día."""
+    escrituras: list = []
+    monkeypatch.setattr(salud, "evaluar", lambda: [
+        {"id": "job:a", "estado": salud.OK, "titulo": "A", "familia": "job"},
+        {"id": "job:b", "estado": salud.ERROR, "titulo": "B", "familia": "job"},
+    ])
+    _fake_sql(monkeypatch, previos={"job:a": salud.OK}, escrituras=escrituras)
+
+    nuevas = salud.sincronizar()
+
+    assert [n["id"] for n in nuevas] == ["job:b"], "job:a no cambió → no se registra"
+    assert len(escrituras) == 1
+
+
+def test_la_transicion_guarda_de_donde_venia(monkeypatch):
+    """Sin el estado anterior no se puede leer el historial: 'pasó de ok a error'
+    es la información, no 'está en error'."""
+    monkeypatch.setattr(salud, "evaluar", lambda: [
+        {"id": "job:a", "estado": salud.ERROR, "titulo": "A", "familia": "job",
+         "motivo": "debía correr", "evidencia": "x"}])
+    _fake_sql(monkeypatch, previos={"job:a": salud.OK})
+
+    nuevas = salud.sincronizar()
+
+    assert nuevas[0]["de"] == salud.OK
+    assert nuevas[0]["estado"] == salud.ERROR
+
+
+def test_un_chequeo_NUEVO_alerta_sin_darlo_de_alta(monkeypatch):
+    """Un job recién agregado al crontab tiene que avisar solo. Si hubiera que
+    registrarlo a mano, el sistema dejaría de mantenerse solo."""
+    monkeypatch.setattr(salud, "_q", lambda sql, params=None: [])   # config vacía
+    assert salud.config() == {}
+    monkeypatch.setattr(salud, "evaluar", lambda: [
+        {"id": "job:nuevo", "estado": salud.ERROR, "titulo": "N", "familia": "job"}])
+    monkeypatch.setattr(salud, "_estados_previos", lambda: {})
+    monkeypatch.setattr(salud, "_exec_salud", lambda sql, params: 1)
+    monkeypatch.setattr(salud, "pendientes", lambda email, limite=20: [])
+
+    r = salud.panel(email="a@b.com")
+
+    # Sin fila en salud_config, `alertar` cae al default true.
+    assert r["chequeos"][0]["alertar"] is True

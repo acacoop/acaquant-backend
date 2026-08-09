@@ -268,3 +268,166 @@ def resumen() -> dict:
         "chequeos": chequeos,
         "evaluado_at": _ahora().isoformat(),
     }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PERSISTENCIA: transiciones, alertas y vistos.
+#
+# El estado ACTUAL no se guarda (se evalúa en vivo). Lo que se persiste es lo que
+# no se puede recalcular más tarde: CUÁNDO cambió y con qué evidencia — porque una
+# vez que el job vuelve a correr, el motivo de la falla ya no está en ningún lado.
+# Eso es "el log" de cada chequeo.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_T_EVENTOS = "manager.salud_eventos"
+_T_CONFIG = "manager.salud_config"
+_T_VISTOS = "manager.salud_vistos"
+
+
+def _exec_salud(sql: str, params: dict) -> int:
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        n = cur.rowcount
+        conn.commit()
+    return n
+
+
+def _estados_previos() -> dict[str, str]:
+    """Último estado registrado de cada chequeo (para detectar la transición)."""
+    try:
+        rows = _q(f"SELECT DISTINCT ON (chequeo_id) chequeo_id, a FROM {_T_EVENTOS} "
+                  "ORDER BY chequeo_id, at DESC")
+    except Exception:
+        _log.warning("salud: no pude leer los estados previos", exc_info=True)
+        return {}
+    return {r["chequeo_id"]: r["a"] for r in rows}
+
+
+def config() -> dict[str, dict]:
+    """{chequeo_id: {alertar, nota}}. Lo que no está configurado ALERTA por default:
+    un chequeo nuevo tiene que avisar sin que nadie lo dé de alta."""
+    try:
+        rows = _q(f"SELECT chequeo_id, alertar, nota FROM {_T_CONFIG}")
+    except Exception:
+        return {}
+    return {r["chequeo_id"]: {"alertar": bool(r["alertar"]), "nota": r["nota"]}
+            for r in rows}
+
+
+def set_alerta(chequeo_id: str, alertar: bool, actor: str, nota: str = "") -> dict:
+    """Silenciar/reactivar un chequeo. Silenciar NO lo saca de la pantalla — sigue
+    rojo en la lista; lo único que deja de hacer es abrir el modal."""
+    cid = (chequeo_id or "").strip()
+    if not cid:
+        raise ValueError("falta el chequeo")
+    _exec_salud(
+        f"INSERT INTO {_T_CONFIG} (chequeo_id, alertar, nota, actualizado_por, "
+        "actualizado_at) VALUES (%(c)s, %(a)s, %(n)s, %(p)s, now()) "
+        "ON CONFLICT (chequeo_id) DO UPDATE SET alertar = EXCLUDED.alertar, "
+        "nota = EXCLUDED.nota, actualizado_por = EXCLUDED.actualizado_por, "
+        "actualizado_at = EXCLUDED.actualizado_at",
+        {"c": cid, "a": bool(alertar), "n": (nota or "").strip() or None,
+         "p": (actor or "").lower() or None})
+    return {"chequeo_id": cid, "alertar": bool(alertar)}
+
+
+def sincronizar() -> list[dict]:
+    """Evalúa y registra SOLO las transiciones. Idempotente: si nada cambió de
+    estado, no escribe una fila. Devuelve las transiciones nuevas."""
+    chequeos = evaluar()
+    previos = _estados_previos()
+    nuevas: list[dict] = []
+    for c in chequeos:
+        antes = previos.get(c["id"])
+        if antes == c["estado"]:
+            continue
+        try:
+            _exec_salud(
+                f"INSERT INTO {_T_EVENTOS} (chequeo_id, familia, titulo, de, a, "
+                "motivo, evidencia) VALUES (%(c)s, %(f)s, %(t)s, %(de)s, %(a)s, "
+                "%(m)s, %(e)s)",
+                {"c": c["id"], "f": c.get("familia"), "t": c.get("titulo"),
+                 "de": antes, "a": c["estado"], "m": c.get("motivo"),
+                 "e": str(c.get("evidencia") or "")[:2000]})
+            nuevas.append({**c, "de": antes})
+        except Exception:
+            _log.warning("salud: no pude registrar la transición de %s", c["id"],
+                         exc_info=True)
+    return nuevas
+
+
+def pendientes(email: str, limite: int = 20) -> list[dict]:
+    """Transiciones A PROBLEMA que este admin todavía no vio y que no están
+    silenciadas. Es lo que dispara el modal.
+
+    Solo empeoramientos: que algo se ARREGLE no justifica interrumpir a nadie.
+    """
+    e = (email or "").lower().strip()
+    if not e:
+        return []
+    try:
+        rows = _q(
+            f"SELECT ev.id, ev.chequeo_id, ev.familia, ev.titulo, ev.de, ev.a, "
+            f"ev.motivo, ev.evidencia, ev.at FROM {_T_EVENTOS} ev "
+            f"LEFT JOIN {_T_VISTOS} v ON v.evento_id = ev.id AND v.email = %(e)s "
+            f"LEFT JOIN {_T_CONFIG} cf ON cf.chequeo_id = ev.chequeo_id "
+            "WHERE v.evento_id IS NULL AND ev.a <> 'ok' "
+            "AND COALESCE(cf.alertar, true) "
+            "ORDER BY (ev.a = 'error') DESC, ev.at DESC LIMIT %(lim)s",
+            {"e": e, "lim": max(1, min(int(limite), 100))})
+    except Exception:
+        _log.warning("salud: no pude leer los pendientes", exc_info=True)
+        return []
+    return [{"id": int(r["id"]), "chequeo_id": r["chequeo_id"],
+             "familia": r["familia"], "titulo": r["titulo"], "de": r["de"],
+             "a": r["a"], "motivo": r["motivo"], "evidencia": r["evidencia"],
+             "at": r["at"].isoformat() if r["at"] else None} for r in rows]
+
+
+def marcar_vistos(email: str, ids: list[int] | None = None) -> dict:
+    """`ids` vacío = marcar TODO lo pendiente (el botón 'entendido' del modal)."""
+    e = (email or "").lower().strip()
+    if not e:
+        raise ValueError("falta el email")
+    if ids:
+        n = _exec_salud(
+            f"INSERT INTO {_T_VISTOS} (email, evento_id) "
+            "SELECT %(e)s, x FROM unnest(%(ids)s::bigint[]) AS x "
+            "ON CONFLICT DO NOTHING", {"e": e, "ids": [int(i) for i in ids]})
+    else:
+        n = _exec_salud(
+            f"INSERT INTO {_T_VISTOS} (email, evento_id) "
+            f"SELECT %(e)s, id FROM {_T_EVENTOS} WHERE a <> 'ok' "
+            "ON CONFLICT DO NOTHING", {"e": e})
+    return {"vistos": n}
+
+
+def historial(chequeo_id: str = "", limite: int = 50) -> list[dict]:
+    """El LOG de un chequeo (o de todo): cuándo se rompió, cuándo volvió."""
+    try:
+        rows = _q(
+            f"SELECT id, chequeo_id, familia, titulo, de, a, motivo, evidencia, at "
+            f"FROM {_T_EVENTOS} WHERE (%(c)s = '' OR chequeo_id = %(c)s) "
+            "ORDER BY at DESC LIMIT %(lim)s",
+            {"c": (chequeo_id or "").strip(), "lim": max(1, min(int(limite), 500))})
+    except Exception:
+        return []
+    return [{"id": int(r["id"]), "chequeo_id": r["chequeo_id"], "familia": r["familia"],
+             "titulo": r["titulo"], "de": r["de"], "a": r["a"], "motivo": r["motivo"],
+             "evidencia": r["evidencia"],
+             "at": r["at"].isoformat() if r["at"] else None} for r in rows]
+
+
+def panel(email: str = "") -> dict:
+    """TODO lo que necesita la pantalla, en UNA llamada: veredicto, chequeos (con su
+    marca de silenciado) y lo pendiente de ver por este admin."""
+    nuevas = sincronizar()          # registra transiciones antes de responder
+    r = resumen()
+    cfg = config()
+    for c in r["chequeos"]:
+        c["alertar"] = cfg.get(c["id"], {}).get("alertar", True)
+        c["nota"] = cfg.get(c["id"], {}).get("nota")
+    r["pendientes"] = pendientes(email)
+    r["transiciones_nuevas"] = len(nuevas)
+    return r

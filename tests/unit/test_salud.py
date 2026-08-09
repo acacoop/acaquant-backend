@@ -197,3 +197,28 @@ def test_un_chequeo_NUEVO_alerta_sin_darlo_de_alta(monkeypatch):
 
     # Sin fila en salud_config, `alertar` cae al default true.
     assert r["chequeos"][0]["alertar"] is True
+
+
+def test_todos_los_contratos_apuntan_a_columnas_que_EXISTEN():
+    """Un contrato mal escrito se ve casi igual que un dato atrasado.
+
+    Pasó con `operaciones.operaciones`: la fecha del boleto es `concertacion`, no
+    `fecha`, y el chequeo salía "no pude consultar la tabla" — que manda a buscar el
+    problema al lugar equivocado. Este test lee sql/schema.sql y verifica que cada
+    (tabla, columna) declarada exista de verdad, así el error no puede repetirse en
+    silencio cuando alguien sume un contrato nuevo.
+    """
+    from pathlib import Path
+
+    schema = Path(__file__).resolve().parents[2] / "sql" / "schema.sql"
+    sql = schema.read_text(encoding="utf-8")
+
+    for c in salud.CONTRATOS:
+        i = sql.find(f"CREATE TABLE IF NOT EXISTS {c['tabla']} (")
+        assert i != -1, f"{c['tabla']} no está en schema.sql"
+        cuerpo = sql[i:sql.index(");", i)]
+        columnas = {ln.strip().split()[0] for ln in cuerpo.splitlines()[1:]
+                    if ln.strip() and not ln.strip().startswith("--")}
+        assert c["columna"] in columnas, (
+            f"{c['id']}: la columna {c['columna']!r} no existe en {c['tabla']} "
+            f"(tiene: {sorted(columnas)})")

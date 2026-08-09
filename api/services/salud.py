@@ -57,8 +57,12 @@ CONTRATOS: list[dict[str, Any]] = [
     {"id": "dato:portafolio.tenencia", "titulo": "Tenencias diarias (AuM)",
      "tabla": "portafolio.tenencia", "columna": "fecha", "max_dias_habiles": 2,
      "detalle": "alimenta AuM, Tenencia Valorizada y Títulos en Alquiler"},
+    # OJO: la fecha del boleto es `concertacion`, no `fecha` (sql/schema.sql:251).
+    # Se escribió mal la primera vez y el chequeo salía "no pude consultar la tabla":
+    # un contrato roto se ve casi igual que un dato atrasado, y manda a buscar el
+    # problema al lugar equivocado.
     {"id": "dato:operaciones.operaciones", "titulo": "Boletos de operaciones",
-     "tabla": "operaciones.operaciones", "columna": "fecha", "max_dias_habiles": 2,
+     "tabla": "operaciones.operaciones", "columna": "concertacion", "max_dias_habiles": 2,
      "detalle": "alimenta MOVIMIENTOS y el Tablero Comercial"},
     {"id": "dato:mercado.snapshots_cierre", "titulo": "Cierre de renta fija",
      "tabla": "mercado.snapshots_cierre", "columna": "fecha", "max_dias_habiles": 2,

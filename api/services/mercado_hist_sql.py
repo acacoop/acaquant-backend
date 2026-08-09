@@ -137,19 +137,28 @@ def get_breakevens() -> list:
     Curaduría (2026-07): filtra los pares (lecap, cer) marcados como EXCLUIDOS en
     Manager (`mercado.breakevens_overrides`). El motor los sigue calculando; acá se
     ocultan al instante, sin reiniciar el motor. Fail-open: si el filtro falla, se
-    devuelve todo."""
+    devuelve todo.
+
+    Pares MANUALES (2026-08): se AGREGAN los pares Lecap↔CER creados a mano en
+    Manager (`mercado.breakevens_manuales`), calculados en vivo con la misma
+    función del motor. Van al final y traen `manual: true` para que la vista los
+    pueda distinguir. También pasan por el filtro de exclusión — se agrega y se
+    excluye con el mismo criterio."""
     docs = breakevens_docs_raw()
     try:
-        from api.services.breakevens_admin import get_excluidos
+        from api.services.breakevens_admin import get_excluidos, pares_manuales_calculados
         excl = get_excluidos()
-        if excl:
-            for d in docs:
-                pares = d.get("pares")
-                if isinstance(pares, list):
-                    d["pares"] = [
-                        p for p in pares
-                        if (p.get("lecap"), p.get("cer")) not in excl
-                    ]
+        manuales = pares_manuales_calculados()
+        for d in docs:
+            pares = d.get("pares")
+            if not isinstance(pares, list):
+                continue
+            ya = {(p.get("lecap"), p.get("cer")) for p in pares}
+            # Un manual que el motor ya empareja solo (post-reinicio) no se duplica.
+            pares = pares + [m for m in manuales if (m.get("lecap"), m.get("cer")) not in ya]
+            if excl:
+                pares = [p for p in pares if (p.get("lecap"), p.get("cer")) not in excl]
+            d["pares"] = pares
     except Exception:
         pass
     return docs

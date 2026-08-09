@@ -152,20 +152,33 @@ eslabones y el primero es 100% manual:
    (fuera del `while True`). El alta NO se ve al instante: se ve cuando el cron
    reinicia `motor_breakevens.service` (13:20 UTC L-V) o con un restart a mano.
    Mismo comportamiento que `motor_rofex`/`motor_curvas` (ver `SALUD_CURVAS.md` §6 #7).
-4. **CURADURÍA en la lectura** — la vista filtra los pares excluidos a mano en
-   Manager → TÍTULOS → BREAKEVENS (`mercado.breakevens_overrides`). El motor los
-   sigue calculando; se ocultan al leer. Un par "que no aparece" puede estar
-   simplemente apagado ahí.
+4. **CURADURÍA en la lectura** — Manager → TÍTULOS → BREAKEVENS, en los dos
+   sentidos y sin tocar el motor:
+   - **EXCLUIR** (`mercado.breakevens_overrides`): el motor lo sigue calculando,
+     el reader lo oculta. Un par "que no aparece" puede estar apagado ahí.
+   - **AGREGAR un par MANUAL** (`mercado.breakevens_manuales`): para los pares que
+     el motor nunca arma — los que el dedup descarta y los que caen fuera de los
+     ±20 días. El motor no los conoce (carga sus pares al arrancar), así que el BE
+     se calcula **en la lectura**, llamando a la MISMA `calcular_breakevens` del
+     motor con `min_dias=0` y sin filtro de IPC: los filtros son heurísticas para
+     no ensuciar la matriz automática, y un par elegido a dedo no se descarta en
+     silencio. Aparece en Renta Fija sin reiniciar nada, marcado `manual: true`.
+
+   Esto es lo que salva el eslabón 3: si necesitás el par HOY, lo agregás a mano
+   en vez de esperar al restart del cron.
 
 Dos filtros más recortan la matriz en cada corrida (`calcular_breakevens`):
 plazo mínimo **50 días** al vto (`MIN_DIAS_PLAZO`) y `mes_inflacion` (= vto − 2
 meses) **posterior** al último IPC publicado — un BE sobre un IPC ya conocido no
 es una expectativa, así que se descarta.
 
-> **Diagnóstico:** `python -m scripts.diag_breakevens_cobertura` (read-only) lista
-> cada bono `tasa_fija` del master con el motivo exacto por el que entra o no
-> entra, los CER sin par, la frescura del doc publicado y los pares excluidos a
-> mano. Es la forma de distinguir "el motor falla" de "nadie dio de alta el bono".
+> **Diagnóstico:** la mitad DERECHA del panel Manager → TÍTULOS → BREAKEVENS
+> (`GET /api/manager/breakevens/diagnostico`) lista cada bono `tasa_fija` del
+> master con el motivo exacto por el que entra o no entra, los CER sin par y la
+> frescura del doc publicado. Es la forma de distinguir "el motor falla" de "nadie
+> dio de alta el bono". `python -m scripts.diag_breakevens_cobertura` imprime lo
+> MISMO en consola — las dos leen `breakevens_admin.diagnostico()`, así que la
+> pantalla y el script no pueden contradecirse.
 
 4. **Fair value live:** `mercado.fit_params` (betas del cierre) +
    `mercado.market_snapshot` (TEA viva) → `mercado.fair_value_residuos`

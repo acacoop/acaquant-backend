@@ -203,7 +203,7 @@ def obtener_teas_cer(tickers):
 def calcular_breakevens(
     pares, tems, paridades, teas_cer, fecha_ref,
     ultimo_ipc_mes=None, dias_habiles=None, fecha_cer_max=None,
-    precios=None, cer_actual=None,
+    precios=None, cer_actual=None, min_dias=MIN_DIAS_PLAZO,
 ):
     """Resuelve el BE mensual por el método 'Buscar Objetivo' de Excel
     (cupón cero) usando precio y flujo directos — sin TEM ni paridad.
@@ -231,6 +231,9 @@ def calcular_breakevens(
       fecha_cer_max: 'YYYY-MM-DD' del último CER publicado.
       precios: dict {ticker: precio} para lecap y CER.
       cer_actual: float — valor del CER publicado más reciente.
+      min_dias: plazo mínimo al vto para que el par entre. Default MIN_DIAS_PLAZO
+        (lo que usa el motor). Los pares MANUALES de Manager lo pasan en 0: los
+        eligió una persona a propósito, así que no se descartan por heurística.
 
     Si falta alguno de los datos necesarios para el método nuevo (precios,
     cer_actual, meses_pendientes), se cae a la fórmula vieja Fisher con
@@ -250,7 +253,7 @@ def calcular_breakevens(
         except Exception:
             continue
 
-        if dias < MIN_DIAS_PLAZO:
+        if dias < min_dias:
             continue
 
         # Info extra del CER de liquidación (T-10 hábiles). Se expone en

@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **433 endpoints** montados en `api.main.app`, en **28 routers**.
-- **135 escriben** (POST/PUT/PATCH/DELETE); 298 son de solo lectura.
+- **437 endpoints** montados en `api.main.app`, en **28 routers**.
+- **136 escriben** (POST/PUT/PATCH/DELETE); 301 son de solo lectura.
 - **22 módulos** canónicos y **6 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -57,7 +57,7 @@
 | `/api/estrategia` | 4 | 0 | `trading` | — |  |
 | `/api/ia` | 11 | 5 | `ia` · 10 rutas con gate extra | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 126 | 56 | varía por ruta (todas gateadas) | `manager` |  |
+| `/api/manager` | 130 | 57 | varía por ruta (todas gateadas) | `manager` |  |
 | `/api/market` | 4 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 9 | 4 | `operaciones` · 5 rutas con gate extra | `operaciones` |  |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
@@ -566,7 +566,7 @@ sin eso el edge cache pisaba el poll de 5s, bug 2026-04-23), `/api/me` (propaga 
 | ↳ **alta ON** | Form: Asset, Emisor, Moneda flujo (USD/DL/ARS), **Sector**, Tasa cupón, Vencimiento, ticker ARS y USD (el `MERV - XMEV - … - 24hs` va fijo). Flujos por **archivo (.csv/.txt)** o pegados; preview con Σ amortización y check ≈100 | `GET /ons`, `POST /ons/parse-flujos` | select "editar existente", select de sector | **POST `/ons`** (upsert por `asset`, escribe directo a `mercado.curvas` con curva `on_<sector>` → se refleja en `/ons` sin reiniciar motores) |
 | **BONOS → Conciliar (títulos sin flujo)** | Gap: títulos ARS/DL/HD que los clientes tienen y no están (o están incompletos) en el maestro, con la acción sugerida | `GET /bonos/sin-flujo`, `GET /ons/ignoradas` | — | **POST `/ons/ignorar`**, **DELETE `/ons/ignorar?ticker=`** |
 | **BONOS → Errores de tasa** | Bonos con precio pero sin TEA (los que muestran "--") | `GET /bonos/sin-tasa` (read-only, no recalcula) | — | **POST `/jobs/run`** `{tipo:"backfill_tasas"}` + polling. Ese endpoint es del sub-router `jobs` (umbrella `manager`) → un `asistente_comercial` **no podría dispararlo** |
-| **BREAKEVENS** | Todos los pares Lecap↔CER del motor + flag `excluido` (fila al 40 %). BE fuera de [0, 15 %] en rojo | `GET /breakevens/pares` | ↻ refresh; contador "N pares · M excluidos" | **POST `/breakevens/exclusion`** — excluir oculta el par de `/renta-fija` **al instante** (se filtra en la lectura pública; el motor no se toca). Update optimista con rollback |
+| **BREAKEVENS** (50/50) | **Izq — PARES**: los del motor + los MANUALES (marcados `✎`), con flag `excluido` (fila al 40 %). BE fuera de [0, 15 %] en rojo. **Der — COBERTURA**: por qué CADA bono `tasa_fija` del master entra o no a la matriz (motivo textual: sin CER a ±20d, dedup, plazo mínimo, IPC ya publicado) + inventario del master + frescura del doc publicado | `GET /breakevens/pares`, `GET /breakevens/diagnostico`, `GET /breakevens/candidatos` | ↻ refresh; checkbox "solo los que NO entran" (der) | **POST `/breakevens/exclusion`** — excluir oculta el par de `/renta-fija` **al instante** (se filtra en la lectura pública; el motor no se toca). Update optimista con rollback. **POST `/breakevens/manual`** — el botón **`+ par manual`** (dos selects: tasa fija ↔ CER) crea un par que el motor NO arma; el BE se calcula en la lectura, así que aparece en `/renta-fija` sin reiniciar nada. Los manuales se **borran** (no se excluyen) |
 
 #### Endpoints — `analitica.py` (`/api/analitica`, `_PUBLIC`)
 | Método | Path | Qué hace | Params | Escribe |
@@ -620,8 +620,11 @@ gate inline `require_module("manager")`; el proxy Next es GET-only → no se lla
 | POST | `/api/manager/bonos/parse-flujos` | Parsea flujos **ya en la shape del tipo** (soberano/CER → `*_pct`; tasa fija → absolutos) | No |
 | POST | `/api/manager/bonos` | Upsert por `ticker_corto` (`ticker`, `curva`, `tipo`, `moneda_flujo`, `tasa_referencia`, `fecha_emision`, `fecha_vencimiento`, `valor_nominal`, `cer_emision`, `cupon_anual`, `flujo_vencimiento` o `flujos[]`) | **Sí** |
 | DELETE | `/api/manager/bonos?ticker_corto=` | Baja | **Sí** |
-| GET | `/api/manager/breakevens/pares` | Pares del motor + `excluido` + `n_excluidos` | No |
+| GET | `/api/manager/breakevens/pares` | Pares del motor **+ los manuales** (`manual: true`) + `excluido` + `n_excluidos` + `n_manuales` | No |
 | POST | `/api/manager/breakevens/exclusion` | Excluye/reincluye un par (`lecap`, `cer`, `excluir`) | **Sí** |
+| GET | `/api/manager/breakevens/candidatos` | Bonos `tasa_fija` y `cer` del master para los dos selects del `+` (con `apto`: si tiene el campo que el BE necesita) | No |
+| POST | `/api/manager/breakevens/manual` | Crea/borra un par manual (`lecap`, `cer`, `agregar`). Valida las curvas server-side | **Sí** |
+| GET | `/api/manager/breakevens/diagnostico` | Cobertura: por qué cada bono entra o no a la matriz + master + frescura. Mismo dato que `scripts/diag_breakevens_cobertura.py` | No |
 
 #### Fuentes de datos
 `mercado.curvas` (maestro único: bonos no-ON **y** ONs `curva LIKE 'on%'`; BondsMaster retirado en la
@@ -1678,7 +1681,7 @@ handler**, explícitamente para que `scripts/audit_rbac.py` los vea (y los servi
 | **TÍTULOS → INSTRUMENTOS** | Instruments de pyRofex agrupados por CFI code + detalle (read-only) | `GET /checks/discovery-pyrofex`, `/checks/instruments-by-cfi` | select CFI, select underlying, buscador | ninguna |
 | **TÍTULOS → ASSETS** | Catálogo `portafolio.assets` editable: CARTERA, EMISOR, INSTRUMENTO, CLASE_ACTIVO, CALIFICACIÓN, TICKER, VENCIMIENTO, CODIGO_CNV, FEE_ADMIN | `GET /assets`, `/assets/values`, `PATCH /assets` | buscador de unidad (client), select CARTERA, select EMISOR, select **CAMPO VACÍO** | **PATCH** fila a fila. Setea `actualizado_por`/`actualizado_at`. **Cambiar CARTERA invalida el cache `tenencia_dias`** |
 | **TÍTULOS → BONOS** | 4 cuadrantes (ver §4.2) | ver §4.2 | ver §4.2 | Alta/edición/baja de bonos y ONs con cronograma, ignorar/designorar del conciliador |
-| **TÍTULOS → BREAKEVENS** | Matriz de pares Lecap↔CER con flag `excluido` | `/breakevens/pares`, `POST /breakevens/exclusion` | — | Excluir/reincluir |
+| **TÍTULOS → BREAKEVENS** | 50/50: izq matriz de pares (motor + manuales `✎`) con flag `excluido`; der cobertura (por qué cada bono entra o no) | `/breakevens/pares`, `/breakevens/diagnostico`, `/breakevens/candidatos` | checkbox "solo los que NO entran" | Excluir/reincluir · **`+ par manual`** (`POST /breakevens/manual`) · borrar manual |
 | **TÍTULOS → RENTA VARIABLE** | Grid de CEDEARs: ticker, nombre, rubro, `es_ia`, RIC Refinitiv, `ratio` | `GET /renta-variable`, `/rubros`, `POST /rubro`, `PATCH`, `DELETE` | buscador; select de rubro por fila (**catálogo cerrado**) | **PATCH** por fila, **crear rubro**, **DELETE** saca el CEDEAR del universo (borra master + snapshot) |
 | **CLIENTES → SEGMENTACIÓN** | Grid editable de `clientes.comitentes`: operador + nivel_1..5 + primer_contacto_comercial, riesgo_la_ft, division, adc, dma, observaciones, sucursal, referido | `GET /clientes`, `/clientes/values`, `PATCH /clientes`, `POST /clientes/bulk` | select OPERADOR (incl. `__vacio__`), **selects NIVEL 1..5 en cascada** (cambiar uno resetea los inferiores), select CAMPO VACÍO, buscador `q` | **PATCH** fila a fila; **📁 Importar archivo** (.csv/.xlsx) → `POST /clientes/bulk` (requiere `manager_clientes_bulk`) |
 | **CLIENTES → CONTROL AUTO** | Conciliación de un Excel de CUITs (columna `Nº ident.fis.1`) contra comitentes → `tenemos` / `no_tenemos` | `POST /control-automatico/reconciliar`, `/segmentar` | archivo (parseado en el browser) | **Segmentar**: setea `nivel_1 = PRODUCTORES` en las matcheadas |

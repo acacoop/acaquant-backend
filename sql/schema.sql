@@ -1511,6 +1511,19 @@ CREATE TABLE IF NOT EXISTS mercado.breakevens_overrides (
     PRIMARY KEY (lecap, cer)
 );
 
+-- Pares Lecap↔CER agregados A MANO desde Manager → TÍTULOS → BREAKEVENS. El motor
+-- empareja por vto más cercano (±20d) y deja un solo Lecap por CER, así que hay
+-- pares útiles que nunca arma. Éstos NO los conoce el motor: el BE se calcula en la
+-- LECTURA (`breakevens_admin._calcular_manuales`, misma función que el motor), por
+-- eso aparecen en Renta Fija sin reiniciar nada. Contracara de breakevens_overrides.
+CREATE TABLE IF NOT EXISTS mercado.breakevens_manuales (
+    lecap      text NOT NULL,
+    cer        text NOT NULL,
+    creado_por text,
+    creado_at  timestamptz,
+    PRIMARY KEY (lecap, cer)
+);
+
 -- Tasas de cobertura ON / Pagaré → 2 inputs manuales GLOBALES de la tab DATOS
 -- (una sola fila, id='GLOBAL'). Alimentan las columnas Pagaré/ON del "Pase con
 -- Cobertura". Lo escribe api/services/camara_cereales.py::set_tasas_cobertura

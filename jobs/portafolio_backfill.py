@@ -61,6 +61,9 @@ _PARAMS_BASE = {
 
 _lock = threading.Lock()
 _hdr: dict = {}
+# id_cuenta → cuerpo del último error (lo escribe _fetch_parse, lo lee el loop para
+# persistirlo en portafolio.backfill_log.detalle).
+_detalles: dict[str, str] = {}
 # Contrapartes para marcar `aum` ('si'/'no') al insertar. Se cargan en main().
 _CONT_IDS: frozenset[str] = frozenset()
 _CONT_NAMES: frozenset[str] = frozenset()
@@ -184,6 +187,10 @@ def _fetch_parse(idc: str, denom: str, desde: str, fecha_iso: str, amap: dict) -
                 if intento < RETRIES:
                     time.sleep(2 ** intento)
                     continue
+                # El CUERPO del error se guarda: sin esto, un 500 de Aunesa queda
+                # en backfill_log sin una sola pista de por qué (incidente
+                # 2026-08-07: 1868 cuentas con error_http_500 y detalle vacío).
+                _detalles[idc] = (resp.text or "")[:300]
                 return idc, f"error_http_{resp.status_code}", []
             data = resp.json()
             return idc, "ok", _parse(data, idc, denom, fecha_iso, amap)
@@ -370,7 +377,8 @@ def _run_backfill(logger=None) -> int:
                 for done, f in enumerate(as_completed(futs), 1):
                     idc, status, recs = f.result()
                     status_by[idc] = (status if status in ("ok", "vacia", "timeout")
-                                      else status[:40], len(recs), "")
+                                      else status[:40], len(recs),
+                                      _detalles.pop(idc, ""))
                     registros.extend(recs)
                     if done % 200 == 0:
                         print(f"    … {done}/{len(pend)}")

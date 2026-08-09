@@ -54,33 +54,37 @@ ESCRITURA = {"POST", "PUT", "PATCH", "DELETE"}
 
 # ── Recorrido REAL de la app ─────────────────────────────────────────────────
 
-def _rutas(routes) -> list[APIRoute]:
-    """Todas las APIRoute, entrando a los envoltorios `_IncludedRouter`."""
-    out: list[APIRoute] = []
+def _rutas(routes, prefijo: str = "", heredados: tuple[str, ...] = ()) -> list[dict]:
+    """Todas las APIRoute con su path COMPLETO y su gate heredado.
+
+    ⚠️ Los includes se ANIDAN: los 28 sub-routers de Manager se incluyen en
+    `manager.router` y recién ese va a la app. En esa cadena, `route.path` del
+    sub-router **no trae el prefijo del padre** (dice `/aunesa/boletos`, no
+    `/api/manager/aunesa/boletos`) y las dependencies del padre tampoco bajan.
+    Por eso hay que acumular prefijo y gates AL BAJAR: la primera versión de
+    este script mostraba 126 endpoints de Manager como "sin gate" cuando están
+    gateados por el include del padre — exactamente el tipo de mentira que este
+    generador existe para evitar.
+    """
+    out: list[dict] = []
     for r in routes:
         if type(r).__name__ == "_IncludedRouter":
-            out.extend(_rutas(r.original_router.routes))
+            ctx = r.include_context
+            # SOLO el prefijo propio del router incluido. `ctx.prefix` NO es un
+            # prefijo adicional: en un include anidado reporta el del PADRE (ya
+            # acumulado), y sumarlo daba `/api/manager/api/manager`.
+            sub = r.original_router.prefix or ""
+            gates = tuple(getattr(d.dependency, "__name__", "?")
+                          for d in (getattr(ctx, "dependencies", None) or []))
+            out.extend(_rutas(r.original_router.routes, prefijo + sub,
+                              heredados + gates))
         elif isinstance(r, APIRoute):
-            out.append(r)
-    return out
-
-
-def _gates_de_include() -> dict[str, list[str]]:
-    """prefijo del router → nombres de las dependencies del include (nivel app)."""
-    out: dict[str, list[str]] = {}
-    for r in app.routes:
-        if type(r).__name__ != "_IncludedRouter":
-            continue
-        ctx = r.include_context
-        prefijo = r.original_router.prefix or getattr(ctx, "prefix", "") or ""
-        nombres = [getattr(d.dependency, "__name__", "?")
-                   for d in (getattr(ctx, "dependencies", None) or [])]
-        # Dos includes pueden compartir prefijo (ej. /api/manager con gates
-        # distintos por sub-router) → se acumulan sin pisarse.
-        out.setdefault(prefijo, [])
-        for n in nombres:
-            if n not in out[prefijo]:
-                out[prefijo].append(n)
+            out.append({
+                "path": prefijo + r.path,
+                "router": prefijo or "(raíz)",
+                "metodos": r.methods,
+                "gates": list(heredados) + _gates_de_ruta(r),
+            })
     return out
 
 
@@ -102,27 +106,16 @@ def _modulo_de_gate(nombre: str) -> str | None:
     return crudo
 
 
-def _prefijo_router(path: str, prefijos: list[str]) -> str:
-    """Prefijo de router más largo que matchea el path."""
-    mejor = ""
-    for p in prefijos:
-        if p and path.startswith(p) and len(p) > len(mejor):
-            mejor = p
-    return mejor or "(raíz)"
-
-
 # ── Bloques ──────────────────────────────────────────────────────────────────
 
 def _bloques() -> dict[str, str]:
     rutas = _rutas(app.routes)
-    gates_include = _gates_de_include()
-    prefijos = list(gates_include)
 
-    por_router: dict[str, list[APIRoute]] = defaultdict(list)
+    por_router: dict[str, list[dict]] = defaultdict(list)
     for r in rutas:
-        por_router[_prefijo_router(r.path, prefijos)].append(r)
+        por_router[r["router"]].append(r)
 
-    escriben = [r for r in rutas if r.methods & ESCRITURA]
+    escriben = [r for r in rutas if r["metodos"] & ESCRITURA]
 
     # ── resumen ──
     resumen = (
@@ -140,31 +133,50 @@ def _bloques() -> dict[str, str]:
     sin_gate: list[str] = []
     for prefijo in sorted(por_router):
         rs = por_router[prefijo]
-        n_esc = sum(1 for r in rs if r.methods & ESCRITURA)
-        # Gate efectivo = include (nivel app) + lo que traiga cada ruta.
-        gates = list(gates_include.get(prefijo, []))
-        for r in rs:
-            for g in _gates_de_ruta(r):
-                if g not in gates:
-                    gates.append(g)
-        modulos = sorted({m for g in gates if (m := _modulo_de_gate(g))})
+        n_esc = sum(1 for r in rs if r["metodos"] & ESCRITURA)
+        # El gate del ROUTER es el que tienen TODAS sus rutas (intersección). La
+        # unión mentiría: alcanzaba UNA ruta con `require_module("manager")` para
+        # que todo /api/cotizaciones figurara como admin-only. Lo que solo tienen
+        # algunas rutas se reporta aparte como "gate extra".
+        por_ruta = [set(r["gates"]) for r in rs]
+        comunes = set.intersection(*por_ruta) if por_ruta else set()
+        extras = set().union(*por_ruta) - comunes if por_ruta else set()
+        gates = sorted(comunes)
+        modulos = sorted({m for g in comunes if (m := _modulo_de_gate(g))})
+        n_extra = sum(1 for s in por_ruta if s & extras)
+        # Manager gatea CADA sub-router con un módulo distinto (`manager_clientes`,
+        # `manager_titulos`, …): la intersección queda vacía aunque no haya una
+        # sola ruta abierta. Lo que importa para el ⚠️ es si alguna ruta se queda
+        # SIN ningún gate de módulo, no si todas comparten el mismo.
+        def _tiene_modulo(s: set[str]) -> bool:
+            return any(g.startswith(("require_module_", "require_any_module")) for g in s)
+        sin_modulo = sum(1 for s in por_ruta if not _tiene_modulo(s))
+        if not modulos and sin_modulo == 0:
+            efectivo_varia = True
+        else:
+            efectivo_varia = False
         # `get_module_for_path` NO se aplica en runtime (solo lo usa un test):
         # es la INTENCIÓN declarada. Compararla con el gate real es justamente
         # lo que detecta el drift.
         declarado = get_module_for_path(prefijo if prefijo != "(raíz)" else "/")
-        efectivo = ", ".join(f"`{m}`" for m in modulos) or "—"
+        if efectivo_varia:
+            efectivo = "varía por ruta (todas gateadas)"
+        else:
+            efectivo = ", ".join(f"`{m}`" for m in modulos) or "—"
         otros = [g for g in gates if g.startswith(("require_admin", "require_escritura",
                                                    "require_no_invitado", "require_any_module",
                                                    "require_control", "verify_ingest"))]
         if otros:
             efectivo += (" + " if modulos else "") + ", ".join(f"`{o}`" for o in sorted(set(otros)))
+        if n_extra and not efectivo_varia:
+            efectivo += f" · {n_extra} ruta{'s' if n_extra > 1 else ''} con gate extra"
         marca = ""
-        if declarado and declarado not in modulos:
+        if declarado and not efectivo_varia and declarado not in modulos:
             marca = "⚠️"
             sin_gate.append(f"`{prefijo}` (declara `{declarado}`, no lo aplica)")
-        elif not modulos and not otros:
+        elif sin_modulo and not otros:
             marca = "⚠️"
-            sin_gate.append(f"`{prefijo}` (sin gate de módulo)")
+            sin_gate.append(f"`{prefijo}` ({sin_modulo} de {len(rs)} rutas sin gate de módulo)")
         filas.append(f"| `{prefijo}` | {len(rs)} | {n_esc} | {efectivo} | "
                      f"{f'`{declarado}`' if declarado else '—'} | {marca} |")
     tabla_routers = "\n".join(filas)
@@ -219,11 +231,11 @@ def _inject(texto: str, bloques: dict[str, str]) -> str:
 
 def main() -> None:
     if "--full" in sys.argv:
-        rutas = sorted(_rutas(app.routes), key=lambda r: r.path)
+        rutas = sorted(_rutas(app.routes), key=lambda r: r["path"])
         for r in rutas:
-            metodos = ",".join(sorted(r.methods - {"HEAD", "OPTIONS"}))
-            marca = "W" if r.methods & ESCRITURA else " "
-            print(f"{marca} {metodos:18s} {r.path}")
+            metodos = ",".join(sorted(r["metodos"] - {"HEAD", "OPTIONS"}))
+            marca = "W" if r["metodos"] & ESCRITURA else " "
+            print(f"{marca} {metodos:18s} {r['path']}")
         print(f"\n{len(rutas)} rutas.")
         return
 

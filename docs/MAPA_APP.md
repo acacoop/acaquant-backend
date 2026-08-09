@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **428 endpoints** montados en `api.main.app`, en **28 routers**.
-- **133 escriben** (POST/PUT/PATCH/DELETE); 295 son de solo lectura.
+- **433 endpoints** montados en `api.main.app`, en **28 routers**.
+- **135 escriben** (POST/PUT/PATCH/DELETE); 298 son de solo lectura.
 - **22 módulos** canónicos y **6 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -47,41 +47,43 @@
 <!-- AUTOGEN:routers -->
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
-| `(raíz)` | 121 | 54 | — | — | ⚠️ |
+| `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/analitica` | 15 | 1 | — | — | ⚠️ |
-| `/api/back-office` | 55 | 32 | `back-office` + `require_escritura_tesoreria` | `back-office` |  |
-| `/api/back-office/senebis` | 17 | 10 | `back-office` + `require_admin`, `require_escritura_senebis` | `back-office` |  |
-| `/api/cotizaciones` | 33 | 1 | `manager` | — |  |
+| `/api/back-office` | 55 | 32 | `back-office` · 55 rutas con gate extra | `back-office` |  |
+| `/api/back-office/senebis` | 17 | 10 | `back-office` · 4 rutas con gate extra | `back-office` |  |
+| `/api/cotizaciones` | 33 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
-| `/api/derivados` | 18 | 6 | `agro` + `require_no_invitado` | — |  |
+| `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
 | `/api/estrategia` | 4 | 0 | `trading` | — |  |
-| `/api/ia` | 11 | 5 | `ia` + `require_admin` | `ia` |  |
+| `/api/ia` | 11 | 5 | `ia` · 10 rutas con gate extra | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 2 | 0 | `manager` + `require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
+| `/api/manager` | 126 | 56 | varía por ruta (todas gateadas) | `manager` |  |
 | `/api/market` | 4 | 0 | — | — | ⚠️ |
-| `/api/mesa-dinero` | 9 | 4 | `operaciones` + `require_escritura_mesa` | `operaciones` |  |
+| `/api/mesa-dinero` | 9 | 4 | `operaciones` · 5 rutas con gate extra | `operaciones` |  |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
-| `/api/operaciones` | 44 | 4 | `operaciones` + `require_control_comercial` | `operaciones` |  |
-| `/api/operar` | 3 | 1 | `operar` | `operar` |  |
-| `/api/operativa` | 6 | 2 | `operar` | `operar` |  |
-| `/api/ordenes` | 8 | 3 | `operar` | `operar` |  |
-| `/api/portfolio` | 11 | 0 | `portfolios` | `portfolios` |  |
+| `/api/operaciones` | 44 | 4 | `operaciones` · 19 rutas con gate extra | `operaciones` |  |
+| `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
+| `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
+| `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
+| `/api/portfolio` | 11 | 0 | `portfolios` · 9 rutas con gate extra | `portfolios` |  |
 | `/api/research-bcra` | 2 | 0 | `research` | — |  |
 | `/api/research-docs` | 2 | 0 | `research` | — |  |
 | `/api/research-fred` | 2 | 0 | `research` | — |  |
 | `/api/research1816` | 11 | 0 | `research` | — |  |
 | `/api/risk` | 5 | 0 | `operar` | `operar` |  |
-| `/api/scanner` | 9 | 0 | `renta-variable` + `require_admin` | — |  |
+| `/api/scanner` | 9 | 0 | `renta-variable` · 2 rutas con gate extra | — |  |
 | `/api/titulos` | 2 | 0 | — | `portfolios` | ⚠️ |
 | `/api/trading` | 9 | 1 | `trading` | `trading` |  |
-| `/api/valuaciones` | 7 | 0 | `portfolios` | — |  |
+| `/api/valuaciones` | 7 | 0 | `portfolios` · 7 rutas con gate extra | — |  |
 
 **⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
 
-- `(raíz)` (sin gate de módulo)
-- `/api/analitica` (sin gate de módulo)
-- `/api/market` (sin gate de módulo)
-- `/api/news` (sin gate de módulo)
+- `(raíz)` (2 de 2 rutas sin gate de módulo)
+- `/api/analitica` (15 de 15 rutas sin gate de módulo)
+- `/api/cotizaciones` (32 de 33 rutas sin gate de módulo)
+- `/api/derivados` (13 de 18 rutas sin gate de módulo)
+- `/api/market` (4 de 4 rutas sin gate de módulo)
+- `/api/news` (3 de 3 rutas sin gate de módulo)
 - `/api/titulos` (declara `portfolios`, no lo aplica)
 
 No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtime** (solo lo consume un test), y para los módulos que todos los roles tienen se decidió no gatear. Lo que sí implica es que **destildar esos módulos en Manager → Roles no bloquea nada server-side**: solo esconde el link en el menú.
@@ -1250,6 +1252,7 @@ cupo_usado_ars, fecha_alta_legajo, estado) · `clientes.cuentas` · `clientes.op
 - El Tablero es **SQL-only** (`_com_motor` siempre devuelve SQL); los selectores `_motor()`/`_engine` y los flags `*_SQL` son vestigiales.
 - `analisis_comercial` hace **UNA pasada sobre comitentes** para universo + ficha + cupos: antes el mismo predicado se evaluaba 5 veces por request, y la query de cupos ya había **divergido** (omitía nivel_2/4/5 del scope).
 - **El cupo NO es histórico**: en modo foto todo se recalcula al corte salvo el cupo, que queda actual. Siempre en **USD al MEP del día**, independiente del toggle ARS/USD.
+- **El cupo USADO es una foto + el flujo del cliente** (2026-08-09). `clientes.comitentes.cupo_usado_ars` se carga a mano y nada la actualiza — quedó congelada en el 2026-06-01 (`cupo_cargado_en` ni siquiera se escribió: está NULL en las 1.567 cuentas). Ahora el tablero le SUMA al leer la plata que entró/salió del cliente desde esa fecha, con la misma fuente que la vista CASHFLOW (`cashflow_sql.neto_por_cuenta`, sobre `operaciones.movimientos`). El ancla es `config.CUPO_BASE_FECHA` y **hay que moverla el día que se recargue el cupo**. No se persiste (nada que doble-contar); el ajuste aplicado viaja en `cupo_flujo_usd` para auditarlo. Los USD se pesifican con la cotización del día del movimiento — esa tabla no tiene snapshot de MEP — y si no hay cotización, el movimiento se descarta en vez de contarse como pesos.
 - `opero_mtd`: con `desde`, el flag pasa a significar "operó en `[desde, corte]`" en vez del mes calendario.
 - **Los filtros madre NO se podan** cuando el cross-filter achica las opciones de otro nivel (rompía selecciones previas).
 - `_filtros_madre` convierte cada lista a **tupla** porque `datos_totales_alyc` está `@cached` y la key debe ser hashable.

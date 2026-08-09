@@ -24,6 +24,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **REGLA — sincronizar los 2 remotes:** alias global **`git pushall`** (= `git push
 > origin HEAD && git push org HEAD`). Un `git push` normal va solo a `origin`.
 >
+> **⚠️ AUTOR DE LOS COMMITS — Vercel BLOQUEA por identidad.** Vercel tiene proteccion
+> de despliegue por autor: si el commit lo firma alguien que NO es miembro del
+> proyecto, el deploy queda **Blocked** y produccion sigue sirviendo la version
+> anterior **sin ningun error visible**. Paso el 2026-08-09: cuatro deploys seguidos
+> (VEPS, saldo final, pantalla SALUD) quedaron bloqueados por venir firmados con
+> `mollonicolas95@gmail.com`, que GitHub asocia a la cuenta PERSONAL
+> `NicolasEzequielMollo` — la misma que se saco del flujo de remotes. Sintoma: el
+> codigo esta en `main`, el build compila, y aun asi la app no cambia.
+> **REGLA: no pisar `user.name`/`user.email` al commitear.** El default del checkout
+> es el que Vercel acepta. Si algo no aparece en la app, mirar
+> Deployments en Vercel ANTES de buscar el bug en el codigo.
+>
 > Vercel (frontend) deploya de `origin` (`NMolloAV/acaquant-frontend`) y el Droplet
 > (backend) tira de `origin` corp — ambos migrados 2026-07-27. Un push a `origin`
 > (o `git pushall`) cubre deploy + Droplet.

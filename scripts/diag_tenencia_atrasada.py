@@ -48,8 +48,26 @@ def ultimas_fechas() -> None:
                 faltan.append(d.isoformat())
             d += timedelta(days=1)
         print(f"\n   Días HÁBILES sin cargar desde la última: {faltan or 'ninguno'}")
-        if faltan:
-            print("   → si hay días hábiles en esa lista, el writer no escribió esos días.")
+        # OJO con el DESFASAJE: en modo --diario el job NO escribe el día en que corre,
+        # escribe el día hábil ANTERIOR (portafolio_backfill.py:311). Así que el último
+        # día hábil siempre falta hasta que corre el cron del día siguiente, y contarlo
+        # como "faltante" es un falso positivo que asusta al pedo.
+        from core.calendario import es_habil
+        esperados = []
+        for f in faltan:
+            corrida = date.fromisoformat(f) + timedelta(days=1)
+            while not es_habil(corrida):
+                corrida += timedelta(days=1)
+            ya_paso = corrida <= hoy
+            esperados.append((f, corrida.isoformat(), ya_paso))
+        print("\n   Quién tenía que escribir cada uno (el job escribe el día hábil ANTERIOR):")
+        for f, corrida, ya_paso in esperados:
+            if ya_paso:
+                print(f"     {f} ← lo escribía la corrida del {corrida}, que YA pasó  ⚠ FALTA DE VERDAD")
+            else:
+                print(f"     {f} ← lo escribe la corrida del {corrida}, que todavía NO corrió  (normal)")
+        reales = [f for f, _, ya in esperados if ya]
+        print(f"\n   → días realmente perdidos: {reales or 'ninguno'}")
 
 
 def corridas() -> None:

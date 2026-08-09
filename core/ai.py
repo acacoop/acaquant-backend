@@ -61,6 +61,14 @@ _TAREAS: dict[str, dict] = {
     # el razonamiento cuenta como output — con 700 volvía vacía (ia.trazas).
     "triage_incidente": {"tier": "pro", "max_tokens": 2500, "timeout_s": 120,
                          "thinking": "enabled"},
+    # SALUD (api/services/salud.py): diagnóstico de un chequeo que YA se confirmó
+    # como persistente. tier pro + thinking ENABLED, igual que el triage: es
+    # diagnóstico, no resumen. Lo que se le pide NO es repetir el error —eso ya está
+    # en la evidencia— sino traducirlo a negocio: qué vista queda afectada, qué se
+    # puede seguir usando, y qué mirar. max_tokens alto porque el razonamiento cuenta
+    # como output (lección del P2: con poco volvía vacía).
+    "salud_diagnostico": {"tier": "pro", "max_tokens": 2500, "timeout_s": 120,
+                          "thinking": "enabled"},
     # P3 copiloto de mesa (api/services/copiloto.py): Q&A sobre los datos de UNA
     # vista de mercado, provistos en el prompt. thinking DISABLED: los datos ya
     # vienen dados y el razonamiento del v4-flash se derramaba en la respuesta

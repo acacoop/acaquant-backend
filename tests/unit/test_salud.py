@@ -222,3 +222,56 @@ def test_todos_los_contratos_apuntan_a_columnas_que_EXISTEN():
         assert c["columna"] in columnas, (
             f"{c['id']}: la columna {c['columna']!r} no existe en {c['tabla']} "
             f"(tiene: {sorted(columnas)})")
+
+
+# ── Reactivo pero no ruidoso: solo interrumpe lo que PERSISTE ─────────────────
+
+def test_el_umbral_de_persistencia_es_explicito():
+    """El pedido fue "que aparezca cuando ya demostremos que no se soluciona".
+
+    Avisar al primer error no sirve: los jobs fallan y se recuperan en la corrida
+    siguiente, y un modal que salta por cada hipo se cierra sin leer. El umbral es
+    una constante y no un número perdido en una query, para poder discutirlo.
+    """
+    assert salud.PERSISTENCIA_MIN >= 15, "por debajo de esto entra ruido transitorio"
+
+
+def test_el_diagnostico_sin_IA_no_rompe_la_pantalla(monkeypatch):
+    """Sin key, con el presupuesto agotado o con el proveedor caído, la pantalla
+    tiene que seguir sirviendo: el chequeo ya trae motivo y evidencia, que es lo
+    mínimo accionable. La IA agrega, no habilita."""
+    monkeypatch.setattr(salud, "confirmados",
+                        lambda limite=100: [{"id": 7, "chequeo_id": "job:x"}])
+    monkeypatch.setattr(salud, "_q", lambda sql, params=None: [])
+    monkeypatch.setattr(salud, "evaluar", lambda: [
+        {"id": "job:x", "titulo": "X", "familia": "job", "estado": salud.ERROR,
+         "motivo": "falló", "evidencia": "boom"}])
+    monkeypatch.setattr(salud, "historial", lambda chequeo_id="", limite=50: [])
+
+    import core.ai as ai
+    monkeypatch.setattr(ai, "completar", lambda *a, **k: None)   # IA no disponible
+
+    r = salud.diagnostico("job:x")
+
+    assert r["texto"] is None
+    assert "evidencia" in r["motivo"], "tiene que decir dónde mirar igual"
+
+
+def test_el_diagnostico_se_cachea_por_incidente(monkeypatch):
+    """La vista pollea. Sin caché, cada refresco gastaría tokens para volver a decir
+    lo mismo del MISMO incidente. Un problema nuevo genera un evento nuevo → clave
+    nueva → diagnóstico nuevo."""
+    from datetime import datetime as _dt
+
+    llamadas: list = []
+    monkeypatch.setattr(salud, "_q", lambda sql, params=None: [
+        {"texto": "ya diagnosticado", "modelo": "m", "creado_at": _dt(2026, 8, 9)}])
+    import core.ai as ai
+    monkeypatch.setattr(ai, "completar",
+                        lambda *a, **k: llamadas.append(1) or "no deberia llamarse")
+
+    r = salud.diagnostico("job:x", evento_id=7)
+
+    assert r["cacheado"] is True
+    assert r["texto"] == "ya diagnosticado"
+    assert llamadas == [], "no puede gastar tokens si ya está diagnosticado"

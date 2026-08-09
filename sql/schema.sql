@@ -2707,3 +2707,15 @@ CREATE TABLE IF NOT EXISTS manager.salud_vistos (
     visto_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (email, evento_id)
 );
+
+-- Diagnóstico con IA de un chequeo de SALUD que YA se confirmó persistente. Se
+-- cachea por (chequeo_id, evento_id): el mismo incidente NO se re-diagnostica —
+-- si no, cada poll de la vista gastaría tokens repitiendo lo mismo.
+CREATE TABLE IF NOT EXISTS manager.salud_diagnosticos (
+    chequeo_id text   NOT NULL,
+    evento_id  bigint NOT NULL,             -- la transición que lo disparó
+    texto      text,
+    modelo     text,
+    creado_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (chequeo_id, evento_id)
+);

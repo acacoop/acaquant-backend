@@ -378,8 +378,16 @@ def pendientes(email: str, limite: int = 20) -> list[dict]:
             f"LEFT JOIN {_T_CONFIG} cf ON cf.chequeo_id = ev.chequeo_id "
             "WHERE v.evento_id IS NULL AND ev.a <> 'ok' "
             "AND COALESCE(cf.alertar, true) "
+            # PERSISTENCIA: solo interrumpe lo que ya se demostró que no se arregla
+            # solo. Un job que falla y se recupera en la corrida siguiente no abre
+            # ningún modal — si avisara de cada hipo, en una semana lo cerrás sin leer.
+            "AND ev.at < now() - make_interval(mins => %(persis)s) "
+            # Y que siga roto AHORA: si hubo un evento posterior, ya cambió de estado.
+            f"AND NOT EXISTS (SELECT 1 FROM {_T_EVENTOS} e2 "
+            "                 WHERE e2.chequeo_id = ev.chequeo_id AND e2.at > ev.at) "
             "ORDER BY (ev.a = 'error') DESC, ev.at DESC LIMIT %(lim)s",
-            {"e": e, "lim": max(1, min(int(limite), 100))})
+            {"e": e, "lim": max(1, min(int(limite), 100)),
+             "persis": PERSISTENCIA_MIN})
     except Exception:
         _log.warning("salud: no pude leer los pendientes", exc_info=True)
         return []
@@ -435,3 +443,144 @@ def panel(email: str = "") -> dict:
     r["pendientes"] = pendientes(email)
     r["transiciones_nuevas"] = len(nuevas)
     return r
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# REACTIVO, PERO NO RUIDOSO: solo lo que PERSISTE
+#
+# El pedido fue "que aparezca cuando pase algo grave y ya demostremos que no se
+# soluciona". Avisar al primer error no sirve: los jobs fallan y se recuperan solos
+# en la corrida siguiente, y un modal que salta por cada hipo se cierra sin leer.
+#
+# Un problema se considera CONFIRMADO cuando sigue roto después de PERSISTENCIA_MIN.
+# Es exactamente el caso del viernes: falló a las 11:00 y a las 11:30 seguía fallando
+# — ahí ya no era un hipo, era un incidente.
+# ──────────────────────────────────────────────────────────────────────────────
+
+PERSISTENCIA_MIN = 30       # minutos rotos antes de confirmar (y recién ahí, avisar)
+_T_DIAG = "manager.salud_diagnosticos"
+
+
+def confirmados(limite: int = 20) -> list[dict]:
+    """Chequeos rotos que YA se demostró que no se arreglan solos.
+
+    Devuelve la transición a problema más reciente de cada chequeo que sigue mal
+    y que lleva más de `PERSISTENCIA_MIN` minutos así.
+    """
+    try:
+        rows = _q(
+            f"SELECT DISTINCT ON (ev.chequeo_id) ev.id, ev.chequeo_id, ev.familia, "
+            f"ev.titulo, ev.de, ev.a, ev.motivo, ev.evidencia, ev.at, "
+            "EXTRACT(EPOCH FROM (now() - ev.at))/60 AS minutos "
+            f"FROM {_T_EVENTOS} ev "
+            f"LEFT JOIN {_T_CONFIG} cf ON cf.chequeo_id = ev.chequeo_id "
+            "WHERE ev.a <> 'ok' AND COALESCE(cf.alertar, true) "
+            "  AND ev.at < now() - make_interval(mins => %(min)s) "
+            # Que no haya un evento POSTERIOR devolviéndolo a ok: si volvió, se arregló.
+            f"  AND NOT EXISTS (SELECT 1 FROM {_T_EVENTOS} e2 "
+            "                   WHERE e2.chequeo_id = ev.chequeo_id AND e2.at > ev.at) "
+            "ORDER BY ev.chequeo_id, ev.at DESC LIMIT %(lim)s",
+            {"min": PERSISTENCIA_MIN, "lim": max(1, min(int(limite), 100))})
+    except Exception:
+        _log.warning("salud: no pude leer los confirmados", exc_info=True)
+        return []
+    return [{"id": int(r["id"]), "chequeo_id": r["chequeo_id"], "familia": r["familia"],
+             "titulo": r["titulo"], "de": r["de"], "a": r["a"], "motivo": r["motivo"],
+             "evidencia": r["evidencia"], "minutos": int(r["minutos"] or 0),
+             "at": r["at"].isoformat() if r["at"] else None} for r in rows]
+
+
+# ── Diagnóstico con IA ───────────────────────────────────────────────────────
+
+_SYSTEM_DIAG = """Sos el analista de guardia de una plataforma de trading de una \
+sociedad de bolsa argentina. Te dan UN problema ya confirmado (lleva rato sin \
+resolverse) y tenés que explicárselo al dueño del producto, que es PM y no dev.
+
+Respondé en castellano rioplatense, en TRES bloques cortos y sin markdown:
+
+QUÉ PASA: una o dos frases, en criollo. Nada de stack traces.
+QUÉ AFECTA: qué vista o función de la app queda tocada y qué NO se puede confiar \
+mientras dure. Si algo sigue sirviendo, decilo — importa saber con qué se puede \
+seguir trabajando.
+QUÉ MIRAR: el primer paso concreto para diagnosticar o arreglar.
+
+Reglas:
+- Separá HECHO (lo que dice la evidencia) de HIPÓTESIS (lo que inferís). Marcá la \
+hipótesis como tal.
+- Si la evidencia apunta a un proveedor externo (Aunesa, ROFEX, BYMA), decilo: \
+cambia a quién hay que reclamarle.
+- No inventes causas que la evidencia no soporte. Si no alcanza para saber por qué, \
+decí qué dato falta.
+- Sé breve. Esto se lee en un modal, no es un informe."""
+
+
+def diagnostico(chequeo_id: str, *, evento_id: int | None = None,
+                forzar: bool = False) -> dict:
+    """Diagnóstico del incidente, cacheado por (chequeo, evento).
+
+    Se cachea a propósito: la vista pollea, y sin caché cada refresco gastaría
+    tokens para volver a decir lo mismo del MISMO incidente. Un problema nuevo
+    genera un evento nuevo → clave nueva → diagnóstico nuevo.
+    """
+    cid = (chequeo_id or "").strip()
+    if not cid:
+        raise ValueError("falta el chequeo")
+    if evento_id is None:
+        ev = next((c for c in confirmados(limite=100) if c["chequeo_id"] == cid), None)
+        if ev is None:
+            return {"chequeo_id": cid, "texto": None,
+                    "motivo": "el chequeo no está confirmado como persistente"}
+        evento_id = ev["id"]
+    if not forzar:
+        try:
+            hit = _q(f"SELECT texto, modelo, creado_at FROM {_T_DIAG} "
+                     "WHERE chequeo_id = %(c)s AND evento_id = %(e)s",
+                     {"c": cid, "e": int(evento_id)})
+            if hit:
+                return {"chequeo_id": cid, "evento_id": int(evento_id),
+                        "texto": hit[0]["texto"], "modelo": hit[0]["modelo"],
+                        "creado_at": hit[0]["creado_at"].isoformat(), "cacheado": True}
+        except Exception:
+            _log.warning("salud: no pude leer el diagnóstico cacheado", exc_info=True)
+
+    actual = next((c for c in evaluar() if c["id"] == cid), None)
+    hist = historial(chequeo_id=cid, limite=12)
+    if actual is None:
+        return {"chequeo_id": cid, "texto": None, "motivo": "el chequeo ya no existe"}
+
+    # El historial es la mitad del valor: dice si esto ya pasó antes y si se venía
+    # arreglando solo, que es lo que separa "otra vez lo mismo" de "algo nuevo".
+    lineas = [f"- {h['at']}: {h['de'] or '—'} → {h['a']} ({h['motivo']})" for h in hist]
+    user = (
+        f"CHEQUEO: {actual.get('titulo')} [{actual.get('familia')}]\n"
+        f"ESTADO: {actual.get('estado')}\n"
+        f"MOTIVO: {actual.get('motivo')}\n"
+        f"EVIDENCIA: {actual.get('evidencia')}\n"
+        f"QUÉ ALIMENTA: {actual.get('detalle') or '(no declarado)'}\n"
+        f"CRON: {actual.get('schedule') or '—'}   TABLA: {actual.get('tabla') or '—'}\n"
+        f"MÓDULOS: {', '.join(actual.get('modulos') or []) or '—'}\n\n"
+        "HISTORIAL DE ESTE CHEQUEO (más reciente primero):\n"
+        + ("\n".join(lineas) if lineas else "(sin cambios previos registrados)")
+    )
+    try:
+        from core import ai
+        texto = ai.completar("salud_diagnostico", system=_SYSTEM_DIAG, user=user,
+                             detalle=f"salud: {cid}")
+    except Exception:
+        _log.warning("salud: falló el diagnóstico con IA de %s", cid, exc_info=True)
+        texto = None
+    if not texto:
+        # Sin IA (sin key, presupuesto agotado, proveedor caído) la pantalla NO se
+        # rompe: el chequeo ya trae motivo y evidencia, que es lo mínimo accionable.
+        return {"chequeo_id": cid, "evento_id": int(evento_id), "texto": None,
+                "motivo": "no hay diagnóstico disponible (ver evidencia del chequeo)"}
+    try:
+        _exec_salud(
+            f"INSERT INTO {_T_DIAG} (chequeo_id, evento_id, texto, modelo) "
+            "VALUES (%(c)s, %(e)s, %(t)s, %(m)s) "
+            "ON CONFLICT (chequeo_id, evento_id) DO UPDATE SET texto = EXCLUDED.texto",
+            {"c": cid, "e": int(evento_id), "t": texto, "m": "salud_diagnostico"})
+    except Exception:
+        _log.warning("salud: no pude cachear el diagnóstico", exc_info=True)
+    return {"chequeo_id": cid, "evento_id": int(evento_id), "texto": texto,
+            "cacheado": False}

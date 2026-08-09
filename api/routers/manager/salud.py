@@ -74,3 +74,24 @@ def post_vistos(req: _Vistos = Body(default=_Vistos()),
         return svc.marcar_vistos(email, req.ids)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+
+
+@router.get("/salud/diagnostico")
+def get_diagnostico(
+    chequeo_id: str = Query(..., min_length=1),
+    evento_id: int | None = Query(None),
+    forzar: bool = Query(False, description="re-diagnosticar aunque esté cacheado"),
+):
+    """Diagnóstico con IA de un incidente YA confirmado como persistente.
+
+    Traduce la evidencia técnica a negocio: qué pasa, qué vista queda afectada y qué
+    mirar primero. Está cacheado por (chequeo, evento) — la vista pollea, y sin caché
+    cada refresco gastaría tokens repitiendo lo mismo del mismo incidente.
+
+    Si la IA no está disponible (sin key, presupuesto agotado, proveedor caído)
+    devuelve `texto: null` y la pantalla sigue mostrando motivo + evidencia.
+    """
+    try:
+        return svc.diagnostico(chequeo_id, evento_id=evento_id, forzar=forzar)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e

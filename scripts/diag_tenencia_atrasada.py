@@ -128,6 +128,41 @@ def detalle_corridas(n: int = 3) -> None:
             print(f"       | {linea}")
 
 
+def backfill_log(dias: tuple[str, ...] = ("2026-08-05", "2026-08-06", "2026-08-07")) -> None:
+    """El rastro POR CUENTA que deja el job (`portafolio.backfill_log`).
+
+    Es la fuente que responde de verdad: el job loguea cada (fecha, cuenta) con
+    status ok | vacia | timeout | error_http_NNN. Si el día no tiene filas en
+    `tenencia` pero acá figuran timeouts, el job SÍ intentó y Aunesa no respondió.
+    """
+    print("\n── 4) RASTRO POR CUENTA (portafolio.backfill_log) ────────────")
+    for iso in dias:
+        try:
+            rows = _q("SELECT status, COUNT(*) AS n FROM portafolio.backfill_log "
+                      "WHERE fecha = %(d)s GROUP BY status ORDER BY n DESC", {"d": iso})
+        except Exception as e:
+            print(f"   {iso}: no pude leer ({type(e).__name__}: {e})")
+            continue
+        if not rows:
+            print(f"\n   {iso}: SIN registros → el job ni siquiera intentó ese día.")
+            continue
+        total = sum(r["n"] for r in rows)
+        print(f"\n   {iso}: {total} cuentas registradas")
+        for r in rows:
+            marca = "" if r["status"] in ("ok", "vacia") else "   ⚠"
+            print(f"      {r['n']:>5}  {r['status']}{marca}")
+        # Un detalle de ejemplo de los que fallaron: dice QUÉ pasó.
+        try:
+            ej = _q("SELECT id_cuenta, status, detalle FROM portafolio.backfill_log "
+                    "WHERE fecha = %(d)s AND status NOT IN ('ok','vacia') LIMIT 3",
+                    {"d": iso})
+            for e in ej:
+                print(f"        ej: cuenta {e['id_cuenta']} [{e['status']}] "
+                      f"{str(e['detalle'] or '')[:90]}")
+        except Exception:
+            pass
+
+
 def por_cartera() -> None:
     """Si la fecha SÍ está pero la vista se ve vacía, el filtro es el sospechoso."""
     print("\n── 3) La ÚLTIMA fecha cargada, abierta por cartera y AuM ─────")
@@ -149,6 +184,7 @@ def main() -> int:
     ultimas_fechas()
     corridas()
     detalle_corridas()
+    backfill_log()
     por_cartera()
     print("\nCómo leerlo: si faltan días hábiles Y no hay corridas → el cron no ejecuta.")
     print("Si hay corridas con estado de error → el detalle dice por qué falló.")

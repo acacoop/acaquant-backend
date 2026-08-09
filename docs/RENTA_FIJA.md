@@ -128,7 +128,44 @@ hacerse como JOINs SQL nativos). Los más importantes (verificados):
 
 3. **Par breakeven:** `mercado.curvas` (lecap) ↔ `mercado.curvas` (cer) por
    `fecha_vencimiento` aproximada (±20 días). El motor breakevens empareja Lecap
-   con el CER más cercano en plazo. (`engines/breakevens.py`.)
+   con el CER más cercano en plazo. (`engines/breakevens.py`.) Cómo entra un bono
+   NUEVO a esa matriz → §4.bis.
+
+### 4.bis Cómo entra un bono NUEVO a BREAKEVENS
+
+**No hay descubrimiento automático de emisiones.** La cadena tiene cuatro
+eslabones y el primero es 100% manual:
+
+1. **ALTA MANUAL en `mercado.curvas`** — Manager → TÍTULOS
+   (`api/services/bonos_admin.py`, upsert por `ticker_corto`). Nada escanea BYMA
+   ni el boletín en busca de licitaciones nuevas: **si nadie carga la Lecap, para
+   el sistema no existe.** Este es el eslabón que se desactualiza.
+   Campos que el BE necesita: la Lecap/Boncap con `curva='tasa_fija'` +
+   `flujo_vencimiento`; el CER con `curva='cer'` + `cer_emision` + `valor_nominal`.
+2. **EMPAREJAMIENTO automático** — `engines/breakevens.py::cargar_pares()` cruza
+   cada `tasa_fija` con el `cer` de vto más cercano, tolerancia ±20 días
+   (`MAX_DIFF_DIAS`). **Un CER solo puede estar en UN par**: si dos Lecaps caen
+   sobre el mismo CER gana la de menor diferencia y la otra se descarta sin
+   buscarle el segundo CER más cercano. Un bono nuevo puede entonces desplazar a
+   otro que venía saliendo.
+3. **REINICIO del motor** — `cargar_pares()` corre **una sola vez, al arrancar**
+   (fuera del `while True`). El alta NO se ve al instante: se ve cuando el cron
+   reinicia `motor_breakevens.service` (13:20 UTC L-V) o con un restart a mano.
+   Mismo comportamiento que `motor_rofex`/`motor_curvas` (ver `SALUD_CURVAS.md` §6 #7).
+4. **CURADURÍA en la lectura** — la vista filtra los pares excluidos a mano en
+   Manager → TÍTULOS → BREAKEVENS (`mercado.breakevens_overrides`). El motor los
+   sigue calculando; se ocultan al leer. Un par "que no aparece" puede estar
+   simplemente apagado ahí.
+
+Dos filtros más recortan la matriz en cada corrida (`calcular_breakevens`):
+plazo mínimo **50 días** al vto (`MIN_DIAS_PLAZO`) y `mes_inflacion` (= vto − 2
+meses) **posterior** al último IPC publicado — un BE sobre un IPC ya conocido no
+es una expectativa, así que se descarta.
+
+> **Diagnóstico:** `python -m scripts.diag_breakevens_cobertura` (read-only) lista
+> cada bono `tasa_fija` del master con el motivo exacto por el que entra o no
+> entra, los CER sin par, la frescura del doc publicado y los pares excluidos a
+> mano. Es la forma de distinguir "el motor falla" de "nadie dio de alta el bono".
 
 4. **Fair value live:** `mercado.fit_params` (betas del cierre) +
    `mercado.market_snapshot` (TEA viva) → `mercado.fair_value_residuos`

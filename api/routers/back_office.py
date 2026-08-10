@@ -367,6 +367,22 @@ def tesoreria_cuenta_editar(req: _CuentaEdit = Body(...),
         raise HTTPException(400, str(e)) from e
 
 
+@router.delete("/tesoreria/cuentas")
+def tesoreria_cuenta_borrar(
+    cuenta_operativa: str = Query(..., min_length=1, max_length=256),
+    unidad: str = Query(..., min_length=1, max_length=8),
+    actor: str = Depends(require_escritura_tesoreria),
+):
+    """Saca un banco del catálogo: borrado físico si nadie lo referencia, baja
+    lógica si ya tiene históricos o lo descubrió Aunesa."""
+    try:
+        return svc_tes.borrar_cuenta(cuenta_operativa, unidad, actor)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 # ── Catálogo de MERCADOS / FCI (ABM en modal desde la tab MERCADOS) ───────────
 
 class _Entidad(BaseModel):

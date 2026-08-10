@@ -2175,6 +2175,56 @@ def editar_cuenta(cuenta_operativa: str, unidad: str, actor: str, *,
             "numero_hygirus": p["h"]}
 
 
+# Tablas que apuntan al banco por NOMBRE: si alguna tiene filas, borrarlo de verdad
+# huerfanaría históricos.
+_REFS_CUENTA = (("operaciones.tesoreria_saldos", "cuenta_operativa"),
+                ("operaciones.tesoreria_cheques", "banco"),
+                ("operaciones.tesoreria_mercados", "banco"))
+
+
+def _referencias_cuenta(cur, p: dict) -> int:
+    total = 0
+    for tabla, col in _REFS_CUENTA:
+        cur.execute(f"SELECT COUNT(*) FROM {tabla} "
+                    f"WHERE {col} = %(c)s AND unidad = %(u)s", p)
+        total += int(cur.fetchone()[0] or 0)
+    cur.execute(f"SELECT COUNT(*) FROM {_TABLA_BB} "
+                "WHERE unidad = %(u)s AND %(c)s IN (cta_debito, cta_credito)", p)
+    return total + int(cur.fetchone()[0] or 0)
+
+
+def borrar_cuenta(cuenta_operativa: str, unidad: str, actor: str) -> dict:
+    """Saca un banco del catálogo (botón «borrar» del ABM).
+
+    Borra la fila DE VERDAD solo si nadie la referencia: sin saldos, cheques,
+    mercados ni banco-a-banco cargados y sin `aunesa_id` (los descubiertos vuelven
+    solos en el próximo poll, borrarlos sería un no-op que confunde). En cualquier
+    otro caso se degrada a baja LÓGICA: sale de la grilla y de los desplegables,
+    pero los históricos siguen resolviendo el nombre.
+    """
+    if not puede_editar_saldo(actor):
+        raise PermissionError("sin permiso para borrar bancos de Tesorería")
+    cta, uni = _validar_cuenta(cuenta_operativa, unidad)
+    p = {"c": cta, "u": uni}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT aunesa_id FROM operaciones.tesoreria_cuentas "
+                    "WHERE cuenta_operativa = %(c)s AND unidad = %(u)s", p)
+        fila = cur.fetchone()
+        if fila is None:
+            raise ValueError(f"no existe el banco '{cta}' [{uni}]")
+        refs = _referencias_cuenta(cur, p)
+        fisico = not refs and not fila[0]
+        cur.execute(
+            ("DELETE FROM operaciones.tesoreria_cuentas " if fisico else
+             "UPDATE operaciones.tesoreria_cuentas SET activa = false ")
+            + "WHERE cuenta_operativa = %(c)s AND unidad = %(u)s", p)
+        conn.commit()
+    _audit(actor, "borrar_cuenta" if fisico else "baja_cuenta", f"{cta}|{uni}",
+           {"referencias": refs, "descubierta": bool(fila[0])})
+    return {"cuenta_operativa": cta, "unidad": uni, "borrado": fisico,
+            "referencias": refs}
+
+
 def registrar_cuentas(vistas: dict[tuple[str, str], str | None], dia: date) -> None:
     """Da de alta las cuentas vistas en un día (idempotente).
 

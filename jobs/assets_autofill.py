@@ -234,10 +234,15 @@ def main() -> int:
             detalle = ", ".join(f"{c}={n}" for c, n in sorted(rep["campos"].items()))
             jr.log(f"  · {r.id}: {rep['matcheadas']} unidades matchean → "
                    f"{detalle or 'nada vacío que completar'}")
-            for c in rep["conflictos"][:10]:
+            # En cron los conflictos se capan (son estables: repetirlos enteros todos
+            # los días inunda el log). Con --dry se listan todos: es el modo en el que
+            # uno los va a revisar y corregir.
+            tope = len(rep["conflictos"]) if args.dry else 10
+            for c in rep["conflictos"][:tope]:
                 jr.log(f"      ⚠ {c}")
-            if len(rep["conflictos"]) > 10:
-                jr.log(f"      … +{len(rep['conflictos']) - 10} conflicto(s) más")
+            if len(rep["conflictos"]) > tope:
+                jr.log(f"      … +{len(rep['conflictos']) - tope} conflicto(s) más "
+                       f"(verlos: --dry)")
             jr.set_stat(f"{r.id}_matcheadas", rep["matcheadas"])
             jr.set_stat(f"{r.id}_campos", rep["campos"])
             jr.set_stat(f"{r.id}_conflictos", len(rep["conflictos"]))

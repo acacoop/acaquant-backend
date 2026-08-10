@@ -203,27 +203,34 @@ def _bucket() -> dict:
             "neto": 0.0, "n": 0}
 
 
-def _ref_cheques_emitidos_t1(banco: str, unidad: str) -> str:
+def _ref_cheques_emitidos_vencidos(banco: str, unidad: str) -> str:
+    # El literal sigue diciendo `emitidos_t1`: es la clave con la que ya están
+    # guardados los destildados en `tesoreria_exclusiones`, cambiarlo los huerfanaría.
     return f"emitidos_t1|{banco}|{str(unidad or '').upper()}"
 
 
-def _cheques_emitidos_t1_rows(dia: date) -> list[dict]:
-    """Cheques EMITIDOS todavía abiertos cuyo `fecha_pago` ya venció para ese día.
+def _cheques_emitidos_vencidos_rows(dia: date) -> list[dict]:
+    """Cheques EMITIDOS todavía abiertos que ya se pagan a ese día (`fecha_pago <= día`).
+
+    El día MISMO entra: un cheque con fecha de pago de hoy se debita hoy, y dejarlo
+    afuera hacía que el saldo del banco no lo reflejara hasta el día siguiente (era el
+    caso de BANCO PATAGONIA COMÚN, 2026-08-10). Es además el mismo corte que usa el
+    total "impacta hoy" del tablero EMITIDOS en el front.
 
     Se agregan por banco+moneda porque en BANCOS tienen que impactar como un solo monto
-    y el modal de auditoría debe mostrar un único renglón ("cheques emitidos T-1"),
+    y el modal de auditoría debe mostrar un único renglón ("cheques emitidos vencidos"),
     no el detalle cheque por cheque.
     """
     try:
         return _items_sql(
             f"SELECT banco, unidad, COUNT(*) AS cantidad, SUM(importe) AS total "
             f"FROM {_TABLA_CHEQUES} WHERE lado = 'emitido' AND estado = 'emitido' "
-            "AND fecha_pago IS NOT NULL AND fecha_pago < %(d)s "
+            "AND fecha_pago IS NOT NULL AND fecha_pago <= %(d)s "
             "GROUP BY banco, unidad ORDER BY banco, unidad",
             {"d": dia},
         )
     except Exception:
-        _log.warning("tesoreria: no pude leer los cheques emitidos T-1", exc_info=True)
+        _log.warning("tesoreria: no pude leer los cheques emitidos vencidos", exc_info=True)
         return []
 
 
@@ -273,7 +280,7 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     Las dos filas e-cheq salen SEPARADAS de los totales para que el back office las
     distinga (es lo único que buscaba la separación), pero las dos entran al saldo:
       - `egresos_echeq`  = RIEL e-cheq de Aunesa + cheques EMITIDOS vencidos
-                           (`fecha_pago < día`), fuera del total de `egresos`.
+                           (`fecha_pago <= día`), fuera del total de `egresos`.
       - `ingresos_echeq` = cheques recibidos finalizados (carga manual, tab CHEQUES).
         No vienen en los movimientos de Aunesa, así que sumarlos no duplica nada.
 
@@ -366,13 +373,13 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     # Fila "Ingresos e-cheqs": los cheques RECIBIDOS que el equipo marcó finalizados
     # ese día (carga manual, tab CHEQUES). Fila propia, igual que los egresos e-cheq.
     ing_echeq = ingresos_echeq_dia(dia)
-    emit_t1: dict[tuple[str, str], float] = {}
-    for r in _cheques_emitidos_t1_rows(dia):
+    emit_vencidos: dict[tuple[str, str], float] = {}
+    for r in _cheques_emitidos_vencidos_rows(dia):
         banco, unidad = r["banco"], str(r["unidad"] or "").upper()
-        ref = _ref_cheques_emitidos_t1(banco, unidad)
+        ref = _ref_cheques_emitidos_vencidos(banco, unidad)
         fuera, _ = _estado_excl(exc, "cheque", ref)
         if not fuera:
-            emit_t1[(banco, unidad)] = float(r["total"] or 0)
+            emit_vencidos[(banco, unidad)] = float(r["total"] or 0)
     # Filas MERCADOS y FCI: ya vienen netas y con signo (ver mercados_por_banco).
     mkt = mercados_por_banco(dia)
     # Banco a banco: una transferencia interna suma en un banco y resta en el otro.
@@ -387,14 +394,14 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     bancos = listar_cuentas()
     activas = {(b["cuenta_operativa"], b["unidad"]) for b in bancos if b["activa"]}
     cuentas = []
-    for clave in sorted(activas | set(por_cuenta) | set(ing_echeq) | set(emit_t1)
+    for clave in sorted(activas | set(por_cuenta) | set(ing_echeq) | set(emit_vencidos)
                         | set(mkt) | set(bb) | set(reg)):
         cta, uni = clave
         c = por_cuenta.get(clave) or {"cuenta_operativa": cta, "unidad": uni, **_bucket()}
         s = saldos.get(clave)
         ini = s["saldo_inicial"] if s else None
         c["ingresos_echeq"] = ing_echeq.get(clave, 0.0)
-        c["egresos_echeq"] += emit_t1.get(clave, 0.0)
+        c["egresos_echeq"] += emit_vencidos.get(clave, 0.0)
         m = mkt.get(clave) or {}
         c["mercados"], c["fci"] = m.get("mercados", 0.0), m.get("fci", 0.0)
         t = bb.get(clave) or {}
@@ -523,7 +530,7 @@ _FUENTE_FILA = {
     "ingresos": f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO}) + REGISTROS MANUALES",
     "egresos": f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO}) + REGISTROS MANUALES",
     "egresos_echeq": (f"Movimientos de Aunesa · RIEL e-cheq (estado {ESTADO_EFECTIVO}) + "
-                      "cheques EMITIDOS T-1"),
+                      "cheques EMITIDOS con fecha de pago vencida o del día"),
     "ingresos_echeq": "Cheques RECIBIDOS finalizados (tab CHEQUES)",
     # Estas tres cuentan también lo `pendiente` (decisión del back office), así que el
     # detalle muestra el estado REAL de cada fila: la columna ESTADO no lo disimula.
@@ -629,9 +636,9 @@ def _detalle_dia(dia: date, cuentas: list[dict] | None = None) -> dict[str, dict
               r["comitente_denominacion"] or r["comitente"] or "—",
               f"cheque {r['tipo'] or ''}".strip(), r["estado"], float(r["importe"] or 0))
 
-    # 3b) Cheques emitidos T-1 → misma fila `egresos_echeq`, pero compactados en UNA
+    # 3b) Cheques emitidos vencidos → misma fila `egresos_echeq`, pero compactados en UNA
     #     sola línea por banco+moneda para que el modal no explote cheque por cheque.
-    for r in _cheques_emitidos_t1_rows(dia):
+    for r in _cheques_emitidos_vencidos_rows(dia):
         cantidad = int(r["cantidad"] or 0)
         banco, unidad = r["banco"], str(r["unidad"] or "").upper()
         _push(
@@ -639,9 +646,9 @@ def _detalle_dia(dia: date, cuentas: list[dict] | None = None) -> dict[str, dict
             unidad,
             "egresos_echeq",
             "cheque",
-            _ref_cheques_emitidos_t1(banco, unidad),
-            "cheques emitidos T-1",
-            f"{cantidad} cheque{'s' if cantidad != 1 else ''} · fecha de pago anterior al día",
+            _ref_cheques_emitidos_vencidos(banco, unidad),
+            "cheques emitidos vencidos",
+            f"{cantidad} cheque{'s' if cantidad != 1 else ''} · fecha de pago vencida o del día",
             "emitido",
             float(r["total"] or 0),
         )

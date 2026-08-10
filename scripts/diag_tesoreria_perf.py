@@ -54,7 +54,7 @@ def fuentes(dia: date) -> None:
     total += _seg("saldos iniciales", lambda: t._saldos_dia(dia))
     total += _seg("exclusiones (destildados)", lambda: t._exclusiones_dia(dia))
     total += _seg("cheques recibidos finalizados", lambda: t.ingresos_echeq_dia(dia))
-    total += _seg("cheques emitidos T-1", lambda: t._cheques_emitidos_t1_rows(dia))
+    total += _seg("cheques emitidos vencidos", lambda: t._cheques_emitidos_vencidos_rows(dia))
     total += _seg("mercados + fci", lambda: t.mercados_por_banco(dia))
     total += _seg("banco a banco", lambda: t.banco_a_banco_por_banco(dia))
     total += _seg("registros manuales", lambda: t.registros_por_banco(dia))
@@ -94,10 +94,10 @@ def explain(dia: date) -> None:
          "WHERE lado = 'recibido' AND estado = 'finalizado' "
          f"AND (creado_at AT TIME ZONE '{t._TZ_ART}')::date = %(d)s GROUP BY banco, unidad",
          {"d": dia}),
-        ("cheques emitidos T-1",
+        ("cheques emitidos vencidos",
          f"SELECT banco, unidad, COUNT(*), SUM(importe) FROM {t._TABLA_CHEQUES} "
          "WHERE lado = 'emitido' AND estado = 'emitido' "
-         "AND fecha_pago IS NOT NULL AND fecha_pago < %(d)s GROUP BY banco, unidad",
+         "AND fecha_pago IS NOT NULL AND fecha_pago <= %(d)s GROUP BY banco, unidad",
          {"d": dia}),
         ("mercados del día",
          f"SELECT banco, unidad, tipo, SUM(importe) FROM {t._TABLA_MERCADOS} "

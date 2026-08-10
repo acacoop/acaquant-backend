@@ -37,7 +37,7 @@ def test_los_veps_no_entran_al_saldo_de_bancos():
 
     fuentes = (tes.ingresos_egresos_dia, tes.registros_por_banco, tes.mercados_por_banco,
                tes.banco_a_banco_por_banco, tes.ingresos_echeq_dia,
-               tes._cheques_emitidos_t1_rows, tes._detalle_dia)
+               tes._cheques_emitidos_vencidos_rows, tes._detalle_dia)
     for fn in fuentes:
         assert tes._TABLA_VEPS not in inspect.getsource(fn), (
             f"{fn.__name__} lee la tabla de VEPs — eso duplicaría el egreso del "

@@ -1087,7 +1087,7 @@ Shell **keep-alive** (cada tab se monta una vez y luego se oculta con CSS), tab 
 | **AGRO** | Toneladas de futuros+opciones agro: serie por periodo, serie de la cuenta elegida, share nuestro/mercado por commodity (solo futuros), totales por commodity/cuenta/instrumento, desglose FUTURO/OPCIÓN | `/ops/agro`, `/ops/fechas`, `/ops/niveles5` | `desde`/`hasta` (acotado a bounds reales; def YTD del último año con datos), `agg=DIARIO`, **select nivel 5**, **select tipo** FUTURO/OPCION/ambos, cross-filter commodity + cuenta. Tabs internos del chart: volumen / por tipo / share | Ninguna |
 | **DÓLAR FUTURO** | Nocional USD de DLR (1 contrato = USD 1.000), arancel ARS y boletos: `por_tipo` (Compra/Venta), `por_cuenta`, `por_instrumento`, serie split | `/ops/dolar-futuro`, `/ops/fechas`, `/ops/niveles5` | Modo de rango (def `MES`), `agg=DIARIO`, select nivel 5, cross-filter 3-way tipo/cuenta/instrumento | Ninguna |
 | **DIFERENCIAS DIARIAS** | Liquidación mark-to-market de futuros desde `negocio_movimientos`: por producto/cuenta/instrumento + serie Σ importe por día | `/ops/diferencias-diarias`, `/ops/diferencias-fechas`, `/ops/niveles5` | **Moneda `USDL`/`ARS`** (nunca se suman juntas; cambiarla limpia los cross-filters), modo de rango (def MES) anclado a **fechas propias** de esta vista, select nivel 5, cross-filter 3-way, agg del chart DIA/SEM/MES (client-side) | Ninguna |
-| **DEPÓSITOS & EXTRACCIONES** | Entradas/salidas por (día, cuenta, moneda) de `operaciones.movimientos` | `GET /api/cashflow` (proxy que compone `/operaciones/flujos/resumen` + `/cuentas/accionistas`) | Rango desde/hasta (def todo el universo), toggles **ARS** y **USD** independientes, granularidad Diario/Mensual, **filtro de cuenta** Todas / Solo accionistas / Sin accionistas (**client-side en React**) + selector de accionista/cuenta | Ninguna |
+| **DEPÓSITOS & EXTRACCIONES** | Entradas/salidas por (día, cuenta, moneda) de `operaciones.negocio_movimientos` (categorías depósito/transferencia/extracción, sin anulados) **+ complemento** de `operaciones.movimientos` (solo los comprobantes que la principal no trae) | `GET /api/cashflow` (proxy que compone `/operaciones/flujos/resumen` + `/cuentas/accionistas`) | Rango desde/hasta (def todo el universo), toggles **ARS** y **USD** independientes, granularidad Diario/Mensual, **filtro de cuenta** Todas / Solo accionistas / Sin accionistas (**client-side en React**) + selector de accionista/cuenta | Ninguna |
 
 #### Endpoints — `operaciones.py` (`/api/operaciones`), bloque no-comercial
 | Método | Path | Qué hace | Params | Escribe |
@@ -1122,8 +1122,11 @@ Shell **keep-alive** (cada tab se monta una vez y luego se oculta con CSS), tab 
 `operaciones.operaciones` (origen `jobs.operaciones_informes` → `ingestar_filas_sql`, que normaliza y
 enriquece inline `moneda`/`mercado`/`operacion`/`nivel_3`/`segmento`/`es_cierre`/`commodity`/`mep`;
 `jobs.fci_bilateral` escribe `etapa` con upsert por boleto) · `negocio_movimientos` (Diferencias
-Diarias) · `operaciones.movimientos` (Depósitos & Extracciones: `comprobante`→boleto, `total`→bruto,
-fecha dd/mm/yyyy→ISO; **el rango y el orden se resuelven en Python** porque la fecha está cruda) ·
+Diarias) · Depósitos & Extracciones: fuente PRINCIPAL `operaciones.negocio_movimientos`
+(`comprobante`→boleto, `importe`→bruto, `fecha` date→ISO, scope por `id_cuenta`) + COMPLEMENTO
+`operaciones.movimientos` por los comprobantes que falten (`total`→bruto, fecha dd/mm/yyyy→ISO,
+resuelta en Python porque está cruda). El cambio de fuente (2026-08-10) es porque el writer de
+`movimientos` mira un solo día y no vuelve: perdía 33-39% de los DEPÓSITOS ·
 `operaciones.ops_agregado_diario` (pre-agregado HOT/COLD por día sucio vía `ingestado_en`) ·
 `clientes.contrapartes` / `accionistas` / `comitentes` / `aca_valores` · `portafolio.assets`
 (join por `assets.unidad = operaciones.instrumento`, **99,0 % del volumen** medido con `diag_ops_cartera`).

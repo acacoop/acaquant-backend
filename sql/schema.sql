@@ -1025,6 +1025,10 @@ CREATE TABLE IF NOT EXISTS operaciones.tesoreria_cheques (
     -- Momento en que se cerró (emitido→completado / recibido→finalizado). Es la
     -- fecha con la que un recibido finalizado entra a la grilla BANCOS.
     cerrado_at      timestamptz,
+    -- 'manual' (lo cargó el back office) | 'aunesa' (espejo del e-cheq de EGRESO que
+    -- informó la API). Ver el bloque de ALTERs de abajo.
+    origen          text NOT NULL DEFAULT 'manual',
+    mov_id          text,                    -- id del movimiento de Aunesa espejado
     creado_por      text,
     creado_at       timestamptz,
     actualizado_por text,
@@ -1107,6 +1111,23 @@ ALTER TABLE operaciones.tesoreria_cheques ADD COLUMN IF NOT EXISTS lado text NOT
 ALTER TABLE operaciones.tesoreria_cheques ADD COLUMN IF NOT EXISTS tipo text;
 ALTER TABLE operaciones.tesoreria_cheques ADD COLUMN IF NOT EXISTS cerrado_at timestamptz;
 UPDATE operaciones.tesoreria_cheques SET estado = 'completado' WHERE estado = 'pagado';
+
+-- ESPEJO AUTOMÁTICO de los e-cheq EMITIDOS (2026-08-10). Un egreso de Aunesa con
+-- RIEL '[E CHEQ] E CHEQ' ES un cheque emitido: hasta ahora el back office lo veía en
+-- MOVIMIENTOS y lo VOLVÍA A CARGAR a mano en la tab CHEQUES, y el saldo lo contaba
+-- dos veces. Ahora la fila se crea sola (estado 'emitido', fecha de pago = el día del
+-- movimiento) y queda distinguida por `origen`.
+--
+-- Las filas con origen='aunesa' NO restan del saldo de BANCOS: esa plata YA entra a la
+-- fila `egresos_echeq` por el movimiento de Aunesa. Solo restan las 'manual' (mismo
+-- criterio que los VEPs espejo, ver tesoreria_veps).
+ALTER TABLE operaciones.tesoreria_cheques ADD COLUMN IF NOT EXISTS origen text NOT NULL DEFAULT 'manual';
+ALTER TABLE operaciones.tesoreria_cheques ADD COLUMN IF NOT EXISTS mov_id text;
+-- Un movimiento de Aunesa genera UN solo cheque: es la idempotencia del espejo, que
+-- corre en CADA poll de la tab (cada 20s). Parcial: los manuales tienen mov_id NULL y
+-- no compiten entre sí.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_tesoreria_cheques_mov
+    ON operaciones.tesoreria_cheques (mov_id) WHERE mov_id IS NOT NULL;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PORTAFOLIO — tenencias + catálogo de títulos (FUENTE DE VERDAD, SQL-native)

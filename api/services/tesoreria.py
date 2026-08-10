@@ -220,11 +220,16 @@ def _cheques_emitidos_vencidos_rows(dia: date) -> list[dict]:
     Se agregan por banco+moneda porque en BANCOS tienen que impactar como un solo monto
     y el modal de auditoría debe mostrar un único renglón ("cheques emitidos vencidos"),
     no el detalle cheque por cheque.
+
+    SOLO los `origen='manual'`: los espejo de un e-cheq de Aunesa ya restaron por su
+    propio movimiento en esta MISMA fila `egresos_echeq` — sumarlos otra vez es el
+    doble conteo que el espejo vino a eliminar (ver `sincronizar_echeq_emitidos`).
     """
     try:
         return _items_sql(
             f"SELECT banco, unidad, COUNT(*) AS cantidad, SUM(importe) AS total "
             f"FROM {_TABLA_CHEQUES} WHERE lado = 'emitido' AND estado = 'emitido' "
+            f"AND origen = '{ORIGEN_MANUAL}' "
             "AND fecha_pago IS NOT NULL AND fecha_pago <= %(d)s "
             "GROUP BY banco, unidad ORDER BY banco, unidad",
             {"d": dia},
@@ -907,11 +912,16 @@ ESTADOS_CHEQUE: dict[str, tuple[str, ...]] = {
 }
 ESTADO_CIERRE = {lado: est[-1] for lado, est in ESTADOS_CHEQUE.items()}
 TIPOS_RECIBIDO = ("echeq", "fisico")
+# De dónde salió la fila. Los 'aunesa' son el ESPEJO de un e-cheq de egreso de la API
+# (ver `sincronizar_echeq_emitidos`) y NO restan del saldo: esa plata ya entra por el
+# movimiento. Los 'manual' son los que carga el back office y sí restan.
+ORIGEN_MANUAL, ORIGEN_AUNESA = "manual", "aunesa"
 
 _CAMPOS_CHEQUE = ("lado", "tipo", "comitente", "comitente_denominacion", "cuit",
                   "banco", "unidad", "importe", "estado", "fecha_pago", "cerrado_at")
 _COLS_CHEQUE = ("id, lado, tipo, comitente, comitente_denominacion, cuit, banco, unidad, "
-                "importe, estado, fecha_pago, cerrado_at, creado_por, creado_at")
+                "importe, estado, fecha_pago, cerrado_at, origen, mov_id, creado_por, "
+                "creado_at")
 # ART: `cerrado_at` es timestamptz, y el día de la grilla es día ARGENTINO.
 _TZ_ART = "America/Argentina/Buenos_Aires"
 
@@ -930,6 +940,11 @@ def _fila_cheque(r: dict) -> dict:
         "estado": r["estado"],
         "fecha_pago": r["fecha_pago"].isoformat() if r["fecha_pago"] else None,
         "cerrado_at": r["cerrado_at"].isoformat() if r["cerrado_at"] else None,
+        "origen": r["origen"],
+        "mov_id": r["mov_id"],
+        # Lo que el front usa para marcar la fila: nació sola del movimiento de Aunesa,
+        # nadie la cargó — y por eso NO resta del saldo.
+        "automatico": r["origen"] == ORIGEN_AUNESA,
         "creado_por": r["creado_por"],
         "creado_at": r["creado_at"].isoformat() if r["creado_at"] else None,
     }
@@ -950,6 +965,16 @@ def cheques(*, fecha: str | None = None, incluir_cerrados: bool = False,
     """
     marcar_presencia(email)
     dia = _dia(fecha)
+    # Espejo automático ANTES de listar: los e-cheq de egreso que Aunesa informó ese
+    # día YA son cheques emitidos, y así el back office se los encuentra cargados.
+    # Best-effort: si Aunesa está caído la tab igual muestra todo lo que hay en la base.
+    try:
+        # TODOS_ESTADOS (y no solo Procesado) para compartir la MISMA cache key que la
+        # grilla BANCOS: pedir otro subconjunto es otra llamada HTTP de ~1.6s por poll.
+        sincronizar_echeq_emitidos(dia, traer_crudas(dia, TODOS_ESTADOS))
+    except Exception:
+        _log.warning("tesoreria: no pude espejar los e-cheq emitidos de Aunesa",
+                     exc_info=True)
     emitidos = _q(
         f"SELECT {_COLS_CHEQUE} FROM {_TABLA_CHEQUES} WHERE lado = 'emitido' "
         "AND (%(todos)s OR estado <> %(cierre)s) "
@@ -973,6 +998,87 @@ def cheques(*, fecha: str | None = None, incluir_cerrados: bool = False,
         "puede_editar": puede_editar_saldo(email),
         "conectados": conectados(), "actualizado_at": datetime.now(UTC).isoformat(),
     }
+
+
+# ── ESPEJO AUTOMÁTICO: e-cheq de EGRESO de Aunesa → cheque EMITIDO ────────────
+#
+# Un egreso con RIEL '[E CHEQ] E CHEQ' ES un cheque emitido. Hasta ahora el back office
+# lo veía en MOVIMIENTOS y lo VOLVÍA A CARGAR a mano en la tab CHEQUES: doble trabajo y,
+# peor, doble resta en la fila `egresos_echeq` de BANCOS (una por el movimiento, otra
+# por el cheque manual).
+#
+# Con el espejo la fila aparece sola y marcada (`origen='aunesa'`), y NO vuelve a restar
+# del saldo: la plata ya entró por el movimiento. Es el mismo criterio que los VEPs
+# espejo de un registro manual — quien mueve el saldo es la fuente, no el tablero.
+
+def _solo_digitos(v: Any) -> str | None:
+    """'30-70937992-1' → '30709379921'. Los cheques cargados a mano guardan el CUIT sin
+    separadores, y el espejo tiene que quedar comparable con ellos."""
+    d = re.sub(r"\D", "", str(v or ""))
+    return d or None
+
+
+def _filas_espejo_echeq(dia: date, crudas: list[dict]) -> list[dict]:
+    """Movimientos de Aunesa → filas de cheque emitido listas para insertar.
+
+    Solo se espejan los `ESTADO_EFECTIVO`: un e-cheq rechazado o anulado nunca salió del
+    banco y dejaría una fila fantasma en un tablero que no se filtra por fecha.
+    """
+    yyyymmdd = dia.strftime("%Y%m%d")
+    filas: list[dict] = []
+    for r in crudas:
+        if str(r.get("estado") or "").strip() != ESTADO_EFECTIVO:
+            continue
+        mov = aplanar(r, yyyymmdd)
+        if mov["_tipo"] != "egreso" or not mov["_echeq"]:
+            continue
+        mov_id = str(r.get("id") or "").strip()
+        # Sin `id` no hay clave de idempotencia: espejarlo lo duplicaría en cada poll.
+        # Sin cuenta operativa no hay banco al que colgarlo.
+        if not mov_id or mov["cuentaOperativa"] == SIN_CUENTA:
+            continue
+        filas.append({
+            "mov": mov_id,
+            "comitente": str(r.get("cuenta") or "").strip() or None,
+            "denom": str(mov.get("persona_nombreCompleto") or "").strip() or None,
+            "cuit": _solo_digitos(mov.get("persona_cuit")),
+            "banco": mov["cuentaOperativa"],
+            "unidad": str(r.get("unidad") or "ARS").upper(),
+            "importe": _num(r.get("monto")),
+            "fp": dia,
+            "at": datetime.now(UTC),
+        })
+    return filas
+
+
+def sincronizar_echeq_emitidos(dia: date, crudas: list[dict]) -> int:
+    """Crea los cheques EMITIDOS que faltan a partir de los e-cheq de egreso del día.
+
+    Nacen con estado 'emitido' y `fecha_pago` = el día del movimiento (el e-cheq ya se
+    debitó: por eso vino como movimiento), y con todos los datos que trae Aunesa
+    —cliente, CUIT, cuenta operativa, moneda e importe—, así la fila queda igual de
+    completa que una cargada a mano.
+
+    Corre en CADA poll de la tab: `mov_id` es único, así que re-sincronizar no duplica
+    ni pisa nada que el back office haya editado sobre la fila.
+    """
+    filas = _filas_espejo_echeq(dia, crudas)
+    if not filas:
+        return 0
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(
+            f"INSERT INTO {_TABLA_CHEQUES} (lado, tipo, comitente, comitente_denominacion, "
+            "cuit, banco, unidad, importe, estado, fecha_pago, origen, mov_id, "
+            "creado_por, creado_at) "
+            "VALUES ('emitido', 'echeq', %(comitente)s, %(denom)s, %(cuit)s, %(banco)s, "
+            f"%(unidad)s, %(importe)s, 'emitido', %(fp)s, '{ORIGEN_AUNESA}', %(mov)s, "
+            f"'{ORIGEN_AUNESA}', %(at)s) "
+            "ON CONFLICT (mov_id) WHERE mov_id IS NOT NULL DO NOTHING",
+            filas,
+        )
+        n = cur.rowcount
+        conn.commit()
+    return max(int(n or 0), 0)
 
 
 def ingresos_echeq_dia(dia: date) -> dict[tuple[str, str], float]:
@@ -1129,6 +1235,11 @@ def set_estado_cheque(id_: int, estado: str, actor: str) -> dict:
 def borrar_cheque(id_: int, actor: str) -> dict:
     if not puede_editar_saldo(actor):
         raise PermissionError("sin permiso para borrar cheques de Tesorería")
+    filas = _q(f"SELECT origen FROM {_TABLA_CHEQUES} WHERE id = %(id)s", {"id": int(id_)})
+    # Borrarlo no sirve de nada: el próximo poll lo vuelve a espejar del movimiento.
+    if filas and filas[0]["origen"] == ORIGEN_AUNESA:
+        raise ValueError("este cheque lo generó Aunesa y se recrea solo: marcalo "
+                         f"'{ESTADO_CIERRE['emitido']}' para sacarlo de la vista")
     n = _exec(f"DELETE FROM {_TABLA_CHEQUES} WHERE id = %(id)s", {"id": int(id_)})
     _audit(actor, "borrar_cheque", str(id_))
     return {"borrado": n}

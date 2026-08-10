@@ -309,10 +309,14 @@ def tesoreria_cheque_estado(id_: int, req: _EstadoCheque = Body(...),
 
 @router.delete("/tesoreria/cheques/{id_}")
 def tesoreria_cheque_borrar(id_: int, actor: str = Depends(require_escritura_tesoreria)):
+    """Los espejo de Aunesa (`origen='aunesa'`) NO se borran: el próximo poll los
+    recrea. Se cierran con el estado 'completado'."""
     try:
         return svc_tes.borrar_cheque(id_, actor)
     except PermissionError as e:
         raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 # ── Catálogo de bancos: alta manual desde la vista (los descubiertos por Aunesa

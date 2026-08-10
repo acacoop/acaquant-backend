@@ -37,7 +37,7 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **441 endpoints** montados en `api.main.app`, en **1 routers**.
+- **441 endpoints** montados en `api.main.app`, en **28 routers**.
 - **140 escriben** (POST/PUT/PATCH/DELETE); 301 son de solo lectura.
 - **22 módulos** canónicos y **6 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
@@ -47,11 +47,44 @@
 <!-- AUTOGEN:routers -->
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
-| `(raíz)` | 441 | 140 | — · 440 rutas con gate extra | — | ⚠️ |
+| `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
+| `/api/analitica` | 15 | 1 | — | — | ⚠️ |
+| `/api/back-office` | 56 | 33 | `back-office` · 56 rutas con gate extra | `back-office` |  |
+| `/api/back-office/senebis` | 17 | 10 | `back-office` · 4 rutas con gate extra | `back-office` |  |
+| `/api/cotizaciones` | 33 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
+| `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
+| `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
+| `/api/estrategia` | 4 | 0 | `trading` | — |  |
+| `/api/ia` | 11 | 5 | `ia` · 10 rutas con gate extra | `ia` |  |
+| `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
+| `/api/manager` | 128 | 57 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
+| `/api/market` | 4 | 0 | — | — | ⚠️ |
+| `/api/mesa-dinero` | 9 | 4 | `operaciones` · 5 rutas con gate extra | `operaciones` |  |
+| `/api/news` | 3 | 0 | — | — | ⚠️ |
+| `/api/operaciones` | 44 | 4 | `operaciones` · 19 rutas con gate extra | `operaciones` |  |
+| `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
+| `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
+| `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
+| `/api/portfolio` | 16 | 3 | `portfolios` · 14 rutas con gate extra | `portfolios` |  |
+| `/api/research-bcra` | 2 | 0 | `research` | — |  |
+| `/api/research-docs` | 2 | 0 | `research` | — |  |
+| `/api/research-fred` | 2 | 0 | `research` | — |  |
+| `/api/research1816` | 11 | 0 | `research` | — |  |
+| `/api/risk` | 5 | 0 | `operar` | `operar` |  |
+| `/api/scanner` | 9 | 0 | `renta-variable` · 2 rutas con gate extra | — |  |
+| `/api/titulos` | 2 | 0 | — | `portfolios` | ⚠️ |
+| `/api/trading` | 9 | 1 | `trading` | `trading` |  |
+| `/api/valuaciones` | 7 | 0 | `portfolios` · 7 rutas con gate extra | — |  |
 
 **⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
 
-- `(raíz)` (84 de 441 rutas sin gate de módulo)
+- `(raíz)` (2 de 2 rutas sin gate de módulo)
+- `/api/analitica` (15 de 15 rutas sin gate de módulo)
+- `/api/cotizaciones` (32 de 33 rutas sin gate de módulo)
+- `/api/derivados` (13 de 18 rutas sin gate de módulo)
+- `/api/market` (4 de 4 rutas sin gate de módulo)
+- `/api/news` (3 de 3 rutas sin gate de módulo)
+- `/api/titulos` (declara `portfolios`, no lo aplica)
 
 No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtime** (solo lo consume un test), y para los módulos que todos los roles tienen se decidió no gatear. Lo que sí implica es que **destildar esos módulos en Manager → Roles no bloquea nada server-side**: solo esconde el link en el menú.
 
@@ -1505,7 +1538,7 @@ el catálogo), `es_mae` (bool).
 |---|---|---|---|---|
 | **MOVIMIENTOS** (def.) | Tabla plana de los movimientos bancarios del día (**LIVE Aunesa, no se persiste**), todas las columnas crudas + `_hora`/`_tipo`/`_echeq`; totales por moneda. **Siempre el día en curso** | `GET /tesoreria/dia` | **Server-side**: `estado` (los 7 estados Aunesa + "Todos", persistido, def `Procesado`). **Client-side**: **RIEL** (`tipoDocSoli`), **TIPO** (ingreso/egreso), **SOLICITUD** (Depósito/Extracción), buscador libre `q`, selector **COLUMNAS** (persistido) | Ninguna |
 | **BANCOS** | Grilla tipo planilla: una columna por cuenta operativa (**TODAS las del catálogo**, operen o no) × moneda; filas Saldo inicial · Ingresos · Ingresos e-cheqs · Egresos · Egresos e-cheq · Mercados · FCI · bb (+) · bb (−) · Saldo final. **Cada celda es clickeable** → modal de auditoría | `/tesoreria/dia`, `/detalle`, `/foto`, `/cuentas`, `/registros`, `/snapshots` | **FECHA** (`max=hoy`) — **el selector aparece SOLO en esta tab**; fecha pasada = FOTO guardada, solo lectura. **La grilla IGNORA el selector ESTADO**: siempre calcula sobre `Procesado` | `PUT /saldo-inicial`, `PUT /exclusion` (tildar/destildar del modal), `POST /snapshots` (**SACAR FOTO**), ABM de bancos, modal **REGISTROS MANUALES** |
-| **CHEQUES** | 50/50. **Izq RECIBIDOS**: todos del día de carga (`creado_at` ART), estados `pendiente`/`finalizado`, columnas comitente·tipo(`echeq`/`fisico`)·banco·importe·moneda·estado. **Der EMITIDOS**: tablero de seguimiento **sin filtro de fecha**, estados `pendiente`/`emitido`/`completado`, `fecha_pago` futura = fila **NARANJA** | `/tesoreria/cheques`, `/cheques/comitentes` | `fecha` (solo afecta a RECIBIDOS), `incluir_cerrados` | `POST`, `PUT /{id}`, `PUT /{id}/estado` (click en la celda), `DELETE /{id}` |
+| **CHEQUES** | 50/50. **Izq RECIBIDOS**: todos del día de carga (`creado_at` ART), estados `pendiente`/`finalizado`, columnas comitente·tipo(`echeq`/`fisico`)·banco·importe·moneda·estado·**fecha de pago**. Conviven carga MANUAL y **ESPEJO automático** (chip AUTO, `origen='aunesa'`) de los DEPÓSITOS de cheque del feed del COMITENTE — lo crea `jobs/tesoreria_echeq_recibidos` (cron */30 12-17 UTC = 9-14 ART, L-V) porque el back office los carga en Aunesa a la MAÑANA SIGUIENTE con la fecha del día anterior. Nacen **sin banco** (Aunesa no manda la cuenta operativa → celda «falta banco» en ámbar) y en `pendiente`; `fecha_pago` = día hábil siguiente al movimiento. El backend RECHAZA finalizar un recibido sin banco: si no, el ingreso no se imputaría a ninguna cuenta. **Der EMITIDOS**: tablero de seguimiento **sin filtro de fecha**, estados `pendiente`/`emitido`/`completado`, `fecha_pago` futura = fila **NARANJA** | `/tesoreria/cheques`, `/cheques/comitentes` | `fecha` (solo afecta a RECIBIDOS), `incluir_cerrados` | `POST`, `PUT /{id}`, `PUT /{id}/estado` (click en la celda), `DELETE /{id}` |
 | **MERCADOS** | 4 tableros del día al 50 %: bloque MERCADO (`ingreso` izq / `pago` der) y bloque FCI (`rescate` izq / `suscripcion` der). Carga manual, mismo modelo con distinto `tipo` | `/tesoreria/mercados`, `/entidades` | `fecha` (def hoy) | `POST`, `PUT /{id}`, `PUT /{id}/estado`, `DELETE /{id}`; **ABM del catálogo** mercados/FCI en modal (`DELETE` = **baja lógica**) |
 | **BANCO A BANCO** | Transferencias INTERNAS del día entre cuentas propias (débito → crédito). **Suman cero entre bancos** | `/tesoreria/banco-a-banco`, `/export-txt` | `fecha` (def hoy) | `POST`, `PUT /{id}`, `PUT /{id}/estado`, `DELETE /{id}`; botón **TXT HYGIRUS** |
 
@@ -1548,7 +1581,7 @@ saldo_final = saldo_inicial + ingresos + ingresos_echeq − egresos − egresos_
               + mercados + fci + bb_mas − bb_menos
 ```
 - `mercados = ingreso − pago`, `fci = rescate − suscripcion` (netos con signo, agregados en SQL con `CASE`).
-- Las **dos** filas e-cheq van separadas de los totales SOLO para distinguirlas: **las dos entran al saldo**. `egresos_echeq` = RIEL con código `[E CHEQ]` de Aunesa; `ingresos_echeq` = cheques RECIBIDOS **finalizados** (carga manual) — esa plata NO viene en los movimientos de Aunesa, no hay doble conteo.
+- Las **dos** filas e-cheq van separadas de los totales SOLO para distinguirlas: **las dos entran al saldo**. `egresos_echeq` = RIEL con código `[E CHEQ]` de Aunesa; `ingresos_echeq` = cheques RECIBIDOS **finalizados** (carga manual o espejo de depósitos) — esa plata NO viene en los movimientos de Aunesa, no hay doble conteo.
 - Los **registros manuales** (los dos grupos) se suman a ingresos/egresos según su sentido.
 - La grilla se calcula **SIEMPRE sobre `ESTADO_EFECTIVO = "Procesado"`** e ignora el selector ESTADO.
 - Sin carga manual el `saldo_inicial` vale **0** (no null); `saldo_cargado: bool` distingue "cargado en cero" de "sin cargar" (el front lo pinta apagado).

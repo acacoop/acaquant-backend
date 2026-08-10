@@ -1143,6 +1143,152 @@ def sincronizar_echeq_emitidos(dia: date, crudas: list[dict]) -> int:
     return max(int(n or 0), 0)
 
 
+# ── ESPEJO de los DEPÓSITOS de e-cheq (lado RECIBIDO) ────────────────────────
+# OTRA PUERTA DE AUNESA. Los e-cheq de EGRESO llegan por el feed BANCARIO
+# (`consultaMovDocsSolicitados`, el que usa toda esta vista). Los DEPÓSITOS no:
+# medido el 2026-08-10, ese feed dio 0 depósitos e-cheq en 3 días contra 20
+# extracciones. Los depósitos viven en el feed del COMITENTE
+# (`operaciones/consolidadosGenerales`) — el mismo que alimenta la vista NEGOCIO.
+_ENDPOINT_COMITENTE = "operaciones/consolidadosGenerales"
+_RE_ID_CUENTA = re.compile(r"^\[(\d+)\]")
+
+
+def _es_deposito_cheque(informacion: Any) -> bool:
+    """Regla del espejo: es un DEPÓSITO y menciona un cheque.
+
+    Las dos condiciones importan. Sin "deposito" entrarían las
+    "Extracción - ECHEQ ID: …" (que son el otro lado y ya tienen su espejo) y las
+    "Recepción ECHEQ …" (avisos de importe 0, no mueven plata). Sin "cheq"
+    entrarían los depósitos por transferencia, que no son cheques y ensuciarían
+    el tablero."""
+    n = _norm(informacion)
+    return "deposito" in n and "cheq" in n
+
+
+# `\b` al principio es lo que separa "e-cheque" de "cheques": sin él, la 'e' final
+# de "de" pegada a " cheq" hacía que "Depósito de cheques" (papel) se clasificara
+# como electrónico.
+_RE_ECHEQ_TXT = re.compile(r"\be-?cheq")
+
+
+def _tipo_cheque_recibido(informacion: Any) -> str:
+    """`echeq` vs `fisico` — la columna TIPO de la tab. 'Depósito de e-cheque' es
+    electrónico; 'Depósito de cheques' es papel."""
+    return "echeq" if _RE_ECHEQ_TXT.search(_norm(informacion)) else "fisico"
+
+
+def _cuits_por_cuenta(ids: list[str]) -> dict[str, str]:
+    """id_cuenta → CUIT. La MISMA cadena que el autocomplete del form
+    (`buscar_comitentes_cheque`), así el espejo completa lo mismo que tipearían."""
+    if not ids:
+        return {}
+    try:
+        return {
+            r["id_cuenta"]: r["nro_doc"]
+            for r in _q("SELECT id_cuenta, nro_doc FROM clientes.comitentes "
+                        " WHERE id_cuenta = ANY(%(ids)s) "
+                        "   AND upper(COALESCE(tipo_doc, '')) LIKE '%%CUIT%%'", {"ids": ids})
+            if r["nro_doc"]
+        }
+    except Exception:
+        _log.warning("tesoreria: no pude resolver CUITs del padrón", exc_info=True)
+        return {}
+
+
+def _filas_espejo_depositos(dia: date, filas_aunesa: list[dict]) -> list[dict]:
+    """Depósitos de cheque del feed del comitente → filas de cheque RECIBIDO.
+
+    `fecha_pago` = próximo día hábil del día del movimiento: el e-cheq se carga
+    con la fecha del día y la plata entra al banco al día hábil siguiente (regla
+    del back office, 2026-08-10).
+    """
+    from core.calendario import proximo_habil
+
+    candidatos = [r for r in filas_aunesa
+                  if _es_deposito_cheque(r.get("informacion")) and r.get("comprobante")]
+    if not candidatos:
+        return []
+
+    ids = []
+    for r in candidatos:
+        m = _RE_ID_CUENTA.match(str(r.get("cuenta") or ""))
+        r["_idc"] = m.group(1) if m else None
+        if r["_idc"]:
+            ids.append(r["_idc"])
+    cuits = _cuits_por_cuenta(sorted(set(ids)))
+
+    pago = proximo_habil(dia)
+    ahora = datetime.now(UTC)
+    return [{
+        # Prefijo `dep:` para que la clave de idempotencia no pueda chocar nunca
+        # con la de los EMITIDOS, que usan el `id` numérico del feed bancario.
+        "mov": f"dep:{str(r['comprobante']).strip()}",
+        "tipo": _tipo_cheque_recibido(r.get("informacion")),
+        "comitente": r.get("_idc"),
+        "denom": str(r.get("cuenta") or "").strip() or None,
+        "cuit": _solo_digitos(cuits.get(r.get("_idc") or "")),
+        # El BANCO no viene en este feed y NO se inventa: lo completa el back
+        # office cuando ve el movimiento. `set_estado_cheque` impide finalizar un
+        # recibido sin banco, así ninguna plata entra al saldo sin destino.
+        "banco": "",
+        "unidad": str(r.get("unidad") or "ARS").upper(),
+        # Aunesa manda el depósito con signo de broker (negativo) — se invierte,
+        # igual que hace el writer de la vista NEGOCIO.
+        "importe": abs(_num(r.get("total"))),
+        "fp": pago,
+        "at": ahora,
+    } for r in candidatos if _num(r.get("total")) != 0]
+
+
+def sincronizar_depositos_recibidos(dia: date, dry: bool = False) -> dict:
+    """Crea los cheques RECIBIDOS que faltan a partir de los depósitos de cheque
+    que Aunesa informa para `dia`. Lo llama `jobs/tesoreria_echeq_recibidos.py`.
+
+    NO corre en el poll de la vista (a diferencia del espejo de EMITIDOS): este
+    feed devuelve TODOS los boletos del día —miles de filas— y pagarlo en cada
+    poll de 20s haría inusable la pantalla. Por eso es un cron.
+
+    Nacen en estado `pendiente` y SIN banco: recién cuando el back office les
+    asigna la cuenta operativa y los marca `finalizado` entran a la fila
+    "Ingresos e-cheqs" de BANCOS. El espejo no mueve un peso por su cuenta.
+
+    `mov_id` es único → re-correrlo no duplica ni pisa lo que hayan editado.
+    `dry=True` no escribe: devuelve lo que crearía (para validar antes de prender
+    el cron).
+    """
+    ddmmyyyy = dia.strftime("%d/%m/%Y")
+    resp = aunesa.get(_ENDPOINT_COMITENTE, {
+        "tiposCuenta": "Comitente",
+        "concertacionDesde": ddmmyyyy,
+        "concertacionHasta": ddmmyyyy,
+    })
+    if resp.status_code == 204:
+        return {"fecha": dia.isoformat(), "candidatos": 0, "creados": 0, "filas": []}
+    if resp.status_code != 200:
+        raise RuntimeError(f"Aunesa {_ENDPOINT_COMITENTE} [{resp.status_code}]: {resp.text[:200]}")
+    body = resp.json()
+    filas = _filas_espejo_depositos(dia, body if isinstance(body, list) else [])
+
+    out = {"fecha": dia.isoformat(), "candidatos": len(filas), "creados": 0, "filas": filas}
+    if dry or not filas:
+        return out
+
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(
+            f"INSERT INTO {_TABLA_CHEQUES} (lado, tipo, comitente, comitente_denominacion, "
+            "cuit, banco, unidad, importe, estado, fecha_pago, origen, mov_id, "
+            "creado_por, creado_at) "
+            "VALUES ('recibido', %(tipo)s, %(comitente)s, %(denom)s, %(cuit)s, %(banco)s, "
+            f"%(unidad)s, %(importe)s, 'pendiente', %(fp)s, '{ORIGEN_AUNESA}', %(mov)s, "
+            f"'{ORIGEN_AUNESA}', %(at)s) "
+            "ON CONFLICT (mov_id) WHERE mov_id IS NOT NULL DO NOTHING",
+            filas,
+        )
+        out["creados"] = max(int(cur.rowcount or 0), 0)
+        conn.commit()
+    return out
+
+
 def ingresos_echeq_dia(dia: date) -> dict[tuple[str, str], float]:
     """{(banco, unidad): importe} de los RECIBIDOS finalizados ese día.
 
@@ -1275,7 +1421,8 @@ def set_estado_cheque(id_: int, estado: str, actor: str) -> dict:
     tener que reabrir la operación. Sella (o limpia) `cerrado_at` según corresponda."""
     if not puede_editar_saldo(actor):
         raise PermissionError("sin permiso para editar cheques de Tesorería")
-    filas = _q(f"SELECT lado, estado FROM {_TABLA_CHEQUES} WHERE id = %(id)s", {"id": int(id_)})
+    filas = _q(f"SELECT lado, estado, banco FROM {_TABLA_CHEQUES} WHERE id = %(id)s",
+               {"id": int(id_)})
     if not filas:
         raise ValueError(f"no existe el cheque {id_}")
     lado = filas[0]["lado"]
@@ -1284,6 +1431,14 @@ def set_estado_cheque(id_: int, estado: str, actor: str) -> dict:
     if est not in validos:
         raise ValueError(f"'estado' inválido para {lado}: {est} (válidos: {', '.join(validos)})")
     cierra = est == ESTADO_CIERRE[lado]
+    # Un RECIBIDO finalizado entra a la fila "Ingresos e-cheqs" de BANCOS agrupado
+    # POR BANCO. Los espejo (`sincronizar_depositos_recibidos`) nacen sin cuenta
+    # operativa —Aunesa no la manda— así que cerrarlo sin completarla imputaría la
+    # plata a un banco vacío y el saldo del banco real quedaría corto.
+    if cierra and lado == "recibido" and not str(filas[0].get("banco") or "").strip():
+        raise ValueError(
+            "falta el BANCO: completá la cuenta operativa (botón «editar») antes de "
+            "finalizar el cheque — si no, el ingreso no se imputa a ningún banco")
     _exec(
         f"UPDATE {_TABLA_CHEQUES} SET estado = %(e)s, cerrado_at = %(cerr)s, "
         "actualizado_por = %(por)s, actualizado_at = %(at)s WHERE id = %(id)s",

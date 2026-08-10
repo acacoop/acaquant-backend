@@ -127,6 +127,17 @@
 # Rellenar días viejos: python -m jobs.tesoreria_snapshot --fecha 2026-08-05
 50 2 * * 2-6 /root/TradingAV/deploy/run_job.sh tesoreria_snapshot 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.tesoreria_snapshot'
 
+# ─── Tesorería → espejo de DEPÓSITOS de cheque en CHEQUES → RECIBIDOS
+# Cada 30 min de 12 a 17 UTC = 9:00 a 14:30 ART, L-V. La ventana es por cómo
+# trabaja el back office: los depósitos se cargan en Aunesa A LA MAÑANA SIGUIENTE
+# con la fecha del día anterior (el 11/08 entran los fechados 10/08) y la plata
+# llega al banco ese mismo día. Por eso mira los últimos 3 días hábiles, no solo
+# hoy — es el mismo motivo por el que jobs/cashflow.py perdía los depósitos.
+# Las filas nacen SIN banco y en `pendiente`: no tocan el saldo hasta que el back
+# office les asigna la cuenta operativa y las finaliza.
+# Ver qué haría sin escribir: python -m jobs.tesoreria_echeq_recibidos --dry
+*/30 12-17 * * 1-5 /root/TradingAV/deploy/run_job.sh tesoreria_echeq_recibidos 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.tesoreria_echeq_recibidos'
+
 # ─── Operaciones desde /informes (cada 30 min, 13:30-22:00 UTC L-V)
 # Fuente de verdad de operaciones (por CONCERTACIÓN). Idempotente + lookback.
 #

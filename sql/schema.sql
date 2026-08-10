@@ -321,6 +321,11 @@ CREATE TABLE IF NOT EXISTS operaciones.ops_agregado_diario (
     actualizado_en timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (fecha, moneda_calc)
 );
+-- Huella de las expresiones con las que se calculó la fila (jobs/ops_agregado.
+-- formula_hash). Un cambio de FÓRMULA no mueve ningún `ingestado_en`, así que sin
+-- esto los días cerrados quedaban fosilizados con el cálculo viejo (incidente
+-- 2026-08-10: el fix de dolarización no llegaba a la serie histórica).
+ALTER TABLE operaciones.ops_agregado_diario ADD COLUMN IF NOT EXISTS formula_hash text;
 -- MERCADO (2026-08-03): `_ops_where` filtra por `mercado = X` en toda la vista
 -- MOVIMIENTOS y no había índice — cada filtro por mercado era un scan. Lo usa
 -- además `jobs/ops_tasa_mav.py` para encontrar los boletos MAV pendientes de tasa.

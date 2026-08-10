@@ -17,6 +17,11 @@ del agregado es por construcción el mismo que daría la query en vivo.
 Consumidor: operaciones_sql.ops_serie (historia del agregado + HOY en vivo).
 HOY nunca se lee del agregado → el intradía siempre es fresco.
 
+Un día también está sucio si cambió la FÓRMULA (`formula_hash`): el incidente
+2026-08-10 (dolarización del FCI bilateral) se arregló en `_bruto_expr` y el
+agregado siguió sirviendo los días cerrados calculados con la expresión vieja,
+porque ningún `ingestado_en` se había movido.
+
 REGLA #4: scopeado (solo días sucios), batcheado con sleep, idempotente
 (DELETE+INSERT por día), vía run_job.sh.
 
@@ -28,6 +33,7 @@ Cron sugerido: 22:15 UTC L-V (después de la última pasada de la cadena negocio
 """
 from __future__ import annotations
 
+import hashlib
 import sys
 import time
 
@@ -50,13 +56,22 @@ def _exprs(moneda: str) -> tuple[str, str, str, str]:
     return where_b, _bruto_expr(moneda), where_a, _arancel_expr(moneda)
 
 
+def formula_hash() -> str:
+    """Huella de TODAS las expresiones que producen el agregado. Si cambia una
+    coma en `_bruto_expr` / `_arancel_expr` / `_ops_where`, cambia el hash y los
+    días guardados con la fórmula anterior pasan a estar sucios."""
+    partes = [p for m in _MONEDAS for p in _exprs(m)]
+    return hashlib.sha256("|".join(partes).encode()).hexdigest()[:16]
+
+
 def _dias_sucios(cur, full: bool) -> list:
     if full:
         cur.execute("SELECT DISTINCT concertacion FROM operaciones.operaciones "
                     "WHERE concertacion IS NOT NULL ORDER BY concertacion")
         return [r[0] for r in cur.fetchall()]
     # Día sucio = tiene boletos ingresados/tocados DESPUÉS del último cálculo
-    # de ese día (o nunca calculado). ix_ops_ingestado acota el scan.
+    # de ese día (o nunca calculado), o quedó con una fórmula vieja.
+    # ix_ops_ingestado acota el scan.
     cur.execute(
         "SELECT DISTINCT o.concertacion FROM operaciones.operaciones o "
         "LEFT JOIN operaciones.ops_agregado_diario a "
@@ -64,48 +79,51 @@ def _dias_sucios(cur, full: bool) -> list:
         "WHERE o.concertacion IS NOT NULL "
         "  AND (a.fecha IS NULL OR o.ingestado_en IS NULL "
         "       OR o.ingestado_en > a.actualizado_en "
-        "       OR o.anulado_en > a.actualizado_en) "
-        "ORDER BY o.concertacion")
+        "       OR o.anulado_en > a.actualizado_en "
+        "       OR a.formula_hash IS DISTINCT FROM %s) "
+        "ORDER BY o.concertacion", (formula_hash(),))
     return [r[0] for r in cur.fetchall()]
 
 
-def _recomputar_dia(cur, dia) -> None:
+def _recomputar_dia(cur, dia, fhash: str) -> None:
     """DELETE + INSERT de las 3 variantes del día. Idempotente."""
     cur.execute("DELETE FROM operaciones.ops_agregado_diario WHERE fecha = %s", (dia,))
     for moneda in _MONEDAS:
         where_b, expr_b, where_a, expr_a = _exprs(moneda)
         cur.execute(
             f"INSERT INTO operaciones.ops_agregado_diario "
-            f"(fecha, moneda_calc, bruto, arancel, n_boletos, actualizado_en) "
+            f"(fecha, moneda_calc, bruto, arancel, n_boletos, formula_hash, actualizado_en) "
             f"SELECT %(dia)s, %(mon)s, "
             f"COALESCE((SELECT {expr_b} FROM operaciones.operaciones "
             f"          WHERE concertacion = %(dia)s AND {where_b}), 0), "
             f"COALESCE((SELECT {expr_a} FROM operaciones.operaciones "
             f"          WHERE concertacion = %(dia)s AND {where_a}), 0), "
             f"(SELECT count(*) FROM operaciones.operaciones "
-            f" WHERE concertacion = %(dia)s AND anulado_en IS NULL), now()",
-            {"dia": dia, "mon": moneda, "moneda": moneda},
+            f" WHERE concertacion = %(dia)s AND anulado_en IS NULL), %(fh)s, now()",
+            {"dia": dia, "mon": moneda, "moneda": moneda, "fh": fhash},
         )
 
 
 def run(full: bool = False) -> int:
     with JobRunLogger("ops_agregado") as jr:
         pool = get_job_pool()
+        fhash = formula_hash()
         with pool.connection() as conn, conn.cursor() as cur:
             dias = _dias_sucios(cur, full)
         jr.set_stat("dias_sucios", len(dias))
+        jr.set_stat("formula_hash", fhash)
         if not dias:
             jr.log("Agregado al día — nada que recomputar.")
             return 0
         jr.log(f"Recomputando {len(dias)} día(s) "
-               f"({dias[0]} → {dias[-1]}){' [FULL]' if full else ''}")
+               f"({dias[0]} → {dias[-1]}){' [FULL]' if full else ''} — fórmula {fhash}")
         hechos = 0
         for i in range(0, len(dias), _BATCH):
             lote = dias[i:i + _BATCH]
             with pool.connection() as conn:
                 with conn.cursor() as cur:
                     for d in lote:
-                        _recomputar_dia(cur, d)
+                        _recomputar_dia(cur, d, fhash)
                 conn.commit()
             hechos += len(lote)
             if i + _BATCH < len(dias):

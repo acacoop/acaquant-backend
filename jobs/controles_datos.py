@@ -27,6 +27,9 @@ Controles v1:
   * contrapartes_pendientes — corre el conciliador de contrapartes (Aunesa live,
                             el botón "Solicitar cuentas" de Manager) y marca si
                             hay cuentas candidatas sin dar de alta. Privado.
+  * ops_sin_tc            — boletos ARS sin `mep` en un día que SÍ tiene cotización:
+                            no se pueden dolarizar en la vista OPERACIONES
+                            (caso FCI Bilateral 2026-08).
 
 Regla del resumen: NUNCA datos de clientes → los controles con publico=False
 muestran solo conteos; el detalle queda en la tabla y en el endpoint de Manager.
@@ -237,6 +240,32 @@ def _chk_contrapartes_pendientes() -> list[dict]:
     } for c in res.get("candidatos", []) if c.get("cuenta")]
 
 
+def _chk_ops_sin_tc() -> list[dict]:
+    """Boletos ARS sin `mep` en un día que SÍ tiene cotización en el feed: la vista
+    OPERACIONES en modo DOLARIZAR no los puede convertir con su snapshot.
+
+    Es la firma del incidente 2026-08-10 (jobs/fci_bilateral insertaba sin `mep`
+    → el mercado FCI Bilateral tenía volumen ARS real y ~0 al dolarizar). El
+    service ya cae al TC del día, así que hoy no MIENTE, pero un boleto sin
+    snapshot sigue siendo una fuente de ingesta rota que hay que arreglar.
+
+    Agrupa por (mercado, mes) → pocas keys y se auto-resuelven al rellenarse.
+    Lo anterior al inicio del feed queda afuera: ahí no hay TC que estampar."""
+    rows = _q(
+        "SELECT COALESCE(NULLIF(mercado, ''), '(sin mercado)') AS mercado, "
+        "       to_char(concertacion, 'YYYY-MM') AS mes, count(*) AS n "
+        "FROM operaciones.operaciones "
+        "WHERE anulado_en IS NULL AND moneda = 'ARS' AND (mep IS NULL OR mep = 0) "
+        "  AND concertacion >= (SELECT min(timestamp)::date FROM valuaciones.dolar "
+        "                       WHERE mep IS NOT NULL AND mep > 0) "
+        "GROUP BY 1, 2 ORDER BY 2 DESC, 3 DESC")
+    return [{
+        "key": f"{r['mercado']}::{r['mes']}",
+        "detalle": (f"{r['mercado']} {r['mes']}: {r['n']} boleto(s) ARS sin TC "
+                    f"— la ingesta no estampó `mep`"),
+    } for r in rows]
+
+
 @dataclass(frozen=True)
 class Control:
     id: str
@@ -254,6 +283,8 @@ CONTROLES: list[Control] = [
             _chk_rf_valuada_x1),
     Control("simbolos_cuarentena", "Símbolos rechazados por ROFEX (cuarentena)", True,
             _chk_simbolos_cuarentena),
+    Control("ops_sin_tc", "Boletos ARS sin tipo de cambio (no se dolarizan)", True,
+            _chk_ops_sin_tc),
     Control("comitentes_sin_nivel1", "Comitentes activos sin nivel 1", False,
             _chk_comitentes_sin_nivel1),
     Control("contrapartes_pendientes", "Cuentas de contrapartes sin dar de alta", False,

@@ -27,5 +27,6 @@ Conecta con: lee TEM de Lecap y paridad de CER vía `engines._curvas_loader` (`T
 - [[engines.curvas]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.services.breakevens_admin]]  ·  _module_
 - [[api.services.debug_derivados]]  ·  _module_
 - [[svc.motor_breakevens]]  ·  _service_

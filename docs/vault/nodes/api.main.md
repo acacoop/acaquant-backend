@@ -14,7 +14,7 @@ path: api/main.py
 **Archivo:** `api/main.py`
 
 ## Qué hace
-Entrypoint de la API FastAPI (`uvicorn api.main:app`). Arma la app: monta todos los routers (`analitica`, `carteras`, `cotizaciones`, `cuentas`, `manager`, `market`, `ordenes`, `risk`, `scanner`, etc.), aplica auth global (`verify_api_key`), rate-limit (slowapi), gzip y profiling opt-in. En el `lifespan` valida la postura de auth (fail-closed en prod si falta `API_KEY`), hace warmup del pool Mongo y lanza el sampler de recursos; monta el sub-app MCP si está configurado.
+Entrypoint de la API FastAPI (`uvicorn api.main:app`). Arma la app: monta todos los routers (`analitica`, `carteras`, `cotizaciones`, `cuentas`, `manager`, `market`, `ordenes`, `risk`, `scanner`, etc.), aplica auth global (`verify_api_key`), rate-limit (slowapi), gzip y profiling opt-in. En el `lifespan` valida la postura de auth (fail-closed en prod si falta `API_KEY`), monta el sub-app MCP si está configurado.
 
 Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, todos los `api.routers.*` y `api.mcp`; pinguea ambos singletons de `core.mongo` al arrancar.
 
@@ -41,7 +41,6 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.routers.ia]]  ·  _module_
 - [[api.routers.ingest]]  ·  _module_
 - [[api.routers.manager]]  ·  _module_
-- [[api.routers.manager_resources]]  ·  _module_
 - [[api.routers.market]]  ·  _module_
 - [[api.routers.me]]  ·  _module_
 - [[api.routers.mesa_dinero]]  ·  _module_

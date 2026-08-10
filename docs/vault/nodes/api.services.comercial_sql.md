@@ -17,8 +17,11 @@ path: api/services/comercial_sql.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services]]  ·  _module_
 - [[api.services._sql]]  ·  _module_
+- [[api.services.cashflow_sql]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
+- [[config]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.carteras]]  ·  _module_

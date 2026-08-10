@@ -70,7 +70,6 @@
 "api.routers.ia",
 "api.routers.ingest",
 "api.routers.manager",
-"api.routers.manager_resources",
 "api.routers.market",
 "api.routers.me",
 "api.routers.mesa_dinero",
@@ -423,6 +422,7 @@
 "api.routers.manager.options",
 "api.routers.manager.renta_variable",
 "api.routers.manager.roles",
+"api.routers.manager.salud",
 "api.routers.manager.status",
 "api.routers.manager.users",
 "api.routers.manager.valuaciones"
@@ -757,6 +757,19 @@
 ]
 },
 {
+"id": "api.routers.manager.salud",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/salud.py",
+"summary": "api/routers/manager/salud.py — el estado del sistema en UNA sola llamada.",
+"links": [
+"api.auth",
+"api.services",
+"api.services.salud"
+]
+},
+{
 "id": "api.routers.manager.status",
 "type": "module",
 "layer": "api",
@@ -793,15 +806,6 @@
 "api.services",
 "api.services.valuaciones"
 ]
-},
-{
-"id": "api.routers.manager_resources",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/routers/manager_resources.py",
-"summary": "Endpoints de recursos del servidor para el Manager.",
-"links": []
 },
 {
 "id": "api.routers.market",
@@ -1459,8 +1463,12 @@
 "path": "api/services/breakevens_admin.py",
 "summary": "api/services/breakevens_admin.py — curaduría de pares de breakevens.",
 "links": [
+"api.cache",
 "api.services.mercado_hist_sql",
-"core.postgres"
+"core",
+"core.curvas_sql",
+"core.postgres",
+"engines.breakevens"
 ]
 },
 {
@@ -1535,6 +1543,8 @@
 "path": "api/services/cashflow_sql.py",
 "summary": "api/services/cashflow_sql.py — lecturas SQL (Supabase) de las colecciones CashFlow",
 "links": [
+"api.cache",
+"api.services._mep",
 "api.services._sql",
 "api.services.operaciones_view"
 ]
@@ -1577,8 +1587,11 @@
 "path": "api/services/comercial_sql.py",
 "summary": "api/services/comercial_sql.py — vista COMERCIAL leyendo de Postgres (Supabase).",
 "links": [
+"api.services",
 "api.services._sql",
-"api.services.comercial"
+"api.services.cashflow_sql",
+"api.services.comercial",
+"config"
 ]
 },
 {
@@ -2590,6 +2603,22 @@
 ]
 },
 {
+"id": "api.services.salud",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/salud.py",
+"summary": "api/services/salud.py — UN modelo único de CHEQUEO para toda la observabilidad.",
+"links": [
+"api.services._sql",
+"api.services.controles_sql",
+"api.services.jobs_catalogo",
+"core",
+"core.ai",
+"core.postgres"
+]
+},
+{
 "id": "api.services.scanner",
 "type": "module",
 "layer": "api",
@@ -2712,6 +2741,7 @@
 "path": "api/services/tesoreria.py",
 "summary": "api/services/tesoreria.py — Back Office → Tesorería (ingresos/egresos del día).",
 "links": [
+"api.cache",
 "api.services._sql",
 "api.services.senebis",
 "core",

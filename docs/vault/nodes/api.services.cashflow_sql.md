@@ -17,6 +17,8 @@ path: api/services/cashflow_sql.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.cache]]  ·  _module_
+- [[api.services._mep]]  ·  _module_
 - [[api.services._sql]]  ·  _module_
 - [[api.services.operaciones_view]]  ·  _module_
 
@@ -25,4 +27,5 @@ _(pendiente de enriquecimiento)_
 - [[api.services.acreencias]]  ·  _module_
 - [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
+- [[api.services.comercial_sql]]  ·  _module_
 - [[api.services.operaciones_sql]]  ·  _module_

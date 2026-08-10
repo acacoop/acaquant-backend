@@ -714,15 +714,6 @@ Endpoints leen `manager.asistente_logs`. El asistente (`/api/chat`) ya no se usa
 |---|---|---|
 | GET | `/logs?servicio=&lines=` | `journalctl` of an installed service. `servicio ∈ {api, motor_rofex, motor_curvas, motor_breakevens, motor_options, motor_dolar_mep, motor_caucion, motor_futuros_dlr, motor_ordenes, cloudflared}`. `lines ≤ 1000`. Light cache. |
 
-#### 7.14.8 Resources
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/resources` | Snapshot: system (CPU%, load avg, memory, swap, disk, uptime) + per-process (`api`, `motor_*`, `cloudflared`) |
-| GET | `/resources/history?limit=60` | Up to 180 snapshots from the in-memory sampler (1/min, 3 h window) |
-
-The sampler is an `asyncio.Task` started in the FastAPI `lifespan`; it survives across requests and stops cleanly on shutdown.
-
 #### 7.14.9 Intel ingest
 
 PDF or pasted-text reports → Gemini JSON-mode extracts 12 macro variables → the last confirmed `IntelDoc` is injected into the assistant context.
@@ -889,7 +880,6 @@ api/
     │   ├── logs.py
     │   ├── users.py
     │   └── roles.py
-    ├── manager_resources.py     # /api/manager/resources*(adm)
     ├── market.py                # /api/market/*          (pub)
     ├── me.py                    # /api/me                (own)
     ├── news.py                  # /api/news*             (pub)

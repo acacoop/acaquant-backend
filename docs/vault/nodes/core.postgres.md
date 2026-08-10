@@ -86,6 +86,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.research_sql]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
 - [[api.services.rv_motor]]  ·  _module_
+- [[api.services.salud]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
 - [[api.services.scanner_sql]]  ·  _module_
 - [[api.services.segmentacion]]  ·  _module_

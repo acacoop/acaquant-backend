@@ -45,6 +45,7 @@ Conecta con: `api.auth::require_module` / `require_any_module` + `api.deps::veri
 - [[api.routers.manager.options]]  ·  _module_
 - [[api.routers.manager.renta_variable]]  ·  _module_
 - [[api.routers.manager.roles]]  ·  _module_
+- [[api.routers.manager.salud]]  ·  _module_
 - [[api.routers.manager.status]]  ·  _module_
 - [[api.routers.manager.users]]  ·  _module_
 - [[api.routers.manager.valuaciones]]  ·  _module_

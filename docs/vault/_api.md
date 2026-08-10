@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-201 notas.
+202 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -54,10 +54,10 @@
 - [[api.routers.manager.options]] — GET/PUT /api/manager/options/expiries — config del engine de opciones (SQL-native).
 - [[api.routers.manager.renta_variable]] — Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia + ric).
 - [[api.routers.manager.roles]] — Manager sub-router — matriz de roles + audit log.
+- [[api.routers.manager.salud]] — api/routers/manager/salud.py — el estado del sistema en UNA sola llamada.
 - [[api.routers.manager.status]] — GET /api/manager/status — estado unificado de motores y jobs batch.
 - [[api.routers.manager.users]] — Manager sub-router — CRUD de usuarios.
 - [[api.routers.manager.valuaciones]] — Manager · Valuaciones — debug XIRR mensual.
-- [[api.routers.manager_resources]] — Endpoints de recursos del servidor para el Manager.
 - [[api.routers.market]] — Router Market: watchlist quotes, titulares Eikon, candles históricos.
 - [[api.routers.me]] — Router /api/me — identidad del caller.
 - [[api.routers.mesa_dinero]] — Router MESA DE DINERO — /api/mesa-dinero (vista NEGOCIO → /mesa-dinero).
@@ -189,6 +189,7 @@
 - [[api.services.research_sql]] — api/services/research_sql.py — lectura del research diario (mails de 1816) para
 - [[api.services.risk]] — Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.services.rv_motor]] — api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).
+- [[api.services.salud]] — api/services/salud.py — UN modelo único de CHEQUEO para toda la observabilidad.
 - [[api.services.scanner]] — api/services/scanner.py — vista Scanner del módulo Renta Variable.
 - [[api.services.scanner_sql]] — api/services/scanner_sql.py — vista Scanner (Renta Variable) leyendo Postgres.
 - [[api.services.segmentacion]] — Clasificación patrimonial de clientes (escribe a `Clientes.Comitentes.nivel_3`).

@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **437 endpoints** montados en `api.main.app`, en **28 routers**.
-- **136 escriben** (POST/PUT/PATCH/DELETE); 301 son de solo lectura.
+- **435 endpoints** montados en `api.main.app`, en **28 routers**.
+- **136 escriben** (POST/PUT/PATCH/DELETE); 299 son de solo lectura.
 - **22 módulos** canónicos y **6 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -57,7 +57,7 @@
 | `/api/estrategia` | 4 | 0 | `trading` | — |  |
 | `/api/ia` | 11 | 5 | `ia` · 10 rutas con gate extra | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 130 | 57 | varía por ruta (todas gateadas) | `manager` |  |
+| `/api/manager` | 128 | 57 | varía por ruta (todas gateadas) | `manager` |  |
 | `/api/market` | 4 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 9 | 4 | `operaciones` · 5 rutas con gate extra | `operaciones` |  |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
@@ -398,9 +398,8 @@ Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el brie
 
 ### 3.4 Sub-pills de Manager (segundo nivel, todas persistidas)
 
-- **OBSERVABILIDAD** (`manager.obs.sub`, def `controles`): **CONTROLES** (badge `!n`) · DIAGNÓSTICO · JOBS · BASE · LATENCIA · **IA** (solo con módulo `ia`).
-  - DIAGNÓSTICO (`manager.diag.sub`): **ÁRBOL** · RECURSOS · LOGS.
-  - JOBS (`manager.jobs.sub`): **catálogo** · historial.
+- **OBSERVABILIDAD** (`manager.obs.sub.v2`, def `salud`): **SALUD** · DIAGNÓSTICO · BASE · LATENCIA · **IA** (solo con módulo `ia`). CONTROLES y JOBS ya no tienen pill propia: su contenido vive DENTRO del chequeo en SALUD.
+  - DIAGNÓSTICO (`manager.diag.sub`): **ÁRBOL** · LOGS. RECURSOS (CPU/RAM/disk del Droplet) se ELIMINÓ 2026-08-10 junto con su router y el sampler de fondo: eran métricas crudas que no respondían si el sistema estaba sano — esa pregunta la contesta SALUD.
 - **VALIDACIONES** (`manager.valid.sub`): **VALIDACIONES** · OPCIONES VTO · DEBUG XIRR · DEBUG TEA.
 - **TÍTULOS**: INSTRUMENTOS (con `manager_instrumentos`) · ASSETS · BONOS · BREAKEVENS · RENTA VARIABLE (estas 4 requieren el maestro). Dentro del alta de bonos, toggle de destino `Renta Fija` / `ONs`.
 - **CLIENTES** (`manager.cli.subtab`, def `segmentacion`): **SEGMENTACIÓN** · CONTROL AUTO · SIN OPERADOR · FONDEOS (solo con `canBulk`).
@@ -1649,12 +1648,12 @@ handler**, explícitamente para que `scripts/audit_rbac.py` los vea (y los servi
 - **Roles**: `admin` (todo) y `asistente_comercial` (entra por `manager_clientes`, `manager_instrumentos`, `manager_contrapartes`, `manager_aunesa` — sin el umbrella).
 - **Front**: `manager/page.tsx` (404 si el user no tiene ninguno de `["manager","manager_clientes","manager_clientes_bulk","manager_titulos"]`) → `manager-view.tsx` + 24 paneles.
 - **Proxy**: catch-all con GET/POST/PATCH/PUT/DELETE, `maxDuration = 90 s` (los backfills largos se cortan ahí; por eso el front batchea y reintenta con backoff ×3). Devuelve **502 `{error}`** ante cualquier excepción y reenvía el status del backend tal cual.
-- **Router**: paquete `api/routers/manager/` (27 sub-routers) + `api/routers/manager_resources.py` (fuera del paquete, mismo prefix).
+- **Router**: paquete `api/routers/manager/` (27 sub-routers). `manager_resources.py` (CPU/RAM del Droplet, fuera del paquete) se ELIMINÓ 2026-08-10 junto con la tab RECURSOS.
 
 #### Gates por sub-router
 | Constante | Módulos que habilitan (OR) | Sub-routers |
 |---|---|---|
-| `_MGR` | `manager` | status, latencia, controles, diagnostico, checks, jobs, options, logs, users, roles, grupos, aunesa, valuaciones, operaciones, documentos, mesa, **+ manager_resources (declarado en `main.py`)** |
+| `_MGR` | `manager` | status, latencia, controles, diagnostico, checks, jobs, options, logs, users, roles, grupos, aunesa, valuaciones, operaciones, documentos, mesa, salud |
 | `_CLIENTES` | `manager` ∨ `manager_clientes` | clientes.router, aca_valores, control_automatico |
 | `_CLIENTES_BULK` | `manager` ∨ `manager_clientes_bulk` | clientes.bulk_router |
 | `_TITULOS` | `manager` ∨ `manager_titulos` | assets, ons, bonos, breakevens, renta_variable |
@@ -1665,9 +1664,9 @@ handler**, explícitamente para que `scripts/audit_rbac.py` los vea (y los servi
 #### Tabs (11 top-level, 36 hojas)
 | Tab / hoja | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
+| **OBS → SALUD** (default) | Un veredicto único + un chequeo por job / dato / control (peor primero; lo verde oculto salvo toggle). Cada fila se despliega con evidencia, diagnóstico IA, detalle crudo (corridas con log · fechas cargadas · anomalías) e historial de transiciones. **La misma fila y el mismo detalle se renderizan en el mini-panel del botón SALUD de la barra inferior** (`salud-chequeo.tsx`, compartido): desde ahí también se despliega y se silencia, sin pasar por Manager | `GET /salud`, `/salud/detalle`, `/salud/diagnostico`, `/salud/historial` | toggle "ver también lo que está bien" | **PUT `/salud/alerta`** (silenciar / reactivar un chequeo) · **POST `/salud/vistos`** (el "entendido" del modal) |
 | **OBS → CONTROLES** | 6 controles de calidad de datos (FORWARDS, RF SIN TASA, CARTERAS, ROFEX, NIVEL 1, CONTRAPARTES) con items activos/resueltos, antigüedad y botón "ir a la tab donde se corrige". Badge `!N` | `GET /controles?resueltos_dias=7` (y `=0` para el badge); `POST /jobs/run` `tipo=controles_datos` + polling | sub-tab por control; toggle activos/resueltos; `resueltos_dias` (0–90) | **"CORRER AHORA"** dispara `jobs.controles_datos`. Auto-ejecuta solo si la última corrida tiene >60 min |
 | **OBS → DIAG → ÁRBOL** | Árbol de salud por VISTA (HOME/OPERAR/MERCADOS/NEGOCIO/BACK OFFICE/PORTFOLIOS) con motores/jobs/APIs, cadencia, "hace", última corrida y badge OK/LENTO/ATRASADO/CRÍTICO/FUERA RUEDA/SIN DATOS. Auto-refresh 10s | `GET /diagnostico` | colapsar/expandir por vista (localStorage) | ninguna |
-| **OBS → DIAG → RECURSOS** | CPU/RAM/swap/disk/load del Droplet + RSS y CPU por proceso (motores derivados de `deploy/systemd/*.service`) + serie histórica | `GET /resources`, `/resources/history?limit=60` | `limit` (1–180 muestras) | ninguna |
 | **OBS → DIAG → LOGS** | journalctl de los servicios systemd (motores + `api` + `cloudflared`), o TODOS mezclados cronológicamente | `GET /logs/services`, `GET /logs?servicio=&lines=` | dropdown SERVICIO (incl. `__todos__`), líneas (1–500), botones ALL/WARN/ERROR, buscador client-side, toggle auto-refresh | ninguna |
 | **OBS → JOBS → CATÁLOGO** | TODOS los crons parseados de `deploy/crontab.txt` **en runtime** + último run por módulo; marca SIN REGISTRO a los no instrumentados | `GET /jobs/catalogo` | buscador client-side | ninguna |
 | **OBS → JOBS → HISTORIAL** | Historial crudo de corridas + stats por tipo | `GET /jobs/history`, `/jobs/history/stats` | TIPO, STATUS (`ok`/`partial`/`error`), `desde`/`hasta`, `limit` ≤500 | ninguna |
@@ -1715,7 +1714,7 @@ cualquier otro nombre → 400; cache 2s) · `users`(4) · `roles`(3) · `grupos`
 `import_tenencia`(3) · `clientes.router`(4) · `clientes.bulk_router`(3) · `aca_valores`(4) ·
 `control_automatico`(2) · `assets`(5, incluye **`PATCH /assets/{unidad}` DEPRECATED** que delega —
 rompía con caracteres especiales URL-encoded) · `ons`(10) · `bonos`(6) · `breakevens`(2) ·
-`renta_variable`(5) · `instrumentos`(2) · `contrapartes`(6) · `manager_resources`(2).
+`renta_variable`(5) · `instrumentos`(2) · `contrapartes`(6).
 **Total declarado en el relevamiento: 121** (la suma de sus propias tablas da **122** — 1 de diferencia
 sin reconciliar).
 
@@ -1743,7 +1742,6 @@ sin reconciliar).
 - **La pill IA solo aparece con el módulo `ia`** pero los 5 endpoints son `require_admin` → un rol con `ia` sin admin **ve la pill y recibe 403** (divergencia deliberada: la observabilidad expone conversaciones ajenas).
 - **AUNESA con `manager_aunesa` sin `manager`** colapsa a una sola sub-vista: `AunesaGroup` fuerza `subEff="importar"`.
 - `import_tenencia.py` conserva un modelo `_Row`/`_ImportReq` **sin usar** (residuo del endpoint viejo que escribía la colección Mongo `Valuaciones.AuM`).
-- `manager_resources.py` **comparte el prefix pero no está en el paquete**: su gate es `require_module("manager")` puro en `main.py`.
 
 ---
 
@@ -2241,7 +2239,6 @@ GET `/research-bcra/bloques` · `/research-bcra/series` · `/research-fred/bloqu
 | `renta_variable` | `manager` ∨ `manager_titulos` | GET `/renta-variable` · `/renta-variable/rubros` · **POST `/renta-variable/rubro`** ✍ · **PATCH `/renta-variable`** ✍ · **DELETE `/renta-variable`** ✍ | 3 |
 | `instrumentos` | + `manager_instrumentos` | GET `/checks/discovery-pyrofex` · `/checks/instruments-by-cfi` | — |
 | `contrapartes` | `manager` ∨ `manager_contrapartes` | GET `/contrapartes` · `/contrapartes/segmentos` · `/contrapartes/reconcile` · **PATCH `/contrapartes`** ✍ · **POST `/contrapartes`** ✍ · **POST `/contrapartes/import`** ✍ | 3 |
-| `manager_resources` | `manager` (en `main.py`) | GET `/resources` · `/resources/history` | — |
 
 **Total de escrituras en Manager: 51.**
 

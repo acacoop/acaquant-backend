@@ -26,6 +26,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
+- [[api.services.breakevens_admin]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_

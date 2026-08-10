@@ -24,7 +24,6 @@ python-multipart==0.0.27  # file upload en /api/manager/intel/* (0.0.27 fixea CV
 pypdf==6.10.2  # parser de PDFs para ingesta de reportes
 feedparser==6.0.12  # ingesta de RSS para jobs/news_ingesta.py
 trafilatura==2.0.0  # extracción de texto limpio de artículos (reader mode)
-psutil==7.2.2  # métricas de sistema (CPU/RAM/swap) para /manager/resources
 slowapi==0.1.9  # rate-limit por usuario en /api/chat y /manager/jobs/run
 pyjwt[crypto]==2.12.1  # validación de JWT de Cloudflare Access
 email-validator==2.3.0  # requerido por pydantic.EmailStr en /api/manager/users

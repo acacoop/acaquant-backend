@@ -42,6 +42,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.manager.mesa]]  ·  _module_
 - [[api.routers.manager.ons]]  ·  _module_
 - [[api.routers.manager.operaciones]]  ·  _module_
+- [[api.routers.manager.salud]]  ·  _module_
 - [[api.routers.manager.valuaciones]]  ·  _module_
 - [[api.routers.market]]  ·  _module_
 - [[api.routers.mesa_dinero]]  ·  _module_
@@ -65,6 +66,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
+- [[api.services.comercial_sql]]  ·  _module_
 - [[api.services.copiloto.agro]]  ·  _module_
 - [[api.services.copiloto.ayuda]]  ·  _module_
 - [[api.services.copiloto.home]]  ·  _module_

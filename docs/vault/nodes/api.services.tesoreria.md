@@ -17,6 +17,7 @@ path: api/services/tesoreria.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.cache]]  ·  _module_
 - [[api.services._sql]]  ·  _module_
 - [[api.services.senebis]]  ·  _module_
 - [[core]]  ·  _module_

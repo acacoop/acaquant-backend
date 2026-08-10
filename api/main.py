@@ -8,7 +8,6 @@ Auth:
     Authorization: Bearer <API_KEY>.
     Si API_KEY no está definida en .env, auth está desactivada (modo dev).
 """
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -41,7 +40,6 @@ from api.routers import (
     ia,
     ingest,
     manager,
-    manager_resources,
     market,
     me,
     mesa_dinero,
@@ -122,41 +120,20 @@ def _validar_postura_auth() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Sampler de recursos.
+    """Arranque/parada de la API: valida la postura de auth y, si MCP está
+    configurado (token estático o JWT secret), levanta su session manager.
 
-    Sampler: task background que toma snapshot de CPU/RAM/procesos cada
-    60s para alimentar /api/manager/resources/history.
+    Ya no hay tasks de fondo acá: el sampler de recursos del Droplet se eliminó
+    junto con la tab RECURSOS (la salud del sistema vive en OBSERVABILIDAD → SALUD).
     """
     _validar_postura_auth()
 
-    sampler_task = asyncio.create_task(manager_resources.resources_sampler_loop(interval_s=60))
-
-    background_tasks = [sampler_task]
-
-    async def _shutdown_bg():
-        for t in background_tasks:
-            t.cancel()
-        for t in background_tasks:
-            try:
-                await t
-            except asyncio.CancelledError:
-                pass
-
-    # Si MCP está configurado (con token estático o JWT secret), levantamos
-    # su session manager dentro del mismo lifespan. Si nada está
-    # configurado, no se monta y se saltea.
     if MCP_BEARER_TOKEN or MCP_JWT_SECRET:
         from api.mcp.server import mcp as mcp_server
         async with mcp_server.session_manager.run():
-            try:
-                yield
-            finally:
-                await _shutdown_bg()
-    else:
-        try:
             yield
-        finally:
-            await _shutdown_bg()
+    else:
+        yield
 
 
 # Swagger/ReDoc/openapi.json: ABIERTOS en dev, CERRADOS en prod. No llevan
@@ -280,11 +257,10 @@ _OPERACIONES  = [Depends(verify_api_key), Depends(require_module("operaciones"))
 _TRADING      = [Depends(verify_api_key), Depends(require_module("trading"))]
 # Módulo `ia` (QuantAI): features de IA — canary via matriz (default solo admin).
 _IA           = [Depends(verify_api_key), Depends(require_module("ia"))]
-# `manager.router` ya NO va con _MANAGER global: gatear todo /api/manager/*
-# con el módulo `manager` excluye a `asistente_comercial` (que solo tiene
-# `manager_comercial` y `manager_clientes`). El gate ahora vive POR sub-router
-# en `api/routers/manager/__init__.py`. Acá dejamos solo el bearer base.
-_MANAGER      = [Depends(verify_api_key), Depends(require_module("manager"))]
+# `manager.router` ya NO va con un gate `manager` global: gatear todo
+# /api/manager/* con ese módulo excluye a `asistente_comercial` (que solo tiene
+# `manager_comercial` y `manager_clientes`). El gate vive POR sub-router en
+# `api/routers/manager/__init__.py`; acá abajo va solo la base fail-closed.
 
 # Públicos (todos los roles tienen home/renta-fija/derivados/estrategia):
 app.include_router(me.router)                                      # /api/me — sin gate (identidad propia)
@@ -344,8 +320,6 @@ _MANAGER_BASE = [
     )),
 ]
 app.include_router(manager.router,           dependencies=_MANAGER_BASE)
-# manager_resources (system monitoring): admin-only, mantiene gate `manager`.
-app.include_router(manager_resources.router, dependencies=_MANAGER)
 
 
 @app.get("/api/health")

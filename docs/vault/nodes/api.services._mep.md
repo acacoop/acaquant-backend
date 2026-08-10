@@ -23,6 +23,7 @@ Conecta con: lee `Valuaciones.Dolar` (poblada por el script de PC oficina); lo u
 - [[core.dolar_sql]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.services.cashflow_sql]]  ·  _module_
 - [[api.services.operaciones_informes]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
 - [[api.services.pnl_sql]]  ·  _module_

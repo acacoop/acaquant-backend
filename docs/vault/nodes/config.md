@@ -32,6 +32,7 @@ Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_sessi
 - [[api.routers.ingest]]  ·  _module_
 - [[api.services.aunesa_negocio]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
+- [[api.services.comercial_sql]]  ·  _module_
 - [[api.services.estrategia]]  ·  _module_
 - [[core.aunesa]]  ·  _module_
 - [[core.finnhub]]  ·  _module_

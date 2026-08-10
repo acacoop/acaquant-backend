@@ -17,8 +17,12 @@ path: api/services/breakevens_admin.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.cache]]  ·  _module_
 - [[api.services.mercado_hist_sql]]  ·  _module_
+- [[core]]  ·  _module_
+- [[core.curvas_sql]]  ·  _module_
 - [[core.postgres]]  ·  _module_
+- [[engines.breakevens]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.breakevens]]  ·  _module_

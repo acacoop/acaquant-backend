@@ -45,6 +45,7 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 - [[api.routers.manager.mesa]]  ·  _module_
 - [[api.routers.manager.ons]]  ·  _module_
 - [[api.routers.manager.roles]]  ·  _module_
+- [[api.routers.manager.salud]]  ·  _module_
 - [[api.routers.manager.users]]  ·  _module_
 - [[api.routers.me]]  ·  _module_
 - [[api.routers.mesa_dinero]]  ·  _module_

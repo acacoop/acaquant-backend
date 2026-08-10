@@ -52,16 +52,107 @@ def _f(x) -> float:
     return float(x or 0)
 
 
-# ── MOVIMIENTOS (vista FLUJOS) — espejo de operaciones.py::listar_flujos ─────
+# Categorías de `negocio_movimientos` que SON un flujo de fondos. Son las mismas
+# tres palabras que usa el writer viejo (jobs/cashflow.py::PALABRAS_CLAVE), pero
+# ya resueltas a categoría por api/services/aunesa_negocio.py::categorizar.
+_CATS_FLUJO = ("deposito", "transferencia", "extraccion")
+
+
+# ── MOVIMIENTOS (vista FLUJOS) ───────────────────────────────────────────────
 def listar_flujos(
     cuenta: str | None = None, unidad: str | None = None,
     desde: str | None = None, hasta: str | None = None,
     scope: tuple[str, ...] | None = None,
 ) -> list[dict]:
-    """Depósitos/extracciones/transferencias (operaciones.movimientos). Mismo shape y
-    orden que el path Mongo: comprobante→boleto, total→bruto, fecha(dd/mm/yyyy)→
-    concertacion(iso). El rango de fechas y el orden se resuelven en Python (la fecha
-    está cruda en dd/mm/yyyy). El router ya verificó el scope sobre `cuenta`."""
+    """Depósitos/extracciones/transferencias. Shape estable: comprobante→boleto,
+    importe→bruto, fecha→concertacion(iso). El router ya verificó el scope.
+
+    DOS FUENTES, y no es por gusto (2026-08-10). Las dos salen del MISMO endpoint
+    de Aunesa (`consolidadosGenerales`), pero las ingiere gente distinta:
+
+      * `operaciones.negocio_movimientos` — la ingiere `jobs/negocio_movimientos`
+        cada 30' CON LOOKBACK de 2 días hábiles y PK (fecha, comprobante).
+      * `operaciones.movimientos` — la ingiere `jobs/cashflow` 1×/día a las 23 ART,
+        mira SOLO ese día y no vuelve nunca, con PK `comprobante` a secas.
+
+    Medido el 2026-08-10: el 06/08 Aunesa tenía 66 comprobantes para ese día y el
+    job de cashflow, cuando corrió, vio 58 → en la tabla quedaron 57. Los ~15
+    ausentes de esos dos días eran TODOS depósitos (e-cheque, cheques, común) por
+    ~22.400 millones de ARS, y encima daban vuelta el signo del día: la vista
+    mostraba −10.902 M donde el flujo real era +7.919 M. La cobertura de depósitos
+    de `movimientos` viene en 61-67% desde abril; la de `negocio_movimientos`, 100%.
+
+    Por eso `negocio_movimientos` es la fuente PRINCIPAL y `movimientos` queda de
+    COMPLEMENTO: se le suma únicamente lo que tenga un `comprobante` que la
+    principal no traiga. Así el cambio no puede mostrar MENOS que antes — solo más
+    — y no hace falta backfillear ni tocar un dato. Cuando el complemento deje de
+    aportar filas (verificable con un COUNT), se borra `jobs/cashflow.py` + la tabla.
+    """
+    principal = _flujos_negocio(cuenta, unidad, desde, hasta, scope)
+    vistos = {r["boleto"] for r in principal}
+    complemento = [r for r in _flujos_legacy(cuenta, unidad, desde, hasta, scope)
+                   if r["boleto"] not in vistos]
+    out = principal + complemento
+    out.sort(key=lambda r: r["concertacion"] or "")
+    return out
+
+
+def _flujos_negocio(
+    cuenta: str | None, unidad: str | None, desde: str | None, hasta: str | None,
+    scope: tuple[str, ...] | None,
+) -> list[dict]:
+    """Fuente PRINCIPAL: `operaciones.negocio_movimientos` (lookback + PK completa).
+
+    `fecha` acá es un `date` de verdad (no el text dd/mm/yyyy de la tabla vieja),
+    así que el rango va en SQL sin regex. El scope filtra por `id_cuenta`, que está
+    materializado e indexado — no hace falta el regex sobre el string `cuenta`.
+    `anulado_en IS NULL` descarta los boletos que Aunesa dio de baja (la tabla vieja
+    no tiene ese concepto: un anulado se queda ahí para siempre)."""
+    conds = ["categoria = ANY(%(cats)s)", "anulado_en IS NULL"]
+    p: dict = {"cats": list(_CATS_FLUJO)}
+    if cuenta:
+        conds.append("cuenta = %(cuenta)s")
+        p["cuenta"] = cuenta
+    elif scope is not None:
+        if not scope:
+            return []  # scope vacío = no ve nada
+        conds.append("id_cuenta = ANY(%(scope)s)")
+        p["scope"] = [str(s) for s in scope]
+    if unidad:
+        conds.append("moneda = %(unidad)s")
+        p["unidad"] = unidad
+    if desde:
+        conds.append("fecha >= %(f_desde)s")
+        p["f_desde"] = desde
+    if hasta:
+        conds.append("fecha <= %(f_hasta)s")
+        p["f_hasta"] = hasta
+
+    rows = _q(
+        "SELECT comprobante, cuenta, fecha, informacion, importe, moneda "
+        "  FROM negocio_movimientos WHERE " + " AND ".join(conds), p,
+    )
+    out = []
+    for d in rows:
+        f = d.get("fecha")
+        out.append({
+            "boleto":       d.get("comprobante"),
+            "concertacion": f.isoformat() if hasattr(f, "isoformat") else (str(f) if f else None),
+            "cuenta":       d.get("cuenta"),
+            "informacion":  d.get("informacion"),
+            "bruto":        _f(d.get("importe")) if d.get("importe") is not None else None,
+            "unidad":       d.get("moneda"),
+        })
+    return out
+
+
+def _flujos_legacy(
+    cuenta: str | None, unidad: str | None, desde: str | None, hasta: str | None,
+    scope: tuple[str, ...] | None,
+) -> list[dict]:
+    """Fuente de COMPLEMENTO: `operaciones.movimientos` (la tabla vieja). Se conserva
+    tal cual estaba para no perder nada que la principal no traiga — ver el docstring
+    de `listar_flujos`."""
     conds: list[str] = []
     p: dict = {}
     if cuenta:

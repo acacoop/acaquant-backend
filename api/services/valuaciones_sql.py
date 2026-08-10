@@ -12,7 +12,11 @@ Pendiente: consolidado (es un cache iterativo, ver jobs/consolidado_cuentas + ta
 """
 from __future__ import annotations
 
+import logging
+
 from api.services._sql import _q
+
+logger = logging.getLogger("api.valuaciones")
 
 
 def _f(x) -> float:
@@ -29,7 +33,8 @@ def _iso(d) -> str | None:
 
 
 def _vacio(id_cuenta: str, fecha: str | None) -> dict:
-    return {"id_cuenta": id_cuenta, "fecha": fecha, "posiciones": [], "total": 0.0, "n": 0}
+    return {"id_cuenta": id_cuenta, "fecha": fecha, "posiciones": [], "total": 0.0, "n": 0,
+            "pnl_disponible": False, "costo_total": 0.0, "pnl_total": 0.0, "pnl_detalle": {}}
 
 
 def _resolver_fecha(id_cuenta: str, fecha: str | None, asof: bool) -> str | None:
@@ -92,11 +97,15 @@ def serie_valor_cuenta(id_cuenta: str, desde: str | None = None,
 
 
 def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
-                        cartera: str | None = None, asof: bool = False) -> dict:
+                        cartera: str | None = None, asof: bool = False,
+                        con_pnl: bool = False) -> dict:
     """Posiciones de un fecha_snapshot dado — SQL. Mismo shape que valuaciones.py.
 
     `tipo` (tipoTitulo) no existe en tenencia → None. `vencimiento` no está en la tabla
     assets SQL → None. El resto (ticker/emisor/clase/cartera/calificación) sale del JOIN.
+
+    `con_pnl` adjunta el cost-basis por título (ver `_enriquecer_con_pnl`). Cuesta una
+    corrida del motor de PnL, así que va apagado por defecto.
     """
     fecha = _resolver_fecha(id_cuenta, fecha, asof)
     if fecha is None:
@@ -129,7 +138,7 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
 
     ordenadas = sorted(by_unidad.values(), key=lambda x: -x["valuacion"])
     total = sum(x["valuacion"] for x in ordenadas)
-    return {
+    resp = {
         "id_cuenta": id_cuenta,
         "fecha": fecha,
         "posiciones": [
@@ -146,12 +155,65 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
                 "precio":       round(x["precio"], 4),
                 "valuacion":    round(x["valuacion"], 2),
                 "share":        round(x["valuacion"] / total * 100, 2) if total else None,
+                "costo":        None,
+                "pnl":          None,
+                "gan_pct":      None,
             }
             for x in ordenadas
         ],
         "total": round(total, 2),
         "n":     len(ordenadas),
+        "pnl_disponible": False,
+        "costo_total":    0.0,
+        "pnl_total":      0.0,
+        "pnl_detalle":    {},
     }
+    if con_pnl:
+        _enriquecer_con_pnl(resp, id_cuenta)
+    return resp
+
+
+def _enriquecer_con_pnl(resp: dict, id_cuenta: str) -> None:
+    """Adjunta cost-basis y PnL por título a las posiciones (join por `unidad`).
+
+    El motor de PnL calcula SIEMPRE contra el último AuM: cruzarlo con una tenencia
+    histórica daría números sin sentido, así que solo enriquece si la fecha pedida es
+    el último snapshot. `pnl_detalle` va indexado por `unidad` con los rows completos
+    (incluyen boletos) para que la auditoría por título no obligue a una segunda
+    corrida del motor.
+
+    Falla blando: si el motor rompe, las posiciones se devuelven igual sin PnL.
+    """
+    if resp["fecha"] != _resolver_fecha(id_cuenta, None, False):
+        return
+    from api.services import pnl_sql
+    try:
+        rows = (pnl_sql.pnl_por_cuenta_sql(id_cuenta=id_cuenta) or {}).get("rows") or []
+    except Exception:
+        logger.exception("posiciones_actuales: PnL falló, id_cuenta=%s", id_cuenta)
+        return
+
+    por_unidad = {r["unidad"]: r for r in rows if r.get("unidad")}
+    costo_total = 0.0
+    pnl_total = 0.0
+    for p in resp["posiciones"]:
+        r = por_unidad.get(p["unidad"])
+        if r is None:
+            continue
+        costo = _f(r.get("costo_remanente"))
+        # Mismo criterio que PNL TÍTULOS: no realizado + cobros pasivos. El realizado
+        # histórico queda afuera hasta que exista su vista.
+        val = _f(r.get("pnl_no_realizado")) + _f(r.get("pnl_pasivo"))
+        p["costo"] = round(costo, 2)
+        p["pnl"] = round(val, 2)
+        p["gan_pct"] = round(val / costo * 100, 2) if costo > 0 else None
+        costo_total += costo
+        pnl_total += val
+
+    resp["pnl_disponible"] = True
+    resp["costo_total"] = round(costo_total, 2)
+    resp["pnl_total"] = round(pnl_total, 2)
+    resp["pnl_detalle"] = por_unidad
 
 
 def variacion_titulos(id_cuenta: str, fecha: str) -> dict:

@@ -139,12 +139,18 @@ def get_posiciones_actuales(
         None,
         description="YYYY-MM-DD. Si se omite, usa el último fecha_snapshot.",
     ),
+    con_pnl: bool = Query(
+        False,
+        description="Adjunta cost-basis y PnL por título (solo si la fecha es el "
+                    "último snapshot). Cuesta una corrida del motor de PnL.",
+    ),
 ):
     """Posiciones de un fecha_snapshot dado — por default, el más
     reciente. Pasar fecha=YYYY-MM-DD para ver una fecha histórica
     (driven por el click en la tabla mensual de /valuaciones).
 
-    Pure AuM read, sin cost basis ni PnL.
+    Pure AuM read; con `con_pnl=true` suma costo/PnL/gan% por título y el
+    detalle (boletos) que consume el panel de AUDITORÍA de CARTERAS.
     """
     _validate_id_cuenta(id_cuenta)
     if fecha:
@@ -156,7 +162,9 @@ def get_posiciones_actuales(
             raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
     try:
         from api.services import valuaciones_sql as svc_sql
-        return svc_sql.posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha, asof=True)
+        return svc_sql.posiciones_actuales(
+            id_cuenta=id_cuenta, fecha=fecha, asof=True, con_pnl=con_pnl,
+        )
     except Exception as e:
         logger.exception(
             "valuaciones posiciones-actuales failed: id_cuenta=%s fecha=%s",

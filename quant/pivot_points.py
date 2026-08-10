@@ -256,7 +256,10 @@ def obtener_4_timeframes(ticker: str) -> dict:
     docs = _sql_docs_en_rango(ticker, anual_desde, manana)
 
     def _en(desde: datetime, hasta: datetime) -> list[dict]:
-        return [d for d in docs if desde <= d["fecha"] < hasta]
+        # Por DATE: los rangos son aware (UTC) y `fecha` de los docs es naive —
+        # compararlos como datetime tira TypeError y se cae TODO el cálculo.
+        d0, d1 = desde.date(), hasta.date()
+        return [d for d in docs if d0 <= d["fecha"].date() < d1]
 
     def _frame_de(label: str, desde: datetime, hasta: datetime,
                   solo_ultima: bool = False) -> dict | None:

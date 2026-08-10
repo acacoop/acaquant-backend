@@ -119,12 +119,12 @@ def clientes_values() -> dict:
     values: dict[str, list[str]] = {
         f: sorted(str(v) for v in (agg[f] or [])) for f in _EDITABLE_FIELDS
     }
+    # El catálogo manda, no la cartera: un operador nuevo todavía sin clientes
+    # también se puede elegir (antes la lista salía de comitentes → nunca
+    # aparecía y no había forma de asignarle la primera cuenta).
     operadores = [
-        {"email": r["operador_email"], "nombre": r["nombre"] or r["operador_email"]}
-        for r in _q("SELECT c.operador_email, o.nombre FROM comitentes c "
-                    "LEFT JOIN operadores o ON o.email = c.operador_email "
-                    "WHERE c.operador_email IS NOT NULL AND c.operador_email <> '' "
-                    "GROUP BY c.operador_email, o.nombre ORDER BY o.nombre NULLS LAST")
+        {"email": r["email"], "nombre": r["nombre"] or r["email"]}
+        for r in _q("SELECT email, nombre FROM operadores ORDER BY nombre NULLS LAST")
     ]
     nf = ("nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5")
     niveles = [

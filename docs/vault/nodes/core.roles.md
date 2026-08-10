@@ -36,6 +36,7 @@ Conecta con: lee/escribe `Manager.Users`, `Manager.RoleMatrix`, `Manager.RoleAud
 - [[api.services.copiloto.derivacion]]  ·  _module_
 - [[api.services.copiloto.motor]]  ·  _module_
 - [[api.services.mesa_dinero]]  ·  _module_
+- [[api.services.pnl_ajustes_sql]]  ·  _module_
 - [[api.services.senebis]]  ·  _module_
 - [[api.services.tesoreria]]  ·  _module_
 - [[core.ai]]  ·  _module_

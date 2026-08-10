@@ -161,6 +161,14 @@ _CATS_COBRO_VENTA  = {"venta", "rescate_fci"}
 _CATS_COBRO_PASIVO = {"acreencia"}
 _CATS_RELEVANTES   = _CATS_PAGO | _CATS_COBRO_VENTA | _CATS_COBRO_PASIVO
 
+# Ajustes manuales por eventos corporativos (splits, canjes, pre-data). NO son
+# categorías de negocio_movimientos — vienen de `operaciones.pnl_ajustes` y los
+# mergea pnl_ajustes_sql.merge_ajustes_en_boletos al stream cronológico (por eso
+# NO integran _CATS_RELEVANTES, que es también el filtro SQL de boletos).
+_CAT_AJUSTE_SPLIT    = "ajuste_split"
+_CAT_AJUSTE_CANTIDAD = "ajuste_cantidad"
+_CATS_AJUSTE         = {_CAT_AJUSTE_SPLIT, _CAT_AJUSTE_CANTIDAD}
+
 _OPS_PASIVOS = ("Cash dividend", "Interest payment", "Partial redemption")
 
 # Fallback regex sólo si `Valuaciones.Assets.TICKER` no está set (gap de
@@ -288,6 +296,10 @@ def _pnl_por_cuenta_core(
             importe = float(b.get("importe") or 0)
         except (TypeError, ValueError):
             return 0.0
+        if importe == 0:
+            # Sin plata no hay nada que convertir (ej. un ajuste/split sin
+            # costo): 0 USD directo, sin lookup de MEP ni falso fechas_sin_mep.
+            return 0.0
         if moneda != "ARS":
             return importe  # ya está en USD
         mep = b.get("mep")
@@ -312,12 +324,14 @@ def _pnl_por_cuenta_core(
             cantidad = abs(float(b.get("cantidad") or 0))
         except (TypeError, ValueError):
             continue
-        if importe == 0 and cantidad == 0:
+        cat = b.get("categoria")
+        # Un split viaja sin importe ni cantidad (solo factor) — el guard de
+        # boletos vacíos no le aplica a los ajustes.
+        if importe == 0 and cantidad == 0 and cat not in _CATS_AJUSTE:
             continue
 
         moneda = b.get("moneda") or "ARS"
         fecha  = b.get("fecha") or ""
-        cat    = b.get("categoria")
         op     = b.get("op") or ""
         importe_ars, mep_missing = _pesificar(b)
         importe_usd = _usdificar(b, importe_ars)
@@ -343,7 +357,7 @@ def _pnl_por_cuenta_core(
             precio_b = float(b.get("precio") or 0)
         except (TypeError, ValueError):
             precio_b = 0.0
-        st["boletos"].append({
+        fila_audit = {
             "fecha":       fecha,
             "categoria":   cat,
             "op":          op,
@@ -353,7 +367,8 @@ def _pnl_por_cuenta_core(
             "importe_ars": importe_ars,
             "moneda":      moneda,
             "mep":         b.get("mep"),
-        })
+        }
+        st["boletos"].append(fila_audit)
 
         if cat in _CATS_PAGO:
             # Compra: importe negativo → |importe| es el costo invertido.
@@ -420,6 +435,47 @@ def _pnl_por_cuenta_core(
                 st["costo_remanente_usd"] -= avg_cost_usd * qty_a_vender
             st["qty_actual"]  -= cantidad
             st["qty_ventas"]  += cantidad
+
+        elif cat == _CAT_AJUSTE_SPLIT:
+            # Split / reverse split manual (operaciones.pnl_ajustes). Un split
+            # multiplica la cantidad viva SIN tocar el costo: la plata invertida
+            # no cambia, solo baja (o sube) el promedio por unidad. No genera
+            # realizado ni pasivo, ni en ARS ni en USD. Sobre qty 0 es no-op;
+            # sobre qty negativa (short/wash abierto) escala la deuda igual —
+            # el short también se multiplica en un split real.
+            try:
+                factor = float(b.get("factor") or 0)
+            except (TypeError, ValueError):
+                factor = 0.0
+            if factor > 0 and st["qty_actual"] != 0:
+                antes_split = st["qty_actual"]
+                st["qty_actual"] = antes_split * factor
+                # El detalle audit muestra el delta de cantidad que aplicó el
+                # split (depende del stock vivo al momento del evento).
+                fila_audit["cantidad"] = st["qty_actual"] - antes_split
+            fila_audit["factor"] = factor
+
+        elif cat == _CAT_AJUSTE_CANTIDAD:
+            # Ajuste manual de cantidad (canje de especie, posición pre-data,
+            # dividendo en acciones). delta > 0: entra cantidad con costo
+            # opcional (el `importe` del ajuste, pesificado como cualquier
+            # boleto). delta < 0: sale cantidad liberando costo PROPORCIONAL,
+            # SIN generar realizado — no es una venta, la plata no se movió
+            # (el par entrante del canje recibe ese costo en el otro ticker).
+            delta = cant_signed
+            if delta > 0:
+                st["costo_remanente"] += abs(importe_ars)
+                if usd_ok:
+                    st["costo_remanente_usd"] += abs(importe_usd)
+                st["qty_actual"] += delta
+            elif delta < 0:
+                if st["qty_actual"] > 0:
+                    avg_cost = st["costo_remanente"] / st["qty_actual"]
+                    avg_cost_usd = st["costo_remanente_usd"] / st["qty_actual"]
+                    q_sale = min(-delta, st["qty_actual"])
+                    st["costo_remanente"] -= avg_cost * q_sale
+                    st["costo_remanente_usd"] -= avg_cost_usd * q_sale
+                st["qty_actual"] += delta
 
         elif cat in _CATS_COBRO_PASIVO:
             # Acreencia: cupón / dividendo / amortización. Cobro suelto

@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-202 notas.
+203 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -174,6 +174,7 @@
 - [[api.services.ordenes_sql]] — api/services/ordenes_sql.py — READ-SIDE del motor de órdenes (única implementación).
 - [[api.services.order_book]] — Capa de servicio — Order Book (LOB) live.
 - [[api.services.pnl]] — Motor de PnL por (cuenta, ticker) con cost-basis weighted-average.
+- [[api.services.pnl_ajustes_sql]] — api/services/pnl_ajustes_sql.py — AJUSTES MANUALES del motor de PnL.
 - [[api.services.pnl_historico]] — api/services/pnl_historico.py — Cuaderno de PnL diario de carga MANUAL.
 - [[api.services.pnl_sql]] — api/services/pnl_sql.py — PnL Títulos leyendo de Postgres, REUSANDO el motor de pnl.py.
 - [[api.services.portfolio]] — Capa de servicio — portfolio / AuM / FCI: helpers PUROS compartidos.

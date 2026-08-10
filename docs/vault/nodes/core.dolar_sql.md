@@ -30,3 +30,4 @@ _(pendiente de enriquecimiento)_
 - [[api.services.valuaciones]]  ·  _module_
 - [[engines.curvas]]  ·  _module_
 - [[engines.futuros_dlr]]  ·  _module_
+- [[jobs.fci_bilateral]]  ·  _module_

@@ -41,6 +41,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.operaciones_sql]]  ·  _module_
 - [[api.services.operativa_mep_sql]]  ·  _module_
 - [[api.services.ordenes_sql]]  ·  _module_
+- [[api.services.pnl_ajustes_sql]]  ·  _module_
 - [[api.services.pnl_sql]]  ·  _module_
 - [[api.services.portfolio_sql]]  ·  _module_
 - [[api.services.rem_sql]]  ·  _module_

@@ -162,6 +162,19 @@ def _deps_sql(only_cuenta: str | None) -> dict:
     # Boletos por cuenta (scopeado si only_cuenta; batcheado por cuenta si es global).
     boletos_by_id_cuenta = _boletos_by_cuenta(only_cuenta)
 
+    # Ajustes manuales por eventos corporativos (splits, canjes, pre-data) —
+    # `operaciones.pnl_ajustes`, tabla chica (1 query). Se mergean al stream
+    # cronológico como pseudo-boletos ANTES de los boletos de su fecha; el motor
+    # los procesa con las ramas ajuste_split/ajuste_cantidad. Si la tabla no
+    # existe todavía (schema sin aplicar), el PnL sigue sin ajustes — no cae.
+    try:
+        from api.services.pnl_ajustes_sql import ajustes_activos, merge_ajustes_en_boletos
+        boletos_by_id_cuenta = merge_ajustes_en_boletos(
+            boletos_by_id_cuenta, ajustes_activos(only_cuenta=only_cuenta))
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("pnl_sql: merge de ajustes falló — sigo sin ajustes")
+
     # AuM último snapshot global (posición).
     fecha_actual_aum_global = None
     aum_rows_by_id_cuenta: dict[str, list] = {}

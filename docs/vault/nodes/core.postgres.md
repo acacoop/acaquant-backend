@@ -78,6 +78,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.operativa_mep]]  ·  _module_
 - [[api.services.ordenes]]  ·  _module_
 - [[api.services.order_book]]  ·  _module_
+- [[api.services.pnl_ajustes_sql]]  ·  _module_
 - [[api.services.pnl_historico]]  ·  _module_
 - [[api.services.research_1816_sql]]  ·  _module_
 - [[api.services.research_bcra_sql]]  ·  _module_

@@ -480,6 +480,75 @@ quedan incluidas (no fuerzan reset).
 
 ---
 
+## Ajustes manuales por eventos corporativos (2026-08-10)
+
+Un evento corporativo **no genera boleto** en Aunesa: un split 10:1 de un
+CEDEAR (caso YPF) deja la tenencia en 1.000 nominales pero los boletos siguen
+diciendo 100 → `qty_calc` queda pre-split, `_valor_actual_live` valúa
+`precio_post_split × qty_pre_split` y el PnL no realizado inventa una pérdida
+de ~90%. Lo mismo con canjes de especie y posiciones pre-data.
+
+**Solución: `operaciones.pnl_ajustes`** — ajustes manuales persistidos que
+`pnl_sql._deps_sql` mergea al stream cronológico de boletos como
+pseudo-boletos (`pnl_ajustes_sql.merge_ajustes_en_boletos`, función pura). El
+motor los procesa con dos ramas nuevas (`pnl.py`):
+
+| tipo | semántica |
+|---|---|
+| `split` | `qty_actual ×= factor` (10 = split 10:1, 0.1 = reverse 1:10). **NO toca costo, realizado ni pasivo** — un split no crea ni destruye plata, solo cambia el promedio por unidad. Sobre qty 0 es no-op. |
+| `cantidad` | delta con signo. `>0`: suma cantidad con costo opcional (canje entrante, **posición pre-data** — establece el cost-basis que faltaba). `<0`: resta cantidad liberando costo **proporcional, sin generar realizado** (canje saliente — no es una venta). |
+
+Reglas de aplicación:
+- **Alcance**: `id_cuenta = NULL` → GLOBAL, aplica a toda cuenta con boletos
+  del ticker (**un split se carga UNA vez** y cubre a todos los tenedores).
+  Con `id_cuenta` aplica solo ahí, incluso sin boletos previos (pre-data).
+- **Orden**: el ajuste se aplica ANTES de los boletos de su `fecha` (efectivo
+  a la apertura: lo operado ese día ya es post-split).
+- **Ticker** = match_key del motor (el de `negocio_movimientos.ticker`; FCI
+  usa el código CAFCI).
+- `activo=false` apaga el ajuste sin borrarlo (para probar el efecto).
+- **Por qué tabla propia y NO filas en `negocio_movimientos`**: la
+  reconciliación horaria de `jobs/negocio_movimientos` anula todo comprobante
+  que Aunesa deja de devolver → una fila manual moriría en silencio. Además la
+  tabla de boletos alimenta también al motor de la tab PORTAFOLIO
+  (`api/services/valuaciones.py`), que interpretaría mal un pseudo-boleto.
+
+**Detección**: `GET /api/portfolio/pnl-ajustes/candidatos` lee
+`valuaciones.pnl_totales_cache` (completeness=parcial) y agrupa por ticker: si
+todas las cuentas comparten el mismo ratio `qty_aum/qty_calc`, eso ES un
+evento corporativo y el ratio es el factor sugerido (`_factor_redondo`).
+
+**Endpoints** (`api/routers/carteras.py`, módulo `portfolios`): GET
+`/pnl-ajustes` (+`puede_escribir`/`es_admin`/`cuentas_permitidas`/`editable`
+por fila), GET `/pnl-ajustes/candidatos`, POST/PUT/DELETE (dependency
+`require_escritura_ajustes`, audit before/after en `pnl_ajustes_audit`).
+UI: botón **AJUSTES** en `/valuaciones` (`pnl-ajustes-modal.tsx`).
+
+**Permisos (ownership por cuenta, 2026-08-10)**: el **admin** puede todo,
+incluidos los ajustes **globales** (id_cuenta NULL). El **operador comercial**
+de cada cuenta (vínculo `clientes.comitentes.operador_email`, resuelto con
+`comercial._cuentas_de_operador` — el mismo riel del filtro por operador de
+AUM) puede cargar/editar/borrar ajustes **solo de SUS cuentas**, nunca
+globales. El alcance se valida server-side en cada write
+(`pnl_ajustes_sql._verificar_alcance` — también al EDITAR: el ajuste tiene que
+ser suyo como está Y como queda). `/candidatos` respeta el mismo alcance (un
+operador no ve desfases de cuentas ajenas).
+
+**Latencia**: `/portfolio/pnl` recalcula en vivo → el ajuste impacta al
+instante. TOTALES y `consolidado` leen los caches de cron (hasta 30' en rueda /
+próxima corrida diaria).
+
+**Limitación conocida**: la tab PORTAFOLIO (`valuaciones.py`) reconstruye lots
+directo de `negocio_movimientos` y NO aplica estos ajustes (solo PNL TÍTULOS y
+TOTALES). Tests: `tests/unit/test_pnl_ajustes.py`.
+
+> Nota: la regla vieja del doc "`pnl_no_realizado = valor_aum − costo_remanente`,
+> NO usar qty × precio" quedó desactualizada — el código real usa
+> `qty_efectiva × precio_live` con `valor_aum` como último fallback (por eso un
+> split rompía unos tickers sí y otros no, según el mapeo de `assets.instrumento`).
+
+---
+
 ## Pendientes / próximos frentes
 
 ### Crítico
@@ -507,7 +576,9 @@ quedan incluidas (no fuerzan reset).
   arrancara el feed `NegocioMovimientos` (~Jul 2025) → flag PARCIAL.
   Cost basis incompleto, PnL no realizado subestimado.
 - **Canjes / corporate actions**: AL30 → AL30D no se detecta como
-  misma posición económica.
+  misma posición económica. → Desde 2026-08-10 se corrige a mano con un par
+  de ajustes `cantidad` (− en el ticker saliente, + en el entrante con el
+  costo liberado) — ver "Ajustes manuales por eventos corporativos".
 - **FCI sin INSTRUMENTO mappeable**: quedan con `valor_actual_source = "aum"`,
   mismo comportamiento que antes.
 

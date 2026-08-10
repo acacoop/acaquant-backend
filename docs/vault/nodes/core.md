@@ -85,6 +85,7 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.estrategia_resolver]]  ·  _module_
+- [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.ia_calidad]]  ·  _module_

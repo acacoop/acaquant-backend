@@ -2138,9 +2138,14 @@ def editar_cuenta(cuenta_operativa: str, unidad: str, actor: str, *,
                   nuevo_nombre: str | None = None, activa: bool | None = None) -> dict:
     """Edita una cuenta del catálogo (número, nombre y alta/baja lógica).
 
-    OJO — la PK es (cuenta_operativa, unidad) y los saldos, cheques y movimientos de
-    Mercados referencian el NOMBRE. Renombrar tiene que arrastrar esas tablas o los
+    OJO — la PK es (cuenta_operativa, unidad) y los saldos, cheques y demás tablas
+    referencian el NOMBRE. Renombrar tiene que arrastrar esas tablas o los
     históricos quedan huérfanos: se hace todo en UNA transacción.
+
+    Renombrar un banco DESCUBIERTO (con `aunesa_id`) está prohibido: el nombre lo
+    manda la fuente en el campo `cuenta operativa` de los movimientos, así que el
+    próximo refresco lo vuelve a dar de alta con el original y quedan DOS bancos
+    con los históricos partidos.
     """
     if not puede_editar_saldo(actor):
         raise PermissionError("sin permiso para editar bancos de Tesorería")
@@ -2153,18 +2158,31 @@ def editar_cuenta(cuenta_operativa: str, unidad: str, actor: str, *,
          "h": (numero_hygirus or "").strip() or None,
          "act": activa, "set_act": activa is not None}
     with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT aunesa_id FROM operaciones.tesoreria_cuentas "
+                    "WHERE cuenta_operativa = %(c)s AND unidad = %(u)s", p)
+        fila = cur.fetchone()
+        if fila is None:
+            raise ValueError(f"no existe el banco '{cta}' [{uni}]")
+        if nuevo != cta and fila[0]:
+            raise ValueError(
+                f"'{cta}' [{uni}] lo trae la fuente en el campo CUENTA OPERATIVA de "
+                "los movimientos: no se le puede cambiar el nombre (el próximo "
+                "refresco lo volvería a crear con el original y quedarían dos "
+                "bancos). Sí podés editarle el número de cuenta y el Nº Hygirus.")
         cur.execute(
             "UPDATE operaciones.tesoreria_cuentas SET cuenta_operativa = %(nuevo)s, "
             "numero_cuenta = %(n)s, numero_hygirus = %(h)s, "
             "activa = CASE WHEN %(set_act)s THEN %(act)s ELSE activa END "
             "WHERE cuenta_operativa = %(c)s AND unidad = %(u)s", p)
-        if not cur.rowcount:
-            raise ValueError(f"no existe el banco '{cta}' [{uni}]")
         if nuevo != cta:
             # Arrastre del renombre a todo lo que apunta al banco por nombre.
             for tabla, col in (("operaciones.tesoreria_saldos", "cuenta_operativa"),
                                ("operaciones.tesoreria_cheques", "banco"),
-                               ("operaciones.tesoreria_mercados", "banco")):
+                               ("operaciones.tesoreria_mercados", "banco"),
+                               ("operaciones.tesoreria_registros", "banco"),
+                               ("operaciones.tesoreria_veps", "banco"),
+                               (_TABLA_BB, "cta_debito"),
+                               (_TABLA_BB, "cta_credito")):
                 cur.execute(f"UPDATE {tabla} SET {col} = %(nuevo)s "
                             f"WHERE {col} = %(c)s AND unidad = %(u)s", p)
         conn.commit()

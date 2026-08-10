@@ -1523,8 +1523,9 @@ lista `;`) · `GET /detalle` (`banco`, `unidad`, `fila` ∈
 (`{fecha, fuente ∈ aunesa|cheque|mercado|bb|registro, ref, excluido}`) · **`PUT /saldo-inicial`**
 (`null` borra) · `GET /cheques` · `GET /cheques/comitentes` · **`POST`/`PUT /{id}`/`PUT /{id}/estado`/
 `DELETE /{id}` de cheques** · `GET /cuentas` · **`POST /cuentas`** (alta manual del banco que aún no
-operó) · **`PUT /cuentas`** (número, `numero_hygirus`, **renombrar** —arrastra saldos/cheques/mercados en
-UNA transacción— y alta/baja lógica) · **`DELETE /cuentas?cuenta_operativa&unidad`** (borra la fila si
+operó) · **`PUT /cuentas`** (número, `numero_hygirus`, **renombrar** —solo bancos de alta MANUAL; el de
+los descubiertos lo manda la fuente y se rechaza. Arrastra saldos/cheques/mercados/registros/veps/
+banco-a-banco en UNA transacción— y alta/baja lógica) · **`DELETE /cuentas?cuenta_operativa&unidad`** (borra la fila si
 nadie la referencia y no tiene `aunesa_id`; si no, baja lógica) · `GET /entidades` · **`POST`/`PUT /{id}`/`DELETE /{id}` de
 entidades** · `GET /mercados` · **`POST`/`PUT /{id}`/`PUT /{id}/estado`/`DELETE /{id}` de mercados** ·
 `GET /banco-a-banco` · **`POST`/`PUT /{id}`/`PUT /{id}/estado`/`DELETE /{id}`** ·

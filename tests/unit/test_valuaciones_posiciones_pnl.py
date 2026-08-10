@@ -14,11 +14,14 @@ def _resp(fecha: str, unidades: list[str]) -> dict:
         "id_cuenta": "100",
         "fecha": fecha,
         "posiciones": [
-            {"unidad": u, "costo": None, "pnl": None, "gan_pct": None} for u in unidades
+            {"unidad": u, "costo": None, "pnl": None, "gan_pct": None,
+             "costo_usd": None, "pnl_usd": None, "gan_pct_usd": None} for u in unidades
         ],
         "pnl_disponible": False,
         "costo_total": 0.0,
         "pnl_total": 0.0,
+        "costo_total_usd": 0.0,
+        "pnl_total_usd": 0.0,
         "pnl_detalle": {},
     }
 
@@ -33,6 +36,11 @@ def motor(monkeypatch):
         "pnl_no_realizado": 200.0,
         "pnl_pasivo": 50.0,
         "pnl_realizado": 9999.0,   # NO entra al total mostrado
+        # Espejo USD nativo del motor (costo a MEP histórico, valor a MEP de hoy):
+        # NO es el ARS dividido por un solo TC.
+        "costo_remanente_usd": 1.0,
+        "pnl_no_realizado_usd": 0.2,
+        "pnl_pasivo_usd": 0.05,
         "boletos": [{"fecha": "2026-01-02"}],
     }]
     from api.services import pnl_sql
@@ -53,6 +61,18 @@ def test_merge_por_unidad_calcula_pnl_y_gan(motor):
     assert r["pnl_disponible"] is True
     assert (r["costo_total"], r["pnl_total"]) == (1000.0, 250.0)
     assert r["pnl_detalle"]["AL30"]["boletos"]
+
+
+def test_espejo_usd_sale_del_motor_no_de_dividir_los_pesos(motor):
+    """El toggle USD del PORTFOLIO usa el USD nativo del motor (costo anclado al MEP
+    de cada compra), NO el ARS ÷ un TC único."""
+    r = _resp("2026-08-10", ["AL30", "GD30"])
+    vs._enriquecer_con_pnl(r, "100")
+
+    al30, gd30 = r["posiciones"]
+    assert (al30["costo_usd"], al30["pnl_usd"], al30["gan_pct_usd"]) == (1.0, 0.25, 25.0)
+    assert (gd30["costo_usd"], gd30["pnl_usd"], gd30["gan_pct_usd"]) == (None, None, None)
+    assert (r["costo_total_usd"], r["pnl_total_usd"]) == (1.0, 0.25)
 
 
 def test_fecha_historica_no_se_cruza_con_el_pnl_de_hoy(motor):

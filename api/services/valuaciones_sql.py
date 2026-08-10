@@ -33,8 +33,10 @@ def _iso(d) -> str | None:
 
 
 def _vacio(id_cuenta: str, fecha: str | None) -> dict:
-    return {"id_cuenta": id_cuenta, "fecha": fecha, "posiciones": [], "total": 0.0, "n": 0,
-            "pnl_disponible": False, "costo_total": 0.0, "pnl_total": 0.0, "pnl_detalle": {}}
+    return {"id_cuenta": id_cuenta, "fecha": fecha, "mep": None, "posiciones": [],
+            "total": 0.0, "total_usd": None, "n": 0,
+            "pnl_disponible": False, "costo_total": 0.0, "pnl_total": 0.0,
+            "costo_total_usd": 0.0, "pnl_total_usd": 0.0, "pnl_detalle": {}}
 
 
 def _resolver_fecha(id_cuenta: str, fecha: str | None, asof: bool) -> str | None:
@@ -138,9 +140,16 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
 
     ordenadas = sorted(by_unidad.values(), key=lambda x: -x["valuacion"])
     total = sum(x["valuacion"] for x in ordenadas)
+    # Espejo USD de la vista: MEP del DÍA DEL SNAPSHOT (no el de hoy) — una tenencia
+    # histórica se mira al tipo de cambio de esa fecha. None si el feed no llega tan
+    # atrás: el front deshabilita el toggle en vez de mostrar ceros.
+    from api.services._mep import get_mep_for_date
+    mep = get_mep_for_date(fecha)
+    a_usd = (lambda v: round(v / mep, 2)) if mep and mep > 0 else (lambda v: None)
     resp = {
         "id_cuenta": id_cuenta,
         "fecha": fecha,
+        "mep": round(mep, 2) if mep else None,
         "posiciones": [
             {
                 "unidad":       x["unidad"],
@@ -154,18 +163,25 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
                 "cantidad":     round(x["cantidad"], 4),
                 "precio":       round(x["precio"], 4),
                 "valuacion":    round(x["valuacion"], 2),
+                "valuacion_usd": a_usd(x["valuacion"]),
                 "share":        round(x["valuacion"] / total * 100, 2) if total else None,
                 "costo":        None,
                 "pnl":          None,
                 "gan_pct":      None,
+                "costo_usd":    None,
+                "pnl_usd":      None,
+                "gan_pct_usd":  None,
             }
             for x in ordenadas
         ],
         "total": round(total, 2),
+        "total_usd": a_usd(total),
         "n":     len(ordenadas),
         "pnl_disponible": False,
         "costo_total":    0.0,
         "pnl_total":      0.0,
+        "costo_total_usd": 0.0,
+        "pnl_total_usd":   0.0,
         "pnl_detalle":    {},
     }
     if con_pnl:
@@ -196,6 +212,8 @@ def _enriquecer_con_pnl(resp: dict, id_cuenta: str) -> None:
     por_unidad = {r["unidad"]: r for r in rows if r.get("unidad")}
     costo_total = 0.0
     pnl_total = 0.0
+    costo_total_usd = 0.0
+    pnl_total_usd = 0.0
     for p in resp["posiciones"]:
         r = por_unidad.get(p["unidad"])
         if r is None:
@@ -209,10 +227,21 @@ def _enriquecer_con_pnl(resp: dict, id_cuenta: str) -> None:
         p["gan_pct"] = round(val / costo * 100, 2) if costo > 0 else None
         costo_total += costo
         pnl_total += val
+        # Espejo USD nativo del motor: el costo queda anclado al MEP histórico de cada
+        # compra y el valor al MEP de hoy — NO es dividir el ARS por un solo TC.
+        costo_usd = _f(r.get("costo_remanente_usd"))
+        val_usd = _f(r.get("pnl_no_realizado_usd")) + _f(r.get("pnl_pasivo_usd"))
+        p["costo_usd"] = round(costo_usd, 2)
+        p["pnl_usd"] = round(val_usd, 2)
+        p["gan_pct_usd"] = round(val_usd / costo_usd * 100, 2) if costo_usd > 0 else None
+        costo_total_usd += costo_usd
+        pnl_total_usd += val_usd
 
     resp["pnl_disponible"] = True
     resp["costo_total"] = round(costo_total, 2)
     resp["pnl_total"] = round(pnl_total, 2)
+    resp["costo_total_usd"] = round(costo_total_usd, 2)
+    resp["pnl_total_usd"] = round(pnl_total_usd, 2)
     resp["pnl_detalle"] = por_unidad
 
 

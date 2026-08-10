@@ -153,6 +153,15 @@
 # Corre ANTES del AuM Mongo (12:00) para no doblar la carga a Aunesa en simultáneo.
 0 11 * * 1-5 /root/TradingAV/deploy/run_job.sh portafolio_diario 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.portafolio_backfill --diario'
 
+# ─── Autocompletado del catálogo de títulos (11:40 UTC L-V, post writer diario)
+# El writer de arriba da de alta las unidades NUEVAS sin metadata; este job les
+# completa lo que es derivable de la propia `unidad` (FINANCIAMIENTO: cartera +
+# ticker + vencimiento; FCI: cartera + código CAFCI + nombre). Solo escribe campos
+# VACÍOS: si la regla discrepa de lo cargado a mano lo reporta como conflicto en
+# el log y NO pisa. Ver qué haría antes de aplicar:
+# python -m jobs.assets_autofill --dry
+40 11 * * 1-5 /root/TradingAV/deploy/run_job.sh assets_autofill 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.assets_autofill'
+
 # AuM Mongo (jobs.aum) ELIMINADO 2026-06-15: la fuente única de tenencias es SQL
 # portafolio.tenencia (writer diario de arriba). jobs/aum.py quedó solo como librería
 # de helpers Aunesa (autenticar/consultar_posicion/procesar/_calcular_valuacion).

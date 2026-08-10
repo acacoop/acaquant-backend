@@ -283,6 +283,36 @@ def mercados_por_banco(dia: date) -> dict[tuple[str, str], dict]:
                                         "fci": float(r["fci"] or 0)} for r in rows}
 
 
+def fuera_catalogo(bancos: list[dict],
+                   de_fuentes: set[tuple[str, str]]) -> list[dict]:
+    """Bancos que salen en la grilla pero NO en el ABM — el estado que nadie veía.
+
+    La grilla es la UNIÓN de (catálogo activo) ∪ (lo que aparece hoy en alguna fuente),
+    mientras que el ABM lista solo `activa = true`. En el medio quedan dos casos que
+    hasta el incidente 2026-08-10 no se mostraban en ninguna pantalla:
+
+      · `sin_catalogo` — no hay fila en `tesoreria_cuentas`. Le entra plata, ocupa una
+        columna, y no se le puede cargar número de cuenta ni Nº Hygirus.
+      · `dado_de_baja` — hay fila con `activa = false` pero el banco sigue operando.
+        El auto-alta del poll NO la revive (su UPDATE no toca `activa`), así que el
+        banco se queda fuera del ABM para siempre.
+
+    En los dos casos la salida es la misma: darlo de alta con ese nombre exacto (el
+    alta hace ON CONFLICT ... SET activa = true, así que revive la fila y no duplica).
+    """
+    estado_cat = {(b["cuenta_operativa"], b["unidad"]): b["activa"] for b in bancos}
+    fuera = []
+    for cta, uni in sorted(de_fuentes):
+        act = estado_cat.get((cta, uni))
+        if act is None:
+            fuera.append({"cuenta_operativa": cta, "unidad": uni,
+                          "motivo": "sin_catalogo"})
+        elif not act:
+            fuera.append({"cuenta_operativa": cta, "unidad": uni,
+                          "motivo": "dado_de_baja"})
+    return fuera
+
+
 def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
                          email: str = "") -> dict:
     """Ingresos/egresos bancarios de un día (default hoy ART) desde Aunesa.
@@ -418,9 +448,11 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     # la misma tabla en el request que el front pollea cada 20s.
     bancos = listar_cuentas()
     activas = {(b["cuenta_operativa"], b["unidad"]) for b in bancos if b["activa"]}
+    # Bancos que ese día aparecen por alguna FUENTE (no por el catálogo).
+    de_fuentes = (set(por_cuenta) | set(ing_echeq) | set(emit_vencidos) | set(mkt)
+                  | set(bb) | set(reg))
     cuentas = []
-    for clave in sorted(activas | set(por_cuenta) | set(ing_echeq) | set(emit_vencidos)
-                        | set(mkt) | set(bb) | set(reg)):
+    for clave in sorted(activas | de_fuentes):
         cta, uni = clave
         c = por_cuenta.get(clave) or {"cuenta_operativa": cta, "unidad": uni, **_bucket()}
         s = saldos.get(clave)
@@ -455,6 +487,10 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     return {"fecha": ddmmyyyy, "fecha_iso": dia.isoformat(), "estado": estado,
             "estado_bancos": ESTADO_EFECTIVO,  # el front lo aclara en la tab BANCOS
             "resumen": resumen, "cuentas": cuentas,
+            # Bancos que ESTÁN en la grilla y NO en el ABM. Son los dos estados que
+            # antes quedaban invisibles: sin fila en el catálogo, o dado de baja pero
+            # todavía operando. El ABM los muestra para poder darlos de alta.
+            "fuera_catalogo": fuera_catalogo(bancos, de_fuentes),
             # TOTAL del panel RESCATE ACA VALORES por moneda: la barra lo muestra al
             # lado de SACAR FOTO para no tener que abrir el modal para verlo.
             "rescate": totales_rescate(dia),
@@ -2332,9 +2368,19 @@ def editar_cuenta(cuenta_operativa: str, unidad: str, actor: str, *,
 
 # Tablas que apuntan al banco por NOMBRE: si alguna tiene filas, borrarlo de verdad
 # huerfanaría históricos.
+#
+# OJO — tienen que estar TODAS las fuentes de la grilla, no solo las que uno recuerda.
+# Faltaban `tesoreria_registros` y `tesoreria_veps` (incidente 2026-08-10): un banco de
+# alta MANUAL cuyo único historial eran registros manuales contaba 0 referencias, así
+# que «borrar» lo eliminaba FÍSICAMENTE — y como no lo trae Aunesa, no volvía nunca.
+# Peor: sus registros lo seguían metiendo en la grilla, así que quedaba de columna
+# visible y fuera del catálogo, sin forma de verlo desde el ABM. Con las cinco tablas,
+# cualquier banco con historial se degrada a baja LÓGICA y sigue estando.
 _REFS_CUENTA = (("operaciones.tesoreria_saldos", "cuenta_operativa"),
                 ("operaciones.tesoreria_cheques", "banco"),
-                ("operaciones.tesoreria_mercados", "banco"))
+                ("operaciones.tesoreria_mercados", "banco"),
+                ("operaciones.tesoreria_registros", "banco"),
+                ("operaciones.tesoreria_veps", "banco"))
 
 
 def _referencias_cuenta(cur, p: dict) -> int:
@@ -2352,10 +2398,14 @@ def borrar_cuenta(cuenta_operativa: str, unidad: str, actor: str) -> dict:
     """Saca un banco del catálogo (botón «borrar» del ABM).
 
     Borra la fila DE VERDAD solo si nadie la referencia: sin saldos, cheques,
-    mercados ni banco-a-banco cargados y sin `aunesa_id` (los descubiertos vuelven
-    solos en el próximo poll, borrarlos sería un no-op que confunde). En cualquier
-    otro caso se degrada a baja LÓGICA: sale de la grilla y de los desplegables,
-    pero los históricos siguen resolviendo el nombre.
+    mercados, registros manuales, VEPs ni banco-a-banco cargados y sin `aunesa_id`
+    (los descubiertos vuelven solos en el próximo poll, borrarlos sería un no-op que
+    confunde). En cualquier otro caso se degrada a baja LÓGICA: sale de la grilla y de
+    los desplegables, pero los históricos siguen resolviendo el nombre.
+
+    El borrado FÍSICO es irreversible para un banco de alta MANUAL: no lo trae ninguna
+    fuente, así que nadie lo vuelve a crear. Por eso `_REFS_CUENTA` tiene que listar
+    TODAS las tablas que lo referencian — ver el comentario de arriba.
     """
     if not puede_editar_saldo(actor):
         raise PermissionError("sin permiso para borrar bancos de Tesorería")

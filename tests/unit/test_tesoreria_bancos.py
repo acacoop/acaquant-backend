@@ -211,3 +211,66 @@ def test_con_aunesa_sano_la_marca_dice_que_esta_todo(monkeypatch):
 
     assert out["aunesa_ok"] is True
     assert out["aunesa_error"] is None
+
+
+# ── Bancos que están en la GRILLA y no en el ABM (incidente 2026-08-10) ───────
+#
+# La grilla es la UNIÓN de (catálogo activo) ∪ (lo que aparece hoy en alguna fuente);
+# el ABM lista solo `activa = true`. En el medio quedaban dos estados que ninguna
+# pantalla mostraba, y por eso un banco de alta MANUAL desapareció del catálogo sin
+# que nadie se enterara: seguía ocupando su columna en la grilla.
+
+def test_un_banco_de_una_fuente_sin_fila_en_el_catalogo_se_declara(monkeypatch):
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(tes, "catalogo", lambda: set())
+    monkeypatch.setattr(tes, "listar_cuentas", lambda: [])
+    monkeypatch.setattr(tes, "traer_crudas", lambda dia, estado: [])
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [])
+    # Su único rastro es un registro manual: no lo trae ninguna fuente automática.
+    monkeypatch.setattr(tes, "registros_por_banco", lambda dia: {
+        ("BANCO MANUAL", "ARS"): {"ingresos": 0.0, "egresos": 50.0, "n": 1}})
+
+    out = tes.ingresos_egresos_dia(fecha="2026-08-10", email="")
+
+    assert [c["cuenta_operativa"] for c in out["cuentas"]] == ["BANCO MANUAL"]
+    assert out["fuera_catalogo"] == [
+        {"cuenta_operativa": "BANCO MANUAL", "unidad": "ARS", "motivo": "sin_catalogo"}]
+
+
+def test_un_banco_dado_de_baja_que_sigue_operando_se_declara(monkeypatch):
+    """`registrar_cuentas` NO revive la fila (su UPDATE no toca `activa`), así que sin
+    esto el banco se quedaba fuera del ABM para siempre."""
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(tes, "catalogo", lambda: set())
+    monkeypatch.setattr(tes, "listar_cuentas", lambda: [
+        {"cuenta_operativa": "BANCO A", "unidad": "ARS", "activa": False}])
+    monkeypatch.setattr(tes, "traer_crudas", lambda dia, estado: [])
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [
+        {"banco": "BANCO A", "unidad": "ARS", "cantidad": 1, "total": 80}])
+
+    out = tes.ingresos_egresos_dia(fecha="2026-08-10", email="")
+
+    assert out["fuera_catalogo"] == [
+        {"cuenta_operativa": "BANCO A", "unidad": "ARS", "motivo": "dado_de_baja"}]
+
+
+def test_un_banco_activo_y_en_el_catalogo_no_se_declara(monkeypatch):
+    _patch_base(monkeypatch)
+    monkeypatch.setattr(tes, "traer_crudas", lambda dia, estado: [])
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [
+        {"banco": "BANCO A", "unidad": "ARS", "cantidad": 1, "total": 80}])
+
+    out = tes.ingresos_egresos_dia(fecha="2026-08-10", email="")
+
+    assert out["fuera_catalogo"] == []
+
+
+def test_borrar_un_banco_mira_TODAS_las_tablas_que_lo_referencian():
+    """Faltaban `tesoreria_registros` y `tesoreria_veps`: un banco de alta manual con
+    solo registros contaba 0 referencias, así que «borrar» lo eliminaba FÍSICAMENTE y,
+    como no lo trae Aunesa, no volvía nunca — mientras sus registros lo seguían
+    metiendo en la grilla."""
+    tablas = {t for t, _ in tes._REFS_CUENTA}
+
+    assert "operaciones.tesoreria_registros" in tablas
+    assert "operaciones.tesoreria_veps" in tablas

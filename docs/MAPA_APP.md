@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **440 endpoints** montados en `api.main.app`, en **1 routers**.
-- **139 escriben** (POST/PUT/PATCH/DELETE); 301 son de solo lectura.
+- **441 endpoints** montados en `api.main.app`, en **1 routers**.
+- **140 escriben** (POST/PUT/PATCH/DELETE); 301 son de solo lectura.
 - **22 módulos** canónicos y **6 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -47,11 +47,11 @@
 <!-- AUTOGEN:routers -->
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
-| `(raíz)` | 440 | 139 | — · 439 rutas con gate extra | — | ⚠️ |
+| `(raíz)` | 441 | 140 | — · 440 rutas con gate extra | — | ⚠️ |
 
 **⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
 
-- `(raíz)` (84 de 440 rutas sin gate de módulo)
+- `(raíz)` (84 de 441 rutas sin gate de módulo)
 
 No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtime** (solo lo consume un test), y para los módulos que todos los roles tienen se decidió no gatear. Lo que sí implica es que **destildar esos módulos en Manager → Roles no bloquea nada server-side**: solo esconde el link en el menú.
 
@@ -1565,7 +1565,9 @@ audit}` · cron `50 2 * * 2-6` UTC (= 23:50 ART) → `jobs.tesoreria_snapshot` (
 - **El ESTADO del detalle no miente**: mercados/FCI/banco-a-banco cuentan también lo `pendiente` (decisión del back office) y el modal muestra el estado REAL, resaltado en ámbar cuando no es plata cerrada. Los registros manuales van con estado **vacío** a propósito.
 - Filas sin `cuentaOperativa` caen al placeholder `SIN CUENTA OPERATIVA` y **nunca** se persisten en el catálogo.
 - El catálogo de bancos se **auto-alimenta** con todo lo visto en el día (idempotente, con guarda para que el poll de 20s sea no-op), incluso si el movimiento terminó rechazado; también hay alta manual y siembra hacia atrás (`scripts/diag_tesoreria_cuentas --registrar`). El campo `numero_hygirus` se guarda pero **NO se muestra en la grilla**.
-- **⚠ SIN VERIFICAR / bug probable**: `editar_cuenta` (renombrar) arrastra `tesoreria_saldos`, `tesoreria_cheques` y `tesoreria_mercados`, pero **NO arrastra `tesoreria_banco_a_banco` ni `tesoreria_registros`**, que también referencian el banco por nombre.
+- **Renombrar** (`editar_cuenta`) arrastra en UNA transacción las 5 tablas que apuntan al banco por nombre (`tesoreria_saldos`, `_cheques`, `_mercados`, `_registros`, `_veps`) + las dos puntas de `tesoreria_banco_a_banco`. En un banco **descubierto** (`aunesa_id`) el rename está PROHIBIDO: el nombre lo manda la fuente y el próximo poll lo recrearía, partiendo los históricos en dos bancos.
+- **Borrar** (`borrar_cuenta`) es físico solo si NADIE lo referencia (las mismas 5 tablas + banco-a-banco) y no tiene `aunesa_id`; en cualquier otro caso degrada a **baja lógica**. Incidente 2026-08-10: `_REFS_CUENTA` no miraba `tesoreria_registros` ni `tesoreria_veps`, así que un banco de alta MANUAL con solo registros contaba 0 referencias → se borraba físicamente y, al no traerlo Aunesa, no volvía nunca.
+- **`fuera_catalogo`** (campo de `/tesoreria/dia`): los bancos que están en la GRILLA y no en el ABM, con su motivo — `sin_catalogo` (no hay fila) o `dado_de_baja` (la hay con `activa=false` y el banco sigue operando; `registrar_cuentas` NO la revive, su UPDATE no toca `activa`). El ABM los muestra arriba con un botón **DAR DE ALTA** que manda el nombre exacto, para no depender de que alguien lo tipee igual.
 - **TXT HYGIRUS**: cabecera `DD/MM/AAAA HH:MM:SS Asiento de ajuste` + 2 líneas por transferencia **≠ `completado`** (`-importe⇥hygirus_débito⇥moneda`, `importe⇥hygirus_crédito⇥moneda`), coma decimal sin separador de miles, formateado desde `Decimal`. Se genera SIEMPRE (sin pendientes sale solo la cabecera); si falta `numero_hygirus` la celda va vacía y la cuenta aparece en `faltantes`. **El endpoint nunca devuelve error** y manda el contenido dentro de un JSON, porque el proxy de Next mapea cualquier error a un 502 mudo.
 - **FOTO**: `hash_sha256` del payload canónico detecta ediciones hechas por fuera de la API (`hash_ok`). **Una foto por fecha** (re-sacarla PISA; el historial queda en `tesoreria_audit`), **TTL de 30 fechas** purgadas en el mismo INSERT. Si el detalle falla, la foto se toma igual y deja `detalle._error`.
 - Casi todas las lecturas SQL están en `try/except` que degradan a vacío con warning: la vista no se cae si falta una tabla.

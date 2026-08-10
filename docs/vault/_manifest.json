@@ -272,10 +272,12 @@
 "path": "api/routers/carteras.py",
 "summary": "Router Portfolio — thin wrappers sobre `api.services.portfolio`.",
 "links": [
+"api.auth",
 "api.services",
 "api.services._grupos_scope",
 "api.services.comercial",
 "api.services.comercial_sql",
+"api.services.pnl_ajustes_sql",
 "api.services.pnl_sql",
 "api.services.portfolio_sql",
 "core.postgres"
@@ -2408,6 +2410,19 @@
 ]
 },
 {
+"id": "api.services.pnl_ajustes_sql",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/pnl_ajustes_sql.py",
+"summary": "api/services/pnl_ajustes_sql.py — AJUSTES MANUALES del motor de PnL.",
+"links": [
+"api.services._sql",
+"core.postgres",
+"core.roles"
+]
+},
+{
 "id": "api.services.pnl_historico",
 "type": "module",
 "layer": "api",
@@ -2432,6 +2447,7 @@
 "api.services._mep",
 "api.services._sql",
 "api.services.pnl",
+"api.services.pnl_ajustes_sql",
 "api.services.portfolio_sql"
 ]
 },
@@ -4762,6 +4778,8 @@
 "api.services",
 "api.services._negocio_sql_read",
 "api.services.operaciones_informes",
+"core",
+"core.dolar_sql",
 "core.job_runs",
 "core.pg_mirror",
 "core.postgres"

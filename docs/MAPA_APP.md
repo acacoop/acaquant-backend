@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **435 endpoints** montados en `api.main.app`, en **28 routers**.
-- **136 escriben** (POST/PUT/PATCH/DELETE); 299 son de solo lectura.
+- **440 endpoints** montados en `api.main.app`, en **1 routers**.
+- **139 escriben** (POST/PUT/PATCH/DELETE); 301 son de solo lectura.
 - **22 módulos** canónicos y **6 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -47,44 +47,11 @@
 <!-- AUTOGEN:routers -->
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
-| `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
-| `/api/analitica` | 15 | 1 | — | — | ⚠️ |
-| `/api/back-office` | 55 | 32 | `back-office` · 55 rutas con gate extra | `back-office` |  |
-| `/api/back-office/senebis` | 17 | 10 | `back-office` · 4 rutas con gate extra | `back-office` |  |
-| `/api/cotizaciones` | 33 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
-| `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
-| `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
-| `/api/estrategia` | 4 | 0 | `trading` | — |  |
-| `/api/ia` | 11 | 5 | `ia` · 10 rutas con gate extra | `ia` |  |
-| `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 128 | 57 | varía por ruta (todas gateadas) | `manager` |  |
-| `/api/market` | 4 | 0 | — | — | ⚠️ |
-| `/api/mesa-dinero` | 9 | 4 | `operaciones` · 5 rutas con gate extra | `operaciones` |  |
-| `/api/news` | 3 | 0 | — | — | ⚠️ |
-| `/api/operaciones` | 44 | 4 | `operaciones` · 19 rutas con gate extra | `operaciones` |  |
-| `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
-| `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
-| `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
-| `/api/portfolio` | 11 | 0 | `portfolios` · 9 rutas con gate extra | `portfolios` |  |
-| `/api/research-bcra` | 2 | 0 | `research` | — |  |
-| `/api/research-docs` | 2 | 0 | `research` | — |  |
-| `/api/research-fred` | 2 | 0 | `research` | — |  |
-| `/api/research1816` | 11 | 0 | `research` | — |  |
-| `/api/risk` | 5 | 0 | `operar` | `operar` |  |
-| `/api/scanner` | 9 | 0 | `renta-variable` · 2 rutas con gate extra | — |  |
-| `/api/titulos` | 2 | 0 | — | `portfolios` | ⚠️ |
-| `/api/trading` | 9 | 1 | `trading` | `trading` |  |
-| `/api/valuaciones` | 7 | 0 | `portfolios` · 7 rutas con gate extra | — |  |
+| `(raíz)` | 440 | 139 | — · 439 rutas con gate extra | — | ⚠️ |
 
 **⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
 
-- `(raíz)` (2 de 2 rutas sin gate de módulo)
-- `/api/analitica` (15 de 15 rutas sin gate de módulo)
-- `/api/cotizaciones` (32 de 33 rutas sin gate de módulo)
-- `/api/derivados` (13 de 18 rutas sin gate de módulo)
-- `/api/market` (4 de 4 rutas sin gate de módulo)
-- `/api/news` (3 de 3 rutas sin gate de módulo)
-- `/api/titulos` (declara `portfolios`, no lo aplica)
+- `(raíz)` (84 de 440 rutas sin gate de módulo)
 
 No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtime** (solo lo consume un test), y para los módulos que todos los roles tienen se decidió no gatear. Lo que sí implica es que **destildar esos módulos en Manager → Roles no bloquea nada server-side**: solo esconde el link en el menú.
 
@@ -1378,7 +1345,7 @@ el leaderboard POR CARTERA se cruza con cuenta/asset pero **no consigo mismo**.
 | Tab | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
 | **PORTAFOLIO** (def.) | (1) chart mensual izq 58 % con métrica VALOR o RENDIMIENTO; (2) tabla **MENSUAL** der 42 % (mes, último día, cierre, flujo neto = depósitos−extracciones, Δ valor real, PnL acumulado, TEM del mes, TEA cartera = base100−100) con los **movimientos del mes desplegables inline**; (3) panel **PORTFOLIO** full-width con sub-tabs `Posiciones` / `Variación` | `/{id}/serie`, `/{id}/mensual`, `/{id}/posiciones-actuales[?fecha=]`, `/{id}/movimientos?fecha=`, `/{id}/variacion?fecha=` | métrica VALOR/RENDIMIENTO · rango `3M`/**`6M`**/`1A`/`ALL` + paginado ◀▶ · **MONEDA** ARS/USD (en USD el XIRR usa cashflow con MEP por fecha) · **`input type=date`** para ver la tenencia a cualquier día (sin snapshot exacto el backend resuelve el cierre más cercano anterior, `asof=True`, y la vista muestra la fecha real) · botón **`Hoy ×`** · sub-tabs (Variación **requiere** fecha) | Sólo lectura. **2 exports .xlsx** (evolución mensual; posiciones + flujos del mes en hojas separadas). **Click derecho sobre una posición** abre menú **OPERAR** → navega a `/operar` (módulo `operar`) — no escribe |
-| **PNL TÍTULOS** | Split 50/50: izq posiciones por ticker (cost-basis weighted-average) con KPIs VALOR ACTUAL y PNL NO REALIZADO; der detalle del ticker (KPIs COSTO/VALOR/PNL/NO REAL/COBROS/GAN % + **boletos del stock actual** con compras/ventas/neto y breakdown del PnL pasivo) | `GET /api/aum-pnl?id_cuenta=` → `/api/portfolio/pnl` | MONEDA · orden por columna · click en fila (toggle) | Sólo lectura. 2 exports .xlsx (`exportarTodo`, `exportarBoletos`) |
+| **PNL TÍTULOS** | Split 50/50: izq posiciones por ticker (cost-basis weighted-average) con KPIs VALOR ACTUAL y PNL NO REALIZADO; der detalle del ticker (KPIs COSTO/VALOR/PNL/NO REAL/COBROS/GAN % + **boletos del stock actual** con compras/ventas/neto y breakdown del PnL pasivo; los pseudo-boletos de ajuste van resaltados en ámbar) | `GET /api/aum-pnl?id_cuenta=` → `/api/portfolio/pnl` | MONEDA · orden por columna · click en fila (toggle) | Sólo lectura. 2 exports .xlsx (`exportarTodo`, `exportarBoletos`). **Botón AJUSTES en la barra del shell** (admin) → modal `pnl-ajustes-modal.tsx` |
 | **TOTALES** — **NO depende de la cuenta seleccionada** | **POR TÍTULO** (def.): 5 KPIs (PNL TOTAL, NO REALIZADO, PASIVO, VALOR ACTUAL, POSICIONES) + tabla por (cuenta, ticker) 60 % + detalle 40 %. **POR CUENTA**: una fila por cuenta con valor, PnL acumulado y **base 100** (mostrada como rendimiento %), en ARS y USD | `GET /api/aum-pnl-todas` → `/portfolio/pnl-todas`; `GET /api/valuaciones/consolidado` | POR TÍTULO: select de filtro de cuenta (5 valores, **único filtro server-side**) · dos buscadores substring · MONEDA — **el botón USD se DESHABILITA si el cache no trae valores USD**, con tooltip "Falta recalcular el cache (jobs.pnl_totales_precompute)" · orden por columna. POR CUENTA: mismo select + buscador + orden + **checkbox "ocultar saldo muerto"** (client-side, `\|valor_ars\| < 100.000`, def ON) | Sólo lectura, sin export |
 
 **Endpoints (`valuaciones.py` — 7, TODOS GET)**: `_validate_id_cuenta` exige numérico (400); todos los
@@ -1407,6 +1374,19 @@ externos y boletos del cost-basis; **cada boleto lleva `mep` snapshot inmutable*
 - Bucket de cierre vs mes calendario: el snapshot del **día 1** representa la valuación al INICIO del mes == cierre del mes ANTERIOR → se **reasigna al bucket del mes anterior**.
 - `valuacion_mensual_debug` existe en el service pero **no está expuesto** por el router (audita `flujos_detalle` + el cashflow exacto del XIRR, reproducible con TIR.NO.PER).
 - `/{id}/posiciones` (legacy) tiene proxy Next pero **ningún componente lo consume**.
+
+**AJUSTES DE PnL (2026-08-10)** — modal desde el botón AJUSTES de la barra (`pnl-ajustes-modal.tsx`,
+proxy catch-all `/api/portfolio/pnl-ajustes/*`): ABM de ajustes por **eventos corporativos sin
+boleto** (split de CEDEAR, canje de especie, posición pre-data) que rompen el cost-basis. Persisten
+en `operaciones.pnl_ajustes` y `pnl_sql._deps_sql` los mergea al stream de boletos (motor:
+`ajuste_split` multiplica cantidad sin tocar costo; `ajuste_cantidad` suma/resta con costo
+proporcional, sin realizado). `id_cuenta` vacío = GLOBAL (un split se carga UNA vez para todas las
+cuentas del ticker). Lectura módulo `portfolios`; **escritura SOLO admin**
+(`require_escritura_ajustes` + revalida el service) con audit before/after (`pnl_ajustes_audit`).
+El modal incluye **DESFASES DETECTADOS** (`GET /pnl-ajustes/candidatos`, lee el cache de TOTALES):
+tickers con ratio `qty_aum/qty_calc` consistente entre cuentas + factor sugerido → botón USAR
+precarga el form. Impacto: `/portfolio/pnl` al instante; TOTALES/consolidado en la próxima corrida
+de sus crons. Doc: `MOTOR_VALUACIONES.md` § "Ajustes manuales por eventos corporativos".
 
 ### Vista: ESTRATEGIA (`/retorno`)
 - **Módulo**: **`estrategia`**, NO `portfolios`. **No está en `PATH_MODULES` ni en el matcher de `src/proxy.ts`** → no hay pre-gate en el middleware. **Roles**: admin, trader, sales, asistente_comercial, **invitado**. NO back_office.

@@ -24,6 +24,8 @@ Conecta con: lee `CashFlow.NegocioMovimientos` y `Valuaciones.Assets` (CAFCI), e
 - [[api.services]]  ·  _module_
 - [[api.services._negocio_sql_read]]  ·  _module_
 - [[api.services.operaciones_informes]]  ·  _module_
+- [[core]]  ·  _module_
+- [[core.dolar_sql]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_

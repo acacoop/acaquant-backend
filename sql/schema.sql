@@ -421,6 +421,53 @@ ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS anulado_en 
 CREATE INDEX IF NOT EXISTS ix_nm_anulado ON operaciones.negocio_movimientos(fecha)
     WHERE anulado_en IS NOT NULL;
 
+-- ── AJUSTES DE PnL (eventos corporativos sin boleto: splits, canjes, pre-data) ──
+-- Un split (ej. CEDEAR YPF 10:1) cambia la tenencia SIN generar boleto en Aunesa →
+-- el cost-basis del motor de PnL (api/services/pnl.py) queda con la cantidad
+-- pre-split y el PnL no realizado se rompe. Estos ajustes viven en TABLA PROPIA
+-- (jamás como filas en negocio_movimientos: la reconciliación horaria de
+-- jobs/negocio_movimientos las anularía en silencio) y pnl_sql._deps_sql los
+-- mergea al stream cronológico de boletos como pseudo-boletos.
+--   tipo='split'    → factor multiplica la cantidad viva (10 = split 10:1,
+--                     0.1 = reverse 1:10). NO toca costo ni realizado.
+--   tipo='cantidad' → delta con signo. >0 suma cantidad con costo opcional
+--                     (canje entrante, posición pre-data); <0 resta liberando
+--                     costo PROPORCIONAL sin generar realizado (canje saliente).
+--   id_cuenta NULL  → GLOBAL: aplica a TODAS las cuentas con boletos del ticker
+--                     (un split se carga UNA vez). Con id_cuenta: solo esa cuenta.
+--   fecha           → el ajuste se aplica ANTES de los boletos de ese día.
+--   activo=false    → apagado sin borrar (para probar el efecto / deshacer).
+-- Escritura: SOLO admin (endpoints /api/portfolio/pnl-ajustes*); todo cambio
+-- queda en pnl_ajustes_audit con before/after.
+CREATE TABLE IF NOT EXISTS operaciones.pnl_ajustes (
+    id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tipo            text NOT NULL CHECK (tipo IN ('split', 'cantidad')),
+    ticker          text NOT NULL,            -- match_key del motor (= negocio_movimientos.ticker; FCI usa CAFCI)
+    id_cuenta       text,                     -- NULL = todas las cuentas con boletos del ticker
+    fecha           date NOT NULL,            -- fecha efectiva (se aplica antes de los boletos del día)
+    factor          numeric,                  -- tipo='split': qty *= factor (> 0)
+    cantidad        numeric,                  -- tipo='cantidad': delta con signo (≠ 0)
+    costo           numeric,                  -- tipo='cantidad' y delta>0: costo asociado (opcional, default 0)
+    moneda          text NOT NULL DEFAULT 'ARS',  -- moneda del costo (ARS/USD/USDC — pesifica con MEP de `fecha`)
+    nota            text,                     -- descripción libre ("Split 10:1 CEDEAR YPF")
+    activo          boolean NOT NULL DEFAULT true,
+    creado_por      text,
+    creado_at       timestamptz DEFAULT now(),
+    actualizado_por text,
+    actualizado_at  timestamptz
+);
+CREATE INDEX IF NOT EXISTS ix_pnl_ajustes_ticker ON operaciones.pnl_ajustes (ticker, fecha);
+
+CREATE TABLE IF NOT EXISTS operaciones.pnl_ajustes_audit (
+    id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts     timestamptz,
+    actor  text,                              -- email de quién hizo el cambio
+    action text,                              -- create / update / delete
+    target text,                              -- id del ajuste
+    data   jsonb                              -- before/after
+);
+CREATE INDEX IF NOT EXISTS ix_pnl_ajustes_audit_ts ON operaciones.pnl_ajustes_audit (ts DESC);
+
 -- CashFlow.Movimientos → depósitos / extracciones / transferencias (vista FLUJOS,
 -- /api/operaciones/flujos). La escribe jobs/cashflow.py ($setOnInsert por
 -- `comprobante`). Passthrough columnar + data jsonb: la vista usa pocos campos

@@ -23,6 +23,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services._mep]]  ·  _module_
 - [[api.services._sql]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
+- [[api.services.pnl_ajustes_sql]]  ·  _module_
 - [[api.services.portfolio_sql]]  ·  _module_
 
 ## Lo usan (backlinks) ←

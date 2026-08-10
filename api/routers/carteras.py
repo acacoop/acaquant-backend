@@ -7,13 +7,25 @@ Scoping de grupos (Fase 2): cada endpoint resuelve el `scope` de cuentas
 visibles del usuario (`scope_cuentas`) y lo pasa al service. `scope=None`
 = sin restricción (admin o usuario sin grupo). Ver `docs/GRUPOS.md`.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
-from api.services import pnl_sql
+from api.auth import get_user_email
+from api.services import pnl_ajustes_sql, pnl_sql
 from api.services import portfolio_sql as svc_sql
 from api.services._grupos_scope import scope_cuentas, verificar_id_cuenta
 
 router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
+
+
+def require_escritura_ajustes(actor: str = Depends(get_user_email)) -> str:
+    """Escritura de ajustes de PnL: SOLO admin (un ajuste global toca el PnL de
+    todas las cuentas de un ticker). Va como DEPENDENCY, no como chequeo dentro
+    del handler, para que la auditoría de superficie lo vea (scripts/audit_rbac.py
+    lee el árbol de deps). El service igual revalida — defensa en profundidad."""
+    if not pnl_ajustes_sql.puede_escribir(actor):
+        raise HTTPException(403, "sin permiso de escritura en ajustes de PnL")
+    return actor
 
 
 def scope_aum(
@@ -108,6 +120,81 @@ def pnl_todas(
     SQL-native (decomiso Mongo): lee `valuaciones.pnl_totales_cache`. Valuaciones.PnLTotalesCache
     (Mongo) dropeada → el gemelo pnl.py ya no se usa."""
     return pnl_sql.pnl_todas_cuentas_sql(filtro_cuenta=filtro_cuenta, scope=scope)
+
+
+# ── Ajustes manuales de PnL (splits / eventos corporativos) ──────────────────
+# Un split de CEDEAR (ej. YPF 10:1) no genera boleto → el cost-basis del motor
+# queda desfasado y el PnL se rompe. Los ajustes viven en operaciones.pnl_ajustes
+# y el motor los mergea al stream de boletos (ver pnl_ajustes_sql). Lectura con
+# el módulo `portfolios` (gate del include); escritura SOLO admin + audit.
+
+class _AjustePayload(BaseModel):
+    tipo: str = Field(..., description="split | cantidad")
+    ticker: str = Field(..., min_length=1, max_length=80)
+    fecha: str = Field(..., description="YYYY-MM-DD — se aplica antes de los boletos del día")
+    id_cuenta: str | None = Field(None, max_length=40, description="vacío = todas las cuentas")
+    factor: float | None = Field(None, description="split: qty ×= factor (10 = 10:1, 0.1 = reverse)")
+    cantidad: float | None = Field(None, description="cantidad: delta con signo")
+    costo: float | None = Field(None, description="cantidad>0: costo asociado (opcional)")
+    moneda: str = Field("ARS", max_length=8)
+    nota: str | None = Field(None, max_length=300)
+    activo: bool = True
+
+
+@router.get("/pnl-ajustes")
+def pnl_ajustes_listar(actor: str = Depends(get_user_email)) -> dict:
+    """Todos los ajustes (activos e inactivos) + `puede_escribir` para que el
+    front muestre u oculte el ABM. El PnL por cuenta se recalcula en vivo en
+    cada request → un ajuste impacta al instante; la tab TOTALES lee el cache
+    del cron (hasta 30' de retardo en rueda)."""
+    return pnl_ajustes_sql.listar(email=actor)
+
+
+@router.get("/pnl-ajustes/candidatos")
+def pnl_ajustes_candidatos() -> dict:
+    """Desfases detectados entre boletos y tenencia (completeness=parcial en el
+    cache de TOTALES): los candidatos naturales a un ajuste. Si todas las cuentas
+    de un ticker comparten el mismo ratio qty_aum/qty_calc, eso ES un evento
+    corporativo y el ratio sugiere el factor."""
+    return pnl_ajustes_sql.candidatos_desfase()
+
+
+@router.post("/pnl-ajustes", dependencies=[Depends(require_escritura_ajustes)])
+def pnl_ajustes_crear(
+    req: _AjustePayload = Body(...), actor: str = Depends(get_user_email),
+) -> dict:
+    try:
+        return pnl_ajustes_sql.crear(req.model_dump(), actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+
+
+@router.put("/pnl-ajustes/{ajuste_id}", dependencies=[Depends(require_escritura_ajustes)])
+def pnl_ajustes_editar(
+    ajuste_id: int, req: dict = Body(...), actor: str = Depends(get_user_email),
+) -> dict:
+    """Edición parcial: solo los campos presentes en el body pisan lo persistido
+    (incluye `activo` para apagar/prender el ajuste sin borrarlo)."""
+    try:
+        return pnl_ajustes_sql.editar(ajuste_id, req, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
+
+
+@router.delete("/pnl-ajustes/{ajuste_id}", dependencies=[Depends(require_escritura_ajustes)])
+def pnl_ajustes_borrar(ajuste_id: int, actor: str = Depends(get_user_email)) -> dict:
+    """Borrado real (el before queda en pnl_ajustes_audit). Para desactivar sin
+    perder la carga usar PUT con activo=false."""
+    try:
+        return pnl_ajustes_sql.borrar(ajuste_id, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
 
 
 @router.get("/cuentas")

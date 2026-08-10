@@ -19,10 +19,12 @@ Router `/api/portfolio`: endpoints de portfolio / AuM / PnL. Thin wrappers sobre
 Conecta con: delega en services `portfolio` y `pnl`; usa `api.services._grupos_scope` para el scope de cuentas y `api.services.comercial._cuentas_de_operador` para el filtro por operador; lo monta `api.main`.
 
 ## Usa / conecta con →
+- [[api.auth]]  ·  _module_
 - [[api.services]]  ·  _module_
 - [[api.services._grupos_scope]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.comercial_sql]]  ·  _module_
+- [[api.services.pnl_ajustes_sql]]  ·  _module_
 - [[api.services.pnl_sql]]  ·  _module_
 - [[api.services.portfolio_sql]]  ·  _module_
 - [[core.postgres]]  ·  _module_

@@ -82,14 +82,16 @@ def _audit(actor: str, action: str, target: str, data: dict | None = None) -> No
 
 
 # ─────────────────────────────────────────────────────────────
-# Permisos de escritura — SOLO admin (default-deny)
+# Permisos de escritura — admin todo; operador SUS cuentas (default-deny)
 # ─────────────────────────────────────────────────────────────
+# Modelo de ownership (pedido 2026-08-10): además del admin, el OPERADOR
+# COMERCIAL de cada cuenta puede cargar/editar/borrar ajustes de SUS cuentas
+# (vínculo ya registrado: clientes.comitentes.operador_email — el mismo riel
+# que usa el filtro por operador de la vista AUM). Los ajustes GLOBALES
+# (id_cuenta NULL, tocan el PnL de todas las cuentas de un ticker) siguen
+# siendo SOLO admin.
 
-def puede_escribir(email: str) -> bool:
-    """True si el usuario puede escribir ajustes de PnL. Un ajuste mal cargado
-    distorsiona el PnL de TODAS las cuentas de un ticker → solo admin. Si algún
-    día hace falta delegar, el patrón es una allowlist `pnl_ajustes_escritores`
-    como la de Mesa de Dinero — este es el único punto a tocar."""
+def _es_admin(email: str) -> bool:
     email_norm = (email or "").lower().strip()
     if not email_norm:
         return False
@@ -97,14 +99,57 @@ def puede_escribir(email: str) -> bool:
     return get_user_role(email_norm) == "admin"
 
 
+def _cuentas_del_operador(email: str) -> tuple[str, ...]:
+    """ids de cuenta (comitentes activas) cuyo operador_email es este usuario.
+    Reusa comercial._cuentas_de_operador — una sola definición del vínculo."""
+    email_norm = (email or "").lower().strip()
+    if not email_norm:
+        return ()
+    try:
+        from api.services.comercial import _cuentas_de_operador
+        return _cuentas_de_operador(email_norm)
+    except Exception:
+        logger.exception("pnl_ajustes: no pude resolver cuentas del operador")
+        return ()
+
+
+def puede_escribir(email: str) -> bool:
+    """True si el usuario puede escribir ALGÚN ajuste: admin, o un operador con
+    al menos una cuenta asignada. El alcance fino (qué cuenta) lo valida
+    `_verificar_alcance` en cada write."""
+    return _es_admin(email) or bool(_cuentas_del_operador(email))
+
+
+def _verificar_alcance(actor: str, id_cuenta: str | None) -> None:
+    """Levanta PermissionError si el actor no puede escribir un ajuste con ese
+    alcance. admin → todo. Operador → solo id_cuenta ∈ sus cuentas (nunca
+    global). Default-deny."""
+    if _es_admin(actor):
+        return
+    if id_cuenta is None:
+        raise PermissionError(
+            "los ajustes globales (todas las cuentas) son solo del admin — "
+            "cargalo con una cuenta puntual")
+    if str(id_cuenta) not in _cuentas_del_operador(actor):
+        raise PermissionError(f"la cuenta {id_cuenta} no está asignada a tu usuario")
+
+
 # ─────────────────────────────────────────────────────────────
 # Lectura (vista + merge del motor)
 # ─────────────────────────────────────────────────────────────
 
 def listar(email: str = "") -> dict:
-    """Todos los ajustes (activos e inactivos) para el ABM + flag de escritura.
-    El front esconde la edición sin `puede_escribir`, pero el enforcement real
-    es server-side en cada write."""
+    """Todos los ajustes (activos e inactivos) para el ABM + flags de permiso.
+    El front esconde la edición con esto, pero el enforcement real es
+    server-side en cada write (`_verificar_alcance`).
+
+    - `es_admin`: puede todo, incluidos ajustes globales.
+    - `cuentas_permitidas`: None para admin (todas); para un operador, SUS
+      cuentas (el form las ofrece como select y exige elegir una).
+    - `editable` por fila: si ESTE usuario puede tocar ESE ajuste."""
+    es_adm = _es_admin(email)
+    cuentas_op = () if es_adm else _cuentas_del_operador(email)
+    cuentas_set = set(cuentas_op)
     rows = _q(
         "SELECT id, tipo, ticker, id_cuenta, fecha, factor, cantidad, costo, "
         "moneda, nota, activo, creado_por, creado_at, actualizado_por, actualizado_at "
@@ -113,6 +158,8 @@ def listar(email: str = "") -> dict:
     ajustes = []
     for r in rows:
         ajustes.append({
+            "editable": es_adm or (r["id_cuenta"] is not None
+                                   and str(r["id_cuenta"]) in cuentas_set),
             "id": r["id"], "tipo": r["tipo"], "ticker": r["ticker"],
             "id_cuenta": r["id_cuenta"], "fecha": _iso(r["fecha"]),
             "factor": _f(r["factor"]), "cantidad": _f(r["cantidad"]),
@@ -126,7 +173,12 @@ def listar(email: str = "") -> dict:
             "actualizado_por": r["actualizado_por"],
             "actualizado_at": _iso(r["actualizado_at"]),
         })
-    return {"ajustes": ajustes, "puede_escribir": puede_escribir(email)}
+    return {
+        "ajustes": ajustes,
+        "puede_escribir": es_adm or bool(cuentas_op),
+        "es_admin": es_adm,
+        "cuentas_permitidas": None if es_adm else sorted(cuentas_op),
+    }
 
 
 def _tickers_conocidos() -> set[str]:
@@ -241,15 +293,20 @@ def merge_ajustes_en_boletos(
 # Detección de desfases (candidatos a ajuste)
 # ─────────────────────────────────────────────────────────────
 
-def candidatos_desfase() -> dict:
+def candidatos_desfase(email: str = "") -> dict:
     """(cuenta, ticker) donde los boletos NO reconcilian con la tenencia —
     los candidatos naturales a un ajuste. Lee `valuaciones.pnl_totales_cache`
     (ya trae completeness/qty_aum/qty_calc por posición, lo escribe el cron
     cada 30' en rueda) → costo ~0, sin recalcular PnL. El LATERAL extrae solo
     los campos chicos del jsonb (los boletos anidados no viajan).
 
+    Alcance = el mismo de escritura: el admin ve todo; un operador ve SOLO los
+    desfases de sus cuentas (no puede espiar posiciones ajenas por acá).
+
     La joya: si el ratio qty_aum/qty_calc es ~constante entre todas las cuentas
     de un ticker (ej. 10.0), eso ES un split y el ratio ES el factor sugerido."""
+    es_adm = _es_admin(email)
+    cuentas_op = None if es_adm else set(_cuentas_del_operador(email))
     try:
         rows = _q(
             "SELECT c.id_cuenta, c.cuenta, r->>'ticker' AS ticker, "
@@ -262,6 +319,8 @@ def candidatos_desfase() -> dict:
     except Exception:
         logger.exception("pnl_ajustes: no pude leer pnl_totales_cache")
         return {"candidatos": [], "por_ticker": []}
+    if cuentas_op is not None:
+        rows = [r for r in rows if str(r.get("id_cuenta") or "") in cuentas_op]
 
     candidatos = []
     por_ticker: dict[str, list[float]] = {}
@@ -374,9 +433,8 @@ def _get(ajuste_id: int) -> dict | None:
 
 
 def crear(payload: dict, *, actor: str) -> dict:
-    if not puede_escribir(actor):
-        raise PermissionError("sin permiso de escritura en ajustes de PnL")
     v = _validar(payload)
+    _verificar_alcance(actor, v["id_cuenta"])
     row = _q(
         "INSERT INTO operaciones.pnl_ajustes "
         "(tipo, ticker, id_cuenta, fecha, factor, cantidad, costo, moneda, nota, "
@@ -391,8 +449,6 @@ def crear(payload: dict, *, actor: str) -> dict:
 
 
 def editar(ajuste_id: int, payload: dict, *, actor: str) -> dict:
-    if not puede_escribir(actor):
-        raise PermissionError("sin permiso de escritura en ajustes de PnL")
     before = _get(ajuste_id)
     if before is None:
         raise ValueError(f"ajuste {ajuste_id} no existe")
@@ -400,6 +456,12 @@ def editar(ajuste_id: int, payload: dict, *, actor: str) -> dict:
     merged = {k: payload[k] if k in payload else before[k] for k in _CAMPOS}
     merged["fecha"] = _iso(merged["fecha"]) or ""
     v = _validar(merged)
+    # El actor tiene que poder tocar el ajuste COMO ESTÁ y como QUEDA (si no,
+    # un operador podría "robarse" un ajuste ajeno moviéndolo a su cuenta, o
+    # empujar el suyo a una cuenta que no maneja).
+    idc_before = str(before["id_cuenta"]) if before["id_cuenta"] is not None else None
+    _verificar_alcance(actor, idc_before)
+    _verificar_alcance(actor, v["id_cuenta"])
     _exec(
         "UPDATE operaciones.pnl_ajustes SET tipo=%(tipo)s, ticker=%(ticker)s, "
         "id_cuenta=%(id_cuenta)s, fecha=%(fecha)s, factor=%(factor)s, "
@@ -413,11 +475,11 @@ def editar(ajuste_id: int, payload: dict, *, actor: str) -> dict:
 
 
 def borrar(ajuste_id: int, *, actor: str) -> dict:
-    if not puede_escribir(actor):
-        raise PermissionError("sin permiso de escritura en ajustes de PnL")
     before = _get(ajuste_id)
     if before is None:
         raise ValueError(f"ajuste {ajuste_id} no existe")
+    _verificar_alcance(
+        actor, str(before["id_cuenta"]) if before["id_cuenta"] is not None else None)
     _exec("DELETE FROM operaciones.pnl_ajustes WHERE id = %(id)s", {"id": ajuste_id})
     _audit(actor, "delete", ajuste_id, {"before": before})
     return {"ok": True, "id": ajuste_id}

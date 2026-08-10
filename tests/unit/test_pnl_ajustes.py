@@ -213,3 +213,33 @@ def test_merge_ordena_ajuste_antes_de_boletos_del_mismo_dia():
 def test_merge_sin_ajustes_no_toca_nada():
     boletos = {"1": [_compra("2026-01-10", 100, 100_000)]}
     assert merge_ajustes_en_boletos(boletos, []) is boletos
+
+
+# ── Alcance de escritura: admin todo, operador SUS cuentas ───────────────────
+
+def _patch_permisos(monkeypatch, *, admin: bool, cuentas: tuple[str, ...]):
+    import api.services.pnl_ajustes_sql as svc
+    monkeypatch.setattr(svc, "_es_admin", lambda email: admin)
+    monkeypatch.setattr(svc, "_cuentas_del_operador", lambda email: cuentas)
+    return svc
+
+
+def test_admin_puede_global_y_cualquier_cuenta(monkeypatch):
+    svc = _patch_permisos(monkeypatch, admin=True, cuentas=())
+    svc._verificar_alcance("admin@x.com", None)      # global OK
+    svc._verificar_alcance("admin@x.com", "999")     # cualquier cuenta OK
+
+
+def test_operador_solo_sus_cuentas(monkeypatch):
+    import pytest
+    svc = _patch_permisos(monkeypatch, admin=False, cuentas=("255", "300"))
+    svc._verificar_alcance("op@x.com", "255")        # la suya OK
+    with pytest.raises(PermissionError):
+        svc._verificar_alcance("op@x.com", "999")    # ajena NO
+    with pytest.raises(PermissionError):
+        svc._verificar_alcance("op@x.com", None)     # global NO (solo admin)
+
+
+def test_sin_rol_ni_cuentas_no_escribe(monkeypatch):
+    svc = _patch_permisos(monkeypatch, admin=False, cuentas=())
+    assert svc.puede_escribir("nadie@x.com") is False

@@ -19,10 +19,13 @@ router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
 
 
 def require_escritura_ajustes(actor: str = Depends(get_user_email)) -> str:
-    """Escritura de ajustes de PnL: SOLO admin (un ajuste global toca el PnL de
-    todas las cuentas de un ticker). Va como DEPENDENCY, no como chequeo dentro
-    del handler, para que la auditoría de superficie lo vea (scripts/audit_rbac.py
-    lee el árbol de deps). El service igual revalida — defensa en profundidad."""
+    """Escritura de ajustes de PnL: admin (todo, incluidos globales) o un
+    OPERADOR COMERCIAL con cuentas asignadas (solo ajustes de SUS cuentas —
+    ownership por clientes.comitentes.operador_email). Este gate es el grueso;
+    el alcance fino por cuenta lo valida el service (`_verificar_alcance`) en
+    cada write. Va como DEPENDENCY, no como chequeo dentro del handler, para
+    que la auditoría de superficie lo vea (scripts/audit_rbac.py lee el árbol
+    de deps)."""
     if not pnl_ajustes_sql.puede_escribir(actor):
         raise HTTPException(403, "sin permiso de escritura en ajustes de PnL")
     return actor
@@ -151,12 +154,13 @@ def pnl_ajustes_listar(actor: str = Depends(get_user_email)) -> dict:
 
 
 @router.get("/pnl-ajustes/candidatos")
-def pnl_ajustes_candidatos() -> dict:
+def pnl_ajustes_candidatos(actor: str = Depends(get_user_email)) -> dict:
     """Desfases detectados entre boletos y tenencia (completeness=parcial en el
     cache de TOTALES): los candidatos naturales a un ajuste. Si todas las cuentas
     de un ticker comparten el mismo ratio qty_aum/qty_calc, eso ES un evento
-    corporativo y el ratio sugiere el factor."""
-    return pnl_ajustes_sql.candidatos_desfase()
+    corporativo y el ratio sugiere el factor. Admin ve todo; un operador solo
+    los desfases de SUS cuentas."""
+    return pnl_ajustes_sql.candidatos_desfase(email=actor)
 
 
 @router.post("/pnl-ajustes", dependencies=[Depends(require_escritura_ajustes)])

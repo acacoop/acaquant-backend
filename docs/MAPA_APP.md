@@ -1381,8 +1381,10 @@ boleto** (split de CEDEAR, canje de especie, posición pre-data) que rompen el c
 en `operaciones.pnl_ajustes` y `pnl_sql._deps_sql` los mergea al stream de boletos (motor:
 `ajuste_split` multiplica cantidad sin tocar costo; `ajuste_cantidad` suma/resta con costo
 proporcional, sin realizado). `id_cuenta` vacío = GLOBAL (un split se carga UNA vez para todas las
-cuentas del ticker). Lectura módulo `portfolios`; **escritura SOLO admin**
-(`require_escritura_ajustes` + revalida el service) con audit before/after (`pnl_ajustes_audit`).
+cuentas del ticker). Lectura módulo `portfolios`; **escritura: admin todo (incl. globales) +
+el OPERADOR de cada cuenta puede ajustar SOLO sus cuentas** (ownership por
+`clientes.comitentes.operador_email`; `require_escritura_ajustes` + `_verificar_alcance` en el
+service) con audit before/after (`pnl_ajustes_audit`).
 El modal incluye **DESFASES DETECTADOS** (`GET /pnl-ajustes/candidatos`, lee el cache de TOTALES):
 tickers con ratio `qty_aum/qty_calc` consistente entre cuentas + factor sugerido → botón USAR
 precarga el form. Impacto: `/portfolio/pnl` al instante; TOTALES/consolidado en la próxima corrida

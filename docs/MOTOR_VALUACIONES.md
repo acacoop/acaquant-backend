@@ -519,10 +519,20 @@ todas las cuentas comparten el mismo ratio `qty_aum/qty_calc`, eso ES un
 evento corporativo y el ratio es el factor sugerido (`_factor_redondo`).
 
 **Endpoints** (`api/routers/carteras.py`, módulo `portfolios`): GET
-`/pnl-ajustes` (+`puede_escribir`), GET `/pnl-ajustes/candidatos`, POST/PUT/
-DELETE (SOLO admin, dependency `require_escritura_ajustes`, audit before/after
-en `pnl_ajustes_audit`). UI: botón **AJUSTES** en `/valuaciones`
-(`pnl-ajustes-modal.tsx`).
+`/pnl-ajustes` (+`puede_escribir`/`es_admin`/`cuentas_permitidas`/`editable`
+por fila), GET `/pnl-ajustes/candidatos`, POST/PUT/DELETE (dependency
+`require_escritura_ajustes`, audit before/after en `pnl_ajustes_audit`).
+UI: botón **AJUSTES** en `/valuaciones` (`pnl-ajustes-modal.tsx`).
+
+**Permisos (ownership por cuenta, 2026-08-10)**: el **admin** puede todo,
+incluidos los ajustes **globales** (id_cuenta NULL). El **operador comercial**
+de cada cuenta (vínculo `clientes.comitentes.operador_email`, resuelto con
+`comercial._cuentas_de_operador` — el mismo riel del filtro por operador de
+AUM) puede cargar/editar/borrar ajustes **solo de SUS cuentas**, nunca
+globales. El alcance se valida server-side en cada write
+(`pnl_ajustes_sql._verificar_alcance` — también al EDITAR: el ajuste tiene que
+ser suyo como está Y como queda). `/candidatos` respeta el mismo alcance (un
+operador no ve desfases de cuentas ajenas).
 
 **Latencia**: `/portfolio/pnl` recalcula en vivo → el ajuste impacta al
 instante. TOTALES y `consolidado` leen los caches de cron (hasta 30' en rueda /

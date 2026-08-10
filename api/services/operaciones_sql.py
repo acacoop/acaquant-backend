@@ -59,6 +59,24 @@ def _iso_naive(d):
 # rollup de Mongo no trae el bruto en USD).
 _DOLARIZAR = "USD_DOL"
 
+# TC de la CONCERTACIÓN cuando el boleto NO trae su snapshot `mep` (mismo criterio
+# que core.dolar_sql.mep_para_fecha: último mep > 0 con timestamp <= fin-de-día ART,
+# arrastrando el último día con dato). Existe porque no todo boleto se estampa: los
+# FCI bilateral que escribe jobs/fci_bilateral nunca tuvieron `mep`, y con el viejo
+# `ELSE 0` su volumen ARS DESAPARECÍA del dolarizado en vez de convertirse (bug
+# 2026-08-10: FCI Bilateral mostraba ~0 en USD con volumen ARS real).
+# Va DENTRO de una rama de CASE → Postgres solo lo evalúa en las filas sin `mep`.
+_MEP_DIA = (
+    "(SELECT d.mep FROM valuaciones.dolar d "
+    " WHERE d.mep IS NOT NULL AND d.mep > 0 "
+    "   AND d.timestamp < ((operaciones.concertacion + 1)::timestamp "
+    "                      AT TIME ZONE 'America/Argentina/Buenos_Aires') "
+    " ORDER BY d.timestamp DESC LIMIT 1)"
+)
+# TC de la fila: snapshot del boleto y, si falta, el del día. NULL si no hay ninguno
+# (fecha anterior al inicio del feed) → las divisiones dan NULL y SUM las ignora.
+_MEP_ROW = f"NULLIF(COALESCE(NULLIF(mep, 0), {_MEP_DIA}), 0)"
+
 
 # ── FLUJO CONTRAPARTES — resumen agregado (vista /operaciones → CONTRAPARTES) ─
 @cached(ttl=300)
@@ -383,21 +401,23 @@ def ops_meta(fecha: str) -> dict:
 # ── serie / resumen / boletos (VOLUMEN, _ops_match) ──────────────────────────
 def _arancel_expr(moneda: str) -> str:
     """Expr SQL agregada del arancel (ABS). El arancel se guarda SIEMPRE en pesos →
-    en USD/USD_DOL se convierte con el mep de cada boleto (arancel/mep; sin mep → 0).
-    En ARS queda en pesos. Mismo criterio de dolarización que _bruto_expr."""
+    en USD/USD_DOL se convierte con el mep del boleto (y si falta, con el del día:
+    `_MEP_ROW`). En ARS queda en pesos. Mismo criterio que _bruto_expr."""
     if moneda in (_DOLARIZAR, "USD"):
-        return ("SUM(CASE WHEN COALESCE(mep, 0) > 0 "
-                "THEN ABS(COALESCE(arancel, 0)) / mep ELSE 0 END)")
+        return ("SUM(CASE WHEN COALESCE(arancel, 0) <> 0 "
+                f"THEN ABS(arancel) / {_MEP_ROW} ELSE 0 END)")
     return "SUM(ABS(COALESCE(arancel, 0)))"
 
 
 def _bruto_expr(moneda: str) -> str:
     """Expr SQL agregada del volumen. 'USD_DOL' → suma cada boleto convertido a USD
-    con su mep (USD directo; ARS / mep; sin mep → 0, se descarta en silencio). ARS/USD
-    nativos → bruto tal cual (el filtro de moneda lo pone _ops_where)."""
+    con su mep (USD directo; ARS / mep, y si el boleto no trae mep, con el del día →
+    `_MEP_ROW`). ARS/USD nativos → bruto tal cual (el filtro de moneda lo pone
+    _ops_where)."""
     if moneda == _DOLARIZAR:
         return ("SUM(CASE WHEN moneda = 'USD' THEN COALESCE(bruto, 0) "
-                "WHEN moneda = 'ARS' AND COALESCE(mep, 0) > 0 THEN COALESCE(bruto, 0) / mep "
+                "WHEN moneda = 'ARS' AND COALESCE(bruto, 0) <> 0 "
+                f"THEN bruto / {_MEP_ROW} "
                 "ELSE 0 END)")
     return "SUM(COALESCE(bruto, 0))"
 
@@ -408,7 +428,8 @@ def _peso_bruto_row(moneda: str) -> str:
     de volumen que la columna BRUTO que se muestra al lado."""
     if moneda == _DOLARIZAR:
         return ("CASE WHEN moneda = 'USD' THEN COALESCE(bruto, 0) "
-                "WHEN moneda = 'ARS' AND COALESCE(mep, 0) > 0 THEN COALESCE(bruto, 0) / mep "
+                "WHEN moneda = 'ARS' AND COALESCE(bruto, 0) <> 0 "
+                f"THEN bruto / {_MEP_ROW} "
                 "ELSE 0 END")
     return "COALESCE(bruto, 0)"
 

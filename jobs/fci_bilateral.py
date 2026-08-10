@@ -18,8 +18,9 @@ api/routers/operaciones.py) → el volumen no se dobla.
 
 Idempotente: el primer run hace el backfill (taggea los CL históricos cargados a
 mano + trae los DOC); el upsert es NO destructivo — en INSERT setea todos los campos,
-pero ante conflicto de boleto SOLO pisa `etapa` + `ingestado_en`, preservando la carga
-manual (ver _SQL_FCI_UPSERT). Encadenado a negocio_movimientos en crontab.
+pero ante conflicto de boleto SOLO pisa `etapa` + `ingestado_en` (y RELLENA `mep` si
+está vacío), preservando la carga manual (ver _SQL_FCI_UPSERT). Encadenado a
+negocio_movimientos en crontab.
 
 Uso:
     python -m jobs.fci_bilateral
@@ -35,29 +36,35 @@ sys.path.insert(0, ".")
 
 from api.services import operaciones_informes as svc
 from api.services._negocio_sql_read import negocio_movimientos_rows
+from core import dolar_sql
 from core.job_runs import JobRunLogger
 from core.pg_mirror import write_native
 from core.postgres import get_job_pool
 
 # Upsert NO destructivo a SQL operaciones.operaciones: en INSERT setea todos los
 # campos del FCI bilateral; en CONFLICT (boleto ya existe) SOLO pisa etapa +
-# ingestado_en → preserva la carga manual histórica.
+# ingestado_en → preserva la carga manual histórica. `mep` se RELLENA (nunca se
+# pisa): sin él la vista OPERACIONES en modo DOLARIZAR no puede convertir el
+# volumen ARS del FCI bilateral y lo cuenta como cero (bug 2026-08-10).
 _SQL_FCI_UPSERT = """
 INSERT INTO operaciones
  (boleto, concertacion, id_cuenta, denominacion, tipo_operacion, instrumento,
   condiciones, cantidad, bruto, arancel, moneda, mercado, operacion, segmento,
-  nivel_3, commodity, etapa, ingestado_en)
+  nivel_3, commodity, etapa, mep, ingestado_en)
 VALUES (%(boleto)s, %(concertacion)s, %(id_cuenta)s, %(denominacion)s,
   %(tipo_operacion)s, %(instrumento)s, %(condiciones)s, %(cantidad)s, %(bruto)s,
   %(arancel)s, %(moneda)s, %(mercado)s, %(operacion)s, %(segmento)s, %(nivel_3)s,
-  %(commodity)s, %(etapa)s, %(ingestado_en)s)
+  %(commodity)s, %(etapa)s, %(mep)s, %(ingestado_en)s)
 ON CONFLICT (boleto) DO UPDATE SET
-  etapa = EXCLUDED.etapa, ingestado_en = EXCLUDED.ingestado_en
+  etapa = EXCLUDED.etapa, ingestado_en = EXCLUDED.ingestado_en,
+  mep = COALESCE(NULLIF(operaciones.mep, 0), EXCLUDED.mep)
 """
 
 
-def _fci_params(etapa: str, base: dict, now: datetime) -> dict:
-    """(etapa, base del _map_doc) → params SQL. `cuenta`→id_cuenta; fecha ISO→date."""
+def _fci_params(etapa: str, base: dict, now: datetime,
+                meps: dict[str, float | None]) -> dict:
+    """(etapa, base del _map_doc) → params SQL. `cuenta`→id_cuenta; fecha ISO→date.
+    `meps` es el mapa fecha→MEP precalculado en una query (ver `run`)."""
     conc = base.get("concertacion")
     return {
         "boleto":         base["boleto"],
@@ -77,6 +84,7 @@ def _fci_params(etapa: str, base: dict, now: datetime) -> dict:
         "nivel_3":        base.get("nivel_3"),
         "commodity":      base.get("commodity"),
         "etapa":          etapa,
+        "mep":            meps.get(conc) if conc else None,
         "ingestado_en":   now,
     }
 
@@ -207,7 +215,11 @@ def run(full: bool = False) -> dict:
         #    `ingestado_en` se bumpea SIEMPRE (también cuando solo cambia etapa).
         up = mod = 0
         if por_boleto:
-            params = [_fci_params(etapa, base, now) for etapa, base in por_boleto.values()]
+            # MEP por fecha de concertación en UNA query (no una por boleto).
+            meps = dolar_sql.mep_por_fecha(
+                b["concertacion"] for _e, b in por_boleto.values() if b.get("concertacion"))
+            params = [_fci_params(etapa, base, now, meps)
+                      for etapa, base in por_boleto.values()]
             with get_job_pool().connection() as conn, conn.cursor() as cur:
                 cur.executemany(_SQL_FCI_UPSERT, params)
                 conn.commit()

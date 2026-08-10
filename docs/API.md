@@ -418,6 +418,22 @@ ponderar: se pinta tal cual viene.
 - En `por_instrumento` (POR TÍTULO) los boletos de un mismo título comparten
   tasa, así que la ponderada colapsa a ese único valor.
 
+**`moneda=USD_DOL` (DOLARIZAR) — fallback de TC (2026-08-10)** — el volumen
+dolarizado convierte cada boleto ARS con SU snapshot `operaciones.mep`. Los
+boletos que escribe `jobs/fci_bilateral` nunca estamparon `mep` y la expresión
+vieja los mandaba a **cero**: FCI Bilateral mostraba volumen ARS real y ~0 al
+dolarizar (julio 2026). Ahora `operaciones_sql._MEP_ROW` cae al **MEP del día de
+concertación** (`valuaciones.dolar`, mismo criterio que `dolar_sql.mep_para_fecha`)
+cuando el boleto no trae el suyo — la subquery vive dentro de una rama del `CASE`,
+así que sólo se evalúa en las filas sin snapshot. Aplica igual al `arancel` en
+USD/USD_DOL. Sólo queda sin convertir lo anterior al inicio del feed MEP (`NULL`,
+que `SUM` ignora — no se cuenta como cero).
+
+Complementos: `jobs/fci_bilateral` ya estampa `mep` al insertar (y lo RELLENA en
+`ON CONFLICT`, nunca lo pisa) y `scripts/backfill_ops_mep.py` materializa el
+histórico. Tras el backfill hay que recomputar el agregado frío
+(`python -m jobs.ops_agregado --full`), que usa las MISMAS expresiones.
+
 #### `/negocio` — schema del response
 
 `agregados[]` (uno por categoría presente en el día):

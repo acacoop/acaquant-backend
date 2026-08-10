@@ -203,10 +203,25 @@ def _bucket() -> dict:
             "neto": 0.0, "n": 0}
 
 
-def _ref_cheques_emitidos_vencidos(banco: str, unidad: str) -> str:
-    # El literal sigue diciendo `emitidos_t1`: es la clave con la que ya están
-    # guardados los destildados en `tesoreria_exclusiones`, cambiarlo los huerfanaría.
-    return f"emitidos_t1|{banco}|{str(unidad or '').upper()}"
+# Los cheques EMITIDOS MANUALES que llegan a la fila `egresos_echeq` se auditan en DOS
+# renglones, porque el back office los revisa distinto:
+#   'vencido' → fecha de pago ANTERIOR al día (arrastre)
+#   'hoy'     → fecha de pago DEL día
+# Cada grupo tiene su ref, así se tilda/destilda por separado. Los cheques `auto` NO
+# están acá: existen solo como REGISTRO en la tab CHEQUES y su plata ya la puso el
+# movimiento e-cheq de Aunesa, que se lista aparte en esta misma celda.
+_ETIQUETA_EMITIDOS = {
+    "vencido": ("cheques emitidos vencidos", "fecha de pago anterior al día"),
+    "hoy": ("cheques emitidos del día", "fecha de pago del día"),
+}
+
+
+def _ref_cheques_emitidos_vencidos(banco: str, unidad: str, grupo: str = "vencido") -> str:
+    # El literal del grupo vencido sigue diciendo `emitidos_t1`: es la clave con la que
+    # ya están guardados los destildados en `tesoreria_exclusiones`, cambiarlo los
+    # huerfanaría.
+    prefijo = "emitidos_hoy" if grupo == "hoy" else "emitidos_t1"
+    return f"{prefijo}|{banco}|{str(unidad or '').upper()}"
 
 
 def _cheques_emitidos_vencidos_rows(dia: date) -> list[dict]:
@@ -217,21 +232,24 @@ def _cheques_emitidos_vencidos_rows(dia: date) -> list[dict]:
     caso de BANCO PATAGONIA COMÚN, 2026-08-10). Es además el mismo corte que usa el
     total "impacta hoy" del tablero EMITIDOS en el front.
 
-    Se agregan por banco+moneda porque en BANCOS tienen que impactar como un solo monto
-    y el modal de auditoría debe mostrar un único renglón ("cheques emitidos vencidos"),
-    no el detalle cheque por cheque.
+    Se agregan por banco+moneda+`grupo`: en BANCOS tienen que impactar como un solo
+    monto y el modal de auditoría no puede explotar cheque por cheque, pero SÍ tiene que
+    separar el arrastre de la carga del día (ver `_ETIQUETA_EMITIDOS`).
 
-    SOLO los `origen='manual'`: los espejo de un e-cheq de Aunesa ya restaron por su
-    propio movimiento en esta MISMA fila `egresos_echeq` — sumarlos otra vez es el
-    doble conteo que el espejo vino a eliminar (ver `sincronizar_echeq_emitidos`).
+    SOLO los `origen='manual'`: el espejo de un e-cheq de Aunesa NO suma acá — esa plata
+    ya la puso su propio movimiento en esta MISMA fila. El cheque `auto` existe para que
+    quede el REGISTRO en la tab CHEQUES y nadie lo cargue a mano, no para volver a
+    restarlo (ver `sincronizar_echeq_emitidos`).
     """
     try:
         return _items_sql(
-            f"SELECT banco, unidad, COUNT(*) AS cantidad, SUM(importe) AS total "
+            "SELECT banco, unidad, "
+            "CASE WHEN fecha_pago < %(d)s THEN 'vencido' ELSE 'hoy' END AS grupo, "
+            "COUNT(*) AS cantidad, SUM(importe) AS total "
             f"FROM {_TABLA_CHEQUES} WHERE lado = 'emitido' AND estado = 'emitido' "
             f"AND origen = '{ORIGEN_MANUAL}' "
             "AND fecha_pago IS NOT NULL AND fecha_pago <= %(d)s "
-            "GROUP BY banco, unidad ORDER BY banco, unidad",
+            "GROUP BY banco, unidad, grupo ORDER BY banco, unidad, grupo",
             {"d": dia},
         )
     except Exception:
@@ -381,10 +399,12 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     emit_vencidos: dict[tuple[str, str], float] = {}
     for r in _cheques_emitidos_vencidos_rows(dia):
         banco, unidad = r["banco"], str(r["unidad"] or "").upper()
-        ref = _ref_cheques_emitidos_vencidos(banco, unidad)
+        grupo = r.get("grupo") or "vencido"
+        ref = _ref_cheques_emitidos_vencidos(banco, unidad, grupo)
         fuera, _ = _estado_excl(exc, "cheque", ref)
         if not fuera:
-            emit_vencidos[(banco, unidad)] = float(r["total"] or 0)
+            emit_vencidos[(banco, unidad)] = (emit_vencidos.get((banco, unidad), 0.0)
+                                              + float(r["total"] or 0))
     # Filas MERCADOS y FCI: ya vienen netas y con signo (ver mercados_por_banco).
     mkt = mercados_por_banco(dia)
     # Banco a banco: una transferencia interna suma en un banco y resta en el otro.
@@ -535,7 +555,9 @@ _FUENTE_FILA = {
     "ingresos": f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO}) + REGISTROS MANUALES",
     "egresos": f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO}) + REGISTROS MANUALES",
     "egresos_echeq": (f"Movimientos de Aunesa · RIEL e-cheq (estado {ESTADO_EFECTIVO}) + "
-                      "cheques EMITIDOS con fecha de pago vencida o del día"),
+                      "cheques EMITIDOS MANUALES con fecha de pago vencida o del día, "
+                      "en dos renglones (los espejo de Aunesa no suman: ya los puso su "
+                      "movimiento)"),
     "ingresos_echeq": "Cheques RECIBIDOS finalizados (tab CHEQUES)",
     # Estas tres cuentan también lo `pendiente` (decisión del back office), así que el
     # detalle muestra el estado REAL de cada fila: la columna ESTADO no lo disimula.
@@ -641,19 +663,23 @@ def _detalle_dia(dia: date, cuentas: list[dict] | None = None) -> dict[str, dict
               r["comitente_denominacion"] or r["comitente"] or "—",
               f"cheque {r['tipo'] or ''}".strip(), r["estado"], float(r["importe"] or 0))
 
-    # 3b) Cheques emitidos vencidos → misma fila `egresos_echeq`, pero compactados en UNA
-    #     sola línea por banco+moneda para que el modal no explote cheque por cheque.
+    # 3b) Cheques emitidos MANUALES → misma fila `egresos_echeq`, compactados por
+    #     banco+moneda para que el modal no explote cheque por cheque, pero en DOS
+    #     renglones: vencidos / del día. Los `auto` no están: su plata la puso el
+    #     movimiento e-cheq de Aunesa, que ya se lista arriba uno por uno.
     for r in _cheques_emitidos_vencidos_rows(dia):
         cantidad = int(r["cantidad"] or 0)
+        grupo = r.get("grupo") or "vencido"
         banco, unidad = r["banco"], str(r["unidad"] or "").upper()
+        detalle, motivo = _ETIQUETA_EMITIDOS[grupo]
         _push(
             banco,
             unidad,
             "egresos_echeq",
             "cheque",
-            _ref_cheques_emitidos_vencidos(banco, unidad),
-            "cheques emitidos vencidos",
-            f"{cantidad} cheque{'s' if cantidad != 1 else ''} · fecha de pago vencida o del día",
+            _ref_cheques_emitidos_vencidos(banco, unidad, grupo),
+            detalle,
+            f"{cantidad} cheque{'s' if cantidad != 1 else ''} · {motivo}",
             "emitido",
             float(r["total"] or 0),
         )

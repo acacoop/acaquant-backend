@@ -103,7 +103,7 @@ def test_detalle_egresos_echeq_compacta_cheques_emitidos_vencidos(monkeypatch):
         "fuente": "cheque",
         "ref": "emitidos_t1|BANCO A|ARS",
         "detalle": "cheques emitidos vencidos",
-        "referencia": "2 cheques · fecha de pago vencida o del día",
+        "referencia": "2 cheques · fecha de pago anterior al día",
         "estado": "emitido",
         "importe": 80.0,
         "excluido": False,

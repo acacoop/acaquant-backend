@@ -20,6 +20,8 @@ Reglas v1:
   * fci — `[<id>] CAFCI<n>-<m> - <nombre>` → CARTERA, TICKER (nombre del fondo) y
     CAFCI (código). Es la misma derivación que hace el auto-alta del writer diario
     (`core.cafci`), acá backfilleada sobre lo que ya está en el catálogo.
+  * ticker — TICKER para el resto del catálogo, sea cual sea la cartera: sale del
+    `[<id>] <descripción>` de Aunesa.
 
 Sumar una regla = una función `fila → {columna: valor}` + una entrada en REGLAS;
 el motor se ocupa del "solo si está vacío", del reporte y de la escritura.
@@ -38,7 +40,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from core.cafci import extract_cafci, nombre_fci
+from core.cafci import es_fci_unidad, extract_cafci, nombre_fci
 from core.job_runs import JobRunLogger
 from core.postgres import get_pool
 
@@ -94,6 +96,41 @@ def _regla_fci(row: dict) -> dict[str, str]:
     return out
 
 
+def _es_fci(row: dict) -> bool:
+    cartera = str(row.get("cartera") or "").strip().upper()
+    return cartera in {"FCI", "CARTERA FCI"} or es_fci_unidad(row.get("unidad"))
+
+
+# `[<id de especie>] <descripción opcional>` — la forma general de Aunesa. Las
+# unidades de cash (`ARS`, `USDL`) no la cumplen y quedan afuera solas.
+_RE_UNIDAD = re.compile(r"^\[(?P<id>[^\]]*)\]\s*(?P<resto>.*)$", re.DOTALL)
+
+
+def _regla_ticker(row: dict) -> dict[str, str]:
+    """TICKER para cualquier cartera, derivado de la unidad:
+
+        `[DLR012026]`                          → DLR012026   (sin descripción: el id)
+        `[43070] NZC6O - NZC6O - T.DEUDA BNA`  → NZC6O       (hasta el primer guion)
+        `[10390] Depósito U$S Ext`             → Depósito U$S Ext  (sin guion: todo)
+
+    Se autoexcluye de las dos carteras que ya tienen su propia derivación: en FCI
+    el ticker es el NOMBRE del fondo, que va DESPUÉS del código CAFCI (cortar en el
+    primer guion daría 'CAFCI518'); en financiamiento la descripción es el propio
+    ticker seguido de Nro./Vto.
+    """
+    unidad = (row.get("unidad") or "").strip()
+    if _es_fci(row) or _RE_FINANCIAMIENTO.match(unidad):
+        return {}
+    m = _RE_UNIDAD.match(unidad)
+    if not m:
+        return {}
+    resto = m["resto"].strip()
+    # `or resto` cubre la descripción que ARRANCA con guion: mejor el texto
+    # completo que un ticker vacío.
+    tk = (resto.split("-", 1)[0].strip() or resto) if resto else (m["id"] or "").strip()
+    return {"ticker": tk} if tk else {}
+
+
 @dataclass(frozen=True)
 class Regla:
     id: str
@@ -104,6 +141,7 @@ class Regla:
 REGLAS: list[Regla] = [
     Regla("financiamiento", "Pagarés/cheques de FINANCIAMIENTO", _regla_financiamiento),
     Regla("fci", "Fondos comunes (código CAFCI + nombre)", _regla_fci),
+    Regla("ticker", "Ticker derivado de la unidad (resto del catálogo)", _regla_ticker),
 ]
 
 

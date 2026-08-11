@@ -33,6 +33,14 @@ Uso (Droplet, desde la raíz):
 Los parámetros por defecto imitan el uso típico de la vista (período desde
 principio de año, moneda ARS, sin filtros). No son LOS mismos filtros exactos
 que usaste en el browser: si un endpoint da muy distinto, probá con `--desde`.
+
+⚠️ TRAMPA QUE YA HIZO MENTIR A ESTE DIAG (2026-08-11). Llamar al service directo
+SALTEA los defaults del ROUTER, y el router es parte del contrato. En la primera
+corrida, `informe-segmento-detalle` reportó 12,6 MB de payload y 817 ms — pero la
+app nunca pide eso: el router manda `max_ops=1000` y el service, sin ese tope,
+devuelve TODAS las operaciones. El diag estaba midiendo una llamada que no existe
+en producción. **Cada candidato de acá tiene que pasar los defaults del ROUTER, no
+los del service**; si tocás uno, chequeá primero la firma en `api/routers/`.
 """
 from __future__ import annotations
 
@@ -76,11 +84,17 @@ def _candidatos(desde: str, hasta: str) -> list[dict]:
     """
     def informe_segmento_detalle() -> Any:
         from api.services.comercial_sql import informe_segmento_detalle as f
-        return f(moneda="ARS", desde=desde)
+        # max_ops=1000 y segmento="todos" NO son los defaults del SERVICE: son los
+        # del ROUTER, que es lo que realmente recibe la app. Sin el tope, el
+        # service devuelve TODAS las operaciones (12,6 MB medidos el 2026-08-11)
+        # y el diag miente por exceso. Ver la nota sobre esta trampa arriba.
+        return f(segmento="todos", moneda="ARS", desde=desde, max_ops=1000)
 
     def operador() -> Any:
         from api.services.comercial_sql import operador_comercial as f
-        return f(operador="__todos__", moneda="ARS", desde=desde)
+        # El router manda operador=[] (lista vacía = todos), no el sentinel
+        # "__todos__" — ese lo usa analisis_comercial y son caminos distintos.
+        return f(operador=[], moneda="ARS", desde=desde)
 
     def informe() -> Any:
         from api.services.comercial_sql import informe_comercial as f
@@ -92,7 +106,7 @@ def _candidatos(desde: str, hasta: str) -> list[dict]:
 
     def analisis() -> Any:
         from api.services.comercial_sql import analisis_comercial as f
-        return f(operador="__todos__")
+        return f(operador=[], moneda="ARS")   # router: operador=[] = todos
 
     def agro() -> Any:
         from api.services.operaciones_sql import ops_agro as f

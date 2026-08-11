@@ -25,28 +25,47 @@ _ACTOR = "script:fix_financiamiento_clase"
 _BATCH = 500
 
 
-def _pendientes() -> list[tuple[str, str, str, float]]:
-    """(unidad, clase_actual, clase_nueva, nominal) de lo que hay que cambiar."""
+def _pendientes() -> tuple[list[tuple[str, str, str, float]], int, int]:
+    """(a_cambiar, ya_ok, sin_nominal).
+
+    El nominal sale de la ÚLTIMA tenencia que tuvo CADA unidad, no de la de hoy.
+    Un pagaré que ya venció o que se cobró no tiene tenencia hoy: mirando solo el
+    último día se caían del universo y quedaban sin clasificar para siempre
+    (que es exactamente lo que pasó la primera vez).
+    """
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT a.unidad, a.clase_activo, sum(t.cantidad) "
-            "FROM portafolio.assets a "
-            "JOIN portafolio.tenencia t ON t.unidad = a.unidad "
-            "WHERE upper(btrim(a.cartera)) = 'FINANCIAMIENTO' "
-            "  AND t.fecha = (SELECT max(fecha) FROM portafolio.tenencia) "
-            "  AND t.cantidad IS NOT NULL "
-            "GROUP BY a.unidad, a.clase_activo "
-            "ORDER BY 3")
+            "WITH fin AS ("
+            "    SELECT unidad, clase_activo FROM portafolio.assets"
+            "     WHERE upper(btrim(cartera)) = 'FINANCIAMIENTO'"
+            "), ult AS ("
+            "    SELECT t.unidad, max(t.fecha) AS fecha"
+            "      FROM portafolio.tenencia t JOIN fin f ON f.unidad = t.unidad"
+            "     GROUP BY t.unidad"
+            ") "
+            "SELECT f.unidad, f.clase_activo, sum(t.cantidad) "
+            "  FROM fin f "
+            "  LEFT JOIN ult u ON u.unidad = f.unidad "
+            "  LEFT JOIN portafolio.tenencia t "
+            "         ON t.unidad = f.unidad AND t.fecha = u.fecha "
+            " GROUP BY f.unidad, f.clase_activo "
+            " ORDER BY 3 NULLS LAST")
         rows = cur.fetchall()
 
-    out = []
+    out: list[tuple[str, str, str, float]] = []
+    ya_ok = sin_nominal = 0
     for unidad, clase, nominal in rows:
+        if nominal is None:
+            sin_nominal += 1        # nunca tuvo tenencia: no hay de dónde inferir
+            continue
         n = float(nominal)
         nueva = "HD" if n <= _UMBRAL_HD else "DL"
         actual = (clase or "").strip().upper()
-        if actual != nueva:
+        if actual == nueva:
+            ya_ok += 1
+        else:
             out.append((unidad, actual or "(vacío)", nueva, n))
-    return out
+    return out, ya_ok, sin_nominal
 
 
 def _aplicar(pendientes: list[tuple[str, str, str, float]]) -> int:
@@ -71,9 +90,15 @@ def main() -> None:
     args = ap.parse_args()
 
     print(f"HD si nominal ≤ {_UMBRAL_HD:,.0f} · DL si es mayor\n")
-    pendientes = _pendientes()
+    pendientes, ya_ok, sin_nominal = _pendientes()
+    print(f"cartera FINANCIAMIENTO: {len(pendientes) + ya_ok + sin_nominal} assets "
+          f"· ya OK: {ya_ok} · a cambiar: {len(pendientes)} · sin tenencia nunca: {sin_nominal}")
+    if sin_nominal:
+        print(f"  ({sin_nominal} no tuvieron NUNCA una tenencia → no hay nominal "
+              f"del cual inferir; quedan vacíos y se cargan a mano si hace falta)")
+    print()
     if not pendientes:
-        print("Todo el financiamiento ya está clasificado. Nada que hacer.")
+        print("Todo lo clasificable ya está clasificado. Nada que hacer.")
         return
 
     resumen: dict[str, int] = {}

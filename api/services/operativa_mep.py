@@ -212,6 +212,38 @@ def _persistir_orden_live(
     _audit_ordenes("REST_SNAPSHOT", cl_ord_id=cl_ord_id, account=account, payload=order)
 
 
+def aplicar_fields(doc: dict, fields: dict) -> dict:
+    """Mergea `fields` sobre `doc` respetando las claves con PUNTO como PATH anidado.
+
+    `"buy.cl_ord_id": X` significa `doc["buy"]["cl_ord_id"] = X` — es la
+    dot-notation del `$set` de Mongo, que quedó viva en `_persistir_resultado_operativa`
+    cuando la operativa migró a SQL. Postgres no la interpreta: el merge plano
+    `{**doc, **fields}` creaba una clave de PRIMER NIVEL llamada literalmente
+    `"buy.cl_ord_id"` y dejaba `doc["buy"]["cl_ord_id"]` en None PARA SIEMPRE.
+
+    Consecuencia (bug de esta función, no del broker): las órdenes se mandaban y
+    se llenaban bien, pero la operativa nunca quedaba enlazada a sus dos patas.
+    El listado del día busca `op["buy"]["cl_ord_id"]` para joinear contra
+    `operaciones.ordenes_live` → no encontraba nada → las columnas BUY, SELL,
+    USD EFECT y MEP EFECT salían vacías, y el drilldown también. Las que sí se
+    veían (HORA, MONTO ARS, NOMINALES, MEP INI, ESTADO, USER) son justo las que
+    viven en el doc de la operativa y no necesitan el join.
+
+    Función PURA para poder testearla sin base.
+    """
+    merged = {**doc}
+    for k, v in fields.items():
+        if "." not in k:
+            merged[k] = v
+            continue
+        head, _, tail = k.partition(".")
+        # copia del subdoc para no mutar el original que vino de la DB
+        sub = dict(merged.get(head) or {})
+        sub[tail] = v
+        merged[head] = sub
+    return merged
+
+
 def _upsert_operativa_sql(operativa_id: str, fields: dict) -> None:
     """Upsert SQL-native a operaciones.operativas_mep (read-modify-write). `fields` se mergea
     en el doc (en el insert inicial trae todo; en updates, solo lo que cambia). SQL-native
@@ -225,7 +257,8 @@ def _upsert_operativa_sql(operativa_id: str, fields: dict) -> None:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute("SELECT data FROM operaciones.operativas_mep WHERE id = %s", (operativa_id,))
         row = cur.fetchone()
-        merged = {**((row["data"] if row else None) or {}), **fields, "operativa_id": operativa_id}
+        prev = (row["data"] if row else None) or {}
+        merged = {**aplicar_fields(prev, fields), "operativa_id": operativa_id}
         cur.execute(
             "INSERT INTO operaciones.operativas_mep (id, account, rueda, ts, data) "
             "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET "
@@ -608,6 +641,59 @@ def _enrich_pata(orden: dict | None) -> dict[str, Any] | None:
         "avg_px":        orden.get("avg_px"),
         "reject_reason": orden.get("reject_reason"),
     }
+
+
+def _ejecutado(orden: dict | None) -> float | None:
+    """Plata efectivamente movida por una pata = cum_qty × avg_px × 0.01
+    (los bonos cotizan por cada 100 VN). None si la pata no ejecutó nada.
+    La MONEDA la define el ticker: AL30 → ARS, AL30D → USD."""
+    if not orden:
+        return None
+    cum = float(orden.get("cum_qty") or 0)
+    avg = float(orden.get("avg_px") or 0)
+    if cum <= 0 or avg <= 0:
+        return None
+    return cum * avg * PRICE_FACTOR_BONOS
+
+
+def calcular_efectivos(
+    tipo: str | None, buy_ord: dict | None, sell_ord: dict | None
+) -> dict[str, Any]:
+    """USD y ARS realmente movidos + MEP efectivo, para CUALQUIERA de los dos
+    sentidos de la operativa.
+
+    Las patas se invierten según el tipo, y esto NO es un detalle cosmético —
+    define qué pata está en dólares:
+
+      compra (ARS → USD):  BUY AL30 paga ARS   · SELL AL30D cobra USD
+      venta  (USD → ARS):  BUY AL30D paga USD  · SELL AL30 cobra ARS
+
+    Antes se asumía SIEMPRE el shape de la compra (`usd = sell`, `ars = buy`),
+    así que en las filas `tipo="venta"` la columna USD EFECT mostraba PESOS y
+    el MEP efectivo salía invertido. Las dos vistas (COMPRA y VENTA) listan las
+    operativas del día sin filtrar por tipo, así que el error se veía en las dos.
+
+    El MEP efectivo sale igual en los dos sentidos: ARS movidos / USD movidos.
+    """
+    if (tipo or "compra") == "venta":
+        usd_ord, ars_ord = buy_ord, sell_ord      # BUY AL30D · SELL AL30
+        al30_ord, al30d_ord = sell_ord, buy_ord
+    else:
+        usd_ord, ars_ord = sell_ord, buy_ord      # SELL AL30D · BUY AL30
+        al30_ord, al30d_ord = buy_ord, sell_ord
+
+    usd_efectivo = _ejecutado(usd_ord)
+    ars_operados = _ejecutado(ars_ord)
+    out: dict[str, Any] = {
+        "usd_efectivo": round(usd_efectivo, 2) if usd_efectivo else None,
+        "ars_operados": round(ars_operados, 2) if ars_operados else None,
+        "mep_efectivo": None,
+        "precio_al30":  (al30_ord or {}).get("avg_px"),
+        "precio_al30d": (al30d_ord or {}).get("avg_px"),
+    }
+    if usd_efectivo and ars_operados and usd_efectivo > 0:
+        out["mep_efectivo"] = round(ars_operados / usd_efectivo, 2)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

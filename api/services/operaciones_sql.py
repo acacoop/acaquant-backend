@@ -837,20 +837,68 @@ def _agro_serie(rows: list[dict]) -> list[dict]:
     return [out[p] for p in sorted(out)]
 
 
+def _agro_base(scope: tuple[str, ...] | None,
+               nivel5: str | None) -> tuple[str, dict]:
+    """El WHERE común a TODAS las queries de agro: los 3 commodities, sin anular,
+    más el scope de cuentas y el filtro de nivel_5.
+
+    Vive en un solo lugar a propósito. Antes estaba escrito inline en `ops_agro`;
+    al sacar `_agro_nuestro_mensual` a su propia función quedaba duplicado, y dos
+    copias de un filtro son dos copias que se desincronizan — con la particularidad
+    de que acá la divergencia no rompería nada: devolvería números distintos entre
+    el share y el resto de la vista, sin ningún error.
+    """
+    base = "commodity IN ('SOJA', 'TRIGO', 'MAIZ') AND anulado_en IS NULL"
+    p: dict = {}
+    if scope is not None:
+        base += " AND id_cuenta = ANY(%(scope)s)"
+        p["scope"] = list(scope)
+    if nivel5:
+        base += " AND id_cuenta IN (SELECT id_cuenta FROM comitentes WHERE nivel_5 = %(nivel5)s)"
+        p["nivel5"] = nivel5
+    return base, p
+
+
+@cached(ttl=300)
+def _agro_nuestro_mensual(*, scope: tuple[str, ...] | None = None,
+                          nivel5: str | None = None) -> dict[str, dict]:
+    """Toneladas propias por mes × commodity, histórico COMPLETO — numerador del
+    market-share (`serie_share`).
+
+    **Por qué está aparte y cacheado** (medido en el Droplet el 2026-08-11): es la
+    única de las ocho queries de `ops_agro` **sin filtro de fecha**, así que agrega
+    todo el histórico de agro en cada llamada: **314 ms de los 1103 ms** que suman
+    las queries del endpoint, el 29%.
+
+    Y ese trabajo se repetía al pedo. El resultado depende SOLO de `scope` y
+    `nivel5` — no de `desde`, `hasta`, `agg`, `commodity`, `cuenta` ni `tipo`, que
+    es todo lo que el usuario toca en la vista. Midiendo la tab AGRO se contaron
+    **22 llamadas en un minuto** con distintas combinaciones de filtros: las 22
+    recalculaban este mismo histórico para obtener exactamente el mismo número.
+
+    El TTL de 300s no puede cambiar lo que se ve: la serie es MENSUAL y su fuente
+    (`jobs.operaciones_informes`) escribe una vez por hora. Lo único que podría
+    quedar hasta 5 minutos atrás es el mes en curso.
+
+    SOLO FUTUROS: el share se calcula contra el volumen de futuros del mercado
+    (las opciones no están en `volumen_mercado_agro`) → se excluye OPCION.
+    """
+    base, bp = _agro_base(scope, nivel5)
+    out: dict[str, dict] = {}
+    for r in _q(f"SELECT to_char(concertacion, 'YYYY-MM') AS p, commodity AS c, SUM({_TON}) AS ton "
+                f"FROM operaciones WHERE {base} AND tipo_agro IS DISTINCT FROM 'OPCION' "
+                f"GROUP BY p, commodity", bp):
+        out.setdefault(r["p"], {})[r["c"]] = _f(r["ton"])
+    return out
+
+
 def ops_agro(
     desde: str = "", hasta: str = "", agg: str = "MENSUAL", commodity: str | None = None,
     cuenta: str | None = None, scope: tuple[str, ...] | None = None, nivel5: str | None = None,
     tipo: str | None = None,
 ) -> dict:
     fmt = "YYYY-MM" if agg.upper() == "MENSUAL" else "YYYY-MM-DD"
-    base = "commodity IN ('SOJA', 'TRIGO', 'MAIZ') AND anulado_en IS NULL"
-    bp: dict = {}
-    if scope is not None:
-        base += " AND id_cuenta = ANY(%(scope)s)"
-        bp["scope"] = list(scope)
-    if nivel5:
-        base += " AND id_cuenta IN (SELECT id_cuenta FROM comitentes WHERE nivel_5 = %(nivel5)s)"
-        bp["nivel5"] = nivel5
+    base, bp = _agro_base(scope, nivel5)
     # Filtro FUTURO/OPCION: aplica a las vistas de VOLUMEN (serie/tablas), NO a
     # las vistas "por tipo" (que siempre muestran ambos) ni al share (futuros).
     tipo_up = (tipo or "").upper()
@@ -933,14 +981,7 @@ def ops_agro(
             d[r["t"]] = round(_f(r["ton"]), 0)
     serie_tipo = [serie_tipo_map[p] for p in sorted(serie_tipo_map)]
 
-    # nuestro_mensual (histórico completo, sin date) → numerador del share.
-    # SOLO FUTUROS: el share de mercado se calcula contra el volumen de futuros
-    # (las opciones no están en volumen_mercado_agro) → excluir OPCION.
-    nuestro_m: dict[str, dict] = {}
-    for r in _q(f"SELECT to_char(concertacion, 'YYYY-MM') AS p, commodity AS c, SUM({_TON}) AS ton "
-                f"FROM operaciones WHERE {base} AND tipo_agro IS DISTINCT FROM 'OPCION' "
-                f"GROUP BY p, commodity", bp):
-        nuestro_m.setdefault(r["p"], {})[r["c"]] = _f(r["ton"])
+    nuestro_m = _agro_nuestro_mensual(scope=scope, nivel5=nivel5)
 
     # share: denominador del market-share desde mercado.volumen_mercado_agro (SQL-native,
     # decomiso Mongo: CashFlow.VolumenMercadoAgro dropeada). `{periodo: {commodity: toneladas}}`.

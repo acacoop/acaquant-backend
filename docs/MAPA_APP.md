@@ -355,6 +355,16 @@ MANAGER                   → /manager           [manager ∨ manager_clientes �
 Los items de los dropdowns están ordenados alfabéticamente por label. Los dropdowns son **100 % CSS**
 (`group-hover`, sin estado React) → no hay cierre con Esc ni navegación por teclado.
 
+**Portal invitado (www) — nav plana, MAYÚSCULA y A→Z** (`header.tsx::navInvitado`, 2026-08-11). El
+invitado no tiene dropdowns: MERCADOS se aplana, así que quedaban mezclados labels top-level en
+mayúscula (RESEARCH) con los del dropdown en Title Case (Agro, Renta Fija…), y RESEARCH aparecía
+segundo porque heredaba el orden de `NAV`. Ahora, **solo para el invitado**, sobre las entries ya
+filtradas por RBAC se aplica `toUpperCase()` + orden alfabético (`localeCompare` en `es`, para que
+SINTÉTICOS no se vaya al final por el acento) con HOME pinneado primero por ser la vista por default.
+Se ordena la lista ya filtrada — una vista nueva que se sume al portal entra en su lugar sola, sin
+lista paralela que mantener. **El portal interno no cambia** (mantiene dropdowns y su orden). Es solo
+UX: no toca módulos, roles ni gates.
+
 **`*` = CAPACIDAD, no módulo del RBAC.** `mesa-dinero` **no** está en `core.roles.MODULES` ni en la
 matriz: lo publica `/api/me` dentro de `modules` cuando el email está en la allowlist de la vista
 (`operaciones.mesa_dinero_lectores` ∪ `_escritores`, o es admin). Se mete en la misma lista a
@@ -370,7 +380,7 @@ propósito, para que el nav y `src/proxy.ts` sigan filtrando con UN solo mecanis
 | `sales` | HOME · MERCADOS (7/7) · BACK OFFICE. **Sin** NEGOCIO, OPERAR, TRADING, RESEARCH, MANAGER |
 | `asistente_comercial` | HOME · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE · MANAGER (entra por `manager_clientes`). **Sin** OPERAR, TRADING, RESEARCH |
 | `back_office` | HOME · BACK OFFICE. Nada más |
-| `invitado` (www) | HOME · RESEARCH · los 7 items de MERCADOS **aplanados como links top-level** (sin dropdown) |
+| `invitado` (www) | HOME · AGRO · DERIVADOS · ESTRATEGIA · ONS · RENTA FIJA · RENTA VARIABLE · RESEARCH · SINTÉTICOS — los 7 items de MERCADOS **aplanados como links top-level** (sin dropdown), todo en MAYÚSCULA y ordenado A→Z con HOME primero (ver abajo) |
 
 Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el briefing del footer),
 `asistente` (vista `negocio` del copiloto) y todos los `manager_*` salvo su efecto sobre el link MANAGER.

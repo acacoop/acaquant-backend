@@ -42,7 +42,11 @@ def get_salud(
     """
     r = svc.panel(email=email)
     if solo_problemas:
-        r["chequeos"] = [c for c in r["chequeos"] if c["estado"] != svc.OK]
+        # Diccionario NUEVO, no `r["chequeos"] = ...`. `panel()` está `@cached`:
+        # mutar el resultado pisaría la entrada del cache y el próximo pedido SIN
+        # `solo_problemas` recibiría la lista ya filtrada, o sea la pantalla de
+        # SALUD mostrando solo lo roto y ningún chequeo en verde.
+        return {**r, "chequeos": [c for c in r["chequeos"] if c["estado"] != svc.OK]}
     return r
 
 

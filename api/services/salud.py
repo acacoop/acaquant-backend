@@ -28,6 +28,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from api.cache import cached, invalidate
 from api.services._sql import _q
 from api.services.jobs_catalogo import catalogo_jobs
 
@@ -375,6 +376,9 @@ def set_alerta(chequeo_id: str, alertar: bool, actor: str, nota: str = "") -> di
         "actualizado_at = EXCLUDED.actualizado_at",
         {"c": cid, "a": bool(alertar), "n": (nota or "").strip() or None,
          "p": (actor or "").lower() or None})
+    # `panel()` está cacheado 30s: sin esto, silenciar un chequeo no se vería
+    # hasta que venciera el TTL y parecería que el botón no hizo nada.
+    invalidate("panel")
     return {"chequeo_id": cid, "alertar": bool(alertar)}
 
 
@@ -454,6 +458,7 @@ def marcar_vistos(email: str, ids: list[int] | None = None) -> dict:
             f"INSERT INTO {_T_VISTOS} (email, evento_id) "
             f"SELECT %(e)s, id FROM {_T_EVENTOS} WHERE a <> 'ok' "
             "ON CONFLICT DO NOTHING", {"e": e})
+    invalidate("panel")   # `pendientes` vive adentro de panel() — ver set_alerta
     return {"vistos": n}
 
 
@@ -473,9 +478,26 @@ def historial(chequeo_id: str = "", limite: int = 50) -> list[dict]:
              "at": r["at"].isoformat() if r["at"] else None} for r in rows]
 
 
+@cached(ttl=30)
 def panel(email: str = "") -> dict:
     """TODO lo que necesita la pantalla, en UNA llamada: veredicto, chequeos (con su
-    marca de silenciado) y lo pendiente de ver por este admin."""
+    marca de silenciado) y lo pendiente de ver por este admin.
+
+    **Por qué está cacheado** (medido 2026-08-11): el layout monta DOS componentes
+    que piden esto al abrir CUALQUIER pantalla — `SaludBoton` pide `/salud` y
+    `SaludAlertasModal` pide `/salud?solo_problemas=true`. Los dos terminan acá con
+    el mismo `email`, así que se computaba dos veces lo mismo: **1450 + 1432 ms
+    medidos en el browser, 2,9 segundos por carga de página** que ningún usuario
+    pidió. Con el TTL, la segunda sale gratis.
+
+    El TTL de 30s es corto a propósito: los dos componentes pollean cada 5 minutos,
+    así que el poll SIEMPRE cae fuera del cache y `sincronizar()` sigue corriendo con
+    la misma frecuencia de antes. Lo único que se ahorra son las llamadas
+    simultáneas — las dos del montaje, y las de varios admins entrando a la vez.
+
+    Las mutaciones (`set_alerta`, `marcar_vistos`) invalidan esta entrada, así que
+    silenciar un chequeo o marcar algo como visto se refleja en el acto.
+    """
     nuevas = sincronizar()          # registra transiciones antes de responder
     r = resumen()
     cfg = config()

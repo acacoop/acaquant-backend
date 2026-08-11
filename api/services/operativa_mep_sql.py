@@ -52,8 +52,8 @@ def listar_operativas_dia(account: str | None = None) -> list[dict]:
     updated_at). Mismo criterio que `ordenes_sql._orders_locales_dia`."""
     from api.services.operativa_mep import (
         ESTADOS_FINALES_ORDEN,
-        PRICE_FACTOR_BONOS,
         _enrich_pata,
+        calcular_efectivos,
     )
 
     inicio = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -99,22 +99,14 @@ def listar_operativas_dia(account: str | None = None) -> list[dict]:
         buy_ord = ordenes_by_id.get(buy_cid) if buy_cid else None
         sell_ord = ordenes_by_id.get(sell_cid) if sell_cid else None
 
-        # USD efectivo: cum_sell * avg_sell * 0.01 (los bonos cotizan por 100 VN).
-        # MEP efectivo de MERCADO = ARS_operados / USD_obtenidos — se usan los ARS
-        # realmente movidos por la BUY (no `monto_ars` bruto, que incluye la
-        # comisión e inflaría el slippage vs MEP_ini).
-        usd_efectivo: float | None = None
-        mep_efectivo: float | None = None
-        if sell_ord and buy_ord:
-            cum_sell = float(sell_ord.get("cum_qty") or 0)
-            avg_sell = float(sell_ord.get("avg_px") or 0)
-            cum_buy = float(buy_ord.get("cum_qty") or 0)
-            avg_buy = float(buy_ord.get("avg_px") or 0)
-            if cum_sell > 0 and avg_sell > 0:
-                usd_efectivo = round(cum_sell * avg_sell * PRICE_FACTOR_BONOS, 2)
-            if cum_buy > 0 and avg_buy > 0 and usd_efectivo and usd_efectivo > 0:
-                ars_operados = cum_buy * avg_buy * PRICE_FACTOR_BONOS
-                mep_efectivo = round(ars_operados / usd_efectivo, 2)
+        # USD/ARS efectivamente movidos y MEP efectivo de MERCADO
+        # (= ARS_operados / USD_obtenidos). Se usan los ARS realmente movidos
+        # por la pata en pesos, NO `monto_ars` bruto, que incluye la comisión e
+        # inflaría el slippage vs MEP_ini. Qué pata está en dólares lo decide el
+        # `tipo` (compra/venta) — ver `calcular_efectivos`.
+        efectivos = calcular_efectivos(op.get("tipo"), buy_ord, sell_ord)
+        usd_efectivo = efectivos["usd_efectivo"]
+        mep_efectivo = efectivos["mep_efectivo"]
 
         # Status compuesto basado en las 2 patas.
         st_buy = (buy_ord or {}).get("status")
@@ -159,7 +151,7 @@ def obtener_detalle_operativa(operativa_id: str) -> dict[str, Any] | None:
     """Detalle completo de una operativa MEP para el drilldown: doc completo +
     2 patas con sus órdenes live y timeline de audit + métricas derivadas
     (slippage, duración). Devuelve None si la operativa no existe."""
-    from api.services.operativa_mep import PRICE_FACTOR_BONOS, _serializar_doc
+    from api.services.operativa_mep import _serializar_doc, calcular_efectivos
 
     rows = _q("SELECT data FROM operaciones.operativas_mep WHERE id = %s", (operativa_id,))
     if not rows:
@@ -195,30 +187,28 @@ def obtener_detalle_operativa(operativa_id: str) -> dict[str, Any] | None:
     sell = _pata(sell_cid)
 
     # Métricas derivadas (ver racional del slippage en listar_operativas_dia).
+    # MISMA función que el listado → el drilldown no puede contradecir a la tabla.
     metricas: dict[str, Any] = {}
-    sell_live = sell.get("live") or {}
-    buy_live = buy.get("live") or {}
-    cum_sell = float(sell_live.get("cum_qty") or 0)
-    avg_sell = float(sell_live.get("avg_px") or 0)
-    cum_buy = float(buy_live.get("cum_qty") or 0)
-    avg_buy = float(buy_live.get("avg_px") or 0)
-
-    if cum_sell > 0 and avg_sell > 0:
-        usd_efectivo = round(cum_sell * avg_sell * PRICE_FACTOR_BONOS, 2)
+    efectivos = calcular_efectivos(op.get("tipo"), buy.get("live"), sell.get("live"))
+    usd_efectivo = efectivos["usd_efectivo"]
+    if usd_efectivo:
         metricas["usd_efectivo"] = usd_efectivo
-        if cum_buy > 0 and avg_buy > 0:
-            ars_operados = round(cum_buy * avg_buy * PRICE_FACTOR_BONOS, 2)
-            metricas["ars_operados"] = ars_operados
-            metricas["precio_compra_al30"] = avg_buy
-            metricas["precio_venta_al30d"] = avg_sell
-            if usd_efectivo > 0:
-                mep_ef = round(ars_operados / usd_efectivo, 2)
-                metricas["mep_efectivo"] = mep_ef
-                mep_ini = op.get("mep_inicial")
-                if mep_ini:
-                    metricas["slippage_pct"] = round((mep_ef / mep_ini - 1) * 100, 3)
-                if op.get("monto_ars"):
-                    metricas["mep_costo_cliente"] = round(op["monto_ars"] / usd_efectivo, 2)
+        # Los precios se rotulan por INSTRUMENTO (AL30 en ARS, AL30D en USD),
+        # no por side: en la venta el AL30 se vende y el AL30D se compra.
+        if efectivos["precio_al30"] is not None:
+            metricas["precio_compra_al30"] = efectivos["precio_al30"]
+        if efectivos["precio_al30d"] is not None:
+            metricas["precio_venta_al30d"] = efectivos["precio_al30d"]
+        if efectivos["ars_operados"] is not None:
+            metricas["ars_operados"] = efectivos["ars_operados"]
+        mep_ef = efectivos["mep_efectivo"]
+        if mep_ef:
+            metricas["mep_efectivo"] = mep_ef
+            mep_ini = op.get("mep_inicial")
+            if mep_ini:
+                metricas["slippage_pct"] = round((mep_ef / mep_ini - 1) * 100, 3)
+            if op.get("monto_ars"):
+                metricas["mep_costo_cliente"] = round(op["monto_ars"] / usd_efectivo, 2)
 
     # Duración: del primer audit al último (across both patas).
     timestamps = []

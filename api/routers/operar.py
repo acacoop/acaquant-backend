@@ -29,12 +29,11 @@ from pydantic import BaseModel, Field
 from api.auth import get_user_email
 from api.services._grupos_scope import scope_cuentas, verificar_account
 from api.services._idempotencia import ejecutar_idempotente
-from api.services.ordenes import send_order
+from api.services.ordenes import send_order, ticker_existe
 from api.services.order_book import get_order_book
 from core.adhoc_subscriptions import bump_last_used, subscribe
 from core.brackets import create_bracket, ensure_indexes
 from core.brackets import list_dia as list_brackets_dia
-from core.postgres import get_pool
 
 logger = logging.getLogger("api.operar")
 
@@ -42,28 +41,15 @@ router = APIRouter(prefix="/api/operar", tags=["operar"])
 
 
 def _existe_en_pyrofex(ticker_full: str) -> bool:
-    """¿pyRofex conoce este ticker? Lookup en manager.pyrofex_instruments (SQL).
+    """¿pyRofex conoce este ticker? Evita registrar basura en AdhocSubscriptions
+    (typos, tickers viejos).
 
-    Evita registrar basura en AdhocSubscriptions (typos, tickers viejos).
-    Si discovery_pyrofex nunca corrió (tabla vacía), esta validación no aplica
-    y se permite el subscribe optimista — el motor lo va a ignorar igual si
-    pyRofex no lo reconoce.
-
-    `instruments @> '[{"ticker": ...}]'::jsonb` = containment sobre el array de
-    instruments del CFI (indexable con GIN) — equivalente a la query Mongo
-    `{"instruments.ticker": ticker_full}`.
+    La resolución vive en el service (`ordenes.ticker_existe`): universo LIVE del
+    broker primero, `manager.pyrofex_instruments` de fallback. Antes miraba SOLO
+    la tabla SQL, que la escribe un one-shot manual y puede estar vieja — un
+    ticker dado de alta después de la última corrida daba 404 aunque existiera.
     """
-    import json
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT 1 FROM manager.pyrofex_instruments LIMIT 1")
-        if cur.fetchone() is None:
-            return True  # discovery aún no corrió; permitir.
-        cur.execute(
-            "SELECT 1 FROM manager.pyrofex_instruments "
-            "WHERE instruments @> %s::jsonb LIMIT 1",
-            (json.dumps([{"ticker": ticker_full}]),),
-        )
-        return cur.fetchone() is not None
+    return ticker_existe(ticker_full)
 
 
 def _tiene_puntas(book: dict) -> bool:
@@ -152,8 +138,7 @@ def get_book(
     if not _existe_en_pyrofex(ticker_full):
         raise HTTPException(
             404,
-            f"Ticker {ticker_full!r} desconocido en pyRofex. "
-            "Verificá el símbolo o corré scripts.discovery_pyrofex.",
+            f"Ticker {ticker_full!r} desconocido en pyRofex. Verificá el símbolo.",
         )
 
     res = subscribe(ticker_full)

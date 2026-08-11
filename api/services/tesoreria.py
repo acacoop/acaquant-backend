@@ -1153,6 +1153,16 @@ _ENDPOINT_COMITENTE = "operaciones/consolidadosGenerales"
 _RE_ID_CUENTA = re.compile(r"^\[(\d+)\]")
 
 
+# QUÉ TIPOS ESPEJA EL CRON. Arranca SOLO en 'echeq' a propósito. Un
+# "Depósito de cheques" (papel, en PLURAL) es casi siempre un lote: UNA fila en
+# Aunesa por N cheques que el back office registra de a uno. Espejar el lote
+# crearía una fila que se suma a las individuales y, al finalizarlas todas,
+# duplicaría el ingreso en el saldo del banco. Los e-cheq vienen 1 a 1.
+# Sumar "fisico" acá es una línea, pero primero hay que confirmar cómo los carga
+# el equipo. `--dry` del job lista igual lo que quedaría afuera.
+ESPEJO_TIPOS_RECIBIDO: tuple[str, ...] = ("echeq",)
+
+
 def _es_deposito_cheque(informacion: Any) -> bool:
     """Regla del espejo: es un DEPÓSITO y menciona un cheque.
 
@@ -1205,7 +1215,8 @@ def _filas_espejo_depositos(dia: date, filas_aunesa: list[dict]) -> list[dict]:
     from core.calendario import proximo_habil
 
     candidatos = [r for r in filas_aunesa
-                  if _es_deposito_cheque(r.get("informacion")) and r.get("comprobante")]
+                  if _es_deposito_cheque(r.get("informacion")) and r.get("comprobante")
+                  and _tipo_cheque_recibido(r.get("informacion")) in ESPEJO_TIPOS_RECIBIDO]
     if not candidatos:
         return []
 

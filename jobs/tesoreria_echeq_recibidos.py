@@ -21,9 +21,15 @@ del día D mirando el día D, cuando todavía no existían.
 
 QUÉ CREA. Una fila `lado='recibido'`, `origen='aunesa'` (la vista le pone el chip
 AUTO), con comitente, CUIT del padrón, importe, moneda y `fecha_pago` = próximo
-día hábil. **SIN BANCO** —Aunesa no manda la cuenta operativa— y en estado
+día hábil. Nace **SIN BANCO** —Aunesa no manda la cuenta operativa— y en estado
 `pendiente`: la plata entra al saldo recién cuando el back office le asigna el
 banco y la marca `finalizado`. El espejo no mueve un peso solo.
+
+SOLO ESPEJA E-CHEQ (`tesoreria.ESPEJO_TIPOS_RECIBIDO`). Un "Depósito de cheques"
+de papel es un LOTE —una fila de Aunesa por N cheques que el equipo registra de a
+uno— y espejarlo sumaría una fila encima de las individuales, duplicando el
+ingreso al finalizarlas. Sumar 'fisico' es una línea, pero primero hay que
+confirmar cómo los carga el equipo.
 
 NO REEMPLAZA LA CARGA MANUAL: el botón «+ NUEVO» sigue igual, para lo que no
 venga por la API.

@@ -247,8 +247,9 @@ def clasificar_commodity(
     tipo es la señal autoritativa de agro, así que no los excluimos por OTC.
     (Las 'Opciones OTC' NDF ni siquiera se ingestan — ver _es_otc_excluir.)
 
-    Materializado en la ingesta + replicado server-side en
-    scripts/backfill_agro_tipo.py (mantener ambos en sync). El `tipo`
+    Se materializa en la ingesta y ACÁ vive la regla, sin copias: el backfill que
+    la replicaba (`scripts/backfill_agro_tipo.py`) ya corrió sobre el histórico y
+    se borró, así que no hay un segundo lugar que mantener en sync. El `tipo`
     futuro/opción lo da clasificar_tipo_agro (columna `tipo_agro`).
     """
     t = (tipo_operacion or "").upper()

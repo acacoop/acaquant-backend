@@ -5,18 +5,30 @@ NO es una decisión: sale de la propia `unidad` que manda Aunesa. Este job aplic
 esas reglas determinísticas sobre los campos que están VACÍOS y deja para la mesa
 lo que sí es criterio humano (EMISOR, CALIFICACIÓN).
 
-Dos invariantes que no se negocian:
+El invariante que NO se negocia:
   * NUNCA pisa un valor cargado. Si la regla propone algo distinto de lo que ya
     hay, no escribe: lo reporta como CONFLICTO — así una etiqueta mal escrita en
     el catálogo se ve en el run en vez de duplicarse en silencio.
-  * Cada regla es determinística sobre la fila: misma unidad → mismo resultado.
-    Nada de heurísticas ni de datos de mercado.
+
+Eso es lo que hace seguro tener acá una regla HEURÍSTICA (ver más abajo): la
+máquina propone para no clasificar miles de assets a mano, el humano corrige en
+Manager, y a partir de ahí el job no vuelve a opinar sobre ese valor.
+
+Cada regla es una función `fila → {columna: valor}` sobre la fila que le llega.
+La mayoría deriva de la propia `unidad` (misma unidad → mismo resultado, para
+siempre); `financiamiento_clase` es la excepción y usa el nominal de la última
+tenencia, que `leer_catalogo` agrega a la fila.
 
 Reglas v1:
   * financiamiento — pagarés/cheques del negocio de financiamiento. La unidad
     tiene firma propia (`[TICKER] TICKER Nro. <nro> Vto. <dd/mm/aaaa>`, el ticker
     repetido dentro y fuera del corchete) → CARTERA, TICKER y VENCIMIENTO.
     INSTRUMENTO y CODIGO_CNV no existen para estos papeles: no se tocan.
+  * financiamiento_clase — CLASE_ACTIVO `HD`/`DL` de esos mismos papeles, según
+    el nominal (≤ 5.000 → HD, > 5.000 → DL). ÚNICA regla heurística del job:
+    existe porque la vista FINANCIAMIENTO no puede graficar juntas dos escalas
+    tan distintas y clasificar el catálogo a mano no era viable. Backfill y
+    mantenimiento son el mismo comando (ver "Uso").
   * fci — `[<id>] CAFCI<n>-<m> - <nombre>` → CARTERA, TICKER (nombre del fondo) y
     CAFCI (código). Es la misma derivación que hace el auto-alta del writer diario
     (`core.cafci`), acá backfilleada sobre lo que ya está en el catálogo.
@@ -29,7 +41,14 @@ el motor se ocupa del "solo si está vacío", del reporte y de la escritura.
 Cron: L-V 11:40 UTC, después del writer diario (11:00) que da de alta las unidades
 nuevas. La API relee el catálogo por TTL (`assets_sql`, 300s).
 
-Uso: python -m jobs.assets_autofill [--dry] [--regla <id>]
+Uso:
+    python -m jobs.assets_autofill                              # todas las reglas (cron)
+    python -m jobs.assets_autofill --dry                        # qué completaría, sin escribir
+    python -m jobs.assets_autofill --regla financiamiento_clase # backfill de HD/DL
+
+El BACKFILL y el mantenimiento diario son EL MISMO comando: el job siempre mira
+lo que está vacío, así que la primera corrida completa el histórico y las
+siguientes sólo tocan lo que entró nuevo. Es idempotente por construcción.
 """
 from __future__ import annotations
 
@@ -82,6 +101,38 @@ def _regla_financiamiento(row: dict) -> dict[str, str]:
         return {}
     return {"cartera": CARTERA_FINANCIAMIENTO, "ticker": m["tk"],
             "vencimiento": vto.isoformat()}
+
+
+# CLASE_ACTIVO de financiamiento: HD (hard dollar) o DL (dólar linked).
+#
+# POR QUÉ EXISTE: son ESCALAS distintas. Un HD de 5.000 y un DL de 27.000.000 en
+# el mismo gráfico dejan al HD invisible — la vista FINANCIAMIENTO no puede
+# sumarlos ni graficarlos juntos, y necesita saber cuál es cuál.
+#
+# CÓMO SE DECIDE (regla del user, 2026-08-11): por el NOMINAL. Nominal chico =
+# el papel está expresado en dólares de verdad (HD); nominal grande = está en la
+# escala del dólar linked (DL).
+#
+# ⚠️ ES UNA HEURÍSTICA DE ARRANQUE, no una verdad. Existe para no clasificar
+# 2.000 assets a mano. Se corrige en Manager → ASSETS y el job NUNCA pisa lo
+# corregido (invariante del módulo): cada valor que un humano toca queda fijo y
+# la heurística no vuelve a opinar sobre él.
+_UMBRAL_HD = 5_000.0          # <= 5.000 → HD · > 5.000 → DL
+
+# De dónde sale el nominal del asset: la SUMA de lo que hay en la última
+# tenencia de esa unidad. Es lo más cercano al valor nominal del papel que se
+# puede armar sin un campo propio (el asset no tiene "monto"): si el pagaré está
+# repartido entre varios comitentes, las partes suman el total emitido.
+_NOMINAL_COL = "nominal"
+
+
+def _regla_financiamiento_clase(row: dict) -> dict[str, str]:
+    if not _RE_FINANCIAMIENTO.match((row.get("unidad") or "").strip()):
+        return {}
+    nominal = row.get(_NOMINAL_COL)
+    if nominal is None:
+        return {}                       # sin tenencia hoy → no hay de qué inferir
+    return {"clase_activo": "HD" if float(nominal) <= _UMBRAL_HD else "DL"}
 
 
 def _regla_fci(row: dict) -> dict[str, str]:
@@ -140,6 +191,8 @@ class Regla:
 
 REGLAS: list[Regla] = [
     Regla("financiamiento", "Pagarés/cheques de FINANCIAMIENTO", _regla_financiamiento),
+    Regla("financiamiento_clase", "HD/DL de financiamiento (por nominal)",
+          _regla_financiamiento_clase),
     Regla("fci", "Fondos comunes (código CAFCI + nombre)", _regla_fci),
     Regla("ticker", "Ticker derivado de la unidad (resto del catálogo)", _regla_ticker),
 ]
@@ -148,9 +201,28 @@ REGLAS: list[Regla] = [
 # ── Motor ────────────────────────────────────────────────────────────────────
 
 def leer_catalogo() -> list[dict]:
+    """Catálogo + el NOMINAL de cada unidad en la última tenencia.
+
+    El nominal no es una columna de `assets` — se agrega acá para que la regla
+    `financiamiento_clase` siga siendo una función pura `fila → {columna: valor}`
+    como todas las demás, en vez de tener que ir a la base por su cuenta.
+
+    Es UNA query extra y sólo sobre el último día (`ix_tenencia_fecha_unidad`),
+    no sobre la tenencia histórica. Las unidades sin tenencia hoy quedan con
+    `nominal=None` y la regla no opina sobre ellas.
+    """
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(f"SELECT {', '.join(_LEIBLES)} FROM portafolio.assets")
-        return [dict(zip(_LEIBLES, r, strict=True)) for r in cur.fetchall()]
+        rows = [dict(zip(_LEIBLES, r, strict=True)) for r in cur.fetchall()]
+        cur.execute(
+            "SELECT unidad, sum(cantidad) FROM portafolio.tenencia "
+            "WHERE fecha = (SELECT max(fecha) FROM portafolio.tenencia) "
+            "  AND cantidad IS NOT NULL "
+            "GROUP BY unidad")
+        nominal = {u: (float(c) if c is not None else None) for u, c in cur.fetchall()}
+    for r in rows:
+        r[_NOMINAL_COL] = nominal.get(r["unidad"])
+    return rows
 
 
 def planificar(rows: Iterable[dict], reglas: Iterable[Regla]) -> tuple[dict, dict]:

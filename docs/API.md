@@ -407,10 +407,19 @@ Mesa flow + cash movements (read-only). **Bloqueado al asistente y al MCP por po
 
 **`/financiamiento` (2026-08-11)** — devuelve `{fecha, hoy, n, con_tasa, truncado, filas[]}`,
 una fila por (cuenta, instrumento) con `id_cuenta`, `cuenta`, `unidad`, `ticker`,
-`emisor`, `vencimiento`, `dias`, `cantidad`, `moneda`, `aum`, `tasa`, `tasa_min`,
+`emisor`, `clase`, `vencimiento`, `dias`, `cantidad`, `moneda`, `tasa`, `tasa_min`,
 `tasa_max`, `n_boletos`. Manda el GRANO y no agregados a propósito: las cuatro
 tablas de la pantalla se cruzan entre sí y resolverlo server-side costaría un
 round-trip por click.
+
+- **`clase` = `HD` | `DL` | `''`** (de `assets.clase_activo`). Son ESCALAS, no
+  etiquetas: la vista muestra una por vez y **nunca las suma**. `''` = el job
+  todavía no clasificó ese asset; se devuelve igual y la vista lo agrupa aparte
+  en vez de esconder posiciones reales. La infiere
+  `jobs/assets_autofill.py` (regla `financiamiento_clase`, ≤ 5.000 → HD) y se
+  corrige a mano en Manager → ASSETS, que el job nunca pisa.
+- `moneda` viene de la tenencia y es **informativa** — sirve para ver si coincide
+  con la clase inferida, pero no es lo que separa las escalas.
 
 - **No hay ningún campo de plata, a propósito.** Estos papeles se compran con
   descuento y la mayoría son dólar-linked liquidados en pesos → el bruto no
@@ -1022,3 +1031,4 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
 | 2026-05-05 | **wipe:** Borrado de todo el aparato dolarapi.com — `core/dolar_api.py`, `jobs/dolar_api.py`, `tests/unit/test_dolar_api.py`. Migrados `engines/curvas.py` (`cargar_a3500_actual`) y `serie_macro("dolar_oficial"/"mayorista")` al feed MAE / `macro.series_macro` (serie DOLAR). `dolar_blue` queda sin fuente. Cron `dolar_api` apagado. |
 | 2026-05-05 | **feat(operaciones-negocio):** MVP de la vista NEGOCIO en `/operaciones`. Service compartido `api/services/aunesa_negocio.py` con parseo + categorización (16 categorías: compra/venta/FCI super y bilateral/acreencia/4 sub-cauciones/depósito/extracción/etc) + dedup específico (DIF/DIS bilaterales, multi-moneda en dividendos, uso=GRAL en FCI super) + inversión de signo broker→cliente. Job `jobs/negocio_movimientos.py` (cron horario 15-22 UTC L-V) persiste boletos consolidados en `operaciones.negocio_movimientos` (idempotente por `(fecha, comprobante)`). 2 endpoints `/api/operaciones/negocio` y `/negocio/fechas`. Frontend tab NEGOCIO con cards por categoría, top 20 tickers y tabla detallada. **No expuesto al asistente ni al MCP** (policy datos privados de mesa). Detalle: `docs/sesion_2026_05_05_negocio.md`. |
 | 2026-08-11 | **feat(financiamiento):** Tab **FINANCIAMIENTO** en `/operaciones` (NEGOCIO) + `GET /api/operaciones/financiamiento`. Libro VIVO de pagarés/cheques: assets con `cartera='FINANCIAMIENTO'` y vencimiento HOY o posterior, al grano cuenta × instrumento. **Nominal y tasa, nunca bruto** (se compran con descuento y la mayoría son dólar-linked liquidados en pesos → el importe pagado no compara entre filas). La cantidad sale de `portafolio.tenencia` (posición) y la tasa de `operaciones.operaciones.tasa` de los boletos MAV, matcheada por (`id_cuenta`, código del corchete de `negocio_movimientos.informacion`); sin match la tasa queda `null` y se muestra vacía. Vista 2×2 al 50% (Σ cantidad por comitente · cantidad+tasa por instrumento · barras Σ cantidad por vencimiento · panel reservado) con cross-filter 3-way client-side. Service `api/services/financiamiento.py`, tests `tests/unit/test_financiamiento.py`, diag `scripts/diag_financiamiento.py`. |
+| 2026-08-11 | **feat(financiamiento):** HD/DL, perf y modo claro de la tab FINANCIAMIENTO. (1) **CLASE_ACTIVO HD/DL** — regla nueva `financiamiento_clase` en `jobs/assets_autofill.py`: infiere por NOMINAL de la última tenencia (≤ 5.000 → HD, > → DL). Única regla heurística del job; existe porque HD y DL son escalas distintas (5.000 vs 27.000.000) y graficarlas juntas deja al HD invisible. **No pisa lo cargado a mano** (invariante del job) → la máquina bootstrapea, el humano corrige en Manager → ASSETS. Backfill y cron son el mismo comando. La vista pasó a filtrar por `clase` (una por vez, nunca sumadas) en vez de por `tenencia.moneda`, que queda informativa. (2) **PERF** — índice `ix_tenencia_fecha_unidad`: la vista arranca por instrumento (filtra `fecha`, joinea `unidad`) y `ix_tenencia_cuenta_fecha` no le servía (columna líder `id_cuenta`) → era un seq scan de la tenencia histórica entera. Además la query de tasas se acotó a las cuentas con financiamiento vivo (antes agregaba TODOS los boletos MAV de la historia para descartar la mayoría en Python). (3) **Modo claro** — los paneles llevan `bg-[var(--t-panel)]` + separadores de header/filas: sin fondo blanco sobre el gris de página los cuatro paneles se fundían en una sola mancha (en oscuro no se notaba, #000 vs #080808). (4) Se quitó el toggle **SOLO AUM** (no aportaba claridad). |

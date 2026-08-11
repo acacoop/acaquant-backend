@@ -9,9 +9,11 @@ from __future__ import annotations
 import pytest
 
 from jobs.assets_autofill import (
+    _UMBRAL_HD,
     REGLAS,
     _regla_fci,
     _regla_financiamiento,
+    _regla_financiamiento_clase,
     _regla_ticker,
     planificar,
 )
@@ -39,6 +41,47 @@ def test_financiamiento_no_matchea_el_resto_del_catalogo():
               "[*BIN031000050] *BIN031000050 Nro. 29805263",          # sin Vto.
               "[*BIN031000050] *BIN031000050 Nro. 29805263 Vto. 31/02/2026"):  # fecha falsa
         assert _regla_financiamiento({"unidad": u}) == {}
+
+
+def test_clase_hd_dl_por_nominal_con_el_umbral_incluido_en_HD():
+    """≤ umbral → HD · > umbral → DL. El borde EXACTO es HD (regla del user)."""
+    def clase(nominal):
+        return _regla_financiamiento_clase(
+            {"unidad": _UNIDAD_FIN, "nominal": nominal}).get("clase_activo")
+
+    assert clase(_UMBRAL_HD) == "HD"          # el borde entra a HD
+    assert clase(_UMBRAL_HD - 0.01) == "HD"
+    assert clase(_UMBRAL_HD + 0.01) == "DL"
+    assert clase(27_000_000) == "DL"
+
+
+def test_clase_sin_nominal_no_adivina():
+    """Un asset sin tenencia hoy no tiene de qué inferir: no se clasifica.
+
+    Poner una clase al azar sería peor que dejarlo vacío — la vista muestra los
+    sin clasificar en su propio grupo, un HD inventado se mezcla con los reales.
+    """
+    assert _regla_financiamiento_clase({"unidad": _UNIDAD_FIN, "nominal": None}) == {}
+    assert _regla_financiamiento_clase({"unidad": _UNIDAD_FIN}) == {}
+
+
+def test_clase_solo_aplica_a_financiamiento():
+    """La heurística del nominal NO puede tocar el resto del catálogo: un CEDEAR
+    con 3.000 nominales no es un pagaré hard dollar."""
+    for u in ("[9131] YPFD - CEDEAR YPF", _UNIDAD_FCI, "ARS"):
+        assert _regla_financiamiento_clase({"unidad": u, "nominal": 3_000}) == {}
+
+
+def test_clase_inferida_no_pisa_la_corregida_a_mano():
+    """El invariante que hace segura a la heurística: si un humano ya puso la
+    clase en Manager, el job la respeta y reporta el desacuerdo como conflicto."""
+    rows = [{"unidad": _UNIDAD_FIN, "cartera": "FINANCIAMIENTO",
+             "ticker": "*BIN031000050", "vencimiento": "2026-10-03",
+             "clase_activo": "HD", "nominal": 27_000_000}]   # la regla diría DL
+    cambios, reporte = planificar(rows, REGLAS)
+    assert "clase_activo" not in cambios.get(_UNIDAD_FIN, {})
+    conflictos = reporte["financiamiento_clase"]["conflictos"]
+    assert len(conflictos) == 1 and "clase_activo" in conflictos[0]
 
 
 def test_fci_deriva_codigo_y_nombre():

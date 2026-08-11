@@ -12,6 +12,9 @@ repo. Este diag las mide (read-only, sin escribir nada):
      el match (id_cuenta, código). Si da bajo, el puente assets.ticker ↔ corchete
      de `informacion` no es el correcto y hay que revisarlo ANTES de creerle a la
      columna TASA de la pantalla.
+  4. UMBRAL HD/DL — si el corte en 5.000 parte bien el universo o si hay muchos
+     instrumentos parecidos cayendo a los dos lados del corte (la clasificación
+     HD/DL es una heurística de arranque, no una verdad).
 
 Uso:
     python -m scripts.diag_financiamiento
@@ -72,8 +75,14 @@ def payload(hoy: str, muestras: int) -> dict:
     monedas: dict[str, int] = {}
     for f in filas:
         monedas[f["moneda"] or "(vacía)"] = monedas.get(f["moneda"] or "(vacía)", 0) + 1
-    _fila("monedas presentes", monedas or "—")
-    _fila("filas dentro del AuM (aum='si')", sum(1 for f in filas if f["aum"]))
+    _fila("monedas presentes (tenencia, informativo)", monedas or "—")
+    clases: dict[str, int] = {}
+    for f in filas:
+        clases[f["clase"] or "(SIN CLASIFICAR)"] = clases.get(f["clase"] or "(SIN CLASIFICAR)", 0) + 1
+    _fila("clases (HD/DL) — la vista muestra UNA por vez", clases or "—")
+    if sin := clases.get("(SIN CLASIFICAR)"):
+        print(f"  ⚠ {sin} fila(s) sin CLASE_ACTIVO — correr "
+              f"`python -m jobs.assets_autofill --regla financiamiento_clase`")
     if muestras and filas:
         print(f"\n  primeras {min(muestras, len(filas))} filas:")
         for f in filas[:muestras]:
@@ -115,6 +124,47 @@ def cobertura_tasa(d: dict, muestras: int) -> None:
                 print(f"        cuenta={c} tasa={t} :: {str(info)[:90]!r}")
 
 
+def umbral_hd_dl(muestras: int) -> None:
+    """¿El corte en 5.000 parte bien el universo? (REGLA #2: la regla HD/DL es
+    una HEURÍSTICA — esto es lo que permite confirmarla o corregirla con datos).
+
+    Si los nominales están bien separados (un grupo de miles y otro de millones)
+    el umbral es sano. Si hay muchos justo alrededor del corte, la regla está
+    partiendo instrumentos parecidos en clases distintas y hay que revisarla.
+    """
+    from jobs.assets_autofill import _UMBRAL_HD
+    print(f"\n4) UMBRAL HD/DL — corte en {_UMBRAL_HD:,.0f}")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT a.unidad, sum(t.cantidad) AS nominal, a.clase_activo "
+            "FROM portafolio.assets a "
+            "JOIN portafolio.tenencia t ON t.unidad = a.unidad "
+            "WHERE upper(btrim(a.cartera)) = %(c)s "
+            "  AND t.fecha = (SELECT max(fecha) FROM portafolio.tenencia) "
+            "  AND t.cantidad IS NOT NULL "
+            "GROUP BY a.unidad, a.clase_activo ORDER BY 2",
+            {"c": fin.CARTERA})
+        rows = cur.fetchall()
+    if not rows:
+        print("  sin tenencia de financiamiento: nada que medir.")
+        return
+    noms = [float(n) for _, n, _ in rows]
+    hd = [n for n in noms if n <= _UMBRAL_HD]
+    _fila("unidades con nominal", len(noms))
+    _fila(f"→ HD (≤ {_UMBRAL_HD:,.0f})", f"{len(hd)}  ({100*len(hd)/len(noms):.1f}%)")
+    _fila("→ DL (>)", f"{len(noms) - len(hd)}  ({100*(len(noms)-len(hd))/len(noms):.1f}%)")
+    _fila("nominal mínimo / máximo", f"{min(noms):,.2f}  /  {max(noms):,.2f}")
+    # La ZONA GRIS: nominales dentro de un factor 10 del corte, para los dos lados.
+    gris = sorted(n for n in noms if _UMBRAL_HD / 10 <= n <= _UMBRAL_HD * 10)
+    _fila("en la zona gris (×/÷10 del corte)", len(gris))
+    if gris:
+        print("  ⚠ Cuanto más pobladas estén estas cifras, menos confiable es el corte:")
+        for n in gris[:muestras or 10]:
+            print(f"      {n:>18,.2f}  → {'HD' if n <= _UMBRAL_HD else 'DL'}")
+    ya = [c for _, _, c in rows if (c or "").strip()]
+    _fila("unidades con clase YA cargada (no se pisan)", len(ya))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Diag de la vista FINANCIAMIENTO (read-only).")
     ap.add_argument("--muestras", type=int, default=10, help="filas de ejemplo a imprimir")
@@ -125,6 +175,7 @@ def main() -> None:
     universo(args.hoy)
     d = payload(args.hoy, args.muestras)
     cobertura_tasa(d, args.muestras)
+    umbral_hd_dl(args.muestras)
     print("\nlisto.")
 
 

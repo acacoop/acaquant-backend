@@ -14,9 +14,9 @@ HOY = "2026-08-11"
 
 
 def _row(id_cuenta="534", cuenta="[534] EGUREN, NE", unidad="[*ACI250300289] *ACI250300289 Nro. 3027",
-         ticker="*ACI250300289", emisor="OTROS", vto=date(2026, 9, 10),
-         cantidad=100_000, moneda="ARS", aum="si"):
-    return (id_cuenta, cuenta, unidad, ticker, emisor, vto, cantidad, moneda, aum)
+         ticker="*ACI250300289", emisor="OTROS", clase="DL", vto=date(2026, 9, 10),
+         cantidad=100_000, moneda="ARS"):
+    return (id_cuenta, cuenta, unidad, ticker, emisor, clase, vto, cantidad, moneda)
 
 
 def _tasa(tasa=6.0, tasa_min=6.0, tasa_max=6.0, n_boletos=1):
@@ -72,13 +72,17 @@ def test_dispersion_viaja_para_poder_marcar_el_promedio():
     assert (f["tasa"], f["tasa_min"], f["tasa_max"], f["n_boletos"]) == (22.75, 6.0, 39.5, 2)
 
 
-def test_aum_es_booleano_y_moneda_se_normaliza():
-    filas, _ = armar_filas([_row(aum="si", moneda="usd")], {}, HOY)
-    assert filas[0]["aum"] is True
-    assert filas[0]["moneda"] == "USD"
-    filas, _ = armar_filas([_row(aum="no", moneda=None)], {}, HOY)
-    assert filas[0]["aum"] is False
-    assert filas[0]["moneda"] == ""
+def test_clase_y_moneda_se_normalizan_a_mayuscula():
+    filas, _ = armar_filas([_row(clase="hd", moneda="usd")], {}, HOY)
+    assert (filas[0]["clase"], filas[0]["moneda"]) == ("HD", "USD")
+
+
+def test_sin_clase_la_fila_no_se_pierde():
+    """Un asset que el job todavía no clasificó va con `clase=''` y la vista lo
+    agrupa en SIN CLASIFICAR. Descartarlo escondería posiciones reales."""
+    filas, _ = armar_filas([_row(clase=None)], {}, HOY)
+    assert filas[0]["clase"] == ""
+    assert filas[0]["cantidad"] == 100_000
 
 
 def test_cuenta_vacia_cae_al_id_en_vez_de_dejar_la_celda_en_blanco():

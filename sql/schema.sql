@@ -1175,6 +1175,14 @@ CREATE TABLE IF NOT EXISTS portafolio.tenencia (
     PRIMARY KEY (fecha, id_cuenta, unidad)
 );
 CREATE INDEX IF NOT EXISTS ix_tenencia_cuenta_fecha ON portafolio.tenencia(id_cuenta, fecha);
+-- (fecha, unidad) — las vistas que arrancan por INSTRUMENTO y no por cuenta
+-- (FINANCIAMIENTO: "qué papeles vivos hay y quién los tiene") filtran por `fecha`
+-- y joinean por `unidad`. `ix_tenencia_cuenta_fecha` NO sirve para eso: su columna
+-- líder es `id_cuenta`, así que sin este índice la query es un SEQ SCAN de toda la
+-- tenencia histórica (todas las fechas × cuentas × unidades) para quedarse con un
+-- día. Con él, el filtro por fecha es un rango contiguo y el join por unidad entra
+-- dentro de ese rango.
+CREATE INDEX IF NOT EXISTS ix_tenencia_fecha_unidad ON portafolio.tenencia(fecha, unidad);
 
 -- Log self-healing del writer diario (qué cuenta/fecha quedó OK o con timeout).
 CREATE TABLE IF NOT EXISTS portafolio.backfill_log (

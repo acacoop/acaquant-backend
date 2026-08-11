@@ -29,6 +29,23 @@ El puente entre las dos es el CÓDIGO del instrumento: en assets es el `ticker`
 (el contenido del corchete de la unidad, '*ACI250300289') y en el movimiento es
 el mismo corchete dentro de `informacion`. Se matchea por (id_cuenta, código).
 
+HD vs DL — LA ESCALA, Y POR QUÉ NO SE SUMAN (2026-08-11)
+--------------------------------------------------------
+`clase_activo` del asset dice si el papel es **HD** (hard dollar) o **DL**
+(dólar linked). No es una etiqueta decorativa: son ESCALAS distintas. Un HD de
+5.000 y un DL de 27.000.000 en el mismo gráfico dejan al HD como una raya de un
+pixel — el gráfico deja de informar. Por eso la vista muestra UNA clase por vez
+y nunca suma dos juntas.
+
+La clase la infiere `jobs/assets_autofill.py` (regla `financiamiento_clase`) a
+partir del nominal, y se corrige a mano en Manager → ASSETS. Este service NO
+infiere nada: lee `clase_activo` y punto. Vacío = todavía sin clasificar, y la
+vista lo muestra en su propio grupo en vez de esconderlo.
+
+`tenencia.moneda` NO se usa para esto: viaja en el payload como columna
+informativa (sirve para ver si coincide con la clase inferida), pero quien
+manda es `clase_activo`.
+
 Una fila SIN tasa es normal y NO es un error: el cliente puede haber recibido el
 instrumento por una vía que no dejó boleto MAV con tasa parseada. Se devuelve
 `tasa = None` y la vista muestra '—'. NUNCA se inventa un número: la tasa es el
@@ -72,8 +89,13 @@ def _fecha_snapshot(conn) -> str | None:
     return str(f) if f else None
 
 
-def _tasas_por_cuenta_codigo(conn) -> dict[tuple[str, str], dict]:
+def _tasas_por_cuenta_codigo(conn, cuentas: list[str]) -> dict[tuple[str, str], dict]:
     """{(id_cuenta, código de instrumento): {tasa, n_boletos, tasa_min, tasa_max}}.
+
+    ACOTADA A `cuentas` (las que aparecen en la tenencia de financiamiento). Sin
+    ese filtro la query agregaba TODOS los boletos MAV de la historia para después
+    descartar la mayoría en Python — trabajo que crece con el histórico y no con
+    lo que se muestra. `ix_nm_id_cuenta` cubre el predicado.
 
     La tasa del par es el PROMEDIO PONDERADO POR NOMINAL de sus boletos: si el
     cliente compró el mismo papel en dos tandas, la tasa que lo representa es la
@@ -104,13 +126,15 @@ def _tasas_por_cuenta_codigo(conn) -> dict[tuple[str, str], dict]:
         WHERE o.mercado = ANY(%(mercados)s)
           AND o.tasa IS NOT NULL
           AND o.anulado_en IS NULL
-          AND n.id_cuenta IS NOT NULL
+          AND n.id_cuenta = ANY(%(cuentas)s)
           AND n.informacion ~ '\\[[^\\]]+\\]'
         GROUP BY 1, 2
     """
+    if not cuentas:
+        return {}
     out: dict[tuple[str, str], dict] = {}
     with conn.cursor() as cur:
-        cur.execute(sql, {"mercados": list(_MERCADOS_TASA)})
+        cur.execute(sql, {"mercados": list(_MERCADOS_TASA), "cuentas": cuentas})
         for id_cuenta, cod, tasa, tmin, tmax, n in cur.fetchall():
             if not cod or tasa is None:
                 continue
@@ -136,14 +160,15 @@ def _posiciones(conn, fecha: str, hoy: str, scope: tuple[str, ...] | None) -> li
         p["scope"] = list(scope)
     sql = f"""
         WITH vigentes AS (
-            SELECT unidad, ticker, emisor, vencimiento::date AS vencimiento
+            SELECT unidad, ticker, emisor, clase_activo,
+                   vencimiento::date AS vencimiento
             FROM portafolio.assets
             WHERE upper(btrim(cartera)) = %(cartera)s
               AND vencimiento ~ %(iso)s
               AND vencimiento::date >= %(hoy)s
         )
         SELECT t.id_cuenta, t.cuenta, v.unidad, v.ticker, v.emisor,
-               v.vencimiento, t.cantidad, t.moneda, t.aum
+               v.clase_activo, v.vencimiento, t.cantidad, t.moneda
         FROM portafolio.tenencia t
         JOIN vigentes v ON v.unidad = t.unidad
         WHERE {' AND '.join(cond)}
@@ -164,7 +189,7 @@ def armar_filas(rows, tasas: dict[tuple[str, str], dict], hoy: str) -> tuple[lis
     hoy_d = date.fromisoformat(hoy)
     filas: list[dict] = []
     con_tasa = 0
-    for id_cuenta, cuenta, unidad, ticker, emisor, vto, cantidad, moneda, aum in rows:
+    for id_cuenta, cuenta, unidad, ticker, emisor, clase, vto, cantidad, moneda in rows:
         cod = (ticker or "").strip()
         t = tasas.get((str(id_cuenta), cod)) if cod else None
         if t:
@@ -177,11 +202,14 @@ def armar_filas(rows, tasas: dict[tuple[str, str], dict], hoy: str) -> tuple[lis
             "unidad": unidad,
             "ticker": cod or unidad,
             "emisor": (emisor or "").strip(),
+            # HD | DL | '' — la ESCALA del papel. La vista NUNCA suma dos clases
+            # juntas: un HD de 5.000 y un DL de 27.000.000 en el mismo gráfico
+            # dejan al HD invisible. Vacío = el job todavía no lo clasificó.
+            "clase": (clase or "").strip().upper(),
             "vencimiento": vto.isoformat(),
             "dias": (vto - hoy_d).days,
             "cantidad": float(cantidad),
             "moneda": (moneda or "").strip().upper(),
-            "aum": (aum or "").strip().lower() == "si",
             "tasa": t["tasa"] if t else None,
             "tasa_min": t["tasa_min"] if t else None,
             "tasa_max": t["tasa_max"] if t else None,
@@ -210,7 +238,9 @@ def libro(scope: tuple[str, ...] | None = None, hoy: str | None = None) -> dict:
         rows = _posiciones(conn, fecha, hoy, scope)
         truncado = len(rows) > _MAX_FILAS
         rows = rows[:_MAX_FILAS]
-        tasas = _tasas_por_cuenta_codigo(conn) if rows else {}
+        # Solo las cuentas que efectivamente tienen financiamiento vivo: la query
+        # de tasas se acota a ese universo en vez de agregar todo MAV.
+        tasas = _tasas_por_cuenta_codigo(conn, sorted({str(r[0]) for r in rows}))
 
     filas, con_tasa = armar_filas(rows, tasas, hoy)
     return {

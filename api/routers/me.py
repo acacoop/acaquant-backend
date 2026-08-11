@@ -7,6 +7,7 @@ user autenticado debe poder consultar su propia identidad).
 from fastapi import APIRouter, Depends, Request
 
 from api.auth import get_user_email, is_guest_portal
+from api.services import mesa_dinero
 from core.roles import (
     INVITADO_MODULES,
     get_user_modules,
@@ -41,6 +42,15 @@ def me(request: Request, email: str = Depends(get_user_email)) -> dict:
         }
     role = get_user_role(email)
     modules = list(get_user_modules(email))
+    # CAPACIDADES per-usuario que el front necesita para filtrar el nav igual que
+    # un módulo. NO son módulos del RBAC (no están en core.roles.MODULES ni en la
+    # matriz): el permiso lo da una allowlist por email, no el rol. Se publican
+    # acá dentro de `modules` para que el nav y src/proxy.ts sigan usando UN solo
+    # mecanismo — si fueran un campo aparte habría que duplicar el filtrado en los
+    # dos lados. Agregarlas a MODULES sería un error: pondría un checkbox en
+    # ROLES Y PERMISOS que no controlaría nada.
+    if mesa_dinero.puede_ver(email=email):
+        modules.append("mesa-dinero")
     return {
         "email":    email,
         "role":     role,

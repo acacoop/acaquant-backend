@@ -316,9 +316,11 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     # /api/operaciones + /api/cuentas → módulo `operaciones` (mesa, flujo, contrapartes)
     ("/api/operaciones", "operaciones"),
     ("/api/cuentas",     "operaciones"),
-    # /api/mesa-dinero → módulo `operaciones` (Mesa de Dinero, vista NEGOCIO).
-    # La ESCRITURA suma allowlist per-usuario (operaciones.mesa_dinero_escritores).
-    ("/api/mesa-dinero", "operaciones"),
+    # /api/mesa-dinero NO figura acá a propósito (2026-08-11): no lo gatea NINGÚN
+    # módulo. El acceso a la vista es allowlist per-usuario
+    # (operaciones.mesa_dinero_lectores ∪ _escritores + admin), igual que Control
+    # Comercial. Declararlo como `operaciones` haría que gen_mapa_app reporte un
+    # gate que ya no existe. Ver api/routers/mesa_dinero.py::require_lectura_mesa.
     # /api/back-office (SENEBIS, tenencia HD, tesorería, acreencias…) → módulo
     # `back-office`. La ESCRITURA de SENEBIS suma la allowlist de la mesa.
     ("/api/back-office", "back-office"),

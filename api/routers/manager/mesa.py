@@ -12,6 +12,10 @@ Endpoints (prefix /api/manager lo agrega el paquete):
   GET    /mesa/escritores/candidatos  → usuarios de la app para agregar (q)
   POST   /mesa/escritores             → alta por email (idempotente)
   DELETE /mesa/escritores             → baja por email
+  …/lectores                          → allowlist de ACCESO a la vista Mesa de
+                                        Dinero (quién la VE). Escribir implica
+                                        leer, así que un escritor no hace falta
+                                        que esté también acá.
   …/senebis-escritores               → ídem para la vista SENEBIS (allowlist
                                         propia: otro equipo, misma pantalla)
   …/tesoreria-escritores            → ídem para el SALDO INICIAL de Tesorería
@@ -86,6 +90,37 @@ def delete_escritor(email: str = Query(..., min_length=3),
                     actor: str = Depends(get_user_email)) -> dict:
     try:
         return _svc.quitar_escritor(email, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+# ── Lectores (allowlist de ACCESO a la vista Mesa de Dinero) ────────────────
+# Mismo shape que los escritores (el panel del front es el mismo componente).
+# Escribir implica leer → un escritor no necesita estar en esta lista.
+
+@router.get("/mesa/lectores")
+def list_lectores() -> dict:
+    return _svc.listar_lectores()
+
+
+@router.get("/mesa/lectores/candidatos")
+def lectores_candidatos(q: str = Query("", description="Substring sobre email")) -> dict:
+    return _svc.candidatos_lectores(q=q)
+
+
+@router.post("/mesa/lectores")
+def add_lector(req: _EscritorNew = Body(...), actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc.agregar_lector(req.email, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/mesa/lectores")
+def delete_lector(email: str = Query(..., min_length=3),
+                  actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc.quitar_lector(email, actor=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 

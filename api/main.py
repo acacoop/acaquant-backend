@@ -255,6 +255,10 @@ _BACK_OFFICE  = [Depends(verify_api_key), Depends(require_module("back-office"))
 _OPERAR       = [Depends(verify_api_key), Depends(require_module("operar"))]
 _OPERACIONES  = [Depends(verify_api_key), Depends(require_module("operaciones"))]
 _TRADING      = [Depends(verify_api_key), Depends(require_module("trading"))]
+# MESA DE DINERO: NO va con _OPERACIONES. El acceso a esa vista se decide por
+# PERSONA (allowlist en Manager → MESA), no por puesto — ver el docstring de
+# api/routers/mesa_dinero.py. Es el mismo criterio que `require_control_comercial`.
+_MESA_DINERO  = [Depends(verify_api_key), Depends(mesa_dinero.require_lectura_mesa)]
 # Módulo `ia` (QuantAI): features de IA — canary via matriz (default solo admin).
 _IA           = [Depends(verify_api_key), Depends(require_module("ia"))]
 # `manager.router` ya NO va con un gate `manager` global: gatear todo
@@ -304,9 +308,9 @@ app.include_router(risk.router,              dependencies=_OPERAR)
 # Mesa / flujo / contrapartes: solo trader y admin
 app.include_router(operaciones.router,       dependencies=_OPERACIONES)
 app.include_router(cuentas.router,           dependencies=_OPERACIONES)
-# Mesa de Dinero (vista NEGOCIO): lectura módulo `operaciones`; la escritura
-# tiene un gate ADICIONAL per-usuario adentro del router (allowlist + admin).
-app.include_router(mesa_dinero.router,       dependencies=_OPERACIONES)
+# Mesa de Dinero (vista NEGOCIO): acceso por allowlist per-usuario (NO por el
+# módulo `operaciones`); la escritura suma su propia allowlist adentro del router.
+app.include_router(mesa_dinero.router,       dependencies=_MESA_DINERO)
 # manager.router: gate FINO por sub-router (ver api/routers/manager/__init__.py).
 # Acá ponemos una base FAIL-CLOSED: exige al menos UN módulo manager. Así un
 # sub-router nuevo que se agregue sin su dependency NO queda abierto a cualquier

@@ -10,10 +10,16 @@ Derivados (una sola fuente de verdad, calculados acá — no confía en el front
     resultado = monto_venta − monto_compra   (o manual si el registro no tiene patas)
     pct       = resultado / monto_compra
 
-Permisos:
-    LECTURA  → módulo `operaciones` (gate en api/main.py, igual que la vista NEGOCIO).
-    ESCRITURA → allowlist per-usuario `operaciones.mesa_dinero_escritores`
-                (la edita el admin en Manager → MESA) + admin siempre. Default-deny.
+Permisos (los DOS son allowlist per-usuario + admin; default-deny):
+    LECTURA   → `operaciones.mesa_dinero_lectores` ∪ `mesa_dinero_escritores`.
+                Escribir IMPLICA leer, así las listas no se contradicen.
+    ESCRITURA → `operaciones.mesa_dinero_escritores`.
+    Las dos las edita el admin en Manager → MESA.
+
+    Por qué per-usuario y no un módulo del RBAC (decisión 2026-08-11): el
+    criterio de acceso a esta vista es "estas personas", no "este puesto". Con
+    un módulo habría que crear un rol por cada combinación de gente. Mismo
+    patrón que `require_control_comercial`.
 
 Catálogos (Manager → MESA):
     trader      → `operaciones.mesa_dinero_traders` (carga manual del admin).
@@ -29,10 +35,14 @@ from typing import Any
 
 from psycopg.types.json import Jsonb
 
+from api.cache import cached, invalidate
 from api.services._sql import _f, _q
 from core.postgres import get_pool
 
 OBSERVACION_MESA = "Mesa"
+
+# TTL del permiso de LECTURA (lo pide /api/me en cada navegación — ver puede_ver).
+_TTL_PERMISO_S = 60
 
 # Campos editables de una operación (el resto es derivado o metadata de auditoría).
 _CAMPOS_OP = (
@@ -96,6 +106,43 @@ def puede_escribir(email: str) -> bool:
         {"e": email_norm},
     )
     return bool(rows)
+
+
+@cached(_TTL_PERMISO_S)
+def puede_ver(email: str) -> bool:
+    """True si el usuario puede VER la vista Mesa de Dinero. Default-deny.
+
+    admin siempre; el resto si está en la allowlist de LECTURA **o** en la de
+    ESCRITURA (escribir implica leer: nadie puede cargar en una vista que no
+    ve, y con dos listas independientes ese estado incoherente sería posible).
+
+    CACHEADO 60s a propósito: esto lo consulta `/api/me`, que corre en CADA
+    navegación del front. Sin cache serían ~28ms de round-trip a Supabase
+    sumados al hot path del RBAC (mismo hallazgo de telemetría que llevó a
+    throttlear `last_seen_at`). El TTL empata con el del cache de roles, así
+    que un alta/baja tarda hasta 60s en verse — igual que un cambio de rol.
+    Las mutaciones de las allowlists invalidan esta entrada explícitamente.
+    """
+    email_norm = (email or "").lower().strip()
+    if not email_norm:
+        return False
+    from core.roles import get_user_role
+    if get_user_role(email_norm) == "admin":
+        return True
+    rows = _q(
+        "SELECT 1 FROM operaciones.mesa_dinero_lectores  WHERE email = %(e)s "
+        "UNION ALL "
+        "SELECT 1 FROM operaciones.mesa_dinero_escritores WHERE email = %(e)s "
+        "LIMIT 1",
+        {"e": email_norm},
+    )
+    return bool(rows)
+
+
+def _invalidar_permisos() -> None:
+    """Tira el cache de `puede_ver` tras tocar cualquiera de las dos allowlists
+    (las dos alimentan la misma respuesta) para que el alta/baja se vea ya."""
+    invalidate("puede_ver")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -525,6 +572,7 @@ def agregar_escritor(email: str, actor: str) -> dict:
         {"e": e, "por": (actor or "").lower() or None, "at": datetime.now(UTC)},
     )
     _audit(actor, "add_escritor", e, {})
+    _invalidar_permisos()   # escribir implica ver → cambia también puede_ver
     return {"email": e}
 
 
@@ -534,4 +582,60 @@ def quitar_escritor(email: str, actor: str) -> dict:
         raise ValueError("falta 'email'")
     borrado = _exec("DELETE FROM operaciones.mesa_dinero_escritores WHERE email = %(e)s", {"e": e})
     _audit(actor, "remove_escritor", e, {})
+    _invalidar_permisos()
     return {"borrado": borrado}
+
+
+# ─────────────────────────────────────────────────────────────
+# Lectores (allowlist de ACCESO a la vista)
+# ─────────────────────────────────────────────────────────────
+# Misma forma que los escritores, tabla aparte. Un escritor NO necesita estar
+# acá (la unión de puede_ver lo cubre), pero tampoco molesta si está.
+
+def listar_lectores() -> dict:
+    rows = _q("SELECT email, agregado_por, agregado_at FROM operaciones.mesa_dinero_lectores "
+              "ORDER BY email")
+    return {"escritores": _jsonable(rows)}   # clave `escritores`: el panel del front es el mismo
+
+
+def candidatos_lectores(q: str = "", limit: int = 30) -> dict:
+    """Usuarios de la app que todavía no tienen acceso (ni lectura ni escritura:
+    ofrecer a alguien que ya escribe sería ofrecer un permiso que ya tiene)."""
+    term = f"%{(q or '').strip()}%"
+    rows = _q(
+        "SELECT u.email, u.role FROM manager.manager_users u "
+        "WHERE u.email NOT IN (SELECT email FROM operaciones.mesa_dinero_lectores) "
+        "AND u.email NOT IN (SELECT email FROM operaciones.mesa_dinero_escritores) "
+        "AND u.email ILIKE %(t)s ORDER BY u.email LIMIT %(lim)s",
+        {"t": term, "lim": limit},
+    )
+    return {"candidatos": rows}
+
+
+def agregar_lector(email: str, actor: str) -> dict:
+    e = (email or "").lower().strip()
+    if not e:
+        raise ValueError("falta 'email'")
+    _exec(
+        "INSERT INTO operaciones.mesa_dinero_lectores (email, agregado_por, agregado_at) "
+        "VALUES (%(e)s, %(por)s, %(at)s) ON CONFLICT (email) DO NOTHING",
+        {"e": e, "por": (actor or "").lower() or None, "at": datetime.now(UTC)},
+    )
+    _audit(actor, "add_lector", e, {})
+    _invalidar_permisos()
+    return {"email": e}
+
+
+def quitar_lector(email: str, actor: str) -> dict:
+    """Baja del acceso. OJO: si el email además es ESCRITOR sigue viendo la
+    vista (escribir implica leer) — se devuelve `sigue_viendo` para que el
+    panel lo avise en vez de mentir con un permiso que no se revocó."""
+    e = (email or "").lower().strip()
+    if not e:
+        raise ValueError("falta 'email'")
+    borrado = _exec("DELETE FROM operaciones.mesa_dinero_lectores WHERE email = %(e)s", {"e": e})
+    _audit(actor, "remove_lector", e, {})
+    _invalidar_permisos()
+    sigue = bool(_q(
+        "SELECT 1 FROM operaciones.mesa_dinero_escritores WHERE email = %(e)s", {"e": e}))
+    return {"borrado": borrado, "sigue_viendo": sigue}

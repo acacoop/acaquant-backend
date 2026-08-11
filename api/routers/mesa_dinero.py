@@ -1,9 +1,11 @@
 """Router MESA DE DINERO — /api/mesa-dinero (vista NEGOCIO → /mesa-dinero).
 
-LECTURA: gate módulo `operaciones` (se monta en api/main.py con _OPERACIONES,
-igual que el resto de NEGOCIO). ESCRITURA: además del módulo, allowlist
-per-usuario `operaciones.mesa_dinero_escritores` (editable en Manager → MESA)
-+ admin — enforcement server-side en cada endpoint de write (default-deny).
+LECTURA: allowlist per-usuario `operaciones.mesa_dinero_lectores` (∪ escritores)
++ admin — se monta en api/main.py con `require_lectura_mesa`. **NO** es el módulo
+`operaciones` como el resto de NEGOCIO (cambio 2026-08-11): el acceso a esta
+vista se decide por PERSONA, no por puesto. ESCRITURA: allowlist
+`operaciones.mesa_dinero_escritores` + admin. Las dos se editan en Manager → MESA
+y las dos son default-deny, con enforcement server-side.
 
 Thin HTTP plumbing: la lógica vive en api/services/mesa_dinero.py.
 """
@@ -17,6 +19,16 @@ from api.services import acavalores_retorno as _svc_ret
 from api.services import mesa_dinero as _svc
 
 router = APIRouter(prefix="/api/mesa-dinero", tags=["Mesa de Dinero"])
+
+
+def require_lectura_mesa(actor: str = Depends(get_user_email)) -> str:
+    """Gate de ACCESO a la vista: allowlist per-usuario + admin. Default-deny.
+
+    Se monta a nivel router (api/main.py) → cubre TODOS los endpoints, incluidos
+    los que se agreguen mañana. Reemplaza al gate de módulo `operaciones`."""
+    if not _svc.puede_ver(email=actor):
+        raise HTTPException(403, "sin acceso a Mesa de Dinero")
+    return actor
 
 
 def require_escritura_mesa(actor: str = Depends(get_user_email)) -> str:

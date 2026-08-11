@@ -637,6 +637,18 @@ CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_escritores (
     agregado_at  timestamptz
 );
 
+-- ACCESO a la vista (2026-08-11). Antes VER Mesa de Dinero lo daba el módulo
+-- `operaciones` → la veía todo NEGOCIO. Ahora es allowlist per-usuario, igual
+-- que la escritura: el criterio es "estas personas", no "este puesto", y un
+-- módulo no puede expresar eso sin inventar un rol por combinación.
+-- REGLA: escribir IMPLICA leer (mesa_dinero_escritores entra por unión), así
+-- las dos listas no se pueden contradecir. admin siempre puede.
+CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_lectores (
+    email        text PRIMARY KEY,           -- usuario de la app con permiso de LECTURA
+    agregado_por text,
+    agregado_at  timestamptz
+);
+
 CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_audit (
     id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     ts     timestamptz,

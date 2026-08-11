@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **443 endpoints** montados en `api.main.app`, en **28 routers**.
-- **142 escriben** (POST/PUT/PATCH/DELETE); 301 son de solo lectura.
+- **448 endpoints** montados en `api.main.app`, en **28 routers**.
+- **144 escriben** (POST/PUT/PATCH/DELETE); 304 son de solo lectura.
 - **22 módulos** canónicos y **6 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -57,11 +57,11 @@
 | `/api/estrategia` | 4 | 0 | `trading` | — |  |
 | `/api/ia` | 11 | 5 | `ia` · 10 rutas con gate extra | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 128 | 57 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
+| `/api/manager` | 132 | 59 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 4 | 0 | — | — | ⚠️ |
-| `/api/mesa-dinero` | 9 | 4 | `operaciones` · 5 rutas con gate extra | `operaciones` |  |
+| `/api/mesa-dinero` | 9 | 4 | — · 5 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
-| `/api/operaciones` | 44 | 4 | `operaciones` · 19 rutas con gate extra | `operaciones` |  |
+| `/api/operaciones` | 45 | 4 | `operaciones` · 20 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
@@ -83,12 +83,20 @@
 - `/api/cotizaciones` (32 de 33 rutas sin gate de módulo)
 - `/api/derivados` (13 de 18 rutas sin gate de módulo)
 - `/api/market` (4 de 4 rutas sin gate de módulo)
+- `/api/mesa-dinero` (9 de 9 rutas sin gate de módulo)
 - `/api/news` (3 de 3 rutas sin gate de módulo)
 - `/api/titulos` (declara `portfolios`, no lo aplica)
 
 No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtime** (solo lo consume un test), y para los módulos que todos los roles tienen se decidió no gatear. Lo que sí implica es que **destildar esos módulos en Manager → Roles no bloquea nada server-side**: solo esconde el link en el menú.
 
 <!-- /AUTOGEN:routers -->
+
+> **`/api/mesa-dinero` aparece en esa lista pero NO es un hueco.** El generador solo
+> entiende gates de MÓDULO, y esa vista pasó a gate **per-usuario**
+> (`require_lectura_mesa`, allowlist en Manager → MESA) el 2026-08-11 — a propósito y
+> sobre las 9 rutas. Es más restrictivo que antes, no menos: antes la veía todo el
+> módulo `operaciones`. Si algún día el generador aprende a leer los gates
+> per-usuario, esta nota se borra.
 
 ### 0.2 Matriz rol × módulo (default del código)
 
@@ -145,7 +153,7 @@ páginas.
 | 12 | **AUM** | `/aum` | `portfolios` | admin, trader, asistente_comercial | Activos bajo administración: evolución del total por cartera, snapshot con drill-down cuenta×asset, sub-vista FCI y comparación de saldos entre dos fechas. |
 | 13 | **CARTERAS** | `/valuaciones` | `portfolios` | admin, trader, asistente_comercial | Performance por cuenta: valor del portfolio, tabla mensual con TWR/TEM/XIRR, posiciones a una fecha, atribución de la variación y PnL cost-basis por título. |
 | 14 | **CONTRAPARTES** | `/contrapartes` | `operaciones` | admin, trader, asistente_comercial | Contra quién operamos: volumen bruto por contraparte, por grupo/segmento y por mes, con drill-down a los boletos de un día. |
-| 15 | **MESA DE DINERO** | `/mesa-dinero` | `operaciones` | admin, trader, asistente_comercial | Registro MANUAL de las operaciones de la mesa (compra+venta) con resultado diario, TC manual, atribución por comercial (regla 50/50) y panel del fondo ACA R.TOTAL. |
+| 15 | **MESA DE DINERO** | `/mesa-dinero` | **ninguno** — allowlist per-usuario | admin + quien esté en `mesa_dinero_lectores`/`_escritores` | Registro MANUAL de las operaciones de la mesa (compra+venta) con resultado diario, TC manual, atribución por comercial (regla 50/50) y panel del fondo ACA R.TOTAL. |
 | 16 | **OPERACIONES** | `/operaciones` | `operaciones` | admin, trader, asistente_comercial | Volumen y arancel de boletos de mercado, más las verticales AGRO / DÓLAR FUTURO / DIFERENCIAS DIARIAS y los depósitos/extracciones. |
 | 17 | **OPERADORES** | `/operadores` | `operaciones` (+ `control_comercial` per-usuario para una sub-vista) | admin, trader, asistente_comercial | Tablero Comercial: qué cuentas gestiona cada operador, cuánto AuM/volumen/arancel generan, estado comercial y objetivos. |
 | 18 | **REFERIDOS** | `/referidos` | `operaciones` | admin, trader, asistente_comercial | Vista para la empresa referidora: solo sus cuentas — operan, AuM, rendimientos, volumen, aranceles y comisión FCI a la coop. |
@@ -180,7 +188,7 @@ páginas.
 | `trading` | `/trading` | `/api/trading/*` + `/api/estrategia/*` (13) |
 | `estrategia` | `/retorno` | **NINGUNO** — vive en `/api/analitica` (`_PUBLIC`) |
 | `operar` | `/operar` + envío de órdenes | `/api/ordenes`, `/api/operativa`, `/api/operar`, `/api/risk` (22) |
-| `operaciones` | `/operaciones`, `/operadores`, `/contrapartes`, `/referidos`, `/mesa-dinero` | `/api/operaciones`, `/api/cuentas`, `/api/mesa-dinero` (55) |
+| `operaciones` | `/operaciones`, `/operadores`, `/contrapartes`, `/referidos` | `/api/operaciones`, `/api/cuentas` (46) — **`/mesa-dinero` salió del módulo el 2026-08-11**: allowlist per-usuario |
 | `portfolios` | `/aum`, `/valuaciones` | `/api/portfolio`, `/api/valuaciones` (18) |
 | `back-office` | `/back-office` (SENEBIS, tesorería, acreencias, alquiler) | `/api/back-office/*` incl. `/senebis` (67) |
 | `research` | `/research` | `/api/research1816`, `/api/research-bcra`, `/api/research-fred`, `/api/research-docs` (17) |
@@ -336,7 +344,7 @@ NEGOCIO ▼                 (grupo)
   ├─ AUM                  → /aum               [portfolios]
   ├─ Carteras             → /valuaciones       [portfolios]
   ├─ Contrapartes         → /contrapartes      [operaciones]
-  ├─ Mesa de Dinero       → /mesa-dinero       [operaciones]
+  ├─ Mesa de Dinero       → /mesa-dinero       [mesa-dinero *]
   ├─ Operaciones          → /operaciones       [operaciones]
   ├─ Operadores           → /operadores        [operaciones]
   └─ Referidos            → /referidos         [operaciones]
@@ -346,6 +354,12 @@ MANAGER                   → /manager           [manager ∨ manager_clientes �
 
 Los items de los dropdowns están ordenados alfabéticamente por label. Los dropdowns son **100 % CSS**
 (`group-hover`, sin estado React) → no hay cierre con Esc ni navegación por teclado.
+
+**`*` = CAPACIDAD, no módulo del RBAC.** `mesa-dinero` **no** está en `core.roles.MODULES` ni en la
+matriz: lo publica `/api/me` dentro de `modules` cuando el email está en la allowlist de la vista
+(`operaciones.mesa_dinero_lectores` ∪ `_escritores`, o es admin). Se mete en la misma lista a
+propósito, para que el nav y `src/proxy.ts` sigan filtrando con UN solo mecanismo. **No agregarlo a
+`MODULES`**: pondría un checkbox en ROLES Y PERMISOS que no controlaría nada.
 
 **Qué ve cada rol** (cruzando `NAV` con `DEFAULT_MATRIX`):
 
@@ -1613,8 +1627,18 @@ audit}` · cron `50 2 * * 2-6` UTC (= 23:50 ART) → `jobs.tesoreria_snapshot` (
 - **El histórico de movimientos NO se duplica**: se navega desde la celda de BANCOS que los usa.
 
 ### Vista: MESA DE DINERO (`/mesa-dinero`)
-- **Módulo**: **`operaciones`** (no `back-office`) | **Roles**: admin, trader, asistente_comercial.
+- **Acceso (2026-08-11)**: **NINGÚN módulo** — allowlist **per-usuario**
+  `operaciones.mesa_dinero_lectores` ∪ `mesa_dinero_escritores` + admin
+  (`require_lectura_mesa`, montado sobre todo el router). Antes lo daba el módulo
+  `operaciones`, o sea todo NEGOCIO. Se cambió porque el criterio de acceso a esta
+  vista es **quiénes**, no **qué puesto**: con un módulo hacía falta un rol por cada
+  combinación de personas. Mismo patrón que `require_control_comercial`.
 - **Escritura**: allowlist `operaciones.mesa_dinero_escritores` + admin (`require_escritura_mesa`).
+- **Escribir implica ver**: `puede_ver` es la UNIÓN de las dos listas, así no puede existir un
+  usuario que cargue en una vista que no ve. Quitar a alguien de LECTORES no le saca el acceso si
+  sigue siendo ESCRITOR — el panel lo avisa (`sigue_viendo` en la respuesta del DELETE).
+- **`/api/me` publica la capacidad `mesa-dinero`** dentro de `modules` para que el nav y `proxy.ts`
+  la filtren igual que a un módulo. NO es un módulo del RBAC (ver la nota del árbol de nav).
 
 | Tab | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
@@ -1641,7 +1665,8 @@ para registros SIN patas), `cliente` (libre), `observacion` (**debe ser `"Mesa"`
 - ACA VALORES RETORNO TOTAL: la métrica es el **CASH** (`bruto`, "Moneda de Concertación Bruto") y el front lo toma en **valor absoluto** (no distingue compra/venta).
 
 **Fuentes**: `operaciones.mesa_dinero`, `mesa_dinero_tc` (PK fecha), `mesa_dinero_traders`,
-`mesa_dinero_escritores`, `mesa_dinero_audit` (before/after de op, TC, traders y escritores) ·
+`mesa_dinero_escritores`, `mesa_dinero_lectores`,
+`mesa_dinero_audit` (before/after de op, TC, traders, escritores y lectores) ·
 `clientes.operadores` · `manager.manager_users` · `operaciones.acavalores_retorno`.
 
 ### Allowlists de escritura — resumen consolidado
@@ -1651,6 +1676,7 @@ para registros SIN patas), `cliente` (libre), `observacion` (**debe ser `"Mesa"`
 | `operaciones.tesoreria_escritores` | **TODOS** los writes de Tesorería: saldo inicial, exclusiones, cheques, mercados + su catálogo de entidades, banco a banco, registros manuales + saldo del rescate, ABM de bancos, SACAR FOTO | `role=="admin"` siempre | Manager → MESA |
 | `operaciones.senebis_escritores` | Solo **crear / editar / borrar órdenes** SENEBIS. **NO cubre** marcar estado, `/visto`, `reasignar-id` ni el catálogo de agentes (esos los puede hacer todo el módulo `back-office`) | `role=="admin"` siempre | Manager → MESA |
 | `operaciones.mesa_dinero_escritores` | Alta/edición/borrado de ops de Mesa de Dinero + `PUT /tc` | `role=="admin"` siempre | Manager → MESA |
+| `operaciones.mesa_dinero_lectores` | **VER** la vista Mesa de Dinero (las 9 rutas). Única allowlist de **LECTURA** del sistema junto con el flag `control_comercial` — el resto gobierna escrituras | `role=="admin"` siempre; **y los `mesa_dinero_escritores` entran por unión** | Manager → MESA (fila de abajo) |
 
 Además **admin-only fuera de allowlist**: `POST /senebis/proximo-id` (`require_admin`) y cambiar el
 estado de una orden SENEBIS de un **día anterior** (chequeo dentro de `set_estado`).
@@ -1951,6 +1977,7 @@ cobertura **CERO**).
 | `require_admin` | `api/auth.py:398` | `GET /api/ia/observabilidad`, `GET,POST /api/ia/presupuesto`, `POST /api/ia/presupuesto/usuario`, `GET /api/ia/saldo`, `GET /api/scanner/day-trading`, `GET /api/scanner/companeros/{ticker}`, `POST /api/back-office/senebis/proximo-id` — **8 rutas** | `get_user_role(email) == "admin"` **directo, sin mirar la matriz** → **no delegable** desde el panel. Rechaza guest siempre |
 | `require_control_comercial` | `api/auth.py:425` | Las 5 rutas `/api/operaciones/comercial/control/*` (objetivos GET+PATCH, objetivos-vs-actual, por-operador, totales) — **incluidas las de lectura** | Permiso **PER-USUARIO**: `admin` **o** flag `control_comercial=true` en `manager.manager_users` (tildado en Manager → Usuarios). Cache 60s. Rechaza guest |
 | `require_no_invitado` | `api/auth.py:442` | Las **5 PATCH** de `/api/derivados/agro/*` | Bloquea www en escrituras que caen dentro de un módulo que el invitado SÍ tiene |
+| `require_lectura_mesa` | `mesa_dinero.py` → `mesa_dinero.puede_ver` | **Las 9 rutas** de `/api/mesa-dinero` (montado a nivel router en `api/main.py`) | Permiso **PER-USUARIO**: admin **o** email en `mesa_dinero_lectores` ∪ `mesa_dinero_escritores`. Cache 60s. **Reemplazó al gate de módulo `operaciones`** (2026-08-11) |
 | `require_escritura_mesa` | `mesa_dinero.py` → `mesa_dinero.puede_escribir` | `POST/PATCH/DELETE /api/mesa-dinero/ops*`, `PUT /api/mesa-dinero/tc` (4) | admin **o** email en `operaciones.mesa_dinero_escritores` |
 | `require_escritura_senebis` | `senebis.py` → `senebis.puede_escribir` | `POST /ops`, `PATCH /ops/{id}`, `DELETE /ops/{id}` (3) | admin **o** email en `operaciones.senebis_escritores` (allowlist separada) |
 | `require_escritura_tesoreria` | `back_office.py` → `tesoreria.puede_editar_saldo` | **24 rutas** de `/api/back-office/tesoreria/*` | admin **o** email en `operaciones.tesoreria_escritores` |
@@ -2163,7 +2190,7 @@ GET `/account/saldo` · `/account/report` · `/account/positions` (**sin consumi
 ### `cuentas.py` — `/api/cuentas`, módulo `operaciones` (2)
 GET `/accionistas` · `/contrapartes` — **ninguno escribe**
 
-### `mesa_dinero.py` — `/api/mesa-dinero`, módulo `operaciones` (9)
+### `mesa_dinero.py` — `/api/mesa-dinero`, **sin módulo**: allowlist per-usuario (9)
 | GET | `/ops` · `/resumen` · `/resultados` · `/opciones` · `/retorno` | — |
 | **POST** | `/ops` | **✍** (allowlist) |
 | **PATCH** | `/ops/{op_id}` | **✍** (allowlist) |

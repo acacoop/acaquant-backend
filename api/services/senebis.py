@@ -106,7 +106,16 @@ _CAMPOS_OP = (
     "operacion", "concertacion", "liquidacion", "plazo", "especie",
     "vn", "px", "monto", "cp", "cc", "contraparte", "nro_contraparte",
     "mercado", "cargan_ellos", "tipo", "tipo_contraparte", "agente", "es_mae",
+    "segmento",
 )
+
+# SEGMENTO del Excel MAE. El universo válido vive en el catálogo
+# `operaciones.senebis_segmentos` (ABM en la vista, igual que el de agentes);
+# esto es solo con cuál nace una orden MAE si el trader no elige otro. Se
+# aplica al GUARDAR (no al leer) para que la orden tenga el valor explícito,
+# y además se usa de fallback en el export para las órdenes anteriores a este
+# campo, que lo tienen en NULL.
+SEGMENTO_MAE_DEFAULT = "Bilateral MAEClear"
 
 # Headers del Excel que el back office carga en el otro sistema (imagen de
 # referencia 2026-08-05): el ID va primero y es la secuencia global de la tabla.
@@ -114,9 +123,9 @@ _HEADERS_XLSX = ("ID", "OPERACION", "INSTRUMENTO", "PLAZO", "PRECIO", "CANTIDAD"
                  "CONTRAPARTE", "COMITENTE", "CARTERA PROPIA", "MERCADO")
 
 # Headers del Excel MAE (imagen de referencia 2026-08-05). Sin ID: el MAE no
-# usa la secuencia Quantex. SEGMENTO se completa a mano en el archivo
-# (Garantizado / Bilateral MAEClear / Bilateral Entre Partes) hasta que la
-# orden tenga el campo.
+# usa la secuencia Quantex. SEGMENTO ya NO se completa a mano: sale del campo
+# `segmento` de la orden, que se elige al cargarla entre los del catálogo
+# `senebis_segmentos` y nace en SEGMENTO_MAE_DEFAULT.
 _HEADERS_MAE = ("Operacion", "Instrumento", "Plazo", "Moneda", "Precio",
                 "Cantidad", "Destino", "Segmento")
 
@@ -233,6 +242,53 @@ def quitar_agente(nombre: str, actor: str) -> dict:
     return {"borrado": borrado}
 
 
+# ─────────────────────────────────────────────────────────────
+# Segmentos MAE (catálogo de la columna SEGMENTO del Excel MAE)
+# ─────────────────────────────────────────────────────────────
+
+def listar_segmentos() -> list[dict]:
+    """El catálogo, con el default marcado para que el front lo preseleccione
+    sin duplicar la constante del lado del navegador."""
+    return [{"nombre": r["nombre"], "es_default": r["nombre"] == SEGMENTO_MAE_DEFAULT}
+            for r in _q("SELECT nombre FROM operaciones.senebis_segmentos ORDER BY nombre")]
+
+
+def upsert_segmento(nombre: str, actor: str) -> dict:
+    """Alta de un segmento. A diferencia del agente NO se normaliza a mayúsculas:
+    el nombre viaja TAL CUAL a la columna SEGMENTO del Excel MAE, y ahí el
+    sistema destino espera 'Bilateral MAEClear', no 'BILATERAL MAECLEAR'."""
+    n = (nombre or "").strip()
+    if not n:
+        raise ValueError("falta 'nombre'")
+    at = datetime.now(UTC)
+    por = (actor or "").lower() or None
+    _exec(
+        "INSERT INTO operaciones.senebis_segmentos "
+        "(nombre, creado_por, creado_at, actualizado_por, actualizado_at) "
+        "VALUES (%(n)s, %(por)s, %(at)s, %(por)s, %(at)s) "
+        "ON CONFLICT (nombre) DO UPDATE SET "
+        "actualizado_por = EXCLUDED.actualizado_por, actualizado_at = EXCLUDED.actualizado_at",
+        {"n": n, "por": por, "at": at},
+    )
+    _audit(actor, "upsert_segmento", n, {})
+    return {"nombre": n}
+
+
+def quitar_segmento(nombre: str, actor: str) -> dict:
+    """Baja del catálogo. El DEFAULT no se puede borrar: sin él las órdenes MAE
+    nuevas nacerían con un segmento que ya no existe. Las órdenes viejas que
+    usaban un segmento borrado NO se tocan — guardan el texto, no un id."""
+    n = (nombre or "").strip()
+    if not n:
+        raise ValueError("falta 'nombre'")
+    if n == SEGMENTO_MAE_DEFAULT:
+        raise ValueError(
+            f"{n!r} es el segmento por defecto de las órdenes MAE y no se puede borrar")
+    borrado = _exec("DELETE FROM operaciones.senebis_segmentos WHERE nombre = %(n)s", {"n": n})
+    _audit(actor, "remove_segmento", n, {})
+    return {"borrado": borrado}
+
+
 def opciones(email: str = "") -> dict:
     """Opciones del form de carga: catálogo de agentes (desplegable del
     externo) + valores válidos. Marca presencia del caller."""
@@ -240,6 +296,10 @@ def opciones(email: str = "") -> dict:
         marcar_presencia(email)
     return {
         "agentes": listar_agentes(),
+        # Catálogo de la columna SEGMENTO del Excel MAE + con cuál nace una orden
+        # MAE. El front no hardcodea el default: lo lee de acá.
+        "segmentos": listar_segmentos(),
+        "segmento_default": SEGMENTO_MAE_DEFAULT,
         "tipos_contraparte": list(TIPOS_CONTRAPARTE),
         "plazos": list(PLAZOS),
         "conectados": conectados(),
@@ -398,6 +458,10 @@ def _fila_op(r: dict) -> dict:
         "tipo_contraparte": r["tipo_contraparte"],
         "agente": r["agente"], "agente_numero": r["agente_numero"],
         "es_mae": bool(r["es_mae"]),
+        # SEGMENTO del Excel MAE. .get() + fallback: una orden MAE cargada ANTES
+        # de que existiera el campo lo tiene en NULL y tiene que verse igual que
+        # sale en el Excel, no vacía.
+        "segmento": (r.get("segmento") or (SEGMENTO_MAE_DEFAULT if r["es_mae"] else None)),
         # .get(): tolera un deploy de código anterior al apply_schema.
         "campos_editados": list(r.get("campos_editados") or []),
         "editada_completada": bool(r.get("editada_completada")),
@@ -531,6 +595,14 @@ def _validar(p: dict) -> None:
             f"tipo_contraparte {tc!r} inválido: {' | '.join(TIPOS_CONTRAPARTE)}")
     if tc == "externo" and not (p.get("agente") or "").strip():
         raise ValueError("senebi externo: falta 'agente' (elegirlo del catálogo)")
+    # El SEGMENTO va tal cual a la columna del Excel MAE: si no está en el
+    # catálogo, el sistema destino lo rechaza. Se valida solo cuando la orden es
+    # MAE y trae uno explícito — vacío significa "el default", no un error.
+    seg = (p.get("segmento") or "").strip()
+    if p.get("es_mae") and seg and seg not in {x["nombre"] for x in listar_segmentos()}:
+        raise ValueError(
+            f"segmento {seg!r} no está en el catálogo — se agrega desde el botón "
+            "SEGMENTOS MAE de la vista SENEBIS")
 
 
 def _row_de_payload(p: dict, actor: str) -> dict:
@@ -566,6 +638,10 @@ def _row_de_payload(p: dict, actor: str) -> dict:
         "tipo": tipo,
         "tipo_contraparte": tc, "agente": agente, "agente_numero": numero,
         "es_mae": es_mae,
+        # Solo tiene sentido en una orden MAE (es una columna del Excel MAE): en
+        # una orden Quantex se guarda NULL aunque venga en el payload.
+        "segmento": ((p.get("segmento") or "").strip() or SEGMENTO_MAE_DEFAULT)
+                    if es_mae else None,
         "por": (actor or "").lower() or None, "at": datetime.now(UTC),
     }
 
@@ -580,12 +656,13 @@ def crear_op(payload: dict, actor: str) -> dict:
             "(operacion, concertacion, liquidacion, plazo, especie, vn, px, monto, "
             " cp, cc, cc_denominacion, contraparte, nro_contraparte, mercado, "
             " cargan_ellos, tipo, tipo_contraparte, agente, agente_numero, es_mae, "
-            " estado, creado_por, creado_at, actualizado_por, actualizado_at) "
+            " segmento, estado, creado_por, creado_at, actualizado_por, actualizado_at) "
             "VALUES (%(operacion)s, %(concertacion)s, %(liquidacion)s, %(plazo)s, "
             " %(especie)s, %(vn)s, %(px)s, %(monto)s, %(cp)s, %(cc)s, "
             " %(cc_denominacion)s, %(contraparte)s, %(nro_contraparte)s, %(mercado)s, "
             " %(cargan_ellos)s, %(tipo)s, %(tipo_contraparte)s, %(agente)s, "
-            " %(agente_numero)s, %(es_mae)s, 'pendiente', %(por)s, %(at)s, %(por)s, %(at)s) "
+            " %(agente_numero)s, %(es_mae)s, %(segmento)s, 'pendiente', "
+            " %(por)s, %(at)s, %(por)s, %(at)s) "
             "RETURNING id",
             row,
         )
@@ -646,7 +723,7 @@ def editar_op(op_id: int, payload: dict, actor: str) -> dict:
         "nro_contraparte=%(nro_contraparte)s, mercado=%(mercado)s, "
         "cargan_ellos=%(cargan_ellos)s, tipo=%(tipo)s, "
         "tipo_contraparte=%(tipo_contraparte)s, agente=%(agente)s, "
-        "agente_numero=%(agente_numero)s, es_mae=%(es_mae)s, "
+        "agente_numero=%(agente_numero)s, es_mae=%(es_mae)s, segmento=%(segmento)s, "
         "actualizado_por=%(por)s, actualizado_at=%(at)s WHERE id=%(id)s",
         row,
     )
@@ -924,11 +1001,13 @@ def _destinos_mae(ordenes: list[dict]) -> dict[int, str | None]:
 def _fila_export_mae(o: dict, destino: str | None) -> list:
     """Una orden MAE → los 8 valores del Excel MAE.
     Precio UNITARIO (px viene cada 100 VN → ÷100). MONEDA fija 'ARS' hasta que
-    la orden tenga el campo (pendiente). SEGMENTO va vacío: se completa a mano
-    (Garantizado / Bilateral MAEClear / Bilateral Entre Partes)."""
+    la orden tenga el campo (pendiente). SEGMENTO sale de la orden; el fallback
+    al default cubre las cargadas ANTES de que el campo existiera, que lo tienen
+    en NULL — así ninguna fila del Excel sale con la celda vacía."""
     px_unit = (o["px"] / 100) if o["px"] is not None else None
     return [(o["operacion"] or "").capitalize(), o["especie"], o["plazo"],
-            "ARS", px_unit, o["vn"], destino, None]
+            "ARS", px_unit, o["vn"], destino,
+            o.get("segmento") or SEGMENTO_MAE_DEFAULT]
 
 
 def excel_mae_preview(desde: str | None = None, hasta: str | None = None,

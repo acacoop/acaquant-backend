@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **441 endpoints** montados en `api.main.app`, en **28 routers**.
-- **140 escriben** (POST/PUT/PATCH/DELETE); 301 son de solo lectura.
+- **443 endpoints** montados en `api.main.app`, en **28 routers**.
+- **142 escriben** (POST/PUT/PATCH/DELETE); 301 son de solo lectura.
 - **22 módulos** canónicos y **6 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -50,7 +50,7 @@
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/analitica` | 15 | 1 | — | — | ⚠️ |
 | `/api/back-office` | 56 | 33 | `back-office` · 56 rutas con gate extra | `back-office` |  |
-| `/api/back-office/senebis` | 17 | 10 | `back-office` · 4 rutas con gate extra | `back-office` |  |
+| `/api/back-office/senebis` | 19 | 12 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 33 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
@@ -1495,7 +1495,7 @@ Tenencia/alquiler ← `portafolio.tenencia` + `assets`.
 |---|---|---|---|---|
 | **Órdenes** | Tabla completa con marcas de edición: `campos_editados` → `*` al lado del campo; `editada_completada` → **fila amarilla** + botón ⚠ EDITADA | `GET /ops` (marca presencia), `/opciones`, `/comitentes` | rango, estado, MAE | `POST /ops`, `PATCH /ops/{id}`, `DELETE /ops/{id}` (allowlist); `POST /ops/{id}/estado`; `/visto`; `/reasignar-id`; `PUT /agentes`, `DELETE /agentes/{nombre}`; `POST /proximo-id` (**admin**) |
 | **Excel Quantex** | Espejo EN VIVO del archivo destino (10 columnas: ID·OPERACION·INSTRUMENTO·PLAZO·PRECIO·CANTIDAD·CONTRAPARTE·COMITENTE·CARTERA PROPIA·MERCADO) + `proximo_id` | `GET /excel` | solo rango HOY/TODO; **el estado NO se pasa** (el backend ya filtra) | Botón **⬇ GENERAR EXCEL** → `GET /export`; reasignar ID desde la fila |
-| **Excel MAE** | Espejo del archivo MAE (8 columnas: Operacion·Instrumento·Plazo·Moneda·Precio·Cantidad·Destino·Segmento) con `sin_destino` marcando las que no tienen código | `GET /excel-mae` | rango | `GET /export-mae` |
+| **Excel MAE** | Espejo del archivo MAE (8 columnas: Operacion·Instrumento·Plazo·Moneda·Precio·Cantidad·Destino·Segmento) con `sin_destino` marcando las que no tienen código. El SEGMENTO sale de la orden (catálogo `senebis_segmentos`, botón **SEGMENTOS MAE**) | `GET /excel-mae` | rango | `GET /export-mae` |
 
 **Endpoints (17, prefix `/api/back-office/senebis`)**: `GET /ops` (`desde`, `hasta`, `estado`,
 `especie` ILIKE, `mae` `solo|sin`; devuelve `conectados` + `total` + `pendientes`) · `POST /presencia` ·
@@ -1520,7 +1520,7 @@ el catálogo), `es_mae` (bool).
 - **Qué entra al Excel MAE**: `estado='pendiente'` AND `es_mae` AND `not cargan_ellos`.
 - **Contraparte en el Excel Quantex**: externo → COMITENTE vacío + CONTRAPARTE = `agente_numero`; interno GARANTIZADO → COMITENTE = `cp`; interno resto → COMITENTE = `cc`. Los numéricos se emiten como número.
 - **DESTINO del Excel MAE** (2 queries batch, resuelto **EN VIVO**): interno → `clientes.contrapartes.codigo_mae` por `cc` → prefijo `F`; externo → `senebis_agentes.codigo_mae` por nombre → prefijo `A`. La letra la pone el sistema; si el código no es puramente numérico se respeta tal cual. Sin código → celda vacía + `sin_destino:true`. **El destino MAE de cuentas internas no se edita acá**: es atributo de la contraparte, en **Manager → CONTRAPARTES**.
-- **Excel MAE — precio UNITARIO (`px ÷ 100`) y Moneda fija `'ARS'`** (la orden todavía no tiene el campo). **Segmento** va vacío, se completa a mano.
+- **Excel MAE — precio UNITARIO (`px ÷ 100`) y Moneda fija `'ARS'`** (la orden todavía no tiene el campo). **Segmento** ya NO se completa a mano: sale del campo `senebis.segmento`, que se elige al cargar la orden (selector visible solo si ¿MAE?=SÍ) entre los valores del catálogo `operaciones.senebis_segmentos` — ABM en el botón **SEGMENTOS MAE** de la vista, `PUT /segmentos` · `DELETE /segmentos/{nombre}`. Nace en `Bilateral MAEClear` (`senebis.SEGMENTO_MAE_DEFAULT`), que el ABM no deja borrar. Las órdenes anteriores al campo lo tienen NULL y el export cae al default, así ninguna celda sale vacía.
 - **Marcas de edición**: se calculan comparando before/after de lo **persistido** (no del payload, que el front echoa entero); `campos_editados` es acumulativo; `editada_completada` se prende si ya estaba `completada`.
 - **`id` = secuencia GLOBAL** que espeja la numeración Quantex y **no se resetea**; ajustable con `POST /proximo-id` (admin). Si Quantex ya consumió el número y la carga falló, `reasignar-id` da el siguiente libre y **quema el viejo**, sin renumerar el resto.
 - **Presencia**: `senebis_presencia`, TTL 90s; el poll de `/ops` (10s) ES el heartbeat.

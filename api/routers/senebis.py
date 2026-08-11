@@ -275,6 +275,31 @@ def quitar_agente(nombre: str, actor: str = Depends(get_user_email)) -> dict:
         raise HTTPException(400, str(e)) from e
 
 
+class _SegmentoPayload(BaseModel):
+    nombre: str = Field(..., max_length=120,
+                        description="Segmento MAE tal cual va al Excel (respeta mayúsculas)")
+
+
+@router.put("/segmentos")
+def upsert_segmento(req: _SegmentoPayload = Body(...),
+                    actor: str = Depends(get_user_email)) -> dict:
+    """Alta de un segmento del catálogo MAE (columna SEGMENTO del Excel)."""
+    try:
+        return _svc.upsert_segmento(req.nombre, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/segmentos/{nombre:path}")
+def quitar_segmento(nombre: str, actor: str = Depends(get_user_email)) -> dict:
+    """Baja del catálogo. El segmento por defecto no se puede borrar.
+    `:path` porque los nombres llevan espacios ('Bilateral MAEClear')."""
+    try:
+        return _svc.quitar_segmento(nombre, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 # El DESTINO MAE de cuentas internas NO tiene endpoints acá: es un atributo
 # de la contraparte (clientes.contrapartes.codigo_mae) y se edita en
 # Manager → CONTRAPARTES. El de agentes externos viaja en el PUT /agentes.

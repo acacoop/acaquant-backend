@@ -788,6 +788,28 @@ CREATE TABLE IF NOT EXISTS operaciones.senebis_agentes (
 );
 ALTER TABLE operaciones.senebis_agentes ADD COLUMN IF NOT EXISTS codigo_mae text;
 
+-- SEGMENTOS del MAE (columna SEGMENTO del Excel MAE). Catálogo chico y editable
+-- desde la vista SENEBIS, igual que el de agentes: el MAE puede sumar segmentos
+-- y no queremos un deploy por eso. El default operativo vive en el código
+-- (`senebis.SEGMENTO_MAE_DEFAULT`), no acá: la tabla es solo el universo válido.
+CREATE TABLE IF NOT EXISTS operaciones.senebis_segmentos (
+    nombre          text PRIMARY KEY,
+    creado_por      text,
+    creado_at       timestamptz,
+    actualizado_por text,
+    actualizado_at  timestamptz
+);
+-- Semilla: el segmento que usa la mesa por defecto. ON CONFLICT → re-aplicar el
+-- schema no pisa ni duplica nada.
+INSERT INTO operaciones.senebis_segmentos (nombre, creado_por, creado_at)
+VALUES ('Bilateral MAEClear', 'schema', now())
+ON CONFLICT (nombre) DO NOTHING;
+
+-- SEGMENTO de la orden: solo aplica a las `es_mae` (es una columna del Excel
+-- MAE). Se guarda el NOMBRE, no un id: el Excel lleva el texto y así una baja
+-- del catálogo no huerfana las órdenes históricas.
+ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS segmento text;
+
 -- Presencia en la vista SENEBIS: quién la tiene abierta AHORA (heartbeat del
 -- front cada vez que pollea la lista; conectado = visto_at en los últimos 90s).
 -- Evita que dos personas del back office procesen la misma orden sin saberlo.

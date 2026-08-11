@@ -1,39 +1,17 @@
-"""fix_financiamiento_clase.py — corrige el HD/DL escrito con el umbral VIEJO.
+"""fix_financiamiento_clase.py — CLASE_ACTIVO = HD o DL para toda la cartera FINANCIAMIENTO.
 
-QUÉ PASÓ
---------
-La regla `financiamiento_clase` (jobs/assets_autofill.py) nació con el umbral en
-**5.000** y clasificó como DL a cientos de pagarés que son HD: papeles de 200k a
-600k nominales, que a esa escala rinden 6-7% anual (tasa de dólar). El umbral
-correcto es **5.000.000** — ver el comentario de `_UMBRAL_HD`.
+La regla, completa: si `cartera = FINANCIAMIENTO`, entonces `clase_activo` tiene
+que ser **HD** (nominal ≤ 5.000.000) o **DL** (nominal > 5.000.000). Punto.
 
-POR QUÉ HACE FALTA ESTE SCRIPT Y NO ALCANZA CON RE-CORRER EL JOB
-----------------------------------------------------------------
-El job tiene un invariante que NO se toca: **nunca pisa un valor ya cargado**.
-Eso es exactamente lo que lo hace seguro (la máquina propone, el humano corrige
-en Manager y el job no vuelve a opinar) — pero también significa que un valor
-que el propio job escribió mal se queda ahí para siempre. Corregirlo es una
-decisión explícita y puntual, y por eso vive acá y no en el job.
+El nominal es la suma de la última tenencia de esa unidad.
 
-CÓMO EVITA PISAR TRABAJO HUMANO (dos guardas, hay que cumplir LAS DOS)
-----------------------------------------------------------------------
-1. `actualizado_por = 'job:assets_autofill'` — el último que tocó la fila fue la
-   máquina. Si un humano la editó, no se toca.
-2. La clase actual es EXACTAMENTE la que daba el umbral viejo y DISTINTA de la
-   que da el nuevo. Así solo se corrige lo que lleva la huella del bug; un
-   asset donde los dos umbrales coinciden no se toca aunque esté mal.
-
-Lo que queda afuera por la guarda 1 se REPORTA (no se corrige en silencio): son
-los que hay que mirar a mano en Manager → ASSETS.
-
-Es idempotente: correrlo dos veces no hace nada la segunda (después de la
-primera pasada ya ninguna fila cumple la guarda 2).
+PISA LO QUE HAYA. Es lo que lo diferencia de `jobs/assets_autofill.py`, que solo
+completa campos vacíos y por eso no podía arreglar nada acá: el campo NO estaba
+vacío, tenía 'FINANCIAMIENTO' (la cartera copiada dentro del campo de la clase).
 
 Uso:
-    python -m scripts.fix_financiamiento_clase              # DRY-RUN (default)
+    python -m scripts.fix_financiamiento_clase              # muestra qué haría
     python -m scripts.fix_financiamiento_clase --aplicar    # escribe
-
-Cuando el tema cierre, este script se BORRA (REGLA #5).
 """
 from __future__ import annotations
 
@@ -41,65 +19,43 @@ import argparse
 from datetime import UTC, datetime
 
 from core.postgres import get_pool
-from jobs.assets_autofill import _RE_FINANCIAMIENTO, _UMBRAL_HD
+from jobs.assets_autofill import _UMBRAL_HD
 
-# El umbral con el que se escribieron los valores malos. Queda hardcodeado
-# porque es historia, no configuración: describe lo que pasó, no lo que debería.
-_UMBRAL_VIEJO = 5_000.0
-_ACTOR_JOB = "job:assets_autofill"
 _ACTOR = "script:fix_financiamiento_clase"
 _BATCH = 500
 
 
-def _clase(nominal: float, umbral: float) -> str:
-    return "HD" if nominal <= umbral else "DL"
-
-
-def _candidatos() -> tuple[list[tuple[str, str, str, float]], list[tuple[str, str, float]]]:
-    """(a_corregir, bloqueados_por_humano).
-
-    `a_corregir` = (unidad, clase_vieja, clase_nueva, nominal).
-    `bloqueados`  = (unidad, clase_actual, nominal) — los tocó un humano.
-    """
+def _pendientes() -> list[tuple[str, str, str, float]]:
+    """(unidad, clase_actual, clase_nueva, nominal) de lo que hay que cambiar."""
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT a.unidad, a.clase_activo, a.actualizado_por, sum(t.cantidad) "
+            "SELECT a.unidad, a.clase_activo, sum(t.cantidad) "
             "FROM portafolio.assets a "
             "JOIN portafolio.tenencia t ON t.unidad = a.unidad "
-            "WHERE t.fecha = (SELECT max(fecha) FROM portafolio.tenencia) "
+            "WHERE upper(btrim(a.cartera)) = 'FINANCIAMIENTO' "
+            "  AND t.fecha = (SELECT max(fecha) FROM portafolio.tenencia) "
             "  AND t.cantidad IS NOT NULL "
-            "GROUP BY a.unidad, a.clase_activo, a.actualizado_por")
+            "GROUP BY a.unidad, a.clase_activo "
+            "ORDER BY 3")
         rows = cur.fetchall()
 
-    corregir: list[tuple[str, str, str, float]] = []
-    bloqueados: list[tuple[str, str, float]] = []
-    for unidad, clase, actor, nominal in rows:
-        # Solo financiamiento: la firma de la unidad es el criterio, igual que en el job.
-        if not _RE_FINANCIAMIENTO.match((unidad or "").strip()):
-            continue
-        clase = (clase or "").strip().upper()
-        if not clase or nominal is None:
-            continue                     # sin clase → lo completa el job, no este script
+    out = []
+    for unidad, clase, nominal in rows:
         n = float(nominal)
-        vieja, nueva = _clase(n, _UMBRAL_VIEJO), _clase(n, _UMBRAL_HD)
-        # Guarda 2: solo lo que lleva la huella del umbral viejo.
-        if clase != vieja or vieja == nueva:
-            continue
-        # Guarda 1: el último que escribió tiene que haber sido el job.
-        if (actor or "").strip() != _ACTOR_JOB:
-            bloqueados.append((unidad, clase, n))
-            continue
-        corregir.append((unidad, vieja, nueva, n))
-    return corregir, bloqueados
+        nueva = "HD" if n <= _UMBRAL_HD else "DL"
+        actual = (clase or "").strip().upper()
+        if actual != nueva:
+            out.append((unidad, actual or "(vacío)", nueva, n))
+    return out
 
 
-def _aplicar(corregir: list[tuple[str, str, str, float]]) -> int:
+def _aplicar(pendientes: list[tuple[str, str, str, float]]) -> int:
     ts = datetime.now(UTC)
     n = 0
     with get_pool().connection() as conn, conn.cursor() as cur:
-        for i in range(0, len(corregir), _BATCH):
+        for i in range(0, len(pendientes), _BATCH):
             lote = [{"clase": nueva, "unidad": u, "actor": _ACTOR, "ts": ts}
-                    for u, _vieja, nueva, _nom in corregir[i:i + _BATCH]]
+                    for u, _act, nueva, _nom in pendientes[i:i + _BATCH]]
             cur.executemany(
                 "UPDATE portafolio.assets SET clase_activo = %(clase)s, "
                 "actualizado_por = %(actor)s, actualizado_at = %(ts)s "
@@ -110,42 +66,34 @@ def _aplicar(corregir: list[tuple[str, str, str, float]]) -> int:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Corrige el HD/DL del umbral viejo.")
-    ap.add_argument("--aplicar", action="store_true",
-                    help="escribe (sin esto es dry-run y no toca nada)")
+    ap = argparse.ArgumentParser(description="CLASE_ACTIVO HD/DL de la cartera FINANCIAMIENTO.")
+    ap.add_argument("--aplicar", action="store_true", help="escribe (sin esto solo muestra)")
     args = ap.parse_args()
 
-    print(f"umbral viejo {_UMBRAL_VIEJO:,.0f} → nuevo {_UMBRAL_HD:,.0f}\n")
-    corregir, bloqueados = _candidatos()
-
-    if not corregir and not bloqueados:
-        print("nada que corregir (¿ya se corrió?).")
+    print(f"HD si nominal ≤ {_UMBRAL_HD:,.0f} · DL si es mayor\n")
+    pendientes = _pendientes()
+    if not pendientes:
+        print("Todo el financiamiento ya está clasificado. Nada que hacer.")
         return
 
-    cambios: dict[str, int] = {}
-    for _u, vieja, nueva, _n in corregir:
-        cambios[f"{vieja} → {nueva}"] = cambios.get(f"{vieja} → {nueva}", 0) + 1
-    print(f"A CORREGIR: {len(corregir)} asset(s)")
-    for k, v in sorted(cambios.items()):
+    resumen: dict[str, int] = {}
+    for _u, actual, nueva, _n in pendientes:
+        resumen[f"{actual} → {nueva}"] = resumen.get(f"{actual} → {nueva}", 0) + 1
+    print(f"A CAMBIAR: {len(pendientes)} asset(s)")
+    for k, v in sorted(resumen.items(), key=lambda kv: -kv[1]):
         print(f"  {k}: {v}")
-    for u, vieja, nueva, n in corregir[:15]:
-        print(f"    {n:>18,.2f}  {vieja} → {nueva}   {u[:52]}")
-    if len(corregir) > 15:
-        print(f"    … +{len(corregir) - 15} más")
-
-    if bloqueados:
-        print(f"\n⚠ {len(bloqueados)} asset(s) NO se tocan: los editó un humano "
-              f"(actualizado_por ≠ {_ACTOR_JOB}).")
-        print("  Si alguno quedó mal, corregirlo en Manager → ASSETS:")
-        for u, clase, n in bloqueados[:15]:
-            print(f"    {n:>18,.2f}  clase={clase}   {u[:52]}")
+    print()
+    for u, actual, nueva, n in pendientes[:20]:
+        print(f"  {n:>18,.2f}  {actual:>14} → {nueva}   {u[:52]}")
+    if len(pendientes) > 20:
+        print(f"  … +{len(pendientes) - 20} más")
 
     if not args.aplicar:
-        print("\nDRY-RUN: no se escribió nada. Para aplicar: "
+        print("\nNo se escribió nada. Para aplicar: "
               "python -m scripts.fix_financiamiento_clase --aplicar")
         return
-    print(f"\n✅ {_aplicar(corregir)} asset(s) corregidos "
-          f"(la API los relee en ≤5 min, TTL assets_sql).")
+    print(f"\n✅ {_aplicar(pendientes)} asset(s) clasificados "
+          f"(la API los relee en ≤5 min).")
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from api.services import cashflow_sql as _cf_sql
 from api.services import comercial as _com
 from api.services import comercial_sql as _com_sql
 from api.services import control_comercial_sql as _cc
+from api.services import financiamiento as _fin
 from api.services import operaciones_sql as _ops_sql
 from api.services._grupos_scope import (
     scope_cuentas,
@@ -791,3 +792,21 @@ def control_objetivos_vs_actual(
     """Tabla 3 — por comercial: Actual (en el rango) vs Objetivo (suma de objetivos mensuales
     del rango) + % alcanzado. Filtros madre acotan el scope."""
     return _cc.objetivos_vs_actual(desde=desde, hasta=hasta, moneda=moneda, **filtros)
+
+
+@router.get("/financiamiento")
+def financiamiento_libro(
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+) -> dict:
+    """Vista FINANCIAMIENTO (tab de /operaciones) — libro VIVO de pagarés/cheques.
+
+    Instrumentos con `cartera = FINANCIAMIENTO` y vencimiento HOY o posterior,
+    con la CANTIDAD (nominal) que tiene cada cliente y la TASA a la que la
+    compró. El bruto no viaja a propósito: estos papeles se compran con
+    descuento y la mayoría son dólar-linked liquidados en pesos, así que el
+    importe pagado no es comparable entre filas (ver el docstring del service).
+
+    Devuelve el grano cuenta × instrumento; el cruce interactivo de las cuatro
+    tablas lo resuelve el front sin refetch.
+    """
+    return _fin.libro(scope=scope)

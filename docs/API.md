@@ -403,6 +403,34 @@ Mesa flow + cash movements (read-only). **Bloqueado al asistente y al MCP por po
 | GET | `/negocio` | Negocio del día consolidado por boleto desde `operaciones.negocio_movimientos` (param `fecha=YYYY-MM-DD`, default hoy ART). Devuelve `meta` + `agregados` por categoría + `top_tickers` + `boletos`. |
 | GET | `/negocio/fechas` | Lista de fechas con boletos persistidos en `operaciones.negocio_movimientos` ordenadas desc. Devuelve `[{fecha, n}]`. Usado por el frontend para limitar el selector. |
 | GET | `/ops/resumen` | Vista MOVIMIENTOS: `por_operacion` / `por_denominacion` / `por_instrumento` (cross-filter 3-way) + `total`. Cada fila trae `bruto`, `arancel`, `n` y **`tasa_pond`**. |
+| GET | `/financiamiento` | Tab FINANCIAMIENTO: libro VIVO de pagarés/cheques (assets con `cartera='FINANCIAMIENTO'` y vencimiento ≥ hoy) al grano cuenta × instrumento. Ver abajo. |
+
+**`/financiamiento` (2026-08-11)** — devuelve `{fecha, hoy, n, con_tasa, truncado, filas[]}`,
+una fila por (cuenta, instrumento) con `id_cuenta`, `cuenta`, `unidad`, `ticker`,
+`emisor`, `vencimiento`, `dias`, `cantidad`, `moneda`, `aum`, `tasa`, `tasa_min`,
+`tasa_max`, `n_boletos`. Manda el GRANO y no agregados a propósito: las cuatro
+tablas de la pantalla se cruzan entre sí y resolverlo server-side costaría un
+round-trip por click.
+
+- **No hay ningún campo de plata, a propósito.** Estos papeles se compran con
+  descuento y la mayoría son dólar-linked liquidados en pesos → el bruto no
+  compara entre filas. Lo que importa es el NOMINAL (`cantidad`) y la `tasa`.
+- **Dos fuentes.** `cantidad` sale de `portafolio.tenencia` del último snapshot
+  (la POSICIÓN: sumar boletos daría el flujo y contaría dos veces lo que entró y
+  salió). `tasa` sale de `operaciones.operaciones.tasa` de los boletos MAV, que
+  rellena `jobs/ops_tasa_mav.py`.
+- **El puente entre ambas es (`id_cuenta`, código del instrumento)**: en assets el
+  código es el `ticker` (contenido del corchete de la unidad) y en el movimiento
+  es el mismo corchete dentro de `negocio_movimientos.informacion`. Se matchea por
+  cuenta Y código — la tasa es de la OPERACIÓN de ese cliente, no del papel.
+- **`tasa: null` = sin dato, se muestra vacío** (nunca `0`, que sería una tasa
+  real). Una posición sin boleto MAV con tasa parseada es normal. `con_tasa` dice
+  cuántas filas resolvieron; `scripts/diag_financiamiento.py` mide la cobertura.
+- Con varios boletos del mismo par, `tasa` es el promedio **ponderado por
+  nominal**; `tasa_min`/`tasa_max` viajan para que la vista marque cuándo ese
+  promedio esconde dispersión.
+- `@cached(300)`, scopeado por grupos (`scope_cuentas`), tope de 20.000 filas
+  (lo avisa en `truncado` en vez de servir una tabla incompleta en silencio).
 
 **`tasa_pond` (2026-08-03)** — tasa PONDERADA POR VOLUMEN del grupo, en porcentaje
 (`6` = 6%, admite negativas). Se calcula server-side (`Σ(tasa·bruto)/Σ(bruto)`,
@@ -993,3 +1021,4 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
 | 2026-05-05 | **migrate (histórico — etapa Mongo):** `mercado.timesales` y `mercado.options_data` (entonces colecciones Mongo) migradas a Time Series Collections (granularity=seconds, metaField=ticker/symbol). Compresión 74% y 98% on-disk respectivamente. Scripts en `scripts/migrate_timesales_swap.py` y `scripts/migrate_opciones_data_swap.py` con modos precheck/swap/validate/rollback/cleanup. (Evento histórico previo al decomiso de Mongo — ambas tablas viven hoy en SQL.) |
 | 2026-05-05 | **wipe:** Borrado de todo el aparato dolarapi.com — `core/dolar_api.py`, `jobs/dolar_api.py`, `tests/unit/test_dolar_api.py`. Migrados `engines/curvas.py` (`cargar_a3500_actual`) y `serie_macro("dolar_oficial"/"mayorista")` al feed MAE / `macro.series_macro` (serie DOLAR). `dolar_blue` queda sin fuente. Cron `dolar_api` apagado. |
 | 2026-05-05 | **feat(operaciones-negocio):** MVP de la vista NEGOCIO en `/operaciones`. Service compartido `api/services/aunesa_negocio.py` con parseo + categorización (16 categorías: compra/venta/FCI super y bilateral/acreencia/4 sub-cauciones/depósito/extracción/etc) + dedup específico (DIF/DIS bilaterales, multi-moneda en dividendos, uso=GRAL en FCI super) + inversión de signo broker→cliente. Job `jobs/negocio_movimientos.py` (cron horario 15-22 UTC L-V) persiste boletos consolidados en `operaciones.negocio_movimientos` (idempotente por `(fecha, comprobante)`). 2 endpoints `/api/operaciones/negocio` y `/negocio/fechas`. Frontend tab NEGOCIO con cards por categoría, top 20 tickers y tabla detallada. **No expuesto al asistente ni al MCP** (policy datos privados de mesa). Detalle: `docs/sesion_2026_05_05_negocio.md`. |
+| 2026-08-11 | **feat(financiamiento):** Tab **FINANCIAMIENTO** en `/operaciones` (NEGOCIO) + `GET /api/operaciones/financiamiento`. Libro VIVO de pagarés/cheques: assets con `cartera='FINANCIAMIENTO'` y vencimiento HOY o posterior, al grano cuenta × instrumento. **Nominal y tasa, nunca bruto** (se compran con descuento y la mayoría son dólar-linked liquidados en pesos → el importe pagado no compara entre filas). La cantidad sale de `portafolio.tenencia` (posición) y la tasa de `operaciones.operaciones.tasa` de los boletos MAV, matcheada por (`id_cuenta`, código del corchete de `negocio_movimientos.informacion`); sin match la tasa queda `null` y se muestra vacía. Vista 2×2 al 50% (Σ cantidad por comitente · cantidad+tasa por instrumento · barras Σ cantidad por vencimiento · panel reservado) con cross-filter 3-way client-side. Service `api/services/financiamiento.py`, tests `tests/unit/test_financiamiento.py`, diag `scripts/diag_financiamiento.py`. |

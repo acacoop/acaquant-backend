@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import logging
 import sys
 import time
 from collections.abc import Callable
@@ -62,15 +63,42 @@ def _kb(n: int | None) -> str:
     return f"{n / 1024:,.1f}"
 
 
-def _medir(fn: Callable[[], Any]) -> tuple[float, float, Any]:
-    """(ms_frío, ms_tibio, payload). Dos corridas: si la 2ª es ~0 hay cache."""
+def _medir(fn: Callable[[], Any],
+           invalidar: tuple[str, ...] = ()) -> tuple[float, float, float | None, Any]:
+    """(ms_frío, ms_tibio, ms_recurrente, payload).
+
+    Las tres corridas miden cosas distintas y confundirlas lleva a la
+    conclusión equivocada:
+
+    - **frío**: primera llamada del proceso. Incluye warm-up que NO se repite
+      (imports, pool de conexiones, los `@cached` internos de TTL largo). Es el
+      peor caso absoluto, no el costo habitual.
+    - **tibio**: segunda llamada inmediata. Si el service está `@cached` esto
+      es un cache HIT y da ~0 — no dice nada del costo real.
+    - **recurrente**: se INVALIDA el cache del service y se vuelve a llamar,
+      con el proceso ya caliente. **Este es el número que importa**: lo que
+      cuesta un cache miss en régimen, que es lo que paga el usuario cada vez
+      que expira el TTL. Sin esto, un endpoint con TTL de 2s y 1s de cómputo
+      parece gratis ("tibio 0.0 ms") cuando en realidad está al límite.
+    """
     t0 = time.perf_counter()
     out = fn()
     frio = (time.perf_counter() - t0) * 1000
     t0 = time.perf_counter()
     fn()
     tibio = (time.perf_counter() - t0) * 1000
-    return frio, tibio, out
+
+    recurrente: float | None = None
+    if invalidar:
+        try:
+            from api.cache import invalidate
+            invalidate(*invalidar)
+            t0 = time.perf_counter()
+            fn()
+            recurrente = (time.perf_counter() - t0) * 1000
+        except Exception as e:
+            logging.getLogger(__name__).warning("no se pudo medir recurrente: %s", e)
+    return frio, tibio, recurrente, out
 
 
 def _n(obj: Any) -> int | None:
@@ -210,6 +238,8 @@ CANDIDATOS: list[dict] = [
         "simular": _sim_pulso,
         "verificar": _verificar_scanner,
         "poll_s": 2,
+        "invalidar": ("get_cedears_scanner",),
+        "ttl_s": 2,   # @cached(ttl=2) en scanner_sql.py — igual que el poll
         "nota": "El universo YA se baja para la TABLA del scanner. Un endpoint "
                 "/pulso AGREGA un request, no lo reemplaza: el ahorro de red es "
                 "0 salvo que la tabla también se recorte. El valor de portarlo "
@@ -223,6 +253,8 @@ CANDIDATOS: list[dict] = [
         "simular": _sim_movers,
         "verificar": _verificar_scanner,
         "poll_s": 2,
+        "invalidar": ("get_cedears_scanner",),
+        "ttl_s": 2,
         "nota": "Acá el universo se baja SOLO para filtrar unas pocas filas: "
                 "en /trading no hay tabla que consuma el resto. Este sí es un "
                 "ahorro de red real y se mide en el 'después'.",
@@ -234,6 +266,8 @@ CANDIDATOS: list[dict] = [
         "llamar": _c_retorno_total,
         "simular": None,
         "poll_s": None,
+        "invalidar": ("get_historico_curva",),
+        "ttl_s": 60,  # @cached(ttl=60) sobre get_historico_curva
         "desglose": True,
         "nota": "Una sola vez al montar, no se pollea → el peso pega en el "
                 "TIEMPO DE APERTURA, no en el sostenido. El desglose por clave "
@@ -247,6 +281,8 @@ CANDIDATOS: list[dict] = [
         "llamar": _c_hist_forwards,
         "simular": None,
         "poll_s": None,
+        "invalidar": ("get_historico_forwards",),
+        "ttl_s": 300,
         "nota": "Sin filtro trae TODO el histórico. El front ya puede pedir "
                 "?curva=&desde= — comparar este número contra el filtrado dice "
                 "si el problema es el endpoint o cómo lo llama la vista.",
@@ -289,7 +325,8 @@ def _correr(cand: dict) -> dict:
     print("═" * 78)
     res: dict = {"id": cand["id"], "titulo": cand["titulo"], "front": cand["front"]}
     try:
-        frio, tibio, payload = _medir(cand["llamar"])
+        frio, tibio, recurrente, payload = _medir(
+            cand["llamar"], cand.get("invalidar", ()))
     except Exception as e:  # un candidato caído no puede tumbar el diag entero
         print(f"   ⚠ NO SE PUDO MEDIR: {type(e).__name__}: {e}\n")
         res["error"] = f"{type(e).__name__}: {e}"
@@ -297,10 +334,21 @@ def _correr(cand: dict) -> dict:
 
     b_ahora, g_ahora = _json_bytes(payload), _gzip_bytes(payload)
     res |= {"ms_frio": round(frio, 1), "ms_tibio": round(tibio, 1),
+            "ms_recurrente": round(recurrente, 1) if recurrente is not None else None,
+            "ttl_s": cand.get("ttl_s"),
             "n": _n(payload), "bytes": b_ahora, "gzip": g_ahora}
 
     print(f"   servicio   : {frio:8.1f} ms frío  |  {tibio:8.1f} ms tibio"
           f"{'   ← @cached (el tibio es cache, no CPU)' if tibio < frio / 10 else ''}")
+    if recurrente is not None:
+        ttl = cand.get("ttl_s")
+        print(f"   RECURRENTE : {recurrente:8.1f} ms  ← lo que cuesta un cache miss "
+              f"con el proceso caliente" + (f" (TTL {ttl}s)" if ttl else ""))
+        # Un cómputo que tarda más que su propio TTL nunca llega a servirse
+        # cacheado: cada poll paga el precio completo.
+        if ttl and recurrente > ttl * 1000 * 0.5:
+            print(f"   {'⚠ ATENCIÓN':<12}: el cómputo ({recurrente:.0f} ms) es "
+                  f"comparable al TTL ({ttl * 1000} ms) — el cache casi no ayuda")
     print(f"   payload HOY: {_kb(b_ahora):>10} KB  |  {_kb(g_ahora):>8} KB gzip"
           f"  |  n={_n(payload)}")
 
@@ -371,17 +419,21 @@ def main() -> int:
     print("═" * 78)
     print("RESUMEN (gzip = lo que viaja)")
     print("═" * 78)
-    print(f"{'candidato':<16}{'ms frío':>9}{'KB hoy':>10}{'KB desp':>10}{'ahorro':>9}"
+    print(f"{'candidato':<16}{'ms recurr':>10}{'KB hoy':>10}{'KB desp':>10}{'ahorro':>9}"
           f"{'MB/h/usr':>10}")
     for r in out:
         if r.get("error"):
-            print(f"{r['id']:<16}{'ERROR':>9}")
+            print(f"{r['id']:<16}{'ERROR':>10}")
             continue
         mbh = r.get("kb_hora_usuario")
         ahorro = f"{r['ahorro_gzip_pct']:.0f}%" if "ahorro_gzip_pct" in r else "—"
         mb_hora = f"{mbh / 1024:.0f}" if mbh else "—"
-        print(f"{r['id']:<16}{r['ms_frio']:>9.0f}{_kb(r['gzip']):>10}"
+        # El recurrente manda; si no se pudo medir cae al frío, marcado con *.
+        ms = (f"{r['ms_recurrente']:.0f}" if r.get("ms_recurrente") is not None
+              else f"{r['ms_frio']:.0f}*")
+        print(f"{r['id']:<16}{ms:>10}{_kb(r['gzip']):>10}"
               f"{_kb(r.get('gzip_despues')):>10}{ahorro:>9}{mb_hora:>10}")
+    print("* sin medición recurrente: es el frío (incluye warm-up que no se repite)")
 
     print("\nFalta la otra mitad: el CPU del browser. Medirla en el front con "
           "localStorage.setItem('acaquant:perf','1') y recargar la vista.")

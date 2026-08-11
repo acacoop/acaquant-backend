@@ -53,9 +53,13 @@ from datetime import UTC, datetime, timedelta
 
 sys.path.insert(0, ".")
 
-# Días hábiles hacia atrás que se revisan en cada corrida (hoy incluido). Cargan
-# con fecha de AYER, y si un día se atrasan hay que seguir alcanzándolos → 3.
-_LOOKBACK_HABILES = 2  # + hoy = 3 días
+# Días hábiles hacia atrás que se revisan en cada corrida (hoy incluido).
+# ARRANCÓ EN 3 Y SE BAJÓ A 2 (2026-08-11, primer día en producción). El flujo real
+# es de UN día: el movimiento de D se carga en Aunesa la mañana de D+1. Con 3 días
+# la ventana alcanzaba movimientos que el equipo YA había cargado a mano días
+# antes, y el espejo los duplicaba. Con 2 la ventana cubre exactamente el flujo
+# (ayer hábil + hoy) y sigue tolerando que el cron no haya corrido una vez.
+_LOOKBACK_HABILES = 1  # + hoy = 2 días
 
 
 def main() -> int:
@@ -63,7 +67,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--fecha", help="YYYY-MM-DD; procesa SOLO ese día")
     ap.add_argument("--dias", type=int, default=_LOOKBACK_HABILES + 1,
-                    help="días hábiles a revisar, hoy incluido (default 3)")
+                    help="días hábiles a revisar, hoy incluido (default 2)")
     ap.add_argument("--dry", action="store_true",
                     help="no escribe: lista los cheques que crearía")
     args = ap.parse_args()

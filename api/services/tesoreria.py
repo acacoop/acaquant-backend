@@ -693,7 +693,7 @@ def _detalle_dia(dia: date, cuentas: list[dict] | None = None) -> dict[str, dict
             f"SELECT id, comitente, comitente_denominacion, tipo, estado, importe, "
             f"banco, unidad FROM {_TABLA_CHEQUES} WHERE lado = 'recibido' "
             f"AND estado = 'finalizado' "
-            f"AND (creado_at AT TIME ZONE '{_TZ_ART}')::date = %(d)s ORDER BY id",
+            f"AND {_DIA_RECIBIDO} = %(d)s ORDER BY id",
             {"d": dia}):
         _push(r["banco"], r["unidad"], "ingresos_echeq", "cheque", r["id"],
               r["comitente_denominacion"] or r["comitente"] or "—",
@@ -986,6 +986,18 @@ _COLS_CHEQUE = ("id, lado, tipo, comitente, comitente_denominacion, cuit, banco,
                 "creado_at")
 # ART: `cerrado_at` es timestamptz, y el día de la grilla es día ARGENTINO.
 _TZ_ART = "America/Argentina/Buenos_Aires"
+# QUÉ DÍA "ES" UN CHEQUE RECIBIDO (2026-08-11). Los MANUALES se cargan el mismo día
+# en que la plata entra, así que su día es el de carga (`creado_at`). Los ESPEJO no:
+# la fila puede nacer días después del movimiento —el back office carga en Aunesa a
+# la mañana siguiente y el cron mira varios días hacia atrás—, así que su día es
+# `fecha_pago`, el día en que la plata efectivamente entra al banco. Sin esto, el
+# primer día de producción los espejos de los movimientos del VIERNES aparecieron
+# en el tablero del MARTES. `COALESCE` por si algún espejo quedara sin fecha.
+_DIA_RECIBIDO = (
+    f"(CASE WHEN origen = '{ORIGEN_AUNESA}' "
+    f"      THEN COALESCE(fecha_pago, (creado_at AT TIME ZONE '{_TZ_ART}')::date) "
+    f"      ELSE (creado_at AT TIME ZONE '{_TZ_ART}')::date END)"
+)
 
 
 def _fila_cheque(r: dict) -> dict:
@@ -1045,7 +1057,7 @@ def cheques(*, fecha: str | None = None, incluir_cerrados: bool = False,
     )
     recibidos = _q(
         f"SELECT {_COLS_CHEQUE} FROM {_TABLA_CHEQUES} WHERE lado = 'recibido' "
-        f"AND (creado_at AT TIME ZONE '{_TZ_ART}')::date = %(d)s ORDER BY id DESC",
+        f"AND {_DIA_RECIBIDO} = %(d)s ORDER BY id DESC",
         {"d": dia},
     )
     return {
@@ -1312,7 +1324,7 @@ def ingresos_echeq_dia(dia: date) -> dict[tuple[str, str], float]:
         rows = _q(
             f"SELECT banco, unidad, SUM(importe) AS total FROM {_TABLA_CHEQUES} "
             "WHERE lado = 'recibido' AND estado = 'finalizado' "
-            f"AND (creado_at AT TIME ZONE '{_TZ_ART}')::date = %(d)s "
+            f"AND {_DIA_RECIBIDO} = %(d)s "
             f"AND {_sql_no_excluido('cheque')} "
             "GROUP BY banco, unidad",
             {"d": dia},

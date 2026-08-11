@@ -400,29 +400,114 @@ def _broker_report_to_local(rep: dict[str, Any]) -> dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Catálogo de símbolos para autocomplete (PRUEBA → envío de órdenes raw)
+# Catálogo de símbolos para autocomplete (buscador TICKER de OPERAR → TÍTULOS)
 # ─────────────────────────────────────────────────────────────────────────────
+# FUENTE: el universo LIVE del broker (`pyRofex.get_detailed_instruments`),
+# cacheado 5 min y compartido con el buscador de FCI.
+#
+# Antes leía `manager.pyrofex_instruments` (SQL). Esa tabla la escribe UN SOLO
+# writer, `scripts/discovery_pyrofex.py`, que es un one-shot MANUAL: no está en
+# `deploy/crontab.txt` ni lo dispara ningún job. O sea: si nadie lo corre a mano,
+# la tabla se queda como quedó la última vez — y si nunca se corrió, VACÍA. Con
+# la tabla vacía la query matcheaba 0 filas y el combobox devolvía "sin
+# resultados" para CUALQUIER ticker, sin un solo error: ni 500, ni log, ni
+# síntoma. La cuenta y los saldos de la misma pantalla seguían andando porque
+# esos SÍ pegan al broker en vivo (`/api/risk/account/*`), y por eso el problema
+# parecía "de mercado" y no de una tabla sin poblar.
+#
+# La regla que queda: lo que el usuario busca para OPERAR se resuelve contra el
+# broker, que es la única fuente que no puede quedar desactualizada. El SQL
+# queda de FALLBACK para cuando la sesión pyRofex no levanta.
+
+_PLAZO_RANK = {"24hs": 0, "CI": 1, "48hs": 2}
+
+
+def _corto_y_plazo(ticker: str) -> tuple[str, str | None]:
+    """'MERV - XMEV - AL30 - 24hs' → ('AL30', '24hs'). Un ticker que no tenga
+    ese shape (futuros, spreads) se devuelve entero y sin plazo."""
+    partes = (ticker or "").split(" - ")
+    if len(partes) == 4:
+        return partes[2], partes[3]
+    return ticker or "", None
+
+
+def _relevancia(ticker: str, q_up: str) -> tuple:
+    """Orden del combobox: lo más parecido a lo tipeado, primero.
+
+    El backend ordena ANTES de cortar en `limit`. Sin esto, un `LIMIT 20` sobre
+    un scan sin orden puede devolver 20 matches y dejar afuera justo el exacto
+    (buscás "GD30" y te llegan 20 variantes menos esa). El front reordena con
+    el mismo criterio para pintar — pero el recorte lo decide acá.
+    """
+    corto, plazo = _corto_y_plazo(ticker)
+    cu = corto.upper()
+    if cu == q_up:
+        score = 0                      # match exacto del ticker corto
+    elif cu.startswith(q_up):
+        score = 1                      # empieza con lo tipeado
+    elif q_up in cu:
+        score = 2                      # lo contiene
+    else:
+        score = 3                      # matcheó solo por underlying
+    return (score, len(cu), _PLAZO_RANK.get(plazo or "", 3), cu)
 
 
 def search_symbols(q: str, limit: int = 20) -> list[dict[str, Any]]:
-    """Busca instruments operables que matcheen `q` por substring de ticker
-    o underlying. Lee manager.pyrofex_instruments (SQL) — la tabla que pobla
-    scripts.discovery_pyrofex con todos los instruments del broker.
+    """Busca instruments OPERABLES que matcheen `q` por substring de ticker o
+    underlying, del universo live del broker.
 
     Excluye FCI por CFI code (cuotapartes de fondos = cficode "CIO…"; ISO
-    10962, 1ª letra C = Collective Investment Vehicles). La PK de la tabla ES
-    el cficode, así que cortamos en la raíz: si el fondo no aparece acá no se
-    puede pickear → no entra a AdhocSubscriptions → el motor nunca lo suscribe.
-    Filtrar por nombre no servía: hay fondos sin "FCI" en el nombre (ej.
-    "Toronto Trust Ahorro - Clase A").
-    Devuelve top `limit` resultados con los campos mínimos del combobox.
+    10962, 1ª letra C = Collective Investment Vehicles). Filtrar por nombre no
+    servía: hay fondos sin "FCI" en el nombre (ej. "Toronto Trust Ahorro -
+    Clase A"). El universo opuesto (solo CIO) lo sirve `search_fci`.
+
+    Devuelve top `limit` resultados ya ordenados por relevancia.
     """
     if not q or len(q.strip()) < 2:
         return []
-    # Escapar los metacaracteres de LIKE (\ % _) → match LITERAL como el
-    # re.escape del path Mongo. ILIKE = substring case-insensitive.
     raw = q.strip()
-    esc = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    q_low = raw.lower()
+    q_up = raw.upper()
+
+    universo = _instruments_live()
+    if not universo:
+        # Sesión pyRofex caída o `get_detailed_instruments` sin respuesta:
+        # servimos lo que haya en SQL antes que devolver vacío.
+        logger.warning("search_symbols: universo live vacío — fallback a SQL")
+        return _search_symbols_sql(raw, limit)
+
+    hits: list[dict[str, Any]] = []
+    for inst in universo:
+        if (inst.get("cficode") or "").startswith(_FCI_CFI_PREFIX):
+            continue
+        tk = _inst_ticker(inst)
+        if not tk:
+            continue
+        und = inst.get("underlying") or ""
+        if q_low in tk.lower() or q_low in und.lower():
+            hits.append({
+                "ticker":       tk,
+                "ticker_corto": _corto_y_plazo(tk)[0],
+                "underlying":   inst.get("underlying"),
+                "maturity":     inst.get("maturityDate") or inst.get("maturity_date") or "",
+                "currency":     inst.get("currency"),
+                "cficode":      inst.get("cficode"),
+            })
+
+    hits.sort(key=lambda h: _relevancia(h["ticker"], q_up))
+    return hits[:limit]
+
+
+def _search_symbols_sql(q: str, limit: int) -> list[dict[str, Any]]:
+    """Fallback del buscador contra `manager.pyrofex_instruments` (SQL).
+
+    Solo se usa si el universo live no está disponible. La tabla puede estar
+    vacía o vieja (la escribe un one-shot manual) — por eso dejó de ser la
+    fuente principal.
+    """
+    # Escapar los metacaracteres de LIKE (\ % _) → match LITERAL.
+    # ILIKE = substring case-insensitive.
+    esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     pattern = f"%{esc}%"
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -438,9 +523,42 @@ def search_symbols(q: str, limit: int = 20) -> list[dict[str, Any]]:
         )
         rows = cur.fetchall()
     return [
-        {"ticker": t, "underlying": u, "maturity": m, "currency": c, "cficode": cfi}
+        {"ticker": t, "ticker_corto": _corto_y_plazo(t or "")[0],
+         "underlying": u, "maturity": m, "currency": c, "cficode": cfi}
         for (t, u, m, c, cfi) in rows
     ]
+
+
+def ticker_existe(ticker_full: str) -> bool:
+    """¿El broker conoce este ticker? Mismo criterio que el buscador: universo
+    live primero, SQL de fallback.
+
+    Es una validación PERMISIVA a propósito: si no hay ni universo live ni tabla
+    SQL, devuelve True. El costo de un falso positivo es una fila de más en
+    `mercado.adhoc_subscriptions` que el motor ignora; el de un falso negativo
+    es un 404 que bloquea operar un papel que SÍ existe.
+    """
+    tk = (ticker_full or "").strip()
+    if not tk:
+        return False
+
+    universo = _instruments_live()
+    if universo:
+        return any(_inst_ticker(inst) == tk for inst in universo)
+
+    import json
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM manager.pyrofex_instruments LIMIT 1")
+        if cur.fetchone() is None:
+            return True  # sin universo live NI tabla: permitir.
+        # `instruments @> '[{"ticker": ...}]'::jsonb` = containment sobre el
+        # array de instruments del CFI (indexable con GIN).
+        cur.execute(
+            "SELECT 1 FROM manager.pyrofex_instruments "
+            "WHERE instruments @> %s::jsonb LIMIT 1",
+            (json.dumps([{"ticker": tk}]),),
+        )
+        return cur.fetchone() is not None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -455,12 +573,18 @@ def search_symbols(q: str, limit: int = 20) -> list[dict[str, Any]]:
 
 _FCI_CFI_PREFIX = "CIO"
 _FCI_TTL_S = 300.0
-# Cache process-wide del universo FCI. La cuota/banda cambia ~diario, así que
-# 5 min es de sobra y evita traer los ~8600 instruments en cada request.
+# Cache process-wide del universo COMPLETO del broker (~8600 instruments).
+# La cuota/banda de los FCI cambia ~diario y el alta de un instrumento nuevo es
+# excepcional, así que 5 min es de sobra y evita traerlos en cada tecla que se
+# escribe en el combobox. Lo comparten el buscador de títulos y el de FCI: UNA
+# sola llamada al broker alimenta a los dos.
+_universo_cache: dict[str, Any] = {"ts": 0.0, "instruments": []}
 _fci_cache: dict[str, Any] = {"ts": 0.0, "by_ticker": {}}
 
 
-def _fci_sym(inst: dict) -> str | None:
+def _inst_ticker(inst: dict) -> str | None:
+    """Símbolo full del instrument. pyRofex lo manda en `symbol` o anidado en
+    `instrumentId.symbol` según el endpoint."""
     sym = inst.get("symbol")
     if isinstance(sym, str) and sym:
         return sym
@@ -469,39 +593,67 @@ def _fci_sym(inst: dict) -> str | None:
     return s if isinstance(s, str) and s else None
 
 
-def _fci_universe() -> dict[str, dict[str, Any]]:
-    """Universo de FCI (cficode CIO…) cacheado desde get_detailed_instruments.
+def _instruments_live() -> list[dict[str, Any]]:
+    """Universo COMPLETO de instruments del broker, cacheado `_FCI_TTL_S`.
 
-    Fuente de verdad del precio operable: lowLimitPrice == highLimitPrice ==
-    cuota del día. No depende de Mongo ni de discovery → siempre fresco.
+    Devuelve `[]` solo si nunca se pudo traer nada. Si una corrida falla pero
+    ya hay cache, se sirve la cache vieja: un universo de hace 5 minutos es
+    infinitamente mejor que un combobox vacío.
     """
     now = time.time()
-    cached = _fci_cache["by_ticker"]
-    if cached and (now - _fci_cache["ts"]) < _FCI_TTL_S:
+    cached: list[dict[str, Any]] = _universo_cache["instruments"]
+    if cached and (now - _universo_cache["ts"]) < _FCI_TTL_S:
         return cached
-    _ensure_session()
-    res = pyRofex.get_detailed_instruments()
+    try:
+        _ensure_session()
+        res = pyRofex.get_detailed_instruments()
+    except Exception as e:
+        logger.warning("get_detailed_instruments falló (%s) — sirvo cache previa", e)
+        return cached
+    if not res or res.get("status") != "OK":
+        logger.warning("get_detailed_instruments status != OK (%s)", (res or {}).get("status"))
+        return cached
+    instruments = res.get("instruments") or []
+    if not instruments:
+        # 0 instruments es una respuesta anómala del broker: NO pisar la cache
+        # buena con vacío (mismo criterio que scripts/discovery_pyrofex).
+        logger.warning("get_detailed_instruments devolvió 0 instruments — mantengo cache")
+        return cached
+    _universo_cache["instruments"] = instruments
+    _universo_cache["ts"] = now
+    return instruments
+
+
+def _fci_universe() -> dict[str, dict[str, Any]]:
+    """Universo de FCI (cficode CIO…) indexado por ticker.
+
+    Fuente de verdad del precio operable: lowLimitPrice == highLimitPrice ==
+    cuota del día. Se deriva del universo live compartido, así que se refresca
+    junto con él (y no dispara una segunda llamada al broker).
+    """
+    universo = _instruments_live()
+    if _fci_cache["by_ticker"] and _fci_cache["ts"] == _universo_cache["ts"]:
+        return _fci_cache["by_ticker"]
     by: dict[str, dict[str, Any]] = {}
-    if res and res.get("status") == "OK":
-        for inst in res.get("instruments") or []:
-            if not (inst.get("cficode") or "").startswith(_FCI_CFI_PREFIX):
-                continue
-            sym = _fci_sym(inst)
-            if not sym:
-                continue
-            by[sym] = {
-                "ticker": sym,
-                "underlying": inst.get("underlying"),
-                "currency": inst.get("currency"),
-                "size_precision": inst.get("instrumentSizePrecision"),
-                "settl_type": inst.get("settlType"),
-                "low_limit": inst.get("lowLimitPrice"),
-                "high_limit": inst.get("highLimitPrice"),
-                "min_trade_vol": inst.get("minTradeVol"),
-            }
+    for inst in universo:
+        if not (inst.get("cficode") or "").startswith(_FCI_CFI_PREFIX):
+            continue
+        sym = _inst_ticker(inst)
+        if not sym:
+            continue
+        by[sym] = {
+            "ticker": sym,
+            "underlying": inst.get("underlying"),
+            "currency": inst.get("currency"),
+            "size_precision": inst.get("instrumentSizePrecision"),
+            "settl_type": inst.get("settlType"),
+            "low_limit": inst.get("lowLimitPrice"),
+            "high_limit": inst.get("highLimitPrice"),
+            "min_trade_vol": inst.get("minTradeVol"),
+        }
     if by:
         _fci_cache["by_ticker"] = by
-        _fci_cache["ts"] = now
+        _fci_cache["ts"] = _universo_cache["ts"]
     return by
 
 

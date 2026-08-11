@@ -203,54 +203,95 @@ def _bucket() -> dict:
             "neto": 0.0, "n": 0}
 
 
-# Los cheques EMITIDOS MANUALES que llegan a la fila `egresos_echeq` se auditan en DOS
-# renglones, porque el back office los revisa distinto:
-#   'vencido' → fecha de pago ANTERIOR al día (arrastre)
-#   'hoy'     → fecha de pago DEL día
-# Cada grupo tiene su ref, así se tilda/destilda por separado. Los cheques `auto` NO
-# están acá: existen solo como REGISTRO en la tab CHEQUES y su plata ya la puso el
-# movimiento e-cheq de Aunesa, que se lista aparte en esta misma celda.
+# Los cheques EMITIDOS que llegan a la fila `egresos_echeq` se auditan en renglones
+# separados, porque el back office los revisa distinto:
+#   'vencido'      → manual, fecha de pago ANTERIOR al día (arrastre)
+#   'hoy'          → manual, fecha de pago DEL día
+#   'auto_vencido' → espejo de Aunesa cuyo movimiento NO está en la vista de este día
+# Cada grupo tiene su ref, así se tilda/destilda por separado.
 _ETIQUETA_EMITIDOS = {
     "vencido": ("cheques emitidos vencidos", "fecha de pago anterior al día"),
     "hoy": ("cheques emitidos del día", "fecha de pago del día"),
+    "auto_vencido": ("cheques emitidos vencidos · espejo Aunesa",
+                     "su movimiento e-cheq ya no está en este día, así que el arrastre "
+                     "lo sostiene el cheque"),
+}
+
+# `emitidos_t1` y `emitidos_hoy` son las claves con las que YA están guardados los
+# destildados en `tesoreria_exclusiones`: renombrarlas los huerfanaría. `emitidos_auto`
+# es nueva — los espejo nunca habían contado, así que no hay nada grabado bajo ella.
+_PREFIJO_REF_EMITIDOS = {
+    "vencido": "emitidos_t1", "hoy": "emitidos_hoy", "auto_vencido": "emitidos_auto",
 }
 
 
 def _ref_cheques_emitidos_vencidos(banco: str, unidad: str, grupo: str = "vencido") -> str:
-    # El literal del grupo vencido sigue diciendo `emitidos_t1`: es la clave con la que
-    # ya están guardados los destildados en `tesoreria_exclusiones`, cambiarlo los
-    # huerfanaría.
-    prefijo = "emitidos_hoy" if grupo == "hoy" else "emitidos_t1"
+    prefijo = _PREFIJO_REF_EMITIDOS.get(grupo, "emitidos_t1")
     return f"{prefijo}|{banco}|{str(unidad or '').upper()}"
 
 
-def _cheques_emitidos_vencidos_rows(dia: date) -> list[dict]:
+def ids_echeq_egreso(crudas: list[dict]) -> list[str]:
+    """`id` de los movimientos e-cheq de EGRESO que ese día YA entran a `egresos_echeq`.
+
+    Es la clave anti-doble-conteo de los cheques espejo. Vive en UNA sola función porque
+    la grilla y el modal de auditoría tienen que usar exactamente el mismo conjunto: si
+    divergen, el detalle contradice al total.
+    """
+    return [
+        mid for r in crudas
+        if str(r.get("estado") or "").strip() == ESTADO_EFECTIVO
+        and es_echeq(r.get("tipoDocSoli"))
+        and _norm(r.get("solicitud")) == _EGRESO
+        and (mid := str(r.get("id") or "").strip())
+    ]
+
+
+def _cheques_emitidos_vencidos_rows(dia: date, movs_echeq: list[str]) -> list[dict]:
     """Cheques EMITIDOS todavía abiertos que ya se pagan a ese día (`fecha_pago <= día`).
+
+    LA REGLA DEL BACK OFFICE (definida 2026-08-11): un cheque emitido sigue figurando Y
+    restando del saldo TODOS los días hasta que alguien lo marca `completado`. Lo que lo
+    saca es el ESTADO, no el paso del tiempo; la fecha solo decide DESDE cuándo empieza.
 
     El día MISMO entra: un cheque con fecha de pago de hoy se debita hoy, y dejarlo
     afuera hacía que el saldo del banco no lo reflejara hasta el día siguiente (era el
     caso de BANCO PATAGONIA COMÚN, 2026-08-10). Es además el mismo corte que usa el
     total "impacta hoy" del tablero EMITIDOS en el front.
 
+    LOS ESPEJO (`origen='aunesa'`) TAMBIÉN ARRASTRAN. Hasta 2026-08-11 quedaban afuera
+    SIEMPRE, y eso los hacía impactar un solo día: el del movimiento que los creó. El
+    día siguiente el movimiento ya no estaba (`traer_crudas` filtra AL día pedido) y el
+    cheque tampoco contaba, así que la plata se evaporaba del saldo — el back office lo
+    detectó porque el faltante era, clavado, el total de la columna AUTO.
+
+    QUÉ LOS EXCLUYE, ENTONCES: que su PROPIO movimiento esté en la vista de ese día
+    (`movs_echeq`, los `id` que ya entraron a esta misma fila por el lado de Aunesa).
+    Ese día lo resta el movimiento; el resto de los días lo sostiene el cheque. Se
+    compara por `mov_id` y NO por `fecha_pago` a propósito: `mov_id` es la identidad
+    REAL del movimiento y no depende de que la fecha estampada por el espejo sea la
+    correcta, que es justo lo que no se puede dar por sentado. De yapa degrada bien: si
+    Aunesa está caído, `movs_echeq` viene vacío, los movimientos tampoco están en la
+    grilla y el cheque queda como la única representación de esa plata — que es lo
+    correcto.
+
     Se agregan por banco+moneda+`grupo`: en BANCOS tienen que impactar como un solo
     monto y el modal de auditoría no puede explotar cheque por cheque, pero SÍ tiene que
-    separar el arrastre de la carga del día (ver `_ETIQUETA_EMITIDOS`).
-
-    SOLO los `origen='manual'`: el espejo de un e-cheq de Aunesa NO suma acá — esa plata
-    ya la puso su propio movimiento en esta MISMA fila. El cheque `auto` existe para que
-    quede el REGISTRO en la tab CHEQUES y nadie lo cargue a mano, no para volver a
-    restarlo (ver `sincronizar_echeq_emitidos`).
+    separar el arrastre manual, la carga del día y el arrastre del espejo
+    (ver `_ETIQUETA_EMITIDOS`).
     """
     try:
         return _items_sql(
             "SELECT banco, unidad, "
-            "CASE WHEN fecha_pago < %(d)s THEN 'vencido' ELSE 'hoy' END AS grupo, "
+            f"CASE WHEN origen <> '{ORIGEN_MANUAL}' THEN 'auto_vencido' "
+            "      WHEN fecha_pago < %(d)s THEN 'vencido' "
+            "      ELSE 'hoy' END AS grupo, "
             "COUNT(*) AS cantidad, SUM(importe) AS total "
             f"FROM {_TABLA_CHEQUES} WHERE lado = 'emitido' AND estado = 'emitido' "
-            f"AND origen = '{ORIGEN_MANUAL}' "
             "AND fecha_pago IS NOT NULL AND fecha_pago <= %(d)s "
+            # El espejo no cuenta el día en que su propio movimiento ya lo restó.
+            f"AND (origen = '{ORIGEN_MANUAL}' OR NOT (mov_id = ANY(%(movs)s))) "
             "GROUP BY banco, unidad, grupo ORDER BY banco, unidad, grupo",
-            {"d": dia},
+            {"d": dia, "movs": list(movs_echeq)},
         )
     except Exception:
         _log.warning("tesoreria: no pude leer los cheques emitidos vencidos", exc_info=True)
@@ -332,8 +373,9 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
 
     Las dos filas e-cheq salen SEPARADAS de los totales para que el back office las
     distinga (es lo único que buscaba la separación), pero las dos entran al saldo:
-      - `egresos_echeq`  = RIEL e-cheq de Aunesa + cheques EMITIDOS vencidos
-                           (`fecha_pago <= día`), fuera del total de `egresos`.
+      - `egresos_echeq`  = RIEL e-cheq de Aunesa + cheques EMITIDOS todavía abiertos
+                           (`fecha_pago <= día`; los espejo, desde el día siguiente al
+                           de su movimiento), fuera del total de `egresos`.
       - `ingresos_echeq` = cheques recibidos finalizados (carga manual, tab CHEQUES).
         No vienen en los movimientos de Aunesa, así que sumarlos no duplica nada.
 
@@ -427,7 +469,7 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     # ese día (carga manual, tab CHEQUES). Fila propia, igual que los egresos e-cheq.
     ing_echeq = ingresos_echeq_dia(dia)
     emit_vencidos: dict[tuple[str, str], float] = {}
-    for r in _cheques_emitidos_vencidos_rows(dia):
+    for r in _cheques_emitidos_vencidos_rows(dia, ids_echeq_egreso(crudas)):
         banco, unidad = r["banco"], str(r["unidad"] or "").upper()
         grupo = r.get("grupo") or "vencido"
         ref = _ref_cheques_emitidos_vencidos(banco, unidad, grupo)
@@ -591,9 +633,9 @@ _FUENTE_FILA = {
     "ingresos": f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO}) + REGISTROS MANUALES",
     "egresos": f"Movimientos de Aunesa (estado {ESTADO_EFECTIVO}) + REGISTROS MANUALES",
     "egresos_echeq": (f"Movimientos de Aunesa · RIEL e-cheq (estado {ESTADO_EFECTIVO}) + "
-                      "cheques EMITIDOS MANUALES con fecha de pago vencida o del día, "
-                      "en dos renglones (los espejo de Aunesa no suman: ya los puso su "
-                      "movimiento)"),
+                      "cheques EMITIDOS abiertos con fecha de pago vencida o del día, "
+                      "en renglones separados (los espejo arrastran desde el día "
+                      "siguiente: el día de su movimiento ya lo restó ese movimiento)"),
     "ingresos_echeq": "Cheques RECIBIDOS finalizados (tab CHEQUES)",
     # Estas tres cuentan también lo `pendiente` (decisión del back office), así que el
     # detalle muestra el estado REAL de cada fila: la columna ESTADO no lo disimula.
@@ -699,11 +741,11 @@ def _detalle_dia(dia: date, cuentas: list[dict] | None = None) -> dict[str, dict
               r["comitente_denominacion"] or r["comitente"] or "—",
               f"cheque {r['tipo'] or ''}".strip(), r["estado"], float(r["importe"] or 0))
 
-    # 3b) Cheques emitidos MANUALES → misma fila `egresos_echeq`, compactados por
-    #     banco+moneda para que el modal no explote cheque por cheque, pero en DOS
-    #     renglones: vencidos / del día. Los `auto` no están: su plata la puso el
-    #     movimiento e-cheq de Aunesa, que ya se lista arriba uno por uno.
-    for r in _cheques_emitidos_vencidos_rows(dia):
+    # 3b) Cheques emitidos → misma fila `egresos_echeq`, compactados por banco+moneda
+    #     para que el modal no explote cheque por cheque, pero en renglones separados:
+    #     vencidos / del día / espejo vencido. Los espejo cuyo movimiento SÍ está en
+    #     este día no aparecen acá: ya se listan arriba uno por uno como movimiento.
+    for r in _cheques_emitidos_vencidos_rows(dia, ids_echeq_egreso(crudas)):
         cantidad = int(r["cantidad"] or 0)
         grupo = r.get("grupo") or "vencido"
         banco, unidad = r["banco"], str(r["unidad"] or "").upper()
@@ -975,8 +1017,9 @@ ESTADOS_CHEQUE: dict[str, tuple[str, ...]] = {
 ESTADO_CIERRE = {lado: est[-1] for lado, est in ESTADOS_CHEQUE.items()}
 TIPOS_RECIBIDO = ("echeq", "fisico")
 # De dónde salió la fila. Los 'aunesa' son el ESPEJO de un e-cheq de egreso de la API
-# (ver `sincronizar_echeq_emitidos`) y NO restan del saldo: esa plata ya entra por el
-# movimiento. Los 'manual' son los que carga el back office y sí restan.
+# (ver `sincronizar_echeq_emitidos`); NO restan el día de su propio movimiento (esa
+# plata ya entra por el movimiento) pero SÍ todos los días siguientes, igual que un
+# manual, hasta que se marcan `completado`. Los 'manual' restan desde su fecha de pago.
 ORIGEN_MANUAL, ORIGEN_AUNESA = "manual", "aunesa"
 
 _CAMPOS_CHEQUE = ("lado", "tipo", "comitente", "comitente_denominacion", "cuit",

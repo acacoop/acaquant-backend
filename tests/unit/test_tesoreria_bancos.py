@@ -33,7 +33,7 @@ def test_los_cheques_emitidos_con_fecha_de_pago_de_HOY_entran(monkeypatch):
     monkeypatch.setattr(tes, "_items_sql",
                         lambda sql, params: visto.update(sql=sql) or [])
 
-    tes._cheques_emitidos_vencidos_rows(date(2026, 8, 10))
+    tes._cheques_emitidos_vencidos_rows(date(2026, 8, 10), [])
 
     assert "fecha_pago <= %(d)s" in visto["sql"]
 
@@ -49,7 +49,7 @@ def test_bancos_suma_cheques_emitidos_vencidos_en_egresos_echeq(monkeypatch):
         "unidad": "ARS",
         "cuentaOperativa": {"denominacion": "BANCO A", "id": "1"},
     }])
-    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [{
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [{
         "banco": "BANCO A",
         "unidad": "ARS",
         "cantidad": 2,
@@ -82,7 +82,7 @@ def test_bancos_suma_cheques_emitidos_vencidos_en_egresos_echeq(monkeypatch):
 def test_detalle_egresos_echeq_compacta_cheques_emitidos_vencidos(monkeypatch):
     _patch_base(monkeypatch)
     monkeypatch.setattr(tes, "traer_crudas", lambda dia, estado: [])
-    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [{
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [{
         "banco": "BANCO A",
         "unidad": "ARS",
         "cantidad": 2,
@@ -118,7 +118,7 @@ def test_bancos_muestra_banco_con_solo_cheques_emitidos_vencidos(monkeypatch):
     monkeypatch.setattr(tes, "catalogo", lambda: set())
     monkeypatch.setattr(tes, "listar_cuentas", lambda: [])
     monkeypatch.setattr(tes, "traer_crudas", lambda dia, estado: [])
-    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [{
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [{
         "banco": "BANCO A",
         "unidad": "ARS",
         "cantidad": 1,
@@ -190,7 +190,7 @@ def test_si_aunesa_se_cae_la_vista_igual_responde(monkeypatch):
         raise RuntimeError("500 Server Error: aca.aunesa.com/Irmo/api/login")
 
     monkeypatch.setattr(tes, "traer_crudas", _explota)
-    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [
         {"banco": "BANCO A", "unidad": "ARS", "cantidad": 1, "total": 80}])
 
     out = tes.ingresos_egresos_dia(fecha="2026-08-06", email="")
@@ -205,7 +205,7 @@ def test_si_aunesa_se_cae_la_vista_igual_responde(monkeypatch):
 def test_con_aunesa_sano_la_marca_dice_que_esta_todo(monkeypatch):
     _patch_base(monkeypatch)
     monkeypatch.setattr(tes, "traer_crudas", lambda dia, estado: [])
-    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [])
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [])
 
     out = tes.ingresos_egresos_dia(fecha="2026-08-06", email="")
 
@@ -225,7 +225,7 @@ def test_un_banco_de_una_fuente_sin_fila_en_el_catalogo_se_declara(monkeypatch):
     monkeypatch.setattr(tes, "catalogo", lambda: set())
     monkeypatch.setattr(tes, "listar_cuentas", lambda: [])
     monkeypatch.setattr(tes, "traer_crudas", lambda dia, estado: [])
-    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [])
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [])
     # Su único rastro es un registro manual: no lo trae ninguna fuente automática.
     monkeypatch.setattr(tes, "registros_por_banco", lambda dia: {
         ("BANCO MANUAL", "ARS"): {"ingresos": 0.0, "egresos": 50.0, "n": 1}})
@@ -245,7 +245,7 @@ def test_un_banco_dado_de_baja_que_sigue_operando_se_declara(monkeypatch):
     monkeypatch.setattr(tes, "listar_cuentas", lambda: [
         {"cuenta_operativa": "BANCO A", "unidad": "ARS", "activa": False}])
     monkeypatch.setattr(tes, "traer_crudas", lambda dia, estado: [])
-    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [
         {"banco": "BANCO A", "unidad": "ARS", "cantidad": 1, "total": 80}])
 
     out = tes.ingresos_egresos_dia(fecha="2026-08-10", email="")
@@ -257,7 +257,7 @@ def test_un_banco_dado_de_baja_que_sigue_operando_se_declara(monkeypatch):
 def test_un_banco_activo_y_en_el_catalogo_no_se_declara(monkeypatch):
     _patch_base(monkeypatch)
     monkeypatch.setattr(tes, "traer_crudas", lambda dia, estado: [])
-    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [
         {"banco": "BANCO A", "unidad": "ARS", "cantidad": 1, "total": 80}])
 
     out = tes.ingresos_egresos_dia(fecha="2026-08-10", email="")

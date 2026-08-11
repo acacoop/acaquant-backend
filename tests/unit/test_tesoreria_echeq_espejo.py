@@ -53,7 +53,7 @@ def _patch_grilla(monkeypatch):
         {"cuenta_operativa": BANCO, "unidad": "ARS", "activa": True},
     ])
     monkeypatch.setattr(tes, "_exclusiones_dia", lambda dia: {})
-    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [])
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [])
     monkeypatch.setattr(tes, "_items_sql", lambda sql, params: [])
 
 
@@ -129,16 +129,56 @@ def test_el_cheque_espejo_es_SOLO_REGISTRO_y_no_suma_al_saldo(monkeypatch):
     assert _echeq(out["cuentas"]) == 5_000_000.0
 
 
-def test_el_renglon_de_cheques_de_la_celda_suma_solo_los_manuales(monkeypatch):
-    """Lo único que el renglón de cheques agrega al saldo es lo que el equipo cargó a
-    mano (más los vencidos que arrastra). El SQL filtra `origen='manual'`: si dejara
-    entrar los espejo, cada e-cheq del día se contaría dos veces."""
-    visto: dict[str, str] = {}
-    monkeypatch.setattr(tes, "_items_sql", lambda sql, params: visto.update(sql=sql) or [])
+def test_al_espejo_lo_excluye_su_MOVIMIENTO_no_su_fecha(monkeypatch):
+    """Lo que saca a un espejo del renglón de cheques es que su PROPIO movimiento esté
+    en la vista de ese día — ese día lo resta el movimiento. Se compara por `mov_id`
+    porque es la identidad real; con `fecha_pago` bastaría que el espejo estampara mal
+    la fecha para volver a contar dos veces (o para no contar nunca)."""
+    visto: dict = {}
+    monkeypatch.setattr(tes, "_items_sql",
+                        lambda sql, params: visto.update(sql=sql, params=params) or [])
 
-    tes._cheques_emitidos_vencidos_rows(DIA)
+    tes._cheques_emitidos_vencidos_rows(DIA, ["20260806103000"])
 
-    assert f"origen = '{tes.ORIGEN_MANUAL}'" in visto["sql"]
+    assert "NOT (mov_id = ANY(%(movs)s))" in visto["sql"]
+    assert visto["params"]["movs"] == ["20260806103000"]
+
+
+def test_el_espejo_de_AYER_arrastra_como_cualquier_vencido(monkeypatch):
+    """LA REGLA DEL BACK OFFICE: un emitido resta hasta que se marca `completado`.
+
+    Antes el espejo quedaba afuera SIEMPRE, así que impactaba un solo día —el del
+    movimiento— y al día siguiente se evaporaba del saldo: el movimiento ya no venía en
+    `traer_crudas` (que filtra al día pedido) y el cheque tampoco contaba. Hoy, sin su
+    movimiento en la vista, el cheque sostiene el arrastre."""
+    _patch_grilla(monkeypatch)
+    # Sin movimientos hoy: el e-cheq que lo creó fue de un día anterior.
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [
+        {"banco": BANCO, "unidad": "ARS", "grupo": "auto_vencido",
+         "cantidad": 1, "total": 5_000_000},
+    ])
+
+    out = tes.ingresos_egresos_dia(fecha=DIA.isoformat(), email="")
+
+    assert _echeq(out["cuentas"]) == 5_000_000.0
+
+
+def test_el_espejo_y_su_movimiento_no_se_suman_el_mismo_dia(monkeypatch):
+    """El otro lado de la misma moneda: el día del movimiento la plata resta UNA vez.
+    `ids_echeq_egreso` le pasa al SQL el `id` del movimiento, que deja el cheque afuera.
+    """
+    _patch_grilla(monkeypatch)
+    monkeypatch.setattr(tes, "traer_crudas", lambda dia, estado: [_mov()])
+    # El SQL real excluiría ese cheque por `mov_id`; acá se verifica que la grilla le
+    # pasa efectivamente los ids del día para que pueda hacerlo.
+    vistos: dict = {}
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows",
+                        lambda dia, movs: vistos.update(movs=movs) or [])
+
+    out = tes.ingresos_egresos_dia(fecha=DIA.isoformat(), email="")
+
+    assert _echeq(out["cuentas"]) == 5_000_000.0
+    assert vistos["movs"] == [_mov()["id"]]
 
 
 # ── 3) el detalle partido en dos ─────────────────────────────────────────────
@@ -147,9 +187,11 @@ def test_el_detalle_separa_los_cheques_vencidos_de_los_del_dia(monkeypatch):
     """Un solo renglón "cheques emitidos vencidos" mezclaba el arrastre con la carga del
     día: el back office no podía ver de dónde salía cada peso ni tildarlos aparte."""
     _patch_grilla(monkeypatch)
-    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia: [
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [
         {"banco": BANCO, "unidad": "ARS", "grupo": "vencido", "cantidad": 1, "total": 30},
         {"banco": BANCO, "unidad": "ARS", "grupo": "hoy", "cantidad": 2, "total": 50},
+        {"banco": BANCO, "unidad": "ARS", "grupo": "auto_vencido", "cantidad": 3,
+         "total": 20},
     ])
 
     celda = tes._detalle_dia(DIA)[tes.clave_celda(BANCO, "ARS", "egresos_echeq")]
@@ -157,8 +199,9 @@ def test_el_detalle_separa_los_cheques_vencidos_de_los_del_dia(monkeypatch):
     assert [(i["ref"], i["detalle"], i["importe"]) for i in celda["items"]] == [
         (f"emitidos_t1|{BANCO}|ARS", "cheques emitidos vencidos", 30.0),
         (f"emitidos_hoy|{BANCO}|ARS", "cheques emitidos del día", 50.0),
+        (f"emitidos_auto|{BANCO}|ARS", "cheques emitidos vencidos · espejo Aunesa", 20.0),
     ]
-    assert celda["total"] == 80.0
+    assert celda["total"] == 100.0
 
 
 def test_el_espejo_no_se_puede_borrar(monkeypatch):

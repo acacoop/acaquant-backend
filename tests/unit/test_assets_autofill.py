@@ -43,16 +43,39 @@ def test_financiamiento_no_matchea_el_resto_del_catalogo():
         assert _regla_financiamiento({"unidad": u}) == {}
 
 
+def _clase(nominal):
+    return _regla_financiamiento_clase(
+        {"unidad": _UNIDAD_FIN, "nominal": nominal}).get("clase_activo")
+
+
+def test_el_umbral_es_5_millones():
+    """PIN del valor, no del comportamiento relativo.
+
+    El primer intento salió con 5.000 y mandó a DL 260 papeles que eran HD. Un
+    test que solo usa la constante habría pasado igual — por eso acá el número
+    va escrito: si alguien lo mueve, este test lo cuenta.
+    """
+    assert _UMBRAL_HD == 5_000_000.0
+
+
 def test_clase_hd_dl_por_nominal_con_el_umbral_incluido_en_HD():
     """≤ umbral → HD · > umbral → DL. El borde EXACTO es HD (regla del user)."""
-    def clase(nominal):
-        return _regla_financiamiento_clase(
-            {"unidad": _UNIDAD_FIN, "nominal": nominal}).get("clase_activo")
+    assert _clase(_UMBRAL_HD) == "HD"          # el borde entra a HD
+    assert _clase(_UMBRAL_HD - 0.01) == "HD"
+    assert _clase(_UMBRAL_HD + 0.01) == "DL"
 
-    assert clase(_UMBRAL_HD) == "HD"          # el borde entra a HD
-    assert clase(_UMBRAL_HD - 0.01) == "HD"
-    assert clase(_UMBRAL_HD + 0.01) == "DL"
-    assert clase(27_000_000) == "DL"
+
+def test_los_nominales_reales_caen_del_lado_que_dice_su_tasa():
+    """La evidencia que fijó el umbral (nominales y tasas reales de core/mav_tasa).
+
+    Un papel que rinde 6-7% anual está en dólares; uno que rinde 39,5% está en
+    pesos. El corte tiene que respetar eso — es lo que el umbral viejo rompía.
+    """
+    assert _clase(30_000) == "HD"        # 30.000 @ 7%
+    assert _clase(100_000) == "HD"       # 100.000 @ 6%
+    assert _clase(500_000) == "HD"       # 500.000 @ -0,5%
+    assert _clase(613_700) == "HD"       # lo que se vio mal clasificado en pantalla
+    assert _clase(27_000_000) == "DL"    # 27.000.000 @ 39,5%
 
 
 def test_clase_sin_nominal_no_adivina():

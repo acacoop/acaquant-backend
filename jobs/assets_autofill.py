@@ -25,7 +25,7 @@ Reglas v1:
     repetido dentro y fuera del corchete) → CARTERA, TICKER y VENCIMIENTO.
     INSTRUMENTO y CODIGO_CNV no existen para estos papeles: no se tocan.
   * financiamiento_clase — CLASE_ACTIVO `HD`/`DL` de esos mismos papeles, según
-    el nominal (≤ 5.000 → HD, > 5.000 → DL). ÚNICA regla heurística del job:
+    el nominal (≤ 5.000.000 → HD, > → DL). ÚNICA regla heurística del job:
     existe porque la vista FINANCIAMIENTO no puede graficar juntas dos escalas
     tan distintas y clasificar el catálogo a mano no era viable. Backfill y
     mantenimiento son el mismo comando (ver "Uso").
@@ -117,7 +117,20 @@ def _regla_financiamiento(row: dict) -> dict[str, str]:
 # 2.000 assets a mano. Se corrige en Manager → ASSETS y el job NUNCA pisa lo
 # corregido (invariante del módulo): cada valor que un humano toca queda fijo y
 # la heurística no vuelve a opinar sobre él.
-_UMBRAL_HD = 5_000.0          # <= 5.000 → HD · > 5.000 → DL
+# <= 5.000.000 → HD · > 5.000.000 → DL
+#
+# POR QUÉ 5.000.000 (corregido 2026-08-11, el primer intento fue 5.000 y clasificó
+# 260 papeles como DL cuando no lo eran). La evidencia son los nominales y sus
+# tasas, que vienen del texto real de los boletos (ver `core/mav_tasa.py`):
+#
+#     30.000 @ 7%        100.000 @ 6%        500.000 @ -0,5%     → tasas de DÓLAR
+#     27.000.000 @ 39,5%                                          → tasa de PESOS
+#
+# La frontera real está entre 500.000 y 27.000.000: un papel que rinde 6% anual
+# no puede estar expresado en pesos. Con el corte en 5.000 caían del lado DL
+# instrumentos que pagan tasa de dólar, y CASI TODO el catálogo terminaba en DL
+# — que un lado se lleve todo es la señal de que el umbral está mal puesto.
+_UMBRAL_HD = 5_000_000.0
 
 # De dónde sale el nominal del asset: la SUMA de lo que hay en la última
 # tenencia de esa unidad. Es lo más cercano al valor nominal del papel que se

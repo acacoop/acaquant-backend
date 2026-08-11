@@ -45,10 +45,18 @@ cuando el residuo huele a eso.
 
 READ-ONLY: no escribe nada. Sin `--comparar` no toca Aunesa siquiera (es 100% SQL).
 
+ESTADO DE LA VALIDACIÓN (2026-08-11, cuenta 805, 11 y 12/08)
+------------------------------------------------------------
+Cierra EXACTO en las 8 unidades y en las dos fechas, efectivo incluido. El único
+error que hubo fue un supuesto mío sobre cuándo liquida la apertura de una caución
+(ver `_liquidacion`). Falta ampliarlo a muchas cuentas — para eso está `--top`.
+
 Uso:
-    python -m scripts.diag_simular_posicion                    # cuenta 805, solo SQL
-    python -m scripts.diag_simular_posicion --comparar         # + posición real de Aunesa
+    python -m scripts.diag_simular_posicion                     # cuenta 805, solo SQL
+    python -m scripts.diag_simular_posicion --comparar          # + posición real de Aunesa
     python -m scripts.diag_simular_posicion --cuenta 1346 --dias 3
+    python -m scripts.diag_simular_posicion --cuentas 805,1346,1839 --comparar
+    python -m scripts.diag_simular_posicion --top 25 --comparar # las 25 más movidas, resumen
 """
 from __future__ import annotations
 
@@ -84,16 +92,23 @@ def _liquidacion(concertacion: date, plazo: str | None,
 
     ⚠ CAUCIONES: la APERTURA y el CIERRE de la misma caución comparten el MISMO
     texto de plazo ("31 días") pero liquidan en momentos opuestos — la apertura
-    mueve la plata YA, el cierre recién al vencimiento. Sin mirar la `categoria`
-    (`caucion_*_ap` / `caucion_*_ci`) una apertura se mandaría 31 días al futuro y
-    la simulación quedaría corta justo en la línea de efectivo, que es donde más
-    duele. Por eso la categoría entra en la decisión.
+    mueve la plata al principio, el cierre recién al vencimiento. Sin mirar la
+    `categoria` (`caucion_*_ap` / `caucion_*_ci`) una apertura se mandaría 31 días
+    al futuro y la simulación quedaría corta justo en la línea de efectivo.
+
+    La APERTURA liquida a 24hs, como cualquier boleto — MEDIDO el 2026-08-11 en la
+    cuenta 805: la caución tomadora de ARS 3.143.854 concertada el 10/08 NO estaba
+    en la foto del 10/08 y SÍ estaba en la posición real del 11/08. La primera
+    versión de este script asumía "mismo día", la daba por incluida en la foto y
+    nunca la aplicaba: el ARS quedaba corto por 3.143.854,00 exactos — el monto
+    entero de la caución — en TODAS las fechas simuladas. Los títulos cerraban
+    perfecto y solo el efectivo fallaba, siempre por el mismo número.
     """
     cat = (categoria or "").strip().lower()
     p = (plazo or "").strip().lower()
     if cat.startswith("caucion"):
         if cat.endswith("_ap"):
-            return concertacion, "caución APERTURA → liquida el mismo día (SUPUESTO)"
+            return proximo_habil(concertacion), "caución APERTURA → próximo hábil (24hs)"
         if cat.endswith("_ci"):
             num = "".join(c for c in p if c.isdigit())
             if num:
@@ -220,36 +235,52 @@ def imprimir_posicion(titulo: str, pos: dict[str, float]) -> None:
 
 
 # ── 4) comparación contra Aunesa (opcional) ───────────────────────────────────
-def comparar(cuenta: str, simulado: dict, base_fecha: date) -> None:
+def _aunesa_ctx():
+    """Auth + catálogos, UNA vez para toda la corrida (no por cuenta)."""
+    from jobs.aum import autenticar, obtener_cuentas
+    from jobs.portafolio_backfill import _load_assets_map, cargar_contrapartes
+
+    cargar_contrapartes()
+    headers = autenticar()
+    df = obtener_cuentas(headers)
+    return {"headers": headers, "amap": _load_assets_map(),
+            "denoms": {str(r["id"]): str(r["denominacion"]) for _, r in df.iterrows()}}
+
+
+def comparar(cuenta: str, simulado: dict, ctx: dict, detalle: bool = True) -> list[dict]:
     """Pide a Aunesa la posición REAL de cada fecha simulada y la diffea.
 
     Regla H1: la posición AL día D se pide con `desde` = D + 1 hábil. Es el mismo
     GET de lectura que ya usa el job diario — no escribe nada.
+
+    Devuelve una fila por fecha con el veredicto, para que el modo `--resumen`
+    pueda juntar muchas cuentas sin imprimir el detalle de cada una.
     """
-    from jobs.aum import autenticar, obtener_cuentas
-    from jobs.portafolio_backfill import _load_assets_map, _parse, cargar_contrapartes
+    from jobs.portafolio_backfill import _parse
     from scripts.diag_posicion_t0 import _sondear
 
-    print("\n── 4) SIMULADO vs REAL (Aunesa) ───────────────────────────────────────────")
-    cargar_contrapartes()
-    amap = _load_assets_map()
-    headers = autenticar()
-    df = obtener_cuentas(headers)
-    denom = next((str(r["denominacion"]) for _, r in df.iterrows()
-                  if str(r["id"]) == cuenta), "")
+    denom = ctx["denoms"].get(cuenta, "")
+    veredictos = []
+    if detalle:
+        print("\n── 4) SIMULADO vs REAL (Aunesa) ───────────────────────────────────────────")
 
     for f in sorted(simulado):
-        r = _sondear(cuenta, denom, proximo_habil(f), headers)
+        r = _sondear(cuenta, denom, proximo_habil(f), ctx["headers"])
         if r["status"] != 200:
-            print(f"\n   ▸ {f}: no pude traer la real (HTTP {r['status']} "
-                  f"{(r['error'] or '')[:60]})")
+            veredictos.append({"fecha": f, "error": f"HTTP {r['status']}", "difs": None})
+            if detalle:
+                print(f"\n   ▸ {f}: no pude traer la real (HTTP {r['status']} "
+                      f"{(r['error'] or '')[:60]})")
             continue
         real = {x["unidad"]: x["cantidad"]
-                for x in _parse(r["raw"], cuenta, denom, "1970-01-01", amap)}
+                for x in _parse(r["raw"], cuenta, denom, "1970-01-01", ctx["amap"])}
         sim = simulado[f]
         unidades = sorted(set(real) | set(sim))
         difs = [(u, sim.get(u), real.get(u)) for u in unidades
                 if abs((sim.get(u) or 0) - (real.get(u) or 0)) > TOL]
+        veredictos.append({"fecha": f, "error": None, "difs": difs, "n_unidades": len(unidades)})
+        if not detalle:
+            continue
         estado = "✓ CIERRA EXACTO" if not difs else f"⚠ {len(difs)} unidades no cierran"
         print(f"\n   ▸ {f}  (desde={proximo_habil(f)})   {estado}")
         print(f"       {'unidad':<52} {'SIMULADO':>16} {'REAL':>16} {'Δ':>16}")
@@ -260,31 +291,51 @@ def comparar(cuenta: str, simulado: dict, base_fecha: date) -> None:
             print(f"       {u[:52]:<52} "
                   f"{('—' if s is None else f'{s:,.2f}'):>16} "
                   f"{('—' if rr is None else f'{rr:,.2f}'):>16} {d:>16,.2f}{marca}")
-    print("\n   Si algo no cierra, mirá primero: (a) la fecha de liquidación derivada")
-    print("   en la sección 2, (b) los movimientos que la ingesta EXCLUYE por diseño")
-    print("   (otc / usdl / integracion de garantias), (c) aranceles dentro de `importe`.")
+    if detalle:
+        print("\n   Si algo no cierra, mirá primero: (a) la fecha de liquidación derivada")
+        print("   en la sección 2, (b) los movimientos que la ingesta EXCLUYE por diseño")
+        print("   (otc / usdl / integracion de garantias), (c) aranceles dentro de `importe`.")
+    return veredictos
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
-def main() -> int:
-    cuenta = _arg("--cuenta", CUENTA_DEFAULT)
-    dias = int(_arg("--dias", DIAS_DEFAULT))
+# ── selección de cuentas ──────────────────────────────────────────────────────
+def _cuentas_con_mas_boletos(n: int) -> list[str]:
+    """Las N cuentas con más boletos desde la última foto global.
 
-    print(f"\n{'=' * 78}")
-    print(f"SIMULACIÓN de posición · cuenta {cuenta} · {dias} día(s) hábiles hacia adelante")
-    print(f"{'=' * 78}")
-    print("READ-ONLY · solo CANTIDADES (el precio no entra en esta prueba)\n")
+    Son las que más chance tienen de romper la simulación: si cierra en las que
+    más se movieron, cierra. Validar sobre cuentas quietas no prueba nada.
+    """
+    filas = _q(
+        "SELECT id_cuenta, COUNT(*) AS n FROM operaciones.negocio_movimientos "
+        "WHERE fecha >= (SELECT MAX(fecha) FROM portafolio.tenencia) "
+        "  AND anulado_en IS NULL AND id_cuenta IS NOT NULL "
+        "GROUP BY id_cuenta ORDER BY n DESC LIMIT %(n)s", {"n": int(n)})
+    return [f["id_cuenta"] for f in filas]
 
+
+def _procesar(cuenta: str, dias: int, t2u: dict, detalle: bool) -> tuple[dict, list, date | None]:
+    """Base + movimientos + simulación de una cuenta. Imprime si `detalle`."""
     base_fecha, base = base_tenencia(cuenta)
     if not base_fecha:
-        print(f"   ✗ la cuenta {cuenta} no tiene filas en portafolio.tenencia")
-        return 1
+        if detalle:
+            print(f"   ✗ la cuenta {cuenta} no tiene filas en portafolio.tenencia")
+        return {}, [], None
 
-    print("── 1) BASE: última foto en portafolio.tenencia ────────────────────────────")
-    imprimir_posicion(f"posición al {base_fecha}", base)
+    if detalle:
+        print("── 1) BASE: última foto en portafolio.tenencia ────────────────────────────")
+        imprimir_posicion(f"posición al {base_fecha}", base)
 
-    t2u = _ticker_a_unidad()
-    movs = listar_movimientos(movimientos(cuenta, base_fecha), base_fecha, t2u)
+    movs_raw = movimientos(cuenta, base_fecha)
+    if detalle:
+        movs = listar_movimientos(movs_raw, base_fecha, t2u)
+    else:
+        movs = []
+        for m in movs_raw:
+            liq, regla = _liquidacion(m["fecha"], m["plazo"], m["categoria"])
+            us = t2u.get((m["ticker"] or "").strip().upper(), [])
+            movs.append({**m, "liq": liq, "regla": regla,
+                         "unidad": us[0] if len(us) == 1 else None,
+                         "aplica": liq > base_fecha})
 
     fechas, d = [], base_fecha
     for _ in range(dias):
@@ -292,14 +343,83 @@ def main() -> int:
         fechas.append(d)
     simulado = simular(base, movs, fechas)
 
-    print("\n── 3) POSICIÓN SIMULADA (mismo formato que la posición real) ──────────────")
-    for f in fechas:
-        aplicados = sum(1 for m in movs if m["aplica"] and m["liq"] == f)
-        imprimir_posicion(f"posición simulada al {f}  ·  {aplicados} movimiento(s) aplicados",
-                          simulado[f])
+    if detalle:
+        print("\n── 3) POSICIÓN SIMULADA (mismo formato que la posición real) ──────────────")
+        for f in fechas:
+            aplicados = sum(1 for m in movs if m["aplica"] and m["liq"] == f)
+            imprimir_posicion(
+                f"posición simulada al {f}  ·  {aplicados} movimiento(s) aplicados",
+                simulado[f])
+    return simulado, movs, base_fecha
 
-    if "--comparar" in sys.argv:
-        comparar(cuenta, simulado, base_fecha)
+
+# ── main ──────────────────────────────────────────────────────────────────────
+def main() -> int:
+    dias = int(_arg("--dias", DIAS_DEFAULT))
+    top = _arg("--top")
+    lista = _arg("--cuentas") or _arg("--cuenta")
+    resumen = "--resumen" in sys.argv or bool(top)
+
+    if top:
+        cuentas = _cuentas_con_mas_boletos(int(top))
+    else:
+        cuentas = [c.strip() for c in (lista or CUENTA_DEFAULT).split(",") if c.strip()]
+
+    print(f"\n{'=' * 78}")
+    print(f"SIMULACIÓN de posición · {len(cuentas)} cuenta(s) · "
+          f"{dias} día(s) hábiles hacia adelante")
+    print(f"{'=' * 78}")
+    print("READ-ONLY · solo CANTIDADES (el precio no entra en esta prueba)")
+    if top:
+        print(f"   cuentas: las {top} con MÁS boletos desde la última foto "
+              f"(las que más chance tienen de romper)")
+    if resumen and "--comparar" not in sys.argv:
+        print("   ⚠ el modo resumen sin --comparar no valida nada: agregá --comparar")
+    print()
+
+    t2u = _ticker_a_unidad()
+    ctx = _aunesa_ctx() if "--comparar" in sys.argv else None
+    filas = []
+
+    for cuenta in cuentas:
+        detalle = not resumen
+        if detalle:
+            print(f"\n{'─' * 78}\nCUENTA {cuenta}\n{'─' * 78}")
+        simulado, movs, base_fecha = _procesar(cuenta, dias, t2u, detalle)
+        if not base_fecha:
+            filas.append({"cuenta": cuenta, "vered": None, "movs": 0})
+            continue
+        vered = comparar(cuenta, simulado, ctx, detalle=detalle) if ctx else None
+        filas.append({"cuenta": cuenta, "vered": vered,
+                      "movs": sum(1 for m in movs if m["aplica"])})
+
+    if ctx:
+        print(f"\n{'=' * 78}\nVEREDICTO POR CUENTA\n{'=' * 78}")
+        print(f"   {'cuenta':<10} {'movs':>5}  {'fecha':<12} {'unid.':>6}  resultado")
+        ok = roto = 0
+        for f in filas:
+            if f["vered"] is None:
+                print(f"   {f['cuenta']:<10} {'—':>5}  (sin foto en portafolio.tenencia)")
+                continue
+            for v in f["vered"]:
+                if v["error"]:
+                    print(f"   {f['cuenta']:<10} {f['movs']:>5}  {v['fecha']!s:<12} "
+                          f"{'—':>6}  no pude comparar ({v['error']})")
+                    continue
+                if v["difs"]:
+                    roto += 1
+                    peor = max(v["difs"], key=lambda d: abs((d[1] or 0) - (d[2] or 0)))
+                    print(f"   {f['cuenta']:<10} {f['movs']:>5}  {v['fecha']!s:<12} "
+                          f"{v['n_unidades']:>6}  ⚠ {len(v['difs'])} no cierran · "
+                          f"peor: {peor[0][:28]} Δ={(peor[1] or 0) - (peor[2] or 0):,.2f}")
+                else:
+                    ok += 1
+                    print(f"   {f['cuenta']:<10} {f['movs']:>5}  {v['fecha']!s:<12} "
+                          f"{v['n_unidades']:>6}  ✓ cierra exacto")
+        total = ok + roto
+        pct = f"{100 * ok / total:.0f}%" if total else "—"
+        print(f"\n   TOTAL: {ok}/{total} comparaciones cierran exacto ({pct})")
+        print("   Cierra = la posición se puede DERIVAR sin pegarle a Aunesa por cuenta.")
     else:
         print("\n   (corré con --comparar para contrastarla contra la posición real de Aunesa)")
     print()

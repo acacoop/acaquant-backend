@@ -153,7 +153,7 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
 
     Si el daemon no corrió (fin de semana, caído), cae sola a la foto.
     """
-    live = fecha is None
+    pedido_live = fecha is None
     fecha = _resolver_fecha(id_cuenta, fecha, asof)
     if fecha is None:
         return _vacio(id_cuenta, fecha)
@@ -168,7 +168,12 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
             "FROM {tabla} v LEFT JOIN portafolio.assets a ON a.unidad = v.unidad "
             "WHERE v.id_cuenta = %(c)s AND v.aum = 'si'{extra}" + cart)
     rows: list[dict] = []
-    if live:
+    # `desde_live` = de dónde salieron las filas DE VERDAD, no de dónde se quisieron
+    # sacar. Si el daemon no dejó datos y caemos a la foto, el PnL tiene que
+    # calcularse contra la foto — mezclar cantidades live con cost-basis de la foto
+    # daría un GAN% sobre una cantidad que no es la que se muestra.
+    desde_live = False
+    if pedido_live:
         try:
             rows = _q(_SEL.format(
                 tabla="portafolio.tenencia_live",
@@ -178,6 +183,7 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
             logger.exception("posiciones_actuales: tenencia_live falló — uso la foto")
             rows = []
         if rows:
+            desde_live = True
             # La fecha que se devuelve tiene que ser la del dato que se está
             # mostrando, no la de la foto: el front la imprime al lado del selector.
             f_live = _q("SELECT MAX(fecha) AS f FROM portafolio.tenencia_live")
@@ -247,26 +253,34 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
         "pnl_detalle":    {},
     }
     if con_pnl:
-        _enriquecer_con_pnl(resp, id_cuenta)
+        _enriquecer_con_pnl(resp, id_cuenta, desde_live=desde_live)
     return resp
 
 
-def _enriquecer_con_pnl(resp: dict, id_cuenta: str) -> None:
+def _enriquecer_con_pnl(resp: dict, id_cuenta: str, desde_live: bool = False) -> None:
     """Adjunta cost-basis y PnL por título a las posiciones (join por `unidad`).
 
-    El motor de PnL calcula SIEMPRE contra el último AuM: cruzarlo con una tenencia
-    histórica daría números sin sentido, así que solo enriquece si la fecha pedida es
-    el último snapshot. `pnl_detalle` va indexado por `unidad` con los rows completos
-    (incluyen boletos) para que la auditoría por título no obligue a una segunda
-    corrida del motor.
+    El motor de PnL calcula contra UNA base de posición, y el join es por `unidad`:
+    si las cantidades que se muestran salen de una base y el cost-basis de otra, el
+    COSTO y el GAN% quedan atribuidos a una cantidad que no es la de la pantalla.
+    Por eso el motor se corre con la MISMA fuente de la que salieron las posiciones:
+
+      desde_live=True  → `base="live_t1"` (posición del día, la que se está viendo).
+      desde_live=False → foto, y solo si la fecha pedida ES el último snapshot;
+                         cruzar el PnL con una tenencia histórica no tiene sentido.
+
+    `pnl_detalle` va indexado por `unidad` con los rows completos (incluyen boletos)
+    para que la auditoría por título no obligue a una segunda corrida del motor.
 
     Falla blando: si el motor rompe, las posiciones se devuelven igual sin PnL.
     """
-    if resp["fecha"] != _resolver_fecha(id_cuenta, None, False):
+    if not desde_live and resp["fecha"] != _resolver_fecha(id_cuenta, None, False):
         return
     from api.services import pnl_sql
     try:
-        rows = (pnl_sql.pnl_por_cuenta_sql(id_cuenta=id_cuenta) or {}).get("rows") or []
+        rows = (pnl_sql.pnl_por_cuenta_sql(
+            id_cuenta=id_cuenta,
+            base="live_t1" if desde_live else "tenencia") or {}).get("rows") or []
     except Exception:
         logger.exception("posiciones_actuales: PnL falló, id_cuenta=%s", id_cuenta)
         return

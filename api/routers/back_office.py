@@ -675,24 +675,25 @@ def titulos_mercado(
 # ── Control de títulos NEGATIVOS (posición T0) ────────────────────────────────
 @router.get("/titulos-negativos")
 def titulos_negativos(
-    incluir_monedas: bool = Query(
-        False, description="Sumar también el efectivo (ARS/USD/USDC). Default: no — "
-                           "un saldo de caja negativo es un descubierto, otro problema"),
-    solo_aum: bool = Query(
-        False, description="Filtrar por aum='si'. Default: no — un nominal negativo "
-                           "en una cuenta excluida del AuM sigue siendo un descubierto"),
+    incluir_todo: bool = Query(
+        False, description="Sumar también MONEDAS y DERIVADOS. Default: no — en los "
+                           "dos el negativo es normal (descubierto bancario / posición "
+                           "vendida), no un problema de custodia"),
     _email: str = Depends(get_user_email),
 ):
-    """Títulos con nominales NEGATIVOS en la posición liquidada a HOY (T0).
+    """Títulos con nominales NEGATIVOS, en los DOS horizontes.
 
-    Lee `portafolio.tenencia_live` (horizonte t0), que refresca el daemon
-    durante la rueda — la vista pollea y por eso es "tiempo real". La respuesta
-    trae `actualizado_at` para que la pantalla pueda distinguir "no hay
-    negativos" de "el daemon no está corriendo".
+    T0 = liquidada a HOY (lo que está en custodia AHORA: un negativo es un
+    descubierto real). T1 = liquidada a MAÑANA con lo concertado hoy adentro (un
+    negativo que todavía se puede resolver).
+
+    Lee `portafolio.tenencia_live`, que refresca el daemon durante la rueda — la
+    vista pollea y por eso es "tiempo real". La respuesta trae `actualizado_at`
+    para que la pantalla pueda distinguir "no hay negativos" de "el daemon no
+    está corriendo".
     """
     # `@cached` arma la key por NOMBRE de argumento → siempre kwargs (api/CLAUDE.md).
-    return svc_negativos.titulos_negativos(
-        incluir_monedas=incluir_monedas, solo_aum=solo_aum)
+    return svc_negativos.titulos_negativos(incluir_todo=incluir_todo)
 
 
 # ── Acreencias clientes (cobros futuros, precompute CashFlow.Acreencias) ──

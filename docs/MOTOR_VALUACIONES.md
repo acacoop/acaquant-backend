@@ -208,6 +208,30 @@ por ticker (path single-cuenta de PNL TÍTULOS).
 5. Fallback: return (valor_aum, "aum")
 ```
 
+**La CADENA vive sola en `pnl.precio_actual_live(unidad, *, instrumentos_by_unidad,
+portfolio_snap_by_ticker, snapshots_cierre_by_ticker) -> (precio|None, fuente)`**
+(2026-08-12). Devuelve el precio UNITARIO sin normalizar, o `(None, "aum")` si no
+hay precio nuestro. `_valor_actual_live` la llama y le aplica el normalizador — la
+matemática no cambió, solo se separó "qué precio" de "cuánto vale".
+
+El motivo es que la vista PORTFOLIO (`valuaciones_sql.posiciones_actuales`) mostraba
+en la columna PRECIO el valor CRUDO de Aunesa (`tenencia_live.precio`), o sea el del
+backfill: durante la rueda se veía el cierre de ayer mientras el motor de PnL, sobre
+la misma fila, ya tenía el precio live. Ahora esa vista pisa precio y valuación con
+`precio_actual_live` (`_pisar_precio_live`) y las dos cosas no pueden divergir. Si la
+cadena se recopiara en el service de valuaciones, volverían a hacerlo.
+
+Dos guardas en el pisado, y **solo corre en modo live** (con `fecha` la consulta es
+histórica y el precio de ese día ES el de Aunesa):
+
+- **sin precio nuestro no se toca** — cash, FCI y títulos sin `instrumento` en
+  `portafolio.assets` quedan con el de Aunesa (`fuente_precio="aum"`);
+- **sin `cartera` tampoco** — en esa vista `tipoTitulo` es None, así que el
+  normalizador no tendría de dónde sacar el divisor y erraría por 100×.
+
+Cada posición de la respuesta lleva **`fuente_precio`** ∈ `live` / `cierre` / `aum`,
+para que la UI pueda decir de dónde salió el número en vez de que se adivine.
+
 **Normalizer por CARTERA** (`pnl.py::_aplicar_normalizer`, desde 2026-06-15). El
 ÷100 lo decide la **cartera** de `portafolio.tenencia` — confiable y siempre
 presente (antes era por `tipoTitulo`, que se quedó NULL al migrar a SQL y rompía

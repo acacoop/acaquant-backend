@@ -148,3 +148,108 @@ def test_mensual_sin_daemon_deja_el_mes_como_estaba(monkeypatch):
     agosto = next(m for m in meses if m["mes"] == "2026-08")
     assert agosto["cierre"] == 1100.0
     assert agosto["live"] is False
+
+
+# ── 5) el PRECIO de la vista: nuestro, no el de Aunesa ────────────────────────
+#
+# La posición pasó a ser del día, pero la columna PRECIO seguía saliendo cruda de
+# `posicionValuada` — o sea el cierre de ayer mientras el mercado se mueve. Ahora
+# se pisa con la MISMA cadena del motor de PnL. Estos tests fijan las dos guardas
+# que evitan que ese pisado haga daño, y que la valuación acompañe al precio (si
+# se pisa uno y no el otro, la fila se contradice sola).
+def _porfolio(unidad="[8032] MSFT", cartera="RV", cantidad=1.15, precio=26520.0):
+    return {unidad: {"unidad": unidad, "cantidad": cantidad, "precio": precio,
+                     "valuacion": cantidad * precio, "cartera": cartera,
+                     "clase_activo": None, "ticker": "MSFT", "emisor": None,
+                     "calificacion": None}}
+
+
+def _patch_pricing(monkeypatch, instrumentos, snap, cierre=None):
+    from api.services import pnl_sql
+    monkeypatch.setattr(pnl_sql, "_mapas_assets", lambda: {
+        "unidad_to_match": {}, "match_to_display": {},
+        "instrumentos_by_unidad": instrumentos})
+    monkeypatch.setattr(pnl_sql, "_pricing_live", lambda: snap)
+    monkeypatch.setattr(pnl_sql, "_pricing_cierre", lambda: cierre or {})
+
+
+_INSTR = {"[8032] MSFT": "MERV - XMEV - MSFT - 24hs"}
+
+
+def test_precio_de_la_vista_usa_el_live_y_no_el_de_aunesa(monkeypatch):
+    from api.services import valuaciones_sql
+    _patch_pricing(monkeypatch, _INSTR,
+                   {"MERV - XMEV - MSFT - 24hs": {"last_price": 26100.0,
+                                                  "closing_price": 26520.0}})
+    pos = _porfolio()
+    valuaciones_sql._pisar_precio_live(pos)
+    x = pos["[8032] MSFT"]
+    assert x["precio"] == 26100.0, "mostró el cierre de Aunesa en vez del live"
+    assert x["fuente_precio"] == "live"
+    # RV → ×1 (nunca ÷100). La valuación tiene que seguir al precio nuevo.
+    assert x["valuacion"] == pytest.approx(1.15 * 26100.0)
+
+
+def test_sin_last_price_cae_al_closing_y_despues_al_cierre(monkeypatch):
+    from api.services import valuaciones_sql
+    _patch_pricing(monkeypatch, _INSTR,
+                   {"MERV - XMEV - MSFT - 24hs": {"last_price": None,
+                                                  "closing_price": 26520.0}})
+    pos = _porfolio()
+    valuaciones_sql._pisar_precio_live(pos)
+    assert pos["[8032] MSFT"]["precio"] == 26520.0
+
+    _patch_pricing(monkeypatch, _INSTR, {},
+                   {"MERV - XMEV - MSFT - 24hs": {"last_price": 26400.0}})
+    pos = _porfolio()
+    valuaciones_sql._pisar_precio_live(pos)
+    assert pos["[8032] MSFT"]["precio"] == 26400.0
+    assert pos["[8032] MSFT"]["fuente_precio"] == "cierre"
+
+
+def test_sin_instrumento_se_queda_con_el_de_aunesa(monkeypatch):
+    """Cash, FCI y títulos sin mapear: no hay precio nuestro. Se deja el de
+    Aunesa — poner cero o inventarlo sería peor que mostrar el de ayer."""
+    from api.services import valuaciones_sql
+    _patch_pricing(monkeypatch, {}, {})
+    pos = _porfolio(unidad="ARS", cartera="MONEDAS", cantidad=525.74, precio=1525.78)
+    valuaciones_sql._pisar_precio_live(pos)
+    assert pos["ARS"]["precio"] == 1525.78
+    assert pos["ARS"]["fuente_precio"] == "aum"
+
+
+def test_sin_cartera_no_se_pisa_aunque_haya_precio(monkeypatch):
+    """El divisor lo decide la CARTERA (renta fija ÷100, el resto ×1) y acá
+    `tipoTitulo` es None. Sin cartera el normalizador erraría por 100× — con la
+    duda no se toca."""
+    from api.services import valuaciones_sql
+    _patch_pricing(monkeypatch, _INSTR,
+                   {"MERV - XMEV - MSFT - 24hs": {"last_price": 26100.0}})
+    pos = _porfolio(cartera="")
+    valuaciones_sql._pisar_precio_live(pos)
+    assert pos["[8032] MSFT"]["precio"] == 26520.0, "pisó el precio sin saber el divisor"
+
+
+def test_renta_fija_divide_por_cien_al_valuar(monkeypatch):
+    """AO29 cotiza en paridad: la valuación es cantidad × precio / 100. Si se
+    pisara el precio sin re-aplicar el normalizador, la fila se iría 100× arriba."""
+    from api.services import valuaciones_sql
+    instr = {"[9422] AO29": "MERV - XMEV - AO29 - 24hs"}
+    _patch_pricing(monkeypatch, instr,
+                   {"MERV - XMEV - AO29 - 24hs": {"last_price": 14500.0}})
+    pos = _porfolio(unidad="[9422] AO29", cartera="HD", cantidad=41.4, precio=14343.0)
+    valuaciones_sql._pisar_precio_live(pos)
+    x = pos["[9422] AO29"]
+    assert x["precio"] == 14500.0
+    assert x["valuacion"] == pytest.approx(41.4 * 14500.0 / 100)
+
+
+def test_el_pisado_no_corre_en_consulta_historica(monkeypatch):
+    """Con `fecha` la consulta es de un día pasado y el precio de ESE día es
+    justamente el de Aunesa. El pisado solo puede correr en modo live."""
+    import inspect
+
+    from api.services import valuaciones_sql
+    src = inspect.getsource(valuaciones_sql.posiciones_actuales)
+    assert "if desde_live:\n        _pisar_precio_live" in src, \
+        "el pisado dejó de estar condicionado a desde_live"

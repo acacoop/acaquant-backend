@@ -136,6 +136,52 @@ def serie_valor_cuenta(id_cuenta: str, desde: str | None = None,
 _HORIZONTES = ("t0", "t1")
 
 
+def _pisar_precio_live(by_unidad: dict[str, dict]) -> None:
+    """Reemplaza precio y valuación por los NUESTROS, in-place.
+
+    Dos guardas, y las dos son deliberadas:
+
+    1. **Sin precio nuestro no se toca.** Si la unidad no tiene `instrumento` en
+       `portafolio.assets`, o lo tiene pero el motor nunca vio ese ticker, se
+       queda con lo de Aunesa (`fuente_precio="aum"`). Es cash, un FCI o un
+       título sin mapear: mostrar cero o un precio inventado sería peor que
+       mostrar el de ayer.
+    2. **Sin `cartera` tampoco.** El divisor de la valuación lo decide la cartera
+       (renta fija cotiza en paridad → ÷100; renta variable y cash → ×1). En esta
+       vista `tipoTitulo` es None, así que sin cartera el normalizador no tiene de
+       dónde agarrarse y erraría por 100×. Con la duda, no se pisa.
+
+    Falla blando: si algo revienta, las posiciones quedan con el precio de Aunesa
+    en vez de dejar la vista sin datos.
+    """
+    try:
+        from api.services.pnl import _aplicar_normalizer, precio_actual_live
+        from api.services.pnl_sql import _mapas_assets, _pricing_cierre, _pricing_live
+        instrumentos = _mapas_assets()["instrumentos_by_unidad"]
+        snap = _pricing_live()
+        cierre = _pricing_cierre()
+    except Exception:
+        logger.exception("posiciones_actuales: no pude cargar el pricing — dejo el de Aunesa")
+        return
+
+    for x in by_unidad.values():
+        x.setdefault("fuente_precio", "aum")
+        cartera = (x.get("cartera") or "").strip()
+        if not cartera:
+            continue                                   # guarda 2
+        px, fuente = precio_actual_live(
+            x["unidad"],
+            instrumentos_by_unidad=instrumentos,
+            portfolio_snap_by_ticker=snap,
+            snapshots_cierre_by_ticker=cierre,
+        )
+        if px is None:
+            continue                                   # guarda 1
+        x["precio"] = px
+        x["valuacion"] = _aplicar_normalizer(px, x["cantidad"], cartera, None)
+        x["fuente_precio"] = fuente
+
+
 def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
                         cartera: str | None = None, asof: bool = False,
                         con_pnl: bool = False, horizonte: str = "t1") -> dict:
@@ -215,6 +261,19 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
         st["valuacion"] += _f(r["valuacion"])
         st["precio"] = _f(r["precio"])
 
+    # El precio que trae Aunesa en `posicionValuada` es el del backfill: sirve para
+    # una fecha histórica, pero en el modo ACTUAL muestra el cierre de ayer mientras
+    # el mercado se mueve. Acá se pisa con NUESTRO precio, misma cadena y misma
+    # función que usa el motor de PnL (`pnl.precio_actual_live`) — si la tabla y el
+    # PnL resolvieran el precio por su cuenta, la misma fila mostraría dos números.
+    #
+    # Solo en modo live: con `fecha` la consulta es histórica y el precio de ese día
+    # es justamente el de Aunesa.
+    for x in by_unidad.values():
+        x["fuente_precio"] = "aum"
+    if desde_live:
+        _pisar_precio_live(by_unidad)
+
     ordenadas = sorted(by_unidad.values(), key=lambda x: -x["valuacion"])
     total = sum(x["valuacion"] for x in ordenadas)
     # Espejo USD de la vista: MEP del DÍA DEL SNAPSHOT (no el de hoy) — una tenencia
@@ -239,6 +298,10 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
                 "tipo":         None,
                 "cantidad":     round(x["cantidad"], 4),
                 "precio":       round(x["precio"], 4),
+                # De dónde salió ESE precio: live / cierre / aum. Va en la respuesta
+                # para que la vista pueda decirlo y nadie tenga que adivinar si un
+                # número es de ahora o de ayer.
+                "fuente_precio": x.get("fuente_precio", "aum"),
                 "valuacion":    round(x["valuacion"], 2),
                 "valuacion_usd": a_usd(x["valuacion"]),
                 "share":        round(x["valuacion"] / total * 100, 2) if total else None,

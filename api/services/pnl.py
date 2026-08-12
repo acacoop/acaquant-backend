@@ -95,6 +95,55 @@ def _aplicar_normalizer(precio: float, qty: float, cartera: str | None = None,
     return precio * qty
 
 
+def precio_actual_live(
+    unidad: str,
+    *,
+    instrumentos_by_unidad: dict[str, str],
+    portfolio_snap_by_ticker: dict[str, dict],
+    snapshots_cierre_by_ticker: dict[str, dict],
+) -> tuple[float | None, str]:
+    """Precio UNITARIO vigente de una unidad, con su fuente. Sin normalizar.
+
+    Es la cadena de prioridad sola, extraída de `_valor_actual_live` para que la
+    vista de posiciones (`valuaciones_sql.posiciones_actuales`) pueda mostrar el
+    MISMO precio que usa el motor de PnL sin recopiar la cadena — si vivieran en
+    dos lados, la tabla y el PnL terminarían mostrando precios distintos del
+    mismo título.
+
+    Prioridad: portfolio_snapshot.last_price → .closing_price → snapshots_cierre.
+    Devuelve (None, "aum") cuando no hay ningún precio nuestro: ahí el caller se
+    queda con lo que haya traído Aunesa.
+
+    Returns:
+        (precio, fuente) donde fuente ∈ {"live", "cierre", "aum"}.
+    """
+    if not unidad:
+        return None, "aum"
+    instrumento = instrumentos_by_unidad.get(unidad, "")
+    if instrumento and instrumento not in _PLACEHOLDERS_INSTRUMENTO:
+        snap = portfolio_snap_by_ticker.get(instrumento)
+        if snap:
+            for campo in ("last_price", "closing_price"):
+                px = snap.get(campo)
+                try:
+                    px = float(px) if px is not None else None
+                except (TypeError, ValueError):
+                    px = None
+                if px is not None and px > 0:
+                    return px, "live"
+        # snapshots_cierre (SQL bulk) — último cierre persistido por ticker
+        # (1 fila/ticker con el último, no hace falta sort).
+        snc = snapshots_cierre_by_ticker.get(instrumento)
+        if snc:
+            try:
+                px = float(snc.get("last_price")) if snc.get("last_price") is not None else None
+            except (TypeError, ValueError):
+                px = None
+            if px is not None and px > 0:
+                return px, "cierre"
+    return None, "aum"
+
+
 def _valor_actual_live(
     unidad: str, qty_efectiva: float,
     tipoTitulo: str | None, valor_aum: float,
@@ -131,30 +180,15 @@ def _valor_actual_live(
     if not unidad:
         return valor_aum, "aum"
 
-    instrumento = instrumentos_by_unidad.get(unidad, "")
-    if instrumento and instrumento not in _PLACEHOLDERS_INSTRUMENTO:
-        # 1. PortfolioSnapshot (SQL bulk) — motor live de tenencia.
-        snap = portfolio_snap_by_ticker.get(instrumento)
-        if snap:
-            for campo in ("last_price", "closing_price"):
-                px = snap.get(campo)
-                try:
-                    px = float(px) if px is not None else None
-                except (TypeError, ValueError):
-                    px = None
-                if px is not None and px > 0:
-                    return _aplicar_normalizer(px, qty_efectiva, cartera, tipoTitulo), "live"
-        # 2. snapshots_cierre (SQL bulk) — último cierre persistido por ticker
-        # (1 fila/ticker con el último, no hace falta sort).
-        snc = snapshots_cierre_by_ticker.get(instrumento)
-        if snc:
-            try:
-                px = float(snc.get("last_price")) if snc.get("last_price") is not None else None
-            except (TypeError, ValueError):
-                px = None
-            if px is not None and px > 0:
-                return _aplicar_normalizer(px, qty_efectiva, cartera, tipoTitulo), "cierre"
-    return valor_aum, "aum"
+    px, fuente = precio_actual_live(
+        unidad,
+        instrumentos_by_unidad=instrumentos_by_unidad,
+        portfolio_snap_by_ticker=portfolio_snap_by_ticker,
+        snapshots_cierre_by_ticker=snapshots_cierre_by_ticker,
+    )
+    if px is None:
+        return valor_aum, "aum"
+    return _aplicar_normalizer(px, qty_efectiva, cartera, tipoTitulo), fuente
 
 
 _CATS_PAGO         = {"compra", "suscripcion_fci"}

@@ -330,3 +330,13 @@
 # ─── Cierres diarios de los feeds Eikon (bonos offshore + Chicago) → anchors 7D/MTD/YTD
 # 21:10 UTC L-V (post cierre NY 20:00 UTC y rueda diurna CBOT). Solo persiste si el feed corrió HOY.
 10 21 * * 1-5 /root/TradingAV/deploy/run_job.sh eikon_cierres 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.eikon_cierres'
+
+# ─── TENENCIA LIVE (posición T0/T1 del día) → portafolio.tenencia_live
+# Daemon con loop propio, arrancado/parado por cron igual que los motores.
+# 11:00 UTC = 8:00 ART L-V. NO pisa al backfill diario (que arranca a la misma
+# hora): el daemon espera a que la corrida `aum` de hoy figure terminada en
+# manager.job_runs antes de su barrido de apertura. El proceso termina SOLO al
+# cierre de rueda (18 ART); el stop de las 21:05 UTC es red de seguridad.
+# NO toca portafolio.tenencia / assets / AuM / carteras — escribe solo su tabla.
+0 11 * * 1-5 systemctl restart tenencia_live.service
+5 21 * * 1-5 systemctl stop    tenencia_live.service

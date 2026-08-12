@@ -48,6 +48,7 @@
 | `motor_ordenes` | ?–20:05 L-V | `engines.motor_ordenes` | Motor Ordenes - escucha order_report y persiste OrdenesLive/Audit |
 | `motor_portfolio_snapshot` | ?–20:05 L-V | `engines.portfolio_snapshot` | Motor de captura del último precio para tickers de tenencia (valuaciones.portfolio_snapshot) |
 | `motor_rofex` | ?–20:05 L-V | `engines.valores` | Motor de Captura Rofex a SQL (main_valores) |
+| `tenencia_live` | ?–21:05 L-V | `jobs.tenencia_live` | Tenencia Live - posicion T0/T1 del dia refrescada durante la rueda |
 <!-- /AUTOGEN:motores -->
 
 ## Jobs / crons (batch)
@@ -115,6 +116,7 @@
 <!-- AUTOGEN:otros -->
 | Horario | Comando |
 |---|---|
+| 11:00 · L-V | `systemctl restart tenencia_live.service` |
 | 13:20 · L-V | `systemctl restart motor_rofex.service` |
 | 13:20 · L-V | `systemctl restart motor_options.service` |
 | 13:20 · L-V | `systemctl restart motor_curvas.service` |

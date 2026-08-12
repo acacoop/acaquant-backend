@@ -1196,6 +1196,52 @@ CREATE INDEX IF NOT EXISTS ix_tenencia_cuenta_fecha ON portafolio.tenencia(id_cu
 -- dentro de ese rango.
 CREATE INDEX IF NOT EXISTS ix_tenencia_fecha_unidad ON portafolio.tenencia(fecha, unidad);
 
+-- ── TENENCIA LIVE — la posición del DÍA, refrescada durante la rueda ──────────
+-- Tabla APARTE de `tenencia` a propósito, y NADIE la lee todavía. `tenencia` es la
+-- foto conciliada e inmutable de ayer (writer diario, 11 UTC) y no se toca; acá
+-- vive el presente, que se mueve todo el día. Mezclarlas sería poner un número
+-- que muta adentro de la columna cuyo contrato es "día cerrado".
+--
+-- Dos filas por (cuenta, unidad), las dos con `fecha = hoy`:
+--   horizonte='t0' → consultada con desde = hoy+1 hábil → posición LIQUIDADA A HOY
+--                    (lo que está en custodia: se puede entregar/garantizar).
+--   horizonte='t1' → consultada con desde = hoy+2 hábiles → liquidada a MAÑANA,
+--                    ya con lo concertado hoy adentro (la posición "económica").
+-- Regla detrás (medida 2026-08-11): `desde = X` en `posicionValuada` devuelve la
+-- posición liquidada al día hábil ANTERIOR a X.
+--
+-- NO es acumulativa: el primer barrido del día borra lo anterior (`fecha < hoy`).
+-- Writer ÚNICO: jobs/tenencia_live.py (daemon, cron 11 UTC L-V).
+CREATE TABLE IF NOT EXISTS portafolio.tenencia_live (
+    fecha            date NOT NULL,
+    horizonte        text NOT NULL,            -- 't0' | 't1'
+    id_cuenta        text NOT NULL,
+    unidad           text NOT NULL,
+    cuenta           text,
+    ticker           text,
+    cartera          text,
+    cantidad         numeric,
+    precio           numeric,
+    valuacion        numeric,
+    moneda           text,
+    aum              text,
+    tipo_titulo      text,
+    gar_cantidad     numeric,
+    -- La fecha que EFECTIVAMENTE se le mandó a Aunesa. Con esto la fila se explica
+    -- sola: nadie tiene que conocer la regla ni contar días hábiles para auditarla.
+    desde_consultado date,
+    origen           text,                     -- 'apertura' | 'boleto'
+    -- Frescura POR CUENTA. Si Aunesa falla, la fila anterior se conserva y esto
+    -- envejece a la vista — una tabla "live" congelada en silencio es peor que no
+    -- tenerla. Es lo que permite que la UI diga "actualizado hace 2 min".
+    actualizado_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fecha, horizonte, id_cuenta, unidad)
+);
+CREATE INDEX IF NOT EXISTS ix_tlive_cuenta
+    ON portafolio.tenencia_live(id_cuenta, fecha, horizonte);
+CREATE INDEX IF NOT EXISTS ix_tlive_frescura
+    ON portafolio.tenencia_live(fecha, actualizado_at);
+
 -- Log self-healing del writer diario (qué cuenta/fecha quedó OK o con timeout).
 CREATE TABLE IF NOT EXISTS portafolio.backfill_log (
     fecha       date NOT NULL,

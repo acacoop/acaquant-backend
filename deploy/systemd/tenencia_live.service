@@ -1,0 +1,19 @@
+[Unit]
+Description=Tenencia Live - posicion T0/T1 del dia refrescada durante la rueda
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python -m jobs.tenencia_live
+# El daemon TERMINA solo al cierre de rueda (HORA_CIERRE_ART=18) — salir con 0 es
+# el camino normal, no una falla. Con Restart=always systemd lo relanzaria en loop
+# toda la noche; el cron lo para a las 21:05 UTC igual, pero mientras tanto estaria
+# reintentando contra Aunesa fuera de horario. `on-failure` cubre el caso real
+# (proceso caido por excepcion) sin resucitarlo despues del cierre.
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -186,6 +186,69 @@ def seccion_cobertura(instr_map: dict, snap_map: dict, cierre_map: dict) -> None
     for t, n in sorted(conteo.items(), key=lambda x: -x[1]):
         print(f"    {t:<15} {n:>5}   {n / total * 100:5.1f}%")
 
+    # Contar unidades es engañoso: 500 unidades chicas pesan menos que 5 grandes.
+    # Lo que decide es la PLATA. Se agrupa por moneda para no sumar peras con manzanas.
+    _sep("2c) LO MISMO PERO PONDERADO POR PLATA (Σ valuación, por moneda)")
+    filas = _q(
+        "SELECT unidad, coalesce(moneda,'?') AS moneda, sum(valuacion) AS v "
+        "FROM portafolio.tenencia_live "
+        "WHERE horizonte = 't1' AND aum = 'si' "
+        "  AND fecha = (SELECT MAX(fecha) FROM portafolio.tenencia_live) "
+        "GROUP BY 1, 2"
+    )
+    por_moneda: dict[str, dict[str, float]] = {}
+    for f in filas:
+        tier, _ = _tier(f["unidad"], instr_map, snap_map, cierre_map)
+        m = f["moneda"]
+        por_moneda.setdefault(m, {})
+        por_moneda[m][tier] = por_moneda[m].get(tier, 0.0) + abs(_f(f["v"]) or 0.0)
+    for m, tiers in sorted(por_moneda.items()):
+        tot = sum(tiers.values()) or 1.0
+        print(f"\n  MONEDA {m}   (Σ|valuación| = {tot:,.0f})")
+        for t, v in sorted(tiers.items(), key=lambda x: -x[1]):
+            print(f"    {t:<15} {v:>18,.0f}   {v / tot * 100:5.1f}%")
+
+    _sep("2d) LAS 25 UNIDADES SIN INSTRUMENTO MÁS GRANDES (precio = el de Aunesa, T-1)")
+    print("  Cash (ARS/USD/USDC/etc.) es NORMAL acá: no tiene precio de mercado.\n"
+          "  Lo que importa son los TÍTULOS: cada uno se está valuando con el precio\n"
+          "  del backfill diario en vez del live.\n")
+    sin_instr = [(f["unidad"], f["moneda"], abs(_f(f["v"]) or 0.0)) for f in filas
+                 if _tier(f["unidad"], instr_map, snap_map, cierre_map)[0] == "sin_instrumento"]
+    sin_instr.sort(key=lambda x: -x[2])
+    print(f"  {'UNIDAD':<52} {'MONEDA':<8} {'Σ|VALUACIÓN|':>20}")
+    print("  " + "-" * 82)
+    for u, m, v in sin_instr[:25]:
+        print(f"  {u[:52]:<52} {m:<8} {v:>20,.0f}")
+
+
+def seccion_ticker(ticker: str, instr_map: dict, snap_map: dict, cierre_map: dict) -> None:
+    """Busca un ticker en TODA la posición del día, sin importar la cuenta."""
+    _sep(f"2e) RASTREO DE '{ticker}' EN TODA LA POSICIÓN DEL DÍA")
+    filas = _q(
+        "SELECT DISTINCT unidad FROM portafolio.tenencia_live "
+        "WHERE horizonte = 't1' AND aum = 'si' "
+        "  AND fecha = (SELECT MAX(fecha) FROM portafolio.tenencia_live) "
+        "  AND upper(unidad) LIKE %(p)s",
+        {"p": f"%{ticker.upper()}%"},
+    )
+    if not filas:
+        print(f"  (ninguna unidad de la posición del día contiene '{ticker}')")
+        return
+    for f in filas:
+        tier, ev = _tier(f["unidad"], instr_map, snap_map, cierre_map)
+        print(f"\n  {f['unidad']}")
+        print(f"    tier real      : {tier}"
+              f"{'   ← el front lo muestra como LIVE' if tier.startswith('live_') else ''}")
+        print(f"    instrumento    : {ev.get('instrumento') or '(SIN MAPEO en portafolio.assets)'}")
+        print(f"    last_price     : {_fmt(ev.get('last_price'))}")
+        print(f"    closing_price  : {_fmt(ev.get('closing_price'))}")
+        print(f"    updated_at     : {ev.get('updated_at') or '—'}   "
+              f"(hace {_fmt(ev.get('edad_min'), 1)} min)")
+        print(f"    cierre persist.: {_fmt(ev.get('cierre_price'))}  "
+              f"fecha {ev.get('cierre_fecha') or '—'}")
+
+
+def seccion_frescura(instr_map: dict, snap_map: dict, cierre_map: dict) -> None:
     _sep("2b) FRESCURA DEL MOTOR DE PRECIOS (valuaciones.portfolio_snapshot)")
     r = _q("SELECT count(*) AS n, count(updated_at) AS con_ts, max(updated_at) AS ult "
            "FROM valuaciones.portfolio_snapshot")[0]
@@ -211,6 +274,53 @@ def seccion_cobertura(instr_map: dict, snap_map: dict, cierre_map: dict) -> None
     print("\n  Nota: la tabla es UPSERT por ticker y NO se limpia. Un ticker que dejó de\n"
           "  operar conserva su último `last_price` para siempre — sin mirar `updated_at`\n"
           "  no se distingue de un precio de hace 5 segundos.")
+
+    # Lo anterior mira la TABLA ENTERA (incluye tickers que ya nadie tiene). Lo que
+    # de verdad importa es la antigüedad de los precios que HOY se están sirviendo.
+    _sep("2f) ANTIGÜEDAD DE LOS PRECIOS QUE SE ESTÁN SIRVIENDO COMO 'LIVE'")
+    unidades = _q(
+        "SELECT DISTINCT unidad FROM portafolio.tenencia_live "
+        "WHERE horizonte = 't1' AND aum = 'si' "
+        "  AND fecha = (SELECT MAX(fecha) FROM portafolio.tenencia_live)"
+    )
+    bandas = {"< 2 min": 0, "2-15 min": 0, "15-60 min": 0, "1-24 h": 0,
+              "> 24 h": 0, "sin updated_at": 0}
+    viejos: list[tuple[str, str, float | None]] = []
+    for u in unidades:
+        tier, ev = _tier(u["unidad"], instr_map, snap_map, cierre_map)
+        if not tier.startswith("live_"):
+            continue
+        e = ev.get("edad_min")
+        if e is None:
+            bandas["sin updated_at"] += 1
+        elif e < 2:
+            bandas["< 2 min"] += 1
+        elif e < 15:
+            bandas["2-15 min"] += 1
+        elif e < 60:
+            bandas["15-60 min"] += 1
+        elif e < 1440:
+            bandas["1-24 h"] += 1
+        else:
+            bandas["> 24 h"] += 1
+        if e is None or e >= 60:
+            viejos.append((u["unidad"], ev.get("instrumento") or "", e))
+
+    tot = sum(bandas.values()) or 1
+    for k, v in bandas.items():
+        print(f"    {k:<18} {v:>5}   {v / tot * 100:5.1f}%")
+    print(f"\n  Total de posiciones servidas como LIVE: {tot}")
+
+    if viejos:
+        viejos.sort(key=lambda x: (-(x[2] or 1e9)))
+        print(f"\n  Las {min(len(viejos), 25)} más viejas (≥ 1 h o sin timestamp) — "
+              "ESTAS son las que dicen LIVE y no lo son:")
+        print(f"  {'UNIDAD':<44} {'INSTRUMENTO':<30} {'ANTIGÜEDAD':>14}")
+        print("  " + "-" * 90)
+        for u, i, e in viejos[:25]:
+            edad = "sin timestamp" if e is None else (
+                f"{e / 60:,.1f} h" if e < 1440 else f"{e / 1440:,.1f} días")
+            print(f"  {u[:44]:<44} {i[:30]:<30} {edad:>14}")
 
 
 # ── 3. costo ─────────────────────────────────────────────────────────────────
@@ -304,6 +414,8 @@ def main() -> None:
 
     seccion_cuenta(args.cuenta, args.ticker, instr_map, snap_map, cierre_map)
     seccion_cobertura(instr_map, snap_map, cierre_map)
+    seccion_ticker(args.ticker, instr_map, snap_map, cierre_map)
+    seccion_frescura(instr_map, snap_map, cierre_map)
     seccion_costo(args.cuenta)
 
     _sep("FIN")

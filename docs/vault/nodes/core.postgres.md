@@ -27,7 +27,6 @@ _(pendiente de enriquecimiento)_
 - [[api.routers.manager.renta_variable]]  ·  _module_
 - [[api.routers.manager.status]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
-- [[api.routers.operar]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
 - [[api.services._idempotencia]]  ·  _module_
 - [[api.services._negocio_sql_read]]  ·  _module_
@@ -65,6 +64,8 @@ _(pendiente de enriquecimiento)_
 - [[api.services.derivados_agro]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
+- [[api.services.financiamiento]]  ·  _module_
+- [[api.services.financiamiento_calc]]  ·  _module_
 - [[api.services.ia_obs]]  ·  _module_
 - [[api.services.import_tenencia_sql]]  ·  _module_
 - [[api.services.intraday]]  ·  _module_
@@ -133,6 +134,7 @@ _(pendiente de enriquecimiento)_
 - [[jobs.adr_live]]  ·  _module_
 - [[jobs.archive_options_data]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
+- [[jobs.assets_autofill]]  ·  _module_
 - [[jobs.backfill_tasas]]  ·  _module_
 - [[jobs.bcra_research]]  ·  _module_
 - [[jobs.bonos_ohlc_daily]]  ·  _module_
@@ -169,5 +171,6 @@ _(pendiente de enriquecimiento)_
 - [[jobs.segmentar_patrimonial]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_
+- [[jobs.tenencia_live]]  ·  _module_
 - [[jobs.triage]]  ·  _module_
 - [[quant.pivot_points]]  ·  _module_

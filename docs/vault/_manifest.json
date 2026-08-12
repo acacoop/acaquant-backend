@@ -261,7 +261,8 @@
 "api.services.acreencias",
 "api.services.back_office_titulos",
 "api.services.tenencia_hd",
-"api.services.tesoreria"
+"api.services.tesoreria",
+"api.services.titulos_negativos"
 ]
 },
 {
@@ -833,6 +834,8 @@
 "summary": "Router /api/me — identidad del caller.",
 "links": [
 "api.auth",
+"api.services",
+"api.services.mesa_dinero",
 "core.roles"
 ]
 },
@@ -879,6 +882,8 @@
 "api.services.comercial",
 "api.services.comercial_sql",
 "api.services.control_comercial_sql",
+"api.services.financiamiento",
+"api.services.financiamiento_calc",
 "api.services.intraday",
 "api.services.operaciones_sql",
 "api.services.operaciones_view",
@@ -900,8 +905,7 @@
 "api.services.ordenes",
 "api.services.order_book",
 "core.adhoc_subscriptions",
-"core.brackets",
-"core.postgres"
+"core.brackets"
 ]
 },
 {
@@ -2078,6 +2082,29 @@
 ]
 },
 {
+"id": "api.services.financiamiento",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/financiamiento.py",
+"summary": "api/services/financiamiento.py — vista FINANCIAMIENTO (tab de /operaciones).",
+"links": [
+"api.cache",
+"core.postgres"
+]
+},
+{
+"id": "api.services.financiamiento_calc",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/financiamiento_calc.py",
+"summary": "api/services/financiamiento_calc.py — CALCULADORA DE DESCUENTO (panel 4 de FINANCIAMIENTO).",
+"links": [
+"core.postgres"
+]
+},
+{
 "id": "api.services.ia_obs",
 "type": "module",
 "layer": "api",
@@ -2237,6 +2264,7 @@
 "path": "api/services/mesa_dinero.py",
 "summary": "api/services/mesa_dinero.py — MESA DE DINERO (vista NEGOCIO → /mesa-dinero).",
 "links": [
+"api.cache",
 "api.services._sql",
 "core.postgres",
 "core.roles"
@@ -2406,7 +2434,8 @@
 "path": "api/services/pnl.py",
 "summary": "Motor de PnL por (cuenta, ticker) con cost-basis weighted-average.",
 "links": [
-"api.services._mep"
+"api.services._mep",
+"api.services.aunesa_negocio"
 ]
 },
 {
@@ -2418,6 +2447,7 @@
 "summary": "api/services/pnl_ajustes_sql.py — AJUSTES MANUALES del motor de PnL.",
 "links": [
 "api.services._sql",
+"api.services.comercial",
 "core.postgres",
 "core.roles"
 ]
@@ -2626,6 +2656,7 @@
 "path": "api/services/salud.py",
 "summary": "api/services/salud.py — UN modelo único de CHEQUEO para toda la observabilidad.",
 "links": [
+"api.cache",
 "api.services._sql",
 "api.services.controles_sql",
 "api.services.jobs_catalogo",
@@ -2762,6 +2793,7 @@
 "api.services.senebis",
 "core",
 "core.aunesa",
+"core.calendario",
 "core.postgres",
 "core.roles"
 ]
@@ -2777,6 +2809,18 @@
 "core",
 "core.curvas_sql",
 "core.postgres"
+]
+},
+{
+"id": "api.services.titulos_negativos",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/titulos_negativos.py",
+"summary": "api/services/titulos_negativos.py — control de nominales NEGATIVOS en T0 y T1.",
+"links": [
+"api.cache",
+"api.services._sql"
 ]
 },
 {
@@ -2828,8 +2872,12 @@
 "path": "api/services/valuaciones_sql.py",
 "summary": "api/services/valuaciones_sql.py — espejo SQL de api/services/valuaciones.py.",
 "links": [
+"api.services",
 "api.services._cuentas_filter",
+"api.services._mep",
 "api.services._sql",
+"api.services.pnl",
+"api.services.pnl_sql",
 "api.services.valuaciones"
 ]
 },
@@ -3411,6 +3459,17 @@
 ]
 },
 {
+"id": "cron.jobs.assets_autofill",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.assets_autofill"
+]
+},
+{
 "id": "cron.jobs.bcra",
 "type": "cron",
 "layer": "deploy",
@@ -3815,6 +3874,17 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.sync_comitentes"
+]
+},
+{
+"id": "cron.jobs.tesoreria_echeq_recibidos",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.tesoreria_echeq_recibidos"
 ]
 },
 {
@@ -4479,6 +4549,19 @@
 ]
 },
 {
+"id": "jobs.assets_autofill",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/assets_autofill.py",
+"summary": "jobs/assets_autofill.py — autocompletado del catálogo `portafolio.assets`.",
+"links": [
+"core.cafci",
+"core.job_runs",
+"core.postgres"
+]
+},
+{
 "id": "jobs.aum",
 "type": "module",
 "layer": "jobs",
@@ -5127,6 +5210,36 @@
 ]
 },
 {
+"id": "jobs.tenencia_live",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/tenencia_live.py",
+"summary": "jobs/tenencia_live.py — posición T0/T1 del día, refrescada durante la rueda.",
+"links": [
+"core",
+"core.aunesa",
+"core.calendario",
+"core.job_runs",
+"core.postgres",
+"jobs.aum",
+"jobs.portafolio_backfill"
+]
+},
+{
+"id": "jobs.tesoreria_echeq_recibidos",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/tesoreria_echeq_recibidos.py",
+"summary": "tesoreria_echeq_recibidos.py — espejo automático de los DEPÓSITOS de cheque",
+"links": [
+"api.services.tesoreria",
+"core.calendario",
+"core.job_runs"
+]
+},
+{
 "id": "jobs.tesoreria_snapshot",
 "type": "module",
 "layer": "jobs",
@@ -5419,6 +5532,17 @@
 "summary": "Servicio systemd.",
 "links": [
 "engines.valores"
+]
+},
+{
+"id": "svc.tenencia_live",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/tenencia_live.service",
+"summary": "Servicio systemd.",
+"links": [
+"jobs.tenencia_live"
 ]
 }
 ]

@@ -19,4 +19,5 @@ Helper minúsculo: extrae el código CAFCI (ej. `CAFCI3580-1199`) de un string `
 Conecta con: lo usan `jobs/aum.py` (auto-fill al sincronizar `Valuaciones.Assets`) y `scripts/backfill_assets_cafci.py`; sirve de puente entre `Valuaciones.AuM`/`Assets` y `CashFlow.NegocioMovimientos`.
 
 ## Lo usan (backlinks) ←
+- [[jobs.assets_autofill]]  ·  _module_
 - [[jobs.portafolio_backfill]]  ·  _module_

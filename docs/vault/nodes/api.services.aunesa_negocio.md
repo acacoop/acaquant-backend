@@ -24,4 +24,5 @@ Conecta con: pega a Aunesa (login + consolidadosGenerales); aplica `api.services
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.aunesa]]  ·  _module_
+- [[api.services.pnl]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_

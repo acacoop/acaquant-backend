@@ -2,16 +2,17 @@
 (movimientos) y NegocioMovimientos (vista de negocio del día)."""
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from api.auth import require_control_comercial
+from api.auth import get_user_email, require_control_comercial, require_no_invitado
 from api.cache import cached
 from api.services import cashflow_sql as _cf_sql
 from api.services import comercial as _com
 from api.services import comercial_sql as _com_sql
 from api.services import control_comercial_sql as _cc
 from api.services import financiamiento as _fin
+from api.services import financiamiento_calc as _fin_calc
 from api.services import operaciones_sql as _ops_sql
 from api.services._grupos_scope import (
     scope_cuentas,
@@ -810,3 +811,108 @@ def financiamiento_libro(
     tablas lo resuelve el front sin refetch.
     """
     return _fin.libro(scope=scope)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# FINANCIAMIENTO → CALCULADORA DE DESCUENTO (panel 4 de la tab)
+#
+# PERMISO: ninguno propio. Todo `/api/operaciones/*` ya está detrás del módulo
+# `operaciones` (api/main.py) — quien entra a FINANCIAMIENTO puede tocar los
+# datos, que es exactamente lo pedido: la tab DATOS es una tabla de parámetros
+# comerciales, no información sensible, y la gracia es que la mesa juegue con
+# ella. `require_no_invitado` va igual en las escrituras: defense-in-depth, el
+# portal www no escribe NUNCA (REGLA #8).
+#
+# Fórmulas y por qué el cálculo es server-side: api/services/financiamiento_calc.py
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _AvalIn(BaseModel):
+    nombre: str
+    costo_cheque: float | None = None
+    costo_pagare: float | None = None
+    nota: str | None = None
+    orden: int | None = None
+
+
+class _ArancelesIn(BaseModel):
+    arancel_aca: float | None = None
+    derecho_mercado: float | None = None
+
+
+class _CalcIn(BaseModel):
+    monto: float
+    tasa_pct: float
+    dias: int
+    aval: str | None = None
+    instrumento: str = "cheque"
+
+
+@router.get("/financiamiento/datos")
+def financiamiento_datos() -> dict:
+    """Parámetros de la calculadora: catálogo de SGRs + arancel ACA + derecho de
+    mercado. Alimenta la tab DATOS y el selector de aval de la calculadora."""
+    return _fin_calc.get_datos()
+
+
+@router.put("/financiamiento/datos/aval")
+def financiamiento_set_aval(
+    payload: _AvalIn = Body(...),
+    actor: str = Depends(get_user_email),
+    _noguest: None = Depends(require_no_invitado),
+) -> dict:
+    """Alta o edición de una SGR (upsert por nombre)."""
+    try:
+        return _fin_calc.guardar_aval(
+            nombre=payload.nombre, costo_cheque=payload.costo_cheque,
+            costo_pagare=payload.costo_pagare, nota=payload.nota,
+            orden=payload.orden, actor=actor,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.delete("/financiamiento/datos/aval")
+def financiamiento_del_aval(
+    nombre: str = Query(..., min_length=1),
+    actor: str = Depends(get_user_email),
+    _noguest: None = Depends(require_no_invitado),
+) -> dict:
+    """Baja de una SGR del catálogo."""
+    try:
+        return _fin_calc.borrar_aval(nombre=nombre, actor=actor)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.put("/financiamiento/datos/aranceles")
+def financiamiento_set_aranceles(
+    payload: _ArancelesIn = Body(...),
+    actor: str = Depends(get_user_email),
+    _noguest: None = Depends(require_no_invitado),
+) -> dict:
+    """Arancel de ACA Valores + derecho de mercado (fila única)."""
+    try:
+        return _fin_calc.guardar_aranceles(
+            arancel_aca=payload.arancel_aca,
+            derecho_mercado=payload.derecho_mercado, actor=actor,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/financiamiento/calculadora")
+def financiamiento_calculadora(payload: _CalcIn = Body(...)) -> dict:
+    """Corre la planilla: NETO SIN AVAL + NETO CON AVAL + CFT + flujos.
+
+    NO PERSISTE NADA. Es un simulador — cada usuario corre el suyo y no queda
+    rastro. El costo del aval NO viaja en el request (se manda el NOMBRE y el
+    backend lo resuelve contra el catálogo) para que nadie pueda cotizar con un
+    costo que no es el vigente.
+    """
+    try:
+        return _fin_calc.calcular(
+            monto=payload.monto, tasa_pct=payload.tasa_pct, dias=payload.dias,
+            aval=payload.aval, instrumento=payload.instrumento,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e

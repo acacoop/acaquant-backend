@@ -1,6 +1,6 @@
 # 🚀 deploy — servicios + crons
 
-61 notas.
+64 notas.
 
 - [[cron.engines.dolar_mep]] — Tarea programada (cron).
 - [[cron.jobs.acreencias]] — Tarea programada (cron).
@@ -8,6 +8,7 @@
 - [[cron.jobs.adr_live]] — Tarea programada (cron).
 - [[cron.jobs.archive_options_data]] — Tarea programada (cron).
 - [[cron.jobs.argentina_datos]] — Tarea programada (cron).
+- [[cron.jobs.assets_autofill]] — Tarea programada (cron).
 - [[cron.jobs.bcra]] — Tarea programada (cron).
 - [[cron.jobs.bcra_research]] — Tarea programada (cron).
 - [[cron.jobs.bonos_ohlc_daily]] — Tarea programada (cron).
@@ -45,6 +46,7 @@
 - [[cron.jobs.snapshot_cierre]] — Tarea programada (cron).
 - [[cron.jobs.snapshot_sinteticos]] — Tarea programada (cron).
 - [[cron.jobs.sync_comitentes]] — Tarea programada (cron).
+- [[cron.jobs.tesoreria_echeq_recibidos]] — Tarea programada (cron).
 - [[cron.jobs.tesoreria_snapshot]] — Tarea programada (cron).
 - [[cron.jobs.triage]] — Tarea programada (cron).
 - [[cron.jobs.volatilidad_ggal]] — Tarea programada (cron).
@@ -63,3 +65,4 @@
 - [[svc.motor_ordenes]] — Servicio systemd.
 - [[svc.motor_portfolio_snapshot]] — Servicio systemd.
 - [[svc.motor_rofex]] — Servicio systemd.
+- [[svc.tenencia_live]] — Servicio systemd.

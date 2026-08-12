@@ -29,6 +29,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.aranceles]]  ·  _module_
 - [[jobs.archive_options_data]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
+- [[jobs.assets_autofill]]  ·  _module_
 - [[jobs.backfill_tasas]]  ·  _module_
 - [[jobs.bcra]]  ·  _module_
 - [[jobs.bcra_research]]  ·  _module_
@@ -70,6 +71,8 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.snapshot_sinteticos]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_
+- [[jobs.tenencia_live]]  ·  _module_
+- [[jobs.tesoreria_echeq_recibidos]]  ·  _module_
 - [[jobs.tesoreria_snapshot]]  ·  _module_
 - [[jobs.triage]]  ·  _module_
 - [[jobs.volatilidad_ggal]]  ·  _module_

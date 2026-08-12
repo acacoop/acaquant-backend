@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-57 notas.
+60 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -10,6 +10,7 @@
 - [[jobs.aranceles]] — Job de aranceles — pega a Aunesa /informes y completa los boletos sin arancel.
 - [[jobs.archive_options_data]] — archive_options_data.py — purga de mercado.options_data (SQL).
 - [[jobs.argentina_datos]] — Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en SQL (SQL-only).
+- [[jobs.assets_autofill]] — jobs/assets_autofill.py — autocompletado del catálogo `portafolio.assets`.
 - [[jobs.aum]] — jobs/aum.py — CLIENTE Aunesa (librería, no es un job).
 - [[jobs.backfill_tasas]] — backfill_tasas.py — recalcula TEA/TEM/duration/paridad de TODOS los bonos de
 - [[jobs.bcra]]
@@ -56,6 +57,8 @@
 - [[jobs.snapshot_cierre]] — snapshot_cierre.py — materializa el cierre diario por bono SQL-NATIVE.
 - [[jobs.snapshot_sinteticos]] — snapshot_sinteticos.py — materializa el cierre diario de sintéticos en mercado.snapshots_sinteticos (SQL).
 - [[jobs.sync_comitentes]] — Sync de cuentas comitentes desde Aunesa → master SQL `clientes.comitentes`
+- [[jobs.tenencia_live]] — jobs/tenencia_live.py — posición T0/T1 del día, refrescada durante la rueda.
+- [[jobs.tesoreria_echeq_recibidos]] — tesoreria_echeq_recibidos.py — espejo automático de los DEPÓSITOS de cheque
 - [[jobs.tesoreria_snapshot]] — jobs/tesoreria_snapshot.py — foto diaria de la grilla BANCOS de Tesorería.
 - [[jobs.triage]] — jobs/triage.py — Triage REACTIVO de incidentes (QuantAI P2, docs/QUANTAI.md).
 - [[jobs.volatilidad_ggal]]

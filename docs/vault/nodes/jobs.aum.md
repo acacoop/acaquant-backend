@@ -25,3 +25,4 @@ Conecta con: pega a Aunesa, escribe `Valuaciones.AuM`; sincroniza `Valuaciones.A
 - [[api.routers.manager.aunesa]]  ·  _module_
 - [[jobs.portafolio_backfill]]  ·  _module_
 - [[jobs.portafolio_reparar_timeouts]]  ·  _module_
+- [[jobs.tenencia_live]]  ·  _module_

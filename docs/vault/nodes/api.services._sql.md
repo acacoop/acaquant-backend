@@ -49,4 +49,5 @@ _(pendiente de enriquecimiento)_
 - [[api.services.salud]]  ·  _module_
 - [[api.services.senebis]]  ·  _module_
 - [[api.services.tesoreria]]  ·  _module_
+- [[api.services.titulos_negativos]]  ·  _module_
 - [[api.services.valuaciones_sql]]  ·  _module_

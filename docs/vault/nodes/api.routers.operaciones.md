@@ -27,6 +27,8 @@ Conecta con: lee `CashFlow.NegocioMovimientos` + colecciones `*API` (Mesa/Flujos
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.comercial_sql]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
+- [[api.services.financiamiento]]  ·  _module_
+- [[api.services.financiamiento_calc]]  ·  _module_
 - [[api.services.intraday]]  ·  _module_
 - [[api.services.operaciones_sql]]  ·  _module_
 - [[api.services.operaciones_view]]  ·  _module_

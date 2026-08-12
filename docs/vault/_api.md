@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-203 notas.
+206 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -148,6 +148,8 @@
 - [[api.services.diagnostico_registry]] — Registro ÚNICO del Diagnóstico: vista → motores / jobs / APIs que la alimentan.
 - [[api.services.estrategia]] — api/services/estrategia.py — lecturas de la vista ESTRATEGIA (TRADING).
 - [[api.services.fair_value]] — fair_value.py — service del módulo Fair Value relativo intra-curva.
+- [[api.services.financiamiento]] — api/services/financiamiento.py — vista FINANCIAMIENTO (tab de /operaciones).
+- [[api.services.financiamiento_calc]] — api/services/financiamiento_calc.py — CALCULADORA DE DESCUENTO (panel 4 de FINANCIAMIENTO).
 - [[api.services.ia_obs]] — api/services/ia_obs.py — observabilidad del gateway de IA (SQL ia.trazas).
 - [[api.services.import_tenencia]] — api/services/import_tenencia.py — parsers de celdas del import manual de tenencia.
 - [[api.services.import_tenencia_sql]] — api/services/import_tenencia_sql.py — import manual a SQL `portafolio.tenencia`.
@@ -201,6 +203,7 @@
 - [[api.services.tenencia_hd]] — Service Tenencia Valorizada (cartera HD, cuentas propias 100/255/256) — SQL-NATIVE.
 - [[api.services.tesoreria]] — api/services/tesoreria.py — Back Office → Tesorería (ingresos/egresos del día).
 - [[api.services.titulos_flujos]] — api/services/titulos_flujos.py — flujos normalizados por instrumento.
+- [[api.services.titulos_negativos]] — api/services/titulos_negativos.py — control de nominales NEGATIVOS en T0 y T1.
 - [[api.services.trading_pivots]] — Pivots Floor Trader sobre el activo (ARS) — vista TRADING.
 - [[api.services.valuaciones]] — Valuaciones — performance e historia por cuenta. SQL-only (decomiso Mongo).
 - [[api.services.valuaciones_sql]] — api/services/valuaciones_sql.py — espejo SQL de api/services/valuaciones.py.

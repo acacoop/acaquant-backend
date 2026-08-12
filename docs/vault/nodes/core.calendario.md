@@ -22,6 +22,7 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.services.renta_fija_sql]]  ·  _module_
 - [[api.services.senebis]]  ·  _module_
+- [[api.services.tesoreria]]  ·  _module_
 - [[engines.breakevens]]  ·  _module_
 - [[engines.caucion]]  ·  _module_
 - [[engines.curvas]]  ·  _module_
@@ -30,3 +31,5 @@ _(pendiente de enriquecimiento)_
 - [[jobs.market_anchors]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.portafolio_backfill]]  ·  _module_
+- [[jobs.tenencia_live]]  ·  _module_
+- [[jobs.tesoreria_echeq_recibidos]]  ·  _module_

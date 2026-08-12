@@ -50,11 +50,13 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.diagnostico]]  ·  _module_
 - [[api.services.estrategia]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
+- [[api.services.financiamiento]]  ·  _module_
 - [[api.services.jobs_catalogo]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.macro_sql]]  ·  _module_
 - [[api.services.market_sql]]  ·  _module_
 - [[api.services.mercado_hist_sql]]  ·  _module_
+- [[api.services.mesa_dinero]]  ·  _module_
 - [[api.services.opciones]]  ·  _module_
 - [[api.services.opciones_sql]]  ·  _module_
 - [[api.services.operaciones_sql]]  ·  _module_
@@ -71,6 +73,7 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.research_sql]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
 - [[api.services.rv_motor]]  ·  _module_
+- [[api.services.salud]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
 - [[api.services.scanner_sql]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
@@ -78,5 +81,6 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.sinteticos]]  ·  _module_
 - [[api.services.tenencia_hd]]  ·  _module_
 - [[api.services.tesoreria]]  ·  _module_
+- [[api.services.titulos_negativos]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_

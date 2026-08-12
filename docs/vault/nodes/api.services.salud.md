@@ -17,6 +17,7 @@ path: api/services/salud.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.cache]]  ·  _module_
 - [[api.services._sql]]  ·  _module_
 - [[api.services.controles_sql]]  ·  _module_
 - [[api.services.jobs_catalogo]]  ·  _module_

@@ -26,7 +26,6 @@ Conecta con: usa `order_book`, `ordenes.send_order`, `core.brackets`, `core.adho
 - [[api.services.order_book]]  ·  _module_
 - [[core.adhoc_subscriptions]]  ·  _module_
 - [[core.brackets]]  ·  _module_
-- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

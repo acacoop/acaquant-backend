@@ -18,6 +18,7 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.services._sql]]  ·  _module_
+- [[api.services.comercial]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[core.roles]]  ·  _module_
 

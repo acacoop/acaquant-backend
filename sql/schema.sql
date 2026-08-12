@@ -2893,3 +2893,53 @@ CREATE TABLE IF NOT EXISTS manager.salud_diagnosticos (
     creado_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (chequeo_id, evento_id)
 );
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- FINANCIAMIENTO → CALCULADORA DE DESCUENTO (panel 4 de la tab FINANCIAMIENTO).
+-- Ver api/services/financiamiento_calc.py para las fórmulas.
+--
+-- La calculadora NO persiste NADA: es un simulador que corre cualquiera que
+-- entre a la vista y se lleva puesto al salir. Lo único que vive acá son los
+-- PARÁMETROS que la planilla Excel tenía hardcodeados a un costado y que la
+-- mesa carga desde la tab DATOS.
+--
+-- ⚠️ UNIDADES: todos los porcentajes se guardan como PORCENTAJE (5.0 = 5 %,
+-- 0.06 = 0,06 %), NO como fracción — es lo que el usuario tipea, así que mirar
+-- la tabla en SQL da el mismo número que la pantalla. La división por 100 se
+-- hace UNA sola vez, en el service.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Catálogo de SGRs. El NOMBRE es la clave porque es lo que el usuario elige
+-- textualmente en el selector de la calculadora. Dos costos por fila: el aval
+-- de un CHEQUE y el de un PAGARÉ no valen lo mismo.
+CREATE TABLE IF NOT EXISTS operaciones.financiamiento_avales (
+    nombre          text PRIMARY KEY,
+    costo_cheque    numeric,                -- % anual (5.00 = 5 %); null = no ofrece
+    costo_pagare    numeric,                -- % anual
+    nota            text,                   -- 'más 0,4 directo' — INFORMATIVA, no entra al cálculo
+    orden           int NOT NULL DEFAULT 0, -- orden de la tabla en pantalla
+    actualizado_por text,
+    actualizado_at  timestamptz
+);
+
+-- Arancel de ACA Valores y derecho de mercado. Fila ÚNICA (id = 1): no son por
+-- cliente ni por operación, son la tarifa vigente. El CHECK es lo que impide que
+-- alguien inserte una segunda fila y deje la calculadora eligiendo al azar.
+CREATE TABLE IF NOT EXISTS operaciones.financiamiento_aranceles (
+    id              int PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    arancel_aca     numeric,                -- % anual sobre el NOMINAL, prorrateado por días
+    derecho_mercado numeric,                -- % sobre el monto DESCONTADO, sin prorratear
+    actualizado_por text,
+    actualizado_at  timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS operaciones.financiamiento_datos_audit (
+    id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts     timestamptz,
+    actor  text,
+    action text,                            -- set_aval / del_aval / set_aranceles
+    target text,                            -- nombre de la SGR, o '1' para los aranceles
+    data   jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_financiamiento_datos_audit_ts
+    ON operaciones.financiamiento_datos_audit (ts DESC);

@@ -28,4 +28,5 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.carteras]]  ·  _module_
+- [[api.services.valuaciones_sql]]  ·  _module_
 - [[jobs.pnl_totales_precompute]]  ·  _module_

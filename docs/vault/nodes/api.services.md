@@ -45,6 +45,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.manager.salud]]  ·  _module_
 - [[api.routers.manager.valuaciones]]  ·  _module_
 - [[api.routers.market]]  ·  _module_
+- [[api.routers.me]]  ·  _module_
 - [[api.routers.mesa_dinero]]  ·  _module_
 - [[api.routers.news]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
@@ -90,6 +91,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.repo]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
+- [[api.services.valuaciones_sql]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_

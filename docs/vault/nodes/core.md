@@ -95,5 +95,6 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[jobs.precios_acciones_daily]]  ·  _module_
 - [[jobs.research_mail]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
+- [[jobs.tenencia_live]]  ·  _module_
 - [[jobs.triage]]  ·  _module_
 - [[jobs.volatilidad_ggal]]  ·  _module_

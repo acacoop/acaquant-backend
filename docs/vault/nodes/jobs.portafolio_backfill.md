@@ -27,3 +27,4 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[cron.jobs.portafolio_backfill]]  ·  _cron_
 - [[jobs.portafolio_reparar_timeouts]]  ·  _module_
+- [[jobs.tenencia_live]]  ·  _module_

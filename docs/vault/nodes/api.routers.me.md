@@ -20,6 +20,8 @@ Conecta con: toma el email de `api.auth.get_user_email` (JWT de Cloudflare Acces
 
 ## Usa / conecta con →
 - [[api.auth]]  ·  _module_
+- [[api.services]]  ·  _module_
+- [[api.services.mesa_dinero]]  ·  _module_
 - [[core.roles]]  ·  _module_
 
 ## Lo usan (backlinks) ←

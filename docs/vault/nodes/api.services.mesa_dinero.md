@@ -17,10 +17,12 @@ path: api/services/mesa_dinero.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.cache]]  ·  _module_
 - [[api.services._sql]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[core.roles]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.mesa]]  ·  _module_
+- [[api.routers.me]]  ·  _module_
 - [[api.routers.mesa_dinero]]  ·  _module_

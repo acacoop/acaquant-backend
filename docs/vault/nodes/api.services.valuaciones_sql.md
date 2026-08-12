@@ -17,8 +17,12 @@ path: api/services/valuaciones_sql.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
+- [[api.services._mep]]  ·  _module_
 - [[api.services._sql]]  ·  _module_
+- [[api.services.pnl]]  ·  _module_
+- [[api.services.pnl_sql]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
 
 ## Lo usan (backlinks) ←

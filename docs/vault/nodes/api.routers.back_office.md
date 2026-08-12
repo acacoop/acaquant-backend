@@ -26,6 +26,7 @@ Conecta con: delega en `api.services.back_office_titulos.get_titulos_mercado` (d
 - [[api.services.back_office_titulos]]  ·  _module_
 - [[api.services.tenencia_hd]]  ·  _module_
 - [[api.services.tesoreria]]  ·  _module_
+- [[api.services.titulos_negativos]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

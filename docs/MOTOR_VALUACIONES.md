@@ -151,6 +151,20 @@ para cada boleto en orden cronológico:
             pnl_pasivo_dia += importe
 ```
 
+> **La acreencia NO toca cantidad ni cost-basis** — es un cobro suelto. Ojo con
+> lo que eso implica para los eventos que entregan TÍTULOS en vez de plata
+> (`Stock dividend`, que desde 2026-08-12 sí se clasifica como acreencia): el
+> importe entra al pasivo, pero **las acciones nuevas no entran al cost-basis
+> por esta vía**. Eso no lo empeoró la reclasificación (antes caían en `otro`,
+> que el motor ignora por completo) — se resuelve con un `ajuste_cantidad` en
+> `operaciones.pnl_ajustes`, que es el mecanismo previsto para eventos
+> corporativos que mueven nominales.
+
+> **`_OPS_PASIVOS` no se lista a mano**: sale de
+> `aunesa_negocio.ACREENCIA_OPS_CANONICAS`, la misma tabla que usa el
+> categorizador. Sumar una familia nueva de acreencia la hace aparecer sola en
+> `breakdown_pasivo` en vez de caer en `breakdown_otros`.
+
 ### Wash trades / caución / ROE / trasvaso (CRÍTICO)
 
 Operaciones de **wash trade** (venta -50M + compra +50M mismo día) son
@@ -426,7 +440,7 @@ en `fechas_sin_mep` per ticker (badge naranja en la UI).
 | `venta` | empieza con "venta" |  |
 | `suscripcion_fci` | contiene "suscripci" | Cubre "Liquidación de suscripción" (bilateral). |
 | `rescate_fci` | contiene "rescate" | Cubre "Liquidación de rescate". |
-| `acreencia` | match en `informacion` (Cash dividend / Interest payment / Partial redemption) |  |
+| `acreencia` | match en `informacion` contra `ACREENCIA_OPS` | Criterio AMPLIO (2026-08-12): si dice "dividend" o "redemption" ES acreencia, sin importar el subtipo. `op` guarda el nombre fino cuando se conoce ("Stock dividend") y el genérico cuando no ("Dividend"). Un BOLETO que mencione la palabra sigue siendo compra/venta — los patrones estructurales mandan. |
 | `solicitud_*_fci` | "Solicitud de suscripción/rescate de FCI" | Filtrado del motor PnL — no es la liquidación real. |
 | `caucion_*` | "Caución colocadora/tomadora ... Apertura/Cierre" |  |
 | `comision`, `impuesto`, `deposito`, etc. | substrings en `informacion` |  |

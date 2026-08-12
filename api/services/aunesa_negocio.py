@@ -46,8 +46,36 @@ OPS_URL = "https://aca.aunesa.com/Irmo/api/operaciones/consolidadosGenerales"
 
 PALABRAS_CLAVE_ACTUALES = ("deposito", "transferencia", "extraccion")
 EXCLUIR_SUBSTRINGS = ("otc", "usdl", "integracion de garantias")
-ACREENCIA_KEYS = ("partial redemption", "interest payment", "cash dividend")
 MONEDAS = ("ARS", "USD", "USDL", "USDC")
+
+# ─── Acreencias (eventos corporativos) ──────────────────────────────────────
+#
+# Regla de negocio (2026-08-12): si el texto dice "dividend", ES un dividendo —
+# no importa el subtipo. Hasta acá la lista era de 3 nombres EXACTOS ("cash
+# dividend" / "interest payment" / "partial redemption") y cualquier variante
+# caía en `categoria='otro'` con `op=NULL`: "Stock dividend (DVSE)" quedaba
+# invisible como acreencia siendo, obviamente, un dividendo.
+#
+# Se recorre EN ORDEN: primero los subtipos conocidos, para que `op` conserve
+# el nombre fino que ya usa el breakdown del PnL pasivo; al final el GENÉRICO
+# de cada familia, que atrapa cualquier variante nueva que mande Aunesa sin
+# tener que volver a tocar código (que era el problema de fondo de la lista
+# cerrada). Ampliar = agregar un par acá, nada más.
+ACREENCIA_OPS: tuple[tuple[str, str], ...] = (
+    ("interest payment",   "Interest payment"),
+    ("partial redemption", "Partial redemption"),
+    ("cash dividend",      "Cash dividend"),
+    ("stock dividend",     "Stock dividend"),
+    ("dividend",           "Dividend"),      # genérico de la familia
+    ("redemption",         "Redemption"),    # genérico de la familia
+)
+
+# Compat: varios lugares (y el diag) miran sólo las keys.
+ACREENCIA_KEYS = tuple(k for k, _ in ACREENCIA_OPS)
+
+# Ops canónicas sin duplicar, en orden de aparición. Lo consume `pnl.py` para
+# armar el breakdown del PnL pasivo — así las dos listas no pueden driftear.
+ACREENCIA_OPS_CANONICAS = tuple(dict.fromkeys(op for _, op in ACREENCIA_OPS))
 
 SOLICITUD_FCI_CATS = ("solicitud_suscripcion_fci", "solicitud_rescate_fci")
 
@@ -120,6 +148,21 @@ def _normalizar(s: str) -> str:
         .decode("utf-8")
         .lower()
     )
+
+
+def op_acreencia(informacion: str) -> str | None:
+    """Op canónica si `informacion` es un evento corporativo de acreencia.
+
+    Devuelve el nombre fino cuando el subtipo es conocido ("Stock dividend") y
+    el genérico de la familia cuando no ("Dividend"). None si no es acreencia.
+    Fuente ÚNICA del criterio: la usan `parse_informacion` (para `op`) y
+    `categorizar` (para `categoria`), así no pueden contradecirse.
+    """
+    norm = _normalizar(informacion)
+    for key, op in ACREENCIA_OPS:
+        if key in norm:
+            return op
+    return None
 
 
 def _parse_num_ar(x: str) -> float:
@@ -195,13 +238,8 @@ def parse_informacion(s: str) -> dict[str, Any] | None:
             "fase":     None,
         }
 
-    norm = _normalizar(s)
-    if any(k in norm for k in ACREENCIA_KEYS):
-        op = (
-            "Interest payment" if "interest payment" in norm
-            else "Cash dividend" if "cash dividend" in norm
-            else "Partial redemption"
-        )
+    op = op_acreencia(s)
+    if op:
         ticker = None
         m2 = PATTERN_ACREENCIA_TICKER.search(s)
         if m2:
@@ -229,7 +267,13 @@ def categorizar(informacion: str, parsed: dict | None) -> str:
             return f"caucion_{rol}_{fase}"
         return "caucion_otro"
 
-    if any(k in norm for k in ACREENCIA_KEYS):
+    # ACREENCIA — el criterio es amplio ("dividend" ⇒ dividendo), así que el
+    # guard con `parsed` evita el falso positivo simétrico: un BOLETO cuyo
+    # instrumento mencione la palabra (un CEDEAR "…Dividend…", por ejemplo) NO
+    # es un evento corporativo. Si el texto ya parseó como compra/venta/caución/
+    # FCI, esos patrones ESTRUCTURALES mandan sobre el match de palabra suelta.
+    op_acr = op_acreencia(informacion)
+    if op_acr and (parsed is None or parsed.get("op") == op_acr):
         return "acreencia"
 
     if "solicitud de suscripcion" in norm:

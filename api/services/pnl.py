@@ -46,6 +46,7 @@ from collections import defaultdict
 from typing import Any
 
 from api.services._mep import get_mep_for_date
+from api.services.aunesa_negocio import ACREENCIA_OPS_CANONICAS
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +170,12 @@ _CAT_AJUSTE_SPLIT    = "ajuste_split"
 _CAT_AJUSTE_CANTIDAD = "ajuste_cantidad"
 _CATS_AJUSTE         = {_CAT_AJUSTE_SPLIT, _CAT_AJUSTE_CANTIDAD}
 
-_OPS_PASIVOS = ("Cash dividend", "Interest payment", "Partial redemption")
+# Ops del breakdown del PnL pasivo. NO se listan a mano: salen de la MISMA
+# tabla que usa el categorizador (`aunesa_negocio.ACREENCIA_OPS`). Cuando ahí
+# se suma una familia nueva (2026-08-12: Stock dividend + los genéricos
+# Dividend/Redemption), el breakdown la muestra sola en vez de mandarla a
+# `breakdown_otros` por quedar desincronizada.
+_OPS_PASIVOS = ACREENCIA_OPS_CANONICAS
 
 # Fallback regex sólo si `Valuaciones.Assets.TICKER` no está set (gap de
 # metadata). Path principal: leer el TICKER del doc de Assets directo,

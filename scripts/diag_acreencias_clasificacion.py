@@ -1,28 +1,30 @@
 """diag_acreencias_clasificacion.py — ¿qué eventos corporativos NO estamos
 clasificando como acreencia? (read-only).
 
-CONTEXTO. El filtro de acreencia en `api/services/aunesa_negocio.py` es una
-lista CERRADA de 3 substrings:
+CONTEXTO. Hasta el 2026-08-12 el filtro de acreencia era una lista CERRADA de 3
+substrings exactos (cash dividend / interest payment / partial redemption), así
+que "Stock dividend (DVSE)" caía en `categoria='otro'` con `op=NULL`. Ahora
+`aunesa_negocio.ACREENCIA_OPS` usa criterio AMPLIO por familia ("dividend" ⇒
+dividendo, "redemption" ⇒ rescate).
 
-    ACREENCIA_KEYS = ("partial redemption", "interest payment", "cash dividend")
-
-Se matchea por substring sobre `informacion` normalizado (sin tildes, lower).
-No es "si dice dividend": "Stock dividend (DVSE)" NO contiene "cash dividend"
-→ cae a `categoria='otro'` y `op=NULL`.
+Este diag sigue siendo útil para lo mismo de siempre: ver qué eventos
+corporativos quedan FUERA del criterio vigente, y si los que entran mueven
+plata o nominales.
 
 Aunesa etiqueta el evento con su código CAEV entre paréntesis (ISO 15022):
-DVCA=Cash dividend, INTR=Interest payment, PRED=Partial redemption (los 3 que
-SÍ mapeamos), DVSE=Stock dividend, BONU, SPLF, EXOF, etc. Este diag extrae ESE
-código del texto y mide, por código:
+DVCA=Cash dividend, INTR=Interest payment, PRED=Partial redemption,
+DVSE=Stock dividend, BONU=Bonus issue, SPLF=Stock split, etc. Este diag extrae
+ESE código del texto y mide, por código:
 
   · cuántas filas / cuentas / tickers hay y en qué categoría caen hoy,
   · si el evento mueve PLATA (importe≠0) o NOMINALES (cantidad≠0) — que es
     la pregunta que decide si entra al PnL pasivo o al cost-basis,
   · el importe por moneda y la cantidad total.
 
-REGLA #2: sin estos números no se toca `ACREENCIA_KEYS`. Meter un evento que
-entrega ACCIONES dentro de `categoria='acreencia'` lo suma a `pnl_pasivo`
-(`api/services/pnl.py::_CATS_COBRO_PASIVO`) como si fuera efectivo cobrado.
+Lo que queda pendiente y este diag ayuda a dimensionar: los eventos que mueven
+NOMINALES no ajustan el cost-basis por la vía de `acreencia` (la rama del motor
+ignora `cantidad` a propósito). Para esos hace falta un `ajuste_cantidad` en
+`operaciones.pnl_ajustes`. Las columnas 'c/importe' y 'c/cant' dicen cuáles son.
 
 Uso (Droplet):
     python -m scripts.diag_acreencias_clasificacion             # últimos 365 días
@@ -35,11 +37,20 @@ from __future__ import annotations
 
 import argparse
 
+from api.services.aunesa_negocio import op_acreencia
 from core.postgres import get_pool
 
-# Los 3 que HOY caen en categoria='acreencia' (ACREENCIA_KEYS).
-CAEV_MAPEADOS = {"DVCA": "Cash dividend", "INTR": "Interest payment",
-                 "PRED": "Partial redemption"}
+# Códigos CAEV que el criterio VIGENTE ya clasifica como acreencia. No se
+# listan a mano: se derivan preguntándole a `op_acreencia` por el nombre del
+# evento, así el diag no puede quedar desfasado del categorizador real.
+_CAEV_CONOCIDOS = {
+    "DVCA": "Cash dividend",   "INTR": "Interest payment",
+    "PRED": "Partial redemption", "DVSE": "Stock dividend",
+    "DVOP": "Optional dividend",  "REDM": "Final redemption",
+    "BONU": "Bonus issue",        "SPLF": "Stock split",
+    "EXOF": "Exchange offer",     "MRGR": "Merger",
+}
+CAEV_MAPEADOS = {c: n for c, n in _CAEV_CONOCIDOS.items() if op_acreencia(n)}
 
 # Código CAEV = 4 mayúsculas entre paréntesis, ej "Stock dividend (DVSE)".
 _CAEV = r"\(([A-Z]{4})\)"

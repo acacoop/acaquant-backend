@@ -67,6 +67,7 @@ from __future__ import annotations
 import logging
 import re
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, date, datetime, timedelta
@@ -109,6 +110,12 @@ PAUSA_BREAKER_S    = 300
 TIPOS_CUENTA_DETECTOR = ("Comitente", "Propia")
 
 _RE_ID_CUENTA = re.compile(r"^\[(\d+)\]")
+
+# Token de Aunesa COMPARTIDO por los workers. El daemon vive horas y el token
+# vence: se renueva en un solo lugar, con lock, para que 6 workers que reciben
+# 401 a la vez no disparen 6 logins.
+_hdr: dict = {}
+_hdr_lock = threading.Lock()
 _HORIZONTES = ("t0", "t1")
 
 
@@ -231,30 +238,53 @@ def detectar_movimientos(hoy: date) -> dict[str, set[str]]:
 
 
 # ── refresco de una cuenta ────────────────────────────────────────────────────
-def _traer(idc: str, denom: str, desde: date, headers: dict) -> tuple[bool, list]:
-    """(ok, filas crudas). ok=False = no se pudo consultar → NO se escribe nada.
+def _reauth() -> dict:
+    """Token nuevo, compartido por todos los workers (una sola vez, no N)."""
+    with _hdr_lock:
+        _hdr["h"] = autenticar()
+        return _hdr["h"]
+
+
+def _traer(idc: str, denom: str, desde: date) -> tuple[bool, list, str]:
+    """(ok, filas crudas, motivo). ok=False = no se pudo consultar → NO se escribe.
 
     Distinguir "Aunesa dijo que no hay posición" (204 → ok, lista vacía) de "no
     pude preguntar" (timeout/500 → error) es lo que evita que un problema de red
     borre la posición de un cliente.
+
+    ⚠️ EL 401 SE RE-AUTENTICA (incidente 2026-08-12). Este daemon vive horas con
+    el MISMO token, y el token de Aunesa vence. La primera versión trataba el 401
+    como un error más: al vencer, TODAS las cuentas empezaban a fallar y el
+    circuit breaker se disparaba con «¿Aunesa caído?» cuando el custodio estaba
+    perfecto. El job diario ya lo manejaba (`portafolio_backfill._fetch_parse`)
+    porque dura minutos y raro que lo pise; acá es inevitable.
+
+    `motivo` viaja hasta el log: sin él, «12 fallidas» no dice si fue timeout,
+    500 o token vencido — que fue exactamente lo que costó diagnosticar.
     """
     params = {**_PARAMS_BASE, "desde": desde.strftime("%d/%m/%Y")}
-    try:
-        resp = _SESSION.get(POSICION_URL.format(idc), params=params, headers=headers,
-                            timeout=_timeout_for(idc, denom))
-    except requests.exceptions.RequestException as e:
-        logger.debug("cuenta %s desde=%s → %s", idc, desde, type(e).__name__)
-        return False, []
-    if resp.status_code == 204:
-        return True, []
-    if resp.status_code != 200:
-        logger.debug("cuenta %s desde=%s → HTTP %s", idc, desde, resp.status_code)
-        return False, []
-    try:
-        data = resp.json()
-    except Exception:
-        return False, []
-    return True, data if isinstance(data, list) else []
+    to = _timeout_for(idc, denom)
+    for intento in (1, 2):
+        try:
+            resp = _SESSION.get(POSICION_URL.format(idc), params=params,
+                                headers=_hdr.get("h") or _reauth(), timeout=to)
+        except requests.exceptions.Timeout:
+            return False, [], "timeout"
+        except requests.exceptions.RequestException as e:
+            return False, [], type(e).__name__
+        if resp.status_code == 401 and intento == 1:
+            _reauth()
+            continue
+        if resp.status_code == 204:
+            return True, [], ""
+        if resp.status_code != 200:
+            return False, [], f"http_{resp.status_code}"
+        try:
+            data = resp.json()
+        except Exception:
+            return False, [], "json_invalido"
+        return True, data if isinstance(data, list) else [], ""
+    return False, [], "http_401"
 
 
 def _escribir(hoy: date, horizonte: str, idc: str, desde: date,
@@ -287,39 +317,47 @@ def _escribir(hoy: date, horizonte: str, idc: str, desde: date,
 
 
 def refrescar_cuenta(idc: str, denom: str, hoy: date, amap: dict,
-                     headers: dict, origen: str) -> bool:
-    """Los DOS horizontes de una cuenta. True si los dos se escribieron."""
-    ok_total = True
+                     origen: str) -> tuple[bool, str]:
+    """Los DOS horizontes de una cuenta. (ok, motivo del primer fallo)."""
+    ok_total, motivo = True, ""
     for horizonte in _HORIZONTES:
         desde = desde_de(horizonte, hoy)
-        ok, crudo = _traer(idc, denom, desde, headers)
+        ok, crudo, why = _traer(idc, denom, desde)
         if not ok:
             ok_total = False
+            motivo = motivo or why
             continue
         _escribir(hoy, horizonte, idc, desde,
                   _parse(crudo, idc, denom, hoy.isoformat(), amap), origen)
-    return ok_total
+    return ok_total, motivo
 
 
 def _refrescar_lote(cuentas: list[tuple[str, str]], hoy: date, amap: dict,
-                    headers: dict, origen: str, workers: int) -> tuple[int, int]:
-    """(ok, fallidas). Paralelo acotado — menos workers que el job diario."""
+                    origen: str, workers: int) -> tuple[int, int, dict[str, int]]:
+    """(ok, fallidas, motivos). Paralelo acotado — menos workers que el job diario.
+
+    `motivos` cuenta POR QUÉ falló cada una ({'timeout': 3, 'http_500': 9}). Sin
+    eso, «12 fallidas» no distingue a Aunesa caído de un token vencido — y esa
+    diferencia es la que decide si hay que hacer algo o no."""
     if not cuentas:
-        return 0, 0
+        return 0, 0, {}
     ok = fallo = 0
+    motivos: dict[str, int] = {}
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = {ex.submit(refrescar_cuenta, idc, dn, hoy, amap, headers, origen): idc
+        futs = {ex.submit(refrescar_cuenta, idc, dn, hoy, amap, origen): idc
                 for idc, dn in cuentas}
         for f in as_completed(futs):
             try:
-                if f.result():
-                    ok += 1
-                else:
-                    fallo += 1
+                bien, why = f.result()
             except Exception as e:
                 logger.warning("cuenta %s explotó: %s: %s", futs[f], type(e).__name__, e)
+                bien, why = False, type(e).__name__
+            if bien:
+                ok += 1
+            else:
                 fallo += 1
-    return ok, fallo
+                motivos[why or "?"] = motivos.get(why or "?", 0) + 1
+    return ok, fallo, motivos
 
 
 # ── daemon ────────────────────────────────────────────────────────────────────
@@ -364,7 +402,7 @@ def run() -> int:
 
     cargar_contrapartes()
     amap = _load_assets_map()
-    headers = autenticar()
+    headers = _reauth()
     df = obtener_cuentas(headers)
     universo = {str(r["id"]): str(r["denominacion"]) for _, r in df.iterrows()}
     if subset:
@@ -374,10 +412,10 @@ def run() -> int:
 
     # ① BARRIDO DE APERTURA — el 83% del costo del día, una sola vez.
     t0 = time.monotonic()
-    ok, fallo = _refrescar_lote(list(universo.items()), hoy, amap, headers,
-                                "apertura", workers)
+    ok, fallo, motivos = _refrescar_lote(list(universo.items()), hoy, amap,
+                                         "apertura", workers)
     print(f"  ✓ barrido de apertura: {ok} ok · {fallo} fallidas · "
-          f"{time.monotonic() - t0:.0f}s")
+          f"{time.monotonic() - t0:.0f}s" + (f" · motivos={motivos}" if motivos else ""))
     if una_pasada:
         return 0
 
@@ -415,18 +453,21 @@ def run() -> int:
 
         if not cola:
             continue
-        ok, fallo = _refrescar_lote(cola, hoy, amap, headers, "boleto", workers)
+        ok, fallo, motivos = _refrescar_lote(cola, hoy, amap, "boleto", workers)
         print(f"  [{_ahora_art():%H:%M}] refrescadas {ok} cuenta(s) por boleto"
-              + (f" · {fallo} fallidas" if fallo else ""))
+              + (f" · {fallo} fallidas {motivos}" if fallo else ""))
 
         # Circuit breaker: si Aunesa se cayó, frenar en vez de martillar.
         errores_seguidos = errores_seguidos + fallo if fallo else 0
         if errores_seguidos >= ERRORES_PARA_CORTE:
-            logger.warning("%d fallos seguidos — pausa de %ds (¿Aunesa caído?)",
-                           errores_seguidos, PAUSA_BREAKER_S)
+            # El motivo va en el mensaje: un 401 en masa es token vencido (se
+            # renueva solo en _traer) y NO es Aunesa caído. Decir «¿Aunesa caído?»
+            # a secas mandó a buscar un problema donde no había (2026-08-12).
+            logger.warning("%d fallos seguidos %s — pausa de %ds",
+                           errores_seguidos, motivos, PAUSA_BREAKER_S)
             time.sleep(PAUSA_BREAKER_S)
             errores_seguidos = 0
-            headers = autenticar()   # de paso, token nuevo
+            _reauth()
 
     print("🏁 cierre de rueda — tenencia_live termina")
     return 0

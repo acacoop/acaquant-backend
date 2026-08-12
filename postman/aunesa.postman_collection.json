@@ -6,7 +6,13 @@
   },
   "auth": {
     "type": "bearer",
-    "bearer": [{ "key": "token", "value": "{{aunesa_token}}", "type": "string" }]
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{aunesa_token}}",
+        "type": "string"
+      }
+    ]
   },
   "event": [
     {
@@ -118,14 +124,29 @@
     {
       "name": "0. Login (manual — normalmente NO hace falta)",
       "request": {
-        "auth": { "type": "noauth" },
+        "auth": {
+          "type": "noauth"
+        },
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"clientId\": \"{{aunesa_client_id}}\",\n  \"username\": \"{{aunesa_username}}\",\n  \"password\": \"{{aunesa_password}}\"\n}"
         },
-        "url": { "raw": "{{aunesa_base_url}}/login", "host": ["{{aunesa_base_url}}"], "path": ["login"] },
+        "url": {
+          "raw": "{{aunesa_base_url}}/login",
+          "host": [
+            "{{aunesa_base_url}}"
+          ],
+          "path": [
+            "login"
+          ]
+        },
         "description": "El pre-request de la coleccion ya hace esto solo. Este request queda para debug: si algo falla, corrrelo suelto y mira la respuesta cruda."
       },
       "event": [
@@ -151,8 +172,13 @@
         "header": [],
         "url": {
           "raw": "{{aunesa_base_url}}/cuentas/listadoCuentas",
-          "host": ["{{aunesa_base_url}}"],
-          "path": ["cuentas", "listadoCuentas"]
+          "host": [
+            "{{aunesa_base_url}}"
+          ],
+          "path": [
+            "cuentas",
+            "listadoCuentas"
+          ]
         },
         "description": "~1870 cuentas. El backend filtra tipo IN (Comitente, Propia) y estado = Activa."
       }
@@ -163,20 +189,67 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "{{aunesa_base_url}}/cuentas/{{id_cuenta}}/posicionValuada?desde={{desde}}&hasta=&tipoCuenta=Comitentes y propias&nivel=Especie x cuenta&ocultarCerradas=true",
-          "host": ["{{aunesa_base_url}}"],
-          "path": ["cuentas", "{{id_cuenta}}", "posicionValuada"],
+          "raw": "{{aunesa_base_url}}/cuentas/{{id_cuenta}}/posicionValuada?desde={{desde}}&hasta={{hasta}}&tipoCuenta=Comitentes y propias&nivel=Especie x cuenta&ocultarCerradas=true",
+          "host": [
+            "{{aunesa_base_url}}"
+          ],
+          "path": [
+            "cuentas",
+            "{{id_cuenta}}",
+            "posicionValuada"
+          ],
           "query": [
-            { "key": "desde", "value": "{{desde}}", "description": "DD/MM/YYYY. REGLA H1: devuelve la posicion LIQUIDADA al dia habil ANTERIOR a esta fecha. Para la posicion de HOY hay que mandar el proximo habil." },
-            { "key": "hasta", "value": "" },
-            { "key": "tipoCuenta", "value": "Comitentes y propias" },
-            { "key": "nivel", "value": "Especie x cuenta" },
-            { "key": "ocultarCerradas", "value": "true" },
-            { "key": "porConcertacion", "value": "true", "disabled": true, "description": "HIPOTESIS SIN CONFIRMAR — la de mayor valor de todas. Hoy la posicion viene por LIQUIDACION; si existe un modo por CONCERTACION, una sola llamada da 'lo que ya es mio' sin trucos de fecha. Nombre a confirmar en el Network de la web de Aunesa. Probar con valor absurdo (porConcertacion=CHANQUETE) para distinguir 'ignorado' de 'leido'." },
-            { "key": "lugar", "value": "Local", "disabled": true, "description": "HIPOTESIS — filtro de la web, nombre exacto a confirmar. El campo `lugar` SI viene en la respuesta." },
-            { "key": "estado", "value": "DIS", "disabled": true, "description": "HIPOTESIS — DIS disponible / GAR garantia / DIF diferido. Ya viene en la respuesta, asi que filtrar acá es comodidad, no dato nuevo." },
-            { "key": "tipoTitulo", "value": "", "disabled": true, "description": "HIPOTESIS — nombre exacto a confirmar." },
-            { "key": "especie", "value": "", "disabled": true, "description": "HIPOTESIS — nombre exacto a confirmar." }
+            {
+              "key": "desde",
+              "value": "{{desde}}",
+              "description": "DD/MM/YYYY. REGLA H1: devuelve la posicion LIQUIDADA al dia habil ANTERIOR a esta fecha. Para la posicion de HOY hay que mandar el proximo habil."
+            },
+            {
+              "key": "hasta",
+              "value": "{{hasta}}"
+            },
+            {
+              "key": "tipoCuenta",
+              "value": "Comitentes y propias"
+            },
+            {
+              "key": "nivel",
+              "value": "Especie x cuenta"
+            },
+            {
+              "key": "ocultarCerradas",
+              "value": "true"
+            },
+            {
+              "key": "porConcertacion",
+              "value": "{{por_concertacion}}",
+              "disabled": true,
+              "description": "HIPOTESIS SIN CONFIRMAR — la de mayor valor de todas. Hoy la posicion viene por LIQUIDACION; si existe un modo por CONCERTACION, una sola llamada da 'lo que ya es mio' sin trucos de fecha. Nombre a confirmar en el Network de la web de Aunesa. Probar con valor absurdo (porConcertacion=CHANQUETE) para distinguir 'ignorado' de 'leido'."
+            },
+            {
+              "key": "lugar",
+              "value": "{{lugar}}",
+              "disabled": true,
+              "description": "HIPOTESIS — filtro de la web, nombre exacto a confirmar. El campo `lugar` SI viene en la respuesta."
+            },
+            {
+              "key": "estado",
+              "value": "{{estado}}",
+              "disabled": true,
+              "description": "HIPOTESIS — DIS disponible / GAR garantia / DIF diferido. Ya viene en la respuesta, asi que filtrar acá es comodidad, no dato nuevo."
+            },
+            {
+              "key": "tipoTitulo",
+              "value": "",
+              "disabled": true,
+              "description": "HIPOTESIS — nombre exacto a confirmar."
+            },
+            {
+              "key": "especie",
+              "value": "",
+              "disabled": true,
+              "description": "HIPOTESIS — nombre exacto a confirmar."
+            }
           ]
         },
         "description": "La respuesta trae DOS cosas mezcladas y se distinguen por el campo `informacion`:\n\n- `informacion == 'Acumulado'` → las POSICIONES (esto es lo unico que persiste el job diario).\n- cualquier otro texto → un MOVIMIENTO PENDIENTE con su fecha de liquidacion en el campo `fecha` (ej. 'Venta [AO29] 2.197,00@143152 (ARS 24hs)', 'Caucion tomadora ARS 3.143.854,00@25,75% (ARS 1 dias) (Cierre)').\n\nA medida que `desde` avanza hay MENOS movimientos: los que ya liquidaron se absorben en el Acumulado."
@@ -189,12 +262,28 @@
         "header": [],
         "url": {
           "raw": "{{aunesa_base_url}}/operaciones/consolidadosGenerales?tiposCuenta=Comitente&concertacionDesde={{desde}}&concertacionHasta={{desde}}",
-          "host": ["{{aunesa_base_url}}"],
-          "path": ["operaciones", "consolidadosGenerales"],
+          "host": [
+            "{{aunesa_base_url}}"
+          ],
+          "path": [
+            "operaciones",
+            "consolidadosGenerales"
+          ],
           "query": [
-            { "key": "tiposCuenta", "value": "Comitente" },
-            { "key": "concertacionDesde", "value": "{{desde}}", "description": "DD/MM/YYYY" },
-            { "key": "concertacionHasta", "value": "{{desde}}", "description": "DD/MM/YYYY" }
+            {
+              "key": "tiposCuenta",
+              "value": "Comitente"
+            },
+            {
+              "key": "concertacionDesde",
+              "value": "{{desde}}",
+              "description": "DD/MM/YYYY"
+            },
+            {
+              "key": "concertacionHasta",
+              "value": "{{desde}}",
+              "description": "DD/MM/YYYY"
+            }
           ]
         },
         "description": "Fuente de operaciones.negocio_movimientos (jobs/negocio_movimientos.py). Devuelve LINEAS que el backend agrupa por comprobante en boletos."
@@ -207,14 +296,38 @@
         "header": [],
         "url": {
           "raw": "{{aunesa_base_url}}/operaciones/informes?cuenta={{id_cuenta}}&fechaDesde={{desde}}&fechaHasta={{hasta}}&fechaConcDesde={{desde}}&fechaConcHasta={{hasta}}",
-          "host": ["{{aunesa_base_url}}"],
-          "path": ["operaciones", "informes"],
+          "host": [
+            "{{aunesa_base_url}}"
+          ],
+          "path": [
+            "operaciones",
+            "informes"
+          ],
           "query": [
-            { "key": "cuenta", "value": "{{id_cuenta}}" },
-            { "key": "fechaDesde", "value": "{{desde}}", "description": "LIQUIDACION (requerida por el endpoint)" },
-            { "key": "fechaHasta", "value": "{{hasta}}", "description": "LIQUIDACION" },
-            { "key": "fechaConcDesde", "value": "{{desde}}", "description": "CONCERTACION (el filtro que interesa)" },
-            { "key": "fechaConcHasta", "value": "{{hasta}}", "description": "CONCERTACION" }
+            {
+              "key": "cuenta",
+              "value": "{{id_cuenta}}"
+            },
+            {
+              "key": "fechaDesde",
+              "value": "{{desde}}",
+              "description": "LIQUIDACION (requerida por el endpoint)"
+            },
+            {
+              "key": "fechaHasta",
+              "value": "{{hasta}}",
+              "description": "LIQUIDACION"
+            },
+            {
+              "key": "fechaConcDesde",
+              "value": "{{desde}}",
+              "description": "CONCERTACION (el filtro que interesa)"
+            },
+            {
+              "key": "fechaConcHasta",
+              "value": "{{hasta}}",
+              "description": "CONCERTACION"
+            }
           ]
         },
         "description": "Fuente de operaciones.operaciones (jobs/operaciones_informes.py). OJO: fechaDesde/Hasta son de LIQUIDACION y son obligatorias; el filtro real es fechaConc*. 204 = sin operaciones (no es error)."

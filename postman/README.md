@@ -38,6 +38,29 @@ que jugás; ya vienen con un ejemplo cargado.
 > devuelve la posición liquidada al día hábil **anterior** a X. Para ver la
 > posición de hoy hay que mandar el próximo hábil.
 
+### Los parámetros que el job NO manda (2026-08-12)
+
+`posicionValuada` acepta más de lo que el backfill le manda. Estos ahora son
+variables del environment, para moverlos sin editar el request:
+
+| variable | qué prueba |
+|---|---|
+| `por_concertacion` | por CONCERTACIÓN vs por LIQUIDACIÓN. **Es el que importa**: por liquidación, una caución que vence dentro de un mes ya está adentro del `Acumulado` y deja el ARS negativo HOY. |
+| `estado` | `DIS` disponible · `GAR` garantía · `DIF` diferido. Vacío = todos. |
+| `lugar` | `Local` u otros. Vacío = todos. |
+
+El job diario manda solo `desde`, `hasta`, `tipoCuenta`, `nivel` y
+`ocultarCerradas` — los tres de arriba nunca se probaron.
+
+Para barrer las combinaciones de una sola vez, sin ir de a una en Postman:
+
+```
+python -m scripts.diag_caucion_saldo --cuenta 805
+```
+
+Devuelve una tabla variante × Acumulado de ARS/USD/USDC. La fila cuyo ARS
+coincide con el saldo real es la respuesta.
+
 ### Lo que la posición valuada devuelve de verdad
 
 La respuesta mezcla dos cosas, y se separan por el campo `informacion`:

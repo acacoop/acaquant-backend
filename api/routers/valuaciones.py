@@ -144,6 +144,13 @@ def get_posiciones_actuales(
         description="Adjunta cost-basis y PnL por título (solo si la fecha es el "
                     "último snapshot). Cuesta una corrida del motor de PnL.",
     ),
+    horizonte: str = Query(
+        "t1",
+        description="Solo SIN `fecha` (modo actual): t1 = posición con lo concertado "
+                    "HOY adentro (default, la que mira el negocio) · t0 = liquidada a "
+                    "hoy, lo que está en custodia (la que mira el back office). "
+                    "Con `fecha` se ignora: un día pasado ya liquidó todo.",
+    ),
 ):
     """Posiciones de un fecha_snapshot dado — por default, el más
     reciente. Pasar fecha=YYYY-MM-DD para ver una fecha histórica
@@ -151,6 +158,9 @@ def get_posiciones_actuales(
 
     Pure AuM read; con `con_pnl=true` suma costo/PnL/gan% por título y el
     detalle (boletos) que consume el panel de AUDITORÍA de CARTERAS.
+
+    SIN `fecha` la posición sale de `portafolio.tenencia_live` (el daemon
+    `jobs.tenencia_live`); CON `fecha`, de la foto conciliada de siempre.
     """
     _validate_id_cuenta(id_cuenta)
     if fecha:
@@ -164,6 +174,7 @@ def get_posiciones_actuales(
         from api.services import valuaciones_sql as svc_sql
         return svc_sql.posiciones_actuales(
             id_cuenta=id_cuenta, fecha=fecha, asof=True, con_pnl=con_pnl,
+            horizonte=horizonte,
         )
     except Exception as e:
         logger.exception(

@@ -29,6 +29,11 @@ from api.services.pnl import (
 
 _PLACEHOLDERS = {"", "NO APLICA"}
 
+# `base` del loader → horizonte de `portafolio.tenencia_live`. Un dict y no un
+# f-string suelto: el valor entra a la query, así que solo pueden existir los que
+# están acá (cualquier otro `base` cae al default `tenencia`).
+_BASES_LIVE = {"live_t0": "t0", "live_t1": "t1"}
+
 
 def _iso(d):
     return d.isoformat() if hasattr(d, "isoformat") else (str(d)[:10] if d else None)
@@ -155,8 +160,10 @@ def _deps_sql(only_cuenta: str | None, base: str = "tenencia") -> dict:
 
     `base` decide de dónde salen las CANTIDADES de la posición:
       "tenencia" (default) → `portafolio.tenencia`, la foto conciliada de ayer.
-      "live_t1"            → `portafolio.tenencia_live` t1, la posición de HOY
-                             con lo concertado hoy adentro.
+      "live_t0"            → `portafolio.tenencia_live` t0: liquidada A HOY (lo que
+                             está en custodia — se puede entregar/garantizar).
+      "live_t1"            → `portafolio.tenencia_live` t1: liquidada a MAÑANA, con
+                             lo concertado hoy adentro (la posición "económica").
 
     Es opt-in porque este loader alimenta a TODOS los consumidores del motor —
     la vista VALUACIONES, el asistente de IA y el cron que precalcula
@@ -204,11 +211,10 @@ def _deps_sql(only_cuenta: str | None, base: str = "tenencia") -> dict:
         fecha_actual_aum_global = _iso(snap)
         cols = ("id_cuenta, unidad, cantidad, precio, valuacion, tipo_titulo, cartera")
         rows: list[dict] = []
-        if base == "live_t1":
-            # Posición del DÍA (t1 = con lo concertado hoy adentro). Mismo filtro
-            # `aum='si'` que la foto, así el universo sumado es idéntico y la única
-            # variable que cambia es la fecha base.
-            wl = ("horizonte = 't1' AND aum = 'si' "
+        if base in _BASES_LIVE:
+            # Posición del DÍA. Mismo filtro `aum='si'` que la foto, así el universo
+            # sumado es idéntico y la única variable que cambia es la fecha base.
+            wl = (f"horizonte = '{_BASES_LIVE[base]}' AND aum = 'si' "
                   "AND fecha = (SELECT MAX(fecha) FROM portafolio.tenencia_live)")
             pl: dict = {}
             if only_cuenta is not None:
@@ -252,8 +258,7 @@ def _deps_sql(only_cuenta: str | None, base: str = "tenencia") -> dict:
 def pnl_por_cuenta_sql(id_cuenta: str, base: str = "tenencia") -> dict:
     """PnL por (cuenta, ticker) reusando el motor, con datos de SQL.
 
-    `base="live_t1"` toma la posición del día (`portafolio.tenencia_live`) en vez
-    de la foto de ayer. Ver `_deps_sql`.
+    `base` ∈ {"tenencia", "live_t0", "live_t1"} — ver `_deps_sql`.
     """
     deps = _deps_sql(only_cuenta=str(id_cuenta), base=base)
     return _pnl_por_cuenta_core(

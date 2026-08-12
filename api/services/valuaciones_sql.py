@@ -133,9 +133,12 @@ def serie_valor_cuenta(id_cuenta: str, desde: str | None = None,
     }
 
 
+_HORIZONTES = ("t0", "t1")
+
+
 def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
                         cartera: str | None = None, asof: bool = False,
-                        con_pnl: bool = False) -> dict:
+                        con_pnl: bool = False, horizonte: str = "t1") -> dict:
     """Posiciones de un fecha_snapshot dado — SQL. Mismo shape que valuaciones.py.
 
     `tipo` (tipoTitulo) no existe en tenencia → None. `vencimiento` no está en la tabla
@@ -145,14 +148,20 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
     corrida del motor de PnL, así que va apagado por defecto.
 
     SIN `fecha` (el modo "ACTUAL" de la vista) la posición sale de
-    `portafolio.tenencia_live` horizonte **t1** — la del DÍA, con lo concertado hoy
-    adentro. CON `fecha` es una consulta HISTÓRICA y sale de `portafolio.tenencia`,
-    la foto conciliada, igual que siempre. Ese es exactamente el corte que pide la
-    vista: el selector de fecha separa "hoy" de "un día pasado", y para un día
-    pasado no existen t0/t1 — hay una sola verdad.
+    `portafolio.tenencia_live`, en el `horizonte` pedido:
+      t1 (default) → liquidada a MAÑANA: con lo concertado HOY adentro. Es "cuánto
+                     vale el cliente", la que mira el negocio.
+      t0           → liquidada a HOY: lo que está en custodia y se puede entregar,
+                     garantizar o caucionar. Es la que mira el back office.
+
+    CON `fecha` es una consulta HISTÓRICA y sale de `portafolio.tenencia`, la foto
+    conciliada, igual que siempre — y ahí `horizonte` se IGNORA: para un día pasado
+    no existen t0/t1, hay una sola verdad y ya liquidó todo.
 
     Si el daemon no corrió (fin de semana, caído), cae sola a la foto.
     """
+    if horizonte not in _HORIZONTES:
+        horizonte = "t1"
     pedido_live = fecha is None
     fecha = _resolver_fecha(id_cuenta, fecha, asof)
     if fecha is None:
@@ -177,7 +186,7 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
         try:
             rows = _q(_SEL.format(
                 tabla="portafolio.tenencia_live",
-                extra=" AND v.horizonte = 't1' AND v.fecha = "
+                extra=f" AND v.horizonte = '{horizonte}' AND v.fecha = "
                       "(SELECT MAX(fecha) FROM portafolio.tenencia_live)"), p)
         except Exception:
             logger.exception("posiciones_actuales: tenencia_live falló — uso la foto")
@@ -253,11 +262,12 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
         "pnl_detalle":    {},
     }
     if con_pnl:
-        _enriquecer_con_pnl(resp, id_cuenta, desde_live=desde_live)
+        _enriquecer_con_pnl(resp, id_cuenta,
+                            base_live=f"live_{horizonte}" if desde_live else None)
     return resp
 
 
-def _enriquecer_con_pnl(resp: dict, id_cuenta: str, desde_live: bool = False) -> None:
+def _enriquecer_con_pnl(resp: dict, id_cuenta: str, base_live: str | None = None) -> None:
     """Adjunta cost-basis y PnL por título a las posiciones (join por `unidad`).
 
     El motor de PnL calcula contra UNA base de posición, y el join es por `unidad`:
@@ -265,22 +275,21 @@ def _enriquecer_con_pnl(resp: dict, id_cuenta: str, desde_live: bool = False) ->
     COSTO y el GAN% quedan atribuidos a una cantidad que no es la de la pantalla.
     Por eso el motor se corre con la MISMA fuente de la que salieron las posiciones:
 
-      desde_live=True  → `base="live_t1"` (posición del día, la que se está viendo).
-      desde_live=False → foto, y solo si la fecha pedida ES el último snapshot;
-                         cruzar el PnL con una tenencia histórica no tiene sentido.
+      base_live seteado → esa misma base live (el horizonte que se está viendo).
+      base_live=None    → foto, y solo si la fecha pedida ES el último snapshot;
+                          cruzar el PnL con una tenencia histórica no tiene sentido.
 
     `pnl_detalle` va indexado por `unidad` con los rows completos (incluyen boletos)
     para que la auditoría por título no obligue a una segunda corrida del motor.
 
     Falla blando: si el motor rompe, las posiciones se devuelven igual sin PnL.
     """
-    if not desde_live and resp["fecha"] != _resolver_fecha(id_cuenta, None, False):
+    if not base_live and resp["fecha"] != _resolver_fecha(id_cuenta, None, False):
         return
     from api.services import pnl_sql
     try:
         rows = (pnl_sql.pnl_por_cuenta_sql(
-            id_cuenta=id_cuenta,
-            base="live_t1" if desde_live else "tenencia") or {}).get("rows") or []
+            id_cuenta=id_cuenta, base=base_live or "tenencia") or {}).get("rows") or []
     except Exception:
         logger.exception("posiciones_actuales: PnL falló, id_cuenta=%s", id_cuenta)
         return

@@ -58,6 +58,53 @@
           "}"
         ]
       }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// HUELLA de la respuesta — 4 lineas en la consola de Postman (View → Show Postman Console).",
+          "//",
+          "// Sirve para PROBAR HIPOTESIS sobre parametros desconocidos sin leer el JSON a ojo:",
+          "// corres el baseline, anotas la huella, prendes UN parametro, y comparas.",
+          "//",
+          "// OJO con el modo de fallar de estas pruebas: la mayoria de las APIs IGNORA en",
+          "// silencio los params que no conoce, asi que 'la huella no cambio' NO prueba que el",
+          "// parametro exista y no haga nada — puede simplemente no existir. Para distinguir,",
+          "// mandale un valor ABSURDO (ej. nivel=CHANQUETE): si tira 400/500 el campo se lee de",
+          "// verdad; si devuelve 200 identico, lo esta ignorando y el nombre esta mal.",
+          "",
+          "try {",
+          "  if (pm.response.code === 204) {",
+          "    console.log('── ' + pm.info.requestName + ' → 204 (sin posicion)');",
+          "  } else {",
+          "    const j = pm.response.json();",
+          "    if (!Array.isArray(j)) {",
+          "      console.log('── ' + pm.info.requestName + ' → HTTP ' + pm.response.code +",
+          "                  ' · la respuesta NO es una lista');",
+          "    } else {",
+          "      const acum = j.filter(function (r) { return r && r.informacion === 'Acumulado'; });",
+          "      const movs = j.filter(function (r) { return r && r.informacion !== 'Acumulado'; });",
+          "      const pos = {};",
+          "      acum.forEach(function (r) {",
+          "        pos[r.unidad] = (pos[r.unidad] || 0) + Number(r.cantidad || 0) * -1;",
+          "      });",
+          "      const fechas = {};",
+          "      movs.forEach(function (m) { fechas[String(m.fecha || '').slice(0, 10)] = 1; });",
+          "      console.log('── ' + pm.info.requestName + ' → HTTP ' + pm.response.code);",
+          "      console.log('   ' + j.length + ' filas · ' + acum.length + ' acumulado · ' +",
+          "                  movs.length + ' movimientos pendientes');",
+          "      console.log('   posiciones: ' + JSON.stringify(pos));",
+          "      console.log('   liquidan en: ' + JSON.stringify(Object.keys(fechas).sort()));",
+          "    }",
+          "  }",
+          "} catch (e) {",
+          "  console.log('── ' + pm.info.requestName + ' → HTTP ' + pm.response.code +",
+          "              ' · no pude parsear: ' + e.message);",
+          "}"
+        ]
+      }
     }
   ],
   "variable": [
@@ -124,7 +171,12 @@
             { "key": "hasta", "value": "" },
             { "key": "tipoCuenta", "value": "Comitentes y propias" },
             { "key": "nivel", "value": "Especie x cuenta" },
-            { "key": "ocultarCerradas", "value": "true" }
+            { "key": "ocultarCerradas", "value": "true" },
+            { "key": "porConcertacion", "value": "true", "disabled": true, "description": "HIPOTESIS SIN CONFIRMAR — la de mayor valor de todas. Hoy la posicion viene por LIQUIDACION; si existe un modo por CONCERTACION, una sola llamada da 'lo que ya es mio' sin trucos de fecha. Nombre a confirmar en el Network de la web de Aunesa. Probar con valor absurdo (porConcertacion=CHANQUETE) para distinguir 'ignorado' de 'leido'." },
+            { "key": "lugar", "value": "Local", "disabled": true, "description": "HIPOTESIS — filtro de la web, nombre exacto a confirmar. El campo `lugar` SI viene en la respuesta." },
+            { "key": "estado", "value": "DIS", "disabled": true, "description": "HIPOTESIS — DIS disponible / GAR garantia / DIF diferido. Ya viene en la respuesta, asi que filtrar acá es comodidad, no dato nuevo." },
+            { "key": "tipoTitulo", "value": "", "disabled": true, "description": "HIPOTESIS — nombre exacto a confirmar." },
+            { "key": "especie", "value": "", "disabled": true, "description": "HIPOTESIS — nombre exacto a confirmar." }
           ]
         },
         "description": "La respuesta trae DOS cosas mezcladas y se distinguen por el campo `informacion`:\n\n- `informacion == 'Acumulado'` → las POSICIONES (esto es lo unico que persiste el job diario).\n- cualquier otro texto → un MOVIMIENTO PENDIENTE con su fecha de liquidacion en el campo `fecha` (ej. 'Venta [AO29] 2.197,00@143152 (ARS 24hs)', 'Caucion tomadora ARS 3.143.854,00@25,75% (ARS 1 dias) (Cierre)').\n\nA medida que `desde` avanza hay MENOS movimientos: los que ya liquidaron se absorben en el Acumulado."

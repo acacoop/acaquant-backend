@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **448 endpoints** montados en `api.main.app`, en **28 routers**.
-- **144 escriben** (POST/PUT/PATCH/DELETE); 304 son de solo lectura.
+- **449 endpoints** montados en `api.main.app`, en **28 routers**.
+- **144 escriben** (POST/PUT/PATCH/DELETE); 305 son de solo lectura.
 - **22 módulos** canónicos y **6 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -49,7 +49,7 @@
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/analitica` | 15 | 1 | — | — | ⚠️ |
-| `/api/back-office` | 56 | 33 | `back-office` · 56 rutas con gate extra | `back-office` |  |
+| `/api/back-office` | 57 | 33 | `back-office` · 57 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 19 | 12 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 33 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
@@ -417,7 +417,7 @@ Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el brie
 | `/referidos` | *sin tabs de vista* | `referidos.*` | Detalle del cliente con mini-tabs `pnl` / `ops`; tabla FCI aparte |
 | `/contrapartes` | *sin tabs* — **2 modos excluyentes** (rango / día) | — | El modo lo decide si el filtro Día tiene valor |
 | `/mesa-dinero` | **OPERACIONES** · RESULTADOS · ACA VALORES RETORNO TOTAL | `mesaDinero.tab` | |
-| `/back-office` | Senebis · **Tenencia Valorizada** · Títulos en Alquiler · Tesorería · Títulos / Mercado · Acreencias Clientes | `backoffice.tab` | ⚠ El orden VISUAL pone Senebis primero pero **el default es la 2ª tab**. Senebis: **Órdenes** · Excel Quantex · Excel MAE. Tesorería: **movimientos** · bancos · cheques · mercados · banco a banco. Alquiler: **Portfolio Alquiler** · Marcas por cuenta |
+| `/back-office` | Senebis · **Tenencia Valorizada** · Títulos en Alquiler · Tesorería · Títulos / Mercado · Acreencias Clientes · Control Títulos Negativos | `backoffice.tab` | ⚠ El orden VISUAL pone Senebis primero pero **el default es la 2ª tab**. Senebis: **Órdenes** · Excel Quantex · Excel MAE. Tesorería: **movimientos** · bancos · cheques · mercados · banco a banco. Alquiler: **Portfolio Alquiler** · Marcas por cuenta |
 | `/manager` | **OBSERVABILIDAD** · VALIDACIONES · TÍTULOS · CLIENTES · CONTRAPARTES · ACA VALORES · AUNESA · OPERACIONES · MESA · DOCUMENTOS · USUARIOS | `manager.tab` + sub-pills | 11 top-level, **36 hojas**; ver 3.4 |
 
 ### 3.4 Sub-pills de Manager (segundo nivel, todas persistidas)
@@ -1518,6 +1518,7 @@ nunca ve ese request. `/api/titulos/assets` **no tiene consumidor**.
 | **Tesorería** | La caja del día. 5 tabs internas | ver bloque | ver bloque | allowlist `tesoreria_escritores` + admin |
 | **Títulos / Mercado** | Qué títulos hay que ENVIAR y RECIBIR al mercado hoy, por ticker (expandible a comitentes) o por par ticker·comitente. Poll 10s | `/titulos-mercado` | `fecha` (def hoy); client-side: unidad `nominales`/`dinero`, filtro `ambos`/`enviar`/`recibir`, vista `ticker`/`comitente`, sort por neto | Solo **export .xlsx client-side** (`titulos-mercado-<fecha>.xlsx`) |
 | **Acreencias Clientes** | Calendario de cobros futuros: tabla/chart por día + detalle del día por cliente·ticker | `/acreencias/por-dia`, `/acreencias/dia` | `desde` (def hoy) / `hasta` (def hoy+90) con atajos; día seleccionado; client-side `fTicker`, moneda `ALL/ARS/USD` | Ninguna |
+| **Control Títulos Negativos** | Títulos con **nominales < 0 en la posición T0** (liquidada a HOY = lo que está en custodia y se puede entregar). Poll 20s. KPIs títulos negativos / cuentas afectadas + **antigüedad del dato** en la barra | `/titulos-negativos` | `incluir_monedas` (def **no** — el efectivo negativo es un descubierto bancario, otro problema), `solo_aum` (def **no** — un negativo fuera del AuM sigue siendo un descubierto); buscador `q` client-side por ticker/cuenta | Ninguna (solo lectura) |
 
 **Endpoints no-Tesorería (14)**: `GET /titulos-mercado` (settlement = ops de `fecha` con plazo CI/Inm +
 ops del día hábil anterior con plazo 24hs; `op=Venta`→enviar, `Compra`→recibir; día no hábil →

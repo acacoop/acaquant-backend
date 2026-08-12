@@ -13,6 +13,7 @@ from api.auth import get_user_email
 from api.services import acreencias as svc_acr
 from api.services import tenencia_hd as svc_ten
 from api.services import tesoreria as svc_tes
+from api.services import titulos_negativos as svc_negativos
 from api.services._grupos_scope import verificar_id_cuenta
 from api.services.back_office_titulos import get_titulos_mercado
 
@@ -669,6 +670,29 @@ def titulos_mercado(
     estructura vacía con `mercado_cerrado: true`.
     """
     return get_titulos_mercado(fecha=fecha)
+
+
+# ── Control de títulos NEGATIVOS (posición T0) ────────────────────────────────
+@router.get("/titulos-negativos")
+def titulos_negativos(
+    incluir_monedas: bool = Query(
+        False, description="Sumar también el efectivo (ARS/USD/USDC). Default: no — "
+                           "un saldo de caja negativo es un descubierto, otro problema"),
+    solo_aum: bool = Query(
+        False, description="Filtrar por aum='si'. Default: no — un nominal negativo "
+                           "en una cuenta excluida del AuM sigue siendo un descubierto"),
+    _email: str = Depends(get_user_email),
+):
+    """Títulos con nominales NEGATIVOS en la posición liquidada a HOY (T0).
+
+    Lee `portafolio.tenencia_live` (horizonte t0), que refresca el daemon
+    durante la rueda — la vista pollea y por eso es "tiempo real". La respuesta
+    trae `actualizado_at` para que la pantalla pueda distinguir "no hay
+    negativos" de "el daemon no está corriendo".
+    """
+    # `@cached` arma la key por NOMBRE de argumento → siempre kwargs (api/CLAUDE.md).
+    return svc_negativos.titulos_negativos(
+        incluir_monedas=incluir_monedas, solo_aum=solo_aum)
 
 
 # ── Acreencias clientes (cobros futuros, precompute CashFlow.Acreencias) ──

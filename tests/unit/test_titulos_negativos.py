@@ -64,7 +64,7 @@ def test_por_default_quedan_afuera_monedas_Y_derivados(monkeypatch):
     es un título en descubierto; si entran, la pantalla es ruido."""
     _, cap = _correr(monkeypatch)
     sql, params = _sql_de(cap, "t0")
-    assert "upper(coalesce(cartera, ''))" in sql, "no filtra por cartera"
+    assert "a.cartera" in sql, "no filtra por cartera"
     assert params["excl"] == ["MONEDAS", "MONEDA", "DERIVADOS", "DERIVADO"]
 
 
@@ -113,7 +113,7 @@ def test_pide_t0_Y_t1(monkeypatch):
 def test_cada_lado_ordena_del_peor_al_menos(monkeypatch):
     _, cap = _correr(monkeypatch)
     for h in ("t0", "t1"):
-        assert "ORDER BY cantidad ASC" in _sql_de(cap, h)[0]
+        assert "ORDER BY tl.cantidad ASC" in _sql_de(cap, h)[0]
 
 
 def test_un_horizonte_vacio_no_afecta_al_otro(monkeypatch):
@@ -142,3 +142,26 @@ def test_cuenta_vacia_no_deja_la_fila_sin_etiqueta(monkeypatch):
     saber a quién llamar."""
     resp, _ = _correr(monkeypatch, {"t0": [_fila(cuenta=None)]})
     assert resp["t0"]["filas"][0]["cuenta"] == "[805]"
+
+
+# ── la CLASIFICACIÓN se lee en vivo, no la copia congelada ───────────────────
+def test_la_cartera_sale_de_assets_en_vivo_no_de_la_copia_de_tenencia(monkeypatch):
+    """Incidente 2026-08-12: unos OTC clasificados como DERIVADOS en Manager
+    seguían apareciendo en el control.
+
+    Causa: el daemon carga `portafolio.assets` UNA vez al arrancar y lo reusa las
+    ~10 horas que corre, así que la `cartera` que copia a `tenencia_live` es la
+    que existía a las 11:00. Reclasificar a mediodía no tenía efecto hasta el día
+    siguiente, y sin ningún síntoma visible.
+
+    La cartera es una CLASIFICACIÓN (metadato mutable), no un hecho del día: se
+    resuelve con JOIN a `assets` al momento de mirar. `tenencia_live.cartera`
+    queda solo de respaldo para unidades que no estén en el catálogo.
+    """
+    _, cap = _correr(monkeypatch)
+    sql, _ = _sql_de(cap, "t0")
+    assert "LEFT JOIN portafolio.assets a ON a.unidad = tl.unidad" in sql, \
+        "no joinea assets — vuelve a depender de la copia congelada"
+    # El respaldo tiene que estar: una unidad fuera del catálogo no puede quedar
+    # sin cartera y colarse como si fuera un título.
+    assert "tl.cartera" in sql, "se perdió el fallback a la copia de tenencia_live"

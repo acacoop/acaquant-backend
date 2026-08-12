@@ -91,6 +91,8 @@ logger = logging.getLogger("jobs.tenencia_live")
 # ── knobs ─────────────────────────────────────────────────────────────────────
 HORA_CIERRE_ART = 18          # el daemon termina a esta hora (ART)
 DETECTOR_S      = 180         # cada cuánto se pregunta quién se movió
+RECARGA_ASSETS_S = 600        # cada cuánto se relee portafolio.assets (clasificación
+                              # que la mesa edita en vivo — ver el loop)
 DEBOUNCE_S      = 60          # una cuenta no se refresca más seguido que esto
 WORKERS         = 6           # MENOS que los 10 del job diario: este no es el importante
 ESPERA_BACKFILL_S = 60        # cada cuánto se re-chequea si el job diario terminó
@@ -429,12 +431,30 @@ def run() -> int:
     vistos: dict[str, set[str]] = {}      # id_cuenta → comprobantes ya procesados
     ultimo_refresh: dict[str, float] = {}  # id_cuenta → monotonic del último refresco
     errores_seguidos = 0
+    ultimo_amap = time.monotonic()
 
     while _ahora_art().hour < HORA_CIERRE_ART:
         time.sleep(DETECTOR_S)
         if _hoy_art() != hoy:
             print("cambió el día — termino")
             break
+
+        # El catálogo de assets se RECARGA cada tanto. Antes se leía una sola vez
+        # al arrancar y se reusaba las ~10 horas del día: un título que la mesa
+        # clasificaba a mediodía (cartera, ticker) seguía guardándose con el valor
+        # viejo hasta el reinicio del día siguiente — y las vistas que leen esa
+        # copia mostraban la clasificación de ayer sin ningún síntoma visible.
+        # Es UNA query a una tabla chica cada 10 minutos.
+        if time.monotonic() - ultimo_amap >= RECARGA_ASSETS_S:
+            try:
+                nuevo = _load_assets_map()
+                if nuevo:                       # vacío = algo falló; conservar el viejo
+                    amap = nuevo
+                ultimo_amap = time.monotonic()
+            except Exception as e:
+                logger.warning("recarga de assets falló (sigo con el mapa anterior): "
+                               "%s: %s", type(e).__name__, e)
+                ultimo_amap = time.monotonic()  # no reintentar en cada vuelta
         try:
             movs = detectar_movimientos(hoy)
         except Exception as e:

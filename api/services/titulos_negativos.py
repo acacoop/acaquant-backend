@@ -37,6 +37,17 @@ _CARTERAS_EXCLUIDAS = ("MONEDAS", "MONEDA", "DERIVADOS", "DERIVADO")
 
 _HORIZONTES = ("t0", "t1")
 
+# ⚠️ La CARTERA se lee de `portafolio.assets` EN VIVO, no de la copia congelada en
+# `tenencia_live`. Motivo (2026-08-12): el daemon carga el catálogo de assets UNA
+# vez al arrancar y lo reusa las 10 horas que corre, así que un título
+# reclasificado a mediodía sigue guardándose con la cartera vieja hasta el día
+# siguiente. La cartera es una CLASIFICACIÓN (metadato mutable), no un hecho del
+# día: tiene que resolverse al momento de mirar. Con el join, corregir un asset en
+# Manager se refleja en el próximo poll.
+#
+# `tl.cartera` queda de respaldo por si la unidad no está en `assets`.
+_CARTERA = "upper(coalesce(nullif(a.cartera, ''), tl.cartera, ''))"
+
 # Predicado que deja afuera esas carteras. Dos criterios en OR, y el segundo es la
 # red del primero:
 #
@@ -48,10 +59,12 @@ _HORIZONTES = ("t0", "t1")
 #
 # El patrón del LIKE va como PARÁMETRO y no interpolado: con `%` literal dentro
 # del SQL, psycopg lo toma como placeholder y la query revienta en runtime.
-_EXCLUIR = ("AND NOT (upper(coalesce(cartera, '')) = ANY(%(excl)s) "
-            "OR unidad NOT LIKE %(pfx)s)")
+_EXCLUIR = (f"AND NOT ({_CARTERA} = ANY(%(excl)s) "
+            "OR tl.unidad NOT LIKE %(pfx)s)")
 
-_COLS = ("id_cuenta, cuenta, unidad, ticker, cartera, cantidad, actualizado_at")
+_COLS = ("tl.id_cuenta, tl.cuenta, tl.unidad, "
+         "coalesce(nullif(a.ticker, ''), tl.ticker) AS ticker, "
+         f"{_CARTERA} AS cartera, tl.cantidad, tl.actualizado_at")
 
 
 def _negativos_de(horizonte: str, incluir_todo: bool) -> list[dict]:
@@ -63,12 +76,13 @@ def _negativos_de(horizonte: str, incluir_todo: bool) -> list[dict]:
 
     filas = _q(
         f"SELECT {_COLS} "
-        "FROM portafolio.tenencia_live "
-        "WHERE horizonte = %(h)s "
-        "  AND fecha = (SELECT MAX(fecha) FROM portafolio.tenencia_live) "
-        "  AND cantidad < 0 "
+        "FROM portafolio.tenencia_live tl "
+        "LEFT JOIN portafolio.assets a ON a.unidad = tl.unidad "
+        "WHERE tl.horizonte = %(h)s "
+        "  AND tl.fecha = (SELECT MAX(fecha) FROM portafolio.tenencia_live) "
+        "  AND tl.cantidad < 0 "
         f"  {extra} "
-        "ORDER BY cantidad ASC",
+        "ORDER BY tl.cantidad ASC",
         params,
     )
     return [{

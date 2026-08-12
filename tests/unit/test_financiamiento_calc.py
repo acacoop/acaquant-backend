@@ -93,6 +93,42 @@ def test_parametros_imposibles_gritan(kw, msg):
         calcular_puro(**{**CASO, **kw})
 
 
+def test_tabla_faltante_no_sale_como_error_generico(monkeypatch):
+    """Guardar una SGR con el schema SIN aplicar tiene que decir QUÉ falta.
+
+    Antes tiraba un HTTP 500 pelado: el usuario veía "HTTP 500" y no había forma
+    de saber que lo único pendiente era correr `apply_schema` en el Droplet. El
+    router traduce esta excepción a un 503 con el mensaje accionable.
+    """
+    from psycopg import errors as pg_errors
+
+    from api.services import financiamiento_calc as fc
+
+    def _explota(*_a, **_kw):
+        raise pg_errors.UndefinedTable("relation does not exist")
+
+    monkeypatch.setattr(fc, "get_pool", _explota)
+    with pytest.raises(fc.TablasFaltantes, match="apply_schema"):
+        fc.guardar_aval(nombre="Trend SGR", costo_cheque=5.0, costo_pagare=2.0,
+                        nota=None, orden=0, actor="x@y.com")
+
+
+def test_otros_errores_de_base_NO_se_disfrazan_de_schema_faltante(monkeypatch):
+    """Un constraint violado no es un schema sin aplicar. Si se confundieran,
+    el mensaje mandaría a correr `apply_schema` por un problema que eso no
+    arregla — y el error real quedaría tapado."""
+    from psycopg import errors as pg_errors
+
+    from api.services import financiamiento_calc as fc
+
+    def _explota(*_a, **_kw):
+        raise pg_errors.CheckViolation("check constraint")
+
+    monkeypatch.setattr(fc, "get_pool", _explota)
+    with pytest.raises(pg_errors.CheckViolation):
+        fc.guardar_aranceles(arancel_aca=1.0, derecho_mercado=0.06, actor="x@y.com")
+
+
 def test_cft_null_si_el_aval_se_come_todo_el_neto():
     """Con parámetros absurdos el neto queda negativo y (M/D)^(365/d) sería un
     complejo. Se devuelve null — la pantalla muestra '—' en vez de un número

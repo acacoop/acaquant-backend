@@ -120,11 +120,19 @@ def _q(sql: str, params: dict | None = None) -> list[dict]:
 
 
 def _exec(sql: str, params: dict) -> int:
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
-        n = cur.rowcount
-        conn.commit()
-        return n
+    """Escritura. Traduce 'la tabla no existe' a `TablasFaltantes` — el resto de
+    los errores suben tal cual (un constraint violado NO es lo mismo que un
+    schema sin aplicar y no se puede confundir con eso)."""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            n = cur.rowcount
+            conn.commit()
+            return n
+    except Exception as e:
+        if _es_tabla_faltante(e):
+            raise TablasFaltantes(_MSG_FALTAN_TABLAS) from e
+        raise
 
 
 def _audit(actor: str, action: str, target: str, data: dict | None = None) -> None:
@@ -140,6 +148,32 @@ def _audit(actor: str, action: str, target: str, data: dict | None = None) -> No
         )
     except Exception:
         _log.exception("financiamiento_calc: audit insert falló")
+
+
+class TablasFaltantes(RuntimeError):
+    """Las tablas de la calculadora no existen todavía en la base.
+
+    Pasa entre que se pushea el schema y que alguien corre `apply_schema` en el
+    Droplet. Las LECTURAS degradan a vacío (la vista FINANCIAMIENTO no depende de
+    esto y no puede caerse por acá), pero una ESCRITURA no puede degradar: si
+    guardar no guardó, hay que decirlo. Existe para que el router devuelva un
+    mensaje accionable en vez de un HTTP 500 pelado, que no le dice a nadie que
+    lo único que falta es aplicar el schema.
+    """
+
+
+_MSG_FALTAN_TABLAS = (
+    "Las tablas de la calculadora todavía no existen en la base. "
+    "Correr en el Droplet: python -m scripts.apply_schema + restart de la API."
+)
+
+
+def _es_tabla_faltante(e: Exception) -> bool:
+    """¿El error es 'no existe la tabla/esquema'? Se chequea la CLASE de psycopg
+    (no el texto del mensaje, que viene traducido según el locale del server)."""
+    from psycopg import errors as pg_errors
+
+    return isinstance(e, pg_errors.UndefinedTable | pg_errors.InvalidSchemaName)
 
 
 def _num(v, campo: str, *, minimo: float | None = None) -> float:
@@ -182,7 +216,6 @@ def _seed_si_vacio() -> None:
     global _SEEDED
     if _SEEDED:
         return
-    _SEEDED = True
     try:
         if not _q("SELECT 1 FROM operaciones.financiamiento_avales LIMIT 1"):
             for i, (nombre, cheque, pagare, nota) in enumerate(_SEED_AVALES):
@@ -200,6 +233,10 @@ def _seed_si_vacio() -> None:
                 "ON CONFLICT (id) DO NOTHING",
                 {"a": _SEED_ARANCEL_ACA, "d": _SEED_DERECHO_MERCADO},
             )
+        # Solo acá: si la siembra FALLÓ (típicamente porque el schema no está
+        # aplicado) se vuelve a intentar en la próxima llamada. Marcarlo antes
+        # dejaría el proceso sin sembrar nunca, aun después de crear las tablas.
+        _SEEDED = True
     except Exception:
         _log.warning("financiamiento_calc: no pude sembrar el catálogo", exc_info=True)
 

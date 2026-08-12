@@ -867,6 +867,8 @@ def financiamiento_set_aval(
             costo_pagare=payload.costo_pagare, nota=payload.nota,
             orden=payload.orden, actor=actor,
         )
+    except _fin_calc.TablasFaltantes as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -880,6 +882,8 @@ def financiamiento_del_aval(
     """Baja de una SGR del catálogo."""
     try:
         return _fin_calc.borrar_aval(nombre=nombre, actor=actor)
+    except _fin_calc.TablasFaltantes as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -896,6 +900,8 @@ def financiamiento_set_aranceles(
             arancel_aca=payload.arancel_aca,
             derecho_mercado=payload.derecho_mercado, actor=actor,
         )
+    except _fin_calc.TablasFaltantes as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

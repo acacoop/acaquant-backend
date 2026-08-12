@@ -16,8 +16,10 @@ Manager, y a partir de ahí el job no vuelve a opinar sobre ese valor.
 
 Cada regla es una función `fila → {columna: valor}` sobre la fila que le llega.
 La mayoría deriva de la propia `unidad` (misma unidad → mismo resultado, para
-siempre); `financiamiento_clase` es la excepción y usa el nominal de la última
-tenencia, que `leer_catalogo` agrega a la fila.
+siempre); `financiamiento_clase` y `herencia` son las excepciones y necesitan
+contexto que NO está en la unidad (el nominal de la última tenencia y los otros
+assets del catálogo) — ese contexto se les inyecta en la fila antes de correr,
+así la regla sigue siendo una función pura y testeable sin base.
 
 Reglas v1:
   * financiamiento — pagarés/cheques del negocio de financiamiento. La unidad
@@ -34,9 +36,42 @@ Reglas v1:
     (`core.cafci`), acá backfilleada sobre lo que ya está en el catálogo.
   * ticker — TICKER para el resto del catálogo, sea cual sea la cartera: sale del
     `[<id>] <descripción>` de Aunesa.
+  * herencia — REBAUTIZO de Aunesa (ver abajo): copia entre unidades que son el
+    MISMO instrumento los campos que NO se derivan de la unidad (EMISOR,
+    CALIFICACIÓN, INSTRUMENTO, CLASE_ACTIVO, CÓDIGO CNV, FEE ADMIN).
 
 Sumar una regla = una función `fila → {columna: valor}` + una entrada en REGLAS;
 el motor se ocupa del "solo si está vacío", del reporte y de la escritura.
+
+## El rebautizo de Aunesa (2026-08-12) — por qué existe `herencia`
+
+Por un cambio normativo Aunesa reemitió los instrumentos con OTRO id de especie.
+El corchete cambia y el resto de la unidad queda igual:
+
+    [6461]  CAFCI1910-6461 - DXA Multicobertura - Clase B   ← la vieja, con EMISOR
+    [28902] CAFCI1910-6461 - DXA Multicobertura - Clase B   ← la nueva, sin nada
+
+Como `unidad` es la PK de `portafolio.assets`, la renombrada entra como asset
+NUEVO: el writer diario le pone CARTERA y TICKER (se derivan solos) y el resto
+—EMISOR sobre todo— nace VACÍO. La carga manual de la mesa se quedó pegada a la
+unidad vieja, que además NO se puede borrar: la tenencia histórica la referencia.
+
+La herencia no adivina nada: se apoya en que el rebautizo cambia la ETIQUETA y no
+la IDENTIDAD. Para un fondo la identidad es el **código CAFCI** (`CAFCI1910-6461`,
+intacto arriba); si el rebautizo llegara a tocar también el código, queda el
+**nombre del fondo** como segunda clave. Dos unidades que comparten identidad son
+el mismo instrumento → lo que una tiene cargado vale para la otra, en las dos
+direcciones (si mañana la mesa carga el EMISOR en la nueva, la vieja lo recibe).
+
+Las tres cosas que la hacen segura:
+  * **Los donantes tienen que estar de acuerdo.** Si en un grupo hay DOS valores
+    distintos para el mismo campo no se escribe nada: se reporta la divergencia.
+    Eso es lo que sostiene la clave por nombre — si dos fondos distintos llegaran
+    a llamarse igual, sus EMISORES no coinciden y el desacuerdo frena la copia.
+  * **Nunca pisa** (invariante del job): solo llena lo VACÍO.
+  * **Solo FCI.** Para el resto del catálogo la identidad sería el TICKER, que
+    también se deriva solo — pero eso todavía NO está medido, así que se CUENTA
+    y se reporta sin escribir (`HEREDAR_NO_FCI`).
 
 Cron: L-V 11:40 UTC, después del writer diario (11:00) que da de alta las unidades
 nuevas. La API relee el catálogo por TTL (`assets_sql`, 300s).
@@ -45,6 +80,7 @@ Uso:
     python -m jobs.assets_autofill                              # todas las reglas (cron)
     python -m jobs.assets_autofill --dry                        # qué completaría, sin escribir
     python -m jobs.assets_autofill --regla financiamiento_clase # backfill de HD/DL
+    python -m jobs.assets_autofill --regla herencia --dry       # qué copiaría el rebautizo
 
 El BACKFILL y el mantenimiento diario son EL MISMO comando: el job siempre mira
 lo que está vacío, así que la primera corrida completa el histórico y las
@@ -65,16 +101,30 @@ from core.postgres import get_pool
 
 # Columnas que el job puede escribir. Es una allowlist de verdad: los nombres se
 # interpolan en el UPDATE, así que una regla no puede inventar una columna.
+# EMISOR / CALIFICACION / FEE_ADMIN entraron con la regla `herencia`: no se
+# derivan de nada, se COPIAN de otra unidad que ya las tiene cargadas a mano.
 _ESCRIBIBLES = frozenset({"cartera", "clase_activo", "ticker", "instrumento",
-                          "cafci", "vencimiento", "codigo_cnv"})
+                          "cafci", "vencimiento", "codigo_cnv",
+                          "emisor", "calificacion", "fee_admin"})
 _LEIBLES = ("unidad", "cartera", "clase_activo", "emisor", "ticker",
-            "instrumento", "calificacion", "cafci", "vencimiento", "codigo_cnv")
+            "instrumento", "calificacion", "cafci", "vencimiento", "codigo_cnv",
+            "fee_admin")
 _ACTOR = "job:assets_autofill"
+
+
+def _norm(v) -> str:
+    """Forma canónica para COMPARAR valores de columnas de distinto tipo.
+
+    `fee_admin` es `numeric` → vuelve como Decimal, no como str. Sin esta
+    normalización el motor compararía Decimal contra str, nunca daría igual y
+    marcaría como conflicto un valor idéntico al que ya está guardado.
+    """
+    return "" if v is None else str(v).strip()
 
 
 def _vacio(v) -> bool:
     """Mismo criterio de "vacío" que el panel (`assets_sql._EMPTY`)."""
-    s = "" if v is None else str(v).strip()
+    s = _norm(v)
     return not s or s.upper() == "NO APLICA"
 
 
@@ -195,11 +245,138 @@ def _regla_ticker(row: dict) -> dict[str, str]:
     return {"ticker": tk} if tk else {}
 
 
+# ── Regla `herencia` — el rebautizo de Aunesa ────────────────────────────────
+#
+# Campos que se COPIAN entre unidades del mismo instrumento. Son exactamente los
+# que NO se derivan de la unidad: si la mesa no los carga, no los sabe nadie.
+# CARTERA / TICKER / CAFCI / VENCIMIENTO quedan afuera a propósito — ya los
+# resuelven las otras reglas desde la unidad, copiarlos sería redundante.
+_HEREDABLES: tuple[str, ...] = ("emisor", "calificacion", "instrumento",
+                                "clase_activo", "codigo_cnv", "fee_admin")
+
+# Campo inyectado en la fila por `anotar_herencia` (mismo patrón que `nominal`).
+_HERENCIA_COL = "_herencia"
+
+# ¿Heredar también fuera de FCI, usando el TICKER como identidad? HOY NO: el
+# rebautizo se vio en fondos y el resto del catálogo no está medido. El job
+# igual CUENTA cuántos assets completaría (stat `no_fci_receptoras`) — cuando
+# ese número y sus divergencias se hayan mirado, esto pasa a True y ya está.
+HEREDAR_NO_FCI = False
+
+
+def _claves_identidad(row: dict) -> list[tuple[str, str]]:
+    """Claves por las que dos unidades son EL MISMO instrumento, más fuerte primero.
+
+    FCI → código CAFCI (el id del regulador, lo que el rebautizo no toca) y, de
+    respaldo, el nombre del fondo. Resto del catálogo → el ticker.
+
+    El ticker se deriva de la unidad si la columna todavía está vacía: el asset
+    que el writer dio de alta hace 40 minutos no lo tiene escrito (lo completa la
+    regla `ticker` en esta misma corrida) y sin esto no se lo podría agrupar
+    hasta mañana.
+    """
+    unidad = (row.get("unidad") or "").strip()
+    if codigo := extract_cafci(unidad):
+        claves = [("cafci", codigo)]
+        if nombre := nombre_fci(unidad):
+            claves.append(("nombre", nombre.upper()))
+        return claves
+    tk = _norm(row.get("ticker")) or _norm(_regla_ticker(row).get("ticker"))
+    return [("ticker", tk.upper())] if tk else []
+
+
+def anotar_herencia(rows: Iterable[dict]) -> dict:
+    """Inyecta `_herencia` en cada fila que pueda recibir campos de su gemela.
+
+    Es PURA (no toca la base) y devuelve el reporte del grupo — que es lo que se
+    mira para entender el rebautizo: cuántos instrumentos aparecen duplicados,
+    qué se copia, qué quedó frenado por desacuerdo entre donantes.
+
+    El motor (`planificar`) hace el resto: solo escribe lo vacío y no pisa nada.
+    """
+    rows = list(rows)
+    grupos: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for row in rows:
+        for clave in _claves_identidad(row):
+            grupos[clave].append(row)
+
+    # clave → campo → {valor normalizado: (valor crudo, unidad donante)}
+    donantes: dict[tuple[str, str], dict[str, dict]] = {}
+    divergencias: list[str] = []
+    # Un mismo desacuerdo aparece bajo las DOS claves del fondo (código y nombre).
+    # Es un solo problema para arreglar en Manager → se reporta una sola vez.
+    ya_reportadas: set[tuple[str, frozenset]] = set()
+    for clave, miembros in grupos.items():
+        if len(miembros) < 2:            # sin gemela no hay de quién heredar
+            continue
+        por_campo: dict[str, dict] = {}
+        for campo in _HEREDABLES:
+            vistos: dict[str, tuple] = {}
+            for m in miembros:
+                if not _vacio(m.get(campo)):
+                    vistos.setdefault(_norm(m[campo]), (m[campo], m["unidad"]))
+            if len(vistos) > 1:
+                # Dos valores distintos para el mismo instrumento: uno de los dos
+                # está mal cargado. No se elige por el humano — se avisa.
+                huella = (campo, frozenset(u for _, u in vistos.values()))
+                if huella not in ya_reportadas:
+                    ya_reportadas.add(huella)
+                    divergencias.append(
+                        f"{clave[0]}={clave[1]} · {campo}: "
+                        + " vs ".join(f"{v!r} ({u})" for v, u in vistos.values()))
+            elif vistos:
+                por_campo[campo] = vistos
+        if por_campo:
+            donantes[clave] = por_campo
+
+    campos = Counter()
+    campos_no_fci = Counter()
+    receptoras = no_fci_receptoras = 0
+    detalle: list[str] = []
+    for row in rows:
+        row.pop(_HERENCIA_COL, None)     # re-anotar no arrastra lo de la pasada anterior
+        herencia: dict[str, object] = {}
+        pendiente: dict[str, object] = {}
+        for clave in _claves_identidad(row):
+            aplica = clave[0] != "ticker" or HEREDAR_NO_FCI
+            destino = herencia if aplica else pendiente
+            for campo, vistos in (donantes.get(clave) or {}).items():
+                if campo in herencia or campo in pendiente or not _vacio(row.get(campo)):
+                    continue
+                valor, donante = next(iter(vistos.values()))
+                destino[campo] = valor
+                if aplica:
+                    detalle.append(f"{row['unidad']} ← {campo}={valor!r} "
+                                   f"(de {donante}, por {clave[0]})")
+        if herencia:
+            row[_HERENCIA_COL] = herencia
+            receptoras += 1
+            campos.update(herencia.keys())      # cuenta CAMPOS, no valores
+        if pendiente:
+            no_fci_receptoras += 1
+            campos_no_fci.update(pendiente.keys())
+
+    # Un mismo fondo cae en DOS grupos (su código y su nombre) con los mismos
+    # miembros: contar claves diría "2 instrumentos" donde hay uno. Se cuentan
+    # los CONJUNTOS de unidades distintos.
+    instrumentos = {frozenset(m["unidad"] for m in grupos[c]) for c in donantes}
+
+    return {"grupos": len(instrumentos), "receptoras": receptoras,
+            "campos": dict(campos), "divergencias": divergencias,
+            "no_fci_receptoras": no_fci_receptoras,
+            "no_fci_campos": dict(campos_no_fci), "detalle": detalle}
+
+
+def _regla_herencia(row: dict) -> dict[str, object]:
+    """Lo que `anotar_herencia` dejó preparado para esta fila. Sin anotar, no opina."""
+    return dict(row.get(_HERENCIA_COL) or {})
+
+
 @dataclass(frozen=True)
 class Regla:
     id: str
     titulo: str
-    fn: Callable[[dict], dict[str, str]]
+    fn: Callable[[dict], dict[str, object]]
 
 
 REGLAS: list[Regla] = [
@@ -208,6 +385,8 @@ REGLAS: list[Regla] = [
           _regla_financiamiento_clase),
     Regla("fci", "Fondos comunes (código CAFCI + nombre)", _regla_fci),
     Regla("ticker", "Ticker derivado de la unidad (resto del catálogo)", _regla_ticker),
+    Regla("herencia", "Campos manuales heredados de la unidad rebautizada",
+          _regla_herencia),
 ]
 
 
@@ -241,7 +420,7 @@ def leer_catalogo() -> list[dict]:
 def planificar(rows: Iterable[dict], reglas: Iterable[Regla]) -> tuple[dict, dict]:
     """`({unidad: {columna: valor}}, {regla_id: reporte})`. No toca la base."""
     rows = list(rows)
-    cambios: dict[str, dict[str, str]] = defaultdict(dict)
+    cambios: dict[str, dict[str, object]] = defaultdict(dict)
     reporte: dict[str, dict] = {}
     for regla in reglas:
         campos: Counter[str] = Counter()
@@ -257,7 +436,7 @@ def planificar(rows: Iterable[dict], reglas: Iterable[Regla]) -> tuple[dict, dic
                 if col not in _ESCRIBIBLES:
                     raise ValueError(f"regla {regla.id}: columna no escribible {col!r}")
                 planeado = cambios[unidad].get(col)
-                if planeado is not None and planeado != val:
+                if planeado is not None and _norm(planeado) != _norm(val):
                     conflictos.append(f"{unidad} · {col}: otra regla ya propuso "
                                       f"{planeado!r}, esta propone {val!r}")
                     continue
@@ -265,15 +444,15 @@ def planificar(rows: Iterable[dict], reglas: Iterable[Regla]) -> tuple[dict, dic
                 if _vacio(actual):
                     cambios[unidad][col] = val
                     campos[col] += 1
-                elif str(actual).strip() != val:
-                    conflictos.append(f"{unidad} · {col}: catálogo={str(actual).strip()!r} "
+                elif _norm(actual) != _norm(val):
+                    conflictos.append(f"{unidad} · {col}: catálogo={_norm(actual)!r} "
                                       f"regla={val!r}")
         reporte[regla.id] = {"matcheadas": matcheadas, "campos": dict(campos),
                              "conflictos": conflictos}
     return {u: s for u, s in cambios.items() if s}, reporte
 
 
-def aplicar(cambios: dict[str, dict[str, str]]) -> int:
+def aplicar(cambios: dict[str, dict[str, object]]) -> int:
     """UPDATE de los campos planificados. Agrupa por firma de columnas para mandar
     un `executemany` por combinación en vez de un UPDATE armado por fila."""
     if not cambios:
@@ -312,6 +491,9 @@ def main() -> int:
 
     with JobRunLogger("assets_autofill") as jr:
         rows = leer_catalogo()
+        # El contexto entre assets se arma UNA vez, antes de planificar: la regla
+        # `herencia` lo lee de la fila igual que `financiamiento_clase` lee el nominal.
+        her = anotar_herencia(rows)
         cambios, reporte = planificar(rows, reglas)
         jr.log(f"catálogo: {len(rows)} assets · reglas: {[r.id for r in reglas]}")
         for r in reglas:
@@ -331,6 +513,28 @@ def main() -> int:
             jr.set_stat(f"{r.id}_matcheadas", rep["matcheadas"])
             jr.set_stat(f"{r.id}_campos", rep["campos"])
             jr.set_stat(f"{r.id}_conflictos", len(rep["conflictos"]))
+
+        if any(r.id == "herencia" for r in reglas):
+            jr.log(f"  · herencia: {her['grupos']} instrumento(s) con más de una "
+                   f"unidad → {her['receptoras']} asset(s) reciben campos")
+            # Las divergencias son el ÚNICO caso que pide mano humana: dos unidades
+            # del mismo instrumento con datos distintos. Van completas (son pocas y
+            # cada una es un dato mal cargado que hay que arreglar en Manager).
+            for d in her["divergencias"]:
+                jr.log(f"      ⚠ desacuerdo entre donantes → {d}")
+            tope = len(her["detalle"]) if args.dry else 20
+            for linea in her["detalle"][:tope]:
+                jr.log(f"      · {linea}")
+            if len(her["detalle"]) > tope:
+                jr.log(f"      … +{len(her['detalle']) - tope} más (verlas: --dry)")
+            if her["no_fci_receptoras"]:
+                jr.log(f"      ℹ fuera de FCI habría {her['no_fci_receptoras']} asset(s) "
+                       f"para completar por ticker ({her['no_fci_campos']}) — "
+                       f"NO se escriben (HEREDAR_NO_FCI=False)")
+            jr.set_stat("herencia_grupos", her["grupos"])
+            jr.set_stat("herencia_divergencias", len(her["divergencias"]))
+            jr.set_stat("herencia_no_fci_receptoras", her["no_fci_receptoras"])
+            jr.set_stat("herencia_no_fci_campos", her["no_fci_campos"])
 
         if args.dry:
             for unidad, sets in list(cambios.items())[:20]:

@@ -6,6 +6,8 @@ unidad de renta variable / CEDEAR (el corchete con id de especie).
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from jobs.assets_autofill import (
@@ -14,7 +16,9 @@ from jobs.assets_autofill import (
     _regla_fci,
     _regla_financiamiento,
     _regla_financiamiento_clase,
+    _regla_herencia,
     _regla_ticker,
+    anotar_herencia,
     planificar,
 )
 
@@ -164,6 +168,123 @@ def test_ticker_no_toca_fci_ni_financiamiento():
     assert _regla_ticker({"unidad": _UNIDAD_FIN}) == {}
     # Cash sin corchetes: no hay nada que derivar.
     assert _regla_ticker({"unidad": "ARS"}) == {}
+
+
+# ── Regla `herencia` — el rebautizo de Aunesa ────────────────────────────────
+#
+# El caso REAL que la motivó: el cambio normativo reemitió el fondo con otro id
+# de especie. Cambia el corchete, NO el código CAFCI ni el nombre.
+_VIEJA = "[6461] CAFCI1910-6461 - DXA Multicobertura - Clase B"
+_NUEVA = "[28902] CAFCI1910-6461 - DXA Multicobertura - Clase B"
+
+
+def _fila(unidad, **campos):
+    return {"unidad": unidad, **campos}
+
+
+def test_herencia_el_rebautizo_le_pasa_el_emisor_a_la_unidad_nueva():
+    rows = [_fila(_VIEJA, emisor="DRACMA", fee_admin=Decimal("0.0135")),
+            _fila(_NUEVA)]
+    rep = anotar_herencia(rows)
+    cambios, reporte = planificar(rows, REGLAS)
+
+    assert cambios[_NUEVA]["emisor"] == "DRACMA"
+    assert cambios[_NUEVA]["fee_admin"] == Decimal("0.0135")
+    # Lo que ya se derivaba solo sigue saliendo de la unidad, no de la gemela.
+    assert cambios[_NUEVA]["cartera"] == "FCI"
+    assert cambios[_NUEVA]["ticker"] == "DXA Multicobertura - Clase B"
+    # La vieja no recibe nada (ya tiene todo) y nadie reporta conflicto.
+    assert "emisor" not in cambios.get(_VIEJA, {})
+    assert not any(r["conflictos"] for r in reporte.values())
+    assert rep["receptoras"] == 1 and rep["divergencias"] == []
+    # UN instrumento, aunque matchee por código Y por nombre.
+    assert rep["grupos"] == 1 and rep["campos"] == {"emisor": 1, "fee_admin": 1}
+
+
+def test_herencia_va_en_las_dos_direcciones():
+    """Si la mesa carga el EMISOR en la unidad NUEVA, la vieja lo recibe.
+
+    La vieja no se puede borrar (la tenencia histórica la referencia), así que
+    tampoco puede quedarse sin metadata.
+    """
+    rows = [_fila(_VIEJA), _fila(_NUEVA, emisor="DRACMA")]
+    anotar_herencia(rows)
+    cambios, _ = planificar(rows, REGLAS)
+    assert cambios[_VIEJA]["emisor"] == "DRACMA"
+
+
+def test_herencia_no_pisa_lo_cargado_a_mano():
+    rows = [_fila(_VIEJA, emisor="DRACMA"), _fila(_NUEVA, emisor="DRACMA S.A.")]
+    anotar_herencia(rows)
+    cambios, _ = planificar(rows, REGLAS)
+    assert "emisor" not in cambios.get(_NUEVA, {})
+    assert "emisor" not in cambios.get(_VIEJA, {})
+
+
+def test_herencia_frena_si_los_donantes_no_se_ponen_de_acuerdo():
+    """Dos valores distintos para el MISMO instrumento = uno está mal cargado.
+
+    El job no elige por el humano: no escribe y lo reporta. Este desacuerdo es
+    también lo que hace segura la clave por NOMBRE (dos fondos homónimos de
+    emisores distintos se frenan solos en vez de contaminarse).
+    """
+    rows = [_fila(_VIEJA, emisor="DRACMA"),
+            _fila("[28902] CAFCI1910-6461 - DXA Multicobertura - Clase B",
+                  emisor="DRACMA S.A."),
+            _fila("[99999] CAFCI1910-6461 - DXA Multicobertura - Clase B")]
+    rep = anotar_herencia(rows)
+    cambios, _ = planificar(rows, REGLAS)
+
+    assert "emisor" not in cambios.get("[99999] CAFCI1910-6461 - DXA "
+                                       "Multicobertura - Clase B", {})
+    assert len(rep["divergencias"]) == 1
+    assert "emisor" in rep["divergencias"][0]
+
+
+def test_herencia_por_nombre_cuando_el_rebautizo_cambia_el_codigo_cafci():
+    """Clave de respaldo: mismo fondo, código CAFCI distinto."""
+    otra = "[28902] CAFCI2999-28902 - DXA Multicobertura - Clase B"
+    rows = [_fila(_VIEJA, emisor="DRACMA"), _fila(otra)]
+    anotar_herencia(rows)
+    cambios, _ = planificar(rows, REGLAS)
+    assert cambios[otra]["emisor"] == "DRACMA"
+
+
+def test_herencia_no_confunde_fondos_distintos_del_mismo_emisor():
+    rows = [_fila("[1] CAFCI1910-6461 - DXA Multicobertura - Clase B", emisor="DRACMA"),
+            _fila("[2] CAFCI1910-7777 - DXA Renta Fija - Clase A")]
+    rep = anotar_herencia(rows)
+    assert rep["receptoras"] == 0
+    assert _regla_herencia(rows[1]) == {}
+
+
+def test_herencia_fuera_de_fci_se_cuenta_pero_no_se_escribe():
+    """`HEREDAR_NO_FCI=False`: el resto del catálogo se mide antes de tocarlo."""
+    rows = [_fila("[43070] NZC6O - NZC6O - T.DEUDA BNA", emisor="BNA"),
+            _fila("[88888] NZC6O - NZC6O - T.DEUDA BNA")]
+    rep = anotar_herencia(rows)
+    cambios, _ = planificar(rows, REGLAS)
+
+    assert rep["receptoras"] == 0 and rep["no_fci_receptoras"] == 1
+    assert rep["no_fci_campos"] == {"emisor": 1}
+    assert "emisor" not in cambios["[88888] NZC6O - NZC6O - T.DEUDA BNA"]
+
+
+def test_herencia_sin_anotar_no_opina():
+    """La regla es inerte si nadie le armó el contexto — no inventa un valor."""
+    assert _regla_herencia({"unidad": _NUEVA}) == {}
+
+
+def test_un_numeric_igual_al_guardado_no_es_conflicto():
+    """`fee_admin` vuelve de Postgres como Decimal; el resto de las reglas
+    propone strings. Sin normalizar, el motor compararía Decimal contra str y
+    marcaría conflicto sobre un valor idéntico al que ya está guardado."""
+    rows = [_fila(_VIEJA, fee_admin=Decimal("0.0135")),
+            _fila(_NUEVA, fee_admin=Decimal("0.01350"))]
+    anotar_herencia(rows)
+    cambios, reporte = planificar(rows, REGLAS)
+    assert not any("fee_admin" in c for r in reporte.values() for c in r["conflictos"])
+    assert "fee_admin" not in cambios.get(_NUEVA, {})
 
 
 def test_reglas_no_se_pisan_entre_si():

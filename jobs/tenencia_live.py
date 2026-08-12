@@ -262,7 +262,13 @@ def _traer(idc: str, denom: str, desde: date) -> tuple[bool, list, str]:
     `motivo` viaja hasta el log: sin él, «12 fallidas» no dice si fue timeout,
     500 o token vencido — que fue exactamente lo que costó diagnosticar.
     """
-    params = {**_PARAMS_BASE, "desde": desde.strftime("%d/%m/%Y")}
+    # `hasta` = `desde` (2026-08-12). Hasta acá iba VACÍO — se heredaba así del
+    # backfill diario, que nunca lo usó. El override es LOCAL a propósito: se pisa
+    # sobre `_PARAMS_BASE` en vez de tocar la constante, que es la MISMA que importa
+    # `portafolio_backfill`. Cambiarla ahí movería el job diario, que es justo el que
+    # no se toca.
+    d = desde.strftime("%d/%m/%Y")
+    params = {**_PARAMS_BASE, "desde": d, "hasta": d}
     to = _timeout_for(idc, denom)
     for intento in (1, 2):
         try:

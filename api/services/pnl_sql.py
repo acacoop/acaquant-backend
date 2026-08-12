@@ -150,8 +150,22 @@ def _boletos_by_cuenta(only_cuenta: str | None) -> dict[str, list]:
     return out
 
 
-def _deps_sql(only_cuenta: str | None) -> dict:
-    """Arma las deps del motor desde SQL (= _load_pnl_bulk_deps pero en Postgres)."""
+def _deps_sql(only_cuenta: str | None, base: str = "tenencia") -> dict:
+    """Arma las deps del motor desde SQL (= _load_pnl_bulk_deps pero en Postgres).
+
+    `base` decide de dónde salen las CANTIDADES de la posición:
+      "tenencia" (default) → `portafolio.tenencia`, la foto conciliada de ayer.
+      "live_t1"            → `portafolio.tenencia_live` t1, la posición de HOY
+                             con lo concertado hoy adentro.
+
+    Es opt-in porque este loader alimenta a TODOS los consumidores del motor —
+    la vista VALUACIONES, el asistente de IA y el cron que precalcula
+    `valuaciones.pnl_totales_cache`. Solo `/api/carteras/pnl` pide "live_t1";
+    el resto sigue viendo exactamente lo mismo que antes.
+
+    Lo único que cambia es la fuente de la posición: precios, normalizador por
+    cartera, cost-basis y cadena de fallback (live → cierre → aum) quedan iguales.
+    """
     mapas = _mapas_assets()
     unidad_to_match = mapas["unidad_to_match"]
     match_to_display = mapas["match_to_display"]
@@ -176,18 +190,46 @@ def _deps_sql(only_cuenta: str | None) -> dict:
         logging.getLogger(__name__).exception("pnl_sql: merge de ajustes falló — sigo sin ajustes")
 
     # AuM último snapshot global (posición).
+    #
+    # `fecha_actual_aum_global` SIEMPRE es la fecha de la foto CONCILIADA
+    # (`portafolio.tenencia`), aunque las filas vengan de `tenencia_live`. El motor
+    # la usa para el corte de day-trades (`boleto.fecha > fecha_actual_aum` →
+    # `pnl_realizado_dia`), y son dos conceptos distintos que hoy coinciden por
+    # casualidad. Si acá se pusiera la fecha de HOY, ningún boleto sería posterior
+    # y la columna de PnL del día se iría a CERO en silencio.
     fecha_actual_aum_global = None
     aum_rows_by_id_cuenta: dict[str, list] = {}
     snap = _q("SELECT max(fecha) AS f FROM portafolio.tenencia WHERE aum = 'si'")[0]["f"]
     if snap is not None:
         fecha_actual_aum_global = _iso(snap)
-        wa = "fecha = %(f)s AND aum = 'si'"
-        pa: dict = {"f": snap}
-        if only_cuenta is not None:
-            wa += " AND id_cuenta = %(idc)s"
-            pa["idc"] = only_cuenta
-        for d in _q(f"SELECT id_cuenta, unidad, cantidad, precio, valuacion, tipo_titulo, cartera "
-                    f"FROM portafolio.tenencia WHERE {wa}", pa):
+        cols = ("id_cuenta, unidad, cantidad, precio, valuacion, tipo_titulo, cartera")
+        rows: list[dict] = []
+        if base == "live_t1":
+            # Posición del DÍA (t1 = con lo concertado hoy adentro). Mismo filtro
+            # `aum='si'` que la foto, así el universo sumado es idéntico y la única
+            # variable que cambia es la fecha base.
+            wl = ("horizonte = 't1' AND aum = 'si' "
+                  "AND fecha = (SELECT MAX(fecha) FROM portafolio.tenencia_live)")
+            pl: dict = {}
+            if only_cuenta is not None:
+                wl += " AND id_cuenta = %(idc)s"
+                pl["idc"] = only_cuenta
+            try:
+                rows = _q(f"SELECT {cols} FROM portafolio.tenencia_live WHERE {wl}", pl)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("pnl_sql: tenencia_live falló")
+                rows = []
+        if not rows:
+            # Default, y fallback de `live_t1`: si el daemon no corrió (fin de
+            # semana, caído, tabla sin aplicar) la vista sigue andando con la foto.
+            wa = "fecha = %(f)s AND aum = 'si'"
+            pa: dict = {"f": snap}
+            if only_cuenta is not None:
+                wa += " AND id_cuenta = %(idc)s"
+                pa["idc"] = only_cuenta
+            rows = _q(f"SELECT {cols} FROM portafolio.tenencia WHERE {wa}", pa)
+        for d in rows:
             cid = d.get("id_cuenta")
             if cid is not None:
                 aum_rows_by_id_cuenta.setdefault(str(cid), []).append({
@@ -207,9 +249,13 @@ def _deps_sql(only_cuenta: str | None) -> dict:
     }
 
 
-def pnl_por_cuenta_sql(id_cuenta: str) -> dict:
-    """PnL por (cuenta, ticker) reusando el motor, con datos de SQL."""
-    deps = _deps_sql(only_cuenta=str(id_cuenta))
+def pnl_por_cuenta_sql(id_cuenta: str, base: str = "tenencia") -> dict:
+    """PnL por (cuenta, ticker) reusando el motor, con datos de SQL.
+
+    `base="live_t1"` toma la posición del día (`portafolio.tenencia_live`) en vez
+    de la foto de ayer. Ver `_deps_sql`.
+    """
+    deps = _deps_sql(only_cuenta=str(id_cuenta), base=base)
     return _pnl_por_cuenta_core(
         id_cuenta=str(id_cuenta),
         mep_hoy=get_mep_for_date(date.today().isoformat()),

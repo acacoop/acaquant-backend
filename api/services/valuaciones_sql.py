@@ -74,6 +74,41 @@ def cierres_fecha_data(id_cuenta: str, cartera: str | None = None) -> list[dict]
             for r in rows]
 
 
+def cierre_live_t1(id_cuenta: str, cartera: str | None = None) -> dict | None:
+    """El cierre de HOY según `portafolio.tenencia_live` (horizonte t1), o None.
+
+    Mismo shape que un elemento de `cierres_fecha_data` — para que el mes EN CURSO
+    de la tabla mensual pueda cerrar al día de hoy en vez de al último snapshot
+    diario (que es de ayer y por liquidación).
+
+    Usa la columna `valuacion` que el daemon ya guarda, que es la de AUNESA: la
+    MISMA clase de precio que los meses históricos. Así el único cambio contra la
+    serie de siempre es la FECHA BASE, no la fuente de precio — si además cambiara
+    el precio, la diferencia de metodología aparecería como rendimiento del mes.
+
+    Devuelve None si el daemon no corrió (fin de semana, caído, etc.) → el caller
+    deja el mes como estaba. Filtra `aum='si'` igual que `cierres_fecha_data`, así
+    las dos series suman exactamente el mismo universo.
+    """
+    conds = ["id_cuenta = %(c)s", "aum = 'si'", "horizonte = 't1'",
+             "fecha = (SELECT MAX(fecha) FROM portafolio.tenencia_live)"]
+    p: dict = {"c": id_cuenta}
+    if cartera:
+        conds.append("cartera = %(cart)s")
+        p["cart"] = cartera
+    try:
+        rows = _q(f"SELECT fecha, SUM(valuacion) AS valuacion, COUNT(*) AS n "
+                  f"FROM portafolio.tenencia_live WHERE {' AND '.join(conds)} "
+                  f"GROUP BY fecha", p)
+    except Exception:
+        logger.exception("cierre_live_t1 falló — la tabla mensual sigue sin el mes live")
+        return None
+    if not rows or rows[0]["n"] is None or int(rows[0]["n"]) == 0:
+        return None
+    r = rows[0]
+    return {"_id": _iso(r["fecha"]), "valuacion": _f(r["valuacion"]), "n": int(r["n"])}
+
+
 def serie_valor_cuenta(id_cuenta: str, desde: str | None = None,
                        hasta: str | None = None) -> dict:
     """Serie diaria del valor total — SQL. Mismo shape que valuaciones.serie_valor_cuenta:

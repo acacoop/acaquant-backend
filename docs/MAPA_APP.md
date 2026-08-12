@@ -1410,6 +1410,30 @@ el leaderboard POR CARTERA se cruza con cuenta/asset pero **no consigo mismo**.
 | **PNL TÍTULOS** | Split 50/50: izq posiciones por ticker (cost-basis weighted-average) con KPIs VALOR ACTUAL y PNL NO REALIZADO; der detalle del ticker (KPIs COSTO/VALOR/PNL/NO REAL/COBROS/GAN % + **boletos del stock actual** con compras/ventas/neto y breakdown del PnL pasivo; los pseudo-boletos de ajuste van resaltados en ámbar) | `GET /api/aum-pnl?id_cuenta=` → `/api/portfolio/pnl` | MONEDA · orden por columna · click en fila (toggle) | Sólo lectura. 2 exports .xlsx (`exportarTodo`, `exportarBoletos`). **Botón AJUSTES en la barra del shell** (admin) → modal `pnl-ajustes-modal.tsx` |
 | **TOTALES** — **NO depende de la cuenta seleccionada** | **POR TÍTULO** (def.): 5 KPIs (PNL TOTAL, NO REALIZADO, PASIVO, VALOR ACTUAL, POSICIONES) + tabla por (cuenta, ticker) 60 % + detalle 40 %. **POR CUENTA**: una fila por cuenta con valor, PnL acumulado y **base 100** (mostrada como rendimiento %), en ARS y USD | `GET /api/aum-pnl-todas` → `/portfolio/pnl-todas`; `GET /api/valuaciones/consolidado` | POR TÍTULO: select de filtro de cuenta (5 valores, **único filtro server-side**) · dos buscadores substring · MONEDA — **el botón USD se DESHABILITA si el cache no trae valores USD**, con tooltip "Falta recalcular el cache (jobs.pnl_totales_precompute)" · orden por columna. POR CUENTA: mismo select + buscador + orden + **checkbox "ocultar saldo muerto"** (client-side, `\|valor_ars\| < 100.000`, def ON) | Sólo lectura, sin export |
 
+> ⚠️ **EL VALOR DE HOY SALE DE `portafolio.tenencia_live` (2026-08-12).** Esta vista —
+> y SOLO esta — muestra la posición del DÍA en vez de la foto conciliada de ayer:
+> - **PNL TÍTULOS** (`/portfolio/pnl` → `pnl_sql.pnl_por_cuenta_sql(base="live_t1")`):
+>   las CANTIDADES salen de `tenencia_live` horizonte `t1` (= con lo concertado hoy
+>   adentro). Precios, normalizador por cartera, cost-basis y la cadena de fallback
+>   (live → cierre → aum) NO cambian.
+> - **MENSUAL** (`/{id}/mensual` → `valuacion_mensual`, `mes_actual_live=True`): solo
+>   la fila del **mes EN CURSO** cierra al día de hoy, con la columna `valuacion` que
+>   `tenencia_live` ya trae de Aunesa — **la misma clase de precio que el histórico**,
+>   así el único cambio contra la serie de siempre es la fecha base. Los meses
+>   anteriores salen de `portafolio.tenencia` igual que siempre. La fila trae
+>   `live: true` para que la UI la etiquete: ese valor todavía se mueve y **al cerrar
+>   el mes se recalcula con la serie histórica** (puede cambiar un poco).
+>
+> **Es opt-in y no se filtra**: el motor de PnL y `_calcular_meses` los comparten la
+> vista VALUACIONES, el asistente de IA y el cron de `valuaciones.pnl_totales_cache`,
+> y todos siguen con la foto (default sin tocar). Lo fija
+> `tests/unit/test_carteras_tenencia_live.py`.
+>
+> **Efecto colateral conocido**: la tab **TOTALES** lee `pnl_totales_cache`, que llena
+> un cron con la foto → el listado de cuentas y el detalle de una cuenta pueden
+> mostrar totales distintos. No es un bug: son dos fuentes con distinta fecha base.
+> Si el daemon `tenencia_live` no corrió, todo cae solo a la foto.
+
 **Endpoints (`valuaciones.py` — 7, TODOS GET)**: `_validate_id_cuenta` exige numérico (400); todos los
 `/{id_cuenta}/*` llevan `verificar_id_cuenta` (**403 fuera del scope de grupos**).
 `/consolidado` (una fila por cuenta: valor, base 100, PnL acumulado, TEM, TEA en ARS y USD; **lee

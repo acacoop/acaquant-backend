@@ -101,8 +101,22 @@ def pnl(id_cuenta: str = Query(..., description="id_cuenta numérico (ej '255')"
     """PnL por (cuenta, ticker) basado en cash flows — SIEMPRE SQL (`pnl_sql`,
     cost-basis sobre Postgres). La rama Mongo (`pnl.pnl_por_cuenta`) se RETIRÓ
     (decommission 2026-06-22). `verificar_id_cuenta` corta con 403 si la cuenta
-    está fuera del scope de grupos del usuario."""
-    return pnl_sql.pnl_por_cuenta_sql(id_cuenta=id_cuenta)
+    está fuera del scope de grupos del usuario.
+
+    `base="live_t1"`: la posición sale de `portafolio.tenencia_live` (t1 = con lo
+    concertado HOY adentro) en vez de la foto conciliada de ayer. **Es el ÚNICO
+    endpoint que lo pide** — la vista VALUACIONES, el asistente de IA y el cron de
+    `pnl_totales_cache` comparten el mismo motor y siguen con la foto.
+
+    Efecto colateral conocido: `/pnl-todas` lee `valuaciones.pnl_totales_cache`
+    (la llena un cron con la foto), así que el LISTADO de cuentas y el DETALLE de
+    una cuenta pueden mostrar totales distintos. No es un bug: son dos fuentes con
+    distinta fecha base, y el detalle es el fresco.
+
+    Si el daemon `tenencia_live` no corrió (fin de semana, caído), `_deps_sql` cae
+    solo a la foto — la vista nunca queda vacía.
+    """
+    return pnl_sql.pnl_por_cuenta_sql(id_cuenta=id_cuenta, base="live_t1")
 
 
 @router.get("/pnl-todas")

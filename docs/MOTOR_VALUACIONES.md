@@ -226,6 +226,26 @@ el PnL valuando bonos ×100):
 | Hay boletos | `qty_calc` — refleja todo lo movido (incluye intraday del día). |
 | Sin boletos | `qty_aum` — única señal disponible. |
 
+### De dónde salen esas filas de AuM (`base`, 2026-08-12)
+
+`pnl_sql._deps_sql(only_cuenta, base=...)` decide la fuente de la POSICIÓN:
+
+| `base` | tabla | qué es |
+|---|---|---|
+| `"tenencia"` (default) | `portafolio.tenencia` | la foto conciliada de ayer |
+| `"live_t1"` | `portafolio.tenencia_live` (`horizonte='t1'`) | la posición de HOY, con lo concertado hoy adentro |
+
+**Solo `/api/carteras/pnl` pide `live_t1`.** La vista VALUACIONES, el asistente de IA
+y el cron de `valuaciones.pnl_totales_cache` comparten este loader y siguen con la
+foto. Si `tenencia_live` está vacía (fin de semana, daemon caído), cae solo a la foto.
+
+> ⚠️ **`fecha_actual_aum_global` NO se mueve a hoy con `live_t1`.** Ese campo hace
+> DOS trabajos que hasta ahora coincidían: la fecha de la base y el **corte de
+> day-trades** (`boleto.fecha > fecha_actual_aum` → `pnl_realizado_dia`). Si pasara a
+> ser hoy, ningún boleto sería posterior y **la columna de PnL del día quedaría en
+> CERO en silencio** — sin error y sin test rojo. Sigue apuntando a la foto conciliada
+> en los dos modos; lo fija `tests/unit/test_carteras_tenencia_live.py`.
+
 ---
 
 ## Mapping unidad ↔ ticker

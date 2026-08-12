@@ -316,11 +316,18 @@ def _cierres_fecha_data(id_cuenta: str, cartera: str | None = None) -> list[dict
     return _vsql.cierres_fecha_data(id_cuenta, cartera)
 
 
-@cached(ttl=300)
+# TTL de 60s (antes 300): el mes EN CURSO ahora cierra con `tenencia_live`, que el
+# daemon refresca durante la rueda. Con 5 minutos de cache la vista mostraría un
+# número viejo justo en la fila que se agregó para que esté fresca.
+@cached(ttl=60)
 def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     """Versión CACHEADA (flujo externo: depósitos/extracciones) — la usa Carteras.
-    La variante con flujo custom (NEGOCIO→Valuaciones) es `_valuacion_mensual`."""
-    return _valuacion_mensual(id_cuenta=id_cuenta)
+    La variante con flujo custom (NEGOCIO→Valuaciones) es `_valuacion_mensual`.
+
+    El mes EN CURSO cierra al día de HOY (`tenencia_live`, t1); los meses
+    anteriores salen de `portafolio.tenencia` igual que siempre.
+    """
+    return _valuacion_mensual(id_cuenta=id_cuenta, mes_actual_live=True)
 
 
 def _calcular_meses(
@@ -329,6 +336,7 @@ def _calcular_meses(
     flujos_override: dict | None = None,
     cartera: str | None = None,
     detalle: bool = False,
+    mes_actual_live: bool = False,
 ) -> list[dict[str, Any]]:
     """CORE ÚNICO del cálculo mensual (cierres, flujos pesificados, XIRR ARS/USD,
     TEM, TWR base 100). Lo comparten `_valuacion_mensual` (producción) y
@@ -338,6 +346,14 @@ def _calcular_meses(
     `detalle=True` agrega a cada mes `flujos_detalle` (docs completos de los
     movimientos) y `cashflow_xirr` / `cashflow_xirr_usd` (la lista exacta de
     (fecha, monto) que recibe xirr(), reproducible en Excel con TIR.NO.PER).
+
+    `mes_actual_live=True` cierra el mes EN CURSO con `portafolio.tenencia_live`
+    (t1 = incluye lo concertado hoy) en vez de con el último snapshot diario, que
+    es de ayer y por liquidación. Los meses ANTERIORES no se tocan: siguen
+    saliendo de `portafolio.tenencia` exactamente igual que siempre. Es opt-in
+    (default False) porque lo comparten tres consumidores — Carteras, la variante
+    con flujos custom de NEGOCIO→Valuaciones y el debug de Manager — y solo el
+    primero lo pide.
 
     Devuelve la lista de meses ASC con valores SIN redondear — los wrappers
     mapean al shape público de cada endpoint.
@@ -359,6 +375,24 @@ def _calcular_meses(
             "valuacion_cierre": f.get("valuacion") or 0,
             "n_posiciones":     f.get("n") or 0,
         }
+    # Mes EN CURSO al día de hoy (opt-in). Pisa SOLO el bucket del mes corriente
+    # y solo si el daemon dejó datos; si no corrió (fin de semana, caído), el mes
+    # queda como estaba. Nunca crea un bucket que no exista: si la cuenta no tiene
+    # historia en ese mes, no se inventa uno.
+    if mes_actual_live:
+        from api.services import valuaciones_sql as _vsql
+        live = _vsql.cierre_live_t1(id_cuenta, cartera)
+        if live:
+            bucket = str(live["_id"])[:7]
+            if bucket in cierres_buckets:
+                cierres_buckets[bucket] = {
+                    "_id":              bucket,
+                    "ultimo_dia":       live["_id"],
+                    "valuacion_cierre": live["valuacion"] or 0,
+                    "n_posiciones":     live["n"],
+                    "live":             True,
+                }
+
     cierres = [cierres_buckets[k] for k in sorted(cierres_buckets.keys())]
 
     # 2. Flujos externos — pesificados al MEP de la fecha de cada movimiento.
@@ -614,6 +648,10 @@ def _calcular_meses(
             "tem_periodo_usd":  r_mes_usd,
             "twr_acum_usd":     twr_acum_usd,
             "n_posiciones":     c.get("n_posiciones", 0),
+            # True solo en el mes EN CURSO cuando cerró con tenencia_live. La UI lo
+            # necesita para etiquetarlo: ese valor todavía se mueve, y al cerrar el
+            # mes se recalcula con la serie histórica (puede cambiar un poco).
+            "live":             bool(c.get("live")),
         }
         if detalle:
             row["flujos_detalle"] = f.get("flujos_detalle") or []
@@ -636,7 +674,8 @@ def _r6(v):
 
 
 def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
-                       cartera: str | None = None) -> dict[str, Any]:
+                       cartera: str | None = None,
+                       mes_actual_live: bool = False) -> dict[str, Any]:
     """Tabla mensual: valor al cierre del mes + flujos externos del mes.
     Métricas en ARS y USD paralelas. Wrapper de presentación sobre
     `_calcular_meses` (el cálculo vive UNA sola vez ahí).
@@ -649,6 +688,7 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
     """
     meses = _calcular_meses(
         id_cuenta, flujos_override=flujos_override, cartera=cartera, detalle=False,
+        mes_actual_live=mes_actual_live,
     )
     rows = [{
         "mes":                  m["mes"],
@@ -674,6 +714,7 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
         "tem_periodo_usd":      _r6(m["tem_periodo_usd"]),
         "twr_base100_usd":      round(m["twr_acum_usd"], 4),
         "n_posiciones":         m["n_posiciones"],
+        "live":                 m.get("live", False),
     } for m in meses]
     # Orden descendente (mes más reciente primero — para UI).
     rows.reverse()

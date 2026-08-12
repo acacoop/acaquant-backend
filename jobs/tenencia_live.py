@@ -482,7 +482,12 @@ def _salir_limpio(signum, _frame):
     en `manager.job_runs` sin `finished_at`, y SALUD la lee como un job colgado.
     Convertirla en excepción hace que el cierre sea normal.
     """
-    raise SystemExit(f"señal {signum} — cierre ordenado")
+    # SystemExit(0), NO SystemExit("texto"): con un string Python sale con código 1
+    # y systemd lo marca `Failed with result 'exit-code'` — y con `Restart=on-failure`
+    # lo RESUCITA después del `systemctl stop` de las 21:05, que es justo lo que el
+    # unit quería evitar. Un cierre por señal es un cierre normal.
+    logger.info("señal %s — cierre ordenado", signum)
+    raise SystemExit(0)
 
 
 def main() -> int:

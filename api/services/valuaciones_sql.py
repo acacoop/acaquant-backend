@@ -143,7 +143,17 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
 
     `con_pnl` adjunta el cost-basis por título (ver `_enriquecer_con_pnl`). Cuesta una
     corrida del motor de PnL, así que va apagado por defecto.
+
+    SIN `fecha` (el modo "ACTUAL" de la vista) la posición sale de
+    `portafolio.tenencia_live` horizonte **t1** — la del DÍA, con lo concertado hoy
+    adentro. CON `fecha` es una consulta HISTÓRICA y sale de `portafolio.tenencia`,
+    la foto conciliada, igual que siempre. Ese es exactamente el corte que pide la
+    vista: el selector de fecha separa "hoy" de "un día pasado", y para un día
+    pasado no existen t0/t1 — hay una sola verdad.
+
+    Si el daemon no corrió (fin de semana, caído), cae sola a la foto.
     """
+    live = fecha is None
     fecha = _resolver_fecha(id_cuenta, fecha, asof)
     if fecha is None:
         return _vacio(id_cuenta, fecha)
@@ -153,11 +163,28 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
     if cartera:
         cart = " AND a.cartera = %(cart)s"
         p["cart"] = cartera
-    rows = _q(
-        "SELECT v.unidad, v.cantidad, v.precio, v.valuacion, "
-        "a.cartera, a.clase_activo, a.ticker, a.emisor, a.calificacion "
-        "FROM portafolio.tenencia v LEFT JOIN portafolio.assets a ON a.unidad = v.unidad "
-        f"WHERE v.id_cuenta = %(c)s AND v.fecha = %(f)s AND v.aum = 'si'{cart}", p)
+    _SEL = ("SELECT v.unidad, v.cantidad, v.precio, v.valuacion, "
+            "a.cartera, a.clase_activo, a.ticker, a.emisor, a.calificacion "
+            "FROM {tabla} v LEFT JOIN portafolio.assets a ON a.unidad = v.unidad "
+            "WHERE v.id_cuenta = %(c)s AND v.aum = 'si'{extra}" + cart)
+    rows: list[dict] = []
+    if live:
+        try:
+            rows = _q(_SEL.format(
+                tabla="portafolio.tenencia_live",
+                extra=" AND v.horizonte = 't1' AND v.fecha = "
+                      "(SELECT MAX(fecha) FROM portafolio.tenencia_live)"), p)
+        except Exception:
+            logger.exception("posiciones_actuales: tenencia_live falló — uso la foto")
+            rows = []
+        if rows:
+            # La fecha que se devuelve tiene que ser la del dato que se está
+            # mostrando, no la de la foto: el front la imprime al lado del selector.
+            f_live = _q("SELECT MAX(fecha) AS f FROM portafolio.tenencia_live")
+            if f_live and f_live[0]["f"]:
+                fecha = _iso(f_live[0]["f"])
+    if not rows:
+        rows = _q(_SEL.format(tabla="portafolio.tenencia", extra=" AND v.fecha = %(f)s"), p)
 
     by_unidad: dict[str, dict] = {}
     for r in rows:

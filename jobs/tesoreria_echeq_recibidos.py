@@ -15,9 +15,14 @@ día —miles de filas—: pagarlo en cada poll de 20s haría inusable la pantal
 LA VENTANA HORARIA NO ES CAPRICHO. El back office carga los depósitos en Aunesa
 **a la mañana siguiente, con la fecha del día anterior**: el 11/08 a la mañana
 entran los depósitos fechados 10/08, y la plata llega al banco el 11/08. Por eso
-el cron corre de 9 a 14 ART y mira los últimos días hábiles, no solo hoy. Es el
-mismo motivo por el que `jobs/cashflow.py` perdía los depósitos: corría a las 23
-del día D mirando el día D, cuando todavía no existían.
+el cron corre de 9 a 18:30 ART y mira los últimos días hábiles, no solo hoy. Es
+el mismo motivo por el que `jobs/cashflow.py` perdía los depósitos: corría a las
+23 del día D mirando el día D, cuando todavía no existían.
+
+Terminaba a las 14:30 y se estiró a 18:30 el 2026-08-12: con el lookback de 2
+días, un depósito fechado D solo se puede espejar en las corridas de D y D+1, así
+que lo que se cargaba en Aunesa después del corte de D+1 no lo alcanzaba nadie
+—el día D ya no volvía a mirarse— y quedaba afuera para siempre.
 
 QUÉ CREA. Una fila `lado='recibido'`, `origen='aunesa'` (la vista le pone el chip
 AUTO), con comitente, CUIT del padrón, importe, moneda y `fecha_pago` = próximo

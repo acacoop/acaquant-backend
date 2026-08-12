@@ -208,17 +208,59 @@ def seccion_cobertura(instr_map: dict, snap_map: dict, cierre_map: dict) -> None
         for t, v in sorted(tiers.items(), key=lambda x: -x[1]):
             print(f"    {t:<15} {v:>18,.0f}   {v / tot * 100:5.1f}%")
 
-    _sep("2d) LAS 25 UNIDADES SIN INSTRUMENTO MÁS GRANDES (precio = el de Aunesa, T-1)")
-    print("  Cash (ARS/USD/USDC/etc.) es NORMAL acá: no tiene precio de mercado.\n"
-          "  Lo que importa son los TÍTULOS: cada uno se está valuando con el precio\n"
-          "  del backfill diario en vez del live.\n")
-    sin_instr = [(f["unidad"], f["moneda"], abs(_f(f["v"]) or 0.0)) for f in filas
+    _sep("2d) LO SIN INSTRUMENTO, CLASIFICADO — sólo una clase es un problema real")
+    print("  No todo lo que cae a `sin_instrumento` es un error:\n"
+          "    CASH   — ARS/USD/USDC: no tiene precio de mercado. Correcto.\n"
+          "    FCI    — se valúa por cuotaparte (CAFCI), no cotiza en pyRofex. Otro\n"
+          "             problema, otra fuente: NO se arregla mapeando `instrumento`.\n"
+          "    TÍTULO — bono/letra/ON/acción que SÍ cotiza y no tiene mapeo. ESTE es\n"
+          "             el hueco: se está valuando con el precio del backfill (T-1)\n"
+          "             pudiendo tener el live.\n")
+
+    def _clase(unidad: str) -> str:
+        u = (unidad or "").upper()
+        if "CAFCI" in u or " FCI " in u or u.startswith("FCI"):
+            return "FCI"
+        # Cash: la unidad es la moneda pelada, sin corchete de código de título.
+        if "[" not in u:
+            return "CASH"
+        return "TITULO"
+
+    sin_instr = [(f["unidad"], abs(_f(f["v"]) or 0.0)) for f in filas
                  if _tier(f["unidad"], instr_map, snap_map, cierre_map)[0] == "sin_instrumento"]
-    sin_instr.sort(key=lambda x: -x[2])
-    print(f"  {'UNIDAD':<52} {'MONEDA':<8} {'Σ|VALUACIÓN|':>20}")
-    print("  " + "-" * 82)
-    for u, m, v in sin_instr[:25]:
-        print(f"  {u[:52]:<52} {m:<8} {v:>20,.0f}")
+    por_clase: dict[str, list] = {"TITULO": [], "FCI": [], "CASH": []}
+    for u, v in sin_instr:
+        por_clase[_clase(u)].append((u, v))
+
+    print("  RESUMEN (Σ|valuación| SIN normalizar por moneda — sirve para rankear, "
+          "no como total):")
+    for c in ("TITULO", "FCI", "CASH"):
+        items = por_clase[c]
+        print(f"    {c:<8} {len(items):>4} unidades   Σ {sum(v for _, v in items):>20,.0f}")
+
+    titulos = sorted(por_clase["TITULO"], key=lambda x: -x[1])
+    print(f"\n  ── LOS TÍTULOS SIN MAPEO ({len(titulos)}) — worklist para Manager → ASSETS ──")
+    print("  Cada uno necesita su `instrumento` (formato 'MERV - XMEV - TICKER - 24hs').\n")
+    print(f"  {'UNIDAD':<58} {'Σ|VALUACIÓN|':>20}")
+    print("  " + "-" * 80)
+    for u, v in titulos[:40]:
+        print(f"  {u[:58]:<58} {v:>20,.0f}")
+    if len(titulos) > 40:
+        resto = sum(v for _, v in titulos[40:])
+        print(f"  ... y {len(titulos) - 40} más (Σ {resto:,.0f})")
+
+    # `moneda` viene NULL: hay que saber si es del daemon nuevo o si la foto diaria
+    # tampoco la trae. Si las DOS están en null, el campo nunca se pobló y el que
+    # no lo trae es Aunesa — no es una regresión de lo que agregamos ahora.
+    _sep("2g) ¿POR QUÉ `moneda` SALE VACÍA? — comparación entre las dos tablas")
+    for tabla, extra in (("portafolio.tenencia", ""),
+                         ("portafolio.tenencia_live", "")):
+        r = _q(f"SELECT count(*) AS n, count(moneda) AS con_moneda FROM {tabla} "
+               f"WHERE fecha = (SELECT MAX(fecha) FROM {tabla}) {extra}")[0]
+        print(f"  {tabla:<28} filas={r['n']:>7}   con moneda={r['con_moneda']:>7}")
+    print("\n  Si las dos dan 0, `moneda` nunca se pobló en ninguna de las dos y el\n"
+          "  campo que `_parse` lee no viene en la respuesta de Aunesa — NO es una\n"
+          "  regresión del daemon nuevo (usa exactamente el mismo `_parse`).")
 
 
 def seccion_ticker(ticker: str, instr_map: dict, snap_map: dict, cierre_map: dict) -> None:

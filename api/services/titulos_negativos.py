@@ -97,6 +97,58 @@ def _negativos_de(horizonte: str, incluir_todo: bool) -> list[dict]:
     } for f in filas]
 
 
+def _saldos_negativos() -> dict:
+    """Saldos de EFECTIVO en descubierto, desde `portafolio.control_saldos`.
+
+    Es otra fuente y otra pregunta que la de arriba. `tenencia_live` es una
+    posición PROYECTADA (mete adentro lo que todavía no liquidó), así que una
+    caución que vence mañana deja la cuenta en falso negativo hoy — y por eso el
+    efectivo estaba excluido de esta pantalla: era ruido. `control_saldos` guarda
+    lo **liquidado** (endpoint `cuentas/{id}/posiciones`), donde un negativo es un
+    descubierto REAL. Verificado contra la cuenta 805 el 2026-08-13.
+
+    El signo ya viene corregido por el daemon: acá `cantidad < 0` es, sin
+    interpretación, plata que falta.
+
+    ⚠️ Degrada en silencio a `disponible: false` si la tabla todavía no existe.
+    La escribe un daemon nuevo y el `apply_schema` puede no haber corrido aún:
+    sin esto, una tabla faltante tumbaría con un 500 la pantalla ENTERA de
+    control de negativos, que hoy funciona y no depende de esto.
+    """
+    try:
+        filas = _q(
+            "SELECT id_cuenta, cuenta, ticker, cantidad, cantidad_pendiente, "
+            "       filas_origen, actualizado_at "
+            "FROM portafolio.control_saldos "
+            "WHERE fecha = (SELECT MAX(fecha) FROM portafolio.control_saldos) "
+            "  AND cantidad < 0 "
+            "ORDER BY cantidad ASC")
+        meta = _q("SELECT MAX(fecha) AS fecha, MAX(actualizado_at) AS ult, "
+                  "       count(DISTINCT id_cuenta) AS cuentas "
+                  "FROM portafolio.control_saldos "
+                  "WHERE fecha = (SELECT MAX(fecha) FROM portafolio.control_saldos)")[0]
+    except Exception:
+        return {"disponible": False, "n": 0, "filas": [], "fecha": None,
+                "actualizado_at": None, "cuentas_en_control": 0}
+    return {
+        "disponible": True,
+        "fecha": meta["fecha"].isoformat() if meta["fecha"] else None,
+        "actualizado_at": meta["ult"].isoformat() if meta["ult"] else None,
+        "cuentas_en_control": meta["cuentas"],
+        "n": len(filas),
+        "filas": [{
+            "id_cuenta": f["id_cuenta"],
+            "cuenta": f["cuenta"] or f"[{f['id_cuenta']}]",
+            "ticker": f["ticker"],
+            "cantidad": _f(f["cantidad"]),
+            "cantidad_pendiente": _f(f["cantidad_pendiente"]),
+            "filas_origen": f["filas_origen"],
+            "actualizado_at": (f["actualizado_at"].isoformat()
+                               if f["actualizado_at"] else None),
+        } for f in filas],
+    }
+
+
 @cached(ttl=10)
 def titulos_negativos(incluir_todo: bool = False) -> dict:
     """Nominales negativos en los DOS horizontes, cada uno ordenado del peor al menos.
@@ -128,4 +180,8 @@ def titulos_negativos(incluir_todo: bool = False) -> dict:
         "incluir_todo": incluir_todo,
         "t0": {"n": len(horizontes["t0"]), "filas": horizontes["t0"]},
         "t1": {"n": len(horizontes["t1"]), "filas": horizontes["t1"]},
+        # Bloque NUEVO y ADITIVO: el front lo puede ignorar sin romperse. Va en la
+        # misma respuesta y no en un endpoint aparte porque es la misma pantalla y
+        # un segundo request para dos tablas que se miran juntas es un viaje de más.
+        "saldos": _saldos_negativos(),
     }

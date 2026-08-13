@@ -68,6 +68,12 @@ MODULES: tuple[str, ...] = (
                       # default (DEFAULT_MATRIX) y JAMÁS en INVITADO_MODULES: habla
                       # del NEGOCIO de la mesa → REGLA #8, default-deny absoluto
                       # para el portal www. Congelado por test.
+    "aca",            # /aca (RESUMEN EJECUTIVO de la cartera propia de ACA —
+                      # docs/ACA.md). Gate de /api/aca/*. Lo tiene el rol
+                      # `empleado_aca` (+ admin); NO el rol `sales`, que es el
+                      # DEFAULT_ROLE y se lleva a cualquier email recién visto.
+                      # JAMÁS en INVITADO_MODULES: es el NEGOCIO de la casa
+                      # (REGLA #8). Congelado por test.
     "manager",        # /manager + intel + jobs + logs (umbrella — tabs admin)
     # Sub-módulos de Manager: cobertura granular para el rol `asistente_comercial`
     # (acceso SOLO a la tab Clientes, sin ver el resto). El sub-router
@@ -98,6 +104,21 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
         "back-office",
+    ),
+    # EMPLEADO ACA: el mismo puesto que `sales` MÁS la vista /aca (resumen
+    # ejecutivo de la cartera propia — docs/ACA.md).
+    #
+    # Por qué es un rol NUEVO y no `sales` renombrado (decisión del user
+    # 2026-08-13): `sales` es DEFAULT_ROLE — todo email que pasa Cloudflare por
+    # primera vez se auto-registra ahí (`_auto_register`). Colgarle `aca` habría
+    # significado que cualquier alta automática ve la cartera de la casa sin que
+    # nadie decidiera nada. Con el rol aparte, entrar a ACA es un acto explícito
+    # del admin en /manager → USUARIOS.
+    "empleado_aca": (
+        "home", "renta-fija", "derivados", "agro", "sinteticos",
+        "renta-variable", "estrategia",
+        "back-office",
+        "aca",
     ),
     # Asistente comercial: mismas vistas que trader + entra a Manager pero SOLO a
     # las tabs Comercial, Clientes y Títulos (edición fila a fila, sin acceso a

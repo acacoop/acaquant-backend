@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-206 notas.
+209 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -18,6 +18,7 @@
 - [[api.profiling]] — api/profiling.py — Middleware opt-in de profiling de requests (pyinstrument).
 - [[api.ratelimit]] — Rate limiter compartido — instancia única de slowapi.
 - [[api.routers]]
+- [[api.routers.aca]] — Router ACA — /api/aca (vista /aca, RESUMEN EJECUTIVO de la cartera propia).
 - [[api.routers.analitica]] — Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.
 - [[api.routers.back_office]] — Router /api/back-office — sección Back Office.
 - [[api.routers.carteras]] — Router Portfolio — thin wrappers sobre `api.services.portfolio`.
@@ -30,6 +31,7 @@
 - [[api.routers.ingest]] — Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet (PC de oficina).
 - [[api.routers.manager]] — Manager API — paquete con sub-routers por sub-dominio.
 - [[api.routers.manager._common]] — Constantes y helpers compartidos entre los sub-módulos de manager/.
+- [[api.routers.manager.aca]] — Manager sub-router — ACA (gestión de la vista /aca, módulo `manager`).
 - [[api.routers.manager.aca_valores]] — Manager sub-router — set de cuentas ACA VALORES (módulo `manager_clientes`).
 - [[api.routers.manager.assets]] — Manager sub-router — control del catálogo de títulos (segmentación).
 - [[api.routers.manager.aunesa]] — Manager · Aunesa — endpoints exploratorios + backfill de aranceles.
@@ -86,6 +88,7 @@
 - [[api.services._negocio_informacion_filter]] — Filtro de exclusión por `informacion` para CashFlow.NegocioMovimientos.
 - [[api.services._negocio_sql_read]] — Lectura de boletos desde SQL `operaciones.negocio_movimientos` devolviendo dicts
 - [[api.services._sql]] — Helper compartido de lectura SQL (canónico).
+- [[api.services.aca]] — api/services/aca.py — ACA · RESUMEN EJECUTIVO DE INVERSIONES (vista /aca).
 - [[api.services.aca_valores]] — api/services/aca_valores.py — CRUD del set de cuentas "ACA VALORES" (SQL).
 - [[api.services.acavalores_retorno]] — ACA VALORES RETORNO TOTAL — lectura de `operaciones.acavalores_retorno`.
 - [[api.services.acreencias]] — api/services/acreencias.py — motor de acreencias (cobros futuros por cliente).
@@ -109,7 +112,7 @@
 - [[api.services.camara_cereales]] — Service — Cámara Arbitral de Cereales de Rosario.
 - [[api.services.canje]] — Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).
 - [[api.services.carry_trade]] — Serie de carry trade en USD para una curva (tasa_fija / cer).
-- [[api.services.cashflow_sql]] — api/services/cashflow_sql.py — lecturas SQL (Supabase) de las colecciones CashFlow
+- [[api.services.cashflow_sql]] — api/services/cashflow_sql.py — lecturas SQL (Supabase) de tres dominios:
 - [[api.services.clientes_admin_sql]] — api/services/clientes_admin_sql.py — edición del master `clientes.comitentes`.
 - [[api.services.comercial]] — api/services/comercial.py — Tablero Comercial: funciones SQL-native vivas.
 - [[api.services.comercial_sql]] — api/services/comercial_sql.py — vista COMERCIAL leyendo de Postgres (Supabase).

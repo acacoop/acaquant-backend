@@ -13,10 +13,10 @@
 - [[core.brackets]] — Brackets — entrada LIMIT + salida automática cuando la entrada se llena.
 - [[core.cafci]] — Parseo de un string `unidad` de FCI.
 - [[core.calendario]] — Calendario hábil argentino — fuente ÚNICA del repo.
-- [[core.curvas_sql]] — core/curvas_sql.py — lectura del master de renta fija desde SQL (decomiso Mongo).
+- [[core.curvas_sql]] — core/curvas_sql.py — lectura del master de renta fija desde SQL.
 - [[core.doc_fiscal]] — Documento fiscal (DNI/CUIT/CUIL) — parseo y claves de cruce. Lógica PURA.
 - [[core.dolar_oficial]] — Fuente única para el "dólar oficial" mayorista.
-- [[core.dolar_sql]] — core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje (decomiso Mongo).
+- [[core.dolar_sql]] — core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje.
 - [[core.eikon_bonos]] — Feed Eikon — precio OFFSHORE de los soberanos ARG (la pata que operan los
 - [[core.eikon_chicago]] — Feed Eikon — futuros de commodities de CHICAGO (CBOT) para AGRO → tab CHICAGO.
 - [[core.eikon_live]] — Feed Eikon/Workspace — quotes LIVE del subyacente US de cada CEDEAR (PRUEBA).
@@ -33,7 +33,7 @@
 - [[core.market_snapshot]] — Lectura de mercado.market_snapshot (SQL) — estado live por ticker. SQL-only.
 - [[core.mav_tasa]] — core/mav_tasa.py — parseo de la TASA de los boletos MAV.
 - [[core.mercado_1816]] — core/mercado_1816.py — cliente de la API de Mercado de 1816 (vista RESEARCH).
-- [[core.pg_mirror]] — core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
+- [[core.pg_mirror]] — core/pg_mirror.py — capa de ESCRITURA a Postgres, la única base del sistema.
 - [[core.pii_gateway]] — core/pii_gateway.py — la ADUANA de datos privados hacia el LLM (asistente de negocio).
 - [[core.postgres]] — core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.
 - [[core.profiler]] — Stopwatch mínimo para instrumentar pasos dentro de una función.

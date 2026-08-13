@@ -9,7 +9,7 @@ path: core/curvas_sql.py
 
 # core/curvas_sql
 
-> core/curvas_sql.py — lectura del master de renta fija desde SQL (decomiso Mongo).
+> core/curvas_sql.py — lectura del master de renta fija desde SQL.
 
 **Archivo:** `core/curvas_sql.py`
 

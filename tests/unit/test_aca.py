@@ -1,0 +1,182 @@
+"""Tests de la vista ACA (api/services/aca.py) — docs/ACA.md.
+
+Cubre las fórmulas que la planilla venía haciendo a mano y que ahora son la
+única fuente de verdad del informe: el monto por activo, la regla de moneda que
+parte Total Dolarizado / Total Pesos, el acumulado encadenado del histórico y el
+agrupado de MÉTRICAS GENERALES.
+
+Todo lo de acá es lógica PURA (no toca Postgres): son justo las funciones cuyo
+error saldría publicado en un informe para gerencia sin que nadie lo note.
+"""
+from __future__ import annotations
+
+import pytest
+
+from api.services import aca
+
+# ── Monto por activo ────────────────────────────────────────────────────────
+
+def test_monto_renta_fija_va_en_paridad():
+    """HD/DL/ARS cotizan por cada 100 de nominal → vn × px / 100.
+
+    337.842.100 × 106,02 / 100 = 358.180.194,42. La planilla muestra
+    358.174.794 para esa fila: la diferencia (0,0015%) es el precio redondeado a
+    2 decimales en pantalla, no otra fórmula. Por eso `px` se guarda con la
+    precisión que se tipee y el monto se deriva de ahí.
+    """
+    assert aca._monto_fila("HD", 337_842_100, 106.02, None) == pytest.approx(358_180_194.42)
+
+
+def test_monto_fci_no_divide_por_cien():
+    """Verificado contra la planilla: FCI IAM Performance Americas,
+    84.903 × 1,16 = 98.487 (el informe dice exactamente 98.487)."""
+    assert aca._monto_fila("FCI", 84_903, 1.16, None) == pytest.approx(98_487.48)
+
+
+def test_monto_manual_gana_sobre_el_derivado():
+    assert aca._monto_fila("HD", 100, 50, 12_345.0) == 12_345.0
+
+
+def test_sin_precio_no_hay_monto():
+    """None ≠ 0: 'todavía no cargado' y 'vale cero' son cosas distintas, y
+    devolver 0 haría que un informe a medio cargar parezca completo."""
+    assert aca._monto_fila("HD", 1_000, None, None) is None
+    assert aca._monto_fila("HD", None, 100.0, None) is None
+
+
+# ── Regla de moneda (Total Dolarizado / Total Pesos) ─────────────────────────
+
+REGLAS = {
+    "cartera": {"HD": "usd", "DL": "usd", "ARS": "ars"},
+    "clase":   {"MM USD": "usd", "HD T1": "usd", "MM ARS": "ars",
+                "ARS T1": "ars", "RENTA VARIABLE": "ars"},
+}
+
+
+def test_carteras_hd_y_dl_son_dolarizadas():
+    assert aca._moneda_de("HD", "", REGLAS) == "usd"
+    assert aca._moneda_de("DL", "", REGLAS) == "usd"
+    assert aca._moneda_de("ARS", "TAMAR", REGLAS) == "ars"
+
+
+def test_el_fci_se_parte_por_clase_de_activo():
+    """Es la regla que el user confirmó contra los números de su planilla: el
+    FCI sigue siendo su propia CARTERA, pero cada fondo suma al total de la
+    moneda que le corresponde."""
+    assert aca._moneda_de("FCI", "MM USD", REGLAS) == "usd"
+    assert aca._moneda_de("FCI", "HD T1", REGLAS) == "usd"
+    assert aca._moneda_de("FCI", "MM ARS", REGLAS) == "ars"
+    assert aca._moneda_de("FCI", "RENTA VARIABLE", REGLAS) == "ars"
+
+
+def test_la_clase_gana_sobre_la_cartera():
+    """Sin esta precedencia el FCI no se podría partir sin sacarlo de su cartera."""
+    reglas = {"cartera": {"FCI": "ars"}, "clase": {"MM USD": "usd"}}
+    assert aca._moneda_de("FCI", "MM USD", reglas) == "usd"
+
+
+def test_clase_desconocida_queda_sin_clasificar():
+    """Default-deny del informe: un activo que ninguna regla ubica NO se
+    reparte a dedo — sale listado para que alguien lo clasifique."""
+    assert aca._moneda_de("FCI", "CLASE NUEVA", REGLAS) is None
+    assert aca._moneda_de("", "", REGLAS) is None
+
+
+def test_la_regla_no_distingue_mayusculas():
+    assert aca._moneda_de("hd", "", REGLAS) == "usd"
+    assert aca._moneda_de("FCI", "mm usd", REGLAS) == "usd"
+
+
+# ── Acumulado encadenado del histórico ──────────────────────────────────────
+
+def test_acumulado_encadena_como_la_planilla():
+    """acum = (1 + acum_anterior) × (1 + mensual) − 1, que es la fórmula que el
+    user arrastra en el Excel."""
+    out = aca._acumular([0.02, 0.03])
+    assert out[0] == pytest.approx(0.02)
+    assert out[1] == pytest.approx(1.02 * 1.03 - 1)  # 0.0506
+
+
+def test_acumulado_arrastra_los_meses_sin_dato():
+    """Un mes vacío NO reinicia ni rompe la serie: 'no sé cuánto rindió' no es
+    'rindió 0'. Es lo que hace la planilla con las columnas todavía en blanco."""
+    out = aca._acumular([0.10, None, 0.10])
+    assert out[1] == pytest.approx(0.10)
+    assert out[2] == pytest.approx(1.10 * 1.10 - 1)
+
+
+def test_antes_del_primer_dato_no_hay_acumulado():
+    """None, no 0: todavía no arrancó la serie y un 0 se leería como 'no rindió'."""
+    assert aca._acumular([None, None]) == [None, None]
+
+
+def test_acumulado_soporta_meses_negativos():
+    out = aca._acumular([0.10, -0.05])
+    assert out[1] == pytest.approx(1.10 * 0.95 - 1)
+
+
+# ── MÉTRICAS GENERALES — agrupado con catálogo ──────────────────────────────
+
+FILAS = [
+    {"emisor": "TESORO",      "monto": 800.0},
+    {"emisor": "CREDICUOTAS", "monto": 200.0},
+    {"emisor": "SORPRESA SA", "monto": 100.0},
+]
+
+
+def test_el_catalogo_muestra_las_filas_en_cero():
+    """Que YPF valga 0 es información ('no tenemos nada de YPF'); que la fila
+    desaparezca no dice nada."""
+    out = aca._agrupar(FILAS, "emisor", ["TESORO", "YPF"], 1100.0)
+    claves = {f["clave"]: f for f in out}
+    assert claves["YPF"]["monto"] == 0.0
+    assert claves["TESORO"]["share"] == pytest.approx(800 / 1100)
+
+
+def test_lo_que_no_esta_en_el_catalogo_igual_aparece_marcado():
+    """El catálogo agrega filas, NUNCA esconde plata: un emisor nuevo se ve,
+    tagueado, en vez de evaporarse del informe."""
+    out = aca._agrupar(FILAS, "emisor", ["TESORO"], 1100.0)
+    extra = [f for f in out if f["fuera_catalogo"]]
+    assert {f["clave"] for f in extra} == {"CREDICUOTAS", "SORPRESA SA"}
+
+
+def test_denominador_cero_no_explota():
+    out = aca._agrupar([], "emisor", ["TESORO"], 0.0)
+    assert out[0]["monto"] == 0.0 and out[0]["share"] is None
+
+
+# ── Validación de período ───────────────────────────────────────────────────
+
+def test_periodo_valido():
+    assert aca._norm_periodo(" 2026-07 ") == "2026-07"
+
+
+@pytest.mark.parametrize("malo", ["2026-7", "202607", "2026-13", "2026-00", "", None])
+def test_periodo_invalido(malo):
+    with pytest.raises(ValueError):
+        aca._norm_periodo(malo)
+
+
+# ── RBAC: la vista NO puede filtrarse al portal invitado (REGLA #8) ─────────
+
+def test_aca_es_modulo_canonico_y_no_del_invitado():
+    from core.roles import INVITADO_MODULES, MODULES
+    assert "aca" in MODULES
+    assert "aca" not in INVITADO_MODULES, (
+        "REGLA #8: la cartera propia es negocio de la casa — jamás al portal www")
+
+
+def test_el_rol_default_no_ve_aca():
+    """`sales` es DEFAULT_ROLE: todo email nuevo cae ahí. Si alguna vez alguien
+    le cuelga `aca`, cualquier alta automática pasa a ver la cartera propia."""
+    from core.roles import DEFAULT_MATRIX, DEFAULT_ROLE
+    assert DEFAULT_ROLE == "sales"
+    assert "aca" not in DEFAULT_MATRIX["sales"]
+    assert "aca" in DEFAULT_MATRIX["empleado_aca"]
+
+
+def test_api_aca_no_esta_en_la_allowlist_del_portal_invitado():
+    from api.auth import path_permitido_invitado
+    assert not path_permitido_invitado("/api/aca/vista")
+    assert not path_permitido_invitado("/api/aca")

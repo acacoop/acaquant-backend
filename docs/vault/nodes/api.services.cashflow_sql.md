@@ -9,7 +9,7 @@ path: api/services/cashflow_sql.py
 
 # api/services/cashflow_sql
 
-> api/services/cashflow_sql.py — lecturas SQL (Supabase) de las colecciones CashFlow
+> api/services/cashflow_sql.py — lecturas SQL (Supabase) de tres dominios:
 
 **Archivo:** `api/services/cashflow_sql.py`
 

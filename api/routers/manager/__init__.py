@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends
 from api.auth import require_any_module, require_module
 from api.deps import verify_api_key
 from api.routers.manager import (
+    aca,
     aca_valores,
     assets,
     aunesa,
@@ -68,6 +69,7 @@ _CONTRAPARTES    = [Depends(verify_api_key), Depends(require_any_module(("manage
 _AUNESA          = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_aunesa")))]
 
 # Tabs admin (umbrella `manager`):
+router.include_router(aca.router,         dependencies=_MGR)
 router.include_router(salud.router,       dependencies=_MGR)
 router.include_router(status.router,      dependencies=_MGR)
 router.include_router(latencia.router,    dependencies=_MGR)

@@ -2962,3 +2962,207 @@ CREATE TABLE IF NOT EXISTS operaciones.financiamiento_datos_audit (
 );
 CREATE INDEX IF NOT EXISTS ix_financiamiento_datos_audit_ts
     ON operaciones.financiamiento_datos_audit (ts DESC);
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ACA — RESUMEN EJECUTIVO DE INVERSIONES (vista /aca, docs/ACA.md)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- La cartera propia de ACA contada para los gerentes. NO es una vista live: es
+-- una FOTO MENSUAL que la mesa carga a mano, como la planilla que reemplaza. El
+-- criterio de diseño es "Excel con las fórmulas ya puestas": lo que se puede
+-- derivar se deriva SIEMPRE server-side (montos, ponderaciones, share, métricas,
+-- acumulados) y lo único que se tipea son los INPUTS que ninguna fuente tiene
+-- (precio de corte del mes, VN, MEP/A3500 del informe, rendimientos externos).
+--
+-- Lo que NO se duplica: la ficha del título (emisor, calificación, clase de
+-- activo, vencimiento, ticker) NO se copia acá. Vive en `portafolio.assets` —
+-- el mismo catálogo que edita Manager → Títulos — y se resuelve por `unidad` en
+-- cada lectura. Copiarla habría creado una segunda verdad que se desincroniza
+-- sola: el rebautizo de especies de Aunesa (ver la regla `herencia` de
+-- jobs/assets_autofill) ya demostró lo caro que sale eso.
+--
+-- Permisos: LECTURA = módulo `aca` (rol `empleado_aca`) ∪ admin ∪ escritores.
+--           ESCRITURA = allowlist de Mesa de Dinero (operaciones.mesa_dinero_escritores)
+--           + admin — decisión del user: la mesa maneja la cuenta, no se crea
+--           una segunda lista que mantener sincronizada a mano.
+CREATE SCHEMA IF NOT EXISTS aca;
+
+-- Un PERÍODO = una foto mensual. `periodo` es 'YYYY-MM' (ordena lexicográfico).
+CREATE TABLE IF NOT EXISTS aca.periodos (
+    periodo         text PRIMARY KEY,       -- 'YYYY-MM'
+    fecha_informe   date NOT NULL,          -- "Informe al 31/07/2026"
+    mep             numeric,                -- Valor MEP del informe (manual)
+    a3500           numeric,                -- Valor A3500 del informe (manual)
+    nota            text,
+    creado_por      text,
+    creado_at       timestamptz DEFAULT now(),
+    actualizado_por text,
+    actualizado_at  timestamptz
+);
+
+-- DETALLE DE ACTIVOS del período. Solo los INPUTS: la ficha se joinea con
+-- portafolio.assets por `unidad` (PK de ese catálogo).
+--   monto = vn × px / divisor(cartera)  — derivado, salvo que `monto` traiga
+--   un override manual (columna `monto`, NULL = derivar).
+CREATE TABLE IF NOT EXISTS aca.activos (
+    periodo         text NOT NULL,
+    unidad          text NOT NULL,          -- FK lógica → portafolio.assets.unidad
+    vn              numeric,                -- valor nominal (manual)
+    px              numeric,                -- precio de corte del mes (manual — el dato sensible)
+    monto           numeric,                -- override manual; NULL = derivado de vn × px
+    tasa            text,                   -- columna "Tasa" (texto libre / NO APLICA)
+    obs             text,                   -- columna suelta de la derecha ("Amortizo")
+    orden           integer DEFAULT 0,
+    actualizado_por text,
+    actualizado_at  timestamptz,
+    PRIMARY KEY (periodo, unidad)
+);
+CREATE INDEX IF NOT EXISTS ix_aca_activos_periodo ON aca.activos (periodo);
+
+-- REGLA DE MONEDA — de qué lado suma cada cosa en TOTAL DOLARIZADO / TOTAL PESOS.
+-- Dos scopes, y el de `clase` GANA sobre el de `cartera`: las carteras HD/DL/ARS
+-- se resuelven por cartera, y el FCI —que tiene fondos en las dos monedas— se
+-- abre por `clase_activo` (MM USD y HD T1 son dólares; MM ARS, ARS T1 y RENTA
+-- VARIABLE son pesos). Editable en Manager → ACA: el user pidió explícitamente
+-- que la clasificación fuera dinámica, no hardcodeada.
+-- Lo que no resuelve ninguna regla NO se reparte a dedo: cae en `sin_clasificar`
+-- y la vista lo muestra, para que un activo nuevo no se cuele silenciosamente
+-- en el lado equivocado.
+CREATE TABLE IF NOT EXISTS aca.moneda_regla (
+    scope           text NOT NULL,          -- 'cartera' | 'clase'
+    clave           text NOT NULL,          -- 'HD' | 'DL' | 'ARS' … / 'MM USD' | 'HD T1' …
+    moneda          text NOT NULL,          -- 'usd' | 'ars'
+    actualizado_por text,
+    actualizado_at  timestamptz,
+    PRIMARY KEY (scope, clave)
+);
+
+-- Catálogo de EMISORES que las MÉTRICAS GENERALES muestran SIEMPRE, aunque el
+-- mes cierre en cero (así se lee "no tenemos nada de YPF", que es información,
+-- en vez de que la fila desaparezca). Un emisor que aparece en el período y NO
+-- está acá igual se muestra, marcado `fuera_catalogo` — mismo criterio que la
+-- grilla BANCOS de Tesorería: el catálogo agrega filas, nunca esconde plata.
+CREATE TABLE IF NOT EXISTS aca.emisor_destacado (
+    bloque text NOT NULL,                   -- 'hd' | 'dl' | 'privados'
+    emisor text NOT NULL,
+    orden  integer DEFAULT 0,
+    PRIMARY KEY (bloque, emisor)
+);
+
+-- Ídem para las CLASES DE ACTIVO por cartera (bloques CARTERA FCI y CARTERA ARS
+-- de las métricas).
+CREATE TABLE IF NOT EXISTS aca.clase_destacada (
+    cartera text NOT NULL,                  -- 'FCI' | 'ARS' | …
+    clase   text NOT NULL,                  -- 'MM USD' | 'TAMAR' | …
+    orden   integer DEFAULT 0,
+    PRIMARY KEY (cartera, clase)
+);
+
+-- HISTÓRICO — catálogo de SERIES (las columnas de la planilla histórica y las
+-- líneas de los gráficos "vs benchmarks").
+--   fuente: 'manual'              → el rendimiento mensual se tipea.
+--           'macro_var:<SERIE>'   → variación mensual de una serie de
+--                                   macro.series_macro (último valor del mes /
+--                                   último del mes anterior − 1). Es un RATIO:
+--                                   no asume unidades, así que no puede errarle
+--                                   por un factor 100.
+--           'macro_pct:<SERIE>'   → el valor del mes tomado como rendimiento,
+--                                   dividido por `escala` (100 si la serie viene
+--                                   en porcentaje). Esta SÍ depende de la unidad
+--                                   real de la serie → medir antes de activarla
+--                                   (scripts/diag_aca_benchmarks.py).
+-- El valor MANUAL siempre gana sobre el automático: si alguien tipeó el mes, ese
+-- es el número. La automatización rellena huecos, no pisa criterio.
+CREATE TABLE IF NOT EXISTS aca.series (
+    codigo   text PRIMARY KEY,
+    nombre   text NOT NULL,
+    grupo    text,                          -- 'cartera' | 'benchmark' | 'externo'
+    fuente   text NOT NULL DEFAULT 'manual',
+    escala   numeric NOT NULL DEFAULT 100,  -- solo para macro_pct
+    graficos text[] NOT NULL DEFAULT '{}',  -- 'total_ars' | 'total_usd' | 'pesos'
+    color    text,
+    orden    integer DEFAULT 0,
+    activo   boolean NOT NULL DEFAULT true
+);
+
+-- HISTÓRICO — valores mensuales. `acumulado` NO se persiste: se deriva en la
+-- lectura encadenando (1 + acum_anterior) × (1 + mensual) − 1, que es la fórmula
+-- que el user viene arrastrando en la planilla. Persistirlo sería guardar un
+-- número que puede contradecir a sus propios insumos.
+-- El período de esta tabla es INDEPENDIENTE de aca.periodos: la serie histórica
+-- arranca mucho antes que el primer informe cargado.
+CREATE TABLE IF NOT EXISTS aca.historico (
+    periodo         text NOT NULL,          -- 'YYYY-MM'
+    serie           text NOT NULL,          -- → aca.series.codigo
+    monto           numeric,                -- monto de cierre (ARS o USD, según la serie)
+    ingreso_retiro  numeric,                -- aportes/retiros del mes
+    mensual         numeric,                -- rendimiento del mes, FRACCIÓN (0,0245 = 2,45%)
+    actualizado_por text,
+    actualizado_at  timestamptz,
+    PRIMARY KEY (periodo, serie)
+);
+CREATE INDEX IF NOT EXISTS ix_aca_historico_serie ON aca.historico (serie, periodo);
+
+-- Trazabilidad de TODA escritura (before/after), igual que mesa_dinero_audit.
+CREATE TABLE IF NOT EXISTS aca.audit (
+    id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts     timestamptz,
+    actor  text,
+    action text,
+    target text,
+    data   jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_aca_audit_ts ON aca.audit (ts DESC);
+
+-- ── Semillas de los catálogos (idempotentes) ────────────────────────────────
+-- Reglas de moneda: las 3 carteras que no se discuten + las clases de FCI.
+INSERT INTO aca.moneda_regla (scope, clave, moneda) VALUES
+    ('cartera', 'HD',  'usd'),
+    ('cartera', 'DL',  'usd'),
+    ('cartera', 'ARS', 'ars'),
+    ('clase',   'MM USD',         'usd'),
+    ('clase',   'HD T1',          'usd'),
+    ('clase',   'MM ARS',         'ars'),
+    ('clase',   'ARS T1',         'ars'),
+    ('clase',   'RENTA VARIABLE', 'ars')
+ON CONFLICT (scope, clave) DO NOTHING;
+
+INSERT INTO aca.clase_destacada (cartera, clase, orden) VALUES
+    ('FCI', 'ARS T1', 1), ('FCI', 'MM ARS', 2), ('FCI', 'MM USD', 3),
+    ('FCI', 'HD T1', 4),  ('FCI', 'RENTA VARIABLE', 5),
+    ('ARS', 'CER', 1), ('ARS', 'DUAL', 2), ('ARS', 'FIJA', 3), ('ARS', 'TAMAR', 4)
+ON CONFLICT (cartera, clase) DO NOTHING;
+
+INSERT INTO aca.series (codigo, nombre, grupo, fuente, graficos, orden) VALUES
+    ('total_ars',  'Cartera Total ACA en ARS', 'cartera',   'manual', '{total_ars}',      1),
+    ('total_usd',  'Cartera Total ACA en USD', 'cartera',   'manual', '{total_usd}',      2),
+    ('ars_aca',    'Cartera ARS ACA',          'cartera',   'manual', '{pesos}',          3),
+    ('usd_aca',    'Cartera USD ACA',          'cartera',   'manual', '{}',               4),
+    ('badlar',     'Badlar',                   'benchmark', 'manual', '{total_ars,pesos}', 5),
+    ('inflacion',  'Inflacion',                'benchmark', 'manual', '{total_ars,pesos}', 6),
+    ('a3500',      'A3500',                    'benchmark', 'macro_var:DOLAR', '{total_ars}', 7),
+    ('dl_caspi',   'Cartera DL Caspi',         'externo',   'manual', '{}',               8),
+    ('ars_caspi',  'Cartera ARS Caspi',        'externo',   'manual', '{}',               9)
+ON CONFLICT (codigo) DO NOTHING;
+
+-- ── RBAC de la vista ACA ────────────────────────────────────────────────────
+-- El módulo `aca` y el rol `empleado_aca` nacen en core/roles.py, pero
+-- DEFAULT_MATRIX solo aplica cuando `manager.role_matrix` está VACÍA — y en prod
+-- está poblada, así que el default no se propaga solo. Sin estas filas la vista
+-- quedaría invisible hasta para el admin, y el rol nuevo ni siquiera aparecería
+-- en el panel ROLES Y PERMISOS para poder asignarlo.
+--
+-- `empleado_aca` = los mismos módulos que `sales` (es el mismo puesto) MÁS `aca`.
+-- Se copia de `sales` en vez de listarlos: si mañana alguien ajusta sales, la
+-- semilla de una instalación nueva no queda contando una historia vieja.
+-- `sales` NO recibe `aca` a propósito: sigue siendo el DEFAULT_ROLE (todo email
+-- nuevo que pasa Cloudflare cae ahí), y darle la vista de la cartera propia a un
+-- alta automática es exactamente lo que no queremos.
+INSERT INTO manager.role_matrix (role, module)
+SELECT 'empleado_aca', module FROM manager.role_matrix WHERE role = 'sales'
+ON CONFLICT (role, module) DO NOTHING;
+
+INSERT INTO manager.role_matrix (role, module) VALUES
+    ('empleado_aca', 'aca'),
+    ('admin',        'aca')
+ON CONFLICT (role, module) DO NOTHING;

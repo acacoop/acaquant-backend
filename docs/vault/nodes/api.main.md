@@ -30,6 +30,7 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.profiling]]  ·  _module_
 - [[api.ratelimit]]  ·  _module_
 - [[api.routers]]  ·  _module_
+- [[api.routers.aca]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
 - [[api.routers.back_office]]  ·  _module_
 - [[api.routers.carteras]]  ·  _module_

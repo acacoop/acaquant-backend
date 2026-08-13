@@ -59,6 +59,7 @@
 "api.profiling",
 "api.ratelimit",
 "api.routers",
+"api.routers.aca",
 "api.routers.analitica",
 "api.routers.back_office",
 "api.routers.carteras",
@@ -225,6 +226,19 @@
 "path": "api/routers/__init__.py",
 "summary": "",
 "links": []
+},
+{
+"id": "api.routers.aca",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/aca.py",
+"summary": "Router ACA — /api/aca (vista /aca, RESUMEN EJECUTIVO de la cartera propia).",
+"links": [
+"api.auth",
+"api.services",
+"api.services.aca"
+]
 },
 {
 "id": "api.routers.analitica",
@@ -401,6 +415,7 @@
 "links": [
 "api.auth",
 "api.deps",
+"api.routers.manager.aca",
 "api.routers.manager.aca_valores",
 "api.routers.manager.assets",
 "api.routers.manager.aunesa",
@@ -439,6 +454,19 @@
 "path": "api/routers/manager/_common.py",
 "summary": "Constantes y helpers compartidos entre los sub-módulos de manager/.",
 "links": []
+},
+{
+"id": "api.routers.manager.aca",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/aca.py",
+"summary": "Manager sub-router — ACA (gestión de la vista /aca, módulo `manager`).",
+"links": [
+"api.auth",
+"api.services",
+"api.services.aca"
+]
 },
 {
 "id": "api.routers.manager.aca_valores",
@@ -835,6 +863,7 @@
 "links": [
 "api.auth",
 "api.services",
+"api.services.aca",
 "api.services.mesa_dinero",
 "core.roles"
 ]
@@ -1181,6 +1210,22 @@
 "summary": "Helper compartido de lectura SQL (canónico).",
 "links": [
 "core.postgres"
+]
+},
+{
+"id": "api.services.aca",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/aca.py",
+"summary": "api/services/aca.py — ACA · RESUMEN EJECUTIVO DE INVERSIONES (vista /aca).",
+"links": [
+"api.cache",
+"api.services",
+"api.services._sql",
+"api.services.mesa_dinero",
+"core.postgres",
+"core.roles"
 ]
 },
 {
@@ -1547,7 +1592,7 @@
 "layer": "api",
 "repo": "backend",
 "path": "api/services/cashflow_sql.py",
-"summary": "api/services/cashflow_sql.py — lecturas SQL (Supabase) de las colecciones CashFlow",
+"summary": "api/services/cashflow_sql.py — lecturas SQL (Supabase) de tres dominios:",
 "links": [
 "api.cache",
 "api.services._mep",
@@ -3030,7 +3075,7 @@
 "layer": "core",
 "repo": "backend",
 "path": "core/curvas_sql.py",
-"summary": "core/curvas_sql.py — lectura del master de renta fija desde SQL (decomiso Mongo).",
+"summary": "core/curvas_sql.py — lectura del master de renta fija desde SQL.",
 "links": [
 "core.postgres"
 ]
@@ -3062,7 +3107,7 @@
 "layer": "core",
 "repo": "backend",
 "path": "core/dolar_sql.py",
-"summary": "core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje (decomiso Mongo).",
+"summary": "core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje.",
 "links": [
 "core.postgres"
 ]
@@ -3250,7 +3295,7 @@
 "layer": "core",
 "repo": "backend",
 "path": "core/pg_mirror.py",
-"summary": "core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).",
+"summary": "core/pg_mirror.py — capa de ESCRITURA a Postgres, la única base del sistema.",
 "links": [
 "core.postgres"
 ]

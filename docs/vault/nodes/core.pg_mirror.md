@@ -9,7 +9,7 @@ path: core/pg_mirror.py
 
 # core/pg_mirror
 
-> core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
+> core/pg_mirror.py — capa de ESCRITURA a Postgres, la única base del sistema.
 
 **Archivo:** `core/pg_mirror.py`
 

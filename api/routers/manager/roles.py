@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, Depends, Query
 from pydantic import BaseModel
 
 from api.auth import get_user_email
-from core.roles import MODULES, get_matrix, list_audit, set_role_modules
+from core.roles import DEFAULT_MATRIX, MODULES, get_matrix, list_audit, set_role_modules
 
 router = APIRouter()
 
@@ -22,12 +22,24 @@ class _MatrixPatch(BaseModel):
 
 @router.get("/roles")
 def get_roles_endpoint() -> dict:
-    """Matriz completa + metadata para renderizar el panel."""
+    """Matriz completa + metadata para renderizar el panel.
+
+    `roles` une los de la DB con los declarados en DEFAULT_MATRIX. Un rol nuevo
+    en el código (ej. `empleado_aca`) NO existe en `manager.role_matrix` de prod
+    hasta que alguien le asigna un módulo — y sin aparecer en esta lista el
+    panel no lo mostraba, así que no había forma de asignárselo a nadie: un rol
+    invisible que solo se podía crear a mano en SQL.
+
+    Los módulos de esos roles van VACÍOS a propósito. `get_matrix()` es la
+    verdad efectiva (lo que la DB concede); mostrar los defaults del código como
+    si estuvieran otorgados haría que el panel prometa accesos que el gate no da.
+    """
     matrix = get_matrix()
+    roles = sorted(set(matrix) | set(DEFAULT_MATRIX))
     return {
         "modules": list(MODULES),
-        "roles":   list(matrix.keys()),
-        "matrix":  {role: list(mods) for role, mods in matrix.items()},
+        "roles":   roles,
+        "matrix":  {role: list(matrix.get(role, ())) for role in roles},
     }
 
 

@@ -7,7 +7,7 @@ user autenticado debe poder consultar su propia identidad).
 from fastapi import APIRouter, Depends, Request
 
 from api.auth import get_user_email, is_guest_portal
-from api.services import mesa_dinero
+from api.services import aca, mesa_dinero
 from core.roles import (
     INVITADO_MODULES,
     get_user_modules,
@@ -51,6 +51,12 @@ def me(request: Request, email: str = Depends(get_user_email)) -> dict:
     # ROLES Y PERMISOS que no controlaría nada.
     if mesa_dinero.puede_ver(email=email):
         modules.append("mesa-dinero")
+    # `aca` SÍ es un módulo del RBAC (lo tiene el rol `empleado_aca`), pero el
+    # acceso además se gana por estar en la allowlist de escritura de la mesa —
+    # escribir implica ver. Sin esta línea, un escritor sin el rol pasaba el gate
+    # del backend y NO veía el link en el nav: entraba solo tipeando la URL.
+    if "aca" not in modules and aca.puede_ver(email=email):
+        modules.append("aca")
     return {
         "email":    email,
         "role":     role,

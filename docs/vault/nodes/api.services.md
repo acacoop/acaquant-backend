@@ -19,6 +19,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 ## Lo usan (backlinks) ←
 - [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.mcp.tools.renta_variable]]  ·  _module_
+- [[api.routers.aca]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
 - [[api.routers.back_office]]  ·  _module_
 - [[api.routers.carteras]]  ·  _module_
@@ -26,6 +27,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.derivados_agro]]  ·  _module_
 - [[api.routers.estrategia]]  ·  _module_
 - [[api.routers.ia]]  ·  _module_
+- [[api.routers.manager.aca]]  ·  _module_
 - [[api.routers.manager.aca_valores]]  ·  _module_
 - [[api.routers.manager.assets]]  ·  _module_
 - [[api.routers.manager.aunesa]]  ·  _module_
@@ -57,6 +59,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.senebis]]  ·  _module_
 - [[api.routers.trading]]  ·  _module_
 - [[api.routers.valuaciones]]  ·  _module_
+- [[api.services.aca]]  ·  _module_
 - [[api.services.acreencias]]  ·  _module_
 - [[api.services.agro_cobertura]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_

@@ -29,6 +29,7 @@ from api.deps import verify_api_key
 from api.profiling import maybe_add_profiler
 from api.ratelimit import limiter
 from api.routers import (
+    aca,
     analitica,
     back_office,
     carteras,
@@ -259,6 +260,12 @@ _TRADING      = [Depends(verify_api_key), Depends(require_module("trading"))]
 # PERSONA (allowlist en Manager → MESA), no por puesto — ver el docstring de
 # api/routers/mesa_dinero.py. Es el mismo criterio que `require_control_comercial`.
 _MESA_DINERO  = [Depends(verify_api_key), Depends(mesa_dinero.require_lectura_mesa)]
+# ACA (resumen ejecutivo de la cartera propia): el gate es el módulo `aca` UNIDO a
+# la allowlist de escritura de Mesa de Dinero — escribir implica ver, y la mesa
+# maneja la cuenta sin necesariamente tener el rol `empleado_aca`. Esa unión vive
+# en el service (aca.puede_ver), no acá, para que /api/me y el router la resuelvan
+# con la misma función. Ver api/routers/aca.py::require_lectura_aca.
+_ACA          = [Depends(verify_api_key), Depends(aca.require_lectura_aca)]
 # Módulo `ia` (QuantAI): features de IA — canary via matriz (default solo admin).
 _IA           = [Depends(verify_api_key), Depends(require_module("ia"))]
 # `manager.router` ya NO va con un gate `manager` global: gatear todo
@@ -311,6 +318,9 @@ app.include_router(cuentas.router,           dependencies=_OPERACIONES)
 # Mesa de Dinero (vista NEGOCIO): acceso por allowlist per-usuario (NO por el
 # módulo `operaciones`); la escritura suma su propia allowlist adentro del router.
 app.include_router(mesa_dinero.router,       dependencies=_MESA_DINERO)
+# ACA (resumen ejecutivo): lectura módulo `aca` ∪ escritores de la mesa; la
+# escritura suma su gate propio adentro del router.
+app.include_router(aca.router,               dependencies=_ACA)
 # manager.router: gate FINO por sub-router (ver api/routers/manager/__init__.py).
 # Acá ponemos una base FAIL-CLOSED: exige al menos UN módulo manager. Así un
 # sub-router nuevo que se agregue sin su dependency NO queda abierto a cualquier

@@ -37,9 +37,9 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **457 endpoints** montados en `api.main.app`, en **28 routers**.
-- **150 escriben** (POST/PUT/PATCH/DELETE); 307 son de solo lectura.
-- **22 módulos** canónicos y **6 roles** en `core/roles.py`.
+- **483 endpoints** montados en `api.main.app`, en **29 routers**.
+- **165 escriben** (POST/PUT/PATCH/DELETE); 318 son de solo lectura.
+- **23 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
 ### 0.1 Endpoints y gate efectivo, por router
@@ -48,6 +48,7 @@
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
+| `/api/aca` | 17 | 7 | — · 8 rutas con gate extra | `aca` | ⚠️ |
 | `/api/analitica` | 15 | 1 | — | — | ⚠️ |
 | `/api/back-office` | 57 | 33 | `back-office` · 57 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
@@ -57,7 +58,7 @@
 | `/api/estrategia` | 4 | 0 | `trading` | — |  |
 | `/api/ia` | 11 | 5 | `ia` · 10 rutas con gate extra | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 132 | 59 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
+| `/api/manager` | 141 | 67 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 4 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 9 | 4 | — · 5 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
@@ -79,6 +80,7 @@
 **⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
 
 - `(raíz)` (2 de 2 rutas sin gate de módulo)
+- `/api/aca` (declara `aca`, no lo aplica)
 - `/api/analitica` (15 de 15 rutas sin gate de módulo)
 - `/api/cotizaciones` (32 de 33 rutas sin gate de módulo)
 - `/api/derivados` (13 de 18 rutas sin gate de módulo)
@@ -101,30 +103,31 @@ No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtim
 ### 0.2 Matriz rol × módulo (default del código)
 
 <!-- AUTOGEN:rbac -->
-| Módulo | admin | trader | sales | asistente_comercial | back_office | invitado |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|
-| `home` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `renta-fija` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
-| `derivados` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
-| `agro` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
-| `sinteticos` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
-| `renta-variable` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
-| `trading` | ✓ | · | · | · | · | · |
-| `estrategia` | ✓ | ✓ | ✓ | ✓ | · | ✓ |
-| `operar` | ✓ | · | · | · | · | · |
-| `operaciones` | ✓ | ✓ | · | ✓ | · | · |
-| `portfolios` | ✓ | ✓ | · | ✓ | · | · |
-| `back-office` | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| `research` | ✓ | · | · | · | · | ✓ |
-| `ia` | ✓ | · | · | · | · | ✓ |
-| `asistente` | ✓ | · | · | · | · | · |
-| `manager` | ✓ | · | · | · | · | · |
-| `manager_clientes` | ✓ | · | · | ✓ | · | · |
-| `manager_clientes_bulk` | ✓ | · | · | · | · | · |
-| `manager_titulos` | ✓ | · | · | · | · | · |
-| `manager_instrumentos` | ✓ | · | · | ✓ | · | · |
-| `manager_contrapartes` | ✓ | · | · | ✓ | · | · |
-| `manager_aunesa` | ✓ | · | · | ✓ | · | · |
+| Módulo | admin | trader | sales | empleado_aca | asistente_comercial | back_office | invitado |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `home` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `renta-fija` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `derivados` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `agro` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `sinteticos` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `renta-variable` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `trading` | ✓ | · | · | · | · | · | · |
+| `estrategia` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `operar` | ✓ | · | · | · | · | · | · |
+| `operaciones` | ✓ | ✓ | · | · | ✓ | · | · |
+| `portfolios` | ✓ | ✓ | · | · | ✓ | · | · |
+| `back-office` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| `research` | ✓ | · | · | · | · | · | ✓ |
+| `ia` | ✓ | · | · | · | · | · | ✓ |
+| `asistente` | ✓ | · | · | · | · | · | · |
+| `aca` | ✓ | · | · | ✓ | · | · | · |
+| `manager` | ✓ | · | · | · | · | · | · |
+| `manager_clientes` | ✓ | · | · | · | ✓ | · | · |
+| `manager_clientes_bulk` | ✓ | · | · | · | · | · | · |
+| `manager_titulos` | ✓ | · | · | · | · | · | · |
+| `manager_instrumentos` | ✓ | · | · | · | ✓ | · | · |
+| `manager_contrapartes` | ✓ | · | · | · | ✓ | · | · |
+| `manager_aunesa` | ✓ | · | · | · | ✓ | · | · |
 
 > Esta matriz es el **DEFAULT del código** (`core/roles.py::DEFAULT_MATRIX`). La tabla SQL `manager.role_matrix` la **PISA**: el enforcement real es lo que esté ahí, editable desde `/manager → ROLES Y PERMISOS`. Para ver la de producción hay que consultarla en la base.
 <!-- /AUTOGEN:rbac -->
@@ -133,8 +136,8 @@ No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtim
 
 ## 1. ÍNDICE DE VISTAS
 
-**20 vistas navegables** (el App Router tiene exactamente 20 `page.tsx`, y las 20 están en el menú:
-no hay rutas huérfanas). Los otros 67 archivos de `src/app/api/**/route.ts` son proxies HTTP, no
+**21 vistas navegables** (el App Router tiene exactamente 21 `page.tsx`, y las 21 están en el menú:
+no hay rutas huérfanas). Los otros 68 archivos de `src/app/api/**/route.ts` son proxies HTTP, no
 páginas.
 
 | # | Vista | Ruta | Módulo RBAC | Roles (default) | Qué hace |
@@ -158,7 +161,8 @@ páginas.
 | 17 | **OPERADORES** | `/operadores` | `operaciones` (+ `control_comercial` per-usuario para una sub-vista) | admin, trader, asistente_comercial | Tablero Comercial: qué cuentas gestiona cada operador, cuánto AuM/volumen/arancel generan, estado comercial y objetivos. |
 | 18 | **REFERIDOS** | `/referidos` | `operaciones` | admin, trader, asistente_comercial | Vista para la empresa referidora: solo sus cuentas — operan, AuM, rendimientos, volumen, aranceles y comisión FCI a la coop. |
 | 19 | **BACK OFFICE** | `/back-office` | `back-office` | admin, trader, sales, asistente_comercial, back_office | Operación diaria del back office: SENEBIS, tenencia valorizada, títulos en alquiler, Tesorería (caja del día), títulos a enviar/recibir al mercado y acreencias de clientes. |
-| 20 | **MANAGER** | `/manager` | `manager` + 6 sub-módulos | admin (todo); asistente_comercial entra por sub-módulos | Panel de administración: observabilidad, validaciones/debug, maestros (assets/bonos/ONs/CEDEARs), segmentación de clientes y contrapartes, backfills/imports, usuarios/roles/grupos y allowlists de escritura. |
+| 20 | **ACA** | `/aca` | `aca` | **solo `empleado_aca`** (+ admin + escritores de la mesa) | Resumen ejecutivo de la cartera PROPIA de ACA para gerencia: foto MENSUAL con valuación ARS/A3500/USD, composición por cartera, detalle título por título, métricas de concentración y rendimiento acumulado vs benchmarks. Carga manual tipo Excel (`docs/ACA.md`). |
+| 21 | **MANAGER** | `/manager` | `manager` + 6 sub-módulos | admin (todo); asistente_comercial entra por sub-módulos | Panel de administración: observabilidad, validaciones/debug, maestros (assets/bonos/ONs/CEDEARs), segmentación de clientes y contrapartes, backfills/imports, usuarios/roles/grupos y allowlists de escritura. |
 
 **Superficies transversales (no son rutas propias):**
 
@@ -175,7 +179,7 @@ páginas.
 
 ## 2. MATRIZ ROL × MÓDULO
 
-### 2.1 Los 22 módulos canónicos (`core/roles.py::MODULES`)
+### 2.1 Los 23 módulos canónicos (`core/roles.py::MODULES`)
 
 | Módulo | Qué cubre | Enforcement server-side REAL (verificado sobre las 423 rutas) |
 |---|---|---|
@@ -194,6 +198,7 @@ páginas.
 | `research` | `/research` | `/api/research1816`, `/api/research-bcra`, `/api/research-fred`, `/api/research-docs` (17) |
 | `ia` | Briefing, copiloto, observabilidad IA | `/api/ia/*` (11) |
 | `asistente` | Asistente de Negocio (vista `negocio` del copiloto) | **Sin prefijo propio**: gate fino en `copiloto/derivacion.py::_acceso` (+ `solo_internos`) |
+| `aca` | `/aca` (resumen ejecutivo de la cartera propia) | `/api/aca/*` (14) — gate `require_lectura_aca` sobre TODO el router: módulo ∪ allowlist de la mesa |
 | `manager` | `/manager` umbrella | `/api/manager/*` (~70) + `PUT /api/cotizaciones/opciones/tasa` |
 | `manager_clientes` | Manager → CLIENTES / ACA VALORES / CONTROL AUTO | `clientes.router`, `aca_valores`, `control_automatico` (10) |
 | `manager_clientes_bulk` | Manager → cargas masivas | `clientes.bulk_router` (3) |
@@ -209,34 +214,40 @@ páginas.
 
 ### 2.2 Matriz por DEFAULT (`core/roles.py::DEFAULT_MATRIX`) — bootstrap, NO la verdad de prod
 
-| Módulo | admin | trader | sales | asistente_comercial | back_office | invitado |
-|---|:--:|:--:|:--:|:--:|:--:|:--:|
-| home | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| renta-fija | ✓ | ✓ | ✓ | ✓ | – | ✓ |
-| derivados | ✓ | ✓ | ✓ | ✓ | – | ✓ |
-| agro | ✓ | ✓ | ✓ | ✓ | – | ✓ |
-| sinteticos | ✓ | ✓ | ✓ | ✓ | – | ✓ |
-| renta-variable | ✓ | ✓ | ✓ | ✓ | – | ✓ |
-| trading | ✓ | – | – | – | – | – |
-| estrategia | ✓ | ✓ | ✓ | ✓ | – | ✓ |
-| operar | ✓ | – | – | – | – | – |
-| operaciones | ✓ | ✓ | – | ✓ | – | – |
-| portfolios | ✓ | ✓ | – | ✓ | – | – |
-| back-office | ✓ | ✓ | ✓ | ✓ | ✓ | – |
-| research | ✓ | – | – | – | – | ✓ |
-| ia | ✓ | – | – | – | – | ✓ |
-| asistente | ✓ | – | – | – | – | – |
-| manager | ✓ | – | – | – | – | – |
-| manager_clientes | ✓ | – | – | ✓ | – | – |
-| manager_clientes_bulk | ✓ | – | – | – | – | – |
-| manager_titulos | ✓ | – | – | – | – | – |
-| manager_instrumentos | ✓ | – | – | ✓ | – | – |
-| manager_contrapartes | ✓ | – | – | ✓ | – | – |
-| manager_aunesa | ✓ | – | – | ✓ | – | – |
-| **total** | **22** | **10** | **8** | **14** | **2** | **9** |
+| Módulo | admin | trader | sales | **empleado_aca** | asistente_comercial | back_office | invitado |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| home | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| renta-fija | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
+| derivados | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
+| agro | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
+| sinteticos | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
+| renta-variable | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
+| trading | ✓ | – | – | – | – | – | – |
+| estrategia | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
+| operar | ✓ | – | – | – | – | – | – |
+| operaciones | ✓ | ✓ | – | – | ✓ | – | – |
+| portfolios | ✓ | ✓ | – | – | ✓ | – | – |
+| back-office | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | – |
+| research | ✓ | – | – | – | – | – | ✓ |
+| ia | ✓ | – | – | – | – | – | ✓ |
+| asistente | ✓ | – | – | – | – | – | – |
+| manager | ✓ | – | – | – | – | – | – |
+| manager_clientes | ✓ | – | – | – | ✓ | – | – |
+| manager_clientes_bulk | ✓ | – | – | – | – | – | – |
+| manager_titulos | ✓ | – | – | – | – | – | – |
+| manager_instrumentos | ✓ | – | – | – | ✓ | – | – |
+| manager_contrapartes | ✓ | – | – | – | ✓ | – | – |
+| manager_aunesa | ✓ | – | – | – | ✓ | – | – |
+| **aca** | ✓ | – | – | **✓** | – | – | – |
+| **total** | **23** | **10** | **8** | **9** | **14** | **2** | **9** |
 
 Notas verificadas:
 - `admin = MODULES` (todo, incluidos los 6 sub-módulos de manager).
+- **`empleado_aca` = `sales` + `aca`** (rol nuevo, 2026-08-13). Es un rol APARTE y no `sales`
+  renombrado porque **`sales` es `DEFAULT_ROLE`**: todo email que pasa Cloudflare por primera vez se
+  auto-registra ahí, así que colgarle `aca` habría dado la cartera propia de la casa a cualquier alta
+  automática. Con el rol separado, entrar a ACA es un acto explícito del admin.
+- `aca` **jamás** para `invitado` (REGLA #8) — hay un test que falla si alguien lo agrega.
 - `back_office` es mínimo **a propósito** (`home` + `back-office`); el admin lo amplía desde el panel.
 - `asistente_comercial` NO tiene el umbrella `manager` ni `manager_clientes_bulk` ni `manager_titulos`:
   entra a Manager solo por los sub-módulos.
@@ -341,6 +352,7 @@ MERCADOS ▼                (grupo, aparece si tiene ≥1 item)
   ├─ Renta Variable       → /renta-variable    [renta-variable]
   └─ Sintéticos           → /sinteticos        [sinteticos]
 NEGOCIO ▼                 (grupo)
+  ├─ ACA                  → /aca               [aca]
   ├─ AUM                  → /aum               [portfolios]
   ├─ Carteras             → /valuaciones       [portfolios]
   ├─ Contrapartes         → /contrapartes      [operaciones]
@@ -375,10 +387,11 @@ propósito, para que el nav y `src/proxy.ts` sigan filtrando con UN solo mecanis
 
 | Rol | Entradas visibles |
 |---|---|
-| `admin` | HOME · OPERAR · TRADING · RESEARCH · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE · MANAGER |
-| `trader` | HOME · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE. **Sin** OPERAR, TRADING, RESEARCH, MANAGER |
+| `admin` | HOME · OPERAR · TRADING · RESEARCH · MERCADOS (7/7) · NEGOCIO (8/8) · BACK OFFICE · MANAGER |
+| `trader` | HOME · MERCADOS (7/7) · NEGOCIO (7/8, sin ACA) · BACK OFFICE. **Sin** OPERAR, TRADING, RESEARCH, MANAGER |
 | `sales` | HOME · MERCADOS (7/7) · BACK OFFICE. **Sin** NEGOCIO, OPERAR, TRADING, RESEARCH, MANAGER |
-| `asistente_comercial` | HOME · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE · MANAGER (entra por `manager_clientes`). **Sin** OPERAR, TRADING, RESEARCH |
+| `empleado_aca` | HOME · MERCADOS (7/7) · NEGOCIO (**solo ACA**) · BACK OFFICE. Es `sales` + la vista ACA |
+| `asistente_comercial` | HOME · MERCADOS (7/7) · NEGOCIO (7/8, sin ACA) · BACK OFFICE · MANAGER (entra por `manager_clientes`). **Sin** OPERAR, TRADING, RESEARCH |
 | `back_office` | HOME · BACK OFFICE. Nada más |
 | `invitado` (www) | HOME · AGRO · DERIVADOS · ESTRATEGIA · ONS · RENTA FIJA · RENTA VARIABLE · RESEARCH · SINTÉTICOS — los 7 items de MERCADOS **aplanados como links top-level** (sin dropdown), todo en MAYÚSCULA y ordenado A→Z con HOME primero (ver abajo) |
 
@@ -417,8 +430,9 @@ Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el brie
 | `/referidos` | *sin tabs de vista* | `referidos.*` | Detalle del cliente con mini-tabs `pnl` / `ops`; tabla FCI aparte |
 | `/contrapartes` | *sin tabs* — **2 modos excluyentes** (rango / día) | — | El modo lo decide si el filtro Día tiene valor |
 | `/mesa-dinero` | **OPERACIONES** · RESULTADOS · ACA VALORES RETORNO TOTAL | `mesaDinero.tab` | |
+| `/aca` | **RESUMEN** · CARTERAS · ACTIVOS · MÉTRICAS · HISTÓRICO | no persistida | Todo habla del período elegido en el selector de la barra (`YYYY-MM`). **Sin polling**: es una foto mensual, no hay nada que se mueva solo |
 | `/back-office` | Senebis · **Tenencia Valorizada** · Títulos en Alquiler · Tesorería · Títulos / Mercado · Acreencias Clientes · Control Títulos Negativos | `backoffice.tab` | ⚠ El orden VISUAL pone Senebis primero pero **el default es la 2ª tab**. Senebis: **Órdenes** · Excel Quantex · Excel MAE. Tesorería: **movimientos** · bancos · cheques · mercados · banco a banco. Alquiler: **Portfolio Alquiler** · Marcas por cuenta |
-| `/manager` | **OBSERVABILIDAD** · VALIDACIONES · TÍTULOS · CLIENTES · CONTRAPARTES · ACA VALORES · AUNESA · OPERACIONES · MESA · DOCUMENTOS · USUARIOS | `manager.tab` + sub-pills | 11 top-level, **36 hojas**; ver 3.4 |
+| `/manager` | **OBSERVABILIDAD** · VALIDACIONES · TÍTULOS · CLIENTES · CONTRAPARTES · ACA VALORES · **ACA** · AUNESA · OPERACIONES · MESA · DOCUMENTOS · USUARIOS | `manager.tab` + sub-pills | 12 top-level, **38 hojas**; ver 3.4. ⚠ **ACA VALORES** (informe de retorno del FCI ACA R.TOTAL) y **ACA** (config + histórico de la vista `/aca`) son cosas distintas |
 
 ### 3.4 Sub-pills de Manager (segundo nivel, todas persistidas)
 
@@ -432,6 +446,7 @@ Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el brie
 - **OPERACIONES**: PRECIOS · IMPORTAR AUM.
 - **USUARIOS** (`manager.usuarios.sub`): **USUARIOS** · ROLES Y PERMISOS · GRUPOS.
 - **MESA**: panel único con 4 secciones al 25% (traders + 3 allowlists).
+- **ACA** (gestión de la vista `/aca`): **HISTÓRICO** · CONFIGURACIÓN. HISTÓRICO carga el rendimiento mensual por serie (se tipea en % y se guarda como fracción; el acumulado es de solo lectura porque es un derivado). CONFIGURACIÓN tiene 4 cards: regla de moneda, emisores destacados, clases destacadas y catálogo de series.
 ---
 
 ## 4. DOMINIOS
@@ -2011,6 +2026,100 @@ OBSERVABILIDAD** + subir `max_tokens` de `controles_resumen` · **backlog de too
 los 3 huecos estructurales son "contra qué" (parcialmente cerrado por `serie_historica`),
 **ORDENAR/rankear por cliente** y el **dominio PLATA** (fondeo, acreencias, tesorería, liquidación —
 cobertura **CERO**).
+---
+
+## 4.12 ACA — RESUMEN EJECUTIVO DE INVERSIONES
+
+> Doc dedicado **[VIVO]**: `docs/ACA.md`. Acá va la superficie; ahí van las fórmulas,
+> las decisiones y el changelog.
+
+### Vista: ACA (`/aca`)
+- **Módulo RBAC**: `aca`. Lo tiene el rol **`empleado_aca`** (+ admin). El gate real
+  (`require_lectura_aca`, montado sobre TODO el router en `api/main.py`) es la **UNIÓN** del
+  módulo con la allowlist de escritura: escribir implica ver, así no puede existir alguien que
+  cargue el informe en una pantalla que no ve. `/api/me` publica `aca` dentro de `modules`
+  también para esos escritores, para que el nav y `src/proxy.ts` filtren igual.
+- **Escritura**: **reusa `operaciones.mesa_dinero_escritores`** + admin. La mesa es la que maneja
+  la cuenta de ACA; una allowlist propia sería una lista más para desincronizar.
+- **REGLA #8**: `aca` NO está en `INVITADO_MODULES` ni `/api/aca` en `GUEST_PATH_PREFIXES`.
+  Es el negocio de la casa. Hay tests que fallan si alguien lo agrega.
+- **No es live**: es una **foto MENSUAL**. El selector de la barra elige el período (`YYYY-MM`)
+  y todo lo de abajo habla de ese mes. **Sin polling**.
+
+| Tab | Qué muestra | Endpoints | Escrituras |
+|---|---|---|---|
+| **RESUMEN** (def.) | Fila de 6 datos (informe al · MEP · A3500 · Valuación ARS/A3500/USD MEP), torta de composición por cartera y los **dos cuadros comparativos** (mes actual y mes anterior) con monto y ponderación por cartera + Total Dolarizado / Total Pesos | `/vista` | `POST /periodos` (+ PERÍODO, EDITAR MEP/A3500), `DELETE /periodos/{p}` |
+| **CARTERAS** | Los 3 gráficos de rendimiento **ACUMULADO** vs benchmarks: `total_ars`, `total_usd`, `pesos`. Series de grupo `cartera` sólidas, `benchmark` punteadas | `/vista` (`graficos`) | Ninguna |
+| **ACTIVOS** | Detalle por cartera (ARS/DL/HD/FCI) con total y % share. **Acá se carga lo manual**: VN y PX por fila | `/vista`, `/titulos`, `/precios-sugeridos` | `POST /activos`, `DELETE /activos`, `POST /clonar` |
+| **MÉTRICAS** | Apertura por clase de activo (CARTERA FCI, CARTERA ARS) y por emisor (CARTERA HD, CARTERA DL, CRÉDITOS PRIVADOS MÁS REPRESENTATIVOS) | `/vista` | Ninguna |
+| **HISTÓRICO** | La planilla mensual completa: mensual + acumulado por serie. **Solo lectura** | `/historico` | Ninguna — se carga en Manager → ACA |
+
+**Filtros**: uno solo, el **período** (`YYYY-MM`) en la barra. Sin período cargado la vista se
+explica sola en vez de tirar error.
+
+**Ayudas de carga en ACTIVOS** (las tres, solo para escritores):
+- **COPIAR DEL MES ANTERIOR** (`POST /clonar`) — clona títulos, VN y observación del período previo.
+  **NO copia el precio**, a propósito: arrastrarlo dejaría un informe que parece cargado y está
+  mintiendo. Idempotente (`ON CONFLICT DO NOTHING`): no pisa lo ya cargado.
+- **VER PRECIOS DE REFERENCIA** (`GET /precios-sugeridos`) — muestra bajo cada campo PX el último
+  precio conocido en `portafolio.tenencia` **con su fecha**. Orientativo; no se aplica solo.
+- **+ AGREGAR TÍTULO** (`GET /titulos`) — buscador sobre `portafolio.assets` que muestra la ficha
+  que el título va a heredar ANTES de agregarlo.
+
+**Endpoints (14)**: `GET /vista` (la pantalla entera en UN request) · `/periodos` · `/resumen` ·
+`/detalle` · `/metricas` · `/historico` · `/graficos` · `/titulos` · `/precios-sugeridos` ·
+`/catalogos` · **`POST /periodos`** · **`DELETE /periodos/{periodo}`** · **`POST /clonar`** ·
+**`POST /activos`** · **`DELETE /activos`** · **`POST /historico`** · **`DELETE /historico`**.
+
+**Reglas no inferibles** (todas server-side — el front NO recalcula nada):
+- `monto = vn × px / 100` si cartera ∈ {ARS, DL, HD} (paridad), `vn × px` si no (FCI/RV/cash).
+  Es la **misma regla de divisor que la valuación del AuM**. Override manual por fila (`monto`).
+- `vn` o `px` en null → monto **null, no 0**: "sin cargar" ≠ "vale cero". Esas filas van en ámbar.
+- `valuacion_a3500 = valuacion_ars / a3500`; `valuacion_usd_mep = valuacion_ars / mep`. Sin el TC
+  cargado devuelven **null** (dividir por un dato inexistente inventa el número más visible).
+- **Total Dolarizado / Total Pesos** salen de `aca.moneda_regla` (editable), y la regla de **CLASE
+  gana sobre la de CARTERA** — eso es lo que permite que el FCI se parta por moneda (MM USD y HD T1
+  a dólares; MM ARS, ARS T1 y RENTA VARIABLE a pesos) **sin dejar de ser su propia cartera**. Lo que
+  ninguna regla resuelve cae en **`sin_clasificar`** y la vista lo canta con la lista de clases: un
+  activo nuevo tiene que aparecer como pendiente, no colarse en el lado equivocado.
+- **La ficha del título NO se guarda acá**: cartera, emisor, calificación, clase de activo,
+  vencimiento y ticker se resuelven en cada lectura contra `portafolio.assets`. Un asset borrado del
+  maestro deja la fila viva marcada `sin_ficha` (el monto ya contado no se evapora); un asset con
+  cartera fuera de ARS/DL/HD/FCI cae en `huerfanos` y la vista lo avisa.
+- **Métricas**: dos denominadores distintos — clases y emisores de una cartera van sobre el total de
+  ESA cartera; **créditos privados va sobre la valuación TOTAL**. Los catálogos hacen que una fila
+  aparezca aunque cierre en cero, y lo que aparece sin estar catalogado se muestra marcado
+  `fuera_catalogo` (el catálogo agrega filas, nunca esconde plata). Excepción: `privados` muestra
+  SOLO su catálogo, porque mostrar todo convertiría "los más representativos" en "todos".
+- **Acumulado** = `(1 + acum_anterior) × (1 + mensual) − 1`. **No se persiste** (se deriva en la
+  lectura). Un mes sin dato **arrastra** el acumulado anterior; antes del primer dato es null.
+
+**Fuentes**: schema `aca` — `periodos`, `activos`, `moneda_regla`, `emisor_destacado`,
+`clase_destacada`, `series`, `historico`, `audit` · **`portafolio.assets`** (la ficha) ·
+`portafolio.tenencia` (solo los precios de referencia) · `macro.series_macro` (benchmarks
+automáticos) · `operaciones.mesa_dinero_escritores` (permiso de escritura).
+
+### Vista: MANAGER → ACA
+Dos sub-pills. **HISTÓRICO**: carga del rendimiento mensual por serie × período (se tipea en
+**porcentaje**, se guarda como fracción; la columna acumulada es de solo lectura porque es un
+derivado). **CONFIGURACIÓN**: regla de moneda (con aviso de qué clases del catálogo de títulos
+todavía NO tienen regla — que son justo las que van a caer en "sin clasificar"), emisores y clases
+destacadas de las métricas, y el catálogo de series (nombre, grupo, fuente, en qué gráficos entra).
+
+**Endpoints (9)**: `GET /api/manager/aca/catalogos` · `PUT|DELETE /aca/moneda-regla` ·
+`PUT|DELETE /aca/emisor` · `PUT|DELETE /aca/clase` · `PUT|DELETE /aca/serie` (la baja de serie es
+**lógica**: sus valores históricos se conservan).
+
+Entrar a la tab lo da el módulo `manager`; **escribir** lo gobierna la misma allowlist que escribe en
+la vista (la configuración mueve números del informe, así que no puede ser un permiso más flojo que
+cargarlo).
+
+**Automatización de benchmarks**: `aca.series.fuente` admite `manual`, `macro_var:<SERIE>` (variación
+mes contra mes — es un **cociente**, no depende de la unidad, y es el único sembrado: `a3500` →
+`macro_var:DOLAR`) y `macro_pct:<SERIE>` (el valor del mes como rendimiento ÷ `escala` — **sí depende
+de la unidad**, medir antes con `python -m scripts.diag_aca_benchmarks`, REGLA #2). **El valor manual
+SIEMPRE gana sobre el automático**; cada celda declara su `origen`.
+
 ---
 
 ## 5. PATRONES TRANSVERSALES

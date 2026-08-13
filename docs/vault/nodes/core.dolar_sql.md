@@ -9,7 +9,7 @@ path: core/dolar_sql.py
 
 # core/dolar_sql
 
-> core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje (decomiso Mongo).
+> core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje.
 
 **Archivo:** `core/dolar_sql.py`
 

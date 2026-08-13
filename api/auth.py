@@ -331,6 +331,9 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     # queda cableado ANTES de que exista el primer endpoint: cualquier router
     # futuro bajo /api/ia nace default-deny (solo roles con el módulo tildado).
     ("/api/ia",          "ia"),
+    # /api/aca → módulo `aca` (RESUMEN EJECUTIVO de la cartera propia — docs/ACA.md).
+    # La ESCRITURA suma la allowlist de Mesa de Dinero encima de este gate.
+    ("/api/aca",         "aca"),
 )
 # Nota: el módulo `asistente` (ASISTENTE DE NEGOCIO, QuantAI P7) no tiene
 # prefijo propio — vive como vista `negocio` del copiloto bajo /api/ia y el

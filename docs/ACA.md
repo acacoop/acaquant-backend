@@ -314,6 +314,18 @@ Inventario completo y gate efectivo: `docs/MAPA_APP.md` (§0, auto-generada).
 
 ## Changelog
 
+### 2026-08-13 — Verificación post-deploy
+- `scripts/diag_aca_estado.py` (read-only): confirma que el schema, los
+  catálogos y **el RBAC** quedaron bien parados, y lista lo que falta con la
+  acción concreta. Existe porque "el statement corrió sin error" no es "insertó
+  lo que tenía que insertar": las semillas de `role_matrix` están guardadas
+  contra la resurrección, así que **lo que hacen depende de cómo esté la matriz
+  REAL de prod**, que no se puede ver desde afuera (REGLA #2).
+  El caso que caza: `empleado_aca` se arma COPIANDO los módulos de `sales`; si
+  en esa base `sales` no existe con ese nombre, el rol nuevo queda con la vista
+  ACA **y nada más** y la persona entra a la app sin ver casi nada. Probado
+  contra Postgres real en los dos escenarios (con y sin `sales`).
+
 ### 2026-08-13 — Deploy en un comando + semillas a prueba de resurrección
 - `deploy/deploy.sh`: pull + apply_schema + restart + smoke, cortando al primer
   fallo. El deploy del backend pasa a ser UN comando.

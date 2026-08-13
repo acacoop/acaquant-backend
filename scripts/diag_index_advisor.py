@@ -72,6 +72,12 @@ def main() -> int:
         adv_schema = adv[0][0]
         print(f"index_advisor en `{adv_schema}` · pg_stat_statements en `{ext}`\n")
 
+        # index_advisor llama a hypopg SIN calificar el schema. Si `extensions`
+        # no está en el search_path, falla con "function hypopg_get_indexdef(oid)
+        # does not exist" y devuelve error en vez de recomendación — parece que
+        # no hay índice posible cuando en realidad ni se analizó (2026-08-13).
+        cur.execute(f"SET search_path TO public, {adv_schema}")
+
         patrones = [f"%{t}%" for t in tablas]
         filas = _q(cur, f"""
             SELECT calls, mean_exec_time, total_exec_time, query
@@ -90,7 +96,16 @@ def main() -> int:
                   f"total {total / 1000:.0f}s")
             print("   " + " ".join(query.split())[:150] + "…\n")
             try:
-                rec = _q(cur, f"SELECT * FROM {adv_schema}.index_advisor(%s)", (query,))
+                # hypopg acumula los índices hipotéticos de cada análisis y se
+                # queda sin OIDs ("not more oid available") a partir de la 3ª
+                # query. Se limpia antes de cada una.
+                try:
+                    cur.execute(f"SELECT {adv_schema}.hypopg_reset()")
+                except Exception:
+                    pass          # sin hypopg el advisor igual reporta su error
+                cur.execute(f"SELECT * FROM {adv_schema}.index_advisor(%s)", (query,))
+                cols = [d[0] for d in cur.description]
+                rec = [dict(zip(cols, f, strict=False)) for f in cur.fetchall()]
             except Exception as e:
                 # Lo más común: la query viene parametrizada ($1, $2…) y el
                 # planner no puede inferir los tipos. No es un error del script.
@@ -103,7 +118,28 @@ def main() -> int:
                 print("   Si igual duele, el camino es cache o agregado.\n")
                 continue
             for fila in rec:
-                print(f"   {fila}\n")
+                errores = fila.get("errors") or []
+                if errores:
+                    # Un error NO es "no hay índice posible": es que no se pudo
+                    # analizar. Distinguirlo evita concluir de más.
+                    print(f"   ⚠ no se pudo analizar: {'; '.join(map(str, errores))}\n")
+                    continue
+                idx = fila.get("index_statements") or []
+                antes = fila.get("total_cost_before")
+                desp = fila.get("total_cost_after")
+                if antes and desp:
+                    try:
+                        mejora = (1 - float(desp) / float(antes)) * 100
+                        print(f"   costo {float(antes):.0f} → {float(desp):.0f}  "
+                              f"({mejora:+.0f}%)")
+                    except (TypeError, ValueError, ZeroDivisionError):
+                        print(f"   costo {antes} → {desp}")
+                if not idx:
+                    print("   sin índice sugerido para esta query.\n")
+                    continue
+                for stmt in idx:
+                    print(f"   SUGERIDO (NO ejecutado): {stmt}")
+                print()
         print("Recordá: una sugerencia con mejora chica NO se aplica — un índice")
         print("que nadie usa se paga en cada escritura y en disco.")
     return 0

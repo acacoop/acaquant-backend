@@ -371,6 +371,57 @@ def test_filas_mae_solo_pendientes_mae():
     assert [o["id"] for o in svc._filas_mae([normal, completada, cargan, mae])] == [1]
 
 
+# ── vista consolidada (1 request en vez de 3) ───────────────────────────────
+
+def test_coincide_espeja_el_where_de_listar_ops():
+    o = {**_FILA, "especie": "TZXM7", "estado": "pendiente", "es_mae": False}
+    assert svc._coincide(o, None, None, None)                 # sin filtros
+    assert svc._coincide(o, "pendiente", None, None)
+    assert not svc._coincide(o, "completada", None, None)
+    assert svc._coincide(o, None, "zxm", None)                # ILIKE %x%
+    assert svc._coincide(o, None, "TZXM7", None)
+    assert not svc._coincide(o, None, "AL30", None)
+    assert svc._coincide(o, None, None, "sin")                # mae=sin → no-MAE
+    assert not svc._coincide(o, None, None, "solo")
+    assert svc._coincide({**o, "es_mae": True}, None, None, "solo")
+
+
+def test_vista_los_filtros_de_la_tabla_no_tocan_los_espejos(monkeypatch):
+    # El archivo del Excel no puede depender de cómo el trader filtró la
+    # pantalla: los espejos se arman sobre la lista COMPLETA del rango.
+    quantex = {**_FILA, "id": 1, "es_mae": False}
+    mae = {**_FILA, "id": 2, "es_mae": True}
+    monkeypatch.setattr(svc, "listar_ops",
+                        lambda **kw: {"ordenes": [quantex, mae], "conectados": []})
+    monkeypatch.setattr(svc, "_destinos_mae", lambda ords: {2: "F062"})
+    monkeypatch.setattr(svc, "proximo_id", lambda: 99)
+    v = svc.vista(mae="solo")
+    assert [o["id"] for o in v["ordenes"]] == [2]              # tabla filtrada
+    assert [f["id"] for f in v["excel"]["filas"]] == [1]       # espejo COMPLETO
+    assert [f["id"] for f in v["excel_mae"]["filas"]] == [2]
+    assert v["proximo_id"] == 99
+
+
+def test_vista_rechaza_filtros_invalidos(monkeypatch):
+    monkeypatch.setattr(svc, "listar_ops", lambda **kw: {"ordenes": [], "conectados": []})
+    with pytest.raises(ValueError):
+        svc.vista(estado="cualquiera")
+    with pytest.raises(ValueError):
+        svc.vista(mae="quizas")
+
+
+def test_vista_lee_una_sola_vez(monkeypatch):
+    # El punto de todo el cambio: UNA lectura por ciclo, no tres.
+    llamadas = []
+    monkeypatch.setattr(svc, "listar_ops",
+                        lambda **kw: llamadas.append(kw) or {"ordenes": [], "conectados": []})
+    monkeypatch.setattr(svc, "proximo_id", lambda: 1)
+    svc.vista(desde="2026-08-13", estado="pendiente", mae="solo", email="t@x.com")
+    assert len(llamadas) == 1
+    # …y esa lectura NO lleva los filtros de la tabla (los espejos los ignoran).
+    assert llamadas[0] == {"desde": "2026-08-13", "hasta": None, "email": "t@x.com"}
+
+
 # ── tilde propia de la tab EXCEL MAE (mae_completada) ───────────────────────
 
 def test_filas_mae_tildada_sale_del_archivo_pero_queda_en_el_espejo():

@@ -56,6 +56,30 @@ def listar_ops(
         raise HTTPException(400, str(e)) from e
 
 
+@router.get("/vista")
+def vista(
+    desde: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    hasta: str | None = Query(None, description="YYYY-MM-DD (concertación)"),
+    estado: str | None = Query(None, description="pendiente | completada"),
+    especie: str | None = Query(None, description="filtro por especie (contiene)"),
+    mae: str | None = Query(None, description="solo | sin (vacío = todas)"),
+    actor: str = Depends(get_user_email),
+) -> dict:
+    """TODA la vista en UN request: órdenes + espejo Quantex + espejo MAE +
+    presencia + próximo ID.
+
+    Reemplaza el trío `/ops` + `/excel` + `/excel-mae` que el front polleaba
+    cada 10s: los tres corrían la misma query, cada uno con su presencia y su
+    conectados (~13 viajes a la base por ciclo y por usuario; acá son ~7).
+    Los filtros de la tabla NO afectan a los espejos — el archivo del Excel no
+    depende de cómo el trader filtró la pantalla."""
+    try:
+        return _svc.vista(desde=desde, hasta=hasta, estado=estado,
+                          especie=especie, mae=mae, email=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.post("/presencia")
 def presencia(actor: str = Depends(get_user_email)) -> dict:
     """Heartbeat explícito (opcional — GET /ops ya marca presencia)."""
@@ -87,7 +111,12 @@ def excel_preview(
 ) -> dict:
     """Espejo en vivo del Excel destino (tab EXCEL QUANTEX): mismas filas y
     reglas que /export — SOLO pendientes no-MAE que no carguen ellos (lo
-    completado ya se cargó en Quantex). Marca presencia del caller."""
+    completado ya se cargó en Quantex). Marca presencia del caller.
+
+    DEPRECADO (2026-08-13): la vista consume `GET /vista`, que trae esto
+    adentro sin repetir la query. Se mantiene vivo un ciclo de deploy para que
+    un front viejo contra un backend nuevo (o al revés) no se rompa; se borra
+    cuando prod esté estable."""
     try:
         return _svc.excel_preview(desde=desde, hasta=hasta, email=actor)
     except ValueError as e:
@@ -102,7 +131,9 @@ def excel_mae_preview(
 ) -> dict:
     """Espejo en vivo del Excel MAE (tab EXCEL MAE): SOLO pendientes es_mae,
     DESTINO resuelto en vivo (interno → contrapartes.codigo_mae por cc;
-    externo → senebis_agentes.codigo_mae). Marca presencia del caller."""
+    externo → senebis_agentes.codigo_mae). Marca presencia del caller.
+
+    DEPRECADO (2026-08-13): lo trae `GET /vista`. Ver la nota en /excel."""
     try:
         return _svc.excel_mae_preview(desde=desde, hasta=hasta, email=actor)
     except ValueError as e:

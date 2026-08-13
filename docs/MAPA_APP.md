@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **456 endpoints** montados en `api.main.app`, en **28 routers**.
-- **150 escriben** (POST/PUT/PATCH/DELETE); 306 son de solo lectura.
+- **457 endpoints** montados en `api.main.app`, en **28 routers**.
+- **150 escriben** (POST/PUT/PATCH/DELETE); 307 son de solo lectura.
 - **22 módulos** canónicos y **6 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -50,7 +50,7 @@
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/analitica` | 15 | 1 | — | — | ⚠️ |
 | `/api/back-office` | 57 | 33 | `back-office` · 57 rutas con gate extra | `back-office` |  |
-| `/api/back-office/senebis` | 21 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
+| `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 33 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
@@ -1517,7 +1517,7 @@ nunca ve ese request. `/api/titulos/assets` **no tiene consumidor**.
 
 | Tab | Qué muestra | Endpoints | Filtros | Acciones de escritura |
 |---|---|---|---|---|
-| **Senebis** | Órdenes SENEBIS + espejo del Excel Quantex y del Excel MAE. Poll 10s (= heartbeat de presencia) | `/senebis/{ops,excel,excel-mae,opciones,comitentes,export,export-mae}` + writes | FECHA: chips `HOY`/`TODO`; ESTADO: `TODAS`/`PENDIENTES (n)`/`COMPLETADAS`; MAE: `CON`/`SIN`(`mae=sin`)/`SOLO`(`mae=solo`). El backend además acepta `especie` — **sin control en la UI** | Alta/edición/borrado (allowlist), toggle estado, botón ⚠ EDITADA, reasignar ID, ABM de agentes, ajustar PRÓXIMO ID (admin), descargar los 2 `.xlsx` |
+| **Senebis** | Órdenes SENEBIS + espejo del Excel Quantex y del Excel MAE. Poll 10s (= heartbeat de presencia) — **UN request: `GET /vista`** trae órdenes + los 2 espejos + presencia + próximo ID (2026-08-13; antes eran 3 requests que corrían la MISMA query, ~13 viajes a la base por ciclo y por usuario → ahora ~7). `/ops`, `/excel` y `/excel-mae` siguen vivos pero **DEPRECADOS** | `/senebis/{vista,ops,excel,excel-mae,opciones,comitentes,export,export-mae}` + writes | FECHA: chips `HOY`/`TODO`; ESTADO: `TODAS`/`PENDIENTES (n)`/`COMPLETADAS`; MAE: `CON`/`SIN`(`mae=sin`)/`SOLO`(`mae=solo`). El backend además acepta `especie` — **sin control en la UI** | Alta/edición/borrado (allowlist), toggle estado, botón ⚠ EDITADA, reasignar ID, ABM de agentes, ajustar PRÓXIMO ID (admin), descargar los 2 `.xlsx` |
 | **Tenencia Valorizada** (**default**) | Serie diaria de AuM de las cuentas propias **100/255/256** por cartera + posiciones por título del día | `/tenencia-hd`, `/tenencia-hd/posiciones`, `POST /tenencia-hd/precio` | `cartera` = **HD** (Cartera USD, def) / `ARS`; selector de día; toggle de estado `TODOS`/`SIN GAR`/`SOLO GAR`/`SIN ALQUILER`; toggle `÷100` (paridad) en el editor | **Editar a mano el PRECIO** de una unidad de un día (recalcula las 3 cuentas + totales en `portafolio.tenencia`). **Sin allowlist propia**: alcanza el módulo `back-office` |
 | **Títulos en Alquiler** | **PORTFOLIO ALQUILER** (lista curada, serie diaria + posiciones) y **MARCAS** (todos los pares título·cuenta tenidos desde `desde`, con marca SI/NO, cantidad, desde/hasta) | `/tenencia-hd/en-alquiler`, `/portfolio-alquiler`, `/portfolio-alquiler/posiciones`, `/instrumentos`; 3 POST | buscador `q` client-side, toggle `soloAlq`, fecha `desde` (def 2026-06-01 en el front) | Marcar/desmarcar alquiler por (título, cuenta) con cantidad y período; agregar/quitar títulos de la lista; editar nominales por día (carry forward). **Sin allowlist propia** |
 | **Tesorería** | La caja del día. 5 tabs internas | ver bloque | ver bloque | allowlist `tesoreria_escritores` + admin |
@@ -1553,7 +1553,9 @@ Tenencia/alquiler ← `portafolio.tenencia` + `assets`.
 | **Excel Quantex** | Espejo EN VIVO del archivo destino (10 columnas: ID·OPERACION·INSTRUMENTO·PLAZO·PRECIO·CANTIDAD·CONTRAPARTE·COMITENTE·CARTERA PROPIA·MERCADO) + `proximo_id` | `GET /excel` | solo rango HOY/TODO; **el estado NO se pasa** (el backend ya filtra) | Botón **⬇ GENERAR EXCEL** → `GET /export`; reasignar ID desde la fila |
 | **Excel MAE** | Espejo del archivo MAE (8 columnas: Operacion·Instrumento·Plazo·Moneda·Precio·Cantidad·Destino·Segmento) con `sin_destino` marcando las que no tienen código. El SEGMENTO sale de la orden (catálogo `senebis_segmentos`, botón **SEGMENTOS MAE**). **Columna ✓ propia de esta tab** (`mae_completada`, 2026-08-13): el trader tilda lo que ya cargó en el MAE → la fila queda **grisada + tachada** y NO sale más en el `.xlsx` (destildable). Es INDEPENDIENTE del `estado` de la tab Órdenes (ese es el laburo del back office en Quantex). Editar una tildada prende `mae_editada_completada` → **fila amarilla** + botón ⚠ EDITADA (espejo del amarillo de Quantex, con marca y visto PROPIOS: los bajan equipos distintos); destildar baja el amarillo solo | `GET /excel-mae` | rango | `POST /ops/{id}/mae-completada`; `POST /ops/{id}/mae-visto`; `GET /export-mae` |
 
-**Endpoints (19, prefix `/api/back-office/senebis`)**: `GET /ops` (`desde`, `hasta`, `estado`,
+**Endpoints (20, prefix `/api/back-office/senebis`)**: **`GET /vista`** (mismos filtros que
+`/ops`; devuelve `{total, pendientes, ordenes, conectados, excel, excel_mae, proximo_id}` —
+lo que consume la vista) · `GET /ops` (`desde`, `hasta`, `estado`,
 `especie` ILIKE, `mae` `solo|sin`; devuelve `conectados` + `total` + `pendientes`) · `POST /presencia` ·
 `GET /opciones` (agentes + `tipos_contraparte` + `plazos` + `conectados` + `puede_escribir` +
 `es_admin`) · `GET /comitentes` (`q` req, min 1) · `GET /excel` · `GET /excel-mae` · `GET /export`

@@ -523,6 +523,75 @@ def listar_ops(desde: str | None = None, hasta: str | None = None,
     }
 
 
+def _coincide(o: dict, estado: str | None, especie: str | None,
+              mae: str | None) -> bool:
+    """El MISMO predicado que el WHERE de listar_ops, en Python.
+
+    Existe para `vista()`, que lee UNA sola vez por rango y filtra en memoria.
+    Vive acá una vez sola para que la tabla filtrada y el WHERE no puedan
+    divergir — mismo criterio que `comercial_sql._ULT_OP_WHERE`."""
+    if estado and o["estado"] != estado:
+        return False
+    if especie and especie.strip().lower() not in (o["especie"] or "").lower():
+        return False
+    if mae:
+        return bool(o["es_mae"]) == (mae == "solo")
+    return True
+
+
+def vista(desde: str | None = None, hasta: str | None = None,
+          estado: str | None = None, especie: str | None = None,
+          mae: str | None = None, email: str = "") -> dict:
+    """TODA la vista SENEBIS en una sola pasada: órdenes + los dos espejos.
+
+    Por qué existe (2026-08-13, medido): el front polleaba `/ops`, `/excel` y
+    `/excel-mae` cada 10s, y los tres corrían la MISMA query — cada uno con su
+    marcar_presencia y su conectados. Eran ~13 viajes a la base por ciclo y por
+    usuario, con un peaje medido de ~8.5ms cada uno. Acá son ~7, y el front
+    hace 1 request en vez de 3.
+
+    Clave del diseño: se lee por RANGO solamente (sin estado/especie/mae) y los
+    filtros de la tabla se aplican en memoria. Los espejos del Excel NO pueden
+    depender de cómo el trader filtró la pantalla — el archivo es el archivo —
+    así que se arman sobre la lista COMPLETA del rango."""
+    if estado and estado not in ESTADOS:
+        raise ValueError(f"estado {estado!r} inválido: {' | '.join(ESTADOS)}")
+    if mae and mae not in FILTROS_MAE:
+        raise ValueError(f"mae {mae!r} inválido: {' | '.join(FILTROS_MAE)}")
+    data = listar_ops(desde=desde, hasta=hasta, email=email)
+    todas = data["ordenes"]
+    ordenes = [o for o in todas if _coincide(o, estado, especie, mae)]
+    quantex = _filas_quantex(todas)
+    ordenes_mae = _filas_mae(todas, incluir_completadas=True)
+    destinos = _destinos_mae(ordenes_mae)
+    return {
+        # total/pendientes se cuentan sobre lo FILTRADO — mismo criterio que
+        # traía listar_ops, para que el chip de la vista no cambie de sentido.
+        "total": len(ordenes),
+        "pendientes": sum(1 for o in ordenes if o["estado"] == "pendiente"),
+        "ordenes": ordenes,
+        "conectados": data["conectados"],
+        "excel": {
+            "headers": list(_HEADERS_XLSX),
+            "filas": [{"id": o["id"], "estado": o["estado"],
+                       "valores": _fila_export(o)} for o in quantex],
+        },
+        "excel_mae": {
+            "headers": list(_HEADERS_MAE),
+            "filas": [{"id": o["id"], "estado": o["estado"],
+                       "sin_destino": destinos.get(o["id"]) is None,
+                       "mae_completada": bool(o.get("mae_completada")),
+                       "mae_completada_por": o.get("mae_completada_por"),
+                       "mae_completada_at": o.get("mae_completada_at"),
+                       "mae_editada_completada": bool(o.get("mae_editada_completada")),
+                       "campos_editados": list(o.get("campos_editados") or []),
+                       "valores": _fila_export_mae(o, destinos.get(o["id"]))}
+                      for o in ordenes_mae],
+        },
+        "proximo_id": proximo_id(),
+    }
+
+
 def _num(v: Any) -> float | None:
     if v is None or v == "":
         return None
@@ -867,11 +936,19 @@ def set_mae_completada(op_id: int, completada: bool, actor: str) -> dict:
 # y la app no puede verla → el contador se muestra SIEMPRE en la vista y el
 # back office lo alinea (último ID del Excel viejo + 1) antes de arrancar.
 
+# El nombre de la secuencia NO cambia mientras exista la tabla, pero resolverlo
+# costaba un viaje a la base (~8.5ms) en CADA carga de la vista, que se pollea
+# cada 10s por usuario. Se resuelve una vez por proceso y queda cacheado.
+_SEQ_ID: str | None = None
+
+
 def proximo_id() -> int:
     """Próximo ID que va a asignar la identity de operaciones.senebis, SIN
     consumirlo. El nombre de la secuencia sale de pg (no es input de usuario)."""
-    seq = _q("SELECT pg_get_serial_sequence('operaciones.senebis','id') AS s")[0]["s"]
-    r = _q(f"SELECT last_value, is_called FROM {seq}")[0]
+    global _SEQ_ID
+    if _SEQ_ID is None:
+        _SEQ_ID = _q("SELECT pg_get_serial_sequence('operaciones.senebis','id') AS s")[0]["s"]
+    r = _q(f"SELECT last_value, is_called FROM {_SEQ_ID}")[0]
     return int(r["last_value"]) + (1 if r["is_called"] else 0)
 
 

@@ -323,6 +323,21 @@ Inventario completo y gate efectivo: `docs/MAPA_APP.md` (§0, auto-generada).
 
 ## Changelog
 
+### 2026-08-13 — FIX: crear el primer período rompía la vista
+- `vista()` armaba la respuesta con `**graficos()` al final, y esa función
+  devuelve su PROPIA clave `periodos` (el eje X de los charts: strings). El
+  spread **pisaba** la lista de períodos con metadata que arma el selector de la
+  barra (objetos). El front hacía `p.periodo` sobre un string y
+  `undefined.split()` tumbaba la vista entera con "Cannot read properties of
+  undefined". Ahora son dos claves distintas: `periodos` (objetos) y
+  `periodos_grafico` (strings).
+- **Por qué no se vio antes**: sin ningún informe cargado las dos listas están
+  vacías y el pisón es invisible. Explotaba al crear el PRIMER período — o sea,
+  en el primer uso real de la vista.
+- Los formateadores de fecha del front toleran null/basura y devuelven "—": un
+  dato raro tiene que ensuciar una celda, nunca voltear la pantalla.
+- Test de regresión (probado por mutación: reintroduciendo el `**graficos()`, falla).
+
 ### 2026-08-13 — ACA sale de NEGOCIO
 - Pasa a ser un **link de primer nivel del header** (entre RESEARCH y el
   dropdown MERCADOS) en vez de un item del dropdown NEGOCIO. Pedido del user: es

@@ -232,3 +232,42 @@ def test_toda_escritura_del_service_valida_el_permiso():
         cuerpo = fuente.split(f"def {nombre}(", 1)[1].split("\ndef ", 1)[0]
         assert "_check_escritura(actor)" in cuerpo, (
             f"{nombre} escribe SIN validar el permiso — un empleado_aca podría editarlo")
+
+
+# ── El contrato de /vista: `periodos` son OBJETOS, no strings ───────────────
+# Regresión del 2026-08-13: `vista()` hacía `**graficos()` al final, y esa
+# función devuelve su PROPIA clave `periodos` (el eje X de los charts, strings).
+# El spread pisaba la lista con metadata que arma el selector de la barra, el
+# front hacía `p.periodo` sobre un string y `undefined.split()` tumbaba la vista
+# entera. Invisible hasta cargar el PRIMER informe: con las dos listas vacías el
+# pisón no se notaba.
+
+def _vista_mockeada(monkeypatch, con_periodo: str | None):
+    """vista() con todo lo que toca la base reemplazado — testea el ARMADO."""
+    monkeypatch.setattr(aca, "listar_periodos", lambda: {"periodos": [
+        {"periodo": "2026-07", "fecha_informe": "2026-07-31", "mep": 1517.67,
+         "a3500": 1488.45, "nota": "", "n_activos": 5}]})
+    monkeypatch.setattr(aca, "graficos", lambda **kw: {
+        "periodos": ["2026-06", "2026-07"],          # strings — el eje X
+        "graficos": [{"grafico": "total_ars", "series": []}]})
+    monkeypatch.setattr(aca, "puede_escribir", lambda e: False)
+    monkeypatch.setattr(aca, "_ultimo_periodo", lambda: con_periodo)
+    monkeypatch.setattr(aca, "resumen", lambda p: {"actual": {}, "anterior": None})
+    monkeypatch.setattr(aca, "detalle", lambda p: {"bloques": []})
+    monkeypatch.setattr(aca, "metricas", lambda p: {"por_clase": []})
+    return aca.vista(email="x@y.com")
+
+
+@pytest.mark.parametrize("con_periodo", ["2026-07", None])
+def test_vista_no_pisa_periodos_con_el_eje_de_los_graficos(monkeypatch, con_periodo):
+    """`periodos` tiene que seguir siendo la lista de OBJETOS del selector."""
+    out = _vista_mockeada(monkeypatch, con_periodo)
+    assert isinstance(out["periodos"], list)
+    for p in out["periodos"]:
+        assert isinstance(p, dict), (
+            "`periodos` volvió a ser una lista de strings → el selector de la barra "
+            "hace p.periodo sobre un string y la vista explota con undefined.split()")
+        assert "periodo" in p and "fecha_informe" in p
+    # El eje de los charts existe, pero en SU propia clave.
+    assert out["periodos_grafico"] == ["2026-06", "2026-07"]
+    assert out["graficos"] and out["graficos"][0]["grafico"] == "total_ars"

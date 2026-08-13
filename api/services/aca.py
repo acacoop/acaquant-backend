@@ -912,8 +912,20 @@ def vista(periodo: str | None = None, email: str = "") -> dict:
     round-trip a Supabase, agrupar es la diferencia entre ~6 viajes y ~20.
     """
     p = _norm_periodo(periodo) if periodo else _ultimo_periodo()
+
+    # OJO — los gráficos se desarman a mano, NO con `**graficos()`.
+    # `graficos()` devuelve su PROPIA clave `periodos` (el eje X: strings
+    # 'YYYY-MM') y spreadearlo pisaba la lista de períodos con metadata que
+    # arma el selector de la barra (objetos {periodo, fecha_informe, mep…}).
+    # El front hacía `p.periodo` sobre un string → undefined.split() → pantalla
+    # de error (2026-08-13). No se notó hasta cargar el PRIMER informe: con las
+    # dos listas vacías, el pisón era invisible. Dos claves distintas para dos
+    # cosas distintas.
+    g = graficos()
     base = {
-        "periodos": listar_periodos()["periodos"],
+        "periodos": listar_periodos()["periodos"],   # objetos, para el selector
+        "periodos_grafico": g["periodos"],           # strings, eje X de los charts
+        "graficos": g["graficos"],
         "puede_escribir": puede_escribir(email),
         "carteras": [{"cartera": c, "label": CARTERA_LABEL[c]} for c in CARTERAS],
     }
@@ -921,14 +933,13 @@ def vista(periodo: str | None = None, email: str = "") -> dict:
         # Sin ningún informe cargado la vista tiene que explicarse sola, no
         # devolver un 404 que el front traduzca a "error".
         return {**base, "periodo": None, "resumen": None, "detalle": None,
-                "metricas": None, **graficos()}
+                "metricas": None}
     return {
         **base,
         "periodo": p,
         "resumen": resumen(p),
         "detalle": detalle(p),
         "metricas": metricas(p),
-        **graficos(),
     }
 
 

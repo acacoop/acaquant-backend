@@ -27,6 +27,7 @@ cache de base que ayude.
 
 Read-only. No escribe nada. Uso (en el Droplet):
     python -m scripts.diag_agro_perf [repeticiones]     # default 3
+    python -m scripts.diag_agro_perf --profile          # QUÉ función se come el tiempo
 """
 from __future__ import annotations
 
@@ -52,7 +53,38 @@ def _cronometrar(label: str, fn, *args) -> tuple[str, float]:
         return label, -1.0
 
 
+def _profile(crudo) -> int:
+    """cProfile sobre UNA corrida: qué función concreta se come los ms.
+
+    Se ordena por TIEMPO PROPIO (tottime), no acumulado: el acumulado siempre
+    pone arriba a la función de más afuera, que no dice nada. El propio es
+    dónde se está quemando el CPU de verdad."""
+    import cProfile
+    import io
+    import pstats
+    pr = cProfile.Profile()
+    pr.enable()
+    crudo()
+    pr.disable()
+    buf = io.StringIO()
+    pstats.Stats(pr, stream=buf).sort_stats("tottime").print_stats(18)
+    print("\nPERFIL (ordenado por tiempo PROPIO de cada función)")
+    # Se recorta el encabezado de pstats y se deja la tabla.
+    for linea in buf.getvalue().splitlines():
+        if linea.strip():
+            print("   " + linea)
+    print("\n   Cómo leerlo: `tottime` = segundos quemados DENTRO de esa función")
+    print("   (sin contar lo que llama). El de arriba es el que hay que mirar.")
+    print("   `ncalls` enorme con tottime alto = se está llamando de más, no es")
+    print("   que la función sea lenta.")
+    return 0
+
+
 def main() -> int:
+    if "--profile" in sys.argv:
+        crudo = getattr(_agro_sql.get_pase_agro, "__wrapped__", _agro_sql.get_pase_agro)
+        crudo()          # calentar: la 1ª corrida paga imports y conexiones del pool
+        return _profile(crudo)
     reps = int(sys.argv[1]) if len(sys.argv) > 1 else 3
     # El endpoint tiene @cached(5s) y `functools.wraps` deja la función real en
     # __wrapped__: se mide SIEMPRE en frío, que es lo que paga el usuario cuando

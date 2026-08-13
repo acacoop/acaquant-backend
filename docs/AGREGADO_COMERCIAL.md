@@ -86,6 +86,37 @@ WHERE GREATEST(max(ingestado_en), max(COALESCE(anulado_en, 'epoch'))) > <último
 
 No se toca el writer (`ingestado_en` conserva su significado: "cuándo se ingestó").
 
+## 4-bis. Ratios MEDIDOS (2026-08-13) → el proyecto se parte en dos
+
+`scripts/diag_agregado_ratio` en prod:
+
+| | filas hoy | filas agregado | ratio |
+|---|---|---|---|
+| **AuM** (`portafolio.tenencia`) | 371.103 | 67.867 | **5,5×** |
+| **Volumen** (`negocio_movimientos`) | 414.219 | 117.838 | **3,5×** |
+
+Proyección del endpoint: ~535 ms → **~220 ms**. No baja más porque queda el piso
+de ~68 ms de peaje de red (8 viajes) + ~60 ms de Python.
+
+**Decisión: NO se hacen las dos mitades juntas.** La de AuM es netamente mejor
+negocio y, sobre todo, mucho más simple:
+
+| | AuM (`tenencia`) | Volumen (`negocio_movimientos`) |
+|---|---|---|
+| Ratio | 5,5× | 3,5× |
+| La query que ahorra | la #1: 48.420 llamadas · 1.696 s | 40.703 · 1.589 s |
+| Quién escribe | **un cron diario** (11:00 UTC L-V) | cron **cada 30'** |
+| Cómo se invalida | **`portafolio.backfill_log` dice exactamente qué (fecha, cuenta) se escribió y cuándo** → invalidación EXACTA | heurística sobre `ingestado_en` + la trampa de `anulado_en` (§4) |
+
+**FASE 1 — solo AuM.** Se recomputa después del backfill diario, leyendo de
+`backfill_log` los pares tocados. Sin heurísticas, sin la trampa de la anulación,
+con el mejor ratio y sobre la query más llamada del tablero. Es cuestión de un día,
+no de varios.
+
+**FASE 2 — volumen.** Se decide DESPUÉS, con la fase 1 medida en prod. Si la
+mejora real se acerca a lo proyectado, se hace; si no, se descarta y no se pagó
+la complejidad de la invalidación por día sucio.
+
 ## 5. Plan de implementación
 
 1. **Tabla + writer**, sin leerla todavía. Job que recomputa por día sucio.

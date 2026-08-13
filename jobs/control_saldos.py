@@ -65,6 +65,7 @@ Refrescar ~1.800 cuentas cada pocos minutos sería martillar al custodio. Tres r
 Uso:
     python -m jobs.control_saldos                    # daemon: corre hasta el cierre
     python -m jobs.control_saldos --una-pasada       # barrido de apertura y termina
+    python -m jobs.control_saldos --ver              # qué quedó en la tabla (solo SELECTs)
     python -m jobs.control_saldos --dry --cuentas 805        # NO escribe: muestra el crudo
     python -m jobs.control_saldos --dry --muestra 40         # 40 cuentas: inventario + timing
     python -m jobs.control_saldos --sin-esperar-backfill
@@ -285,44 +286,53 @@ def _escribir(hoy: date, idc: str, registros: list[dict], origen: str) -> None:
         conn.commit()
 
 
-def refrescar_cuenta(idc: str, denom: str, hoy: date, origen: str) -> tuple[bool, str, int]:
-    """(ok, motivo, filas escritas) de una cuenta."""
+def refrescar_cuenta(idc: str, denom: str, hoy: date,
+                     origen: str) -> tuple[bool, str, int, dict[str, int]]:
+    """(ok, motivo, filas escritas, monedas descartadas) de una cuenta."""
     ok, crudo, why = _traer(idc, hoy)
     if not ok:
-        return False, why, 0
-    registros, _ = parsear(crudo, idc, denom)
+        return False, why, 0, {}
+    registros, descartadas = parsear(crudo, idc, denom)
     _escribir(hoy, idc, registros, origen)
-    return True, "", len(registros)
+    return True, "", len(registros), descartadas
 
 
 def _refrescar_lote(cuentas: list[tuple[str, str]], hoy: date, origen: str,
-                    workers: int) -> tuple[int, int, int, dict[str, int]]:
-    """(ok, fallidas, filas, motivos). Paralelo acotado.
+                    workers: int) -> tuple[int, int, int, dict[str, int], dict[str, int]]:
+    """(ok, fallidas, filas, motivos, monedas descartadas). Paralelo acotado.
 
     `motivos` cuenta POR QUÉ falló cada una ({'timeout': 3, 'http_500': 9}): sin
     eso, «12 fallidas» no distingue a Aunesa caído de un token vencido, y esa
     diferencia es la que decide si hay que hacer algo.
+
+    `descartadas` cuenta las monedas que se vieron y NO se persistieron, por
+    código. Es la única forma de contestar con datos si USDC hay que sumarlo o si
+    USDL se puede sacar — hasta acá esa cuenta solo existía en `--dry`, o sea que
+    la corrida REAL, que es la que ve las 1.566 cuentas, no la reportaba.
     """
     if not cuentas:
-        return 0, 0, 0, {}
+        return 0, 0, 0, {}, {}
     ok = fallo = filas = 0
     motivos: dict[str, int] = {}
+    descartadas: dict[str, int] = {}
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futs = {ex.submit(refrescar_cuenta, idc, dn, hoy, origen): idc
                 for idc, dn in cuentas}
         for f in as_completed(futs):
             try:
-                bien, why, n = f.result()
+                bien, why, n, desc = f.result()
             except Exception as e:
                 logger.warning("cuenta %s explotó: %s: %s", futs[f], type(e).__name__, e)
-                bien, why, n = False, type(e).__name__, 0
+                bien, why, n, desc = False, type(e).__name__, 0, {}
             if bien:
                 ok += 1
                 filas += n
+                for k, v in desc.items():
+                    descartadas[k] = descartadas.get(k, 0) + v
             else:
                 fallo += 1
                 motivos[why or "?"] = motivos.get(why or "?", 0) + 1
-    return ok, fallo, filas, motivos
+    return ok, fallo, filas, motivos, descartadas
 
 
 # ── modo --dry: mirar sin escribir ────────────────────────────────────────────
@@ -427,6 +437,59 @@ def dry(cuentas: list[tuple[str, str]], hoy: date, n_universo: int = 0) -> int:
     return 0
 
 
+# ── modo --ver: qué quedó en la tabla (sin tocar Aunesa) ──────────────────────
+def ver(top: int = 30) -> int:
+    """Lee `portafolio.control_saldos` y muestra el control. NO pega a Aunesa.
+
+    Es la respuesta a «¿esto sirve?»: cuántas cuentas quedaron en descubierto,
+    cuáles son las peores y qué tan fresco está el dato. Solo SELECTs.
+    """
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(fecha), max(actualizado_at), count(*), "
+                    "count(DISTINCT id_cuenta) FROM portafolio.control_saldos "
+                    "WHERE fecha = (SELECT max(fecha) FROM portafolio.control_saldos)")
+        fecha, fresco, n_filas, n_cuentas = cur.fetchone()
+        if not fecha:
+            print("\n   la tabla está VACÍA — ¿corrió el barrido?\n")
+            return 0
+        print(f"\n{'=' * 78}\nCONTROL DE SALDOS · fecha {fecha} · {n_filas} filas · "
+              f"{n_cuentas} cuentas\n   dato más fresco: {fresco}\n{'=' * 78}")
+
+        cur.execute("SELECT ticker, count(*) FILTER (WHERE cantidad < 0) AS en_rojo, "
+                    "       count(*) AS cuentas, "
+                    "       sum(cantidad) FILTER (WHERE cantidad < 0) AS total_rojo, "
+                    "       sum(cantidad) FILTER (WHERE cantidad > 0) AS total_verde "
+                    "FROM portafolio.control_saldos WHERE fecha = %s "
+                    "GROUP BY ticker ORDER BY ticker", (fecha,))
+        print(f"\n   {'moneda':<8} {'cuentas':>9} {'EN ROJO':>9} {'total rojo':>20} "
+              f"{'total a favor':>20}")
+        for tk, rojo, cuentas, t_rojo, t_verde in cur.fetchall():
+            print(f"   {tk:<8} {cuentas:>9} {rojo:>9} {float(t_rojo or 0):>20,.2f} "
+                  f"{float(t_verde or 0):>20,.2f}")
+
+        cur.execute("SELECT cuenta, ticker, cantidad, cantidad_pendiente, filas_origen "
+                    "FROM portafolio.control_saldos "
+                    "WHERE fecha = %s AND cantidad < 0 "
+                    "ORDER BY cantidad ASC LIMIT %s", (fecha, top))
+        filas = cur.fetchall()
+        print(f"\n   ▸ DESCUBIERTOS (peor primero, top {top}) — {len(filas)} mostrados")
+        if not filas:
+            print("     (ninguna cuenta en descubierto)")
+        for cuenta, tk, cant, pend, n in filas:
+            print(f"     {str(cuenta)[:44]:<44} {tk:<6} {float(cant):>18,.2f} "
+                  f"(pend {float(pend or 0):>16,.2f} · {n} fila/s)")
+
+        # Una cuenta que sumó más de 2 filas para la misma moneda es rara y hay que
+        # mirarla: la regla de agregación se validó contra un caso de 2.
+        cur.execute("SELECT count(*) FROM portafolio.control_saldos "
+                    "WHERE fecha = %s AND filas_origen > 2", (fecha,))
+        raras = cur.fetchone()[0]
+        print(f"\n   filas armadas con MÁS de 2 filas de origen: {raras}"
+              + ("  ← mirar esas cuentas" if raras else ""))
+    print()
+    return 0
+
+
 # ── daemon ────────────────────────────────────────────────────────────────────
 def _opt(flag: str, default=None):
     if flag in sys.argv:
@@ -441,6 +504,8 @@ def run() -> int:
                         format="%(asctime)s %(levelname)s %(message)s")
     es_dry = "--dry" in sys.argv
     una_pasada = "--una-pasada" in sys.argv
+    if "--ver" in sys.argv:      # solo lee la tabla: ni Aunesa ni escrituras
+        return ver(int(_opt("--top", 30)))
     subset = _opt("--cuentas")
     muestra = int(_opt("--muestra", 0))
     workers = int(_opt("--workers", WORKERS))
@@ -490,9 +555,12 @@ def run() -> int:
 
     # ① BARRIDO DE APERTURA
     t0 = time.monotonic()
-    ok, fallo, filas, motivos = _refrescar_lote(lote, hoy, "apertura", workers)
+    ok, fallo, filas, motivos, desc = _refrescar_lote(lote, hoy, "apertura", workers)
     print(f"  ✓ barrido de apertura: {ok} ok · {fallo} fallidas · {filas} filas · "
           f"{time.monotonic() - t0:.0f}s" + (f" · motivos={motivos}" if motivos else ""))
+    # Sobre el universo COMPLETO, no sobre una muestra: acá se ve si USDC es
+    # sistemático o una rareza, y si USDL existe en algún lado.
+    print(f"  monedas vistas y NO persistidas (fuera de {MONEDAS}): {desc or '(ninguna)'}")
     if una_pasada:
         return 0
 
@@ -528,7 +596,7 @@ def run() -> int:
 
         if not cola:
             continue
-        ok, fallo, filas, motivos = _refrescar_lote(cola, hoy, "boleto", workers)
+        ok, fallo, filas, motivos, _ = _refrescar_lote(cola, hoy, "boleto", workers)
         print(f"  [{_ahora_art():%H:%M}] refrescadas {ok} cuenta(s) por boleto"
               + (f" · {fallo} fallidas {motivos}" if fallo else ""))
 
@@ -561,7 +629,9 @@ def main() -> int:
 
     from core.job_runs import JobRunLogger
 
-    if "--dry" in sys.argv:        # el dry no es una corrida: no ensucia job_runs
+    # Ni `--dry` ni `--ver` son corridas del job: no ensucian manager.job_runs
+    # (SALUD lee esa tabla y una corrida de 2 segundos parecería un job roto).
+    if "--dry" in sys.argv or "--ver" in sys.argv:
         return run()
     signal.signal(signal.SIGTERM, _salir_limpio)
     with JobRunLogger("control_saldos"):

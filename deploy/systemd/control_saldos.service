@@ -1,0 +1,18 @@
+[Unit]
+Description=Control de Saldos - saldo LIQUIDADO del dia por cuenta y moneda
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python -m jobs.control_saldos
+# El daemon TERMINA solo al cierre de rueda (HORA_CIERRE_ART=18) — salir con 0 es
+# el camino normal, no una falla. Con Restart=always systemd lo relanzaria en loop
+# toda la noche; `on-failure` cubre el caso real (proceso caido por excepcion) sin
+# resucitarlo despues del cierre. Mismo criterio que tenencia_live.service.
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

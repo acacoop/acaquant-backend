@@ -350,3 +350,12 @@
 # NO toca portafolio.tenencia / assets / AuM / carteras — escribe solo su tabla.
 0 11 * * 1-5 systemctl restart tenencia_live.service
 5 21 * * 1-5 systemctl stop    tenencia_live.service
+
+# ─── CONTROL DE SALDOS (saldo LIQUIDADO del día por cuenta y moneda) → portafolio.control_saldos
+# Mismo diseño y mismo horario que tenencia_live, pero contra OTRO endpoint de
+# Aunesa (`cuentas/{id}/posiciones`), que separa lo liquidado de lo pendiente.
+# Alimenta el control de descubiertos del back office. También espera a que la
+# corrida `aum` de hoy figure terminada antes del barrido de apertura.
+# NO toca portafolio.tenencia / tenencia_live / assets / AuM — escribe solo su tabla.
+0 11 * * 1-5 systemctl restart control_saldos.service
+5 21 * * 1-5 systemctl stop    control_saldos.service

@@ -1261,6 +1261,43 @@ CREATE INDEX IF NOT EXISTS ix_tlive_cuenta
 CREATE INDEX IF NOT EXISTS ix_tlive_frescura
     ON portafolio.tenencia_live(fecha, actualizado_at);
 
+-- ── control_saldos — SALDO LIQUIDADO de hoy por cuenta y moneda ───────────────
+-- Fuente: endpoint `cuentas/{id}/posiciones` de Aunesa (Resumen de posiciones),
+-- que separa lo LIQUIDADO de lo PENDIENTE DE LIQUIDAR. `tenencia_live` no sirve
+-- para esto: es una posición PROYECTADA (mete adentro lo que todavía no liquidó),
+-- así que una caución que vence mañana deja la cuenta en falso negativo hoy.
+--
+-- `cantidad` ya viene con el SIGNO CORREGIDO: Aunesa manda las tenencias al revés
+-- (dice -56.095,90 para una cuenta que tiene pesos a favor), igual que
+-- `posicionValuada`. Negativo en esta tabla = DESCUBIERTO REAL.
+--
+-- `filas_origen` = cuántas filas del endpoint se sumaron para esa moneda. El
+-- endpoint devuelve más de una fila por moneda y no sabemos qué las separa
+-- (estado/lugar/subCuenta/informacion vienen idénticos), así que se suman — un
+-- saldo es aditivo — y esta columna deja el rastro para auditar una cuenta rara.
+--
+-- NO es acumulativa: el primer barrido del día borra lo anterior (`fecha < hoy`).
+-- Writer ÚNICO: jobs/control_saldos.py (daemon, cron 11 UTC L-V).
+CREATE TABLE IF NOT EXISTS portafolio.control_saldos (
+    fecha              date NOT NULL,
+    id_cuenta          text NOT NULL,
+    ticker             text NOT NULL,          -- 'ARS' | 'USD' | 'USDL'
+    cuenta             text,                   -- '[805] DENOMINACIÓN'
+    cantidad           numeric,                -- saldo LIQUIDADO (signo ya corregido)
+    cantidad_pendiente numeric,                -- lo que falta liquidar (auditoría)
+    filas_origen       integer,
+    origen             text,                   -- 'apertura' | 'boleto'
+    -- Frescura POR CUENTA: si Aunesa falla se conserva la fila anterior y esto
+    -- envejece a la vista. Un tablero live congelado en silencio es peor que no
+    -- tenerlo.
+    actualizado_at     timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fecha, id_cuenta, ticker)
+);
+CREATE INDEX IF NOT EXISTS ix_csaldos_negativos
+    ON portafolio.control_saldos(fecha, cantidad);
+CREATE INDEX IF NOT EXISTS ix_csaldos_cuenta
+    ON portafolio.control_saldos(id_cuenta, fecha);
+
 -- Log self-healing del writer diario (qué cuenta/fecha quedó OK o con timeout).
 CREATE TABLE IF NOT EXISTS portafolio.backfill_log (
     fecha       date NOT NULL,

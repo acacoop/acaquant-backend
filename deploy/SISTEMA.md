@@ -34,6 +34,7 @@
 <!-- AUTOGEN:motores -->
 | Servicio | Horario | Target | Qué hace |
 |---|---|---|---|
+| `control_saldos` | ?–21:05 L-V | `jobs.control_saldos` | Control de Saldos - saldo LIQUIDADO del dia por cuenta y moneda |
 | `motor_agro` | ?–20:05 L-V | `engines.motor_agro` | Motor Futuros Agro - Trigo/Maiz/Soja Rosario (FXXXSX) |
 | `motor_agro_opciones` | ?–20:05 L-V | `engines.motor_agro_opciones` | Motor Opciones Agro - Trigo/Maiz/Soja Rosario (OCAFXS/OPAFXS) |
 | `motor_breakevens` | ?–20:05 L-V | `engines.breakevens` | Motor Breakevens - Inflacion implicita CER/Lecap en tiempo real |
@@ -117,6 +118,7 @@
 | Horario | Comando |
 |---|---|
 | 11:00 · L-V | `systemctl restart tenencia_live.service` |
+| 11:00 · L-V | `systemctl restart control_saldos.service` |
 | 13:20 · L-V | `systemctl restart motor_rofex.service` |
 | 13:20 · L-V | `systemctl restart motor_options.service` |
 | 13:20 · L-V | `systemctl restart motor_curvas.service` |

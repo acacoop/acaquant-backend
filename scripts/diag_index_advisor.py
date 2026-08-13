@@ -76,7 +76,19 @@ def main() -> int:
         # no está en el search_path, falla con "function hypopg_get_indexdef(oid)
         # does not exist" y devuelve error en vez de recomendación — parece que
         # no hay índice posible cuando en realidad ni se analizó (2026-08-13).
-        cur.execute(f"SET search_path TO public, {adv_schema}")
+        #
+        # Se AGREGA al search_path existente, no se reemplaza: la app conecta con
+        # `-c search_path=...` (core/postgres.py) para que los nombres sin
+        # calificar resuelvan, y las queries guardadas en pg_stat_statements
+        # dependen de eso — dicen `comitentes` y `negocio_movimientos` a secas.
+        # Pisarlo hacía fallar el análisis con "relation does not exist", que
+        # otra vez PARECE un veredicto y no lo es.
+        cur.execute("SHOW search_path")
+        actual = cur.fetchone()[0]
+        if adv_schema not in actual:
+            cur.execute(f"SET search_path TO {actual}, {adv_schema}")
+        print(f"search_path: {actual}"
+              + ("" if adv_schema in actual else f" (+ {adv_schema})") + "\n")
 
         patrones = [f"%{t}%" for t in tablas]
         filas = _q(cur, f"""

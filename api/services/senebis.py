@@ -470,6 +470,7 @@ def _fila_op(r: dict) -> dict:
         "mae_completada_por": r.get("mae_completada_por"),
         "mae_completada_at": (r["mae_completada_at"].isoformat()
                               if r.get("mae_completada_at") else None),
+        "mae_editada_completada": bool(r.get("mae_editada_completada")),
         "estado": r["estado"],
         "completada_por": r["completada_por"],
         "completada_at": r["completada_at"].isoformat() if r["completada_at"] else None,
@@ -695,16 +696,26 @@ def _marcar_edicion(op_id: int, before: dict, after: dict) -> dict:
 
     Acumula los campos tocados y, si la orden ya estaba 'completada', prende
     editada_completada: el back office ya la cargó en Quantex y tiene que
-    revisarla."""
+    revisarla.
+
+    La tab EXCEL MAE tiene su ESPEJO de esa marca (`mae_editada_completada`,
+    2026-08-13): se prende si se editó una orden que ya estaba TILDADA ahí —
+    el MAE quedó cargado con los datos viejos y hay que corregirlo a mano.
+    Son dos marcas y no una porque las baja OTRO equipo cada una (el back
+    office mira Quantex, el trader mira el MAE) y el visto de uno no puede
+    tapar el del otro. La orden NO vuelve al Excel: igual que en Quantex, lo
+    ya cargado se corrige del otro lado, no se re-exporta."""
     cambios = _diff_campos(before, after)
     if not cambios:
         return after
     acumulado = sorted(set(before.get("campos_editados") or []) | set(cambios))
     flag = bool(before.get("editada_completada")) or before["estado"] == "completada"
+    flag_mae = bool(before.get("mae_editada_completada")) or bool(before.get("mae_completada"))
     _exec(
         "UPDATE operaciones.senebis SET campos_editados=%(campos)s, "
-        "editada_completada=%(flag)s WHERE id=%(id)s",
-        {"id": op_id, "campos": acumulado, "flag": flag},
+        "editada_completada=%(flag)s, mae_editada_completada=%(flag_mae)s "
+        "WHERE id=%(id)s",
+        {"id": op_id, "campos": acumulado, "flag": flag, "flag_mae": flag_mae},
     )
     return _get_op(op_id)
 
@@ -739,8 +750,9 @@ def editar_op(op_id: int, payload: dict, actor: str) -> dict:
 
 
 def limpiar_marcas(op_id: int, actor: str) -> dict:
-    """"Visto": borra las marcas de edición de una orden (el back office ya la
-    revisó/corrigió en Quantex). No toca los datos ni el estado."""
+    """"Visto" de QUANTEX: borra las marcas de edición de una orden (el back
+    office ya la revisó/corrigió en Quantex). No toca los datos, ni el estado,
+    ni la marca del MAE — esa la baja el trader desde su tab."""
     before = _get_op(op_id)
     _exec(
         "UPDATE operaciones.senebis SET campos_editados='{}', "
@@ -750,6 +762,21 @@ def limpiar_marcas(op_id: int, actor: str) -> dict:
     _audit(actor, "limpiar_marcas", str(op_id),
            {"before": {"campos_editados": before["campos_editados"],
                        "editada_completada": before["editada_completada"]}})
+    return _get_op(op_id)
+
+
+def limpiar_marcas_mae(op_id: int, actor: str) -> dict:
+    """"Visto" del MAE: baja el amarillo de una orden tildada que se editó
+    después (el trader ya la corrigió en el MAE). Espejo de limpiar_marcas,
+    con su propia marca: el visto del back office no puede bajar el del
+    trader ni al revés. No toca los datos, ni el estado, ni la tilde."""
+    before = _get_op(op_id)
+    _exec(
+        "UPDATE operaciones.senebis SET mae_editada_completada=false WHERE id=%(id)s",
+        {"id": op_id},
+    )
+    _audit(actor, "limpiar_marcas_mae", str(op_id),
+           {"before": {"mae_editada_completada": before["mae_editada_completada"]}})
     return _get_op(op_id)
 
 
@@ -803,7 +830,12 @@ def set_mae_completada(op_id: int, completada: bool, actor: str) -> dict:
 
     Sin corte por fecha, a diferencia de set_estado: una orden vieja que quedó
     sin tildar sigue entrando al archivo, y sacarla de ahí es justamente para
-    lo que existe la tilde."""
+    lo que existe la tilde.
+
+    DESTILDAR baja también el amarillo de `mae_editada_completada`: ese aviso
+    dice "el MAE quedó con los datos viejos", y al destildar la orden vuelve
+    al Excel y se carga de nuevo con los datos buenos → el aviso ya no aplica.
+    (Tildar de nuevo NO lo revive: la marca la prende una EDICIÓN posterior.)"""
     before = _get_op(op_id)
     if not before["es_mae"]:
         raise ValueError(
@@ -815,7 +847,8 @@ def set_mae_completada(op_id: int, completada: bool, actor: str) -> dict:
     at = datetime.now(UTC)
     _exec(
         "UPDATE operaciones.senebis SET mae_completada=%(mae)s, "
-        "mae_completada_por=%(mae_por)s, mae_completada_at=%(mae_at)s "
+        "mae_completada_por=%(mae_por)s, mae_completada_at=%(mae_at)s, "
+        "mae_editada_completada=(mae_editada_completada AND %(mae)s) "
         "WHERE id=%(id)s",
         {"id": op_id, "mae": bool(completada),
          "mae_por": por if completada else None,
@@ -1078,6 +1111,10 @@ def excel_mae_preview(desde: str | None = None, hasta: str | None = None,
                    "mae_completada": bool(o.get("mae_completada")),
                    "mae_completada_por": o.get("mae_completada_por"),
                    "mae_completada_at": o.get("mae_completada_at"),
+                   # Tildada y editada DESPUÉS → el MAE quedó con los datos
+                   # viejos: fila amarilla + ⚠ EDITADA (igual que en Quantex).
+                   "mae_editada_completada": bool(o.get("mae_editada_completada")),
+                   "campos_editados": list(o.get("campos_editados") or []),
                    "valores": _fila_export_mae(o, destinos.get(o["id"]))}
                   for o in ordenes],
         "conectados": data["conectados"],

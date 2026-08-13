@@ -238,6 +238,17 @@ def set_mae_completada(op_id: int, req: _MaeCompletadaPayload = Body(...),
         raise HTTPException(400, str(e)) from e
 
 
+@router.post("/ops/{op_id}/mae-visto")
+def limpiar_marcas_mae(op_id: int, actor: str = Depends(get_user_email)) -> dict:
+    """Baja el amarillo de la tab EXCEL MAE (orden tildada que se editó
+    después — el trader ya la corrigió en el MAE). Espejo de `/visto`, con su
+    propia marca: el visto del back office en Quantex no baja el del MAE."""
+    try:
+        return _svc.limpiar_marcas_mae(op_id, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.post("/ops/{op_id}/reasignar-id")
 def reasignar_id(op_id: int, actor: str = Depends(get_user_email)) -> dict:
     """Le da a la orden el siguiente ID libre y quema el anterior — para cuando

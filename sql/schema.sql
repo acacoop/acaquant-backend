@@ -750,6 +750,12 @@ CREATE TABLE IF NOT EXISTS operaciones.senebis (
     mae_completada     boolean NOT NULL DEFAULT false,
     mae_completada_por text,                 -- email del trader que la tildó
     mae_completada_at  timestamptz,
+    -- Espejo de `editada_completada` para el MAE: se prende si se editó una
+    -- orden que YA estaba tildada → el MAE quedó cargado con los datos viejos
+    -- (fila amarilla en la tab + botón ⚠ EDITADA que la baja). Marca aparte
+    -- de la de Quantex porque la baja OTRO equipo: el trader mira el MAE, el
+    -- back office mira Quantex, y el visto de uno no puede tapar al del otro.
+    mae_editada_completada boolean NOT NULL DEFAULT false,
     -- Marcas de edición (persistentes, = el amarillo que el back office pintaba
     -- a mano en la planilla vieja). campos_editados acumula qué campos se
     -- tocaron post-alta (el front les pone *); editada_completada se prende si
@@ -779,6 +785,7 @@ ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS editada_completada bool
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS mae_completada boolean NOT NULL DEFAULT false;
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS mae_completada_por text;
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS mae_completada_at timestamptz;
+ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS mae_editada_completada boolean NOT NULL DEFAULT false;
 -- Migración 2026-08-05: cargan_ellos era text (observación libre) y pasó a
 -- boolean SI/NO (True = la carga la contraparte → fuera del Excel/espejo).
 -- Guardado en un DO para ser idempotente: solo convierte si todavía es text.

@@ -408,6 +408,20 @@ def test_set_mae_completada_destildar_limpia_quien_y_cuando(monkeypatch):
     assert capturado["mae_por"] is None and capturado["mae_at"] is None
 
 
+def test_destildar_baja_el_amarillo_del_mae(monkeypatch):
+    # Destildar devuelve la orden al Excel → se re-carga con los datos buenos
+    # y el aviso "el MAE quedó viejo" deja de aplicar. Lo hace el propio UPDATE
+    # (AND con el valor nuevo): tildar no lo revive, solo una edición posterior.
+    sqls: list[str] = []
+    monkeypatch.setattr(svc, "_exec", lambda sql, params: sqls.append(sql) or 1)
+    monkeypatch.setattr(svc, "_audit", lambda *a, **k: None)
+    monkeypatch.setattr(svc, "_get_op", lambda i: {
+        **_FILA, "es_mae": True, "mae_completada": True,
+        "mae_editada_completada": True})
+    svc.set_mae_completada(1, False, actor="t@x.com")
+    assert "mae_editada_completada=(mae_editada_completada AND %(mae)s)" in sqls[0]
+
+
 def test_set_mae_completada_rechaza_no_mae(monkeypatch):
     _sin_db(monkeypatch)
     monkeypatch.setattr(svc, "_get_op", lambda i: {**_FILA, "es_mae": False})
@@ -421,6 +435,43 @@ def test_set_mae_completada_idempotente(monkeypatch):
                         lambda i: {**_FILA, "es_mae": True, "mae_completada": True})
     svc.set_mae_completada(1, True, actor="t@x.com")
     assert capturado == {}                    # no escribe ni audita de nuevo
+
+
+def test_marcar_edicion_prende_el_amarillo_del_mae(monkeypatch):
+    # Editar una orden YA TILDADA = el MAE quedó con los datos viejos (espejo
+    # de editada_completada, que mira `estado`).
+    capturado = _sin_db(monkeypatch)
+    monkeypatch.setattr(svc, "_get_op", lambda i: {**_FILA, "es_mae": True})
+    before = {**_FILA, "es_mae": True, "mae_completada": True,
+              "campos_editados": [], "editada_completada": False,
+              "mae_editada_completada": False}
+    svc._marcar_edicion(1, before, {**before, "px": 999.0})
+    assert capturado["flag_mae"] is True
+    # …y la de Quantex NO se prende sola: esa mira el estado, que sigue pendiente.
+    assert capturado["flag"] is False
+
+
+def test_marcar_edicion_sin_tilde_no_prende_nada(monkeypatch):
+    capturado = _sin_db(monkeypatch)
+    monkeypatch.setattr(svc, "_get_op", lambda i: {**_FILA, "es_mae": True})
+    before = {**_FILA, "es_mae": True, "mae_completada": False,
+              "campos_editados": [], "editada_completada": False,
+              "mae_editada_completada": False}
+    svc._marcar_edicion(1, before, {**before, "px": 999.0})
+    assert capturado["flag_mae"] is False
+
+
+def test_visto_de_quantex_no_baja_el_amarillo_del_mae(monkeypatch):
+    # Dos marcas y dos vistos: las bajan equipos distintos y no pueden taparse.
+    capturado = _sin_db(monkeypatch)
+    monkeypatch.setattr(svc, "_get_op", lambda i: {
+        **_FILA, "campos_editados": ["px"], "editada_completada": True,
+        "mae_editada_completada": True})
+    svc.limpiar_marcas(1, actor="b@x.com")
+    assert "mae_editada_completada" not in capturado
+    capturado.clear()
+    svc.limpiar_marcas_mae(1, actor="t@x.com")
+    assert capturado == {"id": 1}          # solo baja SU marca
 
 
 def test_set_mae_completada_no_bloquea_dias_anteriores(monkeypatch):

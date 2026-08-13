@@ -89,24 +89,39 @@ def _app(horas: int, top: int) -> None:
     print("   → el que más SUMA es el que conviene mirar, no el más lento suelto.")
 
 
-def _queries(cur) -> None:
+def _queries(cur, top: int) -> None:
     print(f"\n{'=' * 78}\n2) BASE — queries por tiempo total dentro de Postgres"
           f"\n{'=' * 78}")
+    # DÓNDE vive la vista, no dónde uno supone que vive: Supabase la instala en
+    # el schema `extensions`, que NO está en el search_path por defecto. Buscarla
+    # sin calificar daba "relation does not exist" y se leía como "no está
+    # habilitada" — cuando estaba habilitada desde siempre (incidente 2026-08-13).
+    ns = _q(cur, """
+        SELECT n.nspname FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'pg_stat_statements' LIMIT 1
+    """)
+    if not ns:
+        print("   pg_stat_statements NO está instalada en esta base.")
+        print("   (en Supabase se habilita desde Database → Extensions)")
+        return
+    schema = ns[0]["nspname"]
     try:
         # El patrón va por PARÁMETRO: con params, un `%` literal en el SQL
         # revienta el binder de psycopg (lo lee como placeholder).
-        filas = _q(cur, """
+        filas = _q(cur, f"""
             SELECT calls, total_exec_time, mean_exec_time, rows, query
-            FROM pg_stat_statements
+            FROM {schema}.pg_stat_statements
             WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
               AND query NOT LIKE %s
               AND query <> ALL(%s)
             ORDER BY total_exec_time DESC LIMIT %s
-        """, ("%pg_stat%", ["BEGIN", "COMMIT", "ROLLBACK"], _TOP))
+        """, ("%pg_stat%", ["BEGIN", "COMMIT", "ROLLBACK"], top))
     except Exception as e:
-        print(f"   pg_stat_statements no disponible ({str(e).splitlines()[0]})")
-        print("   (en Supabase se habilita desde Database → Extensions)")
+        print(f"   está en `{schema}` pero no se pudo leer ({str(e).splitlines()[0]})")
         return
+    if schema != "public":
+        print(f"   (vive en el schema `{schema}`)")
     print(f"   {'calls':>9}{'media':>9}{'total':>10}  query")
     for f in filas:
         print(f"   {f['calls']:>9}{f['mean_exec_time']:>8.1f}ms"
@@ -181,7 +196,7 @@ def main() -> int:
         if reset and reset[0]["stats_reset"]:
             print(f"\n(contadores de Postgres acumulados desde "
                   f"{reset[0]['stats_reset']:%Y-%m-%d %H:%M} UTC)")
-        _queries(cur)
+        _queries(cur, top)
         _tablas(cur)
         _indices(cur)
     print("""

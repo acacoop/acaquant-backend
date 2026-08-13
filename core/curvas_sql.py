@@ -1,8 +1,8 @@
-"""core/curvas_sql.py — lectura del master de renta fija desde SQL (decomiso Mongo).
+"""core/curvas_sql.py — lectura del master de renta fija desde SQL.
 
-Reemplaza `Trading.Curvas` (Mongo) por `mercado.curvas` (Postgres). La columna
+El master vive en `mercado.curvas` (Postgres). La columna
 `data` jsonb = el doc COMPLETO (mismo shape: fechas como strings ISO, flujos
-anidados) → los readers que hacían `.get('campo')` sobre el doc Mongo funcionan
+anidados) → los readers que hacen `.get('campo')` sobre el doc funcionan
 sin cambios. Las columnas tipadas (`curva`, `ticker_corto`, `fecha_vencimiento`)
 se usan SOLO para filtrar barato.
 

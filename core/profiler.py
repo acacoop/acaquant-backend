@@ -3,15 +3,15 @@
 Uso típico:
 
     sw = Stopwatch("vista_aum")
-    sw.step("mongo: find ultimo")
-    docs = list(col.find(...))
-    sw.step("mongo: agg fci")
-    rows = list(col.aggregate(...))
+    sw.step("sql: ultimo snapshot")
+    filas = _q("SELECT ...")
+    sw.step("sql: agg fci")
+    rows = _q("SELECT ...")
     sw.step("pandas: merge")
     df = ...
     trace = sw.done()
     # trace = {"label": "vista_aum", "total_ms": 1234.5,
-    #          "steps": [{"name": "mongo: find ultimo", "ms": 180.1}, ...]}
+    #          "steps": [{"name": "sql: ultimo snapshot", "ms": 180.1}, ...]}
 
 No maneja pasos anidados — es deliberado. Si necesitás jerarquía, usá dos
 stopwatches y componé los resultados afuera.

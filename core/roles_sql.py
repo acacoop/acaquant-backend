@@ -1,15 +1,12 @@
 """core/roles_sql.py — lecturas + escrituras de AUTH (roles/matriz/usuarios) desde Postgres.
 
-Funciones PURAS sobre `manager.manager_users` / `manager.role_matrix`. El orquestador con
-FALLBACK (lecturas) y el DUAL-WRITE best-effort (escrituras) viven en core/roles.py: Mongo
-sigue siendo la fuente de verdad y el fallback de lectura; estos writers mantienen el espejo
-SQL FRESCO al instante (sin esperar los 20 min del sync_postgres) para que con AUTH_SQL=1 el
-panel lea SQL consistente. core/ solo importa core/ (regla de capas): solo psycopg +
-core.postgres. MODULES se importa lazy adentro de cada función para no ciclar con core/roles.py.
+Funciones PURAS sobre `manager.manager_users` / `manager.role_matrix`, que son la
+fuente de verdad. El orquestador vive en core/roles.py. core/ solo importa core/
+(regla de capas): solo psycopg + core.postgres. MODULES se importa lazy adentro de
+cada función para no ciclar con core/roles.py.
 
-Las escrituras SQL son best-effort: el caller (core/roles.py) las envuelve en try/except y NUNCA
-deja que un error SQL tumbe la mutación real (que ya persistió en Mongo). Semántica preservada
-1:1 con Mongo — ver cada docstring.
+El caller (core/roles.py) envuelve las escrituras en try/except — ver cada docstring
+para la semántica exacta de cada una.
 """
 from __future__ import annotations
 

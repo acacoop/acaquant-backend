@@ -1,7 +1,6 @@
 """Carga común del master de renta fija para todos los motores.
 
-SQL-NATIVE (decomiso Mongo 2026-06-28): la definición estática de instrumentos
-vive en `mercado.curvas` (Postgres) — antes `Trading.Curvas` (Mongo). El `data`
+La definición estática de instrumentos vive en `mercado.curvas` (Postgres). El `data`
 jsonb es el doc completo (mismo shape) → cero cambio para los motores que
 consumen estos docs. Este módulo unifica el acceso vía `core.curvas_sql`.
 """

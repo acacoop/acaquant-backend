@@ -1,15 +1,11 @@
 """core/grupos_sql.py — lectura + escritura del scope de cuentas (grupos) desde Postgres.
 
-Funciones PURAS sobre `manager.grupos`. El orquestador con FALLBACK (lectura) y el DUAL-WRITE
-best-effort (escritura) viven en core/grupos.py: Mongo sigue siendo la fuente de verdad y el
-fallback; estos writers mantienen el espejo SQL FRESCO al instante (sin esperar los 20 min del
-sync_postgres). core/ solo importa core/.
+Funciones PURAS sobre `manager.grupos`, que es la fuente de verdad. El orquestador
+vive en core/grupos.py. core/ solo importa core/.
 
-PK `id`: en modo dual-write el caller pasa el MISMO str(ObjectId) que generó el insert Mongo
-→ ambas filas (Mongo/SQL) comparten clave y el sync no duplica. (El uuid SQL-native sólo aplica
-cuando se corte Mongo del todo.) `emails`/`id_cuentas` se guardan como arrays text[] (psycopg
-adapta la lista Python directo). OJO: la tabla SQL NO tiene columna `updated_por` (Mongo sí) →
-ese campo se pierde en el espejo, es metadata no consumida por ninguna lectura.
+PK `id`: uuid generado en el insert. `emails`/`id_cuentas` se guardan como arrays
+text[] (psycopg adapta la lista Python directo). OJO: la tabla NO tiene columna
+`updated_por` — ese campo no se persiste, es metadata que ninguna lectura consume.
 """
 from __future__ import annotations
 

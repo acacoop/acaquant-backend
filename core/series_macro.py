@@ -1,11 +1,9 @@
 """Series macro (CER, DOLAR, BADLAR, TAMAR, RiesgoPais, Inflación…) — SQL-ONLY.
 
-Fuente ÚNICA: `macro.series_macro` (tabla larga serie/fecha/valor). SIN fallback a
-Mongo — las colecciones `Trading.{CER,DOLAR,...}` se están dando de baja.
+Fuente ÚNICA: `macro.series_macro` (tabla larga serie/fecha/valor), sin fallback.
 
-Lo usan los motores (curvas, breakevens, futuros_dlr) que antes leían
-`Trading.<serie>` directo de Mongo. `fecha` es columna date; los params string
-'YYYY-MM-DD' se castean con ::date.
+Lo usan los motores (curvas, breakevens, futuros_dlr). `fecha` es columna date;
+los params string 'YYYY-MM-DD' se castean con ::date.
 """
 from __future__ import annotations
 

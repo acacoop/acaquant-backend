@@ -1,7 +1,6 @@
-"""core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje (decomiso Mongo).
+"""core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje.
 
-Reemplaza `Valuaciones.{DolarSnapshot, Dolar}` (Mongo) por
-`valuaciones.{dolar_snapshot, dolar}` (Postgres). SIN fallback a Mongo.
+El feed vive en `valuaciones.{dolar_snapshot, dolar}` (Postgres), sin fallback.
 Capa `core/` → usable por engines (curvas/futuros_dlr) y por api/services
 (macro/argy/scanner).
 
@@ -9,7 +8,7 @@ Capa `core/` → usable por engines (curvas/futuros_dlr) y por api/services
 - `dolar`: histórico append cada 15min (engines/dolar_mep.py), PK timestamp.
 
 El día se agrupa en horario ART (AT TIME ZONE) para que el chart diario quede
-igual que el `$dateToString` de Mongo sobre el timestamp ART.
+sobre el timestamp ART.
 """
 from __future__ import annotations
 

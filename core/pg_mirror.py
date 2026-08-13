@@ -1,4 +1,4 @@
-"""core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
+"""core/pg_mirror.py — capa de ESCRITURA a Postgres, la única base del sistema.
 
 Motores y jobs escriben acá y solo acá: no hay dual-write, ni flags, ni espejo
 descartable. Todas las funciones son INCONDICIONALES y best-effort — nunca

@@ -8,7 +8,7 @@ Cada 30s:
   3. Calcula breakeven de inflación mensual implícita entre HOY y el vto.
   4. Upsert SQL mercado.mercado_hist (coleccion='BreakevensHistorico') → 1 fila
      por fecha (histórico diario; la fila de HOY se reescribe en cada corrida).
-     El "live" es la fila más reciente — ya no hay BreakevensLive en Mongo.
+     El "live" es simplemente la fila más reciente.
 
 Fórmulas:
   retorno_acumulado   = (1 + TEM)^(días/30) - 1

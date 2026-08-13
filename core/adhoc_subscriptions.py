@@ -5,7 +5,7 @@ NO están en Trading.Curvas ni en config.TICKERS_EXTRA_PRECIOS. El motor
 los suscribe vía pyRofex en runtime (cada 5s polleando esta tabla) y los
 persiste en MarketSnapshot como cualquier otro.
 
-SQL-NATIVE (decomiso Mongo): la colección Mongo `Trading.AdhocSubscriptions`
+La definición vive en `mercado.adhoc_subscriptions`. La tabla vieja
 fue migrada → este módulo escribe/lee SOLO Postgres.
 
 Diseño:

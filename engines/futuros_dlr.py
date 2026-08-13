@@ -9,7 +9,7 @@ y filtra los outrights vigentes del underlying 'Dólar USA A3500':
 Un contrato nuevo listado durante la rueda se suscribe EN CALIENTE
 (antes el rediscovery solo logueaba "restart del motor para tomar cambios").
 
-Persistencia (SQL-NATIVE — ya NO escribe Mongo, decomiso 2026-06-28):
+Persistencia:
 - mercado.futuros_dlr_snapshot: 1 fila por ticker (data jsonb), UPSERT cada 5s.
 - mercado.mercado_hist (coleccion='FuturosDLR', k=ticker): 1 fila por
   (fecha, ticker) escrita al apagado del motor (cierre 20:05 UTC).

@@ -6,7 +6,7 @@ endpoint `POST /api/ingest/dolar-oficial` (la API escribe). El script pollea
 api.mae.com.ar cada 30s y upsertea el último precio + variación % del ticker
 UST$T (USA Transferencia mayorista A3500).
 
-SQL-NATIVE (decomiso Mongo 2026-06-28): la colección Mongo
+El feed se persiste en Postgres. La tabla vieja
 `Valuaciones.DolarOficialLive` fue migrada → este módulo escribe y lee SOLO
 Postgres. Si el script local está caído, `value` queda en None y el frontend
 muestra "—". Sin fallback retail (dolarapi.com está ~30 pesos arriba del

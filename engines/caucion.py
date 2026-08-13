@@ -6,7 +6,7 @@ coincide con "días al próximo día hábil". Lun-jue = 1D, vie = 3D
 re-evalúa cada hora; si cambia (cruce de día), el motor se re-suscribe
 EN CALIENTE a los tickers nuevos (antes quedaba mudo hasta el restart).
 
-Persistencia (SQL-NATIVE — ya NO escribe Mongo, decomiso 2026-06-28):
+Persistencia:
 - mercado.caucion_snapshot: 1 fila por moneda (data jsonb), UPSERT cada 5s.
   {moneda, plazo_dias, ticker, tna_last, tna_bid, tna_offer, tna_open,
    tna_high, tna_low, tna_closing, vol_efectivo, updated_at}

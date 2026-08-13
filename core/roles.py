@@ -3,7 +3,7 @@
 Cloudflare Access decide **quién puede entrar** al sitio (email OTP). Este
 módulo decide **qué ve** cada usuario una vez adentro.
 
-Modelo (SQL-native — decomiso Mongo; Manager.* dropeadas):
+Modelo (todo sobre `manager.*` en Postgres):
     manager.manager_users → {email, role, enabled, created_at, updated_at}
     manager.role_matrix   → {role, modules: [str], updated_by, updated_at}
     manager.role_audit    → append-only {ts, actor, action, target, before, after}

@@ -4,8 +4,7 @@ Cada cron job puede envolverse en `with JobRunLogger("tipo") as run:` para
 capturar stdout, stats estructurados, duración, errores y persistir una fila
 al salir — sin perder los logs de archivo que ya existen.
 
-SQL-ONLY desde el cutover Manager→SQL (decomiso Mongo 2026-06-28): escribe
-manager.job_runs (Postgres) SQL-native; Mongo Manager.JobRuns quedó sin writer.
+Escribe `manager.job_runs` (Postgres). Es el único writer del historial.
 
 Esquema de la fila en manager.job_runs (columnas materializadas + `data` jsonb):
     {

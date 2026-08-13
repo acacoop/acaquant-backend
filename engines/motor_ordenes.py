@@ -3,7 +3,7 @@
 Es proceso aparte (systemd unit propio). El API tiene su propia sesión
 pyRofex liviana para REST `send_order`/`cancel_order`. Acá vivimos el
 WS con `order_report_subscription` y persistimos cada ER que llega del
-broker, así el frontend lee el estado actualizado de Mongo (no espera
+broker, así el frontend lee el estado actualizado de la base (no espera
 respuesta sincrónica del broker).
 
 Flujo:

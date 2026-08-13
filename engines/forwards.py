@@ -8,7 +8,7 @@ Cada 30s:
   4. Upsert SQL mercado.mercado_hist (coleccion='ForwardsHistorico', k=curva) →
      1 fila por (fecha, curva) (histórico diario; la fila de HOY se reescribe en
      cada corrida). El "live" por curva es la fila más reciente — ya no hay
-     ForwardsLive en Mongo.
+     una tabla de estado aparte.
 
 Uso:
     /root/TradingAV/venv/bin/python /root/TradingAV/main_forwards.py

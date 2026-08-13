@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **454 endpoints** montados en `api.main.app`, en **28 routers**.
-- **148 escriben** (POST/PUT/PATCH/DELETE); 306 son de solo lectura.
+- **455 endpoints** montados en `api.main.app`, en **28 routers**.
+- **149 escriben** (POST/PUT/PATCH/DELETE); 306 son de solo lectura.
 - **22 módulos** canónicos y **6 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -50,7 +50,7 @@
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/analitica` | 15 | 1 | — | — | ⚠️ |
 | `/api/back-office` | 57 | 33 | `back-office` · 57 rutas con gate extra | `back-office` |  |
-| `/api/back-office/senebis` | 19 | 12 | `back-office` · 4 rutas con gate extra | `back-office` |  |
+| `/api/back-office/senebis` | 20 | 13 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 33 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
@@ -1551,14 +1551,16 @@ Tenencia/alquiler ← `portafolio.tenencia` + `assets`.
 |---|---|---|---|---|
 | **Órdenes** | Tabla completa con marcas de edición: `campos_editados` → `*` al lado del campo; `editada_completada` → **fila amarilla** + botón ⚠ EDITADA | `GET /ops` (marca presencia), `/opciones`, `/comitentes` | rango, estado, MAE | `POST /ops`, `PATCH /ops/{id}`, `DELETE /ops/{id}` (allowlist); `POST /ops/{id}/estado`; `/visto`; `/reasignar-id`; `PUT /agentes`, `DELETE /agentes/{nombre}`; `POST /proximo-id` (**admin**) |
 | **Excel Quantex** | Espejo EN VIVO del archivo destino (10 columnas: ID·OPERACION·INSTRUMENTO·PLAZO·PRECIO·CANTIDAD·CONTRAPARTE·COMITENTE·CARTERA PROPIA·MERCADO) + `proximo_id` | `GET /excel` | solo rango HOY/TODO; **el estado NO se pasa** (el backend ya filtra) | Botón **⬇ GENERAR EXCEL** → `GET /export`; reasignar ID desde la fila |
-| **Excel MAE** | Espejo del archivo MAE (8 columnas: Operacion·Instrumento·Plazo·Moneda·Precio·Cantidad·Destino·Segmento) con `sin_destino` marcando las que no tienen código. El SEGMENTO sale de la orden (catálogo `senebis_segmentos`, botón **SEGMENTOS MAE**) | `GET /excel-mae` | rango | `GET /export-mae` |
+| **Excel MAE** | Espejo del archivo MAE (8 columnas: Operacion·Instrumento·Plazo·Moneda·Precio·Cantidad·Destino·Segmento) con `sin_destino` marcando las que no tienen código. El SEGMENTO sale de la orden (catálogo `senebis_segmentos`, botón **SEGMENTOS MAE**). **Columna ✓ propia de esta tab** (`mae_completada`, 2026-08-13): el trader tilda lo que ya cargó en el MAE → la fila queda **grisada + tachada** y NO sale más en el `.xlsx` (destildable). Es INDEPENDIENTE del `estado` de la tab Órdenes (ese es el laburo del back office en Quantex) | `GET /excel-mae` | rango | `POST /ops/{id}/mae-completada`; `GET /export-mae` |
 
-**Endpoints (17, prefix `/api/back-office/senebis`)**: `GET /ops` (`desde`, `hasta`, `estado`,
+**Endpoints (18, prefix `/api/back-office/senebis`)**: `GET /ops` (`desde`, `hasta`, `estado`,
 `especie` ILIKE, `mae` `solo|sin`; devuelve `conectados` + `total` + `pendientes`) · `POST /presencia` ·
 `GET /opciones` (agentes + `tipos_contraparte` + `plazos` + `conectados` + `puede_escribir` +
 `es_admin`) · `GET /comitentes` (`q` req, min 1) · `GET /excel` · `GET /excel-mae` · `GET /export`
 (`senebis_YYYYMMDD.xlsx`) · `GET /export-mae` · **`POST /ops`** · **`PATCH /ops/{id}`** ·
-**`DELETE /ops/{id}`** · **`POST /ops/{id}/estado`** · **`POST /ops/{id}/visto`** ·
+**`DELETE /ops/{id}`** · **`POST /ops/{id}/estado`** · **`POST /ops/{id}/mae-completada`**
+(`{completada: bool}`; solo órdenes `es_mae`, sin corte por fecha — la tilde de la tab MAE) ·
+**`POST /ops/{id}/visto`** ·
 **`POST /ops/{id}/reasignar-id`** · **`POST /proximo-id`** (`require_admin`; rechaza
 `siguiente <= MAX(id)`) · **`PUT /agentes`** · **`DELETE /agentes/{nombre}`**.
 

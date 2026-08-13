@@ -741,6 +741,15 @@ CREATE TABLE IF NOT EXISTS operaciones.senebis (
     -- Orden MAE: se carga en el MAE (otro sistema) → NO sale en el Excel
     -- Quantex ni en su espejo; tipo se fija 'MAE' automático al guardar.
     es_mae          boolean NOT NULL DEFAULT false,
+    -- Tilde PROPIA de la tab EXCEL MAE (2026-08-13): la marca el TRADER cuando
+    -- ya cargó esa orden en el MAE. Es INDEPENDIENTE de `estado` a propósito —
+    -- `estado` es el laburo del BACK OFFICE (Quantex) y mezclarlos hacía que un
+    -- equipo le moviera el tablero al otro. Solo afecta al Excel MAE: la orden
+    -- tildada sale del archivo (no se re-carga al re-generarlo) pero SIGUE
+    -- visible en la tab, grisada, para poder destildarla.
+    mae_completada     boolean NOT NULL DEFAULT false,
+    mae_completada_por text,                 -- email del trader que la tildó
+    mae_completada_at  timestamptz,
     -- Marcas de edición (persistentes, = el amarillo que el back office pintaba
     -- a mano en la planilla vieja). campos_editados acumula qué campos se
     -- tocaron post-alta (el front les pone *); editada_completada se prende si
@@ -767,6 +776,9 @@ ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS cc_denominacion text;
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS es_mae boolean NOT NULL DEFAULT false;
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS campos_editados text[] NOT NULL DEFAULT '{}';
 ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS editada_completada boolean NOT NULL DEFAULT false;
+ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS mae_completada boolean NOT NULL DEFAULT false;
+ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS mae_completada_por text;
+ALTER TABLE operaciones.senebis ADD COLUMN IF NOT EXISTS mae_completada_at timestamptz;
 -- Migración 2026-08-05: cargan_ellos era text (observación libre) y pasó a
 -- boolean SI/NO (True = la carga la contraparte → fuera del Excel/espejo).
 -- Guardado en un DO para ser idempotente: solo convierte si todavía es text.

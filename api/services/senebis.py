@@ -465,6 +465,11 @@ def _fila_op(r: dict) -> dict:
         # .get(): tolera un deploy de código anterior al apply_schema.
         "campos_editados": list(r.get("campos_editados") or []),
         "editada_completada": bool(r.get("editada_completada")),
+        # Tilde propia de la tab EXCEL MAE (la pone el TRADER) — NO es `estado`.
+        "mae_completada": bool(r.get("mae_completada")),
+        "mae_completada_por": r.get("mae_completada_por"),
+        "mae_completada_at": (r["mae_completada_at"].isoformat()
+                              if r.get("mae_completada_at") else None),
         "estado": r["estado"],
         "completada_por": r["completada_por"],
         "completada_at": r["completada_at"].isoformat() if r["completada_at"] else None,
@@ -787,6 +792,41 @@ def set_estado(op_id: int, estado: str, actor: str) -> dict:
     return after
 
 
+def set_mae_completada(op_id: int, completada: bool, actor: str) -> dict:
+    """Tilde de la tab EXCEL MAE: 'ya la cargué en el MAE'.
+
+    Es OTRA cosa que `estado` (2026-08-13): `estado` lo mueve el BACK OFFICE
+    por su carga en Quantex y no puede gobernar el archivo del MAE, que lo
+    genera el TRADER. Tildar saca la orden del .xlsx (que se genera varias
+    veces por día) pero la deja visible y grisada en la tab, así se puede
+    destildar. NO toca `estado` ni los datos de la orden.
+
+    Sin corte por fecha, a diferencia de set_estado: una orden vieja que quedó
+    sin tildar sigue entrando al archivo, y sacarla de ahí es justamente para
+    lo que existe la tilde."""
+    before = _get_op(op_id)
+    if not before["es_mae"]:
+        raise ValueError(
+            f"la orden #{op_id} no es MAE — la tilde es de la tab EXCEL MAE "
+            "(el resto se completa desde la lista de órdenes)")
+    if bool(before["mae_completada"]) == bool(completada):
+        return before  # idempotente: dos clicks simultáneos no duplican audit
+    por = (actor or "").lower() or None
+    at = datetime.now(UTC)
+    _exec(
+        "UPDATE operaciones.senebis SET mae_completada=%(mae)s, "
+        "mae_completada_por=%(mae_por)s, mae_completada_at=%(mae_at)s "
+        "WHERE id=%(id)s",
+        {"id": op_id, "mae": bool(completada),
+         "mae_por": por if completada else None,
+         "mae_at": at if completada else None},
+    )
+    after = _get_op(op_id)
+    _audit(actor, "set_mae_completada", str(op_id),
+           {"before": before["mae_completada"], "after": after["mae_completada"]})
+    return after
+
+
 # ─────────────────────────────────────────────────────────────
 # Próximo ID (la secuencia global que espeja la numeración Quantex)
 # ─────────────────────────────────────────────────────────────
@@ -948,13 +988,24 @@ def export_xlsx(desde: str | None = None, hasta: str | None = None) -> tuple[byt
 # Excel MAE (las órdenes es_mae, que NO van a Quantex)
 # ─────────────────────────────────────────────────────────────
 
-def _filas_mae(ordenes: list[dict]) -> list[dict]:
-    """Qué entra al Excel MAE (espejo Y archivo): SOLO 'pendiente' + es_mae,
-    y que no carguen ellos. Misma lógica temporal que Quantex: lo completado
-    ya está cargado en el MAE."""
-    return sorted((o for o in ordenes if o["estado"] == "pendiente"
-                   and o["es_mae"] and not o["cargan_ellos"]),
-                  key=lambda o: o["id"])
+def _filas_mae(ordenes: list[dict], incluir_completadas: bool = False) -> list[dict]:
+    """Qué entra al Excel MAE. Base: es_mae, que no carguen ellos y que siga
+    'pendiente' (misma lógica temporal que Quantex).
+
+    Encima de eso manda la TILDE PROPIA de la tab (`mae_completada`, 2026-08-13):
+    el trader marca la orden cuando ya la cargó en el MAE y deja de salir en el
+    ARCHIVO — que se genera varias veces por día, así no re-carga lo ya cargado.
+    En el ESPEJO (incluir_completadas=True) la tildada SIGUE visible, grisada,
+    para poder destildarla. Es independiente de `estado` a propósito: ese es el
+    tablero del BACK OFFICE y no tiene por qué gobernar el archivo del MAE."""
+    def _entra(o: dict) -> bool:
+        if not (o["es_mae"] and not o["cargan_ellos"]):
+            return False
+        # .get(): tolera un deploy de código anterior al apply_schema.
+        if o.get("mae_completada"):
+            return incluir_completadas
+        return o["estado"] == "pendiente"
+    return sorted((o for o in ordenes if _entra(o)), key=lambda o: o["id"])
 
 
 def _destino_con_letra(codigo: str | None, tipo_contraparte: str) -> str | None:
@@ -1013,15 +1064,20 @@ def _fila_export_mae(o: dict, destino: str | None) -> list:
 def excel_mae_preview(desde: str | None = None, hasta: str | None = None,
                       email: str = "") -> dict:
     """Espejo EN VIVO del Excel MAE para la tab EXCEL MAE: mismas filas y
-    reglas que export_mae_xlsx. `sin_destino` marca las órdenes cuya
-    contraparte/agente todavía no tiene código MAE cargado."""
+    reglas que export_mae_xlsx, MÁS las ya tildadas (`mae_completada`), que se
+    muestran grisadas para poder destildarlas — al archivo NO van.
+    `sin_destino` marca las órdenes cuya contraparte/agente todavía no tiene
+    código MAE cargado."""
     data = listar_ops(desde=desde, hasta=hasta, email=email)
-    ordenes = _filas_mae(data["ordenes"])
+    ordenes = _filas_mae(data["ordenes"], incluir_completadas=True)
     destinos = _destinos_mae(ordenes)
     return {
         "headers": list(_HEADERS_MAE),
         "filas": [{"id": o["id"], "estado": o["estado"],
                    "sin_destino": destinos.get(o["id"]) is None,
+                   "mae_completada": bool(o.get("mae_completada")),
+                   "mae_completada_por": o.get("mae_completada_por"),
+                   "mae_completada_at": o.get("mae_completada_at"),
                    "valores": _fila_export_mae(o, destinos.get(o["id"]))}
                   for o in ordenes],
         "conectados": data["conectados"],

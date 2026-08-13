@@ -221,6 +221,23 @@ def limpiar_marcas(op_id: int, actor: str = Depends(get_user_email)) -> dict:
         raise HTTPException(400, str(e)) from e
 
 
+class _MaeCompletadaPayload(BaseModel):
+    completada: bool = Field(..., description="True = ya cargada en el MAE (sale del .xlsx)")
+
+
+@router.post("/ops/{op_id}/mae-completada")
+def set_mae_completada(op_id: int, req: _MaeCompletadaPayload = Body(...),
+                       actor: str = Depends(get_user_email)) -> dict:
+    """Tilde de la tab EXCEL MAE: 'ya la cargué en el MAE'. Saca la orden del
+    .xlsx del MAE (que se genera varias veces por día) y la deja grisada en la
+    tab para poder destildarla. NO toca `estado` — ese es el tablero del back
+    office y por eso la tilde vive solo acá."""
+    try:
+        return _svc.set_mae_completada(op_id, req.completada, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.post("/ops/{op_id}/reasignar-id")
 def reasignar_id(op_id: int, actor: str = Depends(get_user_email)) -> dict:
     """Le da a la orden el siguiente ID libre y quema el anterior — para cuando

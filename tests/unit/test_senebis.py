@@ -357,9 +357,10 @@ def test_fila_export_mae_precio_unitario_y_forma():
     o = {**_FILA, "es_mae": True, "px": 105.110}
     fila = svc._fila_export_mae(o, "F062")
     # Operacion capitalizada · Instrumento · Plazo · Moneda ARS · Precio ÷100
-    # (unitario) · Cantidad · Destino · Segmento manual (vacío).
+    # (unitario) · Cantidad · Destino · Segmento (sin cargar → el default, que
+    # es lo que espera el MAE: ninguna fila sale con la celda vacía).
     assert fila == ["Compra", "TZXM7", "24", "ARS", pytest.approx(1.0511),
-                    500_000_000.0, "F062", None]
+                    500_000_000.0, "F062", svc.SEGMENTO_MAE_DEFAULT]
 
 
 def test_filas_mae_solo_pendientes_mae():
@@ -368,6 +369,69 @@ def test_filas_mae_solo_pendientes_mae():
     completada = {**_FILA, "id": 3, "es_mae": True, "estado": "completada"}
     cargan = {**_FILA, "id": 4, "es_mae": True, "cargan_ellos": True}
     assert [o["id"] for o in svc._filas_mae([normal, completada, cargan, mae])] == [1]
+
+
+# ── tilde propia de la tab EXCEL MAE (mae_completada) ───────────────────────
+
+def test_filas_mae_tildada_sale_del_archivo_pero_queda_en_el_espejo():
+    # La tilde del trader saca la orden del .xlsx (que se genera varias veces
+    # por día) pero la deja visible en el espejo para poder destildarla.
+    pendiente = {**_FILA, "id": 1, "es_mae": True}
+    tildada = {**_FILA, "id": 2, "es_mae": True, "mae_completada": True}
+    assert [o["id"] for o in svc._filas_mae([pendiente, tildada])] == [1]
+    assert [o["id"] for o in
+            svc._filas_mae([pendiente, tildada], incluir_completadas=True)] == [1, 2]
+
+
+def test_filas_mae_tilde_es_independiente_del_estado():
+    # `estado` lo mueve el BACK OFFICE (Quantex): que la orden siga pendiente
+    # no la devuelve al archivo si el trader ya la cargó en el MAE.
+    tildada_pendiente = {**_FILA, "id": 1, "es_mae": True, "mae_completada": True}
+    assert svc._filas_mae([tildada_pendiente]) == []
+
+
+def test_set_mae_completada_no_toca_estado(monkeypatch):
+    capturado = _sin_db(monkeypatch)
+    monkeypatch.setattr(svc, "_get_op",
+                        lambda i: {**_FILA, "es_mae": True, "mae_completada": False})
+    svc.set_mae_completada(1, True, actor="T@x.com")
+    assert capturado["mae"] is True and capturado["mae_por"] == "t@x.com"
+    assert "estado" not in capturado          # el tablero del back office no se toca
+
+
+def test_set_mae_completada_destildar_limpia_quien_y_cuando(monkeypatch):
+    capturado = _sin_db(monkeypatch)
+    monkeypatch.setattr(svc, "_get_op",
+                        lambda i: {**_FILA, "es_mae": True, "mae_completada": True})
+    svc.set_mae_completada(1, False, actor="t@x.com")
+    assert capturado["mae"] is False
+    assert capturado["mae_por"] is None and capturado["mae_at"] is None
+
+
+def test_set_mae_completada_rechaza_no_mae(monkeypatch):
+    _sin_db(monkeypatch)
+    monkeypatch.setattr(svc, "_get_op", lambda i: {**_FILA, "es_mae": False})
+    with pytest.raises(ValueError):
+        svc.set_mae_completada(1, True, actor="t@x.com")
+
+
+def test_set_mae_completada_idempotente(monkeypatch):
+    capturado = _sin_db(monkeypatch)
+    monkeypatch.setattr(svc, "_get_op",
+                        lambda i: {**_FILA, "es_mae": True, "mae_completada": True})
+    svc.set_mae_completada(1, True, actor="t@x.com")
+    assert capturado == {}                    # no escribe ni audita de nuevo
+
+
+def test_set_mae_completada_no_bloquea_dias_anteriores(monkeypatch):
+    # A diferencia de set_estado: una orden vieja sin tildar sigue entrando al
+    # archivo, y sacarla de ahí es justamente para lo que existe la tilde.
+    capturado = _sin_db(monkeypatch)
+    monkeypatch.setattr(svc, "_get_op", lambda i: {
+        **_FILA, "concertacion": "2020-01-02", "es_mae": True, "mae_completada": False})
+    monkeypatch.setattr(svc, "es_admin", lambda e: False)
+    svc.set_mae_completada(1, True, actor="t@x.com")
+    assert capturado["mae"] is True
 
 
 def test_destino_con_letra_automatica():

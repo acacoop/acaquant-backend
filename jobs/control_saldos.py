@@ -326,7 +326,44 @@ def _refrescar_lote(cuentas: list[tuple[str, str]], hoy: date, origen: str,
 
 
 # ── modo --dry: mirar sin escribir ────────────────────────────────────────────
-def dry(cuentas: list[tuple[str, str]], hoy: date) -> int:
+def _que_las_separa(filas: list[dict]) -> list[str]:
+    """Para cada moneda con MÁS DE UNA fila, qué campos tienen valores distintos.
+
+    Es la pregunta abierta del diseño: el endpoint devuelve dos filas de ARS para
+    la 805 y hay que saber si las separa un criterio real (y entonces habría que
+    respetarlo) o si son dos pedazos del mismo saldo (y entonces sumarlas es lo
+    correcto). Imprimir el JSON entero no alcanzó: los campos que importan quedan
+    al final y se comen el ancho de la consola. Esto compara clave por clave y
+    muestra SOLO lo que difiere.
+    """
+    por_especie: dict[str, list[dict]] = {}
+    for r in filas:
+        if isinstance(r, dict) and str(r.get("tipoTitulo") or "").lower() == "moneda":
+            por_especie.setdefault(str(r.get("especie") or ""), []).append(r)
+    out = []
+    for esp, rs in sorted(por_especie.items()):
+        if len(rs) < 2:
+            continue
+        claves = {k for r in rs for k in r}
+        difieren = [k for k in sorted(claves)
+                    if len({json.dumps(r.get(k), sort_keys=True, default=str)
+                            for r in rs}) > 1]
+        out.append(f"       {esp}: {len(rs)} filas · campos que DIFIEREN: {difieren}")
+        for k in difieren:
+            vals = [r.get(k) for r in rs]
+            out.append(f"         {k:<28} {vals}")
+        # La conclusión se imprime sola: si lo único distinto son los importes, no
+        # hay criterio que respetar y sumarlas es la única lectura posible.
+        if set(difieren) <= {"cantidadLiquidada", "cantidadPendienteLiquidar"}:
+            out.append("         → NADA las separa salvo los importes: son pedazos "
+                       "del mismo saldo → SUMAR es correcto.")
+        else:
+            out.append("         → hay un criterio real que las separa (los campos "
+                       "de arriba): revisar antes de seguir sumando.")
+    return out
+
+
+def dry(cuentas: list[tuple[str, str]], hoy: date, n_universo: int = 0) -> int:
     """Imprime lo que persistiría, SIN tocar la base. Cero escrituras.
 
     Sirve para las tres preguntas que quedan abiertas y que solo contesta prod:
@@ -356,10 +393,13 @@ def dry(cuentas: list[tuple[str, str]], hoy: date) -> int:
         print(f"\n   ▸ {idc:<8} {denom[:40]:<40} {ms:>6.0f}ms · {len(crudo)} filas "
               f"({len(monedas_crudas)} de moneda)")
         if len(cuentas) <= 5:
-            # Con pocas cuentas se muestra el CRUDO fila por fila: es lo único que
-            # puede revelar qué separa dos filas de la misma moneda.
+            # Con pocas cuentas se muestra el CRUDO fila por fila. SIN cortar: la
+            # primera versión truncaba a 250 caracteres y se comía justo los
+            # importes, que es donde estaba la respuesta.
             for r in sorted(monedas_crudas, key=lambda x: str(x.get("especie"))):
-                print(f"       crudo  {json.dumps(r, ensure_ascii=False)[:250]}")
+                print(f"       crudo  {json.dumps(r, ensure_ascii=False)}")
+            for linea in _que_las_separa(crudo):
+                print(linea)
         for r in registros:
             print(f"       →  {r['ticker']:<6} cantidad={r['cantidad']:>18,.2f} "
                   f"pendiente={r['cantidad_pendiente']:>18,.2f} "
@@ -373,11 +413,12 @@ def dry(cuentas: list[tuple[str, str]], hoy: date) -> int:
         p50 = tiempos[len(tiempos) // 2]
         print(f"   latencia por llamada: min {tiempos[0]:.0f}ms · p50 {p50:.0f}ms · "
               f"max {tiempos[-1]:.0f}ms")
-        # Proyección del barrido de apertura sobre el universo real.
-        for n_cuentas in (1874,):
-            est = n_cuentas * (p50 / 1000) / WORKERS
-            print(f"   barrido de {n_cuentas} cuentas con {WORKERS} workers ≈ "
-                  f"{est / 60:.1f} min")
+        # Proyección del barrido sobre el universo REAL (ya sin contrapartes), no
+        # sobre el total de cuentas de Aunesa: el job no las consulta a todas.
+        n_cuentas = n_universo or len(cuentas)
+        est = n_cuentas * (p50 / 1000) / WORKERS
+        print(f"   barrido de {n_cuentas} cuentas con {WORKERS} workers ≈ "
+              f"{est / 60:.1f} min")
     print(f"   filas con saldo NEGATIVO en la muestra: {negativas}")
     print(f"   monedas VISTAS y DESCARTADAS (no están en MONEDAS): "
           f"{tot_desc or '(ninguna)'}")
@@ -413,7 +454,8 @@ def run() -> int:
 
     headers = autenticar()
     universo, n_contrapartes = universo_cuentas(headers)
-    print(f"  cuentas: {len(universo)} (excluidas {n_contrapartes} contrapartes)")
+    n_universo = len(universo)
+    print(f"  cuentas: {n_universo} (excluidas {n_contrapartes} contrapartes)")
     if subset:
         ids = {c.strip() for c in subset.split(",")}
         universo = {k: v for k, v in universo.items() if k in ids}
@@ -426,7 +468,7 @@ def run() -> int:
         lote = lote[:muestra]
 
     if es_dry:
-        return dry(lote, hoy)
+        return dry(lote, hoy, n_universo)
 
     _ensure_schema()
     purgadas = _purgar(hoy)

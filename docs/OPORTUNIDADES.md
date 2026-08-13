@@ -1178,6 +1178,17 @@ calibrar. **Lo que abre:** recién con límites server-side se puede **sacar `op
   contable real.
 
 ### [T2] Persistir los movimientos bancarios de Aunesa
+> **⚠️ ESTADO REAL (verificado en prod 2026-08-13): la tabla YA EXISTE y está a medio hacer.**
+> `operaciones.tesoreria_movimientos` tiene **2.106 filas** con las 20 columnas de `aplanar()`
+> (`persona_*`, `riel`, `cuenta_operativa`, `banco_codigo`…) cubriendo del **2026-06-08 al
+> 2026-08-06**. Todas entraron en **44 segundos el 2026-08-06 14:56 UTC** (`ingestado_en`), o sea
+> un backfill de UNA corrida, y desde entonces **cero escrituras** (`n_tup_ins` = exactamente el
+> total de filas). El upsert continuo nunca se cableó y el script del backfill **no quedó en el
+> repo**: `git log -S tesoreria_movimientos --all` no lo encuentra en ningún commit.
+> Consecuencia: la tabla es **invisible desde el código y desde `sql/schema.sql`**, y en el
+> relevamiento de índices sale como "peso muerto" (nadie la lee). **NO borrarla**: son dos meses
+> de movimientos que no existen en ningún otro lado. Lo que falta de T2 es el upsert en el poll y
+> la política de estados mutables — no la tabla.
 - **Para quién**: back office, tesorería, administración, y quien tenga que responder un pedido de
   información.
 - **Problema hoy**: **los movimientos bancarios de la casa viven 15 segundos** — el docstring lo dice

@@ -37,6 +37,14 @@ _CARTERAS_EXCLUIDAS = ("MONEDAS", "MONEDA", "DERIVADOS", "DERIVADO")
 
 _HORIZONTES = ("t0", "t1")
 
+# Cuentas que NO entran al control de saldos, por `clientes.comitentes.nivel_5`.
+# CDC y OTC no son clientes a los que haya que perseguirles un descubierto, y el
+# criterio ya está cargado en la segmentación — usarlo en vez de hardcodear un
+# patrón sobre el nombre significa que reclasificar una cuenta en Manager la saca
+# (o la trae) sin tocar código. Es el mismo valor que ya filtra el selector
+# NIVEL 5 del Tablero Comercial.
+NIVEL5_EXCLUIDOS: tuple[str, ...] = ("CDC", "OTC")
+
 # ⚠️ La CARTERA se lee de `portafolio.assets` EN VIVO, no de la copia congelada en
 # `tenencia_live`. Motivo (2026-08-12): el daemon carga el catálogo de assets UNA
 # vez al arrancar y lo reusa las 10 horas que corre, así que un título
@@ -116,26 +124,48 @@ def _saldos_negativos() -> dict:
     control de negativos, que hoy funciona y no depende de esto.
     """
     try:
+        # Una sola query trae el saldo, QUIÉN atiende la cuenta y su nivel_5. El
+        # operador sale del mismo viaje que el saldo: pedirlo aparte serían 1.900
+        # roundtrips a Supabase por nada (el peaje es ~8.5ms cada uno, y lo que
+        # cuesta es la CANTIDAD de queries, no su plan).
         filas = _q(
-            "SELECT id_cuenta, cuenta, ticker, cantidad, cantidad_pendiente, "
-            "       filas_origen, actualizado_at "
-            "FROM portafolio.control_saldos "
-            "WHERE fecha = (SELECT MAX(fecha) FROM portafolio.control_saldos) "
-            "  AND cantidad < 0 "
-            "ORDER BY cantidad ASC")
+            "SELECT cs.id_cuenta, cs.cuenta, cs.ticker, cs.cantidad, "
+            "       cs.cantidad_pendiente, cs.filas_origen, cs.actualizado_at, "
+            "       c.nivel_5, c.operador_email, o.nombre AS operador_nombre "
+            "FROM portafolio.control_saldos cs "
+            "LEFT JOIN clientes.comitentes c ON c.id_cuenta = cs.id_cuenta "
+            "LEFT JOIN clientes.operadores o ON o.email = c.operador_email "
+            "WHERE cs.fecha = (SELECT MAX(fecha) FROM portafolio.control_saldos) "
+            "  AND cs.cantidad < 0 "
+            "ORDER BY cs.cantidad ASC")
         meta = _q("SELECT MAX(fecha) AS fecha, MAX(actualizado_at) AS ult, "
                   "       count(DISTINCT id_cuenta) AS cuentas "
                   "FROM portafolio.control_saldos "
                   "WHERE fecha = (SELECT MAX(fecha) FROM portafolio.control_saldos)")[0]
     except Exception:
         return {"disponible": False, "n": 0, "filas": [], "fecha": None,
-                "actualizado_at": None, "cuentas_en_control": 0}
+                "actualizado_at": None, "cuentas_en_control": 0, "ocultas": 0,
+                "excluidos": list(NIVEL5_EXCLUIDOS)}
+
+    # El corte CDC/OTC se hace en PYTHON y no en el WHERE a propósito: filtrando en
+    # SQL las filas ocultas desaparecen sin dejar rastro y la pantalla no puede
+    # decir «además hay 4 que no te muestro». Son pocas filas (solo los negativos),
+    # así que el filtro en memoria no cuesta nada y devuelve el número.
+    visibles, ocultas = [], 0
+    for f in filas:
+        if (f["nivel_5"] or "").strip().upper() in NIVEL5_EXCLUIDOS:
+            ocultas += 1
+            continue
+        visibles.append(f)
+
     return {
         "disponible": True,
         "fecha": meta["fecha"].isoformat() if meta["fecha"] else None,
         "actualizado_at": meta["ult"].isoformat() if meta["ult"] else None,
         "cuentas_en_control": meta["cuentas"],
-        "n": len(filas),
+        "ocultas": ocultas,
+        "excluidos": list(NIVEL5_EXCLUIDOS),
+        "n": len(visibles),
         "filas": [{
             "id_cuenta": f["id_cuenta"],
             "cuenta": f["cuenta"] or f"[{f['id_cuenta']}]",
@@ -143,9 +173,14 @@ def _saldos_negativos() -> dict:
             "cantidad": _f(f["cantidad"]),
             "cantidad_pendiente": _f(f["cantidad_pendiente"]),
             "filas_origen": f["filas_origen"],
+            # Sin operador cargado la fila igual se muestra: un descubierto no se
+            # oculta porque falte la segmentación — al revés, que no tenga dueño
+            # es información.
+            "operador": f["operador_nombre"] or f["operador_email"] or "",
+            "nivel_5": f["nivel_5"] or "",
             "actualizado_at": (f["actualizado_at"].isoformat()
                                if f["actualizado_at"] else None),
-        } for f in filas],
+        } for f in visibles],
     }
 
 

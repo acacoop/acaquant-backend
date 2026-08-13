@@ -52,9 +52,25 @@ _SQL_COMPROBANTES = (
     "  AND (op IS NULL OR op <> ALL(%(ops)s))"
 )
 _CHUNK_CUENTAS = 100
+# El guard `IS DISTINCT FROM` NO cambia el resultado — cambia el COSTO.
+# Este job corre cada 30' sobre una ventana con solapamiento, así que la enorme
+# mayoría de los boletos se reescribían con EL MISMO valor. Postgres no lo sabe:
+# igual crea una versión nueva de la fila, actualiza todos los índices, escribe
+# WAL y deja tuplas muertas para autovacuum. Medido con pg_stat_statements
+# (2026-08-13): 517.183 UPDATE × 16,0ms = 8.271s, el #2 de toda la base.
+# Con el guard, lo que no cambió no se toca. Es el MISMO estado final.
+# jsonb compara canónicamente (no depende del orden de las claves), y ante
+# cualquier duda de tipo el operador dice "distinto" → se escribe, como antes.
 _SQL_UPDATE = (
     "UPDATE negocio_movimientos SET aranceles = %(aranceles)s, arancel = %(arancel)s "
-    "WHERE comprobante = %(comprobante)s"
+    "WHERE comprobante = %(comprobante)s "
+    "  AND (arancel IS DISTINCT FROM %(arancel)s "
+    # ::jsonb OBLIGATORIO — `Json()` adapta a `json` y NO existe el operador
+    # `jsonb = json`: sin el cast, este UPDATE tira UndefinedFunction y el job
+    # se cae cada 30'. En el SET no hace falta (Postgres castea al asignar a
+    # una columna jsonb), en la comparación sí. Lo encontró el test contra un
+    # Postgres real; leyendo el código no se ve.
+    "       OR aranceles IS DISTINCT FROM %(aranceles)s::jsonb)"
 )
 
 
@@ -121,6 +137,9 @@ def run_backfill(
         "match":         0,
         "sin_match":     0,
         "escritos":      0,
+        # Cuántos de esos `escritos` REALMENTE cambiaron algo. El resto ya
+        # estaba igual y el guard del UPDATE los saltea (ver _SQL_UPDATE).
+        "cambiados":     0,
         "errores":       [],
         "ejemplos":      [],
     }
@@ -139,7 +158,12 @@ def run_backfill(
                 with get_pool().connection() as conn, conn.cursor() as cur:
                     cur.executemany(_SQL_UPDATE, pendientes)
                     rc = cur.rowcount
-                    state["escritos"] += rc if rc and rc > 0 else len(pendientes)
+                    # `escritos` mantiene su significado histórico (boletos
+                    # PROCESADOS) para no romper la comparación entre corridas:
+                    # antes del guard, rowcount == len(pendientes) porque todos
+                    # matcheaban. Lo que de verdad se reescribió va aparte.
+                    state["escritos"] += len(pendientes)
+                    state["cambiados"] += rc if rc and rc > 0 else 0
                     conn.commit()
             pendientes.clear()
 

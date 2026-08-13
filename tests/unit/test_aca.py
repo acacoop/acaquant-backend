@@ -180,3 +180,55 @@ def test_api_aca_no_esta_en_la_allowlist_del_portal_invitado():
     from api.auth import path_permitido_invitado
     assert not path_permitido_invitado("/api/aca/vista")
     assert not path_permitido_invitado("/api/aca")
+
+
+# ── El rol NO da escritura (empleado_aca es SOLO LECTURA) ───────────────────
+# Congelado por pedido del user 2026-08-13: "los de empleado aca es solo
+# lectura, no tienen que ver estas cosas". El permiso de escribir lo da la
+# allowlist de Mesa de Dinero, NUNCA el rol — si alguien mañana cablea el rol
+# acá, esto falla.
+
+def test_el_rol_empleado_aca_no_da_escritura(monkeypatch):
+    """`empleado_aca` ve la vista pero NO puede editarla."""
+    from api.services import mesa_dinero
+    monkeypatch.setattr("core.roles.get_user_role", lambda e: "empleado_aca")
+    monkeypatch.setattr(mesa_dinero, "_q", lambda *a, **k: [])  # no está en la allowlist
+    assert aca.puede_escribir("gerente@aca.com") is False
+
+
+def test_admin_si_escribe(monkeypatch):
+    from api.services import mesa_dinero
+    monkeypatch.setattr("core.roles.get_user_role", lambda e: "admin")
+    monkeypatch.setattr(mesa_dinero, "_q", lambda *a, **k: [])
+    assert aca.puede_escribir("jefe@aca.com") is True
+
+
+def test_la_allowlist_de_la_mesa_si_da_escritura(monkeypatch):
+    """Un trader de la mesa escribe aunque su rol no sea empleado_aca."""
+    from api.services import mesa_dinero
+    monkeypatch.setattr("core.roles.get_user_role", lambda e: "trader")
+    monkeypatch.setattr(mesa_dinero, "_q", lambda *a, **k: [{"?column?": 1}])
+    assert aca.puede_escribir("trader@aca.com") is True
+
+
+def test_toda_escritura_del_service_valida_el_permiso():
+    """Ninguna función de escritura puede saltearse `_check_escritura`.
+
+    Es el chequeo que sostiene el 'solo lectura': el front esconde los botones,
+    pero lo que IMPIDE escribir es esto. Si alguien agrega una escritura nueva y
+    se olvida del gate, este test lo caza.
+    """
+    import inspect
+    fuente = inspect.getsource(aca)
+    escrituras = [
+        "guardar_periodo", "borrar_periodo", "guardar_activo", "borrar_activo",
+        "clonar_periodo", "guardar_historico", "borrar_historico",
+        "set_moneda_regla", "del_moneda_regla", "set_emisor_destacado",
+        "del_emisor_destacado", "set_clase_destacada", "del_clase_destacada",
+        "set_serie", "del_serie",
+    ]
+    for nombre in escrituras:
+        assert hasattr(aca, nombre), f"{nombre} ya no existe — actualizá el test"
+        cuerpo = fuente.split(f"def {nombre}(", 1)[1].split("\ndef ", 1)[0]
+        assert "_check_escritura(actor)" in cuerpo, (
+            f"{nombre} escribe SIN validar el permiso — un empleado_aca podría editarlo")

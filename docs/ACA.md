@@ -62,6 +62,15 @@ Tres decisiones que conviene no revertir sin pensarlas:
 El gate de lectura (`require_lectura_aca`) se monta sobre **todo** el router en
 `api/main.py` → cubre también los endpoints que se agreguen mañana.
 
+**El rol NO da escritura.** `empleado_aca` es SOLO LECTURA: ve las 5 tabs y nada
+más. La vista le esconde `+ PERÍODO`, `EDITAR MEP/A3500`, `+ AGREGAR TÍTULO`,
+`COPIAR DEL MES ANTERIOR`, `VER PRECIOS DE REFERENCIA`, los inputs de VN/Px y los
+botones por fila, y le muestra un cartel **SOLO LECTURA**. Esconder botones es
+cosmética: lo que impide escribir es `_check_escritura()` adentro de CADA función
+de escritura del service, y hay un test que recorre las 15 y falla si a alguna le
+falta. Escribe quien está en la allowlist de la mesa (o es admin), tenga el rol o
+no — y al revés, tener el rol no alcanza.
+
 ---
 
 ## 3. La ficha del título NO se duplica

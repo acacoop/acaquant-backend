@@ -471,7 +471,7 @@ las crea). Pool/conn: `core.postgres.get_pool` (lee `.env` propia).
 
 ## Deploy
 
-Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `python -m scripts.apply_schema` (si hubo cambios de schema) + `systemctl restart api.service` en el Droplet, o skill `/deploy`. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`.
+Push a `main` → Vercel auto-deploya acaquant-web. Backend, **un solo comando en el Droplet**: `cd /root/TradingAV && git pull && bash deploy/deploy.sh` (pull → `apply_schema` → restart de api + motores activos → smoke a `/api/health`, cortando al primer fallo; `--sin-schema` saltea el schema). También existe la skill `/deploy` como wrapper del procedimiento. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`.
 
 > **Todo lee SQL.** Tenencias/catálogo en `portafolio.tenencia`/`portafolio.assets`;
 > el join de instrumentos + normalización de assets lo hace `api/services/titulos_flujos.py`

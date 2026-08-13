@@ -216,7 +216,7 @@ Cada celda dice de dónde salió (`origen: manual | auto`, marcada `·a` en la U
 | `periodos` | cabecera del informe: `periodo` (PK), `fecha_informe`, `mep`, `a3500` |
 | `activos` | PK (periodo, unidad) — **solo inputs**: `vn`, `px`, `monto` (override), `tasa`, `obs`, `orden` |
 | `moneda_regla` | PK (scope, clave) → `usd`/`ars`. Parte Dolarizado/Pesos |
-| `emisor_destacado` | PK (bloque, emisor) — filas fijas de las métricas por emisor |
+| `emisor_destacado` | PK (bloque, emisor) — filas fijas de las métricas por emisor. Sembrada con los emisores del informe actual (11 en HD, 8 en DL, 6 en privados) |
 | `clase_destacada` | PK (cartera, clase) — filas fijas de las métricas por clase |
 | `series` | catálogo del histórico: `fuente`, `escala`, `graficos[]`, `grupo`, `orden`, `activo` |
 | `historico` | PK (periodo, serie) — `monto`, `ingreso_retiro`, `mensual` (FRACCIÓN: 0,0245 = 2,45%) |
@@ -225,10 +225,25 @@ Cada celda dice de dónde salió (`origen: manual | auto`, marcada `·a` en la U
 `aca.historico.periodo` es **independiente** de `aca.periodos`: la serie
 histórica arranca mucho antes que el primer informe cargado.
 
-`sql/schema.sql` siembra los catálogos y **las filas de RBAC**
-(`manager.role_matrix` para `empleado_aca` y `admin`). Sin esa siembra la vista
-nacería invisible hasta para el admin, porque en prod la matriz está poblada y
-pisa a `DEFAULT_MATRIX`.
+`sql/schema.sql` siembra los catálogos (reglas de moneda, emisores y clases
+destacadas, series) y **las filas de RBAC** (`manager.role_matrix` para
+`empleado_aca` y `admin`). Sin esa siembra la vista nacería invisible hasta para
+el admin, porque en prod la matriz está poblada y pisa a `DEFAULT_MATRIX`.
+
+**Las semillas son SEMILLA, no estado forzado.** Cada bloque corre solo si su
+tabla está vacía (y el de RBAC, solo si el rol/módulo no existe todavía).
+`ON CONFLICT DO NOTHING` alcanza para no duplicar pero **no** para no resucitar:
+estos catálogos se editan desde Manager → ACA, y sin el guard un `apply_schema`
+posterior le devolvía a un rol un módulo que el admin le había sacado, o
+reponía una regla de moneda borrada — moviendo plata de lado en el informe sin
+que nadie lo pidiera. Verificado contra un Postgres real: se aplicó el schema
+sobre una base con la matriz poblada, se borraron a mano un módulo, la regla de
+`MM USD`, una clase y se desactivó una serie, se re-aplicó, y **nada volvió**.
+
+⚠️ **El orden de los dos bloques de RBAC importa**: primero se copian los módulos
+base de `sales`, después la fila `aca`. Al revés, la fila `aca` haría existir a
+`empleado_aca` en la matriz y el bloque de los módulos base se saltearía para
+siempre — el rol quedaría con la vista ACA y **nada más**.
 
 ---
 
@@ -298,6 +313,18 @@ Inventario completo y gate efectivo: `docs/MAPA_APP.md` (§0, auto-generada).
 ---
 
 ## Changelog
+
+### 2026-08-13 — Deploy en un comando + semillas a prueba de resurrección
+- `deploy/deploy.sh`: pull + apply_schema + restart + smoke, cortando al primer
+  fallo. El deploy del backend pasa a ser UN comando.
+- **Fix de las semillas** (encontrado probando contra un Postgres real, no
+  leyendo): dentro de un `VALUES` suelto, `'{total_ars}'` se infiere `text` y no
+  se coacciona a `text[]` como sí pasa en un `INSERT ... VALUES` — el
+  `INSERT` de `aca.series` reventaba y **abortaba el resto del script**, así que
+  las filas de RBAC tampoco se creaban. Resuelto con `::text[]` explícito.
+- Todas las semillas quedaron guardadas contra la resurrección (ver §6).
+- Sembrados los emisores destacados del informe: sin eso, la card CRÉDITOS
+  PRIVADOS nacía vacía (ese bloque muestra SOLO su catálogo).
 
 ### 2026-08-13 — Nace la vista
 - Schema `aca` (8 tablas) + semillas de catálogos y de RBAC.

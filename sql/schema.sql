@@ -3114,9 +3114,16 @@ CREATE TABLE IF NOT EXISTS aca.audit (
 );
 CREATE INDEX IF NOT EXISTS ix_aca_audit_ts ON aca.audit (ts DESC);
 
--- ── Semillas de los catálogos (idempotentes) ────────────────────────────────
--- Reglas de moneda: las 3 carteras que no se discuten + las clases de FCI.
-INSERT INTO aca.moneda_regla (scope, clave, moneda) VALUES
+-- ── Semillas de los catálogos ───────────────────────────────────────────────
+-- SEMILLA, no estado forzado. Cada bloque corre SOLO si su tabla está vacía.
+--
+-- `ON CONFLICT DO NOTHING` alcanza para no duplicar, pero NO para no resucitar:
+-- estos catálogos se editan desde Manager → ACA, y si alguien borra la regla de
+-- 'MM USD' o desactiva una serie, un `apply_schema` posterior se la volvía a
+-- meter. El schema deshaciendo en silencio una decisión del admin es peor que
+-- la fila faltante — y en este caso movería plata de lado en el informe.
+INSERT INTO aca.moneda_regla (scope, clave, moneda)
+SELECT * FROM (VALUES
     ('cartera', 'HD',  'usd'),
     ('cartera', 'DL',  'usd'),
     ('cartera', 'ARS', 'ars'),
@@ -3125,24 +3132,53 @@ INSERT INTO aca.moneda_regla (scope, clave, moneda) VALUES
     ('clase',   'MM ARS',         'ars'),
     ('clase',   'ARS T1',         'ars'),
     ('clase',   'RENTA VARIABLE', 'ars')
+) AS t(scope, clave, moneda)
+WHERE NOT EXISTS (SELECT 1 FROM aca.moneda_regla)
 ON CONFLICT (scope, clave) DO NOTHING;
 
-INSERT INTO aca.clase_destacada (cartera, clase, orden) VALUES
+-- Emisores que las MÉTRICAS muestran siempre. Salen del informe que hoy se arma
+-- a mano; se editan en Manager → ACA. `privados` es una selección CURADA (ese
+-- bloque muestra SOLO su catálogo), por eso repite emisores que ya están en HD/DL.
+-- Si algún nombre no coincide exactamente con el `emisor` de portafolio.assets,
+-- la fila del catálogo queda en cero y el emisor real aparece marcado
+-- `fuera_catalogo` — visible y corregible desde el panel, nunca perdido.
+INSERT INTO aca.emisor_destacado (bloque, emisor, orden)
+SELECT * FROM (VALUES
+    ('hd', 'TESORO', 1), ('hd', 'BCRA', 2), ('hd', 'BCO. MACRO', 3),
+    ('hd', 'BCO. COMAFI', 4), ('hd', 'CREDICUOTAS', 5), ('hd', 'YPF', 6),
+    ('hd', 'YPF LUZ', 7), ('hd', 'PROV. SANTA FE', 8), ('hd', 'ARCOR', 9),
+    ('hd', 'IRSA', 10), ('hd', 'FRIGORIFICO Gral PICO S.A.', 11),
+    ('dl', 'YPF', 1), ('dl', 'TECO', 2), ('dl', 'PAE', 3), ('dl', 'TESORO', 4),
+    ('dl', 'CGC', 5), ('dl', 'GENNEIA', 6), ('dl', 'PETROLERA ACONC', 7),
+    ('dl', 'VISTA', 8),
+    ('privados', 'YPF', 1), ('privados', 'TECO', 2), ('privados', 'BCO. MACRO', 3),
+    ('privados', 'PAE', 4), ('privados', 'BCO. COMAFI', 5), ('privados', 'CREDICUOTAS', 6)
+) AS t(bloque, emisor, orden)
+WHERE NOT EXISTS (SELECT 1 FROM aca.emisor_destacado)
+ON CONFLICT (bloque, emisor) DO NOTHING;
+
+INSERT INTO aca.clase_destacada (cartera, clase, orden)
+SELECT * FROM (VALUES
     ('FCI', 'ARS T1', 1), ('FCI', 'MM ARS', 2), ('FCI', 'MM USD', 3),
     ('FCI', 'HD T1', 4),  ('FCI', 'RENTA VARIABLE', 5),
     ('ARS', 'CER', 1), ('ARS', 'DUAL', 2), ('ARS', 'FIJA', 3), ('ARS', 'TAMAR', 4)
+) AS t(cartera, clase, orden)
+WHERE NOT EXISTS (SELECT 1 FROM aca.clase_destacada)
 ON CONFLICT (cartera, clase) DO NOTHING;
 
-INSERT INTO aca.series (codigo, nombre, grupo, fuente, graficos, orden) VALUES
-    ('total_ars',  'Cartera Total ACA en ARS', 'cartera',   'manual', '{total_ars}',      1),
-    ('total_usd',  'Cartera Total ACA en USD', 'cartera',   'manual', '{total_usd}',      2),
-    ('ars_aca',    'Cartera ARS ACA',          'cartera',   'manual', '{pesos}',          3),
-    ('usd_aca',    'Cartera USD ACA',          'cartera',   'manual', '{}',               4),
-    ('badlar',     'Badlar',                   'benchmark', 'manual', '{total_ars,pesos}', 5),
-    ('inflacion',  'Inflacion',                'benchmark', 'manual', '{total_ars,pesos}', 6),
-    ('a3500',      'A3500',                    'benchmark', 'macro_var:DOLAR', '{total_ars}', 7),
-    ('dl_caspi',   'Cartera DL Caspi',         'externo',   'manual', '{}',               8),
-    ('ars_caspi',  'Cartera ARS Caspi',        'externo',   'manual', '{}',               9)
+INSERT INTO aca.series (codigo, nombre, grupo, fuente, graficos, orden)
+SELECT * FROM (VALUES
+    ('total_ars',  'Cartera Total ACA en ARS', 'cartera',   'manual', '{total_ars}'::text[],       1),
+    ('total_usd',  'Cartera Total ACA en USD', 'cartera',   'manual', '{total_usd}'::text[],       2),
+    ('ars_aca',    'Cartera ARS ACA',          'cartera',   'manual', '{pesos}'::text[],           3),
+    ('usd_aca',    'Cartera USD ACA',          'cartera',   'manual', '{}'::text[],                4),
+    ('badlar',     'Badlar',                   'benchmark', 'manual', '{total_ars,pesos}'::text[], 5),
+    ('inflacion',  'Inflacion',                'benchmark', 'manual', '{total_ars,pesos}'::text[], 6),
+    ('a3500',      'A3500',                    'benchmark', 'macro_var:DOLAR', '{total_ars}'::text[], 7),
+    ('dl_caspi',   'Cartera DL Caspi',         'externo',   'manual', '{}'::text[],                8),
+    ('ars_caspi',  'Cartera ARS Caspi',        'externo',   'manual', '{}'::text[],                9)
+) AS t(codigo, nombre, grupo, fuente, graficos, orden)
+WHERE NOT EXISTS (SELECT 1 FROM aca.series)
 ON CONFLICT (codigo) DO NOTHING;
 
 -- ── RBAC de la vista ACA ────────────────────────────────────────────────────
@@ -3152,17 +3188,31 @@ ON CONFLICT (codigo) DO NOTHING;
 -- quedaría invisible hasta para el admin, y el rol nuevo ni siquiera aparecería
 -- en el panel ROLES Y PERMISOS para poder asignarlo.
 --
--- `empleado_aca` = los mismos módulos que `sales` (es el mismo puesto) MÁS `aca`.
--- Se copia de `sales` en vez de listarlos: si mañana alguien ajusta sales, la
--- semilla de una instalación nueva no queda contando una historia vieja.
--- `sales` NO recibe `aca` a propósito: sigue siendo el DEFAULT_ROLE (todo email
--- nuevo que pasa Cloudflare cae ahí), y darle la vista de la cartera propia a un
--- alta automática es exactamente lo que no queremos.
+-- Las DOS semillas están guardadas contra la resurrección (mismo criterio que
+-- los catálogos de arriba): la matriz se edita desde ROLES Y PERMISOS y un
+-- apply_schema no puede devolverle a un rol un módulo que el admin le sacó.
+--
+-- ORDEN IMPORTANTE: primero los módulos base, después la fila `aca`. Al revés,
+-- la fila `aca` haría existir a `empleado_aca` en la matriz y el bloque de
+-- abajo se saltearía para siempre — el rol quedaría con la vista ACA y NADA más.
+
+-- 1) `empleado_aca` = los mismos módulos que `sales` (es el mismo puesto). Se
+--    COPIA de sales en vez de listarlos para que la semilla no quede contando
+--    una historia vieja si mañana alguien ajusta sales. Solo si el rol todavía
+--    no existe en la matriz.
+--    `sales` NO recibe `aca` a propósito: sigue siendo el DEFAULT_ROLE (todo
+--    email nuevo que pasa Cloudflare cae ahí), y darle la cartera propia de la
+--    casa a un alta automática es exactamente lo que no queremos.
 INSERT INTO manager.role_matrix (role, module)
-SELECT 'empleado_aca', module FROM manager.role_matrix WHERE role = 'sales'
+SELECT 'empleado_aca', module FROM manager.role_matrix
+WHERE role = 'sales'
+  AND NOT EXISTS (SELECT 1 FROM manager.role_matrix WHERE role = 'empleado_aca')
 ON CONFLICT (role, module) DO NOTHING;
 
-INSERT INTO manager.role_matrix (role, module) VALUES
-    ('empleado_aca', 'aca'),
-    ('admin',        'aca')
+-- 2) El módulo `aca` para quienes lo tienen que ver de entrada. Se siembra UNA
+--    sola vez: si ya existe CUALQUIER fila del módulo, su distribución ya se
+--    decidió desde el panel y el schema no vuelve a opinar.
+INSERT INTO manager.role_matrix (role, module)
+SELECT r, 'aca' FROM (VALUES ('empleado_aca'), ('admin')) AS t(r)
+WHERE NOT EXISTS (SELECT 1 FROM manager.role_matrix WHERE module = 'aca')
 ON CONFLICT (role, module) DO NOTHING;

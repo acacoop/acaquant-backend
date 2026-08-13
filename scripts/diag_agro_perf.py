@@ -127,19 +127,16 @@ def main() -> int:
         print(f"   corrida {i + 1}: {t:7.1f} ms")
     total = min(totales)
 
-    python_ms = total - lenta
+    resto = total - lenta
     print(f"\nVEREDICTO (mejor corrida: {total:.1f} ms)")
-    print(f"   I/O (la lectura más lenta) : {lenta:7.1f} ms   {lenta / total * 100:4.0f}%")
-    print(f"   Python + armado            : {python_ms:7.1f} ms   {python_ms / total * 100:4.0f}%")
-    if python_ms > lenta:
-        print("\n   → MANDA PYTHON. No hay índice, cache de base ni región que")
-        print("     ayude: el tiempo se va armando los bloques en memoria.")
-        print("     Se ataca perfilando esa función, o cacheando el RESULTADO")
-        print("     con un TTL alineado al poll del front (hoy 5s, y si el poll")
-        print("     es más lento que eso, CADA request paga el precio completo).")
-    else:
-        print("\n   → MANDA LA LECTURA. Ahí sí conviene mirar esa consulta puntual")
-        print("     (la más lenta de las 5) antes que cualquier otra cosa.")
+    print(f"   las 5 piezas medidas (la más lenta) : {lenta:7.1f} ms   {lenta / total * 100:4.0f}%")
+    print(f"   TODO LO DEMÁS                       : {resto:7.1f} ms   {resto / total * 100:4.0f}%")
+    print("\n   OJO con leer 'lo demás' como si fuera Python (error del")
+    print("   2026-08-13): el endpoint hace MUCHAS más lecturas que estas 5, y")
+    print("   esperar a la base NO es CPU. Para saber cuál de las dos es, correr")
+    print("   `--profile` y mirar `psycopg/connection.py(wait)`: ahí es donde el")
+    print("   driver se queda ESPERANDO a la base. Si `wait` domina, son viajes")
+    print("   —se arregla agrupando queries, no optimizando Python.")
     return 0
 
 

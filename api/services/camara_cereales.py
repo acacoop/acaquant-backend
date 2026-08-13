@@ -322,10 +322,23 @@ _TASAS_KEY = "GLOBAL"
 _DOLARES_KEY = "DOLARES"
 
 
+# La tabla se crea UNA vez por proceso, no en cada lectura.
+# Medido con cProfile (2026-08-13): `_get_param_doc` se llama 8 veces por
+# request de /api/derivados/agro —el endpoint #1 de la plataforma— y cada una
+# ejecutaba este DDL antes del SELECT. Son 8 viajes a la base por request para
+# preguntar si existe una tabla que existe desde el día uno; con el peaje
+# medido de ~8.5ms, ~68ms regalados en cada llamada.
+_tabla_lista = False
+
+
 def _ensure_tasas_table(cur) -> None:
+    global _tabla_lista
+    if _tabla_lista:
+        return
     cur.execute(
         f"CREATE TABLE IF NOT EXISTS {_TASAS_TABLE} ("
         "id text PRIMARY KEY, data jsonb, updated_at timestamptz)")
+    _tabla_lista = True
 
 
 def _get_param_doc(key: str, fields: tuple[str, ...]) -> dict[str, Any]:

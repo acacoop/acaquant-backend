@@ -87,6 +87,35 @@ else
     morir "la API no levantó — 'journalctl -u api.service -n 50' tiene el motivo"
 fi
 
+# ── Deriva del unit file ────────────────────────────────────────────────────
+# `git pull` trae deploy/systemd/*.service al repo, pero NO los instala: systemd
+# lee /etc/systemd/system. Si alguien editó el unit a mano en el Droplet, o si un
+# cambio del repo nunca se instaló, el archivo versionado dice una cosa y el
+# servicio hace otra — y eso se descubre justo cuando estás debuggeando algo.
+# Detectado el 2026-08-13: el repo declara RuntimeMaxSec=8h y systemd reportaba
+# RuntimeMaxUSec=infinity. Solo AVISA: instalar un unit es una decisión, no un
+# efecto secundario de deployar código.
+echo
+echo "▶ unit files: repo vs instalado"
+DERIVA=0
+for f in deploy/systemd/*.service; do
+    u="$(basename "$f")"
+    inst="$(systemctl show "$u" -p FragmentPath --value 2>/dev/null || true)"
+    if [ -z "$inst" ] || [ ! -f "$inst" ]; then
+        echo "   ·  $u — no instalado (no lo maneja systemd acá)"
+    elif ! diff -q "$f" "$inst" >/dev/null 2>&1; then
+        echo "   ⚠️  $u DIFIERE del repo → $inst"
+        DERIVA=1
+    fi
+done
+if [ "$DERIVA" = "1" ]; then
+    echo "   Para alinearlos:  cp deploy/systemd/<unit> /etc/systemd/system/ &&"
+    echo "                     systemctl daemon-reload && systemctl restart <unit>"
+    echo "   (revisá el diff antes: el archivo de /etc puede tener algo a propósito)"
+else
+    echo "   ✅ todos los units instalados coinciden con el repo"
+fi
+
 echo
 echo "════════════════════════════════════════════════════════════"
 echo " ✅ DEPLOY OK — backend en $DESPUES"

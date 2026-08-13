@@ -1,10 +1,13 @@
 """diag_restart_api — ¿por qué tarda `systemctl restart api.service`? READ-ONLY.
 
-POR QUÉ EXISTE. El restart pasó de ser instantáneo a tardar ~2 minutos. La
-sospecha (SIN medir) es el shutdown graceful de uvicorn: ante SIGTERM espera a
-que se cierren las conexiones abiertas, y si alguna queda colgada systemd aguanta
-hasta `TimeoutStopSec` (default 90s) antes de mandar SIGKILL. 90s + arranque da
-justo esos 2 minutos. Pero "da justo" no es evidencia: esto lo MIDE.
+POR QUÉ EXISTE. El restart pareció pasar de instantáneo a ~2 minutos. La sospecha
+era el shutdown graceful de uvicorn esperando conexiones hasta el TimeoutStopSec
+de 90s. **MEDIDO el 2026-08-13: era FALSA** — parar tarda 1s y arrancar 4s (la
+cadena de imports). Lo que se vio fue transitorio, no estructural.
+
+El script queda porque la pregunta vuelve, y porque contestarla de memoria fue
+exactamente el error: "90s + arranque da justo 2 minutos" encajaba perfecto y
+estaba mal. Mide en vez de encajar.
 
 Separa el tiempo en dos, que es lo único que importa para saber a dónde ir:
   · PARAR mucho  → shutdown graceful esperando conexiones (o un hilo que no muere).
@@ -88,13 +91,16 @@ def ultimo_restart() -> None:
         )):
             interesantes.append(ln)
 
+    # OJO: 'Waiting for application shutdown/startup' son líneas NORMALES de
+    # uvicorn — aparecen SIEMPRE, tarde o no tarde. La primera versión de este
+    # script las marcaba como "el graceful está esperando" y eso es un falso
+    # positivo que apunta al lugar equivocado. Lo único que delata un problema es
+    # que systemd haya tenido que MATAR el proceso, o que los tiempos den feos.
     for ln in interesantes[-25:]:
-        marca = ""
         bajo = ln.lower()
-        if "timed out" in bajo or "sigkill" in bajo or "killing" in bajo:
-            marca = "  ← ⚠️  ACÁ ESTÁ EL PROBLEMA"
-        elif "waiting for" in bajo:
-            marca = "  ← el graceful está esperando"
+        marca = ("  ← ⚠️  ACÁ ESTÁ EL PROBLEMA"
+                 if ("timed out" in bajo or "sigkill" in bajo or "killing" in bajo)
+                 else "")
         print(f"   {ln[:150]}{marca}")
 
     # Medir stop→start con los timestamps del propio journal.
@@ -106,15 +112,33 @@ def ultimo_restart() -> None:
         h, mi, se = int(m.group(4)), int(m.group(5)), int(m.group(6))
         return h * 3600 + mi * 60 + se
 
-    stopping = next((ln for ln in reversed(interesantes) if "Stopping" in ln), None)
-    started = next((ln for ln in reversed(interesantes) if "Started" in ln), None)
-    if stopping and started:
-        a, b = _parse(ts(stopping)), _parse(ts(started))
-        if a is not None and b is not None and b >= a:
-            print(f"\n   ⏱  último Stopping → Started: {b - a:.0f}s")
-            if b - a > 20:
-                print("      Más de 20s = NO es normal. Mirá arriba si dice 'timed out'")
-                print("      (→ el graceful se colgó) o 'Waiting for connections'.")
+    # Los tiempos, partidos: PARAR y ARRANCAR responden preguntas distintas.
+    def _ultimo(txt: str) -> float | None:
+        ln = next((x for x in reversed(interesantes) if txt in x), None)
+        return _parse(ts(ln)) if ln else None
+
+    t_stopping = _ultimo("Stopping ")
+    t_stopped = _ultimo("Stopped ")
+    t_started = _ultimo("Started ")
+    t_listo = _ultimo("Application startup complete")
+
+    print()
+    if t_stopping is not None and t_stopped is not None and t_stopped >= t_stopping:
+        d = t_stopped - t_stopping
+        print(f"   ⏱  PARAR    {d:>4.0f}s   " +
+              ("✅ normal" if d <= 5 else
+               "⚠️  el shutdown graceful está esperando conexiones abiertas"))
+    if t_started is not None and t_listo is not None and t_listo >= t_started:
+        d = t_listo - t_started
+        print(f"   ⏱  ARRANCAR {d:>4.0f}s   " +
+              ("✅ normal (es la cadena de imports)" if d <= 10 else
+               "⚠️  algo caro en el import o en el lifespan"))
+    if t_stopping is not None and t_listo is not None and t_listo >= t_stopping:
+        total = t_listo - t_stopping
+        print(f"   ⏱  TOTAL    {total:>4.0f}s")
+        if total > 20:
+            print("      Más de 20s NO es normal. Mirá arriba si systemd tuvo que")
+            print("      matar el proceso ('timed out' / 'Killing').")
 
 
 def procesos() -> None:

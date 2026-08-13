@@ -296,6 +296,10 @@ def get_costo_pase() -> dict[str, Any]:
 
 def get_pase_cobertura(
     bloques: list[dict[str, Any]], *, plaza: str = "rosario",
+    tasas: dict[str, Any] | None = None,
+    dolares: dict[str, Any] | None = None,
+    cam: dict[str, Any] | None = None,
+    sinteticos: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Cards del Pase con Cobertura (ON) por commodity, a partir de los bloques
     del Pase Agro ya construidos (para no recalcular futuros/pizarra).
@@ -325,22 +329,29 @@ def get_pase_cobertura(
         get_tasas_cobertura,
     )
 
-    tasas = get_tasas_cobertura()
+    # Los 4 insumos se LEEN solo si no vinieron inyectados. Quien llama dos
+    # veces seguidas (una por plaza) ya los tiene: tasas, dólares y sintéticos
+    # son IDÉNTICOS para Rosario y Bahía — solo cambia la cámara. Sin esto,
+    # /api/derivados/agro releía lo mismo hasta 3 veces por request y cada
+    # lectura es un viaje de ~8.5ms (cProfile 2026-08-13: 66 viajes en total).
+    # Con `None` el comportamiento es EXACTAMENTE el de antes.
+    tasas = get_tasas_cobertura() if tasas is None else tasas
     tasa_on = tasas.get("tasa_on")
     tasa_pagare = tasas.get("tasa_pagare")
     tasa_caucion = tasas.get("tasa_caucion_7d")
-    dolares = get_dolares_referencia()
+    dolares = get_dolares_referencia() if dolares is None else dolares
     tc = dolares.get("dolar_matba")
     bna_t1 = dolares.get("bna_comprador_t1")
     es_bahia = plaza == "bahia"
-    cam = get_camara_cereales_bahia() if es_bahia else get_camara_cereales()
+    if cam is None:
+        cam = get_camara_cereales_bahia() if es_bahia else get_camara_cereales()
     # Disponible en ARS (venta) y en USD (pizarra) por cereal para la plaza.
     precios = {r["cereal"]: r.get("precio_ars") for r in cam["cereales"]}
     precios_usd = {r["cereal"]: r.get("precio_usd") for r in cam["cereales"]}
     hoy = date.today()
     # Sintéticos LONG ROFEX + LONG LECAP por mes: la columna Sintético toma la
     # TNA del sintético del MISMO mes que el pase (no es una tasa manual).
-    sinteticos = _sinteticos_por_ym()
+    sinteticos = _sinteticos_por_ym() if sinteticos is None else sinteticos
 
     commodities: list[dict[str, Any]] = []
     for b in bloques:

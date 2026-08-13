@@ -79,20 +79,30 @@ def get_pase_agro() -> dict[str, Any]:
     # En serie el endpoint pagaba la SUMA de sus round-trips a Postgres
     # (telemetría 2026-08-05: 662ms avg, el peor de la plataforma); en
     # paralelo paga solo el más lento.
-    with ThreadPoolExecutor(max_workers=5) as ex:
+    # `dolares_ref` y `sinteticos` se sumaron al bloque paralelo (2026-08-13):
+    # get_pase_cobertura los leía por su cuenta, y como corre DOS veces (una por
+    # plaza) eran 4 lecturas EN SERIE. Acá se leen una vez y en paralelo.
+    with ThreadPoolExecutor(max_workers=7) as ex:
         f_piz = ex.submit(_rows, "agro_pizarra")
         f_cam = ex.submit(_cam.get_camara_cereales)
         f_snap = ex.submit(_rows, "agro_snapshot")
         f_ofi = ex.submit(mid_oficial_live, "oficial")
         f_tas = ex.submit(_cam.get_tasas_cobertura)
+        f_dol = ex.submit(_cam.get_dolares_referencia)
+        f_sin = ex.submit(_cob._sinteticos_por_ym)
         pizarras = {p["commodity"]: p for p in f_piz.result()
                     if p.get("commodity")}
         # Cámara con la pata derivada YA calculada (SOJA en ARS → USD, resto
         # USD → ARS, con el dólar BNA). _build_bloque usa `precio_usd`.
-        camara = {c["cereal"]: c for c in f_cam.result()["cereales"]}
+        # Se guarda la respuesta CRUDA además del índice por cereal: la cruda
+        # es la que espera get_pase_cobertura (usa cam["cereales"]).
+        camara_raw = f_cam.result()
+        camara = {c["cereal"]: c for c in camara_raw["cereales"]}
         snapshots = f_snap.result()
         oficial = f_ofi.result()
         tasas_cobertura = f_tas.result()
+        dolares_ref = f_dol.result()
+        sinteticos = f_sin.result()
     oficial_value = oficial.get("value")
 
     hoy = date.today()
@@ -136,10 +146,18 @@ def get_pase_agro() -> dict[str, Any]:
         "tasas_cobertura":  tasas_cobertura,
         # Cards + ganancia ON del "Pase con Cobertura" (calculado sobre estos
         # mismos bloques → única fuente de la fórmula).
-        "pase_cobertura":   _cob.get_pase_cobertura(bloques),
+        # Las dos plazas comparten tasas, dólares y sintéticos — solo cambia la
+        # cámara. Se leen UNA vez acá y se inyectan; antes cada llamada los
+        # releía por su cuenta (y `cam` de Rosario ya estaba leída arriba, en el
+        # bloque paralelo). Mismos números, varios viajes menos por request.
+        "pase_cobertura":   _cob.get_pase_cobertura(
+            bloques, tasas=tasas_cobertura, dolares=dolares_ref,
+            cam=camara_raw, sinteticos=sinteticos),
         # Misma tabla pero con el disponible de la Cámara de Bahía Blanca (el
         # Pase Lleno se recalcula con la pizarra Bahía; el resto es idéntico).
-        "pase_cobertura_bahia": _cob.get_pase_cobertura(bloques, plaza="bahia"),
+        "pase_cobertura_bahia": _cob.get_pase_cobertura(
+            bloques, plaza="bahia", tasas=tasas_cobertura, dolares=dolares_ref,
+            sinteticos=sinteticos),
     }
 
 

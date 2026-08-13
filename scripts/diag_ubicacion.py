@@ -29,7 +29,6 @@ import socket
 import statistics
 import time
 import urllib.request
-from urllib.parse import urlparse
 
 from core.postgres import get_pool
 
@@ -75,23 +74,28 @@ def _droplet() -> None:
     print(f"   IP pública  : {ip or 'no disponible'}")
 
 
-def _supabase() -> tuple[str | None, int]:
-    """Imprime dónde vive la base. Devuelve (host, puerto) para medir después."""
+def _base(pool) -> tuple[str, int]:
+    """Imprime dónde vive la base. Devuelve (host, puerto) para medir después.
+
+    El host sale de la CONEXIÓN VIVA (`conn.info`), no de parsear POSTGRES_URI:
+    parsearlo a mano se comía el usuario como si fuera el host (bug del
+    2026-08-13 — el usuario del pooler de Supabase es `postgres.<project-ref>`
+    y tiene exactamente la forma de un hostname). La conexión no puede
+    equivocarse: es el host al que de verdad está pegando el sistema."""
     print("\n2) BASE (Supabase / Postgres)")
-    uri = os.environ.get("POSTGRES_URI", "")
-    if not uri:
-        print("   POSTGRES_URI no está en el entorno — nada que inspeccionar.")
-        return None, 0
-    # urlparse deja usuario/contraseña en .username/.password: NO se imprimen.
-    p = urlparse(uri)
-    host, puerto = p.hostname, (p.port or 5432)
-    print(f"   host        : {host}:{puerto}")
+    with pool.connection() as conn:
+        info = conn.info
+        host, puerto, dbname = info.host, info.port, info.dbname
+    print(f"   host        : {host}:{puerto}   (db {dbname})")
     m = _RE_REGION_POOLER.search(host or "")
     if m:
         print(f"   región AWS  : {m.group(1)}  (declarada en el hostname del pooler)")
+    elif "pooler" in (host or ""):
+        print("   región AWS  : pooler sin región en el hostname — "
+              "verla en Supabase → Settings → General")
     else:
-        print("   región AWS  : el hostname no la declara (conexión directa) — "
-              "mirarla en el dashboard de Supabase → Settings → General")
+        print("   región AWS  : conexión DIRECTA (el hostname no la declara) — "
+              "verla en Supabase → Settings → General")
     try:
         print(f"   IP          : {socket.gethostbyname(host)}")
     except OSError as e:
@@ -99,31 +103,26 @@ def _supabase() -> tuple[str | None, int]:
     return host, puerto
 
 
-def _viaje(host: str | None, puerto: int) -> None:
+def _viaje(pool, host: str, puerto: int) -> None:
     """Separa la RED (handshake TCP) del PROTOCOLO (query ida y vuelta).
 
     Si los dos números son parecidos, lo que se paga es distancia física pura y
     lo único que la baja es acercar las piezas. La diferencia entre ambos es lo
     que agrega el pooler + Postgres, que NO se arregla mudando nada."""
     print("\n3) EL VIAJE Droplet → base")
-    if not host:
-        print("   sin POSTGRES_URI no hay nada que medir.")
-        return
-    if host:
-        hs: list[float] = []
-        for _ in range(_N_HANDSHAKES):
-            t0 = time.perf_counter()
-            try:
-                with socket.create_connection((host, puerto), timeout=_TIMEOUT_S):
-                    hs.append(_ms(t0))
-            except OSError as e:
-                print(f"   handshake TCP: falló ({e})")
-                break
-        if hs:
-            print(f"   handshake TCP: min {min(hs):5.1f} ms   "
-                  f"(red pura, sin Postgres de por medio)")
+    hs: list[float] = []
+    for _ in range(_N_HANDSHAKES):
+        t0 = time.perf_counter()
+        try:
+            with socket.create_connection((host, puerto), timeout=_TIMEOUT_S):
+                hs.append(_ms(t0))
+        except OSError as e:
+            print(f"   handshake TCP: falló ({e})")
+            break
+    if hs:
+        print(f"   handshake TCP: min {min(hs):5.1f} ms   "
+              f"(red pura, sin Postgres de por medio)")
 
-    pool = get_pool()
     tiempos: list[float] = []
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT 1")  # warm-up fuera de la muestra
@@ -140,14 +139,24 @@ def _viaje(host: str | None, puerto: int) -> None:
 
 def main() -> int:
     _droplet()
-    host, puerto = _supabase()
-    _viaje(host, puerto)
+    # El pool se arma DESPUÉS del bloque 1 y solo si hay credenciales: así el
+    # script sigue diciendo dónde está el Droplet aunque corra sin .env.
+    if not os.environ.get("POSTGRES_URI"):
+        print("\n2) BASE (Supabase / Postgres)")
+        print("   POSTGRES_URI no está en el entorno — nada que inspeccionar.")
+        return 0
+    pool = get_pool()
+    host, puerto = _base(pool)
+    _viaje(pool, host, puerto)
     print("""
-LECTURA
-  · Droplet y base en la MISMA región (RTT < 5 ms) → no hay peaje que recortar
-    ahí; lo que sobre son queries + Python.
-  · RTT 20-80 ms → están lejos. Es la pata más cara del sistema y NO la arregla
-    mover Vercel: la paga el backend en cada query.
+LECTURA (RTT de query, medido arriba)
+  · < 5 ms   → misma región: no hay peaje de red que recortar; lo que sobre
+               son queries + Python.
+  · 5-15 ms  → regiones vecinas (ej. Droplet nyc1 ↔ base us-east-1). El peaje
+               es real pero chico: se paga por CANTIDAD de queries, no por
+               distancia. Rinde más agrupar/cachear que mudar nada.
+  · 20-80 ms → están lejos de verdad. Es la pata más cara del sistema y NO la
+               arregla mover Vercel: la paga el backend en cada query.
   · Para elegir la región de Vercel importa OTRA pata — Vercel → Droplet — que
     se mide desde Vercel, no desde acá.""")
     return 0

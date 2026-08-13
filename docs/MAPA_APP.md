@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **483 endpoints** montados en `api.main.app`, en **29 routers**.
-- **165 escriben** (POST/PUT/PATCH/DELETE); 318 son de solo lectura.
+- **484 endpoints** montados en `api.main.app`, en **29 routers**.
+- **166 escriben** (POST/PUT/PATCH/DELETE); 318 son de solo lectura.
 - **23 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -48,7 +48,7 @@
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
-| `/api/aca` | 17 | 7 | — · 8 rutas con gate extra | `aca` | ⚠️ |
+| `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
 | `/api/analitica` | 15 | 1 | — | — | ⚠️ |
 | `/api/back-office` | 57 | 33 | `back-office` · 57 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
@@ -2068,6 +2068,14 @@ explica sola en vez de tirar error.
   precio conocido en `portafolio.tenencia` **con su fecha**. Orientativo; no se aplica solo.
 - **+ AGREGAR TÍTULO** (`GET /titulos`) — buscador sobre `portafolio.assets` que muestra la ficha
   que el título va a heredar ANTES de agregarlo.
+- **⬆ IMPORTAR EXCEL** (`POST /activos/importar`) — sube un `.xlsx`/`.csv` con las mismas columnas
+  de la tabla. **Dos pasos**: preview con `dry_run` (default **true**: pedir el import sin decir
+  nada NO escribe) → CONFIRMAR. Lee TICKER/VN/PX/TASA/OBS con encabezados normalizados y
+  sinónimos; ignora emisor/calificación/clase/vencimiento (los da el maestro) y el monto (se
+  deriva). Resuelve el título por unidad → ticker → el ticker antes de un `" - "` → instrumento;
+  **si es AMBIGUO o no está en el maestro NO lo importa** y lo devuelve con su motivo y su fila.
+  Duplicado en el archivo → gana el último, marcado. Título ya cargado → lo PISA, y avisa cuántos
+  antes de confirmar.
 
 **Endpoints (14)**: `GET /vista` (la pantalla entera en UN request) · `/periodos` · `/resumen` ·
 `/detalle` · `/metricas` · `/historico` · `/graficos` · `/titulos` · `/precios-sugeridos` ·

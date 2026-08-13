@@ -509,6 +509,181 @@ def clonar_periodo(destino: str, origen: str | None, actor: str) -> dict:
     return {"ok": True, "periodo": p, "origen": src, "filas": n}
 
 
+def _resolver_titulo(clave: str, catalogo: list[dict]) -> tuple[str | None, str]:
+    """Texto de una celda del Excel → `unidad` de `portafolio.assets`.
+
+    Devuelve (unidad, motivo). unidad=None significa que NO se pudo resolver, y
+    `motivo` explica por qué — el archivo del user tiene celdas como
+    "RMJ28 - BONO MUN. ROSARIO 26/06/28 $", no la unidad interna.
+
+    Orden de intentos, del más fuerte al más débil:
+      1. `unidad` exacta (por si el Excel salió de un export nuestro).
+      2. `ticker` exacto.
+      3. el TICKER que aparece antes de un " - " ("RMJ28 - BONO …" → RMJ28).
+      4. `instrumento` exacto.
+    Todo case-insensitive y sin espacios de más.
+
+    NUNCA adivina por parecido: si un ticker matchea DOS unidades, devuelve
+    'ambiguo' con las candidatas en vez de elegir una. Meter el título
+    equivocado en un informe de gerencia es peor que dejar la fila afuera —
+    que es exactamente lo que el user pidió ("si no reconoce alguno que no lo
+    agregue").
+    """
+    t = (clave or "").strip()
+    if not t:
+        return None, "celda vacía"
+    tn = t.upper()
+    # "RMJ28 - BONO MUN. ROSARIO 26/06/28 $" → "RMJ28"
+    prefijo = tn.split(" - ", 1)[0].strip() if " - " in tn else None
+
+    for campo, valor, etiqueta in (
+        ("unidad", tn, "unidad"),
+        ("ticker", tn, "ticker"),
+        ("ticker", prefijo, "ticker"),
+        ("instrumento", tn, "instrumento"),
+    ):
+        if not valor:
+            continue
+        hits = [a for a in catalogo if (a.get(campo) or "").strip().upper() == valor]
+        if len(hits) == 1:
+            return hits[0]["unidad"], f"por {etiqueta}"
+        if len(hits) > 1:
+            cands = ", ".join(h["unidad"] for h in hits[:4])
+            return None, f"AMBIGUO: {len(hits)} títulos con ese {etiqueta} ({cands})"
+    return None, "no está en el catálogo de Manager → Títulos"
+
+
+def importar_activos(payload: dict, actor: str, dry_run: bool = True) -> dict:
+    """Carga masiva del detalle desde un Excel. Con `dry_run` NO escribe nada.
+
+    El front parsea el archivo y manda las filas ya normalizadas
+    ({titulo, vn, px, tasa, obs}); acá se resuelve cada `titulo` contra
+    `portafolio.assets` y se importa SOLO lo reconocido, como pidió el user.
+    Las que no se reconocen se devuelven con su motivo — no se descartan en
+    silencio ni se inventan.
+
+    Lo que el Excel NO puede traer: emisor, calificación, clase de activo,
+    vencimiento y cartera. Esos salen del maestro de Títulos aunque el archivo
+    traiga otra cosa (§3 de docs/ACA.md: una sola ficha, una sola verdad). El
+    MONTO tampoco se importa: se deriva de VN × Px, que es el punto de la vista.
+
+    `dry_run=True` (default) devuelve exactamente el mismo informe que
+    escribiría, para que la pantalla lo muestre ANTES de tocar nada.
+    """
+    email = _check_escritura(actor)
+    p = _norm_periodo(payload.get("periodo"))
+    if not _periodo_row(p):
+        raise ValueError(f"el período {p} no existe — creá el informe primero")
+
+    filas = payload.get("filas") or []
+    if not isinstance(filas, list):
+        raise ValueError("`filas` tiene que ser una lista")
+    if len(filas) > 2000:
+        raise ValueError(f"demasiadas filas ({len(filas)}); el máximo es 2000")
+
+    catalogo = _q("SELECT unidad, ticker, instrumento, cartera, emisor, clase_activo "
+                  "FROM portafolio.assets")
+    ya_cargadas = {r["unidad"] for r in _q(
+        "SELECT unidad FROM aca.activos WHERE periodo = %(p)s", {"p": p})}
+
+    reconocidas: list[dict] = []
+    ignoradas: list[dict] = []
+    vistas: dict[str, int] = {}          # unidad → índice en `reconocidas`
+
+    for i, f in enumerate(filas):
+        titulo = str(f.get("titulo") or "").strip()
+        unidad, motivo = _resolver_titulo(titulo, catalogo)
+        if not unidad:
+            ignoradas.append({"fila": i + 2, "titulo": titulo, "motivo": motivo})
+            continue
+        ficha = next((a for a in catalogo if a["unidad"] == unidad), {})
+        item = {
+            "fila": i + 2,                    # +2: fila 1 = encabezado del Excel
+            "titulo": titulo,
+            "unidad": unidad,
+            "ticker": ficha.get("ticker") or "",
+            "cartera": ficha.get("cartera") or "",
+            "emisor": ficha.get("emisor") or "",
+            "match": motivo,
+            "vn": _num(f.get("vn")),
+            "px": _num(f.get("px")),
+            "tasa": (str(f.get("tasa") or "").strip() or None),
+            "obs": (str(f.get("obs") or "").strip() or None),
+            "pisa": unidad in ya_cargadas,    # el título ya estaba en el período
+        }
+        # El MISMO título dos veces en el archivo: gana la última, pero se avisa
+        # (en un Excel armado a mano suele ser un copy-paste de más).
+        if unidad in vistas:
+            item["duplicado_de_fila"] = reconocidas[vistas[unidad]]["fila"]
+            reconocidas[vistas[unidad]] = item
+        else:
+            vistas[unidad] = len(reconocidas)
+            reconocidas.append(item)
+
+    if not dry_run and reconocidas:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            for orden, it in enumerate(reconocidas, 1):
+                cur.execute(
+                    "INSERT INTO aca.activos (periodo, unidad, vn, px, tasa, obs, orden, "
+                    "                         actualizado_por, actualizado_at) "
+                    "VALUES (%(p)s, %(u)s, %(vn)s, %(px)s, %(t)s, %(o)s, %(ord)s, %(a)s, now()) "
+                    "ON CONFLICT (periodo, unidad) DO UPDATE SET vn = EXCLUDED.vn, "
+                    "  px = EXCLUDED.px, tasa = EXCLUDED.tasa, obs = EXCLUDED.obs, "
+                    "  actualizado_por = EXCLUDED.actualizado_por, actualizado_at = now()",
+                    {"p": p, "u": it["unidad"], "vn": it["vn"], "px": it["px"],
+                     "t": it["tasa"], "o": it["obs"], "ord": orden, "a": email},
+                )
+            conn.commit()
+        _audit(email, "importar_activos", p, {
+            "importadas": len(reconocidas), "ignoradas": len(ignoradas),
+            "unidades": [it["unidad"] for it in reconocidas],
+        })
+
+    return {
+        "periodo": p,
+        "dry_run": dry_run,
+        "reconocidas": reconocidas,
+        "ignoradas": ignoradas,
+        "total_archivo": len(filas),
+        "n_reconocidas": len(reconocidas),
+        "n_ignoradas": len(ignoradas),
+        "n_pisa": sum(1 for it in reconocidas if it["pisa"]),
+    }
+
+
+def _num(v: Any) -> float | None:
+    """Celda de Excel → float. Acepta el número nativo o el texto es-AR.
+
+    '337.842.100' son miles y '106,02' es decimal. La heurística: si hay coma,
+    la coma es el decimal y los puntos son agrupación; si solo hay puntos, son
+    agrupación salvo que quede UN punto con 1-2 decimales detrás ('106.02').
+    Sin esto, un archivo guardado con las celdas como texto entraba con el
+    precio dividido por mil y nadie lo notaba hasta ver el informe.
+    """
+    if v is None or v == "":
+        return None
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    s = str(v).strip().replace(" ", "").replace("$", "").replace("%", "")
+    if not s:
+        return None
+    neg = s.startswith("-")
+    s = s.lstrip("-+")
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    elif s.count(".") > 1:
+        s = s.replace(".", "")
+    elif "." in s:
+        ent, dec = s.split(".")
+        if len(dec) == 3 and len(ent) <= 3:   # '337.842' → miles, no decimales
+            s = ent + dec
+    try:
+        f = float(s)
+    except ValueError:
+        return None
+    return -f if neg else f
+
+
 def precios_sugeridos(periodo: str) -> dict:
     """Último precio conocido de cada título del período, como REFERENCIA.
 

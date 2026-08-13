@@ -268,7 +268,10 @@ siempre — el rol quedaría con la vista ACA y **nada más**.
 | **MÉTRICAS** | apertura por clase (FCI, ARS) y por emisor (HD, DL, privados) | — |
 | **HISTÓRICO** | la planilla mensual completa | solo lectura (se carga en Manager) |
 
-Tres ayudas de carga en ACTIVOS:
+Cuatro ayudas de carga en ACTIVOS:
+
+- **⬆ IMPORTAR EXCEL** — sube un `.xlsx`/`.csv` con las mismas columnas de la tabla.
+  Ver §9.
 
 - **COPIAR DEL MES ANTERIOR** — clona títulos, VN y observación. **No copia el
   precio**: arrastrarlo dejaría un informe que parece cargado y está mintiendo.
@@ -305,6 +308,49 @@ Inventario completo y gate efectivo: `docs/MAPA_APP.md` (§0, auto-generada).
 
 ---
 
+## 9. Importar Excel al detalle
+
+`POST /api/aca/activos/importar`. Flujo en **dos pasos**: el front parsea el
+archivo, pide un `dry_run` (default **true** — pedir el import sin decir nada NO
+escribe) y muestra qué reconoció; recién con CONFIRMAR se persiste. Un import a
+ciegas sobre un informe de gerencia es la clase de cosa que se descubre tarde.
+
+**Qué se lee**: `TICKER`, `VN`, `PX`, `TASA`, `OBS`. Los encabezados se
+normalizan (minúsculas, sin acentos, sin puntuación) y aceptan sinónimos
+(`especie`/`activo`/`instrumento`/`papel`, `valor nominal`/`cantidad`,
+`precio`/`cotización`, `observación`…), así que el archivo NO hay que
+renombrarlo. Verificado contra los encabezados reales de la planilla.
+
+**Qué NO se lee, aunque venga en el archivo**: emisor, calificación, clase de
+activo, vencimiento y cartera → salen del maestro de Títulos (§3), y si el Excel
+dice otra cosa **gana el maestro**. El **monto** tampoco: se deriva de VN × Px,
+que es el punto de la vista.
+
+**Resolución del título** (`_resolver_titulo`), del match más fuerte al más
+débil: `unidad` exacta → `ticker` exacto → el ticker que va antes de un `" - "`
+(`"RMJ28 - BONO MUN. ROSARIO 26/06/28 $"` → `RMJ28`, que es como viene la
+planilla) → `instrumento` exacto. Todo case-insensitive.
+
+**Nunca adivina.** Si un ticker matchea DOS unidades devuelve `AMBIGUO` con las
+candidatas y **no importa esa fila**: meter el papel equivocado en un informe de
+gerencia es peor que dejar la fila afuera. Lo mismo con lo que no está en el
+maestro. Todo lo ignorado se devuelve con su motivo y su número de fila — no se
+descarta en silencio, que es exactamente lo que el user pidió ("si no reconoce
+alguno que no lo agregue, pero a los que sí").
+
+**Números**: acepta el valor nativo del Excel o el texto es-AR
+(`"458.915.200"` = miles, `"80,04"` = decimal, `"106.02"` = decimal,
+`"2.776"` = miles). Sin eso, un archivo guardado con las celdas como texto
+entraba con el precio dividido por mil y nadie lo notaba hasta ver el informe.
+
+**Duplicados en el archivo**: gana la última fila, marcada con ⚠ y el número de
+la fila anterior. **Títulos que ya estaban cargados**: se PISAN, y la pantalla
+lo dice antes de confirmar (`n_pisa`).
+
+Escritura: la misma allowlist que el resto (mesa + admin). Queda en `aca.audit`.
+
+---
+
 ## 8. Qué NO hace todavía
 
 - **No lee la cartera de ACA de `portafolio.tenencia`.** Podría —los títulos son
@@ -322,6 +368,16 @@ Inventario completo y gate efectivo: `docs/MAPA_APP.md` (§0, auto-generada).
 ---
 
 ## Changelog
+
+### 2026-08-13 — Importar Excel al detalle de activos
+- `POST /api/aca/activos/importar` + botón **⬆ IMPORTAR EXCEL** en la tab
+  ACTIVOS. Dos pasos (preview con `dry_run` → CONFIRMAR). Ver §9.
+- Importa SOLO lo que reconoce contra `portafolio.assets`; lo demás se devuelve
+  con el motivo y el número de fila. Ambigüedad = NO se importa (no adivina).
+- Parseo de números es-AR y mapeo flexible de encabezados: el archivo del user
+  entra sin renombrar nada.
+- Tests: resolución del título (ticker pelado, ticker pegado al nombre, unidad,
+  ambiguo, inexistente) y parseo de números.
 
 ### 2026-08-13 — FIX: crear el primer período rompía la vista
 - `vista()` armaba la respuesta con `**graficos()` al final, y esa función

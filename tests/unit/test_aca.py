@@ -271,3 +271,65 @@ def test_vista_no_pisa_periodos_con_el_eje_de_los_graficos(monkeypatch, con_peri
     # El eje de los charts existe, pero en SU propia clave.
     assert out["periodos_grafico"] == ["2026-06", "2026-07"]
     assert out["graficos"] and out["graficos"][0]["grafico"] == "total_ars"
+
+
+# ── Import de Excel: resolver el título y parsear los números ───────────────
+# Las dos cosas donde un error entra SIN avisar: pegarle al título equivocado
+# (queda otro papel en el informe de gerencia) o leer mal el número (precio
+# dividido por mil y nadie lo nota hasta ver el total).
+
+CATALOGO = [
+    {"unidad": "[1] DHSIO",  "ticker": "DHSIO", "instrumento": "DHSIO CREDICUOTAS"},
+    {"unidad": "[2] RMJ28",  "ticker": "RMJ28", "instrumento": "BONO MUN. ROSARIO"},
+    {"unidad": "[3] GD30",   "ticker": "GD30",  "instrumento": "GLOBAL 2030"},
+    {"unidad": "[4] GD30v2", "ticker": "GD30",  "instrumento": "GLOBAL 2030 BIS"},
+]
+
+
+def test_resuelve_por_ticker_exacto():
+    assert aca._resolver_titulo("DHSIO", CATALOGO)[0] == "[1] DHSIO"
+    assert aca._resolver_titulo(" dhsio ", CATALOGO)[0] == "[1] DHSIO"
+
+
+def test_resuelve_el_ticker_pegado_al_nombre():
+    """La planilla trae 'RMJ28 - BONO MUN. ROSARIO 26/06/28 $', no el ticker pelado."""
+    u, motivo = aca._resolver_titulo("RMJ28 - BONO MUN. ROSARIO 26/06/28 $", CATALOGO)
+    assert u == "[2] RMJ28" and "ticker" in motivo
+
+
+def test_resuelve_por_unidad_exacta():
+    assert aca._resolver_titulo("[3] GD30", CATALOGO)[0] == "[3] GD30"
+
+
+def test_ticker_ambiguo_NO_elige_uno():
+    """Dos títulos con el mismo ticker → se reporta, no se adivina. Meter el papel
+    equivocado en un informe de gerencia es peor que dejar la fila afuera."""
+    u, motivo = aca._resolver_titulo("GD30", CATALOGO)
+    assert u is None and "AMBIGUO" in motivo
+
+
+def test_titulo_desconocido_no_se_inventa():
+    u, motivo = aca._resolver_titulo("PAPELINVENTADO", CATALOGO)
+    assert u is None and "catálogo" in motivo
+    assert aca._resolver_titulo("", CATALOGO)[0] is None
+
+
+@pytest.mark.parametrize("crudo,esperado", [
+    (106.02, 106.02),                 # ya viene numérico de SheetJS
+    ("106,02", 106.02),               # es-AR con coma decimal
+    ("337.842.100", 337_842_100.0),   # solo puntos = miles
+    ("337842100", 337_842_100.0),
+    ("1.234.567,89", 1_234_567.89),   # miles + decimal
+    ("106.02", 106.02),               # un punto con 2 decimales = decimal
+    ("2.776", 2776.0),                # un punto con 3 dígitos detrás = MILES
+    ("-5,5", -5.5),
+    ("$ 1.000", 1000.0),
+    ("", None), (None, None), ("no es un número", None),
+])
+def test_parseo_de_numeros_del_excel(crudo, esperado):
+    assert aca._num(crudo) == esperado
+
+
+def test_el_bool_no_se_cuela_como_numero():
+    """True es int en Python; si se colara, un tilde del Excel entraría como 1."""
+    assert aca._num(True) is None

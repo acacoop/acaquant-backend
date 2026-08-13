@@ -157,6 +157,31 @@ def guardar_activo(req: _ActivoPayload = Body(...),
     return _ok(_svc.guardar_activo, req.model_dump(), actor=actor)
 
 
+class _FilaImport(BaseModel):
+    titulo: str = Field(..., max_length=512, description="Ticker o nombre tal cual sale del Excel")
+    vn: float | str | None = None
+    px: float | str | None = None
+    tasa: str | None = Field(None, max_length=64)
+    obs: str | None = Field(None, max_length=256)
+
+
+class _ImportPayload(BaseModel):
+    periodo: str = Field(..., min_length=7, max_length=7)
+    filas: list[_FilaImport] = Field(..., max_length=2000)
+    # Default TRUE a propósito: pedir el import sin decir nada NO escribe. Para
+    # persistir hay que mandar dry_run=false explícito (lo hace el botón CONFIRMAR
+    # después de que la pantalla muestre qué se reconoció y qué no).
+    dry_run: bool = True
+
+
+@router.post("/activos/importar", dependencies=[Depends(require_escritura_aca)])
+def importar_activos(req: _ImportPayload = Body(...),
+                     actor: str = Depends(get_user_email)) -> dict:
+    """Carga masiva del detalle desde Excel. Importa SOLO lo que reconoce contra
+    `portafolio.assets` y devuelve lo ignorado con su motivo."""
+    return _ok(_svc.importar_activos, req.model_dump(), actor=actor, dry_run=req.dry_run)
+
+
 @router.delete("/activos", dependencies=[Depends(require_escritura_aca)])
 def borrar_activo(periodo: str = Query(...), unidad: str = Query(...),
                   actor: str = Depends(get_user_email)) -> dict:

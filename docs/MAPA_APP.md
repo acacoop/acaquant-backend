@@ -161,7 +161,7 @@ páginas.
 | 17 | **OPERADORES** | `/operadores` | `operaciones` (+ `control_comercial` per-usuario para una sub-vista) | admin, trader, asistente_comercial | Tablero Comercial: qué cuentas gestiona cada operador, cuánto AuM/volumen/arancel generan, estado comercial y objetivos. |
 | 18 | **REFERIDOS** | `/referidos` | `operaciones` | admin, trader, asistente_comercial | Vista para la empresa referidora: solo sus cuentas — operan, AuM, rendimientos, volumen, aranceles y comisión FCI a la coop. |
 | 19 | **BACK OFFICE** | `/back-office` | `back-office` | admin, trader, sales, asistente_comercial, back_office | Operación diaria del back office: SENEBIS, tenencia valorizada, títulos en alquiler, Tesorería (caja del día), títulos a enviar/recibir al mercado y acreencias de clientes. |
-| 20 | **ACA** | `/aca` | `aca` | **solo `empleado_aca`** (+ admin + escritores de la mesa) | Resumen ejecutivo de la cartera PROPIA de ACA para gerencia: foto MENSUAL con valuación ARS/A3500/USD, composición por cartera, detalle título por título, métricas de concentración y rendimiento acumulado vs benchmarks. Carga manual tipo Excel (`docs/ACA.md`). |
+| 20 | **ACA** | `/aca` | `aca` | **solo `empleado_aca`** (+ admin + escritores de la mesa) | **Link de primer nivel del header** (no está adentro de NEGOCIO: es la cartera de la casa y la mira gerencia). Resumen ejecutivo de la cartera PROPIA de ACA para gerencia: foto MENSUAL con valuación ARS/A3500/USD, composición por cartera, detalle título por título, métricas de concentración y rendimiento acumulado vs benchmarks. Carga manual tipo Excel (`docs/ACA.md`). |
 | 21 | **MANAGER** | `/manager` | `manager` + 6 sub-módulos | admin (todo); asistente_comercial entra por sub-módulos | Panel de administración: observabilidad, validaciones/debug, maestros (assets/bonos/ONs/CEDEARs), segmentación de clientes y contrapartes, backfills/imports, usuarios/roles/grupos y allowlists de escritura. |
 
 **Superficies transversales (no son rutas propias):**
@@ -343,6 +343,7 @@ HOME                      → /                  [home]
 OPERAR                    → /operar            [operar]
 TRADING                   → /trading           [trading]
 RESEARCH                  → /research          [research]
+ACA                       → /aca               [aca]
 MERCADOS ▼                (grupo, aparece si tiene ≥1 item)
   ├─ Agro                 → /agro              [agro]
   ├─ Derivados            → /derivados         [derivados]
@@ -352,7 +353,6 @@ MERCADOS ▼                (grupo, aparece si tiene ≥1 item)
   ├─ Renta Variable       → /renta-variable    [renta-variable]
   └─ Sintéticos           → /sinteticos        [sinteticos]
 NEGOCIO ▼                 (grupo)
-  ├─ ACA                  → /aca               [aca]
   ├─ AUM                  → /aum               [portfolios]
   ├─ Carteras             → /valuaciones       [portfolios]
   ├─ Contrapartes         → /contrapartes      [operaciones]
@@ -387,11 +387,11 @@ propósito, para que el nav y `src/proxy.ts` sigan filtrando con UN solo mecanis
 
 | Rol | Entradas visibles |
 |---|---|
-| `admin` | HOME · OPERAR · TRADING · RESEARCH · MERCADOS (7/7) · NEGOCIO (8/8) · BACK OFFICE · MANAGER |
-| `trader` | HOME · MERCADOS (7/7) · NEGOCIO (7/8, sin ACA) · BACK OFFICE. **Sin** OPERAR, TRADING, RESEARCH, MANAGER |
-| `sales` | HOME · MERCADOS (7/7) · BACK OFFICE. **Sin** NEGOCIO, OPERAR, TRADING, RESEARCH, MANAGER |
-| `empleado_aca` | HOME · MERCADOS (7/7) · NEGOCIO (**solo ACA**) · BACK OFFICE. Es `sales` + la vista ACA |
-| `asistente_comercial` | HOME · MERCADOS (7/7) · NEGOCIO (7/8, sin ACA) · BACK OFFICE · MANAGER (entra por `manager_clientes`). **Sin** OPERAR, TRADING, RESEARCH |
+| `admin` | HOME · OPERAR · TRADING · RESEARCH · **ACA** · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE · MANAGER |
+| `trader` | HOME · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE. **Sin** OPERAR, TRADING, RESEARCH, ACA, MANAGER |
+| `sales` | HOME · MERCADOS (7/7) · BACK OFFICE. **Sin** NEGOCIO, OPERAR, TRADING, RESEARCH, ACA, MANAGER |
+| `empleado_aca` | HOME · **ACA** · MERCADOS (7/7) · BACK OFFICE. Es `sales` + la vista ACA. **Sin** NEGOCIO |
+| `asistente_comercial` | HOME · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE · MANAGER (entra por `manager_clientes`). **Sin** OPERAR, TRADING, RESEARCH, ACA |
 | `back_office` | HOME · BACK OFFICE. Nada más |
 | `invitado` (www) | HOME · AGRO · DERIVADOS · ESTRATEGIA · ONS · RENTA FIJA · RENTA VARIABLE · RESEARCH · SINTÉTICOS — los 7 items de MERCADOS **aplanados como links top-level** (sin dropdown), todo en MAYÚSCULA y ordenado A→Z con HOME primero (ver abajo) |
 
@@ -2043,6 +2043,9 @@ cobertura **CERO**).
   la cuenta de ACA; una allowlist propia sería una lista más para desincronizar.
 - **REGLA #8**: `aca` NO está en `INVITADO_MODULES` ni `/api/aca` en `GUEST_PATH_PREFIXES`.
   Es el negocio de la casa. Hay tests que fallan si alguien lo agrega.
+- **Nav**: link de PRIMER NIVEL del header (entre RESEARCH y el dropdown
+  MERCADOS), **no** un item de NEGOCIO — decisión del user 2026-08-13: es la
+  cartera de la casa mirada por gerencia, no una vista más de la operación diaria.
 - **No es live**: es una **foto MENSUAL**. El selector de la barra elige el período (`YYYY-MM`)
   y todo lo de abajo habla de ese mes. **Sin polling**.
 

@@ -314,6 +314,12 @@ Inventario completo y gate efectivo: `docs/MAPA_APP.md` (§0, auto-generada).
 
 ## Changelog
 
+### 2026-08-13 — ACA sale de NEGOCIO
+- Pasa a ser un **link de primer nivel del header** (entre RESEARCH y el
+  dropdown MERCADOS) en vez de un item del dropdown NEGOCIO. Pedido del user: es
+  la cartera de la casa mirada por gerencia, no una vista más de la operación
+  diaria. Solo nav — no toca módulos, roles ni gates.
+
 ### 2026-08-13 — Verificación post-deploy
 - `scripts/diag_aca_estado.py` (read-only): confirma que el schema, los
   catálogos y **el RBAC** quedaron bien parados, y lista lo que falta con la

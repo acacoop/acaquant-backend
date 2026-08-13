@@ -42,7 +42,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO **nyc1**, Nueva York — verificado 2026-08-13), venv en `/root/TradingAV/venv`. Vercel corre las Functions en **iad1** (Washington DC): las funciones de Next son un PROXY (las 20 rutas de `src/app/api` pegan a `api.acaquant.com` y el front NO tiene cliente de base), asi que la pata que paga Vercel es Vercel→Droplet, ~330km de distancia. Mover la region de Vercel NO toca el viaje Droplet→Supabase.
+TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO **nyc1**, Nueva York — verificado 2026-08-13), venv en `/root/TradingAV/venv`. Vercel corre las Functions en **iad1** (Washington DC): las funciones de Next son un PROXY (las 40 rutas de `src/app/api` pegan a `api.acaquant.com` y el front NO tiene cliente de base — verificado 2026-08-13; decían 20, el número había quedado viejo), asi que la pata que paga Vercel es Vercel→Droplet, ~330km de distancia. Mover la region de Vercel NO toca el viaje Droplet→Supabase.
 
 > **MONGO DECOMISADO (2026-06-29).** El sistema es 100% Postgres/Supabase: motores,
 > jobs, API y MCP leen y escriben SQL. NO queda una sola referencia a

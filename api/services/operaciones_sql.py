@@ -14,8 +14,8 @@ Reglas de traducción de campos blindadas (verificadas contra los datos reales):
   * fechas: concertacion es `date` → se formatea a 'YYYY-MM-DD' a la salida.
   * Decimal→float, $ifNull→COALESCE, $abs→ABS, substr 0-based→to_char.
 
-VolumenMercadoAgro (share de /ops/agro) sigue HÍBRIDO: se lee de Mongo (chica, manual) →
-el denominador del share no cambia de fuente, la igualdad se mantiene trivial.
+El denominador del share de /ops/agro sale de `mercado.volumen_mercado_agro` (SQL,
+carga manual) vía `cashflow_sql.volumen_mercado_agro`.
 """
 from __future__ import annotations
 
@@ -828,7 +828,7 @@ def ops_aranceles(
     }
 
 
-# ── AGRO (toneladas; share híbrido contra Mongo) ─────────────────────────────
+# ── AGRO (toneladas; share contra mercado.volumen_mercado_agro) ──────────────
 def _agro_serie(rows: list[dict]) -> list[dict]:
     out: dict[str, dict] = {}
     for r in rows:
@@ -983,8 +983,8 @@ def ops_agro(
 
     nuestro_m = _agro_nuestro_mensual(scope=scope, nivel5=nivel5)
 
-    # share: denominador del market-share desde mercado.volumen_mercado_agro (SQL-native,
-    # decomiso Mongo: CashFlow.VolumenMercadoAgro dropeada). `{periodo: {commodity: toneladas}}`.
+    # share: denominador del market-share desde mercado.volumen_mercado_agro.
+    # `{periodo: {commodity: toneladas}}`.
     from api.services import cashflow_sql as _cf_sql
     mercado = _cf_sql.volumen_mercado_agro()
     serie_share = []

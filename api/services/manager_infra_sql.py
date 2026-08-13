@@ -1,23 +1,20 @@
 """api/services/manager_infra_sql.py — lecturas SQL de la infra de Manager.
 
-Espejo SQL (Postgres) de las lecturas que hoy hacen contra Mongo:
-  - Manager.JobRuns   → manager.job_runs  (historial de corridas de jobs)
-  - Manager.RoleAudit → manager.role_audit (auditoría de cambios de rol/usuario)
+Lecturas de la infra de Manager:
+  - manager.job_runs   (historial de corridas de jobs)
+  - manager.role_audit (auditoría de cambios de rol/usuario)
 
-Funciones PURAS (sin FastAPI): replican EXACTAMENTE el shape que devuelven los
-paths Mongo de `api/routers/manager/jobs.py` y `core/roles.list_audit`. El
-es la única implementación (decomiso Mongo), con el
-path Mongo intacto → rollback = sacar la env.
+Funciones PURAS (sin FastAPI). Es la ÚNICA implementación de estas lecturas y la
+consumen `api/routers/manager/jobs.py` y `core/roles.list_audit`.
 
-Reglas de traducción Mongo→SQL aplicadas:
-  - El doc completo vive en `data` jsonb (doc_iso: datetimes→ISO). Para devolver
-    el MISMO shape que Mongo (`find({}, {"_id": 0})`), partimos del `data` y
-    sobrescribimos los timestamps con el valor columnar timestamptz (no el ISO
-    crudo del jsonb), formateado a AR igual que el path Mongo.
+Forma del dato:
+  - El doc completo vive en `data` jsonb (doc_iso: datetimes→ISO). Se parte del
+    `data` y se sobrescriben los timestamps con el valor columnar timestamptz (no
+    el ISO crudo del jsonb).
   - started_at/finished_at/ts son timestamptz (el writer usa now(UTC) aware) →
-    se formatean a AR (America/Argentina/Buenos_Aires) con el MISMO formato
-    "%Y-%m-%d %H:%M:%S" que `jobs.py` / nada en audit (audit devuelve el doc tal
-    cual, con ts ISO — ver list_audit, que NO reformatea).
+    se formatean a AR (America/Argentina/Buenos_Aires) con formato
+    "%Y-%m-%d %H:%M:%S". En audit NO se reformatea: devuelve el doc tal cual, con
+    ts ISO (ver list_audit).
 """
 from __future__ import annotations
 

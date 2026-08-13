@@ -1,34 +1,26 @@
-"""api/services/cashflow_sql.py — lecturas SQL (Supabase) de las colecciones CashFlow
-que seguían en Mongo: Movimientos (vista FLUJOS), Acreencias (cobros futuros) y
-VolumenMercadoAgro (denominador del share AGRO).
+"""api/services/cashflow_sql.py — lecturas SQL (Supabase) de tres dominios:
+movimientos (vista FLUJOS), acreencias (cobros futuros) y el volumen de mercado
+agro (denominador del share AGRO).
 
-Servicio PURO (sin FastAPI). Cada función devuelve EXACTAMENTE el mismo shape que su
-contraparte Mongo (api/routers/operaciones.py::listar_flujos, api/services/acreencias.py,
-api/services/comercial.py, api/services/operaciones_sql.py::ops_agro) para que el
-resultado sea byte-a-byte.
+Servicio PURO (sin FastAPI). Lo consumen api/routers/operaciones.py::listar_flujos,
+api/services/acreencias.py, api/services/comercial.py y
+api/services/operaciones_sql.py::ops_agro.
 
-FLUJOS y ACREENCIAS son SQL-NATIVE desde los cutovers de 2026-06-23/24: /api/operaciones/flujos
-+ back-office/acreencias + comercial/cobros-futuros leen SIEMPRE SQL (CashFlow.Movimientos y
-CashFlow.Acreencias Mongo dropeadas) — sin flag. Queda un dominio en dual-run por flag:
+Es la ÚNICA fuente de los tres dominios — no hay flags ni rutas alternativas:
+  * FLUJOS      → /api/operaciones/flujos
+  * ACREENCIAS  → back-office/acreencias + comercial/cobros-futuros
+                  (funciones por_dia / del_dia / del_cliente / acreencias_docs)
+  * AGRO        → mercado.volumen_mercado_agro (passthrough periodo/commodity/toneladas)
 
-    VOLUMEN_AGRO_SQL=1    → el denominador del share AGRO sale de SQL (mercado.volumen_mercado_agro)
-
-ACREENCIAS — SQL-NATIVE (cutover 2026-06-23): back-office/acreencias + comercial/
-cobros-futuros leen SIEMPRE operaciones.acreencias (SIN flag; CashFlow.Acreencias
-Mongo dropeada). Las funciones por_dia/del_dia/del_cliente/acreencias_docs son la
-única fuente.
-
-Reglas de traducción Mongo→SQL (verificadas contra el código de los writers):
-  * Movimientos.`fecha` es string dd/mm/yyyy CRUDO en Mongo → se guarda tal cual en SQL
-    (columna text). El parseo a ISO + el filtro [desde,hasta] + el orden se hacen acá en
-    Python, idéntico al path Mongo (la fecha no es ordenable como string).
-  * Acreencias: `monto` se SUMA en su moneda nativa (ARS/USD), NO se pesifica. `generado_at`
-    no se proyecta (igual que Mongo `{generado_at: 0}`).
-  * VolumenMercadoAgro: passthrough — solo se lee periodo/commodity/toneladas.
+Particularidades del dato:
+  * `movimientos.fecha` es un string dd/mm/yyyy crudo guardado tal cual (columna
+    text). El parseo a ISO, el filtro [desde,hasta] y el orden se hacen acá en
+    Python: la fecha no es ordenable como string.
+  * Acreencias: `monto` se SUMA en su moneda nativa (ARS/USD), NO se pesifica.
+    `generado_at` no se proyecta.
 """
 from __future__ import annotations
 
-import os
 import re
 
 from api.cache import cached
@@ -37,15 +29,6 @@ from api.services._sql import _q
 from api.services.operaciones_view import ddmmyyyy_a_iso as _ddmmyyyy_a_iso
 
 _RE_ID_BRACKET = re.compile(r"^\[(\d+)\]")
-
-
-# ── selectores de motor (flag por dominio, mismo patrón que operaciones_view.motor) ──
-# movimientos_sql_on() / acreencias_sql_on() ELIMINADOS (cutovers 2026-06-23/24):
-# FLUJOS y ACREENCIAS leen SQL fijo (sin flag).
-
-
-def volumen_agro_sql_on() -> bool:
-    return os.getenv("VOLUMEN_AGRO_SQL") == "1"
 
 
 def _f(x) -> float:

@@ -1,36 +1,23 @@
 """api/services/renta_fija_sql.py — renta fija LIVE leyendo Postgres (mercado.*).
 
-4° corte read-side de MERCADO. Espejo SQL-native de las funciones de
-`api/services/renta_fija.py` que leen estado de mercado:
+Read-side de MERCADO para renta fija. Qué lee cada función:
 
-  - get_renta_fija     ← mercado.market_snapshot          (snapshot live + TC BE)
-  - listar_curva       ← mercado.curvas + market_snapshot  (curva enriquecida)
-  - get_historico_curva← mercado.snapshots_cierre_hist (+ fallback live de hoy)
+  - get_renta_fija      ← mercado.market_snapshot           (snapshot live + TC BE)
+  - listar_curva        ← mercado.curvas + market_snapshot  (curva enriquecida)
+  - get_historico_curva ← mercado.snapshots_cierre_hist (+ fallback live de hoy)
+  - get_historico_trades← mercado.timesales                 (tape del día)
+  - _bonos_cer_fijados  ← macro.series_macro (CER) + mercado.curvas + mercado.dias_habiles
 
-Todo lo NO migrado se reexporta del módulo Mongo → drop-in del selector:
-  - get_historico_trades   → Trading.TimeSales (stream, no migrado, se queda Mongo)
-  - calendario_ons / get_retorno_total_data → derivados (Mongo por ahora)
-  - resolver_ticker_exacto / _CURVAS_VALIDAS → helpers compartidos
+Se reexportan de `api/services/renta_fija.py` los helpers compartidos y las
+funciones de derivados: `_CURVAS_VALIDAS`, `resolver_ticker_exacto`,
+`calendario_ons`, `get_retorno_total_data`.
 
-SQL-native:
-  - `_bonos_cer_fijados` (CER fijado): lee macro.series_macro (CER), mercado.curvas y
-    mercado.dias_habiles de SQL (este último SQL-first + fallback Mongo, ver helper).
-Híbrido que queda (1) — lee Mongo, aún sin espejo SQL (no migrado):
-  - MEP live (`macro.get_ultimo_mep`) → Valuaciones.DolarSnapshot (feed WS). Migra con el
-    dual-write del motor de dólar (Rojo). `# TODO SQL-native`.
+El MEP live sale de `macro.get_ultimo_mep` (snapshot del motor de dólar, TTL 5s).
 
-REGLA #1 del 19/6 (Mongo se apaga; SQL nativo; lo muerto se borra, no se migra):
-  - `total_money` (volumen $ del día) está MUERTO — el motor lo dejó de escribir
-    (engines/valores.py::_calcular_metricas: "removido: total_money"). NO se arrastra:
-    se quita `total_money_dia` del output y el orden 'volumen_dia' pasa a ordenar por
-    el volumen VIVO (`total_nominals_dia`), no por un 0 fantasma como hacía Mongo.
-
-Dependencia Mongo que falta para que sea 100% SQL-native: el MEP live (`DolarSnapshot`,
-feed WS, aún sin espejo SQL).
-
-SQL-only (decomiso Mongo). Validación: spot-check funcional
-SQL (no byte-parity contra Mongo — Mongo se va). Se apoya en el dual-write de
-market_snapshot (SNAPSHOT_SQL) en paridad (recon 2026-06-19, fresco a ~1s).
+`total_money` (volumen $ del día) está MUERTO: el motor dejó de escribirlo
+(engines/valores.py::_calcular_metricas). No se arrastra — `total_money_dia` no
+sale en el output y el orden 'volumen_dia' ordena por el volumen VIVO
+(`total_nominals_dia`), no por un 0 fantasma.
 """
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 """core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.
 
-Espejo de SOLO LECTURA del núcleo relacional (ver docs/SQL.md y ARQUITECTURA.md §5).
-NO es la base operativa — la mesa sigue contra Mongo. core/ no importa nada del
+ES la base operativa y la ÚNICA del sistema: motores, jobs, API y MCP leen y
+escriben acá (ver docs/SQL.md y ARQUITECTURA.md §5). core/ no importa nada del
 proyecto (regla de capas) → solo os + psycopg.
 
 Env var: POSTGRES_URI (connection string de Supabase; va en el .env, NUNCA en el repo).

@@ -301,11 +301,28 @@ def test_resuelve_por_unidad_exacta():
     assert aca._resolver_titulo("[3] GD30", CATALOGO)[0] == "[3] GD30"
 
 
-def test_ticker_ambiguo_NO_elige_uno():
-    """Dos títulos con el mismo ticker → se reporta, no se adivina. Meter el papel
-    equivocado en un informe de gerencia es peor que dejar la fila afuera."""
+def test_ticker_ambiguo_SI_se_importa_y_se_avisa():
+    """Decisión del user 2026-08-13: "por más que sea ambiguo, si el ticker existe
+    ponelo". Antes se descartaba la fila y eso dejaba afuera plata que SÍ existe
+    por un problema de catálogo. Se elige DETERMINISTA (la primera por unidad) y
+    se marca — elegir mal se corrige en un clic; que no aparezca, no se ve."""
     u, motivo = aca._resolver_titulo("GD30", CATALOGO)
-    assert u is None and "AMBIGUO" in motivo
+    assert u == "[3] GD30", "sin pistas gana la primera por unidad ordenada"
+    assert "AMBIGUO" in motivo and "[4] GD30v2" in motivo
+
+
+def test_ticker_ambiguo_prefiere_la_unidad_YA_cargada():
+    """Continuidad: si el período ya venía usando una de las dos, es esa. Sin
+    esto, re-importar el mismo archivo podía cambiar de unidad mes a mes."""
+    u, _ = aca._resolver_titulo("GD30", CATALOGO, ya_cargadas={"[4] GD30v2"})
+    assert u == "[4] GD30v2"
+
+
+def test_ticker_ambiguo_es_estable():
+    """El MISMO archivo tiene que importar SIEMPRE igual — si no, dos corridas
+    dan informes distintos y nadie sabe cuál es el bueno."""
+    assert (aca._resolver_titulo("GD30", CATALOGO)[0]
+            == aca._resolver_titulo("GD30", list(reversed(CATALOGO)))[0])
 
 
 def test_titulo_desconocido_no_se_inventa():

@@ -509,7 +509,8 @@ def clonar_periodo(destino: str, origen: str | None, actor: str) -> dict:
     return {"ok": True, "periodo": p, "origen": src, "filas": n}
 
 
-def _resolver_titulo(clave: str, catalogo: list[dict]) -> tuple[str | None, str]:
+def _resolver_titulo(clave: str, catalogo: list[dict],
+                     ya_cargadas: set[str] | None = None) -> tuple[str | None, str]:
     """Texto de una celda del Excel → `unidad` de `portafolio.assets`.
 
     Devuelve (unidad, motivo). unidad=None significa que NO se pudo resolver, y
@@ -523,12 +524,11 @@ def _resolver_titulo(clave: str, catalogo: list[dict]) -> tuple[str | None, str]
       4. `instrumento` exacto.
     Todo case-insensitive y sin espacios de más.
 
-    NUNCA adivina por parecido: si un ticker matchea DOS unidades, devuelve
-    'ambiguo' con las candidatas en vez de elegir una. Meter el título
-    equivocado en un informe de gerencia es peor que dejar la fila afuera —
-    que es exactamente lo que el user pidió ("si no reconoce alguno que no lo
-    agregue").
+    Si el ticker apunta a MÁS DE UNA unidad se elige una de forma determinista y
+    se avisa (ver el bloque de abajo). Lo que NUNCA se hace es adivinar por
+    parecido: un título que no está en el catálogo no se importa.
     """
+    ya_cargadas = ya_cargadas or set()
     t = (clave or "").strip()
     if not t:
         return None, "celda vacía"
@@ -548,8 +548,24 @@ def _resolver_titulo(clave: str, catalogo: list[dict]) -> tuple[str | None, str]
         if len(hits) == 1:
             return hits[0]["unidad"], f"por {etiqueta}"
         if len(hits) > 1:
-            cands = ", ".join(h["unidad"] for h in hits[:4])
-            return None, f"AMBIGUO: {len(hits)} títulos con ese {etiqueta} ({cands})"
+            # AMBIGUO: el ticker existe pero apunta a más de una unidad. Decisión
+            # del user (2026-08-13): "por más que sea ambiguo, si el ticker existe
+            # ponelo". Antes se descartaba la fila, y eso dejaba afuera plata que
+            # SÍ existe por un problema de catálogo — el remedio era peor.
+            #
+            # Se elige de forma DETERMINISTA y se avisa:
+            #   1. la que YA está cargada en este período (continuidad: si el mes
+            #      pasado se usó esa unidad, es esa);
+            #   2. si no, la primera por `unidad` ordenada — arbitraria pero
+            #      estable: el mismo archivo importa siempre igual.
+            # La fila queda marcada `ambiguo` con los candidatos, y la pantalla la
+            # muestra en ámbar para revisarla. Elegir mal es corregible en un clic;
+            # que la plata no aparezca en el informe, no.
+            elegida = next((h["unidad"] for h in hits if h["unidad"] in ya_cargadas), None)
+            if not elegida:
+                elegida = sorted(h["unidad"] for h in hits)[0]
+            cands = ", ".join(sorted(h["unidad"] for h in hits)[:4])
+            return elegida, f"AMBIGUO ({len(hits)} con ese {etiqueta}: {cands}) → elegí {elegida}"
     return None, "no está en el catálogo de Manager → Títulos"
 
 
@@ -592,7 +608,7 @@ def importar_activos(payload: dict, actor: str, dry_run: bool = True) -> dict:
 
     for i, f in enumerate(filas):
         titulo = str(f.get("titulo") or "").strip()
-        unidad, motivo = _resolver_titulo(titulo, catalogo)
+        unidad, motivo = _resolver_titulo(titulo, catalogo, ya_cargadas)
         if not unidad:
             ignoradas.append({"fila": i + 2, "titulo": titulo, "motivo": motivo})
             continue
@@ -605,6 +621,7 @@ def importar_activos(payload: dict, actor: str, dry_run: bool = True) -> dict:
             "cartera": ficha.get("cartera") or "",
             "emisor": ficha.get("emisor") or "",
             "match": motivo,
+            "ambiguo": motivo.startswith("AMBIGUO"),
             "vn": _num(f.get("vn")),
             "px": _num(f.get("px")),
             "tasa": (str(f.get("tasa") or "").strip() or None),
@@ -648,6 +665,7 @@ def importar_activos(payload: dict, actor: str, dry_run: bool = True) -> dict:
         "n_reconocidas": len(reconocidas),
         "n_ignoradas": len(ignoradas),
         "n_pisa": sum(1 for it in reconocidas if it["pisa"]),
+        "n_ambiguas": sum(1 for it in reconocidas if it["ambiguo"]),
     }
 
 

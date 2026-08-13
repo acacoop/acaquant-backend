@@ -331,12 +331,18 @@ débil: `unidad` exacta → `ticker` exacto → el ticker que va antes de un `" 
 (`"RMJ28 - BONO MUN. ROSARIO 26/06/28 $"` → `RMJ28`, que es como viene la
 planilla) → `instrumento` exacto. Todo case-insensitive.
 
-**Nunca adivina.** Si un ticker matchea DOS unidades devuelve `AMBIGUO` con las
-candidatas y **no importa esa fila**: meter el papel equivocado en un informe de
-gerencia es peor que dejar la fila afuera. Lo mismo con lo que no está en el
-maestro. Todo lo ignorado se devuelve con su motivo y su número de fila — no se
-descarta en silencio, que es exactamente lo que el user pidió ("si no reconoce
-alguno que no lo agregue, pero a los que sí").
+**Ticker que apunta a MÁS DE UNA unidad**: se importa igual (decisión del user
+2026-08-13: *"por más que sea ambiguo, si el ticker existe ponelo"*). Antes se
+descartaba la fila, y eso dejaba afuera plata que SÍ existe por un problema de
+catálogo — el remedio era peor. Se elige **determinista**: primero la unidad que
+YA está cargada en ese período (continuidad), si no la primera por `unidad`
+ordenada, así el mismo archivo importa siempre igual. La fila queda marcada
+`ambiguo` con los candidatos y la pantalla la pinta en ámbar: elegir mal se
+corrige en un clic; que la plata no aparezca en el informe, no se ve.
+
+**Lo que NO se importa** es lo que no está en el maestro. Se devuelve con su
+motivo y su número de fila — no se descarta en silencio, que es exactamente lo
+que el user pidió ("si no reconoce alguno que no lo agregue, pero a los que sí").
 
 **Números**: acepta el valor nativo del Excel o el texto es-AR
 (`"458.915.200"` = miles, `"80,04"` = decimal, `"106.02"` = decimal,
@@ -368,6 +374,17 @@ Escritura: la misma allowlist que el resto (mesa + admin). Queda en `aca.audit`.
 ---
 
 ## Changelog
+
+### 2026-08-13 — Tablas alineadas + los ambiguos SÍ se importan
+- Las 4 tablas de cartera pasan a `table-fixed` con un `<colgroup>` COMPARTIDO:
+  antes cada una se dimensionaba con su propio contenido (Cartera Pesos con
+  emisores cortos vs Cartera DL con 'AEROPUERTOS 2000') y las mismas columnas
+  arrancaban en lugares distintos — se leía como cuatro tablas sueltas en vez de
+  un informe. Ahora VN/Px/Monto caen siempre en la misma posición. Las celdas
+  truncan con `title` y los inputs pasan a `w-full`.
+- **Ticker ambiguo ya NO se descarta**: se importa eligiendo determinista y se
+  marca en ámbar (ver §9). Tests actualizados, incluido uno que congela que la
+  elección sea ESTABLE (el mismo archivo importa siempre igual).
 
 ### 2026-08-13 — Importar Excel al detalle de activos
 - `POST /api/aca/activos/importar` + botón **⬆ IMPORTAR EXCEL** en la tab

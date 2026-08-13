@@ -15,23 +15,27 @@ Lo que sí sabemos, verificado:
     movimientos bancarios de Aunesa** — que hoy viven 15 segundos y después se
     destruyen solos. La tabla propuesta se llama, textual, así.
 
-O sea: **no es un resto del pasado, es el germen de una propuesta a futuro**
-que alguien empezó a materializar fuera del repo. Por eso este script ya no
-borra a ciegas: cuando encuentra filas, hace la forensia y la decisión vuelve
-al user con datos (¿de cuándo son? ¿alguien sigue escribiendo?).
+DECISIÓN DEL USER (2026-08-13): SE BAJA
+=======================================
+Las 2.106 filas entraron en 44 segundos el 2026-08-06 y no se tocaron nunca
+más (`n_tup_ins` == total de filas). Nadie la lee, nadie la escribe, no está en
+el schema: es un resto de experimento, no una funcionalidad a medias. Y el dato
+**es recuperable**: ese mismo backfill lo sacó de Aunesa, así que si algún día
+se retoma [T2] se vuelve a traer.
 
 SEGURIDAD
 =========
-Por defecto es DRY-RUN. Si la tabla tiene filas, **informa y NO borra** aunque
-se pase `--confirmar`: para bajarla hace falta primero decidir qué se hace con
-[T2], y eso no lo decide un script.
+Por defecto es DRY-RUN: informa y no toca nada. Con `--confirmar` primero
+**respalda la tabla a un CSV** y recién ahí la borra; si el respaldo falla, NO
+borra. La red cuesta un segundo y hace reversible algo que no lo es.
 
 Uso (en el Droplet):
     python -m scripts.fix_borrar_tabla_muerta              # informe / dry-run
-    python -m scripts.fix_borrar_tabla_muerta --confirmar  # borra SOLO si está vacía
+    python -m scripts.fix_borrar_tabla_muerta --confirmar  # respalda y borra
 """
 from __future__ import annotations
 
+import os
 import sys
 
 from core.postgres import get_pool
@@ -93,6 +97,28 @@ def _forensia(cur) -> None:
             print("      → HAY escrituras. Algo la alimenta y NO es este repo.")
 
 
+def _respaldar(cur, filas: int) -> str | None:
+    """Vuelca la tabla a un CSV al lado del repo. Devuelve la ruta, o None si
+    falló (y entonces NO se borra: sin red no se tira nada).
+
+    Es una red, no un requisito: el dato es recuperable de Aunesa —de ahí salió
+    en el backfill del 2026-08-06—. Pero cuesta un segundo y hace reversible una
+    decisión que no lo es."""
+    destino = os.path.abspath(f"{_TABLA}_respaldo.csv")
+    try:
+        with open(destino, "w", encoding="utf-8") as fh, cur.copy(
+            f"COPY {_SCHEMA}.{_TABLA} TO STDOUT WITH CSV HEADER"
+        ) as copy:
+            for bloque in copy:
+                fh.write(bytes(bloque).decode("utf-8"))
+        tam = os.path.getsize(destino)
+        print(f"   ✅ respaldo: {destino}  ({filas} filas, {tam / 1024:.0f} KB)")
+        return destino
+    except Exception as e:
+        print(f"   respaldo FALLÓ: {str(e).splitlines()[0]}")
+        return None
+
+
 def main() -> int:
     confirmar = "--confirmar" in sys.argv
     pool = get_pool()
@@ -119,15 +145,25 @@ def main() -> int:
         print(f"   tamaño  : {tamano}")
         print(f"   índices : {', '.join(indices) or '—'}")
 
-        if filas:
-            print(f"\n⛔ TIENE {filas} FILAS — no la borro. Forensia:")
+        if filas and not confirmar:
+            print(f"\n⛔ TIENE {filas} FILAS — no la borro (dry-run). Forensia:")
             _forensia(cur)
-            print("\n   DECISIÓN (es tuya, no de un script):")
-            print("   · Si el último dato es viejo y nadie escribe → experimento")
-            print("     abandonado: se puede bajar (o dejar como semilla de [T2]).")
-            print("   · Si hay escrituras recientes → algo la alimenta desde")
-            print("     FUERA del repo y hay que encontrarlo ANTES de tocarla.")
+            print("\n   Para bajarla igual (respalda a CSV y después borra):")
+            print("   python -m scripts.fix_borrar_tabla_muerta --confirmar")
             return 1
+
+        if filas:
+            # Decisión del user (2026-08-13): la tabla no la lee nadie, no la
+            # escribe nadie desde el backfill único del 2026-08-06 y no está en
+            # sql/schema.sql — es un resto de experimento. El dato ES
+            # recuperable (ese mismo backfill lo sacó de Aunesa en 44s), así que
+            # el respaldo es una red, no un requisito.
+            print(f"\n   {filas} filas → respaldo ANTES de borrar:")
+            _forensia(cur)
+            destino = _respaldar(cur, filas)
+            if destino is None:
+                print("\n   ⛔ El respaldo falló — NO borro. Sin red no se tira nada.")
+                return 1
 
         if not confirmar:
             print("\n(dry-run) Está vacía y nadie la referencia → se puede borrar.")

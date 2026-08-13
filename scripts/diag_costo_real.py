@@ -26,7 +26,8 @@ OJO: los contadores de Postgres son ACUMULADOS desde el último reset de stats
 (se imprime la fecha). Comparan bien entre sí, no son "de hoy".
 
 Uso (en el Droplet):
-    python -m scripts.diag_costo_real [horas]     # default 24h para la parte APP
+    python -m scripts.diag_costo_real [horas] [top]   # default 24h, top 12
+    python -m scripts.diag_costo_real 168 60          # una semana, 60 endpoints
 """
 from __future__ import annotations
 
@@ -57,12 +58,16 @@ def _corta(q: str, n: int = 88) -> str:
     return limpia[:n] + ("…" if len(limpia) > n else "")
 
 
-def _app(horas: int) -> None:
+def _app(horas: int, top: int) -> None:
     print(f"\n{'=' * 78}\n1) APP — endpoints por TIEMPO TOTAL consumido "
           f"(últimas {horas}h)\n{'=' * 78}")
     try:
         from api.services import latencia_endpoints as svc
-        data = svc.get_latencia(horas=horas, top=_TOP)
+        # Se piden MUCHOS y se recorta acá: así se puede decir qué fracción del
+        # tiempo total cubre el top mostrado. Con un top chico, una familia
+        # entera (ej. todo /api/manager/*) queda invisible y parece que "no
+        # pasa nada ahí" — que es justamente la trampa.
+        data = svc.get_latencia(horas=horas, top=500)
     except Exception as e:
         print(f"   no disponible ({e})")
         return
@@ -70,11 +75,17 @@ def _app(horas: int) -> None:
     if not eps:
         print("   sin telemetría en la ventana (¿API recién reiniciada?)")
         return
+    total_todos = sum((e["n"] * e["avg_ms"]) / 1000 for e in eps)
     print(f"   {'endpoint':<44}{'n':>7}{'avg':>8}{'max':>8}{'total':>10}")
-    for e in eps:
+    acum = 0.0
+    for e in eps[:top]:
         total_s = (e["n"] * e["avg_ms"]) / 1000
+        acum += total_s
         print(f"   {e['endpoint'][:43]:<44}{e['n']:>7}{e['avg_ms']:>7.0f}ms"
               f"{e['max_ms']:>7.0f}ms{total_s:>9.1f}s")
+    pct = (acum / total_todos * 100) if total_todos else 0
+    print(f"   → mostrados {min(top, len(eps))} de {len(eps)} endpoints: cubren "
+          f"{pct:.0f}% de los {total_todos:.0f}s totales de la ventana.")
     print("   → el que más SUMA es el que conviene mirar, no el más lento suelto.")
 
 
@@ -156,7 +167,8 @@ def _indices(cur) -> None:
 
 def main() -> int:
     horas = int(sys.argv[1]) if len(sys.argv) > 1 else 24
-    _app(horas)
+    top = int(sys.argv[2]) if len(sys.argv) > 2 else _TOP
+    _app(horas, top)
     pool = get_pool()
     with pool.connection() as conn, conn.cursor() as cur:
         # autocommit: si una consulta falla (ej. pg_stat_statements sin instalar)

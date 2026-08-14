@@ -38,8 +38,8 @@
           "",
           "// --- Token ---",
           "(function token() {",
-          "  // El request manual de token no necesita que le consigamos un token antes.",
-          "  if ((pm.info.requestName || '').indexOf('TOKEN') === 0) { return; }",
+          "  // Los requests de token y de descubrimiento no necesitan un token previo.",
+          "  if (/^(TOKEN|DISCOVERY)/.test(pm.info.requestName || '')) { return; }",
           "",
           "  const ahora = Math.floor(Date.now() / 1000);",
           "  const vence = Number(pm.collectionVariables.get('ib_token_vence') || 0);",
@@ -421,6 +421,171 @@
               ]
             },
             "description": "Parámetros en la URL en vez del body. Algunas versiones de CAS lo aceptan así.\n\nSOLO para diagnóstico: mandar el secret en la query string no es buena práctica\n(queda en logs de acceso del servidor). Si esta es la única que funciona, hay que\nhablarlo con Interbanking."
+          }
+        }
+      ]
+    },
+    {
+      "name": "00b · Descubrimiento del servidor de auth",
+      "description": "El 401 es IDÉNTICO en las cuatro variantes de credenciales, así que el problema\nprobablemente no sea el formato sino el endpoint o la habilitación de la aplicación.\n\nEstos requests NO usan credenciales: le preguntan al propio servidor cómo se llama\nsu endpoint de token, qué grants soporta y qué métodos de autenticación acepta.\nCorrelos en orden — el primero que devuelva 200 contesta todo.",
+      "item": [
+        {
+          "name": "DISCOVERY 1 · openid-configuration (bajo /cas/oidc)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] HTTP ' + pm.response.code);",
+                  "if (pm.response.code !== 200) { console.log(pm.response.text()); return; }",
+                  "const j = pm.response.json() || {};",
+                  "console.log('[IB] ===== CONFIGURACIÓN REAL DEL SERVIDOR =====');",
+                  "console.log('[IB] issuer                         : ' + j.issuer);",
+                  "console.log('[IB] token_endpoint                 : ' + j.token_endpoint + '   <<< ES ESTA LA URL BUENA');",
+                  "console.log('[IB] grant_types_supported          : ' + JSON.stringify(j.grant_types_supported));",
+                  "console.log('[IB] token_endpoint_auth_methods    : ' + JSON.stringify(j.token_endpoint_auth_methods_supported));",
+                  "console.log('[IB] scopes_supported               : ' + JSON.stringify(j.scopes_supported));",
+                  "",
+                  "if (j.token_endpoint) {",
+                  "  const actual = pm.variables.get('ib_auth_url');",
+                  "  if (j.token_endpoint !== actual) {",
+                  "    console.error('[IB] >>> LA URL DE TOKEN QUE ESTAMOS USANDO NO ES LA QUE DECLARA EL SERVIDOR.');",
+                  "    console.error('[IB]     usamos  : ' + actual);",
+                  "    console.error('[IB]     debería : ' + j.token_endpoint);",
+                  "    console.error('[IB]     Cambiá ib_auth_url en el Environment y reintentá TOKEN A.');",
+                  "  } else {",
+                  "    console.log('[IB] >>> La URL de token coincide con la que estamos usando.');",
+                  "  }",
+                  "}",
+                  "",
+                  "const grants = j.grant_types_supported || [];",
+                  "if (grants.length && grants.indexOf('client_credentials') === -1) {",
+                  "  console.error('[IB] >>> El servidor NO declara soportar client_credentials. Eso explica el 401.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "https://auth.interbanking.com.ar/cas/oidc/.well-known/openid-configuration",
+              "protocol": "https",
+              "host": ["auth", "interbanking", "com", "ar"],
+              "path": ["cas", "oidc", ".well-known", "openid-configuration"]
+            },
+            "description": "Documento de descubrimiento OIDC. Es público y no lleva credenciales.\nDice cuál es el endpoint de token REAL, qué grants soporta y cómo espera\nrecibir las credenciales del cliente."
+          }
+        },
+        {
+          "name": "DISCOVERY 2 · openid-configuration (en la raíz)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] HTTP ' + pm.response.code);",
+                  "console.log(pm.response.text().substring(0, 2000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "https://auth.interbanking.com.ar/.well-known/openid-configuration",
+              "protocol": "https",
+              "host": ["auth", "interbanking", "com", "ar"],
+              "path": [".well-known", "openid-configuration"]
+            },
+            "description": "Mismo documento, pero en la ubicación estándar de la raíz del dominio.\nAlgunos despliegues lo publican acá y no bajo el path de la app."
+          }
+        },
+        {
+          "name": "DISCOVERY 3 · oauth-authorization-server",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] HTTP ' + pm.response.code);",
+                  "console.log(pm.response.text().substring(0, 2000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "https://auth.interbanking.com.ar/cas/oidc/.well-known/oauth-authorization-server",
+              "protocol": "https",
+              "host": ["auth", "interbanking", "com", "ar"],
+              "path": ["cas", "oidc", ".well-known", "oauth-authorization-server"]
+            },
+            "description": "Variante del descubrimiento definida por el RFC 8414 (OAuth puro, sin OIDC)."
+          }
+        },
+        {
+          "name": "TOKEN E · path /cas/oidc/token (CAS 6.x)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const id = String(pm.variables.get('ib_client_id') || '').trim();",
+                  "const sec = String(pm.variables.get('ib_client_secret') || '').trim();",
+                  "pm.request.headers.upsert({",
+                  "  key: 'Authorization',",
+                  "  value: 'Basic ' + Buffer.from(id + ':' + sec).toString('base64')",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] === VARIANTE E (/cas/oidc/token) => HTTP ' + pm.response.code + ' ===');",
+                  "console.log(pm.response.text());",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.collectionVariables.set('ib_access_token', j.access_token);",
+                  "  pm.collectionVariables.set('ib_token_vence', String(Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600)));",
+                  "  pm.collectionVariables.set('ib_auth_url', 'https://auth.interbanking.com.ar/cas/oidc/token');",
+                  "  console.log('[IB] >>> FUNCIONA con /cas/oidc/token. Ya quedó seteado ib_auth_url.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "client_credentials" },
+                { "key": "scope", "value": "{{ib_scope}}" }
+              ]
+            },
+            "url": {
+              "raw": "https://auth.interbanking.com.ar/cas/oidc/token",
+              "protocol": "https",
+              "host": ["auth", "interbanking", "com", "ar"],
+              "path": ["cas", "oidc", "token"]
+            },
+            "description": "En CAS 6.x el endpoint de token se llama `/cas/oidc/token`.\n`/cas/oidc/accessToken` es el nombre viejo (CAS 5.x), que quedó como alias en\nalgunas versiones y desapareció en otras.\n\nSi el path no existe, un Spring Security mal configurado devuelve **401 genérico\nen vez de 404** — que es exactamente el cuerpo de error que estamos viendo."
           }
         }
       ]

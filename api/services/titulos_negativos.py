@@ -105,8 +105,8 @@ def _negativos_de(horizonte: str, incluir_todo: bool) -> list[dict]:
     } for f in filas]
 
 
-def _saldos_negativos() -> dict:
-    """Saldos de EFECTIVO en descubierto, desde `portafolio.control_saldos`.
+def _saldos() -> dict:
+    """Saldos de EFECTIVO del día, desde `portafolio.control_saldos`.
 
     Es otra fuente y otra pregunta que la de arriba. `tenencia_live` es una
     posición PROYECTADA (mete adentro lo que todavía no liquidó), así que una
@@ -117,6 +117,12 @@ def _saldos_negativos() -> dict:
 
     El signo ya viene corregido por el daemon: acá `cantidad < 0` es, sin
     interpretación, plata que falta.
+
+    Se devuelven los saldos **POSITIVOS Y NEGATIVOS** (2026-08-13): la pantalla es
+    de 50/50, con lo que está a favor de un lado y el descubierto del otro. El
+    corte por signo y por moneda lo hace el front sobre estas mismas filas — así
+    cambiar de moneda es instantáneo y los totales de las dos mitades no pueden
+    contradecirse entre sí por venir de dos consultas distintas.
 
     ⚠️ Degrada en silencio a `disponible: false` si la tabla todavía no existe.
     La escribe un daemon nuevo y el `apply_schema` puede no haber corrido aún:
@@ -130,22 +136,21 @@ def _saldos_negativos() -> dict:
         # cuesta es la CANTIDAD de queries, no su plan).
         filas = _q(
             "SELECT cs.id_cuenta, cs.cuenta, cs.ticker, cs.cantidad, "
-            "       cs.cantidad_pendiente, cs.filas_origen, cs.actualizado_at, "
-            "       c.nivel_5, c.operador_email, o.nombre AS operador_nombre "
+            "       cs.actualizado_at, c.nivel_5, c.operador_email, "
+            "       o.nombre AS operador_nombre "
             "FROM portafolio.control_saldos cs "
             "LEFT JOIN clientes.comitentes c ON c.id_cuenta = cs.id_cuenta "
             "LEFT JOIN clientes.operadores o ON o.email = c.operador_email "
             "WHERE cs.fecha = (SELECT MAX(fecha) FROM portafolio.control_saldos) "
-            "  AND cs.cantidad < 0 "
             "ORDER BY cs.cantidad ASC")
         meta = _q("SELECT MAX(fecha) AS fecha, MAX(actualizado_at) AS ult, "
                   "       count(DISTINCT id_cuenta) AS cuentas "
                   "FROM portafolio.control_saldos "
                   "WHERE fecha = (SELECT MAX(fecha) FROM portafolio.control_saldos)")[0]
     except Exception:
-        return {"disponible": False, "n": 0, "filas": [], "fecha": None,
-                "actualizado_at": None, "cuentas_en_control": 0, "ocultas": 0,
-                "excluidos": list(NIVEL5_EXCLUIDOS)}
+        return {"disponible": False, "n": 0, "n_negativos": 0, "filas": [],
+                "fecha": None, "actualizado_at": None, "cuentas_en_control": 0,
+                "ocultas": 0, "excluidos": list(NIVEL5_EXCLUIDOS)}
 
     # El corte CDC/OTC se hace en PYTHON y no en el WHERE a propósito: filtrando en
     # SQL las filas ocultas desaparecen sin dejar rastro y la pantalla no puede
@@ -166,13 +171,15 @@ def _saldos_negativos() -> dict:
         "ocultas": ocultas,
         "excluidos": list(NIVEL5_EXCLUIDOS),
         "n": len(visibles),
+        # El contador de la solapa: lo que hay que mirar son los descubiertos, no
+        # el total de saldos. Se cuenta acá y no en el front para que el número de
+        # la solapa no dependa de qué moneda esté elegida.
+        "n_negativos": sum(1 for f in visibles if (f["cantidad"] or 0) < 0),
         "filas": [{
             "id_cuenta": f["id_cuenta"],
             "cuenta": f["cuenta"] or f"[{f['id_cuenta']}]",
             "ticker": f["ticker"],
             "cantidad": _f(f["cantidad"]),
-            "cantidad_pendiente": _f(f["cantidad_pendiente"]),
-            "filas_origen": f["filas_origen"],
             # Sin operador cargado la fila igual se muestra: un descubierto no se
             # oculta porque falte la segmentación — al revés, que no tenga dueño
             # es información.
@@ -218,5 +225,5 @@ def titulos_negativos(incluir_todo: bool = False) -> dict:
         # Bloque NUEVO y ADITIVO: el front lo puede ignorar sin romperse. Va en la
         # misma respuesta y no en un endpoint aparte porque es la misma pantalla y
         # un segundo request para dos tablas que se miran juntas es un viaje de más.
-        "saldos": _saldos_negativos(),
+        "saldos": _saldos(),
     }

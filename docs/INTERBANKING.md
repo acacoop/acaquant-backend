@@ -3,6 +3,15 @@
 Estado: **EXPLORACIÓN**. Hay cliente y diags; todavía no hay job, tabla ni vista.
 Nada de esto está en producción.
 
+**Verificado el 2026-08-14** (corrido contra prod, no inferido):
+
+- La autenticación funciona con `POST /cas/oidc/oidcAccessToken`, credenciales
+  por **Basic header** y `scope=info-financiera`. Son los defaults de `config.py`,
+  así que no hace falta setear los overrides en el `.env`.
+- `GET /accounts` con `account-type=CC` devuelve **26 cuentas**. Bancos vistos:
+  007, 017, 034, 191, 198, 254, 299, 322, 431.
+- Falta correr el listado de `CA` y el cruce contra `operaciones.tesoreria_cuentas`.
+
 ## Qué es y para qué sirve
 
 Interbanking es la plataforma por la que ACA opera con sus bancos. Expone 5 APIs
@@ -96,7 +105,13 @@ funcione sin tocar código: `INTERBANKING_TOKEN_URL`, `INTERBANKING_AUTH_STYLE`
 ```bash
 python -m scripts.diag_interbanking_auth   # PRIMERO: por qué falla el token
 python -m scripts.diag_interbanking        # DESPUÉS: los datos reales
+python -m scripts.diag_interbanking_raw    # el JSON crudo + qué campos vienen vacíos
 ```
+
+Se pueden correr **desde cualquier PC**, no hace falta el Droplet: las APIs de
+Interbanking son internet público y los diags de auth y de forma no tocan la base.
+Lo único que necesita DB es el cruce contra `tesoreria_cuentas` del segundo diag,
+que está escrito para saltearse solo si no hay conexión.
 
 `diag_interbanking_auth` prueba en matriz endpoint × forma de mandar las
 credenciales × con/sin scope, y de cada intento muestra el status, el header
@@ -144,6 +159,7 @@ Hasta tener esos números medidos **no se decide el modelo de datos**.
 ## Changelog
 
 - **2026-08-14** — Alta de la aplicación en el portal. Colección de Postman
-  (`docs/postman/`), `core/interbanking.py`, `scripts/diag_interbanking_auth.py`
-  y `scripts/diag_interbanking.py`. Detectado que el `tokenUrl` de los YAML del
-  proveedor no es el endpoint real.
+  (`docs/postman/`), `core/interbanking.py`, `scripts/diag_interbanking_auth.py`,
+  `scripts/diag_interbanking.py` y `scripts/diag_interbanking_raw.py`. Detectado
+  que el `tokenUrl` de los YAML del proveedor no es el endpoint real. **Auth
+  resuelta y 26 cuentas leídas** contra producción.

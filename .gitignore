@@ -38,3 +38,7 @@ docs/*.xlsx
 security_audit_report.txt
 colecciones_baseline.json
 evals/_borrador_desde_flags.json
+
+# Muestras crudas de las APIs de Interbanking (scripts/diag_interbanking_raw).
+# Tienen CUIT, CBU, importes y nombres de comitentes REALES — nunca al repo.
+interbanking_muestras/

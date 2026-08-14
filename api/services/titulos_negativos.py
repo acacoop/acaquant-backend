@@ -276,15 +276,22 @@ def _saldos() -> dict:
     # distintos: una la fija la segmentación y la otra una persona con nombre.
     lista_ocultas = listar_ocultas()
     ids_ocultas = {o["id_cuenta"] for o in lista_ocultas}
-    visibles, ocultas, ocultas_manual = [], 0, 0
+    # Se cuentan CUENTAS y no filas. `control_saldos` tiene una fila por cuenta y
+    # POR MONEDA, así que contar filas hacía que ocultar 2 cuentas con 3 monedas
+    # entre las dos dijera "6" en un botón que dice CUENTAS. El set lo arregla en
+    # el único lugar donde se cuenta.
+    visibles = []
+    cuentas_nivel5: set[str] = set()
+    cuentas_a_mano: set[str] = set()
     for f in filas:
         if (f["nivel_5"] or "").strip().upper() in NIVEL5_EXCLUIDOS:
-            ocultas += 1
+            cuentas_nivel5.add(f["id_cuenta"])
             continue
         if f["id_cuenta"] in ids_ocultas:
-            ocultas_manual += 1
+            cuentas_a_mano.add(f["id_cuenta"])
             continue
         visibles.append(f)
+    ocultas, ocultas_manual = len(cuentas_nivel5), len(cuentas_a_mano)
 
     return {
         "disponible": True,

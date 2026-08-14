@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **486 endpoints** montados en `api.main.app`, en **29 routers**.
-- **168 escriben** (POST/PUT/PATCH/DELETE); 318 son de solo lectura.
+- **488 endpoints** montados en `api.main.app`, en **30 routers**.
+- **168 escriben** (POST/PUT/PATCH/DELETE); 320 son de solo lectura.
 - **23 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -51,6 +51,7 @@
 | `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
 | `/api/analitica` | 15 | 1 | — | — | ⚠️ |
 | `/api/back-office` | 59 | 35 | `back-office` · 59 rutas con gate extra | `back-office` |  |
+| `/api/back-office/interbanking` | 2 | 0 | `back-office` · 1 ruta con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 33 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
@@ -160,7 +161,7 @@ páginas.
 | 16 | **OPERACIONES** | `/operaciones` | `operaciones` | admin, trader, asistente_comercial | Volumen y arancel de boletos de mercado, más las verticales AGRO / DÓLAR FUTURO / DIFERENCIAS DIARIAS y los depósitos/extracciones. |
 | 17 | **OPERADORES** | `/operadores` | `operaciones` (+ `control_comercial` per-usuario para una sub-vista) | admin, trader, asistente_comercial | Tablero Comercial: qué cuentas gestiona cada operador, cuánto AuM/volumen/arancel generan, estado comercial y objetivos. |
 | 18 | **REFERIDOS** | `/referidos` | `operaciones` | admin, trader, asistente_comercial | Vista para la empresa referidora: solo sus cuentas — operan, AuM, rendimientos, volumen, aranceles y comisión FCI a la coop. |
-| 19 | **BACK OFFICE** | `/back-office` | `back-office` | admin, trader, sales, asistente_comercial, back_office | Operación diaria del back office: SENEBIS, tenencia valorizada, títulos en alquiler, Tesorería (caja del día), títulos a enviar/recibir al mercado y acreencias de clientes. |
+| 19 | **BACK OFFICE** | `/back-office` | `back-office` | admin, trader, sales, asistente_comercial, back_office | Operación diaria del back office: SENEBIS, tenencia valorizada, títulos en alquiler, Tesorería (caja del día), títulos a enviar/recibir al mercado y acreencias de clientes, extractos bancarios de Interbanking y saldos de cuentas comitentes. |
 | 20 | **ACA** | `/aca` | `aca` | **solo `empleado_aca`** (+ admin + escritores de la mesa) | **Link de primer nivel del header** (no está adentro de NEGOCIO: es la cartera de la casa y la mira gerencia). Resumen ejecutivo de la cartera PROPIA de ACA para gerencia: foto MENSUAL con valuación ARS/A3500/USD, composición por cartera, detalle título por título, métricas de concentración y rendimiento acumulado vs benchmarks. Carga manual tipo Excel (`docs/ACA.md`). |
 | 21 | **MANAGER** | `/manager` | `manager` + 6 sub-módulos | admin (todo); asistente_comercial entra por sub-módulos | Panel de administración: observabilidad, validaciones/debug, maestros (assets/bonos/ONs/CEDEARs), segmentación de clientes y contrapartes, backfills/imports, usuarios/roles/grupos y allowlists de escritura. |
 
@@ -1528,13 +1529,14 @@ nunca ve ese request. `/api/titulos/assets` **no tiene consumidor**.
 
 ### Vista: BACK OFFICE (`/back-office`)
 - **Módulo**: `back-office` (`_BACK_OFFICE` sobre `back_office.router` y `senebis.router`) | **Roles**: admin, trader, sales, asistente_comercial, back_office. **NO** invitado.
-- **Proxies**: tesorería `[[...path]]` GET/PUT/POST/DELETE que **mapea CUALQUIER error a `502 {error}`**; senebis catch-all que pasa **bytes crudos** para no corromper el `.xlsx`; acreencias solo GET.
+- **Proxies**: tesorería `[[...path]]` GET/PUT/POST/DELETE que **mapea CUALQUIER error a `502 {error}`**; senebis catch-all que pasa **bytes crudos** para no corromper el `.xlsx`; acreencias solo GET; **interbanking solo GET** (la integración es de lectura y el proxy es la cerradura que mira a internet).
 
 | Tab | Qué muestra | Endpoints | Filtros | Acciones de escritura |
 |---|---|---|---|---|
 | **Senebis** | Órdenes SENEBIS + espejo del Excel Quantex y del Excel MAE. Poll 10s (= heartbeat de presencia) — **UN request: `GET /vista`** trae órdenes + los 2 espejos + presencia + próximo ID (2026-08-13; antes eran 3 requests que corrían la MISMA query, ~13 viajes a la base por ciclo y por usuario → ahora ~7). `/ops`, `/excel` y `/excel-mae` siguen vivos pero **DEPRECADOS** | `/senebis/{vista,ops,excel,excel-mae,opciones,comitentes,export,export-mae}` + writes | FECHA: chips `HOY`/`TODO`; ESTADO: `TODAS`/`PENDIENTES (n)`/`COMPLETADAS`; MAE: `CON`/`SIN`(`mae=sin`)/`SOLO`(`mae=solo`). El backend además acepta `especie` — **sin control en la UI** | Alta/edición/borrado (allowlist), toggle estado, botón ⚠ EDITADA, reasignar ID, ABM de agentes, ajustar PRÓXIMO ID (admin), descargar los 2 `.xlsx` |
 | **Tenencia Valorizada** (**default**) | Serie diaria de AuM de las cuentas propias **100/255/256** por cartera + posiciones por título del día | `/tenencia-hd`, `/tenencia-hd/posiciones`, `POST /tenencia-hd/precio` | `cartera` = **HD** (Cartera USD, def) / `ARS`; selector de día; toggle de estado `TODOS`/`SIN GAR`/`SOLO GAR`/`SIN ALQUILER`; toggle `÷100` (paridad) en el editor | **Editar a mano el PRECIO** de una unidad de un día (recalcula las 3 cuentas + totales en `portafolio.tenencia`). **Sin allowlist propia**: alcanza el módulo `back-office` |
 | **Títulos en Alquiler** | **PORTFOLIO ALQUILER** (lista curada, serie diaria + posiciones) y **MARCAS** (todos los pares título·cuenta tenidos desde `desde`, con marca SI/NO, cantidad, desde/hasta) | `/tenencia-hd/en-alquiler`, `/portfolio-alquiler`, `/portfolio-alquiler/posiciones`, `/instrumentos`; 3 POST | buscador `q` client-side, toggle `soloAlq`, fecha `desde` (def 2026-06-01 en el front) | Marcar/desmarcar alquiler por (título, cuenta) con cantidad y período; agregar/quitar títulos de la lista; editar nominales por día (carry forward). **Sin allowlist propia** |
+| **Interbanking** | Los **extractos de los bancos** de ACA, para CONCILIAR. Se elige UNA cuenta y UN rango y se ve lo que dice el banco: panel **EXTRACTO** (día por día: apertura · créditos · débitos · cierre · movimientos) y panel **MOVIMIENTOS** (el detalle). Lee de `bancos.*`, que llena `jobs/interbanking_sync` cada 2hs de 9 a 19 ART — **la vista NUNCA le pega a Interbanking**: el límite de 100 llamadas/minuto es del ABONADO y no del proceso, así que una pantalla en vivo podría agotar la cuota y romper el propio job. Por eso la barra muestra siempre **cuándo fue la última sincronización**: una tabla vacía con el job caído no es «no hubo movimientos». Dos alertas de conciliación, las dos **calculadas en el backend** para que la pantalla no pueda contradecir al dato: **NO CIERRA** (fila roja — apertura + créditos − débitos ≠ el cierre que informa el banco) e **INCOMPLETO** (fila ámbar — tenemos guardada distinta cantidad de movimientos de la que el propio extracto declara). **NO se muestran CBU ni CUIT de nuestras cuentas, ni el número de cuenta completo** (va solo la terminación `…0020`), y el CUIT de contraparte va enmascarado; el backend directamente no los serializa y hay tests que lo congelan. Cada lectura queda auditada en `bancos.audit_lecturas`. Poll 60s (el dato cambia cada 2hs) | **UN request: `GET /interbanking/vista`** (+ `/cuentas`) | `cuenta_id`, `desde`, `hasta` (sin fechas el backend usa ayer+hoy, así el rango default no depende del reloj del navegador); rango máximo 60 días | **Ninguna — solo lectura de punta a punta.** El proxy de Next exporta SOLO GET y el cliente `core/interbanking.py` solo hace GET |
 | **Tesorería** | La caja del día. 5 tabs internas | ver bloque | ver bloque | allowlist `tesoreria_escritores` + admin |
 | **Títulos / Mercado** | Qué títulos hay que ENVIAR y RECIBIR al mercado hoy, por ticker (expandible a comitentes) o por par ticker·comitente. Poll 10s | `/titulos-mercado` | `fecha` (def hoy); client-side: unidad `nominales`/`dinero`, filtro `ambos`/`enviar`/`recibir`, vista `ticker`/`comitente`, sort por neto | Solo **export .xlsx client-side** (`titulos-mercado-<fecha>.xlsx`) |
 | **Acreencias Clientes** | Calendario de cobros futuros: tabla/chart por día + detalle del día por cliente·ticker | `/acreencias/por-dia`, `/acreencias/dia` | `desde` (def hoy) / `hasta` (def hoy+90) con atajos; día seleccionado; client-side `fTicker`, moneda `ALL/ARS/USD` | Ninguna |

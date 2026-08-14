@@ -1,0 +1,509 @@
+{
+  "info": {
+    "name": "BYMA Clearing Workflow",
+    "description": "API Clearing Workflow de BYMA: garantias (collateral) y obligaciones de liquidacion.\n\nEL TOKEN SE RENUEVA SOLO. Un script a nivel coleccion pide client_credentials cuando hace falta; si no cargaste la URL del token, la descubre desde el emisor.\n\nLOS DOS POST ESCRIBEN DE VERDAD: registran una orden de garantias. Estan frenados por el environment (permitir_escritura) y, aparte, contra produccion (permitir_produccion).\n\nLa doc de BYMA se contradice en varios puntos, asi que lo ambiguo quedo como variable: byma_sufijo (.json o vacio) y byma_cuentas_csv.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// TOKEN AUTOMATICO + FRENO DE ESCRITURA. Corre antes de CADA request.",
+          "//",
+          "// 1. Frena los POST de collateral salvo que el environment los autorice.",
+          "//    Depositar o extraer garantias NO es un test: es una orden.",
+          "// 2. Si el token guardado tiene menos de TTL_MIN minutos, no hace nada.",
+          "// 3. Si falta la URL del token, la DESCUBRE desde byma_issuer.",
+          "// 4. Pide el token con client_credentials. Prueba con Basic y, si el server",
+          "//    lo rechaza, reintenta mandando las credenciales en el body (los dos",
+          "//    metodos existen y BYMA no documenta cual usa).",
+          "",
+          "const TTL_MIN = 30;",
+          "const env = function (k) { return (pm.environment.get(k) || '').toString().trim(); };",
+          "",
+          "// ---------- fecha por defecto: HOY en hora local (no UTC: despues de las",
+          "// 21hs ART el UTC ya es manana y pediria obligaciones del dia equivocado)",
+          "if (!env('byma_settlement_date')) {",
+          "  pm.environment.set('byma_settlement_date', new Date().toLocaleDateString('en-CA'));",
+          "}",
+          "",
+          "// ---------- parametros vacios: se SACAN, no se mandan en blanco ----------",
+          "// Un `bookmark=` vacio no es \"sin bookmark\": es un cursor invalido, y las",
+          "// APIs paginadas suelen contestar 400. En la primera pagina no tiene que ir.",
+          "['bookmark', 'assetId'].forEach(function (p) {",
+          "  if (!env('byma_' + (p === 'bookmark' ? 'bookmark' : 'asset_id'))) {",
+          "    pm.request.url.query.remove(function (q) { return q && q.key === p; });",
+          "  }",
+          "});",
+          "",
+          "// ---------- 1. freno de escritura ----------",
+          "let bloqueo = null;",
+          "const urlTxt = pm.request.url.toString();",
+          "const esEscritura = pm.request.method === 'POST' &&",
+          "                    urlTxt.indexOf('collateral-management') !== -1;",
+          "",
+          "if (esEscritura) {",
+          "  if (env('permitir_escritura') !== 'SI') {",
+          "    bloqueo = 'Este request REGISTRA una orden de garantias real. Para habilitarlo, ' +",
+          "              'poner permitir_escritura = SI en el environment.';",
+          "  } else if (urlTxt.indexOf('hs-') === -1 && env('permitir_produccion') !== 'SI') {",
+          "    bloqueo = 'Estas apuntando a PRODUCCION (la URL no tiene el prefijo hs-). ' +",
+          "              'Para habilitarlo, poner permitir_produccion = SI en el environment.';",
+          "  } else {",
+          "    // clientId unico por dia y por agente: se consume un numero de la",
+          "    // secuencia del environment. Un intento fallido QUEMA el numero, a",
+          "    // proposito: repetir un clientId es peor que saltearse uno.",
+          "    const n = Number(env('byma_op_seq') || 1);",
+          "    pm.environment.set('byma_client_id_op', ('0000000' + n).slice(-8));",
+          "    pm.environment.set('byma_op_seq', n + 1);",
+          "  }",
+          "}",
+          "",
+          "if (bloqueo) {",
+          "  console.error('BLOQUEADO -> ' + bloqueo);",
+          "  if (pm.execution && pm.execution.skipRequest) {",
+          "    pm.execution.skipRequest();",
+          "  } else {",
+          "    throw new Error(bloqueo);",
+          "  }",
+          "} else {",
+          "  // ---------- 2. token ----------",
+          "  const esManual = (pm.info.requestName || '').indexOf('0.') === 0;",
+          "  const tok = env('byma_token');",
+          "  const ts = Number(env('byma_token_ts') || 0);",
+          "  const vigente = tok && (Date.now() - ts) < TTL_MIN * 60 * 1000;",
+          "",
+          "  if (!esManual && !vigente) {",
+          "    conTokenUrl(function (u) { pedirToken(u); });",
+          "  }",
+          "}",
+          "",
+          "// ---------- 3. de donde se piden los tokens ----------",
+          "// Todo servidor OAuth2 publica sus endpoints en un documento de",
+          "// descubrimiento. Con byma_issuer alcanza: la URL del token sale de ahi y",
+          "// no hay que pedirsela a nadie.",
+          "function conTokenUrl(cb) {",
+          "  const explicita = env('byma_token_url');",
+          "  if (explicita) { cb(explicita); return; }",
+          "",
+          "  const issuer = env('byma_issuer').replace(/\\/+$/, '');",
+          "  if (!issuer) {",
+          "    console.error('Falta configurar el environment: cargar byma_issuer (o byma_token_url).');",
+          "    return;",
+          "  }",
+          "  const rutas = ['/.well-known/oauth-authorization-server',",
+          "                 '/.well-known/openid-configuration'];",
+          "  let i = 0;",
+          "  (function probar() {",
+          "    if (i >= rutas.length) {",
+          "      console.error('El emisor no publico su documento de descubrimiento en ' + issuer +",
+          "                    '. Hay que cargar byma_token_url a mano (pedirsela a BYMA).');",
+          "      return;",
+          "    }",
+          "    const u = issuer + rutas[i++];",
+          "    pm.sendRequest({ url: u, method: 'GET' }, function (err, res) {",
+          "      if (err || res.code !== 200) { probar(); return; }",
+          "      let doc;",
+          "      try { doc = res.json(); } catch (e) { probar(); return; }",
+          "      if (!doc || !doc.token_endpoint) { probar(); return; }",
+          "      pm.environment.set('byma_token_url', doc.token_endpoint);",
+          "      console.log('token_endpoint descubierto: ' + doc.token_endpoint);",
+          "      if (doc.token_endpoint_auth_methods_supported) {",
+          "        console.log('   metodos de auth: ' +",
+          "                    JSON.stringify(doc.token_endpoint_auth_methods_supported));",
+          "      }",
+          "      if (doc.scopes_supported) {",
+          "        console.log('   scopes disponibles: ' + JSON.stringify(doc.scopes_supported));",
+          "      }",
+          "      cb(doc.token_endpoint);",
+          "    });",
+          "  })();",
+          "}",
+          "",
+          "// ---------- 4. client_credentials ----------",
+          "function pedirToken(tokenUrl) {",
+          "  const cid = env('byma_client_id');",
+          "  const sec = env('byma_client_secret');",
+          "  const scopes = env('byma_scopes') || 'clearing clearingworkflow.create';",
+          "  if (!cid || !sec) {",
+          "    console.error('Faltan byma_client_id / byma_client_secret en el environment.');",
+          "    return;",
+          "  }",
+          "",
+          "  function intento(modo) {",
+          "    const campos = [",
+          "      { key: 'grant_type', value: 'client_credentials' },",
+          "      { key: 'scope', value: scopes }",
+          "    ];",
+          "    const req = {",
+          "      url: tokenUrl,",
+          "      method: 'POST',",
+          "      header: {",
+          "        'Content-Type': 'application/x-www-form-urlencoded',",
+          "        'Accept': 'application/json'",
+          "      },",
+          "      body: { mode: 'urlencoded', urlencoded: campos }",
+          "    };",
+          "    if (modo === 'basic') {",
+          "      req.auth = {",
+          "        type: 'basic',",
+          "        basic: [{ key: 'username', value: cid }, { key: 'password', value: sec }]",
+          "      };",
+          "    } else {",
+          "      campos.push({ key: 'client_id', value: cid });",
+          "      campos.push({ key: 'client_secret', value: sec });",
+          "    }",
+          "",
+          "    pm.sendRequest(req, function (err, res) {",
+          "      if (err) { console.error('token: error de red -> ' + err); return; }",
+          "      let j = null;",
+          "      try { j = res.json(); } catch (e) { /* no era JSON */ }",
+          "",
+          "      if (res.code === 200 && j && j.access_token) {",
+          "        pm.environment.set('byma_token', j.access_token);",
+          "        pm.environment.set('byma_token_ts', Date.now());",
+          "        console.log('token BYMA renovado (metodo ' + modo + ', vive ' +",
+          "                    (j.expires_in || '?') + 's)');",
+          "        return;",
+          "      }",
+          "      if (modo === 'basic') {",
+          "        console.log('token: Basic rechazado (HTTP ' + res.code + '), reintento por body');",
+          "        intento('post');",
+          "        return;",
+          "      }",
+          "      console.error('token: FALLO HTTP ' + res.code + ' -> ' + res.text().slice(0, 400));",
+          "      console.error('   Revisar client_id/secret y que los scopes pedidos ' +",
+          "                    '(' + scopes + ') esten habilitados para esta aplicacion.');",
+          "    });",
+          "  }",
+          "  intento('basic');",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// HUELLA de la respuesta + las trampas conocidas de esta API.",
+          "// Consola: View -> Show Postman Console.",
+          "",
+          "const code = pm.response.code;",
+          "console.log('== ' + pm.info.requestName + ' -> HTTP ' + code +",
+          "            '  ' + pm.response.responseTime + 'ms');",
+          "",
+          "let j = null;",
+          "try { j = pm.response.json(); } catch (e) { /* no es JSON */ }",
+          "",
+          "if (j === null) {",
+          "  console.error('   La respuesta NO es JSON. Primeros 200 caracteres:');",
+          "  console.error('   ' + pm.response.text().slice(0, 200));",
+          "}",
+          "",
+          "if (code === 401 || code === 403) {",
+          "  console.error('   El token no sirve o no alcanza. Mirar el request \"0. Token\" ' +",
+          "                'y que los scopes esten habilitados.');",
+          "}",
+          "",
+          "// TRAMPA 1 — Fuera del horario de servicio (08:00-00:00) BYMA responde",
+          "// HTTP 200 con type=OOS. Un cliente que mire solo el status code guarda",
+          "// \"Service Out of Service\" como si fuera un dato bueno.",
+          "const oos = !!(j && j.type === 'OOS');",
+          "if (oos) {",
+          "  console.error('   FUERA DE SERVICIO: \"' + (j.description || '') + '\"');",
+          "  console.error('   Ojo: vino con HTTP 200. No es un dato, es un horario.');",
+          "}",
+          "pm.test('No esta fuera de servicio (OOS)', function () {",
+          "  pm.expect(oos, 'BYMA respondio Service Out of Service').to.equal(false);",
+          "});",
+          "",
+          "// La doc describe `entries` y el ejemplo devuelve `result`: se aceptan los dos.",
+          "const filas = j ? (j.result || j.entries) : null;",
+          "if (Array.isArray(filas)) {",
+          "  console.log('   ' + filas.length + ' obligaciones en esta pagina');",
+          "",
+          "  // Paginacion: el bookmark vive en `meta` (ejemplo) o en la raiz (diccionario).",
+          "  const meta = (j.meta && typeof j.meta === 'object') ? j.meta : j;",
+          "  if (meta.atEnd === false && meta.bookmark) {",
+          "    pm.environment.set('byma_bookmark', meta.bookmark);",
+          "    console.log('   HAY MAS PAGINAS -> bookmark guardado. Volve a mandar el ' +",
+          "                'mismo request: el parametro bookmark ya lo toma solo.');",
+          "  } else {",
+          "    pm.environment.set('byma_bookmark', '');",
+          "    console.log('   Ultima pagina (atEnd) -> bookmark limpiado.');",
+          "  }",
+          "",
+          "  // TRAMPA 2 — Las cantidades vienen con tipo MIXTO: a veces string",
+          "  // (\"-10360557\", \"-48351.000000\") y a veces number (0). Parsearlas con",
+          "  // float a la ligera pierde precision o explota.",
+          "  ['pendingQuantity', 'openQuantity', 'instructedQuantity'].forEach(function (campo) {",
+          "    const tipos = {};",
+          "    filas.forEach(function (f) { if (f) { tipos[typeof f[campo]] = 1; } });",
+          "    const lista = Object.keys(tipos);",
+          "    if (lista.length > 1) {",
+          "      console.error('   TIPOS MIXTOS en ' + campo + ': ' + lista.join(' + ') +",
+          "                    ' -> tratarlo SIEMPRE como texto y convertir con decimal.');",
+          "    }",
+          "  });",
+          "",
+          "  if (filas.length) {",
+          "    console.log('   campos por fila: ' + Object.keys(filas[0]).sort().join(', '));",
+          "  }",
+          "}",
+          "",
+          "// Respuesta de los POST de collateral.",
+          "if (j && j.countersignDetails) {",
+          "  const d = j.countersignDetails;",
+          "  if (d.isPendingCountersignApproval) {",
+          "    console.log('   PENDIENTE DE APROBACION (countersign) id=' + (d.countersignId || '?'));",
+          "    console.log('   La orden NO esta registrada todavia: alguien la tiene que aprobar.');",
+          "  } else {",
+          "    console.log('   Orden REGISTRADA (isPendingCountersignApproval=false).');",
+          "  }",
+          "  if (Array.isArray(j.currentRevisions)) {",
+          "    j.currentRevisions.forEach(function (r) {",
+          "      console.log('   revision ' + r.revisionNumber + ' · ' + r.revisionSequence);",
+          "    });",
+          "  }",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Descubrir el endpoint de token (sin credenciales)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{byma_issuer}}/.well-known/oauth-authorization-server",
+          "host": [
+            "{{byma_issuer}}"
+          ],
+          "path": [
+            ".well-known",
+            "oauth-authorization-server"
+          ]
+        },
+        "description": "Le pregunta al emisor donde se piden los tokens y guarda la respuesta en byma_token_url. No necesita credenciales.\n\nSi da 404, probar cambiando la ruta por /.well-known/openid-configuration."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Guarda el token_endpoint que publica el emisor.",
+              "if (pm.response.code === 200) {",
+              "  const d = pm.response.json();",
+              "  if (d.token_endpoint) {",
+              "    pm.environment.set('byma_token_url', d.token_endpoint);",
+              "    console.log('byma_token_url guardado: ' + d.token_endpoint);",
+              "  }",
+              "  console.log('metodos de auth : ' + JSON.stringify(d.token_endpoint_auth_methods_supported));",
+              "  console.log('grants          : ' + JSON.stringify(d.grant_types_supported));",
+              "  console.log('scopes          : ' + JSON.stringify(d.scopes_supported));",
+              "} else {",
+              "  console.error('El emisor no publico el documento en esta ruta (HTTP ' +",
+              "                pm.response.code + '). Probar la otra, o pedirle la URL a BYMA.');",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "0. Token (manual — normalmente NO hace falta)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{byma_token_url}}",
+          "host": [
+            "{{byma_token_url}}"
+          ],
+          "path": []
+        },
+        "description": "Pide el token a mano y lo muestra descompuesto: emisor, scopes y vencimiento. El script de la coleccion ya lo renueva solo antes de cada request; esto queda para debug.\n\nLas credenciales van por Basic (usuario = client_id, password = client_secret). Si BYMA rechaza ese metodo, el script automatico reintenta mandandolas en el body."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Guarda el token y lo muestra descompuesto (scopes, vencimiento).",
+              "// Sirve para debug: normalmente el token lo renueva solo el script de la coleccion.",
+              "const j = pm.response.json();",
+              "if (pm.response.code === 200 && j.access_token) {",
+              "  pm.environment.set('byma_token', j.access_token);",
+              "  pm.environment.set('byma_token_ts', Date.now());",
+              "  console.log('token guardado · vive ' + (j.expires_in || '?') + 's · scope: ' +",
+              "              (j.scope || '?'));",
+              "  const partes = j.access_token.split('.');",
+              "  if (partes.length === 3) {",
+              "    try {",
+              "      const p = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));",
+              "      console.log('   emisor : ' + p.iss);",
+              "      console.log('   scopes : ' + JSON.stringify(p.scp || p.scope));",
+              "      console.log('   vence  : ' + new Date(p.exp * 1000).toISOString());",
+              "    } catch (e) { console.log('   (no pude decodificar el JWT: ' + e.message + ')'); }",
+              "  }",
+              "} else {",
+              "  console.error('token FALLO HTTP ' + pm.response.code + ' -> ' +",
+              "                pm.response.text().slice(0, 400));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Obligaciones de liquidacion (LECTURA)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{byma_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{byma_base_url}}/obligations/settlement{{byma_sufijo}}",
+          "host": [
+            "{{byma_base_url}}"
+          ],
+          "path": [
+            "obligations",
+            "settlement{{byma_sufijo}}"
+          ],
+          "query": [
+            {
+              "key": "accountIds",
+              "value": "{{byma_cuentas_csv}}"
+            },
+            {
+              "key": "settlementDate",
+              "value": "{{byma_settlement_date}}"
+            },
+            {
+              "key": "assetId",
+              "value": "{{byma_asset_id}}",
+              "disabled": true,
+              "description": "Filtro opcional por activo."
+            },
+            {
+              "key": "bookmark",
+              "value": "{{byma_bookmark}}",
+              "description": "Cursor de paginacion. Lo completa el test solo."
+            }
+          ]
+        },
+        "description": "Las obligaciones del dia para una cuenta. Es el unico request de solo lectura: empeza por aca.\n\nPAGINACION: si quedan mas paginas, el test guarda el bookmark y alcanza con volver a mandar el mismo request. Cuando llega al final lo limpia solo.\n\naccountIds figura como lista en la doc y como valor unico en el OpenAPI. Para probar varias cuentas, poner byma_cuentas_csv = '14,15' y ver si las toma."
+      },
+      "response": []
+    },
+    {
+      "name": "2. Deposito de garantias — POR ESPECIE (ESCRIBE)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{byma_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{byma_base_url}}/collateral-management/deposits{{byma_sufijo}}",
+          "host": [
+            "{{byma_base_url}}"
+          ],
+          "path": [
+            "collateral-management",
+            "deposits{{byma_sufijo}}"
+          ]
+        },
+        "description": "REGISTRA UNA ORDEN DE DEPOSITO DE GARANTIAS. No es un test.\n\nPara que salga hay que poner permitir_escritura = SI en el environment. Contra produccion hace falta ademas permitir_produccion = SI.\n\nassetExternalRefDataSystemId (especie) y currencyId (moneda) son MUTUAMENTE EXCLUYENTES: este request manda la especie, el 3 manda la moneda.\n\nEl clientId lo genera el script (secuencia byma_op_seq) porque debe ser unico por dia y por agente.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"clientId\": \"{{byma_client_id_op}}\",\n    \"amount\": \"{{byma_amount}}\",\n    \"assetExternalRefDataSystemId\": \"{{byma_asset_ref}}\",\n    \"accountId\": \"{{byma_account_id}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "3. Extraccion de garantias — POR MONEDA (ESCRIBE)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{byma_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{byma_base_url}}/collateral-management/withdraws{{byma_sufijo}}",
+          "host": [
+            "{{byma_base_url}}"
+          ],
+          "path": [
+            "collateral-management",
+            "withdraws{{byma_sufijo}}"
+          ]
+        },
+        "description": "REGISTRA UNA ORDEN DE EXTRACCION DE GARANTIAS. No es un test.\n\nMismos frenos que el deposito. Este manda currencyId (032 ARS / 840 USD / 999 EXT) en vez de la especie.\n\nSi el monto supera la posicion disponible, BYMA responde TOO_LARGE_WITHDRAWAL_FOR_COLLATERAL_POSITION.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"clientId\": \"{{byma_client_id_op}}\",\n    \"amount\": \"{{byma_amount}}\",\n    \"currencyId\": \"{{byma_currency_id}}\",\n    \"accountId\": \"{{byma_account_id}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": []
+    }
+  ]
+}

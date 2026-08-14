@@ -1,6 +1,6 @@
 # postman/ — colecciones importables
 
-Dos colecciones para explorar a mano lo que los jobs consumen por código.
+Tres colecciones para explorar a mano lo que los jobs consumen por código.
 **Ningún archivo de acá lleva credenciales**: los environments vienen con los
 campos vacíos y marcados como `secret`, y se completan una sola vez en Postman.
 
@@ -10,8 +10,10 @@ campos vacíos y marcados como `secret`, y se completan una sola vez en Postman.
 | `aunesa.postman_environment.json` | plantilla del environment de Aunesa |
 | `acaquant.postman_collection.json` | nuestra API, con las 3 capas de auth resueltas |
 | `acaquant-prod.postman_environment.json` | plantilla del environment de producción |
+| `byma-clearing.postman_collection.json` | BYMA Clearing Workflow (garantías + obligaciones), con **token automático** |
+| `byma-clearing.postman_environment.json` | plantilla del environment de BYMA |
 
-Importar: en Postman, **Import → Files** y seleccionar los cuatro. Después
+Importar: en Postman, **Import → Files** y seleccionar los archivos. Después
 elegir el environment en el selector de arriba a la derecha y completar los
 valores vacíos.
 
@@ -120,6 +122,81 @@ El mismo par colección + environment sirve: poné
 `acaquant_base_url = http://localhost:8000` y dejá **vacías** las tres
 variables de Cloudflare. El script no manda esos headers, y con `ENV=dev` la
 API no exige `API_KEY`.
+
+---
+
+## 3 · BYMA Clearing Workflow — token automático y freno de escritura
+
+Gestión de garantías (collateral) y consulta de obligaciones de liquidación.
+Entornos: **homologación** `hs-clearing-api.byma.com.ar`, **producción**
+`clearing-api.byma.com.ar`. El environment viene apuntando a homologación.
+
+### Lo único que hay que cargar
+
+| variable | qué es |
+|---|---|
+| `byma_client_id` | usuario de la aplicación en el portal BYMA |
+| `byma_client_secret` | su contraseña — lo único de verdad sensible |
+| `byma_issuer` | URL del emisor de tokens |
+
+**`byma_token_url` no hace falta**: el script la descubre pidiéndole al emisor
+su documento de descubrimiento (`/.well-known/oauth-authorization-server`), que
+todo servidor OAuth2 publica. Si el emisor no lo publica, se carga a mano.
+
+El token se renueva solo (TTL 30 min) con `client_credentials`. Prueba primero
+con **Basic** y, si el servidor lo rechaza, reintenta mandando las credenciales
+**en el body** — los dos métodos existen y BYMA no documenta cuál usa. El
+request `0. Token` queda solo para debug: muestra el JWT descompuesto (emisor,
+scopes, vencimiento).
+
+### ⚠️ Los dos POST no son un test: registran una orden
+
+`deposits` y `withdraws` mueven garantías de verdad. Están frenados por dos
+llaves distintas del environment, y el freno vive en el pre-request script:
+
+- `permitir_escritura = SI` — habilita los POST. Sin esto, no salen.
+- `permitir_produccion = SI` — hace falta **además** si la URL no tiene el
+  prefijo `hs-`.
+
+El `clientId` **debe ser único por día y por agente**, así que lo genera el
+script desde la secuencia `byma_op_seq`. Un intento fallido quema un número a
+propósito: repetir un `clientId` es peor que saltearse uno.
+
+`assetExternalRefDataSystemId` (especie) y `currencyId` (moneda) son
+**mutuamente excluyentes** — por eso son dos requests distintos y no uno con
+campos para borrar.
+
+### Las dos trampas que el test script te canta en la consola
+
+1. **Fuera del horario de servicio (08:00–00:00) BYMA responde HTTP 200** con
+   `{"type":"OOS"}`. Un cliente que mire solo el status code guarda "Service Out
+   of Service" como si fuera un dato bueno. Hay un test que se pone en rojo.
+2. **Las cantidades vienen con tipo mixto**: en el mismo ejemplo de la doc,
+   `pendingQuantity` aparece como `"-10360557"` (texto), `"-48351.000000"`
+   (texto con decimales) y `0` (número). Si en la consola ves `TIPOS MIXTOS`,
+   ese campo hay que tratarlo siempre como texto.
+
+### Paginación
+
+El test guarda el `bookmark` solo. Si quedan más páginas, alcanza con **volver a
+mandar el mismo request**; al llegar a la última lo limpia. Si está vacío, el
+pre-request **saca el parámetro** en vez de mandarlo en blanco (un `bookmark=`
+vacío no es "sin bookmark": es un cursor inválido).
+
+### Lo que la doc de BYMA se contradice, acá es una variable
+
+| variable | por qué existe |
+|---|---|
+| `byma_sufijo` | los `curl` de la doc usan `.json`, el OpenAPI no. Default `.json`; vaciala para probar la otra forma. |
+| `byma_cuentas_csv` | `accountIds` figura como lista en la doc y como valor único en el OpenAPI. Probar `14,15` para ver si toma varias. |
+
+Los 5 `servers` del OpenAPI tienen **las etiquetas cruzadas** ("Production
+principal" apunta a `hs-`, que es homologación; "Production" apunta a
+`localhost`). No te guíes por esos nombres.
+
+> Para automatizar después —paginación completa, correr desde el Droplet— está
+> `python -m scripts.diag_byma_clearing`, que hace lo mismo por línea de
+> comandos y comparte las mismas variables de entorno.
 
 ---
 

@@ -235,6 +235,193 @@
             },
             "description": "Pide un access_token con el flujo client_credentials (máquina a máquina, sin usuario).\n\nSi da 200, guarda el token en la variable de colección `ib_access_token`.\nSi da 400/401, alterná `ib_auth_style` entre `basic` (credenciales en el header\nAuthorization) y `body` (credenciales como campos del formulario) — y en ese caso\nhabilitá los dos campos deshabilitados del body."
           }
+        },
+        {
+          "name": "TOKEN A · Basic header (RFC 6749)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Chequeo de higiene de las credenciales (sin imprimirlas).",
+                  "const id = String(pm.variables.get('ib_client_id') || '');",
+                  "const sec = String(pm.variables.get('ib_client_secret') || '');",
+                  "console.log('[IB] client_id     : ' + id.length + ' caracteres' + (id !== id.trim() ? '  <<< TIENE ESPACIOS AL PRINCIPIO O AL FINAL' : ''));",
+                  "console.log('[IB] client_secret : ' + sec.length + ' caracteres' + (sec !== sec.trim() ? '  <<< TIENE ESPACIOS AL PRINCIPIO O AL FINAL' : ''));",
+                  "if (!id || !sec) { console.error('[IB] FALTA client_id o client_secret en el Environment.'); }",
+                  "if (/\\s/.test(id) || /\\s/.test(sec)) { console.error('[IB] Hay espacios/saltos de línea DENTRO de la credencial. Eso solo puede venir de un copy-paste mal cortado.'); }",
+                  "",
+                  "pm.request.headers.upsert({",
+                  "  key: 'Authorization',",
+                  "  value: 'Basic ' + Buffer.from(id.trim() + ':' + sec.trim()).toString('base64')",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] === VARIANTE A (Basic header) => HTTP ' + pm.response.code + ' ===');",
+                  "console.log(pm.response.text());",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.collectionVariables.set('ib_access_token', j.access_token);",
+                  "  pm.collectionVariables.set('ib_token_vence', String(Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600)));",
+                  "  pm.collectionVariables.set('ib_auth_style', 'basic');",
+                  "  console.log('[IB] >>> FUNCIONA la variante A. Poné ib_auth_style = basic en el Environment.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "client_credentials" },
+                { "key": "scope", "value": "{{ib_scope}}" }
+              ]
+            },
+            "url": { "raw": "{{ib_auth_url}}", "host": ["{{ib_auth_url}}"] },
+            "description": "Credenciales en el header `Authorization: Basic base64(id:secret)`.\nEs el estilo estándar del RFC 6749 y el que más servidores aceptan."
+          }
+        },
+        {
+          "name": "TOKEN B · credenciales en el body",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] === VARIANTE B (credenciales en el body) => HTTP ' + pm.response.code + ' ===');",
+                  "console.log(pm.response.text());",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.collectionVariables.set('ib_access_token', j.access_token);",
+                  "  pm.collectionVariables.set('ib_token_vence', String(Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600)));",
+                  "  pm.collectionVariables.set('ib_auth_style', 'body');",
+                  "  console.log('[IB] >>> FUNCIONA la variante B. Poné ib_auth_style = body en el Environment.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "client_credentials" },
+                { "key": "client_id", "value": "{{ib_client_id}}" },
+                { "key": "client_secret", "value": "{{ib_client_secret}}" },
+                { "key": "scope", "value": "{{ib_scope}}" }
+              ]
+            },
+            "url": { "raw": "{{ib_auth_url}}", "host": ["{{ib_auth_url}}"] },
+            "description": "Credenciales como campos del formulario, sin header Authorization.\nEs la otra forma que permite el RFC 6749 y la que usan varias implementaciones de CAS."
+          }
+        },
+        {
+          "name": "TOKEN C · Basic header, SIN scope",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const id = String(pm.variables.get('ib_client_id') || '').trim();",
+                  "const sec = String(pm.variables.get('ib_client_secret') || '').trim();",
+                  "pm.request.headers.upsert({",
+                  "  key: 'Authorization',",
+                  "  value: 'Basic ' + Buffer.from(id + ':' + sec).toString('base64')",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] === VARIANTE C (Basic, sin scope) => HTTP ' + pm.response.code + ' ===');",
+                  "console.log(pm.response.text());",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.collectionVariables.set('ib_access_token', j.access_token);",
+                  "  pm.collectionVariables.set('ib_token_vence', String(Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600)));",
+                  "  console.log('[IB] >>> FUNCIONA sin scope. El scope declarado en el YAML no era el correcto.');",
+                  "  if (j.scope) { console.log('[IB] scope que otorgó el servidor: ' + j.scope); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "client_credentials" }
+              ]
+            },
+            "url": { "raw": "{{ib_auth_url}}", "host": ["{{ib_auth_url}}"] },
+            "description": "Igual que A pero sin mandar `scope`.\n\nSi el scope `info-financiera` no está habilitado para esta aplicación, algunos\nservidores devuelven 401 en vez del 400 `invalid_scope` que correspondería.\nSi ESTA variante funciona y la A no, el problema es el scope, no las credenciales."
+          }
+        },
+        {
+          "name": "TOKEN D · todo en query string",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] === VARIANTE D (query string) => HTTP ' + pm.response.code + ' ===');",
+                  "console.log(pm.response.text());",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.collectionVariables.set('ib_access_token', j.access_token);",
+                  "  pm.collectionVariables.set('ib_token_vence', String(Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600)));",
+                  "  console.log('[IB] >>> FUNCIONA con los parámetros en la URL.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_auth_url}}?grant_type=client_credentials&client_id={{ib_client_id}}&client_secret={{ib_client_secret}}&scope={{ib_scope}}",
+              "host": ["{{ib_auth_url}}"],
+              "query": [
+                { "key": "grant_type", "value": "client_credentials" },
+                { "key": "client_id", "value": "{{ib_client_id}}" },
+                { "key": "client_secret", "value": "{{ib_client_secret}}" },
+                { "key": "scope", "value": "{{ib_scope}}" }
+              ]
+            },
+            "description": "Parámetros en la URL en vez del body. Algunas versiones de CAS lo aceptan así.\n\nSOLO para diagnóstico: mandar el secret en la query string no es buena práctica\n(queda en logs de acceso del servidor). Si esta es la única que funciona, hay que\nhablarlo con Interbanking."
+          }
         }
       ]
     },

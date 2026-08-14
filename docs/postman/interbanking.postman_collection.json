@@ -1,0 +1,1053 @@
+{
+  "info": {
+    "_postman_id": "a7f3c1e0-4b2d-4c8a-9e10-1b2c3d4e5f60",
+    "name": "Interbanking — ACAQUANT",
+    "description": "Colección para explorar las APIs de Interbanking (Cuentas, Saldos, Extractos, Movimientos, Transferencias).\n\nTODAS son de SOLO LECTURA (GET). Nada acá origina pagos ni mueve plata.\n\n## Cómo arrancar\n\n1. Importá también `interbanking.postman_environment.json` y seleccioná ese Environment arriba a la derecha.\n2. Completá en el Environment: `ib_client_id`, `ib_client_secret` y `customer_id`.\n3. Corré `00 · Auth → TOKEN (manual)` para verificar que las credenciales andan.\n   - Si da 401, cambiá `ib_auth_style` de `basic` a `body` (o al revés) y reintentá.\n4. Corré `01 · Cuentas → Listar cuentas`. Eso autocompleta `account_number` y `bank_number`\n   con la primera cuenta, así el resto de los requests quedan listos para disparar.\n5. Ya podés correr cualquier otro request.\n\nEl token se pide SOLO y se cachea: el pre-request script de la colección lo renueva\nautomáticamente cuando faltan menos de 60s para que venza. No hace falta volver a\ncorrer el request de token nunca más.\n\n## Ojo con esto\n\n- **Movimientos usa OTRO base URL**: `.../api/prod` con `/v1` o `/v2` en el path,\n  mientras que el resto usa `.../api/prod/v1`. Es una inconsistencia de ellos.\n- Las consultas históricas admiten **180 días hacia atrás, en ventanas de 60 días** por llamada.\n- Límite del plan: **100 llamadas por minuto**.\n- `customer-id` (código de abonado) sale de Interbanking → Administración → ABM →\n  Configuración Datos → Datos de Empresa. Formato: una letra, 5 dígitos, una letra.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// ---------------------------------------------------------------------------",
+          "// Pre-request de COLECCIÓN: consigue y cachea el access_token (client_credentials)",
+          "// y autocompleta las fechas si están vacías.",
+          "// ---------------------------------------------------------------------------",
+          "",
+          "function fechaISO(d) {",
+          "  const p = (n) => String(n).padStart(2, '0');",
+          "  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());",
+          "}",
+          "",
+          "// --- Fechas por defecto: últimos 7 días (solo si el usuario no las cargó) ---",
+          "(function defaultsDeFecha() {",
+          "  const hoy = new Date();",
+          "  const hace7 = new Date(hoy.getTime() - 7 * 24 * 3600 * 1000);",
+          "  if (!pm.variables.get('date_until')) {",
+          "    pm.collectionVariables.set('date_until', fechaISO(hoy));",
+          "  }",
+          "  if (!pm.variables.get('date_since')) {",
+          "    pm.collectionVariables.set('date_since', fechaISO(hace7));",
+          "  }",
+          "})();",
+          "",
+          "// --- Token ---",
+          "(function token() {",
+          "  // Los requests de token y de descubrimiento no necesitan un token previo.",
+          "  if (/^(TOKEN|DISCOVERY)/.test(pm.info.requestName || '')) { return; }",
+          "",
+          "  const ahora = Math.floor(Date.now() / 1000);",
+          "  const vence = Number(pm.collectionVariables.get('ib_token_vence') || 0);",
+          "  const cacheado = pm.collectionVariables.get('ib_access_token');",
+          "",
+          "  // Todavía sirve por más de 60 segundos -> no pedimos uno nuevo.",
+          "  if (cacheado && vence > ahora + 60) { return; }",
+          "",
+          "  const id = pm.variables.get('ib_client_id');",
+          "  const secret = pm.variables.get('ib_client_secret');",
+          "  if (!id || !secret) {",
+          "    throw new Error('Falta ib_client_id / ib_client_secret. Cargalos en el Environment de Postman.');",
+          "  }",
+          "",
+          "  const estilo = String(pm.variables.get('ib_auth_style') || 'basic').toLowerCase();",
+          "  const scope = pm.variables.get('ib_scope') || 'info-financiera';",
+          "",
+          "  const headers = {",
+          "    'Content-Type': 'application/x-www-form-urlencoded',",
+          "    'Accept': 'application/json'",
+          "  };",
+          "  const campos = [",
+          "    { key: 'grant_type', value: 'client_credentials' },",
+          "    { key: 'scope', value: scope }",
+          "  ];",
+          "",
+          "  if (estilo === 'basic') {",
+          "    // RFC 6749: credenciales por HTTP Basic. Es el estilo estándar.",
+          "    headers['Authorization'] = 'Basic ' + Buffer.from(id + ':' + secret).toString('base64');",
+          "  } else {",
+          "    // Fallback: algunos servidores las quieren en el body.",
+          "    campos.push({ key: 'client_id', value: id });",
+          "    campos.push({ key: 'client_secret', value: secret });",
+          "  }",
+          "",
+          "  pm.sendRequest({",
+          "    url: pm.variables.get('ib_auth_url'),",
+          "    method: 'POST',",
+          "    header: headers,",
+          "    body: { mode: 'urlencoded', urlencoded: campos }",
+          "  }, function (err, res) {",
+          "    if (err) {",
+          "      console.error('[IB] Error de red pidiendo el token:', err);",
+          "      return;",
+          "    }",
+          "    let json = null;",
+          "    try { json = res.json(); } catch (e) { /* no era JSON */ }",
+          "",
+          "    if (res.code !== 200 || !json || !json.access_token) {",
+          "      console.error('[IB] El token FALLÓ (HTTP ' + res.code + '):');",
+          "      console.error(res.text());",
+          "      console.error('[IB] Si es 401/400, probá cambiar ib_auth_style de \"' + estilo + '\" al otro valor (basic | body).');",
+          "      return;",
+          "    }",
+          "",
+          "    const dura = Number(json.expires_in) || 3600;",
+          "    pm.collectionVariables.set('ib_access_token', json.access_token);",
+          "    pm.collectionVariables.set('ib_token_vence', String(ahora + dura));",
+          "    console.log('[IB] Token OK — vence en ' + dura + 's (' + Math.round(dura / 60) + ' min).');",
+          "  });",
+          "})();"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// ---------------------------------------------------------------------------",
+          "// Test de COLECCIÓN: corre para TODOS los requests. Deja el error a la vista",
+          "// (Interbanking devuelve un code numérico propio además del HTTP status).",
+          "// ---------------------------------------------------------------------------",
+          "",
+          "pm.test('HTTP 200', function () {",
+          "  pm.response.to.have.status(200);",
+          "});",
+          "",
+          "if (pm.response.code >= 400) {",
+          "  let e = null;",
+          "  try { e = pm.response.json(); } catch (err) { /* no JSON */ }",
+          "  if (e) {",
+          "    console.error('[IB] ERROR ' + pm.response.code + ' — code=' + e.code + ' | ' + e.message);",
+          "  } else {",
+          "    console.error('[IB] ERROR ' + pm.response.code + ':', pm.response.text());",
+          "  }",
+          "}",
+          "",
+          "// Headers de rate limit, si el gateway los manda (plan: 100 llamadas/minuto).",
+          "['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'].forEach(function (h) {",
+          "  const v = pm.response.headers.get(h);",
+          "  if (v) { console.log('[IB] ' + h + ': ' + v); }",
+          "});"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "ib_auth_url",
+      "value": "https://auth.interbanking.com.ar/cas/oidc/oidcAccessToken",
+      "type": "string"
+    },
+    {
+      "key": "ib_base",
+      "value": "https://api-gw.interbanking.com.ar/api/prod/v1",
+      "type": "string"
+    },
+    {
+      "key": "ib_base_mov",
+      "value": "https://api-gw.interbanking.com.ar/api/prod",
+      "type": "string"
+    },
+    { "key": "ib_scope", "value": "info-financiera", "type": "string" },
+    { "key": "ib_auth_style", "value": "basic", "type": "string" },
+    { "key": "ib_client_id", "value": "", "type": "string" },
+    { "key": "ib_client_secret", "value": "", "type": "string" },
+    { "key": "ib_access_token", "value": "", "type": "string" },
+    { "key": "ib_token_vence", "value": "0", "type": "string" },
+    { "key": "customer_id", "value": "", "type": "string" },
+    { "key": "account_number", "value": "", "type": "string" },
+    { "key": "bank_number", "value": "", "type": "string" },
+    { "key": "account_type", "value": "CC", "type": "string" },
+    { "key": "currency", "value": "ARS", "type": "string" },
+    { "key": "date_since", "value": "", "type": "string" },
+    { "key": "date_until", "value": "", "type": "string" },
+    { "key": "ib_cuentas_json", "value": "[]", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "00 · Auth",
+      "description": "Verificación manual de las credenciales. El resto de la colección NO necesita este request:\nel pre-request script consigue y renueva el token solo.",
+      "item": [
+        {
+          "name": "TOKEN · client_credentials (manual)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Arma el header Basic solo si ib_auth_style = basic.",
+                  "const estilo = String(pm.variables.get('ib_auth_style') || 'basic').toLowerCase();",
+                  "if (estilo === 'basic') {",
+                  "  const id = pm.variables.get('ib_client_id');",
+                  "  const secret = pm.variables.get('ib_client_secret');",
+                  "  pm.request.headers.upsert({",
+                  "    key: 'Authorization',",
+                  "    value: 'Basic ' + Buffer.from(id + ':' + secret).toString('base64')",
+                  "  });",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  const dura = Number(j.expires_in) || 3600;",
+                  "  pm.collectionVariables.set('ib_access_token', j.access_token);",
+                  "  pm.collectionVariables.set('ib_token_vence', String(Math.floor(Date.now() / 1000) + dura));",
+                  "  console.log('[IB] Token guardado. Vence en ' + dura + 's.');",
+                  "  console.log('[IB] Campos de la respuesta: ' + Object.keys(j).join(', '));",
+                  "  if (j.scope) { console.log('[IB] scope otorgado: ' + j.scope); }",
+                  "} else {",
+                  "  console.error('[IB] Si es 400/401, cambiá ib_auth_style entre \"basic\" y \"body\" y reintentá.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "client_credentials" },
+                { "key": "scope", "value": "{{ib_scope}}" },
+                { "key": "client_id", "value": "{{ib_client_id}}", "disabled": true, "description": "Habilitar SOLO si ib_auth_style = body" },
+                { "key": "client_secret", "value": "{{ib_client_secret}}", "disabled": true, "description": "Habilitar SOLO si ib_auth_style = body" }
+              ]
+            },
+            "url": {
+              "raw": "{{ib_auth_url}}",
+              "host": ["{{ib_auth_url}}"]
+            },
+            "description": "Pide un access_token con el flujo client_credentials (máquina a máquina, sin usuario).\n\nSi da 200, guarda el token en la variable de colección `ib_access_token`.\nSi da 400/401, alterná `ib_auth_style` entre `basic` (credenciales en el header\nAuthorization) y `body` (credenciales como campos del formulario) — y en ese caso\nhabilitá los dos campos deshabilitados del body."
+          }
+        },
+        {
+          "name": "TOKEN A · Basic header (RFC 6749)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Chequeo de higiene de las credenciales (sin imprimirlas).",
+                  "const id = String(pm.variables.get('ib_client_id') || '');",
+                  "const sec = String(pm.variables.get('ib_client_secret') || '');",
+                  "console.log('[IB] client_id     : ' + id.length + ' caracteres' + (id !== id.trim() ? '  <<< TIENE ESPACIOS AL PRINCIPIO O AL FINAL' : ''));",
+                  "console.log('[IB] client_secret : ' + sec.length + ' caracteres' + (sec !== sec.trim() ? '  <<< TIENE ESPACIOS AL PRINCIPIO O AL FINAL' : ''));",
+                  "if (!id || !sec) { console.error('[IB] FALTA client_id o client_secret en el Environment.'); }",
+                  "if (/\\s/.test(id) || /\\s/.test(sec)) { console.error('[IB] Hay espacios/saltos de línea DENTRO de la credencial. Eso solo puede venir de un copy-paste mal cortado.'); }",
+                  "",
+                  "pm.request.headers.upsert({",
+                  "  key: 'Authorization',",
+                  "  value: 'Basic ' + Buffer.from(id.trim() + ':' + sec.trim()).toString('base64')",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] === VARIANTE A (Basic header) => HTTP ' + pm.response.code + ' ===');",
+                  "console.log(pm.response.text());",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.collectionVariables.set('ib_access_token', j.access_token);",
+                  "  pm.collectionVariables.set('ib_token_vence', String(Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600)));",
+                  "  pm.collectionVariables.set('ib_auth_style', 'basic');",
+                  "  console.log('[IB] >>> FUNCIONA la variante A. Poné ib_auth_style = basic en el Environment.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "client_credentials" },
+                { "key": "scope", "value": "{{ib_scope}}" }
+              ]
+            },
+            "url": { "raw": "{{ib_auth_url}}", "host": ["{{ib_auth_url}}"] },
+            "description": "Credenciales en el header `Authorization: Basic base64(id:secret)`.\nEs el estilo estándar del RFC 6749 y el que más servidores aceptan."
+          }
+        },
+        {
+          "name": "TOKEN B · credenciales en el body",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] === VARIANTE B (credenciales en el body) => HTTP ' + pm.response.code + ' ===');",
+                  "console.log(pm.response.text());",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.collectionVariables.set('ib_access_token', j.access_token);",
+                  "  pm.collectionVariables.set('ib_token_vence', String(Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600)));",
+                  "  pm.collectionVariables.set('ib_auth_style', 'body');",
+                  "  console.log('[IB] >>> FUNCIONA la variante B. Poné ib_auth_style = body en el Environment.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "client_credentials" },
+                { "key": "client_id", "value": "{{ib_client_id}}" },
+                { "key": "client_secret", "value": "{{ib_client_secret}}" },
+                { "key": "scope", "value": "{{ib_scope}}" }
+              ]
+            },
+            "url": { "raw": "{{ib_auth_url}}", "host": ["{{ib_auth_url}}"] },
+            "description": "Credenciales como campos del formulario, sin header Authorization.\nEs la otra forma que permite el RFC 6749 y la que usan varias implementaciones de CAS."
+          }
+        },
+        {
+          "name": "TOKEN C · Basic header, SIN scope",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const id = String(pm.variables.get('ib_client_id') || '').trim();",
+                  "const sec = String(pm.variables.get('ib_client_secret') || '').trim();",
+                  "pm.request.headers.upsert({",
+                  "  key: 'Authorization',",
+                  "  value: 'Basic ' + Buffer.from(id + ':' + sec).toString('base64')",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] === VARIANTE C (Basic, sin scope) => HTTP ' + pm.response.code + ' ===');",
+                  "console.log(pm.response.text());",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.collectionVariables.set('ib_access_token', j.access_token);",
+                  "  pm.collectionVariables.set('ib_token_vence', String(Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600)));",
+                  "  console.log('[IB] >>> FUNCIONA sin scope. El scope declarado en el YAML no era el correcto.');",
+                  "  if (j.scope) { console.log('[IB] scope que otorgó el servidor: ' + j.scope); }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "client_credentials" }
+              ]
+            },
+            "url": { "raw": "{{ib_auth_url}}", "host": ["{{ib_auth_url}}"] },
+            "description": "Igual que A pero sin mandar `scope`.\n\nSi el scope `info-financiera` no está habilitado para esta aplicación, algunos\nservidores devuelven 401 en vez del 400 `invalid_scope` que correspondería.\nSi ESTA variante funciona y la A no, el problema es el scope, no las credenciales."
+          }
+        },
+        {
+          "name": "TOKEN D · todo en query string",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] === VARIANTE D (query string) => HTTP ' + pm.response.code + ' ===');",
+                  "console.log(pm.response.text());",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.collectionVariables.set('ib_access_token', j.access_token);",
+                  "  pm.collectionVariables.set('ib_token_vence', String(Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600)));",
+                  "  console.log('[IB] >>> FUNCIONA con los parámetros en la URL.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_auth_url}}?grant_type=client_credentials&client_id={{ib_client_id}}&client_secret={{ib_client_secret}}&scope={{ib_scope}}",
+              "host": ["{{ib_auth_url}}"],
+              "query": [
+                { "key": "grant_type", "value": "client_credentials" },
+                { "key": "client_id", "value": "{{ib_client_id}}" },
+                { "key": "client_secret", "value": "{{ib_client_secret}}" },
+                { "key": "scope", "value": "{{ib_scope}}" }
+              ]
+            },
+            "description": "Parámetros en la URL en vez del body. Algunas versiones de CAS lo aceptan así.\n\nSOLO para diagnóstico: mandar el secret en la query string no es buena práctica\n(queda en logs de acceso del servidor). Si esta es la única que funciona, hay que\nhablarlo con Interbanking."
+          }
+        }
+      ]
+    },
+    {
+      "name": "00b · Descubrimiento del servidor de auth",
+      "description": "Requests SIN credenciales que le preguntan al servidor su propia configuración.\n\n**Ya resolvieron el 401 del 2026-08-14**: el `tokenUrl` que declaran los YAML de\nInterbanking (`/cas/oidc/accessToken`) NO es el endpoint real. El servidor declara\n`/cas/oidc/oidcAccessToken`. Un path inexistente detrás de Spring Security devuelve\n401 genérico en vez de 404, por eso las cuatro variantes de credenciales daban\nexactamente el mismo error.\n\nQuedan en la colección porque son la herramienta correcta ante cualquier futura\nfalla de auth: el servidor es la fuente de verdad, el YAML del proveedor no.",
+      "item": [
+        {
+          "name": "DISCOVERY 1 · openid-configuration (bajo /cas/oidc)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] HTTP ' + pm.response.code);",
+                  "if (pm.response.code !== 200) { console.log(pm.response.text()); return; }",
+                  "const j = pm.response.json() || {};",
+                  "console.log('[IB] ===== CONFIGURACIÓN REAL DEL SERVIDOR =====');",
+                  "console.log('[IB] issuer                         : ' + j.issuer);",
+                  "console.log('[IB] token_endpoint                 : ' + j.token_endpoint + '   <<< ES ESTA LA URL BUENA');",
+                  "console.log('[IB] grant_types_supported          : ' + JSON.stringify(j.grant_types_supported));",
+                  "console.log('[IB] token_endpoint_auth_methods    : ' + JSON.stringify(j.token_endpoint_auth_methods_supported));",
+                  "console.log('[IB] scopes_supported               : ' + JSON.stringify(j.scopes_supported));",
+                  "",
+                  "if (j.token_endpoint) {",
+                  "  const actual = pm.variables.get('ib_auth_url');",
+                  "  if (j.token_endpoint !== actual) {",
+                  "    console.error('[IB] >>> LA URL DE TOKEN QUE ESTAMOS USANDO NO ES LA QUE DECLARA EL SERVIDOR.');",
+                  "    console.error('[IB]     usamos  : ' + actual);",
+                  "    console.error('[IB]     debería : ' + j.token_endpoint);",
+                  "    console.error('[IB]     Cambiá ib_auth_url en el Environment y reintentá TOKEN A.');",
+                  "  } else {",
+                  "    console.log('[IB] >>> La URL de token coincide con la que estamos usando.');",
+                  "  }",
+                  "}",
+                  "",
+                  "const grants = j.grant_types_supported || [];",
+                  "if (grants.length && grants.indexOf('client_credentials') === -1) {",
+                  "  console.error('[IB] >>> El servidor NO declara soportar client_credentials. Eso explica el 401.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "https://auth.interbanking.com.ar/cas/oidc/.well-known/openid-configuration",
+              "protocol": "https",
+              "host": ["auth", "interbanking", "com", "ar"],
+              "path": ["cas", "oidc", ".well-known", "openid-configuration"]
+            },
+            "description": "Documento de descubrimiento OIDC. Es público y no lleva credenciales.\nDice cuál es el endpoint de token REAL, qué grants soporta y cómo espera\nrecibir las credenciales del cliente."
+          }
+        },
+        {
+          "name": "DISCOVERY 2 · openid-configuration (en la raíz)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] HTTP ' + pm.response.code);",
+                  "console.log(pm.response.text().substring(0, 2000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "https://auth.interbanking.com.ar/.well-known/openid-configuration",
+              "protocol": "https",
+              "host": ["auth", "interbanking", "com", "ar"],
+              "path": [".well-known", "openid-configuration"]
+            },
+            "description": "Mismo documento, pero en la ubicación estándar de la raíz del dominio.\nAlgunos despliegues lo publican acá y no bajo el path de la app."
+          }
+        },
+        {
+          "name": "DISCOVERY 3 · oauth-authorization-server",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('[IB] HTTP ' + pm.response.code);",
+                  "console.log(pm.response.text().substring(0, 2000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "https://auth.interbanking.com.ar/cas/oidc/.well-known/oauth-authorization-server",
+              "protocol": "https",
+              "host": ["auth", "interbanking", "com", "ar"],
+              "path": ["cas", "oidc", ".well-known", "oauth-authorization-server"]
+            },
+            "description": "Variante del descubrimiento definida por el RFC 8414 (OAuth puro, sin OIDC)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 · Cuentas",
+      "description": "Maestro de cuentas bancarias: CBU, número, banco, tipo y moneda.\nCorré 'Listar cuentas' PRIMERO: autocompleta account_number y bank_number para el resto.",
+      "item": [
+        {
+          "name": "Listar cuentas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) { return; }",
+                  "",
+                  "const j = pm.response.json() || {};",
+                  "const gd = j.general_data || {};",
+                  "const lista = j.accounts || [];",
+                  "",
+                  "console.log('[IB] Cuentas devueltas: ' + lista.length + ' | total_rows: ' + gd.total_rows + ' | page: ' + gd.page);",
+                  "console.log('[IB] ---------------------------------------------------------------');",
+                  "lista.forEach(function (c, i) {",
+                  "  console.log('[IB] #' + i +",
+                  "    ' banco=' + c.bank_number + ' (' + (c.bank_name || '') + ')' +",
+                  "    ' | ' + c.account_type + ' ' + c.currency +",
+                  "    ' | nro=' + c.account_number +",
+                  "    ' | cbu=' + c.account_cbu +",
+                  "    ' | ' + (c.account_label || ''));",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('ib_cuentas_json', JSON.stringify(lista));",
+                  "",
+                  "// Autocompleta la cuenta de trabajo si todavía no hay una elegida.",
+                  "if (lista.length > 0 && !pm.variables.get('account_number')) {",
+                  "  const c = lista[0];",
+                  "  pm.collectionVariables.set('account_number', c.account_number);",
+                  "  pm.collectionVariables.set('bank_number', c.bank_number);",
+                  "  if (c.currency) { pm.collectionVariables.set('currency', c.currency); }",
+                  "  console.log('[IB] >>> Autocompletado con la cuenta #0: account_number=' + c.account_number + ', bank_number=' + c.bank_number);",
+                  "  console.log('[IB] >>> Para probar otra, editá account_number/bank_number/currency a mano.');",
+                  "}",
+                  "",
+                  "pm.test('Trae al menos una cuenta', function () {",
+                  "  pm.expect(lista.length).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base}}/accounts?customer-id={{customer_id}}&account-type={{account_type}}&limit=100&page=0",
+              "host": ["{{ib_base}}"],
+              "path": ["accounts"],
+              "query": [
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO. Código de abonado. Formato: ^[A-Z][0-9]{5}[A-Z]$" },
+                { "key": "account-type", "value": "{{account_type}}", "description": "CC = Cuenta Corriente | CA = Caja de Ahorro. Default CC." },
+                { "key": "limit", "value": "100" },
+                { "key": "page", "value": "0" },
+                { "key": "currency", "value": "{{currency}}", "disabled": true, "description": "ARS | USD. Sin este filtro trae las dos." },
+                { "key": "bank-number", "value": "{{bank_number}}", "disabled": true, "description": "3 dígitos según BCRA" }
+              ]
+            },
+            "description": "Listado de cuentas dadas de alta en Interbanking.\n\n**Este es el primer request a correr.** Su script:\n- imprime cada cuenta en la Console de Postman (View → Show Postman Console),\n- guarda el array completo en `ib_cuentas_json`,\n- autocompleta `account_number` / `bank_number` / `currency` con la primera cuenta.\n\nOJO: `account-type` filtra. Para ver el universo COMPLETO hay que correrlo dos\nveces (CC y CA) — no hay forma de pedir las dos de una."
+          }
+        },
+        {
+          "name": "Detalle de una cuenta",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base}}/accounts/{{account_number}}?customer-id={{customer_id}}&account-type={{account_type}}&bank-number={{bank_number}}&currency={{currency}}",
+              "host": ["{{ib_base}}"],
+              "path": ["accounts", "{{account_number}}"],
+              "query": [
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO" },
+                { "key": "account-type", "value": "{{account_type}}" },
+                { "key": "bank-number", "value": "{{bank_number}}" },
+                { "key": "currency", "value": "{{currency}}" }
+              ]
+            },
+            "description": "Detalle de UNA cuenta puntual."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 · Saldos",
+      "description": "Saldos de la cuenta. Acá vive `initial_operating_balance`, que es el saldo inicial\nque hoy el back office carga a mano todos los días en la vista de Tesorería.",
+      "item": [
+        {
+          "name": "Saldos — actual",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) { return; }",
+                  "const j = pm.response.json() || {};",
+                  "const b = j.balances || {};",
+                  "console.log('[IB] SALDOS de ' + ((j.general_data || {}).account_number || '?'));",
+                  "console.log('[IB]   contable            : ' + b.countable_balance);",
+                  "console.log('[IB]   operativo actual    : ' + b.current_operating_balance);",
+                  "console.log('[IB]   operativo INICIAL   : ' + b.initial_operating_balance + '   <-- el que hoy se carga a mano');",
+                  "console.log('[IB]   proyectado 24hs     : ' + b.projected_balance_24hs);",
+                  "console.log('[IB]   proyectado 48hs     : ' + b.projected_balance_48hs);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base}}/accounts/{{account_number}}/balances?bank-number={{bank_number}}&customer-id={{customer_id}}&account-type={{account_type}}&currency={{currency}}",
+              "host": ["{{ib_base}}"],
+              "path": ["accounts", "{{account_number}}", "balances"],
+              "query": [
+                { "key": "bank-number", "value": "{{bank_number}}", "description": "OBLIGATORIO. 3 dígitos BCRA." },
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO" },
+                { "key": "account-type", "value": "{{account_type}}" },
+                { "key": "currency", "value": "{{currency}}" }
+              ]
+            },
+            "description": "Saldo del momento, sin histórico.\n\nDevuelve contable, operativo actual, **operativo inicial**, y proyectados a 24 y 48hs.\nLos proyectados son información que hoy no tenemos por ningún lado."
+          }
+        },
+        {
+          "name": "Saldos — histórico (rango)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) { return; }",
+                  "const j = pm.response.json() || {};",
+                  "const h = j.historical_balances || [];",
+                  "console.log('[IB] Saldos históricos: ' + h.length + ' días | total_rows=' + ((j.general_data || {}).total_rows));",
+                  "h.forEach(function (d) {",
+                  "  console.log('[IB]   ' + d.operation_date + '  saldo=' + d.day_balance + '  créditos=' + d.total_credits + '  débitos=' + d.total_debits);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base}}/accounts/{{account_number}}/balances?bank-number={{bank_number}}&customer-id={{customer_id}}&account-type={{account_type}}&currency={{currency}}&date-since={{date_since}}&date-until={{date_until}}&limit=64&page=0",
+              "host": ["{{ib_base}}"],
+              "path": ["accounts", "{{account_number}}", "balances"],
+              "query": [
+                { "key": "bank-number", "value": "{{bank_number}}", "description": "OBLIGATORIO" },
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO" },
+                { "key": "account-type", "value": "{{account_type}}" },
+                { "key": "currency", "value": "{{currency}}" },
+                { "key": "date-since", "value": "{{date_since}}", "description": "yyyy-mm-dd" },
+                { "key": "date-until", "value": "{{date_until}}", "description": "yyyy-mm-dd" },
+                { "key": "limit", "value": "64" },
+                { "key": "page", "value": "0" }
+              ]
+            },
+            "description": "Saldo diario histórico: hasta **180 días hacia atrás, en ventanas de 60 días** por consulta.\n\nDevuelve por día: `day_balance`, `total_credits`, `total_debits`.\nEs el insumo para un backfill histórico de saldos."
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 · Extractos",
+      "description": "El extracto oficial del banco, día por día, con saldo de apertura y de cierre.\nEs la fuente de CONCILIACIÓN: permite contrastar lo que calcula la grilla BANCOS\ncontra lo que dice el banco.",
+      "item": [
+        {
+          "name": "Extracto — rango de fechas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) { return; }",
+                  "const j = pm.response.json() || {};",
+                  "const dias = j.statements || [];",
+                  "console.log('[IB] Extracto: ' + dias.length + ' días');",
+                  "dias.forEach(function (d) {",
+                  "  console.log('[IB]   ' + d.operation_date +",
+                  "    '  apertura=' + d.opening_balance +",
+                  "    '  cierre=' + d.ending_balance +",
+                  "    '  créditos=' + d.credits_total_amount +",
+                  "    '  débitos=' + d.debits_total_amount +",
+                  "    '  movs=' + d.total_movements);",
+                  "  // Chequeo de coherencia del propio extracto.",
+                  "  const calc = (d.opening_balance || 0) + (d.credits_total_amount || 0) - (d.debits_total_amount || 0);",
+                  "  const dif = Math.round((calc - (d.ending_balance || 0)) * 100) / 100;",
+                  "  if (Math.abs(dif) > 0.01) {",
+                  "    console.warn('[IB]     OJO: apertura + créditos - débitos != cierre. Diferencia: ' + dif);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base}}/accounts/{{account_number}}/statements?bank-number={{bank_number}}&customer-id={{customer_id}}&account-type={{account_type}}&currency={{currency}}&date-since={{date_since}}&date-until={{date_until}}&limit=100&page=0",
+              "host": ["{{ib_base}}"],
+              "path": ["accounts", "{{account_number}}", "statements"],
+              "query": [
+                { "key": "bank-number", "value": "{{bank_number}}", "description": "OBLIGATORIO" },
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO" },
+                { "key": "account-type", "value": "{{account_type}}" },
+                { "key": "currency", "value": "{{currency}}" },
+                { "key": "date-since", "value": "{{date_since}}", "description": "OBLIGATORIO. yyyy-mm-dd" },
+                { "key": "date-until", "value": "{{date_until}}", "description": "OBLIGATORIO. yyyy-mm-dd" },
+                { "key": "limit", "value": "100" },
+                { "key": "page", "value": "0" }
+              ]
+            },
+            "description": "Extracto por día: `opening_balance`, `ending_balance`, totales de débitos y créditos,\nmás el detalle movimiento por movimiento (con código de operación IB y del banco,\nCUIT, comprobante, fecha valor y fecha de proceso).\n\nEl script de test verifica de paso que `apertura + créditos − débitos = cierre`\npara cada día. Si no cierra, lo avisa en la Console."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 · Movimientos",
+      "description": "⚠️ Estos endpoints usan OTRO base URL: `{{ib_base_mov}}` (.../api/prod) con /v1 o /v2\nen el path, a diferencia del resto de la colección que usa .../api/prod/v1.",
+      "item": [
+        {
+          "name": "Movimientos v2 — día",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) { return; }",
+                  "const j = pm.response.json() || {};",
+                  "const m = j.movements_detail || [];",
+                  "console.log('[IB] Movimientos: ' + m.length + ' | total_rows=' + ((j.general_data || {}).total_rows));",
+                  "let cred = 0, deb = 0;",
+                  "m.forEach(function (x) {",
+                  "  if (x.debit_credit_type === 'C') { cred += (x.amount || 0); } else { deb += (x.amount || 0); }",
+                  "  console.log('[IB]   ' + x.debit_credit_type + ' ' + x.amount +",
+                  "    ' | ' + (x.code_description_bank || x.code_description_ib || '') +",
+                  "    ' | cuit=' + (x.customer_cuit || '-') +",
+                  "    ' | ' + (x.depositor_description || '-') +",
+                  "    ' | comp=' + (x.voucher_number || '-'));",
+                  "});",
+                  "console.log('[IB] TOTAL créditos=' + cred.toFixed(2) + '  débitos=' + deb.toFixed(2) + '  neto=' + (cred - deb).toFixed(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base_mov}}/v2/accounts/{{account_number}}/movements/dia?bank-number={{bank_number}}&customer-id={{customer_id}}&account-type={{account_type}}&currency={{currency}}&limit=100&page=0",
+              "host": ["{{ib_base_mov}}"],
+              "path": ["v2", "accounts", "{{account_number}}", "movements", "dia"],
+              "query": [
+                { "key": "bank-number", "value": "{{bank_number}}", "description": "OBLIGATORIO" },
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO" },
+                { "key": "account-type", "value": "{{account_type}}" },
+                { "key": "currency", "value": "{{currency}}" },
+                { "key": "limit", "value": "100" },
+                { "key": "page", "value": "0" }
+              ]
+            },
+            "description": "Movimientos del día de hoy. Trae CUIT y denominación del originante, importe,\ntipo C/D, comprobante, sucursal y fecha de proceso.\n\nEl script suma créditos y débitos para comparar rápido contra el extracto."
+          }
+        },
+        {
+          "name": "Movimientos v2 — anteriores",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base_mov}}/v2/accounts/{{account_number}}/movements/anteriores?bank-number={{bank_number}}&customer-id={{customer_id}}&account-type={{account_type}}&currency={{currency}}&date-since={{date_since}}&date-until={{date_until}}&limit=100&page=0",
+              "host": ["{{ib_base_mov}}"],
+              "path": ["v2", "accounts", "{{account_number}}", "movements", "anteriores"],
+              "query": [
+                { "key": "bank-number", "value": "{{bank_number}}", "description": "OBLIGATORIO" },
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO" },
+                { "key": "account-type", "value": "{{account_type}}" },
+                { "key": "currency", "value": "{{currency}}" },
+                { "key": "date-since", "value": "{{date_since}}" },
+                { "key": "date-until", "value": "{{date_until}}" },
+                { "key": "limit", "value": "100" },
+                { "key": "page", "value": "0" }
+              ]
+            },
+            "description": "Movimientos con fecha ANTERIOR a hoy."
+          }
+        },
+        {
+          "name": "Movimientos v2 — diferidos",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base_mov}}/v2/accounts/{{account_number}}/movements/diferidos?bank-number={{bank_number}}&customer-id={{customer_id}}&account-type={{account_type}}&currency={{currency}}&limit=100&page=0",
+              "host": ["{{ib_base_mov}}"],
+              "path": ["v2", "accounts", "{{account_number}}", "movements", "diferidos"],
+              "query": [
+                { "key": "bank-number", "value": "{{bank_number}}", "description": "OBLIGATORIO" },
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO" },
+                { "key": "account-type", "value": "{{account_type}}" },
+                { "key": "currency", "value": "{{currency}}" },
+                { "key": "limit", "value": "100" },
+                { "key": "page", "value": "0" }
+              ]
+            },
+            "description": "Movimientos con fecha FUTURA. Esto hoy no lo tenemos por ninguna otra fuente:\nes plata comprometida que todavía no impactó."
+          }
+        },
+        {
+          "name": "Movimientos v2 — zughus",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base_mov}}/v2/accounts/{{account_number}}/movements/zughus?bank-number={{bank_number}}&customer-id={{customer_id}}&account-type={{account_type}}&currency={{currency}}&date-since={{date_since}}&date-until={{date_until}}&limit=100&page=0",
+              "host": ["{{ib_base_mov}}"],
+              "path": ["v2", "accounts", "{{account_number}}", "movements", "zughus"],
+              "query": [
+                { "key": "bank-number", "value": "{{bank_number}}", "description": "OBLIGATORIO" },
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO" },
+                { "key": "account-type", "value": "{{account_type}}" },
+                { "key": "currency", "value": "{{currency}}" },
+                { "key": "date-since", "value": "{{date_since}}" },
+                { "key": "date-until", "value": "{{date_until}}" },
+                { "key": "limit", "value": "100" },
+                { "key": "page", "value": "0" }
+              ]
+            },
+            "description": "Movimientos anteriores con OTRA fecha valor. Solo existe en v2.\nLa doc de Interbanking no explica bien el caso de uso — hay que ver qué devuelve."
+          }
+        },
+        {
+          "name": "Movimientos v1 — día (comparación)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base_mov}}/v1/accounts/{{account_number}}/movements/dia?bank-number={{bank_number}}&customer-id={{customer_id}}&account-type={{account_type}}&currency={{currency}}&limit=100&page=0",
+              "host": ["{{ib_base_mov}}"],
+              "path": ["v1", "accounts", "{{account_number}}", "movements", "dia"],
+              "query": [
+                { "key": "bank-number", "value": "{{bank_number}}", "description": "OBLIGATORIO" },
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO" },
+                { "key": "account-type", "value": "{{account_type}}" },
+                { "key": "currency", "value": "{{currency}}" },
+                { "key": "limit", "value": "100" },
+                { "key": "page", "value": "0" }
+              ]
+            },
+            "description": "Misma consulta contra v1. La única diferencia declarada en el YAML es que v1\ntrae un campo `id` por movimiento que v2 NO tiene, y que v2 agrega el tipo `zughus`.\n\nVale la pena correr los dos y comparar: si v1 da un identificador estable por\nmovimiento, eso resuelve la idempotencia al persistir — que es exactamente el\nproblema que hoy tenemos con los movimientos de Aunesa sin hora."
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 · Transferencias",
+      "description": "Transferencias en todos sus estados + comprobantes con el bloque AFIP (número de VEP).",
+      "item": [
+        {
+          "name": "Transferencias — detalle",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) { return; }",
+                  "const j = pm.response.json() || {};",
+                  "const t = j.transfers || [];",
+                  "console.log('[IB] Transferencias: ' + t.length + ' | total_rows=' + ((j.general_data || {}).total_rows));",
+                  "const estados = {};",
+                  "t.forEach(function (x) {",
+                  "  estados[x.status || '(sin estado)'] = (estados[x.status || '(sin estado)'] || 0) + 1;",
+                  "  console.log('[IB]   #' + x.transfer_id + ' ' + (x.request_date || '') +",
+                  "    ' | ' + x.currency + ' ' + x.amount +",
+                  "    ' | ' + (x.transfer_type_description || '') +",
+                  "    ' | estado=' + (x.status || '-') +",
+                  "    ' | benef=' + (x.account_label || '-'));",
+                  "});",
+                  "console.log('[IB] Estados encontrados: ' + JSON.stringify(estados));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base}}/transfers/details?customer-id={{customer_id}}&date-since={{date_since}}&date-until={{date_until}}&limit=100&page=0",
+              "host": ["{{ib_base}}"],
+              "path": ["transfers", "details"],
+              "query": [
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO" },
+                { "key": "date-since", "value": "{{date_since}}", "description": "OBLIGATORIO. yyyy-mm-dd" },
+                { "key": "date-until", "value": "{{date_until}}", "description": "OBLIGATORIO. yyyy-mm-dd" },
+                { "key": "limit", "value": "100" },
+                { "key": "page", "value": "0" },
+                { "key": "debit-account-number", "value": "{{account_number}}", "disabled": true },
+                { "key": "debit-bank-number", "value": "{{bank_number}}", "disabled": true },
+                { "key": "debit-account-type", "value": "{{account_type}}", "disabled": true },
+                { "key": "debit-currency", "value": "{{currency}}", "disabled": true },
+                { "key": "credit-account-number", "value": "", "disabled": true },
+                { "key": "credit-bank-number", "value": "", "disabled": true },
+                { "key": "credit-account-type", "value": "", "disabled": true },
+                { "key": "credit-currency", "value": "", "disabled": true }
+              ]
+            },
+            "description": "Transferencias con TODOS sus estados (confeccionada, autorizada, ejecutada,\nrechazada por banco débito, rechazada por banco crédito, ...).\n\nEl script agrupa por estado en la Console — eso nos dice qué valores reales\nexisten en el campo `status`, que el YAML no enumera."
+          }
+        },
+        {
+          "name": "Transferencias — comprobantes (con AFIP/VEP)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) { return; }",
+                  "const j = pm.response.json() || {};",
+                  "const t = j.transfers || [];",
+                  "const conVep = t.filter(function (x) { return x.afip && x.afip.vep_number; });",
+                  "console.log('[IB] Comprobantes: ' + t.length + ' | con datos AFIP/VEP: ' + conVep.length);",
+                  "conVep.forEach(function (x) {",
+                  "  console.log('[IB]   VEP ' + x.afip.vep_number +",
+                  "    ' | ' + x.currency + ' ' + x.amount +",
+                  "    ' | ' + (x.afip.tax_description || '') +",
+                  "    ' | período=' + (x.afip.fiscal_period || '-') +",
+                  "    ' | ' + (x.request_date || ''));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "client_id", "value": "{{ib_client_id}}" },
+              { "key": "Authorization", "value": "Bearer {{ib_access_token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{ib_base}}/transfers/vouchers?customer-id={{customer_id}}&date-since={{date_since}}&date-until={{date_until}}&limit=100&page=0",
+              "host": ["{{ib_base}}"],
+              "path": ["transfers", "vouchers"],
+              "query": [
+                { "key": "customer-id", "value": "{{customer_id}}", "description": "OBLIGATORIO" },
+                { "key": "date-since", "value": "{{date_since}}", "description": "yyyy-mm-dd" },
+                { "key": "date-until", "value": "{{date_until}}", "description": "yyyy-mm-dd" },
+                { "key": "limit", "value": "100" },
+                { "key": "page", "value": "0" }
+              ]
+            },
+            "description": "Comprobantes de transferencias EJECUTADAS. Incluye el bloque `afip` con\n`vep_number`, impuesto, concepto y período fiscal.\n\nEse `vep_number` engancha directo con la tab VEPS de Tesorería: hoy el número\nde VEP se tipea a mano y no hay forma de confirmar que efectivamente se pagó."
+          }
+        }
+      ]
+    }
+  ]
+}

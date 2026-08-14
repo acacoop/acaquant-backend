@@ -29,6 +29,16 @@ from __future__ import annotations
 
 from api.cache import cached
 from api.services._sql import _f, _q
+from core.postgres import get_pool
+
+
+def _exec(sql: str, params: dict) -> int:
+    """INSERT/UPDATE/DELETE con commit. `_sql.py` solo expone lectura."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        n = cur.rowcount
+        conn.commit()
+        return n
 
 # Carteras donde un nominal negativo NO es un descubierto. La `cartera` sale de
 # `portafolio.assets`, así que un asset sin clasificar la tiene NULL — por eso hay
@@ -44,6 +54,86 @@ _HORIZONTES = ("t0", "t1")
 # (o la trae) sin tocar código. Es el mismo valor que ya filtra el selector
 # NIVEL 5 del Tablero Comercial.
 NIVEL5_EXCLUIDOS: tuple[str, ...] = ("CDC", "OTC")
+
+
+# ── Cuentas OCULTAS a mano ────────────────────────────────────────────────────
+# Lista que el back office maneja desde la propia vista (mismo patrón que el
+# catálogo de agentes de SENEBIS). Hay cuentas que van a aparecer siempre y que
+# no son un problema que nadie tenga que mirar; en vez de que cada uno las
+# saltee con el ojo todos los días, se ocultan una vez y quedan ocultas.
+#
+# **OCULTAR NO ES EXCLUIR.** La fila se sigue persistiendo igual en
+# `portafolio.control_saldos` — el saldo existe y el daemon lo escribe. Lo único
+# que pasa es que esta pantalla no lo muestra. Por eso el corte vive ACÁ (en la
+# lectura) y no en el job: es una preferencia de visualización, no una regla
+# sobre qué es un saldo válido.
+#
+# Cada fila guarda QUIÉN la ocultó y CUÁNDO: ocultar es esconderle información a
+# los demás, así que tiene que tener nombre y fecha.
+def _ensure_ocultas() -> None:
+    """Crea la tabla si falta. Se llama en cada escritura, no en la lectura.
+
+    La vista es de solo lectura y se sirve aunque la tabla no exista (degrada a
+    lista vacía), así que hacer DDL en cada poll sería pagar un viaje a la base
+    cada 20 segundos por usuario para nada.
+    """
+    _exec("""CREATE TABLE IF NOT EXISTS portafolio.control_saldos_ocultas (
+            id_cuenta  text PRIMARY KEY,
+            cuenta     text,
+            motivo     text,
+            creado_por text,
+            creado_at  timestamptz NOT NULL DEFAULT now())""", {})
+
+
+def listar_ocultas() -> list[dict]:
+    try:
+        filas = _q("SELECT id_cuenta, cuenta, motivo, creado_por, creado_at "
+                   "FROM portafolio.control_saldos_ocultas ORDER BY creado_at DESC")
+    except Exception:
+        return []
+    return [{"id_cuenta": f["id_cuenta"], "cuenta": f["cuenta"] or "",
+             "motivo": f["motivo"] or "", "creado_por": f["creado_por"] or "",
+             "creado_at": f["creado_at"].isoformat() if f["creado_at"] else None}
+            for f in filas]
+
+
+def ocultar_cuenta(id_cuenta: str, actor: str, motivo: str = "") -> dict:
+    """Agrega una cuenta a la lista de ocultas. Idempotente.
+
+    La denominación se resuelve contra `clientes.cuentas` y se guarda junto a la
+    fila: sin eso la pantalla mostraría una lista de números pelados y nadie
+    sabría qué está ocultando.
+    """
+    idc = str(id_cuenta or "").strip()
+    if not idc:
+        raise ValueError("falta 'id_cuenta'")
+    _ensure_ocultas()
+    denom = _q("SELECT denominacion FROM clientes.cuentas WHERE id_cuenta = %(c)s",
+               {"c": idc})
+    cuenta = (denom[0]["denominacion"] if denom else "") or ""
+    _exec(
+        "INSERT INTO portafolio.control_saldos_ocultas "
+        "(id_cuenta, cuenta, motivo, creado_por, creado_at) "
+        "VALUES (%(c)s, %(d)s, %(m)s, %(por)s, now()) "
+        # Re-ocultar una cuenta ya oculta REFRESCA quién y cuándo: el último que
+        # tomó la decisión es el que tiene que figurar.
+        "ON CONFLICT (id_cuenta) DO UPDATE SET cuenta = EXCLUDED.cuenta, "
+        "motivo = EXCLUDED.motivo, creado_por = EXCLUDED.creado_por, "
+        "creado_at = EXCLUDED.creado_at",
+        {"c": idc, "d": cuenta, "m": (motivo or "").strip() or None,
+         "por": (actor or "").lower() or None})
+    return {"id_cuenta": idc, "cuenta": cuenta}
+
+
+def mostrar_cuenta(id_cuenta: str, _actor: str = "") -> dict:
+    """Saca una cuenta de la lista de ocultas — vuelve a verse."""
+    idc = str(id_cuenta or "").strip()
+    if not idc:
+        raise ValueError("falta 'id_cuenta'")
+    _ensure_ocultas()
+    n = _exec("DELETE FROM portafolio.control_saldos_ocultas WHERE id_cuenta = %(c)s",
+              {"c": idc})
+    return {"id_cuenta": idc, "borradas": n}
 
 # ⚠️ La CARTERA se lee de `portafolio.assets` EN VIVO, no de la copia congelada en
 # `tenencia_live`. Motivo (2026-08-12): el daemon carga el catálogo de assets UNA
@@ -150,16 +240,26 @@ def _saldos() -> dict:
     except Exception:
         return {"disponible": False, "n": 0, "n_negativos": 0, "filas": [],
                 "fecha": None, "actualizado_at": None, "cuentas_en_control": 0,
-                "ocultas": 0, "excluidos": list(NIVEL5_EXCLUIDOS)}
+                "ocultas": 0, "excluidos": list(NIVEL5_EXCLUIDOS),
+                "ocultas_manual": 0, "lista_ocultas": []}
 
-    # El corte CDC/OTC se hace en PYTHON y no en el WHERE a propósito: filtrando en
+    # Los dos cortes se hacen en PYTHON y no en el WHERE a propósito: filtrando en
     # SQL las filas ocultas desaparecen sin dejar rastro y la pantalla no puede
-    # decir «además hay 4 que no te muestro». Son pocas filas (solo los negativos),
-    # así que el filtro en memoria no cuesta nada y devuelve el número.
-    visibles, ocultas = [], 0
+    # decir «además hay 4 que no te muestro». Son pocas filas, así que el filtro en
+    # memoria no cuesta nada y devuelve el número.
+    #
+    # Se cuentan POR SEPARADO (`ocultas` = por nivel_5 / `ocultas_manual` = las que
+    # alguien escondió a mano) porque son dos decisiones distintas y con dueños
+    # distintos: una la fija la segmentación y la otra una persona con nombre.
+    lista_ocultas = listar_ocultas()
+    ids_ocultas = {o["id_cuenta"] for o in lista_ocultas}
+    visibles, ocultas, ocultas_manual = [], 0, 0
     for f in filas:
         if (f["nivel_5"] or "").strip().upper() in NIVEL5_EXCLUIDOS:
             ocultas += 1
+            continue
+        if f["id_cuenta"] in ids_ocultas:
+            ocultas_manual += 1
             continue
         visibles.append(f)
 
@@ -170,6 +270,10 @@ def _saldos() -> dict:
         "cuentas_en_control": meta["cuentas"],
         "ocultas": ocultas,
         "excluidos": list(NIVEL5_EXCLUIDOS),
+        "ocultas_manual": ocultas_manual,
+        # La lista viaja completa: es el ABM de la pantalla, son pocas filas y
+        # traerla acá evita un segundo request para abrir el panel.
+        "lista_ocultas": lista_ocultas,
         "n": len(visibles),
         # El contador de la solapa: lo que hay que mirar son los descubiertos, no
         # el total de saldos. Se cuenta acá y no en el front para que el número de

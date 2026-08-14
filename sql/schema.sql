@@ -1298,6 +1298,27 @@ CREATE INDEX IF NOT EXISTS ix_csaldos_negativos
 CREATE INDEX IF NOT EXISTS ix_csaldos_cuenta
     ON portafolio.control_saldos(id_cuenta, fecha);
 
+-- Cuentas que el back office decide NO VER en el control de saldos. Se manejan
+-- desde la propia vista (mismo patrón que el catálogo de agentes de SENEBIS).
+--
+-- ⚠️ OCULTAR NO ES EXCLUIR: la fila se sigue escribiendo en control_saldos — el
+-- saldo existe y el daemon lo persiste. Lo único que cambia es que la pantalla
+-- no lo muestra. Por eso el filtro vive en la LECTURA (api/services/
+-- titulos_negativos.py) y no en el job: es una preferencia de visualización, no
+-- una regla sobre qué es un saldo válido. Distinto del umbral de ruido
+-- (jobs/control_saldos.py::UMBRALES), que sí decide qué NO se persiste.
+--
+-- `creado_por` / `creado_at`: ocultar es esconderle información al resto del
+-- equipo, así que tiene que tener nombre y fecha. Re-ocultar una cuenta ya
+-- oculta refresca los dos: el último que tomó la decisión es el que figura.
+CREATE TABLE IF NOT EXISTS portafolio.control_saldos_ocultas (
+    id_cuenta  text PRIMARY KEY,
+    cuenta     text,                      -- denominación, resuelta al ocultar
+    motivo     text,
+    creado_por text,
+    creado_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- Log self-healing del writer diario (qué cuenta/fecha quedó OK o con timeout).
 CREATE TABLE IF NOT EXISTS portafolio.backfill_log (
     fecha       date NOT NULL,

@@ -696,6 +696,39 @@ def titulos_negativos(
     return svc_negativos.titulos_negativos(incluir_todo=incluir_todo)
 
 
+class _OcultarPayload(BaseModel):
+    id_cuenta: str = Field(..., min_length=1, max_length=32,
+                           description="Número de cuenta, sin corchetes (ej. '805')")
+    motivo: str | None = Field(None, max_length=200,
+                               description="Por qué se oculta — queda a la vista de todos")
+
+
+@router.put("/saldos/ocultas")
+def ocultar_cuenta(req: _OcultarPayload = Body(...),
+                   actor: str = Depends(get_user_email)) -> dict:
+    """Oculta una cuenta del control de saldos. Queda quién y cuándo.
+
+    OCULTAR NO ES EXCLUIR: el saldo se sigue guardando igual, solo deja de
+    mostrarse en esta pantalla. Es para las cuentas que aparecen siempre y que
+    nadie tiene que mirar — que cada uno las saltee con el ojo todos los días es
+    lo que termina haciendo que el control se deje de mirar.
+    """
+    try:
+        return svc_negativos.ocultar_cuenta(req.id_cuenta, actor=actor,
+                                            motivo=req.motivo or "")
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/saldos/ocultas/{id_cuenta}")
+def mostrar_cuenta(id_cuenta: str, actor: str = Depends(get_user_email)) -> dict:
+    """Saca una cuenta de la lista de ocultas — vuelve a verse en el control."""
+    try:
+        return svc_negativos.mostrar_cuenta(id_cuenta, actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 # ── Acreencias clientes (cobros futuros, precompute CashFlow.Acreencias) ──
 @router.get("/acreencias/por-dia")
 def acreencias_por_dia(

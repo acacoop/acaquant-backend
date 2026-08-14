@@ -25,8 +25,9 @@ Qué resuelve, además de "pegarle al endpoint":
      es un test: es una orden. Por eso los POST exigen `--confirmo` Y quedan
      BLOQUEADOS contra producción salvo `--permitir-prod` explícito.
 
-Uso (read-only, lo primero que hay que correr):
+Uso (read-only, en este orden):
 
+    python -m scripts.diag_byma_clearing env --descubrir
     python -m scripts.diag_byma_clearing sondeo
     python -m scripts.diag_byma_clearing token
     python -m scripts.diag_byma_clearing obligaciones --cuenta 14 --fecha 2026-08-14
@@ -40,15 +41,24 @@ Escritura (SOLO homologación, una orden real en el entorno de pruebas):
 
 Credenciales (ninguna se hardcodea; van en el `.env` del Droplet):
 
-    BYMA_CLEARING_TOKEN   Atajo: bearer ya emitido, pegado a mano. Gana sobre todo.
-    BYMA_CLIENT_ID / BYMA_CLIENT_SECRET   client_credentials.
-    BYMA_TOKEN_URL        Endpoint de token del portal. La doc NO lo publica;
-                          el JWT de ejemplo dice que el IdP es Okta
-                          (iss=https://tecval-sandbox.oktapreview.com/oauth2/auslwvzzoiDTktvcO1d7,
-                          o sea el issuer de SANDBOX). Sin esta var no se puede
-                          pedir token: el script lo dice y no inventa una URL.
+    BYMA_CLIENT_ID / BYMA_CLIENT_SECRET   client_credentials. Lo mínimo.
+    BYMA_ISSUER           URL del emisor de tokens. Con esto alcanza: el
+                          endpoint de token se DESCUBRE solo contra
+                          `{issuer}/.well-known/oauth-authorization-server`
+                          (u `openid-configuration`), que todo servidor OAuth2
+                          publica. El JWT de ejemplo de la doc dice que el IdP
+                          de BYMA es Okta.
+    BYMA_TOKEN_URL        Endpoint de token explícito, si el descubrimiento no
+                          anda o BYMA te lo pasa a mano. Pisa a BYMA_ISSUER.
     BYMA_SCOPES           Default "clearing clearingworkflow.create" (los scopes
                           que trae el JWT de ejemplo de la doc).
+    BYMA_CLEARING_TOKEN   Atajo: bearer ya emitido, pegado a mano. Gana sobre
+                          todo lo demás. Vence — no sirve para algo permanente.
+
+`env` audita todo eso SIN imprimir secretos (los enmascara) y detecta los
+errores de carga que no se ven mirando el archivo: comillas que quedan dentro
+del valor, espacios al final, URLs sin https, y el token de ejemplo de la doc
+pegado por error.
 
 Todo lo que sale por pantalla se puede volcar crudo con `--out archivo.json`
 para comparar contra la doc sin re-correr nada.
@@ -66,6 +76,15 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import requests
+from dotenv import load_dotenv
+
+# El `.env` del proyecto NO se carga solo: `python -m scripts.x` arranca con el
+# entorno del shell y nada más. Sin esto, todo lo que pongas en
+# /root/TradingAV/.env sería invisible y el script diría "faltan credenciales"
+# con las credenciales puestas.
+_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ENV_PATH = os.path.join(_RAIZ, ".env")
+load_dotenv(_ENV_PATH)
 
 # --------------------------------------------------------------------------
 # Entornos. Los hosts NO salen del OpenAPI (sus etiquetas están cruzadas: el
@@ -148,8 +167,45 @@ def describir_token(token: str) -> None:
     p(f"  scopes  : {payload.get('scp')}")
 
 
+def descubrir_token_url(issuer: str, verbose: bool = True) -> str | None:
+    """El `token_endpoint` sale del propio issuer, no hay que adivinarlo.
+
+    Todo servidor OAuth2/OIDC publica un documento de descubrimiento con sus
+    endpoints reales. Okta (que es el IdP de BYMA según el JWT de la doc) sirve
+    los dos formatos. Si esto responde, `BYMA_TOKEN_URL` deja de ser un dato
+    que haya que pedirle a nadie.
+    """
+    issuer = issuer.rstrip("/")
+    for sufijo in ("/.well-known/oauth-authorization-server",
+                   "/.well-known/openid-configuration"):
+        url = issuer + sufijo
+        try:
+            r = requests.get(url, timeout=20)
+        except requests.RequestException as e:
+            if verbose:
+                p(f"  ·  {sufijo} → {type(e).__name__}")
+            continue
+        if r.status_code != 200:
+            if verbose:
+                p(f"  ·  {sufijo} → HTTP {r.status_code}")
+            continue
+        try:
+            doc = r.json()
+        except ValueError:
+            continue
+        endpoint = doc.get("token_endpoint")
+        if endpoint:
+            if verbose:
+                p(f"  ✅ descubierto en {sufijo}")
+                p(f"     token_endpoint : {endpoint}")
+                p(f"     grants         : {doc.get('grant_types_supported')}")
+                p(f"     scopes         : {doc.get('scopes_supported')}")
+            return endpoint
+    return None
+
+
 def obtener_token(verbose: bool = True) -> str | None:
-    """Bearer pegado a mano, o client_credentials contra BYMA_TOKEN_URL."""
+    """Bearer pegado a mano, o client_credentials contra el endpoint de token."""
     pegado = os.getenv("BYMA_CLEARING_TOKEN", "").strip()
     if pegado:
         if verbose:
@@ -160,15 +216,21 @@ def obtener_token(verbose: bool = True) -> str | None:
     cid = os.getenv("BYMA_CLIENT_ID", "").strip()
     secret = os.getenv("BYMA_CLIENT_SECRET", "").strip()
     url = os.getenv("BYMA_TOKEN_URL", "").strip()
+    issuer = os.getenv("BYMA_ISSUER", "").strip()
     scopes = os.getenv("BYMA_SCOPES", SCOPES_DEFAULT).strip()
 
+    # Si no hay URL explícita pero sí issuer, se descubre sola.
+    if not url and issuer:
+        if verbose:
+            p(f"  sin BYMA_TOKEN_URL → descubriendo desde BYMA_ISSUER ({issuer})")
+        url = descubrir_token_url(issuer, verbose) or ""
+
     faltan = [n for n, v in (("BYMA_CLIENT_ID", cid), ("BYMA_CLIENT_SECRET", secret),
-                             ("BYMA_TOKEN_URL", url)) if not v]
+                             ("BYMA_TOKEN_URL (o BYMA_ISSUER)", url)) if not v]
     if faltan:
         p(f"  ❌ faltan credenciales: {', '.join(faltan)}")
-        p("     (o pegá un bearer ya emitido en BYMA_CLEARING_TOKEN)")
-        p("     La doc de BYMA NO publica el endpoint de token: hay que pedírselo")
-        p("     al portal de desarrolladores. No se inventa acá.")
+        p("     Corré `python -m scripts.diag_byma_clearing env` para ver qué hay")
+        p("     cargado y qué falta, sin exponer ningún secreto.")
         return None
 
     if verbose:
@@ -258,6 +320,139 @@ def urls_candidatas(base: str, ruta: str, sufijo: str) -> list[str]:
 # --------------------------------------------------------------------------
 # Comandos
 # --------------------------------------------------------------------------
+# Qué se espera de cada variable. `secreto=True` → nunca se imprime entera.
+VARIABLES = [
+    ("BYMA_CLIENT_ID", False,
+     "Usuario de la aplicación en el portal BYMA. En Okta arranca con '0oa'."),
+    ("BYMA_CLIENT_SECRET", True,
+     "La contraseña de esa aplicación. Es lo único realmente sensible."),
+    ("BYMA_ISSUER", False,
+     "URL del emisor de tokens. De acá se descubre solo el endpoint de token."),
+    ("BYMA_TOKEN_URL", False,
+     "Endpoint de token explícito. Opcional si cargaste BYMA_ISSUER."),
+    ("BYMA_SCOPES", False,
+     f"Permisos a pedir. Si no la cargás se usa: {SCOPES_DEFAULT}"),
+    ("BYMA_CLEARING_TOKEN", True,
+     "Atajo: un bearer ya emitido. Si está, se ignora todo lo de arriba."),
+]
+
+# El token que viene en los ejemplos de la doc de BYMA. Si alguien lo copia y
+# pega pensando que sirve, el script lo tiene que cantar: está vencido desde
+# enero y pertenece a otra aplicación.
+_TOKEN_DE_LA_DOC = "AT.hIK9ViqVSla9BphjQou2Q07yTaXTbX2hRTazv-oUFok"
+
+
+def enmascarar(valor: str, secreto: bool) -> str:
+    if not secreto:
+        return valor if len(valor) <= 80 else valor[:77] + "…"
+    if len(valor) <= 8:
+        return "•" * len(valor)
+    return f"{valor[:4]}{'•' * 12}{valor[-4:]}"
+
+
+def revisar_valor(nombre: str, crudo: str) -> list[str]:
+    """Errores de carga típicos que no se ven mirando el archivo."""
+    avisos: list[str] = []
+    if crudo != crudo.strip():
+        avisos.append("tiene espacios o saltos de línea al principio/final")
+    v = crudo.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        avisos.append("está entre comillas — en un .env las comillas quedan "
+                      "DENTRO del valor y rompen la autenticación")
+    if nombre.endswith(("_URL", "_ISSUER")) and v and not v.startswith("https://"):
+        avisos.append("debería empezar con https://")
+    if nombre == "BYMA_CLEARING_TOKEN":
+        payload = decodificar_jwt(v)
+        if payload:
+            if payload.get("jti") == _TOKEN_DE_LA_DOC:
+                avisos.append("ES EL TOKEN DE EJEMPLO DE LA DOCUMENTACIÓN — "
+                              "está vencido y no es tuyo. No sirve.")
+            exp = payload.get("exp")
+            if exp and int(exp) < int(time.time()):
+                avisos.append("el token está VENCIDO — pedí uno nuevo")
+    return avisos
+
+
+def cmd_env(args) -> int:
+    """Qué credenciales hay cargadas, sin imprimir ningún secreto."""
+    titulo("DE DÓNDE SALEN LAS VARIABLES")
+    existe = os.path.isfile(_ENV_PATH)
+    p(f"  archivo .env : {_ENV_PATH}")
+    p(f"  ¿existe?     : {'sí' if existe else '❌ NO — hay que crearlo'}")
+    if existe:
+        try:
+            with open(_ENV_PATH, encoding="utf-8", errors="replace") as fh:
+                claves = [ln.split("=", 1)[0].strip() for ln in fh
+                          if "=" in ln and not ln.strip().startswith("#")]
+            p(f"  variables    : {len(claves)} en total"
+              f"  ({sum(1 for k in claves if k.startswith('BYMA')) } empiezan con BYMA)")
+        except OSError as e:
+            p(f"  ⚠️ no se pudo leer: {e}")
+    p("  Nota: una variable exportada en el shell PISA al .env.")
+
+    titulo("CREDENCIALES BYMA")
+    cargadas, problemas = 0, 0
+    fallas: dict[str, list[str]] = {}
+    for nombre, secreto, para_que in VARIABLES:
+        crudo = os.environ.get(nombre)
+        if crudo is None or not crudo.strip():
+            p(f"  ○ {nombre}")
+            p(f"      sin cargar — {para_que}")
+            continue
+        cargadas += 1
+        v = crudo.strip()
+        avisos = revisar_valor(nombre, crudo)
+        problemas += len(avisos)
+        if avisos:
+            fallas[nombre] = avisos
+        p(f"  {'⚠️' if avisos else '●'} {nombre}")
+        p(f"      valor  : {enmascarar(v, secreto)}   ({len(v)} caracteres)")
+        p(f"      para   : {para_que}")
+        for a in avisos:
+            p(f"      ⚠️ {a}")
+        if nombre == "BYMA_CLEARING_TOKEN" and not avisos:
+            describir_token(v)
+
+    titulo("VEREDICTO")
+    # Una variable con problemas NO cuenta como cargada: si el token está
+    # vencido, decir "alcanza para probar" sería mentirle a la cara al aviso
+    # de arriba.
+    def sirve(nombre: str) -> bool:
+        return bool(os.environ.get(nombre, "").strip()) and nombre not in fallas
+
+    tiene_token = sirve("BYMA_CLEARING_TOKEN")
+    tiene_par = all(sirve(n) for n in ("BYMA_CLIENT_ID", "BYMA_CLIENT_SECRET"))
+    tiene_donde = any(sirve(n) for n in ("BYMA_TOKEN_URL", "BYMA_ISSUER"))
+
+    if tiene_token:
+        p("  ✅ Hay un bearer cargado y sano: alcanza para probar YA.")
+        p("     Ojo que vence (mirá el `exp` de arriba): para algo permanente")
+        p("     hace falta el par client_id + client_secret.")
+    elif tiene_par and tiene_donde:
+        p("  ✅ Están las dos piezas para pedir el token solo. Siguiente paso:")
+        p("     python -m scripts.diag_byma_clearing token")
+    elif tiene_par:
+        p("  ⚠️ Están client_id y client_secret, pero falta DÓNDE pedir el token.")
+        p("     Cargá BYMA_ISSUER (la URL del emisor) y el script descubre el resto.")
+    else:
+        p("  ❌ Falta lo básico: BYMA_CLIENT_ID + BYMA_CLIENT_SECRET,")
+        p("     más BYMA_ISSUER (o BYMA_TOKEN_URL).")
+    if problemas:
+        p(f"  ⚠️ {problemas} problema(s) de formato arriba — corregilos antes de seguir.")
+
+    issuer = os.environ.get("BYMA_ISSUER", "").strip()
+    if args.descubrir and issuer:
+        titulo("DESCUBRIMIENTO DEL EMISOR (sin credenciales)")
+        p(f"  issuer: {issuer}")
+        if not descubrir_token_url(issuer):
+            p("  ❌ el emisor no publicó su documento de descubrimiento.")
+            p("     Ahí sí hay que pedirle a BYMA la URL del token a mano.")
+    elif args.descubrir:
+        titulo("DESCUBRIMIENTO DEL EMISOR")
+        p("  Necesita BYMA_ISSUER cargada.")
+    return 0 if (tiene_token or (tiene_par and tiene_donde)) and not problemas else 1
+
+
 def cmd_sondeo(args) -> int:
     """¿Qué hosts de los que nombra la doc existen? Sin token, sin escribir."""
     titulo("SONDEO DE HOSTS (sin credenciales)")
@@ -435,6 +630,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="`.json` como los curl de la doc, o sin sufijo como el OpenAPI")
     ap.add_argument("--out", help="volcar la respuesta cruda a este archivo")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    e = sub.add_parser("env", help="qué credenciales hay cargadas (no imprime secretos)")
+    e.add_argument("--descubrir", action="store_true",
+                   help="además, preguntarle al emisor cuál es su endpoint de token")
+    e.set_defaults(fn=cmd_env)
 
     sub.add_parser("sondeo", help="qué hosts existen (sin token)").set_defaults(fn=cmd_sondeo)
     sub.add_parser("token", help="pedir/mostrar el bearer").set_defaults(fn=cmd_token)

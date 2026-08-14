@@ -323,13 +323,17 @@
       ]
     },
     {
-      "name": "0. Token (manual — normalmente NO hace falta)",
+      "name": "0. Token (EMPEZAR POR ACA)",
       "request": {
         "method": "POST",
         "header": [
           {
             "key": "Accept",
             "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
           }
         ],
         "url": {
@@ -339,7 +343,28 @@
           ],
           "path": []
         },
-        "description": "Pide el token a mano y lo muestra descompuesto: emisor, scopes y vencimiento. El script de la coleccion ya lo renueva solo antes de cada request; esto queda para debug.\n\nLas credenciales van por Basic (usuario = client_id, password = client_secret). Si BYMA rechaza ese metodo, el script automatico reintenta mandandolas en el body."
+        "description": "Pide el token y lo guarda. Los 4 campos del body son exactamente los que muestra el manual del Portal de Desarrolladores.\n\nCorre esto PRIMERO: aisla la autenticacion del resto. Si sale bien, la consola te muestra el token descompuesto (emisor, scopes, vencimiento) y ya sabes que las credenciales estan ok.\n\nDespues no hace falta volver a tocarlo: el script de la coleccion renueva el token solo antes de cada request.\n\nSi da 400 por el scope, probar con uno solo: clearingworkflow.create",
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "client_id",
+              "value": "{{byma_client_id}}"
+            },
+            {
+              "key": "client_secret",
+              "value": "{{byma_client_secret}}"
+            },
+            {
+              "key": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "key": "scope",
+              "value": "{{byma_scopes}}"
+            }
+          ]
+        }
       },
       "response": [],
       "event": [

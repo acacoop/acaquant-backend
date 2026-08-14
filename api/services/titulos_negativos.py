@@ -72,6 +72,65 @@ VENTANA = {
 }
 
 
+# ── Presencia: quién más está mirando la vista ────────────────────────────────
+# Mismo patrón que `senebis_presencia` / `tesoreria_presencia` (el poll de la
+# vista ES el heartbeat), con dos diferencias a propósito:
+#
+# 1. La tabla es GENÉRICA (`vista` en la PK) en vez de una tercera copia con
+#    otro nombre. Ya había dos idénticas; la tercera era el momento de parar.
+#    Las otras dos NO se tocan — migrarlas es gratis después y no vale el riesgo
+#    de mover dos vistas que funcionan.
+# 2. Marcar y leer van en UNA sola query. Las copias existentes hacen dos
+#    (upsert + select) y esta vista pollea cada 20s por usuario: con el peaje de
+#    ~8.5ms por viaje, la mitad de los viajes es la mitad del costo.
+#
+# Ojo con el CTE: el SELECT ve el snapshot ANTERIOR al INSERT, así que el que
+# consulta no se ve a sí mismo. Es justo lo que se quiere (interesa quién MÁS
+# está mirando) y por eso además se excluye explícito — no depender de una
+# sutileza del motor para algo que se puede decir.
+PRESENCIA_TTL_S = 90
+
+
+def _ensure_presencia() -> None:
+    _exec("""CREATE TABLE IF NOT EXISTS manager.presencia (
+            vista    text NOT NULL,
+            email    text NOT NULL,
+            visto_at timestamptz NOT NULL,
+            PRIMARY KEY (vista, email))""", {})
+
+
+def presencia(vista: str, email: str) -> list[dict]:
+    """Marca que `email` está mirando `vista` y devuelve a los OTROS presentes.
+
+    Nunca rompe la vista: si la tabla no existe todavía o la escritura falla,
+    devuelve lista vacía. Saber quién más está mirando es una comodidad, no un
+    dato por el que valga la pena tumbar un control de descubiertos.
+    """
+    e = (email or "").lower().strip()
+    if not e:
+        return []
+    try:
+        filas = _q(
+            "WITH yo AS ("
+            "  INSERT INTO manager.presencia (vista, email, visto_at) "
+            "  VALUES (%(v)s, %(e)s, now()) "
+            "  ON CONFLICT (vista, email) DO UPDATE SET visto_at = now()) "
+            "SELECT email, visto_at FROM manager.presencia "
+            "WHERE vista = %(v)s AND email <> %(e)s "
+            "  AND visto_at >= now() - make_interval(secs => %(ttl)s) "
+            "ORDER BY email",
+            {"v": vista, "e": e, "ttl": PRESENCIA_TTL_S})
+    except Exception:
+        try:
+            _ensure_presencia()
+        except Exception:
+            pass
+        return []
+    return [{"email": f["email"],
+             "visto_at": f["visto_at"].isoformat() if f["visto_at"] else None}
+            for f in filas]
+
+
 # ── Cuentas OCULTAS a mano ────────────────────────────────────────────────────
 # Lista que el back office maneja desde la propia vista (mismo patrón que el
 # catálogo de agentes de SENEBIS). Hay cuentas que van a aparecer siempre y que

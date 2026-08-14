@@ -1298,6 +1298,21 @@ CREATE INDEX IF NOT EXISTS ix_csaldos_negativos
 CREATE INDEX IF NOT EXISTS ix_csaldos_cuenta
     ON portafolio.control_saldos(id_cuenta, fecha);
 
+-- Presencia GENÉRICA por vista: quién tiene una pantalla abierta ahora mismo.
+-- El poll de la vista ES el heartbeat (no hay nada extra del lado del cliente);
+-- presente = visto en los últimos 90s.
+--
+-- Es genérica (`vista` en la PK) porque ya existían DOS tablas idénticas
+-- (operaciones.senebis_presencia y operaciones.tesoreria_presencia) y la tercera
+-- copia era el momento de parar. Esas dos NO se migraron: hacerlo es gratis
+-- después y no valía el riesgo de mover dos vistas que funcionan.
+CREATE TABLE IF NOT EXISTS manager.presencia (
+    vista    text NOT NULL,                 -- 'saldos'
+    email    text NOT NULL,
+    visto_at timestamptz NOT NULL,
+    PRIMARY KEY (vista, email)
+);
+
 -- Cuentas que el back office decide NO VER en el control de saldos. Se manejan
 -- desde la propia vista (mismo patrón que el catálogo de agentes de SENEBIS).
 --

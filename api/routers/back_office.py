@@ -693,7 +693,16 @@ def titulos_negativos(
     está corriendo".
     """
     # `@cached` arma la key por NOMBRE de argumento → siempre kwargs (api/CLAUDE.md).
-    return svc_negativos.titulos_negativos(incluir_todo=incluir_todo)
+    data = svc_negativos.titulos_negativos(incluir_todo=incluir_todo)
+    # La PRESENCIA se resuelve ACÁ y no adentro del service, por dos motivos que
+    # el `@cached` de arriba hace obligatorios:
+    #   · es POR USUARIO — metida en la respuesta cacheada, a uno le llegaría la
+    #     presencia de otro;
+    #   · marcar presencia es un EFECTO, y durante los 10s de cache el service
+    #     ni se ejecuta: el que pollea en esa ventana nunca quedaría registrado.
+    # El `{**data}` arma un dict nuevo: mutar el cacheado lo envenenaría para
+    # todos los que lo lean después.
+    return {**data, "presencia": svc_negativos.presencia("saldos", _email)}
 
 
 class _OcultarPayload(BaseModel):

@@ -55,6 +55,22 @@ _HORIZONTES = ("t0", "t1")
 # NIVEL 5 del Tablero Comercial.
 NIVEL5_EXCLUIDOS: tuple[str, ...] = ("CDC", "OTC")
 
+# Cuándo TIENE que estar corriendo el daemon de saldos, y cada cuánto late. Sale
+# de las constantes del job (`jobs/control_saldos.py`: cron 11:00 UTC = 8 ART,
+# HORA_CIERRE_ART = 18, DETECTOR_S = 180) y viaja al front en la respuesta.
+#
+# Va acá y NO copiado en el frontend porque es la única forma de que la pantalla
+# no mienta el día que cambie el horario del cron: con dos copias, una queda
+# vieja y nadie se entera hasta que la alarma suena cuando no debe (o peor, no
+# suena cuando debe).
+VENTANA = {
+    "hora_desde": 8,            # ART
+    "hora_hasta": 18,           # ART — el daemon termina solo a esta hora
+    "dias": [1, 2, 3, 4, 5],    # lunes a viernes (ISO)
+    "latido_cada_min": 3,       # DETECTOR_S
+    "tolerancia_min": 10,       # margen antes de gritar (3 ciclos perdidos)
+}
+
 
 # ── Cuentas OCULTAS a mano ────────────────────────────────────────────────────
 # Lista que el back office maneja desde la propia vista (mismo patrón que el
@@ -233,15 +249,22 @@ def _saldos() -> dict:
             "LEFT JOIN clientes.operadores o ON o.email = c.operador_email "
             "WHERE cs.fecha = (SELECT MAX(fecha) FROM portafolio.control_saldos) "
             "ORDER BY cs.cantidad ASC")
+        # El LATIDO viaja como subconsulta escalar en la MISMA query del meta: es
+        # otra tabla, pero pedirlo aparte sería un roundtrip más a Supabase por
+        # cada poll de cada usuario, y lo que se paga acá es la cantidad de
+        # queries, no su plan.
         meta = _q("SELECT MAX(fecha) AS fecha, MAX(actualizado_at) AS ult, "
-                  "       count(DISTINCT id_cuenta) AS cuentas "
+                  "       count(DISTINCT id_cuenta) AS cuentas, "
+                  "       (SELECT updated_at FROM operaciones.motor_heartbeat "
+                  "        WHERE id = 'control_saldos') AS latido "
                   "FROM portafolio.control_saldos "
                   "WHERE fecha = (SELECT MAX(fecha) FROM portafolio.control_saldos)")[0]
     except Exception:
         return {"disponible": False, "n": 0, "n_negativos": 0, "filas": [],
                 "fecha": None, "actualizado_at": None, "cuentas_en_control": 0,
                 "ocultas": 0, "excluidos": list(NIVEL5_EXCLUIDOS),
-                "ocultas_manual": 0, "lista_ocultas": []}
+                "ocultas_manual": 0, "lista_ocultas": [], "latido_at": None,
+                "ventana": VENTANA}
 
     # Los dos cortes se hacen en PYTHON y no en el WHERE a propósito: filtrando en
     # SQL las filas ocultas desaparecen sin dejar rastro y la pantalla no puede
@@ -267,6 +290,15 @@ def _saldos() -> dict:
         "disponible": True,
         "fecha": meta["fecha"].isoformat() if meta["fecha"] else None,
         "actualizado_at": meta["ult"].isoformat() if meta["ult"] else None,
+        # LATIDO ≠ ACTUALIZADO, y la diferencia es todo el punto: `actualizado_at`
+        # es la última vez que una cuenta CAMBIÓ, y el latido la última vez que el
+        # daemon MIRÓ. Sin los dos no se puede distinguir «no se movió nadie» de
+        # «el daemon está muerto».
+        "latido_at": meta["latido"].isoformat() if meta["latido"] else None,
+        # La ventana en la que el daemon TIENE que estar vivo, servida por el
+        # backend y no hardcodeada en el front: los horarios son del job, y dos
+        # copias del mismo horario se desincronizan el día que uno cambia.
+        "ventana": VENTANA,
         "cuentas_en_control": meta["cuentas"],
         "ocultas": ocultas,
         "excluidos": list(NIVEL5_EXCLUIDOS),

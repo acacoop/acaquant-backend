@@ -164,6 +164,30 @@ def _ensure_schema() -> None:
         conn.commit()
 
 
+def latido(fase: str, cuentas: int = 0) -> None:
+    """Marca que el daemon está VIVO, en `operaciones.motor_heartbeat`.
+
+    Hace falta porque `max(actualizado_at)` de la tabla NO sirve para eso: el
+    daemon solo reescribe las cuentas que se movieron, así que media hora sin
+    operaciones deja el dato "viejo" con todo funcionando perfecto. Sin un latido
+    aparte no hay forma de distinguir «no pasó nada» de «el daemon está muerto»,
+    que son justo las dos cosas que un tablero de control tiene que separar.
+
+    Es la misma tabla que usa `motor_ordenes` (singleton por `id`), así que no
+    inventa un mecanismo nuevo. Nunca rompe la corrida: si falla, se loguea.
+    """
+    try:
+        with get_job_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO operaciones.motor_heartbeat (id, updated_at, data) "
+                "VALUES ('control_saldos', now(), %s::jsonb) "
+                "ON CONFLICT (id) DO UPDATE SET updated_at = now(), data = EXCLUDED.data",
+                (json.dumps({"fase": fase, "cuentas": cuentas}),))
+            conn.commit()
+    except Exception as e:
+        logger.warning("no pude escribir el latido (%s): %s", type(e).__name__, e)
+
+
 def _purgar(hoy: date) -> int:
     """La tabla tiene SIEMPRE el día de hoy y nada más (no es acumulativa)."""
     with get_job_pool().connection() as conn, conn.cursor() as cur:
@@ -579,6 +603,7 @@ def run() -> int:
     # Sobre el universo COMPLETO, no sobre una muestra: acá se ve si USDC es
     # sistemático o una rareza, y si USDL existe en algún lado.
     print(f"  monedas vistas y NO persistidas (fuera de {MONEDAS}): {desc or '(ninguna)'}")
+    latido("apertura", ok)
     if una_pasada:
         return 0
 
@@ -597,6 +622,10 @@ def run() -> int:
         except Exception as e:
             logger.warning("detector falló: %s: %s", type(e).__name__, e)
             continue
+        # El latido va ACÁ y no después del refresco: la vuelta en la que NO se
+        # movió ninguna cuenta es la que hay que poder distinguir de un daemon
+        # muerto, y esa vuelta no escribe ni una fila en control_saldos.
+        latido("detector")
 
         ahora = time.monotonic()
         cola = []

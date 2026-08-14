@@ -137,11 +137,32 @@ Entornos: **homologación** `hs-clearing-api.byma.com.ar`, **producción**
 |---|---|
 | `byma_client_id` | usuario de la aplicación en el portal BYMA |
 | `byma_client_secret` | su contraseña — lo único de verdad sensible |
-| `byma_issuer` | URL del emisor de tokens |
 
-**`byma_token_url` no hace falta**: el script la descubre pidiéndole al emisor
-su documento de descubrimiento (`/.well-known/oauth-authorization-server`), que
-todo servidor OAuth2 publica. Si el emisor no lo publica, se carga a mano.
+Todo lo demás ya viene con el valor que corresponde.
+
+> ⚠️ **El token de Clearing NO se pide donde dice el manual genérico.** Ese
+> manual (el del Portal de Desarrolladores) indica
+> `hs-api.byma.com.ar/oauth/token/`, que es el de las **otras** APIs (custodia).
+> Clearing emite sus tokens en **su propio host**:
+> `hs-clearing-api.byma.com.ar/oauth/token/`. Con el otro, la respuesta es
+> **401** — verificado el 2026-08-14.
+>
+> **La fuente de verdad por API es el portal, no el manual.** Dentro del método
+> que querés usar, en el apartado *Autenticación*, el botón **"¿Cómo obtener un
+> token de acceso?"** genera los valores exactos para tu aplicación: endpoint,
+> `client_id`, `client_secret` y **scope**. Ante cualquier duda, ese botón gana.
+
+### Scopes: leer y escribir son permisos distintos
+
+| scope | para qué |
+|---|---|
+| `clearing clearingworkflow.read` | consultar obligaciones (el default del environment) |
+| `clearing clearingworkflow.create` | registrar depósitos y extracciones |
+
+Si la aplicación no tiene habilitado `.create`, el token se emite igual pero los
+dos POST devuelven **403**. Habilitarlo se pide a BYMA: el manual aclara que
+*"las APIs de Custodia y BYMA Clearing con métodos de tipo POST/PUT requieren
+homologación"*.
 
 El token se renueva solo (TTL 30 min) con `client_credentials`. Prueba primero
 con **Basic** y, si el servidor lo rechaza, reintenta mandando las credenciales

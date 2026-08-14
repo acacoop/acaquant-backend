@@ -343,7 +343,7 @@
           ],
           "path": []
         },
-        "description": "Pide el token y lo guarda. Los 4 campos del body son exactamente los que muestra el manual del Portal de Desarrolladores.\n\nCorre esto PRIMERO: aisla la autenticacion del resto. Si sale bien, la consola te muestra el token descompuesto (emisor, scopes, vencimiento) y ya sabes que las credenciales estan ok.\n\nDespues no hace falta volver a tocarlo: el script de la coleccion renueva el token solo antes de cada request.\n\nSi da 400 por el scope, probar con uno solo: clearingworkflow.create",
+        "description": "Pide el token y lo guarda. Los 4 campos del body son exactamente los que muestra el manual del Portal de Desarrolladores.\n\nCorre esto PRIMERO: aisla la autenticacion del resto. Si sale bien, la consola te muestra el token descompuesto (emisor, scopes, vencimiento) y ya sabes que las credenciales estan ok.\n\nDespues no hace falta volver a tocarlo: el script de la coleccion renueva el token solo antes de cada request.\n\nLos scopes por defecto son de LECTURA (clearingworkflow.read). Los POST de collateral necesitan clearingworkflow.create: si la aplicacion no lo tiene habilitado, el token sale igual pero esos dos requests van a dar 403.",
         "body": {
           "mode": "urlencoded",
           "urlencoded": [

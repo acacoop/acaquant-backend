@@ -42,6 +42,23 @@ def vista(
     return _svc.vista(email, cuenta_id, desde, hasta)
 
 
+@router.get("/consolidado")
+def consolidado(
+    desde: date | None = Query(None),
+    hasta: date | None = Query(None),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """CONSOLIDADO BANCOS: una fila por cuenta, agrupada por banco, con el saldo
+    al inicio y al cierre del rango. Totales por banco y globales, por moneda."""
+    hasta = hasta or date.today()
+    desde = desde or hasta - timedelta(days=1)
+    if desde > hasta:
+        raise HTTPException(400, "La fecha desde no puede ser posterior a hasta.")
+    if (hasta - desde).days > MAX_RANGO_DIAS:
+        raise HTTPException(400, f"El rango máximo es de {MAX_RANGO_DIAS} días.")
+    return _svc.consolidado(email, desde, hasta)
+
+
 @router.get("/cuentas")
 def cuentas() -> list[dict]:
     """Solo el selector de cuentas (sin CBU ni número completo)."""

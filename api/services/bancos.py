@@ -171,6 +171,113 @@ def vista(email: str, cuenta_id: int | None, desde: date, hasta: date) -> dict:
     }
 
 
+def consolidado(email: str, desde: date, hasta: date) -> dict:
+    """UNA fila por cuenta, agrupadas por banco, con saldo al inicio y al cierre.
+
+    El saldo al inicio es la APERTURA del primer día con extracto dentro del
+    rango, y el de cierre el CIERRE del último. No se calcula: los dos los
+    informa el banco.
+
+    ⚠️ Lista **todas** las cuentas activas, incluidas las que no tienen extracto
+    en el rango — esas van con saldo `null`, no con cero. Es una distinción que
+    importa: **el extracto solo devuelve los días CON movimientos**, así que una
+    cuenta quieta no tiene fila y con esta API no hay forma de saber cuánto
+    tiene. Mostrarla en cero sería inventar un número. La vista las cuenta
+    aparte (`sin_datos`) y el día que se sume la API de Saldos, que sí devuelve
+    el saldo haya habido movimientos o no, ese hueco se cierra.
+
+    Los totales van **por moneda y nunca mezclados**: sumar pesos con dólares no
+    significa nada (mismo criterio que el control de saldos de comitentes).
+    """
+    filas = _q(
+        """WITH rango AS (
+               SELECT cuenta_id, min(fecha) AS f_ini, max(fecha) AS f_fin,
+                      count(*) AS dias
+                 FROM bancos.extracto_dia
+                WHERE fecha BETWEEN %s AND %s
+                GROUP BY cuenta_id
+           )
+           SELECT c.id, c.bank_number, c.bank_name, c.account_number,
+                  c.account_type, c.currency, c.account_label, c.activa,
+                  ei.saldo_apertura AS saldo_inicio,
+                  ef.saldo_cierre   AS saldo_cierre,
+                  r.dias, r.f_ini, r.f_fin
+             FROM bancos.cuentas c
+             LEFT JOIN rango r  ON r.cuenta_id = c.id
+             LEFT JOIN bancos.extracto_dia ei
+                    ON ei.cuenta_id = c.id AND ei.fecha = r.f_ini
+             LEFT JOIN bancos.extracto_dia ef
+                    ON ef.cuenta_id = c.id AND ef.fecha = r.f_fin
+            WHERE c.activa
+            ORDER BY c.bank_name, c.currency, c.account_type, c.account_number""",
+        (desde, hasta),
+    )
+
+    bancos: list[dict] = []
+    por_banco: dict[str, dict] = {}
+    totales: dict[str, dict] = {}
+    sin_datos = 0
+
+    for r in filas:
+        pub = _cuenta_publica(r)
+        ini, fin = _f(r.get("saldo_inicio")), _f(r.get("saldo_cierre"))
+        if r.get("dias") is None:
+            sin_datos += 1
+
+        cuenta = {
+            **pub,
+            "saldo_inicio": ini,
+            "saldo_cierre": fin,
+            # La variación solo existe si están los dos extremos.
+            "variacion": (round(fin - ini, 2) if ini is not None and fin is not None else None),
+            "dias_con_dato": r.get("dias") or 0,
+            "desde_real": r["f_ini"].isoformat() if r.get("f_ini") else None,
+            "hasta_real": r["f_fin"].isoformat() if r.get("f_fin") else None,
+        }
+
+        clave = f"{r.get('bank_number')}|{(r.get('bank_name') or '').strip()}"
+        grupo = por_banco.get(clave)
+        if grupo is None:
+            grupo = {
+                "banco": r.get("bank_number"),
+                "banco_nombre": (r.get("bank_name") or "").strip(),
+                "cuentas": [],
+                "totales": {},
+            }
+            por_banco[clave] = grupo
+            bancos.append(grupo)
+        grupo["cuentas"].append(cuenta)
+
+        # Totales por moneda, del banco y globales. Solo suman las cuentas que
+        # tienen dato — una cuenta sin extracto no aporta ni resta.
+        for destino in (grupo["totales"], totales):
+            acc = destino.setdefault(
+                pub["moneda"], {"inicio": 0.0, "cierre": 0.0, "cuentas": 0}
+            )
+            if ini is not None or fin is not None:
+                acc["inicio"] += ini or 0
+                acc["cierre"] += fin or 0
+                acc["cuentas"] += 1
+
+    for destino in [*(g["totales"] for g in bancos), totales]:
+        for acc in destino.values():
+            acc["inicio"] = round(acc["inicio"], 2)
+            acc["cierre"] = round(acc["cierre"], 2)
+            acc["variacion"] = round(acc["cierre"] - acc["inicio"], 2)
+
+    _auditar(email, None, desde, hasta, len(filas))
+
+    return {
+        "desde": desde.isoformat(),
+        "hasta": hasta.isoformat(),
+        "bancos": bancos,
+        "totales": totales,
+        "cuentas": len(filas),
+        "sin_datos": sin_datos,
+        "sync": ultima_sync(),
+    }
+
+
 def ultima_sync() -> dict | None:
     """Última corrida del job. Es lo que contesta «¿este dato de cuándo es?»."""
     filas = _q(

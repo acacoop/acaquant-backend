@@ -17,6 +17,27 @@ AUNESA_CLIENT_ID = os.getenv("AUNESA_CLIENT_ID")
 AUNESA_USERNAME = os.getenv("AUNESA_USERNAME")
 AUNESA_PASSWORD = os.getenv("AUNESA_PASSWORD")
 
+# --- INTERBANKING CONFIG ---
+# Credenciales de la aplicación dada de alta en el portal de APIs de Interbanking.
+# CUSTOMER_ID es el "código de abonado" de la empresa (formato ^[A-Z][0-9]{5}[A-Z]$),
+# que sale de Interbanking → Administración → ABM → Datos de Empresa. Es un dato
+# DISTINTO del client_id: identifica a la empresa, no a la aplicación.
+INTERBANKING_CLIENT_ID = os.getenv("INTERBANKING_CLIENT_ID")
+INTERBANKING_CLIENT_SECRET = os.getenv("INTERBANKING_CLIENT_SECRET")
+INTERBANKING_CUSTOMER_ID = os.getenv("INTERBANKING_CUSTOMER_ID")
+
+# Los tres siguientes son overrides de diagnóstico: existen para que, cuando
+# `scripts/diag_interbanking_auth` encuentre la combinación que funciona, se
+# active desde el .env sin tocar código ni redeployar. El default es lo que
+# declara el propio servidor en su documento de descubrimiento OIDC — que NO
+# coincide con el tokenUrl de los YAML del proveedor (ver docs/INTERBANKING.md).
+INTERBANKING_TOKEN_URL = os.getenv(
+    "INTERBANKING_TOKEN_URL",
+    "https://auth.interbanking.com.ar/cas/oidc/oidcAccessToken",
+)
+INTERBANKING_AUTH_STYLE = os.getenv("INTERBANKING_AUTH_STYLE", "basic")  # basic | post
+INTERBANKING_SCOPE = os.getenv("INTERBANKING_SCOPE", "info-financiera")
+
 # --- API KEY ---
 API_KEY = os.getenv("API_KEY", "")
 

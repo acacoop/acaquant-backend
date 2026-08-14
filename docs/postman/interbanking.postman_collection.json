@@ -140,7 +140,7 @@
   "variable": [
     {
       "key": "ib_auth_url",
-      "value": "https://auth.interbanking.com.ar/cas/oidc/accessToken",
+      "value": "https://auth.interbanking.com.ar/cas/oidc/oidcAccessToken",
       "type": "string"
     },
     {
@@ -427,7 +427,7 @@
     },
     {
       "name": "00b · Descubrimiento del servidor de auth",
-      "description": "El 401 es IDÉNTICO en las cuatro variantes de credenciales, así que el problema\nprobablemente no sea el formato sino el endpoint o la habilitación de la aplicación.\n\nEstos requests NO usan credenciales: le preguntan al propio servidor cómo se llama\nsu endpoint de token, qué grants soporta y qué métodos de autenticación acepta.\nCorrelos en orden — el primero que devuelva 200 contesta todo.",
+      "description": "Requests SIN credenciales que le preguntan al servidor su propia configuración.\n\n**Ya resolvieron el 401 del 2026-08-14**: el `tokenUrl` que declaran los YAML de\nInterbanking (`/cas/oidc/accessToken`) NO es el endpoint real. El servidor declara\n`/cas/oidc/oidcAccessToken`. Un path inexistente detrás de Spring Security devuelve\n401 genérico en vez de 404, por eso las cuatro variantes de credenciales daban\nexactamente el mismo error.\n\nQuedan en la colección porque son la herramienta correcta ante cualquier futura\nfalla de auth: el servidor es la fuente de verdad, el YAML del proveedor no.",
       "item": [
         {
           "name": "DISCOVERY 1 · openid-configuration (bajo /cas/oidc)",
@@ -529,63 +529,6 @@
               "path": ["cas", "oidc", ".well-known", "oauth-authorization-server"]
             },
             "description": "Variante del descubrimiento definida por el RFC 8414 (OAuth puro, sin OIDC)."
-          }
-        },
-        {
-          "name": "TOKEN E · path /cas/oidc/token (CAS 6.x)",
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const id = String(pm.variables.get('ib_client_id') || '').trim();",
-                  "const sec = String(pm.variables.get('ib_client_secret') || '').trim();",
-                  "pm.request.headers.upsert({",
-                  "  key: 'Authorization',",
-                  "  value: 'Basic ' + Buffer.from(id + ':' + sec).toString('base64')",
-                  "});"
-                ]
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "console.log('[IB] === VARIANTE E (/cas/oidc/token) => HTTP ' + pm.response.code + ' ===');",
-                  "console.log(pm.response.text());",
-                  "if (pm.response.code === 200) {",
-                  "  const j = pm.response.json();",
-                  "  pm.collectionVariables.set('ib_access_token', j.access_token);",
-                  "  pm.collectionVariables.set('ib_token_vence', String(Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600)));",
-                  "  pm.collectionVariables.set('ib_auth_url', 'https://auth.interbanking.com.ar/cas/oidc/token');",
-                  "  console.log('[IB] >>> FUNCIONA con /cas/oidc/token. Ya quedó seteado ib_auth_url.');",
-                  "}"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
-              { "key": "Accept", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "urlencoded",
-              "urlencoded": [
-                { "key": "grant_type", "value": "client_credentials" },
-                { "key": "scope", "value": "{{ib_scope}}" }
-              ]
-            },
-            "url": {
-              "raw": "https://auth.interbanking.com.ar/cas/oidc/token",
-              "protocol": "https",
-              "host": ["auth", "interbanking", "com", "ar"],
-              "path": ["cas", "oidc", "token"]
-            },
-            "description": "En CAS 6.x el endpoint de token se llama `/cas/oidc/token`.\n`/cas/oidc/accessToken` es el nombre viejo (CAS 5.x), que quedó como alias en\nalgunas versiones y desapareció en otras.\n\nSi el path no existe, un Spring Security mal configurado devuelve **401 genérico\nen vez de 404** — que es exactamente el cuerpo de error que estamos viendo."
           }
         }
       ]

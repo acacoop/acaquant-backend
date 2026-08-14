@@ -65,6 +65,49 @@ preguntas que hoy no podemos responder sin datos reales:
 | ¿Qué valores reales toma `status` en transferencias? | `05 · Transferencias → detalle` (el script los agrupa) |
 | ¿Los VEPs pagados traen el número que hoy se tipea a mano? | `05 · Transferencias → comprobantes` |
 
+## ⚠️ El `tokenUrl` de los YAML de Interbanking está MAL
+
+Los cinco YAML declaran:
+
+```yaml
+tokenUrl: https://auth.interbanking.com.ar/cas/oidc/accessToken
+```
+
+**Ese endpoint no existe.** El servidor de auth declara, en su propio documento de
+descubrimiento, otro:
+
+```
+token_endpoint: https://auth.interbanking.com.ar/cas/oidc/oidcAccessToken
+```
+
+La diferencia es el prefijo `oidc` en el nombre del endpoint. Todos los demás
+endpoints del servidor siguen el mismo patrón (`oidcAuthorize`, `oidcProfile`,
+`oidcLogout`), así que el de los YAML es simplemente un error de documentación
+del proveedor.
+
+**Cómo se manifiesta:** 401 con cuerpo genérico de Spring
+(`{"error":"Unauthorized","message":"No message available"}`), idéntico mandando
+las credenciales por Basic, por body o por query string, y también sin mandar
+ninguna. Un path inexistente detrás de Spring Security devuelve 401, no 404 —
+por eso el error no dice nada útil y parece un problema de credenciales.
+
+**Cómo se diagnostica** (vale para cualquier proveedor OAuth, no solo este):
+pedir el documento de descubrimiento, que es público y no lleva credenciales.
+
+```
+https://auth.interbanking.com.ar/cas/oidc/.well-known/openid-configuration
+```
+
+Está como `DISCOVERY 1` en la colección. Confirmó además que
+`client_credentials` está entre los `grant_types_supported`, que
+`info-financiera` está entre los `scopes_supported`, y que el servidor acepta
+tanto `client_secret_basic` como `client_secret_post` — o sea que las variantes
+A y B de token deberían funcionar las dos.
+
+**Regla que deja esto:** ante un fallo de auth con un proveedor OAuth, la fuente
+de verdad es el documento de descubrimiento del servidor, no la documentación
+que te pasaron.
+
 ## Límites a respetar
 
 - **100 llamadas por minuto** (plan contratado). El Collection Runner de Postman

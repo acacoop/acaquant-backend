@@ -97,12 +97,17 @@ logger = logging.getLogger("jobs.control_saldos")
 
 PATH = "cuentas/{}/posiciones"
 
-# Monedas que se persisten. Arranca en las tres que pidió el negocio.
-# OJO — en el sondeo de la 805 apareció **USDC** ("Dólar cable") y NO apareció
-# USDL. No se agrega USDC por decisión de negocio pendiente: el job CUENTA cuántas
-# filas de moneda descartó y con qué código (stat `monedas_descartadas`), así que
-# el dato para decidir sale del primer día de corrida y no de una suposición.
-MONEDAS: tuple[str, ...] = ("ARS", "USD", "USDL")
+# Monedas que se persisten.
+#
+# **USDC (dólar cable) entró el 2026-08-14**, por pedido del back office. Estaba
+# afuera desde el arranque porque su presencia se había visto en UNA cuenta (la
+# 805) y no alcanzaba para decidir; el job la contaba en `monedas_descartadas`
+# justamente para tener el dato. La decisión la toma el negocio, no el job.
+#
+# Sumar una moneda es UNA línea acá: el resto del sistema es agnóstico —
+# `api/services/titulos_negativos.py` no filtra por código y las pills de la
+# pantalla se derivan de los datos, así que la moneda nueva aparece sola.
+MONEDAS: tuple[str, ...] = ("ARS", "USD", "USDL", "USDC")
 
 # Aunesa manda las tenencias con el signo invertido (ver el docstring). Es la
 # MISMA corrección que aplica el job diario de tenencias.
@@ -119,9 +124,9 @@ SIGNO = -1
 # desvirtuar (siempre es el día de hoy), así que guardarlas para nada solo
 # agranda lo que la vista tiene que traer en cada poll.
 #
-# ⚠️ USD y USDL quedan SIN umbral hasta que el negocio defina el suyo: poner un
-# número ahí sería inventarlo. Con 0 no se filtra nada (el `abs(...) < 0` nunca
-# se cumple), así que el USD sigue mostrándose entero.
+# ⚠️ USD, USDL y USDC quedan SIN umbral hasta que el negocio defina el suyo: poner
+# un número ahí sería inventarlo. Con 0 no se filtra nada (el `abs(...) < 0` nunca
+# se cumple), así que las monedas dólar siguen mostrándose enteras.
 UMBRALES: dict[str, float] = {"ARS": 15_000.0}
 
 # El endpoint rechaza ISO con HTTP 400. Verificado 2026-08-13.
@@ -271,8 +276,8 @@ def parsear(filas: list, idc: str, denom: str) -> tuple[list[dict], dict[str, in
             continue
         if esp not in MONEDAS:
             # Solo se cuentan las que SON moneda: los títulos no son candidatos a
-            # entrar acá y contarlos taparía la señal que interesa (¿existe USDL?
-            # ¿cuánto pesa USDC?).
+            # entrar acá y contarlos taparía la señal que interesa (¿apareció una
+            # moneda que no estamos persistiendo?).
             if str(r.get("tipoTitulo") or "").strip().lower() == "moneda":
                 descartadas[esp] = descartadas.get(esp, 0) + 1
             continue
@@ -347,9 +352,10 @@ def _refrescar_lote(cuentas: list[tuple[str, str]], hoy: date, origen: str,
     diferencia es la que decide si hay que hacer algo.
 
     `descartadas` cuenta las monedas que se vieron y NO se persistieron, por
-    código. Es la única forma de contestar con datos si USDC hay que sumarlo o si
-    USDL se puede sacar — hasta acá esa cuenta solo existía en `--dry`, o sea que
-    la corrida REAL, que es la que ve las 1.566 cuentas, no la reportaba.
+    código. Es la única forma de contestar con datos si una moneda hay que sumarla
+    (así entró USDC) o si otra se puede sacar — hasta acá esa cuenta solo existía
+    en `--dry`, o sea que la corrida REAL, que es la que ve las 1.566 cuentas, no
+    la reportaba.
     """
     if not cuentas:
         return 0, 0, 0, {}, {}
@@ -417,9 +423,9 @@ def _que_las_separa(filas: list[dict]) -> list[str]:
 def dry(cuentas: list[tuple[str, str]], hoy: date, n_universo: int = 0) -> int:
     """Imprime lo que persistiría, SIN tocar la base. Cero escrituras.
 
-    Sirve para las tres preguntas que quedan abiertas y que solo contesta prod:
-    qué separa las filas repetidas de la misma moneda, si USDL existe en algún
-    lado, y cuánto tarda una llamada (→ cuánto dura el barrido de apertura).
+    Sirve para las preguntas que solo contesta prod: qué separa las filas
+    repetidas de la misma moneda, qué monedas aparecen de verdad (así se decidió
+    sumar USDC), y cuánto tarda una llamada (→ cuánto dura el barrido de apertura).
     """
     print(f"\n{'=' * 78}\nDRY RUN — no se escribe una sola fila   ·   fecha="
           f"{hoy.strftime(FMT_FECHA)}\n{'=' * 78}")
@@ -474,8 +480,8 @@ def dry(cuentas: list[tuple[str, str]], hoy: date, n_universo: int = 0) -> int:
     print(f"   filas con saldo NEGATIVO en la muestra: {negativas}")
     print(f"   monedas VISTAS y DESCARTADAS (no están en MONEDAS): "
           f"{tot_desc or '(ninguna)'}")
-    print("   → si acá aparece USDC seguido, es la decisión de negocio a tomar;")
-    print("     si nunca aparece USDL, sacarlo de MONEDAS es gratis.\n")
+    print("   → una moneda que aparece seguido acá es una decisión de negocio a")
+    print("     tomar; una de MONEDAS que nunca aparece se puede sacar gratis.\n")
     return 0
 
 

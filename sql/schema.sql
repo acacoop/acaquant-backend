@@ -1281,7 +1281,7 @@ CREATE INDEX IF NOT EXISTS ix_tlive_frescura
 CREATE TABLE IF NOT EXISTS portafolio.control_saldos (
     fecha              date NOT NULL,
     id_cuenta          text NOT NULL,
-    ticker             text NOT NULL,          -- 'ARS' | 'USD' | 'USDL'
+    ticker             text NOT NULL,          -- 'ARS' | 'USD' | 'USDL' | 'USDC'
     cuenta             text,                   -- '[805] DENOMINACIÓN'
     cantidad           numeric,                -- saldo LIQUIDADO (signo ya corregido)
     cantidad_pendiente numeric,                -- lo que falta liquidar (auditoría)

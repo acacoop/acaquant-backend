@@ -151,9 +151,16 @@ HD + DL = 80.250.484.642 (83,0%) mientras el cuadro dice Total Dolarizado
 en dólares.
 
 **Lo que ninguna regla resuelve NO se reparte a dedo**: cae en `sin_clasificar`,
-con la lista de clases culpables, y la vista lo muestra en ámbar arriba de todo.
-Un activo con una clase nueva tiene que aparecer como pendiente, no colarse en
-el lado equivocado y desbalancear el informe en silencio.
+con la lista de clases culpables. Un activo con una clase nueva tiene que
+aparecer como pendiente, no colarse en el lado equivocado y desbalancear el
+informe en silencio.
+
+**Dónde se ve (2026-08-14):** en la **fila «Sin clasificar» del cuadro de
+totales**, debajo de Total Dolarizado y Total Pesos — al lado justo de los
+totales con los que no cierra, que es donde el número significa algo. El banner
+ámbar a todo lo ancho que estaba arriba del informe se **eliminó**: era lo
+primero que leía un gerente y no es lo que la vista viene a contar. El backend no
+cambió — `sin_clasificar` se sigue calculando y viajando igual.
 
 ### Acumulado del histórico
 
@@ -374,6 +381,12 @@ Escritura: la misma allowlist que el resto (mesa + admin). Queda en `aca.audit`.
 ---
 
 ## Changelog
+
+### 2026-08-14 — Fuera el banner de «sin clasificar»
+- Se elimina el cartel ámbar a todo lo ancho arriba del RESUMEN. La información
+  no se pierde: sigue en la fila **Sin clasificar** del cuadro de totales (§5),
+  que es donde se audita. Solo front (`aca-view.tsx`) — `api/services/aca.py`
+  no cambió y `sin_clasificar` viaja igual en `/api/aca/vista`.
 
 ### 2026-08-13 — Tablas alineadas + los ambiguos SÍ se importan
 - Las 4 tablas de cartera pasan a `table-fixed` con un `<colgroup>` COMPARTIDO:

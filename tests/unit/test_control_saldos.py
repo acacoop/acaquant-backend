@@ -45,14 +45,24 @@ def test_filas_repetidas_de_la_misma_moneda_se_suman():
     assert ars["filas_origen"] == 2
 
 
-def test_solo_se_persisten_las_monedas_de_la_whitelist():
-    """USDC apareció en la 805 y NO está en MONEDAS: no se persiste, pero se CUENTA
-    — de ahí sale el dato para decidir si suma o no."""
-    assert "USDC" not in MONEDAS
+def test_las_cuatro_monedas_del_negocio_se_persisten():
+    """ARS/USD/USDL/USDC. USDC (dólar cable) se sumó el 2026-08-14 por pedido del
+    back office: antes se veía y se descartaba, y el saldo cable no se controlaba."""
+    assert set(MONEDAS) == {"ARS", "USD", "USDL", "USDC"}
     regs, descartadas = parsear(
         [_fila("ARS", -100_000.0), _fila("USDC", -0.52)], "805", "TEST")
+    assert set(_por_ticker(regs)) == {"ARS", "USDC"}
+    assert _por_ticker(regs)["USDC"]["cantidad"] == 0.52
+    assert descartadas == {}
+
+
+def test_una_moneda_fuera_de_la_whitelist_no_se_persiste_pero_se_cuenta():
+    """El filtro sigue siendo una whitelist: una moneda nueva NO entra sola al
+    tablero, pero queda contada — de ahí sale el dato para decidir si sumarla."""
+    regs, descartadas = parsear(
+        [_fila("ARS", -100_000.0), _fila("EUR", -0.52)], "805", "TEST")
     assert set(_por_ticker(regs)) == {"ARS"}
-    assert descartadas == {"USDC": 1}
+    assert descartadas == {"EUR": 1}
 
 
 def test_los_titulos_no_entran_ni_se_cuentan_como_moneda_descartada():

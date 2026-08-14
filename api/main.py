@@ -40,6 +40,7 @@ from api.routers import (
     estrategia,
     ia,
     ingest,
+    interbanking,
     manager,
     market,
     me,
@@ -285,6 +286,7 @@ app.include_router(market.router,            dependencies=_PUBLIC)
 app.include_router(derivados_agro.router,    dependencies=_PUBLIC)
 app.include_router(derivados_sinteticos.router, dependencies=_PUBLIC)
 app.include_router(back_office.router,        dependencies=_BACK_OFFICE)
+app.include_router(interbanking.router,       dependencies=_BACK_OFFICE)  # INTERBANKING: extractos de los bancos (solo lectura)
 app.include_router(senebis.router,            dependencies=_BACK_OFFICE)  # SENEBIS: órdenes trader → back office
 app.include_router(scanner.router,            dependencies=_PUBLIC)
 app.include_router(research1816.router,       dependencies=_PUBLIC)  # vista RESEARCH (gate módulo `research` en el router) — docs/VISTA_RESEARCH.md

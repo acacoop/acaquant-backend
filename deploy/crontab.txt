@@ -359,3 +359,14 @@
 # NO toca portafolio.tenencia / tenencia_live / assets / AuM — escribe solo su tabla.
 0 11 * * 1-5 systemctl restart control_saldos.service
 5 21 * * 1-5 systemctl stop    control_saldos.service
+
+# ─── INTERBANKING (extractos de los bancos) → esquema bancos.*
+# Cada 2hs de 9 a 19 ART = 12,14,16,18,20,22 UTC, L-V. En cada corrida
+# re-sincroniza AYER y HOY: un movimiento de ayer puede aparecer o corregirse
+# después del cierre del banco, y re-pedirlo cuesta una llamada por cuenta.
+# La ingesta es idempotente (PK por hash del movimiento), así que correrla de más
+# no duplica nada.
+# ~35 llamadas por corrida contra un límite de 100/minuto que es del ABONADO
+# (no del proceso) — por eso la vista NUNCA le pega a Interbanking en vivo.
+# Doc: docs/INTERBANKING.md
+0 12,14,16,18,20,22 * * 1-5 /root/TradingAV/deploy/run_job.sh interbanking_sync 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.interbanking_sync'

@@ -1,7 +1,25 @@
 # Interbanking — integración
 
-Estado: **EXPLORACIÓN**. Hay cliente y diags; todavía no hay job, tabla ni vista.
-Nada de esto está en producción.
+Estado: **V1 EN CÓDIGO**, sin correr todavía en producción. Hay cliente, esquema
+SQL, job de sincronización, endpoint y diags. Falta aplicar el schema, correr el
+job la primera vez y la tab del front.
+
+## V1 en una línea
+
+`jobs/interbanking_sync` trae los **extractos** de todas las cuentas cada 2hs
+(9-19 ART) a `bancos.*`, y la tab **BACK OFFICE → INTERBANKING** los lee de
+Postgres filtrando por cuenta y fecha. Solo lectura de punta a punta. El objetivo
+es **conciliar**.
+
+| Pieza | Archivo |
+|---|---|
+| Cliente HTTP | `core/interbanking.py` |
+| Esquema | `sql/schema.sql` → `CREATE SCHEMA bancos` |
+| Ingesta | `jobs/interbanking_sync.py` |
+| Lectura | `api/services/bancos.py` |
+| HTTP | `api/routers/interbanking.py` (`/api/back-office/interbanking/*`) |
+| Cron | `deploy/crontab.txt` → `0 12,14,16,18,20,22 * * 1-5` |
+| Seguridad congelada | `tests/unit/test_interbanking_seguridad.py` |
 
 **Verificado el 2026-08-14** (corrido contra prod, no inferido):
 
@@ -148,13 +166,67 @@ También hay una colección de Postman en `docs/postman/`.
 
 Hasta tener esos números medidos **no se decide el modelo de datos**.
 
-## Orden propuesto, de menor a mayor riesgo
+## Decisiones de diseño de la V1
 
-1. **Cuentas** — read-only puro, no toca ningún cálculo. Valida la auth.
-2. **Saldos** — automatizar el saldo inicial, primero como *sugerencia* al lado
-   del campo manual, sin pisarlo.
-3. **Extractos** — conciliación diaria, como un chequeo de SALUD.
-4. **Transferencias / Movimientos** — enriquecimiento, con la base ya andando.
+**Una sola fuente: Extractos.** Devuelve el día (apertura, cierre, totales) *y*
+su detalle de movimientos en la misma respuesta. Traer además la API de
+Movimientos sería la misma data dos veces — medido: los dos endpoints devolvieron
+`total_rows=168` para el mismo rango y cuenta. Y traer la de Saldos sería una
+segunda verdad para el saldo diario. Saldos (proyectados 24/48hs) y
+Transferencias quedan para una V2.
+
+**La vista NUNCA le pega a Interbanking.** El límite de 100 llamadas/minuto es
+del **ABONADO**, no del proceso: unos pocos usuarios refrescando la pantalla
+podrían agotar la cuota y romper el propio job, y cualquier otro sistema de ACA
+que use esa cuota. El job escribe, la vista lee de Postgres. De yapa, la pantalla
+es instantánea y sigue funcionando si Interbanking está caído.
+
+**Ayer y hoy en cada corrida.** Un movimiento de ayer puede aparecer o corregirse
+después del cierre del banco. Re-pedirlo cuesta una llamada por cuenta y la
+ingesta es idempotente, así que correrla de más no duplica nada.
+
+**El hash como PK de los movimientos.** No hay id natural (ver arriba). El hash
+incluye importe, tipo y código además de (extracto, correlativo): si el banco
+corrige un movimiento, preferimos una fila NUEVA antes que pisar la vieja en
+silencio. **Duplicar es visible; perder no.** Y se detecta solo: la ingesta
+compara lo que guardó contra el `total_movimientos` que declara el extracto de
+ese día y lo reporta en `bancos.sync_log.incoherentes`.
+
+**`cierra` y `diferencia` se materializan en la ingesta.** `apertura + créditos −
+débitos == cierre` es la primera pregunta de cualquier conciliación; no puede
+depender de que alguien la calcule bien en la vista.
+
+**`raw jsonb` en cada tabla.** Mismo patrón que `mercado.curvas.data`. La API
+devuelve más de lo que documenta (`account_cuit`, `associated_voucher`,
+`grouping_code_standard`, un `addenda` con retenciones): si mañana hace falta un
+campo, está en la base y no hay que re-pedir el histórico.
+
+## Seguridad
+
+| | |
+|---|---|
+| **Quién ve** | módulo `back-office` (`_BACK_OFFICE` en `api/main.py`) |
+| **Portal invitado** | **JAMÁS** (REGLA #8), congelado por test |
+| **Escritura hacia Interbanking** | imposible: el cliente solo implementa GET, congelado por test |
+| **Escritura desde la vista** | ninguna: el router solo expone GET, congelado por test |
+| **CBU / CUIT de nuestras cuentas** | se guardan, **nunca** se serializan al front |
+| **Número de cuenta** | al front va solo la terminación (`…0020`) |
+| **CUIT de contraparte** | enmascarado (`20-…-9`) — son datos de terceros |
+| **`raw` jsonb** | nunca sale de la base |
+| **Credenciales** | `.env` del Droplet; el front nunca ve un token de Interbanking |
+| **Auditoría de lectura** | `bancos.audit_lecturas` — quién miró qué cuenta y cuándo |
+| **IA** | nada de esto va al copiloto ni al asistente. Si algún día se quiere, pasa por `core/pii_gateway.py` |
+
+## Puesta en marcha (Droplet)
+
+```bash
+cd /root/TradingAV && git pull
+python -m scripts.apply_schema              # crea el esquema bancos
+python -m jobs.interbanking_sync --solo-cuentas   # 4 llamadas: siembra el maestro
+python -m jobs.interbanking_sync            # ayer + hoy, todas las cuentas
+```
+
+Después el cron lo mantiene solo. `--dry` no escribe nada.
 
 ## Changelog
 

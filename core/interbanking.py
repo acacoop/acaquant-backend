@@ -204,13 +204,24 @@ def cuentas(
 
 
 def todas_las_cuentas() -> list[dict]:
-    """Las cuentas de los DOS tipos, en una sola lista. 2 llamadas."""
+    """El universo COMPLETO de cuentas: 4 llamadas (CC/CA × ARS/USD).
+
+    ⚠️ Son cuatro y no dos. `account-type` y `currency` FILTRAN del lado de
+    Interbanking, y la API **defaultea `currency` a ARS**: pedir /accounts sin
+    especificar moneda devuelve solo las cuentas en pesos, sin avisar y con
+    HTTP 200. La única pista es `general_data.currency` en la respuesta.
+    """
     out: list[dict] = []
     for tipo in ("CC", "CA"):
-        try:
-            out.extend(cuentas(account_type=tipo).get("accounts") or [])
-        except InterbankingError as e:
-            logger.warning("Interbanking: falló el listado de cuentas %s: %s", tipo, e)
+        for moneda in ("ARS", "USD"):
+            try:
+                out.extend(
+                    cuentas(account_type=tipo, currency=moneda).get("accounts") or []
+                )
+            except InterbankingError as e:
+                logger.warning(
+                    "Interbanking: falló el listado de cuentas %s/%s: %s", tipo, moneda, e
+                )
     return out
 
 
@@ -256,13 +267,21 @@ def movimientos(
     """GET /{v1|v2}/accounts/{n}/movements/{tipo}.
 
     `tipo`: dia | anteriores | diferidos | zughus (zughus solo en v2).
-    OJO: base URL distinto al del resto de las APIs.
+
+    Dos cosas medidas contra producción:
+    - **base URL distinto** al del resto de las APIs.
+    - **`dia` y `diferidos` NO aceptan fechas.** Mandarlas devuelve
+      `1051: El parámetro date-since no es esperado`. Las fechas se descartan
+      acá en vez de dejar que el caller se acuerde.
     """
+    acepta_fechas = tipo in ("anteriores", "zughus")
     return get(
         f"{version}/accounts/{account_number}/movements/{tipo}",
         {
             "bank-number": bank_number, "account-type": account_type, "currency": currency,
-            "date-since": date_since, "date-until": date_until, "limit": limit, "page": page,
+            "date-since": date_since if acepta_fechas else None,
+            "date-until": date_until if acepta_fechas else None,
+            "limit": limit, "page": page,
         },
         base=BASE_URL_MOV,
     )

@@ -1,0 +1,92 @@
+"""Invariantes de SEGURIDAD de la integración con Interbanking.
+
+Son datos bancarios de la casa: cada uno de estos tests congela una decisión que,
+si se rompe sin querer, no da error en runtime — simplemente empieza a filtrar
+algo o a permitir algo. Por eso están acá y no como comentarios.
+"""
+from __future__ import annotations
+
+import ast
+import pathlib
+
+from api.services import bancos
+from core.roles import INVITADO_MODULES
+
+RAIZ = pathlib.Path(__file__).resolve().parents[2]
+
+
+def test_el_cliente_solo_hace_GET_salvo_el_token():
+    """`core/interbanking.py` no puede escribir en Interbanking.
+
+    Hoy la API que contratamos es de solo lectura, pero si mañana el proveedor
+    publica endpoints de pago, nada impediría usarlos por descuido. La única
+    llamada que no es GET tiene que ser la del token, dentro de `_pedir_token`.
+    """
+    arbol = ast.parse((RAIZ / "core" / "interbanking.py").read_text(encoding="utf-8"))
+
+    infractores = []
+    for fn in ast.walk(arbol):
+        if not isinstance(fn, ast.FunctionDef):
+            continue
+        for nodo in ast.walk(fn):
+            if not isinstance(nodo, ast.Call) or not isinstance(nodo.func, ast.Attribute):
+                continue
+            metodo = nodo.func.attr
+            objeto = getattr(nodo.func.value, "id", "")
+            if objeto == "requests" and metodo in ("post", "put", "patch", "delete"):
+                if fn.name != "_pedir_token":
+                    infractores.append(f"{fn.name} → requests.{metodo}")
+
+    assert not infractores, (
+        "core/interbanking.py solo puede hacer GET (salvo el POST del token). "
+        f"Encontrado: {infractores}"
+    )
+
+
+def test_el_router_no_expone_escritura():
+    from api.routers import interbanking
+
+    metodos = {m for r in interbanking.router.routes for m in getattr(r, "methods", set())}
+    assert metodos <= {"GET", "HEAD", "OPTIONS"}, (
+        f"La tab INTERBANKING es de solo lectura; encontré {metodos}"
+    )
+
+
+def test_la_cuenta_publica_no_filtra_cbu_ni_cuit_ni_numero():
+    """La proyección pública publica la terminación de la cuenta, nada más."""
+    fila = {
+        "id": 1, "bank_number": "034", "bank_name": "Patagonia",
+        "account_number": "30410075359500020", "account_type": "CC", "currency": "ARS",
+        "account_cbu": "0340000800000012345678", "account_cuit": "30712345678",
+        "account_label": "ACA VALORES SA", "activa": True,
+    }
+    pub = bancos._cuenta_publica(fila)
+    plano = str(pub)
+
+    assert "account_cbu" not in pub and "account_cuit" not in pub
+    assert fila["account_cbu"] not in plano, "se filtró el CBU"
+    assert fila["account_cuit"] not in plano, "se filtró el CUIT de la cuenta"
+    assert fila["account_number"] not in plano, "se filtró el número de cuenta completo"
+    assert pub["referencia"] == "…0020"
+
+
+def test_el_cuit_de_la_contraparte_va_enmascarado():
+    mov = bancos._movimiento_publico({
+        "fecha": None, "fecha_proceso": None, "importe": 1000, "tipo": "C",
+        "descripcion_banco": "TRANSFERENCIA", "descripcion_ib": "GIROS/TRF",
+        "codigo_operacion_ib": "350", "numero_extracto": "211", "correlativo": 1,
+        "comprobante": 0, "cuit_contraparte": "20123456789",
+        "denominacion_contraparte": "PROVEEDOR SA",
+    })
+    assert "20123456789" not in str(mov), "el CUIT de la contraparte salió completo"
+    assert mov["contraparte_cuit"] == "20-…-9"
+
+
+def test_el_cuit_corto_o_vacio_no_se_publica():
+    for v in (None, "", "123"):
+        assert bancos._cuit_enmascarado(v) is None
+
+
+def test_back_office_jamas_al_portal_invitado():
+    """REGLA #8. El invitado ve mercado y research; los bancos de la casa, nunca."""
+    assert "back-office" not in INVITADO_MODULES

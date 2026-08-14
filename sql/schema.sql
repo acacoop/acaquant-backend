@@ -3289,3 +3289,150 @@ INSERT INTO manager.role_matrix (role, module)
 SELECT r, 'aca' FROM (VALUES ('empleado_aca'), ('admin')) AS t(r)
 WHERE NOT EXISTS (SELECT 1 FROM manager.role_matrix WHERE module = 'aca')
 ON CONFLICT (role, module) DO NOTHING;
+
+-- =====================================================================
+-- BANCOS — espejo de las APIs de Interbanking (ver docs/INTERBANKING.md)
+-- =====================================================================
+-- Datos de los BANCOS de ACA, leídos de Interbanking por jobs/interbanking_sync.
+-- Todo entra por ese job: la vista NUNCA le pega a Interbanking en vivo, porque
+-- el límite de 100 llamadas/minuto es del ABONADO y no del proceso — tres
+-- usuarios refrescando la pantalla podrían agotar la cuota y romper el propio
+-- job (y cualquier otro sistema de ACA que use esa cuota).
+--
+-- V1: el foco es CONCILIAR, así que la fuente única es la API de Extractos, que
+-- trae el día (apertura/cierre/totales) Y su detalle de movimientos en la misma
+-- respuesta. Saldos y Transferencias quedan para después, a propósito: el
+-- extracto ya da el saldo diario y sumar la API de Saldos sería una segunda
+-- verdad para el mismo número.
+CREATE SCHEMA IF NOT EXISTS bancos;
+
+-- Maestro de cuentas. Se descubre solo en cada corrida del job.
+--
+-- OJO — `account-type` y `currency` FILTRAN del lado de Interbanking, y la API
+-- defaultea `currency` a ARS: pedir /accounts sin especificar moneda devuelve
+-- SOLO las cuentas en pesos, sin avisar. El universo completo son 4 llamadas
+-- (CC/CA × ARS/USD). Eso ya costó una lectura incompleta el 2026-08-14.
+--
+-- `id` propio (surrogate) en vez de la clave natural de 4 campos: si mañana
+-- Interbanking renombra o repite algo, se toca una fila y no N tablas hijas.
+CREATE TABLE IF NOT EXISTS bancos.cuentas (
+    id              bigserial PRIMARY KEY,
+    bank_number     text NOT NULL,          -- código BCRA de 3 dígitos
+    bank_name       text,
+    account_number  text NOT NULL,          -- el que va en el path de la API
+    account_type    text NOT NULL,          -- CC | CA
+    currency        text NOT NULL,          -- ARS | USD
+    account_cbu     text,                   -- NUNCA se serializa al front
+    account_cuit    text,                   -- NUNCA se serializa al front
+    account_label   text,
+    activa          boolean NOT NULL DEFAULT true,
+    primera_vez     date,
+    ultima_vez      date,
+    raw             jsonb,                  -- respuesta cruda, ver nota abajo
+    actualizado_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (bank_number, account_number, account_type, currency)
+);
+
+-- El día del extracto: lo que el BANCO dice que pasó. Es la fila contra la que
+-- se concilia.
+--
+-- `cierra` / `diferencia` se materializan en la ingesta (apertura + créditos −
+-- débitos vs cierre). Es la primera pregunta de cualquier conciliación y no
+-- puede depender de que alguien la calcule bien en la vista.
+CREATE TABLE IF NOT EXISTS bancos.extracto_dia (
+    cuenta_id          bigint NOT NULL REFERENCES bancos.cuentas(id),
+    fecha              date NOT NULL,
+    saldo_apertura     numeric,
+    saldo_cierre       numeric,
+    total_creditos     numeric,
+    total_debitos      numeric,
+    total_movimientos  integer,             -- lo que DICE el banco
+    numero_extracto    text,
+    cierra             boolean,             -- apertura + cr − de == cierre
+    diferencia         numeric,
+    sincronizado_at    timestamptz NOT NULL DEFAULT now(),
+    raw                jsonb,
+    PRIMARY KEY (cuenta_id, fecha)
+);
+
+-- El detalle. Un movimiento del banco.
+--
+-- ⚠️ NO HAY ID NATURAL. El YAML de Movimientos v1 declara un campo `id`, pero
+-- medido contra producción (2026-08-14) NO viene — ni en v1 ni en v2. Así que la
+-- PK es un hash determinístico de los campos identificatorios del movimiento
+-- (ver `jobs/interbanking_sync._hash_mov`).
+--
+-- El hash incluye importe, tipo y código de operación a propósito, y no solo
+-- (extracto, correlativo): si el banco corrige un movimiento, preferimos que
+-- aparezca una fila NUEVA a que se pise la vieja en silencio. Duplicar es
+-- visible; perder no. Y la duplicación se detecta sola: la ingesta compara la
+-- cantidad de movimientos que guardó contra el `total_movimientos` que declara
+-- el extracto de ese día, y lo reporta en `sync_log`.
+--
+-- `cuit_contraparte` / `denominacion_contraparte` vienen en ~3% de los casos
+-- (medido): con esta API NO se puede saber de quién vino la plata en la mayoría
+-- de los movimientos. Son datos personales de terceros — no se serializan al
+-- front sin enmascarar y nunca van a un log.
+CREATE TABLE IF NOT EXISTS bancos.movimientos (
+    mov_hash                 text PRIMARY KEY,
+    cuenta_id                bigint NOT NULL REFERENCES bancos.cuentas(id),
+    fecha                    date NOT NULL,
+    fecha_movimiento         timestamptz,
+    fecha_valor              timestamptz,
+    fecha_proceso            timestamptz,
+    importe                  numeric NOT NULL,
+    tipo                     text,          -- C = crédito | D = débito
+    descripcion_banco        text,
+    descripcion_ib           text,
+    codigo_operacion_ib      text,
+    codigo_operacion_banco   text,
+    numero_extracto          text,
+    correlativo              bigint,
+    comprobante              bigint,
+    sucursal                 text,
+    cuit_contraparte         text,
+    denominacion_contraparte text,
+    raw                      jsonb,
+    sincronizado_at          timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_bancos_mov_cuenta_fecha
+    ON bancos.movimientos (cuenta_id, fecha);
+
+-- Cada corrida del job, cuenta por cuenta. Sin esto no hay forma de saber que
+-- un día NO se sincronizó — que es exactamente el agujero del incidente del
+-- backfill de tenencias del 2026-08-07: no faltaban datos, faltaba la pregunta
+-- "¿corrió cuando debía?".
+CREATE TABLE IF NOT EXISTS bancos.sync_log (
+    id            bigserial PRIMARY KEY,
+    corrida_at    timestamptz NOT NULL DEFAULT now(),
+    cuenta_id     bigint REFERENCES bancos.cuentas(id),
+    fecha_desde   date,
+    fecha_hasta   date,
+    paginas       integer,
+    dias          integer,
+    movimientos   integer,
+    incoherentes  integer,   -- días donde lo guardado != total_movimientos del banco
+    control_code  text,      -- el que devuelve Interbanking, para reclamarles
+    ok            boolean NOT NULL,
+    error         text
+);
+
+CREATE INDEX IF NOT EXISTS ix_bancos_sync_corrida
+    ON bancos.sync_log (corrida_at DESC);
+
+-- Auditoría de LECTURA. En cualquier otra vista sería opcional; acá son los
+-- saldos bancarios de la casa. Es lo que permite responder "quién miró el banco
+-- X y cuándo" sin depender de la memoria de nadie.
+CREATE TABLE IF NOT EXISTS bancos.audit_lecturas (
+    id           bigserial PRIMARY KEY,
+    ts           timestamptz NOT NULL DEFAULT now(),
+    email        text NOT NULL,
+    cuenta_id    bigint,
+    fecha_desde  date,
+    fecha_hasta  date,
+    filas        integer
+);
+
+CREATE INDEX IF NOT EXISTS ix_bancos_audit_ts
+    ON bancos.audit_lecturas (ts DESC);

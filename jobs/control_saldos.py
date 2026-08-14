@@ -108,6 +108,22 @@ MONEDAS: tuple[str, ...] = ("ARS", "USD", "USDL")
 # MISMA corrección que aplica el job diario de tenencias.
 SIGNO = -1
 
+# RUIDO: saldos por debajo de esto NO se persisten (y por lo tanto no se ven).
+# Se mide en VALOR ABSOLUTO, así que corta las dos puntas: ni +12.000 ni -10.000
+# entran. Un descubierto de diez mil pesos no es un problema que haya que
+# perseguir, y cien filas así tapan las tres que sí importan — una pantalla de
+# control que hay que filtrar con el ojo se deja de mirar.
+#
+# El corte se aplica al ESCRIBIR y no al leer: es la decisión del negocio sobre
+# qué es un saldo relevante, y la tabla no tiene histórico que se pueda
+# desvirtuar (siempre es el día de hoy), así que guardarlas para nada solo
+# agranda lo que la vista tiene que traer en cada poll.
+#
+# ⚠️ USD y USDL quedan SIN umbral hasta que el negocio defina el suyo: poner un
+# número ahí sería inventarlo. Con 0 no se filtra nada (el `abs(...) < 0` nunca
+# se cumple), así que el USD sigue mostrándose entero.
+UMBRALES: dict[str, float] = {"ARS": 15_000.0}
+
 # El endpoint rechaza ISO con HTTP 400. Verificado 2026-08-13.
 FMT_FECHA = "%d/%m/%Y"
 
@@ -218,7 +234,8 @@ def parsear(filas: list, idc: str, denom: str) -> tuple[list[dict], dict[str, in
     escribir ~5.000 filas en cero por día para decir «no pasa nada» solo agranda
     la tabla. Como cada cuenta se reescribe entera (DELETE + INSERT), una cuenta
     que pasa de -50.000 a 0 pierde su fila y desaparece del control, que es
-    justo lo que tiene que pasar.
+    justo lo que tiene que pasar. Lo mismo vale para el umbral de `UMBRALES`: una
+    cuenta que baja de -80.000 a -3.000 deja de tener fila y sale del control.
     """
     grupos: dict[str, dict] = {}
     descartadas: dict[str, int] = {}
@@ -244,7 +261,7 @@ def parsear(filas: list, idc: str, denom: str) -> tuple[list[dict], dict[str, in
     out = []
     for esp, g in grupos.items():
         cantidad = round(SIGNO * g["liq"], 4)
-        if cantidad == 0:
+        if cantidad == 0 or abs(cantidad) < UMBRALES.get(esp, 0.0):
             continue
         out.append({
             "id_cuenta": idc, "cuenta": cuenta_str, "ticker": esp,
@@ -383,6 +400,7 @@ def dry(cuentas: list[tuple[str, str]], hoy: date, n_universo: int = 0) -> int:
     print(f"\n{'=' * 78}\nDRY RUN — no se escribe una sola fila   ·   fecha="
           f"{hoy.strftime(FMT_FECHA)}\n{'=' * 78}")
     print(f"   monedas persistidas: {MONEDAS}   ·   signo aplicado: {SIGNO}")
+    print(f"   umbral de ruido (|saldo| menor a esto NO se persiste): {UMBRALES}")
     tot_desc: dict[str, int] = {}
     tiempos: list[float] = []
     negativas = 0

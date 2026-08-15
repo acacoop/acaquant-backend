@@ -16,9 +16,17 @@ Lo que hace, en orden:
   1. Lee el master (`mercado.curvas`) y el universo de Primary.
   2. Por cada bono arma sus patas: base del ticker → todos los símbolos de Primary.
   3. Marca `es_default` la que el master está usando HOY (`curvas.instrumento`).
-  4. **Avisa de las cruzadas**: bonos cuyo default NO es de su moneda. Esa es la
-     lista de precios de otra escala — medido el 2026-08-15: `CO32` (denominado
-     en USD y apuntando a la especie en PESOS).
+  4. **Avisa de las cruzadas**: bonos cuyo default NO es de su moneda **y que
+     tienen una pata de la moneda correcta a la que apuntar**. Sin esa segunda
+     condición marcaba 137 falsos positivos: las ONs no tienen pata D (su ticker
+     YA termina en O, que es parte del NOMBRE y no un sufijo de especie), así que
+     cotizar en su única especie no es un cruce.
+
+**El catálogo de Primary queda VIEJO y eso no invalida nada**: verificado el
+2026-08-15, `AO29` no figura en `manager.pyrofex_instruments` y sin embargo
+mandado a mano devuelve precio. Por eso la pata que el master usa HOY se siembra
+siempre, figure o no — si no, sembrar borraría el símbolo que la vista está
+usando. Refrescar el catálogo: `python -m scripts.discovery_pyrofex`.
 
 Uso:
     python -m scripts.sembrar_especies              # DRY-RUN (default)
@@ -78,40 +86,63 @@ def _universo() -> dict[str, list[dict]]:
     return out
 
 
+def _pata_del_simbolo(simbolo: str, base: str) -> dict | None:
+    """El símbolo del master convertido en pata. Sin sufijo D/C → pesos."""
+    s = _segs(simbolo)
+    if not s:
+        return None
+    _, suf = _base(s[2])
+    esp, mon = _ESPECIE.get(suf, ("pesos", "ARS"))
+    return {"simbolo": simbolo, "ticker": base, "ticker_especie": s[2].upper(),
+            "especie": esp, "moneda": mon, "plazo": s[3]}
+
+
 def _armar(curvas: list[dict], univ: dict[str, list[dict]]) -> tuple[list[dict], list[dict], list[str]]:
-    """(filas a escribir, cruzadas, sin patas). PURO — testeable sin base."""
+    """(filas a escribir, cruzadas, fuera del catálogo de Primary). PURO."""
     filas: list[dict] = []
     cruzadas: list[dict] = []
-    sin: list[str] = []
+    fuera: list[str] = []
     for c in curvas:
         tk = (c.get("ticker") or "").strip().upper()
         base, _ = _base(tk)
-        patas = univ.get(base) or []
-        if not patas:
-            sin.append(tk)
-            continue
+        patas = list(univ.get(base) or [])
         actual = (c.get("instrumento") or "").strip()
+
+        # LA PATA DEL MASTER ENTRA SIEMPRE, esté o no en el catálogo de Primary.
+        # Verificado por el user (2026-08-15): `AO29` NO figura en
+        # `manager.pyrofex_instruments` y sin embargo, mandado a mano, DEVUELVE
+        # PRECIO — el discovery se corre cada tanto y queda viejo. Sin esta rama,
+        # sembrar la tabla BORRARÍA el símbolo que la vista usa hoy: el catálogo
+        # desactualizado le ganaría a la realidad, que es el peor de los mundos.
+        if actual and not any(p["simbolo"] == actual for p in patas):
+            propia = _pata_del_simbolo(actual, base)
+            if propia:
+                patas.append(propia)
+                fuera.append(tk)
+        if not patas:
+            continue
+
         default = next((p for p in patas if p["simbolo"] == actual), None)
         for p in patas:
             filas.append({**p, "es_default": p["simbolo"] == actual})
-        # ¿El default apunta a una especie que NO es la de su moneda? Ahí el precio
-        # que muestra la vista es de otra escala (un hard dollar en pesos cotiza
-        # ~1.400x). Solo se reporta: corregirlo es cambiar el instrumento del master.
+
+        # CRUCE = el default no es de la moneda del bono **Y la alternativa EXISTE**.
+        # Sin la segunda mitad esto marcaba 137 falsos positivos: las ONs no tienen
+        # pata D (su ticker YA termina en O, que es parte del nombre y no un sufijo
+        # de especie), así que un hard dollar corporativo cotizando en su única
+        # especie no está cruzado — no hay ninguna otra a la que apuntar.
         esperada = _ESPERADA.get((c.get("moneda_eje") or "").upper())
         if default and esperada and default["especie"] not in esperada:
             alt = [p for p in patas if p["especie"] in esperada]
-            cruzadas.append({"ticker": tk, "curva": c.get("curva"),
-                             "moneda": c.get("moneda_eje"), "usa": default["especie"],
-                             "deberia": sorted({p["especie"] for p in alt}),
-                             "simbolo_ok": alt[0]["simbolo"] if alt else None})
-        elif not default:
-            cruzadas.append({"ticker": tk, "curva": c.get("curva"),
-                             "moneda": c.get("moneda_eje"), "usa": "(el símbolo del "
-                             "master no está en Primary)", "deberia": [], "simbolo_ok": None})
-    return filas, cruzadas, sin
+            if alt:
+                cruzadas.append({"ticker": tk, "curva": c.get("curva"),
+                                 "moneda": c.get("moneda_eje"), "usa": default["especie"],
+                                 "deberia": sorted({p["especie"] for p in alt}),
+                                 "simbolo_ok": alt[0]["simbolo"]})
+    return filas, cruzadas, fuera
 
 
-def _reporte(filas: list[dict], cruzadas: list[dict], sin: list[str],
+def _reporte(filas: list[dict], cruzadas: list[dict], fuera: list[str],
              curvas: list[dict]) -> None:
     por_ticker: dict[str, int] = {}
     for f in filas:
@@ -121,16 +152,15 @@ def _reporte(filas: list[dict], cruzadas: list[dict], sin: list[str],
         reparto[n] = reparto.get(n, 0) + 1
 
     print(f"\n{'=' * 96}\nPATAS ENCONTRADAS\n{'=' * 96}")
-    print(f"  bonos del master: {len(curvas)} · con patas en Primary: {len(por_ticker)} "
-          f"· sin ninguna: {len(sin)}")
+    print(f"  bonos del master: {len(curvas)} · con patas: {len(por_ticker)}")
     print(f"  filas a escribir en mercado.especies: {len(filas)}")
     print(f"  bonos por CANTIDAD de patas: {dict(sorted(reparto.items()))}")
     sin_def = sorted({f["ticker"] for f in filas} -
                      {f["ticker"] for f in filas if f["es_default"]})
-    print(f"  bonos sin ninguna pata marcada `es_default`: {len(sin_def)}")
+    print(f"  bonos sin ninguna pata marcada `es_default`: {len(sin_def)}"
+          + ("  ← debería ser 0" if sin_def else ""))
     if sin_def:
         print(f"    {', '.join(sin_def[:20])}")
-        print("    → su `curvas.instrumento` no coincide con ningún símbolo de Primary.")
 
     multi = sorted(t for t, n in por_ticker.items() if n > 1)
     if multi:
@@ -150,11 +180,17 @@ def _reporte(filas: list[dict], cruzadas: list[dict], sin: list[str],
     for c in cruzadas:
         cur, mon = c["curva"] or "", c["moneda"] or ""
         print(f"  {c['ticker']:<8} curva={cur:<14} moneda={mon:<5} usa={c['usa']}")
-        if c["simbolo_ok"]:
-            print(f"           debería usar ({'/'.join(c['deberia'])}): {c['simbolo_ok']}")
-    if sin:
-        print(f"\n  SIN NINGUNA PATA en Primary ({len(sin)}): {', '.join(sorted(sin)[:30])}")
-        print("    → o el discovery de Primary está viejo, o el bono no cotiza más.")
+        print(f"           debería usar ({'/'.join(c['deberia'])}): {c['simbolo_ok']}")
+
+    print(f"\n{'=' * 96}\nCATÁLOGO DE PRIMARY DESACTUALIZADO ({len(fuera)})\n{'=' * 96}")
+    print("  El símbolo que usa el master NO figura en `manager.pyrofex_instruments`,")
+    print("  pero SÍ devuelve precio si se lo manda (verificado con AO29). Su pata se")
+    print("  siembra igual — el catálogo viejo no le puede ganar a la realidad.")
+    print("  NO es un error de datos: es que el discovery quedó atrasado.")
+    if fuera:
+        print(f"    {', '.join(sorted(fuera)[:30])}"
+              + (f"  … (+{len(fuera) - 30})" if len(fuera) > 30 else ""))
+        print("\n  Para refrescarlo:  python -m scripts.discovery_pyrofex")
 
 
 def _escribir(filas: list[dict]) -> int:
@@ -192,8 +228,8 @@ def main() -> None:
         return
     print(f"universo de Primary: {len(univ)} tickers base")
 
-    filas, cruzadas, sin = _armar(curvas, univ)
-    _reporte(filas, cruzadas, sin, curvas)
+    filas, cruzadas, fuera = _armar(curvas, univ)
+    _reporte(filas, cruzadas, fuera, curvas)
 
     if not args.aplicar:
         print(f"\n[DRY-RUN] no se escribió nada. Con --aplicar entran {len(filas)} filas.")

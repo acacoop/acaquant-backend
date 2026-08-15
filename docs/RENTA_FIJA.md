@@ -94,6 +94,21 @@ fuente que NO depende de lo que elegimos nosotros, a diferencia de
 - **UN solo bono está cruzado: `CO32`** (`on_otros`, denominado en USD, apuntando
   a la especie en PESOS). Ese es el precio de otra escala. Uno, no diecisiete.
 
+**Dos cosas que la primera corrida destapó** (y que el script tenía mal):
+
+1. **El catálogo de Primary queda VIEJO, y eso no invalida el símbolo.** `AO29` no
+   figura en `manager.pyrofex_instruments` y sin embargo, mandado a mano, devuelve
+   precio. Por eso la pata que el master usa HOY **se siembra siempre**, figure o
+   no en el catálogo: si no, sembrar borraría el símbolo que la vista está usando y
+   un catálogo atrasado le ganaría a la realidad. Refrescarlo:
+   `python -m scripts.discovery_pyrofex`.
+2. **Un cruce solo es cruce si hay a dónde apuntar.** La primera versión marcó
+   **137 falsos positivos** porque exigía que un bono en USD usara especie MEP o
+   cable sin chequear que existieran. Las **ONs no tienen pata D**: su ticker YA
+   termina en `O` (`AER9O`), que es parte del NOMBRE y no un sufijo de especie. Un
+   hard dollar corporativo cotizando en su única especie no está cruzado. Con la
+   condición corregida vuelve a dar lo que midió el bloque 8 del diag: **CO32**.
+
 Siembra: `python -m scripts.sembrar_especies` (DRY-RUN) / `--aplicar`. Nadie lee
 la tabla todavía: se puebla, se mira, y recién después se mudan los readers.
 

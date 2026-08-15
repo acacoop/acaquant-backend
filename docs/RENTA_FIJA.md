@@ -42,6 +42,68 @@ y el resto **se deriva** de ellas (forwards, breakevens, fair value son
   El live de forwards/breakevens (la matriz intradía) se persiste en sus tablas
   `mercado` y su cierre diario en las tablas de histórico correspondientes.
 
+## 0. REDISEÑO EN CURSO (2026-08-15) — leer antes de tocar la vista
+
+Decisión del user: **la vista `/renta-fija` se reformula entera**. Está lenta y
+la clasificación de curvas quedó vieja. Se hace **por pasos**, y los dos
+primeros son invisibles para la pantalla a propósito: desactivan el riesgo antes
+de tocar la vista más usada de la app.
+
+| # | Paso | ¿Toca la vista? | Estado |
+|---|---|---|---|
+| 1 | Medir por qué tarda (`scripts/diag_renta_fija_perf.py`) | no | **hecho, a correr** |
+| 2 | Clasificar los 222 bonos con los ejes emisor/moneda/ajuste | no | pendiente |
+| 3 | Tab **CURVAS** (ARS izq / USD der) + absorber la vista de ONs | sí | pendiente |
+| 4 | Tab **FORWARDS** (+ Fair Value adentro) | sí | pendiente |
+| 5 | Job de 1816 → altas automáticas (`docs/VISTA_RESEARCH.md` §4.10) | no | pendiente |
+
+**El modelo de curvas como OBJETO** (decidido con el user, deriva del cruce con
+1816 — ver `docs/VISTA_RESEARCH.md` §4.10):
+
+```
+nivel 1 — EMISOR   soberano · provincial · corporativo · bcra
+nivel 2 — MONEDA   ARS · USD · EUR
+nivel 3 — AJUSTE   fija · cer · tamar · badlar · dolar_linked · dual · tpm · caución
++ ley (local/ny, para Bonar vs Global) · instrumento (bono/letra) · sector (del EMISOR)
+```
+
+- **La CURVA es el camino completo** (`soberano › ARS › CER`) — que es,
+  literalmente, cómo se llaman las 28 curvas de 1816. Ese es el puente del job.
+- **La PILL de la vista NO es la curva**: es un corte por AJUSTE, y una pill
+  puede juntar varias curvas. `HARD DOLAR` = moneda USD + ajuste fija y hoy ya
+  junta Bonares + Globales + Corporativos USD + BCRA — por eso hay 6
+  corporativos guardados bajo `curva='soberanos'`: **no es un error de carga, es
+  que el campo y su uso divergieron.**
+- **El sector de las ONs sale de la curva** (`on_energia`/`on_finanzas`/
+  `on_otros` mezclan emisor con mercado; medido: `on_otros` se abre en 10 curvas
+  de 1816 e incluye BOPREALes y provinciales). Pasa a ser atributo del emisor.
+
+**Pills acordadas**: `TASA FIJA · CER · HARD DOLAR · DOLAR LINKED · TAMAR ·
+DUALES · LIBRO`. Hoy faltan TAMAR (existe en `_CURVAS_VALIDAS` y **no tiene
+botón en el front**) y DUALES (imposible: los duales están repartidos entre
+`cer` (5) y `tamar` (3), no existen como concepto).
+
+**Tab CURVAS**: la MONEDA deja de ser pill y pasa a ser el LAYOUT — izquierda
+ARS (`TASA FIJA · CER · TAMAR · DUALES`), derecha USD (`HARD DOLAR · DOLAR
+LINKED`), tabla arriba y curva abajo en cada lado, con pill independiente por
+lado. **Absorbe la vista de ONs** (decisión del user): pasa de ~66 a ~222 bonos,
+por eso necesita un **filtro de EMISOR** arriba de las pills, con el default
+reproduciendo lo que se ve hoy.
+
+**Regla de migración que no se negocia**: antes de tocar el front, un **test de
+equivalencia de conjuntos** — para cada pill actual, la lista de tickers del
+modelo nuevo tiene que ser IDÉNTICA a la del viejo. Si el diff es vacío, la
+vista no puede cambiar.
+
+**Por qué tarda** (medido en el código, `src/app/renta-fija/page.tsx`): la
+página hace **9 fetches en un `Promise.all`** → no renderiza hasta que termina
+el más lento, y **solo 4 de los 9 los usa la primera pantalla** (los otros 5 son
+FORWARDS y BREAKEVENS, que se pagan aunque no los mires). Además
+`/api/titulos/flujos` trae el cronograma COMPLETO de los 222 bonos para quedarse
+con 5 campos por bono. **Tabificar es el fix de performance, no solo de orden.**
+
+---
+
 > **🔜 ALTA Y FLUJOS DE BONOS — automatización con 1816 (diseño 2026-08-15).**
 > `mercado.curvas` se mantiene **a mano**: cada bono nuevo de una licitación hay
 > que darlo de alta y tipearle el cuadro de flujos (que además se saca de 1816).

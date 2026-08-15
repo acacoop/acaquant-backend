@@ -109,6 +109,25 @@ fuente que NO depende de lo que elegimos nosotros, a diferencia de
    hard dollar corporativo cotizando en su única especie no está cruzado. Con la
    condición corregida vuelve a dar lo que midió el bloque 8 del diag: **CO32**.
 
+3. **Conviven DOS convenciones de nomenclatura**, y mezclarlas clasificaba mal la
+   pata en dólares de las ONs:
+
+   | | pesos | dólares | cable |
+   |---|---|---|---|
+   | **soberanos / letras** — la especie es un SUFIJO | `AL30` | `AL30D` | `AL30C` |
+   | **ONs** — la especie es la ÚLTIMA LETRA del ticker | `AERBO` | `AERBD` | — |
+
+   `AERBD` no matchea la regex de sufijo (no tiene dígitos antes de la `D`) y caía
+   a PESOS **siendo la pata en dólares**. La segunda convención se **reconoce, no
+   se adivina**: aplica solo cuando el par `stem+O` / `stem+D` existe de verdad en
+   el universo (Primary ∪ master). La documenta `ons.py:136`.
+
+**Resultado, tras refrescar el discovery** (`python -m scripts.discovery_pyrofex`,
+12.882 instrumentos): **2 cruzados — `AO29` y `CO32`**, los dos denominados en USD
+y apuntando a su especie en PESOS. `AO29` es el que el user venía reportando desde
+el principio ("muestra ~141.430 al lado de bonos en ~90"): no se detectaba antes
+porque el catálogo de Primary estaba viejo y no lo listaba.
+
 Siembra: `python -m scripts.sembrar_especies` (DRY-RUN) / `--aplicar`. Nadie lee
 la tabla todavía: se puebla, se mira, y recién después se mudan los readers.
 

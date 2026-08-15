@@ -64,47 +64,91 @@ def _segs(simbolo: str) -> list[str] | None:
     return s if len(s) >= 4 else None
 
 
-def _universo() -> dict[str, list[dict]]:
-    """{BASE: [pata]} desde Primary. Es la fuente que NO depende de lo que el
+def _simbolos_primary() -> list[str]:
+    """Los símbolos crudos de Primary. Es la fuente que NO depende de lo que el
     master eligió — a diferencia de `market_snapshot`, que solo tiene lo que el
     motor suscribe y el motor suscribe desde el master (circular)."""
-    filas = _q("SELECT DISTINCT i->>'ticker' AS simbolo "
-               "FROM manager.pyrofex_instruments p, jsonb_array_elements(p.instruments) i "
-               "WHERE i->>'ticker' IS NOT NULL")
-    out: dict[str, list[dict]] = {}
-    for f in filas:
-        s = _segs(f["simbolo"])
-        if not s:
-            continue
-        base, suf = _base(s[2])
-        esp, mon = _ESPECIE.get(suf, (None, None))
-        if not esp:
-            continue
-        out.setdefault(base, []).append({
-            "simbolo": f["simbolo"], "ticker": base, "ticker_especie": s[2].upper(),
-            "especie": esp, "moneda": mon, "plazo": s[3]})
-    return out
+    return [f["simbolo"] for f in _q(
+        "SELECT DISTINCT i->>'ticker' AS simbolo "
+        "FROM manager.pyrofex_instruments p, jsonb_array_elements(p.instruments) i "
+        "WHERE i->>'ticker' IS NOT NULL") if f["simbolo"]]
 
 
-def _pata_del_simbolo(simbolo: str, base: str) -> dict | None:
-    """El símbolo del master convertido en pata. Sin sufijo D/C → pesos."""
+def _clasificador(universo: set[str]):
+    """→ clasificar(ticker_especie) = (base, especie, moneda).
+
+    **DOS convenciones conviven en el mercado**, y mezclarlas fue el bug de la
+    primera corrida:
+
+      · SOBERANOS y letras — la especie es un SUFIJO sobre el ticker:
+        `AL30` pesos · `AL30D` MEP · `AL30C` cable. Base = `AL30`.
+      · ONs — la especie es la ÚLTIMA LETRA del propio ticker:
+        `AERBO` pesos · `AERBD` dólares. Base = `AERBO`. Lo documenta
+        `api/services/ons.py:136`: "pata canónica por moneda: USD → ticker D,
+        ARS → ticker O".
+
+    La segunda se **RECONOCE, no se adivina**: aplica solo cuando el par
+    `stem+O` / `stem+D` existe DE VERDAD en el universo. Sin eso, `AERBD` no
+    matchea la regex de sufijo (no tiene dígitos antes de la D) y caía a PESOS
+    **siendo la pata en dólares** — el precio de la vista quedaba de otra escala
+    y encima el bono figuraba con dos patas "pesos/24hs" duplicadas.
+    """
+    def clasificar(t: str) -> tuple[str, str, str]:
+        t = (t or "").strip().upper()
+        if len(t) >= 2 and t[-1] in ("O", "D"):
+            stem = t[:-1]
+            if f"{stem}O" in universo and f"{stem}D" in universo:
+                esp, mon = ("pesos", "ARS") if t[-1] == "O" else ("mep", "USD")
+                return f"{stem}O", esp, mon     # la pata en pesos nombra al bono
+        m = _RE_ESPECIE.match(t)
+        if m:
+            esp, mon = _ESPECIE[m.group(2)]
+            return m.group(1), esp, mon
+        return t, "pesos", "ARS"
+    return clasificar
+
+
+def _pata(simbolo: str, base: str, clasificar) -> dict | None:
     s = _segs(simbolo)
     if not s:
         return None
-    _, suf = _base(s[2])
-    esp, mon = _ESPECIE.get(suf, ("pesos", "ARS"))
+    _, esp, mon = clasificar(s[2])
     return {"simbolo": simbolo, "ticker": base, "ticker_especie": s[2].upper(),
             "especie": esp, "moneda": mon, "plazo": s[3]}
 
 
-def _armar(curvas: list[dict], univ: dict[str, list[dict]]) -> tuple[list[dict], list[dict], list[str]]:
+# Cuál pata proponer cuando el default está cruzado: MEP antes que cable (es la
+# que mira la mesa) y 24hs antes que CI (es el plazo estándar de la vista).
+def _preferencia(p: dict) -> tuple:
+    return (p["especie"] != "mep", p["plazo"] != "24hs", p["simbolo"])
+
+
+def _armar(curvas: list[dict], simbolos: list[str]) -> tuple[list[dict], list[dict], list[str]]:
     """(filas a escribir, cruzadas, fuera del catálogo de Primary). PURO."""
+    # El universo para clasificar incluye los símbolos del MASTER: si no, una pata
+    # que Primary todavía no lista (catálogo viejo) no puede formar par y se
+    # clasifica mal.
+    universo = {s[2].upper() for x in simbolos if (s := _segs(x))}
+    universo |= {s[2].upper() for c in curvas
+                 if (s := _segs((c.get("instrumento") or "").strip()))}
+    clasificar = _clasificador(universo)
+
+    univ: dict[str, list[dict]] = {}
+    for x in simbolos:
+        s = _segs(x)
+        if not s:
+            continue
+        base, esp, mon = clasificar(s[2])
+        univ.setdefault(base, []).append({
+            "simbolo": x, "ticker": base, "ticker_especie": s[2].upper(),
+            "especie": esp, "moneda": mon, "plazo": s[3]})
+
     filas: list[dict] = []
     cruzadas: list[dict] = []
     fuera: list[str] = []
     for c in curvas:
         tk = (c.get("ticker") or "").strip().upper()
-        base, _ = _base(tk)
+        base, _, _ = clasificar(tk)
         patas = list(univ.get(base) or [])
         actual = (c.get("instrumento") or "").strip()
 
@@ -115,7 +159,7 @@ def _armar(curvas: list[dict], univ: dict[str, list[dict]]) -> tuple[list[dict],
         # sembrar la tabla BORRARÍA el símbolo que la vista usa hoy: el catálogo
         # desactualizado le ganaría a la realidad, que es el peor de los mundos.
         if actual and not any(p["simbolo"] == actual for p in patas):
-            propia = _pata_del_simbolo(actual, base)
+            propia = _pata(actual, base, clasificar)
             if propia:
                 patas.append(propia)
                 fuera.append(tk)
@@ -133,7 +177,7 @@ def _armar(curvas: list[dict], univ: dict[str, list[dict]]) -> tuple[list[dict],
         # especie no está cruzado — no hay ninguna otra a la que apuntar.
         esperada = _ESPERADA.get((c.get("moneda_eje") or "").upper())
         if default and esperada and default["especie"] not in esperada:
-            alt = [p for p in patas if p["especie"] in esperada]
+            alt = sorted((p for p in patas if p["especie"] in esperada), key=_preferencia)
             if alt:
                 cruzadas.append({"ticker": tk, "curva": c.get("curva"),
                                  "moneda": c.get("moneda_eje"), "usa": default["especie"],
@@ -222,13 +266,13 @@ def main() -> None:
     if not curvas:
         print("✗ mercado.curvas vino vacío")
         return
-    univ = _universo()
-    if not univ:
+    simbolos = _simbolos_primary()
+    if not simbolos:
         print("✗ manager.pyrofex_instruments vino vacío — corré el discovery primero")
         return
-    print(f"universo de Primary: {len(univ)} tickers base")
+    print(f"universo de Primary: {len(simbolos)} símbolos")
 
-    filas, cruzadas, fuera = _armar(curvas, univ)
+    filas, cruzadas, fuera = _armar(curvas, simbolos)
     _reporte(filas, cruzadas, fuera, curvas)
 
     if not args.aplicar:

@@ -77,14 +77,22 @@ bash deploy/restart_all.sh || morir "restart_all.sh — mirá 'journalctl -u api
 # ── 4. Smoke ────────────────────────────────────────────────────────────────
 echo
 echo "▶ 4/4  smoke"
-sleep 3
-HEALTH="$(curl -s --max-time 10 http://localhost:8000/api/health || true)"
-if [ -n "$HEALTH" ]; then
-    echo "   /api/health → $HEALTH"
-else
-    echo "   ⚠️  /api/health no respondió. Estado del service:"
+# La app importa 490 endpoints (numpy/pandas/pyRofex): arrancar tarda MÁS de 3s.
+# Con un solo intento el deploy cantaba "la API no levantó" con la API sana y
+# sana (pasó el 2026-08-15). Se espera con reintentos hasta 60s y se informa
+# cuánto tardó, que además sirve para ver si el arranque se está degradando.
+HEALTH=""
+for i in $(seq 1 30); do
+    HEALTH="$(curl -s --max-time 5 http://localhost:8000/api/health || true)"
+    [ -n "$HEALTH" ] && { echo "   /api/health → $HEALTH   (respondió a los $((i * 2))s)"; break; }
+    sleep 2
+done
+if [ -z "$HEALTH" ]; then
+    echo "   ⚠️  /api/health no respondió en 60s. Estado del service:"
     systemctl status api.service --no-pager -n 15 || true
-    morir "la API no levantó — 'journalctl -u api.service -n 50' tiene el motivo"
+    echo "   Últimas líneas del log:"
+    journalctl -u api.service -n 25 --no-pager || true
+    morir "la API no levantó — el motivo está en el log de arriba"
 fi
 
 echo

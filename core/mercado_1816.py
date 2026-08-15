@@ -138,8 +138,13 @@ def curvas(texto: str | None = None) -> list[dict]:
     return _get("/v1/mercado/curvas", {"texto": texto} if texto else None)
 
 
-def instrumentos(texto: str | None = None, curva_id: int | None = None) -> list[dict]:
+def instrumentos(texto: str | None = None, curva_id: int | None = None,
+                 solo_performing: bool | None = None) -> list[dict]:
+    """Catálogo de instrumentos. `solo_performing=False` incluye los VENCIDOS
+    (el default de la API es true = solo vigentes). Costo: 1 crédito."""
     p: dict = {}
+    if solo_performing is not None:
+        p["soloPerforming"] = "true" if solo_performing else "false"
     if texto:
         p["texto"] = texto
     if curva_id:
@@ -173,6 +178,26 @@ def series(tickers: list[str], campos: list[str], desde: str, hasta: str,
     if convencion:
         p["convencionTna"] = convencion
     return _get("/v1/mercado/series", p)
+
+
+CAMPOS_CASHFLOW = ("fechaPagoEfectiva", "fechaPagoTeorica", "flujoAmortizacion",
+                   "flujoInteres", "flujoTotal")
+
+
+def cashflow(ticker: str, campos: list[str] | None = None) -> dict:
+    """Cupones (cashflow) de UN instrumento — `GET /v1/mercado/cashflow/{ticker}`.
+
+    Devuelve {ticker, fechaOperacion, plazo, cashflow: [{campo: valor}, …]} tal
+    cual lo manda la API (nada se recalcula acá — decisión 5 de
+    docs/VISTA_RESEARCH.md: 1816 es la fuente de la verdad de los números).
+    Costo: **1 crédito por cupón** devuelto → un bono con 20 cupones sale 20.
+    `campos` es obligatorio en la API; el default de acá pide los cinco.
+    """
+    tk = (ticker or "").strip().upper()
+    if len(tk) < 3:
+        raise Error1816(f"cashflow: ticker inválido {ticker!r} (mínimo 3 caracteres)")
+    return _get(f"/v1/mercado/cashflow/{tk}",
+                {"campos": list(campos or CAMPOS_CASHFLOW)})
 
 
 def parse_series(data: dict) -> list[dict]:

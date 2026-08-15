@@ -120,6 +120,7 @@ del producto — la mesa lee a 1816 todas las mañanas.
   | `/v1/mercado/indicadores` (batch, ≤50 tickers) | `tickers × campos` |
   | `/v1/mercado/indicadores/{ticker}` (teórico) | `campos` |
   | `/v1/mercado/series` (≤10 tickers, ≤1 año) | `tickers × campos × días` ★ |
+  | `/v1/mercado/cashflow/{ticker}` | `cupones` (1 por cupón devuelto) |
   | `/v1/creditos/balance` | 0 (control) |
 - **Presupuesto en el cliente (igual que `core/ai`):** antes de un pull grande
   (backfill de series) el cliente consulta el balance y **corta si el costo
@@ -151,6 +152,7 @@ del producto — la mesa lee a 1816 todas las mañanas.
 | 5 | `GET /v1/mercado/indicadores` (batch ≤50) | **snapshot** del día (precio/tna/tea/duration/…) por ticker | `research.mkt_1816_snapshot` |
 | 6 | `GET /v1/mercado/indicadores/{ticker}` | **calculadora teórica** on-demand (mandás UNO de precio/tna/tea/paridad/… y te devuelve el resto) | no se persiste (on-the-fly) |
 | 7 | `GET /v1/mercado/series` (≤10 tickers, ≤1 año) | **★ SERIES HISTÓRICAS** — el corazón de la vista | `research.mkt_1816_series` |
+| 8 | `GET /v1/mercado/cashflow/{ticker}` | **cupones del instrumento** (fecha teórica/efectiva, amortización, interés, total) — endpoint NUEVO, en evaluación | sin decidir (ver §4.9) |
 
 **Parámetros transversales** (indicadores/series): `fuente` (byma/mae/homo-1816,
 default byma), `plazo` (0/1/2, default 1), `moneda` (ars/mep/ccl, default ars),
@@ -251,6 +253,44 @@ Propuesta (a afinar al implementar, `sql/schema.sql` es la fuente):
 - `api/services/research_sql.py` — lectura SQL para la vista (series por ticker/
   campo/rango, snapshot de hoy, catálogo) + `api/services/research_1816_calc.py`
   para el proxy de la calculadora teórica (endpoint 6, on-demand, con presupuesto).
+
+### 4.9 CASHFLOW (endpoint 8) — en EVALUACIÓN, nada decidido
+
+`GET /v1/mercado/cashflow/{ticker}` devuelve los **cupones** de un instrumento
+(`fechaPagoEfectiva`, `fechaPagoTeorica`, `flujoAmortizacion`, `flujoInteres`,
+`flujoTotal`). Es interesante porque toca algo que hoy **cargamos a mano**: los
+`flujos` de `mercado.curvas` (el shape por tipo de curva está en el CLAUDE.md
+raíz, "shape de flujos"). Si 1816 los publica bien, el alta de un instrumento
+podría dejar de ser carga manual.
+
+**NADA de eso está verificado todavía** (REGLA #2). Lo que hace falta medir
+ANTES de decidir persistirlo o usarlo:
+
+1. **Cobertura** — ¿trae cashflow de los ~869 instrumentos del catálogo, o solo
+   de los soberanos? Un cashflow que no cubre las ONs no reemplaza la carga manual.
+2. **ESCALA** — ¿los flujos vienen por VN 100 (como nuestro `amortizacion_pct`) o
+   por VN 1? El divisor equivocado es un error de 100× en cualquier cuenta que lo
+   use. Se lee de la Σ amortización de un bono bullet (≈100 vs ≈1).
+3. **Horizonte** — ¿devuelve el cuadro COMPLETO desde emisión o solo los cupones
+   FUTUROS? Nuestro master guarda todos; si 1816 corta en la fecha de operación,
+   sirve para proyectar pero no para reconstruir historia.
+4. **Costo real** — cobra por CUPÓN. Un bullet corto sale ~4, un soberano ~20+.
+   Bajar el cuadro de los ~869 sería del orden de 10-20k créditos (hipótesis sin
+   medir): entra en el día, pero no es gratis y no se hace "por las dudas".
+
+**Herramienta**: `python -m scripts.diag_1816_cashflow` — censa el universo
+completo (curvas → instrumentos), lo cruza contra `mercado.curvas` +
+`portafolio.assets`, prueba el endpoint sobre una muestra y contrasta cupón a
+cupón contra nuestros `flujos` (fechas que faltan de cada lado + el primer cupón
+común impreso lado a lado, con el ratio, para ver la escala sin asumirla). Mide
+el balance de créditos antes y después, así el costo del cuadro deja de ser
+estimación. Es READ-ONLY: no escribe en la base ni en el watch.
+
+Recién con esos cuatro números se decide si el cashflow (a) no se usa, (b) se
+usa como **control cruzado** de nuestra carga manual (un guardrail que avisa
+cuando nuestro flujo y el de 1816 no coinciden — la opción más barata y la más
+alineada con "1816 es fuente del número, nosotros no recalculamos"), o (c) se
+persiste como fuente de flujos. **Sin medir, no se codea ninguna de las tres.**
 
 ---
 
@@ -501,6 +541,29 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 ---
 
 ## Registro de construcción (con fecha — qué y cómo)
+
+### 2026-08-15 (16) — Endpoint CASHFLOW: cliente + diag de censo y cruce
+Pedido del user: probar el endpoint NUEVO `/v1/mercado/cashflow/{ticker}` y, sobre
+todo, **saber de cuántos tickers estamos hablando** (el rango real del catálogo).
+- **Cliente** (`core/mercado_1816.py`): `cashflow(ticker, campos)` — el ticker va
+  en el PATH y `campos` es OBLIGATORIO para la API (sin él, 400), así que el
+  cliente manda los cinco por default y valida el mínimo de 3 caracteres antes de
+  gastar el request. `instrumentos()` acepta ahora `solo_performing` — es lo que
+  destapa los VENCIDOS (`soloPerforming=false`), que el default de la API esconde.
+- **Diag** (`scripts/diag_1816_cashflow.py`, READ-ONLY): censo del universo curva
+  por curva (con dedup: un ticker publicado en dos curvas se contaba dos veces —
+  las patas de los duales, §4.4b), cruce contra `mercado.curvas` +
+  `portafolio.assets`, y prueba del cashflow contrastada cupón a cupón contra
+  nuestros `flujos`. Mide el balance de créditos ANTES y DESPUÉS de cada bloque.
+  `--json`/`--desde` guardan y reusan el censo para no re-pagarlo.
+- **Criterio**: no se persiste nada ni se toca el watch hasta tener medidos los
+  cuatro números de §4.9 (cobertura, escala, horizonte, costo). El relevamiento de
+  §4.4b (869 instrumentos en 28 curvas) es del 2026-07-18 y **no consta si estaba
+  dedupeado**; el diag informa los DOS números (suma por curva y tickers únicos)
+  para que la diferencia quede a la vista y §4.4b se pueda actualizar con el dato
+  medido, no con el heredado.
+- **Tests**: `tests/unit/test_mercado_1816.py` congela el armado del path/params
+  del cashflow y el flag `soloPerforming` (6 tests, sin red). Ruff limpio.
 
 ### 2026-08-07 (15) — RV Internacional: FUNDAMENTALS en 4 cuadrantes + rubro
 Etapa 1 del pedido del user sobre Research (doc completo del cambio y del

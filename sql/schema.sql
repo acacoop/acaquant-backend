@@ -1502,9 +1502,21 @@ CREATE TABLE IF NOT EXISTS mercado.curvas (
     emisor            text,
     sector            text,
     flujos            jsonb,
-    data              jsonb
+    data              jsonb,
+    -- EJES del rediseño 2026-08-15 (docs/RENTA_FIJA.md §0). Conviven con `curva`
+    -- (que sigue mandando en la vista hasta el paso 3) y los deriva
+    -- `scripts/clasificar_curvas.py` cruzando contra el catálogo de 1816.
+    -- Nullable a propósito: "sin clasificar" es un estado válido y visible, no
+    -- se adivina. `moneda_eje` se llama así para no chocar con `moneda_flujo`,
+    -- que es otra cosa (cómo se VALÚA, no en qué se denomina).
+    emisor_tipo       text,   -- soberano | provincial | corporativo | bcra
+    moneda_eje        text,   -- ARS | USD | EUR
+    ajuste            text,   -- fija | cer | tamar | badlar | dolar_linked | dual | tpm | caucion
+    ley               text,   -- local | ny  (Bonar vs Global)
+    instrumento       text    -- bono | letra
 );
 CREATE INDEX IF NOT EXISTS ix_curvas_curva ON mercado.curvas(curva);
+CREATE INDEX IF NOT EXISTS ix_curvas_ejes  ON mercado.curvas(moneda_eje, ajuste);
 CREATE INDEX IF NOT EXISTS ix_curvas_vto   ON mercado.curvas(fecha_vencimiento);
 
 -- Trading.DiasHabiles — calendario hábil argentino (jobs/dias_habiles, holidays.AR).

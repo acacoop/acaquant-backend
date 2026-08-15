@@ -51,8 +51,8 @@ de tocar la vista más usada de la app.
 
 | # | Paso | ¿Toca la vista? | Estado |
 |---|---|---|---|
-| 1 | Medir por qué tarda (`scripts/diag_renta_fija_perf.py`) | no | **hecho, a correr** |
-| 2 | Clasificar los 222 bonos con los ejes emisor/moneda/ajuste | no | pendiente |
+| 1 | Medir por qué tarda (`scripts/diag_renta_fija_perf.py`) | no | ✅ **medido** |
+| 2 | Clasificar los 222 con los ejes (`scripts/clasificar_curvas.py`) | no | **hecho, a correr** |
 | 3 | Tab **CURVAS** (ARS izq / USD der) + absorber la vista de ONs | sí | pendiente |
 | 4 | Tab **FORWARDS** (+ Fair Value adentro) | sí | pendiente |
 | 5 | Job de 1816 → altas automáticas (`docs/VISTA_RESEARCH.md` §4.10) | no | pendiente |
@@ -93,14 +93,62 @@ reproduciendo lo que se ve hoy.
 **Regla de migración que no se negocia**: antes de tocar el front, un **test de
 equivalencia de conjuntos** — para cada pill actual, la lista de tickers del
 modelo nuevo tiene que ser IDÉNTICA a la del viejo. Si el diff es vacío, la
-vista no puede cambiar.
+vista no puede cambiar. Lo corre `scripts/clasificar_curvas.py` y parte el
+resultado en IGUAL / **CAMBIA** / ENTRA / FUERA: solo los CAMBIA pueden romper
+algo, y cada uno tiene que ser explicable (los esperados son los duales yéndose
+a su pill propia). Si aparece uno inexplicado, el semáforo da **ROJO** y el paso
+3 queda bloqueado.
 
-**Por qué tarda** (medido en el código, `src/app/renta-fija/page.tsx`): la
-página hace **9 fetches en un `Promise.all`** → no renderiza hasta que termina
-el más lento, y **solo 4 de los 9 los usa la primera pantalla** (los otros 5 son
-FORWARDS y BREAKEVENS, que se pagan aunque no los mires). Además
-`/api/titulos/flujos` trae el cronograma COMPLETO de los 222 bonos para quedarse
-con 5 campos por bono. **Tabificar es el fix de performance, no solo de orden.**
+**Dónde vive el modelo**: `core/curvas_ejes.py` — tabla explícita de las 28
+curvas de 1816 → ejes, + la definición de las 6 pills en UN solo lugar (para que
+backend, front y test no puedan contradecirse). Es lógica pura, con 12 tests que
+congelan las decisiones (`tests/unit/test_curvas_ejes.py`), incluida la regresión
+crítica: **`cer_fijado` es un ESTADO, no un eje** — un CER con el CER de
+liquidación ya publicado se sigue mostrando en TASA FIJA, como hoy.
+
+### Por qué tarda — MEDIDO en el Droplet (2026-08-15)
+
+La página hace **9 fetches en un `Promise.all`** → no renderiza hasta que
+termina el más lento. Corrida real (`scripts/diag_renta_fija_perf.py`):
+
+| Endpoint | Tab | Frío | Caliente | Payload | Filas |
+|---|---|---:|---:|---:|---:|
+| `renta-fija` | CURVAS | **369 ms** | 0 ms | 108 KB | 398 |
+| `historico/forwards` | FORWARDS | 161 ms | 0 ms | **3.751 KB** | 593 |
+| `flujos` | CURVAS | 110 ms | 14 ms | 240 KB | 222 |
+| `breakevens` | BREAKEVENS | 108 ms | **76 ms** | 1 KB | 1 |
+| resto (5) | — | ≤88 ms | 0 ms | 550 KB | — |
+| **TOTAL** | | **1.054 ms** | | **4.650 KB** | |
+
+**La conclusión NO es la que se suponía.** Tabificar baja el peso un 92%
+(4.650 → 357 KB) pero **la espera no baja** (369 → 369 ms): el cuello de botella
+es `renta-fija`, que es justamente de la tab CURVAS y se pide igual.
+
+El problema real es el **PESO**, no la query: 4,5 MB viajan Droplet → Vercel →
+navegador y el browser tiene que parsear todo eso antes de pintar. 369 ms de
+backend no se sienten; 4,5 MB sí. De ahí que "tarda en cargar" y no "tarda en
+responder".
+
+De dónde salen los 4,5 MB (verificado en el código):
+
+- **`historico/forwards` = 3.751 KB, el 80% del total él solo.** `_hist()` trae
+  TODO el histórico **sin filtro de fecha ni de par** (593 días × la matriz
+  completa de cada día) para dibujar **una** línea de un par por vez.
+- `forwards-zscore`: 214 KB en **7 filas** (30 KB por fila) — los coeficientes de
+  todos los pares de las 7 curvas.
+- `flujos`: 240 KB — el cronograma COMPLETO de los 222 bonos para usar 5 campos.
+
+**El rediseño ya lo arregla solo**: con una matriz por curva los endpoints se
+piden POR CURVA, y si el gráfico pide el par que se está mirando, esos 3,7 MB
+pasan a ser unos KB. No es trabajo extra, es consecuencia del diseño.
+
+**Sobre el cache**: casi todos caen a 0 ms en caliente → en uso normal la vista
+va bien y **paga el primero que entra después de que expira el TTL**. Ese es el
+"a veces tarda". El único que NO cachea es `breakevens` (108 → 76 ms).
+
+**Prioridades**: (1) partir en tabs → −92% de bytes; (2) `historico/forwards`
+por par y por rango → sale gratis con la tab FORWARDS; (3) `renta-fija` 369 ms,
+el único independiente de las tabs.
 
 ---
 

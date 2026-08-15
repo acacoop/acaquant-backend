@@ -197,9 +197,34 @@ def _test_equivalencia(filas: list[dict]) -> bool:
     return not inexplicados
 
 
+def _faltan_columnas() -> list[str]:
+    """Las columnas de `_COLS` que NO existen en la base. Chequeo PREVIO al
+    UPDATE: sin esto el `--aplicar` moría con un traceback de psycopg en medio
+    de la escritura, que no le dice a nadie qué hacer. Pasó el 2026-08-15 —
+    `CREATE TABLE IF NOT EXISTS` es un no-op sobre una tabla que ya existe, así
+    que las columnas nuevas SOLO entran por `ALTER TABLE ADD COLUMN`."""
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'mercado' AND table_name = 'curvas'",
+        )
+        hay = {r[0] for r in cur.fetchall()}
+    return [c for c in _COLS if c not in hay]
+
+
 def _aplicar(filas: list[dict]) -> None:
     """Escribe los ejes. Idempotente: re-correr no cambia nada si nada cambió."""
     from core.postgres import get_pool
+    faltan = _faltan_columnas()
+    if faltan:
+        print(f"\n🛑 NO se escribió nada: faltan columnas en mercado.curvas "
+              f"({', '.join(faltan)}).")
+        print("   Corré primero:  python -m scripts.apply_schema")
+        print("   Si ya lo corriste y sigue faltando, el schema.sql del Droplet "
+              "está viejo → `git pull` (el contador de statements te lo dice: "
+              "si no cambió, el archivo tampoco).")
+        return
     con = [f for f in filas if f["ejes"]]
     with get_pool().connection() as conn, conn.cursor() as cur:
         for f in con:

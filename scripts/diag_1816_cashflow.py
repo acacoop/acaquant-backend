@@ -32,6 +32,10 @@ Uso:
     python -m scripts.diag_1816_cashflow --muestra 12      # agrandar la muestra
     python -m scripts.diag_1816_cashflow --json /tmp/1816.json    # guarda el censo crudo
     python -m scripts.diag_1816_cashflow --desde /tmp/1816.json   # reusa censo (0 créditos)
+
+    # ¿TODOS los tickers tienen flujo? (barrido — ver §4.9 del doc)
+    python -m scripts.diag_1816_cashflow --cobertura              # 3 por curva (muestra)
+    python -m scripts.diag_1816_cashflow --cobertura --todos      # los 887 (~37 min)
 """
 from __future__ import annotations
 
@@ -372,6 +376,140 @@ def _probar_cashflow(ticker: str) -> dict:
             "comunes": len(comunes), "divergencias": n_div, "suma_amort": suma_amort}
 
 
+# ── 4) barrido de COBERTURA: ¿TODOS los tickers tienen flujo? ────────────────
+
+
+def _muestra_estratificada(tickers: list[str], n: int) -> list[str]:
+    """n tickers repartidos a lo largo de la lista ordenada (no los n primeros).
+    Determinista: la misma curva devuelve siempre la misma muestra, así dos
+    corridas son comparables. Tomar los n primeros alfabéticamente sesgaría hacia
+    una familia de emisores (todos los AER…, todos los BAC…)."""
+    tks = sorted(tickers)
+    if n >= len(tks):
+        return tks
+    paso = len(tks) / n
+    return [tks[int(i * paso)] for i in range(n)]
+
+
+def _sondear(ticker: str) -> tuple[str, int, str]:
+    """Llama el cashflow sin imprimir nada. → (estado, n_cupones, error).
+    estado: `con_flujo` | `sin_flujo` (200 pero vacío) | `error`."""
+    try:
+        data = mercado_1816.cashflow(ticker)
+    except Exception as e:
+        return "error", 0, str(e)[:120]
+    n = len(data.get("cashflow") or [])
+    return ("con_flujo" if n else "sin_flujo"), n, ""
+
+
+def _barrido(censo: dict, por_curva: int, todos: bool, cap: int,
+             salida: str | None) -> None:
+    """Mide QUÉ PROPORCIÓN del universo tiene cashflow. Por default muestrea
+    `por_curva` tickers de cada curva (barato); con --todos barre las 887.
+
+    Dos frenos, porque esto es lo más caro del script (REGLA #4): un CAP de
+    créditos que corta el barrido a mitad de camino sin dejar de reportar lo ya
+    medido, y el throttle del cliente (2,5 s entre llamadas) que hace que el
+    barrido completo tarde ~37 min — no es para correr en rueda."""
+    univ = censo["instrumentos"]
+    grupos: dict[str, list[str]] = {}
+    for tk, inst in univ.items():
+        grupos.setdefault(inst.get("_curva") or f"curva {inst.get('_curva_id')}",
+                          []).append(tk)
+
+    plan: list[tuple[str, str]] = []
+    for curva, tks in sorted(grupos.items()):
+        elegidos = sorted(tks) if todos else _muestra_estratificada(tks, por_curva)
+        plan += [(curva, t) for t in elegidos]
+
+    espera = getattr(mercado_1816, "_MIN_INTERVALO_S", 2.5)
+    print(f"\n{'=' * 72}\nBARRIDO DE COBERTURA — ¿todos los tickers tienen flujo?")
+    print(f"  {len(plan)} tickers de {len(univ)} "
+          f"({'TODOS' if todos else f'{por_curva} por curva, muestreo estratificado'})")
+    print(f"  Tiempo estimado: ~{len(plan) * espera / 60:.0f} min "
+          f"(el cliente espera {espera}s entre llamadas por el rate limit)")
+    print(f"  Tope de gasto: {cap:,} créditos — al superarlo CORTA y reporta lo medido")
+    print("=" * 72)
+
+    stats: dict[str, dict] = {}
+    detalle: list[dict] = []
+    b_ini = _saldo()
+    gastado = 0
+    cortado = False
+    curva_actual = ""
+
+    for i, (curva, tk) in enumerate(plan, 1):
+        if curva != curva_actual:
+            curva_actual = curva
+            print(f"  … {curva} ({sum(1 for c, _ in plan if c == curva)} tickers)")
+        st = stats.setdefault(curva, {"probados": 0, "con_flujo": 0, "sin_flujo": 0,
+                                      "error": 0, "cupones": 0, "total_curva": len(grupos[curva])})
+        estado, n, err = _sondear(tk)
+        st["probados"] += 1
+        st[estado] += 1
+        st["cupones"] += n
+        detalle.append({"curva": curva, "ticker": tk, "estado": estado,
+                        "cupones": n, "error": err})
+        if estado != "con_flujo":
+            print(f"      {'✘' if estado == 'error' else '○'} {tk}: {estado}"
+                  + (f" — {err}" if err else ""))
+        if i % 25 == 0 or i == len(plan):
+            b = _saldo()
+            g = (_usados(b) or 0) - (_usados(b_ini) or 0)
+            gastado = g if g > 0 else gastado
+            print(f"      [{i}/{len(plan)} · {gastado:,} créditos gastados]")
+            if gastado >= cap:
+                print(f"  ⚠ CORTADO: se alcanzó el tope de {cap:,} créditos.")
+                cortado = True
+                break
+
+    print(f"\n{'CURVA':<34}{'PROB':>6}{'C/FLUJO':>9}{'S/FLUJO':>9}{'ERROR':>7}"
+          f"{'PROM CUP':>10}{'COSTO CURVA':>13}")
+    print("─" * 88)
+    tot = {"probados": 0, "con_flujo": 0, "sin_flujo": 0, "error": 0, "cupones": 0}
+    costo_total = 0.0
+    for curva, s in sorted(stats.items(), key=lambda x: -x[1]["probados"]):
+        prom = s["cupones"] / s["probados"] if s["probados"] else 0
+        costo = prom * s["total_curva"]
+        costo_total += costo
+        for k in tot:
+            tot[k] += s[k]
+        print(f"{curva[:34]:<34}{s['probados']:>6}{s['con_flujo']:>9}{s['sin_flujo']:>9}"
+              f"{s['error']:>7}{prom:>10.1f}{costo:>13,.0f}")
+    print("─" * 88)
+    pct = 100 * tot["con_flujo"] / tot["probados"] if tot["probados"] else 0
+    print(f"{'TOTAL':<34}{tot['probados']:>6}{tot['con_flujo']:>9}{tot['sin_flujo']:>9}"
+          f"{tot['error']:>7}"
+          f"{tot['cupones'] / max(tot['probados'], 1):>10.1f}{costo_total:>13,.0f}")
+
+    print(f"\n➡ COBERTURA MEDIDA: {tot['con_flujo']}/{tot['probados']} "
+          f"({pct:.1f}%) de los tickers probados devuelven cashflow.")
+    if not todos:
+        print(f"   Es una MUESTRA de {tot['probados']}/{len(univ)} — no es el "
+              "universo entero. Para la respuesta definitiva: --cobertura --todos")
+    if tot["sin_flujo"]:
+        sin = [d["ticker"] for d in detalle if d["estado"] == "sin_flujo"]
+        print(f"   SIN flujo ({len(sin)}): {', '.join(sin[:40])}")
+    if tot["error"]:
+        errs = [d for d in detalle if d["estado"] == "error"]
+        print(f"   Con ERROR ({len(errs)}): "
+              + ", ".join(f"{d['ticker']}" for d in errs[:40]))
+        print(f"   Primer error textual: {errs[0]['error']}")
+    print(f"\n   Créditos gastados en el barrido: {gastado:,} (medido) · "
+          f"costo estimado de bajar el cuadro COMPLETO de los {len(univ)}: "
+          f"{costo_total:,.0f}"
+          + ("  (extrapolado desde la muestra, no medido)" if not todos else ""))
+    if cortado:
+        print("   ⚠ El barrido se cortó por el tope: los números de arriba son "
+              "PARCIALES.")
+
+    if salida:
+        with open(salida, "w", encoding="utf-8") as fh:
+            json.dump({"stats": stats, "detalle": detalle, "cortado": cortado},
+                      fh, ensure_ascii=False, indent=1)
+        print(f"   Detalle ticker por ticker guardado en {salida}")
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 
@@ -385,6 +523,15 @@ def main() -> None:
                     help="cuántos tickers del cruce probar (default 5)")
     ap.add_argument("--json", dest="salida", help="guarda el censo crudo en este archivo")
     ap.add_argument("--desde", help="reusa un censo guardado con --json (0 créditos)")
+    ap.add_argument("--cobertura", action="store_true",
+                    help="barre el universo para medir CUÁNTOS tickers tienen flujo")
+    ap.add_argument("--por-curva", type=int, default=3,
+                    help="tickers por curva en el barrido muestreado (default 3)")
+    ap.add_argument("--todos", action="store_true",
+                    help="con --cobertura: barre los 887, no una muestra (~37 min)")
+    ap.add_argument("--max-creditos", type=int, default=20000,
+                    help="tope de gasto del barrido; al superarlo corta (default 20.000)")
+    ap.add_argument("--cobertura-json", help="guarda el detalle del barrido")
     args = ap.parse_args()
 
     if not mercado_1816.disponible():
@@ -423,6 +570,13 @@ def main() -> None:
 
     if args.censo:
         print("\n(--censo: no se probó el cashflow)")
+        return
+
+    # 4) barrido de cobertura (excluyente con la prueba detallada: es OTRA
+    #    pregunta — no "¿el flujo está bien?" sino "¿cuántos tienen flujo?")
+    if args.cobertura:
+        _barrido(censo, args.por_curva, args.todos, args.max_creditos,
+                 args.cobertura_json)
         return
 
     # 3) cashflow

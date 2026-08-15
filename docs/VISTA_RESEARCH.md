@@ -292,7 +292,9 @@ ORIGEN y la lista que importa es la de `mercado.curvas`.
 1. **Cobertura — cubre ONs, no solo soberanos.** 5/5 cashflows OK, y cuatro de
    los cinco eran ONs nuestras (AEC3O, AER5O, AER9O, AERBO). Esto es lo que
    habilita todo lo demás: el cuadro de flujos de las ONs es hoy carga 100%
-   manual.
+   manual. **OJO: 5 de 887 es el 0,6% — NO prueba que todos tengan flujo.**
+   Para eso está el barrido `--cobertura` (§4.9c); el número de acá es "el
+   endpoint anda también para corporativos", no "cubre el universo".
 2. **Escala — NO hay una sola, y coincide con la nuestra instrumento por
    instrumento.** Los bonos por paridad vienen por VN 100 (Σ amortización =
    100.0000 clavado en AE38, AEC3O, AERBO) y otras ONs vienen en NOMINALES
@@ -355,6 +357,37 @@ watch. Tres decisiones de diseño que hacen que el número no mienta:
 
 `--json`/`--desde` guardan y reusan el censo para no re-pagarlo; `--vencidos`
 suma los no-performing; `--ticker` prueba uno puntual.
+
+### 4.9c ¿TODOS los tickers tienen flujo? — el barrido (`--cobertura`)
+
+Pregunta del user 2026-08-15, y la respuesta honesta es que **con 5 sondeos no
+se sabe**: es el 0,6% del universo. `--cobertura` la contesta midiendo, con dos
+modos porque el barrido completo no es gratis:
+
+```bash
+python -m scripts.diag_1816_cashflow --cobertura            # 3 por curva (~84 tickers)
+python -m scripts.diag_1816_cashflow --cobertura --todos    # los 887, ~37 min
+```
+
+- **Muestreo ESTRATIFICADO, no los primeros N.** Toma tickers repartidos a lo
+  largo de cada curva ordenada. Los N primeros alfabéticamente caerían todos en
+  la misma familia de emisores (todos los `AER…`, todos los `BAC…`) y una
+  familia entera sin flujo daría 0% o 100% por puro azar del alfabeto. Es
+  determinista: dos corridas dan la misma muestra y son comparables.
+- **Clasifica en tres**, que no son lo mismo: `con_flujo` · `sin_flujo` (HTTP
+  200 con array vacío — el instrumento existe y 1816 no publica su cuadro) ·
+  `error` (404/400 — el endpoint rechaza el ticker). Lista cuáles cayeron en
+  cada uno.
+- **Extrapola el costo por curva** (promedio de cupones × instrumentos de esa
+  curva) — así se sabe cuánto saldría bajar el cuadro completo ANTES de bajarlo,
+  y se ve si el gasto se concentra en una curva.
+- **Dos frenos (REGLA #4)**: `--max-creditos` (default 20.000) corta el barrido
+  a mitad de camino y **igual reporta lo medido**, marcándolo como PARCIAL; y el
+  throttle de 2,5 s del cliente hace que el barrido completo tarde ~37 min → no
+  se corre en rueda.
+- `--cobertura-json` guarda el resultado ticker por ticker, para no re-pagarlo.
+
+**Todavía SIN CORRER** — cuando se corra, el número va acá y reemplaza al 0,6%.
 
 ---
 
@@ -605,6 +638,13 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 ---
 
 ## Registro de construcción (con fecha — qué y cómo)
+
+### 2026-08-15 (18) — Barrido de cobertura: ¿todos los tickers tienen flujo?
+Pregunta del user sobre la corrida (17). No se podía contestar: 5 sondeos sobre
+887 es el 0,6%. Se agregó `--cobertura` al diag (detalle en §4.9c) — muestreo
+estratificado por curva, clasificación en `con_flujo`/`sin_flujo`/`error`,
+extrapolación del costo por curva y kill switch de créditos que corta pero igual
+reporta lo medido. **Sin correr todavía**: el número va a §4.9c cuando esté.
 
 ### 2026-08-15 (17) — Corrida real del diag: el universo medido y un bug propio
 El user corrió el diag en el Droplet (114 créditos). Los números están en §4.9;

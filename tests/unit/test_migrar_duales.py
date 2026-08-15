@@ -1,65 +1,95 @@
 """Duales: de `ajuste='dual'` a dos patas (`ajuste` + `ajuste_alt`).
 
 Lo que se congela no es "que el script ande": es que **no se le invente una pata a
-un bono**. La pata primaria tiene que salir de un dato que la mesa ya escribió (la
-curva donde lo tenía archivado) y de ningún otro lado. Un dual con la pata mal
-puesta aparece en la tabla equivocada y nadie lo nota: los dos números existen y
-cierran por separado.
+un bono**. Un dual con la pata mal puesta aparece en la tabla equivocada y nadie lo
+nota — los dos números existen y cierran por separado.
+
+El caso central lo encontró la medición, no el diseño: en TMVE8/TTD26/TTS26 las dos
+fuentes (`curva` y `tasa_referencia`) dicen LO MISMO. Escribir eso daría un bono
+"dual consigo mismo", que no significa nada y **se ve perfectamente normal en
+pantalla**. Ese es el test que importa.
 """
 from __future__ import annotations
 
-from scripts.migrar_duales import planificar
+from scripts.migrar_duales import eje_de_tasa, planificar
 
 
-def _f(ticker, curva):
+def _f(ticker, curva, tasa=None):
     return {"ticker": ticker, "curva": curva, "emisor": "X",
             "emisor_tipo": "soberano", "moneda_eje": "ARS",
-            "ajuste": "dual", "ajuste_alt": None}
+            "ajuste": "dual", "ajuste_alt": None, "tasa_referencia": tasa}
 
 
-def test_la_pata_primaria_sale_de_donde_la_mesa_lo_archivo():
-    """Los 5 duales en `curva='cer'` y los 3 en `'tamar'` YA traen una de sus dos
-    patas escrita. No es una inferencia: es la clasificación de la mesa."""
-    migrables, sin_pata = planificar([_f("TZXD7", "cer"), _f("TTM26", "tamar")])
-    assert sin_pata == []
-    assert {m["ticker"]: m["ajuste"] for m in migrables} == \
-           {"TZXD7": "cer", "TTM26": "tamar"}
+def test_las_dos_patas_cuando_las_fuentes_diCEN_cosas_distintas():
+    """TXMD8 real: archivado en `cer`, con `tasa_referencia='TAMAR'` en el blob."""
+    migrables, bloqueados = planificar([_f("TXMD8", "cer", "TAMAR")])
+    assert bloqueados == []
+    assert migrables[0]["ajuste"] == "cer"
+    assert migrables[0]["ajuste_alt"] == "tamar"
+    assert migrables[0]["estado"] == "completo"
 
 
-def test_la_segunda_pata_NUNCA_se_completa_sola():
-    """Es el invariante del script. 1816 tampoco la sabe (su curva se llama
-    'Soberanos Duales' y no dice el par), así que adivinarla del prefijo del
-    ticker sería una heurística sin medir sobre 8 filas."""
-    migrables, _ = planificar([_f("TZXD7", "cer")])
-    assert "ajuste_alt" not in migrables[0]
+def test_un_dual_NO_puede_ser_dual_consigo_mismo():
+    """EL test. TMVE8/TTD26/TTS26 tienen `curva='tamar'` Y `tasa_referencia='TAMAR'`.
+    Escribir `ajuste=tamar, ajuste_alt=tamar` no significa nada — y el peligro es
+    que sumaría bien igual: el bono aparecería una sola vez, en la tabla correcta,
+    y nadie notaría que su segunda pata nunca se cargó."""
+    migrables, bloqueados = planificar([_f("TMVE8", "tamar", "TAMAR")])
+    assert migrables == []
+    assert bloqueados[0]["estado"] == "degenerado"
+
+
+def test_sin_tasa_referencia_se_escribe_solo_la_primaria():
+    """TXMJ0/TXMJ8/TXMJ9: la mesa nunca cargó `tasa_referencia`. Se guarda la pata
+    conocida y la otra queda pendiente — el bono NO se cae de la pantalla."""
+    migrables, bloqueados = planificar([_f("TXMJ0", "cer")])
+    assert bloqueados == []
+    assert migrables[0]["ajuste"] == "cer"
+    assert migrables[0]["ajuste_alt"] is None
+    assert migrables[0]["estado"] == "parcial"
+
+
+def test_una_tasa_que_no_conocemos_se_reporta_no_se_normaliza():
+    """Traducir con una TABLA y no a lo bruto es lo que hace que un valor nuevo
+    aparezca en el reporte en vez de colarse mal escrito."""
+    migrables, bloqueados = planificar([_f("XXXX", "cer", "TASA BADLAR PRIVADA 30D")])
+    assert migrables == []
+    assert bloqueados[0]["estado"] == "tasa_rara"
 
 
 def test_una_curva_que_no_nombra_un_ajuste_no_se_toca():
-    """Un dual archivado en `on_otros` no dice contra qué ajusta. Elegirle una
-    pata a dedo es exactamente lo que este script no hace: se reporta y queda."""
-    migrables, sin_pata = planificar([_f("XXXXO", "on_otros"), _f("YYYY", "soberanos")])
+    migrables, bloqueados = planificar([_f("XXXXO", "on_otros"), _f("YYYY", "soberanos")])
     assert migrables == []
-    assert [f["ticker"] for f in sin_pata] == ["XXXXO", "YYYY"]
+    assert {b["estado"] for b in bloqueados} == {"sin_pata"}
 
 
 def test_dual_no_puede_ser_su_propia_pata():
-    """`dual` dejó de ser un ajuste — es la CONSECUENCIA de tener dos. Si se
-    colara como pata volveríamos al punto de partida con otro nombre."""
-    migrables, sin_pata = planificar([_f("ZZZZ", "dual")])
+    """`dual` dejó de ser un ajuste — es la CONSECUENCIA de tener dos. Si se colara
+    como pata volveríamos al punto de partida con otro nombre."""
+    migrables, bloqueados = planificar([_f("ZZZZ", "dual")])
     assert migrables == []
-    assert len(sin_pata) == 1
+    assert bloqueados[0]["estado"] == "sin_pata"
 
 
 def test_curva_vacia_o_nula_no_rompe():
-    migrables, sin_pata = planificar([_f("A", None), _f("B", ""), _f("C", "  ")])
+    migrables, bloqueados = planificar([_f("A", None), _f("B", ""), _f("C", "  ")])
     assert migrables == []
-    assert len(sin_pata) == 3
+    assert len(bloqueados) == 3
 
 
 def test_es_insensible_a_mayusculas_y_espacios():
-    """El master trae la curva tal como se cargó; no puede depender del tipeo."""
-    migrables, _ = planificar([_f("A", " CER "), _f("B", "Tamar")])
-    assert [m["ajuste"] for m in migrables] == ["cer", "tamar"]
+    """El master trae la curva y la tasa tal como se cargaron a mano; nada de esto
+    puede depender del tipeo."""
+    migrables, _ = planificar([_f("A", " CER ", " tamar "), _f("B", "Tamar", "CER")])
+    assert [(m["ajuste"], m["ajuste_alt"]) for m in migrables] == \
+           [("cer", "tamar"), ("tamar", "cer")]
+
+
+def test_traduccion_de_la_tasa():
+    assert eje_de_tasa("TAMAR") == "tamar"
+    assert eje_de_tasa("  cer ") == "cer"
+    assert eje_de_tasa("") is None and eje_de_tasa(None) is None
+    assert eje_de_tasa("lo que sea") is None
 
 
 def test_lista_vacia_no_rompe():

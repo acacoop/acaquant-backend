@@ -29,6 +29,7 @@ Las cinco preguntas que contesta, en orden:
   5. PESO        — cuánto ocupa el blob `data` que leen TODOS los readers.
   6. MONEDA      — ¿`moneda_flujo` dice algo que los ejes no digan ya?
   7. SUFIJO      — sacarle la D/C al ticker: qué se rompe y qué se arregla.
+  8. LAS PATAS   — qué especies existen DE VERDAD en Primary (ARS y USD).
 
 Uso:
     python -m scripts.diag_activos
@@ -474,6 +475,99 @@ def _bloque_sufijo(curvas: list[dict], assets: list[dict]) -> None:
     print("       que el rename ARREGLA (AuM/Portfolios los está perdiendo).")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 8) LAS DOS PATAS — qué especies existen DE VERDAD en Primary
+# ─────────────────────────────────────────────────────────────────────────────
+def _universo_primary() -> dict[str, list[dict]]:
+    """{TICKER_BASE: [{simbolo, especie, plazo, moneda}]} desde el universo REAL
+    de Primary (`manager.pyrofex_instruments`, que escribe el discovery).
+
+    Esta es la fuente que faltaba. El bloque 4 cruza contra `market_snapshot`, y
+    ahí el chequeo está CIEGO: el motor suscribe los símbolos que están en el
+    master (`engines/_curvas_loader.py:45`), así que si el master eligió mal la
+    especie, la hermana correcta nunca entra al snapshot y no hay con qué
+    compararla. El universo de Primary no depende de lo que elegimos nosotros.
+    """
+    try:
+        filas = _q("SELECT DISTINCT i->>'ticker' AS simbolo, i->>'currency' AS moneda "
+                   "FROM manager.pyrofex_instruments p, "
+                   "jsonb_array_elements(p.instruments) i WHERE i->>'ticker' IS NOT NULL")
+    except Exception as e:
+        print(f"   no se pudo leer manager.pyrofex_instruments: {str(e)[:70]}")
+        return {}
+    out: dict[str, list[dict]] = {}
+    for f in filas:
+        segs = _segmentos(f["simbolo"] or "")
+        if not segs or len(segs) < 4:
+            continue
+        base, esp = _base_y_especie(segs[2])
+        out.setdefault(base, []).append({
+            "simbolo": f["simbolo"], "especie": _ESPECIES.get(esp, esp),
+            "plazo": segs[3], "moneda": f["moneda"]})
+    return out
+
+
+def _bloque_patas(curvas: list[dict]) -> None:
+    print("\n" + "=" * 96)
+    print("8) LAS DOS PATAS — ¿cada bono tiene su instrumento en ARS y en USD?")
+    print("=" * 96)
+    univ = _universo_primary()
+    if not univ:
+        print("   (sin universo de Primary — corré el discovery y repetí)")
+        return
+    print(f"   Universo de Primary: {len(univ)} tickers base · "
+          f"{sum(len(v) for v in univ.values())} símbolos")
+
+    reparto: dict[int, int] = {}
+    elegida_mal, sin_universo, detalle = [], [], []
+    for d in curvas:
+        tk = (d.get("ticker") or "").strip().upper()
+        base, esp = _base_y_especie(tk)
+        cands = univ.get(base) or []
+        if not cands:
+            sin_universo.append(tk)
+            continue
+        especies = sorted({c["especie"] for c in cands})
+        reparto[len(especies)] = reparto.get(len(especies), 0) + 1
+        usa = _ESPECIES.get(esp, esp)
+        esperadas = ESPERADA_POR_MONEDA.get((d.get("moneda_eje") or "").upper())
+        # AHORA sí se puede juzgar: si el bono se denomina en USD y existe una
+        # especie D/C en Primary pero el master eligió la de PESOS, está cruzado.
+        if esperadas and usa not in esperadas and any(e in esperadas for e in especies):
+            elegida_mal.append({"tk": tk, "usa": usa, "moneda": d.get("moneda_eje"),
+                                "hay": especies, "curva": d.get("curva")})
+        if len(especies) > 1:
+            detalle.append({"tk": tk, "usa": usa, "hay": especies,
+                            "plazos": sorted({c["plazo"] for c in cands})})
+
+    print(f"\n   Bonos del master por CUÁNTAS especies existen en Primary: "
+          f"{dict(sorted(reparto.items()))}")
+    print(f"   Sin ningún símbolo en Primary: {len(sin_universo)}")
+    print("     → un bono con 2 o 3 especies HOY entra al master una sola vez: las")
+    print("       otras patas existen en el mercado y el sistema no las tiene.")
+
+    print(f"\n   ⚠ ESPECIE CRUZADA (el master eligió una que NO es de su moneda): "
+          f"{len(elegida_mal)}")
+    if elegida_mal:
+        print(f"   {'TICKER':<10}{'CURVA':<14}{'MONEDA':<8}{'USA':<8}   EXISTEN EN PRIMARY")
+        print("   " + _SEP[:93])
+        for e in sorted(elegida_mal, key=lambda x: x["tk"]):
+            print(f"   {e['tk'][:10]:<10}{str(e['curva'] or '')[:13]:<14}"
+                  f"{str(e['moneda'] or '')[:7]:<8}{e['usa']:<8}   {' · '.join(e['hay'])}")
+        print("   " + _SEP[:93])
+        print("     → ACÁ está el precio de otra escala. Es la lista a corregir.")
+
+    if detalle:
+        print(f"\n   MULTI-PATA — los que podrían tener ARS y USD ({len(detalle)}):")
+        print(f"   {'TICKER':<10}{'USA':<8}   ESPECIES EN PRIMARY        PLAZOS")
+        print("   " + _SEP[:93])
+        for e in sorted(detalle, key=lambda x: x["tk"])[:45]:
+            print(f"   {e['tk'][:10]:<10}{e['usa']:<8}   {' · '.join(e['hay']):<26} "
+                  f"{' · '.join(e['plazos'])}")
+        if len(detalle) > 45:
+            print(f"   … y {len(detalle) - 45} más")
+
+
 def main() -> None:
     cols_c = _columnas("mercado", "curvas")
     if not cols_c:
@@ -503,6 +597,7 @@ def main() -> None:
     _bloque_peso()
     _bloque_moneda(norm)
     _bloque_sufijo(norm, assets)
+    _bloque_patas(norm)
 
     print("\n" + "=" * 96)
     print("Nada de esto se corrigió acá. Es el relevamiento para decidir el modelo.")

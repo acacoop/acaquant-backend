@@ -10,9 +10,16 @@ esté cargada. Es reversible: si la fecha estaba mal y se corrige, el título
 vuelve solo. Y nunca pisa una marca humana — tildar/destildar en Manager sella
 `vigencia_motivo='manual'` y el job deja de opinar sobre esa fila.
 
-**(2) VALIDACIÓN.** Marca en `mercado.especies.validado` si cada símbolo existe
-en el catálogo real de Primary (`manager.pyrofex_instruments`). Nada más: sin
-sugerencias, sin proponer reemplazos, sin corregir.
+**(2) VALIDACIÓN.** Cruza cada símbolo de `mercado.especies` contra el catálogo
+real de Primary (`manager.pyrofex_instruments`). El que existe queda marcado
+`validado` con su fecha; **el que no existe se BORRA**.
+
+Borrar y no marcar-y-dejar es la decisión correcta acá porque una especie es,
+por definición, una pata que cotiza. Si Primary no la lista, no es una pata: es
+basura que ensucia el catálogo y reaparece en cada reporte. Y no se pierde nada
+recuperable — `scripts/sembrar_especies` reconstruye la tabla entera desde el
+master y el universo de Primary, así que el día que el símbolo exista de verdad
+vuelve solo.
 
 ## Dónde se aplica de verdad
 
@@ -138,14 +145,18 @@ def tickers_no_vigentes() -> list[str]:
 
 # ── Marca de validación ──────────────────────────────────────────────────────
 
-def decidir_validacion(simbolos: list[str], universo: set[str]) -> list[dict]:
-    """`[{simbolo, validado}]` para TODAS las patas. PURA.
+def decidir_validacion(simbolos: list[str], universo: set[str]) -> tuple[list[str], list[str]]:
+    """`(a_marcar, a_borrar)`. PURA.
 
-    Se devuelven todas y no sólo las que cambian: la marca lleva `validado_at` y
-    saber CUÁNDO se confirmó por última vez que un símbolo existe vale tanto como
-    el booleano — sin eso, un `true` viejo no se distingue de uno de hoy.
+    Los válidos se re-marcan TODOS y no sólo los que cambian: la marca lleva
+    `validado_at`, y saber CUÁNDO se confirmó por última vez que un símbolo
+    existe vale tanto como el booleano — sin eso, un `true` de hace tres meses no
+    se distingue de uno de hoy.
     """
-    return [{"simbolo": s, "validado": s in universo} for s in sorted(set(simbolos))]
+    ok, fuera = [], []
+    for s in sorted(set(simbolos)):
+        (ok if s in universo else fuera).append(s)
+    return ok, fuera
 
 
 def leer_simbolos() -> list[str]:
@@ -155,17 +166,17 @@ def leer_simbolos() -> list[str]:
         return [s.strip() for (s,) in cur.fetchall() if s and s.strip()]
 
 
-def aplicar_validacion(marcas: list[dict]) -> int:
-    if not marcas:
-        return 0
+def aplicar_validacion(ok: list[str], borrar: list[str]) -> tuple[int, int]:
+    """Marca los válidos y BORRA los que no existen, en UNA transacción."""
     ts = datetime.now(UTC)
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.executemany(
-            "UPDATE mercado.especies SET validado = %(validado)s, validado_at = %(ts)s "
-            "WHERE simbolo = %(simbolo)s",
-            [{**m, "ts": ts} for m in marcas])
+        if ok:
+            cur.execute("UPDATE mercado.especies SET validado = true, validado_at = %s "
+                        "WHERE simbolo = ANY(%s)", (ts, ok))
+        if borrar:
+            cur.execute("DELETE FROM mercado.especies WHERE simbolo = ANY(%s)", (borrar,))
         conn.commit()
-    return len(marcas)
+    return len(ok), len(borrar)
 
 
 def main() -> int:
@@ -195,17 +206,16 @@ def main() -> int:
             jr.set_stat("abortado_sin_universo", True)
             return 0
 
-        marcas = decidir_validacion(leer_simbolos(), universo)
-        invalidos = [m["simbolo"] for m in marcas if not m["validado"]]
+        ok, borrar = decidir_validacion(leer_simbolos(), universo)
         if not args.dry:
-            aplicar_validacion(marcas)
-        jr.log(f"{'[dry] ' if args.dry else ''}validación: {len(marcas)} símbolo(s) "
-               f"en mercado.especies · {len(invalidos)} NO existen en Primary "
+            aplicar_validacion(ok, borrar)
+        jr.log(f"{'[dry] ' if args.dry else ''}validación: {len(ok)} símbolo(s) "
+               f"validado(s) · {len(borrar)} BORRADO(s) por no existir en Primary "
                f"(universo: {len(universo)})")
-        for sim in invalidos:
-            jr.log(f"      ✗ {sim}")
-        jr.set_stat("simbolos", len(marcas))
-        jr.set_stat("simbolos_invalidos", len(invalidos))
+        for sim in borrar:
+            jr.log(f"      🗑 {sim}")
+        jr.set_stat("simbolos_validados", len(ok))
+        jr.set_stat("simbolos_borrados", len(borrar))
     return 0
 
 

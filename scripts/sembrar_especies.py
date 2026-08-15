@@ -152,17 +152,15 @@ def _armar(curvas: list[dict], simbolos: list[str]) -> tuple[list[dict], list[di
         patas = list(univ.get(base) or [])
         actual = (c.get("instrumento") or "").strip()
 
-        # LA PATA DEL MASTER ENTRA SIEMPRE, esté o no en el catálogo de Primary.
-        # Verificado por el user (2026-08-15): `AO29` NO figura en
-        # `manager.pyrofex_instruments` y sin embargo, mandado a mano, DEVUELVE
-        # PRECIO — el discovery se corre cada tanto y queda viejo. Sin esta rama,
-        # sembrar la tabla BORRARÍA el símbolo que la vista usa hoy: el catálogo
-        # desactualizado le ganaría a la realidad, que es el peor de los mundos.
+        # Si el master apunta a un símbolo que Primary NO lista, se REPORTA y NO
+        # se siembra. Hubo una rama que lo sembraba igual, por la hipótesis de que
+        # el discovery quedaba viejo (`AO29` no figuraba y devolvía precio a mano).
+        # El 2026-08-15 se refrescó el discovery y los faltantes quedaron
+        # exactamente iguales: no era el catálogo atrasado, esos símbolos NO
+        # existen. Sembrarlos metía en `mercado.especies` patas que no cotizan y
+        # las recreaba después de que `jobs/validar_instrumentos` las borrara.
         if actual and not any(p["simbolo"] == actual for p in patas):
-            propia = _pata(actual, base, clasificar)
-            if propia:
-                patas.append(propia)
-                fuera.append(tk)
+            fuera.append(tk)
         if not patas:
             continue
 

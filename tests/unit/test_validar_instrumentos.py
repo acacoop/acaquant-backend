@@ -76,13 +76,18 @@ def test_el_dia_del_vencimiento_todavia_esta_vigente():
 
 # ── Marca de validación ──────────────────────────────────────────────────────
 
-def test_marca_todos_los_simbolos_no_solo_los_rotos():
+def test_lo_que_no_existe_en_primary_se_borra():
+    """Una especie ES una pata que cotiza. Si Primary no la lista, no es una
+    pata — es basura que reaparece en cada reporte."""
+    ok, borrar = decidir_validacion(["A", "B"], {"A"})
+    assert ok == ["A"] and borrar == ["B"]
+
+
+def test_se_remarcan_TODOS_los_validos_no_solo_los_que_cambian():
     """La marca lleva `validado_at`: sin re-confirmar los buenos, un `true` de
     hace tres meses no se distingue de uno de hoy."""
-    marcas = decidir_validacion(["A", "B"], {"A"})
-    assert marcas == [{"simbolo": "A", "validado": True},
-                      {"simbolo": "B", "validado": False}]
+    assert decidir_validacion(["A", "B"], {"A", "B"}) == (["A", "B"], [])
 
 
-def test_no_marca_dos_veces_el_mismo_simbolo():
-    assert len(decidir_validacion(["A", "A", "A"], {"A"})) == 1
+def test_no_procesa_dos_veces_el_mismo_simbolo():
+    assert decidir_validacion(["A", "A", "A"], set()) == ([], ["A"])

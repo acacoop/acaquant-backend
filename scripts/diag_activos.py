@@ -636,9 +636,40 @@ def _bloque_assets_instrumento() -> None:
     for tk, a, m in distintos[:10]:
         print(f"         {tk:<8} assets={a}")
         print(f"         {'':<8} master={m}")
+    # ⚠️ NO es una columna decorativa: `api/services/pnl.py:122` la usa como CLAVE
+    # para buscar el precio del título en el snapshot. Si apunta a la pata en
+    # PESOS de un bono en dólares, el PnL de esa posición toma un precio de otra
+    # escala. Lo que sigue mide si eso está pasando con plata de verdad.
+    if distintos:
+        tks = [d[0] for d in distintos]
+        try:
+            ten = _q("SELECT a.ticker, count(*) AS filas, "
+                     "count(DISTINCT t.id_cuenta) AS cuentas "
+                     "FROM portafolio.tenencia t "
+                     "JOIN portafolio.assets a ON a.unidad = t.unidad "
+                     "WHERE a.ticker = ANY(%s) AND t.aum = 'si' "
+                     "GROUP BY a.ticker ORDER BY 2 DESC", (tks,))
+        except Exception as e:
+            print(f"\n   (no se pudo cruzar con tenencia: {str(e)[:60]})")
+            ten = []
+        print("\n   ⚠️ ¿ESOS 'DISTINTO' TIENEN POSICIÓN? — `pnl.py:122` usa esta columna")
+        print("      como clave del PRECIO. Si apunta a la pata en pesos de un bono en")
+        print("      dólares, el PnL de esa posición sale de otra escala.")
+        if not ten:
+            print(f"      Con tenencia (aum='si'): 0 de {len(tks)} → el desvío NO toca plata hoy.")
+        else:
+            filas = sum(r["filas"] for r in ten)
+            print(f"      Con tenencia (aum='si'): {len(ten)} de {len(tks)} tickers · "
+                  f"{filas} filas de tenencia")
+            print(f"      {'TICKER':<10}{'FILAS':>8}{'CUENTAS':>9}")
+            print("      " + _SEP[:60])
+            for r in ten[:15]:
+                print(f"      {str(r['ticker'])[:10]:<10}{r['filas']:>8}{r['cuentas']:>9}")
+            print("      → CADA UNO de estos hay que mirarlo: es PnL de clientes.")
+
     print("\n   CÓMO SE LEE: si DISTINTO es 0 y los que existen son copia exacta, la")
-    print("   columna no aporta nada y se borra. Si DISTINTO > 0, además de sobrar")
-    print("   está MINTIENDO, y hay que ver cuál de las dos usó cada cálculo.")
+    print("   columna no aporta nada y se borra. Si DISTINTO > 0 y ADEMÁS tienen")
+    print("   tenencia, no es que sobre: está alimentando un cálculo con el dato malo.")
 
 
 def main() -> None:

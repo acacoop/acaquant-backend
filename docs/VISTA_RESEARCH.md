@@ -175,7 +175,11 @@ la UI/el copiloto formatean (mismo criterio que el resto del sistema).
 ### 4.4b Cobertura REAL del catálogo 1816 (medida 2026-07-18 — referencia para crecer)
 
 Relevada el 2026-07-18 (salida completa capturada
-ese día): **869 instrumentos en 28 curvas**. El mapa grueso:
+ese día): **869 instrumentos en 28 curvas**. **RE-MEDIDO el 2026-08-15 con
+`scripts/diag_1816_cashflow`: 887 tickers únicos, mismas 28 curvas** — el
+desglose por bloque y el cruce contra lo nuestro están en §4.9, que es el número
+vigente. Esta sección queda por el MAPA CUALITATIVO (qué tipo de cosas hay),
+que no cambió. El mapa grueso:
 
 - **Soberanos**: todas las curvas conocidas (bonares, globales, CER, tasa fija,
   duales, DLK/Lelink, TAMAR, Badlar, Botes) + **EUR Globales** (GE29→GE46, que
@@ -254,43 +258,103 @@ Propuesta (a afinar al implementar, `sql/schema.sql` es la fuente):
   campo/rango, snapshot de hoy, catálogo) + `api/services/research_1816_calc.py`
   para el proxy de la calculadora teórica (endpoint 6, on-demand, con presupuesto).
 
-### 4.9 CASHFLOW (endpoint 8) — en EVALUACIÓN, nada decidido
+### 4.9 CASHFLOW (endpoint 8) — MEDIDO 2026-08-15
 
-`GET /v1/mercado/cashflow/{ticker}` devuelve los **cupones** de un instrumento
-(`fechaPagoEfectiva`, `fechaPagoTeorica`, `flujoAmortizacion`, `flujoInteres`,
-`flujoTotal`). Es interesante porque toca algo que hoy **cargamos a mano**: los
-`flujos` de `mercado.curvas` (el shape por tipo de curva está en el CLAUDE.md
-raíz, "shape de flujos"). Si 1816 los publica bien, el alta de un instrumento
-podría dejar de ser carga manual.
+**Corrida real en el Droplet** (`python -m scripts.diag_1816_cashflow`, 114
+créditos: 29 el censo + 85 cinco cashflows). Todo lo de acá es HECHO MEDIDO;
+lo que sigue siendo hipótesis está marcado como tal.
 
-**NADA de eso está verificado todavía** (REGLA #2). Lo que hace falta medir
-ANTES de decidir persistirlo o usarlo:
+**El universo: 887 tickers únicos vigentes en 28 curvas** (eran 869 el
+2026-07-18 → creció 18). La suma por curva da exactamente 887, o sea que
+**ningún ticker se publica en dos curvas**: el catálogo es una partición limpia
+y no hay nada que deduplicar. La masa está en corporativos:
 
-1. **Cobertura** — ¿trae cashflow de los ~869 instrumentos del catálogo, o solo
-   de los soberanos? Un cashflow que no cubre las ONs no reemplaza la carga manual.
-2. **ESCALA** — ¿los flujos vienen por VN 100 (como nuestro `amortizacion_pct`) o
-   por VN 1? El divisor equivocado es un error de 100× en cualquier cuenta que lo
-   use. Se lee de la Σ amortización de un bono bullet (≈100 vs ≈1).
-3. **Horizonte** — ¿devuelve el cuadro COMPLETO desde emisión o solo los cupones
-   FUTUROS? Nuestro master guarda todos; si 1816 corta en la fecha de operación,
-   sirve para proyectar pero no para reconstruir historia.
-4. **Costo real** — cobra por CUPÓN. Un bullet corto sale ~4, un soberano ~20+.
-   Bajar el cuadro de los ~869 sería del orden de 10-20k créditos (hipótesis sin
-   medir): entra en el día, pero no es gratis y no se hace "por las dudas".
+| Bloque | Vigentes | Curvas más gordas |
+|---|---:|---|
+| **Corporativos** | **667** | USD 318 · ARS Tamar 145 · USD Linked 107 · Badlar 59 |
+| **Provinciales** | 106 | ARS Tamar 28 · USD 28 · Badlar 21 |
+| **Soberanos** | 104 | CER 25 · Duales 24 · tasa fija 11 |
+| **BCRA** | 10 | BOPREALes |
+
+Cuatro curvas vienen VACÍAS (Corporativos ARS TPM, Provinciales Duales,
+Soberanos ARS Letras CER, Soberanos USD Linked Lelink): existen en el catálogo
+pero hoy no tienen instrumentos vigentes.
+
+**El cruce: 251 tickers están en los DOS lados** (1816 ∩ Manager) — contra los
+13 del watch actual, o sea que hay **~19× más historia disponible de la que
+estamos bajando**. El total crudo de "míos" (2.022) NO es comparable con los 887:
+la mayoría de `portafolio.assets` no son títulos listados (pagarés de
+FINANCIAMIENTO `#UAC…`/`#MAV…`, FCI, cauciones). Por eso el diag separa por
+ORIGEN y la lista que importa es la de `mercado.curvas`.
+
+**Las cuatro preguntas, contestadas:**
+
+1. **Cobertura — cubre ONs, no solo soberanos.** 5/5 cashflows OK, y cuatro de
+   los cinco eran ONs nuestras (AEC3O, AER5O, AER9O, AERBO). Esto es lo que
+   habilita todo lo demás: el cuadro de flujos de las ONs es hoy carga 100%
+   manual.
+2. **Escala — NO hay una sola, y coincide con la nuestra instrumento por
+   instrumento.** Los bonos por paridad vienen por VN 100 (Σ amortización =
+   100.0000 clavado en AE38, AEC3O, AERBO) y otras ONs vienen en NOMINALES
+   (AER5O Σ 148.869,84 · AER9O Σ 142.713,36). Nuestro master usa la MISMA
+   convención en cada caso. **Conclusión: no hay que normalizar nada, pero
+   tampoco se puede asumir un divisor global** — quien consuma esto tiene que
+   mirar la escala por instrumento, igual que hace la valuación del AuM.
+3. **Horizonte — el cuadro COMPLETO desde emisión.** AE38 devuelve los 34
+   cupones, el #1 con fecha 2021-07-12. Sirve para reconstruir historia, no solo
+   para proyectar.
+4. **Costo — ~17 créditos por instrumento** (85/5 medidos; muestra chica, así
+   que es promedio, no techo). Bajar los 251 compartidos ≈ **4.300 créditos**;
+   los 887 enteros ≈ **15.000**. Contra el tope de 100k/día, las dos cosas
+   entran holgadas y de una sola vez.
+
+**Dos hallazgos que el manual de la API no dice:**
+
+- **Devuelve `cuponNumero`**, un sexto campo que no está en la lista de `campos`
+  documentada. No se pide y viene igual.
+- **Manda las DOS fechas**, teórica y efectiva, que difieren cuando la teórica
+  cae en no-hábil (AE38: teórica 2027-01-09, efectiva 2027-01-11). **Nuestro
+  master guarda la EFECTIVA** — medido: por efectiva matchean 21/23 cupones
+  futuros y por teórica solo 13/23. Cruzar por la fecha equivocada inventa
+  divergencias de 2-3 días que no existen; el diag mide cuál de las dos matchea
+  y compara por esa.
+
+**Una divergencia REAL encontrada:** AER9O, cupón del 2026-08-19 — nuestro
+master dice amortización **48.215,20** y 1816 dice **49.710,88**, un **3,1%**
+de diferencia (no es redondeo: los otros cuatro cierran dentro del 1%).
+*Hipótesis sin verificar*: es una ON de amortización indexada (los tres cupones
+de 1816 crecen 46.587 → 49.710) y cada fuente la ajusta con el índice a una
+fecha distinta; si es así, el nuestro está viejo. **Hay que mirarlo con la mesa
+antes de tocar nada.**
+
+**Decisión pendiente del user** (las tres opciones siguen en pie, ahora con
+números): (a) no usarlo; (b) **control cruzado** — un guardrail que compare
+nuestros `flujos` contra 1816 y avise cuando difieren más del 1%, que es
+exactamente lo que acaba de encontrar el AER9O y cuesta ~4.300 créditos por
+pasada sobre los 251 compartidos; (c) persistirlo como fuente de flujos. La (b)
+es la recomendación: no duplica una segunda verdad y ataca el problema real, que
+es que la carga manual se desactualiza sin que nadie se entere.
+
+### 4.9b El diag — cómo se volvió a medir todo esto
 
 **Herramienta**: `python -m scripts.diag_1816_cashflow` — censa el universo
 completo (curvas → instrumentos), lo cruza contra `mercado.curvas` +
 `portafolio.assets`, prueba el endpoint sobre una muestra y contrasta cupón a
-cupón contra nuestros `flujos` (fechas que faltan de cada lado + el primer cupón
-común impreso lado a lado, con el ratio, para ver la escala sin asumirla). Mide
-el balance de créditos antes y después, así el costo del cuadro deja de ser
-estimación. Es READ-ONLY: no escribe en la base ni en el watch.
+cupón contra nuestros `flujos`. Es READ-ONLY: no escribe en la base ni en el
+watch. Tres decisiones de diseño que hacen que el número no mienta:
 
-Recién con esos cuatro números se decide si el cashflow (a) no se usa, (b) se
-usa como **control cruzado** de nuestra carga manual (un guardrail que avisa
-cuando nuestro flujo y el de 1816 no coinciden — la opción más barata y la más
-alineada con "1816 es fuente del número, nosotros no recalculamos"), o (c) se
-persiste como fuente de flujos. **Sin medir, no se codea ninguna de las tres.**
+- **Mide con qué fecha comparar** (efectiva vs teórica) en vez de elegir una:
+  cuenta cuál de las dos matchea más contra nuestro master y usa esa. Sin eso
+  reportaba divergencias de 2-3 días que eran puro calendario.
+- **La escala se MUESTRA, no se normaliza**: Σ amortización + el ratio 1816/mío
+  de amortización e interés. Si alguna vez llega un instrumento con otra
+  convención, salta a la vista en lugar de corregirse en silencio.
+- **Compara TODOS los cupones comunes**, no solo el primero, con tolerancia
+  relativa del 1% (nuestro master está redondeado a 2 decimales; exigir igualdad
+  exacta marcaría todo). Reporta cuántos divergen y cuál es el peor.
+
+`--json`/`--desde` guardan y reusan el censo para no re-pagarlo; `--vencidos`
+suma los no-performing; `--ticker` prueba uno puntual.
 
 ---
 
@@ -541,6 +605,26 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 ---
 
 ## Registro de construcción (con fecha — qué y cómo)
+
+### 2026-08-15 (17) — Corrida real del diag: el universo medido y un bug propio
+El user corrió el diag en el Droplet (114 créditos). Los números están en §4.9;
+acá va lo que la corrida CAMBIÓ del código:
+- **Bug del propio diag**: cruzaba por `fechaPagoTeorica` y nuestro master guarda
+  la **efectiva** (1816 manda las dos; difieren cuando la teórica cae en no-hábil).
+  En AE38 eso reportaba 8 "divergencias" de 2-3 días que eran puro calendario.
+  Ahora MIDE cuál de las dos matchea más y compara por esa (efectiva 21/23 vs
+  teórica 13/23) — no se elige una a dedo, se cuenta.
+- **El ratio se imprimía solo del interés**, así que un bono con cupón cero
+  (AER9O) quedaba sin contraste justo donde había una divergencia real del 3,1%.
+  Ahora salen los dos ratios y se comparan TODOS los cupones comunes con
+  tolerancia del 1%, reportando cuántos divergen y cuál es el peor.
+- **El cruce estaba tapado**: 2.022 "míos" contra 887 de 1816 no compara nada —
+  la mayoría de `portafolio.assets` son pagarés `#UAC…`, FCI y cauciones, que no
+  son universo de 1816. Ahora separa por ORIGEN y saca la lista que sí importa:
+  la renta fija de `mercado.curvas` que 1816 no tiene.
+- **La nota de dedup se volvió condicional**: medido, suma por curva = tickers
+  únicos = 887, o sea que NINGÚN ticker se publica en dos curvas. El texto que
+  explicaba la diferencia ahora solo aparece si la hay.
 
 ### 2026-08-15 (16) — Endpoint CASHFLOW: cliente + diag de censo y cruce
 Pedido del user: probar el endpoint NUEVO `/v1/mercado/cashflow/{ticker}` y, sobre

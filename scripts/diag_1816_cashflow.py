@@ -47,6 +47,12 @@ from core import mercado_1816
 # así un ticker que termina en C/D sin ser especie (p.ej. una ON) no se mutila.
 _RE_ESPECIE = re.compile(r"^([A-Z]+\d+)[DC]$")   # AL30D/GD30C → AL30/GD30
 
+# Divergencia relativa a partir de la cual un cupón se marca. No es igualdad
+# estricta a propósito: nuestro master está cargado a mano y REDONDEADO (AE38
+# tiene 4.55 donde 1816 trae 4.545455), así que exigir el dato exacto marcaría
+# todo. 1% deja pasar el redondeo y caza las diferencias de verdad.
+_TOL_DIVERGENCIA = 0.01
+
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -152,9 +158,13 @@ def _imprimir_censo(censo: dict, vencidos: bool) -> None:
     print("─" * (55 + (11 if vencidos else 0)))
     print(f"{'':>4}  {'TOTAL (suma por curva)':<38} {suma_vig:>9}"
           + (f"  {sum(f['total'] for f in filas):>9}" if vencidos else ""))
-    print(f"\n➡ TICKERS ÚNICOS VIGENTES en 1816: {dedup}  "
-          f"(la suma por curva da {suma_vig}: la diferencia son tickers publicados "
-          f"en más de una curva, p.ej. las patas de los duales)")
+    print(f"\n➡ TICKERS ÚNICOS VIGENTES en 1816: {dedup}")
+    if dedup != suma_vig:
+        print(f"   (la suma por curva da {suma_vig}: los {suma_vig - dedup} de "
+              "diferencia son tickers publicados en MÁS DE UNA curva)")
+    else:
+        print("   (igual a la suma por curva → ningún ticker se publica en dos "
+              "curvas; el catálogo es una partición limpia)")
     if vencidos:
         print("   El TOTAL incluye vencidos (soloPerforming=false) — no se deduplica "
               "porque solo se cuenta, no se baja.")
@@ -198,21 +208,34 @@ def _cruce(censo: dict) -> list[str]:
 
     univ = censo["instrumentos"]
     en_ambos = sorted(t for t in mios if t in univ)
-    solo_mios = sorted(t for t in mios if t not in univ)
+    solo_mios = [t for t in mios if t not in univ]
     solo_1816 = len(univ) - len(en_ambos)
 
+    # El total crudo de "míos" NO es comparable con el universo de 1816: la mayor
+    # parte de portafolio.assets no son títulos listados (pagarés de
+    # FINANCIAMIENTO con código #UAC…/#MAV…, FCI, cauciones). Medido 2026-08-15:
+    # 2.022 "míos" contra 887 de 1816, y 1.771 sin match. Sin separar por ORIGEN,
+    # el número no dice nada. Los que importan son los de `mercado.curvas`: ESOS
+    # son renta fija que seguimos, y si 1816 no los tiene es una ausencia real.
+    rf = {t for t, orig in mios.items() if any(o.startswith("curvas:") for o in orig)}
+    rf_sin = sorted(rf - set(en_ambos))
+    otros_sin = sorted(t for t in solo_mios if t not in rf)
+
     print(f"\n── CRUCE con lo que tengo en Manager ──{nota}")
-    print(f"  Tickers míos (mercado.curvas + portafolio.assets, normalizados): {len(mios)}")
+    print(f"  Tickers míos (mercado.curvas + portafolio.assets, normalizados): {len(mios)}"
+          f"  ·  de ellos en mercado.curvas (renta fija que seguimos): {len(rf)}")
     print(f"  ✔ EN LOS DOS (1816 los tiene): {len(en_ambos)}")
-    print(f"  ✘ MÍOS que 1816 NO tiene:      {len(solo_mios)}")
+    print(f"  ✘ MÍOS que 1816 NO tiene:      {len(solo_mios)}  "
+          f"→ {len(rf_sin)} de mercado.curvas · {len(otros_sin)} solo de assets "
+          "(pagarés/FCI/acciones: no son universo de 1816)")
     print(f"  + DE 1816 que yo no tengo:     {solo_1816}")
     if en_ambos:
         print("\n  En los dos:\n    " + ", ".join(en_ambos[:60])
               + (f" … (+{len(en_ambos) - 60})" if len(en_ambos) > 60 else ""))
-    if solo_mios:
-        print("\n  Míos sin match (ONs, FCI, acciones, cauciones y tickers con otro "
-              "código en 1816):\n    " + ", ".join(solo_mios[:60])
-              + (f" … (+{len(solo_mios) - 60})" if len(solo_mios) > 60 else ""))
+    if rf_sin:
+        print("\n  ⚠ RENTA FIJA MÍA (mercado.curvas) que 1816 NO tiene — la lista que "
+              f"importa mirar ({len(rf_sin)}):\n    " + ", ".join(rf_sin[:80])
+              + (f" … (+{len(rf_sin) - 80})" if len(rf_sin) > 80 else ""))
     return en_ambos
 
 
@@ -267,14 +290,31 @@ def _probar_cashflow(ticker: str) -> dict:
         return {"ticker": ticker, "ok": True, "cupones": len(cupones)}
 
     hoy = date.today().isoformat()
-    f1816 = {_fecha(c.get("fechaPagoTeorica") or c.get("fechaPagoEfectiva")): c
-             for c in cupones if isinstance(c, dict)}
-    f1816.pop("", None)
     mios_todos = {_fecha(f.get("fecha")): f for f in (doc.get("flujos") or [])}
     mios_todos.pop("", None)
+
+    # 1816 manda DOS fechas por cupón (teórica y efectiva, que difieren cuando la
+    # teórica cae en no-hábil). Con cuál está armado NUESTRO master no se elige a
+    # dedo: se MIDE cuál de las dos matchea más y se usa esa. Medido 2026-08-15 en
+    # AE38: por teórica matcheaban 13/23 cupones futuros y por efectiva 21/23 —
+    # nuestro master guarda la EFECTIVA, y keyear por teórica inventaba
+    # divergencias de 2-3 días que no existen.
+    por = {
+        "efectiva": {_fecha(c.get("fechaPagoEfectiva")): c
+                     for c in cupones if isinstance(c, dict)},
+        "teórica": {_fecha(c.get("fechaPagoTeorica")): c
+                    for c in cupones if isinstance(c, dict)},
+    }
+    for m in por.values():
+        m.pop("", None)
+    conv = max(por, key=lambda k: len(set(por[k]) & set(mios_todos)))
+    f1816 = por[conv]
+    print("  Fecha que matchea con mi master: " + " · ".join(
+        f"{k} {len(set(v) & set(mios_todos))}/{len(mios_todos)}" for k, v in por.items())
+        + f"  → se compara por la {conv.upper()}")
+
     fut_1816 = {f: c for f, c in f1816.items() if f >= hoy}
     fut_mios = {f: c for f, c in mios_todos.items() if f >= hoy}
-
     print(f"  Mi master ({doc.get('curva')}): {len(mios_todos)} cupones "
           f"({len(fut_mios)} futuros) · 1816: {len(f1816)} ({len(fut_1816)} futuros)")
     faltan_en_1816 = sorted(set(fut_mios) - set(fut_1816))
@@ -288,20 +328,48 @@ def _probar_cashflow(ticker: str) -> dict:
         print("  ⚠ SIN fechas futuras en común — comparar a mano antes de confiar.")
         return {"ticker": ticker, "ok": True, "cupones": len(cupones), "comunes": 0}
 
+    def _mio(c: dict) -> tuple[float | None, float | None]:
+        return (_num(c.get("amortizacion_pct", c.get("amortizacion"))),
+                _num(c.get("cupon_sobre_residual", c.get("interes"))))
+
+    def _suyo(c: dict) -> tuple[float | None, float | None]:
+        return _num(c.get("flujoAmortizacion")), _num(c.get("flujoInteres"))
+
     f = comunes[0]
-    mio, suyo = fut_mios[f], fut_1816[f]
-    mi_amort = _num(mio.get("amortizacion_pct", mio.get("amortizacion")))
-    mi_int = _num(mio.get("cupon_sobre_residual", mio.get("interes")))
-    su_amort = _num(suyo.get("flujoAmortizacion"))
-    su_int = _num(suyo.get("flujoInteres"))
+    (mi_a, mi_i), (su_a, su_i) = _mio(fut_mios[f]), _suyo(fut_1816[f])
     print(f"  Fechas futuras en común: {len(comunes)}. Primer cupón común ({f}):")
-    print(f"      MÍO : amortización={mi_amort} · interés={mi_int}")
-    print(f"      1816: amortización={su_amort} · interés={su_int}")
-    if mi_int and su_int:
-        print(f"      ratio interés 1816/mío = {su_int / mi_int:.4f}  "
-              "(≈1 → misma escala; ≈100 o ≈0.01 → escala distinta)")
+    print(f"      MÍO : amortización={mi_a} · interés={mi_i}")
+    print(f"      1816: amortización={su_a} · interés={su_i}")
+    for etiq, m_, s_ in (("amortización", mi_a, su_a), ("interés", mi_i, su_i)):
+        if m_ and s_:
+            print(f"      ratio {etiq} 1816/mío = {s_ / m_:.4f}  "
+                  "(≈1 → misma escala; ≈100 o ≈0.01 → escala distinta)")
+
+    # divergencias sobre TODOS los cupones comunes (esto es el guardrail: nuestro
+    # master está cargado a mano y redondeado, 1816 viene con precisión completa —
+    # por eso la tolerancia es relativa y no exige igualdad)
+    peor = None
+    n_div = 0
+    for f in comunes:
+        (m_a, m_i), (s_a, s_i) = _mio(fut_mios[f]), _suyo(fut_1816[f])
+        for etiq, m_, s_ in (("amortización", m_a, s_a), ("interés", m_i, s_i)):
+            if not m_ or s_ is None:
+                continue
+            rel = abs(s_ / m_ - 1)
+            if rel > _TOL_DIVERGENCIA:
+                n_div += 1
+                if peor is None or rel > peor[0]:
+                    peor = (rel, f, etiq, m_, s_)
+    if peor:
+        rel, fp, etiq, m_, s_ = peor
+        print(f"  ⚠ {n_div} valor(es) por encima del {_TOL_DIVERGENCIA:.0%} de "
+              f"divergencia. La peor: {etiq} del {fp} — mío={m_} vs 1816={s_} "
+              f"({rel:.2%})")
+    else:
+        print(f"  ✔ los {len(comunes)} cupones comunes coinciden dentro del "
+              f"{_TOL_DIVERGENCIA:.0%}")
     return {"ticker": ticker, "ok": True, "cupones": len(cupones),
-            "comunes": len(comunes), "suma_amort": suma_amort}
+            "comunes": len(comunes), "divergencias": n_div, "suma_amort": suma_amort}
 
 
 # ── main ─────────────────────────────────────────────────────────────────────

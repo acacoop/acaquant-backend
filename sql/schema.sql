@@ -1534,9 +1534,25 @@ CREATE TABLE IF NOT EXISTS mercado.curvas (
     -- que es otra cosa (cómo se VALÚA, no en qué se denomina).
     emisor_tipo       text,   -- soberano | provincial | corporativo | bcra
     moneda_eje        text,   -- ARS | USD | EUR
-    ajuste            text,   -- fija | cer | tamar | badlar | dolar_linked | dual | tpm | caucion
+    ajuste            text,   -- fija | cer | tamar | badlar | dolar_linked | tpm | caucion
+    ajuste_alt        text,   -- la SEGUNDA pata de un dual (mismo dominio). NULL = no es dual
     ley               text    -- local | ny  (Bonar vs Global)
 );
+-- Por qué DOS columnas de ajuste y no un `ajuste='dual'`. Un dual no es una
+-- familia aparte: es un bono con DOS patas de rendimiento, y el trader lo mira en
+-- la tabla de CER *y* en la de TAMAR — no lo archiva en un solo lado. Guardar
+-- `dual` lo sacaba de las dos y además DESTRUÍA el dato: no decía contra qué
+-- ajusta, así que se perdía que uno es CER+TAMAR y otro CER+devaluación.
+-- Con `ajuste` + `ajuste_alt` todo cae solo y sin reglas especiales:
+--     tabla CER   = ajuste='cer'   OR ajuste_alt='cer'
+--     tabla TAMAR = ajuste='tamar' OR ajuste_alt='tamar'
+--     "es dual"   = ajuste_alt IS NOT NULL      ← deja de cargarse, se deduce
+-- Dos columnas y no un array porque "dual" significa exactamente DOS: con un
+-- `text[]` habría que cambiar el tipo, el índice (a GIN) y enseñarle a cinco
+-- services a leer arrays, para una cardinalidad que está acotada. Si algún día
+-- aparece un triple, ahí sí conviene la lista.
+-- SIN índice sobre `ajuste_alt` a propósito: son 221 filas y el Seq Scan es
+-- óptimo (misma razón por la que no se indexan las tablas chicas de Tesorería).
 -- El eje bono/letra (`tipo_instrumento`) fue ELIMINADO el 2026-08-15: nació con el
 -- rediseño y nunca se pobló (221 de 221 bonos sin dato, medido con
 -- `scripts/diag_curvas_columnas`). Una columna vacía no agrupa nada y sí obliga a
@@ -1588,6 +1604,7 @@ END $$;
 ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS emisor_tipo      text;
 ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS moneda_eje       text;
 ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS ajuste           text;
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS ajuste_alt       text;
 ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS ley              text;
 ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS instrumento      text;
 CREATE INDEX IF NOT EXISTS ix_curvas_curva ON mercado.curvas(curva);

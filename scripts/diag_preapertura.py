@@ -48,6 +48,28 @@ def _sep(t: str) -> None:
     print(f"\n{_SEP}\n{t}\n{_SEP}")
 
 
+def _vigencia_por_simbolo(simbolos: list[str]) -> dict[str, str]:
+    """`símbolo → 'sí' / 'no (motivo)'`. Separa el ruido del problema real.
+
+    Un símbolo que no existe en Primary NO es un error si el título venció: es
+    exactamente lo que tiene que pasar. Sin este cruce, el reporte mezcla los
+    papeles muertos —que son la mayoría y no hay nada que hacerles— con los
+    vivos, que son los únicos que importan.
+    """
+    if not simbolos:
+        return {}
+    filas = _q("""
+        SELECT instrumento, bool_or(vigente IS NOT false) AS alguna_vigente,
+               min(vigencia_motivo) AS motivo
+        FROM portafolio.assets
+        WHERE instrumento = ANY(%s)
+        GROUP BY instrumento
+    """, (simbolos,))
+    return {f["instrumento"]: ("sí" if f["alguna_vigente"]
+                               else f"no ({f['motivo'] or 'sin motivo'})")
+            for f in filas}
+
+
 def main() -> None:
     print(_SEP)
     print("PRE-APERTURA — ¿a qué se van a suscribir los motores?")
@@ -86,16 +108,23 @@ def main() -> None:
     print(f"\n  símbolos a suscribir: {len(filas)}")
     print(f"  que el filtro DESCARTA: {len(fuera)}")
     if fuera:
-        print(f"\n  {'SÍMBOLO':<34}{'UNIDADES':>10}{'FILAS':>8}   ← se quedan sin precio")
-        print("  " + "-" * 62)
-        for f in fuera[:25]:
-            print(f"  {str(f['instrumento'])[:33]:<34}{f['unidades']:>10}"
-                  f"{f['filas_tenencia']:>8}")
-        if len(fuera) > 25:
-            print(f"  … y {len(fuera) - 25} más")
-        print("\n  Ojo: estos YA se descartaban antes del cambio de hoy — el motor de")
-        print("  portfolio validaba contra el mismo catálogo desde siempre. Lo nuevo")
-        print("  es que ahora se ven, y que el resto de los motores hace lo mismo.")
+        print("\n  El filtro está haciendo su trabajo: NO se los pide a Primary. Lo que")
+        print("  sigue mal es el DATO — el símbolo malo está guardado en assets y nadie")
+        print("  lo limpia. Y la mitad de las veces ni siquiera es un error: si el")
+        print("  título VENCIÓ, es normal que Primary no lo liste.")
+        print(f"\n  {'SÍMBOLO':<34}{'UNIDADES':>9}{'FILAS':>7}  ¿VIGENTE?")
+        print("  " + "-" * 68)
+        vig = _vigencia_por_simbolo([f["instrumento"] for f in fuera])
+        vencidos = 0
+        for f in fuera[:30]:
+            v = vig.get(f["instrumento"], "?")
+            vencidos += v.startswith("no")
+            print(f"  {str(f['instrumento'])[:33]:<34}{f['unidades']:>9}"
+                  f"{f['filas_tenencia']:>7}  {v}")
+        if len(fuera) > 30:
+            print(f"  … y {len(fuera) - 30} más")
+        print(f"\n  de los mostrados: {vencidos} son títulos DADOS DE BAJA (esperado) · "
+              f"{min(len(fuera), 30) - vencidos} siguen vigentes (esos SÍ hay que mirar)")
     else:
         print("  ✅ todos los símbolos de la tenencia existen en Primary")
 
@@ -159,12 +188,19 @@ def main() -> None:
         perdidos = [s["ticker"] for s in snap if s["ticker"] not in univ]
         print(f"\n  símbolos con precio en el último snapshot: {len(snap)}")
         print(f"  que el filtro descartaría: {len(perdidos)}")
-        for s in perdidos[:25]:
-            print(f"      ⚠ {s}")
-        if len(perdidos) > 25:
-            print(f"  … y {len(perdidos) - 25} más")
-        if not perdidos:
-            print("  ✅ ninguno. Todo lo que tenía precio lo va a seguir teniendo.")
+        print("\n  OJO con leer esto como regresión: `portfolio_snapshot` NO se limpia")
+        print("  cuando un papel vence — el último precio queda pegado para siempre.")
+        print("  Así que un título que amortizó en mayo sigue teniendo precio ahí y")
+        print("  Primary ya no lo lista. Lo que importa es la columna de vigencia.")
+        vig = _vigencia_por_simbolo(perdidos)
+        vencidos = [s for s in perdidos if vig.get(s, "?").startswith("no")]
+        vivos = [s for s in perdidos if s not in vencidos]
+        print(f"\n  · dados de baja (esperado, nada que hacer): {len(vencidos)}")
+        print(f"  · VIGENTES sin símbolo válido → hay que mirarlos: {len(vivos)}")
+        for s in vivos[:30]:
+            print(f"      ⚠ {s}  ({vig.get(s, 'no está en assets')})")
+        if not vivos:
+            print("  ✅ ninguno vigente se queda sin precio. La rueda abre como ayer.")
 
     print(f"\n{_SEP}\nFIN — nada de esto escribió en la base.\n{_SEP}")
 

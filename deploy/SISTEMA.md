@@ -70,6 +70,7 @@
 | cada 5min · 13-20h · L-V | `jobs.estrategia_resolver'` |
 | 11:00 · L-V | `jobs.portafolio_backfill` |
 | 12:00 · diario | `jobs.argentina_datos'` |
+| 12,14,16,18,20,22:0 · L-V | `jobs.interbanking_sync'` |
 | 12,16,20,23:0 · L-V | `jobs.fred_research'` |
 | 12,16,20,23:0 · 1-6 | `jobs.bcra_research'` |
 | 14:00 · L-V | `jobs.sync_comitentes'` |
@@ -82,6 +83,7 @@
 | 22:00 · L-V | `jobs.bcra` |
 | 22:00 · L-V | `jobs.market_anchors'` |
 | 22:00 · L-V | `jobs.mercado_1816_series'` |
+| 23:00 · L-V | `jobs.validar_instrumentos'` |
 | 20:10 · L-V | `jobs.estrategia_resolver` |
 | 21:10 · L-V | `jobs.eikon_cierres'` |
 | 20:15 · L-V | `jobs.options_rollup'` |

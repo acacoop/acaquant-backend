@@ -320,6 +320,16 @@
 # config.GUARDRAILS_UMBRALES (None = sin calibrar, no marca violación).
 45 20 * * 1-5 /root/TradingAV/deploy/run_job.sh guardrails 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.guardrails'
 
+# ─── Vigencia + validación de símbolos de mercado — jobs/validar_instrumentos.py
+# A la NOCHE, después del cierre y del discovery: (1) da de baja los títulos que
+# ya amortizaron (`portafolio.assets.vigente`, motivo `vencido`, reversible), y
+# (2) cruza TODOS los símbolos guardados contra el universo real de Primary,
+# proponiendo a qué se parece cada uno que no existe. NO corrige símbolos: elegir
+# entre la pata en pesos y la de dólares es decisión de la mesa.
+# Depende de manager.pyrofex_instruments (scripts/discovery_pyrofex); si está
+# vacía aborta sin reportar, para no inventar cientos de falsos positivos.
+0 23 * * 1-5 /root/TradingAV/deploy/run_job.sh validar_instrumentos 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.validar_instrumentos'
+
 # ─── BCRA (tab BCRA de RESEARCH) — series monetarias v4 → research.bcra_series
 # 4×/día L-S (el BCRA publica 1×/día hábil con rezago 1-2d; la vista sirve de la
 # DB 24/7). Incremental por watermark (−7d, captura revisiones). docs/RESEARCH_BCRA.md.

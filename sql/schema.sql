@@ -1363,13 +1363,26 @@ CREATE TABLE IF NOT EXISTS portafolio.assets (
     vencimiento    text,
     codigo_cnv     text,
     fee_admin      numeric,          -- fracción (0.01 = 1%), FCI
+    -- VIGENCIA (2026-08-15). Un título que amortizó DEJA de existir en el mercado,
+    -- pero NO se puede borrar del catálogo: la tenencia histórica lo referencia.
+    -- Sin esta marca no había forma de distinguir "no existe porque venció" de
+    -- "no existe porque el símbolo está mal", y todo lo vencido sería un falso
+    -- positivo eterno para `jobs/validar_instrumentos`.
+    vigente        boolean DEFAULT true,
+    vigencia_motivo text,             -- 'vencido' = lo puso el job · resto = la mesa
+    vigencia_at    timestamptz,
     actualizado_por text,
     actualizado_at  timestamptz
 );
--- La pata USD entró el 2026-08-15: sobre la tabla que ya existe el CREATE de arriba
--- es no-op, así que la columna SOLO puede entrar por ALTER. La llena la regla
--- `especies` de jobs/assets_autofill desde `mercado.especies` (nunca pisa lo cargado).
+-- Columnas nuevas del 2026-08-15: sobre la tabla que ya existe el CREATE de arriba
+-- es no-op, así que SOLO pueden entrar por ALTER. `instrumento_usd` la llena la
+-- regla `especies` de jobs/assets_autofill desde `mercado.especies` (nunca pisa lo
+-- cargado); la vigencia la mantiene `jobs/validar_instrumentos`.
 ALTER TABLE portafolio.assets ADD COLUMN IF NOT EXISTS instrumento_usd text;
+ALTER TABLE portafolio.assets ADD COLUMN IF NOT EXISTS vigente boolean DEFAULT true;
+ALTER TABLE portafolio.assets ADD COLUMN IF NOT EXISTS vigencia_motivo text;
+ALTER TABLE portafolio.assets ADD COLUMN IF NOT EXISTS vigencia_at timestamptz;
+CREATE INDEX IF NOT EXISTS ix_assets_vigente ON portafolio.assets(vigente);
 CREATE INDEX IF NOT EXISTS ix_assets_cartera ON portafolio.assets(cartera);
 CREATE INDEX IF NOT EXISTS ix_assets_clase   ON portafolio.assets(clase_activo);
 CREATE INDEX IF NOT EXISTS ix_assets_ticker  ON portafolio.assets(ticker);

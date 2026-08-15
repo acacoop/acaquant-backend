@@ -78,6 +78,10 @@ _PANEL = [
     ("clase_activo", "CLASE_ACTIVO"),
     ("calificacion", "CALIFICACION"), ("ticker", "TICKER"), ("vencimiento", "VENCIMIENTO"),
     ("fee_admin", "FEE_ADMIN"), ("codigo_cnv", "CODIGO_CNV"), ("cafci", "CAFCI"),
+    # VIGENTE no entra a `_FIELD_COL` (es boolean, no string): se sirve al panel
+    # pero no participa del filtro `campo_vacio` ni del autocomplete, que son de
+    # texto. La baja por vencimiento la escribe `jobs/validar_instrumentos`.
+    ("vigente", "VIGENTE"), ("vigencia_motivo", "vigencia_motivo"),
     ("actualizado_por", "actualizado_por"), ("actualizado_at", "actualizado_at"),
 ]
 _PANEL_COLS = [c for c, _ in _PANEL]

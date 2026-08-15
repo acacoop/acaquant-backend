@@ -59,6 +59,15 @@ _NO_AUTOCOMPLETE: frozenset[str] = frozenset({"CODIGO_CNV"})
 # mesa a mano desde Manager → TÍTULOS · FCI; lo consume la vista REFERIDOS.
 _EDITABLE_NUM_FIELDS: tuple[str, ...] = ("FEE_ADMIN",)
 
+# Campos BOOLEANOS editables. VIGENTE: si el título sigue existiendo en el
+# mercado. Lo apaga solo `jobs/validar_instrumentos` cuando la fecha de
+# vencimiento pasó, pero la mesa manda para lo que la fecha no dice (un rescate
+# anticipado, un papel sin vencimiento cargado). Por eso una edición manual
+# SELLA `vigencia_motivo='manual'`: es la marca que le dice al job que no opine
+# más sobre esa fila. Sin ese sello el job la volvería a dar vuelta esa noche.
+_EDITABLE_BOOL_FIELDS: tuple[str, ...] = ("VIGENTE",)
+_MOTIVO_MANUAL = "manual"
+
 
 def _normalize_assets(assets: list[dict]) -> list[dict]:
     """Convierte `actualizado_at` (datetime) a ISO string."""
@@ -146,6 +155,7 @@ class _AssetPatch(BaseModel):
     TICKER:       str | None = Field(None, max_length=64)
     VENCIMIENTO:  str | None = Field(None, max_length=64)
     CODIGO_CNV:   str | None = Field(None, max_length=64)
+    VIGENTE:      bool | None = None
     # Fracción decimal: 0.01 = 1%. Cap 0<fee≤1 (100%) para atajar el error
     # típico de cargar "1" pensando en 1% (sería 100%). El front muestra el %
     # equivalente al lado del input para que se vea a simple vista.
@@ -163,12 +173,18 @@ def patch_asset(
     unidad = payload.pop("unidad")
 
     set_fields = {k: v for k, v in payload.items()
-                  if k in _EDITABLE_FIELDS or k in _EDITABLE_NUM_FIELDS}
+                  if k in _EDITABLE_FIELDS or k in _EDITABLE_NUM_FIELDS
+                  or k in _EDITABLE_BOOL_FIELDS}
     if not set_fields:
         raise HTTPException(400, "body sin campos editables — pasá al "
                                   "menos uno de CARTERA, EMISOR, INSTRUMENTO, "
                                   "CLASE_ACTIVO, CALIFICACION, TICKER, "
                                   "VENCIMIENTO, FEE_ADMIN, CODIGO_CNV.")
+
+    if "VIGENTE" in set_fields:
+        # El sello que frena al job (ver _EDITABLE_BOOL_FIELDS).
+        set_fields["vigencia_motivo"] = _MOTIVO_MANUAL
+        set_fields["vigencia_at"] = datetime.now(UTC)
 
     set_fields["actualizado_por"] = actor
     set_fields["actualizado_at"]  = datetime.now(UTC)

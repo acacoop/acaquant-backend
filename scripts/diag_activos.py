@@ -27,6 +27,8 @@ Las cinco preguntas que contesta, en orden:
   3. DUPLICACIÓN — la ficha está en las dos tablas: ¿coincide o ya divergió?
   4. ESPECIES    — qué especies cotizan por bono y cuál eligió el master.
   5. PESO        — cuánto ocupa el blob `data` que leen TODOS los readers.
+  6. MONEDA      — ¿`moneda_flujo` dice algo que los ejes no digan ya?
+  7. SUFIJO      — sacarle la D/C al ticker: qué se rompe y qué se arregla.
 
 Uso:
     python -m scripts.diag_activos
@@ -352,6 +354,126 @@ def _bloque_peso() -> None:
     print("   Ese blob es la copia #3 de la ficha (assets + columnas tipadas + data).")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 6) moneda_flujo vs los EJES
+# ─────────────────────────────────────────────────────────────────────────────
+def _bloque_moneda(curvas: list[dict]) -> None:
+    """¿`moneda_flujo` y `moneda_eje` son lo mismo? Se cruzan y se ve.
+
+    NO son la misma pregunta: `moneda_eje` es en qué se DENOMINA el bono, y
+    `moneda_flujo` es lo que `engines/curvas.py:608` usa para decidir CÓMO llevar
+    el precio de pantalla a la escala del flujo (USD → ya viene en USD si la
+    especie es D/C; DL → dividir por el A3500 si el precio está en escala peso).
+    Y `moneda_flujo` toma el valor `DL`, que NO es una moneda: es un ajuste. Si
+    resulta que se deriva de (moneda_eje, ajuste), sobra como columna.
+    """
+    print("\n" + "=" * 96)
+    print("6) `moneda_flujo` vs los EJES — ¿es la misma información?")
+    print("=" * 96)
+    cruce: dict[tuple, dict[str, int]] = {}
+    for d in curvas:
+        k = (d.get("moneda_eje") or "(sin eje)", d.get("ajuste") or "(sin ajuste)")
+        mf = d.get("moneda_flujo") or "(vacío)"
+        cruce.setdefault(k, {}).setdefault(mf, 0)
+        cruce[k][mf] += 1
+
+    print(f"\n   {'moneda_eje':<12}{'ajuste':<16}{'N':>5}   moneda_flujo que tienen")
+    print("   " + _SEP[:93])
+    ambiguos = 0
+    for (me, aj), dest in sorted(cruce.items(), key=lambda x: -sum(x[1].values())):
+        n = sum(dest.values())
+        d = " · ".join(f"{k}={v}" for k, v in sorted(dest.items(), key=lambda x: -x[1]))
+        marca = ""
+        if len([k for k in dest if k != "(vacío)"]) > 1:
+            ambiguos += n
+            marca = "  ← NO se deriva"
+        print(f"   {me[:12]:<12}{aj[:16]:<16}{n:>5}   {d}{marca}")
+    print("   " + _SEP[:93])
+    print(f"   Combinaciones (moneda_eje, ajuste) que dan MÁS DE UN moneda_flujo: "
+          f"{ambiguos} instrumentos")
+    print("     → si es 0, `moneda_flujo` se DERIVA de los ejes y sobra como columna")
+    print("       cargada a mano. Si no, hay información que solo ella tiene.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7) SACARLE LA D AL TICKER — radio de impacto
+# ─────────────────────────────────────────────────────────────────────────────
+def _bloque_sufijo(curvas: list[dict], assets: list[dict]) -> None:
+    """El ticker de AL30 es `AL30`, no `AL30D`. La D pertenece al SÍMBOLO, que ya
+    tiene su columna (`instrumento`). Esto mide qué se rompe al sacarla.
+
+    `engines/curvas.py:223` ya lee la especie del SÍMBOLO y no del ticker — el
+    docstring lo dice literalmente ("el ticker_corto es un label humano y puede no
+    reflejar la moneda"). O sea que el cálculo de precios NO depende de la D. Lo
+    que hay que medir es quién MÁS guarda ese label.
+    """
+    print("\n" + "=" * 96)
+    print("7) SACARLE LA D/C AL TICKER — qué se rompe (el ticker es AL30, no AL30D)")
+    print("=" * 96)
+
+    sufijados = []
+    presentes = {(d.get("ticker") or "").strip().upper() for d in curvas}
+    for d in curvas:
+        tk = (d.get("ticker") or "").strip().upper()
+        base, esp = _base_y_especie(tk)
+        if esp:
+            sufijados.append({"ticker": tk, "base": base, "esp": esp,
+                              "choca": base in presentes})
+    print(f"   Tickers con sufijo D/C: {len(sufijados)}")
+    if not sufijados:
+        print("   (nada que hacer)")
+        return
+
+    choques = [s for s in sufijados if s["choca"]]
+    print(f"   ⛔ COLISIÓN — la base YA existe como otra fila del master: {len(choques)}")
+    if choques:
+        print("       " + ", ".join(f"{s['ticker']}→{s['base']}" for s in choques))
+        print("       → esos NO se pueden renombrar sin fusionar las dos filas primero.")
+    else:
+        print("       (ninguno: renombrar no genera PK duplicada)")
+
+    valores = [s["ticker"] for s in sufijados]
+    bases = [s["base"] for s in sufijados]
+
+    # Quién MÁS guarda este label. Se descubre por information_schema en vez de
+    # listar tablas a mano: una tabla nueva con esa columna aparece sola.
+    print("\n   QUIÉN MÁS GUARDA ESE LABEL (filas que quedarían huérfanas):")
+    print(f"   {'TABLA.COLUMNA':<52}{'FILAS':>9}{'TICKERS':>9}")
+    print("   " + _SEP[:93])
+    destinos = _q(
+        "SELECT table_schema AS s, table_name AS t, column_name AS c "
+        "FROM information_schema.columns "
+        "WHERE column_name IN ('ticker_corto', 'ticker') "
+        "AND table_schema IN ('mercado', 'portafolio', 'valuaciones', 'operaciones') "
+        "ORDER BY table_schema, table_name")
+    total_filas = 0
+    for d in destinos:
+        if (d["s"], d["t"]) == ("mercado", "curvas"):
+            continue
+        ref = f'"{d["s"]}"."{d["t"]}"."{d["c"]}"'
+        try:
+            r = _q(f'SELECT count(*) AS n, count(DISTINCT {d["c"]}) AS k '
+                   f'FROM "{d["s"]}"."{d["t"]}" WHERE {d["c"]} = ANY(%s)', (valores,))[0]
+        except Exception:
+            continue                                  # tipo no comparable / sin permiso
+        if r["n"]:
+            total_filas += r["n"]
+            print(f"   {ref[:52]:<52}{r['n']:>9,}{r['k']:>9}")
+    print("   " + _SEP[:93])
+    print(f"   TOTAL de filas que hoy apuntan al ticker CON sufijo: {total_filas:,}")
+    print("     → esas son las que habría que migrar junto con el rename (o dejar")
+    print("       que se re-generen solas si el escritor las recrea a diario).")
+
+    # ¿La base YA está en assets? Es la mitad linda: renombrar ARREGLA joins rotos.
+    tickers_assets = {(a.get("ticker") or "").strip().upper() for a in assets}
+    con_base = [b for b in bases if b in tickers_assets]
+    con_suf = [s["ticker"] for s in sufijados if s["ticker"] in tickers_assets]
+    print(f"\n   En `portafolio.assets`: la BASE existe para {len(con_base)} de "
+          f"{len(sufijados)}; el sufijado existe para {len(con_suf)}")
+    print("     → cada uno donde la base existe y el sufijado no es un join HOY ROTO")
+    print("       que el rename ARREGLA (AuM/Portfolios los está perdiendo).")
+
+
 def main() -> None:
     cols_c = _columnas("mercado", "curvas")
     if not cols_c:
@@ -379,6 +501,8 @@ def main() -> None:
     _bloque_duplicacion(pares)
     _bloque_especies(norm, snap)
     _bloque_peso()
+    _bloque_moneda(norm)
+    _bloque_sufijo(norm, assets)
 
     print("\n" + "=" * 96)
     print("Nada de esto se corrigió acá. Es el relevamiento para decidir el modelo.")

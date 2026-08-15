@@ -153,10 +153,12 @@ def main() -> int:
             jr.log(f"  · {tabla} ({que_es}): {len(cambios)} emisor(es) "
                    f"{'a estandarizar' if args.dry else 'estandarizados'} "
                    f"— {vacios} estaban vacíos, {len(cambios) - vacios} escritos distinto")
-            for c in cambios[:30]:
+            # SIN tope, a propósito: este job PISA y el valor viejo se pierde,
+            # así que el log es el único registro de qué había antes. El tope
+            # existiría para no inundar el log diario — pero después del backfill
+            # inicial los cambios por día son ~0, así que no hay nada que inundar.
+            for c in cambios:
                 jr.log(f"      {c['ticker']:<10} {c['antes'] or '(vacío)'!r} → {c['emisor']!r}")
-            if len(cambios) > 30:
-                jr.log(f"      … +{len(cambios) - 30} más")
             jr.set_stat(f"{tabla}_cambios", len(cambios))
 
         # Se reporta y NO se escribe: la moneda decide la valuación.

@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **489 endpoints** montados en `api.main.app`, en **30 routers**.
-- **168 escriben** (POST/PUT/PATCH/DELETE); 321 son de solo lectura.
+- **490 endpoints** montados en `api.main.app`, en **30 routers**.
+- **168 escriben** (POST/PUT/PATCH/DELETE); 322 son de solo lectura.
 - **23 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -53,7 +53,7 @@
 | `/api/back-office` | 59 | 35 | `back-office` · 59 rutas con gate extra | `back-office` |  |
 | `/api/back-office/interbanking` | 3 | 0 | `back-office` · 2 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
-| `/api/cotizaciones` | 33 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
+| `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
 | `/api/estrategia` | 4 | 0 | `trading` | — |  |
@@ -83,7 +83,7 @@
 - `(raíz)` (2 de 2 rutas sin gate de módulo)
 - `/api/aca` (declara `aca`, no lo aplica)
 - `/api/analitica` (15 de 15 rutas sin gate de módulo)
-- `/api/cotizaciones` (32 de 33 rutas sin gate de módulo)
+- `/api/cotizaciones` (33 de 34 rutas sin gate de módulo)
 - `/api/derivados` (13 de 18 rutas sin gate de módulo)
 - `/api/market` (4 de 4 rutas sin gate de módulo)
 - `/api/mesa-dinero` (9 de 9 rutas sin gate de módulo)

@@ -52,8 +52,9 @@ de tocar la vista más usada de la app.
 | # | Paso | ¿Toca la vista? | Estado |
 |---|---|---|---|
 | 1 | Medir por qué tarda (`scripts/diag_renta_fija_perf.py`) | no | ✅ **medido** |
-| 2 | Clasificar los 222 con los ejes (`scripts/clasificar_curvas.py`) | no | **hecho, a correr** |
-| 3 | Tab **CURVAS** (ARS izq / USD der) + absorber la vista de ONs | sí | pendiente |
+| 2 | Clasificar los 222 con los ejes (`scripts/clasificar_curvas.py`) | no | ✅ **aplicado** (212/222, test VERDE) |
+| 3a | Endpoint `GET /api/cotizaciones/curvas-vista` (nadie lo consume) | no | **hecho** |
+| 3b | Tab **CURVAS** en el front (ARS izq / USD der) + absorber ONs | sí | pendiente |
 | 4 | Tab **FORWARDS** (+ Fair Value adentro) | sí | pendiente |
 | 5 | Job de 1816 → altas automáticas (`docs/VISTA_RESEARCH.md` §4.10) | no | pendiente |
 
@@ -98,6 +99,23 @@ resultado en IGUAL / **CAMBIA** / ENTRA / FUERA: solo los CAMBIA pueden romper
 algo, y cada uno tiene que ser explicable (los esperados son los duales yéndose
 a su pill propia). Si aparece uno inexplicado, el semáforo da **ROJO** y el paso
 3 queda bloqueado.
+
+**Resultado del paso 2** (corrida real 2026-08-15): **212 de 222 clasificados**,
+10 sin match en 1816 (se cargan a mano después). Test de equivalencia **VERDE CON
+NOTA**: IGUAL 56 · **CAMBIA 5** (los duales `TXMD8/TXMD9/TXMJ0/TXMJ8/TXMJ9`
+yéndose de `cer` a su pill propia) · ENTRA 150 (las ONs) · FUERA 11. El desorden
+quedó medido: `on_otros` (80) contenía **BOPREALes** y provinciales, `soberanos`
+(21) contenía **6 corporativos**, y `tamar` (5) era **más dual que tamar** (3 de 5).
+
+**Paso 3a** — `api/services/curvas_vista.py` + `GET /api/cotizaciones/curvas-vista`:
+la tab entera en UN request (pills + emisores + bonos ya clasificados). Mata el
+fetch de `titulos/flujos` (240 KB), que existía SOLO para armar el mapa
+ticker→curva en el navegador: con los ejes en la base, el backend ya sabe qué es
+cada bono. El join va del master (222) al snapshot y no al revés — las 398 filas
+de `market_snapshot` incluyen especies/plazos que no son instrumentos del master,
+y traerlas para descartarlas en el browser es justo lo que se está sacando.
+Convive con los endpoints viejos hasta que el front migre. Reparto medido:
+**ARS 53 / USD 159**, y HARD DOLAR pasa de 21 a **129** filas al entrar las ONs.
 
 **Dónde vive el modelo**: `core/curvas_ejes.py` — tabla explícita de las 28
 curvas de 1816 → ejes, + la definición de las 6 pills en UN solo lugar (para que

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import require_module
 from api.services import argy as svc_argy
+from api.services import curvas_vista as svc_curvas_vista
 from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
 from api.services import macro_sql as svc_macro_sql
@@ -276,6 +277,16 @@ def rem_debug():
 
 
 # ── Renta Fija ──
+
+
+@router.get("/curvas-vista")
+def curvas_vista() -> dict:
+    """Tab CURVAS del rediseño en UN request: pills + filtro de emisores + los
+    bonos YA clasificados (docs/RENTA_FIJA.md §0). Reemplaza a la combinación
+    renta-fija + titulos/flujos + fair-value que hoy arma la tabla en el
+    navegador. Todavía NO lo consume nadie: convive con los viejos hasta que el
+    front migre, así un deploy desparejo no rompe la vista."""
+    return svc_curvas_vista.get_curvas_vista()
 
 
 @router.get("/renta-fija")

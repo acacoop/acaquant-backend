@@ -60,6 +60,19 @@ def _v(x) -> str:
     return "—" if x is None or str(x).strip() == "" else str(x)
 
 
+def _pares(blob: str | None) -> list[tuple[str, object]]:
+    """El blob jsonb como pares `(clave, valor)`. Vacío si no se puede leer —
+    un blob roto no puede tumbar un diagnóstico."""
+    if not blob:
+        return []
+    try:
+        import json
+        d = json.loads(blob)
+    except Exception:
+        return []
+    return list(d.items()) if isinstance(d, dict) else []
+
+
 def _titulo(n: int, t: str) -> None:
     print(f"\n{_SEP}\n{n}) {t}\n{_SEP}")
 
@@ -78,8 +91,11 @@ def duales() -> None:
                (SELECT string_agg(DISTINCT k, ', ' ORDER BY k)
                   FROM jsonb_array_elements(flujos) f,
                        jsonb_object_keys(f) k)          AS claves_flujo,
-               (SELECT string_agg(k, ', ' ORDER BY k)
-                  FROM jsonb_object_keys(data) k)       AS claves_data
+               -- El blob COMPLETO menos `flujos` (que es el cronograma y no aporta
+               -- acá). Antes esto listaba solo los NOMBRES de las claves: se vio que
+               -- 5 de 8 tienen `tasa_referencia` y no se pudo leer qué dice, que era
+               -- justo el dato. Ver los nombres sin los valores no responde nada.
+               (data - 'flujos')::text                  AS blob
         FROM mercado.curvas
         WHERE ajuste = 'dual'
         ORDER BY curva, ticker
@@ -98,7 +114,10 @@ def duales() -> None:
               f"cer_emision: {_v(f['cer_emision'])}   vto: {_v(f['fecha_vencimiento'])}")
         print(f"     flujos           : {f['n_flujos']} cupones · claves: "
               f"{_v(f['claves_flujo'])}")
-        print(f"     claves del blob  : {_v(f['claves_data'])}")
+        print("     blob `data` (sin el cronograma), con VALORES:")
+        for k, val in sorted(_pares(f["blob"])):
+            marca = "  ← ¿LA SEGUNDA PATA?" if "tasa" in k.lower() else ""
+            print(f"        {k:<22} {str(val)[:44]}{marca}")
     print("\n  Cómo se lee: si alguna CLAVE del blob o de los flujos nombra la")
     print("  segunda pata (tamar/tasa/spread/devaluación), la fuente ya la tenemos y")
     print("  el backfill sale de acá. Si NO aparece en ningún lado, hay que cargarla")
@@ -151,13 +170,20 @@ def duales_crudo() -> None:
         return
 
     try:
-        curvas = [c for c in (mercado_1816.curvas() or [])
-                  if "dual" in str(c.get("nombre") or c.get("descripcion") or "").lower()]
+        todas = mercado_1816.curvas() or []
     except Exception as e:
         print(f"  ✗ 1816 no respondió: {str(e)[:80]}")
         return
+    # Se busca 'dual' en CUALQUIER valor del dict, no en las claves que uno cree
+    # que existen. La versión anterior filtraba por `nombre`/`descripcion` y dijo
+    # "1816 no tiene ninguna curva dual" mientras el bloque 1b mostraba, ocho
+    # veces, «Soberanos Duales»: adivinar el nombre de una clave no da un dato,
+    # da un falso negativo que además suena a hallazgo.
+    curvas = [c for c in todas
+              if any("dual" in str(v).lower() for v in c.values())]
     if not curvas:
-        print("  (1816 no tiene ninguna curva con 'dual' en el nombre)")
+        print(f"  (ninguna de las {len(todas)} curvas de 1816 menciona 'dual')")
+        print(f"  claves que trae una curva: {sorted(todas[0]) if todas else '—'}")
         return
 
     guardados = {"ticker", "denominacion", "curva", "isinCode", "fechaEmision",

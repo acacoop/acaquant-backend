@@ -41,15 +41,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from datetime import date
 
 from core import mercado_1816
-
-# MISMO regex que jobs/mercado_1816_discovery (si divergen, el cruce de acá y el
-# del watch dejarían de coincidir): exige letras + dígitos antes de la especie,
-# así un ticker que termina en C/D sin ser especie (p.ej. una ON) no se mutila.
-_RE_ESPECIE = re.compile(r"^([A-Z]+\d+)[DC]$")   # AL30D/GD30C → AL30/GD30
 
 # Divergencia relativa a partir de la cual un cupón se marca. No es igualdad
 # estricta a propósito: nuestro master está cargado a mano y REDONDEADO (AE38
@@ -61,12 +55,8 @@ _TOL_DIVERGENCIA = 0.01
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-def _norm(t: str | None) -> str:
-    """A la forma de 1816: mayúsculas y sin la especie (D/C) final. Mismo criterio
-    que jobs/mercado_1816_discovery (los tickers de la casa traen la especie)."""
-    t = (t or "").strip().upper()
-    m = _RE_ESPECIE.match(t)
-    return m.group(1) if m else t
+# La normalización de especie vive en el cliente (convención del proveedor).
+_norm = mercado_1816.normalizar_ticker
 
 
 def _fecha(v) -> str:
@@ -109,9 +99,10 @@ def _delta(antes: dict | None, despues: dict | None) -> str:
 # ── 1) censo del universo ────────────────────────────────────────────────────
 
 
-def _censo(vencidos: bool) -> dict:
-    """{curvas: [...], instrumentos: {ticker: inst}, por_curva: {...}} recorriendo
-    TODAS las curvas del catálogo. Una curva que falla no aborta el censo."""
+def censar(vencidos: bool = False) -> dict:
+    """{curvas: [...], instrumentos: {ticker: inst}} recorriendo TODAS las curvas
+    del catálogo. Una curva que falla no aborta el censo. PÚBLICA: la reusa
+    `scripts/diag_1816_mapeo.py` para no tener dos censos que puedan divergir."""
     curvas = mercado_1816.curvas() or []
     print(f"Curvas en el catálogo de 1816: {len(curvas)}")
 
@@ -554,7 +545,7 @@ def main() -> None:
             censo = json.load(fh)
         print(f"Censo leído de {args.desde} (0 créditos).")
     else:
-        censo = _censo(args.vencidos)
+        censo = censar(args.vencidos)
     _imprimir_censo(censo, args.vencidos)
 
     if args.salida:

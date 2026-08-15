@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import re
 
 from core import mercado_1816
 from core.postgres import get_pool
@@ -52,14 +51,10 @@ _EXTRA_WATCH = {
 # (hoy vacío: BOPREALes/GD46 salen de BCRA/Globales, que ya se relevan).
 _CURVAS_METADATA_EXTRA: dict[int, str] = {}
 
-_RE_ESPECIE = re.compile(r"^([A-Z]+\d+)[DC]$")   # AL30D/GD30C → AL30/GD30
-
-
-def _norm(t: str | None) -> str:
-    """Normaliza a la forma de 1816: saca la especie (D/C) final si la hay."""
-    t = (t or "").strip().upper()
-    m = _RE_ESPECIE.match(t)
-    return m.group(1) if m else t
+# La normalización vive en el cliente (convención DEL PROVEEDOR, no de este job):
+# core.mercado_1816.normalizar_ticker. Tenerla duplicada acá y en los diags hacía
+# que dos cruces pudieran dar universos distintos sin que nadie se entere.
+_norm = mercado_1816.normalizar_ticker
 
 
 def _mis_tickers() -> dict[str, str]:

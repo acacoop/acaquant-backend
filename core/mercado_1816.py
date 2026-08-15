@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 
@@ -50,6 +51,24 @@ def _api_key() -> str | None:
 def disponible() -> bool:
     """True si hay API key configurada (sin ella el cliente no opera)."""
     return bool(_api_key())
+
+
+_RE_ESPECIE = re.compile(r"^([A-Z]+\d+)[DC]$")   # AL30D/GD30C → AL30/GD30
+
+
+def normalizar_ticker(t: str | None) -> str:
+    """Nuestro ticker → la forma de 1816: mayúsculas y sin la ESPECIE (D/C) final.
+
+    Vive acá porque es una convención DEL PROVEEDOR: nuestros `ticker_corto`
+    traen la especie (AL30D/GD30C) y 1816 publica el base (AL30/GD30). Estaba
+    duplicada en el job de discovery y en los diags; si las dos copias divergen,
+    el cruce de cada una da un universo distinto y nadie se entera.
+    Exige letras + dígitos antes de la especie para no mutilar un ticker que
+    termina en C/D sin serlo (p.ej. una ON como AER9O queda intacta).
+    """
+    t = (t or "").strip().upper()
+    m = _RE_ESPECIE.match(t)
+    return m.group(1) if m else t
 
 
 def _auth() -> str:

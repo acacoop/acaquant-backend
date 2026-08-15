@@ -42,6 +42,17 @@ y el resto **se deriva** de ellas (forwards, breakevens, fair value son
   El live de forwards/breakevens (la matriz intradía) se persiste en sus tablas
   `mercado` y su cierre diario en las tablas de histórico correspondientes.
 
+> **🔜 ALTA Y FLUJOS DE BONOS — automatización con 1816 (diseño 2026-08-15).**
+> `mercado.curvas` se mantiene **a mano**: cada bono nuevo de una licitación hay
+> que darlo de alta y tipearle el cuadro de flujos (que además se saca de 1816).
+> El diseño para automatizar eso vive en **`docs/VISTA_RESEARCH.md` §4.10** —
+> ahí están los números medidos (212 de nuestros 222 bonos están en 1816, 98,6%
+> de cobertura de cashflow, ~29 créditos/día detectar novedades) y la decisión
+> asentada: **el job PROPONE el alta, no la escribe solo** (un flujo mal escalado
+> entra directo a la valuación y al AuM). Herramienta: `python -m
+> scripts.diag_1816_mapeo`. Antes de tocar `mercado.curvas.curva` —el campo que
+> agrupa estas vistas y arma el fair value— leer esa sección.
+
 ---
 
 ## 2. Los 4 paneles (qué muestra cada uno y con qué endpoint)

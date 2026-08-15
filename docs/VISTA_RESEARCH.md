@@ -387,7 +387,97 @@ python -m scripts.diag_1816_cashflow --cobertura --todos    # los 887, ~37 min
   se corre en rueda.
 - `--cobertura-json` guarda el resultado ticker por ticker, para no re-pagarlo.
 
-**Todavía SIN CORRER** — cuando se corra, el número va acá y reemplaza al 0,6%.
+**MEDIDO 2026-08-15 (muestra de 70/887, 3 por curva, 947 créditos): 98,6% de
+cobertura** — 69 de 70 devolvieron cuadro, 0 vacíos, **1 error**: `TTS26 @TASA
+FIJA`, o sea la PATA de un dual (ver §4.10 — las patas son vistas de valuación,
+no instrumentos con cuadro propio; el ticker base sí responde). Promedio de 13,5
+cupones por instrumento → **bajar el cuadro completo de los 887 saldría ~10.100
+créditos** (extrapolado desde la muestra). No hizo falta el `--todos`: con 0
+vacíos en las 24 curvas con instrumentos, el hueco que se buscaba no existe.
+
+### 4.10 EL OBJETIVO REAL — automatizar `mercado.curvas` con 1816
+
+**Declarado por el user el 2026-08-15, y cambia el encuadre**: esto no es una
+feature de Research, es **subirle el nivel al sistema de RENTA FIJA**. Lo que
+persigue, en sus palabras:
+
+1. Que un bono **nuevo** (licitación, emisión) aparezca solo, sin estar él
+   pendiente de darlo de alta.
+2. Que el **cuadro de flujos** de ese bono nuevo venga cargado.
+3. **Mejorar/agregar curvas** — la de DUALES hoy no la usa.
+4. **Renombrar sus curvas a las de 1816**, para que la automatización tenga a
+   qué agarrarse.
+5. **NO gastar créditos en precios** (last price, TEA, TNA): esa lógica ya la
+   tiene aceitada y la sigue calculando el sistema.
+
+> **Dato que ordena todo**: los flujos que hoy están en `mercado.curvas` **salieron
+> de 1816** (los cargó a mano desde ahí). O sea que esto no es adoptar una fuente
+> nueva: es **conectar la que ya se venía usando a mano**.
+
+**El punto 5 sale gratis, y está medido.** El diseño usa SOLO `/curvas` +
+`/instrumentos` + `/cashflow`; **nunca** `/indicadores` ni `/series`, que son los
+caros. Con los números medidos el 2026-08-15:
+
+| Pieza del job | Costo | Frecuencia |
+|---|---:|---|
+| Detectar novedades (1 `/curvas` + 28 `/instrumentos`) | **29 créditos** | diaria |
+| Bajar el cuadro de UN bono nuevo | ~14 créditos | por alta |
+| **Total mensual estimado** | **~600-800** | contra **3.100.000** |
+
+Es **0,02% del plan mensual**. El recurso escaso deja de serlo cuando no se
+piden precios.
+
+**Lo que YA está medido y sostiene el diseño** (§4.9): 212 de nuestros 222 bonos
+de `mercado.curvas` están en 1816 (95,5%), la cobertura de cashflow es 98,6%, el
+cuadro viene COMPLETO desde emisión, y la escala coincide instrumento por
+instrumento con la nuestra.
+
+**Lo que falta decidir, y por qué hace falta medirlo antes** — `scripts/diag_1816_mapeo.py`:
+
+- **El mapeo de curvas NO se inventa, se deriva.** El diag muestra, para cada
+  valor de `mercado.curvas.curva`, en qué curvas de 1816 cayeron sus tickers.
+  Donde una curva de 1816 se lleva ≥80% de una familia nuestra, el job puede
+  vigilarla sin ambigüedad. Donde se parte (sospecha, sin medir: `tasa_fija`
+  entre «Soberanos ARS tasa fija» y «Soberanos ARS Botes»), hay una **decisión
+  del user**: parto mi curva para seguir a 1816, o el job vigila varias.
+- **Renombrar la curva NO es cosmético**: `mercado.curvas.curva` es lo que
+  agrupa las vistas de renta fija, decide el `fit` de fair value y arma los
+  z-scores. Cambiar un nombre mueve las vistas. Por eso el mapeo se propone como
+  **tabla de equivalencia** (mi curva ↔ curva de 1816) y no como un rename a lo
+  bruto: la tabla deja automatizar sin tocar lo que ya funciona, y el rename se
+  puede hacer después con el mapa en la mano.
+- **Las patas de los duales NO tienen cuadro propio.** Medido: `TTS26 @TASA
+  FIJA` da 404 en `/cashflow` aunque figure en `/instrumentos`. Son **vistas de
+  valuación por componente**, no instrumentos: para el cuadro hay que pedir el
+  ticker base. Esto toca directo el punto 3 (duales).
+- **Divergencias reales**: AER9O tiene 3,1% de diferencia entre nuestro cuadro y
+  el de 1816. Antes de automatizar hay que saber si nuestro dato quedó viejo
+  (probable si la amortización es indexada) o si 1816 proyecta distinto.
+
+**Arquitectura propuesta (a validar con los números del diag, NO codeada):**
+
+```
+   jobs/curvas_1816_sync.py  (diario, post-cierre, ~29 créditos)
+      │
+      ├─ 1. lee las curvas de 1816 que están MAPEADAS a una curva mía
+      ├─ 2. compara el listado contra mercado.curvas  → ¿ticker nuevo?
+      ├─ 3. por cada nuevo: /cashflow (~14 créditos) → PROPUESTA de alta
+      └─ 4. NO escribe en mercado.curvas: deja la propuesta para APROBAR
+             en Manager → BONOS (que hoy está desactualizado y sin uso)
+```
+
+**La decisión de diseño que importa: el job PROPONE, no da de alta solo.** Un
+alta automática en `mercado.curvas` entra directo a la valuación, al fair value
+y al AuM (vía el join con `portafolio.assets`); un flujo mal escalado rompe el
+chart entero — que es exactamente el catálogo de fallas de
+`docs/SALUD_CURVAS.md`. Con una bandeja de aprobación, el trabajo manual pasa de
+*"buscar el bono, copiar el cuadro, tipearlo"* a *"mirar y aceptar"*, sin que
+una emisión rara se cuele sola. Manager → BONOS ya existe (`/bonos`,
+`/bonos/sin-flujo`, `/bonos/sin-tasa`, `/bonos/parse-flujos`) y está
+desactualizado: **es el lugar natural para esa bandeja**, y le devuelve sentido.
+
+**Estado: DISEÑO, nada codeado.** El siguiente paso es correr el diag y decidir
+el mapeo de curvas con los números adelante.
 
 ---
 
@@ -638,6 +728,34 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 ---
 
 ## Registro de construcción (con fecha — qué y cómo)
+
+### 2026-08-15 (19) — El objetivo real: automatizar mercado.curvas (diag de mapeo)
+El user explicó para qué es todo esto: **no es Research, es subirle el nivel al
+sistema de RENTA FIJA** — que los bonos nuevos y sus flujos entren solos, mejorar
+las curvas (los duales no se usan), adaptar los nombres de curva a los de 1816, y
+**no gastar créditos en precios** (esa lógica ya está aceitada). Dato clave: los
+flujos que hoy tiene `mercado.curvas` SALIERON de 1816, cargados a mano → esto es
+conectar la fuente que ya se usaba, no adoptar una nueva. Diseño completo en §4.10.
+- **El punto "sin gastar créditos" está MEDIDO**: usando solo `/curvas` +
+  `/instrumentos` + `/cashflow` (nunca `/indicadores` ni `/series`), detectar
+  novedades sale **29 créditos/día** y el cuadro de un bono nuevo ~14 → ~600-800
+  al mes contra 3,1M. Es 0,02% del plan.
+- `scripts/diag_1816_mapeo.py` (READ-ONLY): (1) deriva el mapeo mis curvas ↔
+  curvas de 1816 desde dónde cayeron los tickers — marca las que mapean 1:1 (≥80%)
+  y las que se PARTEN, que son decisión del user; (2) compara los flujos familia
+  por familia con el primer cupón crudo de los dos lados; (3) lista lo que 1816
+  tiene y `mercado.curvas` no, por curva y fecha de emisión — el prototipo de lo
+  que avisaría el job.
+- Hallazgo que toca los duales: **las patas no tienen cuadro propio** —
+  `TTS26 @TASA FIJA` da 404 en `/cashflow` aunque esté en `/instrumentos`. Son
+  vistas de valuación por componente; el cuadro sale del ticker base.
+- **Decisión de diseño asentada: el job PROPONE, no da de alta solo.** Un alta
+  automática entra directo a valuación/fair value/AuM y un flujo mal escalado
+  rompe el chart (catálogo de fallas de SALUD_CURVAS.md). La bandeja de
+  aprobación va en Manager → BONOS, que ya existe y está desactualizado.
+- `normalizar_ticker` se movió a `core/mercado_1816.py`: estaba duplicada en el
+  job de discovery y en el diag, y dos copias del mismo criterio de cruce pueden
+  divergir sin que nadie se entere.
 
 ### 2026-08-15 (18) — Barrido de cobertura: ¿todos los tickers tienen flujo?
 Pregunta del user sobre la corrida (17). No se podía contestar: 5 sondeos sobre

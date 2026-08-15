@@ -101,6 +101,7 @@
 | 20:30 · L-V | `jobs.forwards_zscore'` |
 | 21:30 · L-V | `jobs.ia_calidad'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |
+| 22:30 · L-V | `jobs.ficha_1816'` |
 | 11:35 · diario | `jobs.news_ingesta'` |
 | 11:35 · diario | `jobs.news_finnhub'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |

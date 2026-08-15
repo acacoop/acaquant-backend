@@ -11,8 +11,9 @@ Cómo se matchea: tu `ticker_corto` puede traer la especie (AL30D/GD30C) y 1816 
 el base (AL30/GD30) → se normaliza sacando la D/C final antes de comparar.
 
 Uso:
-    python -m jobs.mercado_1816_discovery --dry-run   # qué matchea, qué falta (sin escribir)
-    python -m jobs.mercado_1816_discovery --apply      # popula watch + instrumentos
+    python -m jobs.mercado_1816_discovery --dry-run             # qué matchea (sin escribir)
+    python -m jobs.mercado_1816_discovery --apply               # popula watch + instrumentos
+    python -m jobs.mercado_1816_discovery --apply --catalogo    # + la ficha de TODAS las curvas
 """
 from __future__ import annotations
 
@@ -88,6 +89,75 @@ def _instrumentos_1816() -> list[dict]:
     return list(vistos.values())
 
 
+def _todo_el_catalogo() -> list[dict]:
+    """TODOS los instrumentos de TODAS las curvas de 1816 (dedup por ticker).
+
+    Separado de `_instrumentos_1816()` (que releva solo las curvas de CRUCE) por
+    una razón de PLATA, no de prolijidad. Son dos cosas con costos distintos:
+
+      · el CATÁLOGO (`mkt_1816_instrumentos`) es la FICHA — emisor, denominación,
+        moneda, fechas. Cuesta 1 crédito por curva, UNA vez, y no se repite por día.
+      · el WATCH (`mkt_1816_watch`) es lo que se pide en SERIES todos los días, y
+        ahí el costo es tickers × campos × días. Ese sigue curado.
+
+    Traer el catálogo entero es lo que permite estandarizar el emisor de los 140
+    corporativos SIN aumentar un peso el costo diario. Medido 2026-08-15: 28
+    curvas → 887 instrumentos, y ahí están los 140/140 corporativos nuestros.
+    """
+    vistos: dict[str, dict] = {}
+    try:
+        curvas = mercado_1816.curvas() or []
+    except Exception as e:
+        logger.warning("catálogo: no pude listar curvas (%s)", e)
+        return []
+    for c in curvas:
+        cid = c.get("id") or c.get("curvaId")
+        if cid is None:
+            continue
+        try:
+            insts = mercado_1816.instrumentos(curva_id=int(cid)) or []
+        except Exception as e:
+            logger.warning("catálogo: curva %s falló (%s)", cid, e)
+            continue
+        for inst in insts:
+            tk = (inst.get("ticker") or "").strip().upper()
+            if tk:
+                inst["_curva_id"] = int(cid)
+                vistos.setdefault(tk, inst)
+    return list(vistos.values())
+
+
+def _upsert_catalogo(insts: list[dict]) -> int:
+    """Solo `mkt_1816_instrumentos` (la ficha). NO toca el watch — el watch es lo
+    que cuesta créditos por día y sigue siendo una decisión curada."""
+    if not insts:
+        return 0
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        for inst in insts:
+            tk = (inst.get("ticker") or "").strip().upper()
+            if not tk:
+                continue
+            cur.execute(
+                "INSERT INTO research.mkt_1816_instrumentos "
+                "(ticker,denominacion,curva,curva_id,isin,fecha_emision,"
+                " fecha_vencimiento,moneda_denom,moneda_pago,emisor,activo) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true) "
+                "ON CONFLICT (ticker) DO UPDATE SET "
+                "denominacion=EXCLUDED.denominacion, curva=EXCLUDED.curva, "
+                "curva_id=EXCLUDED.curva_id, isin=EXCLUDED.isin, "
+                "fecha_emision=EXCLUDED.fecha_emision, "
+                "fecha_vencimiento=EXCLUDED.fecha_vencimiento, "
+                "moneda_denom=EXCLUDED.moneda_denom, moneda_pago=EXCLUDED.moneda_pago, "
+                "emisor=EXCLUDED.emisor, actualizado_en=now()",
+                (tk, inst.get("denominacion"), inst.get("curva"), inst.get("_curva_id"),
+                 inst.get("isinCode"), inst.get("fechaEmision") or None,
+                 inst.get("fechaVencimiento") or None, inst.get("monedaDenom"),
+                 inst.get("monedaPago"), inst.get("emisorNombre")),
+            )
+        conn.commit()
+    return len(insts)
+
+
 def _upsert(matches: list[dict]) -> None:
     with get_pool().connection() as conn, conn.cursor() as cur:
         for inst in matches:
@@ -116,6 +186,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="escribe watch + instrumentos")
     ap.add_argument("--dry-run", action="store_true", help="solo muestra el cruce")
+    ap.add_argument("--catalogo", action="store_true",
+                    help="además, relevar TODAS las curvas y guardar la ficha "
+                         "completa (1 crédito por curva; NO agranda el watch)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -155,6 +228,13 @@ def main() -> None:
     if sin_match:
         print(f"\nTuyos SIN match en 1816 ({len(sin_match)}) — quedan afuera "
               f"(pueden ser ONs, o ticker distinto):\n  " + ", ".join(sin_match))
+
+    if args.catalogo:
+        # La ficha COMPLETA, independiente del cruce y del watch.
+        cat = _todo_el_catalogo()
+        print(f"\nCATÁLOGO COMPLETO: {len(cat)} instrumentos en todas las curvas")
+        if args.apply and not args.dry_run:
+            print(f"  → {_upsert_catalogo(cat)} guardados en mkt_1816_instrumentos")
 
     if not args.apply or args.dry_run:
         print("\n(DRY-RUN — no se escribió. Corré con --apply para popular el universo.)")

@@ -328,6 +328,16 @@
 # muerto es core/instrumentos_validos, aplicado en el WS para todos los motores.
 # Depende de manager.pyrofex_instruments (scripts/discovery_pyrofex); si está
 # vacía aborta sin marcar, para no llenar la tabla de falsos negativos.
+# ─── Ficha de bonos desde 1816 — jobs/ficha_1816.py
+# 1816 es la fuente de verdad del EMISOR (decisión del user 2026-08-15). Cubre
+# 140/140 de nuestros corporativos, y publica UN nombre por emisor — contra los
+# 74 strings para 67 emisores que teníamos escritos a mano.
+# NO pega a la API: lee research.mkt_1816_instrumentos, que llena
+# `mercado_1816_discovery --apply --catalogo` (1 crédito por curva, no diario).
+# Acá SÍ se pisa lo cargado: estandarizar no es completar. La MONEDA divergente
+# se reporta y no se escribe — eso toca la valuación.
+30 22 * * 1-5 /root/TradingAV/deploy/run_job.sh ficha_1816 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ficha_1816'
+
 0 23 * * 1-5 /root/TradingAV/deploy/run_job.sh validar_instrumentos 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.validar_instrumentos'
 
 # ─── BCRA (tab BCRA de RESEARCH) — series monetarias v4 → research.bcra_series

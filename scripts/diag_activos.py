@@ -30,6 +30,7 @@ Las cinco preguntas que contesta, en orden:
   6. MONEDA      — ¿`moneda_flujo` dice algo que los ejes no digan ya?
   7. SUFIJO      — sacarle la D/C al ticker: qué se rompe y qué se arregla.
   8. LAS PATAS   — qué especies existen DE VERDAD en Primary (ARS y USD).
+  9. ASSETS      — ¿`assets.instrumento` aporta o es copia del símbolo?
 
 Uso:
     python -m scripts.diag_activos
@@ -568,6 +569,78 @@ def _bloque_patas(curvas: list[dict]) -> None:
             print(f"   … y {len(detalle) - 45} más")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 9) portafolio.assets.instrumento — ¿aporta o es una copia?
+# ─────────────────────────────────────────────────────────────────────────────
+def _bloque_assets_instrumento() -> None:
+    """El user pregunta si esa columna debe existir ahora que están las especies.
+
+    ⚠️ Un comentario de `api/services/operaciones_sql.py:266` dice
+    "assets.instrumento: 0%", y **eso quedó viejo**: la pantalla de Manager
+    muestra `MERV - XMEV …` cargado en muchas filas. Citar ese comentario en vez
+    de medir fue exactamente lo que la REGLA #2 prohíbe. Este bloque mide.
+
+    Las tres preguntas que deciden si se borra:
+      · ¿cuántos tienen dato, y con forma de SÍMBOLO de mercado?
+      · ¿ese símbolo EXISTE en el universo (`mercado.especies`)?
+      · ¿coincide con el que usa el master, o es una SEGUNDA VERDAD?
+    """
+    print("\n" + "=" * 96)
+    print("9) portafolio.assets.instrumento — ¿aporta algo o es copia del símbolo?")
+    print("=" * 96)
+    try:
+        filas = _q("SELECT ticker, instrumento FROM portafolio.assets "
+                   "WHERE instrumento IS NOT NULL AND instrumento <> ''")
+        total = _q("SELECT count(*) AS n FROM portafolio.assets")[0]["n"]
+    except Exception as e:
+        print(f"   no se pudo medir: {str(e)[:70]}")
+        return
+    con_forma = [f for f in filas if _segmentos(f["instrumento"] or "")]
+    print(f"   assets totales: {total} · con `instrumento` cargado: {len(filas)} "
+          f"· con forma de símbolo: {len(con_forma)}")
+    if not filas:
+        print("   → la columna está VACÍA: se borra sin discusión.")
+        return
+    otros = [f for f in filas if f not in con_forma]
+    if otros:
+        print(f"   con dato pero SIN forma de símbolo ({len(otros)}): "
+              + ", ".join(str(f["instrumento"])[:22] for f in otros[:6]))
+        print("     → eso NO es el símbolo de mercado; es otra cosa y hay que mirarla aparte.")
+
+    try:
+        univ = {r["simbolo"] for r in _q("SELECT simbolo FROM mercado.especies")}
+        master = {(r["ticker"] or "").upper(): r["instrumento"]
+                  for r in _q("SELECT ticker, instrumento FROM mercado.curvas")}
+    except Exception as e:
+        print(f"   (sin mercado.especies todavía: {str(e)[:50]})")
+        return
+    existe = [f for f in con_forma if f["instrumento"] in univ]
+    print("\n   de los que tienen forma de símbolo:")
+    print(f"     · EXISTEN en mercado.especies: {len(existe)} de {len(con_forma)}")
+    print(f"     · NO existen (símbolo inventado o viejo): {len(con_forma) - len(existe)}")
+
+    iguales, distintos, sin_master = 0, [], 0
+    for f in con_forma:
+        tk = (f["ticker"] or "").strip().upper()
+        m = master.get(tk)
+        if not m:
+            sin_master += 1
+        elif m == f["instrumento"]:
+            iguales += 1
+        else:
+            distintos.append((tk, f["instrumento"], m))
+    print("\n   contra el símbolo que usa el MASTER (mercado.curvas):")
+    print(f"     · IGUAL      {iguales}   → copia pura, no aporta")
+    print(f"     · DISTINTO   {len(distintos)}   → SEGUNDA VERDAD (lo grave)")
+    print(f"     · el ticker no está en el master: {sin_master}")
+    for tk, a, m in distintos[:10]:
+        print(f"         {tk:<8} assets={a}")
+        print(f"         {'':<8} master={m}")
+    print("\n   CÓMO SE LEE: si DISTINTO es 0 y los que existen son copia exacta, la")
+    print("   columna no aporta nada y se borra. Si DISTINTO > 0, además de sobrar")
+    print("   está MINTIENDO, y hay que ver cuál de las dos usó cada cálculo.")
+
+
 def main() -> None:
     cols_c = _columnas("mercado", "curvas")
     if not cols_c:
@@ -598,6 +671,7 @@ def main() -> None:
     _bloque_moneda(norm)
     _bloque_sufijo(norm, assets)
     _bloque_patas(norm)
+    _bloque_assets_instrumento()
 
     print("\n" + "=" * 96)
     print("Nada de esto se corrigió acá. Es el relevamiento para decidir el modelo.")

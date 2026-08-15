@@ -20,7 +20,10 @@ from core import curvas_sql
 
 logger = logging.getLogger(__name__)
 
-_CURVAS_VALIDAS = ("cer", "tasa_fija", "tamar", "soberanos", "dolar_linked")
+# `dual` se suma con el rediseño 2026-08-15: los duales NO tienen `curva='dual'`
+# (viven bajo cer/tamar), así que se resuelven por el EJE `ajuste` — ver
+# `_fetch_curva_docs` y docs/RENTA_FIJA.md §0.
+_CURVAS_VALIDAS = ("cer", "tasa_fija", "tamar", "soberanos", "dolar_linked", "dual")
 _ORDENES_VALIDOS = ("vencimiento", "volumen_dia", "tea", "duration")
 
 

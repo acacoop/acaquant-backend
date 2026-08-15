@@ -240,6 +240,14 @@ def _fetch_curva_docs(curva: str, fijados: set[str]) -> list[dict]:
             "SELECT ticker, ticker_corto, tipo, curva, fecha_vencimiento, "
             "fecha_emision, flujo_vencimiento FROM mercado.curvas WHERE curva = 'tasa_fija'",
         )
+    if curva in ("tamar", "dual"):
+        # Por el EJE, no por el string viejo: los duales están guardados con
+        # `curva='cer'` o `curva='tamar'` y sin este branch la curva sale vacía
+        # (era el "la curva de DUALES no existe en el backend" de la vista).
+        return _q(
+            "SELECT ticker, ticker_corto, tipo, curva, fecha_vencimiento, "
+            "fecha_emision, flujo_vencimiento FROM mercado.curvas WHERE ajuste = %s",
+            (curva,))
     if _es_curva_on(curva):
         if curva == "on":
             return _q(

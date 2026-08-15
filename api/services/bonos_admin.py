@@ -180,7 +180,7 @@ def delete_bono(ticker_corto: str) -> dict:
     if not tc:
         raise ValueError("falta 'ticker_corto'")
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM mercado.curvas WHERE ticker_corto = %s "
+        cur.execute("DELETE FROM mercado.curvas WHERE ticker = %s "
                     "AND (curva NOT LIKE 'on%%' OR curva IS NULL)", (tc,))
         deleted = cur.rowcount or 0
     curvas_sql.invalidar()   # refrescar el cache del master tras la baja

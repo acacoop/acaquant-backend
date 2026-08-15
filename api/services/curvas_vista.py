@@ -45,11 +45,11 @@ def _bonos_crudos() -> list[dict]:
     """
     cols = ", ".join(f"s.{c}" for c, _ in _METRIC_COLS)
     return _q(
-        f"SELECT c.ticker_corto, c.ticker, c.curva, c.tipo, c.fecha_vencimiento, "
-        f"c.emisor, c.emisor_tipo, c.moneda_eje, c.ajuste, c.ley, c.instrumento, "
-        f"c.flujo_vencimiento, {cols} "
+        f"SELECT c.ticker AS ticker_corto, c.instrumento AS ticker, c.curva, c.tipo, "
+        f"c.fecha_vencimiento, c.emisor, c.emisor_tipo, c.moneda_eje, c.ajuste, "
+        f"c.ley, c.tipo_instrumento AS instrumento, c.flujo_vencimiento, {cols} "
         f"FROM mercado.curvas c "
-        f"LEFT JOIN mercado.market_snapshot s ON s.ticker = c.ticker",
+        f"LEFT JOIN mercado.market_snapshot s ON s.ticker = c.instrumento",
     )
 
 

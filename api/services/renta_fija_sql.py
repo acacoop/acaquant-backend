@@ -108,7 +108,8 @@ def _bonos_cer_fijados() -> set[str]:
             return set()
         dias_habiles = _dias_habiles_ordenados()  # SQL-first, fallback Mongo
         fijados: set[str] = set()
-        for r in _q("SELECT ticker, to_char(fecha_vencimiento, 'YYYY-MM-DD') AS vto "
+        for r in _q("SELECT instrumento AS ticker, "
+                    "to_char(fecha_vencimiento, 'YYYY-MM-DD') AS vto "
                     "FROM mercado.curvas WHERE curva = 'cer'"):
             vto = (r.get("vto") or "")[:10]
             if not vto:
@@ -164,11 +165,12 @@ def get_renta_fija(instrumento: str | None = None) -> list:
         cond = "curva = 'tasa_fija'"
         cparams: list = []
         if fijados:
-            cond = "(curva = 'tasa_fija' OR ticker = ANY(%s))"
+            cond = "(curva = 'tasa_fija' OR instrumento = ANY(%s))"
             cparams.append(list(fijados))
         out: dict[str, float] = {}
         for c in _q(
-            f"SELECT ticker, flujo_vencimiento FROM mercado.curvas WHERE {cond}",
+            f"SELECT instrumento AS ticker, flujo_vencimiento "
+            f"FROM mercado.curvas WHERE {cond}",
             tuple(cparams),
         ):
             fv = _f(c["flujo_vencimiento"])
@@ -221,44 +223,50 @@ def get_renta_fija(instrumento: str | None = None) -> list:
 def _fetch_curva_docs(curva: str, fijados: set[str]) -> list[dict]:
     """Equivalente SQL de las queries a Trading.Curvas por curva en listar_curva."""
     if curva == "cer":
-        sql = ("SELECT ticker, ticker_corto, tipo, fecha_vencimiento, fecha_emision, "
-               "cupon_anual, cer_emision FROM mercado.curvas WHERE curva = 'cer'")
+        sql = ("SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, "
+               "fecha_vencimiento, fecha_emision, cupon_anual, cer_emision "
+               "FROM mercado.curvas WHERE curva = 'cer'")
         params: list = []
         if fijados:
-            sql += " AND ticker <> ALL(%s)"
+            sql += " AND instrumento <> ALL(%s)"
             params.append(list(fijados))
         return _q(sql, tuple(params))
     if curva == "tasa_fija":
         if fijados:
             return _q(
-                "SELECT ticker, ticker_corto, tipo, curva, fecha_vencimiento, "
-                "fecha_emision, flujo_vencimiento FROM mercado.curvas "
-                "WHERE curva = 'tasa_fija' OR (curva = 'cer' AND ticker = ANY(%s))",
+                "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, curva, "
+                "fecha_vencimiento, fecha_emision, flujo_vencimiento "
+                "FROM mercado.curvas WHERE curva = 'tasa_fija' "
+                "OR (curva = 'cer' AND instrumento = ANY(%s))",
                 (list(fijados),),
             )
         return _q(
-            "SELECT ticker, ticker_corto, tipo, curva, fecha_vencimiento, "
-            "fecha_emision, flujo_vencimiento FROM mercado.curvas WHERE curva = 'tasa_fija'",
+            "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, curva, "
+            "fecha_vencimiento, fecha_emision, flujo_vencimiento "
+            "FROM mercado.curvas WHERE curva = 'tasa_fija'",
         )
     if curva in ("tamar", "dual"):
         # Por el EJE, no por el string viejo: los duales están guardados con
         # `curva='cer'` o `curva='tamar'` y sin este branch la curva sale vacía
         # (era el "la curva de DUALES no existe en el backend" de la vista).
         return _q(
-            "SELECT ticker, ticker_corto, tipo, curva, fecha_vencimiento, "
-            "fecha_emision, flujo_vencimiento FROM mercado.curvas WHERE ajuste = %s",
+            "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, curva, "
+            "fecha_vencimiento, fecha_emision, flujo_vencimiento "
+            "FROM mercado.curvas WHERE ajuste = %s",
             (curva,))
     if _es_curva_on(curva):
         if curva == "on":
             return _q(
-                "SELECT ticker, ticker_corto, tipo, fecha_vencimiento, fecha_emision, "
-                "curva, emisor, moneda_flujo FROM mercado.curvas WHERE curva LIKE 'on%%'")
+                "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, "
+                "fecha_vencimiento, fecha_emision, curva, emisor, moneda_flujo "
+                "FROM mercado.curvas WHERE curva LIKE 'on%%'")
         return _q(
-            "SELECT ticker, ticker_corto, tipo, fecha_vencimiento, fecha_emision, "
-            "curva, emisor, moneda_flujo FROM mercado.curvas WHERE curva = %s", (curva,))
+            "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, "
+            "fecha_vencimiento, fecha_emision, curva, emisor, moneda_flujo "
+            "FROM mercado.curvas WHERE curva = %s", (curva,))
     return _q(
-        "SELECT ticker, ticker_corto, tipo, fecha_vencimiento, fecha_emision "
-        "FROM mercado.curvas WHERE curva = %s", (curva,))
+        "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, "
+        "fecha_vencimiento, fecha_emision FROM mercado.curvas WHERE curva = %s", (curva,))
 
 
 def _market_maps(tickers: list[str]) -> tuple[dict, dict]:
@@ -441,7 +449,8 @@ def get_historico_curva(curva: str) -> list:
         meta = {
             d["ticker"]: d
             for d in _q(
-                "SELECT ticker, ticker_corto, tipo FROM mercado.curvas WHERE curva = %s",
+                "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo "
+                "FROM mercado.curvas WHERE curva = %s",
                 (curva,),
             )
         }

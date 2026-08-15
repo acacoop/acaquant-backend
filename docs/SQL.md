@@ -97,7 +97,11 @@ jsonb pisaría al otro motor.
 ## 4. Notas de modelo por dominio (referencia)
 
 ### MERCADO (curvas, bonos, snapshots, opciones, RV, agro, macro)
-- `mercado.curvas` — PK `ticker_corto`. Columnas consultables tipadas
+- `mercado.curvas` — PK **`ticker`** (`AL30`; se llamaba `ticker_corto` hasta el
+  renombre del 2026-08-15) + **`instrumento`** = el símbolo de mercado
+  `MERV - XMEV - AL30 - 24hs` (era la columna `ticker`), y `tipo_instrumento` para
+  el eje bono/letra. El blob `data` conserva las claves VIEJAS a propósito.
+  Columnas consultables tipadas
   (curva/tipo/moneda/fechas/cupón/etc.) + `flujos` jsonb (cashflows del bono) +
   `data` jsonb (doc completo). Las ONs se consolidaron acá como `curva = on_<sector>`
   (la vieja `bonds_master` fue eliminada — UNA sola base de bonos).
@@ -200,7 +204,7 @@ Sutilezas del modelo que importan al escribir/leer (heredadas del diseño origin
 3. Connection string (Settings → Database) en el `.env` del Droplet como
    `POSTGRES_URI`. NO commitear el valor.
 
-Agregar un instrumento de renta fija: doc en `mercado.curvas` (PK `ticker_corto`) +
-fila en `portafolio.assets` con `ticker == ticker_corto` (sin el segundo no aparece en
+Agregar un instrumento de renta fija: doc en `mercado.curvas` (PK `ticker`) +
+fila en `portafolio.assets` con el MISMO `ticker` (sin el segundo no aparece en
 AuM/Portfolios — ver `docs/ARQUITECTURA.md` y la sección de fórmulas no inferibles en
 el `CLAUDE.md` raíz).

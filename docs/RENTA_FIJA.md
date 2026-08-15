@@ -57,6 +57,53 @@ de tocar la vista más usada de la app.
 | 3b | Tab **CURVAS** en el front (ARS izq / USD der) + absorber ONs | sí | pendiente |
 | 4 | Tab **FORWARDS** (+ Fair Value adentro) | sí | pendiente |
 | 5 | Job de 1816 → altas automáticas (`docs/VISTA_RESEARCH.md` §4.10) | no | pendiente |
+| 6 | Renombrar las columnas de `mercado.curvas` | no | ✅ **hecho** |
+| 7 | Migrar el blob `data` (y matarlo) + ficha única en `assets` | no | pendiente |
+
+### Paso 6 — los nombres de `mercado.curvas` (2026-08-15)
+
+`ticker_corto` (la PK) **era** el ticker del bono y `ticker` **era** el símbolo de
+mercado. Quedó al derecho:
+
+| antes | ahora | qué es |
+|---|---|---|
+| `ticker_corto` (PK) | **`ticker`** | `AL30` — joinea con `portafolio.assets.ticker` |
+| `ticker` | **`instrumento`** | `MERV - XMEV - AL30 - 24hs` — el símbolo que se le manda a Primary |
+| `instrumento` (eje bono/letra) | **`tipo_instrumento`** | tuvo que liberar el nombre |
+
+**El blob `data` NO se tocó.** Sus claves siguen siendo las viejas y son las que
+leen ~500 lugares vía `core/curvas_sql.py` (que hace `SELECT data`). Para que la
+base quedara correcta sin tocar una línea de lógica, los `SELECT` directos llevan
+**alias** (`instrumento AS ticker, ticker AS ticker_corto`). Es un shim explícito
+del paso 6, no confusión permanente: lo saca el paso 7.
+
+Por qué así y no todo junto: renombrar `ticker` cambia su SIGNIFICADO, y una query
+que esperaba lo viejo **no falla — devuelve el dato equivocado en silencio**. El
+alias elimina esa ventana. El escritor es uno solo (`ons.py::curva_doc_to_row`),
+y el `DO $$` de `sql/schema.sql` es idempotente (Postgres no tiene
+`RENAME COLUMN IF EXISTS`; el guard va contra `information_schema`).
+
+**Medido antes de tocar** (`scripts/diag_activos.py`, 221 instrumentos):
+
+- `instrumento` es `MERV - XMEV - <ticker> - 24hs` en **221/221**, un solo plazo y
+  un solo mercado → hoy es **derivable**, no es dato. Se guarda igual porque es la
+  clave de Primary y un plazo CI lo volvería no-derivable.
+- **17** tickers arrastran la especie pegada (`AL30D`); **5** tienen más de una
+  especie cotizando. La tabla de especies (1:N) **no es urgente**.
+- **30** instrumentos de `curvas` no tienen fila en `portafolio.assets` (casi todas
+  ONs) → **`assets` todavía NO puede ser el maestro único**. Bloquea el paso 7.
+- La ficha duplicada **ya divergió**: 12/103 en `emisor` (mismo emisor, otro nombre:
+  `Telecom Argentina` vs `TELECOM`) y 39/167 en vencimiento — ahí conviven ruido de
+  formato (`2030-06-28` vs `28/06/2030`) con diferencias reales (`VSCWO` difiere un
+  MES; `GD29D`, `TZV28`, `GD38D`, un día).
+- `data` pesa **132 KB = 50%** de la tabla y `flujos` otros 102 KB: es ~90% JSON, y
+  `data` es la **copia #3** de la ficha.
+
+⚠️ **Lo que NO se pudo medir**: si algún bono quedó apuntando a la especie
+equivocada. El chequeo cruza contra `mercado.market_snapshot`, pero el motor
+suscribe **desde el master** (`engines/_curvas_loader.py:45`), así que si el master
+eligió mal la hermana correcta nunca entra al snapshot: el instrumento está ciego.
+Para medirlo hace falta el universo de 1816 o `manager.pyrofex_instruments`.
 
 **El modelo de curvas como OBJETO** (decidido con el user, deriva del cruce con
 1816 — ver `docs/VISTA_RESEARCH.md` §4.10):
@@ -254,7 +301,8 @@ Verificado: acceso a cada tabla en su service `*_sql.py` + el motor/job que escr
 Estos cruces hoy se resuelven **en Python dentro de cada service** (podrían
 hacerse como JOINs SQL nativos). Los más importantes (verificados):
 
-1. **El cruce maestro:** `mercado.curvas.ticker_corto` ↔
+1. **El cruce maestro:** `mercado.curvas.instrumento` (el símbolo de mercado; era
+   la columna `ticker`) ↔
    `mercado.market_snapshot.ticker` ↔ `mercado.snapshots_cierre.ticker`. Une el
    "DNI" del bono (curvas) con su precio vivo (market_snapshot) o de cierre
    (snapshots_cierre). Aparece en casi todos los endpoints. (`renta_fija.py`,
@@ -276,7 +324,7 @@ hacerse como JOINs SQL nativos). Los más importantes (verificados):
 eslabones y el primero es 100% manual:
 
 1. **ALTA MANUAL en `mercado.curvas`** — Manager → TÍTULOS
-   (`api/services/bonos_admin.py`, upsert por `ticker_corto`). Nada escanea BYMA
+   (`api/services/bonos_admin.py`, upsert por `ticker`). Nada escanea BYMA
    ni el boletín en busca de licitaciones nuevas: **si nadie carga la Lecap, para
    el sistema no existe.** Este es el eslabón que se desactualiza.
    Campos que el BE necesita: la Lecap/Boncap con `curva='tasa_fija'` +

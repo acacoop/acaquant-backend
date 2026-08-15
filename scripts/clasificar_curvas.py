@@ -44,7 +44,9 @@ _norm = mercado_1816.normalizar_ticker
 
 # Columnas que escribe el `--aplicar`. Se crean con `python -m scripts.apply_schema`
 # (están en sql/schema.sql). Todas nullable: "sin clasificar" es un estado válido.
-_COLS = ("emisor_tipo", "moneda_eje", "ajuste", "ley", "instrumento")
+# `tipo_instrumento` (bono/letra) y NO `instrumento`: ese nombre lo tomó el
+# SÍMBOLO DE MERCADO en el renombre del 2026-08-15.
+_COLS = ("emisor_tipo", "moneda_eje", "ajuste", "ley", "tipo_instrumento")
 
 
 def _master() -> list[dict]:
@@ -250,7 +252,7 @@ def _aplicar(filas: list[dict]) -> None:
             e = f["ejes"]
             cur.execute(
                 "UPDATE mercado.curvas SET emisor_tipo=%s, moneda_eje=%s, ajuste=%s, "
-                "ley=%s, instrumento=%s WHERE ticker_corto=%s",
+                "ley=%s, tipo_instrumento=%s WHERE ticker=%s",
                 (e.emisor_tipo, e.moneda, e.ajuste, e.ley, e.instrumento, f["ticker"]),
             )
     print(f"\n✅ ejes escritos en {len(con)} instrumentos de mercado.curvas.")

@@ -134,10 +134,10 @@ def _chk_rf_sin_tasa() -> list[dict]:
     """Bonos del master cotizando (precio vivo) pero sin TEA/TNA — figuran en la
     tabla de renta fija sin tasa. Mismo criterio que el informe de salud."""
     rows = _q(
-        "SELECT c.ticker_corto FROM mercado.curvas c "
-        "JOIN mercado.market_snapshot ms ON ms.ticker = c.ticker "
+        "SELECT c.ticker AS ticker_corto FROM mercado.curvas c "
+        "JOIN mercado.market_snapshot ms ON ms.ticker = c.instrumento "
         "WHERE COALESCE(ms.last_price, 0) > 0 AND COALESCE(ms.tea, 0) = 0 "
-        "ORDER BY c.ticker_corto")
+        "ORDER BY c.ticker")
     return [{"key": r["ticker_corto"], "detalle": f"{r['ticker_corto']}: cotiza sin TEA/TNA"}
             for r in rows if r.get("ticker_corto")]
 

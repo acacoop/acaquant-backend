@@ -403,7 +403,9 @@ El Tablero Comercial se sirve SQL-only desde `api/services/comercial_sql.py` (el
 - **tasa_fija**: absolutos. `amortizacion` + `interes`. Requiere `flujo_vencimiento`.
 - **soberanos** (`tipo='globales'|'bonares'`): mismo shape que CER, `cupon_sobre_residual` ya en USD.
 
-Agregar instrumento: fila en `mercado.curvas` (vía `core/curvas_sql.py`; `data` jsonb = doc completo) + fila en `portafolio.assets` con `ticker == ticker_corto`. Sin el segundo no aparece en AuM/Portfolios.
+Agregar instrumento: fila en `mercado.curvas` (vía `core/curvas_sql.py`; `data` jsonb = doc completo) + fila en `portafolio.assets` con el MISMO `ticker`. Sin el segundo no aparece en AuM/Portfolios.
+
+**Nombres de columna (renombre 2026-08-15).** En `mercado.curvas` la PK es **`ticker`** (`AL30` — el que joinea con `portafolio.assets.ticker`) e **`instrumento`** es el SÍMBOLO DE MERCADO (`MERV - XMEV - AL30 - 24hs`, lo que se le manda a Primary). Estaban invertidos: la PK se llamaba `ticker_corto` y `ticker` guardaba el símbolo. El eje bono/letra, que ocupaba el nombre `instrumento`, pasó a **`tipo_instrumento`**. ⚠️ **El blob `data` NO se renombró**: sus claves siguen siendo `ticker_corto`/`ticker` con el significado VIEJO, y son las que leen ~500 lugares vía `core/curvas_sql.py` (que hace `SELECT data`). Por eso los `SELECT` directos llevan alias (`instrumento AS ticker, ticker AS ticker_corto`): la base quedó correcta sin tocar una línea de lógica. Migrar el blob es el paso siguiente.
 
 `config.TICKERS_EXTRA_PRECIOS`: tickers que `motor_rofex` suscribe pero `motor_curvas` ignora. Default `['MERV - XMEV - AL30C - 24hs']` para `/api/analitica/canje`.
 
@@ -430,7 +432,7 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 
 **TC Breakeven** (`api/services/renta_fija.py::_tc_breakeven`, sólo tasa fija nativa o CER fijado): `TC_BE = MEP × (flujo_vencimiento / precio_actual)`. Lee `flujo_vencimiento` de `mercado.curvas`, `last_price` del trade más reciente y MEP de `get_ultimo_mep` (live, TTL 5s). Se calcula on-the-fly en `get_renta_fija` y `listar_curva` — no se persiste.
 
-**AuM join chain**: `mercado.curvas` (campo `curva`) → `ticker_corto` → `portafolio.assets.ticker` → `unidad` → `portafolio.tenencia` (SQL, filtrar `aum='si'`).
+**AuM join chain**: `mercado.curvas` (campo `curva`) → `ticker` (era `ticker_corto`) → `portafolio.assets.ticker` → `unidad` → `portafolio.tenencia` (SQL, filtrar `aum='si'`).
 
 **Enriquecimiento CER**: `motor_curvas` usa CER con settlement T-10 hábiles. Si un bono no opera un día, el último trade puede quedar con CER de ayer.
 

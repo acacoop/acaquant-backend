@@ -1487,9 +1487,14 @@ CREATE TABLE IF NOT EXISTS valuaciones.portfolio_snapshot (
 -- Trading.Curvas — master de instrumentos de renta fija. PK ticker_corto. Flujos como
 -- jsonb (shape varía por curva: CER % vs tasa_fija abs — ver CLAUDE.md raíz); `data` =
 -- doc completo para no perder campos no materializados.
+-- NOMBRES (rediseño 2026-08-15): `ticker` es el TICKER del bono (AL30) — el que
+-- joinea con portafolio.assets.ticker — e `instrumento` es el SÍMBOLO DE MERCADO
+-- (`MERV - XMEV - AL30 - 24hs`), que es lo que se le manda a Primary para pedir
+-- market data. Estaban al revés: la PK se llamaba `ticker_corto` y la columna
+-- `ticker` guardaba el símbolo. Ver el bloque DO de más abajo.
 CREATE TABLE IF NOT EXISTS mercado.curvas (
-    ticker_corto      text PRIMARY KEY,
-    ticker            text,
+    ticker            text PRIMARY KEY,      -- AL30  (= portafolio.assets.ticker)
+    instrumento       text,                  -- MERV - XMEV - AL30 - 24hs  (símbolo Primary)
     curva             text,                  -- tasa_fija | cer | soberanos | on_<sector> | ...
     tipo              text,                  -- Bono | Lecap | Boncap | Soberano | ON
     moneda_flujo      text,
@@ -1513,16 +1518,51 @@ CREATE TABLE IF NOT EXISTS mercado.curvas (
     moneda_eje        text,   -- ARS | USD | EUR
     ajuste            text,   -- fija | cer | tamar | badlar | dolar_linked | dual | tpm | caucion
     ley               text,   -- local | ny  (Bonar vs Global)
-    instrumento       text    -- bono | letra
+    tipo_instrumento  text    -- bono | letra   (el EJE; NO confundir con `instrumento`)
 );
--- Los EJES en tablas que YA existen: el CREATE TABLE de arriba es no-op sobre una
--- tabla creada, así que las columnas nuevas SOLO entran por ALTER (convención del
--- repo). Sin esto el índice de abajo falla con UndefinedColumn.
-ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS emisor_tipo text;
-ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS moneda_eje  text;
-ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS ajuste      text;
-ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS ley         text;
-ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS instrumento text;
+
+-- RENOMBRE de columnas (2026-08-15). El CREATE TABLE de arriba es no-op sobre una
+-- tabla que ya existe, así que en la DB real esto SOLO entra por ALTER. Postgres no
+-- tiene `RENAME COLUMN IF EXISTS` → el guard va a mano contra information_schema,
+-- que es lo que lo hace idempotente (apply_schema corre en cada deploy).
+--
+-- El orden importa y no es intercambiable: primero hay que LIBERAR el nombre
+-- `instrumento` (lo ocupaba el eje bono/letra, que nació vacío el 2026-08-15 y
+-- nunca se pobló), recién después se le puede dar ese nombre al símbolo de mercado.
+DO $$
+BEGIN
+    -- 1) el eje bono/letra libera el nombre `instrumento`
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'mercado'
+               AND table_name = 'curvas' AND column_name = 'instrumento')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'mercado'
+                       AND table_name = 'curvas' AND column_name = 'tipo_instrumento')
+    THEN ALTER TABLE mercado.curvas RENAME COLUMN instrumento TO tipo_instrumento;
+    END IF;
+
+    -- 2) el símbolo de mercado pasa a llamarse como lo que es
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'mercado'
+                   AND table_name = 'curvas' AND column_name = 'instrumento')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'mercado'
+                   AND table_name = 'curvas' AND column_name = 'ticker')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'mercado'
+                   AND table_name = 'curvas' AND column_name = 'ticker_corto')
+    THEN ALTER TABLE mercado.curvas RENAME COLUMN ticker TO instrumento;
+    END IF;
+
+    -- 3) y la PK queda con el nombre correcto: `ticker`
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'mercado'
+               AND table_name = 'curvas' AND column_name = 'ticker_corto')
+    THEN ALTER TABLE mercado.curvas RENAME COLUMN ticker_corto TO ticker;
+    END IF;
+END $$;
+
+-- Los EJES en tablas que YA existen (mismo motivo: el CREATE TABLE es no-op).
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS emisor_tipo      text;
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS moneda_eje       text;
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS ajuste           text;
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS ley              text;
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS tipo_instrumento text;
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS instrumento      text;
 CREATE INDEX IF NOT EXISTS ix_curvas_curva ON mercado.curvas(curva);
 CREATE INDEX IF NOT EXISTS ix_curvas_ejes  ON mercado.curvas(moneda_eje, ajuste);
 CREATE INDEX IF NOT EXISTS ix_curvas_vto   ON mercado.curvas(fecha_vencimiento);

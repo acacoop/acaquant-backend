@@ -91,6 +91,23 @@ def _norm_fecha(v) -> str:
     return str(v)[:10] if v else ""
 
 
+def _normalizado(curvas: list[dict]) -> list[dict]:
+    """Copias con el vocabulario NUEVO: `ticker` = AL30, `instrumento` = el
+    símbolo de mercado. El renombre del 2026-08-15 los invirtió respecto de cómo
+    se llamaban (`ticker_corto` / `ticker`), y este diag tiene que correr igual
+    de los dos lados — si solo anduviera después del deploy no serviría para
+    decidir el deploy. El bloque 1 NO usa esto: ahí se reportan las columnas
+    crudas, que es justamente lo que se quiere ver."""
+    out = []
+    for d in curvas:
+        c = dict(d)
+        if "ticker_corto" in c:                      # esquema VIEJO
+            c["instrumento"] = c.get("ticker")
+            c["ticker"] = c.pop("ticker_corto")
+        out.append(c)
+    return out
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1) ESTRUCTURA
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,16 +131,17 @@ def _bloque_estructura(curvas: list[dict], cols: list[str]) -> None:
         print(f"   {c:<20}{n:>10}   {ej[:52]}{vacio}")
 
     # La forma del símbolo de mercado: ¿son todos MERCADO - SEGMENTO - TICKER - PLAZO?
-    con_forma = sum(1 for d in curvas if _segmentos(d.get("ticker") or ""))
-    print(f"\n   `ticker` con forma 'MERV - XMEV - XXX - 24hs': {con_forma} de {len(curvas)}")
+    simb = "instrumento" if "ticker_corto" not in cols else "ticker"
+    con_forma = sum(1 for d in curvas if _segmentos(d.get(simb) or ""))
+    print(f"\n   `{simb}` con forma 'MERV - XMEV - XXX - 24hs': {con_forma} de {len(curvas)}")
     print("     → esa columna NO es un ticker: es el SÍMBOLO DE MERCADO (lo que se")
-    print("       le manda a Primary). El ticker de verdad es la PK `ticker_corto`.")
+    print("       le manda a Primary). El ticker de verdad es la PK de la tabla.")
 
     # Los plazos y mercados que aparecen — para saber si la especie es 1:N real.
     plazos: dict[str, int] = {}
     mercados: dict[str, int] = {}
     for d in curvas:
-        s = _segmentos(d.get("ticker") or "")
+        s = _segmentos(d.get(simb) or "")
         if s:
             plazos[s[-1]] = plazos.get(s[-1], 0) + 1
             mercados[f"{s[0]}/{s[1]}"] = mercados.get(f"{s[0]}/{s[1]}", 0) + 1
@@ -132,9 +150,11 @@ def _bloque_estructura(curvas: list[dict], cols: list[str]) -> None:
 
     sufijos: dict[str, int] = {}
     for d in curvas:
-        _, e = _base_y_especie(d.get("ticker_corto") or "")
+        tk = d.get("ticker_corto") if "ticker_corto" in cols else d.get("ticker")
+        _, e = _base_y_especie(tk or "")
         sufijos[_ESPECIES.get(e, e)] = sufijos.get(_ESPECIES.get(e, e), 0) + 1
-    print(f"\n   La PK `ticker_corto`, ¿trae la ESPECIE pegada? {sufijos}")
+    pk = "ticker_corto" if "ticker_corto" in cols else "ticker"
+    print(f"\n   La PK `{pk}`, ¿trae la ESPECIE pegada? {sufijos}")
     print("     → un ticker con sufijo D/C no es un ticker: es el bono + la moneda")
     print("       en la que se lo mira. El bono y su cuadro de flujos son el MISMO.")
 
@@ -156,7 +176,7 @@ def _bloque_cruce(curvas: list[dict], assets: list[dict]) -> list[tuple[dict, di
     pares: list[tuple[dict, dict]] = []
     huerfanos, por_base = [], []
     for d in curvas:
-        tc = (d.get("ticker_corto") or "").strip().upper()
+        tc = (d.get("ticker") or "").strip().upper()
         base, esp = _base_y_especie(tc)
         if tc in por_ticker:
             pares.append((d, por_ticker[tc][0]))
@@ -218,7 +238,7 @@ def _bloque_duplicacion(pares: list[tuple[dict, dict]]) -> None:
                 else:
                     distinto += 1
                     ejemplos.setdefault(f"{cc}/{ca}", []).append(
-                        f"{c.get('ticker_corto')}: curvas={vc[:22]!r} assets={va[:22]!r}")
+                        f"{c.get('ticker')}: curvas={vc[:22]!r} assets={va[:22]!r}")
             elif vc:
                 solo_c += 1
             elif va:
@@ -243,8 +263,8 @@ def _bloque_especies(curvas: list[dict], snap: dict[str, dict]) -> None:
 
     filas = []
     for d in curvas:
-        base, esp = _base_y_especie(d.get("ticker_corto") or "")
-        segs = _segmentos(d.get("ticker") or "")
+        base, esp = _base_y_especie(d.get("ticker") or "")
+        segs = _segmentos(d.get("instrumento") or "")
         disp: dict[str, float | None] = {}
         if segs:
             for suf, nombre in _ESPECIES.items():
@@ -261,7 +281,7 @@ def _bloque_especies(curvas: list[dict], snap: dict[str, dict]) -> None:
         esperadas = ESPERADA_POR_MONEDA.get((d.get("moneda_eje") or "").upper())
         cruzada = bool(esperadas and elegida not in esperadas
                        and any(k in disp for k in esperadas))
-        filas.append({"base": base, "tc": d.get("ticker_corto"), "curva": d.get("curva"),
+        filas.append({"base": base, "tc": d.get("ticker"), "curva": d.get("curva"),
                       "moneda": d.get("moneda_eje"), "usa": elegida, "px": px,
                       "disp": disp, "cruzada": cruzada})
 
@@ -354,9 +374,10 @@ def main() -> None:
           f"market_snapshot: {len(snap)}")
 
     _bloque_estructura(curvas, cols_c)
-    pares = _bloque_cruce(curvas, assets)
+    norm = _normalizado(curvas)
+    pares = _bloque_cruce(norm, assets)
     _bloque_duplicacion(pares)
-    _bloque_especies(curvas, snap)
+    _bloque_especies(norm, snap)
     _bloque_peso()
 
     print("\n" + "=" * 96)

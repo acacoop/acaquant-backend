@@ -71,7 +71,7 @@ def main() -> int:
          "SELECT ticker, last_price, tea, tem, duration, paridad "
          "FROM mercado.market_snapshot"),
         ("curvas tasa_fija (flujo_vencimiento)",
-         "SELECT ticker, flujo_vencimiento FROM mercado.curvas "
+         "SELECT instrumento AS ticker, flujo_vencimiento FROM mercado.curvas "
          "WHERE curva = 'tasa_fija'"),
         ("ops_agregado_diario (serie completa)",
          "SELECT fecha, moneda_calc, bruto, arancel "

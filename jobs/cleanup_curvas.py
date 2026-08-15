@@ -60,7 +60,7 @@ def run(dry: bool = False):
         return
 
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM mercado.curvas WHERE ticker_corto = ANY(%s)", (a_borrar,))
+        cur.execute("DELETE FROM mercado.curvas WHERE ticker = ANY(%s)", (a_borrar,))
         deleted = cur.rowcount or 0
     print(f"\nEliminados {deleted} docs de mercado.curvas (hoy={hoy}).")
 

@@ -93,10 +93,16 @@ def _row_date(v) -> date | None:
 def curva_doc_to_row(doc: dict) -> dict:
     """Doc de Trading.Curvas → fila tipada para `mercado.curvas` (write_native).
     Columnas consultables + `flujos` (jsonb) + doc completo en `data` (datetime→ISO
-    vía doc_iso). Campos ausentes → NULL; el reader (curvas_sql) usa `data`."""
+    vía doc_iso). Campos ausentes → NULL; el reader (curvas_sql) usa `data`.
+
+    OJO — las CLAVES de la izquierda son COLUMNAS y las de la derecha son claves del
+    DOC, y desde el renombre de 2026-08-15 ya no coinciden: la columna `ticker` es el
+    ticker del bono (lo que el doc llama `ticker_corto`) y la columna `instrumento`
+    es el símbolo de mercado (lo que el doc llama `ticker`). El doc/blob NO se tocó
+    a propósito: sus claves las leen ~500 lugares y se migran en el paso siguiente."""
     return {
-        "ticker_corto": (doc.get("ticker_corto") or "").strip(),
-        "ticker": doc.get("ticker") or None,
+        "ticker": (doc.get("ticker_corto") or "").strip(),
+        "instrumento": doc.get("ticker") or None,
         "curva": doc.get("curva") or None,
         "tipo": doc.get("tipo") or None,
         "moneda_flujo": doc.get("moneda_flujo") or None,
@@ -120,7 +126,7 @@ def _upsert_curva_doc(doc: dict) -> dict:
     el doc guardado (releído de SQL)."""
     tc = (doc.get("ticker_corto") or "").strip()
     existing = curvas_sql.find_one(tc) or {}  # perf-ok: PERF004 — 1ª lectura = base del merge; la 2ª relee POST-write (contrato: devolver lo guardado). Mutación admin, corre poco.
-    write_native("mercado.curvas", ["ticker_corto"], [curva_doc_to_row({**existing, **doc})])
+    write_native("mercado.curvas", ["ticker"], [curva_doc_to_row({**existing, **doc})])
     curvas_sql.invalidar()   # refrescar el cache del master tras el alta/edición
     return curvas_sql.find_one(tc) or {}
 
@@ -232,7 +238,7 @@ def delete_on(asset: str) -> dict:
     if not asset:
         raise ValueError("falta 'asset'")
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM mercado.curvas WHERE ticker_corto = %s "
+        cur.execute("DELETE FROM mercado.curvas WHERE ticker = %s "
                     "AND curva LIKE 'on%%'", (asset,))
         deleted = cur.rowcount or 0
     curvas_sql.invalidar()   # refrescar el cache del master tras la baja

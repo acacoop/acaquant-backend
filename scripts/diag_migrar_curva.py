@@ -12,6 +12,14 @@ decidir, es MEDIR — y son tres cosas que no se pueden suponer:
      `data`, qué forma tienen sus flujos) para decidir de dónde sale el par sin
      inventarlo.
 
+     Y sobre todo contesta la pregunta que decide si esto es UNA carga manual o
+     UNA PARA SIEMPRE: **¿1816 dice el par en algún lado?** Su curva se llama
+     "Soberanos Duales" y no lo dice, pero de su ficha guardamos SOLO 10 campos y
+     nunca miramos el resto. Dos candidatos, los dos gratis: la `denominacion`
+     (el nombre oficial del bono, que suele nombrar la tasa) y las claves del
+     registro crudo que hoy tiramos a la basura. Si el par está ahí, esto se
+     automatiza y ningún bono nuevo va a necesitar edición manual.
+
   2) LOS EMISORES CORPORATIVOS. La industria (energía, agro, banco…) es atributo
      del EMISOR, no del bono: YPF no es energía en un bono y otra cosa en otro.
      Guardarla por bono es escribir el mismo dato N veces y esperar que nadie lo
@@ -30,8 +38,11 @@ READ-ONLY. No escribe, no borra, no toca los motores.
 
 Uso:
     python -m scripts.diag_migrar_curva
+    python -m scripts.diag_migrar_curva --crudo   # + ficha cruda de 1816 (2 créditos)
 """
 from __future__ import annotations
+
+import argparse
 
 from core.postgres import get_pool
 
@@ -92,6 +103,84 @@ def duales() -> None:
     print("  segunda pata (tamar/tasa/spread/devaluación), la fuente ya la tenemos y")
     print("  el backfill sale de acá. Si NO aparece en ningún lado, hay que cargarla")
     print("  a mano — son 8 filas, pero mejor saberlo antes que descubrirlo después.")
+
+    # ── 1b) ¿1816 dice el par? Lo que YA tenemos guardado, 0 créditos ─────────
+    print(f"\n{'─' * 92}")
+    print("  1b) LA DENOMINACIÓN DE 1816 — ¿nombra el par? (0 créditos, ya está guardada)")
+    print(f"{'─' * 92}")
+    print("  Esta es LA pregunta que decide si esto es una carga manual o una para")
+    print("  siempre. El nombre OFICIAL de un bono suele decir contra qué ajusta")
+    print("  ('BONO … TASA DUAL TAMAR …'). Si lo dice, se parsea y ningún dual nuevo")
+    print("  vuelve a necesitar edición a mano.\n")
+    tks = [f["ticker"] for f in filas]
+    den = _q("""
+        SELECT c.ticker, i.denominacion, i.curva AS curva_1816
+        FROM mercado.curvas c
+        LEFT JOIN research.mkt_1816_instrumentos i ON upper(i.ticker) = upper(c.ticker)
+        WHERE c.ticker = ANY(%s) ORDER BY c.ticker
+    """, (tks,))
+    sin_ficha = 0
+    for d in den:
+        if not d["denominacion"]:
+            sin_ficha += 1
+            print(f"  {d['ticker']:<12} ✗ sin ficha de 1816")
+            continue
+        print(f"  {d['ticker']:<12} {d['denominacion']}")
+        print(f"  {'':<12} (curva 1816: {_v(d['curva_1816'])})")
+    if sin_ficha:
+        print(f"\n  ⚠ {sin_ficha} sin ficha. Se llena con: "
+              "python -m jobs.mercado_1816_discovery --apply --catalogo")
+
+
+def duales_crudo() -> None:
+    """La ficha CRUDA de 1816 para las curvas de duales. 1 crédito por curva.
+
+    Guardamos 10 campos del registro que manda 1816 y el resto se descarta sin
+    haberlo mirado nunca. Si entre esos campos descartados viene el ajuste, el par
+    sale solo y esta discusión se termina. Cuesta 2 créditos averiguarlo — mucho
+    menos que editar a mano cada dual que salga de acá a siempre.
+    """
+    print(f"\n{_SEP}\n1c) FICHA CRUDA DE 1816 — los campos que hoy tiramos\n{_SEP}")
+    try:
+        from core import mercado_1816
+    except Exception as e:                                    # pragma: no cover
+        print(f"  ✗ no se pudo importar el cliente de 1816: {str(e)[:80]}")
+        return
+    if not mercado_1816.disponible():
+        print("  ✗ falta MERCADO_1816_API_KEY en el .env — se saltea este bloque.")
+        return
+
+    try:
+        curvas = [c for c in (mercado_1816.curvas() or [])
+                  if "dual" in str(c.get("nombre") or c.get("descripcion") or "").lower()]
+    except Exception as e:
+        print(f"  ✗ 1816 no respondió: {str(e)[:80]}")
+        return
+    if not curvas:
+        print("  (1816 no tiene ninguna curva con 'dual' en el nombre)")
+        return
+
+    guardados = {"ticker", "denominacion", "curva", "isinCode", "fechaEmision",
+                 "fechaVencimiento", "monedaDenom", "monedaPago", "emisorNombre"}
+    for c in curvas:
+        cid = c.get("id") or c.get("curvaId")
+        nombre = c.get("nombre") or c.get("descripcion") or f"id={cid}"
+        print(f"\n  ── curva «{nombre}» ──")
+        try:
+            insts = mercado_1816.instrumentos(curva_id=cid) or []
+        except Exception as e:
+            print(f"     ✗ {str(e)[:80]}")
+            continue
+        if not insts:
+            print("     (sin instrumentos)")
+            continue
+        muestra = insts[0]
+        print(f"     {len(insts)} instrumento(s). Campos del PRIMERO ({muestra.get('ticker')}):")
+        for k in sorted(muestra):
+            marca = "  " if k in guardados else "★ "   # ★ = lo estamos descartando
+            print(f"     {marca}{k:<26} {str(muestra[k])[:52]}")
+        print("\n     ★ = campo que 1816 manda y NOSOTROS NO guardamos. Si alguno")
+        print("     nombra la tasa/el ajuste, el par se automatiza y no hay carga manual.")
 
 
 # ── 2) EMISORES CORPORATIVOS ─────────────────────────────────────────────────
@@ -195,10 +284,21 @@ def mapa() -> None:
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser(description="Medir antes de eliminar `curva`")
+    ap.add_argument("--crudo", action="store_true",
+                    help="+ ficha cruda de 1816 para las curvas de duales (2 créditos)")
+    args = ap.parse_args()
+
     print(_SEP)
     print("MIGRAR `curva` A LOS EJES — lo que hay que medir antes de tocar código")
     print(_SEP)
     duales()
+    if args.crudo:
+        duales_crudo()
+    else:
+        print("\n  (con --crudo se pide además la ficha cruda de 1816 para ver los")
+        print("   campos que hoy descartamos. Cuesta 2 créditos y puede terminar")
+        print("   con la carga manual de los duales para siempre.)")
     emisores()
     mapa()
     print(f"\n{_SEP}\nFIN — nada de esto escribió en la base.\n{_SEP}")

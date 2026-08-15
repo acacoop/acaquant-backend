@@ -80,7 +80,15 @@ def calcular_matriz(instrumentos, tasas_tea):
             "TEA": tea,
         })
 
-    # Ordenar por maturity ascendente
+    # Ordenar por DURATION ascendente (no por vencimiento — el comentario decía
+    # "maturity" y era falso: `t` es la duration, como aclara el docstring).
+    #
+    # Y tiene que ser por duration: el forward se calcula con la duration como
+    # plazo efectivo, así que ordenar por vencimiento armaría mal el triángulo
+    # (habría celdas con t_b < t_a). En bullets (lecaps/boncaps) duration ≈
+    # vencimiento y el orden "se ve" cronológico; en CER, con cupones y
+    # amortización, NO coinciden — por eso la matriz CER parece desordenada si
+    # uno espera vencimientos. Está bien: el eje es duration.
     validos.sort(key=lambda x: x["t"])
 
     if not validos:

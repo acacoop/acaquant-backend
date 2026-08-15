@@ -59,7 +59,8 @@ de tocar la vista más usada de la app.
 | 5 | Job de 1816 → altas automáticas (`docs/VISTA_RESEARCH.md` §4.10) | no | pendiente |
 | 6 | Renombrar las columnas de `mercado.curvas` | no | ✅ **hecho** |
 | 7 | Migrar el blob `data` (y matarlo) + ficha única en `assets` | no | pendiente |
-| 8 | `mercado.especies` — las PATAS de cada bono | no | tabla + siembra listas |
+| 8 | `mercado.especies` — las PATAS de cada bono | no | ✅ **aplicado** (758 patas) |
+| 9 | Limpiar el VALOR de `curvas.ticker` (sacar el sufijo D/C) | sí | pendiente |
 
 ### Paso 8 — las PATAS (`mercado.especies`, 2026-08-15)
 
@@ -147,6 +148,27 @@ acepta "todos".
 > tocarlo. Los **34 cruces que son ONs quedan a la espera** de ese rediseño —
 > corregirlos ahora sería trabajo que se rehace. Los 2 que NO son ONs (`AO29`
 > soberano y `CO32`) se pueden corregir ya.
+
+**GUARDRAIL — `especies_cruzadas`** (`jobs/guardrails.py`, corre 20:45 UTC L-V).
+El cruce de `AO29` estuvo meses invisible: el dato estaba, pero **ninguna pantalla
+se hacía la pregunta**. El check la hace todos los días y cuenta los bonos cuyo
+instrumento default no es de la moneda en la que se denominan **habiendo pata
+disponible** (esa segunda mitad es la que evita el falso positivo de las ONs sin
+pata en dólares). Nace **sin calibrar** a propósito — `especies_cruzadas_max: None`
+en `config.GUARDRAILS_UMBRALES` — así reporta el número medido sin marcar rojo
+mientras los 34 de las ONs siguen abiertos; se fija en **0** cuando el rediseño de
+ONs los cierre.
+
+**Estado (2026-08-15, aplicado):** 758 patas sembradas · `AO29` y `CO32`
+repuntados a su pata en dólares · **34 cruces pendientes, todos ONs**.
+
+⚠️ **Lo que TODAVÍA no se hizo: limpiar el valor de `curvas.ticker`.** El renombre
+del paso 6 cambió los NOMBRES de las columnas, no los VALORES: 17 bonos siguen
+teniendo `AL30D` como PK, y por eso la vista sigue mostrando `AL30D` en la columna
+TICKER. Ahora sacar el sufijo **es seguro** —`mercado.especies.ticker_especie`
+guarda la identidad de la pata, así que la D ya no se pierde— pero es un paso
+propio (paso 9): toca la PK y hay que mover con ella los 4 `portafolio.assets` que
+la arrastran.
 
 Siembra: `python -m scripts.sembrar_especies` (DRY-RUN) / `--aplicar`. Nadie lee
 la tabla todavía: se puebla, se mira, y recién después se mudan los readers.

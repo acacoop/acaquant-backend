@@ -186,6 +186,7 @@ GUARDRAILS_UMBRALES: dict[str, float | None] = {
     "aum_delta_pct": None,        # |Δ%| del AuM total día-contra-día
     "salto_precio_pct": None,     # |Δ%| del precio de cierre por bono vs cierre previo
     "cobertura_curva_pct": None,  # % mínimo de bonos del master con cierre en el día
+    "especies_cruzadas_max": None,  # bonos cuyo instrumento no es de su moneda
 }
 
 # --- CUPO TRANSACCIONAL ---

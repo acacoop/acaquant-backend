@@ -187,6 +187,67 @@ def _leer_master_por_curva() -> dict[str, set[str]]:
     return out
 
 
+def check_especies_cruzadas(bonos: list[dict], umbral_max: float | None) -> list[dict]:
+    """Un bono denominado en USD cuyo instrumento DEFAULT es la especie en PESOS
+    muestra un precio de otra escala (un hard dollar en pesos cotiza ~1.400x).
+
+    Nace del incidente 2026-08-15: `AO29` mostraba ~141.430 al lado de bonos en
+    ~90 y **nadie lo detectó por meses** — no porque faltara el dato, sino porque
+    ninguna pantalla se hacía la pregunta. Este check la hace todos los días.
+
+    Solo cuenta como cruce si **existe** una pata de la moneda correcta: las ONs
+    sin pata en dólares cotizan en su única especie y eso NO es un error (fue el
+    falso positivo que marcó 137 de 221 la primera vez que se midió).
+
+    `bonos` = [{ticker, moneda_eje, especie_default, disponibles}] — PURO.
+    """
+    cid, sev = "especies_cruzadas", "alta"
+    esperadas = {"USD": {"mep", "cable"}, "EUR": {"mep", "cable"}, "ARS": {"pesos"}}
+    cruzados = []
+    for b in bonos:
+        esp = esperadas.get((b.get("moneda_eje") or "").upper())
+        actual = b.get("especie_default")
+        disp = set(b.get("disponibles") or [])
+        if esp and actual and actual not in esp and (disp & esp):
+            cruzados.append(b.get("ticker") or "?")
+    n = len(cruzados)
+    ok = umbral_max is None or n <= umbral_max
+    muestra = ", ".join(sorted(cruzados)[:_MAX_ITEMS_MSG])
+    extra = f" (+{n - _MAX_ITEMS_MSG})" if n > _MAX_ITEMS_MSG else ""
+    return [_res(cid, ok, sev,
+                 f"{n} bonos con el instrumento en una especie que no es la de su "
+                 f"moneda: {muestra}{extra}" if n else
+                 "ningún bono apunta a una especie de otra moneda",
+                 n, umbral_max)]
+
+
+def _leer_especies_cruzadas() -> list[dict]:
+    """Por bono: la especie que usa HOY y las que tiene disponibles.
+
+    El join va por `especies.simbolo = curvas.instrumento` (no por ticker) a
+    propósito: `curvas.ticker` todavía arrastra el sufijo en 17 bonos (`AL30D`)
+    mientras que `especies.ticker` ya es el limpio (`AL30`), así que un join por
+    ticker perdería justo esos. El símbolo es la identidad que las dos tablas
+    comparten sin ambigüedad."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            WITH def AS (
+                SELECT c.ticker AS bono, c.moneda_eje, e.ticker AS grupo,
+                       e.especie AS especie_default
+                FROM mercado.curvas c
+                JOIN mercado.especies e ON e.simbolo = c.instrumento
+                WHERE c.moneda_eje IS NOT NULL
+            )
+            SELECT d.bono, d.moneda_eje, d.especie_default,
+                   array_agg(DISTINCT e2.especie) AS disponibles
+            FROM def d
+            JOIN mercado.especies e2 ON e2.ticker = d.grupo
+            GROUP BY d.bono, d.moneda_eje, d.especie_default
+        """)
+        return [{"ticker": r[0], "moneda_eje": r[1], "especie_default": r[2],
+                 "disponibles": r[3]} for r in cur.fetchall()]
+
+
 # ─────────────────────────── runner ──────────────────────────────────────────
 
 
@@ -210,6 +271,12 @@ def correr_checks() -> list[dict]:
             _leer_master_por_curva(), set(p_hoy), u.get("cobertura_curva_pct"))
     except Exception as e:
         logger.warning("guardrails: lectura de cierres falló (%s)", e)
+
+    try:
+        resultados += check_especies_cruzadas(
+            _leer_especies_cruzadas(), u.get("especies_cruzadas_max"))
+    except Exception as e:
+        logger.warning("guardrails: lectura de especies falló (%s)", e)
 
     return resultados
 

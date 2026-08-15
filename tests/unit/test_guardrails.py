@@ -9,6 +9,7 @@ from __future__ import annotations
 from jobs.guardrails import (
     check_aum_delta,
     check_completitud_curvas,
+    check_especies_cruzadas,
     check_saltos_precio,
     check_sanidad_cierre,
 )
@@ -75,3 +76,38 @@ def test_sanidad_cierre_absoluta():
     (v,) = check_sanidad_cierre(rotas)
     assert v["ok"] is False and v["valor_medido"] == 3 and v["severidad"] == "alta"
     assert "GD30" in v["mensaje"]
+
+
+# ── especies cruzadas (incidente 2026-08-15: AO29 mostraba ~141.430) ──────────
+
+def _bono(tk, moneda, default, disponibles):
+    return {"ticker": tk, "moneda_eje": moneda, "especie_default": default,
+            "disponibles": disponibles}
+
+
+def test_bono_en_usd_apuntando_a_pesos_es_cruce():
+    r = check_especies_cruzadas(
+        [_bono("AO29", "USD", "pesos", ["pesos", "mep", "cable"])], 0)
+    assert not r[0]["ok"] and r[0]["valor_medido"] == 1
+    assert "AO29" in r[0]["mensaje"]
+
+
+def test_on_sin_pata_en_dolares_NO_es_cruce():
+    """El falso positivo que marcó 137 de 221: una ON hard dollar que solo cotiza
+    en su especie en pesos no tiene a dónde apuntar — no es un error."""
+    r = check_especies_cruzadas(
+        [_bono("AER9O", "USD", "pesos", ["pesos"])], 0)
+    assert r[0]["ok"] and r[0]["valor_medido"] == 0
+
+
+def test_el_que_ya_usa_la_pata_correcta_no_cuenta():
+    r = check_especies_cruzadas(
+        [_bono("AL30D", "USD", "mep", ["pesos", "mep", "cable"]),
+         _bono("TX26", "ARS", "pesos", ["pesos", "mep"])], 0)
+    assert r[0]["ok"] and r[0]["valor_medido"] == 0
+
+
+def test_sin_umbral_calibrado_reporta_pero_no_viola():
+    r = check_especies_cruzadas(
+        [_bono("AO29", "USD", "pesos", ["pesos", "mep"])], None)
+    assert r[0]["ok"] and r[0]["valor_medido"] == 1   # mide, no marca

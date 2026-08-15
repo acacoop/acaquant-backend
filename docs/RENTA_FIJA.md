@@ -59,6 +59,43 @@ de tocar la vista más usada de la app.
 | 5 | Job de 1816 → altas automáticas (`docs/VISTA_RESEARCH.md` §4.10) | no | pendiente |
 | 6 | Renombrar las columnas de `mercado.curvas` | no | ✅ **hecho** |
 | 7 | Migrar el blob `data` (y matarlo) + ficha única en `assets` | no | pendiente |
+| 8 | `mercado.especies` — las PATAS de cada bono | no | tabla + siembra listas |
+
+### Paso 8 — las PATAS (`mercado.especies`, 2026-08-15)
+
+Pregunta del user: *"¿no debería cada asset tener su instrumento ARS y su
+instrumento USD? Ahora solo hay uno, uniforme, le faltan datos."* Correcto — y el
+modelo **ya existía a medias**: `api/services/ons.py:170` guarda cada ON con
+`tickers: {"ARS": …, "USD": …}`, pero la línea 141 elige UNA ("pata canónica por
+moneda: USD → ticker D, ARS → ticker O") y solo esa llega a la columna. La otra
+queda enterrada en el blob.
+
+```
+portafolio.assets   EL ACTIVO   AL30    emisor, cartera, calificación
+mercado.curvas      LA CURVA    AL30    flujos + ejes
+mercado.especies    LA PATA     1 a N   simbolo · ticker · ticker_especie · moneda · plazo · es_default
+```
+
+**`ticker_especie` (AL30D) NO es basura a limpiar.** Es la identidad de lo que el
+cliente TIENE y COBRA: medido, 9.726 filas viven con ese label
+(`operaciones.acreencias` 7.127, `portafolio.tenencia` 620,
+`mercado.snapshots_cierre_hist` 1.539, …) y ahí está BIEN — se tiene la especie D,
+se cobra en la especie D. Lo que está mal es que el MISMO campo haga de label del
+bono en `curvas`. Por eso la tabla guarda las dos claves: `ticker` une con la
+curva, `ticker_especie` une con la posición.
+
+**Medido contra Primary** (`manager.pyrofex_instruments`, 9.719 símbolos — la
+fuente que NO depende de lo que elegimos nosotros, a diferencia de
+`market_snapshot`, que solo tiene lo que el motor suscribe *desde el master*):
+
+- **17 bonos tienen las 3 especies** (pesos/MEP/cable × 24hs y CI); **183 tienen
+  una sola**; 21 no aparecen. O sea que hoy es 1:1 para casi todos — el 1:N es
+  correcto igual, y es lo que deja de perder datos.
+- **UN solo bono está cruzado: `CO32`** (`on_otros`, denominado en USD, apuntando
+  a la especie en PESOS). Ese es el precio de otra escala. Uno, no diecisiete.
+
+Siembra: `python -m scripts.sembrar_especies` (DRY-RUN) / `--aplicar`. Nadie lee
+la tabla todavía: se puebla, se mira, y recién después se mudan los readers.
 
 ### Paso 6 — los nombres de `mercado.curvas` (2026-08-15)
 

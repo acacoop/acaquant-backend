@@ -1567,6 +1567,39 @@ CREATE INDEX IF NOT EXISTS ix_curvas_curva ON mercado.curvas(curva);
 CREATE INDEX IF NOT EXISTS ix_curvas_ejes  ON mercado.curvas(moneda_eje, ajuste);
 CREATE INDEX IF NOT EXISTS ix_curvas_vto   ON mercado.curvas(fecha_vencimiento);
 
+-- mercado.especies — LAS PATAS de cada bono (rediseño 2026-08-15, paso 8).
+--
+-- Un bono es UNO (AL30: un emisor, un cuadro de flujos) pero COTIZA en varias
+-- especies: `AL30` en pesos, `AL30D` en dólar MEP, `AL30C` en cable, cada una en
+-- plazo 24hs y CI. `mercado.curvas` tiene UN solo casillero (`instrumento`), así
+-- que la especie quedaba congelada en el alta: no se podía ofrecer "ver el mismo
+-- bono en pesos o en MEP", y si el alta eligió la pata equivocada el precio que
+-- se muestra es de otra escala (medido: le pasa a CO32).
+--
+-- Medido en Primary (`manager.pyrofex_instruments`, 9.719 símbolos): 17 bonos del
+-- master tienen las 3 especies y 183 tienen una sola. O sea que hoy es 1:1 para
+-- casi todos — pero el modelo 1:N es el correcto y es el que deja de perder datos.
+--
+-- `ticker_especie` (AL30D) NO es basura a limpiar: es la identidad de lo que el
+-- cliente TIENE y COBRA, y es la clave con la que ya viven `portafolio.tenencia`
+-- y `operaciones.acreencias` (9.726 filas medidas). Por eso la tabla guarda las
+-- dos: `ticker` (AL30) une con la curva, `ticker_especie` (AL30D) une con la
+-- posición.
+CREATE TABLE IF NOT EXISTS mercado.especies (
+    simbolo        text PRIMARY KEY,       -- MERV - XMEV - AL30D - 24hs (clave de Primary)
+    ticker         text NOT NULL,          -- AL30   → mercado.curvas.ticker
+    ticker_especie text NOT NULL,          -- AL30D  → portafolio.tenencia / acreencias
+    especie        text,                   -- pesos | mep | cable
+    moneda         text,                   -- ARS | USD
+    plazo          text,                   -- 24hs | CI
+    es_default     boolean DEFAULT false,  -- la que dibuja la curva hoy
+    activa         boolean DEFAULT true,
+    actualizado_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS ix_especies_ticker  ON mercado.especies(ticker);
+CREATE INDEX IF NOT EXISTS ix_especies_te      ON mercado.especies(ticker_especie);
+CREATE INDEX IF NOT EXISTS ix_especies_default ON mercado.especies(ticker) WHERE es_default;
+
 -- Trading.DiasHabiles — calendario hábil argentino (jobs/dias_habiles, holidays.AR).
 -- Lo consume la lógica CER-fijado (T-10 hábiles) y el cleanup de curvas. Mongo guarda
 -- {fecha:'YYYY-MM-DD'}; acá date tipado. Dual-write desde el job hasta migrar todos

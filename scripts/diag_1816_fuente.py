@@ -30,7 +30,7 @@ READ-ONLY total (REGLA #4): sólo SELECT, sin escrituras, sin `--aplicar`.
 
 Uso:
     python -m scripts.diag_1816_fuente
-    python -m scripts.diag_1816_fuente --catalogo    # + el catálogo completo (1 crédito)
+    python -m scripts.diag_1816_fuente --catalogo    # + el catálogo real (1 créd/curva)
     python -m scripts.diag_1816_fuente --umbral 25   # el corte de TEA en % (default 25)
 """
 from __future__ import annotations
@@ -74,7 +74,8 @@ def clave_emisor(s: str) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description="¿Alcanza 1816 como fuente de verdad?")
     ap.add_argument("--catalogo", action="store_true",
-                    help="consultar el catálogo COMPLETO de 1816 (cuesta 1 crédito)")
+                    help="recorrer las curvas de 1816 y traer sus instrumentos "
+                         "(1 crédito por curva)")
     ap.add_argument("--umbral", type=float, default=25.0,
                     help="|TNA| en %% a partir de la cual un bono USD es sospechoso")
     args = ap.parse_args()
@@ -83,23 +84,38 @@ def main() -> None:
     if args.catalogo:
         _sep("0) CATÁLOGO COMPLETO DE 1816 (cuesta 1 crédito)")
         print("  Lo que hay en `mkt_1816_instrumentos` es lo que la WATCHLIST pidió,")
-        print("  no lo que 1816 tiene. `instrumentos()` sin filtro trae el catálogo")
-        print("  entero por 1 crédito — es lo único que dice si se puede cubrir")
-        print("  corporativos ampliando el watch, o si 1816 directamente no los trae.")
+        print("  no lo que 1816 tiene: las dos dan 66 y no es casualidad. Para saber")
+        print("  qué hay DE VERDAD hay que recorrer las curvas — la API no acepta un")
+        print("  \'traeme todo\'. De eso depende si el backfill de emisores es posible.")
         from core import mercado_1816
+        # `instrumentos()` SIN filtro devuelve HTTP 400: la API exige `texto` o
+        # `curvaId`. O sea que no hay "traeme todo" — hay que recorrer las CURVAS
+        # y pedir los instrumentos de cada una. Son 1 crédito por llamada.
+        cat: list[dict] = []
         try:
-            cat = mercado_1816.instrumentos()
+            curvas_1816 = mercado_1816.curvas()
+            print(f"\n  curvas que publica 1816: {len(curvas_1816)}")
+            for c in curvas_1816:
+                cid = c.get("id") or c.get("curvaId")
+                nom = c.get("nombre") or c.get("descripcion") or cid
+                if cid is None:
+                    continue
+                try:
+                    ins = mercado_1816.instrumentos(curva_id=int(cid))
+                except Exception as e:
+                    print(f"    ⚠ curva {nom}: {e}")
+                    continue
+                cat.extend(ins)
+                print(f"    {str(nom)[:44]:<46} {len(ins):>4} instrumentos")
         except Exception as e:
             print(f"  ⚠ no se pudo consultar ({e}) — ¿credenciales cargadas?")
-            cat = []
         if cat:
             nuestros = {r["ticker"].upper() for r in _q(
                 "SELECT ticker FROM mercado.curvas WHERE ticker IS NOT NULL")}
             suyos = {str(i.get("ticker") or "").upper() for i in cat if i.get("ticker")}
-            print(f"\n  1816 publica: {len(cat)} instrumentos ({len(suyos)} tickers)")
-            print(f"  de NUESTROS {len(nuestros)} bonos, 1816 tiene: "
-                  f"{len(nuestros & suyos)}")
-            print(f"  {'EMISOR_TIPO':<18}{'BONOS':>8}{'EN EL CATÁLOGO':>16}{'%':>8}")
+            print(f"\n  TOTAL 1816: {len(cat)} instrumentos ({len(suyos)} tickers únicos)")
+            print(f"  de NUESTROS {len(nuestros)} bonos, 1816 tiene: {len(nuestros & suyos)}")
+            print(f"\n  {'EMISOR_TIPO':<18}{'BONOS':>8}{'EN EL CATÁLOGO':>16}{'%':>8}")
             print("  " + "-" * 50)
             for r in _q("SELECT COALESCE(emisor_tipo,'(sin clasificar)') AS t, "
                         "array_agg(upper(ticker)) AS tks "
@@ -109,7 +125,7 @@ def main() -> None:
                 pct = (100.0 * hay / len(tks)) if tks else 0
                 print(f"  {r['t']:<18}{len(tks):>8}{hay:>16}{pct:>7.0f}%")
             campos = sorted({k for i in cat[:50] for k in i})
-            print(f"\n  campos que trae cada instrumento: {', '.join(campos)}")
+            print(f"\n  campos por instrumento: {', '.join(campos)}")
 
     # ── 1) COBERTURA ────────────────────────────────────────────────────────
     _sep("1) COBERTURA — ¿1816 conoce nuestros bonos?")

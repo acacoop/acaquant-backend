@@ -92,6 +92,19 @@ class WebSocketManager:
                     self._nombre, antes - len(lista_tickers))
             if not lista_tickers:
                 return
+        # VALIDACIÓN contra el catálogo real de Primary. Va acá y no en cada
+        # motor a propósito: es el único punto por el que pasan TODAS las
+        # suscripciones, así que un motor nuevo la hereda sin escribir nada y no
+        # se puede saltear por olvido. Sin criterio confiable (Postgres caído,
+        # catálogo vacío) NO filtra — ver core/instrumentos_validos.
+        from core.instrumentos_validos import filtrar, validos
+        lista_tickers, invalidos = filtrar(lista_tickers, validos())
+        if invalidos:
+            logger.warning(
+                "WS %s: %d símbolo(s) NO existen en Primary — no se suscriben: %s",
+                self._nombre, len(invalidos), ", ".join(sorted(invalidos)[:10]))
+        if not lista_tickers:
+            return
         ents = entries if entries is not None else self._ENTRIES
         chunk_size = 50
         for i in range(0, len(lista_tickers), chunk_size):

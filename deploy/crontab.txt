@@ -323,11 +323,11 @@
 # ─── Vigencia + validación de símbolos de mercado — jobs/validar_instrumentos.py
 # A la NOCHE, después del cierre y del discovery: (1) da de baja los títulos que
 # ya amortizaron (`portafolio.assets.vigente`, motivo `vencido`, reversible), y
-# (2) cruza TODOS los símbolos guardados contra el universo real de Primary,
-# proponiendo a qué se parece cada uno que no existe. NO corrige símbolos: elegir
-# entre la pata en pesos y la de dólares es decisión de la mesa.
+# (2) marca en `mercado.especies.validado` si cada símbolo existe en Primary.
+# El job sólo deja el estado escrito — lo que IMPIDE suscribirse a un símbolo
+# muerto es core/instrumentos_validos, aplicado en el WS para todos los motores.
 # Depende de manager.pyrofex_instruments (scripts/discovery_pyrofex); si está
-# vacía aborta sin reportar, para no inventar cientos de falsos positivos.
+# vacía aborta sin marcar, para no llenar la tabla de falsos negativos.
 0 23 * * 1-5 /root/TradingAV/deploy/run_job.sh validar_instrumentos 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.validar_instrumentos'
 
 # ─── BCRA (tab BCRA de RESEARCH) — series monetarias v4 → research.bcra_series

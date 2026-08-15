@@ -1612,8 +1612,16 @@ CREATE TABLE IF NOT EXISTS mercado.especies (
     plazo          text,                   -- 24hs | CI
     es_default     boolean DEFAULT false,  -- la que dibuja la curva hoy
     activa         boolean DEFAULT true,
+    validado       boolean,                -- existe en Primary (jobs/validar_instrumentos)
+    validado_at    timestamptz,
     actualizado_at timestamptz
 );
+-- ¿El símbolo existe en el catálogo real de Primary? La marca la refresca
+-- `jobs/validar_instrumentos` con la MISMA fuente que usa el filtro del WS
+-- (`core/instrumentos_validos`), para que no puedan contradecirse. `validado_at`
+-- importa tanto como el booleano: un `true` sin fecha no se distingue de uno viejo.
+ALTER TABLE mercado.especies ADD COLUMN IF NOT EXISTS validado boolean;
+ALTER TABLE mercado.especies ADD COLUMN IF NOT EXISTS validado_at timestamptz;
 CREATE INDEX IF NOT EXISTS ix_especies_ticker  ON mercado.especies(ticker);
 CREATE INDEX IF NOT EXISTS ix_especies_te      ON mercado.especies(ticker_especie);
 CREATE INDEX IF NOT EXISTS ix_especies_default ON mercado.especies(ticker) WHERE es_default;

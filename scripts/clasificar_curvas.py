@@ -86,6 +86,7 @@ def _clasificar(master: list[dict], univ: dict) -> list[dict]:
         fijado = tk in fijados
         out.append({
             "ticker": d.get("ticker_corto"), "tk": tk, "curva": d.get("curva"),
+            "tipo": d.get("tipo"),
             "curva_1816": curva_1816, "ejes": ejes, "cer_fijado": fijado,
             "pill_nueva": ce.pill(ejes, fijado),
             "pill_actual": _pill_actual(d.get("curva"), fijado),
@@ -127,6 +128,24 @@ def _reporte_ejes(filas: list[dict]) -> None:
             txt += f" · +{len(d) - 4}"
         print(f"{curva[:16]:<16}{sum(dest.values()):>4}   {txt}")
     print("─" * 96)
+
+    # `tipo` es un campo VIEJO de la tabla (Bono | Lecap | Boncap | ON …) que
+    # mezcla la FORMA del título con el tipo de emisor. Se lo cruza contra el eje
+    # `instrumento` para decidir con datos si uno de los dos sobra — afirmarlo sin
+    # medir fue justo el error que esta línea viene a no repetir.
+    cruce: dict[str, dict[str, int]] = {}
+    for f in filas:
+        t = (f.get("tipo") or "(vacío)").strip() or "(vacío)"
+        i = (f["ejes"].instrumento if f["ejes"] else None) or "(sin dato)"
+        cruce.setdefault(t, {}).setdefault(i, 0)
+        cruce[t][i] += 1
+    print(f"\n{'CAMPO `tipo` (viejo)':<24}{'N':>4}   EJE `instrumento`")
+    print("─" * 96)
+    for t, dest in sorted(cruce.items(), key=lambda x: -sum(x[1].values())):
+        print(f"{t[:24]:<24}{sum(dest.values()):>4}   "
+              + " · ".join(f"{k}={v}" for k, v in sorted(dest.items(), key=lambda x: -x[1])))
+    print("─" * 96)
+    print("  Si `tipo` distingue lo mismo que `instrumento`, uno de los dos sobra.")
 
     if sin:
         print(f"\n⚠ SIN CLASIFICAR ({len(sin)}) — quedan a mano (paso aparte):")

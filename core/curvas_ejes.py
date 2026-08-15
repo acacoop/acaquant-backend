@@ -16,7 +16,6 @@ preguntas:
     nivel 3 — AJUSTE   fija · cer · tamar · badlar · dolar_linked · dual · tpm · caucion
 
     + LEY          local · ny      (Bonar vs Global — misma pill, curvas distintas)
-    + INSTRUMENTO  bono · letra    (LECER/LELINK vs bono)
 
 La CURVA es el camino completo (`soberano › ARS › cer`), que es exactamente cómo
 1816 nombra las suyas. La PILL de la vista es OTRA cosa: un corte por AJUSTE que
@@ -26,17 +25,22 @@ Corporativos USD y BCRA).
 **Por qué una TABLA y no un parser.** El catálogo de 1816 son 28 nombres, cerrado
 y conocido. Un parser por tokens parece más elegante pero adivina, y adivina mal
 justo en los casos que importan: `Bonares`/`Globales` no es un ajuste sino la LEY,
-`Botes`/`Letras CER`/`Lelink` no es un ajuste sino el INSTRUMENTO, y 1816 le dice
-`Inflación` a lo mismo que en soberanos llama `CER`. La tabla explícita no puede
-equivocarse en eso, y una curva nueva que no esté en la tabla se reporta como
-DESCONOCIDA en vez de clasificarse mal en silencio.
+y 1816 le dice `Inflación` a lo mismo que en soberanos llama `CER`. La tabla
+explícita no puede equivocarse en eso, y una curva nueva que no esté en la tabla
+se reporta como DESCONOCIDA en vez de clasificarse mal en silencio.
 
 **Lo que no se afirma queda en None, no se inventa** (mismo criterio que el resto
 del sistema: "sin dato" ≠ "cero"). `ley` solo se completa donde el nombre lo dice
-(Bonares/Globales); `instrumento` solo donde el nombre lo dice (Botes, Letras
-CER, Lelink). La curva `Soberanos ARS tasa fija` mezcla LECAPs (S…) y BONCAPs
-(T…): derivar el instrumento del prefijo del ticker sería una heurística sin
-medir, así que queda None hasta tener el dato.
+(Bonares/Globales).
+
+**Eje ELIMINADO — bono/letra (2026-08-15).** Existió un quinto eje `instrumento`
+(bono · letra) que 1816 solo afirma en 3 de sus 28 curvas (Botes, Letras CER,
+Lelink). Se persistía en `mercado.curvas.tipo_instrumento` y quedó **vacío en los
+221 bonos** (medido con `scripts/diag_curvas_columnas`): un eje que casi nunca se
+puede completar no parte el universo en dos, lo parte en "algunos" y "no sé". Se
+borró la columna y el campo. Si algún día hace falta, la forma correcta no es
+adivinarlo del prefijo del ticker (`S…` LECAP vs `T…` BONCAP es una heurística sin
+medir) sino traerlo de una fuente que lo afirme para todos.
 """
 from __future__ import annotations
 
@@ -49,7 +53,6 @@ class Ejes(NamedTuple):
     moneda: str               # ARS | USD | EUR  (moneda de DENOMINACIÓN)
     ajuste: str               # fija | cer | tamar | badlar | dolar_linked | dual | tpm | caucion
     ley: str | None = None    # local | ny
-    instrumento: str | None = None   # bono | letra
 
 
 EMISORES = ("soberano", "provincial", "corporativo", "bcra")
@@ -62,9 +65,9 @@ AJUSTES = ("fija", "cer", "tamar", "badlar", "dolar_linked", "dual", "tpm", "cau
 EJES_1816: dict[str, Ejes] = {
     # ── Soberanos ───────────────────────────────────────────────────────────
     "Soberanos ARS CER":            Ejes("soberano", "ARS", "cer"),
-    "Soberanos ARS Letras CER":     Ejes("soberano", "ARS", "cer", instrumento="letra"),
+    "Soberanos ARS Letras CER":     Ejes("soberano", "ARS", "cer"),
     "Soberanos ARS tasa fija":      Ejes("soberano", "ARS", "fija"),
-    "Soberanos ARS Botes":          Ejes("soberano", "ARS", "fija", instrumento="bono"),
+    "Soberanos ARS Botes":          Ejes("soberano", "ARS", "fija"),
     "Soberanos ARS Tamar":          Ejes("soberano", "ARS", "tamar"),
     "Soberanos ARS Badlar":         Ejes("soberano", "ARS", "badlar"),
     "Soberanos Duales":             Ejes("soberano", "ARS", "dual"),
@@ -76,8 +79,7 @@ EJES_1816: dict[str, Ejes] = {
     # Dollar-linked: DENOMINA en USD (por eso moneda=USD y cae del lado USD de la
     # vista) y el ajuste dice que paga en pesos contra el TC.
     "Soberanos USD Linked":         Ejes("soberano", "USD", "dolar_linked"),
-    "Soberanos USD Linked Lelink":  Ejes("soberano", "USD", "dolar_linked",
-                                         instrumento="letra"),
+    "Soberanos USD Linked Lelink":  Ejes("soberano", "USD", "dolar_linked"),
     # ── BCRA (BOPREALes) ────────────────────────────────────────────────────
     "BCRA USD":                     Ejes("bcra", "USD", "fija"),
     # ── Provinciales ────────────────────────────────────────────────────────

@@ -17,7 +17,6 @@ def test_las_28_curvas_de_1816_estan_y_son_validas():
         assert e.moneda in ce.MONEDAS, nombre
         assert e.ajuste in ce.AJUSTES, nombre
         assert e.ley in (None, "local", "ny"), nombre
-        assert e.instrumento in (None, "bono", "letra"), nombre
 
 
 def test_bonar_vs_global_es_LEY_no_ajuste():
@@ -40,19 +39,22 @@ def test_inflacion_de_1816_es_el_MISMO_ajuste_que_cer():
     assert ce.EJES_1816["Soberanos ARS CER"].ajuste == "cer"
 
 
-def test_letras_y_botes_son_INSTRUMENTO_no_ajuste():
-    assert ce.EJES_1816["Soberanos ARS Letras CER"].instrumento == "letra"
-    assert ce.EJES_1816["Soberanos USD Linked Lelink"].instrumento == "letra"
-    assert ce.EJES_1816["Soberanos ARS Botes"].instrumento == "bono"
-    # y una letra CER sigue siendo CER: el instrumento no cambia la pill
+def test_la_forma_del_titulo_NO_es_un_eje():
+    """El eje bono/letra se ELIMINÓ (2026-08-15): 1816 solo lo afirma en 3 de sus
+    28 curvas y la columna quedó vacía en los 221 bonos. Lo que se congela acá es
+    que su desaparición no movió a nadie de pill — una letra CER es CER y un Bote
+    es tasa fija, exactamente como antes."""
+    assert not hasattr(ce.Ejes("soberano", "ARS", "cer"), "instrumento")
     assert ce.pill(ce.EJES_1816["Soberanos ARS Letras CER"]) == "cer"
+    assert ce.pill(ce.EJES_1816["Soberanos USD Linked Lelink"]) == "dolar_linked"
+    assert ce.pill(ce.EJES_1816["Soberanos ARS Botes"]) == "tasa_fija"
 
 
 def test_lo_que_la_fuente_no_afirma_queda_en_None():
-    """No se inventa. `Soberanos ARS tasa fija` mezcla LECAPs y BONCAPs: derivar
-    el instrumento del prefijo del ticker sería una heurística sin medir."""
-    e = ce.EJES_1816["Soberanos ARS tasa fija"]
-    assert e.instrumento is None and e.ley is None
+    """No se inventa: `ley` solo se completa donde el nombre de la curva la dice
+    (Bonares/Globales). `Soberanos ARS tasa fija` no la dice."""
+    assert ce.EJES_1816["Soberanos ARS tasa fija"].ley is None
+    assert ce.EJES_1816["Corporativos USD"].ley is None
 
 
 def test_hard_dolar_junta_varios_emisores():

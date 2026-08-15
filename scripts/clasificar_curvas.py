@@ -44,9 +44,9 @@ _norm = mercado_1816.normalizar_ticker
 
 # Columnas que escribe el `--aplicar`. Se crean con `python -m scripts.apply_schema`
 # (están en sql/schema.sql). Todas nullable: "sin clasificar" es un estado válido.
-# `tipo_instrumento` (bono/letra) y NO `instrumento`: ese nombre lo tomó el
-# SÍMBOLO DE MERCADO en el renombre del 2026-08-15.
-_COLS = ("emisor_tipo", "moneda_eje", "ajuste", "ley", "tipo_instrumento")
+# El eje bono/letra (`tipo_instrumento`) se ELIMINÓ el 2026-08-15: 1816 solo lo
+# afirma en 3 de sus 28 curvas y quedó vacío en los 221 bonos.
+_COLS = ("emisor_tipo", "moneda_eje", "ajuste", "ley")
 
 
 def _master() -> list[dict]:
@@ -133,21 +133,22 @@ def _reporte_ejes(filas: list[dict]) -> None:
 
     # `tipo` es un campo VIEJO de la tabla (Bono | Lecap | Boncap | ON …) que
     # mezcla la FORMA del título con el tipo de emisor. Se lo cruza contra el eje
-    # `instrumento` para decidir con datos si uno de los dos sobra — afirmarlo sin
-    # medir fue justo el error que esta línea viene a no repetir.
+    # de EMISOR para decidir con datos si sobra — afirmarlo sin medir fue justo el
+    # error que esta línea viene a no repetir. (Antes se cruzaba contra el eje
+    # bono/letra, que se eliminó por vacío.)
     cruce: dict[str, dict[str, int]] = {}
     for f in filas:
         t = (f.get("tipo") or "(vacío)").strip() or "(vacío)"
-        i = (f["ejes"].instrumento if f["ejes"] else None) or "(sin dato)"
+        i = (f["ejes"].emisor_tipo if f["ejes"] else None) or "(sin dato)"
         cruce.setdefault(t, {}).setdefault(i, 0)
         cruce[t][i] += 1
-    print(f"\n{'CAMPO `tipo` (viejo)':<24}{'N':>4}   EJE `instrumento`")
+    print(f"\n{'CAMPO `tipo` (viejo)':<24}{'N':>4}   EJE `emisor_tipo`")
     print("─" * 96)
     for t, dest in sorted(cruce.items(), key=lambda x: -sum(x[1].values())):
         print(f"{t[:24]:<24}{sum(dest.values()):>4}   "
               + " · ".join(f"{k}={v}" for k, v in sorted(dest.items(), key=lambda x: -x[1])))
     print("─" * 96)
-    print("  Si `tipo` distingue lo mismo que `instrumento`, uno de los dos sobra.")
+    print("  Si `tipo` distingue lo mismo que `emisor_tipo`, uno de los dos sobra.")
 
     if sin:
         print(f"\n⚠ SIN CLASIFICAR ({len(sin)}) — quedan a mano (paso aparte):")
@@ -252,8 +253,8 @@ def _aplicar(filas: list[dict]) -> None:
             e = f["ejes"]
             cur.execute(
                 "UPDATE mercado.curvas SET emisor_tipo=%s, moneda_eje=%s, ajuste=%s, "
-                "ley=%s, tipo_instrumento=%s WHERE ticker=%s",
-                (e.emisor_tipo, e.moneda, e.ajuste, e.ley, e.instrumento, f["ticker"]),
+                "ley=%s WHERE ticker=%s",
+                (e.emisor_tipo, e.moneda, e.ajuste, e.ley, f["ticker"]),
             )
     print(f"\n✅ ejes escritos en {len(con)} instrumentos de mercado.curvas.")
     print("   La vista NO cambia: sigue leyendo `curva`. Los ejes quedan al lado, "

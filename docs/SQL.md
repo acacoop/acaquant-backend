@@ -99,8 +99,9 @@ jsonb pisaría al otro motor.
 ### MERCADO (curvas, bonos, snapshots, opciones, RV, agro, macro)
 - `mercado.curvas` — PK **`ticker`** (`AL30`; se llamaba `ticker_corto` hasta el
   renombre del 2026-08-15) + **`instrumento`** = el símbolo de mercado
-  `MERV - XMEV - AL30 - 24hs` (era la columna `ticker`), y `tipo_instrumento` para
-  el eje bono/letra. El blob `data` conserva las claves VIEJAS a propósito.
+  `MERV - XMEV - AL30 - 24hs` (era la columna `ticker`). El eje bono/letra
+  (`tipo_instrumento`) se ELIMINÓ el 2026-08-15: estaba vacío en los 221 bonos.
+  El blob `data` conserva las claves VIEJAS a propósito.
   Columnas consultables tipadas
   (curva/tipo/moneda/fechas/cupón/etc.) + `flujos` jsonb (cashflows del bono) +
   `data` jsonb (doc completo). Las ONs se consolidaron acá como `curva = on_<sector>`

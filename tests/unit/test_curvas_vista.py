@@ -14,7 +14,7 @@ def _fila(tc, emisor_tipo, moneda, ajuste, **kw):
             "curva": kw.get("curva", "x"), "tipo": "Bono",
             "fecha_vencimiento": "2027-01-01", "emisor": kw.get("emisor", "ACME"),
             "emisor_tipo": emisor_tipo, "moneda_eje": moneda, "ajuste": ajuste,
-            "ley": kw.get("ley"), "instrumento": kw.get("instrumento"),
+            "ley": kw.get("ley"),
             "flujo_vencimiento": kw.get("flujo_vencimiento"),
             "last_price": kw.get("last_price", 100.0), "tea": kw.get("tea", 0.3)}
     return base

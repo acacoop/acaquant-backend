@@ -2,9 +2,10 @@
 
 Volcado crudo para mirar con los ojos, no para resumir. La pregunta que responde
 es si las columnas de CLASIFICACIÓN se están pisando entre ellas: `curva`, `tipo`,
-`ajuste`, `emisor_tipo`, `moneda_eje`, `moneda_flujo`, `ley`, `tipo_instrumento`,
-`sector`. Son NUEVE, muchas nacieron en momentos distintos, y la sospecha es que
-varias dicen lo mismo con otro nombre.
+`ajuste`, `emisor_tipo`, `moneda_eje`, `moneda_flujo`, `ley`, `sector`. Son OCHO,
+muchas nacieron en momentos distintos, y la sospecha es que varias dicen lo mismo
+con otro nombre. (Eran nueve: `tipo_instrumento` se eliminó por estar vacía en los
+221 bonos — la primera respuesta que dio este mismo diag.)
 
 Tres bloques:
 
@@ -38,12 +39,12 @@ from core.postgres import get_pool
 # quiere leer.
 COLS = ("ticker", "instrumento", "curva", "tipo", "emisor", "emisor_tipo",
         "sector", "moneda_eje", "moneda_flujo", "ajuste", "ley",
-        "tipo_instrumento", "valor_nominal", "cupon_anual", "cer_emision",
+        "valor_nominal", "cupon_anual", "cer_emision",
         "flujo_vencimiento", "fecha_emision", "fecha_vencimiento")
 
 # Las que CLASIFICAN. Son las candidatas a estar diciendo lo mismo.
 CLASIFICACION = ("curva", "tipo", "emisor_tipo", "sector", "moneda_eje",
-                 "moneda_flujo", "ajuste", "ley", "tipo_instrumento")
+                 "moneda_flujo", "ajuste", "ley")
 
 _SEP = "=" * 96
 

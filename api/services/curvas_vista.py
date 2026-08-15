@@ -47,7 +47,7 @@ def _bonos_crudos() -> list[dict]:
     return _q(
         f"SELECT c.ticker AS ticker_corto, c.instrumento AS ticker, c.curva, c.tipo, "
         f"c.fecha_vencimiento, c.emisor, c.emisor_tipo, c.moneda_eje, c.ajuste, "
-        f"c.ley, c.tipo_instrumento AS instrumento, c.flujo_vencimiento, {cols} "
+        f"c.ley, c.flujo_vencimiento, {cols} "
         f"FROM mercado.curvas c "
         f"LEFT JOIN mercado.market_snapshot s ON s.ticker = c.instrumento",
     )
@@ -74,7 +74,7 @@ def _armar(rows: list[dict], fijados: set[str]) -> dict:
         ejes = None
         if r.get("emisor_tipo") and r.get("moneda_eje") and r.get("ajuste"):
             ejes = ce.Ejes(r["emisor_tipo"], r["moneda_eje"], r["ajuste"],
-                           r.get("ley"), r.get("instrumento"))
+                           r.get("ley"))
         if ejes is None:
             sin_clasificar.append(tc)
             continue
@@ -95,7 +95,7 @@ def _armar(rows: list[dict], fijados: set[str]) -> dict:
             "pill": pill, "lado": ce.LADO[pill],
             "emisor_tipo": ejes.emisor_tipo, "emisor": r.get("emisor"),
             "moneda": ejes.moneda, "ajuste": ejes.ajuste,
-            "ley": ejes.ley, "instrumento_tipo": ejes.instrumento,
+            "ley": ejes.ley,
             "tipo": r.get("tipo"), "vencimiento": r.get("fecha_vencimiento"),
             "cer_fijado": fijado,
             "flujo_vencimiento": _f(r.get("flujo_vencimiento")),

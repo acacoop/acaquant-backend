@@ -1535,9 +1535,12 @@ CREATE TABLE IF NOT EXISTS mercado.curvas (
     emisor_tipo       text,   -- soberano | provincial | corporativo | bcra
     moneda_eje        text,   -- ARS | USD | EUR
     ajuste            text,   -- fija | cer | tamar | badlar | dolar_linked | dual | tpm | caucion
-    ley               text,   -- local | ny  (Bonar vs Global)
-    tipo_instrumento  text    -- bono | letra   (el EJE; NO confundir con `instrumento`)
+    ley               text    -- local | ny  (Bonar vs Global)
 );
+-- El eje bono/letra (`tipo_instrumento`) fue ELIMINADO el 2026-08-15: nació con el
+-- rediseño y nunca se pobló (221 de 221 bonos sin dato, medido con
+-- `scripts/diag_curvas_columnas`). Una columna vacía no agrupa nada y sí obliga a
+-- todo el que lee la tabla a preguntarse qué significa.
 
 -- RENOMBRE de columnas (2026-08-15). El CREATE TABLE de arriba es no-op sobre una
 -- tabla que ya existe, así que en la DB real esto SOLO entra por ALTER. Postgres no
@@ -1547,15 +1550,22 @@ CREATE TABLE IF NOT EXISTS mercado.curvas (
 -- El orden importa y no es intercambiable: primero hay que LIBERAR el nombre
 -- `instrumento` (lo ocupaba el eje bono/letra, que nació vacío el 2026-08-15 y
 -- nunca se pobló), recién después se le puede dar ese nombre al símbolo de mercado.
+--
+-- ⚠️ El paso 1 ORIGINAL renombraba ese eje a `tipo_instrumento`. Al eliminarse la
+-- columna, ese rename se volvió UNA TRAMPA: su condición ("existe `instrumento` y
+-- no existe `tipo_instrumento`") es exactamente el estado de la base YA migrada,
+-- así que el próximo apply_schema le habría puesto `tipo_instrumento` al SÍMBOLO
+-- DE MERCADO y la vista se quedaba sin precios. Por eso el paso 1 ahora BORRA en
+-- vez de renombrar, y distingue los dos mundos por `ticker_corto`: si esa columna
+-- todavía existe, la base nunca corrió el renombre y `instrumento` ES el eje viejo.
 DO $$
 BEGIN
-    -- 1) el eje bono/letra libera el nombre `instrumento`
+    -- 1) el eje bono/letra se ELIMINA y con eso libera el nombre `instrumento`
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'mercado'
-               AND table_name = 'curvas' AND column_name = 'instrumento')
-       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'mercado'
-                       AND table_name = 'curvas' AND column_name = 'tipo_instrumento')
-    THEN ALTER TABLE mercado.curvas RENAME COLUMN instrumento TO tipo_instrumento;
+               AND table_name = 'curvas' AND column_name = 'ticker_corto')
+    THEN ALTER TABLE mercado.curvas DROP COLUMN IF EXISTS instrumento;
     END IF;
+    ALTER TABLE mercado.curvas DROP COLUMN IF EXISTS tipo_instrumento;
 
     -- 2) el símbolo de mercado pasa a llamarse como lo que es
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'mercado'
@@ -1579,7 +1589,6 @@ ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS emisor_tipo      text;
 ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS moneda_eje       text;
 ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS ajuste           text;
 ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS ley              text;
-ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS tipo_instrumento text;
 ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS instrumento      text;
 CREATE INDEX IF NOT EXISTS ix_curvas_curva ON mercado.curvas(curva);
 CREATE INDEX IF NOT EXISTS ix_curvas_ejes  ON mercado.curvas(moneda_eje, ajuste);

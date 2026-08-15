@@ -225,7 +225,24 @@ mercado. Quedó al derecho:
 |---|---|---|
 | `ticker_corto` (PK) | **`ticker`** | `AL30` — joinea con `portafolio.assets.ticker` |
 | `ticker` | **`instrumento`** | `MERV - XMEV - AL30 - 24hs` — el símbolo que se le manda a Primary |
-| `instrumento` (eje bono/letra) | **`tipo_instrumento`** | tuvo que liberar el nombre |
+| `instrumento` (eje bono/letra) | **eliminada** | tenía que liberar el nombre, y estaba vacía |
+
+El eje **bono/letra se eliminó** (mismo día). Nació con el rediseño porque 1816
+tiene curvas que lo nombran (Botes, Letras CER, Lelink), pero son **3 de sus 28**:
+en las otras 25 la fuente no lo afirma y la columna quedó **vacía en los 221
+bonos**. Un eje que casi nunca se puede completar no parte el universo en dos, lo
+parte en "algunos" y "no sé" — y obliga a todo el que lee la tabla a preguntarse
+qué significa. Se borró la columna, el campo de `Ejes` y `instrumento_tipo` de la
+respuesta de la vista. **Ningún bono cambió de pill** (congelado por test): una
+letra CER sigue siendo CER y un Bote sigue siendo tasa fija.
+
+⚠️ Al borrarla hubo que desarmar el **paso 1 del bloque `DO` de renombre** en
+`sql/schema.sql`: renombraba `instrumento → tipo_instrumento` bajo la condición
+"existe `instrumento` y no existe `tipo_instrumento`", que es exactamente el
+estado de la base ya migrada. Dejarlo habría hecho que el próximo `apply_schema`
+le pusiera `tipo_instrumento` al **símbolo de mercado** — y la vista se quedaba
+sin precios sin un solo error. Ahora ese paso BORRA en vez de renombrar y
+distingue los dos mundos por si `ticker_corto` todavía existe.
 
 **El blob `data` NO se tocó.** Sus claves siguen siendo las viejas y son las que
 leen ~500 lugares vía `core/curvas_sql.py` (que hace `SELECT data`). Para que la

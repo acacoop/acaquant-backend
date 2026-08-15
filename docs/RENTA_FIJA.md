@@ -170,8 +170,51 @@ guarda la identidad de la pata, así que la D ya no se pierde— pero es un paso
 propio (paso 9): toca la PK y hay que mover con ella los 4 `portafolio.assets` que
 la arrastran.
 
-Siembra: `python -m scripts.sembrar_especies` (DRY-RUN) / `--aplicar`. Nadie lee
-la tabla todavía: se puebla, se mira, y recién después se mudan los readers.
+Siembra: `python -m scripts.sembrar_especies` (DRY-RUN) / `--aplicar`.
+
+### Paso 8.b — `assets` pasa a DERIVAR de especies (2026-08-15)
+
+Primer lector de la tabla, y el que cierra el pedido de fondo: **un solo lugar
+donde vivan los instrumentos**.
+
+`portafolio.assets.instrumento` no es decorativo — es el símbolo que el motor de
+portfolio le SUSCRIBE a Primary (`engines/_universo_portfolio.py`), o sea de dónde
+sale el `last_price` de toda la tenencia. Se cargaba **a mano** en Manager, así que
+el catálogo de market data terminó desparramado en tres lugares que se
+contradicen: `assets`, `mercado.curvas` y el universo real de Primary. El bloque 9
+de `diag_activos` lo midió: **65 assets con un símbolo distinto al del master**, y
+los 65 con tenencia (24.521 filas).
+
+Ahora `assets` es un **derivado**. La regla `especies` de `jobs/assets_autofill`
+relaciona por **TICKER** —la bisagra del modelo, el mismo `AL30` en `assets`,
+`especies` y `curvas`— y baja las DOS patas a columnas explícitas:
+
+| columna | qué es | de qué `especie` sale |
+|---|---|---|
+| `instrumento` | la pata en PESOS | `pesos` |
+| `instrumento_usd` | la pata en DÓLARES | `mep` |
+
+El **cable NO entra**: es otra cosa, y meterlo en la misma columna volvería a
+esconder cuál es cuál — que es exactamente el problema que se está cerrando.
+Dentro de cada pata gana la `es_default` (la que la mesa ya eligió para la curva) y
+después **24hs sobre CI**, que es donde hay liquidez y por lo tanto precio.
+
+**Por qué esto no puede romper una valuación.** Rige el invariante del job:
+**nunca pisa**. Lo que hoy está cargado queda como está y el motor suscribe
+exactamente lo mismo — el cambio agrega información, no la reemplaza. Cuando lo
+cargado no coincide con especies se REPORTA como conflicto en el run, que es
+justo el listado que no existía y por el cual el cruce de `AO29` sobrevivió meses.
+Los dos campos siguen editables en Manager → TÍTULOS · ASSETS: el catálogo de
+Primary a veces está viejo (`AO29` no figuraba y sin embargo devuelve precio) y
+ahí manda la mesa.
+
+**Lo que queda abierto:** de los 65 divergentes no está medido *cuál* pata es la
+correcta para el PnL. Hipótesis fuerte (no verificada): la de PESOS, porque el PnL
+trabaja pesificado (`pnl.py::_pesificar` convierte el cost-basis con el MEP del
+boleto). Lo mide `python -m scripts.diag_pnl_pata`, que valúa con las dos patas y
+las contrasta contra la `valuacion` que manda Aunesa — la buena da ratio ≈ 1.
+**No bloquea nada**: mientras el job no pise, la respuesta sólo decide si además
+hay algo viejo que corregir.
 
 ### Paso 6 — los nombres de `mercado.curvas` (2026-08-15)
 

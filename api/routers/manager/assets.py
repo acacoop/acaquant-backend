@@ -36,7 +36,12 @@ router = APIRouter()
 # Campos UPPERCASE editables (string). Espejan el shape del doc en
 # portafolio.assets. También son los campos válidos para el filtro `campo_vacio`.
 _EDITABLE_FIELDS: tuple[str, ...] = (
-    "CARTERA", "EMISOR", "INSTRUMENTO",
+    # INSTRUMENTO / INSTRUMENTO_USD: los DOS símbolos de Primary del papel (pata
+    # en pesos y pata en dólares). Los deriva el job `assets_autofill` desde
+    # `mercado.especies` — el único catálogo de símbolos — relacionando por
+    # TICKER. Siguen siendo editables porque el job NUNCA pisa lo cargado: la
+    # mesa manda cuando el catálogo de Primary está desactualizado.
+    "CARTERA", "EMISOR", "INSTRUMENTO", "INSTRUMENTO_USD",
     "CLASE_ACTIVO", "CALIFICACION", "TICKER", "VENCIMIENTO",
     # CODIGO_CNV: código CNV del instrumento (string; puede tener ceros a la
     # izquierda). Se edita a mano desde el manager.
@@ -135,6 +140,7 @@ class _AssetPatch(BaseModel):
     CARTERA:      str | None = Field(None, max_length=128)
     EMISOR:       str | None = Field(None, max_length=128)
     INSTRUMENTO:  str | None = Field(None, max_length=256)
+    INSTRUMENTO_USD: str | None = Field(None, max_length=256)
     CLASE_ACTIVO: str | None = Field(None, max_length=128)
     CALIFICACION: str | None = Field(None, max_length=128)
     TICKER:       str | None = Field(None, max_length=64)

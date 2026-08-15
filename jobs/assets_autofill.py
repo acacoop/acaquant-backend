@@ -36,6 +36,10 @@ Reglas v1:
     (`core.cafci`), acá backfilleada sobre lo que ya está en el catálogo.
   * ticker — TICKER para el resto del catálogo, sea cual sea la cartera: sale del
     `[<id>] <descripción>` de Aunesa.
+  * especies — los DOS símbolos de mercado (INSTRUMENTO en pesos e INSTRUMENTO_USD
+    en dólares) desde `mercado.especies`, relacionando por TICKER. Es lo que hace
+    que el catálogo deje de ser una segunda verdad sobre market data: los símbolos
+    se cargan en UN solo lugar y acá se bajan derivados.
   * herencia — REBAUTIZO de Aunesa (ver abajo): copia entre unidades que son el
     MISMO instrumento los campos que NO se derivan de la unidad (EMISOR,
     CALIFICACIÓN, INSTRUMENTO, CLASE_ACTIVO, CÓDIGO CNV, FEE ADMIN).
@@ -104,11 +108,11 @@ from core.postgres import get_pool
 # EMISOR / CALIFICACION / FEE_ADMIN entraron con la regla `herencia`: no se
 # derivan de nada, se COPIAN de otra unidad que ya las tiene cargadas a mano.
 _ESCRIBIBLES = frozenset({"cartera", "clase_activo", "ticker", "instrumento",
-                          "cafci", "vencimiento", "codigo_cnv",
+                          "instrumento_usd", "cafci", "vencimiento", "codigo_cnv",
                           "emisor", "calificacion", "fee_admin"})
 _LEIBLES = ("unidad", "cartera", "clase_activo", "emisor", "ticker",
-            "instrumento", "calificacion", "cafci", "vencimiento", "codigo_cnv",
-            "fee_admin")
+            "instrumento", "instrumento_usd", "calificacion", "cafci", "vencimiento",
+            "codigo_cnv", "fee_admin")
 _ACTOR = "job:assets_autofill"
 
 
@@ -243,6 +247,95 @@ def _regla_ticker(row: dict) -> dict[str, str]:
     # completo que un ticker vacío.
     tk = (resto.split("-", 1)[0].strip() or resto) if resto else (m["id"] or "").strip()
     return {"ticker": tk} if tk else {}
+
+
+# ── Regla `especies` — los DOS símbolos de mercado, desde mercado.especies ───
+#
+# QUÉ RESUELVE. `assets.instrumento` es el símbolo que el motor de portfolio le
+# SUSCRIBE a Primary (`engines/_universo_portfolio.py`) — o sea, de dónde sale el
+# last_price de la tenencia. Se venía cargando A MANO en Manager → ASSETS, con lo
+# cual el catálogo de mercado terminó desparramado en tres lugares que se
+# contradicen entre sí (assets, mercado.curvas, y el universo real de Primary).
+#
+# `mercado.especies` es el ÚNICO lugar donde vive esa relación (ticker → sus
+# patas), sembrada desde el catálogo real de Primary. Esta regla la baja al
+# catálogo: el humano deja de tipear símbolos y `assets` pasa a ser un DERIVADO
+# de especies, no una segunda verdad.
+#
+# LAS DOS PATAS. Un bono no tiene un símbolo, tiene N: AL30 cotiza en pesos
+# (`…AL30 - 24hs`), en MEP (`…AL30D…`) y en cable (`…AL30C…`). El catálogo tenía
+# UNA sola columna, así que cada quien guardó la que le servía. Ahora son dos
+# explícitas: `instrumento` = la pata en PESOS, `instrumento_usd` = la pata en
+# DÓLARES (MEP; cable NO — es otra cosa y mezclarlas volvería a esconder cuál es
+# cuál). Cada consumidor pide la que necesita en vez de adivinar.
+#
+# POR QUÉ ES SEGURO. El invariante del job: NUNCA pisa. Lo que hoy está cargado
+# queda como está y el motor sigue suscribiendo exactamente lo mismo — o sea,
+# esto NO puede cambiar una valuación. Si lo cargado no coincide con especies, se
+# reporta como CONFLICTO y se decide mirándolo, que es justo el listado que hoy
+# no existe.
+_ESPECIES_COL = "_especies"
+
+# Preferencia dentro de una misma pata. `es_default` primero (es la que la mesa
+# ya eligió para dibujar la curva) y después 24hs sobre CI: el plazo estándar del
+# mercado local, que es donde hay liquidez y por lo tanto precio.
+_PLAZO_PREF = {"24HS": 0, "CI": 1}
+
+
+def _prioridad_especie(e: dict) -> tuple:
+    return (0 if e.get("es_default") else 1,
+            _PLAZO_PREF.get(_norm(e.get("plazo")).upper(), 9),
+            _norm(e.get("simbolo")))
+
+
+def anotar_especies(rows: Iterable[dict], especies: Iterable[dict]) -> dict:
+    """Inyecta `_especies` = {instrumento, instrumento_usd} en cada fila. PURA.
+
+    Se agrupa por TICKER porque es la bisagra del modelo: `assets.ticker` y
+    `especies.ticker` son el mismo AL30 (y el mismo que `mercado.curvas.ticker`).
+    Un asset sin ticker todavía no es relacionable — lo completa la regla
+    `ticker` en esta misma corrida y entra mañana.
+    """
+    rows = list(rows)
+    por_ticker: dict[str, list[dict]] = defaultdict(list)
+    for e in especies:
+        if (tk := _norm(e.get("ticker")).upper()) and _norm(e.get("simbolo")):
+            por_ticker[tk].append(e)
+
+    propuesto: dict[str, dict[str, str]] = {}
+    for tk, patas in por_ticker.items():
+        elegido: dict[str, str] = {}
+        for col, especies_ok in (("instrumento", {"pesos"}), ("instrumento_usd", {"mep"})):
+            cands = sorted((e for e in patas if _norm(e.get("especie")).lower() in especies_ok),
+                           key=_prioridad_especie)
+            if cands:
+                elegido[col] = _norm(cands[0]["simbolo"])
+        if elegido:
+            propuesto[tk] = elegido
+
+    con_ars = con_usd = sin_ticker = 0
+    for row in rows:
+        row.pop(_ESPECIES_COL, None)
+        # Mismo criterio que `_claves_identidad`: si la columna está vacía se
+        # deriva de la unidad, así el asset que el writer dio de alta hace 40
+        # minutos entra HOY y no mañana.
+        tk = _norm(row.get("ticker")) or _norm(_regla_ticker(row).get("ticker"))
+        if not tk:
+            sin_ticker += 1
+            continue
+        prop = propuesto.get(tk.upper())
+        if not prop:
+            continue
+        row[_ESPECIES_COL] = prop
+        con_ars += "instrumento" in prop
+        con_usd += "instrumento_usd" in prop
+    return {"tickers_en_especies": len(por_ticker), "con_pata_ars": con_ars,
+            "con_pata_usd": con_usd, "sin_ticker": sin_ticker}
+
+
+def _regla_especies(row: dict) -> dict[str, object]:
+    """Lo que `anotar_especies` dejó preparado. Sin anotar, no opina."""
+    return dict(row.get(_ESPECIES_COL) or {})
 
 
 # ── Regla `herencia` — el rebautizo de Aunesa ────────────────────────────────
@@ -385,6 +478,8 @@ REGLAS: list[Regla] = [
           _regla_financiamiento_clase),
     Regla("fci", "Fondos comunes (código CAFCI + nombre)", _regla_fci),
     Regla("ticker", "Ticker derivado de la unidad (resto del catálogo)", _regla_ticker),
+    Regla("especies", "Símbolos de mercado ARS/USD desde mercado.especies",
+          _regla_especies),
     Regla("herencia", "Campos manuales heredados de la unidad rebautizada",
           _regla_herencia),
 ]
@@ -415,6 +510,21 @@ def leer_catalogo() -> list[dict]:
     for r in rows:
         r[_NOMINAL_COL] = nominal.get(r["unidad"])
     return rows
+
+
+def leer_especies() -> list[dict]:
+    """Patas ACTIVAS de `mercado.especies` — el único catálogo de símbolos.
+
+    Tabla chica (cientos de filas) y sin filtro por ticker: traerla entera y
+    agrupar en memoria es UNA query, contra una por asset. La lectura y el
+    criterio de elección viven separados a propósito (`anotar_especies` es pura
+    y testeable sin base).
+    """
+    cols = ("simbolo", "ticker", "especie", "plazo", "es_default")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT {', '.join(cols)} FROM mercado.especies "
+                    "WHERE activa IS NOT false")
+        return [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
 
 
 def planificar(rows: Iterable[dict], reglas: Iterable[Regla]) -> tuple[dict, dict]:
@@ -494,6 +604,7 @@ def main() -> int:
         # El contexto entre assets se arma UNA vez, antes de planificar: la regla
         # `herencia` lo lee de la fila igual que `financiamiento_clase` lee el nominal.
         her = anotar_herencia(rows)
+        esp = anotar_especies(rows, leer_especies())
         cambios, reporte = planificar(rows, reglas)
         jr.log(f"catálogo: {len(rows)} assets · reglas: {[r.id for r in reglas]}")
         for r in reglas:
@@ -513,6 +624,16 @@ def main() -> int:
             jr.set_stat(f"{r.id}_matcheadas", rep["matcheadas"])
             jr.set_stat(f"{r.id}_campos", rep["campos"])
             jr.set_stat(f"{r.id}_conflictos", len(rep["conflictos"]))
+
+        if any(r.id == "especies" for r in reglas):
+            jr.log(f"  · especies: {esp['tickers_en_especies']} ticker(s) en el catálogo "
+                   f"de símbolos → {esp['con_pata_ars']} asset(s) con pata ARS y "
+                   f"{esp['con_pata_usd']} con pata USD disponibles")
+            if esp["sin_ticker"]:
+                jr.log(f"      ℹ {esp['sin_ticker']} asset(s) sin TICKER: no son "
+                       f"relacionables con especies todavía")
+            for k, v in esp.items():
+                jr.set_stat(f"especies_{k}", v)
 
         if any(r.id == "herencia" for r in reglas):
             jr.log(f"  · herencia: {her['grupos']} instrumento(s) con más de una "

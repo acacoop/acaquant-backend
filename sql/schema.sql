@@ -1356,7 +1356,8 @@ CREATE TABLE IF NOT EXISTS portafolio.assets (
     clase_activo   text,
     emisor         text,
     ticker         text,
-    instrumento    text,
+    instrumento    text,             -- símbolo Primary de la pata en PESOS (MERV - XMEV - AL30 - 24hs)
+    instrumento_usd text,            -- símbolo Primary de la pata en DÓLARES (…AL30D…)
     calificacion   text,
     cafci          text,
     vencimiento    text,
@@ -1365,6 +1366,10 @@ CREATE TABLE IF NOT EXISTS portafolio.assets (
     actualizado_por text,
     actualizado_at  timestamptz
 );
+-- La pata USD entró el 2026-08-15: sobre la tabla que ya existe el CREATE de arriba
+-- es no-op, así que la columna SOLO puede entrar por ALTER. La llena la regla
+-- `especies` de jobs/assets_autofill desde `mercado.especies` (nunca pisa lo cargado).
+ALTER TABLE portafolio.assets ADD COLUMN IF NOT EXISTS instrumento_usd text;
 CREATE INDEX IF NOT EXISTS ix_assets_cartera ON portafolio.assets(cartera);
 CREATE INDEX IF NOT EXISTS ix_assets_clase   ON portafolio.assets(clase_activo);
 CREATE INDEX IF NOT EXISTS ix_assets_ticker  ON portafolio.assets(ticker);

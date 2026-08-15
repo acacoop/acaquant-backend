@@ -18,7 +18,8 @@ from core.postgres import get_pool
 # Campo Mongo UPPERCASE → columna SQL en portafolio.assets.
 _FIELD_COL = {
     "CARTERA": "cartera", "CLASE_ACTIVO": "clase_activo", "EMISOR": "emisor",
-    "TICKER": "ticker", "INSTRUMENTO": "instrumento", "CALIFICACION": "calificacion",
+    "TICKER": "ticker", "INSTRUMENTO": "instrumento",
+    "INSTRUMENTO_USD": "instrumento_usd", "CALIFICACION": "calificacion",
     "CAFCI": "cafci", "VENCIMIENTO": "vencimiento", "CODIGO_CNV": "codigo_cnv",
     "FEE_ADMIN": "fee_admin",
 }
@@ -73,7 +74,8 @@ def assets_rows(fields: Iterable[str]) -> list[dict]:
 # (columna SQL, clave de salida). Las de auditoría salen tal cual (no UPPERCASE).
 _PANEL = [
     ("unidad", "unidad"), ("cartera", "CARTERA"), ("emisor", "EMISOR"),
-    ("instrumento", "INSTRUMENTO"), ("clase_activo", "CLASE_ACTIVO"),
+    ("instrumento", "INSTRUMENTO"), ("instrumento_usd", "INSTRUMENTO_USD"),
+    ("clase_activo", "CLASE_ACTIVO"),
     ("calificacion", "CALIFICACION"), ("ticker", "TICKER"), ("vencimiento", "VENCIMIENTO"),
     ("fee_admin", "FEE_ADMIN"), ("codigo_cnv", "CODIGO_CNV"), ("cafci", "CAFCI"),
     ("actualizado_por", "actualizado_por"), ("actualizado_at", "actualizado_at"),

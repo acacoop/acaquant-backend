@@ -13,11 +13,13 @@ import pytest
 from jobs.assets_autofill import (
     _UMBRAL_HD,
     REGLAS,
+    _regla_especies,
     _regla_fci,
     _regla_financiamiento,
     _regla_financiamiento_clase,
     _regla_herencia,
     _regla_ticker,
+    anotar_especies,
     anotar_herencia,
     planificar,
 )
@@ -294,3 +296,68 @@ def test_reglas_no_se_pisan_entre_si():
     assert not any(r["conflictos"] for r in reporte.values())
     assert cambios[_UNIDAD_FIN]["ticker"] == "*BIN031000050"
     assert cambios[_UNIDAD_FCI]["ticker"] == "Argenfunds Ahorro Pesos - Clase B"
+
+
+# ── Regla `especies` — los dos símbolos de mercado ────────────────────────────
+
+_AL30 = "[7823] AL30 - BONO REP. ARG. USD 2030 L.A."
+
+
+def _esp(simbolo, ticker, especie, plazo="24hs", es_default=False):
+    return {"simbolo": simbolo, "ticker": ticker, "especie": especie,
+            "plazo": plazo, "es_default": es_default}
+
+
+_ESPECIES_AL30 = [
+    _esp("MERV - XMEV - AL30 - 24hs", "AL30", "pesos", es_default=True),
+    _esp("MERV - XMEV - AL30 - CI", "AL30", "pesos", plazo="CI"),
+    _esp("MERV - XMEV - AL30D - 24hs", "AL30", "mep"),
+    _esp("MERV - XMEV - AL30C - 24hs", "AL30", "cable"),
+]
+
+
+def test_especies_baja_las_dos_patas_por_ticker():
+    """El catálogo deja de ser una segunda verdad: los símbolos salen de especies."""
+    rows = [_fila(_AL30, ticker="AL30")]
+    anotar_especies(rows, _ESPECIES_AL30)
+    cambios, _ = planificar(rows, REGLAS)
+    assert cambios[_AL30]["instrumento"] == "MERV - XMEV - AL30 - 24hs"
+    assert cambios[_AL30]["instrumento_usd"] == "MERV - XMEV - AL30D - 24hs"
+
+
+def test_especies_el_cable_no_es_la_pata_usd():
+    """`instrumento_usd` es MEP. Mezclar cable volvería a esconder cuál es cuál."""
+    rows = [_fila(_AL30, ticker="AL30")]
+    anotar_especies(rows, [_esp("MERV - XMEV - AL30C - 24hs", "AL30", "cable")])
+    assert _regla_especies(rows[0]) == {}
+
+
+def test_especies_prefiere_24hs_sobre_ci():
+    """CI existe pero no es donde hay liquidez — y por lo tanto precio."""
+    rows = [_fila(_AL30, ticker="AL30")]
+    anotar_especies(rows, [_esp("MERV - XMEV - AL30 - CI", "AL30", "pesos", plazo="CI"),
+                           _esp("MERV - XMEV - AL30 - 24hs", "AL30", "pesos")])
+    assert _regla_especies(rows[0])["instrumento"] == "MERV - XMEV - AL30 - 24hs"
+
+
+def test_especies_nunca_pisa_el_simbolo_cargado_a_mano():
+    """EL invariante que hace seguro este cambio: lo que el motor suscribe hoy
+    sigue igual. Un símbolo distinto al de especies se REPORTA, no se escribe."""
+    rows = [_fila(_AL30, ticker="AL30", instrumento="MERV - XMEV - AL30D - 24hs")]
+    anotar_especies(rows, _ESPECIES_AL30)
+    cambios, reporte = planificar(rows, REGLAS)
+    assert "instrumento" not in cambios.get(_AL30, {})
+    assert any("instrumento" in c for c in reporte["especies"]["conflictos"])
+
+
+def test_especies_deriva_el_ticker_de_la_unidad_si_esta_vacio():
+    """El asset que el writer dio de alta hace 40' todavía no tiene TICKER
+    escrito (lo completa la regla `ticker` en esta misma corrida)."""
+    rows = [_fila(_AL30)]
+    rep = anotar_especies(rows, _ESPECIES_AL30)
+    assert rep["con_pata_ars"] == 1
+    assert _regla_especies(rows[0])["instrumento"] == "MERV - XMEV - AL30 - 24hs"
+
+
+def test_especies_sin_anotar_no_opina():
+    assert _regla_especies({"unidad": _AL30, "ticker": "AL30"}) == {}

@@ -30,7 +30,8 @@ READ-ONLY total (REGLA #4): sólo SELECT, sin escrituras, sin `--aplicar`.
 
 Uso:
     python -m scripts.diag_1816_fuente
-    python -m scripts.diag_1816_fuente --umbral 25   # el corte de TNA (default 25)
+    python -m scripts.diag_1816_fuente --catalogo    # + el catálogo completo (1 crédito)
+    python -m scripts.diag_1816_fuente --umbral 25   # el corte de TEA en % (default 25)
 """
 from __future__ import annotations
 
@@ -72,9 +73,43 @@ def clave_emisor(s: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="¿Alcanza 1816 como fuente de verdad?")
+    ap.add_argument("--catalogo", action="store_true",
+                    help="consultar el catálogo COMPLETO de 1816 (cuesta 1 crédito)")
     ap.add_argument("--umbral", type=float, default=25.0,
                     help="|TNA| en %% a partir de la cual un bono USD es sospechoso")
     args = ap.parse_args()
+
+    # ── 0) ¿QUÉ TIENE 1816 PARA DAR? ────────────────────────────────────────
+    if args.catalogo:
+        _sep("0) CATÁLOGO COMPLETO DE 1816 (cuesta 1 crédito)")
+        print("  Lo que hay en `mkt_1816_instrumentos` es lo que la WATCHLIST pidió,")
+        print("  no lo que 1816 tiene. `instrumentos()` sin filtro trae el catálogo")
+        print("  entero por 1 crédito — es lo único que dice si se puede cubrir")
+        print("  corporativos ampliando el watch, o si 1816 directamente no los trae.")
+        from core import mercado_1816
+        try:
+            cat = mercado_1816.instrumentos()
+        except Exception as e:
+            print(f"  ⚠ no se pudo consultar ({e}) — ¿credenciales cargadas?")
+            cat = []
+        if cat:
+            nuestros = {r["ticker"].upper() for r in _q(
+                "SELECT ticker FROM mercado.curvas WHERE ticker IS NOT NULL")}
+            suyos = {str(i.get("ticker") or "").upper() for i in cat if i.get("ticker")}
+            print(f"\n  1816 publica: {len(cat)} instrumentos ({len(suyos)} tickers)")
+            print(f"  de NUESTROS {len(nuestros)} bonos, 1816 tiene: "
+                  f"{len(nuestros & suyos)}")
+            print(f"  {'EMISOR_TIPO':<18}{'BONOS':>8}{'EN EL CATÁLOGO':>16}{'%':>8}")
+            print("  " + "-" * 50)
+            for r in _q("SELECT COALESCE(emisor_tipo,'(sin clasificar)') AS t, "
+                        "array_agg(upper(ticker)) AS tks "
+                        "FROM mercado.curvas GROUP BY 1 ORDER BY 1"):
+                tks = set(r["tks"] or [])
+                hay = len(tks & suyos)
+                pct = (100.0 * hay / len(tks)) if tks else 0
+                print(f"  {r['t']:<18}{len(tks):>8}{hay:>16}{pct:>7.0f}%")
+            campos = sorted({k for i in cat[:50] for k in i})
+            print(f"\n  campos que trae cada instrumento: {', '.join(campos)}")
 
     # ── 1) COBERTURA ────────────────────────────────────────────────────────
     _sep("1) COBERTURA — ¿1816 conoce nuestros bonos?")
@@ -137,7 +172,12 @@ def main() -> None:
     print(f"\n  bonos SIN emisor que 1816 sí tiene (el backfill los completa): {sin}")
 
     # ── 3) TNA ABSURDA ──────────────────────────────────────────────────────
-    _sep(f"3) TNA ABSURDA — bonos USD/DL con |TNA| > {args.umbral:.0f}%")
+    _sep(f"3) TASAS ABSURDAS — bonos USD con |TEA| > {args.umbral:.0f}%")
+    print("  OJO con la unidad: `market_snapshot.tea` guarda una FRACCIÓN")
+    print("  (1.421 = 142,1%), no un porcentaje — el front la multiplica por 100")
+    print("  al mostrarla. La primera corrida de este diag comparaba contra 25 y")
+    print(f"  devolvió 0 casos con AFCHO al 142% en pantalla. El corte real es "
+          f"{args.umbral / 100:.2f}.")
     print("  NO se calcula nada acá. Se leen los DOS números ya guardados: nuestra")
     print("  TEA (`market_snapshot`, la que escribe motor_curvas) y la de 1816")
     print("  (`mkt_1816_series`, su última fecha). Ponerlos uno al lado del otro es")
@@ -164,7 +204,7 @@ def main() -> None:
                  c.fecha_vencimiento, c.flujo_vencimiento, c.flujos,
                  s.last_price, s.tea, s.duration, s.paridad
         ORDER BY abs(s.tea) DESC
-    """, (args.umbral,))
+    """, (args.umbral / 100.0,))
     print(f"\n  encontrados: {len(raros)}")
     print(f"\n  {'TICKER':<9}{'TIPO':<13}{'TEA':>9}{'TEA 1816':>10}{'DUR':>7}"
           f"{'PX':>10}{'FLUJOS':>8}{'VTO':>12}  AJUSTE")

@@ -240,6 +240,25 @@ def _fetch_curva_docs(curva: str, fijados: set[str]) -> list[dict]:
             "SELECT ticker, ticker_corto, tipo, curva, fecha_vencimiento, "
             "fecha_emision, flujo_vencimiento FROM mercado.curvas WHERE curva = 'tasa_fija'",
         )
+    if curva in ("soberanos", "dolar_linked"):
+        # Por los EJES, igual que la tabla. Antes esto filtraba `curva = %s` y el
+        # gráfico mostraba bonos que la tabla NO: bajo `curva='soberanos'` viven
+        # 6 corporativos y un BOPREAL mal clasificados desde antes del rediseño,
+        # y el gráfico los dibujaba porque leía otra fuente. Dos fuentes para la
+        # misma pregunta siempre terminan contestando distinto.
+        #
+        # El OR con `ajuste IS NULL` es la red de seguridad: si los ejes todavía
+        # no se escribieron (falta correr `clasificar_curvas`), la curva sigue
+        # saliendo por el camino viejo en vez de quedar vacía.
+        if curva == "soberanos":
+            cond = ("((ajuste = 'fija' AND moneda_eje IN ('USD','EUR')) "
+                    "OR (ajuste IS NULL AND curva = 'soberanos'))")
+        else:
+            cond = ("(ajuste = 'dolar_linked' "
+                    "OR (ajuste IS NULL AND curva = 'dolar_linked'))")
+        return _q(
+            "SELECT ticker, ticker_corto, tipo, curva, fecha_vencimiento, "
+            f"fecha_emision, flujo_vencimiento FROM mercado.curvas WHERE {cond}")
     if curva in ("tamar", "dual"):
         # Por el EJE, no por el string viejo: los duales están guardados con
         # `curva='cer'` o `curva='tamar'` y sin este branch la curva sale vacía

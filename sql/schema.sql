@@ -1515,6 +1515,14 @@ CREATE TABLE IF NOT EXISTS mercado.curvas (
     ley               text,   -- local | ny  (Bonar vs Global)
     instrumento       text    -- bono | letra
 );
+-- Los EJES en tablas que YA existen: el CREATE TABLE de arriba es no-op sobre una
+-- tabla creada, así que las columnas nuevas SOLO entran por ALTER (convención del
+-- repo). Sin esto el índice de abajo falla con UndefinedColumn.
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS emisor_tipo text;
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS moneda_eje  text;
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS ajuste      text;
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS ley         text;
+ALTER TABLE mercado.curvas ADD COLUMN IF NOT EXISTS instrumento text;
 CREATE INDEX IF NOT EXISTS ix_curvas_curva ON mercado.curvas(curva);
 CREATE INDEX IF NOT EXISTS ix_curvas_ejes  ON mercado.curvas(moneda_eje, ajuste);
 CREATE INDEX IF NOT EXISTS ix_curvas_vto   ON mercado.curvas(fecha_vencimiento);

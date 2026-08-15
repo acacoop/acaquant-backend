@@ -253,9 +253,36 @@ def _escribir(filas: list[dict]) -> int:
         return cur.rowcount or len(filas)
 
 
+def _corregir(cruzadas: list[dict], pedidos: set[str]) -> int:
+    """Repunta `mercado.curvas.instrumento` a la pata de la moneda correcta.
+
+    SOLO los tickers que el user nombra explícitamente — nunca "todos los
+    cruzados". Cambiar el instrumento cambia lo que el motor SUSCRIBE, así que
+    un bono cuya pata en dólares casi no opere pasaría de mostrar un precio en
+    otra escala a no mostrar NINGUNO. Eso se decide caso por caso mirando el
+    mercado, no desde un script."""
+    aplicables = [c for c in cruzadas if c["ticker"] in pedidos and c["simbolo_ok"]]
+    faltantes = pedidos - {c["ticker"] for c in aplicables}
+    if faltantes:
+        print(f"\n  ⚠ ignorados (no figuran como cruzados): {', '.join(sorted(faltantes))}")
+    if not aplicables:
+        return 0
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        for c in aplicables:
+            cur.execute("UPDATE mercado.curvas SET instrumento = %s WHERE ticker = %s",
+                        (c["simbolo_ok"], c["ticker"]))
+            print(f"  ✔ {c['ticker']:<8} {c['usa']} → {c['simbolo_ok']}")
+            # `es_default` sigue al master: la pata vieja lo pierde, la nueva lo gana.
+            cur.execute("UPDATE mercado.especies SET es_default = (simbolo = %s) "
+                        "WHERE ticker = %s", (c["simbolo_ok"], c["ticker"]))
+    return len(aplicables)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Paso 8: sembrar mercado.especies")
     ap.add_argument("--aplicar", action="store_true", help="escribe (default: dry-run)")
+    ap.add_argument("--corregir", help="tickers a repuntar a su pata correcta, "
+                                       "separados por coma (ej. AO29). Requiere --aplicar")
     args = ap.parse_args()
 
     print("=" * 96)
@@ -286,6 +313,18 @@ def main() -> None:
         return
     n = _escribir(filas)
     print(f"\n✅ {n} filas en mercado.especies. La vista NO cambia: nadie la lee todavía.")
+
+    if args.corregir:
+        pedidos = {t.strip().upper() for t in args.corregir.split(",") if t.strip()}
+        print(f"\n{'=' * 96}\nCORRIGIENDO EL INSTRUMENTO DEL MASTER ({len(pedidos)} pedidos)"
+              f"\n{'=' * 96}")
+        k = _corregir(cruzadas, pedidos)
+        if k:
+            print(f"\n✅ {k} corregidos. ESTO SÍ CAMBIA LA VISTA.")
+            print("   El precio pasa a leerse de la pata en dólares.")
+            print("   El motor toma el símbolo nuevo al arrancar (`cargar_tickers_ordenados`),")
+            print("   así que el cambio se ve cuando cron levante los motores; la API refresca")
+            print("   su cache del master sola en ≤300s (`core/curvas_sql.py`).")
 
 
 if __name__ == "__main__":

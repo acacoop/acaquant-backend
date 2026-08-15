@@ -128,6 +128,26 @@ y apuntando a su especie en PESOS. `AO29` es el que el user venía reportando de
 el principio ("muestra ~141.430 al lado de bonos en ~90"): no se detectaba antes
 porque el catálogo de Primary estaba viejo y no lo listaba.
 
+**Resultado final, con el discovery al día** (12.882 instrumentos): **758 patas**
+para 221 bonos, **0 sin default**, **36 con el default cruzado** y **13 fuera del
+catálogo**. De los 36, **`AO29` es el que el user venía reportando desde el
+principio** ("muestra ~141.430 al lado de bonos en ~90").
+
+**Corregir un cruce NO es un backfill masivo** (`--corregir TICKER[,TICKER]`, y solo
+junto con `--aplicar`). Repuntar `curvas.instrumento` cambia **lo que el motor
+suscribe**: un bono cuya pata en dólares casi no opere pasaría de mostrar un precio
+en otra escala a **no mostrar ninguno**. Eso se decide caso por caso mirando el
+mercado, no desde un script — por eso el flag exige tickers explícitos y nunca
+acepta "todos".
+
+> ⚠️ **Las curvas `on_*` fracasaron y las ONs se van a rediseñar** (decisión del
+> user, 2026-08-15): `on_energia` / `on_finanzas` / `on_otros` nunca se usaron. **El
+> modelo de especies es ORTOGONAL a eso**: `mercado.especies` no guarda ni una
+> referencia a `curva`, así que el rediseño de ONs puede reagrupar como quiera sin
+> tocarlo. Los **34 cruces que son ONs quedan a la espera** de ese rediseño —
+> corregirlos ahora sería trabajo que se rehace. Los 2 que NO son ONs (`AO29`
+> soberano y `CO32`) se pueden corregir ya.
+
 Siembra: `python -m scripts.sembrar_especies` (DRY-RUN) / `--aplicar`. Nadie lee
 la tabla todavía: se puebla, se mira, y recién después se mudan los readers.
 

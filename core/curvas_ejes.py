@@ -161,6 +161,41 @@ _UNIVERSO_VISTA = {
 }
 
 
+# La PILL y la CURVA son la MISMA clasificación con un nombre distinto en un solo
+# caso: la tabla se llama HARD DOLAR y la curva se llama `soberanos`. Todo lo
+# demás coincide. Escribirlo como una traducción de una palabra —y no como una
+# segunda tabla de reglas— es lo que garantiza que no puedan divergir nunca.
+_PILL_A_CURVA = {"hard_dolar": "soberanos"}
+
+
+def curvas_de(ejes: Ejes | None) -> tuple[str, ...]:
+    """En qué CURVAS entra un bono. Es `pills()` con un solo nombre traducido.
+
+    Existe para que `curvas_sql.por_curva` pueda dejar de filtrar por la columna
+    `curva` —una palabra escrita a mano— sin que aparezca una SEGUNDA copia del
+    criterio. La clasificación del sistema vive en `pills()` y en ningún otro
+    lado; esto es una vista de eso.
+
+    Devuelve varias para un dual, igual que `pills()`: un CER+TAMAR pertenece a
+    las dos curvas, y hoy `por_curva('tamar')` no lo encuentra.
+
+    `cer_fijado` NO se aplica acá a propósito: es un ESTADO del día (cambia
+    cuando el BCRA publica) y la pertenencia a una curva es una propiedad del
+    bono. Mezclarlos haría que un bono cambie de curva de un día para el otro.
+    """
+    return tuple(_PILL_A_CURVA.get(p, p) for p in pills(ejes))
+
+
+def ejes_de_doc(doc: dict) -> Ejes | None:
+    """Los ejes de un doc del master (o `None` si le faltan). Vive acá para que
+    los ~500 lugares que leen por `curvas_sql` no reconstruyan la tupla cada uno
+    a su manera."""
+    if not (doc.get("emisor_tipo") and doc.get("moneda_eje") and doc.get("ajuste")):
+        return None
+    return Ejes(doc["emisor_tipo"], doc["moneda_eje"], doc["ajuste"],
+                doc.get("ley"), doc.get("ajuste_alt"))
+
+
 def sql_universo(curva: str, *, fit: bool = False) -> str | None:
     """El `WHERE` sobre `mercado.curvas` que reproduce el universo de esa curva.
 

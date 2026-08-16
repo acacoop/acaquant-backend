@@ -187,3 +187,37 @@ def test_hay_predicado_para_cada_pill():
     for p in ce.PILLS:
         curva = "soberanos" if p == "hard_dolar" else p
         assert ce.sql_universo(curva), p
+
+
+def test_la_CURVA_y_la_PILL_son_la_misma_clasificacion():
+    """No hay dos tablas de reglas: la curva es la pill con UN nombre traducido
+    (la tabla se llama HARD DOLAR, la curva `soberanos`). Si alguien agregara una
+    regla nueva solo en un lado, este test lo caza."""
+    for nombre, e in ce.EJES_1816.items():
+        esperado = tuple(ce._PILL_A_CURVA.get(p, p) for p in ce.pills(e))
+        assert ce.curvas_de(e) == esperado, nombre
+    assert ce.curvas_de(ce.EJES_1816["Soberanos USD Bonares"]) == ("soberanos",)
+    assert ce.curvas_de(ce.EJES_1816["Soberanos ARS CER"]) == ("cer",)
+
+
+def test_un_dual_pertenece_a_SUS_DOS_curvas():
+    """Hoy `por_curva('tamar')` no encuentra a TXMD8 porque su columna dice 'cer'.
+    Ese es justo el bono que el trader busca en las dos tablas."""
+    assert ce.curvas_de(ce.Ejes("soberano", "ARS", "cer", ajuste_alt="tamar")) == \
+           ("cer", "tamar")
+
+
+def test_la_curva_NO_depende_del_estado_del_dia():
+    """`cer_fijado` cambia cuando el BCRA publica. Si entrara acá, un bono
+    cambiaría de CURVA de un día para el otro — y las tablas de historia están
+    particionadas por curva."""
+    cer = ce.EJES_1816["Soberanos ARS CER"]
+    assert ce.curvas_de(cer) == ("cer",)
+
+
+def test_ejes_de_doc_no_inventa_lo_que_falta():
+    assert ce.ejes_de_doc({"emisor_tipo": "soberano", "moneda_eje": "ARS"}) is None
+    assert ce.ejes_de_doc({}) is None
+    e = ce.ejes_de_doc({"emisor_tipo": "soberano", "moneda_eje": "ARS",
+                        "ajuste": "cer", "ajuste_alt": "tamar"})
+    assert e is not None and e.ajuste_alt == "tamar"

@@ -25,11 +25,37 @@ _cache: dict = {"data": None, "ts": 0.0}
 _lock = threading.Lock()
 
 
+# Columnas que el blob `data` NO tiene y que hay que MERGEAR encima de cada doc.
+#
+# El blob es la forma vieja del master: se congeló antes de que existieran los
+# ejes, y `jobs/ficha_1816` escribe el emisor estandarizado en la COLUMNA. O sea
+# que quien lee por acá —y son ~500 lugares— veía un doc CIEGO a la clasificación
+# y con el emisor viejo. Ya se cobró dos incidentes (el editor de Manager borraba
+# el emisor; el form de bonos cargaba los ejes vacíos y guardar los borraba).
+#
+# La COLUMNA SIEMPRE GANA: es la que escriben los procesos nuevos. Un valor del
+# blob que sobreviva es, por definición, uno que nadie migró todavía.
+_COLS_FUERA_DEL_BLOB = ("emisor_tipo", "moneda_eje", "ajuste", "ajuste_alt",
+                        "ley", "emisor", "sector")
+
+
 def _load_all() -> list[dict]:
     try:
+        cols = ", ".join(_COLS_FUERA_DEL_BLOB)
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT data FROM mercado.curvas")
-            return [r[0] for r in cur.fetchall() if r[0] is not None]
+            cur.execute(f"SELECT data, {cols} FROM mercado.curvas")
+            nombres = [d[0] for d in cur.description][1:]
+            out = []
+            for fila in cur.fetchall():
+                doc = fila[0]
+                if doc is None:
+                    continue
+                # Solo los NO nulos: una columna vacía no puede borrar lo que el
+                # blob sí tenga. Completar sí, pisar con nada no.
+                doc.update({k: v for k, v in zip(nombres, fila[1:], strict=False)
+                            if v is not None})
+                out.append(doc)
+            return out
     except Exception:
         return []
 

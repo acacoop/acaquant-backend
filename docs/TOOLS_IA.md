@@ -70,7 +70,7 @@
 | 38 | **tesoreria_dia** | "¿Cuánto entró y salió por banco hoy, en pesos y dólares?" | `tesoreria.ingresos_egresos_dia` (:64) — **live contra Aunesa** | medio | medio | 3 |
 | 39 | **cartera_referido** | "¿Cuánto aporta el referido X y cuánta comisión de FCI le toca?" | `comercial.referido_clientes` (:307) / `referido_fci` (:402) — **ficha nueva** | grande | alto | 3 |
 | 40 | **tasas_sinteticas** | "¿Qué tasa paga el sintético en USD y cómo viene contra la semana pasada?" | `sinteticos.get_sinteticos` (:80) + `snapshots_sinteticos` — **vista nueva + reader nuevo** | grande | alto | 3 |
-| 41 | ~~pagos_ons~~ | "Calendario de pagos de ONs por emisor" | `renta_fija.calendario_ons` (:176) | chico | **bajo** | — |
+| 41 | ~~pagos_ons~~ | "Calendario de pagos de ONs por emisor" | **la fuente ya no existe**: `calendario_ons` se borró el 2026-08-16 con la vista `/ons` | — | — | descartada |
 
 ---
 

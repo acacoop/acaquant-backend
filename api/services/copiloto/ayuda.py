@@ -66,9 +66,6 @@ _MAPA = [
                 "movimiento de tasa — el 'carry roll-down'). El carry trade y el "
                 "canje NO están acá: viven en HOME",
      "permiso": "toda la mesa"},
-    {"seccion": "ONs", "ruta": "/ons", "menu": "MERCADOS → ONs",
-     "que_hay": "obligaciones negociables por sector, con rendimiento y ficha por título",
-     "permiso": "toda la mesa"},
     {"seccion": "Renta Fija", "ruta": "/renta-fija", "menu": "MERCADOS → Renta Fija",
      "que_hay": "las curvas de bonos (tasa fija, CER, soberanos en dólares), breakevens de "
                 "inflación, tasas forward y fair value",

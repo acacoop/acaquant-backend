@@ -39,14 +39,6 @@ def listar_curva(
     )
 
 
-@router.get("/ons-calendario")
-def ons_calendario(
-    meses: int = Query(12, description="Horizonte en meses (1-120)"),
-):
-    """Calendario de pagos de las ONs: próximos cupones/amortizaciones."""
-    return svc_rf.calendario_ons(meses=meses)
-
-
 @router.get("/serie-macro")
 def serie_macro(
     variable: str = Query(..., description="tamar|cer|dolar|badlar|mep|ccl|canje|ipc|ipim|riesgo_pais|repo|rem_inflacion o <TICKER>.<CAMPO>"),

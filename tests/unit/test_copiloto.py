@@ -855,18 +855,23 @@ def test_feedback_valor_invalido():
     }
 
 
-# ── Vistas nuevas 2026-07-14: AGRO · OPCIONES (derivados) · ONs ──────────────
+# ── Vistas nuevas 2026-07-14: AGRO · OPCIONES (derivados) ────────────────────
+# La vista ONs se ELIMINÓ el 2026-08-16 (los corporativos se miran desde Renta
+# Fija; ser corporativo es un EJE, no una curva) → su copiloto se fue con ella.
 
 
 def test_vistas_nuevas_registradas():
-    """Congela el contrato de las 3 vistas sumadas el 2026-07-14."""
+    """Congela el contrato de las vistas sumadas el 2026-07-14."""
     agro = copiloto.VISTAS["agro"]
     assert agro["modulo"] == "agro" and agro["dominio"] and agro["chips"]
     opc = copiloto.VISTAS["derivados"]
     assert opc["modulo"] == "derivados" and opc["dominio"] and opc["chips"]
-    ons = copiloto.VISTAS["ons"]
-    # la página /ons vive bajo renta-fija en la nav — mismo gate
-    assert ons["modulo"] == "renta-fija" and ons["dominio"] and ons["chips"]
+
+
+def test_la_vista_ons_ya_no_existe():
+    """Se borró con la vista /ons. Si vuelve a aparecer es que alguien resucitó
+    `on_*` como curva — que es justo lo que el rediseño sacó."""
+    assert "ons" not in copiloto.VISTAS
 
 
 def test_fetch_agro_aplana_y_normaliza(monkeypatch):
@@ -905,42 +910,6 @@ def test_fetch_opciones_filtra_sin_precio_y_normaliza_iv(monkeypatch):
     filas = copiloto._fetch_opciones()
     assert len(filas) == 1  # el strike sin cotizar no viaja
     assert round(filas[0]["iv"], 1) == 41.2  # fracción → %
-
-
-def test_fetch_ons_normaliza_tea_y_sector(monkeypatch):
-    from api.services import renta_fija_sql
-
-    def fake_listar(**kwargs):  # @cached → kwargs SIEMPRE (el clásico del repo)
-        assert kwargs["curva"] == "on"
-        return [
-            {"ticker_corto": "YMCXO", "emisor": "YPF", "sector": "on_energia",
-             "moneda": "USD", "fecha_vencimiento": "2031-06-30", "meses_al_vto": 59.4,
-             "ultimo_precio": 102.5, "tea": 0.0745, "duration": 3.9,
-             "paridad": 98.2, "total_nominals_dia": 15000},
-            {"ticker_corto": "XXXX", "emisor": None, "sector": None, "moneda": "ARS",
-             "fecha_vencimiento": "2027-01-01", "meses_al_vto": 5.5,
-             "ultimo_precio": None, "tea": None, "duration": None,
-             "paridad": None, "total_nominals_dia": None},
-        ]
-
-    monkeypatch.setattr(renta_fija_sql, "listar_curva", fake_listar)
-    filas = copiloto._fetch_ons()
-    assert round(filas[0]["tea"], 2) == 7.45      # fracción → %
-    assert filas[0]["sector_label"] == "energia"
-    assert filas[1]["sector_label"] == "otros"          # sin sector → otros
-    assert filas[1]["tea"] is None                      # None no revienta
-
-
-def test_extras_ons_promedio_por_sector_y_moneda():
-    filas = [
-        {"sector_label": "energia", "moneda": "USD", "tea": 8.0},
-        {"sector_label": "energia", "moneda": "USD", "tea": 6.0},
-        {"sector_label": "energia", "moneda": "ARS", "tea": 40.0},
-        {"sector_label": "otros", "moneda": "USD", "tea": None},  # sin TEA no cuenta
-    ]
-    bloque = "\n".join(copiloto._extras_ons(filas, "panorama", []))
-    assert "energia (USD): 2 ONs · TEA promedio 7.00%" in bloque
-    assert "energia (ARS): 1 ONs · TEA promedio 40.00%" in bloque
 
 
 def test_verificador_puntuacion_final_pegada():

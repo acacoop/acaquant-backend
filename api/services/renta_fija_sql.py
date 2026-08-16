@@ -10,7 +10,7 @@ Read-side de MERCADO para renta fija. Qué lee cada función:
 
 Se reexportan de `api/services/renta_fija.py` los helpers compartidos y las
 funciones de derivados: `_CURVAS_VALIDAS`, `resolver_ticker_exacto`,
-`calendario_ons`, `get_retorno_total_data`.
+`get_retorno_total_data`.
 
 El MEP live sale de `macro.get_ultimo_mep` (snapshot del motor de dólar, TTL 5s).
 
@@ -33,9 +33,7 @@ from api.services._sql import _f, _q
 from api.services.renta_fija import (  # noqa: F401  (reexport intencional)
     _CURVAS_VALIDAS,
     _ORDENES_VALIDOS,
-    _es_curva_on,
     _tc_breakeven,
-    calendario_ons,
     get_retorno_total_data,
     resolver_ticker_exacto,
 )
@@ -254,16 +252,6 @@ def _fetch_curva_docs(curva: str, fijados: set[str]) -> list[dict]:
             "fecha_vencimiento, fecha_emision, flujo_vencimiento "
             "FROM mercado.curvas WHERE ajuste = %s",
             (curva,))
-    if _es_curva_on(curva):
-        if curva == "on":
-            return _q(
-                "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, "
-                "fecha_vencimiento, fecha_emision, curva, emisor, moneda_flujo "
-                "FROM mercado.curvas WHERE curva LIKE 'on%%'")
-        return _q(
-            "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, "
-            "fecha_vencimiento, fecha_emision, curva, emisor, moneda_flujo "
-            "FROM mercado.curvas WHERE curva = %s", (curva,))
     return _q(
         "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, "
         "fecha_vencimiento, fecha_emision FROM mercado.curvas WHERE curva = %s", (curva,))
@@ -313,7 +301,7 @@ def listar_curva(
     """Espejo SQL de renta_fija.listar_curva. Misma lógica de ensamblado/orden;
     solo cambian las fuentes (mercado.curvas + market_snapshot en vez de Trading.*).
     Reasignación CER↔tasa_fija idéntica (reusa `_bonos_cer_fijados`, Mongo)."""
-    if curva not in _CURVAS_VALIDAS and not _es_curva_on(curva):
+    if curva not in _CURVAS_VALIDAS:
         return []
     if ordenar_por not in _ORDENES_VALIDOS:
         ordenar_por = "vencimiento"
@@ -392,10 +380,6 @@ def listar_curva(
             cer_em = d.get("cer_emision")
             if cer_em:
                 entry["cer_emision"] = float(cer_em)
-        if _es_curva_on(str(d.get("curva", ""))):
-            entry["emisor"] = d.get("emisor")
-            entry["sector"] = d.get("curva")
-            entry["moneda"] = d.get("moneda_flujo")
         out.append(entry)
 
     if ordenar_por == "vencimiento":

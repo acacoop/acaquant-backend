@@ -13,7 +13,7 @@ Modularizado 2026-07-17 (era un único copiloto.py de ~3.400 líneas). Mapa:
 - base           helpers puros + system prompt + tono por rol
 - verificacion   guardrails de números/jerga/derrame (anti-alucinación)
 - <vista>.py     una por vista (renta_variable, renta_fija, trading, home,
-                 agro, opciones, ons, reuters): fetch + extras + reglas + chips
+                 agro, opciones, reuters): fetch + extras + reglas + chips
 - registro       el dict VISTAS (ensambla las vistas)
 - derivacion     [[VISTA:x]] + acceso RBAC (vistas_para / puede_usar)
 - motor          preguntar() + vigia() + historial + feedback
@@ -41,7 +41,6 @@ from .motor import (
     registrar_feedback,
     vigia,
 )
-from .ons import _extras_ons, _fetch_ons
 from .opciones import _fetch_opciones
 from .registro import VISTAS
 from .renta_fija import _estrategia_rf, _fetch_renta_fija, _rem_promedio_hasta, _resumen_curvas_rf
@@ -66,10 +65,8 @@ __all__ = [
     "_estado_mercado",
     "_estrategia_rf",
     "_extraer_vista_sugerida",
-    "_extras_ons",
     "_fetch_agro",
     "_fetch_home",
-    "_fetch_ons",
     "_fetch_opciones",
     "_fetch_renta_fija",
     "_fetch_trading",

@@ -16,7 +16,6 @@ from .home import _REGLAS_HOME, _extras_home, _fetch_home
 from .navegacion import TOOLS_NAVEGACION
 from .navegacion import ejecutor as _ejecutor_navegacion
 from .negocio import _handler_negocio
-from .ons import _REGLAS_ONS, _extras_ons, _fetch_ons
 from .opciones import _REGLAS_OPCIONES, _extras_opciones, _fetch_opciones
 from .renta_fija import (
     _REGLAS_RENTA_FIJA,
@@ -404,39 +403,5 @@ VISTAS: dict[str, dict] = {
             ("vega", "vega"), ("spot", "spot_subyacente"),
         ],
         "reglas": _REGLAS_OPCIONES,
-    },
-    "ons": {
-        "titulo": "ONs",
-        # la página /ons vive bajo el módulo renta-fija en la nav — mismo gate
-        "modulo": "renta-fija",
-        "dominio": "obligaciones negociables — deuda corporativa por sector "
-                   "(energía/finanzas/otros), TEA, vencimientos, cupones y "
-                   "amortizaciones que vienen",
-        "fetch": _fetch_ons,
-        "extras": _extras_ons,
-        # mismo idioma que renta fija
-        "jerga_permitida": {"tea", "paridad", "duration", "dur", "bps", "curva",
-                            "cupon", "emisor", "moneda", "meses", "precio", "vence",
-                            "vn", "nominales"},
-        "chips": [
-            {"label": "Panorama de ONs",
-             "pregunta": "¿Cómo está la curva de ONs hoy? TEA por sector y moneda, "
-                         "y qué papeles operaron de verdad. Cortito."},
-            {"label": "Mejores TEA en USD",
-             "pregunta": "¿Qué ONs en dólares rinden más hoy entre las que tienen "
-                         "volumen real? Tabla chica: ticker | emisor | TEA | vence — "
-                         "y marcá dónde la liquidez obliga a tomar el dato con pinzas."},
-            {"label": "Pagos próximos",
-             "pregunta": "¿Qué cupones y amortizaciones de ONs vienen en los próximos "
-                         "90 días? Ordenado por fecha, con emisor y monto por 100 VN."},
-        ],
-        "columnas": [
-            ("ticker_corto", "ticker"), ("emisor", "emisor"),
-            ("sector_label", "sector"), ("moneda", "moneda"),
-            ("fecha_vencimiento", "vence"), ("meses_al_vto", "meses"),
-            ("ultimo_precio", "precio"), ("tea", "tea%"), ("duration", "dur"),
-            ("paridad", "paridad%"), ("total_nominals_dia", "nominales_dia"),
-        ],
-        "reglas": _REGLAS_ONS,
     },
 }

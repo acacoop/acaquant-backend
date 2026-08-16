@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import date
 
 from api.cache import cached
 from core import curvas_sql
@@ -25,12 +25,6 @@ logger = logging.getLogger(__name__)
 # `_fetch_curva_docs` y docs/RENTA_FIJA.md §0.
 _CURVAS_VALIDAS = ("cer", "tasa_fija", "tamar", "soberanos", "dolar_linked", "dual")
 _ORDENES_VALIDOS = ("vencimiento", "volumen_dia", "tea", "duration")
-
-
-def _es_curva_on(curva: str) -> bool:
-    """Familia ONs: 'on' (todas) o 'on_<sector>' (energia/financiera/...).
-    El sector va codificado en la curva, igual que cer/tasa_fija."""
-    return curva == "on" or curva.startswith("on_")
 
 
 def _ticker_filter(instrumento: str) -> dict:
@@ -158,7 +152,7 @@ def listar_curva(
     vencimiento (default), volumen, TEA o duration. Filtrable por horizonte
     (vencimiento_min/max_meses).
     """
-    if curva not in _CURVAS_VALIDAS and not _es_curva_on(curva):
+    if curva not in _CURVAS_VALIDAS:
         return []
     if ordenar_por not in _ORDENES_VALIDOS:
         ordenar_por = "vencimiento"
@@ -173,49 +167,6 @@ def listar_curva(
         vencimiento_max_meses=vencimiento_max_meses,
         limit=limit,
     )
-
-
-@cached(ttl=300)
-def calendario_ons(meses: int = 12) -> list[dict]:
-    """Próximos pagos (cupón + amortización) de TODAS las ONs, plano y ordenado
-    por fecha — para el panel Calendario de la vista ONs.
-
-    Lee Trading.Curvas (curva ^on); flujos en shape nativo BondsMaster
-    {fecha, amortizacion, interes, valor_residual}. `monto` = amortizacion +
-    interes (por 100 VN). Incluye `tasa_cupon` (la tasa de cupón del bono) y
-    `cupon` (el monto del cupón de ese pago)."""
-    hoy = datetime.now(UTC).date()
-    try:
-        meses = max(1, min(int(meses), 120))
-    except (TypeError, ValueError):
-        meses = 12
-    hasta = hoy + timedelta(days=meses * 31)
-
-    out: list[dict] = []
-    for d in curvas_sql.corporativos():
-        for f in d.get("flujos") or []:
-            raw = f.get("fecha")
-            try:
-                fd = raw.date() if isinstance(raw, datetime) else date.fromisoformat(str(raw)[:10])
-            except Exception:
-                continue
-            if not (hoy < fd <= hasta):
-                continue
-            amort = float(f.get("amortizacion") or 0)
-            cupon = float(f.get("interes") or 0)
-            out.append({
-                "fecha": fd.isoformat(),
-                "ticker": d.get("ticker_corto"),
-                "emisor": d.get("emisor"),
-                "sector": d.get("curva"),
-                "moneda": d.get("moneda_flujo"),
-                "tasa_cupon": d.get("tasa_cupon"),
-                "cupon": round(cupon, 4),
-                "amortizacion": round(amort, 4),
-                "monto": round(amort + cupon, 4),
-            })
-    out.sort(key=lambda x: (x["fecha"], x["ticker"] or ""))
-    return out
 
 
 @cached(ttl=60)

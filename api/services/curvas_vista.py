@@ -47,9 +47,16 @@ def _bonos_crudos() -> list[dict]:
     return _q(
         f"SELECT c.ticker AS ticker_corto, c.instrumento AS ticker, c.curva, c.tipo, "
         f"c.fecha_vencimiento, c.emisor, c.emisor_tipo, c.moneda_eje, c.ajuste, "
-        f"c.ajuste_alt, c.ley, c.flujo_vencimiento, {cols} "
+        f"c.ajuste_alt, c.ley, c.flujo_vencimiento, e.industria, {cols} "
         f"FROM mercado.curvas c "
-        f"LEFT JOIN mercado.market_snapshot s ON s.ticker = c.instrumento",
+        f"LEFT JOIN mercado.market_snapshot s ON s.ticker = c.instrumento "
+        # La INDUSTRIA se resuelve desde el EMISOR en la LECTURA, no se guarda en
+        # el bono. Ese es todo el punto: el dato existe UNA vez y no puede
+        # contradecirse consigo mismo. El LEFT JOIN devuelve NULL cuando el emisor
+        # todavía no tiene industria — y NULL es "sin clasificar", que la vista
+        # tiene que MOSTRAR como bucket propio, nunca mezclar con `otros`.
+        f"LEFT JOIN mercado.emisores e "
+        f"       ON upper(btrim(e.emisor)) = upper(btrim(c.emisor))",
     )
 
 
@@ -103,6 +110,11 @@ def _armar(rows: list[dict], fijados: set[str]) -> dict:
                 "emisor_tipo": ejes.emisor_tipo, "emisor": r.get("emisor"),
                 "moneda": ejes.moneda, "ajuste": ejes.ajuste,
                 "ajuste_alt": ejes.ajuste_alt, "ley": ejes.ley,
+                # Solo para corporativos: un soberano no tiene industria, y
+                # mandarla en null para todos haría que el filtro del gráfico
+                # muestre un bucket "sin clasificar" con 60 soberanos adentro.
+                "industria": (r.get("industria")
+                              if ejes.emisor_tipo == "corporativo" else None),
                 "tipo": r.get("tipo"), "vencimiento": r.get("fecha_vencimiento"),
                 "cer_fijado": fijado,
                 "flujo_vencimiento": _f(r.get("flujo_vencimiento")),

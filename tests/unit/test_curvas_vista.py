@@ -15,6 +15,7 @@ def _fila(tc, emisor_tipo, moneda, ajuste, **kw):
             "fecha_vencimiento": "2027-01-01", "emisor": kw.get("emisor", "ACME"),
             "emisor_tipo": emisor_tipo, "moneda_eje": moneda, "ajuste": ajuste,
             "ley": kw.get("ley"), "ajuste_alt": kw.get("ajuste_alt"),
+            "industria": kw.get("industria"),
             "flujo_vencimiento": kw.get("flujo_vencimiento"),
             "last_price": kw.get("last_price", 100.0), "tea": kw.get("tea", 0.3)}
     return base
@@ -128,3 +129,23 @@ def test_un_dual_con_las_dos_patas_iguales_no_se_duplica():
     """Dato mal cargado: no puede aparecer dos veces en la MISMA tabla."""
     out = _armar([_fila("X", "soberano", "ARS", "cer", ajuste_alt="cer")], fijados=set())
     assert [b["pill"] for b in out["bonos"]] == ["cer"]
+
+
+def test_la_industria_solo_viaja_para_CORPORATIVOS():
+    """Un soberano no tiene industria. Mandarla en null para todos haría que el
+    filtro del gráfico muestre un bucket "sin clasificar" con 60 soberanos
+    adentro — un pendiente inventado que nadie puede resolver."""
+    out = _armar([
+        _fila("IRCPO", "corporativo", "USD", "fija", industria="energia"),
+        _fila("AE38", "soberano", "USD", "fija", ley="local", industria="energia"),
+    ], fijados=set())
+    ind = {b["ticker_corto"]: b["industria"] for b in out["bonos"]}
+    assert ind == {"IRCPO": "energia", "AE38": None}
+
+
+def test_un_corporativo_sin_industria_llega_en_null_y_no_como_otros():
+    """`null` es SIN CLASIFICAR y tiene que verse como bucket propio. Mapearlo a
+    'otros' en el backend lo volvería indistinguible de un emisor clasificado ahí
+    a propósito — el mismo cajón que venimos desarmando."""
+    out = _armar([_fila("XXO", "corporativo", "USD", "fija")], fijados=set())
+    assert out["bonos"][0]["industria"] is None

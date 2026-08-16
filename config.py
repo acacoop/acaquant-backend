@@ -187,6 +187,11 @@ GUARDRAILS_UMBRALES: dict[str, float | None] = {
     "salto_precio_pct": None,     # |Δ%| del precio de cierre por bono vs cierre previo
     "cobertura_curva_pct": None,  # % mínimo de bonos del master con cierre en el día
     "especies_cruzadas_max": None,  # bonos cuyo instrumento no es de su moneda
+    # Corporativos cuyo emisor no tiene industria. Arranca en None (= no marca
+    # violación) igual que el resto: el catálogo recién se siembra y hoy son 51.
+    # Se fija cuando la mesa termine de cargar — la idea es que el número BAJE y
+    # el umbral lo sostenga, no al revés.
+    "emisores_sin_industria_max": None,
 }
 
 # --- CUPO TRANSACCIONAL ---

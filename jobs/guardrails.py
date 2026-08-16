@@ -251,6 +251,41 @@ def _leer_especies_cruzadas() -> list[dict]:
 # ─────────────────────────── runner ──────────────────────────────────────────
 
 
+def check_emisores_sin_industria(sin_clasificar: list[dict],
+                                 contradicciones: list[dict],
+                                 umbral_max: float | None) -> list[dict]:
+    """Corporativos cuyo emisor no tiene industria cargada, y emisores cuyos bonos
+    se contradicen entre sí.
+
+    Existe porque el estado "sin clasificar" es VISIBLE en Manager pero **nadie
+    está obligado a mirarlo**. Sin este chequeo, la única forma de enterarse de
+    que un emisor nuevo entró sin industria es que alguien abra esa pantalla — que
+    es exactamente el modo de falla del incidente 2026-08-07 (el backfill de
+    tenencias falló dos días y nadie se enteró porque el dato faltaba en una
+    pantalla que nadie tenía abierta).
+
+    Un emisor sin industria NO rompe nada visible: al agrupar cae en un bucket que
+    se lee como "otros" y es indistinguible de uno clasificado ahí a propósito.
+    """
+    out = []
+    n_sin = sum(f.get("bonos", 0) for f in sin_clasificar)
+    ok = umbral_max is None or len(sin_clasificar) <= umbral_max
+    out.append(_res("emisor_sin_industria", ok, "media",
+                    f"{len(sin_clasificar)} emisor(es) corporativos sin industria "
+                    f"({n_sin} bonos): "
+                    + (", ".join(f["emisor"] for f in sin_clasificar[:6]) or "—"),
+                    len(sin_clasificar), umbral_max))
+    if contradicciones:
+        # Siempre violación: no hay umbral tolerable para "el mismo emisor dice
+        # dos industrias distintas". O se decide, o el agrupamiento miente.
+        out.append(_res("emisor_contradictorio", False, "media",
+                        f"{len(contradicciones)} emisor(es) con sectores distintos "
+                        "entre sus propios bonos: "
+                        + ", ".join(c["emisor"] for c in contradicciones[:6]),
+                        len(contradicciones), 0))
+    return out
+
+
 def correr_checks() -> list[dict]:
     """Lee los datos y corre el registry completo. Devuelve TODOS los resultados
     (ok y violaciones) — el caller decide reportar o alertar."""
@@ -271,6 +306,14 @@ def correr_checks() -> list[dict]:
             _leer_master_por_curva(), set(p_hoy), u.get("cobertura_curva_pct"))
     except Exception as e:
         logger.warning("guardrails: lectura de cierres falló (%s)", e)
+
+    try:
+        from api.services import emisores as _em
+        resultados += check_emisores_sin_industria(
+            _em.sin_clasificar(), _em.contradicciones(),
+            u.get("emisores_sin_industria_max"))
+    except Exception as e:
+        logger.warning("guardrails: lectura de emisores falló (%s)", e)
 
     try:
         resultados += check_especies_cruzadas(

@@ -329,7 +329,8 @@ el flujo: un bullet a 10 días y un amortizante que paga casi todo la semana que
 viene tienen el mismo problema, y la fecha de vencimiento no lo dice.
 
 **La tasa NO se borra: se marca.** La tabla la muestra apagada con el motivo en el
-tooltip; el gráfico la excluye y avisa «N fuera de escala (siguen en la tabla)».
+tooltip; el gráfico simplemente la excluye (el aviso «N fuera de escala» se sacó
+a pedido del user: ocupaba una línea y no aportaba).
 Ocultar el número sería mentir por omisión — el bono existe y tiene precio; lo que
 no es comparable es su tasa. Y descartar puntos en silencio haría pensar que el
 bono no está. La marca vive **server-side** para que la tabla y el gráfico no
@@ -341,6 +342,24 @@ Peor: como en ARS mandan los soberanos y en USD los corporativos, **parecía un
 filtro aplicado al revés**. Ahora el último activo no se puede apagar → lo que se
 ve es siempre lo que está encendido. El default sigue siendo `soberano`, para los
 dos lados.
+
+**2.b La LEYENDA del gráfico ES el filtro.** En HARD DOLAR conviven ~8 industrias
+y el scatter era ilegible. **Un click en una familia la AÍSLA; click en la aislada
+vuelve a todas.** Se usó la leyenda en vez de agregar una fila de controles: la
+vista tiene poco alto y lo que sobra son datos, no espacio.
+
+Tres detalles que hacen que funcione y que no son obvios:
+- El aislado se aplica **al construir los puntos**, no al dibujarlos: así el eje Y,
+  el fit y las etiquetas se recalculan para lo que quedó. Filtrando solo en el
+  render, aislar FINANZAS dejaría la escala de los 129 bonos y se vería una raya.
+- La leyenda se arma con **todas** las familias, no con las visibles. Si saliera de
+  `tipos`, al aislar una la leyenda se autodestruía y no había cómo volver.
+- Cambiar de pill **limpia el aislado**: las familias de TASA FIJA no son las de
+  HARD DOLAR, y un aislado heredado dejaba el gráfico vacío sin pista del porqué.
+
+A qué familia pertenece un bono vive en **una sola función** (`familiaDe`), usada
+por los puntos y por la leyenda: si cada uno lo derivara a su manera, la leyenda
+podría ofrecer un filtro que no matchea ningún punto.
 
 **3. Volvió TC BREAKEVEN a TASA FIJA.** Estaba en la tabla vieja y nunca se
 implementó en la nueva — el comentario del componente lo mencionaba pero el

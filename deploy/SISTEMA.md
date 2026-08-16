@@ -78,12 +78,14 @@
 | 17:00 · L-V | `jobs.sync_comitentes'` |
 | 02:00 · Mar-Sáb | `jobs.cashflow` |
 | 20:00 · L-V | `jobs.volatilidad_ggal'` |
+| 20:00 · L-V | `jobs.tamar_1816'` |
 | 21:00 · L-V | `jobs.sync_comitentes'` |
 | 22:00 · L-V | `jobs.precios_acciones_daily'` |
 | 22:00 · L-V | `jobs.bcra` |
 | 22:00 · L-V | `jobs.market_anchors'` |
 | 22:00 · L-V | `jobs.mercado_1816_series'` |
 | 23:00 · L-V | `jobs.validar_instrumentos'` |
+| cada hora · 13-19h · L-V | `jobs.tamar_1816'` |
 | 20:10 · L-V | `jobs.estrategia_resolver` |
 | 21:10 · L-V | `jobs.eikon_cierres'` |
 | 20:15 · L-V | `jobs.options_rollup'` |

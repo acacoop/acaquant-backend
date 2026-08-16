@@ -82,10 +82,18 @@ deduce (`ajuste_alt IS NOT NULL`), las tablas salen sin reglas especiales
 no cambie y los dos deploys no tengan que ser simultáneos.
 
 De dónde salió cada pata: la 1ª de `curva` (donde la mesa lo archivó), la 2ª de
-`data->>'tasa_referencia'`. **1816 no sirve y está medido**: su ficha trae 9
-campos, los 9 ya los guardamos, y la denominación de los ocho es
-`GOB ARS ARG DUAL (<ticker>)`. Los 3 que ninguna fuente tenía los dijo la mesa
+`data->>'tasa_referencia'`. Los 3 que ninguna fuente tenía los dijo la mesa
 (`PATAS_MANUALES`): TTD26 y TTS26 son TAMAR+FIJA, TMVE8 es TAMAR+DOLAR LINKED.
+
+> ⚠️ **CORRECCIÓN (2026-08-16).** Acá decía «1816 no sirve y está medido»,
+> apoyado en que la ficha de los duales trae 9 campos y la denominación de los
+> ocho es `GOB ARS ARG DUAL (<ticker>)`. **La medición era buena y la conclusión
+> era falsa**: se le había preguntado por el ticker PELADO. 1816 publica cada
+> pata como un **TICKER APARTE** (`TXMD9 @CER`, `TXMD9 @TAMAR`) con su propio
+> cashflow y su propia tasa. La ficha del pelado no las nombra porque las patas
+> no son campos suyos: son instrumentos. Ver **Paso 18**.
+
+
 
 ⚠️ **TMVE8 es el primer bono que CRUZA DE COLUMNA** (TAMAR es ARS, DOLAR LINKED es
 USD). Eso destapó que el front decidía el lado de la tabla con
@@ -368,6 +376,80 @@ implementó en la nueva — el comentario del componente lo mencionaba pero el
 determinado, y el MEP se lee **una vez por request** e **se inyecta** a `_armar`
 para no romper su pureza (esa función se testea sin base). Sin MEP el campo sale
 `null`, nunca 0 — un 0 en pantalla se leería como un tipo de cambio.
+
+#### Paso 18 (2026-08-16) — los TAMAR y el MARGEN, traídos de 1816 (y los duales de yapa)
+
+**El agujero.** Los 18 bonos con pata TAMAR no tenían **ningún cálculo**: caen en
+el `else` de `engines/curvas.py`, que solo computa duration. No estaban mal
+valuados — estaban **sin valuar**, y eso no se veía porque una celda vacía no
+rompe nada. Peor: de un TAMAR lo que la mesa mira no es tanto la TEA sino el
+**MARGEN sobre la TAMAR** (cuánto paga por encima de la tasa del BCRA), y ese
+concepto directamente no existía en el sistema.
+
+**Por qué NO lo calculamos.** Un TAMAR es una nota de tasa **promedio**: el cupón
+promedia la TAMAR de bancos privados entre T−10 hábiles de emisión y T−10 del
+vencimiento, más un margen fijado en licitación — la parte ya observada está
+congelada y la futura hay que proyectarla. Medido contra la planilla de la mesa:
+
+| | 1816 | planilla de la mesa |
+|---|---|---|
+| TXMD9 TEA | 38,62% | 38,55% |
+| TXMD9 margen | 9,73% | 9,71% |
+| TXMD9 precio | 84,10 | 84,10 |
+
+O sea que **la mesa ya valida contra 1816**. Reimplementar la metodología nos
+pondría a competir con el número que ellos ya miran, y 3 puntos básicos de
+diferencia alcanzarían para que nadie use el nuestro aunque tuviera razón.
+
+**Y los DUALES se resuelven con la misma llamada.** 1816 publica cada pata como
+un ticker aparte, y **rinden distinto de verdad**: TXMD9 da **6,82%** por CER
+(tasa REAL, sobre inflación) contra **38,62%** por TAMAR (nominal) — ~2.900 bps.
+Hasta hoy la vista mostraba **el mismo número en las dos tablas**, porque
+`mercado.market_snapshot` tiene una fila por símbolo y por lo tanto una sola TEA.
+Por eso `mercado.tamar_1816` tiene PK **(ticker, pata)**: es la estructura que el
+snapshot no puede representar.
+
+**Cómo se junta sin crear una segunda verdad.** El job NO escribe en
+`market_snapshot` — esa tabla es del motor (Primary, live, cada 5s) y esto es 1816
+(BYMA, con delay). Se juntan en la **lectura** (`curvas_vista`), y cada fila viaja
+con su procedencia: `tea_fuente` (`null` = motor), `tea_fecha` (la rueda real) y
+`pata`. La tabla muestra el aviso una sola vez arriba, no un ícono por fila.
+`ce.pata_de_pill()` —la **inversa** de `pills()`, en el mismo módulo y reusando
+`_pill_de_ajuste`— es lo que dice qué pata corresponde a cada tabla; con un
+segundo criterio, el bono mostraría la tasa de la otra pata y nada fallaría.
+Un test barre el dominio completo de ejes verificando que toda pill sepa su pata.
+
+**Cuatro trampas que costaron una corrida cada una:**
+
+1. **`indicadores` sin `fechaOperacion` usa HOY.** Un domingo devolvió los 6
+   campos en `null` y pareció que el campo `spread` no existía. Estaba avisado en
+   el docstring del cliente. El job manda **siempre** fecha explícita y retrocede
+   día hábil por día hábil si vuelve vacía (eso cubre feriados y las corridas de
+   antes de las 11 ART, cuando la rueda de hoy todavía no existe).
+2. **El campo del margen es `spread`.** `margen`, `margin`, `spreadTamar` y
+   `margenTamar` devuelven HTTP 400. Se probaron **de a uno**: la API rechaza la
+   llamada entera si un campo no existe, así que en lote no se sabe cuál falló.
+3. **Escala: FRACCIONES.** 1816 manda `0.0973` para «9,73%», igual que nuestro
+   `market_snapshot.tea`. Se guarda tal cual — convertir habría dejado dos escalas
+   conviviendo, que es el bug que suma bien de los dos lados y da distinto al
+   comparar.
+4. **La grafía la manda el catálogo, no nosotros.** Concatenar `f"{tk} @TAMAR"`
+   parece obvio y es frágil. Se leen las variantes de
+   `research.mkt_1816_instrumentos`. Caso real: en TTD26/TTS26 el catálogo guarda
+   `@TASA FIJA` pero la denominación dice `@BONCAP`, y con la primera 1816 no
+   devuelve nada → el job pide **las dos** y gana la que trae tasa.
+
+**Lo que 1816 NO cubre y hay que saberlo**: de los 9 corporativos con pata TAMAR
+volvió **solo ZPC1O**. Los otros 8 y el provincial CO2D7 quedan sin tasa y sin
+margen — celda vacía, que es honesto. El job lo cuenta (`sin_dato` en
+`manager.job_runs`) para que la caída se vea en vez de descubrirse mirando.
+
+**Pendiente**: los TAMAR siguen sin TEA en `get_renta_fija` (la tabla vieja), MCP
+y forwards — esos leen `market_snapshot`, que no se toca. Solo la tab CURVAS los
+valúa hoy.
+
+Cron: **cada 30′ de 10 a 17 ART, L-V** (`0,30 13-19` + `0 20` UTC), ~150 créditos
+por corrida ≈ 2.250/día de los 100.000 diarios.
 
 ### Paso 8 — las PATAS (`mercado.especies`, 2026-08-15)
 

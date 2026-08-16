@@ -221,3 +221,46 @@ def test_ejes_de_doc_no_inventa_lo_que_falta():
     e = ce.ejes_de_doc({"emisor_tipo": "soberano", "moneda_eje": "ARS",
                         "ajuste": "cer", "ajuste_alt": "tamar"})
     assert e is not None and e.ajuste_alt == "tamar"
+
+
+# ── pata_de_pill: la inversa de pills() (2026-08-16) ─────────────────────────
+
+
+def test_pata_de_pill_es_la_INVERSA_de_pills_para_todo_el_dominio():
+    """INVARIANTE. Toda pill que `pills()` devuelve tiene que poder decir de qué
+    PATA salió — si no, la vista no sabría qué tasa mostrar en esa tabla y caería
+    a la del bono entero, que es exactamente el bug de los duales.
+
+    Se barre el dominio completo (no un par de casos) porque el modo de fallar es
+    mudo: la fila aparece, con un número, y es el de la otra pata.
+    """
+    from itertools import product
+
+    from core.curvas_ejes import AJUSTES, EMISORES, MONEDAS, Ejes, pata_de_pill, pills
+
+    for emisor, moneda, aj, alt, fijado in product(
+            EMISORES, MONEDAS, AJUSTES, (None, *AJUSTES), (False, True)):
+        if alt == aj:
+            continue                      # un dual consigo mismo no existe
+        ejes = Ejes(emisor, moneda, aj, None, alt)
+        for pill in pills(ejes, fijado):
+            pata = pata_de_pill(ejes, pill, fijado)
+            assert pata in (aj, alt), f"{ejes} pill={pill} → pata={pata}"
+            assert pata is not None
+
+
+def test_pata_de_pill_devuelve_None_para_una_pill_ajena():
+    from core.curvas_ejes import Ejes, pata_de_pill
+    assert pata_de_pill(Ejes("soberano", "ARS", "cer", None, "tamar"),
+                        "hard_dolar") is None
+    assert pata_de_pill(None, "cer") is None
+
+
+def test_pata_de_pill_respeta_el_cer_fijado():
+    """Un CER fijado se muestra en TASA FIJA: la pata que lo produjo sigue siendo
+    `cer`, no `fija`. Si devolviera `fija`, se buscaría la tasa de una pata que el
+    bono no tiene."""
+    from core.curvas_ejes import Ejes, pata_de_pill
+    e = Ejes("soberano", "ARS", "cer")
+    assert pata_de_pill(e, "tasa_fija", cer_fijado=True) == "cer"
+    assert pata_de_pill(e, "cer", cer_fijado=True) is None

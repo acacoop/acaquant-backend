@@ -98,6 +98,19 @@ def _bonos_crudos() -> list[dict]:
     )
 
 
+def _tamar_1816() -> dict[tuple[str, str], dict]:
+    """`(ticker, pata) → fila de 1816`. Lo llena `jobs/tamar_1816` cada 30'.
+
+    Fuente SEPARADA de `market_snapshot` a propósito: eso es del motor (Primary,
+    live, cada 5s) y esto es 1816 (BYMA, con delay). Juntarlas en la tabla habría
+    dejado una TEA sin forma de saber de dónde salió; se juntan acá, en la
+    lectura, y cada bono viaja con su `tea_fuente`.
+    """
+    return {(r["ticker"], r["pata"]): r for r in _q(
+        "SELECT ticker, pata, tea, tna, spread, precio_clean, duration, paridad, "
+        "fecha_operacion FROM mercado.tamar_1816")}
+
+
 def _fijados_cortos() -> set[str]:
     """Tickers CER con el CER de liquidación ya publicado (se comportan como tasa
     fija). MISMA fuente que la vista de hoy — si esto se calculara distinto, un
@@ -107,14 +120,16 @@ def _fijados_cortos() -> set[str]:
             for t in (_bonos_cer_fijados() or [])}
 
 
-def _armar(rows: list[dict], fijados: set[str], mep: float | None = None) -> dict:
+def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
+           tamar: dict[tuple[str, str], dict] | None = None) -> dict:
     """Puro: filas crudas → payload de la vista. Testeable sin base.
 
-    `mep` entra COMO PARÁMETRO y no se lee acá adentro a propósito: esta función
-    es la que decide qué ve el usuario y se testea sin base. Traer el MEP desde
-    adentro la haría depender de la red y de un import cíclico con `macro`.
-    Sin MEP el `tc_breakeven` sale None, que es "no se pudo calcular" — no 0.
+    `mep` y `tamar` entran COMO PARÁMETROS y no se leen acá adentro a propósito:
+    esta función es la que decide qué ve el usuario y se testea sin base. Traer el
+    MEP desde adentro la haría depender de la red y de un import cíclico con
+    `macro`. Sin MEP el `tc_breakeven` sale None, que es "no se pudo calcular" — no 0.
     """
+    tamar = tamar or {}
     bonos: list[dict] = []
     sin_clasificar: list[str] = []
     n_pill: dict[str, int] = {}
@@ -148,6 +163,35 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None) -> dic
         # contrato NO cambia y no hace falta que los dos deploys sean simultáneos
         # (el front va a Vercel solo; el backend se sube a mano y siempre después).
         for pill in del_bono:
+            # ── LA TASA DE **ESTA** PATA ────────────────────────────────────
+            # `metrics` viene de `market_snapshot`, que tiene UNA fila por símbolo
+            # y por lo tanto una sola TEA: un dual CER+TAMAR mostraba el MISMO
+            # número en sus dos tablas. 1816 publica cada pata por separado, así
+            # que cuando hay dato para la pata de ESTA pill, manda ese.
+            #
+            # Prevalece 1816 y no el motor porque para los TAMAR el motor no
+            # calcula NADA (rama `otros` → solo duration) y para la pata CER de un
+            # dual la tasa del snapshot es la de la otra pata. Donde el motor sí
+            # sabe (un CER puro), esta tabla no tiene fila y no pasa nada.
+            pata = ce.pata_de_pill(ejes, pill, fijado)
+            t1816 = tamar.get((tc, pata)) if pata else None
+            m_pill = dict(metrics)
+            fuente, fecha_1816, margen = None, None, None
+            if t1816 and t1816.get("tea") is not None:
+                m_pill["TEA"] = float(t1816["tea"])
+                # La TEM del motor era de la OTRA pata (o no existía): dejarla
+                # sería mezclar dos tasas distintas en la misma fila.
+                m_pill.pop("TEM", None)
+                for col, key in (("duration", "duration"), ("paridad", "paridad")):
+                    if t1816.get(col) is not None:
+                        m_pill[key] = float(t1816[col])
+                fuente = "1816"
+                fecha_1816 = t1816.get("fecha_operacion")
+                # El MARGEN sobre la TAMAR: lo que la mesa mira de un TAMAR. En
+                # fracción (0.0973 = 9,73%), la MISMA escala que la TEA.
+                margen = (float(t1816["spread"])
+                          if t1816.get("spread") is not None else None)
+
             bonos.append({
                 "ticker_corto": tc, "instrumento": r.get("ticker"),
                 "pill": pill, "lado": ce.LADO[pill],
@@ -171,8 +215,16 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None) -> dic
                                   _f(r.get("flujo_vencimiento")), mep)
                     if pill == "tasa_fija" else None),
                 # La tasa de este bono es ruido por duration ~0 (ver DUR_MIN_TASA).
-                "tasa_ruido": _es_ruido(metrics, ejes.emisor_tipo),
-                "metrics": metrics,
+                "tasa_ruido": _es_ruido(m_pill, ejes.emisor_tipo),
+                # De qué pata es esta fila y de dónde salió su tasa. `None` en
+                # `tea_fuente` = el motor (live). Viaja SIEMPRE, aunque hoy solo
+                # el TAMAR use la otra fuente: una tasa sin procedencia obliga a
+                # adivinar de dónde vino, y ese es el bug que no se ve.
+                "pata": pata,
+                "tea_fuente": fuente,
+                "tea_fecha": fecha_1816,
+                "margen": margen,
+                "metrics": m_pill,
             })
             n_pill[pill] = n_pill.get(pill, 0) + 1
         # El emisor cuenta BONOS, no filas: un dual que sale en dos pills sigue
@@ -211,4 +263,4 @@ def get_curvas_vista() -> dict:
     doc = get_ultimo_mep()
     raw = doc.get("mep") if doc else None
     mep = float(raw) if raw and raw > 0 else None
-    return _armar(_bonos_crudos(), _fijados_cortos(), mep)
+    return _armar(_bonos_crudos(), _fijados_cortos(), mep, _tamar_1816())

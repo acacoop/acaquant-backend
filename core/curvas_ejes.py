@@ -322,6 +322,31 @@ def _pill_de_ajuste(ajuste: str | None, moneda: str, cer_fijado: bool) -> str | 
     return None      # badlar / tpm / caucion todavía no tienen pill
 
 
+def pata_de_pill(ejes: Ejes | None, pill: str, cer_fijado: bool = False) -> str | None:
+    """Qué PATA (ajuste) de este bono produjo esa pill. `None` si ninguna.
+
+    Es la inversa de `pills()` y existe por los DUALES. Un CER+TAMAR sale en las
+    dos tablas, y hasta el 2026-08-16 llevaba la MISMA tasa en ambas porque
+    `mercado.market_snapshot` tiene una fila por símbolo y por lo tanto UNA sola
+    TEA. Medido ese día: entre la pata CER y la TAMAR de TXMD9 hay ~2.900 bps
+    (6,82% real contra 38,62% nominal). No son dos formas de decir lo mismo.
+
+    Sabiendo la pata, cada tabla puede buscar la tasa que le corresponde. Vive
+    ACÁ y reusa `_pill_de_ajuste` —la misma función que decidió las pills— para
+    que no pueda existir un segundo criterio que diverja: con dos, el bono
+    quedaría mostrando la tasa de la otra pata y nada fallaría.
+
+    Devuelve la PRIMERA pata que cae en esa pill. Que las dos caigan en la misma
+    es imposible por construcción: `normalizar_ejes` rechaza `ajuste_alt == ajuste`.
+    """
+    if ejes is None:
+        return None
+    for ajuste in (ejes.ajuste, ejes.ajuste_alt):
+        if ajuste and _pill_de_ajuste(ajuste, ejes.moneda, cer_fijado) == pill:
+            return ajuste
+    return None
+
+
 def pills(ejes: Ejes | None, cer_fijado: bool = False) -> tuple[str, ...]:
     """En qué pills entra un instrumento. Puede ser MÁS DE UNA.
 

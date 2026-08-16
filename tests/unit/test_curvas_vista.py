@@ -211,3 +211,74 @@ def test_sin_mep_el_tc_breakeven_es_none_y_no_cero():
     b = _armar([_fila("S30S6", "soberano", "ARS", "fija", flujo_vencimiento=117.54)],
                fijados=set(), mep=None)["bonos"][0]
     assert b["tc_breakeven"] is None
+
+
+# ── TAMAR / DUALES: la tasa de 1816 por PATA (2026-08-16) ────────────────────
+#
+# El bug que estos tests congelan: un dual CER+TAMAR salía en sus dos tablas con
+# la MISMA tasa, porque `market_snapshot` tiene una fila por símbolo y por lo
+# tanto una sola TEA. Medido contra 1816: entre las patas de TXMD9 hay ~2.900 bps.
+
+
+def _t1816(**kw):
+    base = {"tea": None, "tna": None, "spread": None, "precio_clean": None,
+            "duration": None, "paridad": None, "fecha_operacion": "2026-08-14"}
+    base.update(kw)
+    return base
+
+
+def test_un_dual_muestra_LA_TASA_DE_CADA_PATA_y_no_la_misma_dos_veces():
+    """EL bug de los duales. Sin esto las dos tablas mienten a la vez."""
+    filas = [_fila("TXMD9", "soberano", "ARS", "cer", ajuste_alt="tamar", tea=0.0682)]
+    tamar = {("TXMD9", "cer"): _t1816(tea=0.0682),
+             ("TXMD9", "tamar"): _t1816(tea=0.3862, spread=0.0973)}
+    out = _armar(filas, fijados=set(), tamar=tamar)
+    por_pill = {b["pill"]: b for b in out["bonos"]}
+    assert set(por_pill) == {"cer", "tamar"}
+    assert por_pill["cer"]["metrics"]["TEA"] == 0.0682
+    assert por_pill["tamar"]["metrics"]["TEA"] == 0.3862
+    # el MARGEN solo tiene sentido en la pata TAMAR
+    assert por_pill["tamar"]["margen"] == 0.0973
+    assert por_pill["cer"]["margen"] is None
+    assert por_pill["tamar"]["pata"] == "tamar" and por_pill["cer"]["pata"] == "cer"
+
+
+def test_la_tasa_de_1816_viaja_con_su_procedencia_y_su_fecha():
+    """Una tasa sin procedencia obliga a adivinar de dónde vino. La del motor es
+    live; la de 1816 tiene delay y puede ser de la rueda anterior."""
+    filas = [_fila("TMF27", "soberano", "ARS", "tamar", tea=None)]
+    tamar = {("TMF27", "tamar"): _t1816(tea=0.3037, spread=0.0343,
+                                        fecha_operacion="2026-08-14")}
+    b = _armar(filas, fijados=set(), tamar=tamar)["bonos"][0]
+    assert b["tea_fuente"] == "1816" and b["tea_fecha"] == "2026-08-14"
+    assert b["metrics"]["TEA"] == 0.3037 and b["margen"] == 0.0343
+
+
+def test_sin_dato_de_1816_manda_el_motor_y_la_fuente_queda_en_None():
+    """Donde el motor sí calcula (un CER puro) esta tabla no tiene fila y no
+    puede cambiar nada. `tea_fuente=None` significa "motor, live"."""
+    b = _armar([_fila("TX26", "soberano", "ARS", "cer", tea=0.055)],
+               fijados=set(), tamar={})["bonos"][0]
+    assert b["metrics"]["TEA"] == 0.055
+    assert b["tea_fuente"] is None and b["margen"] is None
+
+
+def test_una_fila_de_1816_SIN_tea_no_pisa_la_del_motor():
+    """Fila vieja o incompleta: `null` no es un valor, es la ausencia de uno.
+    Pisar con null borraría una tasa buena."""
+    tamar = {("TMF27", "tamar"): _t1816(tea=None, spread=0.03)}
+    b = _armar([_fila("TMF27", "soberano", "ARS", "tamar", tea=0.31)],
+               fijados=set(), tamar=tamar)["bonos"][0]
+    assert b["metrics"]["TEA"] == 0.31 and b["tea_fuente"] is None
+
+
+def test_al_tomar_la_TEA_de_1816_se_descarta_la_TEM_del_motor():
+    """La TEM del snapshot es de la OTRA pata (o de ninguna): dejarla mezclaría
+    dos tasas distintas en la misma fila y la mensual contradiría a la anual."""
+    filas = [_fila("TXMD9", "soberano", "ARS", "cer", ajuste_alt="tamar")]
+    filas[0]["tem"] = 0.004
+    out = _armar(filas, fijados=set(),
+                 tamar={("TXMD9", "tamar"): _t1816(tea=0.3862)})
+    por_pill = {b["pill"]: b for b in out["bonos"]}
+    assert "TEM" not in por_pill["tamar"]["metrics"]
+    assert por_pill["cer"]["metrics"].get("TEM") == 0.004   # esa pata no la tocó

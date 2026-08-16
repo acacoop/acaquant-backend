@@ -351,6 +351,21 @@
 # Requiere MERCADO_1816_API_KEY. Cliente con throttle+backoff (rate limit 429).
 0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh mercado_1816_series 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mercado_1816_series'
 
+# ─── TAMAR: tasa + MARGEN desde 1816 → mercado.tamar_1816
+# Los bonos con pata TAMAR no tenían NINGÚN cálculo (caen en el `else` del motor,
+# que solo computa duration) y el MARGEN sobre la TAMAR —que es lo que la mesa
+# mira— no existía en el sistema. No los valuamos nosotros: 1816 da el mismo
+# número que la planilla de la mesa (TXMD9 38,62%/9,73% vs 38,55%/9,71%).
+# De paso resuelve los DUALES: 1816 publica cada pata como ticker aparte
+# (`TXMD9 @CER` / `@TAMAR`) y hay ~2.900 bps entre ellas — la tabla guarda una
+# fila por pata, que es lo que market_snapshot no puede representar.
+# INTRADÍA cada 30' de 10 a 17 ART = 13:00-20:00 UTC L-V (15 corridas).
+# ~150 créditos por corrida ≈ 2.250/día de los 100.000 diarios.
+# NO toca mercado.market_snapshot (eso es del motor, live/Primary): la vista
+# junta las dos fuentes en la LECTURA y marca la procedencia.
+0,30 13-19 * * 1-5 /root/TradingAV/deploy/run_job.sh tamar_1816 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.tamar_1816'
+0 20 * * 1-5 /root/TradingAV/deploy/run_job.sh tamar_1816 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.tamar_1816'
+
 # ─── FRED (tab DATOS INTERNACIONALES de RESEARCH) — series macro global → research.fred_observations
 # 4×/día L-V (FRED publica en días hábiles USA; la vista sirve de la DB 24/7).
 # Incremental por watermark con colchón por frecuencia (D:−10d, M/Q:−95d, revisiones).

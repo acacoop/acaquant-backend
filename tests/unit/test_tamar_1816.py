@@ -1,0 +1,69 @@
+"""Tests de la lógica pura de `jobs/tamar_1816.py` (sin base ni red).
+
+Lo que se protege son las tres decisiones que, si se pierden, hacen que el job
+siga corriendo verde y escriba de menos o escriba mal:
+
+  1. La GRAFÍA del ticker sale del catálogo de 1816, no se arma concatenando.
+  2. Un `null` de 1816 no se persiste como si fuera un valor.
+  3. La fecha de la rueda nunca queda en un día sin mercado.
+"""
+from __future__ import annotations
+
+import datetime as dt
+
+from jobs.tamar_1816 import _habil_anterior, _mejor_por_pata, _sufijo
+
+
+def test_habil_anterior_nunca_cae_en_fin_de_semana():
+    """El incidente que lo motivó: pedir sin fecha un DOMINGO devolvió los 6
+    campos en null y pareció que el campo `spread` no existía."""
+    assert _habil_anterior(dt.date(2026, 8, 16)) == dt.date(2026, 8, 14)  # dom → vie
+    assert _habil_anterior(dt.date(2026, 8, 15)) == dt.date(2026, 8, 14)  # sáb → vie
+    assert _habil_anterior(dt.date(2026, 8, 17)) == dt.date(2026, 8, 14)  # lun → vie
+    assert _habil_anterior(dt.date(2026, 8, 14)) == dt.date(2026, 8, 13)  # vie → jue
+
+
+def test_sufijo_separa_la_pata_del_ticker():
+    assert _sufijo("TXMD9 @TAMAR") == "TAMAR"
+    assert _sufijo("TTD26 @TASA FIJA") == "TASA FIJA"
+    assert _sufijo("GOB ARS ARG DUAL (TTD26) @BONCAP") == "BONCAP"
+    assert _sufijo("TMF27") == ""          # TAMAR puro: no tiene patas que separar
+
+
+def test_gana_la_grafia_que_TRAE_datos_no_la_primera():
+    """El ALIAS. En TTD26 el catálogo guarda `@TASA FIJA` pero la denominación
+    dice `@BONCAP`, y con la primera 1816 no devuelve nada (medido 2026-08-16).
+    Se piden las dos y gana la que tiene tasa — si no, la pata fija del dual
+    quedaría vacía para siempre y el bono seguiría con una sola tasa."""
+    pedidos = {"TTD26 @TASA FIJA": ("TTD26", "fija"),
+               "TTD26 @BONCAP": ("TTD26", "fija")}
+    inst = {"TTD26 @TASA FIJA": {"tea": None},
+            "TTD26 @BONCAP": {"tea": 0.29, "spread": None}}
+    out = _mejor_por_pata(pedidos, inst)
+    assert out[("TTD26", "fija")]["ticker_1816"] == "TTD26 @BONCAP"
+    assert out[("TTD26", "fija")]["tea"] == 0.29
+
+
+def test_una_pata_sin_tea_NO_se_escribe():
+    """Pisar la fila anterior con nulls borraría una tasa buena. No escribir deja
+    la vieja, y `actualizado_en` delata que quedó atrasada — que es información."""
+    pedidos = {"TMF27": ("TMF27", "tamar"), "DHSGO": ("DHSGO", "tamar")}
+    inst = {"TMF27": {"tea": 0.3037}, "DHSGO": {"tea": None}}
+    out = _mejor_por_pata(pedidos, inst)
+    assert list(out) == [("TMF27", "tamar")]
+
+
+def test_un_ticker_que_1816_ni_devolvio_tampoco_rompe():
+    """8 de nuestros 9 corporativos con pata TAMAR no vuelven en la respuesta."""
+    assert _mejor_por_pata({"BNCYO": ("BNCYO", "tamar")}, {}) == {}
+
+
+def test_las_dos_patas_de_un_dual_se_guardan_por_separado():
+    """La razón de ser de la PK (ticker, pata): con el ticker solo, la segunda
+    pata pisaría a la primera y el dual volvería a tener una sola tasa."""
+    pedidos = {"TXMD9 @CER": ("TXMD9", "cer"), "TXMD9 @TAMAR": ("TXMD9", "tamar")}
+    inst = {"TXMD9 @CER": {"tea": 0.0682},
+            "TXMD9 @TAMAR": {"tea": 0.3862, "spread": 0.0973}}
+    out = _mejor_por_pata(pedidos, inst)
+    assert out[("TXMD9", "cer")]["tea"] == 0.0682
+    assert out[("TXMD9", "tamar")]["spread"] == 0.0973

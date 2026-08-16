@@ -1611,6 +1611,56 @@ CREATE INDEX IF NOT EXISTS ix_curvas_curva ON mercado.curvas(curva);
 CREATE INDEX IF NOT EXISTS ix_curvas_ejes  ON mercado.curvas(moneda_eje, ajuste);
 CREATE INDEX IF NOT EXISTS ix_curvas_vto   ON mercado.curvas(fecha_vencimiento);
 
+-- mercado.tamar_1816 — LA TASA Y EL MARGEN DE LOS TAMAR, TRAÍDOS DE 1816 (2026-08-16).
+--
+-- **El problema.** Los bonos TAMAR no tenían NINGÚN cálculo: caen en el `else` de
+-- `engines/curvas.py` y solo se les computaba duration. No estaban mal valuados
+-- —estaban SIN valuar— y eso no se veía porque una celda vacía no rompe nada.
+-- Y lo que la mesa mira de un TAMAR no es tanto la TEA sino el **MARGEN sobre la
+-- TAMAR**: cuánto paga por encima de la tasa de referencia del BCRA.
+--
+-- **Por qué no lo calculamos nosotros.** Un TAMAR es una nota de tasa PROMEDIO:
+-- el cupón es el promedio de la TAMAR de bancos privados entre T−10 hábiles de
+-- emisión y T−10 del vencimiento, más un margen fijado en licitación. La parte ya
+-- observada está congelada y la futura hay que proyectarla. Medido contra la
+-- planilla de la mesa (2026-08-16): 1816 da TXMD9 TEA 38,62% / margen 9,73% y la
+-- planilla dice 38,55% / 9,71% — o sea que **la mesa ya valida contra 1816**.
+-- Reimplementar la metodología nos pondría a competir con el número que ellos ya
+-- miran, y una diferencia de 3 puntos básicos alcanzaría para que nadie use el
+-- nuestro aunque tuviera razón.
+--
+-- **UNA FILA POR PATA, y ahí está el fix de los duales.** La PK es (ticker, pata)
+-- y no el ticker solo. Un dual CER+TAMAR rinde DISTINTO según por qué pata se lo
+-- mire, y `mercado.market_snapshot` no puede representarlo: tiene una fila por
+-- símbolo de mercado y por lo tanto UNA sola TEA. Medido el 2026-08-16, la
+-- diferencia entre patas de TXMD9 es de ~2.900 bps (TEA 6,82% por CER contra
+-- 38,62% por TAMAR) — no son dos formas de decir lo mismo, son dos números.
+-- Hasta hoy la vista mostraba el MISMO valor en las dos tablas.
+--
+-- ⚠️ **ESCALA: fracciones, no porcentajes.** 1816 devuelve 0.0973 para "9,73%",
+-- igual que nuestro `market_snapshot.tea`. Se guarda TAL CUAL — convertir acá
+-- crearía dos escalas conviviendo en la misma app, que es la clase de bug que
+-- suma bien en cada lado y da distinto al comparar.
+--
+-- `fecha_operacion` es la que ECHA 1816, no la que se pidió: si un feriado hace
+-- retroceder la búsqueda, la vista tiene que poder decir de qué día es el número.
+CREATE TABLE IF NOT EXISTS mercado.tamar_1816 (
+    ticker          text NOT NULL,   -- NUESTRO ticker (TXMD9) → mercado.curvas.ticker
+    pata            text NOT NULL,   -- el AJUSTE de esta pata: tamar | cer | fija | dolar_linked
+    ticker_1816     text NOT NULL,   -- la grafía exacta que se pidió ('TXMD9 @TAMAR')
+    tea             double precision,
+    tna             double precision,
+    spread          double precision,   -- EL MARGEN sobre la TAMAR (0.0973 = 9,73%)
+    precio_clean    double precision,
+    duration        double precision,
+    paridad         double precision,
+    fecha_operacion date,               -- la rueda a la que corresponden los valores
+    actualizado_en  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (ticker, pata)
+);
+-- Sin índice extra: son ~23 filas y el Seq Scan es óptimo (misma razón que las
+-- tablas chicas de Tesorería). La PK ya cubre el join por ticker.
+
 -- mercado.especies — LAS PATAS de cada bono (rediseño 2026-08-15, paso 8).
 --
 -- Un bono es UNO (AL30: un emisor, un cuadro de flujos) pero COTIZA en varias

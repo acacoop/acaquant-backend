@@ -79,7 +79,13 @@ def _filas(*pares):
 
 def test_a_market_snapshot_solo_manda_la_pata_PRINCIPAL(monkeypatch):
     """Escribir la pata TAMAR de un dual CER+TAMAR pisaría la tasa que el motor
-    calcula EN VIVO para ese bono, y con una de otra pata y de otra rueda."""
+    calcula EN VIVO para ese bono, y con una de otra pata y de otra rueda.
+
+    El filtro de emisor va en el SQL (`emisor_tipo IS DISTINCT FROM
+    'corporativo'`) y lo cubre `test_un_TAMAR_CORPORATIVO_lo_calcula_el_MOTOR`
+    del lado de la vista: un TAMAR corporativo va a la rama `on`, o sea que el
+    motor sí lo calcula y escribirle encima sería empezar una pelea que se
+    resuelve por quién guardó último."""
     import jobs.tamar_1816 as j
     vistos = {}
     monkeypatch.setattr(j, "_q", lambda sql, params=(): [

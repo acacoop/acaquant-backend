@@ -198,11 +198,20 @@ def _a_market_snapshot(filas: list[dict]) -> int:
     dejen de estar vacíos en el resto de la app (tabla RENTA FIJA, forwards, fair
     value, sensibilidad, MCP — todos leen esa tabla, no la nuestra).
 
-    **Solo `ajuste = 'tamar'`.** Ese es el conjunto donde el motor cae en la rama
-    `otros` y no calcula tasa, así que es imposible pisarle un número: no produce
-    ninguno. Un dual CER+TAMAR tiene `ajuste='cer'`, el motor sí lo calcula y en
-    VIVO, y esa es la tasa correcta para la tabla vieja — su pata TAMAR se ve en
-    la tab CURVAS, que es la única que sabe representar dos.
+    **Solo `ajuste='tamar'` Y emisor NO corporativo.** Ese es exactamente el
+    conjunto donde `rama_calculo` devuelve `otros` y el motor no produce ninguna
+    tasa, así que es imposible pisarle un número.
+
+    Las DOS condiciones hacen falta y la segunda se me pasó en la primera versión:
+    un TAMAR **corporativo** va a la rama `on`, o sea que el motor **sí** lo
+    calcula. Escribirle la tasa de 1816 no era "llenar un hueco" sino empezar una
+    PELEA: el motor recalcula con cada trade y volvería a pisarla, así que el
+    número mostrado dependería de quién escribió último. Hoy pasa con **ZPC1O**,
+    el único corporativo con pata TAMAR que 1816 cubre.
+
+    Un dual CER+TAMAR tampoco entra (tiene `ajuste='cer'`): ahí el motor calcula
+    y en VIVO, y esa es la tasa correcta para la tabla vieja — su pata TAMAR se
+    ve en la tab CURVAS, que es la única que sabe representar dos.
 
     La clave del snapshot es el SÍMBOLO DE MERCADO (`curvas.instrumento`), no el
     ticker: son dos cosas distintas desde el renombre del 2026-08-15.
@@ -219,7 +228,8 @@ def _a_market_snapshot(filas: list[dict]) -> int:
         return 0
     simbolos = {r["ticker"]: r["instrumento"] for r in _q(
         "SELECT ticker, instrumento FROM mercado.curvas "
-        "WHERE ajuste = 'tamar' AND instrumento IS NOT NULL AND ticker = ANY(%s)",
+        "WHERE ajuste = 'tamar' AND emisor_tipo IS DISTINCT FROM 'corporativo' "
+        "AND instrumento IS NOT NULL AND ticker = ANY(%s)",
         (list(principales),))}
     rows = [{"ticker": sim, "tea": principales[tk],
              "tem": (1 + principales[tk]) ** (1 / 12) - 1}

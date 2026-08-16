@@ -434,7 +434,8 @@ señal sería que la columna vuelve a estar vacía: sin excepción, sin log, sin
 **Qué fuente gana en la LECTURA — la regla, en una línea: 1816 solo aparece donde
 el motor no puede.** No es "1816 manda porque es más consistente":
 
-  · **`ajuste = 'tamar'`** → manda 1816, y con **TEA, TNA, duration y paridad**,
+  · **`ajuste = 'tamar'` y emisor NO corporativo** → manda 1816, con **TEA, TNA,
+    duration y paridad**,
     no solo la tasa. El motor cae en la rama `otros` y no calcula nada ahí, pero
     lo que quedó en el snapshot **no está vacío: es basura de un cálculo viejo**
     (el anti-TEA-fantasma no limpia esa rama, así que sobrevive un valor anterior
@@ -452,6 +453,17 @@ el motor no puede.** No es "1816 manda porque es más consistente":
 El punto de la pata secundaria era un bug real y estaba en pantalla: TTD26/TTS26
 son TAMAR+FIJA y 1816 no publica su pata fija, así que en la tabla TASA FIJA
 aparecían con la TEA de la pata TAMAR (28,6%) como si fuera suya.
+
+⚠️ **La excepción del CORPORATIVO no es un detalle de borde.** `rama_calculo`
+pregunta por el emisor ANTES que por el ajuste, así que un TAMAR de emisor
+corporativo va a la rama **`on`**: el motor **sí** lo calcula, y en vivo. La
+primera versión de esto no lo contemplaba, y el resultado no era "un número
+peor" sino una **pelea**: el job escribía la tasa de 1816 en el snapshot, el
+motor la recalculaba con el siguiente trade, y lo que se veía dependía de quién
+guardó último — además de que la tab CURVAS y la tabla RENTA FIJA podían mostrar
+dos tasas distintas para el mismo bono. Hoy afecta a **ZPC1O**, el único
+corporativo con pata TAMAR que 1816 cubre. El MARGEN de esos bonos sí se muestra:
+lo publica solo 1816 y no compite con nada.
 
 **Residuo conocido**: un TAMAR **no corporativo** que 1816 tampoco cubra sigue
 mostrando lo que el motor haya dejado. Hoy es **CO2D7** (provincial), uno solo.

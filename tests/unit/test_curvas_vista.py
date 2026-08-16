@@ -345,3 +345,19 @@ def test_un_CER_puro_conserva_TODO_lo_del_motor_aunque_1816_opine():
                tamar={("TX26", "cer"): _t1816(tea=0.049)})["bonos"][0]
     assert b["metrics"]["TEA"] == 0.055 and b["metrics"]["mod_duration"] == 2.2
     assert b["tea_fuente"] is None
+
+
+def test_un_TAMAR_CORPORATIVO_lo_calcula_el_MOTOR_no_1816():
+    """Un TAMAR de emisor corporativo va a la rama `on`: el motor SÍ lo calcula,
+    y en vivo. Si 1816 le ganara, ZPC1O —el único corporativo con pata TAMAR que
+    1816 cubre— mostraría el número del proveedor en la tab CURVAS y el del motor
+    en la tabla RENTA FIJA: dos tabs, dos tasas, el mismo bono.
+
+    El MARGEN sí se muestra igual: solo lo publica 1816, no compite con nada."""
+    filas = [_fila("ZPC1O", "corporativo", "ARS", "tamar", tea=0.42, duration=0.27)]
+    tamar = {("ZPC1O", "tamar"): _t1816(tea=0.4185, spread=0.1314, duration=0.2746)}
+    b = _armar(filas, fijados=set(), tamar=tamar)["bonos"][0]
+    assert b["metrics"]["TEA"] == 0.42          # la del MOTOR, no 0.4185
+    assert b["metrics"]["duration"] == 0.27
+    assert b["tea_fuente"] is None
+    assert b["margen"] == 0.1314                # el margen igual se ve

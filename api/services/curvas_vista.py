@@ -186,17 +186,24 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
             m_pill = dict(metrics)
             fuente, fecha_1816, margen = None, None, None
 
-            # ¿Manda 1816? Solo si el motor NO puede con esta pata:
+            # ¿Manda 1816? SOLO donde el motor no puede con esta pata:
             #   · pata SECUNDARIA → el snapshot tiene la tasa de la otra pata.
-            #   · bono con `ajuste='tamar'` → el motor cae en la rama `otros` y no
-            #     calcula tasa. Lo que haya quedado en el snapshot es BASURA VIEJA:
-            #     el anti-TEA-fantasma no limpia esa rama, así que sobrevive un
-            #     valor de antes de la migración de ejes. Medido en pantalla el
-            #     2026-08-16: TMF27 con TEA −25,0% y TEM −2,37%.
-            # Donde el motor sí calcula (CER, dólar linked, tasa fija) NO se toca:
-            # su número es LIVE y el de 1816 tiene media hora de atraso.
+            #   · `ajuste='tamar'` y emisor NO corporativo → `rama_calculo`
+            #     devuelve `otros` y el motor no calcula tasa. Lo que haya quedado
+            #     en el snapshot es BASURA VIEJA: el anti-TEA-fantasma no limpia
+            #     esa rama, así que sobrevive un valor de antes de la migración de
+            #     ejes (medido: TMF27 con TEA −25,0% y TEM −2,37%).
+            #
+            # ⚠️ La excepción del CORPORATIVO no es un detalle: un TAMAR de un
+            # emisor corporativo va a la rama `on`, o sea que el motor **sí** lo
+            # calcula, y en vivo. Sin esta condición, ZPC1O —el único corporativo
+            # con pata TAMAR que 1816 cubre— mostraría el número del proveedor acá
+            # y el del motor en la tabla RENTA FIJA: dos tabs con dos tasas para
+            # el mismo bono, y ninguna pista de cuál mirar.
             manda_1816 = t1816 is not None and (
-                not es_principal or r.get("ajuste") == "tamar")
+                not es_principal
+                or (r.get("ajuste") == "tamar"
+                    and r.get("emisor_tipo") != "corporativo"))
 
             # Las métricas del snapshot son SIEMPRE de la pata PRINCIPAL. Se
             # descartan en dos casos, y el segundo NO depende de que haya con qué

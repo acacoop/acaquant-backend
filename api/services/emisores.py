@@ -114,6 +114,13 @@ def set_industria(emisor: str, industria: str | None, actor: str = "") -> dict:
     return {"emisor": em, "industria": ind}
 
 
+# La industria aplica SOLO a los corporativos. Un soberano, una provincia o el
+# BCRA no tienen industria — preguntarles cuál es no tiene respuesta, y meterlos
+# en la lista de pendientes obliga a la mesa a decidir 12 casos que no existen.
+# (Salió del primer seed real: `Argentina` con 60 bonos y `BCRA` con 5 encabezaban
+# el ranking de "contradicciones".)
+
+
 def sin_clasificar() -> list[dict]:
     """Emisores del master que NO están en el catálogo, o que están sin industria.
 
@@ -129,6 +136,7 @@ def sin_clasificar() -> list[dict]:
         LEFT JOIN mercado.emisores e
                ON upper(btrim(e.emisor)) = upper(btrim(c.emisor))
         WHERE c.emisor IS NOT NULL AND btrim(c.emisor) <> ''
+          AND c.emisor_tipo = 'corporativo'
           AND (e.emisor IS NULL OR e.industria IS NULL)
         GROUP BY c.emisor, (e.emisor IS NULL)
         ORDER BY count(*) DESC, c.emisor
@@ -141,17 +149,22 @@ def contradicciones() -> list[dict]:
     Es la evidencia de por qué la industria se muda al emisor, y sirve de guía
     para la carga: son los casos donde alguien TIENE que elegir, porque colapsar
     por mayoría sería inventar un criterio.
+
+    SOLO corporativos: un soberano no tiene industria, así que un `sector` cargado
+    en un bono de `Argentina` no es una contradicción a resolver sino basura a
+    limpiar — otro problema, otra lista.
     """
     return _q("""
-        SELECT emisor, count(*) AS bonos,
-               string_agg(DISTINCT COALESCE(NULLIF(btrim(sector), ''), '(vacío)'),
-                          ' · ' ORDER BY COALESCE(NULLIF(btrim(sector), ''), '(vacío)')
+        SELECT c.emisor, count(*) AS bonos,
+               string_agg(DISTINCT COALESCE(NULLIF(btrim(c.sector), ''), '(vacío)'),
+                          ' · ' ORDER BY COALESCE(NULLIF(btrim(c.sector), ''), '(vacío)')
                          ) AS sectores
-        FROM mercado.curvas
-        WHERE emisor IS NOT NULL AND btrim(emisor) <> ''
-        GROUP BY emisor
-        HAVING count(DISTINCT COALESCE(NULLIF(btrim(sector), ''), '')) > 1
-        ORDER BY count(*) DESC, emisor
+        FROM mercado.curvas c
+        WHERE c.emisor IS NOT NULL AND btrim(c.emisor) <> ''
+          AND c.emisor_tipo = 'corporativo'
+        GROUP BY c.emisor
+        HAVING count(DISTINCT COALESCE(NULLIF(btrim(c.sector), ''), '')) > 1
+        ORDER BY count(*) DESC, c.emisor
     """)
 
 

@@ -67,6 +67,14 @@ def proponer(filas: list[dict], en_conflicto: set[str]) -> list[dict]:
         em = svc.normalizar(f.get("emisor"))
         if not em:
             continue
+        # La industria aplica SOLO a corporativos. `Argentina` (60 bonos) y `BCRA`
+        # (5) no tienen industria: preguntarles cuál es no tiene respuesta. Se dan
+        # de alta igual —el catálogo es de EMISORES— pero no entran a la lista de
+        # pendientes de nadie.
+        if f.get("es_corporativo") is False:
+            out.append({"emisor": em, "industria": None,
+                        "motivo": "no es corporativo — la industria no aplica"})
+            continue
         if em.upper() in en_conflicto:
             out.append({"emisor": em, "industria": None,
                         "motivo": "sus bonos se contradicen — decide la mesa"})
@@ -80,7 +88,8 @@ def proponer(filas: list[dict], en_conflicto: set[str]) -> list[dict]:
 
 def _emisores_del_master() -> list[dict]:
     return _q("""
-        SELECT emisor, min(curva) AS curva, count(*) AS bonos
+        SELECT emisor, min(curva) AS curva, count(*) AS bonos,
+               bool_or(emisor_tipo = 'corporativo') AS es_corporativo
         FROM mercado.curvas
         WHERE emisor IS NOT NULL AND btrim(emisor) <> ''
         GROUP BY emisor ORDER BY count(*) DESC, emisor
@@ -115,10 +124,13 @@ def main() -> None:
     choques = svc.contradicciones()
     en_conflicto = {svc.normalizar(c["emisor"]).upper() for c in choques}
     props = proponer(_emisores_del_master(), en_conflicto)
-    con, sin = [p for p in props if p["industria"]], [p for p in props if not p["industria"]]
+    con = [p for p in props if p["industria"]]
+    no_aplica = [p for p in props if "no es corporativo" in p["motivo"]]
+    sin = [p for p in props if not p["industria"] and p not in no_aplica]
 
     print(f"\n  emisores en el master: {len(props)}")
-    print(f"  con industria de arranque: {len(con)} · sin clasificar: {len(sin)}")
+    print(f"  con industria de arranque: {len(con)} · sin clasificar: {len(sin)} · "
+          f"no aplica (soberano/provincia/BCRA): {len(no_aplica)}")
 
     if choques:
         print(f"\n  🛑 CONTRADICCIONES ({len(choques)}) — estos NO se clasifican solos.")

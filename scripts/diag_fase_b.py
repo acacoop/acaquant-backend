@@ -166,7 +166,10 @@ def cierre() -> None:
     print("  usando como si fuera de hoy. SALUD tampoco lo ve — mira `max(fecha)`")
     print("  de la tabla, que sigue fresco mientras otro ticker actualice.\n")
 
-    v1 = ("tasa_fija", "cer", "soberanos")     # jobs/snapshot_cierre.py::CURVAS_V1
+    # Importado, NO copiado: una tupla hardcodeada acá seguiría diciendo "barre 3
+    # familias" el día que alguien sume una, y el diag pasaría a mentir justo
+    # sobre lo que vino a medir.
+    from jobs.snapshot_cierre import CURVAS_V1 as v1
     barre = {r["ticker"] for r in _q(
         "SELECT ticker FROM mercado.curvas WHERE curva = ANY(%s)", (list(v1),))}
     todos = {r["ticker"] for r in _q("SELECT ticker FROM mercado.curvas")}

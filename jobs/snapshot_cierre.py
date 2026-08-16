@@ -47,7 +47,24 @@ logger = logging.getLogger("SnapshotCierre")
 # (Hard Dólar) entró acá para alimentar la serie de Retorno Total: sin esto su
 # histórico en SnapshotsCierre se cortaba y la vista quedaba con <2 puntos. No
 # necesita el split globales/bonares por jurisdicción — `tipo` ya viene por ticker.
-CURVAS_V1 = ("tasa_fija", "cer", "soberanos")
+#
+# ⚠️ `dolar_linked` y `tamar` se sumaron el 2026-08-16, y no es cosmético.
+# `mercado.snapshots_cierre` es el FALLBACK DE PRECIO del motor de PnL, y su
+# upsert **solo avanza** (`WHERE EXCLUDED.fecha >= fecha`): nunca borra. Entonces
+# un bono que alguna vez entró al barrido y después dejó de entrar no da error —
+# se queda con el último precio que tuvo, PARA SIEMPRE, y la valuación lo sigue
+# usando como si fuera de hoy. SALUD tampoco lo ve: su contrato de frescura mira
+# `max(fecha)` de la tabla, que sigue fresco mientras cualquier otro actualice.
+#
+# Medido (`scripts/diag_precios_congelados`): 5 bonos VIVOS y EN CARTERA quedaron
+# con el precio del 30-abr, desviados entre 5,8% y 9,6% del valor real —
+# TTS26 (17 cuentas, 5.153 M de nominales), TTD26 (6 cuentas, 1.784 M), D30S6
+# (21 cuentas), TZV27 y TZV28. Los cinco viven en estas dos familias.
+#
+# Las ONs (`on_*`, 155 bonos) siguen AFUERA: es una decisión aparte por volumen
+# —serían ~155 filas más por rueda en `snapshots_cierre_hist`— y hay que tomarla
+# con el dato de cuántas están en cartera, no por analogía con este fix.
+CURVAS_V1 = ("tasa_fija", "cer", "soberanos", "dolar_linked", "tamar")
 
 
 def _meta_curvas(curva: str) -> dict[str, dict]:

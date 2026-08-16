@@ -59,6 +59,7 @@ _BASE = """
            c.ticker AS bono, c.fecha_vencimiento::text AS vto,
            c.curva, c.ajuste, c.emisor_tipo,
            bool_or(a.vigente IS NOT false) AS alguna_vigente,
+           count(a.unidad) AS n_assets,
            (max(s.fecha) OVER ()) - s.fecha AS dias_atras
     FROM mercado.snapshots_cierre s
     LEFT JOIN mercado.curvas c ON c.instrumento = s.ticker
@@ -85,9 +86,16 @@ def congelados() -> list[dict]:
         # Vive si NO venció. `vigente` de assets es la marca humana/job; el
         # vencimiento del master es el hecho. Si no hay ninguno de los dos, no se
         # afirma nada: '?' y que lo mire un humano.
+        # ⚠ `bool_or(a.vigente IS NOT false)` NO sirve solo para decidir esto: con
+        # un LEFT JOIN sin fila, `a.vigente` es NULL y en SQL `NULL IS NOT FALSE`
+        # da TRUE. O sea que todo bono que no matchea el master se leia como VIVO
+        # — asi la primera version de este diag reporto 20 vivos donde hay 5.
+        # Por eso `n_assets` cuenta filas REALES y manda sobre el bool.
         if f["vto"]:
             vivo = "SÍ" if f["vto"] >= f["fecha_cierre"] else "no (venció)"
-        elif f["alguna_vigente"] is not None:
+        elif not f["bono"]:
+            vivo = "sin master"      # el símbolo ya no está: lo borró cleanup_curvas
+        elif f["n_assets"]:
             vivo = "SÍ" if f["alguna_vigente"] else "no (baja)"
         else:
             vivo = "?"
@@ -97,8 +105,10 @@ def congelados() -> list[dict]:
         f["_vivo"] = vivo
     vivos = [f for f in filas if f["_vivo"] == "SÍ"]
     print("  " + "-" * 92)
+    sin_master = sum(1 for f in filas if f["_vivo"] == "sin master")
     print(f"  {len(filas)} congelado(s) · {len(vivos)} VIVOS (esos son el problema) · "
-          f"{len(filas) - len(vivos)} vencidos o de baja (esperado)")
+          f"{sin_master} sin master (vencidos y limpiados — congelarse es lo correcto) · "
+          f"{len(filas) - len(vivos) - sin_master} de baja")
     return vivos
 
 
@@ -151,8 +161,8 @@ def desvio(vivos: list[dict]) -> None:
     print("  " + "-" * 54)
     for f in vivos:
         h = hoy.get(f["simbolo"])
-        if h is None or not f["last_price"]:
-            continue
+        if h is None or not f["last_price"] or not float(h or 0):
+            continue     # last=0 no es un precio, es "no cotizó" — comparar da -100%
         try:
             d = (float(h) / float(f["last_price"]) - 1) * 100
         except (TypeError, ZeroDivisionError, ValueError):

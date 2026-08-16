@@ -60,7 +60,12 @@ class Ejes(NamedTuple):
 
 EMISORES = ("soberano", "provincial", "corporativo", "bcra")
 MONEDAS = ("ARS", "USD", "EUR")
-AJUSTES = ("fija", "cer", "tamar", "badlar", "dolar_linked", "dual", "tpm", "caucion")
+LEYES = ("local", "ny")
+# `dual` NO está y no puede volver: dejó de ser un ajuste y pasó a ser la
+# CONSECUENCIA de tener dos (`ajuste_alt IS NOT NULL`). Mientras estuviera en esta
+# tupla, el editor de Manager podría re-introducir a mano el valor que la
+# migración está sacando, y el bono volvería a esconderse de sus dos tablas.
+AJUSTES = ("fija", "cer", "tamar", "badlar", "dolar_linked", "tpm", "caucion")
 
 # Las 28 curvas del catálogo de 1816 (relevado 2026-08-15, `diag_1816_cashflow`).
 # Si 1816 agrega una, cae en `desconocidas()` y se suma acá A MANO — es la única
@@ -73,7 +78,6 @@ EJES_1816: dict[str, Ejes] = {
     "Soberanos ARS Botes":          Ejes("soberano", "ARS", "fija"),
     "Soberanos ARS Tamar":          Ejes("soberano", "ARS", "tamar"),
     "Soberanos ARS Badlar":         Ejes("soberano", "ARS", "badlar"),
-    "Soberanos Duales":             Ejes("soberano", "ARS", "dual"),
     # Bonar vs Global: MISMO emisor/moneda/ajuste, cambia la LEY. Van a la misma
     # pill (HARD DOLAR) pero son curvas distintas y su spread es lo que se mira.
     "Soberanos USD Bonares":        Ejes("soberano", "USD", "fija", ley="local"),
@@ -94,7 +98,6 @@ EJES_1816: dict[str, Ejes] = {
     # OJO: 1816 le dice "Inflación" a lo que en soberanos llama "CER". Es el
     # MISMO ajuste — prueba de que el nombre no sirve como clave y los ejes sí.
     "Provinciales ARS Inflación":   Ejes("provincial", "ARS", "cer"),
-    "Provinciales Duales":          Ejes("provincial", "ARS", "dual"),
     # ── Corporativos (ONs) ──────────────────────────────────────────────────
     "Corporativos USD":             Ejes("corporativo", "USD", "fija"),
     "Corporativos USD Linked":      Ejes("corporativo", "USD", "dolar_linked"),
@@ -107,17 +110,43 @@ EJES_1816: dict[str, Ejes] = {
 }
 
 
+# Curvas que 1816 SÍ tiene pero que NO se pueden traducir a ejes, con el motivo.
+# No es lo mismo que una curva desconocida: acá la conocemos y sabemos por qué no
+# alcanza. Están separadas de `EJES_1816` para que `desde_1816` devuelva None y el
+# caller REPORTE en vez de escribir un valor inventado.
+#
+# Los duales: 1816 los agrupa bajo un nombre que dice "Duales" y nada más — no
+# nombra las DOS patas (verificado 2026-08-16: la denominación de los ocho es
+# `GOB ARS ARG DUAL (<ticker>)`, y su ficha trae 9 campos, todos ya guardados).
+# Mientras estas dos filas estuvieron en `EJES_1816` con `ajuste='dual'`,
+# `clasificar_curvas --aplicar` le devolvía `dual` a cada dual ya migrado: el
+# pipeline de 1816 peleando contra el modelo, en silencio y para siempre.
+CURVAS_SIN_EJES: dict[str, str] = {
+    "Soberanos Duales":   "dual: 1816 no dice contra qué ajustan las dos patas",
+    "Provinciales Duales": "dual: 1816 no dice contra qué ajustan las dos patas",
+}
+
+
 def desde_1816(nombre_curva: str | None) -> Ejes | None:
     """Nombre de curva de 1816 → `Ejes`. None si no está en el catálogo conocido
-    (no se adivina: el caller lo reporta y se suma a mano a `EJES_1816`)."""
+    (no se adivina: el caller lo reporta y se suma a mano a `EJES_1816`) o si está
+    en `CURVAS_SIN_EJES` — ahí el motivo lo da `motivo_sin_ejes`."""
     return EJES_1816.get((nombre_curva or "").strip())
+
+
+def motivo_sin_ejes(nombre_curva: str | None) -> str | None:
+    """Por qué esa curva de 1816 no se puede traducir. None si sí se puede (o si
+    directamente no la conocemos)."""
+    return CURVAS_SIN_EJES.get((nombre_curva or "").strip())
 
 
 def desconocidas(nombres) -> list[str]:
     """Las curvas del iterable que NO están en la tabla — para que el diag las
-    cante en vez de dejarlas pasar."""
+    cante en vez de dejarlas pasar. Las de `CURVAS_SIN_EJES` NO son desconocidas:
+    las conocemos y sabemos por qué no alcanzan."""
+    conocidas = set(EJES_1816) | set(CURVAS_SIN_EJES)
     return sorted({(n or "").strip() for n in nombres
-                   if (n or "").strip() and (n or "").strip() not in EJES_1816})
+                   if (n or "").strip() and (n or "").strip() not in conocidas})
 
 
 # ── PILLS de la vista /renta-fija ────────────────────────────────────────────
@@ -129,33 +158,52 @@ def desconocidas(nombres) -> list[str]:
 # publicó el BCRA se comporta como tasa fija y hoy la vista lo muestra en TASA
 # FIJA. Eso NO se puede perder en la migración → la pill lo contempla explícito.
 
-PILLS = ("tasa_fija", "cer", "hard_dolar", "dolar_linked", "tamar", "duales")
+# La pill DUALES fue ELIMINADA (2026-08-16). Un dual no es una familia: es un bono
+# con DOS patas, y el trader lo mira en la tabla de CER *y* en la de TAMAR — no lo
+# archiva en un lugar aparte. Mandarlo a una pill propia lo escondía de las dos.
+PILLS = ("tasa_fija", "cer", "hard_dolar", "dolar_linked", "tamar")
 
 DISPLAY = {
     "tasa_fija": "TASA FIJA", "cer": "CER", "hard_dolar": "HARD DOLAR",
-    "dolar_linked": "DOLAR LINKED", "tamar": "TAMAR", "duales": "DUALES",
+    "dolar_linked": "DOLAR LINKED", "tamar": "TAMAR",
 }
 
 # Columna de la tab CURVAS: la MONEDA deja de ser pill y pasa a ser el layout.
-LADO = {"tasa_fija": "ARS", "cer": "ARS", "tamar": "ARS", "duales": "ARS",
+LADO = {"tasa_fija": "ARS", "cer": "ARS", "tamar": "ARS",
         "hard_dolar": "USD", "dolar_linked": "USD"}
 
 
-def pill(ejes: Ejes | None, cer_fijado: bool = False) -> str | None:
-    """Qué pill le toca a un instrumento. None = no entra en ninguna."""
-    if ejes is None:
+def _pill_de_ajuste(ajuste: str | None, moneda: str, cer_fijado: bool) -> str | None:
+    """UNA pata → su pill. None = esa pata no entra en ninguna."""
+    if not ajuste:
         return None
     # CER ya fijado → se comporta como tasa fija (regla vigente de la vista).
-    if ejes.ajuste == "cer" and cer_fijado:
-        return "tasa_fija"
-    if ejes.ajuste == "dual":
-        return "duales"
-    if ejes.ajuste == "dolar_linked":
+    if ajuste == "cer":
+        return "tasa_fija" if cer_fijado else "cer"
+    if ajuste == "dolar_linked":
         return "dolar_linked"
-    if ejes.ajuste == "cer":
-        return "cer"
-    if ejes.ajuste == "tamar":
+    if ajuste == "tamar":
         return "tamar"
-    if ejes.ajuste == "fija":
-        return "hard_dolar" if ejes.moneda in ("USD", "EUR") else "tasa_fija"
+    if ajuste == "fija":
+        return "hard_dolar" if moneda in ("USD", "EUR") else "tasa_fija"
     return None      # badlar / tpm / caucion todavía no tienen pill
+
+
+def pills(ejes: Ejes | None, cer_fijado: bool = False) -> tuple[str, ...]:
+    """En qué pills entra un instrumento. Puede ser MÁS DE UNA.
+
+    Ahí está todo el cambio de modelo: un dual CER+TAMAR devuelve `('cer','tamar')`
+    y aparece en las dos tablas, que es donde el trader lo busca. Un bono normal
+    devuelve una sola. Vacío = no entra en ninguna (badlar/tpm/caución, o sin ejes)
+    y el caller tiene que mostrarlo como PENDIENTE, nunca ocultarlo.
+
+    Sin duplicados y en orden estable: la pata principal primero.
+    """
+    if ejes is None:
+        return ()
+    out: list[str] = []
+    for ajuste in (ejes.ajuste, ejes.ajuste_alt):
+        p = _pill_de_ajuste(ajuste, ejes.moneda, cer_fijado)
+        if p and p not in out:
+            out.append(p)
+    return tuple(out)

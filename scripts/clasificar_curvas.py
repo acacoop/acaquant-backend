@@ -90,11 +90,12 @@ def _clasificar(master: list[dict], univ: dict) -> list[dict]:
             "ticker": d.get("ticker_corto"), "tk": tk, "curva": d.get("curva"),
             "tipo": d.get("tipo"),
             "curva_1816": curva_1816, "ejes": ejes, "cer_fijado": fijado,
-            "pill_nueva": ce.pill(ejes, fijado),
+            "pills_nuevas": ce.pills(ejes, fijado),
             "pill_actual": _pill_actual(d.get("curva"), fijado),
             "motivo": ("" if ejes else
-                       ("sin match en 1816" if not curva_1816 else
-                        f"curva 1816 desconocida: {curva_1816}")),
+                       (ce.motivo_sin_ejes(curva_1816)
+                        or ("sin match en 1816" if not curva_1816 else
+                            f"curva 1816 desconocida: {curva_1816}"))),
         })
     return out
 
@@ -165,10 +166,15 @@ def _test_equivalencia(filas: list[dict]) -> bool:
     para tocar el front."""
     print(f"\n{'=' * 96}\nTEST DE EQUIVALENCIA — ¿las pills nuevas muestran lo mismo?"
           f"\n{'=' * 96}")
-    igual = [f for f in filas if f["pill_actual"] and f["pill_actual"] == f["pill_nueva"]]
-    cambia = [f for f in filas if f["pill_actual"] and f["pill_actual"] != f["pill_nueva"]]
-    entra = [f for f in filas if not f["pill_actual"] and f["pill_nueva"]]
-    fuera = [f for f in filas if not f["pill_actual"] and not f["pill_nueva"]]
+    # Un bono puede caer ahora en MÁS DE UNA pill (los duales). Así que "sigue
+    # igual" ya no es igualdad de strings: es que la pill de hoy SIGA ESTANDO
+    # entre las nuevas. Compararlo con == marcaría como CAMBIA a un dual que en
+    # realidad sumó una tabla sin perder la que tenía.
+    igual = [f for f in filas if f["pill_actual"] and f["pill_actual"] in f["pills_nuevas"]]
+    cambia = [f for f in filas
+              if f["pill_actual"] and f["pill_actual"] not in f["pills_nuevas"]]
+    entra = [f for f in filas if not f["pill_actual"] and f["pills_nuevas"]]
+    fuera = [f for f in filas if not f["pill_actual"] and not f["pills_nuevas"]]
 
     print(f"  IGUAL  {len(igual):>4}  (misma pill que hoy)")
     print(f"  CAMBIA {len(cambia):>4}  ← lo único que puede romper la vista")
@@ -179,16 +185,16 @@ def _test_equivalencia(filas: list[dict]) -> bool:
         print(f"\n{'TICKER':<10}{'HOY':<14}{'PASARÍA A':<14}{'CURVA 1816':<30}MOTIVO")
         print("─" * 96)
         for f in sorted(cambia, key=lambda x: (x["pill_actual"] or "", x["ticker"] or "")):
-            nueva = f["pill_nueva"] or "(ninguna)"
-            motivo = ("dual: hoy repartido en cer/tamar"
-                      if (f["ejes"] and f["ejes"].ajuste == "dual") else
-                      f["motivo"] or "revisar")
+            nueva = " + ".join(f["pills_nuevas"]) or "(ninguna)"
+            motivo = f["motivo"] or "revisar"
             print(f"{(f['ticker'] or '')[:10]:<10}{f['pill_actual']:<14}{nueva:<14}"
                   f"{(f['curva_1816'] or '—')[:30]:<30}{motivo}")
         print("─" * 96)
 
-    inexplicados = [f for f in cambia
-                    if not (f["ejes"] and f["ejes"].ajuste == "dual")]
+    # Antes había una excepción: los duales cambiaban de pill a propósito. Ya no
+    # existe — un dual entra a las DOS pills y por lo tanto NUNCA pierde la que
+    # tenía, así que cae en `igual`. Cualquier CAMBIA que quede ahora es real.
+    inexplicados = list(cambia)
     if not cambia:
         print("\n✅ VERDE: ningún bono cambia de pill. El front se puede tocar sin "
               "que la vista cambie.")
@@ -202,13 +208,14 @@ def _test_equivalencia(filas: list[dict]) -> bool:
               "(no son duales). NO tocar el front hasta entender cada uno:")
         for f in inexplicados[:20]:
             print(f"     {f['ticker']}: {f['pill_actual']} → "
-                  f"{f['pill_nueva'] or '(ninguna)'} · curva mía '{f['curva']}' · "
+                  f"{' + '.join(f['pills_nuevas']) or '(ninguna)'} · curva mía '{f['curva']}' · "
                   f"1816 '{f['curva_1816'] or '—'}'")
 
     if entra:
         porpill: dict[str, int] = {}
         for f in entra:
-            porpill[f["pill_nueva"]] = porpill.get(f["pill_nueva"], 0) + 1
+            for p in f["pills_nuevas"]:
+                porpill[p] = porpill.get(p, 0) + 1
         print("\n  Los que ENTRAN, por pill: "
               + " · ".join(f"{ce.DISPLAY[k]}={v}" for k, v in
                            sorted(porpill.items(), key=lambda x: -x[1])))

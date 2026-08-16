@@ -14,7 +14,7 @@ def _fila(tc, emisor_tipo, moneda, ajuste, **kw):
             "curva": kw.get("curva", "x"), "tipo": "Bono",
             "fecha_vencimiento": "2027-01-01", "emisor": kw.get("emisor", "ACME"),
             "emisor_tipo": emisor_tipo, "moneda_eje": moneda, "ajuste": ajuste,
-            "ley": kw.get("ley"),
+            "ley": kw.get("ley"), "ajuste_alt": kw.get("ajuste_alt"),
             "flujo_vencimiento": kw.get("flujo_vencimiento"),
             "last_price": kw.get("last_price", 100.0), "tea": kw.get("tea", 0.3)}
     return base
@@ -26,13 +26,17 @@ def test_clasifica_y_cuenta_por_pill_y_por_emisor():
         _fila("TX26", "soberano", "ARS", "cer"),
         _fila("AE38", "soberano", "USD", "fija", ley="local"),
         _fila("IRCPO", "corporativo", "USD", "fija"),
-        _fila("TMVE8", "soberano", "ARS", "dual"),
+        _fila("TMVE8", "soberano", "ARS", "tamar", ajuste_alt="fija"),
     ], fijados=set())
-    por_pill = {b["ticker_corto"]: b["pill"] for b in out["bonos"]}
-    assert por_pill == {"S30S6": "tasa_fija", "TX26": "cer", "AE38": "hard_dolar",
-                        "IRCPO": "hard_dolar", "TMVE8": "duales"}
+    por_pill = {}
+    for b in out["bonos"]:
+        por_pill.setdefault(b["ticker_corto"], []).append(b["pill"])
+    assert por_pill == {"S30S6": ["tasa_fija"], "TX26": ["cer"],
+                        "AE38": ["hard_dolar"], "IRCPO": ["hard_dolar"],
+                        "TMVE8": ["tamar", "tasa_fija"]}
     n = {p["codigo"]: p["n"] for p in out["pills"]}
-    assert n["hard_dolar"] == 2 and n["duales"] == 1 and n["tamar"] == 0
+    assert n["hard_dolar"] == 2 and n["tamar"] == 1
+    assert n["tasa_fija"] == 2      # S30S6 + la pata `fija` del dual
     assert {e["codigo"]: e["n"] for e in out["emisores"]} == \
            {"soberano": 4, "corporativo": 1}
 
@@ -41,9 +45,9 @@ def test_las_6_pills_siempre_estan_aunque_esten_vacias():
     """Si una pill desapareciera del catálogo cuando no tiene bonos, el botón se
     esfumaría de la pantalla un día cualquiera sin explicación."""
     out = _armar([_fila("TX26", "soberano", "ARS", "cer")], fijados=set())
-    assert len(out["pills"]) == 6
+    assert len(out["pills"]) == 5
     assert [p["codigo"] for p in out["pills"] if p["lado"] == "ARS"] == \
-           ["tasa_fija", "cer", "tamar", "duales"]
+           ["tasa_fija", "cer", "tamar"]
     assert [p["codigo"] for p in out["pills"] if p["lado"] == "USD"] == \
            ["hard_dolar", "dolar_linked"]
 
@@ -92,3 +96,35 @@ def test_bono_sin_snapshot_no_rompe():
     fila["tea"] = None
     b = _armar([fila], fijados=set())["bonos"][0]
     assert b["metrics"] == {} and b["pill"] == "tasa_fija"
+
+
+def test_un_dual_sale_en_SUS_DOS_tablas():
+    """El cambio de modelo, visto desde la vista: la misma ficha aparece dos
+    veces, con distinto `pill`/`lado`. Se emite repetido y no como lista de pills
+    a propósito — el front ya filtra por `b.pill === pill`, así que el contrato NO
+    cambia y los dos deploys no tienen que ser simultáneos (el front sube solo a
+    Vercel; el backend va a mano y siempre después)."""
+    out = _armar([_fila("TXMD8", "soberano", "ARS", "cer", ajuste_alt="tamar")],
+                 fijados=set())
+    filas = {b["pill"]: b for b in out["bonos"]}
+    assert set(filas) == {"cer", "tamar"}
+    assert filas["cer"]["lado"] == "ARS" and filas["tamar"]["lado"] == "ARS"
+    # misma ficha en las dos: si divergieran, el trader vería dos bonos distintos
+    assert filas["cer"]["vencimiento"] == filas["tamar"]["vencimiento"]
+    assert filas["cer"]["ajuste_alt"] == "tamar"
+
+
+def test_un_dual_NO_infla_el_contador_de_emisores():
+    """REGRESIÓN silenciosa: `n_emisor` cuenta BONOS, no filas. Si se incrementara
+    dentro del loop de pills, el filtro EMISOR diría 2 donde hay 1 — un número
+    apenas alto que nadie mira dos veces."""
+    out = _armar([_fila("TXMD8", "soberano", "ARS", "cer", ajuste_alt="tamar")],
+                 fijados=set())
+    assert len(out["bonos"]) == 2                                  # dos filas
+    assert {e["codigo"]: e["n"] for e in out["emisores"]} == {"soberano": 1}
+
+
+def test_un_dual_con_las_dos_patas_iguales_no_se_duplica():
+    """Dato mal cargado: no puede aparecer dos veces en la MISMA tabla."""
+    out = _armar([_fila("X", "soberano", "ARS", "cer", ajuste_alt="cer")], fijados=set())
+    assert [b["pill"] for b in out["bonos"]] == ["cer"]

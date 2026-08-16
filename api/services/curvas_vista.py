@@ -47,7 +47,7 @@ def _bonos_crudos() -> list[dict]:
     return _q(
         f"SELECT c.ticker AS ticker_corto, c.instrumento AS ticker, c.curva, c.tipo, "
         f"c.fecha_vencimiento, c.emisor, c.emisor_tipo, c.moneda_eje, c.ajuste, "
-        f"c.ley, c.flujo_vencimiento, {cols} "
+        f"c.ajuste_alt, c.ley, c.flujo_vencimiento, {cols} "
         f"FROM mercado.curvas c "
         f"LEFT JOIN mercado.market_snapshot s ON s.ticker = c.instrumento",
     )
@@ -74,13 +74,13 @@ def _armar(rows: list[dict], fijados: set[str]) -> dict:
         ejes = None
         if r.get("emisor_tipo") and r.get("moneda_eje") and r.get("ajuste"):
             ejes = ce.Ejes(r["emisor_tipo"], r["moneda_eje"], r["ajuste"],
-                           r.get("ley"))
+                           r.get("ley"), r.get("ajuste_alt"))
         if ejes is None:
             sin_clasificar.append(tc)
             continue
         fijado = tc in fijados
-        pill = ce.pill(ejes, fijado)
-        if pill is None:          # badlar/tpm/caución: sin pill acordada todavía
+        del_bono = ce.pills(ejes, fijado)
+        if not del_bono:          # badlar/tpm/caución: sin pill acordada todavía
             sin_clasificar.append(tc)
             continue
 
@@ -90,18 +90,28 @@ def _armar(rows: list[dict], fijados: set[str]) -> dict:
             if v is not None:
                 metrics[key] = v
 
-        bonos.append({
-            "ticker_corto": tc, "instrumento": r.get("ticker"),
-            "pill": pill, "lado": ce.LADO[pill],
-            "emisor_tipo": ejes.emisor_tipo, "emisor": r.get("emisor"),
-            "moneda": ejes.moneda, "ajuste": ejes.ajuste,
-            "ley": ejes.ley,
-            "tipo": r.get("tipo"), "vencimiento": r.get("fecha_vencimiento"),
-            "cer_fijado": fijado,
-            "flujo_vencimiento": _f(r.get("flujo_vencimiento")),
-            "metrics": metrics,
-        })
-        n_pill[pill] = n_pill.get(pill, 0) + 1
+        # UNA FILA POR PILL. Un dual CER+TAMAR sale dos veces, con la misma ficha
+        # y distinto `pill`/`lado`, y así aparece en las dos tablas — que es donde
+        # el trader lo busca. Se emite repetido en vez de mandar una lista de pills
+        # a propósito: el front ya filtra por `b.pill === pill`, así que el
+        # contrato NO cambia y no hace falta que los dos deploys sean simultáneos
+        # (el front va a Vercel solo; el backend se sube a mano y siempre después).
+        for pill in del_bono:
+            bonos.append({
+                "ticker_corto": tc, "instrumento": r.get("ticker"),
+                "pill": pill, "lado": ce.LADO[pill],
+                "emisor_tipo": ejes.emisor_tipo, "emisor": r.get("emisor"),
+                "moneda": ejes.moneda, "ajuste": ejes.ajuste,
+                "ajuste_alt": ejes.ajuste_alt, "ley": ejes.ley,
+                "tipo": r.get("tipo"), "vencimiento": r.get("fecha_vencimiento"),
+                "cer_fijado": fijado,
+                "flujo_vencimiento": _f(r.get("flujo_vencimiento")),
+                "metrics": metrics,
+            })
+            n_pill[pill] = n_pill.get(pill, 0) + 1
+        # El emisor cuenta BONOS, no filas: un dual que sale en dos pills sigue
+        # siendo un bono. Sin este cuidado el filtro EMISOR diría 222 sobre 221 y
+        # nadie lo notaría — el contador simplemente estaría un poco alto.
         n_emisor[ejes.emisor_tipo] = n_emisor.get(ejes.emisor_tipo, 0) + 1
 
     pills = sorted(

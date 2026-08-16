@@ -3736,3 +3736,41 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_ignorados (
     por         text,                 -- email de quien lo ignoró
     creado_at   timestamptz NOT NULL DEFAULT now()
 );
+
+-- AV AGENT — PREGUNTAS del agente al humano (E1.c, 2026-08-16).
+--
+-- El agente no se BLOQUEA esperando una decisión: la convierte en una pregunta,
+-- la deja acá, y sigue con lo que sí puede hacer. El user contesta cuando puede.
+-- Sin esto, cada decisión abierta frenaba el proyecto entero.
+--
+-- `clave` es ÚNICA y estable (`falta:TZXD8`) → **el agente no repregunta**. Una
+-- herramienta que vuelve a preguntar lo mismo todas las noches se deja de leer,
+-- exactamente igual que una lista que repite lo descartado.
+--
+-- Responder no es anotar una opinión: **dispara un EFECTO** (`ignorar` escribe en
+-- `av_agent_ignorados`, `alta` marca el bono para que E2 lo simule). Por eso
+-- `aplicada_at` es distinto de `respondida_at`: una respuesta cuyo efecto falló
+-- no puede quedar como si hubiera surtido.
+--
+-- Las de `tipo='decision'` son las decisiones de diseño del propio agente (qué
+-- alcance mirar, quién gana ante un conflicto). Su efecto no es automático: lo
+-- aplica el desarrollo siguiente. Se guardan igual para que la decisión no se
+-- pierda en un chat.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_preguntas (
+    id             bigserial PRIMARY KEY,
+    clave          text NOT NULL UNIQUE,   -- idempotencia: 'falta:TZXD8', 'decision:alcance'
+    tipo           text NOT NULL,          -- hallazgo | decision
+    pregunta       text NOT NULL,          -- en castellano, para leer sin contexto
+    opciones       jsonb NOT NULL,         -- ["alta","ignorar","despues"]
+    contexto       jsonb,                  -- la evidencia, congelada
+    estado         text NOT NULL DEFAULT 'abierta',   -- abierta | respondida
+    respuesta      text,
+    nota           text,                   -- el POR QUÉ que escribe el user
+    respondida_por text,
+    respondida_at  timestamptz,
+    aplicada_at    timestamptz,            -- cuándo surtió efecto (NULL = no surtió)
+    creada_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_av_agent_preg_abiertas
+    ON mercado.av_agent_preguntas (estado, creada_at);

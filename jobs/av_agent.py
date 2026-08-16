@@ -25,11 +25,22 @@ cuántos hallazgos salen sino **cuántos son reales**: si de 20 tasas sospechosa
 18 son ruido, las reglas están mal y se ajustan ANTES de seguir con E2. Por eso
 el resumen imprime el desglose por REGLA — es el que dice cuál está mintiendo.
 
+**El agente PREGUNTA** (E1.c). Cuando encuentra algo que no puede decidir solo
+—"apareció TZXD8 en 1816, ¿lo damos de alta o no nos interesa?"— no se bloquea:
+deja la pregunta anotada y sigue. Se contestan con `--responder`, cuando el user
+pueda; responder **dispara el efecto** (un `ignorar` hace que ese ticker no
+vuelva a salir nunca) y el agente **no repregunta** lo ya preguntado.
+
 Uso:
     python -m jobs.av_agent                        # alcance soberanos (default), persiste
     python -m jobs.av_agent --dry-run              # imprime todo, NO escribe ni una fila
     python -m jobs.av_agent --alcance todo         # los 887 de 1816, no solo soberanos
     python -m jobs.av_agent --detalle              # lista hallazgo por hallazgo
+
+    # las preguntas del agente (gratis: no releva, no pega a 1816)
+    python -m jobs.av_agent --preguntas
+    python -m jobs.av_agent --responder "3=alta,5-9=ignorar" --por vos@acaquant.com
+    python -m jobs.av_agent --responder "7=ignorar" --nota "bono viejo, no lo operamos"
 """
 from __future__ import annotations
 
@@ -38,6 +49,7 @@ import json
 import logging
 
 from api.services import av_agent
+from api.services import av_agent_preguntas as preg
 from core import mercado_1816
 from core.postgres import get_pool
 
@@ -127,6 +139,38 @@ def _imprimir(res: dict, detalle: bool) -> None:
                 print(f"           {h['motivo']}")
 
 
+def _imprimir_preguntas(abiertas: list[dict]) -> None:
+    """Las preguntas del agente, con el ID que se usa para contestarlas.
+
+    Van al FINAL de la corrida y no al principio: primero lo que el agente hizo,
+    después lo que necesita. Un agente que arranca pidiendo se siente un
+    formulario."""
+    if not abiertas:
+        print("\n✔ El AV Agent no tiene preguntas abiertas.")
+        return
+    decisiones = [p for p in abiertas if p["tipo"] == "decision"]
+    hallazgos = [p for p in abiertas if p["tipo"] != "decision"]
+
+    print(f"\n{'=' * 72}\n❓ EL AV AGENT TE PREGUNTA ({len(abiertas)})")
+    print("=" * 72)
+    for grupo, titulo in ((decisiones, "DECISIONES DE DISEÑO (definen cómo trabaja)"),
+                          (hallazgos, "SOBRE LO QUE ENCONTRÓ")):
+        if not grupo:
+            continue
+        print(f"\n── {titulo} " + "─" * max(0, 50 - len(titulo)))
+        for p in grupo:
+            print(f"  [{p['id']:>3}] {p['pregunta']}")
+            print(f"        → {' | '.join(p['opciones'])}")
+    print("\n  Para contestar (acepta rangos, y podés contestar solo algunas):")
+    ej = abiertas[0]["id"]
+    print(f"    python -m jobs.av_agent --responder \"{ej}={ej and abiertas[0]['opciones'][0]}\"")
+    if len(abiertas) > 2:
+        ult = abiertas[-1]["id"]
+        print(f"    python -m jobs.av_agent --responder \"{ej}=alta,{ej + 1}-{ult}=ignorar\"")
+    print("  Lo que no contestes queda abierto: el agente NO vuelve a preguntarlo "
+          "cada noche.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Espejo de integridad de renta fija (E1)")
     ap.add_argument("--alcance", default="soberanos", choices=sorted(av_agent.ALCANCES),
@@ -135,8 +179,42 @@ def main() -> None:
                     help="releva e imprime, pero NO escribe ni una fila")
     ap.add_argument("--detalle", action="store_true",
                     help="lista hallazgo por hallazgo, no solo el resumen")
+    ap.add_argument("--responder", metavar="ID=RESP",
+                    help="contesta preguntas y aplica su efecto, sin relevar. "
+                         "Acepta lista y rangos: \"3=alta,5-9=ignorar\"")
+    ap.add_argument("--nota", default="",
+                    help="el POR QUÉ de la respuesta (queda guardado; es lo que "
+                         "el agente va a usar para no volver a proponerlo)")
+    ap.add_argument("--por", default="", help="tu email, para la trazabilidad")
+    ap.add_argument("--preguntas", action="store_true",
+                    help="solo muestra las preguntas abiertas (0 créditos)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    # Contestar y ver preguntas NO releva: son gratis y no tocan a 1816. Sin esto,
+    # responder tres preguntas costaría un censo entero y dos minutos de espera.
+    if args.responder:
+        try:
+            r = preg.responder_lote(args.responder, por=args.por, nota=args.nota)
+        except ValueError as e:
+            print(f"✗ {e}")
+            return
+        print(f"✔ {r['ok']} respondida(s) · {r['omitidos']} id(s) inexistente(s) "
+              f"· {r['fallidos']} con error")
+        for d in r["detalle"]:
+            if d.get("error"):
+                print(f"   ✗ [{d['id']}] {d['error']}")
+            elif d.get("ok") and d.get("aplicada"):
+                print(f"   ✔ [{d['id']}] {d['respuesta']} — aplicado (no vuelve a salir)")
+            elif d.get("ok"):
+                print(f"   ✔ [{d['id']}] {d['respuesta']} — guardado "
+                      "(el efecto lo aplica la etapa que corresponda)")
+        _imprimir_preguntas(preg.abiertas())
+        return
+
+    if args.preguntas:
+        _imprimir_preguntas(preg.abiertas())
+        return
 
     if not mercado_1816.disponible():
         print("✗ falta MERCADO_1816_API_KEY en el .env — no se puede censar 1816.")
@@ -176,6 +254,22 @@ def main() -> None:
             jr.set_stat("filas_persistidas", n)
             print(f"\n✔ {n} hallazgos persistidos en mercado.av_agent_hallazgos "
                   f"(se conservan las últimas {_TTL_CORRIDAS} corridas)")
+
+        # Las PREGUNTAS se registran SIEMPRE, incluso en dry-run: no son un
+        # resultado del relevamiento sino una conversación pendiente, y perderlas
+        # porque la corrida fue de prueba obligaría a repetir el censo para
+        # recuperarlas. `ON CONFLICT (clave)` hace que sea idempotente.
+        try:
+            nuevas = preg.registrar(preg.preguntas_de_hallazgos(res["hallazgos"]))
+            nuevas += preg.registrar_decisiones(preg.DECISIONES_ABIERTAS)
+            jr.set_stat("preguntas_nuevas", nuevas)
+            estado = preg.resumen()
+            jr.set_stat("preguntas_abiertas", estado["abiertas"])
+            _imprimir_preguntas(preg.abiertas())
+        except Exception as e:
+            # Que falle el canal de preguntas no puede tirar la corrida: los
+            # hallazgos ya están y valen por sí solos.
+            jr.error(f"no se pudieron registrar las preguntas: {type(e).__name__}: {e}")
 
         if saldo_ini is not None:
             try:

@@ -275,7 +275,61 @@ que no vuelva. De yapa se unificó una TERCERA copia del parser de unidad
 **Pendiente de la calibración:** decidir cuáles de los ~24 faltantes que quedan
 son altas de verdad (BOPREALes nuevos, CER nuevos) y cuáles van a ignorados
 (bonos viejos/ilíquidos tipo CUAP, DIP0, PAP0, PR17). Esa lista es **decisión del
-user**, no del agente.
+user**, no del agente — y para eso existe E1.c.
+
+### E1.c — EL AGENTE PREGUNTA (2026-08-16)
+
+**Pedido del user, y es un cambio de forma, no una feature:** *"estaría bueno que
+así como vos me decís esto, el agente pueda hacerme preguntas y en función de mi
+respuesta avance. No tengo las respuestas a todo ahora mismo, pero hay que
+arrancar."*
+
+Hasta acá el agente tiraba listas y las decisiones se resolvían en un chat: cada
+duda frenaba el proyecto y la respuesta se perdía. Ahora **el agente convierte la
+duda en una pregunta, la deja anotada y sigue con lo que sí puede hacer**. El user
+contesta cuando puede — no cuando el agente corre. En el plan de estudios esto es
+*«solicitud de guía e inputs del usuario»* (módulo 03).
+
+| Pieza | Qué es |
+|---|---|
+| `mercado.av_agent_preguntas` | `clave` ÚNICA (idempotencia), pregunta, opciones, contexto congelado, respuesta, nota, `aplicada_at` |
+| `api/services/av_agent_preguntas.py` | generación desde hallazgos, respuesta + **efecto**, parser del comando |
+| `jobs/av_agent.py --preguntas / --responder` | el canal, sin UI todavía (la bandeja es E5) |
+
+**Cuatro decisiones de diseño que la hacen funcionar:**
+
+1. **No repregunta.** `clave` única y estable (`falta:TZXD8`) + `ON CONFLICT DO
+   NOTHING`. Una herramienta que pregunta lo mismo todas las noches se deja de
+   leer, igual que una lista que repite lo descartado.
+2. **Responder DISPARA un efecto, no anota una opinión.** `ignorar` escribe en
+   `av_agent_ignorados` y ese ticker no vuelve a salir. Por eso `aplicada_at` es
+   distinto de `respondida_at`: una respuesta cuyo efecto falló no puede quedar
+   como si hubiera surtido. `alta` y `despues` guardan sin aplicar — dar de alta
+   necesita bajar el cuadro y simular la TEA, que es **E2**, y decir que se aplicó
+   algo que todavía no se puede hacer sería peor que decir que no.
+3. **Solo pregunta lo que es decisión del NEGOCIO.** *"¿Este bono nuevo nos
+   interesa?"* no lo contesta ninguna regla. *"¿Por qué este bono tiene paridad
+   150.000%?"* **no se pregunta**: es el trabajo del agente (E4), y mandársela
+   sería delegarle al user justo el laburo que el agente vino a hacer.
+4. **`despues` es una respuesta legítima.** Sin ella, la única forma de no decidir
+   es no contestar, y entonces no se distingue *"lo pensé y lo dejo para después"*
+   de *"no lo vi"*.
+
+**El comando acepta RANGOS** (`"3=alta,5-9=ignorar"`) porque la forma real de
+contestar 24 preguntas es *"estas dos sí, el resto no"*, y obligar a tipear 24
+asignaciones en la consola web del Droplet garantiza que no se conteste nunca
+(REGLA #0). El parser **grita ante cualquier ambigüedad** en vez de interpretar:
+`ignorar` es silencioso y permanente, así que adivinar ahí significa ignorar un
+bono que se quería dar de alta, y eso no se descubre nunca.
+
+**Las 3 decisiones abiertas (§4) ahora también son preguntas del agente**
+(`DECISIONES_ABIERTAS`), porque una decisión que solo vive en un markdown depende
+de que alguien lo lea. Su efecto no es automático: lo aplica la etapa que
+corresponda, pero la respuesta queda asentada donde el agente la va a buscar.
+
+**Las preguntas se registran incluso en `--dry-run`**: no son un resultado del
+relevamiento sino una conversación pendiente, y perderlas porque la corrida fue de
+prueba obligaría a pagar el censo de nuevo para recuperarlas.
 
 ### E2 — El simulador
 Calcular la TEA/paridad/duration que **tendría** un bono con un flujo dado, sin
@@ -394,6 +448,11 @@ Aplicó algo mal → está en el historial con su `before` y se revierte con un 
 
 ## Changelog
 
+- **2026-08-16 — E1.c, el agente PREGUNTA.** `mercado.av_agent_preguntas` +
+  `api/services/av_agent_preguntas.py` + `--preguntas`/`--responder` en el job.
+  Responder dispara un efecto (`ignorar` → `av_agent_ignorados`), no repregunta
+  (clave única), acepta rangos, y las 3 decisiones abiertas del §4 pasan a ser
+  preguntas del propio agente. 14 tests nuevos.
 - **2026-08-16 — RENOMBRE a AV AGENT** (decisión del user). Era `curador`; se
   cambió antes de que la tabla persistiera una sola fila, así que la vieja se
   dropea en vez de migrarse.

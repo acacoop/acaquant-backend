@@ -11,7 +11,7 @@ pantalla**. Ese es el test que importa.
 """
 from __future__ import annotations
 
-from scripts.migrar_duales import eje_de_tasa, planificar
+from scripts.migrar_duales import PATAS_MANUALES, eje_de_tasa, planificar
 
 
 def _f(ticker, curva, tasa=None):
@@ -34,7 +34,7 @@ def test_un_dual_NO_puede_ser_dual_consigo_mismo():
     Escribir `ajuste=tamar, ajuste_alt=tamar` no significa nada — y el peligro es
     que sumaría bien igual: el bono aparecería una sola vez, en la tabla correcta,
     y nadie notaría que su segunda pata nunca se cargó."""
-    migrables, bloqueados = planificar([_f("TMVE8", "tamar", "TAMAR")])
+    migrables, bloqueados = planificar([_f("XXDUAL", "tamar", "TAMAR")])
     assert migrables == []
     assert bloqueados[0]["estado"] == "degenerado"
 
@@ -94,3 +94,40 @@ def test_traduccion_de_la_tasa():
 
 def test_lista_vacia_no_rompe():
     assert planificar([]) == ([], [])
+
+
+def test_la_carga_de_la_mesa_gana_sobre_las_dos_fuentes_automaticas():
+    """Los tres `degenerado` (TMVE8/TTD26/TTS26) no tienen la segunda pata en
+    ninguna fuente: ni en la base, ni en 1816. La dijo la mesa el 2026-08-16 y por
+    eso pisa a `curva` y a `tasa_referencia`, que para estos tres coinciden."""
+    filas = [_f(tk, "tamar", "TAMAR") for tk in ("TTD26", "TTS26", "TMVE8")]
+    migrables, bloqueados = planificar(filas)
+    assert bloqueados == []
+    assert {m["ticker"]: (m["ajuste"], m["ajuste_alt"]) for m in migrables} == {
+        "TTD26": ("tamar", "fija"),
+        "TTS26": ("tamar", "fija"),
+        "TMVE8": ("tamar", "dolar_linked"),
+    }
+    assert {m["estado"] for m in migrables} == {"manual"}
+
+
+def test_TMVE8_cruza_de_columna_y_eso_es_a_proposito():
+    """Es el primer bono con una pata de cada LADO: TAMAR es ARS y DOLAR LINKED es
+    USD, así que aparece en las dos tablas. Se congela porque obligó a que el front
+    decida el lado de la tabla por `lado` y no por la moneda del bono — con
+    `moneda` (que es ARS, y es correcto) le cambiaba las columnas a toda la tabla
+    USD según qué fila cayera primera."""
+    from core import curvas_ejes as ce
+    aj, alt = PATAS_MANUALES["TMVE8"]
+    lados = {ce.LADO[p] for p in ce.pills(ce.Ejes("soberano", "ARS", aj, ajuste_alt=alt))}
+    assert lados == {"ARS", "USD"}
+
+
+def test_ninguna_pata_manual_es_degenerada():
+    """El invariante que hace segura la carga a mano: un dual es dual porque sus
+    dos patas son DISTINTAS. Si alguien tipea la misma dos veces, salta acá y no
+    en producción, donde el bono se vería en una sola tabla sumando bien."""
+    from core.curvas_ejes import AJUSTES
+    for tk, (a1, a2) in PATAS_MANUALES.items():
+        assert a1 != a2, tk
+        assert a1 in AJUSTES and a2 in AJUSTES, tk

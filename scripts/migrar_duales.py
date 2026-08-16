@@ -71,10 +71,10 @@ import argparse
 from core.curvas_ejes import AJUSTES
 from core.postgres import get_pool
 
-# Las patas VÁLIDAS son los ajustes menos `dual`: `dual` deja de ser un ajuste y
-# pasa a ser una CONSECUENCIA de tener dos. Se deriva de `AJUSTES` en vez de
-# escribirse a mano para que no haya dos listas que se puedan contradecir — el día
-# que se sume un ajuste nuevo, entra acá solo.
+# Las patas VÁLIDAS son los ajustes. `dual` ya salió de `AJUSTES` (dejó de ser un
+# ajuste y pasó a ser la CONSECUENCIA de tener dos), pero el filtro se mantiene
+# como red: si alguien lo reintrodujera, no podría volver a colarse como pata y
+# dejarnos de nuevo en el punto de partida con otro nombre.
 _PATAS = tuple(a for a in AJUSTES if a != "dual")
 
 # `data->>'tasa_referencia'` → eje. Es un campo de texto libre que carga la mesa;
@@ -89,6 +89,27 @@ _TASA_A_EJE = {
 def eje_de_tasa(txt: str | None) -> str | None:
     """`'TAMAR'` → `'tamar'`. `None` si está vacío o no está en la tabla. PURA."""
     return _TASA_A_EJE.get((txt or "").strip().upper())
+
+
+# Las patas que NO están en ninguna fuente y las dijo la MESA (2026-08-16).
+#
+# Son los tres `degenerado`: `curva` y `tasa_referencia` decían las dos TAMAR, y
+# la otra pata no existe en la base — sin `cupon_anual`, sin `cer_emision`, y con
+# flujos que solo traen `amortizacion_pct` y `fecha`. 1816 tampoco la tiene.
+#
+# Van acá y no en un UPDATE suelto porque así quedan versionadas, revisables en el
+# diff y idempotentes. Es TRANSITORIO: cuando el editor de Manager pueda escribir
+# los ejes (fase A4), la carga se hace ahí y esta tabla se borra.
+#
+# ⚠ TMVE8 es el primer bono que CRUZA DE COLUMNA: TAMAR vive del lado ARS y DOLAR
+# LINKED del lado USD, así que aparece en las dos. Es correcto y es lo que se
+# quiere — pero obligó a que la tabla del front decida su lado por `lado` y no por
+# la moneda del bono.
+PATAS_MANUALES: dict[str, tuple[str, str]] = {
+    "TTD26": ("tamar", "fija"),
+    "TTS26": ("tamar", "fija"),
+    "TMVE8": ("tamar", "dolar_linked"),
+}
 
 _SEP = "=" * 92
 
@@ -119,6 +140,15 @@ def planificar(filas: list[dict]) -> tuple[list[dict], list[dict]]:
     for f in filas:
         base = {"ticker": f["ticker"], "curva": f.get("curva"),
                 "tasa_referencia": f.get("tasa_referencia")}
+
+        # La carga de la mesa GANA sobre las dos fuentes automáticas: es la única
+        # que conoce la pata que no está escrita en ningún lado.
+        manual = PATAS_MANUALES.get((f["ticker"] or "").strip().upper())
+        if manual:
+            migrables.append({**base, "ajuste": manual[0], "ajuste_alt": manual[1],
+                              "estado": "manual"})
+            continue
+
         pata1 = (f.get("curva") or "").strip().lower()
         if pata1 not in _PATAS:
             bloqueados.append({**base, "estado": "sin_pata"})
@@ -197,8 +227,10 @@ def main() -> None:
     migrables, bloqueados = planificar(filas)
     completos = [m for m in migrables if m["estado"] == "completo"]
     parciales = [m for m in migrables if m["estado"] == "parcial"]
+    manuales = [m for m in migrables if m["estado"] == "manual"]
     print(f"\n  duales: {len(filas)} · con las DOS patas: {len(completos)} · "
-          f"solo una: {len(parciales)} · bloqueados: {len(bloqueados)}")
+          f"cargados por la mesa: {len(manuales)} · solo una: {len(parciales)} · "
+          f"bloqueados: {len(bloqueados)}")
 
     if migrables:
         print(f"\n  {'TICKER':<10}{'curva':<10}{'tasa_referencia':<18}"
@@ -206,6 +238,8 @@ def main() -> None:
         print("  " + "-" * 76)
         for m in migrables:
             p2 = m["ajuste_alt"] or "⏳ pendiente"
+            if m["estado"] == "manual":
+                p2 += "  (mesa)"
             print(f"  {m['ticker'][:9]:<10}{str(m['curva'])[:9]:<10}"
                   f"{str(m['tasa_referencia'] or '—')[:17]:<18}"
                   f"{m['ajuste']:<12}{p2}")
@@ -243,8 +277,8 @@ def main() -> None:
         return
 
     n = aplicar(migrables)
-    print(f"\n  ✅ {n} dual(es) escritos ({len(completos)} con las dos patas, "
-          f"{len(parciales)} con una).")
+    print(f"\n  ✅ {n} dual(es) escritos ({len(completos)} de la base, "
+          f"{len(manuales)} cargados por la mesa, {len(parciales)} con una pata).")
     print("  La vista NO cambia todavía: eso es el paso siguiente (pills por")
     print("  `ajuste` OR `ajuste_alt` y sacar la tab DUALES) y va DESPUÉS de que")
     print("  no quede ningún bloqueado, nunca antes.")

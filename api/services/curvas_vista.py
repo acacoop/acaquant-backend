@@ -40,14 +40,28 @@ from core import curvas_ejes as ce
 DUR_MIN_TASA = 0.05          # ~18 días corridos
 
 
-def _es_ruido(metrics: dict) -> bool:
+def _es_ruido(metrics: dict, emisor_tipo: str | None) -> bool:
     """¿La tasa de este bono es un artefacto de plazo, no un rendimiento?
 
     Se decide por DURATION y no por días al vencimiento porque la duration ya
     pondera el flujo: un bullet a 10 días y un amortizante que paga casi todo la
-    semana que viene tienen el mismo problema y la fecha de vencimiento no lo
-    dice. La decisión vive server-side para que la tabla y el gráfico no puedan
-    contradecirse — el front no vuelve a evaluarla."""
+    semana que viene tienen el mismo problema y la fecha de vencimiento no lo dice.
+
+    ⚠️ **SOLO CORPORATIVOS** (corregido 2026-08-16 tras verlo en pantalla). Una
+    Lecap a 15 días con TEA 26,6% NO es ruido: cotiza con volumen todos los días,
+    su precio es real y su tasa es la que la mesa opera. Sacarla del gráfico
+    borraba el tramo corto de la curva soberana, que es justo el que más se mira.
+    Lo que explota es la ON ilíquida a 3 días, cuyo último precio puede ser viejo
+    o desalineado — ahí anualizar amplifica el desvío a tres dígitos (AFCHO 142%,
+    CS450 −49%).
+
+    O sea: el problema nunca fue el plazo corto, fue **plazo corto SIN liquidez**.
+    El emisor es el proxy que tenemos hoy; el día que haya una medida de liquidez
+    por bono, ESA es la condición correcta y esta regla se reemplaza.
+
+    Vive server-side para que la tabla y el gráfico no puedan contradecirse."""
+    if emisor_tipo != "corporativo":
+        return False
     dur = metrics.get("duration")
     return dur is not None and float(dur) < DUR_MIN_TASA
 
@@ -157,7 +171,7 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None) -> dic
                                   _f(r.get("flujo_vencimiento")), mep)
                     if pill == "tasa_fija" else None),
                 # La tasa de este bono es ruido por duration ~0 (ver DUR_MIN_TASA).
-                "tasa_ruido": _es_ruido(metrics),
+                "tasa_ruido": _es_ruido(metrics, ejes.emisor_tipo),
                 "metrics": metrics,
             })
             n_pill[pill] = n_pill.get(pill, 0) + 1

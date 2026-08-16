@@ -161,10 +161,23 @@ def test_una_duration_casi_cero_marca_la_tasa_como_RUIDO():
     solo 142% estiraba el eje y aplastaba a los otros 120 bonos contra el cero."""
     ruidoso = _armar([_fila("AFCHO", "corporativo", "USD", "fija", duration=0.001)],
                      fijados=set())["bonos"][0]
-    normal = _armar([_fila("AE38", "soberano", "USD", "fija", duration=4.2)],
+    normal = _armar([_fila("IRCPO", "corporativo", "USD", "fija", duration=4.2)],
                     fijados=set())["bonos"][0]
     assert ruidoso["tasa_ruido"] is True
     assert normal["tasa_ruido"] is False
+
+
+def test_una_LECAP_corta_NO_es_ruido_aunque_su_duration_sea_casi_cero():
+    """Corregido el 2026-08-16 tras verlo en pantalla: S31G6 (soberano, duration
+    0,04, TEA 26,6%) desaparecía del gráfico. Una Lecap a 15 días cotiza con
+    volumen todos los días — su tasa es real y es la que la mesa opera. Sacarla
+    borraba el TRAMO CORTO de la curva soberana, que es el que más se mira.
+
+    El problema nunca fue el plazo corto: fue plazo corto SIN liquidez."""
+    for emisor in ("soberano", "provincial", "bcra"):
+        b = _armar([_fila("S31G6", emisor, "ARS", "fija", duration=0.04)],
+                   fijados=set())["bonos"][0]
+        assert b["tasa_ruido"] is False, emisor
 
 
 def test_la_tasa_ruidosa_NO_se_borra_solo_se_marca():
@@ -177,7 +190,7 @@ def test_la_tasa_ruidosa_NO_se_borra_solo_se_marca():
 
 def test_sin_duration_no_se_asume_que_es_ruido():
     """`None` es "no sé", no "es ruido". Marcar de más apagaría tasas buenas."""
-    assert _armar([_fila("XX", "soberano", "ARS", "fija")],
+    assert _armar([_fila("XX", "corporativo", "USD", "fija")],
                   fijados=set())["bonos"][0]["tasa_ruido"] is False
 
 

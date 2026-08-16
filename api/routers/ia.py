@@ -186,9 +186,12 @@ def copiloto_feedback(request: Request, body: FeedbackCopiloto,
 # ENDPOINT_MODULE_PREFIXES. Un endpoint de IA que nace fuera de ese prefijo nace
 # sin gate, y eso no se ve hasta que alguien lo prueba sin permisos.
 #
-# LECTURA con el módulo `ia`. ESCRITURA admin-only: responder no es opinar —
-# `ignorar` es permanente y silencioso, así que arranca cerrado y se abre cuando
-# haya criterio para hacerlo (default-deny, igual que el resto del sistema).
+# **TODO admin-only** (decisión del user 2026-08-16, apretado desde el módulo
+# `ia`): el agente expone el estado interno de la valuación — qué bonos están mal
+# cargados, cuáles no entran al AuM, qué le falta al catálogo. Eso no es
+# información de mercado: es cómo está hecho el sistema por dentro, y con la
+# matriz de roles dándole `ia` a la mesa para los copilotos, gatearlo solo por
+# módulo se lo mostraría a un comercial. Mismo criterio que SALUD.
 
 
 class RespuestaAvAgent(BaseModel):
@@ -197,7 +200,7 @@ class RespuestaAvAgent(BaseModel):
     nota: str = Field("", max_length=500)
 
 
-@router.get("/av-agent/vista")
+@router.get("/av-agent/vista", dependencies=[Depends(require_admin)])
 def av_agent_vista():
     """Toda la pantalla en UN request: hallazgos de la última corrida, preguntas
     abiertas, lo ya decidido y los ignorados."""

@@ -164,7 +164,7 @@ opiniones. El eval va ANTES del modelo.
 | E0 | Doc vivo + decisiones abiertas | no | no | ✅ **hecho** |
 | E1 | El espejo (detectar, sin escribir) | no | solo tabla propia | ✅ **calibrado en prod (64 hallazgos)** |
 | E1.c | El agente PREGUNTA | no | tabla propia | ✅ **hecho** |
-| E1.d | La vista `/av-agent` | no | tabla propia | ✅ **hecho** |
+| E1.d | El modal (barra inferior, admin-only) | no | tabla propia | ✅ **hecho** |
 | E2 | El simulador (TEA en seco) | no | no | pendiente |
 | E3 | El set de control (evals) | no | no | pendiente |
 | E4 | El cerebro (diagnóstico) | **sí** | no | pendiente |
@@ -459,15 +459,31 @@ la consola del Droplet no lo usa nadie más que quien tiene SSH.
 | `GET /api/ia/av-agent/vista` | toda la pantalla en UN request (`api/services/av_agent_vista.py`) |
 | `POST /api/ia/av-agent/responder` | contesta y aplica el efecto |
 | `POST /api/ia/av-agent/designorar` | deshace un «no me interesa» |
-| `src/app/av-agent/page.tsx` + `src/components/av-agent-view.tsx` | la vista (front) |
-| Link **AV AGENT** en el header | módulo `ia`, de primer nivel |
+| `src/components/av-agent-modal.tsx` | botón en la **barra inferior** + modal |
 
-**Vive bajo `/api/ia` a propósito**: hereda el gate `ia` de forma ESTRUCTURAL en
-vez de estrenar un prefijo que habría que acordarse de sumar a
-`ENDPOINT_MODULE_PREFIXES`. Un endpoint de IA fuera de ese prefijo nace sin gate
-y eso no se ve hasta que alguien lo prueba sin permisos. Lectura con el módulo
-`ia`; **responder y deshacer, admin-only** — `ignorar` es permanente y
-silencioso, así que arranca cerrado.
+**No es una vista del nav: es un botón en la barra de estado + un MODAL**
+(decisión del user 2026-08-16, tras ver la primera versión como vista). El
+razonamiento vale para cualquier agente que venga después: *el AV Agent no es una
+vista de datos que se consulta, es un canal que INTERRUMPE cuando tiene algo que
+preguntar.* Una entrada en el nav compite con RENTA FIJA y TRADING —pantallas que
+se abren para trabajar— y pierde, porque **nadie navega a un agente**. En la barra
+inferior, al lado de BRIEFING y SALUD, está siempre presente, no ocupa lugar hasta
+que se abre, y su **contador de preguntas se ve desde cualquier pantalla**. La
+vista `/av-agent` y su página se BORRARON: dos caminos a lo mismo es superficie
+que mantener sin nada a cambio.
+
+**Vive bajo `/api/ia` a propósito**: hereda el gate de forma ESTRUCTURAL en vez de
+estrenar un prefijo que habría que acordarse de sumar a
+`ENDPOINT_MODULE_PREFIXES`. Un endpoint de IA fuera de ese prefijo nace sin gate y
+eso no se ve hasta que alguien lo prueba sin permisos.
+
+**TODO admin-only**, apretado desde el módulo `ia` (decisión del user): el agente
+expone el estado interno de la valuación —qué bonos están mal cargados, cuáles no
+entran al AuM, qué le falta al catálogo—. Eso no es información de mercado: es
+cómo está hecho el sistema por dentro. Y como la matriz de roles le da `ia` a la
+mesa para los copilotos, gatearlo solo por módulo se lo mostraría a un comercial.
+Mismo criterio que SALUD, y **decidido también en el server**: sin `manager` el
+componente no existe en el HTML, no pollea y no puede mostrar nada.
 
 **Tres decisiones de la pantalla, y ninguna es cosmética:**
 
@@ -498,6 +514,12 @@ contestar.
 
 ## Changelog
 
+- **2026-08-16 — E1.d.b, de vista a MODAL.** El link del nav y la página
+  `/av-agent` se borraron: el agente vive en un botón de la barra inferior (junto
+  a BRIEFING y SALUD) que abre un modal, con contador de preguntas visible desde
+  cualquier pantalla. Nadie navega a un agente. **Todo pasa a admin-only** (antes
+  la lectura era módulo `ia`): expone el estado interno de la valuación, y con la
+  mesa teniendo `ia` para los copilotos eso se lo mostraba a un comercial.
 - **2026-08-16 — E1.d, la VISTA.** `GET /api/ia/av-agent/vista` (todo en un
   request) + responder + designorar, y la pantalla `/av-agent` en el front con el
   link en el header. Las preguntas son el tab default; el agente habla en primera

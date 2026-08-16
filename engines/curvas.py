@@ -4,7 +4,9 @@ curvas.py — Motor de enriquecimiento analítico en tiempo real (SQL-only).
 Corre como servicio paralelo a engines/valores.py. Cada INTERVALO_SEGUNDOS lee el
 last_price live de mercado.market_snapshot (lo escribe valores.py) para los tickers
 de mercado.curvas y calcula TEA / TEM / duration / mod_duration / convexity /
-paridad según el tipo de curva (tasa_fija, cer, soberanos, dolar_linked, on*).
+paridad. **Qué FÓRMULA le toca a cada bono lo deciden sus EJES**
+(`emisor_tipo`/`moneda_eje`/`ajuste`) vía `rama_calculo` — ya NO la palabra
+`mercado.curvas.curva`, que se escribía a mano por fila (migrado 2026-08-16).
 
 El resultado vuelve a mercado.market_snapshot con un upsert que toca SOLO las
 columnas analíticas → no pisa las de precio/book que escribe valores.py sobre la
@@ -280,6 +282,60 @@ def fecha_cer_liquidacion(dias_habiles, fecha_str, n=10):
 
 
 # ─────────────────────────────────────────────
+# Qué FÓRMULA le corresponde a cada bono
+# ─────────────────────────────────────────────
+
+def rama_calculo(instrumento: dict) -> str:
+    """La fórmula que le toca a este bono. **La decide la CLASIFICACIÓN, no la palabra.**
+
+    La TEA no se calcula igual para todos: una Lecap, un CER (hay que ajustar por
+    inflación) y un hard dólar (hay que pasar por el MEP) son tres cuentas
+    distintas. Hasta el 2026-08-16 la elección salía de `mercado.curvas.curva`, una
+    palabra escrita a mano por fila — con lo cual dar de alta un bono y olvidarse
+    esa palabra lo mandaba a la fórmula equivocada sin un solo error en pantalla
+    (los 4 BOPREAL del BCRA calculaban con la matemática de las ONs, y 6
+    corporativos estaban escritos como `soberanos`).
+
+    Ahora sale de los EJES, que es la MISMA clasificación que usa la vista
+    (`core.curvas_ejes`). Una sola verdad para "qué es este bono".
+
+    ⚠️ **El orden de las preguntas NO es el de la cadena vieja, y es a propósito.**
+    Con la palabra, un bono tenía UNA curva y el orden daba igual. Con los ejes, un
+    corporativo en dólares a tasa fija cumple la condición de `soberanos` Y la de
+    `on`; para reproducir lo que el motor venía haciendo, `corporativo` se pregunta
+    PRIMERO.
+
+    **Fallback a la palabra** cuando faltan ejes: son los que nadie clasificó
+    todavía. Sin esto se caerían a "solo duration" y perderían la TEA que hoy
+    muestran. Es una rampa de transición — cuando no quede ninguno sin clasificar,
+    se borra junto con la columna.
+
+    Verificado bono por bono con `scripts/diag_motor_ejes` y `diag_tea_dos_ramas`
+    antes de migrar: los que cambian de rama están medidos, con su delta.
+    """
+    emisor = instrumento.get("emisor_tipo")
+    moneda = instrumento.get("moneda_eje")
+    ajuste = instrumento.get("ajuste")
+    if emisor and moneda and ajuste:
+        if emisor == "corporativo":
+            return "on"                      # la rama ON despacha por moneda_flujo adentro
+        if ajuste == "cer":
+            return "cer"
+        if ajuste == "dolar_linked":
+            return "dolar_linked"
+        if ajuste == "fija":
+            return "soberanos" if moneda in ("USD", "EUR") else "tasa_fija"
+        return "otros"                       # tamar / badlar / tpm / caución
+    # Sin ejes → la palabra vieja, para no perder lo que hoy funciona.
+    c = (instrumento.get("curva") or "").strip()
+    if c in ("tasa_fija", "cer", "soberanos", "dolar_linked"):
+        return c
+    if c == "on" or c.startswith("on_"):
+        return "on"
+    return "otros"
+
+
+# ─────────────────────────────────────────────
 # Cálculo principal por documento
 # ─────────────────────────────────────────────
 
@@ -311,7 +367,8 @@ def calcular_campos(
     if dias_a_vto <= 0:
         return None
 
-    curva = instrumento.get("curva", "")
+    # La rama la deciden los EJES (ver `rama_calculo`), ya no la palabra `curva`.
+    curva = rama_calculo(instrumento)
     flujos_raw = instrumento.get("flujos") or []
     flujo_vto = instrumento.get("flujo_vencimiento")
     resultado = {}
@@ -592,7 +649,7 @@ def calcular_campos(
     # ── ONs (obligaciones negociables corporativas) ───────────────
     # El sector va codificado en la curva: "on", "on_energia", "on_financiera",
     # etc. Todas comparten la misma matemática (dispatch por moneda_flujo).
-    elif curva == "on" or curva.startswith("on_"):
+    elif curva == "on":
         # USD → math hard-dollar (igual que soberanos): precio a USD (sufijo
         # D as-is, pesos ÷MEP) y YTM en USD. ARS → precio peso directo (math
         # tasa_fija en pesos). Los flujos vienen en shape nativo BondsMaster
@@ -697,6 +754,10 @@ def dep_tasa_disponible(curva: str | None, mep: float | None, a3500: float | Non
       - dolar_linked → precisa A3500 (feed MAE mayorista).
       - cer / on / tamar / etc → dep por-fecha más frágil: conservador, NO forzamos
         limpieza (devolvemos False) para no arriesgar borrar tasas válidas.
+
+    ⚠️ El argumento es la RAMA (`rama_calculo`), no la columna `curva`. Tienen el
+    mismo vocabulario a propósito, pero si acá entrara la palabra y allá el eje,
+    el motor podría limpiar la tasa de un bono que en realidad calculó bien.
     """
     if curva == "tasa_fija":
         return True
@@ -708,7 +769,7 @@ def dep_tasa_disponible(curva: str | None, mep: float | None, a3500: float | Non
 
 
 def curva_depende_de(curva: str | None, dep: str) -> bool:
-    """¿El resultado de `calcular_campos` para ESTA curva depende del dato externo
+    """¿El resultado de `calcular_campos` para ESTA RAMA depende del dato externo
     `dep` ('cer' | 'mep' | 'a3500')? Se usa para invalidar el cache de cálculo solo
     donde hace falta cuando uno de los tres se recarga y CAMBIA.
 
@@ -735,7 +796,7 @@ def curva_depende_de(curva: str | None, dep: str) -> bool:
 def invalidar_por_dep(ultimo_calculado: dict, curvas: dict, dep: str) -> int:
     """Saca del cache los tickers cuya curva depende de `dep`. Devuelve cuántos."""
     afectados = [t for t in ultimo_calculado
-                 if curva_depende_de((curvas.get(t) or {}).get("curva"), dep)]
+                 if curva_depende_de(rama_calculo(curvas.get(t) or {}), dep)]
     for t in afectados:
         del ultimo_calculado[t]
     return len(afectados)
@@ -852,7 +913,7 @@ def run():
                 # de curva está disponible (no es feed caído), la tasa que quedó pegada
                 # en el snapshot es basura → escribir NULL para no mostrar un valor viejo.
                 if "TEA" not in campos and dep_tasa_disponible(
-                        instrumento.get("curva"), mep_actual, tc_a3500_actual):
+                        rama_calculo(instrumento), mep_actual, tc_a3500_actual):
                     row["tea"] = None
                     row["tem"] = None
                 if len(row) > 1:

@@ -233,6 +233,57 @@ depende la TEA), `jobs/backfill_tasas.py`, `jobs/guardrails.py::_leer_master_por
 `api/services/titulos_flujos.py`, y la clave persistida de las 4 tablas
 particionadas (fase B2-B5, el único paso irreversible).
 
+#### Paso 15 (2026-08-16) — **el MOTOR calcula por los EJES**
+
+El último lector grande de `curva` era el propio cálculo. La TEA no tiene una sola
+fórmula —Lecap, CER, hard dólar, DL y ON son cinco cuentas distintas— y el motor
+elegía cuál usar leyendo **la palabra `curva`**. Ahora la elige `rama_calculo`
+desde `emisor_tipo`/`moneda_eje`/`ajuste`.
+
+**Se midió TODO antes de tocar una línea**, con tres diags encadenados:
+
+| diag | qué contestó |
+|---|---|
+| `diag_motor_ejes` | 194 bonos elegirían la MISMA fórmula, 18 otra, 9 no se puede decidir |
+| `diag_tea_dos_ramas` | corre `calcular_campos` **las dos veces** y compara el número real: 14 perdían la TEA |
+| `diag_convertir_flujos` | convierte los flujos en memoria y remide: **7 vuelven a su TEA exacta (Δ = +0 bps)** |
+
+**Dos hallazgos que no estaban en el plan.**
+
+1. **Las ramas no se diferencian solo por la matemática, también por CÓMO LEEN LOS
+   FLUJOS** (`soberanos`/`cer` en porcentaje, `on`/`tasa_fija` en absoluto). Y ese
+   formato es cómo se cargó el bono, no una propiedad de sus ejes. Por eso 14
+   bonos perdían la TEA **en las dos direcciones**: un problema de DATOS
+   disfrazado de problema de lógica.
+2. **`cupon_sobre_residual` significa cosas distintas según la rama**: en
+   `soberanos` es un monto que se divide por 100; en `cer` es una TASA que se
+   multiplica por el residual vivo. La primera conversión que se escribió estaba
+   mal por eso (un cupón de 2 daba 200) y **no se veía leyendo el código** — lo
+   cazó un chequeo numérico contra las funciones reales del motor.
+
+**Orden de la migración — EXPANDIR → MIGRAR → CONTRAER.**
+`scripts/backfill_flujos_porcentual` (paso 1, aplicado) agrega las claves
+porcentuales **sin sacar las absolutas**: con las dos puestas las DOS ramas leen
+bien y el orden deja de importar. Si el backfill hubiera borrado las viejas, el
+bono se quedaba sin TEA en el momento de correrlo, no al migrar. Falta el
+CONTRAER (limpiar las claves viejas), que no corre apuro.
+
+⚠️ **Fallback deliberado**: sin ejes, `rama_calculo` cae a la palabra vieja. Es la
+rampa para los 9 sin clasificar — sin eso perderían la TEA que hoy muestran. Se
+borra junto con la columna cuando no quede ninguno.
+
+⚠️ **El invariante más frágil, congelado por test** (`test_rama_calculo.py`): con
+los ejes, un corporativo en USD a tasa fija cumple la condición de `soberanos` Y
+la de `on`. **`corporativo` se pregunta PRIMERO.** Si alguien reordena, las ~140
+ONs en dólares cambian de fórmula de un día para el otro, sin error.
+
+**Lo que quedó sin TEA, con el OK de la mesa:** CP36O · MGCOO · VSCYO · VSCZO
+(corporativos que salen de la curva soberana) · PMA28 · CO3D7 · TMF27 · CO2D7 ·
+RMJ28. Los tres últimos mostraban números basura (−25%, +29%, −38,8%): ahí perder
+la TEA es una mejora. Los cuatro corporativos necesitan un diag propio que
+instrumente por dónde se corta el cálculo — la conversión de flujos corre bien,
+así que el bloqueo es otra cosa.
+
 ### Paso 8 — las PATAS (`mercado.especies`, 2026-08-15)
 
 Pregunta del user: *"¿no debería cada asset tener su instrumento ARS y su

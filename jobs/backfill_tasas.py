@@ -34,6 +34,7 @@ def _recalcular() -> dict:
         cargar_indexado_por_ticker,
         cargar_mep_actual,
         dep_tasa_disponible,
+        rama_calculo,
     )
 
     curvas = cargar_indexado_por_ticker()
@@ -70,7 +71,7 @@ def _recalcular() -> dict:
         tenia = ticker in tea_antes
         tiene = campos.get("TEA") is not None
         limpiar = (not tiene and tenia
-                   and dep_tasa_disponible(instrumento.get("curva"), mep, a3500))
+                   and dep_tasa_disponible(rama_calculo(instrumento), mep, a3500))
         if limpiar:
             row["tea"] = None
             row["tem"] = None

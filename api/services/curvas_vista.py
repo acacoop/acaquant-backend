@@ -164,33 +164,52 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
         # (el front va a Vercel solo; el backend se sube a mano y siempre después).
         for pill in del_bono:
             # ── LA TASA DE **ESTA** PATA ────────────────────────────────────
-            # `metrics` viene de `market_snapshot`, que tiene UNA fila por símbolo
-            # y por lo tanto una sola TEA: un dual CER+TAMAR mostraba el MISMO
-            # número en sus dos tablas. 1816 publica cada pata por separado, así
-            # que cuando hay dato para la pata de ESTA pill, manda ese.
             #
-            # Prevalece 1816 y no el motor porque para los TAMAR el motor no
-            # calcula NADA (rama `otros` → solo duration) y para la pata CER de un
-            # dual la tasa del snapshot es la de la otra pata. Donde el motor sí
-            # sabe (un CER puro), esta tabla no tiene fila y no pasa nada.
+            # `metrics` viene de `market_snapshot`, que tiene UNA fila por símbolo
+            # y por lo tanto UNA sola TEA — y esa TEA es siempre la de la pata
+            # PRINCIPAL (`ajuste`): es la que el motor calcula, y la que
+            # `jobs/tamar_1816` escribe cuando el motor no puede. De ahí sale todo:
+            #
+            #   · pata PRINCIPAL → el snapshot ya es de esta pata. Se usa tal cual.
+            #     **1816 NO se mete acá aunque tenga el dato**: donde el motor
+            #     calcula (un CER, un dólar linked, una tasa fija) su número es
+            #     LIVE y el de 1816 tiene media hora de atraso. Reemplazarlo sería
+            #     empeorar la vista para ganar consistencia con un proveedor.
+            #   · pata SECUNDARIA → el snapshot tiene la tasa de la OTRA pata, así
+            #     que NO sirve y hay que descartarla. Ahí sí manda 1816, que es el
+            #     único que publica las patas por separado. Sin dato, la celda
+            #     queda vacía — que es lo correcto: mostrar la tasa de la otra
+            #     pata es exactamente el bug que esto viene a arreglar.
             pata = ce.pata_de_pill(ejes, pill, fijado)
+            es_principal = pata is not None and pata == r.get("ajuste")
             t1816 = tamar.get((tc, pata)) if pata else None
             m_pill = dict(metrics)
             fuente, fecha_1816, margen = None, None, None
-            if t1816 and t1816.get("tea") is not None:
-                m_pill["TEA"] = float(t1816["tea"])
-                # La TEM del motor era de la OTRA pata (o no existía): dejarla
-                # sería mezclar dos tasas distintas en la misma fila.
+
+            if es_principal:
+                # El único caso en que el número del snapshot vino de 1816: el job
+                # lo escribe SOLO para `ajuste='tamar'` (ver `_a_market_snapshot`),
+                # que es donde el motor no calcula nada. Se marca para que la
+                # pantalla pueda distinguirlo de una tasa live.
+                if (r.get("ajuste") == "tamar" and t1816
+                        and m_pill.get("TEA") is not None):
+                    fuente, fecha_1816 = "1816", t1816.get("fecha_operacion")
+            else:
+                # La TEA/TEM del snapshot son de la pata principal → fuera.
+                m_pill.pop("TEA", None)
                 m_pill.pop("TEM", None)
-                for col, key in (("duration", "duration"), ("paridad", "paridad")):
-                    if t1816.get(col) is not None:
-                        m_pill[key] = float(t1816[col])
-                fuente = "1816"
-                fecha_1816 = t1816.get("fecha_operacion")
-                # El MARGEN sobre la TAMAR: lo que la mesa mira de un TAMAR. En
-                # fracción (0.0973 = 9,73%), la MISMA escala que la TEA.
-                margen = (float(t1816["spread"])
-                          if t1816.get("spread") is not None else None)
+                if t1816 and t1816.get("tea") is not None:
+                    m_pill["TEA"] = float(t1816["tea"])
+                    for col, key in (("duration", "duration"), ("paridad", "paridad")):
+                        if t1816.get(col) is not None:
+                            m_pill[key] = float(t1816[col])
+                    fuente, fecha_1816 = "1816", t1816.get("fecha_operacion")
+
+            # El MARGEN sobre la TAMAR: lo que la mesa mira de un TAMAR. En
+            # fracción (0.0973 = 9,73%), la MISMA escala que la TEA. Solo 1816 lo
+            # publica, así que no depende de qué pata sea.
+            if t1816 and t1816.get("spread") is not None:
+                margen = float(t1816["spread"])
 
             bonos.append({
                 "ticker_corto": tc, "instrumento": r.get("ticker"),

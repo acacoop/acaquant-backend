@@ -21,12 +21,22 @@ tasa. Verificado: entre patas hay ~2.900 bps de diferencia. Por eso la tabla
 guarda UNA FILA POR PATA — `market_snapshot` no puede, tiene una sola TEA por
 símbolo, y por eso la vista venía mostrando el mismo número en las dos tablas.
 
-**Lo que NO hace: tocar `mercado.market_snapshot`.** Esa tabla es del motor (live,
-Primary, cada 5s) y esto es 1816 (BYMA, con delay). Mezclarlos dejaría una TEA sin
-forma de saber de dónde salió. La vista los junta EN LA LECTURA y marca la
-procedencia (`curvas_vista`). Además el motor NO pisa estas tasas aunque quisiera:
-para la rama `otros` `dep_tasa_disponible` devuelve False, así que el
-anti-TEA-fantasma no las limpia.
+**También escribe la TEA en `mercado.market_snapshot`, y SOLO donde no había nada.**
+Esa tabla es la que lee TODA la app vieja (la tabla RENTA FIJA, forwards, fair
+value, sensibilidad, MCP): sin esto, los TAMAR seguirían con la celda vacía en
+todos lados menos en la tab CURVAS.
+
+La regla que lo hace seguro es **`ajuste = 'tamar'`**, o sea la pata PRINCIPAL del
+bono. Es exactamente el conjunto donde el motor cae en la rama `otros` y no
+calcula tasa: no se puede pisar un número del motor porque para esos bonos el
+motor no produce ninguno. Un dual CER+TAMAR (`ajuste='cer'`) NO se toca — ahí el
+motor sí calcula, y en vivo, y su TEA es la buena para la tabla vieja; la pata
+TAMAR de ese bono vive en `mercado.tamar_1816` y se ve en la tab CURVAS.
+
+Y el motor no las borra: para la rama `otros`, `dep_tasa_disponible` devuelve
+False, así que el anti-TEA-fantasma no las limpia. Hay un test que falla si eso
+cambia — si devolviera True, el motor nulearía estas tasas cada 5 segundos y la
+única señal sería que la columna vuelve a estar vacía.
 
 **Costo**: ~25 tickers × 6 campos ≈ 150 créditos por corrida × 15 corridas/día
 ≈ 2.250 de los 100.000 diarios.
@@ -183,6 +193,44 @@ def _upsert(filas: list[dict]) -> int:
     return len(filas)
 
 
+def _a_market_snapshot(filas: list[dict]) -> int:
+    """La TEA de la pata PRINCIPAL → `mercado.market_snapshot`, para que los TAMAR
+    dejen de estar vacíos en el resto de la app (tabla RENTA FIJA, forwards, fair
+    value, sensibilidad, MCP — todos leen esa tabla, no la nuestra).
+
+    **Solo `ajuste = 'tamar'`.** Ese es el conjunto donde el motor cae en la rama
+    `otros` y no calcula tasa, así que es imposible pisarle un número: no produce
+    ninguno. Un dual CER+TAMAR tiene `ajuste='cer'`, el motor sí lo calcula y en
+    VIVO, y esa es la tasa correcta para la tabla vieja — su pata TAMAR se ve en
+    la tab CURVAS, que es la única que sabe representar dos.
+
+    La clave del snapshot es el SÍMBOLO DE MERCADO (`curvas.instrumento`), no el
+    ticker: son dos cosas distintas desde el renombre del 2026-08-15.
+
+    La TEM se DERIVA con la misma fórmula que usa la vista (`(1+TEA)^(1/12)−1`).
+    Calcularla de otra forma daría un número que no coincide con el que la mesa
+    viene mirando. `duration` NO se toca: esa el motor sí la calcula, y live.
+    """
+    if not filas:
+        return 0
+    principales = {f["ticker"]: f["tea"] for f in filas
+                   if f["pata"] == "tamar" and f["tea"] is not None}
+    if not principales:
+        return 0
+    simbolos = {r["ticker"]: r["instrumento"] for r in _q(
+        "SELECT ticker, instrumento FROM mercado.curvas "
+        "WHERE ajuste = 'tamar' AND instrumento IS NOT NULL AND ticker = ANY(%s)",
+        (list(principales),))}
+    rows = [{"ticker": sim, "tea": principales[tk],
+             "tem": (1 + principales[tk]) ** (1 / 12) - 1}
+            for tk, sim in simbolos.items()]
+    if not rows:
+        return 0
+    from core import pg_mirror
+    pg_mirror.write_snapshot("market_snapshot", ["ticker"], rows)
+    return len(rows)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--fecha", help="forzar una rueda YYYY-MM-DD (default: hoy, "
@@ -248,6 +296,7 @@ def main() -> None:
             "paridad": v.get("paridad"), "fecha_operacion": fecha_op,
         } for (tk, pata), v in mejores.items()]
         n = _upsert(filas)
+        n_snap = _a_market_snapshot(filas)
 
         # Lo que 1816 NO trajo se CUENTA, no se silencia: es el número que dice si
         # mañana la vista tiene menos tasas de las que debería.
@@ -257,12 +306,14 @@ def main() -> None:
         jr.set_stat("filas", n)
         jr.set_stat("con_margen", con_margen)
         jr.set_stat("sin_dato", len(sin_dato))
+        jr.set_stat("snapshot", n_snap)
         jr.set_stat("fecha_operacion", fecha_op)
         if sin_dato:
             jr.log(f"sin dato en 1816: {', '.join(sin_dato)}")
 
     print(f"✅ {n} patas actualizadas en mercado.tamar_1816 (rueda {fecha_op}) · "
-          f"{con_margen} con margen · {len(sin_dato)} sin dato")
+          f"{con_margen} con margen · {len(sin_dato)} sin dato · "
+          f"{n_snap} TEA al market_snapshot (el resto de la app)")
     if sin_dato:
         print(f"   sin dato: {', '.join(sin_dato)}")
 

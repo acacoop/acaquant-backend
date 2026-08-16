@@ -67,3 +67,65 @@ def test_las_dos_patas_de_un_dual_se_guardan_por_separado():
     out = _mejor_por_pata(pedidos, inst)
     assert out[("TXMD9", "cer")]["tea"] == 0.0682
     assert out[("TXMD9", "tamar")]["spread"] == 0.0973
+
+
+# ── Qué se escribe en market_snapshot (y qué NO) ─────────────────────────────
+
+
+def _filas(*pares):
+    return [{"ticker": tk, "pata": pata, "tea": tea}
+            for tk, pata, tea in pares]
+
+
+def test_a_market_snapshot_solo_manda_la_pata_PRINCIPAL(monkeypatch):
+    """Escribir la pata TAMAR de un dual CER+TAMAR pisaría la tasa que el motor
+    calcula EN VIVO para ese bono, y con una de otra pata y de otra rueda."""
+    import jobs.tamar_1816 as j
+    vistos = {}
+    monkeypatch.setattr(j, "_q", lambda sql, params=(): [
+        {"ticker": "TMF27", "instrumento": "MERV - XMEV - TMF27 - 24hs"}]
+        if "TMF27" in str(params) else [])
+    monkeypatch.setattr("core.pg_mirror.write_snapshot",
+                        lambda t, k, rows: vistos.update(rows=rows) or len(rows))
+    # TXMD9 es dual con ajuste='cer': su pata tamar NO tiene que salir del
+    # `principales` (y además la query lo filtra por ajuste='tamar').
+    n = j._a_market_snapshot(_filas(("TMF27", "tamar", 0.3037),
+                                    ("TXMD9", "cer", 0.0682)))
+    assert n == 1
+    assert vistos["rows"][0]["ticker"] == "MERV - XMEV - TMF27 - 24hs"
+    assert vistos["rows"][0]["tea"] == 0.3037
+
+
+def test_a_market_snapshot_deriva_la_TEM_con_la_formula_de_la_vista(monkeypatch):
+    """`TEM = (1+TEA)^(1/12)−1`. Con otra fórmula, el número no coincidiría con
+    el que la mesa viene mirando en el resto de la tabla."""
+    import jobs.tamar_1816 as j
+    vistos = {}
+    monkeypatch.setattr(j, "_q", lambda sql, params=(): [
+        {"ticker": "TMF27", "instrumento": "X"}])
+    monkeypatch.setattr("core.pg_mirror.write_snapshot",
+                        lambda t, k, rows: vistos.update(rows=rows) or len(rows))
+    j._a_market_snapshot(_filas(("TMF27", "tamar", 0.3037)))
+    assert abs(vistos["rows"][0]["tem"] - ((1.3037) ** (1 / 12) - 1)) < 1e-12
+
+
+def test_a_market_snapshot_no_escribe_nada_si_no_hay_pata_principal(monkeypatch):
+    """Un dual cuyo `ajuste` no es tamar no debe generar NI la query."""
+    import jobs.tamar_1816 as j
+
+    def _explota(*a, **k):
+        raise AssertionError("no debería consultar la base")
+
+    monkeypatch.setattr(j, "_q", _explota)
+    assert j._a_market_snapshot(_filas(("TXMD9", "cer", 0.0682))) == 0
+    assert j._a_market_snapshot([]) == 0
+
+
+def test_una_TEA_en_None_no_llega_al_snapshot(monkeypatch):
+    import jobs.tamar_1816 as j
+
+    def _explota(*a, **k):
+        raise AssertionError("no debería consultar la base")
+
+    monkeypatch.setattr(j, "_q", _explota)
+    assert j._a_market_snapshot(_filas(("TMF27", "tamar", None))) == 0

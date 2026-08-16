@@ -245,8 +245,12 @@ def test_un_dual_muestra_LA_TASA_DE_CADA_PATA_y_no_la_misma_dos_veces():
 
 def test_la_tasa_de_1816_viaja_con_su_procedencia_y_su_fecha():
     """Una tasa sin procedencia obliga a adivinar de dónde vino. La del motor es
-    live; la de 1816 tiene delay y puede ser de la rueda anterior."""
-    filas = [_fila("TMF27", "soberano", "ARS", "tamar", tea=None)]
+    live; la de 1816 tiene delay y puede ser de la rueda anterior.
+
+    En un TAMAR puro la TEA llega por el SNAPSHOT (se la escribió el job, porque
+    el motor no calcula nada ahí) — la marca sale de que exista la fila de 1816.
+    """
+    filas = [_fila("TMF27", "soberano", "ARS", "tamar", tea=0.3037)]
     tamar = {("TMF27", "tamar"): _t1816(tea=0.3037, spread=0.0343,
                                         fecha_operacion="2026-08-14")}
     b = _armar(filas, fijados=set(), tamar=tamar)["bonos"][0]
@@ -263,13 +267,40 @@ def test_sin_dato_de_1816_manda_el_motor_y_la_fuente_queda_en_None():
     assert b["tea_fuente"] is None and b["margen"] is None
 
 
-def test_una_fila_de_1816_SIN_tea_no_pisa_la_del_motor():
-    """Fila vieja o incompleta: `null` no es un valor, es la ausencia de uno.
-    Pisar con null borraría una tasa buena."""
-    tamar = {("TMF27", "tamar"): _t1816(tea=None, spread=0.03)}
-    b = _armar([_fila("TMF27", "soberano", "ARS", "tamar", tea=0.31)],
-               fijados=set(), tamar=tamar)["bonos"][0]
-    assert b["metrics"]["TEA"] == 0.31 and b["tea_fuente"] is None
+def test_donde_el_MOTOR_calcula_1816_no_se_mete():
+    """LA REGLA. Un dual CER+TAMAR tiene `ajuste='cer'`: esa pata la calcula el
+    motor, EN VIVO. 1816 tiene el dato igual (`TXMD9 @CER`) y aun así no se usa —
+    reemplazar una tasa live por una de media hora atrás es empeorar la vista
+    para ganar consistencia con un proveedor."""
+    filas = [_fila("TXMD9", "soberano", "ARS", "cer", ajuste_alt="tamar", tea=0.0690)]
+    tamar = {("TXMD9", "cer"): _t1816(tea=0.0682),          # 1816 dice otra cosa
+             ("TXMD9", "tamar"): _t1816(tea=0.3862, spread=0.0973)}
+    por_pill = {b["pill"]: b for b in _armar(filas, fijados=set(), tamar=tamar)["bonos"]}
+    assert por_pill["cer"]["metrics"]["TEA"] == 0.0690      # la del MOTOR
+    assert por_pill["cer"]["tea_fuente"] is None
+    assert por_pill["tamar"]["metrics"]["TEA"] == 0.3862    # la pata secundaria sí
+    assert por_pill["tamar"]["tea_fuente"] == "1816"
+
+
+def test_la_pata_SECUNDARIA_sin_dato_de_1816_queda_VACIA_no_con_la_otra():
+    """El bug que el user vio en pantalla: TTD26 es TAMAR+FIJA y 1816 no publica
+    su pata fija, así que en la tabla TASA FIJA aparecía con la TEA de la pata
+    TAMAR (28,6%) como si fuera suya. Vacío es la respuesta correcta."""
+    filas = [_fila("TTD26", "soberano", "ARS", "tamar", ajuste_alt="fija", tea=0.286)]
+    tamar = {("TTD26", "tamar"): _t1816(tea=0.286, spread=0.02)}
+    por_pill = {b["pill"]: b for b in _armar(filas, fijados=set(), tamar=tamar)["bonos"]}
+    assert por_pill["tamar"]["metrics"]["TEA"] == 0.286
+    assert "TEA" not in por_pill["tasa_fija"]["metrics"]
+    assert por_pill["tasa_fija"]["tea_fuente"] is None
+
+
+def test_un_bono_SIN_nada_de_1816_no_se_marca_ni_pierde_su_tasa():
+    """Los 8 corporativos TAMAR que 1816 no cubre: conservan lo que haya en el
+    snapshot y no dicen venir de ninguna parte."""
+    b = _armar([_fila("DHSGO", "corporativo", "ARS", "tamar", tea=0.31)],
+               fijados=set(), tamar={})["bonos"][0]
+    assert b["metrics"]["TEA"] == 0.31
+    assert b["tea_fuente"] is None and b["margen"] is None
 
 
 def test_al_tomar_la_TEA_de_1816_se_descarta_la_TEM_del_motor():

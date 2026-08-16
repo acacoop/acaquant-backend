@@ -409,11 +409,55 @@ Hasta hoy la vista mostraba **el mismo número en las dos tablas**, porque
 Por eso `mercado.tamar_1816` tiene PK **(ticker, pata)**: es la estructura que el
 snapshot no puede representar.
 
-**Cómo se junta sin crear una segunda verdad.** El job NO escribe en
-`market_snapshot` — esa tabla es del motor (Primary, live, cada 5s) y esto es 1816
-(BYMA, con delay). Se juntan en la **lectura** (`curvas_vista`), y cada fila viaja
-con su procedencia: `tea_fuente` (`null` = motor), `tea_fecha` (la rueda real) y
-`pata`. La tabla muestra el aviso una sola vez arriba, no un ícono por fila.
+**Dónde se escribe (dos destinos, con una regla que los separa).**
+
+1. **`mercado.tamar_1816`** — una fila por PATA. Es la única estructura que puede
+   representar los dos rendimientos de un dual, y la que lee la tab CURVAS.
+2. **`mercado.market_snapshot.tea` (+ `tem` derivada)** — pero **SOLO** los bonos
+   con `ajuste = 'tamar'`, o sea la pata PRINCIPAL. Ese es exactamente el conjunto
+   donde el motor cae en la rama `otros` y no calcula tasa: **es imposible pisarle
+   un número, porque para esos bonos no produce ninguno.** Sin este segundo
+   destino, los TAMAR seguirían vacíos en la tabla RENTA FIJA, forwards, fair
+   value, sensibilidad y MCP — todos leen `market_snapshot`, no la tabla nueva.
+
+Un dual CER+TAMAR (`ajuste='cer'`) **no** entra al snapshot: ahí el motor sí
+calcula, y en vivo, y esa es la tasa correcta para la tabla vieja. Su pata TAMAR
+vive solo en `mercado.tamar_1816` y se ve en la tab CURVAS, que es la única que
+sabe mostrar dos. `duration` tampoco se toca: esa el motor sí la computa.
+
+⚠️ **Contrato con el motor, congelado por test.** Esto es seguro mientras
+`dep_tasa_disponible('otros', …)` sea `False`. Si devolviera `True`, el
+anti-TEA-fantasma pondría `tea = NULL` en cada vuelta —cada 5 segundos— y la única
+señal sería que la columna vuelve a estar vacía: sin excepción, sin log, sin nada.
+`test_la_rama_otros_NO_habilita_el_anti_TEA_fantasma` falla si alguien lo cambia.
+
+**Qué fuente gana en la LECTURA — la regla, en una línea: 1816 solo aparece donde
+el motor no puede.** No es "1816 manda porque es más consistente":
+
+  · **pata PRINCIPAL** (`pata == ajuste`) → el snapshot YA es de esa pata. Se usa
+    tal cual, venga del motor o del job. **1816 no se mete aunque tenga el dato**:
+    donde el motor calcula (un CER, un dólar linked, una tasa fija) su número es
+    LIVE y el de 1816 tiene media hora de atraso. Cambiar uno por otro sería
+    empeorar la pantalla para ganar consistencia con un proveedor.
+  · **pata SECUNDARIA** → el snapshot tiene la tasa de la OTRA pata: se DESCARTA.
+    Ahí sí manda 1816. Sin dato, la celda queda **vacía** — que es lo correcto.
+
+Ese último punto era un bug real y estaba en pantalla: TTD26/TTS26 son TAMAR+FIJA
+y 1816 no publica su pata fija, así que en la tabla TASA FIJA aparecían con la TEA
+de la pata TAMAR (28,6%) como si fuera suya.
+
+**La procedencia se marca por FILA, no por tabla.** Cada bono lleva `tea_fuente`
+(`null` = motor), `tea_fecha` y `pata`, y el front pone un `*` al lado de la TEA
+con el motivo en el tooltip. Un cartel arriba de la tabla estaba mal por dos
+razones: el hecho es por fila (**un solo** dual TAMAR+DOLAR LINKED —TMVE8—
+prendía el aviso en TODA la tabla de DOLAR LINKED, donde el resto sí es live) y
+esta pantalla se le pasa a clientes, así que un renglón de texto la ensucia.
+
+**Es un PARCHE con salida limpia** (decisión del user: la lógica TAMAR propia se
+va a implementar). El día que llegue: `rama_calculo` deja de devolver `otros` para
+los TAMAR, se **apaga el cron** y listo — el motor pasa a llenar el snapshot y la
+regla de arriba deja de encontrar filas de 1816 sola. `mercado.tamar_1816` puede
+quedar como contraste contra el número del proveedor.
 `ce.pata_de_pill()` —la **inversa** de `pills()`, en el mismo módulo y reusando
 `_pill_de_ajuste`— es lo que dice qué pata corresponde a cada tabla; con un
 segundo criterio, el bono mostraría la tasa de la otra pata y nada fallaría.

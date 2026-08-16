@@ -47,18 +47,36 @@ _PARTICIONADAS = (
 # La traducción de cada `curva` de hoy al predicado EQUIVALENTE sobre los ejes.
 # Es la propuesta a validar: el diag existe para ver si equivale de verdad.
 # OJO con `cer` y `tamar`: llevan `OR ajuste_alt` porque un dual entra a las dos.
+# DOS predicados por curva, porque son DOS preguntas distintas y medirlas juntas
+# fue el error de la primera pasada:
+#
+#   · VISTA — qué se MUESTRA en esa tabla. Junta emisores a propósito: querés ver
+#     el corporativo al lado del soberano.
+#   · FIT   — qué entra al AJUSTE de la curva (fair value, forwards, z-score). Acá
+#     juntar emisores está MAL: un corporativo tiene spread de crédito y meterlo
+#     adentro corre la curva para todos los demás, sin que nada se vea raro.
+#
+# Medido: con el predicado de VISTA, `soberanos` pasa de 21 a 129 bonos. Para la
+# tabla HARD DOLAR eso es lo correcto; para un fit sería un desastre mudo.
 _EQUIV = {
-    "tasa_fija":    "ajuste = 'fija' AND moneda_eje = 'ARS'",
-    "cer":          "(ajuste = 'cer' OR ajuste_alt = 'cer')",
-    "soberanos":    "ajuste = 'fija' AND moneda_eje IN ('USD','EUR')",
-    "dolar_linked": "(ajuste = 'dolar_linked' OR ajuste_alt = 'dolar_linked')",
-    "tamar":        "(ajuste = 'tamar' OR ajuste_alt = 'tamar')",
+    "tasa_fija":    ("ajuste = 'fija' AND moneda_eje = 'ARS'",
+                     "ajuste = 'fija' AND moneda_eje = 'ARS' AND emisor_tipo = 'soberano'"),
+    "cer":          ("(ajuste = 'cer' OR ajuste_alt = 'cer')",
+                     "(ajuste = 'cer' OR ajuste_alt = 'cer') AND emisor_tipo = 'soberano'"),
+    "soberanos":    ("ajuste = 'fija' AND moneda_eje IN ('USD','EUR')",
+                     "ajuste = 'fija' AND moneda_eje IN ('USD','EUR') "
+                     "AND emisor_tipo = 'soberano'"),
+    "dolar_linked": ("(ajuste = 'dolar_linked' OR ajuste_alt = 'dolar_linked')",
+                     "(ajuste = 'dolar_linked' OR ajuste_alt = 'dolar_linked') "
+                     "AND emisor_tipo = 'soberano'"),
+    "tamar":        ("(ajuste = 'tamar' OR ajuste_alt = 'tamar')",
+                     "(ajuste = 'tamar' OR ajuste_alt = 'tamar') AND emisor_tipo = 'soberano'"),
 }
 
 
 def _q(sql: str, params: tuple = ()) -> list[dict]:
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
+        cur.execute(sql, params or None)   # None = no parsear % (si no, un LIKE revienta)
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
 
@@ -110,24 +128,26 @@ def universos() -> None:
     print("  sale de un fit pierde su z-score, y el que entra corre el ajuste para")
     print("  TODOS los demás — sin que nada se vea mal.\n")
 
-    for curva, pred in _EQUIV.items():
+    for curva, (p_vista, p_fit) in _EQUIV.items():
         hoy = {r["ticker"] for r in _q(
             "SELECT ticker FROM mercado.curvas WHERE curva = %s", (curva,))}
-        nuevo = {r["ticker"] for r in _q(
-            f"SELECT ticker FROM mercado.curvas WHERE {pred}")}
-        entran, salen = sorted(nuevo - hoy), sorted(hoy - nuevo)
-        marca = "✅" if not entran and not salen else "⚠"
-        print(f"  {marca} {curva:<14} hoy={len(hoy):>3}  ejes={len(nuevo):>3}  "
-              f"entran={len(entran)}  salen={len(salen)}")
-        if entran:
-            print(f"      ENTRAN: {', '.join(entran[:20])}"
-                  + (f" … +{len(entran) - 20}" if len(entran) > 20 else ""))
-        if salen:
-            print(f"      SALEN : {', '.join(salen[:20])}"
-                  + (f" … +{len(salen) - 20}" if len(salen) > 20 else ""))
+        print(f"\n  ── {curva} (hoy: {len(hoy)} bonos) " + "─" * (60 - len(curva)))
+        for etiqueta, pred in (("VISTA (la tabla)", p_vista), ("FIT (el ajuste)", p_fit)):
+            nuevo = {r["ticker"] for r in _q(
+                f"SELECT ticker FROM mercado.curvas WHERE {pred}")}
+            entran, salen = sorted(nuevo - hoy), sorted(hoy - nuevo)
+            marca = "✅" if not entran and not salen else "⚠ "
+            print(f"     {marca} {etiqueta:<18} {len(nuevo):>3} bonos · "
+                  f"entran {len(entran)} · salen {len(salen)}")
+            if entran:
+                print(f"          ENTRAN: {', '.join(entran[:14])}"
+                      + (f" … +{len(entran) - 14}" if len(entran) > 14 else ""))
+            if salen:
+                print(f"          SALEN : {', '.join(salen[:14])}"
+                      + (f" … +{len(salen) - 14}" if len(salen) > 14 else ""))
     print("\n  Las ONs (curva `on_*`) pasan a ser `emisor_tipo='corporativo'`:")
     hoy_on = {r["ticker"] for r in _q(
-        "SELECT ticker FROM mercado.curvas WHERE curva LIKE 'on!_%' ESCAPE '!'")}
+        "SELECT ticker FROM mercado.curvas WHERE left(curva, 3) = 'on_'")}
     nuevo_on = {r["ticker"] for r in _q(
         "SELECT ticker FROM mercado.curvas WHERE emisor_tipo = 'corporativo'")}
     print(f"      hoy={len(hoy_on)}  ejes={len(nuevo_on)}  "

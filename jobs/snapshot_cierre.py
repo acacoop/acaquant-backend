@@ -67,12 +67,48 @@ logger = logging.getLogger("SnapshotCierre")
 CURVAS_V1 = ("tasa_fija", "cer", "soberanos", "dolar_linked", "tamar")
 
 
-def _meta_curvas(curva: str) -> dict[str, dict]:
-    """Lee metadata estática del master por curva desde mercado.curvas (SQL).
-    ticker → doc completo (ticker_corto, tipo, fecha_vencimiento, fecha_emision,
-    cupon_anual, …)."""
-    from core import curvas_sql
-    return {d["ticker"]: d for d in curvas_sql.por_curva(curva) if d.get("ticker")}
+def _meta_curvas(curva: str, *, fit: bool = False) -> dict[str, dict]:
+    """Los bonos de esa curva → `símbolo de mercado → ficha`.
+
+    **La pertenencia la deciden los EJES, no la columna `curva`** (2026-08-16).
+
+    Antes esto era `curvas_sql.por_curva(curva)`, que filtra por el campo `curva`
+    del blob — una palabra escrita A MANO en cada fila. Medido: había 6
+    corporativos y 1 BOPREAL adentro de `soberanos` porque alguien tipeó eso.
+    Ahora el criterio sale de `core.curvas_ejes.sql_universo`, que es el MISMO que
+    usa la vista: un bono no puede estar en una tabla y en otra a la vez.
+
+    **La CLAVE que se escribe sigue siendo el mismo string** (`'cer'`,
+    `'tasa_fija'`…). Es lo que hace que este cambio no toque una sola fila de las
+    4.896 que ya hay en `snapshots_cierre_hist`, y que `fair_value`, los forwards
+    y el z-score sigan leyendo por clave sin enterarse de nada.
+
+    `fit=True` agrega `emisor_tipo='soberano'`. Es la diferencia entre lo que se
+    MUESTRA y lo que entra al CÁLCULO: un corporativo tiene spread de crédito y
+    meterlo al ajuste de la curva soberana la corre para todos los demás, sin que
+    nada se vea raro. Verificado contra producción: con `fit` el universo de hoy
+    se reproduce BONO POR BONO en las dos curvas que tienen fit persistido
+    (tasa_fija 11=11, cer 22=22) — o sea que el día uno no se mueve un número.
+
+    Con esto `mercado.curvas.curva` deja de tener lectores acá, que era el último
+    candado para poder borrarla.
+    """
+    from core.curvas_ejes import sql_universo
+    from core.postgres import get_pool
+
+    donde = sql_universo(curva, fit=fit)
+    if donde is None:                     # curva no mapeada: no se adivina
+        logger.warning("curva %r sin universo en curvas_ejes — 0 bonos", curva)
+        return {}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT instrumento, ticker AS ticker_corto, tipo, fecha_vencimiento, "
+            "       fecha_emision, cupon_anual "
+            f"FROM mercado.curvas WHERE ({donde}) "
+            "  AND instrumento IS NOT NULL AND btrim(instrumento) <> ''")
+        cols = [d[0] for d in cur.description]
+        filas = [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
+    return {f["instrumento"]: f for f in filas}
 
 
 def _market_snapshots(tickers: list[str]) -> dict[str, dict]:
@@ -147,7 +183,22 @@ def procesar_curva(
     Devuelve (n_ok, filas_hist, filas_last) — las filas para las dos tablas SQL:
     `mercado.snapshots_cierre_hist` (histórico) y `mercado.snapshots_cierre`
     (último precio por ticker, fallback del PnL). El caller las escribe juntas."""
-    metas = _meta_curvas(curva)
+    # DOS universos, porque las dos tablas se preguntan cosas distintas:
+    #
+    #   · `snapshots_cierre` (precio del PnL) → el AMPLIO. Cuantos más tickers
+    #     tengan cierre, mejor: la tabla NUNCA borra, así que un bono que se cae
+    #     del barrido queda con el precio congelado para siempre. Acá el error
+    #     caro es de MENOS, nunca de más.
+    #   · `snapshots_cierre_hist` (lo que lee el fit de fair value) → el ESTRICTO.
+    #     Acá el error caro es al revés: un corporativo de más corre la curva
+    #     soberana para todos los demás, y no se ve.
+    #
+    # Con un solo universo hay que elegir cuál de los dos se rompe. Medido: con el
+    # amplio entran 3 corporativos al fit de CER; con el estricto, 7 bonos de
+    # `soberanos` pierden su precio — que es EXACTAMENTE el bug de los precios
+    # congelados que se acaba de arreglar.
+    metas = _meta_curvas(curva)                              # amplio  → precios
+    del_fit = set(_meta_curvas(curva, fit=True))             # estricto → el fit
     if not metas:
         logger.warning("[%s] sin tickers en mercado.curvas — saltando", curva)
         return 0, [], []
@@ -189,6 +240,11 @@ def procesar_curva(
             continue
         # Fila del HISTÓRICO (mercado.snapshots_cierre_hist; ts_cierre → fecha date,
         # strings de fecha → date). Ver sql/schema.sql §CAPA MERCADO.
+        # El precio va SIEMPRE (abajo); al histórico del fit, solo el estricto.
+        if ticker not in del_fit:
+            last_rows.append({"ticker": ticker, "last_price": last_price,
+                              "fecha": fecha_d})
+            continue
         hist_rows.append({
             "fecha": fecha_d, "curva": curva, "ticker": ticker,
             "ticker_corto": meta.get("ticker_corto"), "tipo": meta.get("tipo"),

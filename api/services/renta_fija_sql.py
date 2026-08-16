@@ -218,43 +218,49 @@ def get_renta_fija(instrumento: str | None = None) -> list:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# Las columnas que cada tabla de la vista necesita. Se declaran acá y no en cada
+# rama para que agregar una curva no sea copiar y pegar un SELECT.
+_COLS = ("instrumento AS ticker, ticker AS ticker_corto, tipo, curva, "
+         "fecha_vencimiento, fecha_emision, flujo_vencimiento, cupon_anual, "
+         "cer_emision, emisor, moneda_flujo")
+
+
 def _fetch_curva_docs(curva: str, fijados: set[str]) -> list[dict]:
-    """Equivalente SQL de las queries a Trading.Curvas por curva en listar_curva."""
-    if curva == "cer":
-        sql = ("SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, "
-               "fecha_vencimiento, fecha_emision, cupon_anual, cer_emision "
-               "FROM mercado.curvas WHERE curva = 'cer'")
-        params: list = []
-        if fijados:
-            sql += " AND instrumento <> ALL(%s)"
-            params.append(list(fijados))
-        return _q(sql, tuple(params))
-    if curva == "tasa_fija":
-        if fijados:
-            return _q(
-                "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, curva, "
-                "fecha_vencimiento, fecha_emision, flujo_vencimiento "
-                "FROM mercado.curvas WHERE curva = 'tasa_fija' "
-                "OR (curva = 'cer' AND instrumento = ANY(%s))",
-                (list(fijados),),
-            )
-        return _q(
-            "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, curva, "
-            "fecha_vencimiento, fecha_emision, flujo_vencimiento "
-            "FROM mercado.curvas WHERE curva = 'tasa_fija'",
-        )
-    if curva in ("tamar", "dual"):
-        # Por el EJE, no por el string viejo: los duales están guardados con
-        # `curva='cer'` o `curva='tamar'` y sin este branch la curva sale vacía
-        # (era el "la curva de DUALES no existe en el backend" de la vista).
-        return _q(
-            "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, curva, "
-            "fecha_vencimiento, fecha_emision, flujo_vencimiento "
-            "FROM mercado.curvas WHERE ajuste = %s",
-            (curva,))
-    return _q(
-        "SELECT instrumento AS ticker, ticker AS ticker_corto, tipo, "
-        "fecha_vencimiento, fecha_emision FROM mercado.curvas WHERE curva = %s", (curva,))
+    """Los bonos de una tabla de la vista. **El universo lo definen los EJES.**
+
+    Antes era `WHERE curva = 'soberanos'` — la columna escrita a mano. Eso dejó a
+    los ~140 corporativos fuera de TODA la app cuando se borró la vista `/ons`
+    (2026-08-16): un bono con `curva='on_energia'` no puede matchear `'soberanos'`,
+    así que no aparecían ni en su vista vieja ni en la nueva.
+
+    Ahora usa `curvas_ejes.sql_universo(curva)`, el predicado de **VISTA** (no el
+    de FIT): junta emisores a propósito, porque el trader quiere ver el corporativo
+    al lado del soberano para comparar su rendimiento. HARD DOLAR pasa de 21 a ~129
+    bonos — los soberanos de siempre más las ONs en dólares y los BOPREAL.
+
+    ⚠️ Esto es la VISTA. El **FIT** de la curva (fair value, z-score) usa
+    `sql_universo(fit=True)`, que SÍ exige `emisor_tipo='soberano'`: un corporativo
+    tiene spread de crédito y meterlo al ajuste corre la curva para todos.
+    """
+    from core import curvas_ejes as ce
+
+    base = ce.sql_universo(curva)
+    if base is None:
+        # Curva sin ejes mapeados (no debería quedar ninguna). Fallback a la
+        # columna para no devolver vacío en silencio.
+        return _q(f"SELECT {_COLS} FROM mercado.curvas WHERE curva = %s", (curva,))
+
+    # Reasignación CER ↔ tasa_fija: un CER cuyo CER de liquidación del vencimiento
+    # ya publicó el BCRA se comporta como tasa fija, así que sale de una tabla y
+    # entra en la otra. Es un ESTADO del día, no un eje — por eso se aplica acá y
+    # no dentro de `sql_universo`.
+    if curva == "cer" and fijados:
+        return _q(f"SELECT {_COLS} FROM mercado.curvas WHERE ({base}) "
+                  f"AND instrumento <> ALL(%s)", (list(fijados),))
+    if curva == "tasa_fija" and fijados:
+        return _q(f"SELECT {_COLS} FROM mercado.curvas WHERE ({base}) "
+                  f"OR instrumento = ANY(%s)", (list(fijados),))
+    return _q(f"SELECT {_COLS} FROM mercado.curvas WHERE {base}")
 
 
 def _market_maps(tickers: list[str]) -> tuple[dict, dict]:
@@ -380,6 +386,12 @@ def listar_curva(
             cer_em = d.get("cer_emision")
             if cer_em:
                 entry["cer_emision"] = float(cer_em)
+        # EMISOR en todas las tablas, no solo en la de ONs (2026-08-16). Cuando
+        # HARD DOLAR pasó de 21 a ~129 bonos —soberanos + BOPREAL + las ONs en
+        # dólares—, saber de QUIÉN es cada papel dejó de ser un adorno: es lo que
+        # distingue un soberano de una ON de Vista en la misma tabla.
+        if d.get("emisor"):
+            entry["emisor"] = d["emisor"]
         out.append(entry)
 
     if ordenar_por == "vencimiento":

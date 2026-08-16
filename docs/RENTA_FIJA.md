@@ -284,6 +284,35 @@ la TEA es una mejora. Los cuatro corporativos necesitan un diag propio que
 instrumente por dónde se corta el cálculo — la conversión de flujos corre bien,
 así que el bloqueo es otra cosa.
 
+#### Paso 16 (2026-08-16) — la VISTA también selecciona por los EJES (y el agujero que abrió el borrado de `/ons`)
+
+**Bug propio, encontrado al revisar el paso anterior.** Al borrar la vista `/ons`
+se dijo que los corporativos se verían en la tabla HARD DOLAR de `/renta-fija`.
+**No era cierto**: `_fetch_curva_docs` hacía `WHERE curva = 'soberanos'` —la
+columna escrita a mano— y un bono con `curva='on_energia'` no puede matchear eso.
+Resultado: los ~140 corporativos quedaron **fuera de toda la app** (ni en su vista
+vieja, que ya no existe, ni en la nueva).
+
+Arreglado con `curvas_ejes.sql_universo(curva)`, el predicado de **VISTA** que ya
+estaba construido y verificado. Efecto medido: **HARD DOLAR pasa de 21 a ~129
+bonos** — los soberanos de siempre, más las ONs en dólares, más los BOPREAL.
+
+⚠️ **VISTA ≠ FIT, y la diferencia no es cosmética.** La VISTA junta emisores a
+propósito: el trader quiere ver el corporativo al lado del soberano para comparar
+rendimientos. El **FIT** (fair value, z-score, forwards) usa
+`sql_universo(fit=True)`, que exige `emisor_tipo='soberano'` — un corporativo
+tiene spread de crédito y meterlo al ajuste corre la curva para TODOS, con un modo
+de fallar mudo (el ajuste sale, el z-score sale, y los números son otros).
+
+**`emisor` pasa a viajar en TODAS las tablas**, no solo en la de ONs. Con 129
+bonos en una tabla, saber de quién es cada papel dejó de ser un adorno: es lo que
+distingue un soberano de una ON de Vista en la misma grilla.
+
+**Lección de proceso:** borrar una vista no es solo borrar sus archivos. Hay que
+verificar que su contenido siga alcanzable desde donde uno dijo que estaría —
+"se ve en la otra pantalla" es una afirmación sobre el código, y como toda
+afirmación había que medirla antes de decirla.
+
 ### Paso 8 — las PATAS (`mercado.especies`, 2026-08-15)
 
 Pregunta del user: *"¿no debería cada asset tener su instrumento ARS y su

@@ -99,6 +99,14 @@ tiene lo que aplica a todo el repo.
 - **Excepción mínima**: si es UNA sola línea trivial (`systemctl status x`, `tail logs`), se puede pasar inline — pero el default es siempre script.
 - **Cero "probá esto, si no andá probá esto otro"**. Una solución por vez, comiteada al repo.
 
+> **⚠️ EL COMANDO PARA CORRER LO ENTREGADO SÍ VA EN BLOQUE COPY-PASTE (pedido
+> explícito del user, 2026-08-16).** No contradice lo de arriba: lo prohibido es
+> mandar el TRABAJO como snippet para pegar (queries, diagnósticos, código). Lo que
+> el user pide es que, una vez que el trabajo está commiteado, el `git pull &&
+> deploy && python -m …` venga **en un solo bloque listo para copiar**, con todos
+> los comandos encadenados y en orden — no desperdigado en la prosa, obligándolo a
+> ir armándolo a mano. **Un bloque por entrega, al final del mensaje.**
+
 ## ⚠️ REGLA #2 — NUNCA ASUMIR: verificar antes de afirmar o codear
 
 **Bloqueante. Es la causa #1 de romper cosas.** Claude NO tiene acceso al

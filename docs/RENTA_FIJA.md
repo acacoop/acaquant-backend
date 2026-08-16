@@ -62,6 +62,130 @@ de tocar la vista más usada de la app.
 | 8 | `mercado.especies` — las PATAS de cada bono | no | ✅ **aplicado** (758 patas) |
 | 9 | Limpiar el VALOR de `curvas.ticker` (sacar el sufijo D/C) | sí | pendiente |
 
+### Pasos 10-13 (2026-08-16) — duales, ejes editables, industria y el PnL
+
+Cuatro cambios y **cuatro bugs que no se veían**. El patrón se repite tanto que
+conviene nombrarlo: *ninguno de los cuatro producía un error, una fila faltante ni
+un número raro. Los cuatro seguían sumando bien.*
+
+#### Paso 10 — un DUAL tiene dos patas, no una familia propia
+
+`ajuste='dual'` estaba mal por dos motivos y el segundo es el grave: sacaba al
+bono de las dos tablas donde el trader lo busca, y **destruía el dato** (no decía
+contra qué ajusta, así que se perdía que uno es CER+TAMAR y otro CER+devaluación).
+
+Modelo: **`ajuste` + `ajuste_alt`**. Con eso "es dual" deja de cargarse y se
+deduce (`ajuste_alt IS NOT NULL`), las tablas salen sin reglas especiales
+(`CER = ajuste='cer' OR ajuste_alt='cer'`) y **la pill DUALES se eliminó**.
+`ce.pill()` pasó a `ce.pills()`, que devuelve una TUPLA; `curvas_vista` emite
+**una fila por pill** — repetido y no como lista, para que el contrato del front
+no cambie y los dos deploys no tengan que ser simultáneos.
+
+De dónde salió cada pata: la 1ª de `curva` (donde la mesa lo archivó), la 2ª de
+`data->>'tasa_referencia'`. **1816 no sirve y está medido**: su ficha trae 9
+campos, los 9 ya los guardamos, y la denominación de los ocho es
+`GOB ARS ARG DUAL (<ticker>)`. Los 3 que ninguna fuente tenía los dijo la mesa
+(`PATAS_MANUALES`): TTD26 y TTS26 son TAMAR+FIJA, TMVE8 es TAMAR+DOLAR LINKED.
+
+⚠️ **TMVE8 es el primer bono que CRUZA DE COLUMNA** (TAMAR es ARS, DOLAR LINKED es
+USD). Eso destapó que el front decidía el lado de la tabla con
+`bonos[0].moneda` — con TMVE8 primero, la tabla USD entera mostraba columnas de
+pesos. Ahora decide por `lado`, que el backend manda por fila.
+
+⚠️ **`dual` salió de `AJUSTES` y las dos curvas "Duales" de 1816 salieron de
+`EJES_1816`** (viven en `CURVAS_SIN_EJES` con su motivo). Si no,
+`clasificar_curvas --aplicar` le devolvía `ajuste='dual'` a cada dual ya migrado:
+el pipeline de 1816 peleando contra el modelo, en silencio y para siempre.
+
+#### Paso 11 — los EJES se pueden editar (y el bug que borraba el emisor)
+
+Los 5 ejes solo los escribía un script one-shot, así que **un bono dado de alta
+desde Manager nacía sin clasificar y no aparecía en la vista**. Ya pasaba con cada
+alta. Ahora se editan en Manager → TÍTULOS → BONOS, sección CLASIFICACIÓN.
+
+Los ejes van **solo a las COLUMNAS, nunca al blob `data`**: meterlos ahí sería
+agrandar el problema de las dos verdades justo cuando se está cerrando.
+
+**Bug encontrado leyendo el camino de escritura, no reportado por nadie:**
+`ficha_1816` escribe el emisor en la COLUMNA y el editor mergea sobre el BLOB, que
+nunca se enteró. Editar cualquier bono escribía `emisor = NULL` (bonos no-ON) o
+revertía a la grafía vieja (ONs). `fila_a_escribir` ahora saca del dict las
+columnas que el blob ya no gobierna.
+
+**Y un bug que el paso mismo iba a introducir:** `list_bonos` lee el blob y los
+ejes son column-only → el form los cargaba vacíos y guardar los borraba. Ahora
+`list_bonos` mergea las columnas encima, y la columna SIEMPRE le gana.
+
+`extra="forbid"` en los upserts: con el default `ignore`, un campo que el backend
+viejo no conoce se descarta con **200 OK** — y el front deploya a Vercel solo y
+siempre antes. Sin esto, en esa ventana el operador clasifica, ve el tilde verde,
+y el bono sigue sin clasificar.
+
+#### Paso 12 — la INDUSTRIA se muda del bono al EMISOR
+
+Medido: **8 de 51 emisores corporativos tienen sectores que se contradicen entre
+sus propios bonos** (Pampa Energía tiene tres). Ninguna fila está mal — cada una
+suma bien por separado — y por eso agrupar da distinto según de dónde se lea.
+
+`mercado.emisores` (PK de TEXTO + índice único sobre `upper(btrim(...))`) +
+`mercado.industrias` (catálogo controlado, patrón `mercado.rubros`). ABM en
+Manager → TÍTULOS → EMISORES, con los pendientes ARRIBA. La industria se resuelve
+en la LECTURA (`curvas_vista` la joinea) y **solo viaja para corporativos**.
+
+El seeder **NO resuelve las contradicciones**: colapsarlas por mayoría sería
+inventar un criterio y dejarlo escrito como si fuera un dato. `on_otros` tampoco
+se traduce a una industria "otros" — *otros* no es una industria, es el cajón de
+lo que nadie clasificó. En el gráfico, `sin_industria` tiene **color y etiqueta
+propios**: mezclarlo con `otros` haría que el pendiente desaparezca justo cuando
+el trabajo de cargarlo está a medias.
+
+Guardrail nuevo: `emisor_sin_industria` (respeta umbral) y
+`emisor_contradictorio` (**siempre viola** — no hay cantidad tolerable de "el
+mismo emisor dice dos industrias distintas").
+
+#### Paso 13 — precios congelados en el fallback del PnL
+
+`mercado.snapshots_cierre` es el fallback de precio del PnL, se poblaba barriendo
+3 de las 7 familias y **nunca borra** (su upsert solo AVANZA la fecha). Un bono
+que dejó de entrar al barrido se quedaba con el último precio **para siempre**.
+
+Medido: 5 bonos VIVOS y EN CARTERA con el precio del 30-abr, desviados 5,8%-9,6%
+— TTS26 (17 cuentas, 5.153 M de nominales), TTD26, D30S6, TZV27, TZV28. Los cinco
+viven en `tamar` o `dolar_linked`, las dos familias que faltaban en `CURVAS_V1`.
+
+SALUD no lo veía: su contrato mira `max(fecha)` de la TABLA, que sigue fresco
+mientras cualquier otro ticker actualice. **La frescura de una fila no es la
+frescura de la tabla.**
+
+Las 155 ONs siguen sin cierre persistido — decisión aparte, por volumen.
+
+#### Fase B: `sql_universo`, y por qué no avanzó más
+
+`core.curvas_ejes.sql_universo(curva, fit=)` traduce cada curva a un predicado
+sobre los ejes. **Son DOS y no uno:**
+
+  · **VISTA** — qué se muestra. Junta emisores a propósito.
+  · **FIT** — qué entra al ajuste de la curva. Acá juntar emisores está MAL: un
+    corporativo tiene spread de crédito y corre el fit para todos, y el modo de
+    fallar es mudo.
+
+Medido: con el predicado de VISTA `soberanos` pasa de 21 a 129 bonos. Con el de
+FIT, el universo de hoy se reproduce **bono por bono** en las tres curvas que
+tienen fit persistido (tasa_fija 11=11, cer 22=22, dolar_linked 7=7).
+
+⚠️ **Lo que falta y por qué es delicado:** `jobs/fair_value.py` NO lee
+`mercado.curvas` — lee `snapshots_cierre_hist WHERE curva = X`, o sea que su
+universo lo define la CLAVE PERSISTIDA de una tabla con 4.896 filas de historia
+(y ninguna de las 4 tablas particionadas por `curva` se limpia nunca: no hay un
+solo `DELETE FROM` sobre ellas en el repo). Migrarlo no es cambiar un filtro: es
+tocar una PK con historia, el único paso irreversible del plan. La salida
+propuesta es que la clave pase a DERIVARSE de los ejes conservando el mismo
+string — así ningún consumidor cambia y no hay historia que migrar.
+
+**Decisión de mesa pendiente:** si un dual entra al FIT de sus dos curvas. Cotiza
+distinto que un CER puro porque tiene la opción de la otra pata. Hoy `sql_universo`
+los incluye; sacarlos es quitar el `OR ajuste_alt` del modo `fit`.
+
 ### Paso 8 — las PATAS (`mercado.especies`, 2026-08-15)
 
 Pregunta del user: *"¿no debería cada asset tener su instrumento ARS y su

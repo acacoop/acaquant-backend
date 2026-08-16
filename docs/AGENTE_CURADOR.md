@@ -162,7 +162,7 @@ opiniones. El eval va ANTES del modelo.
 | # | Etapa | ¿IA? | ¿Escribe en prod? | Estado |
 |---|---|---|---|---|
 | E0 | Doc vivo + decisiones abiertas | no | no | ✅ **hecho** |
-| E1 | El espejo (detectar, sin escribir) | no | solo tabla propia | pendiente |
+| E1 | El espejo (detectar, sin escribir) | no | solo tabla propia | ✅ **codeado — falta CALIBRAR en prod** |
 | E2 | El simulador (TEA en seco) | no | no | pendiente |
 | E3 | El set de control (evals) | no | no | pendiente |
 | E4 | El cerebro (diagnóstico) | **sí** | no | pendiente |
@@ -175,24 +175,46 @@ Este archivo. Absorbe el diseño de `VISTA_RESEARCH.md` §4.10 (que queda como e
 registro de la medición) y lo convierte en plan ejecutable con decisiones
 explícitas. **Validación:** el user lo lee y confirma que es el sistema que quiere.
 
-### E1 — El espejo (read-only, sin IA)
-Un job que barre 1816 y contesta las tres preguntas **como reporte**. No escribe
-en `mercado.curvas`, no llama a ningún LLM. Persiste solo en su tabla propia
-(`rf_hallazgos`, con la evidencia congelada).
+### E1 — El espejo (read-only, sin IA) — CODEADO, falta calibrar
 
-- Promover `censar()` del diag a módulo reusable — hoy vive en un `scripts/diag_*`
-  y el job no puede depender de un script one-shot que la REGLA #5 manda borrar.
-- Tres detectores deterministas: *falta en mi base* · *sin flujo* · *tasa
-  sospechosa* (las reglas de `SALUD_CURVAS` §7.1: paridad fuera de [40,160],
-  |TEA| fuera de rango, `moneda_flujo` ≠ CARTERA, escala flujo ≠ escala precio,
-  bono en `curvas` sin espejo en `assets`).
-- Respeta el throttle de 2,5 s del cliente y el tope de créditos (REGLA #4).
+**Qué se entregó:**
 
-**Validación — y es la que decide si el proyecto sigue:** el user corre el job,
-mira la lista, y marca qué es hallazgo real y qué es ruido. **Sin este número
-medido, todo lo que viene después es fe.** El de las tasas sospechosas es el que
-más importa: si de 20 candidatos 18 son ruido, las reglas están mal calibradas y
-se ajustan ANTES de ponerle un modelo encima.
+| Archivo | Qué es |
+|---|---|
+| `core/mercado_1816.py::censar()` | el censo de las 28 curvas, **promovido** desde `scripts/diag_1816_cashflow` (un job de prod no puede depender de un diag, que por la REGLA #5 se borra al cumplir). El diag quedó con un alias. |
+| `api/services/curador.py` | los **tres detectores**, lógica PURA (sin base, sin red, sin FastAPI) + `relevar()` que orquesta |
+| `jobs/curador.py` | el job: censo → detectores → `mercado.curador_hallazgos`. `--dry-run`, `--alcance`, `--detalle` |
+| `mercado.curador_hallazgos` (`sql/schema.sql`) | append-only **por corrida**, con la evidencia congelada y TTL de 60 corridas |
+| `tests/unit/test_curador.py` | 15 tests — **9 de ellos afirman que algo NO se reporta** |
+
+**El ALCANCE es un parámetro, no una constante** (`--alcance soberanos` por
+default): así la decisión **D1**, que sigue abierta, es un flag y no un rewrite.
+
+**Tres exclusiones deliberadas** — son lo que separa una lista útil de una que
+nadie mira a las tres semanas:
+- los ajustes que el motor **no calcula por diseño** (`tamar`/`badlar`/`tpm`/
+  `caucion`, que caen en el `else` de `engines/curvas.py`): reportarlos sería
+  denunciar todas las noches una decisión de arquitectura — 18 bonos de ruido fijo;
+- las tasas ya marcadas **ruido por duration**, con el MISMO predicado que la
+  vista (`curvas_vista.es_tasa_ruido`, que se promovió de privada a pública para
+  que exista una sola vez y no dos copias que puedan divergir);
+- los bonos **sin flujo**, que ya los reporta el detector 2 — contarlos dos veces
+  infla la lista y hace parecer que hay dos problemas donde hay uno.
+
+**Y una que importa más de lo que parece:** si la query de `portafolio.assets`
+falla, la regla `sin_espejo_en_assets` **no corre** en vez de marcar los 222 bonos
+como huérfanos. *"No pude mirar" nunca puede convertirse en "no está"* — es la
+misma regla que hace que el job avise cuando el censo de 1816 vuelve vacío.
+
+**Falta: CALIBRAR contra prod, y es lo que decide si el proyecto sigue.** El user
+corre `python -m jobs.curador --dry-run --detalle`, mira la lista y marca qué es
+hallazgo real y qué es ruido. **Sin ese número medido, todo lo que viene después
+es fe.** El desglose **por REGLA** que imprime el job existe justo para eso: una
+regla que se lleva media lista es la primera sospechosa.
+
+**Todavía SIN cron, a propósito.** Automatizar un detector antes de saber su tasa
+de falsos positivos es programar ruido diario. La entrada en `deploy/crontab.txt`
+se agrega cuando la calibración lo justifique.
 
 ### E2 — El simulador
 Calcular la TEA/paridad/duration que **tendría** un bono con un flujo dado, sin
@@ -311,6 +333,12 @@ Aplicó algo mal → está en el historial con su `before` y se revierte con un 
 
 ## Changelog
 
+- **2026-08-16 — E1 codeado.** `core/mercado_1816.censar()` (promovido del diag),
+  `api/services/curador.py` (3 detectores puros), `jobs/curador.py`,
+  `mercado.curador_hallazgos` y 15 tests. `curvas_vista._es_ruido` pasó a pública
+  (`es_tasa_ruido`) para que el criterio de "tasa ruidosa" exista UNA sola vez.
+  Read-only sobre `mercado.curvas` y sin una línea de IA. **Pendiente: calibrar en
+  prod** — hasta entonces, sin cron.
 - **2026-08-16 — E0.** Nace el doc. Se define el encuadre (agente de integridad de
   datos, no copiloto), dónde va y dónde no va la IA, las 7 etapas, las 3 decisiones
   abiertas (alcance, política de conflicto, alcance del diagnóstico) y el inventario

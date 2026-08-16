@@ -219,6 +219,57 @@ def cashflow(ticker: str, campos: list[str] | None = None) -> dict:
                 {"campos": list(campos or CAMPOS_CASHFLOW)})
 
 
+def censar(vencidos: bool = False) -> dict:
+    """Universo COMPLETO de 1816: recorre `/curvas` y pide `/instrumentos` por cada
+    una. → `{curvas: [{id, nombre, vigentes, total, error}], instrumentos: {ticker: inst}}`,
+    donde cada `inst` viene enriquecido con `_curva_id` y `_curva`.
+
+    **Costo: 1 crédito por llamada** → ~29 el censo (1 + 28 curvas), ~57 con
+    `vencidos=True`. Es la operación más barata del proveedor y la base del
+    Curador (docs/AGENTE_CURADOR.md E1).
+
+    Vive acá y no en un `scripts/diag_*` porque **es el censo del PROVEEDOR** y lo
+    usan tres consumidores (el diag de cashflow, el de mapeo y el job del
+    Curador). Duplicado, dos cruces podían dar universos distintos sin que nadie
+    se entere — la misma razón por la que `normalizar_ticker` vive acá.
+
+    Una curva que falla NO aborta el censo: queda con su `error` en la fila y el
+    resto sigue. Medido 2026-08-15: 887 tickers únicos vigentes en 28 curvas, y la
+    suma por curva da exactamente 887 (ningún ticker se publica en dos curvas)."""
+    curvas_cat = curvas() or []
+    logger.info("mercado_1816.censar: %s curvas en el catálogo", len(curvas_cat))
+
+    universo: dict[str, dict] = {}
+    filas: list[dict] = []
+    for c in curvas_cat:
+        cid = c.get("id") or c.get("curvaId")
+        nombre = c.get("name") or c.get("nombre") or c.get("descripcion") or f"curva {cid}"
+        if cid is None:
+            continue
+        fila = {"id": cid, "nombre": nombre, "vigentes": 0, "total": 0, "error": ""}
+        try:
+            vig = instrumentos(curva_id=int(cid)) or []
+        except Exception as e:
+            fila["error"] = str(e)[:80]
+            filas.append(fila)
+            continue
+        fila["vigentes"] = len(vig)
+        for inst in vig:
+            tk = (inst.get("ticker") or "").strip().upper()
+            if tk:
+                inst["_curva_id"], inst["_curva"] = cid, nombre
+                universo.setdefault(tk, inst)
+        if vencidos:
+            try:
+                fila["total"] = len(instrumentos(curva_id=int(cid),
+                                                 solo_performing=False) or [])
+            except Exception as e:
+                fila["error"] = str(e)[:80]
+        filas.append(fila)
+
+    return {"curvas": filas, "instrumentos": universo}
+
+
 def parse_series(data: dict) -> list[dict]:
     """{instrumentos:{ticker:{campo:[[fecha,valor],…]}}} → filas tidy
     [{ticker, fecha, campo, valor, fuente, moneda, plazo, convencion_tna}]. Pura

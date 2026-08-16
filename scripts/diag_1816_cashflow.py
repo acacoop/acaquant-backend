@@ -99,43 +99,11 @@ def _delta(antes: dict | None, despues: dict | None) -> str:
 # ── 1) censo del universo ────────────────────────────────────────────────────
 
 
-def censar(vencidos: bool = False) -> dict:
-    """{curvas: [...], instrumentos: {ticker: inst}} recorriendo TODAS las curvas
-    del catálogo. Una curva que falla no aborta el censo. PÚBLICA: la reusa
-    `scripts/diag_1816_mapeo.py` para no tener dos censos que puedan divergir."""
-    curvas = mercado_1816.curvas() or []
-    print(f"Curvas en el catálogo de 1816: {len(curvas)}")
-
-    universo: dict[str, dict] = {}
-    filas: list[dict] = []
-    for c in curvas:
-        cid = c.get("id") or c.get("curvaId")
-        nombre = c.get("name") or c.get("nombre") or c.get("descripcion") or f"curva {cid}"
-        if cid is None:
-            continue
-        fila = {"id": cid, "nombre": nombre, "vigentes": 0, "total": 0, "error": ""}
-        try:
-            vig = mercado_1816.instrumentos(curva_id=int(cid)) or []
-        except Exception as e:
-            fila["error"] = str(e)[:80]
-            filas.append(fila)
-            continue
-        fila["vigentes"] = len(vig)
-        for inst in vig:
-            tk = (inst.get("ticker") or "").strip().upper()
-            if tk:
-                inst["_curva_id"], inst["_curva"] = cid, nombre
-                universo.setdefault(tk, inst)
-        if vencidos:
-            try:
-                todos = mercado_1816.instrumentos(curva_id=int(cid),
-                                                  solo_performing=False) or []
-                fila["total"] = len(todos)
-            except Exception as e:
-                fila["error"] = str(e)[:80]
-        filas.append(fila)
-
-    return {"curvas": filas, "instrumentos": universo}
+# El censo SE MUDÓ al cliente (`core.mercado_1816.censar`) cuando el Curador pasó
+# a necesitarlo: un job de producción no puede depender de un `scripts/diag_*`,
+# que por la REGLA #5 se borra cuando cumple. Queda el alias porque
+# `scripts/diag_1816_mapeo.py` lo importa de acá.
+censar = mercado_1816.censar
 
 
 def _imprimir_censo(censo: dict, vencidos: bool) -> None:

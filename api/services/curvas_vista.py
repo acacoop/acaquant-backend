@@ -40,7 +40,7 @@ from core import curvas_ejes as ce
 DUR_MIN_TASA = 0.05          # ~18 días corridos
 
 
-def _es_ruido(metrics: dict, emisor_tipo: str | None) -> bool:
+def es_tasa_ruido(metrics: dict, emisor_tipo: str | None) -> bool:
     """¿La tasa de este bono es un artefacto de plazo, no un rendimiento?
 
     Se decide por DURATION y no por días al vencimiento porque la duration ya
@@ -260,7 +260,7 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
                                   _f(r.get("flujo_vencimiento")), mep)
                     if pill == "tasa_fija" else None),
                 # La tasa de este bono es ruido por duration ~0 (ver DUR_MIN_TASA).
-                "tasa_ruido": _es_ruido(m_pill, ejes.emisor_tipo),
+                "tasa_ruido": es_tasa_ruido(m_pill, ejes.emisor_tipo),
                 # De qué pata es esta fila y de dónde salió su tasa. `None` en
                 # `tea_fuente` = el motor (live). Viaja SIEMPRE, aunque hoy solo
                 # el TAMAR use la otra fuente: una tasa sin procedencia obliga a

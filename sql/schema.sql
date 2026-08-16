@@ -3675,3 +3675,35 @@ CREATE TABLE IF NOT EXISTS bancos.audit_lecturas (
 
 CREATE INDEX IF NOT EXISTS ix_bancos_audit_ts
     ON bancos.audit_lecturas (ts DESC);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- AGENTE CURADOR — hallazgos de integridad de renta fija (E1)
+-- Doc madre: docs/AGENTE_CURADOR.md
+--
+-- La tabla PROPIA del agente: acá escribe con autonomía total porque nada de lo
+-- que ponga entra a una valuación. `mercado.curvas` no se toca en esta etapa.
+--
+-- Append-only por CORRIDA (`corrida_at`), no un upsert por ticker: lo que
+-- importa no es solo qué está mal HOY sino desde cuándo y si apareció o
+-- desapareció solo. Con un upsert, un hallazgo que se arregla borra la evidencia
+-- de que existió — el mismo error que `manager.salud_eventos` ya evita
+-- guardando las TRANSICIONES en vez del estado.
+CREATE TABLE IF NOT EXISTS mercado.curador_hallazgos (
+    id          bigserial PRIMARY KEY,
+    corrida_at  timestamptz NOT NULL DEFAULT now(),
+    alcance     text NOT NULL,        -- soberanos | no_corporativos | todo
+    tipo        text NOT NULL,        -- falta_en_base | sin_flujo | tasa_sospechosa
+    ticker      text NOT NULL,        -- ticker CORTO (AL30), normalizado
+    regla       text NOT NULL,        -- qué regla disparó (para agrupar y calibrar)
+    severidad   text NOT NULL,        -- alta | media | baja
+    motivo      text NOT NULL,        -- la frase en castellano que lee un humano
+    evidencia   jsonb                 -- los números que sostienen la afirmación,
+                                      -- CONGELADOS: para cuando alguien lo mire,
+                                      -- el motivo puede ya no existir.
+);
+
+-- El acceso natural es "la última corrida" y "la historia de este ticker".
+CREATE INDEX IF NOT EXISTS ix_curador_corrida
+    ON mercado.curador_hallazgos (corrida_at DESC);
+CREATE INDEX IF NOT EXISTS ix_curador_ticker
+    ON mercado.curador_hallazgos (ticker, corrida_at DESC);

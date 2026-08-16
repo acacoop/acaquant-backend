@@ -1629,6 +1629,50 @@ CREATE INDEX IF NOT EXISTS ix_curvas_vto   ON mercado.curvas(fecha_vencimiento);
 -- y `operaciones.acreencias` (9.726 filas medidas). Por eso la tabla guarda las
 -- dos: `ticker` (AL30) une con la curva, `ticker_especie` (AL30D) une con la
 -- posición.
+-- mercado.emisores — EL EMISOR Y SU INDUSTRIA (2026-08-16).
+--
+-- La industria es un atributo del EMISOR, no del bono. Guardarla por bono —que es
+-- lo que hacía `mercado.curvas.sector`— significa escribir el mismo dato N veces
+-- y esperar que nadie lo escriba distinto. Medido: **8 de 51 emisores tienen HOY
+-- sectores que se contradicen entre sus propios bonos**; Pampa Energía tiene tres
+-- valores ('', 'energia' y 'otros') repartidos en sus 4 bonos. Ninguno está "mal":
+-- cada fila suma bien por separado, y por eso agrupar por industria da distinto
+-- según de dónde se lea. Con el dato una sola vez por emisor eso es imposible.
+--
+-- El `emisor` es la PK de TEXTO y no un id, a propósito: es la clave con la que ya
+-- joinean `mercado.curvas.emisor` y `portafolio.assets.EMISOR`, y meter un id
+-- obligaría a resolverlo en cada uno de los cuatro escritores que hoy tocan ese
+-- campo. El precio de esa decisión es que `'YPF '` y `'YPF'` serían dos emisores,
+-- así que el índice único va sobre la forma NORMALIZADA y el service normaliza al
+-- escribir. Lo que hace viable la clave de texto es que 1816 ya estandarizó el
+-- nombre (`jobs/ficha_1816.py`, 140/140 corporativos cubiertos).
+--
+-- `industria` NULL = SIN CLASIFICAR, y es un estado válido y visible. No se
+-- reparte a dedo ni se colapsa por mayoría: el bucket tiene que verse.
+CREATE TABLE IF NOT EXISTS mercado.emisores (
+    emisor      text PRIMARY KEY,
+    industria   text,                  -- NULL = sin clasificar (visible, no se adivina)
+    activo      boolean DEFAULT true,
+    obs         text,
+    creado_at   timestamptz DEFAULT now(),
+    editado_por text,
+    editado_at  timestamptz
+);
+-- La red contra `'YPF '` vs `'YPF'`: dos grafías del mismo emisor no pueden
+-- convivir. Un índice funcional y no un CHECK porque el normalizado tiene que ser
+-- consultable, no solo rechazable.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_emisores_norm
+    ON mercado.emisores (upper(btrim(emisor)));
+CREATE INDEX IF NOT EXISTS ix_emisores_industria ON mercado.emisores (industria);
+
+-- Catálogo controlado de industrias (mismo patrón que `mercado.rubros` para los
+-- CEDEARs): la industria NO se escribe libre, se elige de acá o se crea explícito.
+-- Es lo que evita que 'Energia', 'energía' y 'ENERGIA' terminen siendo tres.
+CREATE TABLE IF NOT EXISTS mercado.industrias (
+    industria text PRIMARY KEY,
+    activo    boolean DEFAULT true
+);
+
 CREATE TABLE IF NOT EXISTS mercado.especies (
     simbolo        text PRIMARY KEY,       -- MERV - XMEV - AL30D - 24hs (clave de Primary)
     ticker         text NOT NULL,          -- AL30   → mercado.curvas.ticker

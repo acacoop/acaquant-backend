@@ -36,6 +36,7 @@ from api.routers.manager import (
     controles,
     diagnostico,
     documentos,
+    emisores,
     grupos,
     import_tenencia,
     instrumentos,
@@ -97,6 +98,7 @@ router.include_router(clientes.bulk_router,       dependencies=_CLIENTES_BULK)
 router.include_router(assets.router,          dependencies=_TITULOS)
 router.include_router(ons.router,             dependencies=_TITULOS)
 router.include_router(bonos.router,           dependencies=_TITULOS)
+router.include_router(emisores.router,        dependencies=_TITULOS)
 router.include_router(breakevens.router,      dependencies=_TITULOS)
 router.include_router(renta_variable.router,  dependencies=_TITULOS)
 router.include_router(instrumentos.router,    dependencies=_INSTRUMENTOS)

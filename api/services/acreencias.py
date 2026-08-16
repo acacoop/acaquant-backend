@@ -268,13 +268,13 @@ def titulos_sin_flujo() -> list[dict]:
                     base.setdefault(_base_ticker(key), key)
         return idx, base
 
-    # TODO vive en Trading.Curvas; la `curva` decide la vista. NO-ON (Renta Fija) y
-    # ON (`on_*`, vista ONs) — cada uno con ¿tiene flujo? (las ONs ya viven en Curvas,
-    # NO se lee BondsMaster: consolidado en Curvas, 2026-06-19). Master desde SQL
-    # mercado.curvas (curvas_sql devuelve el doc completo → _index/_KEYS sin cambio).
+    # TODO vive en mercado.curvas; el EJE `emisor_tipo` decide la vista. NO-ON
+    # (Renta Fija) y ON (corporativos, vista ONs) — cada uno con ¿tiene flujo? (las
+    # ONs ya viven en Curvas, NO se lee BondsMaster: consolidado 2026-06-19).
+    # curvas_sql devuelve el doc completo → _index/_KEYS sin cambio.
     _KEYS = [lambda d: d.get("ticker_corto"), lambda d: d.get("ticker")]
-    curvas_idx, curvas_base = _index(curvas_sql.por_curva_not_like("on%"), _KEYS)
-    on_idx, on_base = _index(curvas_sql.por_curva_like("on%"), _KEYS)
+    curvas_idx, curvas_base = _index(curvas_sql.no_corporativos(), _KEYS)
+    on_idx, on_base = _index(curvas_sql.corporativos(), _KEYS)
 
     def _lookup(idx: dict, base: dict, cands) -> bool | None:
         """True/False=tiene/no flujo · None=no está en ese maestro."""

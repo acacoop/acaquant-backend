@@ -63,7 +63,7 @@ def _mis_tickers() -> dict[str, str]:
     from core import curvas_sql
 
     out: dict[str, str] = {}
-    for d in curvas_sql.por_curva_not_like("on%"):
+    for d in curvas_sql.no_corporativos():
         tc = (d.get("ticker_corto") or "").strip().upper()
         if tc:
             out[_norm(tc)] = tc

@@ -128,10 +128,12 @@ def set_manual(lecap: str, cer: str, agregar: bool, email: str) -> dict[str, Any
             raise ValueError(f"'{lecap}' no existe en mercado.curvas")
         if cd is None:
             raise ValueError(f"'{cer}' no existe en mercado.curvas")
-        if ld.get("curva") != "tasa_fija":
-            raise ValueError(f"'{lecap}' es curva '{ld.get('curva')}', se esperaba tasa_fija")
-        if cd.get("curva") != "cer":
-            raise ValueError(f"'{cer}' es curva '{cd.get('curva')}', se esperaba cer")
+        # Mismo predicado que `candidatos()` (los ejes, no la columna `curva`): si
+        # divergieran, un bono que el combo ofrece se rechazaría al guardarlo.
+        if not curvas_sql.esta_en_curva(ld, "tasa_fija"):
+            raise ValueError(f"'{lecap}' no es de la curva tasa_fija")
+        if not curvas_sql.esta_en_curva(cd, "cer"):
+            raise ValueError(f"'{cer}' no es de la curva cer")
 
     from core.postgres import get_pool
     now = datetime.now(UTC)

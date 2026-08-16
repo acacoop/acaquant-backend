@@ -186,6 +186,53 @@ string — así ningún consumidor cambia y no hay historia que migrar.
 distinto que un CER puro porque tiene la opción de la otra pata. Hoy `sql_universo`
 los incluye; sacarlos es quitar el `OR ajuste_alt` del modo `fit`.
 
+#### Paso 14 (2026-08-16) — `por_curva` deja de leer la columna `curva`
+
+`core/curvas_sql.py::por_curva(curva)` es el helper que **~20 archivos** usan para
+preguntar "dame los bonos de esta curva": forwards, breakevens, fair value,
+sintéticos, carry, sensibilidad, order book, comparar inversión, el healthcheck.
+Hasta hoy contestaba comparando contra `mercado.curvas.curva`, **una palabra
+escrita a mano por fila**. Ahora la pertenencia se DERIVA de los ejes, con la
+misma función que usa la vista (`curvas_ejes.pills` → `curvas_de`).
+
+Tres cosas que rompían y no daban error:
+
+  · un **dual** sólo podía tener una palabra → se escondía de una de sus dos
+    tablas, y su TEA no entraba a una de las dos matrices de forwards;
+  · los **6 corporativos en USD** estaban escritos como `soberanos` porque no
+    había otro lugar donde ponerlos;
+  · dar de alta un bono y **olvidarse la palabra** lo hacía invisible, en silencio.
+
+Medido antes de tocar (`scripts/diag_por_curva`, read-only): cer 22→25,
+dolar_linked 7→31, soberanos 21→129, tamar 5→18, tasa_fija 11→13.
+
+**`on_energia` / `on_finanzas` / `on_otros` dejan de ser curvas.** Nunca lo
+fueron: eran el SECTOR del emisor metido dentro del nombre de la curva. Ser
+corporativo es un EJE (`emisor_tipo`), y la curva de una ON en USD a tasa fija es
+`soberanos` — que es contra quién se compara su rendimiento. Las 8 llamadas
+`por_curva_like('on%')` / `not_like('on%')` (ONs, renta fija, acreencias, Manager
+→ BONOS, discovery 1816) pasan a **`corporativos()` / `no_corporativos()`**, y las
+dos funciones `*_like` se **borraron** para que nadie las reintroduzca.
+
+Tres lugares comparaban `doc['curva'] != X` teniendo el doc en la mano y habrían
+contradicho al listado (un bono ofrecido por el combo, rechazado al guardarlo):
+`comparar_inversion` ×2 y `breakevens_admin`. Los tres usan ahora
+**`curvas_sql.esta_en_curva(doc, curva)`** — el predicado existe una sola vez.
+
+⚠️ **Un bono sin ejes no cae en ninguna curva y desaparece de todo lo que llame a
+`por_curva`.** Es a propósito (antes caía en la curva que dijera su palabra aunque
+nadie lo hubiera clasificado), pero hay que completarlos: **10 bonos** —
+`BA37 · BB37 · SA24 · SF27 · RMJ28` (provinciales) y
+`NZC30 · IR2PO · PN430 · VSCWO · Y134O` (corporativos). Se listan con
+`curvas_sql.sin_curva()`. `RMJ28` es distinto: SÍ tiene ejes, pero su `ajuste` es
+`badlar`, que todavía no tiene curva (igual que `tpm` y `caucion`).
+
+**Lectores de `curva` que quedan** (la columna todavía no se puede borrar):
+`engines/curvas.py` (`curva_depende_de` / `dep_tasa_disponible` — de qué feed
+depende la TEA), `jobs/backfill_tasas.py`, `jobs/guardrails.py::_leer_master_por_curva`,
+`api/services/titulos_flujos.py`, y la clave persistida de las 4 tablas
+particionadas (fase B2-B5, el único paso irreversible).
+
 ### Paso 8 — las PATAS (`mercado.especies`, 2026-08-15)
 
 Pregunta del user: *"¿no debería cada asset tener su instrumento ARS y su

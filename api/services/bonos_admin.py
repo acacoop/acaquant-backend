@@ -84,13 +84,14 @@ def _columnas_por_ticker(tickers: list[str]) -> dict[str, dict]:
 
 
 def list_bonos(curva: str | None = None) -> list[dict]:
-    """Bonos NO-ON de mercado.curvas (excluye curva ^on, que son del editor de ONs).
+    """Bonos NO-ON de mercado.curvas (excluye los corporativos, que son del editor
+    de ONs).
 
     Los docs vienen del blob; las columnas que el blob no tiene se mergean encima
     (ver `_COLS_FUERA_DEL_BLOB`). El blob NUNCA gana: si tuviera una copia vieja de
     `emisor`, la columna la pisa — que es el sentido de haberlo estandarizado.
     """
-    out = curvas_sql.por_curva(curva) if curva else curvas_sql.por_curva_not_like("on%")
+    out = curvas_sql.por_curva(curva) if curva else curvas_sql.no_corporativos()
     por_tk = _columnas_por_ticker([d["ticker_corto"] for d in out if d.get("ticker_corto")])
     for d in out:
         extra = por_tk.get(d.get("ticker_corto"))
@@ -194,7 +195,7 @@ def bonos_sin_tasa() -> dict:
     """
     from core import market_snapshot
 
-    docs = curvas_sql.por_curva_not_like("on%")
+    docs = curvas_sql.no_corporativos()
     by_full = {d.get("ticker"): d for d in docs if d.get("ticker")}
     cols = market_snapshot.cols_map(list(by_full), ["last_price", "tea"])
 

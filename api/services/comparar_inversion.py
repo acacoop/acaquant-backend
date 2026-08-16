@@ -108,7 +108,9 @@ def listar_bonos_seleccionables() -> list[dict]:
                 "vencimiento": str(vto)[:10] if vto else None,
                 "meses_al_vto": meses,
                 # cer_fijado: en la pasada 'tasa_fija', los nativos CER (ya fijados).
-                "cer_fijado": (curva == "tasa_fija" and d.get("curva") == "cer"),
+                # Se lee del EJE `ajuste`, no de la columna `curva`: es el mismo
+                # criterio con el que `por_curva` los seleccionó dos líneas arriba.
+                "cer_fijado": (curva == "tasa_fija" and d.get("ajuste") == "cer"),
             })
     # Ordenamos por moneda y luego vencimiento para que el dropdown agrupe
     # naturalmente ARS arriba, USD abajo, cronológico.
@@ -153,10 +155,11 @@ def _flujos_de(curva: str, ticker_corto: str) -> tuple[list[dict], bool]:
     from engines.curvas import cargar_cer, fecha_flujo
 
     # Master desde SQL mercado.curvas (curvas_sql.find_one es por ticker_corto, PK).
-    # Replicamos el filtro original {curva, ticker_corto}: exigimos que la curva
-    # nativa del doc coincida con la pedida (mismo resultado que el find_one Mongo).
+    # Exigimos que el bono pertenezca a la curva pedida, con el MISMO predicado que
+    # usó el selector (`esta_en_curva`, derivado de los ejes). Si acá se mirara la
+    # columna `curva`, un dual elegible en el combo se rechazaría al graficarlo.
     doc = curvas_sql.find_one(ticker_corto)
-    if not doc or doc.get("curva") != curva:
+    if not doc or not curvas_sql.esta_en_curva(doc, curva):
         return [], False
     flujos_doc = doc.get("flujos") or []
 

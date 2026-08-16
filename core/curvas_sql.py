@@ -12,6 +12,7 @@ Master chico (~57 instrumentos) → se traen los docs completos sin problema.
 import threading
 import time
 
+from core import curvas_ejes as ce
 from core.postgres import get_pool
 
 # Cache en memoria del MASTER completo (perf 2026-06-29). El master cambia ~1×/semana
@@ -85,22 +86,62 @@ def cargar_todos() -> list[dict]:
     return [dict(d) for d in _master()]
 
 
+# ── Pertenencia a una curva: la deciden los EJES, no la columna ──────────────
+#
+# `mercado.curvas.curva` es UNA PALABRA ESCRITA A MANO por fila. Mientras fue la
+# fuente, tres cosas rompían sin dar error:
+#
+#   · un DUAL (CER+TAMAR) sólo podía tener una palabra → se escondía de una de
+#     sus dos tablas;
+#   · los 6 corporativos en USD estaban escritos como `soberanos` porque no había
+#     otro lugar donde ponerlos;
+#   · agregar un bono y olvidarse la palabra lo hacía invisible en silencio.
+#
+# Ahora la pertenencia se DERIVA de los ejes (`emisor_tipo`/`moneda_eje`/`ajuste`/
+# `ajuste_alt`), con la MISMA función que usa la vista (`curvas_ejes.pills`). No
+# hay dos criterios que puedan divergir: hay uno.
+#
+# ⚠️ Un bono SIN ejes no cae en ninguna curva — desaparece de todo lo que llame
+# acá. Es a propósito: antes caía en la curva que dijera su palabra aunque nadie
+# lo hubiera clasificado. `sin_curva()` los lista para que la mesa los complete.
+
+
+def esta_en_curva(doc: dict, curva: str) -> bool:
+    """¿Este doc del master pertenece a esa curva? Predicado ÚNICO del sistema.
+
+    Existe para que quien ya tiene el doc en la mano (el editor de bonos, el
+    validador de pares de breakevens) no vuelva a mirar la columna `curva` y
+    contradiga a `por_curva`."""
+    return curva in ce.curvas_de(ce.ejes_de_doc(doc))
+
+
 def por_curva(curva: str) -> list[dict]:
-    """Docs de una curva (tasa_fija | cer | soberanos | on_<sector> | ...)."""
-    return [dict(d) for d in _master() if d.get("curva") == curva]
+    """Docs de una curva (tasa_fija | cer | soberanos | dolar_linked | tamar).
+
+    Un DUAL sale en las DOS curvas de sus dos patas: es el mismo bono mirado con
+    dos lentes, no dos bonos."""
+    return [dict(d) for d in _master() if esta_en_curva(d, curva)]
 
 
-def por_curva_like(patron: str) -> list[dict]:
-    """find({'curva': {'$regex': '^on'}}) → por_curva_like('on%'). Prefijo == patron sin '%'."""
-    pre = patron.rstrip("%")
-    return [dict(d) for d in _master() if (d.get("curva") or "").startswith(pre)]
+def corporativos() -> list[dict]:
+    """Las ONs. Era `por_curva_like('on%')`: el sector del emisor metido dentro del
+    nombre de la curva (`on_energia`, `on_finanzas`, `on_otros`). Ser corporativo
+    es un EJE del emisor, no una curva — y la curva de una ON en USD a tasa fija
+    es `soberanos` (hard dólar), que es donde su rendimiento se compara."""
+    return [dict(d) for d in _master() if d.get("emisor_tipo") == "corporativo"]
 
 
-def por_curva_not_like(patron: str) -> list[dict]:
-    """find({'curva': {'$not': {'$regex': '^on'}}}) → por_curva_not_like('on%').
-    Incluye los docs con curva NULL (igual que el $not de Mongo)."""
-    pre = patron.rstrip("%")
-    return [dict(d) for d in _master() if not (d.get("curva") or "").startswith(pre)]
+def no_corporativos() -> list[dict]:
+    """El complemento de `corporativos()`. Incluye los que no tienen `emisor_tipo`
+    cargado — igual que el viejo `not_like('on%')` incluía los de curva NULL: sin
+    dato, un bono se muestra, no se esconde."""
+    return [dict(d) for d in _master() if d.get("emisor_tipo") != "corporativo"]
+
+
+def sin_curva() -> list[dict]:
+    """Los que no caen en NINGUNA curva: sin ejes, o con un ajuste que todavía no
+    tiene curva (badlar/tpm/caución). Son los que hay que clasificar a mano."""
+    return [dict(d) for d in _master() if not ce.curvas_de(ce.ejes_de_doc(d))]
 
 
 def find_one(ticker_corto: str) -> dict | None:
@@ -110,11 +151,12 @@ def find_one(ticker_corto: str) -> dict | None:
 
 
 def agrupado_por_curva() -> dict[str, list[dict]]:
-    """Docs agrupados por `curva` (ignora sin curva). forwards/breakevens."""
+    """Docs agrupados por curva (ignora los que no caen en ninguna).
+    forwards/breakevens. MISMO criterio que `por_curva` — un dual aparece en dos
+    grupos, que es lo que hace que su TEA entre a las dos matrices."""
     grupos: dict[str, list[dict]] = {}
     for d in cargar_todos():
-        c = d.get("curva")
-        if c:
+        for c in ce.curvas_de(ce.ejes_de_doc(d)):
             grupos.setdefault(c, []).append(d)
     return grupos
 

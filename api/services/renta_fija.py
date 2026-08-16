@@ -192,7 +192,7 @@ def calendario_ons(meses: int = 12) -> list[dict]:
     hasta = hoy + timedelta(days=meses * 31)
 
     out: list[dict] = []
-    for d in curvas_sql.por_curva_like("on%"):
+    for d in curvas_sql.corporativos():
         for f in d.get("flujos") or []:
             raw = f.get("fecha")
             try:

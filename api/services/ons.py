@@ -238,8 +238,9 @@ def _curva_to_on(d: dict) -> dict:
 
 
 def list_ons(sector: str | None = None, emisor: str | None = None) -> list[dict]:
-    """ONs (curva on_*) de mercado.curvas, con filtros opcionales, ordenadas por emisor."""
-    docs = curvas_sql.por_curva_like("on%")
+    """ONs de mercado.curvas (emisor_tipo='corporativo'), con filtros opcionales,
+    ordenadas por emisor."""
+    docs = curvas_sql.corporativos()
     if sector:
         docs = [d for d in docs if d.get("sector") == sector]
     if emisor:
@@ -251,7 +252,7 @@ def list_ons(sector: str | None = None, emisor: str | None = None) -> list[dict]
 
 def ons_values() -> dict:
     """Valores únicos (emisor/sector/moneda) de las ONs en Curvas — para los datalist."""
-    docs = curvas_sql.por_curva_like("on%")
+    docs = curvas_sql.corporativos()
     return {
         "emisores": sorted({d["emisor"] for d in docs if d.get("emisor")}),
         "sectores": sorted({d["sector"] for d in docs if d.get("sector")}),

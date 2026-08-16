@@ -313,3 +313,35 @@ def test_al_tomar_la_TEA_de_1816_se_descarta_la_TEM_del_motor():
     por_pill = {b["pill"]: b for b in out["bonos"]}
     assert "TEM" not in por_pill["tamar"]["metrics"]
     assert por_pill["cer"]["metrics"].get("TEM") == 0.004   # esa pata no la tocó
+
+
+def test_un_TAMAR_puro_toma_TODO_de_1816_y_descarta_la_basura_del_motor():
+    """El motor no calcula la rama `otros`, pero lo que quedó del cálculo VIEJO
+    sobrevive en el snapshot: el anti-TEA-fantasma no limpia esa rama. Medido en
+    pantalla el 2026-08-16: TMF27 con TEA −25,0%, TEM −2,37% y MOD DUR 0,70.
+
+    Se van TODAS las derivadas, no solo la TEA — dejar `mod_duration` del motor
+    al lado de una duration de 1816 mezcla dos cálculos y nadie sabría cuál está
+    mal."""
+    f = _fila("TMF27", "soberano", "ARS", "tamar", tea=-0.25, duration=0.53)
+    f["tem"], f["mod_duration"], f["convexity"] = -0.0237, 0.70, 1.1
+    tamar = {("TMF27", "tamar"): _t1816(tea=0.3037, tna=0.2683, spread=0.0343,
+                                        duration=0.526, paridad=1.0151)}
+    b = _armar([f], fijados=set(), tamar=tamar)["bonos"][0]
+    assert b["metrics"]["TEA"] == 0.3037
+    assert b["metrics"]["TNA"] == 0.2683          # VIENE de 1816, no se deriva
+    assert b["metrics"]["duration"] == 0.526
+    assert "TEM" not in b["metrics"]              # 1816 no la da → la deriva el front
+    assert "mod_duration" not in b["metrics"] and "convexity" not in b["metrics"]
+    assert b["tea_fuente"] == "1816" and b["margen"] == 0.0343
+
+
+def test_un_CER_puro_conserva_TODO_lo_del_motor_aunque_1816_opine():
+    """La contracara: donde el motor calcula, no se le toca nada — ni la TEA ni
+    las derivadas. Su número es LIVE."""
+    f = _fila("TX26", "soberano", "ARS", "cer", tea=0.055)
+    f["mod_duration"] = 2.2
+    b = _armar([f], fijados=set(),
+               tamar={("TX26", "cer"): _t1816(tea=0.049)})["bonos"][0]
+    assert b["metrics"]["TEA"] == 0.055 and b["metrics"]["mod_duration"] == 2.2
+    assert b["tea_fuente"] is None

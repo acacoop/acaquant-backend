@@ -434,17 +434,39 @@ señal sería que la columna vuelve a estar vacía: sin excepción, sin log, sin
 **Qué fuente gana en la LECTURA — la regla, en una línea: 1816 solo aparece donde
 el motor no puede.** No es "1816 manda porque es más consistente":
 
-  · **pata PRINCIPAL** (`pata == ajuste`) → el snapshot YA es de esa pata. Se usa
-    tal cual, venga del motor o del job. **1816 no se mete aunque tenga el dato**:
-    donde el motor calcula (un CER, un dólar linked, una tasa fija) su número es
-    LIVE y el de 1816 tiene media hora de atraso. Cambiar uno por otro sería
-    empeorar la pantalla para ganar consistencia con un proveedor.
-  · **pata SECUNDARIA** → el snapshot tiene la tasa de la OTRA pata: se DESCARTA.
-    Ahí sí manda 1816. Sin dato, la celda queda **vacía** — que es lo correcto.
+  · **`ajuste = 'tamar'`** → manda 1816, y con **TEA, TNA, duration y paridad**,
+    no solo la tasa. El motor cae en la rama `otros` y no calcula nada ahí, pero
+    lo que quedó en el snapshot **no está vacío: es basura de un cálculo viejo**
+    (el anti-TEA-fantasma no limpia esa rama, así que sobrevive un valor anterior
+    a la migración de ejes). Visto en pantalla: **TMF27 con TEA −25,0%, TEM
+    −2,37% y MOD DUR 0,70**. Se descartan también `TEM`/`mod_duration`/
+    `convexity`: dejar una derivada del motor al lado de una duration de 1816
+    mezcla dos cálculos en la misma fila y nadie podría decir cuál está mal.
+  · **pata SECUNDARIA** → el snapshot tiene la tasa de la OTRA pata: se DESCARTA
+    **haya o no reemplazo**. Sin dato de 1816 la celda queda **vacía**.
+  · **el resto** (CER, dólar linked, tasa fija) → el motor, **intacto**. 1816 no
+    se mete aunque tenga el dato: su número es LIVE y el del proveedor tiene
+    media hora de atraso. Cambiar uno por otro es empeorar la pantalla para ganar
+    consistencia con un tercero.
 
-Ese último punto era un bug real y estaba en pantalla: TTD26/TTS26 son TAMAR+FIJA
-y 1816 no publica su pata fija, así que en la tabla TASA FIJA aparecían con la TEA
-de la pata TAMAR (28,6%) como si fuera suya.
+El punto de la pata secundaria era un bug real y estaba en pantalla: TTD26/TTS26
+son TAMAR+FIJA y 1816 no publica su pata fija, así que en la tabla TASA FIJA
+aparecían con la TEA de la pata TAMAR (28,6%) como si fuera suya.
+
+**Residuo conocido**: un TAMAR **no corporativo** que 1816 tampoco cubra sigue
+mostrando lo que el motor haya dejado. Hoy es **CO2D7** (provincial), uno solo.
+No se lo limpia desde la vista porque para saberlo habría que replicar acá la
+lógica de ramas del motor — una segunda copia que puede divergir. Se resuelve
+solo el día que la lógica TAMAR propia exista.
+
+**La CURVA de los TAMAR se grafica por MARGEN, no por tasa.** Los ocho flotan
+contra la MISMA referencia (la TAMAR del BCRA), así que su TEA nominal se mueve
+toda junta y ordenarlos por ella no dice nada del papel: lo que distingue a un
+TAMAR de otro es cuánto paga POR ENCIMA de esa referencia. Por eso MARGEN no es
+una opción del selector de métrica sino la **única** de esa pill, el eje Y se
+rotula «Margen s/ TAMAR», y el modo HISTÓRICO cae a LIVE (la serie histórica
+guarda TEA: el eje diría una cosa y los puntos serían otra). El bono sin margen
+**no se grafica en cero** — un 0% ahí se leería como «paga la TAMAR pelada».
 
 **La procedencia se marca por FILA, no por tabla.** Cada bono lleva `tea_fuente`
 (`null` = motor), `tea_fecha` y `pata`, y el front pone un `*` al lado de la TEA

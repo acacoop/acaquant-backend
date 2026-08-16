@@ -186,24 +186,43 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
             m_pill = dict(metrics)
             fuente, fecha_1816, margen = None, None, None
 
-            if es_principal:
-                # El único caso en que el número del snapshot vino de 1816: el job
-                # lo escribe SOLO para `ajuste='tamar'` (ver `_a_market_snapshot`),
-                # que es donde el motor no calcula nada. Se marca para que la
-                # pantalla pueda distinguirlo de una tasa live.
-                if (r.get("ajuste") == "tamar" and t1816
-                        and m_pill.get("TEA") is not None):
-                    fuente, fecha_1816 = "1816", t1816.get("fecha_operacion")
-            else:
-                # La TEA/TEM del snapshot son de la pata principal → fuera.
-                m_pill.pop("TEA", None)
-                m_pill.pop("TEM", None)
-                if t1816 and t1816.get("tea") is not None:
-                    m_pill["TEA"] = float(t1816["tea"])
-                    for col, key in (("duration", "duration"), ("paridad", "paridad")):
-                        if t1816.get(col) is not None:
-                            m_pill[key] = float(t1816[col])
-                    fuente, fecha_1816 = "1816", t1816.get("fecha_operacion")
+            # ¿Manda 1816? Solo si el motor NO puede con esta pata:
+            #   · pata SECUNDARIA → el snapshot tiene la tasa de la otra pata.
+            #   · bono con `ajuste='tamar'` → el motor cae en la rama `otros` y no
+            #     calcula tasa. Lo que haya quedado en el snapshot es BASURA VIEJA:
+            #     el anti-TEA-fantasma no limpia esa rama, así que sobrevive un
+            #     valor de antes de la migración de ejes. Medido en pantalla el
+            #     2026-08-16: TMF27 con TEA −25,0% y TEM −2,37%.
+            # Donde el motor sí calcula (CER, dólar linked, tasa fija) NO se toca:
+            # su número es LIVE y el de 1816 tiene media hora de atraso.
+            manda_1816 = t1816 is not None and (
+                not es_principal or r.get("ajuste") == "tamar")
+
+            # Las métricas del snapshot son SIEMPRE de la pata PRINCIPAL. Se
+            # descartan en dos casos, y el segundo NO depende de que haya con qué
+            # reemplazarlas:
+            #   · esta fila es la pata SECUNDARIA → esos números son de la otra
+            #     pata y no le pertenecen. Sin dato de 1816 la celda queda VACÍA,
+            #     que es la respuesta correcta (así TTD26 dejó de aparecer en TASA
+            #     FIJA con la TEA de su pata TAMAR).
+            #   · manda 1816 → lo que quedó ahí es basura de un cálculo viejo.
+            # Se van TODAS las derivadas y no solo la TEA: dejar `mod_duration`
+            # del motor al lado de una duration de 1816 mezcla dos cálculos en la
+            # misma fila y nadie podría decir cuál de los dos está mal.
+            if manda_1816 or not es_principal:
+                for k in ("TEA", "TEM", "TNA", "mod_duration", "convexity"):
+                    m_pill.pop(k, None)
+
+            if manda_1816 and t1816.get("tea") is not None:
+                m_pill["TEA"] = float(t1816["tea"])
+                # La TNA VIENE de 1816, no se deriva. El front la derivaba de la
+                # TEA (`TEM×12`) porque el snapshot no la publica; teniendo la del
+                # proveedor, derivarla sería inventar una discrepancia.
+                for col, key in (("tna", "TNA"), ("duration", "duration"),
+                                 ("paridad", "paridad")):
+                    if t1816.get(col) is not None:
+                        m_pill[key] = float(t1816[col])
+                fuente, fecha_1816 = "1816", t1816.get("fecha_operacion")
 
             # El MARGEN sobre la TAMAR: lo que la mesa mira de un TAMAR. En
             # fracción (0.0973 = 9,73%), la MISMA escala que la TEA. Solo 1816 lo

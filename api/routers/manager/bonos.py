@@ -11,7 +11,7 @@ flujos de ONs (`POST /api/manager/ons/parse-flujos`). Gate `manager_titulos`.
 from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.auth import get_user_email
 from api.services import bonos_admin as svc
@@ -32,6 +32,14 @@ class _Flujo(BaseModel):
 
 
 class _BonoUpsert(BaseModel):
+    # `forbid` y no el default `ignore`: con el default, un campo que el backend
+    # todavía no conoce se descarta y la respuesta es **200 OK**. Y el front va a
+    # Vercel solo, siempre ANTES que el backend (que se sube a mano al Droplet), o
+    # sea que la ventana de desfasaje existe en cada deploy. Con `ignore`, en esa
+    # ventana el operador clasifica un bono, ve el tilde verde, y el bono sigue sin
+    # clasificar. Con `forbid` falla ruidoso (422) y se entiende qué pasó.
+    model_config = ConfigDict(extra="forbid")
+
     ticker_corto: str = Field(..., min_length=1, max_length=32)
     ticker: str = Field(..., min_length=1, max_length=64)
     curva: str = Field(..., min_length=1, max_length=32)
@@ -43,8 +51,18 @@ class _BonoUpsert(BaseModel):
     valor_nominal: float | None = None
     cer_emision: float | None = None
     cupon_anual: float | None = None
+    emisor: str | None = Field(None, max_length=128)
     flujo_vencimiento: float | None = None     # bullet (Lecap/Boncap)
     flujos: list[_Flujo] | None = None          # cronograma (resto)
+    # EJES (columnas, NO el blob). Son lo que decide en qué tabla de /renta-fija
+    # cae el bono; hasta hoy solo los escribía un script one-shot y por eso un
+    # bono cargado desde acá nacía invisible para la vista. El dominio y la regla
+    # `ajuste_alt != ajuste` los valida `core.curvas_ejes.normalizar_ejes`.
+    emisor_tipo: str | None = Field(None, max_length=16)   # soberano|provincial|corporativo|bcra
+    moneda_eje: str | None = Field(None, max_length=8)     # ARS|USD|EUR
+    ajuste: str | None = Field(None, max_length=16)        # fija|cer|tamar|badlar|dolar_linked|tpm|caucion
+    ajuste_alt: str | None = Field(None, max_length=16)    # la 2ª pata de un dual
+    ley: str | None = Field(None, max_length=8)            # local|ny
 
 
 @router.get("/bonos")

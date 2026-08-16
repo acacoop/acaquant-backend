@@ -127,6 +127,57 @@ CURVAS_SIN_EJES: dict[str, str] = {
 }
 
 
+# ── Validación de los ejes que llegan de un editor ───────────────────────────
+# Vive acá, junto al vocabulario, para que el editor de bonos y el de ONs no
+# tengan cada uno su propia idea de qué es válido.
+
+EJES_EDITABLES = ("emisor_tipo", "moneda_eje", "ajuste", "ajuste_alt", "ley")
+
+_DOMINIOS = {"emisor_tipo": EMISORES, "moneda_eje": MONEDAS,
+             "ajuste": AJUSTES, "ajuste_alt": AJUSTES, "ley": LEYES}
+
+
+def normalizar_ejes(payload: dict) -> dict:
+    """Los ejes de un payload, validados y normalizados. Levanta `ValueError`.
+
+    Devuelve SOLO las claves presentes: lo que el editor no manda no se toca, y
+    mandar `""` o `None` es la forma de BORRAR un eje (queda en None, que es un
+    estado válido y visible — "sin clasificar" no es un error).
+
+    Dos reglas que no son de tipeo sino de modelo:
+
+      · `ajuste_alt` sin `ajuste` no existe: la segunda pata de nada.
+      · `ajuste_alt == ajuste` es un dual consigo mismo. Ya casi entra a la base
+        una vez (TMVE8/TTD26/TTS26, donde las dos fuentes decían TAMAR) y el
+        daño es MUDO: el bono se ve en una sola tabla y todo suma bien.
+    """
+    out: dict = {}
+    for k in EJES_EDITABLES:
+        if k not in payload:
+            continue
+        v = payload[k]
+        if v is None or str(v).strip() == "":
+            out[k] = None
+            continue
+        v = str(v).strip()
+        v = v.upper() if k == "moneda_eje" else v.lower()
+        if v not in _DOMINIOS[k]:
+            raise ValueError(
+                f"{k} inválido: {v!r} (válidos: {', '.join(_DOMINIOS[k])})")
+        out[k] = v
+
+    alt, aj = out.get("ajuste_alt"), out.get("ajuste")
+    if alt and "ajuste" in out and not aj:
+        raise ValueError("no se puede poner `ajuste_alt` sin `ajuste`: la segunda "
+                         "pata de un dual necesita una primera")
+    if alt and alt == aj:
+        raise ValueError(
+            f"`ajuste_alt` no puede ser igual a `ajuste` ({aj!r}): un dual es dual "
+            "porque sus dos patas son DISTINTAS. Si el bono no es dual, dejá "
+            "`ajuste_alt` vacío")
+    return out
+
+
 def desde_1816(nombre_curva: str | None) -> Ejes | None:
     """Nombre de curva de 1816 → `Ejes`. None si no está en el catálogo conocido
     (no se adivina: el caller lo reporta y se suma a mano a `EJES_1816`) o si está

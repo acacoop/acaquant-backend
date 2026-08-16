@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from api.services.ons import _f, _fecha_flujo_iso, _fecha_iso, _upsert_curva_doc
+from core import curvas_ejes as ce
 from core import curvas_sql
 from core.postgres import get_pool
 
@@ -59,16 +60,49 @@ def parse_flujos_bono(texto: str, tipo: str) -> dict:
     return {**base, "flujos": out}
 
 
+# Columnas que NO están en el blob `data` y el editor necesita LEER para poder
+# editarlas sin borrarlas. `curvas_sql` hace `SELECT data`, o sea que devuelve la
+# forma vieja: los ejes (que son column-only por diseño) y el `emisor` que
+# estandariza `jobs/ficha_1816` (que escribe la columna) no vienen ahí.
+#
+# Sin este merge el editor cargaba el form con los ejes VACÍOS y al guardar los
+# escribía vacíos: abrir un bono y apretar guardar le borraba la clasificación, y
+# el bono desaparecía de su tabla sin un solo error.
+_COLS_FUERA_DEL_BLOB = ("emisor", "emisor_tipo", "moneda_eje", "ajuste",
+                        "ajuste_alt", "ley")
+
+
+def _columnas_por_ticker(tickers: list[str]) -> dict[str, dict]:
+    if not tickers:
+        return {}
+    cols = ", ".join(_COLS_FUERA_DEL_BLOB)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT ticker, {cols} FROM mercado.curvas "
+                    f"WHERE ticker = ANY(%s)", (tickers,))
+        nombres = [d[0] for d in cur.description]
+        return {r[0]: dict(zip(nombres, r, strict=False)) for r in cur.fetchall()}
+
+
 def list_bonos(curva: str | None = None) -> list[dict]:
-    """Bonos NO-ON de mercado.curvas (excluye curva ^on, que son del editor de ONs)."""
+    """Bonos NO-ON de mercado.curvas (excluye curva ^on, que son del editor de ONs).
+
+    Los docs vienen del blob; las columnas que el blob no tiene se mergean encima
+    (ver `_COLS_FUERA_DEL_BLOB`). El blob NUNCA gana: si tuviera una copia vieja de
+    `emisor`, la columna la pisa — que es el sentido de haberlo estandarizado.
+    """
     out = curvas_sql.por_curva(curva) if curva else curvas_sql.por_curva_not_like("on%")
+    por_tk = _columnas_por_ticker([d["ticker_corto"] for d in out if d.get("ticker_corto")])
+    for d in out:
+        extra = por_tk.get(d.get("ticker_corto"))
+        if extra:
+            d.update({k: v for k, v in extra.items() if k != "ticker"})
     out.sort(key=lambda d: (d.get("curva") or "", str(d.get("fecha_vencimiento") or ""),
                             d.get("ticker_corto") or ""))
     return out
 
 
 # Campos doc nivel-bono que el editor puede setear (según tipo).
-_DOC_STR = ("tipo", "moneda_flujo", "tasa_referencia")     # strings tal cual
+_DOC_STR = ("tipo", "moneda_flujo", "tasa_referencia", "emisor")  # strings tal cual
 _DOC_NUM = ("cer_emision", "cupon_anual")                  # numéricos
 _DOC_FECHA = ("fecha_emision", "fecha_vencimiento")        # fechas ISO
 # Campos numéricos de un FLUJO (pass-through; el subset depende del tipo de bono).
@@ -140,7 +174,13 @@ def upsert_bono(payload: dict, actor: str = "") -> dict:
     else:
         raise ValueError("falta el flujo: 'flujo_vencimiento' (bullet) o 'flujos' (cronograma)")
 
-    saved = _upsert_curva_doc(doc)
+    # Los EJES (emisor_tipo/moneda_eje/ajuste/ajuste_alt/ley) van directo a las
+    # COLUMNAS, no al doc: `normalizar_ejes` valida el dominio y, sobre todo, que
+    # `ajuste_alt != ajuste` — un dual consigo mismo entra sin ruido y se ve bien.
+    # Hasta hoy los ejes solo los escribía un script one-shot, así que un bono dado
+    # de alta acá nacía SIN clasificar y no aparecía en la vista de renta fija.
+    ejes = ce.normalizar_ejes(payload)
+    saved = _upsert_curva_doc(doc, ejes)
     return {"bono": saved}
 
 

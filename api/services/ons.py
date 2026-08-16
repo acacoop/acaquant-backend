@@ -20,6 +20,7 @@ import re
 from datetime import UTC, date, datetime
 
 from api.services.assets_sql import assets_rows
+from core import curvas_ejes as ce
 from core import curvas_sql
 from core.pg_mirror import doc_iso, write_native
 from core.postgres import get_pool
@@ -150,14 +151,24 @@ def fila_a_escribir(existing: dict, doc: dict) -> dict:
     return row
 
 
-def _upsert_curva_doc(doc: dict) -> dict:
+def _upsert_curva_doc(doc: dict, ejes: dict | None = None) -> dict:
     """Upsert $set-PARCIAL de un doc de curva en `mercado.curvas` (paridad con el
     `update_one({'$set': doc}, upsert=True)` de Mongo): mergea sobre el doc existente
     y reescribe la fila completa → no pierde campos que el payload no trae. Devuelve
-    el doc guardado (releído de SQL)."""
+    el doc guardado (releído de SQL).
+
+    `ejes` (ya validado con `core.curvas_ejes.normalizar_ejes`) va **SOLO A LAS
+    COLUMNAS, nunca al blob `data`**. Es deliberado: el blob es la forma vieja, la
+    que ~500 lugares leen con las claves invertidas, y meterle campos nuevos sería
+    agrandar el problema de las dos verdades justo cuando lo estamos cerrando. Los
+    ejes nacen viviendo en UN solo lugar.
+    """
     tc = (doc.get("ticker_corto") or "").strip()
     existing = curvas_sql.find_one(tc) or {}  # perf-ok: PERF004 — 1ª lectura = base del merge; la 2ª relee POST-write (contrato: devolver lo guardado). Mutación admin, corre poco.
-    write_native("mercado.curvas", ["ticker"], [fila_a_escribir(existing, doc)])
+    row = fila_a_escribir(existing, doc)
+    if ejes:
+        row.update({k: v for k, v in ejes.items() if k in ce.EJES_EDITABLES})
+    write_native("mercado.curvas", ["ticker"], [row])
     curvas_sql.invalidar()   # refrescar el cache del master tras el alta/edición
     return curvas_sql.find_one(tc) or {}
 

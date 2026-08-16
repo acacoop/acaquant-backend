@@ -119,6 +119,37 @@ def curva_doc_to_row(doc: dict) -> dict:
     }
 
 
+# Columnas de `mercado.curvas` que YA NO las gobierna el blob `data`: las escribe
+# OTRO proceso, directo a la columna, y el blob quedó viejo.
+#
+#   · `emisor` — lo estandariza `jobs/ficha_1816.py` con un UPDATE a la COLUMNA.
+#   · `sector` — la industria del emisor, que deja de cargarse por bono.
+#
+# Sin esta lista el merge las pisaba, y de dos formas distintas, las dos MUDAS:
+#   · en un bono NO-ON el blob no tiene `emisor` → editar cualquier campo desde
+#     Manager escribía `emisor = NULL` y borraba lo que 1816 había estandarizado;
+#   · en una ON el blob tiene el emisor VIEJO (`BCO.COMAFI`) → editar el sector
+#     revertía la estandarización a la grafía vieja.
+# En los dos casos la pantalla queda igual de prolija y el dato se perdió.
+#
+# Solo se tocan si el payload las trae EXPLÍCITAS (el alta de ONs manda `emisor`,
+# `set_sector` manda `sector`): ahí la escritura es intencional, no un arrastre.
+COLUMNAS_AJENAS_AL_BLOB = ("emisor", "sector")
+
+
+def fila_a_escribir(existing: dict, doc: dict) -> dict:
+    """La fila del upsert, sin pisar las columnas que el blob ya no gobierna. PURA.
+
+    `_mirror` agrupa por el set de claves del dict y escribe `c=EXCLUDED.c` por cada
+    columna PRESENTE — así que sacar la clave es exactamente "no tocar esa columna".
+    """
+    row = curva_doc_to_row({**existing, **doc})
+    for col in COLUMNAS_AJENAS_AL_BLOB:
+        if col not in doc:
+            row.pop(col, None)
+    return row
+
+
 def _upsert_curva_doc(doc: dict) -> dict:
     """Upsert $set-PARCIAL de un doc de curva en `mercado.curvas` (paridad con el
     `update_one({'$set': doc}, upsert=True)` de Mongo): mergea sobre el doc existente
@@ -126,7 +157,7 @@ def _upsert_curva_doc(doc: dict) -> dict:
     el doc guardado (releído de SQL)."""
     tc = (doc.get("ticker_corto") or "").strip()
     existing = curvas_sql.find_one(tc) or {}  # perf-ok: PERF004 — 1ª lectura = base del merge; la 2ª relee POST-write (contrato: devolver lo guardado). Mutación admin, corre poco.
-    write_native("mercado.curvas", ["ticker"], [curva_doc_to_row({**existing, **doc})])
+    write_native("mercado.curvas", ["ticker"], [fila_a_escribir(existing, doc)])
     curvas_sql.invalidar()   # refrescar el cache del master tras el alta/edición
     return curvas_sql.find_one(tc) or {}
 

@@ -53,6 +53,9 @@ class Ejes(NamedTuple):
     moneda: str               # ARS | USD | EUR  (moneda de DENOMINACIÓN)
     ajuste: str               # fija | cer | tamar | badlar | dolar_linked | dual | tpm | caucion
     ley: str | None = None    # local | ny
+    # La SEGUNDA pata de un dual. Un dual no es una familia aparte: es un bono con
+    # dos rendimientos, y el trader lo mira en las DOS tablas. `None` = no es dual.
+    ajuste_alt: str | None = None
 
 
 EMISORES = ("soberano", "provincial", "corporativo", "bcra")

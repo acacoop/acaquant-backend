@@ -313,6 +313,43 @@ verificar que su contenido siga alcanzable desde donde uno dijo que estaría —
 "se ve en la otra pantalla" es una afirmación sobre el código, y como toda
 afirmación había que medirla antes de decirla.
 
+#### Paso 17 (2026-08-16) — tasas que son ruido, el filtro que mentía y el TC BE perdido
+
+Tres cosas que saltaron mirando la pantalla con las ONs ya absorbidas.
+
+**1. Las TEA de los papeles ultra-cortos son artefactos, no rendimientos.** AFCHO
+(vencía en 3 días) mostraba **TEA 142,1%**; CS450 **−49,1%**; HBCAO **−25,0%**.
+No están mal calculadas: anualizar 3 días amplifica una diferencia de centavos a
+tres dígitos. Y uno solo de esos puntos **estiraba el eje Y del gráfico hasta
+aplastar a los otros 120 bonos contra el cero**, con todas las etiquetas encimadas.
+
+El backend marca `tasa_ruido` cuando `duration < DUR_MIN_TASA` (0,05 ≈ 18 días).
+Se decide por DURATION y no por días al vencimiento porque la duration ya pondera
+el flujo: un bullet a 10 días y un amortizante que paga casi todo la semana que
+viene tienen el mismo problema, y la fecha de vencimiento no lo dice.
+
+**La tasa NO se borra: se marca.** La tabla la muestra apagada con el motivo en el
+tooltip; el gráfico la excluye y avisa «N fuera de escala (siguen en la tabla)».
+Ocultar el número sería mentir por omisión — el bono existe y tiene precio; lo que
+no es comparable es su tasa. Y descartar puntos en silencio haría pensar que el
+bono no está. La marca vive **server-side** para que la tabla y el gráfico no
+puedan contradecirse.
+
+**2. El filtro EMISOR se contradecía con la pantalla.** Con las 4 pills apagadas,
+"ninguno seleccionado" significaba "todos" y la tabla igual mostraba 129 bonos.
+Peor: como en ARS mandan los soberanos y en USD los corporativos, **parecía un
+filtro aplicado al revés**. Ahora el último activo no se puede apagar → lo que se
+ve es siempre lo que está encendido. El default sigue siendo `soberano`, para los
+dos lados.
+
+**3. Volvió TC BREAKEVEN a TASA FIJA.** Estaba en la tabla vieja y nunca se
+implementó en la nueva — el comentario del componente lo mencionaba pero el
+`<thead>` no lo tenía, y el endpoint tampoco lo mandaba. Se calcula server-side
+(`TC_BE = MEP × flujo_vencimiento / precio`), solo donde el flujo final está
+determinado, y el MEP se lee **una vez por request** e **se inyecta** a `_armar`
+para no romper su pureza (esa función se testea sin base). Sin MEP el campo sale
+`null`, nunca 0 — un 0 en pantalla se leería como un tipo de cambio.
+
 ### Paso 8 — las PATAS (`mercado.especies`, 2026-08-15)
 
 Pregunta del user: *"¿no debería cada asset tener su instrumento ARS y su

@@ -24,8 +24,32 @@ from __future__ import annotations
 
 from api.cache import cached
 from api.services._sql import _f, _q
-from api.services.renta_fija_sql import _METRIC_COLS
+from api.services.renta_fija_sql import _METRIC_COLS, _tc_breakeven
 from core import curvas_ejes as ce
+
+# Duration mínima para publicar TEA/TNA. Debajo de esto la tasa es RUIDO, no un
+# rendimiento: anualizar 3 días amplifica una diferencia de centavos a tres
+# dígitos. Medido en pantalla el 2026-08-16 — AFCHO (vence en 3 días) mostraba
+# TEA 142,1%, CS450 −49,1%, HBCAO −25,0%, y de paso esos outliers estiraban el
+# eje del gráfico hasta aplastar a los otros 120 bonos contra el cero.
+#
+# **La TEA no se borra: se marca.** El bono sigue en la tabla con su precio y su
+# vencimiento, y viaja `tasa_ruido=True` para que el front la muestre apagada y
+# la EXCLUYA del gráfico. Ocultar el número sería mentir por omisión; mostrarlo
+# como si fuera comparable es peor.
+DUR_MIN_TASA = 0.05          # ~18 días corridos
+
+
+def _es_ruido(metrics: dict) -> bool:
+    """¿La tasa de este bono es un artefacto de plazo, no un rendimiento?
+
+    Se decide por DURATION y no por días al vencimiento porque la duration ya
+    pondera el flujo: un bullet a 10 días y un amortizante que paga casi todo la
+    semana que viene tienen el mismo problema y la fecha de vencimiento no lo
+    dice. La decisión vive server-side para que la tabla y el gráfico no puedan
+    contradecirse — el front no vuelve a evaluarla."""
+    dur = metrics.get("duration")
+    return dur is not None and float(dur) < DUR_MIN_TASA
 
 # El orden en que se muestran las pills dentro de cada lado.
 _ORDEN = {"tasa_fija": 1, "cer": 2, "tamar": 3, "duales": 4,
@@ -69,8 +93,14 @@ def _fijados_cortos() -> set[str]:
             for t in (_bonos_cer_fijados() or [])}
 
 
-def _armar(rows: list[dict], fijados: set[str]) -> dict:
-    """Puro: filas crudas → payload de la vista. Testeable sin base."""
+def _armar(rows: list[dict], fijados: set[str], mep: float | None = None) -> dict:
+    """Puro: filas crudas → payload de la vista. Testeable sin base.
+
+    `mep` entra COMO PARÁMETRO y no se lee acá adentro a propósito: esta función
+    es la que decide qué ve el usuario y se testea sin base. Traer el MEP desde
+    adentro la haría depender de la red y de un import cíclico con `macro`.
+    Sin MEP el `tc_breakeven` sale None, que es "no se pudo calcular" — no 0.
+    """
     bonos: list[dict] = []
     sin_clasificar: list[str] = []
     n_pill: dict[str, int] = {}
@@ -118,6 +148,16 @@ def _armar(rows: list[dict], fijados: set[str]) -> dict:
                 "tipo": r.get("tipo"), "vencimiento": r.get("fecha_vencimiento"),
                 "cer_fijado": fijado,
                 "flujo_vencimiento": _f(r.get("flujo_vencimiento")),
+                # TC al que el bono en pesos empata contra comprar MEP hoy. Solo
+                # tiene sentido donde el flujo final está determinado: tasa fija
+                # nativa o CER ya fijado. Faltaba en esta tabla (la vieja sí lo
+                # tenía) — se calcula server-side, como todo lo derivable.
+                "tc_breakeven": (
+                    _tc_breakeven(metrics.get("last_price"),
+                                  _f(r.get("flujo_vencimiento")), mep)
+                    if pill == "tasa_fija" else None),
+                # La tasa de este bono es ruido por duration ~0 (ver DUR_MIN_TASA).
+                "tasa_ruido": _es_ruido(metrics),
                 "metrics": metrics,
             })
             n_pill[pill] = n_pill.get(pill, 0) + 1
@@ -151,4 +191,10 @@ def _armar(rows: list[dict], fijados: set[str]) -> dict:
 def get_curvas_vista() -> dict:
     """La tab CURVAS entera: catálogo de pills, filtro de emisores y los bonos ya
     clasificados con sus métricas live."""
-    return _armar(_bonos_crudos(), _fijados_cortos())
+    # El MEP se lee ACÁ (una vez por request) y se inyecta: `_armar` queda pura.
+    # Import lazy — `macro` importa de vuelta a este módulo.
+    from api.services.macro import get_ultimo_mep
+    doc = get_ultimo_mep()
+    raw = doc.get("mep") if doc else None
+    mep = float(raw) if raw and raw > 0 else None
+    return _armar(_bonos_crudos(), _fijados_cortos(), mep)

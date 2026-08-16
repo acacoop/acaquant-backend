@@ -17,7 +17,8 @@ def _fila(tc, emisor_tipo, moneda, ajuste, **kw):
             "ley": kw.get("ley"), "ajuste_alt": kw.get("ajuste_alt"),
             "industria": kw.get("industria"),
             "flujo_vencimiento": kw.get("flujo_vencimiento"),
-            "last_price": kw.get("last_price", 100.0), "tea": kw.get("tea", 0.3)}
+            "last_price": kw.get("last_price", 100.0), "tea": kw.get("tea", 0.3),
+            "duration": kw.get("duration")}
     return base
 
 
@@ -149,3 +150,51 @@ def test_un_corporativo_sin_industria_llega_en_null_y_no_como_otros():
     a propósito — el mismo cajón que venimos desarmando."""
     out = _armar([_fila("XXO", "corporativo", "USD", "fija")], fijados=set())
     assert out["bonos"][0]["industria"] is None
+
+
+# ── Tasa RUIDO por duration ~0 y TC breakeven (2026-08-16) ───────────────────
+
+def test_una_duration_casi_cero_marca_la_tasa_como_RUIDO():
+    """Visto en pantalla: AFCHO vencía en 3 días y mostraba TEA 142,1%; CS450
+    −49,1%. No están mal calculadas — anualizar 3 días amplifica centavos a tres
+    dígitos. Con `tasa_ruido` el front las apaga y las saca del gráfico, donde un
+    solo 142% estiraba el eje y aplastaba a los otros 120 bonos contra el cero."""
+    ruidoso = _armar([_fila("AFCHO", "corporativo", "USD", "fija", duration=0.001)],
+                     fijados=set())["bonos"][0]
+    normal = _armar([_fila("AE38", "soberano", "USD", "fija", duration=4.2)],
+                    fijados=set())["bonos"][0]
+    assert ruidoso["tasa_ruido"] is True
+    assert normal["tasa_ruido"] is False
+
+
+def test_la_tasa_ruidosa_NO_se_borra_solo_se_marca():
+    """Ocultar el número sería mentir por omisión: el bono existe, tiene precio y
+    vencimiento. Lo que no es comparable es su TASA, y para eso está la marca."""
+    b = _armar([_fila("AFCHO", "corporativo", "USD", "fija", duration=0.001,
+                      tea=1.421)], fijados=set())["bonos"][0]
+    assert b["metrics"]["TEA"] == 1.421 and b["metrics"]["last_price"] == 100.0
+
+
+def test_sin_duration_no_se_asume_que_es_ruido():
+    """`None` es "no sé", no "es ruido". Marcar de más apagaría tasas buenas."""
+    assert _armar([_fila("XX", "soberano", "ARS", "fija")],
+                  fijados=set())["bonos"][0]["tasa_ruido"] is False
+
+
+def test_tc_breakeven_solo_en_tasa_fija_y_con_mep():
+    """TC_BE = MEP × (flujo_vencimiento / precio). Solo tiene sentido donde el
+    flujo final está determinado — en USD no significa nada."""
+    ars = _armar([_fila("S30S6", "soberano", "ARS", "fija",
+                        flujo_vencimiento=117.54, last_price=114.10)],
+                 fijados=set(), mep=1500.0)["bonos"][0]
+    assert ars["tc_breakeven"] == round(1500.0 * (117.54 / 114.10), 2)
+    usd = _armar([_fila("AE38", "soberano", "USD", "fija", flujo_vencimiento=100.0)],
+                 fijados=set(), mep=1500.0)["bonos"][0]
+    assert usd["tc_breakeven"] is None
+
+
+def test_sin_mep_el_tc_breakeven_es_none_y_no_cero():
+    """«No se pudo calcular» ≠ «vale cero». Un 0 en pantalla se lee como un TC."""
+    b = _armar([_fila("S30S6", "soberano", "ARS", "fija", flujo_vencimiento=117.54)],
+               fijados=set(), mep=None)["bonos"][0]
+    assert b["tc_breakeven"] is None

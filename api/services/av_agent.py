@@ -101,7 +101,8 @@ def _hallazgo(tipo: str, ticker: str, regla: str, severidad: str,
 
 def detectar_faltantes(universo_1816: dict[str, dict], docs: list[dict], *,
                        alcance: str = "soberanos",
-                       ignorados: set[str] | None = None) -> list[dict]:
+                       ignorados: set[str] | None = None,
+                       en_cartera: set[str] | None = None) -> list[dict]:
     """Tickers vigentes en 1816 que NO están en `mercado.curvas`.
 
     El cruce se hace sobre el ticker NORMALIZADO (sin la especie D/C final): 1816
@@ -134,13 +135,32 @@ def detectar_faltantes(universo_1816: dict[str, dict], docs: list[dict], *,
         # Moneda que no seguimos → no es un faltante (los Globales en EUR).
         if ejes is not None and ejes.moneda not in MONEDAS_SEGUIDAS:
             continue
+        # ¿La casa lo TIENE? Es el dato que convierte la pregunta en una obviedad:
+        # un bono en la tenencia que no está en `mercado.curvas` NO VALÚA — no
+        # tiene TEA, no entra al gráfico y su posición se muestra sin precio
+        # modelado. Ahí "¿te interesa?" ya no es una opinión.
+        lo_tenemos = bool(en_cartera and tk in en_cartera)
         out.append(_hallazgo(
-            "falta_en_base", tk, "no_esta_en_curvas", "media",
-            f"1816 lo publica en «{curva_1816}» y no está en mercado.curvas.",
+            "falta_en_base", tk, "no_esta_en_curvas",
+            "alta" if lo_tenemos else "media",
+            ("⚠ LO TENÉS EN CARTERA y no está en mercado.curvas: hoy no valúa. "
+             f"1816 lo publica en «{curva_1816}»."
+             if lo_tenemos else
+             f"1816 lo publica en «{curva_1816}» y no está en mercado.curvas."),
             {"curva_1816": curva_1816, "curva_id": inst.get("_curva_id"),
              "ticker_1816": ticker,
-             "emisor_1816": inst.get("emisor") or inst.get("emisorNombre"),
+             # Los nombres de campo son los de 1816, verificados contra
+             # `jobs/mercado_1816_discovery` (que persiste este mismo catálogo):
+             # emisorNombre · denominacion · monedaDenom · fechaEmision · isinCode.
+             # Sin el emisor y la denominación, un ticker como M31G6 no le dice
+             # nada a nadie y la pregunta es incontestable.
+             "emisor": inst.get("emisorNombre") or inst.get("emisor"),
+             "denominacion": inst.get("denominacion"),
+             "moneda": inst.get("monedaDenom"),
+             "emision_1816": inst.get("fechaEmision") or None,
+             "isin": inst.get("isinCode"),
              "vencimiento_1816": inst.get("fechaVencimiento") or inst.get("vencimiento"),
+             "en_cartera": lo_tenemos,
              "ejes_sugeridos": (
                  {"emisor_tipo": ejes.emisor_tipo, "moneda_eje": ejes.moneda,
                   "ajuste": ejes.ajuste, "ajuste_alt": ejes.ajuste_alt, "ley": ejes.ley}
@@ -371,7 +391,8 @@ def relevar(*, alcance: str = "soberanos",
         ignorados = set()
 
     hallazgos = [
-        *detectar_faltantes(universo_1816, docs, alcance=alcance, ignorados=ignorados),
+        *detectar_faltantes(universo_1816, docs, alcance=alcance, ignorados=ignorados,
+                            en_cartera=en_cartera),
         *detectar_sin_flujo(docs, universo_1816),
         *detectar_tasas_sospechosas(docs, metricas, en_assets, en_cartera),
     ]

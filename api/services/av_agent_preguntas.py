@@ -62,26 +62,66 @@ def preguntas_de_hallazgos(hallazgos: list[dict]) -> list[dict]:
             continue
         tk = h["ticker"]
         ev = h.get("evidencia") or {}
-        curva = ev.get("curva_1816") or "?"
-        vto = ev.get("vencimiento_1816")
         out.append({
             "clave": f"falta:{tk}",
             "tipo": "hallazgo",
-            "pregunta": (f"{tk} está en 1816 («{curva}»"
-                         + (f", vence {str(vto)[:10]}" if vto else "")
-                         + ") y no en mercado.curvas. ¿Lo damos de alta o no nos "
-                           "interesa?"),
+            "pregunta": _texto_falta(tk, ev),
             "opciones": list(RESPUESTAS_FALTA),
             "contexto": ev,
         })
     return out
 
 
-def registrar(preguntas: list[dict]) -> int:
-    """Inserta las que no existan. → cuántas son NUEVAS.
+def _texto_falta(tk: str, ev: dict) -> str:
+    """La pregunta de un faltante, con el contexto para poder contestarla.
 
-    `ON CONFLICT (clave) DO NOTHING` es lo que garantiza que no se repregunte —
-    incluso una ya respondida queda como está (su respuesta no se pisa)."""
+    **Un ticker solo no es una pregunta contestable.** `M31G6` no le dice nada a
+    nadie: hace falta QUIÉN emite y QUÉ es. El emisor y la denominación vienen
+    del catálogo de 1816 (`emisorNombre` / `denominacion`), que el censo ya trae
+    en el mismo crédito — no cuesta una llamada más.
+
+    Y lo primero de todo es **si la casa ya lo tiene**: un bono en la tenencia
+    que no está en `mercado.curvas` no valúa, así que ahí la respuesta deja de
+    ser una preferencia y pasa a ser un arreglo pendiente."""
+    partes: list[str] = []
+    if ev.get("en_cartera"):
+        partes.append("⚠ LO TENÉS EN CARTERA (hoy no valúa)")
+    emisor = (ev.get("emisor") or "").strip()
+    if emisor:
+        partes.append(emisor)
+    den = (ev.get("denominacion") or "").strip()
+    # La denominación repite el ticker en muchos casos ("AL30 - BONAR 2030"): se
+    # muestra solo si agrega algo, si no es ruido en una lista de 24.
+    if den and den.upper() != tk.upper():
+        partes.append(den)
+    curva = ev.get("curva_1816") or "?"
+    partes.append(f"1816: «{curva}»")
+    if ev.get("moneda"):
+        partes.append(str(ev["moneda"]))
+    vto = ev.get("vencimiento_1816")
+    if vto:
+        partes.append(f"vence {str(vto)[:10]}")
+    return f"{tk} — " + " · ".join(partes) + ". ¿Lo damos de alta o no nos interesa?"
+
+
+def registrar(preguntas: list[dict]) -> int:
+    """Inserta las nuevas y REFRESCA el texto de las que siguen abiertas.
+    → cuántas filas se tocaron.
+
+    Dos reglas que conviven y no se contradicen:
+
+    · **No se repregunta**: la `clave` es única, así que una pregunta ya hecha no
+      genera otra fila.
+    · **Pero sí se mejora el enunciado**: si el agente aprende a decirlo mejor
+      (el 2026-08-16 se le sumaron emisor, denominación y «lo tenés en cartera»),
+      las que están ABIERTAS tienen que reflejarlo. Con `DO NOTHING` las 21 que ya
+      estaban se quedaban con el texto viejo para siempre y había que borrarlas a
+      mano para verlas bien.
+
+    **`WHERE estado = 'abierta'` es la parte que no se puede saltear**: una
+    pregunta ya respondida se congela con el texto y el contexto que tenía cuando
+    se contestó. Reescribirla haría que el historial diga que se decidió sobre
+    una evidencia que en ese momento no existía."""
     if not preguntas:
         return 0
     filas = [(p["clave"], p["tipo"], p["pregunta"],
@@ -92,7 +132,11 @@ def registrar(preguntas: list[dict]) -> int:
         cur.executemany(
             "INSERT INTO mercado.av_agent_preguntas "
             "(clave, tipo, pregunta, opciones, contexto) "
-            "VALUES (%s, %s, %s, %s::jsonb, %s::jsonb) ON CONFLICT (clave) DO NOTHING",
+            "VALUES (%s, %s, %s, %s::jsonb, %s::jsonb) "
+            "ON CONFLICT (clave) DO UPDATE SET "
+            "  pregunta = EXCLUDED.pregunta, opciones = EXCLUDED.opciones, "
+            "  contexto = EXCLUDED.contexto "
+            "WHERE mercado.av_agent_preguntas.estado = 'abierta'",
             filas)
         return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
 

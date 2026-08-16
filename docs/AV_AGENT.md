@@ -512,8 +512,43 @@ contestar.
 > endpoints de `/api/ia`, presentes y futuros, a cambio de la elegancia REST de
 > uno solo. **La superficie mínima gana.**
 
+### E1.e — CONTEXTO en las preguntas (2026-08-16)
+
+**Pedido del user usándolo de verdad:** *"hay bonos que no los conozco y
+necesitaría al menos el emisor"*. Tenía razón: **un ticker solo no es una
+pregunta contestable.** `M31G6` no le dice nada a nadie, y una pregunta que no se
+puede contestar es una pregunta que no se contesta.
+
+La ficha sale del **mismo crédito** que ya se paga: el censo de `/instrumentos`
+trae `emisorNombre`, `denominacion`, `monedaDenom`, `fechaEmision` e `isinCode` en
+cada instrumento (nombres verificados contra `jobs/mercado_1816_discovery`, que
+persiste ese mismo catálogo). No costó una llamada más — estaban ahí y no se
+mostraban.
+
+**Y se agregó algo que vale más que el emisor: «¿LA CASA YA LO TIENE?»** Se cruza
+el faltante contra la tenencia del último AuM. Un bono que está en la cartera y
+**no** está en `mercado.curvas` **no valúa**: no tiene TEA, no entra al gráfico y
+su posición se muestra sin precio modelado. Ahí *"¿te interesa?"* deja de ser una
+preferencia y pasa a ser **un arreglo pendiente** — por eso esos suben a
+severidad `alta`, la tarjeta va con borde rojo y **encabezan la lista**. Marcar
+algo como urgente y dejarlo en la tarjeta 18 es lo mismo que no marcarlo.
+
+**`registrar()` pasó de `DO NOTHING` a `DO UPDATE … WHERE estado = 'abierta'`.**
+Sin eso, las 21 preguntas que ya estaban abiertas se quedaban con el texto viejo
+para siempre y había que borrarlas a mano para verlas bien. Las dos reglas
+conviven: *no se repregunta* (la clave sigue siendo única) pero *sí se mejora el
+enunciado*. El `WHERE` no se puede saltear — **una pregunta ya respondida se
+congela con el texto y el contexto que tenía cuando se contestó**; reescribirla
+haría que el historial diga que se decidió sobre una evidencia que en ese momento
+no existía.
+
 ## Changelog
 
+- **2026-08-16 — E1.e, contexto en las preguntas.** Emisor, denominación, moneda
+  y vencimiento (del mismo crédito del censo) + el aviso **«lo tenés en cartera y
+  no valúa»**, que sube esos faltantes a severidad alta y los pone primeros.
+  `registrar()` ahora refresca el enunciado de las preguntas ABIERTAS (nunca el de
+  las respondidas). 8 tests nuevos.
 - **2026-08-16 — E1.d.b, de vista a MODAL.** El link del nav y la página
   `/av-agent` se borraron: el agente vive en un botón de la barra inferior (junto
   a BRIEFING y SALUD) que abre un modal, con contador de preguntas visible desde

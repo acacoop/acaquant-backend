@@ -39,6 +39,31 @@ def test_un_ticker_de_1816_que_no_tengo_se_reporta():
     assert out[0]["evidencia"]["ejes_sugeridos"]["ajuste"] == "cer"
 
 
+def test_el_faltante_arrastra_la_FICHA_de_1816():
+    """Los nombres de campo son los del proveedor (`emisorNombre`,
+    `denominacion`, `monedaDenom`), verificados contra el job de discovery que
+    persiste este mismo catálogo. Si 1816 los renombra, esto se rompe acá y no
+    en silencio en la pantalla."""
+    inst = {**_inst("Soberanos ARS Tamar"), "emisorNombre": "Tesoro Nacional",
+            "denominacion": "BONO TAMAR AGO-26", "monedaDenom": "ARS",
+            "fechaVencimiento": "2026-08-31", "isinCode": "ARARGE123"}
+    ev = av_agent.detectar_faltantes({"M31G6": inst}, [], alcance="todo")[0]["evidencia"]
+    assert ev["emisor"] == "Tesoro Nacional"
+    assert ev["denominacion"] == "BONO TAMAR AGO-26"
+    assert ev["moneda"] == "ARS" and ev["isin"] == "ARARGE123"
+
+
+def test_un_faltante_QUE_LA_CASA_TIENE_es_severidad_alta():
+    """No es lo mismo un bono que no tenemos que uno que SÍ está en la tenencia y
+    no valúa. El segundo no es una preferencia: es un arreglo pendiente."""
+    univ = {"TB27": _inst("Soberanos ARS Badlar")}
+    sin = av_agent.detectar_faltantes(univ, [], alcance="todo")[0]
+    con = av_agent.detectar_faltantes(univ, [], alcance="todo", en_cartera={"TB27"})[0]
+    assert sin["severidad"] == "media" and sin["evidencia"]["en_cartera"] is False
+    assert con["severidad"] == "alta" and con["evidencia"]["en_cartera"] is True
+    assert "CARTERA" in con["motivo"]
+
+
 def test_el_cruce_normaliza_la_ESPECIE_y_no_inventa_un_faltante():
     """1816 publica `AL30` y nuestro master puede tener `AL30D` (la pata en
     dólares). Sin normalizar, TODOS los bonos con especie aparecerían como

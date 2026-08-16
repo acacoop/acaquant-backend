@@ -162,7 +162,9 @@ opiniones. El eval va ANTES del modelo.
 | # | Etapa | ¿IA? | ¿Escribe en prod? | Estado |
 |---|---|---|---|---|
 | E0 | Doc vivo + decisiones abiertas | no | no | ✅ **hecho** |
-| E1 | El espejo (detectar, sin escribir) | no | solo tabla propia | ✅ **codeado + 1ª calibración aplicada** |
+| E1 | El espejo (detectar, sin escribir) | no | solo tabla propia | ✅ **calibrado en prod (64 hallazgos)** |
+| E1.c | El agente PREGUNTA | no | tabla propia | ✅ **hecho** |
+| E1.d | La vista `/av-agent` | no | tabla propia | ✅ **hecho** |
 | E2 | El simulador (TEA en seco) | no | no | pendiente |
 | E3 | El set de control (evals) | no | no | pendiente |
 | E4 | El cerebro (diagnóstico) | **sí** | no | pendiente |
@@ -446,8 +448,61 @@ Aplicó algo mal → está en el historial con su `before` y se revierte con un 
 
 ---
 
+### E1.d — LA VISTA `/av-agent` (2026-08-16)
+
+**Pedido del user:** *"¿no podemos ponerle una interfaz? Hoy tengo el chat
+CONSULTALE A LA IA que literal no se usa para nada."* Un agente que solo vive en
+la consola del Droplet no lo usa nadie más que quien tiene SSH.
+
+| Pieza | Qué es |
+|---|---|
+| `GET /api/ia/av-agent/vista` | toda la pantalla en UN request (`api/services/av_agent_vista.py`) |
+| `POST /api/ia/av-agent/responder` | contesta y aplica el efecto |
+| `POST /api/ia/av-agent/designorar` | deshace un «no me interesa» |
+| `src/app/av-agent/page.tsx` + `src/components/av-agent-view.tsx` | la vista (front) |
+| Link **AV AGENT** en el header | módulo `ia`, de primer nivel |
+
+**Vive bajo `/api/ia` a propósito**: hereda el gate `ia` de forma ESTRUCTURAL en
+vez de estrenar un prefijo que habría que acordarse de sumar a
+`ENDPOINT_MODULE_PREFIXES`. Un endpoint de IA fuera de ese prefijo nace sin gate
+y eso no se ve hasta que alguien lo prueba sin permisos. Lectura con el módulo
+`ia`; **responder y deshacer, admin-only** — `ignorar` es permanente y
+silencioso, así que arranca cerrado.
+
+**Tres decisiones de la pantalla, y ninguna es cosmética:**
+
+1. **Las preguntas van primero y son el tab default.** Los hallazgos son
+   informativos; las preguntas son lo único que el agente NO puede resolver
+   solo. Una pantalla que abre en la lista de 64 problemas deja las 27 preguntas
+   abajo y sin contestar — y sin respuestas el agente no aprende nada.
+2. **El agente habla en primera persona.** La diferencia entre *"hallazgos: 24"*
+   y *"encontré 24 bonos que no tenés, ¿cuáles te interesan?"* es si el usuario
+   entiende que le toca hacer algo. Un tablero no se contesta; una pregunta sí.
+3. **Dice lo que NO puede hacer.** `capacidades.puede_dar_de_alta` viaja en la
+   respuesta: hoy contestar «alta» GUARDA la decisión pero no da de alta nada
+   (eso es E2), y el historial marca `guardado, todavía sin aplicar`. Sin decirlo,
+   el botón se lee como roto.
+
+**El botón DESHACER no es un extra.** Si `ignorar` fuera irreversible desde la
+app, la respuesta segura pasaría a ser *no contestar nada* y el canal entero
+dejaría de usarse. Deshacer saca el ticker de la lista **y reabre su pregunta**:
+sin lo segundo, el bono volvería a salir como hallazgo pero sin nada que
+contestar.
+
+> ⚠️ **Bug atajado antes de prod:** el endpoint de deshacer nació como `DELETE` y
+> el proxy catch-all de Next para `/api/ia` **solo expone GET y POST** → habría
+> dado 405 en producción con el código compilando perfecto. Se pasó a POST en vez
+> de agregarle DELETE al catch-all: ese verbo quedaría habilitado para TODOS los
+> endpoints de `/api/ia`, presentes y futuros, a cambio de la elegancia REST de
+> uno solo. **La superficie mínima gana.**
+
 ## Changelog
 
+- **2026-08-16 — E1.d, la VISTA.** `GET /api/ia/av-agent/vista` (todo en un
+  request) + responder + designorar, y la pantalla `/av-agent` en el front con el
+  link en el header. Las preguntas son el tab default; el agente habla en primera
+  persona y dice lo que todavía no puede hacer. Bug atajado antes de prod: el
+  deshacer nació DELETE y el proxy de `/api/ia` solo expone GET/POST.
 - **2026-08-16 — E1.c, el agente PREGUNTA.** `mercado.av_agent_preguntas` +
   `api/services/av_agent_preguntas.py` + `--preguntas`/`--responder` en el job.
   Responder dispara un efecto (`ignorar` → `av_agent_ignorados`), no repregunta

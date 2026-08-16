@@ -192,6 +192,32 @@ def _aplicar_efecto(p: dict, resp: str, *, por: str, nota: str) -> bool:
     return True
 
 
+def designorar(ticker: str, *, por: str = "") -> dict:
+    """Deshace un «no me interesa»: saca el ticker de la lista y **reabre su
+    pregunta**, para que el agente vuelva a proponerlo.
+
+    Reabrir la pregunta es la mitad que importa: sin eso el ticker volvería a
+    salir como hallazgo pero sin nada que contestar, y la decisión quedaría
+    colgada entre "ya la contesté" y "no la contesté".
+
+    **La reversibilidad es lo que hace barata la decisión.** Si `ignorar` fuera
+    irreversible desde la app, la respuesta segura pasaría a ser no contestar
+    nada — y el canal de preguntas dejaría de usarse."""
+    tk = (ticker or "").strip().upper()
+    if not tk:
+        raise ValueError("ticker vacío")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM mercado.av_agent_ignorados WHERE ticker = %s", (tk,))
+        borrado = cur.rowcount or 0
+        cur.execute(
+            "UPDATE mercado.av_agent_preguntas SET estado = 'abierta', "
+            "respuesta = NULL, respondida_at = NULL, aplicada_at = NULL, "
+            "nota = NULL, respondida_por = %s WHERE clave = %s",
+            (por or None, f"falta:{tk}"))
+        reabierta = (cur.rowcount or 0) > 0
+    return {"ok": True, "ticker": tk, "borrado": borrado > 0, "reabierta": reabierta}
+
+
 # ── Parseo del comando del user ──────────────────────────────────────────────
 
 

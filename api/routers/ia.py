@@ -177,3 +177,65 @@ def copiloto_feedback(request: Request, body: FeedbackCopiloto,
         traza_id=body.traza_id, valor=body.feedback,
         usuario=_identidad(request, email),
     )
+
+
+# ── AV AGENT (docs/AV_AGENT.md) ──────────────────────────────────────────────
+#
+# Vive bajo /api/ia a propósito: hereda el gate `ia` de forma ESTRUCTURAL en vez
+# de estrenar un prefijo que habría que acordarse de sumar a
+# ENDPOINT_MODULE_PREFIXES. Un endpoint de IA que nace fuera de ese prefijo nace
+# sin gate, y eso no se ve hasta que alguien lo prueba sin permisos.
+#
+# LECTURA con el módulo `ia`. ESCRITURA admin-only: responder no es opinar —
+# `ignorar` es permanente y silencioso, así que arranca cerrado y se abre cuando
+# haya criterio para hacerlo (default-deny, igual que el resto del sistema).
+
+
+class RespuestaAvAgent(BaseModel):
+    id: int = Field(..., ge=1)
+    respuesta: str = Field(..., min_length=1, max_length=32)
+    nota: str = Field("", max_length=500)
+
+
+@router.get("/av-agent/vista")
+def av_agent_vista():
+    """Toda la pantalla en UN request: hallazgos de la última corrida, preguntas
+    abiertas, lo ya decidido y los ignorados."""
+    from api.services import av_agent_vista as vista_svc
+    return vista_svc.vista()
+
+
+@router.post("/av-agent/responder", dependencies=[Depends(require_admin)])
+def av_agent_responder(body: RespuestaAvAgent, email: str = Depends(get_user_email)):
+    """Contesta una pregunta del agente y **aplica su efecto**."""
+    from api.services import av_agent_preguntas as preg
+    try:
+        r = preg.responder(body.id, body.respuesta, por=email or "", nota=body.nota)
+    except preg.RespuestaInvalida as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "id": body.id, "respuesta": r.get("respuesta"),
+            "aplicada": r.get("aplicada", False)}
+
+
+class DesignorarAvAgent(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=32)
+
+
+@router.post("/av-agent/designorar", dependencies=[Depends(require_admin)])
+def av_agent_designorar(body: DesignorarAvAgent, email: str = Depends(get_user_email)):
+    """Deshace un «no me interesa»: el ticker vuelve a proponerse.
+
+    Existe porque **la reversibilidad es lo que hace barata la decisión**. Sin
+    este botón, marcar `ignorar` es irreversible desde la app y la única salida es
+    tocar SQL a mano — con lo cual la respuesta segura pasa a ser no contestar
+    nada, y el mecanismo entero deja de usarse.
+
+    ⚠️ Es POST y no DELETE **a propósito**: el proxy de Next para /api/ia es un
+    catch-all que hoy expone solo GET y POST. Agregarle DELETE habilitaría el
+    verbo para TODOS los endpoints de /api/ia —presentes y futuros— a cambio de
+    la elegancia REST de uno solo. La superficie mínima gana."""
+    from api.services import av_agent_preguntas as preg
+    try:
+        return preg.designorar(body.ticker, por=email or "")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e

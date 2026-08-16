@@ -143,3 +143,47 @@ def test_curva_desconocida_no_se_adivina():
 def test_todas_las_pills_tienen_display_y_lado():
     for p in ce.PILLS:
         assert ce.DISPLAY[p] and ce.LADO[p] in ("ARS", "USD")
+
+
+# ── Fase B: el universo de una curva, traducido a los ejes ───────────────────
+
+def test_el_FIT_no_es_lo_mismo_que_la_VISTA():
+    """LA distinción de la fase B. La tabla junta emisores a propósito (querés ver
+    el corporativo al lado del soberano); el AJUSTE de la curva no puede — un
+    corporativo tiene spread de crédito y corre el fit para todos.
+
+    Medido: con el predicado de vista `soberanos` pasa de 21 a 129 bonos."""
+    vista = ce.sql_universo("soberanos")
+    fit = ce.sql_universo("soberanos", fit=True)
+    assert "emisor_tipo" not in vista
+    assert "emisor_tipo = 'soberano'" in fit
+
+
+def test_los_duales_entran_por_las_DOS_patas():
+    """`ajuste_alt` tiene que estar en el predicado o un dual CER+TAMAR quedaría
+    fuera de la tabla de TAMAR — el bono existe, la tabla suma bien, y falta."""
+    for curva in ("cer", "tamar", "dolar_linked"):
+        assert "ajuste_alt" in ce.sql_universo(curva), curva
+
+
+def test_las_curvas_de_pesos_no_se_mezclan_con_las_de_dolares():
+    """`tasa_fija` y `soberanos` son el MISMO ajuste (`fija`) y las separa solo la
+    moneda. Sin ese filtro, la curva de LECAPs se comería los Bonares."""
+    assert "moneda_eje = 'ARS'" in ce.sql_universo("tasa_fija")
+    assert "moneda_eje IN ('USD','EUR')" in ce.sql_universo("soberanos")
+
+
+def test_una_curva_que_no_existe_devuelve_None():
+    """Las `on_*` NO van acá: son `emisor_tipo='corporativo'`, un eje y no una
+    curva. Devolver None obliga al caller a decidir en vez de traer un universo
+    vacío que parece un resultado."""
+    assert ce.sql_universo("on_energia") is None
+    assert ce.sql_universo("") is None and ce.sql_universo("cualquiera") is None
+
+
+def test_hay_predicado_para_cada_pill():
+    """Si una pill no tuviera universo, su tabla se dibujaría y el cálculo de esa
+    curva quedaría sin insumo."""
+    for p in ce.PILLS:
+        curva = "soberanos" if p == "hard_dolar" else p
+        assert ce.sql_universo(curva), p

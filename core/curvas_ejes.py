@@ -127,6 +127,53 @@ CURVAS_SIN_EJES: dict[str, str] = {
 }
 
 
+# ── El UNIVERSO de una curva, en UN solo lugar ───────────────────────────────
+#
+# Fase B: forwards, fair value, forwards_zscore e histórico partían por
+# `mercado.curvas.curva`, un string que contesta tres preguntas a la vez. Acá vive
+# la traducción a los ejes, escrita UNA vez para que no puedan volver a divergir.
+#
+# **Son DOS predicados y no uno.** Es lo que la medición del 2026-08-16 dejó
+# claro, y confundirlos es el error caro:
+#
+#   · VISTA — qué se MUESTRA en esa tabla. Junta emisores a propósito: la mesa
+#     quiere ver el corporativo al lado del soberano. Con este predicado la tabla
+#     HARD DOLAR pasa de 21 a 129 bonos, que es exactamente lo que se busca.
+#   · FIT   — qué entra al AJUSTE de la curva (fair value, z-score, forwards).
+#     Acá juntar emisores está MAL: un corporativo tiene spread de crédito, y
+#     meterlo adentro corre la curva para TODOS los demás. El modo de fallar es
+#     mudo — el ajuste sale, el z-score sale, y los números son otros.
+#
+# VERIFICADO contra producción (`scripts/diag_fase_b`): el predicado FIT reproduce
+# el universo de hoy BONO POR BONO, sin una sola diferencia, en las tres curvas
+# que tienen fit persistido (tasa_fija 11=11, cer 22=22, dolar_linked 7=7).
+#
+# El `OR ajuste_alt` es la decisión de los duales: un dual CER+TAMAR entra a las
+# dos tablas. Para el FIT eso es una DECISIÓN DE MESA pendiente — un dual cotiza
+# distinto que un CER puro porque tiene la opción de la otra pata.
+
+_UNIVERSO_VISTA = {
+    "tasa_fija":    "ajuste = 'fija' AND moneda_eje = 'ARS'",
+    "cer":          "(ajuste = 'cer' OR ajuste_alt = 'cer')",
+    "soberanos":    "ajuste = 'fija' AND moneda_eje IN ('USD','EUR')",
+    "dolar_linked": "(ajuste = 'dolar_linked' OR ajuste_alt = 'dolar_linked')",
+    "tamar":        "(ajuste = 'tamar' OR ajuste_alt = 'tamar')",
+}
+
+
+def sql_universo(curva: str, *, fit: bool = False) -> str | None:
+    """El `WHERE` sobre `mercado.curvas` que reproduce el universo de esa curva.
+
+    `fit=True` agrega `emisor_tipo='soberano'`: es la diferencia entre lo que se
+    MUESTRA y lo que entra al CÁLCULO. `None` si la curva no está mapeada (las
+    `on_*` no van acá: son `emisor_tipo='corporativo'`, un eje y no una curva).
+    """
+    base = _UNIVERSO_VISTA.get((curva or "").strip())
+    if base is None:
+        return None
+    return f"{base} AND emisor_tipo = 'soberano'" if fit else base
+
+
 # ── Validación de los ejes que llegan de un editor ───────────────────────────
 # Vive acá, junto al vocabulario, para que el editor de bonos y el de ONs no
 # tengan cada uno su propia idea de qué es válido.

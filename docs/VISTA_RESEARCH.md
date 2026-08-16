@@ -476,8 +476,16 @@ una emisión rara se cuele sola. Manager → BONOS ya existe (`/bonos`,
 `/bonos/sin-flujo`, `/bonos/sin-tasa`, `/bonos/parse-flujos`) y está
 desactualizado: **es el lugar natural para esa bandeja**, y le devuelve sentido.
 
-**Estado: DISEÑO, nada codeado.** El siguiente paso es correr el diag y decidir
-el mapeo de curvas con los números adelante.
+> **⚡ ESTE DISEÑO SE MUDÓ — doc vivo: `docs/AGENTE_CURADOR.md` (QuantAI P8).**
+> Lo de acá arriba queda como el **registro de la medición** (los números de §4.9
+> son la evidencia que sostiene el proyecto y no se duplican). El plan ejecutable,
+> las etapas, las decisiones abiertas y el estado viven en el doc del agente — si
+> los dos dicen cosas distintas, manda el del agente.
+
+**Estado: E0 (doc + decisiones abiertas) hecho el 2026-08-16.** El diseño creció
+de "job que propone altas" a **agente de integridad de datos**, porque las tres
+tareas que pidió el user (altas, flujos faltantes, tasas mal) son el mismo verbo y
+solo la tercera necesita IA.
 
 ---
 

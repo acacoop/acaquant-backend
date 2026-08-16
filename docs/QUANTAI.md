@@ -91,6 +91,11 @@ calendario.
 - **Fase 0: 3 de 4 hechos** (gateway, RBAC, observabilidad). Falta solo la
   suite de evals (punto 4), diferida A PROPÓSITO hasta tener outputs reales
   que congelar como casos (hoy no hay ninguna tarea LLM corriendo en prod).
+  **La destraba P8**: su etapa E3 congela ~25 casos de renta fija con respuesta
+  YA verificada contra prod (bonos sin ejes, sin TEA, la divergencia de AER9O,
+  las 7 fallas de `SALUD_CURVAS`) — el primer set de control real del programa.
+- **P8 Agente Curador: E0 hecho (2026-08-16)** — el primer AGENTE (no copiloto).
+  Doc vivo propio con las 7 etapas y 3 decisiones abiertas del user.
 - **P7 Asistente de Negocio: M1 construido (2026-07-21)** — ver su sección.
   Pendiente del user: apply_schema + deploy + calibración del matcher + tilde
   del módulo `asistente` en Manager.
@@ -542,6 +547,29 @@ van en el contexto del agente (volumen excluye `es_cierre`, AuM filtra
 `aum='si'`, etapa IS DISTINCT FROM…) y las métricas core se sirven desde
 vistas pre-armadas, no calculadas desde cero. Va último: exige el criterio y
 la infraestructura de evaluación que los proyectos anteriores construyen.
+
+### P8 — AGENTE CURADOR (integridad de datos: `mercado.curvas` ↔ 1816) — EN CURSO
+**Estado: E0 hecho (doc + decisiones abiertas)** · Tipo: **agente** (el primero
+del sistema) · Gate: `ia` + `manager_titulos` · **Doc vivo: `docs/AGENTE_CURADOR.md`**
+
+El primer proyecto que NO es un copiloto: tiene trabajo propio y lo hace de noche
+sin que nadie pregunte. Detecta bonos que 1816 tiene y nosotros no, completa los
+flujos faltantes, y **diagnostica por qué una TEA está mal** (el único de los tres
+que lleva IA — los otros dos son deterministas a propósito, regla de oro 1).
+
+Tres cosas que lo hacen distinto de todo lo anterior y por las que vale como
+proyecto de aprendizaje del programa:
+- **Escribe en prod**, con autonomía por lane que se GANA con estadística y se
+  retira sola (el "autonomy slider"), siempre reversible y siempre por la misma
+  puerta que usa el humano (`upsert_bono`).
+- **El eval va ANTES del modelo** (E3 antes que E4): es el primer set de control
+  con respuestas verificadas contra prod, y destraba el punto 4 de la Fase 0 que
+  estaba diferido por falta de outputs reales.
+- **El silencio es el reporte**: por default no notifica nada.
+
+Decisiones ABIERTAS que viven en su doc (no re-litigar acá): alcance del universo
+(soberanos vs los 887), política de conflicto cuando 1816 y nosotros diferimos
+(caso AER9O, 3,1% medido), y alcance del diagnóstico (barrido vs herramienta).
 
 ---
 

@@ -274,6 +274,7 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Modelo SQL / schema | `SQL.md` + `SQL_MODELO.md` + `sql/schema.sql` |
 | Programa de IA (gateway `core/ai`, briefing, triage) | `QUANTAI.md` **[VIVO]** |
 | Copiloto de mesa (`api/services/copiloto.py`) | `COPILOTO.md` **[VIVO]** |
+| **Agente CURADOR** (integridad de datos: `mercado.curvas` ↔ 1816) | `AGENTE_CURADOR.md` **[VIVO]** |
 | Agregar una TOOL al asistente/copiloto | `TOOLS_IA.md` **[VIVO]** (auditoría de huecos + tandas) |
 | Vista `/research` (1816, mail diario) | `VISTA_RESEARCH.md` **[VIVO]** |
 | Research → tab BCRA / FRED | `RESEARCH_BCRA.md` · `RESEARCH_FRED.md` |

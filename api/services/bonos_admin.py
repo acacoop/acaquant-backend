@@ -84,20 +84,28 @@ def _columnas_por_ticker(tickers: list[str]) -> dict[str, dict]:
 
 
 def list_bonos(curva: str | None = None) -> list[dict]:
-    """Bonos NO-ON de mercado.curvas (excluye los corporativos, que son del editor
-    de ONs).
+    """**TODOS** los bonos de `mercado.curvas`, corporativos incluidos.
+
+    Antes devolvía `no_corporativos()` porque las ONs tenían su propio editor. Al
+    borrarse la vista `/ons` (2026-08-16) ese editor se fusionó acá: si el listado
+    siguiera excluyéndolos, los ~140 corporativos quedarían en la base —
+    alimentando `/renta-fija` y ACREENCIAS — sin **ninguna** pantalla donde
+    editarlos. Ser corporativo es un EJE (`emisor_tipo`), no una familia aparte:
+    el filtrado es del que mira, no del endpoint.
 
     Los docs vienen del blob; las columnas que el blob no tiene se mergean encima
     (ver `_COLS_FUERA_DEL_BLOB`). El blob NUNCA gana: si tuviera una copia vieja de
     `emisor`, la columna la pisa — que es el sentido de haberlo estandarizado.
     """
-    out = curvas_sql.por_curva(curva) if curva else curvas_sql.no_corporativos()
+    out = curvas_sql.por_curva(curva) if curva else curvas_sql.cargar_todos()
     por_tk = _columnas_por_ticker([d["ticker_corto"] for d in out if d.get("ticker_corto")])
     for d in out:
         extra = por_tk.get(d.get("ticker_corto"))
         if extra:
             d.update({k: v for k, v in extra.items() if k != "ticker"})
-    out.sort(key=lambda d: (d.get("curva") or "", str(d.get("fecha_vencimiento") or ""),
+    # Orden por VENCIMIENTO, no por `curva`: la columna dejó de ser la identidad del
+    # bono y agrupar por ella ponía juntos papeles que ya no comparten nada.
+    out.sort(key=lambda d: (str(d.get("fecha_vencimiento") or "9999"),
                             d.get("ticker_corto") or ""))
     return out
 
@@ -195,6 +203,11 @@ def bonos_sin_tasa() -> dict:
     """
     from core import market_snapshot
 
+    # A propósito NO incluye corporativos, aunque el listado de al lado sí: las ONs
+    # son ilíquidas y su TEA falta por motivos normales (sin precio, sin flujo
+    # cargado). Meterlas acá llenaría REVISAR de rojos que nadie va a accionar, y
+    # un tablero que siempre está en rojo deja de mirarse. Si algún día se quiere,
+    # es cambiar esta línea por `cargar_todos()`.
     docs = curvas_sql.no_corporativos()
     by_full = {d.get("ticker"): d for d in docs if d.get("ticker")}
     cols = market_snapshot.cols_map(list(by_full), ["last_price", "tea"])
@@ -216,13 +229,17 @@ def bonos_sin_tasa() -> dict:
 
 
 def delete_bono(ticker_corto: str) -> dict:
-    """Baja un bono de mercado.curvas por ticker_corto (no toca ONs ^on)."""
+    """Baja un bono de mercado.curvas por ticker_corto.
+
+    El guard `curva NOT LIKE 'on%'` se sacó al fusionar el editor de ONs acá: si
+    siguiera, el botón «baja» de un corporativo diría OK y no borraría nada
+    (`rowcount 0`), que es el peor de los dos fracasos posibles.
+    """
     tc = (ticker_corto or "").strip()
     if not tc:
         raise ValueError("falta 'ticker_corto'")
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM mercado.curvas WHERE ticker = %s "
-                    "AND (curva NOT LIKE 'on%%' OR curva IS NULL)", (tc,))
+        cur.execute("DELETE FROM mercado.curvas WHERE ticker = %s", (tc,))
         deleted = cur.rowcount or 0
     curvas_sql.invalidar()   # refrescar el cache del master tras la baja
     return {"borrado": deleted}

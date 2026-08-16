@@ -3677,8 +3677,8 @@ CREATE INDEX IF NOT EXISTS ix_bancos_audit_ts
     ON bancos.audit_lecturas (ts DESC);
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- AGENTE CURADOR — hallazgos de integridad de renta fija (E1)
--- Doc madre: docs/AGENTE_CURADOR.md
+-- AV AGENT — hallazgos de integridad de renta fija (E1)
+-- Doc madre: docs/AV_AGENT.md
 --
 -- La tabla PROPIA del agente: acá escribe con autonomía total porque nada de lo
 -- que ponga entra a una valuación. `mercado.curvas` no se toca en esta etapa.
@@ -3688,7 +3688,16 @@ CREATE INDEX IF NOT EXISTS ix_bancos_audit_ts
 -- desapareció solo. Con un upsert, un hallazgo que se arregla borra la evidencia
 -- de que existió — el mismo error que `manager.salud_eventos` ya evita
 -- guardando las TRANSICIONES en vez del estado.
-CREATE TABLE IF NOT EXISTS mercado.curador_hallazgos (
+--
+-- El agente se llamó `curador` durante su primer día (2026-08-16) y se renombró
+-- a AV AGENT antes de que persistiera una sola fila (la única corrida fue
+-- --dry-run). Por eso la tabla vieja se dropea en vez de migrarse: está vacía por
+-- construcción y dejarla sería un fantasma que confunde al próximo que lea el
+-- schema. Si por lo que fuera tuviera filas, el DROP las pierde y no importa:
+-- son hallazgos de una corrida, se regeneran corriendo el job de nuevo.
+DROP TABLE IF EXISTS mercado.curador_hallazgos;
+
+CREATE TABLE IF NOT EXISTS mercado.av_agent_hallazgos (
     id          bigserial PRIMARY KEY,
     corrida_at  timestamptz NOT NULL DEFAULT now(),
     alcance     text NOT NULL,        -- soberanos | no_corporativos | todo
@@ -3703,7 +3712,27 @@ CREATE TABLE IF NOT EXISTS mercado.curador_hallazgos (
 );
 
 -- El acceso natural es "la última corrida" y "la historia de este ticker".
-CREATE INDEX IF NOT EXISTS ix_curador_corrida
-    ON mercado.curador_hallazgos (corrida_at DESC);
-CREATE INDEX IF NOT EXISTS ix_curador_ticker
-    ON mercado.curador_hallazgos (ticker, corrida_at DESC);
+CREATE INDEX IF NOT EXISTS ix_av_agent_corrida
+    ON mercado.av_agent_hallazgos (corrida_at DESC);
+CREATE INDEX IF NOT EXISTS ix_av_agent_ticker
+    ON mercado.av_agent_hallazgos (ticker, corrida_at DESC);
+
+-- AV AGENT — lo que el user decidió NO mirar (2026-08-16, calibración de E1).
+--
+-- El "no me interesa" del agente. Sin esto la lista nunca converge a cero: un
+-- ticker que el user ya descartó vuelve a salir todas las noches, y una lista que
+-- repite lo descartado se deja de leer.
+--
+-- Es SOLO para lo caso por caso. Lo que se puede expresar como REGLA va como
+-- regla (los Globales en EUR salen por `MONEDAS_SEGUIDAS`, no anotando seis
+-- tickers): una regla sigue valiendo cuando aparece el séptimo, una lista no.
+--
+-- `motivo` es obligatorio a propósito — dentro de seis meses, "por qué ignoramos
+-- este bono" es la única pregunta que importa, y es la que E7 va a usar como
+-- ejemplo para dejar de proponerlo.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_ignorados (
+    ticker      text PRIMARY KEY,     -- ticker CORTO normalizado (sin especie D/C)
+    motivo      text NOT NULL,
+    por         text,                 -- email de quien lo ignoró
+    creado_at   timestamptz NOT NULL DEFAULT now()
+);

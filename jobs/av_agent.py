@@ -1,11 +1,11 @@
-"""jobs/curador.py — el ESPEJO del Agente Curador (etapa E1).
+"""jobs/av_agent.py — el ESPEJO del AV Agent (etapa E1).
 
-Doc madre: **`docs/AGENTE_CURADOR.md`**. Escribe `mercado.curador_hallazgos`.
+Doc madre: **`docs/AV_AGENT.md`**. Escribe `mercado.av_agent_hallazgos`.
 
 **Qué hace.** Barre el universo de 1816, lo cruza contra `mercado.curvas` y
 persiste los hallazgos de las tres preguntas del agente: qué bono existe en 1816
 y no en nuestra base, cuál de los nuestros está sin flujo, y qué tasa está dando
-mal. Los detectores viven en `api/services/curador.py` (lógica pura); este
+mal. Los detectores viven en `api/services/av_agent.py` (lógica pura); este
 archivo es orquestación + persistencia.
 
 **Lo que NO hace, a propósito:**
@@ -26,10 +26,10 @@ cuántos hallazgos salen sino **cuántos son reales**: si de 20 tasas sospechosa
 el resumen imprime el desglose por REGLA — es el que dice cuál está mintiendo.
 
 Uso:
-    python -m jobs.curador                        # alcance soberanos (default), persiste
-    python -m jobs.curador --dry-run              # imprime todo, NO escribe ni una fila
-    python -m jobs.curador --alcance todo         # los 887 de 1816, no solo soberanos
-    python -m jobs.curador --detalle              # lista hallazgo por hallazgo
+    python -m jobs.av_agent                        # alcance soberanos (default), persiste
+    python -m jobs.av_agent --dry-run              # imprime todo, NO escribe ni una fila
+    python -m jobs.av_agent --alcance todo         # los 887 de 1816, no solo soberanos
+    python -m jobs.av_agent --detalle              # lista hallazgo por hallazgo
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ import argparse
 import json
 import logging
 
-from api.services import curador
+from api.services import av_agent
 from core import mercado_1816
 from core.postgres import get_pool
 
@@ -66,13 +66,13 @@ def persistir(res: dict) -> int:
              for h in hallazgos]
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
-            "INSERT INTO mercado.curador_hallazgos "
+            "INSERT INTO mercado.av_agent_hallazgos "
             "(alcance, tipo, ticker, regla, severidad, motivo, evidencia) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)", filas)
         cur.execute(
-            "DELETE FROM mercado.curador_hallazgos WHERE corrida_at < ("
+            "DELETE FROM mercado.av_agent_hallazgos WHERE corrida_at < ("
             "  SELECT min(c) FROM (SELECT DISTINCT corrida_at AS c "
-            "    FROM mercado.curador_hallazgos ORDER BY c DESC LIMIT %s) t)",
+            "    FROM mercado.av_agent_hallazgos ORDER BY c DESC LIMIT %s) t)",
             (_TTL_CORRIDAS,))
     return len(filas)
 
@@ -80,13 +80,21 @@ def persistir(res: dict) -> int:
 def _imprimir(res: dict, detalle: bool) -> None:
     u, resumen = res["universo"], res["resumen"]
     print(f"\n{'=' * 72}")
-    print(f"CURADOR — espejo de integridad (alcance: {res['alcance']})")
+    print(f"AV AGENT — espejo de integridad (alcance: {res['alcance']})")
     print("=" * 72)
     print(f"  Universo 1816: {u['1816']} tickers  ·  mercado.curvas: {u['mio']} bonos"
           f"  ·  con métricas del cierre: {u['con_metricas']}")
-    if not u["assets_leidos"]:
-        print("  ⚠ portafolio.assets no se pudo leer → la regla `sin_espejo_en_assets` "
-              "NO corrió (no se marca lo que no se pudo mirar).")
+    print(f"  En cartera (último AuM): {u.get('en_cartera', 0)}"
+          f"  ·  ignorados por el user: {u.get('ignorados', 0)}")
+    # Una fuente que no se pudo leer APAGA su regla, y eso hay que decirlo: si no,
+    # una lista más corta se lee como "hay menos problemas" cuando en realidad es
+    # "miré menos cosas".
+    for ok, fuente, regla in ((u["assets_leidos"], "portafolio.assets", "sin_espejo_en_assets"),
+                              (u.get("cartera_leida"), "portafolio.tenencia",
+                               "sin_espejo_en_assets")):
+        if not ok:
+            print(f"  ⚠ {fuente} no se pudo leer → la regla `{regla}` NO corrió "
+                  "(no se marca lo que no se pudo mirar).")
 
     tipos = [("falta_en_base", "Están en 1816 y NO en mi base"),
              ("sin_flujo", "Míos SIN cronograma de flujos"),
@@ -121,7 +129,7 @@ def _imprimir(res: dict, detalle: bool) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Espejo de integridad de renta fija (E1)")
-    ap.add_argument("--alcance", default="soberanos", choices=sorted(curador.ALCANCES),
+    ap.add_argument("--alcance", default="soberanos", choices=sorted(av_agent.ALCANCES),
                     help="qué emisores mirar (default: soberanos — decisión D1 del doc)")
     ap.add_argument("--dry-run", action="store_true",
                     help="releva e imprime, pero NO escribe ni una fila")
@@ -141,10 +149,10 @@ def main() -> None:
         pass
 
     from core.job_runs import JobRunLogger
-    with JobRunLogger("curador") as jr:
+    with JobRunLogger("av_agent") as jr:
         jr.log(f"censando 1816 (alcance={args.alcance}) — ~29 créditos, "
                "puede tardar 1-2 min por el throttle")
-        res = curador.relevar(alcance=args.alcance)
+        res = av_agent.relevar(alcance=args.alcance)
         _imprimir(res, args.detalle)
 
         for k, v in res["resumen"].items():
@@ -166,7 +174,7 @@ def main() -> None:
         else:
             n = persistir(res)
             jr.set_stat("filas_persistidas", n)
-            print(f"\n✔ {n} hallazgos persistidos en mercado.curador_hallazgos "
+            print(f"\n✔ {n} hallazgos persistidos en mercado.av_agent_hallazgos "
                   f"(se conservan las últimas {_TTL_CORRIDAS} corridas)")
 
         if saldo_ini is not None:

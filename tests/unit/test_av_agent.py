@@ -1,4 +1,4 @@
-"""Tests de los detectores del Agente Curador (E1) — docs/AGENTE_CURADOR.md.
+"""Tests de los detectores del AV Agent (E1) — docs/AV_AGENT.md.
 
 Los tres detectores son PUROS: reciben los datos ya leídos, así que se testean
 sin Postgres, sin red y sin gastar un crédito de 1816.
@@ -10,7 +10,7 @@ algo NO se reporta.
 """
 from __future__ import annotations
 
-from api.services import curador
+from api.services import av_agent
 
 
 def _doc(ticker_corto: str, **kw) -> dict:
@@ -34,7 +34,7 @@ def _inst(curva: str) -> dict:
 
 def test_un_ticker_de_1816_que_no_tengo_se_reporta():
     univ = {"TZXD8": _inst("Soberanos ARS CER")}
-    out = curador.detectar_faltantes(univ, [], alcance="soberanos")
+    out = av_agent.detectar_faltantes(univ, [], alcance="soberanos")
     assert [h["ticker"] for h in out] == ["TZXD8"]
     assert out[0]["evidencia"]["ejes_sugeridos"]["ajuste"] == "cer"
 
@@ -44,15 +44,44 @@ def test_el_cruce_normaliza_la_ESPECIE_y_no_inventa_un_faltante():
     dólares). Sin normalizar, TODOS los bonos con especie aparecerían como
     faltantes — el falso positivo más grande posible en este detector."""
     univ = {"AL30": _inst("Soberanos USD Bonares")}
-    assert curador.detectar_faltantes(univ, [_doc("AL30D")], alcance="todo") == []
+    assert av_agent.detectar_faltantes(univ, [_doc("AL30D")], alcance="todo") == []
 
 
 def test_el_ALCANCE_deja_afuera_lo_que_no_se_mira():
     """Con alcance `soberanos`, un corporativo de 1816 no es un hallazgo: no es
     que falte, es que todavía no lo miramos (decisión D1, abierta)."""
     univ = {"VSCRO": _inst("Corporativos USD")}
-    assert curador.detectar_faltantes(univ, [], alcance="soberanos") == []
-    assert len(curador.detectar_faltantes(univ, [], alcance="todo")) == 1
+    assert av_agent.detectar_faltantes(univ, [], alcance="soberanos") == []
+    assert len(av_agent.detectar_faltantes(univ, [], alcance="todo")) == 1
+
+
+def test_las_PATAS_de_1816_no_son_instrumentos_faltantes():
+    """**Falso positivo de la primera corrida:** `BPOA8 @AFIP`, `BPOC7 @AFIP` y
+    `TY30P @PUT`. El sufijo `@` marca una VISTA DE VALUACIÓN por componente, no un
+    instrumento — `/cashflow` les da 404 y el cuadro lo tiene el ticker base. De
+    yapa, `BPOA8` salía DOS veces (base y pata)."""
+    univ = {"BPOA8": _inst("BCRA USD"), "BPOA8 @AFIP": _inst("BCRA USD"),
+            "TY30P @PUT": _inst("Soberanos ARS Botes")}
+    out = av_agent.detectar_faltantes(univ, [], alcance="todo")
+    assert [h["ticker"] for h in out] == ["BPOA8"]
+
+
+def test_una_moneda_que_no_operamos_no_es_un_faltante():
+    """Los 6 Globales en EUROS (GE29…GE46). No es que falten: es un mercado en el
+    que no estamos. Se excluye por MONEDA y no anotando los seis tickers — una
+    regla estructural sigue valiendo cuando emitan el séptimo."""
+    univ = {"GE30": _inst("Soberanos EUR Globales"),
+            "GD46": _inst("Soberanos USD Globales")}
+    out = av_agent.detectar_faltantes(univ, [], alcance="todo")
+    assert [h["ticker"] for h in out] == ["GD46"]
+
+
+def test_un_ticker_IGNORADO_no_vuelve_a_reportarse():
+    """El "no me interesa" del user. Sin esto la lista nunca converge a cero y una
+    lista que repite lo descartado se deja de leer."""
+    univ = {"CUAP": _inst("Soberanos ARS CER")}
+    assert av_agent.detectar_faltantes(univ, [], alcance="todo",
+                                       ignorados={"CUAP"}) == []
 
 
 def test_una_curva_DESCONOCIDA_de_1816_se_canta_no_se_clasifica_sola():
@@ -60,21 +89,44 @@ def test_una_curva_DESCONOCIDA_de_1816_se_canta_no_se_clasifica_sola():
     Clasificarlo por parecido sería adivinar justo donde el catálogo es la única
     fuente confiable."""
     univ = {"XXXX": _inst("Soberanos ARS Cripto")}
-    out = curador.detectar_faltantes(univ, [], alcance="todo")
+    out = av_agent.detectar_faltantes(univ, [], alcance="todo")
     assert out[0]["evidencia"]["curva_desconocida"] is True
     assert out[0]["evidencia"]["ejes_sugeridos"] is None
     # ...y con alcance acotado NO se cuela: sin ejes no se puede afirmar que sea
     # soberano, y ante la duda no entra.
-    assert curador.detectar_faltantes(univ, [], alcance="soberanos") == []
+    assert av_agent.detectar_faltantes(univ, [], alcance="soberanos") == []
 
 
 # ── 2) sin flujo ─────────────────────────────────────────────────────────────
 
 
+def test_una_LECAP_con_flujo_vencimiento_NO_esta_sin_flujo():
+    """**El falso positivo de la primera corrida (2026-08-16): 11 letras.** Una
+    LECAP/BONCAP es zero-coupon: no tiene `flujos[]` y no le falta nada — el motor
+    la valúa con `flujo_vencimiento` (`engines/curvas.py` rama tasa_fija). El
+    predicado correcto ya existía en el conciliador de Manager
+    (`acreencias.tiene_flujo_def`) y había que USARLO."""
+    lecap = _doc("S30S6", ajuste="fija", flujos=[],
+                 flujo_vencimiento=147.5, fecha_vencimiento="2027-09-30")
+    assert av_agent.detectar_sin_flujo([lecap], {}) == []
+    # ...y tampoco se cuela por la puerta de las tasas
+    m = {lecap["ticker"]: {"tea": 0.29, "paridad": None, "duration": 0.9,
+                           "last_price": 130.0}}
+    assert av_agent.detectar_tasas_sospechosas([lecap], m, {"S30S6"}, {"S30S6"}) == []
+
+
+def test_un_bullet_YA_VENCIDO_si_cuenta_como_sin_flujo():
+    """El predicado exige que el pago sea FUTURO: un `flujo_vencimiento` con
+    vencimiento pasado no es un cronograma, es historia."""
+    viejo = _doc("XXXX", ajuste="fija", flujos=[],
+                 flujo_vencimiento=147.5, fecha_vencimiento="2020-01-01")
+    assert len(av_agent.detectar_sin_flujo([viejo], {})) == 1
+
+
 def test_sin_flujo_distingue_lo_que_1816_puede_resolver():
     docs = [_doc("AAA", flujos=[]), _doc("BBB", flujos=[])]
     out = {h["ticker"]: h for h in
-           curador.detectar_sin_flujo(docs, {"AAA": _inst("Soberanos ARS CER")})}
+           av_agent.detectar_sin_flujo(docs, {"AAA": _inst("Soberanos ARS CER")})}
     assert out["AAA"]["evidencia"]["resoluble_con_1816"] is True
     assert out["BBB"]["evidencia"]["resoluble_con_1816"] is False
     # el que no se puede resolver NO se marca como más urgente: pedir el
@@ -84,7 +136,7 @@ def test_sin_flujo_distingue_lo_que_1816_puede_resolver():
 
 
 def test_un_bono_CON_flujo_no_aparece():
-    assert curador.detectar_sin_flujo([_doc("AL30")], {}) == []
+    assert av_agent.detectar_sin_flujo([_doc("AL30")], {}) == []
 
 
 # ── 3) tasas sospechosas ─────────────────────────────────────────────────────
@@ -96,7 +148,7 @@ def test_sin_tea_con_precio_se_reporta():
     d = _doc("VSCYO", emisor_tipo="corporativo", moneda_eje="USD", ajuste="fija")
     m = {d["ticker"]: {"tea": None, "paridad": 95.0, "duration": 3.0,
                        "last_price": 112.0}}
-    reglas = [h["regla"] for h in curador.detectar_tasas_sospechosas([d], m, {"VSCYO"})]
+    reglas = [h["regla"] for h in av_agent.detectar_tasas_sospechosas([d], m, {"VSCYO"})]
     assert "sin_tea_con_precio" in reglas
 
 
@@ -107,7 +159,7 @@ def test_un_TAMAR_sin_tea_NO_es_un_hallazgo():
     d = _doc("TXMD9", ajuste="tamar")
     m = {d["ticker"]: {"tea": None, "paridad": 84.1, "duration": 1.2,
                        "last_price": 84.1}}
-    assert curador.detectar_tasas_sospechosas([d], m, {"TXMD9"}) == []
+    assert av_agent.detectar_tasas_sospechosas([d], m, {"TXMD9"}) == []
 
 
 def test_un_bono_SIN_FLUJO_no_se_cuenta_tambien_como_tasa_rota():
@@ -116,18 +168,18 @@ def test_un_bono_SIN_FLUJO_no_se_cuenta_tambien_como_tasa_rota():
     d = _doc("AAA", flujos=[])
     m = {d["ticker"]: {"tea": None, "paridad": None, "duration": None,
                        "last_price": 100.0}}
-    assert curador.detectar_tasas_sospechosas([d], m, {"AAA"}) == []
+    assert av_agent.detectar_tasas_sospechosas([d], m, {"AAA"}) == []
 
 
 def test_la_tasa_RUIDOSA_por_duration_no_se_reporta():
     """AFCHO mostraba TEA 142,1% por vencer en 3 días. No está mal calculada:
     anualizar 3 días amplifica centavos a tres dígitos. La vista ya la marca
-    `tasa_ruido` y el curador usa EL MISMO predicado (`es_tasa_ruido`), no una
+    `tasa_ruido` y el AV Agent usa EL MISMO predicado (`es_tasa_ruido`), no una
     copia que pueda divergir."""
     d = _doc("AFCHO", emisor_tipo="corporativo", moneda_eje="USD", ajuste="fija")
     m = {d["ticker"]: {"tea": 1.421, "paridad": 99.0, "duration": 0.008,
                        "last_price": 99.0}}
-    reglas = [h["regla"] for h in curador.detectar_tasas_sospechosas([d], m, {"AFCHO"})]
+    reglas = [h["regla"] for h in av_agent.detectar_tasas_sospechosas([d], m, {"AFCHO"})]
     assert "tea_fuera_de_rango" not in reglas
 
 
@@ -138,7 +190,7 @@ def test_una_LECAP_corta_con_tasa_alta_SI_se_mira():
     d = _doc("S30S6", ajuste="fija")
     m = {d["ticker"]: {"tea": 1.42, "paridad": 99.0, "duration": 0.01,
                        "last_price": 99.0}}
-    reglas = [h["regla"] for h in curador.detectar_tasas_sospechosas([d], m, {"S30S6"})]
+    reglas = [h["regla"] for h in av_agent.detectar_tasas_sospechosas([d], m, {"S30S6"})]
     assert "tea_fuera_de_rango" in reglas
 
 
@@ -146,7 +198,7 @@ def test_paridad_explotada_se_reporta_como_alta():
     d = _doc("YMCTO", emisor_tipo="corporativo", moneda_eje="USD", ajuste="fija")
     m = {d["ticker"]: {"tea": 0.10, "paridad": 14450.0, "duration": 2.0,
                        "last_price": 160000.0}}
-    h = [x for x in curador.detectar_tasas_sospechosas([d], m, {"YMCTO"})
+    h = [x for x in av_agent.detectar_tasas_sospechosas([d], m, {"YMCTO"})
          if x["regla"] == "paridad_fuera_de_rango"]
     assert h and h[0]["severidad"] == "alta"
 
@@ -158,20 +210,37 @@ def test_un_bono_SIN_EJES_se_reporta_porque_desaparece_en_silencio():
     d = _doc("BA37", emisor_tipo=None, moneda_eje=None, ajuste=None)
     m = {d["ticker"]: {"tea": 0.1, "paridad": 90.0, "duration": 4.0,
                        "last_price": 90.0}}
-    out = curador.detectar_tasas_sospechosas([d], m, {"BA37"})
+    out = av_agent.detectar_tasas_sospechosas([d], m, {"BA37"})
     assert [h["regla"] for h in out] == ["sin_ejes"]
 
 
-def test_sin_espejo_en_assets_se_reporta_pero_NO_si_no_se_pudo_leer():
-    """`None` = la query de assets falló. "No pude mirar" nunca puede convertirse
-    en "no está": marcaría los 222 bonos como huérfanos por un error de red."""
+def test_sin_espejo_en_assets_solo_importa_si_la_casa_TIENE_el_bono():
+    """**Falso positivo de la primera corrida: 25 ONs.** Un bono que no está en la
+    tenencia no necesita fila en `portafolio.assets` — no le falta nada al AuM
+    porque no aporta al AuM. Es el mismo recorte que hace el conciliador de
+    Manager, que parte del último AuM."""
+    d = _doc("BACAO", emisor_tipo="corporativo", moneda_eje="USD", ajuste="fija")
+    m = {d["ticker"]: {"tea": 0.1, "paridad": 90.0, "duration": 4.0,
+                       "last_price": 90.0}}
+    tengo = [h["regla"] for h in
+             av_agent.detectar_tasas_sospechosas([d], m, set(), {"BACAO"})]
+    no_tengo = [h["regla"] for h in
+                av_agent.detectar_tasas_sospechosas([d], m, set(), set())]
+    assert "sin_espejo_en_assets" in tengo
+    assert "sin_espejo_en_assets" not in no_tengo
+
+
+def test_sin_espejo_en_assets_NO_se_reporta_si_no_se_pudo_leer():
+    """`None` = la query falló. "No pude mirar" nunca puede convertirse en "no
+    está": marcaría los 221 bonos como huérfanos por un error de red. Vale para
+    las DOS fuentes — la de assets y la de la cartera."""
     d = _doc("AL30")
     m = {d["ticker"]: {"tea": 0.1, "paridad": 90.0, "duration": 4.0,
                        "last_price": 90.0}}
-    con = [h["regla"] for h in curador.detectar_tasas_sospechosas([d], m, set())]
-    sin = [h["regla"] for h in curador.detectar_tasas_sospechosas([d], m, None)]
-    assert "sin_espejo_en_assets" in con
-    assert "sin_espejo_en_assets" not in sin
+    for assets, cartera in ((None, {"AL30"}), (set(), None), (None, None)):
+        reglas = [h["regla"] for h in
+                  av_agent.detectar_tasas_sospechosas([d], m, assets, cartera)]
+        assert "sin_espejo_en_assets" not in reglas
 
 
 def test_un_bono_sano_no_genera_ningun_hallazgo():
@@ -180,4 +249,4 @@ def test_un_bono_sano_no_genera_ningun_hallazgo():
     d = _doc("AL30")
     m = {d["ticker"]: {"tea": 0.09, "paridad": 92.0, "duration": 3.5,
                        "last_price": 92.0}}
-    assert curador.detectar_tasas_sospechosas([d], m, {"AL30"}) == []
+    assert av_agent.detectar_tasas_sospechosas([d], m, {"AL30"}) == []

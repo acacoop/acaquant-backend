@@ -1,4 +1,4 @@
-# AGENTE CURADOR — el primer agente de ACAquant  ⟨VIVO⟩
+# AV AGENT — el primer agente de ACAquant  ⟨VIVO⟩
 
 > **REGLA DE ESTE DOCUMENTO.** Es un doc **VIVO** con changelog obligatorio, igual
 > que `QUANTAI.md` y `COPILOTO.md`. Cada etapa que se completa se marca acá en el
@@ -15,7 +15,7 @@
 
 ## 1. Qué es y qué no es
 
-El **Curador** es un agente de **integridad de datos**: compara nuestra verdad
+El **AV Agent** es un agente de **integridad de datos**: compara nuestra verdad
 contra una fuente externa y **propone la corrección con evidencia**. Su primer
 dominio es **renta fija** (`mercado.curvas` contra 1816), pero el verbo es
 genérico a propósito — ya lo aplicamos tres veces a mano (`jobs/ficha_1816` con
@@ -33,7 +33,7 @@ agentes que no comparten nada; el dominio es un plug-in.
    pata / la escala del bono está mal"*.
 
 **Lo que NO es.** No es un copiloto. Un copiloto espera que le pregunten; el
-Curador tiene trabajo propio y lo hace de noche aunque nadie lo mire. Esa es toda
+AV Agent tiene trabajo propio y lo hace de noche aunque nadie lo mire. Esa es toda
 la diferencia y es la que decidió el encuadre.
 
 ### 1.b Dónde está la IA (y dónde NO)
@@ -77,7 +77,7 @@ ya funcionan y que ya validó el uso.
 | `evals/` | carpeta de sets de evaluación (hoy: asistente, copiloto_vista) | operativo |
 
 > **El agente escribe por la MISMA puerta que el humano.** No hay un camino de
-> escritura para el Curador y otro para la mesa: los dos pasan por `upsert_bono`.
+> escritura para el AV Agent y otro para la mesa: los dos pasan por `upsert_bono`.
 > Si hubiera dos, se desincronizan y nadie se entera hasta que un flujo entra con
 > otra shape.
 
@@ -162,7 +162,7 @@ opiniones. El eval va ANTES del modelo.
 | # | Etapa | ¿IA? | ¿Escribe en prod? | Estado |
 |---|---|---|---|---|
 | E0 | Doc vivo + decisiones abiertas | no | no | ✅ **hecho** |
-| E1 | El espejo (detectar, sin escribir) | no | solo tabla propia | ✅ **codeado — falta CALIBRAR en prod** |
+| E1 | El espejo (detectar, sin escribir) | no | solo tabla propia | ✅ **codeado + 1ª calibración aplicada** |
 | E2 | El simulador (TEA en seco) | no | no | pendiente |
 | E3 | El set de control (evals) | no | no | pendiente |
 | E4 | El cerebro (diagnóstico) | **sí** | no | pendiente |
@@ -182,10 +182,10 @@ explícitas. **Validación:** el user lo lee y confirma que es el sistema que qu
 | Archivo | Qué es |
 |---|---|
 | `core/mercado_1816.py::censar()` | el censo de las 28 curvas, **promovido** desde `scripts/diag_1816_cashflow` (un job de prod no puede depender de un diag, que por la REGLA #5 se borra al cumplir). El diag quedó con un alias. |
-| `api/services/curador.py` | los **tres detectores**, lógica PURA (sin base, sin red, sin FastAPI) + `relevar()` que orquesta |
-| `jobs/curador.py` | el job: censo → detectores → `mercado.curador_hallazgos`. `--dry-run`, `--alcance`, `--detalle` |
-| `mercado.curador_hallazgos` (`sql/schema.sql`) | append-only **por corrida**, con la evidencia congelada y TTL de 60 corridas |
-| `tests/unit/test_curador.py` | 15 tests — **9 de ellos afirman que algo NO se reporta** |
+| `api/services/av_agent.py` | los **tres detectores**, lógica PURA (sin base, sin red, sin FastAPI) + `relevar()` que orquesta |
+| `jobs/av_agent.py` | el job: censo → detectores → `mercado.av_agent_hallazgos`. `--dry-run`, `--alcance`, `--detalle` |
+| `mercado.av_agent_hallazgos` (`sql/schema.sql`) | append-only **por corrida**, con la evidencia congelada y TTL de 60 corridas |
+| `tests/unit/test_av_agent.py` | 15 tests — **9 de ellos afirman que algo NO se reporta** |
 
 **El ALCANCE es un parámetro, no una constante** (`--alcance soberanos` por
 default): así la decisión **D1**, que sigue abierta, es un flag y no un rewrite.
@@ -206,15 +206,76 @@ falla, la regla `sin_espejo_en_assets` **no corre** en vez de marcar los 222 bon
 como huérfanos. *"No pude mirar" nunca puede convertirse en "no está"* — es la
 misma regla que hace que el job avise cuando el censo de 1816 vuelve vacío.
 
-**Falta: CALIBRAR contra prod, y es lo que decide si el proyecto sigue.** El user
-corre `python -m jobs.curador --dry-run --detalle`, mira la lista y marca qué es
-hallazgo real y qué es ruido. **Sin ese número medido, todo lo que viene después
-es fe.** El desglose **por REGLA** que imprime el job existe justo para eso: una
-regla que se lleva media lista es la primera sospechosa.
-
 **Todavía SIN cron, a propósito.** Automatizar un detector antes de saber su tasa
 de falsos positivos es programar ruido diario. La entrada en `deploy/crontab.txt`
 se agrega cuando la calibración lo justifique.
+
+### E1.b — PRIMERA CALIBRACIÓN contra prod (2026-08-16)
+
+Corrida real en el Droplet: `--dry-run --detalle`, alcance `soberanos`, **29
+créditos** (311/100.000 del día). Universo de 1816: **887** · nuestro master:
+**221** · **107 hallazgos**.
+
+| Regla | Salieron | Veredicto del user | Qué pasó |
+|---|---:|---|---|
+| `no_esta_en_curvas` | 33 | **parcial** | 6 Globales en **EUR** que no operamos + 3 **patas** `@` |
+| `sin_espejo_en_assets` | 25 | **ruido** | ONs que la casa no tiene en cartera |
+| `paridad_fuera_de_rango` | 16 | ✅ **real** | el patrón de la falla #4, ver abajo |
+| `flujos_vacios` | 13 | **11 de ruido** | LECAP/BONCAP zero-coupon |
+| `sin_tea_con_precio` | 10 | ✅ **real** | los mismos bonos que la paridad |
+| `sin_ejes` | 9 | ✅ **real** | coinciden 9/9 con los documentados en RENTA_FIJA |
+| `tea_fuera_de_rango` | 1 | ✅ **real** | PMA28, −38,8% |
+
+**Lo que la calibración enseñó, que es más valioso que los números:**
+
+**1. Los tres falsos positivos tenían la misma forma: yo reescribí un criterio
+que el sistema ya tenía.**
+- `flujos_vacios` miraba `bool(doc['flujos'])` cuando el predicado correcto
+  —`acreencias.tiene_flujo_def`, que contempla `flujo_vencimiento`— ya existía en
+  el conciliador de Manager. Una LECAP es zero-coupon: **no le falta nada**, la
+  valúa `engines/curvas.py` con `tea = (flujo_vto/precio)^(365/días) − 1`.
+- `sin_espejo_en_assets` no acotaba a lo que la casa TIENE, cuando el conciliador
+  ya parte del último AuM. Un bono que no está en cartera no aporta al AuM: que
+  no tenga asset no le falta a nadie.
+- Las **patas** `@` eran el **riesgo #3 de este mismo doc**, escrito antes de
+  codear y no aplicado al escribir el detector.
+
+  → Ese es el patrón a vigilar en TODAS las etapas: *antes de escribir un
+  predicado, buscar si el sistema ya lo tiene*. Ya había pasado con
+  `es_tasa_ruido` y volvió a pasar tres veces en una sola corrida. La versión
+  nueva siempre parece más simple porque le faltan los casos que la vieja
+  aprendió a los golpes.
+
+**2. Lo que se puede expresar como REGLA no va como lista.** Los 6 Globales en
+EUR salen por `MONEDAS_SEGUIDAS`, no anotando seis tickers: una regla estructural
+sigue valiendo cuando emitan el séptimo. Para lo que sí es caso por caso está
+`mercado.av_agent_ignorados` (con **motivo obligatorio** — dentro de seis meses,
+*por qué* se ignoró es la única pregunta que importa, y es lo que E7 va a usar
+para dejar de proponerlo).
+
+**3. El detector de tasas ACERTÓ, y el patrón es nítido.** Ocho bonos con paridad
+entre **103.600% y 167.830%** (LOC6O, PECNO, PFC3O, PN40O, RC1CO, TLCDO, VSCQO,
+YMCTO): ese número **es el precio en pesos sin dividir** — la falla #4 del
+catálogo, un hard-dollar apuntando a la pata en pesos. Y cuatro con paridad
+**0,0-0,1%** (DHSGO, OLC3O, PECKO, RZBAO): el inverso, precio USD contra flujo en
+nominales. `YMCTO` es el caso testigo que ya estaba documentado a mano en
+`SALUD_CURVAS` §6 — el agente lo encontró solo, junto con otros once que nadie
+sabía que estaban ahí.
+
+**4. `sin_ejes` dio 9/9 exactos** contra la lista de `RENTA_FIJA.md` paso 14
+(los 10 documentados menos RMJ28, que sí tiene ejes). Es la validación cruzada
+más limpia que apareció: dos caminos independientes, el mismo conjunto.
+
+**Correcciones aplicadas** (mismo commit): predicado de flujo unificado, patas
+`@` excluidas, `MONEDAS_SEGUIDAS`, `sin_espejo_en_assets` acotado a cartera,
+tabla de ignorados, y **6 tests nuevos que congelan cada falso positivo** para
+que no vuelva. De yapa se unificó una TERCERA copia del parser de unidad
+(`ons.py` tenía el mismo regex que `acreencias`).
+
+**Pendiente de la calibración:** decidir cuáles de los ~24 faltantes que quedan
+son altas de verdad (BOPREALes nuevos, CER nuevos) y cuáles van a ignorados
+(bonos viejos/ilíquidos tipo CUAP, DIP0, PAP0, PR17). Esa lista es **decisión del
+user**, no del agente.
 
 ### E2 — El simulador
 Calcular la TEA/paridad/duration que **tendría** un bono con un flujo dado, sin
@@ -232,7 +293,7 @@ la técnica funciona: `diag_convertir_flujos` del paso 15 logró **Δ = +0 bps**
 bonos.
 
 ### E3 — El set de control
-`evals/curador.json` con los casos que **hoy existen y tienen respuesta conocida**:
+`evals/av_agent.json` con los casos que **hoy existen y tienen respuesta conocida**:
 
 - los **10 bonos sin ejes** (BA37, BB37, SA24, SF27, RMJ28, NZC30, IR2PO, PN430,
   VSCWO, Y134O);
@@ -247,7 +308,7 @@ bonos.
 **Validación:** el set corre contra los detectores de E1 y da el número base.
 
 ### E4 — El cerebro (primer uso de DeepSeek en este agente)
-Tarea nueva en `core/ai.py`: **`curador_diagnostico`**, tier **pro** con
+Tarea nueva en `core/ai.py`: **`av_agent_diagnostico`**, tier **pro** con
 **thinking enabled** — mismo criterio que `triage_incidente` y
 `salud_diagnostico`, porque es diagnóstico y no resumen, y `max_tokens` alto
 (lección del P2: el razonamiento cuenta como output y con poco vuelve vacía).
@@ -333,9 +394,19 @@ Aplicó algo mal → está en el historial con su `before` y se revierte con un 
 
 ## Changelog
 
+- **2026-08-16 — RENOMBRE a AV AGENT** (decisión del user). Era `curador`; se
+  cambió antes de que la tabla persistiera una sola fila, así que la vieja se
+  dropea en vez de migrarse.
+- **2026-08-16 — E1.b, primera calibración contra prod.** 107 hallazgos, 29
+  créditos. Tres falsos positivos corregidos (LECAP zero-coupon, ONs fuera de
+  cartera, patas `@` de 1816) + los Globales en EUR excluidos por regla de moneda
+  + `mercado.av_agent_ignorados`. Los tres tenían la MISMA causa: un predicado
+  que el sistema ya tenía y que se reescribió peor. El detector de tasas acertó
+  (12 bonos con la falla #4) y `sin_ejes` dio 9/9 exactos contra `RENTA_FIJA` §14.
+  6 tests nuevos congelan cada falso positivo.
 - **2026-08-16 — E1 codeado.** `core/mercado_1816.censar()` (promovido del diag),
-  `api/services/curador.py` (3 detectores puros), `jobs/curador.py`,
-  `mercado.curador_hallazgos` y 15 tests. `curvas_vista._es_ruido` pasó a pública
+  `api/services/av_agent.py` (3 detectores puros), `jobs/av_agent.py`,
+  `mercado.av_agent_hallazgos` y 15 tests. `curvas_vista._es_ruido` pasó a pública
   (`es_tasa_ruido`) para que el criterio de "tasa ruidosa" exista UNA sola vez.
   Read-only sobre `mercado.curvas` y sin una línea de IA. **Pendiente: calibrar en
   prod** — hasta entonces, sin cron.

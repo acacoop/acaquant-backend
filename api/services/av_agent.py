@@ -1,6 +1,6 @@
-"""api/services/curador.py — los detectores del AGENTE CURADOR (etapa E1).
+"""api/services/av_agent.py — los detectores del AV AGENT (etapa E1).
 
-Doc madre: **`docs/AGENTE_CURADOR.md`** (leerlo antes de tocar esto).
+Doc madre: **`docs/AV_AGENT.md`** (leerlo antes de tocar esto).
 
 **Qué es esta etapa.** El espejo: contesta las tres preguntas del agente SIN
 escribir en `mercado.curvas` y **sin una sola llamada a un LLM**. Es deliberado —
@@ -59,7 +59,29 @@ ALCANCES: dict[str, frozenset[str] | None] = {
     "todo": None,          # None = sin filtro
 }
 
+# Monedas que la mesa SIGUE. 1816 publica 6 Globales en EUROS (GE29/GE30/GE35/
+# GE38/GE41/GE46) que no operamos: no son un faltante, son un mercado en el que
+# no estamos. Calibrado con la primera corrida (2026-08-16) — eran 6 de los 33.
+#
+# Se excluye por MONEDA y no anotando los seis tickers a mano a propósito: una
+# regla estructural sigue valiendo cuando el Tesoro emita el séptimo, una lista
+# de excepciones no. Para lo que sí es caso por caso está `IGNORADOS`.
+MONEDAS_SEGUIDAS = frozenset({"ARS", "USD"})
+
 _norm = mercado_1816.normalizar_ticker
+
+
+def _es_pata(ticker: str) -> bool:
+    """¿Es una VISTA DE VALUACIÓN por componente y no un instrumento?
+
+    1816 publica las patas de un dual y otras variantes como tickers aparte con
+    un sufijo `@`: `TXMD9 @TAMAR`, `BPOA8 @AFIP`, `TY30P @PUT`, `TTS26 @TASA
+    FIJA`. **No son instrumentos**: `/cashflow` les da 404 (medido) porque el
+    cuadro lo tiene el ticker BASE, que ya está —o ya se reporta— por su cuenta.
+
+    Era el riesgo #3 del doc y se materializó en la primera corrida: 3 de los 33
+    faltantes eran patas, y `BPOA8` salía DOS VECES (base y `@AFIP`)."""
+    return "@" in (ticker or "")
 
 
 def _hallazgo(tipo: str, ticker: str, regla: str, severidad: str,
@@ -78,7 +100,8 @@ def _hallazgo(tipo: str, ticker: str, regla: str, severidad: str,
 
 
 def detectar_faltantes(universo_1816: dict[str, dict], docs: list[dict], *,
-                       alcance: str = "soberanos") -> list[dict]:
+                       alcance: str = "soberanos",
+                       ignorados: set[str] | None = None) -> list[dict]:
     """Tickers vigentes en 1816 que NO están en `mercado.curvas`.
 
     El cruce se hace sobre el ticker NORMALIZADO (sin la especie D/C final): 1816
@@ -93,17 +116,23 @@ def detectar_faltantes(universo_1816: dict[str, dict], docs: list[dict], *,
     visible, no invisible.
     """
     permitidos = ALCANCES.get(alcance, ALCANCES["soberanos"])
+    ignorados = {_norm(t) for t in (ignorados or set())}
     mios = {_norm(d.get("ticker_corto")) for d in docs if d.get("ticker_corto")}
     mios.discard("")
 
     out: list[dict] = []
     for ticker, inst in sorted(universo_1816.items()):
+        if _es_pata(ticker):          # vista de valuación, no instrumento
+            continue
         tk = _norm(ticker)
-        if not tk or tk in mios:
+        if not tk or tk in mios or tk in ignorados:
             continue
         curva_1816 = inst.get("_curva") or ""
         ejes = curvas_ejes.desde_1816(curva_1816)
         if permitidos is not None and (ejes is None or ejes.emisor_tipo not in permitidos):
+            continue
+        # Moneda que no seguimos → no es un faltante (los Globales en EUR).
+        if ejes is not None and ejes.moneda not in MONEDAS_SEGUIDAS:
             continue
         out.append(_hallazgo(
             "falta_en_base", tk, "no_esta_en_curvas", "media",
@@ -131,19 +160,30 @@ def detectar_sin_flujo(docs: list[dict],
     CER futuro tiene flujo aunque todavía no se pueda valuar. Sin flujo no hay
     XIRR: el bono no tiene TEA, no entra al gráfico y no aporta al fair value.
 
+    ⚠️ **El predicado es `acreencias.tiene_flujo_def`, no `bool(doc['flujos'])`.**
+    Una LECAP/BONCAP es zero-coupon: no tiene array y NO le falta nada — el motor
+    la valúa con `flujo_vencimiento` (`engines/curvas.py` rama `tasa_fija`). La
+    primera corrida (2026-08-16) marcó 11 letras que rinden perfecto porque esta
+    función miraba solo el array; el criterio correcto ya existía en el
+    conciliador de Manager y había que USARLO, no reescribirlo peor.
+
     Marca `resoluble` cuando 1816 tiene ese ticker, que es la diferencia entre
     *"esto lo completa el agente"* y *"esto necesita el prospecto"*. **Un agente
     que no puede decir "no sé" empieza a rellenar**, así que la distinción viaja
     en el hallazgo y no se resuelve a dedo.
     """
+    from datetime import date
+
+    from api.services.acreencias import tiene_flujo_def
+
+    hoy = date.today()
     univ = {_norm(t) for t in (universo_1816 or {})}
     out: list[dict] = []
     for d in docs:
         tc = (d.get("ticker_corto") or "").strip().upper()
         if not tc:
             continue
-        flujos = d.get("flujos") or []
-        if flujos:
+        if tiene_flujo_def(d, hoy):
             continue
         resoluble = _norm(tc) in univ
         out.append(_hallazgo(
@@ -161,7 +201,8 @@ def detectar_sin_flujo(docs: list[dict],
 
 
 def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
-                               tickers_en_assets: set[str] | None = None) -> list[dict]:
+                               tickers_en_assets: set[str] | None = None,
+                               en_cartera: set[str] | None = None) -> list[dict]:
     """Las reglas de sanidad de `docs/SALUD_CURVAS.md` §6-§7 sobre el cierre.
 
     `metricas` = `{simbolo_de_mercado: {tea, paridad, duration, last_price}}` tal
@@ -181,9 +222,19 @@ def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
       · los bonos sin flujo, que ya los reporta el detector 2 (un bono sin flujo
         no tiene tasa por definición: contarlo dos veces infla la lista y hace
         parecer que hay dos problemas donde hay uno).
+
+    `en_cartera` acota `sin_espejo_en_assets` a lo que la casa TIENE: un bono que
+    no está en la tenencia no necesita fila en `portafolio.assets` — no le falta
+    nada al AuM porque no aporta al AuM. Es el mismo recorte que hace el
+    conciliador de Manager (`titulos_sin_flujo` parte del último AuM). `None`
+    apaga la regla en vez de marcar todo, igual que `tickers_en_assets`.
     """
+    from datetime import date
+
+    from api.services.acreencias import tiene_flujo_def
     from api.services.curvas_vista import es_tasa_ruido
 
+    hoy = date.today()
     out: list[dict] = []
     for d in docs:
         tc = (d.get("ticker_corto") or "").strip().upper()
@@ -191,8 +242,10 @@ def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
         if not tc:
             continue
 
-        # sin flujo → es el hallazgo del detector 2, no una tasa rota
-        if not (d.get("flujos") or []):
+        # sin flujo → es el hallazgo del detector 2, no una tasa rota. MISMO
+        # predicado que allá: si acá se mirara solo el array, una LECAP entraría
+        # a las reglas de tasa por una puerta y saldría por la otra.
+        if not tiene_flujo_def(d, hoy):
             continue
 
         ejes = curvas_ejes.ejes_de_doc(d)
@@ -216,11 +269,12 @@ def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
                 base))
             continue
 
-        if tickers_en_assets is not None and tc not in tickers_en_assets:
+        if (tickers_en_assets is not None and tc not in tickers_en_assets
+                and en_cartera is not None and tc in en_cartera):
             out.append(_hallazgo(
-                "tasa_sospechosa", tc, "sin_espejo_en_assets", "media",
-                "Está en mercado.curvas pero no en portafolio.assets: no entra al "
-                "AuM ni a Portfolios (falla del join de valuación).",
+                "tasa_sospechosa", tc, "sin_espejo_en_assets", "alta",
+                "La casa TIENE este bono y no está en portafolio.assets: no entra "
+                "al AuM ni a Portfolios (falla del join de valuación).",
                 base))
 
         ruidosa = es_tasa_ruido(m, emisor_tipo)
@@ -261,7 +315,7 @@ def relevar(*, alcance: str = "soberanos",
     """Corre los tres detectores y devuelve `{alcance, universo, hallazgos, resumen}`.
 
     **READ-ONLY**: no escribe una sola fila en `mercado.curvas`. Persistir el
-    resultado es responsabilidad del job (`jobs/curador.py`), y solo en la tabla
+    resultado es responsabilidad del job (`jobs/av_agent.py`), y solo en la tabla
     propia del agente.
 
     `universo_1816` se puede inyectar (un censo ya pagado) para no repetir los ~29
@@ -278,22 +332,48 @@ def relevar(*, alcance: str = "soberanos",
     metricas = market_snapshot.cols_map(
         simbolos, ["tea", "paridad", "duration", "last_price"])
 
-    en_assets: set[str] | None
+    # Las tres lecturas de abajo comparten un contrato: si la query falla, el dato
+    # queda en `None` y la regla que lo usa **no corre**. Marcar 222 bonos como
+    # huérfanos porque se cayó una query sería el peor falso positivo posible —
+    # "no pude mirar" jamás puede convertirse en "no está".
+    en_assets: set[str] | None = None
+    en_cartera: set[str] | None = None
+    ignorados: set[str] = set()
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT DISTINCT upper(btrim(ticker)) FROM portafolio.assets "
                         "WHERE ticker IS NOT NULL AND ticker <> ''")
             en_assets = {r[0] for r in cur.fetchall()}
     except Exception:
-        # Sin este dato la regla `sin_espejo_en_assets` NO corre (None la apaga).
-        # Marcar 222 bonos como huérfanos porque una query falló sería el peor
-        # falso positivo posible: "no pude mirar" jamás es "no está".
         en_assets = None
 
+    try:
+        from api.services.acreencias import codigo_de_unidad
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            # El código sale de la UNIDAD ('[57187] OLC3O' → 'OLC3O') y no de un
+            # join con assets: el bono que nos interesa es justamente el que NO
+            # tiene asset, así que joinear por ahí lo escondería.
+            cur.execute("SELECT DISTINCT unidad FROM portafolio.tenencia "
+                        "WHERE aum = 'si' AND fecha = ("
+                        "  SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si')")
+            en_cartera = {codigo_de_unidad(r[0]) for r in cur.fetchall() if r[0]}
+            en_cartera.discard("")
+    except Exception:
+        en_cartera = None
+
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT upper(btrim(ticker)) FROM mercado.av_agent_ignorados")
+            ignorados = {r[0] for r in cur.fetchall() if r[0]}
+    except Exception:
+        # Acá el default seguro es el CONTRARIO: sin la lista se reporta de más,
+        # que es ruido; asumir que todo está ignorado escondería hallazgos reales.
+        ignorados = set()
+
     hallazgos = [
-        *detectar_faltantes(universo_1816, docs, alcance=alcance),
+        *detectar_faltantes(universo_1816, docs, alcance=alcance, ignorados=ignorados),
         *detectar_sin_flujo(docs, universo_1816),
-        *detectar_tasas_sospechosas(docs, metricas, en_assets),
+        *detectar_tasas_sospechosas(docs, metricas, en_assets, en_cartera),
     ]
 
     resumen: dict[str, int] = {}
@@ -305,7 +385,10 @@ def relevar(*, alcance: str = "soberanos",
         "alcance": alcance,
         "universo": {"1816": len(universo_1816), "mio": len(docs),
                      "con_metricas": len(metricas),
-                     "assets_leidos": en_assets is not None},
+                     "assets_leidos": en_assets is not None,
+                     "cartera_leida": en_cartera is not None,
+                     "en_cartera": len(en_cartera or ()),
+                     "ignorados": len(ignorados)},
         "hallazgos": hallazgos,
         "resumen": resumen,
     }

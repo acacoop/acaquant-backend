@@ -34,7 +34,7 @@ def _base_ticker(code: str | None) -> str:
 _RE_CODIGO = re.compile(r"^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)")
 
 
-def _codigo_de_unidad(unidad: str | None) -> str:
+def codigo_de_unidad(unidad: str | None) -> str:
     """'[57187] OLC3O' → 'OLC3O' · '[57785] MRCYO - ON...' → 'MRCYO'. La unidad de
     tenencia trae '[id] CODE - desc'; sin extraer el código no matchea Curvas."""
     m = _RE_CODIGO.match(unidad or "")
@@ -203,12 +203,20 @@ def computar_acreencias(dias_horizonte: int = 1825) -> list[dict]:
 _CARTERAS_BONO = ("ARS", "HD", "DL")  # renta fija (cotizan en paridad). El resto
 
 
-def _tiene_flujo_def(d: dict, hoy: date) -> bool:
+def tiene_flujo_def(d: dict, hoy: date) -> bool:
     """¿El doc tiene DEFINICIÓN de flujo futuro? Estructural — NO valúa:
       - array `flujos` con alguna fecha > hoy, O
       - `flujo_vencimiento` > 0 con `fecha_vencimiento`/`vencimiento` > hoy (bullet).
     Clave para CER: un CER futuro TIENE flujo aunque su CER de liquidación no esté
-    publicado (no se puede valuar todavía, pero el flujo existe)."""
+    publicado (no se puede valuar todavía, pero el flujo existe).
+
+    ⚠️ **La segunda condición NO es un detalle.** Una LECAP/BONCAP es zero-coupon:
+    no tiene `flujos[]` y no le falta nada — el motor la valúa con
+    `flujo_vencimiento` (`engines/curvas.py`, rama `tasa_fija`:
+    `tea = (flujo_vto / precio) ** (365/dias) - 1`). Mirar solo el array marca
+    como rotas ~11 letras que rinden perfecto, que es exactamente lo que hizo el
+    AV Agent en su primera corrida (2026-08-16) hasta que se le enchufó ESTE
+    predicado. Por eso es público: el criterio de "tiene flujo" existe UNA vez."""
     from engines.curvas import fecha_flujo
     for fl in d.get("flujos") or []:
         fd = fecha_flujo(fl)
@@ -260,7 +268,7 @@ def titulos_sin_flujo() -> list[dict]:
         idx: dict[str, bool] = {}
         base: dict[str, str] = {}
         for d in cursor:
-            tf = _tiene_flujo_def(d, hoy)
+            tf = tiene_flujo_def(d, hoy)
             for fn in key_fns:
                 key = fn(d)
                 if key:
@@ -298,7 +306,7 @@ def titulos_sin_flujo() -> list[dict]:
     for a in bonos:
         # código limpio de la unidad ('[id] CODE - desc' → 'CODE') para matchear
         # aunque el Asset no tenga TICKER cargado.
-        cands = (a.get("TICKER"), a.get("unidad"), _codigo_de_unidad(a.get("unidad")))
+        cands = (a.get("TICKER"), a.get("unidad"), codigo_de_unidad(a.get("unidad")))
         cv = _lookup(curvas_idx, curvas_base, cands)
         on = _lookup(on_idx, on_base, cands)
         if cv is True or on is True:
@@ -313,7 +321,7 @@ def titulos_sin_flujo() -> list[dict]:
             fuente, accion, motivo = "ninguna", "alta", "no está en Curvas — dar de alta"
         out.append({
             "unidad": a.get("unidad"),
-            "ticker": a.get("TICKER") or _codigo_de_unidad(a.get("unidad")) or None,
+            "ticker": a.get("TICKER") or codigo_de_unidad(a.get("unidad")) or None,
             "cartera": a.get("CARTERA"), "emisor": a.get("EMISOR") or None,
             "fuente": fuente, "accion": accion, "motivo": motivo,
             "en_cartera": True,   # solo se listan los del último AUM (held)
@@ -404,12 +412,12 @@ def bonos_pagan_en_fecha(fecha_iso: str) -> list[dict]:
         vistos: dict[str, dict] = {}
         for u in held:
             a = assets.get(u) or {}
-            for c in (a.get("TICKER"), u, _codigo_de_unidad(u)):
+            for c in (a.get("TICKER"), u, codigo_de_unidad(u)):
                 if not c:
                     continue
                 key = c if c in paga else base.get(_base_ticker(c))
                 if key and key in paga:
-                    tk = a.get("TICKER") or _codigo_de_unidad(u) or key
+                    tk = a.get("TICKER") or codigo_de_unidad(u) or key
                     vistos.setdefault(tk, {"ticker": tk,
                                            "emisor": paga[key] or a.get("EMISOR")})
                     break

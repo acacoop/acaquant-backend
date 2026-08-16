@@ -19,6 +19,12 @@ from __future__ import annotations
 import re
 from datetime import UTC, date, datetime
 
+# `codigo_de_unidad` ('[57187] OLC3O' → 'OLC3O') vivía DUPLICADO acá y en
+# `acreencias`, con el mismo regex escrito dos veces. Dos copias de un parser
+# de IDENTIDAD es cómo dos vistas terminan matcheando universos distintos sin
+# que nadie se entere — la misma razón por la que `normalizar_ticker` vive en
+# el cliente de 1816. Queda una sola, en el módulo que ya la exportaba.
+from api.services.acreencias import codigo_de_unidad as _codigo_de_unidad
 from api.services.assets_sql import assets_rows
 from core import curvas_ejes as ce
 from core import curvas_sql
@@ -404,20 +410,6 @@ def _base_ticker(code: str | None) -> str:
     if not code or len(code) < 3:
         return code or ""
     return code[:-1] if code[-1] in ("O", "D", "C") else code
-
-
-_RE_CODIGO = re.compile(r"^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)")
-
-
-def _codigo_de_unidad(unidad: str | None) -> str:
-    """Extrae el código del string Aunesa: '[57187] OLC3O' → 'OLC3O',
-    '[57785] MRCYO - ON GENE...' → 'MRCYO'. Sin prefijo lo deja igual.
-
-    Necesario porque la unidad de tenencia trae '[id] CODE - descripción' y el
-    Curvas usa el código limpio → sin extraerlo, el conciliador nunca matchea
-    (el bono sigue apareciendo aunque ya esté en Curvas)."""
-    m = _RE_CODIGO.match(unidad or "")
-    return m.group(1).upper() if m else (unidad or "")
 
 
 def conciliar() -> dict:

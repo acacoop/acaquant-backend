@@ -226,11 +226,11 @@ def censar(vencidos: bool = False) -> dict:
 
     **Costo: 1 crédito por llamada** → ~29 el censo (1 + 28 curvas), ~57 con
     `vencidos=True`. Es la operación más barata del proveedor y la base del
-    Curador (docs/AGENTE_CURADOR.md E1).
+    AV Agent (docs/AV_AGENT.md E1).
 
     Vive acá y no en un `scripts/diag_*` porque **es el censo del PROVEEDOR** y lo
     usan tres consumidores (el diag de cashflow, el de mapeo y el job del
-    Curador). Duplicado, dos cruces podían dar universos distintos sin que nadie
+    AV Agent). Duplicado, dos cruces podían dar universos distintos sin que nadie
     se entere — la misma razón por la que `normalizar_ticker` vive acá.
 
     Una curva que falla NO aborta el censo: queda con su `error` en la fila y el

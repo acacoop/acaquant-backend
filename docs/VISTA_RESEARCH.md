@@ -476,7 +476,7 @@ una emisión rara se cuele sola. Manager → BONOS ya existe (`/bonos`,
 `/bonos/sin-flujo`, `/bonos/sin-tasa`, `/bonos/parse-flujos`) y está
 desactualizado: **es el lugar natural para esa bandeja**, y le devuelve sentido.
 
-> **⚡ ESTE DISEÑO SE MUDÓ — doc vivo: `docs/AGENTE_CURADOR.md` (QuantAI P8).**
+> **⚡ ESTE DISEÑO SE MUDÓ — doc vivo: `docs/AV_AGENT.md` (QuantAI P8).**
 > Lo de acá arriba queda como el **registro de la medición** (los números de §4.9
 > son la evidencia que sostiene el proyecto y no se duplican). El plan ejecutable,
 > las etapas, las decisiones abiertas y el estado viven en el doc del agente — si

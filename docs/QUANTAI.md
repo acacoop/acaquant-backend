@@ -94,7 +94,7 @@ calendario.
   **La destraba P8**: su etapa E3 congela ~25 casos de renta fija con respuesta
   YA verificada contra prod (bonos sin ejes, sin TEA, la divergencia de AER9O,
   las 7 fallas de `SALUD_CURVAS`) — el primer set de control real del programa.
-- **P8 Agente Curador: E0 hecho (2026-08-16)** — el primer AGENTE (no copiloto).
+- **P8 AV Agent: E0 hecho (2026-08-16)** — el primer AGENTE (no copiloto).
   Doc vivo propio con las 7 etapas y 3 decisiones abiertas del user.
 - **P7 Asistente de Negocio: M1 construido (2026-07-21)** — ver su sección.
   Pendiente del user: apply_schema + deploy + calibración del matcher + tilde
@@ -548,9 +548,9 @@ van en el contexto del agente (volumen excluye `es_cierre`, AuM filtra
 vistas pre-armadas, no calculadas desde cero. Va último: exige el criterio y
 la infraestructura de evaluación que los proyectos anteriores construyen.
 
-### P8 — AGENTE CURADOR (integridad de datos: `mercado.curvas` ↔ 1816) — EN CURSO
+### P8 — AV AGENT (integridad de datos: `mercado.curvas` ↔ 1816) — EN CURSO
 **Estado: E0 hecho (doc + decisiones abiertas)** · Tipo: **agente** (el primero
-del sistema) · Gate: `ia` + `manager_titulos` · **Doc vivo: `docs/AGENTE_CURADOR.md`**
+del sistema) · Gate: `ia` + `manager_titulos` · **Doc vivo: `docs/AV_AGENT.md`**
 
 El primer proyecto que NO es un copiloto: tiene trabajo propio y lo hace de noche
 sin que nadie pregunte. Detecta bonos que 1816 tiene y nosotros no, completa los

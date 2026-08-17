@@ -2329,6 +2329,54 @@ CREATE INDEX IF NOT EXISTS ix_grupos_emails ON manager.grupos USING gin(emails);
 -- tipo (nombre del job), started_at/finished_at (timestamptz: el writer usa
 -- datetime.now(UTC) AWARE), status (ok|partial|error). El resto del doc (stats,
 -- errors, log, elapsed_s) vive en `data` jsonb. TTL 60d lo aplica el writer/cleanup.
+-- manager.tokens_externos — EL TOKEN COMPARTIDO de un proveedor externo
+-- (2026-08-17, a raíz del «auth HTTP 429» de 1816).
+--
+-- El plan de 1816 tiene DOS límites que no son créditos, y el que nos estaba
+-- rompiendo es el segundo:
+--
+--     Créditos diarios      3.863 / 100.000     ← sobra
+--     Máx. peticiones/seg   1
+--     **Máx. tokens por día   50**              ← ESTE
+--
+-- El token dura **24 h** (`expiresIn` 86400), así que UNO alcanzaría para todo el
+-- día. Pero el cliente lo guardaba en un dict de módulo, o sea **en memoria de
+-- cada proceso**: `jobs/tamar_1816` corre 15 veces por día, más el resto de los
+-- jobs, más `api.service` (que pide uno nuevo en CADA restart, o sea en cada
+-- deploy), más cada corrida manual. Cada uno quemaba un token de los 50.
+--
+-- Y encima el backoff los multiplicaba: un `_auth` que falla reintenta 5 veces, y
+-- **reintentar contra una CUOTA consume justo el recurso que se acabó**. Ahí está
+-- la trampa conceptual: el backoff es la respuesta correcta a un rate limit
+-- (transitorio) y la peor posible a una cuota diaria (no lo es).
+--
+-- Con esta tabla hay UN token para todos los procesos: se pide una vez, se
+-- persiste, y los demás lo adoptan. De ~16-30 logins/día a 1-2.
+--
+-- `llamadas_at` implementa el OTRO límite —1 petición por segundo— que el throttle
+-- en memoria no podía garantizar: coordinaba dentro de un proceso y la API y los
+-- jobs son procesos distintos que no se ven entre sí.
+--
+-- `logins_dia`/`dia` existen para que el presupuesto sea VISIBLE. Un límite que no
+-- se puede mirar se descubre siempre de la misma forma: cuando ya se agotó.
+CREATE TABLE IF NOT EXISTS manager.tokens_externos (
+    proveedor    text PRIMARY KEY,          -- '1816'
+    token        text,
+    expira_at    timestamptz,
+    obtenido_at  timestamptz,
+    obtenido_por text,                      -- qué proceso lo pidió (para auditar)
+    dia          date,                      -- día del contador (ART)
+    logins_dia   int NOT NULL DEFAULT 0,    -- cuántos van de los 50
+    llamadas_at  timestamptz,               -- última petición, para el 1 req/s global
+    -- El valor ANTERIOR de `llamadas_at`, y no es redundante: en un
+    -- `ON CONFLICT DO UPDATE ... RETURNING`, Postgres devuelve la fila **nueva**,
+    -- así que restarle `now()` a `llamadas_at` daría siempre 0. Guardar el previo
+    -- en el mismo UPDATE es lo que deja medir el intervalo en UNA sola operación
+    -- atómica — que es justo lo que hace falta para que dos procesos no manden dos
+    -- peticiones en el mismo segundo.
+    llamadas_prev_at timestamptz
+);
+
 CREATE TABLE IF NOT EXISTS manager.job_runs (
     run_id      text PRIMARY KEY,            -- str(ObjectId) del doc Mongo (o uuid SQL-native)
     tipo        text,

@@ -35,7 +35,11 @@ load_dotenv(os.path.join(_ROOT, ".env"))
 logger = logging.getLogger(__name__)
 
 _BASE = os.getenv("MERCADO_1816_BASE_URL", "https://api.1816.com.ar").rstrip("/")
-_MIN_INTERVALO_S = 2.5   # throttle mínimo entre llamadas (contra el 429)
+_MIN_INTERVALO_S = 2.5   # throttle mínimo entre llamadas del MISMO proceso
+# El límite que publica el plan es **1 petición por segundo**, y es GLOBAL: no le
+# importa cuántos procesos nuestros haya. Se pide 1,2 s para no rozar el borde por
+# un redondeo de reloj.
+_MIN_INTERVALO_GLOBAL_S = 1.2
 _TIMEOUT = 45
 _MAX_REINTENTOS = 5
 
@@ -46,6 +50,27 @@ _MAX_REINTENTOS = 5
 # demas se quedan en la puerta en vez de salir todos a pedir token a la vez.
 _lock = threading.RLock()
 _estado: dict = {"token": None, "exp": 0.0, "ultima": 0.0}
+
+# ── LOS LÍMITES REALES DEL PLAN (verificados en el panel, 2026-08-17) ────────
+#
+#     Créditos diarios       3.863 / 100.000    ← sobra, nunca fue el problema
+#     Máx. peticiones/seg    1
+#     **Máx. tokens por día    50**             ← ESTE era el «auth HTTP 429»
+#
+# El token dura **24 h**, así que UNO alcanza para todo el día. Pero vivía en un
+# dict de módulo —memoria de CADA proceso— y los procesos que tocan 1816 son
+# muchos: `jobs/tamar_1816` corre 15 veces por día, `mercado_1816_series` 1,
+# `api.service` pide uno nuevo en cada restart (o sea en cada deploy), más cada
+# corrida manual del agente. Cada uno quemaba un token de los 50.
+#
+# ⚠️ **Y EL BACKOFF LO EMPEORABA.** Un `_auth` que falla reintenta 5 veces, y
+# reintentar contra una CUOTA consume justo el recurso que se agotó: cerca del
+# tope, cada intento de arreglarlo lo hunde más. Es la trampa conceptual del
+# incidente: **el backoff es la respuesta correcta a un rate limit (transitorio)
+# y la peor posible a una cuota diaria (no lo es).**
+_LOGINS_MAX_DIA = 45          # de 50, con margen: quedarse sin login es peor
+_AUTH_REINTENTOS = 2          # NO 5: contra una cuota, reintentar es gastar
+_PROVEEDOR = "1816"
 
 # ── PRESUPUESTO DE TIEMPO POR CONTEXTO ───────────────────────────────────────
 #
@@ -151,7 +176,12 @@ def _auth() -> str:
     import requests
 
     ultimo = ""
-    for intento in range(_MAX_REINTENTOS):
+    # ⚠️ **DOS INTENTOS, NO CINCO.** Contra un rate limit reintentar es correcto;
+    # contra la CUOTA DE 50 TOKENS/DÍA es gastar más de lo que falta. Y desde acá
+    # no se puede distinguir un caso del otro —el proveedor manda 429 en los dos—
+    # así que se elige el error menos grave: intentar de menos deja al que espera
+    # con un mensaje claro; intentar de más se come el presupuesto de mañana.
+    for intento in range(_AUTH_REINTENTOS):
         _throttle()
         try:
             r = requests.post(f"{_BASE}/v1/auth/token",
@@ -170,37 +200,169 @@ def _auth() -> str:
                 raise Error1816("auth sin token en la respuesta")
             _estado["token"] = tok
             _estado["exp"] = time.time() + int(d.get("expiresIn", 86400)) - 300
-            logger.info("mercado_1816: token renovado (expira en %ss)",
+            # **Se comparte inmediatamente.** Es lo que convierte 16-30 logins
+            # diarios en 1-2: el próximo proceso lo adopta en vez de pedir otro.
+            _guardar_token(tok, _estado["exp"])
+            logger.info("mercado_1816: token renovado (expira en %ss) y compartido",
                         d.get("expiresIn"))
             return tok
         if r.status_code == 429 or r.status_code >= 500:
             espera = min(5 * 2 ** intento, 60)
             ultimo = f"HTTP {r.status_code}: {r.text[:120]}"
-            if not _alcanza(espera):
-                raise Error1816(
-                    f"1816 está rechazando por rate limit (auth {r.status_code}) "
-                    "y no queda tiempo para esperar el backoff — reintentá en un "
-                    "par de minutos")
-            logger.warning("mercado_1816 auth HTTP %s — backoff %ss (intento %s)",
-                           r.status_code, espera, intento + 1)
+            # El mensaje NOMBRA la sospecha correcta. Durante todo el incidente del
+            # 2026-08-17 decía «rate limit» y mandaba a «reintentá en un par de
+            # minutos» — que es exactamente lo que NO había que hacer si el que se
+            # había acabado era el cupo de 50 tokens diarios. Un error que sugiere
+            # la acción equivocada cuesta más que uno que no sugiere ninguna.
+            est = estado_token()
+            msg = (f"1816 rechazó el login (auth {r.status_code}). Van "
+                   f"**{est['logins_hoy']} logins hoy** de un tope de 50 por día: "
+                   + ("es muy probable que sea la CUOTA DIARIA, no una ráfaga — "
+                      "reintentar la gasta más. Se recupera mañana."
+                      if est["logins_hoy"] >= _LOGINS_MAX_DIA // 2 else
+                      "si el número es bajo es una ráfaga y se recupera en minutos."))
+            if not _alcanza(espera) or intento + 1 >= _AUTH_REINTENTOS:
+                raise Error1816(msg)
+            logger.warning("mercado_1816 auth HTTP %s — backoff %ss (intento %s/%s, "
+                           "%s logins hoy)", r.status_code, espera, intento + 1,
+                           _AUTH_REINTENTOS, est["logins_hoy"])
             time.sleep(espera)
             continue
         raise Error1816(f"auth HTTP {r.status_code}: {r.text[:200]}")
-    raise Error1816(f"auth: agotados {_MAX_REINTENTOS} reintentos ({ultimo})")
+    raise Error1816(f"auth: agotados {_AUTH_REINTENTOS} reintentos ({ultimo})")
+
+
+# ── EL TOKEN COMPARTIDO ─────────────────────────────────────────────────────
+#
+# Todo lo de abajo degrada a "como antes" si Postgres no está: un cliente de red
+# no puede quedar inutilizable porque la base no contesta. Sin la tabla se pierde
+# el ahorro, no el servicio.
+
+
+def _fila_token() -> dict:
+    """La fila del proveedor. `{}` si no se pudo leer — nunca revienta."""
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT token, extract(epoch from expira_at), dia, "
+                        "logins_dia, extract(epoch from llamadas_at) "
+                        "FROM manager.tokens_externos WHERE proveedor = %s",
+                        (_PROVEEDOR,))
+            r = cur.fetchone()
+        if not r:
+            return {}
+        return {"token": r[0], "exp": float(r[1] or 0), "dia": r[2],
+                "logins_dia": int(r[3] or 0), "ultima": float(r[4] or 0)}
+    except Exception:
+        logger.debug("mercado_1816: sin token compartido (Postgres no responde)")
+        return {}
+
+
+def _guardar_token(tok: str, exp: float) -> None:
+    """Persiste el token para que **los otros procesos no tengan que pedir otro**,
+    y suma 1 al contador del día. El contador se resetea solo al cambiar de fecha:
+    sin eso el presupuesto quedaría trabado en el número de ayer."""
+    try:
+        import os
+
+        from core.postgres import get_pool
+        quien = f"{os.getenv('JOB_NAME') or 'api'}:{os.getpid()}"
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO manager.tokens_externos "
+                "(proveedor, token, expira_at, obtenido_at, obtenido_por, dia, "
+                " logins_dia) VALUES (%s, %s, to_timestamp(%s), now(), %s, "
+                " current_date, 1) "
+                "ON CONFLICT (proveedor) DO UPDATE SET token = EXCLUDED.token, "
+                "  expira_at = EXCLUDED.expira_at, obtenido_at = now(), "
+                "  obtenido_por = EXCLUDED.obtenido_por, dia = current_date, "
+                "  logins_dia = CASE WHEN manager.tokens_externos.dia = current_date "
+                "               THEN manager.tokens_externos.logins_dia + 1 ELSE 1 END",
+                (_PROVEEDOR, tok, exp, quien))
+    except Exception:
+        logger.warning("mercado_1816: no se pudo persistir el token compartido",
+                       exc_info=True)
+
+
+def estado_token() -> dict:
+    """Cuánto queda del presupuesto de logins. Para SALUD y para mirarlo a ojo:
+    **un límite que no se puede ver se descubre siempre cuando ya se agotó.**"""
+    f = _fila_token()
+    usados = f.get("logins_dia", 0) if f.get("dia") else 0
+    return {"proveedor": _PROVEEDOR, "logins_hoy": usados,
+            "tope": _LOGINS_MAX_DIA, "restantes": max(0, _LOGINS_MAX_DIA - usados),
+            "token_vigente": bool(f.get("token") and time.time() < f.get("exp", 0)),
+            "expira_en_s": int(max(0, f.get("exp", 0) - time.time()))}
 
 
 def _token() -> str:
+    """El token, del lugar más barato al más caro. **Un login es un recurso
+    escaso** (50 por día) y esta función es la única que los gasta."""
     with _lock:
-        if not _estado["token"] or time.time() >= _estado["exp"]:
-            _auth()
+        # 1) el de este proceso, si sigue vigente → 0 queries, 0 logins
+        if _estado["token"] and time.time() < _estado["exp"]:
+            return _estado["token"]
+        # 2) el COMPARTIDO: otro proceso ya pagó por él y dura 24 h
+        f = _fila_token()
+        if f.get("token") and time.time() < f["exp"]:
+            _estado["token"], _estado["exp"] = f["token"], f["exp"]
+            logger.info("mercado_1816: token compartido adoptado (expira en %ds)",
+                        int(f["exp"] - time.time()))
+            return _estado["token"]
+        # 3) recién acá se gasta uno de los 50, y con el presupuesto a la vista
+        if f.get("dia") and f.get("logins_dia", 0) >= _LOGINS_MAX_DIA:
+            raise Error1816(
+                f"presupuesto de tokens agotado: {f['logins_dia']} logins hoy "
+                f"(tope {_LOGINS_MAX_DIA} de los 50 del plan). Pedir otro sería "
+                "gastar el recurso que falta — se recupera mañana. Si hace falta "
+                "antes, revisar qué proceso los está quemando "
+                "(`manager.tokens_externos.obtenido_por`).")
+        _auth()
         return _estado["token"]
+
+
+def _marcar_llamada() -> float:
+    """Estampa la llamada en la fila compartida y devuelve **cuánto hay que esperar
+    para no pasarse de 1 petición por segundo GLOBAL**.
+
+    ⚠️ El throttle de memoria garantiza el intervalo *dentro de un proceso*, y los
+    que tocan 1816 son varios y a la vez: `api.service` sirviendo el modal mientras
+    `tamar_1816` corre su cron. Dos procesos con 2,5 s cada uno pueden mandar dos
+    peticiones en el mismo segundo sin enterarse — y el plan dice **máx. 1/seg**.
+    Un `UPDATE ... RETURNING` es atómico, así que el que llega segundo ve el
+    timestamp del primero y espera.
+
+    Cuesta un roundtrip (~8,5 ms) contra un throttle de 2,5 s: 0,3 % de overhead
+    por una garantía que antes no existía. Si Postgres no contesta devuelve 0 y
+    manda el throttle local — degradar es perder la garantía, no el servicio.
+    """
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            # En el `SET`, `manager.tokens_externos.llamadas_at` es el valor VIEJO;
+            # en el `RETURNING` ya sería el nuevo. Por eso el previo se guarda en su
+            # propia columna dentro del MISMO update: así el intervalo se mide en
+            # una sola operación atómica y dos procesos no pueden leer lo mismo.
+            cur.execute(
+                "INSERT INTO manager.tokens_externos (proveedor, llamadas_at) "
+                "VALUES (%s, now()) ON CONFLICT (proveedor) DO UPDATE "
+                "SET llamadas_at = now(), "
+                "    llamadas_prev_at = manager.tokens_externos.llamadas_at "
+                "RETURNING extract(epoch from (now() - llamadas_prev_at))",
+                (_PROVEEDOR,))
+            r = cur.fetchone()
+        desde = float(r[0]) if r and r[0] is not None else 999.0
+        return max(0.0, _MIN_INTERVALO_GLOBAL_S - desde)
+    except Exception:
+        return 0.0
 
 
 def _throttle() -> None:
     """Garantiza _MIN_INTERVALO_S entre llamadas (rate limit). Serializa con el lock
     para que dos hilos no disparen juntos."""
     with _lock:
-        espera = _MIN_INTERVALO_S - (time.monotonic() - _estado["ultima"])
+        espera = max(_MIN_INTERVALO_S - (time.monotonic() - _estado["ultima"]),
+                     _marcar_llamada())
         if espera > 0:
             # Ni siquiera el throttle puede pasarse del presupuesto: si no entra,
             # es mejor cortar acá con un mensaje claro que agotar el reloj del

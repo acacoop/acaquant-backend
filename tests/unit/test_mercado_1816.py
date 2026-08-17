@@ -134,3 +134,66 @@ def test_pedir_SOLO_metadata_no_agota_el_retroceso(monkeypatch):
     r = mercado_1816.indicadores_vigentes(["AL30"], ["fuente"], fecha="2026-08-14")
     assert r["fechaOperacion"] == "2026-08-14"
     assert len(pedidos) == 1
+
+
+def test_el_token_es_COMPARTIDO_y_los_logins_son_un_recurso_escaso():
+    """El «auth HTTP 429» nunca fue un problema de autenticación ni de créditos.
+    El panel del plan (2026-08-17) lo dice:
+
+        Créditos diarios      3.863 / 100.000    ← sobra
+        Máx. peticiones/seg   1
+        **Máx. tokens por día   50**             ← ESTE
+
+    El token dura 24 h, así que UNO alcanza para todo el día — pero vivía en un
+    dict de módulo, o sea en memoria de CADA proceso: `tamar_1816` corre 15 veces
+    por día, `api.service` pide uno nuevo en cada deploy, más cada job y cada
+    corrida manual. Cada uno quemaba uno de los 50.
+
+    Y el backoff lo empeoraba: **reintentar contra una CUOTA consume justo el
+    recurso que se acabó**. Backoff es la respuesta correcta a un rate limit
+    (transitorio) y la peor posible a una cuota diaria."""
+    import inspect
+
+    from core import mercado_1816 as m
+
+    src = inspect.getsource(m._token)
+    # El orden es del más barato al más caro, y el login va ÚLTIMO.
+    assert src.index('_estado["token"]') < src.index("_fila_token()") < src.index("_auth()")
+    assert "_LOGINS_MAX_DIA" in src, "el presupuesto se chequea ANTES de gastar"
+
+    # Un `_auth` exitoso tiene que COMPARTIR el token o el ahorro no existe.
+    assert "_guardar_token(" in inspect.getsource(m._auth)
+
+    # Contra una cuota no se reintenta cinco veces.
+    assert m._AUTH_REINTENTOS == 2
+    assert m._LOGINS_MAX_DIA < 50, "hay que dejar margen bajo el tope del plan"
+
+    # Sin Postgres NO se rompe: un cliente de red no puede quedar inutilizable
+    # porque la base no conteste. Se pierde el ahorro, no el servicio.
+    assert m._fila_token() == {} or isinstance(m._fila_token(), dict)
+    est = m.estado_token()
+    assert est["tope"] == m._LOGINS_MAX_DIA and "restantes" in est
+
+
+def test_el_limite_de_1_PETICION_POR_SEGUNDO_es_GLOBAL():
+    """El throttle vivía en memoria, así que garantizaba el intervalo *dentro de un
+    proceso* — y los que tocan 1816 son varios a la vez (`api.service` sirviendo el
+    modal mientras corre el cron de `tamar_1816`). Dos procesos con 2,5 s cada uno
+    pueden mandar dos peticiones en el mismo segundo sin enterarse, y el plan dice
+    **máx. 1/seg**."""
+    import inspect
+
+    from core import mercado_1816 as m
+
+    assert m._MIN_INTERVALO_GLOBAL_S >= 1.0, "el plan permite 1 petición por segundo"
+    src = inspect.getsource(m._throttle)
+    assert "_marcar_llamada()" in src, "el intervalo global tiene que entrar al throttle"
+
+    # ⚠️ El previo se guarda en su PROPIA columna: en un `ON CONFLICT DO UPDATE
+    # ... RETURNING`, Postgres devuelve la fila NUEVA, así que restarle `now()` a
+    # `llamadas_at` daría siempre 0 y el throttle global sería decorativo.
+    marc = inspect.getsource(m._marcar_llamada)
+    assert "llamadas_prev_at" in marc
+    assert "RETURNING extract(epoch from (now() - llamadas_prev_at))" in marc
+    # Sin base devuelve 0 y manda el throttle local (degradar ≠ fallar).
+    assert m._marcar_llamada() == 0.0

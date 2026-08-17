@@ -2392,6 +2392,34 @@ realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
 
+- **2026-08-17 — el «auth HTTP 429» era la CUOTA DE TOKENS, no un rate limit.**
+  El panel del plan lo dice: créditos diarios **3.863/100.000** (sobra), máx. **1
+  petición/segundo**, y **máx. 50 tokens por día** — ese era el techo. Un token
+  dura **24 h**, así que UNO alcanzaría para todo el día, pero vivía en un dict de
+  módulo (memoria de CADA proceso): `tamar_1816` corre 15 veces por día,
+  `api.service` pide uno nuevo **en cada restart** —o sea en cada deploy—, más
+  cada job y cada corrida manual. **Y el backoff lo empeoraba**: un `_auth` que
+  falla reintentaba 5 veces, y *reintentar contra una cuota consume justo el
+  recurso que se acabó*. Ahí está la lección general: **el backoff es la respuesta
+  correcta a un rate limit (transitorio) y la peor posible a una cuota diaria.**
+  Ahora el token es COMPARTIDO (`manager.tokens_externos`): se pide una vez y los
+  demás procesos lo adoptan → de ~16-30 logins/día a **1-2**. `_auth` baja a 2
+  reintentos, hay tope propio en 45 (margen bajo los 50) que **frena antes de
+  gastar**, el error nombra la sospecha correcta en vez de mandar a «reintentá en
+  un par de minutos», y el límite de **1 petición/segundo pasa a ser GLOBAL**
+  (antes el throttle coordinaba dentro de un proceso y la API y los jobs son
+  procesos distintos que no se ven). Presupuesto visible con
+  `python -m scripts.diag_1816_tokens`. 2 tests.
+- **2026-08-17 — el 429 de 1816 ya no frena la relevada entera.** `relevar()`
+  arrancaba con `censar()` (~29 llamadas) **antes del primer detector**, y de los
+  cuatro el único que necesita el universo de 1816 es `detectar_faltantes`. Mismo
+  error de diseño que la cadena del arreglo, en otro archivo: una dependencia
+  externa colgando de algo que casi no la necesita. Ahora cae a
+  `research.mkt_1816_instrumentos` (la copia local del catálogo) y, si tampoco
+  está, corre igual con los tres detectores que no dependen de la red. La
+  degradación es HONESTA: **sin universo no se buscan faltantes** (reportar cero
+  sería afirmar que no falta nada cuando no se pudo mirar) y la corrida declara de
+  dónde salió el universo y con qué foto se comparó. 1 test.
 - **2026-08-17 — E3.h, el diagnóstico deja de depender de 1816.** El agente tenía
   UN solo arreglo (traer el cuadro de 1816 y pisar los flujos), así que las cinco
   reglas de tasa pasaban por la misma cadena y sus dos puertas de 1816 la

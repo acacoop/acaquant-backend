@@ -165,6 +165,12 @@ def detectar_faltantes(universo_1816: dict[str, dict], docs: list[dict], *,
                  {"emisor_tipo": ejes.emisor_tipo, "moneda_eje": ejes.moneda,
                   "ajuste": ejes.ajuste, "ajuste_alt": ejes.ajuste_alt, "ley": ejes.ley}
                  if ejes else None),
+             # ⚠ Darlo de alta NO alcanza para verlo: si su ajuste no tiene pill
+             # (badlar/tpm/caución), el bono queda cargado y NO aparece en
+             # ninguna pantalla. Avisarlo ANTES es la diferencia entre una
+             # decisión informada y cargar diez bonos que no se van a poder
+             # mirar — que es exactamente lo que le pasó al user con los BADLAR.
+             "ajuste_sin_curva": bool(ejes and curvas_ejes.ajuste_sin_curva(ejes.ajuste)),
              "curva_desconocida": ejes is None}))
     return out
 
@@ -327,6 +333,54 @@ def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
     return out
 
 
+# ── 4) ¿Hay bonos que no caen en ninguna curva? (hueco ESTRUCTURAL) ──────────
+
+
+def detectar_huecos_de_curva(docs: list[dict]) -> list[dict]:
+    """Ajustes que existen en `mercado.curvas` pero que la app no sabe mostrar.
+
+    **El caso real que lo motivó (user, 2026-08-16):** 1816 publica «Soberanos
+    ARS Badlar» y nuestros ejes aceptan `ajuste='badlar'`, pero
+    `_pill_de_ajuste` devuelve `None` para badlar/tpm/caucion → esos bonos no
+    caen en ninguna pill, y por lo tanto en ninguna curva. Resultado: **están
+    cargados y no aparecen en ninguna pantalla**, sin dar un solo error.
+
+    Es un hallazgo de otra naturaleza que los tres anteriores: no es un dato mal
+    cargado, es una **capacidad que le falta al sistema**. Por eso se reporta
+    UNA vez por AJUSTE y no una por bono — el problema es el ajuste; los bonos
+    son la evidencia de cuánto duele.
+
+    Y por eso el AV Agent NO puede arreglarlo solo: darle una pill a `badlar` es
+    tocar `curvas_ejes` + `sql_universo` + la vista del front. Es desarrollo, no
+    dato. Lo que sí puede —y es la mitad que faltaba— es **verlo y decirlo antes
+    de que alguien cargue diez bonos que no va a poder mirar.**
+    """
+    por_ajuste: dict[str, list[str]] = {}
+    for d in docs:
+        tc = (d.get("ticker_corto") or "").strip().upper()
+        if not tc:
+            continue
+        ejes = curvas_ejes.ejes_de_doc(d)
+        if ejes is None:
+            continue          # sin ejes → lo reporta `sin_ejes`, no es lo mismo
+        for aj in (ejes.ajuste, ejes.ajuste_alt):
+            if curvas_ejes.ajuste_sin_curva(aj) and not curvas_ejes.pills(ejes):
+                por_ajuste.setdefault(aj, []).append(tc)
+
+    out: list[dict] = []
+    for aj, tickers in sorted(por_ajuste.items()):
+        tickers = sorted(set(tickers))
+        out.append(_hallazgo(
+            "hueco_de_curva", aj.upper(), "ajuste_sin_curva", "alta",
+            f"{len(tickers)} bono(s) con ajuste «{aj}» no caen en NINGUNA curva: "
+            "están cargados y no aparecen en la tabla, ni en los forwards, ni en "
+            "el fair value — sin dar error. Falta darle su pill al ajuste "
+            "(curvas_ejes + la vista); no es un dato mal cargado, es una "
+            "capacidad que falta.",
+            {"ajuste": aj, "n": len(tickers), "tickers": tickers}))
+    return out
+
+
 # ── Orquestación (el único que lee de la base / la red) ──────────────────────
 
 
@@ -395,6 +449,7 @@ def relevar(*, alcance: str = "soberanos",
                             en_cartera=en_cartera),
         *detectar_sin_flujo(docs, universo_1816),
         *detectar_tasas_sospechosas(docs, metricas, en_assets, en_cartera),
+        *detectar_huecos_de_curva(docs),
     ]
 
     resumen: dict[str, int] = {}

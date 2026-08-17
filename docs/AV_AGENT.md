@@ -542,8 +542,51 @@ congela con el texto y el contexto que tenía cuando se contestó**; reescribirl
 haría que el historial diga que se decidió sobre una evidencia que en ese momento
 no existía.
 
+### E1.f — el agente ve los HUECOS DEL SISTEMA (2026-08-16)
+
+**Lo encontró el user usándolo**, y es el hallazgo de producto más importante
+hasta acá: estaba dando de alta bonos BADLAR con la nota *"lo doy de alta pero
+actualmente no tenemos curva BADLAR (y hay que agregar)"*.
+
+**Verificado en el código** (`core/curvas_ejes.py::_pill_de_ajuste`, última
+línea): `return None  # badlar / tpm / caucion todavía no tienen pill`. O sea:
+1816 publica «Soberanos ARS Badlar», nuestros ejes aceptan `ajuste='badlar'`…
+**y esos bonos no caen en ninguna pill, por lo tanto en ninguna curva**.
+`por_curva()` y `sql_universo()` no los encuentran: quedan cargados y **no
+aparecen en la tabla, ni en los forwards, ni en el fair value, sin dar un solo
+error**. Es el mismo modo de falla del paso 14 de `RENTA_FIJA.md` — nada se
+rompe, el bono simplemente no está.
+
+**Es un hallazgo de otra naturaleza que los tres anteriores.** Los otros son
+datos mal cargados; este es **una capacidad que le falta al sistema**. Por eso:
+
+- tipo propio (`hueco_de_curva`) y se reporta **una vez por AJUSTE**, no por
+  bono — el problema es el ajuste, los bonos son la evidencia de cuánto duele;
+- va **primero** en la lista: arreglar el dato de un bono que igual no se ve es
+  trabajo perdido;
+- y la **pregunta de alta lo avisa ANTES** (`ajuste_sin_curva` en la evidencia →
+  chip «BADLAR SIN CURVA» en la tarjeta). Eso es exactamente lo que el user
+  estaba escribiendo a mano en la nota de cada respuesta.
+
+`curvas_ejes.ajuste_sin_curva()` **se deriva de `_pill_de_ajuste`**, no es una
+lista escrita a mano: el día que `badlar` tenga su pill, el aviso desaparece
+solo. Una lista paralela seguiría diciendo que falta cuando ya no falta — la
+clase de aviso que enseña a ignorar los avisos.
+
+**Lo que el agente NO va a hacer, y no es una limitación técnica:** darle una
+pill a `badlar` es tocar `curvas_ejes` + `sql_universo` + la vista del front. Es
+**desarrollo, no dato**. El código que decide en qué tabla aparece cada bono no
+puede cambiarlo un proceso automático de noche: un error ahí mueve bonos de tabla
+en silencio, que es literalmente el bug de los pasos 14 y 16. El agente ve el
+hueco, lo mide y lo dice; construirlo es una decisión humana.
+
 ## Changelog
 
+- **2026-08-16 — E1.f, huecos del SISTEMA.** Detector `hueco_de_curva`: los
+  ajustes que existen en `mercado.curvas` pero no tienen pill (`badlar`, `tpm`,
+  `caucion`) dejan bonos INVISIBLES sin dar error. Se reporta por ajuste, va
+  primero, y la pregunta de alta lo avisa antes de que alguien cargue diez bonos
+  que no va a poder mirar. Derivado de `_pill_de_ajuste`, así se apaga solo.
 - **2026-08-16 — E1.e, contexto en las preguntas.** Emisor, denominación, moneda
   y vencimiento (del mismo crédito del censo) + el aviso **«lo tenés en cartera y
   no valúa»**, que sube esos faltantes a severidad alta y los pone primeros.

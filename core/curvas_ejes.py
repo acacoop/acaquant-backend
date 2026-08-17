@@ -322,6 +322,29 @@ def _pill_de_ajuste(ajuste: str | None, moneda: str, cer_fijado: bool) -> str | 
     return None      # badlar / tpm / caucion todavía no tienen pill
 
 
+def ajuste_sin_curva(ajuste: str | None) -> bool:
+    """¿Este ajuste NO cae en ninguna pill, o sea en ninguna curva? (hoy: `badlar`,
+    `tpm`, `caucion`).
+
+    **Un bono con un ajuste así es INVISIBLE**: `pills()` le devuelve vacío,
+    `curvas_de()` también, y entonces `por_curva()` / `sql_universo()` no lo
+    encuentran. No sale en la tabla, ni en los forwards, ni en el fair value —
+    **y no da ningún error**. Es el mismo modo de falla del paso 14 de
+    `RENTA_FIJA.md`, que es el que lo hace peligroso: nada se rompe, el bono
+    simplemente no está.
+
+    Se DERIVA de `_pill_de_ajuste` en vez de escribir la lista a mano: el día que
+    `badlar` tenga su pill, esta función deja de reportarlo sola. Una lista
+    paralela seguiría diciendo que falta cuando ya no falta, que es la clase de
+    aviso que enseña a ignorar los avisos.
+
+    Se prueban las dos monedas porque `fija` cae en pills distintas según ARS/USD:
+    un ajuste solo está realmente sin curva si no cae en NINGUNA."""
+    if not ajuste:
+        return False          # sin ajuste es "sin ejes", que ya se reporta aparte
+    return all(_pill_de_ajuste(ajuste, m, False) is None for m in ("ARS", "USD"))
+
+
 def pata_de_pill(ejes: Ejes | None, pill: str, cer_fijado: bool = False) -> str | None:
     """Qué PATA (ajuste) de este bono produjo esa pill. `None` si ninguna.
 

@@ -275,3 +275,39 @@ def test_un_bono_sano_no_genera_ningun_hallazgo():
     m = {d["ticker"]: {"tea": 0.09, "paridad": 92.0, "duration": 3.5,
                        "last_price": 92.0}}
     assert av_agent.detectar_tasas_sospechosas([d], m, {"AL30"}) == []
+
+
+# ── 4) huecos de curva (capacidad que le falta al sistema) ───────────────────
+
+
+def test_un_ajuste_SIN_PILL_se_reporta_una_vez_por_AJUSTE():
+    """El caso BADLAR (2026-08-16). 1816 publica «Soberanos ARS Badlar» y
+    nuestros ejes aceptan `badlar`, pero no tiene pill → esos bonos están
+    cargados y NO aparecen en ninguna pantalla, sin dar error.
+
+    Se agrupa por AJUSTE y no por bono: el problema es el ajuste; los bonos son
+    la evidencia de cuánto duele."""
+    docs = [_doc("TB27", ajuste="badlar"), _doc("TD26", ajuste="badlar"),
+            _doc("AL30")]
+    out = av_agent.detectar_huecos_de_curva(docs)
+    assert len(out) == 1
+    assert out[0]["ticker"] == "BADLAR" and out[0]["severidad"] == "alta"
+    assert out[0]["evidencia"]["tickers"] == ["TB27", "TD26"]
+
+
+def test_un_bono_SIN_EJES_no_cuenta_como_hueco_de_curva():
+    """No es lo mismo «este bono no está clasificado» (que lo reporta `sin_ejes`)
+    que «el sistema no sabe mostrar este tipo de bono». Mezclarlos haría parecer
+    que falta una capacidad cuando lo que falta es completar un dato."""
+    assert av_agent.detectar_huecos_de_curva(
+        [_doc("BA37", emisor_tipo=None, moneda_eje=None, ajuste=None)]) == []
+
+
+def test_un_faltante_de_un_ajuste_sin_curva_lo_AVISA_antes_del_alta():
+    """Avisarlo ANTES es la diferencia entre una decisión informada y cargar diez
+    bonos que no se van a poder mirar."""
+    univ = {"TB27": _inst("Soberanos ARS Badlar"), "AL30": _inst("Soberanos USD Bonares")}
+    ev = {h["ticker"]: h["evidencia"]
+          for h in av_agent.detectar_faltantes(univ, [], alcance="todo")}
+    assert ev["TB27"]["ajuste_sin_curva"] is True
+    assert ev["AL30"]["ajuste_sin_curva"] is False

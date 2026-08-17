@@ -86,6 +86,14 @@ def _texto_falta(tk: str, ev: dict) -> str:
     partes: list[str] = []
     if ev.get("en_cartera"):
         partes.append("⚠ LO TENÉS EN CARTERA (hoy no valúa)")
+    # Darlo de alta NO alcanza para verlo: sin pill, el bono queda cargado y no
+    # aparece en ninguna pantalla. Decirlo ACÁ —y no después— es la diferencia
+    # entre una decisión informada y cargar diez bonos que no se van a poder
+    # mirar.
+    if ev.get("ajuste_sin_curva"):
+        aj = ((ev.get("ejes_sugeridos") or {}).get("ajuste") or "").upper()
+        partes.append(f"⚠ el ajuste {aj} TODAVÍA NO TIENE CURVA en la app: si lo "
+                      "das de alta no va a aparecer en ninguna tabla")
     emisor = (ev.get("emisor") or "").strip()
     if emisor:
         partes.append(emisor)

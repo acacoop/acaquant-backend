@@ -3802,3 +3802,37 @@ CREATE TABLE IF NOT EXISTS mercado.curvas_catalogo (
     creada_por       text,
     creada_at        timestamptz NOT NULL DEFAULT now()
 );
+
+-- AV AGENT — LIBRO DE ACCIONES (2026-08-17). Todo lo que el agente ESCRIBIÓ.
+--
+-- Append-only. Es la respuesta a "¿qué tocó, cuándo, en qué tabla y por qué?", y
+-- deja de ser un lujo en cuanto el agente escriba en `mercado.curvas`: una
+-- escritura automática sin libro es una escritura que nadie puede auditar ni
+-- revertir.
+--
+-- Lo que hoy existe está DESPARRAMADO —`av_agent_preguntas.aplicada_at`,
+-- `av_agent_ignorados.creado_at`, `curvas_catalogo.creada_at`— y ninguna de esas
+-- tablas contesta la pregunta completa. Esta sí, y en un solo lugar.
+--
+-- `antes` guarda el estado previo: sin eso, "revertir" es una promesa y no una
+-- función. `ok`/`error` registran también los INTENTOS FALLIDOS — un libro que
+-- solo anota los éxitos hace parecer que el agente nunca se equivoca.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_acciones (
+    id          bigserial PRIMARY KEY,
+    ts          timestamptz NOT NULL DEFAULT now(),
+    accion      text NOT NULL,     -- ignorar_ticker | designorar | crear_curva | alta_bono …
+    destino     text NOT NULL,     -- LA TABLA que se tocó: 'mercado.curvas_catalogo'
+    objetivo    text NOT NULL,     -- sobre qué: ticker, ajuste, …
+    detalle     jsonb,             -- lo que quedó escrito (el "después")
+    antes       jsonb,             -- el estado previo, para poder revertir
+    origen      text NOT NULL DEFAULT 'respuesta',  -- respuesta | job | api
+    pregunta_id bigint,            -- qué pregunta la disparó, si vino de una
+    por         text,              -- email del humano que la pidió
+    ok          boolean NOT NULL DEFAULT true,
+    error       text
+);
+
+CREATE INDEX IF NOT EXISTS ix_av_agent_acciones_ts
+    ON mercado.av_agent_acciones (ts DESC);
+CREATE INDEX IF NOT EXISTS ix_av_agent_acciones_obj
+    ON mercado.av_agent_acciones (objetivo, ts DESC);

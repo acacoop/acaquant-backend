@@ -299,6 +299,8 @@ def _aplicar_efecto(p: dict, resp: str, *, por: str, nota: str) -> bool:
     if p.get("tipo") != "hallazgo":
         return False
 
+    from api.services import av_agent_acciones as acc
+
     if clave.startswith("falta:"):
         if resp != "ignorar":
             return False
@@ -309,6 +311,8 @@ def _aplicar_efecto(p: dict, resp: str, *, por: str, nota: str) -> bool:
                 "INSERT INTO mercado.av_agent_ignorados (ticker, motivo, por) "
                 "VALUES (%s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
                 (ticker.upper(), motivo, por or None))
+        acc.registrar(accion="ignorar_ticker", objetivo=ticker.upper(),
+                      detalle={"motivo": motivo}, pregunta_id=p.get("id"), por=por)
         return True
 
     if clave.startswith("curva:"):
@@ -320,17 +324,27 @@ def _aplicar_efecto(p: dict, resp: str, *, por: str, nota: str) -> bool:
             return False
         from core import curvas_catalogo
         ctx = p.get("contexto") or {}
+        aj = clave.split(":", 1)[1]
+        lado = str(ctx.get("lado") or "ARS")
         try:
-            curvas_catalogo.crear(
-                ajuste=clave.split(":", 1)[1],
-                lado=str(ctx.get("lado") or "ARS"),
-                fuente_valuacion=resp,
+            r = curvas_catalogo.crear(
+                ajuste=aj, lado=lado, fuente_valuacion=resp,
                 orden=90,          # las nuevas van al final de su lado
                 nota=nota or f"creada desde el AV Agent (valuación: {resp})",
                 por=por)
         except Exception as e:
             logger.warning("av_agent: no se pudo crear la curva %s: %s", clave, e)
+            # El intento FALLIDO también se anota: un libro que solo registra los
+            # éxitos esconde justo el caso que uno va a querer investigar.
+            acc.registrar(accion="crear_curva", objetivo=aj, ok=False,
+                          error=str(e)[:300], detalle={"lado": lado, "fuente": resp},
+                          pregunta_id=p.get("id"), por=por)
             return False
+        acc.registrar(accion="crear_curva", objetivo=aj,
+                      detalle={"lado": lado, "fuente_valuacion": resp,
+                               "bonos_afectados": ctx.get("tickers") or [],
+                               "ya_existia": not r.get("creada")},
+                      pregunta_id=p.get("id"), por=por)
         return True
 
     return False
@@ -347,10 +361,17 @@ def designorar(ticker: str, *, por: str = "") -> dict:
     **La reversibilidad es lo que hace barata la decisión.** Si `ignorar` fuera
     irreversible desde la app, la respuesta segura pasaría a ser no contestar
     nada — y el canal de preguntas dejaría de usarse."""
+    from api.services import av_agent_acciones as acc
+
     tk = (ticker or "").strip().upper()
     if not tk:
         raise ValueError("ticker vacío")
     with get_pool().connection() as conn, conn.cursor() as cur:
+        # El motivo se lee ANTES de borrar: es el `antes` del libro, y es lo único
+        # que permite reconstruir por qué se había ignorado.
+        cur.execute("SELECT motivo, por FROM mercado.av_agent_ignorados "
+                    "WHERE ticker = %s", (tk,))
+        prev = cur.fetchone()
         cur.execute("DELETE FROM mercado.av_agent_ignorados WHERE ticker = %s", (tk,))
         borrado = cur.rowcount or 0
         cur.execute(
@@ -359,6 +380,9 @@ def designorar(ticker: str, *, por: str = "") -> dict:
             "nota = NULL, respondida_por = %s WHERE clave = %s",
             (por or None, f"falta:{tk}"))
         reabierta = (cur.rowcount or 0) > 0
+    acc.registrar(accion="designorar", objetivo=tk, por=por,
+                  detalle={"pregunta_reabierta": reabierta},
+                  antes=({"motivo": prev[0], "por": prev[1]} if prev else None))
     return {"ok": True, "ticker": tk, "borrado": borrado > 0, "reabierta": reabierta}
 
 

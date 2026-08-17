@@ -75,6 +75,7 @@ def _decididas(limite: int = 40) -> list[dict]:
 
 def vista() -> dict:
     """Todo lo que la pantalla necesita, en un request."""
+    from api.services import av_agent_acciones as acciones
     from api.services import av_agent_preguntas as preg
 
     hallazgos, corrida_at = _hallazgos_ultima_corrida()
@@ -92,6 +93,9 @@ def vista() -> dict:
         # 12 altas y no tiene dónde mirar qué pasó con ellas — una decisión que no
         # se ve en ningún lado se siente como una decisión perdida.
         "pendientes": preg.pendientes_de_aplicar(),
+        # El LIBRO: qué escribió el agente, cuándo y en qué tabla. Una escritura
+        # automática sin libro es una escritura que nadie puede auditar.
+        "acciones": acciones.listar(),
         "hallazgos": hallazgos,
         "por_tipo": por_tipo,
         "por_regla": por_regla,

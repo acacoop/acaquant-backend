@@ -656,8 +656,47 @@ y abre la puerta a contestarlo distinto de la realidad.
 > soberanos que importaban. **Lección: medir es la regla, pero medir lo que ya
 > está probado es procrastinar con forma de rigor.**
 
+### E1.i — el LIBRO DE ACCIONES (2026-08-17)
+
+**Pedido del user:** *"me gustaría que haya una tab donde se vean las acciones
+realizadas, todo bien trazable: hora, fecha, qué base tocó, qué agregó."*
+
+**Y es obligatorio, no un lujo.** Hasta acá esa información existía pero
+DESPARRAMADA: `av_agent_preguntas.aplicada_at` decía cuándo surtió una respuesta,
+`av_agent_ignorados.creado_at` cuándo se ignoró un ticker,
+`curvas_catalogo.creada_at` cuándo nació una curva. Ninguna contesta la pregunta
+completa, y para reconstruirla hay que cruzar tres tablas sabiendo de antemano qué
+buscar. **En cuanto el agente escriba en `mercado.curvas` (E2), una escritura
+automática sin libro es una escritura que nadie puede auditar ni revertir** — y el
+momento de construirlo es ANTES de esa etapa, no después del primer susto.
+
+`mercado.av_agent_acciones` (append-only) + `api/services/av_agent_acciones.py` +
+la tab **HIZO** del modal: cuándo (hora ART), qué hizo, sobre qué, **en qué tabla
+escribió**, quién lo pidió, de qué pregunta salió, y el detalle.
+
+**Tres decisiones que lo hacen servir:**
+
+1. **Se anotan también los FALLOS** (`ok=false` + `error`). Un libro que solo
+   registra los éxitos hace parecer que el agente nunca se equivoca, y esconde
+   justo el caso que uno va a querer investigar.
+2. **`antes` guarda el estado previo.** Sin eso, "revertir" es una promesa y no
+   una función. El `designorar` ya lo usa: lee el motivo antes de borrarlo.
+3. **Registrar NUNCA rompe la acción.** Si el libro falla, la escritura real ya
+   pasó y no se deshace por un problema de auditoría. El orden inverso —fallar la
+   acción porque no se pudo anotar— dejaría al usuario sin la función *y* sin el
+   registro.
+
+**El nombre de la tabla se muestra en crudo** (`mercado.curvas_catalogo`, no "el
+catálogo de curvas"): el libro se lee para ir a mirar esa tabla, y traducirlo a
+lenguaje humano lo haría inservible justo para eso. Y la hora es **ART**, no la
+del servidor: se lee para reconstruir qué pasó a tal hora, y esa hora es la del
+que operó.
+
 ## Changelog
 
+- **2026-08-17 — E1.i, el LIBRO DE ACCIONES.** `mercado.av_agent_acciones` + tab
+  **HIZO**: qué escribió, cuándo, en qué tabla, por pedido de quién y qué había
+  antes. Anota también los intentos fallidos. Obligatorio antes de E2.
 - **2026-08-17 — E1.h, el agente CREA la curva.** `mercado.curvas_catalogo` +
   `core/curvas_catalogo.py`: la curva deja de ser código y pasa a ser dato. El
   hueco detectado se convierte en una pregunta (`1816` | `motor` | `despues`) y

@@ -572,3 +572,38 @@ def test_el_precio_de_1816_se_usa_solo_si_NO_hay_snapshot():
     assert "referencia de 1816" in p["detalle"]
     # ...y se dice explícito que NO se persiste: `market_snapshot` es del motor.
     assert "NO se guarda" in p["detalle"]
+
+
+def test_un_CER_CERO_CUPON_conserva_su_CRONOGRAMA_no_se_vuelve_bullet():
+    """**El bug de TZXM8 (2026-08-17).** Un CER cero cupón tiene UN solo pago, así
+    que caía en el atajo del bullet y el doc salía con `flujo_vencimiento` y SIN
+    `flujos`. Pero `calcular_campos` lee `flujo_vencimiento` SOLO en la rama
+    `tasa_fija`: la rama `cer` arma su cronograma desde `flujos[]` y ni mira ese
+    campo → `flujos_futuros = []` → solo duration, **sin dar error**."""
+    from api.services.av_agent_alta import convertir_flujos
+    cero = [_cup("2028-03-31", 112.65, 0.0)]
+    r = convertir_flujos(cero, "cer")
+    assert r["flujo_vencimiento"] is None       # NO se vuelve bullet
+    assert len(r["flujos"]) == 1
+    # ...y el pago queda expresado como el 100% del capital, normalizado.
+    assert r["flujos"][0]["amortizacion_pct"] == 100.0
+
+    # La LECAP, en cambio, SÍ es un bullet: esa es su shape en el master.
+    assert convertir_flujos([_cup("2027-09-30", 147.5, 0.0)],
+                            "tasa_fija")["flujo_vencimiento"] == 147.5
+    # Y un soberano de un solo pago tampoco: su rama arma cronograma.
+    assert convertir_flujos(cero, "soberanos")["flujo_vencimiento"] is None
+
+
+def test_la_ESCALA_no_se_reporta_donde_no_afecta_a_nada():
+    """En la rama `cer` la conversión divide todo por `suma_amort`, así que es
+    invariante a la escala. TZXM8 salía en ámbar por Σ=112,65 cuando ese número
+    no afecta a NINGUNO de los valores que se escriben."""
+    conv = {"n": 1, "suma_amort": 112.65, "escala": "nominales", "flujos": [],
+            "flujo_vencimiento": None}
+    cer = next(p for p in _chequear(rama="cer", conv=conv) if p["clave"] == "cuadro")
+    assert cer["estado"] == "ok" and "PORCENTAJES" in cer["detalle"]
+    # ...pero en `soberanos` los montos son ABSOLUTOS y ahí sí importa.
+    sob = next(p for p in _chequear(rama="soberanos", conv=conv)
+               if p["clave"] == "cuadro")
+    assert sob["estado"] == "atencion" and "ABSOLUTOS" in sob["detalle"]

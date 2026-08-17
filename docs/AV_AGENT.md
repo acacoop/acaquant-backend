@@ -987,8 +987,66 @@ duration nuestras contra las de ellos**. Ese último par es el que diagnostica:
 Una tasa sin su memoria de cálculo no se puede auditar: solo se puede creer o no
 creer.
 
+### E2.f — El bug del CER cero cupón, y qué acepta 1816 de verdad (2026-08-17)
+
+**1. TZXM8 no daba tasa, y era un bug mío.** *«¿Por qué no se podría calcular la
+tasa? Justamente lo del precio tiene que salir siempre para hacer los cálculos
+previos, y ya estamos valuando bonos CER.»* Correcto en las dos cosas.
+
+Un **CER cero cupón** tiene UN solo pago, así que caía en el atajo del bullet:
+`convertir_flujos` le ponía `flujo_vencimiento` y el doc salía **sin `flujos[]`**.
+Pero `calcular_campos` lee `flujo_vencimiento` **solo en la rama `tasa_fija`** —
+las ramas `cer` y `soberanos` arman su cronograma desde `flujos[]` y ni miran ese
+campo. Resultado: `flujos_futuros = []` → solo duration.
+
+**Y no daba error.** El bono se veía bien cargado, con precio, sin tasa y sin
+explicación — exactamente el modo de fallar que el pre-flight vino a cazar, esta
+vez con el pre-flight mirando para otro lado. El atajo ahora es **solo para
+`tasa_fija`**, con test numérico. Un cero cupón CER **no es una LECAP**: su pago
+se ajusta por CER, por eso necesita el cronograma y no un monto fijo.
+
+**2. La escala en ámbar era un falso positivo.** TZXM8 avisaba *«Σ 112,65, viene
+en NOMINALES»*. En la rama `cer` la conversión **divide todo por `suma_amort`**
+para expresar porcentajes: es invariante a la escala, y ese número no afecta a
+ninguno de los valores que se escriben. Ahora el aviso sale solo en `tasa_fija` y
+`soberanos`, donde los montos se guardan absolutos.
+
+**3. `Error1816` a secas.** El mensaje del error se estaba tragando —
+`type(e).__name__` da el nombre de la clase, sin el HTTP ni el motivo. Un error
+que no dice qué pasó no se puede arreglar. Ahora viaja completo.
+
+**4. `moneda="usd"` rompió GD46, y NO se va a adivinar el arreglo.** El pedido en
+la moneda del bono fue una hipótesis razonable y la API la rechazó. Dos cosas:
+
+- **Degradación**: si la moneda del bono no se acepta, se reintenta en `ars` —
+  que es el default y lo que venía andando. Un precio en la moneda equivocada se
+  explica mirando el detalle del cálculo; **ningún** precio deja al simulador sin
+  poder calcular nada, que es peor.
+- **`scripts/diag_1816_indicadores.py`** (nuevo, read-only) para cerrar el tema
+  con datos en vez de intuición. Prueba **de a uno** —la API rechaza la llamada
+  entera si un campo no existe— qué valores de `moneda` acepta **y qué precio
+  devuelve cada uno** (que no explote no alcanza: el bug de GD46 fue que `ars`
+  aceptó feliz y contestó en la moneda equivocada), y releva **~30 campos
+  candidatos** contra los 6 que ya usamos.
+
+Ese segundo relevamiento sale de una observación del user que vale la pena
+subrayar: *«no estaría bueno que venga completo lo que encuentra? total nada va a
+terminar persistiendo»*. **Tiene razón y cambia el criterio**: cuando un dato NO
+se persiste, traer de más no tiene el costo habitual (no ensucia el modelo, no
+crea una segunda verdad, no hay que migrarlo). El techo es el crédito de la API,
+que acá es despreciable. Si 1816 publica `precioDirty`, `valorTecnico` o
+`interesesCorridos`, el cotejo pasa de *«difieren 202 bps y no sé por qué»* a
+*«difieren porque su precio es clean y el nuestro sucio, y acá está la prueba»*.
+
 ## Changelog
 
+- **2026-08-17 — E2.f, CER cero cupón + relevamiento de 1816.** **Bug**: un CER
+  de un solo pago se guardaba como bullet (`flujo_vencimiento`) y la rama `cer`
+  no lo mira → sin tasa y sin error. El atajo queda solo para `tasa_fija`. La
+  alarma de escala deja de sonar en `cer` (la conversión normaliza). El error de
+  1816 viaja completo, y si la moneda del bono no se acepta se cae a `ars` en vez
+  de quedarse sin precio. Nuevo `scripts/diag_1816_indicadores` — read-only,
+  prueba de a uno qué monedas y qué campos acepta la API de verdad.
 - **2026-08-17 — E2.e, siembra + TAMAR + memoria de cálculo.** El alta **siembra
   la especie** como paso final (patas ARS y USD, lógica compartida en
   `core/especies.py`) y deja de exigirla como requisito. El agente aprende que a

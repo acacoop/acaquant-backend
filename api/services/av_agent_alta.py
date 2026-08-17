@@ -110,14 +110,25 @@ def convertir_flujos(cupones: list[dict], rama: str) -> dict:
         else:
             flujos.append({"fecha": f, "amortizacion": amort, "interes": interes})
 
-    # Bullet: un solo pago al final y sin cupones intermedios → el master lo guarda
-    # como `flujo_vencimiento`, no como cronograma (así lo valúa el motor).
+    # Bullet: un solo pago al final → el master lo guarda como `flujo_vencimiento`.
+    #
+    # ⚠️ **SOLO en la rama `tasa_fija`.** `flujo_vencimiento` es la shape de ESA
+    # rama y de ninguna otra: `calcular_campos` lo lee en el `if curva ==
+    # "tasa_fija"`, mientras las ramas `cer` y `soberanos` arman su cronograma
+    # desde `flujos[]` y **ni miran** ese campo.
+    #
+    # El bug que esto arregla (2026-08-17, TZXM8): un CER CERO CUPÓN tiene un solo
+    # pago, así que caía en el atajo del bullet y el doc salía con
+    # `flujo_vencimiento` y SIN `flujos`. Resultado: `flujos_futuros = []` y el
+    # motor devolvía solo duration. **Y no daba error** — el bono se veía bien
+    # cargado, sin tasa, sin explicación. Un cero cupón CER no es una LECAP: su
+    # pago se ajusta por CER y por eso necesita el cronograma, no un monto fijo.
     fv = None
-    if len(filas) == 1:
+    if len(filas) == 1 and rama == "tasa_fija":
         fv = round(filas[0][1] + filas[0][2], 6)
 
     return {"flujos": flujos, "escala": escala, "suma_amort": suma_amort,
-            "flujo_vencimiento": fv, "n": len(filas)}
+            "flujo_vencimiento": fv, "n": len(filas), "rama": rama}
 
 
 def _doc_simulado(ticker: str, ejes, conv: dict, vencimiento: str,
@@ -421,13 +432,23 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                     + (f" · ley {ejes.ley}" if ejes.ley else ""),
                     tabla="mercado.curvas (ejes)"))
 
-    escala_ok = conv["escala"] == "vn100"
+    # La escala **solo importa donde los montos se guardan ABSOLUTOS**
+    # (`tasa_fija`, `soberanos`). En la rama `cer` la conversión divide todo por
+    # `suma_amort` para expresar porcentajes, así que es invariante a la escala:
+    # avisar ahí era un falso positivo — TZXM8 salía en ámbar con Σ=112,65
+    # cuando ese número no afecta a NADA de lo que se escribe.
+    escala_importa = rama in ("tasa_fija", "soberanos")
+    escala_ok = conv["escala"] == "vn100" or not escala_importa
     ps.append(_paso("cuadro", "1816 mandó el cuadro de flujos", OK if escala_ok else ATENCION,
                     f"{conv['n']} cupón/es · Σ amortizaciones {conv['suma_amort']} → "
                     f"escala {conv['escala']}"
                     + ("" if escala_ok else
-                       " — no suma ~100, así que el cuadro viene en NOMINALES. "
-                       "El motor valúa por paridad: revisar antes de aplicar."),
+                       " — no suma ~100, así que el cuadro viene en NOMINALES y "
+                       "esta rama guarda montos ABSOLUTOS. El motor valúa por "
+                       "paridad: revisar antes de aplicar.")
+                    + (" — la rama «cer» expresa el cuadro en PORCENTAJES "
+                       "(se divide por la Σ), así que la escala no la afecta."
+                       if rama == "cer" and conv["escala"] != "vn100" else ""),
                     tabla="1816 /cashflow"))
 
     _fuente_tasa, job_tasa = _tasa_externa(ejes)
@@ -728,6 +749,14 @@ def _cer_de_emision(fecha_emision: str) -> tuple[float | None, str]:
 _CAMPOS_REF = ("precioClean", "tea", "paridad", "duration")
 
 
+def _fallo_ref(e, moneda: str, pedido: dict) -> dict:
+    """El error de 1816, COMPLETO. `type(e).__name__` daba «Error1816» a secas —
+    el nombre de la clase, sin el HTTP ni el motivo. Un error que no dice qué pasó
+    no se puede arreglar; el mensaje del cliente trae el status y el body."""
+    return {"error": f"1816 no respondió (moneda={moneda}): {e}"[:300],
+            "pedido": pedido}
+
+
 def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
     """Precio y TASA de referencia de 1816 para un bono que no tiene snapshot.
 
@@ -761,11 +790,33 @@ def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
     # Pidiendo el precio en la moneda DEL BONO no hay conversión de por medio, y
     # el cotejo compara dos cuentas sobre el mismo número.
     moneda = "usd" if (moneda_eje or "").strip().upper() == "USD" else "ars"
+    pedido = {"moneda": moneda, "campos": list(_CAMPOS_REF)}
     try:
         resp = mercado_1816.indicadores_vigentes([ticker], list(_CAMPOS_REF),
                                                  moneda=moneda)
     except Exception as e:
-        return {"error": f"1816 no respondió: {type(e).__name__}"}
+        # **Degradación elegida**: si la API no acepta esa moneda, se reintenta en
+        # `ars` — que es el default y lo que venía andando. Un precio en la moneda
+        # equivocada se puede explicar mirando el detalle del cálculo; NINGÚN
+        # precio deja al simulador sin poder calcular nada, que es peor.
+        if moneda != "ars":
+            logger.info("av_agent: 1816 rechazó moneda=%s para %s (%s) — "
+                        "reintento en ars", moneda, ticker, e)
+            try:
+                resp = mercado_1816.indicadores_vigentes([ticker], list(_CAMPOS_REF),
+                                                         moneda="ars")
+                moneda, pedido = "ars", {**pedido, "moneda": "ars",
+                                         "nota": f"pedido en {moneda.upper()} "
+                                                 "rechazado, se usó ARS"}
+            except Exception as e2:
+                e = e2
+                resp = None
+        else:
+            resp = None
+        if resp is None:
+            return _fallo_ref(e, moneda, pedido)
+        # `type(e).__name__` daba «Error1816» a secas — el nombre de la clase, sin
+        # el HTTP ni el motivo. Un error que no dice qué pasó no se puede arreglar.
     if not resp:
         return {"error": "1816 no tiene datos de este ticker en las últimas 5 ruedas"}
     v = (resp.get("instrumentos") or {}).get(ticker) or {}
@@ -773,8 +824,7 @@ def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
     # `pedido` viaja hasta la pantalla: sin saber en qué moneda y a qué plazo se
     # pidió, un precio raro no se puede diagnosticar — que fue exactamente lo que
     # pasó con GD46.
-    pedido = {"moneda": moneda, "plazo": resp.get("plazo"),
-              "fuente": resp.get("fuente"), "campos": list(_CAMPOS_REF)}
+    pedido = {**pedido, "plazo": resp.get("plazo"), "fuente": resp.get("fuente")}
     if not px or px <= 0:
         return {"error": f"1816 conoce el ticker pero no publicó precio al "
                          f"{resp.get('fechaOperacion')}", "pedido": pedido}

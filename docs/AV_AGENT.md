@@ -1869,8 +1869,65 @@ cualquier paso que necesite un dato que ninguna fuente publica— y como el esta
 del input vive por hallazgo, simular dos bonos seguidos no filtra el número de uno
 al otro.
 
+### E2.y — El chequeo que no podía detectar nada (2026-08-17)
+
+El user, mirando el TZXA7: *«la serie del CER tiene datos viejos, o sea que es
+cualquiera que no lo detecte»*. Tenía razón, y **el chequeo existía**. Lo que no
+existía era su capacidad de detectar.
+
+`salud.py` tenía este contrato:
+
+```python
+{"id": "dato:macro.series_macro", "titulo": "Series macro (CER/dólar/tasas)",
+ "tabla": "macro.series_macro", "columna": "fecha", "max_dias_habiles": 3}
+```
+
+Y se evaluaba así: `SELECT MAX(fecha) FROM macro.series_macro` — **sin filtrar por
+`serie`**. Esa tabla tiene DOLAR, CER, BADLAR, TAMAR, RiesgoPais e Inflación
+mezcladas. **Un MAX sobre N series independientes responde por la más fresca**: con
+el dólar actualizándose todos los días, el CER podía estar congelado hace meses y
+el tablero seguía en verde. El chequeo no estaba roto — estaba **estructuralmente
+incapaz** de ver lo que decía vigilar.
+
+Es, otra vez, **un agregado que tapa el detalle**: la sexta aparición del mismo
+anti-patrón en una semana. Y es la peor versión, porque un agregado que tapa el
+detalle **en un chequeo de salud** no solo esconde el problema: **certifica que no
+lo hay**.
+
+**El fix**: los contratos aceptan `filtro` y `macro.series_macro` se declara **una
+vez por serie crítica** (CER, DOLAR, BADLAR, TAMAR), cada una con su tolerancia y
+su propio id — así se puede silenciar el ruido de una sin apagar la alerta de las
+otras. Se declaran explícitas y no agrupando por `serie`: agrupar generaría un rojo
+por cada serie mensual, discontinuada o experimental que alguien haya escrito
+alguna vez.
+
+**Lo que el agente todavía no podía decir.** Su mensaje era *«la serie CER no
+llega hasta 2025-11-28»*, que confunde dos problemas distintos: la serie
+**ATRASADA** (dejó de correr un job) y un **HUECO** (un día que no se ingestó).
+Ahora el mensaje dice hasta dónde llega la serie y cuál de los dos es — se
+responde solo. Y `scripts/diag_cer_serie.py` mide el resto: rango, atraso o
+forward, huecos agrupados en tramos, y qué ve `cargar_cer(dias=4000)`, que es la
+ventana del motor y podría ser más chica que la serie.
+
+**La regla que queda**: *un chequeo de frescura sobre una tabla que mezcla series
+tiene que declarar CUÁL mira.* Un MAX sin filtro no es un chequeo laxo — es un
+chequeo que no puede fallar.
+
 ## Changelog
 
+- **2026-08-17 — E2.y, el chequeo de SALUD que no podía detectar nada.** El
+  contrato de `macro.series_macro` hacía `MAX(fecha)` **sin filtrar por `serie`**
+  sobre una tabla con DOLAR, CER, BADLAR, TAMAR, RiesgoPais e Inflación juntas:
+  **respondía por la serie más fresca**, así que con el dólar al día el CER podía
+  estar congelado hace meses y el tablero verde. Sexta aparición del mismo
+  anti-patrón —**un agregado que tapa el detalle**— y la peor, porque en un
+  chequeo de salud no solo esconde el problema: certifica que no lo hay. Fix: los
+  contratos aceptan `filtro` y la tabla se declara **una vez por serie crítica**,
+  cada una con su tolerancia y su id (silenciable por separado). Explícitas y no
+  agrupadas: agrupar pondría en rojo cada serie mensual o discontinuada. Además el
+  agente distingue ahora **serie ATRASADA** de **HUECO** —dos problemas distintos
+  que su mensaje confundía— y va `scripts/diag_cer_serie.py` (read-only) para
+  medir rango, huecos por tramos y la ventana real de `cargar_cer`. 1 test.
 - **2026-08-17 — E2.x, el dato se pide en la CADENA, antes de aplicar.** E2.w lo
   pedía DESPUÉS del alta (en AVISOS); el user pidió que se pida antes y se
   re-simule con él — que es la diferencia entre aplicar a ciegas y aplicar viendo

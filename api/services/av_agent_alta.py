@@ -1144,9 +1144,34 @@ def _cer_de_emision(fecha_emision: str) -> tuple[float | None, str]:
     except Exception as e:
         return None, f"no se pudo calcular el CER de emisión: {type(e).__name__}"
     if not cer:
-        return None, (f"la serie CER no llega hasta {fecha_emision[:10]} "
-                      "(T−10 hábiles) — hay que cargarlo a mano")
+        # **QUÉ tipo de falta es.** «No llega» y «falta ESE día» son problemas
+        # distintos —uno es la serie atrasada, el otro un hueco— y el mensaje
+        # viejo los confundía en uno solo, mandando a mirar el lugar equivocado.
+        # Decir hasta dónde llega la serie responde la pregunta sin abrir nada.
+        return None, f"{_rango_cer(fecha_emision[:10])} — hay que cargarlo a mano"
     return float(cer), ""
+
+
+def _rango_cer(fecha: str) -> str:
+    """Hasta dónde llega la serie CER, para que el mensaje sea un DIAGNÓSTICO.
+
+    Sale de la misma tabla que lee el motor. Si la consulta falla se degrada a la
+    frase de siempre — el alta no puede depender de poder explicarse."""
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT MIN(fecha), MAX(fecha), COUNT(*) "
+                        "FROM macro.series_macro WHERE serie = 'CER'")
+            desde, hasta, n = cur.fetchone() or (None, None, 0)
+    except Exception:
+        return f"la serie CER no tiene el dato del {fecha} (T−10 hábiles)"
+    if not hasta:
+        return "la serie CER está VACÍA en macro.series_macro"
+    if str(hasta) < fecha:
+        return (f"la serie CER llega hasta {hasta} y necesito el {fecha} "
+                f"(T−10 hábiles): la serie está ATRASADA, no es este bono")
+    return (f"la serie CER va de {desde} a {hasta} ({n:,} días) pero NO tiene "
+            f"el {fecha} (T−10 hábiles): es un HUECO en el medio, no un atraso")
 
 
 # Lo que se le pide a 1816 para poder simular un bono que TODAVÍA no tiene precio

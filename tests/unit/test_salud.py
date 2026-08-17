@@ -275,3 +275,29 @@ def test_el_diagnostico_se_cachea_por_incidente(monkeypatch):
     assert r["cacheado"] is True
     assert r["texto"] == "ya diagnosticado"
     assert llamadas == [], "no puede gastar tokens si ya está diagnosticado"
+
+
+def test_el_contrato_de_series_macro_MIRA_CADA_SERIE_POR_SEPARADO():
+    """El bug que el user cazó el 2026-08-17: *«la serie del CER tiene datos viejos,
+    o sea que es cualquiera que no lo detecte»*.
+
+    El contrato hacía `SELECT MAX(fecha) FROM macro.series_macro` **sin filtrar por
+    `serie`**, y esa tabla tiene DOLAR, CER, BADLAR, TAMAR, RiesgoPais e Inflación
+    mezcladas. Un MAX sobre N series independientes **responde por la más fresca**:
+    con el dólar actualizándose todos los días, el CER podía estar congelado hace
+    meses y el tablero seguía verde.
+
+    Es el mismo anti-patrón que ya apareció cinco veces en este proyecto: **un
+    agregado que tapa el detalle**."""
+    ids = [c["id"] for c in salud.CONTRATOS]
+    # El contrato ÚNICO de la tabla entera ya no existe: mentía por diseño.
+    assert "dato:macro.series_macro" not in ids
+    # Y en su lugar hay uno por serie crítica, cada uno con su filtro.
+    por_serie = [c for c in salud.CONTRATOS
+                 if c["tabla"] == "macro.series_macro"]
+    assert {c["filtro"]["valor"] for c in por_serie} >= {"CER", "DOLAR"}
+    for c in por_serie:
+        assert c["filtro"]["columna"] == "serie"
+        # Cada uno se silencia por separado — si compartieran id, apagar el ruido
+        # de una serie apagaría la alerta de las otras.
+        assert ids.count(c["id"]) == 1

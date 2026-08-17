@@ -71,9 +71,34 @@ CONTRATOS: list[dict[str, Any]] = [
     {"id": "dato:mercado.precios_acciones", "titulo": "Velas diarias de ADRs",
      "tabla": "mercado.precios_acciones", "columna": "fecha", "max_dias_habiles": 3,
      "detalle": "alimenta el Scanner y las ZONAS de Trading"},
-    {"id": "dato:macro.series_macro", "titulo": "Series macro (CER/dólar/tasas)",
-     "tabla": "macro.series_macro", "columna": "fecha", "max_dias_habiles": 3,
-     "detalle": "CER, BADLAR, TAMAR: entran a curvas y breakevens"},
+    # ⚠️ `macro.series_macro` NO se chequea entera: se chequea SERIE POR SERIE.
+    #
+    # El contrato original miraba `MAX(fecha)` de la tabla, que contiene DOLAR, CER,
+    # BADLAR, TAMAR, RiesgoPais e Inflación mezcladas — así que **respondía por la
+    # serie MÁS FRESCA**. Con el dólar actualizándose todos los días, el chequeo
+    # salía VERDE aunque el CER estuviera congelado hace meses (detectado
+    # 2026-08-17 por el user: *«es cualquiera que no lo detecte»*).
+    #
+    # Es el mismo anti-patrón que ya apareció cinco veces en este proyecto: **un
+    # agregado que tapa el detalle**. Un MAX sobre una tabla con N series
+    # independientes no dice nada sobre ninguna de ellas.
+    #
+    # Se declaran EXPLÍCITAS y no agrupando por `serie` a propósito: agrupar
+    # generaría un chequeo rojo por cada serie mensual, discontinuada o
+    # experimental que alguien haya escrito alguna vez. Sumar una es UNA línea.
+    *[{"id": f"dato:macro.series_macro:{serie}",
+       "titulo": f"Serie macro {serie}",
+       "tabla": "macro.series_macro", "columna": "fecha",
+       "filtro": {"columna": "serie", "valor": serie},
+       "max_dias_habiles": tope, "detalle": detalle}
+      for serie, tope, detalle in (
+          # El CER es FORWARD (`jobs.bcra --today` pide hoy+21d), así que un CER
+          # sano tiene el máximo por DELANTE de hoy. Si quedó atrás, ya falla.
+          ("CER", 3, "divisor de TODOS los bonos CER: valuación, TEA y breakevens"),
+          ("DOLAR", 3, "A3500 del BCRA: pesifica el AuM y las series de ACA"),
+          ("BADLAR", 5, "tasa de referencia de la curva BADLAR"),
+          ("TAMAR", 5, "tasa de referencia de los bonos TAMAR"),
+      )],
 ]
 
 
@@ -219,15 +244,27 @@ def _dias_habiles_atras(desde: datetime, hasta: datetime) -> int:
 def _chequeo_dato(c: dict, ahora: datetime) -> dict:
     base = {"id": c["id"], "familia": "dato", "titulo": c["titulo"],
             "detalle": c.get("detalle", ""), "tabla": c["tabla"]}
+    filtro = c.get("filtro") or {}
     try:
-        rows = _q(f"SELECT MAX({c['columna']}) AS ultima FROM {c['tabla']}")
+        if filtro:
+            # El VALOR va parametrizado; tabla y columna salen de CONTRATOS, que es
+            # config nuestra y no entrada de usuario.
+            rows = _q(f"SELECT MAX({c['columna']}) AS ultima FROM {c['tabla']} "
+                      f"WHERE {filtro['columna']} = %(v)s", {"v": filtro["valor"]})
+        else:
+            rows = _q(f"SELECT MAX({c['columna']}) AS ultima FROM {c['tabla']}")
     except Exception as e:
         return {**base, "estado": WARN, "motivo": "no pude consultar la tabla",
                 "evidencia": f"{type(e).__name__}: {e}", "ultimo_at": None}
     ultima = rows[0]["ultima"] if rows else None
     if ultima is None:
-        return {**base, "estado": ERROR, "motivo": "la tabla está vacía",
-                "evidencia": f"{c['tabla']} no tiene ninguna fila", "ultimo_at": None}
+        return {**base, "estado": ERROR,
+                "motivo": ("no hay ni una fila de esta serie" if filtro
+                           else "la tabla está vacía"),
+                "evidencia": (f"{c['tabla']} no tiene filas con "
+                              f"{filtro['columna']} = {filtro['valor']!r}" if filtro
+                              else f"{c['tabla']} no tiene ninguna fila"),
+                "ultimo_at": None}
     ult_dt = datetime(ultima.year, ultima.month, ultima.day, tzinfo=UTC) \
         if not isinstance(ultima, datetime) else ultima
     atraso = _dias_habiles_atras(ult_dt, ahora)
@@ -236,8 +273,10 @@ def _chequeo_dato(c: dict, ahora: datetime) -> dict:
     return {**base, "estado": estado,
             "motivo": ("al día" if estado == OK
                        else f"el último dato es de hace {atraso} días hábiles"),
-            "evidencia": (f"{c['tabla']}.{c['columna']} máximo = {ultima} "
-                          f"(tolerancia: {tope} días hábiles)"),
+            "evidencia": (f"{c['tabla']}.{c['columna']} máximo = {ultima}"
+                          + (f" para {filtro['columna']} = {filtro['valor']!r}"
+                             if filtro else "")
+                          + f" (tolerancia: {tope} días hábiles)"),
             "ultimo_at": ult_dt.isoformat()}
 
 

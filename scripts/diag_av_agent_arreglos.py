@@ -188,6 +188,8 @@ ARREGLOS = {
     "sin_espejo_assets": ("crear la fila en `portafolio.assets`", False),
     "tasa_externa":     ("ninguno: la tasa no la calculamos nosotros", False),
     "paridad_fosil":    ("ninguno en el dato: limpiar la métrica vieja del snapshot", False),
+    "paridad_del_motor": ("BUG del motor: el valor técnico CER ignora el residual vivo",
+                          False),
     "precio_sospechoso": ("verificar el precio (stale/ilíquido) o IGNORAR", False),
     "sin_precio":       ("ninguno hoy: no hay precio en ninguna fuente local", False),
     "sin_doc":          ("el ticker no está en mercado.curvas", False),
@@ -260,6 +262,23 @@ def _sumas_amortizacion(doc: dict) -> tuple[float, float]:
     return round(abs_, 6), round(pct, 6)
 
 
+def _motor_escribe_paridad(doc: dict, rama: str) -> tuple[bool, str]:
+    """¿El motor escribiría HOY una paridad para este bono?
+
+    Si la respuesta es NO y el snapshot igual tiene una, **esa paridad es un
+    fósil**: `market_snapshot` es un upsert PARCIAL, así que lo que el motor deja
+    de calcular no se borra — se queda ahí sin fecha propia, indistinguible de un
+    valor de hoy, y es lo que termina disparando el hallazgo.
+
+    Las tres puertas son las del propio `engines/curvas.py`, no criterios nuevos.
+    """
+    if rama == "otros":
+        return False, "la rama «otros» solo computa duration (curvas.py:733)"
+    if rama == "cer" and not _f(doc.get("cer_emision")):
+        return False, "CER sin `cer_emision` → sale en curvas.py:439"
+    return True, ""
+
+
 def _pata_cargada(simbolo: str, patas: list[dict]) -> dict | None:
     return next((p for p in patas if (p.get("simbolo") or "") == simbolo), None)
 
@@ -316,6 +335,15 @@ def _causa(*, doc: dict | None, hallazgo: dict, residual: float, n_fut: int,
                 f"{ejes.ajuste} → debería ser {esperada}. El motor despacha por "
                 f"`moneda_flujo`, así que el precio entra sin convertir.")
 
+    # ⚠️ El CER va ANTES que la forma del cuadro: sin `cer_emision` la rama sale en
+    # la línea 439 de `engines/curvas.py` **sin escribir TEA ni paridad**, así que
+    # todo lo que se vea guardado es de otra época y discutir el cuadro es discutir
+    # un síntoma que el motor ni siquiera produjo.
+    if (doc.get("ajuste") or "") == "cer" and not _f(doc.get("cer_emision")):
+        return "falta_cer", ("rama CER sin `cer_emision`: el motor sale sin calcular "
+                             "NADA (curvas.py:439), así que la paridad guardada es un "
+                             "fósil de antes")
+
     s_abs, s_pct = sumas
     if not residual and (s_abs or s_pct):
         otro = "amortizacion" if residual == s_pct else "amortizacion_pct"
@@ -327,8 +355,22 @@ def _causa(*, doc: dict | None, hallazgo: dict, residual: float, n_fut: int,
         return "escala_del_cuadro", (f"Σ amortizaciones futuras = {residual:,.2f} en "
                                      f"{n_fut} cupón/es (un cuadro sano ronda 100)")
 
-    if doc.get("ajuste") == "cer" and not _f(doc.get("cer_emision")):
-        return "falta_cer", "rama CER sin `cer_emision`: el cuadro no se puede escalar al VN"
+    # ⚠️ **UN BONO CER YA AMORTIZADO NO TIENE LA PARIDAD MAL: LA TIENE MAL EL MOTOR.**
+    # `curvas.py:457` arma el valor técnico con `valor_nominal` (estático, default
+    # 100) en vez del residual VIVO, así que un bono que ya amortizó el 80% muestra
+    # una paridad 5 veces más chica. TX26: 727,30 / (100 × ratio) × 100 = 20,07;
+    # con el residual real (20) da 100,4 — o sea perfectamente normal.
+    #
+    # Es la MISMA lección que E2.u (GD46: «el residual vivo sale del cuadro»), que
+    # se arregló en la rama ON y quedó pendiente en la CER. Se reporta aparte
+    # porque su arreglo NO es escribir un dato: es tocar el motor.
+    if rama == "cer" and 0 < residual < 99:
+        vn = _f(doc.get("valor_nominal")) or 100.0
+        if vn > residual * 1.05:
+            return "paridad_del_motor", (
+                f"el bono ya amortizó: residual vivo {residual:,.2f} contra "
+                f"`valor_nominal` {vn:,.2f}. El motor arma el valor técnico con el "
+                f"segundo → la paridad sale ×{vn / residual:,.1f} más chica de lo real")
 
     # La pata SIGUE siendo una causa real (falla #4), pero recién acá: un HD con la
     # pata peso y `moneda_flujo` bien se convierte solo, así que solo importa
@@ -457,13 +499,18 @@ def main(argv: list[str]) -> int:
               + ("   ⚠ CONTRADICE" if rama == "on" and mf != esperada else ""))
         print(f"  cuadro    Σ amort futuras {_n(residual)} en {n_fut} cupón/es"
               f"   [abs {_n(sumas[0])} · pct {_n(sumas[1])}]"
+              f"   valor_nominal {_n(_f((doc or {}).get('valor_nominal')))}"
               f"   cer_emision {_n(_f((doc or {}).get('cer_emision')), 4)}")
         print(f"  precio    live {_n(s.get('precio'), 4)} ({s.get('at') or 'sin fila'})"
               f"   cierre {_n(c.get('precio'), 4)} ({c.get('fecha') or 'sin fila'})"
               f"   hallazgo {_n(px_ev, 4)}")
+        escribe, por_que = _motor_escribe_paridad(doc, rama) if doc else (True, "")
         print(f"  paridad   guardada {_n(s.get('paridad'))}   REHECHA HOY "
               f"{_n(par_calc)}   del hallazgo {_n(_f(ev.get('paridad')))}"
               f"   tea guardada {_n(s.get('tea'), 4)}")
+        if not escribe and s.get("paridad") is not None:
+            print(f"    ⚠ FÓSIL: el motor NO escribe paridad para este bono "
+                  f"({por_que}), así que la guardada es de otra época")
         if nota_px:
             print(f"  motor     precio_calc {_n(px_calc, 4)} ({nota_px})")
         patas = patas_de.get(tk) or []
@@ -492,6 +539,31 @@ def main(argv: list[str]) -> int:
     total = sin_red + con_red
     print(f"\n  SE ARREGLAN SIN SALIR A LA RED: {sin_red}/{total}"
           f"   ·   NECESITAN 1816: {con_red}/{total}")
+
+    # ── EL CENSO: ¿cuántos bonos MÁS están así sin haber disparado un hallazgo?
+    #
+    # Los detectores solo ven lo que se sale de un rango. Un `moneda_flujo` mal
+    # puesto en un bono cuya paridad, por casualidad, cae adentro de [40, 160] no
+    # dispara nada **y está igual de mal valuado**. La pregunta no es cuántos
+    # hallazgos hay: es cuántos bonos tienen el defecto.
+    print("\n" + "=" * 100)
+    print("CENSO sobre TODO mercado.curvas (no solo los que dispararon hallazgo)")
+    mal, revisados, ejemplos = 0, 0, []
+    for d in docs.values():
+        ej = curvas_ejes.ejes_de_doc(d)
+        if ej is None or rama_calculo(d) != "on":
+            continue
+        revisados += 1
+        actual = (d.get("moneda_flujo") or "").strip().upper() or "(vacío)"
+        if actual != _moneda_flujo_esperada(ej):
+            mal += 1
+            if len(ejemplos) < 12:
+                ejemplos.append(f"{(d.get('ticker_corto') or '?')}"
+                                f"({actual}→{_moneda_flujo_esperada(ej)})")
+    print(f"  `moneda_flujo` que contradice a los ejes: {mal} de {revisados} bonos "
+          f"de la rama ON")
+    if ejemplos:
+        print("  " + " · ".join(ejemplos) + (" …" if mal > len(ejemplos) else ""))
     print("\n⚠️ Esto es una SOSPECHA con la evidencia al lado, no un veredicto: "
           "ningún renglón\n   de acá alcanza por sí solo para pisar un dato.\n")
     return 0

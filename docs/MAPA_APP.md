@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **504 endpoints** montados en `api.main.app`, en **30 routers**.
-- **179 escriben** (POST/PUT/PATCH/DELETE); 325 son de solo lectura.
+- **516 endpoints** montados en `api.main.app`, en **1 routers**.
+- **185 escriben** (POST/PUT/PATCH/DELETE); 331 son de solo lectura.
 - **23 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -47,48 +47,11 @@
 <!-- AUTOGEN:routers -->
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
-| `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
-| `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
-| `/api/analitica` | 14 | 1 | — | — | ⚠️ |
-| `/api/back-office` | 59 | 35 | `back-office` · 59 rutas con gate extra | `back-office` |  |
-| `/api/back-office/interbanking` | 3 | 0 | `back-office` · 2 rutas con gate extra | `back-office` |  |
-| `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
-| `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
-| `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
-| `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
-| `/api/estrategia` | 4 | 0 | `trading` | — |  |
-| `/api/ia` | 21 | 14 | `ia` · 20 rutas con gate extra | `ia` |  |
-| `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 146 | 69 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
-| `/api/market` | 4 | 0 | — | — | ⚠️ |
-| `/api/mesa-dinero` | 9 | 4 | — · 5 rutas con gate extra | — | ⚠️ |
-| `/api/news` | 3 | 0 | — | — | ⚠️ |
-| `/api/operaciones` | 50 | 8 | `operaciones` · 23 rutas con gate extra | `operaciones` |  |
-| `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
-| `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
-| `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
-| `/api/portfolio` | 16 | 3 | `portfolios` · 14 rutas con gate extra | `portfolios` |  |
-| `/api/research-bcra` | 2 | 0 | `research` | — |  |
-| `/api/research-docs` | 2 | 0 | `research` | — |  |
-| `/api/research-fred` | 2 | 0 | `research` | — |  |
-| `/api/research1816` | 11 | 0 | `research` | — |  |
-| `/api/risk` | 5 | 0 | `operar` | `operar` |  |
-| `/api/scanner` | 9 | 0 | `renta-variable` · 2 rutas con gate extra | — |  |
-| `/api/titulos` | 2 | 0 | — | `portfolios` | ⚠️ |
-| `/api/trading` | 9 | 1 | `trading` | `trading` |  |
-| `/api/valuaciones` | 7 | 0 | `portfolios` · 7 rutas con gate extra | — |  |
+| `(raíz)` | 516 | 185 | — · 509 rutas con gate extra | — | ⚠️ |
 
 **⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
 
-- `(raíz)` (2 de 2 rutas sin gate de módulo)
-- `/api/aca` (declara `aca`, no lo aplica)
-- `/api/analitica` (14 de 14 rutas sin gate de módulo)
-- `/api/cotizaciones` (33 de 34 rutas sin gate de módulo)
-- `/api/derivados` (13 de 18 rutas sin gate de módulo)
-- `/api/market` (4 de 4 rutas sin gate de módulo)
-- `/api/mesa-dinero` (9 de 9 rutas sin gate de módulo)
-- `/api/news` (3 de 3 rutas sin gate de módulo)
-- `/api/titulos` (declara `portfolios`, no lo aplica)
+- `(raíz)` (117 de 516 rutas sin gate de módulo)
 
 No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtime** (solo lo consume un test), y para los módulos que todos los roles tienen se decidió no gatear. Lo que sí implica es que **destildar esos módulos en Manager → Roles no bloquea nada server-side**: solo esconde el link en el menú.
 

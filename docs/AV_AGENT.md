@@ -580,8 +580,37 @@ puede cambiarlo un proceso automático de noche: un error ahí mueve bonos de ta
 en silencio, que es literalmente el bug de los pasos 14 y 16. El agente ve el
 hueco, lo mide y lo dice; construirlo es una decisión humana.
 
+### E1.g — dos bugs de la corrida real (2026-08-16)
+
+**1. El job contaba un hallazgo que no imprimía.** Total 59, bloques 18+2+38=58.
+La lista de tipos a mostrar estaba **escrita a mano** y `hueco_de_curva` —el
+detector recién agregado— no estaba. Ahora los tipos se DERIVAN de lo que vino, y
+un tipo sin etiqueta se imprime igual con su nombre crudo: **preferimos una fila
+fea a una fila que falta**. *Un hallazgo que el reporte no imprime es un hallazgo
+que no existe* — justo el modo de falla que ese detector vino a denunciar. Test
+que congela el invariante.
+
+**2. El diag concluyó sobre n=1.** `diag_curva_nueva` sondeó `badlar` con UN solo
+ticker (RMJ28, el único que ya estaba en `mercado.curvas`) y dictaminó "1816 no
+publica su tasa". **Con n=1, y encima un provincial ilíquido, eso no es una
+medición: es una anécdota.** Los BADLAR que importan (TB27, TB31P, TD26) todavía
+no están en nuestra base — el universo a sondear es el de 1816, no el nuestro.
+Ahora suma los tickers del catálogo `research.mkt_1816_instrumentos` (**0
+créditos**, ya está persistido) y **avisa explícitamente cuando la muestra es
+menor a 3**.
+
+**3. Y el tab de preguntas vacío mentía.** Con las 27 contestadas decía "no tengo
+nada que preguntarte" al lado de 38 hallazgos de severidad alta. *"No tengo
+preguntas" no es "no pasa nada"*: ahora el vacío dice cuántas cosas urgentes hay
+y linkea al tab que las tiene.
+
 ## Changelog
 
+- **2026-08-16 — E1.g, tres bugs de la corrida real.** El job contaba un tipo de
+  hallazgo que no imprimía (total 59, bloques 58); el diag de curva nueva
+  concluía sobre n=1 y ahora suma el universo de 1816 (0 créditos) y avisa si la
+  muestra es chica; y el tab de preguntas vacío decía "no pasa nada" al lado de 38
+  hallazgos altos.
 - **2026-08-16 — E1.f, huecos del SISTEMA.** Detector `hueco_de_curva`: los
   ajustes que existen en `mercado.curvas` pero no tienen pill (`badlar`, `tpm`,
   `caucion`) dejan bonos INVISIBLES sin dar error. Se reporta por ajuste, va

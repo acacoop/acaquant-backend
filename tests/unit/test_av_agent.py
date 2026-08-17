@@ -311,3 +311,26 @@ def test_un_faltante_de_un_ajuste_sin_curva_lo_AVISA_antes_del_alta():
           for h in av_agent.detectar_faltantes(univ, [], alcance="todo")}
     assert ev["TB27"]["ajuste_sin_curva"] is True
     assert ev["AL30"]["ajuste_sin_curva"] is False
+
+
+def test_el_RESUMEN_cuenta_TODOS_los_tipos_de_hallazgo():
+    """Invariante que se rompió el 2026-08-16: el job imprimía 59 en el total y
+    58 repartidos en los bloques, porque la lista de tipos a mostrar estaba
+    escrita a mano y `hueco_de_curva` no estaba. **Un hallazgo que el reporte no
+    imprime es un hallazgo que no existe** — justo el modo de falla que ese
+    detector vino a denunciar."""
+    hallazgos = [
+        _hall("falta_en_base"), _hall("sin_flujo"),
+        _hall("tasa_sospechosa"), _hall("hueco_de_curva"),
+        _hall("un_tipo_que_todavia_no_existe"),
+    ]
+    resumen: dict[str, int] = {}
+    for h in hallazgos:
+        resumen[h["tipo"]] = resumen.get(h["tipo"], 0) + 1
+    por_tipo = sum(v for k, v in resumen.items() if not k.startswith("regla:"))
+    assert por_tipo == len(hallazgos)
+
+
+def _hall(tipo: str) -> dict:
+    return {"tipo": tipo, "ticker": "X", "regla": "r", "severidad": "alta",
+            "motivo": "…", "evidencia": {}}

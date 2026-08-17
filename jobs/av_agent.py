@@ -108,9 +108,23 @@ def _imprimir(res: dict, detalle: bool) -> None:
             print(f"  ⚠ {fuente} no se pudo leer → la regla `{regla}` NO corrió "
                   "(no se marca lo que no se pudo mirar).")
 
-    tipos = [("falta_en_base", "Están en 1816 y NO en mi base"),
-             ("sin_flujo", "Míos SIN cronograma de flujos"),
-             ("tasa_sospechosa", "Tasas que pueden estar mal")]
+    # Los tipos se DERIVAN de lo que vino, no se listan a mano. La lista fija dejó
+    # el tipo `hueco_de_curva` contado en el total pero fuera del resumen y del
+    # detalle (2026-08-16): 59 hallazgos arriba y 58 en los bloques. Un hallazgo
+    # que el reporte no imprime es un hallazgo que no existe — justo el modo de
+    # falla que ese detector vino a denunciar.
+    _ETIQUETAS = {
+        "hueco_de_curva": "Le falta AL SISTEMA (no es un dato mal cargado)",
+        "falta_en_base": "Están en 1816 y NO en mi base",
+        "sin_flujo": "Míos SIN cronograma de flujos",
+        "tasa_sospechosa": "Tasas que pueden estar mal",
+    }
+    _ORDEN = list(_ETIQUETAS)
+    vistos = {h["tipo"] for h in res["hallazgos"]}
+    tipos = [(t, _ETIQUETAS.get(t, t)) for t in _ORDEN if t in vistos]
+    # Un tipo nuevo sin etiqueta igual se imprime, con su nombre crudo: preferimos
+    # una fila fea a una fila que falta.
+    tipos += [(t, t) for t in sorted(vistos) if t not in _ETIQUETAS]
     print(f"\n{'HALLAZGO':<38}{'N':>6}")
     print("─" * 44)
     for tipo, label in tipos:

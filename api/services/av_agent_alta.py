@@ -2506,6 +2506,104 @@ def aplicar_flujos(ticker: str, *, actor: str = "",
 # sin la segunda se pisaría un bono que ya estaba bien —el hallazgo pudo quedar
 # viejo, o el umbral pudo ser demasiado angosto para ese instrumento— y eso es
 # estrictamente peor que no hacer nada.
+# ── DIAGNÓSTICO LOCAL: lo que se puede afirmar SIN preguntarle a nadie ────────
+#
+# **Un bono que YA tiene precio y cuadro no necesita a 1816 para saber qué le
+# pasa** (user, 2026-08-17: *«no entiendo qué tiene que ver 1816 si esto ya
+# existe, ya tenemos precio y flujo»*). Tenía razón, y era la falla de diseño de
+# esta puerta: nació consultando a 1816 en la PRIMERA instancia, así que cuando
+# 1816 no está —rate limit, caída, un bono que no cubre— no dice absolutamente
+# nada, ni siquiera lo que se deduce de una división.
+#
+# La paridad ES `precio / residual`. Si el resultado se va de escala, uno de los
+# dos lados está en la unidad equivocada, y **cuál de los dos se sabe mirando el
+# residual**: un cuadro sano tiene el residual cerca de 100 (el bono cotiza por
+# 100 de VN). Con los números reales de producción:
+#
+#     OLC3O  paridad 0,06%      → residual ~1.600x de lo normal  → EL CUADRO
+#     RC1CO  paridad 167.830%   → residual 100 (sano)            → EL PRECIO
+#
+# Los dos son diagnósticos distintos y los dos salen de una división. 1816 queda
+# donde corresponde: para CONFIRMAR y para traer el cuadro de reemplazo, no para
+# poder abrir la boca.
+_RESIDUAL_MIN, _RESIDUAL_MAX = 10.0, 1000.0   # un residual sano ronda 100
+
+
+def _residual_vivo(doc: dict, rama: str) -> tuple[float, int]:
+    """Σ de las amortizaciones FUTURAS del cuadro guardado, con los MISMOS
+    accesores del motor — si usara otros, el diagnóstico hablaría de un cuadro
+    distinto del que se valúa."""
+    from engines.curvas import fecha_flujo
+
+    hoy = date.today()
+    campo = "amortizacion" if rama in ("on", "tasa_fija") else "amortizacion_pct"
+    total, n = 0.0, 0
+    for f in doc.get("flujos") or []:
+        fd = fecha_flujo(f)
+        if fd and fd > hoy:
+            total += float(f.get(campo) or 0.0)
+            n += 1
+    return round(total, 6), n
+
+
+def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
+    """Los pasos que NO dependen de 1816. Corren siempre y van primeros."""
+    from api.services.av_agent import PARIDAD_MAX, PARIDAD_MIN
+
+    ps: list[dict] = []
+    _, job_tasa = tasa_externa_de(doc.get("ajuste"))
+    if rama not in (*RAMAS_AUTOMATICAS, "on"):
+        ps.append(_paso("rama_local", "¿A este bono le calculamos la tasa?", INFO,
+                        f"rama «{rama}»: **no la calculamos nosotros**"
+                        + (f" — la trae {job_tasa}." if job_tasa else
+                           ". Cae en el `else` del motor, que solo devuelve "
+                           "duration.")
+                        + " Un hallazgo de tasa sobre este bono no se arregla "
+                          "tocando el cuadro.",
+                        tabla="engines/curvas.py::rama_calculo"))
+        return ps
+
+    residual, n_fut = _residual_vivo(doc, rama)
+    paridad = est.get("paridad")
+    precio = est.get("precio")
+    escala_mal = bool(residual) and not (_RESIDUAL_MIN <= residual <= _RESIDUAL_MAX)
+
+    ps.append(_paso("escala_local", "La escala del cuadro que YA está cargado",
+                    REVISAR if escala_mal else OK,
+                    (f"Σ de las amortizaciones futuras = **{residual:,.2f}** en "
+                     f"{n_fut} cupón/es. Un cuadro sano ronda **100** (el bono "
+                     f"cotiza por 100 de VN), así que este está **{residual / 100:,.0f}× "
+                     "más grande**: está en NOMINALES DE LA EMISIÓN y no en base "
+                     "100. Es la misma falla que midió D30O6 (Σ=148.869)."
+                     if escala_mal and residual > _RESIDUAL_MAX else
+                     f"Σ de las amortizaciones futuras = **{residual:,.4f}** en "
+                     f"{n_fut} cupón/es, muy por debajo de 100: el cuadro está en "
+                     "una escala más chica que el precio."
+                     if escala_mal else
+                     f"Σ de las amortizaciones futuras = **{residual:,.2f}** en "
+                     f"{n_fut} cupón/es → está en base 100, como corresponde."),
+                    tabla="mercado.curvas (el cuadro guardado, sin consultar a 1816)"))
+
+    # LA DIVISIÓN. Es toda la aritmética de la paridad, hecha a la vista.
+    if isinstance(paridad, int | float) and isinstance(precio, int | float):
+        culpa = ("**EL CUADRO**: el residual está fuera de escala, el precio no."
+                 if escala_mal else
+                 "**EL PRECIO**: el cuadro está en base 100, así que el que no "
+                 "está en la unidad del cuadro es el precio — típicamente un bono "
+                 "en dólares cuyo precio viene en pesos, o al revés.")
+        ok_par = PARIDAD_MIN <= float(paridad) <= PARIDAD_MAX
+        ps.append(_paso("division_local", "Dónde está el problema, por división",
+                        OK if ok_par else REVISAR,
+                        f"paridad = precio / residual = {float(precio):,.4f} / "
+                        f"{residual:,.4f} = **{float(paridad):,.4f}%**"
+                        + (". En rango — por acá no es." if ok_par else
+                           f". Fuera de [{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}] → " + culpa),
+                        tabla="engines/curvas.py (la misma cuenta del motor)"))
+    for i, p in enumerate(ps, 1):
+        p["n"] = i
+    return ps
+
+
 @_interactivo
 def simular_arreglo(ticker: str, *, cer_emision: float | None = None) -> dict:
     """Qué insumo está mal en un bono con TASA SOSPECHOSA, y qué pasaría al
@@ -2658,6 +2756,11 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
                        if out.get("ejes_hoy") else "**NINGUNO** — este bono no cae "
                        "en ninguna curva y desaparece de la vista sin dar error"),
                     tabla="mercado.curvas + mercado.market_snapshot"))
+
+    # ── EL DIAGNÓSTICO LOCAL, ANTES QUE NADA. No depende de 1816, así que
+    # aparece aunque estén rechazándonos por rate limit — que es exactamente
+    # cuando más falta hace. En muchos casos ya contesta la pregunta entera.
+    ps.extend(_diagnostico_local(doc, rama, antes))
 
     # EJES. Solo aparece si faltan: los que cargó la mesa no se discuten.
     if out.get("ejes_hoy") is None:

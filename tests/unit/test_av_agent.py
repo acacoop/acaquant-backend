@@ -1999,3 +1999,67 @@ def test_las_puertas_del_agente_tienen_PRESUPUESTO_de_tiempo():
         "pone lento, esa devuelve un 524 en vez de un error que se entiende")
     # Y los jobs NO: su paciencia larga es correcta, nadie los está mirando.
     assert "_interactivo" not in inspect.getsource(mercado_1816)
+
+
+def test_el_DIAGNOSTICO_LOCAL_no_depende_de_1816():
+    """*«No entiendo qué tiene que ver 1816 si esto ya existe, ya tenemos precio y
+    flujo»* (user, 2026-08-17). Tenía razón, y era la falla de diseño de la puerta
+    ARREGLO: nació consultando a 1816 en la PRIMERA instancia, así que cuando 1816
+    no está —rate limit, caída, un bono que no cubre— no decía **nada**, ni
+    siquiera lo que se deduce de una división.
+
+    La paridad ES `precio / residual`. Si el resultado se va de escala, uno de los
+    dos lados está en la unidad equivocada, y **cuál de los dos se sabe mirando el
+    residual**: un cuadro sano lo tiene cerca de 100 (el bono cotiza por 100 de
+    VN). Con los números REALES de producción, los mismos datos dan diagnósticos
+    OPUESTOS:
+
+        OLC3O  paridad 0,06%      residual 166.000  → EL CUADRO (nominales)
+        RC1CO  paridad 167.830%   residual 100      → EL PRECIO (otra moneda)
+        DHSGO  rama tamar                           → no lo valuamos nosotros
+
+    Ninguno necesita la red. 1816 queda donde corresponde: para CONFIRMAR y para
+    traer el cuadro de reemplazo, no para poder abrir la boca."""
+    from datetime import date as _date
+    from datetime import timedelta
+
+    from api.services.av_agent_alta import _diagnostico_local, _residual_vivo
+
+    fut = (_date.today() + timedelta(days=200)).isoformat()
+
+    # OLC3O — el cuadro está en NOMINALES DE LA EMISIÓN.
+    doc = {"flujos": [{"fecha": fut, "amortizacion": 166000.0}], "ajuste": "dolar_linked"}
+    ps = _diagnostico_local(doc, "on", {"paridad": 0.06, "precio": 137280.0})
+    txt = " ".join(p["detalle"] for p in ps)
+    assert "NOMINALES DE LA EMISIÓN" in txt
+    assert "EL CUADRO" in txt and "EL PRECIO" not in txt.split("→")[-1]
+
+    # RC1CO — el cuadro está BIEN; el que está fuera de escala es el precio.
+    doc2 = {"flujos": [{"fecha": fut, "amortizacion": 100.0}], "ajuste": "fija"}
+    ps2 = _diagnostico_local(doc2, "on", {"paridad": 167830.0, "precio": 167830.0})
+    txt2 = " ".join(p["detalle"] for p in ps2)
+    assert "base 100, como corresponde" in txt2
+    assert "EL PRECIO" in txt2
+
+    # DHSGO — un TAMAR no lo valuamos nosotros: el hallazgo no se arregla acá.
+    ps3 = _diagnostico_local({"ajuste": "tamar"}, "otros", {})
+    assert "no la calculamos nosotros" in ps3[0]["detalle"]
+
+    # El residual sale con los MISMOS accesores del motor y solo cuenta FUTUROS.
+    doc3 = {"flujos": [{"fecha": "2001-01-01", "amortizacion": 999.0},
+                       {"fecha": fut, "amortizacion": 50.0}]}
+    assert _residual_vivo(doc3, "on") == (50.0, 1)
+
+
+def test_el_diagnostico_LOCAL_va_PRIMERO_en_la_cadena():
+    """Va antes que cualquier paso que toque 1816, y por una razón concreta: es
+    exactamente cuando 1816 NO responde que hace falta. Si fuera después, un rate
+    limit lo dejaría fuera de la pantalla."""
+    import inspect
+
+    from api.services import av_agent_alta
+
+    ch = inspect.getsource(av_agent_alta._chequeos_arreglo)
+    assert "ps.extend(_diagnostico_local(" in ch
+    assert ch.index("_diagnostico_local(") < ch.index('_paso("cuadro"')
+    assert ch.index("_diagnostico_local(") < ch.index("cot_prop")

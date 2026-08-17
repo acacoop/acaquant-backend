@@ -1314,8 +1314,70 @@ cargar algo».
 esconder el botón y rechazar la escritura no pueden desincronizarse — y pegarle
 al endpoint a mano tampoco saltea el bloqueo.
 
+### E2.l — AVISOS: el agente hace el 95% y anota el 5% (2026-08-17)
+
+Tres cosas de la corrida de TZXA7, y las tres son la misma idea de fondo.
+
+**1. El CER de emisión BLOQUEABA, y era la decisión equivocada.** El user:
+
+> *«Está bien que se cargue sin CER de emisión. Solamente tiene que haber una
+> sección acá en el agente que se llame AVISOS, y todo lo que aparezca ahí es
+> para hacer manual. A los CER les perdonamos: igual me saca el laburo de
+> cargarlo en la base y hacer todo el trabajo, me lo deja sencillo, solo poner el
+> CER de emisión y nada más.»*
+
+Tiene razón y cambia la postura del agente. El alta baja los flujos, resuelve los
+ejes, completa la ficha, siembra las especies y valida la cadena entera. Negarse
+a todo eso porque falta **un número que ninguna fuente publica** es tirar el
+trabajo hecho. Ahora el CER faltante es `revisar` + **aviso**: el bono entra y el
+pendiente queda anotado. Sigue frenando la lane **automática** — un robot dejaría
+el bono sin tasa y sin nadie enterado.
+
+**La tab AVISOS se DERIVA, no se persiste.** Mismo criterio que SALUD: un aviso
+guardado hay que acordarse de cerrarlo, y una lista de pendientes que nadie
+limpia se deja de mirar a la semana. Acá **el aviso ES la condición** — cargás el
+`cer_emision` y la fila desaparece sola. No hay botón de «resuelto» porque no
+hace falta, y no puede quedar desactualizada. Alcance: los bonos que dio de alta
+**el agente**; auditar los 221 cargados a mano en dos años es otra pregunta.
+
+**2. Una causa, tres pasos en rojo.** El user, sobre el paso del precio:
+
+> *«No lo entiendo, no es claro. Si hay flujo y hay precio, ¿por qué no podrías
+> simular? Y 1816 tasa tiene.»*
+
+**Verificado en `engines/curvas.py:438`**: la rama CER, sin `cer_emision`,
+devuelve solo `duration` y sale. O sea que el paso 4 (falta el CER) **causaba**
+el paso 8 (el motor no dio TEA) y el paso 9 (no hay paridad para cotejar). La
+pantalla mostraba tres problemas donde había uno — y el paso 8 encima mandaba a
+*«revisar la escala del cuadro y la pata»*, que no tenía nada que ver.
+
+**Un diagnóstico que apunta al lugar equivocado es peor que no tenerlo**: hace
+perder el tiempo buscando donde no está. Ahora, cuando la causa se conoce, el
+paso consecuente la nombra (*«sin TEA: falta el CER de emisión»*) y **deja de
+contar como hallazgo propio** — el que frena es la causa, no el síntoma.
+
+**3. Los mensajes eran ensayos.** *«En general pasa que los mensajes son mucho
+texto y poco claros, muchas palabras.»* Reescritos todos a una línea:
+
+| antes | ahora |
+|---|---|
+| «sin snapshot todavía, así que se usó el **precio de referencia de 1816**: 120.75 al 2026-08-14 — pero el motor **NO devolvió TEA** con este cuadro y este precio. No es una sospecha: se le dieron los dos insumos reales y no calculó, así que el bono nacería con la celda de tasa vacía. Ese precio NO se guarda: es solo para poder calcular antes de aplicar.» | «precio de 1816 120.75 (2026-08-14, no se guarda) → sin TEA: falta el CER de emisión (paso de arriba)» |
+
+La regla que queda: **el detalle de un paso es una línea**. Si necesita un
+párrafo, el que sobra es el párrafo, no el lugar donde ponerlo.
+
 ## Changelog
 
+- **2026-08-17 — E2.l, AVISOS y causalidad entre pasos.** El CER de emisión **ya
+  no bloquea**: pasa a `revisar` + aviso, porque negarse a hacer el 95% del alta
+  por un dato que ninguna fuente publica es tirar el trabajo hecho (decisión del
+  user). Tab **AVISOS** nueva, **derivada en vivo** contra el master → se cierra
+  sola al cargar el dato, sin botón de «resuelto». **Causalidad**: verificado en
+  `engines/curvas.py:438` que sin `cer_emision` la rama CER sale con solo
+  duration, así que UNA causa pintaba TRES pasos en rojo y el del precio mandaba
+  a revisar la escala, que no tenía nada que ver — ahora el paso consecuente
+  nombra la causa y no cuenta como hallazgo propio. Y **todos los mensajes
+  reescritos a una línea**: el detalle de un paso no puede ser un párrafo. 2 tests.
 - **2026-08-17 — E2.k, los CINCO estados y qué frena qué.** `atencion` mezclaba
   «esto está mal» con «esto es lo que va a pasar», así que **una contradicción
   probada del cronograma se leía igual que un aviso de rutina** y el alta quedaba

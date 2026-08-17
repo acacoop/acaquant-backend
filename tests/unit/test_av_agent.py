@@ -472,11 +472,11 @@ def test_sin_especie_NO_bloquea_porque_sembrarla_es_parte_del_alta():
                    origen_simbolo="armado")
     p5 = next(p for p in ps if p["clave"] == "especie")
     assert p5["estado"] == "info"            # informativo: el alta la siembra
-    assert "ARMADO" in p5["detalle"]
+    assert "armado" in p5["detalle"]
     # El paso de siembra existe, va ÚLTIMO, y dice que no hay que correr nada.
     sembrar = next(p for p in ps if p["clave"] == "sembrar")
     assert ps[-1]["clave"] == "sembrar"
-    assert "PESOS" in sembrar["detalle"] and "DÓLARES" in sembrar["detalle"]
+    assert "pesos" in sembrar["detalle"] and "dólares" in sembrar["detalle"]
     assert "no hay que correr nada" in sembrar["accion"]
 
 
@@ -505,7 +505,7 @@ def test_primary_sin_el_simbolo_BLOQUEA_porque_nunca_va_a_tener_precio():
 def test_un_ticker_que_YA_esta_en_el_master_avisa_que_lo_va_a_pisar():
     ps = _chequear(ctx={"ok": True, "especies": [], "ya_en_curvas": True,
                         "simbolo_actual": "MERV - XMEV - TZXD8 - CI", "assets": []})
-    assert ps[0]["clave"] == "ya_existe" and "PISAR" in ps[0]["detalle"]
+    assert ps[0]["clave"] == "ya_existe" and "PISA" in ps[0]["detalle"]
     # El `n` es presentación: se numera sobre los pasos que aplicaron.
     assert [p["n"] for p in ps] == list(range(1, len(ps) + 1))
 
@@ -621,9 +621,9 @@ def test_el_precio_de_1816_se_usa_solo_si_NO_hay_snapshot():
                    ref={"precio": 95.0, "tea": 0.068, "fecha": "2026-08-15"})
     p = next(x for x in ps if x["clave"] == "precio")
     assert p["estado"] == "ok"
-    assert "referencia de 1816" in p["detalle"]
+    assert "precio de 1816" in p["detalle"]
     # ...y se dice explícito que NO se persiste: `market_snapshot` es del motor.
-    assert "NO se guarda" in p["detalle"]
+    assert "no se guarda" in p["detalle"]
 
 
 def test_un_CER_CERO_CUPON_conserva_su_CRONOGRAMA_no_se_vuelve_bullet():
@@ -654,11 +654,11 @@ def test_la_ESCALA_no_se_reporta_donde_no_afecta_a_nada():
     conv = {"n": 1, "suma_amort": 112.65, "escala": "nominales", "flujos": [],
             "flujo_vencimiento": None}
     cer = next(p for p in _chequear(rama="cer", conv=conv) if p["clave"] == "cuadro")
-    assert cer["estado"] == "ok" and "PORCENTAJES" in cer["detalle"]
+    assert cer["estado"] == "ok" and "porcentajes" in cer["detalle"]
     # ...pero en `soberanos` los montos son ABSOLUTOS y ahí sí importa.
     sob = next(p for p in _chequear(rama="soberanos", conv=conv)
                if p["clave"] == "cuadro")
-    assert sob["estado"] == "info" and "ABSOLUTOS" in sob["detalle"]
+    assert sob["estado"] == "info" and "montos absolutos" in sob["detalle"]
 
 
 # ── La FICHA y la TASA EXTERNA en el alta (2026-08-17) ──────────────────────
@@ -807,7 +807,7 @@ def test_hay_precio_y_el_motor_NO_da_TEA_es_un_BLOQUEO_no_un_tilde_verde():
     real y el precio real, y no calculó."""
     ps = _chequear(precio=69.0, tea=None, fuente_precio="1816")
     p = next(x for x in ps if x["clave"] == "precio")
-    assert p["estado"] == "bloquea" and "NO devolvió TEA" in p["detalle"]
+    assert p["estado"] == "bloquea" and "no calculó la TEA" in p["detalle"]
 
 
 def test_pero_en_un_TAMAR_que_el_motor_no_de_TEA_es_lo_ESPERADO(monkeypatch):
@@ -837,3 +837,43 @@ def test_UNA_sola_funcion_decide_si_la_rama_se_da_de_alta_sola():
     tamar = Ejes("soberano", "ARS", "tamar")
     assert "otros" not in RAMAS_AUTOMATICAS       # la rama sola diría que NO...
     assert _alta_automatica("otros", tamar) is True   # ...y la respuesta es SÍ
+
+
+def test_el_CER_de_emision_NO_bloquea_el_alta_pero_deja_un_AVISO():
+    """**Decisión del user (2026-08-17), y es un cambio de postura del agente.**
+
+        *«Está bien que se cargue sin CER de emisión. A los CER les perdonamos:
+        igual me saca el laburo de cargarlo en la base y hacer todo el trabajo,
+        me lo deja sencillo, solo poner el CER de emisión y nada más.»*
+
+    Negarse a hacer el 95% del trabajo —flujos, ejes, ficha, especies— porque no
+    se puede hacer el 5% es tirar lo hecho. El aviso reemplaza al bloqueo: el
+    bono entra y el pendiente queda anotado. Sigue frenando la lane AUTOMÁTICA,
+    porque un robot dejaría el bono sin tasa y sin nadie enterado."""
+    ps = _chequear(cer_emision=None, nota_cer="la serie CER no llega hasta 2025-11-28")
+    p = next(x for x in ps if x["clave"] == "cer_emision")
+    assert p["estado"] == "revisar"
+    assert p["frena"] is False and p["frena_auto"] is True
+    assert "CER de emisión" in p["aviso"] and "Manager" in p["aviso"]
+    from api.services.av_agent_alta import _veredicto
+    assert _veredicto(ps)["puede_aplicar"] is True
+
+
+def test_sin_CER_el_paso_del_precio_dice_la_CAUSA_y_no_culpa_a_la_escala():
+    """**El reclamo del user sobre TZXA7: «no lo entiendo, no es claro. Si hay
+    flujo y hay precio, ¿por qué no podrías simular?»**
+
+    Tenía razón. `engines/curvas.py:438` sale con solo duration si falta
+    `cer_emision`, así que UNA causa pintaba TRES pasos en rojo — y el del precio
+    encima mandaba a «revisar la escala del cuadro y la pata», que no tenía nada
+    que ver. Un diagnóstico que apunta al lugar equivocado hace perder más tiempo
+    que no tenerlo."""
+    ps = _chequear(cer_emision=None, nota_cer="x", precio=120.75, tea=None,
+                   fuente_precio="1816")
+    p = next(x for x in ps if x["clave"] == "precio")
+    # NO es un hallazgo propio: es consecuencia del paso de arriba.
+    assert p["estado"] == "ok" and p["frena"] is False
+    assert "falta el CER de emisión" in p["detalle"]
+    assert "escala" not in p["accion"]
+    # Y el único que bloquea o avisa es la CAUSA, no el síntoma.
+    assert [x["clave"] for x in ps if x["frena_auto"]] == ["cer_emision"]

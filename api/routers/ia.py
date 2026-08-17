@@ -350,6 +350,29 @@ def av_agent_aplicar_flujos(body: FlujosAvAgent, email: str = Depends(get_user_e
                                         cer_emision=body.cer_emision)
 
 
+@router.post("/av-agent/simular-arreglo", dependencies=[Depends(require_admin)])
+def av_agent_simular_arreglo(body: FlujosAvAgent):
+    """E3.j — qué INSUMO está mal en un bono con tasa sospechosa. **No escribe.**
+
+    Corre el motor dos veces (el bono como está HOY y con la propuesta de 1816) y
+    coteja las dos contra ellos. El ANTES es la mitad del diagnóstico: sin esa
+    columna no hay forma de saber si el arreglo mejora algo."""
+    from api.services import av_agent_alta
+    return av_agent_alta.simular_arreglo(body.ticker, cer_emision=body.cer_emision)
+
+
+@router.post("/av-agent/aplicar-arreglo", dependencies=[Depends(require_admin)])
+def av_agent_aplicar_arreglo(body: FlujosAvAgent, email: str = Depends(get_user_email)):
+    """E3.j — **la única puerta que PISA un dato existente.**
+
+    Por eso su cadena exige las DOS mitades: que la propuesta coincida con 1816 y
+    que lo de hoy NO. Sin la segunda se pisaría un bono que ya estaba bien, que es
+    estrictamente peor que no hacer nada."""
+    from api.services import av_agent_alta
+    return av_agent_alta.aplicar_arreglo(body.ticker, actor=email or "",
+                                         cer_emision=body.cer_emision)
+
+
 class SimularAvAgent(BaseModel):
     ticker: str = Field(..., min_length=2, max_length=32)
     curva_1816: str = Field(..., min_length=2, max_length=80)

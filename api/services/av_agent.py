@@ -100,6 +100,10 @@ def _es_pata(ticker: str) -> bool:
 ACCION_POR_TIPO = {
     "falta_en_base": "alta",    # el bono no existe → se crea entero
     "sin_flujo": "flujos",      # el bono existe → se completa el cronograma
+    # El bono existe Y tiene cuadro, pero un INSUMO está mal (los ejes o la
+    # escala). Es la única acción que PISA un dato, así que su cadena exige las
+    # dos mitades: que la propuesta coincida con 1816 y que lo de hoy NO.
+    "tasa_sospechosa": "arreglo",
 }
 
 

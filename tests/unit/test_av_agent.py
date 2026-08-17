@@ -1857,3 +1857,73 @@ def test_un_sin_flujo_CADUCA_cuando_el_bono_ya_tiene_cronograma():
 
     # `tasa_sospechosa` NO caduca, y es a propósito: depende del precio del día.
     assert "tasa_sospechosa` habla de la TASA" in fuente
+
+
+def test_ARREGLAR_solo_pisa_si_la_propuesta_coincide_Y_lo_de_hoy_NO():
+    """El último tipo que era solo un comentario: `tasa_sospechosa` (38 filas,
+    tres síntomas — `sin_ejes`, `sin_tea_con_precio`, `paridad_fuera_de_rango`
+    con valores como 156.570% en LOC6O y 0,0% en PECKO).
+
+    Los tres son el MISMO problema visto de tres lados: un INSUMO está mal —los
+    ejes o la escala del cuadro— y el motor no puede avisar porque no tiene con
+    qué comparar. Nosotros sí: 1816 publica la curva del bono y su cronograma.
+
+    **Pero esta puerta es distinta de las otras dos y necesita otra garantía.** El
+    alta escribe un bono que no existe y completar-cronograma llena un campo
+    vacío: lo peor que puede pasar es no mejorar nada. Acá se PISA un dato que ya
+    está, así que la regla de aplicación tiene DOS mitades:
+
+        se aplica solo si la propuesta coincide con 1816 **y lo de hoy NO**
+
+    Sin la primera se pisaría con algo no verificado. Sin la segunda se pisaría un
+    bono que YA estaba bien —el hallazgo pudo quedar viejo, o el umbral pudo ser
+    angosto para ese instrumento— y eso es estrictamente peor que no hacer nada.
+
+    Este test congela las dos mitades y el detalle que las hace posibles: que el
+    ANTES y el DESPUÉS se juzguen con **la misma función** (`_cotejo_tea`), porque
+    dos varas distintas harían que «mejoró» dependa de cuál se aplicó a cuál."""
+    import inspect
+
+    from api.services import av_agent, av_agent_alta
+
+    assert av_agent.ACCION_POR_TIPO["tasa_sospechosa"] == "arreglo"
+
+    ch = inspect.getsource(av_agent_alta._chequeos_arreglo)
+    # (1) La propuesta se coteja contra 1816.
+    assert 'cot_prop["clave"], cot_prop["titulo"] = "cotejo_propuesto"' in ch
+    # (2) Y lo de HOY también — y si YA coincide, BLOQUEA.
+    assert "ya_estaba_bien = cot_hoy[\"estado\"] == OK" in ch
+    assert "BLOQUEA if ya_estaba_bien else OK" in ch
+    assert "pisarlo sería empeorarlo" in ch
+    # (3) La MISMA vara para los dos: un solo helper, invocado dos veces.
+    assert ch.count("_cotejo_de(") == 2
+    assert "_cotejo_tea" in inspect.getsource(av_agent_alta._cotejo_de)
+
+    # Y los EJES se escriben en COLUMNAS, no en el blob: `_COLS_FUERA_DEL_BLOB`
+    # se mergea ENCIMA del jsonb, así que un eje escrito solo en `data` lo pisa
+    # el NULL de la columna y queda invisible para el motor y para la vista.
+    ap = inspect.getsource(av_agent_alta.aplicar_arreglo)
+    assert 'sets.append(f"{col} = %s")' in ap
+    assert '"emisor_tipo", "moneda_eje", "ajuste", "ajuste_alt", "ley"' in ap
+    assert "|| %s::jsonb" in ap, "el blob se MERGEA, no se reemplaza"
+    # El ANTES queda congelado en el libro: sin eso, «revertir» es una promesa.
+    assert "antes=antes" in ap
+
+
+def test_los_ejes_propuestos_salen_de_la_CURVA_que_1816_publica():
+    """Un `sin_ejes` no se arregla adivinando: 1816 dice en qué curva está el bono
+    (`research.mkt_1816_instrumentos.curva`) y `curvas_ejes.desde_1816` la
+    traduce — la MISMA función que usa el alta. El campo no se estaba trayendo,
+    así que la propuesta no tenía de dónde salir."""
+    import inspect
+
+    from api.services import av_agent_alta
+
+    ficha = inspect.getsource(av_agent_alta._ficha_1816)
+    assert "curva" in ficha and '"curva_1816": r[7]' in ficha
+
+    sim = inspect.getsource(av_agent_alta.simular_arreglo)
+    assert "curvas_ejes.desde_1816(curva_1816)" in sim
+    # **Solo si FALTAN.** Los ejes que cargó la mesa son la verdad y no se
+    # discuten — misma regla que en completar-cronograma.
+    assert "if ejes_actuales is None:" in sim

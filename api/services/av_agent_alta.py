@@ -1625,15 +1625,19 @@ def _ficha_1816(ticker: str) -> dict:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT fecha_emision, denominacion, emisor, isin, "
-                        "moneda_denom, moneda_pago, fecha_vencimiento FROM "
+                        "moneda_denom, moneda_pago, fecha_vencimiento, curva FROM "
                         "research.mkt_1816_instrumentos WHERE ticker = %s", (ticker,))
             r = cur.fetchone()
         if not r:
             return {}
+        # `curva` es lo que 1816 dice que ES este bono, y es la entrada de
+        # `curvas_ejes.desde_1816`. Sin ella un `sin_ejes` no tenía de dónde
+        # sacar la propuesta y quedaba como un comentario (E3.j).
         return {"fecha_emision": r[0].isoformat() if r[0] else "",
                 "denominacion": r[1], "emisor": r[2], "isin": r[3],
                 "moneda_denom": r[4], "moneda_pago": r[5],
-                "fecha_vencimiento": r[6].isoformat() if r[6] else ""}
+                "fecha_vencimiento": r[6].isoformat() if r[6] else "",
+                "curva_1816": r[7] or ""}
     except Exception:
         return {}
 
@@ -2438,3 +2442,327 @@ def aplicar_flujos(ticker: str, *, actor: str = "",
     return {**sim, "aplicado": True,
             "aviso": "los motores leen mercado.curvas al arrancar: reiniciar "
                      "motor_curvas para que empiece a calcular su TEA"}
+
+
+# ── E3.j — ARREGLAR una TASA SOSPECHOSA ───────────────────────────────────────
+#
+# El último tipo de hallazgo que era solo un comentario. Son 38 filas y tres
+# síntomas: `sin_ejes` (el bono no cae en ninguna curva y desaparece de la vista
+# sin dar error), `sin_tea_con_precio` (el XIRR no converge) y
+# `paridad_fuera_de_rango` (156.570% en LOC6O, 0,0% en PECKO).
+#
+# **Los tres son el mismo problema visto de tres lados**: un INSUMO del bono está
+# mal —los ejes, o la escala del cuadro— y el motor no puede avisar porque no
+# tiene con qué comparar. Nosotros sí: 1816 publica la curva a la que pertenece y
+# el cronograma completo. Es exactamente lo que ya usamos para DICP.
+#
+# **La diferencia con las otras dos puertas, y por qué necesita otra garantía.**
+# El alta escribe un bono que no existe y completar-cronograma llena un campo
+# vacío: en los dos casos, lo peor que puede pasar es no mejorar nada. Acá se
+# PISA un dato que ya está. Por eso la regla de aplicación es más dura y se puede
+# decir en una línea:
+#
+#   > Se aplica **solo si el propuesto coincide con 1816 y el actual NO**.
+#
+# Las dos mitades importan. Sin la primera se pisaría con algo no verificado;
+# sin la segunda se pisaría un bono que ya estaba bien —el hallazgo pudo quedar
+# viejo, o el umbral pudo ser demasiado angosto para ese instrumento— y eso es
+# estrictamente peor que no hacer nada.
+def simular_arreglo(ticker: str, *, cer_emision: float | None = None) -> dict:
+    """Qué insumo está mal en un bono con TASA SOSPECHOSA, y qué pasaría al
+    arreglarlo. **No escribe.**
+
+    Corre el motor DOS veces —con el bono como está HOY y con la propuesta— y
+    coteja las dos contra 1816. Ver el ANTES es lo que convierte esto en un
+    diagnóstico: sin esa columna sería otra simulación más, sin forma de saber si
+    el arreglo mejora algo.
+    """
+    tk = mercado_1816.normalizar_ticker(ticker)
+    doc = _doc_de_curvas(tk)
+    if not doc:
+        return {"ok": False, "ticker": tk,
+                "error": f"{tk} no está en mercado.curvas"}
+
+    from engines.curvas import rama_calculo
+
+    simbolo = (doc.get("ticker") or "").strip()
+    ficha = _ficha_1816(tk)
+
+    # ── (1) EL ANTES. El bono tal como lo ve el motor hoy, sin tocar nada.
+    hoy_est = _simular_tasa(dict(doc), simbolo, None, ticker=tk,
+                            moneda_eje=(doc.get("moneda_eje") or "").strip())
+
+    # ── (2) LOS EJES. Solo se proponen si FALTAN: los que cargó la mesa son la
+    # verdad y no se discuten (misma regla que en completar-cronograma).
+    ejes_actuales = curvas_ejes.ejes_de_doc(doc)
+    curva_1816 = (ficha.get("curva_1816") or "").strip()
+    ejes_prop, nota_ejes = None, ""
+    if ejes_actuales is None:
+        ejes_prop = curvas_ejes.desde_1816(curva_1816) if curva_1816 else None
+        nota_ejes = (f"1816 lo clasifica en «{curva_1816}»" if ejes_prop
+                     else (f"1816 dice «{curva_1816}» y esa curva no se puede "
+                           "traducir a ejes todavía" if curva_1816 else
+                           "1816 no tiene a este bono en su catálogo"))
+
+    doc_prop = dict(doc)
+    if ejes_prop is not None:
+        doc_prop.update({"emisor_tipo": ejes_prop.emisor_tipo,
+                         "moneda_eje": ejes_prop.moneda, "ajuste": ejes_prop.ajuste,
+                         "ajuste_alt": ejes_prop.ajuste_alt, "ley": ejes_prop.ley})
+
+    # ── (3) EL CUADRO de 1816, con la rama YA corregida por los ejes propuestos.
+    rama = rama_calculo(doc_prop)
+    cer_manual = cer_emision if (cer_emision or 0) > 0 else None
+    cer_usado = doc_prop.get("cer_emision") or cer_manual
+    ratio, ratio_nota = (None, "")
+    if rama == "cer":
+        ratio, ratio_nota = ratio_cer_hoy(cer_usado)
+
+    conv, err_cuadro, cupones = None, "", []
+    try:
+        cupones = (mercado_1816.cashflow(tk) or {}).get("cashflow") or []
+        if cupones:
+            conv = convertir_flujos(cupones, rama, ratio_cer=ratio)
+        else:
+            err_cuadro = "1816 devolvió el cuadro VACÍO"
+    except Exception as e:
+        err_cuadro = f"1816 no dio el cuadro: {e}"
+
+    if conv:
+        doc_prop["flujos"] = conv["flujos"]
+        if conv["flujo_vencimiento"] is not None:
+            doc_prop["flujo_vencimiento"] = conv["flujo_vencimiento"]
+    if cer_manual and not doc_prop.get("cer_emision"):
+        doc_prop["cer_emision"] = cer_manual
+
+    prop_est = _simular_tasa(doc_prop, simbolo, None, ticker=tk,
+                             moneda_eje=(doc_prop.get("moneda_eje") or "").strip())
+
+    out = {
+        "ok": True, "ticker": tk, "modo": "arreglo", "rama": rama,
+        "curva": doc.get("curva"), "curva_1816": curva_1816, "simbolo": simbolo,
+        "cupones": conv["n"] if conv else 0,
+        "escala": conv["escala"] if conv else None,
+        "suma_pct": conv.get("suma_pct") if conv else None,
+        "divisor_es": conv.get("divisor_es") if conv else None,
+        "vencimiento": conv["flujos"][-1]["fecha"] if conv and conv["flujos"] else "",
+        "flujo_vencimiento": conv["flujo_vencimiento"] if conv else None,
+        "cer_emision": cer_usado, "cer_manual": bool(cer_manual
+                                                     and not doc.get("cer_emision")),
+        "ratio_cer": ratio, "ratio_nota": ratio_nota,
+        "cuadro": conv, "error_cuadro": err_cuadro,
+        "ejes_hoy": None if ejes_actuales is None else {
+            "emisor_tipo": doc.get("emisor_tipo"), "moneda_eje": doc.get("moneda_eje"),
+            "ajuste": doc.get("ajuste"), "ley": doc.get("ley")},
+        "ejes_propuestos": None if ejes_prop is None else {
+            "emisor_tipo": ejes_prop.emisor_tipo, "moneda_eje": ejes_prop.moneda,
+            "ajuste": ejes_prop.ajuste, "ajuste_alt": ejes_prop.ajuste_alt,
+            "ley": ejes_prop.ley},
+        "nota_ejes": nota_ejes,
+        # El ANTES, explícito y con su propio nombre: es la mitad del diagnóstico.
+        "antes": {"tea": hoy_est.get("tea"), "paridad": hoy_est.get("paridad"),
+                  "duration": hoy_est.get("duration")},
+    }
+    out.update(prop_est)          # tea/paridad/duration/precio del PROPUESTO
+    out["chequeos"] = _chequeos_arreglo(ticker=tk, doc=doc, out=out, rama=rama,
+                                        conv=conv, cupones_1816=cupones)
+    out["veredicto"] = _veredicto(out["chequeos"])
+    return out
+
+
+def _cotejo_de(tea, paridad, duration, ref: dict, precio, cota_ic) -> dict:
+    """El cotejo contra 1816 de UN estado (el de hoy o el propuesto). Es el MISMO
+    `_cotejo_tea` — así el ANTES y el DESPUÉS no se pueden juzgar con dos varas."""
+    return _cotejo_tea(tea, ref, paridad=paridad, duration=duration,
+                       cota_ic=cota_ic, precio=precio)
+
+
+def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
+                      conv: dict | None, cupones_1816) -> list[dict]:
+    """La cadena del ARREGLO. Su forma es distinta de las otras dos a propósito:
+    acá lo que se muestra es una COMPARACIÓN (hoy contra propuesta contra 1816),
+    porque la pregunta no es «¿esto está bien?» sino «¿esto está MEJOR?»."""
+    ps: list[dict] = []
+    antes = out.get("antes") or {}
+    ref = out.get("referencia_1816") or {}
+
+    ps.append(_paso("hoy", "Cómo está el bono AHORA", INFO,
+                    f"TEA {_pct_o(antes.get('tea'), pct=True)} · paridad "
+                    f"{_pct_o(antes.get('paridad'))} · duration "
+                    f"{_pct_o(antes.get('duration'), dec=4)} · ejes "
+                    + (" · ".join(str(v or "—") for v in
+                                  (out.get("ejes_hoy") or {}).values())
+                       if out.get("ejes_hoy") else "**NINGUNO** — este bono no cae "
+                       "en ninguna curva y desaparece de la vista sin dar error"),
+                    tabla="mercado.curvas + mercado.market_snapshot"))
+
+    # EJES. Solo aparece si faltan: los que cargó la mesa no se discuten.
+    if out.get("ejes_hoy") is None:
+        prop = out.get("ejes_propuestos")
+        ps.append(_paso("ejes", "Los ejes que faltan salen de 1816",
+                        OK if prop else BLOQUEA,
+                        (f"{out.get('nota_ejes')} → {prop['emisor_tipo']} · "
+                         f"{prop['moneda_eje']} · {prop['ajuste']}"
+                         + (f" · {prop['ley']}" if prop.get("ley") else "")
+                         if prop else
+                         f"{out.get('nota_ejes')}. Sin ejes no hay rama de "
+                         "cálculo, así que no hay nada que simular: esto lo "
+                         "resuelve la mesa o una entrada nueva en EJES_1816."),
+                        tabla="research.mkt_1816_instrumentos → core/curvas_ejes"))
+
+    ps.append(_paso("cuadro", "El cronograma de 1816",
+                    OK if conv else BLOQUEA,
+                    (f"{conv['n']} cupón/es · vence {out.get('vencimiento')} · "
+                     f"escala {conv['escala']}" if conv else
+                     out.get("error_cuadro") or "sin cuadro"),
+                    tabla="1816 /cashflow (fechaPagoEfectiva)"))
+
+    if rama == "cer":
+        cer_e = out.get("cer_emision")
+        ps.append(_paso("cer_emision", "CER de emisión resuelto",
+                        OK if cer_e else BLOQUEA,
+                        f"{cer_e}" + (" (cargado a mano)" if out.get("cer_manual")
+                                      else " (del master)") if cer_e else
+                        "sin el CER de emisión el cuadro no se puede llevar a la "
+                        "escala del VN — escribilo acá y se re-simula con él.",
+                        tabla="mercado.curvas · macro.series_macro (CER)",
+                        aviso="" if cer_e else f"Cargar el CER de emisión de {ticker}",
+                        pide=None if cer_e else {
+                            "campo": "cer_emision", "label": "CER de emisión",
+                            "tipo": "numero",
+                            "ayuda": "el índice CER del día de emisión (prospecto "
+                                     "o BCRA)."}))
+
+    ps.append(_paso("precio", "Hay precio para comparar", OK if out.get("precio")
+                    else BLOQUEA,
+                    f"precio {out['precio']:,.4f} ({out.get('precio_fuente')})"
+                    if out.get("precio") else
+                    "sin precio no se puede cotejar contra 1816 — y sin cotejo "
+                    "no se pisa nada.",
+                    tabla="mercado.market_snapshot · 1816"))
+
+    # ── EL JUEZ. Dos cotejos con la MISMA vara: el propuesto tiene que coincidir
+    # y el actual NO. Las dos mitades hacen falta — ver el comentario del bloque.
+    cota = cota_devengado(cupones_1816 or [])
+    cot_prop = _cotejo_de(out.get("tea"), out.get("paridad"), out.get("duration"),
+                          ref, out.get("precio"), cota)
+    cot_prop["clave"], cot_prop["titulo"] = "cotejo_propuesto", \
+        "La PROPUESTA coincide con 1816"
+    ps.append(cot_prop)
+
+    cot_hoy = _cotejo_de(antes.get("tea"), antes.get("paridad"),
+                         antes.get("duration"), ref, out.get("precio"), cota)
+    ya_estaba_bien = cot_hoy["estado"] == OK
+    ps.append(_paso("cotejo_hoy", "El bono de HOY, contra 1816",
+                    BLOQUEA if ya_estaba_bien else OK,
+                    cot_hoy["detalle"]
+                    + ("  ⚠️ **El bono de hoy YA coincide con 1816**: no hay nada "
+                       "que arreglar y pisarlo sería empeorarlo. El hallazgo "
+                       "quedó viejo o el umbral es angosto para este instrumento "
+                       "— revisalo o ignoralo." if ya_estaba_bien else
+                       "  → confirmado que lo de hoy NO coincide: hay algo real "
+                       "que arreglar."),
+                    tabla="1816 /indicadores"))
+
+    campos = []
+    if out.get("ejes_propuestos"):
+        campos.append("los ejes (emisor_tipo · moneda_eje · ajuste · ley)")
+    if conv:
+        campos.append("flujos" + (" · flujo_vencimiento"
+                                  if conv["flujo_vencimiento"] is not None else ""))
+    if out.get("cer_manual"):
+        campos.append("cer_emision (lo escribiste vos)")
+    ps.append(_paso("escritura", "Qué se va a PISAR", INFO,
+                    ("solo " + " · ".join(campos) + f" en {ticker}. El emisor, la "
+                     "curva y el símbolo quedan intactos."
+                     if campos else "nada: no hay propuesta que aplicar"),
+                    tabla="mercado.curvas"))
+    for i, p in enumerate(ps, 1):
+        p["n"] = i
+    return ps
+
+
+def _pct_o(v, *, pct: bool = False, dec: int = 2) -> str:
+    """Un número o un guion. Existe porque en esta cadena **el vacío es un dato**:
+    «sin TEA» es justamente el síntoma que se está diagnosticando, y mostrar 0,00
+    en su lugar lo escondería."""
+    if not isinstance(v, int | float):
+        return "—"
+    return f"{float(v):.{dec}%}" if pct else f"{float(v):,.{dec}f}"
+
+
+def aplicar_arreglo(ticker: str, *, actor: str = "",
+                    cer_emision: float | None = None) -> dict:
+    """Simula y, si la cadena cierra, **pisa el insumo que estaba mal**.
+
+    Es la única puerta del agente que SOBRESCRIBE un dato existente, así que el
+    veredicto ya trae las dos condiciones que la habilitan (la propuesta coincide
+    con 1816 **y** lo de hoy no). Acá no se re-decide nada: si `puede_aplicar` es
+    falso, no se escribe — que el criterio viva en un solo lado es lo que evitó
+    tres veces el bug del segundo gate.
+
+    ⚠️ **Los EJES viven en COLUMNAS, no en el blob** (`_COLS_FUERA_DEL_BLOB` de
+    `core/curvas_sql`). Escribirlos dentro del jsonb los dejaría invisibles para
+    el motor y para la vista: el merge de lectura pone la columna ENCIMA del
+    blob, así que un eje escrito solo en `data` lo pisa un `NULL` de la columna.
+    """
+    from api.services import av_agent_acciones as acc
+
+    sim = simular_arreglo(ticker, cer_emision=cer_emision)
+    if not sim.get("ok"):
+        acc.registrar(accion="arreglar_bono", objetivo=ticker.upper(), ok=False,
+                      error=sim.get("error", "")[:300], por=actor)
+        return {**sim, "aplicado": False}
+    ver = sim.get("veredicto") or {}
+    if not ver.get("puede_aplicar", True):
+        bloqueos = [c for c in sim["chequeos"] if c["estado"] == BLOQUEA]
+        return {**sim, "aplicado": False,
+                "error": "el pre-flight no pasa: "
+                         + "; ".join(c["titulo"] for c in bloqueos)}
+
+    conv, ejes = sim.get("cuadro"), sim.get("ejes_propuestos")
+    parche: dict = {}
+    if conv:
+        parche["flujos"] = conv["flujos"]
+        if conv["flujo_vencimiento"] is not None:
+            parche["flujo_vencimiento"] = conv["flujo_vencimiento"]
+        if sim.get("vencimiento"):
+            parche["fecha_vencimiento"] = sim["vencimiento"]
+    if sim.get("cer_manual") and sim.get("cer_emision"):
+        parche["cer_emision"] = sim["cer_emision"]
+    if not parche and not ejes:
+        return {**sim, "aplicado": False, "error": "no hay nada que aplicar"}
+
+    # El ANTES, congelado para el libro. Sin esto «revertir» es una promesa.
+    antes = {"ejes": sim.get("ejes_hoy"), **(sim.get("antes") or {})}
+    try:
+        import json
+
+        from core.postgres import get_pool
+        sets, vals = [], []
+        if ejes:
+            for col in ("emisor_tipo", "moneda_eje", "ajuste", "ajuste_alt", "ley"):
+                sets.append(f"{col} = %s")
+                vals.append(ejes.get(col) or None)
+        if parche:
+            sets.append("data = COALESCE(data, '{}'::jsonb) || %s::jsonb")
+            vals.append(json.dumps(parche))
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(f"UPDATE mercado.curvas SET {', '.join(sets)} "
+                        "WHERE ticker = %s", (*vals, sim["ticker"]))
+            filas = cur.rowcount or 0
+    except Exception as e:
+        acc.registrar(accion="arreglar_bono", objetivo=sim["ticker"], ok=False,
+                      error=str(e)[:300], por=actor, antes=antes)
+        return {**sim, "aplicado": False, "error": f"no se pudo escribir: {e}"}
+    if not filas:
+        return {**sim, "aplicado": False, "error": "el UPDATE no tocó ninguna fila"}
+
+    acc.registrar(accion="arreglar_bono", objetivo=sim["ticker"], por=actor,
+                  antes=antes,
+                  detalle={"ejes": ejes, "campos": list(parche),
+                           "tea_antes": (sim.get("antes") or {}).get("tea"),
+                           "tea_despues": sim.get("tea")})
+    return {**sim, "aplicado": True,
+            "aviso": "los motores leen mercado.curvas al arrancar: reiniciar "
+                     "motor_curvas para que la tasa nueva llegue a la vista"}

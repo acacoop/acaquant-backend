@@ -52,6 +52,7 @@ DESTINOS = {
     # singular, así que la acción se anotaba con destino «?» y el libro dejaba de
     # decir dónde escribió. No falla nada: solo deja de servir.
     "completar_flujos": "mercado.curvas",
+    "arreglar_bono": "mercado.curvas",
     "sembrar_especies": "mercado.especies",
     "sembrar_tasa_1816": "mercado.tamar_1816",
 }

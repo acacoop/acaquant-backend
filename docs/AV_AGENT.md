@@ -1095,8 +1095,60 @@ de diagnóstico** conviene pedir todo. Y **antes de probar de a uno, se lee el
 contrato**: el OpenAPI contestó en dos minutos lo que 30 llamadas contestaban a
 medias.
 
+### E2.h — El juez del cotejo pasa a ser la PARIDAD (2026-08-17)
+
+**La corrida del diag mostró que mi fix mejoraba pero no cerraba**, y eso obligó
+a repensar qué se está comparando. Los números de GD46, con nuestra TEA en 7,69%:
+
+| Se le pide a 1816… | su TEA | distancia |
+|---|---|---|
+| `ars` (el default → ellos usan CCL) | 9,71% | 202 bps |
+| `ccl` | 9,79% | 210 bps |
+| **`mep`** (lo que ahora se pide) | **9,08%** | **139 bps** |
+
+Pedir `mep` bajó de 202 a 139. **Mejoró, no cerró** — y lo que queda tiene
+nombre: `convencionTna = 180-360`, que es como anualiza 1816, mientras nuestro
+motor usa `xirr` con fechas reales. Son **dos formas legítimas de anualizar el
+MISMO flujo**. Perseguir esos bps sería perseguir un empate imposible.
+
+**Entonces la TEA era la métrica equivocada para esta pregunta.**
+
+> **paridad = precio / valor técnico**
+
+Depende **solo** del precio y del cronograma de flujos — que es EXACTAMENTE lo
+que el cotejo audita: *«¿el cuadro que estoy por escribir es el mismo que el de
+ellos?»*. La TEA agrega dos capas que no dicen nada sobre eso: la convención de
+días y, en dólares, el tipo de cambio.
+
+Así que **la paridad es el juez y la TEA pasa a ser línea de apoyo**, mostrada
+con el motivo de su diferencia (*«ellos anualizan 180-360 y nosotros con días
+reales — una diferencia acá NO significa que el cuadro esté mal»*). Con eso GD46
+puede salir en **verde** siendo honesto: el cuadro está bien, el método difiere.
+
+⚠️ **Una trampa de escala** que habría hecho sonar la alarma siempre: nuestro
+motor devuelve la paridad en **porcentaje** (72,78) y 1816 como **fracción**
+(0,7278). Comparadas crudas dan 99% de diferencia. Está normalizado y congelado
+por test — es la clase de bug que no tira error y solo produce alarmas que uno
+aprende a ignorar, que es peor que no tener alarma.
+
+**Otras dos cosas que confirmó la corrida:**
+
+- **`moneda=mep` para un bono en PESOS es veneno**: TZXM8 devolvió
+  `precioClean = 0,065` (un bono ARS dividido por el MEP). La regla tiene que ser
+  por la **moneda del bono**, que es como está — pero ahora está medido.
+- **El input manual funciona**: pasándole `precioDirty = 104500` devolvió
+  exactamente su propia TEA (0,09709583…). Eso **prueba que `precioDirty` es el
+  insumo con el que ellos calculan** — la confirmación que faltaba.
+
 ## Changelog
 
+- **2026-08-17 — E2.h, la PARIDAD es el juez.** Medido: pedir `mep` bajó GD46 de
+  202 a 139 bps, y el resto es convención (`180-360` vs nuestros días reales).
+  Entonces el cotejo compara **paridad** —que depende solo del precio y del
+  cronograma— y deja la TEA como apoyo, con el motivo de su diferencia. Se
+  normaliza la escala (nuestro % vs su fracción), con test. Confirmado también
+  que `precioDirty` ES su insumo de cálculo, y que `mep` sobre un bono en pesos
+  da un precio absurdo.
 - **2026-08-17 — E2.g, los 202 bps resueltos con el OpenAPI.** `moneda` es
   `ars|ccl|mep` y con el default **1816 divide por CCL mientras nosotros
   dividimos por MEP** — esa era la diferencia; los bonos USD se piden con `mep`.

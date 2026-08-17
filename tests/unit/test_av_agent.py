@@ -441,7 +441,8 @@ def _chequear(**kw):
              "assets": [{"unidad": "[123] TZXD8", "instrumento": "x", "vigente": True}]},
         estado_simbolo={"conocido": True, "nota": "Primary lo lista"},
         precio=95.0, tea=0.0682, fuente_precio="snapshot",
-        ref={"precio": 95.0, "tea": 0.0680, "fecha": "2026-08-15"})
+        ref={"precio": 95.0, "tea": 0.0680, "paridad": 0.9500,
+             "fecha": "2026-08-15"}, paridad=95.0)
     base.update(kw)
     return _chequeos(**base)
 
@@ -536,30 +537,56 @@ def test_una_rama_sin_formula_avisa_que_la_TEA_va_a_quedar_vacia(monkeypatch):
 # equivocado. Dos cálculos independientes sobre el MISMO precio son la única
 # evidencia real de que la conversión está bien.
 
-def test_dos_tasas_que_coinciden_confirman_que_el_cuadro_esta_bien():
-    """La evidencia dura que fija la banda: TAMAR 38,62% (1816) vs 38,55%
-    (planilla de la mesa) al MISMO precio = 7 bps cuando todo está bien."""
+def test_el_JUEZ_es_la_PARIDAD_no_la_TEA():
+    """**El cambio de criterio del 2026-08-17.** La paridad es precio / valor
+    técnico: depende SOLO del precio y del cronograma, que es exactamente lo que
+    el cotejo audita. La TEA agrega convención de días y tipo de cambio — dos
+    capas que no dicen nada sobre si el cuadro está bien.
+
+    Caso real GD46: paridades que coinciden con TEAs a 139 bps. El cuadro está
+    bien y la diferencia es método de anualización."""
     from api.services.av_agent_alta import _cotejo_tea
-    p = _cotejo_tea(0.3862, {"tea": 0.3855})
-    assert p["estado"] == "ok" and p["clave"] == "cotejo_1816"
-    assert "7 bps" in p["detalle"]
+    p = _cotejo_tea(0.0769, {"paridad": 0.7278, "tea": 0.0908,
+                             "convencion_tna": "180-360"}, paridad=72.78)
+    assert p["estado"] == "ok"                       # la PARIDAD coincide
+    assert "paridad" in p["detalle"].lower()
+    # ...y la TEA se informa igual, con el motivo de la diferencia.
+    assert "139 bps" in p["detalle"] and "180-360" in p["detalle"]
+    assert "NO significa que el cuadro esté mal" in p["detalle"]
 
 
-def test_dos_tasas_que_se_contradicen_avisan_pero_NO_bloquean():
-    """El umbral es un primer corte, no una medición: bloquear un alta con un
-    número que no medimos sería inventar un hecho (REGLA #2). Se avisa fuerte y
-    la decisión queda en el humano."""
+def test_la_ESCALA_de_la_paridad_se_normaliza_antes_de_comparar():
+    """Nuestro motor devuelve la paridad en PORCENTAJE (72.78) y 1816 como
+    FRACCIÓN (0.7278). Compararlas crudas daría «se contradicen» SIEMPRE — la
+    clase de bug que no tira error y solo produce alarmas que se aprenden a
+    ignorar."""
     from api.services.av_agent_alta import _cotejo_tea
-    p = _cotejo_tea(0.55, {"tea": 0.068})
+    assert _cotejo_tea(0.07, {"paridad": 0.7278}, paridad=72.78)["estado"] == "ok"
+
+
+def test_una_paridad_distinta_avisa_pero_NO_bloquea():
+    """Paridad distinta = otro valor técnico = otro cronograma. Es el hallazgo
+    que el cotejo existe para encontrar. Igual no bloquea: el umbral es un primer
+    corte, no una medición, y bloquear con eso sería inventar un hecho."""
+    from api.services.av_agent_alta import _cotejo_tea
+    p = _cotejo_tea(0.55, {"paridad": 0.7278}, paridad=41.0)
     assert p["estado"] == "atencion"          # NO "falla"
     assert "contradicen" in p["detalle"] and p["accion"]
 
 
-def test_sin_TEA_de_1816_no_se_inventa_un_veredicto():
-    """1816 no publica tasa para todo. «No pude comparar» no es «coincide»."""
+def test_sin_PARIDAD_no_se_inventa_un_veredicto():
+    """1816 no publica todo para todo. «No pude comparar» no es «coincide»."""
     from api.services.av_agent_alta import _cotejo_tea
-    assert _cotejo_tea(0.30, {})["estado"] == "no_se_puede_saber"
-    assert _cotejo_tea(None, {"tea": 0.30})["estado"] == "no_se_puede_saber"
+    assert _cotejo_tea(0.30, {}, paridad=72.0)["estado"] == "no_se_puede_saber"
+    assert _cotejo_tea(0.30, {"paridad": 0.72})["estado"] == "no_se_puede_saber"
+
+
+def test_si_la_tasa_la_trae_un_JOB_el_cotejo_no_aplica():
+    """Comparar la tasa de 1816 contra la tasa de 1816 sale bien siempre y no
+    prueba nada. Decir «no aplica» es más honesto que un verde vacío."""
+    from api.services.av_agent_alta import _cotejo_tea
+    p = _cotejo_tea(None, {"tea": 0.38}, job_tasa="jobs/tamar_1816")
+    assert p["estado"] == "ok" and "no aplica" in p["detalle"]
 
 
 def test_el_precio_de_1816_se_usa_solo_si_NO_hay_snapshot():

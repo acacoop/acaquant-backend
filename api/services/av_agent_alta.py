@@ -269,22 +269,46 @@ def _paso(clave: str, titulo: str, estado: str, detalle: str,
             "tabla": tabla, "accion": accion}
 
 
-# Bandas del control cruzado, en puntos básicos de diferencia de TEA.
+# ── Bandas del control cruzado ──────────────────────────────────────────────
 #
-# ⚠️ **PRIMER CORTE, no medido sobre una muestra.** La única evidencia dura es el
-# TAMAR contra la planilla de la mesa: TEA 38,62% (1816) vs 38,55% (mesa) al mismo
-# precio = **7 bps** cuando las dos partes están bien. De ahí sale que "coincidir"
-# viva por debajo de los 50 bps. El techo de 300 es un juicio, no una medición.
+# **La señal primaria es la PARIDAD, no la TEA.** Fue la lección de la corrida del
+# 2026-08-17 y cambia el diseño:
 #
-# Por eso una diferencia grande es `atencion` y **nunca `falla`**: bloquear un alta
-# con un umbral que no medimos sería inventar un hecho, justo lo que la REGLA #2
-# prohíbe. Que la banda se calibre con el uso es el diseño, no una deuda.
+#   paridad = precio / valor técnico
 #
-# **Bajado el 2026-08-17**: el techo estaba en 300 y GD46 salió a 202 bps —
-# clasificado como «se parecen». *«2% de diferencia de tasa es un montón, no es
-# se parecen»* (el user). Tiene razón y la corrección va en la dirección
-# conservadora: en renta fija 200 bps es otro bono, no otra convención.
-_BPS_COINCIDE, _BPS_MIRAR = 50.0, 150.0
+# Depende SOLO del precio y del cronograma de flujos — que es EXACTAMENTE lo que
+# el cotejo quiere auditar ("¿está bien convertido el cuadro?"). La TEA, en
+# cambio, agrega dos capas de ruido que no tienen nada que ver con esa pregunta:
+#
+#   1. **La convención de días.** Medido: 1816 usa `180-360` para GD46 y TZXM8;
+#      nuestro motor usa `xirr` con fechas reales (act/365). Son dos formas
+#      legítimas de anualizar el MISMO flujo y dan números distintos.
+#   2. **El tipo de cambio**, en los bonos en dólares. Medido en GD46: la misma
+#      tasa da 9,71% pidiendo `ars` (ellos dividen por CCL), 9,79% con `ccl` y
+#      9,08% con `mep`. Contra nuestro 7,69%: 202 / 210 / **139 bps**.
+#
+# O sea que pedir `mep` bajó de 202 a 139 bps — **mejoró, no cerró**, y lo que
+# queda es convención. Perseguir esos bps sería perseguir un empate imposible
+# entre dos métodos de anualización distintos.
+#
+# Comparando PARIDAD las dos capas desaparecen y queda la pregunta sola. Si la
+# paridad coincide, el cuadro está bien y la diferencia de TEA es método.
+#
+# ⚠️ Las bandas siguen siendo un PRIMER CORTE. La única evidencia dura sobre
+# tasas es el TAMAR contra la planilla de la mesa (7 bps cuando todo está bien).
+# Por eso nada de esto BLOQUEA: avisa.
+_PARIDAD_COINCIDE, _PARIDAD_MIRAR = 0.5, 3.0     # % de diferencia RELATIVA
+_BPS_COINCIDE, _BPS_MIRAR = 50.0, 150.0          # TEA, señal secundaria
+
+
+def _paso(clave: str, titulo: str, estado: str, detalle: str,
+          *, tabla: str = "", accion: str = "") -> dict:
+    """Un eslabón. **`clave` es la identidad, `n` es presentación** — el `n` se
+    numera al final según los pasos que hayan aplicado (el de CER no siempre
+    está, el control cruzado tampoco). Si el orden fuera la identidad, insertar
+    un paso en el medio renumeraría todo y rompería a quien lo referencie."""
+    return {"clave": clave, "titulo": titulo, "estado": estado, "detalle": detalle,
+            "tabla": tabla, "accion": accion}
 
 
 def _tea_de_1816_a_nuestro_precio(ticker: str, precio: float, moneda: str) -> dict:
@@ -310,12 +334,15 @@ def _tea_de_1816_a_nuestro_precio(ticker: str, precio: float, moneda: str) -> di
             "convencion_tna": ind.get("convencionTna"), "precio": float(precio)}
 
 
-def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "") -> dict:
-    """Nuestra TEA contra la de 1816, sobre el MISMO precio.
+def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "", paridad=None) -> dict:
+    """La segunda opinión sobre el MISMO bono. Un cuadro mal convertido no tira
+    error: da un número plausible y equivocado.
 
-    Es la segunda opinión que no existía. Un cuadro mal convertido no tira error:
-    da un número plausible y equivocado. Dos cálculos independientes que coinciden
-    son la única evidencia real de que la conversión está bien.
+    **Compara PARIDAD, no TEA.** La paridad es `precio / valor técnico`: depende
+    solo del precio y del cronograma, que es exactamente lo que hay que auditar.
+    La TEA agrega convención de días y —en dólares— tipo de cambio, dos capas que
+    no dicen nada sobre si el cuadro está bien. La TEA se sigue mostrando, pero
+    como dato secundario.
 
     **Salvo cuando no hay dos cálculos.** Si la tasa la trae un job, la de 1816 ES
     la nuestra: compararlas sería compararse consigo mismo y salir siempre bien.
@@ -328,48 +355,65 @@ def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "") -> dict:
                      "que comparar" + (f" — 1816 publica {float(suya):.4%}."
                                        if isinstance(suya, int | float) else "."),
                      tabla="mercado.tamar_1816")
-    # **A NUESTRO PRECIO gana siempre.** Comparar dos tasas calculadas sobre
-    # precios distintos mezcla dos preguntas (¿la fórmula? ¿el insumo?) y no
-    # permite contestar ninguna.
+
     mismo = ref.get("a_nuestro_precio") or {}
-    suya = mismo.get("tea") if mismo.get("tea") is not None else ref.get("tea")
-    base = ("sobre el MISMO precio" if mismo.get("tea") is not None
+    # Su paridad al MISMO precio si la tenemos; si no, la de su propio precio.
+    suya_par = mismo.get("paridad") if mismo.get("paridad") is not None \
+        else ref.get("paridad")
+    base = ("al MISMO precio" if mismo.get("paridad") is not None
             else "cada uno sobre SU precio")
-    if not isinstance(tea, int | float):
-        return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", NO_SE,
-                     "no se pudo calcular nuestra TEA, así que no hay qué comparar",
+
+    # Escalas: nuestro motor devuelve la paridad en PORCENTAJE (72.78); 1816 la
+    # publica como FRACCIÓN (0.7278). Compararlas crudas daría siempre "se
+    # contradicen" — es la clase de bug que no da error y solo da alarmas.
+    nuestra_par = float(paridad) if isinstance(paridad, int | float) else None
+    suya_par = float(suya_par) * 100 if isinstance(suya_par, int | float) else None
+
+    # La TEA, como línea de apoyo.
+    suya_tea = mismo.get("tea") if mismo.get("tea") is not None else ref.get("tea")
+    apoyo = ""
+    if isinstance(tea, int | float) and isinstance(suya_tea, int | float):
+        bps = abs(float(tea) - float(suya_tea)) * 10_000
+        conv = (mismo.get("convencion_tna") or ref.get("convencion_tna") or "")
+        apoyo = (f" · TEA: nuestra {float(tea):.4%} vs 1816 {float(suya_tea):.4%} "
+                 f"({bps:,.0f} bps)"
+                 + (f", ellos anualizan {conv} y nosotros con días reales — "
+                    "una diferencia acá NO significa que el cuadro esté mal"
+                    if conv and bps > _BPS_COINCIDE else ""))
+
+    if nuestra_par is None or suya_par is None:
+        return _paso("cotejo_1816", "El cuadro coincide con el de 1816", NO_SE,
+                     "falta la paridad de alguno de los dos, así que no hay "
+                     "comparación posible" + apoyo
+                     + (f" ({ref['error']})" if ref.get("error") else ""),
                      tabla="1816 /indicadores")
-    if not isinstance(suya, int | float):
-        return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", NO_SE,
-                     "1816 no publica TEA para este ticker — el control cruzado no "
-                     "se puede hacer" + (f" ({ref['error']})" if ref.get("error") else ""),
+
+    dif_rel = abs(nuestra_par - suya_par) / suya_par * 100 if suya_par else 999.0
+    linea = (f"paridad nuestra {nuestra_par:.2f}% vs 1816 {suya_par:.2f}% "
+             f"→ {dif_rel:.2f}% de diferencia ({base}){apoyo}")
+
+    if dif_rel <= _PARIDAD_COINCIDE:
+        return _paso("cotejo_1816", "El cuadro coincide con el de 1816", OK,
+                     linea + ". **La paridad es el juez**: si coincide, el "
+                             "cronograma que estamos por escribir es el mismo que "
+                             "el de ellos. El cuadro está bien convertido.",
                      tabla="1816 /indicadores")
-    bps = abs(float(tea) - float(suya)) * 10_000
-    linea = (f"nuestra {float(tea):.4%} vs 1816 {float(suya):.4%} "
-             f"→ {bps:,.0f} bps de diferencia ({base})")
-    if bps <= _BPS_COINCIDE:
-        return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", OK,
-                     linea + ". Dos cálculos independientes dan lo mismo: el cuadro "
-                             "de flujos está bien convertido.",
-                     tabla="1816 /indicadores")
-    if bps <= _BPS_MIRAR:
-        return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", ATENCION,
-                     linea + ". Cerca pero no igual. Con el mismo precio de por "
-                             "medio, lo que queda es la CONVENCIÓN de días — mirar "
-                             "`convencionTna` en el detalle del cálculo.",
+    if dif_rel <= _PARIDAD_MIRAR:
+        return _paso("cotejo_1816", "El cuadro coincide con el de 1816", ATENCION,
+                     linea + ". Se parecen pero no son iguales: puede faltar o "
+                             "sobrar un cupón, o diferir una fecha de pago.",
                      tabla="1816 /indicadores",
-                     accion="comparar paridad y duration en «cómo se calculó»")
-    return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", ATENCION,
-                 linea + ". **Se contradicen.** En renta fija esa distancia no es "
-                         "una convención: es otro bono. Con el mismo precio, casi "
-                         "siempre es la escala del cuadro, la pata equivocada, o "
-                         "que el precio vino en otra moneda y hubo una conversión "
-                         "de por medio. No se bloquea el alta (el umbral es un "
-                         "primer corte, no una medición), pero **no confíes en "
-                         "esta tasa hasta entender la diferencia**.",
+                     accion="comparar el cuadro de abajo contra la pantalla de 1816")
+    return _paso("cotejo_1816", "El cuadro coincide con el de 1816", ATENCION,
+                 linea + ". **Se contradicen.** Con el mismo precio, una paridad "
+                         "distinta significa OTRO valor técnico — o sea, otro "
+                         "cronograma. Casi siempre es la escala del cuadro o la "
+                         "pata equivocada. No se bloquea el alta (el umbral es un "
+                         "primer corte, no una medición), pero acá hay algo que "
+                         "entender antes de confiar en este bono.",
                  tabla="1816 /indicadores",
-                 accion="revisar «cómo se calculó»: precio, moneda del pedido y "
-                        "MEP aplicado son los tres sospechosos habituales")
+                 accion="revisar «cómo se calculó»: escala del cuadro y Σ de "
+                        "amortizaciones son los dos sospechosos")
 
 
 def _contexto_cadena(ticker: str) -> dict:
@@ -440,8 +484,8 @@ def _simbolo_del_bono(ticker: str, especies: list[dict]) -> tuple[str, str]:
 def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
               cer_emision: float | None, nota_cer: str, simbolo: str,
               origen_simbolo: str, ctx: dict, estado_simbolo: dict,
-              precio, tea, fuente_precio: str = "", ref: dict | None = None
-              ) -> list[dict]:
+              precio, tea, fuente_precio: str = "", ref: dict | None = None,
+              paridad=None) -> list[dict]:
     """La lista ordenada. Se devuelve ENTERA, con los pasos en verde incluidos.
 
     Mostrar solo lo que falla obliga al que mira a confiar en que el resto se
@@ -592,7 +636,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     # NUESTRO motor sobre el precio de 1816 y comparar contra LA TEA DE ELLOS es
     # una segunda opinión independiente sobre el mismo bono — y hasta ahora era
     # imposible de tener justo cuando más falta hace: en un bono nuevo.
-    ps.append(_cotejo_tea(tea, ref, job_tasa=job_tasa))
+    ps.append(_cotejo_tea(tea, ref, job_tasa=job_tasa, paridad=paridad))
 
     # 9 — ¿QUIÉN calcula la tasa? Dos respuestas válidas, no una.
     if _fuente_tasa == "1816":
@@ -1016,7 +1060,7 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         estado_simbolo=out["simbolo_estado"],
         precio=out.get("precio"), tea=out.get("tea"),
         fuente_precio=out.get("precio_fuente") or "",
-        ref=out.get("referencia_1816") or {})
+        ref=out.get("referencia_1816") or {}, paridad=out.get("paridad"))
     out["veredicto"] = _veredicto(out["chequeos"])
     # QUÉ cuenta se hizo y con qué números. Una tasa sin su memoria de cálculo no
     # se puede auditar: solo se puede creer o no creer.

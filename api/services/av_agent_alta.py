@@ -60,6 +60,11 @@ def _num(v) -> float | None:
         return None
 
 
+def _pct(v) -> str:
+    """Paridad para MOSTRAR, siempre en la misma unidad (porcentaje)."""
+    return f"{float(v):.2f}%" if isinstance(v, int | float) else "—"
+
+
 def _fecha(v) -> str:
     if isinstance(v, str):
         return v.strip()[:10]
@@ -886,9 +891,16 @@ def _memoria_de_calculo(*, doc: dict, ejes, rama: str, conv: dict, out: dict,
                        f"fuente={pedido.get('fuente', '?')} · {ref.get('fecha', '?')}"
                   if fuente_px == "1816" else "pasado a mano")
         f.append(fila("Precio usado", px, origen))
-    if doc.get("moneda_flujo") == "USD":
-        # El divisor que NO se ve y explica la mitad de las divergencias.
-        f.append(fila("MEP aplicado", out.get("_mep") or "—",
+    # El divisor que NO se ve y explica la mitad de las divergencias. Cuál de los
+    # dos TC se usó lo decide la RAMA, no la moneda: un dólar-linked cotiza en
+    # pesos y se divide por el A3500 (feed MAE), no por el MEP.
+    if out.get("_a3500"):
+        f.append(fila("A3500 aplicado", out["_a3500"],
+                      "el dólar-linked paga pesos al TC oficial: el motor divide "
+                      "el precio por el A3500 (feed MAE mayorista). Sin ese feed "
+                      "el bono queda sin TEA y sin paridad."))
+    elif out.get("_mep"):
+        f.append(fila("MEP aplicado", out["_mep"],
                       "el bono paga en USD y el precio viene en pesos: el motor "
                       "divide por el MEP. Si 1816 usó otro TC, las dos tasas "
                       "difieren sin que ninguna esté mal."))
@@ -912,8 +924,14 @@ def _memoria_de_calculo(*, doc: dict, ejes, rama: str, conv: dict, out: dict,
     elif mismo.get("error"):
         f.append(fila("1816 A NUESTRO PRECIO", "—", f"no se pudo: {mismo['error']}"))
     if out.get("paridad") is not None or ref.get("paridad") is not None:
-        f.append(fila("Paridad", f"nuestra {out.get('paridad')} · "
-                                 f"1816 {ref.get('paridad')}",
+        # LAS DOS EN LA MISMA UNIDAD. Nuestro motor devuelve PORCENTAJE (72.78) y
+        # 1816 FRACCIÓN (0.7278): el paso del cotejo ya normalizaba, este cuadro
+        # no — y mostraba «nuestra 68.8575 · 1816 0.7278», que se lee como un
+        # error de escala de 100× cuando la diferencia real era del 5%.
+        _par_1816 = ref.get("paridad")
+        f.append(fila("Paridad",
+                      f"nuestra {_pct(out.get('paridad'))} · "
+                      f"1816 {_pct(_par_1816 * 100 if isinstance(_par_1816, int | float) else None)}",
                       "**si la paridad coincide y la TEA no, es convención de "
                       "días; si NO coincide, es el precio o su escala**"))
     if out.get("duration") is not None or ref.get("duration") is not None:
@@ -1406,7 +1424,14 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
     al real.
     """
     from core import market_snapshot
-    from engines.curvas import calcular_campos, cargar_cer, cargar_dias_habiles
+    from engines.curvas import (
+        calcular_campos,
+        cargar_a3500_actual,
+        cargar_cer,
+        cargar_dias_habiles,
+        curva_depende_de,
+        rama_calculo,
+    )
 
     fuente, ref = "manual", {}
     if precio is None:
@@ -1432,16 +1457,28 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
     try:
         cer = cargar_cer(dias=1200) if doc.get("ajuste") == "cer" else {}
         habiles = cargar_dias_habiles()
-        mep = None
-        if doc.get("moneda_flujo") == "USD":
+        # QUÉ TIPO DE CAMBIO NECESITA ESTA RAMA no se decide acá: lo dice
+        # `curva_depende_de`, el MISMO predicado que usa el motor para invalidar su
+        # cache. Antes esto preguntaba `moneda_flujo == "USD"` —un criterio propio—
+        # y por eso el A3500 no se cargaba NUNCA: un dólar-linked salía por la
+        # puerta de emergencia de la rama (línea 579 de engines/curvas.py) con la
+        # duration ingenua y sin TEA, sin que nada diera error (D30O6, 2026-08-17).
+        rama_doc = rama_calculo(doc)
+        mep = a3500 = None
+        if curva_depende_de(rama_doc, "mep"):
             # `get_ultimo_mep` devuelve un DICT {mep, ccl, canje, oficial, …}, no un
             # float — `calcular_campos` espera el número. Sin MEP un bono USD en
             # pesos queda sin TEA (falla conocida, §3 de SALUD_CURVAS): se reporta,
             # no se inventa un tipo de cambio.
             from api.services.macro import get_ultimo_mep
             mep = (get_ultimo_mep() or {}).get("mep")
+        if curva_depende_de(rama_doc, "a3500"):
+            # Feed MAE mayorista (el mismo que usa motor_curvas). Si la PC de la
+            # oficina está apagada devuelve None y el bono queda sin TEA — se
+            # reporta, no se sustituye por el A3500 del BCRA, que está 1 día viejo.
+            a3500 = cargar_a3500_actual()
         r = calcular_campos({"price": float(precio), "timestamp": datetime.now(UTC)},
-                            doc, cer, habiles, mep=mep) or {}
+                            doc, cer, habiles, mep=mep, tc_a3500=a3500) or {}
     except Exception as e:
         logger.warning("av_agent: simulación de tasa falló para %s: %s", simbolo, e)
         return {"precio": float(precio), "tea": None, "precio_fuente": fuente,
@@ -1474,11 +1511,19 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
     # pata»— mientras la cadena, dos renglones más abajo, decía que lo que falta
     # es el CER de emisión. El encabezado no puede contradecir al detalle.
     sin_cer = doc.get("ajuste") == "cer" and not doc.get("cer_emision")
+    # Misma regla para el TC: si la rama necesita un tipo de cambio y el feed no lo
+    # dio, el motor sale por la puerta de emergencia ANTES de mirar el cuadro. Decir
+    # «revisar la escala del flujo» ahí manda a buscar un problema que no existe.
+    sin_tc = ((curva_depende_de(rama_doc, "a3500") and not a3500)
+              or (curva_depende_de(rama_doc, "mep") and not mep))
     return {"precio": float(precio), "tea": r.get("TEA"), "precio_fuente": fuente,
             "duration": r.get("duration"), "paridad": r.get("paridad"),
-            "referencia_1816": ref or None, "_mep": mep,
+            "referencia_1816": ref or None, "_mep": mep, "_a3500": a3500,
             "nota_tasa": "" if r.get("TEA") is not None or externa else
             "sin TEA hasta cargar el CER de emisión" if sin_cer else
+            ("sin TEA: falta el tipo de cambio "
+             + ("A3500 (feed MAE)" if curva_depende_de(rama_doc, "a3500") else "MEP")
+             + " — no es el cuadro") if sin_tc else
             "el motor no calculó la TEA con este cuadro y este precio — revisar "
             "la escala del flujo o la pata"}
 

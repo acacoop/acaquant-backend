@@ -1640,8 +1640,83 @@ motor, no vos.* Elegir la unidad "por lógica de negocio" —el eje del bono— 
 consumidor use otro criterio —el sufijo— es el mismo anti-patrón de las dos fuentes
 para una pregunta, disfrazado de conversión.
 
+### E2.t — Dos síntomas iguales, dos causas distintas, y ninguna es el cuadro (2026-08-17)
+
+GD46 y D30O6 fallaban los dos con la misma cara —«revisar la escala del flujo o la
+pata»— y son problemas completamente distintos. **En ninguno de los dos el cuadro
+de flujos estaba mal.**
+
+**D30O6 (dólar-linked) — el A3500 no se cargaba NUNCA.** La rama `dolar_linked` de
+`engines/curvas.py` arranca así: sin `tc_a3500` sale por la puerta de emergencia
+con la duration ingenua y sin TEA. El simulador **nunca le pasaba ese argumento**:
+solo mandaba `mep`, y decidía si hacía falta preguntando `moneda_flujo == "USD"`.
+
+Es **otra vez dos criterios para una pregunta**. El motor decide qué tipo de
+cambio necesita por **RAMA** (`curva_depende_de`); el simulador lo decidía por
+**moneda del flujo**. Un dólar-linked tiene `moneda_flujo` USD y necesita A3500,
+no MEP — con ese criterio no cargaba ninguno de los dos. La prueba está en la
+pantalla: duration 0,2027 = 74/365, los días al vencimiento clavados, que es lo
+único que devuelve esa salida de emergencia.
+
+El fix es el mismo patrón que E2.s: el simulador ya no tiene criterio propio,
+llama a `curva_depende_de` — la función que usa el motor para invalidar su cache.
+
+Y la nota del encabezado deja de mentir: falta de TC ahora dice **«sin TEA: falta
+el tipo de cambio A3500 (feed MAE) — no es el cuadro»**, en vez de mandar a
+revisar una escala que está bien (misma regla de causalidad de E2.l).
+
+*Verificado por aritmética, no supuesto*: 1816 publica paridad 0,99207 sobre un
+precio de 147.690 → su valor técnico es 148.869,84, **exactamente la Σ de nuestro
+cuadro**. O sea que 1816 manda el cronograma del dólar-linked ya pesificado a un
+TC de 1.488,6984 (= Σ/100), y normalizarlo por la Σ —lo que hace E2.q— es
+correcto. Con el A3500 cargado, nuestra paridad tiene que dar ≈ 99,2%.
+
+**GD46 (soberano) — la paridad usa un residual que no le pasamos.** Acá el fix de
+E2.s funcionó: el precio ya entra bien (104.500 en pesos ÷ MEP = 68,86 USD). Pero
+`engines/curvas.py:542` calcula la paridad como `precio_usd / residual_previo_pct`
+y **nuestro conversor de la rama `soberanos` no escribe ese campo** — el motor lo
+defaultea a 100, así que la paridad sale igual al precio en dólares: 68,86%. 1816
+dice 72,78%.
+
+**Acá NO se codea a ciegas (REGLA #2).** La aritmética dice que el residual de
+ellos es ≈ 94,8 (68,859/94,8 × 100 = 72,64%, y ajustando por la diferencia de TC
+—1.517,63 contra el 1.514,49 implícito de 1816— da 72,79% contra su 72,78%). Pero
+**de dónde sale ese 94,8 no se puede afirmar sin ver la respuesta cruda**: la Σ de
+las amortizaciones que manda 1816 es 100,000012, o sea que su cuadro parece venir
+ya renormalizado al residual vivo, y entonces el residual **no está en el cuadro**.
+Escribir `residual_previo_pct` derivándolo de esa Σ daría 100 otra vez — un cambio
+que no cambia nada.
+
+Por eso el entregable es un diag, no un fix: `scripts/diag_av_agent_flujos.py`
+imprime el cashflow crudo con todas sus claves, sondea **de a un nombre por vez**
+si la API acepta un campo de residual/valor técnico (1816 rechaza la llamada
+entera si uno no existe — trampa ya pagada en `jobs/tamar_1816`), y compara el
+valor técnico implícito en `ars` contra el de `mep`.
+
+**De paso**: el cuadro «CÓMO SE CALCULÓ» mostraba «paridad nuestra 68,8575 · 1816
+0,727808». El paso del cotejo ya normalizaba las escalas —nuestro motor devuelve
+porcentaje, 1816 fracción— pero el cuadro no, y eso se lee como un error de 100×
+cuando la diferencia real era del 5%. Ahora las dos van en la misma unidad.
+
 ## Changelog
 
+- **2026-08-17 — E2.t, el A3500 del dólar-linked + el residual del soberano.**
+  Dos bonos con el mismo mensaje de error y dos causas distintas; en ninguna el
+  cuadro estaba mal. **(a) D30O6**: el simulador nunca pasaba `tc_a3500`, así que
+  todo dólar-linked salía por la puerta de emergencia de la rama con la duration
+  ingenua (0,2027 = 74/365, los días al vencimiento). Causa raíz: **dos criterios
+  para una pregunta** otra vez — el motor decide el TC por RAMA y el simulador
+  preguntaba por `moneda_flujo`. Ahora usa `curva_depende_de`, el predicado del
+  motor. La nota del encabezado también deja de culpar a la escala cuando lo que
+  falta es un TC. **(b) GD46**: la paridad de un soberano se calcula contra
+  `residual_previo_pct` y nuestro conversor no lo escribe → el motor usa 100 y la
+  paridad sale igual al precio en dólares (68,86% contra 72,78%). **No se fixea a
+  ciegas**: la Σ del cuadro de 1816 es 100,000012, o sea que parece venir ya
+  renormalizado y el residual no estaría ahí — derivarlo de la Σ daría 100 de
+  nuevo. Entregable: `scripts/diag_av_agent_flujos.py` (read-only) que dumpea el
+  cashflow crudo y **sondea de a un nombre por vez** qué campo de residual acepta
+  la API. **(c)** el cuadro «CÓMO SE CALCULÓ» muestra las dos paridades en la
+  misma unidad. 2 tests (76 en total).
 - **2026-08-17 — E2.s, GD46: doble conversión por MEP.** La paridad daba 0,0455
   contra 0,7556 de 1816 y parecía un problema del cuadro de flujos. **El flujo
   estaba perfecto**: `69 / 91,315 × 100 = 75,57 %` contra el 75,56 % de 1816. Lo

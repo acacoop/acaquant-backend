@@ -1209,3 +1209,51 @@ def test_la_doble_division_por_MEP_daba_una_paridad_1500_veces_menor():
     assert round(precio_en_usd / mep, 4) == 0.0455       # lo que mostraba la pantalla
     vt_de_1816 = precio_en_usd / 0.7556232992733721      # su valor técnico implícito
     assert round(precio_en_usd / vt_de_1816 * 100, 2) == 75.56   # la paridad correcta
+
+
+def test_el_TIPO_DE_CAMBIO_de_la_simulacion_lo_decide_la_RAMA(monkeypatch):
+    """D30O6 (2026-08-17): un dólar-linked simulaba SIN A3500 y salía por la puerta
+    de emergencia de `engines/curvas.py` (línea 579) con la duration ingenua y sin
+    TEA. Ningún error: el mensaje culpaba «la escala del flujo o la pata».
+
+    La causa era la de siempre —**dos criterios para una pregunta**—: el simulador
+    preguntaba `moneda_flujo == "USD"` para decidir si hacía falta un TC, mientras
+    el motor decide por RAMA. Un dólar-linked tiene `moneda_flujo` USD y necesita
+    A3500, no MEP: con ese criterio no cargaba ninguno de los dos.
+
+    Ahora el predicado es `curva_depende_de`, el mismo que usa el motor."""
+    import engines.curvas as ec
+    from api.services import av_agent_alta as alta
+
+    vistos: dict = {}
+
+    def _fake_calcular(_trade, _doc, _cer, _hab, mep=None, tc_a3500=None):
+        vistos.update(mep=mep, tc_a3500=tc_a3500)
+        return {"TEA": 0.12, "duration": 0.2, "paridad": 99.21}
+
+    monkeypatch.setattr(ec, "calcular_campos", _fake_calcular)
+    monkeypatch.setattr(ec, "cargar_cer", lambda **_: {})
+    monkeypatch.setattr(ec, "cargar_dias_habiles", lambda: [])
+    monkeypatch.setattr(ec, "cargar_a3500_actual", lambda: 1488.6984)
+    monkeypatch.setattr(alta, "_referencia_1816", lambda *a, **k: {})
+
+    doc = {"curva": "dolar_linked", "ajuste": "dolar_linked", "moneda_flujo": "USD",
+           "emisor_tipo": "soberano", "moneda_eje": "USD", "valor_nominal": 100,
+           "flujos": [{"fecha": "2026-10-30", "amortizacion_pct": 100.0}]}
+    out = alta._simular_tasa(doc, "MERV - XMEV - D30O6 - 24hs", 147690.0)
+
+    assert vistos["tc_a3500"] == 1488.6984, "la rama dolar_linked NECESITA el A3500"
+    assert out["_a3500"] == 1488.6984
+    assert out["tea"] is not None
+
+
+def test_la_paridad_se_muestra_en_LA_MISMA_UNIDAD_que_la_de_1816():
+    """El cuadro «CÓMO SE CALCULÓ» imprimía «nuestra 68.8575 · 1816 0.7278»: el
+    motor devuelve PORCENTAJE y 1816 FRACCIÓN. Se lee como un error de escala de
+    100× cuando la diferencia real era del 5%. El paso del cotejo ya normalizaba;
+    el cuadro no."""
+    from api.services.av_agent_alta import _pct
+
+    assert _pct(68.8575) == "68.86%"
+    assert _pct(0.7278 * 100) == "72.78%"
+    assert _pct(None) == "—"

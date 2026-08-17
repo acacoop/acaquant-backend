@@ -37,7 +37,12 @@ _MIN_INTERVALO_S = 2.5   # throttle mínimo entre llamadas (contra el 429)
 _TIMEOUT = 45
 _MAX_REINTENTOS = 5
 
-_lock = threading.Lock()
+# **RLock, no Lock** (2026-08-17): `_token()` toma el lock y adentro llama a
+# `_auth()`, que ahora hace throttle — y `_throttle()` toma el MISMO lock. Con un
+# `Lock` simple eso es un deadlock instantaneo. Reentrante es lo correcto acá y
+# ademas es lo que queremos: mientras un hilo re-autentica (con sus esperas), los
+# demas se quedan en la puerta en vez de salir todos a pedir token a la vez.
+_lock = threading.RLock()
 _estado: dict = {"token": None, "exp": 0.0, "ultima": 0.0}
 
 
@@ -73,23 +78,60 @@ def normalizar_ticker(t: str | None) -> str:
 
 
 def _auth() -> str:
+    """Pide un token. **Con throttle, backoff y reintentos, igual que `_get`.**
+
+    ⚠️ **ESTA FUNCION ERA LA CAUSA RAIZ DEL «429» QUE ROMPIA TODO** (2026-08-17).
+    `_get` tenía throttle + backoff + 5 reintentos contra el rate limit; `_auth`
+    no tenía **nada**: posteaba y levantaba `Error1816` al primer 429. Y como
+    `_token()` la llama cada vez que el token falta o vencio, **un solo 429 en el
+    endpoint de AUTH tumbaba todo lo que toca 1816** — el agente y los cuatro
+    jobs (`tamar_1816` cada 30 min, `ficha_1816`, `mercado_1816_series`,
+    `research_mail`), todos a la vez y con el mismo mensaje.
+
+    El sintoma que lo delata es literal y estaba a la vista en la pantalla:
+    **«auth HTTP 429»**, no «/cashflow HTTP 429». El path del error decía cuál de
+    las dos funciones había fallado y las dos se leían igual de lejos.
+
+    La leccion general: **el reintento se puso donde se veía el trafico (las
+    consultas) y no donde estaba el cuello (la autenticacion)**. Toda llamada de
+    red que pueda dar 429 necesita la misma disciplina, incluidas las que uno no
+    piensa como «consultas».
+    """
     key = _api_key()
     if not key:
         raise Error1816("falta MERCADO_1816_API_KEY")
     import requests
 
-    r = requests.post(f"{_BASE}/v1/auth/token",
-                      json={"apiKey": key, "module": "mercado"}, timeout=_TIMEOUT)
-    if r.status_code != 200:
+    ultimo = ""
+    for intento in range(_MAX_REINTENTOS):
+        _throttle()
+        try:
+            r = requests.post(f"{_BASE}/v1/auth/token",
+                              json={"apiKey": key, "module": "mercado"},
+                              timeout=_TIMEOUT)
+        except requests.RequestException as e:
+            ultimo = f"{type(e).__name__}: {e}"
+            time.sleep(3 * (intento + 1))
+            continue
+        if r.status_code == 200:
+            d = r.json()
+            tok = d.get("token")
+            if not tok:
+                raise Error1816("auth sin token en la respuesta")
+            _estado["token"] = tok
+            _estado["exp"] = time.time() + int(d.get("expiresIn", 86400)) - 300
+            logger.info("mercado_1816: token renovado (expira en %ss)",
+                        d.get("expiresIn"))
+            return tok
+        if r.status_code == 429 or r.status_code >= 500:
+            espera = min(5 * 2 ** intento, 60)
+            logger.warning("mercado_1816 auth HTTP %s — backoff %ss (intento %s)",
+                           r.status_code, espera, intento + 1)
+            ultimo = f"HTTP {r.status_code}: {r.text[:120]}"
+            time.sleep(espera)
+            continue
         raise Error1816(f"auth HTTP {r.status_code}: {r.text[:200]}")
-    d = r.json()
-    tok = d.get("token")
-    if not tok:
-        raise Error1816("auth sin token en la respuesta")
-    _estado["token"] = tok
-    _estado["exp"] = time.time() + int(d.get("expiresIn", 86400)) - 300  # 5 min margen
-    logger.info("mercado_1816: token renovado (expira en %ss)", d.get("expiresIn"))
-    return tok
+    raise Error1816(f"auth: agotados {_MAX_REINTENTOS} reintentos ({ultimo})")
 
 
 def _token() -> str:

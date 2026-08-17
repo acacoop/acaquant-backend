@@ -2653,10 +2653,25 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
     cot_hoy = _cotejo_de(antes.get("tea"), antes.get("paridad"),
                          antes.get("duration"), ref, out.get("precio"), cota)
     ya_estaba_bien = cot_hoy["estado"] == OK
+    # ⚠️ **UN ERROR DE RED NO ES UNA CONCLUSIÓN SOBRE EL BONO** (2026-08-17).
+    # Acá había `BLOQUEA if ya_estaba_bien else OK`, o sea que **cualquier cosa
+    # que no fuera OK se leía como «no coincide»** — y con 1816 devolviendo 429 la
+    # cadena afirmaba, en verde, *«confirmado que lo de hoy NO coincide: hay algo
+    # real que arreglar»* sin haber podido preguntar nada.
+    #
+    # Es exactamente el pecado que ya corregimos en la paridad (E3.g) repetido en
+    # otro paso: **tratar la ausencia de respuesta como una respuesta.** Son TRES
+    # estados y no dos — coincide / no coincide / no se pudo saber — y el tercero
+    # tiene que frenar, porque sin cotejo no se pisa nada.
+    no_se_pudo = cot_hoy["estado"] == NO_SE
     ps.append(_paso("cotejo_hoy", "El bono de HOY, contra 1816",
-                    BLOQUEA if ya_estaba_bien else OK,
+                    NO_SE if no_se_pudo else (BLOQUEA if ya_estaba_bien else OK),
                     cot_hoy["detalle"]
-                    + ("  ⚠️ **El bono de hoy YA coincide con 1816**: no hay nada "
+                    + ("  ⚠️ **No se pudo consultar a 1816**, así que de este bono "
+                       "no se sabe nada todavía — ni que está mal ni que está "
+                       "bien. Reintentá en unos minutos: esto NO dice nada del "
+                       "instrumento." if no_se_pudo else
+                       "  ⚠️ **El bono de hoy YA coincide con 1816**: no hay nada "
                        "que arreglar y pisarlo sería empeorarlo. El hallazgo "
                        "quedó viejo o el umbral es angosto para este instrumento "
                        "— revisalo o ignoralo." if ya_estaba_bien else

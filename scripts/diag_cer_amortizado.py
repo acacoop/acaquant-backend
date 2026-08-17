@@ -111,22 +111,24 @@ def convencion_del_master() -> None:
     # El veredicto: en base ORIGINAL la Σ TOTAL es ~100; en base RESIDUAL lo es
     # la Σ FUTURA. Se cuenta sobre los amortizados, que son los únicos que
     # distinguen las dos.
-    orig = sum(1 for r in amortizados if 99.0 <= r[1] <= 101.0)
-    resi = sum(1 for r in amortizados if 99.0 <= r[2] <= 101.0)
-    print(f"\n  → Σ TOTAL ≈ 100 (base ORIGINAL):  {orig}/{len(amortizados)}")
-    print(f"  → Σ FUTURA ≈ 100 (base RESIDUAL): {resi}/{len(amortizados)}")
-    if orig and not resi:
-        print("  VEREDICTO: el master está en BASE ORIGINAL → el bug es la "
-              "PARIDAD del motor,\n             que divide por 100 en vez de "
-              "por el residual vivo.")
-    elif resi and not orig:
-        print("  VEREDICTO: el master está en BASE RESIDUAL → el bug es el "
-              "CONVERSOR,\n             que normaliza por la Σ del cuadro "
-              "COMPLETO en vez de la futura.")
-    else:
-        print("  VEREDICTO: ⚠ CONVIVEN LAS DOS BASES en el master. Eso es peor "
-              "que cualquiera\n             de las dos: la misma columna "
-              "significa cosas distintas según el bono.")
+    #
+    # ⚠️ LEER ASÍ (corregido 2026-08-17, después de la corrida real). La primera
+    # versión de este veredicto pedía «Σ TOTAL ≈ 100» y con TX26 (Σ=40) y TX28
+    # (Σ=60) cantó «conviven las dos bases». **Era el chequeo el que estaba mal.**
+    # Esos dos están en BASE ORIGINAL y bien: la mesa cargó solo los flujos que
+    # todavía faltaban (TX26 amortiza 20% × 5 y quedan 2), así que la Σ es 40
+    # porque hay 2 cuotas, no porque la escala sea otra. Un cronograma TRUNCADO es
+    # normal y no dice nada de la base.
+    #
+    # Lo que SÍ delata la base es el tamaño de cada cuota: en base original una
+    # amortización es un número redondo del prospecto (20%, 10%, 5%); en base
+    # residual la última siempre sería 100.
+    print("\n  cuotas (amortizacion_pct de cada flujo con amortización > 0):")
+    for r in sorted(amortizados, key=lambda r: r[0]):
+        print(f"    {r[0]:<10} residual vivo {r[4]:>9,.4f}   Σ futura {r[2]:>9,.4f}")
+    print("\n  Un cronograma TRUNCADO (la mesa carga solo lo que falta) da Σ < 100")
+    print("  y NO significa que la base esté mal. La base se lee en el tamaño de")
+    print("  cada cuota: 20 / 10 / 5 son % del VN ORIGINAL.")
 
 
 # ── 2. EL BONO CONTRA 1816 (cuesta créditos) ──────────────────────────────

@@ -1639,3 +1639,109 @@ def av_agent_acciones_dir() -> str:
 
     from api.services import av_agent_acciones
     return str(pathlib.Path(av_agent_acciones.__file__).parent)
+
+
+def test_EL_CASO_DICP_el_divisor_del_cuadro_CER_es_el_RATIO_no_la_suma():
+    """DICP dio TEA 3,91% contra 9,25% de 1816 y PARP dio EXACTO. Medido, la
+    diferencia estructural es una sola: **PARP no amortizó nada todavía** (sus 20
+    cuotas arrancan en 2029) y DICP amortiza desde 2024.
+
+    La causa: 1816 manda cada flujo **en pesos ajustados por el CER de su propia
+    fecha** — los pasados en pesos de cuando se pagaron, los futuros en pesos de
+    hoy. Nuestro divisor era la Σ del cuadro COMPLETO, o sea **sumar pesos de 2024
+    con pesos de 2026**. Con las cifras reales de prod:
+
+        PARP  Σ/ratio = 100,0025 → cada amortización 5,000126%   ← de manual
+        DICP  Σ/ratio = 118,3040 → pero las 20 valdrían 126,9969
+                                    (6,8% menos = la inflación de lo ya pagado)
+
+    Y contra los indicadores de 1816 al MISMO precio:
+
+        ÷ Σ (lo viejo)        TEA  3,9132%  dur 3,4830
+        ÷ residual futuro     TEA 10,8880%  dur 3,1928
+        ÷ ratio de CER        TEA  9,2268%  dur 3,2591
+        1816                  TEA  9,2475%  dur 3,2512
+
+    Este test congela las dos mitades: que con ratio el cuadro queda en % del VN
+    ORIGINAL, y que **para un bono sin amortizar el cambio es la identidad** — que
+    es la garantía de que PARP y los 24 CER intactos del master no se movieron."""
+    from api.services.av_agent_alta import convertir_flujos
+
+    # ── PARP sintético: 4 cuotas de 25%, TODAS futuras, CER de hoy (ratio 561,42)
+    ratio = 561.4192
+    parp = [_cup(f, 25 * ratio, 1.0 * ratio) for f in
+            ("2029-03-31", "2029-09-30", "2030-03-31", "2030-09-30")]
+    con_ratio = convertir_flujos(parp, "cer", ratio_cer=ratio)
+    sin_ratio = convertir_flujos(parp, "cer")
+    assert con_ratio["divisor_es"] == "ratio_cer"
+    assert sin_ratio["divisor_es"] == "suma"
+    for a, b in zip(con_ratio["flujos"], sin_ratio["flujos"], strict=True):
+        assert abs(a["amortizacion_pct"] - b["amortizacion_pct"]) < 1e-9, (
+            "sin amortizaciones pasadas las dos normalizaciones TIENEN que dar lo "
+            "mismo — si no, este cambio movería los 24 CER intactos del master")
+        assert abs(a["residual_previo_pct"] - b["residual_previo_pct"]) < 1e-9
+    assert abs(con_ratio["suma_pct"] - 100.0) < 1e-6
+
+    # ── DICP sintético. Son DOS cosas a la vez, y las dos las arregla el ratio:
+    #
+    #   (1) CAPITALIZÓ interés → el total a amortizar NO es 100 del VN original
+    #       sino 125 (5 cuotas de 25). Dividir por Σ lo fuerza a 100 igual.
+    #   (2) las 2 cuotas YA PAGADAS vienen en pesos de SU fecha (CER × 0,7), así
+    #       que Σ ni siquiera es un número en una sola unidad.
+    #
+    # Σ = 2×25×0,7 + 3×25 = 110 (en unidades de ratio) contra el divisor correcto,
+    # que es 100 → las cuotas futuras se encogen a 22,73 en vez de 25. Esa es la
+    # dirección del error real de DICP (Σ/ratio = 118,30 contra 100).
+    entonces = ratio * 0.7
+    dicp = ([_cup(f, 25 * entonces, 1.0 * entonces)
+             for f in ("2024-06-30", "2024-12-31")]
+            + [_cup(f, 25 * ratio, 1.0 * ratio)
+               for f in ("2027-06-30", "2027-12-31", "2028-06-30")])
+    r = convertir_flujos(dicp, "cer", ratio_cer=ratio)
+    # Con el ratio, cada cuota FUTURA vale sus 25% del VN original.
+    for f in r["flujos"][2:]:
+        assert abs(f["amortizacion_pct"] - 25.0) < 1e-6
+    # Y la Σ deja de ser una constante decorativa: dice que el bono capitalizó.
+    assert abs(r["suma_pct"] - 110.0) < 1e-6
+
+    # El bug: por Σ las cuotas futuras se encogen ~9% y la TEA se desploma **sin
+    # dar ningún error** — DICP mostraba 3,91% contra 9,25%.
+    malo = convertir_flujos(dicp, "cer")
+    assert abs(malo["flujos"][2]["amortizacion_pct"] - 25 / 110 * 100) < 1e-6
+    assert malo["flujos"][2]["amortizacion_pct"] < 23.0
+
+
+def test_el_CER_de_emision_pasa_a_ser_BLOQUEANTE_en_completar_flujos():
+    """Antes era «revisar»: se escribía el cuadro y el CER quedaba pendiente. Con
+    el divisor por ratio eso ya no se sostiene — **sin el CER de emisión el cuadro
+    ni siquiera se puede convertir**, porque el número que lleva los pesos de 1816
+    a % del VN es `CER de hoy / CER de emisión`. Escribir igual dejaría un
+    cronograma en una escala inventada, que es peor que no tener cronograma: se
+    ve cargado y valúa mal."""
+    import inspect
+
+    from api.services import av_agent_alta
+
+    ch = inspect.getsource(av_agent_alta._chequeos_flujos)
+    assert 'ps.append(_paso("cer_emision", "CER de emisión resuelto",\n' \
+           '                        OK if cer_e else BLOQUEA,' in ch
+    # Y el paso del DIVISOR existe y también frena si no se pudo aplicar el ratio.
+    assert '_paso("divisor"' in ch
+    assert 'OK if por_ratio else BLOQUEA' in ch
+
+
+def test_el_ratio_de_CER_sale_de_las_MISMAS_funciones_que_el_motor():
+    """El invariante que sostiene todo esto es que `monto_flujo_cer(f) × ratio`
+    reproduzca el importe en pesos que publica 1816. Si el agente calculara el
+    ratio con otra fuente o con otro lag, el cuadro guardado dejaría de reproducir
+    el de ellos **y nadie se enteraría** — es la misma familia de bug que leer el
+    doc por `SELECT data` en vez de por `curvas_sql`."""
+    import inspect
+
+    from api.services import av_agent_alta
+
+    fuente = inspect.getsource(av_agent_alta.ratio_cer_hoy)
+    for fn in ("cargar_cer", "cargar_dias_habiles", "get_cer_liquidacion",
+               "siguiente_dia_habil"):
+        assert fn in fuente, f"{fn} es la función del motor y tiene que usarse acá"
+    assert "n=10" in fuente, "el lag T−10 hábiles es el del motor, no se re-elige"

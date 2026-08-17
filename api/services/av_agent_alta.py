@@ -72,10 +72,49 @@ def _fecha(v) -> str:
     return v.strftime("%Y-%m-%d") if hasattr(v, "strftime") else ""
 
 
-def convertir_flujos(cupones: list[dict], rama: str) -> dict:
+def convertir_flujos(cupones: list[dict], rama: str, *,
+                     ratio_cer: float | None = None) -> dict:
     """Cuadro de 1816 → nuestra shape. PURA (testeable sin red).
 
-    Devuelve `{flujos, escala, suma_amort, flujo_vencimiento, n}`.
+    Devuelve `{flujos, escala, suma_amort, flujo_vencimiento, n, divisor}`.
+
+    ⚠️ **`ratio_cer` NO es opcional de verdad en la rama `cer`** — es el divisor
+    correcto, y sin él la conversión solo es válida para un bono que todavía no
+    amortizó nada. El porqué está medido (DICP, 2026-08-17):
+
+    1816 manda cada flujo **en pesos ajustados por el CER DE SU PROPIA FECHA**:
+    los pasados en pesos de cuando se pagaron, los futuros en pesos de hoy.
+    Sumar los 60 cupones de DICP es **sumar pesos de 2024 con pesos de 2026**, y
+    ese Σ era nuestro divisor. Números:
+
+    ```
+    PARP  Σ/ratio = 100,0025 por 100 VN   → cada amortización 5,000126%  ← de manual
+    DICP  Σ/ratio = 118,3040 por 100 VN   → pero las 20 valdrían 126,9969
+                                             (6,8% menos = la inflación entre
+                                              2024 y hoy de lo YA pagado)
+    ```
+
+    **PARP salió perfecto porque TODAS sus amortizaciones son futuras** (arrancan
+    en 2029): ahí Σ ya está en pesos de hoy y dividir por Σ o por el ratio es lo
+    mismo. DICP, que amortiza desde 2024, daba TEA 3,91% contra 9,25%.
+
+    Medido contra los indicadores de 1816 al MISMO precio:
+
+    ```
+    ÷ Σ (lo viejo)            TEA  3,9132%   duration 3,4830
+    ÷ residual futuro          TEA 10,8880%   duration 3,1928
+    ÷ ratio de CER (esto)      TEA  9,2268%   duration 3,2591
+    1816                       TEA  9,2475%   duration 3,2512
+    ```
+
+    El invariante que deja: **`monto_flujo_cer(f) × ratio` reproduce el importe en
+    pesos que publica 1816**, hoy y con cualquier CER futuro. Por eso el divisor
+    es el ratio y no una Σ: lo que se guarda tiene que ser el % del VN ORIGINAL,
+    que no depende del CER.
+
+    `cupon_sobre_residual` NO se toca: es `interes / residual`, un cociente entre
+    dos importes de la MISMA fecha, así que el CER se cancela solo. Se ve en que
+    da 0,02915 para DICP — 5,83% anual, su cupón de prospecto.
 
     Usa la **fecha EFECTIVA**: medido el 2026-08-15, nuestro master guarda esa y
     no la teórica (por efectiva matchean 21/23 cupones de AE38, por teórica 13/23).
@@ -95,6 +134,15 @@ def convertir_flujos(cupones: list[dict], rama: str) -> dict:
     suma_amort = round(sum(a for _, a, _ in filas), 6)
     escala = "vn100" if _VN100_MIN <= suma_amort <= _VN100_MAX else "nominales"
 
+    # EL DIVISOR que lleva el cuadro a «% del VN original». En la rama `cer` es el
+    # ratio de CER (ver docstring); en el resto sigue siendo la Σ, que ahí SÍ está
+    # en una sola unidad porque esos cuadros no se ajustan por índice.
+    divisor = suma_amort
+    if rama == "cer" and ratio_cer and ratio_cer > 0:
+        # ×100 porque el ratio lleva a VN=1 y nuestra shape es por 100.
+        divisor = ratio_cer * 100.0
+    base = divisor or 1.0
+
     # Residual vivo antes de cada pago (por 100), para poder expresar el cupón de
     # un CER como TASA. Se recorre en orden y se descuenta lo ya amortizado.
     residual, residuales = suma_amort, []
@@ -111,9 +159,9 @@ def convertir_flujos(cupones: list[dict], rama: str) -> dict:
             # la trampa del paso 15, que no se ve leyendo el código.
             flujos.append({
                 "fecha": f,
-                "amortizacion_pct": (amort / suma_amort * 100) if suma_amort else 0.0,
+                "amortizacion_pct": amort / base * 100,
                 "cupon_sobre_residual": (interes / res_prev) if res_prev else 0.0,
-                "residual_previo_pct": (res_prev / suma_amort * 100) if suma_amort else 0.0,
+                "residual_previo_pct": res_prev / base * 100,
             })
         elif rama == "soberanos":
             # En esta rama `cupon_sobre_residual` ES un monto por 100 VN (se divide
@@ -142,6 +190,16 @@ def convertir_flujos(cupones: list[dict], rama: str) -> dict:
             # absurda **sin ningún error**. Dividir por la Σ lo lleva a base 100, y
             # cuando la Σ ya es ~100 la operación es la identidad — así que es
             # correcta en los dos casos.
+            #
+            # ⚠️ **RIESGO GEMELO NO MEDIDO (2026-08-17).** Un dólar-linked se
+            # ajusta por A3500 igual que un CER por CER, así que su cuadro tiene
+            # la MISMA estructura que la que rompió a DICP: si 1816 expresa cada
+            # flujo con el tipo de cambio de SU fecha, la Σ mezcla dólares de
+            # distintos días y el divisor correcto sería `A3500_hoy / A3500_emisión`.
+            # Acá NO se cambia porque no está medido —los DL que probamos (D10Y7,
+            # D30O6) no habían amortizado nada, que es exactamente el caso en que
+            # los dos divisores coinciden y el problema no se ve. Para medirlo:
+            # un DL que ya amortizó, con `scripts/diag_cer_amortizado`.
             flujos.append({
                 "fecha": f,
                 "amortizacion_pct": (amort / suma_amort * 100) if suma_amort else 0.0,
@@ -167,7 +225,14 @@ def convertir_flujos(cupones: list[dict], rama: str) -> dict:
     if len(filas) == 1 and rama == "tasa_fija":
         fv = round(filas[0][1] + filas[0][2], 6)
 
+    # `suma_pct` es la Σ de amortizaciones YA en la base de salida. En la rama
+    # `cer` con ratio es la lectura que importa: para PARP da 100,00 y para DICP
+    # 118,30 (nominal capitalizado) — o sea, deja de ser una constante decorativa
+    # y pasa a decir algo del bono.
     return {"flujos": flujos, "escala": escala, "suma_amort": suma_amort,
+            "suma_pct": round(sum(f.get("amortizacion_pct", 0.0) for f in flujos), 6),
+            "divisor": round(base, 6),
+            "divisor_es": "ratio_cer" if (rama == "cer" and ratio_cer) else "suma",
             "flujo_vencimiento": fv, "n": len(filas), "rama": rama}
 
 
@@ -998,6 +1063,16 @@ def _memoria_de_calculo(*, doc: dict, ejes, rama: str, conv: dict, out: dict,
                        f"{conv['suma_amort']} → escala {conv['escala']}",
              "1816 /cashflow (fechaPagoEfectiva)"),
     ]
+    # EL DIVISOR, en la memoria y no solo en la cadena: es el insumo que decidió
+    # 530 bps en DICP, y una memoria de cálculo que no lo muestra deja el número
+    # más importante fuera de la auditoría.
+    if conv.get("divisor_es") == "ratio_cer":
+        f.append(fila("Divisor del cuadro",
+                      f"{conv['divisor']:,.4f}  →  Σ {conv.get('suma_pct'):,.4f}% "
+                      "del VN original",
+                      "CER_liq / cer_emision × 100 — 1816 manda los importes en "
+                      "pesos ajustados por el CER de CADA fecha, así que la Σ del "
+                      "cuadro mezcla unidades y no sirve de divisor"))
     if conv["flujo_vencimiento"] is not None:
         f.append(fila("Pago único", conv["flujo_vencimiento"],
                       "amortización + interés del único cupón (bullet)"))
@@ -1210,6 +1285,41 @@ def _rango_cer(fecha: str) -> str:
                 "no es este bono")
     return (f"la serie CER va de {desde} a {hasta} ({n:,} días) pero le falta ESE "
             "día: es un HUECO, no un atraso")
+
+
+def ratio_cer_hoy(cer_emision: float | None) -> tuple[float | None, str]:
+    """`CER de liquidación de HOY / CER de emisión` — el divisor del cuadro CER.
+
+    **Es el MISMO número por el que el motor multiplica los flujos** al valuar
+    (`ratio = cer_liq / cer_emision` en la rama `cer` de `engines/curvas.py`), y
+    sale de las mismas dos funciones (`cargar_cer` + `get_cer_liquidacion`, T−10
+    hábiles desde el settlement). Que sea el mismo no es prolijidad: es lo que
+    hace que valga el invariante **`monto_flujo_cer(f) × ratio` = el importe en
+    pesos que publica 1816**. Con dos ratios distintos el cuadro guardado no
+    reproduciría el cuadro de ellos y nadie se enteraría.
+
+    Devuelve `(ratio, motivo)`; `ratio=None` con el motivo en texto.
+    """
+    if not cer_emision or cer_emision <= 0:
+        return None, "falta el CER de emisión"
+    try:
+        from engines.curvas import (
+            cargar_cer,
+            cargar_dias_habiles,
+            get_cer_liquidacion,
+            siguiente_dia_habil,
+        )
+        habiles = cargar_dias_habiles()
+        settlement = siguiente_dia_habil(habiles, date.today())
+        if not settlement:
+            return None, "mercado.dias_habiles no tiene el día hábil siguiente a hoy"
+        cer_liq = get_cer_liquidacion(cargar_cer(dias=1200), habiles, settlement, n=10)
+        if not cer_liq:
+            return None, _rango_cer(settlement)
+        return cer_liq / float(cer_emision), f"CER {cer_liq:,.4f} / {cer_emision:,.4f}"
+    except Exception as e:
+        logger.warning("av_agent: no se pudo resolver el ratio de CER: %s", e)
+        return None, f"no se pudo leer el CER ({e})"
 
 
 # Lo que se le pide a 1816 para poder simular un bono que TODAVÍA no tiene precio
@@ -1556,11 +1666,12 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None,
     rama_tent = rama_calculo({"emisor_tipo": ejes.emisor_tipo,
                               "moneda_eje": ejes.moneda, "ajuste": ejes.ajuste,
                               "ajuste_alt": ejes.ajuste_alt})
-    conv = convertir_flujos(cupones, rama_tent)
-    hoy = date.today().isoformat()
-    futuros = [f for f in conv["flujos"] if f["fecha"] > hoy]
-    vencimiento = conv["flujos"][-1]["fecha"] if conv["flujos"] else ""
-
+    # ⚠️ EL ORDEN IMPORTA: el CER de emisión se resuelve ANTES de convertir. En la
+    # rama `cer` el divisor del cuadro ES el ratio de CER (ver `convertir_flujos`),
+    # así que convertir primero y buscar el CER después daba un cuadro en una base
+    # que no era la del bono. Antes no se notaba porque el divisor era la Σ, que no
+    # depende de nada.
+    #
     # El CER de emisión NO hace falta pedirlo: la fecha de emisión está en el
     # catálogo de 1816 (ya persistido, 0 créditos) y la serie CER es nuestra.
     ficha = _ficha_1816(tk)
@@ -1573,6 +1684,14 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None,
             nota_cer = (f"CER de emisión {cer_manual:g} cargado a mano — la serie "
                         "no llega a la fecha de emisión, así que este número no "
                         "sale de ninguna fuente nuestra")
+
+    ratio, ratio_nota = (None, "")
+    if rama_tent == "cer":
+        ratio, ratio_nota = ratio_cer_hoy(cer_emision)
+    conv = convertir_flujos(cupones, rama_tent, ratio_cer=ratio)
+    hoy = date.today().isoformat()
+    futuros = [f for f in conv["flujos"] if f["fecha"] > hoy]
+    vencimiento = conv["flujos"][-1]["fecha"] if conv["flujos"] else ""
 
     # El símbolo NO se adivina: sale de `mercado.especies`, la misma fuente de la
     # que se derivan los símbolos de `portafolio.assets`. `_contexto_cadena` trae
@@ -1601,6 +1720,8 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None,
         "cer_emision": cer_emision,
         "cer_manual": bool(cer_manual),
         "nota_cer": nota_cer,
+        "ratio_cer": ratio, "ratio_nota": ratio_nota,
+        "suma_pct": conv.get("suma_pct"), "divisor_es": conv.get("divisor_es"),
         "ya_en_curvas": bool(ctx.get("ya_en_curvas")),
         # Los campos de la FICHA que el alta va a completar sola. Se calculan acá
         # para que el pre-flight pueda MOSTRARLOS antes de escribir: «¿el bono
@@ -2002,7 +2123,19 @@ def simular_flujos(ticker: str, *, cer_emision: float | None = None) -> dict:
     # mesa y son la verdad; derivarlos de nuevo sería inventar una segunda opinión
     # sobre algo que no está en duda.
     rama = rama_calculo(doc)
-    conv = convertir_flujos(cupones, rama)
+
+    # ⚠️ EL CER DE EMISIÓN SE RESUELVE ANTES DE CONVERTIR. En la rama `cer` el
+    # divisor del cuadro ES el ratio de CER (ver `convertir_flujos`), así que sin
+    # ese número no hay cuadro correcto — no es un dato que se pueda completar
+    # después. El tipeado a mano (E2.x) gana solo si el doc no lo tiene: lo que
+    # cargó la mesa es la verdad.
+    cer_manual = cer_emision if (cer_emision or 0) > 0 else None
+    cer_usado = doc.get("cer_emision") or cer_manual
+    ratio, ratio_nota = (None, "")
+    if rama == "cer":
+        ratio, ratio_nota = ratio_cer_hoy(cer_usado)
+
+    conv = convertir_flujos(cupones, rama, ratio_cer=ratio)
     hoy = date.today().isoformat()
     futuros = [f for f in conv["flujos"] if f["fecha"] > hoy]
     vencimiento = conv["flujos"][-1]["fecha"] if conv["flujos"] else ""
@@ -2010,10 +2143,6 @@ def simular_flujos(ticker: str, *, cer_emision: float | None = None) -> dict:
     doc_sim = {**doc, "flujos": conv["flujos"]}
     if conv["flujo_vencimiento"] is not None:
         doc_sim["flujo_vencimiento"] = conv["flujo_vencimiento"]
-    # El CER de emisión tipeado a mano (E2.x) también sirve acá: sin ese número
-    # la rama `cer` del motor sale por su puerta de emergencia y devuelve la
-    # duration NAIVE. Gana sobre el del doc solo si el doc no lo tiene.
-    cer_manual = cer_emision if (cer_emision or 0) > 0 else None
     if cer_manual and not doc.get("cer_emision"):
         doc_sim["cer_emision"] = cer_manual
     simbolo = (doc.get("ticker") or "").strip()
@@ -2025,8 +2154,10 @@ def simular_flujos(ticker: str, *, cer_emision: float | None = None) -> dict:
         "escala": conv["escala"], "suma_amortizaciones": conv["suma_amort"],
         "cupones": conv["n"], "cupones_futuros": len(futuros),
         "cupones_pagados": conv["n"] - len(futuros),
-        "cer_emision": doc.get("cer_emision") or cer_manual,
+        "cer_emision": cer_usado,
         "cer_manual": bool(cer_manual and not doc.get("cer_emision")),
+        "ratio_cer": ratio, "ratio_nota": ratio_nota,
+        "suma_pct": conv.get("suma_pct"), "divisor_es": conv.get("divisor_es"),
         "vencimiento": vencimiento, "flujo_vencimiento": conv["flujo_vencimiento"],
         "simbolo": simbolo, "cuadro": conv,
         "ejes": {"emisor_tipo": doc.get("emisor_tipo"), "moneda_eje": moneda_eje,
@@ -2088,6 +2219,31 @@ def _chequeos_flujos(*, ticker: str, doc: dict, rama: str, conv: dict,
                     "el cuadro no tiene ningún cupón FUTURO: este bono ya venció, "
                     "no hay nada que valuar",
                     tabla="1816 /cashflow (fechaPagoEfectiva)"))
+    # EL DIVISOR — el paso que no existía y que le costó a DICP 530 bps.
+    #
+    # 1816 manda cada flujo en pesos ajustados por el CER **de su propia fecha**:
+    # los pasados en pesos de cuando se pagaron, los futuros en pesos de hoy. El
+    # divisor que lleva eso a «% del VN original» es el ratio de CER, no la Σ del
+    # cuadro — sumar los 60 cupones de DICP es sumar pesos de 2024 con pesos de
+    # 2026. Se muestra porque es AUDITABLE: la Σ resultante tiene que ser 100 para
+    # un bono común y >100 para uno que capitalizó (DICP: 118,30).
+    if rama == "cer":
+        suma_pct, divisor_es = conv.get("suma_pct"), conv.get("divisor_es")
+        ratio_nota = out.get("ratio_nota") or ""
+        por_ratio = divisor_es == "ratio_cer"
+        ps.append(_paso("divisor", "El cuadro está en la escala del VN original",
+                        OK if por_ratio else BLOQUEA,
+                        (f"dividido por el ratio de CER ({ratio_nota}) → Σ "
+                         f"amortizaciones {suma_pct:,.4f}% del VN original"
+                         + (" — el bono CAPITALIZÓ interés, por eso pasa de 100"
+                            if (suma_pct or 0) > 101 else "")
+                         if por_ratio else
+                         "sin el ratio de CER el cuadro solo se puede normalizar "
+                         "por su propia Σ, que mezcla pesos de distintas fechas: "
+                         "para un bono que ya amortizó eso da una TEA equivocada "
+                         "sin dar ningún error (DICP: 3,91% contra 9,25%)."),
+                        tabla="1816 /cashflow ÷ (CER_liq / cer_emision)"))
+
     # La rama sale del doc, así que no puede ser «otros» por un error de traducción:
     # si lo es, es porque la mesa clasificó el bono en algo que no valuamos.
     convertible = rama in RAMAS_AUTOMATICAS
@@ -2105,14 +2261,16 @@ def _chequeos_flujos(*, ticker: str, doc: dict, rama: str, conv: dict,
     if rama == "cer":
         cer_e = doc.get("cer_emision")
         ps.append(_paso("cer_emision", "CER de emisión resuelto",
-                        OK if cer_e else REVISAR,
+                        OK if cer_e else BLOQUEA,
                         f"{cer_e}" + (" (cargado a mano)" if out.get("cer_manual")
                                       else " (ya estaba en el master)")
                         if cer_e else
-                        "el bono no lo tiene cargado. **Sin este número no hay TEA "
-                        "ni paridad**: el motor devuelve la duration ingenua (los "
-                        "años al vencimiento) y el cotejo contra 1816 no se puede "
-                        "hacer. El cuadro se escribe igual.",
+                        "el bono no lo tiene cargado, y **sin ese número el cuadro "
+                        "ni siquiera se puede convertir**: 1816 manda los importes "
+                        "en pesos ajustados por CER y el divisor que los lleva a % "
+                        "del VN es justamente `CER de hoy / CER de emisión`. No es "
+                        "un dato que se complete después — escribilo acá y se "
+                        "re-simula con él.",
                         tabla="mercado.curvas · macro.series_macro (CER)",
                         aviso="" if cer_e else
                               f"Cargar el CER de emisión de {ticker}",

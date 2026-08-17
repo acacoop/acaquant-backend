@@ -2154,8 +2154,101 @@ cambia son las etiquetas.
   desconfiar.* El filtro de cupones pagados ya existía; el problema era que la
   pantalla no daba forma de saberlo.
 
+### E3.f — DICP: el divisor del cuadro CER es el RATIO, no la Σ (2026-08-17)
+
+**El caso.** PARP cerró exacto contra 1816 (TEA 0 bps, duration idéntica) y DICP
+no: TEA 3,91% contra 9,25%, duration 3,4756 contra 3,2512. La única diferencia
+estructural entre los dos: **PARP todavía no amortizó nada** (sus 20 cuotas
+arrancan en 2029) y DICP amortiza desde 2024.
+
+**Lo que se midió antes de tocar nada** (`scripts/diag_cer_amortizado`):
+
+```
+PARP  Σ/ratio = 100,0025 por 100 VN → cada amortización 5,000126%  ← de manual
+DICP  Σ/ratio = 118,3040 por 100 VN → pero las 20 valdrían 126,9969
+```
+
+**La causa: 1816 manda cada flujo en pesos ajustados por el CER DE SU PROPIA
+FECHA** — los pagados en pesos de cuando se pagaron, los futuros en pesos de hoy.
+Nuestro divisor era la Σ del cuadro COMPLETO, o sea **sumar pesos de 2024 con
+pesos de 2026**. Y encima DICP capitalizó interés, así que su total a amortizar no
+es 100 del VN original sino 126,99: forzarlo a 100 dividiendo por Σ es un segundo
+error montado sobre el primero.
+
+Las tres conversiones candidatas, corridas contra los indicadores de 1816 **al
+mismo precio**:
+
+| conversión | TEA | duration |
+|---|---|---|
+| **1816** | **9,2475%** | **3,2512** |
+| ÷ Σ (lo que hacíamos) | 3,9132% | 3,4830 |
+| ÷ residual futuro (80,51%) | 10,8880% | 3,1928 |
+| **÷ ratio de CER** | **9,2268%** | **3,2591** |
+
+21 bps y 0,24% de duration, contra 530 bps del anterior. Y el testigo que no deja
+lugar a dudas: con el ratio, cada cuota de PARP da **5,000126%** — el número de
+prospecto.
+
+**El invariante que deja escrito**, y que es la razón de fondo:
+
+> `monto_flujo_cer(f) × ratio` tiene que reproducir el importe en pesos que
+> publica 1816 — hoy y con cualquier CER futuro.
+
+Por eso el divisor es el ratio y no una Σ: **lo que se guarda tiene que ser el %
+del VN ORIGINAL, que no depende del CER.** Una Σ es una propiedad del cuadro que
+bajamos; el ratio es la unidad en la que ese cuadro está escrito.
+
+**Tres consecuencias:**
+
+1. **El CER de emisión pasa a ser BLOQUEANTE** en completar-cronograma. Antes era
+   «revisar»: se escribía el cuadro y el CER quedaba pendiente. Ya no se sostiene
+   — sin ese número el cuadro **ni siquiera se puede convertir**, y escribirlo
+   igual dejaría un cronograma en una escala inventada: se ve cargado y valúa mal,
+   que es peor que no tenerlo.
+2. **El orden importa**: el CER se resuelve ANTES de convertir. Antes daba lo
+   mismo porque el divisor no dependía de nada.
+3. **Un paso nuevo, DIVISOR**, con la Σ resultante en % del VN original. Es
+   auditable de un vistazo: 100 para un bono común, >100 para uno que capitalizó
+   (DICP: 118,30). La Σ dejó de ser una constante decorativa y pasó a decir algo
+   del bono.
+
+**Y lo que NO se tocó, a propósito**: la paridad del motor. Medido, el valor
+técnico implícito de 1816 para DICP es 56.094 contra los 56.140 de nuestro
+`100 × ratio` — **0,08%**. O sea que 1816 también calcula la paridad CER contra el
+VN ORIGINAL, no contra el residual (al revés que en soberanos, E2.u). Lo que
+quedaba de diferencia era clean contra dirty.
+
+**RIESGO GEMELO, declarado y no medido**: un dólar-linked se ajusta por A3500
+igual que un CER por CER, así que su cuadro tiene la misma estructura. No se
+cambió porque los DL que probamos (D10Y7, D30O6) **no habían amortizado nada** —
+justo el caso en que los dos divisores coinciden y el problema no se ve. Queda
+marcado en el código, en el lugar exacto.
+
+**La regla general**: *cuando un cuadro viene expresado en una unidad que se
+mueve, la Σ de sus filas no es una escala — es una suma de cosas distintas.* El
+divisor tiene que ser la unidad, y la unidad hay que pedirla, no inferirla.
+
 ## Changelog
 
+- **2026-08-17 — E3.f, el divisor del cuadro CER.** DICP daba TEA 3,91% contra
+  9,25% y PARP daba EXACTO; la única diferencia estructural es que **PARP no
+  amortizó nada todavía**. Medido: 1816 manda cada flujo **en pesos ajustados por
+  el CER de su propia fecha**, así que la Σ del cuadro completo suma pesos de 2024
+  con pesos de 2026 — y era nuestro divisor. Encima DICP capitalizó, con lo cual su
+  total a amortizar es 126,99 del VN original y forzarlo a 100 es un segundo error.
+  El divisor correcto es **`CER_liq / cer_emision`**: reproduce la TEA de 1816 con
+  21 bps y la duration con 0,24% (contra 530 bps), y da los 5,000126% de prospecto
+  en cada cuota de PARP. Invariante: **`monto_flujo_cer(f) × ratio` = el importe en
+  pesos que publica 1816**. Consecuencias: el CER de emisión pasa a **BLOQUEANTE**
+  (sin él no hay cuadro, no es algo a completar después), el CER se resuelve ANTES
+  de convertir, y hay un paso nuevo **DIVISOR** con la Σ en % del VN original —
+  auditable: 100 para un bono común, 118,30 para DICP. **La paridad del motor NO se
+  tocó**: medido, 1816 la calcula contra el VN original igual que nosotros (0,08%
+  de diferencia). **Riesgo gemelo declarado y NO medido**: los dólar-linked tienen
+  la misma estructura con A3500, y los que probamos no habían amortizado — el caso
+  en que los dos divisores coinciden y el problema no se ve. 4 tests (93 en total),
+  uno de ellos congela que **para un bono sin amortizar el cambio es la identidad**,
+  que es la garantía de que PARP y los 24 CER intactos del master no se movieron.
 - **2026-08-17 — E3.e, el 500 de PARP y la pregunta abierta de DICP.** **(1) HTTP
   500 al aplicar**: `aplicar_flujos` llamaba a `acc.registrar(..., tabla=…)` y el
   libro de acciones **no tiene ese parámetro** — la tabla la resuelve él solo por

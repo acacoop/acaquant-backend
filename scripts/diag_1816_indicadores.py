@@ -2,30 +2,33 @@
 
 Doc madre: `docs/AV_AGENT.md` · `docs/RENTA_FIJA.md` paso 18.
 
-**Por qué existe.** El AV Agent pide 4 campos y se quedó corto en dos frentes:
+**Nació para adivinar menos y quedó como banco de pruebas.** La primera corrida
+cerró las dos preguntas que lo motivaron —qué monedas y qué campos acepta la
+API— y el OpenAPI (`/v1/doc/openapi.json`) confirmó las respuestas. Sobrevive
+porque el contrato de un proveedor **cambia sin avisar**, y correr esto cuesta
+~100 créditos de 100.000: es más barato preguntarle a la API que descubrir en
+producción que un campo dejó de existir.
 
-1. **La MONEDA.** Se le pasó `moneda="usd"` para un bono en dólares y GD46 volvió
-   con `Error1816` — o sea que ese valor NO se acepta, o se escribe distinto. Y
-   antes de eso, con el default `ars`, GD46 devolvió `precioClean = 114.247`
-   (un global cotiza ~60-90 por 100 VN): **el precio venía en PESOS**, nuestro
-   motor lo dividió por NUESTRO MEP y la TEA salió a 202 bps de la de ellos.
-   Sin saber qué monedas acepta la API no se puede cerrar ese caso.
+**Lo que ya contestó (2026-08-17):**
 
-2. **Los CAMPOS.** Hoy se piden 4 de una lista que nadie relevó. Como el
-   simulador **no persiste nada**, traer más campos es gratis en riesgo y podría
-   cerrar el diagnóstico solo (¿su precio es clean o dirty? ¿publican TIR? ¿valor
-   técnico? ¿intereses corridos?).
+- **`moneda` es `ars | ccl | mep`.** No existe `usd`. Y con el default `ars`,
+  para un bono pagadero en dólares 1816 **divide las cotizaciones por CCL**
+  mientras NUESTRO motor divide por MEP — esa, y no la fórmula, fue la
+  explicación de los 202 bps de GD46.
+- **`precioDirty` es el precio de MERCADO.** Para GD46, `precioDirty / paridad`
+  da un valor técnico con un TC implícito de ~1.436 (plausible) y `precioClean`
+  da ~1.570: el que cierra con la paridad que ellos mismos publican es el dirty,
+  que además es lo que cotiza en el mercado argentino y lo que da Primary.
 
-**⚠️ Por eso se prueba DE A UNO.** La API **rechaza la llamada entera** si un solo
-campo no existe (verificado el 2026-08-16 con `margen`/`margin`/`spreadTamar`).
-En lote no se sabe cuál falló: se sabe que falló todo.
+**⚠️ Se prueba DE A UNO.** La API **rechaza la llamada entera** si un solo campo
+no existe (verificado el 2026-08-16 con `margen`/`margin`/`spreadTamar`). En lote
+no se sabe cuál falló: se sabe que falló todo.
 
-**Solo lee.** No escribe una fila en ninguna tabla. Costo ≈ 1 crédito por prueba
-(ticker × campo), sobre 100.000 diarios — la corrida completa ronda los 80.
+**Solo lee.** No escribe una fila en ninguna tabla.
 
-    python -m scripts.diag_1816_indicadores                    # default GD46 + TZXM8
-    python -m scripts.diag_1816_indicadores --tickers AL30,TX28
-    python -m scripts.diag_1816_indicadores --solo-monedas     # más barato
+    python -m scripts.diag_1816_indicadores                     # monedas + campos
+    python -m scripts.diag_1816_indicadores --solo-monedas      # más barato
+    python -m scripts.diag_1816_indicadores --precio 104500     # + input manual
 """
 from __future__ import annotations
 
@@ -33,30 +36,19 @@ import argparse
 
 from core import mercado_1816
 
-# Candidatos a MONEDA. Los dos primeros son los que el código usa hoy; el resto
-# son variantes de grafía —no se adivina cuál anda, se prueban todas.
-MONEDAS = ["ars", "usd", "ARS", "USD", "Ars", "Usd", "dolar", "pesos"]
+# **Ya relevadas contra el OpenAPI (2026-08-17): el enum es `ars | ccl | mep`.**
+# No hay `usd`. Y la diferencia NO es de formato: el spec dice que para un
+# instrumento pagadero en moneda distinta a ARS las cotizaciones **se dividen por
+# CCL** con el default `ars`, mientras NUESTRO motor divide por MEP. Se siguen
+# probando las tres para poder VER esa diferencia en números, que es lo que
+# convierte una nota del spec en una explicación de los 202 bps.
+MONEDAS = list(mercado_1816.MONEDAS)
 
-# Candidatos a CAMPO. Los 6 primeros están VERIFICADOS en producción
-# (`jobs/tamar_1816` y `jobs/mercado_1816_series` los piden todos los días); el
-# resto son hipótesis a probar. Se listan agrupados por qué pregunta contestan.
+# Los 6 que ya se usan en producción (`jobs/tamar_1816`, `jobs/mercado_1816_series`).
 CAMPOS_CONOCIDOS = ["tea", "tna", "spread", "precioClean", "duration", "paridad"]
-CAMPOS_CANDIDATOS = [
-    # precio: ¿publican el SUCIO? Es la pregunta que decide si su `precioClean`
-    # es comparable con el `last_price` de Primary (que en ARG viene con
-    # intereses corridos incluidos).
-    "precioDirty", "precioSucio", "precio", "precioTecnico", "valorTecnico",
-    "interesesCorridos", "valorResidual",
-    # tasa: otras formas de la misma pregunta
-    "tir", "tirReal", "ytm", "tem", "tna360", "tirUsd",
-    # riesgo
-    "durationModificada", "modifiedDuration", "dm", "convexidad", "convexity",
-    # actividad — sirve para saber si el precio es de un trade real o teórico
-    "volumen", "montoOperado", "cantidadOperaciones", "ultimoPrecio", "cierre",
-    "apertura", "maximo", "minimo", "variacion",
-    # ajuste
-    "cer", "coeficiente", "tasaCupon", "cupon",
-]
+# El enum COMPLETO del spec — ya no hay que adivinar cuáles existen.
+CAMPOS_CANDIDATOS = [c for c in mercado_1816.CAMPOS_INDICADORES
+                     if c not in CAMPOS_CONOCIDOS]
 
 
 def _probe(fn, etiqueta: str) -> tuple[bool, str]:
@@ -119,6 +111,26 @@ def probar_campos(tickers: list[str], moneda: str) -> list[str]:
     return existen
 
 
+def probar_input_manual(ticker: str, precio: float, moneda: str) -> None:
+    """`/indicadores/{ticker}` — SU tasa a NUESTRO precio.
+
+    Es el control cruzado que elimina el precio como variable. Si con el MISMO
+    número las dos tasas coinciden, la conversión del cuadro está bien y lo único
+    que separaba a las dos cuentas era el insumo."""
+    print("\n" + "=" * 78)
+    print(f"INPUT MANUAL — la TEA de 1816 a NUESTRO precio ({ticker} @ {precio}, "
+          f"moneda={moneda})")
+    print("=" * 78)
+    try:
+        r = mercado_1816.indicadores_de(
+            ticker, ["tea", "paridad", "convencionTna", "duration"],
+            moneda=moneda, precioDirty=precio)
+        print(f"  ✔ {r.get('indicadores')}")
+        print("  → esta es la tasa comparable: misma entrada, distinta cuenta.")
+    except Exception as e:
+        print(f"  ✘ {type(e).__name__}: {e}"[:300])
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--tickers", default="GD46,TZXM8",
@@ -129,6 +141,9 @@ def main() -> None:
     ap.add_argument("--moneda", default="ars",
                     help="con qué moneda probar los campos (default ars, el que "
                          "sabemos que anda)")
+    ap.add_argument("--precio", type=float, default=None,
+                    help="probar el endpoint de INPUT MANUAL con este precio "
+                         "(dirty). Sin esto ese bloque se saltea.")
     args = ap.parse_args()
 
     if not mercado_1816.disponible():
@@ -145,16 +160,18 @@ def main() -> None:
     probar_monedas(tickers)
     if not args.solo_monedas:
         probar_campos(tickers, args.moneda)
+    if args.precio:
+        probar_input_manual(tickers[0], args.precio, args.moneda)
 
     print("\n" + "=" * 78)
     print("QUÉ HACER CON ESTO")
     print("=" * 78)
-    print("  1. Si alguna moneda devuelve el precio en la moneda DEL BONO, esa es "
-          "la que tiene que pedir `_referencia_1816`.")
-    print("  2. Si NINGUNA lo hace, el precio siempre viene en pesos y hay que "
-          "dividir por el MEP a propósito — dejando dicho cuál se usó.")
-    print("  3. Los campos nuevos útiles se suman a `_CAMPOS_REF`; el simulador "
-          "no persiste nada, así que solo mejora el diagnóstico.")
+    print("  1. `mep` vs `ars` para un bono USD: si dan TEAs distintas, esa es la "
+          "diferencia de tipo de cambio (ellos CCL por default, nosotros MEP).")
+    print("  2. `precioDirty` es el precio de MERCADO (el comparable con Primary); "
+          "`precioClean` no cierra con la paridad que ellos mismos publican.")
+    print("  3. El INPUT MANUAL (--precio) es el cotejo definitivo: su fórmula "
+          "sobre nuestro número. Lo que quede ahí es convención, nada más.")
 
 
 if __name__ == "__main__":

@@ -287,6 +287,29 @@ def _paso(clave: str, titulo: str, estado: str, detalle: str,
 _BPS_COINCIDE, _BPS_MIRAR = 50.0, 150.0
 
 
+def _tea_de_1816_a_nuestro_precio(ticker: str, precio: float, moneda: str) -> dict:
+    """La TEA que 1816 calcularía **a NUESTRO precio**. El cotejo definitivo.
+
+    **Por qué hace falta.** Comparar nuestra tasa contra la de ellos tiene un
+    agujero: cada uno la calcula sobre SU precio, así que una diferencia puede ser
+    la fórmula o puede ser el insumo — y no hay forma de distinguirlo. Con el
+    endpoint de input manual se le pasa el MISMO número a los dos, y lo que quede
+    es exclusivamente convención o cronograma.
+
+    Es el diagnóstico que faltaba para cerrar los 202 bps de GD46 sin teorizar.
+    Costo: 3 créditos (el endpoint cobra por campo, no por ticker × campo).
+    """
+    try:
+        r = mercado_1816.indicadores_de(
+            ticker, ["tea", "paridad", "convencionTna"],
+            moneda=moneda, precioDirty=float(precio))
+    except Exception as e:
+        return {"error": f"{e}"[:200]}
+    ind = (r or {}).get("indicadores") or {}
+    return {"tea": _num(ind.get("tea")), "paridad": _num(ind.get("paridad")),
+            "convencion_tna": ind.get("convencionTna"), "precio": float(precio)}
+
+
 def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "") -> dict:
     """Nuestra TEA contra la de 1816, sobre el MISMO precio.
 
@@ -305,7 +328,13 @@ def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "") -> dict:
                      "que comparar" + (f" — 1816 publica {float(suya):.4%}."
                                        if isinstance(suya, int | float) else "."),
                      tabla="mercado.tamar_1816")
-    suya = ref.get("tea")
+    # **A NUESTRO PRECIO gana siempre.** Comparar dos tasas calculadas sobre
+    # precios distintos mezcla dos preguntas (¿la fórmula? ¿el insumo?) y no
+    # permite contestar ninguna.
+    mismo = ref.get("a_nuestro_precio") or {}
+    suya = mismo.get("tea") if mismo.get("tea") is not None else ref.get("tea")
+    base = ("sobre el MISMO precio" if mismo.get("tea") is not None
+            else "cada uno sobre SU precio")
     if not isinstance(tea, int | float):
         return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", NO_SE,
                      "no se pudo calcular nuestra TEA, así que no hay qué comparar",
@@ -317,7 +346,7 @@ def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "") -> dict:
                      tabla="1816 /indicadores")
     bps = abs(float(tea) - float(suya)) * 10_000
     linea = (f"nuestra {float(tea):.4%} vs 1816 {float(suya):.4%} "
-             f"→ {bps:,.0f} bps de diferencia")
+             f"→ {bps:,.0f} bps de diferencia ({base})")
     if bps <= _BPS_COINCIDE:
         return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", OK,
                      linea + ". Dos cálculos independientes dan lo mismo: el cuadro "
@@ -325,12 +354,9 @@ def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "") -> dict:
                      tabla="1816 /indicadores")
     if bps <= _BPS_MIRAR:
         return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", ATENCION,
-                     linea + ". Cerca pero no igual. A esta distancia lo típico es "
-                             "la convención de días, o que su precio sea CLEAN y el "
-                             "nuestro traiga intereses corridos. **Mirar PARIDAD y "
-                             "DURATION en el detalle del cálculo**: si la paridad "
-                             "coincide y la tasa no, es convención; si la paridad "
-                             "tampoco, es el precio.",
+                     linea + ". Cerca pero no igual. Con el mismo precio de por "
+                             "medio, lo que queda es la CONVENCIÓN de días — mirar "
+                             "`convencionTna` en el detalle del cálculo.",
                      tabla="1816 /indicadores",
                      accion="comparar paridad y duration en «cómo se calculó»")
     return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", ATENCION,
@@ -691,6 +717,25 @@ def _memoria_de_calculo(*, doc: dict, ejes, rama: str, conv: dict, out: dict,
                       "el bono paga en USD y el precio viene en pesos: el motor "
                       "divide por el MEP. Si 1816 usó otro TC, las dos tasas "
                       "difieren sin que ninguna esté mal."))
+    if ref.get("convencion_tna"):
+        f.append(fila("Convención TNA (1816)", ref["convencion_tna"],
+                      "el conteo de días que usan ellos. **Si el precio es el "
+                      "mismo y las tasas difieren, la respuesta está acá.**"))
+    if ref.get("fuente_precio") or ref.get("ultima_operacion"):
+        f.append(fila("Su precio", f"fuente {ref.get('fuente_precio') or '?'}"
+                                   f" · última op {ref.get('ultima_operacion') or '?'}"
+                                   + (f" · volumen {ref['volumen']:,.0f}"
+                                      if ref.get("volumen") else " · SIN volumen"),
+                      "un precio sin volumen del día es teórico, no un trade: "
+                      "comparar tasas contra eso es comparar contra una opinión"))
+    mismo = ref.get("a_nuestro_precio") or {}
+    if mismo.get("tea") is not None:
+        f.append(fila("1816 A NUESTRO PRECIO", f"{mismo['tea']:.4%}",
+                      "su fórmula sobre el MISMO número que usamos nosotros "
+                      "(endpoint de input manual). Elimina el precio como "
+                      "variable: lo que quede es convención o cronograma."))
+    elif mismo.get("error"):
+        f.append(fila("1816 A NUESTRO PRECIO", "—", f"no se pudo: {mismo['error']}"))
     if out.get("paridad") is not None or ref.get("paridad") is not None:
         f.append(fila("Paridad", f"nuestra {out.get('paridad')} · "
                                  f"1816 {ref.get('paridad')}",
@@ -744,9 +789,16 @@ def _cer_de_emision(fecha_emision: str) -> tuple[float | None, str]:
 
 
 # Lo que se le pide a 1816 para poder simular un bono que TODAVÍA no tiene precio
-# propio. Los cuatro campos están verificados en producción (`jobs/tamar_1816` y
-# `jobs/mercado_1816_series` los piden todos los días).
-_CAMPOS_REF = ("precioClean", "tea", "paridad", "duration")
+# propio. **Los nombres salen del enum del OpenAPI**, no de adivinar (relevado
+# 2026-08-17). Como el simulador NO PERSISTE NADA, traer de más no tiene el costo
+# habitual —no ensucia el modelo ni crea una segunda verdad— y cada campo de más
+# es una hipótesis menos: `convencionTna` explica una diferencia de días,
+# `ultimaOperacion` + `volumenMontoDiario` dicen si el precio es de un trade real
+# o quedó viejo, y `fuente` dice contra qué mercado se está comparando.
+# Costo: 1 ticker × 11 campos = 11 créditos de 100.000 diarios.
+_CAMPOS_REF = ("precioDirty", "precioClean", "tea", "tem", "paridad", "duration",
+               "durationMod", "currentYield", "convencionTna", "fuente",
+               "ultimaOperacion", "volumenMontoDiario", "fechaLiquidacion")
 
 
 def _fallo_ref(e, moneda: str, pedido: dict) -> dict:
@@ -789,7 +841,13 @@ def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
     #
     # Pidiendo el precio en la moneda DEL BONO no hay conversión de por medio, y
     # el cotejo compara dos cuentas sobre el mismo número.
-    moneda = "usd" if (moneda_eje or "").strip().upper() == "USD" else "ars"
+    # ⚠️ **`usd` NO EXISTE**: el enum es `ars | ccl | mep` (OpenAPI). Y elegir mal
+    # acá no da error, da OTRA TASA: con el default `ars`, para un bono pagadero
+    # en dólares 1816 **divide las cotizaciones por CCL**, mientras NUESTRO motor
+    # divide por MEP (`precio_soberano_a_usd`). Esa —y no la fórmula— es la
+    # explicación de los 202 bps de GD46. Pidiendo `mep` los dos usan el mismo
+    # tipo de cambio y el cotejo compara lo que dice comparar.
+    moneda = "mep" if (moneda_eje or "").strip().upper() == "USD" else "ars"
     pedido = {"moneda": moneda, "campos": list(_CAMPOS_REF)}
     try:
         resp = mercado_1816.indicadores_vigentes([ticker], list(_CAMPOS_REF),
@@ -820,7 +878,13 @@ def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
     if not resp:
         return {"error": "1816 no tiene datos de este ticker en las últimas 5 ruedas"}
     v = (resp.get("instrumentos") or {}).get(ticker) or {}
-    px = _num(v.get("precioClean"))
+    # **`precioDirty`, no `precioClean`.** Los bonos argentinos cotizan SUCIOS
+    # (con intereses corridos), así que el `last_price` que nos da Primary —el
+    # precio que el motor espera— es el dirty. Y está verificado por consistencia
+    # interna: para GD46, `precioDirty / paridad` da un valor técnico con un TC
+    # implícito de ~1.436 (plausible), mientras que con `precioClean` da ~1.570.
+    # El que cierra con la paridad que 1816 publica es el dirty.
+    px = _num(v.get("precioDirty")) or _num(v.get("precioClean"))
     # `pedido` viaja hasta la pantalla: sin saber en qué moneda y a qué plazo se
     # pidió, un precio raro no se puede diagnosticar — que fue exactamente lo que
     # pasó con GD46.
@@ -828,9 +892,20 @@ def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
     if not px or px <= 0:
         return {"error": f"1816 conoce el ticker pero no publicó precio al "
                          f"{resp.get('fechaOperacion')}", "pedido": pedido}
-    return {"precio": px, "tea": _num(v.get("tea")), "paridad": _num(v.get("paridad")),
-            "duration": _num(v.get("duration")), "fecha": resp.get("fechaOperacion"),
-            "pedido": pedido}
+    return {"precio": px, "precio_campo": ("precioDirty" if _num(v.get("precioDirty"))
+                                           else "precioClean"),
+            "precio_clean": _num(v.get("precioClean")),
+            "tea": _num(v.get("tea")), "tem": _num(v.get("tem")),
+            "paridad": _num(v.get("paridad")),
+            "duration": _num(v.get("duration")),
+            "duration_mod": _num(v.get("durationMod")),
+            "current_yield": _num(v.get("currentYield")),
+            "convencion_tna": v.get("convencionTna"),
+            "fuente_precio": v.get("fuente"),
+            "ultima_operacion": v.get("ultimaOperacion"),
+            "volumen": _num(v.get("volumenMontoDiario")),
+            "fecha_liquidacion": v.get("fechaLiquidacion"),
+            "fecha": resp.get("fechaOperacion"), "pedido": pedido}
 
 
 def _ficha_1816(ticker: str) -> dict:
@@ -1010,6 +1085,13 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
     # estamos por escribir está bien convertido.
     if not ref and ticker:
         ref = _referencia_1816(ticker, moneda_eje=moneda_eje)
+    # Y el cotejo DEFINITIVO: su tasa al MISMO precio que usamos nosotros. Sin
+    # esto, una diferencia puede ser la fórmula o el insumo y no hay forma de
+    # saber cuál; con esto lo que queda es solo convención o cronograma.
+    if ticker and r.get("TEA") is not None:
+        moneda_pedido = (ref.get("pedido") or {}).get("moneda") or "ars"
+        ref = {**ref, "a_nuestro_precio":
+               _tea_de_1816_a_nuestro_precio(ticker, float(precio), moneda_pedido)}
 
     return {"precio": float(precio), "tea": r.get("TEA"), "precio_fuente": fuente,
             "duration": r.get("duration"), "paridad": r.get("paridad"),

@@ -1038,8 +1038,72 @@ que acá es despreciable. Si 1816 publica `precioDirty`, `valorTecnico` o
 `interesesCorridos`, el cotejo pasa de *«difieren 202 bps y no sé por qué»* a
 *«difieren porque su precio es clean y el nuestro sucio, y acá está la prueba»*.
 
+### E2.g — Los 202 bps RESUELTOS, con el spec en la mano (2026-08-17)
+
+El user pasó el **OpenAPI de 1816** (`/v1/doc/openapi.json`) y con eso el caso
+dejó de ser hipótesis. **Tres hechos verificados**, ninguno inferido:
+
+**1. `moneda` es `ars | ccl | mep`. No existe `usd`.** Y el spec dice, textual:
+
+> *«Para instrumentos pagaderos en moneda distinta a ARS, para calcular
+> indicadores las cotizaciones **se dividen por CCL**. Default: ars.»*
+
+**Ahí estaban los 202 bps.** Nuestro motor divide por **MEP**
+(`engines/curvas.py::precio_soberano_a_usd`); ellos, con el default, dividen por
+**CCL**. Dos tipos de cambio distintos sobre el mismo bono dan dos tasas
+distintas **sin que ninguna esté mal** — y no había forma de verlo, porque el
+parámetro que lo decide ni se estaba mandando. Ahora un bono en dólares se pide
+con `moneda="mep"`: misma conversión, tasas comparables.
+
+**2. El precio que estábamos usando era el equivocado.** `precioDirty` existe y
+es el de mercado. Verificado por **consistencia interna**, no por creencia:
+
+| | precio | ÷ paridad (0,7278) | TC implícito |
+|---|---|---|---|
+| `precioDirty` | 104.500 | 143.582 | **~1.436** ✔ plausible |
+| `precioClean` | 114.247 | 156.975 | ~1.570 ✘ |
+
+El que cierra con la **paridad que 1816 mismo publica** es el dirty. Que además
+es lo correcto por otro camino: los bonos argentinos **cotizan sucios**, así que
+el `last_price` de Primary —el que el motor espera— es dirty.
+
+**3. Existe `/v1/mercado/indicadores/{ticker}` — INPUT MANUAL.** Le pasás UN
+precio y te devuelve los indicadores calculados **a ese precio**.
+
+**Eso es el control cruzado que faltaba, y no lo estábamos usando.** Comparar
+nuestra tasa contra la de ellos tenía un agujero de fondo: cada uno la calcula
+sobre SU precio, así que una diferencia podía ser la fórmula o el insumo y **no
+había manera de distinguirlo**. Ahora se le pasa NUESTRO número y lo que vuelve
+es su cuenta sobre la misma entrada: **lo que quede es exclusivamente convención
+o cronograma**. Cuesta 3 créditos (ese endpoint cobra por campo, no por
+ticker × campo).
+
+**Y de yapa, 8 campos más** — que valen porque el simulador no persiste nada:
+
+| Campo | Qué pregunta contesta |
+|---|---|
+| `convencionTna` | **si el precio es el mismo y la tasa no, la respuesta está acá** |
+| `ultimaOperacion` + `volumenMontoDiario` | ¿el precio es de un trade real, o es teórico? |
+| `fuente` (`byma`/`mae`/`homo-1816`) | ¿contra qué mercado estamos comparando? |
+| `precioDirty`, `tem`, `durationMod`, `currentYield` | más ángulos del mismo bono |
+
+**La lección de método** (y es la del user, no mía): *«total nada va a terminar
+persistiendo»*. Cuando un dato **no se guarda**, traer de más no tiene el costo
+habitual — no ensucia el modelo, no crea una segunda verdad, no hay que
+migrarlo. El default se invierte: en una tabla se pide lo mínimo; en un **buffer
+de diagnóstico** conviene pedir todo. Y **antes de probar de a uno, se lee el
+contrato**: el OpenAPI contestó en dos minutos lo que 30 llamadas contestaban a
+medias.
+
 ## Changelog
 
+- **2026-08-17 — E2.g, los 202 bps resueltos con el OpenAPI.** `moneda` es
+  `ars|ccl|mep` y con el default **1816 divide por CCL mientras nosotros
+  dividimos por MEP** — esa era la diferencia; los bonos USD se piden con `mep`.
+  El precio pasa a **`precioDirty`** (el de mercado, verificado contra la paridad
+  que ellos publican). Y el cotejo usa el endpoint de **INPUT MANUAL**: su tasa a
+  NUESTRO precio, que elimina el insumo como variable. +8 campos en la memoria de
+  cálculo, con `convencionTna` a la cabeza.
 - **2026-08-17 — E2.f, CER cero cupón + relevamiento de 1816.** **Bug**: un CER
   de un solo pago se guardaba como bullet (`flujo_vencimiento`) y la rama `cer`
   no lo mira → sin tasa y sin error. El atajo queda solo para `tasa_fija`. La

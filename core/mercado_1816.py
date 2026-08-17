@@ -238,6 +238,66 @@ def indicadores_vigentes(tickers: list[str], campos: list[str], *,
     return {}
 
 
+# ── Contrato REAL de la API (OpenAPI 1.1.0, `/v1/doc/openapi.json`) ─────────
+#
+# Relevado el 2026-08-17 contra el spec + `scripts/diag_1816_indicadores`. Antes
+# se adivinaban los valores y la API rechaza la llamada ENTERA cuando uno no
+# existe, así que un valor inventado no falla en su campo: hace fallar todo.
+
+# ⚠️ **NO existe `usd`.** Y la diferencia entre estas tres NO es cosmética: el
+# spec dice *«para instrumentos pagaderos en moneda distinta a ARS, para calcular
+# indicadores las cotizaciones se dividen por CCL»* con el default `ars`.
+# **NUESTRO motor divide por MEP** (`engines/curvas.py::precio_soberano_a_usd`),
+# así que pedir el default y comparar tasas es comparar dos tipos de cambio
+# distintos — eso fueron los 202 bps de GD46, no la fórmula.
+MONEDAS = ("ars", "ccl", "mep")
+
+# Los campos que `/indicadores` acepta, TEXTUAL del enum del spec.
+CAMPOS_INDICADORES = (
+    "convencionTna", "currentYield", "denominacion", "duration", "durationMod",
+    "fechaLiquidacion", "fechaOperacion", "fuente", "moneda", "paridad", "plazo",
+    "precioClean", "precioDirty", "spread", "tea", "tem", "ticker", "tna",
+    "ultimaOperacion", "volumenMontoDiario", "volumenNominalDiario",
+)
+
+# Las referencias de cálculo que acepta el endpoint de INPUT MANUAL. **Exactamente
+# UNA** por llamada (lo dice el spec y lo valida la API).
+REFERENCIAS_MANUALES = ("precioClean", "precioDirty", "tna", "tea", "tem",
+                        "spread", "paridad")
+
+
+def indicadores_de(ticker: str, campos: list[str], *, moneda: str = "ars",
+                   plazo: int = 1, fecha_operacion: str | None = None,
+                   convencion_tna: str | None = None, **referencia) -> dict:
+    """`/indicadores/{ticker}` — **input MANUAL**: le das UN precio y te devuelve
+    los indicadores calculados a ESE precio.
+
+    **Es el control cruzado perfecto y no lo estábamos usando.** Comparar nuestra
+    TEA contra la de ellos tiene un problema: cada uno la calcula sobre SU precio,
+    así que una diferencia puede ser la fórmula o puede ser el insumo, y no hay
+    forma de saber cuál. Con esto se le pasa NUESTRO precio y lo que vuelve es su
+    tasa sobre el MISMO número: cualquier diferencia que quede es pura convención
+    o cronograma. Se elimina la variable.
+
+    Costo: **campos** (no tickers × campos) — una comparación sale ~4 créditos.
+
+    `referencia` tiene que traer EXACTAMENTE UNA de `REFERENCIAS_MANUALES`.
+    """
+    dadas = {k: v for k, v in referencia.items()
+             if k in REFERENCIAS_MANUALES and v is not None}
+    if len(dadas) != 1:
+        raise Error1816(
+            f"indicadores_de necesita EXACTAMENTE una referencia de cálculo "
+            f"({', '.join(REFERENCIAS_MANUALES)}); llegaron {list(dadas) or 'ninguna'}")
+    tk = normalizar_ticker(ticker)
+    p: dict = {"campos": list(campos), "moneda": moneda, "plazo": plazo, **dadas}
+    if fecha_operacion:
+        p["fechaOperacion"] = fecha_operacion
+    if convencion_tna:
+        p["convencionTna"] = convencion_tna
+    return _get(f"/v1/mercado/indicadores/{tk}", p)
+
+
 def series(tickers: list[str], campos: list[str], desde: str, hasta: str,
            fuente: str = "byma", plazo: int = 1, moneda: str = "ars",
            convencion: str | None = None) -> dict:

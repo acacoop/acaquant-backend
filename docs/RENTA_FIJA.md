@@ -501,9 +501,13 @@ Un test barre el dominio completo de ejes verificando que toda pill sepa su pata
 
 1. **`indicadores` sin `fechaOperacion` usa HOY.** Un domingo devolvió los 6
    campos en `null` y pareció que el campo `spread` no existía. Estaba avisado en
-   el docstring del cliente. El job manda **siempre** fecha explícita y retrocede
+   el docstring del cliente. Se manda **siempre** fecha explícita y se retrocede
    día hábil por día hábil si vuelve vacía (eso cubre feriados y las corridas de
    antes de las 11 ART, cuando la rueda de hoy todavía no existe).
+   **Desde el 2026-08-17 eso vive en `core.mercado_1816.indicadores_vigentes`**,
+   no dentro del job: el pre-flight del AV Agent necesitaba lo mismo y dos
+   criterios para la misma pregunta terminan siempre con uno de los dos viejo.
+   El que llame a `indicadores` directo se vuelve a comer la trampa.
 2. **El campo del margen es `spread`.** `margen`, `margin`, `spreadTamar` y
    `margenTamar` devuelven HTTP 400. Se probaron **de a uno**: la API rechaza la
    llamada entera si un campo no existe, así que en lote no se sabe cuál falló.

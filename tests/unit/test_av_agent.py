@@ -439,7 +439,8 @@ def _chequear(**kw):
              "ya_en_curvas": False, "simbolo_actual": None,
              "assets": [{"unidad": "[123] TZXD8", "instrumento": "x", "vigente": True}]},
         estado_simbolo={"conocido": True, "nota": "Primary lo lista"},
-        precio=95.0, tea=0.0682)
+        precio=95.0, tea=0.0682, fuente_precio="snapshot",
+        ref={"precio": 95.0, "tea": 0.0680, "fecha": "2026-08-15"})
     base.update(kw)
     return _chequeos(**base)
 
@@ -464,7 +465,7 @@ def test_sin_especie_el_simbolo_es_una_ADIVINANZA_y_se_dice():
     ps = _chequear(ctx={"ok": True, "especies": [], "ya_en_curvas": False,
                         "simbolo_actual": None, "assets": []},
                    origen_simbolo="armado")
-    p5 = next(p for p in ps if p["n"] == 5)
+    p5 = next(p for p in ps if p["clave"] == "especie")
     assert p5["estado"] == "falla"
     assert "ARMADO" in p5["detalle"] and "sembrar_especies" in p5["accion"]
 
@@ -483,13 +484,15 @@ def test_primary_sin_el_simbolo_BLOQUEA_porque_nunca_va_a_tener_precio():
     """`core/websocket.agregar_suscripciones` descarta lo que no está en el
     catálogo: el alta se escribe y la TEA queda vacía para siempre."""
     ps = _chequear(estado_simbolo={"conocido": False, "nota": "⚠ Primary NO lista"})
-    assert next(p for p in ps if p["n"] == 6)["estado"] == "falla"
+    assert next(p for p in ps if p["clave"] == "primary")["estado"] == "falla"
 
 
 def test_un_ticker_que_YA_esta_en_el_master_avisa_que_lo_va_a_pisar():
     ps = _chequear(ctx={"ok": True, "especies": [], "ya_en_curvas": True,
                         "simbolo_actual": "MERV - XMEV - TZXD8 - CI", "assets": []})
-    assert ps[0]["n"] == 0 and "PISAR" in ps[0]["detalle"]
+    assert ps[0]["clave"] == "ya_existe" and "PISAR" in ps[0]["detalle"]
+    # El `n` es presentación: se numera sobre los pasos que aplicaron.
+    assert [p["n"] for p in ps] == list(range(1, len(ps) + 1))
 
 
 def test_una_rama_sin_formula_avisa_que_la_TEA_va_a_quedar_vacia(monkeypatch):
@@ -501,9 +504,54 @@ def test_una_rama_sin_formula_avisa_que_la_TEA_va_a_quedar_vacia(monkeypatch):
     badlar = Ejes("corporativo", "ARS", "badlar")
 
     monkeypatch.setattr(curvas_catalogo, "fuente_valuacion", lambda a: "motor")
-    p9 = next(p for p in _chequear(rama="otros", ejes=badlar) if p["n"] == 9)
+    p9 = next(p for p in _chequear(rama="otros", ejes=badlar) if p["clave"] == "tea_motor")
     assert p9["estado"] == "falla" and "vacía" in p9["detalle"]
 
     monkeypatch.setattr(curvas_catalogo, "fuente_valuacion", lambda a: "1816")
-    p9 = next(p for p in _chequear(rama="otros", ejes=badlar) if p["n"] == 9)
+    p9 = next(p for p in _chequear(rama="otros", ejes=badlar) if p["clave"] == "tea_motor")
     assert p9["estado"] == "ok" and "1816" in p9["detalle"]
+
+
+# ── El CONTROL CRUZADO contra la TEA de 1816 ────────────────────────────────
+#
+# Es el chequeo que no se podía tener en un bono nuevo, y el más valioso: un
+# cuadro de flujos mal convertido NO tira error — da un número plausible y
+# equivocado. Dos cálculos independientes sobre el MISMO precio son la única
+# evidencia real de que la conversión está bien.
+
+def test_dos_tasas_que_coinciden_confirman_que_el_cuadro_esta_bien():
+    """La evidencia dura que fija la banda: TAMAR 38,62% (1816) vs 38,55%
+    (planilla de la mesa) al MISMO precio = 7 bps cuando todo está bien."""
+    from api.services.av_agent_alta import _cotejo_tea
+    p = _cotejo_tea(0.3862, {"tea": 0.3855})
+    assert p["estado"] == "ok" and p["clave"] == "cotejo_1816"
+    assert "7 bps" in p["detalle"]
+
+
+def test_dos_tasas_que_se_contradicen_avisan_pero_NO_bloquean():
+    """El umbral es un primer corte, no una medición: bloquear un alta con un
+    número que no medimos sería inventar un hecho (REGLA #2). Se avisa fuerte y
+    la decisión queda en el humano."""
+    from api.services.av_agent_alta import _cotejo_tea
+    p = _cotejo_tea(0.55, {"tea": 0.068})
+    assert p["estado"] == "atencion"          # NO "falla"
+    assert "contradicen" in p["detalle"] and p["accion"]
+
+
+def test_sin_TEA_de_1816_no_se_inventa_un_veredicto():
+    """1816 no publica tasa para todo. «No pude comparar» no es «coincide»."""
+    from api.services.av_agent_alta import _cotejo_tea
+    assert _cotejo_tea(0.30, {})["estado"] == "no_se_puede_saber"
+    assert _cotejo_tea(None, {"tea": 0.30})["estado"] == "no_se_puede_saber"
+
+
+def test_el_precio_de_1816_se_usa_solo_si_NO_hay_snapshot():
+    """El precio real es el de Primary. El de 1816 es de referencia: sirve para
+    poder calcular en un bono que nunca se suscribió, no para reemplazar al real."""
+    ps = _chequear(precio=95.0, fuente_precio="1816",
+                   ref={"precio": 95.0, "tea": 0.068, "fecha": "2026-08-15"})
+    p = next(x for x in ps if x["clave"] == "precio")
+    assert p["estado"] == "ok"
+    assert "referencia de 1816" in p["detalle"]
+    # ...y se dice explícito que NO se persiste: `market_snapshot` es del motor.
+    assert "NO se guarda" in p["detalle"]

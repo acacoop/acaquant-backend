@@ -836,8 +836,76 @@ Costo en queries: **una sola conexión, tres `execute`** (`especies`, `curvas`,
 cantidad, no el plan. El precio del snapshot ya se leía para simular la TEA: el
 paso 8 lo reusa en vez de pedirlo de nuevo.
 
+### E2.d — El PRECIO DE REFERENCIA de 1816, y el CONTROL CRUZADO (2026-08-17)
+
+> *«PODEMOS USAR UN PRECIO DE REFERENCIA QUE SÍ LO PODEMOS SACAR DE 1816, EL
+> `precioClean` O ALGO SIMILAR… NO ES QUE HAY QUE PERSISTIRLO POSTA, PERO PARA
+> CASOS NUEVOS Y NO ESPERAR A VER SI SE ROMPE, USAMOS EL DE 1816 Y HACEMOS
+> CÁLCULOS CON ESO.»* — el user, 2026-08-17.
+
+**El agujero que tapa.** Un bono que se acaba de dar de alta **nunca** tiene
+precio en `mercado.market_snapshot` — no se suscribió todavía. O sea que en el
+único momento en que el simulador hace falta de verdad, no podía calcular nada:
+GD46 mostraba *«sin precio no se puede simular la TEA»* y había que aplicar a
+ciegas y esperar a ver si salía bien. Exactamente lo que el user quería evitar.
+
+`precioClean` **ya estaba verificado en producción** (lo piden todos los días
+`jobs/mercado_1816_series` y `jobs/tamar_1816`) — no hizo falta una prueba.
+
+**Pero lo que vale más no es el precio: es que 1816 publica SU PROPIA TEA.**
+
+Eso convierte la simulación en un **control cruzado**. Se corre NUESTRO motor
+sobre EL PRECIO DE ELLOS y se compara contra SU tasa:
+
+| Resultado | Qué significa |
+|---|---|
+| las dos coinciden | dos cálculos independientes dan lo mismo → **el cuadro está bien convertido** |
+| se parecen (≤300 bps) | convención de días, o su precio es *clean* y el nuestro trae intereses corridos |
+| se contradicen | con el mismo precio, casi siempre es **la escala del cuadro o la pata equivocada** |
+
+Esto es lo que faltaba. Un cuadro mal convertido **no tira error**: da un número
+plausible y equivocado, y ahí se acaban las formas de darse cuenta leyendo — es
+literalmente la trampa del paso 15 de `RENTA_FIJA.md`, que se cazó con un chequeo
+numérico y no revisando el código. Ahora ese chequeo numérico existe para
+cualquier bono, incluido uno que jamás cotizó acá.
+
+**Cuatro decisiones:**
+
+1. **El precio de 1816 NO se persiste.** `market_snapshot` es del motor (Primary,
+   live, 5s); esto es 1816/BYMA con delay. Mezclarlos escondería cuál es cuál —
+   el mismo criterio por el que `jobs/tamar_1816` escribe en su propia tabla.
+2. **Orden de precios: snapshot primero, 1816 después.** Nunca al revés. El de
+   referencia sirve para poder calcular algo, no para reemplazar al real. La UI
+   dice cuál se usó.
+3. **La banda es un PRIMER CORTE y está declarada como tal.** La única evidencia
+   dura es el TAMAR contra la planilla de la mesa: **7 bps** de diferencia cuando
+   las dos partes están bien. De ahí sale el ≤50 bps de "coinciden"; el techo de
+   300 es un juicio. Por eso una contradicción es `atencion` y **nunca `falla`**:
+   bloquear un alta con un umbral no medido sería inventar un hecho (REGLA #2).
+   Que la banda se calibre con el uso es el diseño, no una deuda.
+4. **Costo: 4 créditos** (1 ticker × 4 campos) y solo al apretar SIMULAR, sobre
+   100.000 diarios.
+
+**De paso, una duplicación menos.** La lógica de *«pedir `indicadores` con
+`fechaOperacion` explícita y retroceder si la rueda vino vacía»* vivía dentro de
+`jobs/tamar_1816` y solo ahí — una trampa que ya se pagó dos veces (sin fecha, un
+domingo devuelve todo `null` y parece que el campo no existe). Se movió a
+**`core.mercado_1816.indicadores_vigentes`** y el job ahora la llama. Dos
+criterios para la misma pregunta terminan siempre con uno de los dos viejo.
+
+**Y un cambio de forma en los chequeos**: cada paso tiene `clave` estable y el
+`n` se numera al final, sobre los pasos que realmente aplicaron (el de CER solo
+está en la rama CER, el cotejo solo si 1816 contestó). Antes el orden ERA la
+identidad, así que insertar un paso en el medio renumeraba todo.
+
 ## Changelog
 
+- **2026-08-17 — E2.d, precio de referencia + CONTROL CRUZADO.** Sin snapshot se
+  usa el `precioClean` de 1816 (no se persiste) para poder simular un bono nuevo,
+  y se compara **nuestra TEA contra la de ellos** sobre el mismo precio — la
+  única evidencia de que el cuadro está bien convertido. La banda sale de los 7
+  bps medidos en el TAMAR y una contradicción avisa sin bloquear. La lógica de
+  fecha/retroceso de `indicadores` se movió a `core.mercado_1816`.
 - **2026-08-17 — E2.c, el PRE-FLIGHT.** El simulador devuelve la **cadena
   completa** (8 pasos, con los verdes incluidos) + veredicto, y un paso en falla
   BLOQUEA el alta. El símbolo sale de `mercado.especies` en vez de armarse a

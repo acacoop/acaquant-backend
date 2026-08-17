@@ -51,7 +51,6 @@ Uso:
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import logging
 
 from core import mercado_1816
@@ -77,24 +76,11 @@ _SUFIJO_A_AJUSTE = {
     "USD-L": "dolar_linked",
 }
 
-# Cuántos días hábiles retroceder si la rueda pedida vuelve sin datos (feriados).
-_MAX_RETROCESO = 4
-
-
 def _q(sql: str, params: tuple = ()) -> list[dict]:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(sql, params or None)
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
-
-
-def _habil_anterior(d: dt.date) -> dt.date:
-    """Día hábil anterior (solo fines de semana). Los feriados los resuelve el
-    retroceso por respuesta vacía — no hace falta un calendario para eso."""
-    d -= dt.timedelta(days=1)
-    while d.weekday() >= 5:
-        d -= dt.timedelta(days=1)
-    return d
 
 
 def _sufijo(tk: str) -> str:
@@ -272,32 +258,21 @@ def main() -> None:
 
     from core.job_runs import JobRunLogger
     with JobRunLogger("tamar_1816") as jr:
-        # ⚠️ SIEMPRE con fechaOperacion explícita. Sin ella la API usa HOY y un
-        # día sin rueda devuelve los 6 campos en null — un domingo eso hizo
-        # parecer que el campo `spread` no existía (incidente 2026-08-16).
-        d = dt.date.fromisoformat(args.fecha) if args.fecha else dt.date.today()
-        if d.weekday() >= 5:
-            d = _habil_anterior(d)
-        tickers = sorted(pedidos)
-        inst: dict = {}
-        resp: dict = {}
-        for _ in range(_MAX_RETROCESO + 1):
-            resp = mercado_1816.indicadores(tickers, _CAMPOS, fecha_operacion=d.isoformat())
-            inst = resp.get("instrumentos") or {}
-            if any(v.get("tea") is not None for v in inst.values() if v):
-                break
-            # Antes de las 11 ART todavía no hay rueda de hoy, y un feriado no
-            # la va a tener nunca: en los dos casos el número bueno es el del
-            # último día con datos, no un vacío.
-            jr.log(f"{d}: sin datos, retrocedo un hábil")
-            d = _habil_anterior(d)
-        else:
+        # ⚠️ SIEMPRE con fechaOperacion explícita, y retrocediendo si la rueda
+        # vino vacía. Esa lógica vivía ACÁ y solo acá; se movió a
+        # `core.mercado_1816.indicadores_vigentes` para que el pre-flight del AV
+        # Agent no tuviera que reescribirla — dos criterios para la misma
+        # pregunta terminan siempre con uno de los dos viejo.
+        resp = mercado_1816.indicadores_vigentes(
+            sorted(pedidos), _CAMPOS, fecha=args.fecha,
+            al_retroceder=lambda d: jr.log(f"{d}: sin datos, retrocedo un hábil"))
+        if not resp:
             jr.set_stat("filas", 0)
             jr.set_stat("motivo", "sin datos en 5 ruedas")
-            print(f"✗ 5 ruedas seguidas sin datos (última probada {d}). No se escribió nada.")
+            print("✗ 5 ruedas seguidas sin datos. No se escribió nada.")
             return
-
-        fecha_op = resp.get("fechaOperacion") or d.isoformat()
+        inst = resp.get("instrumentos") or {}
+        fecha_op = resp["fechaOperacion"]
         mejores = _mejor_por_pata(pedidos, inst)
         filas = [{
             "ticker": tk, "pata": pata, "ticker_1816": v["ticker_1816"],

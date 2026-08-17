@@ -231,10 +231,68 @@ def _estado_simbolo(simbolo: str) -> dict:
 OK, FALLA, ATENCION, NO_SE = "ok", "falla", "atencion", "no_se_puede_saber"
 
 
-def _paso(n: int, titulo: str, estado: str, detalle: str,
+def _paso(clave: str, titulo: str, estado: str, detalle: str,
           *, tabla: str = "", accion: str = "") -> dict:
-    return {"n": n, "titulo": titulo, "estado": estado, "detalle": detalle,
+    """Un eslabón. **`clave` es la identidad, `n` es presentación** — el `n` se
+    numera al final según los pasos que hayan aplicado (el de CER no siempre
+    está, el control cruzado tampoco). Si el orden fuera la identidad, insertar
+    un paso en el medio renumeraría todo y rompería a quien lo referencie."""
+    return {"clave": clave, "titulo": titulo, "estado": estado, "detalle": detalle,
             "tabla": tabla, "accion": accion}
+
+
+# Bandas del control cruzado, en puntos básicos de diferencia de TEA.
+#
+# ⚠️ **PRIMER CORTE, no medido sobre una muestra.** La única evidencia dura es el
+# TAMAR contra la planilla de la mesa: TEA 38,62% (1816) vs 38,55% (mesa) al mismo
+# precio = **7 bps** cuando las dos partes están bien. De ahí sale que "coincidir"
+# viva por debajo de los 50 bps. El techo de 300 es un juicio, no una medición.
+#
+# Por eso una diferencia grande es `atencion` y **nunca `falla`**: bloquear un alta
+# con un umbral que no medimos sería inventar un hecho, justo lo que la REGLA #2
+# prohíbe. Que la banda se calibre con el uso es el diseño, no una deuda.
+_BPS_COINCIDE, _BPS_MIRAR = 50.0, 300.0
+
+
+def _cotejo_tea(tea, ref: dict) -> dict:
+    """Nuestra TEA contra la de 1816, sobre el MISMO precio.
+
+    Es la segunda opinión que no existía. Un cuadro mal convertido no tira error:
+    da un número plausible y equivocado. Dos cálculos independientes que coinciden
+    son la única evidencia real de que la conversión está bien.
+    """
+    suya = ref.get("tea")
+    if not isinstance(tea, int | float):
+        return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", NO_SE,
+                     "no se pudo calcular nuestra TEA, así que no hay qué comparar",
+                     tabla="1816 /indicadores")
+    if not isinstance(suya, int | float):
+        return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", NO_SE,
+                     "1816 no publica TEA para este ticker — el control cruzado no "
+                     "se puede hacer" + (f" ({ref['error']})" if ref.get("error") else ""),
+                     tabla="1816 /indicadores")
+    bps = abs(float(tea) - float(suya)) * 10_000
+    linea = (f"nuestra {float(tea):.4%} vs 1816 {float(suya):.4%} "
+             f"→ {bps:,.0f} bps de diferencia")
+    if bps <= _BPS_COINCIDE:
+        return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", OK,
+                     linea + ". Dos cálculos independientes dan lo mismo: el cuadro "
+                             "de flujos está bien convertido.",
+                     tabla="1816 /indicadores")
+    if bps <= _BPS_MIRAR:
+        return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", ATENCION,
+                     linea + ". Se parecen pero no coinciden. Puede ser convención "
+                             "de días, o que su precio sea CLEAN y el nuestro venga "
+                             "con intereses corridos — mirar antes de confiar en la "
+                             "tasa.",
+                     tabla="1816 /indicadores")
+    return _paso("cotejo_1816", "Nuestra tasa coincide con la de 1816", ATENCION,
+                 linea + ". **Se contradicen.** Con el MISMO precio, esa distancia "
+                         "casi siempre es la escala del cuadro o la pata equivocada. "
+                         "No se bloquea el alta (el umbral es un primer corte, no "
+                         "una medición), pero acá hay algo para revisar.",
+                 tabla="1816 /indicadores",
+                 accion="comparar el cuadro de flujos contra la pantalla de 1816")
 
 
 def _contexto_cadena(ticker: str) -> dict:
@@ -305,7 +363,8 @@ def _simbolo_del_bono(ticker: str, especies: list[dict]) -> tuple[str, str]:
 def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
               cer_emision: float | None, nota_cer: str, simbolo: str,
               origen_simbolo: str, ctx: dict, estado_simbolo: dict,
-              precio, tea) -> list[dict]:
+              precio, tea, fuente_precio: str = "", ref: dict | None = None
+              ) -> list[dict]:
     """La lista ordenada. Se devuelve ENTERA, con los pasos en verde incluidos.
 
     Mostrar solo lo que falla obliga al que mira a confiar en que el resto se
@@ -313,8 +372,9 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     verdes ES la respuesta a «¿qué pasa si aplico?».
     """
     ps: list[dict] = []
+    ref = ref or {}
 
-    ps.append(_paso(1, "La curva de 1816 se traduce a nuestros ejes", OK,
+    ps.append(_paso("ejes", "La curva de 1816 se traduce a nuestros ejes", OK,
                     f"«{curva_1816}» → emisor {ejes.emisor_tipo} · moneda "
                     f"{ejes.moneda} · ajuste {ejes.ajuste}"
                     + (f" (+{ejes.ajuste_alt})" if ejes.ajuste_alt else "")
@@ -322,7 +382,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                     tabla="mercado.curvas (ejes)"))
 
     escala_ok = conv["escala"] == "vn100"
-    ps.append(_paso(2, "1816 mandó el cuadro de flujos", OK if escala_ok else ATENCION,
+    ps.append(_paso("cuadro", "1816 mandó el cuadro de flujos", OK if escala_ok else ATENCION,
                     f"{conv['n']} cupón/es · Σ amortizaciones {conv['suma_amort']} → "
                     f"escala {conv['escala']}"
                     + ("" if escala_ok else
@@ -331,7 +391,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                     tabla="1816 /cashflow"))
 
     auto = rama in RAMAS_AUTOMATICAS
-    ps.append(_paso(3, "La rama de cálculo sabe convertir el cuadro sola",
+    ps.append(_paso("rama", "La rama de cálculo sabe convertir el cuadro sola",
                     OK if auto else FALLA,
                     f"rama «{rama}»" + (" — conversión inequívoca" if auto
                                         else f" — {_motivo_no_aplicable(rama, ejes)}"),
@@ -339,7 +399,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                     accion="" if auto else "cargar a mano con el cuadro de abajo"))
 
     if rama == "cer":
-        ps.append(_paso(4, "CER de emisión resuelto",
+        ps.append(_paso("cer_emision", "CER de emisión resuelto",
                         OK if cer_emision else FALLA,
                         f"{cer_emision} (inferido de la fecha de emisión de 1816, "
                         "con el mismo T−10 hábiles que usa el motor)"
@@ -348,7 +408,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                         accion="" if cer_emision else "cargarlo a mano en el master"))
 
     if not ctx.get("ok"):
-        ps.append(_paso(5, "El papel cotiza (especie + símbolo + precio)", NO_SE,
+        ps.append(_paso("especie", "El papel cotiza (especie + símbolo + precio)", NO_SE,
                         f"no se pudo leer la base ({ctx.get('error')}) — no se "
                         "puede afirmar nada de la cadena de precio",
                         tabla="mercado.especies · curvas · assets"))
@@ -362,11 +422,11 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                          + (f", {e['plazo']}" if e["plazo"] else "")
                          + (", default" if e["es_default"] else "") + ")"
                          for e in activas[:4])
-        ps.append(_paso(5, "El papel tiene especie: cotiza con un símbolo", OK,
+        ps.append(_paso("especie", "El papel tiene especie: cotiza con un símbolo", OK,
                         f"{len(activas)} pata/s en el catálogo — {det}",
                         tabla="mercado.especies"))
     else:
-        ps.append(_paso(5, "El papel tiene especie: cotiza con un símbolo", FALLA,
+        ps.append(_paso("especie", "El papel tiene especie: cotiza con un símbolo", FALLA,
                         f"NO hay ninguna pata de {ticker} en mercado.especies. El "
                         f"símbolo «{simbolo}» está ARMADO por convención, no "
                         "verificado: puede que el papel cotice CI, o con otro "
@@ -378,7 +438,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     # 6 — el gate REAL de la suscripción.
     con = estado_simbolo.get("conocido")
     ps.append(_paso(
-        6, "Primary lista ese símbolo (si no, el WS lo filtra)",
+        "primary", "Primary lista ese símbolo (si no, el WS lo filtra)",
         OK if con is True else (FALLA if con is False else NO_SE),
         f"«{simbolo}» ({'de mercado.especies' if origen_simbolo == 'especies' else 'armado por convención'}) — "
         + estado_simbolo.get("nota", ""),
@@ -389,7 +449,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
 
     # 7 — el motor arma su universo AL ARRANCAR. Este paso NUNCA es verde solo:
     #     es un paso MANUAL, y decirlo es la mitad del valor del pre-flight.
-    ps.append(_paso(7, "El motor lo suscribe y el precio llega a market_snapshot",
+    ps.append(_paso("suscripcion", "El motor lo suscribe y el precio llega a market_snapshot",
                     ATENCION,
                     "los motores leen mercado.curvas UNA vez, al arrancar: hasta "
                     "reiniciar motor_rofex + motor_curvas este bono NO se suscribe "
@@ -397,21 +457,40 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                     tabla="mercado.market_snapshot",
                     accion="tras aplicar: reiniciar motor_rofex y motor_curvas"))
 
-    # 8 — ¿ya hay precio HOY? Si el símbolo ya venía suscripto por otra vía, la
-    #     TEA sale en la simulación y el paso 7 deja de ser bloqueante.
-    if precio:
-        ps.append(_paso(8, "Hay precio para simular la tasa ahora", OK,
+    # 8 — ¿hay con qué calcular la tasa AHORA? Un bono nuevo nunca tiene snapshot
+    #     (nunca se suscribió), así que se cae al precio de referencia de 1816.
+    if precio and fuente_precio == "1816":
+        ps.append(_paso("precio", "Hay precio para simular la tasa ahora", OK,
+                        f"sin snapshot todavía, así que se usó el **precio de "
+                        f"referencia de 1816**: {precio} al {ref.get('fecha') or '—'}"
+                        + (f" → TEA simulada {tea:.4%}" if isinstance(tea, int | float)
+                           else " — pero el motor NO devolvió TEA: revisar la escala")
+                        + ". Ese precio NO se guarda: es solo para poder calcular "
+                          "antes de aplicar.",
+                        tabla="1816 /indicadores (no se persiste)"))
+    elif precio:
+        ps.append(_paso("precio", "Hay precio para simular la tasa ahora", OK,
                         f"último precio {precio} en el snapshot"
                         + (f" → TEA simulada {tea:.4%}" if isinstance(tea, int | float)
                            else " — pero el motor NO devolvió TEA con este cuadro: "
                                 "revisar la escala del flujo antes de aplicar"),
                         tabla="mercado.market_snapshot"))
     else:
-        ps.append(_paso(8, "Hay precio para simular la tasa ahora", ATENCION,
-                        "todavía no hay precio de este símbolo en el snapshot — "
-                        "esperable si nunca se suscribió. El cuadro igual queda "
-                        "listo: la TEA aparece cuando llegue el primer trade.",
-                        tabla="mercado.market_snapshot"))
+        ps.append(_paso("precio", "Hay precio para simular la tasa ahora", ATENCION,
+                        "no hay precio en el snapshot"
+                        + (f", y {ref['error']}" if ref.get("error") else "")
+                        + ". El cuadro igual queda listo: la TEA aparece cuando "
+                          "llegue el primer trade.",
+                        tabla="mercado.market_snapshot · 1816"))
+
+    # 8.b — EL CONTROL CRUZADO. Es el paso que más vale de toda la lista.
+    #
+    # Un cuadro de flujos mal convertido NO da error: da una TEA plausible pero
+    # equivocada, y ahí se acaban las formas de darse cuenta leyendo. Correr
+    # NUESTRO motor sobre el precio de 1816 y comparar contra LA TEA DE ELLOS es
+    # una segunda opinión independiente sobre el mismo bono — y hasta ahora era
+    # imposible de tener justo cuando más falta hace: en un bono nuevo.
+    ps.append(_cotejo_tea(tea, ref))
 
     # 9 — la TEA la calcula el motor solo si la rama tiene fórmula.
     try:
@@ -420,17 +499,17 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     except Exception:
         fuente = None
     if rama in RAMAS_AUTOMATICAS or rama in ("dolar_linked",):
-        ps.append(_paso(9, "El motor de curvas va a calcular la TEA", OK,
+        ps.append(_paso("tea_motor", "El motor de curvas va a calcular la TEA", OK,
                         f"la rama «{rama}» tiene fórmula en engines/curvas.py",
                         tabla="engines/curvas.py::calcular_campos"))
     elif fuente == "1816":
-        ps.append(_paso(9, "La tasa la trae 1816, no el motor", OK,
+        ps.append(_paso("tea_motor", "La tasa la trae 1816, no el motor", OK,
                         f"la curva {ejes.ajuste.upper()} está marcada fuente=1816: "
                         "su TEA y su margen los baja el job, igual que los TAMAR.",
                         tabla="mercado.tamar_1816 / job de la curva",
                         accion="verificar que el job de esa curva incluya este ticker"))
     else:
-        ps.append(_paso(9, "El motor de curvas va a calcular la TEA", FALLA,
+        ps.append(_paso("tea_motor", "El motor de curvas va a calcular la TEA", FALLA,
                         f"el ajuste «{ejes.ajuste}» cae en el `else` del motor: solo "
                         "computa duration. El bono va a tener precio pero la celda "
                         "de TEA queda vacía.",
@@ -441,13 +520,13 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     assets = ctx["assets"]
     vig = [a for a in assets if a["vigente"]]
     if vig:
-        ps.append(_paso(10, "Entra al AuM: hay espejo en portafolio.assets", OK,
+        ps.append(_paso("assets", "Entra al AuM: hay espejo en portafolio.assets", OK,
                         f"{len(vig)} unidad/es con ticker {ticker} — "
                         + ", ".join(a["unidad"] for a in vig[:2])
                         + ("…" if len(vig) > 2 else ""),
                         tabla="portafolio.assets"))
     else:
-        ps.append(_paso(10, "Entra al AuM: hay espejo en portafolio.assets", ATENCION,
+        ps.append(_paso("assets", "Entra al AuM: hay espejo en portafolio.assets", ATENCION,
                         f"no hay ninguna unidad con ticker {ticker}. El bono va a "
                         "aparecer en la curva con su tasa, pero NO en AuM/Portfolios "
                         "hasta que exista la posición (la crea el backfill de "
@@ -455,11 +534,16 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                         tabla="portafolio.assets"))
 
     if ctx["ya_en_curvas"]:
-        ps.insert(0, _paso(0, "⚠ Este ticker YA está en el master", ATENCION,
+        ps.insert(0, _paso("ya_existe", "⚠ Este ticker YA está en el master", ATENCION,
                            f"mercado.curvas ya tiene {ticker} (símbolo actual: "
                            f"{ctx['simbolo_actual']}). Aplicar lo va a PISAR con "
                            "el cuadro de 1816.",
                            tabla="mercado.curvas"))
+    # El `n` es PRESENTACIÓN: se numera acá, sobre los pasos que efectivamente
+    # aplicaron. El de CER solo está en la rama CER y el control cruzado solo si
+    # 1816 contestó, así que numerar en el origen dejaría huecos.
+    for i, paso in enumerate(ps, start=1):
+        paso["n"] = i
     return ps
 
 
@@ -500,6 +584,50 @@ def _cer_de_emision(fecha_emision: str) -> tuple[float | None, str]:
         return None, (f"la serie CER no llega hasta {fecha_emision[:10]} "
                       "(T−10 hábiles) — hay que cargarlo a mano")
     return float(cer), ""
+
+
+# Lo que se le pide a 1816 para poder simular un bono que TODAVÍA no tiene precio
+# propio. Los cuatro campos están verificados en producción (`jobs/tamar_1816` y
+# `jobs/mercado_1816_series` los piden todos los días).
+_CAMPOS_REF = ("precioClean", "tea", "paridad", "duration")
+
+
+def _referencia_1816(ticker: str) -> dict:
+    """Precio y TASA de referencia de 1816 para un bono que no tiene snapshot.
+
+    **Por qué existe** (idea del user, 2026-08-17): un bono que se acaba de dar de
+    alta no tiene precio en `mercado.market_snapshot` —nunca se suscribió— así que
+    el simulador no podía calcular NADA y había que aplicar a ciegas y esperar a
+    ver si salía bien. Pero 1816 **publica el precio**, y no hay que persistirlo:
+    alcanza con usarlo para la simulación.
+
+    **Y trae de yapa lo que vale más que el precio: SU PROPIA TEA.** Eso convierte
+    la simulación en un CONTROL CRUZADO — se corre nuestro motor sobre el precio de
+    ellos y se compara contra su tasa. Si los dos números coinciden, el cuadro de
+    flujos que estamos por escribir está bien convertido; si no, hay algo mal en la
+    escala o en la pata, que es EXACTAMENTE lo que el simulador existe para cazar y
+    lo único que no podía chequear en un bono nuevo.
+
+    **NO se persiste nada.** `market_snapshot` es del motor (Primary, live, 5s);
+    esto es 1816/BYMA con delay. Mezclarlos escondería cuál es cuál — el mismo
+    criterio por el que `jobs/tamar_1816` escribe en su propia tabla.
+
+    Costo: 1 ticker × 4 campos = **4 créditos**, y solo cuando alguien aprieta
+    SIMULAR (de 100.000 diarios).
+    """
+    try:
+        resp = mercado_1816.indicadores_vigentes([ticker], list(_CAMPOS_REF))
+    except Exception as e:
+        return {"error": f"1816 no respondió: {type(e).__name__}"}
+    if not resp:
+        return {"error": "1816 no tiene datos de este ticker en las últimas 5 ruedas"}
+    v = (resp.get("instrumentos") or {}).get(ticker) or {}
+    px = _num(v.get("precioClean"))
+    if not px or px <= 0:
+        return {"error": f"1816 conoce el ticker pero no publicó precio al "
+                         f"{resp.get('fechaOperacion')}"}
+    return {"precio": px, "tea": _num(v.get("tea")), "paridad": _num(v.get("paridad")),
+            "duration": _num(v.get("duration")), "fecha": resp.get("fechaOperacion")}
 
 
 def _ficha_1816(ticker: str) -> dict:
@@ -597,7 +725,7 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         # distinto del que se mostró, que es justo lo que el simulador previene.
         "cuadro": conv,
     }
-    out.update(_simular_tasa(doc, simbolo, precio))
+    out.update(_simular_tasa(doc, simbolo, precio, ticker=tk))
 
     # El PRE-FLIGHT va al final porque necesita el resultado de la tasa: el paso 8
     # ("¿hay precio?") es el mismo dato que ya se buscó para simular, y volver a
@@ -607,28 +735,47 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         cer_emision=cer_emision, nota_cer=nota_cer, simbolo=simbolo,
         origen_simbolo=origen_simbolo, ctx=ctx,
         estado_simbolo=out["simbolo_estado"],
-        precio=out.get("precio"), tea=out.get("tea"))
+        precio=out.get("precio"), tea=out.get("tea"),
+        fuente_precio=out.get("precio_fuente") or "",
+        ref=out.get("referencia_1816") or {})
     out["veredicto"] = _veredicto(out["chequeos"])
     return out
 
 
-def _simular_tasa(doc: dict, simbolo: str, precio: float | None) -> dict:
+def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
+                  ticker: str = "") -> dict:
     """Corre el MOTOR sobre el doc simulado. Mismo `calcular_campos` que usa
     `engines/curvas` en producción: si acá saliera otro número, la simulación no
-    valdría para nada."""
+    valdría para nada.
+
+    **Orden de precios**: primero el del snapshot (Primary, live, es EL precio);
+    si no hay —el caso de todo bono nuevo— se cae al `precioClean` de 1816. Nunca
+    al revés: el de referencia sirve para poder calcular algo, no para reemplazar
+    al real.
+    """
     from core import market_snapshot
     from engines.curvas import calcular_campos, cargar_cer, cargar_dias_habiles
 
+    fuente, ref = "manual", {}
     if precio is None:
+        fuente = "snapshot"
         try:
             m = market_snapshot.cols_map([simbolo], ["last_price"])
             precio = (m.get(simbolo) or {}).get("last_price")
         except Exception:
             precio = None
+        if (not precio or precio <= 0) and ticker:
+            # Sin snapshot no había NADA que simular y había que aplicar a ciegas.
+            # 1816 publica el precio: se usa de referencia y no se persiste.
+            ref = _referencia_1816(ticker)
+            if ref.get("precio"):
+                precio, fuente = ref["precio"], "1816"
     if not precio or precio <= 0:
-        return {"precio": None, "tea": None,
-                "nota_tasa": "sin precio en el snapshot no se puede simular la TEA "
-                             "(el cuadro igual queda listo para cargar)"}
+        return {"precio": None, "tea": None, "precio_fuente": None,
+                "referencia_1816": ref or None,
+                "nota_tasa": "no hay precio en el snapshot"
+                             + (f" y {ref['error']}" if ref.get("error") else "")
+                             + " — el cuadro igual queda listo para cargar"}
 
     try:
         cer = cargar_cer(dias=1200) if doc.get("ajuste") == "cer" else {}
@@ -645,11 +792,19 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None) -> dict:
                             doc, cer, habiles, mep=mep) or {}
     except Exception as e:
         logger.warning("av_agent: simulación de tasa falló para %s: %s", simbolo, e)
-        return {"precio": float(precio), "tea": None,
+        return {"precio": float(precio), "tea": None, "precio_fuente": fuente,
+                "referencia_1816": ref or None,
                 "nota_tasa": f"el motor no pudo calcular: {type(e).__name__}"}
 
-    return {"precio": float(precio), "tea": r.get("TEA"),
+    # Si NO hubo que caer a 1816 (había snapshot), igual conviene tener su tasa
+    # para el control cruzado: es el único chequeo que dice si el cuadro que
+    # estamos por escribir está bien convertido.
+    if not ref and ticker:
+        ref = _referencia_1816(ticker)
+
+    return {"precio": float(precio), "tea": r.get("TEA"), "precio_fuente": fuente,
             "duration": r.get("duration"), "paridad": r.get("paridad"),
+            "referencia_1816": ref or None,
             "nota_tasa": "" if r.get("TEA") is not None else
             "el motor no persistiría TEA con este cuadro y este precio — revisar "
             "la escala del flujo o la pata antes de aplicar"}

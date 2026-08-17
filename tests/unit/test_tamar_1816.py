@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import datetime as dt
 
-from jobs.tamar_1816 import _habil_anterior, _mejor_por_pata, _sufijo
+from core.mercado_1816 import _habil_anterior
+from jobs.tamar_1816 import _mejor_por_pata, _sufijo
 
 
 def test_habil_anterior_nunca_cae_en_fin_de_semana():

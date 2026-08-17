@@ -18,6 +18,7 @@ Env vars (.env del Droplet):
 """
 from __future__ import annotations
 
+import datetime as _dt
 import logging
 import os
 import re
@@ -184,6 +185,57 @@ def indicadores(tickers: list[str], campos: list[str], fuente: str = "byma",
     if fecha_operacion:
         p["fechaOperacion"] = fecha_operacion
     return _get("/v1/mercado/indicadores", p)
+
+
+# Cuántas ruedas retroceder cuando la pedida vuelve vacía. Cubre un fin de semana
+# largo; más que eso ya no es "todavía no hubo rueda", es que el ticker no tiene
+# datos y hay que decirlo en vez de seguir buscando.
+MAX_RETROCESO = 4
+
+
+def _habil_anterior(d: _dt.date) -> _dt.date:
+    """Día hábil anterior (solo fines de semana). Los feriados los resuelve el
+    retroceso por respuesta vacía — para eso no hace falta un calendario."""
+    d -= _dt.timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= _dt.timedelta(days=1)
+    return d
+
+
+def indicadores_vigentes(tickers: list[str], campos: list[str], *,
+                         fecha: str | None = None, max_retroceso: int = MAX_RETROCESO,
+                         al_retroceder=None, **kw) -> dict:
+    """`indicadores` de la última rueda CON DATOS. Devuelve la respuesta cruda
+    más `fechaOperacion` resuelta, o `{}` si ninguna rueda trajo nada.
+
+    **Existe porque esta trampa se pagó dos veces.** Sin `fechaOperacion` la API
+    usa HOY, y un domingo devuelve todos los campos en `null`: el 2026-08-16 eso
+    hizo parecer que el campo `spread` no existía. Y antes de las 11 ART tampoco
+    hay rueda de hoy — en los dos casos el número bueno es el del último día con
+    datos, no un vacío.
+
+    Estaba resuelto dentro de `jobs/tamar_1816` y solo ahí. Dos criterios para la
+    misma pregunta terminan siempre igual: uno de los dos se queda viejo. Acá vive
+    una vez y lo hereda el que llame.
+
+    `al_retroceder(fecha)` es un callback opcional para logear el intento.
+    """
+    d = _dt.date.fromisoformat(fecha) if fecha else _dt.date.today()
+    if d.weekday() >= 5:
+        d = _habil_anterior(d)
+    for _ in range(max_retroceso + 1):
+        resp = indicadores(list(tickers), list(campos),
+                           fecha_operacion=d.isoformat(), **kw)
+        inst = resp.get("instrumentos") or {}
+        # "Trajo datos" = algún campo no nulo en algún instrumento. No se ata a un
+        # campo puntual: el que pide `precioClean` y el que pide `tea` tienen la
+        # misma pregunta, y hardcodear uno rompería al otro en silencio.
+        if any(v.get(c) is not None for v in inst.values() if v for c in campos):
+            return {**resp, "fechaOperacion": resp.get("fechaOperacion") or d.isoformat()}
+        if al_retroceder:
+            al_retroceder(d)
+        d = _habil_anterior(d)
+    return {}
 
 
 def series(tickers: list[str], campos: list[str], desde: str, hasta: str,

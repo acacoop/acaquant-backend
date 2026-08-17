@@ -18,9 +18,11 @@ Env vars (.env del Droplet):
 """
 from __future__ import annotations
 
+import base64
 import contextlib
 import contextvars
 import datetime as _dt
+import json
 import logging
 import os
 import re
@@ -214,13 +216,24 @@ def _auth() -> str:
             # minutos» — que es exactamente lo que NO había que hacer si el que se
             # había acabado era el cupo de 50 tokens diarios. Un error que sugiere
             # la acción equivocada cuesta más que uno que no sugiere ninguna.
+            # ⚠️ **EL CONTADOR NO ES EL DEL PROVEEDOR Y NO PUEDE SERLO.** Cuenta los
+            # logins que hicimos NOSOTROS desde que existe la fila: no ve los de
+            # antes, ni los de otra máquina, ni los que gastó un proceso que murió
+            # sin escribir. Es un piso, no el número real — y la primera versión de
+            # este mensaje llegó a decir «van 0 logins hoy, es una ráfaga» mientras
+            # el proveedor nos rechazaba, que es justo la conclusión opuesta.
+            # Sirve para detectar que NOSOTROS estamos quemando de más; no sirve
+            # para afirmar que queda cupo.
             est = estado_token()
-            msg = (f"1816 rechazó el login (auth {r.status_code}). Van "
-                   f"**{est['logins_hoy']} logins hoy** de un tope de 50 por día: "
-                   + ("es muy probable que sea la CUOTA DIARIA, no una ráfaga — "
-                      "reintentar la gasta más. Se recupera mañana."
-                      if est["logins_hoy"] >= _LOGINS_MAX_DIA // 2 else
-                      "si el número es bajo es una ráfaga y se recupera en minutos."))
+            msg = (f"1816 rechazó el login (auth {r.status_code}). El plan da **50 "
+                   "tokens por día** y ese suele ser el motivo real de un 429 en "
+                   "auth (los créditos, en cambio, sobran). **Reintentar gasta más "
+                   "del recurso que falta.** Si el cupo está agotado se recupera "
+                   "mañana — o se pega un token de la sesión web con "
+                   "`python -m scripts.set_token_1816`. "
+                   f"(Nosotros registramos {est['logins_hoy']} login/s hoy, pero "
+                   "ese contador es un PISO: no ve los de antes de que existiera "
+                   "la tabla ni los de otros procesos.)")
             if not _alcanza(espera) or intento + 1 >= _AUTH_REINTENTOS:
                 raise Error1816(msg)
             logger.warning("mercado_1816 auth HTTP %s — backoff %ss (intento %s/%s, "
@@ -239,6 +252,27 @@ def _auth() -> str:
 # el ahorro, no el servicio.
 
 
+def exp_del_jwt(tok: str) -> float:
+    """La expiración que declara el PROPIO token (claim `exp`), o 0 si no se puede
+    leer.
+
+    **No se valida la firma** — no es nuestra y no hace falta: acá el JWT se lee
+    como lo que es, un sobre con la fecha escrita afuera.
+
+    Existe porque un token puede llegar por fuera del cliente (pegado a mano en
+    `manager.tokens_externos` desde la sesión web, que es la vía de escape cuando
+    se agotan los 50 logins del día) y en ese caso `expira_at` queda NULL. Sin
+    esto, el token **se ignoraría por parecer vencido** y todo seguiría fallando
+    igual, que es exactamente lo que pasó la primera vez.
+    """
+    try:
+        payload = (tok or "").split(".")[1]
+        payload += "=" * (-len(payload) % 4)          # padding base64url
+        return float(json.loads(base64.urlsafe_b64decode(payload)).get("exp") or 0)
+    except Exception:
+        return 0.0
+
+
 def _fila_token() -> dict:
     """La fila del proveedor. `{}` si no se pudo leer — nunca revienta."""
     try:
@@ -251,17 +285,25 @@ def _fila_token() -> dict:
             r = cur.fetchone()
         if not r:
             return {}
-        return {"token": r[0], "exp": float(r[1] or 0), "dia": r[2],
-                "logins_dia": int(r[3] or 0), "ultima": float(r[4] or 0)}
+        # `expira_at` puede venir NULL (token pegado a mano). El token sabe cuándo
+        # vence: se le pregunta a él antes de darlo por muerto.
+        exp = float(r[1] or 0) or exp_del_jwt(r[0] or "")
+        return {"token": r[0], "exp": exp, "dia": r[2],
+                "logins_dia": int(r[3] or 0), "ultima": float(r[4] or 0),
+                "exp_del_jwt": not r[1]}
     except Exception:
         logger.debug("mercado_1816: sin token compartido (Postgres no responde)")
         return {}
 
 
-def _guardar_token(tok: str, exp: float) -> None:
+def _guardar_token(tok: str, exp: float, *, cuenta_login: bool = True) -> None:
     """Persiste el token para que **los otros procesos no tengan que pedir otro**,
     y suma 1 al contador del día. El contador se resetea solo al cambiar de fecha:
-    sin eso el presupuesto quedaría trabado en el número de ayer."""
+    sin eso el presupuesto quedaría trabado en el número de ayer.
+
+    `cuenta_login=False` para un token que NO nos costó un login (el que se pega a
+    mano desde la sesión web): contarlo inflaría un número que ya de por sí es
+    frágil."""
     try:
         import os
 
@@ -277,11 +319,36 @@ def _guardar_token(tok: str, exp: float) -> None:
                 "  expira_at = EXCLUDED.expira_at, obtenido_at = now(), "
                 "  obtenido_por = EXCLUDED.obtenido_por, dia = current_date, "
                 "  logins_dia = CASE WHEN manager.tokens_externos.dia = current_date "
-                "               THEN manager.tokens_externos.logins_dia + 1 ELSE 1 END",
-                (_PROVEEDOR, tok, exp, quien))
+                "               THEN manager.tokens_externos.logins_dia + %s ELSE %s END",
+                (_PROVEEDOR, tok, exp, quien, int(cuenta_login), int(cuenta_login)))
     except Exception:
         logger.warning("mercado_1816: no se pudo persistir el token compartido",
                        exc_info=True)
+
+
+def _invalidar_token_compartido(muerto: str | None) -> None:
+    """Borra el token compartido **solo si sigue siendo el que acaba de fallar**."""
+    if not muerto:
+        return
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE manager.tokens_externos SET token = NULL, "
+                        "expira_at = NULL WHERE proveedor = %s AND token = %s",
+                        (_PROVEEDOR, muerto))
+    except Exception:
+        logger.debug("mercado_1816: no se pudo invalidar el token compartido")
+
+
+def guardar_token_manual(tok: str, exp_epoch: float) -> None:
+    """Persiste un token conseguido POR FUERA del cliente (la sesión web).
+
+    **No suma al contador de logins**: ese token no nos costó uno de los 50 — es
+    justamente la vía de escape cuando el endpoint de auth ya no nos da más.
+    """
+    _guardar_token(tok, exp_epoch, cuenta_login=False)
+    with _lock:
+        _estado["token"], _estado["exp"] = tok, exp_epoch
 
 
 def estado_token() -> dict:
@@ -407,7 +474,14 @@ def _get(path: str, params: dict | None = None) -> dict:
             continue
         if r.status_code == 401:                      # token vencido → re-auth
             with _lock:
+                muerto = _estado["token"]
                 _estado["token"] = None
+            # ⚠️ **Y hay que matarlo también en la fila compartida**, o el próximo
+            # `_token()` lo adopta de vuelta y se queda en un loop de 401 sin
+            # entender por qué. Se borra SOLO si sigue siendo el mismo: si otro
+            # proceso ya escribió uno fresco, ese sirve y pisarlo lo tiraría a la
+            # basura para nada.
+            _invalidar_token_compartido(muerto)
             ultimo = "401 (re-auth)"
             continue
         if r.status_code >= 500:                      # server → retry

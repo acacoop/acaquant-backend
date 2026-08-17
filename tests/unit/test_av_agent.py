@@ -404,10 +404,11 @@ def test_las_ramas_sin_conversion_automatica_dan_su_PROPIO_motivo():
     from core.curvas_ejes import Ejes
     assert set(RAMAS_AUTOMATICAS) == {"tasa_fija", "soberanos", "cer"}
     dl = _motivo_no_aplicable("dolar_linked", Ejes("soberano", "USD", "dolar_linked"))
-    tm = _motivo_no_aplicable("tamar", Ejes("soberano", "ARS", "tamar"))
     assert "A3500" in dl and "CER" not in dl
-    assert "promedio" in tm.lower() and "CER" not in tm
     assert _motivo_no_aplicable("cer", Ejes("soberano", "ARS", "cer")) == ""
+    # Un TAMAR NO tiene motivo: se da de alta solo. Su tasa la trae un job, así
+    # que el cuadro es lo único que hay que guardar — y es el caso más simple.
+    assert _motivo_no_aplicable("otros", Ejes("soberano", "ARS", "tamar")) == ""
 
 
 # ── PRE-FLIGHT — la cadena completa antes de escribir ───────────────────────
@@ -459,15 +460,26 @@ def test_la_cadena_verde_devuelve_TODOS_los_pasos_no_solo_los_rotos():
     assert reinicio["estado"] == "atencion" and "reiniciar" in reinicio["accion"]
 
 
-def test_sin_especie_el_simbolo_es_una_ADIVINANZA_y_se_dice():
-    """Armar `MERV - XMEV - {tk} - 24hs` a mano no es un hecho: hay papeles que
-    solo cotizan CI. Sin fila en especies el paso 5 falla y lo explica."""
+def test_sin_especie_NO_bloquea_porque_sembrarla_es_parte_del_alta():
+    """Que el papel no tenga especie todavía no dice «esto no va a funcionar»,
+    dice «esto no está listo» — y dejarlo listo ES el trabajo. Se avisa que el
+    símbolo está armado, y se agrega un paso FINAL que lo va a sembrar."""
     ps = _chequear(ctx={"ok": True, "especies": [], "ya_en_curvas": False,
                         "simbolo_actual": None, "assets": []},
                    origen_simbolo="armado")
     p5 = next(p for p in ps if p["clave"] == "especie")
-    assert p5["estado"] == "falla"
-    assert "ARMADO" in p5["detalle"] and "sembrar_especies" in p5["accion"]
+    assert p5["estado"] == "atencion"        # NO "falla"
+    assert "ARMADO" in p5["detalle"]
+    # El paso de siembra existe, va ÚLTIMO, y dice que no hay que correr nada.
+    sembrar = next(p for p in ps if p["clave"] == "sembrar")
+    assert ps[-1]["clave"] == "sembrar"
+    assert "PESOS" in sembrar["detalle"] and "DÓLARES" in sembrar["detalle"]
+    assert "no hay que correr nada" in sembrar["accion"]
+
+
+def test_con_especie_ya_sembrada_NO_se_agrega_el_paso_de_siembra():
+    """No se propone hacer algo que ya está hecho."""
+    assert not [p for p in _chequear() if p["clave"] == "sembrar"]
 
 
 def test_si_la_base_no_responde_NO_se_afirma_que_falta_nada():
@@ -504,12 +516,17 @@ def test_una_rama_sin_formula_avisa_que_la_TEA_va_a_quedar_vacia(monkeypatch):
     badlar = Ejes("corporativo", "ARS", "badlar")
 
     monkeypatch.setattr(curvas_catalogo, "fuente_valuacion", lambda a: "motor")
+    monkeypatch.setattr(curvas_catalogo, "job_de_la_tasa", lambda a: "")
     p9 = next(p for p in _chequear(rama="otros", ejes=badlar) if p["clave"] == "tea_motor")
     assert p9["estado"] == "falla" and "vacía" in p9["detalle"]
 
     monkeypatch.setattr(curvas_catalogo, "fuente_valuacion", lambda a: "1816")
+    monkeypatch.setattr(curvas_catalogo, "job_de_la_tasa", lambda a: "jobs/tamar_1816")
     p9 = next(p for p in _chequear(rama="otros", ejes=badlar) if p["clave"] == "tea_motor")
-    assert p9["estado"] == "ok" and "1816" in p9["detalle"]
+    assert p9["estado"] == "ok" and "jobs/tamar_1816" in p9["detalle"]
+    # ...y ahí el alta NO se bloquea: el cuadro es lo único que hay que guardar.
+    assert next(p for p in _chequear(rama="otros", ejes=badlar)
+                if p["clave"] == "rama")["estado"] == "ok"
 
 
 # ── El CONTROL CRUZADO contra la TEA de 1816 ────────────────────────────────

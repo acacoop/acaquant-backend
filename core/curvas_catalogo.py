@@ -74,17 +74,50 @@ def de_ajuste(ajuste: str | None) -> dict | None:
     return todas().get((ajuste or "").strip().lower())
 
 
+# Ajustes cuya tasa NO la calcula el motor y se TRAE de 1816, pero que están
+# definidos en CÓDIGO y no en la tabla — así que `de_ajuste` no los ve.
+#
+# **TAMAR es el caso**: un TAMAR es una nota de tasa PROMEDIO (promedia la TAMAR
+# de bancos privados entre T−10 de emisión y T−10 del vencimiento, + margen de
+# licitación), la parte ya observada está congelada y la futura hay que
+# proyectarla. Decisión tomada: NO la valuamos, la trae `jobs/tamar_1816`.
+#
+# Que faltara acá tenía una consecuencia concreta: el AV Agent veía la rama
+# `otros` y concluía «este ajuste no tiene fórmula, la TEA va a quedar vacía»
+# — cuando en realidad el TAMAR es el caso MÁS resuelto que tenemos. El sistema
+# sabía la respuesta y no había forma de preguntársela.
+TASA_EXTERNA_EN_CODIGO = {"tamar": "jobs/tamar_1816"}
+
+
 def fuente_valuacion(ajuste: str | None) -> str | None:
-    """`'motor'` | `'1816'` | None si ese ajuste no está en el catálogo."""
-    fila = de_ajuste(ajuste)
+    """`'motor'` | `'1816'` | None si nadie sabe de ese ajuste.
+
+    Mira el catálogo Y los ajustes cuya tasa externa está definida en código: la
+    pregunta *«¿de dónde sale la tasa de este bono?»* tiene que contestarse en UN
+    lugar, sin importar dónde esté escrita la respuesta.
+    """
+    aj = (ajuste or "").strip().lower()
+    if aj in TASA_EXTERNA_EN_CODIGO:
+        return "1816"
+    fila = de_ajuste(aj)
     return fila.get("fuente_valuacion") if fila else None
+
+
+def job_de_la_tasa(ajuste: str | None) -> str:
+    """Qué job trae la tasa de ese ajuste, o `''`. Sirve para poder DECIR quién
+    la va a traer en vez de dejar al usuario averiguándolo."""
+    return TASA_EXTERNA_EN_CODIGO.get((ajuste or "").strip().lower(), "")
 
 
 def ajustes_de_1816() -> tuple[str, ...]:
     """Los ajustes cuya tasa se TRAE de 1816. Lo lee `jobs/tamar_1816` para saber
-    qué más pedir: agregar una curva `1816` no debería requerir tocar ese job."""
-    return tuple(sorted(a for a, f in todas().items()
-                        if f.get("fuente_valuacion") == "1816"))
+    qué más pedir: agregar una curva `1816` no debería requerir tocar ese job.
+
+    Incluye los de código: si la tabla no responde, `tamar` sigue estando y el
+    job no pierde su universo de siempre."""
+    del_catalogo = {a for a, f in todas().items()
+                    if f.get("fuente_valuacion") == "1816"}
+    return tuple(sorted(del_catalogo | set(TASA_EXTERNA_EN_CODIGO)))
 
 
 def crear(*, ajuste: str, lado: str, fuente_valuacion: str, display: str | None = None,

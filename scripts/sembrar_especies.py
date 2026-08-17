@@ -35,15 +35,14 @@ Uso:
 from __future__ import annotations
 
 import argparse
-import re
-from datetime import UTC, datetime
 
+from core import especies as _esp
 from core.postgres import get_pool
 
-_RE_ESPECIE = re.compile(r"^([A-Z]+\d+)([DC])$")
+_RE_ESPECIE = _esp.RE_ESPECIE
 # El sufijo del SÍMBOLO manda sobre el label: `engines/curvas.py:223` ya decide la
 # moneda así ("el ticker_corto es un label humano y puede no reflejar la moneda").
-_ESPECIE = {"": ("pesos", "ARS"), "D": ("mep", "USD"), "C": ("cable", "USD")}
+_ESPECIE = _esp.ESPECIE
 _ESPERADA = {"USD": {"mep", "cable"}, "EUR": {"mep", "cable"}, "ARS": {"pesos"}}
 
 
@@ -54,88 +53,21 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
         return [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
 
 
-def _base(tk: str) -> tuple[str, str]:
-    m = _RE_ESPECIE.match((tk or "").strip().upper())
-    return (m.group(1), m.group(2)) if m else ((tk or "").strip().upper(), "")
-
-
-def _segs(simbolo: str) -> list[str] | None:
-    s = [x.strip() for x in (simbolo or "").split(" - ")]
-    return s if len(s) >= 4 else None
-
-
-def _simbolos_primary() -> list[str]:
-    """Los símbolos crudos de Primary. Es la fuente que NO depende de lo que el
-    master eligió — a diferencia de `market_snapshot`, que solo tiene lo que el
-    motor suscribe y el motor suscribe desde el master (circular)."""
-    return [f["simbolo"] for f in _q(
-        "SELECT DISTINCT i->>'ticker' AS simbolo "
-        "FROM manager.pyrofex_instruments p, jsonb_array_elements(p.instruments) i "
-        "WHERE i->>'ticker' IS NOT NULL") if f["simbolo"]]
-
-
-def _clasificador(universo: set[str]):
-    """→ clasificar(ticker_especie) = (base, especie, moneda).
-
-    **DOS convenciones conviven en el mercado**, y mezclarlas fue el bug de la
-    primera corrida:
-
-      · SOBERANOS y letras — la especie es un SUFIJO sobre el ticker:
-        `AL30` pesos · `AL30D` MEP · `AL30C` cable. Base = `AL30`.
-      · ONs — la especie es la ÚLTIMA LETRA del propio ticker:
-        `AERBO` pesos · `AERBD` dólares. Base = `AERBO`. Lo documenta
-        `api/services/ons.py:136`: "pata canónica por moneda: USD → ticker D,
-        ARS → ticker O".
-
-    La segunda se **RECONOCE, no se adivina**: aplica solo cuando el par
-    `stem+O` / `stem+D` existe DE VERDAD en el universo. Sin eso, `AERBD` no
-    matchea la regex de sufijo (no tiene dígitos antes de la D) y caía a PESOS
-    **siendo la pata en dólares** — el precio de la vista quedaba de otra escala
-    y encima el bono figuraba con dos patas "pesos/24hs" duplicadas.
-    """
-    def clasificar(t: str) -> tuple[str, str, str]:
-        t = (t or "").strip().upper()
-        if len(t) >= 2 and t[-1] in ("O", "D"):
-            stem = t[:-1]
-            if f"{stem}O" in universo and f"{stem}D" in universo:
-                esp, mon = ("pesos", "ARS") if t[-1] == "O" else ("mep", "USD")
-                return f"{stem}O", esp, mon     # la pata en pesos nombra al bono
-        m = _RE_ESPECIE.match(t)
-        if m:
-            esp, mon = _ESPECIE[m.group(2)]
-            return m.group(1), esp, mon
-        return t, "pesos", "ARS"
-    return clasificar
-
-
-def _pata(simbolo: str, base: str, clasificar) -> dict | None:
-    s = _segs(simbolo)
-    if not s:
-        return None
-    _, esp, mon = clasificar(s[2])
-    return {"simbolo": simbolo, "ticker": base, "ticker_especie": s[2].upper(),
-            "especie": esp, "moneda": mon, "plazo": s[3]}
-
-
 # Cuál pata proponer cuando el default está cruzado: MEP antes que cable (es la
 # que mira la mesa) y 24hs antes que CI (es el plazo estándar de la vista).
-def _preferencia(p: dict) -> tuple:
-    return (p["especie"] != "mep", p["plazo"] != "24hs", p["simbolo"])
-
-
 def _armar(curvas: list[dict], simbolos: list[str]) -> tuple[list[dict], list[dict], list[str]]:
     """(filas a escribir, cruzadas, fuera del catálogo de Primary). PURO."""
     # El universo para clasificar incluye los símbolos del MASTER: si no, una pata
     # que Primary todavía no lista (catálogo viejo) no puede formar par y se
     # clasifica mal.
-    universo = {s[2].upper() for x in simbolos if (s := _segs(x))}
+    universo = {s[2].upper() for x in simbolos if (s := _esp.segs(x))}
     universo |= {s[2].upper() for c in curvas
-                 if (s := _segs((c.get("instrumento") or "").strip()))}
-    clasificar = _clasificador(universo)
+                 if (s := _esp.segs((c.get("instrumento") or "").strip()))}
+    clasificar = _esp.clasificador(universo)
 
     univ: dict[str, list[dict]] = {}
     for x in simbolos:
-        s = _segs(x)
+        s = _esp.segs(x)
         if not s:
             continue
         base, esp, mon = clasificar(s[2])
@@ -175,7 +107,7 @@ def _armar(curvas: list[dict], simbolos: list[str]) -> tuple[list[dict], list[di
         # especie no está cruzado — no hay ninguna otra a la que apuntar.
         esperada = _ESPERADA.get((c.get("moneda_eje") or "").upper())
         if default and esperada and default["especie"] not in esperada:
-            alt = sorted((p for p in patas if p["especie"] in esperada), key=_preferencia)
+            alt = sorted((p for p in patas if p["especie"] in esperada), key=_esp.preferencia)
             if alt:
                 cruzadas.append({"ticker": tk, "curva": c.get("curva"),
                                  "moneda": c.get("moneda_eje"), "usa": default["especie"],
@@ -235,22 +167,6 @@ def _reporte(filas: list[dict], cruzadas: list[dict], fuera: list[str],
         print("\n  Para refrescarlo:  python -m scripts.discovery_pyrofex")
 
 
-def _escribir(filas: list[dict]) -> int:
-    ahora = datetime.now(UTC)
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.executemany(
-            "INSERT INTO mercado.especies (simbolo, ticker, ticker_especie, especie, "
-            "moneda, plazo, es_default, activa, actualizado_at) "
-            "VALUES (%(simbolo)s, %(ticker)s, %(ticker_especie)s, %(especie)s, "
-            "%(moneda)s, %(plazo)s, %(es_default)s, true, %(ts)s) "
-            "ON CONFLICT (simbolo) DO UPDATE SET ticker = EXCLUDED.ticker, "
-            "ticker_especie = EXCLUDED.ticker_especie, especie = EXCLUDED.especie, "
-            "moneda = EXCLUDED.moneda, plazo = EXCLUDED.plazo, "
-            "es_default = EXCLUDED.es_default, actualizado_at = EXCLUDED.actualizado_at",
-            [{**f, "ts": ahora} for f in filas])
-        return cur.rowcount or len(filas)
-
-
 def _corregir(cruzadas: list[dict], pedidos: set[str]) -> int:
     """Repunta `mercado.curvas.instrumento` a la pata de la moneda correcta.
 
@@ -291,7 +207,7 @@ def main() -> None:
     if not curvas:
         print("✗ mercado.curvas vino vacío")
         return
-    simbolos = _simbolos_primary()
+    simbolos = _esp.simbolos_primary()
     if not simbolos:
         print("✗ manager.pyrofex_instruments vino vacío — corré el discovery primero")
         return
@@ -309,7 +225,7 @@ def main() -> None:
         print("\n🛑 NO se escribió nada: falta la tabla mercado.especies.")
         print("   Corré primero:  python -m scripts.apply_schema")
         return
-    n = _escribir(filas)
+    n = _esp.escribir(filas)
     print(f"\n✅ {n} filas en mercado.especies. La vista NO cambia: nadie la lee todavía.")
 
     if args.corregir:

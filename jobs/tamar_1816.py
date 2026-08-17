@@ -98,10 +98,16 @@ def universo() -> tuple[dict[str, tuple[str, str]], list[str]]:
     Un TAMAR puro no tiene variantes: se pide el ticker pelado, que es correcto
     porque no hay dos patas que separar.
     """
+    # El universo NO es `ajuste='tamar'` hardcodeado: son los ajustes cuya tasa
+    # se trae de 1816 (`curvas_catalogo.ajustes_de_1816`), que incluye `tamar` de
+    # código + las curvas que el AV Agent haya creado con `fuente=1816`. Así una
+    # curva nueva entra sola al job, que es lo que su docstring ya prometía.
+    from core.curvas_catalogo import ajustes_de_1816
+    externos = list(ajustes_de_1816())
     bonos = _q("""
         SELECT ticker, ajuste, ajuste_alt FROM mercado.curvas
-        WHERE ajuste = 'tamar' OR ajuste_alt = 'tamar'
-    """)
+        WHERE ajuste = ANY(%s) OR ajuste_alt = ANY(%s)
+    """, (externos, externos))
     variantes = _q("""
         SELECT ticker, denominacion FROM research.mkt_1816_instrumentos
         WHERE ticker ILIKE '%%@%%'

@@ -49,6 +49,7 @@ DESTINOS = {
     "crear_curva": "mercado.curvas_catalogo",
     "alta_bono": "mercado.curvas",
     "completar_flujo": "mercado.curvas",
+    "sembrar_especies": "mercado.especies",
 }
 
 

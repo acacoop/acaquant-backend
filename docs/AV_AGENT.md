@@ -898,8 +898,105 @@ criterios para la misma pregunta terminan siempre con uno de los dos viejo.
 está en la rama CER, el cotejo solo si 1816 contestó). Antes el orden ERA la
 identidad, así que insertar un paso en el medio renumeraba todo.
 
+### E2.e — El alta SIEMBRA la especie, y el agente aprende qué NO calculamos (2026-08-17)
+
+Tres cosas que la corrida real de GD46 y TMG27 dejó a la vista.
+
+**1. Sembrar la especie ES parte del alta, no un requisito previo.**
+
+> *«Estaría bueno que lo haga el agente también en el paso a paso. Es parte de
+> dar el alta justamente. Y tiene que quedar la pata en USD y en ARS si estuviese
+> en ambas monedas. Se agrega como instancia final — porque hay que agregar algo
+> que sabés que va a quedar productivo. No es puntualmente algo que no va a
+> funcionar si no está creado el instrumento, es solo decir: no está listo.»*
+
+Tenía razón y el diseño estaba mal. El paso de la especie estaba en **FALLA** con
+un *«correr `sembrar_especies --aplicar` y volver a simular»* — o sea, el agente
+detectaba trabajo y se lo devolvía al humano. Ahora:
+
+- El paso de la especie es **`atencion`**, no bloquea: *«no hace falta hacer nada,
+  si el resto da OK el alta la siembra sola»*.
+- Se agrega un paso **ÚLTIMO** (`sembrar`), y último a propósito: es lo que el
+  alta VA A HACER, no algo que falta.
+- `aplicar()` lo ejecuta **después** del upsert (solo tiene sentido sembrar la
+  especie de un bono que existe) y **no puede tumbar el alta** — la fila de
+  `mercado.curvas` es lo que mueve la vista.
+- **Deja las DOS patas**, ARS y USD, cuando Primary las lista.
+
+Para no reescribir la clasificación de patas —el bug de la primera corrida del
+seeder fue justamente ahí— la lógica pura se movió a **`core/especies.py`** y
+ahora `scripts/sembrar_especies` (lote) y el agente (de a uno) usan la MISMA.
+
+**2. Los TAMAR: el agente no sabía que NO los calculamos.**
+
+> *«Claramente los TAMAR no se está enterando de que nosotros NO LOS CALCULAMOS.
+> Solamente usamos la TEA y el spread que viene de 1816. El resto de los datos sí
+> los ponemos, lo suscribimos al motor, todo, pero esos cálculos no los hacemos.
+> Es justo lo más "fácil" en teoría, el TAMAR.»*
+
+TMG27 salía con **dos pasos en FALLA** diciendo *«el ajuste tamar no tiene rama
+de cálculo, la TEA va a quedar vacía»*. **El sistema sabía la respuesta y no había
+forma de preguntársela**: `curvas_catalogo.fuente_valuacion('tamar')` devolvía
+`None` porque TAMAR está definido en CÓDIGO (tiene pill propia) y el catálogo solo
+guarda las curvas creadas sin deploy.
+
+Se agregó `TASA_EXTERNA_EN_CODIGO = {"tamar": "jobs/tamar_1816"}` y ahora
+`fuente_valuacion` mira las dos fuentes: la pregunta *«¿de dónde sale la tasa de
+este bono?»* se contesta en UN lugar, sin importar dónde esté escrita la respuesta.
+Con eso:
+
+- El paso de la rama pasa a **OK**: *«a este bono NO le calculamos la tasa
+  nosotros: la trae `jobs/tamar_1816`. El cuadro se guarda igual, con montos
+  absolutos tal cual los manda 1816 — la conversión más simple que hay.»*
+- El paso de la TEA pasa a **OK** y aclara que **el ticker entra solo** al
+  universo del job (que selecciona por ajuste, no por una lista).
+- El **control cruzado no aplica** y lo dice: si la tasa la trae 1816, la de ellos
+  ES la nuestra — compararlas sería compararse consigo mismo y salir siempre bien.
+- `jobs/tamar_1816` dejó de tener `ajuste='tamar'` hardcodeado y lee
+  `ajustes_de_1816()`, que es lo que su propio docstring ya prometía. Una curva
+  creada con `fuente=1816` entra sola al job.
+
+**3. Los 202 bps de GD46, y la memoria de cálculo.**
+
+> *«2% de diferencia de tasa es un montón, no es "se parecen". Faltan datos acá:
+> qué bono se está usando, qué se toma y qué no.»*
+
+Dos correcciones:
+
+- **La banda bajó de 300 a 150 bps.** En renta fija 200 bps no es una convención,
+  es otro bono. Clasificar eso como *«se parecen»* era ruido que enseña a ignorar
+  la alarma.
+- **Hipótesis fuerte sobre la causa, no verificada todavía**: el cliente de 1816
+  pedía `moneda="ars"` por default, y GD46 volvió con `precioClean = 114.247` —
+  un global cotiza ~60-90 por 100 VN, así que ese número **es el precio en
+  PESOS**. Nuestro motor lo dividió por NUESTRO MEP para volver a dólares mientras
+  1816 calculó su TEA con SU tipo de cambio: dos tasas a 202 bps **sin que ninguna
+  esté mal**. Ahora se pide el precio en la **moneda del bono**, así no hay
+  conversión de por medio. Se confirma mirando el próximo SIMULAR de GD46.
+
+Y para que esto no vuelva a ser adivinanza, se agregó el bloque **CÓMO SE
+CALCULÓ** (`calculo` en la respuesta, desplegable en el modal): bono y ejes,
+fórmula, cuadro y escala, CER de emisión, **precio usado con su origen exacto**
+(moneda, plazo, fuente y fecha del pedido a 1816), **MEP aplicado**, y **paridad y
+duration nuestras contra las de ellos**. Ese último par es el que diagnostica:
+
+- **paridad coincide, TEA no** → convención de días.
+- **paridad tampoco** → es el precio o su escala.
+- **duration difiere** → el cronograma que bajamos no es el mismo que el de ellos.
+
+Una tasa sin su memoria de cálculo no se puede auditar: solo se puede creer o no
+creer.
+
 ## Changelog
 
+- **2026-08-17 — E2.e, siembra + TAMAR + memoria de cálculo.** El alta **siembra
+  la especie** como paso final (patas ARS y USD, lógica compartida en
+  `core/especies.py`) y deja de exigirla como requisito. El agente aprende que a
+  un **TAMAR no le calculamos la tasa a propósito** (`TASA_EXTERNA_EN_CODIGO` +
+  `fuente_valuacion` unificada; `jobs/tamar_1816` lee `ajustes_de_1816()`), así
+  que deja de reportarlo como falla y el cotejo no aplica. Banda del cotejo
+  **300 → 150 bps**. Bloque **CÓMO SE CALCULÓ** con cada insumo y su fuente, y el
+  precio de 1816 se pide en la **moneda del bono** (hipótesis de los 202 bps).
 - **2026-08-17 — E2.d, precio de referencia + CONTROL CRUZADO.** Sin snapshot se
   usa el `precioClean` de 1816 (no se persiste) para poder simular un bono nuevo,
   y se compara **nuestra TEA contra la de ellos** sobre el mismo precio — la

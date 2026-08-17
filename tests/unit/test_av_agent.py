@@ -900,8 +900,9 @@ def test_un_hallazgo_YA_RESUELTO_no_se_sigue_mostrando(monkeypatch):
     no es rehacer la foto, es **contrastarla antes de mostrarla** — una query al
     master. Mismo principio que el `ya_cargado` de los avisos.
 
-    Y solo caducan los tipos que la existencia del ticker resuelve: un `sin_flujo`
-    habla de un bono que YA está en el master, así que estar ahí no lo arregla."""
+    Cada tipo caduca por SU razón: un `falta_en_base` lo resuelve que el ticker
+    exista; un `sin_flujo` NO —el bono ya estaba en el master— sino que tenga
+    CRONOGRAMA. Las dos preguntas se contestan con la misma query."""
     import datetime as _dt
 
     from api.services import av_agent_vista as vista
@@ -914,10 +915,17 @@ def test_un_hallazgo_YA_RESUELTO_no_se_sigue_mostrando(monkeypatch):
         def fetchone(self): return (_dt.datetime(2026, 8, 17, 3, 0),)
         def fetchall(self):
             if "FROM mercado.curvas" in self.sql:
-                return [("TZXM8",), ("TZXD8",)]      # ya dados de alta
+                return [
+                    ("TZXM8", {}),                      # existe, sin cronograma
+                    ("TZXD8", {}),                      # ídem
+                    # DICP: el user acaba de completarlo → el hallazgo caducó.
+                    ("DICP", {"flujos": [{"fecha": "2033-12-31",
+                                          "amortizacion_pct": 5.0}]}),
+                ]
             return [("falta_en_base", "TZXM8", "r", "media", "m", None),
                     ("falta_en_base", "TZXA7", "r", "media", "m", None),
-                    ("sin_flujo", "TZXD8", "r", "alta", "m", None)]
+                    ("sin_flujo", "TZXD8", "r", "alta", "m", None),
+                    ("sin_flujo", "DICP", "r", "alta", "m", None)]
 
     class _Conn:
         def __enter__(self): return self
@@ -930,7 +938,11 @@ def test_un_hallazgo_YA_RESUELTO_no_se_sigue_mostrando(monkeypatch):
     tickers = {h["ticker"] for h in filas}
     assert "TZXM8" not in tickers          # ya está en curvas → no falta más
     assert "TZXA7" in tickers              # sigue faltando de verdad
-    assert "TZXD8" in tickers              # sin_flujo NO caduca por existir
+    assert "TZXD8" in tickers              # existe pero SIGUE sin cronograma
+    assert "DICP" not in tickers, (
+        "un sin_flujo tiene que caducar cuando el bono YA tiene cronograma — si "
+        "no, el user completa el cuadro y la fila se queda ahí, que es "
+        "exactamente lo que pasó el 2026-08-17")
 
 
 def test_el_VEREDICTO_es_el_UNICO_gate_y_aplicable_es_redundante():
@@ -1025,7 +1037,7 @@ def test_un_HUECO_DE_CURVA_caduca_por_la_CURVA_no_por_el_ticker(monkeypatch):
         def fetchone(self): return (_dt.datetime(2026, 8, 17, 3, 0),)
         def fetchall(self):
             if "FROM mercado.curvas" in self.sql:
-                return [("TZXM8",)]
+                return [("TZXM8", {})]
             return [("hueco_de_curva", "BADLAR", "ajuste_sin_curva", "alta", "m", None),
                     ("hueco_de_curva", "TPM", "ajuste_sin_curva", "alta", "m", None)]
 
@@ -1805,3 +1817,43 @@ def test_EL_CASO_DICP_dos_la_TEA_al_mismo_precio_mas_la_duration_son_una_PRUEBA(
     malo = _cotejo_tea(0.092475, {**ref, "duration": 6.5},
                        paridad=86.5677, duration=3.2512, cota_ic=2.9, precio=48600.0)
     assert malo["estado"] == "bloquea"
+
+
+def test_un_sin_flujo_CADUCA_cuando_el_bono_ya_tiene_cronograma():
+    """DICP se completó, el libro de acciones lo registró, la fila decía «✔
+    CRONOGRAMA ESCRITO» **y el hallazgo seguía en la lista** (2026-08-17).
+
+    Es la CUARTA vez que aparece el mismo patrón —TZXM8, BADLAR, IGNORAR, y ahora
+    esto— y la regla ya estaba escrita en el doc: *todo criterio que decida si algo
+    se MUESTRA tiene que poder evaluarse en la LECTURA*. La lista es una FOTO de la
+    última corrida y relevar cuesta ~29 créditos, así que lo que se arregla entre
+    corridas hay que TACHARLO al leer.
+
+    Lo que fallaba acá era distinto de las veces anteriores: el criterio no faltaba
+    por olvido, estaba **descartado por escrito** con un comentario que decía «no
+    hay forma barata de saber si se arreglaron sin rehacer la corrida». Era falso:
+    el cronograma vive en el mismo `mercado.curvas` que la función ya lee, así que
+    es CERO queries extra — solo una columna más en la que ya estaba.
+
+    Este test congela las dos mitades: que el tipo caduque, y que lo haga con
+    `tiene_flujo_def` —**el mismo predicado que lo DETECTA**— y no con un
+    `bool(flujos)` propio, que marcaría distinto a una LECAP zero-coupon."""
+    import inspect
+
+    from api.services import av_agent_vista
+
+    fuente = inspect.getsource(av_agent_vista._hallazgos_ultima_corrida)
+    assert 'if h["tipo"] == "sin_flujo":' in fuente, (
+        "el tipo `sin_flujo` volvió a no caducar: un bono ya completado sigue "
+        "apareciendo como pendiente")
+    assert "tiene_flujo_def" in fuente, (
+        "tiene que usar el MISMO predicado que el detector — un bool(flujos) "
+        "propio caducaría una LECAP por un motivo distinto del que la marcó")
+    # Y sin pagar un viaje más a la base: la columna sale de la query que ya estaba.
+    assert fuente.count("cur.execute") == 3, (
+        "se agregó una query: el peaje de Supabase se paga por VIAJE — el doc "
+        "tiene que venir en el mismo SELECT que ya traía el ticker")
+    assert "SELECT ticker, data FROM mercado.curvas" in fuente
+
+    # `tasa_sospechosa` NO caduca, y es a propósito: depende del precio del día.
+    assert "tasa_sospechosa` habla de la TASA" in fuente

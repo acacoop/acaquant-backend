@@ -16,6 +16,7 @@ se sacó — que es la diferencia entre un dato viejo y un dato viejo que miente
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from api.services import av_agent
 from core import curvas_ejes
@@ -272,8 +273,13 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
             f"SELECT {', '.join(_COLS_H)} FROM mercado.av_agent_hallazgos "
             "WHERE corrida_at = %s", (corrida,))
         filas = [dict(zip(_COLS_H, r, strict=False)) for r in cur.fetchall()]
-        cur.execute("SELECT ticker FROM mercado.curvas")
-        en_curvas = {r[0] for r in cur.fetchall()}
+        # El blob completo, no solo la PK: `sin_flujo` caduca cuando el bono YA
+        # tiene cronograma, y eso se lee acá mismo. **Es la misma query** — el
+        # peaje de Supabase se paga por viaje, no por columna.
+        cur.execute("SELECT ticker, data FROM mercado.curvas")
+        docs_curvas = {(r[0] or "").strip().upper(): (r[1] or {})
+                       for r in cur.fetchall()}
+        en_curvas = set(docs_curvas)
 
     # ⚠️ **Cada tipo caduca por su PROPIA razón, y el campo `ticker` no significa
     # lo mismo en todos.** Acá se aplicaba UN predicado a dos tipos distintos: en
@@ -314,9 +320,28 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
                 h["ticker"], bool(ev.get("en_cartera")), simbolos)
         if h["tipo"] == "hueco_de_curva":
             return not curvas_ejes.ajuste_sin_curva((h["ticker"] or "").lower())
-        # `sin_flujo` y `tasa_sospechosa` hablan de un bono que YA está en el
-        # master: existir no los resuelve, y no hay forma barata de saber si se
-        # arreglaron sin rehacer la corrida.
+        if h["tipo"] == "sin_flujo":
+            # **Un `sin_flujo` caduca cuando el bono YA tiene cronograma** — y eso
+            # sí se puede leer barato, al revés de lo que decía este comentario
+            # hasta el 2026-08-17 («no hay forma barata de saber si se arreglaron
+            # sin rehacer la corrida»). Era falso: el cronograma vive en el mismo
+            # `mercado.curvas` que ya se está leyendo.
+            #
+            # El síntoma: el user completó DICP, el libro de acciones lo registró,
+            # la fila decía «✔ CRONOGRAMA ESCRITO» **y el hallazgo seguía en la
+            # lista**. Tercera vez que aparece el mismo patrón (TZXM8, BADLAR,
+            # IGNORAR) y por eso la regla ya está escrita en el doc: *todo criterio
+            # que decida si algo se MUESTRA tiene que poder evaluarse en la
+            # LECTURA*. Acá el criterio existía y no se había aplicado.
+            #
+            # El predicado es `tiene_flujo_def`, **el mismo que lo DETECTA** — si
+            # fuera un `bool(flujos)` propio, una LECAP zero-coupon caducaría por
+            # un motivo distinto del que la marcó.
+            from api.services.acreencias import tiene_flujo_def
+            doc = docs_curvas.get((h.get("ticker") or "").strip().upper())
+            return bool(doc) and tiene_flujo_def(doc, date.today())
+        # `tasa_sospechosa` habla de la TASA, que depende del precio del día: no
+        # se puede afirmar que se arregló sin volver a cotejar contra 1816.
         return False
 
     filas = [h for h in filas if not _caduco(h)]

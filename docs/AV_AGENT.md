@@ -2228,8 +2228,73 @@ marcado en el código, en el lugar exacto.
 mueve, la Σ de sus filas no es una escala — es una suma de cosas distintas.* El
 divisor tiene que ser la unidad, y la unidad hay que pedirla, no inferirla.
 
+### E3.g — La paridad no puede desmentir a la TEA + la duration (2026-08-17)
+
+Con el divisor arreglado (E3.f), DICP volvió así:
+
+```
+TEA (al MISMO precio)   nuestra 9,2475%   ·  1816 9,2475%   → 0 bps
+duration                nuestra 3,2512    ·  1816 3,2512    → 0,00%
+paridad                 nuestra 86,57%    ·  1816 90,19%    → 4,01%
+```
+
+…y la cadena **BLOQUEABA**: *«se contradicen → otro valor técnico, o sea otro
+cronograma»*. Eso es **aritméticamente imposible**. La TEA a un precio dado es
+una función del cronograma y de las fechas; dos cuadros distintos no pueden dar
+la misma tasa al mismo precio **y** la misma duration al cuarto decimal.
+
+**El error era de JERARQUÍA, no de umbral.** La paridad era el juez y la duration
+el testigo — al revés de lo que corresponde:
+
+| | ¿de qué depende? | ¿puede desmentir al cuadro? |
+|---|---|---|
+| **TEA al mismo precio** | flujos + fechas | sí |
+| **duration** | flujos + fechas | sí |
+| **paridad** | flujos + **una DEFINICIÓN** (qué precio arriba, qué abajo) | **no sola** |
+
+La paridad es la única de las tres que depende de una convención además de los
+datos. Ponerla de juez la convierte en un veto sobre evidencia más fuerte.
+
+**Qué difería, con la cuenta hecha.** 1816 divide su precio **CLEAN** por el
+valor técnico; nosotros dividimos el que **OPERA** —su `precioDirty`, que para
+DICP es exactamente nuestro 48.600— por VN × ratio:
+
+```
+DICP   86,57 × (50.589,80 / 48.600) = 90,11  contra 90,19  → 0,08%
+PARP   63,77 × (35.419,08 / 35.800) = 63,09  contra 63,34  → 0,25%
+```
+
+O sea: **el valor técnico de ellos y el nuestro son el mismo número.** Lo que
+cambiaba era el numerador. La cadena ahora **muestra esa cuenta** en vez de
+interpretar — el que audita la rehace en la pantalla.
+
+**La prueba necesita las dos patas.** TEA sin duration no alcanza (una escala mal
+puesta puede compensar), duration sin TEA tampoco. Con las dos, el cronograma
+está confirmado y lo que quede es definición. Hay contraprueba en el test: con la
+duration desalineada vuelve a BLOQUEAR.
+
+**La regla general**: *un chequeo que depende de una convención no puede vetar a
+uno que depende solo de los datos.* Cuando dos controles se contradicen, gana el
+que tiene menos supuestos — y si no se sabe cuál es, eso es lo que hay que
+averiguar antes de elegir cuál bloquea.
+
 ## Changelog
 
+- **2026-08-17 — E3.g, la paridad dejó de ser el juez.** Con E3.f, DICP dio TEA
+  **0 bps** y duration **0,00%** contra 1816 — y la cadena igual BLOQUEABA por la
+  paridad (86,57% contra 90,19%), diciendo «otro cronograma». **Aritméticamente
+  imposible**: dos cuadros distintos no dan la misma tasa al mismo precio y encima
+  la misma duration al cuarto decimal. Error de JERARQUÍA: la paridad es la única
+  de las tres que depende de una DEFINICIÓN (qué precio va arriba) además de los
+  datos, así que no puede vetar a dos controles que dependen solo de los flujos.
+  Medido, lo que difería es el numerador — 1816 usa su precio CLEAN y nosotros el
+  que OPERA (su `precioDirty`, que para DICP **es** nuestro 48.600): llevando la
+  nuestra a su clean da 90,11% contra 90,19% (0,08%), y en PARP 63,09% contra
+  63,34% (0,25%). Su valor técnico y el nuestro **son el mismo número**. La cadena
+  ahora muestra esa cuenta en vez de interpretarla. La prueba exige las DOS patas
+  (TEA + duration) y hay contraprueba en el test: con la duration desalineada
+  vuelve a bloquear. **Regla: un chequeo que depende de una convención no puede
+  vetar a uno que depende solo de los datos.** 1 test (94 en total).
 - **2026-08-17 — E3.f, el divisor del cuadro CER.** DICP daba TEA 3,91% contra
   9,25% y PARP daba EXACTO; la única diferencia estructural es que **PARP no
   amortizó nada todavía**. Medido: 1816 manda cada flujo **en pesos ajustados por

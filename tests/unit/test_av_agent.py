@@ -1745,3 +1745,57 @@ def test_el_ratio_de_CER_sale_de_las_MISMAS_funciones_que_el_motor():
                "siguiente_dia_habil"):
         assert fn in fuente, f"{fn} es la función del motor y tiene que usarse acá"
     assert "n=10" in fuente, "el lag T−10 hábiles es el del motor, no se re-elige"
+
+
+def test_EL_CASO_DICP_dos_la_TEA_al_mismo_precio_mas_la_duration_son_una_PRUEBA():
+    """Con el divisor arreglado, DICP volvió así:
+
+        TEA (al MISMO precio)  nuestra 9,2475%  ·  1816 9,2475%   → 0 bps
+        duration               nuestra 3,2512   ·  1816 3,2512    → 0,00%
+        paridad                nuestra 86,57%   ·  1816 90,19%    → 4,01%
+
+    …y la cadena **BLOQUEABA** diciendo «se contradicen → otro valor técnico, o
+    sea otro cronograma». Eso era **aritméticamente imposible**: la TEA a un
+    precio dado es una función del cronograma y de las fechas, así que dos
+    cuadros distintos no pueden dar la misma tasa al mismo precio Y la misma
+    duration hasta el cuarto decimal.
+
+    El error era de JERARQUÍA. La paridad era el juez y la duration el testigo,
+    cuando la paridad es lo único de los tres que depende de una DEFINICIÓN
+    (qué precio va arriba y qué va abajo) y no solo de los flujos.
+
+    Lo que difería: 1816 divide su precio **CLEAN** por el valor técnico; nosotros
+    dividimos el que **OPERA** —su `precioDirty`, que para DICP es exactamente
+    nuestro 48.600— por VN × ratio. La cuenta cierra:
+
+        DICP  86,57 × (50.589,80 / 48.600) = 90,11  contra 90,19  → 0,08%
+        PARP  63,77 × (35.419,08 / 35.800) = 63,09  contra 63,34  → 0,25%
+
+    O sea que el valor técnico de ellos y el nuestro **son el mismo número**.
+
+    Este test corre el cotejo con los datos REALES de DICP y exige que no
+    bloquee, que reconozca la prueba, y que muestre la reconciliación."""
+    from api.services.av_agent_alta import _cotejo_tea
+
+    ref = {
+        "paridad": 0.9018683589274514, "tea": 0.09247520032936829,
+        "duration": 3.251214950900394,
+        "precio": 48600.0, "precio_clean": 50589.7956,
+        # `a_nuestro_precio`: su fórmula sobre NUESTRO número (input manual).
+        "a_nuestro_precio": {"paridad": 0.9018683589274514,
+                             "tea": 0.09247520032936829,
+                             "convencion_tna": "180-360"},
+    }
+    p = _cotejo_tea(0.092475, ref, paridad=86.5677, duration=3.2512,
+                    cota_ic=2.9, precio=48600.0)
+    assert p["estado"] == "ok", (
+        f"con TEA 0 bps y duration 0,00% no puede bloquear: {p['detalle']}")
+    assert "no hay dos cuadros distintos" in p["detalle"]
+    assert "90.11%" in p["detalle"] and "0.08%" in p["detalle"], (
+        "tiene que MOSTRAR la reconciliación, no afirmarla: quien audita la rehace")
+
+    # Y la contraprueba: si la duration NO coincide, sigue bloqueando. La prueba
+    # necesita las DOS patas — si no, sería una puerta para colar cualquier cuadro.
+    malo = _cotejo_tea(0.092475, {**ref, "duration": 6.5},
+                       paridad=86.5677, duration=3.2512, cota_ic=2.9, precio=48600.0)
+    assert malo["estado"] == "bloquea"

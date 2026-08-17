@@ -528,7 +528,8 @@ def cota_devengado(cupones: list[dict], desde: str = "") -> float | None:
 
 
 def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "", paridad=None,
-                duration=None, cota_ic: float | None = None) -> dict:
+                duration=None, cota_ic: float | None = None,
+                precio: float | None = None) -> dict:
     """La segunda opinión sobre el MISMO bono. Un cuadro mal convertido no tira
     error: da un número plausible y equivocado.
 
@@ -612,6 +613,58 @@ def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "", paridad=None,
                      linea + ". Coincide → el cronograma que vamos a escribir "
                              "es el mismo que el de ellos.",
                      tabla="1816 /indicadores")
+
+    # ── LA PRUEBA DIRECTA: TEA al MISMO precio + duration ────────────────────
+    #
+    # **Esto no es un umbral más: es una demostración, y por eso va ANTES que
+    # cualquier interpretación de la paridad.** La TEA a un precio dado es una
+    # función del cronograma y de las fechas, nada más. Si a NUESTRO precio la
+    # tasa de ellos y la nuestra dan lo mismo *y* la duration también, los flujos
+    # son los mismos — no hay dos cuadros distintos que produzcan las dos cosas.
+    #
+    # El caso que lo obligó (DICP, 2026-08-17): TEA 0 bps, duration 0,00% y
+    # paridad 86,57% contra 90,19% → la cadena decía «se contradicen, otro
+    # cronograma» y BLOQUEABA. Era **aritméticamente imposible** que fuera eso.
+    #
+    # Lo que sí difiere es la DEFINICIÓN de paridad. 1816 divide su precio CLEAN
+    # por el valor técnico; nosotros dividimos el precio que OPERA (su
+    # `precioDirty`, que para DICP es exactamente nuestro 48.600) por VN × ratio.
+    # Llevando el nuestro a su precio clean:
+    #
+    #     DICP  86,57 × (50.589,80 / 48.600) = 90,11  contra 90,19  → 0,08%
+    #     PARP  63,77 × (35.419,08 / 35.800) = 63,09  contra 63,34  → 0,25%
+    #
+    # O sea: **su valor técnico y el nuestro son el mismo número**; lo que cambia
+    # es el numerador. Se muestra la cuenta en vez de una interpretación — quien
+    # audita puede rehacerla.
+    tea_ok = (isinstance(tea, int | float) and isinstance(suya_tea, int | float)
+              and abs(float(tea) - float(suya_tea)) * 10_000 <= _BPS_COINCIDE
+              and mismo.get("tea") is not None)
+    if tea_ok and dur_ok:
+        clean = _num(ref.get("precio_clean"))
+        recon = ""
+        cierra = False
+        if clean and precio and precio > 0:
+            ajustada = nuestra_par * clean / float(precio)
+            dif_aj = abs(ajustada - suya_par) / suya_par * 100 if suya_par else 999.0
+            cierra = dif_aj <= _PARIDAD_COINCIDE
+            recon = (f" Llevando la nuestra a SU precio clean ({clean:,.2f} contra "
+                     f"los {float(precio):,.2f} que opera): {ajustada:.2f}% contra "
+                     f"{suya_par:.2f}% → {dif_aj:.2f}%."
+                     + (" **El valor técnico es el mismo**: lo que cambiaba era el "
+                        "numerador." if cierra else ""))
+        return _paso("cotejo_1816", "El cuadro coincide con el de 1816",
+                     OK if cierra or not clean else REVISAR,
+                     linea + ". **La TEA al MISMO precio y la duration coinciden "
+                             "las dos** → el cronograma ES el de ellos: no hay dos "
+                             "cuadros distintos que den la misma tasa al mismo "
+                             "precio y encima la misma duration. La paridad mide "
+                             "otra cosa — ellos la calculan sobre el precio CLEAN "
+                             "y nosotros sobre el que opera." + recon,
+                     tabla="1816 /indicadores",
+                     aviso="" if (cierra or not clean) else
+                           "la reconciliación de paridad no cierra del todo: "
+                           "mirar si el interés corrido de ellos es razonable")
     # LA DIFERENCIA ESPERADA. Nuestra paridad es sobre el residual y la de 1816
     # sobre el valor técnico (residual + devengado), así que la nuestra da SIEMPRE
     # un poco más alta — y el techo de «un poco» es un cupón entero. Si la
@@ -937,7 +990,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     # una segunda opinión independiente sobre el mismo bono — y hasta ahora era
     # imposible de tener justo cuando más falta hace: en un bono nuevo.
     ps.append(_cotejo_tea(tea, ref, job_tasa=job_tasa, paridad=paridad,
-                          duration=duration,
+                          precio=precio, duration=duration,
                           cota_ic=cota_devengado(cupones or [])))
 
     # 9 — ¿QUIÉN calcula la tasa? Dos respuestas válidas, no una.
@@ -2289,6 +2342,7 @@ def _chequeos_flujos(*, ticker: str, doc: dict, rama: str, conv: dict,
                      "con el primer trade"),
                     tabla="mercado.market_snapshot · 1816"))
     ps.append(_cotejo_tea(tea, out.get("referencia_1816") or {},
+                          precio=out.get("precio"),
                           job_tasa=_tasa_externa_doc(doc), paridad=paridad,
                           duration=out.get("duration"),
                           cota_ic=cota_devengado(cupones)))

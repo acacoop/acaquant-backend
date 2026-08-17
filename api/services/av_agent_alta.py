@@ -1128,35 +1128,72 @@ def _veredicto(chequeos: list[dict]) -> dict:
 
 
 def _cer_de_emision(fecha_emision: str) -> tuple[float | None, str]:
-    """El CER de liquidación a la fecha de emisión. **No hace falta que 1816 lo
-    mande**: la fecha de emisión viene en su catálogo y la serie CER ya la
-    tenemos en `macro.series_macro`.
+    """El CER de liquidación a la fecha de emisión: **T−10 días hábiles**.
 
-    Usa `get_cer_liquidacion` —la MISMA función que el motor— con su T−10 hábiles.
-    Si se calculara distinto, el bono nuevo arrancaría con un divisor que no es el
-    que usa la valuación, y la TEA saldría corrida sin que nada falle."""
+    Usa `get_cer_liquidacion` —la MISMA función que el motor— para que un bono
+    nuevo no arranque con un divisor distinto del que usa la valuación.
+
+    ⚠️ **La causa del incidente del 2026-08-17.** `get_cer_liquidacion` resuelve el
+    T−10 **indexando `mercado.dias_habiles`** y devuelve `None` si esa tabla no
+    llega diez hábiles antes de la fecha pedida. El llamador leía ese `None` como
+    «no hay CER» y el mensaje decía *«la serie CER no llega hasta 2025-11-28»* —
+    con el CER de esa semana **presente en la base**, como mostró el user.
+
+    Dos errores encadenados, los dos míos:
+
+    1. **El mensaje mentía la fecha.** Interpolaba la fecha de EMISIÓN y la
+       etiquetaba «(T−10 hábiles)», así que nombraba un día que la función nunca
+       buscó. El dato real que hace falta para una emisión del 2025-11-28 es el
+       CER de **~2025-11-14**.
+    2. **Un `None` con tres causas distintas** —sin calendario, sin ese día en la
+       serie, o error— colapsadas en una sola frase que culpaba siempre a la
+       serie. Un mensaje así no manda a mirar el lugar equivocado por casualidad:
+       lo hace siempre.
+
+    Ahora los eslabones se resuelven **por separado** y el mensaje nombra las DOS
+    fechas. Y si el calendario oficial no cubre la emisión, la fecha se calcula
+    igual con `calendario.restar_habiles` (puro, `holidays.Argentina`) — porque no
+    poder leer la tabla no es lo mismo que no poder saber qué día era.
+    """
     if not fecha_emision:
         return None, "1816 no trae la fecha de emisión de este bono"
+    emision = fecha_emision[:10]
     try:
-        from engines.curvas import cargar_cer, cargar_dias_habiles, get_cer_liquidacion
-        cer = get_cer_liquidacion(cargar_cer(dias=4000), cargar_dias_habiles(),
-                                  fecha_emision[:10])
+        from core.calendario import restar_habiles
+        from engines.curvas import (
+            cargar_cer,
+            cargar_dias_habiles,
+            fecha_cer_liquidacion,
+            get_cer_en_fecha,
+        )
+        habiles = cargar_dias_habiles()
+        # 1) LA FECHA. Primero con el calendario oficial —el mismo que usa el
+        #    motor, así el número no puede diferir del suyo— y solo si ese no
+        #    alcanza, con el cálculo puro.
+        objetivo = fecha_cer_liquidacion(habiles, emision)
+        via = "calendario de la mesa"
+        if not objetivo:
+            objetivo = restar_habiles(date.fromisoformat(emision), 10).isoformat()
+            via = "calendario feriados AR (mercado.dias_habiles no cubre esa fecha)"
+        # 2) EL DATO. `get_cer_en_fecha` tolera hasta 7 días para atrás (fines de
+        #    semana y feriados), igual que el motor.
+        cer = get_cer_en_fecha(cargar_cer(dias=4000), date.fromisoformat(objetivo))
     except Exception as e:
-        return None, f"no se pudo calcular el CER de emisión: {type(e).__name__}"
-    if not cer:
-        # **QUÉ tipo de falta es.** «No llega» y «falta ESE día» son problemas
-        # distintos —uno es la serie atrasada, el otro un hueco— y el mensaje
-        # viejo los confundía en uno solo, mandando a mirar el lugar equivocado.
-        # Decir hasta dónde llega la serie responde la pregunta sin abrir nada.
-        return None, f"{_rango_cer(fecha_emision[:10])} — hay que cargarlo a mano"
-    return float(cer), ""
+        return None, f"no se pudo calcular el CER de emisión: {type(e).__name__}: {e}"
+    if cer:
+        return float(cer), ("" if via.startswith("calendario de la mesa") else
+                            f"T−10 hábiles de {emision} = {objetivo}, resuelto por {via}")
+    return None, (f"emisión {emision} → T−10 hábiles = **{objetivo}**, y "
+                  f"{_rango_cer(objetivo)}")
 
 
 def _rango_cer(fecha: str) -> str:
-    """Hasta dónde llega la serie CER, para que el mensaje sea un DIAGNÓSTICO.
+    """Por qué falta ESE día, con el rango real de la serie. Sin esto el mensaje
+    dice «no llega» sin decir hasta dónde llega — que es la única información que
+    convierte la queja en un diagnóstico.
 
-    Sale de la misma tabla que lee el motor. Si la consulta falla se degrada a la
-    frase de siempre — el alta no puede depender de poder explicarse."""
+    Sale de la misma tabla que lee el motor. Si la consulta falla se degrada: el
+    alta no puede depender de poder explicarse."""
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
@@ -1164,14 +1201,14 @@ def _rango_cer(fecha: str) -> str:
                         "FROM macro.series_macro WHERE serie = 'CER'")
             desde, hasta, n = cur.fetchone() or (None, None, 0)
     except Exception:
-        return f"la serie CER no tiene el dato del {fecha} (T−10 hábiles)"
+        return "la serie CER no tiene ese día"
     if not hasta:
         return "la serie CER está VACÍA en macro.series_macro"
     if str(hasta) < fecha:
-        return (f"la serie CER llega hasta {hasta} y necesito el {fecha} "
-                f"(T−10 hábiles): la serie está ATRASADA, no es este bono")
-    return (f"la serie CER va de {desde} a {hasta} ({n:,} días) pero NO tiene "
-            f"el {fecha} (T−10 hábiles): es un HUECO en el medio, no un atraso")
+        return (f"la serie CER llega hasta {hasta}: está ATRASADA — el problema "
+                "no es este bono")
+    return (f"la serie CER va de {desde} a {hasta} ({n:,} días) pero le falta ESE "
+            "día: es un HUECO, no un atraso")
 
 
 # Lo que se le pide a 1816 para poder simular un bono que TODAVÍA no tiene precio

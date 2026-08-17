@@ -101,15 +101,29 @@ def _lo_que_ve_el_motor() -> None:
     fechas = sorted(cer) if cer else []
     print(f"  cargar_cer(dias=4000) → {len(fechas):,} fechas"
           + (f", de {fechas[0]} a {fechas[-1]}" if fechas else " (VACÍO)"))
+    print(f"  dias_habiles: {len(habiles):,} fechas"
+          + (f", de {habiles[0]} a {habiles[-1]}" if habiles else " (VACÍO)"))
     hoy = date.today().isoformat()
-    for etiqueta, f in (("hoy", hoy),
-                        ("hace 1 mes", (date.today() - timedelta(days=30)).isoformat()),
-                        ("hace 9 meses", (date.today() - timedelta(days=270)).isoformat())):
+    # El caso REAL del incidente: la emisión del TZXA7. Se prueban las DOS vías
+    # para ver cuál falla — si la de la tabla devuelve None y la pura encuentra el
+    # dato, el problema es la COBERTURA DEL CALENDARIO, no la serie CER.
+    from core.calendario import restar_habiles
+    from engines.curvas import fecha_cer_liquidacion, get_cer_en_fecha
+    print("\n  emisión         T−10(tabla)  T−10(puro)   CER(tabla)  CER(puro)")
+    for f in (hoy,
+              (date.today() - timedelta(days=30)).isoformat(),
+              (date.today() - timedelta(days=270)).isoformat(),
+              "2025-11-28"):   # ← la emisión del TZXA7
         try:
-            v = get_cer_liquidacion(cer, habiles, f)
+            f_tabla = fecha_cer_liquidacion(habiles, f)
+            f_puro = restar_habiles(date.fromisoformat(f), 10).isoformat()
+            v_tabla = get_cer_liquidacion(cer, habiles, f)
+            v_puro = get_cer_en_fecha(cer, date.fromisoformat(f_puro))
         except Exception as e:
-            v = f"ERROR {type(e).__name__}"
-        print(f"  get_cer_liquidacion({f})  [{etiqueta}]  → {v}")
+            print(f"  {f}  ERROR {type(e).__name__}: {e}")
+            continue
+        print(f"  {f}      {f_tabla or '—'!s:<12} {f_puro:<12} "
+              f"{str(v_tabla or '—')[:11]:<11} {str(v_puro or '—')[:11]}")
 
 
 def main() -> None:

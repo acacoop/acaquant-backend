@@ -1913,8 +1913,81 @@ ventana del motor y podría ser más chica que la serie.
 tiene que declarar CUÁL mira.* Un MAX sin filtro no es un chequeo laxo — es un
 chequeo que no puede fallar.
 
+### E2.z — El dato ESTABA: el mensaje culpó a la fuente equivocada (2026-08-17)
+
+El user, con la captura de `macro.series_macro` abierta: *«JUSTAMENTE TE ESTOY
+MOSTRANDO QUE PARA ESA FECHA HABÍA. Sabés la fecha de emisión, tiene que buscar
+10 días para atrás, es sencillo.»*
+
+Tenía razón en todo, y **yo agravé el problema en el turno anterior**: en vez de
+leer el código, lo mandé a correr un diag para medir si la serie estaba vieja. La
+respuesta estaba en el repo.
+
+**La aritmética, congelada en test:**
+
+```
+emisión              2025-11-28   (hábil)
+T−10 hábiles    =    2025-11-12   (hábil)   ← 16 días corridos: 2 findes + 2 feriados
+CER 2025-11-12  =    651,89806…              ← CARGADO en la base
+```
+
+**Dos errores encadenados, los dos míos.**
+
+**1. El mensaje mentía la fecha.** Interpolaba la fecha de EMISIÓN y la etiquetaba
+`(T−10 hábiles)`:
+
+```python
+f"la serie CER no llega hasta {fecha_emision[:10]} (T−10 hábiles) — …"
+```
+
+O sea que nombraba **un día que la función nunca buscó**. Cualquiera que fuera a
+verificarlo —el user, y después yo— miraba la fecha equivocada. Un mensaje que
+nombra mal su propio insumo no manda a mirar el lugar equivocado por casualidad:
+lo hace siempre.
+
+**2. Un `None` con tres causas colapsado en una sola frase.**
+`get_cer_liquidacion` resuelve el T−10 **indexando `mercado.dias_habiles`** y
+devuelve `None` si esa tabla no llega diez hábiles antes de la fecha. El llamador
+leía ese `None` como *«no hay CER»* — **una conclusión que la función nunca
+afirmó**. Sin calendario, sin ese día en la serie y error de lectura daban todos
+el mismo texto, y ese texto acusaba siempre a la serie.
+
+**El fix.** Los eslabones se resuelven por separado y el mensaje nombra **las dos
+fechas**: `emisión 2025-11-28 → T−10 hábiles = 2025-11-12, y …`. La fecha sale
+primero del calendario oficial —el mismo que usa el motor, así el número no puede
+diferir del suyo— y **solo si ese no alcanza**, del cálculo puro
+(`calendario.restar_habiles`, sobre `holidays.Argentina`), diciendo por cuál vía
+salió. Porque **no poder leer la tabla no es lo mismo que no poder saber qué día
+era**: el calendario hábil argentino se calcula, no se consulta.
+
+**Las dos reglas que quedan:**
+
+- *Un mensaje de error tiene que nombrar el insumo que la función realmente usó.*
+  Si dice una fecha y busca otra, convierte a todo el que lo lea —incluido el que
+  lo escribió— en alguien que verifica el dato equivocado.
+- *Un `None` no es un diagnóstico.* Si una función puede devolver `None` por tres
+  razones, el que lo recibe no puede elegir una y escribirla como si fuera un
+  hecho. O se distinguen las causas, o el mensaje dice «no pude», no «no hay».
+
+Y una tercera, para mí: **antes de pedir una medición, leer el código.** El user
+había puesto la evidencia en pantalla; lo que faltaba era abrir dos funciones.
+
 ## Changelog
 
+- **2026-08-17 — E2.z, el CER estaba y el mensaje acusaba a la serie.** El agente
+  decía *«la serie CER no llega hasta 2025-11-28»* con el dato presente en la
+  base. **(a)** El mensaje interpolaba la fecha de EMISIÓN etiquetada como
+  «(T−10 hábiles)» → nombraba un día que nunca se buscó; el T−10 real es
+  **2025-11-12** (16 días corridos: 2 findes + 2 feriados) y ahí el CER vale
+  651,898. **(b)** `get_cer_liquidacion` resuelve el T−10 indexando
+  `mercado.dias_habiles` y devuelve `None` si la tabla no llega tan atrás; el
+  llamador leía ese `None` como «no hay CER», una conclusión que la función nunca
+  afirmó — tres causas distintas colapsadas en una frase que culpaba siempre a la
+  serie. Fix: eslabones separados, el mensaje nombra **las dos fechas**, y la
+  fecha sale del calendario oficial o —si no alcanza— de `calendario.restar_habiles`
+  (puro, `holidays.Argentina`), diciendo por cuál vía. **Reglas: un mensaje de
+  error nombra el insumo que la función realmente usó; y un `None` con varias
+  causas no autoriza a escribir una de ellas como hecho.** 1 test (83 en total).
 - **2026-08-17 — E2.y, el chequeo de SALUD que no podía detectar nada.** El
   contrato de `macro.series_macro` hacía `MAX(fecha)` **sin filtrar por `serie`**
   sobre una tabla con DOLAR, CER, BADLAR, TAMAR, RiesgoPais e Inflación juntas:

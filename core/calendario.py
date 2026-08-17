@@ -51,6 +51,26 @@ def proximo_habil(d: date) -> date:
     return d
 
 
+def restar_habiles(d: date, n: int) -> date:
+    """`d` menos `n` días hábiles. El inverso de `proximo_habil`, en bloque.
+
+    **Puro**: no depende de que `mercado.dias_habiles` cubra esa fecha. Esa
+    diferencia importó el 2026-08-17: `get_cer_liquidacion` resuelve el T−10
+    indexando la tabla y devuelve `None` cuando la tabla no llega tan atrás —
+    y el que llama lee ese `None` como «no hay CER», que es una conclusión que
+    la función nunca afirmó. Con esto se puede resolver la FECHA aunque el
+    calendario oficial no la cubra, y recién después buscar el dato.
+    """
+    if n <= 0:
+        return d
+    quedan = n
+    while quedan > 0:
+        d = d - timedelta(days=1)
+        if es_habil(d):
+            quedan -= 1
+    return d
+
+
 def habiles_entre(desde: date, hasta: date) -> list[date]:
     """Días hábiles en [desde, hasta] inclusive, asc."""
     out, d = [], desde

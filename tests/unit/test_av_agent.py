@@ -1398,3 +1398,37 @@ def test_el_CER_tipeado_a_mano_GANA_y_deja_de_pedirlo(monkeypatch):
          "escala": "vn100", "suma_amort": 100.0, "n": 1, "rama": "cer"},
         "2027-04-30", "MERV - XMEV - TZXA7 - 24hs", 12.3456)
     assert doc["cer_emision"] == 12.3456
+
+
+def test_el_TZXA7_el_dato_ESTABA_y_el_mensaje_culpaba_a_la_serie():
+    """2026-08-17, el user con la captura de `macro.series_macro` en la mano:
+    *«JUSTAMENTE TE ESTOY MOSTRANDO QUE PARA ESA FECHA HABÍA»*. Y tenía razón.
+
+    El agente decía *«la serie CER no llega hasta 2025-11-28 (T−10 hábiles)»* con
+    el CER de esa semana presente en la base. Dos errores encadenados:
+
+    1. **El mensaje mentía la fecha**: interpolaba la fecha de EMISIÓN y la
+       etiquetaba «(T−10 hábiles)», nombrando un día que nunca se buscó. El T−10
+       real de una emisión del 2025-11-28 es el **2025-11-12** — y ESE estaba
+       cargado (651,898…).
+    2. `get_cer_liquidacion` resuelve el T−10 **indexando `mercado.dias_habiles`**
+       y devuelve `None` cuando esa tabla no llega diez hábiles atrás. El llamador
+       leía ese `None` como «no hay CER»: una conclusión que la función nunca
+       afirmó.
+
+    Este test congela la aritmética, que es lo único que no puede cambiar."""
+    from datetime import date
+
+    from core.calendario import es_habil, restar_habiles
+
+    emision = date(2025, 11, 28)
+    assert es_habil(emision)
+    objetivo = restar_habiles(emision, 10)
+    assert objetivo == date(2025, 11, 12), "el T−10 hábiles NO es la fecha de emisión"
+    assert es_habil(objetivo)
+    # No es «10 días corridos»: entre medio hay 2 findes y 2 feriados AR.
+    assert (emision - objetivo).days == 16
+    # Y es PURO: no depende de que `mercado.dias_habiles` cubra la fecha, que es
+    # justo lo que fallaba.
+    assert restar_habiles(date(2019, 3, 5), 10) == date(2019, 2, 18)
+    assert restar_habiles(emision, 0) == emision

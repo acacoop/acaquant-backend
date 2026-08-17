@@ -1258,15 +1258,23 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         # para que el pre-flight pueda MOSTRARLOS antes de escribir: «¿el bono
         # entra completo?» es una pregunta legítima y no se contestaba.
         "ficha_curvas": _ficha_para_curvas({}, ficha, ejes, conv),
-        # ⚠️ **UNA sola función decide si la rama se da de alta sola.** Acá decía
-        # `doc["rama"] in RAMAS_AUTOMATICAS`, mientras el paso «El cuadro se puede
-        # convertir sin ambigüedad» usaba `_alta_automatica`, que además acepta el
-        # camino de la TASA EXTERNA. Resultado medido en TMG27 (2026-08-17): la
-        # cadena entera en verde, el veredicto diciendo «se puede aplicar»… y sin
-        # botón APLICAR, porque este campo decía que no. El bug no es el valor: es
-        # que había dos funciones contestando la misma pregunta.
-        "aplicable": (_alta_automatica(doc["rama"], ejes)
-                      and not (rama_tent == "cer" and not cer_emision)),
+        # ⚠️⚠️ **`aplicable` NO GATEA NADA — es solo la etiqueta de la rama.**
+        #
+        # Este campo generó el MISMO bug TRES veces: la cadena en verde, el
+        # veredicto diciendo «se puede aplicar» y el botón escondido, porque acá
+        # se contestaba la misma pregunta con otro criterio. Primero era
+        # `rama in RAMAS_AUTOMATICAS` (TMG27, E2.k). Después quedó
+        # `and not (rama_tent == "cer" and not cer_emision)` — y cuando en E2.l el
+        # CER dejó de bloquear la cadena, ESTE renglón lo siguió bloqueando
+        # (TZXA7: «se puede aplicar A MANO» sin botón).
+        #
+        # La causa no es el valor, es la ESTRUCTURA: dos gates para una decisión
+        # siempre terminan contradiciéndose. Su único contenido legítimo —¿la rama
+        # convierte sin ambigüedad?— YA es un paso de la cadena (`rama`, que
+        # BLOQUEA cuando no), así que `veredicto.puede_aplicar` lo cubre entero.
+        # Queda solo para PINTAR el motivo en la pantalla. **Quien decide si se
+        # puede aplicar es el veredicto, y nadie más.**
+        "aplicable": _alta_automatica(doc["rama"], ejes),
         "motivo_no_aplicable": _motivo_no_aplicable(doc["rama"], ejes),
         "flujos_muestra": conv["flujos"][:3] + (["…"] if conv["n"] > 3 else []),
         # El cuadro YA convertido. `aplicar` lo reusa en vez de volver a pedirle el
@@ -1370,13 +1378,19 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
     # es EXTERNA**: a un TAMAR el motor no le devuelve TEA a propósito, y esa
     # línea aparecía igual en TMG27 —arriba de todo, en rojo— contradiciendo a los
     # dos pasos de la cadena que explican, en verde, que así tiene que ser.
-    externa = tasa_externa_de(doc.get("ajuste")) [0] == "1816"
+    externa = tasa_externa_de(doc.get("ajuste"))[0] == "1816"
+    # Y si la causa YA se conoce, tampoco se culpa a la escala. En TZXA7 esta
+    # línea seguía apareciendo arriba de todo —«revisar la escala del flujo o la
+    # pata»— mientras la cadena, dos renglones más abajo, decía que lo que falta
+    # es el CER de emisión. El encabezado no puede contradecir al detalle.
+    sin_cer = doc.get("ajuste") == "cer" and not doc.get("cer_emision")
     return {"precio": float(precio), "tea": r.get("TEA"), "precio_fuente": fuente,
             "duration": r.get("duration"), "paridad": r.get("paridad"),
             "referencia_1816": ref or None, "_mep": mep,
             "nota_tasa": "" if r.get("TEA") is not None or externa else
-            "el motor no persistiría TEA con este cuadro y este precio — revisar "
-            "la escala del flujo o la pata antes de aplicar"}
+            "sin TEA hasta cargar el CER de emisión" if sin_cer else
+            "el motor no calculó la TEA con este cuadro y este precio — revisar "
+            "la escala del flujo o la pata"}
 
 
 def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
@@ -1394,8 +1408,9 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
         acc.registrar(accion="alta_bono", objetivo=ticker.upper(), ok=False,
                       error=sim.get("error", "")[:300], por=actor)
         return {**sim, "aplicado": False}
-    if not sim.get("aplicable"):
-        return {**sim, "aplicado": False}
+    # Acá había un `if not sim["aplicable"]: return` — el SEGUNDO gate. Se borró:
+    # una rama que no convierte sin ambigüedad ya deja el paso `rama` en BLOQUEA,
+    # así que el chequeo de abajo la rechaza igual, y con el motivo puesto.
     # **El backend es el que decide, no el botón.** Se lee el MISMO
     # `puede_aplicar` que el front usa para mostrar APLICAR, así que esconder el
     # botón y rechazar la escritura no pueden desincronizarse; y si alguien pega

@@ -1412,8 +1412,54 @@ general del agente: la foto se muestra, pero nunca sin cotejarla.** Un dato
 persistido que se puede contradecir con una query barata debe contradecirse
 siempre — mostrarlo crudo es más rápido de escribir y más caro de confiar.
 
+### E2.n — El mismo bug por TERCERA vez: se elimina el segundo gate (2026-08-17)
+
+TZXA7, con la cadena diciendo **«se puede aplicar A MANO»** y sin botón APLICAR.
+El user: *«¡pero no figura el aplicar!»*.
+
+**Es el tercer episodio del mismo bug, y las tres veces lo miré mal.** El
+diagnóstico correcto no era el valor de `aplicable`, era su EXISTENCIA:
+
+| # | caso | qué decía `aplicable` |
+|---|---|---|
+| 1 | TMG27 (E2.k) | `rama in RAMAS_AUTOMATICAS` — no aceptaba el camino de la tasa externa |
+| 2 | TZXA7 (E2.m) | quedó `and not (cer and not cer_emision)`: cuando el CER dejó de bloquear la cadena en E2.l, **este renglón lo siguió bloqueando** |
+| 3 | el front | hacía `aplicable && puedeAplicar` — y **un AND convierte al más restrictivo en el gate real**, que es justo el que nadie está mirando |
+
+En E2.k arreglé la mitad de la expresión y dejé la otra. En E2.l hice que el CER
+no bloqueara *la cadena* sin notar que había un segundo lugar donde sí bloqueaba.
+**Arreglar el caso deja viva la estructura que lo produce.**
+
+**El arreglo estructural: `aplicable` deja de gatear.** Su único contenido
+legítimo —¿la rama convierte sin ambigüedad?— **ya es un paso de la cadena**
+(`rama`, que pone BLOQUEA cuando no), así que `veredicto.puede_aplicar` lo cubre
+entero. Ahora `aplicable` solo pinta el motivo en la pantalla, se borró el
+`if not sim["aplicable"]: return` de `aplicar()`, y el front lee **una sola
+condición**. Congelado con un test que falla si alguien vuelve a meter la
+condición del CER en un gate.
+
+**La lección, que vale para todo el sistema:** dos gates para una decisión no se
+contradicen *si alguien se equivoca* — se contradicen **siempre, tarde o
+temprano**, porque solo uno se actualiza. La pregunta al revisar no es «¿cuál de
+los dos está bien?» sino «¿por qué hay dos?».
+
+De yapa: el encabezado seguía diciendo *«revisar la escala del flujo o la pata»*
+mientras la cadena, dos renglones abajo, decía que falta el CER de emisión —
+misma causalidad de E2.l, aplicada también a esa línea.
+
 ## Changelog
 
+- **2026-08-17 — E2.n, se elimina el SEGUNDO gate.** Tercera vez
+  el mismo bug: cadena en verde, veredicto diciendo «se puede aplicar» y sin
+  botón APLICAR, porque `aplicable` contestaba la misma pregunta con otro
+  criterio (E2.k arregló media expresión; la otra mitad —el CER— siguió
+  bloqueando cuando E2.l lo sacó de la cadena; y el front encima hacía
+  `aplicable && puedeAplicar`, donde el AND vuelve gate al más restrictivo).
+  **`aplicable` deja de gatear**: su contenido ya viaja en el paso `rama`, que
+  BLOQUEA solo, así que el veredicto lo cubre — ahora solo pinta el motivo, se
+  borró el early-return de `aplicar()` y el front lee UNA condición. La regla:
+  dos gates para una decisión no se contradicen si alguien se equivoca, se
+  contradicen SIEMPRE. 1 test que falla si vuelve a aparecer un segundo gate.
 - **2026-08-17 — E2.m, cierre manual del aviso + la foto se coteja.** Los avisos
   se **PERSISTEN** (`mercado.av_agent_avisos`) y **los cierra el user**, no el
   sistema: derivarlos (mi diseño de E2.l) confundía «el dato está» con «yo ya me

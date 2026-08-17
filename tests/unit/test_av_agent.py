@@ -924,3 +924,36 @@ def test_un_hallazgo_YA_RESUELTO_no_se_sigue_mostrando(monkeypatch):
     assert "TZXM8" not in tickers          # ya está en curvas → no falta más
     assert "TZXA7" in tickers              # sigue faltando de verdad
     assert "TZXD8" in tickers              # sin_flujo NO caduca por existir
+
+
+def test_el_VEREDICTO_es_el_UNICO_gate_y_aplicable_es_redundante():
+    """**El mismo bug, TRES veces — este test existe para que no haya una cuarta.**
+
+    `aplicable` fue un SEGUNDO gate al lado de `veredicto.puede_aplicar`, y cada
+    vez que uno de los dos cambió, el otro quedó viejo y escondió el botón APLICAR
+    con la cadena diciendo lo contrario:
+
+    1. TMG27 (E2.k): `rama in RAMAS_AUTOMATICAS` contra `_alta_automatica`.
+    2. TZXA7 (E2.m): quedó `and not (cer and not cer_emision)`, así que cuando el
+       CER dejó de bloquear la cadena, este renglón lo siguió bloqueando.
+    3. Y el front encima hacía `aplicable && puedeAplicar` — el AND convierte al
+       más restrictivo en el gate real, que es el que nadie está mirando.
+
+    La causa nunca fue el valor: era tener DOS. Lo que este test congela es que el
+    contenido legítimo de `aplicable` —¿la rama convierte sin ambigüedad?— YA
+    viaja en la cadena, así que el veredicto lo cubre y `aplicable` no necesita
+    (ni debe) gatear nada."""
+    from api.services.av_agent_alta import BLOQUEA, _veredicto
+
+    # (a) Rama que NO se da de alta sola → el paso `rama` BLOQUEA por su cuenta,
+    #     así que el veredicto ya dice que no. `aplicable` no agregaba nada.
+    ps = _chequear(rama="otros")
+    rama = next(p for p in ps if p["clave"] == "rama")
+    assert rama["estado"] == BLOQUEA
+    assert _veredicto(ps)["puede_aplicar"] is False
+
+    # (b) Y el caso que rompió: un CER SIN cer_emision se puede aplicar a mano.
+    #     Si algún día alguien vuelve a meter esa condición en un gate, acá falla.
+    ps = _chequear(cer_emision=None, nota_cer="la serie no llega")
+    assert _veredicto(ps)["puede_aplicar"] is True
+    assert _veredicto(ps)["puede_auto"] is False

@@ -180,15 +180,84 @@ ARREGLOS = {
     "sin_cuadro":       ("importar el cronograma de 1816", True),
     "sin_ejes":         ("escribir los ejes (la curva de 1816 ya está local)", False),
     "sin_ejes_sin_ficha": ("decidir los ejes a mano / ampliar EJES_1816", False),
+    "moneda_flujo_contradice": ("alinear `moneda_flujo` con los ejes", False),
     "escala_del_cuadro": ("reescalar las amortizaciones a base 100", False),
+    "campo_de_amortizacion": ("el cuadro usa el campo de la OTRA rama", False),
     "pata_equivocada":  ("apuntar `curvas.instrumento` a la pata correcta", False),
     "falta_cer":        ("cargar el `cer_emision` (dato manual)", False),
     "sin_espejo_assets": ("crear la fila en `portafolio.assets`", False),
     "tasa_externa":     ("ninguno: la tasa no la calculamos nosotros", False),
+    "paridad_fosil":    ("ninguno en el dato: limpiar la métrica vieja del snapshot", False),
     "precio_sospechoso": ("verificar el precio (stale/ilíquido) o IGNORAR", False),
     "sin_precio":       ("ninguno hoy: no hay precio en ninguna fuente local", False),
     "sin_doc":          ("el ticker no está en mercado.curvas", False),
 }
+
+# ── `moneda_flujo`: el vocabulario que la migración a EJES dejó atrás ────────
+#
+# `rama_calculo` se migró a los ejes el 2026-08-16, pero **la rama ON sigue
+# despachando por `moneda_flujo`** (`engines/curvas.py:665`), que es un campo
+# aparte y se carga a mano. Cuando los dos se contradicen no hay ningún error: el
+# MOTOR usa el viejo y la VISTA muestra el nuevo, así que la paridad sale de una
+# cuenta y la clasificación de otra.
+#
+# Verificado con la aritmética de la corrida del 2026-08-17:
+#   OLC3O  (DL, `moneda_flujo` OK)  (137.280 / A3500) / 146.300 × 100 = 0,065 ✓
+#   LOC6O  paridad 156.570 = precio / 100 × 100  → el motor NO convirtió nada,
+#          o sea cayó en el `else` de ARS pese a tener eje USD.
+def _moneda_flujo_esperada(ejes) -> str:
+    """Qué debería decir `moneda_flujo` según los ejes — las MISMAS tres puertas
+    que abre el `if` de la rama ON, ni una más."""
+    if (ejes.ajuste or "") == "dolar_linked":
+        return "DL"
+    return "USD" if (ejes.moneda or "").upper() == "USD" else "ARS"
+
+
+def _precio_como_el_motor(doc: dict, precio: float | None, mep: float | None,
+                          a3500: float | None) -> tuple[float | None, str]:
+    """El `precio_calc` que usaría HOY la rama ON. Es la copia FIEL del bloque de
+    `engines/curvas.py` — si acá se convirtiera distinto, el diag hablaría de un
+    precio que el motor nunca vio."""
+    from engines.curvas import precio_soberano_a_usd
+
+    if not precio or precio <= 0:
+        return None, "sin precio"
+    moneda = (doc.get("moneda_flujo") or "USD").upper()
+    if moneda == "USD":
+        px = precio_soberano_a_usd(precio, doc.get("ticker") or "", mep)
+        if px is None:
+            return None, "USD sin MEP → el motor sale sin TEA ni paridad"
+        return px, ("as-is (sufijo D/C)" if abs(px - precio) < 1e-9 else "÷MEP")
+    if moneda == "DL":
+        if precio < 1000:
+            return precio, "as-is (ya en escala USD)"
+        if not a3500 or a3500 <= 0:
+            return None, "DL en escala peso sin A3500 → el motor sale sin TEA ni paridad"
+        return precio / a3500, "÷A3500"
+    return precio, "as-is (ARS nativo)"
+
+
+def _sumas_amortizacion(doc: dict) -> tuple[float, float]:
+    """Σ de las amortizaciones FUTURAS por los DOS campos: `(amortizacion,
+    amortizacion_pct)`.
+
+    `_residual_vivo` elige uno según la rama —que es lo correcto, porque es lo que
+    hace el motor— pero entonces un 0,00 no distingue «este bono ya no amortiza»
+    de «el cuadro está cargado con el campo de la otra rama», y las dos cosas
+    piden arreglos opuestos. Con los dos números al lado, la ambigüedad se va.
+    """
+    from datetime import date
+
+    from engines.curvas import fecha_flujo
+
+    hoy = date.today()
+    abs_, pct = 0.0, 0.0
+    for f in doc.get("flujos") or []:
+        fd = fecha_flujo(f)
+        if fd and fd > hoy:
+            abs_ += float(f.get("amortizacion") or 0.0)
+            pct += float(f.get("amortizacion_pct") or 0.0)
+    return round(abs_, 6), round(pct, 6)
 
 
 def _pata_cargada(simbolo: str, patas: list[dict]) -> dict | None:
@@ -197,7 +266,9 @@ def _pata_cargada(simbolo: str, patas: list[dict]) -> dict | None:
 
 def _causa(*, doc: dict | None, hallazgo: dict, residual: float, n_fut: int,
            precio: float | None, patas: list[dict], en_assets: bool,
-           curva_1816: str) -> tuple[str, str]:
+           curva_1816: str, rama: str = "", sumas: tuple[float, float] = (0.0, 0.0),
+           par_calc: float | None = None,
+           par_guardada: float | None = None) -> tuple[str, str]:
     """Devuelve `(causa, detalle)`. **Sospecha con la evidencia al lado.**"""
     from api.services.acreencias import tiene_flujo_def
     from api.services.av_agent_alta import tasa_externa_de
@@ -230,6 +301,28 @@ def _causa(*, doc: dict | None, hallazgo: dict, residual: float, n_fut: int,
     if externa and regla in ("sin_tea_con_precio", "tea_fuera_de_rango"):
         return "tasa_externa", f"ajuste «{doc.get('ajuste')}» — la tasa la trae {job or '1816'}"
 
+    # ⚠️ **PRIMERO `moneda_flujo`, y no la pata.** Es lo que decide si el motor
+    # convierte el precio, y una pata "rara" con `moneda_flujo` bien no rompe nada
+    # (el sufijo D/C del símbolo ya la resuelve). Al revés sí rompe: con
+    # `moneda_flujo` en ARS el precio entra crudo y la paridad sale ×MEP de más.
+    # Si esto se clasificara después, el arreglo propuesto sería cambiar la PATA —
+    # o sea pisar el dato equivocado para tapar el síntoma del otro.
+    if rama == "on":
+        esperada = _moneda_flujo_esperada(ejes)
+        actual = (doc.get("moneda_flujo") or "").strip().upper() or "(vacío)"
+        if actual != esperada:
+            return "moneda_flujo_contradice", (
+                f"`moneda_flujo`={actual} pero los ejes dicen {ejes.moneda}/"
+                f"{ejes.ajuste} → debería ser {esperada}. El motor despacha por "
+                f"`moneda_flujo`, así que el precio entra sin convertir.")
+
+    s_abs, s_pct = sumas
+    if not residual and (s_abs or s_pct):
+        otro = "amortizacion" if residual == s_pct else "amortizacion_pct"
+        return "campo_de_amortizacion", (
+            f"la rama «{rama}» lee su campo y da 0, pero el cuadro tiene "
+            f"Σ {otro} = {(s_abs or s_pct):,.2f}: está cargado con el campo de la otra")
+
     if residual and not (_RESIDUAL_MIN <= residual <= _RESIDUAL_MAX):
         return "escala_del_cuadro", (f"Σ amortizaciones futuras = {residual:,.2f} en "
                                      f"{n_fut} cupón/es (un cuadro sano ronda 100)")
@@ -237,9 +330,9 @@ def _causa(*, doc: dict | None, hallazgo: dict, residual: float, n_fut: int,
     if doc.get("ajuste") == "cer" and not _f(doc.get("cer_emision")):
         return "falta_cer", "rama CER sin `cer_emision`: el cuadro no se puede escalar al VN"
 
-    # El cuadro está sano → el que está en otra unidad es el PRECIO. Y de eso la
-    # pata es la explicación #1 (falla #4 de docs/SALUD_CURVAS.md): un HD con la
-    # pata peso cargada se divide por MEP y la paridad se va a cualquier lado.
+    # La pata SIGUE siendo una causa real (falla #4), pero recién acá: un HD con la
+    # pata peso y `moneda_flujo` bien se convierte solo, así que solo importa
+    # cuando el símbolo cargado NO tiene sufijo D/C y encima no hay MEP.
     simbolo = (doc.get("ticker") or "").strip()
     cargada = _pata_cargada(simbolo, patas)
     moneda_eje = (doc.get("moneda_eje") or "").strip().upper()
@@ -247,15 +340,23 @@ def _causa(*, doc: dict | None, hallazgo: dict, residual: float, n_fut: int,
         mon_pata = (cargada.get("moneda") or "").strip().upper()
         esp = (cargada.get("especie") or "").strip().lower()
         otras = [p for p in patas if p.get("simbolo") != simbolo and p.get("activa")]
-        if moneda_eje == "USD" and mon_pata == "ARS" and otras:
-            return "pata_equivocada", (f"eje USD con la pata en PESOS ({esp or '?'}) — "
-                                       f"hay {len(otras)} pata/s más cargadas")
         if moneda_eje == "ARS" and mon_pata == "USD" and otras:
             return "pata_equivocada", (f"eje ARS con la pata en DÓLARES ({esp or '?'}) — "
                                        f"hay {len(otras)} pata/s más cargadas")
 
-    if precio is None:
-        return "sin_precio", "ninguna de las tres fuentes locales tiene precio"
+    # ⚠️ **LA MÉTRICA GUARDADA PUEDE SER UN FÓSIL.** `market_snapshot` es un upsert
+    # PARCIAL: cuando el motor sale por una de sus puertas de emergencia (sin MEP,
+    # sin A3500, XIRR fuera de rango) escribe SOLO `duration` — y la TEA y la
+    # paridad de la última vez que sí calculó **se quedan ahí, sin fecha propia y
+    # sin forma de distinguirlas de un valor de hoy**. Un hallazgo disparado por un
+    # fósil no habla del bono: habla de un día viejo.
+    if (par_calc is not None and par_guardada is not None
+            and abs(par_calc - par_guardada) > max(1.0, abs(par_calc) * 0.02)):
+        return "paridad_fosil", (f"la paridad guardada es {par_guardada:,.2f} pero "
+                                 f"rehaciendo HOY la cuenta del motor da {par_calc:,.2f}")
+
+    if not precio:
+        return "sin_precio", "ninguna fuente local tiene un precio > 0"
     return "precio_sospechoso", f"cuadro sano (Σ={residual:,.2f}) y precio {precio:,.4f}"
 
 
@@ -287,6 +388,24 @@ def main(argv: list[str]) -> int:
     patas_de, assets = _especies(tickers), _en_assets(tickers)
     cat_1816 = _catalogo_1816(tickers)
 
+    # Los DOS tipos de cambio que puede necesitar la rama ON, pedidos UNA vez. Sin
+    # ellos no se puede rehacer la cuenta del motor — y que FALTEN es en sí mismo
+    # un diagnóstico: es la puerta de emergencia por la que el bono sale sin TEA.
+    mep = a3500 = None
+    try:
+        from api.services.macro import get_ultimo_mep
+        mep = (get_ultimo_mep() or {}).get("mep")
+    except Exception as e:
+        print(f"  ⚠ sin MEP ({type(e).__name__})")
+    try:
+        from engines.curvas import cargar_a3500_actual
+        a3500 = cargar_a3500_actual()
+    except Exception as e:
+        print(f"  ⚠ sin A3500 ({type(e).__name__})")
+    print(f"TC del día: MEP {_n(mep, 2)} · A3500 {_n(a3500, 2)}"
+          + ("   ⚠ sin A3500 los dólar-linked en escala peso salen sin TEA ni paridad"
+             if not a3500 else ""))
+
     print(f"\nAV AGENT — ¿qué se arregla SIN 1816?   corrida {corrida}   "
           f"{len(filas)} hallazgo(s) · {len(tickers)} bono(s)")
     print("=" * 100)
@@ -301,15 +420,28 @@ def main(argv: list[str]) -> int:
         ejes = curvas_ejes.ejes_de_doc(doc) if doc else None
         residual, n_fut = _residual_vivo(doc, rama) if doc else (0.0, 0)
 
+        # Σ por los DOS campos. `_residual_vivo` elige uno según la rama, así que un
+        # 0,00 es ambiguo: puede ser «no amortiza más» o «el cuadro está cargado con
+        # el campo de la otra rama». Con los dos números al lado deja de serlo.
+        sumas = _sumas_amortizacion(doc) if doc else (0.0, 0.0)
+
         s, c = snap.get(simbolo) or {}, cierre.get(simbolo) or {}
         px_ev = _f(ev.get("last_price"))
         # El orden es el mismo que debería tener el simulador: live → cierre →
         # la foto congelada del hallazgo. Las tres son LOCALES.
         precio = s.get("precio") or c.get("precio") or px_ev
 
+        # La cuenta del motor, rehecha HOY: sirve para separar un problema REAL del
+        # bono de una métrica vieja que quedó pegada en el snapshot.
+        px_calc, nota_px = (_precio_como_el_motor(doc, precio, mep, a3500)
+                            if doc and rama == "on" else (None, ""))
+        par_calc = (round(px_calc / residual * 100, 4)
+                    if px_calc and residual > 0 else None)
+
         causa, detalle = _causa(doc=doc, hallazgo=h, residual=residual, n_fut=n_fut,
                                 precio=precio, patas=patas_de.get(tk) or [],
-                                en_assets=tk in assets,
+                                en_assets=tk in assets, rama=rama, sumas=sumas,
+                                par_calc=par_calc, par_guardada=s.get("paridad"),
                                 curva_1816=cat_1816.get(tk, ""))
         arreglo, necesita = ARREGLOS.get(causa, ("?", True))
         resumen[causa] = resumen.get(causa, 0) + 1
@@ -319,13 +451,21 @@ def main(argv: list[str]) -> int:
                     f"{ejes.ley or '—'}")
         print(f"\n{tk:<8} {h['regla']:<24} [{h['severidad']}]")
         print(f"  ejes      {txt_ejes}   rama {rama or '—'}   símbolo {simbolo or '—'}")
+        mf = ((doc or {}).get("moneda_flujo") or "").strip().upper() or "(vacío)"
+        esperada = _moneda_flujo_esperada(ejes) if ejes else "?"
+        print(f"  moneda_flujo {mf}   (los ejes piden {esperada})"
+              + ("   ⚠ CONTRADICE" if rama == "on" and mf != esperada else ""))
         print(f"  cuadro    Σ amort futuras {_n(residual)} en {n_fut} cupón/es"
+              f"   [abs {_n(sumas[0])} · pct {_n(sumas[1])}]"
               f"   cer_emision {_n(_f((doc or {}).get('cer_emision')), 4)}")
         print(f"  precio    live {_n(s.get('precio'), 4)} ({s.get('at') or 'sin fila'})"
               f"   cierre {_n(c.get('precio'), 4)} ({c.get('fecha') or 'sin fila'})"
               f"   hallazgo {_n(px_ev, 4)}")
-        print(f"  paridad   live {_n(s.get('paridad'))}   del hallazgo "
-              f"{_n(_f(ev.get('paridad')))}   tea live {_n(s.get('tea'), 4)}")
+        print(f"  paridad   guardada {_n(s.get('paridad'))}   REHECHA HOY "
+              f"{_n(par_calc)}   del hallazgo {_n(_f(ev.get('paridad')))}"
+              f"   tea guardada {_n(s.get('tea'), 4)}")
+        if nota_px:
+            print(f"  motor     precio_calc {_n(px_calc, 4)} ({nota_px})")
         patas = patas_de.get(tk) or []
         if patas:
             for p in patas:

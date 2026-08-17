@@ -1527,6 +1527,16 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
         "probablemente se escribió la REGLA")
     assert av_agent.ACCION_POR_TIPO["sin_flujo"] == "flujos"
     assert av_agent.ACCION_POR_TIPO["falta_en_base"] == "alta"
+    assert av_agent.ACCION_POR_TIPO["tasa_sospechosa"] == "arreglo"
+    # **LOS CUATRO TIPOS TIENEN ACCIÓN** (2026-08-17). Congelarlo tiene un
+    # sentido concreto: un detector nuevo que emita un tipo sin acción sale como
+    # comentario en la pantalla y **nadie se entera** —no falla nada, solo no se
+    # puede hacer nada con él—, que es exactamente lo que le pasó a
+    # `tasa_sospechosa` durante 38 filas. Si agregás un tipo, o le ponés acción o
+    # cambiás este test a propósito.
+    assert set(av_agent.ACCION_POR_TIPO) == tipos_reales, (
+        "hay un tipo de hallazgo sin acción: va a aparecer en la lista como un "
+        "comentario que nadie puede accionar, sin dar ningún error")
     # `flujos_vacios` es la REGLA de `sin_flujo`: nunca puede ser una clave.
     assert "flujos_vacios" not in av_agent.ACCION_POR_TIPO
 

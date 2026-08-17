@@ -104,6 +104,17 @@ ACCION_POR_TIPO = {
     # escala). Es la única acción que PISA un dato, así que su cadena exige las
     # dos mitades: que la propuesta coincida con 1816 y que lo de hoy NO.
     "tasa_sospechosa": "arreglo",
+    # **`None` EXPLÍCITO, no ausencia.** Un `hueco_de_curva` sí es accionable,
+    # pero por OTRA vía: el agente lo pregunta en ME PREGUNTA y ahí se crea la
+    # curva (`av_agent_preguntas.crear_curva`). Ponerle botón de fila sería un
+    # segundo camino para lo mismo — y dos caminos a la misma escritura terminan
+    # con criterios distintos, que es el patrón que ya nos costó tres bugs.
+    #
+    # Escribirlo igual, con `None`, es lo que distingue **«se decidió que no»** de
+    # **«nadie lo pensó»**. Un tipo que falta por olvido sale en la pantalla como
+    # un comentario que nadie puede accionar y no da ningún error — exactamente lo
+    # que le pasó a `tasa_sospechosa` durante 38 filas.
+    "hueco_de_curva": None,
 }
 
 

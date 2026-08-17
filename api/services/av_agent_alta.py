@@ -38,7 +38,14 @@ from core import curvas_ejes, mercado_1816
 logger = logging.getLogger(__name__)
 
 # Ramas de `engines.curvas.rama_calculo` cuya conversión desde 1816 es INEQUÍVOCA.
-RAMAS_AUTOMATICAS = ("tasa_fija", "soberanos", "cer")
+# ⚠️ `dolar_linked` SE SUMÓ el 2026-08-17. No estaba por una hipótesis mía que el
+# código desmiente: `engines/curvas.py:597` dice, textual, que sus flujos usan «el
+# shape porcentual sobre VN **igual que soberanos**» y llama a la MISMA
+# `monto_flujo_soberano`. O sea que la conversión es tan directa como la de
+# soberanos — y el pre-flight se contradecía solo: el paso 3 decía «no se puede
+# convertir sin ambigüedad» y el 10, tres renglones abajo, «la rama dolar_linked
+# tiene fórmula en engines/curvas.py».
+RAMAS_AUTOMATICAS = ("tasa_fija", "soberanos", "cer", "dolar_linked")
 
 # Tolerancia para decidir la ESCALA del cuadro. 1816 manda por VN 100 en los bonos
 # por paridad y en NOMINALES en algunas ONs (medido, §4.9 de VISTA_RESEARCH): no
@@ -107,6 +114,22 @@ def convertir_flujos(cupones: list[dict], rama: str) -> dict:
             # por 100 al valuar) — o sea, exactamente lo que manda 1816.
             flujos.append({"fecha": f, "amortizacion_pct": amort,
                            "cupon_sobre_residual": interes})
+        elif rama == "dolar_linked":
+            # MISMO shape que soberanos (lo dice el motor: `monto_flujo_soberano`),
+            # pero **normalizado por la Σ**, que es lo que hace la rama CER.
+            #
+            # Por qué la diferencia: un soberano de 1816 viene ya en base 100
+            # (GD46 midió Σ=100.000012), pero los dólar-linked vienen en NOMINALES
+            # DE LA EMISIÓN — D10Y7 y D30O6 miden Σ=148.869,84. Pasar eso crudo
+            # como «pct» daría un valor técnico ~1.489 veces más grande y una TEA
+            # absurda **sin ningún error**. Dividir por la Σ lo lleva a base 100, y
+            # cuando la Σ ya es ~100 la operación es la identidad — así que es
+            # correcta en los dos casos.
+            flujos.append({
+                "fecha": f,
+                "amortizacion_pct": (amort / suma_amort * 100) if suma_amort else 0.0,
+                "cupon_sobre_residual": (interes / suma_amort * 100) if suma_amort else 0.0,
+            })
         else:
             flujos.append({"fecha": f, "amortizacion": amort, "interes": interes})
 
@@ -200,10 +223,6 @@ def _motivo_no_aplicable(rama: str, ejes) -> str:
                 "(cae en el `else`, que solo computa duration) y su curva tampoco "
                 "está marcada como valuada por 1816. La TEA necesita que se escriba "
                 "la fórmula, o que se marque la curva con fuente=1816.")
-    if rama == "dolar_linked":
-        return ("un dólar-linked se valúa contra el A3500 del día y su cuadro puede "
-                "venir en nominales: la conversión no es directa. Se carga a mano "
-                "con el cuadro que muestra el simulador.")
     return f"la rama «{rama}» todavía no tiene conversión automática."
 
 

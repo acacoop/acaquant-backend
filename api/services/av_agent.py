@@ -27,9 +27,12 @@ falso negativo.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from core import curvas_ejes, mercado_1816
+
+logger = logging.getLogger(__name__)
 
 # ── Rangos de sanidad (docs/SALUD_CURVAS.md §7.1) ────────────────────────────
 #
@@ -99,10 +102,46 @@ def _hallazgo(tipo: str, ticker: str, regla: str, severidad: str,
 # ── 1) ¿Qué hay en 1816 que no tengo? ────────────────────────────────────────
 
 
+def _cotiza_en_primary(ticker: str, simbolos: set[str]) -> bool:
+    """¿Primary lista ALGUNA pata de este ticker?
+
+    **Por qué existe** (user, 2026-08-17): *«si no está en Primary ni me
+    interesa, ya que si no le puedo meter el last price no tiene valor. Pero
+    ¿cómo hacemos para que no aparezca constantemente?»*.
+
+    Es el filtro más duro de todos, y tiene razón: un bono que no cotiza **no se
+    puede valuar nunca**, así que no es un hallazgo — es ruido permanente que
+    empuja hacia abajo a los que sí importan.
+
+    Se prueban las DOS patas (`24hs` y `CI`) antes de descartar: el símbolo se
+    arma por convención, y quedarse solo con `24hs` descartaría un bono que
+    cotiza únicamente en contado inmediato. Descartar de más acá es INVISIBLE
+    —el bono simplemente deja de proponerse— y por eso el criterio es generoso.
+    """
+    return any(f"MERV - XMEV - {ticker} - {plazo}" in simbolos
+               for plazo in ("24hs", "CI"))
+
+
+def _simbolos_primary() -> set[str] | None:
+    """El universo REAL de Primary. `None` = no se pudo leer → **no se filtra**.
+
+    Misma degradación elegida que `core/instrumentos_validos`, y se reusa ESA
+    función en vez de escribir otra query: filtrar de más esconde bonos reales,
+    no filtrar deja el ruido de siempre. Ante la duda, lo segundo.
+    """
+    try:
+        from core import instrumentos_validos
+        return instrumentos_validos.validos()
+    except Exception as e:
+        logger.debug("av_agent: sin universo de Primary (%s) — no se filtra", e)
+        return None
+
+
 def detectar_faltantes(universo_1816: dict[str, dict], docs: list[dict], *,
                        alcance: str = "soberanos",
                        ignorados: set[str] | None = None,
-                       en_cartera: set[str] | None = None) -> list[dict]:
+                       en_cartera: set[str] | None = None,
+                       simbolos_primary: set[str] | None = None) -> list[dict]:
     """Tickers vigentes en 1816 que NO están en `mercado.curvas`.
 
     El cruce se hace sobre el ticker NORMALIZADO (sin la especie D/C final): 1816
@@ -122,6 +161,10 @@ def detectar_faltantes(universo_1816: dict[str, dict], docs: list[dict], *,
     mios.discard("")
 
     out: list[dict] = []
+    # Los descartados por no cotizar. NO se tiran en silencio: se cuentan y se
+    # logean — «no reporté 37 porque no cotizan» es información; «no aparecen» es
+    # un agujero.
+    sin_primary: list[str] = []
     for ticker, inst in sorted(universo_1816.items()):
         if _es_pata(ticker):          # vista de valuación, no instrumento
             continue
@@ -139,7 +182,20 @@ def detectar_faltantes(universo_1816: dict[str, dict], docs: list[dict], *,
         # un bono en la tenencia que no está en `mercado.curvas` NO VALÚA — no
         # tiene TEA, no entra al gráfico y su posición se muestra sin precio
         # modelado. Ahí "¿te interesa?" ya no es una opinión.
+        # ⚠️ **NO COTIZA EN PRIMARY → NO ES UN HALLAZGO.** Es el filtro más duro
+        # y el user lo pidió explícito: si no se le puede meter el last price, el
+        # bono no tiene valor. Reportarlo cada corrida es ruido permanente que
+        # empuja hacia abajo a los que sí importan.
+        #
+        # **La excepción es la CARTERA**: si la casa lo TIENE, se reporta igual
+        # aunque no cotice — ahí el problema es más grave, no menor (una posición
+        # que no valúa), y esconderlo sería justo lo contrario de lo que hay que
+        # hacer.
         lo_tenemos = bool(en_cartera and tk in en_cartera)
+        if simbolos_primary and not lo_tenemos \
+                and not _cotiza_en_primary(tk, simbolos_primary):
+            sin_primary.append(tk)
+            continue
         out.append(_hallazgo(
             "falta_en_base", tk, "no_esta_en_curvas",
             "alta" if lo_tenemos else "media",
@@ -172,6 +228,10 @@ def detectar_faltantes(universo_1816: dict[str, dict], docs: list[dict], *,
              # mirar — que es exactamente lo que le pasó al user con los BADLAR.
              "ajuste_sin_curva": bool(ejes and curvas_ejes.ajuste_sin_curva(ejes.ajuste)),
              "curva_desconocida": ejes is None}))
+    if sin_primary:
+        logger.info("av_agent: %d faltantes DESCARTADOS por no cotizar en Primary "
+                    "(no se les puede poner precio): %s", len(sin_primary),
+                    ", ".join(sorted(sin_primary)[:20]))
     return out
 
 
@@ -452,7 +512,8 @@ def relevar(*, alcance: str = "soberanos",
 
     hallazgos = [
         *detectar_faltantes(universo_1816, docs, alcance=alcance, ignorados=ignorados,
-                            en_cartera=en_cartera),
+                            en_cartera=en_cartera,
+                            simbolos_primary=_simbolos_primary()),
         *detectar_sin_flujo(docs, universo_1816),
         *detectar_tasas_sospechosas(docs, metricas, en_assets, en_cartera),
         *detectar_huecos_de_curva(docs),

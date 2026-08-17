@@ -402,9 +402,13 @@ def test_las_ramas_sin_conversion_automatica_dan_su_PROPIO_motivo():
     que uno está mirando no explica: confunde."""
     from api.services.av_agent_alta import RAMAS_AUTOMATICAS, _motivo_no_aplicable
     from core.curvas_ejes import Ejes
-    assert set(RAMAS_AUTOMATICAS) == {"tasa_fija", "soberanos", "cer"}
-    dl = _motivo_no_aplicable("dolar_linked", Ejes("soberano", "USD", "dolar_linked"))
-    assert "A3500" in dl and "CER" not in dl
+    # `dolar_linked` SE SUMÓ el 2026-08-17: el motor dice, textual, que sus flujos
+    # usan «el shape porcentual sobre VN igual que soberanos» y llama a la MISMA
+    # `monto_flujo_soberano`, así que la conversión es tan directa como la de un
+    # soberano. Excluirla era una hipótesis mía que el código desmiente.
+    assert set(RAMAS_AUTOMATICAS) == {"tasa_fija", "soberanos", "cer", "dolar_linked"}
+    assert _motivo_no_aplicable("dolar_linked", Ejes("soberano", "USD",
+                                                    "dolar_linked")) == ""
     assert _motivo_no_aplicable("cer", Ejes("soberano", "ARS", "cer")) == ""
     # Un TAMAR NO tiene motivo: se da de alta solo. Su tasa la trae un job, así
     # que el cuadro es lo único que hay que guardar — y es el caso más simple.
@@ -1060,3 +1064,69 @@ def test_una_curva_CREADA_por_el_agente_queda_escribible_sola(monkeypatch):
                         lambda: {"badlar": {"pill": "badlar"}})
     assert curva_destino("otros", badlar) == "badlar"
     assert "badlar" in bonos_admin.curvas_validas()
+
+
+def test_un_DOLAR_LINKED_se_convierte_solo_y_NORMALIZA_la_escala():
+    """**D10Y7 y D30O6 bloqueados con «la conversión no es directa».** Era una
+    hipótesis mía, y `engines/curvas.py:597` la desmiente textual: los flujos de
+    un dólar-linked usan «el shape porcentual sobre VN **igual que soberanos**» y
+    llaman a la MISMA `monto_flujo_soberano`. Encima el pre-flight se contradecía
+    solo: el paso 3 decía que no se podía convertir y el 10, tres renglones
+    abajo, que la rama tiene fórmula.
+
+    **La normalización sí es propia.** Un soberano de 1816 viene en base 100
+    (GD46 midió Σ=100,000012), pero los dólar-linked vienen en NOMINALES de la
+    emisión: los dos casos reales miden **Σ=148.869,84**. Pasar eso crudo como
+    «pct» daría un valor técnico ~1.489 veces más grande y una TEA absurda **sin
+    ningún error**. Dividir por la Σ lo lleva a base 100 — y con Σ≈100 la
+    operación es la identidad, así que sirve en los dos casos."""
+    from api.services.av_agent_alta import convertir_flujos
+    conv = convertir_flujos(
+        [_cup("2027-05-10", 148869.84, 0.0)], "dolar_linked")
+    f = conv["flujos"][0]
+    assert conv["escala"] == "nominales"
+    assert f["amortizacion_pct"] == 100.0          # normalizado a base 100
+    assert "amortizacion" not in f                 # shape de soberanos, no absoluto
+    # Y con un cuadro que YA viene en base 100, normalizar no lo toca.
+    conv2 = convertir_flujos([_cup("2027-05-10", 100.0, 3.0)], "dolar_linked")
+    assert conv2["flujos"][0]["amortizacion_pct"] == 100.0
+    assert conv2["flujos"][0]["cupon_sobre_residual"] == 3.0
+
+
+def test_lo_que_NO_cotiza_en_Primary_deja_de_reportarse_salvo_que_lo_TENGAMOS():
+    """*«Si no está en Primary ni me interesa: si no le puedo meter el last price
+    no tiene valor. ¿Cómo hacemos para que no aparezca constantemente?»*
+
+    Es el filtro más duro y el más correcto: un bono que no cotiza no se puede
+    valuar NUNCA, así que reportarlo cada corrida es ruido permanente que empuja
+    hacia abajo a los que sí importan.
+
+    Con UNA excepción que invierte el criterio: si la casa lo TIENE en cartera se
+    reporta igual: ahí el problema es más grave, no menor — una posición que no
+    valúa — y esconderlo sería lo contrario de lo que hay que hacer."""
+    univ = {"B31P": _inst("Soberanos ARS Badlar"),   # no cotiza
+            "TZXD8": _inst("Soberanos ARS CER")}     # sí cotiza
+    primary = {"MERV - XMEV - TZXD8 - 24hs"}
+    out = av_agent.detectar_faltantes(univ, [], alcance="todo",
+                                      simbolos_primary=primary)
+    assert [h["ticker"] for h in out] == ["TZXD8"]
+
+    # ...pero si lo tenemos en cartera, se reporta AUNQUE no cotice.
+    out2 = av_agent.detectar_faltantes(univ, [], alcance="todo",
+                                       simbolos_primary=primary,
+                                       en_cartera={"B31P"})
+    assert {h["ticker"] for h in out2} == {"B31P", "TZXD8"}
+
+    # Sin universo de Primary NO se filtra: filtrar de más esconde bonos reales.
+    out3 = av_agent.detectar_faltantes(univ, [], alcance="todo")
+    assert {h["ticker"] for h in out3} == {"B31P", "TZXD8"}
+
+
+def test_la_pata_CI_tambien_cuenta_como_que_cotiza():
+    """El símbolo se arma por convención con `24hs`. Un bono que cotiza SOLO en
+    contado inmediato existe, y descartarlo sería invisible — no se propone y
+    nadie se entera."""
+    univ = {"XXXX": _inst("Soberanos ARS CER")}
+    solo_ci = {"MERV - XMEV - XXXX - CI"}
+    assert len(av_agent.detectar_faltantes(univ, [], alcance="todo",
+                                           simbolos_primary=solo_ci)) == 1

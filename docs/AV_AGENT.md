@@ -1522,8 +1522,65 @@ solo una se actualiza. `aplicable` vs el veredicto (E2.k, E2.n), rama vs curva
 de los dos está bien?» sino «¿por qué hay dos?»** — y la respuesta correcta casi
 siempre es derivar uno del otro, no sincronizarlos a mano.
 
+### E2.q — Lo que no cotiza no es un hallazgo, y el dólar-linked no era ambiguo (2026-08-17)
+
+**1. Primary es el filtro más duro, y el user lo dijo mejor que el código:**
+
+> *«Si no está en Primary ni me interesa, ya que si no le puedo meter el last
+> price no tiene valor. ¿Cómo hacemos para que no aparezca constantemente?»*
+
+Un bono que no cotiza **no se puede valuar nunca**, así que no es un hallazgo: es
+ruido permanente que empuja hacia abajo a los que sí importan. Ahora el detector
+lo **descarta**, con dos salvaguardas:
+
+- Se prueban las **dos patas** (`24hs` y `CI`) antes de descartar — el símbolo se
+  arma por convención y un bono que cotiza solo en contado inmediato existe.
+  Descartar de más acá es **invisible**, así que el criterio es generoso.
+- **Si la casa lo TIENE en cartera se reporta igual**, aunque no cotice: ahí el
+  problema es más grave, no menor —una posición que no valúa— y esconderlo sería
+  lo contrario de lo que hay que hacer.
+- Y **no se tiran en silencio**: van al log con su cuenta. *«No reporté 37 porque
+  no cotizan»* es información; *«no aparecen»* es un agujero.
+
+Sin universo de Primary NO se filtra (misma degradación que
+`core/instrumentos_validos`, cuya función se reusa): filtrar de más esconde bonos
+reales, no filtrar deja el ruido de siempre — ante la duda, lo segundo.
+
+**2. El dólar-linked no tenía por qué bloquear.** `engines/curvas.py:597` dice,
+textual, que sus flujos usan **«el shape porcentual sobre VN igual que
+soberanos»** y llama a la MISMA `monto_flujo_soberano`. Excluirlo de
+`RAMAS_AUTOMATICAS` era una hipótesis mía que el propio motor desmiente — y el
+pre-flight se contradecía solo: el paso 3 decía *«no se puede convertir sin
+ambigüedad»* y el 10, tres renglones abajo, *«la rama dolar_linked tiene fórmula
+en engines/curvas.py»*.
+
+⚠️ **Pero la ESCALA sí era un problema real, y no el que yo pensaba.** Un
+soberano de 1816 viene en base 100 (GD46 midió Σ=100,000012); los dólar-linked
+vienen en **nominales de la emisión** — D10Y7 y D30O6 miden **Σ=148.869,84**.
+Pasar eso crudo como «pct» daría un valor técnico ~1.489 veces más grande y una
+TEA absurda **sin ningún error**. Por eso la conversión **normaliza por la Σ**,
+igual que la rama CER: con Σ≈100 la operación es la identidad, así que es
+correcta en los dos casos.
+
+**3. El «paso 15» fantasma.** Al final de la cadena aparecía un renglón sin
+número, sin icono y sin título, repitiendo la nota de Primary. Era un `<li>`
+suelto DENTRO del `<ol>`, escrito cuando el paso de Primary todavía no existía.
+Hoy el paso 6 lo dice con su icono, su tabla y su acción — la copia se borró.
+
 ## Changelog
 
+- **2026-08-17 — E2.q, el filtro de Primary + el dólar-linked.** (a) Lo
+  que **no cotiza en Primary deja de reportarse**: no se puede valuar nunca, así
+  que es ruido permanente (pedido del user). Se prueban las patas 24hs y CI
+  antes de descartar, **lo que está en CARTERA se reporta igual** —ahí no valuar
+  es más grave— y los descartados van al log con su cuenta. Sin universo de
+  Primary no se filtra. (b) **`dolar_linked` entra a las ramas automáticas**: el
+  motor dice textual que su shape es «igual que soberanos» y llama a la misma
+  función, así que bloquearlo era una hipótesis mía que el código desmiente —y
+  el pre-flight se contradecía con su propio paso 10. La conversión **normaliza
+  por la Σ** porque estos vienen en nominales de la emisión (Σ=148.869,84 medido
+  en D10Y7/D30O6) y pasarlos crudos daría una TEA absurda sin error. (c) Se borró
+  el «paso 15» fantasma (un `<li>` suelto dentro del `<ol>`). 4 tests.
 - **2026-08-17 — E2.p, el catálogo manda sobre la constante.** BADLAR
   seguía reportada como «ajuste sin curva» con la curva YA creada, y el alta de
   un BADLAR se rechazaba por esa misma curva. Dos síntomas, una causa: **dos

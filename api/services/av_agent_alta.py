@@ -2284,17 +2284,29 @@ def _chequeos_flujos(*, ticker: str, doc: dict, rama: str, conv: dict,
         suma_pct, divisor_es = conv.get("suma_pct"), conv.get("divisor_es")
         ratio_nota = out.get("ratio_nota") or ""
         por_ratio = divisor_es == "ratio_cer"
+        # ⚠️ **UNA CAUSA, UN SOLO BLOQUEO.** Si falta el CER de emisión, este paso
+        # y el de abajo se ponen rojos por lo MISMO: dos alarmas para un dato.
+        # Eso no informa, asusta — y hace parecer que hay dos cosas que arreglar
+        # cuando hay una sola casilla que llenar. Cuando la causa es el CER, acá
+        # va `no_se_puede_saber` y el que frena es el paso que PIDE el dato.
+        falta_cer = not doc.get("cer_emision")
         ps.append(_paso("divisor", "El cuadro está en la escala del VN original",
-                        OK if por_ratio else BLOQUEA,
+                        OK if por_ratio else (NO_SE if falta_cer else BLOQUEA),
                         (f"dividido por el ratio de CER ({ratio_nota}) → Σ "
                          f"amortizaciones {suma_pct:,.4f}% del VN original"
                          + (" — el bono CAPITALIZÓ interés, por eso pasa de 100"
                             if (suma_pct or 0) > 101 else "")
                          if por_ratio else
-                         "sin el ratio de CER el cuadro solo se puede normalizar "
-                         "por su propia Σ, que mezcla pesos de distintas fechas: "
-                         "para un bono que ya amortizó eso da una TEA equivocada "
-                         "sin dar ningún error (DICP: 3,91% contra 9,25%)."),
+                         "todavía no se puede saber: el divisor es `CER de hoy / "
+                         "CER de emisión` y falta el segundo — se carga en el paso "
+                         "de abajo y esto se resuelve solo."
+                         if falta_cer else
+                         f"el CER de emisión está ({doc.get('cer_emision')}) pero "
+                         f"no se pudo armar el ratio: {ratio_nota or 'sin motivo'}. "
+                         "Sin él el cuadro solo se normalizaría por su propia Σ, "
+                         "que mezcla pesos de distintas fechas: para un bono que "
+                         "ya amortizó eso da una TEA equivocada sin dar ningún "
+                         "error (DICP: 3,91% contra 9,25%)."),
                         tabla="1816 /cashflow ÷ (CER_liq / cer_emision)"))
 
     # La rama sale del doc, así que no puede ser «otros» por un error de traducción:

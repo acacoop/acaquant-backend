@@ -1725,9 +1725,15 @@ def test_el_CER_de_emision_pasa_a_ser_BLOQUEANTE_en_completar_flujos():
     ch = inspect.getsource(av_agent_alta._chequeos_flujos)
     assert 'ps.append(_paso("cer_emision", "CER de emisión resuelto",\n' \
            '                        OK if cer_e else BLOQUEA,' in ch
-    # Y el paso del DIVISOR existe y también frena si no se pudo aplicar el ratio.
     assert '_paso("divisor"' in ch
-    assert 'OK if por_ratio else BLOQUEA' in ch
+
+    # **UNA CAUSA, UN SOLO BLOQUEO.** Si falta el CER, el paso del DIVISOR y el
+    # del CER se ponían rojos por lo MISMO: dos alarmas para un dato, y el user
+    # leyendo «2 pasos lo bloquean» cuando hay UNA casilla que llenar. El divisor
+    # frena solo cuando el CER ESTÁ y aun así no se pudo armar el ratio (un hueco
+    # en la serie) — que es un problema distinto y del sistema, no del user.
+    assert 'OK if por_ratio else (NO_SE if falta_cer else BLOQUEA)' in ch
+    assert 'falta_cer = not doc.get("cer_emision")' in ch
 
 
 def test_el_ratio_de_CER_sale_de_las_MISMAS_funciones_que_el_motor():

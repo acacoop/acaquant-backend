@@ -1937,3 +1937,65 @@ def test_los_ejes_propuestos_salen_de_la_CURVA_que_1816_publica():
     # **Solo si FALTAN.** Los ejes que cargó la mesa son la verdad y no se
     # discuten — misma regla que en completar-cronograma.
     assert "if ejes_actuales is None:" in sim
+
+
+def test_el_DIAGNOSTICO_le_pregunta_a_1816_UNA_SOLA_VEZ():
+    """El «auth HTTP 429» que rompió la pantalla **y los cuatro jobs de 1816 a la
+    vez** (2026-08-17) no era un problema de autenticación: era que el botón
+    DIAGNOSTICAR, recién estrenado, golpeaba demasiado.
+
+    `simular_arreglo` corre el motor DOS veces —el bono de HOY y la propuesta— y
+    **cada corrida salía a pedir su propia referencia de precio a 1816**. Es la
+    MISMA pregunta sobre el MISMO bono: ese precio no cambia entre «cómo está» y
+    «cómo quedaría». Con el retroceso de ruedas (hasta 5 intentos) más el cotejo
+    al mismo precio, un click llegaba a ~13 requests con la mitad duplicados;
+    probar seis bonos seguidos alcanzó para que 1816 nos aplicara el rate limit a
+    **todo**, endpoint de login incluido — de ahí que el mensaje dijera «auth».
+
+    Compartir la referencia no es solo la mitad de costo: **es lo correcto**. Los
+    dos estados quedan juzgados con la MISMA vara, que es el principio que ya rige
+    el cotejo (E3.j).
+
+    Se congela el CONTEO porque es la única forma de que esto no vuelva: nada en
+    el código impide que alguien agregue una tercera corrida del motor y con ella
+    una tercera consulta, y el síntoma tardaría días en aparecer."""
+    import inspect
+
+    from api.services import av_agent_alta
+
+    src = inspect.getsource(av_agent_alta.simular_arreglo)
+    assert src.count("_simular_tasa(") == 2, "el diagnóstico compara DOS estados"
+    assert src.count("_referencia_1816(") == 1, (
+        "la referencia de 1816 se pide UNA sola vez y se comparte — dos consultas "
+        "para la misma pregunta es lo que nos ganó el rate limit")
+    assert src.count("mercado_1816.cashflow(") == 1
+    assert "ref_1816=ref_unica" in src
+
+    # Y el orden importa: la moneda con la que se le pregunta a 1816 sale de los
+    # EJES, así que la consulta va DESPUÉS de resolverlos. Con los ejes vacíos
+    # —justo el caso `sin_ejes`— la pregunta saldría mal formulada.
+    assert src.index("doc_prop = dict(doc)") < src.index("ref_unica = _referencia_1816")
+
+
+def test_las_puertas_del_agente_tienen_PRESUPUESTO_de_tiempo():
+    """Detrás de Cloudflare hay un reloj de 100s. Al ponerle backoff a `_auth`
+    contra el 429, una simulación pasó a poder tardar minutos — y el resultado no
+    fue lentitud sino un **HTTP 524**: el proxy corta, la respuesta se pierde y el
+    usuario ve un error que no dice nada.
+
+    La paciencia correcta depende de QUIÉN espera: un cron aguanta minutos, un
+    click no. Por eso el presupuesto es un contextvar declarado en las puertas del
+    agente —las únicas interactivas— y no una constante del módulo."""
+    import inspect
+
+    from api.services import av_agent_alta
+    from core import mercado_1816
+
+    assert hasattr(mercado_1816, "presupuesto")
+    src = inspect.getsource(av_agent_alta)
+    # Las SEIS puertas públicas del agente lo llevan.
+    assert src.count("@_interactivo\ndef ") == 6, (
+        "alguna puerta del agente quedó sin presupuesto de tiempo: si 1816 se "
+        "pone lento, esa devuelve un 524 en vez de un error que se entiende")
+    # Y los jobs NO: su paciencia larga es correcta, nadie los está mirando.
+    assert "_interactivo" not in inspect.getsource(mercado_1816)

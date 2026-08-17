@@ -1869,7 +1869,8 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None,
 
 
 def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
-                  ticker: str = "", moneda_eje: str = "") -> dict:
+                  ticker: str = "", moneda_eje: str = "",
+                  ref_1816: dict | None = None) -> dict:
     """Corre el MOTOR sobre el doc simulado. Mismo `calcular_campos` que usa
     `engines/curvas` en producción: si acá saliera otro número, la simulación no
     valdría para nada.
@@ -1889,7 +1890,11 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
         rama_calculo,
     )
 
-    fuente, ref = "manual", {}
+    # **La referencia de 1816 se puede INYECTAR.** El que corre el motor DOS veces
+    # sobre el mismo bono (el diagnóstico: «cómo está hoy» contra «cómo quedaría»)
+    # estaba pagando DOS veces la misma consulta — y el precio de referencia de un
+    # bono no cambia entre las dos. Ver `simular_arreglo`.
+    fuente, ref = "manual", dict(ref_1816 or {})
     if precio is None:
         fuente = "snapshot"
         try:
@@ -1897,7 +1902,7 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
             precio = (m.get(simbolo) or {}).get("last_price")
         except Exception:
             precio = None
-        if (not precio or precio <= 0) and ticker:
+        if (not precio or precio <= 0) and ticker and not ref:
             # Sin snapshot no había NADA que simular y había que aplicar a ciegas.
             # 1816 publica el precio: se usa de referencia y no se persiste.
             ref = _referencia_1816(ticker, moneda_eje=moneda_eje, simbolo=simbolo)
@@ -2522,11 +2527,7 @@ def simular_arreglo(ticker: str, *, cer_emision: float | None = None) -> dict:
     simbolo = (doc.get("ticker") or "").strip()
     ficha = _ficha_1816(tk)
 
-    # ── (1) EL ANTES. El bono tal como lo ve el motor hoy, sin tocar nada.
-    hoy_est = _simular_tasa(dict(doc), simbolo, None, ticker=tk,
-                            moneda_eje=(doc.get("moneda_eje") or "").strip())
-
-    # ── (2) LOS EJES. Solo se proponen si FALTAN: los que cargó la mesa son la
+    # ── (1) LOS EJES. Solo se proponen si FALTAN: los que cargó la mesa son la
     # verdad y no se discuten (misma regla que en completar-cronograma).
     ejes_actuales = curvas_ejes.ejes_de_doc(doc)
     curva_1816 = (ficha.get("curva_1816") or "").strip()
@@ -2544,7 +2545,34 @@ def simular_arreglo(ticker: str, *, cer_emision: float | None = None) -> dict:
                          "moneda_eje": ejes_prop.moneda, "ajuste": ejes_prop.ajuste,
                          "ajuste_alt": ejes_prop.ajuste_alt, "ley": ejes_prop.ley})
 
-    # ── (3) EL CUADRO de 1816, con la rama YA corregida por los ejes propuestos.
+    # ⚠️ **UNA SOLA CONSULTA A 1816 PARA LOS DOS ESTADOS** (2026-08-17).
+    #
+    # Este diagnóstico corre el motor DOS veces —el bono de HOY y la propuesta— y
+    # cada corrida salía a pedirle a 1816 **su propia** referencia de precio. Es la
+    # MISMA pregunta sobre el MISMO bono: el precio de referencia no cambia entre
+    # «cómo está» y «cómo quedaría». Con el retroceso de ruedas (hasta 5 intentos)
+    # más el cotejo al mismo precio, un solo click llegaba a ~13 requests, **la
+    # mitad duplicados** — y probar seis bonos seguidos alcanzó para que 1816 nos
+    # aplicara el rate limit **a todo, endpoint de login incluido**: de ahí el
+    # «auth HTTP 429» que rompió la pantalla y los cuatro jobs a la vez.
+    #
+    # Se pide UNA vez, con los ejes de la PROPUESTA (los correctos), y se comparte.
+    # Además de costar la mitad, **es lo que corresponde**: los dos estados quedan
+    # juzgados con la MISMA vara, que es el principio que ya rige el cotejo.
+    #
+    # Por eso este bloque va DESPUÉS de resolver los ejes: la moneda con la que se
+    # le pregunta a 1816 sale de ellos, y con los ejes vacíos —que es justo el caso
+    # `sin_ejes`— la pregunta saldría mal formulada.
+    ref_unica = _referencia_1816(
+        tk, simbolo=simbolo,
+        moneda_eje=(doc_prop.get("moneda_eje") or doc.get("moneda_eje") or "").strip())
+
+    # EL ANTES: el bono tal como lo ve el motor hoy, sin tocar nada.
+    hoy_est = _simular_tasa(dict(doc), simbolo, None, ticker=tk,
+                            moneda_eje=(doc.get("moneda_eje") or "").strip(),
+                            ref_1816=ref_unica)
+
+    # ── (2) EL CUADRO de 1816, con la rama YA corregida por los ejes propuestos.
     rama = rama_calculo(doc_prop)
     cer_manual = cer_emision if (cer_emision or 0) > 0 else None
     cer_usado = doc_prop.get("cer_emision") or cer_manual
@@ -2570,7 +2598,8 @@ def simular_arreglo(ticker: str, *, cer_emision: float | None = None) -> dict:
         doc_prop["cer_emision"] = cer_manual
 
     prop_est = _simular_tasa(doc_prop, simbolo, None, ticker=tk,
-                             moneda_eje=(doc_prop.get("moneda_eje") or "").strip())
+                             moneda_eje=(doc_prop.get("moneda_eje") or "").strip(),
+                             ref_1816=ref_unica)
 
     out = {
         "ok": True, "ticker": tk, "modo": "arreglo", "rama": rama,

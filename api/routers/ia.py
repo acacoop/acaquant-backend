@@ -242,3 +242,24 @@ def av_agent_designorar(body: DesignorarAvAgent, email: str = Depends(get_user_e
         return preg.designorar(body.ticker, por=email or "")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+class SimularAvAgent(BaseModel):
+    ticker: str = Field(..., min_length=2, max_length=32)
+    curva_1816: str = Field(..., min_length=2, max_length=80)
+
+
+@router.post("/av-agent/simular", dependencies=[Depends(require_admin)])
+def av_agent_simular(body: SimularAvAgent):
+    """E2 — calcula la TEA que TENDRÍA el bono, **sin escribir nada**."""
+    from api.services import av_agent_alta
+    return av_agent_alta.simular(body.ticker, curva_1816=body.curva_1816)
+
+
+@router.post("/av-agent/aplicar-alta", dependencies=[Depends(require_admin)])
+def av_agent_aplicar_alta(body: SimularAvAgent, email: str = Depends(get_user_email)):
+    """E2 — simula y, si la rama lo permite, da de alta el bono en
+    `mercado.curvas` por la MISMA puerta que usa la mesa (`upsert_bono`)."""
+    from api.services import av_agent_alta
+    return av_agent_alta.aplicar(body.ticker, curva_1816=body.curva_1816,
+                                 actor=email or "")

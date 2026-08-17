@@ -165,7 +165,7 @@ opiniones. El eval va ANTES del modelo.
 | E1 | El espejo (detectar, sin escribir) | no | solo tabla propia | ✅ **calibrado en prod (64 hallazgos)** |
 | E1.c | El agente PREGUNTA | no | tabla propia | ✅ **hecho** |
 | E1.d | El modal (barra inferior, admin-only) | no | tabla propia | ✅ **hecho** |
-| E2 | El simulador (TEA en seco) | no | no | pendiente |
+| E2 | El simulador + aplicar el alta | no | **sí, con click humano** | ✅ **hecho** |
 | E3 | El set de control (evals) | no | no | pendiente |
 | E4 | El cerebro (diagnóstico) | **sí** | no | pendiente |
 | E5 | La bandeja (Manager → BONOS) | — | sí, **con aprobación humana** | pendiente |
@@ -692,8 +692,51 @@ lenguaje humano lo haría inservible justo para eso. Y la hora es **ART**, no la
 del servidor: se lee para reconstruir qué pasó a tal hora, y esa hora es la del
 que operó.
 
+### E2 — SIMULAR y APLICAR el alta (2026-08-17)
+
+Contestar «alta» guardaba la decisión y nada más. Ahora la ejecuta:
+`api/services/av_agent_alta.py` baja el cuadro de 1816, lo convierte a NUESTRA
+shape, **calcula la TEA que TENDRÍA el bono sin escribir nada**, y recién con ese
+número a la vista se aplica. Todo desde el modal: botones **SIMULAR** y
+**APLICAR** en la misma fila del hallazgo (`ENCONTRÓ` deja de ser solo lectura).
+
+**El simulador ES el guardrail.** Un flujo mal escalado no da error: da una TEA
+absurda o ninguna. Si se escribiera igual rompería la escala del chart y
+contaminaría el AuM vía el join con `portafolio.assets`. Simulando primero, ese
+error se ve ANTES y el alta no se aplica.
+
+**Alcance deliberadamente acotado — qué se da de alta solo y qué no:**
+
+| Rama | ¿Alta automática? | Por qué |
+|---|---|---|
+| `tasa_fija` bullet | **sí** | un pago: `flujo_vencimiento` |
+| `tasa_fija` con cupón | **sí** | `amortizacion` + `interes` = lo que manda 1816 |
+| `soberanos` | **sí** | acá `cupon_sobre_residual` **es un monto por 100**, igual que 1816 |
+| `cer` | **no** | acá el MISMO campo es una **TASA** sobre el residual vivo, y exige `cer_emision` |
+| `tamar` / `dual` | **no** | shape propia y valuación por otro riel |
+
+**Esa diferencia de significado es la trampa del paso 15 de `RENTA_FIJA.md`**: la
+primera conversión que alguien escribió estaba mal por eso (un cupón de 2 daba
+200) y **no se veía leyendo el código** — la cazó un chequeo numérico. Las ramas
+donde un campo significa dos cosas se simulan y se muestran, pero las carga un
+humano.
+
+Otras tres cosas que no son detalle: la **escala se MIDE** (Σ amortizaciones ≈
+100 → VN 100; si no, nominales) porque no hay un divisor global; se usa la **fecha
+EFECTIVA** (por teórica matchean 13/23 cupones, por efectiva 21/23); y el alta
+escribe por **`bonos_admin.upsert_bono`**, la misma puerta que usa la mesa desde
+Manager — así no puede existir un alta del agente con otra shape que una humana.
+
+Cada aplicación queda en el **libro** (`alta_bono`) con la TEA simulada, y la
+respuesta avisa que **los motores cargan `mercado.curvas` al arrancar**: la tasa
+aparece recién tras reiniciar `motor_rofex` + `motor_curvas`.
+
 ## Changelog
 
+- **2026-08-17 — E2, simular y aplicar.** El agente baja el cuadro de 1816,
+  calcula la TEA en seco y da de alta el bono por `upsert_bono` con un click.
+  Solo las ramas donde la conversión es inequívoca (`tasa_fija`, `soberanos`);
+  `cer` y `tamar` se simulan pero las carga un humano.
 - **2026-08-17 — E1.i, el LIBRO DE ACCIONES.** `mercado.av_agent_acciones` + tab
   **HIZO**: qué escribió, cuándo, en qué tabla, por pedido de quién y qué había
   antes. Anota también los intentos fallidos. Obligatorio antes de E2.

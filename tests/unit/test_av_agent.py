@@ -334,3 +334,56 @@ def test_el_RESUMEN_cuenta_TODOS_los_tipos_de_hallazgo():
 def _hall(tipo: str) -> dict:
     return {"tipo": tipo, "ticker": "X", "regla": "r", "severidad": "alta",
             "motivo": "…", "evidencia": {}}
+
+
+# ── E2: convertir el cuadro de 1816 a nuestra shape ─────────────────────────
+
+
+def _cup(fecha: str, amort: float, interes: float) -> dict:
+    return {"fechaPagoEfectiva": fecha, "fechaPagoTeorica": fecha,
+            "flujoAmortizacion": amort, "flujoInteres": interes}
+
+
+def test_la_rama_SOBERANOS_usa_las_claves_porcentuales():
+    """En `soberanos`, `cupon_sobre_residual` ES un monto por 100 VN — o sea
+    exactamente lo que manda 1816, sin convertir."""
+    from api.services.av_agent_alta import convertir_flujos
+    r = convertir_flujos([_cup("2027-01-15", 0, 2.5), _cup("2027-07-15", 100, 2.5)],
+                         "soberanos")
+    assert r["flujos"][0] == {"fecha": "2027-01-15", "amortizacion_pct": 0.0,
+                              "cupon_sobre_residual": 2.5}
+    assert r["escala"] == "vn100" and r["suma_amort"] == 100.0
+
+
+def test_la_rama_TASA_FIJA_usa_las_claves_absolutas():
+    from api.services.av_agent_alta import convertir_flujos
+    r = convertir_flujos([_cup("2027-01-15", 0, 2.5)], "tasa_fija")
+    assert r["flujos"][0] == {"fecha": "2027-01-15", "amortizacion": 0.0,
+                              "interes": 2.5}
+
+
+def test_un_BULLET_se_guarda_como_flujo_vencimiento_no_como_cronograma():
+    """Una LECAP tiene un solo pago y el motor la valúa con `flujo_vencimiento`
+    (`tea = (flujo_vto/precio)^(365/días) − 1`). Guardarla como cronograma de un
+    cupón la dejaría sin TEA."""
+    from api.services.av_agent_alta import convertir_flujos
+    r = convertir_flujos([_cup("2027-01-15", 100, 47.5)], "tasa_fija")
+    assert r["flujo_vencimiento"] == 147.5
+
+
+def test_la_ESCALA_se_MIDE_no_se_asume():
+    """1816 manda por VN 100 en los bonos por paridad y en NOMINALES en algunas
+    ONs (medido). Asumir un divisor global es la falla #2 del catálogo."""
+    from api.services.av_agent_alta import convertir_flujos
+    assert convertir_flujos([_cup("2027-01-15", 100, 5)], "tasa_fija")["escala"] == "vn100"
+    assert convertir_flujos([_cup("2027-01-15", 148869.84, 5)],
+                            "tasa_fija")["escala"] == "nominales"
+
+
+def test_solo_las_ramas_INEQUIVOCAS_se_dan_de_alta_solas():
+    """`cer` queda afuera a propósito: ahí `cupon_sobre_residual` es una TASA que
+    se multiplica por el residual vivo, no un monto — la trampa del paso 15 de
+    RENTA_FIJA, que no se veía leyendo el código."""
+    from api.services.av_agent_alta import RAMAS_AUTOMATICAS
+    assert set(RAMAS_AUTOMATICAS) == {"tasa_fija", "soberanos"}
+    assert "cer" not in RAMAS_AUTOMATICAS and "tamar" not in RAMAS_AUTOMATICAS

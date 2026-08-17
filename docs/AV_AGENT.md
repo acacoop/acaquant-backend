@@ -2392,6 +2392,29 @@ realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
 
+- **2026-08-17 — LAS OCHO LENTES: el agente razona por varios lados.** Pedido del
+  user: *«lo que yo quiero es el ANÁLISIS… es por el valor técnico, es por la
+  paridad, es por la moneda, es porque falta esto»*. El diagnóstico era un árbol
+  que **devolvía en el primer match**: acertaba la causa pero no mostraba el
+  razonamiento, y el que lee la pantalla es el que decide si escribir. Ahora corren
+  **todas** y cada una dice lo que ve — la ficha (¿qué es y quién le calcula la
+  tasa?), la moneda (¿en qué unidad entra el precio al motor?), los insumos
+  externos, el valor técnico (¿en qué escala está el cronograma?), el precio (de
+  dónde sale y en qué escala), la paridad **con la división a la vista**, la TEA
+  (¿converge el XIRR?) y el espejo en assets. La que falla **más aguas arriba** se
+  lleva la causa (ese orden ya es el contrato), pero las otras siete igual hablan:
+  una lente en verde también informa, porque **descarta un camino**. Todas locales:
+  cero red, cero créditos. `diagnosticar_local` pasa a ser una vista angosta de
+  `analizar()` y no una segunda implementación. 2 tests (108 en el módulo).
+- **2026-08-17 — el token pegado a mano se IGNORABA por parecer vencido.** El user
+  pegó un token de la sesión web —la vía de escape correcta cuando se agotan los 50
+  logins— pero `expira_at` quedó NULL y `_token()` lo daba por vencido: la vía de
+  escape no funcionaba y fallaba en silencio, con el mismo «auth 429» de siempre.
+  El token sabe cuándo vence: `exp_del_jwt` lee su claim `exp` (sin validar la
+  firma — no es nuestra) y la columna se sella sola. **Verificado en producción**:
+  28 curvas traídas con 0 logins. Además, el 401 dejaba al cliente en LOOP
+  (limpiaba el token de memoria y el siguiente `_token()` lo re-adoptaba de la
+  fila); ahora también se invalida en la base, y solo si sigue siendo el mismo.
 - **2026-08-17 — el «auth HTTP 429» era la CUOTA DE TOKENS, no un rate limit.**
   El panel del plan lo dice: créditos diarios **3.863/100.000** (sobra), máx. **1
   petición/segundo**, y **máx. 50 tokens por día** — ese era el techo. Un token

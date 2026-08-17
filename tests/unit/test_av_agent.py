@@ -2158,7 +2158,7 @@ def test_la_causa_se_elige_AGUAS_ARRIBA():
     cer = {"emisor_tipo": "provincial", "moneda_eje": "ARS", "ajuste": "cer",
            "flujos": [{"fecha": fut, "amortizacion": 29.25}]}
     dx4 = diagnosticar_local(cer, "cer", {"precio": 122.0})
-    assert dx4["causa"] == "falta_cer" and "valor viejo" in dx4["detalle"]
+    assert dx4["causa"] == "falta_cer" and "número viejo" in dx4["detalle"]
 
     # TX26: el bono está BIEN — la paridad la calcula mal el motor.
     tx26 = {"emisor_tipo": "soberano", "moneda_eje": "ARS", "ajuste": "cer",
@@ -2221,3 +2221,62 @@ def test_1816_caido_NO_frena_la_relevada_entera():
     for clave in ("_curva", "emisorNombre", "monedaDenom", "isinCode",
                   "fechaEmision", "fechaVencimiento"):
         assert f'"{clave}"' in loc
+
+
+def test_el_agente_MIRA_POR_VARIOS_LADOS_y_no_solo_donde_encuentra():
+    """Pedido del user (2026-08-17): *«lo que yo quiero es el ANÁLISIS, que el
+    agente tenga varias formas de detectar qué es lo que pasa… es por el valor
+    técnico, es por la paridad, es por la moneda, es porque falta esto»*.
+
+    La versión anterior devolvía en el PRIMER match: acertaba la causa pero no
+    mostraba el razonamiento. Y quien lee la pantalla es el que decide si escribir,
+    así que necesita las dos cosas — una lente en verde también informa, porque es
+    la que descarta un camino."""
+    from datetime import date, timedelta
+
+    from api.services.av_agent_alta import LENTES, analizar
+
+    fut = (date.today() + timedelta(days=200)).isoformat()
+    loc6o = {"emisor_tipo": "corporativo", "moneda_eje": "USD", "ajuste": "fija",
+             "moneda_flujo": "HD", "ticker": "MERV - XMEV - LOC6O - 24hs",
+             "flujos": [{"fecha": fut, "amortizacion": 100.0}]}
+    r = analizar(loc6o, "on", {"precio": 156570.0, "paridad": 156570.0})
+
+    # TODAS las lentes contestan, siempre y en orden.
+    assert [o["clave"] for o in r["observaciones"]] == [c for c, _ in LENTES]
+    assert all(o["detalle"] for o in r["observaciones"])
+
+    por = {o["clave"]: o for o in r["observaciones"]}
+    # La que encuentra el problema se lleva la causa…
+    assert r["causa"] == "moneda_flujo_contradice"
+    assert por["moneda"]["causa"] == "moneda_flujo_contradice"
+    # …y explica el mecanismo, no solo el síntoma.
+    assert "else" in por["moneda"]["detalle"] and "CARTERA" in por["moneda"]["detalle"]
+    # …pero las otras igual dicen lo suyo: el cuadro está SANO y hay que verlo.
+    assert por["cuadro"]["estado"] == "ok" and "base 100" in por["cuadro"]["detalle"]
+    # La paridad muestra LA DIVISIÓN, no un veredicto.
+    assert "156,570.0000 / 100.0000" in por["paridad"]["detalle"]
+    # Y el precio dice en qué ESCALA está, que es la mitad del razonamiento.
+    assert "PESOS" in por["precio"]["detalle"]
+    # El XIRR que no converge se explica y NO se lleva la causa: apunta a otra lente.
+    assert por["tasa"]["estado"] == "revisar" and "escalas distintas" in por["tasa"]["detalle"]
+
+    # Un bono sano: ninguna lente encuentra nada y la conclusión lo dice.
+    sano = {**loc6o, "moneda_flujo": "USD"}
+    r2 = analizar(sano, "on", {"precio": 103.5, "paridad": 103.5, "tea": 0.08})
+    assert r2["causa"] == "sano" and not r2["parche"]
+    assert all(o["estado"] in ("ok", "info") for o in r2["observaciones"])
+
+
+def test_las_lentes_van_a_la_PANTALLA_completas():
+    """Si el modal mostrara solo la conclusión, el análisis existiría y nadie lo
+    vería — que es exactamente lo que el user vino a pedir que cambie."""
+    import inspect
+
+    from api.services import av_agent_alta
+
+    src = inspect.getsource(av_agent_alta._diagnostico_local)
+    assert 'for o in dx["observaciones"]' in src, "van TODAS, no solo la culpable"
+    assert 'f"lente_{o[\'clave\']}"' in src
+    assert src.index('for o in dx["observaciones"]') < src.index("LA CONCLUSIÓN"), \
+        "primero el razonamiento, después la conclusión"

@@ -73,11 +73,14 @@ def main() -> int:
         print(f"    ({' · '.join(nombres)}…)")
 
     if args.ticker:
-        print(f"\n  consultando un indicador de {args.ticker}…")
+        # `indicadores_vigentes` (el precio lo pone 1816) y no `indicadores_de`,
+        # que es el de input MANUAL y exige que le pasemos un precio de referencia.
+        print(f"\n  consultando indicadores de {args.ticker}…")
         try:
-            r = m.indicadores_de(args.ticker, ["tea", "paridad"]) or {}
+            r = m.indicadores_vigentes([args.ticker], ["tea", "paridad"]) or {}
             v = (r.get("instrumentos") or {}).get(args.ticker.upper()) or {}
             print(f"  ✔ {args.ticker}: tea={v.get('tea')}  paridad={v.get('paridad')}"
+                  f"  (rueda {r.get('fechaOperacion')})"
                   if v else f"  ⚠ 1816 no devolvió datos para {args.ticker}")
         except Exception as e:
             print(f"  ✖ falló: {e}")

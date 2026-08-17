@@ -2633,6 +2633,10 @@ CAUSAS: dict[str, dict] = {
         "titulo": "No hay precio en ninguna fuente local",
         "arreglo": "ninguno: sin precio no hay métrica que arreglar",
         "agente": False, "campo": ""},
+    "sin_residual": {
+        "titulo": "El cronograma no tiene amortizaciones futuras",
+        "arreglo": "revisar si el bono ya amortizó todo o si el cuadro está corto",
+        "agente": False, "campo": "flujos"},
     "sano": {
         "titulo": "Con los datos de hoy no se detecta nada roto",
         "arreglo": "ninguno — el hallazgo puede haber quedado viejo",
@@ -2640,95 +2644,288 @@ CAUSAS: dict[str, dict] = {
 }
 
 
-def diagnosticar_local(doc: dict, rama: str, est: dict) -> dict:
-    """**LA CAUSA, con lo que ya tenemos.** Cero red, cero créditos.
+# ── LAS LENTES: el agente mira el bono por VARIOS LADOS ─────────────────────
+#
+# **Pedido del user (2026-08-17)**: *«lo que yo quiero es el ANÁLISIS, que el
+# agente tenga varias formas de detectar qué es lo que pasa… muchas
+# funcionalidades que simularían a una persona que razona: es por el valor
+# técnico, es por la paridad, es por la moneda, es porque falta esto…»*.
+#
+# La primera versión de este diagnóstico era un árbol de decisión: preguntaba en
+# orden y **devolvía en el primer match**. Con eso el agente acertaba la causa
+# pero no mostraba el razonamiento — y quien lee la pantalla necesita las dos
+# cosas, porque es el que decide si escribir o no.
+#
+# Ahora corren **TODAS**. Cada lente es una pregunta que una persona le haría al
+# bono, contesta con lo que ve, y **la que falla más aguas arriba se lleva la
+# causa**. El orden sigue siendo el contrato (equivocarlo ya hizo proponer «cambiá
+# la pata» sobre bonos con la pata perfecta); lo nuevo es que las otras siete
+# igual hablan.
+#
+# Todas son LOCALES: cero red, cero créditos, andan un domingo.
+LENTES: tuple[tuple[str, str], ...] = (
+    ("ficha",    "La ficha: ¿qué es este bono y quién le calcula la tasa?"),
+    ("moneda",   "La moneda: ¿en qué unidad entra el precio al motor?"),
+    ("insumos",  "Los insumos externos: CER de emisión, MEP, A3500"),
+    ("cuadro",   "El valor técnico: ¿en qué escala está el cronograma?"),
+    ("precio",   "El precio: de dónde sale y en qué escala está"),
+    ("paridad",  "La paridad, con la división a la vista"),
+    ("tasa",     "La TEA: ¿el XIRR converge?"),
+    ("espejo",   "El espejo en portafolio.assets"),
+)
 
-    Devuelve `{causa, detalle, parche}`. El `parche` es lo que habría que
-    escribir —vacío si el agente no sabe (o no debe) arreglarlo solo.
 
-    El ORDEN es aguas arriba: si a un CER le falta el índice de emisión, el motor
-    sale sin calcular nada y discutir la forma de su cuadro es discutir un síntoma
-    que el motor ni siquiera produjo. Está validado contra los 38 hallazgos
-    reales, y **dos veces me equivoqué por ordenarlo mal** — por eso el orden es
-    parte del contrato y no un detalle.
-    """
-    from engines.curvas import MONEDAS_FLUJO, moneda_flujo_esperada
-
-    # (1) `moneda_flujo`: lo PRIMERO de la rama ON porque es lo que decide si el
-    # precio se convierte. Con esto mal, todo lo demás que se mida está medido en
-    # la unidad equivocada — y proponer otra cosa sería arreglar el síntoma.
-    if rama == "on":
-        esperada = moneda_flujo_esperada(doc)
-        actual = (doc.get("moneda_flujo") or "").strip().upper()
-        if esperada and actual != esperada:
-            return {"causa": "moneda_flujo_contradice",
-                    "detalle": (f"`moneda_flujo`={actual or '(vacío)'} y los ejes "
-                                f"piden **{esperada}**. El motor despacha por "
-                                "`moneda_flujo`, así que el precio entra sin "
-                                "convertir"
-                                + (f" — y «{actual}» ni siquiera es una palabra que "
-                                   "el motor conozca: cae en el `else` y se valúa "
-                                   "como peso nativo, sin dar error."
-                                   if actual and actual not in MONEDAS_FLUJO
-                                   else ".")),
-                    "parche": {"moneda_flujo": esperada}}
-
-    # (2) CER sin su índice: `engines/curvas.py:439` sale SIN escribir TEA ni
-    # paridad, así que lo que se vea guardado es de otra época.
-    if (doc.get("ajuste") or "") == "cer" and not _num(doc.get("cer_emision")):
-        return {"causa": "falta_cer",
-                "detalle": ("sin `cer_emision` el motor no calcula nada para este "
-                            "bono: la paridad que disparó el hallazgo es un valor "
-                            "viejo que quedó en el snapshot."),
-                "parche": {}}
+def _ctx(doc: dict, rama: str, est: dict) -> dict:
+    """Todo lo que las lentes necesitan, calculado UNA vez. Que compartan los
+    mismos números es lo que evita que dos lentes se contradigan."""
+    from engines.curvas import moneda_flujo_esperada
 
     residual, n_fut = _residual_vivo(doc, rama)
+    campo_rama = "amortizacion" if rama in ("on", "tasa_fija") else "amortizacion_pct"
+    otro_campo = "amortizacion_pct" if campo_rama == "amortizacion" else "amortizacion"
+    precio = _num(est.get("precio"))
+    simbolo = (doc.get("ticker") or "").strip()
+    sufijo = ""
+    partes = simbolo.split(" - ")
+    if len(partes) >= 3 and partes[2]:
+        sufijo = partes[2][-1].upper()
+    return {
+        "doc": doc, "rama": rama, "est": est, "simbolo": simbolo, "sufijo": sufijo,
+        "ejes": (doc.get("emisor_tipo"), doc.get("moneda_eje"), doc.get("ajuste")),
+        "residual": residual, "n_fut": n_fut,
+        "campo_rama": campo_rama, "otro_campo": otro_campo,
+        "suma_otro": _suma_amortizacion(doc, otro_campo),
+        "precio": precio, "paridad": _num(est.get("paridad")),
+        "tea": _num(est.get("tea")),
+        "mf": (doc.get("moneda_flujo") or "").strip().upper(),
+        "mf_esperada": moneda_flujo_esperada(doc),
+        "cer_emision": _num(doc.get("cer_emision")),
+        "vn": _num(doc.get("valor_nominal")) or 100.0,
+    }
 
-    # (3) El cuadro cargado con el campo de la OTRA rama.
-    otro = _suma_amortizacion(doc, "amortizacion_pct"
-                              if rama in ("on", "tasa_fija") else "amortizacion")
-    if not residual and otro:
-        return {"causa": "campo_de_amortizacion",
-                "detalle": (f"la rama «{rama}» lee su campo y da 0, pero el cuadro "
-                            f"tiene Σ = {otro:,.2f} en el de la otra rama."),
-                "parche": {}}
 
-    # (4) La escala del cuadro.
-    if residual and not (_RESIDUAL_MIN <= residual <= _RESIDUAL_MAX):
-        return {"causa": "escala_del_cuadro",
-                "detalle": (f"Σ de las amortizaciones futuras = **{residual:,.2f}** "
-                            f"en {n_fut} cupón/es. Un cuadro sano ronda **100** "
-                            f"(el bono cotiza por 100 de VN): está "
-                            f"**{residual / 100:,.0f}× más grande**, o sea en "
-                            "nominales de la emisión."
-                            if residual > _RESIDUAL_MAX else
-                            f"Σ de las amortizaciones futuras = **{residual:,.4f}** "
-                            f"en {n_fut} cupón/es, muy por debajo de 100: el cuadro "
-                            "está en una escala más chica que el precio."),
-                "parche": {}}
+def _ob(clave: str, estado: str, detalle: str, *, causa: str = "",
+        parche: dict | None = None) -> dict:
+    """Una observación. `causa` solo la ponen las lentes que ENCONTRARON algo."""
+    return {"clave": clave, "estado": estado, "detalle": detalle,
+            "causa": causa, "parche": parche or {}}
 
-    # (5) Un CER que ya amortizó no tiene la paridad mal: la tiene mal el motor,
-    # que arma el valor técnico con `valor_nominal` en vez del residual VIVO.
-    if rama == "cer" and 0 < residual < 99:
-        vn = _num(doc.get("valor_nominal")) or 100.0
-        if vn > residual * 1.05:
-            return {"causa": "paridad_del_motor",
-                    "detalle": (f"el bono ya amortizó: residual vivo {residual:,.2f} "
-                                f"contra `valor_nominal` {vn:,.2f}. La paridad sale "
-                                f"×{vn / residual:,.1f} más chica de lo real. **El "
-                                "dato del bono está bien** — no hay nada que pisar."),
-                    "parche": {}}
 
-    if not _num(est.get("precio")):
-        return {"causa": "sin_precio",
-                "detalle": ("ni el snapshot, ni el cierre, ni la evidencia del "
-                            "hallazgo tienen un precio > 0. Sin precio no hay "
-                            "paridad ni TEA que arreglar."),
-                "parche": {}}
-    return {"causa": "sano",
-            "detalle": ("el cuadro está en base 100, los ejes y `moneda_flujo` "
-                        "coinciden y hay precio."),
-            "parche": {}}
+def _lente_ficha(c: dict) -> dict:
+    rama = c["rama"]
+    emisor, moneda, ajuste = c["ejes"]
+    if not (emisor and moneda and ajuste):
+        return _ob("ficha", REVISAR,
+                   "**sin ejes**: este bono no cae en ninguna curva, así que "
+                   "desaparece de la tabla, de los forwards y del fair value **sin "
+                   "dar un solo error**. Nada de lo que sigue se puede clasificar "
+                   "bien mientras falte esto.",
+                   causa="sin_ejes")
+    fuente, job = tasa_externa_de(ajuste)
+    externa = fuente == "1816"
+    return _ob("ficha", INFO if externa else OK,
+               f"{emisor} · {moneda} · {ajuste} → rama de cálculo «{rama}». "
+               + (f"La TEA **no la calculamos nosotros**: la trae {job or '1816'}, "
+                  "así que un hallazgo de TASA acá no se arregla tocando el cuadro "
+                  "(uno de PARIDAD sí puede: la paridad sale del precio y del "
+                  "cronograma, no del cupón)."
+                  if externa else
+                  "La TEA la calcula nuestro motor con el cronograma cargado."))
+
+
+def _lente_moneda(c: dict) -> dict:
+    """La lente que más veces tuvo razón: 30 de 140 bonos de la rama ON."""
+    from engines.curvas import MONEDAS_FLUJO
+
+    if c["rama"] != "on":
+        return _ob("moneda", INFO,
+                   f"la rama «{c['rama']}» no despacha por `moneda_flujo` — su "
+                   "conversión la decide la fórmula de la rama.")
+    mf, esperada = c["mf"], c["mf_esperada"]
+    if not esperada:
+        return _ob("moneda", NO_SE, "sin ejes no se puede decir qué debería decir "
+                                    "`moneda_flujo`.")
+    # El razonamiento, dicho como lo diría una persona mirando el bono.
+    puerta = {"USD": "convierte el precio a dólares (÷MEP si el símbolo no termina "
+                     "en D/C)",
+              "DL": "divide el precio por el A3500 si viene en escala peso",
+              "ARS": "usa el precio tal cual, peso nativo"}
+    if mf == esperada:
+        return _ob("moneda", OK,
+                   f"`moneda_flujo`={mf} coincide con los ejes → el motor "
+                   f"{puerta.get(mf, '?')}. El símbolo cargado termina en "
+                   f"«{c['sufijo']}».")
+    desconocida = bool(mf) and mf not in MONEDAS_FLUJO
+    return _ob("moneda", REVISAR,
+               f"`moneda_flujo`=**{mf or '(vacío)'}** pero los ejes piden "
+               f"**{esperada}**"
+               + (f", y «{mf}» ni siquiera es una palabra que el motor conozca: cae "
+                  "en el `else` y el precio entra **como peso nativo, sin dar "
+                  "error**. Es el vocabulario de la CARTERA, no el del motor."
+                  if desconocida else
+                  f" → el motor {puerta.get(mf or 'ARS', 'usa el precio tal cual')} "
+                  f"cuando debería {puerta.get(esperada, '?')}.")
+               + f" El símbolo termina en «{c['sufijo']}», así que la PATA no es el "
+                 "problema: con `moneda_flujo` bien, el motor la resuelve solo.",
+               causa="moneda_flujo_contradice", parche={"moneda_flujo": esperada})
+
+
+def _lente_insumos(c: dict) -> dict:
+    doc = c["doc"]
+    if (doc.get("ajuste") or "") == "cer" and not c["cer_emision"]:
+        return _ob("insumos", REVISAR,
+                   "falta el **CER de emisión**. Sin él la rama CER sale en "
+                   "`curvas.py:439` **sin escribir TEA ni paridad**, así que lo que "
+                   "haya guardado en el snapshot es de otra época — el hallazgo lo "
+                   "disparó un número viejo, no el bono de hoy.",
+                   causa="falta_cer")
+    if (doc.get("ajuste") or "") == "cer":
+        return _ob("insumos", OK, f"CER de emisión cargado: {c['cer_emision']}.")
+    return _ob("insumos", OK, "esta rama no necesita CER de emisión.")
+
+
+def _lente_cuadro(c: dict) -> dict:
+    """El VALOR TÉCNICO: lo que el bono todavía debe. Es el denominador de la
+    paridad, así que si está en otra escala **todo lo demás miente**."""
+    residual, n_fut = c["residual"], c["n_fut"]
+    if not residual and c["suma_otro"]:
+        return _ob("cuadro", REVISAR,
+                   f"la rama «{c['rama']}» lee `{c['campo_rama']}` y ahí hay **0**, "
+                   f"pero el cronograma tiene Σ `{c['otro_campo']}` = "
+                   f"**{c['suma_otro']:,.2f}**: está cargado con el campo de la OTRA "
+                   "rama. El motor no ve ninguna amortización futura.",
+                   causa="campo_de_amortizacion")
+    if not residual:
+        return _ob("cuadro", REVISAR,
+                   f"no queda ninguna amortización futura en el cronograma "
+                   f"({n_fut} cupón/es por delante). O el bono ya amortizó todo, o "
+                   "el cuadro está incompleto.",
+                   causa="sin_residual")
+    if not (_RESIDUAL_MIN <= residual <= _RESIDUAL_MAX):
+        grande = residual > _RESIDUAL_MAX
+        return _ob("cuadro", REVISAR,
+                   f"Σ de las amortizaciones futuras = **{residual:,.2f}** en "
+                   f"{n_fut} cupón/es. Un cuadro sano ronda **100**, porque el bono "
+                   "cotiza por 100 de VN"
+                   + (f" → este está **{residual / 100:,.0f}× más grande**: son los "
+                      "NOMINALES DE LA EMISIÓN, no base 100."
+                      if grande else
+                      " → este está muy por debajo: el cuadro quedó en una escala "
+                      "más chica que el precio."),
+                   causa="escala_del_cuadro")
+    # Amortizado pero sano: no es una falla del dato, pero cambia cómo se lee todo.
+    if c["rama"] == "cer" and residual < 99 and c["vn"] > residual * 1.05:
+        return _ob("cuadro", REVISAR,
+                   f"el bono **ya amortizó**: le queda un residual vivo de "
+                   f"**{residual:,.2f}** sobre un `valor_nominal` de {c['vn']:,.2f}. "
+                   f"El motor arma el valor técnico con el segundo, así que la "
+                   f"paridad le sale **×{c['vn'] / residual:,.1f} más chica** de lo "
+                   "real. **El dato del bono está bien**: lo que está mal es la "
+                   "cuenta del motor.",
+                   causa="paridad_del_motor")
+    return _ob("cuadro", OK,
+               f"Σ de las amortizaciones futuras = **{residual:,.2f}** en {n_fut} "
+               "cupón/es → base 100, como corresponde.")
+
+
+def _lente_precio(c: dict) -> dict:
+    px, fuente = c["precio"], (c["est"].get("precio_fuente") or "")
+    if not px:
+        return _ob("precio", REVISAR,
+                   "ninguna fuente local tiene un precio **mayor que 0** (ni el "
+                   "snapshot live, ni el cierre persistido, ni el que quedó "
+                   "congelado en el hallazgo). Sin precio no hay paridad ni TEA que "
+                   "arreglar: no es un dato mal cargado, es un papel que no operó.",
+                   causa="sin_precio")
+    # La escala se lee del número, igual que la lee el motor (`precio >= 1000`).
+    escala = "PESOS" if px >= 1000 else "dólares o porcentual (base 100)"
+    return _ob("precio", OK,
+               f"**{px:,.4f}** ({fuente or 'snapshot'}) → por su magnitud está en "
+               f"escala **{escala}**. Es el mismo criterio que usa el motor para "
+               "decidir si un dólar-linked hay que dividirlo por el A3500.")
+
+
+def _lente_paridad(c: dict) -> dict:
+    """La división, hecha a la vista. Y el cotejo contra lo guardado, que es lo que
+    distingue un problema del bono de un número viejo pegado en el snapshot."""
+    from api.services.av_agent import PARIDAD_MAX, PARIDAD_MIN
+
+    par, px, residual = c["paridad"], c["precio"], c["residual"]
+    if par is None:
+        return _ob("paridad", NO_SE,
+                   "el motor no devolvió paridad con estos datos"
+                   + (" (es lo esperable: salió antes por una de sus puertas de "
+                      "emergencia)." if not px or not residual else "."))
+    en_rango = PARIDAD_MIN <= par <= PARIDAD_MAX
+    cuenta = (f"paridad = precio / residual = {px:,.4f} / {residual:,.4f} = "
+              f"**{par:,.4f}%**" if px and residual else f"paridad = **{par:,.4f}%**")
+    return _ob("paridad", OK if en_rango else REVISAR,
+               cuenta + (". Dentro de [40, 160]: por acá no es." if en_rango else
+                         f". **Fuera de [{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}]** → "
+                         "uno de los dos lados de esa división está en la unidad "
+                         "equivocada, y cuál se sabe mirando el residual."))
+
+
+def _lente_tasa(c: dict) -> dict:
+    tea, doc = c["tea"], c["doc"]
+    if tea is not None:
+        return _ob("tasa", OK, f"el motor calculó TEA **{tea:.2%}** con este cuadro "
+                               "y este precio.")
+    if tasa_externa_de(doc.get("ajuste"))[0] == "1816":
+        return _ob("tasa", INFO, "sin TEA, y **así tiene que ser**: a este ajuste no "
+                                 "le calculamos la tasa nosotros.")
+    if not c["precio"]:
+        return _ob("tasa", INFO, "sin TEA porque no hay precio — no es el cuadro.")
+    return _ob("tasa", REVISAR,
+               "**el XIRR no converge**: hay precio y hay cronograma, pero el motor "
+               "no encuentra una tasa. Eso pasa cuando el precio y los flujos están "
+               "en escalas distintas — o sea que la causa vive en una de las lentes "
+               "de arriba, no acá.")
+
+
+def _lente_espejo(c: dict) -> dict:
+    return _ob("espejo", INFO,
+               "el espejo en `portafolio.assets` decide si el bono entra al AuM y a "
+               "Portfolios; lo controla la regla `sin_espejo_en_assets` del "
+               "detector, que mira la tenencia.")
+
+
+_FN_LENTE = {"ficha": _lente_ficha, "moneda": _lente_moneda, "insumos": _lente_insumos,
+             "cuadro": _lente_cuadro, "precio": _lente_precio,
+             "paridad": _lente_paridad, "tasa": _lente_tasa, "espejo": _lente_espejo}
+
+
+def analizar(doc: dict, rama: str, est: dict) -> dict:
+    """**EL ANÁLISIS COMPLETO**: las ocho lentes, cada una con lo que ve.
+
+    Devuelve `{observaciones, causa, detalle, parche}`. La causa la fija la lente
+    que falla **más aguas arriba** —el orden de `LENTES` es el contrato— pero las
+    demás igual hablan: son el razonamiento que sostiene la conclusión, y son lo
+    que permite discutirla en vez de creerle.
+    """
+    c = _ctx(doc, rama, est)
+    obs = []
+    for clave, titulo in LENTES:
+        o = _FN_LENTE[clave](c)
+        o["titulo"] = titulo
+        obs.append(o)
+    culpable = next((o for o in obs if o.get("causa")), None)
+    if culpable is None:
+        return {"observaciones": obs, "causa": "sano", "parche": {},
+                "detalle": ("las ocho lentes dan bien: ejes, moneda, cuadro en base "
+                            "100, precio y paridad en rango.")}
+    return {"observaciones": obs, "causa": culpable["causa"],
+            "detalle": culpable["detalle"], "parche": culpable["parche"]}
+
+
+def diagnosticar_local(doc: dict, rama: str, est: dict) -> dict:
+    """**LA CAUSA**, derivada del análisis. Cero red, cero créditos.
+
+    Es una vista angosta de `analizar()` y no una segunda implementación: dos
+    lugares decidiendo la misma causa terminan contradiciéndose, que es el bug que
+    este agente ya se comió tres veces.
+    """
+    return analizar(doc, rama, est)
 
 
 def _suma_amortizacion(doc: dict, campo: str) -> float:
@@ -2808,19 +3005,27 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                            f". Fuera de [{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}] → " + culpa),
                         tabla="engines/curvas.py (la misma cuenta del motor)"))
 
-    # ── LA CAUSA, con nombre. Es el paso que convierte una lista de síntomas en
-    # un diagnóstico, y el que ELIGE el arreglo: sin esto, el agente tenía una
-    # sola herramienta y la usaba para todo.
-    dx = diagnosticar_local(doc, rama, est)
+    # ── EL ANÁLISIS: las OCHO lentes, cada una con lo que ve.
+    #
+    # No solo la que encontró el problema. El user lo pidió así y tiene razón: el
+    # que lee la pantalla es el que decide si escribir o no, y para eso necesita el
+    # razonamiento, no el veredicto. Una lente en verde también informa — es la que
+    # descarta un camino.
+    dx = analizar(doc, rama, est)
+    for o in dx["observaciones"]:
+        ps.append(_paso(f"lente_{o['clave']}", o["titulo"], o["estado"], o["detalle"],
+                        tabla="mercado.curvas + mercado.market_snapshot "
+                              "(sin una sola llamada a 1816)"))
+
     meta = CAUSAS.get(dx["causa"]) or {}
-    ps.append(_paso("causa_local", "QUÉ ESTÁ MAL, con los datos que ya tenemos",
-                    OK if dx["causa"] == "sano" else REVISAR,
+    ps.append(_paso("causa_local", "⇒ LA CONCLUSIÓN", OK if dx["causa"] == "sano"
+                    else REVISAR,
                     f"**{meta.get('titulo') or dx['causa']}** — {dx['detalle']}"
                     + f"\n\nArreglo: {meta.get('arreglo', '—')}."
                     + (" **Lo hace el agente**, y se verifica antes de escribir."
                        if meta.get("agente") and dx.get("parche") else
                        " El agente lo VE pero no lo toca."),
-                    tabla="mercado.curvas (sin una sola llamada a 1816)"))
+                    tabla="la lente que falla más aguas arriba"))
     for i, p in enumerate(ps, 1):
         p["n"] = i
     return ps

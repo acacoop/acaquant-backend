@@ -288,6 +288,10 @@ def _fila_token() -> dict:
         # `expira_at` puede venir NULL (token pegado a mano). El token sabe cuándo
         # vence: se le pregunta a él antes de darlo por muerto.
         exp = float(r[1] or 0) or exp_del_jwt(r[0] or "")
+        if not r[1] and exp:
+            # Se deja escrita, una sola vez: que la columna diga lo mismo que el
+            # token evita que alguien mire la tabla y crea que no vence nunca.
+            _sellar_expiracion(r[0], exp)
         return {"token": r[0], "exp": exp, "dia": r[2],
                 "logins_dia": int(r[3] or 0), "ultima": float(r[4] or 0),
                 "exp_del_jwt": not r[1]}
@@ -324,6 +328,19 @@ def _guardar_token(tok: str, exp: float, *, cuenta_login: bool = True) -> None:
     except Exception:
         logger.warning("mercado_1816: no se pudo persistir el token compartido",
                        exc_info=True)
+
+
+def _sellar_expiracion(tok: str, exp: float) -> None:
+    """Escribe en la columna la expiración que declaraba el token."""
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE manager.tokens_externos "
+                        "SET expira_at = to_timestamp(%s) "
+                        "WHERE proveedor = %s AND token = %s AND expira_at IS NULL",
+                        (exp, _PROVEEDOR, tok))
+    except Exception:
+        logger.debug("mercado_1816: no se pudo sellar la expiración del token")
 
 
 def _invalidar_token_compartido(muerto: str | None) -> None:

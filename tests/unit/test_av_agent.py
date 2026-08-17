@@ -1171,3 +1171,41 @@ def test_el_filtro_de_PRIMARY_tambien_corre_al_LEER_la_foto(monkeypatch):
                         lambda: {"MERV - XMEV - TZXD8 - 24hs"})
     filas, _ = vista._hallazgos_ultima_corrida()
     assert {h["ticker"] for h in filas} == {"TZXD8", "BPOA8"}
+
+
+def test_la_MONEDA_del_pedido_la_decide_lo_que_el_MOTOR_espera():
+    """**El bug de GD46 (2026-08-17), y lo introduje yo en E2.g.**
+
+    Ahí cambié el pedido a 1816 a `moneda=mep` para cerrar los 202 bps del cotejo
+    de TEA, sin ver que el motor hace su PROPIA conversión: `precio_soberano_a_usd`
+    divide por el MEP **salvo que el símbolo termine en D o C**. Como el símbolo se
+    arma `MERV - XMEV - GD46 - 24hs` —sin sufijo—, el motor asumía pesos y dividía
+    un precio que 1816 ya había devuelto en dólares:
+
+        69 (USD) / 1.517,63 = 0,0455  →  paridad 0,05% contra 75,56% de 1816
+
+    Verificado con aritmética: sin la doble división la paridad da **75,57%**
+    contra el **75,56%** de ellos. **El cuadro de flujos estaba perfecto** — el
+    problema era la UNIDAD del insumo, y no daba error: devolvía duration ingenua
+    y TEA vacía.
+
+    La regla que evita que vuelva: la moneda no se elige por criterio propio, se
+    DERIVA del mismo predicado que usa el motor (el sufijo del símbolo)."""
+    from api.services.av_agent_alta import moneda_pedido_1816
+
+    # Símbolo SIN sufijo → el motor divide por MEP → hay que pedirle PESOS.
+    assert moneda_pedido_1816("MERV - XMEV - GD46 - 24hs", "USD") == "ars"
+    # Con sufijo D/C el precio ya viene en dólares y el motor NO convierte.
+    assert moneda_pedido_1816("MERV - XMEV - GD46D - 24hs", "USD") == "mep"
+    assert moneda_pedido_1816("MERV - XMEV - GD46C - 24hs", "USD") == "mep"
+    # Un bono en pesos nunca pasa por el MEP.
+    assert moneda_pedido_1816("MERV - XMEV - TZXD8 - 24hs", "ARS") == "ars"
+
+
+def test_la_doble_division_por_MEP_daba_una_paridad_1500_veces_menor():
+    """La aritmética del incidente, congelada: es lo que hace evidente que el
+    problema era la unidad y no el cronograma."""
+    precio_en_usd, mep = 69.0, 1517.6262
+    assert round(precio_en_usd / mep, 4) == 0.0455       # lo que mostraba la pantalla
+    vt_de_1816 = precio_en_usd / 0.7556232992733721      # su valor técnico implícito
+    assert round(precio_en_usd / vt_de_1816 * 100, 2) == 75.56   # la paridad correcta

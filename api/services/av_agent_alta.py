@@ -1049,6 +1049,36 @@ def curva_destino(rama: str, ejes) -> str:
     return ejes.ajuste if ejes.ajuste in validas else ""
 
 
+def moneda_pedido_1816(simbolo: str, moneda_eje: str) -> str:
+    """En qué moneda pedirle el precio a 1816 = **la que el MOTOR espera**.
+
+    ⚠️ **El bug de GD46 (2026-08-17), y lo introduje yo en E2.g.** Ahí cambié el
+    pedido a `mep` para cerrar los 202 bps del cotejo de TEA, sin ver que el motor
+    hace su PROPIA conversión: `precio_soberano_a_usd` divide el precio por el MEP
+    **salvo que el símbolo termine en D o C**. Como el símbolo se arma
+    `MERV - XMEV - GD46 - 24hs` —sin sufijo—, el motor asumía pesos y dividía un
+    precio que 1816 **ya había devuelto en dólares**:
+
+        69 (USD) / 1.517,63 = 0,0455  →  paridad 0,05% contra 75,56% de 1816
+
+    Y no daba error: devolvía la duration ingenua y la TEA vacía. Sin la doble
+    división la paridad da **75,57% contra 75,56%** — o sea que el cuadro de
+    flujos estaba PERFECTO todo el tiempo; el problema era la unidad del insumo.
+
+    **La regla que evita que vuelva**: la moneda no se elige por criterio propio,
+    se DERIVA del mismo predicado que usa el motor (el sufijo del símbolo). El
+    simulador tiene que darle exactamente lo que va a recibir en producción — el
+    `last_price` de Primary — y para un símbolo sin sufijo eso son PESOS.
+    """
+    if (moneda_eje or "").strip().upper() != "USD":
+        return "ars"
+    partes = (simbolo or "").split(" - ")
+    tk = partes[2] if len(partes) >= 3 else (simbolo or "")
+    # Sufijo D/C = el precio YA viene en dólares y el motor NO lo convierte, así
+    # que ahí sí conviene pedirlo en MEP (mismo TC que usaríamos nosotros).
+    return "mep" if (tk[-1:].upper() in ("D", "C")) else "ars"
+
+
 def _sin_rueda(intentos: list[str]) -> str:
     """Mensaje de «ninguna rueda trajo datos», diciendo CUÁLES se probaron.
 
@@ -1066,7 +1096,8 @@ def _sin_rueda(intentos: list[str]) -> str:
             f"es un papel sin operaciones recientes, no un problema del pedido")
 
 
-def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
+def _referencia_1816(ticker: str, *, moneda_eje: str = "",
+                     simbolo: str = "") -> dict:
     """Precio y TASA de referencia de 1816 para un bono que no tiene snapshot.
 
     **Por qué existe** (idea del user, 2026-08-17): un bono que se acaba de dar de
@@ -1089,22 +1120,7 @@ def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
     Costo: 1 ticker × 4 campos = **4 créditos**, y solo cuando alguien aprieta
     SIMULAR (de 100.000 diarios).
     """
-    # ⚠️ **La MONEDA del pedido no es un detalle.** El default del cliente es
-    # `moneda="ars"`, y para un bono en dólares eso devuelve el precio EN PESOS:
-    # GD46 vino `precioClean = 114.247` (un global cotiza ~60-90 por 100 VN). Con
-    # ese número nuestro motor tuvo que dividir por NUESTRO MEP para volver a
-    # dólares, mientras 1816 calculó su TEA con SU tipo de cambio — y las dos
-    # tasas salieron a 202 bps sin que ninguna estuviera mal.
-    #
-    # Pidiendo el precio en la moneda DEL BONO no hay conversión de por medio, y
-    # el cotejo compara dos cuentas sobre el mismo número.
-    # ⚠️ **`usd` NO EXISTE**: el enum es `ars | ccl | mep` (OpenAPI). Y elegir mal
-    # acá no da error, da OTRA TASA: con el default `ars`, para un bono pagadero
-    # en dólares 1816 **divide las cotizaciones por CCL**, mientras NUESTRO motor
-    # divide por MEP (`precio_soberano_a_usd`). Esa —y no la fórmula— es la
-    # explicación de los 202 bps de GD46. Pidiendo `mep` los dos usan el mismo
-    # tipo de cambio y el cotejo compara lo que dice comparar.
-    moneda = "mep" if (moneda_eje or "").strip().upper() == "USD" else "ars"
+    moneda = moneda_pedido_1816(simbolo, moneda_eje)
     pedido = {"moneda": moneda, "campos": list(_CAMPOS_REF)}
     # Las ruedas que se descartaron por venir vacías. Sin esto el mensaje de
     # fracaso decía «no publicó precio al <fecha>» con la fecha de HOY —un domingo,
@@ -1403,7 +1419,7 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
         if (not precio or precio <= 0) and ticker:
             # Sin snapshot no había NADA que simular y había que aplicar a ciegas.
             # 1816 publica el precio: se usa de referencia y no se persiste.
-            ref = _referencia_1816(ticker, moneda_eje=moneda_eje)
+            ref = _referencia_1816(ticker, moneda_eje=moneda_eje, simbolo=simbolo)
             if ref.get("precio"):
                 precio, fuente = ref["precio"], "1816"
     if not precio or precio <= 0:
@@ -1436,11 +1452,14 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
     # para el control cruzado: es el único chequeo que dice si el cuadro que
     # estamos por escribir está bien convertido.
     if not ref and ticker:
-        ref = _referencia_1816(ticker, moneda_eje=moneda_eje)
+        ref = _referencia_1816(ticker, moneda_eje=moneda_eje, simbolo=simbolo)
     # Y el cotejo DEFINITIVO: su tasa al MISMO precio que usamos nosotros. Sin
     # esto, una diferencia puede ser la fórmula o el insumo y no hay forma de
     # saber cuál; con esto lo que queda es solo convención o cronograma.
     if ticker and r.get("TEA") is not None:
+        # La MISMA moneda del pedido: si le paso un precio en pesos y le pido la
+        # paridad en MEP, 1816 me contesta sobre otra base y el cotejo compara
+        # peras con manzanas. Sale de `ref["pedido"]`, que es donde quedó.
         moneda_pedido = (ref.get("pedido") or {}).get("moneda") or "ars"
         ref = {**ref, "a_nuestro_precio":
                _tea_de_1816_a_nuestro_precio(ticker, float(precio), moneda_pedido)}

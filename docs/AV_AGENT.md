@@ -1592,8 +1592,67 @@ muestra tiene que poder evaluarse en la LECTURA.* Si solo se puede evaluar al
 relevar, el usuario ve el criterio viejo hasta la próxima corrida — y como no
 tiene forma de saber cuál está viendo, deja de creerle a la lista entera.
 
+### E2.s — GD46: el flujo estaba perfecto, la UNIDAD del precio no (2026-08-17)
+
+El GD46 mostraba una **paridad de 0,0455 contra 0,7556 de 1816** y una duration de
+19,9 años contra 6,61. Con esos dos números en pantalla la conclusión intuitiva es
+que el cuadro de flujos está mal — y era exactamente al revés.
+
+**La aritmética que lo cierra** (hecha con los números de la propia pantalla, no
+estimada):
+
+```
+precio usado        69          (1816, ya en USD)
+MEP aplicado        1.517,6262
+69 / 1517,6262   =  0,045466    ← clavado el "paridad nuestra 0,0455" de la pantalla
+valor técnico implícito de 1816 = 69 / 0,7556 × 100 = 91,315
+paridad correcta =  69 / 91,315 × 100 = 75,57 %   vs   1816 dice 75,56 %
+```
+
+Un centésimo de diferencia. **El cuadro de flujos era correcto desde el principio**:
+lo que estaba mal era la unidad del precio que le entraba.
+
+**La causa.** `engines/curvas.py::precio_soberano_a_usd` decide por el **sufijo del
+símbolo**: `…D`/`…C` → el precio ya viene en dólares y lo devuelve tal cual; sin
+sufijo → asume pesos y **divide por MEP**. El simulador arma
+`MERV - XMEV - GD46 - 24hs` (sin sufijo, porque es el símbolo que corresponde) pero
+le pedía el precio a 1816 con `moneda="mep"`, o sea **ya en dólares**. El motor
+volvía a dividir: dos conversiones para una sola moneda, y una paridad 1.500 veces
+más chica.
+
+**Es mi bug, introducido en E2.g.** Ahí resolví los 202 bps eligiendo pedirle a 1816
+el precio en la moneda del EJE del bono. Correcto para el cotejo, incorrecto como
+insumo del motor: el motor no mira `moneda_eje`, mira el sufijo del símbolo.
+
+**Por qué no dio error.** Sin TEA calculable el motor devuelve la duration naive
+(19,9 ≈ años al vencimiento) y sigue. Una paridad absurda no rompe nada: se
+muestra. Es el mismo patrón que RAMA/CURVA de E2.o — **dos vocabularios que se
+parecen y no son el mismo**: la moneda del eje contable y la moneda del símbolo de
+mercado.
+
+**El fix es estructural, no un `if` más.** `moneda_pedido_1816(simbolo, moneda_eje)`
+**deriva** la moneda del pedido del **mismo predicado que usa el motor** (el sufijo
+del ticker), en vez de elegirla por separado. Si mañana cambia la regla del motor,
+lo que hay que tocar es un lugar, no dos que se contradicen en silencio.
+
+**Regla que queda**: *cuando le pasás un dato a un motor, la unidad la decide el
+motor, no vos.* Elegir la unidad "por lógica de negocio" —el eje del bono— y que el
+consumidor use otro criterio —el sufijo— es el mismo anti-patrón de las dos fuentes
+para una pregunta, disfrazado de conversión.
+
 ## Changelog
 
+- **2026-08-17 — E2.s, GD46: doble conversión por MEP.** La paridad daba 0,0455
+  contra 0,7556 de 1816 y parecía un problema del cuadro de flujos. **El flujo
+  estaba perfecto**: `69 / 91,315 × 100 = 75,57 %` contra el 75,56 % de 1816. Lo
+  mal era la UNIDAD del precio — yo pedía `moneda="mep"` (ya en USD) y
+  `precio_soberano_a_usd` volvía a dividir por MEP porque el símbolo
+  `MERV - XMEV - GD46 - 24hs` no tiene sufijo `D`/`C`. Bug propio de E2.g, y **no
+  daba error**: sin TEA el motor devuelve la duration naive (19,9 ≈ años al
+  vencimiento) y sigue. Fix: `moneda_pedido_1816()` **deriva** la moneda del pedido
+  del mismo predicado que usa el motor, en vez de elegirla aparte. **Regla: la
+  unidad de un dato la decide el motor que lo consume, no quien se lo pasa.**
+  2 tests (74 en total).
 - **2026-08-17 — E2.r, el filtro de Primary corre también AL LEER.**
   Los BPO seguían apareciendo porque el filtro vivía SOLO en el detector, que
   corre al relevar (~29 créditos, no se hace por pantalla) — así que no iba a

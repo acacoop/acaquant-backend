@@ -117,8 +117,19 @@ def convertir_flujos(cupones: list[dict], rama: str) -> dict:
         elif rama == "soberanos":
             # En esta rama `cupon_sobre_residual` ES un monto por 100 VN (se divide
             # por 100 al valuar) — o sea, exactamente lo que manda 1816.
+            #
+            # `residual_previo_pct` NO lo usa el flujo (`monto_flujo_soberano` lo
+            # ignora a propósito): lo usa la PARIDAD, y por no escribirlo el motor
+            # lo defaulteaba a 100 y devolvía `paridad = precio_usd` — 68,86% en
+            # GD46 contra 72,78% (E2.u). **Medido**: 1816 manda el cronograma
+            # COMPLETO desde la emisión (GD46 arranca en 2021-07 y Σ=100.000012),
+            # así que el descuento de arriba da el residual VIVO de verdad: 90,909
+            # para GD46, contra los 91,3153 de valor técnico que publica 1816 — la
+            # diferencia son 0,41 de interés corrido, que nuestra paridad no
+            # incluye por definición.
             flujos.append({"fecha": f, "amortizacion_pct": amort,
-                           "cupon_sobre_residual": interes})
+                           "cupon_sobre_residual": interes,
+                           "residual_previo_pct": res_prev})
         elif rama == "dolar_linked":
             # MISMO shape que soberanos (lo dice el motor: `monto_flujo_soberano`),
             # pero **normalizado por la Σ**, que es lo que hace la rama CER.
@@ -928,7 +939,12 @@ def _memoria_de_calculo(*, doc: dict, ejes, rama: str, conv: dict, out: dict,
         # 1816 FRACCIÓN (0.7278): el paso del cotejo ya normalizaba, este cuadro
         # no — y mostraba «nuestra 68.8575 · 1816 0.7278», que se lee como un
         # error de escala de 100× cuando la diferencia real era del 5%.
-        _par_1816 = ref.get("paridad")
+        # La de 1816 que se muestra es **la misma que usa el paso del cotejo**: la
+        # que calculó a NUESTRO precio si la hay, y recién si no la de su propio
+        # precio. Mostrar una y decidir con otra es cómo un cuadro de auditoría
+        # deja de servir para auditar.
+        _par_1816 = (mismo.get("paridad") if mismo.get("paridad") is not None
+                     else ref.get("paridad"))
         f.append(fila("Paridad",
                       f"nuestra {_pct(out.get('paridad'))} · "
                       f"1816 {_pct(_par_1816 * 100 if isinstance(_par_1816, int | float) else None)}",
@@ -1095,6 +1111,31 @@ def moneda_pedido_1816(simbolo: str, moneda_eje: str) -> str:
     # Sufijo D/C = el precio YA viene en dólares y el motor NO lo convierte, así
     # que ahí sí conviene pedirlo en MEP (mismo TC que usaríamos nosotros).
     return "mep" if (tk[-1:].upper() in ("D", "C")) else "ars"
+
+
+def moneda_cotejo_1816(rama: str) -> str:
+    """En qué moneda COMPARAR el resultado = **la moneda en la que el motor lo
+    calcula**, que no tiene por qué ser la del precio que le damos de comer.
+
+    Suena a lo mismo que `moneda_pedido_1816` y es la pregunta opuesta:
+
+        pedido  → ¿en qué moneda quiere el motor su INSUMO?   (soberano: PESOS)
+        cotejo  → ¿en qué moneda devuelve el RESULTADO?       (soberano: USD)
+
+    Un soberano cotiza en pesos y el motor los divide por el MEP: la paridad que
+    devuelve es en dólares. Compararla contra la paridad que 1816 publica en `ars`
+    es comparar dos cosas distintas — y **medido el 2026-08-17 no es un detalle**:
+    para GD46 1816 da 0,7278 en `ars` y 0,7556 en `mep`, o sea que ni siquiera son
+    la misma magnitud reexpresada (su valor técnico en pesos sale a un TC de
+    ~1.572 y el precio a ~1.514). Contra la de `ars` nuestra paridad quedaba 4,07%
+    afuera; contra la de `mep`, 0,24%.
+
+    Las demás ramas quedan en `ars` a propósito: en `cer` y `tasa_fija` el motor
+    trabaja en pesos, y en `dolar_linked` la paridad es un cociente entre dos
+    números pesificados al MISMO TC —o sea que no depende de la moneda— y encima
+    1816 no publica `mep` para ellos (D30O6 devolvió todo `None`).
+    """
+    return "mep" if rama == "soberanos" else "ars"
 
 
 def _sin_rueda(intentos: list[str]) -> str:
@@ -1494,12 +1535,17 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
     # esto, una diferencia puede ser la fórmula o el insumo y no hay forma de
     # saber cuál; con esto lo que queda es solo convención o cronograma.
     if ticker and r.get("TEA") is not None:
-        # La MISMA moneda del pedido: si le paso un precio en pesos y le pido la
-        # paridad en MEP, 1816 me contesta sobre otra base y el cotejo compara
-        # peras con manzanas. Sale de `ref["pedido"]`, que es donde quedó.
-        moneda_pedido = (ref.get("pedido") or {}).get("moneda") or "ars"
+        # **La moneda del COTEJO, no la del pedido.** Le pasamos EL MISMO NÚMERO
+        # que consumió el motor, expresado como el motor lo expresa: para un
+        # soberano eso es el precio ya pasado a dólares por `precio_soberano_a_usd`
+        # —la función del motor, no una copia— y la pregunta va en `mep`.
+        moneda_cot = moneda_cotejo_1816(rama_doc)
+        px_cot = float(precio)
+        if moneda_cot == "mep":
+            from engines.curvas import precio_soberano_a_usd
+            px_cot = precio_soberano_a_usd(float(precio), simbolo, mep) or px_cot
         ref = {**ref, "a_nuestro_precio":
-               _tea_de_1816_a_nuestro_precio(ticker, float(precio), moneda_pedido)}
+               _tea_de_1816_a_nuestro_precio(ticker, px_cot, moneda_cot)}
 
     # La nota del encabezado. **No puede decir "revisar la escala" cuando la tasa
     # es EXTERNA**: a un TAMAR el motor no le devuelve TEA a propósito, y esa

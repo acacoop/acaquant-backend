@@ -1698,8 +1698,86 @@ valor técnico implícito en `ars` contra el de `mep`.
 porcentaje, 1816 fracción— pero el cuadro no, y eso se lee como un error de 100×
 cuando la diferencia real era del 5%. Ahora las dos van en la misma unidad.
 
+### E2.u — GD46 cerrado: el residual estaba en el cuadro, la paridad no era comparable (2026-08-17)
+
+`scripts/diag_av_agent_flujos.py` contra prod contestó las dos preguntas que E2.t
+dejó abiertas, y las dos hipótesis que yo tenía eran falsas.
+
+**Hipótesis mía: «1816 manda el cuadro renormalizado al residual vivo».
+FALSA.** Manda el cronograma **COMPLETO desde la emisión**: GD46 devuelve 51
+cupones, el primero del **2021-07-12**, con Σ amortizaciones = 100,000012. O sea
+que el residual vivo **sí se deriva del cuadro** — hay que descontar lo ya
+amortizado y leer el residual del primer flujo FUTURO, que es exactamente lo que
+`convertir_flujos` ya calcula para la rama CER y no escribía en la de soberanos.
+
+La aritmética, con el cuadro real en la mano: 44 amortizaciones iguales de
+2,272739 a partir del cupón 8; al 2026-08-17 van 4 pagadas → **residual 90,909**.
+1816 publica un valor técnico de **91,3153**: la diferencia, **0,41, es el interés
+corrido**, que nuestra paridad no incluye por definición.
+
+**Hipótesis mía: «el residual viaja en algún campo que no pedimos». FALSA.** El
+sondeo probó 8 nombres en `/cashflow` y 6 en `/indicadores`, de a uno: **los 14
+rechazados**. El vocabulario de la API es el que ya usábamos.
+
+**Y apareció lo que no estaba buscando: la paridad de 1816 depende de la moneda
+del pedido, y no como una simple reexpresión.** Para GD46:
+
+| pedido | paridad | precio dirty | VT implícito |
+|---|---|---|---|
+| `mep` | 0,7556 | 69 | 91,3153 |
+| `ars` | 0,7278 | 104.500 | 143.581,80 |
+
+El precio va a un TC de 1.514,5 y el valor técnico a uno de **1.572,4**. No son el
+mismo número en dos monedas. Nuestra paridad contra la de `ars` quedaba **4,07%
+afuera**; contra la de `mep`, **0,24%**.
+
+Eso obliga a separar **dos preguntas que yo venía tratando como una**:
+
+```
+moneda_pedido_1816  →  ¿en qué moneda quiere el motor su INSUMO?    soberano: PESOS
+moneda_cotejo_1816  →  ¿en qué moneda devuelve el RESULTADO?        soberano: USD
+```
+
+Un soberano cotiza en pesos —el motor los divide por el MEP— y devuelve la paridad
+en dólares. Así que el precio se pide en `ars` (E2.s) y el cotejo se hace en `mep`,
+pasándole a 1816 **el mismo número que consumió el motor**: el precio ya convertido
+por `precio_soberano_a_usd`, la función del motor y no una copia.
+
+Las demás ramas siguen en `ars` a propósito, y **medido**: en `dolar_linked` la
+paridad es un cociente entre dos números pesificados al mismo TC —no depende de la
+moneda— y encima 1816 no publica `mep` para ellos (D30O6 devolvió todo `None`).
+
+Resultado: **paridad nuestra 75,74% contra 75,56% de 1816 → 0,24%**.
+
+**Lo que queda de lección.** Las tres iteraciones de GD46 —E2.g, E2.s, E2.u— fueron
+el MISMO error con tres caras: **tratar «la moneda» como una sola pregunta cuando
+son tres** (la del eje contable, la que espera el motor, la en la que devuelve el
+resultado). Cada vez que dos de esas coincidían el bug se escondía, y cuando no
+coincidían no daba error: daba un número plausible. El antídoto no es más cuidado,
+es **nombrar cada pregunta y darle su función**.
+
+Y un corolario para el cuadro de auditoría: mostraba la paridad de `ars` mientras
+el paso del cotejo decidía con otra. **Un cuadro que muestra un número distinto del
+que se usó para decidir no sirve para auditar** — ahora los dos leen la misma.
+
 ## Changelog
 
+- **2026-08-17 — E2.u, GD46 cerrado con el diag en la mano.** Las dos hipótesis
+  de E2.t eran falsas. **(a)** 1816 NO renormaliza: manda el cronograma completo
+  desde la emisión (GD46 arranca en 2021-07, Σ=100), así que el residual vivo se
+  deriva del cuadro — 44 amortizaciones de 2,272739 desde el cupón 8, 4 pagadas →
+  **residual 90,909**, contra los 91,3153 de valor técnico de 1816 (la diferencia
+  son 0,41 de interés corrido). La rama `soberanos` de `convertir_flujos` ahora
+  escribe `residual_previo_pct`, que el motor usaba defaulteado a 100. **(b)** El
+  sondeo de 14 nombres de campo dio 14 rechazos: no había ningún campo de residual
+  que pedir. **(c) Hallazgo nuevo**: la paridad de 1816 **cambia según la moneda
+  del pedido y no es una reexpresión** — GD46 da 0,7556 en `mep` y 0,7278 en `ars`
+  (precio a TC 1.514,5, valor técnico a 1.572,4). Nace `moneda_cotejo_1816`: el
+  precio se PIDE en la moneda que espera el motor y el resultado se COMPARA en la
+  moneda en que el motor lo calcula, pasándole a 1816 el mismo número convertido
+  por `precio_soberano_a_usd`. **Paridad nuestra 75,74% vs 75,56% → 0,24%.**
+  **(d)** el cuadro de auditoría muestra la MISMA paridad que usa el cotejo.
+  3 tests (78 en total).
 - **2026-08-17 — E2.t, el A3500 del dólar-linked + el residual del soberano.**
   Dos bonos con el mismo mensaje de error y dos causas distintas; en ninguna el
   cuadro estaba mal. **(a) D30O6**: el simulador nunca pasaba `tc_a3500`, así que

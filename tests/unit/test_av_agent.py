@@ -11,6 +11,7 @@ algo NO se reporta.
 from __future__ import annotations
 
 from api.services import av_agent
+from api.services.av_agent_alta import convertir_flujos
 
 
 def _doc(ticker_corto: str, **kw) -> dict:
@@ -351,7 +352,9 @@ def test_la_rama_SOBERANOS_usa_las_claves_porcentuales():
     r = convertir_flujos([_cup("2027-01-15", 0, 2.5), _cup("2027-07-15", 100, 2.5)],
                          "soberanos")
     assert r["flujos"][0] == {"fecha": "2027-01-15", "amortizacion_pct": 0.0,
-                              "cupon_sobre_residual": 2.5}
+                              "cupon_sobre_residual": 2.5,
+                              # el flujo lo IGNORA; lo usa la paridad (E2.u)
+                              "residual_previo_pct": 100.0}
     assert r["escala"] == "vn100" and r["suma_amort"] == 100.0
 
 
@@ -1257,3 +1260,46 @@ def test_la_paridad_se_muestra_en_LA_MISMA_UNIDAD_que_la_de_1816():
     assert _pct(68.8575) == "68.86%"
     assert _pct(0.7278 * 100) == "72.78%"
     assert _pct(None) == "—"
+
+
+def test_el_RESIDUAL_VIVO_sale_del_cronograma_COMPLETO_de_1816():
+    """GD46 (medido 2026-08-17 con `scripts/diag_av_agent_flujos`): 1816 manda el
+    cuadro ENTERO desde la emisión —51 cupones, el primero de 2021-07, Σ=100— no
+    solo lo que falta pagar. Entonces el residual vivo SÍ se deriva del cuadro:
+    se descuenta lo ya amortizado y se lee el residual del primer flujo futuro.
+
+    Sin `residual_previo_pct` el motor lo defaulteaba a 100 y la paridad salía
+    igual al precio en dólares (68,86% contra 72,78%)."""
+    # 44 amortizaciones iguales a partir del cupón 8; hoy van 4 pagadas.
+    amort = 100.0 / 44
+    cupones = ([{"fechaPagoEfectiva": f"202{k}-07-09", "flujoAmortizacion": 0,
+                 "flujoInteres": 0.5625} for k in range(1, 5)]
+               + [{"fechaPagoEfectiva": f"20{25 + k}-07-09",
+                   "flujoAmortizacion": amort, "flujoInteres": 0.5}
+                  for k in range(0, 44)])
+    conv = convertir_flujos(cupones, "soberanos")
+    assert conv["escala"] == "vn100"
+    # El primero que amortiza todavía tiene el nominal entero.
+    primero_con_amort = next(f for f in conv["flujos"] if f["amortizacion_pct"])
+    assert round(primero_con_amort["residual_previo_pct"], 4) == 100.0
+    # Tras 4 amortizaciones el residual vivo es 90,909 — el número de GD46.
+    quinto = [f for f in conv["flujos"] if f["amortizacion_pct"]][4]
+    assert round(quinto["residual_previo_pct"], 3) == 90.909
+    # Y la paridad que sale de ahí es la que cierra contra 1816.
+    assert round(68.8575 / 90.909 * 100, 2) == 75.74      # nuestra
+    assert round(abs(75.74 - 75.5623) / 75.5623 * 100, 2) == 0.24   # vs su `mep`
+
+
+def test_la_moneda_del_PEDIDO_y_la_del_COTEJO_son_preguntas_distintas():
+    """Un soberano recibe el precio en PESOS (el motor divide por MEP) y devuelve
+    la paridad en DÓLARES. Comparar contra la paridad `ars` de 1816 dejaba GD46
+    4,07% afuera; contra la de `mep`, 0,24%. Medido, no estimado."""
+    from api.services.av_agent_alta import moneda_cotejo_1816, moneda_pedido_1816
+
+    assert moneda_pedido_1816("MERV - XMEV - GD46 - 24hs", "USD") == "ars"
+    assert moneda_cotejo_1816("soberanos") == "mep"
+    # El dólar-linked pesifica los DOS lados con el mismo TC → el cociente no
+    # depende de la moneda, y 1816 no publica `mep` para ellos.
+    assert moneda_cotejo_1816("dolar_linked") == "ars"
+    assert moneda_cotejo_1816("cer") == "ars"
+    assert moneda_cotejo_1816("tasa_fija") == "ars"

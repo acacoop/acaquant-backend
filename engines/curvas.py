@@ -335,6 +335,41 @@ def rama_calculo(instrumento: dict) -> str:
     return "otros"
 
 
+# Las TRES puertas que abre el `if` de la rama ON, y nada más. Es el vocabulario
+# del MOTOR: cualquier otra palabra cae en el `else` y se valúa como peso nativo.
+MONEDAS_FLUJO = ("USD", "DL", "ARS")
+
+
+def moneda_flujo_esperada(instrumento: dict) -> str:
+    """Qué debería decir `moneda_flujo` según los EJES del bono.
+
+    ⚠️ **Existe porque hay DOS vocabularios para el mismo hecho y nadie los
+    concilia** (medido 2026-08-17: **30 de 140 bonos** de la rama ON se
+    contradicen). `rama_calculo` se migró a los ejes el 2026-08-16, pero el
+    `if` de la rama ON sigue despachando por `moneda_flujo`, que es un campo
+    aparte y se carga a mano. Mientras coinciden no pasa nada; cuando divergen,
+    **el motor calcula con uno y la vista clasifica con el otro**.
+
+    Y el modo de falla es silencioso por partida doble: el `else` de la rama ON
+    no valida nada, así que una palabra de OTRO sistema —se encontraron cuatro
+    bonos con `HD`, que es el vocabulario de la CARTERA (`portafolio.assets`)—
+    no da error ni celda vacía: se valúa en pesos y publica una paridad de
+    156.570 que parece un dato.
+
+    Es una FUNCIÓN y no una tabla, y vive **acá** —pegada al `if` que la
+    consume— por la misma razón que `rama_calculo`: si la respuesta viviera en
+    otro módulo, las dos podrían volver a separarse.
+    """
+    emisor = instrumento.get("emisor_tipo")
+    moneda = (instrumento.get("moneda_eje") or "").upper()
+    ajuste = instrumento.get("ajuste")
+    if not (emisor and moneda and ajuste):
+        return ""          # sin ejes no se puede afirmar nada (≠ "está mal")
+    if ajuste == "dolar_linked":
+        return "DL"
+    return "USD" if moneda in ("USD", "EUR") else "ARS"
+
+
 # ─────────────────────────────────────────────
 # Cálculo principal por documento
 # ─────────────────────────────────────────────

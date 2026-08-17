@@ -353,7 +353,8 @@ def detectar_sin_flujo(docs: list[dict],
 
 def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
                                tickers_en_assets: set[str] | None = None,
-                               en_cartera: set[str] | None = None) -> list[dict]:
+                               en_cartera: set[str] | None = None,
+                               universo_1816: dict[str, dict] | None = None) -> list[dict]:
     """Las reglas de sanidad de `docs/SALUD_CURVAS.md` §6-§7 sobre el cierre.
 
     `metricas` = `{simbolo_de_mercado: {tea, paridad, duration, last_price}}` tal
@@ -384,6 +385,7 @@ def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
 
     from api.services.acreencias import tiene_flujo_def
     from api.services.curvas_vista import es_tasa_ruido
+    from engines.curvas import moneda_flujo_esperada, rama_calculo
 
     hoy = date.today()
     out: list[dict] = []
@@ -419,6 +421,37 @@ def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
                 "los forwards y el fair value, sin dar error.",
                 base))
             continue
+
+        # ── EL DEFECTO, NO EL SÍNTOMA ────────────────────────────────────────
+        #
+        # Las demás reglas de acá miran una MÉTRICA que se salió de un rango, así
+        # que solo ven el error cuando es lo bastante grande y cuando ese día hubo
+        # precio. Medido el 2026-08-17: **30 de 140 bonos** de la rama ON tienen
+        # `moneda_flujo` contradiciendo a sus ejes, y solo **8** habían disparado
+        # algún hallazgo. Los otros 22 están igual de mal valuados y no aparecían
+        # en ninguna pantalla.
+        #
+        # Esta regla mira el DEFECTO directamente: dos campos del mismo doc que se
+        # contradicen. Por eso **no necesita precio, ni snapshot, ni 1816** — es
+        # cierta un domingo y con la API caída, y no puede dispararse por un valor
+        # viejo pegado en `market_snapshot`.
+        #
+        # No afirma CUÁL de los dos está mal: afirma que no pueden ser los dos. La
+        # evidencia lleva los dos valores y lo que dice 1816, y quien decide es la
+        # cadena del arreglo.
+        if rama_calculo(d) == "on":
+            esperada = moneda_flujo_esperada(d)
+            actual = (d.get("moneda_flujo") or "").strip().upper()
+            if esperada and actual != esperada:
+                out.append(_hallazgo(
+                    "tasa_sospechosa", tc, "moneda_flujo_contradice", "alta",
+                    f"`moneda_flujo`={actual or '(vacío)'} pero los ejes dicen "
+                    f"{ejes.moneda}/{ejes.ajuste} → debería ser {esperada}. **El "
+                    "motor despacha por `moneda_flujo`**, así que el precio entra "
+                    "sin convertir y la TEA y la paridad salen de otra escala.",
+                    {**base, "moneda_flujo": actual or None,
+                     "moneda_flujo_esperada": esperada,
+                     "curva_1816": (universo_1816 or {}).get(_norm(tc), {}).get("_curva")}))
 
         if (tickers_en_assets is not None and tc not in tickers_en_assets
                 and en_cartera is not None and tc in en_cartera):
@@ -580,7 +613,8 @@ def relevar(*, alcance: str = "soberanos",
                             en_cartera=en_cartera,
                             simbolos_primary=simbolos_primary()),
         *detectar_sin_flujo(docs, universo_1816),
-        *detectar_tasas_sospechosas(docs, metricas, en_assets, en_cartera),
+        *detectar_tasas_sospechosas(docs, metricas, en_assets, en_cartera,
+                                    universo_1816=universo_1816),
         *detectar_huecos_de_curva(docs),
     ]
     # **El «no me interesa» se aplica a los CUATRO tipos, en UN solo lugar.** Antes

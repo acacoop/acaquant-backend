@@ -1868,9 +1868,51 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None,
     return out
 
 
+def _precio_local(simbolo: str, evidencia: dict | None = None) -> tuple[float | None, str]:
+    """El precio SIN salir a la red, por las tres fuentes que ya tenemos.
+
+    **Por qué existe** (user, 2026-08-17): el simulador iba `snapshot → 1816`, así
+    que fuera de rueda —o con un bono que no operó— se quedaba sin nada que
+    dividir y toda la cadena moría en «no hay precio en el snapshot». Pero el
+    precio está guardado en otros dos lados:
+
+      1. `mercado.market_snapshot` — el live del motor. **Un 0 NO es un precio**:
+         DHSGO tiene `last_price` 0,0 y entraba como válido.
+      2. `mercado.snapshots_cierre` — el cierre persistido, con su fecha.
+      3. la **evidencia CONGELADA del hallazgo**, que ya viaja hasta el front y
+         se estaba tirando a la basura para volver a leer en vivo.
+
+    Cada una viaja con su etiqueta: un precio de ayer sirve para diagnosticar,
+    pero el que lee tiene que saber que es de ayer.
+    """
+    from core import market_snapshot
+
+    try:
+        m = (market_snapshot.cols_map([simbolo], ["last_price"]) or {}).get(simbolo) or {}
+        px = _num(m.get("last_price"))
+        if px and px > 0:
+            return px, "snapshot (live)"
+    except Exception:
+        pass
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT last_price, fecha FROM mercado.snapshots_cierre "
+                        "WHERE ticker = %s", (simbolo,))
+            fila = cur.fetchone()
+        if fila and _num(fila[0]) and _num(fila[0]) > 0:
+            return _num(fila[0]), f"cierre del {fila[1]}"
+    except Exception:
+        pass
+    px = _num((evidencia or {}).get("last_price"))
+    if px and px > 0:
+        return px, "el precio congelado en el hallazgo"
+    return None, ""
+
+
 def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
                   ticker: str = "", moneda_eje: str = "",
-                  ref_1816: dict | None = None) -> dict:
+                  ref_1816: dict | None = None, sin_red: bool = False) -> dict:
     """Corre el MOTOR sobre el doc simulado. Mismo `calcular_campos` que usa
     `engines/curvas` en producción: si acá saliera otro número, la simulación no
     valdría para nada.
@@ -1902,7 +1944,7 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
             precio = (m.get(simbolo) or {}).get("last_price")
         except Exception:
             precio = None
-        if (not precio or precio <= 0) and ticker and not ref:
+        if (not precio or precio <= 0) and not sin_red and ticker and not ref:
             # Sin snapshot no había NADA que simular y había que aplicar a ciegas.
             # 1816 publica el precio: se usa de referencia y no se persiste.
             ref = _referencia_1816(ticker, moneda_eje=moneda_eje, simbolo=simbolo)
@@ -1949,12 +1991,12 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
     # Si NO hubo que caer a 1816 (había snapshot), igual conviene tener su tasa
     # para el control cruzado: es el único chequeo que dice si el cuadro que
     # estamos por escribir está bien convertido.
-    if not ref and ticker:
+    if not ref and ticker and not sin_red:
         ref = _referencia_1816(ticker, moneda_eje=moneda_eje, simbolo=simbolo)
     # Y el cotejo DEFINITIVO: su tasa al MISMO precio que usamos nosotros. Sin
     # esto, una diferencia puede ser la fórmula o el insumo y no hay forma de
     # saber cuál; con esto lo que queda es solo convención o cronograma.
-    if ticker and r.get("TEA") is not None:
+    if ticker and r.get("TEA") is not None and not sin_red:
         # **La moneda del COTEJO, no la del pedido.** Le pasamos EL MISMO NÚMERO
         # que consumió el motor, expresado como el motor lo expresa: para un
         # soberano eso es el precio ya pasado a dólares por `precio_soberano_a_usd`
@@ -2546,22 +2588,188 @@ def _residual_vivo(doc: dict, rama: str) -> tuple[float, int]:
     return round(total, 6), n
 
 
+# ── EL CATÁLOGO DE ARREGLOS ─────────────────────────────────────────────────
+#
+# **El agente tenía UN solo movimiento**: traer el cronograma de 1816 y pisar los
+# flujos. Por eso las cinco reglas de tasa pasaban por la misma cadena y sus dos
+# puertas de 1816 la bloqueaban entera — con rate limit, un domingo, o con un bono
+# que 1816 no cubre, no decía NADA, ni siquiera lo que sale de una división.
+#
+# Medido sobre los 38 hallazgos reales (`scripts/diag_av_agent_arreglos`, corrida
+# del 2026-08-17): **38 de 38 se resuelven con datos que ya están en la base.**
+# Ninguno necesitaba la red. 1816 no era el insumo: era una costumbre.
+#
+# Cada causa dice qué se escribe y QUIÉN lo escribe. `agente=False` no es un
+# hueco: es el agente diciendo «esto lo veo pero no lo toco», que es distinto de
+# no verlo — y es lo que evita que proponga un cambio para tapar un síntoma que
+# no le corresponde (el caso `paridad_del_motor`).
+CAUSAS: dict[str, dict] = {
+    "moneda_flujo_contradice": {
+        "titulo": "`moneda_flujo` contradice a los ejes",
+        "arreglo": "alinear `moneda_flujo` con lo que dicen los ejes",
+        "agente": True, "campo": "moneda_flujo"},
+    "escala_del_cuadro": {
+        "titulo": "El cuadro está en nominales de la emisión",
+        "arreglo": "reescalar las amortizaciones a base 100",
+        "agente": False, "campo": "flujos"},
+    "campo_de_amortizacion": {
+        "titulo": "El cuadro usa el campo de la OTRA rama",
+        "arreglo": "reescribir el cronograma en la forma que lee su rama",
+        "agente": False, "campo": "flujos"},
+    "falta_cer": {
+        "titulo": "Falta el CER de emisión",
+        "arreglo": "cargar el `cer_emision` (dato manual, se tipea en la cadena)",
+        "agente": False, "campo": "cer_emision"},
+    "sin_ejes": {
+        "titulo": "El bono no cae en ninguna curva",
+        "arreglo": "escribir los ejes", "agente": False, "campo": "ejes"},
+    # ⚠️ La única causa cuyo arreglo NO es un dato. Existe para que el agente
+    # pueda decirlo en vez de proponer que se toque el bono: el bono está bien.
+    "paridad_del_motor": {
+        "titulo": "La paridad la calcula mal el MOTOR, no el dato",
+        "arreglo": "no se arregla con datos — es `engines/curvas.py`",
+        "agente": False, "campo": ""},
+    "sin_precio": {
+        "titulo": "No hay precio en ninguna fuente local",
+        "arreglo": "ninguno: sin precio no hay métrica que arreglar",
+        "agente": False, "campo": ""},
+    "sano": {
+        "titulo": "Con los datos de hoy no se detecta nada roto",
+        "arreglo": "ninguno — el hallazgo puede haber quedado viejo",
+        "agente": False, "campo": ""},
+}
+
+
+def diagnosticar_local(doc: dict, rama: str, est: dict) -> dict:
+    """**LA CAUSA, con lo que ya tenemos.** Cero red, cero créditos.
+
+    Devuelve `{causa, detalle, parche}`. El `parche` es lo que habría que
+    escribir —vacío si el agente no sabe (o no debe) arreglarlo solo.
+
+    El ORDEN es aguas arriba: si a un CER le falta el índice de emisión, el motor
+    sale sin calcular nada y discutir la forma de su cuadro es discutir un síntoma
+    que el motor ni siquiera produjo. Está validado contra los 38 hallazgos
+    reales, y **dos veces me equivoqué por ordenarlo mal** — por eso el orden es
+    parte del contrato y no un detalle.
+    """
+    from engines.curvas import MONEDAS_FLUJO, moneda_flujo_esperada
+
+    # (1) `moneda_flujo`: lo PRIMERO de la rama ON porque es lo que decide si el
+    # precio se convierte. Con esto mal, todo lo demás que se mida está medido en
+    # la unidad equivocada — y proponer otra cosa sería arreglar el síntoma.
+    if rama == "on":
+        esperada = moneda_flujo_esperada(doc)
+        actual = (doc.get("moneda_flujo") or "").strip().upper()
+        if esperada and actual != esperada:
+            return {"causa": "moneda_flujo_contradice",
+                    "detalle": (f"`moneda_flujo`={actual or '(vacío)'} y los ejes "
+                                f"piden **{esperada}**. El motor despacha por "
+                                "`moneda_flujo`, así que el precio entra sin "
+                                "convertir"
+                                + (f" — y «{actual}» ni siquiera es una palabra que "
+                                   "el motor conozca: cae en el `else` y se valúa "
+                                   "como peso nativo, sin dar error."
+                                   if actual and actual not in MONEDAS_FLUJO
+                                   else ".")),
+                    "parche": {"moneda_flujo": esperada}}
+
+    # (2) CER sin su índice: `engines/curvas.py:439` sale SIN escribir TEA ni
+    # paridad, así que lo que se vea guardado es de otra época.
+    if (doc.get("ajuste") or "") == "cer" and not _num(doc.get("cer_emision")):
+        return {"causa": "falta_cer",
+                "detalle": ("sin `cer_emision` el motor no calcula nada para este "
+                            "bono: la paridad que disparó el hallazgo es un valor "
+                            "viejo que quedó en el snapshot."),
+                "parche": {}}
+
+    residual, n_fut = _residual_vivo(doc, rama)
+
+    # (3) El cuadro cargado con el campo de la OTRA rama.
+    otro = _suma_amortizacion(doc, "amortizacion_pct"
+                              if rama in ("on", "tasa_fija") else "amortizacion")
+    if not residual and otro:
+        return {"causa": "campo_de_amortizacion",
+                "detalle": (f"la rama «{rama}» lee su campo y da 0, pero el cuadro "
+                            f"tiene Σ = {otro:,.2f} en el de la otra rama."),
+                "parche": {}}
+
+    # (4) La escala del cuadro.
+    if residual and not (_RESIDUAL_MIN <= residual <= _RESIDUAL_MAX):
+        return {"causa": "escala_del_cuadro",
+                "detalle": (f"Σ de las amortizaciones futuras = **{residual:,.2f}** "
+                            f"en {n_fut} cupón/es. Un cuadro sano ronda **100** "
+                            f"(el bono cotiza por 100 de VN): está "
+                            f"**{residual / 100:,.0f}× más grande**, o sea en "
+                            "nominales de la emisión."
+                            if residual > _RESIDUAL_MAX else
+                            f"Σ de las amortizaciones futuras = **{residual:,.4f}** "
+                            f"en {n_fut} cupón/es, muy por debajo de 100: el cuadro "
+                            "está en una escala más chica que el precio."),
+                "parche": {}}
+
+    # (5) Un CER que ya amortizó no tiene la paridad mal: la tiene mal el motor,
+    # que arma el valor técnico con `valor_nominal` en vez del residual VIVO.
+    if rama == "cer" and 0 < residual < 99:
+        vn = _num(doc.get("valor_nominal")) or 100.0
+        if vn > residual * 1.05:
+            return {"causa": "paridad_del_motor",
+                    "detalle": (f"el bono ya amortizó: residual vivo {residual:,.2f} "
+                                f"contra `valor_nominal` {vn:,.2f}. La paridad sale "
+                                f"×{vn / residual:,.1f} más chica de lo real. **El "
+                                "dato del bono está bien** — no hay nada que pisar."),
+                    "parche": {}}
+
+    if not _num(est.get("precio")):
+        return {"causa": "sin_precio",
+                "detalle": ("ni el snapshot, ni el cierre, ni la evidencia del "
+                            "hallazgo tienen un precio > 0. Sin precio no hay "
+                            "paridad ni TEA que arreglar."),
+                "parche": {}}
+    return {"causa": "sano",
+            "detalle": ("el cuadro está en base 100, los ejes y `moneda_flujo` "
+                        "coinciden y hay precio."),
+            "parche": {}}
+
+
+def _suma_amortizacion(doc: dict, campo: str) -> float:
+    """Σ del campo pedido sobre los cupones FUTUROS. Existe para que un 0 no sea
+    ambiguo: `_residual_vivo` elige el campo según la rama, así que sin mirar el
+    otro no se distingue «ya no amortiza» de «está cargado en el campo de al
+    lado» — y las dos cosas piden arreglos opuestos."""
+    from engines.curvas import fecha_flujo
+
+    hoy = date.today()
+    return round(sum(float(f.get(campo) or 0.0) for f in (doc.get("flujos") or [])
+                     if fecha_flujo(f) and fecha_flujo(f) > hoy), 6)
+
+
 def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
     """Los pasos que NO dependen de 1816. Corren siempre y van primeros."""
     from api.services.av_agent import PARIDAD_MAX, PARIDAD_MIN
 
     ps: list[dict] = []
-    _, job_tasa = tasa_externa_de(doc.get("ajuste"))
-    if rama not in (*RAMAS_AUTOMATICAS, "on"):
+    # ⚠️ **QUIÉN CALCULA LA TASA LO DICE EL AJUSTE, NO LA RAMA** (fix 2026-08-17).
+    # Acá decía `rama not in (*RAMAS_AUTOMATICAS, "on")`, pero un corporativo TAMAR
+    # devuelve rama **`on`** (`rama_calculo` pregunta `corporativo` primero), así
+    # que el aviso «esto no lo calculamos nosotros» no se disparaba justo en el caso
+    # que lo motivó (DHSGO, el bono de la captura del user).
+    #
+    # Y ahora es un paso INFORMATIVO en vez de un `return`: que la tasa venga de
+    # afuera no dice nada sobre la PARIDAD, que sale del precio y del cuadro. Cortar
+    # acá dejaba al bono sin diagnóstico por un motivo que no aplicaba a su hallazgo.
+    fuente_tasa, job_tasa = tasa_externa_de(doc.get("ajuste"))
+    if fuente_tasa == "1816" or rama not in (*RAMAS_AUTOMATICAS, "on"):
         ps.append(_paso("rama_local", "¿A este bono le calculamos la tasa?", INFO,
-                        f"rama «{rama}»: **no la calculamos nosotros**"
+                        f"ajuste «{doc.get('ajuste')}» (rama «{rama}»): **la TEA no "
+                        "la calculamos nosotros**"
                         + (f" — la trae {job_tasa}." if job_tasa else
                            ". Cae en el `else` del motor, que solo devuelve "
                            "duration.")
-                        + " Un hallazgo de tasa sobre este bono no se arregla "
-                          "tocando el cuadro.",
+                        + " Un hallazgo de TASA sobre este bono no se arregla "
+                          "tocando el cuadro; uno de PARIDAD sí puede.",
                         tabla="engines/curvas.py::rama_calculo"))
-        return ps
+        if rama not in (*RAMAS_AUTOMATICAS, "on"):
+            return ps
 
     residual, n_fut = _residual_vivo(doc, rama)
     paridad = est.get("paridad")
@@ -2599,9 +2807,154 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                         + (". En rango — por acá no es." if ok_par else
                            f". Fuera de [{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}] → " + culpa),
                         tabla="engines/curvas.py (la misma cuenta del motor)"))
+
+    # ── LA CAUSA, con nombre. Es el paso que convierte una lista de síntomas en
+    # un diagnóstico, y el que ELIGE el arreglo: sin esto, el agente tenía una
+    # sola herramienta y la usaba para todo.
+    dx = diagnosticar_local(doc, rama, est)
+    meta = CAUSAS.get(dx["causa"]) or {}
+    ps.append(_paso("causa_local", "QUÉ ESTÁ MAL, con los datos que ya tenemos",
+                    OK if dx["causa"] == "sano" else REVISAR,
+                    f"**{meta.get('titulo') or dx['causa']}** — {dx['detalle']}"
+                    + f"\n\nArreglo: {meta.get('arreglo', '—')}."
+                    + (" **Lo hace el agente**, y se verifica antes de escribir."
+                       if meta.get("agente") and dx.get("parche") else
+                       " El agente lo VE pero no lo toca."),
+                    tabla="mercado.curvas (sin una sola llamada a 1816)"))
     for i, p in enumerate(ps, 1):
         p["n"] = i
     return ps
+
+
+def _aplicar_parche_local(sim: dict, *, actor: str = "") -> dict:
+    """Escribe el parche del arreglo local. **En la columna Y en el blob.**
+
+    `moneda_flujo` existe como COLUMNA en `mercado.curvas` y además vive adentro
+    del jsonb `data`, que es de donde lo lee `core/curvas_sql` (no está en
+    `_COLS_FUERA_DEL_BLOB`). Escribir uno solo dejaría al otro contradiciéndolo —
+    que es exactamente la enfermedad que este arreglo viene a curar. Mismo
+    criterio que `jobs/ficha_1816` con el emisor.
+    """
+    import json
+
+    from api.services import av_agent_acciones as acc
+    from core.postgres import get_pool
+
+    tk, parche = sim["ticker"], sim["parche"]
+    antes = {k: sim.get("_antes_campos", {}).get(k) for k in parche}
+    try:
+        sets, vals = ["data = COALESCE(data, '{}'::jsonb) || %s::jsonb"], [
+            json.dumps(parche)]
+        for col in ("moneda_flujo",):        # las que además son columna
+            if col in parche:
+                sets.append(f"{col} = %s")
+                vals.append(parche[col])
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(f"UPDATE mercado.curvas SET {', '.join(sets)} "
+                        "WHERE ticker = %s", (*vals, tk))
+            filas = cur.rowcount or 0
+    except Exception as e:
+        acc.registrar(accion="arreglar_bono", objetivo=tk, ok=False,
+                      error=str(e)[:300], por=actor, antes=antes)
+        return {**sim, "aplicado": False, "error": f"no se pudo escribir: {e}"}
+    if not filas:
+        return {**sim, "aplicado": False, "error": "el UPDATE no tocó ninguna fila"}
+
+    acc.registrar(accion="arreglar_bono", objetivo=tk, por=actor, antes=antes,
+                  detalle={"causa": sim.get("causa"), "campos": list(parche),
+                           "parche": parche,
+                           "paridad_antes": (sim.get("antes") or {}).get("paridad"),
+                           "paridad_despues": sim.get("paridad")})
+    return {**sim, "aplicado": True,
+            "aviso": "los motores leen mercado.curvas al arrancar: reiniciar "
+                     "motor_curvas para que la métrica nueva llegue a la vista"}
+
+
+def _arreglo_local(*, doc: dict, tk: str, simbolo: str, rama: str, dx: dict,
+                   hoy_est: dict, px_local: float | None, px_fuente: str,
+                   curva_1816: str) -> dict:
+    """El arreglo que NO necesita la red: se propone, **se verifica** y recién ahí
+    queda habilitado.
+
+    ⚠️ **LA VERIFICACIÓN ES LO QUE HACE QUE ESTO SEA SEGURO.** Sin cotejo contra
+    1816 hacía falta otra prueba de que el cambio mejora algo, y no puede ser «yo
+    creo»: se corre el MOTOR con el bono parchado y se exige que **la métrica que
+    disparó el hallazgo vuelva al rango** — y que antes estuviera afuera. Es un
+    control tan duro como el de 1816, cuesta cero créditos y se puede correr un
+    domingo. Si la paridad no vuelve, el diagnóstico estaba mal y no se escribe.
+    """
+    from api.services.av_agent import PARIDAD_MAX, PARIDAD_MIN
+
+    meta = CAUSAS.get(dx["causa"]) or {}
+    doc_prop = {**doc, **dx["parche"]}
+    prop_est = _simular_tasa(doc_prop, simbolo, px_local, ticker=tk,
+                             moneda_eje=(doc_prop.get("moneda_eje") or "").strip(),
+                             sin_red=True)
+
+    par_antes, par_desp = hoy_est.get("paridad"), prop_est.get("paridad")
+    en_rango = (isinstance(par_desp, int | float)
+                and PARIDAD_MIN <= float(par_desp) <= PARIDAD_MAX)
+    estaba_mal = (not isinstance(par_antes, int | float)
+                  or not (PARIDAD_MIN <= float(par_antes) <= PARIDAD_MAX))
+
+    out = {
+        "ok": True, "ticker": tk, "modo": "arreglo", "rama": rama,
+        "curva": doc.get("curva"), "curva_1816": curva_1816, "simbolo": simbolo,
+        "sin_red": True, "causa": dx["causa"], "parche": dx["parche"],
+        # El ANTES de los campos que se van a pisar, congelado para el LIBRO DE
+        # ACCIONES. Sin esto, «revertir» es una promesa y no un dato.
+        "_antes_campos": {k: doc.get(k) for k in dx["parche"]},
+        "cupones": 0, "escala": None, "cuadro": None, "error_cuadro": "",
+        "ejes_hoy": {"emisor_tipo": doc.get("emisor_tipo"),
+                     "moneda_eje": doc.get("moneda_eje"),
+                     "ajuste": doc.get("ajuste"), "ley": doc.get("ley")},
+        "ejes_propuestos": None, "nota_ejes": "",
+        "antes": {"tea": hoy_est.get("tea"), "paridad": par_antes,
+                  "duration": hoy_est.get("duration")},
+    }
+    out.update(prop_est)
+    out["precio_fuente"] = px_fuente or out.get("precio_fuente")
+
+    ps: list[dict] = []
+    ps.append(_paso("hoy", "Cómo está el bono AHORA", INFO,
+                    f"TEA {_pct_o(hoy_est.get('tea'), pct=True)} · paridad "
+                    f"{_pct_o(par_antes)} · duration "
+                    f"{_pct_o(hoy_est.get('duration'), dec=4)} · precio "
+                    f"{_pct_o(px_local, dec=4)}"
+                    + (f" ({px_fuente})" if px_fuente else " — sin precio"),
+                    tabla="mercado.curvas + mercado.market_snapshot"))
+    ps.extend(_diagnostico_local(doc, rama, hoy_est))
+
+    campos = " · ".join(f"`{k}` = {v}" for k, v in dx["parche"].items())
+    ps.append(_paso("escritura", "Qué se va a PISAR", INFO,
+                    f"solo {campos} en {tk}. El cuadro, el emisor, la curva y el "
+                    "símbolo quedan intactos.",
+                    tabla="mercado.curvas"))
+
+    # EL JUEZ, y es LOCAL.
+    ps.append(_paso("verificacion", "La métrica vuelve al rango", OK if
+                    (en_rango and estaba_mal) else BLOQUEA,
+                    f"paridad **{_pct_o(par_antes)} → {_pct_o(par_desp)}** "
+                    f"(rango sano [{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}])"
+                    + (". El arreglo la devuelve adentro: el diagnóstico se sostiene."
+                       if en_rango and estaba_mal else
+                       ". **Lo de hoy YA estaba en rango**: no hay nada que arreglar "
+                       "y pisarlo sería empeorarlo." if not estaba_mal else
+                       ". **NO vuelve al rango** → el diagnóstico no se sostiene y "
+                       "no se escribe nada. Hay otra causa además de esta."),
+                    tabla="engines/curvas.py (el MISMO motor que valúa en producción)"))
+
+    ps.append(_paso("sin_1816", "¿Hace falta preguntarle a 1816?", INFO,
+                    f"**No.** La causa es «{meta.get('titulo', dx['causa'])}» y se "
+                    "resuelve con datos que ya están en la base, así que esta "
+                    "pantalla no hizo una sola llamada: anda con la API caída, un "
+                    "domingo y en pleno rate limit.",
+                    tabla="—"))
+    for i, p in enumerate(ps, 1):
+        p["n"] = i
+    out["chequeos"] = ps
+    out["veredicto"] = _veredicto(ps)
+    return out
 
 
 @_interactivo
@@ -2642,6 +2995,33 @@ def simular_arreglo(ticker: str, *, cer_emision: float | None = None) -> dict:
         doc_prop.update({"emisor_tipo": ejes_prop.emisor_tipo,
                          "moneda_eje": ejes_prop.moneda, "ajuste": ejes_prop.ajuste,
                          "ajuste_alt": ejes_prop.ajuste_alt, "ley": ejes_prop.ley})
+
+    # ── ¿HACE FALTA LA RED? SE PREGUNTA ANTES DE USARLA (2026-08-17) ────────
+    #
+    # **El cambio de diseño** (user): *«hay casos donde este agente podría
+    # debuguear internamente, ya que hay precio y ya está el flujo cargado»*.
+    # Medido sobre los 38 hallazgos reales: **38 de 38 se resuelven con datos que
+    # ya están en la base**. La cadena salía igual a pedirle a 1816 el cronograma
+    # y el precio, y esas dos puertas la bloqueaban ENTERA cuando 1816 no
+    # contestaba — o sea que el agente se quedaba mudo justo cuando más falta
+    # hacía, sin poder decir ni lo que sale de una división.
+    #
+    # Ahora el diagnóstico local corre PRIMERO y, si la causa tiene un arreglo que
+    # no necesita la red, **no se hace una sola llamada**: la puerta anda un
+    # domingo, con la API caída y en pleno rate limit. Y de paso deja de aportar
+    # al 429 que ella misma provocaba.
+    rama_hoy = rama_calculo(doc)
+    px_local, px_fuente = _precio_local(simbolo)
+    hoy_local = _simular_tasa(dict(doc), simbolo, px_local, ticker=tk,
+                              moneda_eje=(doc.get("moneda_eje") or "").strip(),
+                              sin_red=True)
+    if px_fuente:
+        hoy_local["precio_fuente"] = px_fuente
+    dx = diagnosticar_local(doc, rama_hoy, hoy_local)
+    if dx.get("parche") and (CAUSAS.get(dx["causa"]) or {}).get("agente"):
+        return _arreglo_local(doc=doc, tk=tk, simbolo=simbolo, rama=rama_hoy,
+                              dx=dx, hoy_est=hoy_local, px_local=px_local,
+                              px_fuente=px_fuente, curva_1816=curva_1816)
 
     # ⚠️ **UNA SOLA CONSULTA A 1816 PARA LOS DOS ESTADOS** (2026-08-17).
     #
@@ -2901,6 +3281,13 @@ def aplicar_arreglo(ticker: str, *, actor: str = "",
         return {**sim, "aplicado": False,
                 "error": "el pre-flight no pasa: "
                          + "; ".join(c["titulo"] for c in bloqueos)}
+
+    # ── EL ARREGLO LOCAL: un parche chico, verificado, sin cuadro de por medio.
+    # Va por su propia rama y no por la de abajo a propósito: acá NO se toca el
+    # cronograma, así que reusar el camino del cuadro obligaría a razonar todo el
+    # rato sobre un `conv` que no existe.
+    if sim.get("sin_red") and sim.get("parche"):
+        return _aplicar_parche_local(sim, actor=actor)
 
     conv, ejes = sim.get("cuadro"), sim.get("ejes_propuestos")
     parche: dict = {}

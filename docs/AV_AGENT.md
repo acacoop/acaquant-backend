@@ -2278,8 +2278,138 @@ uno que depende solo de los datos.* Cuando dos controles se contradicen, gana el
 que tiene menos supuestos — y si no se sabe cuál es, eso es lo que hay que
 averiguar antes de elegir cuál bloquea.
 
+### E3.h — El agente deja de necesitar a 1816 para diagnosticar (2026-08-17)
+
+Planteo del user, y era el diseño lo que estaba mal: *«hay casos como PARIDAD
+FUERA DE RANGO que **no necesitan ir a 1816 a consultar** — hay casos donde este
+agente podría debuguear internamente, ya que hay precio y ya está el flujo
+cargado»*.
+
+Tenía razón. **El agente sabía hacer UN solo arreglo** —traer el cronograma de
+1816 y pisar los flujos— así que las cinco reglas de tasa pasaban por la misma
+cadena, y sus dos puertas de 1816 (`cuadro` y `precio`) la bloqueaban entera. Con
+rate limit, un domingo, o con un bono que 1816 no cubre, la pantalla no decía
+**nada**: ni siquiera lo que sale de una división.
+
+**Medido antes de tocar una línea** (`scripts/diag_av_agent_arreglos`, corrida del
+2026-08-17 sobre los 38 hallazgos reales):
+
+| causa | hallazgos | ¿necesita 1816? |
+|---|---:|---|
+| `moneda_flujo` contradice a los ejes | 14 | **no** |
+| sin ejes y sin ficha en el catálogo | 9 | **no** |
+| cuadro en nominales de la emisión | 6 | **no** |
+| falta el CER de emisión | 4 | **no** |
+| sin espejo en `portafolio.assets` | 2 | **no** |
+| el cuadro usa el campo de la otra rama | 1 | **no** |
+| precio 0 / stale | 2 | **no** |
+| bug del motor (paridad CER) | 1 | **no** |
+
+**38 de 38 se resuelven con datos que ya están en la base.** Ninguno necesitaba la
+red: 1816 no era el insumo, era una costumbre.
+
+#### La causa #1 — dos vocabularios para el mismo hecho
+
+`rama_calculo` se migró a los EJES el 2026-08-16, pero **la rama ON sigue
+despachando por `moneda_flujo`** (`engines/curvas.py:665`), que es un campo aparte
+y se carga a mano. Mientras coinciden no pasa nada; cuando divergen, **el motor
+calcula con uno y la vista clasifica con el otro**, y no salta ningún error.
+
+Lo confirma la aritmética de producción:
+
+```
+OLC3O   (137.280 / A3500) / 146.300 × 100 = 0,065   = el 0,06 que muestra
+        → `moneda_flujo`='DL' anda; el problema SÍ es el cuadro
+LOC6O   156.570 / 100 × 100 = 156.570
+        → el motor NO convirtió nada. Pero el símbolo termina en "O" y
+          `precio_soberano_a_usd` lo habría dividido por MEP sin problema:
+          **la pata no está mal, `moneda_flujo` sí**
+```
+
+Cuatro bonos tenían **`HD`**, que es el vocabulario de la CARTERA
+(`portafolio.assets`), no el del motor. Y acá está lo grave: **el `else` de la
+rama ON no valida nada**, así que una palabra que no reconoce se convierte en ARS
+en silencio — sin error, sin log, sin celda vacía. Solo una paridad de 156.570 que
+parece un dato.
+
+> **Regla**: el arreglo se elige por la causa que está **aguas arriba**. Con
+> `moneda_flujo` mal, todo lo demás que se mida está medido en la unidad
+> equivocada — proponer «cambiá la pata» ahí es pisar un dato sano para tapar el
+> síntoma de otro. Ordenarlo mal fue el error de la primera versión de este
+> diagnóstico, y por eso el ORDEN es parte del contrato (`diagnosticar_local`).
+
+#### El defecto se detecta, no se espera al síntoma
+
+Las demás reglas miran una MÉTRICA fuera de rango, así que solo ven el error
+cuando es lo bastante grande **y ese día hubo precio**. El censo sobre todo
+`mercado.curvas` mostró el agujero: **30 de 140 bonos** de la rama ON tienen
+`moneda_flujo` contradiciendo a sus ejes, y solo **8** habían disparado un
+hallazgo. Los otros 22 estaban igual de mal valuados y **no aparecían en ninguna
+pantalla**.
+
+La regla nueva (`moneda_flujo_contradice`) mira los dos campos del mismo doc, así
+que **no necesita precio, ni snapshot, ni 1816**: es cierta un domingo y con la
+API caída, y no se puede disparar por un valor viejo pegado en el snapshot.
+
+#### La verificación también es local
+
+Sin cotejo contra 1816 hace falta otra prueba de que el cambio mejora algo, y no
+puede ser «yo creo». Se corre **el mismo motor que valúa en producción** con el
+bono parchado y se exige que **la métrica que disparó el hallazgo vuelva al
+rango** — y que antes estuviera afuera. Es un control tan duro como el de 1816,
+cuesta cero créditos y se puede correr un domingo. Si la paridad no vuelve, el
+diagnóstico estaba mal y **no se escribe nada**.
+
+#### Lo que el agente NO arregla, y lo dice
+
+`paridad_del_motor` es la única causa cuyo arreglo no es un dato: `curvas.py:457`
+arma el valor técnico del CER con `valor_nominal` (estático, 100) en vez del
+residual VIVO, así que un bono que ya amortizó el 80% muestra la paridad 5 veces
+más chica (TX26: 20,07 contra 100,4 real). Es la misma lección de E2.u, que se
+arregló en la rama ON y quedó pendiente en la CER. **El bono está bien**, y el
+agente tiene que poder decirlo en vez de proponer que se lo toque.
+
+#### Dos cosas más que salieron del mismo diag
+
+- **Fósiles en el snapshot.** `mercado.market_snapshot` es un upsert PARCIAL:
+  cuando el motor sale por una puerta de emergencia (CER sin índice → `:439`,
+  rama `otros` → `:733`, XIRR fuera de rango) escribe **solo `duration`**, y la
+  TEA y la paridad viejas se quedan ahí **sin fecha propia**. CO3D7 (417,09),
+  PMA28 (200,25) y TMF27 (4.789,16) muestran paridades que el motor **no
+  produce hoy**: el hallazgo lo dispara un valor de otra época.
+- **El precio tenía tres fuentes locales y se usaba una.** `_precio_local` va
+  snapshot → `mercado.snapshots_cierre` → **la evidencia congelada del propio
+  hallazgo** (que ya viajaba hasta el front y se tiraba para volver a leer en
+  vivo). Y un `last_price` de **0 no es un precio**: DHSGO entraba como válido.
+
+#### Qué NO cambió
+
+El alta (`simular`/`aplicar`), completar cronograma (`simular_flujos`/
+`aplicar_flujos`), los detectores, la vista, ME PREGUNTA, AVISOS, IGNORAR, el
+libro de acciones, los cinco estados, `_paso` y `_veredicto` quedaron **intactos**
+— se reusan tal cual. El camino de 1816 sigue existiendo para lo único que
+realmente lo necesita: traer un cronograma que no tenemos.
+
 ## Changelog
 
+- **2026-08-17 — E3.h, el diagnóstico deja de depender de 1816.** El agente tenía
+  UN solo arreglo (traer el cuadro de 1816 y pisar los flujos), así que las cinco
+  reglas de tasa pasaban por la misma cadena y sus dos puertas de 1816 la
+  bloqueaban entera: con rate limit no decía **nada**. Medido antes de codear
+  (`scripts/diag_av_agent_arreglos`, 38 hallazgos reales): **38 de 38 se resuelven
+  con datos que ya están en la base**. La causa #1 son **dos vocabularios para el
+  mismo hecho** — `rama_calculo` se migró a los ejes pero la rama ON sigue
+  despachando por `moneda_flujo`, y cuando divergen el motor calcula con uno y la
+  vista clasifica con el otro, sin error. Cuatro bonos tenían **`HD`** (el
+  vocabulario de la CARTERA), que el `else` del motor convierte en ARS **en
+  silencio**. Censo: **30 de 140 bonos** de la rama ON se contradicen y solo 8
+  habían disparado hallazgo. Regla nueva `moneda_flujo_contradice` que mira el
+  DEFECTO y no el síntoma (no necesita precio ni red), arreglo local con
+  **verificación local** (la métrica tiene que volver al rango o no se escribe),
+  precio con fallback a `snapshots_cierre` y a la evidencia congelada, y
+  `paridad_del_motor` como la causa que el agente ve pero **no toca** (es un bug
+  de `curvas.py:457`, no un dato). El alta y el cronograma quedaron intactos.
+  6 tests (111 en total).
 - **2026-08-17 — E3.g, la paridad dejó de ser el juez.** Con E3.f, DICP dio TEA
   **0 bps** y duration **0,00%** contra 1816 — y la cadena igual BLOQUEABA por la
   paridad (86,57% contra 90,19%), diciendo «otro cronograma». **Aritméticamente

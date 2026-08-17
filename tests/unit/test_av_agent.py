@@ -1964,7 +1964,14 @@ def test_el_DIAGNOSTICO_le_pregunta_a_1816_UNA_SOLA_VEZ():
     from api.services import av_agent_alta
 
     src = inspect.getsource(av_agent_alta.simular_arreglo)
-    assert src.count("_simular_tasa(") == 2, "el diagnóstico compara DOS estados"
+    # Tres corridas del motor y no dos desde que existe el diagnóstico local
+    # (2026-08-17) — pero **la tercera no toca la red**: va con `sin_red=True`, que
+    # es lo que este test tiene que custodiar. El número solo era un proxy de
+    # "cuántas veces se le pregunta a 1816"; lo que importa es esa pregunta.
+    assert src.count("_simular_tasa(") == 3, "el diagnóstico compara DOS estados"
+    assert src.count("sin_red=True") == 1, (
+        "la corrida del diagnóstico local NO puede salir a la red: es justo la que "
+        "tiene que andar con 1816 caído")
     assert src.count("_referencia_1816(") == 1, (
         "la referencia de 1816 se pide UNA sola vez y se comparte — dos consultas "
         "para la misma pregunta es lo que nos ganó el rate limit")
@@ -2063,3 +2070,124 @@ def test_el_diagnostico_LOCAL_va_PRIMERO_en_la_cadena():
     assert "ps.extend(_diagnostico_local(" in ch
     assert ch.index("_diagnostico_local(") < ch.index('_paso("cuadro"')
     assert ch.index("_diagnostico_local(") < ch.index("cot_prop")
+
+
+# ── `moneda_flujo`: el vocabulario que la migración a ejes dejó atrás ────────
+
+
+def test_moneda_flujo_esperada_son_las_TRES_puertas_del_motor():
+    """`moneda_flujo_esperada` tiene que devolver EXACTAMENTE lo que el `if` de la
+    rama ON sabe leer. Si devolviera otra palabra, el agente "arreglaría" un bono
+    dejándolo igual de roto — que es justo lo que pasó al revés con `HD`."""
+    from engines.curvas import moneda_flujo_esperada
+
+    on = {"emisor_tipo": "corporativo", "moneda_eje": "USD", "ajuste": "fija"}
+    assert moneda_flujo_esperada(on) == "USD"
+    assert moneda_flujo_esperada({**on, "ajuste": "dolar_linked"}) == "DL"
+    assert moneda_flujo_esperada({**on, "moneda_eje": "ARS"}) == "ARS"
+    assert moneda_flujo_esperada({**on, "moneda_eje": "EUR"}) == "USD"
+    # Sin ejes NO se afirma nada: "no puedo saber" nunca es "está mal".
+    assert moneda_flujo_esperada({"emisor_tipo": "corporativo"}) == ""
+
+
+def test_el_detector_ve_el_DEFECTO_y_no_solo_el_sintoma():
+    """Medido el 2026-08-17: **30 de 140 bonos** de la rama ON tienen
+    `moneda_flujo` contradiciendo a sus ejes, y solo **8** habían disparado algún
+    hallazgo. Los otros 22 estaban igual de mal valuados y no aparecían en ninguna
+    pantalla, porque las demás reglas miran una MÉTRICA fuera de rango y esa solo
+    se ve cuando el error es grande y ese día hubo precio.
+
+    Por eso esta regla mira los dos campos del doc y **no necesita precio**: es
+    cierta un domingo, con 1816 caído y sin snapshot."""
+    from api.services.av_agent import detectar_tasas_sospechosas
+
+    base = {"emisor_tipo": "corporativo", "moneda_eje": "USD", "ajuste": "fija",
+            "flujos": [{"fecha": "2027-06-01", "amortizacion": 100.0}]}
+    # LOC6O real: `HD` es el vocabulario de la CARTERA, que el motor no conoce.
+    loc6o = _doc("LOC6O", **base, moneda_flujo="HD")
+    # PN40O real: `ARS` en un dólar-linked.
+    pn40o = _doc("PN40O", **{**base, "ajuste": "dolar_linked"}, moneda_flujo="ARS")
+    sano = _doc("PLC5O", **base, moneda_flujo="USD")
+
+    # SIN una sola métrica: el diccionario de snapshot va vacío a propósito.
+    hs = detectar_tasas_sospechosas([loc6o, pn40o, sano], {})
+    reglas = {(h["ticker"], h["regla"]) for h in hs}
+    assert ("LOC6O", "moneda_flujo_contradice") in reglas
+    assert ("PN40O", "moneda_flujo_contradice") in reglas
+    assert ("PLC5O", "moneda_flujo_contradice") not in reglas
+
+    ev = next(h for h in hs if h["ticker"] == "LOC6O")["evidencia"]
+    assert ev["moneda_flujo"] == "HD" and ev["moneda_flujo_esperada"] == "USD"
+
+
+def test_la_causa_se_elige_AGUAS_ARRIBA():
+    """Una causa por hallazgo, y en orden: con `moneda_flujo` mal, todo lo demás
+    que se mida está medido en la unidad equivocada. Ordenarlo mal fue el error que
+    hizo proponer «cambiá la pata» sobre bonos cuya pata estaba perfecta."""
+    from datetime import date, timedelta
+
+    from api.services.av_agent_alta import diagnosticar_local
+
+    fut = (date.today() + timedelta(days=200)).isoformat()
+    on = {"emisor_tipo": "corporativo", "moneda_eje": "USD", "ajuste": "fija"}
+
+    # LOC6O: `moneda_flujo` mal Y cuadro sano → gana `moneda_flujo`.
+    dx = diagnosticar_local({**on, "moneda_flujo": "HD",
+                             "flujos": [{"fecha": fut, "amortizacion": 100.0}]},
+                            "on", {"precio": 156570.0, "paridad": 156570.0})
+    assert dx["causa"] == "moneda_flujo_contradice"
+    assert dx["parche"] == {"moneda_flujo": "USD"}
+    assert "no conozca" in dx["detalle"] or "conozca" in dx["detalle"]
+
+    # Con los dos mal, `moneda_flujo` sigue ganando: la escala se mide después.
+    dx2 = diagnosticar_local({**on, "moneda_flujo": "HD",
+                              "flujos": [{"fecha": fut, "amortizacion": 146300.0}]},
+                             "on", {"precio": 137280.0})
+    assert dx2["causa"] == "moneda_flujo_contradice"
+
+    # OLC3O: `moneda_flujo` OK (DL) → recién ahí se ve el cuadro.
+    dl = {"emisor_tipo": "corporativo", "moneda_eje": "USD",
+          "ajuste": "dolar_linked", "moneda_flujo": "DL"}
+    dx3 = diagnosticar_local({**dl, "flujos": [{"fecha": fut,
+                                                "amortizacion": 146300.0}]},
+                             "on", {"precio": 137280.0})
+    assert dx3["causa"] == "escala_del_cuadro" and not dx3["parche"]
+
+    # CO3D7: el CER va ANTES que la forma del cuadro — sin él el motor no
+    # calcula nada y lo que se ve guardado es un fósil.
+    cer = {"emisor_tipo": "provincial", "moneda_eje": "ARS", "ajuste": "cer",
+           "flujos": [{"fecha": fut, "amortizacion": 29.25}]}
+    dx4 = diagnosticar_local(cer, "cer", {"precio": 122.0})
+    assert dx4["causa"] == "falta_cer" and "valor viejo" in dx4["detalle"]
+
+    # TX26: el bono está BIEN — la paridad la calcula mal el motor.
+    tx26 = {"emisor_tipo": "soberano", "moneda_eje": "ARS", "ajuste": "cer",
+            "cer_emision": 22.544, "valor_nominal": 100,
+            "flujos": [{"fecha": fut, "amortizacion_pct": 20.0}]}
+    dx5 = diagnosticar_local(tx26, "cer", {"precio": 727.3})
+    assert dx5["causa"] == "paridad_del_motor" and not dx5["parche"]
+    assert "está bien" in dx5["detalle"]
+
+    # DHSGO: precio 0 NO es precio.
+    dhsgo = {"emisor_tipo": "corporativo", "moneda_eje": "ARS", "ajuste": "tamar",
+             "moneda_flujo": "ARS",
+             "flujos": [{"fecha": fut, "amortizacion": 100.0}]}
+    assert diagnosticar_local(dhsgo, "on", {"precio": 0.0})["causa"] == "sin_precio"
+
+
+def test_el_arreglo_LOCAL_se_decide_ANTES_de_tocar_la_red():
+    """Si la decisión quedara después de `_referencia_1816`, la puerta seguiría
+    muriendo con el rate limit exactamente igual que antes — y encima habría
+    pagado la llamada para nada."""
+    import inspect
+
+    from api.services import av_agent_alta
+
+    src = inspect.getsource(av_agent_alta.simular_arreglo)
+    assert src.index("_arreglo_local(") < src.index("_referencia_1816(")
+    assert src.index("diagnosticar_local(") < src.index("_referencia_1816(")
+
+    # Y el arreglo local NO puede escribir sin que la métrica vuelva al rango.
+    loc = inspect.getsource(av_agent_alta._arreglo_local)
+    assert 'OK if\n                    (en_rango and estaba_mal) else BLOQUEA' in loc \
+        or "(en_rango and estaba_mal) else BLOQUEA" in loc

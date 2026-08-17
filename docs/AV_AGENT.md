@@ -731,8 +731,49 @@ Cada aplicación queda en el **libro** (`alta_bono`) con la TEA simulada, y la
 respuesta avisa que **los motores cargan `mercado.curvas` al arrancar**: la tasa
 aparece recién tras reiniciar `motor_rofex` + `motor_curvas`.
 
+### E2.b — CALIBRACIÓN de la simulación (2026-08-17)
+
+Tres cosas mal, encontradas por el user simulando de verdad.
+
+**1. El motivo de «no aplicable» era un texto FIJO.** Decía *«en CER
+`cupon_sobre_residual` es una TASA»* hasta para un BADLAR y para un dólar-linked,
+que no tienen nada que ver con CER. **Un mensaje que no habla del caso que uno
+está mirando no explica: confunde.** Ahora hay un motivo por rama — y el de una
+curva creada con `fuente_valuacion='1816'` dice lo que corresponde: *"su tasa se
+trae de 1816, acá no hay nada que simular; el cuadro alcanza para darlo de alta"*.
+
+**2. CER pasa a ser ALTA AUTOMÁTICA: el `cer_emision` se INFIERE.** No hacía falta
+que 1816 lo mandara — su catálogo trae `fechaEmision` (ya persistido en
+`research.mkt_1816_instrumentos`, **0 créditos**) y la serie CER es nuestra. Se
+calcula con `get_cer_liquidacion`, **la misma función que usa el motor**, con su
+T−10 hábiles: calcularlo distinto dejaría al bono con un divisor que no es el de
+la valuación, y la TEA saldría corrida sin que nada falle.
+
+Y con eso se resolvió la conversión que faltaba: en la rama `cer`,
+`cupon_sobre_residual` **es la TASA sobre el residual vivo**, no el monto. El
+conversor ahora deriva el residual pago a pago y expresa el cupón como tasa
+(`2,0` sobre 100 vivos y `1,0` sobre 50 son la MISMA tasa del 2%). Hay test
+numérico — es la única forma de cazar esto, porque leyendo el código no se ve.
+
+**3. Faltaba la pregunta más importante: ¿VA A TENER PRECIO?** Dar de alta no
+alcanza. La cadena real es:
+
+> **símbolo en Primary → el motor lo suscribe (lee `mercado.curvas` AL ARRANCAR) →
+> llega el trade → `mercado.market_snapshot` → `motor_curvas` calcula la TEA**
+
+Si el símbolo no está en el catálogo de Primary, **el bono queda dado de alta,
+sin precio y sin TEA, para siempre, y nadie sabe por qué**. Ahora el simulador lo
+chequea contra `core/instrumentos_validos` (la misma fuente que filtra las
+suscripciones de todos los motores) y lo dice antes de aplicar. `None` = no se
+pudo leer el catálogo → no se afirma nada.
+
 ## Changelog
 
+- **2026-08-17 — E2.b, calibración.** Motivo por RAMA (el texto fijo hablaba de
+  CER hasta en un BADLAR); **CER pasa a alta automática** con `cer_emision`
+  inferido de la fecha de emisión de 1816 + nuestra serie CER, y su cupón
+  convertido a TASA sobre el residual vivo; y el simulador chequea si **Primary
+  lista el símbolo** — sin eso el bono nunca recibe precio.
 - **2026-08-17 — E2, simular y aplicar.** El agente baja el cuadro de 1816,
   calcula la TEA en seco y da de alta el bono por `upsert_bono` con un click.
   Solo las ramas donde la conversión es inequívoca (`tasa_fija`, `soberanos`);

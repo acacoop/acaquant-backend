@@ -380,10 +380,31 @@ def test_la_ESCALA_se_MIDE_no_se_asume():
                             "tasa_fija")["escala"] == "nominales"
 
 
-def test_solo_las_ramas_INEQUIVOCAS_se_dan_de_alta_solas():
-    """`cer` queda afuera a propósito: ahí `cupon_sobre_residual` es una TASA que
-    se multiplica por el residual vivo, no un monto — la trampa del paso 15 de
-    RENTA_FIJA, que no se veía leyendo el código."""
-    from api.services.av_agent_alta import RAMAS_AUTOMATICAS
-    assert set(RAMAS_AUTOMATICAS) == {"tasa_fija", "soberanos"}
-    assert "cer" not in RAMAS_AUTOMATICAS and "tamar" not in RAMAS_AUTOMATICAS
+def test_en_CER_el_cupon_se_convierte_a_TASA_sobre_el_residual_vivo():
+    """**La trampa del paso 15 de RENTA_FIJA.** En `cer`, `cupon_sobre_residual`
+    NO es el monto que manda 1816: es la TASA que el motor MULTIPLICA por el
+    residual vivo. Guardar el monto tal cual daría un cupón inflado, y no se ve
+    leyendo el código — solo con un chequeo numérico como este.
+
+    Bono que amortiza 50 y 50, pagando 2,0 sobre 100 vivos y 1,0 sobre 50: las dos
+    veces es la MISMA tasa del 2%."""
+    from api.services.av_agent_alta import convertir_flujos
+    r = convertir_flujos([_cup("2027-01-15", 50, 2.0), _cup("2027-07-15", 50, 1.0)],
+                         "cer")
+    assert r["flujos"][0]["cupon_sobre_residual"] == 0.02
+    assert r["flujos"][1]["cupon_sobre_residual"] == 0.02
+    assert r["flujos"][1]["residual_previo_pct"] == 50.0
+
+
+def test_las_ramas_sin_conversion_automatica_dan_su_PROPIO_motivo():
+    """El mensaje decía «en CER cupon_sobre_residual es una TASA» hasta para un
+    BADLAR, que no tiene nada que ver con CER. Un mensaje que no habla del caso
+    que uno está mirando no explica: confunde."""
+    from api.services.av_agent_alta import RAMAS_AUTOMATICAS, _motivo_no_aplicable
+    from core.curvas_ejes import Ejes
+    assert set(RAMAS_AUTOMATICAS) == {"tasa_fija", "soberanos", "cer"}
+    dl = _motivo_no_aplicable("dolar_linked", Ejes("soberano", "USD", "dolar_linked"))
+    tm = _motivo_no_aplicable("tamar", Ejes("soberano", "ARS", "tamar"))
+    assert "A3500" in dl and "CER" not in dl
+    assert "promedio" in tm.lower() and "CER" not in tm
+    assert _motivo_no_aplicable("cer", Ejes("soberano", "ARS", "cer")) == ""

@@ -1236,8 +1236,98 @@ tocando la lógica del retroceso.
 Congelado con tres tests: metadata-no-es-dato, pedir-solo-metadata-no-agota-el-
 retroceso, y el formato de los dos mensajes de fracaso.
 
+### E2.k — LOS CINCO ESTADOS: qué frena el alta y qué es solo informativo (2026-08-17)
+
+**El incidente.** GD46 simulado mostró esto, en ámbar, como un aviso más:
+
+```
+▲ El cuadro coincide con el de 1816
+  paridad nuestra 0,05% vs 1816 75,56% → 99,94% de diferencia. Se contradicen.
+  No se bloquea el alta (el umbral es un primer corte, no una medición).
+```
+
+…y arriba, el veredicto: *«la cadena cierra: se puede aplicar»*, con el botón
+APLICAR habilitado. El user: *«esto es grave. Que me diga que está OK cuando algo
+tan clave como esto está así… ahí no puede haber un warning».*
+
+**La causa no era el umbral: era el modelo de estados.** `atencion` significaba
+DOS cosas incompatibles al mismo tiempo:
+
+| se leía igual | pero es | |
+|---|---|---|
+| «la paridad se contradice 99,94%» | una **prueba** de que el cronograma es otro | |
+| «el alta va a sembrar la especie» | una **consecuencia** del alta, ni buena ni mala | |
+| «hay que reiniciar los motores» | un paso posterior, siempre igual | |
+| «no hay unidad en assets» | normal: nadie tiene el bono todavía | |
+
+Con las dos categorías en el mismo triángulo ámbar, el contador decía *«6 a
+mirar»* en cadenas donde no había nada para mirar. **Un contador que grita
+siempre se deja de leer** — y así es como una contradicción real pasa
+desapercibida. El user lo dijo entero: *«hay algunos que no van con warning, o
+sea no son ni buenos ni malos… vos ya deberías saber que es un check verde o una
+cruz roja y listo, el resto son informativos»*.
+
+**El modelo nuevo — cada estado significa UNA cosa:**
+
+| | estado | significa | ¿frena a mano? | ¿frena al robot? |
+|---|---|---|---|---|
+| ✔ | `ok` | verificado y correcto | no | no |
+| ○ | `info` | ni bueno ni malo: lo que va a pasar | **no cuenta para nada** | no |
+| ▲ | `revisar` | se midió y NO cierra, sin ser concluyente | no | **sí** |
+| ✖ | `bloquea` | probado mal | **sí** | sí |
+| ? | `no_se` | no se pudo verificar | no | **sí** |
+
+Los dos del medio existen porque colapsarlos en un extremo sería mentir: 2,4% de
+diferencia de paridad no está probado mal, y *«no pude leer la base»* no es *«está
+bien»* (REGLA #2). Pero **ninguno de los dos es informativo: los dos paran al
+robot**, que es la pregunta que el user vino a resolver — *«el día de mañana que
+se haga solo, esto es fundamental»*.
+
+De ahí salen **dos booleanos, no uno**, y viajan resueltos desde el backend:
+`puede_aplicar` (para el humano) y `puede_auto` (para la lane automática de E6).
+
+**Tres bugs que el rediseño destapó, todos del mismo patrón — dos lugares
+contestando la misma pregunta:**
+
+1. **El cotejo de paridad** pasó de `atencion` a **`bloquea`**. El argumento
+   viejo («el umbral es un primer corte, no una medición») estaba mal: el umbral
+   decide cuándo alarmarse, pero cruzado por 20 veces lo que hay es una
+   demostración. Y lo que se escribiría es un bono con una TEA plausible y
+   equivocada: **no falla, miente**.
+2. **«Hay precio para simular la tasa» salía en VERDE ✔** con el texto *«pero el
+   motor NO devolvió TEA: revisar la escala»* en el mismo renglón. Un tilde verde
+   sobre la descripción de una falla — y no es sospecha: se le dieron al motor el
+   cuadro real y el precio real y no calculó. Ahora **bloquea**, con la excepción
+   que lo hace correcto: en un TAMAR/BADLAR que el motor no dé TEA es lo
+   **esperado** (la trae 1816), y ahí sigue verde.
+3. **TMG27 mostraba la cadena entera en verde y SIN botón APLICAR.** `aplicable`
+   hacía `rama in RAMAS_AUTOMATICAS` mientras el paso de la cadena usaba
+   `_alta_automatica`, que además acepta el camino de la tasa externa. Dos
+   funciones, una pregunta. Ahora `aplicable` llama a `_alta_automatica`, y el
+   botón lo gobierna `veredicto.puede_aplicar` — una sola fuente.
+
+**Y el botón que desaparece ahora explica por qué**: donde estaba APLICAR aparece
+`✘ BLOQUEADO`. Un control que se esconde no distingue «te lo frené» de «falta
+cargar algo».
+
+`aplicar()` valida contra el MISMO `puede_aplicar` que mira el front, así que
+esconder el botón y rechazar la escritura no pueden desincronizarse — y pegarle
+al endpoint a mano tampoco saltea el bloqueo.
+
 ## Changelog
 
+- **2026-08-17 — E2.k, los CINCO estados y qué frena qué.** `atencion` mezclaba
+  «esto está mal» con «esto es lo que va a pasar», así que **una contradicción
+  probada del cronograma se leía igual que un aviso de rutina** y el alta quedaba
+  habilitada (GD46: paridad 0,05% vs 75,56%, veredicto «se puede aplicar»). Nuevo
+  modelo `ok / info / revisar / bloquea / no_se`, cada uno con UN significado, y
+  **dos booleanos derivados**: `puede_aplicar` (humano) y `puede_auto` (la lane de
+  E6 — `revisar` y `no_se` frenan al robot aunque no al humano). Tres bugs del
+  mismo patrón —dos lugares contestando la misma pregunta— corregidos: el cotejo
+  ahora **bloquea**, «hay precio pero el motor no da TEA» **bloquea** (salvo tasa
+  externa, donde es lo esperado), y `aplicable` dejó de contradecir a la cadena
+  (TMG27 mostraba todo verde y escondía APLICAR). El botón oculto se reemplazó
+  por `✘ BLOQUEADO`. 7 tests nuevos.
 - **2026-08-17 — E2.j, el retroceso de ruedas volvió a funcionar.** **Regresión
   propia de E2.g**: al pasar de 4 a 13 campos entró metadata que 1816 manda
   siempre (`fuente`, `convencionTna`, `fechaLiquidacion`), el predicado de «trajo

@@ -455,12 +455,12 @@ def test_la_cadena_verde_devuelve_TODOS_los_pasos_no_solo_los_rotos():
     from api.services.av_agent_alta import _veredicto
     ps = _chequear()
     assert len(ps) >= 8
-    assert not [p for p in ps if p["estado"] == "falla"]
+    assert not [p for p in ps if p["estado"] == "bloquea"]
     assert _veredicto(ps)["estado"] == "ok"
     # El paso del reinicio NUNCA es verde solo: es una acción manual, y decirlo
     # es la mitad del valor del pre-flight.
     reinicio = next(p for p in ps if "market_snapshot" in p["titulo"])
-    assert reinicio["estado"] == "atencion" and "reiniciar" in reinicio["accion"]
+    assert reinicio["estado"] == "info" and "reiniciar" in reinicio["accion"]
 
 
 def test_sin_especie_NO_bloquea_porque_sembrarla_es_parte_del_alta():
@@ -471,7 +471,7 @@ def test_sin_especie_NO_bloquea_porque_sembrarla_es_parte_del_alta():
                         "simbolo_actual": None, "assets": []},
                    origen_simbolo="armado")
     p5 = next(p for p in ps if p["clave"] == "especie")
-    assert p5["estado"] == "atencion"        # NO "falla"
+    assert p5["estado"] == "info"            # informativo: el alta la siembra
     assert "ARMADO" in p5["detalle"]
     # El paso de siembra existe, va ÚLTIMO, y dice que no hay que correr nada.
     sembrar = next(p for p in ps if p["clave"] == "sembrar")
@@ -490,7 +490,7 @@ def test_si_la_base_no_responde_NO_se_afirma_que_falta_nada():
     pasos de la cadena de precio salen `no_se_puede_saber`, no `falla`."""
     from api.services.av_agent_alta import _veredicto
     ps = _chequear(ctx={"ok": False, "error": "OperationalError"})
-    assert not [p for p in ps if p["estado"] == "falla"]
+    assert not [p for p in ps if p["estado"] == "bloquea"]
     assert [p for p in ps if p["estado"] == "no_se_puede_saber"]
     assert _veredicto(ps)["estado"] == "no_se_puede_saber"
 
@@ -499,7 +499,7 @@ def test_primary_sin_el_simbolo_BLOQUEA_porque_nunca_va_a_tener_precio():
     """`core/websocket.agregar_suscripciones` descarta lo que no está en el
     catálogo: el alta se escribe y la TEA queda vacía para siempre."""
     ps = _chequear(estado_simbolo={"conocido": False, "nota": "⚠ Primary NO lista"})
-    assert next(p for p in ps if p["clave"] == "primary")["estado"] == "falla"
+    assert next(p for p in ps if p["clave"] == "primary")["estado"] == "bloquea"
 
 
 def test_un_ticker_que_YA_esta_en_el_master_avisa_que_lo_va_a_pisar():
@@ -521,7 +521,7 @@ def test_una_rama_sin_formula_avisa_que_la_TEA_va_a_quedar_vacia(monkeypatch):
     monkeypatch.setattr(curvas_catalogo, "fuente_valuacion", lambda a: "motor")
     monkeypatch.setattr(curvas_catalogo, "job_de_la_tasa", lambda a: "")
     p9 = next(p for p in _chequear(rama="otros", ejes=badlar) if p["clave"] == "tea_motor")
-    assert p9["estado"] == "falla" and "vacía" in p9["detalle"]
+    assert p9["estado"] == "bloquea" and "vacía" in p9["detalle"]
 
     monkeypatch.setattr(curvas_catalogo, "fuente_valuacion", lambda a: "1816")
     monkeypatch.setattr(curvas_catalogo, "job_de_la_tasa", lambda a: "jobs/tamar_1816")
@@ -566,14 +566,37 @@ def test_la_ESCALA_de_la_paridad_se_normaliza_antes_de_comparar():
     assert _cotejo_tea(0.07, {"paridad": 0.7278}, paridad=72.78)["estado"] == "ok"
 
 
-def test_una_paridad_distinta_avisa_pero_NO_bloquea():
-    """Paridad distinta = otro valor técnico = otro cronograma. Es el hallazgo
-    que el cotejo existe para encontrar. Igual no bloquea: el umbral es un primer
-    corte, no una medición, y bloquear con eso sería inventar un hecho."""
-    from api.services.av_agent_alta import _cotejo_tea
+def test_una_paridad_que_SE_CONTRADICE_BLOQUEA_el_alta():
+    """**El incidente de GD46 (2026-08-17), congelado.** Paridad nuestra 0,05%
+    contra 75,56% de 1816: al MISMO precio, otro valor técnico, o sea otro
+    cronograma. Eso salía en ÁMBAR con el texto «no se bloquea el alta: el umbral
+    es un primer corte, no una medición», el veredicto decía «se puede aplicar» y
+    el botón APLICAR estaba habilitado.
+
+    El razonamiento estaba mal. El umbral es un primer corte para decidir CUÁNDO
+    alarmarse; una vez cruzado por 20 veces lo que hay no es una alarma difusa,
+    es una demostración. Y lo que se escribiría es un bono que muestra una TEA
+    plausible y equivocada — no falla, miente."""
+    from api.services.av_agent_alta import _cotejo_tea, _veredicto
     p = _cotejo_tea(0.55, {"paridad": 0.7278}, paridad=41.0)
-    assert p["estado"] == "atencion"          # NO "falla"
+    assert p["estado"] == "bloquea" and p["frena"] is True
     assert "contradicen" in p["detalle"] and p["accion"]
+    # ...y el veredicto, que es lo que el botón mira, dice que NO.
+    v = _veredicto([p])
+    assert v["puede_aplicar"] is False and v["puede_auto"] is False
+
+
+def test_una_paridad_que_casi_cierra_NO_bloquea_a_mano_pero_SI_al_ROBOT():
+    """La banda del medio existe porque colapsarla en un extremo sería mentir:
+    2,4% de diferencia puede ser un cupón de más o una fecha corrida, y eso no
+    está probado. Un humano puede decidir con evidencia parcial mirando el cuadro;
+    un proceso automático no tiene con qué."""
+    from api.services.av_agent_alta import _cotejo_tea, _veredicto
+    p = _cotejo_tea(0.10, {"paridad": 0.7278}, paridad=71.0)
+    assert p["estado"] == "revisar"
+    assert p["frena"] is False and p["frena_auto"] is True
+    v = _veredicto([p])
+    assert v["puede_aplicar"] is True and v["puede_auto"] is False
 
 
 def test_sin_PARIDAD_no_se_inventa_un_veredicto():
@@ -635,7 +658,7 @@ def test_la_ESCALA_no_se_reporta_donde_no_afecta_a_nada():
     # ...pero en `soberanos` los montos son ABSOLUTOS y ahí sí importa.
     sob = next(p for p in _chequear(rama="soberanos", conv=conv)
                if p["clave"] == "cuadro")
-    assert sob["estado"] == "atencion" and "ABSOLUTOS" in sob["detalle"]
+    assert sob["estado"] == "info" and "ABSOLUTOS" in sob["detalle"]
 
 
 # ── La FICHA y la TASA EXTERNA en el alta (2026-08-17) ──────────────────────
@@ -691,7 +714,7 @@ def test_el_paso_FICHA_dice_QUE_se_escribe_y_QUE_queda_vacio():
                                  "fecha_emision": "2025-08-31"})
     p = next(x for x in ps if x["clave"] == "ficha")
     assert "Tesoro Nacional" in p["detalle"]
-    assert p["estado"] == "atencion" and "cupon_anual" in p["detalle"]
+    assert p["estado"] == "info" and "cupon_anual" in p["detalle"]
 
 
 def test_sin_precio_el_mensaje_dice_QUE_ruedas_se_probaron(monkeypatch):
@@ -730,3 +753,87 @@ def test_sin_precio_el_mensaje_dice_QUE_ruedas_se_probaron(monkeypatch):
     r = alta._referencia_1816("TMG27")
     assert r.get("precio") is None
     assert "2026-08-14" in r["error"] and "2026-05-02" in r["error"]
+
+
+# ── El MODELO DE ESTADOS (rediseño 2026-08-17) ──────────────────────────────
+#
+# El user, mirando GD46 y TMG27: *«tiene que haber una serie de pasos para dar el
+# OK o para frenar. Ahora porque lo hago manual, pero el día de mañana que se haga
+# solo esto es fundamental. Hay algunos que no van con warning, o sea no son ni
+# buenos ni malos. Vos ya deberías saber que es un check verde o una cruz roja y
+# listo: el resto son informativos.»*
+
+
+def test_los_pasos_INFORMATIVOS_no_cuentan_como_avisos():
+    """`atencion` significaba dos cosas incompatibles: «esto está mal» y «esto es
+    lo que va a pasar». Con las dos en el mismo ámbar, el contador decía «6 a
+    mirar» en una cadena donde no había NADA para mirar — y un contador que grita
+    siempre se deja de leer, que es como una contradicción real pasa desapercibida.
+
+    Estos cuatro son consecuencias del alta, no defectos: no frenan nada."""
+    from api.services.av_agent_alta import INFO, _paso
+    for clave in ("especie", "suscripcion", "assets", "sembrar"):
+        p = _paso(clave, "x", INFO, "y")
+        assert p["frena"] is False, clave
+        assert p["frena_auto"] is False, clave
+
+
+def test_no_poder_VERIFICAR_frena_al_robot_aunque_no_al_humano():
+    """REGLA #2 con consecuencias: «no pude leer la base» no es «está bien». Un
+    humano puede mirar otra cosa y decidir; un proceso automático no."""
+    from api.services.av_agent_alta import NO_SE, _paso, _veredicto
+    v = _veredicto([_paso("especie", "x", NO_SE, "la base no respondió")])
+    assert v["puede_aplicar"] is True and v["puede_auto"] is False
+
+
+def test_el_conteo_del_veredicto_separa_las_cinco_categorias():
+    """El resumen lo cuenta el BACKEND y viaja resuelto. Que lo recontara el front
+    sería la tercera copia del mismo criterio — que es exactamente cómo nacieron
+    las contradicciones de GD46 y TMG27."""
+    from api.services.av_agent_alta import BLOQUEA, INFO, NO_SE, OK, REVISAR, _paso, _veredicto
+    ps = [_paso("a", "t", OK, ""), _paso("b", "t", INFO, ""),
+          _paso("c", "t", INFO, ""), _paso("d", "t", REVISAR, ""),
+          _paso("e", "t", NO_SE, ""), _paso("f", "t", BLOQUEA, "")]
+    v = _veredicto(ps)
+    assert v["conteo"] == {"ok": 1, "info": 2, "revisar": 1, "bloquea": 1, "no_se": 1}
+    # BLOQUEA gana sobre todo lo demás: el texto tiene que hablar de eso.
+    assert v["estado"] == "bloquea" and "NO se puede aplicar" in v["texto"]
+
+
+def test_hay_precio_y_el_motor_NO_da_TEA_es_un_BLOQUEO_no_un_tilde_verde():
+    """En GD46 este paso salía en VERDE ✔ diciendo, en el mismo renglón, «pero el
+    motor NO devolvió TEA: revisar la escala». Un tilde verde sobre un texto que
+    describe una falla — y no es una sospecha: se le dieron al motor el cuadro
+    real y el precio real, y no calculó."""
+    ps = _chequear(precio=69.0, tea=None, fuente_precio="1816")
+    p = next(x for x in ps if x["clave"] == "precio")
+    assert p["estado"] == "bloquea" and "NO devolvió TEA" in p["detalle"]
+
+
+def test_pero_en_un_TAMAR_que_el_motor_no_de_TEA_es_lo_ESPERADO(monkeypatch):
+    """La excepción que hace que el bloqueo de arriba sea correcto y no torpe: a un
+    TAMAR/BADLAR **no le calculamos la tasa a propósito** (la trae 1816). Tratar
+    eso como falla habría bloqueado justo a los 18 bonos que están bien."""
+    from api.services import av_agent_alta as alta
+    monkeypatch.setattr(alta, "_tasa_externa", lambda e: ("1816", "jobs/tamar_1816"))
+    ps = _chequear(precio=115.2, tea=None, fuente_precio="1816")
+    p = next(x for x in ps if x["clave"] == "precio")
+    assert p["estado"] == "ok" and "está bien" in p["detalle"]
+
+
+def test_UNA_sola_funcion_decide_si_la_rama_se_da_de_alta_sola():
+    """**El caso TMG27 (2026-08-17): cadena entera en verde y SIN botón APLICAR.**
+
+    Había dos funciones contestando la misma pregunta. El paso «El cuadro se puede
+    convertir sin ambigüedad» usaba `_alta_automatica`, que acepta DOS caminos —la
+    rama convierte sin ambigüedad, o la tasa la trae 1816— y daba OK. El campo
+    `aplicable`, que es lo que el front mira para mostrar el botón, hacía
+    `rama in RAMAS_AUTOMATICAS` a secas y daba False para un TAMAR (rama `otros`).
+
+    El bug no es el valor: es que la pregunta tenía dos respuestas. Este test
+    congela la que vale."""
+    from api.services.av_agent_alta import RAMAS_AUTOMATICAS, _alta_automatica
+    from core.curvas_ejes import Ejes
+    tamar = Ejes("soberano", "ARS", "tamar")
+    assert "otros" not in RAMAS_AUTOMATICAS       # la rama sola diría que NO...
+    assert _alta_automatica("otros", tamar) is True   # ...y la respuesta es SÍ

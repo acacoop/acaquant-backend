@@ -259,20 +259,45 @@ def _estado_simbolo(simbolo: str) -> dict:
 #   7. el motor lo suscribe → llega el trade → `market_snapshot` → TEA
 #   8. hay espejo en `portafolio.assets` (sin eso no entra al AuM)
 #
-# Cada paso reporta `ok` / `falla` / `atencion` / `no_se_puede_saber`. **El
-# cuarto estado no es decorativo**: si Postgres no responde, "no pude mirar" no
-# es "no está", y afirmarlo sería exactamente la REGLA #2 rota.
-OK, FALLA, ATENCION, NO_SE = "ok", "falla", "atencion", "no_se_puede_saber"
+# ── LOS CINCO ESTADOS DE UN PASO ────────────────────────────────────────────
+#
+# **Rediseñado el 2026-08-17 tras el incidente de GD46.** El modelo viejo tenía
+# cuatro estados, pero `atencion` significaba DOS cosas incompatibles:
+#
+#   - "esto está mal" (la paridad de GD46: 0,05% contra 75,56% de 1816)
+#   - "esto es lo que va a pasar" (el alta va a sembrar la especie)
+#
+# Con las dos en el mismo ámbar, **una contradicción probada del cronograma se
+# leía igual que un aviso de rutina**, y el veredicto igual decía «se puede
+# aplicar» con el botón APLICAR habilitado. Palabras del user: *«que me diga que
+# está OK cuando algo tan clave como esto está así… ahí no puede haber un
+# warning»*. Y tenía otra mitad: *«hay algunos que no son ni buenos ni malos»*.
+#
+# Ahora **cada estado significa UNA sola cosa**, y de ahí sale la decisión —
+# manual y, sobre todo, la del día que esto corra solo:
+#
+#   ✔ ok       verificado y correcto                      → no frena nada
+#   ○ info     ni bueno ni malo: lo que va a pasar,        → NO CUENTA para nada
+#              o contexto. No es un aviso.
+#   ▲ revisar  se midió y NO cierra, sin ser concluyente   → frena el AUTOMÁTICO
+#   ✖ bloquea  probado mal                                 → frena TODO
+#   ? no_se    no se pudo verificar                        → frena el AUTOMÁTICO
+#
+# Los dos del medio existen porque colapsarlos en un extremo sería mentir: una
+# paridad que difiere 1% no está probada mal, y "no pude leer la base" no es "está
+# bien". Pero **ninguno de los dos es informativo**: los dos paran al robot.
+OK, INFO, REVISAR, BLOQUEA, NO_SE = "ok", "info", "revisar", "bloquea", "no_se_puede_saber"
+
+# Lo que NUNCA puede aplicarse solo, y lo que además no puede aplicarse a mano.
+_FRENAN_AUTOMATICO = (BLOQUEA, REVISAR, NO_SE)
+_FRENAN_TODO = (BLOQUEA,)
 
 
-def _paso(clave: str, titulo: str, estado: str, detalle: str,
-          *, tabla: str = "", accion: str = "") -> dict:
-    """Un eslabón. **`clave` es la identidad, `n` es presentación** — el `n` se
-    numera al final según los pasos que hayan aplicado (el de CER no siempre
-    está, el control cruzado tampoco). Si el orden fuera la identidad, insertar
-    un paso en el medio renumeraría todo y rompería a quien lo referencie."""
-    return {"clave": clave, "titulo": titulo, "estado": estado, "detalle": detalle,
-            "tabla": tabla, "accion": accion}
+_SIN_TEA = (" — pero el motor **NO devolvió TEA** con este cuadro y este precio. "
+            "No es una sospecha: se le dieron los dos insumos reales y no calculó, "
+            "así que el bono nacería con la celda de tasa vacía")
+_SIN_TEA_EXTERNA = (" — el motor no devuelve TEA, y está bien: a este bono la tasa "
+                    "se la trae 1816, no la calculamos nosotros")
 
 
 # ── Bandas del control cruzado ──────────────────────────────────────────────
@@ -312,9 +337,16 @@ def _paso(clave: str, titulo: str, estado: str, detalle: str,
     """Un eslabón. **`clave` es la identidad, `n` es presentación** — el `n` se
     numera al final según los pasos que hayan aplicado (el de CER no siempre
     está, el control cruzado tampoco). Si el orden fuera la identidad, insertar
-    un paso en el medio renumeraría todo y rompería a quien lo referencie."""
+    un paso en el medio renumeraría todo y rompería a quien lo referencie.
+
+    `frena_auto` / `frena` se derivan del estado y viajan RESUELTOS: el front no
+    tiene que saber qué estado bloquea qué, y el día que exista la lane
+    automática lee el mismo booleano que ve el humano. Dos lugares decidiendo lo
+    mismo es exactamente cómo nació el bug que este rediseño arregla."""
     return {"clave": clave, "titulo": titulo, "estado": estado, "detalle": detalle,
-            "tabla": tabla, "accion": accion}
+            "tabla": tabla, "accion": accion,
+            "frena": estado in _FRENAN_TODO,
+            "frena_auto": estado in _FRENAN_AUTOMATICO}
 
 
 def _tea_de_1816_a_nuestro_precio(ticker: str, precio: float, moneda: str) -> dict:
@@ -405,18 +437,28 @@ def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "", paridad=None) -> dict:
                              "el de ellos. El cuadro está bien convertido.",
                      tabla="1816 /indicadores")
     if dif_rel <= _PARIDAD_MIRAR:
-        return _paso("cotejo_1816", "El cuadro coincide con el de 1816", ATENCION,
+        return _paso("cotejo_1816", "El cuadro coincide con el de 1816", REVISAR,
                      linea + ". Se parecen pero no son iguales: puede faltar o "
-                             "sobrar un cupón, o diferir una fecha de pago.",
+                             "sobrar un cupón, o diferir una fecha de pago. No "
+                             "alcanza para afirmar que está mal, así que no se "
+                             "bloquea a mano — pero SÍ frena el alta automática.",
                      tabla="1816 /indicadores",
                      accion="comparar el cuadro de abajo contra la pantalla de 1816")
-    return _paso("cotejo_1816", "El cuadro coincide con el de 1816", ATENCION,
-                 linea + ". **Se contradicen.** Con el mismo precio, una paridad "
-                         "distinta significa OTRO valor técnico — o sea, otro "
-                         "cronograma. Casi siempre es la escala del cuadro o la "
-                         "pata equivocada. No se bloquea el alta (el umbral es un "
-                         "primer corte, no una medición), pero acá hay algo que "
-                         "entender antes de confiar en este bono.",
+    # **BLOQUEA, y esto es el corazón del rediseño.** Hasta el 2026-08-17 este
+    # caso era `atencion` con el texto «no se bloquea el alta: el umbral es un
+    # primer corte, no una medición». Ese razonamiento estaba mal: el umbral es
+    # un primer corte para decidir CUÁNDO alarmarse, pero una vez cruzado por 20
+    # veces —GD46 dio 99,94%— lo que hay no es una alarma difusa, es una
+    # DEMOSTRACIÓN de que el cronograma es otro. Escribir eso en el master es
+    # meter un bono mal valuado y que nadie lo note: la TEA sale plausible.
+    return _paso("cotejo_1816", "El cuadro coincide con el de 1816", BLOQUEA,
+                 linea + ". **Se contradicen, y esto BLOQUEA el alta.** Con el "
+                         "mismo precio, una paridad distinta significa OTRO valor "
+                         "técnico — o sea, otro cronograma. Casi siempre es la "
+                         "escala del cuadro o la pata equivocada. Aplicar así "
+                         "escribe un bono que va a mostrar una TEA plausible y "
+                         "equivocada, que es el peor resultado posible: no falla, "
+                         "miente.",
                  tabla="1816 /indicadores",
                  accion="revisar «cómo se calculó»: escala del cuadro y Σ de "
                         "amortizaciones son los dos sospechosos")
@@ -515,7 +557,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     # cuando ese número no afecta a NADA de lo que se escribe.
     escala_importa = rama in ("tasa_fija", "soberanos")
     escala_ok = conv["escala"] == "vn100" or not escala_importa
-    ps.append(_paso("cuadro", "1816 mandó el cuadro de flujos", OK if escala_ok else ATENCION,
+    ps.append(_paso("cuadro", "1816 mandó el cuadro de flujos", OK if escala_ok else INFO,
                     f"{conv['n']} cupón/es · Σ amortizaciones {conv['suma_amort']} → "
                     f"escala {conv['escala']}"
                     + ("" if escala_ok else
@@ -543,13 +585,13 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     else:
         detalle_rama = f"rama «{rama}» — {_motivo_no_aplicable(rama, ejes)}"
     ps.append(_paso("rama", "El cuadro se puede convertir sin ambigüedad",
-                    OK if auto else FALLA, detalle_rama,
+                    OK if auto else BLOQUEA, detalle_rama,
                     tabla="engines/curvas.py::rama_calculo",
                     accion="" if auto else "cargar a mano con el cuadro de abajo"))
 
     if rama == "cer":
         ps.append(_paso("cer_emision", "CER de emisión resuelto",
-                        OK if cer_emision else FALLA,
+                        OK if cer_emision else BLOQUEA,
                         f"{cer_emision} (inferido de la fecha de emisión de 1816, "
                         "con el mismo T−10 hábiles que usa el motor)"
                         if cer_emision else (nota_cer or "no se pudo calcular"),
@@ -580,7 +622,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
         # listo" — y dejarlo listo es justamente el trabajo. Se siembra al
         # aplicar, con las patas ARS y USD que Primary liste (paso `sembrar`).
         ps.append(_paso("especie", "El papel tiene especie: cotiza con un símbolo",
-                        ATENCION,
+                        INFO,
                         f"todavía no hay ninguna pata de {ticker} en "
                         f"mercado.especies, así que «{simbolo}» está ARMADO por "
                         "convención. **No hace falta hacer nada**: si el resto de "
@@ -591,7 +633,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     con = estado_simbolo.get("conocido")
     ps.append(_paso(
         "primary", "Primary lista ese símbolo (si no, el WS lo filtra)",
-        OK if con is True else (FALLA if con is False else NO_SE),
+        OK if con is True else (BLOQUEA if con is False else NO_SE),
         f"«{simbolo}» ({'de mercado.especies' if origen_simbolo == 'especies' else 'armado por convención'}) — "
         + estado_simbolo.get("nota", ""),
         tabla="manager.pyrofex_instruments · core/instrumentos_validos",
@@ -602,7 +644,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     # 7 — el motor arma su universo AL ARRANCAR. Este paso NUNCA es verde solo:
     #     es un paso MANUAL, y decirlo es la mitad del valor del pre-flight.
     ps.append(_paso("suscripcion", "El motor lo suscribe y el precio llega a market_snapshot",
-                    ATENCION,
+                    INFO,
                     "los motores leen mercado.curvas UNA vez, al arrancar: hasta "
                     "reiniciar motor_rofex + motor_curvas este bono NO se suscribe "
                     "y no va a tener precio, aunque el alta quede escrita.",
@@ -611,24 +653,42 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
 
     # 8 — ¿hay con qué calcular la tasa AHORA? Un bono nuevo nunca tiene snapshot
     #     (nunca se suscribió), así que se cae al precio de referencia de 1816.
+    #
+    # ⚠️ **HAY PRECIO Y EL MOTOR NO DEVOLVIÓ TEA = BLOQUEA.** Este paso salía en
+    # VERDE ✔ diciendo, en el mismo renglón, «pero el motor NO devolvió TEA:
+    # revisar la escala» — un tilde verde sobre un texto que describe una falla.
+    # Y es una falla DURA, no una sospecha: se le dio al motor el cuadro real y
+    # el precio real, y no calculó. Aplicar así escribe un bono que va a quedar
+    # con la celda de TEA vacía para siempre y nadie va a saber por qué.
+    #
+    # La excepción es real y hay que respetarla: a un TAMAR/BADLAR **no le
+    # calculamos la tasa a propósito** (la trae 1816). Ahí que el motor no
+    # devuelva TEA es lo ESPERADO, no un defecto — tratarlo como falla habría
+    # bloqueado a los 18 bonos que justamente están bien.
+    sin_tea = not isinstance(tea, int | float)
+    tea_es_nuestra = _fuente_tasa != "1816"
+    est_precio = BLOQUEA if (precio and sin_tea and tea_es_nuestra) else OK
     if precio and fuente_precio == "1816":
-        ps.append(_paso("precio", "Hay precio para simular la tasa ahora", OK,
+        ps.append(_paso("precio", "Hay precio para simular la tasa ahora", est_precio,
                         f"sin snapshot todavía, así que se usó el **precio de "
                         f"referencia de 1816**: {precio} al {ref.get('fecha') or '—'}"
-                        + (f" → TEA simulada {tea:.4%}" if isinstance(tea, int | float)
-                           else " — pero el motor NO devolvió TEA: revisar la escala")
+                        + (f" → TEA simulada {tea:.4%}" if not sin_tea
+                           else _SIN_TEA if tea_es_nuestra else _SIN_TEA_EXTERNA)
                         + ". Ese precio NO se guarda: es solo para poder calcular "
                           "antes de aplicar.",
-                        tabla="1816 /indicadores (no se persiste)"))
+                        tabla="1816 /indicadores (no se persiste)",
+                        accion="" if est_precio == OK else
+                               "revisar la escala del cuadro y la pata antes de aplicar"))
     elif precio:
-        ps.append(_paso("precio", "Hay precio para simular la tasa ahora", OK,
+        ps.append(_paso("precio", "Hay precio para simular la tasa ahora", est_precio,
                         f"último precio {precio} en el snapshot"
-                        + (f" → TEA simulada {tea:.4%}" if isinstance(tea, int | float)
-                           else " — pero el motor NO devolvió TEA con este cuadro: "
-                                "revisar la escala del flujo antes de aplicar"),
-                        tabla="mercado.market_snapshot"))
+                        + (f" → TEA simulada {tea:.4%}" if not sin_tea
+                           else _SIN_TEA if tea_es_nuestra else _SIN_TEA_EXTERNA),
+                        tabla="mercado.market_snapshot",
+                        accion="" if est_precio == OK else
+                               "revisar la escala del cuadro y la pata antes de aplicar"))
     else:
-        ps.append(_paso("precio", "Hay precio para simular la tasa ahora", ATENCION,
+        ps.append(_paso("precio", "Hay precio para simular la tasa ahora", INFO,
                         "no hay precio en el snapshot"
                         + (f", y {ref['error']}" if ref.get("error") else "")
                         + ". El cuadro igual queda listo: la TEA aparece cuando "
@@ -663,7 +723,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                         f"la rama «{rama}» tiene fórmula en engines/curvas.py",
                         tabla="engines/curvas.py::calcular_campos"))
     else:
-        ps.append(_paso("tea_motor", "El motor de curvas va a calcular la TEA", FALLA,
+        ps.append(_paso("tea_motor", "El motor de curvas va a calcular la TEA", BLOQUEA,
                         f"el ajuste «{ejes.ajuste}» cae en el `else` del motor: solo "
                         "computa duration. El bono va a tener precio pero la celda "
                         "de TEA queda vacía.",
@@ -680,7 +740,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                         + ("…" if len(vig) > 2 else ""),
                         tabla="portafolio.assets"))
     else:
-        ps.append(_paso("assets", "Entra al AuM: hay espejo en portafolio.assets", ATENCION,
+        ps.append(_paso("assets", "Entra al AuM: hay espejo en portafolio.assets", INFO,
                         f"no hay ninguna unidad con ticker {ticker}. El bono va a "
                         "aparecer en la curva con su tasa, pero NO en AuM/Portfolios "
                         "hasta que exista la posición (la crea el backfill de "
@@ -699,7 +759,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     faltan = [c for c in ("emisor", "fecha_emision", "cupon_anual")
               if c not in fc]
     ps.append(_paso("ficha", "El bono entra COMPLETO, no pelado",
-                    OK if not faltan else ATENCION,
+                    OK if not faltan else INFO,
                     f"se escriben {len(escritos)} campos — " + " · ".join(escritos[:9])
                     + ("…" if len(escritos) > 9 else "")
                     + (f". Quedan vacíos: {', '.join(faltan)}." if faltan else "")
@@ -712,7 +772,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     # TASA EXTERNA: el bono nace CON su tasa y su margen, o no nace entero.
     if _fuente_tasa == "1816":
         ps.append(_paso("tasa_1816", "Al aplicar: cargar la TASA y el MARGEN de 1816",
-                        ATENCION,
+                        INFO,
                         f"de un {ejes.ajuste.upper()} el **margen** es el número que "
                         "mira la mesa. El alta va a pedirle a 1816 su última tasa "
                         "(retrocediendo día hábil por día hábil) y dejarla escrita, "
@@ -726,7 +786,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     # algo que sabés que va a quedar productivo» (el user, 2026-08-17).
     if not activas:
         ps.append(_paso("sembrar", "Al aplicar: sembrar las patas del papel",
-                        ATENCION,
+                        INFO,
                         f"el alta va a buscar en Primary todas las especies de "
                         f"{ticker} y escribirlas en mercado.especies — la pata en "
                         "PESOS y la pata en DÓLARES si las dos existen, con la "
@@ -736,7 +796,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                         accion="lo hace solo — no hay que correr nada"))
 
     if ctx["ya_en_curvas"]:
-        ps.insert(0, _paso("ya_existe", "⚠ Este ticker YA está en el master", ATENCION,
+        ps.insert(0, _paso("ya_existe", "⚠ Este ticker YA está en el master", REVISAR,
                            f"mercado.curvas ya tiene {ticker} (símbolo actual: "
                            f"{ctx['simbolo_actual']}). Aplicar lo va a PISAR con "
                            "el cuadro de 1816.",
@@ -834,18 +894,46 @@ def _memoria_de_calculo(*, doc: dict, ejes, rama: str, conv: dict, out: dict,
 
 
 def _veredicto(chequeos: list[dict]) -> dict:
-    """Una línea que resume la lista, para no obligar a leerla entera."""
-    fallas = [c for c in chequeos if c["estado"] == FALLA]
+    """**LA DECISIÓN**, derivada de los pasos y de nada más.
+
+    Devuelve dos booleanos y no uno, porque son dos preguntas distintas:
+
+    - **`puede_aplicar`** — ¿puede apretar APLICAR un humano? Solo lo impide un
+      paso `bloquea`, o sea algo PROBADO mal.
+    - **`puede_auto`** — ¿puede aplicarse SOLO, sin que nadie mire? Acá además
+      frenan `revisar` (se midió y no cierra) y `no_se` (no se pudo verificar).
+      Un humano puede decidir con evidencia parcial; un robot, no.
+
+    **Los dos salen de acá y viajan resueltos.** El botón APLICAR se escondía o
+    aparecía según `aplicable`, que miraba OTRA cosa (la rama), mientras el
+    veredicto decía «se puede aplicar»: TMG27 mostraba la cadena en verde y sin
+    botón, y GD46 mostraba el botón con el cronograma probadamente equivocado.
+    Dos lugares contestando la misma pregunta siempre terminan contradiciéndose.
+    """
+    bloqueos = [c for c in chequeos if c["estado"] == BLOQUEA]
+    revisar = [c for c in chequeos if c["estado"] == REVISAR]
     dudas = [c for c in chequeos if c["estado"] == NO_SE]
-    if fallas:
-        return {"estado": FALLA,
-                "texto": f"{len(fallas)} paso/s bloquean la cadena: "
-                         + "; ".join(c["titulo"] for c in fallas[:2])}
+    conteo = {"ok": sum(1 for c in chequeos if c["estado"] == OK),
+              "info": sum(1 for c in chequeos if c["estado"] == INFO),
+              "revisar": len(revisar), "bloquea": len(bloqueos), "no_se": len(dudas)}
+    base = {"conteo": conteo, "puede_aplicar": not bloqueos,
+            "puede_auto": not (bloqueos or revisar or dudas)}
+    if bloqueos:
+        return {**base, "estado": BLOQUEA,
+                "texto": f"NO se puede aplicar — {len(bloqueos)} paso/s lo bloquean: "
+                         + "; ".join(c["titulo"] for c in bloqueos[:2])}
+    if revisar:
+        return {**base, "estado": REVISAR,
+                "texto": f"se puede aplicar A MANO, pero {len(revisar)} paso/s no "
+                         "cierran y hay que mirarlos: "
+                         + "; ".join(c["titulo"] for c in revisar[:2])
+                         + ". Automático NO."}
     if dudas:
-        return {"estado": NO_SE,
+        return {**base, "estado": NO_SE,
                 "texto": "la conversión está bien, pero no se pudo verificar "
-                         + dudas[0]["titulo"].lower()}
-    return {"estado": OK,
+                         + dudas[0]["titulo"].lower()
+                         + " — se puede aplicar a mano, automático no."}
+    return {**base, "estado": OK,
             "texto": "la cadena cierra: se puede aplicar. Reiniciar los motores "
                      "después para que empiece a recibir precio."}
 
@@ -1177,7 +1265,14 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         # para que el pre-flight pueda MOSTRARLOS antes de escribir: «¿el bono
         # entra completo?» es una pregunta legítima y no se contestaba.
         "ficha_curvas": _ficha_para_curvas({}, ficha, ejes, conv),
-        "aplicable": (doc["rama"] in RAMAS_AUTOMATICAS
+        # ⚠️ **UNA sola función decide si la rama se da de alta sola.** Acá decía
+        # `doc["rama"] in RAMAS_AUTOMATICAS`, mientras el paso «El cuadro se puede
+        # convertir sin ambigüedad» usaba `_alta_automatica`, que además acepta el
+        # camino de la TASA EXTERNA. Resultado medido en TMG27 (2026-08-17): la
+        # cadena entera en verde, el veredicto diciendo «se puede aplicar»… y sin
+        # botón APLICAR, porque este campo decía que no. El bug no es el valor: es
+        # que había dos funciones contestando la misma pregunta.
+        "aplicable": (_alta_automatica(doc["rama"], ejes)
                       and not (rama_tent == "cer" and not cer_emision)),
         "motivo_no_aplicable": _motivo_no_aplicable(doc["rama"], ejes),
         "flujos_muestra": conv["flujos"][:3] + (["…"] if conv["n"] > 3 else []),
@@ -1278,10 +1373,15 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
         ref = {**ref, "a_nuestro_precio":
                _tea_de_1816_a_nuestro_precio(ticker, float(precio), moneda_pedido)}
 
+    # La nota del encabezado. **No puede decir "revisar la escala" cuando la tasa
+    # es EXTERNA**: a un TAMAR el motor no le devuelve TEA a propósito, y esa
+    # línea aparecía igual en TMG27 —arriba de todo, en rojo— contradiciendo a los
+    # dos pasos de la cadena que explican, en verde, que así tiene que ser.
+    externa = tasa_externa_de(doc.get("ajuste")) [0] == "1816"
     return {"precio": float(precio), "tea": r.get("TEA"), "precio_fuente": fuente,
             "duration": r.get("duration"), "paridad": r.get("paridad"),
             "referencia_1816": ref or None, "_mep": mep,
-            "nota_tasa": "" if r.get("TEA") is not None else
+            "nota_tasa": "" if r.get("TEA") is not None or externa else
             "el motor no persistiría TEA con este cuadro y este precio — revisar "
             "la escala del flujo o la pata antes de aplicar"}
 
@@ -1303,11 +1403,13 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
         return {**sim, "aplicado": False}
     if not sim.get("aplicable"):
         return {**sim, "aplicado": False}
-    # Un paso del pre-flight en FALLA es un NO. `aplicable` mira la rama; esto
-    # mira la cadena entera — y la cadena es lo que decide si el bono va a
-    # existir de verdad o solo estar escrito.
-    bloqueos = [c for c in sim.get("chequeos", []) if c["estado"] == FALLA]
-    if bloqueos:
+    # **El backend es el que decide, no el botón.** Se lee el MISMO
+    # `puede_aplicar` que el front usa para mostrar APLICAR, así que esconder el
+    # botón y rechazar la escritura no pueden desincronizarse; y si alguien pega
+    # al endpoint a mano, el bloqueo sigue en pie.
+    ver = sim.get("veredicto") or {}
+    if not ver.get("puede_aplicar", True):
+        bloqueos = [c for c in sim.get("chequeos", []) if c["estado"] == BLOQUEA]
         return {**sim, "aplicado": False,
                 "error": "el pre-flight no pasa: "
                          + "; ".join(c["titulo"] for c in bloqueos)}

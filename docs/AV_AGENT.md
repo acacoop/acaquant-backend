@@ -1187,8 +1187,66 @@ agregó el paso **«El bono entra COMPLETO, no pelado»**, que lista qué campos
 van a escribir con sus valores y cuáles quedan vacíos con el motivo. *«¿Entra
 completo?»* es una pregunta legítima que antes no se podía contestar mirando.
 
+### E2.j — «1816 te manda el último precio, no entiendo tanto bardo» (2026-08-17)
+
+El user, sobre la cadena de TMG27:
+
+> *«Esa fecha que estás tomando es cualquiera. Para el precio es mañana 17…
+> hoy es domingo, el último precio es del 14. Siempre va a dar error si lo
+> consultás un domingo. Si yo consulto a 1816 me devuelve un precio y listo.»*
+
+Tenía razón, y el bug **lo introduje yo en E2.g**.
+
+**La causa.** `indicadores_vigentes` retrocede día hábil por día hábil hasta
+encontrar una rueda con datos. El predicado de *«esta rueda trajo datos»* era
+`any(campo is not None)` sobre los campos pedidos. Mientras el simulador pidió
+**4 campos —todos de valor—** funcionó. En E2.g la lista se amplió a **13** para
+enriquecer el diagnóstico, y ahí entraron `fuente`, `convencionTna` y
+`fechaLiquidacion`: **metadata que 1816 devuelve SIEMPRE**, haya operado el papel
+o no. Con eso el predicado daba **True en la primera vuelta** y el retroceso
+**nunca corría**. Reproducido antes de tocar nada:
+
+```
+El predicado de "trajo datos" es: any(campo is not None)  →  True
+  ¡y NO hay un solo precio!  Los culpables:
+     convencionTna = '180-360'   fuente = 'byma'   fechaLiquidacion = '2026-08-18'
+```
+
+Es el tipo de regresión que no rompe nada visible: la función seguía devolviendo
+una respuesta válida, solo que de la rueda equivocada. **La lección de diseño**:
+un predicado que depende de *«qué campos pediste»* cambia de significado cada vez
+que alguien agrega un campo — y nadie que agrega un campo va a pensar que está
+tocando la lógica del retroceso.
+
+**Tres cambios, en capas distintas a propósito:**
+
+1. **`CAMPOS_METADATA`** (`core/mercado_1816.py`) — la ficha del pedido no cuenta
+   como dato. Ahora agregar un campo al diagnóstico es inofensivo.
+2. **`campos_dato=`** — porque *«¿trajo datos?»* **depende del que pregunta**: a
+   `jobs/tamar_1816` le alcanza con la tasa, pero el simulador necesita el
+   **PRECIO** (es el insumo del motor) y una rueda con TEA modelada y sin
+   operaciones lo deja igual de plantado que una vacía. El agente pasa
+   `("precioDirty", "precioClean")`; el default no cambia para nadie más.
+3. **El mensaje.** Decía *«no publicó precio al 2026-08-17»* nombrando un día sin
+   mercado, lo que se lee como «1816 está roto». Ahora dice **qué ruedas se
+   probaron** (`{n} ruedas probadas (2026-08-18 → 2026-08-14)`) y, cuando la
+   respuesta existe pero sin precio, muestra **`ultimaOperacion`** — que es la
+   respuesta real casi siempre: *el papel no opera*, no *el pedido está mal*.
+
+Congelado con tres tests: metadata-no-es-dato, pedir-solo-metadata-no-agota-el-
+retroceso, y el formato de los dos mensajes de fracaso.
+
 ## Changelog
 
+- **2026-08-17 — E2.j, el retroceso de ruedas volvió a funcionar.** **Regresión
+  propia de E2.g**: al pasar de 4 a 13 campos entró metadata que 1816 manda
+  siempre (`fuente`, `convencionTna`, `fechaLiquidacion`), el predicado de «trajo
+  datos» daba True en la primera vuelta y **el retroceso nunca corría** — un
+  domingo, o un papel sin operar ese día, contestaba «no publicó precio» en vez
+  de traer la última rueda buena. Fix en tres capas: `CAMPOS_METADATA` (la ficha
+  del pedido no es dato), `campos_dato=` (el simulador frena solo con PRECIO, el
+  job de TAMAR sigue frenando con la tasa) y el mensaje, que ahora dice qué
+  ruedas se probaron y muestra `ultimaOperacion`. 3 tests de regresión.
 - **2026-08-17 — E2.i, el alta entra COMPLETA.** Un TAMAR/BADLAR ahora **nace con
   su TASA y su MARGEN** (upsert compartido en `core/tamar_1816_sql`, sin esperar
   al cron; sin dato de 1816 no se escribe una fila en NULL). Y el bono entra con

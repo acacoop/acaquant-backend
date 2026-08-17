@@ -884,6 +884,14 @@ _CAMPOS_REF = ("precioDirty", "precioClean", "tea", "tem", "paridad", "duration"
                "durationMod", "currentYield", "convencionTna", "fuente",
                "ultimaOperacion", "volumenMontoDiario", "fechaLiquidacion")
 
+# **Lo que decide que la rueda sirve.** Se piden 13 campos para enriquecer el
+# diagnóstico, pero al simulador solo lo salva el PRECIO: es el insumo del motor,
+# y una rueda con la TEA modelada de 1816 y sin operaciones lo deja igual de
+# plantado que una vacía. Sin esta distinción el retroceso frenaba en la primera
+# rueda con cualquier número y devolvía «no publicó precio» — cuando el precio
+# estaba, dos ruedas más atrás.
+_CAMPOS_PRECIO = ("precioDirty", "precioClean")
+
 
 def _fallo_ref(e, moneda: str, pedido: dict) -> dict:
     """El error de 1816, COMPLETO. `type(e).__name__` daba «Error1816» a secas —
@@ -891,6 +899,23 @@ def _fallo_ref(e, moneda: str, pedido: dict) -> dict:
     no se puede arreglar; el mensaje del cliente trae el status y el body."""
     return {"error": f"1816 no respondió (moneda={moneda}): {e}"[:300],
             "pedido": pedido}
+
+
+def _sin_rueda(intentos: list[str]) -> str:
+    """Mensaje de «ninguna rueda trajo datos», diciendo CUÁLES se probaron.
+
+    Que no haya precio tiene dos causas muy distintas —el día pedido no fue rueda,
+    o el papel no opera— y el mensaje viejo («no publicó precio al <hoy>») las
+    confundía en una sola, encima nombrando un domingo. Con el rango probado, la
+    respuesta se lee sola."""
+    if not intentos:
+        return "1816 no devolvió datos y no se llegó a retroceder ninguna rueda"
+    # Dice PRECIO y no «datos» a propósito: 1816 puede haber publicado una TEA
+    # modelada esas mismas ruedas. Lo que falta —y lo único que necesita el motor
+    # para simular— es un precio operado.
+    return (f"1816 no publicó precio de este ticker en ninguna de las "
+            f"{len(intentos)} ruedas probadas ({intentos[0]} → {intentos[-1]}): "
+            f"es un papel sin operaciones recientes, no un problema del pedido")
 
 
 def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
@@ -933,9 +958,17 @@ def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
     # tipo de cambio y el cotejo compara lo que dice comparar.
     moneda = "mep" if (moneda_eje or "").strip().upper() == "USD" else "ars"
     pedido = {"moneda": moneda, "campos": list(_CAMPOS_REF)}
+    # Las ruedas que se descartaron por venir vacías. Sin esto el mensaje de
+    # fracaso decía «no publicó precio al <fecha>» con la fecha de HOY —un domingo,
+    # por ejemplo— y sonaba a que 1816 estaba roto cuando lo que pasaba es que ese
+    # día no hubo mercado. Diciendo QUÉ ruedas se probaron, el que lee decide.
+    intentos: list[str] = []
+    def _anotar(d):
+        intentos.append(d.isoformat())
     try:
         resp = mercado_1816.indicadores_vigentes([ticker], list(_CAMPOS_REF),
-                                                 moneda=moneda)
+                                                 moneda=moneda, al_retroceder=_anotar,
+                                                 campos_dato=list(_CAMPOS_PRECIO))
     except Exception as e:
         # **Degradación elegida**: si la API no acepta esa moneda, se reintenta en
         # `ars` — que es el default y lo que venía andando. Un precio en la moneda
@@ -946,7 +979,9 @@ def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
                         "reintento en ars", moneda, ticker, e)
             try:
                 resp = mercado_1816.indicadores_vigentes([ticker], list(_CAMPOS_REF),
-                                                         moneda="ars")
+                                                         moneda="ars",
+                                                         al_retroceder=_anotar,
+                                                         campos_dato=list(_CAMPOS_PRECIO))
                 moneda, pedido = "ars", {**pedido, "moneda": "ars",
                                          "nota": f"pedido en {moneda.upper()} "
                                                  "rechazado, se usó ARS"}
@@ -960,7 +995,7 @@ def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
         # `type(e).__name__` daba «Error1816» a secas — el nombre de la clase, sin
         # el HTTP ni el motivo. Un error que no dice qué pasó no se puede arreglar.
     if not resp:
-        return {"error": "1816 no tiene datos de este ticker en las últimas 5 ruedas"}
+        return {"error": _sin_rueda(intentos), "pedido": {**pedido, "ruedas": intentos}}
     v = (resp.get("instrumentos") or {}).get(ticker) or {}
     # **`precioDirty`, no `precioClean`.** Los bonos argentinos cotizan SUCIOS
     # (con intereses corridos), así que el `last_price` que nos da Primary —el
@@ -972,10 +1007,21 @@ def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
     # `pedido` viaja hasta la pantalla: sin saber en qué moneda y a qué plazo se
     # pidió, un precio raro no se puede diagnosticar — que fue exactamente lo que
     # pasó con GD46.
-    pedido = {**pedido, "plazo": resp.get("plazo"), "fuente": resp.get("fuente")}
+    pedido = {**pedido, "plazo": resp.get("plazo"), "fuente": resp.get("fuente"),
+              "ruedas": intentos}
     if not px or px <= 0:
-        return {"error": f"1816 conoce el ticker pero no publicó precio al "
-                         f"{resp.get('fechaOperacion')}", "pedido": pedido}
+        # Llegar acá ya NO es «no hubo rueda» — el retroceso paró porque ESTA rueda
+        # trajo algún dato de valor (una TEA, una paridad), pero sin precio. El
+        # único que puede explicarlo es `ultimaOperacion`: dice cuándo operó el
+        # papel por última vez, que casi siempre es la respuesta real («no opera
+        # desde hace meses»), y sin eso el mensaje culpaba a la fecha del pedido.
+        ult = v.get("ultimaOperacion")
+        return {"error": f"1816 conoce {ticker} y respondió por la rueda del "
+                         f"{resp.get('fechaOperacion')}, pero sin precio"
+                         + (f" — su última operación es del {ult}" if ult else
+                            " y tampoco informa última operación: es un papel "
+                            "sin mercado, no un problema del pedido"),
+                "pedido": pedido}
     return {"precio": px, "precio_campo": ("precioDirty" if _num(v.get("precioDirty"))
                                            else "precioClean"),
             "precio_clean": _num(v.get("precioClean")),

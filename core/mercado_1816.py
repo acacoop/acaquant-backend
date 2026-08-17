@@ -202,9 +202,27 @@ def _habil_anterior(d: _dt.date) -> _dt.date:
     return d
 
 
+# ⚠️ **Campos que 1816 devuelve SIEMPRE**, haya operado el papel o no: son la
+# ficha del pedido, no datos de mercado. Distinguirlos NO es cosmético — es lo
+# que hace que «¿esta rueda trajo datos?» signifique algo.
+#
+# **El bug que esto arregla (2026-08-17, TMG27).** El predicado de "trajo datos"
+# era `any(campo is not None)`. Mientras se pidieron 4 campos —todos de valor—
+# funcionó. Al ampliar la lista a 13 para enriquecer el diagnóstico entraron
+# `fuente`, `convencionTna` y `fechaLiquidacion`, que vienen llenos aunque el
+# precio sea `null`: el predicado daba **True en la primera vuelta** y el
+# retroceso **nunca corría**. Un domingo, o con un papel que no operó, el
+# resultado era «no publicó precio» en vez de buscar la rueda anterior.
+CAMPOS_METADATA = frozenset({
+    "convencionTna", "denominacion", "fechaLiquidacion", "fechaOperacion",
+    "fuente", "moneda", "plazo", "ticker",
+})
+
+
 def indicadores_vigentes(tickers: list[str], campos: list[str], *,
                          fecha: str | None = None, max_retroceso: int = MAX_RETROCESO,
-                         al_retroceder=None, **kw) -> dict:
+                         al_retroceder=None, campos_dato: list[str] | None = None,
+                         **kw) -> dict:
     """`indicadores` de la última rueda CON DATOS. Devuelve la respuesta cruda
     más `fechaOperacion` resuelta, o `{}` si ninguna rueda trajo nada.
 
@@ -219,7 +237,21 @@ def indicadores_vigentes(tickers: list[str], campos: list[str], *,
     una vez y lo hereda el que llame.
 
     `al_retroceder(fecha)` es un callback opcional para logear el intento.
+
+    `campos_dato` acota QUÉ campos deciden que la rueda sirve, sin acotar lo que
+    se pide. Existe porque «tiene datos» depende del que pregunta: a
+    `jobs/tamar_1816` le alcanza con la tasa, pero el simulador del AV AGENT
+    necesita el **precio** —lo demás no le sirve para correr el motor— y una
+    rueda con TEA modelada y sin operaciones lo dejaba plantado. Por default son
+    todos los campos de valor pedidos.
     """
+    # Solo los campos de VALOR deciden si la rueda trajo datos — la metadata viene
+    # llena siempre y diría que sí aunque no haya un solo precio (ver CAMPOS_METADATA).
+    # El `or list(campos)` cubre al que pide únicamente metadata: ahí no hay nada
+    # mejor que el criterio viejo, y quedarse con una lista vacía haría que el
+    # predicado fuera False SIEMPRE y agotara el retroceso contra la API.
+    datos = list(campos_dato or [c for c in campos if c not in CAMPOS_METADATA]
+                 or campos)
     d = _dt.date.fromisoformat(fecha) if fecha else _dt.date.today()
     if d.weekday() >= 5:
         d = _habil_anterior(d)
@@ -227,10 +259,10 @@ def indicadores_vigentes(tickers: list[str], campos: list[str], *,
         resp = indicadores(list(tickers), list(campos),
                            fecha_operacion=d.isoformat(), **kw)
         inst = resp.get("instrumentos") or {}
-        # "Trajo datos" = algún campo no nulo en algún instrumento. No se ata a un
-        # campo puntual: el que pide `precioClean` y el que pide `tea` tienen la
-        # misma pregunta, y hardcodear uno rompería al otro en silencio.
-        if any(v.get(c) is not None for v in inst.values() if v for c in campos):
+        # "Trajo datos" = algún campo de VALOR no nulo en algún instrumento. No se
+        # ata a un campo puntual: el que pide `precioClean` y el que pide `tea`
+        # tienen la misma pregunta, y hardcodear uno rompería al otro en silencio.
+        if any(v.get(c) is not None for v in inst.values() if v for c in datos):
             return {**resp, "fechaOperacion": resp.get("fechaOperacion") or d.isoformat()}
         if al_retroceder:
             al_retroceder(d)

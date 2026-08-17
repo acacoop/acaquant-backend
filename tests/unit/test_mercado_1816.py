@@ -75,3 +75,62 @@ def test_disponible_depende_de_la_key(monkeypatch):
     assert mercado_1816.disponible() is False
     monkeypatch.setenv("MERCADO_1816_API_KEY", "x")
     assert mercado_1816.disponible() is True
+
+
+def test_la_METADATA_no_cuenta_como_DATOS_y_el_retroceso_igual_corre(monkeypatch):
+    """**Regresión del 2026-08-17 (TMG27).** El predicado de «esta rueda trajo
+    datos» era `any(campo is not None)`. Con 4 campos —todos de valor— funcionaba;
+    al ampliar la lista para enriquecer el diagnóstico entraron `fuente`,
+    `convencionTna` y `fechaLiquidacion`, que 1816 devuelve SIEMPRE aunque el
+    precio sea `null`. Resultado: True en la primera vuelta y el retroceso NUNCA
+    corría — un lunes temprano, o un papel que no operó ese día, contestaba «no
+    publicó precio» en vez de traer la última rueda buena, que es justo para lo
+    que existe esta función."""
+    # El lunes 17 responde, pero solo con la ficha del pedido: ni precio ni tasa.
+    # Antes del fix, ESTA respuesta se daba por buena.
+    solo_ficha = {"precioDirty": None, "tea": None, "fuente": "byma",
+                  "convencionTna": "180-360", "fechaLiquidacion": "2026-08-18"}
+    ruedas = {
+        "2026-08-17": {"instrumentos": {"AL30": solo_ficha},
+                       "fechaOperacion": "2026-08-17"},
+        "2026-08-14": {"instrumentos": {"AL30": {**solo_ficha, "precioDirty": 72.5,
+                                                 "tea": 0.11}},
+                       "fechaOperacion": "2026-08-14"},
+    }
+    pedidos, atras = [], []
+
+    def _fake(tickers, campos, *, fecha_operacion=None, **kw):
+        pedidos.append(fecha_operacion)
+        return ruedas.get(fecha_operacion,
+                          {"instrumentos": {"AL30": dict(solo_ficha)}})
+
+    monkeypatch.setattr(mercado_1816, "indicadores", _fake)
+    campos = ["precioDirty", "tea", "fuente", "convencionTna", "fechaLiquidacion"]
+    r = mercado_1816.indicadores_vigentes(["AL30"], campos, fecha="2026-08-18",
+                                          al_retroceder=lambda d: atras.append(d))
+
+    assert r["fechaOperacion"] == "2026-08-14"
+    assert r["instrumentos"]["AL30"]["precioDirty"] == 72.5
+    # Martes 18 → lunes 17 (solo ficha, NO corta) → viernes 14 (el sábado y el
+    # domingo los saltea `_habil_anterior`).
+    assert pedidos == ["2026-08-18", "2026-08-17", "2026-08-14"]
+    # Y las ruedas descartadas quedan anotadas: es lo que el mensaje de fracaso
+    # necesita para decir QUÉ se probó en vez de culpar a la fecha del pedido.
+    assert [d.isoformat() for d in atras] == ["2026-08-18", "2026-08-17"]
+
+
+def test_pedir_SOLO_metadata_no_agota_el_retroceso(monkeypatch):
+    """Si TODO lo pedido es metadata no hay mejor criterio que el viejo. Dejar la
+    lista de campos-dato vacía haría que el predicado fuera False siempre y
+    quemaría 5 llamadas a la API para devolver `{}` con la respuesta en la mano."""
+    pedidos = []
+
+    def _fake(tickers, campos, *, fecha_operacion=None, **kw):
+        pedidos.append(fecha_operacion)
+        return {"instrumentos": {"AL30": {"fuente": "byma"}},
+                "fechaOperacion": fecha_operacion}
+
+    monkeypatch.setattr(mercado_1816, "indicadores", _fake)
+    r = mercado_1816.indicadores_vigentes(["AL30"], ["fuente"], fecha="2026-08-14")
+    assert r["fechaOperacion"] == "2026-08-14"
+    assert len(pedidos) == 1

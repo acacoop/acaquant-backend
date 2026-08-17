@@ -692,3 +692,41 @@ def test_el_paso_FICHA_dice_QUE_se_escribe_y_QUE_queda_vacio():
     p = next(x for x in ps if x["clave"] == "ficha")
     assert "Tesoro Nacional" in p["detalle"]
     assert p["estado"] == "atencion" and "cupon_anual" in p["detalle"]
+
+
+def test_sin_precio_el_mensaje_dice_QUE_ruedas_se_probaron(monkeypatch):
+    """**El reclamo del user (2026-08-17):** «esa fecha que estás tomando es
+    cualquiera… siempre va a dar error si lo consultás un domingo».
+
+    Tenía razón dos veces. El bug de fondo (el retroceso que no corría) se arregló
+    en `core/mercado_1816`; acá se congela la otra mitad: el MENSAJE. Decía «no
+    publicó precio al <fecha>» con la fecha del pedido —que puede ser un día sin
+    mercado— y sonaba a que 1816 estaba roto. Ahora nombra las ruedas probadas y,
+    si el papel simplemente no opera, lo dice con `ultimaOperacion`."""
+    import datetime as _dt
+
+    from api.services import av_agent_alta as alta
+
+    # (1) Ninguna rueda trajo nada → el rango probado, no una fecha suelta.
+    def _vacio(tickers, campos, *, al_retroceder=None, **kw):
+        for f in ("2026-08-18", "2026-08-17", "2026-08-14"):
+            al_retroceder(_dt.date.fromisoformat(f))
+        return {}
+
+    monkeypatch.setattr(alta.mercado_1816, "indicadores_vigentes", _vacio)
+    r = alta._referencia_1816("TMG27")
+    assert "3 ruedas" in r["error"] and "2026-08-18" in r["error"]
+    assert "2026-08-14" in r["error"]
+    assert r["pedido"]["ruedas"] == ["2026-08-18", "2026-08-17", "2026-08-14"]
+
+    # (2) La rueda respondió con tasa pero sin precio: eso NO es un problema de
+    # fecha, es un papel que no opera — y la evidencia es `ultimaOperacion`.
+    monkeypatch.setattr(alta.mercado_1816, "indicadores_vigentes",
+                        lambda t, c, **kw: {
+                            "fechaOperacion": "2026-08-14",
+                            "instrumentos": {"TMG27": {"precioDirty": None,
+                                                       "tea": 0.38,
+                                                       "ultimaOperacion": "2026-05-02"}}})
+    r = alta._referencia_1816("TMG27")
+    assert r.get("precio") is None
+    assert "2026-08-14" in r["error"] and "2026-05-02" in r["error"]

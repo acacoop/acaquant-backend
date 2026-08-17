@@ -1583,3 +1583,59 @@ def test_los_cupones_YA_PAGADOS_se_guardan_y_la_cadena_lo_DICE():
     assert "ya se pagaron" in ch and "valúa solo los futuros" in ch
     # (3) Sin cupones futuros no se aplica: BLOQUEA, no «revisar».
     assert "OK if futuros else BLOQUEA" in ch
+
+
+def test_EL_500_DE_PARP_toda_llamada_al_LIBRO_tiene_que_entrar_en_su_firma():
+    """PARP se aplicó y devolvió **HTTP 500 sin llegar a QUÉ HIZO** (2026-08-17).
+
+    La causa: `aplicar_flujos` llamaba a `acc.registrar(..., tabla="mercado.curvas")`
+    y `registrar()` **no tiene** ese parámetro — la tabla la resuelve él solo por la
+    ACCIÓN (`DESTINOS`), justamente para que la misma acción no se anote con dos
+    destinos según quién la llame. `TypeError` **después** de que el UPDATE ya había
+    commiteado: el cronograma quedó escrito y el user vio un 500 pelado.
+
+    Lo peligroso no es el typo: es DÓNDE cae. El libro de acciones está diseñado
+    para no romper nunca la acción (decisión 3 del módulo) y lo cumple para
+    cualquier fallo de la BASE — pero un `TypeError` pasa ANTES de entrar a su
+    `try`, así que ese blindaje no lo cubre. Se congela desde afuera: **toda
+    llamada a `registrar` tiene que entrar en su firma, y toda `accion=` tiene que
+    ser una clave de `DESTINOS`** (si no, el libro anota destino «?» — no falla,
+    solo deja de decir dónde escribió)."""
+    import ast
+    import inspect
+    import pathlib
+
+    from api.services import av_agent_acciones as acc
+
+    firma = set(inspect.signature(acc.registrar).parameters)
+    raiz = pathlib.Path(av_agent_acciones_dir())
+    revisadas = 0
+    for py in sorted(raiz.glob("av_agent*.py")):
+        arbol = ast.parse(py.read_text(encoding="utf-8"))
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, ast.Call):
+                continue
+            fn = nodo.func
+            nombre = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if nombre != "registrar":
+                continue
+            kw = {k.arg for k in nodo.keywords if k.arg}
+            sobra = kw - firma
+            assert not sobra, (
+                f"{py.name}: registrar(...) recibe {sorted(sobra)}, que no está en su "
+                f"firma → TypeError en runtime, y en la ruta de aplicar cae DESPUÉS "
+                f"de escribir en la base")
+            for k in nodo.keywords:
+                if k.arg == "accion" and isinstance(k.value, ast.Constant):
+                    revisadas += 1
+                    assert k.value.value in acc.DESTINOS, (
+                        f"{py.name}: la acción «{k.value.value}» no está en DESTINOS "
+                        f"→ el libro la anota con destino «?»")
+    assert revisadas >= 8, "el walk no encontró las llamadas — ¿se movió el módulo?"
+
+
+def av_agent_acciones_dir() -> str:
+    import pathlib
+
+    from api.services import av_agent_acciones
+    return str(pathlib.Path(av_agent_acciones.__file__).parent)

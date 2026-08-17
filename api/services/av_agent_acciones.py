@@ -48,7 +48,10 @@ DESTINOS = {
     "designorar": "mercado.av_agent_ignorados",
     "crear_curva": "mercado.curvas_catalogo",
     "alta_bono": "mercado.curvas",
-    "completar_flujo": "mercado.curvas",
+    # El nombre en PLURAL es el que usa `aplicar_flujos` — acá figuraba en
+    # singular, así que la acción se anotaba con destino «?» y el libro dejaba de
+    # decir dónde escribió. No falla nada: solo deja de servir.
+    "completar_flujos": "mercado.curvas",
     "sembrar_especies": "mercado.especies",
     "sembrar_tasa_1816": "mercado.tamar_1816",
 }

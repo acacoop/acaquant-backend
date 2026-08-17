@@ -2156,6 +2156,28 @@ cambia son las etiquetas.
 
 ## Changelog
 
+- **2026-08-17 — E3.e, el 500 de PARP y la pregunta abierta de DICP.** **(1) HTTP
+  500 al aplicar**: `aplicar_flujos` llamaba a `acc.registrar(..., tabla=…)` y el
+  libro de acciones **no tiene ese parámetro** — la tabla la resuelve él solo por
+  la ACCIÓN (`DESTINOS`). `TypeError` **después** de que el UPDATE ya commiteó: el
+  cronograma quedó escrito y el user vio un 500 pelado, sin llegar a QUÉ HIZO. Lo
+  peligroso es DÓNDE cae: el libro está diseñado para no romper nunca la acción y
+  lo cumple para cualquier fallo de la BASE, pero un `TypeError` pasa ANTES de
+  entrar a su `try`. De paso, la acción se anotaba con destino «?» porque
+  `DESTINOS` decía `completar_flujo` en singular. Test nuevo (AST): **toda llamada
+  a `registrar` tiene que entrar en su firma y toda `accion=` tiene que ser una
+  clave de `DESTINOS`**. **(2) DICP**: PARP cerró perfecto (TEA 0 bps, duration
+  idéntica) y DICP no (TEA 3,92% vs 9,25%, paridad 86,57% vs 90,19%, duration
+  3,4756 vs 3,2512). La única diferencia estructural es que **DICP ya amortizó y
+  PARP todavía no**, lo que apunta a la BASE del cronograma: en base ORIGINAL los
+  % son sobre el VN de emisión (Σ total = 100) y la paridad divide por el residual
+  vivo; en base RESIDUAL los % son sobre lo vivo (Σ futura = 100) y divide por
+  100. `engines/curvas.py` mezcla las dos —toma los flujos como vengan y calcula
+  la paridad SIEMPRE contra `valor_nominal × ratio`—, y para un bono sin amortizar
+  las dos coinciden, que es exactamente por qué PARP no lo mostró. **Cuál es la
+  correcta no se decide leyendo código**: `scripts/diag_cer_amortizado.py` mide en
+  qué base están escritos los CER que la mesa ya cargó (gratis) y qué residual
+  aplica 1816 (con créditos). **Sin ese número no se toca el motor** — REGLA #2.
 - **2026-08-17 — E3.d, DICP/PARP: el simulador leía un bono distinto del que
   valúa el motor.** La primera simulación real de un `flujos_vacios` volvió con
   el cuadro perfecto y **sin TEA**: duration 7,3781 (DICP) y 12,3808 (PARP). Medido

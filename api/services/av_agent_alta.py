@@ -2201,8 +2201,14 @@ def aplicar_flujos(ticker: str, *, actor: str = "",
     if not filas:
         return {**sim, "aplicado": False, "error": "el UPDATE no tocó ninguna fila"}
 
+    # ⚠️ Sin `tabla=`: el libro de acciones NO lo acepta — la tabla la resuelve él
+    # solo por la ACCIÓN (`DESTINOS`), justamente para que la misma acción no se
+    # anote con dos destinos según quién la llame. Pasárselo tiraba `TypeError`
+    # **después de que el UPDATE ya había commiteado**: HTTP 500 con el cronograma
+    # escrito y el user viendo «Error: HTTP 500» sin llegar a QUÉ HIZO (PARP,
+    # 2026-08-17). Un test congela que toda `accion=` sea una clave de `DESTINOS`.
     acc.registrar(accion="completar_flujos", objetivo=sim["ticker"], ok=True,
-                  tabla="mercado.curvas", por=actor,
+                  por=actor,
                   detalle={"cupones": conv["n"], "escala": conv["escala"],
                            "campos": list(parche), "tea_simulada": sim.get("tea")})
     return {**sim, "aplicado": True,

@@ -18,6 +18,8 @@ Env vars (.env del Droplet):
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import datetime as _dt
 import logging
 import os
@@ -44,6 +46,52 @@ _MAX_REINTENTOS = 5
 # demas se quedan en la puerta en vez de salir todos a pedir token a la vez.
 _lock = threading.RLock()
 _estado: dict = {"token": None, "exp": 0.0, "ultima": 0.0}
+
+# ── PRESUPUESTO DE TIEMPO POR CONTEXTO ───────────────────────────────────────
+#
+# **El backoff que arregla un job rompe un request interactivo, y el error que
+# deja es peor** (incidente 2026-08-17). Al ponerle reintentos a `_auth` contra
+# el 429, una llamada pasó a poder tardar 5+10+20+40+60 = 135s solo en
+# autenticar, más los reintentos de `_get`. Detrás de Cloudflare eso NO es
+# lentitud: es un **HTTP 524** a los 100s — la respuesta se pierde y el usuario
+# ve un error que no dice nada de lo que pasó.
+#
+# La raíz es que la paciencia estaba escrita como una constante del MÓDULO
+# cuando en realidad **depende de quién espera**:
+#
+#     un job de cron        → puede esperar minutos, nadie mira
+#     un request del front  → tiene ~100s de Cloudflare y hay alguien mirando
+#
+# Por eso el presupuesto es un **contextvar** y no un parámetro: se declara UNA
+# vez en el borde (el router) y lo respetan TODAS las llamadas de adentro, sin
+# tener que pasarlo por seis funciones que no deberían saber de esto. Si se
+# agota, se levanta enseguida diciendo que se acabó el tiempo — que es una
+# respuesta útil — en vez de seguir esperando hasta que el proxy corte.
+_presupuesto: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "mercado_1816_deadline", default=None)
+
+
+@contextlib.contextmanager
+def presupuesto(segundos: float):
+    """Acota a `segundos` TODO lo que este bloque le pida a 1816 (esperas de
+    throttle y de backoff incluidas). Para usar en el borde HTTP."""
+    token = _presupuesto.set(time.monotonic() + float(segundos))
+    try:
+        yield
+    finally:
+        _presupuesto.reset(token)
+
+
+def _resta() -> float | None:
+    """Segundos que quedan, o None si nadie puso presupuesto (modo job)."""
+    fin = _presupuesto.get()
+    return None if fin is None else fin - time.monotonic()
+
+
+def _alcanza(espera: float) -> bool:
+    """¿Entra otra espera de `espera` segundos dentro del presupuesto?"""
+    r = _resta()
+    return r is None or r > espera
 
 
 class Error1816(RuntimeError):
@@ -111,6 +159,8 @@ def _auth() -> str:
                               timeout=_TIMEOUT)
         except requests.RequestException as e:
             ultimo = f"{type(e).__name__}: {e}"
+            if not _alcanza(3 * (intento + 1)):
+                raise Error1816(f"1816 no responde y se agotó el tiempo ({ultimo})") from e
             time.sleep(3 * (intento + 1))
             continue
         if r.status_code == 200:
@@ -125,9 +175,14 @@ def _auth() -> str:
             return tok
         if r.status_code == 429 or r.status_code >= 500:
             espera = min(5 * 2 ** intento, 60)
+            ultimo = f"HTTP {r.status_code}: {r.text[:120]}"
+            if not _alcanza(espera):
+                raise Error1816(
+                    f"1816 está rechazando por rate limit (auth {r.status_code}) "
+                    "y no queda tiempo para esperar el backoff — reintentá en un "
+                    "par de minutos")
             logger.warning("mercado_1816 auth HTTP %s — backoff %ss (intento %s)",
                            r.status_code, espera, intento + 1)
-            ultimo = f"HTTP {r.status_code}: {r.text[:120]}"
             time.sleep(espera)
             continue
         raise Error1816(f"auth HTTP {r.status_code}: {r.text[:200]}")
@@ -147,6 +202,12 @@ def _throttle() -> None:
     with _lock:
         espera = _MIN_INTERVALO_S - (time.monotonic() - _estado["ultima"])
         if espera > 0:
+            # Ni siquiera el throttle puede pasarse del presupuesto: si no entra,
+            # es mejor cortar acá con un mensaje claro que agotar el reloj del
+            # proxy y devolver un 524 que no explica nada.
+            if not _alcanza(espera):
+                raise Error1816("se agotó el tiempo disponible para consultar a "
+                                "1816 (el throttle no entra en el presupuesto)")
             time.sleep(espera)
         _estado["ultima"] = time.monotonic()
 
@@ -165,12 +226,19 @@ def _get(path: str, params: dict | None = None) -> dict:
                              params=params, timeout=_TIMEOUT)
         except requests.RequestException as e:
             ultimo = f"{type(e).__name__}: {e}"
+            if not _alcanza(3 * (intento + 1)):
+                raise Error1816(f"1816 no responde y se agotó el tiempo ({ultimo})") from e
             time.sleep(3 * (intento + 1))
             continue
         if r.status_code == 200:
             return r.json()
         if r.status_code == 429:                      # rate limit → backoff
             espera = min(5 * 2 ** intento, 60)
+            if not _alcanza(espera):
+                raise Error1816(
+                    f"1816 está rechazando por rate limit ({path}) y no queda "
+                    "tiempo para esperar el backoff — reintentá en un par de "
+                    "minutos")
             logger.warning("mercado_1816 429 en %s — backoff %ss (intento %s)",
                            path, espera, intento + 1)
             time.sleep(espera)

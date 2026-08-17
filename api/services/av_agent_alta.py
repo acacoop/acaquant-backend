@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime
+from functools import wraps
 from types import SimpleNamespace
 
 from core import curvas_ejes, mercado_1816
@@ -1683,6 +1684,35 @@ def _ficha_para_curvas(sim: dict, ficha: dict, ejes, conv: dict) -> dict:
     return extra
 
 
+# ── EL PRESUPUESTO DE TIEMPO DE LAS PUERTAS INTERACTIVAS ─────────────────────
+#
+# **Detrás de Cloudflare hay un reloj de 100s y el agente no lo sabía**
+# (incidente 2026-08-17). Al ponerle backoff a `_auth` contra el 429, una sola
+# simulación pasó a poder tardar minutos — y el resultado no fue lentitud sino
+# un **HTTP 524**: el proxy corta, la respuesta se pierde y el usuario ve un
+# error que no dice absolutamente nada de lo que pasó.
+#
+# La paciencia correcta **depende de quién espera**: un cron puede aguantar
+# minutos, un click no. `mercado_1816.presupuesto` acota todas las esperas
+# (throttle y backoff) del bloque, así que se declara UNA vez acá —en las
+# puertas del agente, que son las únicas interactivas— en vez de repetirlo en
+# los 12 endpoints del router, donde alcanza con olvidarse de uno.
+#
+# 45s deja margen de sobra dentro de los 100s del proxy, y si se agota el error
+# que vuelve **dice qué pasó y qué hacer**, que es lo que un 524 nunca hace.
+_PRESUPUESTO_S = 45.0
+
+
+def _interactivo(fn):
+    """Acota a `_PRESUPUESTO_S` todo lo que esta puerta le pida a 1816."""
+    @wraps(fn)
+    def envoltorio(*a, **kw):
+        with mercado_1816.presupuesto(_PRESUPUESTO_S):
+            return fn(*a, **kw)
+    return envoltorio
+
+
+@_interactivo
 def simular(ticker: str, *, curva_1816: str, precio: float | None = None,
             cer_emision: float | None = None) -> dict:
     """Baja el cuadro de 1816 y calcula la TEA que TENDRÍA el bono. **No escribe.**
@@ -1959,6 +1989,7 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
             "la escala del flujo o la pata"}
 
 
+@_interactivo
 def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
             cer_emision: float | None = None) -> dict:
     """Simula y, si la rama lo permite y hay cuadro, **da de alta el bono**.
@@ -2141,6 +2172,7 @@ def _doc_de_curvas(ticker: str) -> dict | None:
         return None
 
 
+@_interactivo
 def simular_flujos(ticker: str, *, cer_emision: float | None = None) -> dict:
     """Baja el cronograma de 1816 y calcula la TEA que TENDRÍA el bono. **No escribe.**
 
@@ -2378,6 +2410,7 @@ def _chequeos_flujos(*, ticker: str, doc: dict, rama: str, conv: dict,
     return ps
 
 
+@_interactivo
 def aplicar_flujos(ticker: str, *, actor: str = "",
                    cer_emision: float | None = None) -> dict:
     """Simula y, si la cadena cierra, **escribe el cronograma** — y nada más.
@@ -2468,6 +2501,7 @@ def aplicar_flujos(ticker: str, *, actor: str = "",
 # sin la segunda se pisaría un bono que ya estaba bien —el hallazgo pudo quedar
 # viejo, o el umbral pudo ser demasiado angosto para ese instrumento— y eso es
 # estrictamente peor que no hacer nada.
+@_interactivo
 def simular_arreglo(ticker: str, *, cer_emision: float | None = None) -> dict:
     """Qué insumo está mal en un bono con TASA SOSPECHOSA, y qué pasaría al
     arreglarlo. **No escribe.**
@@ -2706,6 +2740,7 @@ def _pct_o(v, *, pct: bool = False, dec: int = 2) -> str:
     return f"{float(v):.{dec}%}" if pct else f"{float(v):,.{dec}f}"
 
 
+@_interactivo
 def aplicar_arreglo(ticker: str, *, actor: str = "",
                     cer_emision: float | None = None) -> dict:
     """Simula y, si la cadena cierra, **pisa el insumo que estaba mal**.

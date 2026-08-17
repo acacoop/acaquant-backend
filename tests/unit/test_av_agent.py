@@ -1130,3 +1130,44 @@ def test_la_pata_CI_tambien_cuenta_como_que_cotiza():
     solo_ci = {"MERV - XMEV - XXXX - CI"}
     assert len(av_agent.detectar_faltantes(univ, [], alcance="todo",
                                            simbolos_primary=solo_ci)) == 1
+
+
+def test_el_filtro_de_PRIMARY_tambien_corre_al_LEER_la_foto(monkeypatch):
+    """**Los BPO seguían apareciendo aunque el filtro ya existía.**
+
+    Porque lo puse SOLO en el detector, que corre al relevar — y relevar cuesta
+    ~29 créditos, así que no se hace por pantalla. El filtro no surtía efecto
+    hasta la próxima corrida y la lista seguía igual: **la misma trampa de TZXM8 y
+    BADLAR, la tercera vez en la misma función.**
+
+    Y por eso el predicado es UNO (`descartar_por_primary`), compartido entre el
+    detector y la lectura: dos versiones de «¿se descarta?» terminarían
+    contradiciéndose, que es el patrón de toda la semana."""
+    import datetime as _dt
+
+    from api.services import av_agent_vista as vista
+
+    class _Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, args=None): self.sql = sql
+        def fetchone(self): return (_dt.datetime(2026, 8, 17, 3, 0),)
+        def fetchall(self):
+            if "FROM mercado.curvas" in self.sql:
+                return []
+            return [("falta_en_base", "BPO27", "r", "media", "m", {"en_cartera": False}),
+                    ("falta_en_base", "TZXD8", "r", "media", "m", {"en_cartera": False}),
+                    # Lo TENEMOS y no cotiza: se reporta igual, es MÁS grave.
+                    ("falta_en_base", "BPOA8", "r", "alta", "m", {"en_cartera": True})]
+
+    class _Conn:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def cursor(self): return _Cur()
+
+    monkeypatch.setattr(vista, "get_pool", lambda: type("P", (), {
+        "connection": staticmethod(_Conn)})())
+    monkeypatch.setattr(vista.av_agent, "simbolos_primary",
+                        lambda: {"MERV - XMEV - TZXD8 - 24hs"})
+    filas, _ = vista._hallazgos_ultima_corrida()
+    assert {h["ticker"] for h in filas} == {"TZXD8", "BPOA8"}

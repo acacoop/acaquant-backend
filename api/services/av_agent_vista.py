@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 
+from api.services import av_agent
 from core import curvas_ejes
 from core.postgres import get_pool
 
@@ -184,9 +185,22 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     #
     # `ajuste_sin_curva` es la MISMA función que lo detecta y ya lee el catálogo,
     # así que preguntarle de nuevo no puede dar un criterio distinto.
+    # El universo de Primary, cacheado 600s → pedirlo por lectura es gratis.
+    simbolos = av_agent.simbolos_primary()
+
     def _caduco(h: dict) -> bool:
         if h["tipo"] == "falta_en_base":
-            return h["ticker"] in en_curvas          # el bono ya está cargado
+            if h["ticker"] in en_curvas:             # el bono ya está cargado
+                return True
+            # ⚠️ **Y el filtro de Primary TAMBIÉN se aplica acá.** Ponerlo solo en
+            # el detector no alcanzaba: la lista es la foto de la última corrida y
+            # relevar cuesta ~29 créditos, así que el filtro no surtía efecto hasta
+            # la próxima relevada y los bonos seguían apareciendo igual — la MISMA
+            # trampa de TZXM8 y BADLAR. El predicado es el de `av_agent`, no una
+            # copia: dos versiones de «¿se descarta?» terminarían contradiciéndose.
+            ev = h.get("evidencia") or {}
+            return av_agent.descartar_por_primary(
+                h["ticker"], bool(ev.get("en_cartera")), simbolos)
         if h["tipo"] == "hueco_de_curva":
             return not curvas_ejes.ajuste_sin_curva((h["ticker"] or "").lower())
         # `sin_flujo` y `tasa_sospechosa` hablan de un bono que YA está en el

@@ -122,7 +122,25 @@ def _cotiza_en_primary(ticker: str, simbolos: set[str]) -> bool:
                for plazo in ("24hs", "CI"))
 
 
-def _simbolos_primary() -> set[str] | None:
+def descartar_por_primary(ticker: str, en_cartera: bool,
+                          simbolos: set[str] | None) -> bool:
+    """¿Este faltante se descarta por no cotizar? **EL predicado, uno solo.**
+
+    Lo usan el DETECTOR (al relevar) y la LECTURA de la vista (al mostrar la
+    foto). Tenerlo en un solo lugar no es prolijidad: la primera versión vivía
+    solo en el detector, así que el filtro no tenía efecto hasta la próxima
+    relevada —que cuesta ~29 créditos y no se corre por pantalla— y los bonos
+    seguían apareciendo igual. Es la MISMA lección que TZXM8 y BADLAR: la foto se
+    muestra, pero nunca sin cotejarla.
+    """
+    if not simbolos:          # sin criterio → no se filtra
+        return False
+    if en_cartera:            # lo tenemos: no valuar es MÁS grave, no menos
+        return False
+    return not _cotiza_en_primary(ticker, simbolos)
+
+
+def simbolos_primary() -> set[str] | None:
     """El universo REAL de Primary. `None` = no se pudo leer → **no se filtra**.
 
     Misma degradación elegida que `core/instrumentos_validos`, y se reusa ESA
@@ -192,8 +210,7 @@ def detectar_faltantes(universo_1816: dict[str, dict], docs: list[dict], *,
         # que no valúa), y esconderlo sería justo lo contrario de lo que hay que
         # hacer.
         lo_tenemos = bool(en_cartera and tk in en_cartera)
-        if simbolos_primary and not lo_tenemos \
-                and not _cotiza_en_primary(tk, simbolos_primary):
+        if descartar_por_primary(tk, lo_tenemos, simbolos_primary):
             sin_primary.append(tk)
             continue
         out.append(_hallazgo(
@@ -513,7 +530,7 @@ def relevar(*, alcance: str = "soberanos",
     hallazgos = [
         *detectar_faltantes(universo_1816, docs, alcance=alcance, ignorados=ignorados,
                             en_cartera=en_cartera,
-                            simbolos_primary=_simbolos_primary()),
+                            simbolos_primary=simbolos_primary()),
         *detectar_sin_flujo(docs, universo_1816),
         *detectar_tasas_sospechosas(docs, metricas, en_assets, en_cartera),
         *detectar_huecos_de_curva(docs),

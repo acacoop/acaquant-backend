@@ -1567,8 +1567,42 @@ número, sin icono y sin título, repitiendo la nota de Primary. Era un `<li>`
 suelto DENTRO del `<ol>`, escrito cuando el paso de Primary todavía no existía.
 Hoy el paso 6 lo dice con su icono, su tabla y su acción — la copia se borró.
 
+### E2.r — El filtro tiene que correr también AL LEER (2026-08-17)
+
+Los BPO seguían apareciendo con el filtro de Primary ya escrito. **Porque lo puse
+solo en el DETECTOR**, que corre al relevar — y relevar cuesta ~29 créditos, así
+que no se hace por pantalla. El filtro no iba a surtir efecto hasta la próxima
+corrida.
+
+**Es la tercera vez que cometo el mismo error en la misma función**, y las tres
+veces yo mismo había escrito la regla: *«la foto se muestra, pero nunca sin
+cotejarla»* (E2.m). La escribí para TZXM8, no la apliqué a BADLAR (E2.p), y
+tampoco al filtro que acababa de agregar.
+
+**Por qué se repite**: un filtro puesto en el detector *parece* completo —el
+código dice lo correcto, los tests pasan— y el síntoma solo aparece en producción,
+horas después, en una lista que nadie relaciona con el cambio. La corrección no es
+acordarse: es que **el predicado viva en un solo lugar y lo llamen los dos**.
+Ahora `descartar_por_primary()` es esa función, y la usan el detector y la lectura
+— con la excepción de cartera incluida adentro, así que no puede aplicarse en un
+lado y olvidarse en el otro.
+
+**Regla general que queda para el agente**: *todo criterio que decida si algo se
+muestra tiene que poder evaluarse en la LECTURA.* Si solo se puede evaluar al
+relevar, el usuario ve el criterio viejo hasta la próxima corrida — y como no
+tiene forma de saber cuál está viendo, deja de creerle a la lista entera.
+
 ## Changelog
 
+- **2026-08-17 — E2.r, el filtro de Primary corre también AL LEER.**
+  Los BPO seguían apareciendo porque el filtro vivía SOLO en el detector, que
+  corre al relevar (~29 créditos, no se hace por pantalla) — así que no iba a
+  surtir efecto hasta la próxima corrida. Tercera vez el mismo error en la misma
+  función, contra una regla que yo mismo escribí en E2.m. Fix estructural:
+  `descartar_por_primary()` es UN predicado —excepción de cartera incluida— que
+  llaman el detector y la lectura, así que no puede aplicarse en un lado y
+  olvidarse en el otro. **Regla que queda: todo criterio que decida si algo se
+  muestra tiene que poder evaluarse en la LECTURA.** 1 test.
 - **2026-08-17 — E2.q, el filtro de Primary + el dólar-linked.** (a) Lo
   que **no cotiza en Primary deja de reportarse**: no se puede valuar nunca, así
   que es ruido permanente (pedido del user). Se prueban las patas 24hs y CI

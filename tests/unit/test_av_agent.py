@@ -1303,3 +1303,64 @@ def test_la_moneda_del_PEDIDO_y_la_del_COTEJO_son_preguntas_distintas():
     assert moneda_cotejo_1816("dolar_linked") == "ars"
     assert moneda_cotejo_1816("cer") == "ars"
     assert moneda_cotejo_1816("tasa_fija") == "ars"
+
+
+def test_la_diferencia_ESPERADA_de_paridad_es_el_INTERES_CORRIDO():
+    """BPOA8 (2026-08-17): paridad nuestra 92,91% contra 92,08% de 1816 → 0,90% de
+    diferencia y el paso quedaba en «revisar» — con la TEA clavada (7,08% contra
+    7,0814%) y la duration también (2,1285 vs 2,1266). No había NADA que revisar.
+
+    Las dos paridades no miden lo mismo: la nuestra es sobre el residual y la de
+    ellos sobre el valor técnico (residual + devengado). La nuestra da siempre un
+    poco MÁS alta, con techo de un cupón entero — una COTA derivada del cuadro, no
+    un umbral a ojo."""
+    from api.services.av_agent_alta import cota_devengado
+
+    # Semestral 2,5% sobre 100 de residual → un cupón entero es 2,5%.
+    cupones = [_cup("2027-01-15", 0, 2.5), _cup("2027-07-15", 100, 2.5)]
+    assert round(cota_devengado(cupones, desde="2026-08-17"), 4) == 2.5
+    # Ya amortizado a la mitad: la cota sube porque el residual bajó.
+    parcial = [_cup("2027-01-15", 50, 2.5), _cup("2027-07-15", 50, 1.25)]
+    assert round(cota_devengado(parcial, desde="2026-08-17"), 4) == 2.5
+    # Sin cupones futuros no hay cota que dar — y no se inventa un 0.
+    assert cota_devengado(cupones, desde="2030-01-01") is None
+    # Un cero cupón no devenga: sin interés no hay cota.
+    assert cota_devengado([_cup("2027-01-15", 100, 0)], desde="2026-08-17") is None
+
+
+def test_la_DURATION_es_el_testigo_del_cronograma():
+    """La paridad es invariante a las FECHAS y la duration a la ESCALA: cada una es
+    ciega justo donde la otra ve, así que hacen falta las dos. Un cuadro con la
+    escala ×1.000 mueve la paridad y NO la duration; uno al que le falta un cupón
+    mueve la duration y casi no la paridad."""
+    from api.services.av_agent_alta import BLOQUEA, OK, _cotejo_tea
+
+    ref_ok = {"a_nuestro_precio": {"paridad": 0.9208}, "duration": 2.1266}
+    # BPOA8 real: 0,90% de diferencia, bajo la cota de un cupón, duration clavada.
+    p = _cotejo_tea(0.0708, ref_ok, paridad=92.91, duration=2.1285, cota_ic=2.5)
+    assert p["estado"] == OK and "INTERÉS CORRIDO" in p["detalle"]
+
+    # Misma paridad, pero la duration de ellos es otra → el cronograma no es el
+    # mismo, y eso BLOQUEA aunque la paridad esté perfecta.
+    ref_mal = {"a_nuestro_precio": {"paridad": 0.9208}, "duration": 3.4}
+    p2 = _cotejo_tea(0.0708, ref_mal, paridad=92.08, duration=2.1285, cota_ic=2.5)
+    assert p2["estado"] == BLOQUEA and "duration no coincide" in p2["detalle"]
+
+
+def test_el_veredicto_solo_dice_A_MANO_si_hay_algo_que_cargar():
+    """El texto decía «se puede aplicar A MANO» ante cualquier `revisar`, incluso
+    cuando no faltaba ningún dato — el user preguntó, con razón, qué era lo que
+    tenía que aplicar a mano. Un `revisar` CON aviso pide cargar algo; uno sin
+    aviso es un juicio."""
+    from api.services.av_agent_alta import OK, REVISAR, _paso, _veredicto
+
+    juicio = [_paso("x", "El cuadro coincide con el de 1816", REVISAR, "casi"),
+              _paso("y", "Hay precio", OK, "sí")]
+    v = _veredicto(juicio)
+    assert "A MANO" not in v["texto"] and "no falta ningún dato" in v["texto"]
+    assert v["puede_aplicar"] and not v["puede_auto"]
+
+    con_dato = [_paso("cer", "CER de emisión", REVISAR, "falta",
+                      aviso="cargar el CER de emisión de TZXA7")]
+    v2 = _veredicto(con_dato)
+    assert "para cargar a mano" in v2["texto"] and "AVISOS" in v2["texto"]

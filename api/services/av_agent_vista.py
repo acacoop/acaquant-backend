@@ -84,6 +84,98 @@ _COND_AVISO = {
     "emisor": lambda r: bool((r["emisor"] or "").strip()),
 }
 
+# **CÓMO SE COMPLETA cada aviso desde la propia lista** (pedido del user,
+# 2026-08-17): *«que quede con el campo a completar desde ahí MISMO… escribo el
+# valor y ya entiende cómo guardarlo en la base y lo usa para terminar de
+# simular»*. Sin esto el aviso te dice qué falta y te manda a otra pantalla a
+# buscar el bono, lo cual es la mitad del trabajo hecha.
+#
+# Vive PEGADO a `_COND_AVISO` a propósito: son las dos caras del mismo dato —una
+# lo escribe y la otra verifica que quedó escrito— y separarlas es cómo se
+# consigue que un aviso se pueda completar pero nunca se marque cargado.
+_CAMPO_AVISO = {
+    "cer_emision": {
+        "label": "CER de emisión",
+        "tipo": "numero",
+        "ayuda": "el índice CER del día de emisión del bono (ej. 12,3456)",
+        # `data` es un jsonb y `cer_emision` vive adentro, no en columna.
+        "sql": "UPDATE mercado.curvas SET data = jsonb_set(COALESCE(data, '{}'::jsonb), "
+               "'{cer_emision}', to_jsonb(%(valor)s::numeric)) WHERE ticker = %(ticker)s",
+        "cast": "numero",
+    },
+    "emisor": {
+        "label": "Emisor",
+        "tipo": "texto",
+        "ayuda": "el nombre del emisor tal como lo escribe 1816",
+        # En DOS lugares, como `jobs/ficha_1816`: la columna y el blob. Si se
+        # escribe uno solo, agrupar por emisor da distinto según de dónde se lea.
+        "sql": "UPDATE mercado.curvas SET emisor = %(valor)s, "
+               "data = jsonb_set(COALESCE(data, '{}'::jsonb), '{emisor}', "
+               "to_jsonb(%(valor)s::text)) WHERE ticker = %(ticker)s",
+        "cast": "texto",
+    },
+}
+
+
+def completar_aviso(aviso_id: int, valor, por: str = "") -> dict:
+    """Escribe el dato que faltaba **y cierra el aviso en el mismo acto.**
+
+    Dos cosas que NO hace, a propósito:
+
+    - **No inventa el campo.** Solo se puede completar lo que está en
+      `_CAMPO_AVISO`; una clave desconocida devuelve error en vez de escribir
+      algo parecido. El aviso sigue ahí para cerrarlo a mano.
+    - **No confía en que escribió.** Después del UPDATE relee con el MISMO
+      predicado de `_COND_AVISO`, y si el dato no quedó cargado **no cierra el
+      aviso**: cerrar sin verificar es exactamente el «marcado hecho + dato
+      ausente» que `ya_cargado` existe para cazar.
+    """
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT ticker, clave, resuelto FROM mercado.av_agent_avisos "
+                        "WHERE id = %s", (aviso_id,))
+            fila = cur.fetchone()
+            if not fila:
+                return {"ok": False, "error": "no existe ese aviso"}
+            ticker, clave, _resuelto = fila
+            campo = _CAMPO_AVISO.get(clave)
+            if not campo:
+                return {"ok": False, "error": f"el aviso «{clave}» no se completa "
+                                              "desde acá: hay que cargarlo en Manager"}
+            if campo["cast"] == "numero":
+                v = _num(valor)
+                if v is None or v <= 0:
+                    return {"ok": False, "error": "el valor tiene que ser un número "
+                                                  "mayor que cero"}
+            else:
+                v = str(valor or "").strip()
+                if not v:
+                    return {"ok": False, "error": "el valor no puede estar vacío"}
+
+            cur.execute(campo["sql"], {"valor": v, "ticker": ticker})
+            if not cur.rowcount:
+                return {"ok": False, "error": f"{ticker} no está en mercado.curvas — "
+                                              "hay que darlo de alta primero"}
+
+            # VERIFICAR, no suponer: se relee con el mismo predicado que usa la
+            # lista para decir `ya_cargado`.
+            cur.execute("SELECT data->>'cer_emision', emisor FROM mercado.curvas "
+                        "WHERE ticker = %s", (ticker,))
+            r = cur.fetchone() or (None, None)
+            cond = _COND_AVISO.get(clave)
+            quedo = bool(cond({"cer_emision": r[0], "emisor": r[1]})) if cond else True
+            if not quedo:
+                return {"ok": False, "error": "el UPDATE corrió pero el dato no "
+                                              "quedó cargado — no se cierra el aviso"}
+            cur.execute("UPDATE mercado.av_agent_avisos SET resuelto = true, "
+                        "resuelto_por = %s, resuelto_at = now() WHERE id = %s",
+                        ((por or None), aviso_id))
+        return {"ok": True, "ticker": ticker, "clave": clave, "valor": v,
+                "resuelto": True}
+    except Exception as e:
+        logger.warning("av_agent: no se pudo completar el aviso %s: %s", aviso_id, e)
+        return {"ok": False, "error": str(e)[:200]}
+
 
 def avisos(incluir_resueltos: bool = True) -> list[dict]:
     """**Lo que quedó para hacer A MANO.** Pedido del user (2026-08-17):
@@ -135,6 +227,12 @@ def avisos(incluir_resueltos: bool = True) -> list[dict]:
             "creado_at": creado.isoformat() if creado else None,
             "resuelto": resuelto, "resuelto_por": rpor,
             "resuelto_at": rat.isoformat() if rat else None,
+            # Si este aviso se puede completar SIN salir de la lista, viaja acá
+            # cómo pedirlo. `None` = hay que ir a Manager.
+            "campo": ({"label": _CAMPO_AVISO[clave]["label"],
+                       "tipo": _CAMPO_AVISO[clave]["tipo"],
+                       "ayuda": _CAMPO_AVISO[clave]["ayuda"]}
+                      if clave in _CAMPO_AVISO and en_curvas else None),
             # `None` = no sabemos verificarlo (aviso sin condición conocida, o el
             # bono ya no está en el master). No se inventa un True.
             "ya_cargado": ya,

@@ -1760,8 +1760,102 @@ Y un corolario para el cuadro de auditoría: mostraba la paridad de `ars` mientr
 el paso del cotejo decidía con otra. **Un cuadro que muestra un número distinto del
 que se usó para decidir no sirve para auditar** — ahora los dos leen la misma.
 
+### E2.v — «¿Qué es lo que aplicaría a mano?» (2026-08-17)
+
+BPOA8 salía en `revisar` con la TEA **clavada** (7,08% contra 7,0814%), la
+duration clavada (2,1285 contra 2,1266) y una paridad 0,90% distinta. El
+veredicto decía *«se puede aplicar A MANO»* y el user preguntó lo obvio: **qué
+era lo que tenía que aplicar a mano.** Nada. No faltaba ningún dato.
+
+Tres cosas mal, las tres del mismo tipo — **el agente sabía la respuesta y no la
+estaba usando**.
+
+**1. La diferencia de paridad es el interés corrido, y es por definición.**
+
+```
+nuestra  = precio / residual                 (engines/curvas.py)
+1816     = precio / (residual + devengado)   (valor técnico)
+```
+
+La nuestra da SIEMPRE un poco más alta. Medido en los dos casos que teníamos:
+GD46 0,24% con un cupón de 2,5%, BPOA8 0,90%. El umbral de 0,5% estaba tratando
+como sospecha algo que es aritmética.
+
+El fix es una **cota, no una predicción**: el devengado nunca supera un cupón
+entero sobre el residual vivo, y eso se deriva del cuadro (`cota_devengado`).
+Calcular el devengado exacto obligaría a elegir una convención de días y a
+acertarle a la de 1816 — o sea a inventar una hipótesis nueva para tapar un
+problema que se resuelve sin ella. Y no se pierde poder de detección: un error de
+escala mueve la paridad 100 o 1.000 veces, dos órdenes de magnitud arriba de
+cualquier cupón.
+
+**2. La duration estaba a la vista y no votaba.** El cuadro ya mostraba «nuestra
+2,1285 · 1816 2,1266» con la leyenda *«depende solo del cuadro y las fechas: si
+difiere, el cronograma que bajamos no es el mismo»* — y el paso decidía sin
+mirarla. Ahora es el **segundo testigo**, y hace falta porque mide otra cosa:
+
+| | detecta | es ciega a |
+|---|---|---|
+| **paridad** | la ESCALA (×100, ×1.000, Σ mal) | las fechas |
+| **duration** | el CRONOGRAMA (cupones, fechas) | la escala |
+
+Cada una es ciega justo donde la otra ve. Con las dos, una duration que no
+coincide **bloquea aunque la paridad esté perfecta** — un poder de detección que
+antes no existía.
+
+**3. «A mano» solo si hay algo que hacer a mano.** Un `revisar` con `aviso` pide
+CARGAR un dato (el CER de emisión); uno sin aviso es un juicio. El veredicto los
+mezclaba en un solo texto. Ahora el que pide un dato dice cuál y que va a AVISOS;
+el que es juicio dice *«no falta ningún dato, pero conviene mirar…»*.
+
+### E2.w — El aviso se completa DONDE se lee (2026-08-17)
+
+Pedido del user: *«el aplicar a mano como el del CER estaría bueno que pase a
+aviso y quede con el campo a completar desde ahí MISMO… escribo el valor y ya
+entiende cómo guardarlo en la base»*.
+
+Tenía razón y era la mitad del trabajo hecha: el aviso decía «falta el CER de
+emisión» y te mandaba a Manager → Títulos a buscar el bono. El agente hacía el
+95% y dejaba el 5% a tres clics.
+
+Ahora cada aviso viaja con **`campo`** —label, tipo y ayuda— y la fila trae su
+input. `POST /api/ia/av-agent/aviso/completar` escribe el valor y cierra el aviso
+en el mismo acto. Dos cosas que **no** hace, a propósito:
+
+- **No inventa el campo.** Solo se escribe lo que está en `_CAMPO_AVISO` (hoy
+  `cer_emision` y `emisor`); una clave desconocida devuelve error en vez de
+  escribir algo parecido, y el aviso queda para cerrarlo a mano.
+- **No confía en que escribió.** Después del `UPDATE` relee con el **mismo
+  predicado** de `_COND_AVISO` —el que la lista usa para decir `ya_cargado`— y si
+  el dato no quedó, **no cierra el aviso**. Cerrar sin verificar es exactamente
+  el «marcado hecho + dato ausente» que `ya_cargado` existe para cazar.
+
+`_CAMPO_AVISO` vive PEGADO a `_COND_AVISO` porque son las dos caras del mismo
+dato: uno lo escribe, el otro verifica. Separarlos es cómo se consigue un aviso
+que se puede completar pero nunca se marca cargado.
+
 ## Changelog
 
+- **2026-08-17 — E2.w, el aviso se completa desde la lista.** El aviso del CER de
+  emisión te mandaba a Manager → Títulos: el agente hacía el 95% y el 5% quedaba
+  a tres clics. Ahora cada aviso viaja con su `campo` (label/tipo/ayuda) y la
+  fila trae input + GUARDAR → `POST /api/ia/av-agent/aviso/completar` escribe y
+  cierra en el mismo acto. **Solo campos del catálogo** `_CAMPO_AVISO`, y
+  **verifica antes de cerrar** releyendo con el mismo predicado de `_COND_AVISO`:
+  si el dato no quedó, el aviso sigue abierto. Frontend: `FilaAviso` con estado
+  propio por fila (un `valor` compartido haría que escribir en uno pisara otro).
+- **2026-08-17 — E2.v, la diferencia esperada + la duration como segundo
+  testigo.** BPOA8 quedaba en «revisar» con la TEA y la duration clavadas y sin
+  ningún dato que cargar. **(a)** La diferencia de paridad contra 1816 **es el
+  interés corrido** —la nuestra es sobre el residual y la de ellos sobre el valor
+  técnico— así que da siempre más alta, con techo de **un cupón entero**:
+  `cota_devengado()` lo deriva del cuadro. Cota y no predicción, para no tener
+  que adivinar la convención de días de 1816; y no pierde detección porque un
+  error de escala mueve la paridad 100× o 1.000×. **(b)** La **duration** pasa a
+  votar: la paridad detecta la ESCALA y es ciega a las fechas, la duration al
+  revés — una duration que no coincide ahora BLOQUEA aunque la paridad esté
+  perfecta. **(c)** El veredicto solo dice «a mano» si hay un dato que cargar
+  (un `revisar` con aviso); si es juicio lo dice así. 3 tests (81 en total).
 - **2026-08-17 — E2.u, GD46 cerrado con el diag en la mano.** Las dos hipótesis
   de E2.t eran falsas. **(a)** 1816 NO renormaliza: manda el cronograma completo
   desde la emisión (GD46 arranca en 2021-07, Σ=100), así que el residual vivo se

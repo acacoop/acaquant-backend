@@ -358,6 +358,12 @@ _FRENAN_TODO = (BLOQUEA,)
 # Por eso nada de esto BLOQUEA: avisa.
 _PARIDAD_COINCIDE, _PARIDAD_MIRAR = 0.5, 3.0     # % de diferencia RELATIVA
 _BPS_COINCIDE, _BPS_MIRAR = 50.0, 150.0          # TEA, señal secundaria
+# La DURATION es el testigo del CRONOGRAMA: no depende del precio, ni del tipo de
+# cambio, ni del interés corrido. Medido el 2026-08-17: GD46 6,6039 contra 6,6118
+# (0,12%) y BPOA8 2,1285 contra 2,1266 (0,09%) — o sea que cuando el cuadro está
+# bien la coincidencia es de tercer decimal. Un cupón de más o de menos la mueve
+# mucho más que eso.
+_DURATION_COINCIDE, _DURATION_MIRAR = 1.0, 5.0   # % de diferencia RELATIVA
 
 
 def _paso(clave: str, titulo: str, estado: str, detalle: str,
@@ -405,7 +411,51 @@ def _tea_de_1816_a_nuestro_precio(ticker: str, precio: float, moneda: str) -> di
             "convencion_tna": ind.get("convencionTna"), "precio": float(precio)}
 
 
-def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "", paridad=None) -> dict:
+def cota_devengado(cupones: list[dict], desde: str = "") -> float | None:
+    """Cuánto pueden diferir NUESTRA paridad y la de 1816 **sin que nada esté mal**.
+
+    Las dos paridades no miden lo mismo, y es por definición, no por error:
+
+        nuestra  = precio / residual                 (`engines/curvas.py`)
+        1816     = precio / (residual + devengado)   (valor técnico)
+
+    Entonces la nuestra da SIEMPRE un poco más alta, y «un poco» tiene un techo
+    exacto: el devengado nunca supera **un cupón entero** sobre el residual vivo.
+    Medido el 2026-08-17 en los dos casos que teníamos: GD46 difería 0,24% con un
+    cupón de 2,5%, y BPOA8 0,90% — los dos MUY por debajo de su cota, y los dos
+    con la TEA y la duration clavadas contra 1816.
+
+    **Cota y no predicción, a propósito.** Calcular el devengado exacto obliga a
+    elegir una convención de días (30/360 vs reales, fecha teórica vs efectiva) y
+    a acertarle a la que usa 1816 — o sea, a inventar una hipótesis nueva para
+    tapar un problema que ya se resuelve sin ella. La cota se deriva del cuadro y
+    de nada más.
+
+    Y no pierde poder de detección: un error de ESCALA —lo único que este cotejo
+    existe para cazar— mueve la paridad 100 o 1.000 veces, dos órdenes de magnitud
+    arriba de cualquier cupón.
+
+    Se calcula sobre el cuadro CRUDO de 1816 (`flujoInteres` / `flujoAmortizacion`)
+    porque ahí las unidades son las mismas para todas las ramas — en el nuestro,
+    `cupon_sobre_residual` es una tasa en CER y un monto en soberanos.
+    """
+    hoy = desde or date.today().isoformat()
+    futuros = [c for c in cupones if isinstance(c, dict)
+               and (_fecha(c.get("fechaPagoEfectiva"))
+                    or _fecha(c.get("fechaPagoTeorica"))) > hoy]
+    if not futuros:
+        return None
+    futuros.sort(key=lambda c: _fecha(c.get("fechaPagoEfectiva"))
+                 or _fecha(c.get("fechaPagoTeorica")))
+    residual = sum(_num(c.get("flujoAmortizacion")) or 0.0 for c in futuros)
+    interes = _num(futuros[0].get("flujoInteres")) or 0.0
+    if residual <= 0 or interes <= 0:
+        return None
+    return interes / residual * 100
+
+
+def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "", paridad=None,
+                duration=None, cota_ic: float | None = None) -> dict:
     """La segunda opinión sobre el MISMO bono. Un cuadro mal convertido no tira
     error: da un número plausible y equivocado.
 
@@ -462,10 +512,48 @@ def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "", paridad=None) -> dict:
     linea = (f"paridad nuestra {nuestra_par:.2f}% vs 1816 {suya_par:.2f}% "
              f"→ {dif_rel:.2f}% de diferencia ({base}){apoyo}")
 
+    # SEGUNDO TESTIGO: la duration. Mide otra cosa que la paridad y las dos hacen
+    # falta — la paridad es invariante a las FECHAS y la duration es invariante a
+    # la ESCALA, así que cada una es ciega justo donde la otra ve. La leyenda del
+    # cuadro ya decía «depende solo del cuadro y las fechas» y no la usábamos para
+    # decidir nada: era evidencia a la vista, sin voto.
+    dur_dif = None
+    if isinstance(duration, int | float) and isinstance(ref.get("duration"), int | float):
+        suya_dur = float(ref["duration"])
+        if suya_dur:
+            dur_dif = abs(float(duration) - suya_dur) / suya_dur * 100
+            linea += (f" · duration: nuestra {float(duration):.4f} vs 1816 "
+                      f"{suya_dur:.4f} ({dur_dif:.2f}%)")
+    dur_ok = dur_dif is not None and dur_dif <= _DURATION_COINCIDE
+    if dur_dif is not None and dur_dif > _DURATION_MIRAR:
+        return _paso("cotejo_1816", "El cuadro coincide con el de 1816", BLOQUEA,
+                     linea + ". **La duration no coincide** → las fechas o los "
+                             "cupones que bajamos no son los de ellos. La "
+                             "duration no depende del precio ni del tipo de "
+                             "cambio: si difiere, difiere el cronograma.",
+                     tabla="1816 /indicadores",
+                     accion="comparar fecha por fecha el cuadro de abajo contra 1816")
+
     if dif_rel <= _PARIDAD_COINCIDE:
         return _paso("cotejo_1816", "El cuadro coincide con el de 1816", OK,
                      linea + ". Coincide → el cronograma que vamos a escribir "
                              "es el mismo que el de ellos.",
+                     tabla="1816 /indicadores")
+    # LA DIFERENCIA ESPERADA. Nuestra paridad es sobre el residual y la de 1816
+    # sobre el valor técnico (residual + devengado), así que la nuestra da SIEMPRE
+    # un poco más alta — y el techo de «un poco» es un cupón entero. Si la
+    # diferencia va en ese sentido, está por debajo de la cota, y encima la
+    # duration coincide, no hay nada que revisar: es la definición, no un error.
+    # Sin esto, BPOA8 quedaba en «revisar» con la TEA clavada (7,08% contra
+    # 7,0814%) y sin ningún dato que cargar — un aviso que no pedía nada.
+    if (cota_ic and dif_rel <= cota_ic and nuestra_par >= suya_par and dur_ok):
+        return _paso("cotejo_1816", "El cuadro coincide con el de 1816", OK,
+                     linea + f". La diferencia es el INTERÉS CORRIDO: nuestra "
+                             f"paridad es sobre el residual y la de ellos sobre "
+                             f"el valor técnico (residual + devengado), así que "
+                             f"la nuestra da más alta hasta un cupón entero "
+                             f"({cota_ic:.2f}%). Con la duration clavada, el "
+                             f"cronograma es el mismo.",
                      tabla="1816 /indicadores")
     if dif_rel <= _PARIDAD_MIRAR:
         return _paso("cotejo_1816", "El cuadro coincide con el de 1816", REVISAR,
@@ -558,7 +646,8 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
               cer_emision: float | None, nota_cer: str, simbolo: str,
               origen_simbolo: str, ctx: dict, estado_simbolo: dict,
               precio, tea, fuente_precio: str = "", ref: dict | None = None,
-              paridad=None, ficha_curvas: dict | None = None) -> list[dict]:
+              paridad=None, ficha_curvas: dict | None = None,
+              duration=None, cupones: list[dict] | None = None) -> list[dict]:
     """La lista ordenada. Se devuelve ENTERA, con los pasos en verde incluidos.
 
     Mostrar solo lo que falla obliga al que mira a confiar en que el resto se
@@ -760,7 +849,9 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
     # NUESTRO motor sobre el precio de 1816 y comparar contra LA TEA DE ELLOS es
     # una segunda opinión independiente sobre el mismo bono — y hasta ahora era
     # imposible de tener justo cuando más falta hace: en un bono nuevo.
-    ps.append(_cotejo_tea(tea, ref, job_tasa=job_tasa, paridad=paridad))
+    ps.append(_cotejo_tea(tea, ref, job_tasa=job_tasa, paridad=paridad,
+                          duration=duration,
+                          cota_ic=cota_devengado(cupones or [])))
 
     # 9 — ¿QUIÉN calcula la tasa? Dos respuestas válidas, no una.
     if _fuente_tasa == "1816":
@@ -988,11 +1079,23 @@ def _veredicto(chequeos: list[dict]) -> dict:
                 "texto": f"NO se puede aplicar — {len(bloqueos)} paso/s lo bloquean: "
                          + "; ".join(c["titulo"] for c in bloqueos[:2])}
     if revisar:
-        return {**base, "estado": REVISAR,
-                "texto": f"se puede aplicar A MANO, pero {len(revisar)} paso/s no "
-                         "cierran y hay que mirarlos: "
-                         + "; ".join(c["titulo"] for c in revisar[:2])
-                         + ". Automático NO."}
+        # **«A mano» solo si hay algo que hacer a mano.** Un `revisar` con `aviso`
+        # pide CARGAR un dato (el CER de emisión); uno sin aviso es un juicio —
+        # «esto quedó cerca, miralo». El texto los mezclaba y BPOA8 decía «se puede
+        # aplicar A MANO» cuando no había ningún campo que completar: el user
+        # preguntó, con razón, qué era lo que tenía que aplicar a mano.
+        con_dato = [c for c in revisar if c.get("aviso")]
+        if con_dato:
+            texto = (f"se puede aplicar, y queda {len(con_dato)} dato/s para "
+                     "cargar a mano (van a AVISOS): "
+                     + "; ".join(c["aviso"] for c in con_dato[:2]))
+            if len(revisar) > len(con_dato):
+                texto += f" · y {len(revisar) - len(con_dato)} paso/s para mirar"
+        else:
+            texto = (f"se puede aplicar — no falta ningún dato, pero {len(revisar)} "
+                     "paso/s no cierran del todo y conviene mirarlos: "
+                     + "; ".join(c["titulo"] for c in revisar[:2]))
+        return {**base, "estado": REVISAR, "texto": texto + ". Automático NO."}
     if dudas:
         return {**base, "estado": NO_SE,
                 "texto": "la conversión está bien, pero no se pudo verificar "
@@ -1443,7 +1546,8 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         precio=out.get("precio"), tea=out.get("tea"),
         fuente_precio=out.get("precio_fuente") or "",
         ref=out.get("referencia_1816") or {}, paridad=out.get("paridad"),
-        ficha_curvas=out.get("ficha_curvas") or {})
+        ficha_curvas=out.get("ficha_curvas") or {},
+        duration=out.get("duration"), cupones=cupones)
     out["veredicto"] = _veredicto(out["chequeos"])
     # QUÉ cuenta se hizo y con qué números. Una tasa sin su memoria de cálculo no
     # se puede auditar: solo se puede creer o no creer.

@@ -267,6 +267,31 @@ def av_agent_aviso(body: ResolverAviso, email: str = Depends(get_user_email)):
     return r
 
 
+class CompletarAviso(BaseModel):
+    id: int = Field(..., ge=1)
+    valor: str = Field(..., min_length=1, max_length=200)
+
+
+@router.post("/av-agent/aviso/completar", dependencies=[Depends(require_admin)])
+def av_agent_aviso_completar(body: CompletarAviso,
+                             email: str = Depends(get_user_email)):
+    """Carga el dato que faltaba **desde la misma lista de avisos** y cierra el
+    aviso en el mismo acto (pedido del user, 2026-08-17).
+
+    Antes el aviso decía «falta el CER de emisión» y te mandaba a Manager →
+    Títulos a buscar el bono: el agente hacía el 95% y te dejaba el 5% en otra
+    pantalla. Ahora el valor se escribe donde se lee el aviso.
+
+    Escribe SOLO los campos del catálogo `_CAMPO_AVISO` y **verifica** contra el
+    master antes de cerrar: si el dato no quedó cargado, el aviso sigue abierto.
+    """
+    from api.services import av_agent_vista as vista
+    r = vista.completar_aviso(body.id, body.valor, por=email or "")
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("error", "no se pudo"))
+    return r
+
+
 class SimularAvAgent(BaseModel):
     ticker: str = Field(..., min_length=2, max_length=32)
     curva_1816: str = Field(..., min_length=2, max_length=80)

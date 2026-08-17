@@ -350,6 +350,45 @@ def _aplicar_efecto(p: dict, resp: str, *, por: str, nota: str) -> bool:
     return False
 
 
+def ignorar(ticker: str, *, motivo: str = "", por: str = "") -> dict:
+    """«No me interesa»: el ticker deja de aparecer en TODOS los tipos de hallazgo.
+
+    Hasta el 2026-08-17 ignorar solo se podía hacer **contestando una pregunta**
+    del agente (`falta:<TICKER>`), y solo surtía efecto en el detector de
+    faltantes. O sea: para el resto de la lista no había forma de decir que algo
+    no interesa, y la única salida era mirarlo pasar en cada corrida. El user:
+    *«¿cómo podríamos hacer para ignorar algunos, tipo decir "no me interesan",
+    así no vuelven a aparecer?»*
+
+    **Por TICKER y no por (ticker, tipo)**: si un papel no interesa, no interesa
+    en ninguna de sus formas — ver que «le faltan los flujos» a un bono que ya
+    dijiste que no te importa es el mismo ruido con otro nombre.
+
+    ⚠️ En un `hueco_de_curva` el `ticker` del hallazgo es el **AJUSTE**
+    (`BADLAR`), no un bono. Se ignora igual y está bien: esta tabla es la lista de
+    *cosas que no quiero ver*, y la identidad de un hallazgo es su `ticker`, sea
+    lo que sea que ese campo signifique para su tipo.
+
+    Reversible con `designorar`, por la misma razón de siempre: si marcar algo
+    fuera irreversible, la respuesta segura pasaría a ser no marcar nada.
+    """
+    from api.services import av_agent_acciones as acc
+
+    tk = (ticker or "").strip().upper()
+    if not tk:
+        raise ValueError("ticker vacío")
+    motivo = (motivo or "").strip() or "el user lo marcó como «no nos interesa»"
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO mercado.av_agent_ignorados (ticker, motivo, por) "
+            "VALUES (%s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
+            (tk, motivo, por or None))
+        nuevo = (cur.rowcount or 0) > 0
+    acc.registrar(accion="ignorar_ticker", objetivo=tk, por=por,
+                  detalle={"motivo": motivo, "desde": "hallazgo"})
+    return {"ok": True, "ticker": tk, "ignorado": True, "ya_estaba": not nuevo}
+
+
 def designorar(ticker: str, *, por: str = "") -> dict:
     """Deshace un «no me interesa»: saca el ticker de la lista y **reabre su
     pregunta**, para que el agente vuelva a proponerlo.

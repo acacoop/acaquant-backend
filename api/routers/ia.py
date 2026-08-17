@@ -220,6 +220,29 @@ def av_agent_responder(body: RespuestaAvAgent, email: str = Depends(get_user_ema
             "aplicada": r.get("aplicada", False)}
 
 
+class IgnorarAvAgent(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=40)
+    motivo: str = ""
+
+
+@router.post("/av-agent/ignorar", dependencies=[Depends(require_admin)])
+def av_agent_ignorar(body: IgnorarAvAgent, email: str = Depends(get_user_email)):
+    """«No me interesa»: el ticker deja de aparecer en TODOS los tipos de hallazgo.
+
+    Antes ignorar solo se podía hacer contestando una pregunta del agente, y solo
+    valía para los faltantes: en el resto de la lista no había forma de decir que
+    algo no interesa. Surte efecto **en la lectura siguiente**, no en la próxima
+    corrida — apretar el botón y que la fila siga ahí es lo que hace desconfiar de
+    toda la lista.
+
+    Reversible desde la tab DECIDIDO (`designorar`)."""
+    from api.services import av_agent_preguntas as preg
+    try:
+        return preg.ignorar(body.ticker, motivo=body.motivo, por=email or "")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 class DesignorarAvAgent(BaseModel):
     ticker: str = Field(..., min_length=1, max_length=32)
 
@@ -290,6 +313,34 @@ def av_agent_aviso_completar(body: CompletarAviso,
     if not r.get("ok"):
         raise HTTPException(status_code=400, detail=r.get("error", "no se pudo"))
     return r
+
+
+class FlujosAvAgent(BaseModel):
+    ticker: str = Field(..., min_length=2, max_length=32)
+
+
+@router.post("/av-agent/simular-flujos", dependencies=[Depends(require_admin)])
+def av_agent_simular_flujos(body: FlujosAvAgent):
+    """E3 — el hallazgo `flujos_vacios` se vuelve accionable. **No escribe nada.**
+
+    Baja el cronograma de 1816 para un bono que YA está en `mercado.curvas`, lo
+    convierte con la rama que ese bono ya tiene, simula la TEA y la coteja contra
+    1816 (paridad + duration). Es la pregunta del user: *«lo que hay que chequear
+    es si con el flujo que agregaríamos y nuestro modelo nos da una TEA y esos
+    datos como a 1816»*."""
+    from api.services import av_agent_alta
+    return av_agent_alta.simular_flujos(body.ticker)
+
+
+@router.post("/av-agent/aplicar-flujos", dependencies=[Depends(require_admin)])
+def av_agent_aplicar_flujos(body: FlujosAvAgent, email: str = Depends(get_user_email)):
+    """E3 — escribe el cronograma, **y nada más**.
+
+    Es un UPDATE puntual sobre el blob: los ejes, el emisor, el símbolo y el
+    `cer_emision` que cargó la mesa ni siquiera están en el payload, así que no se
+    pueden pisar por accidente."""
+    from api.services import av_agent_alta
+    return av_agent_alta.aplicar_flujos(body.ticker, actor=email or "")
 
 
 class SimularAvAgent(BaseModel):

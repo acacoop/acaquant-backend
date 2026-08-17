@@ -285,8 +285,15 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     # así que preguntarle de nuevo no puede dar un criterio distinto.
     # El universo de Primary, cacheado 600s → pedirlo por lectura es gratis.
     simbolos = av_agent.simbolos_primary()
+    # **El «no me interesa» también se evalúa AL LEER.** Es la regla de E2.r: un
+    # criterio que solo corre al relevar tarda una corrida entera (~29 créditos)
+    # en surtir efecto, así que el user aprieta IGNORAR y la fila sigue ahí — que
+    # es exactamente lo que hace desconfiar de toda la lista.
+    ignorados = av_agent.tickers_ignorados()
 
     def _caduco(h: dict) -> bool:
+        if (h.get("ticker") or "").strip().upper() in ignorados:
+            return True
         if h["tipo"] == "falta_en_base":
             if h["ticker"] in en_curvas:             # el bono ya está cargado
                 return True

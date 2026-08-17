@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime
+from types import SimpleNamespace
 
 from core import curvas_ejes, mercado_1816
 
@@ -1905,3 +1906,231 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
                         if (tasa_sembrada or {}).get("ok") else
                         f" · ⚠ tasa de 1816 NO cargada: {tasa_sembrada.get('error')}"
                         if tasa_sembrada else "")}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COMPLETAR EL CRONOGRAMA de un bono que YA está en el master (E3.a)
+#
+# El hallazgo `flujos_vacios` no tenía acción: decía «1816 lo tiene y se puede
+# completar» y ahí moría — el user tenía que ir a Manager y cargar el cuadro a
+# mano, que es exactamente el trabajo que este agente existe para no hacer.
+#
+# **Es el alta al revés**: en un alta los EJES los deriva el agente de la curva de
+# 1816 (el bono no existe); acá el bono YA existe y sus ejes los cargó la mesa, así
+# que son la verdad y NO se tocan. Lo único que falta —y lo único que se escribe—
+# es el cronograma.
+#
+# Y por eso el cotejo importa MÁS que en un alta: se le va a meter un cuadro a un
+# bono que la vista ya muestra. Si ese cuadro está mal, el bono pasa de «sin TEA» a
+# «con una TEA equivocada», que es estrictamente peor. Se reusa el MISMO
+# `_cotejo_tea` —paridad, duration y la cota del devengado— porque un cuadro
+# escrito por esta puerta tiene que pasar el mismo examen que uno escrito por el
+# alta.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _doc_de_curvas(ticker: str) -> dict | None:
+    """El doc del master tal cual, o `None` si el bono no está.
+
+    Lee el blob `data` —el mismo que sirve `core/curvas_sql`— así los ejes que ve
+    el simulador son EXACTAMENTE los que ve el motor."""
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT data FROM mercado.curvas WHERE ticker = %s", (ticker,))
+            fila = cur.fetchone()
+        return dict(fila[0]) if fila and fila[0] else None
+    except Exception as e:
+        logger.warning("av_agent: no se pudo leer %s de curvas: %s", ticker, e)
+        return None
+
+
+def simular_flujos(ticker: str) -> dict:
+    """Baja el cronograma de 1816 y calcula la TEA que TENDRÍA el bono. **No escribe.**
+
+    La pregunta que contesta es la que hizo el user: *«lo que hay que chequear es
+    si con el flujo que agregaríamos y nuestro modelo nos da una TEA y esos datos
+    como a 1816»*. Por eso el resultado no es «bajé el cuadro» sino el cotejo
+    completo contra ellos.
+    """
+    tk = mercado_1816.normalizar_ticker(ticker)
+    doc = _doc_de_curvas(tk)
+    if not doc:
+        return {"ok": False, "ticker": tk,
+                "error": f"{tk} no está en mercado.curvas — esto completa el "
+                         "cronograma de un bono que YA existe; para uno nuevo va "
+                         "el alta"}
+
+    from api.services.acreencias import tiene_flujo_def
+    from engines.curvas import rama_calculo
+
+    if tiene_flujo_def(doc, date.today()):
+        # No es un error del agente: es que el hallazgo quedó viejo. Se dice así.
+        return {"ok": False, "ticker": tk,
+                "error": f"{tk} YA tiene cronograma — el hallazgo es de una corrida "
+                         "anterior y quedó resuelto"}
+
+    try:
+        data = mercado_1816.cashflow(tk)
+    except Exception as e:
+        return {"ok": False, "ticker": tk, "error": f"1816 no dio el cuadro: {e}"}
+    cupones = data.get("cashflow") or []
+    if not cupones:
+        return {"ok": False, "ticker": tk,
+                "error": "1816 devolvió el cuadro VACÍO: este bono necesita el "
+                         "prospecto, no hay nada que copiar"}
+
+    # **La rama sale del DOC, no de una curva de 1816.** Los ejes ya los cargó la
+    # mesa y son la verdad; derivarlos de nuevo sería inventar una segunda opinión
+    # sobre algo que no está en duda.
+    rama = rama_calculo(doc)
+    conv = convertir_flujos(cupones, rama)
+    hoy = date.today().isoformat()
+    futuros = [f for f in conv["flujos"] if f["fecha"] > hoy]
+    vencimiento = conv["flujos"][-1]["fecha"] if conv["flujos"] else ""
+
+    doc_sim = {**doc, "flujos": conv["flujos"]}
+    if conv["flujo_vencimiento"] is not None:
+        doc_sim["flujo_vencimiento"] = conv["flujo_vencimiento"]
+    simbolo = (doc.get("ticker") or "").strip()
+    moneda_eje = (doc.get("moneda_eje") or "").strip()
+
+    out = {
+        "ok": True, "ticker": tk, "modo": "completar_flujos",
+        "rama": rama, "curva": doc.get("curva"),
+        "escala": conv["escala"], "suma_amortizaciones": conv["suma_amort"],
+        "cupones": conv["n"], "cupones_futuros": len(futuros),
+        "vencimiento": vencimiento, "flujo_vencimiento": conv["flujo_vencimiento"],
+        "simbolo": simbolo, "cuadro": conv,
+        "ejes": {"emisor_tipo": doc.get("emisor_tipo"), "moneda_eje": moneda_eje,
+                 "ajuste": doc.get("ajuste"), "ley": doc.get("ley")},
+    }
+    out.update(_simular_tasa(doc_sim, simbolo, None, ticker=tk, moneda_eje=moneda_eje))
+    out["chequeos"] = _chequeos_flujos(
+        ticker=tk, doc=doc, rama=rama, conv=conv, vencimiento=vencimiento,
+        out=out, cupones=cupones)
+    out["veredicto"] = _veredicto(out["chequeos"])
+    # `_memoria_de_calculo` espera el objeto de ejes que devuelve `curvas_ejes`.
+    # Acá los ejes vienen del DOC (los cargó la mesa), así que se arma el mismo
+    # shape en vez de reescribir el cuadro: el que lo lee tiene que ver lo mismo
+    # venga de un alta o de un completar.
+    ejes_doc = SimpleNamespace(
+        emisor_tipo=doc.get("emisor_tipo") or "", moneda=moneda_eje,
+        ajuste=doc.get("ajuste") or "", ajuste_alt=doc.get("ajuste_alt") or "",
+        ley=doc.get("ley") or "")
+    out["calculo"] = _memoria_de_calculo(
+        doc=doc_sim, ejes=ejes_doc, rama=rama, conv=conv, out=out,
+        ref=out.get("referencia_1816") or {}, job_tasa=_tasa_externa_doc(doc))
+    return out
+
+
+def _tasa_externa_doc(doc: dict) -> str:
+    return tasa_externa_de(doc.get("ajuste"))[1]
+
+
+def _chequeos_flujos(*, ticker: str, doc: dict, rama: str, conv: dict,
+                     vencimiento: str, out: dict, cupones: list[dict]) -> list[dict]:
+    """La cadena del COMPLETAR. Más corta que la del alta y a propósito: los ejes,
+    la curva, el símbolo y la especie **ya están resueltos** —el bono existe y la
+    vista lo muestra— así que chequearlos sería teatro.
+
+    Lo que sí se chequea es todo lo que puede salir mal al escribir un cronograma
+    en un bono vivo, que es el riesgo REAL de esta puerta."""
+    ps: list[dict] = []
+    ps.append(_paso("existe", "El bono ya está en el master", OK,
+                    f"{ticker} · curva «{doc.get('curva')}» · ejes cargados por la "
+                    f"mesa ({doc.get('emisor_tipo')} · {doc.get('moneda_eje')} · "
+                    f"{doc.get('ajuste')}). **No se tocan**: acá solo se escribe el "
+                    "cronograma.", tabla="mercado.curvas"))
+    ps.append(_paso("cuadro", "1816 mandó el cuadro de flujos",
+                    OK if conv["n"] else BLOQUEA,
+                    f"{conv['n']} cupón/es · Σ amortizaciones {conv['suma_amort']:,.2f} "
+                    f"→ escala {conv['escala']} · vence {vencimiento}",
+                    tabla="1816 /cashflow (fechaPagoEfectiva)"))
+    # La rama sale del doc, así que no puede ser «otros» por un error de traducción:
+    # si lo es, es porque la mesa clasificó el bono en algo que no valuamos.
+    convertible = rama in RAMAS_AUTOMATICAS
+    ps.append(_paso("rama", "El cuadro se puede convertir sin ambigüedad",
+                    OK if convertible else REVISAR,
+                    f"rama «{rama}» — conversión inequívoca" if convertible else
+                    f"rama «{rama}»: a este bono no le calculamos la tasa nosotros, "
+                    "así que el cuadro se escribe igual pero la TEA la trae otra "
+                    "fuente (o ninguna).",
+                    tabla="engines/curvas.py::rama_calculo"))
+    tea, paridad = out.get("tea"), out.get("paridad")
+    ps.append(_paso("precio", "Hay precio para simular la tasa",
+                    OK if out.get("precio") else INFO,
+                    (f"precio {out['precio']:,.4f} ({out.get('precio_fuente')})"
+                     if out.get("precio") else
+                     "sin precio: el cuadro se puede escribir igual, la TEA aparece "
+                     "con el primer trade"),
+                    tabla="mercado.market_snapshot · 1816"))
+    ps.append(_cotejo_tea(tea, out.get("referencia_1816") or {},
+                          job_tasa=_tasa_externa_doc(doc), paridad=paridad,
+                          duration=out.get("duration"),
+                          cota_ic=cota_devengado(cupones)))
+    # **Lo que se va a escribir, enumerado.** Es la diferencia entre «confiá» y
+    # «mirá»: son los ÚNICOS campos que toca esta puerta.
+    campos = ["flujos"]
+    if conv["flujo_vencimiento"] is not None:
+        campos.append("flujo_vencimiento")
+    ps.append(_paso("escritura", "Qué se va a escribir", INFO,
+                    "solo " + " · ".join(campos) + f" en {ticker}. Ejes, curva, "
+                    "emisor, símbolo y cer_emision quedan **intactos**.",
+                    tabla="mercado.curvas"))
+    for i, p in enumerate(ps, 1):
+        p["n"] = i
+    return ps
+
+
+def aplicar_flujos(ticker: str, *, actor: str = "") -> dict:
+    """Simula y, si la cadena cierra, **escribe el cronograma** — y nada más.
+
+    A diferencia del alta, que arma el doc entero, acá se hace un UPDATE puntual
+    sobre el blob: los ejes, el emisor, el símbolo y el `cer_emision` que cargó la
+    mesa no se pueden pisar por accidente porque **ni siquiera están en el
+    payload**.
+    """
+    from api.services import av_agent_acciones as acc
+
+    sim = simular_flujos(ticker)
+    if not sim.get("ok"):
+        acc.registrar(accion="completar_flujos", objetivo=ticker.upper(), ok=False,
+                      error=sim.get("error", "")[:300], por=actor)
+        return {**sim, "aplicado": False}
+    ver = sim.get("veredicto") or {}
+    if not ver.get("puede_aplicar", True):
+        bloqueos = [c for c in sim["chequeos"] if c["estado"] == BLOQUEA]
+        return {**sim, "aplicado": False,
+                "error": "el pre-flight no pasa: "
+                         + "; ".join(c["titulo"] for c in bloqueos)}
+
+    conv = sim["cuadro"]
+    parche: dict = {"flujos": conv["flujos"]}
+    if conv["flujo_vencimiento"] is not None:
+        parche["flujo_vencimiento"] = conv["flujo_vencimiento"]
+    if sim.get("vencimiento"):
+        parche["fecha_vencimiento"] = sim["vencimiento"]
+    try:
+        import json
+
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            # `data || parche` MERGEA: lo que no está en el parche no se toca.
+            cur.execute("UPDATE mercado.curvas SET data = COALESCE(data, '{}'::jsonb) "
+                        "|| %s::jsonb WHERE ticker = %s",
+                        (json.dumps(parche), sim["ticker"]))
+            filas = cur.rowcount or 0
+    except Exception as e:
+        acc.registrar(accion="completar_flujos", objetivo=sim["ticker"], ok=False,
+                      error=str(e)[:300], por=actor)
+        return {**sim, "aplicado": False, "error": f"no se pudo escribir: {e}"}
+    if not filas:
+        return {**sim, "aplicado": False, "error": "el UPDATE no tocó ninguna fila"}
+
+    acc.registrar(accion="completar_flujos", objetivo=sim["ticker"], ok=True,
+                  tabla="mercado.curvas", por=actor,
+                  detalle={"cupones": conv["n"], "escala": conv["escala"],
+                           "campos": list(parche), "tea_simulada": sim.get("tea")})
+    return {**sim, "aplicado": True,
+            "aviso": "los motores leen mercado.curvas al arrancar: reiniciar "
+                     "motor_curvas para que empiece a calcular su TEA"}

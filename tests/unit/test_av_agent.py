@@ -1432,3 +1432,49 @@ def test_el_TZXA7_el_dato_ESTABA_y_el_mensaje_culpaba_a_la_serie():
     # justo lo que fallaba.
     assert restar_habiles(date(2019, 3, 5), 10) == date(2019, 2, 18)
     assert restar_habiles(emision, 0) == emision
+
+
+def test_el_NO_ME_INTERESA_vale_para_TODOS_los_tipos():
+    """2026-08-17: *«¿cómo podríamos hacer para ignorar algunos, tipo decir "no me
+    interesan", así no vuelven a aparecer?»*.
+
+    El mecanismo existía pero (a) solo se disparaba contestando una PREGUNTA del
+    agente y (b) el filtro se pasaba por parámetro **solo a `detectar_faltantes`**:
+    los otros tres detectores seguían reportando un ticker ya descartado.
+
+    Ahora el filtro se aplica UNA vez, sobre la lista completa — que es lo que hace
+    imposible que un detector nuevo se olvide de mirarlo."""
+    import inspect
+
+    from api.services import av_agent
+
+    fuente = inspect.getsource(av_agent.relevar)
+    # El filtro está DESPUÉS de armar la lista, no adentro de un detector.
+    assert 'if (h.get("ticker") or "").strip().upper() not in ignorados' in fuente
+    # Y hay UN solo lector de la lista, que comparten relevar y la lectura.
+    assert callable(av_agent.tickers_ignorados)
+
+
+def test_completar_flujos_NO_puede_pisar_los_ejes_del_bono():
+    """El hallazgo `flujos_vacios` se vuelve accionable (E3.a). Es el alta al
+    revés: el bono YA existe y **sus ejes los cargó la mesa**, así que son la
+    verdad y no se derivan de nuevo.
+
+    La garantía no es «tener cuidado»: el UPDATE es un merge sobre el blob con un
+    parche que **solo contiene el cronograma** — emisor, curva, símbolo, ejes y
+    `cer_emision` ni siquiera están en el payload, así que no se pueden pisar."""
+    import inspect
+
+    from api.services import av_agent_alta
+
+    fuente = inspect.getsource(av_agent_alta.aplicar_flujos)
+    assert 'parche: dict = {"flujos": conv["flujos"]}' in fuente
+    assert "|| %s::jsonb" in fuente, "tiene que MERGEAR el blob, no reemplazarlo"
+    for prohibido in ("emisor", "moneda_eje", "cer_emision", "curva"):
+        assert f'parche["{prohibido}"]' not in fuente
+
+    # Y la rama sale del DOC, no de una curva de 1816 traducida de nuevo.
+    sim = inspect.getsource(av_agent_alta.simular_flujos)
+    assert "rama = rama_calculo(doc)" in sim
+    # Un bono que YA tiene cronograma no se re-escribe: el hallazgo quedó viejo.
+    assert "YA tiene cronograma" in sim

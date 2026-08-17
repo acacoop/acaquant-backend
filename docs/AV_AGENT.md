@@ -1972,8 +1972,78 @@ era**: el calendario hábil argentino se calcula, no se consulta.
 Y una tercera, para mí: **antes de pedir una medición, leer el código.** El user
 había puesto la evidencia en pantalla; lo que faltaba era abrir dos funciones.
 
+## E3 — La lista se puede LIMPIAR y el segundo hallazgo se acciona (2026-08-17)
+
+### E3.a — «No me interesa», para cualquier hallazgo
+
+Pedido del user: *«¿cómo podríamos hacer para ignorar algunos, tipo decir "no me
+interesan", así no vuelven a aparecer?»*. El mecanismo **existía** y no servía,
+por dos razones:
+
+1. **Solo se disparaba contestando una PREGUNTA** del agente (`falta:<TICKER>`).
+   Si el agente no te había preguntado por ese bono, no había forma de descartarlo.
+2. **El filtro se pasaba por parámetro solo a `detectar_faltantes`.** Los otros
+   tres detectores seguían reportando un ticker ya descartado.
+
+Ahora hay un botón **IGNORAR en toda fila** y el filtro se aplica **una vez, sobre
+la lista completa** — que es lo que hace imposible que un detector nuevo se olvide
+de mirarlo. `tickers_ignorados()` es el único lector, y lo llaman **relevar Y
+leer**: sin lo segundo, apretar el botón dejaba la fila en pantalla hasta la
+próxima corrida (~29 créditos), que es la regla de E2.r otra vez.
+
+**Por TICKER y no por (ticker, tipo)**: si un papel no interesa, no interesa en
+ninguna de sus formas. En un `hueco_de_curva` el `ticker` es el **AJUSTE**
+(`BADLAR`) y se ignora igual: esta tabla es la lista de *cosas que no quiero ver*,
+y la identidad de un hallazgo es su `ticker`, signifique lo que signifique para su
+tipo.
+
+### E3.b — `flujos_vacios` deja de ser un comentario
+
+DICP y PARP decían *«Sin cronograma de pagos; 1816 lo tiene y se puede
+completar»* — y ahí morían. El único hallazgo que afirmaba que el agente podía
+resolverlo y no ofrecía resolverlo.
+
+**Es el alta al revés, y esa inversión es todo el diseño.** En un alta los ejes
+los DERIVA el agente de la curva de 1816, porque el bono no existe. Acá el bono
+existe, la vista ya lo muestra, y **sus ejes los cargó la mesa**: son la verdad y
+no se vuelven a derivar. `rama_calculo(doc)` sale del propio doc.
+
+Y por eso el cotejo pesa **más** que en un alta: se le va a escribir un cronograma
+a un bono vivo. Si ese cuadro está mal, el bono pasa de *«sin TEA»* a *«con una
+TEA equivocada»*, que es estrictamente peor. Se reusa el **mismo `_cotejo_tea`**
+—paridad, duration y la cota del devengado de E2.v— porque un cuadro escrito por
+esta puerta tiene que pasar el mismo examen que uno escrito por el alta. Es
+exactamente lo que pidió el user: *«lo que hay que chequear es si con el flujo que
+agregaríamos y nuestro modelo nos da una TEA y esos datos como a 1816»*.
+
+**La garantía de que no pisa nada no es el cuidado, es el payload.** El UPDATE es
+un merge sobre el blob (`data || parche`) y el parche contiene **solo el
+cronograma**: emisor, curva, símbolo, ejes y `cer_emision` ni siquiera están ahí,
+así que no se pueden pisar por accidente. Un paso de la cadena lo enumera —«qué se
+va a escribir»— porque la diferencia entre *confiá* y *mirá* es que estén listados.
+
+La cadena es más corta que la del alta a propósito: los ejes, la curva, el símbolo
+y la especie ya están resueltos, y chequearlos sería teatro. Lo que se chequea es
+lo que puede salir mal **al escribir en un bono vivo**. Y si el bono ya tiene
+cronograma, no se re-escribe: se dice que el hallazgo quedó viejo.
+
 ## Changelog
 
+- **2026-08-17 — E3.a + E3.b, la lista se limpia y el segundo hallazgo se
+  acciona.** **(a) IGNORAR en toda fila.** El mecanismo existía pero solo se
+  disparaba contestando una pregunta del agente, y el filtro llegaba **solo a
+  `detectar_faltantes`** — los otros tres detectores seguían mostrando lo ya
+  descartado. Ahora `tickers_ignorados()` es el único lector y el filtro se aplica
+  **una vez sobre la lista completa**, tanto al relevar como **al leer** (sin esto
+  el botón no surtía efecto hasta la próxima corrida de ~29 créditos: la regla de
+  E2.r). Por TICKER, reversible desde DECIDIDO. **(b) `flujos_vacios` accionable**:
+  `simular_flujos` / `aplicar_flujos` + endpoints. Es el alta al revés — el bono ya
+  existe y **sus ejes los cargó la mesa**, así que `rama_calculo` sale del doc y no
+  se re-derivan. Mismo cotejo contra 1816 (paridad + duration + cota del
+  devengado), que es lo que el user pidió chequear. **El UPDATE mergea el blob con
+  un parche que solo trae el cronograma**: emisor, curva, símbolo, ejes y
+  `cer_emision` no están en el payload, así que no se pueden pisar. Un paso de la
+  cadena enumera qué se escribe. 2 tests (85 en total).
 - **2026-08-17 — E2.z, el CER estaba y el mensaje acusaba a la serie.** El agente
   decía *«la serie CER no llega hasta 2025-11-28»* con el dato presente en la
   base. **(a)** El mensaje interpolaba la fecha de EMISIÓN etiquetada como

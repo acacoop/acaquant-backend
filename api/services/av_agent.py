@@ -155,6 +155,23 @@ def simbolos_primary() -> set[str] | None:
         return None
 
 
+def tickers_ignorados() -> set[str]:
+    """Los «no me interesa». **Un solo lector, y lo llaman relevar Y leer.**
+
+    Degradación elegida: si la consulta falla se devuelve el conjunto VACÍO, o sea
+    se reporta de MÁS. Al revés —asumir que todo está ignorado— escondería
+    hallazgos reales, que es el único error que este agente no puede permitirse.
+    """
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT upper(btrim(ticker)) FROM mercado.av_agent_ignorados")
+            return {r[0] for r in cur.fetchall() if r[0]}
+    except Exception:
+        logger.warning("av_agent: no se pudo leer la lista de ignorados", exc_info=True)
+        return set()
+
+
 def detectar_faltantes(universo_1816: dict[str, dict], docs: list[dict], *,
                        alcance: str = "soberanos",
                        ignorados: set[str] | None = None,
@@ -535,6 +552,12 @@ def relevar(*, alcance: str = "soberanos",
         *detectar_tasas_sospechosas(docs, metricas, en_assets, en_cartera),
         *detectar_huecos_de_curva(docs),
     ]
+    # **El «no me interesa» se aplica a los CUATRO tipos, en UN solo lugar.** Antes
+    # solo lo respetaba `detectar_faltantes` (recibía `ignorados` por parámetro), y
+    # los otros tres seguían reportando un ticker ya descartado. Filtrar al final
+    # es lo que hace imposible que un detector NUEVO se olvide de mirarlo.
+    hallazgos = [h for h in hallazgos
+                 if (h.get("ticker") or "").strip().upper() not in ignorados]
 
     resumen: dict[str, int] = {}
     for h in hallazgos:

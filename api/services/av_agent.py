@@ -356,6 +356,7 @@ def detectar_huecos_de_curva(docs: list[dict]) -> list[dict]:
     de que alguien cargue diez bonos que no va a poder mirar.**
     """
     por_ajuste: dict[str, list[str]] = {}
+    monedas: dict[str, list[str]] = {}
     for d in docs:
         tc = (d.get("ticker_corto") or "").strip().upper()
         if not tc:
@@ -366,18 +367,23 @@ def detectar_huecos_de_curva(docs: list[dict]) -> list[dict]:
         for aj in (ejes.ajuste, ejes.ajuste_alt):
             if curvas_ejes.ajuste_sin_curva(aj) and not curvas_ejes.pills(ejes):
                 por_ajuste.setdefault(aj, []).append(tc)
+                monedas.setdefault(aj, []).append(ejes.moneda)
 
     out: list[dict] = []
     for aj, tickers in sorted(por_ajuste.items()):
         tickers = sorted(set(tickers))
+        # El LADO de la curva no se pregunta: lo dice la moneda de sus propios
+        # bonos. Preguntar algo que el dato ya contesta es hacerle perder tiempo
+        # al usuario y abrir la puerta a que se conteste distinto de la realidad.
+        ms = monedas.get(aj) or []
+        lado = "USD" if ms and ms.count("USD") > len(ms) / 2 else "ARS"
         out.append(_hallazgo(
             "hueco_de_curva", aj.upper(), "ajuste_sin_curva", "alta",
             f"{len(tickers)} bono(s) con ajuste «{aj}» no caen en NINGUNA curva: "
             "están cargados y no aparecen en la tabla, ni en los forwards, ni en "
-            "el fair value — sin dar error. Falta darle su pill al ajuste "
-            "(curvas_ejes + la vista); no es un dato mal cargado, es una "
-            "capacidad que falta.",
-            {"ajuste": aj, "n": len(tickers), "tickers": tickers}))
+            "el fair value — sin dar error. La curva se puede CREAR desde acá; lo "
+            "único que hay que decidir es de dónde sale su tasa.",
+            {"ajuste": aj, "n": len(tickers), "tickers": tickers, "lado": lado}))
     return out
 
 

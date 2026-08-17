@@ -203,9 +203,19 @@ def sql_universo(curva: str, *, fit: bool = False) -> str | None:
     MUESTRA y lo que entra al CÁLCULO. `None` si la curva no está mapeada (las
     `on_*` no van acá: son `emisor_tipo='corporativo'`, un eje y no una curva).
     """
-    base = _UNIVERSO_VISTA.get((curva or "").strip())
+    curva = (curva or "").strip()
+    base = _UNIVERSO_VISTA.get(curva)
     if base is None:
-        return None
+        # Curva del CATÁLOGO: su predicado se GENERA (mismo shape que el de
+        # `tamar`, que también es un ajuste puro) en vez de guardarse como texto
+        # en la tabla. Un WHERE escrito a mano en una fila de configuración es un
+        # SQL injection esperando y, peor, un criterio que puede contradecir a
+        # `pills()` sin que nadie lo note.
+        fila = _catalogo().get(curva)
+        if not fila:
+            return None
+        aj = fila["ajuste"].replace("'", "''")
+        base = f"(ajuste = '{aj}' OR ajuste_alt = '{aj}')"
     return f"{base} AND emisor_tipo = 'soberano'" if fit else base
 
 
@@ -319,7 +329,62 @@ def _pill_de_ajuste(ajuste: str | None, moneda: str, cer_fijado: bool) -> str | 
         return "tamar"
     if ajuste == "fija":
         return "hard_dolar" if moneda in ("USD", "EUR") else "tasa_fija"
-    return None      # badlar / tpm / caucion todavía no tienen pill
+    # Lo que el código no sabe, lo puede saber el CATÁLOGO (2026-08-17): una curva
+    # creada desde el AV Agent vive en `mercado.curvas_catalogo` y no en un `if`.
+    # Import lazy + degradación a None: si la tabla no responde, el comportamiento
+    # es exactamente el de antes de que el catálogo existiera.
+    return _pill_del_catalogo(ajuste)
+
+
+def _pill_del_catalogo(ajuste: str) -> str | None:
+    try:
+        from core import curvas_catalogo
+        fila = curvas_catalogo.de_ajuste(ajuste)
+        return fila.get("pill") if fila else None
+    except Exception:
+        return None
+
+
+def _catalogo() -> dict[str, dict]:
+    """Las curvas del catálogo, o `{}` si no se puede leer. Nunca levanta."""
+    try:
+        from core import curvas_catalogo
+        return curvas_catalogo.todas()
+    except Exception:
+        return {}
+
+
+def pills_disponibles() -> tuple[str, ...]:
+    """`PILLS` (las de código) + las que agregó el catálogo, sin duplicar.
+
+    La vista arma su barra de pills con esto: una curva nueva aparece en la
+    pantalla sin tocar el front."""
+    extra = tuple(f["pill"] for f in _catalogo().values() if f.get("pill") not in PILLS)
+    return PILLS + tuple(dict.fromkeys(extra))
+
+
+def display_de(pill: str) -> str:
+    """Label de la pill. Cae al catálogo y, si tampoco está, al código en
+    mayúsculas — **nunca un KeyError**: una pill sin label rompería la vista
+    entera por una fila de configuración que falta."""
+    if pill in DISPLAY:
+        return DISPLAY[pill]
+    for f in _catalogo().values():
+        if f.get("pill") == pill:
+            return f.get("display") or pill.upper()
+    return pill.upper()
+
+
+def lado_de(pill: str) -> str:
+    """Columna (ARS/USD) de la pill. Mismo criterio anti-KeyError que
+    `display_de`; el default es ARS porque las curvas en dólares son las menos y
+    están todas en código."""
+    if pill in LADO:
+        return LADO[pill]
+    for f in _catalogo().values():
+        if f.get("pill") == pill:
+            return f.get("lado") or "ARS"
+    return "ARS"
 
 
 def ajuste_sin_curva(ajuste: str | None) -> bool:

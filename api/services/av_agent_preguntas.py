@@ -28,15 +28,27 @@ que convierte las respuestas en datos y no en mensajes.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from core.postgres import get_pool
+
+logger = logging.getLogger(__name__)
 
 # Qué puede contestarse a una pregunta de hallazgo, y qué hace cada respuesta.
 # `despues` existe para que "no sé todavía" sea una respuesta legítima: sin ella
 # la única forma de no decidir es no contestar, y entonces no se distingue "lo
 # pensé y lo dejo para después" de "no lo vi".
 RESPUESTAS_FALTA = ("alta", "ignorar", "despues")
+
+# Crear una curva: lo único que falta decidir es DE DÓNDE SALE SU TASA.
+#   · `1816`  → se trae, igual que los TAMAR. Es configuración: el job la pide y
+#               la vista la muestra. **Sin código.**
+#   · `motor` → la calcula `engines/curvas.py` con el cash flow. La curva se crea
+#               igual (los bonos ya aparecen con precio y duration), pero la TEA
+#               llega cuando alguien escriba la rama de cálculo. Eso es
+#               matemática, y la matemática no la escribe un agente.
+RESPUESTAS_CURVA = ("1816", "motor", "despues")
 
 
 def _row(r, cols: list[str]) -> dict:
@@ -49,26 +61,51 @@ def _row(r, cols: list[str]) -> dict:
 def preguntas_de_hallazgos(hallazgos: list[dict]) -> list[dict]:
     """Hallazgos → preguntas candidatas (PURA: sin base, testeable sin Postgres).
 
-    Hoy solo pregunta por los **faltantes**, y es deliberado: es el único hallazgo
-    donde la decisión es del negocio y no técnica. *"¿Este bono nuevo nos
-    interesa?"* no lo puede contestar ninguna regla — depende de si la mesa lo
-    opera. En cambio *"¿por qué este bono tiene paridad 150.000%?"* NO es una
-    pregunta para el user: es trabajo del agente (E4), y mandársela sería
-    delegarle el laburo que vino a hacer.
+    Pregunta por DOS cosas, y las dos son decisiones que ninguna regla puede
+    tomar sola:
+
+    · **faltantes** — *"¿este bono nuevo nos interesa?"* depende de si la mesa lo
+      opera, no de un dato.
+    · **huecos de curva** — *"¿la tasa de esta curva la traigo de 1816 o la
+      calcula el motor?"*. Es la única decisión que separa una curva que existe de
+      una que no, y **responderla la CREA**.
+
+    En cambio *"¿por qué este bono tiene paridad 150.000%?"* NO se pregunta: es
+    trabajo del agente (E4), y mandársela sería delegarle al user el laburo que el
+    agente vino a hacer.
     """
     out: list[dict] = []
     for h in hallazgos:
-        if h.get("tipo") != "falta_en_base":
-            continue
-        tk = h["ticker"]
-        ev = h.get("evidencia") or {}
-        out.append({
-            "clave": f"falta:{tk}",
-            "tipo": "hallazgo",
-            "pregunta": _texto_falta(tk, ev),
-            "opciones": list(RESPUESTAS_FALTA),
-            "contexto": ev,
-        })
+        tipo, ev = h.get("tipo"), (h.get("evidencia") or {})
+        if tipo == "falta_en_base":
+            out.append({
+                "clave": f"falta:{h['ticker']}",
+                "tipo": "hallazgo",
+                "pregunta": _texto_falta(h["ticker"], ev),
+                "opciones": list(RESPUESTAS_FALTA),
+                "contexto": ev,
+            })
+        elif tipo == "hueco_de_curva":
+            aj = (ev.get("ajuste") or "").lower()
+            tks = ev.get("tickers") or []
+            muestra = ", ".join(tks[:5]) + (f" (+{len(tks) - 5})" if len(tks) > 5 else "")
+            out.append({
+                "clave": f"curva:{aj}",
+                "tipo": "hallazgo",
+                # La pregunta NO es "¿creo la curva?" — eso ya está decidido por el
+                # hecho de que hay bonos invisibles. Lo único que falta es de dónde
+                # sale la tasa, así que se pregunta ESO y la curva se crea con la
+                # respuesta. Una pregunta de sí/no seguida de otra de cómo son dos
+                # clicks para una sola decisión.
+                "pregunta": (
+                    f"Hay {len(tks)} bono(s) con ajuste {aj.upper()} que no caen en "
+                    f"ninguna curva y hoy no se ven en ningún lado ({muestra}). "
+                    f"Creo la curva {aj.upper()} del lado {ev.get('lado', 'ARS')}: "
+                    "¿su tasa la TRAIGO de 1816 (como los TAMAR) o la calcula "
+                    "nuestro motor con el cash flow?"),
+                "opciones": list(RESPUESTAS_CURVA),
+                "contexto": ev,
+            })
     return out
 
 
@@ -230,18 +267,45 @@ def _aplicar_efecto(p: dict, resp: str, *, por: str, nota: str) -> bool:
     queda guardada y el día que exista E2, esas son exactamente las que procesa.
     Decir que se aplicó algo que todavía no se puede hacer sería peor que decir
     que no."""
-    if p.get("tipo") != "hallazgo" or not p.get("clave", "").startswith("falta:"):
+    clave = p.get("clave") or ""
+    if p.get("tipo") != "hallazgo":
         return False
-    if resp != "ignorar":
-        return False
-    ticker = p["clave"].split(":", 1)[1]
-    motivo = nota or "el user lo marcó como «no nos interesa» desde el AV Agent"
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO mercado.av_agent_ignorados (ticker, motivo, por) "
-            "VALUES (%s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
-            (ticker.upper(), motivo, por or None))
-    return True
+
+    if clave.startswith("falta:"):
+        if resp != "ignorar":
+            return False
+        ticker = clave.split(":", 1)[1]
+        motivo = nota or "el user lo marcó como «no nos interesa» desde el AV Agent"
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO mercado.av_agent_ignorados (ticker, motivo, por) "
+                "VALUES (%s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
+                (ticker.upper(), motivo, por or None))
+        return True
+
+    if clave.startswith("curva:"):
+        # **Acá el agente CREA la curva.** Es la primera escritura suya que cambia
+        # lo que la app muestra, y es segura por construcción: el catálogo SUMA
+        # curvas y no puede redefinir una existente (`curvas_catalogo.crear` lo
+        # rechaza), así que ningún bono que hoy se ve puede cambiar de tabla.
+        if resp not in ("1816", "motor"):
+            return False
+        from core import curvas_catalogo
+        ctx = p.get("contexto") or {}
+        try:
+            curvas_catalogo.crear(
+                ajuste=clave.split(":", 1)[1],
+                lado=str(ctx.get("lado") or "ARS"),
+                fuente_valuacion=resp,
+                orden=90,          # las nuevas van al final de su lado
+                nota=nota or f"creada desde el AV Agent (valuación: {resp})",
+                por=por)
+        except Exception as e:
+            logger.warning("av_agent: no se pudo crear la curva %s: %s", clave, e)
+            return False
+        return True
+
+    return False
 
 
 def designorar(ticker: str, *, por: str = "") -> dict:

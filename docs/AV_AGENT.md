@@ -604,8 +604,66 @@ nada que preguntarte" al lado de 38 hallazgos de severidad alta. *"No tengo
 preguntas" no es "no pasa nada"*: ahora el vacío dice cuántas cosas urgentes hay
 y linkea al tab que las tiene.
 
+### E1.h — el agente CREA la curva (2026-08-17)
+
+**Pedido del user, en sus palabras:** *"si el bono soberano lo detecta en una
+curva que no había, que la agregue. Y que me pregunte si eso se valúa con 1816
+(como los TAMAR, y que lo agregue al job) o si se valúa por nosotros."*
+
+**Por qué se podía.** `curvas_ejes._pill_de_ajuste` era una función con ocho `if`
+que devolvían un string: **una tabla disfrazada de código**. Mientras lo fue,
+agregar una curva era un deploy — y por eso `badlar`, `tpm` y `caucion` nunca la
+tuvieron. Crear una curva son cinco datos (`pill`, `display`, `lado`, `orden`,
+predicado SQL) y ninguno es matemática.
+
+| Pieza | Qué es |
+|---|---|
+| `mercado.curvas_catalogo` | la curva como DATO: ajuste, pill, display, lado, orden, **fuente_valuacion** |
+| `core/curvas_catalogo.py` | lectura cacheada (TTL 60s) + `crear()` validado |
+| `curvas_ejes` | `_pill_de_ajuste` consulta el catálogo; `pills_disponibles()`, `display_de()`, `lado_de()`; `sql_universo` GENERA el predicado |
+| `curvas_vista` | arma la barra de pills con `pills_disponibles()` → la curva nueva aparece **sin tocar el front** |
+| pregunta `curva:<ajuste>` | responder `1816` o `motor` **crea la curva** |
+
+**La pregunta no es «¿creo la curva?»** — eso ya lo decidió el hecho de que hay
+bonos invisibles. Lo único que falta es **de dónde sale la tasa**, así que se
+pregunta eso y la respuesta la crea. Un sí/no seguido de un cómo son dos clicks
+para una sola decisión. Y **el lado (ARS/USD) no se pregunta**: lo dice la moneda
+de sus propios bonos — preguntar algo que el dato ya contesta hace perder tiempo
+y abre la puerta a contestarlo distinto de la realidad.
+
+**Las dos respuestas no son simétricas, y por eso son dos:**
+- **`1816`** → se trae, igual que los TAMAR. Es configuración pura: **sin código**.
+- **`motor`** → la curva se crea igual y los bonos ya aparecen con precio y
+  duration, pero la TEA llega cuando alguien escriba la rama de cálculo. **La
+  matemática no la escribe un agente.**
+
+**Tres cosas que hacen que esto no pueda romper nada:**
+
+1. **El catálogo SUMA, nunca PISA.** `crear()` rechaza un ajuste que ya tenga
+   pill en código. Un catálogo que puede redefinir una curva existente es un
+   catálogo que puede mover 129 bonos de tabla en silencio.
+2. **Si la tabla no responde, todo funciona como antes.** El import es lazy y
+   degrada a `None`/`{}`; las 5 curvas viejas siguen en código a propósito.
+3. **El predicado SQL se GENERA, no se guarda como texto.** Un `WHERE` escrito a
+   mano en una fila de configuración es una inyección esperando y, peor, un
+   criterio que puede contradecir a `pills()` sin que nadie lo note.
+
+> **Descartado: `scripts/diag_curva_nueva`** (vivió 40 minutos). Se escribió para
+> medir si 1816 podía valuar BADLAR — pero eso **no era una duda**: 1816 publica
+> TEA y `spread` para BADLAR de la misma forma que para TAMAR, y el job de TAMAR
+> ya es la prueba. El diag además muestreó los 25 primeros ALFABÉTICOS de las tres
+> curvas Badlar (casi todos provinciales ilíquidos) y dejó afuera justo los
+> soberanos que importaban. **Lección: medir es la regla, pero medir lo que ya
+> está probado es procrastinar con forma de rigor.**
+
 ## Changelog
 
+- **2026-08-17 — E1.h, el agente CREA la curva.** `mercado.curvas_catalogo` +
+  `core/curvas_catalogo.py`: la curva deja de ser código y pasa a ser dato. El
+  hueco detectado se convierte en una pregunta (`1816` | `motor` | `despues`) y
+  responderla la crea. El catálogo SUMA y nunca pisa; si la tabla no responde,
+  todo anda como antes. Se borró `diag_curva_nueva` (medía algo que ya estaba
+  probado por los TAMAR).
 - **2026-08-16 — E1.g, tres bugs de la corrida real.** El job contaba un tipo de
   hallazgo que no imprimía (total 59, bloques 58); el diag de curva nueva
   concluía sobre n=1 y ahora suma el universo de 1816 (0 créditos) y avisa si la

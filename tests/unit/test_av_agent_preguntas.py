@@ -138,3 +138,40 @@ def test_las_decisiones_abiertas_estan_bien_formadas():
     for d in preg.DECISIONES_ABIERTAS:
         assert "?" in d["pregunta"], d["clave"]
         assert len(d["opciones"]) >= 2, d["clave"]
+
+
+# ── crear una curva (E1.h) ───────────────────────────────────────────────────
+
+
+def _hueco(ajuste: str = "badlar", tickers: list[str] | None = None,
+           lado: str = "ARS") -> dict:
+    tks = tickers or ["TB27", "TD26"]
+    return {"tipo": "hueco_de_curva", "ticker": ajuste.upper(),
+            "regla": "ajuste_sin_curva", "severidad": "alta", "motivo": "…",
+            "evidencia": {"ajuste": ajuste, "n": len(tks), "tickers": tks,
+                          "lado": lado}}
+
+
+def test_un_hueco_de_curva_pregunta_DE_DONDE_SALE_LA_TASA():
+    """La pregunta NO es «¿creo la curva?» — eso ya lo decidió el hecho de que hay
+    bonos invisibles. Lo único que falta es de dónde sale la tasa, y responder eso
+    la crea. Un sí/no seguido de un cómo son dos clicks para una sola decisión."""
+    p = preg.preguntas_de_hallazgos([_hueco()])[0]
+    assert p["clave"] == "curva:badlar"
+    assert p["opciones"] == list(preg.RESPUESTAS_CURVA) == ["1816", "motor", "despues"]
+    assert "1816" in p["pregunta"] and "cash flow" in p["pregunta"]
+    assert "TB27" in p["pregunta"]      # los bonos afectados, para dimensionar
+
+
+def test_el_LADO_no_se_pregunta_lo_dice_la_moneda_de_sus_bonos():
+    """Preguntar algo que el dato ya contesta le hace perder tiempo al user y abre
+    la puerta a que se conteste distinto de la realidad."""
+    assert "lado ARS" in preg.preguntas_de_hallazgos([_hueco()])[0]["pregunta"]
+    assert "lado USD" in preg.preguntas_de_hallazgos(
+        [_hueco(lado="USD")])[0]["pregunta"]
+
+
+def test_la_clave_de_curva_es_por_AJUSTE_asi_no_repregunta():
+    a = preg.preguntas_de_hallazgos([_hueco(tickers=["TB27"])])[0]
+    b = preg.preguntas_de_hallazgos([_hueco(tickers=["TB27", "TD26", "PR17"])])[0]
+    assert a["clave"] == b["clave"] == "curva:badlar"

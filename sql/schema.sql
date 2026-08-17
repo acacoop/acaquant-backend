@@ -3774,3 +3774,31 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_preguntas (
 
 CREATE INDEX IF NOT EXISTS ix_av_agent_preg_abiertas
     ON mercado.av_agent_preguntas (estado, creada_at);
+
+-- AV AGENT — CATÁLOGO DE CURVAS (2026-08-17). La curva deja de ser código.
+--
+-- `curvas_ejes._pill_de_ajuste` era una función con ocho `if` que devolvían un
+-- string: una TABLA disfrazada. Mientras lo fue, agregar una curva era un deploy
+-- —y por eso `badlar`, `tpm` y `caucion` nunca la tuvieron, dejando sus bonos
+-- cargados e INVISIBLES en toda la app.
+--
+-- Acá vive lo que hace falta para que una curva exista, que es todo DATO:
+--   · `pill` / `display` / `lado` / `orden` → dónde y cómo se muestra
+--   · `fuente_valuacion` → de dónde sale su TASA, y es la decisión que importa:
+--       'motor' = la calcula engines/curvas.py (hace falta escribir la rama)
+--       '1816'  = se trae, igual que los TAMAR (`jobs/tamar_1816`) — sin código
+--
+-- Las 5 curvas VIEJAS siguen en código a propósito: si esta tabla no responde,
+-- la vista de renta fija tiene que seguir andando exactamente igual. El catálogo
+-- SUMA curvas, nunca las pisa (ver core/curvas_catalogo.py).
+CREATE TABLE IF NOT EXISTS mercado.curvas_catalogo (
+    ajuste           text PRIMARY KEY,   -- badlar | tpm | caucion | …  (core.curvas_ejes.AJUSTES)
+    pill             text NOT NULL,      -- código de la pill (normalmente = ajuste)
+    display          text NOT NULL,      -- lo que se lee en la tab: 'BADLAR'
+    lado             text NOT NULL,      -- ARS | USD (la columna de la vista)
+    orden            int  NOT NULL DEFAULT 99,
+    fuente_valuacion text NOT NULL DEFAULT 'motor',   -- motor | 1816
+    nota             text,
+    creada_por       text,
+    creada_at        timestamptz NOT NULL DEFAULT now()
+);

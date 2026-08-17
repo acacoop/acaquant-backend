@@ -239,7 +239,7 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
 
             bonos.append({
                 "ticker_corto": tc, "instrumento": r.get("ticker"),
-                "pill": pill, "lado": ce.LADO[pill],
+                "pill": pill, "lado": ce.lado_de(pill),
                 "emisor_tipo": ejes.emisor_tipo, "emisor": r.get("emisor"),
                 "moneda": ejes.moneda, "ajuste": ejes.ajuste,
                 "ajuste_alt": ejes.ajuste_alt, "ley": ejes.ley,
@@ -277,10 +277,14 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
         # nadie lo notaría — el contador simplemente estaría un poco alto.
         n_emisor[ejes.emisor_tipo] = n_emisor.get(ejes.emisor_tipo, 0) + 1
 
+    # `pills_disponibles` = las de código + las que agregó el catálogo, y
+    # `display_de`/`lado_de` no pueden tirar KeyError: una curva creada desde el
+    # AV Agent aparece en la barra sin tocar el front ni este archivo.
     pills = sorted(
-        ({"codigo": p, "display": ce.DISPLAY[p], "lado": ce.LADO[p],
-          "orden": _ORDEN.get(p, 99), "n": n_pill.get(p, 0)} for p in ce.PILLS),
-        key=lambda x: (x["lado"], x["orden"]),
+        ({"codigo": p, "display": ce.display_de(p), "lado": ce.lado_de(p),
+          "orden": _ORDEN.get(p, 99), "n": n_pill.get(p, 0)}
+         for p in ce.pills_disponibles()),
+        key=lambda x: (x["lado"], x["orden"], x["display"]),
     )
     emisores = sorted(
         ({"codigo": e, "label": _EMISOR_LABEL.get(e, e.upper()), "n": n}

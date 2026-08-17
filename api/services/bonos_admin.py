@@ -24,7 +24,34 @@ from core import curvas_sql
 from core.postgres import get_pool
 
 # Curvas que gestiona este editor (las ONs van por ons.py; mercado las maneja el motor).
+# Las curvas que el CÓDIGO conoce de siempre. **No es la lista completa**: usar
+# `curvas_validas()`.
 CURVAS_BONO = ("tasa_fija", "cer", "soberanos", "dolar_linked", "tamar", "dual")
+
+
+def curvas_validas() -> tuple[str, ...]:
+    """Las curvas escribibles HOY = las del código ∪ **las del catálogo**.
+
+    ⚠️ **Era una tupla a mano y por eso mentía.** El AV Agent puede CREAR curvas
+    (`mercado.curvas_catalogo`, E1.h) y de hecho creó `badlar`: la pill existe en
+    la vista de renta fija. Pero esta constante no se enteraba, así que el alta de
+    un bono BADLAR se rechazaba con «curva inválida» **por una curva que el propio
+    sistema ya tiene**.
+
+    Es el mismo patrón que viene apareciendo toda la semana: dos fuentes para la
+    misma pregunta —«¿qué curvas existen?»— y solo una se actualiza. Ahora la
+    constante es el PISO y el catálogo la amplía, así que crear una curva la deja
+    escribible en el mismo acto, sin tocar código.
+
+    Degrada al piso si el catálogo no responde: es exactamente el comportamiento
+    anterior, que es el peor caso aceptable.
+    """
+    try:
+        from core import curvas_catalogo
+        extra = tuple(a for a in curvas_catalogo.todas() if a not in CURVAS_BONO)
+    except Exception:
+        extra = ()
+    return CURVAS_BONO + extra
 
 
 def parse_flujos_bono(texto: str, tipo: str) -> dict:
@@ -135,8 +162,9 @@ def upsert_bono(payload: dict, actor: str = "") -> dict:
     if not ticker:
         raise ValueError("falta 'ticker' (completo, ej 'MERV - XMEV - T30J6 - 24hs')")
     curva = (payload.get("curva") or "").strip()
-    if curva not in CURVAS_BONO:
-        raise ValueError(f"curva inválida: {curva!r} (válidas: {', '.join(CURVAS_BONO)})")
+    validas = curvas_validas()
+    if curva not in validas:
+        raise ValueError(f"curva inválida: {curva!r} (válidas: {', '.join(validas)})")
 
     doc: dict = {
         "ticker": ticker,

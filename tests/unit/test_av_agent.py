@@ -993,3 +993,70 @@ def test_el_preflight_BLOQUEA_si_la_escritura_va_a_ser_rechazada():
     p = next(x for x in ps if x["clave"] == "curva_destino")
     assert p["estado"] == "bloquea" and "badlar" in p["detalle"]
     assert _veredicto(ps)["puede_aplicar"] is False
+
+
+def test_un_HUECO_DE_CURVA_caduca_por_la_CURVA_no_por_el_ticker(monkeypatch):
+    """**BADLAR seguía en «le falta al sistema» con la curva YA creada.**
+
+    Es la misma foto vieja que TZXM8, pero mi filtro de E2.m no la tapaba: aplicaba
+    UN predicado (`ticker in mercado.curvas`) a dos tipos de hallazgo **cuyo campo
+    `ticker` significa cosas distintas**. En un `hueco_de_curva` el `ticker` es el
+    AJUSTE (`BADLAR`), no un bono, así que compararlo contra el master no lo sacaba
+    nunca.
+
+    Cada tipo caduca por su propia razón, y la de este es `ajuste_sin_curva` — la
+    MISMA función que lo detecta, que ya lee el catálogo. Preguntarle de nuevo no
+    puede dar un criterio distinto."""
+    import datetime as _dt
+
+    from api.services import av_agent_vista as vista
+
+    class _Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, args=None): self.sql = sql
+        def fetchone(self): return (_dt.datetime(2026, 8, 17, 3, 0),)
+        def fetchall(self):
+            if "FROM mercado.curvas" in self.sql:
+                return [("TZXM8",)]
+            return [("hueco_de_curva", "BADLAR", "ajuste_sin_curva", "alta", "m", None),
+                    ("hueco_de_curva", "TPM", "ajuste_sin_curva", "alta", "m", None)]
+
+    class _Conn:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def cursor(self): return _Cur()
+
+    monkeypatch.setattr(vista, "get_pool", lambda: type("P", (), {
+        "connection": staticmethod(_Conn)})())
+    # BADLAR ya tiene curva (el agente la creó); TPM todavía no.
+    monkeypatch.setattr(vista.curvas_ejes, "ajuste_sin_curva",
+                        lambda aj: aj != "badlar")
+    filas, _ = vista._hallazgos_ultima_corrida()
+    assert [h["ticker"] for h in filas] == ["TPM"]
+
+
+def test_una_curva_CREADA_por_el_agente_queda_escribible_sola(monkeypatch):
+    """`CURVAS_BONO` era una tupla a mano, así que el alta de un BADLAR se
+    rechazaba con «curva inválida» **por una curva que el sistema ya tenía**: el
+    agente puede CREAR curvas (E1.h) y de hecho creó ésa.
+
+    Dos fuentes para «¿qué curvas existen?» y solo una se actualiza — el mismo
+    patrón de toda la semana. Ahora la constante es el PISO y el catálogo la
+    amplía, así que crear la curva habilita el alta en el mismo acto."""
+    from api.services import bonos_admin
+    from api.services.av_agent_alta import curva_destino
+    from core.curvas_ejes import Ejes
+
+    monkeypatch.setattr(bonos_admin, "CURVAS_BONO", ("cer", "tamar"))
+    badlar = Ejes("soberano", "ARS", "badlar")
+
+    # Sin la curva en el catálogo → no se puede escribir, y se dice.
+    monkeypatch.setattr("core.curvas_catalogo.todas", lambda: {})
+    assert curva_destino("otros", badlar) == ""
+
+    # Creada la curva → escribible, sin tocar una línea de código.
+    monkeypatch.setattr("core.curvas_catalogo.todas",
+                        lambda: {"badlar": {"pill": "badlar"}})
+    assert curva_destino("otros", badlar) == "badlar"
+    assert "badlar" in bonos_admin.curvas_validas()

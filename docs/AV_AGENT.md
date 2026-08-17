@@ -1488,8 +1488,52 @@ lo permitió aplicar?»*. Porque el pre-flight validaba 13 cosas sobre los DATOS
 MISMA constante que usa el writer, así que no puede desincronizarse — y es el
 chequeo más barato de los 14.
 
+### E2.p — Dos fuentes para «¿qué curvas existen?» (2026-08-17)
+
+El user, viendo BADLAR reportada como «ajuste sin curva» con la pill BADLAR ya
+visible en renta fija: *«ya existe, debería dejar de decir que no está»*. Y de
+paso, el alta de TB27 bloqueada por esa misma curva.
+
+**Son dos síntomas de la misma causa, y los dos ya me los habían señalado antes
+en otra forma.**
+
+**1. El hallazgo caducado que mi filtro no tapaba.** En E2.m agregué el cotejo de
+la foto contra el master, pero apliqué **UN predicado a dos tipos de hallazgo
+cuyo campo `ticker` significa cosas distintas**: en un `hueco_de_curva` el
+`ticker` es el **AJUSTE** (`BADLAR`), no un bono, así que compararlo contra
+`mercado.curvas.ticker` no lo sacaba nunca.
+
+Ahora cada tipo caduca por su propia razón, y la de éste es `ajuste_sin_curva`
+—**la MISMA función que lo detecta**, que ya lee el catálogo—, así que
+preguntarle de nuevo no puede dar un criterio distinto.
+
+**2. `CURVAS_BONO` era una tupla a mano y por eso mentía.** El agente puede CREAR
+curvas (E1.h) y creó `badlar`; la constante no se enteró, y el alta de un BADLAR
+se rechazaba **por una curva que el propio sistema ya tiene**. Ahora la constante
+es el **piso** y el catálogo la **amplía** (`curvas_validas()`): crear la curva
+deja el alta habilitada en el mismo acto, sin tocar código. Y el paso del
+pre-flight dejó de sugerir *«agregar badlar a `bonos_admin.CURVAS_BONO`»* —que era
+pedirle al user que edite código— para decir *«crear la curva desde el agente, y
+el alta queda habilitada sola»*.
+
+**El patrón, por cuarta vez en la semana:** dos fuentes para la misma pregunta,
+solo una se actualiza. `aplicable` vs el veredicto (E2.k, E2.n), rama vs curva
+(E2.o), y ahora el catálogo vs la constante. **La pregunta de review no es «¿cuál
+de los dos está bien?» sino «¿por qué hay dos?»** — y la respuesta correcta casi
+siempre es derivar uno del otro, no sincronizarlos a mano.
+
 ## Changelog
 
+- **2026-08-17 — E2.p, el catálogo manda sobre la constante.** BADLAR
+  seguía reportada como «ajuste sin curva» con la curva YA creada, y el alta de
+  un BADLAR se rechazaba por esa misma curva. Dos síntomas, una causa: **dos
+  fuentes para «¿qué curvas existen?»**. (a) El filtro de hallazgos caducados de
+  E2.m aplicaba UN predicado a dos tipos cuyo campo `ticker` significa cosas
+  distintas —en `hueco_de_curva` es el AJUSTE, no un bono—; ahora cada tipo
+  caduca por su razón y la de éste es `ajuste_sin_curva`, la misma función que
+  lo detecta. (b) `CURVAS_BONO` era una tupla a mano: pasa a ser el PISO y el
+  catálogo la amplía (`curvas_validas()`), así que crear una curva la deja
+  escribible en el mismo acto. 2 tests.
 - **2026-08-17 — E2.o, RAMA ≠ CURVA.** El alta de un TAMAR moría al
   escribir («curva inválida: 'otros'»): `aplicar()` mandaba `curva = rama` y son
   dos vocabularios que **coinciden en 4 de 5 valores** —por eso sobrevivió—; un

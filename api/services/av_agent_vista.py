@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 
+from core import curvas_ejes
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -175,12 +176,25 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         cur.execute("SELECT ticker FROM mercado.curvas")
         en_curvas = {r[0] for r in cur.fetchall()}
 
-    # Solo `falta_en_base` / `hueco_de_curva` caducan por existir el ticker. Un
-    # `sin_flujo` o una `tasa_sospechosa` hablan de un bono que YA está en el
-    # master, así que estar ahí no los resuelve.
-    filas = [h for h in filas
-             if h["tipo"] not in ("falta_en_base", "hueco_de_curva")
-             or h["ticker"] not in en_curvas]
+    # ⚠️ **Cada tipo caduca por su PROPIA razón, y el campo `ticker` no significa
+    # lo mismo en todos.** Acá se aplicaba UN predicado a dos tipos distintos: en
+    # un `hueco_de_curva` el `ticker` es el **AJUSTE** (`BADLAR`), no un bono, así
+    # que compararlo contra `mercado.curvas.ticker` no lo sacaba nunca — el user
+    # lo vio con BADLAR, cuya curva el agente YA había creado.
+    #
+    # `ajuste_sin_curva` es la MISMA función que lo detecta y ya lee el catálogo,
+    # así que preguntarle de nuevo no puede dar un criterio distinto.
+    def _caduco(h: dict) -> bool:
+        if h["tipo"] == "falta_en_base":
+            return h["ticker"] in en_curvas          # el bono ya está cargado
+        if h["tipo"] == "hueco_de_curva":
+            return not curvas_ejes.ajuste_sin_curva((h["ticker"] or "").lower())
+        # `sin_flujo` y `tasa_sospechosa` hablan de un bono que YA está en el
+        # master: existir no los resuelve, y no hay forma barata de saber si se
+        # arreglaron sin rehacer la corrida.
+        return False
+
+    filas = [h for h in filas if not _caduco(h)]
     filas.sort(key=lambda h: (_ORDEN_SEV.get(h["severidad"], 9), h["ticker"]))
     return filas, corrida.isoformat()
 

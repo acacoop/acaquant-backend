@@ -593,8 +593,8 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                     "mercado.curvas, así que el alta sería rechazada al escribir",
                     tabla="mercado.curvas (curva)",
                     accion="" if cur_dest else
-                           f"agregar «{ejes.ajuste}» a bonos_admin.CURVAS_BONO, o "
-                           "cargar el bono a mano con la curva que corresponda"))
+                           f"crear la curva «{ejes.ajuste}» desde el agente (pestaña ME "
+                           "PREGUNTA), y el alta queda habilitada sola"))
 
     if rama == "cer":
         # **NO bloquea (decisión del user, 2026-08-17).** Es el único dato que el
@@ -1019,14 +1019,15 @@ def curva_destino(rama: str, ejes) -> str:
     el alta con «curva inválida».
 
     **Sin equivalente NO se inventa uno.** `badlar`, `tpm` y `caucion` son ajustes
-    válidos que no tienen curva en `CURVAS_BONO`: devolver `""` hace que el
+    válidos que no tienen curva en el catálogo: devolver `""` hace que el
     pre-flight lo BLOQUEE con el motivo, en vez de escribirlos bajo una curva
     parecida y que la vista los agrupe mal para siempre.
     """
-    from api.services.bonos_admin import CURVAS_BONO
-    if rama in CURVAS_BONO:
+    from api.services.bonos_admin import curvas_validas
+    validas = curvas_validas()
+    if rama in validas:
         return rama
-    return ejes.ajuste if ejes.ajuste in CURVAS_BONO else ""
+    return ejes.ajuste if ejes.ajuste in validas else ""
 
 
 def _sin_rueda(intentos: list[str]) -> str:

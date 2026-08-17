@@ -50,6 +50,7 @@ DESTINOS = {
     "alta_bono": "mercado.curvas",
     "completar_flujo": "mercado.curvas",
     "sembrar_especies": "mercado.especies",
+    "sembrar_tasa_1816": "mercado.tamar_1816",
 }
 
 

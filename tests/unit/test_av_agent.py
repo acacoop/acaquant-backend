@@ -442,7 +442,9 @@ def _chequear(**kw):
         estado_simbolo={"conocido": True, "nota": "Primary lo lista"},
         precio=95.0, tea=0.0682, fuente_precio="snapshot",
         ref={"precio": 95.0, "tea": 0.0680, "paridad": 0.9500,
-             "fecha": "2026-08-15"}, paridad=95.0)
+             "fecha": "2026-08-15"}, paridad=95.0,
+        ficha_curvas={"tipo": "Bono", "emisor": "X", "fecha_emision": "2025-01-01",
+                      "cupon_anual": 0.0})
     base.update(kw)
     return _chequeos(**base)
 
@@ -634,3 +636,59 @@ def test_la_ESCALA_no_se_reporta_donde_no_afecta_a_nada():
     sob = next(p for p in _chequear(rama="soberanos", conv=conv)
                if p["clave"] == "cuadro")
     assert sob["estado"] == "atencion" and "ABSOLUTOS" in sob["detalle"]
+
+
+# ── La FICHA y la TASA EXTERNA en el alta (2026-08-17) ──────────────────────
+
+def test_la_ficha_de_1816_completa_lo_que_quedaba_vacio():
+    """**Medido**: `upsert_bono` acepta 19 campos y el agente mandaba 14 —
+    quedaban vacíos emisor, fecha_emision, tipo, tasa_referencia y cupon_anual.
+    El emisor es el que más duele: 1816 es la FUENTE DE VERDAD (`jobs/ficha_1816`
+    encontró 74 strings para 67 emisores reales) y estaba a un SELECT."""
+    from api.services.av_agent_alta import _ficha_para_curvas
+    from core.curvas_ejes import Ejes
+    ficha = {"emisor": "Tesoro Nacional", "fecha_emision": "2025-08-31"}
+    conv = {"flujos": [{"fecha": "2027-08-31", "amortizacion": 100, "interes": 0}]}
+    out = _ficha_para_curvas({}, ficha, Ejes("soberano", "ARS", "tamar"), conv)
+    assert out["emisor"] == "Tesoro Nacional"
+    assert out["fecha_emision"] == "2025-08-31"
+    assert out["tasa_referencia"] == "TAMAR"     # contra qué índice ajusta
+    assert out["cupon_anual"] == 0.0             # cero cupón: es INEQUÍVOCO
+
+
+def test_el_cupon_anual_NO_se_inventa_cuando_hay_cupones():
+    """Con cupones de por medio habría que asumir la frecuencia. Asumir es justo
+    lo que no se hace: se deja vacío y el paso FICHA lo canta."""
+    from api.services.av_agent_alta import _ficha_para_curvas
+    from core.curvas_ejes import Ejes
+    conv = {"flujos": [{"fecha": "2027-01-01", "amortizacion": 0, "interes": 2.5},
+                       {"fecha": "2027-07-01", "amortizacion": 100, "interes": 2.5}]}
+    out = _ficha_para_curvas({}, {}, Ejes("soberano", "USD", "fija"), conv)
+    assert "cupon_anual" not in out
+
+
+def test_un_TAMAR_avisa_que_va_a_nacer_CON_su_margen(monkeypatch):
+    """De un TAMAR el MARGEN es el número que mira la mesa. Sin sembrarlo, el
+    bono queda escrito y con la celda vacía hasta que corra el cron — 30 minutos
+    en rueda, hasta mañana fuera de ella."""
+    from core import curvas_catalogo
+    from core.curvas_ejes import Ejes
+    monkeypatch.setattr(curvas_catalogo, "fuente_valuacion", lambda a: "1816")
+    monkeypatch.setattr(curvas_catalogo, "job_de_la_tasa", lambda a: "jobs/tamar_1816")
+    ps = _chequear(rama="otros", ejes=Ejes("soberano", "ARS", "tamar"))
+    p = next(x for x in ps if x["clave"] == "tasa_1816")
+    assert "margen" in p["detalle"].lower() and "no hay que correr nada" in p["accion"]
+    # ...y en un bono que SÍ calculamos, ese paso no existe.
+    monkeypatch.setattr(curvas_catalogo, "fuente_valuacion", lambda a: "motor")
+    monkeypatch.setattr(curvas_catalogo, "job_de_la_tasa", lambda a: "")
+    assert not [x for x in _chequear() if x["clave"] == "tasa_1816"]
+
+
+def test_el_paso_FICHA_dice_QUE_se_escribe_y_QUE_queda_vacio():
+    """«¿El bono entra completo o entra pelado?» es una pregunta legítima que no
+    se contestaba mirando la pantalla."""
+    ps = _chequear(ficha_curvas={"tipo": "Bono", "emisor": "Tesoro Nacional",
+                                 "fecha_emision": "2025-08-31"})
+    p = next(x for x in ps if x["clave"] == "ficha")
+    assert "Tesoro Nacional" in p["detalle"]
+    assert p["estado"] == "atencion" and "cupon_anual" in p["detalle"]

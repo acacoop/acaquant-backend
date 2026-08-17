@@ -53,7 +53,7 @@ from __future__ import annotations
 import argparse
 import logging
 
-from core import mercado_1816
+from core import mercado_1816, tamar_1816_sql
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -165,24 +165,10 @@ def _mejor_por_pata(pedidos: dict[str, tuple[str, str]],
     return out
 
 
-def _upsert(filas: list[dict]) -> int:
-    if not filas:
-        return 0
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.executemany(
-            "INSERT INTO mercado.tamar_1816 (ticker,pata,ticker_1816,tea,tna,spread,"
-            "precio_clean,duration,paridad,fecha_operacion) VALUES "
-            "(%(ticker)s,%(pata)s,%(ticker_1816)s,%(tea)s,%(tna)s,%(spread)s,"
-            "%(precio_clean)s,%(duration)s,%(paridad)s,%(fecha_operacion)s) "
-            "ON CONFLICT (ticker,pata) DO UPDATE SET "
-            "ticker_1816 = EXCLUDED.ticker_1816, tea = EXCLUDED.tea, "
-            "tna = EXCLUDED.tna, spread = EXCLUDED.spread, "
-            "precio_clean = EXCLUDED.precio_clean, duration = EXCLUDED.duration, "
-            "paridad = EXCLUDED.paridad, fecha_operacion = EXCLUDED.fecha_operacion, "
-            "actualizado_en = now()",
-            filas,
-        )
-    return len(filas)
+# El upsert vive en `core/tamar_1816_sql` desde el 2026-08-17: el AV Agent lo
+# necesita para que un TAMAR recién dado de alta nazca CON su tasa y su margen,
+# en vez de esperar hasta 30 minutos a que corra este cron.
+_upsert = tamar_1816_sql.upsert
 
 
 def _a_market_snapshot(filas: list[dict]) -> int:

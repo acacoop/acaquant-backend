@@ -1140,8 +1140,61 @@ aprende a ignorar, que es peor que no tener alarma.
   exactamente su propia TEA (0,09709583…). Eso **prueba que `precioDirty` es el
   insumo con el que ellos calculan** — la confirmación que faltaba.
 
+### E2.i — El alta entra COMPLETA: ficha + tasa externa (2026-08-17)
+
+Dos preguntas del user sobre TMG27, y las dos destaparon huecos reales.
+
+**1. «Si inserta un TAMAR/BADLAR hay que meterlo YA con el margen y la TEA que
+haya. De un TAMAR el MARGEN es fundamental.»** No lo tenía contemplado.
+
+`aplicar()` escribía la fila en `mercado.curvas` y listo. La tasa y el margen
+aparecían recién cuando corriera `jobs/tamar_1816` — **hasta 30 minutos en rueda,
+y hasta el día siguiente fuera de ella**. Un alta que deja vacío el dato
+principal del instrumento está a medio hacer, y en un TAMAR ese dato es el
+margen: no es un adorno, es lo que la mesa mira.
+
+Ahora, cuando el ajuste tiene `fuente_valuacion='1816'`, el alta **le pide a 1816
+su última tasa** (con `indicadores_vigentes`, o sea retrocediendo día hábil por
+día hábil: al alta le sirve el ÚLTIMO dato que exista, no específicamente el de
+hoy) y la deja escrita en `mercado.tamar_1816`. Queda en el libro de acciones
+como `sembrar_tasa_1816`, y el pre-flight lo avisa ANTES de aplicar.
+
+El upsert se movió a **`core/tamar_1816_sql.py`** para que el job y el agente
+usen el mismo — reescribirlo habría dado dos INSERT que se separan solos. Y si
+1816 no publicó tasa (el caso de TMG27 hoy), **no se escribe una fila en NULL**:
+la vista mostraría el bono "con dato" y el dato sería nada. Se reporta y el job
+la completa cuando aparezca.
+
+**2. «¿Esto agrega el bono en curvas con todos sus campos completos?»** **No**, y
+la medición es clara: `upsert_bono` acepta **19 campos** y el agente mandaba
+**14**. Quedaban vacíos cinco:
+
+| Campo | De dónde sale ahora |
+|---|---|
+| **`emisor`** | 1816, que **es la fuente de verdad** (`jobs/ficha_1816` midió 74 strings para 67 emisores reales antes de estandarizar) |
+| `fecha_emision` | 1816 — **ya la estábamos leyendo** para inferir el CER, y no la escribíamos |
+| `tipo` | derivado de los ejes (Global / Bonar / ON / Lecap / Bono) |
+| `tasa_referencia` | el ajuste, para TAMAR/BADLAR/TPM |
+| `cupon_anual` | **solo si es cero cupón**, que es el único caso inequívoco |
+
+Los cuatro primeros salían de datos que ya teníamos —el emisor estaba a un
+`SELECT` de distancia sobre `research.mkt_1816_instrumentos`, 0 créditos— y el
+bono nacía sin ellos. `cupon_anual` con cupones de por medio exigiría **asumir la
+frecuencia**, y asumir es justo lo que no se hace: se deja vacío y se dice.
+
+**Y la respuesta a esa pregunta ahora vive en la pantalla, no en un chat.** Se
+agregó el paso **«El bono entra COMPLETO, no pelado»**, que lista qué campos se
+van a escribir con sus valores y cuáles quedan vacíos con el motivo. *«¿Entra
+completo?»* es una pregunta legítima que antes no se podía contestar mirando.
+
 ## Changelog
 
+- **2026-08-17 — E2.i, el alta entra COMPLETA.** Un TAMAR/BADLAR ahora **nace con
+  su TASA y su MARGEN** (upsert compartido en `core/tamar_1816_sql`, sin esperar
+  al cron; sin dato de 1816 no se escribe una fila en NULL). Y el bono entra con
+  la FICHA: **emisor** (1816 es la fuente de verdad y estaba a un SELECT),
+  `fecha_emision`, `tipo`, `tasa_referencia` y `cupon_anual` solo si es cero
+  cupón. Paso nuevo del pre-flight que lista qué se escribe y qué queda vacío.
 - **2026-08-17 — E2.h, la PARIDAD es el juez.** Medido: pedir `mep` bajó GD46 de
   202 a 139 bps, y el resto es convención (`180-360` vs nuestros días reales).
   Entonces el cotejo compara **paridad** —que depende solo del precio y del

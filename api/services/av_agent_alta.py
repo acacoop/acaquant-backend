@@ -163,10 +163,16 @@ def _tasa_externa(ejes) -> tuple[str, str]:
     encontraba fórmula y concluía «la TEA va a quedar vacía» — cuando el TAMAR es
     el caso MÁS resuelto que hay: no lo calculamos a propósito, lo trae un job.
     """
+    return tasa_externa_de(ejes.ajuste)
+
+
+def tasa_externa_de(ajuste: str | None) -> tuple[str, str]:
+    """La misma pregunta pero con el ajuste pelado — `aplicar` tiene los ejes
+    como dict, no como objeto."""
     try:
         from core import curvas_catalogo
-        return (curvas_catalogo.fuente_valuacion(ejes.ajuste) or "",
-                curvas_catalogo.job_de_la_tasa(ejes.ajuste))
+        return (curvas_catalogo.fuente_valuacion(ajuste) or "",
+                curvas_catalogo.job_de_la_tasa(ajuste))
     except Exception:
         return "", ""
 
@@ -485,7 +491,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
               cer_emision: float | None, nota_cer: str, simbolo: str,
               origen_simbolo: str, ctx: dict, estado_simbolo: dict,
               precio, tea, fuente_precio: str = "", ref: dict | None = None,
-              paridad=None) -> list[dict]:
+              paridad=None, ficha_curvas: dict | None = None) -> list[dict]:
     """La lista ordenada. Se devuelve ENTERA, con los pasos en verde incluidos.
 
     Mostrar solo lo que falla obliga al que mira a confiar en que el resto se
@@ -680,6 +686,40 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                         "hasta que exista la posición (la crea el backfill de "
                         "tenencias cuando alguien lo tenga).",
                         tabla="portafolio.assets"))
+
+    # La FICHA. Responde una pregunta que nadie podía contestar mirando la
+    # pantalla: **¿el bono entra completo, o entra pelado?** `upsert_bono` acepta
+    # 19 campos; medido el 2026-08-17, el agente mandaba 14.
+    fc = ficha_curvas or {}
+    escritos = ["ejes (emisor_tipo · moneda_eje · ajuste · ley)", "cuadro de flujos",
+                "vencimiento", "valor_nominal", "moneda_flujo", "símbolo de mercado"]
+    escritos += [f"{k} = {v}" for k, v in sorted(fc.items())]
+    if cer_emision:
+        escritos.append(f"cer_emision = {cer_emision}")
+    faltan = [c for c in ("emisor", "fecha_emision", "cupon_anual")
+              if c not in fc]
+    ps.append(_paso("ficha", "El bono entra COMPLETO, no pelado",
+                    OK if not faltan else ATENCION,
+                    f"se escriben {len(escritos)} campos — " + " · ".join(escritos[:9])
+                    + ("…" if len(escritos) > 9 else "")
+                    + (f". Quedan vacíos: {', '.join(faltan)}." if faltan else "")
+                    + (" `cupon_anual` solo se deriva cuando el bono es cero cupón: "
+                       "con cupones habría que asumir la frecuencia, y asumir es "
+                       "justo lo que no se hace." if "cupon_anual" in faltan else ""),
+                    tabla="mercado.curvas",
+                    accion="completar a mano en Manager → TÍTULOS" if faltan else ""))
+
+    # TASA EXTERNA: el bono nace CON su tasa y su margen, o no nace entero.
+    if _fuente_tasa == "1816":
+        ps.append(_paso("tasa_1816", "Al aplicar: cargar la TASA y el MARGEN de 1816",
+                        ATENCION,
+                        f"de un {ejes.ajuste.upper()} el **margen** es el número que "
+                        "mira la mesa. El alta va a pedirle a 1816 su última tasa "
+                        "(retrocediendo día hábil por día hábil) y dejarla escrita, "
+                        "así el bono NACE con el dato en vez de esperar hasta 30 "
+                        f"minutos a que corra {job_tasa or 'el job'}.",
+                        tabla="mercado.tamar_1816",
+                        accion="lo hace solo — no hay que correr nada"))
 
     # ÚLTIMO PASO — y último a propósito: es lo que el alta VA A HACER, no un
     # requisito previo. «Se agrega como instancia final, porque hay que agregar
@@ -953,21 +993,71 @@ def _referencia_1816(ticker: str, *, moneda_eje: str = "") -> dict:
 
 
 def _ficha_1816(ticker: str) -> dict:
-    """Fecha de emisión y denominación desde el catálogo YA persistido
+    """La FICHA completa desde el catálogo YA persistido
     (`research.mkt_1816_instrumentos`). **Cero créditos**: lo llena
-    `jobs/mercado_1816_discovery --catalogo`."""
+    `jobs/mercado_1816_discovery --catalogo`.
+
+    Se traen todos los campos y no dos, porque cada uno tapa un hueco del alta:
+    el bono nacía **sin emisor** cuando 1816 es la FUENTE DE VERDAD del emisor
+    (`jobs/ficha_1816`: 74 strings para 67 emisores reales antes de estandarizar),
+    y sin `fecha_emision` aunque ya la estábamos leyendo para inferir el CER.
+    """
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT fecha_emision, denominacion, emisor FROM "
+            cur.execute("SELECT fecha_emision, denominacion, emisor, isin, "
+                        "moneda_denom, moneda_pago, fecha_vencimiento FROM "
                         "research.mkt_1816_instrumentos WHERE ticker = %s", (ticker,))
             r = cur.fetchone()
         if not r:
             return {}
         return {"fecha_emision": r[0].isoformat() if r[0] else "",
-                "denominacion": r[1], "emisor": r[2]}
+                "denominacion": r[1], "emisor": r[2], "isin": r[3],
+                "moneda_denom": r[4], "moneda_pago": r[5],
+                "fecha_vencimiento": r[6].isoformat() if r[6] else ""}
     except Exception:
         return {}
+
+
+# `tipo` de `mercado.curvas` derivado de los ejes. Es un LABEL de la ficha (no
+# decide ningún cálculo — eso lo hace `rama_calculo`), así que derivarlo es
+# seguro y deja un campo menos vacío.
+_TIPO_POR_EJES = {("soberano", "fija"): "Lecap", ("bcra", "fija"): "Bono",
+                  ("corporativo", None): "ON", ("provincial", None): "Bono"}
+
+
+def _tipo_de(ejes) -> str:
+    if ejes.emisor_tipo == "corporativo":
+        return "ON"
+    if ejes.emisor_tipo == "soberano" and ejes.moneda == "USD":
+        return "Global" if ejes.ley == "ny" else "Bonar"
+    return _TIPO_POR_EJES.get((ejes.emisor_tipo, ejes.ajuste)) or "Bono"
+
+
+def _ficha_para_curvas(sim: dict, ficha: dict, ejes, conv: dict) -> dict:
+    """Los campos de `mercado.curvas` que se pueden completar SIN que nadie tipee.
+
+    **Medido**: `upsert_bono` acepta 19 campos y el agente mandaba 14 — quedaban
+    vacíos `emisor`, `fecha_emision`, `tipo`, `tasa_referencia` y `cupon_anual`.
+    Los cuatro primeros salen de datos que ya tenemos; el quinto solo cuando es
+    inequívoco.
+    """
+    extra: dict = {"tipo": _tipo_de(ejes)}
+    if ficha.get("emisor"):
+        # 1816 es la fuente de verdad del emisor — el mismo criterio de
+        # `jobs/ficha_1816`, que PISA el nuestro porque estandarizar no es opinar.
+        extra["emisor"] = ficha["emisor"]
+    if ficha.get("fecha_emision"):
+        extra["fecha_emision"] = ficha["fecha_emision"]
+    if ejes.ajuste in ("tamar", "badlar", "tpm"):
+        # Contra qué índice ajusta. Es el campo que la shape de esta familia usa.
+        extra["tasa_referencia"] = ejes.ajuste.upper()
+    # `cupon_anual` SOLO cuando es inequívoco: cero cupón. Con cupones de por
+    # medio habría que asumir la frecuencia, y asumir es justo lo que no se hace.
+    if conv["flujos"] and not any(
+            (f.get("interes") or f.get("cupon_sobre_residual") or 0) for f in conv["flujos"]):
+        extra["cupon_anual"] = 0.0
+    return extra
 
 
 def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dict:
@@ -1037,6 +1127,10 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         "cer_emision": cer_emision,
         "nota_cer": nota_cer,
         "ya_en_curvas": bool(ctx.get("ya_en_curvas")),
+        # Los campos de la FICHA que el alta va a completar sola. Se calculan acá
+        # para que el pre-flight pueda MOSTRARLOS antes de escribir: «¿el bono
+        # entra completo?» es una pregunta legítima y no se contestaba.
+        "ficha_curvas": _ficha_para_curvas({}, ficha, ejes, conv),
         "aplicable": (doc["rama"] in RAMAS_AUTOMATICAS
                       and not (rama_tent == "cer" and not cer_emision)),
         "motivo_no_aplicable": _motivo_no_aplicable(doc["rama"], ejes),
@@ -1060,7 +1154,8 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         estado_simbolo=out["simbolo_estado"],
         precio=out.get("precio"), tea=out.get("tea"),
         fuente_precio=out.get("precio_fuente") or "",
-        ref=out.get("referencia_1816") or {}, paridad=out.get("paridad"))
+        ref=out.get("referencia_1816") or {}, paridad=out.get("paridad"),
+        ficha_curvas=out.get("ficha_curvas") or {})
     out["veredicto"] = _veredicto(out["chequeos"])
     # QUÉ cuenta se hizo y con qué números. Una tasa sin su memoria de cálculo no
     # se puede auditar: solo se puede creer o no creer.
@@ -1182,6 +1277,10 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
     }
     if sim.get("cer_emision"):
         payload["cer_emision"] = sim["cer_emision"]
+    # La FICHA: emisor (1816 es la fuente de verdad), fecha de emisión, tipo y
+    # tasa de referencia. Sin esto el bono nacía con 5 campos vacíos que ya
+    # teníamos a un SELECT de distancia.
+    payload.update(sim.get("ficha_curvas") or {})
     conv = sim["cuadro"]
     if conv["flujo_vencimiento"] is not None:
         payload["flujo_vencimiento"] = conv["flujo_vencimiento"]
@@ -1194,6 +1293,23 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
         acc.registrar(accion="alta_bono", objetivo=sim["ticker"], ok=False,
                       error=str(e)[:300], detalle={"rama": sim["rama"]}, por=actor)
         return {**sim, "aplicado": False, "error": str(e)}
+
+    # ── TASA EXTERNA: el bono NACE con su tasa y su MARGEN ──────────────────
+    # De un TAMAR **el margen es el número que mira la mesa**. Sin esto el bono
+    # quedaba escrito y con la celda vacía hasta que corriera el cron —30 minutos
+    # en rueda, hasta mañana fuera de ella— y un alta que deja vacío el dato
+    # principal del instrumento está a medio hacer.
+    tasa_sembrada = None
+    fuente_tasa, _job = tasa_externa_de(sim["ejes"]["ajuste"])
+    if fuente_tasa == "1816":
+        from core import tamar_1816_sql
+        tasa_sembrada = tamar_1816_sql.sembrar_desde_1816(
+            sim["ticker"], sim["ejes"]["ajuste"])
+        acc.registrar(accion="sembrar_tasa_1816", objetivo=sim["ticker"], por=actor,
+                      ok=bool(tasa_sembrada.get("ok")),
+                      error=(tasa_sembrada.get("error") or "")[:300],
+                      detalle={k: tasa_sembrada.get(k)
+                               for k in ("tea", "spread", "fecha_operacion", "pata")})
 
     # ── PASO FINAL DEL ALTA: sembrar las patas ──────────────────────────────
     # Va DESPUÉS del upsert y no antes: solo tiene sentido sembrar la especie de
@@ -1226,8 +1342,15 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
     except Exception:
         pass
     return {**sim, "aplicado": True, "upsert": r, "siembra": siembra,
+            "tasa_sembrada": tasa_sembrada,
             "aviso": "los motores cargan mercado.curvas AL ARRANCAR: la TEA de este "
                      "bono aparece recién tras reiniciar motor_rofex + motor_curvas"
                      + (f" · especies sembradas: {', '.join(siembra['simbolos'])}"
                         if siembra.get("ok") else
-                        f" · ⚠ la especie NO se pudo sembrar: {siembra.get('error')}")}
+                        f" · ⚠ la especie NO se pudo sembrar: {siembra.get('error')}")
+                     + (f" · tasa 1816 cargada: TEA {tasa_sembrada['tea']:.4%}"
+                        + (f", MARGEN {tasa_sembrada['spread']:.4%}"
+                           if tasa_sembrada.get("spread") is not None else "")
+                        if (tasa_sembrada or {}).get("ok") else
+                        f" · ⚠ tasa de 1816 NO cargada: {tasa_sembrada.get('error')}"
+                        if tasa_sembrada else "")}

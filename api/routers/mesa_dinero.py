@@ -7,6 +7,14 @@ vista se decide por PERSONA, no por puesto. ESCRITURA: allowlist
 `operaciones.mesa_dinero_escritores` + admin. Las dos se editan en Manager → MESA
 y las dos son default-deny, con enforcement server-side.
 
+LECTURA PARCIAL (2026-08-17): `operaciones.mesa_dinero_lectores_resultados` da
+acceso SOLO a la tab RESULTADOS. El gate del router deja entrar a cualquier
+alcance; los endpoints que alimentan las OTRAS tabs (`/ops` y `/resumen` → tab
+OPERACIONES, `/retorno` → tab ACA VALORES RETORNO) llevan además
+`require_vista_completa`. El corte está ACÁ y no en el front a propósito:
+esconder una solapa no es un permiso — el dato seguiría estando a un request de
+distancia.
+
 Thin HTTP plumbing: la lógica vive en api/services/mesa_dinero.py.
 """
 from __future__ import annotations
@@ -31,6 +39,17 @@ def require_lectura_mesa(actor: str = Depends(get_user_email)) -> str:
     return actor
 
 
+def require_vista_completa(actor: str = Depends(get_user_email)) -> str:
+    """Gate de las tabs que NO son RESULTADOS (operaciones del día, resumen
+    diario + TC, ACA VALORES RETORNO). Deja pasar solo al alcance completo.
+
+    Dependency (no chequeo dentro del handler) para que `scripts/audit_rbac.py`
+    lo vea al recorrer el árbol de deps."""
+    if not _svc.ve_todo(actor):
+        raise HTTPException(403, "acceso limitado a la tab RESULTADOS de Mesa de Dinero")
+    return actor
+
+
 def require_escritura_mesa(actor: str = Depends(get_user_email)) -> str:
     """Dependency (no chequeo dentro del handler) para que la auditoría de
     superficie lo vea: scripts/audit_rbac.py lee el árbol de deps."""
@@ -41,7 +60,7 @@ def require_escritura_mesa(actor: str = Depends(get_user_email)) -> str:
 
 # ── Lectura ──────────────────────────────────────────────────────────────────
 
-@router.get("/ops")
+@router.get("/ops", dependencies=[Depends(require_vista_completa)])
 def listar_ops(
     desde: str | None = Query(None, description="YYYY-MM-DD"),
     hasta: str | None = Query(None, description="YYYY-MM-DD"),
@@ -50,7 +69,7 @@ def listar_ops(
     return _svc.listar_ops(desde=desde, hasta=hasta, trader=trader)
 
 
-@router.get("/resumen")
+@router.get("/resumen", dependencies=[Depends(require_vista_completa)])
 def resumen(
     desde: str | None = Query(None, description="YYYY-MM-DD"),
     hasta: str | None = Query(None, description="YYYY-MM-DD"),
@@ -73,7 +92,7 @@ def opciones(actor: str = Depends(get_user_email)) -> dict:
     return _svc.opciones(email=actor)
 
 
-@router.get("/retorno")
+@router.get("/retorno", dependencies=[Depends(require_vista_completa)])
 def retorno(periodo: str | None = Query(None, description="'YYYY-MM'; default = más reciente")) -> dict:
     """ACA VALORES RETORNO TOTAL — Σ Valor Nominal por operación / agente / papel."""
     return _svc_ret.panel(periodo=periodo)

@@ -1929,22 +1929,41 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _doc_de_curvas(ticker: str) -> dict | None:
-    """El doc del master tal cual, o `None` si el bono no está.
+    """El doc del master **como lo arma `core/curvas_sql`**, o `None` si no está.
 
-    Lee el blob `data` —el mismo que sirve `core/curvas_sql`— así los ejes que ve
-    el simulador son EXACTAMENTE los que ve el motor."""
+    ⚠️ **Un doc de `mercado.curvas` NO es el blob `data`.** Los EJES
+    (`emisor_tipo` · `moneda_eje` · `ajuste` · `ajuste_alt` · `ley`) viven en
+    COLUMNAS y se mezclan encima del blob — `_COLS_FUERA_DEL_BLOB`. Leer solo
+    `data` devuelve un doc con los ejes en `None`, y a partir de ahí **todo lo
+    demás miente en cascada** (DICP, 2026-08-17):
+
+    · la pantalla mostraba «DICP · · ·» y «ejes cargados por la mesa
+      (None · None · None)»;
+    · `sin_cer` —que decide el mensaje— evalúa `ajuste == "cer"`, y con `ajuste`
+      en `None` daba False, así que en vez de «falta el CER de emisión» el
+      encabezado decía «revisar la escala del flujo o la pata»: mandaba a mirar
+      el cuadro, que estaba perfecto;
+    · el motor, sin `cer_emision`, salía por su puerta de emergencia y devolvía
+      la duration NAIVE — 7,3781 para DICP, que son exactamente sus años al
+      vencimiento.
+
+    Se reusa el MISMO `curvas_sql` en vez de repetir el `SELECT`: es la fuente
+    que lee el motor, así que el simulador no puede ver un doc distinto del que
+    se va a valuar.
+    """
     try:
-        from core.postgres import get_pool
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT data FROM mercado.curvas WHERE ticker = %s", (ticker,))
-            fila = cur.fetchone()
-        return dict(fila[0]) if fila and fila[0] else None
+        from core import curvas_sql
+        tk = (ticker or "").strip().upper()
+        for d in curvas_sql.cargar_todos():
+            if (d.get("ticker_corto") or "").strip().upper() == tk:
+                return dict(d)
+        return None
     except Exception as e:
         logger.warning("av_agent: no se pudo leer %s de curvas: %s", ticker, e)
         return None
 
 
-def simular_flujos(ticker: str) -> dict:
+def simular_flujos(ticker: str, *, cer_emision: float | None = None) -> dict:
     """Baja el cronograma de 1816 y calcula la TEA que TENDRÍA el bono. **No escribe.**
 
     La pregunta que contesta es la que hizo el user: *«lo que hay que chequear es
@@ -1991,6 +2010,12 @@ def simular_flujos(ticker: str) -> dict:
     doc_sim = {**doc, "flujos": conv["flujos"]}
     if conv["flujo_vencimiento"] is not None:
         doc_sim["flujo_vencimiento"] = conv["flujo_vencimiento"]
+    # El CER de emisión tipeado a mano (E2.x) también sirve acá: sin ese número
+    # la rama `cer` del motor sale por su puerta de emergencia y devuelve la
+    # duration NAIVE. Gana sobre el del doc solo si el doc no lo tiene.
+    cer_manual = cer_emision if (cer_emision or 0) > 0 else None
+    if cer_manual and not doc.get("cer_emision"):
+        doc_sim["cer_emision"] = cer_manual
     simbolo = (doc.get("ticker") or "").strip()
     moneda_eje = (doc.get("moneda_eje") or "").strip()
 
@@ -1999,6 +2024,9 @@ def simular_flujos(ticker: str) -> dict:
         "rama": rama, "curva": doc.get("curva"),
         "escala": conv["escala"], "suma_amortizaciones": conv["suma_amort"],
         "cupones": conv["n"], "cupones_futuros": len(futuros),
+        "cupones_pagados": conv["n"] - len(futuros),
+        "cer_emision": doc.get("cer_emision") or cer_manual,
+        "cer_manual": bool(cer_manual and not doc.get("cer_emision")),
         "vencimiento": vencimiento, "flujo_vencimiento": conv["flujo_vencimiento"],
         "simbolo": simbolo, "cuadro": conv,
         "ejes": {"emisor_tipo": doc.get("emisor_tipo"), "moneda_eje": moneda_eje,
@@ -2006,8 +2034,8 @@ def simular_flujos(ticker: str) -> dict:
     }
     out.update(_simular_tasa(doc_sim, simbolo, None, ticker=tk, moneda_eje=moneda_eje))
     out["chequeos"] = _chequeos_flujos(
-        ticker=tk, doc=doc, rama=rama, conv=conv, vencimiento=vencimiento,
-        out=out, cupones=cupones)
+        ticker=tk, doc=doc_sim, rama=rama, conv=conv, vencimiento=vencimiento,
+        out=out, cupones=cupones, futuros=len(futuros))
     out["veredicto"] = _veredicto(out["chequeos"])
     # `_memoria_de_calculo` espera el objeto de ejes que devuelve `curvas_ejes`.
     # Acá los ejes vienen del DOC (los cargó la mesa), así que se arma el mismo
@@ -2028,7 +2056,8 @@ def _tasa_externa_doc(doc: dict) -> str:
 
 
 def _chequeos_flujos(*, ticker: str, doc: dict, rama: str, conv: dict,
-                     vencimiento: str, out: dict, cupones: list[dict]) -> list[dict]:
+                     vencimiento: str, out: dict, cupones: list[dict],
+                     futuros: int = 0) -> list[dict]:
     """La cadena del COMPLETAR. Más corta que la del alta y a propósito: los ejes,
     la curva, el símbolo y la especie **ya están resueltos** —el bono existe y la
     vista lo muestra— así que chequearlos sería teatro.
@@ -2041,10 +2070,23 @@ def _chequeos_flujos(*, ticker: str, doc: dict, rama: str, conv: dict,
                     f"mesa ({doc.get('emisor_tipo')} · {doc.get('moneda_eje')} · "
                     f"{doc.get('ajuste')}). **No se tocan**: acá solo se escribe el "
                     "cronograma.", tabla="mercado.curvas"))
+    # **Los cupones YA PAGADOS se guardan y NO se valúan.** 1816 manda el
+    # cronograma COMPLETO desde la emisión (medido en GD46), así que un bono de
+    # 2004 trae 60 cupones de los que la mayoría ya se cobraron. Guardarlos es
+    # correcto —el cuadro es el del bono, no el de hoy— y el motor los filtra al
+    # valuar (`fecha_flujo(f) > fecha_settlement`, la MISMA regla que el resto del
+    # sistema). Decirlo es lo que evita que el número asuste.
+    pagados = conv["n"] - futuros
     ps.append(_paso("cuadro", "1816 mandó el cuadro de flujos",
-                    OK if conv["n"] else BLOQUEA,
+                    OK if futuros else BLOQUEA,
                     f"{conv['n']} cupón/es · Σ amortizaciones {conv['suma_amort']:,.2f} "
-                    f"→ escala {conv['escala']} · vence {vencimiento}",
+                    f"→ escala {conv['escala']} · vence {vencimiento}"
+                    + (f". **{pagados} ya se pagaron** y {futuros} quedan por delante: "
+                       "el cuadro se guarda COMPLETO (es el del bono) y el motor "
+                       "valúa solo los futuros." if pagados else "")
+                    if futuros else
+                    "el cuadro no tiene ningún cupón FUTURO: este bono ya venció, "
+                    "no hay nada que valuar",
                     tabla="1816 /cashflow (fechaPagoEfectiva)"))
     # La rama sale del doc, así que no puede ser «otros» por un error de traducción:
     # si lo es, es porque la mesa clasificó el bono en algo que no valuamos.
@@ -2056,6 +2098,30 @@ def _chequeos_flujos(*, ticker: str, doc: dict, rama: str, conv: dict,
                     "así que el cuadro se escribe igual pero la TEA la trae otra "
                     "fuente (o ninguna).",
                     tabla="engines/curvas.py::rama_calculo"))
+    # EL CER DE EMISIÓN. Sin este número la rama `cer` del motor sale por su
+    # puerta de emergencia y devuelve la duration NAIVE (años al vencimiento) — el
+    # síntoma que confundió a DICP y PARP. Se pide ACÁ MISMO, igual que en el alta
+    # (E2.x): escribís el número, se re-simula, y si cierra se aplica con el dato.
+    if rama == "cer":
+        cer_e = doc.get("cer_emision")
+        ps.append(_paso("cer_emision", "CER de emisión resuelto",
+                        OK if cer_e else REVISAR,
+                        f"{cer_e}" + (" (cargado a mano)" if out.get("cer_manual")
+                                      else " (ya estaba en el master)")
+                        if cer_e else
+                        "el bono no lo tiene cargado. **Sin este número no hay TEA "
+                        "ni paridad**: el motor devuelve la duration ingenua (los "
+                        "años al vencimiento) y el cotejo contra 1816 no se puede "
+                        "hacer. El cuadro se escribe igual.",
+                        tabla="mercado.curvas · macro.series_macro (CER)",
+                        aviso="" if cer_e else
+                              f"Cargar el CER de emisión de {ticker}",
+                        pide=None if cer_e else {
+                            "campo": "cer_emision", "label": "CER de emisión",
+                            "tipo": "numero",
+                            "ayuda": "el índice CER del día de emisión (prospecto o "
+                                     "BCRA). Con esto vuelvo a simular y se ve la "
+                                     "TEA antes de aplicar."}))
     tea, paridad = out.get("tea"), out.get("paridad")
     ps.append(_paso("precio", "Hay precio para simular la tasa",
                     OK if out.get("precio") else INFO,
@@ -2073,6 +2139,8 @@ def _chequeos_flujos(*, ticker: str, doc: dict, rama: str, conv: dict,
     campos = ["flujos"]
     if conv["flujo_vencimiento"] is not None:
         campos.append("flujo_vencimiento")
+    if out.get("cer_manual"):
+        campos.append("cer_emision (lo escribiste vos)")
     ps.append(_paso("escritura", "Qué se va a escribir", INFO,
                     "solo " + " · ".join(campos) + f" en {ticker}. Ejes, curva, "
                     "emisor, símbolo y cer_emision quedan **intactos**.",
@@ -2082,7 +2150,8 @@ def _chequeos_flujos(*, ticker: str, doc: dict, rama: str, conv: dict,
     return ps
 
 
-def aplicar_flujos(ticker: str, *, actor: str = "") -> dict:
+def aplicar_flujos(ticker: str, *, actor: str = "",
+                   cer_emision: float | None = None) -> dict:
     """Simula y, si la cadena cierra, **escribe el cronograma** — y nada más.
 
     A diferencia del alta, que arma el doc entero, acá se hace un UPDATE puntual
@@ -2092,7 +2161,7 @@ def aplicar_flujos(ticker: str, *, actor: str = "") -> dict:
     """
     from api.services import av_agent_acciones as acc
 
-    sim = simular_flujos(ticker)
+    sim = simular_flujos(ticker, cer_emision=cer_emision)
     if not sim.get("ok"):
         acc.registrar(accion="completar_flujos", objetivo=ticker.upper(), ok=False,
                       error=sim.get("error", "")[:300], por=actor)
@@ -2110,6 +2179,11 @@ def aplicar_flujos(ticker: str, *, actor: str = "") -> dict:
         parche["flujo_vencimiento"] = conv["flujo_vencimiento"]
     if sim.get("vencimiento"):
         parche["fecha_vencimiento"] = sim["vencimiento"]
+    # El CER de emisión SOLO si lo tipeó el user y el bono no lo tenía. Es la
+    # única excepción a «acá solo se escribe el cronograma», y es explícita: sin
+    # ese número el bono queda escrito y sin tasa, que es la mitad del trabajo.
+    if sim.get("cer_manual") and sim.get("cer_emision"):
+        parche["cer_emision"] = sim["cer_emision"]
     try:
         import json
 

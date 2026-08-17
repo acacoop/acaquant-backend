@@ -317,6 +317,9 @@ def av_agent_aviso_completar(body: CompletarAviso,
 
 class FlujosAvAgent(BaseModel):
     ticker: str = Field(..., min_length=2, max_length=32)
+    # El CER de emisión tipeado en la cadena: sin ese número la rama `cer` del
+    # motor no devuelve TEA ni paridad, y el cotejo contra 1816 no se puede hacer.
+    cer_emision: float | None = Field(None, gt=0)
 
 
 @router.post("/av-agent/simular-flujos", dependencies=[Depends(require_admin)])
@@ -329,18 +332,22 @@ def av_agent_simular_flujos(body: FlujosAvAgent):
     es si con el flujo que agregaríamos y nuestro modelo nos da una TEA y esos
     datos como a 1816»*."""
     from api.services import av_agent_alta
-    return av_agent_alta.simular_flujos(body.ticker)
+    return av_agent_alta.simular_flujos(body.ticker, cer_emision=body.cer_emision)
 
 
 @router.post("/av-agent/aplicar-flujos", dependencies=[Depends(require_admin)])
 def av_agent_aplicar_flujos(body: FlujosAvAgent, email: str = Depends(get_user_email)):
     """E3 — escribe el cronograma, **y nada más**.
 
-    Es un UPDATE puntual sobre el blob: los ejes, el emisor, el símbolo y el
-    `cer_emision` que cargó la mesa ni siquiera están en el payload, así que no se
-    pueden pisar por accidente."""
+    Es un UPDATE puntual sobre el blob: los ejes, el emisor y el símbolo ni
+    siquiera están en el payload, así que no se pueden pisar por accidente.
+
+    La ÚNICA excepción es `cer_emision`, y solo si el user lo tipeó en la cadena
+    **y** el bono no lo tenía: sin ese número la rama `cer` del motor no devuelve
+    tasa y el bono quedaría con cronograma y sin valuar."""
     from api.services import av_agent_alta
-    return av_agent_alta.aplicar_flujos(body.ticker, actor=email or "")
+    return av_agent_alta.aplicar_flujos(body.ticker, actor=email or "",
+                                        cer_emision=body.cer_emision)
 
 
 class SimularAvAgent(BaseModel):

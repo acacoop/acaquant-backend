@@ -1461,8 +1461,14 @@ def test_completar_flujos_NO_puede_pisar_los_ejes_del_bono():
     verdad y no se derivan de nuevo.
 
     La garantía no es «tener cuidado»: el UPDATE es un merge sobre el blob con un
-    parche que **solo contiene el cronograma** — emisor, curva, símbolo, ejes y
-    `cer_emision` ni siquiera están en el payload, así que no se pueden pisar."""
+    parche que **solo contiene el cronograma** — emisor, curva, símbolo y ejes ni
+    siquiera están en el payload, así que no se pueden pisar.
+
+    La ÚNICA excepción es `cer_emision`, y es explícita: se escribe solo cuando el
+    user lo tipeó en la cadena Y el bono no lo tenía (`cer_manual`). Sin ese número
+    la rama `cer` del motor sale por su puerta de emergencia y el bono queda con
+    cronograma y sin tasa — la mitad del trabajo. Que sea una excepción NO la hace
+    un agujero: el guard es lo que la mantiene incapaz de pisar un valor cargado."""
     import inspect
 
     from api.services import av_agent_alta
@@ -1470,8 +1476,17 @@ def test_completar_flujos_NO_puede_pisar_los_ejes_del_bono():
     fuente = inspect.getsource(av_agent_alta.aplicar_flujos)
     assert 'parche: dict = {"flujos": conv["flujos"]}' in fuente
     assert "|| %s::jsonb" in fuente, "tiene que MERGEAR el blob, no reemplazarlo"
-    for prohibido in ("emisor", "moneda_eje", "cer_emision", "curva"):
+    for prohibido in ("emisor", "moneda_eje", "curva"):
         assert f'parche["{prohibido}"]' not in fuente
+    # `cer_emision` sí puede escribirse, pero SOLO detrás del guard de «lo tipeó el
+    # user y el bono no lo tenía». Si alguien saca ese `if`, este test cae.
+    assert ('if sim.get("cer_manual") and sim.get("cer_emision"):\n'
+            '        parche["cer_emision"] = sim["cer_emision"]') in fuente, (
+        "cer_emision quedó sin el guard de cer_manual — así SÍ puede pisar "
+        "el valor que cargó la mesa")
+    # Y `cer_manual` solo es True si el doc NO lo traía: la otra mitad del candado.
+    sim_src = inspect.getsource(av_agent_alta.simular_flujos)
+    assert 'cer_manual and not doc.get("cer_emision")' in sim_src
 
     # Y la rama sale del DOC, no de una curva de 1816 traducida de nuevo.
     sim = inspect.getsource(av_agent_alta.simular_flujos)
@@ -1514,3 +1529,57 @@ def test_el_detector_de_sin_flujo_emite_tipo_sin_flujo_y_regla_flujos_vacios():
     assert len(hs) == 1
     assert hs[0]["tipo"] == "sin_flujo"
     assert hs[0]["regla"] == "flujos_vacios"
+
+
+def test_EL_CASO_DICP_un_doc_de_curvas_NO_es_el_blob_data():
+    """DICP y PARP (2026-08-17). La primera simulación de un `flujos_vacios` real
+    devolvió duration 7,3781 y 12,3808 **sin TEA** — que son, clavados, sus días al
+    vencimiento sobre 365: el valor que devuelve el motor cuando sale por su puerta
+    de emergencia (`if not cer_emision: duration = dias/365; return`).
+
+    La causa no estaba en el cuadro de 1816 sino en cómo se leía el bono: un
+    `SELECT data` trae el blob, pero los EJES viven en COLUMNAS y `core/curvas_sql`
+    los mezcla encima (`_COLS_FUERA_DEL_BLOB`). Sin ellos `ajuste` es `None`, el
+    bono deja de ser CER para el simulador y **todo el resto miente en cascada**
+    (el encabezado mandaba a revisar la escala del cuadro, que estaba perfecta).
+
+    Este test congela la regla general: **el simulador lee la MISMA fuente que el
+    motor**. Dos lectores del mismo dato son dos verdades que se separan solas."""
+    import inspect
+
+    from api.services import av_agent_alta
+
+    fuente = inspect.getsource(av_agent_alta._doc_de_curvas)
+    assert "curvas_sql" in fuente, (
+        "volvió a leer la tabla por su cuenta — los ejes viven en columnas y un "
+        "SELECT data los deja en None")
+    assert "SELECT data" not in fuente
+
+
+def test_los_cupones_YA_PAGADOS_se_guardan_y_la_cadena_lo_DICE():
+    """1816 manda el cronograma COMPLETO desde la emisión (medido en GD46: 51
+    cupones desde 2021-07-12, Σ=100,000012), así que un bono de 2004 trae decenas
+    de cupones ya cobrados. Guardarlos es lo correcto —el cuadro es el DEL BONO, no
+    el de hoy— y el motor ya los filtra al valuar (`fecha_flujo(f) >
+    fecha_settlement`, la misma regla en las cuatro ramas).
+
+    Lo que faltaba no era el filtro: era **decirlo**. Ver «60 cupones» sin ninguna
+    aclaración da a entender que se valúan los 60. La cadena ahora parte el número
+    en pagados y futuros, y si no queda NINGUNO futuro BLOQUEA: un bono que ya
+    venció no tiene nada que valuar y escribirle el cuadro no lo arregla."""
+    import inspect
+
+    from api.services import av_agent_alta
+    from engines import curvas as motor
+
+    # (1) El motor filtra — no es una promesa del agente, está en el motor.
+    fuente_motor = inspect.getsource(motor)
+    assert fuente_motor.count("fecha_flujo(f) > fecha_settlement") >= 3, (
+        "alguna rama del motor dejó de filtrar los cupones ya pagados")
+
+    # (2) La cadena lo explica y cuenta las dos mitades.
+    ch = inspect.getsource(av_agent_alta._chequeos_flujos)
+    assert 'pagados = conv["n"] - futuros' in ch
+    assert "ya se pagaron" in ch and "valúa solo los futuros" in ch
+    # (3) Sin cupones futuros no se aplica: BLOQUEA, no «revisar».
+    assert "OK if futuros else BLOQUEA" in ch

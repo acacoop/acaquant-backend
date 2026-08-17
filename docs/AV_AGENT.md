@@ -2065,8 +2065,118 @@ una regla ahí, falla el test en vez de fallar el botón.
 también conoce, ese string es el bug esperando.* No porque esté mal hoy — porque
 nada los obliga a seguir de acuerdo mañana.
 
+### E3.d — DICP y PARP: un doc de `mercado.curvas` NO es el blob `data` (2026-08-17)
+
+La primera simulación real de un `flujos_vacios`. Las dos cadenas volvieron con
+el cuadro perfecto y **sin TEA**, con estos números:
+
+```
+DICP   duration nuestra 7,3781   ·  1816 dice 3,2512   ·  paridad —
+PARP   duration nuestra 12,3808  ·  1816 dice 6,5497   ·  paridad —
+ejes cargados por la mesa (None · None · None)
+```
+
+El user lo leyó como lo que era: *«no me termina de convencer… ya tenemos bonos
+valuados… claramente acá hay un problema con la forma en la que se guarda el
+cashflow»*. Tenía razón en que algo estaba mal; el cashflow no era.
+
+**Lo primero fue medir, no opinar** (REGLA #2). DICP vence 2033-12-31: son 2.695
+días → 2.695/365 = **7,3836**. PARP vence 2038-12-31: 4.519 días → **12,3808**,
+exacto. Esos no son duration de nada: son **los años al vencimiento**, o sea el
+valor que devuelve el motor cuando sale por su puerta de emergencia:
+
+```python
+# engines/curvas.py, rama CER
+if not cer_emision or cer_emision <= 0:
+    resultado["duration"] = round(dias_a_vto / 365, 4)
+    return resultado          # ← sin error, sin log, sin nada
+```
+
+Faltaba el **CER de emisión**. Pero el encabezado de la cadena no decía eso:
+decía *«revisar la escala del flujo o la pata»* — mandaba a mirar el cuadro, que
+estaba impecable. Y ahí está la causa raíz, que es de LECTURA:
+
+> **Un doc de `mercado.curvas` no es su blob `data`.** Los EJES (`emisor_tipo` ·
+> `moneda_eje` · `ajuste` · `ajuste_alt` · `ley`) viven en **columnas**, y
+> `core/curvas_sql` los mezcla encima del blob (`_COLS_FUERA_DEL_BLOB`).
+
+Mi `_doc_de_curvas` hacía un `SELECT data` y nada más. Con eso `ajuste` llegaba
+en `None`, y a partir de ahí **todo mintió en cascada**:
+
+1. la pantalla mostró `DICP · · ·` y `(None · None · None)` — el síntoma estaba
+   a la vista y se leía como un detalle cosmético;
+2. `sin_cer`, que decide el mensaje, evalúa `ajuste == "cer"` → con `None` dio
+   **False**, así que el encabezado acusó a la escala en vez del CER;
+3. el motor, sin `cer_emision`, salió por la puerta de emergencia.
+
+**El fix es de una línea y de fondo a la vez**: `_doc_de_curvas` lee por
+`curvas_sql.cargar_todos()` — **la misma fuente que lee el motor**. Dos lectores
+distintos del mismo dato son dos verdades que se separan solas; la única defensa
+que escala es que haya un solo lector.
+
+**Lo segundo: el dato faltante se pide ACÁ MISMO.** El CER de emisión pasó a ser
+un paso `pide` de la cadena de flujos, igual que en el alta (E2.x): se tipea, se
+re-simula con ese número, se ve la TEA, y recién ahí se aplica. Y se escribe con
+él — es la **única excepción** a «acá solo se escribe el cronograma», explícita y
+detrás de un guard: solo si el user lo tipeó **y** el bono no lo tenía. Sin esa
+excepción el bono quedaba con cuadro y sin tasa, que es la mitad del trabajo.
+
+**Lo tercero, y es lo que el user pidió mirar de frente**: *«no usar TODOS LOS
+CUPONES si ya hay un montón que se pagaron»*. Verificado en el motor: las cuatro
+ramas filtran `fecha_flujo(f) > fecha_settlement`. **El motor ya lo hacía.** Lo
+que faltaba no era el filtro: era **decirlo**. 1816 manda el cronograma COMPLETO
+desde la emisión (medido en GD46: 51 cupones desde 2021-07-12, Σ = 100,000012),
+así que un bono de 2004 trae decenas de cupones cobrados y ver «60 cupones» sin
+aclaración da a entender que se valúan los 60. Ahora la cadena parte el número:
+
+```
+60 cupones (54 ya pagados · 6 futuros) — el cuadro se guarda COMPLETO
+(es el del bono) y el motor valúa solo los futuros.
+```
+
+Y si **no queda ningún cupón futuro**, el paso pasa a **BLOQUEA**: ese bono ya
+venció, escribirle el cuadro no lo arregla y aplicar sería ensuciar el master.
+
+**Cuarto, de yapa: el front tenía la cadena escrita DOS veces.** `AccionAlta` y
+`AccionFlujos` eran el mismo componente con tres strings distintos, y por eso el
+bloque que pide el dato faltante existía **solo en el alta**: la rama de flujos
+mandaba su `pide` y no se renderizaba nada. Misma familia que E3.c — falla en
+silencio. Ahora es **un** `AccionCadena` parametrizado por `modo`, y lo que
+cambia son las etiquetas.
+
+**Las reglas que deja:**
+
+- *Si el simulador y el motor no leen por la MISMA función, tarde o temprano ven
+  bonos distintos.* No es hipotético: acá el simulador vio un bono sin ajuste.
+- *Un número redondo sospechoso tiene que medirse antes de teorizar.* 12,3808 no
+  era «una duration rara»: era `4519/365`, y eso apuntó al bail-out en un paso.
+- *Cuando el sistema hace lo correcto pero no lo cuenta, el user tiene razón en
+  desconfiar.* El filtro de cupones pagados ya existía; el problema era que la
+  pantalla no daba forma de saberlo.
+
 ## Changelog
 
+- **2026-08-17 — E3.d, DICP/PARP: el simulador leía un bono distinto del que
+  valúa el motor.** La primera simulación real de un `flujos_vacios` volvió con
+  el cuadro perfecto y **sin TEA**: duration 7,3781 (DICP) y 12,3808 (PARP). Medido
+  antes de teorizar: son `dias_a_vto/365` — el valor del **bail-out** de la rama
+  CER cuando falta `cer_emision` (`return` sin error ni log). Causa raíz de
+  LECTURA: **un doc de `mercado.curvas` no es su blob `data`** — los ejes viven en
+  COLUMNAS y `core/curvas_sql` los mezcla encima (`_COLS_FUERA_DEL_BLOB`); mi
+  `SELECT data` dejaba `ajuste=None`, con lo cual `sin_cer` daba False y el
+  encabezado acusaba a la escala del cuadro (que estaba impecable) en vez del CER
+  faltante. Fix: `_doc_de_curvas` lee por `curvas_sql.cargar_todos()`, **la misma
+  fuente que el motor**. Además: (1) el CER de emisión se **pide en la propia
+  cadena** (paso `pide`, como E2.x) y se escribe con él —única excepción a «acá
+  solo se escribe el cronograma», detrás del guard `cer_manual`—; (2) los cupones
+  **ya pagados** se cuentan aparte y la cadena explica que el cuadro se guarda
+  COMPLETO y el motor valúa solo los futuros (verificado: las 4 ramas filtran
+  `fecha_flujo(f) > fecha_settlement` — el motor ya lo hacía, faltaba **decirlo**),
+  y sin ningún cupón futuro el paso **BLOQUEA**; (3) el front tenía la cadena
+  escrita DOS veces (`AccionAlta`/`AccionFlujos`) y por eso el input del dato
+  faltante existía solo en el alta — ahora es **un** `AccionCadena` parametrizado
+  por `modo`. **Regla: si el simulador y el motor no leen por la misma función,
+  tarde o temprano ven bonos distintos.** 2 tests (89 en total).
 - **2026-08-17 — E3.c, el botón que no aparecía y no avisaba.** El IGNORAR
   funcionó de una; el de completar el cronograma no se renderizó **sin dar
   error**: el front comparaba `h.tipo === "flujos_vacios"` y `flujos_vacios` es la

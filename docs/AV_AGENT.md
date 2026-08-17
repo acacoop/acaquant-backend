@@ -1834,8 +1834,54 @@ en el mismo acto. Dos cosas que **no** hace, a propósito:
 dato: uno lo escribe, el otro verifica. Separarlos es cómo se consigue un aviso
 que se puede completar pero nunca se marca cargado.
 
+### E2.x — El dato se pide ANTES de aplicar, no después (2026-08-17)
+
+E2.w puso el input en la tab AVISOS: cargás el CER **después** de dar de alta. El
+user apuntó a lo que faltaba:
+
+> *«¿No podría ser ACÁ MISMO interactivo y que me pida el CER de emisión para
+> continuar? Y que rehaga la simulación con ese dato y si va todo bien ya lo
+> aplique con eso.»*
+
+Tiene razón, y la diferencia no es de comodidad: **es aplicar a ciegas contra
+aplicar viendo la tasa.** El flujo viejo era aplicar → ir a AVISOS → cargar el
+número → y recién ahí enterarse de si el bono cerraba. El nuevo es escribir el
+número, ver la TEA, y aplicar con el dato adentro.
+
+**Cómo funciona.** Un paso puede declarar **`pide`** —campo, label, tipo, ayuda—
+y la cadena renderiza su input ahí mismo. Lo tipeado viaja **igual a SIMULAR y a
+APLICAR**, así que lo que se aplica es exactamente lo que se vio simulado; dos
+payloads distintos harían que el bono naciera con insumos que nadie miró.
+
+Y el bono **nace CON el dato**: `aplicar()` lo pasa a `simular()`, el paso deja de
+estar en `revisar` y **no se genera el aviso** — porque ya no falta nada. El aviso
+de E2.w sigue existiendo para el que igual prefiere aplicar y cargarlo después.
+
+**El valor tipeado gana sobre el derivado, nunca al revés.** Si el user lo
+escribe, lo sacó del prospecto o del BCRA — de una fuente que el sistema no
+tiene. Un valor inválido (≤ 0) se ignora en vez de romper la simulación, y el
+paso lo dice: la línea deja de atribuirle el número a 1816 cuando lo puso una
+persona.
+
+**El patrón general que queda**: el pre-flight ya no es solo un informe, es un
+**formulario que sabe qué le falta**. `pide` es genérico —hoy lo usa el CER, mañana
+cualquier paso que necesite un dato que ninguna fuente publica— y como el estado
+del input vive por hallazgo, simular dos bonos seguidos no filtra el número de uno
+al otro.
+
 ## Changelog
 
+- **2026-08-17 — E2.x, el dato se pide en la CADENA, antes de aplicar.** E2.w lo
+  pedía DESPUÉS del alta (en AVISOS); el user pidió que se pida antes y se
+  re-simule con él — que es la diferencia entre aplicar a ciegas y aplicar viendo
+  la tasa. Un paso ahora puede declarar **`pide`** (campo/label/tipo/ayuda) y la
+  cadena renderiza su input; lo tipeado viaja **igual a SIMULAR y a APLICAR**, así
+  que se aplica exactamente lo que se vio simulado. `simular()` y `aplicar()`
+  aceptan `cer_emision`: el bono **nace con el dato** y por lo tanto **no genera
+  aviso**. El valor manual **gana** sobre el derivado (lo sacó del prospecto o del
+  BCRA, una fuente que el sistema no tiene) y uno inválido se ignora sin romper la
+  simulación. El estado del input vive por hallazgo — compartirlo filtraría el CER
+  de un bono al siguiente. 1 test (82 en total).
 - **2026-08-17 — E2.w, el aviso se completa desde la lista.** El aviso del CER de
   emisión te mandaba a Manager → Títulos: el agente hacía el 95% y el 5% quedaba
   a tres clics. Ahora cada aviso viaja con su `campo` (label/tipo/ayuda) y la

@@ -367,7 +367,8 @@ _DURATION_COINCIDE, _DURATION_MIRAR = 1.0, 5.0   # % de diferencia RELATIVA
 
 
 def _paso(clave: str, titulo: str, estado: str, detalle: str,
-          *, tabla: str = "", accion: str = "", aviso: str = "") -> dict:
+          *, tabla: str = "", accion: str = "", aviso: str = "",
+          pide: dict | None = None) -> dict:
     """Un eslabón. **`clave` es la identidad, `n` es presentación** — el `n` se
     numera al final según los pasos que hayan aplicado (el de CER no siempre
     está, el control cruzado tampoco). Si el orden fuera la identidad, insertar
@@ -384,6 +385,12 @@ def _paso(clave: str, titulo: str, estado: str, detalle: str,
             # el agente igual te dejó lista para tipear un número. Alimenta la
             # sección AVISOS.
             "aviso": aviso,
+            # `pide` = el dato se puede TIPEAR ACÁ MISMO y volver a simular con él
+            # (pedido del user, 2026-08-17): *«no podría ser acá mismo interactivo
+            # y que me pida el CER de emisión para continuar, y que rehaga la
+            # simulación con ese dato y si va todo bien ya lo aplique con eso»*.
+            # Es la diferencia entre aplicar a ciegas y aplicar VIENDO la tasa.
+            "pide": pide or None,
             "frena": estado in _FRENAN_TODO,
             "frena_auto": estado in _FRENAN_AUTOMATICO}
 
@@ -730,13 +737,27 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
         # sin tasa y sin nadie enterado.
         ps.append(_paso("cer_emision", "CER de emisión resuelto",
                         OK if cer_emision else REVISAR,
-                        f"{cer_emision} (de la fecha de emisión de 1816, T−10 hábiles)"
+                        # Con el número tipeado, `nota_cer` dice que vino a mano.
+                        # Mostrar «de la fecha de emisión de 1816» en ese caso
+                        # sería atribuirle a 1816 un dato que puso el user.
+                        (f"{cer_emision} — {nota_cer}" if nota_cer else
+                         f"{cer_emision} (de la fecha de emisión de 1816, T−10 hábiles)")
                         if cer_emision else
                         f"{nota_cer or 'no se pudo calcular'}. **El alta se hace igual**: "
                         "queda en AVISOS y sin este número el bono no muestra tasa.",
                         tabla="macro.series_macro (CER)",
                         aviso="" if cer_emision else
-                              f"Cargar el CER de emisión de {ticker} en Manager → Títulos"))
+                              f"Cargar el CER de emisión de {ticker} en Manager → Títulos",
+                        # Sin el número no hay tasa, pero el número lo tenés vos:
+                        # está en el prospecto o en el BCRA. Pedirlo ACÁ y volver a
+                        # simular convierte «aplicá y después andá a cargarlo» en
+                        # «escribilo, mirá la tasa, y aplicá con el dato adentro».
+                        pide=None if cer_emision else {
+                            "campo": "cer_emision", "label": "CER de emisión",
+                            "tipo": "numero",
+                            "ayuda": "el índice CER del día de emisión (prospecto o "
+                                     "BCRA). Con esto vuelvo a simular y, si cierra, "
+                                     "el bono se da de alta CON el dato."}))
 
     if not ctx.get("ok"):
         ps.append(_paso("especie", "El papel cotiza (especie + símbolo + precio)", NO_SE,
@@ -1432,11 +1453,23 @@ def _ficha_para_curvas(sim: dict, ficha: dict, ejes, conv: dict) -> dict:
     return extra
 
 
-def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dict:
+def simular(ticker: str, *, curva_1816: str, precio: float | None = None,
+            cer_emision: float | None = None) -> dict:
     """Baja el cuadro de 1816 y calcula la TEA que TENDRÍA el bono. **No escribe.**
 
     `precio`: si no se pasa, se busca el último del snapshot. Sin precio no hay
     TEA — pero el cuadro igual se baja y se muestra, que es la mitad del valor.
+
+    `cer_emision`: **el dato que ninguna fuente publica, tipeado por el user en la
+    misma pantalla** (pedido 2026-08-17). Nuestra serie CER no llega hasta la
+    fecha de emisión de un bono nuevo, así que `_cer_de_emision` devuelve `None` y
+    el bono nace sin TEA. Pasándolo acá, la simulación se rehace CON el número y
+    el user ve la tasa antes de aplicar — en vez de aplicar a ciegas, ir a Manager
+    a cargarlo y recién ahí enterarse de si cerraba.
+
+    **Gana sobre el derivado, nunca al revés**: si el user lo escribe, es porque
+    lo sacó del prospecto o del BCRA — o sea de una fuente que el sistema no
+    tiene. Un valor inválido (≤ 0) se ignora en vez de romper la simulación.
     """
     tk = mercado_1816.normalizar_ticker(ticker)
     ejes = curvas_ejes.desde_1816(curva_1816)
@@ -1468,9 +1501,15 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
     # El CER de emisión NO hace falta pedirlo: la fecha de emisión está en el
     # catálogo de 1816 (ya persistido, 0 créditos) y la serie CER es nuestra.
     ficha = _ficha_1816(tk)
+    cer_manual = cer_emision if (cer_emision or 0) > 0 else None
     cer_emision, nota_cer = (None, "")
     if rama_tent == "cer":
         cer_emision, nota_cer = _cer_de_emision(ficha.get("fecha_emision", ""))
+        if cer_manual:
+            cer_emision = cer_manual
+            nota_cer = (f"CER de emisión {cer_manual:g} cargado a mano — la serie "
+                        "no llega a la fecha de emisión, así que este número no "
+                        "sale de ninguna fuente nuestra")
 
     # El símbolo NO se adivina: sale de `mercado.especies`, la misma fuente de la
     # que se derivan los símbolos de `portafolio.assets`. `_contexto_cadena` trae
@@ -1497,6 +1536,7 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         "simbolo_estado": _estado_simbolo(simbolo),
         "fecha_emision": ficha.get("fecha_emision") or None,
         "cer_emision": cer_emision,
+        "cer_manual": bool(cer_manual),
         "nota_cer": nota_cer,
         "ya_en_curvas": bool(ctx.get("ya_en_curvas")),
         # Los campos de la FICHA que el alta va a completar sola. Se calculan acá
@@ -1678,7 +1718,8 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
             "la escala del flujo o la pata"}
 
 
-def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
+def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
+            cer_emision: float | None = None) -> dict:
     """Simula y, si la rama lo permite y hay cuadro, **da de alta el bono**.
 
     Escribe por `bonos_admin.upsert_bono` —la MISMA puerta que usa la mesa desde
@@ -1688,7 +1729,10 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
     from api.services import av_agent_acciones as acc
     from api.services import bonos_admin
 
-    sim = simular(ticker, curva_1816=curva_1816)
+    # El CER tipeado viaja hasta acá: el bono se da de alta CON el dato, no se
+    # crea pelado para después completarlo. Si viene, tampoco se genera el aviso —
+    # el paso deja de estar en `revisar` porque ya no falta nada.
+    sim = simular(ticker, curva_1816=curva_1816, cer_emision=cer_emision)
     if not sim.get("ok"):
         acc.registrar(accion="alta_bono", objetivo=ticker.upper(), ok=False,
                       error=sim.get("error", "")[:300], por=actor)

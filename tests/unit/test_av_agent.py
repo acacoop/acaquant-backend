@@ -1364,3 +1364,37 @@ def test_el_veredicto_solo_dice_A_MANO_si_hay_algo_que_cargar():
                       aviso="cargar el CER de emisión de TZXA7")]
     v2 = _veredicto(con_dato)
     assert "para cargar a mano" in v2["texto"] and "AVISOS" in v2["texto"]
+
+
+def test_el_CER_tipeado_a_mano_GANA_y_deja_de_pedirlo(monkeypatch):
+    """El pedido del user (2026-08-17): *«¿no podría ser acá mismo interactivo y
+    que me pida el CER de emisión para continuar? Y que rehaga la simulación con
+    ese dato y si va todo bien ya lo aplique con eso»*.
+
+    Nuestra serie CER no llega a la fecha de emisión de un bono recién emitido, así
+    que `_cer_de_emision` devuelve `None` y el bono nacía SIN TASA: había que
+    aplicar a ciegas, ir a AVISOS, cargar el número y recién ahí ver si cerraba.
+
+    El valor tipeado GANA sobre el derivado —lo sacó del prospecto o del BCRA, o
+    sea de una fuente que el sistema no tiene— y un valor inválido se ignora en
+    vez de romper la simulación."""
+    from api.services import av_agent_alta as alta
+
+    # Sin el dato: el paso PIDE el campo y deja aviso.
+    p_falta = alta._paso("cer_emision", "CER de emisión resuelto", alta.REVISAR,
+                         "la serie no llega", aviso="Cargar el CER",
+                         pide={"campo": "cer_emision", "label": "CER de emisión",
+                               "tipo": "numero", "ayuda": "…"})
+    assert p_falta["pide"]["campo"] == "cer_emision" and p_falta["aviso"]
+    # Un paso normal NO pide nada — `pide` es None, no un dict vacío.
+    assert alta._paso("x", "y", alta.OK, "z")["pide"] is None
+
+    # El doc simulado lleva el número, que es lo que hace que el motor calcule.
+    doc = alta._doc_simulado("TZXA7", type("E", (), {
+        "emisor_tipo": "soberano", "moneda": "ARS", "ajuste": "cer",
+        "ajuste_alt": "", "ley": ""})(),
+        {"flujos": [{"fecha": "2027-04-30", "amortizacion_pct": 100.0,
+                     "cupon_sobre_residual": 0.0}], "flujo_vencimiento": None,
+         "escala": "vn100", "suma_amort": 100.0, "n": 1, "rama": "cer"},
+        "2027-04-30", "MERV - XMEV - TZXA7 - 24hs", 12.3456)
+    assert doc["cer_emision"] == 12.3456

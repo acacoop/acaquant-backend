@@ -295,19 +295,30 @@ def av_agent_aviso_completar(body: CompletarAviso,
 class SimularAvAgent(BaseModel):
     ticker: str = Field(..., min_length=2, max_length=32)
     curva_1816: str = Field(..., min_length=2, max_length=80)
+    # El dato que ninguna fuente publica, tipeado en la misma pantalla. Opcional:
+    # sin él la simulación es la de siempre.
+    cer_emision: float | None = Field(None, gt=0)
 
 
 @router.post("/av-agent/simular", dependencies=[Depends(require_admin)])
 def av_agent_simular(body: SimularAvAgent):
-    """E2 — calcula la TEA que TENDRÍA el bono, **sin escribir nada**."""
+    """E2 — calcula la TEA que TENDRÍA el bono, **sin escribir nada**.
+
+    `cer_emision` permite RE-simular con el número tipeado a mano: nuestra serie
+    CER no llega a la fecha de emisión de un bono nuevo, así que sin él la rama
+    CER no devuelve tasa. Con él, el user ve la TEA antes de aplicar."""
     from api.services import av_agent_alta
-    return av_agent_alta.simular(body.ticker, curva_1816=body.curva_1816)
+    return av_agent_alta.simular(body.ticker, curva_1816=body.curva_1816,
+                                 cer_emision=body.cer_emision)
 
 
 @router.post("/av-agent/aplicar-alta", dependencies=[Depends(require_admin)])
 def av_agent_aplicar_alta(body: SimularAvAgent, email: str = Depends(get_user_email)):
     """E2 — simula y, si la rama lo permite, da de alta el bono en
-    `mercado.curvas` por la MISMA puerta que usa la mesa (`upsert_bono`)."""
+    `mercado.curvas` por la MISMA puerta que usa la mesa (`upsert_bono`).
+
+    Si viene `cer_emision`, el bono nace CON el dato: no se crea pelado para
+    después completarlo, y por lo tanto tampoco genera el aviso."""
     from api.services import av_agent_alta
     return av_agent_alta.aplicar(body.ticker, curva_1816=body.curva_1816,
-                                 actor=email or "")
+                                 actor=email or "", cer_emision=body.cer_emision)

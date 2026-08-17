@@ -291,6 +291,12 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     # es exactamente lo que hace desconfiar de toda la lista.
     ignorados = av_agent.tickers_ignorados()
 
+    # La ACCIÓN la decide el backend, no el front. Se deriva en la lectura (no se
+    # persiste) para que un tipo que se vuelva accionable mañana alcance también a
+    # los hallazgos ya guardados.
+    for h in filas:
+        h["accion"] = av_agent.ACCION_POR_TIPO.get(h.get("tipo") or "")
+
     def _caduco(h: dict) -> bool:
         if (h.get("ticker") or "").strip().upper() in ignorados:
             return True

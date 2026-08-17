@@ -2027,8 +2027,58 @@ y la especie ya están resueltos, y chequearlos sería teatro. Lo que se chequea
 lo que puede salir mal **al escribir en un bono vivo**. Y si el bono ya tiene
 cronograma, no se re-escribe: se dice que el hallazgo quedó viejo.
 
+### E3.c — TIPO y REGLA: el botón que no aparecía y no avisaba (2026-08-17)
+
+El IGNORAR funcionó de una. El de completar el cronograma **no apareció**, y no
+dio ningún error. La causa es de una línea:
+
+```
+tipo  = "sin_flujo"        ← agrupa la sección de la pantalla
+regla = "flujos_vacios"    ← dice CUÁL chequeo lo disparó
+```
+
+Yo escribí en el front `h.tipo === "flujos_vacios"` — comparé contra la **regla**
+creyendo que era el **tipo**. Y como es un `&&` en JSX, no hay error: el botón
+simplemente no se renderiza. **Silencio total.**
+
+Es el mismo par que ya nos mordió en E2.o (RAMA vs CURVA): **dos vocabularios que
+se parecen, conviven en la misma estructura, y confundirlos no rompe nada — solo
+deja de hacer algo.** Los bugs que no fallan son los que cuestan una vuelta entera.
+
+**El fix no es corregir el string.** Es que el front no tenga strings de tipos: la
+acción la decide el backend en **`ACCION_POR_TIPO`** y **viaja en el hallazgo**
+(`h.accion`). El front solo lee `h.accion === "alta" | "flujos"`.
+
+Tres propiedades que salen gratis de esa decisión:
+
+- **El que sabe si un hallazgo es accionable es el que sabe resolverlo.** El front
+  no tiene por qué conocer la taxonomía de detectores.
+- **Se deriva en la LECTURA, no se persiste**: el día que un tipo se vuelva
+  accionable, los hallazgos ya guardados lo heredan solos.
+- **Sumar una acción es una línea del backend** y aparece en la pantalla sola.
+
+Y queda un test que el front no podía tener: que las claves de `ACCION_POR_TIPO`
+sean **tipos que los detectores realmente emiten**. Si alguien vuelve a escribir
+una regla ahí, falla el test en vez de fallar el botón.
+
+**La regla general**: *si el front tiene escrito a mano un string que el backend
+también conoce, ese string es el bug esperando.* No porque esté mal hoy — porque
+nada los obliga a seguir de acuerdo mañana.
+
 ## Changelog
 
+- **2026-08-17 — E3.c, el botón que no aparecía y no avisaba.** El IGNORAR
+  funcionó de una; el de completar el cronograma no se renderizó **sin dar
+  error**: el front comparaba `h.tipo === "flujos_vacios"` y `flujos_vacios` es la
+  **REGLA**, no el **TIPO** (`sin_flujo`). Mismo par que RAMA/CURVA en E2.o — dos
+  vocabularios que se parecen, conviven en la misma estructura y confundirlos no
+  rompe nada, solo deja de hacer algo. Fix: el front **no tiene strings de tipos**
+  — la acción la decide `ACCION_POR_TIPO` en el backend y viaja en el hallazgo
+  (`h.accion`), **derivada en la lectura** para que un tipo que se vuelva
+  accionable alcance también a los hallazgos ya guardados. Test que congela lo que
+  el front no puede verificar: las claves del mapa tienen que ser TIPOS que algún
+  detector emita. **Regla: un string que el front escribe a mano y el backend
+  también conoce es el bug esperando.** 2 tests (87 en total).
 - **2026-08-17 — E3.a + E3.b, la lista se limpia y el segundo hallazgo se
   acciona.** **(a) IGNORAR en toda fila.** El mecanismo existía pero solo se
   disparaba contestando una pregunta del agente, y el filtro llegaba **solo a

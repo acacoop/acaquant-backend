@@ -87,6 +87,22 @@ def _es_pata(ticker: str) -> bool:
     return "@" in (ticker or "")
 
 
+# QUÉ PUEDE HACER EL AGENTE con cada tipo de hallazgo. **Vive acá y no en el
+# front**: el que sabe si un hallazgo es accionable es el que sabe resolverlo.
+#
+# El front tenía la condición escrita a mano (`h.tipo === "flujos_vacios"`) y
+# `flujos_vacios` no es el TIPO sino la REGLA — el botón simplemente no aparecía,
+# sin error y sin nada que mirar. Un string mágico copiado a mano en la otra punta
+# del sistema falla exactamente así: en silencio.
+#
+# **NO se persiste, se deriva en la lectura**: el día que un tipo se vuelva
+# accionable, los hallazgos ya guardados lo heredan solos.
+ACCION_POR_TIPO = {
+    "falta_en_base": "alta",    # el bono no existe → se crea entero
+    "sin_flujo": "flujos",      # el bono existe → se completa el cronograma
+}
+
+
 def _hallazgo(tipo: str, ticker: str, regla: str, severidad: str,
               motivo: str, evidencia: dict[str, Any]) -> dict:
     """Un hallazgo es siempre la MISMA forma, venga del detector que venga: así la

@@ -1478,3 +1478,39 @@ def test_completar_flujos_NO_puede_pisar_los_ejes_del_bono():
     assert "rama = rama_calculo(doc)" in sim
     # Un bono que YA tiene cronograma no se re-escribe: el hallazgo quedó viejo.
     assert "YA tiene cronograma" in sim
+
+
+def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
+    """El botón COMPLETAR CRONOGRAMA no aparecía y **no daba ningún error**: el
+    front comparaba `h.tipo === "flujos_vacios"`, y `flujos_vacios` no es el TIPO
+    sino la REGLA — el tipo es `sin_flujo`.
+
+    Un string mágico copiado a mano en la otra punta del sistema falla exactamente
+    así: en silencio. Ahora la acción la decide el BACKEND (`ACCION_POR_TIPO`) y
+    viaja en el hallazgo; el front solo lee `h.accion`.
+
+    Este test congela lo que el front no puede verificar: que las claves del mapa
+    sean TIPOS que los detectores realmente emiten."""
+    from api.services import av_agent
+
+    # Los tipos que emite cada detector, tomados de sus propias llamadas.
+    tipos_reales = {"falta_en_base", "sin_flujo", "tasa_sospechosa", "hueco_de_curva"}
+    assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
+        "una clave del mapa no es un TIPO que algún detector emita — "
+        "probablemente se escribió la REGLA")
+    assert av_agent.ACCION_POR_TIPO["sin_flujo"] == "flujos"
+    assert av_agent.ACCION_POR_TIPO["falta_en_base"] == "alta"
+    # `flujos_vacios` es la REGLA de `sin_flujo`: nunca puede ser una clave.
+    assert "flujos_vacios" not in av_agent.ACCION_POR_TIPO
+
+
+def test_el_detector_de_sin_flujo_emite_tipo_sin_flujo_y_regla_flujos_vacios():
+    """La distinción TIPO / REGLA, congelada donde nace: el tipo agrupa la
+    sección de la pantalla, la regla dice cuál chequeo la disparó. Confundirlas
+    es lo que rompió el botón."""
+    docs = [{"ticker_corto": "DICP", "curva": "cer", "flujos": [],
+             "emisor": "Argentina", "moneda_flujo": "ARS"}]
+    hs = av_agent.detectar_sin_flujo(docs, {"DICP": {}})
+    assert len(hs) == 1
+    assert hs[0]["tipo"] == "sin_flujo"
+    assert hs[0]["regla"] == "flujos_vacios"

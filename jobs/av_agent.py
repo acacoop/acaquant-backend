@@ -98,6 +98,16 @@ def _imprimir(res: dict, detalle: bool) -> None:
           f"  ·  con métricas del cierre: {u['con_metricas']}")
     print(f"  En cartera (último AuM): {u.get('en_cartera', 0)}"
           f"  ·  ignorados por el user: {u.get('ignorados', 0)}")
+    # De DÓNDE salió el universo. Una corrida degradada que se lee igual que una
+    # completa es peor que una corrida que falla: la segunda se nota.
+    if u.get("fuente") == "catalogo_local":
+        print(f"  ⚠ 1816 no contestó ({u.get('error_1816', '')[:80]}) → se usó el "
+              f"CATÁLOGO LOCAL (foto del {u.get('catalogo_at') or '?'}). Los otros "
+              "tres detectores corrieron igual: no dependen de la red.")
+    elif u.get("fuente") == "sin_universo":
+        print(f"  ⚠ 1816 no contestó ({u.get('error_1816', '')[:80]}) y tampoco hay "
+              "catálogo local → los FALTANTES no se evaluaron en esta corrida. El "
+              "resto de los detectores sí corrió.")
     # Una fuente que no se pudo leer APAGA su regla, y eso hay que decirlo: si no,
     # una lista más corta se lee como "hay menos problemas" cuando en realidad es
     # "miré menos cosas".
@@ -294,9 +304,14 @@ def main() -> None:
 
         # Que 1816 no conteste NO es "no encontré nada": es "no pude mirar", y la
         # diferencia es exactamente cómo un monitoreo miente en verde.
+        jr.set_stat("universo_fuente", res["universo"].get("fuente", "1816"))
         if not res["universo"]["1816"]:
             jr.error("el censo de 1816 volvió VACÍO — no se pudo verificar contra "
                      "la fuente; los faltantes de esta corrida no son concluyentes")
+        elif res["universo"].get("fuente") == "catalogo_local":
+            # NO es un error: la corrida sirvió. Pero tampoco es una corrida
+            # normal, y SALUD tiene que poder distinguirlas.
+            jr.set_stat("catalogo_at", res["universo"].get("catalogo_at") or "")
 
         if args.dry_run:
             print("\n(DRY-RUN — no se escribió ninguna fila)")

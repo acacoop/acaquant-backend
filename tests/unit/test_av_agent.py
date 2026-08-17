@@ -2191,3 +2191,33 @@ def test_el_arreglo_LOCAL_se_decide_ANTES_de_tocar_la_red():
     loc = inspect.getsource(av_agent_alta._arreglo_local)
     assert 'OK if\n                    (en_rango and estaba_mal) else BLOQUEA' in loc \
         or "(en_rango and estaba_mal) else BLOQUEA" in loc
+
+
+def test_1816_caido_NO_frena_la_relevada_entera():
+    """El 429 del proveedor dejaba a `jobs.av_agent` muerto **antes del primer
+    detector** — y de los cuatro, el único que necesita el universo de 1816 es
+    `detectar_faltantes`. Los otros tres miran NUESTRA base.
+
+    Es el mismo error de diseño que la cadena del arreglo, en otro archivo: una
+    dependencia externa colgando de algo que casi no la necesita.
+
+    Y la degradación tiene que ser HONESTA: sin universo no se buscan faltantes,
+    porque «no pude mirar» jamás puede convertirse en «no falta nada»."""
+    import inspect
+
+    from api.services import av_agent
+
+    src = inspect.getsource(av_agent.relevar)
+    assert "universo_local()" in src, "tiene que caer al catálogo local"
+    assert "if universo_1816 else []" in src, (
+        "sin universo NO se buscan faltantes: reportar cero sería afirmar que no "
+        "falta nada cuando en realidad no se pudo mirar")
+    assert '"fuente": fuente_univ' in src, (
+        "una corrida degradada no puede leerse igual que una completa")
+
+    # Y el censo local devuelve las claves de 1816, no las de la tabla: el
+    # detector no puede tener que saber de dónde salió el universo.
+    loc = inspect.getsource(av_agent.universo_local)
+    for clave in ("_curva", "emisorNombre", "monedaDenom", "isinCode",
+                  "fechaEmision", "fechaVencimiento"):
+        assert f'"{clave}"' in loc

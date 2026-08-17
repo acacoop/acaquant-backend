@@ -186,6 +186,51 @@ def simbolos_primary() -> set[str] | None:
         return None
 
 
+def universo_local() -> tuple[dict[str, dict], str]:
+    """El censo de 1816 desde **la copia que ya tenemos en casa**
+    (`research.mkt_1816_instrumentos`, 887 instrumentos que llena
+    `jobs/mercado_1816_discovery --apply --catalogo`).
+
+    **Por qué existe** (2026-08-17): `relevar()` arrancaba con `censar()`, o sea
+    ~29 llamadas a 1816, y si el proveedor contestaba 429 —como pasó— **la
+    relevada entera moría antes de empezar**. Pero de los cuatro detectores, el
+    único que necesita el universo de 1816 es `detectar_faltantes` («¿qué hay allá
+    que no tengo?»); los otros tres miran NUESTRA base y usan el universo, como
+    mucho, para enriquecer un mensaje.
+
+    Es el mismo error de diseño que la cadena del arreglo, en otro archivo: una
+    dependencia externa colgando de algo que casi no la necesita. Y la solución es
+    la misma — agotar lo local antes de salir a preguntar.
+
+    El catálogo local es un poco más viejo que la API, así que devuelve TAMBIÉN su
+    fecha: un faltante detectado contra una foto de hace una semana sigue siendo
+    un faltante, pero quien lo lee tiene que saber con qué se comparó.
+    """
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT ticker, denominacion, curva, curva_id, isin, fecha_emision, "
+                "fecha_vencimiento, moneda_denom, emisor, "
+                "to_char(max(actualizado_en) OVER (), 'YYYY-MM-DD') "
+                "FROM research.mkt_1816_instrumentos WHERE activo IS NOT FALSE")
+            filas = cur.fetchall()
+    except Exception:
+        logger.warning("av_agent: tampoco se pudo leer el catálogo local de 1816",
+                       exc_info=True)
+        return {}, ""
+    # Las claves son las de 1816 (`emisorNombre`, `monedaDenom`, …) y no las de la
+    # tabla: `detectar_faltantes` no puede saber de dónde salió el universo, o
+    # habría que escribir el detector dos veces.
+    univ = {r[0]: {"_curva": r[2] or "", "_curva_id": r[3],
+                   "denominacion": r[1], "isinCode": r[4],
+                   "fechaEmision": r[5].isoformat() if r[5] else None,
+                   "fechaVencimiento": r[6].isoformat() if r[6] else None,
+                   "monedaDenom": r[7], "emisorNombre": r[8]}
+            for r in filas if r[0]}
+    return univ, (filas[0][9] if filas else "")
+
+
 def tickers_ignorados() -> set[str]:
     """Los «no me interesa». **Un solo lector, y lo llaman relevar Y leer.**
 
@@ -562,8 +607,23 @@ def relevar(*, alcance: str = "soberanos",
     from core import curvas_sql, market_snapshot
     from core.postgres import get_pool
 
+    # ⚠️ **1816 NO PUEDE FRENAR LA RELEVADA ENTERA** (2026-08-17). El 429 del
+    # proveedor dejaba al job muerto antes del primer detector, y tres de los
+    # cuatro no necesitan la red para nada. Se intenta la API, y si no contesta se
+    # sigue con la copia local del catálogo; si tampoco está, se corre igual y se
+    # dice qué quedó sin mirar. **Degradar es distinto de fallar**: lo que no se
+    # pudo consultar se declara, no se disfraza de "no hay nada".
+    fuente_univ, catalogo_at, error_univ = "1816", "", ""
     if universo_1816 is None:
-        universo_1816 = (mercado_1816.censar() or {}).get("instrumentos") or {}
+        try:
+            universo_1816 = (mercado_1816.censar() or {}).get("instrumentos") or {}
+        except Exception as e:
+            error_univ = str(e)[:200]
+            universo_1816, catalogo_at = universo_local()
+            fuente_univ = "catalogo_local" if universo_1816 else "sin_universo"
+            logger.warning("av_agent: 1816 no contestó (%s) — se usa el catálogo "
+                           "local (%d instrumentos, foto del %s)", error_univ,
+                           len(universo_1816), catalogo_at or "?")
 
     docs = curvas_sql.cargar_todos()
     simbolos = [s for s in ((d.get("ticker") or "").strip() for d in docs) if s]
@@ -608,10 +668,16 @@ def relevar(*, alcance: str = "soberanos",
         # que es ruido; asumir que todo está ignorado escondería hallazgos reales.
         ignorados = set()
 
+    # **Sin universo NO se buscan faltantes.** Un universo vacío haría que
+    # `detectar_faltantes` no reporte ninguno, y "no pude mirar" jamás puede
+    # convertirse en "no falta nada" — es el mismo contrato que ya rige `en_assets`
+    # y `en_cartera` unas líneas más arriba.
+    faltantes = (detectar_faltantes(universo_1816, docs, alcance=alcance,
+                                    ignorados=ignorados, en_cartera=en_cartera,
+                                    simbolos_primary=simbolos_primary())
+                 if universo_1816 else [])
     hallazgos = [
-        *detectar_faltantes(universo_1816, docs, alcance=alcance, ignorados=ignorados,
-                            en_cartera=en_cartera,
-                            simbolos_primary=simbolos_primary()),
+        *faltantes,
         *detectar_sin_flujo(docs, universo_1816),
         *detectar_tasas_sospechosas(docs, metricas, en_assets, en_cartera,
                                     universo_1816=universo_1816),
@@ -632,6 +698,11 @@ def relevar(*, alcance: str = "soberanos",
     return {
         "alcance": alcance,
         "universo": {"1816": len(universo_1816), "mio": len(docs),
+                     # De dónde salió el universo y con qué foto se comparó. Sin
+                     # esto, una corrida degradada se lee igual que una completa.
+                     "fuente": fuente_univ, "catalogo_at": catalogo_at,
+                     "error_1816": error_univ,
+                     "faltantes_evaluados": bool(universo_1816),
                      "con_metricas": len(metricas),
                      "assets_leidos": en_assets is not None,
                      "cartera_leida": en_cartera is not None,

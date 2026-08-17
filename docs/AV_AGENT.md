@@ -767,8 +767,82 @@ chequea contra `core/instrumentos_validos` (la misma fuente que filtra las
 suscripciones de todos los motores) y lo dice antes de aplicar. `None` = no se
 pudo leer el catálogo → no se afirma nada.
 
+### E2.c — EL PRE-FLIGHT: la cadena completa, paso por paso (2026-08-17)
+
+> *«¿QUÉ PASA SI HAGO APLICAR? SABÉS SI EL PRECIO, SI LA ESPECIE ESTÁ YA, SI
+> PODRÍA SUSCRIBIRSE NORMALMENTE EN EL MOTOR, E IR A MARKET SNAPSHOT. TIENE QUE
+> PASAR TODO EL CHEQUEO, EL PASO A PASO, Y VALIDAR QUE PUEDE LLEGAR — **COMO SI
+> LO HARÍA YO MISMO**.»* — el user, 2026-08-17.
+
+**El problema.** E2.b chequeaba UN eslabón (¿Primary lista el símbolo?) y solo
+avisaba **al fallar**. Eso deja dos agujeros: los otros seis eslabones no se
+miran, y ver la pantalla sin advertencias no distingue *"todo bien"* de *"no
+chequeé"*. Y el modo de fallar de un alta **no es una excepción**: es un bono
+escrito que nunca recibe precio, cuyo síntoma es una celda vacía tres días
+después. Aplicar sin ver la cadena es firmar a ciegas.
+
+**Los ocho eslabones**, cada uno con `ok` / `falla` / `atencion` /
+`no_se_puede_saber`, la tabla real que toca y —cuando hay algo que hacer— la
+acción concreta:
+
+| # | Paso | Rompe en silencio si… |
+|---|---|---|
+| 1 | la curva de 1816 traduce a nuestros ejes | el bono se clasifica mal |
+| 2 | 1816 mandó el cuadro, con escala reconocible | viene en NOMINALES y la paridad sale ×50 |
+| 3 | la rama sabe convertirlo sin ambigüedad | `cupon_sobre_residual` significa dos cosas distintas |
+| 4 | (CER) hay `cer_emision` | el motor solo devuelve duration |
+| 5 | **el papel TIENE especie** (`mercado.especies`) | el símbolo era una adivinanza |
+| 6 | Primary lista ese símbolo | `core/websocket` filtra la suscripción → nunca hay precio |
+| 7 | el motor lo suscribe → `market_snapshot` | los motores leen `mercado.curvas` **al arrancar** |
+| 8 | hay precio hoy / la TEA se calcula / hay espejo en `assets` | la celda queda vacía, o el bono no entra al AuM |
+
+**Tres decisiones que valen más que la lista:**
+
+1. **Se devuelven TODOS los pasos, también los verdes.** Mostrar solo lo que
+   falla obliga al que mira a confiar en que el resto se chequeó — que es
+   exactamente lo que este cuadro vino a reemplazar.
+2. **El paso 7 NUNCA es verde solo.** Es una acción manual (reiniciar
+   `motor_rofex` + `motor_curvas`) y decirlo es la mitad del valor del
+   pre-flight: el alta puede estar perfecta y el bono seguir sin precio hasta el
+   próximo restart.
+3. **`no_se_puede_saber` es un estado de primera clase.** Si Postgres no
+   responde, *"no pude mirar"* no es *"no está"*: los pasos de la cadena de
+   precio salen en ese estado y el veredicto lo dice. REGLA #2 aplicada al
+   propio agente.
+
+**Lo que cambió además, y no es cosmético:**
+
+- **El símbolo deja de adivinarse.** Venía armado como `MERV - XMEV - {tk} -
+  24hs`. Ahora sale de **`mercado.especies`** (default primero, después 24hs
+  sobre CI, que es donde hay liquidez) — la MISMA fuente de la que
+  `jobs/assets_autofill` deriva `assets.instrumento`. Usar otra habría creado una
+  segunda verdad que se desincroniza sola. Sin fila en especies se cae al símbolo
+  armado, **pero el paso 5 lo canta** en vez de disimularlo.
+- **Un paso en `falla` BLOQUEA el `aplicar`.** `aplicable` mira la rama; el
+  pre-flight mira la cadena, y la cadena es lo que decide si el bono va a existir
+  de verdad o solo a estar escrito.
+- **`aplicar` dejó de pedirle el cuadro a 1816 dos veces.** Simulaba (1 llamada) y
+  volvía a pedir el cashflow para armar el payload. Esa llamada cuesta **un
+  crédito POR CUPÓN**, así que un bono de 20 cupones pagaba 40. Y peor que el
+  gasto: abría la puerta a aplicar un cuadro distinto del que se mostró, que es
+  justo lo que el simulador previene. Ahora `simular` devuelve el cuadro ya
+  convertido y `aplicar` lo reusa.
+- **El libro de acciones guarda las advertencias.** Dentro de un mes, *"¿por qué
+  este bono no tiene precio?"* se contesta mirando `av_agent_acciones` en vez de
+  reconstruirlo.
+
+Costo en queries: **una sola conexión, tres `execute`** (`especies`, `curvas`,
+`assets`) — el peaje a Supabase es de ~8.5ms por roundtrip y lo que importa es la
+cantidad, no el plan. El precio del snapshot ya se leía para simular la TEA: el
+paso 8 lo reusa en vez de pedirlo de nuevo.
+
 ## Changelog
 
+- **2026-08-17 — E2.c, el PRE-FLIGHT.** El simulador devuelve la **cadena
+  completa** (8 pasos, con los verdes incluidos) + veredicto, y un paso en falla
+  BLOQUEA el alta. El símbolo sale de `mercado.especies` en vez de armarse a
+  mano; `aplicar` dejó de pagarle a 1816 el mismo cuadro dos veces; el libro
+  guarda qué NO estaba en verde al aplicar.
 - **2026-08-17 — E2.b, calibración.** Motivo por RAMA (el texto fijo hablaba de
   CER hasta en un BADLAR); **CER pasa a alta automática** con `cer_emision`
   inferido de la fecha de emisión de 1816 + nuestra serie CER, y su cupón

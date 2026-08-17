@@ -109,9 +109,18 @@ def vista() -> dict:
         # anduvo.
         "capacidades": {
             "puede_ignorar": True,
-            "puede_dar_de_alta": False,
-            "motivo_alta": ("dar de alta necesita bajar el cuadro de flujos y "
-                            "simular la TEA — es la etapa E2. La respuesta queda "
-                            "guardada y se procesa cuando exista."),
+            # E2 ya existe: SIMULAR baja el cuadro de 1816, calcula la TEA en seco
+            # y corre el pre-flight; APLICAR escribe por `upsert_bono`. Decía
+            # `False` con el motivo "es la etapa E2" cuando E2 ya estaba hecha —
+            # una capacidad mal declarada hace que el botón se lea como roto,
+            # justo el problema que este campo venía a evitar.
+            "puede_dar_de_alta": True,
+            "motivo_alta": ("SIMULAR no escribe nada: baja el cuadro de 1816, "
+                            "calcula la TEA que tendría y valida la cadena entera "
+                            "(especie, símbolo en Primary, suscripción, snapshot). "
+                            "APLICAR solo se ofrece si esa cadena no tiene ningún "
+                            "paso bloqueado. Las ramas sin conversión inequívoca "
+                            "(tamar, dólar-linked, ajustes sin fórmula) se simulan "
+                            "igual, pero las carga un humano."),
         },
     }

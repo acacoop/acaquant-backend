@@ -408,3 +408,102 @@ def test_las_ramas_sin_conversion_automatica_dan_su_PROPIO_motivo():
     assert "A3500" in dl and "CER" not in dl
     assert "promedio" in tm.lower() and "CER" not in tm
     assert _motivo_no_aplicable("cer", Ejes("soberano", "ARS", "cer")) == ""
+
+
+# ── PRE-FLIGHT — la cadena completa antes de escribir ───────────────────────
+#
+# Estos tests existen porque el modo de fallar de un alta NO es una excepción:
+# es un bono escrito que nunca recibe precio. Media docena de eslabones rompen
+# en silencio, y lo único que los hace visibles es esta lista.
+
+def _ejes_cer():
+    from core.curvas_ejes import Ejes
+    return Ejes("soberano", "ARS", "cer")
+
+
+def _conv_ok():
+    from api.services.av_agent_alta import convertir_flujos
+    return convertir_flujos([_cup("2028-12-15", 100, 5.0)], "cer")
+
+
+def _chequear(**kw):
+    from api.services.av_agent_alta import _chequeos
+    base = dict(
+        ticker="TZXD8", curva_1816="CER", ejes=_ejes_cer(), rama="cer",
+        conv=_conv_ok(), cer_emision=791.4897, nota_cer="",
+        simbolo="MERV - XMEV - TZXD8 - 24hs", origen_simbolo="especies",
+        ctx={"ok": True, "especies": [{"simbolo": "MERV - XMEV - TZXD8 - 24hs",
+                                       "especie": "pesos", "moneda": "ARS",
+                                       "plazo": "24hs", "es_default": True,
+                                       "activa": True, "validado": True}],
+             "ya_en_curvas": False, "simbolo_actual": None,
+             "assets": [{"unidad": "[123] TZXD8", "instrumento": "x", "vigente": True}]},
+        estado_simbolo={"conocido": True, "nota": "Primary lo lista"},
+        precio=95.0, tea=0.0682)
+    base.update(kw)
+    return _chequeos(**base)
+
+
+def test_la_cadena_verde_devuelve_TODOS_los_pasos_no_solo_los_rotos():
+    """Mostrar solo lo que falla obliga a confiar en que el resto se chequeó.
+    Ver los pasos en verde ES la respuesta a «¿qué pasa si aplico?»."""
+    from api.services.av_agent_alta import _veredicto
+    ps = _chequear()
+    assert len(ps) >= 8
+    assert not [p for p in ps if p["estado"] == "falla"]
+    assert _veredicto(ps)["estado"] == "ok"
+    # El paso del reinicio NUNCA es verde solo: es una acción manual, y decirlo
+    # es la mitad del valor del pre-flight.
+    reinicio = next(p for p in ps if "market_snapshot" in p["titulo"])
+    assert reinicio["estado"] == "atencion" and "reiniciar" in reinicio["accion"]
+
+
+def test_sin_especie_el_simbolo_es_una_ADIVINANZA_y_se_dice():
+    """Armar `MERV - XMEV - {tk} - 24hs` a mano no es un hecho: hay papeles que
+    solo cotizan CI. Sin fila en especies el paso 5 falla y lo explica."""
+    ps = _chequear(ctx={"ok": True, "especies": [], "ya_en_curvas": False,
+                        "simbolo_actual": None, "assets": []},
+                   origen_simbolo="armado")
+    p5 = next(p for p in ps if p["n"] == 5)
+    assert p5["estado"] == "falla"
+    assert "ARMADO" in p5["detalle"] and "sembrar_especies" in p5["accion"]
+
+
+def test_si_la_base_no_responde_NO_se_afirma_que_falta_nada():
+    """«No pude mirar» nunca es «no está» (REGLA #2). Con la base caída los
+    pasos de la cadena de precio salen `no_se_puede_saber`, no `falla`."""
+    from api.services.av_agent_alta import _veredicto
+    ps = _chequear(ctx={"ok": False, "error": "OperationalError"})
+    assert not [p for p in ps if p["estado"] == "falla"]
+    assert [p for p in ps if p["estado"] == "no_se_puede_saber"]
+    assert _veredicto(ps)["estado"] == "no_se_puede_saber"
+
+
+def test_primary_sin_el_simbolo_BLOQUEA_porque_nunca_va_a_tener_precio():
+    """`core/websocket.agregar_suscripciones` descarta lo que no está en el
+    catálogo: el alta se escribe y la TEA queda vacía para siempre."""
+    ps = _chequear(estado_simbolo={"conocido": False, "nota": "⚠ Primary NO lista"})
+    assert next(p for p in ps if p["n"] == 6)["estado"] == "falla"
+
+
+def test_un_ticker_que_YA_esta_en_el_master_avisa_que_lo_va_a_pisar():
+    ps = _chequear(ctx={"ok": True, "especies": [], "ya_en_curvas": True,
+                        "simbolo_actual": "MERV - XMEV - TZXD8 - CI", "assets": []})
+    assert ps[0]["n"] == 0 and "PISAR" in ps[0]["detalle"]
+
+
+def test_una_rama_sin_formula_avisa_que_la_TEA_va_a_quedar_vacia(monkeypatch):
+    """El bono va a tener precio igual — el error es invisible salvo por esto.
+    Y la MISMA rama pasa en verde si su curva se valúa con 1816: lo que decide
+    no es la rama, es de dónde sale la tasa."""
+    from core import curvas_catalogo
+    from core.curvas_ejes import Ejes
+    badlar = Ejes("corporativo", "ARS", "badlar")
+
+    monkeypatch.setattr(curvas_catalogo, "fuente_valuacion", lambda a: "motor")
+    p9 = next(p for p in _chequear(rama="otros", ejes=badlar) if p["n"] == 9)
+    assert p9["estado"] == "falla" and "vacía" in p9["detalle"]
+
+    monkeypatch.setattr(curvas_catalogo, "fuente_valuacion", lambda a: "1816")
+    p9 = next(p for p in _chequear(rama="otros", ejes=badlar) if p["n"] == 9)
+    assert p9["estado"] == "ok" and "1816" in p9["detalle"]

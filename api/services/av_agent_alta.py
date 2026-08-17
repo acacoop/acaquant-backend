@@ -205,6 +205,281 @@ def _estado_simbolo(simbolo: str) -> dict:
                     "mercado.especies antes de esperar la tasa."}
 
 
+# ── PRE-FLIGHT: la cadena completa, paso por paso ────────────────────────────
+#
+# «TIENE QUE PASAR TODO EL CHEQUEO, EL PASO A PASO, VALIDAR QUE PUEDE LLEGAR,
+# COMO SI LO HARÍA YO MISMO.» Eso es literalmente lo que hace esto.
+#
+# El problema que resuelve: **APLICAR escribe una fila en `mercado.curvas` y eso
+# NO garantiza nada**. Un bono puede quedar dado de alta y sin precio para
+# siempre, y el síntoma es una celda vacía — no un error. La cadena tiene siete
+# eslabones y cada uno rompe en silencio:
+#
+#   1. la curva de 1816 traduce a nuestros ejes
+#   2. 1816 tiene el cuadro de flujos, con escala reconocible
+#   3. la rama de cálculo sabe convertir ese cuadro sin ambigüedad
+#   4. (CER) hay `cer_emision`
+#   5. la ESPECIE existe — o sea, el papel cotiza con algún símbolo
+#   6. ese símbolo está en el catálogo de Primary (si no, `core/websocket`
+#      lo filtra y la suscripción nunca sale)
+#   7. el motor lo suscribe → llega el trade → `market_snapshot` → TEA
+#   8. hay espejo en `portafolio.assets` (sin eso no entra al AuM)
+#
+# Cada paso reporta `ok` / `falla` / `atencion` / `no_se_puede_saber`. **El
+# cuarto estado no es decorativo**: si Postgres no responde, "no pude mirar" no
+# es "no está", y afirmarlo sería exactamente la REGLA #2 rota.
+OK, FALLA, ATENCION, NO_SE = "ok", "falla", "atencion", "no_se_puede_saber"
+
+
+def _paso(n: int, titulo: str, estado: str, detalle: str,
+          *, tabla: str = "", accion: str = "") -> dict:
+    return {"n": n, "titulo": titulo, "estado": estado, "detalle": detalle,
+            "tabla": tabla, "accion": accion}
+
+
+def _contexto_cadena(ticker: str) -> dict:
+    """Las 4 preguntas de base, en UNA sola conexión.
+
+    Cada roundtrip a Supabase cuesta un peaje fijo (~8.5ms medido) aunque la
+    query ejecute en 0.1ms: lo que importa es la CANTIDAD, no el plan. Cuatro
+    `cur.execute` sobre la misma conexión es lo más barato que se puede hacer
+    sin inventar un join entre tablas que no se relacionan.
+
+    Si la base no responde devuelve `{"ok": False}` y los chequeos que dependen
+    de esto salen `no_se_puede_saber` en vez de mentir.
+    """
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT simbolo, especie, moneda, plazo, es_default, activa, validado "
+                "FROM mercado.especies WHERE ticker = %s ORDER BY es_default DESC, simbolo",
+                (ticker,))
+            especies = [{"simbolo": r[0], "especie": r[1], "moneda": r[2],
+                         "plazo": r[3], "es_default": bool(r[4]),
+                         "activa": r[5] is not False, "validado": r[6]}
+                        for r in cur.fetchall()]
+
+            cur.execute("SELECT instrumento FROM mercado.curvas WHERE ticker = %s",
+                        (ticker,))
+            r = cur.fetchone()
+            ya_en_curvas, simbolo_actual = (r is not None), (r[0] if r else None)
+
+            cur.execute("SELECT unidad, instrumento, vigente FROM portafolio.assets "
+                        "WHERE ticker = %s", (ticker,))
+            assets = [{"unidad": a, "instrumento": b, "vigente": c is not False}
+                      for a, b, c in cur.fetchall()]
+        return {"ok": True, "especies": especies, "ya_en_curvas": ya_en_curvas,
+                "simbolo_actual": simbolo_actual, "assets": assets}
+    except Exception as e:
+        logger.warning("av_agent: no pude leer el contexto de cadena de %s: %s",
+                       ticker, e)
+        return {"ok": False, "error": type(e).__name__}
+
+
+def _simbolo_del_bono(ticker: str, especies: list[dict]) -> tuple[str, str]:
+    """El símbolo que se va a escribir, y de dónde salió.
+
+    **`mercado.especies` manda.** Construir `MERV - XMEV - {tk} - 24hs` a mano es
+    una ADIVINANZA: hay papeles que solo cotizan CI, y otros cuya pata en pesos
+    no se llama como el ticker. Especies es el único lugar donde vive esa
+    relación, y es la misma fuente de la que `jobs/assets_autofill` deriva
+    `assets.instrumento` — usar otra sería crear una segunda verdad.
+
+    Sin fila en especies se cae al símbolo armado, pero el chequeo 5 lo dice.
+    """
+    activas = [e for e in especies if e["activa"]]
+    pesos = [e for e in activas if (e["moneda"] or "").upper() == "ARS"]
+    for grupo in (pesos, activas):
+        if not grupo:
+            continue
+        # es_default primero (ya viene ordenado), y dentro de eso 24hs sobre CI:
+        # ahí está la liquidez, y por lo tanto el precio.
+        elegida = next((e for e in grupo if e["es_default"]), None) \
+            or next((e for e in grupo if (e["plazo"] or "") == "24hs"), None) \
+            or grupo[0]
+        return elegida["simbolo"], "especies"
+    return f"MERV - XMEV - {ticker} - 24hs", "armado"
+
+
+def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
+              cer_emision: float | None, nota_cer: str, simbolo: str,
+              origen_simbolo: str, ctx: dict, estado_simbolo: dict,
+              precio, tea) -> list[dict]:
+    """La lista ordenada. Se devuelve ENTERA, con los pasos en verde incluidos.
+
+    Mostrar solo lo que falla obliga al que mira a confiar en que el resto se
+    chequeó — que es exactamente lo que el user no quiere. Ver los ocho pasos
+    verdes ES la respuesta a «¿qué pasa si aplico?».
+    """
+    ps: list[dict] = []
+
+    ps.append(_paso(1, "La curva de 1816 se traduce a nuestros ejes", OK,
+                    f"«{curva_1816}» → emisor {ejes.emisor_tipo} · moneda "
+                    f"{ejes.moneda} · ajuste {ejes.ajuste}"
+                    + (f" (+{ejes.ajuste_alt})" if ejes.ajuste_alt else "")
+                    + (f" · ley {ejes.ley}" if ejes.ley else ""),
+                    tabla="mercado.curvas (ejes)"))
+
+    escala_ok = conv["escala"] == "vn100"
+    ps.append(_paso(2, "1816 mandó el cuadro de flujos", OK if escala_ok else ATENCION,
+                    f"{conv['n']} cupón/es · Σ amortizaciones {conv['suma_amort']} → "
+                    f"escala {conv['escala']}"
+                    + ("" if escala_ok else
+                       " — no suma ~100, así que el cuadro viene en NOMINALES. "
+                       "El motor valúa por paridad: revisar antes de aplicar."),
+                    tabla="1816 /cashflow"))
+
+    auto = rama in RAMAS_AUTOMATICAS
+    ps.append(_paso(3, "La rama de cálculo sabe convertir el cuadro sola",
+                    OK if auto else FALLA,
+                    f"rama «{rama}»" + (" — conversión inequívoca" if auto
+                                        else f" — {_motivo_no_aplicable(rama, ejes)}"),
+                    tabla="engines/curvas.py::rama_calculo",
+                    accion="" if auto else "cargar a mano con el cuadro de abajo"))
+
+    if rama == "cer":
+        ps.append(_paso(4, "CER de emisión resuelto",
+                        OK if cer_emision else FALLA,
+                        f"{cer_emision} (inferido de la fecha de emisión de 1816, "
+                        "con el mismo T−10 hábiles que usa el motor)"
+                        if cer_emision else (nota_cer or "no se pudo calcular"),
+                        tabla="macro.series_macro (CER)",
+                        accion="" if cer_emision else "cargarlo a mano en el master"))
+
+    if not ctx.get("ok"):
+        ps.append(_paso(5, "El papel cotiza (especie + símbolo + precio)", NO_SE,
+                        f"no se pudo leer la base ({ctx.get('error')}) — no se "
+                        "puede afirmar nada de la cadena de precio",
+                        tabla="mercado.especies · curvas · assets"))
+        return ps
+
+    # 5 — ¿existe la especie? Es lo que hace que el papel TENGA símbolo.
+    especies = ctx["especies"]
+    activas = [e for e in especies if e["activa"]]
+    if activas:
+        det = " · ".join(f"{e['simbolo']} ({e['moneda'] or '?'}"
+                         + (f", {e['plazo']}" if e["plazo"] else "")
+                         + (", default" if e["es_default"] else "") + ")"
+                         for e in activas[:4])
+        ps.append(_paso(5, "El papel tiene especie: cotiza con un símbolo", OK,
+                        f"{len(activas)} pata/s en el catálogo — {det}",
+                        tabla="mercado.especies"))
+    else:
+        ps.append(_paso(5, "El papel tiene especie: cotiza con un símbolo", FALLA,
+                        f"NO hay ninguna pata de {ticker} en mercado.especies. El "
+                        f"símbolo «{simbolo}» está ARMADO por convención, no "
+                        "verificado: puede que el papel cotice CI, o con otro "
+                        "sufijo, o que todavía no haya listado.",
+                        tabla="mercado.especies",
+                        accion="correr `python -m scripts.sembrar_especies --aplicar` "
+                               "y volver a simular"))
+
+    # 6 — el gate REAL de la suscripción.
+    con = estado_simbolo.get("conocido")
+    ps.append(_paso(
+        6, "Primary lista ese símbolo (si no, el WS lo filtra)",
+        OK if con is True else (FALLA if con is False else NO_SE),
+        f"«{simbolo}» ({'de mercado.especies' if origen_simbolo == 'especies' else 'armado por convención'}) — "
+        + estado_simbolo.get("nota", ""),
+        tabla="manager.pyrofex_instruments · core/instrumentos_validos",
+        accion="" if con is not False else
+               "verificar la grafía real en Primary — `core/websocket."
+               "agregar_suscripciones` descarta lo que no está en el catálogo"))
+
+    # 7 — el motor arma su universo AL ARRANCAR. Este paso NUNCA es verde solo:
+    #     es un paso MANUAL, y decirlo es la mitad del valor del pre-flight.
+    ps.append(_paso(7, "El motor lo suscribe y el precio llega a market_snapshot",
+                    ATENCION,
+                    "los motores leen mercado.curvas UNA vez, al arrancar: hasta "
+                    "reiniciar motor_rofex + motor_curvas este bono NO se suscribe "
+                    "y no va a tener precio, aunque el alta quede escrita.",
+                    tabla="mercado.market_snapshot",
+                    accion="tras aplicar: reiniciar motor_rofex y motor_curvas"))
+
+    # 8 — ¿ya hay precio HOY? Si el símbolo ya venía suscripto por otra vía, la
+    #     TEA sale en la simulación y el paso 7 deja de ser bloqueante.
+    if precio:
+        ps.append(_paso(8, "Hay precio para simular la tasa ahora", OK,
+                        f"último precio {precio} en el snapshot"
+                        + (f" → TEA simulada {tea:.4%}" if isinstance(tea, int | float)
+                           else " — pero el motor NO devolvió TEA con este cuadro: "
+                                "revisar la escala del flujo antes de aplicar"),
+                        tabla="mercado.market_snapshot"))
+    else:
+        ps.append(_paso(8, "Hay precio para simular la tasa ahora", ATENCION,
+                        "todavía no hay precio de este símbolo en el snapshot — "
+                        "esperable si nunca se suscribió. El cuadro igual queda "
+                        "listo: la TEA aparece cuando llegue el primer trade.",
+                        tabla="mercado.market_snapshot"))
+
+    # 9 — la TEA la calcula el motor solo si la rama tiene fórmula.
+    try:
+        from core import curvas_catalogo
+        fuente = curvas_catalogo.fuente_valuacion(ejes.ajuste)
+    except Exception:
+        fuente = None
+    if rama in RAMAS_AUTOMATICAS or rama in ("dolar_linked",):
+        ps.append(_paso(9, "El motor de curvas va a calcular la TEA", OK,
+                        f"la rama «{rama}» tiene fórmula en engines/curvas.py",
+                        tabla="engines/curvas.py::calcular_campos"))
+    elif fuente == "1816":
+        ps.append(_paso(9, "La tasa la trae 1816, no el motor", OK,
+                        f"la curva {ejes.ajuste.upper()} está marcada fuente=1816: "
+                        "su TEA y su margen los baja el job, igual que los TAMAR.",
+                        tabla="mercado.tamar_1816 / job de la curva",
+                        accion="verificar que el job de esa curva incluya este ticker"))
+    else:
+        ps.append(_paso(9, "El motor de curvas va a calcular la TEA", FALLA,
+                        f"el ajuste «{ejes.ajuste}» cae en el `else` del motor: solo "
+                        "computa duration. El bono va a tener precio pero la celda "
+                        "de TEA queda vacía.",
+                        tabla="engines/curvas.py",
+                        accion="marcar la curva como fuente=1816, o escribir su fórmula"))
+
+    # 10 — sin espejo en assets el bono existe para la vista pero no para el AuM.
+    assets = ctx["assets"]
+    vig = [a for a in assets if a["vigente"]]
+    if vig:
+        ps.append(_paso(10, "Entra al AuM: hay espejo en portafolio.assets", OK,
+                        f"{len(vig)} unidad/es con ticker {ticker} — "
+                        + ", ".join(a["unidad"] for a in vig[:2])
+                        + ("…" if len(vig) > 2 else ""),
+                        tabla="portafolio.assets"))
+    else:
+        ps.append(_paso(10, "Entra al AuM: hay espejo en portafolio.assets", ATENCION,
+                        f"no hay ninguna unidad con ticker {ticker}. El bono va a "
+                        "aparecer en la curva con su tasa, pero NO en AuM/Portfolios "
+                        "hasta que exista la posición (la crea el backfill de "
+                        "tenencias cuando alguien lo tenga).",
+                        tabla="portafolio.assets"))
+
+    if ctx["ya_en_curvas"]:
+        ps.insert(0, _paso(0, "⚠ Este ticker YA está en el master", ATENCION,
+                           f"mercado.curvas ya tiene {ticker} (símbolo actual: "
+                           f"{ctx['simbolo_actual']}). Aplicar lo va a PISAR con "
+                           "el cuadro de 1816.",
+                           tabla="mercado.curvas"))
+    return ps
+
+
+def _veredicto(chequeos: list[dict]) -> dict:
+    """Una línea que resume la lista, para no obligar a leerla entera."""
+    fallas = [c for c in chequeos if c["estado"] == FALLA]
+    dudas = [c for c in chequeos if c["estado"] == NO_SE]
+    if fallas:
+        return {"estado": FALLA,
+                "texto": f"{len(fallas)} paso/s bloquean la cadena: "
+                         + "; ".join(c["titulo"] for c in fallas[:2])}
+    if dudas:
+        return {"estado": NO_SE,
+                "texto": "la conversión está bien, pero no se pudo verificar "
+                         + dudas[0]["titulo"].lower()}
+    return {"estado": OK,
+            "texto": "la cadena cierra: se puede aplicar. Reiniciar los motores "
+                     "después para que empiece a recibir precio."}
+
+
 def _cer_de_emision(fecha_emision: str) -> tuple[float | None, str]:
     """El CER de liquidación a la fecha de emisión. **No hace falta que 1816 lo
     mande**: la fecha de emisión viene en su catálogo y la serie CER ya la
@@ -285,7 +560,11 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
     if rama_tent == "cer":
         cer_emision, nota_cer = _cer_de_emision(ficha.get("fecha_emision", ""))
 
-    simbolo = f"MERV - XMEV - {tk} - 24hs"
+    # El símbolo NO se adivina: sale de `mercado.especies`, la misma fuente de la
+    # que se derivan los símbolos de `portafolio.assets`. `_contexto_cadena` trae
+    # además todo lo que necesita el pre-flight, en una sola conexión.
+    ctx = _contexto_cadena(tk)
+    simbolo, origen_simbolo = _simbolo_del_bono(tk, ctx.get("especies") or [])
     doc = _doc_simulado(tk, ejes, conv, vencimiento, simbolo, cer_emision)
 
     out = {
@@ -299,6 +578,7 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         "vencimiento": vencimiento,
         "flujo_vencimiento": conv["flujo_vencimiento"],
         "simbolo": simbolo,
+        "simbolo_origen": origen_simbolo,
         # ¿Va a tener precio? Es la otra mitad de la pregunta: dar de alta no
         # alcanza — el símbolo tiene que existir en Primary para que el motor lo
         # suscriba y llegue al snapshot.
@@ -306,12 +586,29 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         "fecha_emision": ficha.get("fecha_emision") or None,
         "cer_emision": cer_emision,
         "nota_cer": nota_cer,
+        "ya_en_curvas": bool(ctx.get("ya_en_curvas")),
         "aplicable": (doc["rama"] in RAMAS_AUTOMATICAS
                       and not (rama_tent == "cer" and not cer_emision)),
         "motivo_no_aplicable": _motivo_no_aplicable(doc["rama"], ejes),
         "flujos_muestra": conv["flujos"][:3] + (["…"] if conv["n"] > 3 else []),
+        # El cuadro YA convertido. `aplicar` lo reusa en vez de volver a pedirle el
+        # cashflow a 1816: esa llamada cuesta un crédito POR CUPÓN, y pedir dos
+        # veces lo mismo no solo gasta — abre la puerta a que se aplique un cuadro
+        # distinto del que se mostró, que es justo lo que el simulador previene.
+        "cuadro": conv,
     }
     out.update(_simular_tasa(doc, simbolo, precio))
+
+    # El PRE-FLIGHT va al final porque necesita el resultado de la tasa: el paso 8
+    # ("¿hay precio?") es el mismo dato que ya se buscó para simular, y volver a
+    # pedirlo sería un roundtrip de más diciendo lo mismo.
+    out["chequeos"] = _chequeos(
+        ticker=tk, curva_1816=curva_1816, ejes=ejes, rama=doc["rama"], conv=conv,
+        cer_emision=cer_emision, nota_cer=nota_cer, simbolo=simbolo,
+        origen_simbolo=origen_simbolo, ctx=ctx,
+        estado_simbolo=out["simbolo_estado"],
+        precio=out.get("precio"), tea=out.get("tea"))
+    out["veredicto"] = _veredicto(out["chequeos"])
     return out
 
 
@@ -375,10 +672,14 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
         return {**sim, "aplicado": False}
     if not sim.get("aplicable"):
         return {**sim, "aplicado": False}
-    if sim.get("cer_emision"):
-        # Sin `cer_emision` un CER no se puede valuar: el motor devuelve solo
-        # duration. Se escribe con el mismo valor que se simuló.
-        pass
+    # Un paso del pre-flight en FALLA es un NO. `aplicable` mira la rama; esto
+    # mira la cadena entera — y la cadena es lo que decide si el bono va a
+    # existir de verdad o solo estar escrito.
+    bloqueos = [c for c in sim.get("chequeos", []) if c["estado"] == FALLA]
+    if bloqueos:
+        return {**sim, "aplicado": False,
+                "error": "el pre-flight no pasa: "
+                         + "; ".join(c["titulo"] for c in bloqueos)}
 
     # La `curva` que pide upsert_bono es la del vocabulario viejo; la RAMA que
     # calculó el motor es exactamente ese valor.
@@ -391,8 +692,7 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
     }
     if sim.get("cer_emision"):
         payload["cer_emision"] = sim["cer_emision"]
-    conv = convertir_flujos((mercado_1816.cashflow(sim["ticker"]).get("cashflow") or []),
-                            sim["rama"])
+    conv = sim["cuadro"]
     if conv["flujo_vencimiento"] is not None:
         payload["flujo_vencimiento"] = conv["flujo_vencimiento"]
     else:
@@ -408,7 +708,14 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
     acc.registrar(accion="alta_bono", objetivo=sim["ticker"], por=actor,
                   detalle={"rama": sim["rama"], "cupones": sim["cupones"],
                            "escala": sim["escala"], "tea_simulada": sim.get("tea"),
-                           "vencimiento": sim["vencimiento"]})
+                           "vencimiento": sim["vencimiento"],
+                           "simbolo": sim["simbolo"],
+                           "simbolo_origen": sim.get("simbolo_origen"),
+                           # Lo que NO estaba en verde al momento de aplicar. Dentro
+                           # de un mes, «¿por qué este bono no tiene precio?» se
+                           # contesta mirando acá en vez de reconstruirlo.
+                           "advertencias": [c["titulo"] for c in sim.get("chequeos", [])
+                                            if c["estado"] != OK]})
     try:
         from core import curvas_sql
         curvas_sql.invalidar()

@@ -10,11 +10,22 @@ Derivados (una sola fuente de verdad, calculados acá — no confía en el front
     resultado = monto_venta − monto_compra   (o manual si el registro no tiene patas)
     pct       = resultado / monto_compra
 
-Permisos (los DOS son allowlist per-usuario + admin; default-deny):
-    LECTURA   → `operaciones.mesa_dinero_lectores` ∪ `mesa_dinero_escritores`.
+Permisos (TODOS son allowlist per-usuario + admin; default-deny):
+    LECTURA COMPLETA → `operaciones.mesa_dinero_lectores` ∪ `mesa_dinero_escritores`.
                 Escribir IMPLICA leer, así las listas no se contradicen.
-    ESCRITURA → `operaciones.mesa_dinero_escritores`.
-    Las dos las edita el admin en Manager → MESA.
+    SOLO RESULTADOS  → `operaciones.mesa_dinero_lectores_resultados`: entra a la
+                vista pero SOLO a la tab RESULTADOS (por cliente / por comercial).
+                NO ve el detalle operación por operación ni ACA VALORES RETORNO.
+                Es para dar el tablero de resultados a operadores comerciales sin
+                abrirles la operatoria de la mesa. El enforcement es SERVER-SIDE
+                (`require_vista_completa` sobre /ops, /resumen y /retorno):
+                esconder la solapa en el front no es un permiso.
+    ESCRITURA        → `operaciones.mesa_dinero_escritores`.
+    Las tres las edita el admin en Manager → MESA.
+
+    El acceso MÁS AMPLIO gana (`alcance`): estar en la lista de solo-resultados
+    nunca RECORTA a quien ya veía todo — una lista que quita permisos según el
+    orden en que se consulte es una fuente de sorpresas, no de seguridad.
 
     Por qué per-usuario y no un módulo del RBAC (decisión 2026-08-11): el
     criterio de acceso a esta vista es "estas personas", no "este puesto". Con
@@ -41,8 +52,12 @@ from core.postgres import get_pool
 
 OBSERVACION_MESA = "Mesa"
 
-# TTL del permiso de LECTURA (lo pide /api/me en cada navegación — ver puede_ver).
+# TTL del permiso de LECTURA (lo pide /api/me en cada navegación — ver alcance).
 _TTL_PERMISO_S = 60
+
+# Alcances de LECTURA, de mayor a menor. `None` = sin acceso (default-deny).
+ALCANCE_TODO = "todo"                 # la vista completa (como siempre)
+ALCANCE_RESULTADOS = "resultados"     # SOLO la tab RESULTADOS
 
 # Campos editables de una operación (el resto es derivado o metadata de auditoría).
 _CAMPOS_OP = (
@@ -109,40 +124,61 @@ def puede_escribir(email: str) -> bool:
 
 
 @cached(_TTL_PERMISO_S)
-def puede_ver(email: str) -> bool:
-    """True si el usuario puede VER la vista Mesa de Dinero. Default-deny.
+def alcance(email: str) -> str | None:
+    """Hasta DÓNDE ve este usuario la vista Mesa de Dinero. Default-deny.
 
-    admin siempre; el resto si está en la allowlist de LECTURA **o** en la de
-    ESCRITURA (escribir implica leer: nadie puede cargar en una vista que no
-    ve, y con dos listas independientes ese estado incoherente sería posible).
+    `ALCANCE_TODO` → admin, o allowlist de LECTURA, o allowlist de ESCRITURA
+    (escribir implica leer: nadie puede cargar en una vista que no ve, y con
+    listas independientes ese estado incoherente sería posible).
+    `ALCANCE_RESULTADOS` → allowlist de solo-resultados.
+    `None` → sin acceso.
 
-    CACHEADO 60s a propósito: esto lo consulta `/api/me`, que corre en CADA
-    navegación del front. Sin cache serían ~28ms de round-trip a Supabase
-    sumados al hot path del RBAC (mismo hallazgo de telemetría que llevó a
-    throttlear `last_seen_at`). El TTL empata con el del cache de roles, así
-    que un alta/baja tarda hasta 60s en verse — igual que un cambio de rol.
-    Las mutaciones de las allowlists invalidan esta entrada explícitamente.
+    Gana el acceso MÁS AMPLIO: quien ya veía todo no pierde nada por estar
+    además en la lista chica.
+
+    UNA sola query para las tres tablas: esto lo consulta `/api/me`, que corre
+    en CADA navegación, y cada round-trip a Supabase cuesta un peaje fijo.
+    CACHEADO 60s por la misma razón (mismo hallazgo de telemetría que llevó a
+    throttlear `last_seen_at`); el TTL empata con el del cache de roles, así que
+    un alta/baja tarda hasta 60s en verse — igual que un cambio de rol. Las
+    mutaciones de las allowlists invalidan esta entrada explícitamente.
     """
     email_norm = (email or "").lower().strip()
     if not email_norm:
-        return False
+        return None
     from core.roles import get_user_role
     if get_user_role(email_norm) == "admin":
-        return True
+        return ALCANCE_TODO
     rows = _q(
-        "SELECT 1 FROM operaciones.mesa_dinero_lectores  WHERE email = %(e)s "
+        "SELECT 1 AS full FROM operaciones.mesa_dinero_lectores   WHERE email = %(e)s "
         "UNION ALL "
-        "SELECT 1 FROM operaciones.mesa_dinero_escritores WHERE email = %(e)s "
-        "LIMIT 1",
+        "SELECT 1 AS full FROM operaciones.mesa_dinero_escritores WHERE email = %(e)s "
+        "UNION ALL "
+        "SELECT 0 AS full FROM operaciones.mesa_dinero_lectores_resultados "
+        "WHERE email = %(e)s",
         {"e": email_norm},
     )
-    return bool(rows)
+    if not rows:
+        return None
+    return ALCANCE_TODO if any(r["full"] for r in rows) else ALCANCE_RESULTADOS
+
+
+def puede_ver(email: str) -> bool:
+    """True si el usuario entra a la vista (con CUALQUIER alcance). El detalle
+    de qué tabs ve lo decide `alcance` — esto solo gobierna el link del nav y el
+    gate de router."""
+    return alcance(email=email) is not None
+
+
+def ve_todo(email: str) -> bool:
+    """True solo si ve la vista COMPLETA (operaciones + resultados + retorno)."""
+    return alcance(email=email) == ALCANCE_TODO
 
 
 def _invalidar_permisos() -> None:
-    """Tira el cache de `puede_ver` tras tocar cualquiera de las dos allowlists
-    (las dos alimentan la misma respuesta) para que el alta/baja se vea ya."""
-    invalidate("puede_ver")
+    """Tira el cache de `alcance` tras tocar cualquiera de las allowlists (las
+    tres alimentan la misma respuesta) para que el alta/baja se vea ya."""
+    invalidate("alcance")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -153,12 +189,21 @@ def opciones(email: str = "") -> dict:
     """Opciones del formulario: traders válidos + observaciones válidas +
     clientes ya usados (sugerencias, no restrictivo) + si el usuario actual
     puede escribir (el front esconde la edición sin esto, pero el enforcement
-    real es server-side en cada write)."""
+    real es server-side en cada write) + su `alcance` (qué tabs renderizar).
+
+    Con alcance SOLO RESULTADOS se devuelven únicamente los traders (los usa el
+    filtro de la barra, que aplica a la tab RESULTADOS) — el resto son catálogos
+    del formulario de carga, que ese usuario no tiene."""
+    al = alcance(email=email)
+    if al == ALCANCE_RESULTADOS:
+        return {"traders": _traders_validos(), "observaciones": [], "clientes": [],
+                "puede_escribir": False, "alcance": al}
     return {
         "traders": _traders_validos(),
         "observaciones": _observaciones_validas(),
         "clientes": _clientes_usados(),
         "puede_escribir": puede_escribir(email),
+        "alcance": al,
     }
 
 
@@ -638,4 +683,67 @@ def quitar_lector(email: str, actor: str) -> dict:
     _invalidar_permisos()
     sigue = bool(_q(
         "SELECT 1 FROM operaciones.mesa_dinero_escritores WHERE email = %(e)s", {"e": e}))
+    return {"borrado": borrado, "sigue_viendo": sigue}
+
+
+# ─────────────────────────────────────────────────────────────
+# Lectores de SOLO RESULTADOS (acceso PARCIAL a la vista)
+# ─────────────────────────────────────────────────────────────
+# Grupo aparte: entra a /mesa-dinero pero solo a la tab RESULTADOS. Tabla propia
+# y no una columna de `mesa_dinero_lectores` porque son dos grupos de gente
+# distintos y el panel del Manager es el mismo componente para los dos.
+
+def listar_lectores_resultados() -> dict:
+    rows = _q("SELECT email, agregado_por, agregado_at "
+              "FROM operaciones.mesa_dinero_lectores_resultados ORDER BY email")
+    return {"escritores": _jsonable(rows)}   # clave `escritores`: el panel del front es el mismo
+
+
+def candidatos_lectores_resultados(q: str = "", limit: int = 30) -> dict:
+    """Usuarios que todavía no tienen NINGÚN acceso a la vista. A quien ya la ve
+    completa no se le ofrece: agregarlo acá no le cambiaría nada (gana el acceso
+    más amplio) y el panel estaría prometiendo un recorte que no existe."""
+    term = f"%{(q or '').strip()}%"
+    rows = _q(
+        "SELECT u.email, u.role FROM manager.manager_users u "
+        "WHERE u.email NOT IN (SELECT email FROM operaciones.mesa_dinero_lectores_resultados) "
+        "AND u.email NOT IN (SELECT email FROM operaciones.mesa_dinero_lectores) "
+        "AND u.email NOT IN (SELECT email FROM operaciones.mesa_dinero_escritores) "
+        "AND u.email ILIKE %(t)s ORDER BY u.email LIMIT %(lim)s",
+        {"t": term, "lim": limit},
+    )
+    return {"candidatos": rows}
+
+
+def agregar_lector_resultados(email: str, actor: str) -> dict:
+    e = (email or "").lower().strip()
+    if not e:
+        raise ValueError("falta 'email'")
+    _exec(
+        "INSERT INTO operaciones.mesa_dinero_lectores_resultados "
+        "(email, agregado_por, agregado_at) VALUES (%(e)s, %(por)s, %(at)s) "
+        "ON CONFLICT (email) DO NOTHING",
+        {"e": e, "por": (actor or "").lower() or None, "at": datetime.now(UTC)},
+    )
+    _audit(actor, "add_lector_resultados", e, {})
+    _invalidar_permisos()
+    return {"email": e}
+
+
+def quitar_lector_resultados(email: str, actor: str) -> dict:
+    """Baja del acceso parcial. `sigue_viendo` avisa si el email igual entra por
+    otra lista (lector completo o escritor): ahí sacarlo de acá no le quita nada
+    y el panel tiene que decirlo en vez de fingir que revocó algo."""
+    e = (email or "").lower().strip()
+    if not e:
+        raise ValueError("falta 'email'")
+    borrado = _exec(
+        "DELETE FROM operaciones.mesa_dinero_lectores_resultados WHERE email = %(e)s", {"e": e})
+    _audit(actor, "remove_lector_resultados", e, {})
+    _invalidar_permisos()
+    sigue = bool(_q(
+        "SELECT 1 FROM operaciones.mesa_dinero_lectores   WHERE email = %(e)s "
+        "UNION ALL "
+        "SELECT 1 FROM operaciones.mesa_dinero_escritores WHERE email = %(e)s",
+        {"e": e}))
     return {"borrado": borrado, "sigue_viendo": sigue}

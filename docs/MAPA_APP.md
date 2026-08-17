@@ -156,7 +156,7 @@ páginas.
 | 11 | **AUM** | `/aum` | `portfolios` | admin, trader, asistente_comercial | Activos bajo administración: evolución del total por cartera, snapshot con drill-down cuenta×asset, sub-vista FCI y comparación de saldos entre dos fechas. |
 | 12 | **CARTERAS** | `/valuaciones` | `portfolios` | admin, trader, asistente_comercial | Performance por cuenta: valor del portfolio, tabla mensual con TWR/TEM/XIRR, posiciones a una fecha, atribución de la variación y PnL cost-basis por título. |
 | 13 | **CONTRAPARTES** | `/contrapartes` | `operaciones` | admin, trader, asistente_comercial | Contra quién operamos: volumen bruto por contraparte, por grupo/segmento y por mes, con drill-down a los boletos de un día. |
-| 14 | **MESA DE DINERO** | `/mesa-dinero` | **ninguno** — allowlist per-usuario | admin + quien esté en `mesa_dinero_lectores`/`_escritores` | Registro MANUAL de las operaciones de la mesa (compra+venta) con resultado diario, TC manual, atribución por comercial (regla 50/50) y panel del fondo ACA R.TOTAL. |
+| 14 | **MESA DE DINERO** | `/mesa-dinero` | **ninguno** — allowlist per-usuario | admin + `mesa_dinero_lectores`/`_escritores`; `mesa_dinero_lectores_resultados` ve **solo la tab RESULTADOS** | Registro MANUAL de las operaciones de la mesa (compra+venta) con resultado diario, TC manual, atribución por comercial (regla 50/50) y panel del fondo ACA R.TOTAL. |
 | 15 | **OPERACIONES** | `/operaciones` | `operaciones` | admin, trader, asistente_comercial | Volumen y arancel de boletos de mercado, más las verticales AGRO / DÓLAR FUTURO / DIFERENCIAS DIARIAS y los depósitos/extracciones. |
 | 16 | **OPERADORES** | `/operadores` | `operaciones` (+ `control_comercial` per-usuario para una sub-vista) | admin, trader, asistente_comercial | Tablero Comercial: qué cuentas gestiona cada operador, cuánto AuM/volumen/arancel generan, estado comercial y objetivos. |
 | 17 | **REFERIDOS** | `/referidos` | `operaciones` | admin, trader, asistente_comercial | Vista para la empresa referidora: solo sus cuentas — operan, AuM, rendimientos, volumen, aranceles y comisión FCI a la coop. |
@@ -1693,22 +1693,32 @@ audit}` · cron `50 2 * * 2-6` UTC (= 23:50 ART) → `jobs.tesoreria_snapshot` (
   `operaciones`, o sea todo NEGOCIO. Se cambió porque el criterio de acceso a esta
   vista es **quiénes**, no **qué puesto**: con un módulo hacía falta un rol por cada
   combinación de personas. Mismo patrón que `require_control_comercial`.
+- **Acceso PARCIAL — SOLO RESULTADOS (2026-08-17)**: allowlist aparte
+  `operaciones.mesa_dinero_lectores_resultados`. Entra a la vista pero solo a la tab
+  **RESULTADOS**: NO ve el detalle operación por operación (activo, VN, precios, trader,
+  cliente de cada trade) ni ACA VALORES RETORNO. El corte es **server-side** —
+  `require_vista_completa` sobre `/ops`, `/resumen` y `/retorno`; el front esconde las
+  solapas, pero esconder una solapa no es un permiso. Nació para dar el tablero de
+  resultados a operadores comerciales sin abrirles la operatoria de la mesa.
+  **Gana el acceso más amplio** (`alcance` = `todo` \| `resultados` \| `None`): estar en la
+  lista chica nunca recorta a un admin, lector completo o escritor.
 - **Escritura**: allowlist `operaciones.mesa_dinero_escritores` + admin (`require_escritura_mesa`).
-- **Escribir implica ver**: `puede_ver` es la UNIÓN de las dos listas, así no puede existir un
+- **Escribir implica ver**: `puede_ver` es la UNIÓN de las listas, así no puede existir un
   usuario que cargue en una vista que no ve. Quitar a alguien de LECTORES no le saca el acceso si
-  sigue siendo ESCRITOR — el panel lo avisa (`sigue_viendo` en la respuesta del DELETE).
+  sigue siendo ESCRITOR — el panel lo avisa (`sigue_viendo` en la respuesta del DELETE); lo mismo
+  al quitarlo de la lista de solo-resultados si entra por otra.
 - **`/api/me` publica la capacidad `mesa-dinero`** dentro de `modules` para que el nav y `proxy.ts`
   la filtren igual que a un módulo. NO es un módulo del RBAC (ver la nota del árbol de nav).
 
 | Tab | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
 | **OPERACIONES** (def.) | 55/45. Izq: tabla de ops (fecha·trader·activo·VN/PX compra·VN/PX venta·montos·resultado·%·cliente·observación) + formulario de alta/edición. Der: arriba tabla RESULTADO diario (Σ resultado + TC + USD + acumulado), abajo barras por fecha | `/ops`, `/resumen`, `/resultados`, `/opciones` | **mes** (`input type=month`, persistido → `desde`/`hasta`), **trader** (Todos + catálogo), **moneda ARS/USD del gráfico** | `POST /ops`, `PATCH /ops/{id}`, `DELETE /ops/{id}` (con confirm), **`PUT /tc`** (TC del día editable desde la tabla RESULTADO) |
-| **RESULTADOS** | Agregados del período POR CLIENTE y POR COMERCIAL en ARS y USD, con `n`, `desde_operadores_ars/usd` y `dias_sin_tc` | `/resultados` | mismos mes/trader | Ninguna |
+| **RESULTADOS** | Agregados del período POR CLIENTE y POR COMERCIAL en ARS y USD, con `n`, `desde_operadores_ars/usd` y `dias_sin_tc`. **Única tab que ve el grupo de acceso parcial** (ahí las otras dos ni se dibujan) | `/resultados` | mismos mes/trader | Ninguna |
 | **ACA VALORES RETORNO TOTAL** | Filas crudas del informe Excel del fondo ACA R.TOTAL, agregadas en el cliente por OPERACIÓN / AGENTE / PAPEL / DÍA, con **cross-filter** interactivo | `/retorno` | `periodo` (`YYYY-MM`, persistido, def el más reciente) — **independiente del selector de mes**; cross-filter client-side | Ninguna — la tabla la carga **EXCLUSIVAMENTE `scripts/import_acavalores_retorno.py`** (idempotente por `periodo`) |
 
 **Endpoints (9)**: `GET /ops` (`desde`, `hasta`, `trader` exacto; orden `fecha DESC, id DESC`) ·
 `GET /resumen` (`SUM(resultado) GROUP BY fecha` + TC manual + USD + acumulados) · `GET /resultados` ·
-`GET /opciones` (traders + observaciones + clientes usados + `puede_escribir`) · `GET /retorno` ·
+`GET /opciones` (traders + observaciones + clientes usados + `puede_escribir` + **`alcance`**) · `GET /retorno` ·
 **`POST /ops`** · **`PATCH /ops/{id}`** · **`DELETE /ops/{id}`** · **`PUT /tc`** (`{fecha, tc>0}`).
 
 **`_OpPayload`**: `fecha` (obligatorio), `trader` (obligatorio, **debe estar en
@@ -1725,7 +1735,7 @@ para registros SIN patas), `cliente` (libre), `observacion` (**debe ser `"Mesa"`
 - ACA VALORES RETORNO TOTAL: la métrica es el **CASH** (`bruto`, "Moneda de Concertación Bruto") y el front lo toma en **valor absoluto** (no distingue compra/venta).
 
 **Fuentes**: `operaciones.mesa_dinero`, `mesa_dinero_tc` (PK fecha), `mesa_dinero_traders`,
-`mesa_dinero_escritores`, `mesa_dinero_lectores`,
+`mesa_dinero_escritores`, `mesa_dinero_lectores`, `mesa_dinero_lectores_resultados`,
 `mesa_dinero_audit` (before/after de op, TC, traders, escritores y lectores) ·
 `clientes.operadores` · `manager.manager_users` · `operaciones.acavalores_retorno`.
 
@@ -1737,6 +1747,7 @@ para registros SIN patas), `cliente` (libre), `observacion` (**debe ser `"Mesa"`
 | `operaciones.senebis_escritores` | Solo **crear / editar / borrar órdenes** SENEBIS. **NO cubre** marcar estado, `/visto`, `reasignar-id` ni el catálogo de agentes (esos los puede hacer todo el módulo `back-office`) | `role=="admin"` siempre | Manager → MESA |
 | `operaciones.mesa_dinero_escritores` | Alta/edición/borrado de ops de Mesa de Dinero + `PUT /tc` | `role=="admin"` siempre | Manager → MESA |
 | `operaciones.mesa_dinero_lectores` | **VER** la vista Mesa de Dinero (las 9 rutas). Única allowlist de **LECTURA** del sistema junto con el flag `control_comercial` — el resto gobierna escrituras | `role=="admin"` siempre; **y los `mesa_dinero_escritores` entran por unión** | Manager → MESA (fila de abajo) |
+| `operaciones.mesa_dinero_lectores_resultados` | Ver **SOLO la tab RESULTADOS** de Mesa de Dinero. `/ops`, `/resumen` y `/retorno` responden 403 (`require_vista_completa`) | `role=="admin"` siempre; también entran por unión los lectores completos y los escritores (gana el acceso más amplio) | Manager → MESA (fila de abajo) |
 
 Además **admin-only fuera de allowlist**: `POST /senebis/proximo-id` (`require_admin`) y cambiar el
 estado de una orden SENEBIS de un **día anterior** (chequeo dentro de `set_estado`).

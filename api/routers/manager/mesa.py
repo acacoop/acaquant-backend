@@ -16,6 +16,9 @@ Endpoints (prefix /api/manager lo agrega el paquete):
                                         Dinero (quién la VE). Escribir implica
                                         leer, así que un escritor no hace falta
                                         que esté también acá.
+  …/lectores-resultados               → allowlist de acceso PARCIAL: solo la tab
+                                        RESULTADOS (sin el detalle de las
+                                        operaciones ni ACA VALORES RETORNO)
   …/senebis-escritores               → ídem para la vista SENEBIS (allowlist
                                         propia: otro equipo, misma pantalla)
   …/tesoreria-escritores            → ídem para el SALDO INICIAL de Tesorería
@@ -121,6 +124,40 @@ def delete_lector(email: str = Query(..., min_length=3),
                   actor: str = Depends(get_user_email)) -> dict:
     try:
         return _svc.quitar_lector(email, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+# ── Lectores SOLO RESULTADOS (acceso parcial a la vista) ────────────────────
+# Mismo shape que los otros paneles. Entra a /mesa-dinero pero solo a la tab
+# RESULTADOS: sin detalle de operaciones ni ACA VALORES RETORNO.
+
+@router.get("/mesa/lectores-resultados")
+def list_lectores_resultados() -> dict:
+    return _svc.listar_lectores_resultados()
+
+
+@router.get("/mesa/lectores-resultados/candidatos")
+def lectores_resultados_candidatos(
+    q: str = Query("", description="Substring sobre email"),
+) -> dict:
+    return _svc.candidatos_lectores_resultados(q=q)
+
+
+@router.post("/mesa/lectores-resultados")
+def add_lector_resultados(req: _EscritorNew = Body(...),
+                          actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc.agregar_lector_resultados(req.email, actor=actor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/mesa/lectores-resultados")
+def delete_lector_resultados(email: str = Query(..., min_length=3),
+                             actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return _svc.quitar_lector_resultados(email, actor=actor)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 

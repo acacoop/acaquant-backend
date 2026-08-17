@@ -649,6 +649,21 @@ CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_lectores (
     agregado_at  timestamptz
 );
 
+-- ACCESO PARCIAL — SOLO la tab RESULTADOS (2026-08-17). Segunda lista, no una
+-- columna de la de arriba: son dos grupos distintos de gente y el panel del
+-- Manager es el mismo componente para las dos. Quien está acá entra a
+-- /mesa-dinero pero SOLO ve RESULTADOS (por cliente / por comercial): NO ve el
+-- detalle operación por operación (activo, VN, precios, trader) ni la tab ACA
+-- VALORES RETORNO. Nace del pedido de dar el tablero de resultados a operadores
+-- comerciales sin abrirles la operatoria de la mesa.
+-- REGLA: el acceso MÁS AMPLIO gana. Si el email también es admin, escritor o
+-- lector completo, ve TODO — esta lista solo agrega gente, nunca recorta.
+CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_lectores_resultados (
+    email        text PRIMARY KEY,           -- usuario de la app que ve SOLO resultados
+    agregado_por text,
+    agregado_at  timestamptz
+);
+
 CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_audit (
     id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     ts     timestamptz,

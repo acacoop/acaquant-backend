@@ -209,6 +209,34 @@ def abiertas(limite: int = 200) -> list[dict]:
         return [_row(r, _COLS) for r in cur.fetchall()]
 
 
+def pendientes_de_aplicar() -> list[dict]:
+    """Respuestas GUARDADAS cuyo efecto todavía no surtió (`aplicada_at IS NULL`).
+
+    Es la cola de trabajo del agente: hoy son las `alta` esperando a E2 (dar de
+    alta necesita bajar el cuadro de flujos y simular la TEA). Existe porque
+    **una decisión tomada que no se ve en ningún lado se siente como una decisión
+    perdida** — el user contestó 12 altas y no tenía dónde mirar qué pasó con
+    ellas.
+
+    Se excluye `despues`: eso no es una decisión pendiente de aplicar, es una
+    decisión pospuesta a propósito."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, clave, respuesta, nota, respondida_por, respondida_at "
+            "FROM mercado.av_agent_preguntas "
+            "WHERE estado = 'respondida' AND aplicada_at IS NULL "
+            "  AND respuesta IS DISTINCT FROM 'despues' "
+            "ORDER BY respondida_at", ())
+        cols = ["id", "clave", "respuesta", "nota", "respondida_por", "respondida_at"]
+        out = []
+        for r in cur.fetchall():
+            d = dict(zip(cols, r, strict=False))
+            d["respondida_at"] = d["respondida_at"].isoformat() if d["respondida_at"] else None
+            d["ticker"] = d["clave"].split(":", 1)[1] if ":" in d["clave"] else d["clave"]
+            out.append(d)
+        return out
+
+
 def resumen() -> dict:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT estado, count(*) FROM mercado.av_agent_preguntas "

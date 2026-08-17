@@ -185,6 +185,37 @@ def _imprimir_preguntas(abiertas: list[dict]) -> None:
           "cada noche.")
 
 
+def _imprimir_estado() -> None:
+    """Qué se decidió y qué falta que surta efecto.
+
+    Una decisión tomada que no se ve en ningún lado se siente como una decisión
+    perdida: el user contestó 12 altas y no tenía dónde mirar qué pasó con ellas.
+    """
+    r = preg.resumen()
+    pend = preg.pendientes_de_aplicar()
+    print(f"\n{'=' * 72}\nAV AGENT — ESTADO DE LO DECIDIDO")
+    print("=" * 72)
+    print(f"  Preguntas abiertas: {r['abiertas']}  ·  respondidas: {r['respondidas']}")
+    if not pend:
+        print("\n  ✔ No queda ninguna respuesta sin aplicar.")
+        return
+
+    por_resp: dict[str, list[dict]] = {}
+    for d in pend:
+        por_resp.setdefault(d["respuesta"] or "?", []).append(d)
+
+    print(f"\n  ⏳ {len(pend)} respuesta(s) GUARDADAS que todavía NO surtieron efecto:")
+    for resp, filas in sorted(por_resp.items()):
+        tks = ", ".join(sorted(d["ticker"] for d in filas))
+        print(f"\n   «{resp}» ({len(filas)}): {tks}")
+        if resp == "alta":
+            print("     Falta E2: dar de alta necesita bajar el cuadro de flujos de "
+                  "1816 y simular la TEA antes de escribir. Estas son exactamente "
+                  "las que va a procesar.")
+        else:
+            print("     Su efecto lo aplica la etapa que corresponda.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Espejo de integridad de renta fija (E1)")
     ap.add_argument("--alcance", default="soberanos", choices=sorted(av_agent.ALCANCES),
@@ -202,6 +233,8 @@ def main() -> None:
     ap.add_argument("--por", default="", help="tu email, para la trazabilidad")
     ap.add_argument("--preguntas", action="store_true",
                     help="solo muestra las preguntas abiertas (0 créditos)")
+    ap.add_argument("--estado", action="store_true",
+                    help="qué contestaste y qué falta aplicar (0 créditos)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -228,6 +261,10 @@ def main() -> None:
 
     if args.preguntas:
         _imprimir_preguntas(preg.abiertas())
+        return
+
+    if args.estado:
+        _imprimir_estado()
         return
 
     if not mercado_1816.disponible():

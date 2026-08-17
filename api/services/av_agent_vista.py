@@ -88,6 +88,10 @@ def vista() -> dict:
 
     return {
         "corrida_at": corrida_at,
+        # Lo contestado que TODAVÍA no surtió efecto. Sin esto, el user contesta
+        # 12 altas y no tiene dónde mirar qué pasó con ellas — una decisión que no
+        # se ve en ningún lado se siente como una decisión perdida.
+        "pendientes": preg.pendientes_de_aplicar(),
         "hallazgos": hallazgos,
         "por_tipo": por_tipo,
         "por_regla": por_regla,

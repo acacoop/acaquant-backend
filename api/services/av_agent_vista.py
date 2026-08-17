@@ -32,66 +32,111 @@ def _num(v) -> float | None:
         return None
 
 
-def avisos() -> list[dict]:
+def crear_avisos(ticker: str, pasos: list[dict], por: str = "") -> int:
+    """Anota los avisos que dejó un alta. Se llama al APLICAR, no al simular.
+
+    `ON CONFLICT DO NOTHING` sobre el índice parcial de abiertos: re-aplicar el
+    mismo bono no duplica la fila, pero si el user ya cerró ese aviso y el
+    problema reaparece, el nuevo SÍ entra."""
+    filas = [(ticker, p["clave"], p["aviso"], p.get("detalle", "")[:300],
+              "Manager → Títulos", por or None)
+             for p in pasos if p.get("aviso")]
+    if not filas:
+        return 0
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO mercado.av_agent_avisos "
+                "(ticker, clave, que_hacer, por_que, donde, creado_por) "
+                "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING", filas)
+        return len(filas)
+    except Exception as e:
+        logger.warning("av_agent: no se pudieron anotar los avisos de %s: %s", ticker, e)
+        return 0
+
+
+def resolver_aviso(aviso_id: int, por: str = "", deshacer: bool = False) -> dict:
+    """Marca el aviso como hecho (o lo reabre). **Lo cierra una PERSONA**, que es
+    justo lo que pidió el user: el aviso es su lista de tareas, no un derivado."""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE mercado.av_agent_avisos SET resuelto = %s, "
+                "resuelto_por = %s, resuelto_at = CASE WHEN %s THEN NULL ELSE now() END "
+                "WHERE id = %s RETURNING ticker, clave",
+                (not deshacer, (por or None) if not deshacer else None,
+                 deshacer, aviso_id))
+            fila = cur.fetchone()
+        if not fila:
+            return {"ok": False, "error": "no existe ese aviso"}
+        return {"ok": True, "ticker": fila[0], "clave": fila[1],
+                "resuelto": not deshacer}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+# Qué condición del master corresponde a cada aviso. Es lo que permite decir
+# `ya_cargado` sin que el aviso DEPENDA de eso para existir.
+_COND_AVISO = {
+    "cer_emision": lambda r: (_num(r["cer_emision"]) or 0) > 0,
+    "emisor": lambda r: bool((r["emisor"] or "").strip()),
+}
+
+
+def avisos(incluir_resueltos: bool = True) -> list[dict]:
     """**Lo que quedó para hacer A MANO.** Pedido del user (2026-08-17):
 
         *«Está bien que se cargue sin CER de emisión. Solamente tiene que haber
         una sección acá en el agente que se llame AVISOS, y todo lo que aparezca
-        ahí es para hacer manual. A los CER les perdonamos: igual me saca el
-        laburo de cargarlo en la base, me lo deja sencillo, solo poner el CER de
-        emisión y nada más.»*
+        ahí es para hacer manual… y solo desaparezca cuando yo marque el aviso
+        como ejecutado.»*
 
     Es el cambio de postura que hace útil al agente: en vez de negarse a hacer el
     95% del trabajo porque no puede hacer el 5%, **hace el 95% y deja anotado el
     5%**.
 
-    **NO se persiste, se DERIVA** — mismo criterio que el modelo de SALUD. Un
-    aviso guardado hay que acordarse de cerrarlo, y una lista de pendientes que
-    nadie limpia se deja de mirar a la semana. Acá **el aviso ES la condición**:
-    en cuanto cargás el `cer_emision`, la fila desaparece sola. No hay botón de
-    «resuelto» porque no hace falta, y no puede quedar desactualizada.
+    **Se PERSISTE y lo cierra una persona.** Mi primer diseño lo derivaba del
+    estado del master —cargás el dato y la fila se va sola— y estaba mal por dos
+    razones que el user vio antes que yo: el aviso es SU lista de tareas, y una
+    lista que se borra sola no deja ver qué había pendiente ni qué se hizo.
 
-    Alcance: **los bonos que dio de alta el agente**, no todo el master. El agente
-    avisa de SU propio trabajo; auditar los 221 bonos cargados a mano en dos años
-    es otra pregunta y merece su propia pantalla.
+    **Pero el cierre manual solo es seguro si algo lo contrasta**, si no un aviso
+    marcado como hecho sobre un dato que sigue faltando miente en silencio. Por
+    eso cada fila viaja con **`ya_cargado`**: el cruce contra el master en vivo,
+    en la misma query. Marcado hecho + dato ausente = la pantalla lo canta.
     """
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            # Un solo viaje: los tickers que aplicó el agente cruzados contra el
-            # estado ACTUAL del master. El peaje a Supabase es fijo por query
-            # (~8,5 ms), así que lo que importa es la cantidad, no el plan.
-            cur.execute("""
-                SELECT c.ticker, c.ajuste, c.emisor, c.data->>'cer_emision', a.ts
-                  FROM mercado.curvas c
-                  JOIN (SELECT objetivo, MAX(ts) AS ts
-                          FROM mercado.av_agent_acciones
-                         WHERE accion = 'alta_bono' AND ok
-                         GROUP BY objetivo) a ON a.objetivo = c.ticker
-                 ORDER BY a.ts DESC
+            cur.execute(f"""
+                SELECT a.id, a.ticker, a.clave, a.que_hacer, a.por_que, a.donde,
+                       a.creado_at, a.resuelto, a.resuelto_por, a.resuelto_at,
+                       c.data->>'cer_emision', c.emisor, (c.ticker IS NOT NULL)
+                  FROM mercado.av_agent_avisos a
+                  LEFT JOIN mercado.curvas c ON c.ticker = a.ticker
+                 {'' if incluir_resueltos else 'WHERE NOT a.resuelto'}
+                 ORDER BY a.resuelto, a.creado_at DESC
             """)
             filas = cur.fetchall()
     except Exception as e:
-        logger.warning("av_agent: no se pudieron derivar los avisos: %s", e)
+        logger.warning("av_agent: no se pudieron leer los avisos: %s", e)
         return []
 
     out: list[dict] = []
-    for ticker, ajuste, emisor, cer, ts in filas:
-        alta = ts.isoformat() if ts else None
-        # Un CER sin `cer_emision` no muestra tasa: `engines/curvas.py:438` sale
-        # con solo duration. Es el aviso que motivó toda esta sección.
-        if (ajuste or "") == "cer" and not (_num(cer) or 0) > 0:
-            out.append({"ticker": ticker, "clave": "cer_emision",
-                        "que_hacer": "Cargar el CER de emisión",
-                        "por_que": "sin ese número el bono no muestra tasa",
-                        "donde": "Manager → Títulos", "alta_at": alta})
-        # El emisor lo estandariza `jobs/ficha_1816`, pero si 1816 no lo publica
-        # queda vacío — y cualquier reporte agrupado por emisor lo deja afuera sin
-        # avisar, que es la clase de error que no se ve porque las filas suman.
-        if not (emisor or "").strip():
-            out.append({"ticker": ticker, "clave": "emisor",
-                        "que_hacer": "Cargar el emisor",
-                        "por_que": "los reportes agrupados por emisor lo dejan afuera",
-                        "donde": "Manager → Títulos", "alta_at": alta})
+    for (aid, ticker, clave, que, porque, donde, creado, resuelto,
+         rpor, rat, cer, emisor, en_curvas) in filas:
+        cond = _COND_AVISO.get(clave)
+        ya = bool(cond({"cer_emision": cer, "emisor": emisor})) if (cond and en_curvas) \
+            else None
+        out.append({
+            "id": aid, "ticker": ticker, "clave": clave, "que_hacer": que,
+            "por_que": porque, "donde": donde,
+            "creado_at": creado.isoformat() if creado else None,
+            "resuelto": resuelto, "resuelto_por": rpor,
+            "resuelto_at": rat.isoformat() if rat else None,
+            # `None` = no sabemos verificarlo (aviso sin condición conocida, o el
+            # bono ya no está en el master). No se inventa un True.
+            "ya_cargado": ya,
+        })
     return out
 
 
@@ -100,7 +145,23 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
 
     Se filtra por `corrida_at = (SELECT max(...))` y no por fecha: dos corridas
     del mismo día son dos fotos distintas, y mezclarlas mostraría hallazgos que
-    ya se arreglaron al lado de los actuales."""
+    ya se arreglaron al lado de los actuales.
+
+    ⚠️ **Y se descarta lo que YA se arregló desde esa corrida** (2026-08-17). El
+    user: *«detecté algo tremendo: hay bonos que siguen apareciendo… pero el M8
+    de CER ya lo había agregado»*. Tenía razón y su intuición del motivo también
+    («entiendo que es porque no se ejecutó de nuevo»): la lista es una FOTO y
+    relevar de nuevo cuesta ~29 créditos y 1-2 minutos de throttle, así que no se
+    puede hacer en cada apertura de la pantalla.
+
+    **Pero mostrar como faltante un bono que el agente mismo acaba de crear
+    destruye la confianza en toda la lista** — si una fila está mal, ninguna vale.
+    La salida no es rehacer la foto: es **contrastarla contra la realidad antes de
+    mostrarla**. Un `SELECT ticker FROM mercado.curvas` (una query, el peaje fijo
+    de ~8,5 ms) alcanza para tachar los `falta_en_base` que ya existen. Es el
+    mismo principio que el `ya_cargado` de los avisos: la foto se muestra, pero
+    nunca sin cotejarla.
+    """
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT max(corrida_at) FROM mercado.av_agent_hallazgos")
         fila = cur.fetchone()
@@ -111,6 +172,15 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
             f"SELECT {', '.join(_COLS_H)} FROM mercado.av_agent_hallazgos "
             "WHERE corrida_at = %s", (corrida,))
         filas = [dict(zip(_COLS_H, r, strict=False)) for r in cur.fetchall()]
+        cur.execute("SELECT ticker FROM mercado.curvas")
+        en_curvas = {r[0] for r in cur.fetchall()}
+
+    # Solo `falta_en_base` / `hueco_de_curva` caducan por existir el ticker. Un
+    # `sin_flujo` o una `tasa_sospechosa` hablan de un bono que YA está en el
+    # master, así que estar ahí no los resuelve.
+    filas = [h for h in filas
+             if h["tipo"] not in ("falta_en_base", "hueco_de_curva")
+             or h["ticker"] not in en_curvas]
     filas.sort(key=lambda h: (_ORDEN_SEV.get(h["severidad"], 9), h["ticker"]))
     return filas, corrida.isoformat()
 

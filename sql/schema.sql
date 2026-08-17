@@ -3836,3 +3836,35 @@ CREATE INDEX IF NOT EXISTS ix_av_agent_acciones_ts
     ON mercado.av_agent_acciones (ts DESC);
 CREATE INDEX IF NOT EXISTS ix_av_agent_acciones_obj
     ON mercado.av_agent_acciones (objetivo, ts DESC);
+
+
+-- AVISOS del AV AGENT: trabajo MANUAL pendiente que dejó un alta.
+--
+-- El agente hace el 95% (flujos, ejes, ficha, especies) y anota el 5% que
+-- ninguna fuente publica — el caso testigo es el `cer_emision`. Nace al APLICAR
+-- y **lo cierra una persona**: si se derivara del estado del master, cargar el
+-- dato lo haría desaparecer sin dejar rastro de que existió, y el user no
+-- tendría dónde ver qué le queda por hacer ni qué ya hizo.
+--
+-- La lectura igual CRUZA contra el master (`ya_cargado`), así que un aviso
+-- marcado como hecho sobre un dato que sigue faltando se canta en la pantalla en
+-- vez de mentir en silencio. Ese cruce es lo que hace seguro el cierre manual.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_avisos (
+    id           bigserial PRIMARY KEY,
+    ticker       text NOT NULL,
+    clave        text NOT NULL,     -- cer_emision | emisor | …
+    que_hacer    text NOT NULL,
+    por_que      text,
+    donde        text,
+    creado_at    timestamptz NOT NULL DEFAULT now(),
+    creado_por   text,
+    resuelto     boolean NOT NULL DEFAULT false,
+    resuelto_por text,
+    resuelto_at  timestamptz
+);
+
+-- Un aviso ABIERTO por (ticker, clave): re-aplicar el mismo bono no duplica la
+-- fila. El índice es PARCIAL a propósito — si el user lo cierra y el problema
+-- vuelve a aparecer en un alta posterior, ese aviso nuevo SÍ debe poder existir.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto
+    ON mercado.av_agent_avisos (ticker, clave) WHERE NOT resuelto;

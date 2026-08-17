@@ -244,6 +244,29 @@ def av_agent_designorar(body: DesignorarAvAgent, email: str = Depends(get_user_e
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+class ResolverAviso(BaseModel):
+    id: int = Field(..., ge=1)
+    deshacer: bool = False
+
+
+@router.post("/av-agent/aviso", dependencies=[Depends(require_admin)])
+def av_agent_aviso(body: ResolverAviso, email: str = Depends(get_user_email)):
+    """Marca un aviso como HECHO, o lo reabre (`deshacer`).
+
+    Los avisos son la lista de trabajo manual que dejó un alta: el agente hace el
+    95% y anota el 5% que ninguna fuente publica. **Los cierra una persona** —
+    derivarlos del estado del master los haría desaparecer sin dejar ver qué
+    había pendiente ni qué se hizo.
+
+    Reversible por la misma razón que `designorar`: sin poder deshacer, marcar
+    algo se vuelve una decisión cara y el mecanismo se deja de usar."""
+    from api.services import av_agent_vista as vista
+    r = vista.resolver_aviso(body.id, por=email or "", deshacer=body.deshacer)
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("error", "no se pudo"))
+    return r
+
+
 class SimularAvAgent(BaseModel):
     ticker: str = Field(..., min_length=2, max_length=32)
     curva_1816: str = Field(..., min_length=2, max_length=80)

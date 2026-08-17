@@ -877,3 +877,50 @@ def test_sin_CER_el_paso_del_precio_dice_la_CAUSA_y_no_culpa_a_la_escala():
     assert "escala" not in p["accion"]
     # Y el único que bloquea o avisa es la CAUSA, no el síntoma.
     assert [x["clave"] for x in ps if x["frena_auto"]] == ["cer_emision"]
+
+
+def test_un_hallazgo_YA_RESUELTO_no_se_sigue_mostrando(monkeypatch):
+    """**El «algo tremendo» que detectó el user (2026-08-17): TZXM8 ya estaba en
+    curvas y seguía en la lista de faltantes.**
+
+    Su intuición del motivo era correcta —«entiendo que es porque no se ejecutó
+    de nuevo»—: la lista es una FOTO de la última corrida, y relevar cuesta ~29
+    créditos y 1-2 minutos de throttle, así que no se puede rehacer cada vez que
+    se abre la pantalla.
+
+    Pero mostrar como faltante un bono que el agente MISMO acaba de crear destruye
+    la confianza en toda la lista: si una fila está mal, ninguna vale. La salida
+    no es rehacer la foto, es **contrastarla antes de mostrarla** — una query al
+    master. Mismo principio que el `ya_cargado` de los avisos.
+
+    Y solo caducan los tipos que la existencia del ticker resuelve: un `sin_flujo`
+    habla de un bono que YA está en el master, así que estar ahí no lo arregla."""
+    import datetime as _dt
+
+    from api.services import av_agent_vista as vista
+
+    class _Cur:
+        def __init__(self): self.paso = 0
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, args=None): self.sql = sql
+        def fetchone(self): return (_dt.datetime(2026, 8, 17, 3, 0),)
+        def fetchall(self):
+            if "FROM mercado.curvas" in self.sql:
+                return [("TZXM8",), ("TZXD8",)]      # ya dados de alta
+            return [("falta_en_base", "TZXM8", "r", "media", "m", None),
+                    ("falta_en_base", "TZXA7", "r", "media", "m", None),
+                    ("sin_flujo", "TZXD8", "r", "alta", "m", None)]
+
+    class _Conn:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def cursor(self): return _Cur()
+
+    monkeypatch.setattr(vista, "get_pool", lambda: type("P", (), {
+        "connection": staticmethod(_Conn)})())
+    filas, _ = vista._hallazgos_ultima_corrida()
+    tickers = {h["ticker"] for h in filas}
+    assert "TZXM8" not in tickers          # ya está en curvas → no falta más
+    assert "TZXA7" in tickers              # sigue faltando de verdad
+    assert "TZXD8" in tickers              # sin_flujo NO caduca por existir

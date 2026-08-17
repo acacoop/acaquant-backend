@@ -1477,13 +1477,19 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
                            # contesta mirando acá en vez de reconstruirlo.
                            "advertencias": [c["titulo"] for c in sim.get("chequeos", [])
                                             if c["estado"] != OK]})
+
+    # Los AVISOS: lo que este alta dejó para hacer a mano. Se anotan DESPUÉS de
+    # escribir —solo tienen sentido si el bono entró— y los cierra una persona
+    # desde la tab AVISOS.
+    from api.services import av_agent_vista as _vista
+    n_avisos = _vista.crear_avisos(sim["ticker"], sim.get("chequeos", []), por=actor)
     try:
         from core import curvas_sql
         curvas_sql.invalidar()
     except Exception:
         pass
     return {**sim, "aplicado": True, "upsert": r, "siembra": siembra,
-            "tasa_sembrada": tasa_sembrada,
+            "tasa_sembrada": tasa_sembrada, "avisos_creados": n_avisos,
             "aviso": "los motores cargan mercado.curvas AL ARRANCAR: la TEA de este "
                      "bono aparece recién tras reiniciar motor_rofex + motor_curvas"
                      + (f" · especies sembradas: {', '.join(siembra['simbolos'])}"

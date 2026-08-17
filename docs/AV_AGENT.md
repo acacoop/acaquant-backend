@@ -1366,8 +1366,67 @@ texto y poco claros, muchas palabras.»* Reescritos todos a una línea:
 La regla que queda: **el detalle de un paso es una línea**. Si necesita un
 párrafo, el que sobra es el párrafo, no el lugar donde ponerlo.
 
+### E2.m — El aviso lo cierra una PERSONA, y la foto se coteja (2026-08-17)
+
+**1. Me equivoqué en el diseño de los avisos.** En E2.l los DERIVÉ del estado del
+master —cargás el `cer_emision` y la fila desaparece sola— y argumenté que era
+mejor. El user:
+
+> *«Justamente la idea es aplicarlo y que quede el aviso de que le falta el CER,
+> y solo desaparezca cuando yo marque el aviso como ejecutado.»*
+
+Tiene razón por dos motivos que no vi. **El aviso es SU lista de tareas**, no un
+reporte de estado: una lista que se borra sola no deja ver qué había pendiente ni
+qué se hizo. Y derivarlo confunde dos cosas distintas — *«el dato está»* y *«yo
+ya me ocupé de esto»*.
+
+Ahora se persiste en `mercado.av_agent_avisos`, nace al APLICAR y lo cierra el
+user (`POST /api/ia/av-agent/aviso`, reversible como `designorar`).
+
+**Pero el cierre manual solo es seguro si algo lo contrasta.** Un aviso marcado
+como hecho sobre un dato que sigue faltando mentiría en silencio — el riesgo que
+la derivación no tenía. Por eso cada fila viaja con **`ya_cargado`**: el cruce
+contra el master en vivo, en la misma query. La pantalla lo dice en los dos
+sentidos: *«⚠ el dato sigue faltando»* sobre un aviso cerrado, y *«✔ ya está
+cargado — podés marcarlo»* sobre uno abierto. **La decisión es del user; la
+verificación es del sistema.**
+
+**2. «Algo tremendo»: TZXM8 ya estaba en curvas y seguía en la lista de
+faltantes.** Y la intuición del user sobre el motivo era correcta —*«entiendo que
+es porque no se ejecutó de nuevo»*—: la lista es una **foto** de la última
+corrida, y relevar cuesta ~29 créditos y 1-2 minutos de throttle, así que no se
+puede rehacer cada vez que se abre la pantalla.
+
+**Pero mostrar como faltante un bono que el agente MISMO acaba de crear destruye
+la confianza en toda la lista**: si una fila está mal, ninguna vale. Y no hay
+forma de que el user distinga cuáles caducaron.
+
+La salida no es rehacer la foto: es **contrastarla contra la realidad antes de
+mostrarla**. Un `SELECT ticker FROM mercado.curvas` —una query, el peaje fijo de
+~8,5 ms— alcanza para tachar los `falta_en_base` y `hueco_de_curva` que ya
+existen. Solo esos dos tipos caducan: un `sin_flujo` habla de un bono que YA está
+en el master, así que estar ahí no lo resuelve.
+
+**Es el mismo principio que el `ya_cargado` de los avisos, y vale como regla
+general del agente: la foto se muestra, pero nunca sin cotejarla.** Un dato
+persistido que se puede contradecir con una query barata debe contradecirse
+siempre — mostrarlo crudo es más rápido de escribir y más caro de confiar.
+
 ## Changelog
 
+- **2026-08-17 — E2.m, cierre manual del aviso + la foto se coteja.** Los avisos
+  se **PERSISTEN** (`mercado.av_agent_avisos`) y **los cierra el user**, no el
+  sistema: derivarlos (mi diseño de E2.l) confundía «el dato está» con «yo ya me
+  ocupé», y borraba la lista de tareas sola. El cierre manual se hace seguro con
+  **`ya_cargado`** —cruce contra el master en la misma query— que canta un aviso
+  marcado hecho sobre un dato ausente, y sugiere marcar uno abierto cuyo dato ya
+  está. **Y los hallazgos caducados dejan de mostrarse**: TZXM8 seguía en
+  «faltantes» después de que el agente lo creara, porque la lista es la foto de
+  la última corrida (relevar cuesta ~29 créditos, no se rehace por pantalla) —
+  ahora se contrasta contra `mercado.curvas` antes de mostrarla y caducan solo
+  `falta_en_base`/`hueco_de_curva`. Regla que queda: **la foto se muestra, pero
+  nunca sin cotejarla**. Endpoint nuevo → `MAPA_APP.md` regenerado (estaba stale
+  desde antes: `/api/ia` decía 11 endpoints y tiene 17). 1 test.
 - **2026-08-17 — E2.l, AVISOS y causalidad entre pasos.** El CER de emisión **ya
   no bloquea**: pasa a `revisar` + aviso, porque negarse a hacer el 95% del alta
   por un dato que ninguna fuente publica es tirar el trabajo hecho (decisión del

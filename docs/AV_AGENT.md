@@ -1447,8 +1447,58 @@ De yapa: el encabezado seguía diciendo *«revisar la escala del flujo o la pata
 mientras la cadena, dos renglones abajo, decía que falta el CER de emisión —
 misma causalidad de E2.l, aplicada también a esa línea.
 
+### E2.o — RAMA y CURVA son dos vocabularios (2026-08-17)
+
+El libro de acciones, con el alta de TMG27 fallada dos veces:
+
+```
+✘ Dio de alta el bono   TMG27   mercado.curvas
+  curva inválida: 'otros' (válidas: tasa_fija, cer, soberanos, dolar_linked, tamar, dual)
+```
+
+**El agente clasificó BIEN.** Los ejes salieron correctos —`soberano · ARS ·
+tamar`— y el paso de la rama dijo lo que corresponde: *«la tasa la trae
+jobs/tamar_1816»*. Lo que falló fue una **traducción en el último paso**:
+
+| | valores |
+|---|---|
+| **rama** — qué FÓRMULA usa el motor | tasa_fija · cer · soberanos · dolar_linked · **otros** |
+| **curva** — qué TIPO de instrumento es | tasa_fija · cer · soberanos · dolar_linked · **tamar** · **dual** |
+
+`aplicar()` mandaba `curva = rama`, con un comentario que afirmaba que eran el
+mismo valor. **Coinciden en cuatro de cinco, que es exactamente por qué sobrevivió
+tanto**: solo se rompe con TAMAR y con los duales. Y `otros` no significa «no sé
+qué es»: significa **«no le calculamos la tasa nosotros»** — una clasificación
+correcta, copiada a un campo que habla otro idioma.
+
+⚠️ **`curva='soberanos'` NO es «soberano en pesos».** Es la curva hard-dólar
+(globales/bonares) y su matemática pasa por el MEP. El eje `emisor_tipo=soberano`
+es otra cosa: un TAMAR es soberano Y su curva es `tamar`. Mapearlo a `soberanos`
+—que es lo que sugiere la intuición— lo habría valuado con la cuenta equivocada
+sin un solo error en pantalla, que es el modo de falla favorito de este dominio.
+
+**Sin equivalente no se inventa uno.** `badlar`, `tpm` y `caucion` son ajustes
+válidos sin curva en `CURVAS_BONO`: `curva_destino` devuelve `""` y el pre-flight
+BLOQUEA con el motivo, en vez de escribirlos bajo una curva parecida y que la
+vista los agrupe mal para siempre.
+
+**Y el paso que faltaba: «La escritura va a ser aceptada».** El user: *«¿por qué
+lo permitió aplicar?»*. Porque el pre-flight validaba 13 cosas sobre los DATOS y
+**ninguna sobre si la escritura iba a entrar**. Ahora valida el campo contra la
+MISMA constante que usa el writer, así que no puede desincronizarse — y es el
+chequeo más barato de los 14.
+
 ## Changelog
 
+- **2026-08-17 — E2.o, RAMA ≠ CURVA.** El alta de un TAMAR moría al
+  escribir («curva inválida: 'otros'»): `aplicar()` mandaba `curva = rama` y son
+  dos vocabularios que **coinciden en 4 de 5 valores** —por eso sobrevivió—; un
+  TAMAR cae en la rama `otros` pero su curva se llama `tamar`. Nuevo
+  `curva_destino()`, que además devuelve `""` para `badlar`/`tpm`/`caucion` (no
+  tienen curva) en vez de forzar una parecida. Y **paso nuevo del pre-flight —
+  «La escritura va a ser aceptada»**: validaba 13 cosas sobre los datos y ninguna
+  sobre si el write iba a entrar, contra la misma constante que usa el writer.
+  2 tests.
 - **2026-08-17 — E2.n, se elimina el SEGUNDO gate.** Tercera vez
   el mismo bug: cadena en verde, veredicto diciendo «se puede aplicar» y sin
   botón APLICAR, porque `aplicable` contestaba la misma pregunta con otro

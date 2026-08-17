@@ -957,3 +957,39 @@ def test_el_VEREDICTO_es_el_UNICO_gate_y_aplicable_es_redundante():
     ps = _chequear(cer_emision=None, nota_cer="la serie no llega")
     assert _veredicto(ps)["puede_aplicar"] is True
     assert _veredicto(ps)["puede_auto"] is False
+
+
+def test_RAMA_y_CURVA_son_dos_vocabularios_y_un_TAMAR_va_a_curva_tamar():
+    """**El alta de TMG27 murió al escribir: «curva inválida: 'otros'».**
+
+    El agente clasificó BIEN — ejes `soberano · ARS · tamar`, y el paso de la rama
+    dijo correctamente que la tasa la trae `jobs/tamar_1816`. Lo que falló fue una
+    TRADUCCIÓN en el último paso: se mandó `curva = rama`, y son dos vocabularios:
+
+        rama  = qué FÓRMULA usa el motor  → …, otros
+        curva = qué TIPO de instrumento   → …, tamar, dual
+
+    Coinciden en cuatro de los cinco valores, que es exactamente por qué el bug
+    sobrevivió con un comentario afirmando que eran el mismo valor."""
+    from api.services.av_agent_alta import curva_destino
+    from core.curvas_ejes import Ejes
+    # Un TAMAR: rama `otros`, pero su curva EXISTE y se llama `tamar`.
+    assert curva_destino("otros", Ejes("soberano", "ARS", "tamar")) == "tamar"
+    # Las cuatro que sí coinciden siguen igual.
+    assert curva_destino("cer", Ejes("soberano", "ARS", "cer")) == "cer"
+    assert curva_destino("soberanos", Ejes("soberano", "USD", "fija")) == "soberanos"
+    # Y un ajuste SIN curva equivalente no se fuerza a una parecida: devuelve ""
+    # para que el pre-flight lo bloquee con el motivo.
+    assert curva_destino("otros", Ejes("soberano", "ARS", "badlar")) == ""
+
+
+def test_el_preflight_BLOQUEA_si_la_escritura_va_a_ser_rechazada():
+    """*«¿Por qué lo permitió aplicar?»* — porque el pre-flight validaba 13 cosas
+    sobre los DATOS y ninguna sobre si la escritura iba a entrar. Este es el
+    eslabón que faltaba, y valida contra la MISMA constante que usa el writer."""
+    from api.services.av_agent_alta import _veredicto
+    from core.curvas_ejes import Ejes
+    ps = _chequear(rama="otros", ejes=Ejes("soberano", "ARS", "badlar"))
+    p = next(x for x in ps if x["clave"] == "curva_destino")
+    assert p["estado"] == "bloquea" and "badlar" in p["detalle"]
+    assert _veredicto(ps)["puede_aplicar"] is False

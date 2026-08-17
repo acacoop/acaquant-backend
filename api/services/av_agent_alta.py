@@ -577,6 +577,25 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                     tabla="engines/curvas.py::rama_calculo",
                     accion="" if auto else "cargar a mano con el cuadro de abajo"))
 
+    # ⚠️ **¿El DESTINO va a aceptar esto?** El pre-flight validaba 13 cosas sobre
+    # los DATOS y ninguna sobre si la escritura iba a entrar. TMG27 pasó los 13
+    # pasos en verde, mostró APLICAR, y `upsert_bono` lo rechazó con «curva
+    # inválida: 'otros'». El user: *«¿por qué lo permitió aplicar?»* — porque
+    # nadie estaba chequeando eso.
+    #
+    # Es el eslabón que faltaba y el más barato de todos: se valida el mismo campo
+    # contra la misma constante que usa el writer, así que no puede desincronizarse.
+    cur_dest = curva_destino(rama, ejes)
+    ps.append(_paso("curva_destino", "La escritura va a ser aceptada",
+                    OK if cur_dest else BLOQUEA,
+                    f"curva «{cur_dest}»" if cur_dest else
+                    f"el ajuste «{ejes.ajuste}» no tiene curva en el catálogo de "
+                    "mercado.curvas, así que el alta sería rechazada al escribir",
+                    tabla="mercado.curvas (curva)",
+                    accion="" if cur_dest else
+                           f"agregar «{ejes.ajuste}» a bonos_admin.CURVAS_BONO, o "
+                           "cargar el bono a mano con la curva que corresponda"))
+
     if rama == "cer":
         # **NO bloquea (decisión del user, 2026-08-17).** Es el único dato que el
         # agente no puede sacar de ningún lado, y el alta igual hace todo el resto:
@@ -982,6 +1001,34 @@ def _fallo_ref(e, moneda: str, pedido: dict) -> dict:
             "pedido": pedido}
 
 
+def curva_destino(rama: str, ejes) -> str:
+    """La `curva` que hay que escribir en `mercado.curvas`. `""` si no hay una.
+
+    ⚠️ **RAMA y CURVA son DOS VOCABULARIOS DISTINTOS, y el alta los confundía.**
+    Medido en TMG27 (2026-08-17): el alta mandaba `curva = rama` con un comentario
+    que decía «la RAMA que calculó el motor es exactamente ese valor» — y es cierto
+    para cuatro de ellos, que es justo por qué nadie lo notó:
+
+        rama  (qué FÓRMULA usa el motor)  tasa_fija · cer · soberanos ·
+                                          dolar_linked · **otros**
+        curva (qué TIPO de instrumento)   tasa_fija · cer · soberanos ·
+                                          dolar_linked · **tamar** · **dual**
+
+    Un TAMAR cae en la rama `otros` —no le calculamos la tasa a propósito— pero su
+    curva **existe y se llama `tamar`**. Al mandar `otros`, `upsert_bono` rechazaba
+    el alta con «curva inválida».
+
+    **Sin equivalente NO se inventa uno.** `badlar`, `tpm` y `caucion` son ajustes
+    válidos que no tienen curva en `CURVAS_BONO`: devolver `""` hace que el
+    pre-flight lo BLOQUEE con el motivo, en vez de escribirlos bajo una curva
+    parecida y que la vista los agrupe mal para siempre.
+    """
+    from api.services.bonos_admin import CURVAS_BONO
+    if rama in CURVAS_BONO:
+        return rama
+    return ejes.ajuste if ejes.ajuste in CURVAS_BONO else ""
+
+
 def _sin_rueda(intentos: list[str]) -> str:
     """Mensaje de «ninguna rueda trajo datos», diciendo CUÁLES se probaron.
 
@@ -1275,6 +1322,10 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None) -> dic
         # Queda solo para PINTAR el motivo en la pantalla. **Quien decide si se
         # puede aplicar es el veredicto, y nadie más.**
         "aplicable": _alta_automatica(doc["rama"], ejes),
+        # La `curva` que se va a escribir. Viaja RESUELTA desde la simulación para
+        # que `aplicar` no la vuelva a derivar: eso sería otra vez dos lugares
+        # calculando lo mismo, que es el bug que se repitió tres veces.
+        "curva_destino": curva_destino(doc["rama"], ejes),
         "motivo_no_aplicable": _motivo_no_aplicable(doc["rama"], ejes),
         "flujos_muestra": conv["flujos"][:3] + (["…"] if conv["n"] > 3 else []),
         # El cuadro YA convertido. `aplicar` lo reusa en vez de volver a pedirle el
@@ -1422,11 +1473,9 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "") -> dict:
                 "error": "el pre-flight no pasa: "
                          + "; ".join(c["titulo"] for c in bloqueos)}
 
-    # La `curva` que pide upsert_bono es la del vocabulario viejo; la RAMA que
-    # calculó el motor es exactamente ese valor.
     payload = {
         "ticker_corto": sim["ticker"], "ticker": sim["simbolo"],
-        "curva": sim["rama"], "valor_nominal": 100.0,
+        "curva": sim["curva_destino"], "valor_nominal": 100.0,
         "fecha_vencimiento": sim["vencimiento"],
         "moneda_flujo": "USD" if sim["ejes"]["moneda_eje"] == "USD" else "ARS",
         **{k: v for k, v in sim["ejes"].items() if v},

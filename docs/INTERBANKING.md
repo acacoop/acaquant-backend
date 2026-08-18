@@ -508,9 +508,15 @@ la query extra se paga **solo en el caso perdido**, no en el camino normal.
 
 El saldo al cierre de **todas** las cuentas en una sola grilla, para pasar hacia
 afuera. Es una **matriz**: una **columna por banco**, una **fila por cuenta**, y
-en el cruce el saldo. Como cada cuenta pertenece a un solo banco, la grilla queda
-escalonada — que es exactamente cómo se lee un reporte de posición bancaria y
-cómo se pega en una planilla.
+en el cruce el saldo.
+
+⚠️ **Se parte en BLOQUES de 5 bancos**, apilados, cada uno con su propia fila de
+títulos. En una sola tabla los 9 bancos son **19 columnas**: no entra en pantalla
+y —peor— queda casi vacía, porque cada cuenta pertenece a UN banco y las otras 8
+celdas de su fila van en blanco. Partido, **las filas de cada bloque son solo las
+cuentas de sus bancos**: dos tablas densas en vez de una gigante y hueca. La
+cabecera azul con el logo va **una sola vez**, arriba de todo — repetirla
+partiría el reporte en dos documentos en lugar de en dos partes del mismo.
 
 Dos separadores en blanco, y ninguno es decorativo:
 
@@ -533,7 +539,9 @@ no es una pantalla de trabajo.
     proxy de Next suma `foto` a su lista de escrituras permitidas (era solo
     `gastos`).
   · **REPORTE FINAL** (ver arriba) — 100% front, sobre los datos que la vista ya
-    tiene: no cuesta ni una query.
+    tiene: no cuesta ni una query. Partido en bloques de 5 bancos (`BANCOS_POR_BLOQUE`):
+    la primera versión era una matriz de 19 columnas con el 90% de las celdas
+    vacías.
   · **Títulos**: «Reglas para contabilizar Gastos Bancarios» y «Desglose para
     contabilizar Impuestos». El botón dice qué contabiliza cada cosa, que es la
     pregunta real — «reglas» y «desglose» a secas no distinguen una de otra.

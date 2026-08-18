@@ -75,7 +75,7 @@ agente **ya implementa sin haberlo llamado así**:
 | Recompensas verificables | la verificación local del arreglo | ✅ |
 | Human-in-the-loop | el humano aprueba toda escritura | ✅ |
 | Data provenance / accountability | evidencia congelada + libro de acciones | ✅ |
-| Evaluation sets | `mercado.av_agent_evals` | 🟡 recién nacido |
+| Evaluation sets | `mercado.av_agent_evals` | 🟡 tabla + endpoints, **sin UI de voto** |
 | Exemplar learning | `av_agent_ignorados` con motivo | 🟡 semilla |
 | Memoria / RAG / vector stores | — | ❌ no hace falta todavía |
 | Multiagente, swarms, actor frameworks | — | ❌ **no aplica a esta escala** |
@@ -88,7 +88,7 @@ Cada capa se apoya en la anterior. **Ninguna se saltea.**
 | # | Capa | Qué habilita | Estado |
 |---|---|---|---|
 | 1 | **Medición** — eval set con voto humano | saber si acierta | 🟡 en curso |
-| 2 | **Cobertura** — SALUD adentro del agente | una sola pregunta: ¿está sano? | 🟡 en curso |
+| 2 | **Cobertura** — SALUD adentro del agente | una sola pregunta: ¿está sano? | ✅ leído y razonado (no escribe) |
 | 3 | **Memoria de casos** — exemplar learning | *«esto se parece a PECNO»* | ⬜ |
 | 4 | **El LLM donde aporta** — leer prospectos, redactar, agrupar | lo que la regla no puede | ⬜ |
 | 5 | **Shadow mode** — propone y registra sin escribir | medir la lane automática | ⬜ |
@@ -113,16 +113,23 @@ Cómo quedó, sin romper nada de lo que ya andaba:
   entran como hallazgos `tipo="salud"`, con la misma forma que el resto. Su
   lectura va en `try` propio — que la observabilidad se caiga no puede tumbar la
   relevada de bonos.
-- `av_agent_salud.diagnosticar()` razona un chequeo con **8 lentes**: qué es ·
-  ¿corrió cuando debía? · ¿salió bien? · ¿dejó el dato fresco? · ¿ya pasó antes? ·
-  qué se rompe aguas abajo · **la lectura con IA** (la única que gasta tokens, y
-  va última) · qué haría falta para arreglarlo.
+- `av_agent_salud.diagnosticar()` razona un chequeo con **10 lentes**: qué es ·
+  ¿corrió cuando debía? · ¿salió bien? · ¿dejó el dato fresco? · **qué dice el
+  LOG** · **la FIRMA del error** (lo cruza contra las lecciones ya aprendidas) ·
+  ¿ya pasó antes? · qué se rompe aguas abajo · **la lectura con IA** (la única
+  que gasta tokens, y va última) · **el comando exacto para volver a correrlo**.
+  Las dos del medio y la última son de 2026-08-18: sin ellas el agente decía que
+  el job falló pero no POR QUÉ, que es lo único que sirve para decidir.
 - **NO escribe nada del lado de SALUD.** SALUD sigue siendo el dueño de su
   estado: si el agente escribiera el suyo habría dos verdades sobre si el sistema
   está sano, que es el problema que la fusión vino a eliminar.
-- `ACCION_POR_TIPO["salud"] = None` **explícito**: el agente lo ve y lo razona,
-  pero todavía no lo arregla. Relanzar un job tiene efectos afuera de
-  `mercado.curvas` y se habilita cuando el eval set diga que acierta.
+- `ACCION_POR_TIPO["salud"] = "salud"` — una **puerta de SOLO LECTURA**
+  (2026-08-18). Nació en `None`, que escondía el botón: el agente razonaba el
+  chequeo y no había forma de pedírselo desde la pantalla. Ahora la puerta
+  existe y **no escribe**: el modal fuerza `puedeAplicar = false`, y no pinta
+  «BLOQUEADO» porque no es que el agente frenó algo — es que todavía no escribe
+  de ese lado. Relanzar un job tiene efectos afuera de `mercado.curvas` y se
+  habilita cuando el eval set diga que acierta.
 
 **Los pasos y el veredicto se IMPORTAN de la puerta de bonos, no se copian.** Que
 SALUD y un bono se vean IGUAL en el modal no es estética: es lo que permite que

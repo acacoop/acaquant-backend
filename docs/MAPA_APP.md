@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **516 endpoints** montados en `api.main.app`, en **1 routers**.
-- **185 escriben** (POST/PUT/PATCH/DELETE); 331 son de solo lectura.
+- **525 endpoints** montados en `api.main.app`, en **1 routers**.
+- **190 escriben** (POST/PUT/PATCH/DELETE); 335 son de solo lectura.
 - **23 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -47,11 +47,11 @@
 <!-- AUTOGEN:routers -->
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
-| `(raíz)` | 516 | 185 | — · 509 rutas con gate extra | — | ⚠️ |
+| `(raíz)` | 525 | 190 | — · 518 rutas con gate extra | — | ⚠️ |
 
 **⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
 
-- `(raíz)` (117 de 516 rutas sin gate de módulo)
+- `(raíz)` (117 de 525 rutas sin gate de módulo)
 
 No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtime** (solo lo consume un test), y para los módulos que todos los roles tienen se decidió no gatear. Lo que sí implica es que **destildar esos módulos en Manager → Roles no bloquea nada server-side**: solo esconde el link en el menú.
 

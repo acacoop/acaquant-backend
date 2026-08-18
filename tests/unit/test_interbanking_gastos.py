@@ -157,15 +157,41 @@ def test_lo_que_no_cae_en_ningun_balde_va_a_RESTO():
 
 
 def test_ningun_movimiento_cae_en_dos_baldes():
-    """El invariante que hace que el desglose SUME. Se prueba con el valor de
-    cada balde contra todos los demás."""
+    """El invariante que hace que el desglose SUME: cada matcher declarado tiene
+    que caer en SU balde y no en otro. Se prueba con el valor exacto de cada uno."""
     for balde in DESGLOSE_GASTOS:
-        campo = balde["campo"]
-        for _, valor in balde["matchers"]:
+        for campo, _, valor in balde["matchers"]:
             mov = _m(**{"concepto" if campo == "descripcion_ib" else "descripcion": valor})
             assert desglosar(mov) == balde["clave"], (
                 f"«{valor}» debería caer en {balde['clave']} y cayó en {desglosar(mov)}"
             )
+
+
+def test_com_transf_suma_las_TRES_grafias():
+    """El mismo cobro llega de tres formas según el banco: como CONCEPTO
+    abreviado, o escrito en la DESCRIPCIÓN de dos maneras distintas. Las tres
+    tienen que sumar a la misma columna.
+
+    Es el caso que obligó a mover el CAMPO adentro del matcher: un balde tiene
+    que poder mirar `descripcion_ib` Y `descripcion_banco` a la vez."""
+    assert desglosar(_m(concepto="COM.TRANSF")) == "comtransf"
+    assert desglosar(_m(descripcion="N/D - COMISIONES DATANET")) == "comtransf"
+    assert desglosar(_m(descripcion="N/D - COMISION ECHEQ CLEA")) == "comtransf"
+
+
+def test_com_transf_agarra_aunque_el_texto_siga():
+    """La descripción viene truncada y con cola: `COMISION ECHEQ CLEA 4471`
+    tiene que contar igual que `COMISION ECHEQ CLEA` pelado."""
+    assert desglosar(_m(descripcion="N/D - COMISION ECHEQ CLEA 4471 XX")) == "comtransf"
+
+
+def test_el_IVA_de_una_comision_datanet_sigue_siendo_IVA():
+    """⚠️ El que se rompe fácil. Un movimiento cuyo CONCEPTO es IVA y cuya
+    DESCRIPCIÓN menciona la comisión es el IVA de esa comisión — no la comisión.
+    Si cayera en COM.TRANSF, esa columna mostraría de más y IVA de menos, y el
+    total seguiría dando bien: un error que no se ve."""
+    mov = _m(concepto="IVA", descripcion="N/D - COMISIONES DATANET")
+    assert desglosar(mov) == "iva"
 
 
 def test_las_claves_son_unicas():

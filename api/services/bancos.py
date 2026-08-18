@@ -53,10 +53,14 @@ OPERADORES_REGLA = ("igual", "contiene")
 # ese total es IVA, cuánto percepción y cuánto comisión. Es una separación de
 # PRESENTACIÓN — no cambia ningún número, parte el que ya está.
 #
-# Cada balde declara sobre qué campo mira y con qué matchers. Un balde puede
-# tener VARIOS porque el mismo concepto se escribe distinto según el banco
-# (Patagonia dice `IMP.DB/CR BANCARIOS P/DEB`, BIND dice `LEY25413DB` — es el
-# mismo impuesto al débito).
+# Cada balde tiene una lista de matchers `(campo, operador, valor)`. Son varios
+# porque el mismo concepto se escribe distinto según el banco — Patagonia dice
+# `IMP.DB/CR BANCARIOS P/DEB` y BIND dice `LEY25413DB`, y es el mismo impuesto.
+#
+# ⚠️ El CAMPO va en el matcher y no en el balde: `COM.TRANSF` llega como CONCEPTO
+# en unos bancos y escrito en la DESCRIPCIÓN en otros, así que un balde tiene que
+# poder mirar los dos lados. Cuando el campo estaba a nivel del balde, esto no se
+# podía expresar.
 #
 # `grupo` decide dónde se muestra:
 #   · "concepto" → columna propia en el CONSOLIDADO.
@@ -71,25 +75,35 @@ OPERADORES_REGLA = ("igual", "contiene")
 # no se cambia todos los días. Si empieza a moverse seguido, se promueve a
 # catálogo con el mismo ABM que las reglas.
 DESGLOSE_GASTOS: list[dict] = [
-    {"clave": "iva",        "etiqueta": "IVA",        "grupo": "concepto",
-     "campo": "descripcion_ib", "matchers": [("igual", "IVA")]},
-    {"clave": "ivapercep",  "etiqueta": "IVAPERCEP",  "grupo": "concepto",
-     "campo": "descripcion_ib", "matchers": [("igual", "IVAPERCEP")]},
+    {"clave": "iva", "etiqueta": "IVA", "grupo": "concepto",
+     "matchers": [("descripcion_ib", "igual", "IVA")]},
+    {"clave": "ivapercep", "etiqueta": "IVAPERCEP", "grupo": "concepto",
+     "matchers": [("descripcion_ib", "igual", "IVAPERCEP")]},
     {"clave": "iibbpercep", "etiqueta": "IIBBPERCEP", "grupo": "concepto",
-     "campo": "descripcion_ib", "matchers": [("igual", "IIBBPERCEP")]},
-    {"clave": "comtransf",  "etiqueta": "COM.TRANSF", "grupo": "concepto",
-     "campo": "descripcion_ib", "matchers": [("contiene", "COM.TRANSF")]},
+     "matchers": [("descripcion_ib", "igual", "IIBBPERCEP")]},
+
+    # ⚠️ Este balde mira DOS campos, y por eso el campo va en el MATCHER y no en
+    # el balde. Es la misma comisión de transferencia y el banco la manda de tres
+    # formas: como CONCEPTO abreviado (`COM.TRANSF`) o, en otros bancos, escrita
+    # en la DESCRIPCIÓN (`COMISIONES DATANET`, `COMISION ECHEQ CLEA`). Todas
+    # suman a la misma columna, que se sigue llamando COM.TRANSF.
+    #
+    # Van por `contiene` porque el texto real trae cola: `COMISION ECHEQ CLEA` de
+    # verdad llega como `N/D - COMISION ECHEQ CLEA…` y truncado a ~25 caracteres.
+    {"clave": "comtransf", "etiqueta": "COM.TRANSF", "grupo": "concepto",
+     "matchers": [("descripcion_ib", "contiene", "COM.TRANSF"),
+                  ("descripcion_banco", "contiene", "COMISIONES DATANET"),
+                  ("descripcion_banco", "contiene", "COMISION ECHEQ CLEA")]},
 
     {"clave": "imp_credito", "etiqueta": "IMP.DB/CR P/CRE", "grupo": "otros",
-     "campo": "descripcion_banco",
-     "matchers": [("contiene", "IMP.DB/CR BANCARIOS P/CRE")]},
-    {"clave": "imp_debito",  "etiqueta": "IMP.DB/CR P/DEB", "grupo": "otros",
-     "campo": "descripcion_banco",
-     "matchers": [("contiene", "IMP.DB/CR BANCARIOS P/DEB"), ("contiene", "LEY25413DB")]},
-    {"clave": "sellos",      "etiqueta": "IMPUESTO A LOS SELLOS", "grupo": "otros",
-     "campo": "descripcion_banco", "matchers": [("contiene", "SELLOS")]},
-    {"clave": "tasa_liq",    "etiqueta": "TASA LIQUIDEZ", "grupo": "otros",
-     "campo": "descripcion_banco", "matchers": [("contiene", "TASA LIQUIDEZ")]},
+     "matchers": [("descripcion_banco", "contiene", "IMP.DB/CR BANCARIOS P/CRE")]},
+    {"clave": "imp_debito", "etiqueta": "IMP.DB/CR P/DEB", "grupo": "otros",
+     "matchers": [("descripcion_banco", "contiene", "IMP.DB/CR BANCARIOS P/DEB"),
+                  ("descripcion_banco", "contiene", "LEY25413DB")]},
+    {"clave": "sellos", "etiqueta": "IMPUESTO A LOS SELLOS", "grupo": "otros",
+     "matchers": [("descripcion_banco", "contiene", "SELLOS")]},
+    {"clave": "tasa_liq", "etiqueta": "TASA LIQUIDEZ", "grupo": "otros",
+     "matchers": [("descripcion_banco", "contiene", "TASA LIQUIDEZ")]},
 ]
 
 # Un gasto que no cae en NINGÚN balde. **No se reparte a dedo** y no es una
@@ -112,14 +126,14 @@ def desglosar(mov: dict) -> str:
     lado — si sumara en los dos, el desglose daría más que el total.
     """
     for balde in DESGLOSE_GASTOS:
-        col = CAMPOS_REGLA.get(balde["campo"])
-        if not col:
-            continue
-        dato = str(mov.get(col) or "").strip().casefold()
-        if not dato:
-            continue
-        for operador, valor in balde["matchers"]:
+        for campo, operador, valor in balde["matchers"]:
+            col = CAMPOS_REGLA.get(campo)
+            if not col:
+                continue
+            dato = str(mov.get(col) or "").strip().casefold()
             v = valor.strip().casefold()
+            if not dato or not v:
+                continue
             if (dato == v) if operador == "igual" else (v in dato):
                 return balde["clave"]
     return RESTO

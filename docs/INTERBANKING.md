@@ -334,8 +334,20 @@ está. Cada gasto cae en **exactamente un** balde (gana el primero que matchea).
 | Balde | Mira | Cómo |
 |---|---|---|
 | IVA · IVAPERCEP · IIBBPERCEP | `descripcion_ib` (CONCEPTO) | **`igual`** |
-| COM.TRANSF | `descripcion_ib` | `contiene` |
+| **COM.TRANSF** | `descripcion_ib` **Y** `descripcion_banco` | `contiene` |
 | IMP.DB/CR P/CRE · IMP.DB/CR P/DEB · SELLOS · TASA LIQUIDEZ | `descripcion_banco` | `contiene` |
+
+⚠️ **El CAMPO va en el MATCHER, no en el balde.** Lo obligó COM.TRANSF: es el
+mismo cobro y llega de **tres formas** según el banco — como CONCEPTO abreviado
+(`COM.TRANSF`) o escrito en la DESCRIPCIÓN (`COMISIONES DATANET`,
+`COMISION ECHEQ CLEA`). Las tres suman a la misma columna. Con el campo a nivel
+del balde eso no se podía expresar.
+
+⚠️ **El orden salva el caso ambiguo**: un movimiento con concepto `IVA` y
+descripción `COMISIONES DATANET` es el **IVA de esa comisión**, no la comisión.
+Como los conceptos van primero, cae en IVA. Si cayera en COM.TRANSF, esa columna
+mostraría de más y IVA de menos **con el total dando bien** — un error invisible.
+Congelado por test.
 
 ⚠️ Los tres primeros van por **`igual`** y no por `contiene`: **«IVA» es prefijo
 de «IVAPERCEP»**, así que con `contiene` la columna IVA mostraría de más y

@@ -325,7 +325,50 @@ muerta hasta que alguien la cargue, siendo el mismo equipo en la misma pantalla.
 Compartir una allowlist **no acopla los datos**: un permiso es una política sobre
 personas, no un join. Todo queda en `bancos.gastos_audit`.
 
+## El DESGLOSE de los gastos
+
+El total no alcanza: el back office necesita ver **cuánto de ese total es qué**.
+Es una separación de **presentación** — no cambia ningún número, parte el que ya
+está. Cada gasto cae en **exactamente un** balde (gana el primero que matchea).
+
+| Balde | Mira | Cómo |
+|---|---|---|
+| IVA · IVAPERCEP · IIBBPERCEP | `descripcion_ib` (CONCEPTO) | **`igual`** |
+| COM.TRANSF | `descripcion_ib` | `contiene` |
+| IMP.DB/CR P/CRE · IMP.DB/CR P/DEB · SELLOS · TASA LIQUIDEZ | `descripcion_banco` | `contiene` |
+
+⚠️ Los tres primeros van por **`igual`** y no por `contiene`: **«IVA» es prefijo
+de «IVAPERCEP»**, así que con `contiene` la columna IVA mostraría de más y
+IVAPERCEP quedaría en cero. Cuando un valor es prefijo de otro, `contiene` no
+sirve. Congelado por test.
+
+**`IMP.DB/CR P/DEB` tiene DOS grafías** (`IMP.DB/CR BANCARIOS P/DEB` en Patagonia,
+`LEY25413DB` en BIND): es el mismo impuesto, un balde, dos matchers.
+
+**Dónde se ve cada cosa:**
+- **CONSOLIDADO** — una columna por CONCEPTO + **OTROS IMP**, que es la suma de
+  las **4 descripciones** (y solo esas: decisión del back office).
+- **MODAL** — el desglose completo en horizontal: ahí los cuatro impuestos se
+  abren de a uno.
+
+⚠️ **Las columnas pueden NO sumar el total**, justamente porque OTROS IMP son solo
+esas cuatro. El gasto que no cae en ningún balde **no se reparte a dedo**: va a
+`resto` y el modal lo muestra como **SIN CLASIFICAR** cuando no es cero — mismo
+criterio que `sin_clasificar` en la vista ACA. Esconderlo adentro de otra celda
+sería inventar dónde va.
+
+Es una **constante** (`DESGLOSE_GASTOS`) y no un catálogo en la base: qué columnas
+tiene una tabla no se cambia todos los días. Si empieza a moverse, se promueve.
+
 ## Changelog
+
+- **2026-08-18 (8)** — **DESGLOSE de los gastos** (ver la sección de arriba).
+  El CONSOLIDADO pierde **SALDO AL INICIO, VARIACIÓN y MOVS.** («no sirven») y
+  gana **IVA · IVAPERCEP · IIBBPERCEP · COM.TRANSF · OTROS IMP**. El MODAL
+  muestra el desglose completo en horizontal y pierde el contador de movimientos
+  (la lista está abajo). Las etiquetas de las columnas las manda el BACKEND
+  (`catalogo_desglose`): si el front las copiara, cambiar un balde obligaría a
+  tocar dos lados y podrían quedar diciendo cosas distintas.
 
 - **2026-08-18 (7)** — **GASTOS BANCARIOS: el modelo completo** (ver la sección
   de arriba) + **usuarios en línea** en la barra (`bancos.presencia`, el poll de

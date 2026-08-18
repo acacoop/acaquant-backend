@@ -47,6 +47,96 @@ CAMPOS_REGLA = {
 }
 OPERADORES_REGLA = ("igual", "contiene")
 
+# ── DESGLOSE de los gastos ───────────────────────────────────────────────────
+#
+# El total de gastos bancarios no alcanza: el back office necesita ver CUÁNTO de
+# ese total es IVA, cuánto percepción y cuánto comisión. Es una separación de
+# PRESENTACIÓN — no cambia ningún número, parte el que ya está.
+#
+# Cada balde declara sobre qué campo mira y con qué matchers. Un balde puede
+# tener VARIOS porque el mismo concepto se escribe distinto según el banco
+# (Patagonia dice `IMP.DB/CR BANCARIOS P/DEB`, BIND dice `LEY25413DB` — es el
+# mismo impuesto al débito).
+#
+# `grupo` decide dónde se muestra:
+#   · "concepto" → columna propia en el CONSOLIDADO.
+#   · "otros"    → en el consolidado se suman todos en UNA columna, OTROS IMP;
+#                  adentro del modal se ven de a uno.
+#
+# ⚠️ Los tres primeros van por `igual` a propósito: con `contiene`, «IVA» se
+# comería «IVAPERCEP» y la columna IVA mostraría de más mientras IVAPERCEP
+# quedaría en cero. Cuando un valor es prefijo de otro, `contiene` no sirve.
+#
+# ⚠️ Es una CONSTANTE y no un catálogo en la base: qué columnas tiene una tabla
+# no se cambia todos los días. Si empieza a moverse seguido, se promueve a
+# catálogo con el mismo ABM que las reglas.
+DESGLOSE_GASTOS: list[dict] = [
+    {"clave": "iva",        "etiqueta": "IVA",        "grupo": "concepto",
+     "campo": "descripcion_ib", "matchers": [("igual", "IVA")]},
+    {"clave": "ivapercep",  "etiqueta": "IVAPERCEP",  "grupo": "concepto",
+     "campo": "descripcion_ib", "matchers": [("igual", "IVAPERCEP")]},
+    {"clave": "iibbpercep", "etiqueta": "IIBBPERCEP", "grupo": "concepto",
+     "campo": "descripcion_ib", "matchers": [("igual", "IIBBPERCEP")]},
+    {"clave": "comtransf",  "etiqueta": "COM.TRANSF", "grupo": "concepto",
+     "campo": "descripcion_ib", "matchers": [("contiene", "COM.TRANSF")]},
+
+    {"clave": "imp_credito", "etiqueta": "IMP.DB/CR P/CRE", "grupo": "otros",
+     "campo": "descripcion_banco",
+     "matchers": [("contiene", "IMP.DB/CR BANCARIOS P/CRE")]},
+    {"clave": "imp_debito",  "etiqueta": "IMP.DB/CR P/DEB", "grupo": "otros",
+     "campo": "descripcion_banco",
+     "matchers": [("contiene", "IMP.DB/CR BANCARIOS P/DEB"), ("contiene", "LEY25413DB")]},
+    {"clave": "sellos",      "etiqueta": "IMPUESTO A LOS SELLOS", "grupo": "otros",
+     "campo": "descripcion_banco", "matchers": [("contiene", "SELLOS")]},
+    {"clave": "tasa_liq",    "etiqueta": "TASA LIQUIDEZ", "grupo": "otros",
+     "campo": "descripcion_banco", "matchers": [("contiene", "TASA LIQUIDEZ")]},
+]
+
+# Un gasto que no cae en NINGÚN balde. **No se reparte a dedo** y no es una
+# columna: se muestra en el modal solo cuando no es cero. Es el mismo criterio
+# que `sin_clasificar` en la vista ACA — si el desglose no cubre todo, la
+# pantalla lo canta en vez de esconderlo adentro de otra celda.
+#
+# Que OTROS IMP sean SOLO esas cuatro descripciones (y no "todo el resto") es
+# decisión del back office: son los impuestos que les interesa ver juntos. La
+# contracara es que las columnas pueden NO sumar el total, y por eso existe esto.
+RESTO = "resto"
+
+
+def desglosar(mov: dict) -> str:
+    """A qué balde va este movimiento. PURO. Devuelve la clave, o `RESTO`.
+
+    Gana el PRIMER balde que matchea, en el orden de `DESGLOSE_GASTOS`: los
+    conceptos primero, las descripciones después. Así un movimiento con concepto
+    IVA y descripción que contiene SELLOS cuenta una sola vez y siempre del mismo
+    lado — si sumara en los dos, el desglose daría más que el total.
+    """
+    for balde in DESGLOSE_GASTOS:
+        col = CAMPOS_REGLA.get(balde["campo"])
+        if not col:
+            continue
+        dato = str(mov.get(col) or "").strip().casefold()
+        if not dato:
+            continue
+        for operador, valor in balde["matchers"]:
+            v = valor.strip().casefold()
+            if (dato == v) if operador == "igual" else (v in dato):
+                return balde["clave"]
+    return RESTO
+
+
+def _baldes_vacios() -> dict[str, float]:
+    return {b["clave"]: 0.0 for b in DESGLOSE_GASTOS} | {RESTO: 0.0}
+
+
+def catalogo_desglose() -> list[dict]:
+    """Lo que el front necesita para dibujar las columnas. Las etiquetas las
+    manda el BACKEND: si el front las copiara, cambiar un balde obligaría a tocar
+    dos lados y podrían quedar diciendo cosas distintas."""
+    return [{"clave": b["clave"], "etiqueta": b["etiqueta"], "grupo": b["grupo"]}
+            for b in DESGLOSE_GASTOS]
+
+
 # Presencia: cuánto vale un heartbeat. El poll de la vista es de 60s, así que el
 # TTL tiene que aguantar más de un ciclo o la gente titila al primer poll tarde.
 PRESENCIA_TTL_S = 180
@@ -163,8 +253,8 @@ def _overrides(fecha: date) -> dict[str, bool]:
             WHERE m.fecha = %s""", (fecha,))}
 
 
-def _gastos_bancarios(fecha: date) -> dict[int, float]:
-    """{cuenta_id: gasto bancario del día}. Se DERIVA, no se persiste.
+def _gastos_bancarios(fecha: date) -> dict[int, dict]:
+    """{cuenta_id: {"total": x, "<balde>": y, ...}}. Se DERIVA, no se persiste.
 
     Resolver en la lectura y no materializar una columna tiene una consecuencia
     concreta: cambiar una regla se refleja al instante en todos los días que haya
@@ -189,14 +279,17 @@ def _gastos_bancarios(fecha: date) -> dict[int, float]:
     marcas = clasificar(movs, reglas, overrides)
     # Con criterio cargado, una cuenta que tuvo movimientos y ninguno es gasto
     # vale CERO de verdad — ahí sí lo sabemos.
-    out: dict[int, float] = {m["cuenta_id"]: 0.0 for m in movs}
+    out: dict[int, dict] = {
+        m["cuenta_id"]: {"total": 0.0, **_baldes_vacios()} for m in movs}
     for m in movs:
         if not marcas[m["mov_hash"]]["es_gasto"]:
             continue
         imp = _f(m.get("importe")) or 0.0
-        out[m["cuenta_id"]] = round(
-            out[m["cuenta_id"]] + (imp if m.get("tipo") == "D" else -imp), 2)
-    return out
+        firmado = imp if m.get("tipo") == "D" else -imp
+        celda = out[m["cuenta_id"]]
+        celda["total"] += firmado
+        celda[desglosar(m)] += firmado
+    return {cid: {k: round(v, 2) for k, v in celda.items()} for cid, celda in out.items()}
 
 
 def _cuenta_publica(r: dict) -> dict:
@@ -346,6 +439,19 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
             m["es_gasto"] = bool(marca.get("es_gasto"))
             m["gasto_origen"] = marca.get("origen")
 
+    # El desglose se arma con la MISMA función que la columna del consolidado,
+    # así el detalle no puede contradecir al total de la grilla.
+    desglose = _baldes_vacios()
+    if cuenta_id is not None and movimientos:
+        crudos = {m["mov_hash"]: m for m in _movs_para_clasificar(fecha, cuenta_id)}
+        for m in movimientos:
+            crudo = crudos.get(m["mov_hash"])
+            if not m.get("es_gasto") or crudo is None:
+                continue
+            imp = m["importe"] or 0
+            desglose[desglosar(crudo)] += imp if m["tipo"] == "D" else -imp
+        desglose = {k: round(v, 2) for k, v in desglose.items()}
+
     creditos = sum(m["importe"] or 0 for m in movimientos if m["tipo"] == "C")
     debitos = sum(m["importe"] or 0 for m in movimientos if m["tipo"] == "D")
 
@@ -364,6 +470,7 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
         "gastos": round(sum(
             (m["importe"] or 0) * (1 if m["tipo"] == "D" else -1)
             for m in movimientos if m.get("es_gasto")), 2),
+        "gastos_desglose": desglose,
     }
 
     _auditar(email, cuenta_id, fecha, fecha, len(movimientos))
@@ -373,6 +480,7 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
         "cuenta_id": cuenta_id,
         "puede_escribir": puede_escribir(email),
         "reglas": listar_reglas(),
+        "desglose": catalogo_desglose(),
         "fecha": fecha.isoformat(),
         "dias": dias,
         "movimientos": movimientos,
@@ -455,7 +563,10 @@ def consolidado(email: str, fecha: date) -> dict:
             "saldo_banco": del_banco,
             "discrepancia": discrepancia,
             # None mientras la regla no esté definida — «no sabemos» no es 0.
-            "gastos_bancarios": gastos.get(r["id"]),
+            "gastos_bancarios": (gastos.get(r["id"]) or {}).get("total"),
+            # El desglose viaja COMPLETO; qué columnas dibujar lo decide la vista
+            # (el consolidado agrupa el grupo "otros", el modal los abre).
+            "gastos_desglose": gastos.get(r["id"]),
             "movimientos": r.get("total_movimientos"),
             # La variación solo existe si el cierre sale del EXTRACTO: restar una
             # apertura de extracto contra un saldo de otra fuente mezclaría dos
@@ -484,6 +595,7 @@ def consolidado(email: str, fecha: date) -> dict:
         "fecha": fecha.isoformat(),
         "conectados": conectados(),
         "puede_escribir": puede_escribir(email),
+        "desglose": catalogo_desglose(),
         "bancos": bancos,
         "cuentas": len(filas),
         "sin_datos": sin_datos,

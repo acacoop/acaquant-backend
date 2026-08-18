@@ -3739,6 +3739,52 @@ CREATE TABLE IF NOT EXISTS bancos.audit_lecturas (
 CREATE INDEX IF NOT EXISTS ix_bancos_audit_ts
     ON bancos.audit_lecturas (ts DESC);
 
+-- SALDOS que informa el banco. Tabla APARTE de `extracto_dia` a propósito: son
+-- dos preguntas distintas y responderlas con la misma fila las confunde.
+--
+-- `extracto_dia` contesta "qué PASÓ ese día" y **solo existe si hubo
+-- movimientos** — el extracto no devuelve los días quietos. `saldos` contesta
+-- "cuánto HAY", y viene haya habido movimientos o no. Esa es toda la razón de
+-- sumar esta API: con la ventana corta que usa el back office (último día hábil
+-- + hoy), cualquier cuenta que no se movió en esos dos días no tenía NINGUNA
+-- fila y el consolidado la mostraba con «—». Cuanto más corta la ventana, más
+-- grande el agujero.
+--
+-- ⚠️ NO es una segunda verdad para el mismo número. El saldo de cierre del
+-- extracto y el saldo del día son dos cosas que el banco informa por separado;
+-- si difieren, eso es un HALLAZGO de conciliación y por eso se guardan aparte
+-- en vez de pisarse. El consolidado usa el extracto cuando lo tiene y cae a esta
+-- tabla cuando no, y dice de dónde salió cada número (`fuente`).
+--
+-- ⚠️ NADA DE ESTO SE MEZCLA CON TESORERÍA (`operaciones.tesoreria_*`). Son
+-- objetos distintos y sin clave en común: Tesorería trabaja sobre la CUENTA
+-- OPERATIVA de Aunesa (una denominación de texto, tipo 'BANCO MARIVA TERCEROS',
+-- que es una imputación interna del agente) y esto es la CUENTA BANCARIA real
+-- (banco BCRA + número + CBU). No se joinean ni se suman.
+CREATE TABLE IF NOT EXISTS bancos.saldos (
+    cuenta_id           bigint NOT NULL REFERENCES bancos.cuentas(id),
+    fecha               date NOT NULL,
+    -- Del bloque `historical_balances[]`: una fila por día.
+    saldo_dia           numeric,
+    creditos_dia        numeric,
+    debitos_dia         numeric,
+    -- Del bloque `balances`: es la foto de HOY, no una serie. Solo se completa
+    -- en la fila del `row_date` que declara la respuesta; en los días anteriores
+    -- queda NULL, que es lo correcto — el banco no informa el proyectado de ayer.
+    saldo_contable      numeric,
+    saldo_operativo     numeric,
+    saldo_operativo_ini numeric,
+    proyectado_24hs     numeric,
+    proyectado_48hs     numeric,
+    es_foto             boolean NOT NULL DEFAULT false,  -- true = fila del row_date
+    raw                 jsonb,
+    sincronizado_at     timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (cuenta_id, fecha)
+);
+
+CREATE INDEX IF NOT EXISTS ix_bancos_saldos_fecha
+    ON bancos.saldos (fecha DESC);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- AV AGENT — hallazgos de integridad de renta fija (E1)
 -- Doc madre: docs/AV_AGENT.md

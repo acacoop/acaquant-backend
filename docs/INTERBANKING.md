@@ -22,6 +22,7 @@ fecha. Solo lectura de punta a punta. El objetivo es **conciliar**.
 | Cron | `deploy/crontab.txt` → `0 12,14,16,18,20,22 * * 1-5` |
 | Seguridad congelada | `tests/unit/test_interbanking_seguridad.py` |
 | Ventana hábil congelada | `tests/unit/test_interbanking_ventana.py` |
+| Fuente del saldo congelada | `tests/unit/test_interbanking_consolidado.py` |
 
 **Verificado el 2026-08-14** (corrido contra prod, no inferido):
 
@@ -41,25 +42,38 @@ así que la integración no puede mover plata ni por error).
 
 | API | Endpoint | Qué trae |
 |---|---|---|
-| Cuentas | `/accounts`, `/accounts/{n}` | CBU, número, banco (código BCRA + nombre), tipo CC/CA, moneda, denominación |
-| Saldos | `/accounts/{n}/balances` | Contable, operativo actual, **operativo inicial**, proyectados 24/48hs + histórico diario |
-| Extractos | `/accounts/{n}/statements` | Extracto oficial por día: apertura, cierre, totales de débitos/créditos + detalle |
+| Cuentas ✅ | `/accounts`, `/accounts/{n}` | CBU, número, banco (código BCRA + nombre), tipo CC/CA, moneda, denominación |
+| Saldos ✅ | `/accounts/{n}/balances` | Contable, operativo actual, **operativo inicial**, proyectados 24/48hs + histórico diario |
+| Extractos ✅ | `/accounts/{n}/statements` | Extracto oficial por día: apertura, cierre, totales de débitos/créditos + detalle |
 | Movimientos | `/{v1\|v2}/accounts/{n}/movements/{tipo}` | Movimientos del día / anteriores / **diferidos** (fecha futura) / zughus |
 | Transferencias | `/transfers/details`, `/transfers/vouchers` | Transferencias en todos sus estados + comprobantes con bloque AFIP (`vep_number`) |
 
-**Por qué importa** — hoy la vista de Tesorería tiene tres agujeros que estas
-APIs tapan:
+## ⚠️ ESTO NO SE MEZCLA CON TESORERÍA
 
-1. **El saldo inicial se tipea a mano** todos los días en `tesoreria_saldos`, y
-   si el back office no lo carga, vale 0. Saldos lo da: `initial_operating_balance`.
-2. **El universo de cuentas se descubre mirando movimientos** de Aunesa, porque
-   Aunesa no tiene endpoint de cuentas. Interbanking sí lo tiene, y encima trae
-   el CBU y el número de cuenta, que hoy son carga manual.
-3. **Nadie concilia** el saldo final que calcula la grilla BANCOS contra lo que
-   dice el banco. Extractos permite ese chequeo.
+**Corregido el 2026-08-18, por el user.** Las versiones anteriores de este doc
+justificaban la integración diciendo que "tapa tres agujeros de la vista
+Tesorería" (el saldo inicial que se tipea a mano, el descubrimiento de cuentas,
+la conciliación de la grilla BANCOS). **Eso estaba MAL y nunca se midió** — de
+hecho el propio doc listaba "¿son las mismas cuentas?" como pregunta ABIERTA y a
+la vez usaba la respuesta afirmativa como fundamento.
 
-Los movimientos **diferidos** (con fecha futura) son información que hoy no
-existe en ninguna fuente del sistema.
+Son **dos objetos distintos y sin clave en común**:
+
+| | Tesorería (BANCOS) | Interbanking |
+|---|---|---|
+| Qué es una "cuenta" | `cuenta_operativa`: **denominación de texto** que manda Aunesa (`'BANCO MARIVA TERCEROS'`, `aunesa_id='57461ARS'`). Es una imputación interna del agente | La **cuenta bancaria** real: banco BCRA + número + CBU + CUIT |
+| PK | `(cuenta_operativa, unidad)` | `(bank_number, account_number, account_type, currency)` |
+| Fuente | Aunesa `consultaMovDocsSolicitados` + carga manual | el extracto y el saldo que informa el banco |
+
+**No se joinean, no se suman y no se comparan.** Interbanking es la vista del
+BANCO, y vive sola. Si aparece una propuesta de cruzar las dos, primero hay que
+MEDIR que exista una correspondencia — hoy no está medida.
+
+## Para qué sirve
+
+Ver, **desde el último día hábil**, qué informan los bancos de ACA: el saldo de
+cada cuenta y el detalle de lo que se movió. Sin histórico (pedido explícito del
+user 2026-08-18): con que figure desde el último día hábil alcanza.
 
 ## ⚠️ Dos trampas, ninguna inferible del YAML
 
@@ -174,12 +188,22 @@ Hasta tener esos números medidos **no se decide el modelo de datos**.
 
 ## Decisiones de diseño de la V1
 
-**Una sola fuente: Extractos.** Devuelve el día (apertura, cierre, totales) *y*
-su detalle de movimientos en la misma respuesta. Traer además la API de
-Movimientos sería la misma data dos veces — medido: los dos endpoints devolvieron
-`total_rows=168` para el mismo rango y cuenta. Y traer la de Saldos sería una
-segunda verdad para el saldo diario. Saldos (proyectados 24/48hs) y
-Transferencias quedan para una V2.
+**Extractos + Saldos. Movimientos NO.** Extractos devuelve el día (apertura,
+cierre, totales) *y* su detalle de movimientos en la misma respuesta. Traer
+además la API de **Movimientos sería la misma data dos veces** — medido: los dos
+endpoints devolvieron `total_rows` idéntico para el mismo rango y cuenta. Lo
+único que Movimientos tiene y Extractos no son los **diferidos** (fecha futura),
+que siguen sin traerse.
+
+**Saldos se sumó el 2026-08-18** y NO es una segunda verdad: contesta otra
+pregunta. Extractos dice *qué pasó* y **solo existe si hubo movimientos**;
+Saldos dice *cuánto hay*, se haya movido la cuenta o no. Con la ventana corta que
+usa el back office (último día hábil + hoy), una cuenta quieta no tenía NINGUNA
+fila y el consolidado la mostraba con «—» — cuanto más corta la ventana, más
+grande el agujero. Van en tablas separadas (`extracto_dia` / `saldos`), por
+cuenta gana una sola y la respuesta declara cuál en `fuente`; si el banco informa
+las dos y no coinciden, eso se publica como `discrepancia` en vez de elegir una
+y tapar la otra. **Transferencias sigue sin usarse.**
 
 **La vista NUNCA le pega a Interbanking.** El límite de 100 llamadas/minuto es
 del **ABONADO**, no del proceso: unos pocos usuarios refrescando la pantalla
@@ -253,6 +277,15 @@ Droplet todavía no la tiene cargada, el job no corre aunque el código esté).
 
 ## Changelog
 
+- **2026-08-18 (2)** — **Se suma la API de SALDOS** (`bancos.saldos`, una llamada
+  más por cuenta) y se **corrige de raíz la premisa del doc**. Dos cosas:
+  (a) el consolidado ya no muestra «—» en la cuenta que no se movió: cae a
+  `bancos.saldos`, declara en `fuente` de dónde salió cada número y publica
+  `discrepancia` cuando el extracto y el saldo del banco no coinciden; se suman
+  los proyectados 24/48hs. (b) **Se eliminó la sección "por qué importa" que
+  fundaba todo en tapar agujeros de la vista Tesorería** — el user lo marcó como
+  falso y se verificó: son objetos sin clave en común (cuenta operativa de Aunesa
+  vs cuenta bancaria). Ver "ESTO NO SE MEZCLA CON TESORERÍA".
 - **2026-08-18** — **La ventana pasa a días HÁBILES.** El back office reportó la
   tab vacía: era martes, el lunes 17 fue feriado y `ayer + hoy` pedía 17..18, dos
   días sin actividad bancaria; el "ayer" real era el viernes 14. El mismo bug

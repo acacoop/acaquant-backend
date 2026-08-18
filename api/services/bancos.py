@@ -207,13 +207,24 @@ def consolidado(email: str, desde: date, hasta: date) -> dict:
     rango, y el de cierre el CIERRE del último. No se calcula: los dos los
     informa el banco.
 
-    ⚠️ Lista **todas** las cuentas activas, incluidas las que no tienen extracto
-    en el rango — esas van con saldo `null`, no con cero. Es una distinción que
-    importa: **el extracto solo devuelve los días CON movimientos**, así que una
-    cuenta quieta no tiene fila y con esta API no hay forma de saber cuánto
-    tiene. Mostrarla en cero sería inventar un número. La vista las cuenta
-    aparte (`sin_datos`) y el día que se sume la API de Saldos, que sí devuelve
-    el saldo haya habido movimientos o no, ese hueco se cierra.
+    ⚠️ Lista **todas** las cuentas activas. Una cuenta sin extracto en el rango NO
+    va con cero — cero sería inventar un número.
+
+    De dónde sale el saldo, por orden y siempre declarado en `fuente`:
+
+    1. **`extracto`** — apertura del primer día con extracto y cierre del último.
+       Es lo mejor que hay: los dos los informa el banco y vienen con el detalle
+       de movimientos que los explica.
+    2. **`saldo`** — `bancos.saldos`. Entra cuando el extracto no existe, que es
+       el caso de la cuenta QUIETA: el extracto solo devuelve los días CON
+       movimientos, así que con la ventana corta del back office (último día
+       hábil + hoy) cualquier cuenta que no se movió no tenía ninguna fila.
+    3. **`null`** — no sabemos. Se cuenta en `sin_datos` y la vista lo canta.
+
+    Las dos fuentes NO se suman ni se promedian: por cuenta gana una sola, y la
+    respuesta dice cuál. Si el banco informa un cierre de extracto distinto del
+    saldo del día, eso es un HALLAZGO de conciliación (`discrepancia`), no un
+    número a elegir por nosotros.
 
     Los totales van **por moneda y nunca mezclados**: sumar pesos con dólares no
     significa nada (mismo criterio que el control de saldos de comitentes).
@@ -225,21 +236,35 @@ def consolidado(email: str, desde: date, hasta: date) -> dict:
                  FROM bancos.extracto_dia
                 WHERE fecha BETWEEN %s AND %s
                 GROUP BY cuenta_id
+           ),
+           -- El saldo del banco. Se toma el ÚLTIMO día del rango que tenga fila,
+           -- no un promedio ni una suma: es un stock, no un flujo.
+           saldo AS (
+               SELECT DISTINCT ON (cuenta_id)
+                      cuenta_id, fecha AS s_fecha,
+                      coalesce(saldo_operativo, saldo_dia) AS s_saldo,
+                      proyectado_24hs, proyectado_48hs
+                 FROM bancos.saldos
+                WHERE fecha BETWEEN %s AND %s
+                  AND coalesce(saldo_operativo, saldo_dia) IS NOT NULL
+                ORDER BY cuenta_id, fecha DESC
            )
            SELECT c.id, c.bank_number, c.bank_name, c.account_number,
                   c.account_type, c.currency, c.account_label, c.activa,
                   ei.saldo_apertura AS saldo_inicio,
                   ef.saldo_cierre   AS saldo_cierre,
-                  r.dias, r.f_ini, r.f_fin
+                  r.dias, r.f_ini, r.f_fin,
+                  s.s_saldo, s.s_fecha, s.proyectado_24hs, s.proyectado_48hs
              FROM bancos.cuentas c
              LEFT JOIN rango r  ON r.cuenta_id = c.id
+             LEFT JOIN saldo s  ON s.cuenta_id = c.id
              LEFT JOIN bancos.extracto_dia ei
                     ON ei.cuenta_id = c.id AND ei.fecha = r.f_ini
              LEFT JOIN bancos.extracto_dia ef
                     ON ef.cuenta_id = c.id AND ef.fecha = r.f_fin
             WHERE c.activa
             ORDER BY c.bank_name, c.currency, c.account_type, c.account_number""",
-        (desde, hasta),
+        (desde, hasta, desde, hasta),
     )
 
     bancos: list[dict] = []
@@ -250,15 +275,41 @@ def consolidado(email: str, desde: date, hasta: date) -> dict:
     for r in filas:
         pub = _cuenta_publica(r)
         ini, fin = _f(r.get("saldo_inicio")), _f(r.get("saldo_cierre"))
-        if r.get("dias") is None:
+        del_banco = _f(r.get("s_saldo"))
+
+        # Quién manda: el extracto si lo hay, si no el saldo. Nunca los dos.
+        if fin is not None:
+            fuente = "extracto"
+        elif del_banco is not None:
+            fuente, fin = "saldo", del_banco
+        else:
+            fuente = None
             sin_datos += 1
+
+        # Si el banco informa las dos cosas y no coinciden, es un hallazgo de
+        # conciliación — se publica, no se elige una y se tapa la otra.
+        discrepancia = None
+        if r.get("saldo_cierre") is not None and del_banco is not None:
+            d = round(_f(r["saldo_cierre"]) - del_banco, 2)
+            if abs(d) >= 0.01:
+                discrepancia = d
 
         cuenta = {
             **pub,
             "saldo_inicio": ini,
             "saldo_cierre": fin,
-            # La variación solo existe si están los dos extremos.
-            "variacion": (round(fin - ini, 2) if ini is not None and fin is not None else None),
+            "fuente": fuente,
+            "saldo_banco": del_banco,
+            "saldo_banco_fecha": r["s_fecha"].isoformat() if r.get("s_fecha") else None,
+            "discrepancia": discrepancia,
+            "proyectado_24hs": _f(r.get("proyectado_24hs")),
+            "proyectado_48hs": _f(r.get("proyectado_48hs")),
+            # La variación solo existe si están los dos extremos Y el cierre sale
+            # del extracto: restar una apertura de extracto contra un saldo de
+            # otra fuente mezclaría dos cosas que el banco informa por separado.
+            "variacion": (round(fin - ini, 2)
+                          if fuente == "extracto" and ini is not None and fin is not None
+                          else None),
             "dias_con_dato": r.get("dias") or 0,
             "desde_real": r["f_ini"].isoformat() if r.get("f_ini") else None,
             "hasta_real": r["f_fin"].isoformat() if r.get("f_fin") else None,
@@ -277,8 +328,13 @@ def consolidado(email: str, desde: date, hasta: date) -> dict:
             bancos.append(grupo)
         grupo["cuentas"].append(cuenta)
 
-        # Totales por moneda, del banco y globales. Solo suman las cuentas que
-        # tienen dato — una cuenta sin extracto no aporta ni resta.
+        # Totales por moneda, del banco y globales. Solo suman las cuentas con
+        # dato — la que no tiene ni extracto ni saldo no aporta ni resta.
+        # Desde que existe el fallback a `bancos.saldos`, el CIERRE incluye a las
+        # cuentas quietas (antes quedaban fuera del total y el total mentía por
+        # abajo); el INICIO sigue saliendo solo del extracto, así que una cuenta
+        # servida por saldo suma al cierre y no al inicio. Es correcto: de esa
+        # cuenta sabemos cuánto HAY, no cuánto había al arrancar el rango.
         for destino in (grupo["totales"], totales):
             acc = destino.setdefault(
                 pub["moneda"], {"inicio": 0.0, "cierre": 0.0, "cuentas": 0}

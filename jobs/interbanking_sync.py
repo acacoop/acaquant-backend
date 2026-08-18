@@ -40,8 +40,10 @@ Uso:
     python -m jobs.interbanking_sync --solo-cuentas
     python -m jobs.interbanking_sync --dry        # no escribe, solo reporta
 
-Costo: 4 llamadas para el maestro de cuentas + ~1 por cuenta (más páginas si un
-día tuvo más de 100 movimientos). Con ~30 cuentas son ~35 llamadas por corrida.
+Costo: 4 llamadas para el maestro + ~1 de extracto por cuenta (más páginas si un
+día tuvo más de 100 movimientos) + 1 de saldo por cuenta. Con 38 cuentas son ~90
+llamadas por corrida, contra un límite de 100 **por minuto** — el cliente
+throttlea a 80/min, así que la corrida se espacia sola y no lo agota.
 """
 from __future__ import annotations
 
@@ -288,6 +290,84 @@ def _incoherencias(cuenta_id: int, fechas: list[date]) -> int:
         return cur.fetchone()[0] or 0
 
 
+# --------------------------------------------------------------------------- #
+# Saldos
+# --------------------------------------------------------------------------- #
+def _persistir_saldos(cuenta_id: int, r: dict) -> int:
+    """Guarda lo que el banco informa como SALDO. Devuelve cuántos días escribió.
+
+    Por qué esta API además de Extractos, si el extracto ya trae un saldo de
+    cierre: **el extracto solo devuelve los días CON movimientos**. Con la
+    ventana corta que usa el back office (último día hábil + hoy), una cuenta
+    quieta no tiene ninguna fila y el consolidado la muestra con «—». Saldos
+    responde igual, se haya movido o no.
+
+    No pisa al extracto ni se mezcla con él: son dos cosas que el banco informa
+    por separado y, si difieren, esa diferencia es un hallazgo de conciliación
+    (ver el comentario de `bancos.saldos` en sql/schema.sql).
+
+    La respuesta trae dos bloques distintos y se guardan como tales:
+    - `historical_balances[]` → una fila por día (saldo del día + totales).
+    - `balances` → la foto de HOY (contable, operativo, inicial, proyectados
+      24/48hs). NO es una serie: se estampa solo en la fila del `row_date`, que
+      es la fecha que declara la propia respuesta. Ponerlo en todos los días
+      inventaría un proyectado de ayer que el banco nunca informó.
+    """
+    gd = r.get("general_data") or {}
+    foto = _fecha(gd.get("row_date"))
+    b = r.get("balances") or {}
+    historicos = r.get("historical_balances") or []
+
+    filas: dict[date, dict] = {}
+    for h in historicos:
+        f = _fecha(h.get("operation_date"))
+        if f:
+            filas.setdefault(f, h)
+    # El día de la foto puede no estar en el histórico (una cuenta sin
+    # movimientos hoy). Igual tiene que existir: es justamente el caso que esta
+    # API vino a cubrir.
+    if foto:
+        filas.setdefault(foto, {})
+
+    if not filas:
+        return 0
+
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
+        for f, h in filas.items():
+            es_foto = f == foto
+            cur.execute(
+                """INSERT INTO bancos.saldos
+                     (cuenta_id, fecha, saldo_dia, creditos_dia, debitos_dia,
+                      saldo_contable, saldo_operativo, saldo_operativo_ini,
+                      proyectado_24hs, proyectado_48hs, es_foto, raw, sincronizado_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb, now())
+                   ON CONFLICT (cuenta_id, fecha) DO UPDATE SET
+                     saldo_dia           = EXCLUDED.saldo_dia,
+                     creditos_dia        = EXCLUDED.creditos_dia,
+                     debitos_dia         = EXCLUDED.debitos_dia,
+                     saldo_contable      = EXCLUDED.saldo_contable,
+                     saldo_operativo     = EXCLUDED.saldo_operativo,
+                     saldo_operativo_ini = EXCLUDED.saldo_operativo_ini,
+                     proyectado_24hs     = EXCLUDED.proyectado_24hs,
+                     proyectado_48hs     = EXCLUDED.proyectado_48hs,
+                     es_foto             = EXCLUDED.es_foto,
+                     raw                 = EXCLUDED.raw,
+                     sincronizado_at     = now()""",
+                (cuenta_id, f, _num(h.get("day_balance")),
+                 _num(h.get("total_credits")), _num(h.get("total_debits")),
+                 _num(b.get("countable_balance")) if es_foto else None,
+                 _num(b.get("current_operating_balance")) if es_foto else None,
+                 _num(b.get("initial_operating_balance")) if es_foto else None,
+                 _num(b.get("projected_balance_24hs")) if es_foto else None,
+                 _num(b.get("projected_balance_48hs")) if es_foto else None,
+                 es_foto,
+                 json.dumps({"balances": b if es_foto else {}, "dia": h},
+                            ensure_ascii=False)),
+            )
+        conn.commit()
+    return len(filas)
+
+
 def _log_sync(cuenta_id: int | None, desde: str, hasta: str, paginas: int,
               dias: int, movs: int, incoh: int, control: str | None,
               ok: bool, error: str | None) -> None:
@@ -342,6 +422,7 @@ def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -
     stats: dict[str, Any] = {
         "ventana": f"{d1}..{d2}", "cuentas": 0, "cuentas_ok": 0, "cuentas_error": 0,
         "dias": 0, "movimientos": 0, "dias_incoherentes": 0, "llamadas": 0,
+        "dias_saldo": 0, "cuentas_sin_saldo": 0,
     }
 
     cuentas = sincronizar_cuentas(dry=dry)
@@ -361,6 +442,26 @@ def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -
             stats["dias_incoherentes"] += incoh
             stats["cuentas_ok"] += 1
             _log_sync(c["id"], d1, d2, pags, n_dias, n_movs, incoh, control, True, None)
+
+            # SALDOS: una llamada más por cuenta. Va DESPUÉS del extracto y en su
+            # propio try — si el saldo falla no se pierde el extracto, que es el
+            # dato principal. Al revés también: una cuenta sin extracto (quieta)
+            # igual tiene que quedar con su saldo, que es justo para lo que está.
+            try:
+                stats["llamadas"] += 1
+                n_saldos = _persistir_saldos(c["id"], ib.saldos(
+                    c["account_number"], c["bank_number"],
+                    account_type=c.get("account_type") or "CC",
+                    currency=c.get("currency") or "ARS",
+                    date_since=d1, date_until=d2,
+                ))
+                stats["dias_saldo"] += n_saldos
+                if not n_saldos:
+                    stats["cuentas_sin_saldo"] += 1
+            except Exception as e:
+                stats["cuentas_sin_saldo"] += 1
+                logger.warning("saldos de la cuenta %s (%s): %s: %s",
+                               c["id"], c.get("bank_name"), type(e).__name__, e)
         except Exception as e:
             stats["cuentas_error"] += 1
             msg = f"{type(e).__name__}: {e}"

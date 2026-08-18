@@ -522,26 +522,26 @@ la otra hasta llenar el espacio. Cero celdas vacías.
 
 - **El acomodado es un empaquetado explícito, no `columns` de CSS**: así una
   tabla **nunca se parte al medio**, que es justo lo que hace el flujo de CSS y
-  lo que volvería ilegible el reporte. Las columnas se reparten **equilibradas**
-  (se decide cuántas hacen falta y después se apunta a que todas midan parecido),
-  no llenando la primera hasta el borde.
-- ⚠️ **El reporte ENTRA ENTERO: no se desplaza.** Se muestra y se captura, así
-  que una tabla abajo del fold es una tabla que no existe — y eso pasaba. Ningún
-  reparto fijo lo puede garantizar, porque depende del tamaño de la pantalla, de
-  cuántos bancos hay y de cuántas cuentas tiene cada uno. Se **mide** el contenido
-  contra el hueco disponible y se **escala** (entre 0,55 y 1,15). El contenedor va
-  en `overflow-hidden` a propósito: si algo no entra, la respuesta es achicar la
-  escala, **nunca** una barra de scroll. Debajo del piso de escala el problema ya
-  no es el layout — son demasiados bancos para una pantalla.
-  · Se mide con `offsetWidth`/`offsetHeight`, que son el tamaño de LAYOUT y **no
-    los afecta el `transform`**: por eso medir después de escalar no se
-    retroalimenta.
-  · Las columnas van en **grid** (`grid-auto-flow: column`) y no en `flex-wrap`:
-    con flex, una columna que no entra por ancho se va a un renglón nuevo y el
-    reporte se desarma —una columna larguísima, media pantalla en blanco al lado
-    y los bancos que siguen abajo del fold. Y se dimensionan por su **contenido**
-    (`max-content`), porque estirarlas para llenar el ancho deformaba las tablas:
-    el que llena la pantalla es el escalado, no el estirado.
+  lo que volvería ilegible el reporte.
+- **Bin packing con los bancos GRANDES primero.** Es la idea del back office:
+  Banco Valores tiene 9 cuentas e Industrial 5, y puestos uno abajo del otro
+  llenan una columna entera; después los chicos (Coinag 3, Comafi 4, Galicia 5)
+  rellenan los huecos. **Al revés no cierra**: tomándolos en el orden que vienen,
+  los chicos ocupan las primeras columnas, el banco de 9 ya no entra en ninguna y
+  se abre una columna nueva casi vacía — que es lo que dejaba media pantalla en
+  blanco y una tabla afuera de la foto. Cada banco va a la columna que está más
+  vacía en ese momento; para 9 elementos alcanza y sobra.
+- ⚠️ **El MODAL se ajusta al contenido, no al revés.** Se probaron las tres
+  alternativas y las tres fallan: ancho fijo con tablas que miden lo suyo deja
+  media pantalla en blanco al costado; ancho fijo con las tablas estiradas a `1fr`
+  las deforma; y medir y **escalar** todo para que entrase dejaba la letra
+  ilegible. Lo que funciona es lo simple: las columnas se dimensionan por su
+  **contenido** (`max-content`) y el modal toma el ancho que eso pide, hasta el
+  borde de la pantalla.
+- Las columnas van en **grid** (`grid-auto-flow: column`) y no en `flex-wrap`:
+  con flex, una columna que no entra por ancho se va a un renglón nuevo y el
+  reporte se desarma —una columna larguísima, media pantalla en blanco al lado y
+  los bancos que siguen abajo del fold.
 - **Los espacios entre tablas son grandes a propósito**: son lo único que dice
   que cada bloque es una tabla independiente y no la continuación de la de al
   lado.
@@ -567,7 +567,8 @@ trabajo.
     tiene: no cuesta ni una query. Partido en bloques de 5 bancos (`BANCOS_POR_BLOQUE`):
     se probaron **las dos matrices** (bancos en las columnas, después bancos en
     las filas) y las dos quedaron con el 90% de las celdas vacías: los datos no
-    son un producto cartesiano. Terminó en **una tabla por banco**, empaquetadas.
+    son un producto cartesiano. Terminó en **una tabla por banco**, empaquetadas
+    con los bancos grandes primero y con el modal ajustándose al contenido.
   · **Títulos**: «Reglas para contabilizar Gastos Bancarios» y «Desglose para
     contabilizar Impuestos». El botón dice qué contabiliza cada cosa, que es la
     pregunta real — «reglas» y «desglose» a secas no distinguen una de otra.

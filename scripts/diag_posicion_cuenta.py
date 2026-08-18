@@ -155,16 +155,19 @@ def mostrar_por_estado(filas: list[dict]) -> None:
 
 
 def mostrar_por_moneda(g: dict[str, dict]) -> None:
-    print("\n── 2) POR ESPECIE, con el signo YA CORREGIDO (lo que vale de verdad) ──────")
+    print("\n── 2) POR ESPECIE — suma CRUDA, sin mirar el estado ──────────────────────")
     print(f"   {'especie':<14} {'filas':>5} {'LIQUIDADO':>20} {'PENDIENTE':>20} "
           f"{'LIQ + PEND':>20}")
     for esp, d in sorted(g.items()):
         liq, pen = SIGNO * d["liq"], SIGNO * d["pen"]
         print(f"   {esp[:14]:<14} {d['n']:>5} {liq:>20,.2f} {pen:>20,.2f} "
               f"{liq + pen:>20,.2f}")
-    print("\n   LIQUIDADO  = lo que ESTÁ en la cuenta hoy   → es lo que persiste el job")
-    print("   PENDIENTE  = lo que todavía no liquidó      → hoy NO se muestra")
-    print("   LIQ + PEND = cómo quedaría cuando liquide todo")
+    print("\n   ⚠ ESTA TABLA NO ES LA QUE PERSISTE EL JOB. Suma todas las filas sin mirar")
+    print("   el `estado`, así que mete los DIFERIDOS adentro del liquidado — que es")
+    print("   justo el bug que se arregló el 2026-08-19. Queda para poder VER el")
+    print("   antes y el después; el número bueno está en la sección 3.")
+    print("   LIQ + PEND no cambia con la regla: el diferido cambia de columna, no")
+    print("   desaparece.")
 
 
 # ── 3) qué persiste el job (el MISMO código del daemon) ───────────────────────

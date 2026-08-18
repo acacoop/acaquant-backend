@@ -153,10 +153,16 @@ def main() -> None:
     por_desc: dict[str, dict] = {}
     for m in movs:
         d = (m.get("descripcion_banco") or "").strip()
-        e = por_desc.setdefault(d, {"n": 0, "importe": 0.0, "cuentas": set()})
+        e = por_desc.setdefault(d, {
+            "n": 0, "importe": 0.0, "cuentas": set(),
+            "tipos": defaultdict(int), "imp_por_tipo": defaultdict(list),
+        })
         e["n"] += 1
-        e["importe"] += float(m.get("importe") or 0)
+        imp = float(m.get("importe") or 0)
+        e["importe"] += imp
         e["cuentas"].add(m["cuenta_id"])
+        e["tipos"][str(m.get("tipo"))] += 1
+        e["imp_por_tipo"][str(m.get("tipo"))].append(imp)
 
     filas = []
     for d, e in por_desc.items():
@@ -165,14 +171,41 @@ def main() -> None:
         filas.append((d, e, match, riesgo))
     filas.sort(key=lambda x: -x[1]["importe"])
 
-    titulo = "LO QUE NO AGARRA NINGUNA REGLA" if args.huerfanos else "DESCRIPCIONES DEL DÍA"
-    print(f"\n{SEP}\n{titulo}\n{SEP}")
+    if args.huerfanos:
+        # ⚠️ "43 huérfanas" no es accionable: la mayoría son movimientos normales
+        # que ESTÁ BIEN que no sean gasto. Lo que hay que mirar son los DÉBITOS —
+        # un gasto bancario siempre lo es. Los créditos son plata entrando y casi
+        # con seguridad no son un cobro del banco.
+        #
+        # Ordenados por CUÁNTAS VECES aparecen y no por importe: un gasto se
+        # repite (todos los días o todos los meses) y suele ser chico. Un importe
+        # grande que aparece una vez es, casi siempre, una operación del negocio.
+        for tipo, titulo, ayuda in (
+            ("D", "HUÉRFANOS — DÉBITOS", "acá están los gastos que faltan (y los «?????»)"),
+            ("C", "HUÉRFANOS — CRÉDITOS", "plata entrando: casi seguro NO son gasto"),
+        ):
+            print(f"\n{SEP}\n{titulo} — {ayuda}\n{SEP}")
+            print(f"  {'DESCRIPCIÓN (texto REAL de la base)':<42}{'N':>4}{'IMPORTE':>18}"
+                  f"{'MENOR':>14}{'MAYOR':>16}  CUENTAS")
+            print("  " + "-" * 106)
+            hubo = False
+            for d, e, match, _ in filas:
+                if match or not e["tipos"].get(tipo):
+                    continue
+                hubo = True
+                imps = e["imp_por_tipo"][tipo]
+                print(f"  {(d or '(vacía)')[:40]:<42}{len(imps):>4}{sum(imps):>18,.2f}"
+                      f"{min(imps):>14,.2f}{max(imps):>16,.2f}  {len(e['cuentas'])}")
+            if not hubo:
+                print("  (ninguno)")
+        print()
+        return
+
+    print(f"\n{SEP}\nDESCRIPCIONES DEL DÍA\n{SEP}")
     print(f"  {'DESCRIPCIÓN (texto REAL de la base)':<42}{'N':>4}{'IMPORTE':>18}"
           f"{'CTAS':>6}  REGLA QUE LA AGARRA")
     print("  " + "-" * 106)
     for d, e, match, riesgo in filas:
-        if args.huerfanos and match:
-            continue
         if match:
             marca = f"«{match[0]}» ({match[1]})"
         elif riesgo:
@@ -181,6 +214,33 @@ def main() -> None:
             marca = "—"
         print(f"  {(d or '(vacía)')[:40]:<42}{e['n']:>4}{e['importe']:>18,.2f}"
               f"{len(e['cuentas']):>6}  {marca}")
+
+    # ── 2b. Las RIESGOSAS, medidas ──────────────────────────────────────────
+    #
+    # La pregunta era "¿la comisión de datanet se llama igual que la
+    # transferencia?". No hace falta preguntarla: si son dos cosas distintas con
+    # el mismo nombre, se ven DOS POBLACIONES DE IMPORTE — unos pocos pesos
+    # (la comisión) contra millones (la transferencia). Si todos los importes son
+    # del mismo orden, entonces son todos lo mismo.
+    print(f"\n{SEP}\nLAS RIESGOSAS, MEDIDAS — ¿son una cosa o dos?\n{SEP}")
+    for valor, por_que in RIESGOSAS:
+        imps = sorted(
+            float(m.get("importe") or 0) for m in movs
+            if _agarra(m.get("descripcion_banco") or "", valor) and m.get("tipo") == "D"
+        )
+        if not imps:
+            print(f"\n  «{valor}» — sin débitos ese día.")
+            continue
+        chicos = [i for i in imps if i < 100_000]
+        print(f"\n  «{valor}» — {len(imps)} débito(s) · menor {imps[0]:,.2f} · "
+              f"mayor {imps[-1]:,.2f}")
+        print(f"     {por_que}")
+        if imps[-1] > 0 and imps[0] < imps[-1] / 1000:
+            print(f"     → DOS POBLACIONES: {len(chicos)} chico(s) y "
+                  f"{len(imps) - len(chicos)} grande(s). Los chicos son la comisión;"
+                  " por texto no se separan, pero por IMPORTE sí.")
+        else:
+            print("     → una sola población de importes: o son todos gasto, o ninguno.")
 
     # ── 3. Cuánto daría por cuenta ──────────────────────────────────────────
     if not args.huerfanos:

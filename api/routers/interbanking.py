@@ -12,7 +12,7 @@ bancarios de la casa; hay un test que lo congela.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -24,6 +24,27 @@ router = APIRouter(prefix="/api/back-office/interbanking", tags=["Interbanking"]
 MAX_RANGO_DIAS = 60  # el mismo tope que impone Interbanking por consulta
 
 
+def _rango(desde: date | None, hasta: date | None) -> tuple[date, date]:
+    """Completa y valida el rango de las dos sub-tabs.
+
+    El default lo decide el SERVICE (`bancos.rango_default`): es el día HÁBIL
+    anterior y hoy, no "ayer y hoy" de calendario. Un lunes —o un martes
+    post-feriado, como el 2026-08-18— restar un día apunta a una fecha sin
+    actividad bancaria y la pantalla sale vacía, que el back office lee como
+    "no hubo movimientos" en vez de "el rango está mal elegido".
+
+    Está escrito UNA vez y lo usan los dos endpoints: si divergieran, el
+    CONSOLIDADO y el DETALLE mostrarían períodos distintos.
+    """
+    d0, hasta = _svc.rango_default(hasta)
+    desde = desde or d0
+    if desde > hasta:
+        raise HTTPException(400, "La fecha desde no puede ser posterior a hasta.")
+    if (hasta - desde).days > MAX_RANGO_DIAS:
+        raise HTTPException(400, f"El rango máximo es de {MAX_RANGO_DIAS} días.")
+    return desde, hasta
+
+
 @router.get("/vista")
 def vista(
     cuenta_id: int | None = Query(None, description="cuenta de bancos.cuentas"),
@@ -33,12 +54,7 @@ def vista(
 ) -> dict:
     """Todo lo que muestra la tab, en UN request: cuentas, extracto por día,
     movimientos, resumen de conciliación y cuándo fue la última sincronización."""
-    hasta = hasta or date.today()
-    desde = desde or hasta - timedelta(days=1)
-    if desde > hasta:
-        raise HTTPException(400, "La fecha desde no puede ser posterior a hasta.")
-    if (hasta - desde).days > MAX_RANGO_DIAS:
-        raise HTTPException(400, f"El rango máximo es de {MAX_RANGO_DIAS} días.")
+    desde, hasta = _rango(desde, hasta)
     return _svc.vista(email, cuenta_id, desde, hasta)
 
 
@@ -50,12 +66,7 @@ def consolidado(
 ) -> dict:
     """CONSOLIDADO BANCOS: una fila por cuenta, agrupada por banco, con el saldo
     al inicio y al cierre del rango. Totales por banco y globales, por moneda."""
-    hasta = hasta or date.today()
-    desde = desde or hasta - timedelta(days=1)
-    if desde > hasta:
-        raise HTTPException(400, "La fecha desde no puede ser posterior a hasta.")
-    if (hasta - desde).days > MAX_RANGO_DIAS:
-        raise HTTPException(400, f"El rango máximo es de {MAX_RANGO_DIAS} días.")
+    desde, hasta = _rango(desde, hasta)
     return _svc.consolidado(email, desde, hasta)
 
 

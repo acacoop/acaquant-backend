@@ -24,7 +24,36 @@ from __future__ import annotations
 from datetime import date
 
 from api.services._sql import _f, _q
+from core.calendario import restar_habiles
 from core.postgres import get_pool
+from core.tz import ahora_ar
+
+
+def rango_default(hasta: date | None = None) -> tuple[date, date]:
+    """El rango por defecto: el día HÁBIL anterior a `hasta` y `hasta`.
+
+    **El día hábil anterior y hoy**, NO "ayer y hoy" de calendario. Los bancos
+    no operan sábados, domingos ni feriados: un rango que cae en un día no hábil
+    muestra la pantalla vacía, y una pantalla vacía acá no se lee como "el rango
+    está mal elegido" sino como "no hubo movimientos" — que es una conclusión
+    distinta y falsa.
+
+    Pasó el 2026-08-18 (martes): el lunes 17 fue feriado, el default pidió
+    17..18 y la vista no mostró un solo movimiento. El "ayer" que correspondía
+    era el viernes 14.
+
+    Tiene que coincidir con la ventana que ingesta `jobs/interbanking_sync`
+    (`ventana()`): si la vista pidiera un día que el job no trae, la pantalla
+    mostraría un hueco que no existe en el banco. Los dos usan la MISMA
+    primitiva, `core.calendario.restar_habiles`.
+
+    Sin `hasta`, el "hoy" sale de la hora ARGENTINA y no del reloj del proceso:
+    el Droplet corre en UTC y a partir de las 21 ART ya está en el día
+    siguiente. Con `hasta`, sirve igual para un día pasado que el back office
+    elija a mano: el par que devuelve sigue siendo (hábil anterior, ese día).
+    """
+    hasta = hasta or ahora_ar().date()
+    return restar_habiles(hasta, 1), hasta
 
 
 def _exec(sql: str, params: tuple) -> None:

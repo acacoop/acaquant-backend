@@ -1,12 +1,26 @@
 """jobs/interbanking_sync.py — trae los extractos de Interbanking a `bancos.*`.
 
 ÚNICO writer del esquema `bancos`. Corre cada 2hs de 9 a 19 ART (ver
-deploy/crontab.txt) y en cada corrida re-sincroniza **ayer y hoy**.
+deploy/crontab.txt) y en cada corrida re-sincroniza **el día hábil anterior y hoy**.
 
-Por qué ayer y hoy en cada corrida, y no solo hoy: un movimiento de ayer puede
-aparecer o corregirse después del cierre del banco, y re-pedirlo es barato (una
-llamada por cuenta). La ingesta es idempotente, así que correrla diez veces deja
-el mismo resultado que correrla una.
+⚠️ **"Ayer" es HÁBIL, no calendario.** Los bancos no operan sábados, domingos ni
+feriados: un día no hábil no tiene extracto y no tiene movimientos. Restar un día
+de calendario hace que la ventana apunte a un día vacío y que el último día con
+actividad real **nunca se vuelva a pedir**.
+
+Pasó el 2026-08-18 (martes): el lunes 17 fue feriado (Paso a la Inmortalidad del
+Gral. San Martín), la ventana pidió 17..18 y la vista mostró cero movimientos. El
+"ayer" que correspondía era el **viernes 14**. Lo mismo pasaba TODOS los lunes,
+donde la ventana caía en domingo y el viernes quedaba sin re-sincronizar.
+
+Por qué se re-pide el día anterior y no solo hoy: un movimiento puede aparecer o
+corregirse después del cierre del banco, y re-pedirlo es barato (una llamada por
+cuenta — el rango más ancho NO agrega llamadas, solo páginas si hay más de 100
+movimientos). La ingesta es idempotente, así que correrla diez veces deja el
+mismo resultado que correrla una.
+
+El rango SÍ incluye los días no hábiles que quedan en el medio (el finde entre el
+viernes y el lunes): van en la misma llamada, no cuestan nada y vienen vacíos.
 
 Por qué la vista no le pega a Interbanking en vivo: el límite de **100 llamadas
 por minuto es del ABONADO**, no del proceso. Si la pantalla consultara en vivo,
@@ -21,8 +35,8 @@ Movimientos sería la misma data dos veces (medido: los dos endpoints devolviero
 segunda verdad para el saldo diario.
 
 Uso:
-    python -m jobs.interbanking_sync              # ayer + hoy (lo que corre el cron)
-    python -m jobs.interbanking_sync --dias 7     # ventana más larga (máx 60)
+    python -m jobs.interbanking_sync              # hábil anterior + hoy (lo del cron)
+    python -m jobs.interbanking_sync --dias 5     # 5 días HÁBILES hacia atrás
     python -m jobs.interbanking_sync --solo-cuentas
     python -m jobs.interbanking_sync --dry        # no escribe, solo reporta
 
@@ -35,12 +49,14 @@ import argparse
 import hashlib
 import json
 import logging
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from core import interbanking as ib
+from core.calendario import restar_habiles
 from core.job_runs import JobRunLogger
 from core.postgres import get_job_pool
+from core.tz import ahora_ar
 
 logger = logging.getLogger("jobs.interbanking_sync")
 
@@ -110,7 +126,7 @@ def sincronizar_cuentas(*, dry: bool = False) -> list[dict]:
     if dry:
         return [{**c, "id": None} for c in remotas]
 
-    hoy = date.today()
+    hoy = ahora_ar().date()   # mismo "hoy" que la ventana; no dos nociones en un archivo
     filas = []
     with get_job_pool().connection() as conn, conn.cursor() as cur:
         for c in remotas:
@@ -292,9 +308,35 @@ def _log_sync(cuenta_id: int | None, desde: str, hasta: str, paginas: int,
 # --------------------------------------------------------------------------- #
 # Orquestación
 # --------------------------------------------------------------------------- #
+def ventana(dias_atras: int = 1, hoy: date | None = None) -> tuple[date, date]:
+    """(desde, hasta) de la corrida. `dias_atras` cuenta **días HÁBILES**.
+
+    Es una función aparte y pura para poder testearla sin red ni base: la
+    ventana es la decisión del job que más fácil se rompe en silencio (devuelve
+    cero movimientos, que es indistinguible de "no hubo movimientos").
+
+    Por qué HÁBILES y no calendario: los bancos no operan sábados, domingos ni
+    feriados. Restar un día de calendario apunta a un día que no tiene extracto
+    y deja el último día CON actividad sin re-sincronizar — todos los lunes, y
+    también los martes post-feriado (2026-08-18: el lunes 17 fue feriado y la
+    ventana pidió 17..18, dos días sin nada, cuando el "ayer" real era el
+    viernes 14).
+
+    `hasta` es HOY aunque hoy no sea hábil: si alguien corre el job un domingo,
+    la ventana igual tiene que llegar hasta la fecha de corrida. Los días no
+    hábiles que quedan en el medio viajan en la MISMA llamada y vienen vacíos,
+    así que ampliar el rango no cuesta llamadas.
+    """
+    hasta = hoy or ahora_ar().date()
+    desde = restar_habiles(hasta, max(dias_atras, 0))
+    # Interbanking admite 60 días CALENDARIO por consulta. El tope se aplica
+    # sobre el resultado y no sobre `dias_atras`, que ahora cuenta hábiles:
+    # 60 hábiles son ~84 días de calendario y la API rechazaría la llamada.
+    return max(desde, hasta - timedelta(days=60)), hasta
+
+
 def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -> dict:
-    hasta = datetime.now(UTC).date()
-    desde = hasta - timedelta(days=min(dias_atras, 60))
+    desde, hasta = ventana(dias_atras)
     d1, d2 = desde.isoformat(), hasta.isoformat()
 
     stats: dict[str, Any] = {
@@ -331,7 +373,8 @@ def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -
 def main() -> None:
     ap = argparse.ArgumentParser(description="Sincroniza extractos de Interbanking")
     ap.add_argument("--dias", type=int, default=1,
-                    help="cuántos días hacia atrás (default 1 = ayer + hoy)")
+                    help="cuántos días HÁBILES hacia atrás "
+                         "(default 1 = día hábil anterior + hoy)")
     ap.add_argument("--solo-cuentas", action="store_true", help="solo el maestro de cuentas")
     ap.add_argument("--dry", action="store_true", help="no escribe nada")
     args = ap.parse_args()

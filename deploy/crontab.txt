@@ -397,10 +397,14 @@
 
 # ─── INTERBANKING (extractos de los bancos) → esquema bancos.*
 # Cada 2hs de 9 a 19 ART = 12,14,16,18,20,22 UTC, L-V. En cada corrida
-# re-sincroniza AYER y HOY: un movimiento de ayer puede aparecer o corregirse
-# después del cierre del banco, y re-pedirlo cuesta una llamada por cuenta.
-# La ingesta es idempotente (PK por hash del movimiento), así que correrla de más
-# no duplica nada.
+# re-sincroniza el DÍA HÁBIL ANTERIOR y HOY: un movimiento puede aparecer o
+# corregirse después del cierre del banco, y re-pedirlo cuesta una llamada por
+# cuenta. La ingesta es idempotente (PK por hash del movimiento), así que
+# correrla de más no duplica nada.
+# ⚠️ HÁBIL, no calendario: los bancos no operan findes ni feriados. Restar un día
+# corrido dejaba la ventana en un día vacío y el último día CON actividad sin
+# re-sincronizar — todos los lunes (caía en domingo) y los martes post-feriado
+# (2026-08-18: pidió el feriado 17 en vez del viernes 14).
 # ~35 llamadas por corrida contra un límite de 100/minuto que es del ABONADO
 # (no del proceso) — por eso la vista NUNCA le pega a Interbanking en vivo.
 # Doc: docs/INTERBANKING.md

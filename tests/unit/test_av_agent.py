@@ -2560,3 +2560,48 @@ def test_los_hallazgos_de_rueda_NO_son_accionables_desde_el_modal():
     from api.services import av_agent
     assert av_agent.ACCION_POR_TIPO["sin_precio"] is None
     assert av_agent.ACCION_POR_TIPO["precio_moneda"] is None
+
+
+def test_un_precio_VIEJO_se_detecta_y_no_revienta_por_la_zona_horaria():
+    """`updated_at` es un timestamptz. Compararlo contra un naive levanta, y un
+    monitor que se cae por un detalle de tipos deja de avisar justo cuando hace
+    falta — por eso se normaliza antes de comparar."""
+    import datetime as dt
+
+    from api.services.av_agent import PRECIO_VIEJO_MIN, detectar_sin_precio
+    ahora = dt.datetime.now(dt.UTC)
+    bono = {"ticker": "X", "ticker_corto": "XX"}
+    viejo = ahora - dt.timedelta(minutes=PRECIO_VIEJO_MIN + 5)
+    hs = detectar_sin_precio([bono], {"X": {"last_price": 74.0, "updated_at": viejo}},
+                             ahora)
+    assert hs and hs[0]["regla"] == "precio_viejo"
+    # Y el mismo caso con un naive: tiene que salir igual, no explotar.
+    hs2 = detectar_sin_precio(
+        [bono], {"X": {"last_price": 74.0, "updated_at": viejo.replace(tzinfo=None)}},
+        ahora)
+    assert hs2 and hs2[0]["regla"] == "precio_viejo"
+
+
+def test_un_precio_FRESCO_no_dispara_nada():
+    import datetime as dt
+
+    from api.services.av_agent import detectar_sin_precio
+    ahora = dt.datetime.now(dt.UTC)
+    assert detectar_sin_precio(
+        [{"ticker": "X", "ticker_corto": "XX"}],
+        {"X": {"last_price": 74.0, "updated_at": ahora}}, ahora) == []
+
+
+def test_cols_map_no_castea_lo_que_no_es_un_numero():
+    """El bug que tumbó el monitor en su primera corrida: `cols_map` casteaba
+    TODA columna a float y `updated_at` es un datetime. La función promete
+    servir cualquier columna del snapshot — que tiene `book jsonb` y dos
+    timestamps— así que el cast incondicional era la mentira, no el caller."""
+    import datetime as dt
+    from decimal import Decimal
+
+    from core.market_snapshot import _num
+    assert _num(Decimal("74.19")) == 74.19 and isinstance(_num(Decimal("1")), float)
+    ahora = dt.datetime.now(dt.UTC)
+    assert _num(ahora) is ahora
+    assert _num({"bids": []}) == {"bids": []}

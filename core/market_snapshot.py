@@ -9,6 +9,8 @@ Helpers para los motores que antes leían Trading.MarketSnapshot.metrics directo
 """
 from __future__ import annotations
 
+from decimal import Decimal as _Decimal
+
 from core.postgres import get_pool
 
 # Columna SQL → clave del sub-doc `metrics` de Mongo (mayúsculas TEA/TEM como el motor).
@@ -79,9 +81,27 @@ def last_prices(tickers) -> list[dict]:
                 for r in cur.fetchall()]
 
 
+def _num(v):
+    """`numeric` de Postgres → float; **cualquier otra cosa se devuelve tal cual**.
+
+    El cast era incondicional y reventaba con la primera columna no numérica
+    (`updated_at`): `float() argument must be a string or a real number, not
+    'datetime.datetime'`. La función se llama `cols_map`, no `metricas_map` —
+    prometía servir cualquier columna del snapshot y solo servía las numéricas,
+    en una tabla que tiene `book jsonb` y dos timestamps.
+
+    Convertir solo lo que ES un número no cambia nada para los 7 callers que hoy
+    piden `tea`/`duration`/`last_price`: `Decimal` sigue saliendo `float`.
+    """
+    return float(v) if isinstance(v, (int, float, _Decimal)) else v
+
+
 def cols_map(tickers, cols: list[str]) -> dict[str, dict]:
     """{ticker: {col: valor|None}} para varias columnas. Sin filtro de NULL —
-    el caller decide. Para casos que necesitan varias métricas juntas (ej. TEA+duration)."""
+    el caller decide. Para casos que necesitan varias métricas juntas (ej. TEA+duration).
+
+    Las columnas numéricas vuelven como `float`; las que no lo son (timestamps,
+    jsonb) vuelven con su tipo — ver `_num`."""
     tickers = list(tickers)
     if not tickers:
         return {}
@@ -93,5 +113,6 @@ def cols_map(tickers, cols: list[str]) -> dict[str, dict]:
         )
         out: dict[str, dict] = {}
         for r in cur.fetchall():
-            out[r[0]] = {c: (float(v) if v is not None else None) for c, v in zip(cols, r[1:])}
+            out[r[0]] = {c: (_num(v) if v is not None else None)
+                         for c, v in zip(cols, r[1:], strict=True)}
         return out

@@ -740,6 +740,11 @@ def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
                 {**ev, "estado": "sin_punta"}))
             continue
         upd = d.get("updated_at")
+        # `updated_at` es `timestamptz` → viene con tz. Si alguna vez llegara
+        # naive, compararlo contra uno aware LEVANTA — y un monitor que se cae
+        # por un detalle de tipos deja de avisar justo cuando hace falta.
+        if upd is not None and upd.tzinfo is None:
+            upd = upd.replace(tzinfo=UTC)
         if upd and upd < viejo:
             mins = int((ahora - upd).total_seconds() / 60)
             out.append(_hallazgo(

@@ -175,10 +175,48 @@ notaba recién al leer un resultado raro, y para entonces uno debuggea el
 resultado en vez de la fuente. **Ninguna lectura pega a la red**: un tablero que
 gasta un crédito cada vez que se mira consume el recurso que vino a cuidar.
 
-Lo que sigue de este bloque (§0.i, el orden acordado con el user 2026-08-18):
-corregir la causa desde el modal ⇒ llena el eval set solo · los sliders de
-autonomía por causa · deshacer + lote · calibración, re-chequeo a 24 h y el DAG
-de lentes.
+### 0.i EL DIAGNÓSTICO MASIVO (2026-08-18)
+
+Pedido del user: *«un botón que haga un estado de situación con los que dieron
+error, los que dieron bien, etc., bien completo, que quede para copiar y pegar»*.
+
+**Por qué vale más de lo que parece.** Los diagnósticos se miran de a uno, y de a
+uno **no se ven los patrones**. Un informe de 68 muestra lo que ninguna fila
+individual puede: que 68 casos son 4 causas (el trabajo real es más chico de lo
+que parece), que la verificación de una causa NO vuelve al rango en 12 de ellos
+(entonces esa causa está mal), o que 9 fallan con la MISMA excepción — eso es UN
+bug de código disfrazado de 9 hallazgos. El bug de `moneda_flujo` se encontró
+así, comparando 8 hallazgos contra 30 bonos.
+
+**Corre en BACKGROUND, y no es una preferencia.** El plan de 1816 permite **1
+petición por segundo** y el throttle es global entre procesos: 68 bonos con
+`cashflow` son ~82 s de piso y 2-3 minutos reales. Ningún request HTTP sobrevive
+a eso — el propio agente aborta a los 45 s por `_PRESUPUESTO_S`. El token
+compartido y el throttle **se heredan**: todo pasa por `mercado_1816._get`, así
+que una corrida masiva no consume ni un login.
+
+Decisiones que lo hacen servir:
+
+- **No se re-implementa ningún diagnóstico**: cada caso pasa por la MISMA puerta
+  que el modal, y hay un test que lo exige.
+- **Los casos los manda el front**, porque son los que el usuario ve con su
+  filtro puesto. Re-derivar el filtro en el backend sería una segunda
+  implementación del mismo criterio.
+- **Una excepción en un caso no tumba la corrida**, y los que explotan van
+  ARRIBA del informe: son bugs del agente, no bonos mal cargados.
+- **El informe llega parcial** — se puede mirar mientras corre, que es lo que
+  deja abortar una corrida que ya se ve mal.
+- **`interrumpido` se deduce de `latido_at`**: si el proceso muere no puede
+  dejar constancia, y mostrar «corriendo» para siempre sería mentir.
+- **El resumen se deriva del detalle** en la lectura; persistirlo lo dejaría
+  contradiciendo a sus propios casos.
+- **Tope de créditos** (5.000), medido contra `/balance` y no estimado. No es
+  para ahorrar —el plan da 100.000 y usamos ~4.000— sino para que un bug que
+  pida `cashflow` en loop se corte ahí. El límite de 500 casos es por RELOJ.
+
+Lo que sigue (el orden acordado con el user 2026-08-18): corregir la causa desde
+el modal ⇒ llena el eval set solo · los sliders de autonomía por causa ·
+deshacer + lote · calibración, re-chequeo a 24 h y el DAG de lentes.
 
 ### 0.f El eval set (2026-08-17)
 

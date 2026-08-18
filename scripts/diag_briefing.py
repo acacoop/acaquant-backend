@@ -59,25 +59,46 @@ def main() -> None:
             except Exception as e:
                 print(f"   ❌ {t:<34} {type(e).__name__}: {e}")
 
-    _seccion("3) EL GATE: quién tiene el módulo `ia`")
+    _seccion("3) EL GATE: ¿quién puede ver /api/ia/* ?")
+    # Se ejercita el MISMO camino que el gate (`require_module("ia")` →
+    # `has_access`), no la tabla cruda: la matriz se filtra contra MODULES y
+    # tiene fallbacks, así que leer las filas a mano puede decir una cosa y el
+    # gate decidir otra.
+    try:
+        from core import roles
+        print(f"   `ia` ∈ MODULES: {'sí' if 'ia' in roles.MODULES else '❌ NO — nadie pasa'}")
+        mat = roles.get_matrix()
+        if mat:
+            for rol in sorted(mat):
+                tiene = "ia" in mat[rol]
+                print(f"   {'✅' if tiene else '  '} {rol:<24} {'ia' if tiene else '— sin ia'}")
+        else:
+            print("   (matriz vacía → rige DEFAULT_MATRIX)")
+            for rol, mods in roles.DEFAULT_MATRIX.items():
+                print(f"   {'✅' if 'ia' in mods else '  '} {rol:<24}")
+    except Exception:
+        traceback.print_exc()
+
+    _seccion("4) VOS: el veredicto que da el backend para tu email")
+    # Es LA pregunta. Si acá sale False, el backend devuelve 403 y el botón se
+    # esconde por diseño; el problema es el permiso, no el briefing.
     try:
         from core import roles
         with get_pool().connection() as cx, cx.cursor() as cur:
-            cur.execute("SELECT role, modules FROM manager.role_matrix ORDER BY role")
-            filas = cur.fetchall()
-        if filas:
-            for rol, mods in filas:
-                tiene = "ia" in (mods or [])
-                print(f"   {'✅' if tiene else '  '} {rol:<24} {'ia' if tiene else '— sin ia'}")
-        else:
-            print("   (role_matrix vacía → rige DEFAULT_MATRIX de core/roles.py)")
-            for rol, mods in getattr(roles, "DEFAULT_MATRIX", {}).items():
-                print(f"   {'✅' if 'ia' in mods else '  '} {rol:<24}")
-    except Exception as e:
-        print(f"   ❌ no se pudo leer la matriz: {type(e).__name__}: {e}")
+            cur.execute("SELECT email, role, enabled FROM manager.manager_users "
+                        "ORDER BY last_seen_at DESC NULLS LAST LIMIT 12")
+            users = cur.fetchall()
+        for email, rol, en in users:
+            try:
+                ok = roles.has_access(email, "ia")
+            except Exception as e:
+                ok = f"error: {e}"
+            hab = "" if en is not False else "  (DESHABILITADO)"
+            print(f"   {'✅' if ok is True else '❌'} {email:<38} rol={rol}{hab}")
+    except Exception:
+        traceback.print_exc()
 
-    print(f"\n{SEP}\nSi (1) dice OK y (3) muestra tu rol con `ia`, el backend está bien\n"
-          f"y lo que falla es el deploy del front o el proxy.\n{SEP}")
+    print(f"\n{SEP}\nSi (1) dice OK y (4) te da ✅, el backend está bien: el briefing\nresponde 200 y el problema está del lado del front / el deploy.\n{SEP}")
 
 
 if __name__ == "__main__":

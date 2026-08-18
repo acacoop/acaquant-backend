@@ -7,8 +7,9 @@ Plumbing HTTP puro: la lógica vive en `api/services/bancos.py`.
 integración no puede mover plata ni por error.
 
 Lo que SÍ escribe (desde 2026-08-18) es la CLASIFICACIÓN DE GASTOS BANCARIOS, y
-va a tablas NUESTRAS (`bancos.gastos_reglas` / `gastos_overrides`): no toca el
-extracto, no toca el saldo y no sale a internet. Son 3 endpoints, todos detrás de
+va a tablas NUESTRAS (`bancos.gastos_reglas` / `gastos_overrides` /
+`movimientos_ignorados`): no toca el
+extracto, no toca el saldo y no sale a internet. Son 4 endpoints, todos detrás de
 `bancos.puede_escribir` (allowlist de Tesorería + admin) y todos auditados. Un
 test enumera exactamente cuáles son, así que uno nuevo no entra sin que alguien
 lo decida.
@@ -119,5 +120,22 @@ def marcar_gasto(
     """Marca o desmarca UN movimiento. La marca manual GANA sobre la regla."""
     try:
         return _svc.marcar_gasto(_exigir_escritura(email), mov_hash, es_gasto)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/gastos/ignorar")
+def ignorar_movimiento(
+    mov_hash: str = Body(..., embed=True),
+    ignorar: bool = Body(..., embed=True),
+    motivo: str = Body("", embed=True),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """IGNORA (o des-ignora) UN movimiento: el equivalente al destildado por
+    celda de Tesorería. Vive bajo `/gastos/` porque lo que deja de sumar son los
+    GASTOS y su desglose — el extracto del banco no se toca.
+    """
+    try:
+        return _svc.ignorar_movimiento(_exigir_escritura(email), mov_hash, ignorar, motivo)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e

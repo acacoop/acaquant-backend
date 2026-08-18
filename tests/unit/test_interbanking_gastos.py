@@ -198,3 +198,51 @@ def test_las_claves_son_unicas():
     claves = [b["clave"] for b in DESGLOSE_GASTOS]
     assert len(claves) == len(set(claves))
     assert RESTO not in claves
+
+
+# --------------------------------------------------------------------------- #
+# IGNORAR un movimiento — el equivalente al destildado por celda de Tesorería
+# --------------------------------------------------------------------------- #
+# El movimiento ignorado NO desaparece: sigue clasificado y sigue en la lista
+# (tachado). Lo único que cambia es que **no suma**. Es lo que salva el número
+# cuando el banco manda la misma comisión dos veces: borrar la fila haría que
+# el detalle deje de coincidir con el extracto; ignorarla deja las dos a la
+# vista y cuenta una.
+def _gastos(monkeypatch, movs, overrides=None):
+    from api.services import bancos as svc
+
+    def _q(sql, params=None):
+        t = " ".join(str(sql).split())
+        if "gastos_reglas" in t:
+            return [{"id": 1, "campo": "descripcion_ib", "operador": "igual",
+                     "valor": "IVA", "activa": True}]
+        if "gastos_overrides" in t:
+            return [{"mov_hash": k, "es_gasto": v} for k, v in (overrides or {}).items()]
+        return movs
+
+    monkeypatch.setattr(svc, "_q", _q)
+    return svc._gastos_bancarios(__import__("datetime").date(2026, 8, 14))
+
+
+def _crudo(h, ignorado=False, importe=100.0):
+    return {"mov_hash": h, "cuenta_id": 1, "importe": importe, "tipo": "D",
+            "codigo_operacion_ib": "1", "codigo_operacion_banco": "1",
+            "descripcion_banco": "", "descripcion_ib": "IVA", "ignorado": ignorado}
+
+
+def test_un_movimiento_ignorado_no_suma_al_gasto(monkeypatch):
+    out = _gastos(monkeypatch, [_crudo("h1"), _crudo("h2", ignorado=True)])
+    assert out[1]["total"] == 100.0, "el ignorado tiene que quedar afuera del total"
+    assert out[1]["iva"] == 100.0, "y afuera de su balde del desglose"
+
+
+def test_ignorar_gana_incluso_sobre_la_marca_manual(monkeypatch):
+    """Marcar a mano «esto ES gasto» y después ignorarlo tiene que dar CERO.
+    Son dos preguntas distintas: la marca dice QUÉ ES, ignorar dice SI CUENTA."""
+    out = _gastos(monkeypatch, [_crudo("h1", ignorado=True)], overrides={"h1": True})
+    assert out[1]["total"] == 0.0
+
+
+def test_sin_ignorados_nada_cambia(monkeypatch):
+    out = _gastos(monkeypatch, [_crudo("h1"), _crudo("h2")])
+    assert out[1]["total"] == 200.0

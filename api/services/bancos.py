@@ -242,12 +242,19 @@ def _exec(sql: str, params: tuple) -> int:
 
 def _movs_para_clasificar(fecha: date, cuenta_id: int | None = None) -> list[dict]:
     """Los campos de los movimientos que una regla puede mirar, de UN día."""
-    where = "fecha = %s" + (" AND cuenta_id = %s" if cuenta_id is not None else "")
+    where = "m.fecha = %s" + (" AND m.cuenta_id = %s" if cuenta_id is not None else "")
     params: tuple = (fecha, cuenta_id) if cuenta_id is not None else (fecha,)
+    # ⚠️ El `ignorado` viene por LEFT JOIN y NO por una query aparte. Contra
+    # Supabase cada roundtrip cuesta ~8,5ms de peaje FIJO —es distancia, no
+    # software—, así que una columna más en una query que ya corre es gratis y
+    # una query más no. Hay un test que congela el conteo.
     return _q(
-        f"""SELECT mov_hash, cuenta_id, importe, tipo, codigo_operacion_ib,
-                   codigo_operacion_banco, descripcion_banco, descripcion_ib
-              FROM bancos.movimientos WHERE {where}""",
+        f"""SELECT m.mov_hash, m.cuenta_id, m.importe, m.tipo, m.codigo_operacion_ib,
+                   m.codigo_operacion_banco, m.descripcion_banco, m.descripcion_ib,
+                   (i.mov_hash IS NOT NULL) AS ignorado
+              FROM bancos.movimientos m
+              LEFT JOIN bancos.movimientos_ignorados i ON i.mov_hash = m.mov_hash
+             WHERE {where}""",
         params,
     )
 
@@ -296,7 +303,9 @@ def _gastos_bancarios(fecha: date) -> dict[int, dict]:
     out: dict[int, dict] = {
         m["cuenta_id"]: {"total": 0.0, **_baldes_vacios()} for m in movs}
     for m in movs:
-        if not marcas[m["mov_hash"]]["es_gasto"]:
+        # Ignorado = no cuenta. Sigue clasificado y sigue visible en la lista
+        # (tachado): lo que cambia es que no suma.
+        if m.get("ignorado") or not marcas[m["mov_hash"]]["es_gasto"]:
             continue
         imp = _f(m.get("importe")) or 0.0
         firmado = imp if m.get("tipo") == "D" else -imp
@@ -363,6 +372,13 @@ def _movimiento_publico(r: dict) -> dict:
         "comprobante": r.get("comprobante"),
         "contraparte": (r.get("denominacion_contraparte") or "").strip() or None,
         "contraparte_cuit": _cuit_enmascarado(r.get("cuit_contraparte")),
+        # IGNORAR — mismo modelo que el destildado de Tesorería: la fila SIGUE
+        # visible (tachada), pero no suma. Sin fila en la tabla de ignorados el
+        # movimiento cuenta, que es el default sano.
+        "ignorado": bool(r.get("ignorado")),
+        "ignorado_motivo": r.get("ignorado_motivo"),
+        "ignorado_por": r.get("ignorado_por"),
+        "ignorado_at": r["ignorado_at"].isoformat() if r.get("ignorado_at") else None,
     }
 
 
@@ -432,22 +448,34 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
             (cuenta_id, fecha))]
 
         movimientos = [_movimiento_publico(r) for r in _q(
-            """SELECT mov_hash, fecha, fecha_proceso, importe, tipo, descripcion_banco,
-                      descripcion_ib, codigo_operacion_ib, codigo_operacion_banco,
-                      sucursal, numero_extracto,
-                      correlativo, comprobante, cuit_contraparte,
-                      denominacion_contraparte
-                 FROM bancos.movimientos
-                WHERE cuenta_id = %s AND fecha = %s
-                ORDER BY numero_extracto DESC, correlativo""",
+            """SELECT m.mov_hash, m.fecha, m.fecha_proceso, m.importe, m.tipo,
+                      m.descripcion_banco, m.descripcion_ib, m.codigo_operacion_ib,
+                      m.codigo_operacion_banco, m.sucursal, m.numero_extracto,
+                      m.correlativo, m.comprobante, m.cuit_contraparte,
+                      m.denominacion_contraparte,
+                      (i.mov_hash IS NOT NULL) AS ignorado,
+                      i.motivo AS ignorado_motivo, i.por AS ignorado_por,
+                      i.at AS ignorado_at
+                 FROM bancos.movimientos m
+                 LEFT JOIN bancos.movimientos_ignorados i ON i.mov_hash = m.mov_hash
+                WHERE m.cuenta_id = %s AND m.fecha = %s
+                ORDER BY m.numero_extracto DESC, m.correlativo""",
             (cuenta_id, fecha))]
 
     # La marca de gasto se resuelve acá y no en la pantalla: es la MISMA función
     # que alimenta la columna GASTOS BANCARIOS del consolidado, así que el
     # detalle no puede contradecir al total.
+    #
+    # ⚠️ Los crudos y las reglas se leen UNA vez y se reusan para la marca Y para
+    # el desglose. Hasta el 2026-08-18 se leían dos veces cada uno: 4 queries
+    # donde alcanzan 2. Con el peaje medido de ~8.5ms por roundtrip contra
+    # Supabase, lo que importa NO es el plan de la query sino cuántas son.
+    reglas: list[dict] = []
+    crudos: dict[str, dict] = {}
     if cuenta_id is not None and movimientos:
-        marcas = clasificar(
-            _movs_para_clasificar(fecha, cuenta_id), listar_reglas(), _overrides(fecha))
+        reglas = listar_reglas()
+        crudos = {m["mov_hash"]: m for m in _movs_para_clasificar(fecha, cuenta_id)}
+        marcas = clasificar(list(crudos.values()), reglas, _overrides(fecha))
         for m in movimientos:
             marca = marcas.get(m["mov_hash"]) or {}
             m["es_gasto"] = bool(marca.get("es_gasto"))
@@ -456,11 +484,10 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
     # El desglose se arma con la MISMA función que la columna del consolidado,
     # así el detalle no puede contradecir al total de la grilla.
     desglose = _baldes_vacios()
-    if cuenta_id is not None and movimientos:
-        crudos = {m["mov_hash"]: m for m in _movs_para_clasificar(fecha, cuenta_id)}
+    if crudos:
         for m in movimientos:
             crudo = crudos.get(m["mov_hash"])
-            if not m.get("es_gasto") or crudo is None:
+            if not m.get("es_gasto") or crudo is None or crudo.get("ignorado"):
                 continue
             balde = desglosar(crudo)
             # Cada movimiento viaja diciendo EN QUÉ BALDE cayó. Sin esto, la
@@ -489,7 +516,7 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
         "saldo_final": next((d["saldo_cierre"] for d in dias), None),
         "gastos": round(sum(
             (m["importe"] or 0) * (1 if m["tipo"] == "D" else -1)
-            for m in movimientos if m.get("es_gasto")), 2),
+            for m in movimientos if m.get("es_gasto") and not m.get("ignorado")), 2),
         "gastos_desglose": desglose,
     }
 
@@ -499,7 +526,9 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
         "cuentas": cuentas,
         "cuenta_id": cuenta_id,
         "puede_escribir": puede_escribir(email),
-        "reglas": listar_reglas(),
+        # Ya se leyeron arriba para clasificar: leerlas de nuevo para la
+        # respuesta era una query entera de regalo.
+        "reglas": reglas if reglas else listar_reglas(),
         "desglose": catalogo_desglose(),
         "fecha": fecha.isoformat(),
         "dias": dias,
@@ -742,6 +771,36 @@ def marcar_gasto(email: str, mov_hash: str, es_gasto: bool | None) -> dict:
               (mov_hash, es_gasto, email))
     _audit(email, "marca", {"mov_hash": mov_hash, "es_gasto": es_gasto})
     return {"mov_hash": mov_hash, "es_gasto": es_gasto}
+
+
+def ignorar_movimiento(email: str, mov_hash: str, ignorar: bool,
+                       motivo: str = "") -> dict:
+    """IGNORA (o des-ignora) UN movimiento — el equivalente al destildado por
+    celda de Tesorería.
+
+    La tabla es de PUROS OVERRIDES: la ausencia de fila significa "cuenta", así
+    que des-ignorar es un DELETE y no un flag en false. Eso evita el estado
+    ambiguo de una fila que dice `ignorado=false` y compite con el default.
+
+    Qué deja de sumar: los GASTOS y su desglose (acá y en la columna del
+    consolidado). Los créditos/débitos del día NO se tocan a propósito — son la
+    aritmética del extracto del banco, y restarle una fila haría que la vista
+    contradiga al extracto.
+    """
+    if not _q("SELECT 1 FROM bancos.movimientos WHERE mov_hash = %s", (mov_hash,)):
+        raise ValueError("Ese movimiento no existe (puede haberlo purgado la retención).")
+
+    if ignorar:
+        _exec("""INSERT INTO bancos.movimientos_ignorados (mov_hash, motivo, por, at)
+                 VALUES (%s,%s,%s, now())
+                 ON CONFLICT (mov_hash)
+                 DO UPDATE SET motivo = EXCLUDED.motivo, por = EXCLUDED.por, at = now()""",
+              (mov_hash, (motivo or "").strip() or None, email))
+    else:
+        _exec("DELETE FROM bancos.movimientos_ignorados WHERE mov_hash = %s", (mov_hash,))
+    _audit(email, "ignorar", {"mov_hash": mov_hash, "ignorar": ignorar,
+                              "motivo": (motivo or "").strip() or None})
+    return {"mov_hash": mov_hash, "ignorado": ignorar}
 
 
 def marcar_presencia(email: str) -> None:

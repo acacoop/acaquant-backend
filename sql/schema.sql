@@ -3856,6 +3856,28 @@ CREATE INDEX IF NOT EXISTS ix_bancos_gastos_audit_ts
 
 -- Quién tiene la vista abierta. El poll de 60s ES el heartbeat (no hay un
 -- endpoint aparte que golpear), igual que en Tesorería.
+-- IGNORAR un movimiento. Mismo modelo que `operaciones.tesoreria_exclusiones`:
+-- **solo overrides** — si no hay fila acá, el movimiento cuenta.
+--
+-- Ignorar NO borra nada y NO puede cambiar un saldo: los saldos los informa el
+-- banco en `extracto_dia` y no se suman desde el detalle. Lo que saca es al
+-- movimiento de los GASTOS BANCARIOS y de su balde del desglose. La fila sigue
+-- viéndose en la lista, tachada y con el motivo — esconderla haría que el
+-- detalle no explique al total.
+--
+-- Para qué: el banco manda el mismo movimiento dos veces, o una fila que es un
+-- error suyo. Es el mismo problema que en Tesorería obliga a que los movimientos
+-- de Aunesa sin hora arranquen destildados.
+--
+-- `ON DELETE CASCADE`: cuando la retención de 3 fechas borra el movimiento, su
+-- exclusión se va con él. Una exclusión sin movimiento no significa nada.
+CREATE TABLE IF NOT EXISTS bancos.movimientos_ignorados (
+    mov_hash  text PRIMARY KEY REFERENCES bancos.movimientos(mov_hash) ON DELETE CASCADE,
+    motivo    text,
+    por       text NOT NULL,
+    at        timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS bancos.presencia (
     email     text PRIMARY KEY,
     visto_at  timestamptz NOT NULL DEFAULT now()

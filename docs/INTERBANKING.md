@@ -398,7 +398,61 @@ mudó a un ícono ⧉ al lado de la etiqueta** — chico pero SIEMPRE visible, n
 hover: cuando el gesto principal cambia, lo que se desplaza necesita su propio
 lugar o desaparece.
 
+## IGNORAR un movimiento
+
+**Dos preguntas distintas, dos columnas.** La columna **GASTO** dice *qué es* el
+movimiento (lo cobró el banco o no). La columna **CUENTA** dice *si suma*. Un
+duplicado del banco sigue siendo un gasto — lo que no es, es **dos** gastos, y
+con una sola columna no había forma de decir eso.
+
+Es el mismo modelo que el destildado por celda de Tesorería → BANCOS, y las
+mismas tres propiedades:
+
+- **La fila NO se borra.** Queda **tachada y apagada**, con su observación
+  (quién y cuándo, y el motivo si lo escribieron). Esconderla haría que el
+  detalle deje de coincidir con el extracto del banco — que es justamente contra
+  lo que se concilia. Y esconder una fila esconde la decisión que alguien tomó
+  sobre ella.
+- **Tabla de PUROS OVERRIDES** (`bancos.movimientos_ignorados`): la ausencia de
+  fila significa "cuenta". Des-ignorar es un `DELETE`, no un flag en `false` —
+  así no existe el estado ambiguo de una fila que dice `ignorado = false` y
+  compite con el default.
+- **`ON DELETE CASCADE`**: cuando la retención de 3 fechas borra el movimiento,
+  su marca se va con él. Una marca sin movimiento no significa nada.
+
+**Qué deja de sumar:** los GASTOS y su desglose, tanto en el modal como en la
+columna del consolidado. Lo mismo vale para el **auditor**: la suma de las filas
+visibles excluye los ignorados y los cuenta aparte («N ignorado(s), fuera de la
+suma»), porque si sumaran, ese número nunca coincidiría con el del desglose y el
+auditor acusaría una diferencia que no existe.
+
+**Qué NO toca:** los créditos/débitos del día. Esa es la aritmética del extracto
+del banco, y restarle una fila haría que la vista contradiga al extracto.
+
+**Ignorar gana sobre la marca manual.** Marcar «esto ES gasto» y después
+ignorarlo da cero — son dos preguntas y la segunda es la que decide si entra al
+total. Hay un test que lo congela.
+
+Escritura: `PUT /gastos/ignorar`, detrás de la misma allowlist que el resto
+(Tesorería + admin) y auditado en `bancos.gastos_audit`. Vive bajo `/gastos/`
+porque lo que deja de sumar son los gastos — de paso, el proxy de Next no
+necesitó ampliar su superficie de escritura.
+
 ## Changelog
+
+- **2026-08-18 (10)** — **IGNORAR un movimiento** (ver la sección de arriba) +
+  **repaso de queries**, ahora congelado por test.
+  · `vista` leía los movimientos crudos y el catálogo de reglas **dos veces cada
+    uno**: 4 queries donde alcanzaban 2. Es la forma en que esto crece sin que
+    nadie lo note — se agrega un campo a la respuesta llamando otra vez a la
+    función que ya lo trajo, y nadie ve 8ms. `tests/unit/test_interbanking_queries.py`
+    fija los topes (`consolidado` 9 · `vista` 8) y falla si una query se repite
+    idéntica en el mismo request. Subir el número tiene que ser una decisión que
+    alguien tome a mano.
+  · Por eso mismo la marca de ignorado **NO es una query nueva**: viaja por
+    `LEFT JOIN` en las dos queries de movimientos que ya corrían. Contra Supabase
+    el peaje es de ~8,5ms por *roundtrip* y es 100% distancia — una columna más
+    en una query que ya corre es gratis, una query más no.
 
 - **2026-08-18 (9)** — **AUDITOR del desglose** (ver arriba) y **COM.TRANSF suma
   las tres grafías**. El campo pasó del BALDE al MATCHER para que un balde pueda

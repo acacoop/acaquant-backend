@@ -141,6 +141,61 @@ abre un diagnóstico y decide, emite un juicio sobre si la causa era la correcta
 - `candidata_a_auto` **no es un permiso**: es lo que el número habilita a
   discutir. La lane automática se prende a mano, siempre.
 
+### 0.g LA MEMORIA: nada se desperdicia (2026-08-17)
+
+Pedido del user, y es el que ordena todo lo que viene: *«todo lo que pase de ahora
+en adelante tiene que servir para alimentar al modelo… no puede quedar nada
+desperdiciado: tiene que quedar todo, cómo se va construyendo la solución, los
+errores que detecto, cómo se fue modificando. Porque ahora es bonos, pero después
+está SALUD y van a venir más cosas.»*
+
+Y tenía delante el caso perfecto. En OLC3O el agente dijo, **en la misma
+pantalla**:
+
+    lente 7  →  «ninguna fuente local tiene un precio mayor que 0»
+    paso 13  →  «precio 137.280,0000 (snapshot)»
+
+**No era un bono mal cargado: era el agente contradiciéndose** — las lentes
+recibían un dict sin la clave `precio`. Eso es más grave que un dato malo, porque
+destruye la confianza en todo lo demás que dice, incluido lo que está bien. Y sin
+memoria, la lección de ese bug vivía en un chat y se perdía.
+
+**Las tres piezas** (`api/services/av_agent_memoria.py`):
+
+| | Qué hace | Qué agujero tapa |
+|---|---|---|
+| **TRAZAS** | guarda cada diagnóstico entero: las 8 lentes, la causa, el contexto | se calculaba y se tiraba al cerrar el modal — sin el registro de lo que dijo ayer no hay forma de saber si hoy dice algo mejor |
+| **CONTRADICCIONES** | el agente se audita: dos lentes que afirman cosas incompatibles | el bug de OLC3O pasó tests, lint y una lectura humana |
+| **LECCIONES** | síntoma → causa raíz → **qué se cambió** → commit | el aprendizaje vivía en un chat |
+
+**Las lentes declaran HECHOS, no solo prosa.** La primera versión del detector
+comparaba el TEXTO de las observaciones y no cazaba nada: un sinónimo lo rompía.
+Ahora cada lente publica lo que afirma en máquina (`hechos: {"precio": None}`) y
+la comparación es exacta. **Lo que hay que detectar son justamente las
+incoherencias que ya se le escaparon a una lectura humana**, así que el detector
+no puede depender de cómo esté redactada la frase.
+
+**Las lecciones se muestran DENTRO del diagnóstico**, antes de la conclusión, y
+no en un doc aparte: una lección sirve en el momento en que alguien está por
+decidir, no cuando se le ocurra ir a buscarla. Lo mismo con **CASOS PARECIDOS**
+—los otros bonos donde el agente dijo la misma causa, con sus votos del eval
+set—: es *exemplar learning* sin modelos ni vectores, y contesta la pregunta que
+una persona haría primero, **«¿esto ya lo vimos?»**.
+
+**El ciclo completo, cerrado:**
+
+    detecta → razona (8 lentes) → se audita → propone → verifica → aplica
+        ↓                                                              ↓
+      TRAZA  ────────────────────────────────────────────────────►  EVAL (✔/✖)
+        ↓                                                              ↓
+      CASOS PARECIDOS  ◄──────────  LECCIÓN (qué se cambió)  ◄─────────┘
+
+Las siete lecciones de esta sesión ya están sembradas
+(`python -m scripts.sembrar_lecciones`) — **todas salieron de errores reales**, y
+tres las cazó el user mirando la pantalla, no un test. Eso también se registra:
+`detectado_por` distingue `user` de `agente` de `test`, porque saber **quién
+encuentra los errores** dice dónde está el punto ciego.
+
 ---
 
 ## 1. Qué es y qué no es
@@ -2522,6 +2577,24 @@ realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
 
+- **2026-08-17 — LA MEMORIA: nada se desperdicia.** El user encontró al agente
+  contradiciéndose en OLC3O — la lente del precio decía «ninguna fuente local
+  tiene un precio mayor que 0» y tres pasos más abajo la MISMA pantalla mostraba
+  «precio 137.280 (snapshot)». La causa: a las lentes se les pasaba un dict con
+  solo tea/paridad/duration, **sin la clave `precio`**. No era un bono mal
+  cargado: era el agente, y eso destruye la confianza en todo lo demás que dice.
+  Se arregló el paso del precio **y** se construyó lo que faltaba para que una
+  lección así no se pierda nunca más: **TRAZAS** (cada diagnóstico se guarda
+  entero — antes se calculaba y se tiraba), **CONTRADICCIONES** (el agente se
+  audita solo; el bug pasó tests, lint y una lectura humana, y lo único que lo
+  caza es comparar dos frases separadas por seis renglones) y **LECCIONES**
+  (síntoma → causa raíz → qué se cambió → commit, mostradas DENTRO del
+  diagnóstico porque sirven cuando alguien está por decidir, no en un doc). Las
+  lentes ahora declaran **hechos en máquina** y no solo prosa: la primera versión
+  del detector comparaba texto y no cazaba nada. Más **CASOS PARECIDOS** —
+  exemplar learning sin modelos: los otros bonos con la misma causa y sus votos
+  del eval set. Sembradas las 7 lecciones de esta sesión, con `detectado_por`
+  para saber **quién** encuentra los errores (3 de 7: el user). 3 tests (115).
 - **2026-08-17 — LA FUSIÓN: SALUD entra al agente y el programa de IA queda en UN
   doc.** Decisión del user: *«el agente ES el nuevo proyecto de IA; hay que
   unificar todo lo de IA. Lo anterior no funcionó.»* Este doc pasa a ser la

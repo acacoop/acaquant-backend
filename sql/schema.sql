@@ -3793,6 +3793,71 @@ CREATE INDEX IF NOT EXISTS ix_av_agent_ticker
 -- `motivo` es obligatorio a propósito — dentro de seis meses, "por qué ignoramos
 -- este bono" es la única pregunta que importa, y es la que E7 va a usar como
 -- ejemplo para dejar de proponerlo.
+-- mercado.av_agent_trazas — LO QUE EL AGENTE DIJO, guardado (2026-08-17).
+--
+-- Cada diagnóstico se calculaba entero y se tiraba al cerrar el modal. Es la
+-- materia prima de todo el aprendizaje: **sin el registro de lo que el agente dijo
+-- ayer no hay forma de saber si hoy dice algo mejor.**
+--
+-- Guarda las OBSERVACIONES completas (las 8 lentes), no solo la causa: la causa
+-- dice qué concluyó, las observaciones dicen POR QUÉ — y cuando se equivoca, el
+-- error casi siempre está en el razonamiento, no en la etiqueta final.
+--
+-- `incoherencias` es el agente auditándose: dos lentes que afirman cosas
+-- incompatibles sobre el mismo hecho. Una contradicción es un bug DEL AGENTE, no
+-- del bono, y por eso viaja en su propia columna en vez de mezclarse.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_trazas (
+    id            bigserial PRIMARY KEY,
+    caso          text NOT NULL,          -- ticker del bono o id del chequeo
+    dominio       text NOT NULL DEFAULT 'bono',
+    causa         text NOT NULL,
+    veredicto     text,
+    observaciones jsonb,                  -- las lentes, completas
+    contexto      jsonb,                  -- los números con los que razonó
+    incoherencias jsonb,                  -- lo que el agente se detectó a sí mismo
+    por           text,
+    creado_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_av_trazas_caso  ON mercado.av_agent_trazas (caso, creado_at DESC);
+CREATE INDEX IF NOT EXISTS ix_av_trazas_causa ON mercado.av_agent_trazas (causa, creado_at DESC);
+
+-- mercado.av_agent_lecciones — EL PATRÓN DURABLE (2026-08-17).
+--
+-- Pedido del user: *«no puede quedar nada desperdiciado: tiene que quedar todo,
+-- cómo se va construyendo la solución, los errores que detecto, cómo se fue
+-- modificando… porque ahora es bonos, pero después está SALUD y van a venir más
+-- cosas.»*
+--
+-- Una lección es un ciclo de aprendizaje cerrado y contado en cuatro partes:
+--
+--     SÍNTOMA      lo que se vio en pantalla
+--     CAUSA RAÍZ   qué pasaba de verdad
+--     CAMBIO       qué se modificó técnicamente
+--     COMMIT       dónde quedó
+--
+-- **Se muestran DENTRO del diagnóstico** cuando aplican a esa causa, no en un doc
+-- aparte: una lección sirve en el momento en que alguien está por decidir, no
+-- cuando se le ocurra ir a buscarla. Eso es lo que la convierte en memoria del
+-- sistema en vez de en documentación.
+--
+-- `slug` es la identidad: re-anotar la misma lección la ACTUALIZA en vez de
+-- duplicarla, porque una lección se refina con el tiempo.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_lecciones (
+    id            bigserial PRIMARY KEY,
+    slug          text NOT NULL UNIQUE,
+    dominio       text NOT NULL DEFAULT '',   -- '' = aplica a todos
+    causa         text NOT NULL DEFAULT '',   -- '' = aplica a cualquier causa
+    titulo        text NOT NULL,
+    sintoma       text,
+    causa_raiz    text,
+    cambio        text NOT NULL,
+    commit_sha    text,
+    detectado_por text NOT NULL DEFAULT 'user',  -- user | agente | test
+    activa        boolean NOT NULL DEFAULT true,
+    creado_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_av_lecciones_causa ON mercado.av_agent_lecciones (causa) WHERE activa;
+
 -- mercado.av_agent_evals — EL EVAL SET del agente (2026-08-17).
 --
 -- **La medición es la piedra angular, y no existía.** El agente diagnostica y

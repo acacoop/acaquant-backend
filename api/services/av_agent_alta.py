@@ -2705,10 +2705,17 @@ def _ctx(doc: dict, rama: str, est: dict) -> dict:
 
 
 def _ob(clave: str, estado: str, detalle: str, *, causa: str = "",
-        parche: dict | None = None) -> dict:
-    """Una observación. `causa` solo la ponen las lentes que ENCONTRARON algo."""
+        parche: dict | None = None, hechos: dict | None = None) -> dict:
+    """Una observación. `causa` solo la ponen las lentes que ENCONTRARON algo.
+
+    ⚠️ **`hechos` es lo que la lente AFIRMA, en máquina.** El detector de
+    contradicciones comparaba el TEXTO de las lentes, y eso es frágil: un sinónimo
+    lo rompe, y lo que tiene que cazar son justamente incoherencias que ya se le
+    escaparon a una lectura humana. Con los hechos declarados, la comparación es
+    exacta y no depende de cómo esté redactada la frase.
+    """
     return {"clave": clave, "estado": estado, "detalle": detalle,
-            "causa": causa, "parche": parche or {}}
+            "causa": causa, "parche": parche or {}, "hechos": hechos or {}}
 
 
 def _lente_ficha(c: dict) -> dict:
@@ -2836,13 +2843,14 @@ def _lente_precio(c: dict) -> dict:
                    "snapshot live, ni el cierre persistido, ni el que quedó "
                    "congelado en el hallazgo). Sin precio no hay paridad ni TEA que "
                    "arreglar: no es un dato mal cargado, es un papel que no operó.",
-                   causa="sin_precio")
+                   causa="sin_precio", hechos={"precio": None})
     # La escala se lee del número, igual que la lee el motor (`precio >= 1000`).
     escala = "PESOS" if px >= 1000 else "dólares o porcentual (base 100)"
     return _ob("precio", OK,
                f"**{px:,.4f}** ({fuente or 'snapshot'}) → por su magnitud está en "
                f"escala **{escala}**. Es el mismo criterio que usa el motor para "
-               "decidir si un dólar-linked hay que dividirlo por el A3500.")
+               "decidir si un dólar-linked hay que dividirlo por el A3500.",
+               hechos={"precio": px})
 
 
 def _lente_paridad(c: dict) -> dict:
@@ -2860,7 +2868,8 @@ def _lente_paridad(c: dict) -> dict:
     cuenta = (f"paridad = precio / residual = {px:,.4f} / {residual:,.4f} = "
               f"**{par:,.4f}%**" if px and residual else f"paridad = **{par:,.4f}%**")
     return _ob("paridad", OK if en_rango else REVISAR,
-               cuenta + (". Dentro de [40, 160]: por acá no es." if en_rango else
+               hechos={"precio": px, "paridad": par},
+               detalle=cuenta + (". Dentro de [40, 160]: por acá no es." if en_rango else
                          f". **Fuera de [{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}]** → "
                          "uno de los dos lados de esa división está en la unidad "
                          "equivocada, y cuál se sabe mirando el residual."))
@@ -2875,7 +2884,8 @@ def _lente_tasa(c: dict) -> dict:
         return _ob("tasa", INFO, "sin TEA, y **así tiene que ser**: a este ajuste no "
                                  "le calculamos la tasa nosotros.")
     if not c["precio"]:
-        return _ob("tasa", INFO, "sin TEA porque no hay precio — no es el cuadro.")
+        return _ob("tasa", INFO, "sin TEA porque no hay precio — no es el cuadro.",
+                   hechos={"precio": None})
     return _ob("tasa", REVISAR,
                "**el XIRR no converge**: hay precio y hay cronograma, pero el motor "
                "no encuentra una tasa. Eso pasa cuando el precio y los flujos están "
@@ -3017,6 +3027,53 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                         tabla="mercado.curvas + mercado.market_snapshot "
                               "(sin una sola llamada a 1816)"))
 
+    # ── EL AGENTE SE AUDITA A SÍ MISMO. Dos lentes que afirman cosas
+    # incompatibles sobre el MISMO hecho es un bug DEL AGENTE, no del bono — y es
+    # peor que un dato malo, porque destruye la confianza en todo lo demás que
+    # dice, incluido lo que está bien. Pasó con OLC3O (la lente 7 decía «no hay
+    # precio» y tres pasos abajo la misma pantalla mostraba 137.280) y por eso
+    # ahora se busca solo, en cada diagnóstico, para siempre.
+    from api.services import av_agent_memoria as mem
+
+    incoherencias = mem.contradicciones(dx["observaciones"], est)
+    if incoherencias:
+        ps.append(_paso("incoherencia", "⚠ EL AGENTE SE CONTRADICE", REVISAR,
+                        "\n\n".join(f"**{i['id']}** — {i['detalle']}"
+                                     for i in incoherencias)
+                        + "\n\nEsto **no habla del bono**: habla del agente. "
+                          "Mientras esté, el diagnóstico de abajo no es confiable "
+                          "y no debería aplicarse sin mirarlo.",
+                        tabla="av_agent_memoria.contradicciones"))
+
+    # ── LO QUE YA APRENDIMOS sobre esta causa. Va ANTES de la conclusión a
+    # propósito: una lección sirve cuando alguien está por decidir, no cuando se le
+    # ocurra ir a buscarla a un doc.
+    for lec in mem.lecciones_de(dx["causa"], "bono"):
+        ps.append(_paso(f"leccion_{lec['slug']}", f"📚 YA APRENDIMOS: {lec['titulo']}",
+                        INFO,
+                        f"**Se veía así:** {lec.get('sintoma') or '—'}\n\n"
+                        f"**Lo que pasaba:** {lec.get('causa_raiz') or '—'}\n\n"
+                        f"**Qué se cambió:** {lec['cambio']}",
+                        tabla=(f"commit {lec['commit'][:9]}" if lec.get("commit")
+                               else "mercado.av_agent_lecciones")
+                              + f" · lo detectó: {lec.get('detectado_por')}"))
+
+    # ── CASOS PARECIDOS: exemplar learning sin modelos ni vectores. Contesta la
+    # pregunta que una persona haría primero — «¿esto ya lo vimos?» — y un caso
+    # anterior que salió bien es la mejor evidencia de que la propuesta sirve.
+    tk_doc = (doc.get("ticker_corto") or "").strip().upper()
+    parecidos = mem.casos_parecidos(dx["causa"], excluir=tk_doc)
+    if parecidos:
+        ps.append(_paso("parecidos", "🔁 CASOS PARECIDOS", INFO,
+                        " · ".join(
+                            f"**{c['caso']}**" + (f" ({c['aciertos']}/{c['votos']} ✔)"
+                                                 if c["votos"] else "")
+                            for c in parecidos)
+                        + f"\n\nEl agente ya dijo «{dx['causa']}» en "
+                          f"{len(parecidos)} caso/s más. Los votos son del eval "
+                          "set: dicen si esa conclusión resultó correcta.",
+                        tabla="mercado.av_agent_trazas + av_agent_evals"))
+
     meta = CAUSAS.get(dx["causa"]) or {}
     ps.append(_paso("causa_local", "⇒ LA CONCLUSIÓN", OK if dx["causa"] == "sano"
                     else REVISAR,
@@ -3026,6 +3083,16 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                        if meta.get("agente") and dx.get("parche") else
                        " El agente lo VE pero no lo toca."),
                     tabla="la lente que falla más aguas arriba"))
+
+    # LA TRAZA: lo que el agente dijo, guardado entero. Best-effort — si la
+    # escritura falla el diagnóstico sigue: un registro que puede tumbar la
+    # funcionalidad que registra se termina apagando, y ahí se pierde todo.
+    mem.registrar_traza(caso=tk_doc or "?", dominio="bono", causa=dx["causa"],
+                        veredicto=dx["causa"], observaciones=dx["observaciones"],
+                        contexto={"precio": est.get("precio"),
+                                  "paridad": est.get("paridad"),
+                                  "tea": est.get("tea"), "rama": rama},
+                        incoherencias=incoherencias)
     for i, p in enumerate(ps, 1):
         p["n"] = i
     return ps
@@ -3345,7 +3412,19 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
     # ── EL DIAGNÓSTICO LOCAL, ANTES QUE NADA. No depende de 1816, así que
     # aparece aunque estén rechazándonos por rate limit — que es exactamente
     # cuando más falta hace. En muchos casos ya contesta la pregunta entera.
-    ps.extend(_diagnostico_local(doc, rama, antes))
+    # ⚠️ **LAS LENTES TIENEN QUE VER EL MISMO PRECIO QUE LA CADENA** (fix
+    # 2026-08-17). Acá se pasaba `antes`, que solo lleva tea/paridad/duration — sin
+    # `precio`. Resultado: en OLC3O la lente 7 decía «ninguna fuente local tiene un
+    # precio mayor que 0» y tres pasos más abajo la misma pantalla mostraba
+    # «precio 137.280 (snapshot)». **Las dos afirmaciones eran del mismo request.**
+    #
+    # No era un bono mal cargado: era el agente contradiciéndose, que es peor —
+    # destruye la confianza en TODO lo demás que dice, incluido lo que está bien.
+    # Por eso además de pasar el precio ahora hay un chequeo que busca estas
+    # contradicciones solo (ver `av_agent_memoria.contradicciones`).
+    est_lentes = {**antes, "precio": out.get("precio"),
+                  "precio_fuente": out.get("precio_fuente")}
+    ps.extend(_diagnostico_local(doc, rama, est_lentes))
 
     # EJES. Solo aparece si faltan: los que cargó la mesa no se discuten.
     if out.get("ejes_hoy") is None:

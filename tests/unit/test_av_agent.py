@@ -2367,3 +2367,75 @@ def test_el_EVAL_SET_no_acepta_un_NO_sin_motivo():
 
     assert ev.votar(caso="", dominio="bono", causa="x", acierta=True)["ok"] is False
     assert ev.MIN_VOTOS >= 10
+
+
+# ── La MEMORIA: nada se desperdicia (2026-08-17) ────────────────────────────
+
+
+def test_el_agente_DETECTA_SUS_PROPIAS_CONTRADICCIONES():
+    """El caso real que lo motivó: en OLC3O la lente del precio decía «ninguna
+    fuente local tiene un precio mayor que 0» y tres pasos más abajo la MISMA
+    pantalla mostraba «precio 137.280 (snapshot)».
+
+    **No era un bono mal cargado: era el agente contradiciéndose**, y eso es peor
+    que un dato malo porque destruye la confianza en todo lo demás que dice.
+
+    El bug pasó los tests, el lint y una lectura humana. Lo único que lo caza es
+    comparar dos frases separadas por seis renglones en una pantalla larga — y eso
+    lo hace mejor una máquina, y lo hace SIEMPRE."""
+    from api.services.av_agent_memoria import contradicciones
+
+    # Las lentes declaran HECHOS, no solo prosa: comparar texto se rompe con un
+    # sinónimo, y lo que hay que cazar son incoherencias que ya se le escaparon a
+    # una lectura humana.
+    obs = [{"clave": "precio", "hechos": {"precio": None},
+            "detalle": "ninguna fuente local tiene un precio **mayor que 0**"},
+           {"clave": "paridad", "hechos": {}, "detalle": "paridad = **0.0631%**"}]
+    inc = contradicciones(obs, {"precio": 137280.0})
+    assert [i["id"] for i in inc] == ["precio_fantasma"]
+    assert "137,280" in inc[0]["detalle"]
+
+    # Sin precio de verdad, la misma observación NO es una contradicción.
+    assert contradicciones(obs, {"precio": None}) == []
+
+    # Y al revés: la TASA no puede culpar a un precio que sí existe.
+    obs2 = [{"clave": "tasa", "hechos": {"precio": None},
+             "detalle": "sin TEA porque no hay precio"}]
+    assert [i["id"] for i in contradicciones(obs2, {"precio": 100.0})] == \
+        ["tea_culpa_al_precio"]
+
+
+def test_la_CONTRADICCION_se_muestra_ANTES_de_la_conclusion():
+    """Si el agente se contradice, el diagnóstico de abajo no es confiable — y eso
+    hay que verlo antes de leerlo, no después."""
+    import inspect
+
+    from api.services import av_agent_alta
+
+    src = inspect.getsource(av_agent_alta._diagnostico_local)
+    assert "EL AGENTE SE CONTRADICE" in src
+    assert src.index("incoherencia") < src.index("LA CONCLUSIÓN")
+    # Las lecciones también van antes: sirven cuando alguien está por decidir.
+    assert src.index("YA APRENDIMOS") < src.index("LA CONCLUSIÓN")
+    # Y la traza se registra siempre, con las observaciones COMPLETAS.
+    assert "registrar_traza(" in src and 'observaciones=dx["observaciones"]' in src
+
+
+def test_una_LECCION_necesita_decir_QUE_SE_CAMBIO():
+    """Una lección sin el cambio técnico es una anécdota: no sirve para que la
+    próxima vez sea distinta, que es exactamente para lo que existe."""
+    from api.services.av_agent_memoria import guardar_leccion
+    from scripts.sembrar_lecciones import LECCIONES
+
+    assert guardar_leccion(slug="x", titulo="t", sintoma="s", causa_raiz="c",
+                           cambio="")["ok"] is False
+
+    # Las sembradas cuentan el ciclo COMPLETO y dicen quién las detectó.
+    slugs = {l["slug"] for l in LECCIONES}
+    assert len(slugs) == len(LECCIONES), "los slugs son la identidad: no se repiten"
+    for lec in LECCIONES:
+        assert lec["cambio"] and lec["sintoma"] and lec["causa_raiz"], lec["slug"]
+        assert lec["detectado_por"] in ("user", "agente", "test")
+    # La del contradicción la cazó el USER mirando la pantalla, no un test.
+    assert next(l for l in LECCIONES
+                if l["slug"] == "el-agente-se-contradice")["detectado_por"] == "user"

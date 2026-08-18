@@ -76,7 +76,14 @@ _TAREAS: dict[str, dict] = {
     # fila individual puede decir: qué causas dominan, cuáles se contradicen entre
     # sí, y cuáles huelen a bug del agente en vez de a dato mal cargado.
     # max_tokens alto porque el razonamiento cuenta como output (lección del P2).
-    "av_agent_informe": {"tier": "pro", "max_tokens": 4000, "timeout_s": 180,
+    # ⚠️ **max_tokens 12000 y no 4000** (medido 2026-08-18, `ia.trazas`): con 4000
+    # la llamada volvió `out=4000` exacto, `respuesta 0 chars` y `razonamiento
+    # 2000` — el modelo gastó TODO el presupuesto de salida razonando y nunca
+    # llegó a escribir. Es la misma trampa del P2, pero peor acá: analizar 16
+    # casos requiere más razonamiento que diagnosticar un job, así que el techo
+    # que alcanzaba allá acá se come la respuesta entera. El razonamiento CUENTA
+    # como output: el tope tiene que cubrir pensar Y contestar.
+    "av_agent_informe": {"tier": "pro", "max_tokens": 12000, "timeout_s": 240,
                          "thinking": "enabled"},
     # P3 copiloto de mesa (api/services/copiloto.py): Q&A sobre los datos de UNA
     # vista de mercado, provistos en el prompt. thinking DISABLED: los datos ya

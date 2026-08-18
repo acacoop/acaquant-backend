@@ -154,9 +154,13 @@ def _causas() -> str:
 def analizar(run: dict, *, usuario: str = "") -> dict:
     """Le pide al LLM el ANÁLISIS del informe. Nunca levanta: si la IA no está,
     se dice y el informe determinista sigue sirviendo igual."""
+    # La versión COMPACTA: el informe para leer repite cada conclusión en tres
+    # lentes distintas (para una persona eso ayuda; para el modelo es ruido que
+    # compite por la ventana y esconde el patrón). Es el MISMO informe, no un
+    # segundo formato — se arma con la misma función.
+    from api.services.av_agent_masivo import informe_texto
     from core import ai
-
-    texto = run.get("texto") or ""
+    texto = informe_texto(run, compacto=True) if run.get("informe") else (run.get("texto") or "")
     if not texto.strip():
         return {"ok": False, "error": "el informe está vacío"}
     if not ai.disponible(_TAREA):

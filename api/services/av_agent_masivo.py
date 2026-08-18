@@ -337,9 +337,37 @@ _QUE_ES = {
 }
 
 
-def informe_texto(run: dict) -> str:
+def _sin_repetir(trabas: list[dict]) -> list[dict]:
+    """Las trabas de UN caso, sin las que dicen lo mismo con otro título.
+
+    **Medido (informe #4): el user pesa 26.525 chars para 16 casos** y buena
+    parte es la misma frase tres veces — «Dónde está el problema, por división»,
+    «La paridad, con la división a la vista» y «⇒ LA CONCLUSIÓN» repiten el mismo
+    cálculo. Para una persona esa redundancia ayuda (cada lente se lee sola);
+    para el modelo es ruido que compite por la ventana de contexto y esconde el
+    patrón, que es justo lo único que se le pide.
+
+    Se compara por el arranque del detalle y no por el título: los títulos son
+    distintos a propósito, el contenido es el que se repite.
+    """
+    out, vistos = [], set()
+    for t in trabas:
+        clave = (str(t.get("detalle") or "")[:80]).strip().lower()
+        if clave and clave in vistos:
+            continue
+        vistos.add(clave)
+        out.append(t)
+    return out
+
+
+def informe_texto(run: dict, *, compacto: bool = False) -> str:
     """El bloque para copiar. Ordenado por lo que hay que mirar primero: los que
-    explotaron arriba, los que están listos abajo."""
+    explotaron arriba, los que están listos abajo.
+
+    `compacto=True` es la versión para el LLM: saca las trabas repetidas y acorta
+    los detalles. **Es el MISMO informe**, no un segundo formato — si divergieran,
+    el análisis hablaría de un texto que el humano nunca vio.
+    """
     inf = run.get("informe") or []
     res = _resumen(inf)
     L: list[str] = []
@@ -383,8 +411,13 @@ def informe_texto(run: dict) -> str:
                 L.append(f"      cadena:  {f['veredicto']}")
             if f.get("detalle"):
                 L.append(f"      detalle: {f['detalle']}")
-            for t in (f.get("trabas") or [])[:6]:
-                L.append(f"      · [{t['estado']}] {t['paso']}: {t['detalle']}")
+            trabas = f.get("trabas") or []
+            if compacto:
+                trabas = _sin_repetir(trabas)[:4]
+            for t in trabas[:6]:
+                det = str(t["detalle"])
+                L.append(f"      · [{t['estado']}] {t['paso']}: "
+                         f"{det[:180] if compacto else det}")
         L.append("")
     return "\n".join(L)
 

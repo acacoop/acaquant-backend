@@ -409,3 +409,20 @@
 # (no del proceso) — por eso la vista NUNCA le pega a Interbanking en vivo.
 # Doc: docs/INTERBANKING.md
 0 12,14,16,18,20,22 * * 1-5 /root/TradingAV/deploy/run_job.sh interbanking_sync 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.interbanking_sync'
+
+# ─── AV AGENT EN RUEDA — el monitor que solo tiene sentido con el mercado abierto
+# Pedido del user 2026-08-18: «necesito que esté prendido el agente… al menos de
+# 10:30 a 17».
+# Busca DOS cosas que NO existen de noche: un símbolo del master al que el motor
+# no le está dando precio (el caso AO29 — el bono está en `mercado.curvas` y
+# nadie lo suscribió) y un precio que llega en la moneda equivocada (el caso
+# GD46 — curva USD con precio en pesos; la tasa y la duration salen bien igual,
+# así que solo se ve mirando la escala).
+# CERO créditos de 1816: lee `mercado.curvas` + `mercado.market_snapshot`, que ya
+# están en la base. Por eso puede correr cada 5 minutos — `jobs.av_agent`, que sí
+# censa 1816 (~29 créditos), sigue corriendo una vez por noche y no se toca.
+# Cada corrida REEMPLAZA los hallazgos live: son una foto del momento, y
+# acumularlos dejaría 84 avisos de «AO29 sin precio» al final del día.
+# 13:30-19:55 UTC = 10:30-16:55 ART.
+30-55/5 13 * * 1-5 /root/TradingAV/deploy/run_job.sh av_agent_live 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.av_agent_live'
+*/5 14-19 * * 1-5 /root/TradingAV/deploy/run_job.sh av_agent_live 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.av_agent_live'

@@ -115,6 +115,14 @@ ACCION_POR_TIPO = {
     # un comentario que nadie puede accionar y no da ningún error — exactamente lo
     # que le pasó a `tasa_sospechosa` durante 38 filas.
     "hueco_de_curva": None,
+    # ── EN RUEDA (2026-08-18) ────────────────────────────────────────────────
+    # `None` EXPLÍCITO, y por un motivo distinto al resto: no es que falte
+    # construirlo, es que **no se arreglan tocando `mercado.curvas`**. Un símbolo
+    # sin suscribir se resuelve en el universo del motor, y un precio que llega
+    # en pesos se resuelve en la pata o en el feed. El agente los VE y los canta
+    # en el momento — que es todo lo que se le pidió.
+    "sin_precio": None,
+    "precio_moneda": None,
     # ── SALUD entra al agente (2026-08-17) ──────────────────────────────────
     #
     # **`salud` abre una puerta de SOLO LECTURA**, y eso es una decisión, no una
@@ -656,6 +664,184 @@ def detectar_salud(chequeos: list[dict]) -> list[dict]:
              "ultimo_at": c.get("ultimo_at"), "esperada_at": c.get("esperada_at"),
              "modulos": c.get("modulos")}))
     return out
+
+
+# ── 5) EN RUEDA: lo que solo se puede ver con el mercado abierto ─────────────
+#
+# Pedido del user (2026-08-18, EN rueda): *«necesito que esté prendido el agente
+# … al menos de 10:30 a 17. Porque por ej. el AO29 no está con precio, o sea no
+# se suscribió, y quisiera saberlo en rueda. El GD46 está con el precio de ARS en
+# la curva USD»*.
+#
+# **Estos dos hallazgos NO EXISTEN de noche.** Que un símbolo no tenga precio a
+# las 11 de la mañana es un problema; a las 3 de la madrugada es lo normal. Por
+# eso son detectores aparte y no una variante de los otros: su verdad depende de
+# la hora, y mezclarlos con los que valen siempre daría falsos positivos todas
+# las noches.
+#
+# **Cero red.** Los dos leen `mercado.curvas` y `mercado.market_snapshot`, que ya
+# están en la base. Un monitor que corre cada 5 minutos y pega a 1816 quemaría la
+# cuota del día antes del mediodía.
+
+# Cuántos minutos sin actualizarse para considerar que un precio quedó viejo. El
+# motor reescribe el snapshot cada pocos segundos; 20 minutos es un papel que
+# dejó de operar o una suscripción caída, no un instante sin trades.
+PRECIO_VIEJO_MIN = 20
+
+# La banda donde una paridad es creíble. Es la MISMA de `detectar_tasas_
+# sospechosas` — importarla en vez de copiarla es lo que evita que dos pantallas
+# discutan sobre qué es una paridad sana.
+
+
+def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
+                        ahora=None) -> list[dict]:
+    """Bonos del master a los que el motor NO les está dando precio, en rueda.
+
+    Tres estados distintos, y la diferencia importa porque el arreglo es otro:
+
+      · el símbolo **no está en el snapshot**: nadie lo suscribió. Es lo que pasó
+        con AO29 — el bono existe en `mercado.curvas` y el motor nunca pidió su
+        símbolo.
+      · está pero **sin precio** (`last_price` nulo o 0): se suscribió y el
+        mercado no le puso una punta. **Un 0 no es un precio.**
+      · está con precio pero **viejo**: operó y dejó de hacerlo, o se cayó el
+        feed.
+
+    Función PURA: recibe el master y el snapshot ya leídos.
+    """
+    from datetime import UTC, datetime, timedelta
+    ahora = ahora or datetime.now(UTC)
+    viejo = ahora - timedelta(minutes=PRECIO_VIEJO_MIN)
+    out: list[dict] = []
+    for b in bonos:
+        simbolo = (b.get("ticker") or "").strip()      # el símbolo de mercado
+        tk = (b.get("ticker_corto") or "").strip().upper()
+        if not simbolo or not tk:
+            continue
+        d = snap.get(simbolo)
+        ev = {"simbolo": simbolo, "curva": b.get("curva")}
+        if d is None:
+            out.append(_hallazgo(
+                "sin_precio", tk, "no_suscripto", "alta",
+                f"el motor NO está pidiendo «{simbolo}»: el símbolo no aparece en "
+                f"el snapshot. El bono está en el master y nadie lo suscribió.",
+                {**ev, "estado": "no_suscripto"}))
+            continue
+        px = d.get("last_price")
+        try:
+            px = float(px) if px is not None else None
+        except (TypeError, ValueError):
+            px = None
+        if not px:
+            out.append(_hallazgo(
+                "sin_precio", tk, "sin_punta", "media",
+                f"«{simbolo}» está suscripto pero sin precio: el mercado todavía "
+                f"no le puso una punta hoy.",
+                {**ev, "estado": "sin_punta"}))
+            continue
+        upd = d.get("updated_at")
+        if upd and upd < viejo:
+            mins = int((ahora - upd).total_seconds() / 60)
+            out.append(_hallazgo(
+                "sin_precio", tk, "precio_viejo", "media",
+                f"«{simbolo}» no se actualiza hace {mins} min (último {px:,.2f}). "
+                f"O dejó de operar, o se cayó el feed.",
+                {**ev, "estado": "precio_viejo", "minutos": mins, "precio": px}))
+    return out
+
+
+def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
+                                    mep: float | None) -> list[dict]:
+    """El precio que llega es de la OTRA moneda — el caso GD46.
+
+    Un bono de curva USD mostrando 102.620 cuando su precio en dólares es ~74: la
+    tasa y la duration salen bien (se calculan con el cronograma), así que nada
+    se rompe a la vista. Lo único que canta es la ESCALA.
+
+    **Cómo se prueba, y por qué esto no es una corazonada:** se divide el precio
+    por el MEP y se mira si ESE número cae en una paridad creíble mientras el
+    precio crudo no. Si dividir por el tipo de cambio arregla la cuenta, el precio
+    venía en pesos. Es el mismo criterio de recompensa verificable que usa el
+    arreglo local: no se afirma la causa, se demuestra que corrigiéndola el número
+    vuelve al rango.
+
+    Sin MEP no se puede afirmar nada y **no se inventa**: se devuelve vacío.
+    """
+    if not mep or mep <= 0:
+        return []
+    out: list[dict] = []
+    for b in bonos:
+        if (b.get("moneda_eje") or "").upper() != "USD":
+            continue
+        simbolo = (b.get("ticker") or "").strip()
+        tk = (b.get("ticker_corto") or "").strip().upper()
+        d = snap.get(simbolo) or {}
+        try:
+            px = float(d.get("last_price") or 0)
+        except (TypeError, ValueError):
+            continue
+        if px <= 0:
+            continue                      # eso lo dice el otro detector
+        # El residual del cuadro es la referencia. Sin cuadro no hay con qué
+        # comparar, y decirlo es más honesto que suponer 100.
+        try:
+            residual = float(b.get("valor_nominal") or 100) or 100
+        except (TypeError, ValueError):
+            residual = 100.0
+        par_cruda = px / residual * 100
+        par_mep = px / mep / residual * 100
+        if PARIDAD_MIN <= par_cruda <= PARIDAD_MAX:
+            continue                      # el precio ya está bien
+        if PARIDAD_MIN <= par_mep <= PARIDAD_MAX:
+            out.append(_hallazgo(
+                "precio_moneda", tk, "precio_en_pesos_curva_usd", "alta",
+                f"«{simbolo}» es de curva USD y su precio llega en PESOS: "
+                f"{px:,.2f} da paridad {par_cruda:,.0f}%, pero dividido por el MEP "
+                f"({mep:,.2f}) da {par_mep:.1f}% — que sí es creíble. La tasa y la "
+                f"duration salen bien igual, así que esto solo se ve mirando la "
+                f"escala.",
+                {"simbolo": simbolo, "precio": px, "mep": mep,
+                 "paridad_cruda": round(par_cruda, 2),
+                 "paridad_con_mep": round(par_mep, 2),
+                 "curva": b.get("curva")}))
+    return out
+
+
+def relevar_live(*, ahora=None) -> dict:
+    """**EL MONITOR DE RUEDA.** Corre los dos detectores que solo tienen sentido
+    con el mercado abierto. Cero red, cero créditos de 1816.
+
+    Es una función aparte de `relevar()` a propósito: `relevar` cuesta ~29
+    créditos (censa 1816) y corre una vez por noche; esto corre cada pocos
+    minutos y **no puede pagar nada**. Meterlos juntos habría obligado a elegir
+    entre monitorear seguido o no quemar la cuota.
+    """
+    from api.services.macro import get_ultimo_mep
+    from core import curvas_sql, market_snapshot
+
+    bonos = curvas_sql.cargar_todos() or []
+    simbolos = [(b.get("ticker") or "").strip() for b in bonos if b.get("ticker")]
+    snap = market_snapshot.cols_map(simbolos, ["last_price", "updated_at"]) or {}
+
+    # El MEP puede fallar sin que eso invalide el resto: sin él, el detector de
+    # moneda devuelve vacío (no inventa) y el de precios sigue igual.
+    try:
+        mep = float((get_ultimo_mep() or {}).get("mep") or 0) or None
+    except Exception as e:
+        logger.warning("av_agent live: sin MEP (%s)", e)
+        mep = None
+
+    hallazgos: list[dict] = []
+    for nombre, fn in (("sin_precio", lambda: detectar_sin_precio(bonos, snap, ahora)),
+                       ("precio_moneda",
+                        lambda: detectar_precio_fuera_de_moneda(bonos, snap, mep))):
+        try:
+            hallazgos.extend(fn())
+        except Exception as e:      # un detector roto no puede tapar al otro
+            logger.exception("av_agent live: detector %s falló: %s", nombre, e)
+
+    return {"alcance": "live", "hallazgos": hallazgos, "mep": mep,
+            "bonos": len(bonos), "con_snapshot": len(snap)}
 
 
 # ── Orquestación (el único que lee de la base / la red) ──────────────────────

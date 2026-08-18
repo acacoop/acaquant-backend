@@ -1523,8 +1523,12 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
     # Los tipos que emite cada detector, tomados de sus propias llamadas.
     # `salud` es el quinto (fusión 2026-08-17): lo emite `detectar_salud`, que
     # convierte un chequeo de SALUD en un hallazgo del agente.
+    # `sin_precio` y `precio_moneda` son los de RUEDA (2026-08-18): los emite
+    # `relevar_live`, que corre cada 5 minutos con el mercado abierto y busca lo
+    # que de noche no existe (un símbolo sin suscribir, un precio en la moneda
+    # equivocada).
     tipos_reales = {"falta_en_base", "sin_flujo", "tasa_sospechosa",
-                    "hueco_de_curva", "salud"}
+                    "hueco_de_curva", "salud", "sin_precio", "precio_moneda"}
     assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
         "una clave del mapa no es un TIPO que algún detector emita — "
         "probablemente se escribió la REGLA")
@@ -2495,3 +2499,64 @@ def test_un_job_DECLARA_QUE_ALIMENTA():
     # Y los que dependen de 1816 están marcados: es lo que deja conectar un fallo
     # con la cuota de 50 tokens/día sin que nadie se acuerde.
     assert "1816" in JOBS["mercado_1816_series"]["depende_de"]
+
+
+# ── EN RUEDA: los dos detectores que solo tienen sentido con el mercado abierto ──
+
+def test_un_simbolo_que_no_esta_en_el_snapshot_es_NO_SUSCRIPTO():
+    """El caso AO29: el bono está en `mercado.curvas` y el motor nunca pidió su
+    símbolo. No es «no operó» — es que nadie lo está escuchando."""
+    from api.services.av_agent import detectar_sin_precio
+    hs = detectar_sin_precio(
+        [{"ticker": "MERV - XMEV - AO29 - 24hs", "ticker_corto": "AO29"}], {})
+    assert len(hs) == 1
+    assert hs[0]["regla"] == "no_suscripto" and hs[0]["severidad"] == "alta"
+
+
+def test_un_precio_CERO_no_es_un_precio():
+    """Mismo criterio que `_precio_local`: un 0 en el snapshot no dice «vale
+    cero», dice que no hay punta."""
+    from api.services.av_agent import detectar_sin_precio
+    hs = detectar_sin_precio([{"ticker": "X", "ticker_corto": "XX"}],
+                             {"X": {"last_price": 0}})
+    assert hs and hs[0]["regla"] == "sin_punta"
+
+
+def test_el_precio_en_pesos_sobre_curva_USD_se_PRUEBA_dividiendo_por_el_MEP():
+    """El caso GD46. No se afirma la causa: se demuestra que dividiendo por el
+    tipo de cambio la paridad vuelve al rango — la misma recompensa verificable
+    que usa el arreglo local."""
+    from api.services.av_agent import detectar_precio_fuera_de_moneda
+    bono = {"ticker": "G", "ticker_corto": "GD46", "moneda_eje": "USD",
+            "valor_nominal": 100}
+    hs = detectar_precio_fuera_de_moneda([bono], {"G": {"last_price": 102620.0}},
+                                         1385.0)
+    assert len(hs) == 1
+    ev = hs[0]["evidencia"]
+    assert ev["paridad_cruda"] > 1000 and 40 <= ev["paridad_con_mep"] <= 160
+
+
+def test_sin_MEP_no_se_afirma_nada():
+    """Sin el tipo de cambio no hay forma de probar la hipótesis, y una causa sin
+    prueba es exactamente lo que este agente no emite."""
+    from api.services.av_agent import detectar_precio_fuera_de_moneda
+    bono = {"ticker": "G", "ticker_corto": "GD46", "moneda_eje": "USD"}
+    assert detectar_precio_fuera_de_moneda([bono], {"G": {"last_price": 102620.0}},
+                                           None) == []
+
+
+def test_un_precio_USD_sano_no_dispara_nada():
+    from api.services.av_agent import detectar_precio_fuera_de_moneda
+    bono = {"ticker": "G", "ticker_corto": "GD46", "moneda_eje": "USD",
+            "valor_nominal": 100}
+    assert detectar_precio_fuera_de_moneda([bono], {"G": {"last_price": 74.19}},
+                                           1385.0) == []
+
+
+def test_los_hallazgos_de_rueda_NO_son_accionables_desde_el_modal():
+    """`None` explícito y por un motivo distinto al resto: no es que falte
+    construirlo, es que no se arreglan tocando `mercado.curvas` — un símbolo sin
+    suscribir se resuelve en el universo del motor."""
+    from api.services import av_agent
+    assert av_agent.ACCION_POR_TIPO["sin_precio"] is None
+    assert av_agent.ACCION_POR_TIPO["precio_moneda"] is None

@@ -506,38 +506,41 @@ la query extra se paga **solo en el caso perdido**, no en el camino normal.
 
 ## REPORTE FINAL
 
-El saldo al cierre de **todas** las cuentas en una sola grilla, para pasar hacia
-afuera. Es una **matriz**: una **fila por banco**, una **columna por cuenta**, y
-en el cruce el saldo.
+El saldo al cierre de **todas** las cuentas, para pasar hacia afuera.
 
-⚠️ **Se parte en BLOQUES de 5 bancos**, apilados, cada uno con su propia fila de
-títulos. Las 38 cuentas no entran como columnas en ninguna pantalla y, encima, la
-mayoría quedaría vacía en cada fila: como cada cuenta pertenece a UN banco, un
-bloque de 5 bancos **solo necesita las columnas de esas 5**. Dos tablas de ~10
-columnas en vez de una de 38. La cabecera azul con el logo va **una sola vez**,
-arriba de todo — repetirla partiría el reporte en dos documentos en lugar de en
-dos partes del mismo.
+⚠️ **Una tabla POR BANCO, no una matriz.** Se probaron las dos matrices —bancos en
+las columnas y después bancos en las filas— y **las dos fallan por lo mismo**:
+cada cuenta pertenece a UN banco, así que en una grilla común la enorme mayoría
+de las celdas queda vacía. El resultado era una tabla larguísima o anchísima al
+pedo, con el dato disperso en un mar de blanco. Es el caso de manual de cuándo
+NO usar una matriz: **los datos no son un producto cartesiano**, son una relación
+de uno a muchos, y una tabla por banco es su forma natural.
 
-⚠️ **El título de cada columna va APILADO**: tipo y moneda arriba, el número
-debajo y la etiqueta abajo. Escrito a lo largo,
-`CC ARS · 300100000153476 · ACA VALORES SA - CTA ADMINISTRATIVA` mide media
-pantalla **por columna** — con diez columnas el reporte no entra en ningún lado.
-Apilado dice exactamente lo mismo en el ancho del número.
+Con una tabla por banco, cada una mide lo que su banco necesita —dos filas si
+tiene dos cuentas, seis si tiene seis— y las tablas se **acomodan** una al lado de
+la otra hasta llenar el espacio. Cero celdas vacías.
 
-Los separadores en blanco viven todos sobre el eje de las **columnas**, que es
-donde están las cuentas, y ninguno es decorativo:
+- **El acomodado es un empaquetado explícito, no `columns` de CSS**: se apilan
+  tablas en una columna mientras entren en `MAX_FILAS_ALTO` (20 filas, contando
+  el título del banco), y cuando la siguiente no entra se abre otra columna. Así
+  una tabla **nunca se parte al medio**, que es justo lo que hace el flujo de CSS
+  y lo que volvería ilegible el reporte. A lo ancho, `MAX_COLUMNAS_ANCHO` (15):
+  como cada tabla usa dos columnas de contenido (la cuenta y su saldo), entran 7
+  antes de bajar a una banda nueva.
+- **Los espacios entre tablas son grandes a propósito**: son lo único que dice
+  que cada bloque es una tabla independiente y no la continuación de la de al
+  lado.
+- Adentro de cada banco, **ARS primero** y una línea más marcada donde cambia la
+  moneda: leer pesos y dólares en la misma corrida visual es el error que este
+  formato evita.
 
-- uno entre el bloque **ARS** y el resto. Separar por moneda importa más que
-  ordenar: sumar pesos con dólares en la misma corrida visual es el error que
-  este formato evita;
-- uno cada vez que **cambia el banco**.
-
-El título de cada columna dice **exacto** lo mismo que la columna CUENTA del
-consolidado (tipo · moneda · número · etiqueta): si dijera otra cosa, el que
-compara las dos pantallas tendría que traducir. El día es el **mismo** que muestra la
-vista, así el reporte no puede decir algo distinto de la pantalla desde la que se
-abrió. Cabecera en el azul de la casa con el logo: **se muestra y se captura**,
-no es una pantalla de trabajo.
+Cada fila dice **exacto** lo mismo que la columna CUENTA del consolidado
+(tipo · moneda · número, con la etiqueta **debajo** del número y no al lado): si
+dijera otra cosa, el que compara las dos pantallas tendría que traducir. El día
+es el **mismo** que muestra la vista, así el reporte no puede decir algo distinto
+de la pantalla desde la que se abrió. Cabecera en el azul de la casa con el logo,
+**una sola vez** arriba de todo: se muestra y se captura, no es una pantalla de
+trabajo.
 
 ## Changelog
 
@@ -547,10 +550,9 @@ no es una pantalla de trabajo.
     `gastos`).
   · **REPORTE FINAL** (ver arriba) — 100% front, sobre los datos que la vista ya
     tiene: no cuesta ni una query. Partido en bloques de 5 bancos (`BANCOS_POR_BLOQUE`):
-    la primera versión era una matriz de 19 columnas con el 90% de las celdas
-    vacías. **Bancos en las FILAS y cuentas en las COLUMNAS** (se probó al revés
-    primero), con el título de cada columna APILADO — a lo largo, una sola cuenta
-    ocupa media pantalla.
+    se probaron **las dos matrices** (bancos en las columnas, después bancos en
+    las filas) y las dos quedaron con el 90% de las celdas vacías: los datos no
+    son un producto cartesiano. Terminó en **una tabla por banco**, empaquetadas.
   · **Títulos**: «Reglas para contabilizar Gastos Bancarios» y «Desglose para
     contabilizar Impuestos». El botón dice qué contabiliza cada cosa, que es la
     pregunta real — «reglas» y «desglose» a secas no distinguen una de otra.

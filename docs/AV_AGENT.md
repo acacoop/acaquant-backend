@@ -87,7 +87,8 @@ Cada capa se apoya en la anterior. **Ninguna se saltea.**
 
 | # | Capa | Qué habilita | Estado |
 |---|---|---|---|
-| 1 | **Medición** — eval set con voto humano | saber si acierta | 🟡 en curso |
+| 0 | **Control** — parada + tablero de fuentes | poder frenarlo, y ver de qué lee | ✅ 2026-08-18 |
+| 1 | **Medición** — eval set con voto humano | saber si acierta | 🟡 tabla y endpoints, sin UI |
 | 2 | **Cobertura** — SALUD adentro del agente | una sola pregunta: ¿está sano? | ✅ leído y razonado (no escribe) |
 | 3 | **Memoria de casos** — exemplar learning | *«esto se parece a PECNO»* | ⬜ |
 | 4 | **El LLM donde aporta** — leer prospectos, redactar, agrupar | lo que la regla no puede | ⬜ |
@@ -135,6 +136,49 @@ Cómo quedó, sin romper nada de lo que ya andaba:
 SALUD y un bono se vean IGUAL en el modal no es estética: es lo que permite que
 una sola cabeza lea las dos cosas, y lo que evita que dos pantallas digan cosas
 distintas con los mismos nombres.
+
+### 0.h EL TABLERO DE CONTROL (2026-08-18)
+
+Pedido del user: *«quiero control total del agente desde el modal por las
+dudas»*. El punto de partida, medido: **el agente tenía 15 endpoints y los 15
+actuaban sobre UN hallazgo.** Ninguno actuaba sobre EL AGENTE — si empezaba a
+escribir algo mal, la única forma de frenarlo era no apretar el botón, o apagar
+la API entera.
+
+**La parada** (`mercado.av_agent_control`) corta las escrituras de datos de
+mercado —alta, flujos, arreglo, crear curva— y **deja intacta la lectura**.
+Frenar diagnosticando es lo que uno quiere mientras investiga: si la parada
+apagara todo, el primer reflejo ante una duda sería quedarse sin la herramienta.
+Ignorar un ticker y cerrar un aviso siguen andando: son la anotación de una
+decisión humana, no un dato de mercado. **El alcance está escrito en la
+pantalla** — una parada ambigua es peor que ninguna.
+
+Tres cosas la hacen real y no un botón que miente:
+
+- **El guardia se consulta ANTES de simular.** Simular gasta créditos de 1816 y
+  gastarlos para después rechazar la escritura sería tirar el recurso.
+- **Un test recorre toda función `aplicar*` y exige que llame al guardia.** Una
+  puerta nueva que se lo olvide no rompe ningún test obvio: escribe con el
+  agente frenado, en silencio. Mismo patrón que `core/instrumentos_validos`
+  aplicado en el único punto por el que pasan todas las suscripciones.
+- **Si la base no contesta, se usa el último valor conocido.** Sin eso una
+  parada activa se evaporaba ante un blip de red — el interruptor mentía justo
+  cuando el sistema está peor. Sin haber leído nunca **se permite escribir**, y
+  es una decisión: la parada no es un control de seguridad (eso lo dan
+  `require_admin` y el humano que aprueba), y fallar cerrado rompería el agente
+  por un problema de la MISMA base donde escribe.
+
+**Las fuentes** — Postgres (RTT medido), 1816 (token y cuota), catálogo local,
+precios live, última relevada — cada una con su estado **y para qué sirve**.
+Es la generalización del bug del briefing del mismo día: una fuente degradada se
+notaba recién al leer un resultado raro, y para entonces uno debuggea el
+resultado en vez de la fuente. **Ninguna lectura pega a la red**: un tablero que
+gasta un crédito cada vez que se mira consume el recurso que vino a cuidar.
+
+Lo que sigue de este bloque (§0.i, el orden acordado con el user 2026-08-18):
+corregir la causa desde el modal ⇒ llena el eval set solo · los sliders de
+autonomía por causa · deshacer + lote · calibración, re-chequeo a 24 h y el DAG
+de lentes.
 
 ### 0.f El eval set (2026-08-17)
 

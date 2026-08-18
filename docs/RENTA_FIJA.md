@@ -533,7 +533,7 @@ valúa hoy.
 Cron: **cada 30′ de 10 a 17 ART, L-V** (`0,30 13-19` + `0 20` UTC), ~150 créditos
 por corrida ≈ 2.250/día de los 100.000 diarios.
 
-#### Paso 19 (2026-08-18) — el LIBRO vuelve (se había perdido en la migración a la tab CURVAS)
+#### Paso 19 (2026-08-18) — el LIBRO vuelve, y sale de la vista a una VENTANA FLOTANTE
 
 **Lo que pasó.** La tabla vieja (`renta-fija-table.tsx`) tenía cinco pills:
 `TASA FIJA · CER · HARD DOLAR · DOLAR LINKED · **LIBRO**`. Cuando la tab CURVAS
@@ -543,40 +543,62 @@ sin que nadie lo montara. No hubo error, ni build roto, ni endpoint caído —
 simplemente el botón dejó de estar. Es el mismo patrón de los pasos 10-13: *nada
 falla, y por eso no se ve*. Reportado por el user, no por el sistema.
 
-**Lo que se repuso.** La pill `LIBRO` vuelve, **solo del lado ARS** (donde se
-pidió), al final de las pills de esa columna. Mismo componente, mismo
-`GET /api/trades?instrumento=` → `/api/cotizaciones/historico/trades`, mismo poll
-de 5s con dedupe por payload crudo. **Cero backend**: el endpoint nunca dejó de
-existir y no se tocó una línea de Python.
+**Repuesto y REUBICADO.** La primera versión lo trajo de vuelta como una pill más
+del lado ARS. El user marcó dos cosas y son **la misma**:
 
-**Tres decisiones que no son las obvias:**
+1. pegado a `TASA FIJA / CER / TAMAR / BADLAR` se lee como **un ajuste más**, y no
+   lo es — esas cuatro son cortes del mismo dato, el libro es otra herramienta;
+2. al ocupar el panel te **tapaba la tabla y la curva**, que son justo contra lo
+   que uno compara el tape.
 
-- **El universo es el LADO entero, no una pill.** El tape se busca por TICKER; si
-  el libro heredara el corte por ajuste habría que saber de antemano si el bono
-  es CER o tasa fija para encontrarlo. Sí respeta el **filtro de EMISOR** de
-  arriba — que es lo que hace que con el default (`soberano`) la lista sean
-  exactamente los soberanos ARS, que es como se pidió. Lo que se ve sigue siendo
-  siempre lo que está encendido.
-- **Se filtra por `lado` y no por `moneda`** (misma regla que `bonos-table`), y
-  se **deduplica por instrumento**: un dual llega REPETIDO —una fila por pata— y
-  el selector mostraría el ticker dos veces. Entran solo los que tienen
-  `last_price`: sin precio no hubo rueda y el tape arrancaría vacío. Ese último
-  filtro es el que la tabla vieja hacía con `flujos` (bonos VIVOS) — mismo
-  efecto, sin el fetch de 240 KB que el paso 3a eliminó.
-- **Con LIBRO prendido la columna es UN panel a todo el alto**, sin el gráfico
-  abajo. El libro no tiene curva que graficar, y dejar el chart de la pill
-  anterior pondría en pantalla dos cosas que no se corresponden. De yapa el Time
-  & Sales gana el alto que le faltaba cuando vivía en medio panel — la queja que
-  ya había hecho borrar su chart interno.
+Las dos se resuelven sacándolo de la grilla: **botón a la DERECHA del header
+(`Panel.rightActions`, prop nueva y aditiva) que abre una VENTANA FLOTANTE**
+(`ventana-flotante.tsx`). La columna ARS conserva SIEMPRE su tabla + su curva.
 
-**Lo que NO se hizo**: la pill no se agregó del lado USD. No se pidió, y `data.pills`
-sigue viniendo del backend sin ella — `LIBRO` es una vista del front (una forma de
-mirar el mismo universo), no un eje del modelo, así que vive en `curvas-tab.tsx` y
-no en `core/curvas_ejes.py`.
+**La ventana**: se arrastra de la barra, se redimensiona de la esquina, cierra
+con ✕ o **Esc**, y **no es un modal** — sin backdrop, no bloquea el fondo ni roba
+el foco, así que con el libro abierto se sigue cambiando de pill, de emisor y de
+tab. Va por `createPortal` al `body`, así que **no le saca ni un pixel a las
+columnas**. Se desmonta al cerrar (el poll de trades no queda corriendo
+escondido). La **geometría** se persiste en `localStorage`
+(`rentaFija.libro.ventana`): dónde la ponés es una preferencia, no un filtro.
+Abierto/cerrado **no** se persiste — que la app te abra sola una ventana que no
+pediste es peor que un click.
 
-Archivo tocado: `acaquant-frontend/src/components/curvas-tab.tsx` (único).
-`renta-fija-table.tsx` sigue **huérfano** — ya no lo monta nadie; se borra cuando
-el paso 4 cierre las tabs viejas.
+**Universo**: el lado **ARS entero**, no una pill — el tape se busca por TICKER y
+cortarlo por ajuste obligaría a saber de antemano si el bono es CER o tasa fija.
+Respeta el filtro de EMISOR, así que con el default (`soberano`) la lista son
+exactamente los soberanos ARS. Se filtra por `lado` y no por `moneda` (un dual
+TAMAR+DOLAR LINKED es ARS y tiene una fila de cada lado), se **deduplica por
+instrumento** (un dual llega repetido, una fila por pata → el selector mostraría
+el ticker dos veces) y entran solo los que tienen `last_price`. Ese último filtro
+es lo que la tabla vieja hacía con `flujos` (bonos VIVOS), sin volver a pedir los
+240 KB de cronogramas que el paso 3a eliminó.
+
+**Cero backend**: `/api/cotizaciones/historico/trades` nunca dejó de existir.
+
+**Dos trampas de front que costaron una corrida cada una** (verificadas en browser
+con Playwright, no razonadas):
+
+1. **`typeof document === "undefined"` NO es un guard válido de portal.** El
+   server renderiza `null` y el cliente la ventana en el mismo paso → *"Hydration
+   failed: server rendered HTML didn't match"*. Hoy no se dispara porque la
+   ventana nace cerrada, pero el primero que la abra por default —o que persista
+   el abierto/cerrado— se lo come sin entender por qué. Va el patrón correcto:
+   estado `montado` en un `useEffect`. (`panel.tsx` tiene el guard viejo en su
+   overlay de expandir; ahí está tapado por el mismo motivo.)
+2. **Dos `ml-auto` compitiendo no alinean a la derecha: REPARTEN.** Con
+   `rightActions` y el botón de expandir los dos con `ml-auto`, flexbox parte el
+   espacio libre entre ambos y las acciones quedan flotando en el medio (medido:
+   x=695 de 1100). El botón de expandir pasa a `ml-1` **solo cuando hay
+   `rightActions`** → los ~12 paneles que ya usan `actions` quedan idénticos.
+
+Verificado en browser real: arrastra, redimensiona, el fondo sigue clickeable, la
+posición sobrevive al F5 y Esc cierra. Consola sin errores ni warnings.
+
+Archivos: `ventana-flotante.tsx` (nuevo), `curvas-tab.tsx`, `panel.tsx`
+(prop `rightActions`, aditiva). `renta-fija-table.tsx` sigue **huérfano** — ya no
+lo monta nadie; se borra cuando el paso 4 cierre las tabs viejas.
 
 ### Paso 8 — las PATAS (`mercado.especies`, 2026-08-15)
 

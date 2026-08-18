@@ -520,13 +520,28 @@ Con una tabla por banco, cada una mide lo que su banco necesita —dos filas si
 tiene dos cuentas, seis si tiene seis— y las tablas se **acomodan** una al lado de
 la otra hasta llenar el espacio. Cero celdas vacías.
 
-- **El acomodado es un empaquetado explícito, no `columns` de CSS**: se apilan
-  tablas en una columna mientras entren en `MAX_FILAS_ALTO` (20 filas, contando
-  el título del banco), y cuando la siguiente no entra se abre otra columna. Así
-  una tabla **nunca se parte al medio**, que es justo lo que hace el flujo de CSS
-  y lo que volvería ilegible el reporte. A lo ancho, `MAX_COLUMNAS_ANCHO` (15):
-  como cada tabla usa dos columnas de contenido (la cuenta y su saldo), entran 7
-  antes de bajar a una banda nueva.
+- **El acomodado es un empaquetado explícito, no `columns` de CSS**: así una
+  tabla **nunca se parte al medio**, que es justo lo que hace el flujo de CSS y
+  lo que volvería ilegible el reporte. Las columnas se reparten **equilibradas**
+  (se decide cuántas hacen falta y después se apunta a que todas midan parecido),
+  no llenando la primera hasta el borde.
+- ⚠️ **El reporte ENTRA ENTERO: no se desplaza.** Se muestra y se captura, así
+  que una tabla abajo del fold es una tabla que no existe — y eso pasaba. Ningún
+  reparto fijo lo puede garantizar, porque depende del tamaño de la pantalla, de
+  cuántos bancos hay y de cuántas cuentas tiene cada uno. Se **mide** el contenido
+  contra el hueco disponible y se **escala** (entre 0,55 y 1,15). El contenedor va
+  en `overflow-hidden` a propósito: si algo no entra, la respuesta es achicar la
+  escala, **nunca** una barra de scroll. Debajo del piso de escala el problema ya
+  no es el layout — son demasiados bancos para una pantalla.
+  · Se mide con `offsetWidth`/`offsetHeight`, que son el tamaño de LAYOUT y **no
+    los afecta el `transform`**: por eso medir después de escalar no se
+    retroalimenta.
+  · Las columnas van en **grid** (`grid-auto-flow: column`) y no en `flex-wrap`:
+    con flex, una columna que no entra por ancho se va a un renglón nuevo y el
+    reporte se desarma —una columna larguísima, media pantalla en blanco al lado
+    y los bancos que siguen abajo del fold. Y se dimensionan por su **contenido**
+    (`max-content`), porque estirarlas para llenar el ancho deformaba las tablas:
+    el que llena la pantalla es el escalado, no el estirado.
 - **Los espacios entre tablas son grandes a propósito**: son lo único que dice
   que cada bloque es una tabla independiente y no la continuación de la de al
   lado.

@@ -51,16 +51,18 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > Si ves "Mongo"/"colección"/"Atlas" en algún doc viejo, es residual — la fuente de
 > verdad es `sql/schema.sql` + `docs/SQL.md`.
 
-> **⚡ PROGRAMA DE IA EN CURSO → `docs/QUANTAI.md` (LEER al arrancar la sesión).**
-> Es el roadmap VIVO del programa "QuantAI": proveedor DeepSeek, marca AI
-> (módulo `ia` del RBAC), Fase 0 (gateway core/ai + observabilidad + evals) y
-> 5 proyectos (briefing modal en HOME, triage de incidentes, copiloto de mesa,
-> prep comercial, analista ad-hoc). Ahí viven las decisiones tomadas, el estado
-> de cada proyecto, los principios de ingeniería que guían TODO el desarrollo
-> de IA y qué está diferido/descartado (no re-proponer sin novedad). REGLA:
-> cualquier trabajo de IA se hace leyendo ese doc primero, y todo avance/
-> cambio/descarte se actualiza AHÍ en el mismo commit — si el doc no refleja
-> el estado real, el trabajo está incompleto.
+> **⚡ PROGRAMA DE IA → `docs/AV_AGENT.md` (LEER al arrancar la sesión).**
+> **Doc ÚNICO y vivo del programa**: el **AV AGENT es el proyecto de IA** (decisión
+> del user 2026-08-17 — «lo anterior no funcionó, hay que unificar todo lo de IA»).
+> Ahí viven los principios que guían TODO el desarrollo de IA, el roadmap por
+> capas, el estado real de cada etapa y lo descartado. Incluye **SALUD**, que se
+> fusionó adentro del agente (un chequeo y un hallazgo son el mismo objeto), y el
+> **eval set**, que es lo que habilita cada paso de autonomía.
+> `QUANTAI.md` quedó como ARCHIVO de la fase anterior (qué se intentó y por qué no
+> prendió); `COPILOTO.md` y `TOOLS_IA.md` siguen describiendo lo que corre.
+> REGLA: todo trabajo de IA se hace leyendo `AV_AGENT.md` primero, y todo avance
+> se asienta AHÍ en el mismo commit — si el doc no refleja el estado real, el
+> trabajo está incompleto.
 
 **Schemas SQL** (Postgres/Supabase; `sql/schema.sql` es la fuente — OJO: no siempre 100% aplicado en la DB real, ver "Capa SQL"):
 - `mercado` — núcleo de mercado: `curvas` (master RF, antes Trading.Curvas+BondsMaster), `especies` (las PATAS de cada bono — `ticker` AL30 une con la curva, `ticker_especie` AL30D une con la posición (`tenencia`/`acreencias`), + moneda/plazo/`es_default`; sembrada desde `manager.pyrofex_instruments` con `scripts/sembrar_especies.py` — ver `docs/RENTA_FIJA.md` §0 paso 8; es la FUENTE ÚNICA de símbolos: `portafolio.assets.instrumento`/`instrumento_usd` se derivan de acá vía `jobs/assets_autofill` en vez de cargarse a mano), `market_snapshot`, `snapshots_cierre(+_hist)`, `canje_cierre`, `timesales`, `dias_habiles`; renta fija derivada `forwards_zscore`, `fit_params`, `fair_value_residuos`, `ons_ignoradas`; `futuros_dlr_snapshot`, `caucion_snapshot`; opciones `options_data(+_hist)`, `options_snapshot`, `options_metadata`, `options_vr`; renta variable `cedears`(master), `cedears_snapshot`, `adr_snapshot`, `precios_acciones`, `cedears_time_sales`, `day_trading_stats`; agro `agro_snapshot`, `agro_opciones_snapshot`, `agro_pizarra`, `camara_cereales`, `volumen_mercado_agro`; `snapshots_sinteticos`; `mercado_hist`; `rubros`, `adhoc_subscriptions`.
@@ -280,9 +282,9 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Arquitectura, datos, roadmap | `ARQUITECTURA.md` (madre) |
 | Qué vistas/tabs/endpoints/permisos hay (superficie completa) | `MAPA_APP.md` **[VIVO]** |
 | Modelo SQL / schema | `SQL.md` + `SQL_MODELO.md` + `sql/schema.sql` |
-| Programa de IA (gateway `core/ai`, briefing, triage) | `QUANTAI.md` **[VIVO]** |
+| **PROGRAMA DE IA — doc único** (agente + SALUD + evals + roadmap) | `AV_AGENT.md` **[VIVO]** |
+| IA: archivo de la fase anterior (no re-proponer lo descartado) | `QUANTAI.md` (archivo) |
 | Copiloto de mesa (`api/services/copiloto.py`) | `COPILOTO.md` **[VIVO]** |
-| **AV AGENT** (integridad de datos: `mercado.curvas` ↔ 1816) | `AV_AGENT.md` **[VIVO]** |
 | Agregar una TOOL al asistente/copiloto | `TOOLS_IA.md` **[VIVO]** (auditoría de huecos + tandas) |
 | Vista `/research` (1816, mail diario) | `VISTA_RESEARCH.md` **[VIVO]** |
 | Research → tab BCRA / FRED | `RESEARCH_BCRA.md` · `RESEARCH_FRED.md` |

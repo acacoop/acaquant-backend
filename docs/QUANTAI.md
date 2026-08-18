@@ -1,4 +1,28 @@
-# QuantAI — Roadmap vivo de IA en ACAquant
+# QuantAI — ARCHIVO de la primera fase de IA  ⟨NO ES EL ROADMAP VIVO⟩
+
+> ## ⚠️ ESTE DOC YA NO ES LA AUTORIDAD. El roadmap vivo es **`AV_AGENT.md`**.
+>
+> Decisión del user (2026-08-17): *«el agente ES el nuevo proyecto de IA; hay que
+> unificar todo lo de IA. Lo anterior no funcionó.»*
+>
+> **Por qué no funcionó, dicho sin vueltas**: este programa nació al revés —
+> primero el modelo (gateway, proveedor, trazas, siete proyectos con LLM) y
+> después el problema. El AV Agent nació al derecho: un problema real y medible
+> primero, la herramienta después, y el modelo **solo donde agregue algo que una
+> regla no pueda**.
+>
+> **Qué sigue valiendo de acá, y por eso el doc no se borra:**
+> - el **gateway `core/ai`** y la observabilidad en `ia.trazas` (siguen en uso);
+> - el **registro de lo que se descartó y por qué** — para no re-proponerlo;
+> - la historia de los proyectos P1-P7 (qué se intentó, qué quedó).
+>
+> **Los principios de ingeniería se mudaron a `AV_AGENT.md` §0.b**, reescritos con
+> lo que se aprendió construyendo el agente. Si los de acá abajo se contradicen
+> con los de allá, **gana `AV_AGENT.md`**.
+
+---
+
+# (archivo) QuantAI — Roadmap de la primera fase
 
 > **REGLA DE ESTE DOCUMENTO (leer antes de tocar nada):** es un documento VIVO de
 > estado. Cada cosa que se termina se MUEVE a "Hecho" (una línea) o se BORRA su

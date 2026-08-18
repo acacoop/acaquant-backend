@@ -3793,6 +3793,39 @@ CREATE INDEX IF NOT EXISTS ix_av_agent_ticker
 -- `motivo` es obligatorio a propósito — dentro de seis meses, "por qué ignoramos
 -- este bono" es la única pregunta que importa, y es la que E7 va a usar como
 -- ejemplo para dejar de proponerlo.
+-- mercado.av_agent_evals — EL EVAL SET del agente (2026-08-17).
+--
+-- **La medición es la piedra angular, y no existía.** El agente diagnostica y
+-- arregla, pero nadie podía decir con un número cuánto ACIERTA — y sin eso cada
+-- paso hacia la autonomía es un acto de fe. Es lo que el propio doc del agente
+-- dice desde el primer día: «un agente que diagnostica sin poder medir si acertó
+-- no es un agente, es un generador de opiniones».
+--
+-- El dataset ya existía y se estaba tirando: cada vez que alguien abre un
+-- diagnóstico y decide (aplicar / ignorar / corregir a mano) emite un juicio
+-- sobre si la causa era la correcta. Acá ese juicio se guarda.
+--
+-- Un voto **no cambia nada del sistema**: es una anotación sobre el AGENTE, no
+-- sobre el bono. Mezclarlas haría que corregir el diagnóstico parezca arreglar el
+-- problema.
+--
+-- El mismo caso se puede votar N veces y todas quedan (append-only): si el agente
+-- cambia de opinión sobre un bono dentro de un mes, la historia de los dos juicios
+-- es justamente lo que dice si mejoró.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_evals (
+    id              bigserial PRIMARY KEY,
+    caso            text NOT NULL,        -- el SUJETO: ticker del bono o id del chequeo
+    dominio         text NOT NULL DEFAULT 'bono',   -- bono | salud
+    causa           text NOT NULL,        -- lo que dijo el agente
+    acierta         boolean NOT NULL,
+    causa_correcta  text,                 -- si no acierta: cuál era (para aprender)
+    nota            text,                 -- el POR QUÉ, en castellano
+    por             text,
+    creado_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_av_evals_causa ON mercado.av_agent_evals (dominio, causa);
+CREATE INDEX IF NOT EXISTS ix_av_evals_caso  ON mercado.av_agent_evals (caso, creado_at DESC);
+
 CREATE TABLE IF NOT EXISTS mercado.av_agent_ignorados (
     ticker      text PRIMARY KEY,     -- ticker CORTO normalizado (sin especie D/C)
     motivo      text NOT NULL,

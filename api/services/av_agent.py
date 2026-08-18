@@ -115,6 +115,15 @@ ACCION_POR_TIPO = {
     # un comentario que nadie puede accionar y no da ningún error — exactamente lo
     # que le pasó a `tasa_sospechosa` durante 38 filas.
     "hueco_de_curva": None,
+    # ── SALUD entra al agente (2026-08-17) ──────────────────────────────────
+    #
+    # **`None` por ahora, y es una decisión, no un olvido.** El agente YA sabe
+    # razonar sobre un chequeo (ver `av_agent_salud`), pero todavía no escribe
+    # nada del lado de SALUD: relanzar un job es una acción con efectos afuera de
+    # `mercado.curvas` y se habilita cuando el eval set diga que el diagnóstico
+    # acierta. Es el mismo camino que hizo la puerta de bonos — primero ver,
+    # después simular, después escribir.
+    "salud": None,
 }
 
 
@@ -590,6 +599,59 @@ def detectar_huecos_de_curva(docs: list[dict]) -> list[dict]:
     return out
 
 
+
+# ── 5) SALUD: el sistema mirándose a sí mismo ────────────────────────────────
+
+
+def detectar_salud(chequeos: list[dict]) -> list[dict]:
+    """Los chequeos de SALUD que NO están en verde, como hallazgos del agente.
+
+    **Por qué SALUD entra acá** (user, 2026-08-17): *«quiero que el agente abarque
+    tareas de SALUD y que así como simulamos y hacemos cosas de bonos, también
+    aprenda a resolver»*.
+
+    Y encajan sin forzar nada, porque **un chequeo y un hallazgo son el mismo
+    objeto**: algo que se evalúa, tiene estado, guarda la evidencia congelada y le
+    pide una decisión a alguien. Lo único que cambia es el sujeto — un bono o un
+    job. Tenerlos en dos pantallas separadas obligaba a mirar dos lugares para
+    contestar UNA pregunta («¿está sano el sistema?»), y ninguna de las dos la
+    contestaba entera.
+
+    Los dos módulos se complementan justo donde el otro es débil:
+
+      · el AV Agent razona de forma DETERMINISTA (las lentes) y sabe arreglar;
+      · SALUD tiene el HISTORIAL de cada chequeo y un diagnóstico con IA.
+
+    Función PURA: recibe los chequeos ya evaluados. `relevar()` es quien llama a
+    `salud.evaluar()`, igual que con el resto — así esto se testea sin base.
+
+    ⚠️ **No duplica el estado de SALUD ni lo reemplaza.** SALUD sigue siendo el
+    dueño de la evaluación; acá se la lee. Si un chequeo se arregla solo, deja de
+    venir en la lista y el hallazgo caduca en la lectura, como el resto.
+    """
+    sev = {"error": "alta", "warn": "media"}
+    out: list[dict] = []
+    for c in chequeos or []:
+        estado = (c.get("estado") or "").lower()
+        if estado not in sev:            # verde → no es un hallazgo
+            continue
+        familia = c.get("familia") or "chequeo"
+        out.append(_hallazgo(
+            # El `ticker` es EL SUJETO del hallazgo — para un bono es el ticker y
+            # para un chequeo es su id. El nombre del campo quedó del primer
+            # detector; renombrarlo tocaría la tabla, el front y los tres
+            # detectores que ya andan, y no cambia lo que significa.
+            "salud", c.get("id") or "?", f"salud_{familia}", sev[estado],
+            f"{c.get('titulo')}: {c.get('motivo')}",
+            {"chequeo_id": c.get("id"), "familia": familia,
+             "titulo": c.get("titulo"), "estado": estado,
+             "evidencia_salud": c.get("evidencia"),
+             "schedule": c.get("schedule"), "tabla": c.get("tabla"),
+             "ultimo_at": c.get("ultimo_at"), "esperada_at": c.get("esperada_at"),
+             "modulos": c.get("modulos")}))
+    return out
+
+
 # ── Orquestación (el único que lee de la base / la red) ──────────────────────
 
 
@@ -676,12 +738,23 @@ def relevar(*, alcance: str = "soberanos",
                                     ignorados=ignorados, en_cartera=en_cartera,
                                     simbolos_primary=simbolos_primary())
                  if universo_1816 else [])
+    try:
+        from api.services import salud
+        chequeos_salud = salud.evaluar()
+    except Exception:
+        logger.warning("av_agent: no se pudo evaluar SALUD", exc_info=True)
+        chequeos_salud = []
+
     hallazgos = [
         *faltantes,
         *detectar_sin_flujo(docs, universo_1816),
         *detectar_tasas_sospechosas(docs, metricas, en_assets, en_cartera,
                                     universo_1816=universo_1816),
         *detectar_huecos_de_curva(docs),
+        # SALUD entra como un detector más. Su lectura va en `try` propio: que la
+        # observabilidad se caiga NO puede tumbar la relevada de bonos — el mismo
+        # contrato que ya rige el universo de 1816.
+        *detectar_salud(chequeos_salud),
     ]
     # **El «no me interesa» se aplica a los CUATRO tipos, en UN solo lugar.** Antes
     # solo lo respetaba `detectar_faltantes` (recibía `ignorados` por parámetro), y
@@ -707,6 +780,7 @@ def relevar(*, alcance: str = "soberanos",
                      "assets_leidos": en_assets is not None,
                      "cartera_leida": en_cartera is not None,
                      "en_cartera": len(en_cartera or ()),
+                     "chequeos_salud": len(chequeos_salud),
                      "ignorados": len(ignorados)},
         "hallazgos": hallazgos,
         "resumen": resumen,

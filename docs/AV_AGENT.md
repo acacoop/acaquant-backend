@@ -1,15 +1,145 @@
-# AV AGENT — el primer agente de ACAquant  ⟨VIVO⟩
+# AV AGENT — el programa de IA de ACAquant  ⟨DOC ÚNICO · VIVO⟩
 
-> **REGLA DE ESTE DOCUMENTO.** Es un doc **VIVO** con changelog obligatorio, igual
-> que `QUANTAI.md` y `COPILOTO.md`. Cada etapa que se completa se marca acá en el
-> MISMO commit; cada decisión se asienta; cada cosa descartada se borra con una
+> **ESTE ES EL DOC DEL PROGRAMA DE IA. No hay otro roadmap.**
+>
+> Decisión del user (2026-08-17): *«hay que fusionar, ya que el agente ES el nuevo
+> proyecto de IA. No hay que tener muchos documentos y cosas desparramadas: hay
+> que unificar todo lo de IA. Va a empezar a pasar desde ahora con el agente; lo
+> anterior no funcionó.»*
+>
+> `QUANTAI.md` queda como **ARCHIVO** de la fase anterior (qué se intentó, qué se
+> descartó y por qué — sirve para no re-proponer lo mismo), y `COPILOTO.md` /
+> `TOOLS_IA.md` como referencia de lo que sigue corriendo. **El roadmap vivo, las
+> decisiones y los principios son este archivo.**
+>
+> **REGLA.** Doc VIVO con changelog obligatorio: cada etapa completada se marca en
+> el MISMO commit, cada decisión se asienta, cada cosa descartada se borra con una
 > línea de porqué. Si el doc no refleja el estado real, el trabajo está INCOMPLETO.
 >
-> Docs hermanos que hay que leer antes de tocar esto: `QUANTAI.md` (el programa de
-> IA y sus reglas de oro — este agente es **P8**), `SALUD_CURVAS.md` (el catálogo de
-> fallas que el agente aprende a reconocer), `RENTA_FIJA.md` §0 (los EJES y el
-> motor), `VISTA_RESEARCH.md` §4.9/§4.10 (los números medidos de 1816 y el diseño
-> previo, que este doc absorbe y reemplaza).
+> Docs que hay que leer antes de tocar esto: `SALUD_CURVAS.md` (el catálogo de
+> fallas que el agente reconoce), `RENTA_FIJA.md` §0 (los EJES y el motor).
+
+---
+
+## 0. El programa: qué es y hacia dónde va
+
+### 0.a Por qué el agente ES el programa, y no un proyecto más
+
+El programa anterior nació al revés: **primero el modelo, después el problema.**
+Se construyó un gateway, se eligió proveedor, se instrumentaron trazas y se
+listaron siete proyectos con LLM — y lo que quedó corriendo fue poco.
+
+El AV Agent nació al derecho y por eso funciona: **un problema real y medible
+primero** (222 bonos cuyo dato de mercado nadie audita), **una herramienta que lo
+resuelve después**, y el modelo **solo donde agregue algo que una regla no pueda**.
+Hoy el agente detecta, razona por ocho lentes, propone un arreglo, lo verifica y
+lo aplica — **sin una sola llamada a un LLM**. Esa es la base sobre la que la IA
+tiene sentido, no al revés.
+
+### 0.b Los principios (si un diseño los contradice, se replantea el diseño)
+
+1. **El LLM va donde hay ambigüedad y lenguaje. Nunca donde hay aritmética.**
+   Comparar `moneda_flujo` contra los ejes es comparar dos strings: un modelo ahí
+   sería más lento, más caro y **menos confiable**. Leer un log en prosa y opinar,
+   en cambio, es exactamente lo que una regla no puede.
+2. **Sin medición no hay autonomía.** *«Un agente que diagnostica sin poder medir
+   si acertó no es un agente, es un generador de opiniones.»* La precisión por
+   causa (`mercado.av_agent_evals`) es lo que habilita cada paso de autonomía —
+   nunca la sensación de que anda bien.
+3. **Recompensa VERIFICABLE antes que opinión.** Un arreglo se aplica solo si la
+   métrica que disparó el hallazgo vuelve al rango al simularlo. Es un control
+   duro, local, gratis y sin depender de terceros.
+4. **Agotar lo local antes de salir a la red.** Medido: **38 de 38** hallazgos se
+   resuelven con datos que ya están en la base. Una dependencia externa colgada de
+   algo que casi no la necesita es lo que dejó la pantalla muda con el 429.
+5. **Degradar es distinto de fallar, y "no pude mirar" nunca es "no hay nada".**
+   Toda fuente caída apaga SU regla y lo declara; jamás se convierte en un verde.
+6. **Un solo lugar decide cada cosa.** Dos implementaciones del mismo criterio
+   terminan contradiciéndose — ya costó tres bugs en este agente.
+7. **Primero ver, después simular, después escribir.** Ninguna capacidad nueva
+   nace escribiendo.
+
+### 0.c Dónde estamos, contra el estado del arte
+
+Mapa contra el programa de Arquitectura de Agentes (UTDT, 2026) — lo que el
+agente **ya implementa sin haberlo llamado así**:
+
+| Concepto | Cómo está resuelto acá | Estado |
+|---|---|---|
+| Autonomy slider | `puede_aplicar` (humano) vs `puede_auto` (robot) | ✅ |
+| Confianza e incertidumbre | los **5 estados** del pre-flight | ✅ |
+| Failing gracefully | degradación honesta en toda fuente | ✅ |
+| Solicitud de guía al usuario | ME PREGUNTA · AVISOS · el dato que se tipea | ✅ |
+| Query decomposition | **las 8 lentes** | ✅ |
+| Root cause analysis | `analizar()` → causa aguas arriba | ✅ |
+| Recompensas verificables | la verificación local del arreglo | ✅ |
+| Human-in-the-loop | el humano aprueba toda escritura | ✅ |
+| Data provenance / accountability | evidencia congelada + libro de acciones | ✅ |
+| Evaluation sets | `mercado.av_agent_evals` | 🟡 recién nacido |
+| Exemplar learning | `av_agent_ignorados` con motivo | 🟡 semilla |
+| Memoria / RAG / vector stores | — | ❌ no hace falta todavía |
+| Multiagente, swarms, actor frameworks | — | ❌ **no aplica a esta escala** |
+| Fine-tuning (SFT/DPO) | — | ❌ sin sentido con decenas de ejemplos |
+
+### 0.d El roadmap, por capas
+
+Cada capa se apoya en la anterior. **Ninguna se saltea.**
+
+| # | Capa | Qué habilita | Estado |
+|---|---|---|---|
+| 1 | **Medición** — eval set con voto humano | saber si acierta | 🟡 en curso |
+| 2 | **Cobertura** — SALUD adentro del agente | una sola pregunta: ¿está sano? | 🟡 en curso |
+| 3 | **Memoria de casos** — exemplar learning | *«esto se parece a PECNO»* | ⬜ |
+| 4 | **El LLM donde aporta** — leer prospectos, redactar, agrupar | lo que la regla no puede | ⬜ |
+| 5 | **Shadow mode** — propone y registra sin escribir | medir la lane automática | ⬜ |
+| 6 | **Canary** — UNA causa se aplica sola | la primera autonomía real | ⬜ |
+| 7 | **El patrón a otros dominios** — tesorería, assets | el agente como plantilla | ⬜ |
+
+### 0.e SALUD adentro del agente (2026-08-17)
+
+**Un chequeo de SALUD y un hallazgo del agente son el mismo objeto**: algo que se
+evalúa, tiene estado, guarda la evidencia congelada y le pide una decisión a
+alguien. Lo único distinto es el sujeto — un bono o un job. Estaban en dos
+pantallas, y para contestar *«¿está sano el sistema?»* había que mirar las dos.
+
+Y se complementan justo donde cada uno es débil:
+
+    AV AGENT  →  razonamiento DETERMINISTA (las lentes), y sabe arreglar
+    SALUD     →  el HISTORIAL de cada chequeo, y un diagnóstico con IA
+
+Cómo quedó, sin romper nada de lo que ya andaba:
+
+- `detectar_salud()` es **un detector más**: los chequeos que no están en verde
+  entran como hallazgos `tipo="salud"`, con la misma forma que el resto. Su
+  lectura va en `try` propio — que la observabilidad se caiga no puede tumbar la
+  relevada de bonos.
+- `av_agent_salud.diagnosticar()` razona un chequeo con **8 lentes**: qué es ·
+  ¿corrió cuando debía? · ¿salió bien? · ¿dejó el dato fresco? · ¿ya pasó antes? ·
+  qué se rompe aguas abajo · **la lectura con IA** (la única que gasta tokens, y
+  va última) · qué haría falta para arreglarlo.
+- **NO escribe nada del lado de SALUD.** SALUD sigue siendo el dueño de su
+  estado: si el agente escribiera el suyo habría dos verdades sobre si el sistema
+  está sano, que es el problema que la fusión vino a eliminar.
+- `ACCION_POR_TIPO["salud"] = None` **explícito**: el agente lo ve y lo razona,
+  pero todavía no lo arregla. Relanzar un job tiene efectos afuera de
+  `mercado.curvas` y se habilita cuando el eval set diga que acierta.
+
+**Los pasos y el veredicto se IMPORTAN de la puerta de bonos, no se copian.** Que
+SALUD y un bono se vean IGUAL en el modal no es estética: es lo que permite que
+una sola cabeza lea las dos cosas, y lo que evita que dos pantallas digan cosas
+distintas con los mismos nombres.
+
+### 0.f El eval set (2026-08-17)
+
+`mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta
+cuando falla. **El dataset ya existía y se estaba tirando**: cada vez que alguien
+abre un diagnóstico y decide, emite un juicio sobre si la causa era la correcta.
+
+- **Un ✖ sin motivo se rechaza**: de «está mal» no se aprende nada.
+- `MIN_VOTOS` separa un porcentaje con respaldo de uno con tres votos — 2 de 2 no
+  es «100% de acierto», es «casi no hay evidencia».
+- `candidata_a_auto` **no es un permiso**: es lo que el número habilita a
+  discutir. La lane automática se prende a mano, siempre.
 
 ---
 
@@ -2392,6 +2522,27 @@ realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
 
+- **2026-08-17 — LA FUSIÓN: SALUD entra al agente y el programa de IA queda en UN
+  doc.** Decisión del user: *«el agente ES el nuevo proyecto de IA; hay que
+  unificar todo lo de IA. Lo anterior no funcionó.»* Este doc pasa a ser la
+  autoridad del programa (§0: principios, mapa contra el estado del arte, roadmap
+  por capas) y `QUANTAI.md` queda como ARCHIVO de la primera fase — que nació al
+  revés, primero el modelo y después el problema. **SALUD adentro**: un chequeo y
+  un hallazgo son el mismo objeto, así que `detectar_salud()` es un detector más
+  (`tipo="salud"`, en su propio `try` para que la observabilidad no pueda tumbar
+  la relevada de bonos) y `av_agent_salud.diagnosticar()` lo razona con **8
+  lentes** — qué es · ¿corrió cuando debía? · ¿salió bien? · ¿dejó el dato fresco?
+  · ¿ya pasó antes? · qué se rompe aguas abajo · **la lectura con IA** (la única
+  que gasta tokens, y va última) · qué haría falta para arreglarlo. Los pasos y el
+  veredicto se **importan** de la puerta de bonos: que las dos cosas se vean igual
+  en el modal es lo que permite que una sola cabeza lea las dos. **No escribe nada
+  del lado de SALUD** y `ACCION_POR_TIPO["salud"] = None` es explícito — ve y
+  razona, todavía no arregla. Y nace el **EVAL SET** (`mercado.av_agent_evals`): un
+  ✔/✖ humano por diagnóstico, que rechaza un ✖ sin motivo y distingue un
+  porcentaje con respaldo de uno con tres votos. Es lo que convierte cada paso de
+  autonomía en una decisión con número en vez de fe. 4 tests (112 en el módulo).
+  **Nada de lo que ya andaba cambió**: alta, cronograma, arreglo, detectores,
+  vista, avisos y libro quedaron intactos.
 - **2026-08-17 — LAS OCHO LENTES: el agente razona por varios lados.** Pedido del
   user: *«lo que yo quiero es el ANÁLISIS… es por el valor técnico, es por la
   paridad, es por la moneda, es porque falta esto»*. El diagnóstico era un árbol

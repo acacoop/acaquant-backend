@@ -1521,14 +1521,17 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
     from api.services import av_agent
 
     # Los tipos que emite cada detector, tomados de sus propias llamadas.
-    tipos_reales = {"falta_en_base", "sin_flujo", "tasa_sospechosa", "hueco_de_curva"}
+    # `salud` es el quinto (fusión 2026-08-17): lo emite `detectar_salud`, que
+    # convierte un chequeo de SALUD en un hallazgo del agente.
+    tipos_reales = {"falta_en_base", "sin_flujo", "tasa_sospechosa",
+                    "hueco_de_curva", "salud"}
     assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
         "una clave del mapa no es un TIPO que algún detector emita — "
         "probablemente se escribió la REGLA")
     assert av_agent.ACCION_POR_TIPO["sin_flujo"] == "flujos"
     assert av_agent.ACCION_POR_TIPO["falta_en_base"] == "alta"
     assert av_agent.ACCION_POR_TIPO["tasa_sospechosa"] == "arreglo"
-    # **LOS CUATRO TIPOS TIENEN ACCIÓN** (2026-08-17). Congelarlo tiene un
+    # **CADA TIPO DECLARA SU ACCIÓN** (2026-08-17). Congelarlo tiene un
     # sentido concreto: un detector nuevo que emita un tipo sin acción sale como
     # comentario en la pantalla y **nadie se entera** —no falla nada, solo no se
     # puede hacer nada con él—, que es exactamente lo que le pasó a
@@ -2280,3 +2283,87 @@ def test_las_lentes_van_a_la_PANTALLA_completas():
     assert 'f"lente_{o[\'clave\']}"' in src
     assert src.index('for o in dx["observaciones"]') < src.index("LA CONCLUSIÓN"), \
         "primero el razonamiento, después la conclusión"
+
+
+# ── SALUD entra al agente (fusión 2026-08-17) ───────────────────────────────
+
+
+def test_un_CHEQUEO_de_salud_es_un_HALLAZGO_del_agente():
+    """User: *«quiero que el agente abarque tareas de SALUD»* — y encajan sin
+    forzar nada, porque **un chequeo y un hallazgo son el mismo objeto**: algo que
+    se evalúa, tiene estado, guarda evidencia congelada y pide una decisión. Lo
+    único distinto es el sujeto: un bono o un job."""
+    from api.services.av_agent import ACCION_POR_TIPO, detectar_salud
+
+    chequeos = [
+        {"id": "job:portafolio_backfill", "familia": "job", "titulo": "backfill",
+         "estado": "error", "motivo": "debía correr 11:00 y la última fue ayer",
+         "evidencia": "exit 1", "schedule": "0 11 * * 1-5"},
+        {"id": "dato:tenencia", "familia": "dato", "titulo": "tenencia",
+         "estado": "warn", "motivo": "1 día hábil de atraso", "evidencia": ""},
+        {"id": "job:bcra", "familia": "job", "titulo": "bcra", "estado": "ok",
+         "motivo": "al día", "evidencia": ""},
+    ]
+    hs = detectar_salud(chequeos)
+    # El verde NO es un hallazgo.
+    assert {h["ticker"] for h in hs} == {"job:portafolio_backfill", "dato:tenencia"}
+    # La severidad traduce el estado de SALUD sin inventar una escala nueva.
+    sev = {h["ticker"]: h["severidad"] for h in hs}
+    assert sev["job:portafolio_backfill"] == "alta" and sev["dato:tenencia"] == "media"
+    # La evidencia viaja COMPLETA: es lo que sostiene el hallazgo cuando el motivo
+    # ya no exista (mismo criterio que el resto del agente).
+    ev = hs[0]["evidencia"]
+    assert ev["chequeo_id"] == "job:portafolio_backfill" and ev["familia"] == "job"
+    assert ev["schedule"] == "0 11 * * 1-5"
+    # Todos comparten la MISMA forma que los hallazgos de bonos.
+    assert all(set(h) == {"tipo", "ticker", "regla", "severidad", "motivo",
+                          "evidencia"} for h in hs)
+    # `None` EXPLÍCITO: el agente ve SALUD pero todavía no escribe de ese lado.
+    assert "salud" in ACCION_POR_TIPO and ACCION_POR_TIPO["salud"] is None
+
+
+def test_SALUD_no_puede_tumbar_la_relevada_de_bonos():
+    """Que la observabilidad se caiga no puede dejar sin correr a los detectores
+    de renta fija — el mismo contrato que ya rige el universo de 1816."""
+    import inspect
+
+    from api.services import av_agent
+
+    src = inspect.getsource(av_agent.relevar)
+    assert "chequeos_salud = []" in src, "SALUD se lee en su propio try"
+    assert src.index("try:\n        from api.services import salud") < \
+        src.index("detectar_salud(chequeos_salud)")
+
+
+def test_las_lentes_de_SALUD_hablan_el_MISMO_idioma_que_las_de_un_bono():
+    """El modal es UNO solo: si SALUD devolviera otra forma habría que escribir una
+    segunda pantalla, y a las dos semanas dirían cosas distintas con los mismos
+    nombres. Por eso los pasos y el veredicto se IMPORTAN, no se copian."""
+    import inspect
+
+    from api.services import av_agent_salud
+
+    src = inspect.getsource(av_agent_salud)
+    assert "from api.services.av_agent_alta import" in src
+    assert "_veredicto" in src and "_paso" in src
+
+    # La lente con IA es la ÚNICA que gasta tokens, y va ÚLTIMA.
+    d = inspect.getsource(av_agent_salud.diagnosticar)
+    assert "if con_ia:" in d
+    assert d.index("_lente_historial") < d.index("_lente_ia")
+    # Y NO escribe: el dueño del estado de SALUD sigue siendo SALUD.
+    assert "INSERT" not in src.upper() and "UPDATE " not in src.upper()
+
+
+def test_el_EVAL_SET_no_acepta_un_NO_sin_motivo():
+    """Un ✖ sin causa correcta ni nota no es un dato: no se puede aprender de
+    «está mal». Y `suficiente` existe para que 2 de 2 no se lea como «100% de
+    acierto» — que es cómo se toman decisiones de autonomía sobre ruido."""
+    from api.services import av_agent_evals as ev
+
+    r = ev.votar(caso="LOC6O", dominio="bono", causa="moneda_flujo_contradice",
+                 acierta=False)
+    assert r["ok"] is False and "no se puede aprender" in r["error"]
+
+    assert ev.votar(caso="", dominio="bono", causa="x", acierta=True)["ok"] is False
+    assert ev.MIN_VOTOS >= 10

@@ -315,6 +315,24 @@ def av_agent_aviso_completar(body: CompletarAviso,
     return r
 
 
+class DiagnosticoSalud(BaseModel):
+    chequeo_id: str = Field(..., min_length=2, max_length=120)
+    # La lente con IA es la ÚNICA que gasta tokens y va última. Poder apagarla deja
+    # el análisis determinista disponible siempre — con presupuesto agotado, sin
+    # key, o simplemente cuando no hace falta.
+    con_ia: bool = True
+
+
+class VotoEval(BaseModel):
+    """El voto humano sobre un diagnóstico. **Es el insumo del eval set.**"""
+    caso: str = Field(..., min_length=2, max_length=200)
+    dominio: str = Field("bono", pattern="^(bono|salud)$")
+    causa: str = Field(..., min_length=2, max_length=60)
+    acierta: bool
+    nota: str = Field("", max_length=1000)
+    causa_correcta: str = Field("", max_length=60)
+
+
 class FlujosAvAgent(BaseModel):
     ticker: str = Field(..., min_length=2, max_length=32)
     # El CER de emisión tipeado en la cadena: sin ese número la rama `cer` del
@@ -379,6 +397,41 @@ class SimularAvAgent(BaseModel):
     # El dato que ninguna fuente publica, tipeado en la misma pantalla. Opcional:
     # sin él la simulación es la de siempre.
     cer_emision: float | None = Field(None, gt=0)
+
+
+@router.post("/av-agent/salud", dependencies=[Depends(require_admin)])
+def av_agent_salud(body: DiagnosticoSalud):
+    """**SALUD, razonada por el agente** — ocho lentes con la misma forma que las
+    de un bono, para que el modal las dibuje igual.
+
+    Siete son deterministas y gratis; la octava lee el log con IA y es la única
+    que gasta tokens (`con_ia=false` la apaga). **No escribe nada**: SALUD sigue
+    siendo el dueño de su estado."""
+    from api.services import av_agent_salud as svc
+    return svc.diagnosticar(body.chequeo_id, con_ia=body.con_ia)
+
+
+@router.post("/av-agent/eval", dependencies=[Depends(require_admin)])
+def av_agent_eval(body: VotoEval, email: str = Depends(get_user_email)):
+    """**El voto humano sobre un diagnóstico**: ¿la causa que dijo el agente es la
+    correcta?
+
+    Es el insumo del EVAL SET, y sin él no hay forma de saber si el agente acierta
+    — o sea que no hay forma de darle más autonomía sin fe. Un ✔/✖ por
+    diagnóstico, con el motivo cuando falla."""
+    from api.services import av_agent_evals
+    return av_agent_evals.votar(
+        caso=body.caso, dominio=body.dominio, causa=body.causa,
+        acierta=body.acierta, nota=body.nota,
+        causa_correcta=body.causa_correcta, por=email or "")
+
+
+@router.get("/av-agent/eval", dependencies=[Depends(require_admin)])
+def av_agent_eval_resumen():
+    """La PRECISIÓN medida por causa: cuántos votos, cuántos aciertos, y dónde se
+    equivoca. Es el tablero que decide qué arreglo se puede automatizar."""
+    from api.services import av_agent_evals
+    return av_agent_evals.resumen()
 
 
 @router.post("/av-agent/simular", dependencies=[Depends(require_admin)])

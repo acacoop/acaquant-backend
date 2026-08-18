@@ -277,6 +277,27 @@ Droplet todavía no la tiene cargada, el job no corre aunque el código esté).
 
 ## Changelog
 
+- **2026-08-18 (6)** — **La sub-tab «Detalle por cuenta» se ELIMINA y pasa a ser
+  un MODAL** que se abre haciendo clic en la cuenta del consolidado. Era una
+  vista aparte que obligaba a elegir banco y después cuenta en dos selectores,
+  para ver el detalle de una fila que ya estabas mirando en la otra pantalla; el
+  modal parte de donde estás. Es el mismo patrón que el modal por celda de
+  Tesorería → BANCOS.
+  · **No hizo falta un endpoint nuevo**: `GET /vista?cuenta_id&fecha` ya devolvía
+    exactamente esto. Sí se sacó de ahí el listado de cuentas — el modal manda el
+    `cuenta_id`, así que consultarlo era una query de más por cada apertura.
+  · **Botón DESCARGAR** (.xlsx client-side, `lib/xlsx-export`, import lazy de
+    SheetJS). El importe se exporta **FIRMADO** (débito negativo) para que la
+    columna sume el neto del día en Excel sin que nadie arme la fórmula; y la
+    SUCURSAL va como TEXTO porque viene `010` y como número perdería el cero.
+  · La fila del consolidado tiene ahora **dos gestos**: clic en la CUENTA abre el
+    detalle, clic en una celda de DATOS copia el valor. No es arbitrario — la
+    cuenta es la identidad de la fila y "entrar" es la acción sobre ella; los
+    datos son valores y lo que se hace con un valor es copiarlo. El número de
+    cuenta se copia igual desde el encabezado del modal.
+  · Al quedar una sola vista se sacaron las pills de sub-tab, y con ellas los
+    componentes `Panel` y `Pill`, que quedaron huérfanos.
+
 - **2026-08-18 (5)** — Tanda de pedidos del back office:
   · **La fecha por defecto pasa a ser el DÍA HÁBIL ANTERIOR a hoy**, no hoy. Es
     el día CERRADO: el banco ya informó su extracto completo y su saldo final;

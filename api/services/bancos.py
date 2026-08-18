@@ -192,10 +192,17 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
 
     De UN día, igual que el consolidado: el selector de la vista es una sola
     fecha (user, 2026-08-18).
+
+    Desde que el detalle es un MODAL que se abre desde el consolidado, el
+    `cuenta_id` viene SIEMPRE — así que el catálogo de cuentas solo se consulta
+    en el caso degenerado de que no venga. Traerlo igual era una query extra por
+    cada apertura del modal para una lista que la pantalla ya tiene.
     """
-    cuentas = listar_cuentas()
-    if cuenta_id is None and cuentas:
-        cuenta_id = cuentas[0]["id"]
+    cuentas: list[dict] = []
+    if cuenta_id is None:
+        cuentas = listar_cuentas()
+        if cuentas:
+            cuenta_id = cuentas[0]["id"]
 
     dias: list[dict] = []
     movimientos: list[dict] = []

@@ -24,36 +24,61 @@ from __future__ import annotations
 from datetime import date
 
 from api.services._sql import _f, _q
-from core.calendario import restar_habiles
 from core.postgres import get_pool
 from core.tz import ahora_ar
 
+# Códigos de operación de Interbanking (`operation_code_ib`) que son GASTO
+# BANCARIO. **Vacío a propósito**: la clasificación no está definida todavía y
+# adivinarla sería inventar plata. Ver `_gastos_bancarios`.
+GASTOS_BANCARIOS_CODIGOS: set[str] = set()
 
-def rango_default(hasta: date | None = None) -> tuple[date, date]:
-    """El rango por defecto: el día HÁBIL anterior a `hasta` y `hasta`.
 
-    **El día hábil anterior y hoy**, NO "ayer y hoy" de calendario. Los bancos
-    no operan sábados, domingos ni feriados: un rango que cae en un día no hábil
-    muestra la pantalla vacía, y una pantalla vacía acá no se lee como "el rango
-    está mal elegido" sino como "no hubo movimientos" — que es una conclusión
-    distinta y falsa.
+def fecha_default() -> date:
+    """El día que muestra la vista cuando el back office no elige ninguno: HOY.
 
-    Pasó el 2026-08-18 (martes): el lunes 17 fue feriado, el default pidió
-    17..18 y la vista no mostró un solo movimiento. El "ayer" que correspondía
-    era el viernes 14.
+    La vista es de **UN día**, no de un rango (user, 2026-08-18: «la fecha es una
+    sola, es siempre el mismo día»). Antes eran `desde`/`hasta` y no aportaba: el
+    consolidado mostraba la apertura de un día y el cierre de otro, que no es una
+    variación de nada.
 
-    Tiene que coincidir con la ventana que ingesta `jobs/interbanking_sync`
-    (`ventana()`): si la vista pidiera un día que el job no trae, la pantalla
-    mostraría un hueco que no existe en el banco. Los dos usan la MISMA
-    primitiva, `core.calendario.restar_habiles`.
+    El "hoy" sale de la hora ARGENTINA y no del reloj del proceso: el Droplet
+    corre en UTC y a partir de las 21 ART ya está en el día siguiente.
 
-    Sin `hasta`, el "hoy" sale de la hora ARGENTINA y no del reloj del proceso:
-    el Droplet corre en UTC y a partir de las 21 ART ya está en el día
-    siguiente. Con `hasta`, sirve igual para un día pasado que el back office
-    elija a mano: el par que devuelve sigue siendo (hábil anterior, ese día).
+    ⚠️ Tiene que caer DENTRO de la ventana que ingesta `jobs/interbanking_sync`
+    (`ventana()`: día hábil anterior + hoy). Si la vista arrancara en un día que
+    el job no trae, la pantalla mostraría un hueco que no existe en el banco.
+    Hay un test que lo fija.
     """
-    hasta = hasta or ahora_ar().date()
-    return restar_habiles(hasta, 1), hasta
+    return ahora_ar().date()
+
+
+def _gastos_bancarios(fecha: date) -> dict[int, float]:
+    """{cuenta_id: total de gastos bancarios del día}. Hoy devuelve VACÍO.
+
+    ⚠️ **La regla todavía no está definida** (`GASTOS_BANCARIOS_CODIGOS` vacío).
+    Mientras lo esté, cada cuenta va con `gastos_bancarios = None` y la vista
+    muestra «—». **Null y no 0**: "no sabemos cuáles son gastos" y "no hubo
+    gastos" son cosas distintas, y un cero acá se leería como que el banco no
+    cobró nada — que es exactamente la conclusión falsa que el back office no
+    puede sacar de esta pantalla.
+
+    Cuando se defina qué códigos de operación son gasto bancario, se completa la
+    constante y esto empieza a devolver números sin tocar una línea más. Los
+    candidatos hay que MEDIRLOS contra los datos reales (REGLA #2): en la muestra
+    del 2026-08-18 `code_description_ib` tomaba 23 valores distintos, entre ellos
+    'IMPUESTO AL DEBITO' — que es un impuesto, no un gasto del banco, y meterlo
+    de prepo sería inventar la clasificación.
+    """
+    if not GASTOS_BANCARIOS_CODIGOS:
+        return {}
+    filas = _q(
+        """SELECT cuenta_id, sum(importe) AS total
+             FROM bancos.movimientos
+            WHERE fecha = %s AND tipo = 'D' AND codigo_operacion_ib = ANY(%s)
+            GROUP BY cuenta_id""",
+        (fecha, sorted(GASTOS_BANCARIOS_CODIGOS)),
+    )
+    return {r["cuenta_id"]: _f(r["total"]) for r in filas}
 
 
 def _exec(sql: str, params: tuple) -> None:
@@ -138,11 +163,14 @@ def listar_cuentas() -> list[dict]:
     return [_cuenta_publica(r) for r in filas]
 
 
-def vista(email: str, cuenta_id: int | None, desde: date, hasta: date) -> dict:
+def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
     """TODO lo que muestra la tab, en UN request.
 
     Mismo criterio que `senebis.vista` y `aca.vista`: una tab que pollea cada
     sub-panel por separado multiplica los viajes a la base por usuario.
+
+    De UN día, igual que el consolidado: el selector de la vista es una sola
+    fecha (user, 2026-08-18).
     """
     cuentas = listar_cuentas()
     if cuenta_id is None and cuentas:
@@ -160,9 +188,8 @@ def vista(email: str, cuenta_id: int | None, desde: date, hasta: date) -> dict:
                         WHERE m.cuenta_id = e.cuenta_id AND m.fecha = e.fecha)
                         AS movimientos_base
                  FROM bancos.extracto_dia e
-                WHERE e.cuenta_id = %s AND e.fecha BETWEEN %s AND %s
-                ORDER BY e.fecha DESC""",
-            (cuenta_id, desde, hasta))]
+                WHERE e.cuenta_id = %s AND e.fecha = %s""",
+            (cuenta_id, fecha))]
 
         movimientos = [_movimiento_publico(r) for r in _q(
             """SELECT fecha, fecha_proceso, importe, tipo, descripcion_banco,
@@ -171,9 +198,9 @@ def vista(email: str, cuenta_id: int | None, desde: date, hasta: date) -> dict:
                       correlativo, comprobante, cuit_contraparte,
                       denominacion_contraparte
                  FROM bancos.movimientos
-                WHERE cuenta_id = %s AND fecha BETWEEN %s AND %s
-                ORDER BY fecha DESC, numero_extracto DESC, correlativo""",
-            (cuenta_id, desde, hasta))]
+                WHERE cuenta_id = %s AND fecha = %s
+                ORDER BY numero_extracto DESC, correlativo""",
+            (cuenta_id, fecha))]
 
     creditos = sum(m["importe"] or 0 for m in movimientos if m["tipo"] == "C")
     debitos = sum(m["importe"] or 0 for m in movimientos if m["tipo"] == "D")
@@ -192,13 +219,12 @@ def vista(email: str, cuenta_id: int | None, desde: date, hasta: date) -> dict:
         "saldo_final": next((d["saldo_cierre"] for d in dias), None),
     }
 
-    _auditar(email, cuenta_id, desde, hasta, len(movimientos))
+    _auditar(email, cuenta_id, fecha, fecha, len(movimientos))
 
     return {
         "cuentas": cuentas,
         "cuenta_id": cuenta_id,
-        "desde": desde.isoformat(),
-        "hasta": hasta.isoformat(),
+        "fecha": fecha.isoformat(),
         "dias": dias,
         "movimientos": movimientos,
         "resumen": resumen,
@@ -206,82 +232,54 @@ def vista(email: str, cuenta_id: int | None, desde: date, hasta: date) -> dict:
     }
 
 
-def consolidado(email: str, desde: date, hasta: date) -> dict:
-    """UNA fila por cuenta, agrupadas por banco, con saldo al inicio y al cierre.
+def consolidado(email: str, fecha: date) -> dict:
+    """CONSOLIDADO BANCOS: una fila por cuenta, agrupadas por banco, de UN día.
 
-    El saldo al inicio es la APERTURA del primer día con extracto dentro del
-    rango, y el de cierre el CIERRE del último. No se calcula: los dos los
-    informa el banco.
-
-    ⚠️ Lista **todas** las cuentas activas. Una cuenta sin extracto en el rango NO
-    va con cero — cero sería inventar un número.
+    Cambió el 2026-08-18 por pedido del back office. Antes tomaba un rango
+    `desde`/`hasta` y mostraba la apertura de un día contra el cierre de otro —
+    una "variación" que no era la variación de nada. Ahora es **un día**:
+    apertura, cierre y la diferencia entre los dos, que sí es lo que pasó ese día.
 
     De dónde sale el saldo, por orden y siempre declarado en `fuente`:
 
-    1. **`extracto`** — apertura del primer día con extracto y cierre del último.
-       Es lo mejor que hay: los dos los informa el banco y vienen con el detalle
-       de movimientos que los explica.
-    2. **`saldo`** — `bancos.saldos`. Entra cuando el extracto no existe, que es
-       el caso de la cuenta QUIETA: el extracto solo devuelve los días CON
-       movimientos, así que con la ventana corta del back office (último día
-       hábil + hoy) cualquier cuenta que no se movió no tenía ninguna fila.
+    1. **`extracto`** — apertura y cierre del extracto de ESE día. Los dos los
+       informa el banco y vienen con el detalle de movimientos que los explica.
+    2. **`saldo`** — `bancos.saldos`. Entra cuando no hay extracto, que es el
+       caso de la cuenta QUIETA: el extracto solo devuelve los días CON
+       movimientos, así que una cuenta que no se movió no tiene ninguna fila.
     3. **`null`** — no sabemos. Se cuenta en `sin_datos` y la vista lo canta.
 
-    Las dos fuentes NO se suman ni se promedian: por cuenta gana una sola, y la
+    Las dos fuentes NO se suman ni se promedian: por cuenta gana una sola y la
     respuesta dice cuál. Si el banco informa un cierre de extracto distinto del
     saldo del día, eso es un HALLAZGO de conciliación (`discrepancia`), no un
     número a elegir por nosotros.
 
-    Los totales van **por moneda y nunca mezclados**: sumar pesos con dólares no
-    significa nada (mismo criterio que el control de saldos de comitentes).
+    **Sin subtotales por banco ni totales por moneda** (los sacó el back office:
+    no los usaba). Los bancos siguen agrupando las cuentas, que es lo que hace
+    navegable la lista, pero cada fila se lee sola.
     """
     filas = _q(
-        """WITH rango AS (
-               SELECT cuenta_id, min(fecha) AS f_ini, max(fecha) AS f_fin,
-                      count(*) AS dias
-                 FROM bancos.extracto_dia
-                WHERE fecha BETWEEN %s AND %s
-                GROUP BY cuenta_id
-           ),
-           -- El saldo del banco. Se toma el ÚLTIMO día del rango que tenga fila,
-           -- no un promedio ni una suma: es un stock, no un flujo.
-           saldo AS (
-               SELECT DISTINCT ON (cuenta_id)
-                      cuenta_id, fecha AS s_fecha,
-                      coalesce(saldo_operativo, saldo_dia) AS s_saldo,
-                      proyectado_24hs, proyectado_48hs
-                 FROM bancos.saldos
-                WHERE fecha BETWEEN %s AND %s
-                  AND coalesce(saldo_operativo, saldo_dia) IS NOT NULL
-                ORDER BY cuenta_id, fecha DESC
-           )
-           SELECT c.id, c.bank_number, c.bank_name, c.account_number,
+        """SELECT c.id, c.bank_number, c.bank_name, c.account_number,
                   c.account_type, c.currency, c.account_label, c.activa,
-                  ei.saldo_apertura AS saldo_inicio,
-                  ef.saldo_cierre   AS saldo_cierre,
-                  r.dias, r.f_ini, r.f_fin,
-                  s.s_saldo, s.s_fecha, s.proyectado_24hs, s.proyectado_48hs
+                  e.saldo_apertura, e.saldo_cierre, e.total_movimientos,
+                  coalesce(s.saldo_operativo, s.saldo_dia) AS saldo_banco
              FROM bancos.cuentas c
-             LEFT JOIN rango r  ON r.cuenta_id = c.id
-             LEFT JOIN saldo s  ON s.cuenta_id = c.id
-             LEFT JOIN bancos.extracto_dia ei
-                    ON ei.cuenta_id = c.id AND ei.fecha = r.f_ini
-             LEFT JOIN bancos.extracto_dia ef
-                    ON ef.cuenta_id = c.id AND ef.fecha = r.f_fin
+             LEFT JOIN bancos.extracto_dia e ON e.cuenta_id = c.id AND e.fecha = %s
+             LEFT JOIN bancos.saldos       s ON s.cuenta_id = c.id AND s.fecha = %s
             WHERE c.activa
             ORDER BY c.bank_name, c.currency, c.account_type, c.account_number""",
-        (desde, hasta, desde, hasta),
+        (fecha, fecha),
     )
+    gastos = _gastos_bancarios(fecha)
 
     bancos: list[dict] = []
     por_banco: dict[str, dict] = {}
-    totales: dict[str, dict] = {}
     sin_datos = 0
 
     for r in filas:
         pub = _cuenta_publica(r)
-        ini, fin = _f(r.get("saldo_inicio")), _f(r.get("saldo_cierre"))
-        del_banco = _f(r.get("s_saldo"))
+        ini, fin = _f(r.get("saldo_apertura")), _f(r.get("saldo_cierre"))
+        del_banco = _f(r.get("saldo_banco"))
 
         # Quién manda: el extracto si lo hay, si no el saldo. Nunca los dos.
         if fin is not None:
@@ -306,19 +304,16 @@ def consolidado(email: str, desde: date, hasta: date) -> dict:
             "saldo_cierre": fin,
             "fuente": fuente,
             "saldo_banco": del_banco,
-            "saldo_banco_fecha": r["s_fecha"].isoformat() if r.get("s_fecha") else None,
             "discrepancia": discrepancia,
-            "proyectado_24hs": _f(r.get("proyectado_24hs")),
-            "proyectado_48hs": _f(r.get("proyectado_48hs")),
-            # La variación solo existe si están los dos extremos Y el cierre sale
-            # del extracto: restar una apertura de extracto contra un saldo de
-            # otra fuente mezclaría dos cosas que el banco informa por separado.
+            # None mientras la regla no esté definida — «no sabemos» no es 0.
+            "gastos_bancarios": gastos.get(r["id"]),
+            "movimientos": r.get("total_movimientos"),
+            # La variación solo existe si el cierre sale del EXTRACTO: restar una
+            # apertura de extracto contra un saldo de otra fuente mezclaría dos
+            # cosas que el banco informa por separado.
             "variacion": (round(fin - ini, 2)
                           if fuente == "extracto" and ini is not None and fin is not None
                           else None),
-            "dias_con_dato": r.get("dias") or 0,
-            "desde_real": r["f_ini"].isoformat() if r.get("f_ini") else None,
-            "hasta_real": r["f_fin"].isoformat() if r.get("f_fin") else None,
         }
 
         clave = f"{r.get('bank_number')}|{(r.get('bank_name') or '').strip()}"
@@ -328,43 +323,19 @@ def consolidado(email: str, desde: date, hasta: date) -> dict:
                 "banco": r.get("bank_number"),
                 "banco_nombre": (r.get("bank_name") or "").strip(),
                 "cuentas": [],
-                "totales": {},
             }
             por_banco[clave] = grupo
             bancos.append(grupo)
         grupo["cuentas"].append(cuenta)
 
-        # Totales por moneda, del banco y globales. Solo suman las cuentas con
-        # dato — la que no tiene ni extracto ni saldo no aporta ni resta.
-        # Desde que existe el fallback a `bancos.saldos`, el CIERRE incluye a las
-        # cuentas quietas (antes quedaban fuera del total y el total mentía por
-        # abajo); el INICIO sigue saliendo solo del extracto, así que una cuenta
-        # servida por saldo suma al cierre y no al inicio. Es correcto: de esa
-        # cuenta sabemos cuánto HAY, no cuánto había al arrancar el rango.
-        for destino in (grupo["totales"], totales):
-            acc = destino.setdefault(
-                pub["moneda"], {"inicio": 0.0, "cierre": 0.0, "cuentas": 0}
-            )
-            if ini is not None or fin is not None:
-                acc["inicio"] += ini or 0
-                acc["cierre"] += fin or 0
-                acc["cuentas"] += 1
-
-    for destino in [*(g["totales"] for g in bancos), totales]:
-        for acc in destino.values():
-            acc["inicio"] = round(acc["inicio"], 2)
-            acc["cierre"] = round(acc["cierre"], 2)
-            acc["variacion"] = round(acc["cierre"] - acc["inicio"], 2)
-
-    _auditar(email, None, desde, hasta, len(filas))
+    _auditar(email, None, fecha, fecha, len(filas))
 
     return {
-        "desde": desde.isoformat(),
-        "hasta": hasta.isoformat(),
+        "fecha": fecha.isoformat(),
         "bancos": bancos,
-        "totales": totales,
         "cuentas": len(filas),
         "sin_datos": sin_datos,
+        "gastos_definidos": bool(GASTOS_BANCARIOS_CODIGOS),
         "sync": ultima_sync(),
     }
 

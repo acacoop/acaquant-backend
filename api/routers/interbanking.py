@@ -21,53 +21,42 @@ from api.services import bancos as _svc
 
 router = APIRouter(prefix="/api/back-office/interbanking", tags=["Interbanking"])
 
-MAX_RANGO_DIAS = 60  # el mismo tope que impone Interbanking por consulta
 
+def _fecha(fecha: date | None) -> date:
+    """La fecha que mira la vista. **Una sola, no un rango.**
 
-def _rango(desde: date | None, hasta: date | None) -> tuple[date, date]:
-    """Completa y valida el rango de las dos sub-tabs.
+    El back office la cambió el 2026-08-18: «la fecha es una sola, es siempre el
+    mismo día». Antes eran `desde`/`hasta` y el consolidado terminaba mostrando
+    la apertura de un día contra el cierre de otro — una variación de nada.
 
-    El default lo decide el SERVICE (`bancos.rango_default`): es el día HÁBIL
-    anterior y hoy, no "ayer y hoy" de calendario. Un lunes —o un martes
-    post-feriado, como el 2026-08-18— restar un día apunta a una fecha sin
-    actividad bancaria y la pantalla sale vacía, que el back office lee como
-    "no hubo movimientos" en vez de "el rango está mal elegido".
-
-    Está escrito UNA vez y lo usan los dos endpoints: si divergieran, el
-    CONSOLIDADO y el DETALLE mostrarían períodos distintos.
+    Sin `fecha`, el default lo decide el SERVICE (`bancos.fecha_default`), no el
+    navegador: así la pantalla no depende del reloj ni de la zona horaria del
+    cliente.
     """
-    d0, hasta = _svc.rango_default(hasta)
-    desde = desde or d0
-    if desde > hasta:
-        raise HTTPException(400, "La fecha desde no puede ser posterior a hasta.")
-    if (hasta - desde).days > MAX_RANGO_DIAS:
-        raise HTTPException(400, f"El rango máximo es de {MAX_RANGO_DIAS} días.")
-    return desde, hasta
+    if fecha and fecha > _svc.fecha_default():
+        raise HTTPException(400, "No se puede pedir una fecha futura.")
+    return fecha or _svc.fecha_default()
 
 
 @router.get("/vista")
 def vista(
     cuenta_id: int | None = Query(None, description="cuenta de bancos.cuentas"),
-    desde: date | None = Query(None),
-    hasta: date | None = Query(None),
+    fecha: date | None = Query(None, description="día a mostrar (default: hoy)"),
     email: str = Depends(get_user_email),
 ) -> dict:
-    """Todo lo que muestra la tab, en UN request: cuentas, extracto por día,
+    """Todo lo que muestra la tab, en UN request: cuentas, extracto del día,
     movimientos, resumen de conciliación y cuándo fue la última sincronización."""
-    desde, hasta = _rango(desde, hasta)
-    return _svc.vista(email, cuenta_id, desde, hasta)
+    return _svc.vista(email, cuenta_id, _fecha(fecha))
 
 
 @router.get("/consolidado")
 def consolidado(
-    desde: date | None = Query(None),
-    hasta: date | None = Query(None),
+    fecha: date | None = Query(None, description="día a mostrar (default: hoy)"),
     email: str = Depends(get_user_email),
 ) -> dict:
-    """CONSOLIDADO BANCOS: una fila por cuenta, agrupada por banco, con el saldo
-    al inicio y al cierre del rango. Totales por banco y globales, por moneda."""
-    desde, hasta = _rango(desde, hasta)
-    return _svc.consolidado(email, desde, hasta)
+    """CONSOLIDADO BANCOS: una fila por cuenta, agrupada por banco, con la
+    apertura y el cierre de ESE día."""
+    return _svc.consolidado(email, _fecha(fecha))
 
 
 @router.get("/cuentas")

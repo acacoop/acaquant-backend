@@ -60,9 +60,10 @@ def test_el_tope_de_60_dias_es_de_CALENDARIO():
     assert (hasta - desde).days == 60
 
 
-def test_la_vista_y_el_job_piden_el_mismo_rango():
-    """Si divergieran, la pantalla mostraría un hueco que no existe en el banco:
-    pediría un día que el job nunca trajo. Las dos salen de la misma primitiva
-    (`core.calendario.restar_habiles`) y este test lo mantiene así."""
-    hoy = date(2026, 8, 18)
-    assert bancos.rango_default(hoy) == ventana(1, hoy=hoy)
+def test_el_dia_que_muestra_la_vista_esta_DENTRO_de_lo_que_trae_el_job():
+    """La vista es de UN día y el job ingesta una VENTANA. El invariante que
+    importa es que el día por defecto de la pantalla caiga adentro de esa
+    ventana: si no, mostraría un hueco que no existe en el banco — pediría un día
+    que el job nunca trajo."""
+    desde, hasta = ventana(1)
+    assert desde <= bancos.fecha_default() <= hasta

@@ -277,6 +277,33 @@ Droplet todavía no la tiene cargada, el job no corre aunque el código esté).
 
 ## Changelog
 
+- **2026-08-18 (4)** — **La vista pasa a UN DÍA y se limpia el consolidado**
+  (pedido del back office):
+  · **Una sola fecha**, no `desde`/`hasta` — «es siempre el mismo día». Antes el
+    consolidado mostraba la apertura de un día contra el cierre de otro, que no
+    es la variación de nada. `/vista` y `/consolidado` toman `fecha`; el default
+    (HOY en hora argentina) lo decide el backend y cae DENTRO de la ventana que
+    ingesta el job, congelado por test.
+  · **Fuera la barra de totales por moneda y los subtotales por banco.** No se
+    usaban. El banco sigue agrupando las cuentas —eso es lo que hace navegable
+    una lista de 38— pero cada fila se lee sola y la vista arranca en la tabla.
+  · **Fuera PROY. 24HS / 48HS.**
+  · **Columna GASTOS BANCARIOS**, hoy `null` en todas las filas: la regla de qué
+    movimiento es un gasto **no está definida** (`GASTOS_BANCARIOS_CODIGOS`
+    vacío en `api/services/bancos.py`; completarla es una línea y empieza a
+    devolver números sin tocar nada más). Se muestra «—» y **nunca 0** — «no
+    sabemos» y «no hubo gastos» son cosas distintas, y un cero se leería como
+    que el banco no cobró nada. **Los candidatos hay que MEDIRLOS** (REGLA #2):
+    `code_description_ib` toma 23 valores e incluye 'IMPUESTO AL DEBITO', que es
+    un impuesto y no un gasto del banco.
+  · La columna CUENTA entra **entera**: la tabla dejó de repartir el ancho por
+    igual (`w-auto min-w-full` + `whitespace-nowrap`), que era lo que cortaba el
+    nombre.
+  · `deploy/deploy.sh`: el aviso de "este deploy tocó código de motores" pasa de
+    un bloque que listaba motor por motor **con su comando de restart al lado**
+    —que se leía como «reiniciá los motores», justo lo contrario de lo que el
+    script hace— a **UNA línea**. El detalle se pide con `--motores-detalle`.
+
 - **2026-08-18 (3)** — **MOVIMIENTOS pasa de 4 a 8 columnas.** El back office
   pidió CONCEPTO · COD OP · FECHA · COMPROBANTE · SUCURSAL · IMPORTE ·
   DESCRIPCIÓN · COD OP BCO. Medido con `scripts/diag_interbanking_columnas`:

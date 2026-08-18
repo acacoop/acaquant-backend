@@ -42,12 +42,14 @@ PY="$REPO/venv/bin/python"
 
 CON_SCHEMA=1
 CON_MOTORES=0
+DETALLE_MOTORES=0
 for arg in "$@"; do
     case "$arg" in
         --sin-schema) CON_SCHEMA=0 ;;
         --con-motores) CON_MOTORES=1 ;;
+        --motores-detalle) DETALLE_MOTORES=1 ;;
         -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
-        *) echo "opción desconocida: $arg (usá --sin-schema, --con-motores o --help)"; exit 2 ;;
+        *) echo "opción desconocida: $arg (usá --sin-schema, --con-motores, --motores-detalle o --help)"; exit 2 ;;
     esac
 done
 
@@ -93,25 +95,29 @@ else
     # reiniciado en rueda corta el feed de la mesa, y esa es una decisión de
     # ellos — pero enterarse tres días después de que el motor corre código
     # viejo es peor. Por eso: nombrarlo, fuerte, y dejarlo a mano.
+    # UNA línea, no un bloque. La versión anterior listaba archivo por archivo y
+    # motor por motor con su `systemctl try-restart` al lado, y eso se leía como
+    # "reiniciá los motores" — justo lo contrario de lo que el script hace
+    # (user, 2026-08-18: «no quiero reiniciar todos los motores por algo que es
+    # un git pull y un restart api»). El aviso queda porque enterarse tres días
+    # después de que un motor corre código viejo es peor; pero es UNA línea, y
+    # el detalle se pide con --motores-detalle.
     if [ "$ANTES" != "$DESPUES" ]; then
         TOCADOS="$(git diff --name-only "$ANTES..$DESPUES" -- engines/ core/ quant/ config.py 2>/dev/null)"
         if [ -n "$TOCADOS" ]; then
-            echo
-            echo "   ⚠️  ESTE DEPLOY TOCÓ CÓDIGO QUE USAN LOS MOTORES:"
-            echo "$TOCADOS" | sed 's/^/        /'
-            ACTIVOS=""
+            N_ACTIVOS=0
             for unit in deploy/systemd/motor_*.service; do
-                u="$(basename "$unit")"
-                systemctl is-active --quiet "$u" && ACTIVOS="$ACTIVOS $u"
+                systemctl is-active --quiet "$(basename "$unit")" && N_ACTIVOS=$((N_ACTIVOS + 1))
             done
-            if [ -n "$ACTIVOS" ]; then
-                echo "   Estos motores están CORRIENDO con el código viejo:"
-                for u in $ACTIVOS; do echo "        systemctl try-restart $u"; done
-                echo "   No se reiniciaron a propósito: hacerlo en rueda corta el feed."
-                echo "   Cuando cierre el mercado, corré esas líneas (o --con-motores)."
-            else
-                echo "   Ningún motor está activo ahora — cuando cron los prenda"
-                echo "   arrancan con el código nuevo. No hay nada que hacer."
+            if [ "$N_ACTIVOS" -gt 0 ]; then
+                echo "   ℹ️  tocó código de motores · $N_ACTIVOS activo(s) siguen con el anterior · --con-motores (fuera de rueda)"
+            fi
+            if [ "$DETALLE_MOTORES" = "1" ]; then
+                echo "$TOCADOS" | sed 's/^/        /'
+                for unit in deploy/systemd/motor_*.service; do
+                    u="$(basename "$unit")"
+                    systemctl is-active --quiet "$u" && echo "        systemctl try-restart $u"
+                done
             fi
         fi
     fi

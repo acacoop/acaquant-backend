@@ -549,6 +549,41 @@ la otra hasta llenar el espacio. Cero celdas vacías.
   moneda: leer pesos y dólares en la misma corrida visual es el error que este
   formato evita.
 
+### COPIAR IMAGEN
+
+Botón de la barra: genera el PNG del reporte y lo deja en el portapapeles para
+pegarlo en un mail.
+
+⚠️ **No es una captura de pantalla: el reporte se DIBUJA de cero en un canvas**
+(`src/lib/reporte-imagen.ts`) a partir de los mismos datos que la tabla. Se
+descartaron las dos alternativas: `html2canvas` es una dependencia grande que
+reimplementa el motor de layout del navegador y falla justo con lo que esta app
+usa (variables CSS, grid, temas); y `SVG + foreignObject` obliga a inlinear todo
+el CSS a mano y se rompe en silencio cuando cambia una clase.
+
+Dibujarlo da tres cosas concretas:
+
+- el resultado **no depende de la pantalla** del que lo manda — el mismo mail
+  desde una notebook chica o desde un monitor grande;
+- sale **siempre en claro** aunque la app esté en oscuro: un mail con fondo negro
+  se imprime pésimo;
+- **nada de la UI puede colarse** en la imagen, porque el botón, el scroll y el ✕
+  no existen para el canvas. No hay que acordarse de esconder nada.
+
+Se dibuja al **doble de resolución** para que no se vea borroso cuando el cliente
+de mail lo agranda. Si el navegador no deja copiar imágenes (Firefox, o cualquier
+origen sin HTTPS) **la descarga y lo dice**: el objetivo es que la imagen llegue
+al mail, y quedarse en un error no la lleva a ningún lado.
+
+El orden de las cuentas lo comparten la tabla y la imagen (`cuentasOrdenadas`):
+si cada una ordenara por su cuenta, lo que se pega en el mail podría no coincidir
+con lo que se está mirando. Los saldos viajan **ya formateados** por el mismo
+motivo.
+
+La barra lleva la firma **«Hecho en ACAQuant»** en chico —en la pantalla y
+adentro de la imagen—: si el reporte termina reenviado tres veces, sigue diciendo
+de dónde salió.
+
 Cada fila dice **exacto** lo mismo que la columna CUENTA del consolidado
 (tipo · moneda · número, con la etiqueta **debajo** del número y no al lado): si
 dijera otra cosa, el que compara las dos pantallas tendría que traducir. El día

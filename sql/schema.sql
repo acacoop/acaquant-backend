@@ -3786,6 +3786,82 @@ CREATE INDEX IF NOT EXISTS ix_bancos_saldos_fecha
     ON bancos.saldos (fecha DESC);
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- GASTOS BANCARIOS — qué movimiento es un gasto que cobró el banco
+--
+-- El back office necesita SEPARAR, dentro de los movimientos del día, lo que el
+-- banco se cobró (comisiones, mantenimiento, sellados). Ya está implícito en el
+-- saldo: esto no cambia ningún número, lo DISTINGUE.
+--
+-- ⚠️ Son DOS capas y la diferencia entre ellas es la idea central del modelo:
+--
+--   `gastos_reglas`     = el CONOCIMIENTO. "Todo lo que tenga el código 830 es
+--                         gasto". Vale para siempre y para todos los bancos.
+--                         Es lo que hace que mañana no haya que marcar nada.
+--
+--   `gastos_overrides`  = el PARCHE. "ESTE movimiento, hoy, es (o no es) gasto".
+--                         Sirve para lo raro, lo que pasa una vez. **Gana
+--                         SIEMPRE sobre la regla** — mismo criterio que
+--                         `tesoreria_exclusiones` y que la marca manual de
+--                         `assets.vigencia_motivo`: si una persona lo decidió, la
+--                         máquina no se lo da vuelta.
+--
+-- Si el equipo se encuentra marcando lo MISMO todos los días, eso no es un
+-- override: es una regla que falta. La vista lo hace visible mostrando de dónde
+-- salió cada marca (`origen`: regla / manual).
+--
+-- La clasificación NO se materializa en `bancos.movimientos`: se resuelve en la
+-- LECTURA. Así, cambiar una regla se refleja al instante en todos los días que
+-- haya en la base, sin recomputar nada — y el número que muestra la vista no
+-- puede contradecir a la regla que dice el catálogo. Es barato: la base retiene
+-- 3 fechas (~500 movimientos), no un histórico.
+CREATE TABLE IF NOT EXISTS bancos.gastos_reglas (
+    id          bigserial PRIMARY KEY,
+    -- Sobre QUÉ campo del movimiento se aplica. Los códigos son la forma
+    -- precisa; el texto de la descripción es con la que se arranca cuando
+    -- todavía no se sabe qué códigos usa cada banco.
+    campo       text NOT NULL,   -- codigo_ib | codigo_banco | descripcion_banco | descripcion_ib
+    operador    text NOT NULL,   -- igual | contiene
+    valor       text NOT NULL,
+    nota        text,            -- para qué es, en castellano
+    activa      boolean NOT NULL DEFAULT true,
+    creado_por  text,
+    creado_at   timestamptz NOT NULL DEFAULT now(),
+    -- Dos reglas idénticas no aportan nada y ensucian el catálogo.
+    UNIQUE (campo, operador, valor)
+);
+
+-- La marca por movimiento. `ON DELETE CASCADE` a propósito: cuando la retención
+-- de 3 fechas borra el movimiento, su override se va con él. Un override sin
+-- movimiento no significa nada y acumularlos sería basura creciendo sola.
+CREATE TABLE IF NOT EXISTS bancos.gastos_overrides (
+    mov_hash  text PRIMARY KEY REFERENCES bancos.movimientos(mov_hash) ON DELETE CASCADE,
+    es_gasto  boolean NOT NULL,
+    por       text NOT NULL,
+    at        timestamptz NOT NULL DEFAULT now()
+);
+
+-- Trazabilidad de TODA escritura (reglas y marcas). Mismo criterio que
+-- `tesoreria_audit` / `senebis_audit`: son decisiones sobre plata de la casa y
+-- tiene que poder responderse quién y cuándo sin depender de la memoria de nadie.
+CREATE TABLE IF NOT EXISTS bancos.gastos_audit (
+    id        bigserial PRIMARY KEY,
+    ts        timestamptz NOT NULL DEFAULT now(),
+    email     text NOT NULL,
+    accion    text NOT NULL,   -- regla_alta | regla_baja | marca
+    detalle   jsonb
+);
+
+CREATE INDEX IF NOT EXISTS ix_bancos_gastos_audit_ts
+    ON bancos.gastos_audit (ts DESC);
+
+-- Quién tiene la vista abierta. El poll de 60s ES el heartbeat (no hay un
+-- endpoint aparte que golpear), igual que en Tesorería.
+CREATE TABLE IF NOT EXISTS bancos.presencia (
+    email     text PRIMARY KEY,
+    visto_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- AV AGENT — hallazgos de integridad de renta fija (E1)
 -- Doc madre: docs/AV_AGENT.md
 --

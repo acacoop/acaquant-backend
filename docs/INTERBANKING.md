@@ -275,7 +275,73 @@ Después el cron lo mantiene solo (la línea vive en `deploy/crontab.txt`; si el
 Droplet todavía no la tiene cargada, el job no corre aunque el código esté).
 `--dry` no escribe nada y `--dias N` cuenta días **hábiles**.
 
+## GASTOS BANCARIOS — el modelo
+
+Separar, dentro de los movimientos del día, lo que **el banco se cobró**
+(comisiones, mantenimiento, sellados). Ya está implícito en el saldo: **esto no
+cambia ningún número, lo DISTINGUE.**
+
+Son **dos capas**, y la diferencia entre ellas es la idea central:
+
+| | Qué es | Dónde vive | Alcance |
+|---|---|---|---|
+| **Regla** | El **conocimiento**. «Todo lo que tenga el código 830 es gasto» | `bancos.gastos_reglas` | Todos los bancos, todos los días, para siempre |
+| **Override** | El **parche**. «ESTE movimiento, hoy, es (o no es) gasto» | `bancos.gastos_overrides` | Un movimiento |
+
+**El override GANA siempre sobre la regla.** Si una persona lo decidió, la
+máquina no se lo da vuelta — mismo criterio que `tesoreria_exclusiones` y que
+`assets.vigencia_motivo='manual'`.
+
+**Si el equipo se encuentra marcando lo MISMO todos los días, eso no es un
+override: es una regla que falta.** Por eso la vista muestra de dónde salió cada
+marca (subrayado = manual) — para que ese patrón se vea.
+
+Una regla es `campo` + `operador` + `valor`:
+- **campo**: `codigo_ib` · `codigo_banco` · `descripcion_banco` · `descripcion_ib`
+- **operador**: `igual` (el código exacto) · `contiene` (la palabra en la
+  descripción — con esto se arranca cuando todavía no se sabe qué códigos usa
+  cada banco)
+
+⚠️ El `campo` lo escribe un usuario y **nunca viaja a un `WHERE`**: se traduce
+contra `CAMPOS_REGLA`, un dict del módulo. Un campo que no esté ahí no matchea.
+La clasificación es una función **pura** (`clasificar`) con tests propios: decide
+un número que se lee como plata y falla en silencio — si se rompe, no hay
+excepción, solo otro total.
+
+**No se materializa**: se resuelve en la LECTURA. Cambiar una regla se refleja al
+instante en los 3 días que hay en la base, sin recomputar, y el total de la
+grilla no puede contradecir al catálogo.
+
+**Signo**: un débito SUMA (el banco cobró), un crédito RESTA (lo reintegró). Es
+el gasto NETO del día, no la suma de valores absolutos — que contaría dos veces
+un cobro mal hecho y su devolución.
+
+**Sin una sola regla ni marca, la columna muestra «—» y no 0**: nadie afirmó que
+el banco no cobró nada.
+
+**Permiso de escritura**: la allowlist de Tesorería (`tesoreria_escritores`) +
+admin. Se reusa a propósito — una lista nueva nace vacía y la función quedaría
+muerta hasta que alguien la cargue, siendo el mismo equipo en la misma pantalla.
+Compartir una allowlist **no acopla los datos**: un permiso es una política sobre
+personas, no un join. Todo queda en `bancos.gastos_audit`.
+
 ## Changelog
+
+- **2026-08-18 (7)** — **GASTOS BANCARIOS: el modelo completo** (ver la sección
+  de arriba) + **usuarios en línea** en la barra (`bancos.presencia`, el poll de
+  60s es el heartbeat, TTL 180s — mismo patrón que Tesorería y SENEBIS).
+  · La vista **deja de ser 100% read-only**: se suman 3 endpoints de escritura,
+    todos sobre tablas NUESTRAS (`bancos.gastos_*`), todos detrás de la allowlist
+    y todos auditados. **Hacia Interbanking se sigue sin escribir nunca** — esa
+    es la línea que importa y el test del cliente GET-only queda intacto. El test
+    del router ahora **ENUMERA** las tres escrituras permitidas: sumar una obliga
+    a tocar el test, que es el momento en que alguien se pregunta si corresponde.
+  · El proxy de Next deja pasar POST/PUT/DELETE **solo bajo `/gastos/*`**; una
+    escritura contra cualquier otro path se rechaza ahí, antes de salir.
+  · La marca se hace con un clic en la columna GASTO del modal, y hay un tercer
+    estado (**↺ volver a la regla**) para deshacer: sin él, arreglar una marca
+    equivocada obligaría a adivinar qué decía la regla y marcar el opuesto,
+    congelando para siempre algo que la regla ya resolvía.
 
 - **2026-08-18 (6)** — **La sub-tab «Detalle por cuenta» se ELIMINA y pasa a ser
   un MODAL** que se abre haciendo clic en la cuenta del consolidado. Era una

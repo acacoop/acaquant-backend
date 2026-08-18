@@ -23,6 +23,7 @@ agrega uno de esos campos a la proyección pública, el test falla.
 """
 from __future__ import annotations
 
+import json
 from datetime import date
 
 from api.services._sql import _f, _q
@@ -30,10 +31,77 @@ from core.calendario import restar_habiles
 from core.postgres import get_pool
 from core.tz import ahora_ar
 
-# Códigos de operación de Interbanking (`operation_code_ib`) que son GASTO
-# BANCARIO. **Vacío a propósito**: la clasificación no está definida todavía y
-# adivinarla sería inventar plata. Ver `_gastos_bancarios`.
-GASTOS_BANCARIOS_CODIGOS: set[str] = set()
+# ── GASTOS BANCARIOS ─────────────────────────────────────────────────────────
+#
+# Qué campo del movimiento puede mirar una regla. La clave es lo que se guarda
+# en `bancos.gastos_reglas.campo`; el valor, la columna de `bancos.movimientos`.
+#
+# Se declara acá y NO se arma SQL dinámico con lo que venga de la base: una regla
+# la escribe un usuario, y un `campo` que viaje directo a un `WHERE` es una
+# inyección esperando. Un campo que no esté en este dict simplemente no matchea.
+CAMPOS_REGLA = {
+    "codigo_ib": "codigo_operacion_ib",
+    "codigo_banco": "codigo_operacion_banco",
+    "descripcion_banco": "descripcion_banco",
+    "descripcion_ib": "descripcion_ib",
+}
+OPERADORES_REGLA = ("igual", "contiene")
+
+# Presencia: cuánto vale un heartbeat. El poll de la vista es de 60s, así que el
+# TTL tiene que aguantar más de un ciclo o la gente titila al primer poll tarde.
+PRESENCIA_TTL_S = 180
+
+
+def _matchea(mov: dict, regla: dict) -> bool:
+    """¿Este movimiento cumple esta regla? PURO — sin base, sin red.
+
+    Es la pieza que decide plata, así que vive sola y con tests: si la
+    clasificación se rompe, no falla nada — la columna simplemente muestra otro
+    número, que es el peor modo de falla posible.
+
+    Comparación case-insensitive y sin espacios de sobra: la API manda
+    `'00108 '` y `'CREDITO POR DATANET'`, y nadie va a escribir una regla
+    replicando esos espacios.
+    """
+    col = CAMPOS_REGLA.get(str(regla.get("campo") or ""))
+    if not col:
+        return False
+    valor = str(regla.get("valor") or "").strip().casefold()
+    if not valor:
+        return False
+    dato = str(mov.get(col) or "").strip().casefold()
+    if not dato:
+        return False
+    return dato == valor if regla.get("operador") == "igual" else valor in dato
+
+
+def clasificar(movs: list[dict], reglas: list[dict],
+               overrides: dict[str, bool]) -> dict[str, dict]:
+    """{mov_hash: {"es_gasto": bool, "origen": "manual"|"regla"|None, "regla": id}}.
+
+    PURO. El orden de precedencia es lo único que importa acá y es siempre el
+    mismo: **la marca manual gana sobre la regla**. Si una persona decidió que
+    este movimiento es (o no es) un gasto, ninguna regla se lo da vuelta — mismo
+    criterio que `assets.vigencia_motivo='manual'` y que las exclusiones de
+    Tesorería.
+
+    `origen` viaja hasta la pantalla a propósito: si el equipo ve que marca lo
+    MISMO a mano todos los días, eso no es un override, es una regla que falta.
+    """
+    activas = [r for r in reglas if r.get("activa", True)]
+    out: dict[str, dict] = {}
+    for m in movs:
+        h = m["mov_hash"]
+        if h in overrides:
+            out[h] = {"es_gasto": overrides[h], "origen": "manual", "regla": None}
+            continue
+        regla = next((r for r in activas if _matchea(m, r)), None)
+        out[h] = {
+            "es_gasto": regla is not None,
+            "origen": "regla" if regla else None,
+            "regla": regla["id"] if regla else None,
+        }
+    return out
 
 
 def fecha_default() -> date:
@@ -60,44 +128,77 @@ def fecha_default() -> date:
     return restar_habiles(ahora_ar().date(), 1)
 
 
-def _gastos_bancarios(fecha: date) -> dict[int, float]:
-    """{cuenta_id: total de gastos bancarios del día}. Hoy devuelve VACÍO.
-
-    ⚠️ **La regla todavía no está definida** (`GASTOS_BANCARIOS_CODIGOS` vacío).
-    Mientras lo esté, cada cuenta va con `gastos_bancarios = None` y la vista
-    muestra «—». **Null y no 0**: "no sabemos cuáles son gastos" y "no hubo
-    gastos" son cosas distintas, y un cero acá se leería como que el banco no
-    cobró nada — que es exactamente la conclusión falsa que el back office no
-    puede sacar de esta pantalla.
-
-    Cuando se defina qué códigos de operación son gasto bancario, se completa la
-    constante y esto empieza a devolver números sin tocar una línea más. Los
-    candidatos hay que MEDIRLOS contra los datos reales (REGLA #2): en la muestra
-    del 2026-08-18 `code_description_ib` tomaba 23 valores distintos, entre ellos
-    'IMPUESTO AL DEBITO' — que es un impuesto, no un gasto del banco, y meterlo
-    de prepo sería inventar la clasificación.
-    """
-    if not GASTOS_BANCARIOS_CODIGOS:
-        return {}
-    filas = _q(
-        """SELECT cuenta_id, sum(importe) AS total
-             FROM bancos.movimientos
-            WHERE fecha = %s AND tipo = 'D' AND codigo_operacion_ib = ANY(%s)
-            GROUP BY cuenta_id""",
-        (fecha, sorted(GASTOS_BANCARIOS_CODIGOS)),
-    )
-    return {r["cuenta_id"]: _f(r["total"]) for r in filas}
-
-
-def _exec(sql: str, params: tuple) -> None:
+def _exec(sql: str, params: tuple) -> int:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
+        n = cur.rowcount
         conn.commit()
+        return n or 0
 
 
-# --------------------------------------------------------------------------- #
-# Proyecciones públicas
-# --------------------------------------------------------------------------- #
+def _movs_para_clasificar(fecha: date, cuenta_id: int | None = None) -> list[dict]:
+    """Los campos de los movimientos que una regla puede mirar, de UN día."""
+    where = "fecha = %s" + (" AND cuenta_id = %s" if cuenta_id is not None else "")
+    params: tuple = (fecha, cuenta_id) if cuenta_id is not None else (fecha,)
+    return _q(
+        f"""SELECT mov_hash, cuenta_id, importe, tipo, codigo_operacion_ib,
+                   codigo_operacion_banco, descripcion_banco, descripcion_ib
+              FROM bancos.movimientos WHERE {where}""",
+        params,
+    )
+
+
+def listar_reglas() -> list[dict]:
+    return _q(
+        """SELECT id, campo, operador, valor, nota, activa, creado_por, creado_at
+             FROM bancos.gastos_reglas ORDER BY campo, valor"""
+    )
+
+
+def _overrides(fecha: date) -> dict[str, bool]:
+    return {r["mov_hash"]: r["es_gasto"] for r in _q(
+        """SELECT o.mov_hash, o.es_gasto
+             FROM bancos.gastos_overrides o
+             JOIN bancos.movimientos m ON m.mov_hash = o.mov_hash
+            WHERE m.fecha = %s""", (fecha,))}
+
+
+def _gastos_bancarios(fecha: date) -> dict[int, float]:
+    """{cuenta_id: gasto bancario del día}. Se DERIVA, no se persiste.
+
+    Resolver en la lectura y no materializar una columna tiene una consecuencia
+    concreta: cambiar una regla se refleja al instante en todos los días que haya
+    en la base, sin recomputar nada, y el total de la grilla no puede contradecir
+    al catálogo de reglas. Es barato porque la base retiene 3 fechas.
+
+    **Signo**: un débito SUMA (el banco cobró) y un crédito RESTA (lo reintegró).
+    Así la columna es "cuánto se llevó el banco ese día, neto", que es la
+    pregunta que se está haciendo — y no la suma de valores absolutos, que
+    contaría dos veces un cobro mal hecho y su devolución.
+    """
+    movs = _movs_para_clasificar(fecha)
+    if not movs:
+        return {}
+    reglas, overrides = listar_reglas(), _overrides(fecha)
+    # Sin una sola regla ni marca, no hay CRITERIO: devolver ceros diría "el
+    # banco no cobró nada", que es una conclusión que nadie sacó. Se devuelve
+    # vacío y la vista muestra «—».
+    if not [r for r in reglas if r.get("activa", True)] and not overrides:
+        return {}
+
+    marcas = clasificar(movs, reglas, overrides)
+    # Con criterio cargado, una cuenta que tuvo movimientos y ninguno es gasto
+    # vale CERO de verdad — ahí sí lo sabemos.
+    out: dict[int, float] = {m["cuenta_id"]: 0.0 for m in movs}
+    for m in movs:
+        if not marcas[m["mov_hash"]]["es_gasto"]:
+            continue
+        imp = _f(m.get("importe")) or 0.0
+        out[m["cuenta_id"]] = round(
+            out[m["cuenta_id"]] + (imp if m.get("tipo") == "D" else -imp), 2)
+    return out
+
+
 def _cuenta_publica(r: dict) -> dict:
     """Lo que la vista puede ver de una cuenta.
 
@@ -134,6 +235,10 @@ def _cuit_enmascarado(v: str | None) -> str | None:
 
 def _movimiento_publico(r: dict) -> dict:
     return {
+        # El hash es la IDENTIDAD del movimiento: sin él la pantalla no puede
+        # pedir "marcá este". No es un dato sensible — es un sha256 de campos
+        # que la propia fila ya muestra.
+        "mov_hash": r.get("mov_hash"),
         "fecha": r["fecha"].isoformat() if r.get("fecha") else None,
         "hora": r["fecha_proceso"].strftime("%H:%M:%S") if r.get("fecha_proceso") else None,
         "importe": _f(r.get("importe")),
@@ -220,7 +325,7 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
             (cuenta_id, fecha))]
 
         movimientos = [_movimiento_publico(r) for r in _q(
-            """SELECT fecha, fecha_proceso, importe, tipo, descripcion_banco,
+            """SELECT mov_hash, fecha, fecha_proceso, importe, tipo, descripcion_banco,
                       descripcion_ib, codigo_operacion_ib, codigo_operacion_banco,
                       sucursal, numero_extracto,
                       correlativo, comprobante, cuit_contraparte,
@@ -229,6 +334,17 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
                 WHERE cuenta_id = %s AND fecha = %s
                 ORDER BY numero_extracto DESC, correlativo""",
             (cuenta_id, fecha))]
+
+    # La marca de gasto se resuelve acá y no en la pantalla: es la MISMA función
+    # que alimenta la columna GASTOS BANCARIOS del consolidado, así que el
+    # detalle no puede contradecir al total.
+    if cuenta_id is not None and movimientos:
+        marcas = clasificar(
+            _movs_para_clasificar(fecha, cuenta_id), listar_reglas(), _overrides(fecha))
+        for m in movimientos:
+            marca = marcas.get(m["mov_hash"]) or {}
+            m["es_gasto"] = bool(marca.get("es_gasto"))
+            m["gasto_origen"] = marca.get("origen")
 
     creditos = sum(m["importe"] or 0 for m in movimientos if m["tipo"] == "C")
     debitos = sum(m["importe"] or 0 for m in movimientos if m["tipo"] == "D")
@@ -245,6 +361,9 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
                              if d["movimientos_banco"] is not None
                              and d["movimientos_banco"] != d["movimientos_base"]],
         "saldo_final": next((d["saldo_cierre"] for d in dias), None),
+        "gastos": round(sum(
+            (m["importe"] or 0) * (1 if m["tipo"] == "D" else -1)
+            for m in movimientos if m.get("es_gasto")), 2),
     }
 
     _auditar(email, cuenta_id, fecha, fecha, len(movimientos))
@@ -252,6 +371,8 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
     return {
         "cuentas": cuentas,
         "cuenta_id": cuenta_id,
+        "puede_escribir": puede_escribir(email),
+        "reglas": listar_reglas(),
         "fecha": fecha.isoformat(),
         "dias": dias,
         "movimientos": movimientos,
@@ -357,13 +478,16 @@ def consolidado(email: str, fecha: date) -> dict:
         grupo["cuentas"].append(cuenta)
 
     _auditar(email, None, fecha, fecha, len(filas))
+    marcar_presencia(email)
 
     return {
         "fecha": fecha.isoformat(),
+        "conectados": conectados(),
+        "puede_escribir": puede_escribir(email),
         "bancos": bancos,
         "cuentas": len(filas),
         "sin_datos": sin_datos,
-        "gastos_definidos": bool(GASTOS_BANCARIOS_CODIGOS),
+        "gastos_definidos": bool(gastos),
         "sync": ultima_sync(),
     }
 
@@ -386,6 +510,130 @@ def ultima_sync() -> dict | None:
         "cuentas": r["cuentas"],
         "con_error": r["con_error"],
     }
+
+
+# --------------------------------------------------------------------------- #
+# Escritura: reglas de gasto, marcas por movimiento, presencia
+# --------------------------------------------------------------------------- #
+def puede_escribir(email: str) -> bool:
+    """Quién puede tocar la clasificación de gastos.
+
+    **Reusa la allowlist de Tesorería** (`operaciones.tesoreria_escritores`) + admin,
+    en vez de crear una propia. No es pereza: una lista nueva nace VACÍA, así que
+    la función quedaría muerta hasta que alguien la cargue a mano — y es
+    literalmente el mismo equipo, en la misma pantalla del back office. Separarla
+    es cambiar una consulta el día que haga falta.
+
+    ⚠️ Que compartan la allowlist **no acopla los datos**: Interbanking y
+    Tesorería siguen sin tener una sola clave en común (ver docs/INTERBANKING.md).
+    Un permiso es una política sobre personas, no un join.
+    """
+    e = (email or "").lower().strip()
+    if not e:
+        return False
+    try:
+        from core.roles import get_user_role
+        if get_user_role(e) == "admin":
+            return True
+        return bool(_q("SELECT 1 FROM operaciones.tesoreria_escritores WHERE email = %s", (e,)))
+    except Exception:
+        return False
+
+
+def _audit(email: str, accion: str, detalle: dict) -> None:
+    try:
+        _exec("INSERT INTO bancos.gastos_audit (email, accion, detalle) VALUES (%s,%s,%s::jsonb)",
+              (email, accion, json.dumps(detalle, ensure_ascii=False, default=str)))
+    except Exception:   # la auditoría no puede tumbar la escritura
+        pass
+
+
+def crear_regla(email: str, campo: str, operador: str, valor: str, nota: str = "") -> dict:
+    """Alta de una regla. Valida SERVER-SIDE contra las constantes del módulo.
+
+    `campo` y `operador` se validan contra `CAMPOS_REGLA` / `OPERADORES_REGLA` y
+    no contra lo que mande el front: es una regla que decide plata y el que la
+    escribe es un usuario.
+    """
+    campo, operador = (campo or "").strip(), (operador or "").strip()
+    valor = (valor or "").strip()
+    if campo not in CAMPOS_REGLA:
+        raise ValueError(f"Campo inválido. Opciones: {', '.join(CAMPOS_REGLA)}")
+    if operador not in OPERADORES_REGLA:
+        raise ValueError(f"Operador inválido. Opciones: {', '.join(OPERADORES_REGLA)}")
+    if not valor:
+        raise ValueError("El valor no puede estar vacío.")
+
+    filas = _q(
+        """INSERT INTO bancos.gastos_reglas (campo, operador, valor, nota, creado_por)
+           VALUES (%s,%s,%s,%s,%s)
+           ON CONFLICT (campo, operador, valor)
+           DO UPDATE SET activa = true, nota = EXCLUDED.nota
+           RETURNING id, campo, operador, valor, nota, activa""",
+        (campo, operador, valor, (nota or "").strip() or None, email),
+    )
+    _audit(email, "regla_alta", filas[0])
+    return filas[0]
+
+
+def borrar_regla(email: str, regla_id: int) -> bool:
+    """Baja FÍSICA. La regla no tiene histórico que huerfanar: la clasificación
+    se deriva en la lectura, así que borrarla simplemente deja de aplicar. Las
+    marcas MANUALES no se tocan — son de una persona, no de la regla."""
+    filas = _q("SELECT id, campo, operador, valor FROM bancos.gastos_reglas WHERE id = %s",
+               (regla_id,))
+    if not filas:
+        return False
+    _exec("DELETE FROM bancos.gastos_reglas WHERE id = %s", (regla_id,))
+    _audit(email, "regla_baja", filas[0])
+    return True
+
+
+def marcar_gasto(email: str, mov_hash: str, es_gasto: bool | None) -> dict:
+    """Marca (o desmarca) UN movimiento. `es_gasto=None` BORRA el override y
+    devuelve el movimiento al criterio de las reglas.
+
+    Ese tercer estado importa: sin él, deshacer una marca equivocada obligaría a
+    adivinar qué decía la regla y marcar el opuesto a mano — congelando para
+    siempre algo que la regla ya resolvía bien.
+    """
+    if not _q("SELECT 1 FROM bancos.movimientos WHERE mov_hash = %s", (mov_hash,)):
+        raise ValueError("Ese movimiento no existe (puede haberlo purgado la retención).")
+
+    if es_gasto is None:
+        _exec("DELETE FROM bancos.gastos_overrides WHERE mov_hash = %s", (mov_hash,))
+    else:
+        _exec("""INSERT INTO bancos.gastos_overrides (mov_hash, es_gasto, por, at)
+                 VALUES (%s,%s,%s, now())
+                 ON CONFLICT (mov_hash)
+                 DO UPDATE SET es_gasto = EXCLUDED.es_gasto, por = EXCLUDED.por, at = now()""",
+              (mov_hash, es_gasto, email))
+    _audit(email, "marca", {"mov_hash": mov_hash, "es_gasto": es_gasto})
+    return {"mov_hash": mov_hash, "es_gasto": es_gasto}
+
+
+def marcar_presencia(email: str) -> None:
+    """Heartbeat. El poll de la vista ES el latido: no hay endpoint aparte que
+    golpear, igual que en Tesorería."""
+    e = (email or "").lower().strip()
+    if not e:
+        return
+    try:
+        _exec("""INSERT INTO bancos.presencia (email, visto_at) VALUES (%s, now())
+                 ON CONFLICT (email) DO UPDATE SET visto_at = now()""", (e,))
+    except Exception:   # que nadie se quede sin ver la vista por el heartbeat
+        pass
+
+
+def conectados() -> list[dict]:
+    """Quiénes tienen la vista abierta ahora (últimos PRESENCIA_TTL_S segundos)."""
+    try:
+        return [{"email": r["email"], "visto_at": r["visto_at"].isoformat()} for r in _q(
+            """SELECT email, visto_at FROM bancos.presencia
+                WHERE visto_at >= now() - make_interval(secs => %s) ORDER BY email""",
+            (PRESENCIA_TTL_S,))]
+    except Exception:
+        return []
 
 
 def _auditar(email: str, cuenta_id: int | None, desde: date, hasta: date, filas: int) -> None:

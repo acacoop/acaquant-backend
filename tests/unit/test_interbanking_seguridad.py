@@ -43,13 +43,57 @@ def test_el_cliente_solo_hace_GET_salvo_el_token():
     )
 
 
-def test_el_router_no_expone_escritura():
+# La vista dejó de ser 100% read-only el 2026-08-18: se sumó la clasificación de
+# GASTOS BANCARIOS, que escribe en tablas NUESTRAS (`bancos.gastos_*`). No toca
+# el extracto, no toca el saldo y no sale a internet.
+#
+# Este set las ENUMERA una por una, a propósito. Un `assert <= {GET, POST, PUT}`
+# habría dejado la puerta abierta a cualquier endpoint de escritura futuro sin
+# que nadie lo decida; así, sumar uno obliga a tocar este test — que es el
+# momento en que alguien se pregunta si corresponde.
+ESCRITURAS_PERMITIDAS = {
+    ("POST", "/api/back-office/interbanking/gastos/reglas"),
+    ("DELETE", "/api/back-office/interbanking/gastos/reglas/{regla_id}"),
+    ("PUT", "/api/back-office/interbanking/gastos/movimiento"),
+}
+
+
+def test_el_router_solo_escribe_la_clasificacion_de_gastos():
     from api.routers import interbanking
 
-    metodos = {m for r in interbanking.router.routes for m in getattr(r, "methods", set())}
-    assert metodos <= {"GET", "HEAD", "OPTIONS"}, (
-        f"La tab INTERBANKING es de solo lectura; encontré {metodos}"
+    escrituras = {
+        (m, r.path)
+        for r in interbanking.router.routes
+        for m in getattr(r, "methods", set())
+        if m in ("POST", "PUT", "PATCH", "DELETE")
+    }
+    assert escrituras == ESCRITURAS_PERMITIDAS, (
+        "Cambió el conjunto de endpoints que ESCRIBEN en la tab INTERBANKING.\n"
+        f"  esperado: {sorted(ESCRITURAS_PERMITIDAS)}\n"
+        f"  encontré: {sorted(escrituras)}\n"
+        "Si el endpoint nuevo corresponde, sumalo acá a mano."
     )
+
+
+def test_toda_escritura_pasa_por_la_allowlist():
+    """Ninguna de las tres puede escribir sin permiso.
+
+    El gate NO está en el router como dependencia sino adentro de cada handler
+    (`_exigir_escritura`), así que un test que mire `dependencies=` no lo vería.
+    Se verifica leyendo la función: cada handler de escritura tiene que llamarlo.
+    """
+    import inspect
+
+    from api.routers import interbanking
+
+    for r in interbanking.router.routes:
+        metodos = getattr(r, "methods", set())
+        if not metodos & {"POST", "PUT", "PATCH", "DELETE"}:
+            continue
+        fuente = inspect.getsource(r.endpoint)
+        assert "_exigir_escritura" in fuente, (
+            f"{r.path} escribe y no pasa por _exigir_escritura"
+        )
 
 
 def test_la_cuenta_publica_no_filtra_cbu_ni_cuit():

@@ -7,7 +7,7 @@ de monedas se afloja, entran títulos a un tablero que es de efectivo.
 """
 from __future__ import annotations
 
-from jobs.control_saldos import MONEDAS, SIGNO, UMBRALES, parsear
+from jobs.control_saldos import MONEDAS, SIGNO, UMBRALES, _nombre_cuenta, parsear
 
 
 def _fila(especie: str, liq: float, pen: float = 0.0, tipo: str = "Moneda") -> dict:
@@ -119,3 +119,21 @@ def test_la_cuenta_se_arma_con_el_formato_de_siempre():
     regs, _ = parsear([_fila("ARS", -100_000.0)], "805", "MOLLO NICOLAS")
     assert regs[0]["cuenta"] == "[805] MOLLO NICOLAS"
     assert parsear([_fila("ARS", -100_000.0)], "805", "")[0][0]["cuenta"] == "[805]"
+
+
+def test_el_nombre_de_cuenta_es_IDEMPOTENTE():
+    """Volver a formatear un nombre ya formateado NO agrega otro prefijo.
+
+    Incidente 2026-08-19: el ciclo de revisión leía la denominación de la tabla
+    —donde ya estaba armada como "[105] LA SEGUNDA"— y se la pasaba al parser,
+    que le ponía el prefijo otra vez. Cada pasada sumaba uno: en pantalla se
+    llegó a ver "[21] [21] [21] …". El llamador ya se corrigió (la denominación
+    sale del universo de Aunesa); esto es la red para que no vuelva a pasar.
+    """
+    assert _nombre_cuenta("805", "MOLLO NICOLAS") == "[805] MOLLO NICOLAS"
+    assert _nombre_cuenta("105", "[105] LA SEGUNDA") == "[105] LA SEGUNDA"
+    assert _nombre_cuenta("21", "[21] [21] [21] COOP") == "[21] COOP"
+    assert _nombre_cuenta("805", "") == "[805]"
+    # Y el invariante que lo define: aplicarlo N veces da lo mismo que una.
+    una = _nombre_cuenta("1243", "BERDIÑAS, MARIANA")
+    assert _nombre_cuenta("1243", una) == una

@@ -215,8 +215,8 @@ def latido(fase: str, cuentas: int = 0) -> None:
         logger.warning("no pude escribir el latido (%s): %s", type(e).__name__, e)
 
 
-def cuentas_a_revisar(hoy: date) -> list[tuple[str, str]]:
-    """Qué cuentas hay que volver a consultar, en UNA query. Prioritarias primero.
+def cuentas_a_revisar(hoy: date) -> list[str]:
+    """Qué cuentas (ids) hay que volver a consultar, en UNA query. Prioritarias primero.
 
     POR QUÉ EXISTE (incidente 2026-08-18, cuenta 1243)
     ---------------------------------------------------
@@ -255,7 +255,7 @@ def cuentas_a_revisar(hoy: date) -> list[tuple[str, str]]:
         with get_job_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "WITH hoy AS ("
-                "  SELECT id_cuenta, cuenta, ticker, cantidad, actualizado_at "
+                "  SELECT id_cuenta, ticker, cantidad, actualizado_at "
                 "    FROM portafolio.control_saldos WHERE fecha = %(f)s), "
                 "rk AS ("
                 "  SELECT id_cuenta,"
@@ -264,10 +264,9 @@ def cuentas_a_revisar(hoy: date) -> list[tuple[str, str]]:
                 "    FROM hoy), "
                 "prio AS (SELECT DISTINCT id_cuenta FROM rk "
                 "          WHERE alto <= %(n)s OR bajo <= %(n)s), "
-                "cta AS (SELECT id_cuenta, max(cuenta) AS cuenta,"
-                "               min(actualizado_at) AS visto"
+                "cta AS (SELECT id_cuenta, min(actualizado_at) AS visto"
                 "          FROM hoy GROUP BY id_cuenta) "
-                "SELECT c.id_cuenta, c.cuenta, (p.id_cuenta IS NOT NULL) AS es_prio "
+                "SELECT c.id_cuenta "
                 "  FROM cta c LEFT JOIN prio p ON p.id_cuenta = c.id_cuenta "
                 # Una prioritaria no se re-consulta antes de PRIORIDAD_CADA_S, y una
                 # común solo entra si ya envejeció. Sin este corte, el ciclo gastaría
@@ -286,7 +285,9 @@ def cuentas_a_revisar(hoy: date) -> list[tuple[str, str]]:
         logger.warning("no pude calcular las cuentas a revisar (%s): %s",
                        type(e).__name__, e)
         return []
-    return [(str(r[0]), str(r[1] or "")) for r in filas]
+    # SOLO ids: la denominación la pone el llamador desde el universo. Devolver
+    # `cuenta` desde acá fue justo lo que causó el "[21] [21] [21]" de prod.
+    return [str(r[0]) for r in filas]
 
 
 def _purgar(hoy: date) -> int:
@@ -382,7 +383,7 @@ def parsear(filas: list, idc: str, denom: str) -> tuple[list[dict], dict[str, in
         g["pen"] += _num(r.get("cantidadPendienteLiquidar"))
         g["n"] += 1
 
-    cuenta_str = f"[{idc}] {denom}" if denom else f"[{idc}]"
+    cuenta_str = _nombre_cuenta(idc, denom)
     out = []
     for esp, g in grupos.items():
         cantidad = round(SIGNO * g["liq"], 4)
@@ -395,6 +396,22 @@ def parsear(filas: list, idc: str, denom: str) -> tuple[list[dict], dict[str, in
             "filas_origen": g["n"],
         })
     return out, descartadas
+
+
+def _nombre_cuenta(idc: str, denom: str) -> str:
+    """'805' + 'MOLLO NICOLAS' → '[805] MOLLO NICOLAS'. IDEMPOTENTE.
+
+    Si `denom` ya viene con el prefijo se lo saca antes de volver a ponerlo. Sin
+    esto, pasarle un valor ya formateado agrega un `[805]` por vez y el nombre
+    se degrada solo — pasó en prod el 2026-08-19 (`[21] [21] [21] …`) porque el
+    ciclo de revisión leía la denominación de la tabla, donde ya estaba armada.
+    El llamador correcto es el universo de Aunesa; esto es la red.
+    """
+    d = (denom or "").strip()
+    pref = f"[{idc}]"
+    while d.startswith(pref):
+        d = d[len(pref):].strip()
+    return f"{pref} {d}" if d else pref
 
 
 def _num(v) -> float:
@@ -754,12 +771,16 @@ def run() -> int:
         # por el control se haya movido o no. El corte por frescura ya viene
         # aplicado en la query, así que lo que llega es lo que hay que consultar.
         n_prio = 0
-        for idc, denom in cuentas_a_revisar(hoy):
+        for idc in cuentas_a_revisar(hoy):
             if idc not in universo or idc in cola:
                 continue
             if ahora - ultimo_refresh.get(idc, 0) < DEBOUNCE_S:
                 continue
-            cola[idc] = denom or universo[idc]
+            # La denominación sale SIEMPRE del universo (la cruda de Aunesa) y
+            # nunca de la tabla: la columna `cuenta` ya viene formateada
+            # ("[105] LA S…") y usarla como denominación le agregaba un prefijo
+            # más en cada pasada — "[21] [21] [21] …" en prod el 2026-08-19.
+            cola[idc] = universo[idc]
             origen_de[idc] = "revision"
             n_prio += 1
 

@@ -61,6 +61,14 @@ Refrescar ~1.800 cuentas cada pocos minutos sería martillar al custodio. Tres r
      copia): ve compraventas, acreencias, depósitos, transferencias, extracciones
      y cauciones — todo lo que puede mover un saldo.
   3. REFRESCO SELECTIVO — solo esas cuentas, con debounce.
+  4. REVISIÓN ACTIVA (2026-08-18) — el detector NO ALCANZA: pregunta por lo
+     CONCERTADO hoy y el saldo se mueve por lo que LIQUIDA hoy. Una caución de la
+     semana pasada que vence hoy mueve la plata sin aparecer en esa ventana, y
+     eso dejó a la cuenta 1243 con 4.480.299,08 ARS fantasma durante 10 horas.
+     Un detector es una OPTIMIZACIÓN, no una garantía: la garantía es que cada
+     cuenta pase por el control se haya movido o no. Ver `cuentas_a_revisar` —
+     top/bottom por moneda cada 5 min, más una rotación por antigüedad que le
+     pone TECHO a cuánto puede mentir una fila (~2,6 h con los valores de hoy).
 
 Uso:
     python -m jobs.control_saldos                    # daemon: corre hasta el cierre
@@ -142,6 +150,20 @@ MAX_ESPERA_BACKFILL_MIN = 90
 ERRORES_PARA_CORTE = 10
 PAUSA_BREAKER_S = 300
 
+# ── revisión activa (ver `cuentas_a_revisar`) ─────────────────────────────────
+# Cuántas cuentas por MONEDA y por lado entran al grupo prioritario: las 10 de
+# mayor saldo y las 10 de menor (o sea, las más negativas).
+PRIORIDAD_TOP_N = 10
+# Una prioritaria no se vuelve a consultar antes de esto (5 min).
+PRIORIDAD_CADA_S = 300
+# A partir de acá una cuenta cuenta como "envejecida" y entra a la rotación.
+ENVEJECIDA_S = 2_700          # 45 min
+# Techo de cuentas por ciclo. Con DETECTOR_S=180 son 20 ciclos por hora: 30 × 20
+# = 600 cuentas/hora, así que las ~1.550 del universo quedan revisadas cada ~2.6
+# horas COMO MÁXIMO, se muevan o no. Ese número es el techo de cuánto puede
+# mentir una fila, y subir el tope lo baja en proporción directa: es la perilla.
+TOPE_CICLO = 30
+
 
 # ── schema ────────────────────────────────────────────────────────────────────
 def _ensure_schema() -> None:
@@ -191,6 +213,80 @@ def latido(fase: str, cuentas: int = 0) -> None:
             conn.commit()
     except Exception as e:
         logger.warning("no pude escribir el latido (%s): %s", type(e).__name__, e)
+
+
+def cuentas_a_revisar(hoy: date) -> list[tuple[str, str]]:
+    """Qué cuentas hay que volver a consultar, en UNA query. Prioritarias primero.
+
+    POR QUÉ EXISTE (incidente 2026-08-18, cuenta 1243)
+    ---------------------------------------------------
+    El detector pregunta a `consolidadosGenerales` por lo CONCERTADO hoy, pero el
+    saldo se mueve por lo que LIQUIDA hoy — y las dos fechas casi nunca coinciden.
+    Una caución de la semana pasada que vence hoy, o una compra de ayer en 24hs,
+    mueven la plata sin aparecer en esa ventana. La 1243 tenía 4.480.299,08 ARS
+    escritos en el barrido de apertura (11:01:46), esa posición se fue durante el
+    día, el detector nunca la marcó y la fila quedó congelada las 10 horas.
+    Peor: la caución que vence hoy es exactamente el evento que este tablero vino
+    a controlar.
+
+    La conclusión no es "arreglar el detector": es que **un detector es una
+    optimización, no una garantía**. Una cuenta tiene que pasar por el control
+    igual, se haya movido o no. Esta función es esa garantía, en dos capas:
+
+      · PRIORITARIAS — top N y bottom N por MONEDA. Son las que más duelen si se
+        desactualizan, y se revisan cada `PRIORIDAD_CADA_S`. El ranking se
+        recalcula en CADA pasada contra la tabla ya actualizada, así que si una
+        se achica y sale del top, la que sigue ocupa su lugar sola — sin listas
+        congeladas ni estado en memoria.
+      · ENVEJECIDAS — las que hace más tiempo que nadie tocó, en rotación. Esto
+        es lo que pone un TECHO a cuánto puede mentir una fila: con `TOPE_CICLO`
+        por ciclo de `DETECTOR_S`, ninguna cuenta queda sin revisar más de
+        ~(total ÷ TOPE_CICLO) × DETECTOR_S. Es lo que habría salvado a la 1243.
+
+    El ranking va POR MONEDA y no global porque comparar 4M de pesos con 194
+    dólares no significa nada — es el mismo motivo por el que la pantalla muestra
+    una moneda por vez.
+
+    Costo: UNA query, un scan de la tabla del día (~1.300 filas). Un `Seq Scan`
+    sobre eso es óptimo y no se indexa (ver CLAUDE.md). Lo caro son los viajes,
+    no el plan.
+    """
+    try:
+        with get_job_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "WITH hoy AS ("
+                "  SELECT id_cuenta, cuenta, ticker, cantidad, actualizado_at "
+                "    FROM portafolio.control_saldos WHERE fecha = %(f)s), "
+                "rk AS ("
+                "  SELECT id_cuenta,"
+                "         row_number() OVER (PARTITION BY ticker ORDER BY cantidad DESC) AS alto,"
+                "         row_number() OVER (PARTITION BY ticker ORDER BY cantidad ASC)  AS bajo"
+                "    FROM hoy), "
+                "prio AS (SELECT DISTINCT id_cuenta FROM rk "
+                "          WHERE alto <= %(n)s OR bajo <= %(n)s), "
+                "cta AS (SELECT id_cuenta, max(cuenta) AS cuenta,"
+                "               min(actualizado_at) AS visto"
+                "          FROM hoy GROUP BY id_cuenta) "
+                "SELECT c.id_cuenta, c.cuenta, (p.id_cuenta IS NOT NULL) AS es_prio "
+                "  FROM cta c LEFT JOIN prio p ON p.id_cuenta = c.id_cuenta "
+                # Una prioritaria no se re-consulta antes de PRIORIDAD_CADA_S, y una
+                # común solo entra si ya envejeció. Sin este corte, el ciclo gastaría
+                # llamadas en cuentas que se refrescaron hace 30 segundos.
+                " WHERE (p.id_cuenta IS NOT NULL"
+                "        AND c.visto < now() - make_interval(secs => %(prio_s)s))"
+                "    OR c.visto < now() - make_interval(secs => %(edad_s)s) "
+                # Las prioritarias primero: si el tope corta, que corte por las de
+                # abajo. Después, las más viejas — eso hace la rotación.
+                " ORDER BY (p.id_cuenta IS NOT NULL) DESC, c.visto ASC "
+                " LIMIT %(tope)s",
+                {"f": hoy, "n": PRIORIDAD_TOP_N, "prio_s": PRIORIDAD_CADA_S,
+                 "edad_s": ENVEJECIDA_S, "tope": TOPE_CICLO})
+            filas = cur.fetchall()
+    except Exception as e:
+        logger.warning("no pude calcular las cuentas a revisar (%s): %s",
+                       type(e).__name__, e)
+        return []
+    return [(str(r[0]), str(r[1] or "")) for r in filas]
 
 
 def _purgar(hoy: date) -> int:
@@ -633,8 +729,15 @@ def run() -> int:
         # muerto, y esa vuelta no escribe ni una fila en control_saldos.
         latido("detector")
 
+        # La cola de cada ciclo son TRES fuentes en un solo lote. Se juntan acá y
+        # no en tres pasadas separadas para que una cuenta que aparece en dos
+        # (se movió Y es prioritaria) se consulte UNA vez: el dict deduplica por
+        # id_cuenta y el `origen` guarda por qué entró.
         ahora = time.monotonic()
-        cola = []
+        cola: dict[str, str] = {}
+        origen_de: dict[str, str] = {}
+
+        # ① el detector: reacciona a lo CONCERTADO hoy.
         for idc, comps in movs.items():
             if idc not in universo:
                 continue
@@ -643,14 +746,36 @@ def run() -> int:
                 continue
             if ahora - ultimo_refresh.get(idc, 0) < DEBOUNCE_S:
                 continue
-            cola.append((idc, universo[idc]))
+            cola[idc] = universo[idc]
+            origen_de[idc] = "boleto"
             vistos.setdefault(idc, set()).update(nuevos)
-            ultimo_refresh[idc] = ahora
+
+        # ② + ③ prioritarias y envejecidas: la GARANTÍA de que una cuenta pasa
+        # por el control se haya movido o no. El corte por frescura ya viene
+        # aplicado en la query, así que lo que llega es lo que hay que consultar.
+        n_prio = 0
+        for idc, denom in cuentas_a_revisar(hoy):
+            if idc not in universo or idc in cola:
+                continue
+            if ahora - ultimo_refresh.get(idc, 0) < DEBOUNCE_S:
+                continue
+            cola[idc] = denom or universo[idc]
+            origen_de[idc] = "revision"
+            n_prio += 1
 
         if not cola:
             continue
-        ok, fallo, filas, motivos, _ = _refrescar_lote(cola, hoy, "boleto", workers)
-        print(f"  [{_ahora_art():%H:%M}] refrescadas {ok} cuenta(s) por boleto"
+        for idc in cola:
+            ultimo_refresh[idc] = ahora
+        # El `origen` que se persiste es el del PRIMERO del lote — la columna
+        # dice de qué ciclo vino la fila, no por qué entró esa cuenta puntual.
+        # Distinguirlo por fila obligaría a partir el lote en dos y perder el
+        # paralelismo, para un dato que solo se mira en debug.
+        lote = list(cola.items())
+        ok, fallo, filas, motivos, _ = _refrescar_lote(
+            lote, hoy, "boleto" if n_prio == 0 else "revision", workers)
+        print(f"  [{_ahora_art():%H:%M}] refrescadas {ok} cuenta(s) "
+              f"({len(lote) - n_prio} por boleto · {n_prio} por revisión)"
               + (f" · {fallo} fallidas {motivos}" if fallo else ""))
 
         errores_seguidos = errores_seguidos + fallo if fallo else 0

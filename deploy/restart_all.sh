@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # deploy/restart_all.sh — reinicia la API + TODOS los motores que estén corriendo.
 #
+# ⚠️ **NO es el camino del deploy normal** (2026-08-18). `deploy/deploy.sh` YA NO
+# lo llama: reiniciar los motores en rueda corta el feed de precios de la mesa, y
+# el 95% de los deploys tocan la API y no los motores. Esto queda para el caso
+# explícito —cambió código de `engines/`/`core/`/`quant/` y hay que bajarlo YA—
+# y se corre a mano o con `deploy.sh --con-motores`, preferentemente fuera de
+# rueda (no 13-20 UTC L-V).
+#
 # Uso (en el Droplet, después de `git pull`):
 #     bash deploy/restart_all.sh
 #

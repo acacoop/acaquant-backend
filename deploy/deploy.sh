@@ -13,9 +13,18 @@
 #   2. apply_schema — crea las tablas/columnas/índices que falten. Es idempotente
 #      y NO destructivo (solo CREATE ... IF NOT EXISTS y semillas guardadas: no
 #      hay un solo DROP/DELETE/TRUNCATE). Se puede saltear con --sin-schema.
-#   3. restart_all.sh — reinicia api.service y hace try-restart de los motores
-#      que estén ACTIVOS (los apagados los maneja cron; no se prenden a destiempo).
+#   3. restart api.service — **Y NADA MÁS**. Los motores NO se tocan.
 #   4. Smoke — pega a /api/health local y muestra el estado del service.
+#
+# ⚠️ **LOS MOTORES NO SE REINICIAN** (regla del user, 2026-08-18: «no puedo estar
+# reiniciando todos los motores en vivo»). Reiniciar un motor EN RUEDA corta el
+# feed de precios de la mesa por varios segundos, y el 95% de los deploys tocan
+# la API y no los motores: pagar ese corte en cada deploy es puro costo.
+# El script DETECTA si el código nuevo tocó `engines/`, `core/` o `quant/` y lo
+# AVISA nombrando los motores activos — pero no los reinicia. Reiniciar en rueda
+# es una decisión de la mesa, no un efecto secundario de un deploy.
+# Para hacerlo igual: `bash deploy/deploy.sh --con-motores`, o a mano
+# `systemctl try-restart motor_X.service` cuando cierre el mercado.
 #
 # Corta al primer fallo y dice exactamente qué paso murió. Si algo se rompe NO
 # hace rollback solo: el rollback es una decisión, no un efecto secundario.
@@ -32,11 +41,13 @@ PY="$REPO/venv/bin/python"
 [ -x "$PY" ] || PY="python3"
 
 CON_SCHEMA=1
+CON_MOTORES=0
 for arg in "$@"; do
     case "$arg" in
         --sin-schema) CON_SCHEMA=0 ;;
-        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
-        *) echo "opción desconocida: $arg (usá --sin-schema o --help)"; exit 2 ;;
+        --con-motores) CON_MOTORES=1 ;;
+        -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+        *) echo "opción desconocida: $arg (usá --sin-schema, --con-motores o --help)"; exit 2 ;;
     esac
 done
 
@@ -71,8 +82,40 @@ fi
 
 # ── 3. Servicios ────────────────────────────────────────────────────────────
 echo
-echo "▶ 3/4  restart api.service + motores activos"
-bash deploy/restart_all.sh || morir "restart_all.sh — mirá 'journalctl -u api.service -n 50'"
+if [ "$CON_MOTORES" = "1" ]; then
+    echo "▶ 3/4  restart api.service + MOTORES ACTIVOS (--con-motores)"
+    bash deploy/restart_all.sh || morir "restart_all.sh — mirá 'journalctl -u api.service -n 50'"
+else
+    echo "▶ 3/4  restart api.service (los motores NO se tocan)"
+    systemctl restart api.service || morir "systemctl restart api.service — mirá 'journalctl -u api.service -n 50'"
+
+    # ¿El código nuevo toca a los motores? Se AVISA, no se actúa. Un motor
+    # reiniciado en rueda corta el feed de la mesa, y esa es una decisión de
+    # ellos — pero enterarse tres días después de que el motor corre código
+    # viejo es peor. Por eso: nombrarlo, fuerte, y dejarlo a mano.
+    if [ "$ANTES" != "$DESPUES" ]; then
+        TOCADOS="$(git diff --name-only "$ANTES..$DESPUES" -- engines/ core/ quant/ config.py 2>/dev/null)"
+        if [ -n "$TOCADOS" ]; then
+            echo
+            echo "   ⚠️  ESTE DEPLOY TOCÓ CÓDIGO QUE USAN LOS MOTORES:"
+            echo "$TOCADOS" | sed 's/^/        /'
+            ACTIVOS=""
+            for unit in deploy/systemd/motor_*.service; do
+                u="$(basename "$unit")"
+                systemctl is-active --quiet "$u" && ACTIVOS="$ACTIVOS $u"
+            done
+            if [ -n "$ACTIVOS" ]; then
+                echo "   Estos motores están CORRIENDO con el código viejo:"
+                for u in $ACTIVOS; do echo "        systemctl try-restart $u"; done
+                echo "   No se reiniciaron a propósito: hacerlo en rueda corta el feed."
+                echo "   Cuando cierre el mercado, corré esas líneas (o --con-motores)."
+            else
+                echo "   Ningún motor está activo ahora — cuando cron los prenda"
+                echo "   arrancan con el código nuevo. No hay nada que hacer."
+            fi
+        fi
+    fi
+fi
 
 # ── 4. Smoke ────────────────────────────────────────────────────────────────
 echo

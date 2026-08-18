@@ -485,7 +485,26 @@ las crea). Pool/conn: `core.postgres.get_pool` (lee `.env` propia).
 
 ## Deploy
 
-Push a `main` → Vercel auto-deploya acaquant-web. Backend, **un solo comando en el Droplet**: `cd /root/TradingAV && git pull && bash deploy/deploy.sh` (pull → `apply_schema` → restart de api + motores activos → smoke a `/api/health`, cortando al primer fallo; `--sin-schema` saltea el schema). También existe la skill `/deploy` como wrapper del procedimiento. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`.
+Push a `main` → Vercel auto-deploya acaquant-web. Backend, **un solo comando en el Droplet**: `cd /root/TradingAV && git pull && bash deploy/deploy.sh` (pull → `apply_schema` → **restart de api.service Y NADA MÁS** → smoke a `/api/health`, cortando al primer fallo; `--sin-schema` saltea el schema). También existe la skill `/deploy` como wrapper del procedimiento. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`.
+
+> **⚠️ EL DEPLOY NO REINICIA LOS MOTORES** (regla del user, 2026-08-18: *«no puedo
+> estar reiniciando todos los motores en vivo… antes era git pull y luego reinicio
+> la API, con eso estamos»*). Reiniciar un motor EN RUEDA corta el feed de precios
+> de la mesa, y **el 95% de los deploys tocan la API y no los motores**: pagar ese
+> corte en cada entrega es puro costo. `deploy.sh` llamaba a `restart_all.sh`, que
+> hacía `try-restart` de todos los motores activos — eso se sacó; la skill
+> `/deploy` ya decía «no toca motores» y el script se había desviado.
+>
+> El script **detecta** si el código nuevo tocó `engines/`, `core/`, `quant/` o
+> `config.py` y lo **avisa nombrando los motores activos con el comando exacto**,
+> pero **no los reinicia**: enterarse tres días después de que un motor corre
+> código viejo es peor que el aviso, y reiniciar en rueda es una decisión de la
+> mesa, no un efecto secundario. Para hacerlo igual: `--con-motores`, o
+> `systemctl try-restart motor_X.service` a mano **fuera de rueda** (no 13-20 UTC
+> L-V). `deploy/restart_all.sh` queda para ese caso explícito.
+>
+> **Al entregar trabajo (REGLA #0), el bloque copy-paste NUNCA lleva
+> `--con-motores`** salvo que el cambio toque un motor y el user lo pida.
 
 > **Todo lee SQL.** Tenencias/catálogo en `portafolio.tenencia`/`portafolio.assets`;
 > el join de instrumentos + normalización de assets lo hace `api/services/titulos_flujos.py`

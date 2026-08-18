@@ -2,7 +2,9 @@
 description: Push a main y pull+restart en el Droplet
 ---
 
-Deploy del backend al Droplet. Flujo seguro: pushear local → pullear en el server → restart del `api.service`. No toca motores de mercado (esos corren en su propio schedule via cron).
+Deploy del backend al Droplet. Flujo seguro: pushear local → pullear en el server → restart del `api.service`. **No toca motores de mercado** (corren en su propio schedule via cron, y reiniciarlos en rueda corta el feed de precios de la mesa).
+
+En el Droplet el equivalente de un comando es `bash deploy/deploy.sh`, que además corre `apply_schema` y el smoke. **Tampoco reinicia motores**: si el cambio tocó `engines/`/`core/`/`quant/`, los nombra con el comando exacto para correr fuera de rueda. `--con-motores` solo si el user lo pide.
 
 Pasos:
 

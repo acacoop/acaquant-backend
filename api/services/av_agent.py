@@ -117,13 +117,19 @@ ACCION_POR_TIPO = {
     "hueco_de_curva": None,
     # ── SALUD entra al agente (2026-08-17) ──────────────────────────────────
     #
-    # **`None` por ahora, y es una decisión, no un olvido.** El agente YA sabe
-    # razonar sobre un chequeo (ver `av_agent_salud`), pero todavía no escribe
-    # nada del lado de SALUD: relanzar un job es una acción con efectos afuera de
-    # `mercado.curvas` y se habilita cuando el eval set diga que el diagnóstico
-    # acierta. Es el mismo camino que hizo la puerta de bonos — primero ver,
-    # después simular, después escribir.
-    "salud": None,
+    # **`salud` abre una puerta de SOLO LECTURA**, y eso es una decisión, no una
+    # limitación temporal mal resuelta: el agente ya razona un chequeo con ocho
+    # lentes —lee el log, reconoce firmas de error conocidas, propone el comando
+    # exacto— pero **no escribe nada del lado de SALUD**. Relanzar un job tiene
+    # efectos afuera de `mercado.curvas` y se habilita cuando el eval set diga que
+    # el diagnóstico acierta. Primero ver, después simular, después escribir — el
+    # mismo camino que hizo la puerta de bonos.
+    #
+    # El valor NO es `None` porque el front usa este campo para elegir qué puerta
+    # abrir, y sin él la fila queda muda: un chequeo en rojo que no se puede ni
+    # mirar es peor que no tenerlo en la lista. Lo que impide escribir es que esa
+    # puerta no tiene botón de aplicar, no que la fila sea inaccionable.
+    "salud": "salud",
 }
 
 

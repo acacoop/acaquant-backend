@@ -2318,8 +2318,10 @@ def test_un_CHEQUEO_de_salud_es_un_HALLAZGO_del_agente():
     # Todos comparten la MISMA forma que los hallazgos de bonos.
     assert all(set(h) == {"tipo", "ticker", "regla", "severidad", "motivo",
                           "evidencia"} for h in hs)
-    # `None` EXPLÍCITO: el agente ve SALUD pero todavía no escribe de ese lado.
-    assert "salud" in ACCION_POR_TIPO and ACCION_POR_TIPO["salud"] is None
+    # `salud` abre una puerta de SOLO LECTURA: el agente razona el chequeo pero
+    # no escribe de ese lado. Sin valor, la fila quedaría muda en el front — y un
+    # chequeo en rojo que no se puede ni mirar es peor que no tenerlo en la lista.
+    assert ACCION_POR_TIPO["salud"] == "salud"
 
 
 def test_SALUD_no_puede_tumbar_la_relevada_de_bonos():
@@ -2439,3 +2441,57 @@ def test_una_LECCION_necesita_decir_QUE_SE_CAMBIO():
     # La del contradicción la cazó el USER mirando la pantalla, no un test.
     assert next(l for l in LECCIONES
                 if l["slug"] == "el-agente-se-contradice")["detectado_por"] == "user"
+
+
+def test_el_agente_LEE_EL_LOG_en_vez_de_mandar_a_buscarlo():
+    """El diagnóstico de `mercado_1816_series` decía *«revisar los logs del
+    scheduler»* — teniéndolos a mano: `salud.detalle()` ya devolvía los errores y
+    las últimas 40 líneas del `JobRunLogger`, y el agente no las leía.
+
+    **Un diagnóstico que manda a buscar lo que ya tiene enfrente no es un
+    diagnóstico: es una derivación.**"""
+    from api.services.av_agent_salud import _lente_arreglo, _lente_firma, _lente_log
+
+    c = {"id": "job:mercado_1816_series", "familia": "job",
+         "modulos": ["jobs.mercado_1816_series"],
+         "motivo": "debía correr 17/08 22:00 UTC y la última fue 14/08 22:00",
+         "corridas": [{"status": "error", "inicio": "2026-08-17T22:00:00",
+                       "elapsed_s": 12, "stats": {},
+                       "errores": ["Error1816: auth HTTP 429"],
+                       "log": ["conectando a 1816", "auth falló"]}]}
+
+    log = _lente_log(c)
+    assert "auth HTTP 429" in log["detalle"], "el error REAL tiene que estar a la vista"
+    assert log["estado"] == "revisar"
+
+    # La firma conecta el error con la lección YA aprendida: eso es cerrar el
+    # bucle — «revisá los logs» pasa a ser «esto es lo mismo de la vez pasada».
+    lecc = {"backoff-contra-una-cuota": {"titulo": "El backoff contra una cuota",
+                                         "cambio": "token COMPARTIDO"}}
+    f = _lente_firma(c, lecc)
+    assert "RECHAZÓ por límite" in f["detalle"] and "token COMPARTIDO" in f["detalle"]
+
+    # Y el arreglo es un COMANDO, no una categoría. «Relanzar el job» no es una
+    # acción: es una categoría. La acción es lo que hay que tipear.
+    arr = _lente_arreglo(c)
+    assert "python -m jobs.mercado_1816_series" in arr["detalle"]
+    # Y avisa del cupo de 1816 ANTES de que la re-corrida lo gaste al pedo.
+    assert "50 tokens por día" in arr["detalle"]
+
+
+def test_un_job_DECLARA_QUE_ALIMENTA():
+    """El diagnóstico decía «no se puede precisar qué vista queda tocada porque el
+    chequeo no declara qué alimenta». Es honesto, y también es un agujero con
+    arreglo trivial: **nadie lo había escrito**. Sin eso una alerta no se puede
+    priorizar — no es lo mismo «un cron falló» que «el AuM de hoy está mal»."""
+    from api.services.av_agent_salud import JOBS, _lente_aguas_abajo
+
+    c = {"id": "job:mercado_1816_series", "familia": "job"}
+    d = _lente_aguas_abajo(c)["detalle"]
+    assert "RESEARCH" in d and "1816" in d
+
+    # El job más caro de perder tiene que decirlo con todas las letras.
+    assert "AuM" in JOBS["portafolio_backfill"]["alimenta"]
+    # Y los que dependen de 1816 están marcados: es lo que deja conectar un fallo
+    # con la cuota de 50 tokens/día sin que nadie se acuerde.
+    assert "1816" in JOBS["mercado_1816_series"]["depende_de"]

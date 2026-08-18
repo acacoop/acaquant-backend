@@ -2577,6 +2577,26 @@ realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
 
+- **2026-08-17 — SALUD deja de estar aislada: el agente LEE EL LOG y propone el
+  comando.** El user, mirando el diagnóstico de `mercado_1816_series`: *«sigo
+  viendo aislado del agente… es la oportunidad perfecta para meter todo en el
+  agente, y que tenga acceso a los logs o detectar bien el error que dio y
+  analizarlo, y poder dar sugerencia como volver a correr»*. Tenía dos razones.
+  **(1)** La fusión estaba solo en el backend: el front nunca llamaba a
+  `/av-agent/salud`, así que en pantalla seguían siendo dos mundos. Ahora `salud`
+  es la **cuarta puerta** del modal y comparte el MISMO componente que un bono —
+  de solo lectura, sin botón de aplicar. **(2)** El agente mandaba a *«revisar los
+  logs del scheduler»* **teniéndolos a mano**: `salud.detalle()` ya devolvía los
+  errores y las últimas 40 líneas del `JobRunLogger`. *Un diagnóstico que manda a
+  buscar lo que ya tiene enfrente no es un diagnóstico: es una derivación.* Tres
+  lentes nuevas: **el LOG** (los errores reales, a la vista), **la FIRMA** (cruza
+  el texto del error contra las lecciones — un 429 ya no es «revisá los logs»,
+  es *«esto es la cuota de 50 tokens/día, y así se resolvió»*) y el **ARREGLO con
+  el comando exacto**, que además avisa del cupo de 1816 ANTES de que la
+  re-corrida lo gaste al pedo. Más `JOBS`, el catálogo de **qué alimenta cada
+  job y de qué depende**: el diagnóstico decía «no se puede precisar qué vista
+  queda tocada» y era cierto —nadie lo había escrito nunca— y sin eso una alerta
+  no se puede priorizar. 2 tests (117).
 - **2026-08-17 — LA MEMORIA: nada se desperdicia.** El user encontró al agente
   contradiciéndose en OLC3O — la lente del precio decía «ninguna fuente local
   tiene un precio mayor que 0» y tres pasos más abajo la MISMA pantalla mostraba

@@ -40,7 +40,14 @@ from datetime import UTC, date, datetime, timedelta
 from api.services._sql import _q
 from core.calendario import es_habil, proximo_habil
 from jobs.aum import _SESSION, POSICION_URL, autenticar, obtener_cuentas
-from jobs.control_saldos import MONEDAS, SIGNO, UMBRALES, _traer, parsear
+from jobs.control_saldos import (
+    ESTADOS_DIFERIDOS,
+    MONEDAS,
+    SIGNO,
+    UMBRALES,
+    _traer,
+    parsear,
+)
 from jobs.portafolio_backfill import (
     _PARAMS_BASE,
     _load_assets_map,
@@ -120,6 +127,31 @@ def por_moneda(filas: list[dict]) -> dict[str, dict]:
         d["liq"] += _num(r.get("cantidadLiquidada"))
         d["pen"] += _num(r.get("cantidadPendienteLiquidar"))
     return g
+
+
+def mostrar_por_estado(filas: list[dict]) -> None:
+    """Desglose por ESTADO — DIS disponible / GAR garantía / DIF diferido.
+
+    Es la columna que explicó el fantasma de los 5.000 millones (2026-08-19): un
+    DIF es un DIFERIDO y no es saldo líquido, pero Aunesa manda su importe en la
+    columna `cantidadLiquidada` igual. Verlo desglosado es lo único que permite
+    darse cuenta — sumado, el número no delata nada.
+    """
+    print("\n── 2b) POR ESTADO (DIS disponible · GAR garantía · DIF diferido) ─────────")
+    g: dict[tuple[str, str], dict] = {}
+    for r in filas:
+        k = (str(r.get("especie") or "").strip().upper(),
+             (str(r.get("estado") or "").strip().upper() or "?"))
+        d = g.setdefault(k, {"liq": 0.0, "pen": 0.0, "n": 0})
+        d["liq"] += _num(r.get("cantidadLiquidada"))
+        d["pen"] += _num(r.get("cantidadPendienteLiquidar"))
+        d["n"] += 1
+    print(f"   {'especie':<10} {'estado':<7} {'filas':>5} {'LIQUIDADA':>20} "
+          f"{'PENDIENTE':>20}   ¿cuenta como líquido?")
+    for (esp, est), d in sorted(g.items()):
+        cuenta = "NO — va al pendiente" if est in ESTADOS_DIFERIDOS else "sí"
+        print(f"   {esp[:10]:<10} {est:<7} {d['n']:>5} {SIGNO * d['liq']:>20,.2f} "
+              f"{SIGNO * d['pen']:>20,.2f}   {cuenta}")
 
 
 def mostrar_por_moneda(g: dict[str, dict]) -> None:
@@ -290,6 +322,7 @@ def main() -> int:
         filas = crudas(raw, moneda, con_titulos)
         g = por_moneda(filas)
         mostrar_crudas(filas)
+        mostrar_por_estado(filas)
         mostrar_por_moneda(g)
         mostrar_persistido(raw, idc, denom, g)
         mostrar_tabla(idc)

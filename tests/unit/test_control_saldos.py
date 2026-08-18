@@ -7,12 +7,20 @@ de monedas se afloja, entran títulos a un tablero que es de efectivo.
 """
 from __future__ import annotations
 
-from jobs.control_saldos import MONEDAS, SIGNO, UMBRALES, _nombre_cuenta, parsear
+from jobs.control_saldos import (
+    ESTADOS_DIFERIDOS,
+    MONEDAS,
+    SIGNO,
+    UMBRALES,
+    _nombre_cuenta,
+    parsear,
+)
 
 
-def _fila(especie: str, liq: float, pen: float = 0.0, tipo: str = "Moneda") -> dict:
+def _fila(especie: str, liq: float, pen: float = 0.0, tipo: str = "Moneda",
+          estado: str = "DIS") -> dict:
     return {"especie": especie, "tipoTitulo": tipo, "cantidadLiquidada": liq,
-            "cantidadPendienteLiquidar": pen, "estado": "DIS", "subCuenta": "GRAL"}
+            "cantidadPendienteLiquidar": pen, "estado": estado, "subCuenta": "GRAL"}
 
 
 def _por_ticker(registros: list[dict]) -> dict[str, dict]:
@@ -137,3 +145,52 @@ def test_el_nombre_de_cuenta_es_IDEMPOTENTE():
     # Y el invariante que lo define: aplicarlo N veces da lo mismo que una.
     una = _nombre_cuenta("1243", "BERDIÑAS, MARIANA")
     assert _nombre_cuenta("1243", una) == una
+
+
+def test_UN_DIFERIDO_NO_ES_SALDO_LIQUIDO():
+    """Caso real 2026-08-19, con los números tal cual salieron de Aunesa.
+
+    Una cuenta que está en CERO figuraba con 5.000 millones a favor: el ingreso
+    DIFERIDO entraba al saldo líquido y la contrapartida que lo cancela vivía en
+    el `pendiente` de la otra fila. Esa asimetría era el fantasma — y no es solo
+    un número feo: una cuenta con miles de millones inventados se lleva puesto
+    el top de la pantalla.
+    """
+    assert "DIF" in ESTADOS_DIFERIDOS
+    regs, _ = parsear(
+        [_fila("ARS", -5_000_000_000.0, 0.0, estado="DIF"),
+         _fila("ARS", 0.05, 4_999_998_960.0, estado="DIS")],
+        "X", "TEST")
+    # -0,05 real: cero, y además por debajo del umbral → ni se persiste.
+    assert regs == [], "la cuenta está en cero: no tiene que aparecer"
+
+
+def test_el_diferido_va_al_PENDIENTE_no_desaparece():
+    """El importe del DIF no se tira: cambia de columna. El total liquidado +
+    pendiente sigue siendo el mismo número de antes (1.039,95 en el caso real)."""
+    regs, _ = parsear(
+        [_fila("ARS", -5_000_000_000.0, 0.0, estado="DIF"),
+         _fila("ARS", -1_000_000.0, 4_999_998_960.0, estado="DIS")],
+        "X", "TEST")
+    ars = {r["ticker"]: r for r in regs}["ARS"]
+    assert ars["cantidad"] == 1_000_000.0                       # solo la fila DIS
+    assert ars["cantidad_pendiente"] == round(SIGNO * (4_999_998_960.0 - 5_000_000_000.0), 4)
+    assert ars["cantidad"] + ars["cantidad_pendiente"] == 1_001_040.0
+
+
+def test_la_805_NO_CAMBIA_con_la_regla_del_diferido():
+    """La 805 la validó el back office a mano: sus dos filas son DIS, así que la
+    regla nueva no la puede tocar. Es el control de que el arreglo no rompe lo
+    que ya estaba bien."""
+    regs, _ = parsear(
+        [_fila("ARS", 0.0, 345_082.90), _fila("ARS", -56_095.90, -5_159.78)],
+        "805", "TEST")
+    assert {r["ticker"]: r for r in regs}["ARS"]["cantidad"] == 56_095.90
+
+
+def test_la_garantia_SIGUE_contando_como_liquida():
+    """GAR es plata que SÍ liquidó y está inmovilizada — otra cosa que un
+    diferido. Sacarla sin medirlo sería inventar, así que no se toca."""
+    assert "GAR" not in ESTADOS_DIFERIDOS
+    regs, _ = parsear([_fila("ARS", -80_000.0, estado="GAR")], "X", "TEST")
+    assert {r["ticker"]: r for r in regs}["ARS"]["cantidad"] == 80_000.0

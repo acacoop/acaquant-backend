@@ -13,6 +13,10 @@ devuelve las dos cosas separadas: `cantidadLiquidada` (lo que ESTÁ) y
 `cantidadPendienteLiquidar` (lo que va a estar). Este daemon persiste la PRIMERA,
 que es la que contesta «¿esta cuenta está en descubierto HOY?».
 
+⚠️ Con una salvedad que costó cara: **el `estado` de la fila también decide**. Un
+`DIF` (diferido) NO está liquidado por más que Aunesa mande su importe en la
+columna `cantidadLiquidada` — ver `ESTADOS_DIFERIDOS`.
+
 Medido contra la cuenta 805 el 2026-08-13 (`scripts/diag_posiciones_resumen`):
   · formato de `fecha` = **DD/MM/YYYY**. Con `YYYY-MM-DD` devuelve HTTP 400
     («Error en formato de fechas») — no es un detalle de estilo, es el contrato.
@@ -136,6 +140,31 @@ SIGNO = -1
 # un número ahí sería inventarlo. Con 0 no se filtra nada (el `abs(...) < 0` nunca
 # se cumple), así que las monedas dólar siguen mostrándose enteras.
 UMBRALES: dict[str, float] = {"ARS": 15_000.0}
+
+# ESTADOS cuyo importe NO cuenta como saldo líquido, aunque Aunesa lo mande en
+# la columna `cantidadLiquidada`.
+#
+# El `estado` de Aunesa es DIS (disponible) / GAR (garantía) / DIF (diferido) —
+# el mismo que ya usa `portafolio_backfill._parse` para separar lo que está en
+# garantía. Hasta el 2026-08-19 este job lo IGNORABA y sumaba todas las filas
+# como líquidas, y eso rompía así:
+#
+#     ARS  DIF  liquidada = -5.000.000.000   pendiente = 0
+#     ARS  DIS  liquidada =           0,05   pendiente = 4.999.998.960
+#
+# Sumando ciego, la cuenta figuraba con **5.000 millones a favor** cuando en
+# realidad está en cero: el ingreso DIFERIDO entraba al saldo líquido mientras
+# la contrapartida que lo cancela vivía en el `pendiente` de la otra fila. Esa
+# asimetría era el fantasma — y es peor que un número feo, porque una cuenta con
+# miles de millones inventados se lleva puesto el top de la pantalla.
+#
+# Con DIF del lado pendiente esa cuenta da -0,05 (cero, y por debajo del umbral,
+# así que ni aparece) y la 805 —validada a mano por el back office— NO cambia:
+# sus dos filas son DIS. Una regla que explica los dos casos.
+#
+# GAR (garantía) NO está acá a propósito: esa plata SÍ liquidó, está inmovilizada,
+# que es otra cosa. Meterla sin medirlo sería inventar.
+ESTADOS_DIFERIDOS: frozenset[str] = frozenset({"DIF"})
 
 # El endpoint rechaza ISO con HTTP 400. Verificado 2026-08-13.
 FMT_FECHA = "%d/%m/%Y"
@@ -379,7 +408,13 @@ def parsear(filas: list, idc: str, denom: str) -> tuple[list[dict], dict[str, in
                 descartadas[esp] = descartadas.get(esp, 0) + 1
             continue
         g = grupos.setdefault(esp, {"liq": 0.0, "pen": 0.0, "n": 0})
-        g["liq"] += _num(r.get("cantidadLiquidada"))
+        # UN DIFERIDO NO ESTÁ LIQUIDADO. El `estado` de la fila decide de qué
+        # lado cae su importe: lo de `ESTADOS_DIFERIDOS` va al PENDIENTE aunque
+        # Aunesa lo mande en la columna `cantidadLiquidada`.
+        if (r.get("estado") or "").strip().upper() in ESTADOS_DIFERIDOS:
+            g["pen"] += _num(r.get("cantidadLiquidada"))
+        else:
+            g["liq"] += _num(r.get("cantidadLiquidada"))
         g["pen"] += _num(r.get("cantidadPendienteLiquidar"))
         g["n"] += 1
 

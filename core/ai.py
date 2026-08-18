@@ -69,6 +69,15 @@ _TAREAS: dict[str, dict] = {
     # como output (lección del P2: con poco volvía vacía).
     "salud_diagnostico": {"tier": "pro", "max_tokens": 2500, "timeout_s": 120,
                           "thinking": "enabled"},
+    # AV AGENT — analista del DIAGNÓSTICO MASIVO (api/services/av_agent_analista.py).
+    # tier pro + thinking ENABLED: es análisis de PATRONES sobre decenas de casos,
+    # la tarea más pesada de todo el programa. Lo que se le pide NO es repetir los
+    # diagnósticos —esos ya los hizo el agente, deterministas— sino lo que ninguna
+    # fila individual puede decir: qué causas dominan, cuáles se contradicen entre
+    # sí, y cuáles huelen a bug del agente en vez de a dato mal cargado.
+    # max_tokens alto porque el razonamiento cuenta como output (lección del P2).
+    "av_agent_informe": {"tier": "pro", "max_tokens": 4000, "timeout_s": 180,
+                         "thinking": "enabled"},
     # P3 copiloto de mesa (api/services/copiloto.py): Q&A sobre los datos de UNA
     # vista de mercado, provistos en el prompt. thinking DISABLED: los datos ya
     # vienen dados y el razonamiento del v4-flash se derramaba en la respuesta

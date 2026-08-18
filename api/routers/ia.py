@@ -550,3 +550,19 @@ def av_agent_masivo_historial(limite: int = 15):
     un informe suelto no contesta."""
     from api.services import av_agent_masivo as svc
     return {"runs": svc.historial(limite)}
+
+
+@router.post("/av-agent/masivo/analizar", dependencies=[Depends(require_admin)])
+def av_agent_masivo_analizar(run_id: int | None = None,
+                             email: str = Depends(get_user_email)):
+    """**El informe, leído por la IA.** Le pide el PATRÓN — qué causas dominan,
+    qué huele a bug del agente, en qué orden atacar.
+
+    Los diagnósticos ya están hechos y son deterministas: acá la IA no los toca
+    ni inventa números. Si no está disponible, el informe determinista sigue
+    entero. El análisis queda pegado a su corrida."""
+    from api.services import av_agent_analista, av_agent_masivo
+    run = av_agent_masivo.estado(run_id)
+    if not run.get("ok"):
+        return run
+    return av_agent_analista.analizar(run, usuario=email or "")

@@ -4100,3 +4100,10 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_runs (
 );
 
 CREATE INDEX IF NOT EXISTS ix_av_runs_creado ON mercado.av_agent_runs (creado_at DESC);
+
+-- El ANÁLISIS con IA del informe masivo (2026-08-18, ver av_agent_analista.py).
+-- Pegado a SU corrida: sin esto habría que volver a pagarlo cada vez que se
+-- reabre el informe — y peor, dos lecturas del mismo informe podrían decir
+-- cosas distintas.
+ALTER TABLE mercado.av_agent_runs ADD COLUMN IF NOT EXISTS analisis    text;
+ALTER TABLE mercado.av_agent_runs ADD COLUMN IF NOT EXISTS analisis_at timestamptz;

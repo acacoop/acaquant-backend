@@ -4059,3 +4059,44 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_control (
 );
 
 INSERT INTO mercado.av_agent_control (id) VALUES (true) ON CONFLICT DO NOTHING;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- mercado.av_agent_runs — EL DIAGNÓSTICO MASIVO (2026-08-18).
+--
+-- Pedido del user: *«un botón que haga un estado de situación con los que dieron
+-- error, los que dieron bien, etc., bien completo, que quede para copiar y pegar
+-- así te paso las respuestas»*.
+--
+-- **Por qué es una TABLA y no un request que devuelve un JSON.** El límite del
+-- plan de 1816 es **1 petición por segundo**, y el throttle es global entre
+-- procesos. 68 bonos con `cashflow` son ~82 segundos de piso y 2-3 minutos
+-- reales: ningún request HTTP sobrevive a eso (el propio agente aborta a los 45s
+-- por `_PRESUPUESTO_S`). Así que la corrida vive en background y el modal
+-- pollea — y de yapa se puede frenar a la mitad y el informe queda para
+-- reabrirlo y compararlo con el de la semana que viene.
+--
+-- `informe` guarda el resultado de CADA caso, no un resumen: el agregado se
+-- deriva en la lectura. Un resumen persistido se contradice con su propio
+-- detalle en cuanto cambia la forma de agrupar.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_runs (
+    id          bigserial PRIMARY KEY,
+    creado_at   timestamptz NOT NULL DEFAULT now(),
+    fin_at      timestamptz,
+    -- corriendo | terminado | frenado | error | interrumpido
+    -- `interrumpido` NO lo escribe la corrida (si el proceso murió, no puede
+    -- escribir nada): lo deduce el lector cuando ve un `corriendo` sin latido.
+    estado      text NOT NULL DEFAULT 'corriendo',
+    por         text,
+    filtro      jsonb,              -- qué se pidió: tipo, regla, búsqueda, tickers
+    total       integer NOT NULL DEFAULT 0,
+    hechos      integer NOT NULL DEFAULT 0,
+    latido_at   timestamptz,        -- para distinguir "corriendo" de "murió el proceso"
+    sin_red     boolean NOT NULL DEFAULT false,
+    tope_creditos integer,
+    creditos    integer,            -- consumidos, medidos contra /balance
+    error       text,
+    informe     jsonb NOT NULL DEFAULT '[]'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS ix_av_runs_creado ON mercado.av_agent_runs (creado_at DESC);

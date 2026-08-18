@@ -494,3 +494,59 @@ def av_agent_control_parada(body: ParadaAvAgent, email: str = Depends(get_user_e
     from api.services import av_agent_control
     return av_agent_control.set_parada(activa=body.activa, motivo=body.motivo,
                                        por=email or "")
+
+
+# ── EL DIAGNÓSTICO MASIVO (2026-08-18) ───────────────────────────────────────
+
+
+class MasivoAvAgent(BaseModel):
+    # Los casos los manda el FRONT porque son exactamente los que el usuario está
+    # viendo con su filtro puesto — «diagnosticá estos 30» y no «diagnosticá lo
+    # que vos creas». Que el backend re-derivara el filtro sería una segunda
+    # implementación del mismo criterio, y la pantalla podría mostrar una cosa y
+    # la corrida hacer otra.
+    casos: list[dict] = Field(default_factory=list)
+    filtro: dict = Field(default_factory=dict)
+    # `sin_red` deja el análisis determinista disponible sin gastar un crédito ni
+    # pagar la cola de 1,2s por caso. El default es CON red: el user lo pidió
+    # explícito («los créditos están para gastarlos»), y lo que de verdad se cuida
+    # es el reloj, no el saldo.
+    sin_red: bool = False
+    tope_creditos: int | None = Field(None, ge=100, le=50_000)
+
+
+@router.post("/av-agent/masivo", dependencies=[Depends(require_admin)])
+def av_agent_masivo(body: MasivoAvAgent, email: str = Depends(get_user_email)):
+    """**Arranca el diagnóstico masivo** y devuelve el id al instante.
+
+    Corre en background porque el plan de 1816 permite 1 petición por segundo:
+    68 bonos son 2-3 minutos y ningún request HTTP sobrevive a eso."""
+    from api.services import av_agent_masivo as svc
+    return svc.arrancar(body.casos, por=email or "", filtro=body.filtro,
+                        sin_red=body.sin_red,
+                        tope_creditos=body.tope_creditos
+                        if body.tope_creditos is not None
+                        else svc.TOPE_CREDITOS_DEFAULT)
+
+
+@router.get("/av-agent/masivo", dependencies=[Depends(require_admin)])
+def av_agent_masivo_estado(run_id: int | None = None):
+    """El progreso + el informe PARCIAL (se puede mirar mientras corre) + el
+    bloque de texto para copiar. Sin `run_id`, el último."""
+    from api.services import av_agent_masivo as svc
+    return svc.estado(run_id)
+
+
+@router.post("/av-agent/masivo/frenar", dependencies=[Depends(require_admin)])
+def av_agent_masivo_frenar(run_id: int):
+    """Corta la corrida en el próximo caso. Lo ya diagnosticado queda."""
+    from api.services import av_agent_masivo as svc
+    return svc.frenar(run_id)
+
+
+@router.get("/av-agent/masivo/historial", dependencies=[Depends(require_admin)])
+def av_agent_masivo_historial(limite: int = 15):
+    """Las corridas anteriores — «esto mejoró, esto empeoró» es la pregunta que
+    un informe suelto no contesta."""
+    from api.services import av_agent_masivo as svc
+    return {"runs": svc.historial(limite)}

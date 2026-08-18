@@ -1,0 +1,402 @@
+"""api/services/av_agent_masivo.py — EL DIAGNÓSTICO MASIVO del AV Agent.
+
+Doc madre: **`docs/AV_AGENT.md`** §0.i.
+
+**Qué contesta.** *«De los 68 hallazgos, cuáles se explican, cuáles no, y por
+qué»* — en un solo informe, agrupado por causa y listo para copiar.
+
+Pedido del user (2026-08-18): *«un botón que haga un estado de situación con los
+que dieron error, los que dieron bien, etc., bien completo, que quede para copiar
+y pegar así te paso las respuestas»*.
+
+**Por qué importa más de lo que parece.** Hoy los diagnósticos se miran de a uno,
+y de a uno no se ven los patrones. Un informe de 68 muestra cosas que ninguna
+fila individual puede mostrar: que 68 casos son 4 causas (el trabajo real es más
+chico de lo que parece), que la verificación de una causa NO vuelve al rango en
+12 de ellos (entonces esa causa está mal), o que 9 fallan con la misma excepción
+(eso es UN bug de código disfrazado de 9 hallazgos). El bug de `moneda_flujo` se
+encontró justo así, comparando 8 hallazgos contra 30 bonos.
+
+**Por qué corre en BACKGROUND.** El plan de 1816 permite **1 petición por
+segundo** y el throttle es global entre procesos (`core/mercado_1816._throttle`).
+68 bonos con `cashflow` son ~82 segundos de piso y 2-3 minutos reales; ningún
+request HTTP sobrevive a eso — el propio agente aborta a los 45s por
+`_PRESUPUESTO_S`. Así que se arranca, se devuelve un id y el modal pollea.
+
+⚠️ **La corrida vive en un thread del proceso de la API** (uvicorn corre sin
+workers). Si se reinicia la API a mitad de camino, el thread muere y la fila
+queda en `corriendo` para siempre — por eso hay `latido_at`: un `corriendo` sin
+latido reciente se LEE como `interrumpido`. La corrida no puede escribir su
+propia lápida.
+
+**No se re-implementa ningún diagnóstico.** Cada caso pasa por la MISMA puerta
+que usa el modal (`simular_arreglo`, `simular_flujos`, `simular`,
+`salud.diagnosticar`) — dos caminos al mismo diagnóstico terminan
+contradiciéndose, que es el bug que este agente ya se comió tres veces.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import threading
+import time
+from datetime import UTC, datetime
+
+from core.postgres import get_pool
+
+logger = logging.getLogger(__name__)
+
+# Cuánto puede pasar sin latido antes de leer un `corriendo` como muerto. Con el
+# throttle de 1,2s y algún reintento, un caso lento tarda decenas de segundos:
+# 3 minutos deja margen de sobra sin dejar un run zombie a la vista todo el día.
+_LATIDO_MUERTO_S = 180
+
+# Tope de créditos por corrida. **No es para ahorrar** —el plan da 100.000
+# diarios y usamos ~4.000—: es para que un bug que pida `cashflow` en loop se
+# corte en 5.000 y no en 100.000. Un tope que nunca se toca no molesta a nadie;
+# el día que se toca, avisó de un bug.
+TOPE_CREDITOS_DEFAULT = 5000
+
+# Cada cuántos casos se relee el saldo. Cuesta 1 crédito y una llamada (o sea
+# 1,2s de la cola, que es el recurso escaso de verdad), así que no se hace por
+# caso. Con 10 el tope se detecta con un sobrepaso acotado.
+_CADA_CUANTO_SALDO = 10
+
+# Los runs vivos de ESTE proceso, para poder frenarlos. La fila de la base dice
+# `frenado`; esto es lo que hace que el thread se entere sin pollear la base en
+# cada vuelta.
+_frenar: set[int] = set()
+
+
+# ── La base ─────────────────────────────────────────────────────────────────
+
+def _crear(*, por: str, filtro: dict, total: int, sin_red: bool,
+           tope: int | None) -> int:
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO mercado.av_agent_runs (por, filtro, total, sin_red, "
+            " tope_creditos, latido_at) VALUES (%s, %s::jsonb, %s, %s, %s, now()) "
+            "RETURNING id",
+            (por or None, json.dumps(filtro, ensure_ascii=False, default=str),
+             total, sin_red, tope))
+        rid = cur.fetchone()[0]
+        conn.commit()
+    return int(rid)
+
+
+def _latir(run_id: int, hechos: int, informe: list[dict]) -> None:
+    """Progreso + informe parcial. Se escribe el informe ENTERO en cada vuelta
+    (no un append) porque así el que pollea ve resultados desde el primer caso —
+    un informe que aparece solo al final no deja abortar una corrida que ya se ve
+    mal, que es justo cuando uno quiere abortarla."""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE mercado.av_agent_runs SET hechos = %s, "
+                        "latido_at = now(), informe = %s::jsonb WHERE id = %s",
+                        (hechos, json.dumps(informe, ensure_ascii=False, default=str),
+                         run_id))
+            conn.commit()
+    except Exception as e:
+        logger.warning("av_agent_masivo: no se pudo latir el run %s: %s", run_id, e)
+
+
+def _cerrar(run_id: int, estado: str, *, creditos: int | None = None,
+            error: str = "") -> None:
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE mercado.av_agent_runs SET estado = %s, fin_at = now(), "
+                        "latido_at = now(), creditos = %s, error = %s WHERE id = %s",
+                        (estado, creditos, (error or None)[:2000] if error else None,
+                         run_id))
+            conn.commit()
+    except Exception as e:
+        logger.warning("av_agent_masivo: no se pudo cerrar el run %s: %s", run_id, e)
+
+
+# ── La corrida ──────────────────────────────────────────────────────────────
+
+def _saldo() -> int | None:
+    """Créditos usados hoy, según 1816. `None` si no se pudo leer — y entonces el
+    tope no se puede aplicar, cosa que el informe DICE en vez de simular que sí."""
+    try:
+        from core import mercado_1816
+        return (mercado_1816.balance() or {}).get("daily", {}).get("used")
+    except Exception:
+        return None
+
+
+def _diagnosticar_uno(caso: dict, sin_red: bool) -> dict:
+    """UN caso, por la misma puerta que el modal. Devuelve la fila del informe.
+
+    Nunca levanta: una excepción en el caso 7 no puede tumbar los 61 restantes —
+    se anota como `error` y la corrida sigue. Un informe que se corta en el primer
+    problema no sirve justamente para el día que hay problemas.
+    """
+    sujeto = caso.get("ticker") or "?"
+    accion = caso.get("accion") or ""
+    fila = {"sujeto": sujeto, "tipo": caso.get("tipo"), "regla": caso.get("regla"),
+            "accion": accion, "motivo_hallazgo": caso.get("motivo")}
+    t0 = time.perf_counter()
+    try:
+        if accion == "salud":
+            from api.services import av_agent_salud
+            r = av_agent_salud.diagnosticar(sujeto, con_ia=False)
+        elif accion == "flujos":
+            from api.services import av_agent_alta
+            r = av_agent_alta.simular_flujos(sujeto)
+        elif accion == "alta":
+            from api.services import av_agent_alta
+            r = av_agent_alta.simular(
+                sujeto, curva_1816=str((caso.get("evidencia") or {}).get("curva_1816") or ""))
+        elif accion == "arreglo":
+            from api.services import av_agent_alta
+            r = av_agent_alta.simular_arreglo(sujeto)
+        else:
+            # Un hallazgo sin acción no es un fallo: es que el agente lo ve y
+            # todavía no sabe tocarlo. Decirlo es más útil que omitirlo — es
+            # exactamente la lista de lo que falta construir.
+            return {**fila, "estado": "sin_puerta",
+                    "detalle": "el agente lo ve pero todavía no tiene qué hacer con esto",
+                    "segundos": 0.0}
+    except Exception as e:
+        return {**fila, "estado": "error", "detalle": f"{type(e).__name__}: {e}",
+                "segundos": round(time.perf_counter() - t0, 2)}
+
+    seg = round(time.perf_counter() - t0, 2)
+    if not r.get("ok"):
+        return {**fila, "estado": "no_pudo", "detalle": str(r.get("error") or "")[:400],
+                "segundos": seg}
+
+    ver = r.get("veredicto") or {}
+    pasos = r.get("chequeos") or []
+    # La CAUSA es lo que agrupa el informe: 68 casos se vuelven 4 líneas.
+    causa = r.get("causa") or (r.get("diagnostico") or {}).get("causa") or ""
+    return {
+        **fila,
+        # `listo` = el agente sabe qué hacer y la cadena lo habilita. Es la
+        # pregunta que uno le hace al informe, y por eso es un estado y no algo
+        # que haya que deducir mirando dos campos.
+        "estado": "listo" if ver.get("puede_aplicar") else "bloqueado",
+        "causa": causa,
+        "veredicto": ver.get("texto") or "",
+        "sin_red": bool(r.get("sin_red")),
+        "tea": r.get("tea"),
+        "antes": r.get("antes"),
+        "propuesta": r.get("parche") or r.get("propuesta"),
+        # Solo los pasos que NO están en verde: el informe es para leer, y 10
+        # pasos × 68 casos son 680 líneas donde lo que importa son las que fallan.
+        "trabas": [{"paso": p.get("titulo"), "estado": p.get("estado"),
+                    "detalle": str(p.get("detalle") or "")[:300]}
+                   for p in pasos if p.get("estado") in ("bloquea", "revisar")],
+        "segundos": seg,
+    }
+
+
+def _correr(run_id: int, casos: list[dict], sin_red: bool, tope: int | None) -> None:
+    """El bucle. Corre en su propio thread; **no levanta nunca hacia afuera**."""
+    informe: list[dict] = []
+    saldo_ini = None if sin_red else _saldo()
+    creditos = None
+    estado_final, err = "terminado", ""
+    try:
+        for i, caso in enumerate(casos, 1):
+            if run_id in _frenar:
+                estado_final = "frenado"
+                break
+            informe.append(_diagnosticar_uno(caso, sin_red))
+            _latir(run_id, i, informe)
+
+            # El TOPE, cada N casos. Se mide contra 1816, no se estima: una
+            # estimación de créditos que se equivoca es peor que no tener tope.
+            if (tope and saldo_ini is not None and not sin_red
+                    and i % _CADA_CUANTO_SALDO == 0):
+                s = _saldo()
+                if s is not None:
+                    creditos = s - saldo_ini
+                    if creditos >= tope:
+                        estado_final = "frenado"
+                        err = (f"se alcanzó el tope de {tope} créditos en el caso "
+                               f"{i} de {len(casos)} — el resto quedó sin mirar")
+                        break
+    except Exception as e:                       # defensa de última línea
+        estado_final, err = "error", f"{type(e).__name__}: {e}"
+        logger.exception("av_agent_masivo: el run %s murió", run_id)
+    finally:
+        _frenar.discard(run_id)
+        if saldo_ini is not None:
+            s = _saldo()
+            if s is not None:
+                creditos = s - saldo_ini
+        _latir(run_id, len(informe), informe)
+        _cerrar(run_id, estado_final, creditos=creditos, error=err)
+
+
+# ── La API del service ──────────────────────────────────────────────────────
+
+def arrancar(casos: list[dict], *, por: str = "", filtro: dict | None = None,
+             sin_red: bool = False,
+             tope_creditos: int | None = TOPE_CREDITOS_DEFAULT) -> dict:
+    """Arranca la corrida y devuelve el id **al instante**. El trabajo sigue en
+    background: con 1 petición por segundo, esperar el resultado no es una
+    opción."""
+    casos = [c for c in (casos or []) if c.get("ticker")]
+    if not casos:
+        return {"ok": False, "error": "no hay casos para diagnosticar"}
+    if len(casos) > 500:
+        return {"ok": False, "error": f"son {len(casos)} casos: filtrá primero. "
+                                      f"A 1,2s por llamada eso es más de 10 minutos."}
+    rid = _crear(por=por, filtro=filtro or {}, total=len(casos), sin_red=sin_red,
+                 tope=tope_creditos)
+    t = threading.Thread(target=_correr, args=(rid, casos, sin_red, tope_creditos),
+                         name=f"av-masivo-{rid}", daemon=True)
+    t.start()
+    return {"ok": True, "run_id": rid, "total": len(casos),
+            # La ESPERA estimada, dicha de entrada. Sin esto el que arranca una
+            # corrida de 3 minutos cree que se colgó y la vuelve a arrancar.
+            "segundos_estimados": 0 if sin_red else int(len(casos) * 1.4)}
+
+
+def frenar(run_id: int) -> dict:
+    """Corta la corrida en el próximo caso. Lo ya diagnosticado queda."""
+    _frenar.add(int(run_id))
+    return {"ok": True, "run_id": int(run_id)}
+
+
+def _fila(run_id: int | None) -> dict | None:
+    sql = ("SELECT id, creado_at, fin_at, estado, por, filtro, total, hechos, "
+           "latido_at, sin_red, tope_creditos, creditos, error, informe "
+           "FROM mercado.av_agent_runs ")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        if run_id:
+            cur.execute(sql + "WHERE id = %s", (run_id,))
+        else:
+            cur.execute(sql + "ORDER BY creado_at DESC LIMIT 1")
+        r = cur.fetchone()
+    if not r:
+        return None
+    cols = ["id", "creado_at", "fin_at", "estado", "por", "filtro", "total", "hechos",
+            "latido_at", "sin_red", "tope_creditos", "creditos", "error", "informe"]
+    d = dict(zip(cols, r, strict=True))
+    for k in ("creado_at", "fin_at", "latido_at"):
+        d[k] = d[k].isoformat() if d[k] else None
+    return d
+
+
+def estado(run_id: int | None = None) -> dict:
+    """El run pedido (o el último). Trae el informe parcial: se puede mirar
+    mientras corre."""
+    d = _fila(run_id)
+    if not d:
+        return {"ok": False, "error": "no hay ninguna corrida"}
+
+    # **`interrumpido` se DEDUCE, no se escribe.** Si el proceso murió no pudo
+    # dejar constancia; un `corriendo` sin latido reciente es la única evidencia
+    # que queda, y mostrarlo como «corriendo» para siempre sería mentir.
+    if d["estado"] == "corriendo" and d["latido_at"]:
+        edad = (datetime.now(UTC)
+                - datetime.fromisoformat(d["latido_at"])).total_seconds()
+        if edad > _LATIDO_MUERTO_S:
+            d["estado"] = "interrumpido"
+            d["error"] = (f"sin señales hace {edad / 60:.0f} min — probablemente se "
+                          f"reinició la API. Lo diagnosticado hasta ahí queda.")
+    d["ok"] = True
+    d["resumen"] = _resumen(d["informe"] or [])
+    d["texto"] = informe_texto(d)
+    return d
+
+
+def _resumen(informe: list[dict]) -> dict:
+    """El agregado se DERIVA del detalle, nunca se persiste: un resumen guardado
+    se contradice con sus propios casos en cuanto cambia la forma de agrupar."""
+    por_estado: dict[str, int] = {}
+    por_causa: dict[str, int] = {}
+    for f in informe:
+        por_estado[f.get("estado") or "?"] = por_estado.get(f.get("estado") or "?", 0) + 1
+        if f.get("causa"):
+            por_causa[f["causa"]] = por_causa.get(f["causa"], 0) + 1
+    return {"por_estado": por_estado,
+            "por_causa": dict(sorted(por_causa.items(), key=lambda kv: -kv[1])),
+            "segundos": round(sum(float(f.get("segundos") or 0) for f in informe), 1)}
+
+
+# ── EL INFORME, en texto plano ──────────────────────────────────────────────
+#
+# Es el punto del pedido: *«que quede para copiar y pegar así te paso las
+# respuestas»*. Se arma en el BACKEND y no en el front porque el que lo lee (una
+# persona o un modelo) tiene que ver exactamente lo mismo que la pantalla — dos
+# renderizados del mismo informe se desincronizan al primer cambio.
+
+_ORDEN_ESTADO = ["error", "no_pudo", "bloqueado", "sin_puerta", "listo"]
+
+_QUE_ES = {
+    "error": "EXPLOTARON (excepción — esto es un bug, no un bono mal cargado)",
+    "no_pudo": "NO SE PUDIERON DIAGNOSTICAR (falta un insumo)",
+    "bloqueado": "DIAGNOSTICADOS pero la cadena NO habilita aplicar",
+    "sin_puerta": "SIN PUERTA (el agente los ve y todavía no sabe tocarlos)",
+    "listo": "LISTOS PARA APLICAR",
+}
+
+
+def informe_texto(run: dict) -> str:
+    """El bloque para copiar. Ordenado por lo que hay que mirar primero: los que
+    explotaron arriba, los que están listos abajo."""
+    inf = run.get("informe") or []
+    res = _resumen(inf)
+    L: list[str] = []
+    L.append(f"AV AGENT — DIAGNÓSTICO MASIVO #{run.get('id')}")
+    L.append(f"{run.get('creado_at') or ''} · estado: {run.get('estado')} · "
+             f"{run.get('hechos')}/{run.get('total')} casos")
+    if run.get("filtro"):
+        L.append(f"filtro: {json.dumps(run['filtro'], ensure_ascii=False)}")
+    L.append(f"modo: {'SIN RED (cero créditos)' if run.get('sin_red') else '1816 habilitado'}"
+             + (f" · créditos usados: {run['creditos']}" if run.get("creditos") is not None
+                else "")
+             + f" · {res['segundos']}s de cálculo")
+    if run.get("error"):
+        L.append(f"⚠ {run['error']}")
+    L.append("")
+
+    L.append("── RESUMEN ─────────────────────────────────────────────")
+    for e in _ORDEN_ESTADO:
+        if res["por_estado"].get(e):
+            L.append(f"  {res['por_estado'][e]:>3}  {_QUE_ES[e]}")
+    for e, n in res["por_estado"].items():          # cualquier estado nuevo
+        if e not in _QUE_ES:
+            L.append(f"  {n:>3}  {e}")
+    if res["por_causa"]:
+        L.append("")
+        L.append("  POR CAUSA (esto es lo que dice cuánto trabajo hay de verdad):")
+        for c, n in res["por_causa"].items():
+            L.append(f"    {n:>3}  {c}")
+    L.append("")
+
+    for e in _ORDEN_ESTADO:
+        filas = [f for f in inf if f.get("estado") == e]
+        if not filas:
+            continue
+        L.append(f"── {_QUE_ES[e]} ({len(filas)}) ──")
+        for f in filas:
+            L.append(f"  {f['sujeto']}  [{f.get('regla') or f.get('tipo') or ''}]")
+            if f.get("causa"):
+                L.append(f"      causa:   {f['causa']}")
+            if f.get("veredicto"):
+                L.append(f"      cadena:  {f['veredicto']}")
+            if f.get("detalle"):
+                L.append(f"      detalle: {f['detalle']}")
+            for t in (f.get("trabas") or [])[:6]:
+                L.append(f"      · [{t['estado']}] {t['paso']}: {t['detalle']}")
+        L.append("")
+    return "\n".join(L)
+
+
+def historial(limite: int = 15) -> list[dict]:
+    """Las corridas anteriores, para poder comparar: *«esto mejoró, esto
+    empeoró»* es la pregunta que un informe suelto no contesta."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id, creado_at, estado, total, hechos, sin_red, creditos "
+                    "FROM mercado.av_agent_runs ORDER BY creado_at DESC LIMIT %s",
+                    (max(1, min(50, limite)),))
+        rows = cur.fetchall()
+    return [{"id": r[0], "creado_at": r[1].isoformat() if r[1] else None,
+             "estado": r[2], "total": r[3], "hechos": r[4], "sin_red": r[5],
+             "creditos": r[6]} for r in rows]

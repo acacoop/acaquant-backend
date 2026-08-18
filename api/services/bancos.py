@@ -366,6 +366,31 @@ def _overrides(fecha: date) -> dict[str, bool]:
             WHERE m.fecha = %s""", (fecha,))}
 
 
+def _ajuste_manual(fecha: date) -> dict[int, dict]:
+    """{cuenta_id: {"ajuste": x, "movimientos": n}} de UN día. Una sola query.
+
+    El ajuste es **crédito menos débito**: lo que los movimientos manuales le
+    suman o le restan al saldo de esa cuenta ese día.
+    """
+    return {r["cuenta_id"]: {"ajuste": _f(r["ajuste"]) or 0.0, "movimientos": r["n"]}
+            for r in _q(
+                """SELECT cuenta_id,
+                          sum(CASE WHEN tipo = 'C' THEN importe ELSE -importe END) AS ajuste,
+                          count(*) AS n
+                     FROM bancos.movimientos_manuales
+                    WHERE fecha = %s
+                    GROUP BY cuenta_id""", (fecha,))}
+
+
+def _manuales_de(fecha: date, cuenta_id: int) -> list[dict]:
+    """Los movimientos manuales de UNA cuenta en UN día, para el modal."""
+    return _q(
+        """SELECT id, fecha, descripcion, importe, tipo, creado_por, creado_at
+             FROM bancos.movimientos_manuales
+            WHERE fecha = %s AND cuenta_id = %s
+            ORDER BY creado_at""", (fecha, cuenta_id))
+
+
 def _gastos_bancarios(fecha: date, baldes: list[dict]) -> dict[int, dict]:
     """{cuenta_id: {"total": x, "<balde>": y, ...}}. Se DERIVA, no se persiste.
 
@@ -432,6 +457,10 @@ def _cuenta_publica(r: dict) -> dict:
         "etiqueta": (r.get("account_label") or "").strip(),
         "numero": str(r.get("account_number") or "").strip(),
         "activa": r.get("activa"),
+        # `manual` = la cargó una persona, no Interbanking. La vista lo marca:
+        # una cuenta cuyo saldo no lo informa ningún banco no vale lo mismo que
+        # una conciliada contra un extracto.
+        "manual": (r.get("origen") or "interbanking") == "manual",
     }
 
 
@@ -474,6 +503,23 @@ def _movimiento_publico(r: dict) -> dict:
     }
 
 
+def _manual_publico(r: dict) -> dict:
+    """Un movimiento manual, con las MISMAS claves que uno del banco: así la
+    pantalla los dibuja en la misma tabla sin un segundo juego de columnas. Lo
+    que los distingue es `manual`, que la fila usa para marcarse y para ofrecer
+    borrarla — un movimiento del banco no se borra, este sí."""
+    return {
+        "id": r["id"],
+        "manual": True,
+        "fecha": r["fecha"].isoformat() if r.get("fecha") else None,
+        "hora": r["creado_at"].strftime("%H:%M") if r.get("creado_at") else None,
+        "importe": _f(r.get("importe")),
+        "tipo": r.get("tipo"),
+        "descripcion": (r.get("descripcion") or "").strip(),
+        "por": r.get("creado_por"),
+    }
+
+
 def _dia_publico(r: dict) -> dict:
     return {
         "fecha": r["fecha"].isoformat() if r.get("fecha") else None,
@@ -496,7 +542,7 @@ def _dia_publico(r: dict) -> dict:
 def listar_cuentas() -> list[dict]:
     filas = _q(
         """SELECT id, bank_number, bank_name, account_number, account_type,
-                  currency, account_label, activa
+                  currency, account_label, activa, origen
              FROM bancos.cuentas
             WHERE activa
             ORDER BY bank_name, currency, account_type, account_number"""
@@ -554,6 +600,12 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
                 ORDER BY m.numero_extracto DESC, m.correlativo""",
             (cuenta_id, fecha))]
 
+    # Los MANUALES se suman a la lista con las mismas columnas, marcados. Van
+    # después de clasificar a propósito: no son gastos bancarios (no los cobró el
+    # banco) y no tienen códigos que una regla pueda mirar, así que meterlos
+    # antes solo los haría caer en MOVIMIENTOS RESTANTES y ensuciar el desglose.
+    manuales: list[dict] = []
+
     # La marca de gasto se resuelve acá y no en la pantalla: es la MISMA función
     # que alimenta la columna GASTOS BANCARIOS del consolidado, así que el
     # detalle no puede contradecir al total.
@@ -592,8 +644,17 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
             desglose[balde] += imp if m["tipo"] == "D" else -imp
         desglose = {k: round(v, 2) for k, v in desglose.items()}
 
+    if cuenta_id is not None:
+        manuales = [_manual_publico(r) for r in _manuales_de(fecha, cuenta_id)]
+
+    # ⚠️ Créditos y débitos siguen siendo la aritmética del EXTRACTO: los
+    # manuales no entran. Si entraran, la vista dejaría de poder compararse con
+    # lo que informa el banco, que es para lo que existe la conciliación. Lo que
+    # los manuales mueven —el saldo— viaja aparte, en `ajuste_manual`.
     creditos = sum(m["importe"] or 0 for m in movimientos if m["tipo"] == "C")
     debitos = sum(m["importe"] or 0 for m in movimientos if m["tipo"] == "D")
+    ajuste_manual = round(sum((m["importe"] or 0) * (1 if m["tipo"] == "C" else -1)
+                              for m in manuales), 2)
 
     resumen = {
         "dias": len(dias),
@@ -607,6 +668,8 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
                              if d["movimientos_banco"] is not None
                              and d["movimientos_banco"] != d["movimientos_base"]],
         "saldo_final": next((d["saldo_cierre"] for d in dias), None),
+        "ajuste_manual": ajuste_manual,
+        "movimientos_manuales": len(manuales),
         "gastos": round(sum(
             (m["importe"] or 0) * (1 if m["tipo"] == "D" else -1)
             for m in movimientos if m.get("es_gasto") and not m.get("ignorado")), 2),
@@ -626,6 +689,7 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
         "fecha": fecha.isoformat(),
         "dias": dias,
         "movimientos": movimientos,
+        "manuales": manuales,
         "resumen": resumen,
         "sync": ultima_sync(),
     }
@@ -659,7 +723,7 @@ def consolidado(email: str, fecha: date) -> dict:
     """
     filas = _q(
         """SELECT c.id, c.bank_number, c.bank_name, c.account_number,
-                  c.account_type, c.currency, c.account_label, c.activa,
+                  c.account_type, c.currency, c.account_label, c.activa, c.origen,
                   e.saldo_apertura, e.saldo_cierre, e.total_movimientos,
                   coalesce(s.saldo_operativo, s.saldo_dia) AS saldo_banco
              FROM bancos.cuentas c
@@ -671,6 +735,7 @@ def consolidado(email: str, fecha: date) -> dict:
     )
     baldes = _baldes()
     gastos = _gastos_bancarios(fecha, baldes)
+    manuales = _ajuste_manual(fecha)
 
     bancos: list[dict] = []
     por_banco: dict[str, dict] = {}
@@ -682,13 +747,28 @@ def consolidado(email: str, fecha: date) -> dict:
         del_banco = _f(r.get("saldo_banco"))
 
         # Quién manda: el extracto si lo hay, si no el saldo. Nunca los dos.
+        man = manuales.get(r["id"]) or {}
+        ajuste = man.get("ajuste") or 0.0
+
         if fin is not None:
             fuente = "extracto"
         elif del_banco is not None:
             fuente, fin = "saldo", del_banco
+        elif man:
+            # El caso del BANCO MANUAL: no hay extracto ni saldo porque el banco
+            # no está en Interbanking. Ahí el saldo ES la suma de lo que se cargó
+            # a mano, y arranca de cero.
+            fuente, fin = "manual", 0.0
         else:
             fuente = None
             sin_datos += 1
+
+        # ⚠️ El ajuste manual se aplica SIEMPRE, venga el saldo de donde venga.
+        # Es lo que el banco no informa: en una cuenta real se suma arriba de su
+        # extracto, y en una manual es todo el saldo. Mismo criterio que los
+        # REGISTROS MANUALES de Tesorería.
+        if fin is not None and ajuste:
+            fin = round(fin + ajuste, 2)
 
         # Si el banco informa las dos cosas y no coinciden, es un hallazgo de
         # conciliación — se publica, no se elige una y se tapa la otra.
@@ -710,6 +790,11 @@ def consolidado(email: str, fecha: date) -> dict:
             # El desglose viaja COMPLETO; qué columnas dibujar lo decide la vista
             # (el consolidado agrupa el grupo "otros", el modal los abre).
             "gastos_desglose": gastos.get(r["id"]),
+            # Cuánto del cierre lo puso una persona. Se publica aparte para que la
+            # vista lo pueda cantar: un saldo con ajuste manual no es lo mismo que
+            # uno que informó el banco.
+            "ajuste_manual": round(ajuste, 2) if ajuste else None,
+            "movimientos_manuales": man.get("movimientos") or 0,
             "movimientos": r.get("total_movimientos"),
             # La variación solo existe si el cierre sale del EXTRACTO: restar una
             # apertura de extracto contra un saldo de otra fuente mezclaría dos
@@ -1079,6 +1164,154 @@ def borrar_matcher(email: str, matcher_id: int) -> bool:
         return False
     _exec("DELETE FROM bancos.gastos_balde_matchers WHERE id = %s", (matcher_id,))
     _audit(email, "matcher_baja", filas[0])
+    return True
+
+
+# --------------------------------------------------------------------------- #
+# BANCOS Y MOVIMIENTOS MANUALES — lo que Interbanking no tiene
+# --------------------------------------------------------------------------- #
+TIPOS_MOV = ("C", "D")
+TIPOS_CUENTA = ("CC", "CA")
+
+
+def listar_manuales(fecha: date) -> list[dict]:
+    """Los movimientos manuales de UN día, de todas las cuentas, con a qué cuenta
+    pertenece cada uno. Es lo que alimenta el panel de carga."""
+    return [{
+        "id": r["id"],
+        "cuenta_id": r["cuenta_id"],
+        "cuenta": f"{r['bank_name']} · {r['account_type']} {r['currency']} "
+                  f"{r['account_number']}".strip(),
+        "fecha": r["fecha"].isoformat() if r.get("fecha") else None,
+        "descripcion": (r.get("descripcion") or "").strip(),
+        "importe": _f(r.get("importe")),
+        "tipo": r.get("tipo"),
+        "por": r.get("creado_por"),
+        "hora": r["creado_at"].strftime("%H:%M") if r.get("creado_at") else None,
+    } for r in _q(
+        """SELECT m.id, m.cuenta_id, m.fecha, m.descripcion, m.importe, m.tipo,
+                  m.creado_por, m.creado_at,
+                  c.bank_name, c.account_type, c.currency, c.account_number
+             FROM bancos.movimientos_manuales m
+             JOIN bancos.cuentas c ON c.id = m.cuenta_id
+            WHERE m.fecha = %s
+            ORDER BY c.bank_name, c.account_number, m.creado_at""", (fecha,))]
+
+
+def crear_cuenta_manual(email: str, banco: str, numero: str, tipo: str,
+                        moneda: str, etiqueta: str = "") -> dict:
+    """Da de alta una cuenta que Interbanking no informa.
+
+    ⚠️ **El banco se resuelve por NOMBRE**: si ya existe uno con ese nombre, la
+    cuenta nueva hereda su `bank_number` y queda agrupada abajo de él en la
+    pantalla; si no existe, se le genera un código propio. Es lo que permite las
+    dos cosas que hacen falta con un solo formulario — sumarle una cuenta a un
+    banco que ya está, o dar de alta un banco entero que no está en Interbanking.
+    Pedirle al usuario un "código de banco" habría sido pedirle un dato que no
+    tiene.
+
+    El código generado arranca con `M` para que no pueda chocar nunca con un
+    código del BCRA, que son tres dígitos.
+    """
+    banco = (banco or "").strip()
+    numero = (numero or "").strip()
+    tipo = (tipo or "CC").strip().upper()
+    moneda = (moneda or "ARS").strip().upper()
+    if not banco:
+        raise ValueError("Poné el nombre del banco.")
+    if not numero:
+        raise ValueError("Poné el número de cuenta.")
+    if tipo not in TIPOS_CUENTA:
+        raise ValueError(f"Tipo inválido. Opciones: {', '.join(TIPOS_CUENTA)}")
+    if not moneda:
+        raise ValueError("Poné la moneda.")
+
+    existente = _q(
+        """SELECT bank_number, bank_name FROM bancos.cuentas
+            WHERE lower(trim(bank_name)) = lower(%s) LIMIT 1""", (banco,))
+    if existente:
+        bank_number, banco = existente[0]["bank_number"], existente[0]["bank_name"]
+    else:
+        usados = [r["bank_number"] for r in _q(
+            "SELECT bank_number FROM bancos.cuentas WHERE bank_number LIKE 'M%%'")]
+        n = 1
+        while f"M{n:02d}" in usados:
+            n += 1
+        bank_number = f"M{n:02d}"
+
+    filas = _q(
+        """INSERT INTO bancos.cuentas
+             (bank_number, bank_name, account_number, account_type, currency,
+              account_label, origen, creado_por, actualizado_at)
+           VALUES (%s,%s,%s,%s,%s,%s,'manual',%s, now())
+           ON CONFLICT (bank_number, account_number, account_type, currency)
+           DO UPDATE SET account_label = EXCLUDED.account_label, activa = true
+           RETURNING id, bank_number, bank_name, account_number, account_type,
+                     currency, account_label, activa, origen""",
+        (bank_number, banco, numero, tipo, moneda, (etiqueta or "").strip() or None, email))
+    _audit(email, "cuenta_manual_alta", filas[0])
+    return _cuenta_publica(filas[0])
+
+
+def borrar_cuenta_manual(email: str, cuenta_id: int) -> bool:
+    """Baja de una cuenta MANUAL. Las de Interbanking no se tocan desde acá: las
+    da de alta el job y borrarlas sería pelearse con él todos los días.
+
+    Se borra de verdad (con sus movimientos manuales por CASCADE) solo porque no
+    hay nada que huerfanar: una cuenta manual no tiene extractos ni saldos del
+    banco. Igual se avisa cuántos movimientos se lleva puestos.
+    """
+    filas = _q("""SELECT id, bank_name, account_number, origen FROM bancos.cuentas
+                   WHERE id = %s""", (cuenta_id,))
+    if not filas:
+        return False
+    if (filas[0].get("origen") or "interbanking") != "manual":
+        raise ValueError("Esa cuenta la informa Interbanking: no se borra a mano.")
+    _exec("DELETE FROM bancos.cuentas WHERE id = %s", (cuenta_id,))
+    _audit(email, "cuenta_manual_baja", filas[0])
+    return True
+
+
+def crear_movimiento_manual(email: str, cuenta_id: int, fecha: date, descripcion: str,
+                            importe: float, tipo: str) -> dict:
+    """Registra un movimiento que el banco no informa.
+
+    **Impacta SIEMPRE el saldo al cierre** del día que se le cargue: en una
+    cuenta real se suma arriba de su extracto y en una manual es todo el saldo.
+    No hay moneda que elegir — la cuenta ya es de una moneda.
+    """
+    descripcion = (descripcion or "").strip()
+    tipo = (tipo or "").strip().upper()
+    if not descripcion:
+        raise ValueError("Poné una descripción: dentro de un mes nadie se acuerda.")
+    if tipo not in TIPOS_MOV:
+        raise ValueError("El movimiento tiene que ser C (suma) o D (resta).")
+    try:
+        monto = abs(float(importe))
+    except (TypeError, ValueError) as e:
+        raise ValueError("El importe tiene que ser un número.") from e
+    if not monto:
+        raise ValueError("El importe no puede ser cero.")
+    if not _q("SELECT 1 FROM bancos.cuentas WHERE id = %s AND activa", (cuenta_id,)):
+        raise ValueError("Esa cuenta no existe.")
+
+    filas = _q(
+        """INSERT INTO bancos.movimientos_manuales
+             (cuenta_id, fecha, descripcion, importe, tipo, creado_por)
+           VALUES (%s,%s,%s,%s,%s,%s)
+           RETURNING id, fecha, descripcion, importe, tipo, creado_por, creado_at""",
+        (cuenta_id, fecha, descripcion, monto, tipo, email))
+    _audit(email, "movimiento_manual_alta", {**filas[0], "cuenta_id": cuenta_id})
+    return _manual_publico(filas[0])
+
+
+def borrar_movimiento_manual(email: str, mov_id: int) -> bool:
+    filas = _q("""SELECT id, cuenta_id, fecha, descripcion, importe, tipo
+                    FROM bancos.movimientos_manuales WHERE id = %s""", (mov_id,))
+    if not filas:
+        return False
+    _exec("DELETE FROM bancos.movimientos_manuales WHERE id = %s", (mov_id,))
+    _audit(email, "movimiento_manual_baja", filas[0])
     return True
 
 

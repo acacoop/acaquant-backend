@@ -196,3 +196,81 @@ def test_no_se_saca_foto_de_un_dia_sin_saldos(monkeypatch):
     svc = _mock(monkeypatch, [_cuenta()])
     with pytest.raises(ValueError, match="no hay qué congelar"):
         svc.sacar_foto("x@y", FECHA)
+
+
+# --------------------------------------------------------------------------- #
+# MOVIMIENTOS MANUALES — lo que el banco no informa
+# --------------------------------------------------------------------------- #
+# Interbanking no tiene todos los bancos de la casa, y el que falta igual mueve
+# plata. Un movimiento manual SIEMPRE impacta el saldo al cierre: en una cuenta
+# real se suma arriba de su extracto y en una manual es todo el saldo.
+def _mock_manual(monkeypatch, filas_cuentas, manuales=()):
+    from api.services import bancos as svc
+
+    def _q(sql, params=None):
+        t = " ".join(str(sql).split())
+        if "FROM bancos.cuentas" in t:
+            return filas_cuentas
+        if "movimientos_manuales" in t:
+            return list(manuales)
+        if "gastos_baldes" in t:
+            return []
+        if "FROM bancos.snapshots" in t:
+            return []
+        return []
+
+    monkeypatch.setattr(svc, "_q", _q)
+    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: 1)
+    monkeypatch.setattr("core.roles.get_user_role", lambda *a, **k: "sales")
+    return svc
+
+
+def _fila(out):
+    return out["bancos"][0]["cuentas"][0]
+
+
+def test_el_manual_se_SUMA_arriba_del_extracto(monkeypatch):
+    """No reemplaza al saldo del banco: lo ajusta. Es plata que el banco no
+    informa, no una corrección de lo que informó."""
+    svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
+                       [{"cuenta_id": 1, "ajuste": 250.0, "n": 2}])
+    c = _fila(svc.consolidado("x@y", FECHA))
+    assert c["saldo_cierre"] == 1250.0
+    assert c["fuente"] == "extracto"          # el origen del saldo NO cambia
+    assert c["ajuste_manual"] == 250.0        # y se canta cuánto puso una persona
+
+
+def test_un_banco_manual_arranca_de_cero(monkeypatch):
+    """Sin extracto ni saldo del banco —el caso de un banco que no está en
+    Interbanking— el saldo ES la suma de lo cargado a mano."""
+    svc = _mock_manual(monkeypatch, [_cuenta()],
+                       [{"cuenta_id": 1, "ajuste": -400.0, "n": 1}])
+    c = _fila(svc.consolidado("x@y", FECHA))
+    assert c["fuente"] == "manual"
+    assert c["saldo_cierre"] == -400.0
+
+
+def test_sin_manuales_el_saldo_no_se_toca(monkeypatch):
+    svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)])
+    c = _fila(svc.consolidado("x@y", FECHA))
+    assert c["saldo_cierre"] == 1000.0
+    assert c["ajuste_manual"] is None
+
+
+def test_una_cuenta_sin_nada_sigue_siendo_sin_dato(monkeypatch):
+    """«No sabemos» no es «cero»: una cuenta sin extracto, sin saldo y sin
+    manuales tiene que seguir mostrando «—»."""
+    svc = _mock_manual(monkeypatch, [_cuenta()])
+    out = svc.consolidado("x@y", FECHA)
+    assert _fila(out)["saldo_cierre"] is None
+    assert out["sin_datos"] == 1
+
+
+def test_una_cuenta_de_interbanking_no_se_borra_a_mano(monkeypatch):
+    """Las da de alta el job: borrarlas desde la vista sería pelearse con él
+    todos los días, porque el próximo run las vuelve a crear."""
+    svc = _mock_manual(monkeypatch, [])
+    monkeypatch.setattr(svc, "_q", lambda sql, params=None: [
+        {"id": 1, "bank_name": "X", "account_number": "1", "origen": "interbanking"}])
+    with pytest.raises(ValueError, match="no se borra a mano"):
+        svc.borrar_cuenta_manual("x@y", 1)

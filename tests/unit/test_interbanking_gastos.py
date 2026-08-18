@@ -333,3 +333,61 @@ def test_borrar_un_balde_no_cambia_ningun_total(monkeypatch):
     mov = _m(descripcion="IMPUESTO A LOS SELLOS")
     assert svc.desglosar(mov, semilla_catalogo()) == "sellos"
     assert svc.desglosar(mov, sin_sellos) == RESTO
+
+
+# --------------------------------------------------------------------------- #
+# Validación de lo MANUAL — lo escribe una persona, se valida server-side
+# --------------------------------------------------------------------------- #
+def _svc_manual(monkeypatch, existe=True):
+    from api.services import bancos as svc
+
+    monkeypatch.setattr(svc, "_q", lambda sql, params=None: (
+        [{"id": 1}] if existe else []))
+    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: 1)
+    return svc
+
+
+def test_un_movimiento_manual_sin_descripcion_se_rechaza(monkeypatch):
+    """Dentro de un mes, un ajuste sin descripción es un número que nadie puede
+    explicar — y estos ajustes mueven el saldo al cierre."""
+    import datetime as _dt
+    svc = _svc_manual(monkeypatch)
+    with pytest.raises(ValueError, match="descripción"):
+        svc.crear_movimiento_manual("x@y", 1, _dt.date(2026, 8, 14), "  ", 100, "C")
+
+
+def test_un_movimiento_manual_en_cero_se_rechaza(monkeypatch):
+    import datetime as _dt
+    svc = _svc_manual(monkeypatch)
+    with pytest.raises(ValueError, match="cero"):
+        svc.crear_movimiento_manual("x@y", 1, _dt.date(2026, 8, 14), "ajuste", 0, "C")
+
+
+def test_el_tipo_del_movimiento_manual_es_C_o_D(monkeypatch):
+    """Sin esto entraría cualquier string y el signo del ajuste quedaría a
+    criterio de un `else`."""
+    import datetime as _dt
+    svc = _svc_manual(monkeypatch)
+    with pytest.raises(ValueError, match=r"C \(suma\) o D"):
+        svc.crear_movimiento_manual("x@y", 1, _dt.date(2026, 8, 14), "ajuste", 10, "X")
+
+
+def test_no_se_carga_un_movimiento_a_una_cuenta_que_no_existe(monkeypatch):
+    import datetime as _dt
+    svc = _svc_manual(monkeypatch, existe=False)
+    with pytest.raises(ValueError, match="no existe"):
+        svc.crear_movimiento_manual("x@y", 99, _dt.date(2026, 8, 14), "ajuste", 10, "C")
+
+
+def test_una_cuenta_manual_necesita_banco_y_numero(monkeypatch):
+    svc = _svc_manual(monkeypatch)
+    with pytest.raises(ValueError, match="nombre del banco"):
+        svc.crear_cuenta_manual("x@y", "  ", "123", "CC", "ARS")
+    with pytest.raises(ValueError, match="número de cuenta"):
+        svc.crear_cuenta_manual("x@y", "Banco X", "  ", "CC", "ARS")
+
+
+def test_el_tipo_de_cuenta_se_valida(monkeypatch):
+    svc = _svc_manual(monkeypatch)
+    with pytest.raises(ValueError, match="Tipo inválido"):
+        svc.crear_cuenta_manual("x@y", "Banco X", "123", "XX", "ARS")

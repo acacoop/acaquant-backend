@@ -37,7 +37,7 @@ from api.services import bancos as svc
 
 # Si esto sube, NO es un test roto: es una query nueva por request. Subilo a
 # mano solo si esa query hace falta de verdad.
-TOPES = {"consolidado": 10, "vista": 9}
+TOPES = {"consolidado": 11, "vista": 10}
 
 FECHA = date(2026, 8, 14)
 _CUENTA = {"id": 1, "bank_number": "034", "bank_name": "Pata", "account_number": "20",
@@ -56,7 +56,9 @@ _DIA = {"fecha": FECHA, "saldo_apertura": 1.0, "saldo_cierre": 2.0,
         "movimientos_base": 1}
 # El catálogo del desglose vive en la base desde el 2026-08-18: es UNA query más
 # por request en cada vista (por eso los topes subieron de 9/8 a 10/9), y es el
-# precio de que el equipo pueda editar las columnas sin pedir un deploy.
+# precio de que el equipo pueda editar las columnas sin pedir un deploy. Los
+# MOVIMIENTOS MANUALES son otra más (10/9 → 11/10): impactan el saldo al cierre,
+# así que no hay forma de armar el consolidado sin leerlos.
 _BALDE = {"clave": "iva", "etiqueta": "IVA", "grupo": "concepto", "orden": 10,
           "matcher_id": 1, "campo": "descripcion_ib", "operador": "igual",
           "valor": "IVA"}
@@ -74,6 +76,8 @@ def _contar(monkeypatch, fn, *args) -> list[str]:
         hechas.append(t)
         if "FROM bancos.cuentas" in t:
             return [_CUENTA]
+        if "movimientos_manuales" in t:
+            return []
         if "gastos_baldes" in t:
             return [_BALDE]
         if "gastos_reglas" in t:

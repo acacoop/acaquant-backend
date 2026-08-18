@@ -6,10 +6,11 @@ Plumbing HTTP puro: la lógica vive en `api/services/bancos.py`.
 únicamente GET y hay un test que lo congela. Esa es la línea que importa: la
 integración no puede mover plata ni por error.
 
-Lo que SÍ escribe (desde 2026-08-18) es la CLASIFICACIÓN DE GASTOS BANCARIOS, y
-va a tablas NUESTRAS (`bancos.gastos_reglas` / `gastos_overrides` /
-`movimientos_ignorados`): no toca el
-extracto, no toca el saldo y no sale a internet. Son 9 endpoints, todos detrás de
+Lo que SÍ escribe (desde 2026-08-18) va todo a tablas NUESTRAS: la clasificación
+de gastos (`gastos_reglas` / `gastos_overrides` / `gastos_baldes` /
+`movimientos_ignorados`), la foto del día (`snapshots`) y lo manual
+(`movimientos_manuales` + las cuentas con `origen='manual'`). **Nada de eso toca
+el extracto del banco ni sale a internet.** Son 13 endpoints, todos detrás de
 `bancos.puede_escribir` (allowlist de Tesorería + admin) y todos auditados. Un
 test enumera exactamente cuáles son, así que uno nuevo no entra sin que alguien
 lo decida.
@@ -122,6 +123,73 @@ def marcar_gasto(
         return _svc.marcar_gasto(_exigir_escritura(email), mov_hash, es_gasto)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+
+
+# ── Bancos y movimientos MANUALES — lo que Interbanking no tiene ───────────── #
+# Van bajo `/manual/*` para que el proxy de Next los deje pasar por una regla
+# explícita y no por estar mezclados con otra cosa. Escriben en `bancos.cuentas`
+# (con `origen='manual'`) y en `bancos.movimientos_manuales`; hacia el banco no
+# sale nada.
+@router.get("/manual/movimientos")
+def listar_manuales(
+    fecha: date | None = Query(None, description="día a listar"),
+) -> list[dict]:
+    """Los movimientos manuales del día, de todas las cuentas."""
+    return _svc.listar_manuales(_fecha(fecha))
+
+
+@router.post("/manual/cuentas")
+def crear_cuenta_manual(
+    banco: str = Body(..., embed=True),
+    numero: str = Body(..., embed=True),
+    tipo: str = Body("CC", embed=True),
+    moneda: str = Body("ARS", embed=True),
+    etiqueta: str = Body("", embed=True),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """Alta de una cuenta que Interbanking no informa. El banco se resuelve por
+    NOMBRE: si ya existe, la cuenta queda agrupada abajo de él."""
+    try:
+        return _svc.crear_cuenta_manual(
+            _exigir_escritura(email), banco, numero, tipo, moneda, etiqueta)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/manual/cuentas/{cuenta_id}")
+def borrar_cuenta_manual(cuenta_id: int, email: str = Depends(get_user_email)) -> dict:
+    try:
+        if not _svc.borrar_cuenta_manual(_exigir_escritura(email), cuenta_id):
+            raise HTTPException(404, "Esa cuenta no existe.")
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True}
+
+
+@router.post("/manual/movimientos")
+def crear_movimiento_manual(
+    cuenta_id: int = Body(..., embed=True),
+    descripcion: str = Body(..., embed=True),
+    importe: float = Body(..., embed=True),
+    tipo: str = Body(..., embed=True),
+    fecha: date | None = Body(None, embed=True),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """Registra un movimiento que el banco no informa. **Impacta siempre el saldo
+    al cierre** del día que se le cargue; sin `fecha`, el día que muestra la
+    vista."""
+    try:
+        return _svc.crear_movimiento_manual(
+            _exigir_escritura(email), cuenta_id, _fecha(fecha), descripcion, importe, tipo)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/manual/movimientos/{mov_id}")
+def borrar_movimiento_manual(mov_id: int, email: str = Depends(get_user_email)) -> dict:
+    if not _svc.borrar_movimiento_manual(_exigir_escritura(email), mov_id):
+        raise HTTPException(404, "Ese movimiento no existe.")
+    return {"ok": True}
 
 
 @router.post("/foto")

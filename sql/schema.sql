@@ -3871,6 +3871,55 @@ CREATE INDEX IF NOT EXISTS ix_bancos_gastos_audit_ts
 --
 -- `ON DELETE CASCADE`: cuando la retención de 3 fechas borra el movimiento, su
 -- exclusión se va con él. Una exclusión sin movimiento no significa nada.
+-- CUENTAS Y BANCOS MANUALES
+--
+-- Interbanking no tiene todos los bancos de la casa, y el que falta igual mueve
+-- plata. `origen` separa las dos poblaciones EN LA MISMA TABLA en vez de crear
+-- una segunda: son cuentas bancarias, se muestran juntas y se leen igual — una
+-- tabla aparte obligaría a unir dos fuentes en cada lectura y a duplicar cada
+-- cambio de acá en adelante.
+--
+-- ⚠️ **El job NO puede pisarlas**, y no hace falta ninguna defensa nueva: el job
+-- recorre lo que le devuelve Interbanking y una cuenta manual, por definición, no
+-- está en esa lista. Lo único que se agregó es que el upsert **no toca `origen`**
+-- (ver `sincronizar_cuentas`): si algún día Interbanking empieza a informar una
+-- cuenta que se había cargado a mano, se completa con datos reales pero sigue
+-- marcada como manual, que es la información que hace falta para decidir qué
+-- hacer con sus movimientos manuales. Nunca al revés.
+ALTER TABLE bancos.cuentas ADD COLUMN IF NOT EXISTS origen text NOT NULL DEFAULT 'interbanking';
+ALTER TABLE bancos.cuentas ADD COLUMN IF NOT EXISTS creado_por text;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- MOVIMIENTOS MANUALES — lo que el banco no informa
+--
+-- Mismo modelo que los REGISTROS MANUALES de Tesorería: una fuente de plata que
+-- no viene de ninguna API. **Siempre impactan el saldo al cierre** del día que
+-- se les cargue, se sumen a un extracto real o sean lo único que tiene esa
+-- cuenta (que es el caso de un banco manual, donde el saldo ES la suma de estos
+-- movimientos).
+--
+-- `tipo` C/D en vez de un importe con signo, igual que `bancos.movimientos`: así
+-- un movimiento manual se dibuja en la misma tabla que los del banco, con las
+-- mismas columnas, y no hay dos convenciones de signo conviviendo.
+--
+-- ⚠️ **NO los purga la retención de 3 fechas.** Los movimientos del banco se
+-- vuelven a pedir cuando hagan falta; esto lo tipeó una persona y no se puede
+-- reconstruir. Es exactamente la razón por la que la purga solo toca las tablas
+-- que el job escribe.
+CREATE TABLE IF NOT EXISTS bancos.movimientos_manuales (
+    id           bigserial PRIMARY KEY,
+    cuenta_id    bigint NOT NULL REFERENCES bancos.cuentas(id) ON DELETE CASCADE,
+    fecha        date NOT NULL,
+    descripcion  text NOT NULL,
+    importe      numeric NOT NULL,
+    tipo         text NOT NULL,          -- C (suma) | D (resta)
+    creado_por   text,
+    creado_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_bancos_manuales_fecha
+    ON bancos.movimientos_manuales (fecha, cuenta_id);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- DESGLOSE de los gastos — en qué columna cae cada gasto
 --

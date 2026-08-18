@@ -138,11 +138,17 @@ def sincronizar_cuentas(*, dry: bool = False) -> list[dict]:
     with get_job_pool().connection() as conn, conn.cursor() as cur:
         for c in remotas:
             cur.execute(
+                # ⚠️ `origen` NO se toca en el UPDATE. Si Interbanking empieza a
+                # informar una cuenta que se había cargado a mano, se completa
+                # con datos reales pero sigue marcada como manual: esa marca es
+                # justo la información que hace falta para decidir qué hacer con
+                # sus movimientos manuales. Al revés —blanquearla— la perdería en
+                # silencio.
                 """INSERT INTO bancos.cuentas
                      (bank_number, bank_name, account_number, account_type, currency,
                       account_cbu, account_cuit, account_label, primera_vez, ultima_vez,
-                      raw, actualizado_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb, now())
+                      raw, origen, actualizado_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,'interbanking', now())
                    ON CONFLICT (bank_number, account_number, account_type, currency)
                    DO UPDATE SET bank_name      = EXCLUDED.bank_name,
                                  account_cbu    = EXCLUDED.account_cbu,
@@ -398,6 +404,11 @@ def purgar(mantener: int = FECHAS_A_MANTENER) -> dict[str, int]:
     Interbanking está caído, la ingesta guarda cero y purgar igual dejaría la
     base con menos días de los que había — un borrado silencioso causado por una
     caída del proveedor, que es exactamente lo que no se puede permitir.
+
+    ⚠️ **Solo se purga lo que el job escribe.** `bancos.movimientos_manuales`
+    queda afuera a propósito: los movimientos del banco se vuelven a pedir cuando
+    hagan falta, pero un movimiento manual lo tipeó una persona y no se puede
+    reconstruir. Sumar esa tabla a la lista de abajo sería una pérdida de datos.
     """
     borradas: dict[str, int] = {}
     with get_job_pool().connection() as conn, conn.cursor() as cur:

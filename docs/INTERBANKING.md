@@ -592,7 +592,76 @@ de la pantalla desde la que se abrió. Cabecera en el azul de la casa con el log
 **una sola vez** arriba de todo: se muestra y se captura, no es una pantalla de
 trabajo.
 
+## BANCOS Y MOVIMIENTOS MANUALES
+
+Interbanking no tiene todos los bancos de la casa, y el que falta igual mueve
+plata. Son dos cosas que van juntas porque son la misma necesidad.
+
+### Las cuentas manuales viven en la MISMA tabla
+
+`bancos.cuentas.origen` = `interbanking` | `manual`. **No** hay una segunda tabla:
+son cuentas bancarias, se muestran juntas y se leen igual — separarlas obligaría
+a unir dos fuentes en cada lectura y a duplicar cada cambio de acá en adelante.
+
+⚠️ **El job no las puede pisar, y no hizo falta ninguna defensa nueva**: el job
+recorre lo que le devuelve Interbanking, y una cuenta manual —por definición— no
+está en esa lista. Lo único que se agregó es que el upsert **no toca `origen`**:
+si algún día Interbanking empieza a informar una cuenta que se había cargado a
+mano, se completa con datos reales pero **sigue marcada como manual**, que es la
+información que hace falta para decidir qué hacer con sus movimientos manuales.
+Nunca al revés — blanquearla la perdería en silencio.
+
+**El banco se resuelve por NOMBRE.** Si ya existe uno con ese nombre, la cuenta
+nueva hereda su `bank_number` y queda agrupada abajo de él; si no existe, se le
+genera un código propio que arranca con `M` (los del BCRA son tres dígitos, así
+que no pueden chocar). Con un solo formulario se resuelven las dos cosas —
+sumarle una cuenta a un banco que ya está, o dar de alta un banco entero— y al
+usuario no se le pide un "código de banco" que no tiene.
+
+Borrar una cuenta **solo si es manual**: las de Interbanking las da de alta el
+job y borrarlas sería pelearse con él todos los días.
+
+### Los movimientos manuales SIEMPRE impactan el saldo al cierre
+
+`bancos.movimientos_manuales` — mismo modelo que los REGISTROS MANUALES de
+Tesorería: una fuente de plata que no viene de ninguna API.
+
+- **El ajuste se aplica venga el saldo de donde venga.** En una cuenta real se
+  suma arriba de su extracto (`fuente` sigue diciendo `extracto`); en una cuenta
+  manual, donde no hay ni extracto ni saldo del banco, **el saldo ES la suma de
+  estos movimientos** y `fuente` vale `manual`. Una cuenta sin nada de nada sigue
+  mostrando «—»: «no sabemos» no es «cero».
+- Se publica `ajuste_manual` aparte para que la vista lo pueda cantar (`±man` en
+  la celda): un saldo ajustado a mano y uno informado por el banco no se leen
+  igual.
+- `tipo` C/D en vez de un importe con signo, igual que `bancos.movimientos`: así
+  un movimiento manual se dibuja en la misma tabla que los del banco, con las
+  mismas columnas, y no hay dos convenciones de signo conviviendo.
+- **Créditos y débitos del resumen NO los incluyen.** Esa es la aritmética del
+  extracto y es contra lo que se concilia; si entraran, la vista dejaría de poder
+  compararse con lo que informa el banco. Lo que los manuales mueven —el saldo—
+  viaja aparte.
+- ⚠️ **La retención de 3 fechas NO los purga.** Los movimientos del banco se
+  vuelven a pedir cuando hagan falta; esto lo tipeó una persona y no se puede
+  reconstruir. Por eso `purgar()` solo toca las tablas que el job escribe.
+
+En la vista: **el día no se elige** en el formulario (es el que muestra la
+pantalla — con su propio selector se podría cargar un ajuste en un día que nadie
+está mirando) y **la moneda tampoco** (cada cuenta ya es de una moneda, y
+preguntarla sería ofrecer la posibilidad de contradecirla). Elegido el banco, el
+selector de cuenta se llena solo con las cuentas de ESE banco, que es lo que evita
+cargarle un movimiento a la cuenta de otro banco con número parecido.
+
 ## Changelog
+
+- **2026-08-18 (13)** — **Bancos y movimientos MANUALES** (ver la sección de
+  arriba) + **COPIAR IMAGEN** del reporte y la firma «Hecho en ACAQuant».
+  · `bancos.cuentas.origen` y `bancos.movimientos_manuales`. 5 endpoints nuevos
+    bajo `/manual/*` (4 escriben, 1 lee), con la misma allowlist y auditados; el
+    proxy de Next suma `manual` a su lista de escrituras permitidas.
+  · Los topes del test de queries pasan de 10/9 a **11/10**: los manuales
+    impactan el saldo al cierre, así que no hay forma de armar el consolidado sin
+    leerlos.
 
 - **2026-08-18 (12)** — **FOTO del día + REPORTE FINAL**, y una pasada de prolijidad.
   · **SACAR FOTO** (ver arriba) — `bancos.snapshots`, 30 fechas, `POST /foto`. El

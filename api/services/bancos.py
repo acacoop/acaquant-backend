@@ -23,7 +23,6 @@ agrega uno de esos campos a la proyección pública, el test falla.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import date
 
@@ -185,11 +184,6 @@ def catalogo_desglose(baldes: list[dict]) -> list[dict]:
 # Presencia: cuánto vale un heartbeat. El poll de la vista es de 60s, así que el
 # TTL tiene que aguantar más de un ciclo o la gente titila al primer poll tarde.
 PRESENCIA_TTL_S = 180
-
-# Cuántas FOTOS del consolidado se guardan. Más que las 3 fechas que retiene
-# `bancos.*` a propósito: la foto existe justamente para que un día cerrado
-# sobreviva a esa purga. Mismo número que Tesorería.
-FOTOS_A_MANTENER = 30
 
 
 def _matchea(mov: dict, regla: dict) -> bool:
@@ -819,7 +813,7 @@ def consolidado(email: str, fecha: date) -> dict:
     _auditar(email, None, fecha, fecha, len(filas))
     marcar_presencia(email)
 
-    salida = {
+    return {
         "fecha": fecha.isoformat(),
         "conectados": conectados(),
         "puede_escribir": puede_escribir(email),
@@ -829,87 +823,7 @@ def consolidado(email: str, fecha: date) -> dict:
         "sin_datos": sin_datos,
         "gastos_definidos": bool(gastos),
         "sync": ultima_sync(),
-        "es_foto": False,
-        "foto": None,
     }
-
-    # ⚠️ Si NINGUNA cuenta tiene dato de ese día, el día ya no está en la base:
-    # `bancos.*` retiene 3 fechas. Ahí —y solo ahí— manda la FOTO. Cuesta una
-    # query EXTRA únicamente en el caso perdido, no en el camino normal.
-    if filas and sin_datos == len(filas):
-        foto = _foto(fecha)
-        if foto:
-            congelado = dict(foto["datos"])
-            # Lo que NO se congela: quién está mirando ahora y si este usuario
-            # puede escribir. Son del presente, no de la foto.
-            congelado.update({
-                "conectados": salida["conectados"],
-                "puede_escribir": salida["puede_escribir"],
-                "es_foto": True,
-                "foto": {"tomado_at": foto["tomado_at"], "tomado_por": foto["tomado_por"],
-                         "hash_ok": foto["hash_ok"]},
-            })
-            return congelado
-
-    return salida
-
-
-# --------------------------------------------------------------------------- #
-# FOTO del día — lo que hace que un día cerrado sobreviva a la retención
-# --------------------------------------------------------------------------- #
-def _foto(fecha: date) -> dict | None:
-    filas = _q("""SELECT fecha, tomado_at, tomado_por, hash_sha256, datos
-                    FROM bancos.snapshots WHERE fecha = %s""", (fecha,))
-    if not filas:
-        return None
-    r = filas[0]
-    crudo = json.dumps(r["datos"], sort_keys=True, default=str, ensure_ascii=False)
-    return {
-        "fecha": r["fecha"].isoformat(),
-        "tomado_at": r["tomado_at"].isoformat(),
-        "tomado_por": r["tomado_por"],
-        # Si alguien editó la fila por fuera de la API, el hash no da. La foto se
-        # sigue mostrando (el dato es el que hay) pero la vista lo puede cantar.
-        "hash_ok": hashlib.sha256(crudo.encode("utf-8")).hexdigest() == r["hash_sha256"],
-        "datos": r["datos"],
-    }
-
-
-def sacar_foto(email: str, fecha: date) -> dict:
-    """Congela el CONSOLIDADO de un día. Una foto por fecha: re-sacarla PISA la
-    del día (quién y cuándo queda en `bancos.gastos_audit`).
-
-    Se guarda la RESPUESTA de `consolidado()`, no los saldos crudos: si se
-    guardaran los crudos, la foto y la vista podrían mostrar números distintos el
-    día que cambie una regla de gastos. La foto ES lo que se vio.
-    """
-    datos = consolidado(email, fecha)
-    if datos.get("es_foto"):
-        raise ValueError("Ese día ya no está en la base: lo que se ve YA es la foto.")
-    if not datos["bancos"] or datos["sin_datos"] == datos["cuentas"]:
-        raise ValueError("Ese día no tiene ningún saldo informado: no hay qué congelar.")
-
-    # Lo que depende de QUIÉN mira no se congela: mañana la foto la abre otro.
-    for k in ("conectados", "puede_escribir", "es_foto", "foto"):
-        datos.pop(k, None)
-
-    crudo = json.dumps(datos, sort_keys=True, default=str, ensure_ascii=False)
-    h = hashlib.sha256(crudo.encode("utf-8")).hexdigest()
-    _exec("""INSERT INTO bancos.snapshots (fecha, tomado_at, tomado_por, hash_sha256,
-                                           datos)
-             VALUES (%s, now(), %s, %s, %s::jsonb)
-             ON CONFLICT (fecha) DO UPDATE SET tomado_at   = now(),
-                                               tomado_por  = EXCLUDED.tomado_por,
-                                               hash_sha256 = EXCLUDED.hash_sha256,
-                                               datos       = EXCLUDED.datos""",
-          (fecha, email, h, crudo))
-    # TTL en el MISMO insert, no en un cron aparte: así la tabla no puede crecer
-    # aunque el job de limpieza no exista nunca.
-    _exec("""DELETE FROM bancos.snapshots
-              WHERE fecha NOT IN (SELECT fecha FROM bancos.snapshots
-                                   ORDER BY fecha DESC LIMIT %s)""", (FOTOS_A_MANTENER,))
-    _audit(email, "foto", {"fecha": fecha.isoformat(), "hash": h, "bytes": len(crudo)})
-    return {"fecha": fecha.isoformat(), "cuentas": datos["cuentas"], "hash_sha256": h}
 
 
 def ultima_sync() -> dict | None:

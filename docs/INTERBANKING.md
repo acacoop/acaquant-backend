@@ -477,33 +477,6 @@ Escritura: `PUT /gastos/ignorar`, detrás de la misma allowlist que el resto
 porque lo que deja de sumar son los gastos — de paso, el proxy de Next no
 necesitó ampliar su superficie de escritura.
 
-## La FOTO del día
-
-⚠️ **Acá la foto NO existe por el mismo motivo que en Tesorería.** Allá la vista se
-arma en vivo contra Aunesa y no se persiste, así que sin foto el día se pierde.
-Acá el dato **sí** está en la base… pero `bancos.*` **retiene solo 3 fechas**: al
-cuarto día el consolidado de un día cerrado desaparece. **La foto es lo que lo
-hace durar** — por eso guarda **30 fechas** y no 3.
-
-- Se congela **la respuesta de `consolidado()` tal cual**, no los saldos crudos.
-  Si se guardaran los crudos, la foto y la vista podrían mostrar números
-  distintos el día que cambie una regla de gastos. La foto **es lo que se vio**.
-- **Lo que depende de quién mira no se congela** (`puede_escribir`, quién está en
-  línea): mañana la foto la abre otro.
-- **UNA foto por fecha**; re-sacarla pisa la del día y el historial de quién y
-  cuándo queda en `bancos.gastos_audit`. El **TTL de 30 fechas se purga en el
-  mismo INSERT**, no en un cron: así la tabla no puede crecer aunque el job de
-  limpieza no exista nunca.
-- `hash_sha256` del payload canónico detecta una edición hecha por fuera de la
-  API. Si no da, **la foto se muestra igual** (el dato es el que hay) y la vista
-  lo canta.
-
-**Cuándo se usa**: `consolidado()` sirve la base mientras el día esté ahí. Solo
-cuando **ninguna** cuenta tiene dato de ese día —o sea, cuando la retención ya lo
-purgó— cae a la foto y lo declara en `es_foto`. Mientras el día viva en la base
-manda la base: una foto vieja no puede tapar un dato corregido después. Por eso
-la query extra se paga **solo en el caso perdido**, no en el camino normal.
-
 ## REPORTE FINAL
 
 El saldo al cierre de **todas** las cuentas, para pasar hacia afuera.
@@ -654,6 +627,23 @@ cargarle un movimiento a la cuenta de otro banco con número parecido.
 
 ## Changelog
 
+- **2026-08-18 (14)** — **Se ELIMINA la foto del día** + **filtro por banco**.
+  · La foto (`bancos.snapshots`, `POST /foto`, el botón SACAR FOTO y el fallback
+    del consolidado) se sacó a pedido del back office el mismo día que se hizo:
+    no la usaron. Se borra ENTERA en vez de dejarla apagada — un botón que nadie
+    toca igual hay que mantenerlo, y una tabla que nadie lee confunde al que lea
+    el esquema mañana (REGLA #5). Si el `apply_schema` alcanzó a crear
+    `bancos.snapshots` en prod, se puede borrar a mano: no queda una sola línea
+    de código que la lea.
+  · **Filtro por banco** en la barra, client-side sobre lo que ya trajo el
+    consolidado: pedirle la vista filtrada al backend sería un request por cada
+    cambio de selector para esconder filas que ya están en memoria. Alcanza
+    también al REPORTE FINAL —el reporte no puede decir algo distinto de la
+    pantalla desde la que se abrió— pero **no** al alta de movimientos manuales,
+    que es una herramienta de carga: no poder cargarle un movimiento a un banco
+    por tener la vista filtrada sería una trampa.
+  · El botón pasa a decir **REGISTRAR MOVIMIENTOS MANUALES**.
+
 - **2026-08-18 (13)** — **Bancos y movimientos MANUALES** (ver la sección de
   arriba) + **COPIAR IMAGEN** del reporte y la firma «Hecho en ACAQuant».
   · `bancos.cuentas.origen` y `bancos.movimientos_manuales`. 5 endpoints nuevos
@@ -663,10 +653,7 @@ cargarle un movimiento a la cuenta de otro banco con número parecido.
     impactan el saldo al cierre, así que no hay forma de armar el consolidado sin
     leerlos.
 
-- **2026-08-18 (12)** — **FOTO del día + REPORTE FINAL**, y una pasada de prolijidad.
-  · **SACAR FOTO** (ver arriba) — `bancos.snapshots`, 30 fechas, `POST /foto`. El
-    proxy de Next suma `foto` a su lista de escrituras permitidas (era solo
-    `gastos`).
+- **2026-08-18 (12)** — **REPORTE FINAL**, y una pasada de prolijidad.
   · **REPORTE FINAL** (ver arriba) — 100% front, sobre los datos que la vista ya
     tiene: no cuesta ni una query. Partido en bloques de 5 bancos (`BANCOS_POR_BLOQUE`):
     se probaron **las dos matrices** (bancos en las columnas, después bancos en

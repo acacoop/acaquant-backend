@@ -8,9 +8,9 @@ integración no puede mover plata ni por error.
 
 Lo que SÍ escribe (desde 2026-08-18) va todo a tablas NUESTRAS: la clasificación
 de gastos (`gastos_reglas` / `gastos_overrides` / `gastos_baldes` /
-`movimientos_ignorados`), la foto del día (`snapshots`) y lo manual
+`movimientos_ignorados`), y lo manual
 (`movimientos_manuales` + las cuentas con `origen='manual'`). **Nada de eso toca
-el extracto del banco ni sale a internet.** Son 13 endpoints, todos detrás de
+el extracto del banco ni sale a internet.** Son 12 endpoints, todos detrás de
 `bancos.puede_escribir` (allowlist de Tesorería + admin) y todos auditados. Un
 test enumera exactamente cuáles son, así que uno nuevo no entra sin que alguien
 lo decida.
@@ -190,19 +190,6 @@ def borrar_movimiento_manual(mov_id: int, email: str = Depends(get_user_email)) 
     if not _svc.borrar_movimiento_manual(_exigir_escritura(email), mov_id):
         raise HTTPException(404, "Ese movimiento no existe.")
     return {"ok": True}
-
-
-@router.post("/foto")
-def sacar_foto(
-    fecha: date | None = Body(None, embed=True),
-    email: str = Depends(get_user_email),
-) -> dict:
-    """Congela el CONSOLIDADO de un día para que sobreviva a la retención de 3
-    fechas. Una foto por fecha: re-sacarla pisa la del día."""
-    try:
-        return _svc.sacar_foto(_exigir_escritura(email), _fecha(fecha))
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
 
 
 # ── El DESGLOSE: qué columnas hay y qué texto cae en cada una ──────────────── #

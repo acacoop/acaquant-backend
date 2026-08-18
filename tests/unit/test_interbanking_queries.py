@@ -22,10 +22,6 @@ Las dos vistas POLLEAN cada 60s y por usuario, así que el costo se multiplica p
 gente conectada. Estos números son con datos (una cuenta, un movimiento, una
 regla): el camino completo, sin cortes tempranos.
 
-⚠️ El consolidado paga UNA query más —la FOTO— **solo cuando ninguna cuenta tiene
-dato de ese día**, que es el caso en que la retención de 3 fechas ya lo purgó. En
-el camino normal no se lee. Por eso el tope mide el camino normal: cobrarle al
-99% de los requests el costo del 1% sería medir mal.
 """
 from __future__ import annotations
 

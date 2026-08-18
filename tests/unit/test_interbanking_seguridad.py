@@ -82,6 +82,22 @@ def test_el_cuit_de_la_contraparte_va_enmascarado():
     assert mov["contraparte_cuit"] == "20-…-9"
 
 
+def test_publica_sucursal_y_codigo_de_banco():
+    """Las dos columnas que pidió el back office (2026-08-18).
+
+    Estaban GUARDADAS desde la primera corrida y no se publicaban. El test las
+    fija: son parte del contrato de la vista, no un extra que se pueda perder en
+    un refactor de la proyección.
+    """
+    mov = bancos._movimiento_publico({
+        "fecha": None, "fecha_proceso": None, "importe": 1, "tipo": "D",
+        "codigo_operacion_ib": "350", "codigo_operacion_banco": "00108",
+        "sucursal": " 304 ",
+    })
+    assert mov["codigo_banco"] == "00108"
+    assert mov["sucursal"] == "304", "la sucursal viene con espacios de la API"
+
+
 def test_el_cuit_corto_o_vacio_no_se_publica():
     for v in (None, "", "123"):
         assert bancos._cuit_enmascarado(v) is None

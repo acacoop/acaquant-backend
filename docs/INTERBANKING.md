@@ -277,6 +277,27 @@ Droplet todavía no la tiene cargada, el job no corre aunque el código esté).
 
 ## Changelog
 
+- **2026-08-18 (3)** — **MOVIMIENTOS pasa de 4 a 8 columnas.** El back office
+  pidió CONCEPTO · COD OP · FECHA · COMPROBANTE · SUCURSAL · IMPORTE ·
+  DESCRIPCIÓN · COD OP BCO. Medido con `scripts/diag_interbanking_columnas`:
+  **las dos que faltaban de verdad (`branch_office_activity` y
+  `operation_code_bank`) ya estaban GUARDADAS** en `bancos.movimientos` desde la
+  primera corrida — el backend no las publicaba. Costo real: dos líneas en
+  `_movimiento_publico`, **cero llamadas nuevas y cero backfill**. Otras dos
+  (`codigo`, `comprobante`) ya viajaban en el JSON y no se dibujaban. Hallazgos
+  del diag sobre 178 movimientos de 5 cuentas:
+  · **Interbanking NO informa la hora** — `process_date`, `movement_date`,
+    `value_date` y `real_date_activity` tienen **1 solo valor distinto** y es
+    medianoche. La vista ahora dibuja la hora solo si no es `00:00:00`.
+  · **`customer_cuit` / `depositor_description` llegan al 13%** — de 9 de cada 10
+    movimientos NO se sabe la contraparte. Por eso no es columna propia.
+  · Los códigos **`*_standard`** (la normalización cross-banco que promete
+    Interbanking) llegan al **3%**: no sirven para clasificar.
+  · **`associated_voucher` viene "lleno" pero con espacios en blanco** — un campo
+    que parece tener dato y no tiene ninguno.
+  · La API de Movimientos NO trae `statement_number` → Extractos sigue siendo la
+    fuente, y las 4 exclusivas de Movimientos no justifican una llamada más.
+
 - **2026-08-18 (2)** — **Se suma la API de SALDOS** (`bancos.saldos`, una llamada
   más por cuenta) y se **corrige de raíz la premisa del doc**. Dos cosas:
   (a) el consolidado ya no muestra «—» en la cuenta que no se movió: cae a

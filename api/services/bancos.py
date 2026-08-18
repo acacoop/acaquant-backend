@@ -95,6 +95,11 @@ def _movimiento_publico(r: dict) -> dict:
         "descripcion": (r.get("descripcion_banco") or r.get("descripcion_ib") or "").strip(),
         "concepto": (r.get("descripcion_ib") or "").strip(),
         "codigo": r.get("codigo_operacion_ib"),
+        # COD OP BCO y SUCURSAL: se venían guardando desde la primera corrida y
+        # no se publicaban. El back office los pidió el 2026-08-18 y no costaron
+        # ni una llamada nueva ni un backfill — el dato ya estaba en la base.
+        "codigo_banco": r.get("codigo_operacion_banco"),
+        "sucursal": (str(r.get("sucursal")).strip() if r.get("sucursal") is not None else None),
         "extracto": r.get("numero_extracto"),
         "correlativo": r.get("correlativo"),
         "comprobante": r.get("comprobante"),
@@ -161,7 +166,8 @@ def vista(email: str, cuenta_id: int | None, desde: date, hasta: date) -> dict:
 
         movimientos = [_movimiento_publico(r) for r in _q(
             """SELECT fecha, fecha_proceso, importe, tipo, descripcion_banco,
-                      descripcion_ib, codigo_operacion_ib, numero_extracto,
+                      descripcion_ib, codigo_operacion_ib, codigo_operacion_banco,
+                      sucursal, numero_extracto,
                       correlativo, comprobante, cuit_contraparte,
                       denominacion_contraparte
                  FROM bancos.movimientos

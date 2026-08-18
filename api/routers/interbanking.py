@@ -9,7 +9,7 @@ integración no puede mover plata ni por error.
 Lo que SÍ escribe (desde 2026-08-18) es la CLASIFICACIÓN DE GASTOS BANCARIOS, y
 va a tablas NUESTRAS (`bancos.gastos_reglas` / `gastos_overrides` /
 `movimientos_ignorados`): no toca el
-extracto, no toca el saldo y no sale a internet. Son 8 endpoints, todos detrás de
+extracto, no toca el saldo y no sale a internet. Son 9 endpoints, todos detrás de
 `bancos.puede_escribir` (allowlist de Tesorería + admin) y todos auditados. Un
 test enumera exactamente cuáles son, así que uno nuevo no entra sin que alguien
 lo decida.
@@ -120,6 +120,19 @@ def marcar_gasto(
     """Marca o desmarca UN movimiento. La marca manual GANA sobre la regla."""
     try:
         return _svc.marcar_gasto(_exigir_escritura(email), mov_hash, es_gasto)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.post("/foto")
+def sacar_foto(
+    fecha: date | None = Body(None, embed=True),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """Congela el CONSOLIDADO de un día para que sobreviva a la retención de 3
+    fechas. Una foto por fecha: re-sacarla pisa la del día."""
+    try:
+        return _svc.sacar_foto(_exigir_escritura(email), _fecha(fecha))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 

@@ -56,6 +56,7 @@ ESCRITURAS_PERMITIDAS = {
     ("DELETE", "/api/back-office/interbanking/gastos/reglas/{regla_id}"),
     ("PUT", "/api/back-office/interbanking/gastos/movimiento"),
     ("PUT", "/api/back-office/interbanking/gastos/ignorar"),
+    ("POST", "/api/back-office/interbanking/foto"),
     ("POST", "/api/back-office/interbanking/gastos/desglose"),
     ("DELETE", "/api/back-office/interbanking/gastos/desglose/{clave}"),
     ("POST", "/api/back-office/interbanking/gastos/desglose/matchers"),

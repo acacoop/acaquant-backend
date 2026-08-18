@@ -114,3 +114,85 @@ def test_el_cbu_no_se_filtra_ni_por_esta_via(sin_base):
     assert "0340000800000012345678" not in plano, "se filtró el CBU"
     assert "30712345678" not in plano, "se filtró el CUIT"
     assert c["numero"] == "30410075359500020", "el número tiene que salir entero"
+
+
+# --------------------------------------------------------------------------- #
+# La FOTO del día — lo que hace que un día cerrado sobreviva a la retención
+# --------------------------------------------------------------------------- #
+# ⚠️ Acá la foto NO existe por el mismo motivo que en Tesorería. Allá la vista se
+# arma en vivo contra Aunesa y sin foto el día se pierde. Acá el dato SÍ está en
+# la base… pero `bancos.*` retiene solo 3 fechas: al cuarto día el consolidado de
+# un día cerrado desaparece. La foto es lo que lo hace durar.
+def _mock(monkeypatch, filas_cuentas, foto=None):
+    """Base mockeada: cuentas + (opcional) una foto guardada de ese día."""
+    from api.services import bancos as svc
+
+    def _q(sql, params=None):
+        t = " ".join(str(sql).split())
+        if "FROM bancos.cuentas" in t:
+            return filas_cuentas
+        if "FROM bancos.snapshots" in t:
+            return [foto] if foto else []
+        if "gastos_baldes" in t:
+            return [{"clave": "iva", "etiqueta": "IVA", "grupo": "concepto",
+                     "orden": 10, "matcher_id": 1, "campo": "descripcion_ib",
+                     "operador": "igual", "valor": "IVA"}]
+        return []
+
+    monkeypatch.setattr(svc, "_q", _q)
+    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: 1)
+    monkeypatch.setattr("core.roles.get_user_role", lambda *a, **k: "sales")
+    return svc
+
+
+def test_un_dia_con_datos_NO_usa_la_foto(monkeypatch):
+    """La foto es el último recurso: mientras el día esté en la base, manda la
+    base. Si no, una foto vieja podría tapar un dato corregido después."""
+    svc = _mock(monkeypatch, [_cuenta(saldo_cierre=100.0)],
+                foto={"fecha": FECHA, "tomado_at": __import__("datetime").datetime(2026, 8, 18),
+                      "tomado_por": "x@y", "hash_sha256": "x", "datos": {"bancos": []}})
+    out = svc.consolidado("x@y", FECHA)
+    assert out["es_foto"] is False
+    assert out["bancos"][0]["cuentas"][0]["saldo_cierre"] == 100.0
+
+
+def test_sin_dato_en_la_base_manda_la_foto(monkeypatch):
+    """El caso para el que existe: pasaron 3 días, la retención purgó el día y el
+    consolidado quedaría en blanco."""
+    import datetime as _dt
+
+    congelado = {"fecha": FECHA.isoformat(), "bancos": [{"banco": "034",
+                 "banco_nombre": "Patagonia", "cuentas": [{"saldo_cierre": 7.0}]}],
+                 "cuentas": 1, "sin_datos": 0}
+    svc = _mock(monkeypatch, [_cuenta()],
+                foto={"fecha": FECHA, "tomado_at": _dt.datetime(2026, 8, 18),
+                      "tomado_por": "x@y", "hash_sha256": "roto", "datos": congelado})
+    out = svc.consolidado("x@y", FECHA)
+    assert out["es_foto"] is True
+    assert out["bancos"][0]["cuentas"][0]["saldo_cierre"] == 7.0
+    # El hash guardado no coincide con el payload → alguien lo editó por fuera de
+    # la API. La foto se muestra igual (el dato es el que hay) y se canta.
+    assert out["foto"]["hash_ok"] is False
+
+
+def test_lo_que_depende_de_quien_mira_NO_se_congela(monkeypatch):
+    """`puede_escribir` y quién está en línea son del presente: si viajaran dentro
+    de la foto, mañana la abriría otro y vería los permisos del que la sacó."""
+    import datetime as _dt
+
+    svc = _mock(monkeypatch, [_cuenta()],
+                foto={"fecha": FECHA, "tomado_at": _dt.datetime(2026, 8, 18),
+                      "tomado_por": "x@y", "hash_sha256": "x",
+                      "datos": {"bancos": [], "puede_escribir": True,
+                                "conectados": [{"email": "viejo@y"}]}})
+    out = svc.consolidado("otro@y", FECHA)
+    assert out["conectados"] == []
+    assert out["puede_escribir"] is False
+
+
+def test_no_se_saca_foto_de_un_dia_sin_saldos(monkeypatch):
+    """Una foto en blanco es peor que no tener foto: al cuarto día el consolidado
+    mostraría ceros con cara de dato bueno."""
+    svc = _mock(monkeypatch, [_cuenta()])
+    with pytest.raises(ValueError, match="no hay qué congelar"):
+        svc.sacar_foto("x@y", FECHA)

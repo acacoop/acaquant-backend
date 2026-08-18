@@ -477,7 +477,81 @@ Escritura: `PUT /gastos/ignorar`, detrás de la misma allowlist que el resto
 porque lo que deja de sumar son los gastos — de paso, el proxy de Next no
 necesitó ampliar su superficie de escritura.
 
+## La FOTO del día
+
+⚠️ **Acá la foto NO existe por el mismo motivo que en Tesorería.** Allá la vista se
+arma en vivo contra Aunesa y no se persiste, así que sin foto el día se pierde.
+Acá el dato **sí** está en la base… pero `bancos.*` **retiene solo 3 fechas**: al
+cuarto día el consolidado de un día cerrado desaparece. **La foto es lo que lo
+hace durar** — por eso guarda **30 fechas** y no 3.
+
+- Se congela **la respuesta de `consolidado()` tal cual**, no los saldos crudos.
+  Si se guardaran los crudos, la foto y la vista podrían mostrar números
+  distintos el día que cambie una regla de gastos. La foto **es lo que se vio**.
+- **Lo que depende de quién mira no se congela** (`puede_escribir`, quién está en
+  línea): mañana la foto la abre otro.
+- **UNA foto por fecha**; re-sacarla pisa la del día y el historial de quién y
+  cuándo queda en `bancos.gastos_audit`. El **TTL de 30 fechas se purga en el
+  mismo INSERT**, no en un cron: así la tabla no puede crecer aunque el job de
+  limpieza no exista nunca.
+- `hash_sha256` del payload canónico detecta una edición hecha por fuera de la
+  API. Si no da, **la foto se muestra igual** (el dato es el que hay) y la vista
+  lo canta.
+
+**Cuándo se usa**: `consolidado()` sirve la base mientras el día esté ahí. Solo
+cuando **ninguna** cuenta tiene dato de ese día —o sea, cuando la retención ya lo
+purgó— cae a la foto y lo declara en `es_foto`. Mientras el día viva en la base
+manda la base: una foto vieja no puede tapar un dato corregido después. Por eso
+la query extra se paga **solo en el caso perdido**, no en el camino normal.
+
+## REPORTE FINAL
+
+El saldo al cierre de **todas** las cuentas en una sola grilla, para pasar hacia
+afuera. Es una **matriz**: una **columna por banco**, una **fila por cuenta**, y
+en el cruce el saldo. Como cada cuenta pertenece a un solo banco, la grilla queda
+escalonada — que es exactamente cómo se lee un reporte de posición bancaria y
+cómo se pega en una planilla.
+
+Dos separadores en blanco, y ninguno es decorativo:
+
+- una **columna vacía** entre banco y banco;
+- una **fila vacía** entre el bloque ARS y el bloque USD. Separar por moneda
+  importa más que ordenar: sumar pesos con dólares en la misma corrida visual es
+  el error que este formato evita.
+
+El título de cada fila es **exacto** lo que dice la columna CUENTA del
+consolidado (`CC ARS · 30010… · ETIQUETA`): si dijera otra cosa, el que compara
+las dos pantallas tendría que traducir. El día es el **mismo** que muestra la
+vista, así el reporte no puede decir algo distinto de la pantalla desde la que se
+abrió. Cabecera en el azul de la casa con el logo: **se muestra y se captura**,
+no es una pantalla de trabajo.
+
 ## Changelog
+
+- **2026-08-18 (12)** — **FOTO del día + REPORTE FINAL**, y una pasada de prolijidad.
+  · **SACAR FOTO** (ver arriba) — `bancos.snapshots`, 30 fechas, `POST /foto`. El
+    proxy de Next suma `foto` a su lista de escrituras permitidas (era solo
+    `gastos`).
+  · **REPORTE FINAL** (ver arriba) — 100% front, sobre los datos que la vista ya
+    tiene: no cuesta ni una query.
+  · **Títulos**: «Reglas para contabilizar Gastos Bancarios» y «Desglose para
+    contabilizar Impuestos». El botón dice qué contabiliza cada cosa, que es la
+    pregunta real — «reglas» y «desglose» a secas no distinguen una de otra.
+  · **El ABM del desglose pasa a TABLA horizontal** (# · columna · dónde · total
+    del día · textos que suman · acciones) y el alta sale **inline en la misma
+    fila**: antes aparecía debajo y cada apertura estiraba el modal hacia abajo,
+    empujando las demás columnas fuera de la pantalla. Se sacó el párrafo de
+    ayuda: ahora vive en el **«?»** del título. Cinco renglones de prosa que
+    nadie lee no son ayuda, son ruido. Y «grafía» pasó a **«textos que suman»**.
+  · **MODO OSCURO**: los modales usaban `--t-border` (#1a1a1a) sobre el panel
+    (#080808) — un borde que no se ve. Toda la estructura de los modales pasa a
+    `--t-border-2` (#2a2a2a en oscuro, #aab6c9 en claro) y las bandas de
+    encabezado a `--t-surface-2`. Sin eso, la tabla se leía como un bloque de
+    texto sin delimitar.
+  · La respuesta del consolidado sube ENTERA a la barra (un `onDatos` en lugar de
+    tres callbacks sueltos): la barra necesita la sync, la presencia, si es foto y
+    los bancos para el reporte, y cada dato nuevo agregaba un prop y una copia de
+    estado que se podía quedar vieja.
 
 - **2026-08-18 (11)** — **El DESGLOSE deja de ser código y pasa a ser catálogo
   editable** (ver arriba) + **la DESCRIPCIÓN sale entera**.

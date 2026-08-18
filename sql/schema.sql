@@ -3930,6 +3930,27 @@ CREATE TABLE IF NOT EXISTS bancos.movimientos_ignorados (
     at        timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- FOTO del día — el consolidado congelado
+--
+-- ⚠️ Acá la foto NO existe por el mismo motivo que en Tesorería. Allá la vista se
+-- arma en vivo contra Aunesa y no se persiste, así que sin foto el día se pierde.
+-- Acá el dato SÍ está en la base… pero `bancos.*` retiene solo las **3 fechas**
+-- más recientes: al cuarto día el consolidado de un día cerrado desaparece. La
+-- foto es lo que lo hace durar, y por eso guarda 30 fechas y no 3.
+--
+-- Se congela la RESPUESTA de `consolidado()` tal cual: si guardáramos los saldos
+-- crudos, la foto y la vista podrían mostrar números distintos el día que cambie
+-- una regla de gastos. `hash_sha256` del payload canónico detecta una edición
+-- hecha por fuera de la API.
+CREATE TABLE IF NOT EXISTS bancos.snapshots (
+    fecha        date PRIMARY KEY,   -- UNA foto por día; re-sacarla PISA la del día
+    tomado_at    timestamptz NOT NULL DEFAULT now(),
+    tomado_por   text,
+    hash_sha256  text,
+    datos        jsonb NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS bancos.presencia (
     email     text PRIMARY KEY,
     visto_at  timestamptz NOT NULL DEFAULT now()

@@ -507,27 +507,34 @@ la query extra se paga **solo en el caso perdido**, no en el camino normal.
 ## REPORTE FINAL
 
 El saldo al cierre de **todas** las cuentas en una sola grilla, para pasar hacia
-afuera. Es una **matriz**: una **columna por banco**, una **fila por cuenta**, y
+afuera. Es una **matriz**: una **fila por banco**, una **columna por cuenta**, y
 en el cruce el saldo.
 
 ⚠️ **Se parte en BLOQUES de 5 bancos**, apilados, cada uno con su propia fila de
-títulos. En una sola tabla los 9 bancos son **19 columnas**: no entra en pantalla
-y —peor— queda casi vacía, porque cada cuenta pertenece a UN banco y las otras 8
-celdas de su fila van en blanco. Partido, **las filas de cada bloque son solo las
-cuentas de sus bancos**: dos tablas densas en vez de una gigante y hueca. La
-cabecera azul con el logo va **una sola vez**, arriba de todo — repetirla
-partiría el reporte en dos documentos en lugar de en dos partes del mismo.
+títulos. Las 38 cuentas no entran como columnas en ninguna pantalla y, encima, la
+mayoría quedaría vacía en cada fila: como cada cuenta pertenece a UN banco, un
+bloque de 5 bancos **solo necesita las columnas de esas 5**. Dos tablas de ~10
+columnas en vez de una de 38. La cabecera azul con el logo va **una sola vez**,
+arriba de todo — repetirla partiría el reporte en dos documentos en lugar de en
+dos partes del mismo.
 
-Dos separadores en blanco, y ninguno es decorativo:
+⚠️ **El título de cada columna va APILADO**: tipo y moneda arriba, el número
+debajo y la etiqueta abajo. Escrito a lo largo,
+`CC ARS · 300100000153476 · ACA VALORES SA - CTA ADMINISTRATIVA` mide media
+pantalla **por columna** — con diez columnas el reporte no entra en ningún lado.
+Apilado dice exactamente lo mismo en el ancho del número.
 
-- una **columna vacía** entre banco y banco;
-- una **fila vacía** entre el bloque ARS y el bloque USD. Separar por moneda
-  importa más que ordenar: sumar pesos con dólares en la misma corrida visual es
-  el error que este formato evita.
+Los separadores en blanco viven todos sobre el eje de las **columnas**, que es
+donde están las cuentas, y ninguno es decorativo:
 
-El título de cada fila es **exacto** lo que dice la columna CUENTA del
-consolidado (`CC ARS · 30010… · ETIQUETA`): si dijera otra cosa, el que compara
-las dos pantallas tendría que traducir. El día es el **mismo** que muestra la
+- uno entre el bloque **ARS** y el resto. Separar por moneda importa más que
+  ordenar: sumar pesos con dólares en la misma corrida visual es el error que
+  este formato evita;
+- uno cada vez que **cambia el banco**.
+
+El título de cada columna dice **exacto** lo mismo que la columna CUENTA del
+consolidado (tipo · moneda · número · etiqueta): si dijera otra cosa, el que
+compara las dos pantallas tendría que traducir. El día es el **mismo** que muestra la
 vista, así el reporte no puede decir algo distinto de la pantalla desde la que se
 abrió. Cabecera en el azul de la casa con el logo: **se muestra y se captura**,
 no es una pantalla de trabajo.
@@ -541,7 +548,9 @@ no es una pantalla de trabajo.
   · **REPORTE FINAL** (ver arriba) — 100% front, sobre los datos que la vista ya
     tiene: no cuesta ni una query. Partido en bloques de 5 bancos (`BANCOS_POR_BLOQUE`):
     la primera versión era una matriz de 19 columnas con el 90% de las celdas
-    vacías.
+    vacías. **Bancos en las FILAS y cuentas en las COLUMNAS** (se probó al revés
+    primero), con el título de cada columna APILADO — a lo largo, una sola cuenta
+    ocupa media pantalla.
   · **Títulos**: «Reglas para contabilizar Gastos Bancarios» y «Desglose para
     contabilizar Impuestos». El botón dice qué contabiliza cada cosa, que es la
     pregunta real — «reglas» y «desglose» a secas no distinguen una de otra.

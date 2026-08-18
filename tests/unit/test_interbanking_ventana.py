@@ -67,3 +67,21 @@ def test_el_dia_que_muestra_la_vista_esta_DENTRO_de_lo_que_trae_el_job():
     que el job nunca trajo."""
     desde, hasta = ventana(1)
     assert desde <= bancos.fecha_default() <= hasta
+
+
+def test_no_se_purga_si_la_corrida_no_trajo_nada(monkeypatch):
+    """La purga borra días viejos. Si Interbanking está caído y la corrida no
+    guardó nada, purgar igual dejaría la base con MENOS días de los que tenía —
+    un borrado silencioso causado por una caída del proveedor.
+
+    Es el invariante que hace segura la retención de 3 fechas.
+    """
+    from jobs import interbanking_sync as job
+
+    llamadas = []
+    monkeypatch.setattr(job, "sincronizar_cuentas", lambda **kw: [])
+    monkeypatch.setattr(job, "purgar", lambda *a, **k: llamadas.append(1) or {})
+
+    stats = job.run()
+    assert stats["cuentas_ok"] == 0
+    assert llamadas == [], "purgó con una corrida que no trajo una sola cuenta"

@@ -277,6 +277,32 @@ Droplet todavía no la tiene cargada, el job no corre aunque el código esté).
 
 ## Changelog
 
+- **2026-08-18 (5)** — Tanda de pedidos del back office:
+  · **La fecha por defecto pasa a ser el DÍA HÁBIL ANTERIOR a hoy**, no hoy. Es
+    el día CERRADO: el banco ya informó su extracto completo y su saldo final;
+    hoy a media mañana es una foto a mitad de camino.
+  · **RETENCIÓN: `bancos.*` guarda solo las 3 FECHAS más recientes.** Purga en
+    cada corrida (`FECHAS_A_MANTENER` en el job). El corte es por fecha DISTINTA
+    y global, no por antigüedad en días — así un feriado o un fin de semana largo
+    no vacía la tabla. **No se purga nunca si la corrida no trajo datos**: si
+    Interbanking está caído, borrar igual dejaría la base con menos días de los
+    que tenía, un borrado silencioso causado por el proveedor. Congelado por test.
+  · **El NÚMERO DE CUENTA se publica ENTERO.** Antes salía solo la terminación
+    (`…0488`) — era una decisión mía, no del user, y sobraba de prudente: son las
+    cuentas de la casa, las mira el back office detrás de CF Access, y el número
+    es justamente lo que copian a otros sistemas. **El CBU sigue sin salir**, y
+    esa es la línea: el número IDENTIFICA, el CBU es lo que hace falta para
+    TRANSFERIR. Dos riesgos distintos, no se relajan juntos.
+  · **Clic en cualquier celda con dato = se copia al portapapeles.**
+  · Se eliminó la franja de texto que explicaba cada cuánto corre el cron y
+    cuántas cuentas no tenían dato. Queda **«Última actualización DD/MM/AAAA
+    HH:MM»** en la misma línea de las pills. Una pantalla no se explica a sí
+    misma en prosa.
+  · Tablas: la cuenta a la IZQUIERDA, las columnas de datos CENTRADAS, de ancho
+    parejo (`w-[13%]`) y con una línea que las separa. Sin ese ancho declarado
+    la columna CUENTA se quedaba con TODO el sobrante y dejaba una franja en
+    blanco enorme en el medio.
+
 - **2026-08-18 (4)** — **La vista pasa a UN DÍA y se limpia el consolidado**
   (pedido del back office):
   · **Una sola fecha**, no `desde`/`hasta` — «es siempre el mismo día». Antes el

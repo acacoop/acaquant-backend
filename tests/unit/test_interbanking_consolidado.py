@@ -101,10 +101,16 @@ def test_coincidiendo_no_hay_discrepancia(sin_base):
 
 
 def test_el_cbu_no_se_filtra_ni_por_esta_via(sin_base):
-    """La proyección pública se aplica igual venga el saldo de donde venga."""
+    """La proyección pública se aplica igual venga el saldo de donde venga.
+
+    El NÚMERO sí sale entero (decisión del user, 2026-08-18); el CBU no. Es la
+    misma línea que cuida `test_interbanking_seguridad`: identificar la cuenta y
+    poder transferirle plata no son el mismo permiso.
+    """
     sin_base([_cuenta(saldo_banco=1,
                       account_cbu="0340000800000012345678", account_cuit="30712345678")])
     c = bancos.consolidado("x@y", FECHA)["bancos"][0]["cuentas"][0]
     plano = str(c)
-    assert "0340000800000012345678" not in plano and "30712345678" not in plano
-    assert "30410075359500020" not in plano
+    assert "0340000800000012345678" not in plano, "se filtró el CBU"
+    assert "30712345678" not in plano, "se filtró el CUIT"
+    assert c["numero"] == "30410075359500020", "el número tiene que salir entero"

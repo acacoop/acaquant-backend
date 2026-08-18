@@ -10,8 +10,10 @@ que consultara en vivo podría agotar la cuota y romper el job.
 Son los datos bancarios de la casa. La API devuelve **campos explícitos**, nunca
 la fila entera ni el `raw` jsonb. Concretamente, esto NO sale nunca:
 
-- `account_cbu` y `account_cuit` de nuestras cuentas.
-- `account_number` completo — se publica solo la terminación (`referencia`).
+- `account_cbu` de nuestras cuentas: es lo que permite transferirles plata.
+- `account_cuit`.
+- (el `account_number` SÍ se publica entero desde el 2026-08-18 — ver
+  `_cuenta_publica`. El CBU no: identificar y poder transferir no son lo mismo.)
 - el `raw` de cualquier tabla.
 - el CUIT de la contraparte, que va enmascarado (son datos personales de
   terceros y vienen en ~3% de los movimientos).
@@ -24,6 +26,7 @@ from __future__ import annotations
 from datetime import date
 
 from api.services._sql import _f, _q
+from core.calendario import restar_habiles
 from core.postgres import get_pool
 from core.tz import ahora_ar
 
@@ -34,7 +37,12 @@ GASTOS_BANCARIOS_CODIGOS: set[str] = set()
 
 
 def fecha_default() -> date:
-    """El día que muestra la vista cuando el back office no elige ninguno: HOY.
+    """El día que muestra la vista por defecto: **el día HÁBIL ANTERIOR a hoy**.
+
+    No es hoy (user, 2026-08-18: «siempre tiene que ser el día hábil anterior,
+    que es la más relevante»). Y tiene sentido: el día hábil anterior está
+    CERRADO — el banco ya informó su extracto completo y su saldo final. El día
+    de hoy, a media mañana, es una foto a mitad de camino.
 
     La vista es de **UN día**, no de un rango (user, 2026-08-18: «la fecha es una
     sola, es siempre el mismo día»). Antes eran `desde`/`hasta` y no aportaba: el
@@ -49,7 +57,7 @@ def fecha_default() -> date:
     el job no trae, la pantalla mostraría un hueco que no existe en el banco.
     Hay un test que lo fija.
     """
-    return ahora_ar().date()
+    return restar_habiles(ahora_ar().date(), 1)
 
 
 def _gastos_bancarios(fecha: date) -> dict[int, float]:
@@ -91,8 +99,21 @@ def _exec(sql: str, params: tuple) -> None:
 # Proyecciones públicas
 # --------------------------------------------------------------------------- #
 def _cuenta_publica(r: dict) -> dict:
-    """Lo que la vista puede ver de una cuenta. Sin CBU, sin CUIT, sin número."""
-    nro = str(r.get("account_number") or "")
+    """Lo que la vista puede ver de una cuenta.
+
+    ⚠️ **El NÚMERO DE CUENTA se publica ENTERO desde el 2026-08-18**, por decisión
+    del user. Antes salía solo la terminación (`…0488`) — era una decisión mía y
+    no de ellos, y sobraba de prudente: son las cuentas **de la casa**, no de un
+    tercero, las mira el back office detrás de Cloudflare Access con el módulo
+    `back-office`, y el número es justamente lo que después copian y pegan en
+    otros sistemas. Esconderlo no protegía nada y volvía la vista inútil para su
+    trabajo.
+
+    **El CBU sigue sin salir**, y esa distinción es la que importa: el número de
+    cuenta identifica, el **CBU es lo que hace falta para transferirle plata**.
+    Son dos niveles de riesgo distintos y no se relajan juntos. Si algún día
+    hace falta, es otra decisión explícita — hay un test que lo congela.
+    """
     return {
         "id": r["id"],
         "banco": r.get("bank_number"),
@@ -100,7 +121,7 @@ def _cuenta_publica(r: dict) -> dict:
         "tipo": r.get("account_type"),
         "moneda": r.get("currency"),
         "etiqueta": (r.get("account_label") or "").strip(),
-        "referencia": f"…{nro[-4:]}" if len(nro) >= 4 else "",
+        "numero": str(r.get("account_number") or "").strip(),
         "activa": r.get("activa"),
     }
 

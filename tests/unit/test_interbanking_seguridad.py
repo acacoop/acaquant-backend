@@ -52,8 +52,16 @@ def test_el_router_no_expone_escritura():
     )
 
 
-def test_la_cuenta_publica_no_filtra_cbu_ni_cuit_ni_numero():
-    """La proyección pública publica la terminación de la cuenta, nada más."""
+def test_la_cuenta_publica_no_filtra_cbu_ni_cuit():
+    """El NÚMERO sale entero; el CBU y el CUIT no salen nunca.
+
+    El número se abrió el 2026-08-18 por decisión del user: son las cuentas de la
+    casa, las mira el back office detrás de CF Access, y el número es lo que
+    copian y pegan en otros sistemas.
+
+    El CBU NO se abrió, y esa es la línea que este test cuida: el número
+    IDENTIFICA la cuenta, el CBU es lo que hace falta para TRANSFERIRLE plata.
+    Relajar uno no relaja el otro."""
     fila = {
         "id": 1, "bank_number": "034", "bank_name": "Patagonia",
         "account_number": "30410075359500020", "account_type": "CC", "currency": "ARS",
@@ -66,8 +74,7 @@ def test_la_cuenta_publica_no_filtra_cbu_ni_cuit_ni_numero():
     assert "account_cbu" not in pub and "account_cuit" not in pub
     assert fila["account_cbu"] not in plano, "se filtró el CBU"
     assert fila["account_cuit"] not in plano, "se filtró el CUIT de la cuenta"
-    assert fila["account_number"] not in plano, "se filtró el número de cuenta completo"
-    assert pub["referencia"] == "…0020"
+    assert pub["numero"] == fila["account_number"], "el número tiene que salir ENTERO"
 
 
 def test_el_cuit_de_la_contraparte_va_enmascarado():

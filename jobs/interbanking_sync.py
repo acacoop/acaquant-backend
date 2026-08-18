@@ -63,6 +63,11 @@ from core.tz import ahora_ar
 logger = logging.getLogger("jobs.interbanking_sync")
 
 LIMIT = 100          # el máximo que acepta la API por página
+# Cuántas FECHAS distintas se conservan en `bancos.*`. El resto se borra en cada
+# corrida. Es un pedido explícito del back office (2026-08-18): esta vista no es
+# un archivo histórico — lo relevante es el último día hábil, y guardar meses de
+# extractos y movimientos es acumular por acumular.
+FECHAS_A_MANTENER = 3
 MAX_PAGINAS = 50     # cortafuegos: 50 × 100 = 5.000 movimientos por cuenta y ventana
 
 
@@ -368,6 +373,49 @@ def _persistir_saldos(cuenta_id: int, r: dict) -> int:
     return len(filas)
 
 
+# --------------------------------------------------------------------------- #
+# Retención
+# --------------------------------------------------------------------------- #
+def purgar(mantener: int = FECHAS_A_MANTENER) -> dict[str, int]:
+    """Deja solo las `mantener` fechas más recientes en `bancos.*`. Devuelve
+    cuántas filas borró de cada tabla.
+
+    Por qué existe: esta vista NO es un archivo histórico. Lo que importa es el
+    último día hábil; guardar meses de extractos, movimientos y saldos es
+    acumular por acumular (user, 2026-08-18).
+
+    El corte es por **FECHA distinta y global**, no por cuenta y no por
+    antigüedad en días: "las últimas 3 fechas que tenemos". Así un fin de semana
+    largo o un feriado no vacía la tabla — tres fechas son tres fechas con dato,
+    no tres días de calendario.
+
+    ⚠️ Cada tabla calcula SU propio top-3. Podrían no coincidir (una cuenta con
+    saldo y sin extracto ese día), y está bien: son tablas independientes y
+    forzarlas a compartir el corte borraría datos buenos de una porque a la otra
+    le faltaban.
+
+    ⚠️ **No se llama nunca si la corrida no trajo nada** (ver `run`). Si
+    Interbanking está caído, la ingesta guarda cero y purgar igual dejaría la
+    base con menos días de los que había — un borrado silencioso causado por una
+    caída del proveedor, que es exactamente lo que no se puede permitir.
+    """
+    borradas: dict[str, int] = {}
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
+        # Movimientos primero: son hijos de un día del extracto. Borrar el padre
+        # antes dejaría movimientos de un día que ya no existe.
+        for tabla in ("bancos.movimientos", "bancos.extracto_dia", "bancos.saldos"):
+            cur.execute(
+                f"""DELETE FROM {tabla}
+                     WHERE fecha NOT IN (
+                           SELECT DISTINCT fecha FROM {tabla}
+                            ORDER BY fecha DESC LIMIT %s)""",
+                (mantener,),
+            )
+            borradas[tabla.split(".", 1)[1]] = cur.rowcount or 0
+        conn.commit()
+    return borradas
+
+
 def _log_sync(cuenta_id: int | None, desde: str, hasta: str, paginas: int,
               dias: int, movs: int, incoh: int, control: str | None,
               ok: bool, error: str | None) -> None:
@@ -467,6 +515,18 @@ def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -
             msg = f"{type(e).__name__}: {e}"
             logger.warning("cuenta %s (%s): %s", c["id"], c.get("bank_name"), msg)
             _log_sync(c.get("id"), d1, d2, 0, 0, 0, 0, None, False, msg)
+
+    # La purga va al FINAL y solo si la corrida trajo datos: si Interbanking
+    # estuvo caído no se guardó nada, y borrar igual dejaría la base con menos
+    # días de los que tenía por culpa de una caída del proveedor.
+    if stats["cuentas_ok"]:
+        try:
+            for tabla, n in purgar().items():
+                stats[f"purgadas_{tabla}"] = n
+        except Exception as e:
+            logger.warning("no pude purgar: %s: %s", type(e).__name__, e)
+    else:
+        logger.warning("ninguna cuenta trajo datos — NO se purga")
 
     return stats
 

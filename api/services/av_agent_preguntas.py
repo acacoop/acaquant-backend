@@ -322,6 +322,14 @@ def _aplicar_efecto(p: dict, resp: str, *, por: str, nota: str) -> bool:
         # rechaza), así que ningún bono que hoy se ve puede cambiar de tabla.
         if resp not in ("1816", "motor"):
             return False
+        # LA PARADA cubre esta puerta porque crear una curva **cambia lo que la
+        # app muestra**. No cubre `ignorar_ticker` ni los AVISOS, que son la
+        # anotación de una decisión humana y no un dato de mercado: frenar al
+        # agente tiene que dejarte seguir triando, o el primer reflejo ante una
+        # duda sería quedarse sin la herramienta. El modal dice exactamente esto.
+        from api.services import av_agent_control
+        if av_agent_control.guardia("crear_curva"):
+            return False
         from core import curvas_catalogo
         ctx = p.get("contexto") or {}
         aj = clave.split(":", 1)[1]

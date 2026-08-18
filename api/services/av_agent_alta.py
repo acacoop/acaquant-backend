@@ -2046,7 +2046,13 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
     humana. Y deja la acción en el libro (`av_agent_acciones`).
     """
     from api.services import av_agent_acciones as acc
-    from api.services import bonos_admin
+    from api.services import av_agent_control, bonos_admin
+
+    # LA PARADA, antes que nada: `simular` gasta créditos de 1816 y gastarlos
+    # para después rechazar la escritura sería tirar el recurso que la parada
+    # justamente puede estar protegiendo.
+    if (frenado := av_agent_control.guardia("alta_bono")):
+        return frenado
 
     # El CER tipeado viaja hasta acá: el bono se da de alta CON el dato, no se
     # crea pelado para después completarlo. Si viene, tampoco se genera el aviso —
@@ -2468,6 +2474,10 @@ def aplicar_flujos(ticker: str, *, actor: str = "",
     payload**.
     """
     from api.services import av_agent_acciones as acc
+    from api.services import av_agent_control
+
+    if (frenado := av_agent_control.guardia("completar_flujos")):
+        return frenado
 
     sim = simular_flujos(ticker, cer_emision=cer_emision)
     if not sim.get("ok"):
@@ -3553,6 +3563,10 @@ def aplicar_arreglo(ticker: str, *, actor: str = "",
     blob, así que un eje escrito solo en `data` lo pisa un `NULL` de la columna.
     """
     from api.services import av_agent_acciones as acc
+    from api.services import av_agent_control
+
+    if (frenado := av_agent_control.guardia("arreglar_bono")):
+        return frenado
 
     sim = simular_arreglo(ticker, cer_emision=cer_emision)
     if not sim.get("ok"):

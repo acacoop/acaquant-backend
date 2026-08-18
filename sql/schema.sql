@@ -4029,3 +4029,33 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_avisos (
 -- vuelve a aparecer en un alta posterior, ese aviso nuevo SÍ debe poder existir.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto
     ON mercado.av_agent_avisos (ticker, clave) WHERE NOT resuelto;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- mercado.av_agent_control — LA PARADA DE EMERGENCIA del AV Agent (2026-08-18).
+--
+-- Pedido del user: *«quiero control total del agente desde el modal por las
+-- dudas»*. Hasta acá el agente tenía 15 endpoints y los 15 actuaban sobre UN
+-- hallazgo — no existía ninguno que actuara sobre EL AGENTE. Si empezaba a
+-- escribir algo mal, la única forma de frenarlo era no apretar el botón, o
+-- apagar la API entera.
+--
+-- UNA SOLA FILA, garantizado por el motor: `id boolean PRIMARY KEY CHECK (id)`.
+-- Solo el valor `true` pasa el CHECK y la PK impide que exista dos veces → la
+-- tabla no puede tener más de una fila ni por error de código ni a mano. Es más
+-- barato que un trigger y no se puede saltear (el patrón vale para cualquier
+-- tabla de configuración global).
+--
+-- No es un permiso: los permisos ya los da `require_admin` + el humano que
+-- aprueba cada escritura. Esto es un INTERRUPTOR — corta las escrituras del
+-- agente sin tocar la lectura, así se puede seguir diagnosticando con la mano
+-- frenada, que es justo lo que uno quiere mientras investiga.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_control (
+    id          boolean PRIMARY KEY DEFAULT true CHECK (id),
+    parada      boolean NOT NULL DEFAULT false,
+    motivo      text NOT NULL DEFAULT '',
+    por         text NOT NULL DEFAULT '',
+    cambiado_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO mercado.av_agent_control (id) VALUES (true) ON CONFLICT DO NOTHING;

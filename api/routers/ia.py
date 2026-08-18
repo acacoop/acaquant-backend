@@ -456,3 +456,41 @@ def av_agent_aplicar_alta(body: SimularAvAgent, email: str = Depends(get_user_em
     from api.services import av_agent_alta
     return av_agent_alta.aplicar(body.ticker, curva_1816=body.curva_1816,
                                  actor=email or "", cer_emision=body.cer_emision)
+
+
+# ── EL TABLERO DE CONTROL (2026-08-18) ───────────────────────────────────────
+#
+# Los 15 endpoints de arriba actúan sobre UN hallazgo. Estos dos son los primeros
+# que actúan sobre **EL AGENTE**: pedido del user, *«quiero control total del
+# agente desde el modal por las dudas»*.
+
+
+class ParadaAvAgent(BaseModel):
+    activa: bool
+    # Obligatorio para FRENAR (lo valida el service, no acá: la regla es de
+    # negocio y tiene que valer también para el que llame al service directo).
+    # El que se encuentra al agente frenado tiene que poder decidir si lo reanuda
+    # sin ir a preguntarle a nadie.
+    motivo: str = Field("", max_length=400)
+
+
+@router.get("/av-agent/control", dependencies=[Depends(require_admin)])
+def av_agent_control_estado():
+    """**El tablero**: la parada, las fuentes de las que lee el agente y en qué
+    estado están.
+
+    Ninguna lectura pega a la red — un tablero que gasta un crédito de 1816 cada
+    vez que se mira consume justo el recurso que vino a cuidar."""
+    from api.services import av_agent_control
+    return av_agent_control.estado()
+
+
+@router.post("/av-agent/control/parada", dependencies=[Depends(require_admin)])
+def av_agent_control_parada(body: ParadaAvAgent, email: str = Depends(get_user_email)):
+    """**Frena o reanuda al agente.** Corta las ESCRITURAS de datos de mercado
+    (alta, flujos, arreglo, crear curva) y deja intacta la lectura: se puede
+    seguir diagnosticando con la mano frenada, que es lo que uno quiere mientras
+    investiga. Queda en el libro de acciones."""
+    from api.services import av_agent_control
+    return av_agent_control.set_parada(activa=body.activa, motivo=body.motivo,
+                                       por=email or "")

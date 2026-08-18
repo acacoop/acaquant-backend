@@ -756,24 +756,41 @@ def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
 
 
 def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
-                                    mep: float | None) -> list[dict]:
-    """El precio que llega es de la OTRA moneda — el caso GD46.
+                                    mep: float | None,
+                                    simbolos: set[str] | None = None) -> list[dict]:
+    """Bonos de curva USD cuyo PRECIO llega en pesos — el caso GD46.
 
-    Un bono de curva USD mostrando 102.620 cuando su precio en dólares es ~74: la
-    tasa y la duration salen bien (se calculan con el cronograma), así que nada
-    se rompe a la vista. Lo único que canta es la ESCALA.
+    ⚠️ **CORREGIDO 2026-08-18, y la corrección es la parte que importa.** La
+    primera versión llamaba a esto «el precio llega en la moneda equivocada» y
+    lo marcaba `alta`. Contra prod dio **46 de 230**, y esa proporción fue la que
+    obligó a mirar el motor en vez de creerle al detector:
+    `engines/curvas.py::precio_soberano_a_usd` **YA divide por el MEP** cuando el
+    símbolo no termina en D/C. O sea que en esos 46 la TEA y la paridad están
+    BIEN calculadas — que es exactamente lo que dijo el user de GD46: *«por más
+    que la tasa y eso esté bien»*.
 
-    **Cómo se prueba, y por qué esto no es una corazonada:** se divide el precio
-    por el MEP y se mira si ESE número cae en una paridad creíble mientras el
-    precio crudo no. Si dividir por el tipo de cambio arregla la cuenta, el precio
-    venía en pesos. Es el mismo criterio de recompensa verificable que usa el
-    arreglo local: no se afirma la causa, se demuestra que corrigiéndola el número
-    vuelve al rango.
+    Un detector que llama «alta» a 46 casos sanos no es un detector estricto: es
+    uno que enseña a ignorar la lista.
 
-    Sin MEP no se puede afirmar nada y **no se inventa**: se devuelve vacío.
+    Lo que SÍ pasa, y es real: **la grilla muestra el precio crudo**, así que en
+    la misma columna conviven 102.700 (pesos) y 74,19 (dólares) sin que nada lo
+    diga. No es un dato mal cargado — es que el bono cotiza por su pata en pesos.
+    Cuando existe la pata D, nombrarla es la información accionable: suscribir
+    ESA es lo que haría que la columna muestre dólares.
+
+    Quedan DOS reglas, con severidades distintas porque son problemas distintos:
+
+      · `cotiza_en_pesos` (**baja**): el símbolo no tiene sufijo D/C, el motor
+        convierte bien, la grilla muestra pesos. Es contexto, no un error.
+      · `precio_fuera_de_escala` (**alta**): el símbolo SÍ es D/C —o sea que el
+        motor lo toma como dólares tal cual— y aun así la paridad se va de rango.
+        Ahí no hay conversión que lo explique y algo está realmente mal.
+
+    Sin MEP no se puede probar nada y **no se inventa**: devuelve vacío.
     """
     if not mep or mep <= 0:
         return []
+    simbolos = simbolos or set()
     out: list[dict] = []
     for b in bonos:
         if (b.get("moneda_eje") or "").upper() != "USD":
@@ -787,28 +804,51 @@ def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
             continue
         if px <= 0:
             continue                      # eso lo dice el otro detector
-        # El residual del cuadro es la referencia. Sin cuadro no hay con qué
-        # comparar, y decirlo es más honesto que suponer 100.
         try:
             residual = float(b.get("valor_nominal") or 100) or 100
         except (TypeError, ValueError):
             residual = 100.0
         par_cruda = px / residual * 100
-        par_mep = px / mep / residual * 100
         if PARIDAD_MIN <= par_cruda <= PARIDAD_MAX:
-            continue                      # el precio ya está bien
-        if PARIDAD_MIN <= par_mep <= PARIDAD_MAX:
+            continue                      # el precio ya viene en dólares
+        par_mep = px / mep / residual * 100
+        if not (PARIDAD_MIN <= par_mep <= PARIDAD_MAX):
+            continue                      # dividir no lo arregla → no es esto
+
+        # El SUFIJO decide qué hace el motor, y por lo tanto si esto es un
+        # problema o solo contexto. Es el mismo criterio de
+        # `precio_soberano_a_usd`: mira el símbolo, no el ticker corto.
+        partes = simbolo.split(" - ")
+        sym = partes[2] if len(partes) >= 3 else simbolo
+        es_dolar = sym[-1:].upper() in ("D", "C")
+        ev = {"simbolo": simbolo, "precio": px, "mep": mep,
+              "paridad_cruda": round(par_cruda, 2),
+              "paridad_con_mep": round(par_mep, 2), "curva": b.get("curva")}
+
+        if es_dolar:
             out.append(_hallazgo(
-                "precio_moneda", tk, "precio_en_pesos_curva_usd", "alta",
-                f"«{simbolo}» es de curva USD y su precio llega en PESOS: "
-                f"{px:,.2f} da paridad {par_cruda:,.0f}%, pero dividido por el MEP "
-                f"({mep:,.2f}) da {par_mep:.1f}% — que sí es creíble. La tasa y la "
-                f"duration salen bien igual, así que esto solo se ve mirando la "
-                f"escala.",
-                {"simbolo": simbolo, "precio": px, "mep": mep,
-                 "paridad_cruda": round(par_cruda, 2),
-                 "paridad_con_mep": round(par_mep, 2),
-                 "curva": b.get("curva")}))
+                "precio_moneda", tk, "precio_fuera_de_escala", "alta",
+                f"«{sym}» termina en {sym[-1].upper()}, así que el motor lo toma "
+                f"como dólares TAL CUAL — y aun así la paridad da {par_cruda:,.0f}%. "
+                f"Dividido por el MEP daría {par_mep:.1f}%, o sea que el precio "
+                f"viene en pesos con un símbolo que dice dólares.",
+                {**ev, "sufijo": sym[-1].upper()}))
+            continue
+
+        # La pata en dólares, si existe. Es lo único accionable de este hallazgo.
+        # Se devuelve el SÍMBOLO COMPLETO, no el corto: es lo que se suscribe, y
+        # es lo que hay que poder copiar sin volver a armarlo a mano.
+        pata_d = next((x for cand in (f"{sym}D", f"{sym}C")
+                       for x in simbolos if f" - {cand} - " in x), "")
+        out.append(_hallazgo(
+            "precio_moneda", tk, "cotiza_en_pesos", "baja",
+            f"«{sym}» es de curva USD y cotiza por su pata en PESOS: la grilla "
+            f"muestra {px:,.2f} al lado de bonos en dólares. **La valuación está "
+            f"bien** — el motor divide por el MEP ({mep:,.2f}) y la paridad real "
+            f"es {par_mep:.1f}%. Lo que se ve raro es la columna de precio."
+            + (f" La pata en dólares existe: «{pata_d.split(' - ')[2]}»." if pata_d
+               else " No encontré una pata en dólares para este ticker."),
+            {**ev, "pata_dolar": pata_d}))
     return out
 
 
@@ -823,6 +863,7 @@ def relevar_live(*, ahora=None) -> dict:
     """
     from api.services.macro import get_ultimo_mep
     from core import curvas_sql, market_snapshot
+    from core.postgres import get_pool
 
     bonos = curvas_sql.cargar_todos() or []
     simbolos = [(b.get("ticker") or "").strip() for b in bonos if b.get("ticker")]
@@ -836,10 +877,21 @@ def relevar_live(*, ahora=None) -> dict:
         logger.warning("av_agent live: sin MEP (%s)", e)
         mep = None
 
+    # Los símbolos que EXISTEN, para poder nombrar la pata en dólares cuando la
+    # haya. `mercado.especies` es la fuente única de las patas de cada ticker.
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT instrumento FROM mercado.especies")
+            simbolos = {r[0] for r in cur.fetchall() if r[0]}
+    except Exception as e:
+        logger.warning("av_agent live: sin catálogo de especies (%s)", e)
+        simbolos = set()
+
     hallazgos: list[dict] = []
     for nombre, fn in (("sin_precio", lambda: detectar_sin_precio(bonos, snap, ahora)),
                        ("precio_moneda",
-                        lambda: detectar_precio_fuera_de_moneda(bonos, snap, mep))):
+                        lambda: detectar_precio_fuera_de_moneda(bonos, snap, mep,
+                                                                simbolos))):
         try:
             hallazgos.extend(fn())
         except Exception as e:      # un detector roto no puede tapar al otro

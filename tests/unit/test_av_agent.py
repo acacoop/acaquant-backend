@@ -2522,34 +2522,60 @@ def test_un_precio_CERO_no_es_un_precio():
     assert hs and hs[0]["regla"] == "sin_punta"
 
 
-def test_el_precio_en_pesos_sobre_curva_USD_se_PRUEBA_dividiendo_por_el_MEP():
-    """El caso GD46. No se afirma la causa: se demuestra que dividiendo por el
-    tipo de cambio la paridad vuelve al rango — la misma recompensa verificable
-    que usa el arreglo local."""
+def test_un_bono_que_cotiza_en_PESOS_no_es_un_error_sino_CONTEXTO():
+    """**La corrección de 2026-08-18, y es la parte que importa.** El detector
+    marcaba `alta` y dio 46 de 230 contra prod. Esa proporción obligó a mirar el
+    motor: `precio_soberano_a_usd` YA divide por el MEP cuando el símbolo no
+    termina en D/C, así que la TEA y la paridad de esos 46 están BIEN — es lo que
+    dijo el user de GD46: «por más que la tasa y eso esté bien».
+
+    Un detector que llama «alta» a 46 casos sanos no es estricto: enseña a
+    ignorar la lista. Queda como contexto (`baja`), y lo accionable es nombrar la
+    pata en dólares."""
     from api.services.av_agent import detectar_precio_fuera_de_moneda
-    bono = {"ticker": "G", "ticker_corto": "GD46", "moneda_eje": "USD",
+    sim = "MERV - XMEV - GD46 - 24hs"
+    bono = {"ticker": sim, "ticker_corto": "GD46", "moneda_eje": "USD",
             "valor_nominal": 100}
-    hs = detectar_precio_fuera_de_moneda([bono], {"G": {"last_price": 102620.0}},
-                                         1385.0)
+    hs = detectar_precio_fuera_de_moneda(
+        [bono], {sim: {"last_price": 102700.0}}, 1520.44,
+        {"MERV - XMEV - GD46D - 24hs"})
     assert len(hs) == 1
-    ev = hs[0]["evidencia"]
-    assert ev["paridad_cruda"] > 1000 and 40 <= ev["paridad_con_mep"] <= 160
+    assert hs[0]["regla"] == "cotiza_en_pesos" and hs[0]["severidad"] == "baja"
+    assert "La valuación está bien" in hs[0]["motivo"]
+    # Lo ÚNICO accionable: cuál es la pata que mostraría dólares.
+    assert hs[0]["evidencia"]["pata_dolar"] == "MERV - XMEV - GD46D - 24hs"
+
+
+def test_un_simbolo_que_DICE_dolares_y_trae_pesos_SI_es_un_error():
+    """El otro lado de la misma moneda: si el símbolo termina en D, el motor lo
+    toma como dólares TAL CUAL — no hay conversión que explique una paridad de
+    102.700%, así que ahí sí algo está roto."""
+    from api.services.av_agent import detectar_precio_fuera_de_moneda
+    sim = "MERV - XMEV - GD46D - 24hs"
+    bono = {"ticker": sim, "ticker_corto": "GD46", "moneda_eje": "USD",
+            "valor_nominal": 100}
+    hs = detectar_precio_fuera_de_moneda([bono], {sim: {"last_price": 102700.0}},
+                                         1520.44, set())
+    assert len(hs) == 1
+    assert hs[0]["regla"] == "precio_fuera_de_escala" and hs[0]["severidad"] == "alta"
 
 
 def test_sin_MEP_no_se_afirma_nada():
     """Sin el tipo de cambio no hay forma de probar la hipótesis, y una causa sin
     prueba es exactamente lo que este agente no emite."""
     from api.services.av_agent import detectar_precio_fuera_de_moneda
-    bono = {"ticker": "G", "ticker_corto": "GD46", "moneda_eje": "USD"}
-    assert detectar_precio_fuera_de_moneda([bono], {"G": {"last_price": 102620.0}},
+    sim = "MERV - XMEV - GD46 - 24hs"
+    bono = {"ticker": sim, "ticker_corto": "GD46", "moneda_eje": "USD"}
+    assert detectar_precio_fuera_de_moneda([bono], {sim: {"last_price": 102620.0}},
                                            None) == []
 
 
 def test_un_precio_USD_sano_no_dispara_nada():
     from api.services.av_agent import detectar_precio_fuera_de_moneda
-    bono = {"ticker": "G", "ticker_corto": "GD46", "moneda_eje": "USD",
+    sim = "MERV - XMEV - GD46D - 24hs"
+    bono = {"ticker": sim, "ticker_corto": "GD46", "moneda_eje": "USD",
             "valor_nominal": 100}
-    assert detectar_precio_fuera_de_moneda([bono], {"G": {"last_price": 74.19}},
+    assert detectar_precio_fuera_de_moneda([bono], {sim: {"last_price": 74.19}},
                                            1385.0) == []
 
 

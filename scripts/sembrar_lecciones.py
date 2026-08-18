@@ -32,6 +32,35 @@ from api.services.av_agent_memoria import guardar_leccion, lecciones_de
 
 LECCIONES = [
     {
+        "slug": "proporcion-como-senal-de-falso-positivo",
+        "causa": "cotiza_en_pesos", "dominio": "bono",
+        "titulo": "46 de 230 no es un hallazgo, es un detector mal calibrado",
+        "sintoma": "el monitor de rueda, en su primera corrida real, marcó 46 "
+                   "bonos de 230 con severidad ALTA por «el precio llega en la "
+                   "moneda equivocada».",
+        "causa_raiz": "el detector comparaba el precio crudo contra la banda de "
+                      "paridad y concluía que estaba mal, sin preguntarse qué hace "
+                      "el motor con ese precio. `engines/curvas.py::"
+                      "precio_soberano_a_usd` YA divide por el MEP cuando el "
+                      "símbolo no termina en D/C, así que en los 46 la TEA y la "
+                      "paridad estaban BIEN — el propio user lo había dicho: «por "
+                      "más que la tasa y eso esté bien». Lo real era otra cosa y "
+                      "más chica: la GRILLA muestra el precio crudo, así que "
+                      "102.700 (pesos) y 74,19 (dólares) conviven en la misma "
+                      "columna sin que nada lo diga.",
+        "cambio": "la regla se partió en dos con severidades distintas: "
+                  "`cotiza_en_pesos` (BAJA, es contexto — y lo accionable es "
+                  "nombrar la pata D que sí mostraría dólares) y "
+                  "`precio_fuera_de_escala` (ALTA, solo cuando el símbolo TERMINA "
+                  "en D/C y aun así se va de rango: ahí no hay conversión que lo "
+                  "explique). **La proporción es la señal**: cuando un detector "
+                  "marca un tercio del universo en rojo, la hipótesis más probable "
+                  "no es que un tercio esté roto — es que el detector no sabe qué "
+                  "hace el código que está juzgando. Y un detector que grita en 46 "
+                  "casos sanos no es estricto: enseña a ignorar la lista.",
+        "detectado_por": "user",
+    },
+    {
         "slug": "moneda-flujo-vs-ejes",
         "causa": "moneda_flujo_contradice", "dominio": "bono",
         "titulo": "Dos vocabularios para el mismo hecho",

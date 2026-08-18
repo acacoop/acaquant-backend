@@ -372,7 +372,37 @@ sería inventar dónde va.
 Es una **constante** (`DESGLOSE_GASTOS`) y no un catálogo en la base: qué columnas
 tiene una tabla no se cambia todos los días. Si empieza a moverse, se promueve.
 
+## El AUDITOR del desglose
+
+**Clic en cualquier número del desglose → la tabla queda mostrando SOLO las filas
+que lo componen.** Mismo gesto que el modal por celda de Tesorería → BANCOS: un
+total que no se puede abrir es un total en el que hay que creer.
+
+Filtra la tabla de abajo en vez de abrir otro modal encima — las filas ya están,
+con todas sus columnas; apilar modales para mirar lo mismo es ceremonia.
+
+La barra del filtro muestra **cuántas filas** y **cuánto suman**, y esa suma la
+calcula la PANTALLA sobre las filas visibles, no la copia del backend. Es a
+propósito: si no coincide con el número que clickeaste, el desglose y el detalle
+se contradicen, y eso es exactamente lo que un auditor tiene que dejar ver.
+
+Cada movimiento viaja con su `gasto_balde` (lo asigna `vista()` con la MISMA
+función que arma el desglose), así que el filtro no puede seleccionar un conjunto
+distinto del que sumó.
+
+**El descargar respeta el filtro**: se baja lo que se está viendo. Bajar la lista
+completa con un filtro puesto sería darle al usuario algo distinto de lo que pidió.
+
+⚠️ Con el auditor, el clic en el VALOR pasó a ser "ver las filas" y el **copiar se
+mudó a un ícono ⧉ al lado de la etiqueta** — chico pero SIEMPRE visible, no en un
+hover: cuando el gesto principal cambia, lo que se desplaza necesita su propio
+lugar o desaparece.
+
 ## Changelog
+
+- **2026-08-18 (9)** — **AUDITOR del desglose** (ver arriba) y **COM.TRANSF suma
+  las tres grafías**. El campo pasó del BALDE al MATCHER para que un balde pueda
+  mirar `descripcion_ib` y `descripcion_banco` a la vez.
 
 - **2026-08-18 (8)** — **DESGLOSE de los gastos** (ver la sección de arriba).
   El CONSOLIDADO pierde **SALDO AL INICIO, VARIACIÓN y MOVS.** («no sirven») y

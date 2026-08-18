@@ -462,8 +462,14 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
             crudo = crudos.get(m["mov_hash"])
             if not m.get("es_gasto") or crudo is None:
                 continue
+            balde = desglosar(crudo)
+            # Cada movimiento viaja diciendo EN QUÉ BALDE cayó. Sin esto, la
+            # pantalla no puede mostrar qué filas componen cada número del
+            # desglose — y un total que no se puede abrir es un total en el que
+            # hay que creer.
+            m["gasto_balde"] = balde
             imp = m["importe"] or 0
-            desglose[desglosar(crudo)] += imp if m["tipo"] == "D" else -imp
+            desglose[balde] += imp if m["tipo"] == "D" else -imp
         desglose = {k: round(v, 2) for k, v in desglose.items()}
 
     creditos = sum(m["importe"] or 0 for m in movimientos if m["tipo"] == "C")

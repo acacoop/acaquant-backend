@@ -32,7 +32,7 @@ from api.services import bancos as svc
 
 # Si esto sube, NO es un test roto: es una query nueva por request. Subilo a
 # mano solo si esa query hace falta de verdad.
-TOPES = {"consolidado": 9, "vista": 8}
+TOPES = {"consolidado": 10, "vista": 9}
 
 FECHA = date(2026, 8, 14)
 _CUENTA = {"id": 1, "bank_number": "034", "bank_name": "Pata", "account_number": "20",
@@ -49,6 +49,12 @@ _DIA = {"fecha": FECHA, "saldo_apertura": 1.0, "saldo_cierre": 2.0,
         "total_creditos": 1.0, "total_debitos": 1.0, "total_movimientos": 1,
         "cierra": True, "diferencia": 0.0, "sincronizado_at": datetime(2026, 8, 14),
         "movimientos_base": 1}
+# El catálogo del desglose vive en la base desde el 2026-08-18: es UNA query más
+# por request en cada vista (por eso los topes subieron de 9/8 a 10/9), y es el
+# precio de que el equipo pueda editar las columnas sin pedir un deploy.
+_BALDE = {"clave": "iva", "etiqueta": "IVA", "grupo": "concepto", "orden": 10,
+          "matcher_id": 1, "campo": "descripcion_ib", "operador": "igual",
+          "valor": "IVA"}
 _REGLA = {"id": 1, "campo": "descripcion_banco", "operador": "contiene",
           "valor": "COMISION", "nota": "", "activa": True, "creado_por": "x",
           "creado_at": datetime(2026, 8, 14)}
@@ -63,6 +69,8 @@ def _contar(monkeypatch, fn, *args) -> list[str]:
         hechas.append(t)
         if "FROM bancos.cuentas" in t:
             return [_CUENTA]
+        if "gastos_baldes" in t:
+            return [_BALDE]
         if "gastos_reglas" in t:
             return [_REGLA]
         if "gastos_overrides" in t:

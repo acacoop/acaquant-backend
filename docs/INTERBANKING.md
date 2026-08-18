@@ -365,12 +365,51 @@ sirve. Congelado por test.
 
 ⚠️ **Las columnas pueden NO sumar el total**, justamente porque OTROS IMP son solo
 esas cuatro. El gasto que no cae en ningún balde **no se reparte a dedo**: va a
-`resto` y el modal lo muestra como **SIN CLASIFICAR** cuando no es cero — mismo
-criterio que `sin_clasificar` en la vista ACA. Esconderlo adentro de otra celda
-sería inventar dónde va.
+`resto` y el modal lo muestra como **MOVIMIENTOS RESTANTES** cuando no es cero —
+mismo criterio que `sin_clasificar` en la vista ACA. Esconderlo adentro de otra
+celda sería inventar dónde va. **Esa celda es además el tablero de lo que falta
+cargar**: si crece, hay una grafía nueva que ningún balde agarra.
 
-Es una **constante** (`DESGLOSE_GASTOS`) y no un catálogo en la base: qué columnas
-tiene una tabla no se cambia todos los días. Si empieza a moverse, se promueve.
+### El catálogo lo edita el EQUIPO, no el código
+
+Era una **constante** en Python, con el argumento de que "qué columnas tiene una
+tabla no se cambia todos los días". **Duró un día**: el back office encontró un
+impuesto que ningún balde agarraba y la única forma de sumarlo era que alguien
+tocara código y deployara. Eso es exactamente lo que no puede pasar — **el que
+sabe que el Banco X escribe `LEY25413DB` donde el Y dice `IMP.DB/CR BANCARIOS
+P/DEB` es el equipo**, no el que programa.
+
+Desde el 2026-08-18 el catálogo vive en la base y se edita desde el botón
+**DESGLOSE** del modal de movimientos:
+
+- `bancos.gastos_baldes` — la columna: `etiqueta`, `grupo` (`concepto` = columna
+  propia en el consolidado · `otros` = se suma adentro de OTROS IMP) y `orden`.
+- `bancos.gastos_balde_matchers` — las **grafías**: `campo` + `operador` +
+  `valor`. Agregar una es el 90% del uso.
+
+Tres cosas que el diseño sostiene:
+
+1. **La semilla es el estado inicial, no la verdad.** `DESGLOSE_SEMILLA` (Python)
+   se carga **una sola vez**, cuando la tabla está vacía. Cambiarla después no
+   toca una base ya sembrada, y un balde borrado a propósito **no vuelve solo**.
+   `semilla_catalogo()` la devuelve con la MISMA forma que `_baldes()` lee de la
+   base — así lo que prueban los tests es exactamente lo que se siembra.
+2. **`orden` no es cosmético: es lo único que decide los empates.** Gana el
+   primer balde que matchea. Por eso una columna nueva nace **al final** — colarla
+   antes cambiaría dónde caen movimientos que hoy ya están bien clasificados.
+3. **Cuesta UNA query por request** (baldes + matchers en un `LEFT JOIN`), y los
+   topes del test de queries subieron de 9/8 a **10/9** a propósito. Es el precio
+   de que el equipo no dependa de un deploy, y está medido: ~8,5ms.
+
+El desglose se **deriva en la lectura**, así que un cambio se ve en el próximo
+poll, sin recomputar nada y sin poder contradecir al catálogo. Y borrar un balde
+no rompe nada: sus movimientos pasan a MOVIMIENTOS RESTANTES y **ningún total
+cambia**.
+
+⚠️ **Las dos trampas están explicadas DENTRO de la pantalla**, no solo acá:
+`contiene` vs `es igual` (con `contiene`, «IVA» se come «IVAPERCEP» — el total
+sigue dando bien y dos columnas quedan mal) y qué significa el orden. Un ABM que
+deja meter la pata en silencio es peor que no tenerlo.
 
 ## El AUDITOR del desglose
 
@@ -439,6 +478,24 @@ porque lo que deja de sumar son los gastos — de paso, el proxy de Next no
 necesitó ampliar su superficie de escritura.
 
 ## Changelog
+
+- **2026-08-18 (11)** — **El DESGLOSE deja de ser código y pasa a ser catálogo
+  editable** (ver arriba) + **la DESCRIPCIÓN sale entera**.
+  · Motivo: apareció un impuesto que ningún balde agarraba. Con los baldes en una
+    constante, sumarlo era un commit y un deploy — el equipo tenía que pedirlo y
+    esperar. Ahora hay ABM (botón **DESGLOSE** del modal): columnas, grafías,
+    grupo y orden. 4 endpoints nuevos, todos bajo `/gastos/*` (el proxy de Next no
+    tuvo que ampliar su superficie), con la misma allowlist y auditados.
+  · La pantalla muestra **el total del día al lado de cada columna**: después de
+    agregar una grafía se ve el número moverse sin salir del modal. Es la
+    comprobación de que agarró.
+  · **DESCRIPCIÓN entera**: la columna se lleva el sobrante de ancho (`w-full` en
+    su `<th>`, el mismo truco que hizo entrar entera la CUENTA del consolidado).
+    Con 10 columnas el reparto parejo dejaba angosto justo el dato más largo.
+    ⚠️ Si igual se lee cortada, el corte lo hizo el BANCO: `code_description_bank`
+    llega truncado a ~25 caracteres y con los acentos rotos — por eso las grafías
+    van por `contiene` sobre la raíz de la palabra y nunca por `igual` sobre el
+    texto completo.
 
 - **2026-08-18 (10)** — **IGNORAR un movimiento** (ver la sección de arriba) +
   **repaso de queries**, ahora congelado por test.

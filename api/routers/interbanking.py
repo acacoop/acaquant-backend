@@ -9,7 +9,7 @@ integración no puede mover plata ni por error.
 Lo que SÍ escribe (desde 2026-08-18) es la CLASIFICACIÓN DE GASTOS BANCARIOS, y
 va a tablas NUESTRAS (`bancos.gastos_reglas` / `gastos_overrides` /
 `movimientos_ignorados`): no toca el
-extracto, no toca el saldo y no sale a internet. Son 4 endpoints, todos detrás de
+extracto, no toca el saldo y no sale a internet. Son 8 endpoints, todos detrás de
 `bancos.puede_escribir` (allowlist de Tesorería + admin) y todos auditados. Un
 test enumera exactamente cuáles son, así que uno nuevo no entra sin que alguien
 lo decida.
@@ -122,6 +122,56 @@ def marcar_gasto(
         return _svc.marcar_gasto(_exigir_escritura(email), mov_hash, es_gasto)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+
+
+# ── El DESGLOSE: qué columnas hay y qué texto cae en cada una ──────────────── #
+# Esto lo edita el EQUIPO, no el que programa. Era una constante en Python hasta
+# el 2026-08-18 y sumar la grafía que usa un banco nuevo costaba un commit y un
+# deploy: el back office tenía que pedirlo y esperar. El desglose se deriva en la
+# lectura, así que un cambio acá se ve en el próximo poll.
+@router.post("/gastos/desglose")
+def guardar_balde(
+    etiqueta: str = Body(..., embed=True),
+    grupo: str = Body("otros", embed=True),
+    orden: int = Body(100, embed=True),
+    # Sin `clave` es ALTA (se deriva de la etiqueta); con `clave` es edición.
+    clave: str = Body("", embed=True),
+    email: str = Depends(get_user_email),
+) -> dict:
+    try:
+        return _svc.guardar_balde(_exigir_escritura(email), etiqueta, grupo, orden, clave)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/gastos/desglose/{clave}")
+def borrar_balde(clave: str, email: str = Depends(get_user_email)) -> dict:
+    if not _svc.borrar_balde(_exigir_escritura(email), clave):
+        raise HTTPException(404, "Ese balde no existe.")
+    return {"ok": True}
+
+
+@router.post("/gastos/desglose/matchers")
+def agregar_matcher(
+    balde: str = Body(..., embed=True),
+    campo: str = Body(..., embed=True),
+    operador: str = Body(..., embed=True),
+    valor: str = Body(..., embed=True),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """Suma una GRAFÍA a un balde: el mismo impuesto escrito como lo escribe ESE
+    banco. Es el 90% del uso del ABM."""
+    try:
+        return _svc.agregar_matcher(_exigir_escritura(email), balde, campo, operador, valor)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/gastos/desglose/matchers/{matcher_id}")
+def borrar_matcher(matcher_id: int, email: str = Depends(get_user_email)) -> dict:
+    if not _svc.borrar_matcher(_exigir_escritura(email), matcher_id):
+        raise HTTPException(404, "Ese matcher no existe.")
+    return {"ok": True}
 
 
 @router.put("/gastos/ignorar")

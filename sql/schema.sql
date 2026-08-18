@@ -3871,6 +3871,58 @@ CREATE INDEX IF NOT EXISTS ix_bancos_gastos_audit_ts
 --
 -- `ON DELETE CASCADE`: cuando la retención de 3 fechas borra el movimiento, su
 -- exclusión se va con él. Una exclusión sin movimiento no significa nada.
+-- ─────────────────────────────────────────────────────────────────────────────
+-- DESGLOSE de los gastos — en qué columna cae cada gasto
+--
+-- El total de gastos no alcanza: el back office necesita ver cuánto es IVA,
+-- cuánto percepción, cuánto comisión y cuánto impuesto. Eso NO cambia ningún
+-- número — parte el que ya está.
+--
+-- ⚠️ Esto era una CONSTANTE en Python hasta el 2026-08-18, con el argumento de
+-- que "qué columnas tiene una tabla no se cambia todos los días". Duró un día:
+-- apareció un impuesto que ningún balde agarraba y la única forma de sumarlo era
+-- tocar código y deployar. El que sabe que un banco escribe `LEY25413DB` donde
+-- otro dice `IMP.DB/CR BANCARIOS P/DEB` es el EQUIPO, no el que programa, así
+-- que el catálogo baja a la base y se edita desde la vista.
+--
+--   `gastos_baldes`          = la columna (etiqueta + dónde se muestra + orden).
+--   `gastos_balde_matchers`  = las GRAFÍAS con que llega ese concepto. Son
+--                              varias porque cada banco lo escribe distinto.
+--
+-- ⚠️ El CAMPO va en el MATCHER y no en el balde: `COM.TRANSF` llega como
+-- CONCEPTO en unos bancos y escrito en la DESCRIPCIÓN en otros, y un balde tiene
+-- que poder mirar los dos lados.
+--
+-- ⚠️ `orden` NO es cosmético: es lo único que decide los EMPATES. Gana el primer
+-- balde que matchea, así que un movimiento con concepto IVA y descripción que
+-- menciona SELLOS cuenta una sola vez y siempre del mismo lado. Si sumara en los
+-- dos, el desglose daría más que el total.
+--
+-- La semilla la carga `bancos.py::_sembrar_desglose` la primera vez que la tabla
+-- está vacía — y SOLO si está vacía, para que un balde borrado a propósito no
+-- vuelva solo.
+CREATE TABLE IF NOT EXISTS bancos.gastos_baldes (
+    clave       text PRIMARY KEY,      -- derivada de la etiqueta; es la que viaja en el JSON
+    etiqueta    text NOT NULL,         -- lo que se lee en la columna
+    grupo       text NOT NULL DEFAULT 'otros',  -- concepto (columna propia) | otros (van a OTROS IMP)
+    orden       int  NOT NULL DEFAULT 100,
+    activo      boolean NOT NULL DEFAULT true,
+    creado_por  text,
+    creado_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS bancos.gastos_balde_matchers (
+    id          bigserial PRIMARY KEY,
+    balde       text NOT NULL REFERENCES bancos.gastos_baldes(clave) ON DELETE CASCADE,
+    campo       text NOT NULL,   -- codigo_ib | codigo_banco | descripcion_banco | descripcion_ib
+    operador    text NOT NULL,   -- igual | contiene
+    valor       text NOT NULL,
+    creado_por  text,
+    creado_at   timestamptz NOT NULL DEFAULT now(),
+    -- Dos matchers idénticos en el mismo balde no aportan nada.
+    UNIQUE (balde, campo, operador, valor)
+);
+
 CREATE TABLE IF NOT EXISTS bancos.movimientos_ignorados (
     mov_hash  text PRIMARY KEY REFERENCES bancos.movimientos(mov_hash) ON DELETE CASCADE,
     motivo    text,

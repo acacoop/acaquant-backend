@@ -71,10 +71,17 @@ OPERADORES_REGLA = ("igual", "contiene")
 # comería «IVAPERCEP» y la columna IVA mostraría de más mientras IVAPERCEP
 # quedaría en cero. Cuando un valor es prefijo de otro, `contiene` no sirve.
 #
-# ⚠️ Es una CONSTANTE y no un catálogo en la base: qué columnas tiene una tabla
-# no se cambia todos los días. Si empieza a moverse seguido, se promueve a
-# catálogo con el mismo ABM que las reglas.
-DESGLOSE_GASTOS: list[dict] = [
+# ⚠️ **Esto es la SEMILLA, no la fuente de verdad.** Hasta el 2026-08-18 era una
+# constante y punto, con el argumento de que "qué columnas tiene una tabla no se
+# cambia todos los días". Duró un día: el back office encontró un impuesto que no
+# entraba en ningún balde y la única forma de sumarlo era que yo tocara código.
+# Eso es exactamente lo que NO puede pasar — el que sabe qué escribe cada banco es
+# el equipo, no el que programa.
+#
+# Ahora el catálogo vive en `bancos.gastos_baldes` + `gastos_balde_matchers`, con
+# ABM desde la vista, y esta lista solo se usa para SEMBRARLO la primera vez (ver
+# `_sembrar_desglose`). Cambiarla acá no cambia nada en una base ya sembrada.
+DESGLOSE_SEMILLA: list[dict] = [
     {"clave": "iva", "etiqueta": "IVA", "grupo": "concepto",
      "matchers": [("descripcion_ib", "igual", "IVA")]},
     {"clave": "ivapercep", "etiqueta": "IVAPERCEP", "grupo": "concepto",
@@ -116,39 +123,62 @@ DESGLOSE_GASTOS: list[dict] = [
 # contracara es que las columnas pueden NO sumar el total, y por eso existe esto.
 RESTO = "resto"
 
+GRUPOS_BALDE = ("concepto", "otros")
 
-def desglosar(mov: dict) -> str:
+
+def desglosar(mov: dict, baldes: list[dict]) -> str:
     """A qué balde va este movimiento. PURO. Devuelve la clave, o `RESTO`.
 
-    Gana el PRIMER balde que matchea, en el orden de `DESGLOSE_GASTOS`: los
-    conceptos primero, las descripciones después. Así un movimiento con concepto
-    IVA y descripción que contiene SELLOS cuenta una sola vez y siempre del mismo
-    lado — si sumara en los dos, el desglose daría más que el total.
+    Gana el PRIMER balde que matchea, **en el orden en que vienen** (que es el
+    campo `orden` del catálogo): los conceptos primero, las descripciones
+    después. Así un movimiento con concepto IVA y descripción que contiene SELLOS
+    cuenta una sola vez y siempre del mismo lado — si sumara en los dos, el
+    desglose daría más que el total.
+
+    Por eso el ORDEN es un dato editable y no un detalle: es lo único que decide
+    los empates, y es lo que hay que mover cuando dos baldes se pisan.
     """
-    for balde in DESGLOSE_GASTOS:
-        for campo, operador, valor in balde["matchers"]:
-            col = CAMPOS_REGLA.get(campo)
+    for balde in baldes:
+        for m in balde.get("matchers") or []:
+            col = CAMPOS_REGLA.get(m["campo"])
             if not col:
                 continue
             dato = str(mov.get(col) or "").strip().casefold()
-            v = valor.strip().casefold()
+            v = str(m["valor"]).strip().casefold()
             if not dato or not v:
                 continue
-            if (dato == v) if operador == "igual" else (v in dato):
+            if (dato == v) if m["operador"] == "igual" else (v in dato):
                 return balde["clave"]
     return RESTO
 
 
-def _baldes_vacios() -> dict[str, float]:
-    return {b["clave"]: 0.0 for b in DESGLOSE_GASTOS} | {RESTO: 0.0}
+def semilla_catalogo() -> list[dict]:
+    """`DESGLOSE_SEMILLA` con la MISMA forma que devuelve `_baldes()`.
+
+    Existe para que la semilla y lo que se lee de la base no tengan dos formas
+    distintas: el sembrador y los tests usan esta, y así lo que se prueba es
+    exactamente lo que se siembra.
+    """
+    return [{"clave": b["clave"], "etiqueta": b["etiqueta"], "grupo": b["grupo"],
+             "orden": (i + 1) * 10,
+             "matchers": [{"id": None, "campo": c, "operador": o, "valor": v}
+                          for c, o, v in b["matchers"]]}
+            for i, b in enumerate(DESGLOSE_SEMILLA)]
 
 
-def catalogo_desglose() -> list[dict]:
-    """Lo que el front necesita para dibujar las columnas. Las etiquetas las
-    manda el BACKEND: si el front las copiara, cambiar un balde obligaría a tocar
-    dos lados y podrían quedar diciendo cosas distintas."""
-    return [{"clave": b["clave"], "etiqueta": b["etiqueta"], "grupo": b["grupo"]}
-            for b in DESGLOSE_GASTOS]
+def _baldes_vacios(baldes: list[dict]) -> dict[str, float]:
+    return {b["clave"]: 0.0 for b in baldes} | {RESTO: 0.0}
+
+
+def catalogo_desglose(baldes: list[dict]) -> list[dict]:
+    """Lo que el front necesita para dibujar las columnas Y para editarlas. Las
+    etiquetas las manda el BACKEND: si el front las copiara, cambiar un balde
+    obligaría a tocar dos lados y podrían quedar diciendo cosas distintas.
+
+    Los `matchers` viajan también: son lo que el ABM edita, y ya están leídos.
+    """
+    return [{"clave": b["clave"], "etiqueta": b["etiqueta"], "grupo": b["grupo"],
+             "orden": b["orden"], "matchers": b["matchers"]} for b in baldes]
 
 
 # Presencia: cuánto vale un heartbeat. El poll de la vista es de 60s, así que el
@@ -259,6 +289,62 @@ def _movs_para_clasificar(fecha: date, cuenta_id: int | None = None) -> list[dic
     )
 
 
+def _baldes() -> list[dict]:
+    """El catálogo del desglose, de la BASE. **UNA sola query** (baldes + sus
+    matchers en un LEFT JOIN) porque contra Supabase cada roundtrip son ~8,5ms de
+    peaje fijo, y esto lo pide cada request de las dos vistas.
+
+    Si la tabla está vacía se SIEMBRA con `DESGLOSE_SEMILLA` y se relee. Es la
+    única escritura que hace un camino de lectura, y pasa una vez en la vida de
+    la base: sin eso, la primera carga tras el deploy mostraría todo en
+    MOVIMIENTOS RESTANTES y parecería un bug.
+    """
+    filas = _q(
+        """SELECT b.clave, b.etiqueta, b.grupo, b.orden,
+                  m.id AS matcher_id, m.campo, m.operador, m.valor
+             FROM bancos.gastos_baldes b
+             LEFT JOIN bancos.gastos_balde_matchers m ON m.balde = b.clave
+            WHERE b.activo
+            ORDER BY b.orden, b.clave, m.id""")
+    if not filas and _sembrar_desglose():
+        return _baldes()
+
+    out: dict[str, dict] = {}
+    for r in filas:
+        b = out.setdefault(r["clave"], {
+            "clave": r["clave"], "etiqueta": r["etiqueta"],
+            "grupo": r["grupo"], "orden": r["orden"], "matchers": [],
+        })
+        if r.get("matcher_id") is not None:
+            b["matchers"].append({"id": r["matcher_id"], "campo": r["campo"],
+                                  "operador": r["operador"], "valor": r["valor"]})
+    return list(out.values())
+
+
+def _sembrar_desglose() -> bool:
+    """Carga la semilla. Idempotente y **solo si la tabla está vacía de verdad**:
+    un balde que alguien borró a propósito no puede volver solo."""
+    try:
+        if _q("SELECT 1 FROM bancos.gastos_baldes LIMIT 1"):
+            return False
+        for b in semilla_catalogo():
+            _exec("""INSERT INTO bancos.gastos_baldes (clave, etiqueta, grupo, orden,
+                                                       creado_por)
+                     VALUES (%s,%s,%s,%s,'semilla') ON CONFLICT (clave) DO NOTHING""",
+                  (b["clave"], b["etiqueta"], b["grupo"], b["orden"]))
+            for m in b["matchers"]:
+                _exec("""INSERT INTO bancos.gastos_balde_matchers
+                           (balde, campo, operador, valor, creado_por)
+                         VALUES (%s,%s,%s,%s,'semilla')
+                         ON CONFLICT (balde, campo, operador, valor) DO NOTHING""",
+                      (b["clave"], m["campo"], m["operador"], m["valor"]))
+        return True
+    except Exception:
+        # Sin catálogo el desglose queda todo en RESTO, que es visible y honesto.
+        # Tumbar la vista entera por esto sería peor.
+        return False
+
+
 def listar_reglas() -> list[dict]:
     return _q(
         """SELECT id, campo, operador, valor, nota, activa, creado_por, creado_at
@@ -274,7 +360,7 @@ def _overrides(fecha: date) -> dict[str, bool]:
             WHERE m.fecha = %s""", (fecha,))}
 
 
-def _gastos_bancarios(fecha: date) -> dict[int, dict]:
+def _gastos_bancarios(fecha: date, baldes: list[dict]) -> dict[int, dict]:
     """{cuenta_id: {"total": x, "<balde>": y, ...}}. Se DERIVA, no se persiste.
 
     Resolver en la lectura y no materializar una columna tiene una consecuencia
@@ -301,7 +387,7 @@ def _gastos_bancarios(fecha: date) -> dict[int, dict]:
     # Con criterio cargado, una cuenta que tuvo movimientos y ninguno es gasto
     # vale CERO de verdad — ahí sí lo sabemos.
     out: dict[int, dict] = {
-        m["cuenta_id"]: {"total": 0.0, **_baldes_vacios()} for m in movs}
+        m["cuenta_id"]: {"total": 0.0, **_baldes_vacios(baldes)} for m in movs}
     for m in movs:
         # Ignorado = no cuenta. Sigue clasificado y sigue visible en la lista
         # (tachado): lo que cambia es que no suma.
@@ -311,7 +397,7 @@ def _gastos_bancarios(fecha: date) -> dict[int, dict]:
         firmado = imp if m.get("tipo") == "D" else -imp
         celda = out[m["cuenta_id"]]
         celda["total"] += firmado
-        celda[desglosar(m)] += firmado
+        celda[desglosar(m, baldes)] += firmado
     return {cid: {k: round(v, 2) for k, v in celda.items()} for cid, celda in out.items()}
 
 
@@ -483,13 +569,14 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
 
     # El desglose se arma con la MISMA función que la columna del consolidado,
     # así el detalle no puede contradecir al total de la grilla.
-    desglose = _baldes_vacios()
+    baldes = _baldes()
+    desglose = _baldes_vacios(baldes)
     if crudos:
         for m in movimientos:
             crudo = crudos.get(m["mov_hash"])
             if not m.get("es_gasto") or crudo is None or crudo.get("ignorado"):
                 continue
-            balde = desglosar(crudo)
+            balde = desglosar(crudo, baldes)
             # Cada movimiento viaja diciendo EN QUÉ BALDE cayó. Sin esto, la
             # pantalla no puede mostrar qué filas componen cada número del
             # desglose — y un total que no se puede abrir es un total en el que
@@ -529,7 +616,7 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
         # Ya se leyeron arriba para clasificar: leerlas de nuevo para la
         # respuesta era una query entera de regalo.
         "reglas": reglas if reglas else listar_reglas(),
-        "desglose": catalogo_desglose(),
+        "desglose": catalogo_desglose(baldes),
         "fecha": fecha.isoformat(),
         "dias": dias,
         "movimientos": movimientos,
@@ -576,7 +663,8 @@ def consolidado(email: str, fecha: date) -> dict:
             ORDER BY c.bank_name, c.currency, c.account_type, c.account_number""",
         (fecha, fecha),
     )
-    gastos = _gastos_bancarios(fecha)
+    baldes = _baldes()
+    gastos = _gastos_bancarios(fecha, baldes)
 
     bancos: list[dict] = []
     por_banco: dict[str, dict] = {}
@@ -644,7 +732,7 @@ def consolidado(email: str, fecha: date) -> dict:
         "fecha": fecha.isoformat(),
         "conectados": conectados(),
         "puede_escribir": puede_escribir(email),
-        "desglose": catalogo_desglose(),
+        "desglose": catalogo_desglose(baldes),
         "bancos": bancos,
         "cuentas": len(filas),
         "sin_datos": sin_datos,
@@ -801,6 +889,111 @@ def ignorar_movimiento(email: str, mov_hash: str, ignorar: bool,
     _audit(email, "ignorar", {"mov_hash": mov_hash, "ignorar": ignorar,
                               "motivo": (motivo or "").strip() or None})
     return {"mov_hash": mov_hash, "ignorado": ignorar}
+
+
+# --------------------------------------------------------------------------- #
+# ABM del DESGLOSE — el catálogo de baldes, editable por el equipo
+# --------------------------------------------------------------------------- #
+# Por qué existe: el que sabe que el Banco X escribe `LEY25413DB` donde el Y dice
+# `IMP.DB/CR BANCARIOS P/DEB` es el back office, no el que programa. Mientras los
+# baldes fueron una constante, sumar una grafía nueva era un commit y un deploy —
+# o sea, el equipo tenía que pedirlo y esperar. Ahora lo hacen ellos y el número
+# cambia en el próximo poll, porque el desglose se DERIVA en la lectura.
+def _slug(texto: str) -> str:
+    """Clave estable a partir de la etiqueta. La clave es la que viaja en el JSON
+    y la que referencian los matchers; que sea derivada evita pedirle al usuario
+    un campo técnico que no significa nada para él."""
+    limpio = "".join(c if c.isalnum() else "_" for c in (texto or "").strip().lower())
+    return "_".join(p for p in limpio.split("_") if p)[:40]
+
+
+def guardar_balde(email: str, etiqueta: str, grupo: str, orden: int,
+                  clave: str = "") -> dict:
+    """Alta o edición de un balde. Sin `clave` es alta y la deriva de la etiqueta.
+
+    `grupo` decide DÓNDE se muestra: `concepto` = columna propia en el
+    consolidado; `otros` = se suma con el resto adentro de OTROS IMP. Es
+    presentación, no plata: mover un balde de grupo no cambia ningún total.
+    """
+    etiqueta = (etiqueta or "").strip()
+    grupo = (grupo or "otros").strip()
+    if not etiqueta:
+        raise ValueError("La etiqueta no puede estar vacía.")
+    if grupo not in GRUPOS_BALDE:
+        raise ValueError(f"Grupo inválido. Opciones: {', '.join(GRUPOS_BALDE)}")
+    clave = (clave or "").strip() or _slug(etiqueta)
+    if not clave:
+        raise ValueError("De esa etiqueta no sale ninguna clave; poné letras o números.")
+    if clave == RESTO:
+        raise ValueError(f"`{RESTO}` está reservado para lo que no cae en ningún balde.")
+
+    filas = _q(
+        """INSERT INTO bancos.gastos_baldes (clave, etiqueta, grupo, orden, creado_por)
+           VALUES (%s,%s,%s,%s,%s)
+           ON CONFLICT (clave) DO UPDATE SET etiqueta = EXCLUDED.etiqueta,
+                                             grupo    = EXCLUDED.grupo,
+                                             orden    = EXCLUDED.orden,
+                                             activo   = true
+           RETURNING clave, etiqueta, grupo, orden""",
+        (clave, etiqueta, grupo, int(orden or 100), email))
+    _audit(email, "balde_alta", filas[0])
+    return filas[0]
+
+
+def borrar_balde(email: str, clave: str) -> bool:
+    """Baja FÍSICA — con sus matchers por CASCADE. No hay histórico que huerfanar:
+    el desglose se deriva en la lectura, así que borrar un balde simplemente hace
+    que sus movimientos pasen a MOVIMIENTOS RESTANTES. Ningún total cambia."""
+    filas = _q("SELECT clave, etiqueta FROM bancos.gastos_baldes WHERE clave = %s",
+               (clave,))
+    if not filas:
+        return False
+    _exec("DELETE FROM bancos.gastos_baldes WHERE clave = %s", (clave,))
+    _audit(email, "balde_baja", filas[0])
+    return True
+
+
+def agregar_matcher(email: str, balde: str, campo: str, operador: str,
+                    valor: str) -> dict:
+    """Suma una grafía a un balde. Esto es el 90% del uso: el mismo impuesto
+    escrito distinto según el banco.
+
+    ⚠️ `igual` vs `contiene` no es un detalle de estilo. Cuando un valor es
+    PREFIJO de otro —`IVA` de `IVAPERCEP`— `contiene` se come al otro: la columna
+    IVA mostraría de más y IVAPERCEP quedaría en cero, y el total seguiría dando
+    bien. Por eso los baldes de concepto van por `igual`. Para texto que llega
+    truncado o con cola, `contiene`.
+    """
+    campo, operador = (campo or "").strip(), (operador or "").strip()
+    valor = (valor or "").strip()
+    if campo not in CAMPOS_REGLA:
+        raise ValueError(f"Campo inválido. Opciones: {', '.join(CAMPOS_REGLA)}")
+    if operador not in OPERADORES_REGLA:
+        raise ValueError(f"Operador inválido. Opciones: {', '.join(OPERADORES_REGLA)}")
+    if not valor:
+        raise ValueError("El valor no puede estar vacío.")
+    if not _q("SELECT 1 FROM bancos.gastos_baldes WHERE clave = %s", (balde,)):
+        raise ValueError("Ese balde no existe.")
+
+    filas = _q(
+        """INSERT INTO bancos.gastos_balde_matchers (balde, campo, operador, valor,
+                                                     creado_por)
+           VALUES (%s,%s,%s,%s,%s)
+           ON CONFLICT (balde, campo, operador, valor) DO UPDATE SET balde = EXCLUDED.balde
+           RETURNING id, balde, campo, operador, valor""",
+        (balde, campo, operador, valor, email))
+    _audit(email, "matcher_alta", filas[0])
+    return filas[0]
+
+
+def borrar_matcher(email: str, matcher_id: int) -> bool:
+    filas = _q("""SELECT id, balde, campo, operador, valor
+                    FROM bancos.gastos_balde_matchers WHERE id = %s""", (matcher_id,))
+    if not filas:
+        return False
+    _exec("DELETE FROM bancos.gastos_balde_matchers WHERE id = %s", (matcher_id,))
+    _audit(email, "matcher_baja", filas[0])
+    return True
 
 
 def marcar_presencia(email: str) -> None:

@@ -15,11 +15,16 @@ import pytest
 
 from api.services.bancos import (
     CAMPOS_REGLA,
-    DESGLOSE_GASTOS,
     RESTO,
     clasificar,
     desglosar,
+    semilla_catalogo,
 )
+
+# El catálogo con el que se prueba el desglose. Desde el 2026-08-18 los baldes
+# viven en la BASE y los edita el equipo: acá se prueba la SEMILLA, que es lo que
+# se carga la primera vez y el estado del que parte cualquier edición.
+BALDES = semilla_catalogo()
 
 MOV = {
     "mov_hash": "h1", "cuenta_id": 1, "importe": 1500.0, "tipo": "D",
@@ -125,45 +130,46 @@ def test_IVA_no_se_come_a_IVAPERCEP():
     """EL caso que obliga a usar `igual` y no `contiene`: «IVA» es prefijo de
     «IVAPERCEP», así que con `contiene` la columna IVA mostraría de más y
     IVAPERCEP quedaría en cero."""
-    assert desglosar(_m(concepto="IVA")) == "iva"
-    assert desglosar(_m(concepto="IVAPERCEP")) == "ivapercep"
-    assert desglosar(_m(concepto="IIBBPERCEP")) == "iibbpercep"
+    assert desglosar(_m(concepto="IVA"), BALDES) == "iva"
+    assert desglosar(_m(concepto="IVAPERCEP"), BALDES) == "ivapercep"
+    assert desglosar(_m(concepto="IIBBPERCEP"), BALDES) == "iibbpercep"
 
 
 def test_com_transf_matchea_por_contenido():
     """Este sí viene truncado, así que va por `contiene`."""
-    assert desglosar(_m(concepto="COM.TRANSF")) == "comtransf"
+    assert desglosar(_m(concepto="COM.TRANSF"), BALDES) == "comtransf"
 
 
 def test_el_impuesto_al_debito_tiene_DOS_grafias():
     """Patagonia escribe `IMP.DB/CR BANCARIOS P/DEB`; BIND, `LEY25413DB`. Es el
     mismo impuesto y tiene que caer en el mismo balde."""
-    assert desglosar(_m(descripcion="IMP.DB/CR BANCARIOS P/DEB")) == "imp_debito"
-    assert desglosar(_m(descripcion="LEY25413DB")) == "imp_debito"
+    assert desglosar(_m(descripcion="IMP.DB/CR BANCARIOS P/DEB"), BALDES) == "imp_debito"
+    assert desglosar(_m(descripcion="LEY25413DB"), BALDES) == "imp_debito"
 
 
 def test_el_concepto_gana_sobre_la_descripcion():
     """Un movimiento con concepto IVA y descripción con SELLOS cuenta UNA vez y
     siempre del mismo lado. Si sumara en los dos, el desglose daría más que el
     total."""
-    assert desglosar(_m(concepto="IVA", descripcion="IMPUESTO A LOS SELLOS")) == "iva"
+    assert desglosar(_m(concepto="IVA", descripcion="IMPUESTO A LOS SELLOS"), BALDES) == "iva"
 
 
 def test_lo_que_no_cae_en_ningun_balde_va_a_RESTO():
     """OTROS IMP son SOLO las 4 descripciones declaradas (decisión del back
     office), así que puede quedar gasto afuera de toda columna. Ese gasto NO se
     reparte a dedo: cae en RESTO y la vista lo canta."""
-    assert desglosar(_m(concepto="GIROS/TRF", descripcion="COMISION RARA")) == RESTO
+    assert desglosar(_m(concepto="GIROS/TRF", descripcion="COMISION RARA"), BALDES) == RESTO
 
 
 def test_ningun_movimiento_cae_en_dos_baldes():
     """El invariante que hace que el desglose SUME: cada matcher declarado tiene
     que caer en SU balde y no en otro. Se prueba con el valor exacto de cada uno."""
-    for balde in DESGLOSE_GASTOS:
-        for campo, _, valor in balde["matchers"]:
+    for balde in BALDES:
+        for mt in balde["matchers"]:
+            campo, valor = mt["campo"], mt["valor"]
             mov = _m(**{"concepto" if campo == "descripcion_ib" else "descripcion": valor})
-            assert desglosar(mov) == balde["clave"], (
-                f"«{valor}» debería caer en {balde['clave']} y cayó en {desglosar(mov)}"
+            assert desglosar(mov, BALDES) == balde["clave"], (
+                f"«{valor}» debería caer en {balde['clave']} y cayó en {desglosar(mov, BALDES)}"
             )
 
 
@@ -174,15 +180,15 @@ def test_com_transf_suma_las_TRES_grafias():
 
     Es el caso que obligó a mover el CAMPO adentro del matcher: un balde tiene
     que poder mirar `descripcion_ib` Y `descripcion_banco` a la vez."""
-    assert desglosar(_m(concepto="COM.TRANSF")) == "comtransf"
-    assert desglosar(_m(descripcion="N/D - COMISIONES DATANET")) == "comtransf"
-    assert desglosar(_m(descripcion="N/D - COMISION ECHEQ CLEA")) == "comtransf"
+    assert desglosar(_m(concepto="COM.TRANSF"), BALDES) == "comtransf"
+    assert desglosar(_m(descripcion="N/D - COMISIONES DATANET"), BALDES) == "comtransf"
+    assert desglosar(_m(descripcion="N/D - COMISION ECHEQ CLEA"), BALDES) == "comtransf"
 
 
 def test_com_transf_agarra_aunque_el_texto_siga():
     """La descripción viene truncada y con cola: `COMISION ECHEQ CLEA 4471`
     tiene que contar igual que `COMISION ECHEQ CLEA` pelado."""
-    assert desglosar(_m(descripcion="N/D - COMISION ECHEQ CLEA 4471 XX")) == "comtransf"
+    assert desglosar(_m(descripcion="N/D - COMISION ECHEQ CLEA 4471 XX"), BALDES) == "comtransf"
 
 
 def test_el_IVA_de_una_comision_datanet_sigue_siendo_IVA():
@@ -191,11 +197,11 @@ def test_el_IVA_de_una_comision_datanet_sigue_siendo_IVA():
     Si cayera en COM.TRANSF, esa columna mostraría de más y IVA de menos, y el
     total seguiría dando bien: un error que no se ve."""
     mov = _m(concepto="IVA", descripcion="N/D - COMISIONES DATANET")
-    assert desglosar(mov) == "iva"
+    assert desglosar(mov, BALDES) == "iva"
 
 
 def test_las_claves_son_unicas():
-    claves = [b["clave"] for b in DESGLOSE_GASTOS]
+    claves = [b["clave"] for b in BALDES]
     assert len(claves) == len(set(claves))
     assert RESTO not in claves
 
@@ -221,7 +227,7 @@ def _gastos(monkeypatch, movs, overrides=None):
         return movs
 
     monkeypatch.setattr(svc, "_q", _q)
-    return svc._gastos_bancarios(__import__("datetime").date(2026, 8, 14))
+    return svc._gastos_bancarios(__import__("datetime").date(2026, 8, 14), semilla_catalogo())
 
 
 def _crudo(h, ignorado=False, importe=100.0):
@@ -246,3 +252,84 @@ def test_ignorar_gana_incluso_sobre_la_marca_manual(monkeypatch):
 def test_sin_ignorados_nada_cambia(monkeypatch):
     out = _gastos(monkeypatch, [_crudo("h1"), _crudo("h2")])
     assert out[1]["total"] == 200.0
+
+
+# --------------------------------------------------------------------------- #
+# ABM del DESGLOSE — el catálogo lo edita el equipo, así que se valida SERVER-SIDE
+# --------------------------------------------------------------------------- #
+# Lo que escribe un usuario termina decidiendo en qué columna cae plata. Validar
+# en el formulario no alcanza: el endpoint es la única puerta que no se puede
+# saltear.
+def _svc_mock(monkeypatch, existe_balde=True):
+    from api.services import bancos as svc
+
+    monkeypatch.setattr(svc, "_q", lambda sql, params=None: (
+        [{"clave": "x", "etiqueta": "X", "grupo": "otros", "orden": 10}]
+        if "INSERT" in str(sql) or existe_balde else []))
+    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: 1)
+    return svc
+
+
+@pytest.mark.parametrize("etiqueta,esperada", [
+    ("IMPUESTO A LOS SELLOS", "impuesto_a_los_sellos"),
+    ("IMP.DB/CR P/DEB", "imp_db_cr_p_deb"),
+    ("  Tasa   Liquidez  ", "tasa_liquidez"),
+])
+def test_la_clave_se_deriva_de_la_etiqueta(etiqueta, esperada):
+    """Al usuario no se le pide un campo técnico que no significa nada para él:
+    la clave —que es la que viaja en el JSON y la que referencian los matchers—
+    sale del nombre que escribió."""
+    from api.services.bancos import _slug
+    assert _slug(etiqueta) == esperada
+
+
+def test_no_se_puede_llamar_resto_a_un_balde(monkeypatch):
+    """`resto` es lo que NO cae en ningún balde. Un balde con esa clave haría que
+    la vista muestre dos cosas distintas con el mismo nombre."""
+    svc = _svc_mock(monkeypatch)
+    with pytest.raises(ValueError, match="reservado"):
+        svc.guardar_balde("x@y", "resto", "otros", 10)
+
+
+def test_un_grupo_inventado_se_rechaza(monkeypatch):
+    svc = _svc_mock(monkeypatch)
+    with pytest.raises(ValueError, match="Grupo inválido"):
+        svc.guardar_balde("x@y", "Nueva", "columna_rara", 10)
+
+
+def test_una_etiqueta_vacia_se_rechaza(monkeypatch):
+    svc = _svc_mock(monkeypatch)
+    with pytest.raises(ValueError, match="etiqueta"):
+        svc.guardar_balde("x@y", "   ", "otros", 10)
+
+
+def test_un_matcher_con_campo_que_no_existe_se_rechaza(monkeypatch):
+    """Sin esto, el `campo` que escribió un usuario llegaría a un WHERE."""
+    svc = _svc_mock(monkeypatch)
+    with pytest.raises(ValueError, match="Campo inválido"):
+        svc.agregar_matcher("x@y", "iva", "columna_inventada", "contiene", "IVA")
+
+
+def test_un_matcher_vacio_se_rechaza(monkeypatch):
+    """Un valor vacío matchearía con cualquier cosa — se comería todo el desglose."""
+    svc = _svc_mock(monkeypatch)
+    with pytest.raises(ValueError, match="vacío"):
+        svc.agregar_matcher("x@y", "iva", "descripcion_ib", "igual", "  ")
+
+
+def test_no_se_le_cuelga_una_grafia_a_un_balde_que_no_existe(monkeypatch):
+    svc = _svc_mock(monkeypatch, existe_balde=False)
+    with pytest.raises(ValueError, match="no existe"):
+        svc.agregar_matcher("x@y", "fantasma", "descripcion_ib", "igual", "IVA")
+
+
+def test_borrar_un_balde_no_cambia_ningun_total(monkeypatch):
+    """Invariante del modelo: el desglose se DERIVA en la lectura, así que un
+    balde menos solo manda sus movimientos a MOVIMIENTOS RESTANTES. El total de
+    gastos no se toca."""
+    from api.services import bancos as svc
+
+    sin_sellos = [b for b in semilla_catalogo() if b["clave"] != "sellos"]
+    mov = _m(descripcion="IMPUESTO A LOS SELLOS")
+    assert svc.desglosar(mov, semilla_catalogo()) == "sellos"
+    assert svc.desglosar(mov, sin_sellos) == RESTO

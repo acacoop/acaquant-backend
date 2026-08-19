@@ -4337,13 +4337,9 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_avisos (
     resuelto_at  timestamptz
 );
 
--- Un aviso ABIERTO por (ticker, clave): re-aplicar el mismo bono no duplica la
--- fila. El índice es PARCIAL a propósito — si el user lo cierra y el problema
--- vuelve a aparecer en un alta posterior, ese aviso nuevo SÍ debe poder existir.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto
-    ON mercado.av_agent_avisos (ticker, clave) WHERE NOT resuelto;
--- ⚠️ **EL DESTINATARIO ENTRA A LA CLAVE** (bug 2026-08-19). El índice de arriba
--- ignoraba `para`, así que el PRIMER ping sobre un control lo bloqueaba para
+-- ⚠️ **EL DESTINATARIO ENTRA A LA CLAVE** (bug 2026-08-19). El índice ANTERIOR
+-- era `(ticker, clave)` e ignoraba `para`, así que el PRIMER ping sobre un
+-- control lo bloqueaba para
 -- todos los demás: avisarle a otra persona hacía `ON CONFLICT DO NOTHING`,
 -- devolvía 0, y como nadie miraba ese 0 la acción decía «listo» y al
 -- destinatario no le llegaba nada.
@@ -4354,6 +4350,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto
 --
 -- Un aviso ABIERTO es único por (ticker, clave, DESTINATARIO). `coalesce` porque
 -- los avisos de un alta nacen sin dueño y ésos siguen siendo uno solo.
+-- MIGRACIÓN de una sola vez: el índice viejo ya no se crea nunca más (su
+-- `CREATE` se borró de este archivo, no se dejó arriba). Dejarlo habría hecho
+-- que **cada deploy intentara recrearlo** — y desde que dos operadores reciben
+-- el mismo tema, esa recreación FALLA por duplicado y **frena el deploy entero**.
+-- Pasó el 2026-08-19, y el error es exactamente la prueba de que el índice viejo
+-- no puede representar lo que ahora guardamos.
 DROP INDEX IF EXISTS mercado.ux_av_agent_avisos_abierto;
 -- ⚠️ **UN MENSAJE PUEDE TRAER UNA TABLA Y EXIGIR QUE LA COMPLETES** (2026-08-19).
 --

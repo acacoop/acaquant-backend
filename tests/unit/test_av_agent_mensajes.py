@@ -163,3 +163,24 @@ def test_se_puede_probar_sin_molestar_a_nadie():
     mesa entera."""
     src = pathlib.Path("jobs/saldos_a_operadores.py").read_text(encoding="utf-8")
     assert '"--a"' in src and "[PRUEBA]" in src
+
+
+def test_no_se_CREA_y_se_DROPEA_el_mismo_indice_en_el_mismo_schema():
+    """**Frenó un deploy el 2026-08-19.** Al cambiar el índice de avisos dejé el
+    `CREATE` viejo arriba del `DROP` nuevo: cada `apply_schema` recreaba el que
+    acabábamos de borrar, y en cuanto dos operadores recibieron el mismo tema esa
+    recreación falló por duplicado y **cortó el deploy entero**.
+
+    Un `CREATE` y un `DROP` del mismo índice en el mismo archivo no es
+    redundancia: es una bomba de tiempo que explota el día que los datos usan la
+    libertad que el índice nuevo les dio."""
+    sql = pathlib.Path("sql/schema.sql").read_text(encoding="utf-8")
+    import re
+    dropeados = set(re.findall(
+        r"DROP INDEX IF EXISTS\s+(?:\w+\.)?(\w+)\s*;", sql))
+    creados = set(re.findall(
+        r"CREATE (?:UNIQUE )?INDEX IF NOT EXISTS\s+(\w+)", sql))
+    chocan = dropeados & creados
+    assert not chocan, (
+        f"estos índices se crean Y se dropean en el mismo schema: {sorted(chocan)}. "
+        f"El próximo `apply_schema` va a recrear lo que acaba de borrar.")

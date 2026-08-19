@@ -203,3 +203,124 @@ def test_una_cuenta_que_no_existe_se_rechaza(monkeypatch):
     monkeypatch.setattr(svc, "_q", lambda sql, params=None: [])
     with pytest.raises(ValueError, match="no existe"):
         svc.conciliar("x@y", 99, FECHA, GRILLA)
+
+
+# ── El detalle de los dos lados ─────────────────────────────────────────────
+# ⚠️ `importe = Debe − Haber`, medido sobre el export real: el saldo inicial más
+# la suma de los movimientos da EXACTAMENTE el saldo final del archivo. Esa
+# igualdad no es un detalle contable — es lo que permite auto-verificar el
+# parseo.
+def test_el_importe_del_mayor_es_debe_menos_haber():
+    from api.services.bancos import _movimientos_del_mayor
+
+    d = _movimientos_del_mayor(GRILLA)
+    assert [m["importe"] for m in d["movimientos"]] == [
+        -500_000_000.0, 112.01, -500_000_000.0, 500_000_000.0]
+    assert d["suma"] == -499_999_887.99
+
+
+def test_la_fila_del_SALDO_INICIAL_no_es_un_movimiento():
+    """Tiene Debe cargado pero es el punto de partida: contarla infla el total
+    justo en el arranque, que es donde nadie lo mira."""
+    from api.services.bancos import _movimientos_del_mayor
+
+    d = _movimientos_del_mayor(GRILLA)
+    assert d["saldo_inicial"] == 53_464.73
+    assert len(d["movimientos"]) == 4, "las 4 filas con fecha, no las 5 con importe"
+    assert all("Saldo inicial" not in m["concepto"] for m in d["movimientos"])
+
+
+def test_el_detalle_del_mayor_CIERRA_contra_su_propio_saldo():
+    """La verificación que se hace sola: inicial + movimientos = saldo final. Si
+    diera distinto, o leí mal una columna o al archivo le falta una fila."""
+    from api.services.bancos import _movimientos_del_mayor, _saldo_del_mayor
+
+    d = _movimientos_del_mayor(GRILLA)
+    final = _saldo_del_mayor(GRILLA)["valor"]
+    assert round(d["saldo_inicial"] + d["suma"], 2) == final
+    assert d["cierra"] is True
+    assert d["avisos"] == []
+
+
+def test_si_el_mayor_NO_cierra_contra_su_saldo_lo_canta():
+    """Callarlo sería dejar conciliar contra un detalle que no representa lo que
+    dice representar."""
+    from api.services.bancos import _movimientos_del_mayor
+
+    roto = [f[:] for f in GRILLA]
+    del roto[3]                       # se «pierde» una fila del medio
+    d = _movimientos_del_mayor(roto)
+    assert d["cierra"] is False
+    assert any("NO cierra" in a for a in d["avisos"])
+
+
+def test_los_dos_detalles_viajan_en_la_respuesta(monkeypatch):
+    s = _svc(monkeypatch, cierre=53464.73,
+             movs=[_mov("h1", 112.01, "D", "COMISION"), _mov("h2", 5000.0, "C", "TRF")])
+    out = s.conciliar("x@y", 1, FECHA, GRILLA)
+    assert [m["importe"] for m in out["banco_movimientos"]] == [-112.01, 5000.0]
+    assert out["banco_suma"] == 4887.99
+    assert len(out["mayor_movimientos"]) == 4
+    assert out["mayor_suma"] == -499_999_887.99
+    assert out["mayor_cierra"] is True
+
+
+# ── Encontrar la explicación cuando no es exacta ────────────────────────────
+# ⚠️ Caso real (2026-08-19): la diferencia daba 1.176.659,79 y el movimiento que
+# la explicaba era de 1.176.659,78. UN CENTAVO. Con igualdad exacta el buscador
+# contestaba «ningún movimiento da exactamente esa diferencia» y escondía el
+# movimiento que cualquiera reconoce de un vistazo.
+def test_encuentra_el_movimiento_aunque_falte_UN_CENTAVO(monkeypatch):
+    s = _svc(monkeypatch, cierre=1_342_918.71,
+             movs=[_mov("h1", 1_176_659.78, "C", "CREDITO POR DATANET"),
+                   _mov("h2", 300.0, "D", "COMISION")])
+    # El mayor cierra en 166.258,92 → diferencia 1.176.659,79.
+    grilla = [["Concepto", "Debe", "Haber", "Saldo"],
+              ["Saldo inicial", "", "", "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    assert out["diferencia"] == 1_176_659.79
+    assert len(out["candidatos"]) == 1
+    c = out["candidatos"][0]
+    assert c["movimientos"][0]["descripcion"] == "CREDITO POR DATANET"
+    assert c["resto"] == 0.01, "y dice cuánto sobra: no se hace pasar por exacta"
+    assert any("no es exacta" in a for a in out["avisos"])
+
+
+def test_una_coincidencia_EXACTA_gana_sobre_una_aproximada(monkeypatch):
+    """El orden de las pasadas importa: si se buscara con tolerancia desde el
+    principio, «esto es» y «esto se le parece» valdrían lo mismo."""
+    s = _svc(monkeypatch, cierre=166_258.92 + 500.0,
+             movs=[_mov("h1", 500.0, "C", "EXACTO"),
+                   _mov("h2", 500.5, "C", "PARECIDO")])
+    grilla = [["Concepto", "Debe", "Haber", "Saldo"],
+              ["Saldo inicial", "", "", "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    assert len(out["candidatos"]) == 1
+    assert out["candidatos"][0]["movimientos"][0]["descripcion"] == "EXACTO"
+    assert out["candidatos"][0]["resto"] == 0.0
+
+
+def test_encuentra_el_movimiento_con_el_SIGNO_al_reves(monkeypatch):
+    """El mismo importe de la otra mano sigue siendo EL movimiento: el back
+    office necesita verlo. Se marca en vez de disimularlo."""
+    s = _svc(monkeypatch, cierre=166_258.92 - 900.0,
+             movs=[_mov("h1", 900.0, "C", "TRANSFERENCIA")])
+    grilla = [["Concepto", "Debe", "Haber", "Saldo"],
+              ["Saldo inicial", "", "", "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    assert out["diferencia"] == -900.0
+    assert out["candidatos"][0]["signo_invertido"] is True
+    assert any("signo AL REVÉS" in a for a in out["avisos"])
+
+
+def test_una_diferencia_grande_NO_se_explica_con_cualquier_cosa(monkeypatch):
+    """La tolerancia es UN PESO fijo y no un porcentaje: sobre 500 millones, un
+    porcentaje daría miles de pesos de margen y empezaría a «encontrar»
+    coincidencias que no lo son."""
+    s = _svc(monkeypatch, cierre=166_258.92 + 1_000_000.0,
+             movs=[_mov("h1", 999_950.0, "C", "PARECIDO PERO NO")])
+    grilla = [["Concepto", "Debe", "Haber", "Saldo"],
+              ["Saldo inicial", "", "", "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    assert out["candidatos"] == []
+    assert any("Ningún movimiento" in a for a in out["avisos"])

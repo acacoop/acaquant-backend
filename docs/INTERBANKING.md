@@ -723,9 +723,41 @@ conciliación que miente, y eso no avisa.
 - **Nuestro saldo es el MISMO que muestra el consolidado**, ajuste manual
   incluido (y avisado). Si acá se usara el saldo pelado del banco, dos pantallas
   dirían dos números para la misma cuenta y el mismo día.
-- Las **explicaciones** son subconjuntos de movimientos cuya suma firmada da
-  exactamente la diferencia: de a uno, después de a dos, después de a tres con
-  tope. Si se cortó, la respuesta lo dice (`candidatos_truncados`) — «no
+- **Los dos detalles, uno de cada lado.** Solo descripción e importe: los
+  movimientos del banco y los del mayor **no tienen nada en común** en fechas ni
+  comprobantes (`[Op. 1130699] bco a bco` contra `TRANSF.O/BANCOS MISMO TIT`),
+  así que mostrarlos invitaría a cruzarlos por donde no se puede. Lo único
+  comparable es el **importe**, y por eso las dos columnas de números quedan
+  alineadas a la misma altura: el ojo hace la comparación solo.
+- ⚠️ **`importe del mayor = Debe − Haber`**, medido y verificado: el saldo
+  inicial más la suma de los movimientos da **exactamente** el saldo final del
+  archivo. Esa igualdad no es un detalle contable — es lo que permite
+  **auto-verificar el parseo**: si no cierra, o se leyó mal una columna o al
+  archivo le falta una fila, y en los dos casos hay que decirlo antes de que
+  alguien concilie contra un número que no representa nada. La fila del **saldo
+  inicial** no es un movimiento y se excluye por dos señales independientes (no
+  tiene fecha, o su concepto lo dice).
+- Las **explicaciones** son subconjuntos de movimientos que llegan a la
+  diferencia, buscados en **tres pasadas de la más estricta a la más laxa**:
+  1. **suma firmada == diferencia** — la explicación limpia;
+  2. **|suma| == |diferencia|** — el mismo importe con el signo al revés. Pasa
+     cuando el sistema contable lleva la cuenta del otro lado, y el back office
+     igual necesita ver ese movimiento: **es** el movimiento, solo que el signo
+     cuenta otra historia. Se marca (`signo_invertido`), no se disimula;
+  3. **con TOLERANCIA de $1**, informando cuánto sobra (`resto`).
+
+  ⚠️ La tolerancia nace de un caso real: la diferencia daba `1.176.659,79` y el
+  movimiento que la explicaba era de `1.176.659,78` — **un centavo**. Con
+  igualdad exacta el buscador contestaba «ningún movimiento da exactamente esa
+  diferencia» y **escondía el movimiento que cualquiera reconoce de un vistazo**.
+  Es **un peso fijo y no un porcentaje**: sobre 500 millones un porcentaje daría
+  miles de pesos de margen y empezaría a "encontrar" coincidencias que no lo son.
+  Y el orden de las pasadas importa: buscando con tolerancia desde el principio,
+  «esto es» y «esto se le parece» valdrían lo mismo. **Lo que sobra se informa
+  siempre** — una explicación que tapa un resto cierra el caso con plata sin
+  justificar adentro.
+
+  Si la búsqueda se cortó, la respuesta lo dice (`candidatos_truncados`): «no
   encontré» y «no busqué todo» son cosas distintas.
 - ⚠️ **Si los dos saldos coinciden al invertir el signo del mayor, se AVISA y no
   se corrige.** Significa que no falta ningún movimiento: la cuenta está del otro
@@ -821,6 +853,15 @@ La pantalla arranca mostrando **solo las cuentas con diferencia**, con un
 Respeta el filtro por banco de la vista.
 
 ## Changelog
+
+- **2026-08-19 (5)** — **CONCILIAR muestra los dos detalles** (banco y mayor, uno
+  de cada lado, solo descripción e importe) y **encuentra la explicación aunque
+  no sea exacta**. Lo pidió un caso real donde la diferencia daba `…,79` y el
+  movimiento `…,78`: por un centavo el buscador contestaba «ningún movimiento» y
+  escondía el que se reconocía de un vistazo. Ahora busca en tres pasadas
+  (exacto → valor absoluto → tolerancia de $1) y **siempre informa el resto**. De
+  paso, el detalle del mayor **se auto-verifica**: saldo inicial + movimientos
+  tiene que dar el saldo final del archivo, y si no da, lo canta.
 
 - **2026-08-19 (4)** — **CONCILIAR: se escribe el BACKEND que faltaba.** El
   frontend se había mergeado solo y la vista tiraba «Not Found» (el 404 de

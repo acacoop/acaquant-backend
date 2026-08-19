@@ -811,15 +811,7 @@ def _saldo_del_mayor(filas: list) -> dict:
     # La columna SALDO se busca por ENCABEZADO y no por posición: el export puede
     # traer títulos arriba o columnas de más, y contar desde la izquierda se
     # rompe el día que agreguen una.
-    col = None
-    encabezado = None
-    for i, fila in enumerate(filas[:10]):
-        for j, celda in enumerate(fila or []):
-            if str(celda or "").strip().lower() == "saldo":
-                col, encabezado = j, i
-                break
-        if col is not None:
-            break
+    col, encabezado = _columna(filas, "saldo")
 
     avisos: list[str] = []
     if col is None:
@@ -850,6 +842,88 @@ def _saldo_del_mayor(filas: list) -> dict:
             "avisos": [*avisos, "La columna de saldo no tiene ningún número."]}
 
 
+def _columna(filas: list, *nombres: str) -> tuple[int | None, int | None]:
+    """Dónde está la columna `nombre` y en qué fila el encabezado. Por NOMBRE y
+    no por posición: el export puede traer títulos arriba o columnas de más."""
+    buscados = {n.strip().lower() for n in nombres}
+    for i, fila in enumerate(filas[:10]):
+        for j, celda in enumerate(fila or []):
+            if str(celda or "").strip().lower() in buscados:
+                return j, i
+    return None, None
+
+
+def _movimientos_del_mayor(filas: list) -> dict:
+    """Los movimientos del mayor: concepto e importe FIRMADO.
+
+    ⚠️ **`importe = Debe − Haber`**, medido y verificado sobre el export real: el
+    saldo inicial más la suma de los movimientos da **exactamente** el saldo
+    final del archivo. Esa igualdad no es un detalle contable — es lo que permite
+    **auto-verificar el parseo**: si no cierra, o leí mal una columna o el
+    archivo está incompleto, y en los dos casos hay que decirlo antes de que
+    alguien concilie contra un número que no representa nada.
+
+    La fila del **saldo inicial** no es un movimiento y se excluye. Se la
+    reconoce por dos señales independientes —no tiene fecha, o su concepto dice
+    «saldo inicial»— porque con una sola, un export apenas distinto la contaría
+    como movimiento y el total quedaría inflado justo en el arranque.
+    """
+    col_saldo, _ = _columna(filas, "saldo")
+    col_debe, enc = _columna(filas, "debe")
+    col_haber, _ = _columna(filas, "haber")
+    col_concepto, _ = _columna(filas, "concepto", "descripcion", "descripción", "detalle")
+    col_fecha, _ = _columna(filas, "fecha")
+
+    if col_debe is None and col_haber is None:
+        return {"movimientos": [], "saldo_inicial": None, "suma": 0.0,
+                "cierra": None,
+                "avisos": ["El archivo no tiene columnas «Debe» y «Haber»: se "
+                           "compara solo el saldo, sin detalle."]}
+
+    def _celda(fila, col):
+        return fila[col] if col is not None and len(fila) > col else None
+
+    movimientos: list[dict] = []
+    saldo_inicial = None
+    for i, fila in enumerate(filas):
+        fila = fila or []
+        if enc is not None and i <= enc:
+            continue
+        debe = _num_mayor(_celda(fila, col_debe)) or 0.0
+        haber = _num_mayor(_celda(fila, col_haber)) or 0.0
+        concepto = str(_celda(fila, col_concepto) or "").strip()
+        tiene_fecha = bool(str(_celda(fila, col_fecha) or "").strip())
+
+        if not debe and not haber:
+            continue
+        # El saldo inicial no es un movimiento: es el punto de partida.
+        if saldo_inicial is None and (not tiene_fecha or "saldo inicial" in concepto.lower()):
+            saldo_inicial = _num_mayor(_celda(fila, col_saldo))
+            if saldo_inicial is None:
+                saldo_inicial = round(debe - haber, 2)
+            continue
+        movimientos.append({"concepto": concepto or "(sin concepto)",
+                            "importe": round(debe - haber, 2), "fila": i + 1})
+
+    suma = round(sum(m["importe"] for m in movimientos), 2)
+    final = _saldo_del_mayor(filas)["valor"]
+    cierra = None
+    avisos: list[str] = []
+    if final is not None and saldo_inicial is not None:
+        cierra = abs(round(saldo_inicial + suma - final, 2)) < 0.01
+        if not cierra:
+            # Auto-chequeo del parseo: si esto no da, el detalle no se puede usar
+            # para explicar nada. Callarlo sería dejar conciliar contra un número
+            # que no representa lo que dice representar.
+            avisos.append(
+                f"⚠️ El detalle del mayor NO cierra contra su propio saldo: "
+                f"{saldo_inicial:,.2f} + {suma:,.2f} debería dar {final:,.2f} y da "
+                f"{saldo_inicial + suma:,.2f}. Puede faltar alguna fila en el "
+                "archivo, o tener columnas distintas de las esperadas.")
+    return {"movimientos": movimientos, "saldo_inicial": saldo_inicial,
+            "suma": suma, "cierra": cierra, "avisos": avisos}
+
+
 # Cuántos movimientos se combinan buscando la explicación. De a uno y de a dos es
 # instantáneo; de a tres crece rápido y por eso tiene tope. Si se corta, la
 # respuesta lo DICE (`candidatos_truncados`): «no encontré» y «no busqué todo»
@@ -857,31 +931,73 @@ def _saldo_del_mayor(filas: list) -> dict:
 MAX_COMBINAR = 3
 MAX_MOVS_COMBINAR = 40
 
+# Cuánto puede sobrar para que igual se muestre como explicación.
+#
+# ⚠️ Nace de un caso real (2026-08-19): la diferencia daba 1.176.659,**79** y el
+# movimiento que la explicaba era de 1.176.659,**78**. **Un centavo.** Con
+# igualdad exacta el buscador contestaba «ningún movimiento da exactamente esa
+# diferencia» y escondía el movimiento que cualquiera reconoce de un vistazo.
+#
+# Es un peso fijo y no un porcentaje: sobre 500 millones, un porcentaje daría
+# miles de pesos de margen y empezaría a "encontrar" coincidencias que no lo son.
+# Lo que sobra se informa siempre (`resto`), así que una explicación aproximada
+# nunca se puede confundir con una exacta.
+TOLERANCIA = 1.0
+
 
 def _explicaciones(movs: list[dict], objetivo: float) -> tuple[list[dict], bool]:
-    """Subconjuntos de movimientos cuya suma da EXACTAMENTE la diferencia."""
+    """Subconjuntos de movimientos que explican la diferencia.
+
+    Busca en TRES pasadas, de la más estricta a la más laxa, y se queda con la
+    primera que encuentra algo:
+
+    1. **suma firmada == diferencia** — la explicación limpia.
+    2. **|suma| == |diferencia|** — el mismo importe con el signo al revés. Pasa
+       cuando el sistema contable lleva la cuenta del otro lado, y el back office
+       igual necesita ver ese movimiento: es EL movimiento, solo que el signo
+       cuenta otra historia. Se marca (`signo_invertido`) en vez de disimularlo.
+    3. **con TOLERANCIA**, informando cuánto sobra (`resto`).
+
+    El orden importa: si se buscara con tolerancia desde el principio, una
+    coincidencia exacta y una de un peso de diferencia valdrían lo mismo, y la
+    pantalla dejaría de distinguir «esto es» de «esto se le parece».
+    """
     firmados = [(m, round(_firmado(m), 2)) for m in movs]
-    salida: list[dict] = []
     obj = round(objetivo, 2)
-
-    for m, v in firmados:
-        if v == obj:
-            salida.append({"movimientos": [m], "suma": v, "cantidad": 1})
-    if salida:
-        return salida[:10], False
-
     truncado = len(firmados) > MAX_MOVS_COMBINAR
     usables = firmados[:MAX_MOVS_COMBINAR]
-    for n in (2, MAX_COMBINAR):
-        for combo in combinations(usables, n):
-            if round(sum(v for _, v in combo), 2) == obj:
-                salida.append({"movimientos": [m for m, _ in combo],
-                               "suma": obj, "cantidad": n})
-                if len(salida) >= 10:
-                    return salida, truncado
+
+    def _armar(combo, suma):
+        return {"movimientos": [m for m, _ in combo], "suma": round(suma, 2),
+                "cantidad": len(combo),
+                "resto": round(obj - suma, 2),
+                "signo_invertido": (suma != 0 and round(suma, 2) == round(-obj, 2))}
+
+    # Cada pasada mira de a 1, después de a 2, después de a 3.
+    for criterio in ("exacto", "absoluto", "tolerancia"):
+        def _da(suma: float, criterio=criterio) -> bool:
+            if criterio == "exacto":
+                return round(suma, 2) == obj
+            if criterio == "absoluto":
+                return round(abs(suma), 2) == round(abs(obj), 2)
+            return abs(round(suma - obj, 2)) <= TOLERANCIA
+
+        salida: list[dict] = []
+        for m, v in firmados:
+            if _da(v):
+                salida.append(_armar([(m, v)], v))
         if salida:
-            return salida, truncado
-    return salida, truncado
+            return salida[:10], False
+        for n in (2, MAX_COMBINAR):
+            for combo in combinations(usables, n):
+                suma = round(sum(v for _, v in combo), 2)
+                if _da(suma):
+                    salida.append(_armar(combo, suma))
+                    if len(salida) >= 10:
+                        return salida, truncado
+            if salida:
+                return salida, truncado
+    return [], truncado
 
 
 def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
@@ -924,7 +1040,8 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
         fuente = f"{fuente} + ajuste manual"
 
     mayor = _saldo_del_mayor(filas)
-    avisos = list(mayor["avisos"])
+    detalle = _movimientos_del_mayor(filas)
+    avisos = [*mayor["avisos"], *detalle["avisos"]]
     excel = mayor["valor"]
 
     diferencia = None if nuestro is None or excel is None else round(nuestro - excel, 2)
@@ -943,6 +1060,10 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
         crudos, truncados = _explicaciones(movs, diferencia)
         candidatos = [{
             "suma": c["suma"], "cantidad": c["cantidad"],
+            # Cuánto queda sin explicar y si el signo está al revés. Se publican
+            # SIEMPRE para que una explicación aproximada no se pueda confundir
+            # con una exacta.
+            "resto": c["resto"], "signo_invertido": c["signo_invertido"],
             "movimientos": [{**_movimiento_publico(m), "importe_firmado": _firmado(m),
                              "concepto": (m.get("descripcion_ib") or "").strip()}
                             for m in c["movimientos"]],
@@ -961,8 +1082,18 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
         if not candidatos:
             avisos.append(
                 "Ningún movimiento del día —ni combinación de hasta "
-                f"{MAX_COMBINAR}— da exactamente esa diferencia. Puede venir de "
+                f"{MAX_COMBINAR}— llega a esa diferencia, ni siquiera por valor "
+                f"absoluto o con {TOLERANCIA:,.2f} de tolerancia. Puede venir de "
                 "un día anterior, o ser varias cosas a la vez.")
+        elif any(c["signo_invertido"] for c in candidatos):
+            avisos.append(
+                "El movimiento que explica la diferencia tiene el signo AL REVÉS: "
+                "el importe es el mismo pero de la otra mano. Suele ser que el "
+                "sistema contable lleva la cuenta del otro lado.")
+        elif any(c["resto"] for c in candidatos):
+            avisos.append(
+                "La explicación no es exacta: queda un resto (se muestra al lado "
+                "de cada opción). Suele ser un redondeo o un movimiento chico más.")
 
     if ajuste:
         avisos.append(
@@ -970,8 +1101,23 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
             "que el banco no informa.")
 
     _auditar(email, cuenta_id, fecha, fecha, len(movs))
+    # Los dos detalles, uno de cada lado, para poder mirarlos juntos. Sin fechas
+    # ni comprobantes: los del banco y los del mayor no tienen NADA en común en
+    # esos campos (`[Op. 1130699] bco a bco` contra `TRANSF.O/BANCOS MISMO TIT`),
+    # así que ponerlos al lado invitaría a cruzarlos por donde no se puede. Lo
+    # único que se compara de verdad es el IMPORTE.
+    nuestros = [{"descripcion": (m.get("descripcion_banco")
+                                 or m.get("descripcion_ib") or "").strip()
+                             or "(sin descripción)",
+                 "importe": round(_firmado(m), 2)} for m in movs]
     return {
         "fecha": fecha.isoformat(),
+        "banco_movimientos": nuestros,
+        "banco_suma": round(sum(m["importe"] for m in nuestros), 2),
+        "mayor_movimientos": detalle["movimientos"],
+        "mayor_suma": detalle["suma"],
+        "mayor_saldo_inicial": detalle["saldo_inicial"],
+        "mayor_cierra": detalle["cierra"],
         "cuenta": {"id": cuenta["id"], "banco": cuenta["banco_nombre"],
                    "numero": cuenta["numero"], "tipo": cuenta["tipo"],
                    "moneda": cuenta["moneda"], "etiqueta": cuenta["etiqueta"]},

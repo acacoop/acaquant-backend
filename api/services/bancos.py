@@ -689,6 +689,130 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# DIFERENCIAS — el saldo se movió más (o menos) de lo que dicen sus movimientos
+# --------------------------------------------------------------------------- #
+def diferencias(email: str, fecha: date) -> dict:
+    """Por cuenta: ¿la variación del saldo está EXPLICADA por los movimientos?
+
+    La cuenta que tiene que dar:
+
+        cierre(hoy) − cierre(día anterior)  ==  Σ movimientos de hoy
+
+    Lo que sobra es la **diferencia sin explicar**, y tiene una causa concreta que
+    el back office ya conocía: **el banco a veces registra un movimiento con
+    fecha de ANTEAYER que recién impacta en el saldo de AYER**. El movimiento
+    queda en un día que ya cerramos y el salto aparece en el otro.
+
+    ⚠️ La consecuencia matemática que hace útil a esta pantalla: como
+    `Σ movimientos = cierre(hoy) − apertura(hoy)` cuando el día cierra bien,
+    entonces
+
+        sin_explicar  =  apertura(hoy) − cierre(día anterior)
+
+    O sea: **la diferencia ES el salto entre el cierre de un día y la apertura
+    del siguiente**, los dos informados por el banco. Por eso se publican las dos
+    lecturas: `sin_explicar` (el número) y `salto_apertura` (la evidencia). Si no
+    coinciden, el problema no es el asiento retroactivo sino que el día no cierra
+    contra sus propios movimientos — que es otro hallazgo, y la vista lo dice.
+
+    ⚠️ **Se reconcilia contra el BANCO, no contra la pantalla.** Los movimientos
+    manuales mueven el saldo que mostramos pero no existen para el banco: si
+    entraran, cada ajuste nuestro aparecería como una diferencia del banco. Se
+    publican aparte (`ajuste_manual`) para que nadie se confunda al comparar con
+    el consolidado.
+
+    ⚠️ **Los IGNORADOS sí entran.** Ignorar saca un movimiento de los GASTOS, no
+    del extracto: acá se está reconstruyendo la aritmética del banco.
+    """
+    previas = _q(
+        """SELECT max(fecha) AS f FROM (
+               SELECT fecha FROM bancos.extracto_dia WHERE fecha < %s
+               UNION ALL
+               SELECT fecha FROM bancos.saldos       WHERE fecha < %s) t""",
+        (fecha, fecha))
+    previa = previas[0]["f"] if previas else None
+    if previa is None:
+        # Sin día anterior no hay nada que comparar. La base retiene 3 fechas, así
+        # que esto pasa el primer día o si la ingesta viene fallando: es un dato,
+        # no un error.
+        return {"fecha": fecha.isoformat(), "fecha_previa": None, "filas": [],
+                "sin_previa": True}
+
+    cuentas = _q(
+        """SELECT id, bank_number, bank_name, account_number, account_type,
+                  currency, account_label, activa, origen
+             FROM bancos.cuentas WHERE activa
+            ORDER BY bank_name, currency, account_type, account_number""")
+
+    # Los dos días en UNA query, y las dos fuentes de saldo en otra: el cierre
+    # sale del extracto si lo hay y si no de `bancos.saldos`, el mismo orden que
+    # usa el consolidado. Si acá eligiera distinto, dos pantallas dirían dos
+    # saldos para el mismo día.
+    ext = {(r["cuenta_id"], r["fecha"]): r for r in _q(
+        """SELECT cuenta_id, fecha, saldo_apertura, saldo_cierre, cierra
+             FROM bancos.extracto_dia WHERE fecha IN (%s, %s)""", (fecha, previa))}
+    sal = {(r["cuenta_id"], r["fecha"]): _f(r["saldo"]) for r in _q(
+        """SELECT cuenta_id, fecha,
+                  coalesce(saldo_operativo, saldo_dia) AS saldo
+             FROM bancos.saldos WHERE fecha IN (%s, %s)""", (fecha, previa))}
+
+    movs = {r["cuenta_id"]: (_f(r["neto"]) or 0.0, r["n"]) for r in _q(
+        """SELECT cuenta_id,
+                  sum(CASE WHEN tipo = 'C' THEN importe ELSE -importe END) AS neto,
+                  count(*) AS n
+             FROM bancos.movimientos WHERE fecha = %s GROUP BY cuenta_id""", (fecha,))}
+    manuales = _ajuste_manual(fecha)
+
+    def _cierre(cid: int, f: date) -> float | None:
+        e = ext.get((cid, f))
+        if e is not None and e.get("saldo_cierre") is not None:
+            return _f(e["saldo_cierre"])
+        return sal.get((cid, f))
+
+    filas: list[dict] = []
+    for c in cuentas:
+        cid = c["id"]
+        hoy, ayer = _cierre(cid, fecha), _cierre(cid, previa)
+        neto, n = movs.get(cid, (0.0, 0))
+        e = ext.get((cid, fecha)) or {}
+        apertura = _f(e.get("saldo_apertura"))
+
+        # Sin alguno de los dos cierres no hay resta posible. No se asume cero:
+        # «no sabemos» y «no se movió» son cosas distintas y confundirlas
+        # inventaría una diferencia del tamaño del saldo.
+        variacion = None if hoy is None or ayer is None else round(hoy - ayer, 2)
+        sin_explicar = None if variacion is None else round(variacion - neto, 2)
+        salto = (None if apertura is None or ayer is None
+                 else round(apertura - ayer, 2))
+
+        filas.append({
+            **_cuenta_publica(c),
+            "cierre": hoy,
+            "cierre_previo": ayer,
+            "variacion": variacion,
+            "movimientos": round(neto, 2),
+            "n_movimientos": n,
+            "apertura": apertura,
+            # La evidencia: el banco cerró un día en X y abrió el siguiente en Y.
+            "salto_apertura": salto,
+            "sin_explicar": sin_explicar,
+            # `cierra` es el OTRO chequeo, el de adentro del día: los movimientos
+            # contra apertura/cierre del MISMO día. Viaja para poder distinguir
+            # un asiento retroactivo de un día que directamente no cuadra.
+            "cierra": e.get("cierra"),
+            "ajuste_manual": (manuales.get(cid) or {}).get("ajuste") or None,
+        })
+
+    _auditar(email, None, previa, fecha, len(filas))
+    return {
+        "fecha": fecha.isoformat(),
+        "fecha_previa": previa.isoformat(),
+        "sin_previa": False,
+        "filas": filas,
+    }
+
+
 def consolidado(email: str, fecha: date) -> dict:
     """CONSOLIDADO BANCOS: una fila por cuenta, agrupadas por banco, de UN día.
 

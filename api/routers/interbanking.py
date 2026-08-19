@@ -68,6 +68,20 @@ def consolidado(
     return _svc.consolidado(email, _fecha(fecha))
 
 
+@router.get("/diferencias")
+def diferencias(
+    fecha: date | None = Query(None, description="día a controlar (default: el de la vista)"),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """¿La variación del saldo de cada cuenta está EXPLICADA por sus movimientos?
+
+    Lo que sobra es la diferencia sin explicar, y casi siempre es el banco
+    registrando un movimiento con fecha de anteayer que impacta en el saldo de
+    ayer. Ver `bancos.diferencias`.
+    """
+    return _svc.diferencias(email, _fecha(fecha))
+
+
 @router.get("/cuentas")
 def cuentas() -> list[dict]:
     """Solo el selector de cuentas (sin CBU ni número completo)."""

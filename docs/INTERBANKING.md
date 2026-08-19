@@ -653,7 +653,68 @@ preguntarla sería ofrecer la posibilidad de contradecirla). Elegido el banco, e
 selector de cuenta se llena solo con las cuentas de ESE banco, que es lo que evita
 cargarle un movimiento a la cuenta de otro banco con número parecido.
 
+## DIFERENCIAS — ¿el saldo se movió solo?
+
+La cuenta que tiene que dar, por cuenta bancaria:
+
+```
+cierre(hoy) − cierre(día anterior)  ==  Σ movimientos de hoy
+```
+
+Lo que sobra es la **diferencia sin explicar**, y tiene una causa concreta que el
+back office ya conocía: **el banco a veces registra un movimiento con fecha de
+ANTEAYER que recién impacta en el saldo de AYER**. El movimiento queda en un día
+que nosotros ya cerramos y el salto aparece en el otro.
+
+### La propiedad que hace útil a la pantalla
+
+Cuando el día cierra bien contra sus propios movimientos vale
+`Σ movimientos = cierre(hoy) − apertura(hoy)`, y entonces:
+
+```
+sin_explicar = (cierre_hoy − cierre_ayer) − (cierre_hoy − apertura_hoy)
+             =  apertura_hoy − cierre_ayer
+```
+
+O sea: **la diferencia ES el salto entre el cierre de un día y la apertura del
+siguiente**, los dos informados por el banco. Por eso se publican las **dos**
+lecturas —`sin_explicar` (el número) y `salto_apertura` (la evidencia)— y la
+pantalla muestra las dos columnas: no dice solo cuánto falta, **dice dónde
+mirar**. Si las dos no coinciden, el problema no es el asiento retroactivo sino
+que el día no cuadra contra sus propios movimientos, que es otro hallazgo — por
+eso viaja también `cierra` y la fila lo marca.
+
+### Decisiones que evitan diferencias falsas
+
+- **Se reconcilia contra el BANCO, no contra la pantalla.** Los movimientos
+  manuales mueven el saldo que mostramos pero no existen para el banco: si
+  entraran, **cada ajuste nuestro aparecería como una diferencia del banco**. Se
+  publican aparte (`ajuste_manual`) y la fila los marca, para que nadie se
+  confunda al comparar con el consolidado.
+- **Los IGNORADOS sí entran.** Ignorar saca un movimiento de los GASTOS, no del
+  extracto: acá se está reconstruyendo la aritmética del banco.
+- **Sin alguno de los dos cierres NO se inventa una diferencia.** «No sabemos» no
+  es «no se movió»: asumir cero daría una diferencia del tamaño del saldo entero
+  y mandaría al back office a buscar un movimiento que no existe. Esas cuentas
+  dicen **«sin dato»** y se cuentan aparte para que no se lean como un verde.
+- **El cierre sale de las mismas fuentes y en el mismo orden que el consolidado**
+  (extracto → `bancos.saldos`). Si acá eligiera distinto, dos pantallas dirían
+  dos saldos para el mismo día.
+- El **día anterior** es la fecha más reciente anterior a la elegida que exista
+  en la base — no "T−2 de calendario". Un feriado o un fin de semana largo no
+  rompen la comparación. Si no hay ninguna, lo dice en vez de comparar contra
+  nada.
+
+La pantalla arranca mostrando **solo las cuentas con diferencia**, con un
+`VER TODAS` al lado: una lista de 38 filas en cero esconde las 2 que importan.
+Respeta el filtro por banco de la vista.
+
 ## Changelog
+
+- **2026-08-19** — **DIFERENCIAS** (ver la sección de arriba): botón nuevo y
+  `GET /diferencias`. Es de solo lectura y no persiste nada — se calcula sobre lo
+  que ya está en `bancos.*`. Cuesta 6 queries, pero se abre a demanda y no
+  pollea, así que no entra al presupuesto de la vista.
 
 - **2026-08-19** — **El ORDEN de las columnas se mueve desde la pantalla** (▲▼) y
   `POST /gastos/desglose/orden`. Lo pidió un pisón real: `IVA PERCEPCION RESOL

@@ -42,3 +42,26 @@ evals/_borrador_desde_flags.json
 # Muestras crudas de las APIs de Interbanking (scripts/diag_interbanking_raw).
 # Tienen CUIT, CBU, importes y nombres de comitentes REALES — nunca al repo.
 interbanking_muestras/
+
+# ── Basura del incidente 2026-08-19 ──────────────────────────────────────────
+# Un bloque de comandos con rutas de Windows se corrió DENTRO del Droplet: los
+# `cd` fallaron, el resto siguió parado en /root/TradingAV y un `git add -A`
+# barrió todo el working tree sucio del server (28 archivos, 508k líneas, 10 MB
+# comprimidos — entre ellos un CSV de 84 MB que ya no se puede sacar del
+# historial sin reescribirlo).
+#
+# En la RAÍZ del repo no va ningún dump de datos: los CSV/XLS son salidas
+# locales de diags y respaldos, y ninguno estaba versionado a propósito
+# (verificado: los 6 que había eran todos de este incidente).
+/*.csv
+/*.xls
+/*.xlsx
+
+# Salidas de diags que se escriben en la raíz (peaje/tiempo/baseline) o en
+# docs/. `docs/*.csv` y `docs/*.xlsx` ya estaban cubiertos más arriba; faltaba
+# el JSON, que es por donde entraron cuentas_con_error y precios_faltantes.
+/*.json
+docs/*.json
+discovery_*.txt
+
+# Si alguna vez hace falta versionar uno puntual: `git add -f <archivo>`.

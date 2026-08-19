@@ -1,1 +1,0 @@
-/root/TradingAV/venv/bin/python: No module named scripts.diag_conciliacion_excel

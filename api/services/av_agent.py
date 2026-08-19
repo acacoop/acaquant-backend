@@ -693,6 +693,22 @@ PRECIO_VIEJO_MIN = 20
 # discutan sobre qué es una paridad sana.
 
 
+# La rueda, en UTC. Los motores corren 13-20 UTC (10-17 ART) por cron, así que
+# fuera de esa ventana el snapshot está viejo POR DISEÑO y no por un problema.
+RUEDA_UTC = (13, 20)
+
+
+def en_rueda(ahora=None) -> bool:
+    """¿El mercado está abierto? **De esto depende que la mitad de lo que mira el
+    centinela signifique algo.** Un precio sin actualizar hace 282 minutos es un
+    problema a las 11 de la mañana y es lo normal a las 18 — la primera corrida
+    real marcó los 230 bonos del universo justo después del cierre, que es la
+    prueba de que sin esta pregunta el detector no dice nada."""
+    from datetime import UTC, datetime
+    ahora = ahora or datetime.now(UTC)
+    return ahora.weekday() < 5 and RUEDA_UTC[0] <= ahora.hour < RUEDA_UTC[1]
+
+
 def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
                         ahora=None) -> list[dict]:
     """Bonos del master a los que el motor NO les está dando precio, en rueda.
@@ -712,6 +728,8 @@ def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
     from datetime import UTC, datetime, timedelta
     ahora = ahora or datetime.now(UTC)
     viejo = ahora - timedelta(minutes=PRECIO_VIEJO_MIN)
+    # `sin_punta` y `no_suscripto` valen siempre; `precio_viejo` SOLO en rueda.
+    abierto = en_rueda(ahora)
     out: list[dict] = []
     for b in bonos:
         simbolo = (b.get("ticker") or "").strip()      # el símbolo de mercado
@@ -739,6 +757,8 @@ def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
                 f"no le puso una punta hoy.",
                 {**ev, "estado": "sin_punta"}))
             continue
+        if not abierto:
+            continue     # fuera de rueda, «viejo» es lo normal — ver `en_rueda`
         upd = d.get("updated_at")
         # `updated_at` es `timestamptz` → viene con tz. Si alguna vez llegara
         # naive, compararlo contra uno aware LEVANTA — y un monitor que se cae
@@ -881,7 +901,7 @@ def relevar_live(*, ahora=None) -> dict:
     # haya. `mercado.especies` es la fuente única de las patas de cada ticker.
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT instrumento FROM mercado.especies")
+            cur.execute("SELECT simbolo FROM mercado.especies")
             simbolos = {r[0] for r in cur.fetchall() if r[0]}
     except Exception as e:
         logger.warning("av_agent live: sin catálogo de especies (%s)", e)

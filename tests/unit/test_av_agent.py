@@ -2595,7 +2595,11 @@ def test_un_precio_VIEJO_se_detecta_y_no_revienta_por_la_zona_horaria():
     import datetime as dt
 
     from api.services.av_agent import PRECIO_VIEJO_MIN, detectar_sin_precio
-    ahora = dt.datetime.now(dt.UTC)
+    # Hora FIJA y dentro de la rueda (martes 15 UTC = 12 ART). Con `now()` el
+    # test pasaba o fallaba según la hora en que se corriera — y desde que la
+    # frescura solo se juzga con el mercado abierto, eso lo volvía un test que
+    # miente la mitad del día.
+    ahora = dt.datetime(2026, 8, 18, 15, tzinfo=dt.UTC)
     bono = {"ticker": "X", "ticker_corto": "XX"}
     viejo = ahora - dt.timedelta(minutes=PRECIO_VIEJO_MIN + 5)
     hs = detectar_sin_precio([bono], {"X": {"last_price": 74.0, "updated_at": viejo}},
@@ -2612,7 +2616,7 @@ def test_un_precio_FRESCO_no_dispara_nada():
     import datetime as dt
 
     from api.services.av_agent import detectar_sin_precio
-    ahora = dt.datetime.now(dt.UTC)
+    ahora = dt.datetime(2026, 8, 18, 15, tzinfo=dt.UTC)     # martes, en rueda
     assert detectar_sin_precio(
         [{"ticker": "X", "ticker_corto": "XX"}],
         {"X": {"last_price": 74.0, "updated_at": ahora}}, ahora) == []
@@ -2631,3 +2635,29 @@ def test_cols_map_no_castea_lo_que_no_es_un_numero():
     ahora = dt.datetime.now(dt.UTC)
     assert _num(ahora) is ahora
     assert _num({"bids": []}) == {"bids": []}
+
+
+def test_FUERA_de_rueda_un_precio_viejo_NO_es_un_hallazgo():
+    """La primera corrida real marcó los 230 bonos del universo justo después
+    del cierre, todos con «282 min sin actualizar». Eso no era el sistema roto:
+    era el mercado cerrado. Sin la pregunta «¿está abierto?», el detector no
+    dice nada."""
+    import datetime as dt
+
+    from api.services.av_agent import PRECIO_VIEJO_MIN, detectar_sin_precio
+    cerrado = dt.datetime(2026, 8, 18, 21, tzinfo=dt.UTC)     # 18 ART
+    viejo = cerrado - dt.timedelta(minutes=PRECIO_VIEJO_MIN + 200)
+    assert detectar_sin_precio(
+        [{"ticker": "X", "ticker_corto": "XX"}],
+        {"X": {"last_price": 74.0, "updated_at": viejo}}, cerrado) == []
+
+
+def test_pero_SIN_PUNTA_y_NO_SUSCRIPTO_valen_a_cualquier_hora():
+    """Son afirmaciones sobre el CATÁLOGO, no sobre la actividad del día: que un
+    símbolo no exista en el snapshot está mal a las 3 de la madrugada igual."""
+    import datetime as dt
+
+    from api.services.av_agent import detectar_sin_precio
+    cerrado = dt.datetime(2026, 8, 18, 21, tzinfo=dt.UTC)
+    hs = detectar_sin_precio([{"ticker": "X", "ticker_corto": "XX"}], {}, cerrado)
+    assert hs and hs[0]["regla"] == "no_suscripto"

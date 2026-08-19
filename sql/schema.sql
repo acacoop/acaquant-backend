@@ -4352,3 +4352,70 @@ CREATE INDEX IF NOT EXISTS ix_av_runs_creado ON mercado.av_agent_runs (creado_at
 -- cosas distintas.
 ALTER TABLE mercado.av_agent_runs ADD COLUMN IF NOT EXISTS analisis    text;
 ALTER TABLE mercado.av_agent_runs ADD COLUMN IF NOT EXISTS analisis_at timestamptz;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- EL CENTINELA (2026-08-18) — el agente PRENDIDO durante toda la rueda.
+--
+-- Pedido del user: *«me encantaría ver a esto con un círculo verde de que está
+-- prendido y vaya monitoreando en real time todo lo que vaya pasando… que no
+-- haga nada de solucionar pero que sí me dé las cosas. El job actual es muy
+-- poco: tiene que estar vigilando constantemente SIN PISAR LO QUE YA REPORTÓ y
+-- todavía no hice nada»*.
+--
+-- **Esa última frase es la que define el modelo de datos.** El monitor anterior
+-- hacía DELETE + INSERT en cada pasada: cada 5 minutos borraba todo y volvía a
+-- escribir. Con eso es imposible saber si algo es nuevo, desde cuándo pasa, o si
+-- ya lo miraste — y lo que estabas por atender desaparece y vuelve a aparecer
+-- como si fuera otra cosa.
+--
+-- Acá cada hallazgo tiene **IDENTIDAD ESTABLE** (`clave` = tipo:sujeto:regla) y
+-- un CICLO DE VIDA:
+--
+--     abierto_at  cuándo apareció por primera vez     (nunca se pisa)
+--     ultimo_at   cuándo se lo vio por última vez     (se refresca)
+--     veces       cuántos ciclos lleva                (mide persistencia)
+--     visto_at    cuándo el humano lo miró            (lo pone la UI)
+--     resuelto_at cuándo dejó de aparecer             (lo pone el centinela)
+--
+-- Un hallazgo que vuelve REABRE el mismo (resuelto_at → NULL): no nace otro.
+-- Uno que deja de verse se marca `resuelto_como='solo'` — **no se borra**: «se
+-- arregló solo» es información, y borrarlo dejaría la misma amnesia de antes.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_centinela (
+    id           bigserial PRIMARY KEY,
+    -- La IDENTIDAD. Estable entre ciclos: mismo problema = misma fila.
+    clave        text NOT NULL UNIQUE,
+    tipo         text NOT NULL,
+    sujeto       text NOT NULL,
+    regla        text NOT NULL,
+    severidad    text NOT NULL,
+    motivo       text NOT NULL,
+    evidencia    jsonb,
+    abierto_at   timestamptz NOT NULL DEFAULT now(),
+    ultimo_at    timestamptz NOT NULL DEFAULT now(),
+    veces        integer     NOT NULL DEFAULT 1,
+    visto_at     timestamptz,
+    visto_por    text,
+    resuelto_at  timestamptz,
+    resuelto_como text                  -- solo | manual
+);
+
+CREATE INDEX IF NOT EXISTS ix_av_centinela_abiertos
+    ON mercado.av_agent_centinela (severidad, abierto_at DESC) WHERE resuelto_at IS NULL;
+CREATE INDEX IF NOT EXISTS ix_av_centinela_ultimo
+    ON mercado.av_agent_centinela (ultimo_at DESC);
+
+-- EL LATIDO — una sola fila. Es lo que hace que el círculo verde no mienta:
+-- sin un latido reciente, «prendido» sería una afirmación sobre el pasado.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_latido (
+    id         boolean PRIMARY KEY DEFAULT true CHECK (id),
+    at         timestamptz NOT NULL DEFAULT now(),
+    ciclo      bigint      NOT NULL DEFAULT 0,
+    en_rueda   boolean     NOT NULL DEFAULT false,
+    abiertos   integer     NOT NULL DEFAULT 0,
+    nuevos     integer     NOT NULL DEFAULT 0,
+    duracion_ms integer,
+    error      text
+);
+
+INSERT INTO mercado.av_agent_latido (id) VALUES (true) ON CONFLICT DO NOTHING;

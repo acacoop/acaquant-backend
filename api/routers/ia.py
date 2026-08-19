@@ -566,3 +566,32 @@ def av_agent_masivo_analizar(run_id: int | None = None,
     if not run.get("ok"):
         return run
     return av_agent_analista.analizar(run, usuario=email or "")
+
+
+# ── EL CENTINELA (2026-08-18) ────────────────────────────────────────────────
+
+
+class VistoCentinela(BaseModel):
+    claves: list[str] = Field(default_factory=list, max_length=500)
+
+
+@router.get("/av-agent/centinela", dependencies=[Depends(require_admin)])
+def av_agent_centinela(limite: int = 200):
+    """**El tablero del centinela en UN request**: el latido (¿está prendido?),
+    lo que está abierto —lo nuevo y sin ver primero— y lo que se arregló solo en
+    las últimas 8 horas.
+
+    `vivo` es una afirmación sobre AHORA: sale de la edad del último latido, no
+    de que alguna vez haya corrido."""
+    from api.services import av_agent_centinela as svc
+    return svc.estado(limite)
+
+
+@router.post("/av-agent/centinela/visto", dependencies=[Depends(require_admin)])
+def av_agent_centinela_visto(body: VistoCentinela,
+                             email: str = Depends(get_user_email)):
+    """«Ya lo miré». **No lo resuelve ni lo esconde** — lo saca de «nuevo».
+    Mezclar las dos cosas haría que nadie toque el botón por miedo a perder de
+    vista el hallazgo."""
+    from api.services import av_agent_centinela as svc
+    return svc.marcar_visto(body.claves, por=email or "")

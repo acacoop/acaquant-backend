@@ -28,6 +28,7 @@
 | Servicio | Puerto | Target | Qué hace |
 |---|---|---|---|
 | `api` | 8000 | `api.main:app` (uvicorn) | TradingAV API (FastAPI + uvicorn) |
+| `av_agent_centinela` | — | `jobs.av_agent_centinela` | AV Agent Centinela - vigila precios, tasas y salud durante toda la rueda |
 <!-- /AUTOGEN:servicios -->
 
 ## Motores de mercado (cron start/stop L-V)
@@ -68,6 +69,7 @@
 | cada 30min · 14-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral` + `jobs.ops_tasa_mav'` |
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |
 | cada 5min · 13-20h · L-V | `jobs.estrategia_resolver'` |
+| cada 5min · 14-19h · L-V | `jobs.av_agent_live'` |
 | 11:00 · L-V | `jobs.portafolio_backfill` |
 | 12:00 · diario | `jobs.argentina_datos'` |
 | 12,14,16,18,20,22:0 · L-V | `jobs.interbanking_sync'` |
@@ -104,6 +106,7 @@
 | 21:30 · L-V | `jobs.ia_calidad'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |
 | 22:30 · L-V | `jobs.ficha_1816'` |
+| 13:30-55/5 · L-V | `jobs.av_agent_live'` |
 | 11:35 · diario | `jobs.news_ingesta'` |
 | 11:35 · diario | `jobs.news_finnhub'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |

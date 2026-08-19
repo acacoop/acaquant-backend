@@ -2737,14 +2737,17 @@ def test_el_arreglo_es_SOLO_el_comando():
         assert humo not in p["detalle"], f"volvió el sermón: {humo}"
 
 
-def test_una_lectura_de_IA_VIEJA_se_marca_como_vieja():
+def test_una_lectura_de_IA_VIEJA_NO_SE_MUESTRA():
     """El diagnóstico se cachea por EVENTO y los de los controles son del 09/08:
     la lectura hablaba de «cuenta 2018, 14 activos» mientras la evidencia de al
     lado decía «2019 y 2024, 8 anomalías». **Un análisis que contradice a la
     evidencia que tiene al lado es peor que no tener análisis**: el que lee no
-    sabe a cuál creerle."""
+    sabe a cuál creerle. Avisarlo no alcanzaba — hay que sacarlo."""
     import inspect
 
     from api.services.av_agent_salud import _lente_ia
     src = inspect.getsource(_lente_ia)
-    assert "creado_at" in src and "días) y puede" in src
+    assert "creado_at" in src
+    # Se DESCARTA, no se avisa. Avisar no arregla nada: el que lee sigue
+    # teniendo dos versiones de los hechos y tiene que elegir.
+    assert "return None      # viejo" in src

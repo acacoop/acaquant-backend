@@ -255,16 +255,43 @@ def _lente_casos(c: dict, det: dict) -> dict | None:
     if not an:
         return _paso("casos", "Los casos", INFO,
                      (c.get("evidencia") or "").strip() or "sin detalle disponible.")
+    from datetime import date
+    hoy = date.today()
+
+    def _dias(iso: str) -> int | None:
+        try:
+            return (hoy - date.fromisoformat(str(iso)[:10])).days
+        except (TypeError, ValueError):
+            return None
+
     lineas = []
     for a in an[:60]:
         item = str(a.get("item") or a.get("clave") or "?")
+        # El detalle suele empezar repitiendo el item («[42932] PBJ26: sin
+        # cartera» debajo de «[42932] PBJ26»). Se saca: leer dos veces lo mismo
+        # es lo que hace que la lista parezca el doble de larga.
         desc = str(a.get("detalle") or a.get("motivo") or "").strip()
-        desde = str(a.get("desde") or "")[:10]
-        lineas.append(f"  · {item}" + (f" — {desc}" if desc else "")
-                      + (f"  ({desde})" if desde else ""))
+        if desc.startswith(item):
+            desc = desc[len(item):].lstrip(" :·-")
+        d = _dias(a.get("desde"))
+        antig = (" · hoy" if d == 0 else f" · hace {d} d" if d is not None else "")
+        lineas.append(f"  · {item}" + (f" — {desc}" if desc else "") + antig)
     mas = f"\n  … y {len(an) - 60} más" if len(an) > 60 else ""
-    return _paso("casos", f"Los {len(an)} casos", REVISAR,
-                 "\n".join(lineas) + mas, tabla="manager.controles_datos")
+
+    # **CUÁNDO SE VERIFICÓ POR ÚLTIMA VEZ.** Es el dato que faltaba y el que
+    # cambia por completo cómo se lee la lista: «PBJ26 (2026-07-09)» parecía
+    # «lo detectamos hace 40 días y nadie lo volvió a mirar». Es al revés — el
+    # control recalcula TODO en cada corrida y marca resuelto lo que desaparece
+    # (`_diff_y_persistir`), así que lo que sigue en la lista **se comprobó de
+    # nuevo hoy**. Sin decirlo, el agente parecía un cementerio de avisos viejos.
+    visto = max((str(a.get("visto") or "") for a in an), default="")
+    dv = _dias(visto)
+    cab = ("comprobados HOY" if dv == 0 else
+           f"⚠️ la última comprobación fue hace {dv} días — el control no está "
+           f"corriendo" if dv else "sin fecha de comprobación")
+    return _paso("casos", f"Los {len(an)} casos · {cab}",
+                 REVISAR, "\n".join(lineas) + mas,
+                 tabla="manager.controles_datos")
 
 
 def _lente_que_rompe(c: dict) -> dict | None:
@@ -349,15 +376,28 @@ def _job_id(c: dict) -> str:
     return str(c.get("id", "")).split(":", 1)[-1].strip()
 
 
-def _lente_ia(c: dict, chequeo_id: str) -> dict | None:
-    """La lectura con IA — **solo si habla del incidente de AHORA.**
+def _lente_log_si_aplica(c: dict) -> dict | None:
+    """El log de `manager.job_runs` es de JOBS. Preguntárselo por un control
+    devolvía «no hay corridas registradas para este chequeo… es un punto ciego»
+    — una advertencia inventada sobre algo que nunca tuvo que estar ahí."""
+    if (c.get("familia") or "") != "job":
+        return None
+    return _lente_log(c)
 
-    ⚠️ El diagnóstico se cachea por EVENTO, y los eventos de los controles son del
-    2026-08-09. El resultado era una lectura de hace diez días presentada como
-    hecho actual: decía «cuenta 2018, 14 activos» mientras la evidencia de hoy
-    decía «cuentas 2019 y 2024, 8 anomalías». **Un análisis que contradice a la
-    evidencia que tiene al lado es peor que no tener análisis**, porque el que
-    lee no sabe a cuál creerle. Si está viejo, se marca; no se disfraza.
+
+def _lente_ia(c: dict, chequeo_id: str) -> dict | None:
+    """La lectura con IA — **solo si es de HOY. Si no, no se muestra.**
+
+    Antes se mostraba con un cartel: «⚠️ esta lectura es del 09/08 (10 días) y
+    puede hablar de otros casos». El user: *«si es viejo, como mismo te está
+    diciendo, no quiero el análisis con IA»* — y tiene razón, avisar no arregla
+    nada. Un análisis que habla de 14 activos al lado de una evidencia que dice
+    8 no es contexto: es una segunda versión de los hechos, y obliga al que lee a
+    decidir a cuál creerle. Eso es exactamente el trabajo que la pantalla tenía
+    que ahorrarle.
+
+    El diagnóstico se cachea por EVENTO, así que uno viejo significa que no hubo
+    evento nuevo — no que el problema se haya ido. Se descarta y listo.
     """
     try:
         from api.services import salud
@@ -368,17 +408,14 @@ def _lente_ia(c: dict, chequeo_id: str) -> dict | None:
     if not txt:
         return None
     creado = str((d or {}).get("creado_at") or "")[:10]
-    viejo = ""
     if creado:
         try:
             from datetime import date
-            dias = (date.today() - date.fromisoformat(creado)).days
-            if dias >= 2:
-                viejo = (f"⚠️ **Esta lectura es del {creado} ({dias} días) y puede "
-                         f"hablar de otros casos que los de arriba.**\n\n")
+            if (date.today() - date.fromisoformat(creado)).days >= 1:
+                return None      # viejo → no se muestra
         except ValueError:
-            pass
-    return _paso("ia", "Lectura con IA", INFO, viejo + txt, tabla="ia.trazas")
+            return None
+    return _paso("ia", "Lectura con IA", INFO, txt, tabla="ia.trazas")
 
 
 def _lente_arreglo(c: dict) -> dict | None:
@@ -450,7 +487,7 @@ def diagnosticar(chequeo_id: str, *, con_ia: bool = True) -> dict:
     crudos = [
         _lente_casos(c, det),            # los casos, completos (controles)
         _lente_salio_bien(c),            # qué falló (jobs)
-        _lente_log(c),                   # el log real
+        _lente_log_si_aplica(c),         # el log real (solo jobs)
         _lente_corrio(c),                # solo si NO corrió
         _lente_dato_fresco(c),           # solo si es contrato de frescura
         _lente_que_rompe(c),             # qué queda mal y dónde se corrige

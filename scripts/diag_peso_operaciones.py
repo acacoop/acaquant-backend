@@ -191,10 +191,18 @@ def independientes() -> None:
     # no se use: es la única forma de ver el tamaño del problema que se arregló.
     _medir("DEPÓSITOS antes /flujos/resumen", _cf.flujos_resumen,
            desde=desde, hasta=hoy.isoformat())
-    _medir("DEPÓSITOS ahora  /flujos/serie DIARIO", _cf.flujos_serie,
+    # Se miden los DOS casos porque son muy distintos y el promedio mentiría: la
+    # lista del selector (1.021 cuentas, 44 KB) viaja SOLO al abrir la tab y al
+    # cambiar el tipo de filtro. Cambiar rango, granularidad o cuenta —que es lo
+    # que el usuario hace todo el tiempo— no la manda.
+    _medir("DEPÓSITOS abrir la tab (con selector)", _cf.flujos_serie,
            ventana_desde=desde, ventana_hasta=hoy.isoformat(), agg="DIARIO")
-    _medir("DEPÓSITOS ahora  /flujos/serie MENSUAL", _cf.flujos_serie,
-           ventana_desde=desde, ventana_hasta=hoy.isoformat(), agg="MENSUAL")
+    _medir("DEPÓSITOS click típico DIARIO", _cf.flujos_serie,
+           ventana_desde=desde, ventana_hasta=hoy.isoformat(), agg="DIARIO",
+           con_opciones=False)
+    _medir("DEPÓSITOS click típico MENSUAL", _cf.flujos_serie,
+           ventana_desde=desde, ventana_hasta=hoy.isoformat(), agg="MENSUAL",
+           con_opciones=False)
     _medir("FINANCIAMIENTO /financiamiento", _fin.libro)
 
 

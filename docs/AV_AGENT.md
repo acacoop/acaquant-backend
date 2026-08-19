@@ -1505,6 +1505,126 @@ heurística frágil que este proyecto ya paga en otros lados. Hay un test que ex
 que **cada detector** tenga dominio declarado: uno nuevo sin él caería en el
 cajón genérico y nadie lo notaría.
 
+### 0.x LA LISTA DE TRABAJO DEJA DE TENER TRABAJO QUE NO ES (2026-08-19)
+
+> *«En AHORA marqué como leído un montón y siguen apareciendo grisados. Además es
+> raro: dice REVISANDO cada 30 seg y arriba dice revisado hace 8 min.»*
+> *«Los que ya el sistema detecta que no tienen punta son porque no tienen
+> liquidez. No es un problema. Está bien que los marque como ilíquidos pero por
+> defecto mostremos otra cosa.»*
+> *«Los de cotiza en pesos… no ofrece una solución o algo, nada. Le falta ahí una
+> feature que sepa ir a buscar y agregar.»* (user)
+
+**Las tres son la misma queja**: la pantalla mostraba datos ciertos y ninguno de
+los tres se podía trabajar. Y la tercera además escondía un error de método.
+
+#### El botón que no cambiaba nada
+
+Marcar visto dejaba el hallazgo **en la misma lista, en gris**. El diseño lo
+había decidido a propósito y el razonamiento era bueno —*si marcar visto
+escondiera el hallazgo, nadie lo marcaría por miedo a perderlo de vista*— pero de
+ahí se sacó una conclusión de más. Con veinte abiertos, marcar los veinte no
+cambia **nada** en pantalla, y un botón que no cambia nada se lee como roto.
+
+La tab se llama AHORA y su contrato es *«lo que espera una decisión tuya»*. Un
+hallazgo ya visto **sigue abierto pero ya no espera nada**. Así que no se
+esconde: se **pliega**, contado y a un clic. Esconder y plegar se parecen y no
+son lo mismo — la diferencia es si el número sigue a la vista.
+
+#### Dos relojes con el mismo verbo
+
+    CENSO       contra 1816 · ~29 créditos · de noche o a mano  → llena ENCONTRÓ
+    VIGILANCIA  local · cada 30s en rueda · cero créditos       → llena AHORA
+
+Los dos decían «revisado». No era un bug: la pantalla se contradecía sola porque
+usaba una sola palabra para dos ritmos distintos. Ahora cada uno tiene su verbo y
+**se muestran juntos** en el header — verlos al lado es lo que hace innecesario
+explicarlos.
+
+#### La iliquidez no es trabajo, pero tampoco se borra
+
+29 `sin_punta` encabezaban ENCONTRÓ. La diferencia con su hermano es toda la
+cuestión:
+
+    no_suscripto   nadie pidió el precio  → la ausencia NO prueba nada  → NUESTRO
+    sin_punta      lo pedimos y no vino   → la ausencia SÍ significa    → MERCADO
+
+Es la **otra cara de la regla del AO29** (§0.v). Aquélla decía que no se puede
+concluir «no existe» desde una tabla que solo tiene lo que pedimos; ésta dice que
+cuando **sí** lo pedimos, la ausencia por fin significa algo — y lo que significa
+es iliquidez, que no se arregla de este lado.
+
+Nuevo eje `av_agent.DE_QUIEN`, **declarado y no inferido** (misma lección que el
+dominio de las skills). Una regla que nadie clasificó cae en `nuestro`, que es el
+lado que **no** esconde: el default nunca puede ser el que hace desaparecer cosas
+sin que nadie lo decida. Y el corte no es silencioso — el contador «N del
+mercado» está siempre a la vista, y buscar un ticker los encuentra igual.
+
+#### Y el que sí era un error: «no encontré una pata en dólares»
+
+Los 43 `cotiza_en_pesos` cerraban con esa frase después de mirar **una sola
+tabla**, `mercado.especies`. No es tan circular como `timesales` —sale de
+Primary— pero **se siembra a mano** con `scripts.sembrar_especies` y
+`jobs.validar_instrumentos` le borra filas. O sea que puede estar incompleta, y
+cuando lo está el hallazgo afirmaba de más. Es la misma forma del error del AO29,
+cuatro días después y en otro módulo.
+
+Ahora se pregunta en orden, y recién con las tres contestadas se puede afirmar:
+
+    1. ¿la tenemos sembrada?   `mercado.especies`
+    2. ¿existe en el mercado?  `manager.pyrofex_instruments` (el catálogo de
+                               Primary: la única fuente que no depende de
+                               ninguna decisión nuestra)
+    3. ¿la estamos pidiendo?   `adhoc_subscriptions` + `market_snapshot`
+
+Cuatro desenlaces, y se nombran distinto porque se atienden distinto: `sembrada`
+(falta pedirla) · `solo_en_primary` (falta sembrarla y pedirla) · `sin_pata` (es
+el instrumento, no un dato mal cargado) · `no_pude_mirar` — que **jamás** puede
+leerse como los otros tres.
+
+#### La puerta, y qué NO arregla
+
+`api/services/av_agent_pata.py` + `/api/ia/av-agent/pata` (leer) y `/pata/pedir`
+(sembrar y pedir). Es la única puerta de rueda que además **escribe**, y se
+automatiza por el criterio de §0.v: el `adhoc_watcher` la levanta en 5s, sin
+reiniciar y en plena rueda.
+
+**Pedir la pata no cambia lo que muestra la grilla** — y eso hay que decirlo
+antes de que alguien lo descubra solo. La grilla dibuja
+`mercado.curvas.instrumento`, y cambiar ese campo es la acción hermana que sigue
+**sin automatizarse** porque el motor arma su universo al arrancar. Lo que esta
+puerta consigue es el paso ANTERIOR, que es el que faltaba:
+
+    hoy      no sabemos si esa pata cotiza — nadie la escucha
+    después  la escuchamos, y en 5s sabemos si tiene precio y cuál es
+
+Sin ese dato el reinicio sería a ciegas, y **apuntar el master a una pata que
+tampoco opera es cambiar un problema por otro**. Registrada en SKILLS vía control
+(`patas_dolar_sin_pedir`) + acción (`mercado.pata_dolar`), derivada y no a mano,
+como manda la LEY de §0.o.
+
+#### De yapa: dos relojes adentro de SALUD, y un guard protegiendo el aire
+
+`salud._chequeo_job` **recibía `ahora` y después leía otro reloj** (el del
+sistema) para calcular la corrida esperada. En prod los dos coinciden, así que el
+bug estaba dormido; lo que sí rompía era el test fundacional del módulo —el job
+en `ok` sin correr hace dos días—, que congela el reloj. Es literalmente la forma
+del bug del blob y la columna: dos representaciones del mismo dato sin árbitro,
+que mientras coinciden no fallan. Acá el árbitro es el parámetro.
+
+Y `test_salud_admin_only` recorría los `/api/manager/salud*` **borrados en
+§0.l**: 31 casos devolviendo 404 donde esperaban 403. Un guard de seguridad
+apuntando a rutas que no existen no protege nada —desde afuera un 404 y un 403 se
+ven igual de cerrados— y encima bloqueaba el CI. Repuntado a
+`/api/ia/av-agent/salud*`, y ahora **un 404 es FALLA y no un aprobado**: la
+existencia se verifica contra la tabla de rutas (`api.superficie`) y no pegando
+por HTTP, porque pegar ejecuta el handler y sin base diría «no existe» — el mismo
+falso veredicto que este módulo persigue.
+
+> La suite pasó de **42 fallas a 10**. Las 10 que quedan son
+> `tests/unit/test_titulos_negativos.py` (`KeyError: 'latido'`), de la otra
+> sesión (`control-saldos`).
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

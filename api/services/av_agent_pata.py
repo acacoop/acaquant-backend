@@ -49,9 +49,14 @@ from __future__ import annotations
 
 import logging
 
+from api.services.av_agent_alta import INFO, NO_SE, OK, REVISAR
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
+
+# El vocabulario de estados de un paso sale de `av_agent_alta` y no se reescribe:
+# la pantalla los pinta por string exacto, así que un «no_se» propio se vería
+# gris sin dar ningún error — el modo de falla que este proyecto ya conoce.
 
 # Los dos sufijos de especie en dólares, en orden de preferencia: MEP antes que
 # cable, que es el mismo criterio de `core/especies.preferencia` (MEP es la que
@@ -102,7 +107,7 @@ def explicar(ticker: str) -> dict:
             out["curva"] = r[2]
             base = _corto(simbolo)
             pasos.append({
-                "clave": "master", "estado": "info",
+                "clave": "master", "estado": INFO,
                 "titulo": "Lo que el master pide hoy",
                 "detalle": (f"`mercado.curvas.instrumento` = «{base or '—'}»"
                             f" · curva {r[2] or '—'} en {r[1] or '—'}. Es el símbolo "
@@ -128,7 +133,7 @@ def explicar(ticker: str) -> dict:
     primary = av_agent.simbolos_primary()
     if primary is None:
         pasos.append({
-            "clave": "primary", "estado": "no_se",
+            "clave": "primary", "estado": NO_SE,
             "titulo": "No pude leer el catálogo de Primary",
             "detalle": ("`manager.pyrofex_instruments` no contestó o tiene menos "
                         "símbolos de los creíbles. **No sé** si existe una pata en "
@@ -144,13 +149,13 @@ def explicar(ticker: str) -> dict:
     nuevas = [x for x in en_primary if x not in set(sembradas)]
     if sembradas:
         pasos.append({
-            "clave": "especies", "estado": "ok",
+            "clave": "especies", "estado": OK,
             "titulo": f"Sembrada: {len(sembradas)} pata(s) en dólares",
             "detalle": ", ".join(sorted(_corto(x) for x in sembradas)),
         })
     else:
         pasos.append({
-            "clave": "especies", "estado": "revisar",
+            "clave": "especies", "estado": REVISAR,
             "titulo": "`mercado.especies` no tiene ninguna pata en dólares",
             "detalle": ("Por sí solo esto NO prueba que no exista: esa tabla se "
                         "siembra con `scripts.sembrar_especies` y "
@@ -160,7 +165,7 @@ def explicar(ticker: str) -> dict:
 
     if nuevas:
         pasos.append({
-            "clave": "primary", "estado": "revisar",
+            "clave": "primary", "estado": REVISAR,
             "titulo": "Primary SÍ la lista, y no la teníamos",
             "detalle": ("«" + ", ".join(sorted(_corto(x) for x in nuevas)) + "» está "
                         "en el catálogo de Primary y falta en `mercado.especies`. "
@@ -168,7 +173,7 @@ def explicar(ticker: str) -> dict:
         })
     elif primary is not None and not candidatas:
         pasos.append({
-            "clave": "primary", "estado": "info",
+            "clave": "primary", "estado": INFO,
             "titulo": "Primary tampoco lista una pata en dólares",
             "detalle": (f"Ni sembrada ni en el catálogo. «{base}» cotiza en pesos y "
                         f"no hay otra pata a la que apuntar: esto es el "
@@ -194,7 +199,7 @@ def explicar(ticker: str) -> dict:
         out["precio"] = float(px) if px is not None else None
         if px:
             pasos.append({
-                "clave": "precio", "estado": "ok",
+                "clave": "precio", "estado": OK,
                 "titulo": f"«{_corto(elegida)}» ya tiene precio: {float(px):,.2f}",
                 "detalle": (f"Última actualización {snap[1]}. La pata opera — lo que "
                             f"falta es que el master la use, y eso "
@@ -202,7 +207,7 @@ def explicar(ticker: str) -> dict:
             })
         else:
             pasos.append({
-                "clave": "precio", "estado": "revisar" if pedida else "no_se",
+                "clave": "precio", "estado": REVISAR if pedida else NO_SE,
                 "titulo": ("Pedida, todavía sin precio" if pedida
                            else f"Nadie está pidiendo «{_corto(elegida)}»"),
                 "detalle": ("Si pasa una rueda entera y no llega, ESA pata no cotiza "

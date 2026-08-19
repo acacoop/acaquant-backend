@@ -1299,6 +1299,52 @@ muere a las 11, sus hallazgos también desaparecen** — y está bien, porque ya
 sabemos si siguen pasando. Un dato que nadie refresca no puede seguir afirmándose.
 Se cura solo y no depende de que ningún job corra a la hora justa.
 
+#### El AO29, resuelto: no era el precio, era la PATA
+
+El diag desmintió mi hipótesis —y por eso existe—. El AO29 pasa la cadena
+entera: master, símbolo, seis patas validadas, Primary lo lista, y el snapshot
+lo actualiza cada pocos segundos con **métricas completas y sanas** (TEA 9,73%,
+paridad 91,4, duration 2,88). Los contadores del barrido dieron **0 sin símbolo,
+0 sin snapshot, 0 con precio y sin métricas** — la regla que iba a escribir no
+habría cazado nada.
+
+Lo que sí estaba mal se ve al comparar el bono con su familia:
+
+    AO27   102,00      paridad 102,00     cotiza en DÓLARES
+    AO28    94,80      paridad  94,80     cotiza en DÓLARES
+    AN29    92,65      paridad  92,65     cotiza en DÓLARES
+    AO29   139.300     paridad  91,41     cotiza en PESOS   ← el raro
+
+**Hay DOS fuentes de símbolos y nadie las cruzaba.** `curvas.instrumento` —lo que
+el motor suscribe— se carga **a mano**; `mercado.especies` sabe cuál es la pata
+correcta (`es_default`) y se deriva de Primary. Medido: de **229 bonos, 3** no
+coinciden — **AO29, GD46 y CO32** — y son exactamente los tres que muestran pesos
+en una curva en dólares. El GD46 es el que el user ya había cazado a ojo el
+2026-08-18; los otros dos son el mismo bug sin descubrir.
+
+Esto **cambia el veredicto anterior**. El 2026-08-18 la regla `cotiza_en_pesos`
+se había bajado a `baja` con el texto *«la valuación está bien, es contexto»* —
+correcto sobre la valuación y equivocado sobre la causa: no es que el bono cotice
+así y no haya nada que hacer, es que **la pata correcta ya existe, está validada,
+y el arreglo es un campo**. Ahora, cuando `especies` marca otra default, el
+hallazgo es `pata_equivocada` con severidad **media** y nombra el símbolo exacto.
+No `alta`: la valuación sigue estando bien, no hay plata mal contada.
+
+⚠️ **Y el hallazgo avisa que hace falta reiniciar el motor.** El universo se arma
+al arrancar, así que cambiar el campo **no surte efecto hasta el próximo
+reinicio** — y reiniciar en rueda corta el feed de la mesa. Por eso mismo esto
+**no** se convirtió en una ACCIÓN automática todavía: el ciclo de §0.j verifica
+releyendo la fila, diría «aplicada» y la pantalla seguiría igual hasta la noche.
+*Una acción que se aplica y no se ve destruye la confianza en todas las demás.*
+
+#### Y un error del diag, que es el mismo pecado que este módulo persigue
+
+La primera versión corría **un solo detector** (`sin_precio`) y después imprimía
+*«el agente NO reporta nada de este bono»*. Falso: `precio_moneda` **sí** lo
+estaba cantando. Una herramienta que exagera su propio alcance es exactamente lo
+que se encontró en la superficie HTTP (el test que auditaba el 7% y decía que
+estaba todo bien). Ahora corre los dos y dice «los detectores de rueda».
+
 #### El AO29: el bono peor cargado era el único invisible
 
 El detector de precios abría su loop así:

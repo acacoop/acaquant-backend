@@ -116,3 +116,60 @@ def test_el_centinela_no_escribe_en_ninguna_otra_tabla():
 def test_lo_nuevo_y_sin_ver_sale_primero():
     """Es lo único de la lista que pide una decisión."""
     assert "(visto_at IS NULL) DESC" in inspect.getsource(c.estado)
+
+
+# ── La PATA EQUIVOCADA (2026-08-19) ───────────────────────────────────────
+
+_BONO_USD = {"ticker": "MERV - XMEV - AO29 - 24hs", "ticker_corto": "AO29",
+             "moneda_eje": "USD", "curva": "soberanos", "valor_nominal": 100}
+_SNAP = {"MERV - XMEV - AO29 - 24hs": {"last_price": 139300.0}}
+_MEP = 1524.81
+
+
+def test_si_la_pata_CORRECTA_existe_el_hallazgo_es_ACCIONABLE():
+    """**Medido en prod**: de 229 bonos, 3 suscriben una pata distinta de la que
+    `mercado.especies` marca como default (AO29, GD46, CO32) — y son justo los
+    tres que muestran pesos en una curva en dólares.
+
+    O sea que esto NO era «el bono cotiza así y no hay nada que hacer»: es un
+    dato mal cargado, con la pata correcta ya existente y validada."""
+    from api.services import av_agent
+    h = av_agent.detectar_precio_fuera_de_moneda(
+        [_BONO_USD], _SNAP, _MEP, set(),
+        {"AO29": "MERV - XMEV - AO29D - 24hs"})
+    assert len(h) == 1
+    assert h[0]["regla"] == "pata_equivocada"
+    assert h[0]["severidad"] == "media"      # no alta: la valuación está bien
+    assert h[0]["evidencia"]["sugerido"] == "MERV - XMEV - AO29D - 24hs"
+
+
+def test_el_hallazgo_AVISA_que_hace_falta_reiniciar_el_motor():
+    """El universo del motor se arma al arrancar: cambiar el campo no surte
+    efecto hasta el próximo reinicio, y reiniciar en rueda corta el feed de la
+    mesa. Una acción que se aplica y no se ve es peor que ninguna."""
+    from api.services import av_agent
+    h = av_agent.detectar_precio_fuera_de_moneda(
+        [_BONO_USD], _SNAP, _MEP, set(),
+        {"AO29": "MERV - XMEV - AO29D - 24hs"})
+    assert "FUERA DE RUEDA" in h[0]["evidencia"]["ojo"]
+
+
+def test_sin_pata_default_distinta_sigue_siendo_CONTEXTO_y_no_un_error():
+    """Cuando el master ya suscribe la pata que corresponde, que el bono cotice
+    en pesos es una característica del instrumento, no un dato mal cargado.
+    Llamarlo error sería el falso positivo que enseña a ignorar la lista."""
+    from api.services import av_agent
+    h = av_agent.detectar_precio_fuera_de_moneda(
+        [_BONO_USD], _SNAP, _MEP, set(),
+        {"AO29": "MERV - XMEV - AO29 - 24hs"})     # el master YA tiene la default
+    assert len(h) == 1 and h[0]["regla"] == "cotiza_en_pesos"
+    assert h[0]["severidad"] == "baja"
+
+
+def test_sin_catalogo_de_especies_no_se_inventa_una_pata():
+    """Si la query de especies falla, `defaults` viene vacío y el detector
+    vuelve al comportamiento anterior. «No pude mirar» no puede volverse un
+    veredicto — tampoco al revés."""
+    from api.services import av_agent
+    h = av_agent.detectar_precio_fuera_de_moneda([_BONO_USD], _SNAP, _MEP, set(), {})
+    assert h[0]["regla"] == "cotiza_en_pesos"

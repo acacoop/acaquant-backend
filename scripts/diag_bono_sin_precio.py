@@ -161,7 +161,11 @@ def revisar(tk: str) -> list[str]:
         universo = set()
 
     hall = list(av_agent.detectar_sin_precio([doc], snap_all))
-    hall += av_agent.detectar_precio_fuera_de_moneda([doc], snap_all, mep, universo)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ticker, simbolo FROM mercado.especies WHERE es_default")
+        defs = {(r[0] or "").strip().upper(): r[1] for r in cur.fetchall()}
+    hall += av_agent.detectar_precio_fuera_de_moneda([doc], snap_all, mep,
+                                                     universo, defs)
     out.append("")
     out.append(f"  EN RUEDA: {'SÍ' if av_agent.en_rueda() else 'NO'} "
                f"· MEP={mep} (fuera de rueda, «precio viejo» no se reporta)")

@@ -128,7 +128,9 @@ _QUE_DETECTA: dict[str, str] = {
     "sin_precio": "bonos sin precio, distinguiendo las 4 causas y midiendo en "
                   "TIEMPO DE MERCADO (sin símbolo cargado · nadie lo suscribió · "
                   "suscripto sin punta · el precio dejó de moverse en rueda)",
-    "precio_moneda": "precios que llegan en la moneda equivocada para su curva",
+    "precio_moneda": "bonos de curva USD que muestran pesos, separando el que "
+                     "cotiza así de verdad (contexto) del que suscribe la PATA "
+                     "EQUIVOCADA — cruzando el master contra `mercado.especies`",
     "db_cambio": "tablas NUEVAS, las que crecieron de golpe y las que "
                  "desaparecieron, comparando la foto de hoy contra la de ayer",
     "latencia": "endpoints que se pusieron lentos contra SU PROPIA normalidad "

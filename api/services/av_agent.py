@@ -882,7 +882,8 @@ def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
 
 def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
                                     mep: float | None,
-                                    simbolos: set[str] | None = None) -> list[dict]:
+                                    simbolos: set[str] | None = None,
+                                    defaults: dict[str, str] | None = None) -> list[dict]:
     """Bonos de curva USD cuyo PRECIO llega en pesos — el caso GD46.
 
     ⚠️ **CORREGIDO 2026-08-18, y la corrección es la parte que importa.** La
@@ -960,6 +961,41 @@ def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
                 {**ev, "sufijo": sym[-1].upper()}))
             continue
 
+        # ⚠️ **¿O ES QUE EL MASTER SUSCRIBE LA PATA EQUIVOCADA?** (2026-08-19)
+        #
+        # Hay DOS fuentes de símbolos y nadie las cruzaba: `curvas.instrumento`
+        # —lo que el motor suscribe— se carga **a mano**, y `mercado.especies`
+        # sabe cuál es la pata correcta (`es_default`), derivada de Primary.
+        #
+        # Medido en prod: de 229 bonos, **3** suscriben una pata distinta de la
+        # default (AO29, GD46, CO32) y los tres son justo los que muestran pesos
+        # en una curva en dólares. O sea que esto NO era «el bono cotiza así y no
+        # hay nada que hacer»: es un dato mal cargado, con la pata correcta ya
+        # existente y validada, y con un arreglo de un campo.
+        #
+        # Por eso deja de ser `baja` (contexto) y pasa a `media` (accionable). No
+        # `alta`: la valuación está bien, no hay plata mal contada.
+        default = (defaults or {}).get(tk, "")
+        if default and default != simbolo:
+            out.append(_hallazgo(
+                "precio_moneda", tk, "pata_equivocada", "media",
+                f"el master suscribe «{sym}» (pesos) pero la pata correcta es "
+                f"«{default.split(' - ')[2] if ' - ' in default else default}»: "
+                f"por eso la grilla muestra {px:,.2f} al lado de bonos en dólares. "
+                f"La valuación está bien (paridad {par_mep:.1f}%), lo mal cargado "
+                f"es el símbolo.",
+                {**ev, "sugerido": default,
+                 "arreglo": "cambiar `mercado.curvas.instrumento` por el símbolo "
+                            "sugerido — es el que `mercado.especies` marca como "
+                            "`es_default` para este ticker",
+                 # **Esto NO se puede omitir**: el universo del motor se arma al
+                 # arrancar, así que cambiar el campo no surte efecto hasta el
+                 # próximo reinicio — y reiniciar en rueda corta el feed de la
+                 # mesa. Una acción que se aplica y no se ve es peor que ninguna.
+                 "ojo": "el motor arma su universo al arrancar: el cambio recién "
+                        "se ve cuando se reinicia el motor FUERA DE RUEDA"}))
+            continue
+
         # La pata en dólares, si existe. Es lo único accionable de este hallazgo.
         # Se devuelve el SÍMBOLO COMPLETO, no el corto: es lo que se suscribe, y
         # es lo que hay que poder copiar sin volver a armarlo a mano.
@@ -1002,12 +1038,18 @@ def relevar_live(*, ahora=None) -> dict:
         logger.warning("av_agent live: sin MEP (%s)", e)
         mep = None
 
-    # Los símbolos que EXISTEN, para poder nombrar la pata en dólares cuando la
-    # haya. `mercado.especies` es la fuente única de las patas de cada ticker.
+    # Los símbolos que EXISTEN + **cuál es la pata DEFAULT de cada ticker**.
+    # `mercado.especies` es la fuente única de las patas, y la default es la que
+    # el master debería estar suscribiendo: cruzar las dos es lo que destapa la
+    # pata equivocada (AO29/GD46/CO32). Una sola query para las dos cosas.
+    defaults: dict[str, str] = {}
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT simbolo FROM mercado.especies")
-            simbolos = {r[0] for r in cur.fetchall() if r[0]}
+            cur.execute("SELECT simbolo, ticker, es_default FROM mercado.especies")
+            filas = cur.fetchall()
+        simbolos = {r[0] for r in filas if r[0]}
+        defaults = {(r[1] or "").strip().upper(): r[0]
+                    for r in filas if r[2] and r[0] and r[1]}
     except Exception as e:
         logger.warning("av_agent live: sin catálogo de especies (%s)", e)
         simbolos = set()
@@ -1024,7 +1066,7 @@ def relevar_live(*, ahora=None) -> dict:
     for nombre, fn in (("sin_precio", lambda: detectar_sin_precio(bonos, snap, ahora)),
                        ("precio_moneda",
                         lambda: detectar_precio_fuera_de_moneda(bonos, snap, mep,
-                                                                simbolos)),
+                                                                simbolos, defaults)),
                        ("latencia", detectar_latencia),
                        ("motores", detectar_motores)):
         try:

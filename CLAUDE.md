@@ -91,7 +91,17 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > **VENCEN** (`VENCEN_EN_S`, 15 min): el monitor deja de correr al cierre y su
 > última foto se quedaba toda la noche en la pantalla — el detector estaba bien,
 > la foto estaba vieja. Además `detectar_sin_precio` ya no saltea en silencio al
-> bono SIN SÍMBOLO (el caso AO29): era el peor cargado y el único invisible.
+> bono SIN SÍMBOLO. **Y el AO29 quedó resuelto y NO era eso**: el bono está
+> sano (TEA 9,73%, paridad 91,4) — lo que está mal es que el master suscribe la
+> pata en PESOS. Hay DOS fuentes de símbolos y nadie las cruzaba:
+> `curvas.instrumento` se carga A MANO y `mercado.especies.es_default` se deriva
+> de Primary. Medido: **3 de 229** no coinciden (AO29, GD46, CO32) y son
+> exactamente los tres que muestran pesos en curva USD. La regla
+> `cotiza_en_pesos` (baja, «es contexto») pasa a **`pata_equivocada` (media)**
+> cuando la pata correcta existe, y nombra el símbolo exacto. NO se automatizó:
+> el motor arma su universo al arrancar, así que el cambio no se ve hasta
+> reiniciarlo **fuera de rueda** — una acción que se aplica y no se ve destruye
+> la confianza en todas las demás.
 >
 > **2026-08-19 — EL CONTEXTO** (§0.r): el agente conoce la base **sin ninguna
 > lista** — el inventario sale de `pg_catalog`, la columna de fecha de

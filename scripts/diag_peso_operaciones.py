@@ -185,8 +185,16 @@ def independientes() -> None:
     from datetime import date
     hoy = date.today()
     desde = date(hoy.year - 2, hoy.month, 1).isoformat()
-    _medir("DEPÓSITOS /flujos/resumen (2 años)", _cf.flujos_resumen,
+    # ANTES y AHORA de la tab DEPÓSITOS, uno al lado del otro. `/flujos/resumen`
+    # es lo que la vista bajaba hasta el 2026-08-19 (el grano, que el browser
+    # filtraba); `/flujos/serie` es lo que baja ahora. Se mide el viejo aunque ya
+    # no se use: es la única forma de ver el tamaño del problema que se arregló.
+    _medir("DEPÓSITOS antes /flujos/resumen", _cf.flujos_resumen,
            desde=desde, hasta=hoy.isoformat())
+    _medir("DEPÓSITOS ahora  /flujos/serie DIARIO", _cf.flujos_serie,
+           ventana_desde=desde, ventana_hasta=hoy.isoformat(), agg="DIARIO")
+    _medir("DEPÓSITOS ahora  /flujos/serie MENSUAL", _cf.flujos_serie,
+           ventana_desde=desde, ventana_hasta=hoy.isoformat(), agg="MENSUAL")
     _medir("FINANCIAMIENTO /financiamiento", _fin.libro)
 
 

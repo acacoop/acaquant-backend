@@ -531,7 +531,7 @@ Escritura: `PUT /gastos/ignorar`, detrás de la misma allowlist que el resto
 porque lo que deja de sumar son los gastos — de paso, el proxy de Next no
 necesitó ampliar su superficie de escritura.
 
-## REPORTE FINAL
+## REPORTE FIN DE DÍA
 
 El saldo al cierre de **todas** las cuentas, para pasar hacia afuera.
 
@@ -912,6 +912,16 @@ Respeta el filtro por banco de la vista.
 
 ## Changelog
 
+- **2026-08-19 (8)** — **Se reparte la barra.** Siete controles en un renglón y
+  cada píxel compite con el siguiente: se saca el título «Consolidado Bancos»
+  (la solapa ya lo dice y costaba el ancho de dos botones), el **filtro de banco
+  pasa a la izquierda** junto a la última actualización —es CONTEXTO de lo que se
+  mira, no una acción— y **CONCILIAR + MOVIMIENTOS A CONCILIAR van encuadrados
+  juntos**, porque son las dos mitades del mismo circuito (encontrar la
+  diferencia y anotar qué arreglar) y el recuadro lo dice sin una palabra.
+  Renombres: REPORTE FINAL → **REPORTE FIN DE DÍA**, DIFERENCIAS →
+  **DIFERENCIAS BANCARIAS**.
+
 - **2026-08-19 (7)** — **MOVIMIENTOS A CONCILIAR** (ver arriba) + tres reglas que
   faltaban en CONCILIAR: **umbral nominal de $1** (15 centavos no son un
   hallazgo), **el signo dice de qué lado está el problema** (falta o sobra en el
@@ -977,7 +987,7 @@ Respeta el filtro por banco de la vista.
   · **Filtro por banco** en la barra, client-side sobre lo que ya trajo el
     consolidado: pedirle la vista filtrada al backend sería un request por cada
     cambio de selector para esconder filas que ya están en memoria. Alcanza
-    también al REPORTE FINAL —el reporte no puede decir algo distinto de la
+    también al REPORTE FIN DE DÍA —el reporte no puede decir algo distinto de la
     pantalla desde la que se abrió— pero **no** al alta de movimientos manuales,
     que es una herramienta de carga: no poder cargarle un movimiento a un banco
     por tener la vista filtrada sería una trampa.
@@ -992,8 +1002,8 @@ Respeta el filtro por banco de la vista.
     impactan el saldo al cierre, así que no hay forma de armar el consolidado sin
     leerlos.
 
-- **2026-08-18 (12)** — **REPORTE FINAL**, y una pasada de prolijidad.
-  · **REPORTE FINAL** (ver arriba) — 100% front, sobre los datos que la vista ya
+- **2026-08-18 (12)** — **REPORTE FIN DE DÍA**, y una pasada de prolijidad.
+  · **REPORTE FIN DE DÍA** (ver arriba) — 100% front, sobre los datos que la vista ya
     tiene: no cuesta ni una query. Partido en bloques de 5 bancos (`BANCOS_POR_BLOQUE`):
     se probaron **las dos matrices** (bancos en las columnas, después bancos en
     las filas) y las dos quedaron con el 90% de las celdas vacías: los datos no

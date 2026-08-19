@@ -405,8 +405,115 @@ def _usuario_existe(email: str) -> bool:
         return cur.fetchone() is not None
 
 
+class AccionPedirPata:
+    """**PEDIRLE A PRIMARY UN SÍMBOLO QUE NADIE ESTÁ ESCUCHANDO** (2026-08-19).
+
+    Nace del incidente del AO29, y es la acción que mejor cierra el ciclo de todo
+    este módulo — por un motivo concreto: **es la única cuyo efecto se puede
+    verificar en segundos**.
+
+    EL PROBLEMA QUE RESUELVE, QUE NO ERA EL QUE PARECÍA
+    ====================================================
+
+    El AO29 mostraba la fila vacía. Se buscó el bug en el bono, en los ejes, en
+    los flujos, en la valuación — y estaba todo bien. Lo que pasaba es que
+    **nadie le estaba pidiendo el precio a su pata en dólares**, y como
+    `market_snapshot` y `timesales` las escribe el motor *solo para lo que
+    suscribe*, todas nuestras tablas decían «no cotiza» **por construcción**.
+
+    Preguntarle a esas tablas si un símbolo opera es preguntarle al que no estaba
+    escuchando si sonó el teléfono. **La única forma de saberlo es pedirlo.** Se
+    pidió: AO29D cotizaba a USD 90,76, y coincidía al centavo con lo que el motor
+    venía calculando dividiendo el precio en pesos por el MEP.
+
+    POR QUÉ ESTA ACCIÓN SE PUEDE AUTOMATIZAR Y OTRAS NO
+    ===================================================
+
+    La acción hermana —cambiar el símbolo del master— **se dejó sin automatizar a
+    propósito**: el motor arma su universo al arrancar, así que se aplicaría, se
+    verificaría en verde releyendo la fila, y en la pantalla no cambiaría nada
+    hasta la noche. *Una acción que se aplica y no se ve destruye la confianza en
+    todas las demás.*
+
+    Esta es lo contrario: el `adhoc_watcher` de `motor_rofex` pollea cada 5
+    segundos y las suscripciones de pyRofex son **aditivas** — no rompen nada, no
+    hace falta reiniciar, y funciona **en plena rueda**. Se aplica y se ve.
+
+    QUÉ SIGNIFICA «VERIFICADA» ACÁ, QUE NO ES OBVIO
+    ================================================
+
+    Verificar que el precio LLEGÓ no siempre es posible en el acto: puede que el
+    símbolo no opere hasta las 15. Así que se verifica lo que la acción sí
+    controla —**que quedó pedido**— y el detalle dice si el precio ya entró o
+    todavía no. **Y eso no es una excusa**: si nunca llega, el hallazgo sigue
+    ahí, a la vista, hasta que alguien decida. Lo que cambió es que ahora la
+    ausencia de precio *significa algo*, porque estamos escuchando.
+    """
+
+    id = "mercado.pedir_pata"
+    titulo = "Pedirle el precio a un símbolo que nadie escucha"
+    sobre = "patas_sin_precio"
+    campo = "suscripción"
+    donde = "mercado.adhoc_subscriptions (el motor la levanta en 5s, sin reiniciar)"
+
+    def proponer(self, casos: list[dict]) -> list[Propuesta]:
+        props = []
+        for c in casos:
+            simbolo = (c.get("simbolo") or "").strip()
+            ticker = (c.get("ticker") or c.get("key") or "").strip()
+            if not simbolo:
+                continue
+            props.append(Propuesta(
+                sujeto=simbolo, campo=self.campo, propuesto="pedir",
+                antes="nadie la pide",
+                porque=(f"«{simbolo}» es el símbolo con el que el master pide el "
+                        f"precio de {ticker} y no tiene ninguno. Eso NO prueba "
+                        f"que no cotice: nuestras tablas solo guardan lo que el "
+                        f"motor suscribe. Pedirlo es lo único que convierte esa "
+                        f"ausencia en un dato — y no hay que reiniciar nada."),
+                extra={"ticker": ticker, "curva": c.get("curva")}))
+        return props
+
+    def aplicar(self, p: Propuesta) -> None:
+        """Por la MISMA puerta que usa la app: `adhoc_subscriptions.subscribe`,
+        la que ya pollea el motor. Un segundo camino de suscripción terminaría
+        con dos universos que no se hablan — que es justo el bug de origen."""
+        from core import adhoc_subscriptions
+
+        # No se inventa un símbolo: tiene que existir como pata conocida.
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM mercado.especies WHERE simbolo = %s",
+                        (p.sujeto,))
+            if cur.fetchone() is None:
+                raise ValueError(f"«{p.sujeto}» no existe en `mercado.especies`")
+        r = adhoc_subscriptions.subscribe(p.sujeto)
+        if not r.get("ok"):
+            raise RuntimeError(f"no se pudo pedir: {r.get('reason')}")
+
+    def verificar(self, p: Propuesta) -> tuple[bool, str]:
+        """Se relee de la base. Lo que se exige es que **quede pedido** — que es
+        lo que esta acción controla; que el precio llegue lo decide el mercado."""
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM mercado.adhoc_subscriptions "
+                        "WHERE ticker = %s AND expires_at > now()", (p.sujeto,))
+            pedida = cur.fetchone() is not None
+            cur.execute("SELECT last_price FROM mercado.market_snapshot "
+                        "WHERE ticker = %s", (p.sujeto,))
+            r = cur.fetchone()
+            px = r[0] if r else None
+        if not pedida:
+            return False, "no quedó pedida"
+        if px:
+            return True, f"pedida y YA llegó precio: {px}"
+        return True, ("pedida; todavía sin precio — si pasa una rueda entera y no "
+                      "llega, ESA pata no cotiza (antes no se podía afirmar)")
+
+
 ACCIONES: dict[str, Accion] = {a.id: a for a in (
-    AccionCartera(), AccionFci(), AccionContraparte(), AccionAvisar())}
+    AccionCartera(), AccionFci(), AccionContraparte(), AccionAvisar(),
+    AccionPedirPata())}
 # Qué acción resuelve cada control. Sin esto la pantalla tendría que saberlo, y
 # el día que se agregue una acción habría que tocar el front.
 POR_CONTROL: dict[str, str] = {a.sobre: a.id for a in ACCIONES.values()}

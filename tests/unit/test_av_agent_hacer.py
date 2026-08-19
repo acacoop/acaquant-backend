@@ -318,3 +318,79 @@ def test_toda_propuesta_tiene_motivo():
     y aprobar con fe a escala es lo que este ciclo viene a evitar."""
     props = hacer.AccionCartera().proponer(_casos("[42932] OTC SOJ."))
     assert all(p.porque.strip() for p in props)
+
+
+# ── PEDIR LA PATA: la acción que SÍ se puede verificar en el acto ──────────
+
+def _pedir():
+    from api.services.av_agent_hacer import AccionPedirPata
+    return AccionPedirPata()
+
+
+def test_propone_pedir_el_simbolo_del_master():
+    p = _pedir().proponer([{"key": "AO29", "ticker": "AO29",
+                            "simbolo": "MERV - XMEV - AO29D - 24hs",
+                            "curva": "soberanos"}])
+    assert len(p) == 1
+    assert p[0].sujeto == "MERV - XMEV - AO29D - 24hs"
+    # El motivo tiene que explicar por qué "sin precio" NO prueba "no cotiza":
+    # esa confusión es la que costó media jornada.
+    assert "solo guardan lo que el motor suscribe" in p[0].porque
+
+
+def test_sin_simbolo_no_propone_nada():
+    """No se inventa un símbolo para pedir. Pedir algo que no existe no informa
+    nada y ensucia la tabla de suscripciones."""
+    assert _pedir().proponer([{"key": "AO29", "ticker": "AO29"}]) == []
+
+
+def test_aplicar_pasa_por_LA_MISMA_puerta_que_el_motor_pollea():
+    """`adhoc_subscriptions.subscribe` es lo que ya lee el `adhoc_watcher`. Un
+    segundo camino de suscripción dejaría dos universos que no se hablan — que
+    es exactamente el bug de origen (el motor leía el blob, la vista la columna)."""
+    import inspect
+    src = inspect.getsource(_pedir().aplicar)
+    assert "adhoc_subscriptions" in src and "subscribe" in src
+
+
+def test_aplicar_NO_inventa_un_simbolo():
+    import inspect
+    assert "mercado.especies" in inspect.getsource(_pedir().aplicar)
+
+
+def test_verificar_distingue_PEDIDA_de_YA_LLEGO_EL_PRECIO():
+    """Que el precio llegue lo decide el mercado, no la acción. Se exige lo que
+    la acción controla —que quede pedida— y el detalle dice en cuál de los dos
+    estados quedó. Marcar «verificada» solo con precio la haría fallar siempre
+    que el símbolo opere más tarde; marcarla sin distinguir escondería que
+    todavía no se sabe nada."""
+    import inspect
+    src = inspect.getsource(_pedir().verificar)
+    assert "adhoc_subscriptions" in src and "market_snapshot" in src
+    assert "no quedó pedida" in src
+
+
+def test_esta_ACCION_se_puede_ver_en_el_acto_y_por_eso_existe():
+    """La acción hermana —cambiar el símbolo del master— se dejó SIN automatizar
+    a propósito: el motor arma su universo al arrancar y el cambio no se ve hasta
+    la noche. Esta es lo contrario y el docstring tiene que decir por qué, porque
+    es el criterio que decide qué se automatiza y qué no."""
+    from api.services.av_agent_hacer import AccionPedirPata
+    doc = AccionPedirPata.__doc__ or ""
+    assert "aditivas" in doc and "reiniciar" in doc
+
+
+def test_entro_al_registro_y_a_su_control():
+    from api.services.av_agent_hacer import ACCIONES, POR_CONTROL
+    assert "mercado.pedir_pata" in ACCIONES
+    assert POR_CONTROL["patas_sin_precio"] == "mercado.pedir_pata"
+
+
+def test_el_control_que_la_alimenta_NO_concluye_sobre_liquidez():
+    """El control señala «nadie lo está pidiendo», no «no cotiza». Confundir las
+    dos cosas es el error que dio 0 trades para una pata que operaba a USD 90,76."""
+    import inspect
+
+    from jobs.controles_datos import _chk_patas_sin_precio
+    doc = inspect.getdoc(_chk_patas_sin_precio) or ""
+    assert "no concluye nada sobre liquidez" in doc.lower()

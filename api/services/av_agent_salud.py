@@ -229,6 +229,12 @@ def _lente_firma(c: dict, lecciones_por_slug: dict) -> dict | None:
 # que es donde vive el criterio — escribirlo una vez y leerlo acá evita que la
 # pantalla explique una cosa y el control mida otra.
 CONTROLES: dict[str, dict] = {
+    "patas_sin_precio": {
+        "rompe": "la fila del bono sale ENTERA en «--»: el motor no le está "
+                 "pidiendo el precio a ese símbolo, y como nuestras tablas solo "
+                 "guardan lo suscrito, «sin precio» no significa «no cotiza»",
+        "donde": "AV Agent → pedirla (el motor la levanta en 5s, sin reiniciar)",
+        "url": "/manager"},
     "forwards_faltantes": {
         "rompe": "esos bonos no salen en la matriz de forwards de su curva",
         "donde": "Renta Fija → FORWARDS", "url": "/renta-fija"},

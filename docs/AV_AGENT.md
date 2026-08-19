@@ -1401,6 +1401,73 @@ recorre la cadena entera de un ticker —master → símbolo → especies → un
 Primary → snapshot → precio— y dice **en qué eslabón se corta**, que es la
 diferencia entre *«no opera por liquidez»* y *«hay algo mal cargado»*.
 
+### 0.v LA PRIMERA ACCIÓN QUE SE VE EN EL ACTO (2026-08-19)
+
+> *«Esto que acabamos de hacer es un tipo de actitud que debe tener el agente:
+> estar monitoreando y saber la solución.»* (user)
+
+#### El error que la origina, y hay que dejarlo escrito
+
+Buscando por qué la fila del AO29 salía vacía, se midió *«¿esta pata opera?»*
+contra `mercado.timesales` y dio **0 trades en 30 días**. Se concluyó que la pata
+en dólares no cotizaba. **Era falso, y de la peor forma posible.**
+
+`mercado.timesales` la escribe el motor **solo para los símbolos que suscribe**.
+Como a `AO29D` no la suscribía nadie, tenía 0 filas **por construcción**.
+Preguntarle a esa tabla si un símbolo opera es preguntarle al que no estaba
+escuchando si sonó el teléfono. Dos pistas lo delataban y no se miraron: **todas**
+las patas no suscritas daban 0 (la firma de «solo tenemos lo que pedimos»), y la
+tabla **se purga a 7 días**, así que la ventana de 30 no podía existir.
+
+`snapshots_cierre_hist` y `market_snapshot` tienen el mismo origen. **Las tres
+fuentes eran la misma fuente.**
+
+Se lo pidió, y `AO29D` cotizaba a **USD 90,76** — que coincide al centavo con lo
+que el motor venía calculando dividiendo el precio en pesos por el MEP (138.220 /
+1.521,89 = 90,82). El cálculo siempre estuvo bien; lo que faltaba era escuchar.
+
+> **La regla que queda:** el agente **no puede concluir «no existe» desde una
+> tabla que solo contiene lo que él mismo pidió.** La ausencia de dato prueba que
+> no estamos mirando, no que no haya nada.
+
+#### Y de paso: se reinició el motor equivocado
+
+`motor_curvas` **no suscribe nada** — su propio log lo dice: *«Escuchando N
+tickers vía MarketSnapshot»*. Es un consumidor que lee `market_snapshot` y calcula
+TEA, paridad y duration. Se lo reinició en plena rueda, cortando el feed, y no
+podía cambiar ninguna suscripción. El que pide los precios es **`motor_rofex`**
+(`engines/valores.py`), que arma su universo AL ARRANCAR.
+
+#### La acción: `mercado.pedir_pata`
+
+**No hace falta reiniciar nada.** `motor_rofex` tiene un `adhoc_watcher` que cada
+5 segundos lee `mercado.adhoc_subscriptions` y suscribe lo que falte — y las
+suscripciones de pyRofex son **aditivas**: no rompen las existentes. Se puede
+pedir un símbolo **en plena rueda, sin cortarle el feed a la mesa**.
+
+Eso la vuelve **la primera acción del agente cuyo efecto se puede ver en el
+acto**, y por eso es la que se automatiza. La comparación con su hermana es el
+criterio que hay que reusar:
+
+| | efecto | ¿se automatiza? |
+|---|---|---|
+| cambiar el símbolo del master | no se ve hasta el próximo arranque del motor | **no** |
+| pedir la pata (adhoc) | el motor la levanta en 5 s, en rueda | **sí** |
+
+*Una acción que se aplica, se verifica en verde y no cambia nada en la pantalla
+destruye la confianza en todas las demás.*
+
+**Qué significa «verificada» acá**, que no es obvio: que el precio LLEGUE no
+siempre se puede saber en el acto —la pata puede no operar hasta las 15—, así que
+se verifica lo que la acción **sí controla** (que quedó pedida) y el detalle dice
+si el precio ya entró o todavía no. Y eso no es una excusa: si nunca llega, el
+hallazgo sigue a la vista. Lo que cambió es que **ahora la ausencia significa
+algo**, porque estamos escuchando.
+
+La alimenta el control `patas_sin_precio`, cuyo docstring dice explícitamente que
+**no concluye nada sobre liquidez**: señala que hay un símbolo del master que
+nadie está pidiendo, nada más.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

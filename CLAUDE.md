@@ -102,6 +102,16 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > el motor arma su universo al arrancar, así que el cambio no se ve hasta
 > reiniciarlo **fuera de rueda** — una acción que se aplica y no se ve destruye
 > la confianza en todas las demás.
+> **2026-08-19 — LA PRIMERA ACCIÓN QUE SE VE EN EL ACTO** (§0.v): `AO29D` **sí
+> cotizaba** (USD 90,76, coincide al centavo con el cálculo por MEP) — nadie se
+> lo estaba pidiendo. Y medirlo contra `mercado.timesales` dio 0 **por
+> construcción**: esa tabla la escribe el motor solo para lo que suscribe. REGLA
+> QUE QUEDA: **el agente no puede concluir «no existe» desde una tabla que solo
+> contiene lo que él mismo pidió**. Ojo también: `motor_curvas` NO suscribe (lee
+> `market_snapshot` y calcula); el que pide es `motor_rofex`, y tiene un
+> `adhoc_watcher` que suscribe en 5s **sin reiniciar, en plena rueda** — de ahí
+> la acción `mercado.pedir_pata` (control `patas_sin_precio`), la primera cuyo
+> efecto se verifica en el acto.
 >
 > **2026-08-19 — EL CONTEXTO** (§0.r): el agente conoce la base **sin ninguna
 > lista** — el inventario sale de `pg_catalog`, la columna de fecha de

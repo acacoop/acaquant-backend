@@ -293,6 +293,41 @@ def _chk_ops_sin_tc() -> list[dict]:
     } for r in rows]
 
 
+def _chk_patas_sin_precio() -> list[dict]:
+    """Bonos del master cuyo SÍMBOLO no tiene precio: nadie se lo está pidiendo.
+
+    ⚠️ **La pregunta que ninguna de nuestras tablas podía contestar** (incidente
+    2026-08-19). `mercado.timesales` y `market_snapshot` los escribe el motor
+    **solo para lo que suscribe**, así que «no tiene precio» nunca significó «no
+    cotiza»: significaba «no lo estamos escuchando». Se midió con esas tablas y
+    dieron 0 por construcción — el AO29D resultó cotizar a USD 90,76 en cuanto se
+    lo pidió.
+
+    Por eso este control NO concluye nada sobre liquidez: solo señala que hay un
+    símbolo del master que nadie está pidiendo. La respuesta se consigue
+    pidiéndolo, que es lo que hace la acción `mercado.pedir_pata`.
+    """
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT c.ticker, c.instrumento, c.curva
+            FROM mercado.curvas c
+            LEFT JOIN mercado.market_snapshot s ON s.ticker = c.instrumento
+            LEFT JOIN mercado.adhoc_subscriptions a
+                   ON a.ticker = c.instrumento AND a.expires_at > now()
+            WHERE c.instrumento IS NOT NULL
+              AND (s.last_price IS NULL OR s.last_price = 0)
+              AND a.ticker IS NULL          -- ya pedido = no hace falta proponerlo
+              -- Y que Primary lo conozca: pedir algo que no existe no informa nada.
+              AND EXISTS (SELECT 1 FROM mercado.especies e
+                           WHERE e.simbolo = c.instrumento)
+            ORDER BY c.ticker
+        """)
+        return [{"key": r[0], "ticker": r[0], "simbolo": r[1], "curva": r[2],
+                 "detalle": f"«{r[1]}» no tiene precio y nadie lo está pidiendo"}
+                for r in cur.fetchall()]
+
+
 @dataclass(frozen=True)
 class Control:
     id: str
@@ -302,6 +337,8 @@ class Control:
 
 
 CONTROLES: list[Control] = [
+    Control("patas_sin_precio", "Símbolos del master que nadie está pidiendo", True,
+            _chk_patas_sin_precio),
     Control("forwards_faltantes", "Bonos ausentes de forwards", True, _chk_forwards_faltantes),
     Control("rf_sin_tasa", "Renta fija cotizando sin TEA/TNA", True, _chk_rf_sin_tasa),
     Control("assets_sin_cartera", "Assets sin cartera", True, _chk_assets_sin_cartera),

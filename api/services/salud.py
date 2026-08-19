@@ -209,18 +209,36 @@ def _chequeo_job(cron: dict, ahora: datetime) -> dict:
     fallo = any(s == "error" for s in estados)
     parcial = any(s == "partial" for s in estados)
 
+    # ⚠️ **LA FRESCURA DEL AVISO** (user, 2026-08-19): *«si este job dio error hace
+    # 22 h… ir al día siguiente y validar: ¿funcionó bien después de su horario de
+    # arranque? Si ya dio OK, no volver a avisar. Los avisos y las alertas no
+    # pueden quedar desactualizados.»*
+    #
+    # El motivo decía **«la última corrida falló»** sin decir CUÁNDO fue esa
+    # corrida, y la pantalla mostraba al lado «hace 22 h» —que es cuándo apareció
+    # el aviso, no cuándo se verificó—. Las dos cosas juntas se leen como «esto es
+    # de anteayer», y son preguntas distintas que hay que poder separar:
+    #
+    #     ¿corrió después de lo que debía?   → si NO, el problema es el scheduler
+    #     ¿esa corrida salió bien?           → si SÍ, no hay aviso que dar
+    #
+    # Ahora el motivo lleva la HORA de la corrida que lo justifica, así el que
+    # mira puede decidir sin abrir nada si el aviso es de hoy o quedó viejo. Y
+    # `corrio_despues` deja explícito lo que antes había que deducir.
+    ult_txt = ultimo_t.strftime("%d/%m %H:%M") if ultimo_t else "nunca"
+    corrio_despues = bool(ultimo_t and esperada and ultimo_t >= esperada)
     if not cron.get("instrumentado") and ultimo_t is None:
         # Sin JobRunLogger no se puede saber nada. No es rojo, pero tampoco verde:
         # es un punto ciego y tiene que verse como tal.
         estado, motivo = WARN, "sin instrumentar: no registra corridas"
     elif fallo:
-        estado, motivo = ERROR, "la última corrida falló"
+        estado, motivo = ERROR, f"la corrida de {ult_txt} UTC falló"
     elif atrasado:
         esp = esperada.strftime("%d/%m %H:%M") if esperada else "?"
-        ult = ultimo_t.strftime("%d/%m %H:%M") if ultimo_t else "nunca"
-        estado, motivo = ERROR, f"debía correr {esp} UTC y la última fue {ult}"
+        estado, motivo = ERROR, f"debía correr {esp} UTC y la última fue {ult_txt}"
     elif parcial:
-        estado, motivo = WARN, "la última corrida terminó con errores parciales"
+        estado, motivo = WARN, (f"la corrida de {ult_txt} UTC terminó con errores "
+                                f"parciales")
     else:
         estado, motivo = OK, "al día"
 
@@ -236,6 +254,10 @@ def _chequeo_job(cron: dict, ahora: datetime) -> dict:
         "schedule": cron.get("schedule"),
         "ultimo_at": ultimo_t.isoformat() if ultimo_t else None,
         "esperada_at": esperada.isoformat() if esperada else None,
+        # **¿La corrida que estamos juzgando es posterior a su horario?** Sin
+        # esto, «falló» y «no corrió» se ven iguales desde afuera y se atienden
+        # distinto: uno es un bug adentro del job, el otro es el scheduler.
+        "corrio_despues": corrio_despues,
         "modulos": [r.get("modulo") for r in runs],
     }
 

@@ -877,6 +877,15 @@ def detectar_salud(chequeos: list[dict]) -> list[dict]:
              "evidencia_salud": c.get("evidencia"),
              "schedule": c.get("schedule"), "tabla": c.get("tabla"),
              "ultimo_at": c.get("ultimo_at"), "esperada_at": c.get("esperada_at"),
+             # ⚠️ **LA FRESCURA, en la evidencia.** El aviso decía «la última
+             # corrida falló» y la pantalla «hace 22 h» al lado — y esas dos
+             # cosas juntas se leen como «es de anteayer», cuando en realidad
+             # una es cuándo apareció el aviso y la otra no estaba.
+             #
+             # `corrio_despues` separa las dos preguntas que se atienden
+             # distinto: si el job NO corrió después de su horario el problema
+             # es el scheduler; si corrió y salió mal, el problema está adentro.
+             "corrio_despues": c.get("corrio_despues"),
              "modulos": c.get("modulos")}))
     return out
 

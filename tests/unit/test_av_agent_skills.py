@@ -259,3 +259,45 @@ def test_la_vista_agrupa_por_dominio_y_no_muestra_los_vacios():
     assert v["por_dominio"] and all(f for f in v["por_dominio"].values())
     assert v["dominios"] == [d for d in sk.DOMINIOS if d in v["por_dominio"]]
     assert sum(len(f) for f in v["por_dominio"].values()) == v["total"]
+
+
+# ── (2026-08-19) EL PUENTE ENTRE EL CATÁLOGO Y LA MEDICIÓN ──────────────────
+
+def _reglas_emitidas() -> dict[str, set[str]]:
+    """Lo que los detectores emiten DE VERDAD, leído del código."""
+    import pathlib
+    import re
+    from collections import defaultdict
+    out = defaultdict(set)
+    for f in pathlib.Path("api/services").glob("*.py"):
+        for m in re.finditer(r'_hallazgo\(\s*"([a-z_]+)"\s*,\s*[^,]+,\s*"([a-z_]+)"',
+                             f.read_text(encoding="utf-8")):
+            out[m.group(1)].add(m.group(2))
+    return out
+
+
+def test_las_reglas_declaradas_son_las_que_se_EMITEN():
+    """El catálogo lista por TIPO y el eval set mide por REGLA. Si el puente
+    declara una regla que nadie emite, la skill mostraría votos de una causa
+    fantasma."""
+    from api.services.av_agent_skills import _REGLAS_DETECTOR
+    reales = _reglas_emitidas()
+    for tipo, reglas in _REGLAS_DETECTOR.items():
+        for r in reglas:
+            assert r in reales.get(tipo, set()), (
+                f"«{tipo}» declara la regla «{r}» y no la emite")
+
+
+def test_no_falta_ninguna_regla_en_el_puente():
+    """Al revés, y es el que importa: una regla nueva sin listar deja sus votos
+    fuera de toda fila, y la skill se ve «sin votar» TENIENDO evidencia. Un error
+    que no da ningún síntoma."""
+    from api.services.av_agent_skills import _REGLAS_DETECTOR
+    for tipo, reales in _reglas_emitidas().items():
+        if tipo not in _REGLAS_DETECTOR:
+            continue                      # eso lo caza el test del catálogo
+        # Vacío EXPLÍCITO = la skill se muestra sin medición, a propósito.
+        if not _REGLAS_DETECTOR[tipo]:
+            continue
+        faltan = reales - set(_REGLAS_DETECTOR[tipo])
+        assert not faltan, f"«{tipo}» emite {sorted(faltan)} y no está(n) declarada(s)"

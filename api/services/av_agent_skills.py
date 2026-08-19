@@ -199,6 +199,37 @@ _QUE_DETECTA: dict[str, tuple[str, str]] = {
         "contestan igual: el borde no aplica lo que el código declara"),
 }
 
+# ⚠️ **QUÉ REGLAS EMITE CADA DETECTOR.** Es el puente entre el CATÁLOGO (que
+# lista por tipo) y la MEDICIÓN (que mide por regla, porque la regla es la unidad
+# que después se automatiza o no). Sin él, la tab muestra 40 capacidades y ningún
+# número al lado — que es tener el dato y no usarlo.
+#
+# Se declara y **hay un test que lo cruza contra lo que los detectores emiten de
+# verdad**: si alguien suma una regla y no la lista acá, sus votos no aparecen en
+# ninguna fila y la skill se ve «sin votar» teniendo evidencia. Un error que no
+# da ningún síntoma, que es la clase que este módulo persigue.
+_REGLAS_DETECTOR: dict[str, tuple[str, ...]] = {
+    "falta_en_base": ("no_esta_en_curvas",),
+    "sin_flujo": ("flujos_vacios",),
+    "hueco_de_curva": ("ajuste_sin_curva",),
+    "tasa_sospechosa": ("moneda_flujo_contradice", "paridad_fuera_de_rango",
+                        "sin_ejes", "sin_espejo_en_assets", "sin_tea_con_precio",
+                        "tea_fuera_de_rango"),
+    "sin_precio": ("no_suscripto", "precio_viejo", "sin_punta", "sin_simbolo"),
+    "precio_moneda": ("cotiza_en_pesos", "pata_equivocada",
+                      "precio_fuera_de_escala"),
+    "dato_partido": ("copias_que_no_coinciden", "no_pude_chequear"),
+    # SALUD arma la regla en tiempo de ejecución (`salud_<familia>`), así que la
+    # lista no se puede declarar sin adivinar las familias. Vacío EXPLÍCITO: la
+    # skill se muestra sin medición, que es honesto — mejor que un número que
+    # cruza mal.
+    "salud": (),
+    # Los del SISTEMA: cada uno emite una sola regla, con su mismo nombre.
+    "db_cambio": (), "latencia": (), "tabla_quieta": (), "motor_caido": (),
+    "permiso_flojo": (),
+}
+
+
 # De qué habla cada detector. El TIPO dice cómo trabaja; esto dice sobre qué.
 _DOMINIO_DETECTOR: dict[str, str] = {
     "falta_en_base": MERCADO, "sin_flujo": MERCADO, "tasa_sospechosa": MERCADO,
@@ -295,7 +326,12 @@ def _de_detectores() -> list[Skill]:
                # Que el catálogo diga CUÁNDO corre cada cosa es la mitad de la
                # respuesta a «¿esto se mantiene solo o hay que pedírselo?».
                "corre_en": _DONDE_CORRE.get(tipo, ""),
-               "cada": _cada_cuanto(_DONDE_CORRE.get(tipo, ""))},
+               "cada": _cada_cuanto(_DONDE_CORRE.get(tipo, "")),
+               # QUÉ REGLAS emite, para poder cruzar la skill con su MEDICIÓN.
+               # El eval set mide por REGLA (que es la unidad que después se
+               # automatiza o no) y el catálogo lista por TIPO: sin este puente,
+               # la tab muestra 40 capacidades y ningún número al lado.
+               "reglas": sorted(_REGLAS_DETECTOR.get(tipo, ())),},
     ) for tipo in av_agent.ACCION_POR_TIPO]
 
 

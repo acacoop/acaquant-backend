@@ -170,6 +170,13 @@ _QUE_DETECTA: dict[str, tuple[str, str]] = {
         "PATA EQUIVOCADA del que cotiza así de verdad — y para eso busca la pata "
         "en dólares en DOS fuentes: `mercado.especies` y, si ahí no está, el "
         "catálogo de Primary (mirar una sola no alcanza para decir que no existe)"),
+    "dato_partido": (
+        "Copias del mismo dato que no coinciden",
+        "los datos que viven en más de un lugar y dejaron de decir lo mismo. "
+        "Detecta la CLASE de bug, no el caso: cuando dos copias se separan NO "
+        "falla nada —cada mitad sigue coherente— y el sistema contesta con "
+        "seguridad usando la equivocada. El registro de qué está duplicado y "
+        "quién manda se DECLARA en `core/duplicados`"),
     "db_cambio": (
         "La base cambió",
         "tablas nuevas, las que crecieron de golpe y las que desaparecieron, "
@@ -198,6 +205,7 @@ _DOMINIO_DETECTOR: dict[str, str] = {
     "hueco_de_curva": MERCADO, "sin_precio": MERCADO, "precio_moneda": MERCADO,
     "salud": SISTEMA, "db_cambio": SISTEMA, "latencia": SISTEMA,
     "tabla_quieta": SISTEMA, "motor_caido": SISTEMA,
+    "dato_partido": DATOS,
     "permiso_flojo": SEGURIDAD,
 }
 
@@ -258,6 +266,7 @@ _DONDE_CORRE: dict[str, str] = {
     "db_cambio": "jobs.db_tamano",
     "tabla_quieta": "jobs.db_tamano",
     "permiso_flojo": "jobs.db_tamano",
+    "dato_partido": "jobs.db_tamano",
 }
 
 

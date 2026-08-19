@@ -115,7 +115,19 @@ def main() -> int:
         # sin que nadie tenga que marcarlo.
         from api.services import av_agent
 
-        sistema = hall + ctx.detectar_tablas() + db.detectar_db()
+        # DATO PARTIDO: dos copias del mismo dato que dejaron de coincidir. Va
+        # acá y no en el monitor de rueda porque **no depende del mercado** — es
+        # un hecho sobre nuestros datos y a las 23:30 es tan cierto como a las 11.
+        partido = av_agent.detectar_dato_partido()
+        if partido:
+            print(f"\n⚠ {len(partido)} dato(s) partido(s) — dos copias que no "
+                  f"coinciden:")
+            for h in partido:
+                print(f"   · {h['ticker']}: {h['motivo'][:120]}")
+        else:
+            print("\n✔ los datos duplicados coinciden en todos sus lugares")
+
+        sistema = hall + ctx.detectar_tablas() + db.detectar_db() + partido
         n = av_agent.reemplazar_hallazgos("sistema", sistema)
         jr.set_stat("hallazgos", n)
         print(f"\n✔ {n} hallazgos del sistema en mercado.av_agent_hallazgos "

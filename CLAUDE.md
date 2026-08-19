@@ -306,6 +306,36 @@ resolver lo pedido:
 
 Ver memorias [[feedback_proactive_architect]] y [[feedback_autonomy_lanes]].
 
+## ⚠️ REGLA #9 — La IDENTIDAD no es el NOMBRE, y dos copias necesitan ÁRBITRO
+
+**Dos patrones, un mismo modo de falla: cuando esto se rompe NO falla nada.** No
+hay excepción, no hay log, cada mitad del sistema sigue siendo coherente consigo
+misma, y contesta con seguridad usando el dato equivocado. Por eso se descubren
+siempre tarde y mirando una pantalla.
+
+**(A) Emparejar registros → por FICHA, nunca por el string.** Cuando hay que
+decir «este y aquel son la misma cosa» sin una clave que los una, se emparejan
+por los atributos de la fuente autoritativa, no por sufijos ni prefijos. El
+nombre es una convención de quien lo emitió: los tickers están topeados en **5
+caracteres**, así que `AL30 → AL30D` anda *por casualidad* y `BPOA7 → BPA7D`
+(se cae una letra del medio) rompe cualquier regla de string.
+
+Usar **`core/pareo.hermanas()`**, que trae las cuatro guardas adentro: solo la
+fuente autoritativa · ficha completa · tope de grupo · «no pude» ≠ «no existe».
+No reimplementarlas — *emparejar mal es peor que no emparejar*.
+
+**(B) El mismo dato en dos lugares → declarar quién manda.** Tener el dato
+duplicado a veces hace falta (un blob que leen 500 lugares no se migra de un día
+para el otro). Lo que no se puede es dejarlo sin árbitro y sin chequeo: declararlo
+en **`core/duplicados.DUPLICADOS`** (qué dato, dónde vive cada copia, quién gana,
+qué se rompe si difieren) hace que el agente lo mire todas las noches y que la
+próxima divergencia dure horas y no cuatro días.
+
+Costó tres incidentes en cuatro días: el símbolo columna-vs-blob (2 bonos enteros
+en `--` teniendo el precio), el `ticker_corto` invertido por el renombre, y
+`preferencia` escrita tres veces eligiendo distinto en cada una. Ver
+`docs/AV_AGENT.md` §0.y y §0.aa.
+
 ## ⚠️ REGLA #8 — Portal INVITADO (www.acaquant.com): SOLO mercado/research, nunca filtrar datos del negocio
 
 **Bloqueante.** Conviven dos portales:

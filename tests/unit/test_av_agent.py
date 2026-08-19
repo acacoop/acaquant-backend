@@ -1531,10 +1531,13 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
     # `av_agent_db` y `av_agent_latencia`, que ya no viven en este módulo — los
     # detectores se repartieron en varios archivos y la lista escrita a mano se
     # quedaba corta sin avisar, que es el mismo modo de falla que este test caza.
+    # `dato_partido` (2026-08-19) lo emite `detectar_dato_partido`: dos copias del
+    # mismo dato que dejaron de coincidir. Es un detector de la CLASE de bug —el
+    # símbolo columna-vs-blob apareció tres veces en cuatro días— y no de un caso.
     tipos_reales = {"falta_en_base", "sin_flujo", "tasa_sospechosa",
                     "hueco_de_curva", "salud", "sin_precio", "precio_moneda",
                     "db_cambio", "latencia", "tabla_quieta", "motor_caido",
-                    "permiso_flojo"}
+                    "permiso_flojo", "dato_partido"}
     assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
         "una clave del mapa no es un TIPO que algún detector emita — "
         "probablemente se escribió la REGLA")

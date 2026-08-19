@@ -237,6 +237,12 @@ ACCION_POR_TIPO = {
     "motor_caido": None,
     # Un permiso flojo se arregla en el router o en el borde, no en la base.
     "permiso_flojo": None,
+    # `None` EXPLÍCITO: NO se automatiza, y es una decisión. Cuando dos copias
+    # difieren, elegir la del árbitro y pisar la otra parece obvio y **no lo es**:
+    # puede que la que esté mal sea la del árbitro, y pisar borra la evidencia de
+    # que hubo una divergencia. El agente lo canta con los dos valores a la vista
+    # y decide una persona.
+    "dato_partido": None,
     # ── EN RUEDA (2026-08-18) ────────────────────────────────────────────────
     # `None` EXPLÍCITO, y por un motivo distinto al resto: no es que falte
     # construirlo, es que **no se arreglan tocando `mercado.curvas`**. Un símbolo
@@ -981,6 +987,54 @@ def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
                 f"«{simbolo}» no se actualiza hace {mins} min (último {px:,.2f}). "
                 f"O dejó de operar, o se cayó el feed.",
                 {**ev, "estado": "precio_viejo", "minutos": mins, "precio": px}))
+    return out
+
+
+def detectar_dato_partido(res: dict | None = None) -> list[dict]:
+    """**Dos copias del mismo dato que dejaron de decir lo mismo.**
+
+    Es el detector de una CLASE de bug, no de un caso. Nació de que el mismo
+    error apareció tres veces en cuatro días (el símbolo columna-vs-blob, el
+    ticker corto, `preferencia` escrita tres veces) y las tres veces se descubrió
+    tarde y de casualidad, mirando una pantalla.
+
+    Lo que lo hace difícil de ver a mano: **cuando dos copias se separan no falla
+    nada**. Cada mitad sigue siendo internamente coherente, no hay excepción, no
+    hay log, y el sistema contesta con seguridad usando la copia equivocada.
+
+    `alta` sin dudar: acá no hay «es contexto». Si dos copias del mismo dato
+    difieren, ALGO está leyendo el valor incorrecto ahora mismo — lo único que no
+    sabemos es quién.
+
+    El registro de qué está duplicado y quién manda vive en `core/duplicados`, se
+    DECLARA (del esquema no se puede deducir que dos columnas guardan lo mismo) y
+    sumar uno son cinco líneas.
+    """
+    from core import duplicados
+    res = res if res is not None else duplicados.divergencias()
+    out: list[dict] = []
+    for d in res.get("partidos") or []:
+        ej = d.get("ejemplos") or []
+        muestra = "; ".join(
+            f"{x['sujeto']}: «{x['valor_a']}» ≠ «{x['valor_b']}»" for x in ej[:3])
+        out.append(_hallazgo(
+            "dato_partido", d["id"], "copias_que_no_coinciden", "alta",
+            f"{d['n']} caso(s) donde {d['que']} dice cosas distintas según dónde "
+            f"se lea. {d['a']} vs {d['b']}. **Manda {d['arbitro']}.** "
+            f"Qué se rompe: {d['rompe']}."
+            + (f" Ejemplos — {muestra}." if muestra else ""),
+            {"duplicado": d["id"], "n": d["n"], "a": d["a"], "b": d["b"],
+             "arbitro": d["arbitro"], "ejemplos": ej,
+             "ojo": "cuando dos copias se separan NO falla nada: cada mitad sigue "
+                    "coherente y el sistema miente en silencio"}))
+    # **Lo que no se pudo mirar se canta.** Un duplicado sin chequear se leería
+    # igual que uno sano, que es la forma de mentir que este módulo persigue.
+    for x in res.get("sin_mirar") or []:
+        out.append(_hallazgo(
+            "dato_partido", x["id"], "no_pude_chequear", "media",
+            f"No pude verificar si {x['que']} sigue coincidiendo en sus dos "
+            f"lugares: {x['error']}. **No es que esté bien — es que no se miró.**",
+            {"duplicado": x["id"], "error": x["error"]}))
     return out
 
 

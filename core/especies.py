@@ -36,6 +36,8 @@ import logging
 import re
 from datetime import UTC, datetime
 
+from core import pareo
+
 logger = logging.getLogger(__name__)
 
 RE_ESPECIE = re.compile(r"^([A-Z]+\d+)([DC])$")
@@ -127,32 +129,40 @@ def pata(simbolo: str, ticker: str, clasificar) -> dict | None:
 
 # Tope de símbolos que puede tener una ficha antes de dejar de creerle. Un bono
 # tiene a lo sumo 3 especies × 2 plazos = 6; se deja el doble de aire. Si una
-# ficha agrupa más, es genérica —o Primary cambió algo— y **no se usa**: es la
-# misma degradación que el resto del módulo, ante la duda no se empareja.
-MAX_POR_FICHA = 12
+# ficha agrupa más, es genérica —o Primary cambió algo— y **no se usa**.
+#
+# El tope y las otras tres guardas viven en `core/pareo`, que es el patrón
+# GENERAL: emparejar por ficha no es cosa de bonos —ya se resolvió cuatro veces
+# por separado en este sistema— y las guardas son lo que hace que no se pueda
+# usar mal. Acá queda solo lo que es del DOMINIO: qué campos forman la ficha de
+# un instrumento, qué fila de Primary es autoritativa, y con qué criterio se
+# ordenan las patas.
+MAX_POR_FICHA = pareo.MAX_POR_GRUPO
+
+# La FICHA de un instrumento, según Primary. Son los dos campos que identifican
+# al bono sin pasar por su nombre.
+FICHA = ("underlying", "maturity")
 
 
 def _es_merv(simbolo: str) -> bool:
     return (simbolo or "").strip().upper().startswith("MERV - XMEV - ")
 
 
-def fichas(filas: list[dict]) -> dict[tuple[str, str], list[dict]]:
-    """`(underlying, maturity)` → los símbolos de Primary que la comparten. PURA.
+def _normalizar(filas: list[dict]) -> list[dict]:
+    """Los `instruments` del discovery → filas con lo que el pareo necesita. PURA.
 
-    `filas` son los `instruments` del discovery: `{ticker, underlying, maturity,
-    currency}`. Se descartan las que no son `MERV - XMEV - …` (ver arriba) y las
-    que no traen ficha completa — media ficha no identifica a nadie.
+    Acá vive lo que es del DOMINIO y `core/pareo` no puede saber: que el símbolo
+    se parte en cuatro segmentos, que la especie sale del sufijo, y que solo la
+    forma `MERV - XMEV - …` trae un `underlying` específico.
     """
-    out: dict[tuple[str, str], list[dict]] = {}
+    out: list[dict] = []
     for f in filas or []:
         sim = (f.get("ticker") or "").strip()
-        und = (f.get("underlying") or "").strip()
-        mat = str(f.get("maturity") or "").strip()
-        if not sim or not und or not mat or not _es_merv(sim):
+        if not sim or not _es_merv(sim):
             continue
         pedazos = segs(sim) or ["", "", "", ""]
         te = pedazos[2].upper()
-        out.setdefault((und.upper(), mat), []).append({
+        out.append({
             "simbolo": sim, "ticker_especie": te,
             "moneda": (f.get("currency") or "").strip().upper(),
             # La ESPECIE sale del sufijo, igual que en todo el módulo. Hace falta
@@ -163,8 +173,18 @@ def fichas(filas: list[dict]) -> dict[tuple[str, str], list[dict]]:
             "especie": ESPECIE.get(te[-1:] if te[-1:] in ("D", "C") else "",
                                    ("pesos", "ARS"))[0],
             "plazo": pedazos[3],
-            "underlying": und, "maturity": mat})
+            "underlying": (f.get("underlying") or "").strip(),
+            "maturity": str(f.get("maturity") or "").strip()})
     return out
+
+
+def fichas(filas: list[dict]) -> dict[tuple[str, ...], list[dict]]:
+    """`(underlying, maturity)` → los símbolos de Primary que la comparten.
+
+    Se conserva porque el diag la usa para IMPRIMIR la evidencia de cada
+    emparejamiento — que alguien pueda mirar la ficha con sus ojos es parte del
+    diseño, no un extra."""
+    return pareo.agrupar(_normalizar(filas), por=FICHA)
 
 
 def mejor(simbolos: list[str]) -> str:
@@ -200,23 +220,18 @@ def hermanas_por_ficha(ticker_especie: str, filas: list[dict],
     mon = (moneda or "").strip().upper()
     if not tk:
         return []
-    idx = fichas(filas)
-    # La ficha del ticker que nos dieron. Puede aparecer en varios plazos: todos
-    # comparten ficha, así que alcanza con encontrarlo una vez.
-    clave = next((k for k, v in idx.items()
-                  if any(x["ticker_especie"] == tk for x in v)), None)
-    if clave is None:
-        return []
-    grupo = idx[clave]
-    if len(grupo) > MAX_POR_FICHA:
-        logger.warning("especies: la ficha %s agrupa %d símbolos (> %d) — no se "
-                       "empareja por ficha", clave, len(grupo), MAX_POR_FICHA)
-        return []
-    hs = [x for x in grupo if x["moneda"] == mon and x["ticker_especie"] != tk]
-    # `preferencia`, EL criterio del módulo: MEP antes que cable y 24hs antes que
-    # CI. Acá había un orden propio que solo miraba el plazo, y por eso los 8
-    # BOPREALes emparejaron bien y devolvieron la pata en CABLE.
-    return sorted(hs, key=preferencia)
+    # **El emparejamiento es `core/pareo`; acá solo se declara el DOMINIO.** Las
+    # cuatro guardas —fuente autoritativa, ficha completa, tope de grupo, «no
+    # pude» ≠ «no hay»— viven allá y no se pueden saltear por olvido.
+    return pareo.hermanas(
+        tk, _normalizar(filas), por=FICHA,
+        identidad=lambda x: x["ticker_especie"],
+        quedarse=lambda x: x["moneda"] == mon,
+        # `preferencia`, EL criterio del módulo: MEP antes que cable y 24hs antes
+        # que CI. Sin `orden` el resultado queda a merced del orden de llegada, y
+        # eso fue el bug de `BPA7C` ganándole a `BPA7D`.
+        orden=preferencia,
+        max_por_grupo=MAX_POR_FICHA, etiqueta="especies")
 
 
 def preferencia(p: dict) -> tuple:

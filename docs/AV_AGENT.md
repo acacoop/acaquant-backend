@@ -1865,6 +1865,92 @@ evidencia completa —ticker, pata propuesta, vencimiento y el `underlying`
 textual— para que una persona la mire. Un emparejamiento que nadie confirmó no es
 mejor que una corazonada solo porque lo hizo un `JOIN`.
 
+### 0.aa LOS DOS PATRONES, EN LA ARQUITECTURA (2026-08-19)
+
+> *«Hacelo bien hecho, que quede en la arquitectura, que este patrón sea general
+> y no solo para esta feature y después le pase a otra cosa. Que refuerce la
+> inteligencia de este modelo.»* (user)
+
+Tenía razón: en cuatro días el MISMO error apareció tres veces, en tres módulos
+distintos, y las tres se arregló el caso y no la clase. Acá quedan los dos
+patrones como código reusable, no como prosa en un doc.
+
+#### PATRÓN A — la identidad no es el nombre → `core/pareo.py`
+
+Cada tanto hay que decir «este registro y aquel son la misma cosa» sin tener una
+clave que los una. Ya pasó **cuatro** veces y las cuatro se resolvieron por
+separado: las patas de un bono, el rebautizo de Aunesa (`herencia`), el emisor de
+1816, y los tres lugares donde vive un símbolo.
+
+La tentación siempre es mirar el string, y siempre falla igual, porque **el
+nombre es una convención de quien lo emitió, no un dato**:
+
+    BPOA7  →  BP[O]A7 + D  →  BPA7D      ← se cae una letra del MEDIO
+    NDT25  →  NDT[2]5 + D  →  NDT5D
+    AL30   →  AL30   + D  →  AL30D       ← este anda, y por casualidad
+
+El ticker está topeado en **5 caracteres**: `AL30` tiene 4, le entra la D y la
+regla de sufijo funciona; cualquier base de 5 la rompe y la va a romper siempre.
+*El nombre literalmente no tiene lugar para ser la identidad.*
+
+`core/pareo.hermanas()` empareja por FICHA —los atributos que da la fuente
+autoritativa— con **las cuatro guardas adentro**, que son la mitad del módulo
+porque *emparejar mal es peor que no emparejar*:
+
+    1. solo la fuente AUTORITATIVA   la forma corta de Primary trae un underlying
+                                     genérico; con ella los 6 BOPREALes comparten
+                                     ficha y cada uno hereda las patas de los otros
+    2. ficha COMPLETA                media ficha matchea contra todas las demás
+                                     fichas incompletas
+    3. tope de grupo                 una ficha que agrupa de más es genérica
+    4. «no pude» ≠ «no existe»       la regla del AO29 (§0.v)
+
+`core/especies` pasó a ser **un caso de uso**: declara qué campos forman la ficha
+de un instrumento y con qué criterio se ordenan las patas, y nada más. Los 15
+tests que ya existían siguen pasando sin tocar uno — la conducta es idéntica, lo
+que cambió es que las guardas ya no dependen de que el próximo se acuerde.
+
+#### PATRÓN B — dos copias sin árbitro se separan → `core/duplicados.py`
+
+    2026-08-19  el símbolo del bono vivía en la COLUMNA y en el BLOB. El motor
+                escribía leyendo el blob, la vista buscaba por la columna.
+                Divergieron en 2 de 229 y esos bonos salían enteros en `--` **con
+                el precio existiendo**.
+    2026-08-19  `preferencia` (MEP antes que cable) estaba escrita TRES veces. Las
+                tres eligieron distinto: el diag mostraba una pata y el agente iba
+                a pedir otra.
+    2026-08-15  el renombre dejó el blob con el significado invertido. Cuatro días
+                sin que pasara nada — hasta que pasó.
+
+El problema **no** es tener el dato dos veces: a veces hace falta (un blob que
+leen 500 lugares no se migra de un día para el otro). El problema es **no
+declarar quién manda y que nadie mire si siguen diciendo lo mismo**.
+
+`core/duplicados.DUPLICADOS` es el registro **declarado** —del esquema no se puede
+deducir que dos columnas guardan «lo mismo»— y cada entrada dice qué dato es,
+dónde vive cada copia, **quién es el árbitro** y **qué se rompe** si divergen.
+Hoy son cuatro; sumar uno son cinco líneas y una query.
+
+#### Y lo que lo vuelve inteligencia y no documentación: el agente lo mira
+
+`detectar_dato_partido` corre en el job nocturno (no depende del mercado: a las
+23:30 es tan cierto como a las 11) y lo canta en ENCONTRÓ como cualquier
+hallazgo. **`alta` sin dudar**: si dos copias difieren, algo está leyendo el valor
+incorrecto ahora mismo — lo único que no sabemos es quién.
+
+Lo que lo hace imposible de ver a mano es justo lo que lo hace peligroso: **cuando
+dos copias se separan no falla nada.** No hay excepción, no hay log, cada mitad
+sigue siendo coherente, y el sistema contesta con seguridad usando la equivocada.
+
+⚠️ **NO se automatiza, y es una decisión.** Elegir la del árbitro y pisar la otra
+parece obvio y no lo es: puede que la equivocada sea la del árbitro, y pisar
+**borra la evidencia de que hubo una divergencia**. El agente muestra los dos
+valores y decide una persona.
+
+Y lo que no se pudo chequear **se canta** (`no_pude_chequear`, media): un
+duplicado sin mirar se leería igual que uno sano, que es exactamente la forma de
+mentir que estos dos módulos persiguen.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

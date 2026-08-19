@@ -23,5 +23,3 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.routers.ingest]]  ·  _module_
 - [[api.routers.research1816]]  ·  _module_
-- [[api.services.copiloto.reuters]]  ·  _module_
-- [[api.services.copiloto.trading]]  ·  _module_

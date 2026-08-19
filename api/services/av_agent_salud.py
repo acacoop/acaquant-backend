@@ -495,39 +495,6 @@ def _lente_log_si_aplica(c: dict) -> dict | None:
     return _lente_log(c)
 
 
-def _lente_ia(c: dict, chequeo_id: str) -> dict | None:
-    """La lectura con IA — **solo si es de HOY. Si no, no se muestra.**
-
-    Antes se mostraba con un cartel: «⚠️ esta lectura es del 09/08 (10 días) y
-    puede hablar de otros casos». El user: *«si es viejo, como mismo te está
-    diciendo, no quiero el análisis con IA»* — y tiene razón, avisar no arregla
-    nada. Un análisis que habla de 14 activos al lado de una evidencia que dice
-    8 no es contexto: es una segunda versión de los hechos, y obliga al que lee a
-    decidir a cuál creerle. Eso es exactamente el trabajo que la pantalla tenía
-    que ahorrarle.
-
-    El diagnóstico se cachea por EVENTO, así que uno viejo significa que no hubo
-    evento nuevo — no que el problema se haya ido. Se descarta y listo.
-    """
-    try:
-        from api.services import salud
-        d = salud.diagnostico(chequeo_id)
-    except Exception:
-        return None
-    txt = (d or {}).get("texto")
-    if not txt:
-        return None
-    creado = str((d or {}).get("creado_at") or "")[:10]
-    if creado:
-        try:
-            from datetime import date
-            if (date.today() - date.fromisoformat(creado)).days >= 1:
-                return None      # viejo → no se muestra
-        except ValueError:
-            return None
-    return _paso("ia", "Lectura con IA", INFO, txt, tabla="ia.trazas")
-
-
 def _lente_arreglo(c: dict) -> dict | None:
     """El COMANDO, y nada más. La explicación de por qué el agente todavía no lo
     ejecuta se decía en CADA tarjeta: repetida diez veces deja de leerse, y no
@@ -547,11 +514,18 @@ def _lente_arreglo(c: dict) -> dict | None:
                  tabla="deploy/crontab.txt")
 
 
-def diagnosticar(chequeo_id: str, *, con_ia: bool = True) -> dict:
+def diagnosticar(chequeo_id: str) -> dict:
     """**El análisis completo de un chequeo de SALUD**, con la misma forma que el
     de un bono: pasos numerados + veredicto, para que el modal los dibuje igual.
 
-    `con_ia=False` corre las siete lentes deterministas y **no gasta un token**.
+    **Ninguna lente gasta un token.** La única que lo hacía leía el diagnóstico
+    con IA que generaba el panel de SALUD, y ese panel se dio de baja el
+    2026-08-19 (todo pasa por el agente). Sin panel nadie lo generaba, así que la
+    lente iba a quedar muda para siempre — y el user ya la había desahuciado:
+    *«acá tira cualquier cosa, cualquiera; no tiene nada que ver con el error…
+    es mejor no decir nada a decir todo»*. La IA del agente vive donde sí aporta:
+    el informe masivo (patrones sobre decenas de casos) y las propuestas de
+    ACCIONES.
     """
     from api.services import salud
 
@@ -605,8 +579,6 @@ def diagnosticar(chequeo_id: str, *, con_ia: bool = True) -> dict:
         _lente_firma(c, por_slug),       # solo si matchea una lección
         _lente_historial(c, hist),       # solo si es un patrón
     ]
-    if con_ia:
-        crudos.append(_lente_ia(c, cid))
     crudos.append(_lente_arreglo(c))
     ps = [p for p in crudos if p]
     for i, p in enumerate(ps, 1):

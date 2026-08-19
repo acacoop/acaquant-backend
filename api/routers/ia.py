@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email, is_guest_portal, require_admin
-from api.services import briefing, copiloto, ia_obs
+from api.services import briefing, ia_obs
 
 router = APIRouter(prefix="/api/ia", tags=["ia"])
 
@@ -93,92 +93,6 @@ def briefing_apertura():
     return briefing.briefing_hoy()
 
 
-# ── P3 Copiloto de Mesa (contextual por vista, ver api/services/copiloto.py) ──
-
-
-class PreguntaCopiloto(BaseModel):
-    vista: str
-    pregunta: str
-    # pares {pregunta, respuesta} previos de ESTE panel (ventana corta)
-    historial: list[dict] = Field(default_factory=list)
-    # conversación a la que pertenece la pregunta (cada chat su mundo)
-    conv_id: str | None = None
-    # parámetros de la vista (ej. trading: tickers de las 8 tarjetas, foco,
-    # overrides de máx/mín/cierre) — se SANEAN en el service, jamás son datos
-    params: dict | None = None
-
-
-class FeedbackCopiloto(BaseModel):
-    traza_id: int
-    feedback: int  # 1 = 👍, -1 = 👎
-
-
-def _identidad(request: Request, email: str) -> str:
-    """Portal invitado (2026-07-21, decisión user: IA para invitados): cada
-    invitado conserva SU identidad, marcada con el prefijo "guest:" — así
-    persiste su propia conversación, tiene su tope diario propio (100k default
-    en core/ai) y el acceso a vistas se resuelve contra INVITADO_MODULES (la
-    guía queda excluida), nunca por rol-del-email."""
-    from core.roles import GUEST_PREFIX
-
-    return f"{GUEST_PREFIX}{email}" if is_guest_portal(request) else email
-
-
-@router.get("/copiloto/vistas")
-def copiloto_vistas(request: Request, email: str = Depends(get_user_email)):
-    """Vistas del copiloto habilitadas para este usuario (gate por módulo
-    RBAC de cada vista). El frontend lo usa como probe: 403 del montaje =
-    sin módulo `ia` = ocultar el botón."""
-    return {"vistas": copiloto.vistas_para(email=_identidad(request, email))}
-
-
-@router.get("/copiloto/historial")
-def copiloto_historial(request: Request, limit: int = 8, email: str = Depends(get_user_email)):
-    """Última CONVERSACIÓN del usuario con el copiloto (memoria persistente
-    desde ia.trazas — cada chat es su propio mundo). Los invitados también
-    persisten LA SUYA (identidad guest:<email> — pedido del user 2026-07-21:
-    cada correo conserva lo que usó)."""
-    return copiloto.historial_persistido(usuario=_identidad(request, email), limit=limit)
-
-
-@router.post("/copiloto")
-def copiloto_preguntar(request: Request, body: PreguntaCopiloto,
-                       email: str = Depends(get_user_email)):
-    """Una pregunta sobre la tabla de una vista de mercado. La IA solo ve los
-    datos de ESA vista (armados server-side); degrada con ok=False."""
-    quien = _identidad(request, email)
-    if body.vista in copiloto.VISTAS and not copiloto.puede_usar(quien, body.vista):
-        raise HTTPException(status_code=403, detail="módulo de la vista no autorizado")
-    return copiloto.preguntar(
-        vista=body.vista, pregunta=body.pregunta,
-        historial=body.historial, usuario=quien, conv_id=body.conv_id,
-        params=body.params,
-    )
-
-
-class VigiaBody(BaseModel):
-    params: dict | None = None  # tickers de las tarjetas + overrides (se sanean)
-
-
-@router.post("/copiloto/vigia")
-def copiloto_vigia(body: VigiaBody, email: str = Depends(get_user_email)):
-    """El vigía de la vista TRADING: evalúa los disparadores (tarjeta en
-    nivel / candidato del radar) por CÓDIGO — cero tokens. El front lo pollea."""
-    if not copiloto.puede_usar(email, "trading"):
-        raise HTTPException(status_code=403, detail="módulo trading no autorizado")
-    return copiloto.vigia(params=body.params)
-
-
-@router.post("/copiloto/feedback")
-def copiloto_feedback(request: Request, body: FeedbackCopiloto,
-                      email: str = Depends(get_user_email)):
-    """👍/👎 del usuario sobre una respuesta del copiloto → ia.trazas.feedback."""
-    return copiloto.registrar_feedback(
-        traza_id=body.traza_id, valor=body.feedback,
-        usuario=_identidad(request, email),
-    )
-
-
 # ── AV AGENT (docs/AV_AGENT.md) ──────────────────────────────────────────────
 #
 # Vive bajo /api/ia a propósito: hereda el gate `ia` de forma ESTRUCTURAL en vez
@@ -190,8 +104,8 @@ def copiloto_feedback(request: Request, body: FeedbackCopiloto,
 # `ia`): el agente expone el estado interno de la valuación — qué bonos están mal
 # cargados, cuáles no entran al AuM, qué le falta al catálogo. Eso no es
 # información de mercado: es cómo está hecho el sistema por dentro, y con la
-# matriz de roles dándole `ia` a la mesa para los copilotos, gatearlo solo por
-# módulo se lo mostraría a un comercial. Mismo criterio que SALUD.
+# matriz de roles dándole `ia` a la mesa, gatearlo solo por módulo se lo
+# mostraría a un comercial.
 
 
 class RespuestaAvAgent(BaseModel):
@@ -317,10 +231,6 @@ def av_agent_aviso_completar(body: CompletarAviso,
 
 class DiagnosticoSalud(BaseModel):
     chequeo_id: str = Field(..., min_length=2, max_length=120)
-    # La lente con IA es la ÚNICA que gasta tokens y va última. Poder apagarla deja
-    # el análisis determinista disponible siempre — con presupuesto agotado, sin
-    # key, o simplemente cuando no hace falta.
-    con_ia: bool = True
 
 
 class VotoEval(BaseModel):
@@ -401,14 +311,13 @@ class SimularAvAgent(BaseModel):
 
 @router.post("/av-agent/salud", dependencies=[Depends(require_admin)])
 def av_agent_salud(body: DiagnosticoSalud):
-    """**SALUD, razonada por el agente** — ocho lentes con la misma forma que las
-    de un bono, para que el modal las dibuje igual.
+    """**SALUD, razonada por el agente** — la ÚNICA puerta a SALUD desde el
+    2026-08-19: el panel de Manager se dio de baja y el agente es la entrada.
 
-    Siete son deterministas y gratis; la octava lee el log con IA y es la única
-    que gasta tokens (`con_ia=false` la apaga). **No escribe nada**: SALUD sigue
-    siendo el dueño de su estado."""
+    Todas las lentes son deterministas y **no gastan un token**. No escribe nada:
+    SALUD sigue siendo el dueño de su estado."""
     from api.services import av_agent_salud as svc
-    return svc.diagnosticar(body.chequeo_id, con_ia=body.con_ia)
+    return svc.diagnosticar(body.chequeo_id)
 
 
 # ── LO QUE EL AGENTE SABE HACER (2026-08-19) ────────────────────────────────
@@ -479,13 +388,71 @@ def av_agent_hacer_rechazar(body: RechazarHacer, email: str = Depends(get_user_e
 
 
 @router.get("/av-agent/mis-avisos")
-def av_agent_mis_avisos(email: str = Depends(get_user_email)):
+def av_agent_mis_avisos(request: Request, email: str = Depends(get_user_email)):
     """**Lo que el agente le dejó a ESTA persona.** Sin `require_admin` a
     propósito: el destinatario de un ping es justamente alguien que no
     necesariamente administra nada, y filtra por su propio email — no hay forma
-    de pedir los de otro."""
+    de pedir los de otro.
+
+    Pero **jamás el portal invitado** (REGLA #8): un aviso del agente habla del
+    estado interno del sistema. Que hoy devolvería una lista vacía no es una
+    defensa — es una coincidencia de los datos, no una regla."""
+    if is_guest_portal(request):
+        raise HTTPException(403, "no disponible para el portal invitado")
     from api.services import av_agent_vista as vista
     return {"avisos": vista.avisos_de(email or "")}
+
+
+# ── SALUD, SOLO por el agente (2026-08-19) ──────────────────────────────────
+#
+# El panel de Manager → OBSERVABILIDAD → SALUD, el botón de la barra y el modal
+# de alertas se dieron de baja: *«eliminar SALUD del front de observabilidad…
+# toda la salud, y esto pasa 100% por el agent»* (user). El motor
+# (`api/services/salud.py`) NO se tocó — sigue siendo el dueño de la evaluación
+# y el agente lo lee. Lo que se movió acá son las dos cosas que el panel hacía y
+# que no se podían perder: **interrumpir** cuando algo se rompe, y **silenciar**
+# lo que no querés que te interrumpa.
+
+
+class VistosSalud(BaseModel):
+    # `None` = todos los pendientes de este admin.
+    ids: list[int] | None = None
+
+
+class SilenciarChequeo(BaseModel):
+    chequeo_id: str = Field(..., min_length=2, max_length=120)
+    alertar: bool
+    nota: str = Field("", max_length=300)
+
+
+@router.get("/av-agent/salud/pendientes", dependencies=[Depends(require_admin)])
+def av_agent_salud_pendientes(email: str = Depends(get_user_email)):
+    """Lo que se rompió y este admin todavía no vio. **Es lo que hace que la
+    señal te busque** en vez de esperarte en una pantalla que hay que ir a abrir
+    — la razón por la que SALUD existe (el backfill que falló dos días y nadie se
+    enteró). Ahora el que interrumpe es el agente."""
+    from api.services import salud
+    return {"pendientes": salud.pendientes(email or "")}
+
+
+@router.post("/av-agent/salud/vistos", dependencies=[Depends(require_admin)])
+def av_agent_salud_vistos(body: VistosSalud, email: str = Depends(get_user_email)):
+    """El «entendido»: deja de interrumpir con eso. Por admin, no global."""
+    from api.services import salud
+    return salud.marcar_vistos(email or "", body.ids)
+
+
+@router.post("/av-agent/salud/silenciar", dependencies=[Depends(require_admin)])
+def av_agent_salud_silenciar(body: SilenciarChequeo,
+                             email: str = Depends(get_user_email)):
+    """Silenciar o reactivar un chequeo. **Silenciar no lo esconde**: sigue en la
+    lista del agente con su estado real, solo deja de abrir el modal. Un chequeo
+    que desaparece al silenciarlo es un problema que se te olvida."""
+    from api.services import salud
+    try:
+        return salud.set_alerta(body.chequeo_id, body.alertar, email or "", body.nota)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.post("/av-agent/eval", dependencies=[Depends(require_admin)])

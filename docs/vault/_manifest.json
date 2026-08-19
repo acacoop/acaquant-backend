@@ -397,9 +397,8 @@
 "api.services.av_agent_sin_precio",
 "api.services.av_agent_vista",
 "api.services.briefing",
-"api.services.copiloto",
 "api.services.ia_obs",
-"core.roles"
+"api.services.salud"
 ]
 },
 {
@@ -468,7 +467,6 @@
 "api.routers.manager.options",
 "api.routers.manager.renta_variable",
 "api.routers.manager.roles",
-"api.routers.manager.salud",
 "api.routers.manager.status",
 "api.routers.manager.users",
 "api.routers.manager.valuaciones"
@@ -825,19 +823,6 @@
 "links": [
 "api.auth",
 "core.roles"
-]
-},
-{
-"id": "api.routers.manager.salud",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/routers/manager/salud.py",
-"summary": "api/routers/manager/salud.py — el estado del sistema en UNA sola llamada.",
-"links": [
-"api.auth",
-"api.services",
-"api.services.salud"
 ]
 },
 {
@@ -1407,69 +1392,6 @@
 ]
 },
 {
-"id": "api.services.asistente",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/asistente.py",
-"summary": "asistente — orquestador del ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md).",
-"links": [
-"api.services",
-"api.services.asistente_tools",
-"api.services.copiloto.verificacion",
-"api.services.operaciones_sql",
-"core",
-"core.ai",
-"core.pii_gateway",
-"core.postgres"
-]
-},
-{
-"id": "api.services.asistente_comercial",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/asistente_comercial.py",
-"summary": "asistente_comercial — el bloque COMERCIAL del asistente de negocio.",
-"links": [
-"api.services",
-"api.services.asistente_tools",
-"api.services.comercial_sql",
-"api.services.control_comercial_sql",
-"api.services.sin_operador",
-"core",
-"core.pii_gateway",
-"core.roles"
-]
-},
-{
-"id": "api.services.asistente_tools",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/asistente_tools.py",
-"summary": "asistente_tools — tools curadas READ-ONLY del asistente de negocio (QuantAI P7).",
-"links": [
-"api.cache",
-"api.services",
-"api.services.asistente_comercial",
-"api.services.cashflow_sql",
-"api.services.control_comercial_sql",
-"api.services.controles_sql",
-"api.services.copiloto.navegacion",
-"api.services.copiloto.series",
-"api.services.ia_obs",
-"api.services.manager_infra_sql",
-"api.services.operaciones_sql",
-"api.services.portfolio_sql",
-"api.services.valuaciones_sql",
-"core",
-"core.pii_gateway",
-"core.postgres",
-"core.roles"
-]
-},
-{
 "id": "api.services.assets_sql",
 "type": "module",
 "layer": "api",
@@ -2020,255 +1942,6 @@
 "links": [
 "core.postgres"
 ]
-},
-{
-"id": "api.services.copiloto",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/__init__.py",
-"summary": "api/services/copiloto — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).",
-"links": []
-},
-{
-"id": "api.services.copiloto.agro",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/agro.py",
-"summary": "copiloto/agro.py — vista AGRO (granos): pase agro, pase con cobertura, cámara.",
-"links": [
-"api.services",
-"api.services.agro_cobertura",
-"api.services.agro_sql",
-"api.services.camara_cereales",
-"core.eikon_chicago"
-]
-},
-{
-"id": "api.services.copiloto.ayuda",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/ayuda.py",
-"summary": "copiloto/ayuda.py — el GUÍA de la plataforma (pedido user 2026-07-20).",
-"links": [
-"api.cache",
-"api.services",
-"api.services.operaciones_sql",
-"db.CashFlow.Contrapartes",
-"db.CashFlow.Operaciones"
-]
-},
-{
-"id": "api.services.copiloto.base",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/base.py",
-"summary": "copiloto/base.py — helpers puros y prompt base compartidos por todas las vistas.",
-"links": []
-},
-{
-"id": "api.services.copiloto.derivacion",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/derivacion.py",
-"summary": "copiloto/derivacion.py — derivación entre vistas: el marcador [[VISTA:x]], el",
-"links": [
-"core.roles"
-]
-},
-{
-"id": "api.services.copiloto.home",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/home.py",
-"summary": "copiloto/home.py — vista HOME (panorama del mercado): watchlist + briefing +",
-"links": [
-"api.services",
-"api.services.argy",
-"api.services.briefing",
-"api.services.derivados",
-"api.services.market_sql",
-"api.services.mercado_hist_sql",
-"core.eikon_bonos"
-]
-},
-{
-"id": "api.services.copiloto.motor",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/motor.py",
-"summary": "copiloto/motor.py — el orquestador: preguntar() (una pregunta → contexto →",
-"links": [
-"core",
-"core.ai",
-"core.pii_gateway",
-"core.postgres",
-"core.roles"
-]
-},
-{
-"id": "api.services.copiloto.navegacion",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/navegacion.py",
-"summary": "copiloto/navegacion.py — NAVEGACIÓN ASISTIDA: el guía te LLEVA (idea del user).",
-"links": [
-"api.cache",
-"api.services",
-"api.services.operaciones_sql",
-"core.postgres"
-]
-},
-{
-"id": "api.services.copiloto.negocio",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/negocio.py",
-"summary": "copiloto/negocio.py — vista NEGOCIO: el asistente de negocio (QuantAI P7)",
-"links": [
-"api.services",
-"api.services.asistente"
-]
-},
-{
-"id": "api.services.copiloto.opciones",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/opciones.py",
-"summary": "copiloto/opciones.py — vista OPCIONES (derivados): cadena GGAL, IV, griegas.",
-"links": [
-"api.services",
-"api.services.opciones_sql"
-]
-},
-{
-"id": "api.services.copiloto.registro",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/registro.py",
-"summary": "copiloto/registro.py — el registro VISTAS: ensambla cada vista (fetch,",
-"links": []
-},
-{
-"id": "api.services.copiloto.renta_fija",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/renta_fija.py",
-"summary": "copiloto/renta_fija.py — vista RF (bonos ARG): curvas, fair value, forwards,",
-"links": [
-"api.cache",
-"api.services",
-"api.services.canje",
-"api.services.carry_trade",
-"api.services.comparar_inversion",
-"api.services.descomposicion_retorno",
-"api.services.fair_value",
-"api.services.macro",
-"api.services.mercado_hist_sql",
-"api.services.rem_sql",
-"api.services.renta_fija",
-"api.services.sensibilidad",
-"core.postgres"
-]
-},
-{
-"id": "api.services.copiloto.renta_variable",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/renta_variable.py",
-"summary": "copiloto/renta_variable.py — vista RV (CEDEARs/ADRs): fetch, enriquecido,",
-"links": [
-"api.cache",
-"api.services",
-"api.services.scanner",
-"api.services.scanner_sql",
-"core.postgres",
-"quant.pivot_points"
-]
-},
-{
-"id": "api.services.copiloto.research",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/research.py",
-"summary": "copiloto/research.py — vista RESEARCH unificada (decisión user 2026-07-20):",
-"links": [
-"api.cache",
-"api.services",
-"api.services.research_1816_sql",
-"api.services.research_docs_sql",
-"api.services.research_sql",
-"api.services.scanner",
-"core.postgres"
-]
-},
-{
-"id": "api.services.copiloto.reuters",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/reuters.py",
-"summary": "copiloto/reuters.py — vista REUTERS (tablero live subyacentes US, feed Eikon).",
-"links": [
-"core.eikon_live"
-]
-},
-{
-"id": "api.services.copiloto.series",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/series.py",
-"summary": "copiloto/series.py — SERIE HISTÓRICA GENÉRICA: \"¿contra qué?\".",
-"links": [
-"api.services",
-"api.services.asistente_tools",
-"api.services.macro_sql",
-"api.services.research_1816_sql",
-"api.services.research_bcra_sql",
-"api.services.research_fred_sql"
-]
-},
-{
-"id": "api.services.copiloto.trading",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/trading.py",
-"summary": "copiloto/trading.py — vista TRADING (monitor intradía): tarjetas con pivots",
-"links": [
-"api.services",
-"api.services.market_sql",
-"api.services.order_book",
-"api.services.scanner",
-"api.services.scanner_sql",
-"api.services.trading_pivots",
-"core.eikon_live",
-"core.postgres",
-"quant.pivot_points"
-]
-},
-{
-"id": "api.services.copiloto.verificacion",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/verificacion.py",
-"summary": "copiloto/verificacion.py — guardrails estructurales (anti-alucinación).",
-"links": []
 },
 {
 "id": "api.services.curvas_vista",
@@ -3032,8 +2705,6 @@
 "api.services._sql",
 "api.services.controles_sql",
 "api.services.jobs_catalogo",
-"core",
-"core.ai",
 "core.postgres",
 "db.Trading.DOLAR"
 ]
@@ -3307,17 +2978,6 @@
 "core.llm",
 "core.postgres",
 "core.roles"
-]
-},
-{
-"id": "core.ai_resumen",
-"type": "module",
-"layer": "core",
-"repo": "backend",
-"path": "core/ai_resumen.py",
-"summary": "core/ai_resumen.py — lectura ejecutiva con IA para los informes operativos.",
-"links": [
-"core.ai"
 ]
 },
 {
@@ -3688,17 +3348,6 @@
 "repo": "backend",
 "path": "core/pg_mirror.py",
 "summary": "core/pg_mirror.py — capa de ESCRITURA a Postgres, la única base del sistema.",
-"links": [
-"core.postgres"
-]
-},
-{
-"id": "core.pii_gateway",
-"type": "module",
-"layer": "core",
-"repo": "backend",
-"path": "core/pii_gateway.py",
-"summary": "core/pii_gateway.py — la ADUANA de datos privados hacia el LLM (asistente de negocio).",
 "links": [
 "core.postgres"
 ]
@@ -4174,17 +3823,6 @@
 ]
 },
 {
-"id": "cron.jobs.ia_calidad",
-"type": "cron",
-"layer": "deploy",
-"repo": "infra",
-"path": "deploy/crontab.txt",
-"summary": "Tarea programada (cron).",
-"links": [
-"jobs.ia_calidad"
-]
-},
-{
 "id": "cron.jobs.interbanking_sync",
 "type": "cron",
 "layer": "deploy",
@@ -4402,17 +4040,6 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.tesoreria_snapshot"
-]
-},
-{
-"id": "cron.jobs.triage",
-"type": "cron",
-"layer": "deploy",
-"repo": "infra",
-"path": "deploy/crontab.txt",
-"summary": "Tarea programada (cron).",
-"links": [
-"jobs.triage"
 ]
 },
 {
@@ -5352,7 +4979,7 @@
 "summary": "controles_datos.py — Auto-control de CALIDAD DE DATOS de ACAQuant.",
 "links": [
 "api.services.contrapartes_seg",
-"core.ai_resumen",
+"core",
 "core.curvas_sql",
 "core.job_runs",
 "core.market_snapshot",
@@ -5498,20 +5125,6 @@
 "config",
 "core",
 "core.curvas_sql",
-"core.job_runs",
-"core.postgres"
-]
-},
-{
-"id": "jobs.ia_calidad",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs/ia_calidad.py",
-"summary": "jobs/ia_calidad.py — control de calidad de las conversaciones de IA.",
-"links": [
-"core",
-"core.ai",
 "core.job_runs",
 "core.postgres"
 ]
@@ -5874,20 +5487,6 @@
 "api.services",
 "api.services.tesoreria",
 "core.job_runs"
-]
-},
-{
-"id": "jobs.triage",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs/triage.py",
-"summary": "jobs/triage.py — Triage REACTIVO de incidentes (QuantAI P2, docs/QUANTAI.md).",
-"links": [
-"core",
-"core.ai",
-"core.job_runs",
-"core.postgres"
 ]
 },
 {

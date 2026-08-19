@@ -52,37 +52,27 @@ _MAX_ERROR_CHARS = 700  # techo del texto de error que se persiste en la traza
 # en la traza (debug), nunca se muestra al usuario.
 # `model_env` (opcional) = env var que overridea el modelo SOLO para esa tarea.
 _TAREAS: dict[str, dict] = {
-    "controles_resumen": {"tier": "flash", "max_tokens": 800, "timeout_s": 60,
-                          "model_env": "AI_RESUMEN_MODEL", "thinking": "disabled"},
+    # ⚠️ **UNA TAREA EXISTE SOLO SI ALGUIEN LEE SU SALIDA** (regla del user,
+    # 2026-08-19: *«si lo usa AV Agent perfecto, si no se elimina»*). El 19/08 se
+    # borraron SEIS que no la tenían: `copiloto_vista`/`copiloto_vista_pro` y
+    # `asistente_negocio` (el botón CONSULTALE A LA IA, dado de baja),
+    # `critico_calidad` (evaluaba conversaciones del copiloto), `triage_incidente`
+    # (corría cada 10 minutos contra una tabla que **nadie leía** — ni endpoint ni
+    # front), `controles_resumen` (una llamada por día cuyo texto terminaba en un
+    # `print()` del log) y `salud_diagnostico` (lo generaba el panel de SALUD, que
+    # se fue del front). Antes de sumar una tarea nueva: **quién la mira**.
     "smoke": {"tier": "flash", "max_tokens": 64, "timeout_s": 30, "thinking": "disabled"},
-    # P2 triage de incidentes (jobs/triage.py): diagnóstico de una falla de job.
-    # tier pro + thinking ENABLED a propósito (es diagnóstico — la decisión de
-    # QUANTAI.md; cableado 2026-07-11 con el shape verificado). max_tokens ALTO:
-    # el razonamiento cuenta como output — con 700 volvía vacía (ia.trazas).
-    "triage_incidente": {"tier": "pro", "max_tokens": 2500, "timeout_s": 120,
-                         "thinking": "enabled"},
-    # SALUD (api/services/salud.py): diagnóstico de un chequeo que YA se confirmó
-    # como persistente. tier pro + thinking ENABLED, igual que el triage: es
-    # diagnóstico, no resumen. Lo que se le pide NO es repetir el error —eso ya está
-    # en la evidencia— sino traducirlo a negocio: qué vista queda afectada, qué se
-    # puede seguir usando, y qué mirar. max_tokens alto porque el razonamiento cuenta
-    # como output (lección del P2: con poco volvía vacía).
-    "salud_diagnostico": {"tier": "pro", "max_tokens": 2500, "timeout_s": 120,
-                          "thinking": "enabled"},
     # AV AGENT — analista del DIAGNÓSTICO MASIVO (api/services/av_agent_analista.py).
     # tier pro + thinking ENABLED: es análisis de PATRONES sobre decenas de casos,
     # la tarea más pesada de todo el programa. Lo que se le pide NO es repetir los
     # diagnósticos —esos ya los hizo el agente, deterministas— sino lo que ninguna
     # fila individual puede decir: qué causas dominan, cuáles se contradicen entre
     # sí, y cuáles huelen a bug del agente en vez de a dato mal cargado.
-    # max_tokens alto porque el razonamiento cuenta como output (lección del P2).
     # ⚠️ **max_tokens 12000 y no 4000** (medido 2026-08-18, `ia.trazas`): con 4000
     # la llamada volvió `out=4000` exacto, `respuesta 0 chars` y `razonamiento
     # 2000` — el modelo gastó TODO el presupuesto de salida razonando y nunca
-    # llegó a escribir. Es la misma trampa del P2, pero peor acá: analizar 16
-    # casos requiere más razonamiento que diagnosticar un job, así que el techo
-    # que alcanzaba allá acá se come la respuesta entera. El razonamiento CUENTA
-    # como output: el tope tiene que cubrir pensar Y contestar.
+    # llegó a escribir. El razonamiento CUENTA como output: el tope tiene que
+    # cubrir pensar Y contestar.
     "av_agent_informe": {"tier": "pro", "max_tokens": 12000, "timeout_s": 240,
                          "thinking": "enabled"},
     # AV AGENT — SUGERIR UN VALOR para un caso que la regla determinista no supo
@@ -92,55 +82,14 @@ _TAREAS: dict[str, dict] = {
     #
     # thinking DISABLED y max_tokens acotado, al revés que `av_agent_informe`:
     # no es análisis de patrones, es clasificar N nombres contra una lista
-    # CERRADA de opciones. El razonamiento cuenta como output, y acá lo que se
-    # necesita es la lista de items, no la cadena de pensamiento que la produjo.
+    # CERRADA de opciones.
     "av_agent_accion": {"tier": "pro", "max_tokens": 4000, "timeout_s": 120,
                         "thinking": "disabled"},
-    # P3 copiloto de mesa (api/services/copiloto.py): Q&A sobre los datos de UNA
-    # vista de mercado, provistos en el prompt. thinking DISABLED: los datos ya
-    # vienen dados y el razonamiento del v4-flash se derramaba en la respuesta
-    # (shadow 2026-07-11). max_tokens generoso — lección del P2.
-    "copiloto_vista": {"tier": "flash", "max_tokens": 3000, "timeout_s": 60,
-                       "thinking": "disabled"},
-    # Variante tier PRO del copiloto (decisión user 2026-07-20: "TRADING jamás
-    # en flash" — ahí se juega plata en vivo). Mismo contrato que copiloto_vista;
-    # la vista elige la tarea vía `tarea` en su entrada del registro. thinking
-    # disabled igual (el dato ya viene dado; queremos respuesta, no cadena);
-    # timeout más holgado porque el pro es más lento.
-    "copiloto_vista_pro": {"tier": "pro", "max_tokens": 3000, "timeout_s": 90,
-                           "thinking": "disabled"},
-    # P6 memoria de research (jobs/research_mail.py): destila el mail diario de
-    # research (prosa larga) a JSON {resumen, temas, hechos} para inyectarlo
-    # barato como contexto. Extracción, no razonamiento → flash sin thinking;
-    # max_tokens holgado porque el JSON con ~10 hechos ocupa (lección del P2).
+    # RESEARCH — destila el mail diario de 1816 a la vista /research
+    # (jobs/research_mail.py). NO es una tarea de agente: es INGESTA, y lo que
+    # produce se lee en pantalla todos los días.
     "research_destilar": {"tier": "flash", "max_tokens": 2000, "timeout_s": 90,
                           "thinking": "disabled"},
-    # P7 asistente de negocio (api/services/asistente.py): chat con tools para
-    # jefes sobre datos del negocio (SIEMPRE tokenizados por la aduana —
-    # core/pii_gateway). Tier flash del proveedor con no-retención; thinking
-    # disabled (queremos respuesta, no cadena); max_tokens holgado — lección
-    # del P2 (el razonamiento cuenta como output y deja la respuesta vacía).
-    #
-    # ⚠ PROVEEDOR "openai" (decisión del user 2026-07-21): es la ÚNICA tarea
-    # que ve datos del NEGOCIO (aunque sin identidades: la aduana las tacha).
-    # Va a un proveedor que NO entrena con datos de API y borra a 30 días, en
-    # vez del default barato. Sin la credencial de ESE proveedor la tarea NO
-    # corre y NO cae al default — sería mandar los números de la empresa justo
-    # a donde este ruteo los quiere evitar. El cableado vive en core/llm.py.
-    # `datos: "negocio"` = esta tarea ve números del negocio (aunque sin
-    # identidades: la aduana las tacha). La invariante `_ruteo_seguro` EXIGE que
-    # una tarea así corra en un proveedor con no_entrena=True: si alguien la
-    # ruteara mal, el gateway se NIEGA a correr en vez de confiar en el string.
-    "asistente_negocio": {"tier": "flash", "proveedor": "openai",
-                          "datos": "negocio",
-                          "max_tokens": 3000, "timeout_s": 90,
-                          "thinking": "disabled"},
-    # CONTROL DE CALIDAD de conversaciones (jobs/ia_calidad.py): toma UN turno
-    # (pregunta + respuesta, YA tokenizado — la traza es PII-safe) y devuelve
-    # JSON {sospechoso, modo, severidad, nota}. Clasificación barata contra los
-    # modos de falla conocidos → flash sin thinking, max_tokens chico.
-    "critico_calidad": {"tier": "flash", "max_tokens": 400, "timeout_s": 60,
-                        "thinking": "disabled"},
 }
 
 _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60, "thinking": "disabled"}

@@ -1,11 +1,10 @@
 # 🧱 core — infraestructura
 
-51 notas.
+49 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
 - [[core.ai]] — core/ai.py — gateway único de IA (QuantAI Fase 0, ver docs/QUANTAI.md).
-- [[core.ai_resumen]] — core/ai_resumen.py — lectura ejecutiva con IA para los informes operativos.
 - [[core.argentina_datos]] — Cliente de argentinadatos.com — indicadores macro AR públicos.
 - [[core.aunesa]] — core/aunesa.py — cliente único de la API del custodio Aunesa.
 - [[core.bars_sql]] — bars_sql.py — readers de las barras de 1 minuto de CEDEARs (ARS).
@@ -39,7 +38,6 @@
 - [[core.mav_tasa]] — core/mav_tasa.py — parseo de la TASA de los boletos MAV.
 - [[core.mercado_1816]] — core/mercado_1816.py — cliente de la API de Mercado de 1816 (vista RESEARCH).
 - [[core.pg_mirror]] — core/pg_mirror.py — capa de ESCRITURA a Postgres, la única base del sistema.
-- [[core.pii_gateway]] — core/pii_gateway.py — la ADUANA de datos privados hacia el LLM (asistente de negocio).
 - [[core.postgres]] — core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.
 - [[core.profiler]] — Stopwatch mínimo para instrumentar pasos dentro de una función.
 - [[core.rofex_orders_session]] — Sesión pyRofex dedicada a envío/seguimiento de órdenes.

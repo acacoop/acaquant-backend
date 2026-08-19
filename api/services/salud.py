@@ -323,13 +323,42 @@ def _chequeos_controles() -> list[dict]:
     return out
 
 
+def _jobs_sin_duplicar(chequeos: list[dict]) -> list[dict]:
+    """UN job es UN chequeo, aunque tenga varias líneas de cron.
+
+    `av_agent_live` corre con dos entradas del crontab (una para el arranque de
+    la rueda y otra para el resto), y como el id es `job:<label>` la pantalla
+    mostraba **la misma fila dos veces, idéntica** — lo que el user vio y marcó.
+    Un tablero que repite un problema hace pensar que son dos, y en un listado de
+    17 eso no es cosmético: cambia la cuenta.
+
+    Se queda el estado MENOS alarmante de los duplicados, no el peor: dos crons
+    son dos ventanas del mismo job, así que haber corrido en cualquiera de ellas
+    significa que corrió. Quedarse con la ventana más estricta reportaría atraso
+    de algo que ya se ejecutó. Los horarios se juntan para que la fila siga
+    diciendo la verdad completa.
+    """
+    por_id: dict[str, dict] = {}
+    for c in chequeos:
+        prev = por_id.get(c["id"])
+        if prev is None:
+            por_id[c["id"]] = c
+            continue
+        mejor, otro = ((c, prev) if _PESO.get(c["estado"], 3) < _PESO.get(prev["estado"], 3)
+                       else (prev, c))
+        horarios = [h for h in (mejor.get("schedule"), otro.get("schedule")) if h]
+        por_id[c["id"]] = {**mejor, "schedule": "  ·  ".join(dict.fromkeys(horarios))}
+    return list(por_id.values())
+
+
 def evaluar() -> list[dict]:
     """TODOS los chequeos, peor primero. Es la única función que arma el estado."""
     ahora = _ahora()
     out: list[dict] = []
     try:
-        for cron in (catalogo_jobs().get("jobs") or []):
-            out.append(_chequeo_job(cron, ahora))
+        out.extend(_jobs_sin_duplicar(
+            [_chequeo_job(cron, ahora)
+             for cron in (catalogo_jobs().get("jobs") or [])]))
     except Exception:
         _log.warning("salud: no pude evaluar los jobs", exc_info=True)
     for c in CONTRATOS:
@@ -561,7 +590,6 @@ def panel(email: str = "") -> dict:
 # ──────────────────────────────────────────────────────────────────────────────
 
 PERSISTENCIA_MIN = 30       # minutos rotos antes de confirmar (y recién ahí, avisar)
-_T_DIAG = "manager.salud_diagnosticos"
 
 
 def confirmados(limite: int = 20) -> list[dict]:
@@ -592,101 +620,6 @@ def confirmados(limite: int = 20) -> list[dict]:
              "evidencia": r["evidencia"], "minutos": int(r["minutos"] or 0),
              "at": r["at"].isoformat() if r["at"] else None} for r in rows]
 
-
-# ── Diagnóstico con IA ───────────────────────────────────────────────────────
-
-_SYSTEM_DIAG = """Sos el analista de guardia de una plataforma de trading de una \
-sociedad de bolsa argentina. Te dan UN problema ya confirmado (lleva rato sin \
-resolverse) y tenés que explicárselo al dueño del producto, que es PM y no dev.
-
-Respondé en castellano rioplatense, en TRES bloques cortos y sin markdown:
-
-QUÉ PASA: una o dos frases, en criollo. Nada de stack traces.
-QUÉ AFECTA: qué vista o función de la app queda tocada y qué NO se puede confiar \
-mientras dure. Si algo sigue sirviendo, decilo — importa saber con qué se puede \
-seguir trabajando.
-QUÉ MIRAR: el primer paso concreto para diagnosticar o arreglar.
-
-Reglas:
-- Separá HECHO (lo que dice la evidencia) de HIPÓTESIS (lo que inferís). Marcá la \
-hipótesis como tal.
-- Si la evidencia apunta a un proveedor externo (Aunesa, ROFEX, BYMA), decilo: \
-cambia a quién hay que reclamarle.
-- No inventes causas que la evidencia no soporte. Si no alcanza para saber por qué, \
-decí qué dato falta.
-- Sé breve. Esto se lee en un modal, no es un informe."""
-
-
-def diagnostico(chequeo_id: str, *, evento_id: int | None = None,
-                forzar: bool = False) -> dict:
-    """Diagnóstico del incidente, cacheado por (chequeo, evento).
-
-    Se cachea a propósito: la vista pollea, y sin caché cada refresco gastaría
-    tokens para volver a decir lo mismo del MISMO incidente. Un problema nuevo
-    genera un evento nuevo → clave nueva → diagnóstico nuevo.
-    """
-    cid = (chequeo_id or "").strip()
-    if not cid:
-        raise ValueError("falta el chequeo")
-    if evento_id is None:
-        ev = next((c for c in confirmados(limite=100) if c["chequeo_id"] == cid), None)
-        if ev is None:
-            return {"chequeo_id": cid, "texto": None,
-                    "motivo": "el chequeo no está confirmado como persistente"}
-        evento_id = ev["id"]
-    if not forzar:
-        try:
-            hit = _q(f"SELECT texto, modelo, creado_at FROM {_T_DIAG} "
-                     "WHERE chequeo_id = %(c)s AND evento_id = %(e)s",
-                     {"c": cid, "e": int(evento_id)})
-            if hit:
-                return {"chequeo_id": cid, "evento_id": int(evento_id),
-                        "texto": hit[0]["texto"], "modelo": hit[0]["modelo"],
-                        "creado_at": hit[0]["creado_at"].isoformat(), "cacheado": True}
-        except Exception:
-            _log.warning("salud: no pude leer el diagnóstico cacheado", exc_info=True)
-
-    actual = next((c for c in evaluar() if c["id"] == cid), None)
-    hist = historial(chequeo_id=cid, limite=12)
-    if actual is None:
-        return {"chequeo_id": cid, "texto": None, "motivo": "el chequeo ya no existe"}
-
-    # El historial es la mitad del valor: dice si esto ya pasó antes y si se venía
-    # arreglando solo, que es lo que separa "otra vez lo mismo" de "algo nuevo".
-    lineas = [f"- {h['at']}: {h['de'] or '—'} → {h['a']} ({h['motivo']})" for h in hist]
-    user = (
-        f"CHEQUEO: {actual.get('titulo')} [{actual.get('familia')}]\n"
-        f"ESTADO: {actual.get('estado')}\n"
-        f"MOTIVO: {actual.get('motivo')}\n"
-        f"EVIDENCIA: {actual.get('evidencia')}\n"
-        f"QUÉ ALIMENTA: {actual.get('detalle') or '(no declarado)'}\n"
-        f"CRON: {actual.get('schedule') or '—'}   TABLA: {actual.get('tabla') or '—'}\n"
-        f"MÓDULOS: {', '.join(actual.get('modulos') or []) or '—'}\n\n"
-        "HISTORIAL DE ESTE CHEQUEO (más reciente primero):\n"
-        + ("\n".join(lineas) if lineas else "(sin cambios previos registrados)")
-    )
-    try:
-        from core import ai
-        texto = ai.completar("salud_diagnostico", system=_SYSTEM_DIAG, user=user,
-                             detalle=f"salud: {cid}")
-    except Exception:
-        _log.warning("salud: falló el diagnóstico con IA de %s", cid, exc_info=True)
-        texto = None
-    if not texto:
-        # Sin IA (sin key, presupuesto agotado, proveedor caído) la pantalla NO se
-        # rompe: el chequeo ya trae motivo y evidencia, que es lo mínimo accionable.
-        return {"chequeo_id": cid, "evento_id": int(evento_id), "texto": None,
-                "motivo": "no hay diagnóstico disponible (ver evidencia del chequeo)"}
-    try:
-        _exec_salud(
-            f"INSERT INTO {_T_DIAG} (chequeo_id, evento_id, texto, modelo) "
-            "VALUES (%(c)s, %(e)s, %(t)s, %(m)s) "
-            "ON CONFLICT (chequeo_id, evento_id) DO UPDATE SET texto = EXCLUDED.texto",
-            {"c": cid, "e": int(evento_id), "t": texto, "m": "salud_diagnostico"})
-    except Exception:
-        _log.warning("salud: no pude cachear el diagnóstico", exc_info=True)
-    return {"chequeo_id": cid, "evento_id": int(evento_id), "texto": texto,
-            "cacheado": False}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

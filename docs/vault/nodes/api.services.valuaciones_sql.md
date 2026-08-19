@@ -27,5 +27,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.valuaciones]]  ·  _module_
-- [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_

@@ -58,7 +58,6 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.forwards_zscore]]  ·  _module_
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
-- [[jobs.ia_calidad]]  ·  _module_
 - [[jobs.interbanking_sync]]  ·  _module_
 - [[jobs.market_anchors]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
@@ -81,6 +80,5 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.tenencia_live]]  ·  _module_
 - [[jobs.tesoreria_echeq_recibidos]]  ·  _module_
 - [[jobs.tesoreria_snapshot]]  ·  _module_
-- [[jobs.triage]]  ·  _module_
 - [[jobs.validar_instrumentos]]  ·  _module_
 - [[jobs.volatilidad_ggal]]  ·  _module_

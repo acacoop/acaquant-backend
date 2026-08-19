@@ -60,14 +60,11 @@ MODULES: tuple[str, ...] = (
                       # market data 1816 — docs/VISTA_RESEARCH.md). Gate de
                       # /api/research1816/*. Abierta al invitado desde 2026-07-21
                       # (otro sector de la MISMA empresa — sin redistribución).
-    "ia",             # features de IA (QuantAI, docs/QUANTAI.md) — gate de /api/ia/*.
-                      # El invitado lo tiene desde 2026-07-21 con condiciones (ver
-                      # el bloque invitado de DEFAULT_MATRIX).
-    "asistente",      # ASISTENTE DE NEGOCIO (QuantAI P7) — chatbot de jefes sobre
-                      # datos del negocio, gate de /api/asistente/*. SOLO admin por
-                      # default (DEFAULT_MATRIX) y JAMÁS en INVITADO_MODULES: habla
-                      # del NEGOCIO de la mesa → REGLA #8, default-deny absoluto
-                      # para el portal www. Congelado por test.
+    "ia",             # features de IA — hoy es el gate de /api/ia/*, o sea del
+                      # AV AGENT (docs/AV_AGENT.md) y el briefing. El módulo
+                      # `asistente` se eliminó el 2026-08-19 junto con el
+                      # copiloto: dejar un checkbox en ROLES Y PERMISOS que no
+                      # controla nada es peor que no tenerlo.
     "aca",            # /aca (RESUMEN EJECUTIVO de la cartera propia de ACA —
                       # docs/ACA.md). Gate de /api/aca/*. Lo tiene el rol
                       # `empleado_aca` (+ admin); NO el rol `sales`, que es el

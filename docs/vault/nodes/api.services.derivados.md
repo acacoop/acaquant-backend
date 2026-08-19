@@ -25,4 +25,3 @@ Conecta con: lee snapshots escritos por `engines.futuros_dlr`, `engines.forwards
 
 ## Lo usan (backlinks) ←
 - [[api.mcp.tools.parked_mercado]]  ·  _module_
-- [[api.services.copiloto.home]]  ·  _module_

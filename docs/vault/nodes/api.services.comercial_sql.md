@@ -27,5 +27,4 @@ _(pendiente de enriquecimiento)_
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
-- [[api.services.asistente_comercial]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_

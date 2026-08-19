@@ -605,7 +605,7 @@ Agregar el módulo nuevo (patrón de `api/CLAUDE.md`, igual que `back-office`):
   corra el ingest + tilde el módulo.
 - **Fase 4 — Cruces y copiloto.** El número al lado de la narrativa; y un copiloto
   de la vista Research (el research destilado + las series como contexto) — encaja
-  en el patrón del copiloto por vista (`docs/COPILOTO.md`). El paso 2 de P6
+  en el patrón del copiloto por vista (dado de baja 2026-08-19, `AV_AGENT.md` §0.k). El paso 2 de P6
   (research → contexto del copiloto) aterriza acá.
 
 ---
@@ -847,7 +847,7 @@ en `api/services/copiloto/research.py` (módulo RBAC `research`, gate `ia`):
   (`buscar_research`, índice GIN existente) con los términos de la pregunta —
   el modelo solo puede citar fragmentos que el código trajo. Cero tokens extra
   de ingesta: consistente con "la IA no interviene sola".
-- Detalle completo y changelog: `docs/COPILOTO.md` v1.58.
+- El copiloto de esta vista se dio de baja el 2026-08-19 (`AV_AGENT.md` §0.k); `COPILOTO.md` ya no existe.
 
 ### 2026-07-18 (13) — el research del día en el BRIEFING (pedido del user)
 El modal del briefing de las 10:00 (HOME) ahora muestra, **solo si HOY llegó el

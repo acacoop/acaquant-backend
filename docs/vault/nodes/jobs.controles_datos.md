@@ -18,7 +18,7 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.services.contrapartes_seg]]  ·  _module_
-- [[core.ai_resumen]]  ·  _module_
+- [[core]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_

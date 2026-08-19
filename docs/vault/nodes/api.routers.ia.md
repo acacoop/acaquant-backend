@@ -32,9 +32,8 @@ _(pendiente de enriquecimiento)_
 - [[api.services.av_agent_sin_precio]]  ·  _module_
 - [[api.services.av_agent_vista]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
-- [[api.services.copiloto]]  ·  _module_
 - [[api.services.ia_obs]]  ·  _module_
-- [[core.roles]]  ·  _module_
+- [[api.services.salud]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

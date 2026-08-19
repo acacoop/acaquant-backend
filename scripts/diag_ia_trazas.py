@@ -13,7 +13,7 @@ batería en el panel de OBSERVABILIDAD).
 Uso:
     python -m scripts.diag_ia_trazas                       # últimas 15 (resumen)
     python -m scripts.diag_ia_trazas --limite 40
-    python -m scripts.diag_ia_trazas --tarea copiloto_vista
+    python -m scripts.diag_ia_trazas --tarea av_agent_informe
     python -m scripts.diag_ia_trazas --buscar EWZ          # conversaciones con "EWZ"
 """
 from __future__ import annotations

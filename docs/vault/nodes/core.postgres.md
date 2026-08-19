@@ -37,8 +37,6 @@ _(pendiente de enriquecimiento)_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.anulados]]  ·  _module_
 - [[api.services.aranceles_jobs]]  ·  _module_
-- [[api.services.asistente]]  ·  _module_
-- [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.assets_sql]]  ·  _module_
 - [[api.services.aunesa_aranceles]]  ·  _module_
 - [[api.services.av_agent]]  ·  _module_
@@ -67,12 +65,6 @@ _(pendiente de enriquecimiento)_
 - [[api.services.control_automatico]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
 - [[api.services.controles_sql]]  ·  _module_
-- [[api.services.copiloto.motor]]  ·  _module_
-- [[api.services.copiloto.navegacion]]  ·  _module_
-- [[api.services.copiloto.renta_fija]]  ·  _module_
-- [[api.services.copiloto.renta_variable]]  ·  _module_
-- [[api.services.copiloto.research]]  ·  _module_
-- [[api.services.copiloto.trading]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.debug_derivados]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
@@ -138,7 +130,6 @@ _(pendiente de enriquecimiento)_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.mercado_1816]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
-- [[core.pii_gateway]]  ·  _module_
 - [[core.roles]]  ·  _module_
 - [[core.roles_sql]]  ·  _module_
 - [[core.series_macro]]  ·  _module_
@@ -179,7 +170,6 @@ _(pendiente de enriquecimiento)_
 - [[jobs.forwards_zscore]]  ·  _module_
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
-- [[jobs.ia_calidad]]  ·  _module_
 - [[jobs.interbanking_sync]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
 - [[jobs.mercado_1816_discovery]]  ·  _module_
@@ -199,6 +189,5 @@ _(pendiente de enriquecimiento)_
 - [[jobs.sync_comitentes]]  ·  _module_
 - [[jobs.tamar_1816]]  ·  _module_
 - [[jobs.tenencia_live]]  ·  _module_
-- [[jobs.triage]]  ·  _module_
 - [[jobs.validar_instrumentos]]  ·  _module_
 - [[quant.pivot_points]]  ·  _module_

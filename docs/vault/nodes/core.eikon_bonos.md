@@ -24,6 +24,5 @@ _(pendiente de enriquecimiento)_
 - [[api.routers.ingest]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
-- [[api.services.copiloto.home]]  ·  _module_
 - [[core.eikon_news]]  ·  _module_
 - [[jobs.eikon_cierres]]  ·  _module_

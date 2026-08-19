@@ -27,4 +27,3 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.ia]]  ·  _module_
-- [[api.services.copiloto.home]]  ·  _module_

@@ -30,7 +30,6 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
-- [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.back_office_titulos]]  ·  _module_
 - [[api.services.breakevens_admin]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
@@ -39,11 +38,6 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
-- [[api.services.copiloto.ayuda]]  ·  _module_
-- [[api.services.copiloto.navegacion]]  ·  _module_
-- [[api.services.copiloto.renta_fija]]  ·  _module_
-- [[api.services.copiloto.renta_variable]]  ·  _module_
-- [[api.services.copiloto.research]]  ·  _module_
 - [[api.services.curvas_vista]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.db_obs]]  ·  _module_

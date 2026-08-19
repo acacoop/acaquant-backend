@@ -248,30 +248,6 @@ def test_proveedor_desconocido_no_levanta():
     assert r.ok is False and "desconocido" in r.error
 
 
-def test_tarea_del_asistente_rutea_a_no_retencion(monkeypatch):
-    """CONGELA LA DECISIÓN (user 2026-07-21): la única tarea que ve datos del
-    negocio va a un proveedor que NO entrena con lo que le mandamos."""
-    from core import ai
-    cfg = ai._config("asistente_negocio")
-    proveedor = ai._proveedor(cfg)
-    assert proveedor == "openai"
-    assert llm.no_entrena(proveedor) is True
-    # y las de MERCADO siguen en el default barato
-    assert ai._proveedor(ai._config("copiloto_vista")) == llm.PROVEEDOR_DEFAULT
-    assert ai._proveedor(ai._config("copiloto_vista_pro")) == llm.PROVEEDOR_DEFAULT
-    # el modelo se resuelve por (tier, proveedor)
-    monkeypatch.delenv("AI_MODEL_OPENAI_FLASH", raising=False)
-    assert ai._modelo(cfg).startswith("gpt-")
-
-
-def test_disponible_por_tarea(monkeypatch):
-    from core import ai
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    assert ai.disponible("copiloto_vista") is True
-    assert ai.disponible("asistente_negocio") is False
-    monkeypatch.setenv("OPENAI_API_KEY", "k2")
-    assert ai.disponible("asistente_negocio") is True
 
 
 def test_gateway_delega_en_llm(monkeypatch):

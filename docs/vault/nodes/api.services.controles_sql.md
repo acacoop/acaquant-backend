@@ -21,5 +21,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.controles]]  ·  _module_
-- [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.salud]]  ·  _module_

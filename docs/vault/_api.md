@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-228 notas.
+206 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -58,7 +58,6 @@
 - [[api.routers.manager.options]] — GET/PUT /api/manager/options/expiries — config del engine de opciones (SQL-native).
 - [[api.routers.manager.renta_variable]] — Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia + ric).
 - [[api.routers.manager.roles]] — Manager sub-router — matriz de roles + audit log.
-- [[api.routers.manager.salud]] — api/routers/manager/salud.py — el estado del sistema en UNA sola llamada.
 - [[api.routers.manager.status]] — GET /api/manager/status — estado unificado de motores y jobs batch.
 - [[api.routers.manager.users]] — Manager sub-router — CRUD de usuarios.
 - [[api.routers.manager.valuaciones]] — Manager · Valuaciones — debug XIRR mensual.
@@ -100,9 +99,6 @@
 - [[api.services.anulados]] — api/services/anulados.py — anulación de boletos por la marca `(A)` de Aunesa.
 - [[api.services.aranceles_jobs]] — api/services/aranceles_jobs.py — runner + persistencia del backfill de aranceles.
 - [[api.services.argy]] — Capa de servicio — métricas argentinas con returns calculados.
-- [[api.services.asistente]] — asistente — orquestador del ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md).
-- [[api.services.asistente_comercial]] — asistente_comercial — el bloque COMERCIAL del asistente de negocio.
-- [[api.services.asistente_tools]] — asistente_tools — tools curadas READ-ONLY del asistente de negocio (QuantAI P7).
 - [[api.services.assets_sql]] — api/services/assets_sql.py — lectura del catálogo de títulos desde SQL
 - [[api.services.aunesa_aranceles]] — Backfill de aranceles desde Aunesa /operaciones/informes a SQL
 - [[api.services.aunesa_informes]] — api/services/aunesa_informes.py — aranceles por boleto desde Aunesa /operaciones/informes.
@@ -139,24 +135,6 @@
 - [[api.services.control_automatico]] — Control Automático (Clientes): concilia un Excel de CUITs contra nuestras cuentas.
 - [[api.services.control_comercial_sql]] — api/services/control_comercial_sql.py — vista CONTROL COMERCIAL (jefatura).
 - [[api.services.controles_sql]] — api/services/controles_sql.py — lectura del auto-control de calidad de datos.
-- [[api.services.copiloto]] — api/services/copiloto — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).
-- [[api.services.copiloto.agro]] — copiloto/agro.py — vista AGRO (granos): pase agro, pase con cobertura, cámara.
-- [[api.services.copiloto.ayuda]] — copiloto/ayuda.py — el GUÍA de la plataforma (pedido user 2026-07-20).
-- [[api.services.copiloto.base]] — copiloto/base.py — helpers puros y prompt base compartidos por todas las vistas.
-- [[api.services.copiloto.derivacion]] — copiloto/derivacion.py — derivación entre vistas: el marcador [[VISTA:x]], el
-- [[api.services.copiloto.home]] — copiloto/home.py — vista HOME (panorama del mercado): watchlist + briefing +
-- [[api.services.copiloto.motor]] — copiloto/motor.py — el orquestador: preguntar() (una pregunta → contexto →
-- [[api.services.copiloto.navegacion]] — copiloto/navegacion.py — NAVEGACIÓN ASISTIDA: el guía te LLEVA (idea del user).
-- [[api.services.copiloto.negocio]] — copiloto/negocio.py — vista NEGOCIO: el asistente de negocio (QuantAI P7)
-- [[api.services.copiloto.opciones]] — copiloto/opciones.py — vista OPCIONES (derivados): cadena GGAL, IV, griegas.
-- [[api.services.copiloto.registro]] — copiloto/registro.py — el registro VISTAS: ensambla cada vista (fetch,
-- [[api.services.copiloto.renta_fija]] — copiloto/renta_fija.py — vista RF (bonos ARG): curvas, fair value, forwards,
-- [[api.services.copiloto.renta_variable]] — copiloto/renta_variable.py — vista RV (CEDEARs/ADRs): fetch, enriquecido,
-- [[api.services.copiloto.research]] — copiloto/research.py — vista RESEARCH unificada (decisión user 2026-07-20):
-- [[api.services.copiloto.reuters]] — copiloto/reuters.py — vista REUTERS (tablero live subyacentes US, feed Eikon).
-- [[api.services.copiloto.series]] — copiloto/series.py — SERIE HISTÓRICA GENÉRICA: "¿contra qué?".
-- [[api.services.copiloto.trading]] — copiloto/trading.py — vista TRADING (monitor intradía): tarjetas con pivots
-- [[api.services.copiloto.verificacion]] — copiloto/verificacion.py — guardrails estructurales (anti-alucinación).
 - [[api.services.curvas_vista]] — api/services/curvas_vista.py — la tab CURVAS del rediseño, en UN request.
 - [[api.services.day_trading]] — day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).
 - [[api.services.db_obs]] — db_obs.py — observabilidad de espacio/salud de la base (Manager OBSERVABILIDAD → BASE).

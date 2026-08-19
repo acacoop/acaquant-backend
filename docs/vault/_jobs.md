@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-68 notas.
+66 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -41,7 +41,6 @@
 - [[jobs.forwards_zscore]] — forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.
 - [[jobs.fred_research]] — jobs/fred_research.py — sincroniza series de FRED a Postgres (tab Datos
 - [[jobs.guardrails]] — jobs/guardrails.py — invariantes de sanidad de datos post-cierre.
-- [[jobs.ia_calidad]] — jobs/ia_calidad.py — control de calidad de las conversaciones de IA.
 - [[jobs.interbanking_sync]] — jobs/interbanking_sync.py — trae los extractos de Interbanking a `bancos.*`.
 - [[jobs.market_anchors]] — market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).
 - [[jobs.market_quotes]] — market_quotes.py — cotizaciones de equity/futuros/índices para el watchlist HOME.
@@ -67,6 +66,5 @@
 - [[jobs.tenencia_live]] — jobs/tenencia_live.py — posición T0/T1 del día, refrescada durante la rueda.
 - [[jobs.tesoreria_echeq_recibidos]] — tesoreria_echeq_recibidos.py — espejo automático de los DEPÓSITOS de cheque
 - [[jobs.tesoreria_snapshot]] — jobs/tesoreria_snapshot.py — foto diaria de la grilla BANCOS de Tesorería.
-- [[jobs.triage]] — jobs/triage.py — Triage REACTIVO de incidentes (QuantAI P2, docs/QUANTAI.md).
 - [[jobs.validar_instrumentos]] — jobs/validar_instrumentos.py — vigencia de títulos + marca de validación.
 - [[jobs.volatilidad_ggal]]

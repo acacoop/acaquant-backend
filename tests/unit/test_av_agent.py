@@ -2355,8 +2355,9 @@ def test_las_lentes_de_SALUD_hablan_el_MISMO_idioma_que_las_de_un_bono():
 
     # La lente con IA es la ÚNICA que gasta tokens, y va ÚLTIMA.
     d = inspect.getsource(av_agent_salud.diagnosticar)
-    assert "if con_ia:" in d
-    assert d.index("_lente_historial") < d.index("_lente_ia")
+    # La lente con IA se eliminó el 2026-08-19: la generaba el panel de SALUD,
+    # que se dio de baja. Ninguna lente gasta tokens.
+    assert "_lente_ia" not in d
     # Y NO escribe: el dueño del estado de SALUD sigue siendo SALUD.
     assert "INSERT" not in src.upper() and "UPDATE " not in src.upper()
 
@@ -2738,21 +2739,6 @@ def test_el_arreglo_es_SOLO_el_comando():
     for humo in ("eval set", "primero ver, después simular", "mercado.curvas"):
         assert humo not in p["detalle"], f"volvió el sermón: {humo}"
 
-
-def test_una_lectura_de_IA_VIEJA_NO_SE_MUESTRA():
-    """El diagnóstico se cachea por EVENTO y los de los controles son del 09/08:
-    la lectura hablaba de «cuenta 2018, 14 activos» mientras la evidencia de al
-    lado decía «2019 y 2024, 8 anomalías». **Un análisis que contradice a la
-    evidencia que tiene al lado es peor que no tener análisis**: el que lee no
-    sabe a cuál creerle. Avisarlo no alcanzaba — hay que sacarlo."""
-    import inspect
-
-    from api.services.av_agent_salud import _lente_ia
-    src = inspect.getsource(_lente_ia)
-    assert "creado_at" in src
-    # Se DESCARTA, no se avisa. Avisar no arregla nada: el que lee sigue
-    # teniendo dos versiones de los hechos y tiene que elegir.
-    assert "return None      # viejo" in src
 
 
 def test_el_429_NO_matchea_adentro_de_un_numero_de_asset():

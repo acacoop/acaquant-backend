@@ -27,7 +27,5 @@ _(pendiente de enriquecimiento)_
 - [[api.mcp.tools.renta_variable]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[api.routers.trading]]  ·  _module_
-- [[api.services.copiloto.renta_variable]]  ·  _module_
-- [[api.services.copiloto.trading]]  ·  _module_
 - [[api.services.rv_motor]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_

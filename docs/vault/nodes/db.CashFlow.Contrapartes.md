@@ -15,5 +15,4 @@ Maestro de contrapartes (clientes/cuentas comitentes vistas como contraparte de 
 
 Conecta con: la pueblan/usan `jobs/flujo_contrapartes.py` y `api/services/segmentacion.py`, `api/services/risk.py`, `api/services/operaciones_informes.py`; se expone vía `api/routers/cuentas.py` y `api/routers/operaciones.py`. Tiene copia derivada en `CuentasAPI.ContrapartesAPI`.
 
-## Lo usan (backlinks) ←
-- [[api.services.copiloto.ayuda]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

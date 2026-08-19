@@ -26,4 +26,3 @@ Conecta con: lee `Trading.CanjeCierre` (materializada por `jobs.cierre_canje`) y
 ## Lo usan (backlinks) ←
 - [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
-- [[api.services.copiloto.renta_fija]]  ·  _module_

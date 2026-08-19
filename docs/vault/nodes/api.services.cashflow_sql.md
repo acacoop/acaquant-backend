@@ -25,7 +25,6 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.services.acreencias]]  ·  _module_
-- [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.comercial_sql]]  ·  _module_
 - [[api.services.operaciones_sql]]  ·  _module_

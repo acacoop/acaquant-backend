@@ -1,6 +1,6 @@
 # Integración a Reuters (Eikon/LSEG Workspace)
 
-> **Doc VIVO con changelog obligatorio** — igual que `docs/COPILOTO.md`: todo avance,
+> **Doc VIVO con changelog obligatorio** — igual que `docs/AV_AGENT.md`: todo avance,
 > cambio o descarte de esta integración se asienta ACÁ en el mismo commit.
 > Nacimiento: 2026-07-16. Dueño: mesa (Nicolás).
 
@@ -376,7 +376,8 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
     retornos por período `TR.PricePctChg*` → columnas PRE MKT / AFTER HS / 5D→5A.
   - Tabla a **100% del ancho** (se liberó el panel derecho reservado) + **orden
     por columna** con click (números desc, texto A→Z, nulls al final).
-  - **Copiloto vista `reuters`** (v1.51 del asistente, `docs/COPILOTO.md`):
+  - ~~Copiloto vista `reuters`~~ — **dado de baja el 2026-08-19** junto con
+    todo el copiloto (`AV_AGENT.md` §0.k). Lo que decía:
     el asistente ve el tablero completo — en especial los retornos por período —
     vía `<IaVistaPanel vista="reuters" />`. Gate `ia` + `trading`.
   - Noticias Reuters: ESTUDIADAS y validadas en vivo (§6b) — sin implementar.

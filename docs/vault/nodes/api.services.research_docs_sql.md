@@ -22,4 +22,3 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.documentos]]  ·  _module_
 - [[api.routers.research_docs]]  ·  _module_
-- [[api.services.copiloto.research]]  ·  _module_

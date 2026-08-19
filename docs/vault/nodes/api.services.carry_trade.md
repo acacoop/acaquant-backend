@@ -31,5 +31,4 @@ Conecta con: lee precios diarios de `Trading` (cierre + live-fallback) y la seri
 ## Lo usan (backlinks) ←
 - [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
-- [[api.services.copiloto.renta_fija]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_

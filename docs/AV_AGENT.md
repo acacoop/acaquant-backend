@@ -357,6 +357,139 @@ el botón), instrucción en texto libre (*«que yo escriba lo que tiene que hace
 él lo haga»*), y la lane automática por acción cuando el acierto medido lo
 habilite — nunca antes, y siempre prendida a mano.
 
+### 0.k EL COPILOTO SE DIO DE BAJA — y qué dejó (2026-08-19)
+
+**Decisión del user:** *«desactivar el CONSULTALE A LA IA de todas las vistas,
+eliminarlo del backend y toda documentación de la misma… este proyecto sirvió
+como inicial pero no cumplió con la necesidad, por lo que de momento se elimina
+dando paso a AV AGENT, que va a ser una versión superior»*.
+
+**Qué era.** Un botón ✧ CONSULTALE A LA IA en cada vista de mercado (home, renta
+fija, renta variable, agro, derivados, trading, research, reuters) más el
+ASISTENTE DE NEGOCIO para los jefes y el GUÍA de la plataforma. Le pasabas los
+datos de la vista y contestaba preguntas sobre ellos. También el VIGÍA de
+/trading (toasts cuando una tarjeta tocaba un nivel) y la NAVEGACIÓN ASISTIDA
+(el guía te dejaba los filtros puestos).
+
+**Por qué no alcanzó, y esto es lo que importa que quede escrito:**
+
+Un copiloto **contesta lo que le preguntás**. Eso tiene dos techos que no se
+arreglan con mejores prompts:
+
+1. **Requiere que ya sepas qué preguntar.** El backfill de tenencias falló dos
+   días y nadie se enteró — nadie iba a preguntarle al copiloto «¿corrió el
+   backfill?», porque el problema es justamente que no sabías que había un
+   problema. El valor no estaba en responder: estaba en **avisar**.
+2. **No deja nada.** Cada conversación empezaba de cero y terminaba en la
+   pantalla. No producía un cambio en el sistema, ni un registro de si acertó, ni
+   una decisión que alguien pudiera aprobar. Se gastaban tokens en producir
+   texto, y el texto se cerraba con la pestaña.
+
+El AV AGENT invierte las dos cosas: **empieza él** (detecta, releva, vigila) y
+**termina en un cambio verificado** (propone → das OK → escribe → relee). Por eso
+no es «el copiloto mejorado»: es otra forma de usar el modelo, donde el LLM ocupa
+el lugar chico —desambiguar, clasificar, leer patrones— y el grueso lo hacen
+funciones deterministas que se pueden auditar leyendo el código una vez.
+
+**Lo que se rescata y sigue vivo** (no todo fue a la basura):
+
+- **El gateway `core/ai.py`** — registro de tareas, presupuestos, trazas,
+  ruteo por proveedor y la invariante de privacidad. Lo usa el agente entero.
+- **Las lecciones de tokens**, pagadas ahí: el razonamiento cuenta como output
+  (un `max_tokens` corto devuelve respuesta VACÍA), y `thinking` va apagado
+  cuando la tarea es clasificar y no razonar.
+- **`ia.trazas`** — toda llamada al modelo queda registrada con tokens, latencia
+  y resultado. Es lo que permitió medir esto en vez de opinarlo.
+- **La postura de privacidad**: una tarea que ve datos del negocio no puede
+  correr en un proveedor que entrena con ellos, y el gateway **se niega** en vez
+  de confiar en un string.
+
+**Lo que se eliminó junto con él** (regla nueva del user: *«si lo usa AV Agent
+perfecto, si no se elimina»* — nada de IA corriendo por atrás sin lector):
+
+| qué | por qué se fue |
+|---|---|
+| `copiloto_vista` · `copiloto_vista_pro` · `asistente_negocio` | eran el copiloto |
+| `critico_calidad` (`jobs/ia_calidad`, 21:30 diario) | evaluaba conversaciones del copiloto: sin copiloto, sin objeto |
+| `triage_incidente` (`jobs/triage`, **cada 10 minutos**) | escribía en `ia.triage_incidentes` y **NADIE la leía** — ni un endpoint ni una pantalla |
+| `controles_resumen` (1 llamada/día) | su texto terminaba en un `print()` del log del job |
+| `salud_diagnostico` | lo generaba el panel de SALUD; sin panel nadie lo genera |
+| `core/pii_gateway.py` (la aduana PII) | existía solo para el asistente de negocio |
+| el VIGÍA de /trading y la NAVEGACIÓN ASISTIDA | colgaban de endpoints del copiloto |
+
+De **11 tareas de IA registradas quedan 4**: `av_agent_informe`,
+`av_agent_accion`, `research_destilar` (ingesta del mail de 1816, se lee todos
+los días en pantalla) y `smoke`.
+
+⚠️ **La regla que queda, y que hay que aplicar antes de sumar una tarea nueva:
+¿QUIÉN MIRA SU SALIDA?** Si la respuesta es «queda en una tabla», la tarea no va.
+`triage_incidente` corrió cada diez minutos durante semanas contra una tabla que
+nadie abrió nunca, y no se notó porque **funcionaba**: no fallaba, no daba error,
+solo gastaba. Eso es más difícil de detectar que un bug.
+
+**Las tablas NO se dropearon** (`ia.calidad_flags`, `ia.triage_incidentes`,
+`manager.asistente_chats`, `manager.asistente_mappings`,
+`manager.salud_diagnosticos`): borrar código es reversible con un `git revert`,
+borrar datos no. Quedan huérfanas y se limpian cuando el user lo decida.
+
+### 0.l SALUD sale del front y queda SOLO adentro del agente (2026-08-19)
+
+*«Eliminar SALUD del front de observabilidad… toda la salud, y esto pasa 100% por
+el agent»* (user, mismo día).
+
+**El motor no se tocó.** `api/services/salud.py` sigue siendo el dueño de la
+evaluación —los chequeos, los contratos de frescura, los eventos, el historial— y
+el agente lo LEE. Lo que se dio de baja es la **segunda pantalla**:
+
+- la pill **SALUD** de Manager → OBSERVABILIDAD y su panel;
+- el **botón** de la barra inferior (al lado de BRIEFING);
+- el **modal de alertas** que interrumpía;
+- los seis endpoints `/api/manager/salud*`, que solo esos componentes usaban.
+
+**Por qué está bien:** SALUD nació para unificar la observabilidad que estaba en
+seis pantallas. Que el agente diagnostique un chequeo con ocho lentes, lo
+re-controle en el momento y sepa arreglarlo (§0.j) mientras SALUD lo mostraba
+aparte era **volver a tener dos verdades sobre el mismo estado** — el problema
+original, repetido un nivel más arriba.
+
+**Lo que NO se perdió, porque era la razón de existir de SALUD:** la
+interrupción. El incidente que lo originó (el backfill que falló dos días y nadie
+se enteró) enseñó que **la señal tiene que buscar al admin**, no esperarlo en una
+pantalla que hay que ir a abrir. Eso se movió al agente con sus reglas intactas:
+
+- abre **solo ante una transición NUEVA a problema y sin ver** por ESE admin;
+- que algo **se arregle nunca abre nada** (lo filtra el backend);
+- **nunca en intervalo fijo** — un modal que repite lo mismo se cierra sin leer;
+- se puede **silenciar** un chequeo, y silenciarlo **no lo esconde**: sigue en la
+  lista con su estado real. Un chequeo que desaparece al silenciarlo es un
+  problema que se te olvida.
+
+Endpoints nuevos, todos bajo el agente: `GET /av-agent/salud/pendientes`,
+`POST /av-agent/salud/vistos`, `POST /av-agent/salud/silenciar`.
+
+**De yapa, dos cosas que la mudanza destapó:**
+
+- **Un job con dos líneas de cron aparecía DOS VECES** en la lista (`av_agent_live`
+  era dos filas idénticas — el user lo marcó en pantalla). El id es `job:<label>`,
+  así que dos crons del mismo job colisionaban. Ahora se colapsan en uno, quedando
+  el estado **menos** alarmante: dos crons son dos ventanas del mismo job, así que
+  haber corrido en cualquiera significa que corrió.
+- **El módulo RBAC `asistente` se eliminó**: sin asistente de negocio era un
+  checkbox en ROLES Y PERMISOS que no controlaba nada.
+
+**Qué queda de IA para el portal invitado** (REGLA #8): el copiloto era la razón
+por la que el invitado tenía el módulo `ia`. Hoy lo único no-admin bajo `/api/ia`
+es el **BRIEFING**, que es dato de mercado y por lo tanto exactamente lo que ese
+portal existe para mostrar. Hay un test que lo congela: **cualquier endpoint nuevo
+de `/api/ia` sin `require_admin` lo hace fallar**, así el AV AGENT —que habla del
+estado interno del sistema— no puede quedar alcanzable por www sin que nadie lo
+note.
+
+> **El BRIEFING se queda y NO es IA.** El user preguntó por las dudas: verificado,
+> `api/services/briefing.py` no tiene una sola llamada al modelo. Futuros US,
+> dólar oficial (MAE live + A3500) y cierres MEP/CCL con sus variaciones, todo
+> calculado. Nunca gastó un token.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta
@@ -2804,6 +2937,21 @@ libro de acciones, los cinco estados, `_paso` y `_veredicto` quedaron **intactos
 realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
+
+- **2026-08-19 — SE DA DE BAJA EL COPILOTO, y SALUD queda solo adentro del
+  agente** (§0.k y §0.l). *«Sirvió como inicial pero no cumplió con la necesidad;
+  se elimina dando paso a AV AGENT, que va a ser una versión superior»* (user).
+  Fuera el botón CONSULTALE A LA IA de todas las vistas, el asistente de negocio,
+  el guía, el vigía de /trading y la navegación asistida — backend, front y docs
+  (`COPILOTO.md`, `TOOLS_IA.md` y `QUANTAI.md` se borran; lo que había que
+  recordar quedó acá). Fuera también **la IA que corría por atrás sin lector**:
+  `triage` (cada 10 minutos contra una tabla que nadie abría), `ia_calidad`,
+  el resumen ejecutivo de controles y el diagnóstico con IA de SALUD. **De 11
+  tareas de IA quedan 4.** Regla nueva: una tarea existe solo si alguien lee su
+  salida. SALUD pierde su panel, su botón y su modal; el motor no se tocó y el
+  agente pasa a ser la única puerta, con la interrupción movida adentro (sin
+  perder la capacidad que le dio origen). De yapa: un job con dos crons ya no
+  aparece dos veces, y el módulo RBAC `asistente` se elimina.
 
 - **2026-08-19 — LO QUE EL AGENTE SABE HACER: PROPONER → OK → APLICAR →
   VERIFICAR** (§0.j). El agente deja de solo diagnosticar. Cuatro acciones de

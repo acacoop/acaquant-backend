@@ -1,5 +1,14 @@
 # OPORTUNIDADES — backlog priorizado de ACAQUANT
 
+> ⚠️ **2026-08-19 — TODA propuesta de este doc que dependa del COPILOTO está
+> MUERTA.** El copiloto de mesa, el asistente de negocio, la guía y el vigía se
+> dieron de baja (motivo y qué se rescató: `docs/AV_AGENT.md` §0.k), junto con
+> `COPILOTO.md`, `TOOLS_IA.md` y `QUANTAI.md` — las referencias a esos archivos
+> que quedan acá abajo son históricas y **no apuntan a nada**. Lo mismo con los
+> "huecos de tools": no hay tools que llenar. **Antes de tomar una propuesta de
+> IA de este doc, chequear que no sea del copiloto.** Lo que sigue vivo es el AV
+> AGENT, y su backlog vive en `AV_AGENT.md`, no acá.
+
 **Generado el 2026-08-09.** Este documento es el resultado consolidado de un relevamiento
 adversarial de la plataforma, hecho en dos etapas:
 

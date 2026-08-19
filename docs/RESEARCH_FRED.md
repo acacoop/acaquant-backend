@@ -569,7 +569,7 @@ Encaja con el patrón `home.market_quotes`.
   `/cruces/*` + su UI. Empezar por #1 (beta soberano), #2 (CCL vs pares), #5
   (breakeven US vs AR). **Acá está el valor real** — sin esto es "otra tabla de
   números".
-- **Fase 4 — Copiloto:** vista `fred` del copiloto de mesa (`docs/COPILOTO.md`):
+- ~~**Fase 4 — Copiloto**~~ — **CANCELADA (2026-08-19)**: el copiloto se dio de baja (`AV_AGENT.md` §0.k). Decía:
   registro + reglas de dominio (qué es cada serie, qué NO inferir — ej. no comparar
   SA con NSA, no leer una mensual como si fuera diaria). Encaja directo en el patrón
   por vista.

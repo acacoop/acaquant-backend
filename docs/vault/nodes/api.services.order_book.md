@@ -27,4 +27,3 @@ Conecta con: lee `Trading.MarketSnapshot` (lo popula `engines/valores.py` cada 1
 ## Lo usan (backlinks) ←
 - [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.operar]]  ·  _module_
-- [[api.services.copiloto.trading]]  ·  _module_

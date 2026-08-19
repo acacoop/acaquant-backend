@@ -88,25 +88,49 @@ def test_ia_default_solo_admin():
             assert "ia" not in mods, f"{role} no debe tener `ia` por default"
 
 
-def test_invitado_ia_con_condiciones():
-    # DECISIÓN DEL USER 2026-07-21 (pisa el default-deny original): el invitado
-    # SÍ tiene `ia` — pero SOLO los copilotos de vistas de mercado, JAMÁS la
-    # guía (mapea el producto entero) y con presupuesto COMPARTIDO y bajo.
+def test_al_invitado_solo_le_queda_el_BRIEFING_bajo_api_ia():
+    """REGLA #8 — qué alcanza un invitado dentro de `/api/ia`.
+
+    El módulo `ia` se le dio al invitado en 2026-07-21 **para los copilotos de
+    mercado**. El 2026-08-19 los copilotos se dieron de baja, así que la
+    pregunta se rehace: lo único no-admin que queda bajo ese prefijo es el
+    BRIEFING (futuros US, dólar oficial, MEP/CCL), que **es** dato de mercado y
+    por lo tanto es exactamente lo que el portal invitado existe para mostrar.
+
+    Este test congela el otro lado: **todo lo demás de `/api/ia` es admin-only**.
+    Es lo que impide que un endpoint nuevo del AV AGENT —que habla del estado
+    interno del sistema— nazca alcanzable por el portal www sin que nadie lo note.
+    """
+    from pathlib import Path
+
+    from api.main import app
+    from api.routers import ia as router_ia
+
     assert "ia" in roles.INVITADO_MODULES
-    # CADA invitado conserva su identidad ("guest:<email>": persiste SU
-    # conversación y tiene SU tope). La guía queda solo-internos: el guest no
-    # la puede usar ni listar; las vistas privadas tampoco.
-    from api.services import copiloto
+    abiertas = []
+    for r in router_ia.router.routes:
+        gates = [str(d.dependency) for d in getattr(r, "dependencies", [])]
+        if not any("require_admin" in g for g in gates):
+            abiertas.append(getattr(r, "path", "?"))
+    # `mis-avisos` no lleva `require_admin` porque el destinatario de un ping
+    # puede no administrar nada — pero rechaza al invitado por su cuenta.
+    assert sorted(abiertas) == ["/api/ia/av-agent/mis-avisos", "/api/ia/briefing"], (
+        f"endpoints de /api/ia sin require_admin: {abiertas} — si alguno es "
+        "para el invitado, decidilo explícito (REGLA #8: default-deny)")
+    fuente = Path(router_ia.__file__).read_text(encoding="utf-8")
+    i = fuente.index("def av_agent_mis_avisos(")
+    assert "is_guest_portal(request)" in fuente[i:i + 1200], (
+        "mis-avisos tiene que rechazar el portal invitado")
+    assert app is not None
+
+
+def test_el_invitado_conserva_su_identidad_y_su_tope():
+    """Cada invitado es `guest:<email>`: su propio tope diario, y jamás confundido
+    con un interno."""
+    from core import ai
+
     g = f"{roles.GUEST_PREFIX}cliente@externo.com"
     assert roles.es_invitado_id(g) and not roles.es_invitado_id("nico@acavalores.com")
-    assert copiloto.VISTAS["ayuda"]["solo_internos"] is True
-    assert copiloto.puede_usar(g, "ayuda") is False
-    assert copiloto.puede_usar(g, "home") is True      # mercado sí
-    assert copiloto.puede_usar(g, "trading") is False  # privada no
-    vistas = {v["vista"] for v in copiloto.vistas_para(email=g)}
-    assert "ayuda" not in vistas and "home" in vistas
-    # tope diario propio y BAJO por invitado (kill switch de costos)
-    from core import ai
     assert ai.presupuesto_dia_usuario(g) == 100_000
 
 
@@ -120,9 +144,5 @@ def test_invitado_research_habilitado():
     # empresa (no terceros) → research completo habilitado (sin problema de
     # redistribución de licencias). El negocio de la mesa sigue excluido.
     assert "research" in roles.INVITADO_MODULES
-    from api.services import copiloto
-    g = f"{roles.GUEST_PREFIX}otro.sector@aca.com"
-    assert copiloto.puede_usar(g, "research") is True
-    assert copiloto.puede_usar(g, "reuters") is True
     for privada in ("operaciones", "portfolios", "back-office", "manager", "trading"):
         assert privada not in roles.INVITADO_MODULES

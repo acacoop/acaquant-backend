@@ -49,7 +49,6 @@ from api.routers.manager import (
     options,
     renta_variable,
     roles,
-    salud,
     status,
     users,
     valuaciones,
@@ -71,7 +70,6 @@ _AUNESA          = [Depends(verify_api_key), Depends(require_any_module(("manage
 
 # Tabs admin (umbrella `manager`):
 router.include_router(aca.router,         dependencies=_MGR)
-router.include_router(salud.router,       dependencies=_MGR)
 router.include_router(status.router,      dependencies=_MGR)
 router.include_router(latencia.router,    dependencies=_MGR)
 router.include_router(controles.router, dependencies=_MGR)

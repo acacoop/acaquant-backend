@@ -35,12 +35,6 @@ def test_override_global_por_env(monkeypatch):
     assert ai._modelo({"tier": "flash"}) == "otro-modelo"
 
 
-def test_override_por_tarea_gana(monkeypatch):
-    monkeypatch.setenv("AI_MODEL_FLASH", "modelo-global")
-    monkeypatch.setenv("AI_RESUMEN_MODEL", "modelo-de-la-tarea")
-    cfg = ai._config("controles_resumen")
-    assert ai._modelo(cfg) == "modelo-de-la-tarea"
-
 
 def test_presupuestos_precedencia_db_env_default(monkeypatch):
     # 1) la tabla ia.config gana

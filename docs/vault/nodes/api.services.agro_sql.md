@@ -31,4 +31,3 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.derivados_agro]]  ·  _module_
-- [[api.services.copiloto.agro]]  ·  _module_

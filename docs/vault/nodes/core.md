@@ -27,9 +27,6 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
-- [[api.services.asistente]]  ·  _module_
-- [[api.services.asistente_comercial]]  ·  _module_
-- [[api.services.asistente_tools]]  ·  _module_
 - [[api.services.aunesa_informes]]  ·  _module_
 - [[api.services.av_agent]]  ·  _module_
 - [[api.services.av_agent_alta]]  ·  _module_
@@ -47,7 +44,6 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.contrapartes_seg]]  ·  _module_
-- [[api.services.copiloto.motor]]  ·  _module_
 - [[api.services.curvas_vista]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.debug_derivados]]  ·  _module_
@@ -64,7 +60,6 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[api.services.order_book]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.renta_fija_sql]]  ·  _module_
-- [[api.services.salud]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
@@ -101,12 +96,12 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.control_saldos]]  ·  _module_
+- [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.estrategia_resolver]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
-- [[jobs.ia_calidad]]  ·  _module_
 - [[jobs.interbanking_sync]]  ·  _module_
 - [[jobs.mercado_1816_discovery]]  ·  _module_
 - [[jobs.mercado_1816_series]]  ·  _module_
@@ -115,5 +110,4 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[jobs.research_mail]]  ·  _module_
 - [[jobs.tamar_1816]]  ·  _module_
 - [[jobs.tenencia_live]]  ·  _module_
-- [[jobs.triage]]  ·  _module_
 - [[jobs.volatilidad_ggal]]  ·  _module_

@@ -25,8 +25,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.operaciones]]  ·  _module_
-- [[api.services.asistente]]  ·  _module_
-- [[api.services.asistente_tools]]  ·  _module_
-- [[api.services.copiloto.ayuda]]  ·  _module_
-- [[api.services.copiloto.navegacion]]  ·  _module_
 - [[jobs.ops_agregado]]  ·  _module_

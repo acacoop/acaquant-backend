@@ -23,5 +23,4 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.routers.derivados_agro]]  ·  _module_
 - [[api.routers.ingest]]  ·  _module_
-- [[api.services.copiloto.agro]]  ·  _module_
 - [[jobs.eikon_cierres]]  ·  _module_

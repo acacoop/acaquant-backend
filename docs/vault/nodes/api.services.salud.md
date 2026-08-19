@@ -21,13 +21,11 @@ _(pendiente de enriquecimiento)_
 - [[api.services._sql]]  ·  _module_
 - [[api.services.controles_sql]]  ·  _module_
 - [[api.services.jobs_catalogo]]  ·  _module_
-- [[core]]  ·  _module_
-- [[core.ai]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[db.Trading.DOLAR]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
-- [[api.routers.manager.salud]]  ·  _module_
+- [[api.routers.ia]]  ·  _module_
 - [[api.services.av_agent]]  ·  _module_
 - [[api.services.av_agent_centinela]]  ·  _module_
 - [[api.services.av_agent_salud]]  ·  _module_

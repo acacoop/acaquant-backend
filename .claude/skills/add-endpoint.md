@@ -11,16 +11,16 @@ Se aplica cuando el usuario pide "crear un endpoint nuevo" o "exponer X al front
 
 Antes de escribir código:
 
-- **¿A qué módulo pertenece?** (`home`, `renta-fija`, `derivados`, `estrategia`, `operaciones`, `portfolios`, `asistente`, `manager`).
+- **¿A qué módulo pertenece?** (`home`, `renta-fija`, `derivados`, `estrategia`, `operaciones`, `portfolios`, `manager`, `ia`…). La lista viva es `core/roles.py::MODULES`.
 - **¿Router existente o nuevo?** El gate RBAC está aplicado **a nivel de router** en `api/main.py` (constantes `_PUBLIC` / `_PORTFOLIOS` / `_OPERACIONES` / `_ASISTENTE` / `_MANAGER` con `Depends(require_module(...))`). Si agregás un endpoint a un router existente, hereda el gate; si creás router nuevo tenés que incluirlo con las deps correctas en `main.py`. **No se aplica `require_module` per-endpoint** — va al router entero.
-- **¿Tiene que consumirlo el asistente?** Si sí:
+- **¿Tiene que consumirlo el AV AGENT o el MCP?** Si sí:
   1. Registrar la función en `api/agent/service_registry.py` (mapeo endpoint → callable).
   2. Declarar la tool en `api/agent/tool_metadata.py` con JSON schema.
   3. Confirmar que NO cae en `BLOCKED_PATH_PREFIXES` (portfolio/operaciones/cuentas/manager). Si el módulo es restringido, la tool queda bloqueada por policy y NO se declara — consultar antes de tocarlo.
 
 ## 2. Escribir la lógica en `api/services/`
 
-La función va en `api/services/<modulo>.py` (reusar el existente si hay; crear uno nuevo si es un dominio distinto). **Pura Python, sin FastAPI** — tiene que ser invocable tanto por el router como por el asistente.
+La función va en `api/services/<modulo>.py` (reusar el existente si hay; crear uno nuevo si es un dominio distinto). **Pura Python, sin FastAPI** — tiene que ser invocable tanto por el router como por el AV AGENT o el MCP.
 
 Patrón:
 

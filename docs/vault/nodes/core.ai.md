@@ -23,13 +23,7 @@ _(pendiente de enriquecimiento)_
 - [[core.roles]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.services.asistente]]  ·  _module_
 - [[api.services.av_agent_analista]]  ·  _module_
 - [[api.services.av_agent_hacer]]  ·  _module_
-- [[api.services.copiloto.motor]]  ·  _module_
 - [[api.services.ia_obs]]  ·  _module_
-- [[api.services.salud]]  ·  _module_
-- [[core.ai_resumen]]  ·  _module_
-- [[jobs.ia_calidad]]  ·  _module_
 - [[jobs.research_mail]]  ·  _module_
-- [[jobs.triage]]  ·  _module_

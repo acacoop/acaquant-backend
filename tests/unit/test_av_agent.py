@@ -2579,12 +2579,17 @@ def test_un_precio_USD_sano_no_dispara_nada():
                                            1385.0) == []
 
 
-def test_los_hallazgos_de_rueda_NO_son_accionables_desde_el_modal():
-    """`None` explícito y por un motivo distinto al resto: no es que falte
-    construirlo, es que no se arreglan tocando `mercado.curvas` — un símbolo sin
-    suscribir se resuelve en el universo del motor."""
+def test_un_bono_SIN_PRECIO_si_tiene_diagnostico():
+    """Cambió el 2026-08-18. Nació en `None` porque «no se arregla tocando
+    `mercado.curvas`» — cierto, pero el user señaló lo que faltaba mirando AO29:
+    *«no hay diagnóstico, no hay aviso»*. No poder arreglarlo no es motivo para
+    no explicarlo: las cinco causas (sin símbolo · fuera de Primary · pata
+    equivocada · nunca operó · sin actividad hoy) se atienden distinto, y una de
+    ellas —iliquidez— no se atiende. La puerta es de SOLO LECTURA."""
     from api.services import av_agent
-    assert av_agent.ACCION_POR_TIPO["sin_precio"] is None
+    assert av_agent.ACCION_POR_TIPO["sin_precio"] == "sin_precio"
+    # `precio_moneda` sí sigue en None: ahí la valuación está bien y lo que se ve
+    # raro es la columna de precio de la grilla — no hay nada que diagnosticar.
     assert av_agent.ACCION_POR_TIPO["precio_moneda"] is None
 
 

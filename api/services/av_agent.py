@@ -121,7 +121,12 @@ ACCION_POR_TIPO = {
     # sin suscribir se resuelve en el universo del motor, y un precio que llega
     # en pesos se resuelve en la pata o en el feed. El agente los VE y los canta
     # en el momento — que es todo lo que se le pidió.
-    "sin_precio": None,
+    # **Deja de ser `None`** (2026-08-18): un bono sin precio SÍ tiene un
+    # diagnóstico local que distingue las cinco causas —sin símbolo, fuera de
+    # Primary, pata equivocada, nunca operó, sin actividad hoy— y esas se
+    # arreglan distinto. El user lo pidió mirando AO29: «no hay diagnóstico, no
+    # hay aviso». Sigue sin ARREGLAR nada: la puerta es de solo lectura.
+    "sin_precio": "sin_precio",
     "precio_moneda": None,
     # ── SALUD entra al agente (2026-08-17) ──────────────────────────────────
     #

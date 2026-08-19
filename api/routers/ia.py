@@ -595,3 +595,18 @@ def av_agent_centinela_visto(body: VistoCentinela,
     vista el hallazgo."""
     from api.services import av_agent_centinela as svc
     return svc.marcar_visto(body.claves, por=email or "")
+
+
+class DiagnosticoSinPrecio(BaseModel):
+    ticker: str = Field(..., min_length=2, max_length=40)
+
+
+@router.post("/av-agent/sin-precio", dependencies=[Depends(require_admin)])
+def av_agent_sin_precio(body: DiagnosticoSinPrecio):
+    """**Por qué este bono no tiene precio.** Cinco causas que se arreglan
+    distinto: sin símbolo en el master · fuera del catálogo de Primary · pata
+    equivocada · nunca operó (iliquidez, no un bug) · sin actividad hoy.
+
+    Cero red y cero créditos. No escribe nada."""
+    from api.services import av_agent_sin_precio as svc
+    return svc.diagnosticar(body.ticker)

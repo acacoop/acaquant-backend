@@ -2722,7 +2722,9 @@ def test_el_control_dice_QUE_ROMPE_y_DONDE_se_corrige():
     from api.services.av_agent_salud import _lente_que_rompe
     p = _lente_que_rompe({"id": "control:assets_sin_cartera", "familia": "control"})
     assert "divisor de valuación" in p["detalle"]
-    assert "Manager → TÍTULOS" in p["detalle"]
+    # La PANTALLA donde se corrige va en `tabla` (la fuente) y el link en
+    # `accion`: meterla dentro del detalle la mezclaba con la explicación.
+    assert "Manager → TÍTULOS" in p["tabla"]
 
 
 def test_el_arreglo_es_SOLO_el_comando():
@@ -2751,3 +2753,65 @@ def test_una_lectura_de_IA_VIEJA_NO_SE_MUESTRA():
     # Se DESCARTA, no se avisa. Avisar no arregla nada: el que lee sigue
     # teniendo dos versiones de los hechos y tiene que elegir.
     assert "return None      # viejo" in src
+
+
+def test_el_429_NO_matchea_adentro_de_un_numero_de_asset():
+    """**El falso positivo mas caro hasta ahora.** El control `assets_sin_cartera`
+    salia diciendo «el proveedor nos RECHAZÓ por límite» porque el patrón `429`
+    cae adentro de `[42932] PBJ26: sin cartera`.
+
+    Confiado, específico y completamente falso — que es peor que no decir nada,
+    porque manda a investigar un problema que no existe. Los patrones numéricos
+    se buscan con límite de palabra."""
+    from api.services.av_agent_salud import _lente_firma
+    control = {"familia": "control", "evidencia": "[42932] PBJ26: sin cartera",
+               "motivo": "8 anomalías sin resolver"}
+    assert _lente_firma(control, {}) is None
+    # Y un JOB cuyo log menciona un id parecido tampoco.
+    job = {"familia": "job", "corridas": [{"errores": ["procesado el 42932 ok"]}]}
+    assert _lente_firma(job, {}) is None
+    # Pero un 429 DE VERDAD sí.
+    real = {"familia": "job", "corridas": [{"errores": ["Error1816: HTTP 429"]}]}
+    assert "RECHAZÓ por límite" in _lente_firma(real, {})["detalle"]
+
+
+def test_la_firma_solo_mira_TEXTO_DE_ERROR_no_la_evidencia():
+    """La evidencia de un control son DATOS (tickers, ids, nombres de bonos), no
+    un mensaje de error. Buscar firmas de fallas ahí es garantizar falsos
+    positivos."""
+    import inspect
+
+    from api.services.av_agent_salud import _lente_firma
+    src = inspect.getsource(_lente_firma)
+    i = src.index("texto = ")
+    j = src.index("if not texto.strip()")
+    assert "evidencia" not in src[i:j] and "motivo" not in src[i:j]
+
+
+def test_sin_firma_conocida_no_dice_nada():
+    """«Es mejor no decir nada que decir todo» (user). Antes explicaba que no
+    había matcheado y sugería anotar una lección: relleno en cada tarjeta."""
+    from api.services.av_agent_salud import _lente_firma
+    assert _lente_firma({"familia": "job",
+                         "corridas": [{"errores": ["algo raro"]}]}, {}) is None
+
+
+def test_el_control_trae_el_ATAJO_para_ir_a_arreglarlo():
+    """Decir «se corrige en Manager → TÍTULOS» y hacer que el otro navegue a
+    mano es media solución."""
+    from api.services.av_agent_salud import _lente_que_rompe
+    p = _lente_que_rompe({"id": "control:assets_sin_cartera", "familia": "control"})
+    assert p["accion"] == "/manager?tab=assets"
+
+
+def test_recontrolar_corre_UN_control_y_por_la_MISMA_puerta_que_el_cron():
+    """Si el botón y el cron persistieran distinto, el re-chequeo podría decir
+    una cosa y el tablero otra al día siguiente."""
+    import inspect
+
+    from api.services.av_agent_salud import recontrolar
+    src = inspect.getsource(recontrolar)
+    assert "_diff_y_persistir" in src
+    # Corre SOLO ese: cada control ya es una función suelta del registro.
+    assert "next((c for c in REGISTRO if c.id == cid)" in src
+    assert recontrolar("no_existe")["ok"] is False

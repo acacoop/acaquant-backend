@@ -630,3 +630,14 @@ def av_agent_relevar_estado():
     veces y para poder decir «ya está corriendo» en vez de no hacer nada."""
     from api.services import av_agent_relevar as svc
     return svc.corriendo()
+
+
+@router.post("/av-agent/salud/recontrolar", dependencies=[Depends(require_admin)])
+def av_agent_recontrolar(control_id: str):
+    """**Volver a mirar ESTE control, ahora.** Corre solo ese invariante y
+    devuelve cuántos siguen, cuántos se resolvieron y cuántos aparecieron.
+
+    Usa la MISMA persistencia que el cron, así un re-chequeo a mano y la corrida
+    automática no pueden dejar estados distintos."""
+    from api.services import av_agent_salud as svc
+    return svc.recontrolar(control_id)

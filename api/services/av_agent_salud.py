@@ -36,6 +36,7 @@ bonos: primero ver, después simular, después escribir.
 from __future__ import annotations
 
 import logging
+import re
 
 # El vocabulario de pasos se IMPORTA, no se copia: es el mismo contrato que ya
 # dibuja el modal (cinco estados, `frena`/`frena_auto` resueltos en el backend) y
@@ -175,70 +176,91 @@ def _lente_log(c: dict) -> dict:
                  REVISAR if errores else INFO, cuerpo, tabla="manager.job_runs")
 
 
-def _lente_firma(c: dict, lecciones_por_slug: dict) -> dict:
+def _lente_firma(c: dict, lecciones_por_slug: dict) -> dict | None:
     """¿El error se PARECE a algo que ya nos pasó?
 
-    Acá se cierra el bucle de la memoria: el texto del error es la evidencia más
-    barata que existe, y cruzarlo contra las lecciones convierte «revisá los logs»
-    en «esto es lo mismo de la vez pasada, y así se resolvió».
+    ⚠️ **DOS BUGS CORREGIDOS el 2026-08-19, y el primero es el que enseña algo.**
+
+    1. Se comparaba por SUBSTRING, y el patrón `"429"` cae adentro de `"[42932]
+       PBJ26: sin cartera"`. El control de assets salía diciendo «el proveedor
+       nos RECHAZÓ por límite» — confiado, específico y completamente falso.
+       Un número corto buscado como substring matchea cualquier cosa: ahora los
+       patrones numéricos se buscan con LÍMITE DE PALABRA.
+    2. Se miraba también `evidencia` y `motivo`. La evidencia de un control son
+       DATOS (tickers, ids, nombres de bonos), no un mensaje de error — buscar
+       firmas de fallas ahí es garantizar falsos positivos. Ahora solo se mira
+       el texto que un JOB reportó como error.
+
+    Y si no matchea nada, **no dice nada**. Antes explicaba que no había
+    matcheado y sugería anotar una lección: relleno en cada tarjeta. El user:
+    *«es mejor no decir nada que decir todo»*.
     """
+    if (c.get("familia") or "") != "job":
+        return None          # un control no tiene «texto de error» que comparar
     texto = " ".join(
         [str(e) for cor in _corridas(c)[:3] for e in (cor.get("errores") or [])]
         + [str(l) for cor in _corridas(c)[:2] for l in (cor.get("log") or [])[-15:]]
-        + [str(c.get("evidencia") or ""), str(c.get("motivo") or "")]).lower()
+    ).lower()
     if not texto.strip():
-        return _paso("firma", "¿Se parece a algo que ya nos pasó?", NO_SE,
-                     "no hay texto de error para comparar.", tabla="—")
+        return None
     hits = []
     for patrones, que_es, slug in FIRMAS:
-        if any(pat in texto for pat in patrones):
-            lec = lecciones_por_slug.get(slug)
-            hits.append(f"**{que_es}**"
-                        + (f" → ya lo aprendimos: *{lec['titulo']}*. {lec['cambio']}"
-                           if lec else " (todavía sin lección asociada)"))
+        for pat in patrones:
+            # Los patrones que son puro número (429, 401) se buscan con límite de
+            # palabra; los de texto, como substring — «timeout» adentro de
+            # «ReadTimeout» tiene que matchear.
+            encontrado = (re.search(rf"\b{re.escape(pat)}\b", texto) is not None
+                          if pat.isdigit() else pat in texto)
+            if encontrado:
+                lec = lecciones_por_slug.get(slug)
+                hits.append(f"**{que_es}**"
+                            + (f" → ya lo aprendimos: *{lec['titulo']}*. {lec['cambio']}"
+                               if lec else ""))
+                break
     if not hits:
-        return _paso("firma", "¿Se parece a algo que ya nos pasó?", INFO,
-                     "el texto del error no matchea ninguna firma conocida. Si "
-                     "resulta ser algo recurrente, **anotarlo como lección** es lo "
-                     "que hace que la próxima vez se reconozca solo.", tabla="—")
-    return _paso("firma", "¿Se parece a algo que ya nos pasó?", REVISAR,
-                 "\n\n".join(hits), tabla="mercado.av_agent_lecciones")
+        return None
+    return _paso("firma", "Ya nos pasó", REVISAR, "\n".join(hits),
+                 tabla="mercado.av_agent_lecciones")
 
 
-# QUÉ ROMPE cada control cuando está en rojo, y DÓNDE se corrige. Sale de los
-# docstrings de `jobs/controles_datos.py`, que es donde vive el criterio — que el
-# texto se escriba una vez y se lea acá evita que la pantalla explique una cosa y
-# el control mida otra.
+
+# QUÉ ROMPE cada control cuando está en rojo, DÓNDE se corrige, y el ATAJO para
+# ir a corregirlo. El texto sale de los docstrings de `jobs/controles_datos.py`,
+# que es donde vive el criterio — escribirlo una vez y leerlo acá evita que la
+# pantalla explique una cosa y el control mida otra.
 CONTROLES: dict[str, dict] = {
     "forwards_faltantes": {
         "rompe": "esos bonos no salen en la matriz de forwards de su curva",
-        "donde": "Renta Fija → FORWARDS"},
+        "donde": "Renta Fija → FORWARDS", "url": "/renta-fija"},
     "rf_sin_tasa": {
-        "rompe": "cotizan pero sin TEA: quedan fuera de cualquier comparación de "
-                 "rendimiento",
-        "donde": "Renta Fija → CURVAS"},
+        "rompe": "cotizan pero sin TEA: quedan fuera de cualquier comparación",
+        "donde": "Renta Fija → CURVAS", "url": "/renta-fija"},
     "assets_sin_cartera": {
         "rompe": "rompen el divisor de valuación: quedan SIN CLASIFICAR en el AuM",
-        "donde": "Manager → TÍTULOS · ASSETS (columna CARTERA)"},
+        "donde": "Manager → TÍTULOS · ASSETS (columna CARTERA)",
+        "url": "/manager?tab=assets"},
     "fci_incompletos": {
         "rompe": "salen SIN NOMBRE y se fusionan entre sí en /aum → FCI",
-        "donde": "Manager → TÍTULOS · ASSETS (ticker y emisor del FCI)"},
+        "donde": "Manager → TÍTULOS · ASSETS (ticker y emisor del FCI)",
+        "url": "/manager?tab=assets"},
     "rf_valuada_x1": {
         "rompe": "renta fija valuada SIN ÷100: la tenencia queda 100 veces inflada",
-        "donde": "es un tipoTitulo nuevo de Aunesa fuera de TIPOS_DIVISOR_100"},
+        "donde": "es un tipoTitulo nuevo de Aunesa fuera de TIPOS_DIVISOR_100",
+        "url": ""},
     "comitentes_sin_nivel1": {
         "rompe": "quedan fuera de la segmentación y de los filtros madre",
-        "donde": "Manager → CLIENTES (nivel_1)"},
+        "donde": "Manager → CLIENTES (nivel_1)", "url": "/manager?tab=clientes"},
     "contrapartes_pendientes": {
         "rompe": "hay cuentas candidatas sin dar de alta como contraparte",
-        "donde": "Manager → CONTRAPARTES (botón «Solicitar cuentas»)"},
+        "donde": "Manager → CONTRAPARTES", "url": "/manager?tab=contrapartes"},
     "ops_sin_tc": {
         "rompe": "boletos ARS sin `mep`: no se pueden dolarizar en OPERACIONES",
-        "donde": "Operaciones → MOVIMIENTOS"},
+        "donde": "Operaciones → MOVIMIENTOS", "url": "/operaciones"},
     "simbolos_cuarentena": {
-        "rompe": "símbolos que Primary rechaza: se excluyen de las suscripciones "
+        "rompe": "Primary rechaza esos símbolos: se excluyen de las suscripciones "
                  "y esos papeles quedan sin precio",
-        "donde": "Manager → TÍTULOS · ASSETS (corregir o dar de baja el símbolo)"},
+        "donde": "Manager → TÍTULOS · ASSETS (corregir o dar de baja el símbolo)",
+        "url": "/manager?tab=assets"},
 }
 
 
@@ -303,7 +325,8 @@ def _lente_que_rompe(c: dict) -> dict | None:
         if not f:
             return None
         return _paso("rompe", "Qué queda mal", REVISAR,
-                     f"{f['rompe']}.\n\n**Se corrige en:** {f['donde']}")
+                     f"{f['rompe']}.", accion=f.get("url") or "",
+                     tabla=f["donde"])
     ficha = JOBS.get(_job_id(c)) or {}
     if ficha.get("alimenta"):
         return _paso("rompe", "Qué queda mal", INFO, ficha["alimenta"])
@@ -374,6 +397,46 @@ def _lente_historial(c: dict, hist: list[dict]) -> dict | None:
 def _job_id(c: dict) -> str:
     """El nombre del job, del id del chequeo (`job:tamar_1816` → `tamar_1816`)."""
     return str(c.get("id", "")).split(":", 1)[-1].strip()
+
+
+def recontrolar(control_id: str) -> dict:
+    """**VOLVER A MIRAR ESTE CONTROL, AHORA.** Corre SOLO ese invariante.
+
+    Pedido del user: *«que me digas que el último control es hace 1 día es
+    inaceptable… tiene que tener una feature rápida que vaya a buscar esos en el
+    momento, 1 x 1, y diga si está»*.
+
+    Y se puede hacer barato porque cada control **ya es una función suelta**
+    (`jobs/controles_datos.CONTROLES`): no hace falta correr los nueve para
+    contestar por uno. La persistencia es la MISMA (`_diff_y_persistir`), así
+    que un re-chequeo a mano y la corrida del cron dejan exactamente el mismo
+    estado — si fueran dos caminos, el botón podría decir una cosa y el tablero
+    otra al día siguiente.
+
+    Devuelve cuántos siguen, cuántos se resolvieron y cuántos aparecieron.
+    """
+    cid = (control_id or "").strip().split(":", 1)[-1]
+    try:
+        from jobs.controles_datos import CONTROLES as REGISTRO
+        from jobs.controles_datos import _diff_y_persistir
+    except Exception as e:
+        return {"ok": False, "error": f"no se pudo cargar el control: {e}"}
+    ctl = next((c for c in REGISTRO if c.id == cid), None)
+    if ctl is None:
+        return {"ok": False, "error": f"no existe el control «{cid}»"}
+    try:
+        items = ctl.fn() or []
+        r = _diff_y_persistir(cid, items)
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    n_res = len(r.get("resueltos") or [])
+    n_new = len(r.get("nuevos") or [])
+    return {"ok": True, "control_id": cid, "activos": r.get("activos", 0),
+            "resueltos": n_res, "nuevos": n_new,
+            "texto": (f"{r.get('activos', 0)} siguen"
+                      + (f" · {n_res} se resolvieron" if n_res else "")
+                      + (f" · {n_new} nuevos" if n_new else "")
+                      + (" · nada cambió" if not (n_res or n_new) else ""))}
 
 
 def _lente_log_si_aplica(c: dict) -> dict | None:

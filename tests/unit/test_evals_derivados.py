@@ -67,13 +67,20 @@ def test_un_tipo_con_VARIAS_reglas_no_puede_entrar_al_mapa():
 def test_el_voto_derivado_NO_abre_la_compuerta():
     """Si contara para `candidata_a_auto`, el agente podría habilitarse solo:
     propone, el humano aprueba por otra razón, y eso se lee como «acertó 10 de
-    10». Los derivados dan contexto; la compuerta la abren los humanos."""
+    10». Los derivados dan contexto; la compuerta la abren los humanos.
+
+    **`verificado` SÍ la abre**, y es otra cosa: sale del seguimiento —el
+    problema volvió o no volvió en los días siguientes—. No es la opinión de
+    nadie y el agente no lo controla, así que es al menos tan buena evidencia
+    como un click. Dejarla afuera sería tirar la mejor señal que tenemos."""
     import inspect
 
     from api.services import av_agent_evals
     src = inspect.getsource(av_agent_evals.resumen)
-    assert "origen = 'humano'" in src
-    # `candidata_a_auto` tiene que calcularse sobre el conteo HUMANO.
+    assert "origen IN ('humano','verificado')" in src
+    # Y `derivado` NO puede estar en esa lista.
+    assert "'derivado'" not in src.split("candidata_a_auto")[0].split(
+        "origen IN")[1][:60]
     assert "nh >= MIN_VOTOS and okh == nh" in src
 
 

@@ -110,6 +110,20 @@ def registrar(*, accion: str, objetivo: str, detalle: dict | None = None,
     if ok and por and regla and fila:
         _votar_derivado(accion=accion, objetivo=objetivo, regla=regla,
                         por=por, accion_id=fila[0])
+        # Y SE PONE EN SEGUIMIENTO. El voto de arriba dice «un humano aprobó
+        # esto»; el seguimiento va a decir, dentro de unos días, si **funcionó**
+        # — que es otra cosa y es la que vale. Verificar releyendo la base en el
+        # mismo segundo solo prueba que la escritura entró: un símbolo mal puesto
+        # se escribe igual de bien que uno bien puesto.
+        try:
+            from api.services import av_agent_seguimiento as seg
+            seg.anotar(clave=f"{accion}:{objetivo}:{regla}", sujeto=objetivo,
+                       regla=regla, tipo=accion,
+                       dominio=_DOMINIO_DE_ACCION.get(accion, "bono"),
+                       por=por, que_se_hizo=accion)
+        except Exception as e:
+            logger.warning("av_agent: no pude poner %s en seguimiento: %s",
+                           objetivo, e)
 
 
 def _votar_derivado(*, accion: str, objetivo: str, regla: str, por: str,

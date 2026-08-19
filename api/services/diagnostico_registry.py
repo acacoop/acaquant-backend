@@ -125,6 +125,13 @@ PIEZAS: list[Pieza] = [
     # árbol como cualquier job: si deja de correr, nadie recibe nada y **eso no
     # se nota desde afuera** — es justo la clase de silencio que el árbol existe
     # para romper.
+    # ¿Lo que se arregló siguió arreglado? Es lo que convierte el tiempo en
+    # evidencia; si deja de correr, el eval set pierde su mejor señal y nadie lo
+    # nota — no falta ningún dato en pantalla, solo deja de mejorar.
+    Pieza("NEGOCIO", "job", "seguimiento (¿el arreglo aguantó?)", grupo="CLIENTES",
+          unidad="jobs.seguimiento",
+          cadencia="23:50 UTC diario", ventana="diario", umbral_s=int(3 * _D),
+          run_tipo="seguimiento"),
     Pieza("NEGOCIO", "job", "saldos_a_operadores (aviso diario)", grupo="CLIENTES",
           unidad="jobs.saldos_a_operadores",
           cadencia="19:45 UTC L-V", ventana="diario", umbral_s=int(3 * _D),

@@ -112,8 +112,10 @@ def precision_por_causa() -> dict[str, tuple[int, int, int]] | None:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT causa, count(*) FILTER (WHERE origen = 'humano'), "
-                "       count(*) FILTER (WHERE origen = 'humano' AND acierta), "
+                "SELECT causa, "
+                "       count(*) FILTER (WHERE origen IN ('humano','verificado')), "
+                "       count(*) FILTER (WHERE origen IN ('humano','verificado') "
+                "                        AND acierta), "
                 "       count(*) "
                 "FROM mercado.av_agent_evals GROUP BY causa")
             return {r[0]: (int(r[1] or 0), int(r[2] or 0), int(r[3] or 0))
@@ -137,8 +139,17 @@ def resumen() -> dict:
                 "       count(*) FILTER (WHERE acierta), max(creado_at), "
                 # **Los HUMANOS se cuentan aparte.** Son los que abren la
                 # compuerta; los derivados solo dan contexto.
-                "       count(*) FILTER (WHERE origen = 'humano'), "
-                "       count(*) FILTER (WHERE origen = 'humano' AND acierta) "
+                # ⚠️ **`verificado` CUENTA COMO UN HUMANO.** Sale de
+                # `av_agent_seguimiento`: el problema volvió o no volvió en los
+                # días siguientes. No es la opinión de nadie y el agente no lo
+                # controla — es al menos tan buena evidencia como un click, y
+                # dejarla afuera de la compuerta sería tirar la mejor señal que
+                # tenemos. El `derivado` (una aprobación) SÍ queda afuera: eso es
+                # alguien diciendo «dale», no el mundo diciendo «funcionó».
+                "       count(*) FILTER (WHERE origen IN ('humano','verificado')), "
+                "       count(*) FILTER (WHERE origen IN ('humano','verificado') "
+                "                        AND acierta), "
+                "       count(*) FILTER (WHERE origen = 'verificado') "
                 "FROM mercado.av_agent_evals GROUP BY dominio, causa "
                 "ORDER BY count(*) DESC")
             filas = cur.fetchall()
@@ -151,9 +162,9 @@ def resumen() -> dict:
         return {"ok": False, "error": str(e)[:200], "causas": [], "fallos": []}
 
     causas = []
-    for d, c, n, ok, ultimo, nh, okh in filas:
+    for d, c, n, ok, ultimo, nh, okh, nv in filas:
         n, ok = int(n), int(ok or 0)
-        nh, okh = int(nh or 0), int(okh or 0)
+        nh, okh, nv = int(nh or 0), int(okh or 0), int(nv or 0)
         causas.append({
             "dominio": d, "causa": c, "votos": n, "aciertos": ok,
             "precision": round(ok / n, 4) if n else None,
@@ -162,7 +173,10 @@ def resumen() -> dict:
             # si contara para `candidata_a_auto`, el agente podría habilitarse
             # solo: propone, el humano aprueba por otra razón, y eso se lee como
             # «el diagnóstico acertó 10 de 10». Los derivados dan CONTEXTO.
-            "humanos": nh, "aciertos_humanos": okh,
+            # `humanos` incluye los `verificado` porque los dos abren la
+            # compuerta; `verificados` se muestra aparte para poder decir de
+            # dónde viene el respaldo.
+            "humanos": nh, "aciertos_humanos": okh, "verificados": nv,
             "derivados": n - nh,
             "precision_humana": round(okh / nh, 4) if nh else None,
             "suficiente": nh >= MIN_VOTOS,

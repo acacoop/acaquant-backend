@@ -146,6 +146,13 @@ def ciclo() -> dict:
                     "  veces = mercado.av_agent_centinela.veces + 1, "
                     # Si volvió, REABRE la misma fila. Un problema que va y viene
                     # es UN problema intermitente, no cinco problemas distintos.
+                    # Y se CUENTA la reapertura: «esto ya lo arreglamos tres
+                    # veces y vuelve» es un dato distinto de «pasa hace tres
+                    # días», y hasta hoy los dos se veían igual. Un problema que
+                    # reaparece no es el de siempre — es uno que no entendimos.
+                    "  reaperturas = mercado.av_agent_centinela.reaperturas + "
+                    "    CASE WHEN mercado.av_agent_centinela.resuelto_at "
+                    "         IS NOT NULL THEN 1 ELSE 0 END, "
                     "  resuelto_at = NULL, resuelto_como = NULL "
                     "RETURNING (xmax = 0) AS es_nuevo",
                     (clave, h.get("tipo"), h.get("ticker") or "?", h.get("regla"),
@@ -203,7 +210,7 @@ def _latir(abierto: bool, abiertos: int, nuevos: int, ms: int, err: str,
 
 _COLS = ["id", "clave", "tipo", "sujeto", "regla", "severidad", "motivo",
          "evidencia", "abierto_at", "ultimo_at", "veces", "visto_at",
-         "resuelto_at", "resuelto_como"]
+         "resuelto_at", "resuelto_como", "reaperturas"]
 
 
 def estado(limite: int = 200) -> dict:

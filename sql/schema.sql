@@ -4184,7 +4184,7 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_evals (
     -- Se separan porque si se mezclan, «10/10» podría ser el agente
     -- aplaudiéndose a sí mismo. **`candidata_a_auto` cuenta SOLO los humanos**:
     -- los derivados dan contexto, no abren la compuerta.
-    origen          text NOT NULL DEFAULT 'humano',  -- humano | derivado
+    origen          text NOT NULL DEFAULT 'humano',  -- humano | derivado | verificado
     -- De qué se dedujo, para no sembrar dos veces lo mismo (ej. 'accion:1234').
     ref             text,
     creado_at       timestamptz NOT NULL DEFAULT now()
@@ -4502,6 +4502,56 @@ CREATE INDEX IF NOT EXISTS ix_av_centinela_ultimo
 
 -- EL LATIDO — una sola fila. Es lo que hace que el círculo verde no mienta:
 -- sin un latido reciente, «prendido» sería una afirmación sobre el pasado.
+-- mercado.av_agent_seguimiento — ¿LO QUE SE ARREGLÓ, SIGUIÓ ARREGLADO? (2026-08-19)
+--
+-- Pedido del user: *«necesito que este agente entienda cuándo hizo algo bien, no
+-- solamente porque yo le puse "acertó", sino porque queda registrado y al otro
+-- día o durante unos días puede detectar que los cambios que encontró y se
+-- marcaron como hechos realmente tuvieron consistencia. Es como que yo diga que
+-- modelé bien un bono: mañana cuando abre el mercado lo veo en la tabla y digo
+-- sí, la verdad lo hice bien, porque si no vería un error.»*
+--
+-- **Es la diferencia entre "lo apliqué" y "funcionó".** Hasta hoy el agente
+-- verificaba releyendo la base en el mismo segundo — o sea, que la escritura
+-- entró. Eso no dice nada sobre si el arreglo era el correcto: un símbolo mal
+-- puesto se escribe igual de bien que uno bien puesto.
+--
+-- La única prueba de verdad es el tiempo: si el problema NO vuelve en los días
+-- siguientes, el arreglo era el bueno. Y si vuelve, el diagnóstico estaba mal —
+-- que es información igual de valiosa y hoy se perdía entera.
+--
+-- Alimenta el eval set con la evidencia MÁS FUERTE que existe, porque no es la
+-- opinión de nadie: el problema volvió o no volvió.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_seguimiento (
+    clave         text PRIMARY KEY,   -- la MISMA identidad estable del hallazgo
+    tipo          text,
+    sujeto        text NOT NULL,      -- el bono, el job, la cuenta…
+    regla         text NOT NULL,      -- la causa que se dio por resuelta
+    dominio       text NOT NULL DEFAULT 'bono',
+    arreglado_at  timestamptz NOT NULL DEFAULT now(),
+    arreglado_por text,               -- quién lo dio por hecho
+    que_se_hizo   text,
+    -- Hasta cuándo se sigue mirando. Pasada esa fecha sin que vuelva, se da por
+    -- bueno. Antes de eso no se afirma nada: **"todavía no volvió" no es
+    -- "aguantó"**, y confundirlos sería premiar un arreglo de hace una hora.
+    mirar_hasta   timestamptz NOT NULL,
+    revisiones    integer NOT NULL DEFAULT 0,
+    ultima_revision_at timestamptz,
+    volvio_at     timestamptz,        -- si el problema reapareció
+    veredicto     text NOT NULL DEFAULT 'mirando',  -- mirando | aguanto | volvio
+    -- Para no votar dos veces lo mismo en el eval set.
+    votado        boolean NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS ix_av_seguimiento_mirando
+    ON mercado.av_agent_seguimiento (mirar_hasta) WHERE veredicto = 'mirando';
+
+-- ¿CUÁNTAS VECES VOLVIÓ? El centinela ya contaba `veces` (cuántos ciclos se vio)
+-- pero no cuántas veces pasó de RESUELTO a abierto de nuevo — y ésa es la que
+-- dice «esto ya lo arreglamos tres veces y vuelve». Un problema que reaparece no
+-- es el mismo problema de siempre: es uno que no estamos entendiendo.
+ALTER TABLE mercado.av_agent_centinela
+    ADD COLUMN IF NOT EXISTS reaperturas integer NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS mercado.av_agent_latido (
     id         boolean PRIMARY KEY DEFAULT true CHECK (id),
     at         timestamptz NOT NULL DEFAULT now(),

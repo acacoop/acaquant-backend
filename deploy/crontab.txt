@@ -445,3 +445,9 @@
 # UN mensaje por operador y no uno por cuenta: 40 pings no son 40 avisos, son un
 # aviso ignorado. Cero IA y cero red: sale todo de la base.
 45 19 * * 1-5 /root/TradingAV/deploy/run_job.sh saldos_a_operadores 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.saldos_a_operadores'
+
+# ── SEGUIMIENTO: ¿lo que se arregló, siguió arreglado? (2026-08-19) ─────────
+# 23:50 UTC = 20:50 ART. Corre DESPUÉS de todos los detectores del día: mira qué
+# arreglos aguantaron y cuáles volvieron, y lo convierte en votos `verificado`
+# del eval set. Es la única evidencia que no es la opinión de nadie.
+50 23 * * * /root/TradingAV/deploy/run_job.sh seguimiento 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.seguimiento'

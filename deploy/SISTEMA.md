@@ -118,6 +118,7 @@
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
 | 02:50 · Mar-Sáb | `jobs.tesoreria_snapshot'` |
 | 20:50 · L-V | `jobs.archive_options_data` |
+| 23:50 · diario | `jobs.seguimiento'` |
 | 23:50 · L-V | `jobs.cleanup_cedears_timesales'` |
 | 20:06 · L-V | `jobs.day_trading_stats'` |
 <!-- /AUTOGEN:crons -->

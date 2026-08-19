@@ -2140,11 +2140,12 @@ Entrar a la tab lo da el módulo `manager`; **escribir** lo gobierna la misma al
 la vista (la configuración mueve números del informe, así que no puede ser un permiso más flojo que
 cargarlo).
 
-**Automatización de benchmarks**: `aca.series.fuente` admite `manual`, `macro_var:<SERIE>` (variación
-mes contra mes — es un **cociente**, no depende de la unidad, y es el único sembrado: `a3500` →
-`macro_var:DOLAR`) y `macro_pct:<SERIE>` (el valor del mes como rendimiento ÷ `escala` — **sí depende
-de la unidad**, medir antes con `python -m scripts.diag_aca_benchmarks`, REGLA #2). **El valor manual
-SIEMPRE gana sobre el automático**; cada celda declara su `origen`.
+**NO hay automatización — TODO se carga a mano** (2026-08-19). Ninguna celda de ACA se completa sola
+desde otra fuente del sistema: el histórico tenía series que traían el mensual de `macro.series_macro`
+(el A3500 salía de la variación del dólar) y se dio de baja entera. Lo único derivado es el
+**ACUMULADO**, que encadena los mensuales tipeados — deriva de lo cargado, no importa un dato.
+`aca.series.fuente`/`escala` quedan como columnas VESTIGIALES (nadie las lee; `apply_schema` las
+normaliza a `'manual'`). Congelado por test. Ver `docs/ACA.md` §5.
 
 ---
 

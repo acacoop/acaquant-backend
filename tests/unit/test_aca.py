@@ -234,6 +234,58 @@ def test_toda_escritura_del_service_valida_el_permiso():
             f"{nombre} escribe SIN validar el permiso — un empleado_aca podría editarlo")
 
 
+# ── NADA se completa solo desde otra fuente (2026-08-19) ───────────────────
+# Decisión del user, textual: "nada de ACA tiene que ser automático… en el
+# sentido de cargar datos solos de otras fuentes". El histórico tenía series con
+# `fuente = macro_var:<SERIE>` que traían el mensual de `macro.series_macro`
+# (A3500 ← DOLAR) y por eso esa celda aparecía llena sola. Se dio de baja.
+# El ACUMULADO sigue derivándose: no importa un dato, encadena lo que se tipeó.
+
+def test_el_historico_no_lee_ninguna_otra_fuente():
+    """Ni `macro.series_macro` ni ningún otro origen automático."""
+    import inspect
+    fuente = inspect.getsource(aca)
+    for prohibido in ("macro_var", "macro_pct", "_macro_mensual", "series_macro"):
+        assert prohibido not in fuente, (
+            f"volvió la automatización del histórico ({prohibido}): el mensual de "
+            "ACA se tipea, punto")
+
+
+def test_el_catalogo_de_series_no_expone_fuente_ni_escala():
+    """Son columnas VESTIGIALES: si el payload las publica, el front vuelve a
+    ofrecer un campo que no controla nada."""
+    import inspect
+    cuerpo = inspect.getsource(aca._series_catalogo)
+    assert '"fuente"' not in cuerpo
+    assert '"escala"' not in cuerpo
+
+
+def test_set_serie_no_escribe_fuente_ni_escala():
+    """Pinnea el set de columnas del INSERT: si vuelve `fuente`, vuelve la
+    posibilidad de configurar un origen automático desde la pantalla."""
+    import inspect
+    cuerpo = inspect.getsource(aca.set_serie)
+    assert "INSERT INTO aca.series (codigo, nombre, grupo, graficos, " in cuerpo
+    assert 'payload.get("fuente")' not in cuerpo
+    assert 'payload.get("escala")' not in cuerpo
+
+
+def test_el_acumulado_sigue_siendo_derivado():
+    """Lo ÚNICO automático que queda, y es correcto: sale de los mensuales
+    tipeados, no de otra fuente."""
+    assert aca._acumular([0.05, 0.05]) == pytest.approx([0.05, 0.1025])
+
+
+def test_el_schema_normaliza_las_fuentes_viejas():
+    """El seed solo corre con la tabla vacía, así que en prod la fila del A3500
+    seguiría diciendo 'macro_var:DOLAR' — una afirmación falsa sobre lo que hace
+    el sistema."""
+    import pathlib
+    sql = pathlib.Path("sql/schema.sql").read_text(encoding="utf-8")
+    assert "UPDATE aca.series SET fuente = 'manual' WHERE fuente <> 'manual';" in sql
+    assert "'macro_var:DOLAR'" not in sql, "el seed sigue sembrando una fuente automática"
+
+
 # ── La tab Manager → ACA la da la ESCRITURA, no el umbrella `manager` ──────
 # Decisión del user 2026-08-19: ya hay gente con permiso de escritura en la mesa
 # que necesita cargar el histórico y NO es admin (ej. `asistente_comercial`).

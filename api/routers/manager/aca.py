@@ -108,8 +108,6 @@ class _Serie(BaseModel):
     codigo: str = Field(..., min_length=1, max_length=64)
     nombre: str = Field(..., min_length=1, max_length=128)
     grupo: str | None = Field(None, max_length=32)
-    fuente: str = Field("manual", description="'manual' | 'macro_var:<SERIE>' | 'macro_pct:<SERIE>'")
-    escala: float = 100
     graficos: list[str] = Field(default_factory=list)
     color: str | None = Field(None, max_length=32)
     orden: int = 0

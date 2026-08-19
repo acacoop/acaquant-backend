@@ -208,34 +208,49 @@ todo convertiría "los más representativos" en "todos".
 
 ---
 
-## 5. Automatización de los benchmarks (y por qué está a medias)
+## 5. TODO se carga a mano — no hay ninguna automatización
 
-`aca.series.fuente` admite tres modos:
+**Regla del user (2026-08-19), textual: *"nada de ACA tiene que ser automático…
+en el sentido de cargar datos solos de otras fuentes"*.** Ninguna celda del
+informe ni del histórico se completa sola desde otra parte del sistema. Congelado
+por test.
 
-| fuente | qué hace | riesgo |
-|---|---|---|
-| `manual` | se tipea | ninguno |
-| `macro_var:<SERIE>` | último valor del mes ÷ último del mes anterior − 1 | **ninguno**: es un cociente, no depende de la unidad de la serie |
-| `macro_pct:<SERIE>` | el valor del mes ÷ `escala` como rendimiento | **sí depende de la unidad** |
+Lo que **sí** se deriva, y está bien que se derive, es lo que sale de los propios
+inputs de ACA: el monto por activo, los totales, las ponderaciones, las métricas
+y —en el histórico— el **ACUMULADO**. Esos no traen un dato de ningún lado:
+encadenan lo que se tipeó. La distinción es esa: *derivar de lo cargado* sí,
+*importar de otra fuente* no.
 
-Sembrado hoy: **`a3500` → `macro_var:DOLAR`**. Badlar e Inflación quedan
-`manual`, a propósito y por **REGLA #2**: no está medido si `InflacionMensual`
-guarda `2.5` o `0.025`, y errarle es un factor 100 que en un gráfico acumulado no
-se ve como un error sino como una serie. Además Badlar/TAMAR son **TNA**: no son
-el rendimiento del mes ni dividiendo por 100, hay que mensualizarlas.
+### Qué se sacó
 
-Para decidirlo hay un diag read-only:
+`aca.series` tenía una columna `fuente` con tres modos, y en prod el **A3500**
+estaba sembrado tomando la variación mes contra mes de la serie `DOLAR` de
+`macro.series_macro`. Esa celda aparecía llena sin que nadie la cargara (marcada
+`·a` en la UI, con el valor manual pisándola si se tipeaba). Se dio de baja
+entera: el service ya no lee `macro.series_macro`, el catálogo no publica
+`fuente`/`escala`, la pantalla no ofrece el campo y el marcador `·a` desapareció
+de las dos vistas.
+
+`fuente` y `escala` **siguen existiendo como columnas** —borrar código se
+revierte, borrar datos no— pero quedan **vestigiales**: nadie las lee ni las
+escribe, y `apply_schema` normaliza a `'manual'` cualquier fila que todavía
+declare una fuente automática, para que la base no afirme algo que el sistema ya
+no hace.
+
+### Consecuencia al deployar
+
+La columna A3500 del histórico **queda vacía**: esos números nunca estuvieron en
+la base, se calculaban en cada lectura. Para no re-tipear los meses ya
+transcurridos hay un script one-shot que los calcula una última vez con la
+fórmula vieja y los persiste **como carga manual**, que es lo que pasan a ser:
 
 ```bash
-python -m scripts.diag_aca_benchmarks
+python -m scripts.aca_congelar_automaticos            # dry-run: muestra qué escribiría
+python -m scripts.aca_congelar_automaticos --aplicar  # escribe
 ```
 
-Imprime las unidades reales y qué daría cada lectura. Con eso se cambia la
-fuente desde `Manager → ACA → SERIES DEL HISTÓRICO`.
-
-**El valor MANUAL siempre gana sobre el automático.** La automatización rellena
-huecos, no pisa criterio — así que activarla nunca puede romper lo ya cargado.
-Cada celda dice de dónde salió (`origen: manual | auto`, marcada `·a` en la UI).
+Nunca pisa una celda cargada a mano y es idempotente. Una vez corrido, se borra
+(REGLA #5).
 
 ---
 
@@ -400,6 +415,27 @@ Escritura: la misma allowlist que el resto (mesa + admin). Queda en `aca.audit`.
 
 ## Changelog
 
+### 2026-08-19 — Fuera toda la automatización: ACA es 100% carga manual
+
+**Problema.** El A3500 del histórico se completaba solo desde `macro.series_macro`
+(variación mes a mes de la serie DOLAR). El user lo cortó de raíz: en ACA nada
+puede traer datos de otra fuente — es un informe que arma la mesa, y un número
+que aparece sin que nadie lo haya puesto no se audita.
+
+**Qué cambió.** Se eliminó `_macro_mensual` y la rama automática de `historico()`;
+el catálogo de series dejó de publicar `fuente`/`escala`, `set_serie` dejó de
+escribirlas, y la pantalla perdió el campo FUENTE, la columna FUENTE y el
+marcador `·a` (en Manager → ACA **y** en la vista `/aca`). `apply_schema`
+normaliza a `'manual'` las filas viejas. Se borró `scripts/diag_aca_benchmarks.py`
+(existía solo para decidir qué otra serie automatizar).
+
+**Lo que NO cambió**: el ACUMULADO se sigue derivando. No importa un dato — es
+`(1 + acum anterior) × (1 + mensual) − 1` sobre lo que se tipeó.
+
+**Al deployar**: la columna A3500 queda vacía. `scripts/aca_congelar_automaticos`
+(one-shot, dry-run por default) persiste esos valores como carga manual.
+
+
 ### 2026-08-19 — La tab de Manager la da la ESCRITURA, no `manager`
 
 **Problema.** `Manager → ACA` (histórico + configuración) pedía el módulo
@@ -507,8 +543,6 @@ volverse admin). No pierde nadie en la práctica: admin siempre pasa
   `api/routers/manager/aca.py`.
 - Frontend: vista `/aca` con 5 tabs, `Manager → ACA` con histórico y
   configuración, proxy `/api/aca/*`, nav en NEGOCIO, gate en `src/proxy.ts`.
-- `scripts/diag_aca_benchmarks.py` para medir las unidades macro antes de
-  automatizar Badlar/Inflación.
 - 26 tests unitarios sobre las fórmulas y el RBAC (`tests/unit/test_aca.py`).
 - **`GET /roles` ahora une los roles de la DB con los de `DEFAULT_MATRIX`.**
   Antes, un rol nuevo en el código no existía en `manager.role_matrix` de prod y

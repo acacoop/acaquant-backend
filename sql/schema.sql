@@ -3435,25 +3435,18 @@ CREATE TABLE IF NOT EXISTS aca.clase_destacada (
 
 -- HISTÓRICO — catálogo de SERIES (las columnas de la planilla histórica y las
 -- líneas de los gráficos "vs benchmarks").
---   fuente: 'manual'              → el rendimiento mensual se tipea.
---           'macro_var:<SERIE>'   → variación mensual de una serie de
---                                   macro.series_macro (último valor del mes /
---                                   último del mes anterior − 1). Es un RATIO:
---                                   no asume unidades, así que no puede errarle
---                                   por un factor 100.
---           'macro_pct:<SERIE>'   → el valor del mes tomado como rendimiento,
---                                   dividido por `escala` (100 si la serie viene
---                                   en porcentaje). Esta SÍ depende de la unidad
---                                   real de la serie → medir antes de activarla
---                                   (scripts/diag_aca_benchmarks.py).
--- El valor MANUAL siempre gana sobre el automático: si alguien tipeó el mes, ese
--- es el número. La automatización rellena huecos, no pisa criterio.
+-- ⚠️ TODO el rendimiento mensual se TIPEA (decisión del user 2026-08-19: "nada
+-- de ACA tiene que ser automático"). `fuente` y `escala` son columnas
+-- VESTIGIALES de la automatización que se dio de baja — el código ya no las lee
+-- ni las escribe. NO se dropean (borrar código se revierte, borrar datos no)
+-- pero se normalizan a 'manual' abajo para que la fila no siga afirmando algo
+-- que el sistema ya no hace. Ver docs/ACA.md §5.
 CREATE TABLE IF NOT EXISTS aca.series (
     codigo   text PRIMARY KEY,
     nombre   text NOT NULL,
     grupo    text,                          -- 'cartera' | 'benchmark' | 'externo'
-    fuente   text NOT NULL DEFAULT 'manual',
-    escala   numeric NOT NULL DEFAULT 100,  -- solo para macro_pct
+    fuente   text NOT NULL DEFAULT 'manual',  -- VESTIGIAL: siempre 'manual'
+    escala   numeric NOT NULL DEFAULT 100,  -- VESTIGIAL (ver comentario de arriba)
     graficos text[] NOT NULL DEFAULT '{}',  -- 'total_ars' | 'total_usd' | 'pesos'
     color    text,
     orden    integer DEFAULT 0,
@@ -3549,12 +3542,19 @@ SELECT * FROM (VALUES
     ('usd_aca',    'Cartera USD ACA',          'cartera',   'manual', '{}'::text[],                4),
     ('badlar',     'Badlar',                   'benchmark', 'manual', '{total_ars,pesos}'::text[], 5),
     ('inflacion',  'Inflacion',                'benchmark', 'manual', '{total_ars,pesos}'::text[], 6),
-    ('a3500',      'A3500',                    'benchmark', 'macro_var:DOLAR', '{total_ars}'::text[], 7),
+    ('a3500',      'A3500',                    'benchmark', 'manual', '{total_ars}'::text[],       7),
     ('dl_caspi',   'Cartera DL Caspi',         'externo',   'manual', '{}'::text[],                8),
     ('ars_caspi',  'Cartera ARS Caspi',        'externo',   'manual', '{}'::text[],                9)
 ) AS t(codigo, nombre, grupo, fuente, graficos, orden)
 WHERE NOT EXISTS (SELECT 1 FROM aca.series)
 ON CONFLICT (codigo) DO NOTHING;
+
+-- El seed de arriba solo corre con la tabla VACÍA, así que en prod la fila del
+-- A3500 sigue declarando su vieja fuente automática. El código ya no la lee (el
+-- valor calculado desapareció de la planilla), pero dejar ese string ahí es una
+-- afirmación falsa sobre lo que hace el sistema. Idempotente: la segunda vez no
+-- toca nada.
+UPDATE aca.series SET fuente = 'manual' WHERE fuente <> 'manual';
 
 -- ── RBAC de la vista ACA ────────────────────────────────────────────────────
 -- El módulo `aca` y el rol `empleado_aca` nacen en core/roles.py, pero

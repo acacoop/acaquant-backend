@@ -35,6 +35,14 @@ REGLA DE MONEDA (Total Dolarizado / Total Pesos)
     `sin_clasificar` y la vista lo muestra. Un activo con una clase nueva tiene
     que aparecer como pendiente, no colarse en el lado equivocado.
 
+TODO ES CARGA MANUAL (2026-08-19)
+    Ninguna celda de ACA se completa sola desde otra fuente del sistema. El
+    histórico tenía series que traían el rendimiento mensual de las series macro
+    (el A3500 salía de la variación del dólar): se dio de baja por decisión del
+    user. Lo único DERIVADO que queda es el ACUMULADO, y sale de lo que se tipeó
+    — no importa un número de ningún lado. Congelado por test; el detalle de qué
+    se sacó está en docs/ACA.md §5.
+
 PERMISOS
     LECTURA   → módulo `aca` (rol `empleado_aca`) ∪ admin ∪ escritores.
     ESCRITURA → allowlist de Mesa de Dinero (`operaciones.mesa_dinero_escritores`)
@@ -918,53 +926,14 @@ def metricas(periodo: str) -> dict:
 
 def _series_catalogo(incluir_inactivas: bool = False) -> list[dict]:
     rows = _q(
-        "SELECT codigo, nombre, grupo, fuente, escala, graficos, color, orden, activo "
+        "SELECT codigo, nombre, grupo, graficos, color, orden, activo "
         "FROM aca.series " + ("" if incluir_inactivas else "WHERE activo ") +
         "ORDER BY orden, codigo")
     return [{
         "codigo": r["codigo"], "nombre": r["nombre"], "grupo": r["grupo"] or "",
-        "fuente": r["fuente"] or "manual", "escala": _f(r["escala"]) or 100.0,
         "graficos": list(r["graficos"] or []), "color": r["color"] or "",
         "orden": int(r["orden"] or 0), "activo": bool(r["activo"]),
     } for r in rows]
-
-
-def _macro_mensual(serie_macro: str, periodos: list[str], modo: str,
-                   escala: float) -> dict[str, float]:
-    """Rendimiento mensual derivado de `macro.series_macro`, por período.
-
-    modo 'var' → último valor del mes / último del mes anterior − 1. Es un RATIO:
-        no asume en qué unidad viene la serie, así que no puede errarle por un
-        factor 100. Es el modo seguro y el único que se semilla (A3500 = DOLAR).
-    modo 'pct' → el valor del mes tomado como rendimiento, dividido por `escala`.
-        Este SÍ depende de la unidad real de la serie. Queda disponible pero sin
-        semillar: medir primero con scripts/diag_aca_benchmarks.py (REGLA #2).
-    """
-    if not periodos:
-        return {}
-    rows = _q(
-        "SELECT DISTINCT ON (to_char(fecha, 'YYYY-MM')) "
-        "       to_char(fecha, 'YYYY-MM') AS periodo, valor "
-        "FROM macro.series_macro "
-        "WHERE serie = %(s)s AND valor IS NOT NULL "
-        "  AND to_char(fecha, 'YYYY-MM') = ANY(%(p)s) "
-        "ORDER BY to_char(fecha, 'YYYY-MM'), fecha DESC",
-        {"s": serie_macro, "p": periodos},
-    )
-    cierre = {r["periodo"]: _f(r["valor"]) for r in rows}
-    if modo == "pct":
-        div = escala if escala else 1.0
-        return {p: v / div for p, v in cierre.items() if v is not None}
-
-    out: dict[str, float] = {}
-    ordenados = sorted(periodos)
-    for i, p in enumerate(ordenados):
-        if i == 0:
-            continue
-        prev, act = cierre.get(ordenados[i - 1]), cierre.get(p)
-        if prev and act is not None:
-            out[p] = act / prev - 1.0
-    return out
 
 
 def _acumular(mensuales: list[float | None]) -> list[float | None]:
@@ -987,9 +956,10 @@ def _acumular(mensuales: list[float | None]) -> list[float | None]:
 def historico(desde: str | None = None, hasta: str | None = None) -> dict:
     """Planilla histórica completa: series × períodos, con el acumulado derivado.
 
-    Precedencia por celda: MANUAL > AUTOMÁTICO. Si alguien tipeó el mes, ese es
-    el número — la automatización rellena huecos, no pisa criterio. Cada celda
-    dice de dónde salió (`origen`) para que eso sea visible y no magia.
+    TODO el rendimiento MENSUAL es de carga manual, sin excepción (decisión del
+    user 2026-08-19: "nada de ACA tiene que ser automático"). Lo único que se
+    deriva es el ACUMULADO, y se deriva de lo que se tipeó — no trae un número
+    de ninguna otra fuente del sistema. Ver docs/ACA.md §5.
     """
     where, params = [], {}
     if desde:
@@ -1011,25 +981,12 @@ def historico(desde: str | None = None, hasta: str | None = None) -> dict:
 
     valores: dict[str, dict[str, dict]] = {}
     for s in series:
-        fuente = s["fuente"] or "manual"
-        auto: dict[str, float] = {}
-        if fuente.startswith(("macro_var:", "macro_pct:")):
-            modo, serie_macro = fuente.split(":", 1)
-            try:
-                auto = _macro_mensual(serie_macro, periodos, modo.split("_")[1],
-                                      s["escala"])
-            except Exception:
-                logger.exception("aca.historico: fuente %s falló para %s",
-                                 fuente, s["codigo"])
-
         mensuales: list[float | None] = []
         celdas: list[dict] = []
         for p in periodos:
             m = manual.get((s["codigo"], p))
             val = _f(m["mensual"]) if m else None
             origen = "manual" if val is not None else None
-            if val is None and p in auto:
-                val, origen = auto[p], "auto"
             mensuales.append(val)
             celdas.append({
                 "periodo": p, "mensual": val, "origen": origen,
@@ -1271,22 +1228,21 @@ def set_serie(payload: dict, actor: str) -> dict:
     nombre = (payload.get("nombre") or "").strip()
     if not nombre:
         raise ValueError("nombre es obligatorio")
-    fuente = (payload.get("fuente") or "manual").strip()
-    if fuente != "manual" and not fuente.startswith(("macro_var:", "macro_pct:")):
-        raise ValueError("fuente debe ser 'manual', 'macro_var:<SERIE>' o 'macro_pct:<SERIE>'")
     gs = [g for g in (payload.get("graficos") or []) if g in GRAFICOS]
 
     before = _q("SELECT * FROM aca.series WHERE codigo = %(c)s", {"c": codigo})
     _exec(
-        "INSERT INTO aca.series (codigo, nombre, grupo, fuente, escala, graficos, "
+        # Las columnas `fuente`/`escala` quedan en su DEFAULT: son VESTIGIALES
+        # de la automatización dada de baja. No se escriben ni se leen.
+        "INSERT INTO aca.series (codigo, nombre, grupo, graficos, "
         "                        color, orden, activo) "
-        "VALUES (%(c)s, %(n)s, %(g)s, %(f)s, %(e)s, %(gr)s, %(col)s, %(o)s, %(act)s) "
+        "VALUES (%(c)s, %(n)s, %(g)s, %(gr)s, %(col)s, %(o)s, %(act)s) "
         "ON CONFLICT (codigo) DO UPDATE SET nombre = EXCLUDED.nombre, "
-        "  grupo = EXCLUDED.grupo, fuente = EXCLUDED.fuente, escala = EXCLUDED.escala, "
+        "  grupo = EXCLUDED.grupo, "
         "  graficos = EXCLUDED.graficos, color = EXCLUDED.color, orden = EXCLUDED.orden, "
         "  activo = EXCLUDED.activo",
         {"c": codigo, "n": nombre, "g": (payload.get("grupo") or "").strip() or None,
-         "f": fuente, "e": payload.get("escala") or 100, "gr": gs,
+         "gr": gs,
          "col": (payload.get("color") or "").strip() or None,
          "o": int(payload.get("orden") or 0),
          "act": bool(payload.get("activo", True))},

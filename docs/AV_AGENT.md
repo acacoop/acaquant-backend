@@ -88,7 +88,7 @@ Cada capa se apoya en la anterior. **Ninguna se saltea.**
 | # | Capa | Qué habilita | Estado |
 |---|---|---|---|
 | 0 | **Control** — parada + tablero de fuentes | poder frenarlo, y ver de qué lee | ✅ 2026-08-18 |
-| 1 | **Medición** — eval set con voto humano | saber si acierta | 🟡 tabla y endpoints, sin UI |
+| 1 | **Medición** — eval set con voto humano | saber si acierta | ✅ 2026-08-19 — con UI, juntando |
 | 2 | **Cobertura** — SALUD adentro del agente | una sola pregunta: ¿está sano? | ✅ leído y razonado (no escribe) |
 | 3 | **Memoria de casos** — exemplar learning | *«esto se parece a PECNO»* | ⬜ |
 | 4 | **El LLM donde aporta** — leer prospectos, redactar, agrupar | lo que la regla no puede | ⬜ |
@@ -2003,6 +2003,50 @@ abre un diagnóstico y decide, emite un juicio sobre si la causa era la correcta
   es «100% de acierto», es «casi no hay evidencia».
 - `candidata_a_auto` **no es un permiso**: es lo que el número habilita a
   discutir. La lane automática se prende a mano, siempre.
+
+#### EL BOTÓN, que era lo único que faltaba (2026-08-19)
+
+La tabla y los dos endpoints estaban desde el 2026-08-17 y **nadie los llamaba**:
+cero fetches en el front, cero llamadas desde jobs o scripts. Las únicas dos
+apariciones de «eval» en el modal eran comentarios.
+
+O sea que **la compuerta de toda la autonomía era una tabla a la que no había por
+dónde escribir**, y las capas 3 a 7 del roadmap estaban trabadas por la pieza más
+chica de todas. No faltaba construir el eval set: faltaba el botón.
+
+**Va donde está el diagnóstico**, no en una pantalla aparte. El juicio ya se
+emite —cada vez que alguien lee un hallazgo y decide, dice si la causa era la
+correcta— y lo que faltaba era guardarlo. Una pantalla de votación separada pide
+que alguien se acuerde de ir, y *lo que no está en el camino no se hace*: el
+dataset se seguiría tirando, solo que con una tab más.
+
+Tres decisiones que no son obvias:
+
+  · **El ✖ abre el campo en vez de votar.** No es fricción: un «está mal» suelto
+    no sirve para reescribir la regla, así que sería un voto que ocupa lugar y no
+    enseña nada. El backend lo rechaza igual; el front no lo deja llegar.
+  · **El voto va en TODA fila, tenga acción o no.** Lo que se mide es si el
+    DIAGNÓSTICO acertó. Restringirlo a los accionables dejaría sin medir justo a
+    los que todavía no sabemos si vale la pena automatizar.
+  · **Votar no cambia nada del sistema.** Es una anotación sobre el AGENTE, no
+    sobre el bono; mezclarlas haría que corregir el diagnóstico parezca arreglar
+    el problema.
+
+Y dos que hubo que adaptar antes de enchufarlo: el dominio `sistema` no existía
+—el payload lo rechazaba con `^(bono|salud)$` y el botón habría dado 422 sin
+motivo aparente— y el dominio ahora **lo decide el backend** y viaja en el
+hallazgo (`dominio_eval`), igual que `accion` y `de_quien`: deducirlo del tipo en
+el front habría creado el duplicado que la REGLA #9 persigue, antes de estrenarlo.
+
+**La medición vive adentro de SKILLS**, no en una tab nueva: SKILLS es *«lo que
+el agente sabe hacer»* y cuánto acierta es un **atributo de eso**. Separarlos
+dejaría el catálogo prometiendo capacidades sin decir cuáles funcionan. Marca
+`sin evidencia` con menos de `MIN_VOTOS` y `◆ a discutir` cuando el número
+habilita la conversación — que sigue sin ser un permiso.
+
+Con cero votos **no se muestra vacío**: dice que todavía nadie votó y cuántos
+hacen falta. Y si la medición no se puede LEER lo dice distinto, porque *«no pude
+preguntar» no es «no hay votos»*.
 
 ### 0.g LA MEMORIA: nada se desperdicia (2026-08-17)
 

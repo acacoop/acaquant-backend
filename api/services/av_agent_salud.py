@@ -205,93 +205,142 @@ def _lente_firma(c: dict, lecciones_por_slug: dict) -> dict:
                  "\n\n".join(hits), tabla="mercado.av_agent_lecciones")
 
 
-def _lente_que_es(c: dict) -> dict:
-    familia = c.get("familia") or "?"
-    que = {"job": "un CRON: corre solo y deja un dato",
-           "dato": "un CONTRATO DE FRESCURA: una tabla que tiene que estar al día",
-           "control": "un CONTROL DE DATOS: un invariante que se verifica"}
-    return _paso("que_es", "Qué es este chequeo", INFO,
-                 f"**{c.get('titulo')}** — {que.get(familia, familia)}."
-                 + (f" Cron `{c.get('schedule')}`." if c.get("schedule") else "")
-                 + (f" Tabla `{c.get('tabla')}`." if c.get("tabla") else "")
-                 + (f" Módulos: {', '.join(c.get('modulos') or [])}."
-                    if c.get("modulos") else ""),
-                 tabla="manager.job_runs · deploy/crontab.txt")
+# QUÉ ROMPE cada control cuando está en rojo, y DÓNDE se corrige. Sale de los
+# docstrings de `jobs/controles_datos.py`, que es donde vive el criterio — que el
+# texto se escriba una vez y se lea acá evita que la pantalla explique una cosa y
+# el control mida otra.
+CONTROLES: dict[str, dict] = {
+    "forwards_faltantes": {
+        "rompe": "esos bonos no salen en la matriz de forwards de su curva",
+        "donde": "Renta Fija → FORWARDS"},
+    "rf_sin_tasa": {
+        "rompe": "cotizan pero sin TEA: quedan fuera de cualquier comparación de "
+                 "rendimiento",
+        "donde": "Renta Fija → CURVAS"},
+    "assets_sin_cartera": {
+        "rompe": "rompen el divisor de valuación: quedan SIN CLASIFICAR en el AuM",
+        "donde": "Manager → TÍTULOS · ASSETS (columna CARTERA)"},
+    "fci_incompletos": {
+        "rompe": "salen SIN NOMBRE y se fusionan entre sí en /aum → FCI",
+        "donde": "Manager → TÍTULOS · ASSETS (ticker y emisor del FCI)"},
+    "rf_valuada_x1": {
+        "rompe": "renta fija valuada SIN ÷100: la tenencia queda 100 veces inflada",
+        "donde": "es un tipoTitulo nuevo de Aunesa fuera de TIPOS_DIVISOR_100"},
+    "comitentes_sin_nivel1": {
+        "rompe": "quedan fuera de la segmentación y de los filtros madre",
+        "donde": "Manager → CLIENTES (nivel_1)"},
+    "contrapartes_pendientes": {
+        "rompe": "hay cuentas candidatas sin dar de alta como contraparte",
+        "donde": "Manager → CONTRAPARTES (botón «Solicitar cuentas»)"},
+    "ops_sin_tc": {
+        "rompe": "boletos ARS sin `mep`: no se pueden dolarizar en OPERACIONES",
+        "donde": "Operaciones → MOVIMIENTOS"},
+    "simbolos_cuarentena": {
+        "rompe": "símbolos que Primary rechaza: se excluyen de las suscripciones "
+                 "y esos papeles quedan sin precio",
+        "donde": "Manager → TÍTULOS · ASSETS (corregir o dar de baja el símbolo)"},
+}
 
 
-def _lente_corrio(c: dict) -> dict:
+def _lente_casos(c: dict, det: dict) -> dict | None:
+    """**LOS CASOS, completos.** Es lo único que un control tiene para decir, y
+    estaba resumido a tres ejemplos truncados a 400 caracteres.
+
+    Un control que dice «8 anomalías» y muestra 3 obliga a irse a otra pantalla
+    para ver las otras 5 — o sea que el diagnóstico no diagnostica: avisa.
+    """
+    if (c.get("familia") or "") != "control":
+        return None
+    an = det.get("anomalias") or []
+    if not an:
+        return _paso("casos", "Los casos", INFO,
+                     (c.get("evidencia") or "").strip() or "sin detalle disponible.")
+    lineas = []
+    for a in an[:60]:
+        item = str(a.get("item") or a.get("clave") or "?")
+        desc = str(a.get("detalle") or a.get("motivo") or "").strip()
+        desde = str(a.get("desde") or "")[:10]
+        lineas.append(f"  · {item}" + (f" — {desc}" if desc else "")
+                      + (f"  ({desde})" if desde else ""))
+    mas = f"\n  … y {len(an) - 60} más" if len(an) > 60 else ""
+    return _paso("casos", f"Los {len(an)} casos", REVISAR,
+                 "\n".join(lineas) + mas, tabla="manager.controles_datos")
+
+
+def _lente_que_rompe(c: dict) -> dict | None:
+    """QUÉ queda mal y DÓNDE se corrige. Dos frases; el resto era relleno."""
+    familia = (c.get("familia") or "")
+    if familia == "control":
+        cid = str(c.get("id", "")).split(":", 1)[-1]
+        f = CONTROLES.get(cid)
+        if not f:
+            return None
+        return _paso("rompe", "Qué queda mal", REVISAR,
+                     f"{f['rompe']}.\n\n**Se corrige en:** {f['donde']}")
+    ficha = JOBS.get(_job_id(c)) or {}
+    if ficha.get("alimenta"):
+        return _paso("rompe", "Qué queda mal", INFO, ficha["alimenta"])
+    det = (c.get("detalle") or "").strip()
+    return _paso("rompe", "Qué queda mal", INFO, det) if det else None
+
+
+def _lente_corrio(c: dict) -> dict | None:
     """La resta que nadie hacía: ¿corrió CUANDO DEBÍA? Es la pregunta que dejó
-    pasar 48 horas de backfill muerto con la card de AuM en verde."""
+    pasar 48 horas de backfill muerto con la card de AuM en verde.
+
+    **Devuelve `None` cuando no aplica.** Antes contestaba «la pregunta no
+    aplica» y ocupaba un renglón: un paso que dice que no tiene nada que decir es
+    ruido, y diez de esos entierran al que sí lo tiene."""
     esperada, ultimo = c.get("esperada_at"), c.get("ultimo_at")
     if not esperada:
-        return _paso("corrio", "¿Corrió cuando debía?", NO_SE,
-                     "este chequeo no tiene horario esperado (no sale de un cron), "
-                     "así que la pregunta no aplica.", tabla="deploy/crontab.txt")
+        return None
     if not ultimo:
         return _paso("corrio", "¿Corrió cuando debía?", REVISAR,
                      f"debía correr **{esperada}** y **no hay ninguna corrida "
-                     "registrada**. O nunca corrió, o corre sin instrumentar — y "
-                     "de lo que no se registra no se puede afirmar que está bien.",
+                     "registrada**.", tabla="manager.job_runs")
+    if ultimo < esperada:
+        return _paso("corrio", "¿Corrió cuando debía?", REVISAR,
+                     f"**NO corrió.** Debía {esperada}, la última fue {ultimo}. "
+                     "Todo lo que sigue habla de datos viejos.",
                      tabla="manager.job_runs")
-    atrasado = ultimo < esperada
-    return _paso("corrio", "¿Corrió cuando debía?", REVISAR if atrasado else OK,
-                 f"esperada **{esperada}** · última **{ultimo}**"
-                 + (" → **no corrió**. Todo lo que sigue habla de datos viejos."
-                    if atrasado else " → al día."),
-                 tabla="manager.job_runs")
+    return None      # corrió cuando debía: no hay nada que reportar
 
 
-def _lente_salio_bien(c: dict) -> dict:
+def _lente_salio_bien(c: dict) -> dict | None:
+    """QUÉ falló, sin adornos. Si salió bien, no dice nada."""
     estado = (c.get("estado") or "").lower()
+    if estado not in ("error", "warn"):
+        return None
+    if (c.get("familia") or "") == "control":
+        return None          # en un control el «qué falló» son los CASOS
     ev = (c.get("evidencia") or "").strip()
-    if estado == "error":
-        return _paso("salio_bien", "¿Salió bien?", REVISAR,
-                     f"**no**: {c.get('motivo')}."
-                     + (f"\n\nEvidencia: `{ev[:400]}`" if ev else ""),
-                     tabla="manager.job_runs")
-    if estado == "warn":
-        return _paso("salio_bien", "¿Salió bien?", REVISAR,
-                     f"**a medias**: {c.get('motivo')}. Un parcial no es un fallo, "
-                     "pero tampoco es verde: algo del trabajo no se hizo."
-                     + (f"\n\nEvidencia: `{ev[:400]}`" if ev else ""),
-                     tabla="manager.job_runs")
-    return _paso("salio_bien", "¿Salió bien?", OK, c.get("motivo") or "sin errores",
+    return _paso("salio_bien", "Qué falló", REVISAR,
+                 f"{c.get('motivo')}." + (f"\n\n`{ev[:600]}`" if ev else ""),
                  tabla="manager.job_runs")
 
 
-def _lente_dato_fresco(c: dict) -> dict:
+def _lente_dato_fresco(c: dict) -> dict | None:
     if (c.get("familia") or "") != "dato":
-        return _paso("fresco", "¿Dejó el dato fresco?", INFO,
-                     "no es un contrato de frescura: lo que este chequeo mira es "
-                     "la CORRIDA, no el contenido de una tabla.",
-                     tabla="—")
-    return _paso("fresco", "¿Dejó el dato fresco?",
+        return None
+    return _paso("fresco", "¿El dato quedó fresco?",
                  OK if (c.get("estado") or "") == "ok" else REVISAR,
                  f"{c.get('motivo')}"
                  + (f" · {c.get('evidencia')}" if c.get("evidencia") else ""),
                  tabla=c.get("tabla") or "—")
 
 
-def _lente_historial(c: dict, hist: list[dict]) -> dict:
-    """**Lo que separa «otra vez lo mismo» de «algo nuevo»** — y son dos problemas
-    distintos: el nuevo se atiende, el que vuelve se investiga de raíz."""
-    if not hist:
-        return _paso("historial", "¿Ya pasó antes?", INFO,
-                     "no hay transiciones registradas de este chequeo: es la "
-                     "primera vez que se lo ve cambiar de estado, o el registro "
-                     "empezó después.", tabla="manager.salud_eventos")
-    caidas = [h for h in hist if (h.get("a") or "") in ("error", "warn")]
-    n = len(caidas)
-    lineas = "\n".join(f"  · {h.get('at')}: {h.get('de') or '—'} → {h.get('a')} "
-                       f"({h.get('motivo')})" for h in hist[:6])
-    if n >= _RECURRENTE:
-        return _paso("historial", "¿Ya pasó antes?", REVISAR,
-                     f"**sí, {n} veces** en el historial registrado. Esto no es un "
-                     "incidente: es un patrón, y arreglarlo de nuevo a mano lo va a "
-                     f"traer de vuelta.\n\n{lineas}",
-                     tabla="manager.salud_eventos")
-    return _paso("historial", "¿Ya pasó antes?", INFO,
-                 f"{n} caída/s registrada/s.\n\n{lineas}",
+def _lente_historial(c: dict, hist: list[dict]) -> dict | None:
+    """**Solo habla si es un PATRÓN.** «Pasó una vez» no cambia ninguna decisión;
+    «pasó seis veces» sí — deja de ser un incidente y pasa a ser un diseño que
+    hay que cambiar."""
+    caidas = [h for h in (hist or []) if (h.get("a") or "") in ("error", "warn")]
+    if len(caidas) < _RECURRENTE:
+        return None
+    lineas = "\n".join(f"  · {str(h.get('at'))[:16]}: {h.get('motivo')}"
+                        for h in hist[:5])
+    return _paso("historial", f"Ya pasó {len(caidas)} veces", REVISAR,
+                 "**Es un patrón, no un incidente.** Arreglarlo de nuevo a mano lo "
+                 f"va a traer de vuelta.\n\n{lineas}",
                  tabla="manager.salud_eventos")
 
 
@@ -300,89 +349,54 @@ def _job_id(c: dict) -> str:
     return str(c.get("id", "")).split(":", 1)[-1].strip()
 
 
-def _lente_aguas_abajo(c: dict) -> dict:
-    """Qué se rompe DESPUÉS. Es la diferencia entre «un job falló» y «el AuM de hoy
-    está mal», y es lo que decide si esto se mira ahora o el lunes."""
-    det = (c.get("detalle") or "").strip()
-    if det:
-        return _paso("aguas_abajo", "Qué se rompe aguas abajo", INFO, det,
-                     tabla=c.get("tabla") or "—")
-    ficha = JOBS.get(_job_id(c)) or {}
-    if ficha.get("alimenta"):
-        dep = ", ".join(ficha.get("depende_de") or []) or "nada externo"
-        return _paso("aguas_abajo", "Qué se rompe aguas abajo", INFO,
-                     ficha["alimenta"] + f"\n\nDepende de: **{dep}**.",
-                     tabla="av_agent_salud.JOBS")
-    mods = ", ".join(c.get("modulos") or [])
-    return _paso("aguas_abajo", "Qué se rompe aguas abajo", NO_SE,
-                 "este job **no declara qué alimenta**, así que no se puede decir "
-                 "qué queda mal cuando falla — y sin eso una alerta no se puede "
-                 "priorizar. Declararlo es UNA línea en `av_agent_salud.JOBS`."
-                 + (f" (módulos: {mods})" if mods else ""),
-                 tabla="av_agent_salud.JOBS")
+def _lente_ia(c: dict, chequeo_id: str) -> dict | None:
+    """La lectura con IA — **solo si habla del incidente de AHORA.**
 
-
-def _lente_ia(c: dict, chequeo_id: str) -> dict:
-    """**La única lente que gasta tokens**, y va última a propósito.
-
-    Las siete de arriba contestan con aritmética y son gratis; esta lee el log en
-    prosa y opina, que es justamente donde un modelo aporta y una regla no. Si no
-    hay diagnóstico —sin key, sin presupuesto, sin evento confirmado— la pantalla
-    **no se rompe**: las otras siete ya dijeron lo suyo.
+    ⚠️ El diagnóstico se cachea por EVENTO, y los eventos de los controles son del
+    2026-08-09. El resultado era una lectura de hace diez días presentada como
+    hecho actual: decía «cuenta 2018, 14 activos» mientras la evidencia de hoy
+    decía «cuentas 2019 y 2024, 8 anomalías». **Un análisis que contradice a la
+    evidencia que tiene al lado es peor que no tener análisis**, porque el que
+    lee no sabe a cuál creerle. Si está viejo, se marca; no se disfraza.
     """
     try:
         from api.services import salud
         d = salud.diagnostico(chequeo_id)
-    except Exception as e:
-        return _paso("ia", "Lectura del incidente (IA)", NO_SE,
-                     f"no se pudo pedir el diagnóstico ({type(e).__name__}). El "
-                     "resto del análisis no depende de esto.", tabla="ia.trazas")
+    except Exception:
+        return None
     txt = (d or {}).get("texto")
     if not txt:
-        return _paso("ia", "Lectura del incidente (IA)", INFO,
-                     (d or {}).get("motivo") or "sin diagnóstico disponible.",
-                     tabla="ia.trazas")
-    return _paso("ia", "Lectura del incidente (IA)", INFO, txt,
-                 tabla="ia.trazas" + ("  ·  cacheado" if d.get("cacheado") else ""))
+        return None
+    creado = str((d or {}).get("creado_at") or "")[:10]
+    viejo = ""
+    if creado:
+        try:
+            from datetime import date
+            dias = (date.today() - date.fromisoformat(creado)).days
+            if dias >= 2:
+                viejo = (f"⚠️ **Esta lectura es del {creado} ({dias} días) y puede "
+                         f"hablar de otros casos que los de arriba.**\n\n")
+        except ValueError:
+            pass
+    return _paso("ia", "Lectura con IA", INFO, viejo + txt, tabla="ia.trazas")
 
 
-def _lente_arreglo(c: dict) -> dict:
-    """Qué HARÍA falta para arreglarlo, **con el comando exacto**.
-
-    Nombrar la acción es el paso previo a ejecutarla, y es lo que permite discutir
-    si está bien ANTES de darle el botón. Pero «relanzar el job» no es una acción:
-    es una categoría. La acción es el comando que hay que tipear, y darlo escrito
-    es la diferencia entre un diagnóstico y una tarea.
-    """
+def _lente_arreglo(c: dict) -> dict | None:
+    """El COMANDO, y nada más. La explicación de por qué el agente todavía no lo
+    ejecuta se decía en CADA tarjeta: repetida diez veces deja de leerse, y no
+    cambia nada de lo que el que mira tiene que hacer."""
     familia = (c.get("familia") or "")
     jid = _job_id(c)
-    mods = [str(m).rsplit(".", 1)[-1] for m in (c.get("modulos") or [])]
     modulo = (c.get("modulos") or [None])[0] or (f"jobs.{jid}" if jid else "")
     ficha = JOBS.get(jid) or {}
-
-    if familia == "job" and modulo:
-        cuerpo = ("**Relanzar la corrida:**\n\n```\ncd /root/TradingAV && "
-                  f"source venv/bin/activate && python -m {modulo}\n```\n\n"
-                  "Después, este chequeo tiene que quedar en verde solo: SALUD lo "
-                  "reevalúa en vivo contra `manager.job_runs`.")
-        if "1816" in (ficha.get("depende_de") or []):
-            cuerpo += ("\n\n⚠️ Este job **depende de 1816**, que tiene un cupo de "
-                       "**50 tokens por día**. Antes de relanzarlo conviene mirar "
-                       "`python -m scripts.diag_1816_tokens`: si el cupo está "
-                       "quemado, la corrida va a fallar igual y va a gastar más.")
-    elif familia == "dato":
-        cuerpo = ("Correr el job que llena esa tabla para la fecha faltante. La "
-                  "tabla es `" + str(c.get("tabla") or "?") + "`; el job que la "
-                  "escribe está en `deploy/crontab.txt`.")
-    else:
-        cuerpo = ("Revisar el invariante: el arreglo depende de qué dato lo rompe, "
-                  "así que no hay un comando único.")
-    return _paso("arreglo", "Qué haría falta para arreglarlo", INFO,
-                 cuerpo + "\n\n**El agente todavía NO lo ejecuta.** Relanzar un job "
-                 "tiene efectos afuera de `mercado.curvas` y se habilita cuando el "
-                 "eval set diga que este diagnóstico acierta — primero ver, después "
-                 "simular, después escribir." + (f" (módulos: {', '.join(mods)})"
-                                                 if len(mods) > 1 else ""),
+    if familia != "job" or not modulo:
+        return None
+    cuerpo = (f"```\ncd /root/TradingAV && source venv/bin/activate && "
+              f"python -m {modulo}\n```")
+    if "1816" in (ficha.get("depende_de") or []):
+        cuerpo += ("\n\n⚠️ Depende de 1816 (cupo de 50 tokens/día). Si el cupo está "
+                   "quemado la corrida falla igual: `python -m scripts.diag_1816_tokens`.")
+    return _paso("arreglo", "Cómo se relanza", INFO, cuerpo,
                  tabla="deploy/crontab.txt")
 
 
@@ -407,8 +421,10 @@ def diagnosticar(chequeo_id: str, *, con_ia: bool = True) -> dict:
 
     # El detalle trae lo que el chequeo base no lleva (logs, cifras, qué alimenta).
     try:
-        c = {**c, **(salud.detalle(cid) or {})}
+        det = salud.detalle(cid) or {}
+        c = {**c, **det}
     except Exception:
+        det = {}
         logger.debug("av_agent_salud: sin detalle de %s", cid)
     try:
         hist = salud.historial(chequeo_id=cid, limite=12)
@@ -422,12 +438,29 @@ def diagnosticar(chequeo_id: str, *, con_ia: bool = True) -> dict:
     lecciones = mem.lecciones_de("", "") + mem.lecciones_de("", "salud")
     por_slug = {l["slug"]: l for l in lecciones}
 
-    ps = [_lente_que_es(c), _lente_corrio(c), _lente_salio_bien(c),
-          _lente_dato_fresco(c), _lente_log(c), _lente_firma(c, por_slug),
-          _lente_historial(c, hist), _lente_aguas_abajo(c)]
+    # **Orden: QUÉ pasa → QUÉ rompe → CÓMO se arregla.** Y las lentes que no
+    # tienen nada que decir devuelven `None` y no se dibujan.
+    #
+    # Antes se dibujaban las diez SIEMPRE, y seis de ellas decían variantes de
+    # «esta pregunta no aplica». El resultado era una pantalla que contaba el
+    # WORKFLOW del agente en vez del problema — el user lo dijo así:
+    # «literal no se entiende nada de nada… es demasiado texto, no se entiende
+    # cuál es el problema». Un paso que no cambia ninguna decisión no es
+    # transparencia: entierra al que sí la cambia.
+    crudos = [
+        _lente_casos(c, det),            # los casos, completos (controles)
+        _lente_salio_bien(c),            # qué falló (jobs)
+        _lente_log(c),                   # el log real
+        _lente_corrio(c),                # solo si NO corrió
+        _lente_dato_fresco(c),           # solo si es contrato de frescura
+        _lente_que_rompe(c),             # qué queda mal y dónde se corrige
+        _lente_firma(c, por_slug),       # solo si matchea una lección
+        _lente_historial(c, hist),       # solo si es un patrón
+    ]
     if con_ia:
-        ps.append(_lente_ia(c, cid))
-    ps.append(_lente_arreglo(c))
+        crudos.append(_lente_ia(c, cid))
+    crudos.append(_lente_arreglo(c))
+    ps = [p for p in crudos if p]
     for i, p in enumerate(ps, 1):
         p["n"] = i
 
@@ -441,7 +474,19 @@ def diagnosticar(chequeo_id: str, *, con_ia: bool = True) -> dict:
                         contexto={"familia": c.get("familia"),
                                   "motivo": c.get("motivo"),
                                   "schedule": c.get("schedule")})
+    # ⚠️ **El veredicto de una puerta de SOLO LECTURA no puede hablar de aplicar.**
+    # `_veredicto` está escrito para el alta de un bono, donde «se puede aplicar»
+    # es la pregunta; acá no hay nada que aplicar y decía «se puede aplicar — no
+    # falta ningún dato» arriba de una tarjeta que dice SOLO LECTURA. Dos frases
+    # del mismo agente contradiciéndose en la misma pantalla.
+    ver = _veredicto(ps)
+    ver["puede_aplicar"] = False
+    ver["puede_auto"] = False
+    n_rev = ver["conteo"]["revisar"]
+    ver["texto"] = ("sin hallazgos que revisar." if not n_rev else
+                    f"{n_rev} cosa/s para mirar. El agente NO toca SALUD: "
+                    "esto es un diagnóstico, la corrección la hace una persona.")
     return {"ok": True, "modo": "salud", "chequeo_id": cid,
             "titulo": c.get("titulo"), "familia": c.get("familia"),
             "estado": c.get("estado"), "motivo": c.get("motivo"),
-            "chequeos": ps, "veredicto": _veredicto(ps)}
+            "chequeos": ps, "veredicto": ver}

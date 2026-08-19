@@ -2480,7 +2480,7 @@ def test_el_agente_LEE_EL_LOG_en_vez_de_mandar_a_buscarlo():
     arr = _lente_arreglo(c)
     assert "python -m jobs.mercado_1816_series" in arr["detalle"]
     # Y avisa del cupo de 1816 ANTES de que la re-corrida lo gaste al pedo.
-    assert "50 tokens por día" in arr["detalle"]
+    assert "50 tokens/día" in arr["detalle"]
 
 
 def test_un_job_DECLARA_QUE_ALIMENTA():
@@ -2488,10 +2488,10 @@ def test_un_job_DECLARA_QUE_ALIMENTA():
     chequeo no declara qué alimenta». Es honesto, y también es un agujero con
     arreglo trivial: **nadie lo había escrito**. Sin eso una alerta no se puede
     priorizar — no es lo mismo «un cron falló» que «el AuM de hoy está mal»."""
-    from api.services.av_agent_salud import JOBS, _lente_aguas_abajo
+    from api.services.av_agent_salud import JOBS, _lente_que_rompe
 
     c = {"id": "job:mercado_1816_series", "familia": "job"}
-    d = _lente_aguas_abajo(c)["detalle"]
+    d = _lente_que_rompe(c)["detalle"]
     assert "RESEARCH" in d and "1816" in d
 
     # El job más caro de perder tiene que decirlo con todas las letras.
@@ -2666,3 +2666,85 @@ def test_pero_SIN_PUNTA_y_NO_SUSCRIPTO_valen_a_cualquier_hora():
     cerrado = dt.datetime(2026, 8, 18, 21, tzinfo=dt.UTC)
     hs = detectar_sin_precio([{"ticker": "X", "ticker_corto": "XX"}], {}, cerrado)
     assert hs and hs[0]["regla"] == "no_suscripto"
+
+
+# ── EL DIAGNÓSTICO DE SALUD, sin humo (2026-08-18) ──────────────────────────
+#
+# Feedback del user, textual: *«literal no se entiende nada de nada y ni siquiera
+# permite accionar… es como que cuenta al usuario todo el workflow que hace y no
+# se entiende absolutamente nada cuál es el problema. Es demasiado texto, palabras
+# fantasiosas»*. Tenía razón: de diez pasos, seis decían variantes de «esta
+# pregunta no aplica».
+
+def test_una_lente_que_no_tiene_nada_que_decir_NO_se_dibuja():
+    """Un paso que dice que no aplica no es transparencia: entierra al que sí
+    cambia una decisión. Diez de esos hacen que no se lea ninguno."""
+    from api.services.av_agent_salud import (
+        _lente_corrio,
+        _lente_dato_fresco,
+        _lente_historial,
+        _lente_salio_bien,
+    )
+    # Un control no tiene horario ni contrato de frescura: esas dos preguntas no
+    # aplican y antes ocupaban un renglón cada una explicando que no aplicaban.
+    c = {"id": "control:rf_sin_tasa", "familia": "control", "estado": "warn"}
+    assert _lente_corrio(c) is None
+    assert _lente_dato_fresco(c) is None
+    assert _lente_salio_bien(c) is None          # en un control, eso son los CASOS
+    # Y «pasó una vez» no cambia ninguna decisión: solo habla si es un PATRÓN.
+    assert _lente_historial(c, [{"a": "warn", "at": "x", "motivo": "m"}]) is None
+
+
+def test_un_job_que_corrio_cuando_debia_NO_lo_anuncia():
+    """La lente existe para avisar que NO corrió. Decir «al día» en verde es
+    ruido: si hubiera un problema ahí, lo diría."""
+    from api.services.av_agent_salud import _lente_corrio
+    assert _lente_corrio({"esperada_at": "2026-08-18T20:00:00",
+                          "ultimo_at": "2026-08-18T20:00:03"}) is None
+
+
+def test_un_control_muestra_TODOS_sus_casos_no_tres():
+    """Era lo único que el control tenía para decir, y salía resumido a tres
+    ejemplos truncados a 400 caracteres. Un diagnóstico que obliga a irse a otra
+    pantalla para ver los otros cinco no diagnostica: avisa."""
+    from api.services.av_agent_salud import _lente_casos
+    c = {"id": "control:assets_sin_cartera", "familia": "control"}
+    det = {"anomalias": [{"item": f"T{i}", "detalle": "sin cartera",
+                          "desde": "2026-08-09"} for i in range(8)]}
+    p = _lente_casos(c, det)
+    assert "Los 8 casos" in p["titulo"]
+    for i in range(8):
+        assert f"T{i}" in p["detalle"]
+
+
+def test_el_control_dice_QUE_ROMPE_y_DONDE_se_corrige():
+    """Las dos únicas cosas accionables. El resto era relleno."""
+    from api.services.av_agent_salud import _lente_que_rompe
+    p = _lente_que_rompe({"id": "control:assets_sin_cartera", "familia": "control"})
+    assert "divisor de valuación" in p["detalle"]
+    assert "Manager → TÍTULOS" in p["detalle"]
+
+
+def test_el_arreglo_es_SOLO_el_comando():
+    """La explicación de por qué el agente todavía no lo ejecuta se repetía en
+    CADA tarjeta. Repetida diez veces deja de leerse, y no cambia nada de lo que
+    el que mira tiene que hacer."""
+    from api.services.av_agent_salud import _lente_arreglo
+    p = _lente_arreglo({"id": "job:cierre_canje", "familia": "job",
+                        "modulos": ["jobs.cierre_canje"]})
+    assert "python -m jobs.cierre_canje" in p["detalle"]
+    for humo in ("eval set", "primero ver, después simular", "mercado.curvas"):
+        assert humo not in p["detalle"], f"volvió el sermón: {humo}"
+
+
+def test_una_lectura_de_IA_VIEJA_se_marca_como_vieja():
+    """El diagnóstico se cachea por EVENTO y los de los controles son del 09/08:
+    la lectura hablaba de «cuenta 2018, 14 activos» mientras la evidencia de al
+    lado decía «2019 y 2024, 8 anomalías». **Un análisis que contradice a la
+    evidencia que tiene al lado es peor que no tener análisis**: el que lee no
+    sabe a cuál creerle."""
+    import inspect
+
+    from api.services.av_agent_salud import _lente_ia
+    src = inspect.getsource(_lente_ia)
+    assert "creado_at" in src and "días) y puede" in src

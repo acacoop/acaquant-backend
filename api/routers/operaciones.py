@@ -120,15 +120,36 @@ def flujos_resumen(
 # que forzaba un COLLSCAN. Requiere el backfill de es_cierre en los docs viejos.
 
 
+# ── CATÁLOGOS DE LOS SELECTORES ──────────────────────────────────────────────
+# Los cuatro son un `SELECT DISTINCT` sobre `operaciones` (~490k filas) para
+# devolver entre 6 y 11 valores: la query cuesta un scan completo y el payload
+# pesa 0,1 KB. Medido 2026-08-19 (`scripts/diag_peso_operaciones`), con TTL de
+# 300s los cuatro juntos consumían **96s en 7 días** — más que `/ops/serie` +
+# `/ops/resumen` sumados (100s), que son los que traen los datos de verdad.
+#
+# La causa es que la vista se abre disperso (~106 aperturas/semana): con 300s
+# el cache casi nunca pega y cada apertura paga los cuatro scans. `_TTL_TAXO`
+# los lleva a 6h porque son TAXONOMÍAS — mercado, segmento, nivel_3 y cartera
+# no cambian salvo que aparezca una categoría NUEVA, y lo peor que puede pasar
+# es que esa categoría tarde hasta 6h en ofrecerse en el desplegable (los datos
+# NO se ven afectados: el filtro solo acota lo que ya se muestra).
+#
+# `/ops/fechas` y `/ops/cuentas-list` quedan AFUERA a propósito: la primera es
+# el ancla del botón ÚLTIMA (un TTL largo retrasaría el día nuevo que acaba de
+# ingestar el job) y la segunda es el padrón, donde un alta de cliente sí se
+# nota. Ésas se atacan con otra cosa, no con TTL.
+_TTL_TAXO = 6 * 3600
+
+
 @router.get("/ops/mercados")
-@cached(ttl=300)
+@cached(ttl=_TTL_TAXO)
 def ops_mercados():
     """Mercados distintos (para el selector). Cacheado."""
     return _ops_sql.ops_mercados()
 
 
 @router.get("/ops/carteras")
-@cached(ttl=300)
+@cached(ttl=_TTL_TAXO)
 def ops_carteras():
     """Carteras del catálogo de títulos (HD, DL, ARS, FCI…) que aparecen en
     los boletos — selector del filtro de cartera. Cacheado."""
@@ -397,14 +418,14 @@ def ops_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas)):
 
 
 @router.get("/ops/segmentos")
-@cached(ttl=600)
+@cached(ttl=_TTL_TAXO)
 def ops_segmentos():
     """Segmentos (nivel_1) distintos, para el filtro."""
     return _ops_sql.ops_segmentos()
 
 
 @router.get("/ops/niveles3")
-@cached(ttl=600)
+@cached(ttl=_TTL_TAXO)
 def ops_niveles3():
     """Valores distintos de nivel_3 (segmento del boleto), para el filtro OPERACIONES."""
     return _ops_sql.ops_niveles3()

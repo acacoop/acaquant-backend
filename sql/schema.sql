@@ -4176,8 +4176,24 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_evals (
     causa_correcta  text,                 -- si no acierta: cuál era (para aprender)
     nota            text,                 -- el POR QUÉ, en castellano
     por             text,
+    -- ⚠️ **DE DÓNDE SALE EL VOTO** (2026-08-19). `humano` = alguien apretó ✔/✖ en
+    -- la pantalla. `derivado` = se dedujo de una acción que un humano APROBÓ y
+    -- que salió bien: aprobar una propuesta ES decir que la causa era la
+    -- correcta, pero es una señal más débil que un voto explícito.
+    --
+    -- Se separan porque si se mezclan, «10/10» podría ser el agente
+    -- aplaudiéndose a sí mismo. **`candidata_a_auto` cuenta SOLO los humanos**:
+    -- los derivados dan contexto, no abren la compuerta.
+    origen          text NOT NULL DEFAULT 'humano',  -- humano | derivado
+    -- De qué se dedujo, para no sembrar dos veces lo mismo (ej. 'accion:1234').
+    ref             text,
     creado_at       timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE mercado.av_agent_evals ADD COLUMN IF NOT EXISTS origen text NOT NULL DEFAULT 'humano';
+ALTER TABLE mercado.av_agent_evals ADD COLUMN IF NOT EXISTS ref text;
+-- Un voto derivado por origen: re-sembrar es idempotente y no infla el número.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_evals_ref
+    ON mercado.av_agent_evals (ref) WHERE ref IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_av_evals_causa ON mercado.av_agent_evals (dominio, causa);
 CREATE INDEX IF NOT EXISTS ix_av_evals_caso  ON mercado.av_agent_evals (caso, creado_at DESC);
 
@@ -4277,12 +4293,19 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_acciones (
     detalle     jsonb,             -- lo que quedó escrito (el "después")
     antes       jsonb,             -- el estado previo, para poder revertir
     origen      text NOT NULL DEFAULT 'respuesta',  -- respuesta | job | api
+    -- ⚠️ **QUÉ DIAGNOSTICÓ EL AGENTE**, no solo qué hizo (2026-08-19). El libro
+    -- registraba la ACCIÓN (`alta_bono`) y no la CAUSA que la motivó, así que
+    -- desde el historial no se puede saber qué regla se estaba juzgando cuando
+    -- el humano aprobó. Sin esto, cada acción aprobada —que ES un juicio sobre
+    -- el diagnóstico— se tiraba, y el eval set tenía que llenarse a mano.
+    regla       text,              -- la regla del hallazgo que originó la acción
     pregunta_id bigint,            -- qué pregunta la disparó, si vino de una
     por         text,              -- email del humano que la pidió
     ok          boolean NOT NULL DEFAULT true,
     error       text
 );
 
+ALTER TABLE mercado.av_agent_acciones ADD COLUMN IF NOT EXISTS regla text;
 CREATE INDEX IF NOT EXISTS ix_av_agent_acciones_ts
     ON mercado.av_agent_acciones (ts DESC);
 CREATE INDEX IF NOT EXISTS ix_av_agent_acciones_obj

@@ -43,13 +43,18 @@ MIN_VOTOS = 10
 
 
 def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
-          nota: str = "", causa_correcta: str = "", por: str = "") -> dict:
-    """Registra el juicio humano sobre UN diagnóstico.
+          nota: str = "", causa_correcta: str = "", por: str = "",
+          origen: str = "humano", ref: str = "") -> dict:
+    """Registra el juicio sobre UN diagnóstico.
 
     `caso` es el sujeto (el ticker de un bono o el id de un chequeo) y `causa` es
     lo que dijo el agente. **El mismo caso se puede votar varias veces** y todas
     quedan: si el agente cambia de opinión sobre LOC6O dentro de un mes, la
     historia de los dos juicios es justamente lo que dice si mejoró.
+
+    `origen='derivado'` + `ref` es para los votos que NO son un click sino una
+    deducción de una acción aprobada. Con `ref`, sembrar dos veces no duplica:
+    el índice único lo rechaza y acá se devuelve `duplicado`.
     """
     caso, causa = (caso or "").strip(), (causa or "").strip()
     if not caso or not causa:
@@ -63,17 +68,23 @@ def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO mercado.av_agent_evals "
-                "(caso, dominio, causa, acierta, causa_correcta, nota, por) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                "(caso, dominio, causa, acierta, causa_correcta, nota, por, "
+                " origen, ref) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                # Sembrar es idempotente: el mismo origen no vota dos veces.
+                "ON CONFLICT (ref) WHERE ref IS NOT NULL DO NOTHING RETURNING id",
                 (caso.upper(), dominio, causa, acierta,
                  (causa_correcta or "").strip() or None, (nota or "").strip() or None,
-                 por or None))
-            vid = (cur.fetchone() or [None])[0]
+                 por or None, origen, (ref or "").strip() or None))
+            fila = cur.fetchone()
+            vid = fila[0] if fila else None
     except Exception as e:
         logger.warning("av_agent_evals: no se pudo guardar el voto", exc_info=True)
         return {"ok": False, "error": str(e)[:200]}
+    if vid is None and ref:
+        return {"ok": True, "duplicado": True, "caso": caso.upper(), "causa": causa}
     return {"ok": True, "id": vid, "caso": caso.upper(), "causa": causa,
-            "acierta": acierta}
+            "acierta": acierta, "origen": origen}
 
 
 def resumen() -> dict:
@@ -87,7 +98,11 @@ def resumen() -> dict:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT dominio, causa, count(*), "
-                "       count(*) FILTER (WHERE acierta), max(creado_at) "
+                "       count(*) FILTER (WHERE acierta), max(creado_at), "
+                # **Los HUMANOS se cuentan aparte.** Son los que abren la
+                # compuerta; los derivados solo dan contexto.
+                "       count(*) FILTER (WHERE origen = 'humano'), "
+                "       count(*) FILTER (WHERE origen = 'humano' AND acierta) "
                 "FROM mercado.av_agent_evals GROUP BY dominio, causa "
                 "ORDER BY count(*) DESC")
             filas = cur.fetchall()
@@ -100,21 +115,32 @@ def resumen() -> dict:
         return {"ok": False, "error": str(e)[:200], "causas": [], "fallos": []}
 
     causas = []
-    for d, c, n, ok, ultimo in filas:
+    for d, c, n, ok, ultimo, nh, okh in filas:
         n, ok = int(n), int(ok or 0)
+        nh, okh = int(nh or 0), int(okh or 0)
         causas.append({
             "dominio": d, "causa": c, "votos": n, "aciertos": ok,
             "precision": round(ok / n, 4) if n else None,
-            "suficiente": n >= MIN_VOTOS,
+            # ⚠️ **LA COMPUERTA CUENTA SOLO LOS HUMANOS.** Un voto derivado sale
+            # de una acción que alguien aprobó —una señal real, pero más débil— y
+            # si contara para `candidata_a_auto`, el agente podría habilitarse
+            # solo: propone, el humano aprueba por otra razón, y eso se lee como
+            # «el diagnóstico acertó 10 de 10». Los derivados dan CONTEXTO.
+            "humanos": nh, "aciertos_humanos": okh,
+            "derivados": n - nh,
+            "precision_humana": round(okh / nh, 4) if nh else None,
+            "suficiente": nh >= MIN_VOTOS,
             "ultimo_at": ultimo.isoformat() if ultimo else None,
             # La recomendación NO es un permiso: es lo que el número habilita a
             # DISCUTIR. La lane automática se prende a mano, siempre.
-            "candidata_a_auto": bool(n >= MIN_VOTOS and ok == n)})
+            "candidata_a_auto": bool(nh >= MIN_VOTOS and okh == nh)})
     total = sum(c["votos"] for c in causas)
     aciertos = sum(c["aciertos"] for c in causas)
+    humanos = sum(c["humanos"] for c in causas)
     return {
         "ok": True, "total": total, "aciertos": aciertos,
         "precision": round(aciertos / total, 4) if total else None,
+        "humanos": humanos, "derivados": total - humanos,
         "min_votos": MIN_VOTOS,
         "causas": causas,
         "fallos": [{"caso": f[0], "causa_dicha": f[1], "causa_correcta": f[2],

@@ -209,9 +209,21 @@ def avisos(incluir_resueltos: bool = True) -> list[dict]:
                        a.para
                   FROM mercado.av_agent_avisos a
                   LEFT JOIN mercado.curvas c ON c.ticker = a.ticker
-                 {'' if incluir_resueltos else 'WHERE NOT a.resuelto'}
+                 -- ⚠️ **SOLO LOS AVISOS DE BONOS.** Esta sección se construyó
+                 -- para una cosa: «di de alta el bono y le falta un dato,
+                 -- cargalo acá». Desde que la misma tabla guarda MENSAJES a
+                 -- personas, los mensajes caían acá y se dibujaban con esa
+                 -- plantilla — el aviso de saldos salía bajo la columna BONO
+                 -- diciendo «cargá el dato», que no significa nada.
+                 --
+                 -- El corte es por `clave`: las de `_CAMPO_AVISO` son datos de
+                 -- bono y tienen dónde tipearse. Lo demás son mensajes y se ven
+                 -- aparte. Se filtra por la lista DECLARADA y no por «el ticker
+                 -- empieza con tema:», que sería adivinar por el string.
+                 WHERE a.clave = ANY(%s)
+                 {'' if incluir_resueltos else 'AND NOT a.resuelto'}
                  ORDER BY a.resuelto, a.creado_at DESC
-            """)
+            """, (list(_CAMPO_AVISO),))
             filas = cur.fetchall()
     except Exception as e:
         logger.warning("av_agent: no se pudieron leer los avisos: %s", e)
@@ -268,6 +280,42 @@ def avisar_a(*, para: str, ticker: str, clave: str, que_hacer: str,
             (ticker, clave, que_hacer[:500], (por_que or "")[:300],
              donde or None, por or None, email))
         return cur.rowcount
+
+
+def mensajes(limite: int = 40) -> list[dict]:
+    """**Los mensajes que el agente le mandó a alguien.** Minimalista: a quién,
+    qué, cuántas filas quedan sin marcar y si ya se cerró.
+
+    Va aparte de `avisos()` porque son dos cosas distintas que compartían tabla:
+    un aviso de bono se COMPLETA acá (tiene su campo para tipear); un mensaje se
+    MANDÓ y lo resuelve otra persona en su pantalla. Mezclarlos hacía que el
+    aviso de saldos apareciera bajo la columna BONO pidiendo «cargá el dato».
+
+    El user pidió verlo todo en el agente igual — *«de manera minimalista pero
+    todo registrado»*: el agente tiene que poder mostrar qué mandó y si lo
+    atendieron, sin convertirse en la bandeja de otro.
+    """
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT a.id, a.para, a.clave, a.que_hacer, a.creado_at, "
+                "       a.resuelto, a.resuelto_at, a.vence_at, "
+                "       count(i.id), count(i.id) FILTER (WHERE i.hecho) "
+                "FROM mercado.av_agent_avisos a "
+                "LEFT JOIN mercado.av_agent_aviso_items i ON i.aviso_id = a.id "
+                "WHERE a.clave <> ALL(%s) AND a.para IS NOT NULL "
+                "GROUP BY a.id ORDER BY a.creado_at DESC LIMIT %s",
+                (list(_CAMPO_AVISO), limite))
+            filas = cur.fetchall()
+    except Exception as e:
+        logger.warning("av_agent: no se pudieron leer los mensajes (%s)", e)
+        return []
+    return [{"id": r[0], "para": r[1], "tema": r[2], "asunto": r[3],
+             "creado_at": r[4].isoformat() if r[4] else None,
+             "resuelto": r[5],
+             "resuelto_at": r[6].isoformat() if r[6] else None,
+             "vence_at": r[7].isoformat() if r[7] else None,
+             "filas": int(r[8] or 0), "hechas": int(r[9] or 0)} for r in filas]
 
 
 def avisos_de(email: str) -> list[dict]:
@@ -586,6 +634,8 @@ def vista() -> dict:
         # AVISOS: lo que el agente dejó listo salvo un dato que solo puede poner
         # una persona. Derivado en vivo → se cierra solo al cargar el número.
         "avisos": avisos(),
+        # Lo que el agente MANDÓ, aparte de lo que hay para completar acá.
+        "mensajes": mensajes(),
         "hallazgos": hallazgos,
         "por_tipo": por_tipo,
         "por_regla": por_regla,

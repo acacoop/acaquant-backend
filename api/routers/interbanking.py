@@ -10,7 +10,7 @@ Lo que SÍ escribe (desde 2026-08-18) va todo a tablas NUESTRAS: la clasificaci�
 de gastos (`gastos_reglas` / `gastos_overrides` / `gastos_baldes` /
 `movimientos_ignorados`), y lo manual
 (`movimientos_manuales` + las cuentas con `origen='manual'`). **Nada de eso toca
-el extracto del banco ni sale a internet.** Son 14 endpoints, todos detrás de
+el extracto del banco ni sale a internet.** Son 18 endpoints, todos detrás de
 `bancos.puede_escribir` (allowlist de Tesorería + admin) y todos auditados. Un
 test enumera exactamente cuáles son, así que uno nuevo no entra sin que alguien
 lo decida.
@@ -86,6 +86,58 @@ def conciliar(
         return _svc.conciliar(email, cuenta_id, _fecha(fecha), filas)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+
+
+# ── MOVIMIENTOS A CONCILIAR — lo confirmado, que se arregla en el otro sistema ─ #
+@router.get("/conciliar/pendientes")
+def listar_pendientes(
+    incluir_resueltos: bool = Query(False, description="también los ya arreglados"),
+) -> list[dict]:
+    """Lo que el back office confirmó que hay que arreglar en el sistema
+    contable. Sin filtro de fecha: un pendiente puede tardar días."""
+    return _svc.listar_pendientes(incluir_resueltos=incluir_resueltos)
+
+
+@router.post("/conciliar/pendientes")
+def confirmar_pendiente(
+    cuenta_id: int = Body(..., embed=True),
+    accion: str = Body(..., embed=True),
+    descripcion: str = Body(..., embed=True),
+    importe: float = Body(..., embed=True),
+    fecha: date | None = Body(None, embed=True),
+    diferencia: float | None = Body(None, embed=True),
+    nota: str = Body("", embed=True),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """Confirma un movimiento a conciliar. `accion` dice qué hay que hacer:
+    `falta_en_el_mayor` (cargarlo) o `sobra_en_el_mayor` (sacarlo)."""
+    try:
+        return _svc.confirmar_pendiente(
+            _exigir_escritura(email), cuenta_id, _fecha(fecha), accion,
+            descripcion, importe, diferencia, nota)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/conciliar/pendientes/{pendiente_id}")
+def resolver_pendiente(
+    pendiente_id: int,
+    resuelto: bool = Body(True, embed=True),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """Marca que el arreglo ya se hizo. La fila NO se borra: es la traza."""
+    try:
+        return _svc.resolver_pendiente(_exigir_escritura(email), pendiente_id, resuelto)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.delete("/conciliar/pendientes/{pendiente_id}")
+def borrar_pendiente(pendiente_id: int, email: str = Depends(get_user_email)) -> dict:
+    """Para el confirmado por error. Lo resuelto se marca, no se borra."""
+    if not _svc.borrar_pendiente(_exigir_escritura(email), pendiente_id):
+        raise HTTPException(404, "Ese pendiente no existe.")
+    return {"ok": True}
 
 
 @router.get("/diferencias")

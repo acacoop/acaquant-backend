@@ -3979,6 +3979,51 @@ CREATE TABLE IF NOT EXISTS bancos.movimientos_ignorados (
     at        timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- MOVIMIENTOS A CONCILIAR — lo que el back office confirmó que hay que arreglar
+--
+-- CONCILIAR encuentra los movimientos que explican la diferencia entre nuestro
+-- saldo y el del mayor. Encontrarlos no alcanza: **el arreglo se hace en OTRO
+-- sistema (HYGIRUS) y en otro momento**, así que si no queda anotado, la próxima
+-- conciliación vuelve a encontrar lo mismo y nadie sabe si ya se corrigió.
+--
+-- `accion` es lo ÚNICO que hay que leer para saber qué hacer:
+--   · `falta_en_el_mayor` — el banco lo tiene y el mayor no: hay que CARGARLO.
+--   · `sobra_en_el_mayor` — el mayor lo tiene y el banco no: hay que SACARLO.
+-- Se guarda la acción y no el diagnóstico ("hay una diferencia de X") porque el
+-- que lo abre mañana necesita saber qué toca hacer, no qué se detectó.
+--
+-- La DESCRIPCIÓN se guarda **tal como viene del lado que corresponde**: si el
+-- movimiento está de más en el mayor, se guarda como lo escribe HYGIRUS
+-- (`[Op. 1131723] Extracción…`); si falta, como lo escribe el banco
+-- (`CREDITO POR DATANET`). Es lo que lo hace encontrable en el sistema donde hay
+-- que ir a arreglarlo — traducirlo sería obligarlo a buscar a ciegas.
+--
+-- No se purga con la retención de 3 fechas: un pendiente puede tardar días en
+-- resolverse y lo escribió una persona.
+CREATE TABLE IF NOT EXISTS bancos.conciliacion_pendientes (
+    id           bigserial PRIMARY KEY,
+    cuenta_id    bigint NOT NULL REFERENCES bancos.cuentas(id) ON DELETE CASCADE,
+    fecha        date NOT NULL,           -- el día que se estaba conciliando
+    accion       text NOT NULL,           -- falta_en_el_mayor | sobra_en_el_mayor
+    descripcion  text NOT NULL,           -- tal como viene de SU lado
+    importe      numeric NOT NULL,        -- firmado
+    diferencia   numeric,                 -- la diferencia total de esa conciliación
+    nota         text,
+    confirmado_por text,
+    confirmado_at  timestamptz NOT NULL DEFAULT now(),
+    -- Se marca resuelto cuando el arreglo ya se hizo en el otro sistema. La fila
+    -- NO se borra: es la traza de qué se corrigió y quién lo corrigió.
+    resuelto     boolean NOT NULL DEFAULT false,
+    resuelto_por text,
+    resuelto_at  timestamptz,
+    -- El mismo movimiento confirmado dos veces es el mismo pendiente.
+    UNIQUE (cuenta_id, fecha, accion, descripcion, importe)
+);
+
+CREATE INDEX IF NOT EXISTS ix_bancos_pendientes_abiertos
+    ON bancos.conciliacion_pendientes (resuelto, fecha DESC);
+
 CREATE TABLE IF NOT EXISTS bancos.presencia (
     email     text PRIMARY KEY,
     visto_at  timestamptz NOT NULL DEFAULT now()

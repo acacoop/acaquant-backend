@@ -59,6 +59,9 @@ ESCRITURAS_PERMITIDAS = {
     # POST que NO escribe: el Excel del mayor va en el cuerpo porque no entra en
     # una query string. Igual pasa por el gate, que es lo que este test congela.
     ("POST", "/api/back-office/interbanking/conciliar"),
+    ("POST", "/api/back-office/interbanking/conciliar/pendientes"),
+    ("PUT", "/api/back-office/interbanking/conciliar/pendientes/{pendiente_id}"),
+    ("DELETE", "/api/back-office/interbanking/conciliar/pendientes/{pendiente_id}"),
     ("POST", "/api/back-office/interbanking/manual/cuentas"),
     ("DELETE", "/api/back-office/interbanking/manual/cuentas/{cuenta_id}"),
     ("POST", "/api/back-office/interbanking/manual/movimientos"),

@@ -332,3 +332,79 @@ def test_el_margen_NO_alcanza_para_hacer_pasar_un_movimiento_por_otro(monkeypatc
     out = s.conciliar("x@y", 1, FECHA, grilla)
     assert out["tolerancia"] == 10.0, "±10 sobre un millón"
     assert out["candidatos"] == [], "50.000 de distancia no es un redondeo"
+
+
+# ── El umbral NOMINAL de $1 ─────────────────────────────────────────────────
+# Caso real: 590.708,27 contra 590.708,12 — QUINCE CENTAVOS que la pantalla
+# mostraba como hallazgo y mandaban al back office a buscar un movimiento
+# inexistente. Debajo de un peso no hay ningún movimiento que pueda explicar la
+# diferencia: es redondeo del sistema contable.
+@pytest.mark.parametrize("cierre,concilia", [
+    (166_258.92, True),          # idénticos
+    (166_259.07, True),          # 15 centavos → no hay diferencia
+    (166_259.91, True),          # 99 centavos → tampoco
+    (166_259.92, False),         # un peso → sí
+    (166_358.92, False),         # cien pesos → sí
+])
+def test_debajo_de_UN_PESO_no_hay_diferencia(monkeypatch, cierre, concilia):
+    s = _svc(monkeypatch, cierre=cierre)
+    grilla = [["Concepto", "Debe", "Haber", "Saldo"],
+              ["Saldo inicial", "", "", "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    assert out["concilia"] is concilia
+
+
+# ── El SIGNO dice de qué lado está el problema ──────────────────────────────
+# diferencia = nuestro − mayor:
+#   · positiva → el banco tiene más: FALTA un movimiento en el mayor;
+#   · negativa → el mayor tiene más: SOBRA un movimiento en el mayor.
+def test_diferencia_POSITIVA_es_que_FALTA_en_el_mayor(monkeypatch):
+    s = _svc(monkeypatch, cierre=166_258.92 + 5_000.0,
+             movs=[_mov("h1", 5_000.0, "C", "CREDITO POR DATANET")])
+    grilla = [["Fecha", "Concepto", "Debe", "Haber", "Saldo"],
+              ["", "Saldo inicial", "", "", "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    c = out["candidatos"][0]
+    assert c["lado"] == "banco"
+    assert c["accion"] == "falta_en_el_mayor"
+    assert c["movimientos"][0]["descripcion"] == "CREDITO POR DATANET"
+
+
+def test_diferencia_NEGATIVA_es_que_SOBRA_en_el_mayor(monkeypatch):
+    """Y la descripción sale TAL COMO LA ESCRIBE EL MAYOR: es lo que la hace
+    encontrable en el sistema donde hay que ir a borrarla."""
+    s = _svc(monkeypatch, cierre=166_258.92 - 7_000.0)
+    grilla = [["Fecha", "Concepto", "Debe", "Haber", "Saldo"],
+              ["", "Saldo inicial", "", "", "173,258.92 D"],
+              ["18/08/2026", "[Op. 1131723] Extracción CE 2026005024", "", "7,000.00",
+               "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    c = out["candidatos"][0]
+    assert c["lado"] == "mayor"
+    assert c["accion"] == "sobra_en_el_mayor"
+    assert c["movimientos"][0]["descripcion"] == "[Op. 1131723] Extracción CE 2026005024"
+
+
+def test_NUNCA_se_cruzan_movimientos_de_los_dos_lados(monkeypatch):
+    """Una explicación que mezcla un movimiento del banco con uno del mayor no es
+    una explicación: es una coincidencia aritmética. Acá ningún lado llega solo a
+    la diferencia, aunque sumados sí darían — y tiene que decir que no encontró."""
+    s = _svc(monkeypatch, cierre=166_258.92 + 300.0,
+             movs=[_mov("h1", 100.0, "C", "DEL BANCO")])
+    grilla = [["Fecha", "Concepto", "Debe", "Haber", "Saldo"],
+              ["", "Saldo inicial", "", "", "166,458.92 D"],
+              ["18/08/2026", "DEL MAYOR", "", "200.00", "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    assert out["diferencia"] == 300.0
+    assert out["candidatos"] == [], "100 del banco + 200 del mayor NO es una explicación"
+
+
+# ── Lo confirmado se anota ──────────────────────────────────────────────────
+def test_la_accion_se_valida(monkeypatch):
+    from api.services import bancos as svc
+    monkeypatch.setattr(svc, "_q", lambda sql, params=None: [{"id": 1}])
+    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: 1)
+    with pytest.raises(ValueError, match="Acción inválida"):
+        svc.confirmar_pendiente("x@y", 1, FECHA, "arreglalo", "X", 10.0)
+    with pytest.raises(ValueError, match="descripción"):
+        svc.confirmar_pendiente("x@y", 1, FECHA, "falta_en_el_mayor", "  ", 10.0)

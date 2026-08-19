@@ -780,6 +780,52 @@ conciliación que miente, y eso no avisa.
   declara en `POST_QUE_NO_ESCRIBEN`, una lista corta y explícita: sumar uno ahí
   es el momento en que alguien tiene que justificar por qué no escribe.
 
+### El umbral, el signo, y no cruzar lados
+
+- ⚠️ **Debajo de UN PESO nominal no hay diferencia.** Caso real: `590.708,27`
+  contra `590.708,12` — **15 centavos** que la pantalla mostraba como hallazgo y
+  mandaban al back office a buscar un movimiento inexistente. Ningún movimiento
+  puede explicar 15 centavos: es redondeo del sistema contable. Es **nominal y
+  por moneda** (1 peso, 1 dólar), no un porcentaje — la unidad mínima de plata no
+  escala con el tamaño de la cuenta.
+- **El SIGNO dice de qué lado está el problema.** `diferencia = nuestro − mayor`:
+  · **positiva** → el banco tiene más: **falta un movimiento en el mayor**
+    (hay que cargarlo);
+  · **negativa** → el mayor tiene más: **sobra un movimiento en el mayor**
+    (hay que sacarlo).
+  Por eso se busca en **los dos lados** y cada explicación dice de cuál salió: no
+  es lo mismo «cargá esto en HYGIRUS» que «sacá esto de HYGIRUS», y una pantalla
+  que solo dice «hay una diferencia de X» no le sirve a nadie.
+- ⚠️ **Nunca se cruzan movimientos de los dos lados.** Una explicación que mezcla
+  uno del banco con uno del mayor no es una explicación: **es una coincidencia
+  aritmética**. Lo que se busca es concreto —«a este mayor le falta ESTE
+  movimiento»— y eso vive entero de un lado. Congelado por test.
+
+## MOVIMIENTOS A CONCILIAR
+
+Lo que el back office **confirmó** en CONCILIAR y hay que arreglar.
+
+⚠️ **Encontrar el movimiento no alcanza**: el arreglo se hace en **otro sistema
+(HYGIRUS) y en otro momento**. Sin anotarlo, la próxima conciliación vuelve a
+encontrar lo mismo y nadie sabe si ya se corrigió — así es como un hallazgo se
+convierte en trabajo repetido.
+
+- Cada fila dice **qué hacer**, no qué se detectó: `falta_en_el_mayor` →
+  **cargarlo**; `sobra_en_el_mayor` → **sacarlo**. El que lo abre mañana necesita
+  saber qué toca, no qué se diagnosticó.
+- La **descripción se guarda tal como viene de SU lado**: si sobra en el mayor,
+  como la escribe HYGIRUS (`[Op. 1131723] Extracción…`); si falta, como la
+  escribe el banco (`CREDITO POR DATANET`). Es lo que la hace **encontrable en el
+  sistema donde hay que ir a arreglarla** — traducirla sería obligar a buscar a
+  ciegas.
+- **Sin filtro de fecha**: un pendiente puede tardar días, y esconderlo al día
+  siguiente sería perder justo lo que se quiso anotar.
+- Lo resuelto **se marca, no se borra**: es la traza de qué se corrigió y quién.
+  Borrar existe solo para lo confirmado por error, y pide confirmación.
+- `bancos.conciliacion_pendientes`, con `UNIQUE (cuenta, fecha, acción,
+  descripción, importe)`: confirmar dos veces el mismo movimiento es el mismo
+  pendiente. **No la purga la retención de 3 fechas.**
+
 ## DIFERENCIAS — ¿el saldo se movió solo?
 
 La cuenta que tiene que dar, por cuenta bancaria:
@@ -865,6 +911,13 @@ La pantalla arranca mostrando **solo las cuentas con diferencia**, con un
 Respeta el filtro por banco de la vista.
 
 ## Changelog
+
+- **2026-08-19 (7)** — **MOVIMIENTOS A CONCILIAR** (ver arriba) + tres reglas que
+  faltaban en CONCILIAR: **umbral nominal de $1** (15 centavos no son un
+  hallazgo), **el signo dice de qué lado está el problema** (falta o sobra en el
+  mayor) y **nunca se cruzan movimientos de los dos lados**. Visual: las tablas
+  de los dos lados se comprimen (la descripción se lleva el sobrante y el importe
+  queda pegado) y el modal va a 1600px.
 
 - **2026-08-19 (6)** — **Se saca el chequeo de «el mayor no cierra»** (gritaba en
   un archivo perfecto: el saldo inicial se leía mil veces más grande por la

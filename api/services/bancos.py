@@ -918,23 +918,20 @@ def _movimientos_del_mayor(filas: list) -> dict:
 MAX_COMBINAR = 3
 MAX_MOVS_COMBINAR = 40
 
-# Cuánto puede sobrar para que igual se muestre como explicación.
+# Diferencia por debajo de la cual **no hay diferencia**.
 #
-# ⚠️ Nace de un caso real (2026-08-19): la diferencia daba 1.176.659,**79** y el
-# movimiento que la explicaba era de 1.176.659,**78**. **Un centavo.** Con
-# igualdad exacta el buscador contestaba «ningún movimiento da exactamente esa
-# diferencia» y escondía el movimiento que cualquiera reconoce de un vistazo.
-#
-# **Es PROPORCIONAL a la diferencia, con un piso.** Un margen fijo no escala en
-# los dos sentidos: sobre 500 millones, un peso es tan estricto como la igualdad
-# exacta y vuelve a esconder el movimiento; sobre mil pesos, un porcentaje solo
-# sería tan chico que tampoco alcanzaría para un centavo. Por eso van los dos —
-# es el mismo `rtol + atol` con que se comparan flotantes en cualquier lado.
-#
-# El porcentaje es DELIBERADAMENTE minúsculo (0,001% = 1 peso cada 100.000):
-# alcanza para redondeos y no para hacer pasar un movimiento por otro. Lo que
-# sobra se informa siempre (`resto`), así que una explicación aproximada nunca se
-# puede confundir con una exacta.
+# ⚠️ Es NOMINAL y por moneda (1 peso, 1 dólar), no un porcentaje. Nace de un caso
+# real: 590.708,27 contra 590.708,12 — **15 centavos** que la pantalla mostraba
+# como hallazgo y mandaban al back office a buscar un movimiento inexistente.
+# Debajo de un peso no hay ningún movimiento que pueda explicar la diferencia:
+# es redondeo del sistema contable. Mostrarlo no es ser prolijo, es gastar
+# atención en algo que no se puede resolver.
+SIN_DIFERENCIA = 1.0
+
+# Margen para encontrar el movimiento cuando la diferencia SÍ existe. Proporcional
+# con piso: sobre 500 millones un peso es tan estricto como la igualdad exacta y
+# vuelve a esconder el movimiento; sobre mil pesos un porcentaje solo tampoco
+# alcanzaría para un centavo.
 TOLERANCIA_PISO = 1.0
 TOLERANCIA_PCT = 0.00001
 
@@ -945,36 +942,28 @@ def tolerancia(diferencia: float) -> float:
     return round(max(TOLERANCIA_PISO, abs(diferencia) * TOLERANCIA_PCT), 2)
 
 
-def _explicaciones(movs: list[dict], objetivo: float) -> tuple[list[dict], bool]:
-    """Subconjuntos de movimientos que explican la diferencia.
+def _buscar(items: list[tuple[dict, float]], objetivo: float) -> tuple[list[dict], bool]:
+    """Subconjuntos de UN lado cuya suma llega al objetivo.
 
-    Busca en TRES pasadas, de la más estricta a la más laxa, y se queda con la
-    primera que encuentra algo:
+    ⚠️ **De un solo lado, nunca cruzando.** Una explicación que mezcla un
+    movimiento del banco con uno del mayor no es una explicación: es una
+    coincidencia aritmética. Lo que se busca es concreto —«a este mayor le falta
+    ESTE movimiento»— y eso vive entero de un lado.
 
-    1. **suma firmada == diferencia** — la explicación limpia.
-    2. **|suma| == |diferencia|** — el mismo importe con el signo al revés. Pasa
-       cuando el sistema contable lleva la cuenta del otro lado, y el back office
-       igual necesita ver ese movimiento: es EL movimiento, solo que el signo
-       cuenta otra historia. Se marca (`signo_invertido`) en vez de disimularlo.
-    3. **con TOLERANCIA**, informando cuánto sobra (`resto`).
-
-    El orden importa: si se buscara con tolerancia desde el principio, una
-    coincidencia exacta y una de un peso de diferencia valdrían lo mismo, y la
-    pantalla dejaría de distinguir «esto es» de «esto se le parece».
+    Tres pasadas, de la más estricta a la más laxa: exacto → mismo importe con el
+    signo al revés → con margen. El orden importa: buscando con margen desde el
+    principio, «esto es» y «esto se le parece» valdrían lo mismo.
     """
-    firmados = [(m, round(_firmado(m), 2)) for m in movs]
     obj = round(objetivo, 2)
-    truncado = len(firmados) > MAX_MOVS_COMBINAR
-    usables = firmados[:MAX_MOVS_COMBINAR]
+    truncado = len(items) > MAX_MOVS_COMBINAR
+    usables = items[:MAX_MOVS_COMBINAR]
 
     def _armar(combo, suma):
         return {"movimientos": [m for m, _ in combo], "suma": round(suma, 2),
-                "cantidad": len(combo),
-                "resto": round(obj - suma, 2),
-                "signo_invertido": (suma != 0 and round(suma, 2) == round(-obj, 2))}
+                "cantidad": len(combo), "resto": round(obj - suma, 2),
+                "signo_invertido": suma != 0 and round(suma, 2) == round(-obj, 2)}
 
-    # Cada pasada mira de a 1, después de a 2, después de a 3.
-    for criterio in ("exacto", "absoluto", "tolerancia"):
+    for criterio in ("exacto", "absoluto", "margen"):
         def _da(suma: float, criterio=criterio) -> bool:
             if criterio == "exacto":
                 return round(suma, 2) == obj
@@ -983,7 +972,7 @@ def _explicaciones(movs: list[dict], objetivo: float) -> tuple[list[dict], bool]
             return abs(round(suma - obj, 2)) <= tolerancia(obj)
 
         salida: list[dict] = []
-        for m, v in firmados:
+        for m, v in items:
             if _da(v):
                 salida.append(_armar([(m, v)], v))
         if salida:
@@ -1044,8 +1033,16 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
     avisos = [*mayor["avisos"], *detalle["avisos"]]
     excel = mayor["valor"]
 
+    # ⚠️ La DIFERENCIA es siempre **nuestro saldo menos el del mayor**, y su
+    # SIGNO dice qué hacer:
+    #   · positiva → el banco tiene más: **falta un movimiento en el mayor**;
+    #   · negativa → el mayor tiene más: **sobra un movimiento en el mayor**.
+    # Por eso se busca de los DOS lados y cada explicación dice de cuál salió: no
+    # es lo mismo «cargá esto en HYGIRUS» que «sacá esto de HYGIRUS».
     diferencia = None if nuestro is None or excel is None else round(nuestro - excel, 2)
-    concilia = None if diferencia is None else abs(diferencia) < 0.01
+    # Debajo de un peso NOMINAL no hay diferencia: es redondeo del sistema
+    # contable, y ningún movimiento puede explicar 15 centavos.
+    concilia = None if diferencia is None else abs(diferencia) < SIN_DIFERENCIA
 
     movs = _q(
         """SELECT mov_hash, fecha, fecha_proceso, importe, tipo, descripcion_banco,
@@ -1057,39 +1054,66 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
     candidatos: list[dict] = []
     truncados = False
     if diferencia is not None and not concilia:
-        crudos, truncados = _explicaciones(movs, diferencia)
-        candidatos = [{
-            "suma": c["suma"], "cantidad": c["cantidad"],
-            # Cuánto queda sin explicar y si el signo está al revés. Se publican
-            # SIEMPRE para que una explicación aproximada no se pueda confundir
-            # con una exacta.
-            "resto": c["resto"], "signo_invertido": c["signo_invertido"],
-            "movimientos": [{**_movimiento_publico(m), "importe_firmado": _firmado(m),
-                             "concepto": (m.get("descripcion_ib") or "").strip()}
-                            for m in c["movimientos"]],
-        } for c in crudos]
+        # Del lado del BANCO: un movimiento que el banco tiene y al mayor le
+        # falta hace que la diferencia valga exactamente ese importe.
+        del_banco, t1 = _buscar(
+            [(m, round(_firmado(m), 2)) for m in movs], diferencia)
+        # Del lado del MAYOR: un movimiento cargado de más hace que el mayor se
+        # aleje en sentido contrario, así que se busca por el OPUESTO.
+        del_mayor, t2 = _buscar(
+            [(m, m["importe"]) for m in detalle["movimientos"]], -diferencia)
+        truncados = t1 or t2
+
+        def _pub(c, lado):
+            movimientos = [
+                {**_movimiento_publico(m), "importe_firmado": _firmado(m),
+                 "concepto": (m.get("descripcion_ib") or "").strip()}
+                if lado == "banco" else
+                {"mov_hash": f"mayor:{m['fila']}", "descripcion": m["concepto"],
+                 "concepto": "", "hora": None, "codigo": None, "comprobante": None,
+                 "importe": abs(m["importe"]), "tipo": "C" if m["importe"] >= 0 else "D",
+                 "importe_firmado": m["importe"]}
+                for m in c["movimientos"]]
+            return {"lado": lado,
+                    # Qué hay que HACER con esto, dicho en una acción y no en un
+                    # diagnóstico: el que lo lee tiene que saber qué toca sin
+                    # traducir nada.
+                    "accion": "falta_en_el_mayor" if lado == "banco" else "sobra_en_el_mayor",
+                    "suma": c["suma"], "cantidad": c["cantidad"], "resto": c["resto"],
+                    "signo_invertido": c["signo_invertido"], "movimientos": movimientos}
+
+        # El signo decide cuál se muestra PRIMERO: es la explicación más probable
+        # según de qué lado sobra la plata. Las dos se muestran igual, porque
+        # matemáticamente las dos pueden ser ciertas y el que decide es el que
+        # conoce el circuito.
+        primero = del_banco if diferencia > 0 else del_mayor
+        segundo = del_mayor if diferencia > 0 else del_banco
+        lado1 = "banco" if diferencia > 0 else "mayor"
+        lado2 = "mayor" if diferencia > 0 else "banco"
+        candidatos = ([_pub(c, lado1) for c in primero]
+                      + [_pub(c, lado2) for c in segundo])[:10]
 
         # ⚠️ La pista que ahorra una hora: si los dos saldos coinciden al dar
-        # vuelta el signo del mayor, no falta ningún movimiento — es una
-        # convención contable (la cuenta quedó con saldo acreedor). NO se
-        # corrige solo: se avisa, porque invertir un signo por nuestra cuenta es
-        # exactamente cómo se fabrica una conciliación que miente.
+        # vuelta el signo del mayor, no falta ni sobra ningún movimiento — es una
+        # convención contable (la cuenta quedó del otro lado). NO se corrige
+        # solo: invertir un signo por nuestra cuenta es exactamente cómo se
+        # fabrica una conciliación que miente.
         if excel and abs(round(nuestro + excel, 2)) < abs(diferencia) / 100:
             avisos.append(
                 "Los dos saldos coinciden si se invierte el signo del mayor: no "
-                "falta ningún movimiento, la cuenta está con saldo del otro lado "
-                "(acreedor/deudor). Revisá de qué lado la lleva el sistema contable.")
+                "falta ni sobra ningún movimiento, la cuenta está con saldo del "
+                "otro lado (acreedor/deudor). Revisá de qué lado la lleva el "
+                "sistema contable.")
+
         if not candidatos:
             avisos.append(
-                "Ningún movimiento del día —ni combinación de hasta "
-                f"{MAX_COMBINAR}— llega a esa diferencia, ni siquiera por valor "
-                f"absoluto o con ±{tolerancia(diferencia):,.2f} de margen. Puede "
-                "venir de un día anterior, o ser varias cosas a la vez.")
+                "Ningún movimiento —ni del banco ni del mayor, ni combinación de "
+                f"hasta {MAX_COMBINAR} del MISMO lado— llega a esa diferencia. "
+                "Puede venir de un día anterior, o ser varias cosas a la vez.")
         elif any(c["signo_invertido"] for c in candidatos):
             avisos.append(
                 "El movimiento que explica la diferencia tiene el signo AL REVÉS: "
-                "el importe es el mismo pero de la otra mano. Suele ser que el "
-                "sistema contable lleva la cuenta del otro lado.")
+                "el importe es el mismo pero de la otra mano.")
         elif any(c["resto"] for c in candidatos):
             avisos.append(
                 "La explicación no es exacta: queda un resto (se muestra al lado "
@@ -1137,6 +1161,106 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
         "tolerancia": tolerancia(diferencia) if diferencia is not None else None,
         "avisos": avisos,
     }
+
+
+# --------------------------------------------------------------------------- #
+# MOVIMIENTOS A CONCILIAR — lo confirmado, que hay que arreglar en el otro sistema
+# --------------------------------------------------------------------------- #
+ACCIONES = ("falta_en_el_mayor", "sobra_en_el_mayor")
+
+
+def confirmar_pendiente(email: str, cuenta_id: int, fecha: date, accion: str,
+                        descripcion: str, importe: float,
+                        diferencia: float | None = None, nota: str = "") -> dict:
+    """Anota un movimiento que hay que arreglar en el sistema contable.
+
+    ⚠️ Encontrar el movimiento no alcanza: **el arreglo se hace en OTRO sistema y
+    en otro momento**. Sin anotarlo, la próxima conciliación vuelve a encontrar
+    lo mismo y nadie sabe si ya se corrigió — que es exactamente cómo un hallazgo
+    se convierte en trabajo repetido.
+    """
+    accion = (accion or "").strip()
+    descripcion = (descripcion or "").strip()
+    if accion not in ACCIONES:
+        raise ValueError(f"Acción inválida. Opciones: {', '.join(ACCIONES)}")
+    if not descripcion:
+        raise ValueError("Falta la descripción del movimiento.")
+    if not _q("SELECT 1 FROM bancos.cuentas WHERE id = %s", (cuenta_id,)):
+        raise ValueError("Esa cuenta no existe.")
+
+    filas = _q(
+        """INSERT INTO bancos.conciliacion_pendientes
+             (cuenta_id, fecha, accion, descripcion, importe, diferencia, nota,
+              confirmado_por)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (cuenta_id, fecha, accion, descripcion, importe)
+           DO UPDATE SET confirmado_at = now(), confirmado_por = EXCLUDED.confirmado_por,
+                         nota = EXCLUDED.nota, resuelto = false,
+                         resuelto_por = NULL, resuelto_at = NULL
+           RETURNING id""",
+        (cuenta_id, fecha, accion, descripcion, round(float(importe), 2),
+         diferencia, (nota or "").strip() or None, email))
+    _audit(email, "conciliar_confirmar",
+           {"cuenta_id": cuenta_id, "fecha": fecha.isoformat(), "accion": accion,
+            "descripcion": descripcion, "importe": importe})
+    return {"id": filas[0]["id"], "ok": True}
+
+
+def listar_pendientes(*, incluir_resueltos: bool = False) -> list[dict]:
+    """Lo confirmado y todavía sin arreglar. Sin filtro de fecha: un pendiente
+    puede tardar días en resolverse, y esconderlo al día siguiente sería perder
+    justo lo que se quiso anotar."""
+    where = "" if incluir_resueltos else "WHERE NOT p.resuelto"
+    return [{
+        "id": r["id"],
+        "cuenta_id": r["cuenta_id"],
+        "cuenta": f"{r['bank_name']} · {r['account_type']} {r['currency']} "
+                  f"{r['account_number']}".strip(),
+        "moneda": r["currency"],
+        "fecha": r["fecha"].isoformat() if r.get("fecha") else None,
+        "accion": r["accion"],
+        "descripcion": (r.get("descripcion") or "").strip(),
+        "importe": _f(r.get("importe")),
+        "diferencia": _f(r.get("diferencia")),
+        "nota": r.get("nota"),
+        "por": r.get("confirmado_por"),
+        "at": r["confirmado_at"].isoformat() if r.get("confirmado_at") else None,
+        "resuelto": r.get("resuelto"),
+        "resuelto_por": r.get("resuelto_por"),
+        "resuelto_at": (r["resuelto_at"].isoformat() if r.get("resuelto_at") else None),
+    } for r in _q(
+        f"""SELECT p.*, c.bank_name, c.account_type, c.currency, c.account_number
+              FROM bancos.conciliacion_pendientes p
+              JOIN bancos.cuentas c ON c.id = p.cuenta_id
+              {where}
+             ORDER BY p.resuelto, p.fecha DESC, p.confirmado_at DESC""")]
+
+
+def resolver_pendiente(email: str, pendiente_id: int, resuelto: bool = True) -> dict:
+    """Marca que el arreglo ya se hizo en el otro sistema. **La fila no se
+    borra**: es la traza de qué se corrigió y quién lo corrigió."""
+    if not _q("SELECT 1 FROM bancos.conciliacion_pendientes WHERE id = %s",
+              (pendiente_id,)):
+        raise ValueError("Ese pendiente no existe.")
+    _exec("""UPDATE bancos.conciliacion_pendientes
+                SET resuelto = %s,
+                    resuelto_por = CASE WHEN %s THEN %s ELSE NULL END,
+                    resuelto_at  = CASE WHEN %s THEN now() ELSE NULL END
+              WHERE id = %s""",
+          (resuelto, resuelto, email, resuelto, pendiente_id))
+    _audit(email, "conciliar_resolver", {"id": pendiente_id, "resuelto": resuelto})
+    return {"id": pendiente_id, "resuelto": resuelto}
+
+
+def borrar_pendiente(email: str, pendiente_id: int) -> bool:
+    """Para el confirmado por error. Lo resuelto se marca, no se borra."""
+    filas = _q("""SELECT id, cuenta_id, fecha, accion, descripcion, importe
+                    FROM bancos.conciliacion_pendientes WHERE id = %s""", (pendiente_id,))
+    if not filas:
+        return False
+    _exec("DELETE FROM bancos.conciliacion_pendientes WHERE id = %s", (pendiente_id,))
+    _audit(email, "conciliar_borrar", filas[0])
+    return True
 
 
 # --------------------------------------------------------------------------- #

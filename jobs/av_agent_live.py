@@ -30,33 +30,20 @@ transiciones es de SALUD; esto contesta «¿qué está mal AHORA?».
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 
 from core.job_runs import JobRunLogger
-from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
 
 def _guardar(hallazgos: list[dict]) -> int:
-    """Reemplaza los hallazgos live en UNA transacción.
+    """Reemplaza los hallazgos live. El INSERT vive en `av_agent` porque el
+    monitor de sistema escribe igual: dos copias de la misma transacción se
+    separan el día que una cambia."""
+    from api.services import av_agent
 
-    El DELETE + INSERT va junto a propósito: si se hicieran en dos pasos, entre
-    uno y otro la vista mostraría cero hallazgos y alguien podría leer «está todo
-    bien» justo cuando no lo está.
-    """
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM mercado.av_agent_hallazgos WHERE alcance = 'live'")
-        for h in hallazgos:
-            cur.execute(
-                "INSERT INTO mercado.av_agent_hallazgos "
-                "(alcance, tipo, ticker, regla, severidad, motivo, evidencia) "
-                "VALUES ('live', %s, %s, %s, %s, %s, %s::jsonb)",
-                (h["tipo"], h["ticker"], h["regla"], h["severidad"], h["motivo"],
-                 json.dumps(h.get("evidencia") or {}, ensure_ascii=False, default=str)))
-        conn.commit()
-    return len(hallazgos)
+    return av_agent.reemplazar_hallazgos("live", hallazgos)
 
 
 def main() -> None:

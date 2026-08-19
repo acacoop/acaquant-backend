@@ -4512,6 +4512,30 @@ CREATE TABLE IF NOT EXISTS manager.db_tamano_dia (
     n_tablas     integer NOT NULL DEFAULT 0
 );
 
+-- manager.superficie_dia — LA MEMORIA DE LA SUPERFICIE HTTP (2026-08-19).
+--
+-- Pedido del user: *«esto no tiene que ser estático… pasa el tiempo, avanza la
+-- app, se agregan cosas nuevas y se vuelve a quedar desactualizado todo. El
+-- agente debe PERSISTIR: ya tiene que tener mapeado todo»*.
+--
+-- Sin esta foto, el chequeo de permisos solo sabe decir CUÁNTOS endpoints están
+-- abiertos hoy. Con ella dice lo que importa: cuál APARECIÓ sin gate y —lo que
+-- ninguna foto puede ver— cuál PERDIÓ el gate que tenía ayer. Esa regresión es
+-- invisible para un conteo: se cierra uno, se abre otro y el total no se mueve.
+--
+-- Mismo contrato que `manager.db_tamano`: SOLO hoy y ayer, purgadas en el mismo
+-- INSERT (`av_agent_seguridad.sacar_foto`). Una tabla que vigila a la app y
+-- crece sin techo es un chiste que se cuenta solo.
+CREATE TABLE IF NOT EXISTS manager.superficie_dia (
+    fecha     date    NOT NULL,
+    path      text    NOT NULL,
+    metodos   text    NOT NULL,
+    gates     text    NOT NULL DEFAULT '',
+    sin_gate  boolean NOT NULL DEFAULT false,
+    escribe   boolean NOT NULL DEFAULT false,
+    PRIMARY KEY (fecha, path, metodos)
+);
+
 -- mercado.av_agent_propuestas — LO QUE EL AGENTE SABE HACER (2026-08-19).
 --
 -- Pedido del user: *«que el agente aprenda a sugerir, y que si le das OK

@@ -345,21 +345,24 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     nunca sin cotejarla.
     """
     with get_pool().connection() as conn, conn.cursor() as cur:
-        # ⚠️ **El máximo se calcula EXCLUYENDO los live.** `jobs.av_agent_live`
+        # ⚠️ **El máximo se calcula EXCLUYENDO los alcances de REEMPLAZO**
+        # (`live` y `sistema` — ver `av_agent.ALCANCES_VIVOS`). `jobs.av_agent_live`
         # reescribe sus hallazgos cada 5 minutos con `corrida_at = now()`, así
         # que un `max(corrida_at)` a secas devolvería SIEMPRE la corrida del
         # monitor y la relevada nocturna entera desaparecería de la pantalla —
         # en silencio, que es la peor forma. Son dos ciclos distintos conviviendo
         # en la misma tabla: el nocturno tiene UNA corrida vigente, el live es
         # un reemplazo permanente y no tiene corrida que elegir.
+        vivos = list(av_agent.ALCANCES_VIVOS)
         cur.execute("SELECT max(corrida_at) FROM mercado.av_agent_hallazgos "
-                    "WHERE alcance <> 'live'")
+                    "WHERE alcance <> ALL(%s)", (vivos,))
         fila = cur.fetchone()
         corrida = fila[0] if fila else None
         cur.execute(
             f"SELECT {', '.join(_COLS_H)} FROM mercado.av_agent_hallazgos "
-            "WHERE (%s IS NOT NULL AND corrida_at = %s AND alcance <> 'live') "
-            "   OR alcance = 'live'", (corrida, corrida))
+            "WHERE (%s IS NOT NULL AND corrida_at = %s "
+            "       AND alcance <> ALL(%s)) "
+            "   OR alcance = ANY(%s)", (corrida, corrida, vivos, vivos))
         filas = [dict(zip(_COLS_H, r, strict=False)) for r in cur.fetchall()]
         # El blob completo, no solo la PK: `sin_flujo` caduca cuando el bono YA
         # tiene cronograma, y eso se lee acá mismo. **Es la misma query** — el

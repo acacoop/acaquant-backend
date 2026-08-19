@@ -47,9 +47,29 @@ def main() -> int:
         d = seg.declarado()
         jr.set_stat("rutas", d["total"])
         jr.set_stat("sin_gate", len(d["abiertas_inesperadas"]))
+
+        # LA FOTO DE LA SUPERFICIE, **antes** de detectar: es lo que le da
+        # memoria al chequeo. Sin ella solo se puede decir cuántos endpoints
+        # están abiertos hoy; con ella, cuál apareció y cuál PERDIÓ su gate.
+        cambios = {}
+        try:
+            f = seg.sacar_foto()
+            jr.set_stat("superficie_rutas", f["rutas"])
+            cambios = seg.comparar()
+        except Exception as e:      # la foto no puede tumbar el resto del job
+            print(f"  ⚠ superficie: no pude sacar la foto — {e}")
+
         hall = seg.detectar_seguridad()
         for h in hall:
             print(f"  ⚠ SEGURIDAD  {h['ticker']} — {h['motivo']}")
+
+        if cambios.get("ok") and not cambios.get("primera"):
+            jr.set_stat("endpoints_nuevos", len(cambios["nuevos"]))
+            jr.set_stat("endpoints_de_baja", len(cambios["desaparecidos"]))
+            print(f"  superficie: {cambios['total']} endpoints "
+                  f"({len(cambios['nuevos'])} nuevos, "
+                  f"{len(cambios['desaparecidos'])} dados de baja) vs "
+                  f"{cambios['fecha_previa']}")
 
         # **Decir SIEMPRE qué se verificó.** Un log que solo habla cuando hay
         # problema deja al que lo lee sin saber si no hubo hallazgos o si el
@@ -84,6 +104,22 @@ def main() -> int:
         else:
             print(f"primera foto: {r['tablas']} tablas, "
                   f"{db.mb(r['bytes_total'])}. Mañana hay delta.")
+
+        # ⚠️ **Y ACÁ SE PERSISTE.** Hasta el 2026-08-19 estos tres detectores
+        # existían, corrían y solo IMPRIMÍAN: el hallazgo moría en el log del
+        # job. La tab SKILLS decía «se ve en AV Agent → ENCONTRÓ» y no se veía
+        # en ningún lado — el catálogo prometía algo que la pantalla no daba.
+        #
+        # Van con `alcance='sistema'`, que es de REEMPLAZO y no una corrida: la
+        # foto de anoche se pisa entera, así lo que se arregló desaparece solo
+        # sin que nadie tenga que marcarlo.
+        from api.services import av_agent
+
+        sistema = hall + ctx.detectar_tablas() + db.detectar_db()
+        n = av_agent.reemplazar_hallazgos("sistema", sistema)
+        jr.set_stat("hallazgos", n)
+        print(f"\n✔ {n} hallazgos del sistema en mercado.av_agent_hallazgos "
+              f"(alcance 'sistema') → se ven en AV Agent → ENCONTRÓ")
     return 0
 
 

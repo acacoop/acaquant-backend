@@ -65,6 +65,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import date
 
 logger = logging.getLogger(__name__)
 
@@ -247,17 +248,51 @@ def detectar_seguridad() -> list[dict]:
         logger.warning("av_agent_seguridad: no pude leer la superficie: %s", e)
         return []
 
+    # LA MEMORIA. Antes de juzgar, el agente mira cómo estaba la superficie ayer:
+    # así puede distinguir un agujero NUEVO de uno que ya estaba, y —lo que
+    # ninguna foto ve— un endpoint que PERDIÓ el gate que tenía.
+    cambios = {}
+    try:
+        c = comparar()
+        if c.get("ok") and not c.get("primera"):
+            cambios = c
+    except Exception as e:
+        logger.warning("av_agent_seguridad: sin foto de ayer: %s", e)
+
+    nuevos_hoy = {n["path"] for n in cambios.get("nuevos") or []}
+    for f in cambios.get("perdieron_gate") or []:
+        out.append(_h("perdio_el_gate", f["path"], "alta",
+                      f"AYER tenía gate y HOY no ({f['metodos']})",
+                      {"texto": f"en la foto del {cambios['fecha_previa']} pedía "
+                                f"{f['gates_ayer'] or '—'} y hoy no pide nada. "
+                                f"Esto una foto no lo ve: el total de endpoints "
+                                f"abiertos puede no moverse y aun así haber un "
+                                f"agujero nuevo."
+                                + (" **Y ADEMÁS ESCRIBE.**" if f["escribe"] else ""),
+                       "capa": "declarado", "gates_ayer": f["gates_ayer"],
+                       "metodos": f["metodos"], "escribe": f["escribe"],
+                       "desde": cambios["fecha_previa"]}))
+
     for path in d["abiertas_inesperadas"]:
-        out.append(_h("sin_gate", path, "alta",
-                      "endpoint sin NINGÚN gate y no está declarado como abierto",
+        nuevo = path in nuevos_hoy
+        out.append(_h("sin_gate", path,
+                      "alta",
+                      ("endpoint NUEVO y sin ningún gate" if nuevo else
+                       "endpoint sin NINGÚN gate y no está declarado como abierto"),
                       {"texto": "no pide bearer, ni módulo, ni allowlist. Si es "
                                 "a propósito hay que declararlo en "
                                 "`ABIERTOS_OK` con el motivo; si el candado vive "
                                 "en Cloudflare va a `PROTEGIDOS_EN_EL_BORDE`, "
                                 "que además lo hace probar; si no, le falta el "
                                 "gate. Esto sale de LEER el árbol de rutas, así "
-                                "que vale aunque el borde esté bien.",
-                       "capa": "declarado"}))
+                                "que vale aunque el borde esté bien."
+                                + (" **Apareció hoy**: no estaba en la foto de "
+                                   "ayer." if nuevo else ""),
+                       "capa": "declarado",
+                       # Sin memoria no se puede afirmar ninguna de las dos
+                       # cosas, y "no sé" es una respuesta válida.
+                       "desde": ("hoy" if nuevo else
+                                 "ya estaba" if cambios else "sin foto previa")}))
 
     p = probar()
 
@@ -296,6 +331,103 @@ def detectar_seguridad() -> list[dict]:
                        "capa": "efectivo", "status": f["status"],
                        "bytes": f["bytes"]}))
     return out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA MEMORIA DE LA SUPERFICIE — para que esto NO sea una foto
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# *«Esto no tiene que ser estático: hago la solicitud, se encuentra algo o no
+# pasa nada, y en el medio pasa el tiempo, avanza la app, se agregan cosas
+# nuevas y se vuelve a quedar desactualizado todo. El agente debe PERSISTIR: no
+# tengo que estar pidiéndole cosas, ya tiene que tener mapeado todo.»* (user)
+#
+# Un chequeo sin memoria solo sabe decir **cuántos** endpoints están abiertos
+# hoy. Con memoria puede decir lo único que importa de verdad:
+#
+#     apareció un endpoint nuevo SIN gate     → alguien lo publicó así hoy
+#     un endpoint PERDIÓ el gate que tenía    → una regresión, y es la peor
+#
+# La segunda es invisible para cualquier chequeo de foto: el total de «abiertos»
+# puede quedar igual —uno se cerró, otro se abrió— y nadie se entera. Es el mismo
+# razonamiento del tamaño de la base (§0.q): **lo que informa es el DELTA**.
+#
+# Dos fechas y purga en la misma transacción, igual que `db_tamano`: una tabla
+# que vigila a la app y crece sin techo es un chiste que se cuenta solo.
+
+FECHAS_QUE_SE_GUARDAN = 2
+
+
+def sacar_foto(*, hoy: date | None = None) -> dict:
+    """Congela la superficie de HOY: cada ruta con su gate efectivo.
+
+    Re-sacarla el mismo día PISA la del día (la PK es fecha+path+métodos), así
+    que correrla dos veces no duplica ni rompe el delta.
+    """
+    from api import superficie
+    from core.postgres import get_pool
+
+    f = hoy or date.today()
+    rs = superficie.rutas()
+    filas = [(f, r.path, ",".join(sorted(r.metodos)), ",".join(sorted(set(r.gates))),
+              r.sin_gate, r.escribe) for r in rs]
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO manager.superficie_dia "
+            "(fecha, path, metodos, gates, sin_gate, escribe) "
+            "VALUES (%s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (fecha, path, metodos) DO UPDATE SET "
+            "  gates = EXCLUDED.gates, sin_gate = EXCLUDED.sin_gate, "
+            "  escribe = EXCLUDED.escribe", filas)
+        # LA PURGA, en la misma transacción que la escritura.
+        cur.execute(
+            "DELETE FROM manager.superficie_dia WHERE fecha NOT IN "
+            "(SELECT DISTINCT fecha FROM manager.superficie_dia "
+            " ORDER BY fecha DESC LIMIT %s)", (FECHAS_QUE_SE_GUARDAN,))
+        conn.commit()
+    return {"fecha": f.isoformat(), "rutas": len(filas),
+            "sin_gate": sum(1 for r in rs if r.sin_gate)}
+
+
+def comparar() -> dict:
+    """La superficie de hoy contra la de ayer. **No devuelve totales: cambios.**
+
+    `primera=True` la primera vez, y ahí NO se reporta nada: el día uno todas las
+    rutas son «nuevas» y avisar de 541 endpoints nuevos es la forma más rápida de
+    que el aviso se apague para siempre.
+    """
+    from core.postgres import get_pool
+
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT fecha FROM manager.superficie_dia "
+                    "ORDER BY fecha DESC LIMIT 2")
+        fechas = [r[0] for r in cur.fetchall()]
+        if len(fechas) < 2:
+            return {"ok": True, "primera": True}
+        hoy, ayer = fechas[0], fechas[1]
+        cur.execute("SELECT fecha, path, metodos, gates, sin_gate, escribe "
+                    "FROM manager.superficie_dia WHERE fecha = ANY(%s)",
+                    ([hoy, ayer],))
+        filas = cur.fetchall()
+
+    def _mapa(f):
+        return {(r[1], r[2]): {"gates": r[3], "sin_gate": r[4], "escribe": r[5]}
+                for r in filas if r[0] == f}
+
+    a, h = _mapa(ayer), _mapa(hoy)
+    nuevos = [{"path": k[0], "metodos": k[1], **v}
+              for k, v in h.items() if k not in a]
+    desaparecidos = [{"path": k[0], "metodos": k[1]} for k in a if k not in h]
+    # **La regresión.** Tenía gate ayer y hoy no. Un chequeo de foto no la ve:
+    # el total de abiertos puede no moverse y aun así haber un agujero nuevo.
+    perdieron = [{"path": k[0], "metodos": k[1], "gates_ayer": a[k]["gates"],
+                  "escribe": v["escribe"]}
+                 for k, v in h.items()
+                 if k in a and v["sin_gate"] and not a[k]["sin_gate"]]
+    return {"ok": True, "primera": False,
+            "fecha": hoy.isoformat(), "fecha_previa": ayer.isoformat(),
+            "nuevos": nuevos, "desaparecidos": desaparecidos,
+            "perdieron_gate": perdieron, "total": len(h)}
 
 
 def _h(regla: str, sujeto: str, severidad: str, motivo: str,

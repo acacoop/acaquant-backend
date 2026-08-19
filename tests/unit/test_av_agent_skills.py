@@ -164,3 +164,47 @@ def test_la_vista_publica_las_tareas_de_IA_registradas():
     gateway tiene. Si una declara IA y no hay tarea, alguien se equivocó."""
     v = sk.vista()
     assert "av_agent_accion" in v["tareas_ia"]
+
+
+# ── Que lo declarado exista de verdad: el catálogo no puede prometer de más ──
+
+def test_todo_detector_declara_EN_QUE_JOB_corre():
+    """Sin esto, la tab dice «se ve en ENCONTRÓ» para todos por igual — incluso
+    para uno que no lo escribe en ningún lado, que fue exactamente el caso."""
+    from api.services import av_agent
+    faltan = set(av_agent.ACCION_POR_TIPO) - set(sk._DONDE_CORRE)
+    assert not faltan, f"detectores sin declarar dónde corren: {sorted(faltan)}"
+    sobran = set(sk._DONDE_CORRE) - set(av_agent.ACCION_POR_TIPO)
+    assert not sobran, f"declarados pero ya no existen: {sorted(sobran)}"
+
+
+def test_el_job_de_cada_detector_ESCRIBE_hallazgos():
+    """**El invariante que faltaba.** `permiso_flojo`, `tabla_quieta` y
+    `db_cambio` corrían todas las noches y solo imprimían en el log: el hallazgo
+    moría ahí y la pantalla no mostraba nada. No alcanza con que el job exista —
+    tiene que PERSISTIR, o el detector es un `print` con buena prensa."""
+    from pathlib import Path
+    raiz = Path(__file__).resolve().parents[2]
+    for tipo, modulo in sk._DONDE_CORRE.items():
+        f = raiz / (modulo.replace(".", "/") + ".py")
+        assert f.exists(), f"{tipo} dice correr en {modulo}, que no existe"
+        src = f.read_text(encoding="utf-8")
+        assert ("reemplazar_hallazgos" in src or "av_agent_hallazgos" in src), (
+            f"{modulo} no escribe hallazgos: {tipo} no llegaría a ENCONTRÓ")
+
+
+def test_el_job_de_cada_detector_ESTA_EN_EL_CRONTAB():
+    """Un detector que nadie agenda no corre solo, y todo esto existe para no
+    tener que pedirle las cosas al agente."""
+    from api.services import jobs_catalogo
+    agendados = jobs_catalogo.schedules_por_modulo()
+    for tipo, modulo in sk._DONDE_CORRE.items():
+        assert agendados.get(modulo), f"{tipo} corre en {modulo}, que no está agendado"
+
+
+def test_el_horario_NO_esta_escrito_a_mano():
+    """Se lee del crontab. Un horario copiado en otro archivo se desincroniza el
+    día que se cambia uno de los dos — y nadie se entera hasta que importa."""
+    import inspect
+    src = inspect.getsource(sk._cada_cuanto)
+    assert "schedules_por_modulo" in src

@@ -144,6 +144,46 @@ _QUE_DETECTA: dict[str, str] = {
 }
 
 
+# ⚠️ **DÓNDE CORRE CADA DETECTOR — y por qué esto existe.**
+#
+# Hasta el 2026-08-19 tres detectores (`permiso_flojo`, `tabla_quieta`,
+# `db_cambio`) corrían todas las noches y **solo imprimían en el log del job**:
+# el hallazgo moría ahí. Y sin embargo esta misma tab decía «se ve en AV Agent →
+# ENCONTRÓ», porque el `donde` estaba escrito fijo para todos.
+#
+# *Un catálogo que promete algo que la pantalla no da es peor que no tener
+# catálogo*: manda a buscar a un lugar donde no está. Así que ahora cada detector
+# declara EN QUÉ JOB corre, y un test exige que ese job **escriba hallazgos** —
+# no que exista, que escriba. El horario NO se declara: se lee del crontab, que
+# es la fuente real y no se puede desincronizar.
+_DONDE_CORRE: dict[str, str] = {
+    # La relevada nocturna (censa 1816 y deja una CORRIDA).
+    "falta_en_base": "jobs.av_agent",
+    "sin_flujo": "jobs.av_agent",
+    "tasa_sospechosa": "jobs.av_agent",
+    "hueco_de_curva": "jobs.av_agent",
+    "salud": "jobs.av_agent",
+    # El monitor de rueda (reemplaza lo suyo cada pasada).
+    "sin_precio": "jobs.av_agent_live",
+    "precio_moneda": "jobs.av_agent_live",
+    "latencia": "jobs.av_agent_live",
+    "motor_caido": "jobs.av_agent_live",
+    # El monitor del SISTEMA, de noche (reemplaza lo suyo cada pasada).
+    "db_cambio": "jobs.db_tamano",
+    "tabla_quieta": "jobs.db_tamano",
+    "permiso_flojo": "jobs.db_tamano",
+}
+
+
+def _cada_cuanto(modulo: str) -> str:
+    """El schedule REAL del crontab. No se escribe a mano a propósito."""
+    try:
+        from api.services import jobs_catalogo
+        return " · ".join(jobs_catalogo.schedules_por_modulo().get(modulo) or [])
+    except Exception:
+        return ""
+
+
 def _de_detectores() -> list[Skill]:
     """Darse cuenta solo. **Ninguno usa IA**, y eso es lo importante de esta
     lista: lo que encuentra el agente lo encuentra una función determinista que
@@ -155,7 +195,11 @@ def _de_detectores() -> list[Skill]:
         que_hace=_QUE_DETECTA.get(tipo, "sin describir"),
         usa_ia=SIN_IA, donde="AV Agent → ENCONTRÓ",
         fuente="av_agent.ACCION_POR_TIPO",
-        extra={"accion": av_agent.ACCION_POR_TIPO.get(tipo)},
+        extra={"accion": av_agent.ACCION_POR_TIPO.get(tipo),
+               # Que el catálogo diga CUÁNDO corre cada cosa es la mitad de la
+               # respuesta a «¿esto se mantiene solo o hay que pedírselo?».
+               "corre_en": _DONDE_CORRE.get(tipo, ""),
+               "cada": _cada_cuanto(_DONDE_CORRE.get(tipo, ""))},
     ) for tipo in av_agent.ACCION_POR_TIPO]
 
 

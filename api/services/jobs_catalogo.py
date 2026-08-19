@@ -59,6 +59,20 @@ def _tipo_de(module: str) -> str:
     return _ALIAS_TIPO.get(base, base)
 
 
+def schedules_por_modulo() -> dict[str, list[str]]:
+    """`jobs.x` → los cron schedules con los que corre. **Sin tocar la base.**
+
+    Existe para que cualquiera pueda contestar «¿cada cuánto corre esto?» sin
+    hardcodear un horario: el crontab es la fuente y un horario copiado a mano en
+    otro archivo se desincroniza el día que se cambia uno de los dos.
+    """
+    out: dict[str, list[str]] = {}
+    for c in _parse_crontab():
+        for mod in c["modules"]:
+            out.setdefault(mod, []).append(c["schedule"])
+    return out
+
+
 @cached(ttl=30)
 def catalogo_jobs() -> dict:
     """Catálogo completo: una fila por cron agendado + último run por módulo."""

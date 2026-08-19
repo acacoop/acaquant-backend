@@ -257,3 +257,79 @@ def test_si_la_prueba_NO_CORRE_lo_dice(monkeypatch):
     h = seg.detectar_seguridad()
     assert [x["regla"] for x in h] == ["prueba_no_corrio"]
     assert h[0]["evidencia"]["corrio"] is False
+
+
+# ── La MEMORIA: que esto no sea una foto ──────────────────────────────────
+
+def _sin_delta(monkeypatch, **kw):
+    base = {"abiertas_inesperadas": [], "total": 1, "sin_gate": [],
+            "escrituras_sin_gate": [], "abiertas_declaradas": [], "en_el_borde": []}
+    monkeypatch.setattr(seg, "declarado", lambda: {**base, **kw})
+    monkeypatch.setattr(seg, "probar", lambda: {"ok": True, "filtran": [],
+                                                "borde_abierto": []})
+
+
+def test_un_endpoint_que_PERDIO_su_gate_es_el_hallazgo(monkeypatch):
+    """**Lo que ninguna foto ve.** Se cierra uno, se abre otro y el total de
+    abiertos no se mueve: sin comparar contra ayer, la regresión es invisible."""
+    _sin_delta(monkeypatch)
+    monkeypatch.setattr(seg, "comparar", lambda: {
+        "ok": True, "primera": False, "fecha_previa": "2026-08-18", "total": 541,
+        "nuevos": [], "desaparecidos": [],
+        "perdieron_gate": [{"path": "/api/portfolio/aum", "metodos": "GET",
+                            "gates_ayer": "verify_api_key", "escribe": False}]})
+    h = seg.detectar_seguridad()
+    assert [x["regla"] for x in h] == ["perdio_el_gate"]
+    assert h[0]["severidad"] == "alta"
+    assert h[0]["evidencia"]["gates_ayer"] == "verify_api_key"
+
+
+def test_distingue_un_agujero_NUEVO_de_uno_que_ya_estaba(monkeypatch):
+    """No es lo mismo «esto se publicó así hoy» que «esto viene así hace meses»:
+    lo primero tiene un culpable identificable y se arregla en el momento."""
+    _sin_delta(monkeypatch, abiertas_inesperadas=["/api/nuevo", "/api/viejo"])
+    monkeypatch.setattr(seg, "comparar", lambda: {
+        "ok": True, "primera": False, "fecha_previa": "2026-08-18", "total": 2,
+        "nuevos": [{"path": "/api/nuevo"}], "desaparecidos": [],
+        "perdieron_gate": []})
+    por_path = {x["ticker"]: x for x in seg.detectar_seguridad()}
+    assert por_path["/api/nuevo"]["evidencia"]["desde"] == "hoy"
+    assert por_path["/api/viejo"]["evidencia"]["desde"] == "ya estaba"
+
+
+def test_sin_foto_previa_NO_INVENTA_desde_cuando(monkeypatch):
+    """«No sé» es una respuesta válida; afirmar «ya estaba» sin haber mirado
+    ayer sería exactamente el tipo de dato inventado que rompe la confianza."""
+    _sin_delta(monkeypatch, abiertas_inesperadas=["/api/x"])
+    monkeypatch.setattr(seg, "comparar", lambda: {"ok": True, "primera": True})
+    assert seg.detectar_seguridad()[0]["evidencia"]["desde"] == "sin foto previa"
+
+
+def test_la_PRIMERA_foto_no_reporta_541_endpoints_nuevos(monkeypatch):
+    """El día uno todo es «nuevo». Avisar de 541 endpoints es la forma más
+    rápida de que el aviso se apague para siempre — el mismo criterio que la
+    primera foto del tamaño de la base."""
+    _sin_delta(monkeypatch)
+    monkeypatch.setattr(seg, "comparar", lambda: {"ok": True, "primera": True})
+    assert seg.detectar_seguridad() == []
+
+
+def test_la_foto_de_la_superficie_NO_crece_sin_techo():
+    """Una tabla que vigila a la app y crece todos los días es un chiste que se
+    cuenta solo. Y la purga va en la MISMA transacción que el INSERT."""
+    import inspect
+    assert seg.FECHAS_QUE_SE_GUARDAN == 2
+    src = inspect.getsource(seg.sacar_foto)
+    assert "DELETE FROM manager.superficie_dia" in src
+    assert src.index("INSERT INTO") < src.index("DELETE FROM") < src.index("commit()")
+
+
+def test_una_foto_rota_no_tumba_el_chequeo(monkeypatch):
+    """La memoria es una mejora, no un requisito: si la tabla no está todavía,
+    el detector tiene que seguir contestando lo que sí puede saber."""
+    _sin_delta(monkeypatch, abiertas_inesperadas=["/api/x"])
+    def _boom():
+        raise RuntimeError("no existe la tabla")
+    monkeypatch.setattr(seg, "comparar", _boom)
+    h = seg.detectar_seguridad()
+    assert len(h) == 1 and h[0]["regla"] == "sin_gate"

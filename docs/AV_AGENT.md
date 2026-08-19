@@ -1139,6 +1139,94 @@ una media verdad se lee como un sí.**
 Droplet (`https://api.acaquant.com`). Sin eso, la mitad que PRUEBA queda apagada y
 solo corre la que lee.
 
+### 0.t EL AGENTE PERSISTE — o no sirve de nada (2026-08-19)
+
+> *«Esto no tiene que ser estático, ¿entendés? Porque si no pasa esto: hago la
+> solicitud, se encuentra algo o no pasa nada, y en el medio pasa el tiempo,
+> avanza la app, se agregan cosas nuevas y se vuelve a quedar desactualizado
+> todo. El agente debe PERSISTIR: no tengo que estar constantemente pidiéndole
+> cosas, ya tiene que tener mapeado todo.»* (user)
+
+#### Lo primero: tres detectores escribían en el vacío
+
+Al revisar la pregunta apareció que **`permiso_flojo`, `tabla_quieta` y
+`db_cambio` corrían todas las noches y solo `print`eaban en el log del job**. El
+hallazgo moría ahí. Y la tab SKILLS decía, para los tres, *«se ve en AV Agent →
+ENCONTRÓ»*.
+
+*Un catálogo que promete algo que la pantalla no da es peor que no tener
+catálogo*: manda a buscar a un lugar donde no está. Eran capacidades reales,
+funcionando, invisibles.
+
+**Ahora se persisten** (`jobs/db_tamano` → `mercado.av_agent_hallazgos` con
+`alcance='sistema'`) y aparecen en ENCONTRÓ como cualquier otro hallazgo. Dos
+detalles que no son detalles:
+
+- **`sistema` es un alcance de REEMPLAZO, no una corrida.** Cada pasada pisa la
+  anterior entera, así lo que se arregló desaparece solo sin que nadie lo marque.
+- ⚠️ **Y por eso hay que excluirlo del `max(corrida_at)`**, igual que `live`: un
+  máximo a secas devuelve siempre el del último monitor y **la relevada nocturna
+  entera desaparece de la pantalla, en silencio**. Ese bug ya se había pagado con
+  `live` y estaba a punto de volver a pasar. Ahora hay una constante
+  (`av_agent.ALCANCES_VIVOS`) y un solo INSERT compartido — dos copias de la
+  misma transacción se separan el día que una cambia.
+
+#### La ley de SKILLS necesitaba una segunda mitad
+
+La tab garantizaba que **toda habilidad aparezca**. No garantizaba que lo que la
+habilidad dice de sí misma sea cierto. Así que cada detector declara ahora **en
+qué job corre**, y hay un test que exige que ese job **escriba hallazgos** — no
+que exista: que escriba. Un detector cableado a un job que solo imprime es un
+`print` con buena prensa, y eso es exactamente lo que había.
+
+**El horario NO se declara: se lee de `deploy/crontab.txt`**
+(`jobs_catalogo.schedules_por_modulo`). Un horario copiado a mano en otro archivo
+se desincroniza el día que se cambia uno de los dos, y nadie se entera hasta que
+importa. En la tab cada habilidad muestra ahora **«corre solo · jobs.x · 23:30
+UTC»**, que es la mitad de la respuesta a *«¿esto se mantiene al día o hay que
+pedírselo?»*.
+
+#### La memoria de la superficie: de foto a DELTA
+
+Un chequeo sin memoria solo sabe decir **cuántos** endpoints están abiertos hoy.
+Es exactamente el problema que el user describe: la app avanza y el chequeo
+vuelve a quedar viejo, porque cada corrida arranca sin saber nada de la anterior.
+
+`manager.superficie_dia` (hoy y ayer, purgadas en el mismo INSERT — el mismo
+contrato que `db_tamano`) le da lo que faltaba:
+
+| | por qué importa |
+|---|---|
+| **apareció un endpoint NUEVO sin gate** | alguien lo publicó así hoy: hay un culpable identificable y se arregla en el momento |
+| **un endpoint PERDIÓ el gate que tenía** | **la regresión, y es invisible para cualquier foto**: se cierra uno, se abre otro y el total de abiertos no se mueve |
+
+La segunda (`perdio_el_gate`, severidad alta, y canta aparte si además **escribe**)
+es la que justifica toda la tabla. Y el `sin_gate` de siempre ahora dice **desde
+cuándo**: `hoy` · `ya estaba` · `sin foto previa` — porque afirmar «ya estaba» sin
+haber mirado ayer sería inventar un dato, y *«no sé» es una respuesta válida*.
+
+La **primera** corrida no reporta nada del delta: el día uno todas las rutas son
+«nuevas», y avisar de 541 endpoints nuevos es la forma más rápida de que el aviso
+se apague para siempre. Mismo criterio que la primera foto de la base.
+
+#### Dónde se ve, y dónde NO
+
+Los cinco tipos del sistema (`permiso_flojo`, `motor_caido`, `tabla_quieta`,
+`latencia`, `db_cambio`) entraban a la pantalla con el **tipo crudo de
+encabezado** (`PERMISO_FLOJO`), sin chip en la fila de filtros y con el sujeto
+cortado a 72px —donde no entra `/api/portfolio/aum` ni
+`mercado.market_snapshot`—. Los tres arreglados: etiqueta en castellano, chip, y
+la columna ancha que SALUD ya tenía por el mismo motivo. Van **arriba** de los
+hallazgos de datos, por el mismo criterio de «aguas arriba» que ordena las
+lentes: un motor caído o un permiso abierto explica —o vuelve secundario—
+cualquier bono mal cargado de más abajo.
+
+**No salen en AVISOS y es a propósito.** Los avisos (§0.p) son mensajes
+DIRIGIDOS a una persona; esto es estado interno del sistema y el agente es
+admin-only. Tampoco interrumpen todavía: la interrupción vive en las transiciones
+de SALUD. Que un `perdio_el_gate` sobre un endpoint de ESCRITURA abra el modal
+solo es el paso siguiente.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

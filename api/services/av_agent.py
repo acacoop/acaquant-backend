@@ -87,6 +87,53 @@ def _es_pata(ticker: str) -> bool:
     return "@" in (ticker or "")
 
 
+# ── DOS CICLOS CONVIVEN EN `mercado.av_agent_hallazgos` ──────────────────────
+#
+# La RELEVADA nocturna deja una CORRIDA: una foto con su `corrida_at`, y la
+# vigente es la última. Los monitores (rueda y sistema) no tienen corrida que
+# elegir: cada pasada **REEMPLAZA** lo suyo, porque contestan «¿qué está mal
+# AHORA?» y acumularlos dejaría 84 avisos del mismo problema al final del día.
+#
+# ⚠️ **Y por eso hay que excluirlos del `max(corrida_at)`**: se reescriben cada
+# pocos minutos, así que un máximo a secas devuelve siempre el del monitor y la
+# relevada entera desaparece de la pantalla **en silencio**. Ya pasó con `live`;
+# la constante existe para que el próximo alcance de reemplazo no lo repita.
+ALCANCES_VIVOS = ("live", "sistema")
+
+
+def reemplazar_hallazgos(alcance: str, hallazgos: list[dict]) -> int:
+    """Reescribe TODOS los hallazgos de un alcance de reemplazo, en UNA transacción.
+
+    El DELETE y el INSERT van juntos a propósito: en dos pasos, entre uno y otro
+    la pantalla mostraría cero hallazgos y alguien podría leer «está todo bien»
+    justo cuando no lo está.
+
+    Vive acá y no en cada job porque los dos monitores escriben lo mismo de la
+    misma forma, y dos copias del mismo INSERT se separan el día que una cambia.
+    """
+    import json
+
+    from core.postgres import get_pool
+
+    if alcance not in ALCANCES_VIVOS:
+        raise ValueError(f"{alcance!r} no es un alcance de reemplazo: borrar una "
+                         f"CORRIDA entera no es lo que esta función hace")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM mercado.av_agent_hallazgos WHERE alcance = %s",
+                    (alcance,))
+        for h in hallazgos:
+            cur.execute(
+                "INSERT INTO mercado.av_agent_hallazgos "
+                "(alcance, tipo, ticker, regla, severidad, motivo, evidencia) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)",
+                (alcance, h["tipo"], h["ticker"], h["regla"], h["severidad"],
+                 h["motivo"],
+                 json.dumps(h.get("evidencia") or {}, ensure_ascii=False,
+                            default=str)))
+        conn.commit()
+    return len(hallazgos)
+
+
 # QUÉ PUEDE HACER EL AGENTE con cada tipo de hallazgo. **Vive acá y no en el
 # front**: el que sabe si un hallazgo es accionable es el que sabe resolverlo.
 #

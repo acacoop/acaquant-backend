@@ -14,8 +14,10 @@ cambian de veredicto con eso es un dato de prod, y no se puede suponer**
 Contesta, por bono de curva USD que hoy cotiza en pesos:
 
     sembrada          ya tenemos la pata D/C en `mercado.especies`
-    solo_en_primary   existe en Primary y NO la teníamos  ← lo que el fix destapa
-    sin_pata          no está en ninguna de las dos: es el instrumento
+    solo_en_primary   existe en Primary y NO la teníamos
+    por_ficha         el NOMBRE no se parece, pero Primary dice que es el mismo
+                      bono (mismo `underlying` + `maturity`)  ← el caso BOPREAL
+    sin_pata          no está por ninguna de las tres vías: es el instrumento
 
 Y para cada una, **si la estamos escuchando**, que son TRES estados y no dos —
 la distinción del AO29 (§0.v):
@@ -40,6 +42,7 @@ from __future__ import annotations
 import sys
 
 from api.services import av_agent
+from core import especies as E
 from core.postgres import get_pool
 
 _SUF = ("D", "C")
@@ -84,8 +87,18 @@ def main() -> int:
               "      Refrescarlo: python -m scripts.discovery_pyrofex\n")
         return 1
 
+    # La ficha de cada símbolo, para la tercera vía (ver el docstring). Si no se
+    # puede leer, se degrada: la vía no corre y se DICE, no se finge que no había.
+    try:
+        instrumentos = E.instrumentos_primary()
+    except Exception as e:
+        print(f"\n  ⚠️  no pude leer las fichas de Primary ({type(e).__name__}): "
+              f"la vía `por_ficha` NO corre y los `sin_pata` de abajo pueden "
+              f"tener pata igual.\n")
+        instrumentos = []
+
     filas = []
-    resumen = {"sembrada": 0, "solo_en_primary": 0, "sin_pata": 0}
+    resumen = {"sembrada": 0, "solo_en_primary": 0, "por_ficha": 0, "sin_pata": 0}
     escucha = {"no_escucha": 0, "sin_punta": 0, "con_precio": 0}
     n_dl = 0
     for tk, simbolo, curva, ajuste, ajuste_alt in bonos:
@@ -111,10 +124,17 @@ def main() -> int:
         en_primary = [x for suf in _SUF for x in primary if f" - {base}{suf} - " in x]
         nuevas = [x for x in en_primary if x not in set(mias)]
 
+        # TERCERA VÍA: el nombre no se parece, pero Primary dice que es el mismo
+        # bono. Solo se pregunta si las dos primeras fallaron — es más cara y no
+        # aporta nada donde el string ya alcanzó.
+        por_ficha = ([] if (mias or nuevas) else
+                     [h["simbolo"] for h in
+                      E.hermanas_por_ficha(base, instrumentos, moneda="USD")])
         origen = ("sembrada" if mias else
-                  "solo_en_primary" if nuevas else "sin_pata")
+                  "solo_en_primary" if nuevas else
+                  "por_ficha" if por_ficha else "sin_pata")
         resumen[origen] += 1
-        cand = (sorted(mias) or sorted(nuevas) or [""])[0]
+        cand = (sorted(mias) or sorted(nuevas) or por_ficha or [""])[0]
         # LOS TRES ESTADOS. `cand in snap` es «está en el snapshot», con precio o
         # sin él — que es distinto de `cand in precios`.
         # `cand in snap` = está en el snapshot (con precio o sin él). El adhoc no
@@ -137,6 +157,11 @@ def main() -> int:
     for k, v in resumen.items():
         pct = f"{v / n * 100:5.1f}%" if n else "    —"
         print(f"    {k:<18} {v:>4}  {pct}")
+    if resumen["por_ficha"]:
+        print("\n    → `por_ficha` son los que NINGUNA regla de nombre encuentra "
+              "y existen\n      igual (el caso BOPREAL: BPOA7 → BPA7D). Los "
+              "emparejó el JOIN por\n      underlying+maturity, sin adivinar "
+              "nada del string.")
     print("\n  ¿LA ESTAMOS ESCUCHANDO?  (de los que TIENEN pata)")
     m = sum(escucha.values())
     for k, v in (("no_escucha", escucha["no_escucha"]),

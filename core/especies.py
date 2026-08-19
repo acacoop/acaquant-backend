@@ -85,6 +85,113 @@ def pata(simbolo: str, ticker: str, clasificar) -> dict | None:
             "especie": esp, "moneda": mon, "plazo": s[3]}
 
 
+# ── LAS PATAS POR FICHA, cuando el STRING no alcanza (2026-08-19) ───────────
+#
+# **El caso BOPREAL, que rompe las dos convenciones de arriba.** El user lo cazó
+# mirando Manager → Títulos · Instrumentos:
+#
+#     MERV - XMEV - BPOA7 - CI     ARS   BOPREAL S. 1 A VTO31/10/27 U$S CG
+#     MERV - XMEV - BPA7D - 24hs   USD   BOPREAL S. 1 A VTO31/10/27 U$S CG
+#     MERV - XMEV - BPA7C - CI     USD   BOPREAL S. 1 A VTO31/10/27 U$S CG
+#
+# La pata en pesos se llama **BPOA7** y la de dólares **BPA7D**: no es `stem + D`
+# — **se cae la O del medio**. `RE_ESPECIE` clasifica bien a `BPA7D` (base `BPA7`,
+# especie mep) pero lo agrupa con un bono que no existe: el par nunca se arma, y
+# los 6 BOPREALes salían como «no tiene pata en dólares» siendo que la tienen.
+#
+# La salida NO es agregarle un caso especial a la regex. Sería la tercera
+# convención escrita a mano, y la cuarta la vamos a descubrir igual que ésta:
+# tarde y por un bono que se veía raro en la pantalla.
+#
+# **Primary ya dice de qué bono es cada símbolo** — `underlying` + `maturity`
+# vienen en el discovery y no hay que adivinarlos:
+#
+#     el ticker en pesos → su ficha (underlying, maturity)
+#     esa misma ficha    → ¿qué otros símbolos la tienen, en otra moneda?
+#
+# Eso es un JOIN EXACTO sobre dos campos, no una heurística: o la ficha coincide
+# o no. Funciona para BOPREAL, para AL30 y para el que venga con la convención
+# que se les ocurra, porque **no mira el nombre**.
+#
+# ⚠️ **SOLO los símbolos `MERV - XMEV - …`**, y no es un detalle de formato.
+# Primary publica los mismos papeles dos veces, y la forma corta trae un
+# `underlying` GENÉRICO:
+#
+#     MERV - XMEV - BPOA7 - CI   →  "BOPREAL S. 1 A VTO31/10/27 U$S CG"   ← sirve
+#     BPOA7/CI                   →  "Bopreales - Bonos BCRA"              ← NO
+#
+# Con la genérica, los 6 BOPREALes tendrían la MISMA ficha y cada uno heredaría
+# las patas de los otros cinco. Un emparejamiento silencioso y equivocado es peor
+# que no emparejar: el motor pediría el precio de otro bono y la fila se llenaría
+# con un número creíble.
+
+# Tope de símbolos que puede tener una ficha antes de dejar de creerle. Un bono
+# tiene a lo sumo 3 especies × 2 plazos = 6; se deja el doble de aire. Si una
+# ficha agrupa más, es genérica —o Primary cambió algo— y **no se usa**: es la
+# misma degradación que el resto del módulo, ante la duda no se empareja.
+MAX_POR_FICHA = 12
+
+
+def _es_merv(simbolo: str) -> bool:
+    return (simbolo or "").strip().upper().startswith("MERV - XMEV - ")
+
+
+def fichas(filas: list[dict]) -> dict[tuple[str, str], list[dict]]:
+    """`(underlying, maturity)` → los símbolos de Primary que la comparten. PURA.
+
+    `filas` son los `instruments` del discovery: `{ticker, underlying, maturity,
+    currency}`. Se descartan las que no son `MERV - XMEV - …` (ver arriba) y las
+    que no traen ficha completa — media ficha no identifica a nadie.
+    """
+    out: dict[tuple[str, str], list[dict]] = {}
+    for f in filas or []:
+        sim = (f.get("ticker") or "").strip()
+        und = (f.get("underlying") or "").strip()
+        mat = str(f.get("maturity") or "").strip()
+        if not sim or not und or not mat or not _es_merv(sim):
+            continue
+        out.setdefault((und.upper(), mat), []).append({
+            "simbolo": sim, "ticker_especie": (segs(sim) or ["", "", "", ""])[2].upper(),
+            "moneda": (f.get("currency") or "").strip().upper(),
+            "plazo": (segs(sim) or ["", "", "", ""])[3],
+            "underlying": und, "maturity": mat})
+    return out
+
+
+def hermanas_por_ficha(ticker_especie: str, filas: list[dict],
+                       *, moneda: str = "USD") -> list[dict]:
+    """Las patas de OTRA moneda del mismo bono, encontradas por FICHA. PURA.
+
+    `ticker_especie` es el corto tal como cotiza (`BPOA7`), no el símbolo entero.
+    Devuelve los símbolos de Primary que comparten `underlying` + `maturity` y
+    están en `moneda`, ordenados por preferencia (24hs antes que CI).
+
+    Vacío si no se encuentra, si la ficha está incompleta o si agrupa demasiados
+    símbolos: **«no pude emparejar» nunca se convierte en un emparejamiento.**
+    """
+    tk = (ticker_especie or "").strip().upper()
+    mon = (moneda or "").strip().upper()
+    if not tk:
+        return []
+    idx = fichas(filas)
+    # La ficha del ticker que nos dieron. Puede aparecer en varios plazos: todos
+    # comparten ficha, así que alcanza con encontrarlo una vez.
+    clave = next((k for k, v in idx.items()
+                  if any(x["ticker_especie"] == tk for x in v)), None)
+    if clave is None:
+        return []
+    grupo = idx[clave]
+    if len(grupo) > MAX_POR_FICHA:
+        logger.warning("especies: la ficha %s agrupa %d símbolos (> %d) — no se "
+                       "empareja por ficha", clave, len(grupo), MAX_POR_FICHA)
+        return []
+    hs = [x for x in grupo if x["moneda"] == mon and x["ticker_especie"] != tk]
+    # 24hs antes que CI: ahí está la liquidez, y por lo tanto el precio. Mismo
+    # criterio que `preferencia`, que acá no se puede usar tal cual porque estas
+    # filas todavía no tienen `especie` clasificada.
+    return sorted(hs, key=lambda x: (x["plazo"] != "24hs", x["simbolo"]))
+
+
 def preferencia(p: dict) -> tuple:
     """Orden de preferencia dentro de una moneda: MEP antes que cable (es la que
     mira la mesa) y 24hs antes que CI (ahí está la liquidez, y por lo tanto el
@@ -108,7 +215,27 @@ def simbolos_primary() -> list[str]:
         return [t for (t,) in cur.fetchall() if t]
 
 
-def patas_de(ticker: str, simbolos: list[str], *, moneda_bono: str = "") -> list[dict]:
+def instrumentos_primary() -> list[dict]:
+    """Los instruments CRUDOS de Primary, con su ficha completa.
+
+    `simbolos_primary()` devuelve solo los nombres, que alcanza para preguntar
+    «¿existe?». Para preguntar «¿de qué bono es?» hace falta la ficha —
+    `underlying`, `maturity`, `currency`— y eso es lo que habilita
+    `hermanas_por_ficha` (ver el caso BOPREAL arriba).
+    """
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT i->>'ticker', i->>'underlying', i->>'maturity', "
+                    "       i->>'currency' "
+                    "FROM manager.pyrofex_instruments p, "
+                    "     jsonb_array_elements(p.instruments) i "
+                    "WHERE i->>'ticker' IS NOT NULL")
+        return [{"ticker": a, "underlying": b, "maturity": c, "currency": d}
+                for a, b, c, d in cur.fetchall()]
+
+
+def patas_de(ticker: str, simbolos: list[str], *, moneda_bono: str = "",
+             extra: tuple[str, ...] = ()) -> list[dict]:
     """Todas las patas de UN ticker, con `es_default` resuelto. PURA.
 
     **Devuelve las DOS monedas cuando existen** (pedido del user, 2026-08-17): un
@@ -126,6 +253,7 @@ def patas_de(ticker: str, simbolos: list[str], *, moneda_bono: str = "") -> list
     clasificar = clasificador(universo)
 
     patas = []
+    vistos: set[str] = set()
     for sim in simbolos:
         s = segs(sim)
         if not s:
@@ -135,6 +263,21 @@ def patas_de(ticker: str, simbolos: list[str], *, moneda_bono: str = "") -> list
             p = pata(sim, tk, clasificar)
             if p:
                 patas.append(p)
+                vistos.add(sim)
+    # **`extra` son símbolos que YA sabemos de este bono por otra vía** — hoy, la
+    # ficha de Primary (`hermanas_por_ficha`), que es la única que caza al BOPREAL
+    # porque su pata en dólares NO se parece a la de pesos (BPOA7 ↔ BPA7D).
+    #
+    # Entran forzados al grupo, pero **la moneda y la especie se siguen sacando
+    # del sufijo** y no se inventan: `BPA7D` termina en D, así que el clasificador
+    # acierta — lo único que estaba roto era a QUÉ bono pertenece, no qué es.
+    for sim in extra:
+        if sim in vistos:
+            continue
+        p = pata(sim, tk, clasificar)
+        if p:
+            patas.append(p)
+            vistos.add(sim)
     if not patas:
         return []
 
@@ -178,7 +321,17 @@ def sembrar_ticker(ticker: str, *, moneda_bono: str = "") -> dict:
     except Exception as e:
         return {"ok": False, "error": f"no se pudo leer el catálogo de Primary: "
                                       f"{type(e).__name__}", "patas": []}
-    patas = patas_de(ticker, sims, moneda_bono=moneda_bono)
+    # LA FICHA, para los que el nombre no empareja (BOPREAL). Es un intento
+    # ADICIONAL y nunca reemplaza al de siempre: si falla, se siembra igual lo que
+    # el string sí encontró — degradar es distinto de fallar.
+    extra: tuple[str, ...] = ()
+    try:
+        insts = instrumentos_primary()
+        extra = tuple(h["simbolo"] for m in ("USD", "ARS")
+                      for h in hermanas_por_ficha(ticker, insts, moneda=m))
+    except Exception as e:
+        logger.warning("especies: no pude emparejar %s por ficha (%s)", ticker, e)
+    patas = patas_de(ticker, sims, moneda_bono=moneda_bono, extra=extra)
     if not patas:
         return {"ok": False, "patas": [],
                 "error": f"Primary no lista ninguna especie de {ticker} — no hay "

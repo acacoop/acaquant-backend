@@ -146,6 +146,36 @@ def explicar(ticker: str) -> dict:
                       if f" - {base}{suf} - " in x] if base else []
         candidatas = list({*candidatas, *en_primary})
 
+    # ── TERCERA VÍA: LA FICHA, cuando el NOMBRE no alcanza (2026-08-19) ──────
+    #
+    # El caso BOPREAL: la pata en pesos se llama `BPOA7` y la de dólares `BPA7D`
+    # —**se cae la O del medio**—, así que ninguna regla de sufijo las empareja y
+    # los 6 salían como «no tiene pata en dólares» teniéndola.
+    #
+    # Primary ya sabe de qué bono es cada símbolo (`underlying` + `maturity`), así
+    # que en vez de adivinar por el string se hace un JOIN EXACTO sobre la ficha.
+    # Se pregunta ÚLTIMO: donde el nombre alcanzó, esto no aporta y cuesta una
+    # query más.
+    por_ficha: list[str] = []
+    if not sembradas and not en_primary and base:
+        try:
+            from core import especies
+            por_ficha = [h["simbolo"] for h in especies.hermanas_por_ficha(
+                base, especies.instrumentos_primary(), moneda="USD")]
+        except Exception as e:
+            logger.warning("av_agent_pata: no pude emparejar por ficha (%s)", e)
+    if por_ficha:
+        candidatas = list({*candidatas, *por_ficha})
+        pasos.append({
+            "clave": "ficha", "estado": REVISAR,
+            "titulo": "El nombre no se parece, pero es el mismo bono",
+            "detalle": ("«" + ", ".join(sorted(_corto(x) for x in por_ficha))
+                        + f"» comparte `underlying` y `maturity` con «{base}» en "
+                        "el catálogo de Primary. No es una corazonada sobre el "
+                        "string: es la ficha del propio mercado (el caso BOPREAL, "
+                        "donde BPOA7 ↔ BPA7D)."),
+        })
+
     nuevas = [x for x in en_primary if x not in set(sembradas)]
     if sembradas:
         pasos.append({
@@ -171,7 +201,7 @@ def explicar(ticker: str) -> dict:
                         "en el catálogo de Primary y falta en `mercado.especies`. "
                         "Sembrarla y pedirla no reinicia nada."),
         })
-    elif primary is not None and not candidatas:
+    elif primary is not None and not candidatas and not por_ficha:
         pasos.append({
             "clave": "primary", "estado": INFO,
             "titulo": "Primary tampoco lista una pata en dólares",

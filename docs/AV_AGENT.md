@@ -1682,6 +1682,95 @@ todavía no se clasificaron.
 
 **Queda la lista real en 36 casos, de los cuales 28 son accionables en el acto.**
 
+Corrido de nuevo con el filtro puesto: **31 dólar linked excluidos** y la lista
+en **20**. Son muchos más que los 8 que se veían en la primera tabla, y el motivo
+importa: 8 tenían `curva = 'dolar_linked'` y los otros ~23 estaban escondidos
+bajo `curva = 'soberanos'` / `'on_energia'` con el EJE en dólar linked — ONs
+corporativas dólar linked, que son un montón. Mirar solo el nombre de la curva
+habría dejado el 74% del ruido adentro.
+
+Y de los 12 que tienen pata: **`no_escucha` 12, `sin_punta` 0**. Ni una sola está
+siendo escuchada, así que de ninguna se puede afirmar hoy que no cotiza.
+
+### 0.y EL NOMBRE NO ES LA IDENTIDAD — las patas por FICHA (2026-08-19)
+
+> *«Justo los BOPREAL no es que cambia la D al final, cambian al principio. Pero
+> también puede intentar buscar por maturity… o sea hay maneras de decir bueno a
+> ver, el ticker en ARS cuál es el underlying acá, y después decir che ¿este
+> underlying está en otro CCY? Y también reforzar con underlying más igual
+> maturity.»* (user)
+
+El user lo cazó abriendo Manager → Títulos · Instrumentos, que es el discovery
+crudo de Primary:
+
+    MERV - XMEV - BPOA7 - CI     ARS   BOPREAL S. 1 A VTO31/10/27 U$S CG
+    MERV - XMEV - BPA7D - 24hs   USD   BOPREAL S. 1 A VTO31/10/27 U$S CG
+    MERV - XMEV - BPA7C - CI     USD   BOPREAL S. 1 A VTO31/10/27 U$S CG
+
+**La pata en pesos se llama `BPOA7` y la de dólares `BPA7D`: se cae la O del
+medio.** Las dos convenciones que `core/especies` conocía fallan las dos —el
+sufijo D/C y el par O/D de las ONs— y `RE_ESPECIE` encima *acierta a medias*, que
+es lo peor: clasifica `BPA7D` como base `BPA7`, especie MEP, y lo cuelga de un
+bono que no existe. El par nunca se arma y los 6 BOPREALes salen como «no tiene
+pata en dólares» teniéndola.
+
+#### Por qué NO se le agrega un caso a la regex
+
+Sería la tercera convención escrita a mano, y la cuarta la vamos a descubrir
+igual que ésta: tarde, y porque un bono se veía raro en la pantalla. El problema
+de fondo es que **estábamos usando el nombre como identidad**, y el nombre es una
+convención del emisor, no un dato.
+
+**Primary ya dice de qué bono es cada símbolo.** El discovery guarda `underlying`
+y `maturity` desde siempre y nadie los estaba usando:
+
+    el ticker en pesos → su ficha (underlying, maturity)
+    esa misma ficha    → ¿qué otros símbolos la tienen, en otra moneda?
+
+Eso es un **JOIN EXACTO sobre dos campos**, no una heurística: o la ficha coincide
+o no. Anda para BOPREAL, para AL30 y para la convención que se les ocurra
+mañana, porque no mira el nombre. Vive en `core/especies.hermanas_por_ficha` y lo
+usan la puerta del agente y el sembrador — una sola implementación.
+
+⚠️ **SOLO los símbolos `MERV - XMEV - …`, y no es un detalle de formato.** Primary
+publica los mismos papeles dos veces y la forma corta trae un `underlying`
+GENÉRICO:
+
+    MERV - XMEV - BPOA7 - CI   →  "BOPREAL S. 1 A VTO31/10/27 U$S CG"   ← sirve
+    BPOA7/CI                   →  "Bopreales - Bonos BCRA"              ← NO
+
+Con la genérica, los 6 BOPREALes comparten ficha y cada uno hereda las patas de
+los otros cinco. **Un emparejamiento silencioso y equivocado es peor que
+ninguno**: el motor pediría el precio de otro bono y la fila se llenaría con un
+número perfectamente creíble. Por lo mismo hay un tope (`MAX_POR_FICHA`): una
+ficha que agrupa más de 12 símbolos no se usa — un bono tiene a lo sumo 3
+especies × 2 plazos.
+
+#### Y el eslabón que faltaba: que el sembrador pueda escribirlo
+
+Encontrar la pata y no poder sembrarla habría dejado un diagnóstico sin
+consecuencia. `patas_de` agrupa por nombre —que es justo lo que no coincide— así
+que ahora acepta `extra`: símbolos que YA sabemos de este bono por otra vía.
+Entran forzados al grupo, pero **la moneda y la especie se siguen sacando del
+sufijo**: `BPA7D` termina en D y el clasificador de siempre acierta. Lo único que
+estaba roto era *a qué bono pertenece*, no *qué es*.
+
+#### ¿Y ACÁ SÍ VA UN LLM? — no, y el motivo es la parte que sirve
+
+La pregunta del user es la correcta y la respuesta es **no**. Esto es una
+igualdad exacta entre dos campos: tiene UNA respuesta y la sabe el mercado. Un
+modelo acá sería más lento, costaría plata, daría distinto entre corridas y —lo
+peor— **sonaría igual de convencido cuando el dato no alcanza**. El proyecto ya
+tiene la regla escrita al revés: las skills declaran si usan IA justamente porque
+la mayoría son funciones y hay que poder verlo.
+
+**Dónde SÍ tendría trabajo**: cuando las dos fichas no son idénticas —el mismo
+bono escrito distinto en la pata de pesos y en la de dólares—. Ahí una igualdad
+exacta no empareja y un modelo podría decir «son el mismo». Pero eso **hay que
+medirlo antes** (REGLA #2): si el join exacto cubre todo, meter un modelo es puro
+costo y un riesgo nuevo. Por eso el diag cuenta `por_ficha` aparte — el número
+decide, no la intuición.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

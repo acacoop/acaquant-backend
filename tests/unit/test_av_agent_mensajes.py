@@ -111,3 +111,55 @@ def test_el_job_ARRANCA():
     # busca corridas de un tipo que nadie escribe y el job se ve como caído.
     reg = pathlib.Path("api/services/diagnostico_registry.py").read_text(encoding="utf-8")
     assert 'run_tipo="saldos_a_operadores"' in reg
+
+
+# ── (2026-08-19) EL MENSAJE QUE INTERRUMPE Y TRAE TABLA ─────────────────────
+
+def test_re_mandar_la_tabla_NO_pisa_las_tildes():
+    """El operador que ya marcó tres no las pierde porque el job volvió a
+    correr. Si se perdieran, marcar dejaría de tener sentido."""
+    import inspect
+    src = inspect.getsource(msg.enviar_tabla)
+    assert "ON CONFLICT (aviso_id, clave) DO UPDATE" in src
+    # `hecho` NO puede estar en el SET del upsert.
+    setclause = src.split("DO UPDATE SET")[1].split('",')[0]
+    assert "hecho" not in setclause
+
+
+def test_el_aviso_de_saldos_VENCE():
+    """Vale HOY. Mañana el mercado abre con otros números y pedir acción sobre la
+    foto de ayer es peor que no avisar."""
+    import inspect
+    assert "vence_at" in inspect.getsource(msg.enviar_tabla)
+    from api.services import av_agent_vista
+    src = inspect.getsource(av_agent_vista.avisos_de)
+    assert "vence_at IS NULL OR vence_at > now()" in src
+
+
+def test_tildar_la_fila_de_OTRO_es_imposible():
+    """El «es mío» vive en el WHERE del UPDATE y no en un `if` previo: así no es
+    un permiso que alguien pueda olvidarse de chequear en el próximo endpoint."""
+    import inspect
+    src = inspect.getsource(msg.marcar_item)
+    assert "lower(a.para) = %s" in src
+
+
+def test_al_marcar_la_ultima_el_aviso_se_CIERRA_solo():
+    """Pedir además que apriete «listo» sería un paso que no agrega nada."""
+    import inspect
+    src = inspect.getsource(msg.marcar_item)
+    assert "SET resuelto = true" in src and "NOT hecho" in src
+
+
+def test_el_job_de_saldos_manda_TABLA_y_no_un_parrafo():
+    src = pathlib.Path("jobs/saldos_a_operadores.py").read_text(encoding="utf-8")
+    assert "enviar_tabla" in src and "interrumpe=True" in src
+    # Y la clave de cada fila la identifica entre corridas.
+    assert '"clave": f"{f[\'id_cuenta\']}:{f[\'moneda\']}"' in src
+
+
+def test_se_puede_probar_sin_molestar_a_nadie():
+    """Sin un modo prueba, ver si el modal se ve bien significa escribirle a la
+    mesa entera."""
+    src = pathlib.Path("jobs/saldos_a_operadores.py").read_text(encoding="utf-8")
+    assert '"--a"' in src and "[PRUEBA]" in src

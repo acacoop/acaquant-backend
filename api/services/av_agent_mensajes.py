@@ -142,6 +142,125 @@ def enviar(*, para: str, asunto: str, detalle: str = "", tema: str = "mensaje",
     return {"ok": True, "creado": bool(n), "para": e, "tema": tema}
 
 
+def enviar_tabla(*, para: str, asunto: str, filas: list[dict], tema: str,
+                 detalle: str = "", donde: str = "", por: str = "av-agent",
+                 interrumpe: bool = True, vence_en_horas: int = 0) -> dict:
+    """Un mensaje que trae una TABLA y **pide que la completes**.
+
+    El user, sobre el aviso de saldos: *«tiene que ser como el modal de briefing:
+    aparece en la pantalla, llama la atención y te hace hacer algo para
+    continuar. No que aparezca en el cuerpo del agente como si nada.»*
+
+    Cada fila de `filas` es `{clave, etiqueta, datos}` y se tilda por separado,
+    con quién y cuándo. `clave` es su identidad: re-mandar el mismo tema **no
+    pisa las tildes que ya se pusieron** — el operador que ya marcó tres no las
+    pierde porque el job volvió a correr.
+
+    `vence_en_horas=0` calcula el vencimiento al **próximo cierre de jornada**
+    (medianoche ART): un aviso de saldos vale HOY, y mañana el mercado abre con
+    otros números. Un aviso vencido pidiendo acción es peor que ninguno.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    e = (para or "").strip().lower()
+    if "@" not in e:
+        return {"ok": False, "error": "destinatario inválido"}
+    if not filas:
+        return {"ok": False, "error": "una tabla sin filas no es un mensaje"}
+    if not existe(e):
+        return {"ok": False, "error": f"«{e}» no es un usuario de la plataforma"}
+
+    if vence_en_horas > 0:
+        vence = datetime.now(UTC) + timedelta(hours=vence_en_horas)
+    else:
+        # Medianoche ART = 03:00 UTC del día siguiente.
+        ahora = datetime.now(UTC)
+        vence = (ahora + timedelta(days=1)).replace(hour=3, minute=0, second=0,
+                                                    microsecond=0)
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO mercado.av_agent_avisos "
+                "(ticker, clave, que_hacer, por_que, donde, creado_por, para, "
+                " interrumpe, vence_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT DO NOTHING RETURNING id",
+                (f"tema:{tema}", tema, asunto[:500], (detalle or "")[:300],
+                 donde or None, por or None, e, interrumpe, vence))
+            fila = cur.fetchone()
+            if fila:
+                aviso_id, creado = fila[0], True
+            else:
+                # Ya existía abierto: se REUSA y se actualizan las filas nuevas
+                # sin tocar las que ya están tildadas.
+                cur.execute(
+                    "SELECT id FROM mercado.av_agent_avisos "
+                    "WHERE NOT resuelto AND lower(para) = %s AND clave = %s "
+                    "  AND ticker = %s", (e, tema, f"tema:{tema}"))
+                r = cur.fetchone()
+                if not r:
+                    return {"ok": False, "error": "no se pudo crear ni encontrar "
+                                                  "el aviso"}
+                aviso_id, creado = r[0], False
+            cur.executemany(
+                "INSERT INTO mercado.av_agent_aviso_items "
+                "(aviso_id, orden, clave, etiqueta, datos) "
+                "VALUES (%s, %s, %s, %s, %s::jsonb) "
+                # **NO se pisa `hecho`.** El operador que ya marcó tres no las
+                # pierde porque el job volvió a correr.
+                "ON CONFLICT (aviso_id, clave) DO UPDATE SET "
+                "  etiqueta = EXCLUDED.etiqueta, datos = EXCLUDED.datos, "
+                "  orden = EXCLUDED.orden",
+                [(aviso_id, i, str(f.get("clave") or i),
+                  str(f.get("etiqueta") or "")[:300],
+                  __import__("json").dumps(f.get("datos") or {}, default=str))
+                 for i, f in enumerate(filas)])
+            conn.commit()
+    except Exception as ex:
+        logger.exception("av_agent_mensajes: no se pudo mandar la tabla")
+        return {"ok": False, "error": f"{type(ex).__name__}: {str(ex)[:160]}"}
+    return {"ok": True, "creado": creado, "aviso_id": aviso_id, "para": e,
+            "filas": len(filas), "vence_at": vence.isoformat()}
+
+
+def marcar_item(item_id: int, *, quien: str, hecho: bool = True) -> dict:
+    """Tilda (o destilda) UNA fila. **Solo si el aviso es de esa persona.**
+
+    El `AND lower(a.para) = %s` va en el WHERE y no en un `if` previo, igual que
+    en `resolver_aviso_propio`: así «es mío» no es un permiso que alguien pueda
+    olvidarse de chequear en el próximo endpoint — es parte de la escritura.
+    """
+    q = (quien or "").strip().lower()
+    if not q:
+        return {"ok": False, "error": "sin usuario"}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE mercado.av_agent_aviso_items i "
+                "SET hecho = %s, hecho_at = CASE WHEN %s THEN now() END, "
+                "    hecho_por = CASE WHEN %s THEN %s END "
+                "FROM mercado.av_agent_avisos a "
+                "WHERE i.id = %s AND a.id = i.aviso_id AND lower(a.para) = %s "
+                "RETURNING i.aviso_id",
+                (hecho, hecho, hecho, q, item_id, q))
+            r = cur.fetchone()
+            if not r:
+                return {"ok": False, "error": "no existe esa fila"}
+            # Si NO queda ninguna pendiente, el aviso se cierra solo: pedirle
+            # además que apriete «listo» sería un paso que no agrega nada.
+            cur.execute(
+                "UPDATE mercado.av_agent_avisos SET resuelto = true, "
+                "  resuelto_por = %s, resuelto_at = now() "
+                "WHERE id = %s AND NOT resuelto AND NOT EXISTS ("
+                "  SELECT 1 FROM mercado.av_agent_aviso_items "
+                "  WHERE aviso_id = %s AND NOT hecho)", (q, r[0], r[0]))
+            cerrado = cur.rowcount > 0
+            conn.commit()
+        return {"ok": True, "hecho": hecho, "aviso_cerrado": cerrado}
+    except Exception as ex:
+        return {"ok": False, "error": f"{type(ex).__name__}: {str(ex)[:160]}"}
+
+
 def enviar_muchos(mensajes: list[dict], *, por: str = "av-agent") -> dict:
     """Varios mensajes de una. Cada uno con su destinatario y su cuerpo.
 

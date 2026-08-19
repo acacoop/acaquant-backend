@@ -279,18 +279,43 @@ def avisos_de(email: str) -> list[dict]:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT id, ticker, clave, que_hacer, por_que, donde, creado_at "
+                "SELECT id, ticker, clave, que_hacer, por_que, donde, creado_at, "
+                "       interrumpe, vence_at "
                 "FROM mercado.av_agent_avisos "
-                "WHERE NOT resuelto AND lower(para) = %s ORDER BY creado_at DESC",
+                "WHERE NOT resuelto AND lower(para) = %s "
+                # ⚠️ **UN AVISO VENCIDO NO SE MUESTRA.** El de saldos vale HOY;
+                # mañana el mercado abre con otros números y pedir acción sobre
+                # la foto de ayer es peor que no avisar. Los que no vencen
+                # (`NULL`) siguen como siempre.
+                "  AND (vence_at IS NULL OR vence_at > now()) "
+                "ORDER BY interrumpe DESC, creado_at DESC",
                 (e,))
             cols = [d[0] for d in cur.description]
             filas = [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
+            # Las FILAS de los avisos que son una tabla. En la MISMA conexión:
+            # el peaje se paga por viaje.
+            ids = [f["id"] for f in filas]
+            items: dict[int, list[dict]] = {}
+            if ids:
+                cur.execute(
+                    "SELECT id, aviso_id, etiqueta, datos, hecho, hecho_at "
+                    "FROM mercado.av_agent_aviso_items "
+                    "WHERE aviso_id = ANY(%s) ORDER BY aviso_id, orden", (ids,))
+                for i, av, etq, datos, hecho, hat in cur.fetchall():
+                    items.setdefault(av, []).append({
+                        "id": i, "etiqueta": etq, "datos": datos or {},
+                        "hecho": hecho,
+                        "hecho_at": hat.isoformat() if hat else None})
+            for f in filas:
+                f["items"] = items.get(f["id"], [])
+                f["pendientes"] = sum(1 for x in f["items"] if not x["hecho"])
     except Exception as ex:
         logger.warning("av_agent: no se pudieron leer los avisos de %s: %s", e, ex)
         return []
     for f in filas:
-        c = f.get("creado_at")
-        f["creado_at"] = c.isoformat() if hasattr(c, "isoformat") else None
+        for k in ("creado_at", "vence_at"):
+            c = f.get(k)
+            f[k] = c.isoformat() if hasattr(c, "isoformat") else None
     return filas
 
 

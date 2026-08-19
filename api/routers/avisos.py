@@ -59,6 +59,30 @@ def mis_avisos(email: str = Depends(get_user_email)):
     return {"avisos": vista.avisos_de(_quien(email))}
 
 
+class _ItemHecho(BaseModel):
+    id: int = Field(..., ge=1)
+    hecho: bool = True
+
+
+@router.post("/item")
+def marcar_item(body: _ItemHecho = Body(...),
+                email: str = Depends(get_user_email)):
+    """Tilda UNA fila de un aviso que trae tabla (los saldos del día, por
+    ejemplo). Cada tilde queda con quién y cuándo.
+
+    **Solo sobre un aviso propio**, y eso vive en el WHERE del UPDATE: tildar la
+    fila de otro no es una decisión de permisos que alguien pueda olvidarse de
+    chequear — es imposible.
+
+    Cuando no queda ninguna pendiente el aviso se cierra solo: pedir además que
+    aprieten «listo» sería un paso que no agrega nada."""
+    from api.services import av_agent_mensajes as msg
+    r = msg.marcar_item(body.id, quien=_quien(email), hecho=body.hecho)
+    if not r.get("ok"):
+        raise HTTPException(404, r.get("error") or "no existe esa fila")
+    return r
+
+
 class _Hecho(BaseModel):
     id: int = Field(..., ge=1)
 

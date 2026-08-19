@@ -4355,6 +4355,44 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto
 -- Un aviso ABIERTO es único por (ticker, clave, DESTINATARIO). `coalesce` porque
 -- los avisos de un alta nacen sin dueño y ésos siguen siendo uno solo.
 DROP INDEX IF EXISTS mercado.ux_av_agent_avisos_abierto;
+-- ⚠️ **UN MENSAJE PUEDE TRAER UNA TABLA Y EXIGIR QUE LA COMPLETES** (2026-08-19).
+--
+-- El user, sobre el aviso de saldos: *«tiene que ser como el modal de briefing:
+-- aparece en la pantalla, llama la atención y te hace hacer algo para continuar.
+-- No que aparezca en el cuerpo del agente como si nada.»*
+--
+-- Hasta acá un aviso era un texto que esperaba en la campanita. Para lo que el
+-- user necesita hacen falta tres cosas más:
+--   · `datos`      — las filas (cuenta, moneda, saldo), no un párrafo
+--   · `interrumpe` — si abre solo o espera a que lo vayan a buscar
+--   · `vence_at`   — un aviso de saldos vale HOY; mañana el mercado abre y ya no
+--                    dice nada. Sin vencimiento sería una foto vieja pidiendo
+--                    acción, que es peor que no avisar.
+ALTER TABLE mercado.av_agent_avisos ADD COLUMN IF NOT EXISTS datos jsonb;
+ALTER TABLE mercado.av_agent_avisos ADD COLUMN IF NOT EXISTS interrumpe boolean NOT NULL DEFAULT false;
+ALTER TABLE mercado.av_agent_avisos ADD COLUMN IF NOT EXISTS vence_at timestamptz;
+
+-- Las FILAS de un aviso, cada una con su tilde y su hora. El user pidió que el
+-- operador marque completado uno por uno y que eso persista con timestamp.
+--
+-- Van en su propia tabla y no adentro del jsonb porque **cada tilde es un hecho
+-- auditable**: quién y cuándo. Un jsonb pisado en cada click deja el último
+-- estado y borra el camino.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_aviso_items (
+    id        bigserial PRIMARY KEY,
+    aviso_id  bigint NOT NULL REFERENCES mercado.av_agent_avisos(id) ON DELETE CASCADE,
+    orden     integer NOT NULL DEFAULT 0,
+    clave     text NOT NULL,          -- identidad de la fila (ej. '805:ARS')
+    etiqueta  text NOT NULL,          -- lo que se lee
+    datos     jsonb,                  -- los números, para la tabla
+    hecho     boolean NOT NULL DEFAULT false,
+    hecho_at  timestamptz,
+    hecho_por text,
+    UNIQUE (aviso_id, clave)
+);
+CREATE INDEX IF NOT EXISTS ix_av_aviso_items
+    ON mercado.av_agent_aviso_items (aviso_id, orden);
+
 CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto_para
     ON mercado.av_agent_avisos (ticker, clave, coalesce(lower(para), ''))
     WHERE NOT resuelto;

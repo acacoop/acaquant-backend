@@ -36,6 +36,15 @@ TRES DECISIONES QUE LO HACEN ÚTIL Y NO RUIDO
    definición, así que van al log y al stat del job. Un envío que solo cuenta lo
    que mandó esconde justo lo que quedó sin dueño.
 
+PROBARLO SIN MOLESTAR A NADIE
+==============================
+
+    python -m jobs.saldos_a_operadores --a vos@acavalores.com.ar
+
+Manda TODO a una sola persona, con `[PRUEBA]` en el asunto. Sin esto, probar un
+aviso masivo significa escribirle a la mesa entera para ver si el modal se ve
+bien.
+
 ⚠️ **El signo YA viene corregido** en `control_saldos` (Aunesa manda las tenencias
 al revés y el daemon lo arregla): negativo = DESCUBIERTO real, no un falso
 negativo por caución sin vencer. No re-invertir.
@@ -93,25 +102,46 @@ def _sin_operador() -> int:
         return int((cur.fetchone() or [0])[0] or 0)
 
 
-def _cuerpo(filas: list[dict]) -> tuple[str, str]:
-    """(asunto, detalle) para un operador. El asunto tiene que decidirse de un
-    vistazo desde la campanita; el detalle es la lista."""
+def _armar(filas: list[dict]) -> tuple[str, list[dict]]:
+    """(asunto, filas de la tabla) para un operador.
+
+    El asunto se lee de un vistazo; la tabla es lo que se completa. Los
+    descubiertos van PRIMERO: es lo que hay que atender hoy, y ordenar por cuenta
+    los mezclaría con los sobrantes.
+    """
     negativos = [f for f in filas if f["saldo"] < 0]
     cuentas = len({f["id_cuenta"] for f in filas})
-    asunto = (f"{len(negativos)} cuenta(s) TUYAS en descubierto"
+    asunto = (f"{len(negativos)} cuenta(s) tuyas EN DESCUBIERTO"
               if negativos else
-              f"{cuentas} cuenta(s) tuyas con saldo por acomodar")
-    # Los descubiertos primero: es lo que hay que atender hoy.
-    orden = sorted(filas, key=lambda f: (f["saldo"] >= 0, f["id_cuenta"],
-                                         f["moneda"]))
-    lineas = [f"{'⚠ ' if f['saldo'] < 0 else ''}{f['cuenta'] or f['id_cuenta']} · "
-              f"{f['moneda']} {f['saldo']:,.2f}" for f in orden[:40]]
-    if len(orden) > 40:
-        lineas.append(f"… y {len(orden) - 40} más (ver SALDOS)")
-    return asunto, "\n".join(lineas)
+              f"{cuentas} cuenta(s) tuyas con saldo para revisar")
+    orden = sorted(filas, key=lambda f: (f["saldo"] >= 0, -abs(f["saldo"])))
+    tabla = [{
+        # La CLAVE identifica la fila entre corridas: si el job vuelve a correr,
+        # las que el operador ya tildó NO se pierden.
+        "clave": f"{f['id_cuenta']}:{f['moneda']}",
+        "etiqueta": f["cuenta"] or f["id_cuenta"],
+        "datos": {"cuenta": f["cuenta"] or f["id_cuenta"],
+                  "id_cuenta": f["id_cuenta"], "moneda": f["moneda"],
+                  "saldo": round(f["saldo"], 2),
+                  "signo": "negativo" if f["saldo"] < 0 else "positivo"},
+    } for f in orden]
+    return asunto, tabla
 
 
 def main() -> int:
+    # ── MODO PRUEBA ─────────────────────────────────────────────────────────
+    # `--a vos@…` manda TODO a una sola persona en vez de a cada operador. Es
+    # para poder ver el modal con datos reales sin escribirle a nadie más — y
+    # sin eso, probar un aviso masivo significa molestar a la mesa.
+    import sys
+    prueba = ""
+    if "--a" in sys.argv:
+        i = sys.argv.index("--a")
+        prueba = sys.argv[i + 1].strip().lower() if i + 1 < len(sys.argv) else ""
+        if "@" not in prueba:
+            print("--a necesita un email")
+            return 1
+
     with JobRunLogger("saldos_a_operadores") as jr:
         from api.services import av_agent_mensajes as msg
 
@@ -126,36 +156,48 @@ def main() -> int:
         por_operador: dict[str, list[dict]] = {}
         for f in filas:
             por_operador.setdefault(f["operador"], []).append(f)
+        if prueba:
+            # Todo junto a una sola persona, y se DICE en el asunto para que
+            # nadie confunda una prueba con el aviso real.
+            por_operador = {prueba: filas}
+            print(f"MODO PRUEBA — todo va a {prueba}, nadie más recibe nada\n")
 
         # El tema lleva LA FECHA: el mensaje de hoy es uno nuevo aunque el de
         # ayer siga abierto. Sin eso, un operador que no cierra el suyo dejaría
         # de recibir — y el que más los acumula es justo el que más los necesita.
         from datetime import date
         tema = f"{TEMA}:{date.today().isoformat()}"
-        mensajes = [{"para": email, "tema": tema, "donde": "SALDOS DE CUENTAS",
-                     **dict(zip(("asunto", "detalle"), _cuerpo(suyas), strict=True))}
-                    for email, suyas in por_operador.items()]
 
-        r = msg.enviar_muchos(mensajes, por="jobs.saldos_a_operadores")
-        if not r.get("ok"):
-            print(f"✖ {r.get('error')}")
-            jr.set_stat("error", r.get("error"))
-            return 1
+        enviados = fallaron = 0
+        for email, suyas in por_operador.items():
+            asunto, tabla = _armar(suyas)
+            # **Va como TABLA y con `interrumpe`**: el user lo pidió explícito —
+            # «tiene que ser como el modal de briefing, aparece en la pantalla y
+            # te hace hacer algo para continuar, no que aparezca en el cuerpo del
+            # agente como si nada».
+            #
+            # Y VENCE al cierre de la jornada: un aviso de saldos vale HOY;
+            # mañana el mercado abre con otros números y pedir acción sobre la
+            # foto de ayer es peor que no avisar.
+            r = msg.enviar_tabla(
+                para=email, tema=f"{tema}:prueba" if prueba else tema,
+                asunto=f"[PRUEBA] {asunto}" if prueba else asunto, filas=tabla,
+                detalle="Marcá cada una a medida que la resolvés. Vale por hoy.",
+                donde="SALDOS DE CUENTAS", por="jobs.saldos_a_operadores",
+                interrumpe=True)
+            if r.get("ok"):
+                enviados += 1
+            else:
+                fallaron += 1
+                print(f"   ✖ {email}: {r.get('error')}")
 
-        jr.set_stat("enviados", r["enviados"])
-        jr.set_stat("ya_estaban", r["ya_estaban"])
+        jr.set_stat("enviados", enviados)
         jr.set_stat("operadores", len(por_operador))
         jr.set_stat("sin_operador", huerfanas)
-        print(f"✔ {r['enviados']} operador(es) avisado(s) sobre "
-              f"{len({f['id_cuenta'] for f in filas})} cuenta(s)"
-              + (f" · {r['ya_estaban']} ya lo tenían" if r["ya_estaban"] else ""))
-        if r["fallaron"]:
-            # **Los que NO llegaron se cantan.** Un envío que solo dice cuántos
-            # mandó esconde justo los que hay que mirar.
-            print(f"\n✖ {len(r['fallaron'])} no se pudieron mandar:")
-            for f in r["fallaron"]:
-                print(f"   · {f['para']}: {f['error']}")
-            jr.set_stat("fallaron", len(r["fallaron"]))
+        if fallaron:
+            jr.set_stat("fallaron", fallaron)
+        print(f"✔ {enviados} operador(es) avisado(s) sobre "
+              f"{len({f['id_cuenta'] for f in filas})} cuenta(s)")
         if huerfanas:
             print(f"\n⚠ {huerfanas} cuenta(s) con saldo NO tienen operador "
                   f"asignado: a ésas no le llegan a nadie.")

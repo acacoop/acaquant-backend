@@ -80,7 +80,29 @@ def test_VIVO_es_una_afirmacion_sobre_ahora():
     """Sale de la EDAD del último latido. Sin esa resta, el círculo quedaría
     verde para siempre después de que el proceso muera."""
     src = inspect.getsource(c.estado)
-    assert "edad < LATIDO_VIVO_S" in src
+    assert "edad < cadencia * CICLOS_PERDIDOS" in src
+
+
+def test_la_tolerancia_sale_del_RITMO_QUE_EL_LATIDO_DECLARO():
+    """**El bug del 2026-08-18, con el proceso perfectamente vivo.** El umbral
+    era `INTERVALO_RUEDA_S * 3` = 90s fijos, pero fuera de rueda el centinela
+    late cada 300s: el círculo salía GRIS a los 110 segundos mientras systemd
+    mostraba el daemon `active (running)`.
+
+    El umbral medía un ritmo y el daemon corría a otro. Ahora el latido declara
+    su propia cadencia y la tolerancia se deriva de ella — cambiar un intervalo
+    no puede volver a desincronizar el semáforo."""
+    src = inspect.getsource(c)
+    assert "LATIDO_VIVO_S" not in src, "quedó la constante que causaba el bug"
+    # La cadencia que se guarda es la MISMA que usa el daemon para dormir.
+    assert "proximo = INTERVALO_RUEDA_S if abierto else INTERVALO_CERRADO_S" in src
+    assert "cadencia = lat[7] or INTERVALO_RUEDA_S" in inspect.getsource(c.estado)
+
+
+def test_el_latido_dice_CUANDO_se_apagaria():
+    """Que el número esté a la vista es lo que hace que «apagado» se pueda
+    verificar en vez de creerse."""
+    assert "muere_en_s" in inspect.getsource(c.estado)
 
 
 def test_el_centinela_no_escribe_en_ninguna_otra_tabla():

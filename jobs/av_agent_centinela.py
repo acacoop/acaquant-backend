@@ -75,6 +75,10 @@ def main() -> None:
                         r["nuevos"], r["abiertos"], r["ms"])
         elif r["error"]:
             logger.error("ciclo con error: %s", r["error"])
+        # La MISMA cuenta que el ciclo guardó en `proximo_en_s`. Si el daemon
+        # durmiera distinto de lo que el latido declara, el semáforo mediría un
+        # ritmo y el proceso correría a otro — que es exactamente el bug que se
+        # arregló el 2026-08-18.
         espera = c.INTERVALO_RUEDA_S if r["en_rueda"] else c.INTERVALO_CERRADO_S
         # Se duerme en tramos cortos para que una señal no espere 5 minutos.
         for _ in range(espera):

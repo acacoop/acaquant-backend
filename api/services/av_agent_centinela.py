@@ -53,9 +53,16 @@ INTERVALO_RUEDA_S = 30
 # tiene sentido seguir es SALUD (un cron de la noche que falla).
 INTERVALO_CERRADO_S = 300
 
-# Cuánto puede pasar sin latido antes de que el círculo deje de estar verde. Tres
-# ciclos: uno perdido puede ser una query lenta; tres seguidos es que no está.
-LATIDO_VIVO_S = INTERVALO_RUEDA_S * 3
+# Cuántos ciclos perdidos hacen falta para declararlo muerto. Uno puede ser una
+# query lenta; tres seguidos es que no está.
+#
+# ⚠️ **Es un MULTIPLICADOR, no un número de segundos** (fix 2026-08-18). Antes era
+# `INTERVALO_RUEDA_S * 3` = 90s fijos, y fuera de rueda —donde late cada 5
+# minutos— el círculo salía GRIS con el proceso perfectamente vivo: el umbral
+# medía un ritmo y el daemon corría a otro. Ahora **el latido declara su propia
+# cadencia** (`proximo_en_s`) y la tolerancia se deriva de ella, así cambiar un
+# intervalo no puede volver a desincronizar el semáforo.
+CICLOS_PERDIDOS = 3
 
 
 def _clave(h: dict) -> str:
@@ -166,12 +173,17 @@ def ciclo() -> dict:
         logger.exception("centinela: el ciclo falló")
 
     ms = int((time.perf_counter() - t0) * 1000)
-    _latir(abierto, abiertos, nuevos, ms, err)
+    # El ciclo dice cuándo piensa volver. Es LA MISMA cuenta que hace el daemon
+    # para dormir — que salga de un solo lado es lo que evita que el semáforo y
+    # el reloj discrepen.
+    proximo = INTERVALO_RUEDA_S if abierto else INTERVALO_CERRADO_S
+    _latir(abierto, abiertos, nuevos, ms, err, proximo)
     return {"ok": not err, "en_rueda": abierto, "abiertos": abiertos,
             "nuevos": nuevos, "ms": ms, "error": err}
 
 
-def _latir(abierto: bool, abiertos: int, nuevos: int, ms: int, err: str) -> None:
+def _latir(abierto: bool, abiertos: int, nuevos: int, ms: int, err: str,
+           proximo_en_s: int) -> None:
     """El latido. **Se escribe también cuando el ciclo falló** — un centinela que
     solo late cuando todo sale bien se ve idéntico a uno muerto, y esa es
     justamente la diferencia que el círculo tiene que mostrar."""
@@ -180,8 +192,8 @@ def _latir(abierto: bool, abiertos: int, nuevos: int, ms: int, err: str) -> None
             cur.execute(
                 "UPDATE mercado.av_agent_latido SET at = now(), ciclo = ciclo + 1, "
                 "  en_rueda = %s, abiertos = %s, nuevos = %s, duracion_ms = %s, "
-                "  error = %s WHERE id",
-                (abierto, abiertos, nuevos, ms, err or None))
+                "  error = %s, proximo_en_s = %s WHERE id",
+                (abierto, abiertos, nuevos, ms, err or None, proximo_en_s))
             conn.commit()
     except Exception as e:
         logger.warning("centinela: no se pudo latir: %s", e)
@@ -204,8 +216,8 @@ def estado(limite: int = 200) -> dict:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT at, ciclo, en_rueda, abiertos, nuevos, "
-                        "       duracion_ms, error FROM mercado.av_agent_latido "
-                        "WHERE id")
+                        "       duracion_ms, error, proximo_en_s "
+                        "FROM mercado.av_agent_latido WHERE id")
             lat = cur.fetchone()
             cur.execute(
                 f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_centinela "
@@ -237,10 +249,20 @@ def estado(limite: int = 200) -> dict:
         # **VIVO es una afirmación sobre AHORA**, no sobre la última vez que
         # corrió. Sin esta resta, el círculo quedaría verde para siempre después
         # de que el proceso muera — que es exactamente lo que no puede pasar.
-        vivo = edad < LATIDO_VIVO_S
+        #
+        # La tolerancia sale del RITMO QUE EL PROPIO LATIDO DECLARÓ, no de una
+        # constante: en rueda late cada 30s y fuera cada 300, y un umbral fijo
+        # daba por muerto a un proceso sano todas las noches.
+        cadencia = lat[7] or INTERVALO_RUEDA_S
+        vivo = edad < cadencia * CICLOS_PERDIDOS
         latido = {"at": lat[0].isoformat(), "hace_s": int(edad), "ciclo": lat[1],
                   "en_rueda": lat[2], "abiertos": lat[3], "nuevos": lat[4],
-                  "duracion_ms": lat[5], "error": lat[6]}
+                  "duracion_ms": lat[5], "error": lat[6],
+                  "cadencia_s": cadencia,
+                  # Cuánto falta para que el círculo se apague si no vuelve a
+                  # latir. Que el número esté a la vista es lo que hace que
+                  # «apagado» se pueda verificar en vez de creerse.
+                  "muere_en_s": max(0, int(cadencia * CICLOS_PERDIDOS - edad))}
 
     return {"ok": True, "vivo": vivo, "latido": latido,
             "abiertos": abiertos, "resueltos": resueltos,

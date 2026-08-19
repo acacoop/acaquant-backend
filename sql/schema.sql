@@ -4419,3 +4419,10 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_latido (
 );
 
 INSERT INTO mercado.av_agent_latido (id) VALUES (true) ON CONFLICT DO NOTHING;
+
+-- Cada cuánto PROMETE latir el centinela (2026-08-18). Sin esto el umbral de
+-- «vivo» estaba clavado en el ritmo de rueda (30s) y fuera de rueda —donde late
+-- cada 5 minutos— el círculo salía GRIS con el proceso perfectamente vivo.
+-- El latido declara su propia cadencia: así el umbral la sigue sola y no puede
+-- volver a desincronizarse cuando se cambie un intervalo.
+ALTER TABLE mercado.av_agent_latido ADD COLUMN IF NOT EXISTS proximo_en_s integer;

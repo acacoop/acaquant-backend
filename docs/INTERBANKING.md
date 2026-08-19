@@ -396,7 +396,9 @@ Tres cosas que el diseño sostiene:
    base — así lo que prueban los tests es exactamente lo que se siembra.
 2. **`orden` no es cosmético: es lo único que decide los empates.** Gana el
    primer balde que matchea. Por eso una columna nueva nace **al final** — colarla
-   antes cambiaría dónde caen movimientos que hoy ya están bien clasificados.
+   antes cambiaría dónde caen movimientos que hoy ya están bien clasificados. Se
+   mueve con ▲▼ desde la pantalla, y ese movimiento es la herramienta para
+   resolver un pisón (ver abajo).
 3. **Cuesta UNA query por request** (baldes + matchers en un `LEFT JOIN`), y los
    topes del test de queries subieron de 9/8 a **10/9** a propósito. Es el precio
    de que el equipo no dependa de un deploy, y está medido: ~8,5ms.
@@ -410,6 +412,32 @@ cambia**.
 `contiene` vs `es igual` (con `contiene`, «IVA» se come «IVAPERCEP» — el total
 sigue dando bien y dos columnas quedan mal) y qué significa el orden. Un ABM que
 deja meter la pata en silencio es peor que no tenerlo.
+
+### Cuando dos columnas se pisan: se mueve el ORDEN, no se agrega una excepción
+
+El caso real (2026-08-19): un banco manda **`IVA PERCEPCION RESOL GRAL` con el
+CONCEPTO en `IVA`**. Como IVA se evaluaba antes, se lo comía: IVA mostraba de más
+e IVAPERCEP quedaba en cero, **con el total dando bien**. El error invisible de
+siempre.
+
+Había dos salidas y la diferencia entre ellas es la que importa:
+
+- **Una excepción para ese texto en el código** — una regla escondida, que solo
+  puede cambiar quien programa y que nadie más sabe que existe. Y el próximo caso
+  va a ser parecido pero distinto, así que serían dos excepciones. Y después tres.
+- **Subir IVAPERCEP arriba de IVA** y darle un matcher por **descripción**
+  (`descripcion_banco contiene IVA PERCEPCION RESOL`). Un movimiento con esa
+  descripción cae en IVAPERCEP; **uno con concepto IVA y sin esa descripción
+  sigue cayendo en IVA**, porque el matcher no lo agarra.
+
+La segunda no es un parche: **es el mecanismo funcionando**. Por eso lo que se
+agregó es *poder mover el orden desde la pantalla* (▲▼), no una excepción — el
+mismo movimiento resuelve el próximo caso. Hay tests que congelan las dos mitades:
+que el pisón se arregla, y que el IVA común **no** se rompe al arreglarlo.
+
+`POST /gastos/desglose/orden` recibe la lista **completa** de claves en el orden
+nuevo y reasigna la secuencia entera (10, 20, 30…). Media lista dejaría unas
+columnas con el orden viejo y otras con el nuevo — empates silenciosos.
 
 ## El AUDITOR del desglose
 
@@ -626,6 +654,12 @@ selector de cuenta se llena solo con las cuentas de ESE banco, que es lo que evi
 cargarle un movimiento a la cuenta de otro banco con número parecido.
 
 ## Changelog
+
+- **2026-08-19** — **El ORDEN de las columnas se mueve desde la pantalla** (▲▼) y
+  `POST /gastos/desglose/orden`. Lo pidió un pisón real: `IVA PERCEPCION RESOL
+  GRAL` llega con el concepto en `IVA` y se lo comía la columna IVA. **No se
+  agregó una excepción**: se agregó poder mover el orden, que es el mecanismo que
+  ya estaba y solo faltaba exponer. Ver la sección de arriba.
 
 - **2026-08-18 (14)** — **Se ELIMINA la foto del día** + **filtro por banco**.
   · La foto (`bancos.snapshots`, `POST /foto`, el botón SACAR FOTO y el fallback

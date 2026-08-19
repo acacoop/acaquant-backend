@@ -37,9 +37,9 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **547 endpoints** montados en `api.main.app`, en **1 routers**.
-- **209 escriben** (POST/PUT/PATCH/DELETE); 338 son de solo lectura.
-- **22 módulos** canónicos y **7 roles** en `core/roles.py`.
+- **535 endpoints** montados en `api.main.app`, en **30 routers**.
+- **202 escriben** (POST/PUT/PATCH/DELETE); 333 son de solo lectura.
+- **23 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
 ### 0.1 Endpoints y gate efectivo, por router
@@ -47,11 +47,48 @@
 <!-- AUTOGEN:routers -->
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
-| `(raíz)` | 547 | 209 | — · 540 rutas con gate extra | — | ⚠️ |
+| `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
+| `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
+| `/api/analitica` | 14 | 1 | — | — | ⚠️ |
+| `/api/back-office` | 59 | 35 | `back-office` · 59 rutas con gate extra | `back-office` |  |
+| `/api/back-office/interbanking` | 18 | 13 | `back-office` · 15 rutas con gate extra | `back-office` |  |
+| `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
+| `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
+| `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
+| `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
+| `/api/estrategia` | 4 | 0 | `trading` | — |  |
+| `/api/ia` | 33 | 22 | `ia` · 32 rutas con gate extra | `ia` |  |
+| `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
+| `/api/manager` | 150 | 71 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
+| `/api/market` | 4 | 0 | — | — | ⚠️ |
+| `/api/mesa-dinero` | 9 | 4 | — · 8 rutas con gate extra | — | ⚠️ |
+| `/api/news` | 3 | 0 | — | — | ⚠️ |
+| `/api/operaciones` | 50 | 8 | `operaciones` · 23 rutas con gate extra | `operaciones` |  |
+| `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
+| `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
+| `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
+| `/api/portfolio` | 16 | 3 | `portfolios` · 14 rutas con gate extra | `portfolios` |  |
+| `/api/research-bcra` | 2 | 0 | `research` | — |  |
+| `/api/research-docs` | 2 | 0 | `research` | — |  |
+| `/api/research-fred` | 2 | 0 | `research` | — |  |
+| `/api/research1816` | 11 | 0 | `research` | — |  |
+| `/api/risk` | 5 | 0 | `operar` | `operar` |  |
+| `/api/scanner` | 9 | 0 | `renta-variable` · 2 rutas con gate extra | — |  |
+| `/api/titulos` | 2 | 0 | — | `portfolios` | ⚠️ |
+| `/api/trading` | 9 | 1 | `trading` | `trading` |  |
+| `/api/valuaciones` | 7 | 0 | `portfolios` · 7 rutas con gate extra | — |  |
 
 **⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
 
-- `(raíz)` (119 de 547 rutas sin gate de módulo)
+- `(raíz)` (2 de 2 rutas sin gate de módulo)
+- `/api/aca` (declara `aca`, no lo aplica)
+- `/api/analitica` (14 de 14 rutas sin gate de módulo)
+- `/api/cotizaciones` (33 de 34 rutas sin gate de módulo)
+- `/api/derivados` (13 de 18 rutas sin gate de módulo)
+- `/api/market` (4 de 4 rutas sin gate de módulo)
+- `/api/mesa-dinero` (9 de 9 rutas sin gate de módulo)
+- `/api/news` (3 de 3 rutas sin gate de módulo)
+- `/api/titulos` (declara `portfolios`, no lo aplica)
 
 No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtime** (solo lo consume un test), y para los módulos que todos los roles tienen se decidió no gatear. Lo que sí implica es que **destildar esos módulos en Manager → Roles no bloquea nada server-side**: solo esconde el link en el menú.
 
@@ -83,6 +120,7 @@ No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtim
 | `back-office` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | `research` | ✓ | · | · | · | · | · | ✓ |
 | `ia` | ✓ | · | · | · | · | · | ✓ |
+| `asistente` | ✓ | · | · | · | · | · | · |
 | `aca` | ✓ | · | · | ✓ | · | · | · |
 | `manager` | ✓ | · | · | · | · | · | · |
 | `manager_clientes` | ✓ | · | · | · | ✓ | · | · |
@@ -131,6 +169,7 @@ páginas.
 | Superficie | Dónde vive | Módulo | Qué hace |
 |---|---|---|---|
 | **Copiloto de mesa ✦ IA** | Drawer lateral en el header (HOME, RF, RV, Agro, Derivados) e in-view en `/trading`, `/research`, tab RV Internacional | `ia` + el módulo de la vista | Q&A contextual sobre los datos de la vista donde estás. 11 "vistas" registradas. |
+| **Guía de la plataforma + navegación asistida** | Mismo panel, en toda ruta sin copiloto de datos propio | `ia` + `home`, `solo_internos` | Explica el producto y **abre la vista con los filtros aplicados** (escribe claves de sessionStorage). |
 | **Asistente de Negocio** | Mismo panel (`vista="negocio"`) en rutas de negocio | `ia` + `asistente`, `solo_internos` | Q&A sobre el negocio con aduana de PII y 17 tools read-only. |
 | **Briefing de apertura ☀** | Botón en el footer de TODAS las páginas + modal automático 10:00 ART L-V | `ia` | Foto de apertura determinista (0 tokens): futuros, oficial, MEP/CCL, cauciones, DLR, bonos off, bonos que pagan hoy, research del día. |
 | **VIGÍA** | Toasts en `/trading` | `ia` + `trading` | Alertas deterministas (0 tokens) de tarjeta en nivel / candidato del radar. |
@@ -157,7 +196,8 @@ páginas.
 | `portfolios` | `/aum`, `/valuaciones` | `/api/portfolio`, `/api/valuaciones` (18) |
 | `back-office` | `/back-office` (SENEBIS, tesorería, acreencias, alquiler) | `/api/back-office/*` incl. `/senebis` (67) |
 | `research` | `/research` | `/api/research1816`, `/api/research-bcra`, `/api/research-fred`, `/api/research-docs` (17) |
-| `ia` | Briefing, AV AGENT (admin-only), observabilidad IA | `/api/ia/*` |
+| `ia` | Briefing, copiloto, observabilidad IA | `/api/ia/*` (11) |
+| `asistente` | Asistente de Negocio (vista `negocio` del copiloto) | **Sin prefijo propio**: gate fino en `copiloto/derivacion.py::_acceso` (+ `solo_internos`) |
 | `aca` | `/aca` (resumen ejecutivo de la cartera propia) | `/api/aca/*` (14) — gate `require_lectura_aca` sobre TODO el router: módulo ∪ allowlist de la mesa |
 | `manager` | `/manager` umbrella | `/api/manager/*` (~70) + `PUT /api/cotizaciones/opciones/tasa` |
 | `manager_clientes` | Manager → CLIENTES / ACA VALORES / CONTROL AUTO | `clientes.router`, `aca_valores`, `control_automatico` (10) |
@@ -256,7 +296,7 @@ Cloudflare y compara el `aud` contra `CF_ACCESS_AUD_GUEST`; si matchea, `src/pro
 `INVITADO_MODULES` hardcodeado cuando `is_guest_portal`.
 
 **IA para invitados:** identidad `guest:<email>`, tope diario propio 100k tokens
-(`AI_BUDGET_TOKENS_DIA_INVITADO`) vs 1M de la mesa. Con el copiloto dado de baja (2026-08-19) lo único de IA que alcanza el invitado es el briefing; el tope queda como barandilla. Sus módulos ∈
+(`AI_BUDGET_TOKENS_DIA_INVITADO`) vs 1M de la mesa; en el copiloto solo alcanza vistas cuyo módulo ∈
 `INVITADO_MODULES` y que NO sean `solo_internos` (la guía `ayuda` y `negocio` quedan afuera).
 
 ### 2.5 Capas de auth (orden real, de afuera hacia adentro)
@@ -355,13 +395,9 @@ propósito, para que el nav y `src/proxy.ts` sigan filtrando con UN solo mecanis
 | `invitado` (www) | HOME · AGRO · DERIVADOS · ESTRATEGIA · ONS · RENTA FIJA · RENTA VARIABLE · RESEARCH · SINTÉTICOS — los 7 items de MERCADOS **aplanados como links top-level** (sin dropdown), todo en MAYÚSCULA y ordenado A→Z con HOME primero (ver abajo) |
 
 Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el briefing del footer),
-todos los `manager_*` salvo su efecto sobre el link MANAGER.
+`asistente` (vista `negocio` del copiloto) y todos los `manager_*` salvo su efecto sobre el link MANAGER.
 
-**Slot derecho del header:** vacío desde el 2026-08-19 — ahí vivía el botón
-CONSULTALE A LA IA (copiloto, dado de baja). La IA es el AV AGENT, con su botón
-en la barra inferior.
-
-<!-- lo que sigue quedó sin objeto:
+**Slot derecho del header — botón de copiloto (uno por página):**
 - `VISTA_IA_POR_RUTA`: `/`→`home`, `/renta-fija`→`renta_fija`, `/renta-variable`→`renta_variable`,
   `/agro`→`agro`, `/derivados`→`derivados`.
 - `RUTAS_CON_PANEL_PROPIO = ["/trading","/research"]` → el header NO monta nada (esas vistas montan el
@@ -369,6 +405,7 @@ en la barra inferior.
 - Invitado → el header no monta nada fuera del mapa (nunca ve guía ni asistente de negocio).
 - Cualquier otra ruta → `<IaVistaPanel vista="negocio" fallback="ayuda">`: el backend decide si sos
   jefe (módulo `asistente`) o caés al GUÍA.
+- El panel se auto-oculta si el probe a `GET /api/ia/copiloto/vistas` da 401/403.
 
 ### 3.3 Tabs por vista (nombre EXACTO, orden, componente)
 
@@ -397,8 +434,7 @@ en la barra inferior.
 
 ### 3.4 Sub-pills de Manager (segundo nivel, todas persistidas)
 
-- **OBSERVABILIDAD** (`manager.obs.sub.v2`, def `diagnostico`): DIAGNÓSTICO · BASE · LATENCIA · **IA** (solo con módulo `ia`). **SALUD ya no tiene pill acá** (2026-08-19): se ve SOLO desde el AV AGENT — ver `AV_AGENT.md` §0.l. CONTROLES y JOBS tampoco: su contenido vive dentro del chequeo.
-  -->
+- **OBSERVABILIDAD** (`manager.obs.sub.v2`, def `salud`): **SALUD** · DIAGNÓSTICO · BASE · LATENCIA · **IA** (solo con módulo `ia`). CONTROLES y JOBS ya no tienen pill propia: su contenido vive DENTRO del chequeo en SALUD.
   - DIAGNÓSTICO (`manager.diag.sub`): **ÁRBOL** · LOGS. RECURSOS (CPU/RAM/disk del Droplet) se ELIMINÓ 2026-08-10 junto con su router y el sampler de fondo: eran métricas crudas que no respondían si el sistema estaba sano — esa pregunta la contesta SALUD.
 - **VALIDACIONES** (`manager.valid.sub`): **VALIDACIONES** · OPCIONES VTO · DEBUG XIRR · DEBUG TEA.
 - **TÍTULOS**: INSTRUMENTOS (con `manager_instrumentos`) · ASSETS · BONOS · BREAKEVENS · RENTA VARIABLE (estas 4 requieren el maestro). Dentro del ALTA de bonos, toggle `Soberano/Provincial` / `Corporativo (ON)` — el LISTADO ya no se parte: BONOS muestra y edita **todos**, corporativos incluidos.
@@ -458,6 +494,7 @@ CCL / OFICIAL → el chart cae al default `DXY` (esas filas son `clickable:false
 - **Semántica**: `HOY` = último valor; `null` → literal **"Sin Ops"** (nunca un número viejo disfrazado
   de vivo). `WTD`/`MTD` se calculan SIEMPRE sobre el último cierre. Flag `stale` pinta ⚠ (`_FUTUROS_STALE_MIN = 30`).
 - **Escrituras**: ninguna. "NO VOLVER A MOSTRAR HOY" escribe solo `localStorage`.
+- **Botón 🗣 NARRÁMELO**: dispara al copiloto de HOME (evento `acaquant:ia-pregunta`).
 
 #### Endpoints
 **`market.py` — `/api/market`, gate `_PUBLIC`**
@@ -551,7 +588,7 @@ sin eso el edge cache pisaba el poll de 5s, bug 2026-04-23), `/api/me` (propaga 
 > que una ON en USD a tasa fija se mira **en la tabla HARD DOLAR de `/renta-fija`,
 > al lado de los soberanos**, que es contra quién se compara su rendimiento.
 > Se fueron con ella: `ons-live.tsx`, `/api/analitica/ons-calendario`,
-> `listar-curva?curva=on`. Los ~140 corporativos
+> `listar-curva?curva=on` y la vista `ons` del copiloto. Los ~140 corporativos
 > **siguen en `mercado.curvas`** alimentando `/renta-fija` y ACREENCIAS; se editan
 > desde Manager → TÍTULOS · BONOS.
 
@@ -716,7 +753,9 @@ rechaza siempre al portal invitado. No es delegable desde el panel.
 | **RADAR → ESTRATEGIA** | Contexto determinista por ticker: Last, ATR %, ER 30, ER día, chip **CHOPPY / MIXTO / LIMPIO** | `GET /api/estrategia/contexto` (10s) | Ninguno (universo FIJO `config.ESTRATEGIA_CONTEXTO_TICKERS` = QQQ, SPY, SNDK, NVDA, RKLB) | Ninguna |
 | **PIVOTS** → chart LIVE | Precio intradía por minuto (área) con líneas de los 7 pivots + VWAP; si hay override, las líneas siguen la edición | `GET /api/trading/intraday?ticker` | Zoom/pan; auto-reencuadre si el usuario no interactuó | Ninguna |
 | **PIVOTS** → chart ZONAS ADR | Velas diarias del ADR en USD + zonas del timeframe elegido | `GET /api/trading/adr-zonas?ticker&dias=400` | Timeframe **DIARIO/SEMANAL/MENSUAL/ANUAL**; ventana visible **7D/15D/30D/45D**; botón ⟲ | Ninguna |
-| **INTRADAY** | Monitor FIFO del día: se sube el **CSV de boletos** (export ROFEX/Aunesa, **latin-1**) y consolida por (cuenta, especie): posición neta, precio ponderado, PnL realizado/no realizado, intereses+IVA, costo en book, detalle por posición y simulador en drawer | `POST /api/operaciones/intraday/{analizar,recalcular,marks}` (**módulo `operaciones`, NO `trading`**) | **Selector de cuenta**; **tilde por especie**; **tilde por trade individual** (re-FIFO en backend); **override manual de mark**; **multiplicador de contrato** (1 acción/CEDEAR, 100 derivado); simulador con escalones ±0.25/0.5/0.75/1/1.25/1.5/2 % | POSTs de cálculo **efímeros: NO persisten en DB**. Todo vive en sessionStorage/localStorage (`intraday_fifo_v2`, `intraday_excl_v1`, `intraday_excl_v1`) |
+| **PIVOTS** → Copiloto | `IaVistaPanel vista="trading"` — manda tickers de las cards, foco, overrides y posiciones intraday de `localStorage` como `params` | `POST /api/ia/copiloto*` | — | Escribe traza de IA |
+| **PIVOTS** → EL VIGÍA | Toasts abajo-izquierda con "¿LO MIRAMOS?" y "➕ AGREGAR {ticker}" | `POST /api/ia/copiloto/vigia` (poll 15s + debounce 500ms; 403 silencioso) | — | POST al backend; los "vistos" persisten en `localStorage` por día |
+| **INTRADAY** | Monitor FIFO del día: se sube el **CSV de boletos** (export ROFEX/Aunesa, **latin-1**) y consolida por (cuenta, especie): posición neta, precio ponderado, PnL realizado/no realizado, intereses+IVA, costo en book, detalle por posición y simulador en drawer | `POST /api/operaciones/intraday/{analizar,recalcular,marks}` (**módulo `operaciones`, NO `trading`**) | **Selector de cuenta**; **tilde por especie**; **tilde por trade individual** (re-FIFO en backend); **override manual de mark**; **multiplicador de contrato** (1 acción/CEDEAR, 100 derivado); simulador con escalones ±0.25/0.5/0.75/1/1.25/1.5/2 % | POSTs de cálculo **efímeros: NO persisten en DB**. Todo vive en sessionStorage/localStorage (`intraday_fifo_v2`, `intraday_excl_v1`, `trd-fx-intraday-posiciones-v1` que es el puente al copiloto) |
 | **PNL HISTÓRICO** | Cuaderno **MANUAL** de PnL diario: días hábiles desde el 1-jul-2026 hasta fin del mes en curso, monto tipeado por día, acumulado total y mensual, subtotal por mes y 2 gráficos de línea | `GET`/`POST /api/trading/pnl-historico` | **Selector de cuenta** (etiqueta libre, def `General`; el GET devuelve la lista) | **SÍ ESCRIBE**: tipear un monto hace `POST` (upsert en `valuaciones.pnl_historico`); dejar la celda vacía **BORRA** la fila. **Sin allowlist propia** — el gate es el módulo `trading` |
 
 #### Endpoints
@@ -750,7 +789,7 @@ Config en `config.py`: `ESTRATEGIA_TICKERS` (16 papeles), `ESTRATEGIA_INDICES` (
 - **`/api/trading/renta-fija` no tiene consumidor**: el comentario dice literal "(RENTA FIJA se removió — no se usa)".
 - **`/api/estrategia/live`, `/track-record` y `/senales` tampoco tienen consumidor**: la tab ESTRATEGIA del radar consume SOLO `/contexto`. **Toda la zona LIVE / TRACK-RECORD / auditoría del ledger existe en backend y no está expuesta en UI.**
 - Los pivots se calculan **dos veces**: el backend en `/pivots` y el frontend (`calcPivots`) cuando el usuario edita máx/mín/cierre. Si divergieran, el chart mostraría líneas distintas a las cards.
-- Los overrides **nunca llegan al backend**: viven en localStorage. Cambiar de browser pierde la edición.
+- Los overrides **nunca llegan al backend como estado persistido**: viven en localStorage y se mandan como *parámetro* al copiloto y al vigía. Cambiar de browser pierde la edición.
 - La grilla de cards es de tamaño FIJO (`SLOTS = 6`); defaults RKLB / SNDK / ASTS + 3 vacías.
 - El vigía se debounce a 500 ms con payload memoizado: sin eso, cada tecla en un input disparaba un POST.
 - Un usuario con `trading` y **sin** `renta-variable`/`research` ve el chart ZONAS pero los KPIs y los radares MOVERS/VOLUMENES quedan vacíos (403 silencioso). Hoy no se nota porque solo `admin` tiene `trading`.
@@ -965,8 +1004,8 @@ el `autor` sale de `get_user_email`) · `DELETE /{doc_id}`.
 - **Reuters/Eikon** → `mercado.eikon_snapshot`, `eikon_fundamentals`, `eikon_segmentos` + `mercado.cedears` (ratio/rubro vía LATERAL) + `mercado.precios_acciones` (velas de la ficha). **La PC de oficina no toca la base directo.**
 
 #### Notas / rarezas
-- **Contradicción doc vs. código (RBAC del invitado)**: los 4 routers dicen en su docstring "módulo `research` (interno, **JAMÁS invitado** — REGLA #8)", pero `DEFAULT_MATRIX["invitado"]` **SÍ incluye `research`** desde el 2026-07-21, con comentario explícito ("Abre la vista completa: 1816 + reportes + BCRA + FRED + RV internacional"). Los docstrings quedaron viejos.
-- **`GET /research1816/mails/buscar` quedó SIN NINGÚN consumidor**: no lo llama el front, y su único usuario era la tool `buscar_en_mails` del copiloto, dado de baja el 2026-08-19. Candidato a poda.
+- **Contradicción doc vs. código (RBAC del invitado)**: los 4 routers dicen en su docstring "módulo `research` (interno, **JAMÁS invitado** — REGLA #8)", pero `DEFAULT_MATRIX["invitado"]` **SÍ incluye `research`** desde el 2026-07-21, con comentario explícito ("Abre la vista completa: 1816 + reportes + BCRA + FRED + RV internacional, con sus copilotos"). Los docstrings quedaron viejos.
+- **`GET /research1816/mails/buscar` no lo consume ningún componente** (grep sobre todo `src/`). Su único consumidor es la tool `buscar_en_mails` del copiloto, que **no va por HTTP** (llama directo al service). Endpoint HTTP huérfano.
 - **Prefijo `research1816` ≠ `/api/research`**: existe otro `/api/research` (Análisis Fundamental de RV, gate `renta-variable`) que NO es esta vista.
 - **Los endpoints de Reuters vivían en `/api/trading/reuters*`** y se movieron el 2026-07-18 cuando `trading` pasó a admin-only. Residuo: **`trading-view.tsx:672` todavía consume `/api/research1816/reuters`** desde la vista Trading (→ necesita también `research`).
 - **Cache compartido en el router, no en el service**: 5 wrappers `@cached` (tablero 4s, resto 60s). El TTL de 4s es deliberadamente menor al poll de 5s: N usuarios comparten UNA query (la LATERAL medía ~68 ms).
@@ -976,6 +1015,7 @@ el `autor` sale de `get_user_email`) · `DELETE /{doc_id}`.
 - **FRED — grupos de escala excluyentes**: marcar una serie de otro `SCALE_GROUP` **apaga** las incompatibles. Los cuadrantes y los grupos están **hardcodeados en el frontend por `series_id`** — agregar una serie al watch en la DB no la mete sola en un cuadrante.
 - **BCRA — bloques "split"**: `indexacion` e `inflacion` se renderizan partidos 50/50 con un chart por serie y arrancan con TODAS prendidas. La unidad del bloque se toma de `series[0].unidad`.
 - **Segmentos — advertencia del propio código**: el segmento es el que publica cada empresa (Apple y Coca-Cola reportan por región, NVDA y Rocket Lab por producto), los nombres cambian entre períodos, y las eliminaciones/corporate vienen en `ajustes` (sin ellas la suma no cierra contra ingresos totales).
+- **El copiloto de `research` NO filtra por tab**: concatena SIEMPRE las 4 fuentes en TSV con columna `fuente`; `params.tab` solo desempata. `celda_max=220` (el default 60 mutilaría la columna `dato`).
 - **Toda la vista es READ-ONLY**: cero acciones de escritura, export ni allowlist en las 5 tabs.
 - **Gotcha documentado**: cada prefijo nuevo exige agregar a mano el route handler catch-all de Next **y** la entrada en `src/proxy.ts`; si falta una, la tab da 404/403 sin mensaje claro.
 ---
@@ -1182,7 +1222,7 @@ resuelta en Python porque está cruda). El cambio de fuente (2026-08-10) es porq
 - `USD_DOL` (DOLARIZAR) vive **solo en SQL**: el viejo rollup Mongo no traía el bruto en USD.
 - La `tasa_pond` viene ya ponderada del backend (`Σ(tasa·bruto)/Σ(bruto)`). La columna aparece según los DATOS, no según el filtro de mercado. `null` ≠ `0`: `0` es una tasa REAL.
 - El header "Σ" de *Por operación* usa `denomTotal`, no `total` (bug reportado 2026-07-21: con una cuenta elegida mostraba el total de la mesa junto a una tabla vacía).
-- `selDenom` está persistido en sessionStorage (venía de la navegación asistida del copiloto, dada de baja; el filtro sigue dependiendo de eso).
+- `selDenom` está persistido en sessionStorage porque sin eso la navegación asistida del copiloto escribía el nombre pero no filtraba (bug 2026-07-21).
 - **`api/services/_cuentas_filter.py` está DESACTUALIZADO**: devuelve sub-docs `$match` de Mongo y su docstring habla de `Cuentas.AccionistasAPI`. **Ninguna vista de este dominio lo usa**; el equivalente vivo es `portfolio_sql.py::_cuenta_filter_sql`.
 - El proxy de contrapartes/cashflow fuerza `Cache-Control: private, no-store` — PII de clientes no va al CDN de Vercel.
 
@@ -1495,7 +1535,7 @@ nunca ve ese request. `/api/titulos/assets` **no tiene consumidor**.
 | **Senebis** | Órdenes SENEBIS + espejo del Excel Quantex y del Excel MAE. Poll 10s (= heartbeat de presencia) — **UN request: `GET /vista`** trae órdenes + los 2 espejos + presencia + próximo ID (2026-08-13; antes eran 3 requests que corrían la MISMA query, ~13 viajes a la base por ciclo y por usuario → ahora ~7). `/ops`, `/excel` y `/excel-mae` siguen vivos pero **DEPRECADOS** | `/senebis/{vista,ops,excel,excel-mae,opciones,comitentes,export,export-mae}` + writes | FECHA: chips `HOY`/`TODO`; ESTADO: `TODAS`/`PENDIENTES (n)`/`COMPLETADAS`; MAE: `CON`/`SIN`(`mae=sin`)/`SOLO`(`mae=solo`). El backend además acepta `especie` — **sin control en la UI** | Alta/edición/borrado (allowlist), toggle estado, botón ⚠ EDITADA, reasignar ID, ABM de agentes, ajustar PRÓXIMO ID (admin), descargar los 2 `.xlsx` |
 | **Tenencia Valorizada** (**default**) | Serie diaria de AuM de las cuentas propias **100/255/256** por cartera + posiciones por título del día | `/tenencia-hd`, `/tenencia-hd/posiciones`, `POST /tenencia-hd/precio` | `cartera` = **HD** (Cartera USD, def) / `ARS`; selector de día; toggle de estado `TODOS`/`SIN GAR`/`SOLO GAR`/`SIN ALQUILER`; toggle `÷100` (paridad) en el editor | **Editar a mano el PRECIO** de una unidad de un día (recalcula las 3 cuentas + totales en `portafolio.tenencia`). **Sin allowlist propia**: alcanza el módulo `back-office` |
 | **Títulos en Alquiler** | **PORTFOLIO ALQUILER** (lista curada, serie diaria + posiciones) y **MARCAS** (todos los pares título·cuenta tenidos desde `desde`, con marca SI/NO, cantidad, desde/hasta) | `/tenencia-hd/en-alquiler`, `/portfolio-alquiler`, `/portfolio-alquiler/posiciones`, `/instrumentos`; 3 POST | buscador `q` client-side, toggle `soloAlq`, fecha `desde` (def 2026-06-01 en el front) | Marcar/desmarcar alquiler por (título, cuenta) con cantidad y período; agregar/quitar títulos de la lista; editar nominales por día (carry forward). **Sin allowlist propia** |
-| **Interbanking** | Los bancos de ACA, para CONCILIAR. **UNA sola vista** (ya no hay sub-tabs) y **UN día**: el selector es una sola fecha; sin fecha el backend usa el **día HÁBIL ANTERIOR a hoy** — el que está cerrado, con extracto y saldo final ya informados. **CONSOLIDADO BANCOS**: UNA fila por cuenta agrupadas bajo el **nombre del banco como título**, con **SALDO AL CIERRE · GASTOS BANCARIOS · IVA · IVAPERCEP · IIBBPERCEP · COM.TRANSF · OTROS IMP** (saldo al inicio, variación y movs. se sacaron el 2026-08-18: no se usaban). Las columnas del desglose las declara el BACKEND, no el front, y **las edita el EQUIPO** (botón DESGLOSE del modal): son un catálogo en la base (`bancos.gastos_baldes` + `gastos_balde_matchers`), no una constante — antes sumar la grafía que usa un banco nuevo era un commit y un deploy. **OTROS IMP = solo las 4 descripciones declaradas**, así que las columnas pueden no sumar el total; lo que no cae en ningún balde va a `resto` y el MODAL lo muestra como **MOVIMIENTOS RESTANTES** en vez de esconderlo. En el MODAL el desglose se abre COMPLETO en horizontal, sin contador de movimientos, con GASTOS BANCARIOS separado por una línea de sus partes («= suma de»). La barra tiene un **filtro por BANCO** (client-side sobre lo que ya trajo el consolidado; alcanza también al REPORTE FINAL pero no al alta de manuales), **REGISTRAR MOVIMIENTOS MANUALES** (bancos que no están en Interbanking + movimientos que el banco no informa: `bancos.cuentas.origen='manual'` y `bancos.movimientos_manuales`; **siempre impactan el saldo al cierre** del día que muestra la vista —en una cuenta real se suman a su extracto, en una manual son todo el saldo—, el día y la moneda NO se eligen y el selector de cuenta se llena con las del banco elegido; el job no las puede pisar porque recorre lo que le devuelve Interbanking), **REPORTE FINAL** (el saldo al cierre de todas las cuentas: **una tabla POR BANCO** —se probaron las dos matrices y las dos quedaban con el 90% de las celdas vacías, porque cada cuenta pertenece a UN banco— empaquetadas hasta 20 filas de alto y 15 columnas de ancho, con espacios grandes entre tablas, ARS primero adentro de cada banco la cabecera azul con el logo UNA vez arriba de todo y la firma «Hecho en ACAQuant» en chico, y botón **COPIAR IMAGEN** que DIBUJA el PNG de cero en un canvas —no es una captura: por eso la UI no se cuela, sale siempre en claro para el mail y no depende del tamaño de pantalla; si el navegador no deja copiar imágenes, la descarga). **Clic en cualquier número del desglose = AUDITOR**: la tabla queda mostrando SOLO las filas que lo componen, con una barra que dice cuántas son y cuánto suman (la suma la calcula la pantalla sobre lo visible: si no coincide con el número clickeado, el desglose y el detalle se contradicen). El DESCARGAR respeta el filtro. El copiar de esos valores se mudó a un ícono ⧉ al lado de la etiqueta. La cuenta va a la izquierda con el **número ENTERO**; las columnas de datos van centradas, de ancho parejo y separadas por una línea. **NO hay subtotales por banco ni totales por moneda** (los sacó el back office). **El CIERRE tiene DOS fuentes y la celda rotula cuál**: sin rótulo = EXTRACTO; **«saldo»** = lo informa el banco pero la cuenta no se movió y no hay extracto que lo respalde; **«≠»** = las dos no coinciden, con la diferencia en el tooltip. Sin ninguna va «—», nunca 0. **GASTOS BANCARIOS lo DERIVA el backend** de las reglas + marcas; sin una sola regla ni marca cargada viene `null` — «—» y jamás cero («no sabemos» ≠ «no hubo gastos»). ⚠️ **La fila tiene DOS gestos**: clic en la CUENTA abre el **MODAL de movimientos del día** (reemplazó a la sub-tab «Detalle por cuenta», que obligaba a elegir banco y cuenta en dos selectores para ver una fila que ya estabas mirando); clic en una celda de DATOS **copia el valor al portapapeles**. El **MODAL** trae la cabecera de la cuenta, el día según el banco (apertura · créditos · débitos · cierre · neto · movimientos) con las alertas **NO CIERRA** / **INCOMPLETO**, la tabla de MOVIMIENTOS con 8 columnas (FECHA · DESCRIPCIÓN · CONCEPTO · COD OP · COD OP BCO · COMPROBANTE · SUCURSAL · IMPORTE) más **GASTO** y **CUENTA**, con la **DESCRIPCIÓN llevándose el sobrante de ancho** para que salga entera (si igual se lee cortada, el corte lo hizo el banco: llega truncada a ~25 chars), los botones **REGLAS** y **DESGLOSE**, y un botón **DESCARGAR** (.xlsx client-side vía `lib/xlsx-export`, con el importe FIRMADO para que la columna sume el neto en Excel). Cierra con Esc, con la ✕ o clickeando el fondo. La CONTRAPARTE no es columna propia: viene en el **13%** de los movimientos (medido) y va debajo de la descripción. La **hora** se dibuja solo si no es `00:00:00` — medido sobre 178 movimientos, Interbanking **no informa la hora**. Lee de `bancos.*`, que llena `jobs/interbanking_sync` cada 2hs de 9 a 19 ART (día hábil anterior + hoy: extracto + saldo por cuenta) y que **retiene solo 3 fechas**. **La vista NUNCA le pega a Interbanking** (el límite de 100 llamadas/minuto es del ABONADO); la barra muestra **«Última actualización DD/MM/AAAA HH:MM»** y **quién más tiene la vista abierta** (`bancos.presencia`, el poll de 60s ES el heartbeat, TTL 180s). **GASTOS BANCARIOS** se clasifica en DOS capas: **reglas** (catálogo `bancos.gastos_reglas`, campo+operador+valor, ABM en modal desde el botón REGLAS) y **marca manual por movimiento** (`bancos.gastos_overrides`, columna GASTO del modal, un clic) — **la marca manual GANA sobre la regla** y la celda muestra de dónde salió (subrayado = manual, con ↺ para volver a la regla). Se deriva en la LECTURA, no se materializa. Sin ninguna regla ni marca la columna va «—», no 0. **IGNORAR un movimiento** (`bancos.movimientos_ignorados`, columna CUENTA del modal) es OTRA pregunta que GASTO: GASTO dice *qué es*, CUENTA dice *si suma* — un duplicado del banco sigue siendo un gasto, lo que no es es DOS gastos. La fila NO se borra: queda **tachada** con quién/cuándo/motivo y afuera de los gastos, del desglose y de la suma del auditor (que los cuenta aparte); los créditos/débitos del día NO se tocan — esa es la aritmética del extracto. **Ignorar gana sobre la marca manual.** Mismo modelo de PUROS OVERRIDES que `tesoreria_exclusiones`, con `ON DELETE CASCADE` sobre la retención de 3 fechas. Escritura: allowlist `operaciones.tesoreria_escritores` + admin, auditada en `bancos.gastos_audit`. **NO se mezcla con Tesorería** — objetos sin clave en común; ver `docs/INTERBANKING.md`. El **número de cuenta va ENTERO**; el **CBU no sale nunca** (hay tests). Cada lectura queda auditada en `bancos.audit_lecturas`. Poll 60s | **`GET /interbanking/consolidado`** (la vista) y **`GET /interbanking/vista?cuenta_id&fecha`** (el modal) + `/cuentas` | **`fecha`** (una sola; futura → 400), `cuenta_id` en el modal | **Solo la clasificación de gastos**: `POST /manual/cuentas`, `DELETE /manual/cuentas/{id}`, `POST /manual/movimientos`, `DELETE /manual/movimientos/{id}`, `POST /gastos/reglas`, `DELETE /gastos/reglas/{id}`, `PUT /gastos/movimiento`, `PUT /gastos/ignorar`, `POST /gastos/desglose`, `DELETE /gastos/desglose/{clave}`, `POST /gastos/desglose/matchers`, `DELETE /gastos/desglose/matchers/{id}` — sobre tablas NUESTRAS, con allowlist y auditadas; un test las ENUMERA. **Hacia Interbanking no se escribe nunca** (`core/interbanking.py` solo hace GET, congelado por test) y el proxy de Next solo deja pasar escrituras bajo `/gastos/*` y `/manual/*` |
+| **Interbanking** | Los bancos de ACA, para CONCILIAR. **UNA sola vista** (ya no hay sub-tabs) y **UN día**: el selector es una sola fecha; sin fecha el backend usa el **día HÁBIL ANTERIOR a hoy** — el que está cerrado, con extracto y saldo final ya informados. **CONSOLIDADO BANCOS**: UNA fila por cuenta agrupadas bajo el **nombre del banco como título**, con **SALDO AL CIERRE · GASTOS BANCARIOS · IVA · IVAPERCEP · IIBBPERCEP · COM.TRANSF · OTROS IMP** (saldo al inicio, variación y movs. se sacaron el 2026-08-18: no se usaban). Las columnas del desglose las declara el BACKEND, no el front, y **las edita el EQUIPO** (botón DESGLOSE del modal): son un catálogo en la base (`bancos.gastos_baldes` + `gastos_balde_matchers`), no una constante; el **ORDEN se mueve con ▲▼** y es lo único que decide los empates — así se resolvió el pisón real de `IVA PERCEPCION RESOL GRAL`, que llega con el concepto en `IVA`: se sube IVAPERCEP y se le da un matcher por descripción, sin excepciones hardcodeadas — antes sumar la grafía que usa un banco nuevo era un commit y un deploy. **OTROS IMP = solo las 4 descripciones declaradas**, así que las columnas pueden no sumar el total; lo que no cae en ningún balde va a `resto` y el MODAL lo muestra como **MOVIMIENTOS RESTANTES** en vez de esconderlo. En el MODAL el desglose se abre COMPLETO en horizontal, sin contador de movimientos, con GASTOS BANCARIOS separado por una línea de sus partes («= suma de»). La barra tiene un **filtro por BANCO** (client-side sobre lo que ya trajo el consolidado; alcanza también al REPORTE FINAL pero no al alta de manuales), **REGISTRAR MOVIMIENTOS MANUALES** (bancos que no están en Interbanking + movimientos que el banco no informa: `bancos.cuentas.origen='manual'` y `bancos.movimientos_manuales`; **siempre impactan el saldo al cierre** del día que muestra la vista —en una cuenta real se suman a su extracto, en una manual son todo el saldo—, el día y la moneda NO se eligen y el selector de cuenta se llena con las del banco elegido; el job no las puede pisar porque recorre lo que le devuelve Interbanking), **REPORTE FINAL** (el saldo al cierre de todas las cuentas: **una tabla POR BANCO** —se probaron las dos matrices y las dos quedaban con el 90% de las celdas vacías, porque cada cuenta pertenece a UN banco— empaquetadas hasta 20 filas de alto y 15 columnas de ancho, con espacios grandes entre tablas, ARS primero adentro de cada banco la cabecera azul con el logo UNA vez arriba de todo y la firma «Hecho en ACAQuant» en chico, y botón **COPIAR IMAGEN** que DIBUJA el PNG de cero en un canvas —no es una captura: por eso la UI no se cuela, sale siempre en claro para el mail y no depende del tamaño de pantalla; si el navegador no deja copiar imágenes, la descarga). **Clic en cualquier número del desglose = AUDITOR**: la tabla queda mostrando SOLO las filas que lo componen, con una barra que dice cuántas son y cuánto suman (la suma la calcula la pantalla sobre lo visible: si no coincide con el número clickeado, el desglose y el detalle se contradicen). El DESCARGAR respeta el filtro. El copiar de esos valores se mudó a un ícono ⧉ al lado de la etiqueta. La cuenta va a la izquierda con el **número ENTERO**; las columnas de datos van centradas, de ancho parejo y separadas por una línea. **NO hay subtotales por banco ni totales por moneda** (los sacó el back office). **El CIERRE tiene DOS fuentes y la celda rotula cuál**: sin rótulo = EXTRACTO; **«saldo»** = lo informa el banco pero la cuenta no se movió y no hay extracto que lo respalde; **«≠»** = las dos no coinciden, con la diferencia en el tooltip. Sin ninguna va «—», nunca 0. **GASTOS BANCARIOS lo DERIVA el backend** de las reglas + marcas; sin una sola regla ni marca cargada viene `null` — «—» y jamás cero («no sabemos» ≠ «no hubo gastos»). ⚠️ **La fila tiene DOS gestos**: clic en la CUENTA abre el **MODAL de movimientos del día** (reemplazó a la sub-tab «Detalle por cuenta», que obligaba a elegir banco y cuenta en dos selectores para ver una fila que ya estabas mirando); clic en una celda de DATOS **copia el valor al portapapeles**. El **MODAL** trae la cabecera de la cuenta, el día según el banco (apertura · créditos · débitos · cierre · neto · movimientos) con las alertas **NO CIERRA** / **INCOMPLETO**, la tabla de MOVIMIENTOS con 8 columnas (FECHA · DESCRIPCIÓN · CONCEPTO · COD OP · COD OP BCO · COMPROBANTE · SUCURSAL · IMPORTE) más **GASTO** y **CUENTA**, con la **DESCRIPCIÓN llevándose el sobrante de ancho** para que salga entera (si igual se lee cortada, el corte lo hizo el banco: llega truncada a ~25 chars), los botones **REGLAS** y **DESGLOSE**, y un botón **DESCARGAR** (.xlsx client-side vía `lib/xlsx-export`, con el importe FIRMADO para que la columna sume el neto en Excel). Cierra con Esc, con la ✕ o clickeando el fondo. La CONTRAPARTE no es columna propia: viene en el **13%** de los movimientos (medido) y va debajo de la descripción. La **hora** se dibuja solo si no es `00:00:00` — medido sobre 178 movimientos, Interbanking **no informa la hora**. Lee de `bancos.*`, que llena `jobs/interbanking_sync` cada 2hs de 9 a 19 ART (día hábil anterior + hoy: extracto + saldo por cuenta) y que **retiene solo 3 fechas**. **La vista NUNCA le pega a Interbanking** (el límite de 100 llamadas/minuto es del ABONADO); la barra muestra **«Última actualización DD/MM/AAAA HH:MM»** y **quién más tiene la vista abierta** (`bancos.presencia`, el poll de 60s ES el heartbeat, TTL 180s). **GASTOS BANCARIOS** se clasifica en DOS capas: **reglas** (catálogo `bancos.gastos_reglas`, campo+operador+valor, ABM en modal desde el botón REGLAS) y **marca manual por movimiento** (`bancos.gastos_overrides`, columna GASTO del modal, un clic) — **la marca manual GANA sobre la regla** y la celda muestra de dónde salió (subrayado = manual, con ↺ para volver a la regla). Se deriva en la LECTURA, no se materializa. Sin ninguna regla ni marca la columna va «—», no 0. **IGNORAR un movimiento** (`bancos.movimientos_ignorados`, columna CUENTA del modal) es OTRA pregunta que GASTO: GASTO dice *qué es*, CUENTA dice *si suma* — un duplicado del banco sigue siendo un gasto, lo que no es es DOS gastos. La fila NO se borra: queda **tachada** con quién/cuándo/motivo y afuera de los gastos, del desglose y de la suma del auditor (que los cuenta aparte); los créditos/débitos del día NO se tocan — esa es la aritmética del extracto. **Ignorar gana sobre la marca manual.** Mismo modelo de PUROS OVERRIDES que `tesoreria_exclusiones`, con `ON DELETE CASCADE` sobre la retención de 3 fechas. Escritura: allowlist `operaciones.tesoreria_escritores` + admin, auditada en `bancos.gastos_audit`. **NO se mezcla con Tesorería** — objetos sin clave en común; ver `docs/INTERBANKING.md`. El **número de cuenta va ENTERO**; el **CBU no sale nunca** (hay tests). Cada lectura queda auditada en `bancos.audit_lecturas`. Poll 60s | **`GET /interbanking/consolidado`** (la vista) y **`GET /interbanking/vista?cuenta_id&fecha`** (el modal) + `/cuentas` | **`fecha`** (una sola; futura → 400), `cuenta_id` en el modal | **Solo la clasificación de gastos**: `POST /manual/cuentas`, `DELETE /manual/cuentas/{id}`, `POST /manual/movimientos`, `DELETE /manual/movimientos/{id}`, `POST /gastos/reglas`, `DELETE /gastos/reglas/{id}`, `PUT /gastos/movimiento`, `PUT /gastos/ignorar`, `POST /gastos/desglose`, `POST /gastos/desglose/orden`, `DELETE /gastos/desglose/{clave}`, `POST /gastos/desglose/matchers`, `DELETE /gastos/desglose/matchers/{id}` — sobre tablas NUESTRAS, con allowlist y auditadas; un test las ENUMERA. **Hacia Interbanking no se escribe nunca** (`core/interbanking.py` solo hace GET, congelado por test) y el proxy de Next solo deja pasar escrituras bajo `/gastos/*` y `/manual/*` |
 | **Tesorería** | La caja del día. 5 tabs internas | ver bloque | ver bloque | allowlist `tesoreria_escritores` + admin |
 | **Títulos / Mercado** | Qué títulos hay que ENVIAR y RECIBIR al mercado hoy, por ticker (expandible a comitentes) o por par ticker·comitente. Poll 10s | `/titulos-mercado` | `fecha` (def hoy); client-side: unidad `nominales`/`dinero`, filtro `ambos`/`enviar`/`recibir`, vista `ticker`/`comitente`, sort por neto | Solo **export .xlsx client-side** (`titulos-mercado-<fecha>.xlsx`) |
 | **Acreencias Clientes** | Calendario de cobros futuros: tabla/chart por día + detalle del día por cliente·ticker | `/acreencias/por-dia`, `/acreencias/dia` | `desde` (def hoy) / `hasta` (def hoy+90) con atajos; día seleccionado; client-side `fTicker`, moneda `ALL/ARS/USD` | Ninguna |
@@ -1746,7 +1786,7 @@ handler**, explícitamente para que `scripts/audit_rbac.py` los vea (y los servi
 #### Tabs (11 top-level, 36 hojas)
 | Tab / hoja | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
-| **OBS → SALUD** | **ELIMINADA 2026-08-19.** SALUD se ve solo desde el AV AGENT (botón de la barra inferior): mismo chequeo, mismo detalle, más el diagnóstico razonado paso por paso, el re-chequeo en el momento y las acciones. Ver `AV_AGENT.md` §0.l | — | — | — |
+| **OBS → SALUD** (default) | Un veredicto único + un chequeo por job / dato / control (peor primero; lo verde oculto salvo toggle). Cada fila se despliega con evidencia, diagnóstico IA, detalle crudo (corridas con log · fechas cargadas · anomalías) e historial de transiciones. **La misma fila y el mismo detalle se renderizan en el mini-panel del botón SALUD de la barra inferior** (`salud-chequeo.tsx`, compartido): desde ahí también se despliega y se silencia, sin pasar por Manager | `GET /salud`, `/salud/detalle`, `/salud/diagnostico`, `/salud/historial` | toggle "ver también lo que está bien" | **PUT `/salud/alerta`** (silenciar / reactivar un chequeo) · **POST `/salud/vistos`** (el "entendido" del modal) |
 | **OBS → CONTROLES** | 6 controles de calidad de datos (FORWARDS, RF SIN TASA, CARTERAS, ROFEX, NIVEL 1, CONTRAPARTES) con items activos/resueltos, antigüedad y botón "ir a la tab donde se corrige". Badge `!N` | `GET /controles?resueltos_dias=7` (y `=0` para el badge); `POST /jobs/run` `tipo=controles_datos` + polling | sub-tab por control; toggle activos/resueltos; `resueltos_dias` (0–90) | **"CORRER AHORA"** dispara `jobs.controles_datos`. Auto-ejecuta solo si la última corrida tiene >60 min |
 | **OBS → DIAG → ÁRBOL** | Árbol de salud por VISTA (HOME/OPERAR/MERCADOS/NEGOCIO/BACK OFFICE/PORTFOLIOS) con motores/jobs/APIs, cadencia, "hace", última corrida y badge OK/LENTO/ATRASADO/CRÍTICO/FUERA RUEDA/SIN DATOS. Auto-refresh 10s | `GET /diagnostico` | colapsar/expandir por vista (localStorage) | ninguna |
 | **OBS → DIAG → LOGS** | journalctl de los servicios systemd (motores + `api` + `cloudflared`), o TODOS mezclados cronológicamente | `GET /logs/services`, `GET /logs?servicio=&lines=` | dropdown SERVICIO (incl. `__todos__`), líneas (1–500), botones ALL/WARN/ERROR, buscador client-side, toggle auto-refresh | ninguna |
@@ -1827,60 +1867,177 @@ sin reconciliar).
 
 ---
 
-## 4.11 IA — EL AV AGENT
+## 4.11 IA — PROGRAMA QUANTAI
 
-> **2026-08-19 — el COPILOTO se dio de baja.** El botón ✧ CONSULTALE A LA IA de
-> todas las vistas, el ASISTENTE DE NEGOCIO, la GUÍA de la plataforma, la
-> NAVEGACIÓN ASISTIDA y el VIGÍA de /trading **ya no existen** (backend, front y
-> docs). El motivo y qué se rescató: **`docs/AV_AGENT.md` §0.k**.
->
-> La IA de la plataforma es el **AV AGENT** — doc único: `docs/AV_AGENT.md`.
-
-### Qué features de IA existen HOY
+### Qué features existen HOY y dónde vive cada una
 | Feature | Front | Backend | ¿LLM? |
 |---|---|---|---|
-| **Briefing de apertura** | Modal auto 10:00 ART L-V + botón ☀ en el footer global | `GET /api/ia/briefing` → `briefing.py` | **NO** — 100 % determinista |
-| **AV AGENT** | Botón en la barra inferior (círculo verde = vigilando) + modal. **Admin-only** | `/api/ia/av-agent/*` → `av_agent*.py` | Parcial: la mayoría de las lentes son deterministas |
-| **SALUD** | **Adentro del AV AGENT** (ya no tiene pantalla propia — §0.l) | `api/services/salud.py`, leído por el agente | **NO** |
-| **Research destilado** | Vista `/research`, tab del mail diario | `jobs/research_mail.py` | Sí (`research_destilar`) |
+| **Briefing de apertura** (P1) | Modal auto 10:00 ART L-V + botón ☀ en el **footer global** | `GET /api/ia/briefing` → `briefing.py` | **NO** — 100 % determinista |
+| **Copiloto de mesa** (P3) | `IaVistaPanel` en header (HOME, RF, RV, Agro, Derivados, ONs), in-view en `/trading`, `/research`, y tab RV INTERNACIONAL | `POST /api/ia/copiloto` → `api/services/copiloto/` | Sí (`copiloto_vista` / `_pro`) |
+| **Guía de la plataforma** (`ayuda`) + **navegación asistida** | Mismo panel, en toda ruta sin copiloto de datos propio | `copiloto/ayuda.py` + `copiloto/navegacion.py` | Sí + tool `abrir_vista` |
+| **Asistente de negocio** (P7) | Mismo panel (`vista="negocio"`) en rutas de negocio | `POST /api/ia/copiloto` → handler → `asistente.py` | Sí (`asistente_negocio`, proveedor **OpenAI**) |
+| **VIGÍA de trading** | Toasts en `/trading` | `POST /api/ia/copiloto/vigia` → `copiloto/motor.py::vigia` | **NO** — watchers deterministas, 0 tokens |
+| **Observabilidad de IA** | Manager → OBSERVABILIDAD → pill IA | `/api/ia/{observabilidad,presupuesto,saldo}` → `ia_obs.py` | No |
+| **Triage de incidentes** (P2) | **SIN VISTA** — solo la tabla `ia.triage_incidentes` | `jobs/triage.py`, cron `*/10` | Sí (`triage_incidente`, pro + thinking) |
+| **Research diario 1816** (P6) | Panel dentro del briefing + contexto/tools de la vista `research` | `jobs/research_mail.py` → `ia.research` | Solo con `--destilar` (opt-in; **por defecto 0 tokens**) |
+| **Control de calidad de conversaciones** | **SIN VISTA** — tabla `ia.calidad_flags` | `jobs/ia_calidad.py`, 21:30 UTC L-V | Sí (`critico_calidad`, solo sobre candidatos del pre-filtro) |
+| **Resumen de controles de datos** | Manager → OBS → CONTROLES | `core/ai_resumen.py` (`controles_resumen`) | Sí |
 
-### Las 4 tareas de IA vivas (`core/ai.py::_TAREAS`)
-`av_agent_informe` (análisis de patrones del diagnóstico masivo) · `av_agent_accion`
-(sugerir un valor de una lista cerrada) · `research_destilar` (ingesta del mail
-1816) · `smoke` (diagnóstico del gateway).
+> Fuera del programa: el **MCP server** (`api/mcp/`) es otro asistente (renta variable, Custom Connector
+> de claude.ai) y **NO** usa `core/ai.py` ni el módulo `ia`.
 
-⚠️ **REGLA: una tarea existe solo si alguien LEE su salida.** El 2026-08-19 se
-borraron seis que no la tenían — entre ellas `triage_incidente`, que corría **cada
-10 minutos** contra una tabla que nadie abría. No se notó porque *funcionaba*:
-no fallaba, solo gastaba.
+### Copiloto de mesa — panel "Consultale a la IA"
+- **Doble gate estructural**: módulo `ia` (montaje del router) **+ el módulo de la vista**
+  (`copiloto/derivacion.py::_acceso`). Si tu rol no ve la tabla, el copiloto no existe ahí.
+- **Los datos NUNCA viajan del front**: el browser manda solo `{vista, pregunta, historial, conv_id,
+  params}` y el server refetchea el mismo service `@cached` que pinta la tabla, y arma el contexto en TSV.
+
+| Vista (clave) | Ruta | Módulo | Qué "ve" | Tools propias |
+|---|---|---|---|---|
+| `home` | `/` | `home` | Watchlist HOME, briefing como bloque, pulso de curvas RF, futuros DLR | — |
+| `renta_variable` | `/renta-variable` | `renta-variable` | Tabla CEDEARs/ADRs ~26 columnas + CCL live + detalle por ticker mencionado (cap 3, detección determinista) | `rankear_papeles` |
+| `renta_fija` | `/renta-fija` | `renta-fija` | Curvas (ticker, curva, vto, meses, precio, TEA/TEM, paridad, duration, `tc_breakeven`, `tea_fit`, `residuo_bps`, nominales) + fair value, forwards z, breakevens vs REM, carry, canje | `rendimiento_esperado` |
+| `ons` | `/ons` | `renta-fija` | ONs: ticker, emisor, sector, moneda, vto, meses, precio, TEA, duration, paridad, nominales | — |
+| `derivados` | `/derivados` | `derivados` | Cadena de opciones (contrato, tipo, strike, vto, bid/offer, prima, cierre ant., volumen efectivo, IV, griegas, spot) | — |
+| `agro` | `/agro` | `agro` | Pizarra vs futuros Matba Rofex + dólares/tasas de referencia | — |
+| `trading` | `/trading` | `trading` | **Las tarjetas del usuario** (van en `params`) + libro, tape, movers, posiciones intraday, reloj de mercado. `depende_de_params: True` | — (tier **pro** fijo) |
+| `research` | `/research` | `research` | 4 fuentes juntas: 1816, BCRA, FRED, reportes + mails; `params.tab` prioriza, no filtra | `buscar_en_mails`, `serie_de`, `spread_entre` |
+| `reuters` | `/research` → RV INT | `research` | Tablero live USD de subyacentes US | — |
+| `ayuda` (Guía) | toda ruta sin copiloto propio | `home` + `solo_internos` | Mapa curado del producto + valores VIVOS de los filtros de Operaciones. **Jamás datos ni análisis** | `abrir_vista` |
+| `negocio` (Asistente) | rutas de negocio | **`asistente`** + `solo_internos` | Sin tabla: handler → `asistente.py` (aduana PII + 17 tools + transcript) | ver abajo |
+
+**Tool COMÚN a todas**: `serie_historica` (familias `macro`, `bono_1816`, `aum`, `bcra`,
+`internacional`) — devuelve stats (percentil/z del último valor, min/max) + muestra ralificada (máx 24
+puntos), nunca los puntos crudos.
+
+**Controles del panel**: **no hay selector de vista** (la fija la ruta) · **chips de preguntas curadas**
+por vista (home 2, renta_fija 5, trading 5, agro 3, derivados 3, ons 3, reuters 3, más listas propias
+de renta_variable, research y ayuda; **`negocio` sin chips a propósito**) · **`params`** por vista
+(trading: tickers/foco/overrides/posiciones; research: `{tab}`) · **historial** corto (últimos 4 pares)
++ restauración de la última conversación · **caps**: `_MAX_FILAS = 400`, `_MAX_CHARS_PREGUNTA = 500`,
+`_MAX_CHARS_MENSAJE = 1200`, celda TSV 60 chars (excepciones: `ayuda` 400, `research` 220).
+
+**Acciones de escritura del usuario**: 👍/👎 → `POST /copiloto/feedback` (solo trazas propias:
+`WHERE id=%s AND usuario=%s`) · implícitas: cada pregunta escribe una fila en `ia.trazas` y, en
+`negocio`, transcript en `manager.asistente_chats` + mapping en `manager.asistente_mappings` · botón de
+navegación asistida (el estado lo **valida el server**, el front solo lo aplica) · botón "Abrir X →"
+(derivación entre vistas con handoff de la pregunta). **No hay allowlist de escritura: la IA es
+READ-ONLY absoluta** (regla de oro 2 de QUANTAI); ninguna tool escribe a prod.
+
+### Asistente de Negocio (P7)
+- **Gate**: módulo **`asistente`** (default-deny) + `solo_internos` → **JAMÁS portal invitado**, congelado por test.
+- **NO tiene endpoint propio**: `POST /api/asistente/chat` fue eliminado. Única puerta: `POST /api/ia/copiloto` con `vista="negocio"`.
+- **Aduana PII** (`core/pii_gateway.py`): tokenize/detokenize con fichas estables por chat (`CLIENTE_n`, `CTA_n`, `DOC_n`, `OPERADOR_n`, `REFERIDO_n`…), mapping en `manager.asistente_mappings` con **TTL 48 h** (el historial re-inyectado se corta al mismo TTL para no reabrir el leak). **Fail-closed**: sin catálogo de clientes, el asistente se niega a responder.
+- **Transcript real** (nombres verdaderos) en `manager.asistente_chats`; la traza en `ia.trazas` guarda el texto **tokenizado** = registro auditable de qué cruzó el perímetro.
+- **Verificación de cifras**: toda cifra citada debe aparecer en lo que devolvieron las tools; si no, UNA reescritura (keep-best con `<=`; el copiloto usa `<` estricto).
+- **Proveedor `openai` por ruteo de tarea, fail-closed** (sin credencial de ESE proveedor no corre y no cae al default).
+- **17 tools read-only**: `resumen_mesa`, `rendimiento_cuenta`, `posiciones_cuenta`, `aum_composicion`, `aum_variacion`, `aum_historico`, `flujo_de_fondos`, `cobros_futuros`, `pulso_mesa`, `volumen_operado`, `aranceles_consolidado`, `quien_es`, `jobs_fallidos`, `costo_ia`, `controles_calidad_datos`, `serie_historica`, **`tablero_comercial`**. Todas token-in/token-out (el resultado vuelve a pasar por la aduana), con `_vocabulario_protegido()` para no tachar términos del negocio. `puede_control_comercial(usuario)` chequea el permiso **por usuario**.
 
 ### Manager → OBSERVABILIDAD → pill IA
 | Bloque | Qué muestra | Endpoint | Filtros | Escritura |
 |---|---|---|---|---|
 | KPIs | tokens de hoy, % del presupuesto con barra, llamadas/errores | `GET /observabilidad` | `dias` (1-90, def 14) | — |
 | `⚙ LÍMITES` | topes vigentes global/usuario + excepciones por email | `GET /presupuesto` | — | **Sí**: `POST /presupuesto`, `POST /presupuesto/usuario` |
-| POR TAREA · POR DÍA · POR PROVEEDOR | agregados; el proveedor muestra si **no entrena**, gasto estimado y saldo real | mismo + `GET /saldo` | click filtra el historial | — |
+| POR TAREA | llamadas, errores, tokens, latencia media, última | mismo | click filtra el historial | — |
+| POR DÍA | serie diaria | mismo | `dias` | — |
+| POR PROVEEDOR | tokens/llamadas por proveedor, modelos por tier, si **no entrena**, **gasto estimado** y saldo real del que lo expone | mismo + `GET /saldo` | — | — |
 | HISTORIAL (paginado server-side) | id, ts, tarea, modelo, usuario, tokens, latencia, ok/error, feedback, detalle, respuesta, razonamiento | `GET /observabilidad` | `limit` (1-200, def 60), `offset`, `tarea`, `usuario` (ILIKE), `solo_error`, `q` | — |
+| DRAWER | pregunta / respuesta / razonamiento literal | mismo | — | — |
 
 ### Endpoints (`/api/ia`, gate `_IA = [verify_api_key, require_module("ia")]`)
-**Todo `/av-agent/*` lleva además `require_admin`**: el agente expone el estado
-interno de la valuación —qué bonos están mal cargados, qué le falta al catálogo—
-y eso no es información de mercado. El inventario completo y siempre al día está
-en **§0 (AUTOGEN)**; acá va lo que no se deduce de la firma:
+| Método | Path | Qué hace | Params | Escribe |
+|---|---|---|---|---|
+| GET | `/observabilidad` | Resumen de hoy (+% presupuesto), serie por día, agregados por tarea y proveedor, historial paginado, lista de tareas | `dias`, `limit`, `offset`, `tarea`, `usuario`, `solo_error`, `q` | No |
+| GET | `/presupuesto` | Topes vigentes (`ia.config` > env > default) + excepciones por usuario | — | No |
+| POST | `/presupuesto` | Edita tope global diario y/o por usuario (global es techo duro; usuario ≤ global) | `{global_dia?, usuario_dia?}` | **Sí** (`ia.config`, actor auditado) |
+| POST | `/presupuesto/usuario` | Excepción personal por email; `valor: null` la borra | `{email, valor?}` | **Sí** |
+| GET | `/saldo` | Estado de los proveedores: modelos por tier, `no_entrena`, saldo real del que lo expone | — | No |
+| GET | `/briefing` | Briefing determinista | — | No |
+| GET | `/copiloto/vistas` | Vistas habilitadas (+ chips). El front lo usa de **probe**: 403 = botón oculto | — | No |
+| GET | `/copiloto/historial` | Última **conversación** persistida (de `ia.trazas`, sin autocorrecciones) + su `conv_id` | `limit` (1-20, def 8) | No |
+| POST | `/copiloto` | Una pregunta sobre una vista. Gate extra `puede_usar(usuario, vista)` → 403 | `{vista, pregunta, historial[], conv_id?, params?}` | **Sí** (traza; en `negocio` además transcript + mapping) |
+| POST | `/copiloto/vigia` | Vigía de TRADING: disparadores por CÓDIGO (0 tokens). Gate `puede_usar(email,"trading")` | `{params?}` | No |
+| POST | `/copiloto/feedback` | 👍/👎 sobre una respuesta propia | `{traza_id, feedback: 1\|-1}` | **Sí** |
 
-| Método | Path | Qué hace | Escribe |
-|---|---|---|---|
-| GET | `/briefing` | Briefing determinista. **El ÚNICO endpoint de `/api/ia` sin `require_admin`** además de `mis-avisos` | No |
-| GET | `/av-agent/vista` | La pantalla entera en UN request: hallazgos + preguntas + avisos + libro | No |
-| POST | `/av-agent/salud` | El diagnóstico razonado de un chequeo (8 lentes deterministas) | No |
-| GET/POST | `/av-agent/salud/{pendientes,vistos,silenciar,recontrolar}` | La interrupción y el re-chequeo, mudados desde el panel de SALUD | Sí (vistos/silenciar) |
-| GET/POST | `/av-agent/hacer{,/proponer,/aplicar,/rechazar}` | Las ACCIONES: proponer → tu OK → aplicar → verificar (§0.j) | **Sí** (catálogo de prod) |
-| GET | `/av-agent/mis-avisos` | Los pendientes que el agente le dejó a ESTA persona. Sin `require_admin` (el destinatario puede no administrar nada) pero **rechaza el portal invitado** | No |
+**Admin-only (`require_admin`, NO delegable)**: `/observabilidad`, `/presupuesto` (GET y POST),
+`/presupuesto/usuario`, `/saldo`. Motivo documentado: la observabilidad devuelve la pregunta y la
+respuesta literal de TODOS los usuarios + su email, y con solo el gate `ia` habría quedado alcanzable
+por el **portal invitado** (`ia ∈ INVITADO_MODULES`).
 
-⚠️ **Congelado por test** (`test_rbac.py`): cualquier endpoint nuevo bajo
-`/api/ia` **sin `require_admin`** hace fallar la suite. Es lo que impide que algo
-del AV AGENT nazca alcanzable por el portal www sin que nadie lo note (REGLA #8).
+### Observabilidad — qué se guarda de cada llamada
+Writer único `core/ai.py::_trazar()` (best-effort). Tabla **`ia.trazas`**: `id`, `ts`, `tarea`, `modelo`,
+`usuario` (o `guest:<email>`), `tokens_in`, `tokens_out`, `cache_hit_tokens`, `cache_miss_tokens`
+(el caché de prefijo es ~10× más barato), `latencia_ms`, `ok`, `error` (cap 700), `detalle` (la
+pregunta, cap 600, **tokenizado** si la vista tiene aduana), `respuesta` (cap 1500; en rondas de tools
+guarda los nombres de las tools pedidas), `razonamiento` (cap 2000, debug, nunca se muestra),
+`feedback`, `conv_id`.
+El **gasto no se pide al proveedor** (OpenAI no expone saldo): se **calcula** con `core/llm._PRECIOS`
+(USD/1M) descontando tokens de caché; modelo sin precio → "—", **jamás un número inventado**. DeepSeek sí
+expone saldo real (cache 5 min).
 
+### Presupuestos y límites
+- **Precedencia**: tabla `ia.config` **>** env var **>** default. Cache 60s, invalidado al editar.
+- **Tope GLOBAL diario** (`budget_dia_global` / `AI_BUDGET_TOKENS_DIA`, def **2.000.000**) = techo duro.
+- **Tope por USUARIO** (def **1.000.000**, subido de 200k al medir ~22k tokens/pregunta del copiloto).
+- **Excepción personal** por email (clave `budget_dia_usuario:<email>`).
+- **Invitados**: `guest:<email>`, tope propio **100.000**.
+- La suma de topes por usuario PUEDE superar el global — el global corta igual. Se computa sobre `ia.trazas` del día UTC.
+- Al superarse: `motivo_presupuesto()` devuelve `"global"`/`"usuario"` → el copiloto responde `ok=false` con mensaje accionable. **Best-effort**: si la DB no responde NO bloquea (es control de costos, no gate de seguridad).
+- Otros límites: `_MAX_RONDAS_TOOLS = 4`, `_MAX_TOOL_RESULT_CHARS = 4000`, 1 retry solo ante timeout/conexión/5xx (nunca 4xx), `max_tokens`/`timeout_s` por tarea. Asistente: `_MAX_HISTORIAL_TURNOS = 8`, TTL 48 h.
+
+**Registro de tareas (`core/ai.py::_TAREAS`)**
+
+| Tarea | Tier | Proveedor | max_tokens | timeout | thinking |
+|---|---|---|---|---|---|
+| `controles_resumen` | flash | deepseek | 800 | 60s | disabled |
+| `smoke` | flash | deepseek | 64 | 30s | disabled |
+| `triage_incidente` | pro | deepseek | 2500 | 120s | **enabled** |
+| `copiloto_vista` | flash | deepseek | 3000 | 60s | disabled |
+| `copiloto_vista_pro` | pro | deepseek | 3000 | 90s | disabled |
+| `research_destilar` | flash | deepseek | 2000 | 90s | disabled |
+| `asistente_negocio` | flash | **openai** (`datos:"negocio"`) | 3000 | 90s | disabled |
+| `critico_calidad` | flash | deepseek | 400 | 60s | disabled |
+
+Ruteo: default `deepseek` (`deepseek-v4-flash`/`-pro`), `openai` (`gpt-5.6-luna`/`gpt-5.6-terra`,
+`no_entrena: True`). **Invariante `_ruteo_seguro`**: una tarea con `datos:"negocio"` SOLO corre en un
+proveedor con `no_entrena=True`; si no, el gateway **niega la llamada** (fail-closed, no cae al default).
+
+### Features de IA sin vista
+- **Triage de incidentes** (`jobs/triage.py`, cron `*/10`): lee `manager.job_runs` con `status='error'` desde el watermark, agrupa por **FIRMA** normalizada, y solo una firma NUEVA gasta un diagnóstico. Contexto = errores acumulados + `logs/<tipo>.log` (últimas ~45 líneas), con scrub de emails/CUITs y tratado como dato hostil. **4 guardas de costo**: dedup por firma · watermark · presupuesto · severidad. Persiste `{causa, hecho, hipotesis, recomendacion, confianza}` y estados `nuevo|diagnosticado|playbook|resuelto`. **NUNCA ejecuta nada.** Flags `--dry-run`, `--force`, `--lookback-min`. **No hay endpoint ni tab: la lectura hoy es SQL directo.**
+- **Research diario 1816** (`jobs/research_mail.py`, `*/30 10-14 * * 1-5`): IMAP read-only, filtro por remitente (match sobre From + asunto + cuerpo → cubre reenvíos), dedup por `Message-ID` UNIQUE → idempotente. Persiste el **cuerpo CRUDO** (fuente citable) + FTS español; el destilado LLM es **opt-in con `--destilar`**. Env: `RESEARCH_IMAP_USER/PASSWORD`, `RESEARCH_MAIL_FROM`, `RESEARCH_IMAP_HOST`.
+- **Control de calidad de conversaciones** (`jobs/ia_calidad.py`, `30 21 * * 1-5`): marca los 👎 (0 tokens) + pre-filtro determinista (regex de modos de falla conocidos) → crítico LLM barato solo sobre los candidatos. Persiste `ia.calidad_flags` (modo `ranking_a_mano|deflexion|causalidad|tool_muda|voto_negativo|otro`, severidad, nota, revisado). Lee texto **ya tokenizado** → PII-safe por construcción. **No auto-corrige.** `scripts/gen_evals_desde_flags.py` convierte las flags en borradores de eval.
+
+### Notas / rarezas (IA)
+1. **Doble gate estructural**: módulo `ia` + módulo de la vista. El front es cosmético — el probe decide si se dibuja el botón.
+2. **Portal invitado**: `ia ∈ INVITADO_MODULES`, identidad `guest:<email>`, acceso resuelto contra `INVITADO_MODULES` (nunca por rol-del-email); `ayuda` y `negocio` quedan excluidas por `solo_internos`.
+3. **Divergencia de gate en Manager**: la pill se muestra con `ia`, los endpoints exigen `require_admin` → se ve la pill y se recibe 403. Deliberado, pero el front no lo refleja.
+4. **`POST /copiloto/vigia` NO usa `_identidad()`**: chequea `puede_usar(email,"trading")` con el email crudo. Asimetría con el resto de los endpoints.
+5. **Handoff transparente a la guía**: si un copiloto deriva a `ayuda` (`[[VISTA:ayuda]]`), el motor le hace la misma pregunta a `ayuda` **server-side** y devuelve SU respuesta (profundidad 1). Todo residuo `[[VISTA…]]` se borra siempre (un marcador malformado llegó crudo al usuario una vez).
+6. **Degradación del asistente de negocio**: sin proveedor **cae al GUÍA** en vez de mostrar un panel muerto. El presupuesto agotado NO cae al guía (no se arregla navegando).
+7. **Política "verificado o nada"**: si tras UNA autocorrección quedan números sin respaldo, el copiloto devuelve `ok=false, error="verificacion"` y **la respuesta no se muestra**. El asistente de negocio sí permite cuentas simples marcadas con `~`.
+8. **Tier por pregunta**: `trading` fija `pro`; las demás escalan con `_es_profunda()` (verbos de análisis, 3+ intercambios previos, consigna >220 chars) — determinista, sin LLM.
+9. **Tokens y caché**: el encabezado del contexto usa `timespec="minutes"` a propósito para que el prefijo se cachee entre preguntas seguidas; serialización **TSV, no JSON**, por costo de tokens.
+10. **Lección repetida**: *una tool no falla, ENMUDECE* — leer una clave que el service nunca emite da "sin datos" siempre y el modelo improvisa. Por eso se prohibió el patrón `r.get("a") or r.get("b")` en todo el código de IA y toda tool nueva exige sonda.
+
+### Diferido / descartado (de `docs/QUANTAI.md`) — no re-proponer sin novedad
+**Cerrado/descartado**: P1 Briefing cerrado como está (el bloque **Agenda** ya no tiene fuente: Finnhub
+free muerto, FMP devuelve 402 → baja 2026-08-03) · **P4 Prep de reuniones comerciales** · chatbot global
+con tools por RBAC (el copiloto es CONTEXTUAL por vista) · MCP como base del copiloto · noticias en la
+vista HOME del copiloto · **Telegram: decomiso TOTAL** (2026-07-25; la salida de triage/ia_calidad/
+controles/guardrails queda SOLO en SQL) · `POST /api/asistente/chat` · ideas no elegidas (news
+intelligence cruzada con cartera, "explicame esto" por vista, radar de anomalías narradas, extracción de
+prospectos PDF, asistente del portal invitado).
+
+**Diferido con condición de disparo**: multi-agente/swarms · vector stores/RAG/pgvector · semantic
+memory · knowledge graphs (NO APLICA) · fine-tuning · RL · stacks de observabilidad dedicados · A/B
+testing · selección semántica de tools (al superar ~30) · threat modeling formal · escenarios
+deterministas del copiloto · **P5 Analista ad-hoc (SQL generado)** va último y exige la jaula (rol
+read-only, whitelist, timeout, límite de filas, log de queries, SQL visible) · **suite de evals**: solo
+`copiloto_vista` tiene set vivo · **pendientes vivos del P2**: shadow del triage + **tab TRIAGE en
+OBSERVABILIDAD** + subir `max_tokens` de `controles_resumen` · **backlog de tools** (`docs/TOOLS_IA.md`):
+los 3 huecos estructurales son "contra qué" (parcialmente cerrado por `serie_historica`),
+**ORDENAR/rankear por cliente** y el **dominio PLATA** (fondeo, acreencias, tesorería, liquidación —
+cobertura **CERO**).
 ---
 
 ## 4.12 ACA — RESUMEN EJECUTIVO DE INVERSIONES
@@ -2275,8 +2432,11 @@ GET `/research-bcra/bloques` · `/research-bcra/series` · `/research-fred/bloqu
 ### `ia.py` — `/api/ia`, módulo `ia` (11)
 | M | Path | W |
 |---|---|---|
-| GET | `/observabilidad` **(admin)** · `/presupuesto` **(admin)** · `/saldo` **(admin)** · `/briefing` · `/av-agent/*` **(admin)** | — |
+| GET | `/observabilidad` **(admin)** · `/presupuesto` **(admin)** · `/saldo` **(admin)** · `/briefing` · `/copiloto/vistas` · `/copiloto/historial` | — |
 | POST | `/presupuesto` **(admin)** · `/presupuesto/usuario` **(admin)** | **✍** (`ia.config`) |
+| POST | `/copiloto` | **✍** (traza; en `negocio` + transcript + mapping) |
+| POST | `/copiloto/vigia` | — (0 tokens) |
+| POST | `/copiloto/feedback` | **✍** |
 
 ### `manager/` — `/api/manager` (121 declarados / 122 por suma de tablas)
 | Sub-router | Gate | Endpoints | Escriben |
@@ -2445,7 +2605,7 @@ Ordenados por qué tan accionables son. Lo que dice **SIN VERIFICAR** no se pudo
     `/api/trading/renta-fija` (el comentario dice literal "RENTA FIJA se removió — no se usa"),
     `/api/risk/account/positions`, `/api/portfolio/aum`, `/api/titulos/assets`,
     `/api/valuaciones/{id}/posiciones` (legacy, con proxy y todo),
-    `/api/research1816/mails/buscar` (sin consumidor desde la baja del copiloto),
+    `/api/research1816/mails/buscar` (lo usa el copiloto, pero **no por HTTP**),
     `/api/manager/status`, `/api/manager/checks/debug-comercial`, `/api/manager/checks/futuros-dlr`.
 31. **`PATCH /api/derivados/agro/pizarra/{commodity}` es huérfano en la práctica**: funciona en el
     backend, **no hay proxy Next**, y `PizarraRow` es read-only con tooltip "Editable en la tab Datos".

@@ -10,7 +10,7 @@ Lo que SÍ escribe (desde 2026-08-18) va todo a tablas NUESTRAS: la clasificaci�
 de gastos (`gastos_reglas` / `gastos_overrides` / `gastos_baldes` /
 `movimientos_ignorados`), y lo manual
 (`movimientos_manuales` + las cuentas con `origen='manual'`). **Nada de eso toca
-el extracto del banco ni sale a internet.** Son 12 endpoints, todos detrás de
+el extracto del banco ni sale a internet.** Son 13 endpoints, todos detrás de
 `bancos.puede_escribir` (allowlist de Tesorería + admin) y todos auditados. Un
 test enumera exactamente cuáles son, así que uno nuevo no entra sin que alguien
 lo decida.
@@ -208,6 +208,19 @@ def guardar_balde(
 ) -> dict:
     try:
         return _svc.guardar_balde(_exigir_escritura(email), etiqueta, grupo, orden, clave)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.post("/gastos/desglose/orden")
+def reordenar_baldes(
+    claves: list[str] = Body(..., embed=True),
+    email: str = Depends(get_user_email),
+) -> list[dict]:
+    """Fija el orden de las columnas — lo único que decide los empates cuando dos
+    se pisan. Se manda la lista COMPLETA, en el orden nuevo."""
+    try:
+        return _svc.reordenar_baldes(_exigir_escritura(email), claves)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 

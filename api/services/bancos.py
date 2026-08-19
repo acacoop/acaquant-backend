@@ -1025,6 +1025,40 @@ def guardar_balde(email: str, etiqueta: str, grupo: str, orden: int,
     return filas[0]
 
 
+def reordenar_baldes(email: str, claves: list[str]) -> list[dict]:
+    """Fija el ORDEN de las columnas, que es lo único que decide los empates.
+
+    ⚠️ Por qué esto existe y por qué NO es una "excepción". El caso real: un banco
+    manda `IVA PERCEPCION RESOL GRAL` con el CONCEPTO en `IVA`, y como IVA se
+    evaluaba antes, se la comía. Se puede resolver de dos formas:
+
+      · una excepción hardcodeada para ese texto — que es una regla escondida en
+        el código, que solo yo puedo cambiar y que nadie más sabe que existe;
+      · **subir IVAPERCEP arriba de IVA** y darle a IVAPERCEP un matcher por
+        DESCRIPCIÓN. Un movimiento con esa descripción cae en IVAPERCEP; uno con
+        concepto IVA y sin esa descripción sigue cayendo en IVA, porque el
+        matcher no lo agarra.
+
+    La segunda no es un parche: es el mecanismo funcionando. Por eso lo que se
+    agrega es **poder mover el orden**, no una excepción — el mismo movimiento
+    resuelve el próximo caso, que va a ser parecido y distinto.
+
+    Se reasigna la secuencia COMPLETA (10, 20, 30…) en vez de tocar un número:
+    así no hay empates ni huecos raros después de mover algo diez veces.
+    """
+    claves = [str(c).strip() for c in (claves or []) if str(c).strip()]
+    if not claves:
+        raise ValueError("No mandaste ninguna columna.")
+    existentes = {r["clave"] for r in _q("SELECT clave FROM bancos.gastos_baldes")}
+    if set(claves) != existentes:
+        raise ValueError("La lista tiene que traer TODAS las columnas, una sola vez.")
+    for i, clave in enumerate(claves):
+        _exec("UPDATE bancos.gastos_baldes SET orden = %s WHERE clave = %s",
+              ((i + 1) * 10, clave))
+    _audit(email, "desglose_orden", {"claves": claves})
+    return _baldes()
+
+
 def borrar_balde(email: str, clave: str) -> bool:
     """Baja FÍSICA — con sus matchers por CASCADE. No hay histórico que huerfanar:
     el desglose se deriva en la lectura, así que borrar un balde simplemente hace

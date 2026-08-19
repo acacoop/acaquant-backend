@@ -391,3 +391,59 @@ def test_el_tipo_de_cuenta_se_valida(monkeypatch):
     svc = _svc_manual(monkeypatch)
     with pytest.raises(ValueError, match="Tipo inválido"):
         svc.crear_cuenta_manual("x@y", "Banco X", "123", "XX", "ARS")
+
+
+# --------------------------------------------------------------------------- #
+# El ORDEN resuelve los pisones — sin excepciones hardcodeadas
+# --------------------------------------------------------------------------- #
+# Caso real: un banco manda `IVA PERCEPCION RESOL GRAL` con el CONCEPTO en `IVA`.
+# Como IVA se evalúa primero, se lo come — y la columna IVAPERCEP queda en cero
+# mientras IVA muestra de más, con el TOTAL dando bien. El error invisible.
+#
+# La salida NO es una excepción en el código para ese texto: es subir IVAPERCEP
+# arriba de IVA y darle un matcher por DESCRIPCIÓN. Estos tests congelan que eso
+# funciona y —lo más importante— que no rompe el caso normal.
+def _con_percep_arriba():
+    """El mismo catálogo, con IVAPERCEP antes que IVA y su matcher de descripción."""
+    baldes = semilla_catalogo()
+    for b in baldes:
+        if b["clave"] == "ivapercep":
+            b["orden"] = 5
+            b["matchers"].append({"id": 99, "campo": "descripcion_banco",
+                                  "operador": "contiene",
+                                  "valor": "IVA PERCEPCION RESOL"})
+    return sorted(baldes, key=lambda b: b["orden"])
+
+
+def test_el_orden_saca_a_IVAPERCEP_de_abajo_de_IVA():
+    mov = _m(concepto="IVA", descripcion="IVA PERCEPCION RESOL GRAL 3337")
+    assert desglosar(mov, semilla_catalogo()) == "iva", "así estaba: mal"
+    assert desglosar(mov, _con_percep_arriba()) == "ivapercep"
+
+
+def test_subir_IVAPERCEP_no_se_lleva_puesto_al_IVA_normal():
+    """El que importa: el matcher nuevo mira la DESCRIPCIÓN, así que un IVA de
+    verdad —concepto IVA, sin esa descripción— sigue cayendo en IVA aunque
+    IVAPERCEP se evalúe primero. Si esto se rompiera, la solución del pisón
+    habría creado un pisón nuevo."""
+    assert desglosar(_m(concepto="IVA"), _con_percep_arriba()) == "iva"
+    assert desglosar(_m(concepto="IVA", descripcion="N/D - COMISIONES DATANET"),
+                     _con_percep_arriba()) == "iva"
+
+
+def test_IVAPERCEP_por_concepto_sigue_andando():
+    assert desglosar(_m(concepto="IVAPERCEP"), _con_percep_arriba()) == "ivapercep"
+
+
+def test_reordenar_exige_la_lista_COMPLETA(monkeypatch):
+    """Media lista dejaría columnas con el orden viejo y otras con el nuevo —
+    empates silenciosos. Se manda todo o no se manda nada."""
+    from api.services import bancos as svc
+
+    monkeypatch.setattr(svc, "_q", lambda sql, params=None: [
+        {"clave": "iva"}, {"clave": "ivapercep"}])
+    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: 1)
+    with pytest.raises(ValueError, match="TODAS las columnas"):
+        svc.reordenar_baldes("x@y", ["iva"])
+    with pytest.raises(ValueError, match="TODAS las columnas"):
+        svc.reordenar_baldes("x@y", ["iva", "iva"])

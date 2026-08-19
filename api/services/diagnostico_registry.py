@@ -128,7 +128,7 @@ PIEZAS: list[Pieza] = [
     Pieza("NEGOCIO", "job", "saldos_a_operadores (aviso diario)", grupo="CLIENTES",
           unidad="jobs.saldos_a_operadores",
           cadencia="19:45 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
-          run_tipo="mensajes"),
+          run_tipo="saldos_a_operadores"),
 
     # ── MERCADOS · DERIVADOS ───────────────────────────────
     Pieza("MERCADOS", "job", "snapshot_sinteticos (serie histórica)", grupo="DERIVADOS",

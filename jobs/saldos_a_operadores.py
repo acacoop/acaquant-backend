@@ -112,7 +112,7 @@ def _cuerpo(filas: list[dict]) -> tuple[str, str]:
 
 
 def main() -> int:
-    with JobRunLogger("jobs.saldos_a_operadores", tipo="mensajes") as jr:
+    with JobRunLogger("saldos_a_operadores") as jr:
         from api.services import av_agent_mensajes as msg
 
         filas = _saldos_de_hoy()

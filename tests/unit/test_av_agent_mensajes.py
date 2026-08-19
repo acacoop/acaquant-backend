@@ -90,3 +90,24 @@ def test_las_cuentas_SIN_operador_se_cuentan():
     esconde justo lo que quedó sin dueño."""
     src = pathlib.Path("jobs/saldos_a_operadores.py").read_text(encoding="utf-8")
     assert "_sin_operador" in src and 'set_stat("sin_operador"' in src
+
+
+def test_el_job_ARRANCA():
+    """Se rompió en la primera corrida real: `JobRunLogger` toma UN argumento
+    (`tipo`) y se lo llamó con dos. Lo que no se puede volver a pasar es que un
+    job entre a producción sin que nada haya intentado construirlo — la firma es
+    lo primero que se rompe y lo único que no cuesta nada chequear."""
+    import inspect
+
+    from core.job_runs import JobRunLogger
+    firma = inspect.signature(JobRunLogger.__init__)
+    # Sin `self`: exactamente un parámetro obligatorio.
+    params = [p for n, p in firma.parameters.items() if n != "self"]
+    assert len(params) == 1, "cambió la firma de JobRunLogger: revisá los jobs"
+
+    src = pathlib.Path("jobs/saldos_a_operadores.py").read_text(encoding="utf-8")
+    assert 'JobRunLogger("saldos_a_operadores")' in src
+    # Y el `run_tipo` del árbol tiene que ser EL MISMO string, o el diagnóstico
+    # busca corridas de un tipo que nadie escribe y el job se ve como caído.
+    reg = pathlib.Path("api/services/diagnostico_registry.py").read_text(encoding="utf-8")
+    assert 'run_tipo="saldos_a_operadores"' in reg

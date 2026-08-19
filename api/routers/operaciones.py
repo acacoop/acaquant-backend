@@ -109,6 +109,7 @@ def flujos_serie(
     agg: str = Query("DIARIO", description="DIARIO | MENSUAL"),
     filtro: str = Query("todas", description="todas | sin_accionistas | solo_accionistas | solo_cooperativas"),
     seleccion: str | None = Query(None, description="Cuenta o grupo elegido en el 2do selector"),
+    con_opciones: bool = Query(True, description="False = no mandar la lista del selector (44 KB); depende solo de `filtro`"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Lo que la tab DEPÓSITOS & EXTRACCIONES dibuja, ya agregado server-side:
@@ -123,7 +124,8 @@ def flujos_serie(
         raise HTTPException(status_code=400, detail=f"filtro inválido: {filtro!r}")
     return _cf_sql.flujos_serie(ventana_desde=ventana_desde, ventana_hasta=ventana_hasta,
                                 desde=desde, hasta=hasta, agg=agg, filtro=filtro,
-                                seleccion=seleccion, scope=scope)
+                                seleccion=seleccion, con_opciones=con_opciones,
+                                scope=scope)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

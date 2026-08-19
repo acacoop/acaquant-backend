@@ -330,7 +330,7 @@ def flujos_serie(
     ventana_desde: str | None = None, ventana_hasta: str | None = None,
     desde: str | None = None, hasta: str | None = None, agg: str = "DIARIO",
     filtro: str = "todas", seleccion: str | None = None,
-    scope: tuple[str, ...] | None = None,
+    con_opciones: bool = True, scope: tuple[str, ...] | None = None,
 ) -> dict:
     """Lo que la tab DEPÓSITOS & EXTRACCIONES dibuja, ya agregado.
 
@@ -353,7 +353,16 @@ def flujos_serie(
                      primero (cuentas, o grupos de accionistas). Sobre la
                      ventana entera y SIN aplicar la selección: si se recortaran
                      a la cuenta elegida, elegir una dejaría el desplegable con
-                     una sola opción y no se podría volver.
+                     una sola opción y no se podría volver. **`null` cuando
+                     `con_opciones=False`** — ver abajo.
+
+    **`con_opciones` no es una micro-optimización.** Esa lista son 1.021 cuentas
+    = 44 KB, el 69% del payload en diario y el 96% en mensual (medido en el
+    Droplet, 2026-08-19). Y depende SOLO de `filtro`: mandarla también cuando lo
+    que cambió fue el rango, la granularidad o la cuenta elegida es repetir 44 KB
+    por click. El front la pide en su propio fetch, atado a `filtro` y nada más.
+    Va `null` y no `[]` a propósito: "no las pedí" y "no hay ninguna" son cosas
+    distintas y confundirlas vaciaría el desplegable.
       * `bounds`   — primer y último día con movimientos de la ventana.
 
     `agg` MENSUAL agrupa por 'YYYY-MM'; cualquier otro valor es diario. El neto
@@ -404,7 +413,7 @@ def flujos_serie(
         totales[unidad]["entradas"] += r["entradas"] or 0.0
         totales[unidad]["salidas"] += r["salidas"] or 0.0
 
-    opciones = {
+    opciones = None if not con_opciones else {
         "solo_accionistas": sorted(grupos),
         "sin_accionistas": sorted(sin_acc),
         "solo_cooperativas": sorted(coops),

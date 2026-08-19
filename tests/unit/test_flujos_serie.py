@@ -107,6 +107,16 @@ def test_opciones_no_se_recortan_con_la_seleccion():
     assert len(r["opciones"]) == 3
 
 
+def test_sin_con_opciones_la_lista_viaja_como_null_no_como_vacia():
+    """Son 44 KB (1.021 cuentas) y dependen solo de `filtro`, así que el front
+    las pide aparte. `null` y `[]` NO son lo mismo: confundirlos vaciaría el
+    desplegable en vez de dejar el que ya tenía."""
+    r = _serie(con_opciones=False)
+    assert r["opciones"] is None
+    assert r["serie"], "lo demás tiene que venir igual"
+    assert r["totales"]["ARS"]["entradas"] == 150.0
+
+
 def test_bounds_son_el_primer_y_ultimo_dia_con_movimientos():
     b = _serie()["bounds"]
     assert b["min"] == "2026-01-10"

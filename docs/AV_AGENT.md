@@ -1951,6 +1951,47 @@ Y lo que no se pudo chequear **se canta** (`no_pude_chequear`, media): un
 duplicado sin mirar se leería igual que uno sano, que es exactamente la forma de
 mentir que estos dos módulos persiguen.
 
+#### LA PRIMERA CORRIDA: encontró dos, y el AO29 seguía partido
+
+    ⚠ 2 dato(s) partido(s)
+       simbolo_columna_vs_blob      2 casos
+       simbolo_master_vs_especies   1 caso
+
+**El bug que tardó cuatro días en descubrirse apareció en la primera pasada.** Y
+con un matiz que importa: `_ALIAS_DEL_BLOB` (§0.u) hizo que los LECTORES se
+pongan de acuerdo —la columna gana al leer— pero **el dato sigue partido en la
+base**. El parche es una capa de traducción, no un arreglo: cualquier cosa que
+lea `data` sin pasar por `curvas_sql` todavía se lleva el valor viejo.
+
+O sea que la divergencia estaba viva, nadie la veía, y el sistema andaba bien por
+un parche que había que recordar. Exactamente la clase de deuda que este detector
+existe para no dejar acumular.
+
+#### Y NO TODOS SE ARREGLAN IGUAL — eso también se declara
+
+Sincronizar dos copias parece siempre lo mismo y no lo es. Cada duplicado declara
+si tiene arreglo **mecánico** y, si no, por qué:
+
+    simbolo_columna_vs_blob        UPDATE  → se le escribe al blob el valor de la
+                                            columna. NO es un renombre: la clave
+                                            sigue llamándose `ticker` (la leen
+                                            ~500 lugares), solo cambia el valor.
+    ticker_corto_columna_vs_blob   UPDATE  → ídem.
+    simbolo_master_vs_especies     NO      → el motor arma su universo AL
+                                            ARRANCAR: el UPDATE se verifica en
+                                            verde y la pantalla no cambia hasta la
+                                            noche (§0.v).
+    emisor_curvas_vs_assets        NO      → el árbitro es 1816 y quien escribe
+                                            las dos tablas es `jobs.ficha_1816`.
+                                            Escribir a mano dejaría las copias
+                                            coincidiendo en un valor que ninguna
+                                            fuente respalda — peor que la
+                                            divergencia, porque además la esconde.
+
+`scripts/fix_dato_partido` (dry-run por default, scopeado al WHERE de la
+detección, idempotente) aplica solo los mecánicos y **releé al final**: «apliqué»
+no es «pasó». Los otros los nombra y no los toca.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

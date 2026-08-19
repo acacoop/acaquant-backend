@@ -67,6 +67,16 @@ class Duplicado:
     arbitro: str      # cuál de las dos manda cuando difieren
     rompe: str        # qué se rompe si divergen (lo que hace que importe)
     sql: str
+    # ⚠️ **NO TODOS SE ARREGLAN CON UN UPDATE, y eso se DECLARA.** Sincronizar dos
+    # copias parece siempre lo mismo y no lo es: a veces la copia mala se corrige
+    # escribiéndole el valor del árbitro (un blob desactualizado), y a veces el
+    # árbitro es un JOB —o el cambio no surte efecto hasta reiniciar un motor— y
+    # un UPDATE dejaría el dato «coincidiendo» sin que nada haya mejorado.
+    #
+    # Vacío = no hay arreglo mecánico, y entonces `arreglo_manual` dice qué hacer.
+    # Declararlo separado es lo que impide que alguien escriba el UPDATE «obvio».
+    arreglo_sql: str = ""
+    arreglo_manual: str = "" 
 
 
 # ⚠️ **SE DECLARA, NO SE DESCUBRE.** No hay forma de deducir del esquema que dos
@@ -93,6 +103,17 @@ DUPLICADOS: tuple[Duplicado, ...] = (
               AND coalesce(data->>'ticker', '') <> ''
               AND btrim(instrumento) <> btrim(data->>'ticker')
             ORDER BY ticker
+        """,
+        # Se le escribe al BLOB el valor de la COLUMNA. **No es un renombre**: la
+        # clave del blob sigue llamándose `ticker` (la leen ~500 lugares), solo se
+        # le pone el valor correcto. Scopeado a las filas que difieren.
+        arreglo_sql="""
+            UPDATE mercado.curvas
+            SET data = jsonb_set(coalesce(data, '{}'::jsonb), '{ticker}',
+                                 to_jsonb(btrim(instrumento)))
+            WHERE instrumento IS NOT NULL
+              AND coalesce(data->>'ticker', '') <> ''
+              AND btrim(instrumento) <> btrim(data->>'ticker')
         """),
     Duplicado(
         id="ticker_corto_columna_vs_blob",
@@ -110,6 +131,13 @@ DUPLICADOS: tuple[Duplicado, ...] = (
             WHERE coalesce(data->>'ticker_corto', '') <> ''
               AND upper(btrim(ticker)) <> upper(btrim(data->>'ticker_corto'))
             ORDER BY ticker
+        """,
+        arreglo_sql="""
+            UPDATE mercado.curvas
+            SET data = jsonb_set(coalesce(data, '{}'::jsonb), '{ticker_corto}',
+                                 to_jsonb(btrim(ticker)))
+            WHERE coalesce(data->>'ticker_corto', '') <> ''
+              AND upper(btrim(ticker)) <> upper(btrim(data->>'ticker_corto'))
         """),
     Duplicado(
         id="simbolo_master_vs_especies",
@@ -127,7 +155,14 @@ DUPLICADOS: tuple[Duplicado, ...] = (
             WHERE c.instrumento IS NOT NULL
               AND btrim(c.instrumento) <> btrim(e.simbolo)
             ORDER BY c.ticker
-        """),
+        """,
+        arreglo_manual="NO se arregla con un UPDATE. El motor arma su universo AL "
+                       "ARRANCAR, así que cambiar `curvas.instrumento` no surte "
+                       "efecto hasta reiniciar `motor_rofex` FUERA DE RUEDA — y "
+                       "una acción que se aplica, se verifica en verde y no cambia "
+                       "nada en pantalla destruye la confianza en todas las demás. "
+                       "Primero se pide la pata (adhoc, se ve en 5s) para saber si "
+                       "cotiza; con ese dato se decide el reinicio."),
     Duplicado(
         id="emisor_curvas_vs_assets",
         que="el emisor del papel",
@@ -144,7 +179,12 @@ DUPLICADOS: tuple[Duplicado, ...] = (
               AND coalesce(btrim(a.emisor), '') <> ''
               AND upper(btrim(c.emisor)) <> upper(btrim(a.emisor))
             ORDER BY c.ticker
-        """),
+        """,
+        arreglo_manual="NO se arregla con un UPDATE: el árbitro es 1816 y el que "
+                       "escribe las DOS tablas es `jobs.ficha_1816`. Escribir a "
+                       "mano dejaría las copias coincidiendo en un valor que "
+                       "ninguna fuente respalda — que es peor que la divergencia, "
+                       "porque además la esconde. Correr el job."),
 )
 
 # Cuántos sujetos divergentes se listan por duplicado. Si son más, se dice el

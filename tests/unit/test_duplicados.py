@@ -86,3 +86,43 @@ def test_el_caso_AO29_esta_cubierto():
     assert "simbolo_columna_vs_blob" in ids
     d = next(d for d in D.DUPLICADOS if d.id == "simbolo_columna_vs_blob")
     assert "columna" in d.arbitro.lower()
+
+
+# ── (2026-08-19) NO TODOS SE ARREGLAN IGUAL ─────────────────────────────────
+
+def test_el_que_no_tiene_arreglo_MECANICO_explica_por_que():
+    """Sincronizar dos copias parece siempre lo mismo y no lo es. Sin este texto,
+    el próximo escribe el UPDATE «obvio» y deja las copias coincidiendo en un
+    valor que ninguna fuente respalda — peor que la divergencia, porque además
+    la esconde."""
+    for d in D.DUPLICADOS:
+        if not d.arreglo_sql:
+            assert len(d.arreglo_manual.strip()) > 40, (
+                f"{d.id} no tiene arreglo mecánico y no dice qué hacer")
+
+
+def test_el_arreglo_usa_el_MISMO_WHERE_que_la_deteccion():
+    """Es lo que lo hace idempotente y scopeado (REGLA #4): corre solo sobre las
+    filas que difieren, y la segunda corrida no toca nada."""
+    for d in D.DUPLICADOS:
+        if d.arreglo_sql:
+            assert "WHERE" in d.arreglo_sql and "<>" in d.arreglo_sql, (
+                f"{d.id}: el arreglo no está scopeado a lo que difiere")
+
+
+def test_el_arreglo_le_escribe_a_la_copia_B_y_no_al_ARBITRO():
+    """El árbitro es la fuente de verdad: si el arreglo lo pisara, estaríamos
+    sincronizando hacia el lado equivocado."""
+    for d in D.DUPLICADOS:
+        if d.arreglo_sql:
+            # Los dos mecánicos de hoy escriben el blob desde la columna.
+            assert "jsonb_set" in d.arreglo_sql, (
+                f"{d.id}: revisá que el arreglo escriba la copia B, no el árbitro")
+
+
+def test_ninguno_arregla_lo_que_necesita_REINICIAR_UN_MOTOR():
+    """Una acción que se aplica, se verifica en verde y no cambia nada en la
+    pantalla destruye la confianza en todas las demás (§0.v)."""
+    d = next(x for x in D.DUPLICADOS if x.id == "simbolo_master_vs_especies")
+    assert not d.arreglo_sql
+    assert "reiniciar" in d.arreglo_manual.lower()

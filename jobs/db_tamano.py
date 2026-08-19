@@ -120,10 +120,20 @@ def main() -> int:
         # un hecho sobre nuestros datos y a las 23:30 es tan cierto como a las 11.
         partido = av_agent.detectar_dato_partido()
         if partido:
+            # **El log tiene que decir CUÁLES**, no cuántos. La primera versión
+            # cortaba el motivo a 120 caracteres y quedaba «…dice cosas distintas
+            # según dónde se lea. m» — el dato accionable (qué bono y qué dos
+            # valores) es justo lo que se perdía en el corte.
             print(f"\n⚠ {len(partido)} dato(s) partido(s) — dos copias que no "
                   f"coinciden:")
             for h in partido:
-                print(f"   · {h['ticker']}: {h['motivo'][:120]}")
+                ev = h.get("evidencia") or {}
+                print(f"   · {h['ticker']}  ({ev.get('n', '?')} caso/s)")
+                print(f"       {ev.get('a', '?')}")
+                print(f"       {ev.get('b', '?')}   → manda: {ev.get('arbitro', '?')}")
+                for x in (ev.get("ejemplos") or [])[:5]:
+                    print(f"       {x['sujeto']:<10} «{x['valor_a']}»  ≠  "
+                          f"«{x['valor_b']}»")
         else:
             print("\n✔ los datos duplicados coinciden en todos sus lugares")
 

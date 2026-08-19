@@ -30,4 +30,5 @@ _(pendiente de enriquecimiento)_
 - [[api.routers.ia]]  ·  _module_
 - [[api.services.av_agent]]  ·  _module_
 - [[api.services.av_agent_centinela]]  ·  _module_
+- [[api.services.av_agent_contexto]]  ·  _module_
 - [[api.services.av_agent_salud]]  ·  _module_

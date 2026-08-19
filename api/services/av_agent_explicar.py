@@ -504,10 +504,96 @@ class ComoVieneDeVelocidad:
                             "requests": d.get("total_requests")}}
 
 
+# ── 8. ¿ESTÁ TODO FUNCIONANDO BIEN AHORA? ───────────────────────────────────
+
+class EstaTodoBien:
+    """**La pregunta que nadie contestaba de una.** El user: *«no quiero que me
+    muestre todos los endpoints; yo quiero saber que en horario de mercado la
+    aplicación funciona bien y no hay nada colapsando»*.
+
+    Junta las TRES patas —los motores, las tablas y la velocidad— en una sola
+    respuesta. Estaban las tres, en tres pantallas distintas, y por eso había que
+    saber de antemano dónde mirar para poder preguntarse si el sistema andaba.
+    """
+    id = "todo_bien"
+    pregunta = "¿Está todo funcionando bien ahora?"
+    necesita = ""
+    de_donde = "los motores, la frescura de las tablas y la latencia"
+
+    def sugerencias(self) -> list[str]:
+        return []
+
+    def explicar(self, _sujeto: str = "") -> dict:
+        from api.services import av_agent_contexto as ctx
+        from api.services import av_agent_latencia as lat
+        from api.services import av_agent_motores as mot
+
+        pasos, problemas = [], 0
+
+        # ── 1. LOS MOTORES ──
+        m = mot.resumen()
+        if not m.get("ok"):
+            pasos.append(_paso("motores", "Los motores", NO_SE,
+                               f"no pude leer el árbol: {m.get('error')}"))
+        else:
+            rotas = m["rotas"]
+            problemas += rotas
+            cuerpo = (f"{m['bien']} de {m['total']} piezas bien"
+                      + (f" · {m['lentas']} lentas" if m["lentas"] else "")
+                      + (f" · **{rotas} ROTAS**" if rotas else "")
+                      + (f" · {m['apagadas']} apagadas (fuera de su ventana, "
+                         f"que es lo correcto)" if m["apagadas"] else ""))
+            if rotas:
+                cuerpo += "\n" + "\n".join(
+                    f"  · {d['label']} ({d['tipo']}) — {d['estado']}, "
+                    f"último dato {d['hace']}" for d in m["detalle_rotas"][:12])
+            pasos.append(_paso(
+                "motores",
+                "Los motores" + (" · EN RUEDA" if m["en_rueda"] else " · fuera de rueda"),
+                REVISAR if rotas else OK, cuerpo,
+                tabla="diagnostico_registry"))
+
+        # ── 2. LAS TABLAS ──
+        try:
+            quietas = ctx.detectar_tablas()
+        except Exception:
+            quietas = []
+        problemas += len(quietas)
+        pasos.append(_paso(
+            "tablas", f"Las tablas · {len(quietas)} sin escribir cuando deberían",
+            REVISAR if quietas else OK,
+            "\n".join(f"  · {q['ticker']} — {q['motivo']}" for q in quietas[:12])
+            or "todas las que tienen un ritmo medido están al día.",
+            tabla="manager.tabla_perfil"))
+
+        # ── 3. LA VELOCIDAD ──
+        try:
+            deg = lat.comparar()
+        except Exception:
+            deg = []
+        problemas += len(deg)
+        pasos.append(_paso(
+            "velocidad", f"La velocidad · {len(deg)} endpoint/s peor que su normal",
+            REVISAR if deg else OK,
+            "\n".join(f"  · {d['endpoint']} — {d['avg_ms']} ms contra "
+                       f"{d['base_ms']} habituales" for d in deg[:8])
+            or "ningún endpoint está por encima de su propia normalidad.",
+            tabla="manager.latencia_endpoints"))
+
+        veredicto = ("**Sí, está todo bien.**" if not problemas else
+                     f"**No: hay {problemas} cosa/s para mirar.**")
+        pasos.insert(0, _paso("veredicto", "En una línea",
+                              OK if not problemas else REVISAR, veredicto))
+        return {"ok": True, "pasos": pasos,
+                "discrepancia": "" if not problemas else veredicto,
+                "numeros": {"problemas": problemas}}
+
+
 EXPLICADORES: dict[str, Explicador] = {
     e.id: e for e in (PorQueRinde(), PorQueEsaTNA(), ComoSeArmaElYTM(),
                       QueInflacionDescuenta(), DeDondeSalenLosNiveles(),
-                      CuantoPesaLaBase(), ComoVieneDeVelocidad())
+                      CuantoPesaLaBase(), ComoVieneDeVelocidad(),
+                      EstaTodoBien())
 }
 
 

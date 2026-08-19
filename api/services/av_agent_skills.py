@@ -133,6 +133,11 @@ _QUE_DETECTA: dict[str, str] = {
                  "desaparecieron, comparando la foto de hoy contra la de ayer",
     "latencia": "endpoints que se pusieron lentos contra SU PROPIA normalidad "
                 "(no un ranking de los más lentos) y los que devuelven 5xx",
+    "tabla_quieta": "tablas que dejaron de escribir cuando deberían estar "
+                    "escribiendo — la cadencia de cada una se MIDE observándola, "
+                    "no la declara nadie",
+    "motor_caido": "motores, jobs y APIs rotos DENTRO de su ventana horaria "
+                   "(fuera de rueda un motor no está caído, está apagado)",
 }
 
 

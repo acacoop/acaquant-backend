@@ -58,6 +58,17 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > capas, el estado real de cada etapa y lo descartado. Incluye **SALUD**, que se
 > fusionó adentro del agente (un chequeo y un hallazgo son el mismo objeto), y el
 > **eval set**, que es lo que habilita cada paso de autonomía.
+> **2026-08-19 — EL CONTEXTO** (§0.r): el agente conoce la base **sin ninguna
+> lista** — el inventario sale de `pg_catalog`, la columna de fecha de
+> `information_schema` y **la cadencia se MIDE** mirando la distribución de esa
+> columna (mediana, sobre las últimas escrituras). Siete clases de cadencia +
+> veredicto de frescura por tabla → cubre las ~190 que eran punto ciego; las 8 con
+> contrato declarado las sigue mirando `salud.CONTRATOS`, que es más estricto
+> **porque el aprendido se acostumbra al problema**. Memoria en
+> `manager.tabla_perfil`. Y los MOTORES: las 50 piezas de `diagnostico_registry`
+> ya tenían cadencia/ventana/umbral y el agente no las leía — ahora canta las
+> rotas DENTRO de su ventana (fuera de rueda no está caído, está apagado).
+>
 > **2026-08-19 — el agente entiende la BASE y la LATENCIA** (§0.q): foto diaria
 > del tamaño de cada tabla (`jobs/db_tamano`, 23:30 UTC — guarda SOLO hoy y ayer,
 > purga en el mismo INSERT) porque lo que informa es el DELTA, no el tamaño; y
@@ -69,7 +80,7 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > tiene que quedar mapeada en la tab SKILLS, declarando si usa IA o no.** El
 > catálogo se DERIVA de los registros reales (`av_agent_skills.py`), así que una
 > skill aparece por existir; donde no puede derivar (los detectores) hay un test
-> que exige la descripción. Hoy: 30 habilidades, 24 sin IA.
+> que exige la descripción. Hoy: 33 habilidades, 24 sin IA.
 > **El AGENTE es admin-only, pero lo que MANDA le llega a cualquiera** (§0.p):
 > los avisos dirigidos viven en `/api/avisos`, FUERA de `/api/ia` (un trader no
 > tiene el módulo `ia`), filtrando por el email propio.

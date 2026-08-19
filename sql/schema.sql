@@ -4440,6 +4440,42 @@ ALTER TABLE mercado.av_agent_latido ADD COLUMN IF NOT EXISTS proximo_en_s intege
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- manager.tabla_perfil — QUÉ ES CADA TABLA Y CÓMO SE COMPORTA (2026-08-19).
+--
+-- Pedido del user: *«que el agente sepa exactamente cada tabla que hay y cómo
+-- funciona esa tabla en cuanto a los datos… que no dependa de un git pull, que no
+-- dependa de cosas estáticas, que siempre sepa qué hay en las bases de schema y
+-- eso o de tablas posta»*.
+--
+-- **NADA DE ESTO SE DECLARA A MANO.** Escribir el contrato de 200 tablas es algo
+-- que nadie hace, y la lista quedaría vieja el primer mes — que es peor que no
+-- tenerla, porque afirma cosas falsas. Todo se DERIVA:
+--
+--   · QUÉ TABLAS HAY        → pg_catalog. Una tabla nueva aparece sola.
+--   · CUÁL ES SU FECHA      → information_schema (la primera columna temporal).
+--   · CADA CUÁNTO SE ESCRIBE→ **se MIDE mirando la distribución de esa columna**.
+--     Si tiene un dato cada 5 segundos es tiempo real; si tiene uno por día
+--     hábil, es diaria. Nadie lo declara: la tabla lo dice.
+--
+-- Esta tabla es solo la MEMORIA de esa medición, para no re-medir 200 tablas en
+-- cada consulta. Una fila por tabla, upsert, **no crece**: si la tabla deja de
+-- existir su fila queda y el próximo barrido la marca ausente.
+CREATE TABLE IF NOT EXISTS manager.tabla_perfil (
+    schema      text NOT NULL,
+    tabla       text NOT NULL,
+    col_fecha   text,                    -- la columna temporal que se encontró
+    cadencia    text,                    -- tiempo_real | intradiaria | diaria_habil
+                                         -- | diaria | eventual | estatica | vacia
+    -- La evidencia de la medición: cada cuántos segundos, medido como la MEDIANA
+    -- de las diferencias entre escrituras. Se guarda para poder discutir el
+    -- veredicto en vez de tener que creerlo.
+    intervalo_p50_s bigint,
+    filas       bigint,
+    ultimo_dato timestamptz,
+    medido_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (schema, tabla)
+);
+
 -- manager.db_tamano — LA FOTO DIARIA DE LA BASE (2026-08-19).
 --
 -- Pedido del user: *«que entienda qué tablas hay, cuánto pesa cada una (al menos

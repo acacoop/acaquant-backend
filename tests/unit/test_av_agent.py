@@ -1533,7 +1533,7 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
     # quedaba corta sin avisar, que es el mismo modo de falla que este test caza.
     tipos_reales = {"falta_en_base", "sin_flujo", "tasa_sospechosa",
                     "hueco_de_curva", "salud", "sin_precio", "precio_moneda",
-                    "db_cambio", "latencia"}
+                    "db_cambio", "latencia", "tabla_quieta", "motor_caido"}
     assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
         "una clave del mapa no es un TIPO que algún detector emita — "
         "probablemente se escribió la REGLA")
@@ -1545,11 +1545,22 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
     import pathlib
     import re
 
-    from api.services import av_agent_db, av_agent_latencia
+    # **Los módulos se DESCUBREN, no se listan.** La primera versión de este test
+    # enumeraba a mano los archivos donde vivían los detectores — y se quedó corta
+    # a los dos días, sin avisar, que es exactamente el modo de falla que el test
+    # existe para cazar. Ahora barre todos los `av_agent*.py`: un detector en un
+    # archivo nuevo entra solo.
+    servicios = pathlib.Path(av_agent.__file__).parent
     emitidos = set()
-    for mod in (av_agent, av_agent_db, av_agent_latencia):
-        src = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
-        emitidos |= set(re.findall(r'"tipo":\s*"([a-z_]+)"', src))
+    for f in sorted(servicios.glob("av_agent*.py")):
+        src = f.read_text(encoding="utf-8")
+        # Un HALLAZGO se reconoce porque su `tipo` viene acompañado de `regla`
+        # y `severidad`. Sin esa co-ocurrencia el patrón levanta cualquier dict
+        # con una clave `tipo` (el `pide` de un paso, el tipo de una pregunta) y
+        # el test falla por su propia imprecisión.
+        emitidos |= {m.group(1) for m in
+                     re.finditer(r'"tipo":\s*"([a-z_]+)"[^}]{0,400}?"regla"', src,
+                                 re.S)}
         emitidos |= set(re.findall(r'_hallazgo\(\s*"([a-z_]+)"', src))
     faltan = emitidos - set(av_agent.ACCION_POR_TIPO)
     assert not faltan, (

@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-211 notas.
+213 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -109,6 +109,7 @@
 - [[api.services.av_agent_alta]] — api/services/av_agent_alta.py — E2: SIMULAR un alta antes de escribirla.
 - [[api.services.av_agent_analista]] — api/services/av_agent_analista.py — EL ANALISTA del diagnóstico masivo.
 - [[api.services.av_agent_centinela]] — api/services/av_agent_centinela.py — EL AGENTE PRENDIDO, con memoria.
+- [[api.services.av_agent_contexto]] — api/services/av_agent_contexto.py — LO QUE EL AGENTE SABE DE LA BASE, SIN QUE NADIE SE LO ESCRIBA.
 - [[api.services.av_agent_control]] — api/services/av_agent_control.py — EL TABLERO DE CONTROL del AV Agent.
 - [[api.services.av_agent_db]] — api/services/av_agent_db.py — EL AGENTE ENTIENDE LA BASE DE DATOS.
 - [[api.services.av_agent_evals]] — api/services/av_agent_evals.py — el EVAL SET del AV AGENT.
@@ -117,6 +118,7 @@
 - [[api.services.av_agent_latencia]] — api/services/av_agent_latencia.py — EL AGENTE DETECTA ENDPOINTS QUE SE PUSIERON LENTOS.
 - [[api.services.av_agent_masivo]] — api/services/av_agent_masivo.py — EL DIAGNÓSTICO MASIVO del AV Agent.
 - [[api.services.av_agent_memoria]] — api/services/av_agent_memoria.py — LA MEMORIA DEL AGENTE.
+- [[api.services.av_agent_motores]] — api/services/av_agent_motores.py — SI UN MOTOR SE CAYÓ, EL AGENTE SE ENTERA.
 - [[api.services.av_agent_preguntas]] — api/services/av_agent_preguntas.py — el AV AGENT le PREGUNTA al humano (E1.c).
 - [[api.services.av_agent_relevar]] — api/services/av_agent_relevar.py — LA RELEVADA, a pedido.
 - [[api.services.av_agent_salud]] — api/services/av_agent_salud.py — SALUD, razonada por el AV AGENT.

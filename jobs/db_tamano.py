@@ -1,4 +1,4 @@
-"""jobs/db_tamano.py — LA FOTO DIARIA DE LA BASE.
+"""jobs/db_tamano.py — LA FOTO DIARIA DE LA BASE + EL PERFIL DE CADA TABLA.
 
 Congela cuánto pesa cada tabla para que el agente pueda decir MAÑANA qué cambió.
 Sin esta foto no hay delta, y sin delta el tamaño de la base es un número que no
@@ -27,6 +27,16 @@ def main() -> int:
         r = db.sacar_foto()
         jr.set_stat("tablas", r["tablas"])
         jr.set_stat("bytes_total", r["bytes_total"])
+
+        # EL PERFIL DE CADA TABLA — qué es y cada cuánto escribe. Va en el MISMO
+        # job que la foto porque las dos preguntas son la misma («¿cómo está la
+        # base?») y separarlas daría dos horarios y dos cosas que puede fallar.
+        from api.services import av_agent_contexto as ctx
+
+        b = ctx.barrer()
+        jr.set_stat("perfiladas", b["tablas"])
+        jr.set_stat("con_ritmo", b["con_ritmo"])
+        print(f"perfil: {b['tablas']} tablas, {b['con_ritmo']} con un ritmo medible")
 
         # El delta se calcula acá también para que quede en el LOG del job: si
         # algo creció de golpe, se ve sin abrir nada. El agente lo levanta igual

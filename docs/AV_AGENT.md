@@ -815,6 +815,129 @@ cante algo obvio o se quede mudo, se ajustan.
   segundo separa a propósito **lo degradado** (que es un problema) de **lo que
   más tiempo consume** (que es el ranking y **no** es una lista de problemas).
 
+### 0.r EL CONTEXTO: el agente conoce la base sin que nadie se lo escriba (2026-08-19)
+
+Pedido del user, y son dos cosas que van juntas:
+
+> *«Que el agente sepa exactamente cada tabla que hay, y exactamente cómo funciona
+> esa tabla en cuanto a los datos. Es decir: si portfolio en AuM actualiza con
+> fecha T-1, ok, que el agent diga qué día es hoy, cuándo es T-1, y vaya a buscar:
+> ¿hay datos? sí, no. Bueno, pasa algo o no pasa nada… Este agente me tiene que
+> ayudar (y a futuro hacer solo) a controlar el sistema.»*
+>
+> *«Que no dependa de un git pull, que no dependa de cosas estáticas. Que siempre
+> sepa qué hay en las bases, de schema y eso, o de tablas posta. Quiero modelarlo
+> así al agente, sus skills con sus features, todo modularizado, que tenga un
+> contexto. Hay que armarlo pro.»*
+
+#### POR QUÉ NO HAY NINGUNA LISTA — y es la decisión que hace que esto escale
+
+La respuesta obvia sería escribir el contrato de cada tabla: *«`portafolio.tenencia`
+es diaria, `market_snapshot` es live, …»*. **Es la respuesta equivocada, por dos
+razones distintas:**
+
+1. **Nadie mantiene 200 contratos.** La lista quedaría vieja el primer mes — y una
+   lista vieja es PEOR que ninguna, porque afirma cosas falsas con la misma cara
+   que las verdaderas. Este proyecto ya lo pagó: por eso `MAPA_APP.md` §0,
+   `SISTEMA.md` y el catálogo de SKILLS se autogeneran.
+2. **Depender de un `git pull` para que el agente sepa qué existe es lo contrario
+   de un agente.** Una tabla creada el martes tiene que estar en su cabeza el
+   martes, no cuando alguien se acuerde de anotarla.
+
+Así que **todo se DERIVA** (`api/services/av_agent_contexto.py`):
+
+| qué | de dónde | mantenimiento |
+|---|---|---|
+| qué tablas hay | `pg_catalog` | **cero** — una tabla nueva aparece sola |
+| cuál es su columna de fecha | `information_schema` + las convenciones del repo | cero |
+| **cada cuánto se escribe** | **se MIDE** mirando la distribución de esa columna | cero |
+
+Lo tercero es la parte no obvia y es la que hace que esto cubra 200 tablas: **la
+cadencia no hay que declararla, la tabla la dice**. Si el intervalo típico entre
+escrituras es de segundos, es `tiempo_real`; si es de un día hábil, es
+`diaria_habil`. Siete clases: `tiempo_real` · `intradiaria` · `diaria` ·
+`diaria_habil` · `semanal` · `mensual` · `eventual` / `estatica` / `vacia`.
+
+**Se mide con la MEDIANA, no el promedio.** Un fin de semana, un feriado o un
+backfill viejo desplazan la media y dejarían a una tabla diaria pareciendo
+semanal — con lo cual se le dejaría de exigir frescura justo a la que importa.
+Y se mide sobre las **últimas** escrituras: una tabla que hace un año era diaria y
+hoy es live tiene que decir live.
+
+#### Dónde SÍ manda un contrato declarado, y por qué
+
+⚠️ **La cadencia aprendida tiene un punto ciego que hay que entender:** si el job
+de tenencias lleva tres días roto, la «normalidad observada» de la tabla **se
+corre sola** y el detector deja de avisar — se acostumbra al problema.
+
+Por eso los 8 `CONTRATOS` declarados de `salud.py` **siguen mandando donde
+existen**: ahí el «debería» es una decisión de negocio (`portafolio.tenencia` DEBE
+tener el último día hábil), no un promedio. La derivación cubre las otras ~190,
+que hoy eran un **punto ciego total**. Y el detector nuevo **excluye** las que ya
+tienen contrato, para que el mismo problema no aparezca dos veces con dos textos.
+
+Es la misma lógica que en la latencia (§0.q): compararse con uno mismo detecta un
+CAMBIO, y no detecta algo que está mal desde siempre.
+
+#### Tres cosas que evitan el falso positivo
+
+- **El fin de semana no cuenta.** Sin eso, toda tabla de días hábiles aparece
+  atrasada cada lunes a la mañana.
+- **A una tabla sin ritmo no se le exige frescura.** `eventual`, `estatica` y
+  `vacia` devuelven `no_se_puede_saber`, no `atrasada`: a una de carga manual no
+  se le puede pedir que escriba, y marcarla en rojo todos los días es cómo se
+  entrena a alguien para ignorar una pantalla.
+- **Los topes son generosos** (3-4× el intervalo típico). Un detector que avisa al
+  primer atraso avisa todos los días, y de uno así no se desconfía: se lo ignora.
+
+`manager.tabla_perfil` es solo la MEMORIA de la medición (una fila por tabla,
+upsert, no crece), para no re-medir 200 tablas cada vez que alguien pregunta —
+sin eso el agente nunca preguntaría. Se refresca en el job diario, junto con la
+foto de tamaño: las dos contestan «¿cómo está la base?» y separarlas daría dos
+horarios y dos cosas que pueden fallar.
+
+#### LOS MOTORES — todo estaba hecho y el agente no lo miraba
+
+*«Con los logs de los motores lo mismo: quiero que si hay alguno caído enterarme
+rápido (y a futuro que pueda hacer algo)»*.
+
+`api/services/diagnostico_registry.py` ya tiene **50 piezas** —15 motores, 30 jobs,
+5 APIs— **cada una con su cadencia, su ventana horaria, su umbral y de dónde se
+lee la frescura**, y `diagnostico.arbol()` las evalúa. Pero eso vivía SOLO en la
+pantalla de Manager → DIAGNÓSTICO, o sea que había que ir a mirarla.
+
+`av_agent_motores.py` **no reimplementa nada**: lee el mismo árbol y convierte lo
+que está roto en un hallazgo. Reescribirlo habría dado dos verdades sobre si un
+motor anda. Corre en el monitor de rueda, cada 5 minutos.
+
+⚠️ **La VENTANA es lo que hace que esto no mienta.** Un motor fuera de rueda **no
+está caído: está apagado** — los prende y los apaga el cron de lunes a viernes.
+Sin mirar la ventana, este detector cantaría quince motores muertos todos los
+sábados, y en dos fines de semana nadie volvería a leerlo. Y `lento` **no** se
+reporta: un motor que tarda el doble sigue produciendo, y mezclarlo con uno muerto
+pierde la diferencia entre las dos cosas.
+
+#### La pregunta que nadie contestaba de una
+
+*«No quiero que me muestre todos los endpoints; yo quiero saber que en horario de
+mercado la aplicación funciona bien y no hay nada colapsando.»*
+
+Explicador **«¿Está todo funcionando bien ahora?»**: junta las TRES patas —los
+motores, la frescura de las tablas y la velocidad— y arranca con el veredicto en
+una línea. Las tres existían, en tres pantallas distintas, y por eso había que
+saber de antemano dónde mirar para poder preguntarse si el sistema andaba.
+
+**Qué NO se muestra**: el conteo, no las 50 piezas; solo se detallan las rotas. El
+user fue explícito con que no hace falta mostrar todo en el modal, **pero que por
+dentro se haga**.
+
+#### Lo que queda para «que a futuro haga algo solo»
+
+El agente ya **ve** un motor caído y una tabla quieta. Poder **relanzarlos** es la
+acción que sigue, y entra por la arquitectura de §0.j (proponer → tu OK → aplicar
+→ verificar) — con la diferencia de que ahí el «verificar» es esperar a que el
+motor vuelva a escribir, no releer una fila.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta
@@ -3262,6 +3385,22 @@ libro de acciones, los cinco estados, `_paso` y `_veredicto` quedaron **intactos
 realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
+
+- **2026-08-19 — EL CONTEXTO: el agente conoce la base sin que nadie se lo
+  escriba, y se entera si un motor se cae** (§0.r). *«Que sepa exactamente cada
+  tabla que hay y cómo funciona en cuanto a los datos… que no dependa de un git
+  pull, que no dependa de cosas estáticas»* (user). **No hay ninguna lista**: el
+  inventario sale de `pg_catalog`, la columna de fecha de `information_schema` y
+  **la cadencia se MIDE** mirando la distribución de esa columna (mediana, no
+  promedio; sobre las últimas escrituras, no todas). Siete clases de cadencia y
+  un veredicto de frescura por tabla — cubre las ~190 que eran punto ciego, y las
+  8 con contrato declarado las sigue mirando `salud.CONTRATOS`, que es más
+  estricto **porque el aprendido se acostumbra al problema si el job lleva días
+  roto**. Los MOTORES: las 50 piezas de `diagnostico_registry` ya tenían cadencia,
+  ventana y umbral y el agente no las leía — ahora las lee y canta las rotas
+  **dentro de su ventana** (fuera de rueda un motor no está caído, está apagado).
+  Y el explicador **«¿está todo funcionando bien ahora?»**, que junta motores +
+  tablas + velocidad en una línea. 33 habilidades, 24 sin IA.
 
 - **2026-08-19 — el agente entiende la BASE DE DATOS y la LATENCIA** (§0.q). Foto
   diaria del tamaño de cada tabla (`jobs/db_tamano`, 23:30 UTC) que guarda **solo

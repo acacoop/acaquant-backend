@@ -122,6 +122,12 @@ ACCION_POR_TIPO = {
     # los canta con la evidencia — que es todo lo que se le pidió.
     "db_cambio": None,
     "latencia": None,
+    # Una tabla que dejó de escribir y un motor caído tampoco se arreglan desde
+    # `mercado.curvas` — se arreglan en el job o el servicio que los produce. El
+    # agente los VE y los canta con la evidencia; **poder relanzarlos es el paso
+    # siguiente** (el user: «y a futuro que pueda hacer algo»).
+    "tabla_quieta": None,
+    "motor_caido": None,
     # ── EN RUEDA (2026-08-18) ────────────────────────────────────────────────
     # `None` EXPLÍCITO, y por un motivo distinto al resto: no es que falte
     # construirlo, es que **no se arreglan tocando `mercado.curvas`**. Un símbolo
@@ -923,12 +929,17 @@ def relevar_live(*, ahora=None) -> dict:
     # LATENCIA entra acá y no al job nocturno: un endpoint degradado importa
     # MIENTRAS pasa, y cuesta una query sobre un agregado que ya existe.
     from api.services.av_agent_latencia import detectar_latencia
+    from api.services.av_agent_motores import detectar_motores
 
+    # LATENCIA y MOTORES entran al monitor de rueda: los dos importan MIENTRAS
+    # pasan. Las TABLAS no — barrer 200 tablas cada 5 minutos sería absurdo, y su
+    # atraso se mide en horas: van en el job nocturno.
     for nombre, fn in (("sin_precio", lambda: detectar_sin_precio(bonos, snap, ahora)),
                        ("precio_moneda",
                         lambda: detectar_precio_fuera_de_moneda(bonos, snap, mep,
                                                                 simbolos)),
-                       ("latencia", detectar_latencia)):
+                       ("latencia", detectar_latencia),
+                       ("motores", detectar_motores)):
         try:
             hallazgos.extend(fn())
         except Exception as e:      # un detector roto no puede tapar al otro

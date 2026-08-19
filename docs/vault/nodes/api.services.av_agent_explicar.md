@@ -18,8 +18,10 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
+- [[api.services.av_agent_contexto]]  ·  _module_
 - [[api.services.av_agent_db]]  ·  _module_
 - [[api.services.av_agent_latencia]]  ·  _module_
+- [[api.services.av_agent_motores]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.debug_derivados]]  ·  _module_
 - [[core]]  ·  _module_

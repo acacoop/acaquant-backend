@@ -4342,6 +4342,22 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_avisos (
 -- vuelve a aparecer en un alta posterior, ese aviso nuevo SÍ debe poder existir.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto
     ON mercado.av_agent_avisos (ticker, clave) WHERE NOT resuelto;
+-- ⚠️ **EL DESTINATARIO ENTRA A LA CLAVE** (bug 2026-08-19). El índice de arriba
+-- ignoraba `para`, así que el PRIMER ping sobre un control lo bloqueaba para
+-- todos los demás: avisarle a otra persona hacía `ON CONFLICT DO NOTHING`,
+-- devolvía 0, y como nadie miraba ese 0 la acción decía «listo» y al
+-- destinatario no le llegaba nada.
+--
+-- Es el modo de falla de siempre: **no falla nada**. Se reportó bien, se
+-- verificó mal y el mensaje no existió. El user lo encontró probando el aviso de
+-- `comitentes_sin_nivel1`.
+--
+-- Un aviso ABIERTO es único por (ticker, clave, DESTINATARIO). `coalesce` porque
+-- los avisos de un alta nacen sin dueño y ésos siguen siendo uno solo.
+DROP INDEX IF EXISTS mercado.ux_av_agent_avisos_abierto;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto_para
+    ON mercado.av_agent_avisos (ticker, clave, coalesce(lower(para), ''))
+    WHERE NOT resuelto;
 -- A QUIÉN le toca (2026-08-19). NULL = de todos, que es como funcionó hasta
 -- ahora y sigue siendo el default: la lista de pendientes del alta de bonos no
 -- tiene dueño. Se completa cuando el agente le avisa a una persona puntual

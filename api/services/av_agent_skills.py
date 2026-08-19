@@ -102,6 +102,43 @@ def _de_explicadores() -> list[Skill]:
     ) for e in ex.EXPLICADORES.values()]
 
 
+# ⚠️ **LAS CAPACIDADES QUE NO SON NI DETECTOR, NI ACCIÓN, NI EXPLICADOR.**
+#
+# La LEY de §0.o dice que toda habilidad nueva queda mapeada, y el catálogo se
+# DERIVA de los tres registros que existen. Mandar un mensaje no cabe en ninguno:
+# no se da cuenta de nada, no contesta una pregunta y no arregla un dato — es
+# algo que el agente SABE HACER y que otros usan.
+#
+# Se declara acá y hay un test que exige que cada una siga existiendo como
+# módulo: una capacidad listada que ya no está manda a buscar a un lugar vacío,
+# que es peor que no listarla.
+_CAPACIDADES: tuple[dict, ...] = (
+    {"id": "mensajes.enviar",
+     "nombre": "Mandarle un mensaje a alguien",
+     "que_hace": "deja un pendiente con dueño en la barra de esa persona, sin "
+                 "buzón nuevo: se ve, se cierra y se audita como el resto. "
+                 "Resuelve operador → email desde la base, así nadie tiene que "
+                 "saberse un mail",
+     "dominio": ADMIN, "modulo": "api.services.av_agent_mensajes"},
+    {"id": "mensajes.saldos_a_operadores",
+     "nombre": "Saldos del día a cada operador",
+     "que_hace": "a las 16:45 hábiles, un mensaje por operador con los saldos "
+                 "!= 0 de SUS comitentes, descubiertos primero. Las cuentas sin "
+                 "operador se cantan aparte: a ésas no le llegan a nadie",
+     "dominio": ADMIN, "modulo": "jobs.saldos_a_operadores"},
+)
+
+
+def _de_capacidades() -> list[Skill]:
+    return [Skill(
+        id=c["id"], tipo=RESOLVER, nombre=c["nombre"], que_hace=c["que_hace"],
+        usa_ia=SIN_IA, dominio=c["dominio"], para_que_la_ia="",
+        donde="la barra de la persona (MIS AVISOS)",
+        fuente="av_agent_skills._CAPACIDADES",
+        extra={"modulo": c["modulo"], "reglas": []},
+    ) for c in _CAPACIDADES]
+
+
 def _de_acciones() -> list[Skill]:
     """Arreglar algo, con el OK del humano. Acá el uso de IA **varía por
     acción** y por eso se declara una por una en vez de asumirlo."""
@@ -359,7 +396,8 @@ def _de_controles() -> list[Skill]:
 def catalogo() -> list[Skill]:
     """TODO lo que el agente sabe hacer, derivado de los registros reales."""
     out: list[Skill] = []
-    for fn in (_de_detectores, _de_controles, _de_explicadores, _de_acciones):
+    for fn in (_de_detectores, _de_controles, _de_explicadores, _de_acciones,
+               _de_capacidades):
         try:
             out.extend(fn())
         except Exception as e:

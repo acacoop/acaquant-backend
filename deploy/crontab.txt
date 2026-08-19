@@ -438,3 +438,10 @@
 # cron. `av_agent_live` (cada 5', cero créditos) sigue aparte: mira otras cosas.
 # 13/15/17/19 UTC = 10/12/14/16 ART.
 0 13,15,17,19 * * 1-5 /root/TradingAV/deploy/run_job.sh av_agent 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.av_agent'
+
+# ── SALDOS A LOS OPERADORES (2026-08-19) ────────────────────────────────────
+# 19:45 UTC = 16:45 ART, días hábiles. Pedido del user: cada operador recibe, en
+# la app, los saldos != 0 de SUS comitentes — descubiertos primero.
+# UN mensaje por operador y no uno por cuenta: 40 pings no son 40 avisos, son un
+# aviso ignorado. Cero IA y cero red: sale todo de la base.
+45 19 * * 1-5 /root/TradingAV/deploy/run_job.sh saldos_a_operadores 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.saldos_a_operadores'

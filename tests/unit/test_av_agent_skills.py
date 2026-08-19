@@ -301,3 +301,31 @@ def test_no_falta_ninguna_regla_en_el_puente():
             continue
         faltan = reales - set(_REGLAS_DETECTOR[tipo])
         assert not faltan, f"«{tipo}» emite {sorted(faltan)} y no está(n) declarada(s)"
+
+
+# ── (2026-08-19) LAS CAPACIDADES QUE NO SON DETECTOR/ACCIÓN/EXPLICADOR ──────
+
+def test_las_capacidades_declaradas_EXISTEN_de_verdad():
+    """Una capacidad listada que ya no está manda a buscar a un lugar vacío —
+    peor que no listarla. Es la misma lección del `donde` de los detectores."""
+    import importlib
+
+    from api.services.av_agent_skills import _CAPACIDADES
+    for c in _CAPACIDADES:
+        importlib.import_module(c["modulo"])
+
+
+def test_las_capacidades_estan_en_el_catalogo(cat):
+    """La LEY de §0.o: toda habilidad nueva queda mapeada en SKILLS."""
+    from api.services.av_agent_skills import _CAPACIDADES
+    ids = {s.id for s in cat}
+    for c in _CAPACIDADES:
+        assert c["id"] in ids, f"{c['id']} no llegó al catálogo"
+
+
+def test_mandar_un_mensaje_NO_usa_modelo(cat):
+    """El user lo dijo al pedirlo: «tampoco termina de ser IA esto». Sale todo de
+    la base — quiénes son los operadores y cuáles son sus saldos."""
+    msg = [s for s in cat if s.id.startswith("mensajes.")]
+    assert msg, "las capacidades de mensajes no están en el catálogo"
+    assert all(s.usa_ia == "no" for s in msg)

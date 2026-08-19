@@ -1,0 +1,171 @@
+"""api/services/av_agent_mensajes.py — EL AGENTE SABE MANDAR UN MENSAJE.
+
+Doc madre: **`docs/AV_AGENT.md`** §0.ab.
+
+Pedido del user (2026-08-19): *«necesito que el agente mejore lo de enviar
+mensajes al resto de usuarios… más allá de dejar esta función, estaría bueno que
+sea algo propio y fácil del agente, ya que lo quiero usar para nuevas cosas»*.
+
+DE DÓNDE VIENE
+==============
+
+Mandar un ping existía **encapsulado adentro de una acción** (`avisar.responsable`,
+que solo sabía avisar del control `comitentes_sin_nivel1`). Para usarlo en otra
+cosa había que escribir otra acción, así que en la práctica no se usaba para nada
+más — y encima estaba roto: el índice único ignoraba el destinatario, con lo cual
+el primer ping sobre un tema **bloqueaba en silencio** todos los siguientes a
+cualquier otra persona.
+
+Acá el mensaje pasa a ser una capacidad de primera clase: cualquier job, control
+o acción manda uno sin saber nada del buzón.
+
+DOS COSAS QUE HACEN QUE SIRVA, Y NO SON OBVIAS
+===============================================
+
+1. **NO se crea un buzón nuevo.** Es la misma `mercado.av_agent_avisos` que la
+   persona ya ve en su barra (`MisAvisos`), se cierra igual y se audita igual. Un
+   segundo lugar donde mirar lo que hay para hacer es exactamente el problema que
+   SALUD vino a resolver cuando la observabilidad estaba en seis pantallas.
+
+2. **El agente sabe QUIÉN ES QUIÉN.** Un mensaje a `operador@` no se puede pedir
+   si hay que averiguar el mail a mano cada vez. `directorio()` resuelve
+   operadores → email desde `clientes.operadores`, y `de_quien_es()` dice qué
+   operador atiende cada cuenta comitente. Todo sale de la base: **no hay una
+   sola lista escrita a mano acá**.
+
+LO QUE NO HACE, Y ES A PROPÓSITO
+=================================
+
+No manda mail ni push. El mensaje vive **adentro de la app**, donde la persona ya
+está y donde puede cerrarlo. Un canal externo es otra decisión (y otro riesgo de
+privacidad) — cuando haga falta, se suma acá y los que llaman no cambian.
+"""
+from __future__ import annotations
+
+import logging
+
+from core.postgres import get_pool
+
+logger = logging.getLogger(__name__)
+
+# Cuántos destinatarios distintos puede tener un envío. No es una limitación
+# técnica: es que **un mensaje a 200 personas no es un mensaje, es spam interno**,
+# y el primero que lo reciba sin esperarlo deja de mirar la campanita.
+MAX_DESTINATARIOS = 60
+
+
+def directorio() -> dict[str, str]:
+    """`email → nombre` de los OPERADORES. Sale de `clientes.operadores`.
+
+    Es lo que le permite al agente mandarle algo «al operador de esta cuenta» sin
+    que nadie tenga que saber su mail. Vacío si no se puede leer — y quien llame
+    tiene que notar la diferencia entre «no hay operadores» y «no pude mirar».
+    """
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT lower(email), coalesce(nombre, '') "
+                        "FROM clientes.operadores WHERE email IS NOT NULL")
+            return {a: b for a, b in cur.fetchall() if a}
+    except Exception as e:
+        logger.warning("av_agent_mensajes: no pude leer el directorio (%s)", e)
+        return {}
+
+
+def de_quien_es(cuentas: list[str]) -> dict[str, str]:
+    """`id_cuenta → email del operador que la atiende`.
+
+    Las cuentas sin operador **no entran al dict**, y eso es información: son las
+    que no le llegarían a nadie. Quien llame tiene que decidir qué hace con ellas
+    en vez de que desaparezcan.
+    """
+    if not cuentas:
+        return {}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id_cuenta, lower(operador_email) FROM clientes.comitentes "
+                "WHERE id_cuenta = ANY(%s) AND operador_email IS NOT NULL",
+                (list(cuentas),))
+            return {a: b for a, b in cur.fetchall() if b}
+    except Exception as e:
+        logger.warning("av_agent_mensajes: no pude resolver operadores (%s)", e)
+        return {}
+
+
+def existe(email: str) -> bool:
+    """¿Es un usuario de la plataforma? Mandar a un mail que no entra a la app es
+    escribir en un buzón que nadie abre."""
+    e = (email or "").strip().lower()
+    if "@" not in e:
+        return False
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM manager.manager_users "
+                        "WHERE lower(email) = %s LIMIT 1", (e,))
+            return cur.fetchone() is not None
+    except Exception as ex:
+        logger.warning("av_agent_mensajes: no pude validar %s (%s)", e, ex)
+        # **Ante la duda, se manda.** Un mensaje de más se cierra; uno de menos
+        # no existe y nadie se entera de que faltó.
+        return True
+
+
+def enviar(*, para: str, asunto: str, detalle: str = "", tema: str = "mensaje",
+           donde: str = "", por: str = "av-agent") -> dict:
+    """UN mensaje a UNA persona. Devuelve `{ok, creado, error}`.
+
+    `tema` es la IDENTIDAD del mensaje para esa persona: dos envíos del mismo
+    tema no se apilan mientras el primero siga abierto. Es lo que evita que un
+    job diario deje 30 copias de lo mismo — un mensaje repetido no informa más,
+    informa menos.
+
+    **Nunca levanta.** Un mensaje que no se pudo mandar no puede tumbar al job
+    que lo estaba mandando; se devuelve el motivo y el que llama decide.
+    """
+    from api.services import av_agent_vista
+    e = (para or "").strip().lower()
+    if "@" not in e:
+        return {"ok": False, "error": "destinatario inválido"}
+    if not (asunto or "").strip():
+        return {"ok": False, "error": "un mensaje sin asunto no se lee"}
+    if not existe(e):
+        return {"ok": False, "error": f"«{e}» no es un usuario de la plataforma"}
+    try:
+        n = av_agent_vista.avisar_a(
+            para=e, ticker=f"tema:{tema}", clave=tema,
+            que_hacer=asunto, por_que=detalle, donde=donde, por=por)
+    except Exception as ex:
+        return {"ok": False, "error": f"{type(ex).__name__}: {str(ex)[:160]}"}
+    # `creado=False` NO es un error: significa que esa persona ya tiene este
+    # mismo mensaje abierto. Distinguirlo del fallo es lo que permite que un job
+    # diario corra tranquilo sin ensuciar el log.
+    return {"ok": True, "creado": bool(n), "para": e, "tema": tema}
+
+
+def enviar_muchos(mensajes: list[dict], *, por: str = "av-agent") -> dict:
+    """Varios mensajes de una. Cada uno con su destinatario y su cuerpo.
+
+    Devuelve el recuento **y los que fallaron con su motivo**: un envío masivo
+    que solo dice «mandé 12» esconde a los 3 que no llegaron, que son justo los
+    que hay que mirar.
+    """
+    mensajes = mensajes or []
+    destinos = {(m.get("para") or "").strip().lower() for m in mensajes}
+    if len(destinos) > MAX_DESTINATARIOS:
+        return {"ok": False, "enviados": 0,
+                "error": f"{len(destinos)} destinatarios (máx {MAX_DESTINATARIOS}): "
+                         f"un mensaje a todos no es un mensaje, es spam interno"}
+    enviados = repetidos = 0
+    fallaron: list[dict] = []
+    for m in mensajes:
+        r = enviar(para=m.get("para") or "", asunto=m.get("asunto") or "",
+                   detalle=m.get("detalle") or "", tema=m.get("tema") or "mensaje",
+                   donde=m.get("donde") or "", por=por)
+        if not r.get("ok"):
+            fallaron.append({"para": m.get("para"), "error": r.get("error")})
+        elif r.get("creado"):
+            enviados += 1
+        else:
+            repetidos += 1
+    return {"ok": True, "enviados": enviados, "ya_estaban": repetidos,
+            "fallaron": fallaron, "destinatarios": len(destinos)}

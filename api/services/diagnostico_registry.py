@@ -121,6 +121,14 @@ PIEZAS: list[Pieza] = [
           unidad="jobs.controles_datos",
           cadencia="16:30 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           run_tipo="controles_datos"),
+    # El aviso diario a cada operador con los saldos de SUS comitentes. Entra al
+    # árbol como cualquier job: si deja de correr, nadie recibe nada y **eso no
+    # se nota desde afuera** — es justo la clase de silencio que el árbol existe
+    # para romper.
+    Pieza("NEGOCIO", "job", "saldos_a_operadores (aviso diario)", grupo="CLIENTES",
+          unidad="jobs.saldos_a_operadores",
+          cadencia="19:45 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
+          run_tipo="mensajes"),
 
     # ── MERCADOS · DERIVADOS ───────────────────────────────
     Pieza("MERCADOS", "job", "snapshot_sinteticos (serie histórica)", grupo="DERIVADOS",

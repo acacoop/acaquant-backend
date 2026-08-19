@@ -365,11 +365,21 @@ class AccionAvisar:
             raise ValueError("hay que elegir a quién avisarle")
         if not _usuario_existe(email):
             raise ValueError(f"«{email}» no es un usuario de la plataforma")
-        av_agent_vista.avisar_a(
+        # ⚠️ **SE MIRA EL RESULTADO.** `avisar_a` devuelve 0 cuando no creó nada, y
+        # acá se ignoraba: la acción decía «listo» con el mensaje sin mandar. Un
+        # 0 legítimo existe —ya hay uno abierto para ESA persona— y por eso se
+        # distingue releyendo, en vez de tratar todo 0 como error.
+        n = av_agent_vista.avisar_a(
             para=email, clave="ping", ticker=f"control:{p.sujeto}",
             que_hacer=str(p.extra.get("que_hacer") or p.porque),
             por_que=str(p.extra.get("por_que") or ""),
             donde=CONTROL_DONDE.get(p.sujeto, ""), por="av-agent")
+        if not n and not any(
+                a.get("ticker") == f"control:{p.sujeto}"
+                for a in av_agent_vista.avisos_de(email)):
+            raise RuntimeError(
+                f"el aviso no quedó en la bandeja de «{email}» y no hay uno "
+                f"abierto suyo sobre esto — no se mandó nada")
 
     def verificar(self, p: Propuesta) -> tuple[bool, str]:
         from api.services import av_agent_vista

@@ -253,18 +253,35 @@ def explicar(ticker: str) -> dict:
             })
         else:
             escuchando = out["escuchando"]
+            # ⚠️ **CON EL MERCADO CERRADO, «sin punta» NO ES UN VEREDICTO** (user,
+            # 2026-08-19: *«pensá que el mercado ya cerró, no va a tener last
+            # price»*). Es el mismo reloj de §0.u aplicado a la verificación de la
+            # acción: *fuera de rueda no está caído, está apagado*. Sin esto, la
+            # puerta contestaría «la escuchamos y no dio punta» un miércoles a las
+            # 17:30 —cuando nadie podía dar punta— y eso se lee como iliquidez.
+            abierto = av_agent.en_rueda()
+            out["en_rueda"] = abierto
             pasos.append({
-                "clave": "precio", "estado": REVISAR if escuchando else NO_SE,
+                "clave": "precio",
+                "estado": (REVISAR if (escuchando and abierto) else NO_SE),
                 "titulo": (f"La escuchamos y no dio punta: «{_corto(elegida)}»"
+                           if escuchando and abierto
+                           else "La escuchamos, pero el mercado está CERRADO"
                            if escuchando
                            else f"Nadie está escuchando «{_corto(elegida)}»"),
                 "detalle": (("Está en el snapshot, así que el motor la pide y el "
                              "mercado no le puso precio: eso ES iliquidez. Si pasa "
                              "una rueda entera igual, la pata no cotiza — y recién "
-                             "ahora se puede afirmar.") if escuchando else
+                             "ahora se puede afirmar.") if escuchando and abierto else
+                            ("Que no tenga precio ahora no dice nada: nadie puede "
+                             "poner una punta con la rueda cerrada. La respuesta "
+                             "llega en los primeros minutos de la próxima.")
+                            if escuchando else
                             "Por eso no tiene precio en nuestras tablas: **no es que "
                             "no cotice, es que no la estamos escuchando**. Pedirla "
-                            "la levanta el `adhoc_watcher` en 5s, sin reiniciar."),
+                            "la levanta el `adhoc_watcher` en 5s, sin reiniciar."
+                            + ("" if abierto else " Con el mercado cerrado queda "
+                               "pedida igual y el motor la toma al abrir.")),
             })
         # Solo es «pedible» si hay algo que la pedida cambie. Que ya la estemos
         # escuchando cuenta: pedir de nuevo algo que el motor ya suscribe no
@@ -280,7 +297,9 @@ def explicar(ticker: str) -> dict:
         # «La escuchamos y no vino» — que es iliquidez y NO trabajo nuestro. Se
         # llama distinto de `hay_que_pedirla` porque se atienden distinto: una
         # tiene botón y la otra no tiene nada que hacer.
-        "escuchada_sin_punta" if out.get("escuchando") else "hay_que_pedirla")
+        # Fuera de rueda no se puede decir «sin punta»: nadie podía darla.
+        ("escuchada_sin_punta" if out.get("en_rueda") else "cerrado_sin_saber")
+        if out.get("escuchando") else "hay_que_pedirla")
     return out
 
 
@@ -308,6 +327,9 @@ def pedir(ticker: str, por: str = "") -> dict:
                           else "ya la estamos escuchando y el mercado no le pone "
                                "punta: eso es iliquidez, no algo que pedir de nuevo"
                           if d.get("veredicto") == "escuchada_sin_punta"
+                          else "ya la estamos escuchando; con la rueda cerrada no "
+                               "hay nada más que hacer hasta que abra"
+                          if d.get("veredicto") == "cerrado_sin_saber"
                           else "no pude leer el catálogo de Primary, así que no "
                                "propongo nada")}
 
@@ -341,5 +363,12 @@ def pedir(ticker: str, por: str = "") -> dict:
             "detalle": (f"llegó precio: {v['precio']:,.2f}" if v.get("precio")
                         else "pedida; todavía sin precio — si pasa una rueda entera "
                              "y no llega, ESA pata no cotiza (antes no se podía "
-                             "afirmar)"),
+                             "afirmar)" if v.get("en_rueda")
+                        # Con la rueda cerrada la ausencia de precio NO es un
+                        # resultado, y decir «todavía sin precio» invitaría a
+                        # leerlo como uno. La acción igual sirve: queda pedida y
+                        # el motor la toma al abrir.
+                        else "pedida. El mercado está CERRADO, así que todavía no "
+                             "se puede saber nada: la respuesta llega en los "
+                             "primeros minutos de la próxima rueda"),
             "pasos": v.get("pasos") or []}

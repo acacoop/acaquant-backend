@@ -365,20 +365,33 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         # con el mercado cerrado»: el detector estaba bien, la foto estaba vieja.
         # El filtro va en SQL y no en Python para que el que consulte por otra
         # vía tampoco pueda leer una foto vencida.
-        vence = [(a, s_) for a, s_ in av_agent.VENCEN_EN_S.items() if a in vivos]
-        cond_vivos = " OR ".join(
-            ["(alcance = %s AND corrida_at > now() - make_interval(secs => %s))"
-             for _ in vence]
-            + ["alcance = ANY(%s)"])
-        params: list = [corrida, corrida, vivos]
-        for a, s_ in vence:
-            params += [a, s_]
-        # Los que NO vencen: los de reemplazo que no están en `VENCEN_EN_S`.
-        params.append([a for a in vivos if a not in dict(vence)])
+        # ⚠️ **EL VENCIMIENTO ES POR REGLA, NO POR ALCANCE** (2026-08-19).
+        #
+        # Antes vencía el alcance entero, así que el monitor de rueda se llevaba
+        # puesto todo lo suyo — incluidos los PROBLEMAS DE CONFIGURACIÓN (nadie
+        # suscribe este símbolo, el master apunta a la pata equivocada). El user:
+        # *«eso tiene que ser independiente del mercado… mañana va a volver a
+        # abrir y va a pasar lo mismo»*.
+        #
+        # El costo no se veía: el problema desaparecía a la noche y volvía a la
+        # mañana como nuevo, así que **nunca acumulaba antigüedad**. Uno de hace
+        # tres semanas y uno de recién se veían igual.
+        #
+        # Ahora vence solo lo que es una foto del momento
+        # (`av_agent.OBSERVACIONES_DE_MERCADO`); lo demás se sostiene hasta que la
+        # próxima corrida lo reemplace o alguien lo arregle.
+        obs = list(av_agent.OBSERVACIONES_DE_MERCADO)
         cur.execute(
             f"SELECT {', '.join(_COLS_H)} FROM mercado.av_agent_hallazgos "
             "WHERE (%s IS NOT NULL AND corrida_at = %s AND alcance <> ALL(%s)) "
-            f"   OR {cond_vivos}", tuple(params))
+            "   OR (alcance = ANY(%s) AND ("
+            #     una observación de mercado: solo vale si es reciente
+            "         (regla = ANY(%s) AND corrida_at > now() - "
+            "             make_interval(secs => %s))"
+            #     un problema nuestro: sigue siendo cierto con el mercado cerrado
+            "      OR regla <> ALL(%s)))",
+            (corrida, corrida, vivos, vivos, obs,
+             av_agent.VENCE_OBSERVACION_S, obs))
         filas = [dict(zip(_COLS_H, r, strict=False)) for r in cur.fetchall()]
         # El blob completo, no solo la PK: `sin_flujo` caduca cuando el bono YA
         # tiene cronograma, y eso se lee acá mismo. **Es la misma query** — el

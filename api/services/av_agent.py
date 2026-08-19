@@ -116,7 +116,48 @@ ALCANCES_VIVOS = ("live", "sistema")
 # monitor se muere a las 11, sus hallazgos también desaparecen — y está bien,
 # porque ya **no sabemos** si siguen pasando. Un dato que nadie está refrescando
 # no puede seguir afirmándose. Se cura solo y no depende de ningún job.
-VENCEN_EN_S: dict[str, int] = {"live": 15 * 60}      # el monitor pasa cada 5'
+# ⚠️ **PERO NO TODO LO DE RUEDA ES UNA OBSERVACIÓN DE RUEDA** (user, 2026-08-19):
+#
+# *«Eso tiene que ser independiente del mercado. Si ya detectó que cotiza la pata
+# en pesos es lo mismo que el mercado esté abierto o no: mañana va a volver a
+# abrir y va a pasar lo mismo. El agente tiene que entender que algunas cosas se
+# solucionan independientemente del horario — si ya detectó el error tiene que
+# saber que va a volver a pasar si no se hizo nada.»*
+#
+# Tenía razón y esto estaba mal desde el día que se escribió: el vencimiento era
+# **por ALCANCE**, así que se llevaba puesto todo el monitor. Hay dos familias
+# adentro y no se parecen en nada:
+#
+#   OBSERVACIÓN DE MERCADO   «no le pusieron punta», «el precio no se mueve hace
+#                            40 min». Valen AHORA. Si nadie las refresca dejamos
+#                            de saber, y afirmarlas igual es mostrar una foto
+#                            vieja — por eso VENCEN.
+#
+#   PROBLEMA DE CONFIGURACIÓN  «nadie suscribe este símbolo», «el master apunta a
+#                            la pata equivocada», «este bono no tiene símbolo».
+#                            Son hechos sobre NUESTROS datos. El mercado no los
+#                            arregla cerrando ni los cambia abriendo: mañana a las
+#                            10:30 van a estar igual. **No vencen.**
+#
+# Hacerlos vencer a todos tenía un costo que no se veía: el problema desaparecía
+# a la noche y volvía a la mañana como si fuera nuevo, así que **nunca acumulaba
+# antigüedad**. Un símbolo sin suscribir hace tres semanas y uno de recién se
+# veían igual, y lo que uno necesita saber es justo cuál es cuál.
+#
+# Se declara por REGLA y no se infiere: una regla nueva cae del lado que NO
+# esconde (no vence), igual que `DE_QUIEN`.
+OBSERVACIONES_DE_MERCADO: tuple[str, ...] = (
+    "sin_punta",           # el mercado no dio punta HOY
+    "precio_viejo",        # el precio dejó de moverse hace un rato
+    "sin_actividad_hoy",   # operó antes, hoy todavía no
+)
+# Cuánto sobrevive una observación sin que nadie la refresque. El monitor pasa
+# cada 5', así que 15' son tres pasadas: si en tres no volvió, ya no sabemos.
+VENCE_OBSERVACION_S = 15 * 60
+
+def vence(regla: str) -> bool:
+    """¿Este hallazgo es una foto del momento (vence) o un problema nuestro (no)?"""
+    return (regla or "").strip() in OBSERVACIONES_DE_MERCADO
 
 
 

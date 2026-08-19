@@ -228,26 +228,54 @@ def test_y_ninguna_de_las_dos_usa_el_modelo():
 
 # ── Un hallazgo de rueda VENCE (2026-08-19) ────────────────────────────────
 
-def test_los_hallazgos_de_rueda_tienen_fecha_de_vencimiento():
+def test_una_OBSERVACION_DE_MERCADO_vence():
     """*«En AVISOS tenía un montón de avisos de precios sin precio, pero eso era
     porque el MERCADO ESTABA CERRADO»* (user).
 
     El monitor corre 10:30-17 ART y reemplaza lo suyo en cada pasada — pero al
     cerrar deja de correr, y su última foto se quedaba en la pantalla toda la
-    noche y todo el fin de semana. El detector estaba bien; la foto estaba vieja,
-    que para el que mira es lo mismo."""
+    noche. El detector estaba bien; la foto estaba vieja, que para el que mira es
+    lo mismo."""
     from api.services import av_agent
-    assert av_agent.VENCEN_EN_S["live"] > 0
+    assert av_agent.vence("sin_punta")
+    assert av_agent.vence("precio_viejo")
     # Más que el intervalo del monitor (5') para no parpadear entre pasadas.
-    assert av_agent.VENCEN_EN_S["live"] >= 10 * 60
+    assert av_agent.VENCE_OBSERVACION_S >= 10 * 60
+
+
+def test_un_PROBLEMA_DE_CONFIGURACION_no_vence():
+    """*«Eso tiene que ser independiente del mercado. Si ya detectó que cotiza la
+    pata en pesos es lo mismo que el mercado esté abierto o no: mañana va a
+    volver a abrir y va a pasar lo mismo… si ya detectó el error tiene que saber
+    que va a volver a pasar si no se hizo nada.»* (user, 2026-08-19)
+
+    El vencimiento era por ALCANCE, así que se llevaba puesto TODO el monitor —
+    incluidos los hechos sobre nuestros propios datos. El costo no se veía: el
+    problema desaparecía a la noche y volvía a la mañana como nuevo, así que
+    **nunca acumulaba antigüedad**, y uno de hace tres semanas se veía igual que
+    uno de recién."""
+    from api.services import av_agent
+    for r in ("no_suscripto", "sin_simbolo", "pata_equivocada",
+              "cotiza_en_pesos", "precio_fuera_de_escala"):
+        assert not av_agent.vence(r), f"{r} es config nuestra: no puede vencer"
+
+
+def test_una_regla_NUEVA_no_vence_por_default():
+    """Igual que `DE_QUIEN`: el default es el lado que NO esconde. Una regla que
+    nadie clasificó desapareciendo sola de la pantalla es el peor modo de falla —
+    no da ningún error."""
+    from api.services import av_agent
+    assert not av_agent.vence("una_regla_que_todavia_no_existe")
 
 
 def test_el_alcance_SISTEMA_no_vence():
-    """Corre una vez por noche: darle el mismo TTL que al monitor de rueda
-    dejaría la pantalla vacía el 99% del día."""
+    """Corre una vez por noche: hacerlo vencer como el monitor de rueda dejaría
+    la pantalla vacía el 99% del día."""
     from api.services import av_agent
-    assert "sistema" not in av_agent.VENCEN_EN_S
     assert "sistema" in av_agent.ALCANCES_VIVOS
+    # Sus reglas no son observaciones de mercado, así que ninguna vence.
+    for r in ("tabla_quieta", "db_cambio", "permiso_flojo"):
+        assert not av_agent.vence(r)
 
 
 def test_el_vencimiento_se_aplica_en_SQL_no_en_el_front():
@@ -257,4 +285,6 @@ def test_el_vencimiento_se_aplica_en_SQL_no_en_el_front():
 
     from api.services import av_agent_vista
     src = inspect.getsource(av_agent_vista._hallazgos_ultima_corrida)
-    assert "VENCEN_EN_S" in src and "make_interval" in src
+    assert "OBSERVACIONES_DE_MERCADO" in src and "make_interval" in src
+    # Y el corte por REGLA tiene que estar en el WHERE, no filtrado después.
+    assert "regla = ANY" in src and "regla <> ALL" in src

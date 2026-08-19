@@ -1802,6 +1802,61 @@ Ahora hay UNA: `core.especies.mejor`, y las tres la usan. *Emparejar bien y
 elegir mal no se ve distinto de emparejar mal* — y cable y MEP son cosas
 distintas, cosa que `CLAUDE.md` ya advertía.
 
+### 0.z EL PROBLEMA NO CIERRA CUANDO CIERRA EL MERCADO (2026-08-19)
+
+> *«Eso tiene que ser independiente del mercado. Si ya detectó que cotiza la pata
+> en pesos es lo mismo que el mercado esté abierto o no: mañana va a volver a
+> abrir y va a pasar lo mismo. El agente tiene que entender que algunas cosas se
+> solucionan independientemente del horario — si ya detectó el error tiene que
+> saber que va a volver a pasar si no se hizo nada.»* (user)
+
+Salió de una observación práctica —*«pensá que el mercado ya cerró, no va a tener
+last price»*— y terminó destapando que **§0.u se había pasado de largo**.
+
+Aquella sección hizo vencer los hallazgos de rueda, y estaba bien: una foto que
+nadie refresca no se puede seguir afirmando. Pero el vencimiento se escribió **por
+ALCANCE** (`VENCEN_EN_S = {"live": 15 min}`), así que se llevaba puesto TODO el
+monitor. Y adentro del monitor hay dos familias que no se parecen en nada:
+
+    OBSERVACIÓN DE MERCADO      «no le pusieron punta hoy» · «el precio no se
+                                mueve hace 40 min». Valen AHORA. Si nadie las
+                                refresca dejamos de saber → VENCEN.
+
+    PROBLEMA DE CONFIGURACIÓN   «nadie suscribe este símbolo» · «el master apunta
+                                a la pata equivocada» · «este bono no tiene
+                                símbolo». Son hechos sobre NUESTROS datos. El
+                                mercado no los arregla cerrando ni los cambia
+                                abriendo → NO VENCEN.
+
+**El costo no se veía, y es el que el user nombró.** El problema de configuración
+desaparecía a la noche y volvía a la mañana con `abierto_at` nuevo, así que
+**nunca acumulaba antigüedad**: un símbolo sin suscribir hacía tres semanas y uno
+de recién se veían exactamente igual. Justo lo que uno necesita distinguir para
+decidir a qué prestarle atención — y el centinela tiene un contador de `veces`
+que existe para eso y que este vencimiento estaba reseteando todas las noches.
+
+Ahora se declara **por REGLA** (`av_agent.OBSERVACIONES_DE_MERCADO` +
+`av_agent.vence()`), el corte va en el `WHERE` y no después, y una regla nueva
+**no vence por default** — mismo criterio que `DE_QUIEN`: el default es el lado
+que NO esconde. Una regla que nadie clasificó desapareciendo sola de la pantalla
+es el peor modo de falla, porque no da ningún error.
+
+#### Y la contracara, en la puerta: qué significa «verificado» a las 17:30
+
+Pedir la pata **sí se puede a cualquier hora** —es una fila en
+`adhoc_subscriptions` y el motor la toma al abrir—, pero *«pedida, todavía sin
+precio»* con la rueda cerrada invita a leerse como un resultado, y no lo es:
+nadie podía dar una punta. La puerta ahora mira el reloj
+(`av_agent.en_rueda()`) y contesta distinto:
+
+    en rueda   «pedida; si pasa una rueda entera y no llega, ESA pata no cotiza»
+    cerrado    «pedida. El mercado está CERRADO, así que todavía no se puede
+                saber nada: la respuesta llega al abrir»
+
+**Lo que NO cambia con el reloj es si la acción se ofrece.** `pedible` no mira la
+hora: el problema es de configuración y arreglarlo a las 17:30 vale exactamente
+lo mismo que a las 11.
+
 #### Lo que la ficha empareja se puede VERIFICAR A OJO
 
 El join es exacto, pero es una **identidad nueva**, y `NDT25 → NDT5C` no se parece

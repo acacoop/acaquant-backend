@@ -157,6 +157,28 @@ def test_sin_dia_anterior_lo_dice_en_vez_de_comparar_contra_nada(monkeypatch):
     assert out["filas"] == []
 
 
+def test_la_suma_del_dia_es_la_FIRMADA_no_la_de_absolutos(monkeypatch):
+    """⚠️ El bug que rompió esta pantalla en producción. `movimientos.importe`
+    viene YA FIRMADO de Interbanking (un débito llega negativo) y el SQL le
+    aplicaba el signo otra vez con `tipo`, así que devolvía la suma de los
+    VALORES ABSOLUTOS: una cuenta cuyos movimientos sumaban −500,53 daba
+    1.612.340.349,01 y la pantalla acusaba una diferencia de 1.600 millones que
+    no existía.
+
+    Acá se congela el contrato con el que quedó la query: el `neto` que llega es
+    la suma FIRMADA, y la diferencia contra la variación tiene que dar cero."""
+    s = _mock(monkeypatch,
+              extractos=[{"cuenta_id": 1, "fecha": HOY, "saldo_apertura": 50_654.47,
+                          "saldo_cierre": 50_153.94, "cierra": True},
+                         {"cuenta_id": 1, "fecha": AYER, "saldo_apertura": 0.0,
+                          "saldo_cierre": 50_654.47, "cierra": True}],
+              movs=[{"cuenta_id": 1, "neto": -500.53, "n": 7}])
+    f = _fila(s.diferencias("x@y", HOY))
+    assert f["variacion"] == -500.53
+    assert f["movimientos"] == -500.53
+    assert f["sin_explicar"] == 0.0, "esta cuenta CIERRA: no hay diferencia"
+
+
 @pytest.mark.parametrize("neto,cierre,esperado", [
     (-2_000_000_000.0 + 2_000_000_000.0, 0.0, 0.0),   # el caso de la pantalla
     (500.0, 500.0, 0.0),

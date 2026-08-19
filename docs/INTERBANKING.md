@@ -684,6 +684,34 @@ mirar**. Si las dos no coinciden, el problema no es el asiento retroactivo sino
 que el día no cuadra contra sus propios movimientos, que es otro hallazgo — por
 eso viaja también `cierra` y la fila lo marca.
 
+### ⚠️ EL SIGNO DEL IMPORTE (el bug que rompió esta pantalla)
+
+**`bancos.movimientos.importe` viene YA FIRMADO de Interbanking**: un débito
+llega **negativo**. El código asumía que llegaba en valor absoluto y que el signo
+lo ponía `tipo` (C/D), así que se lo aplicaba **por segunda vez**. Consecuencia:
+la suma del día devolvía **los valores absolutos**. Medido contra una cuenta
+real: los movimientos sumaban `−500,53` (exactamente la variación del saldo) y la
+pantalla mostraba `1.612.340.349,01`, acusando una diferencia de 1.600 millones
+que no existía. Los dos números coinciden al centavo con las dos sumas, así que
+no hay duda de cuál era el error.
+
+La regla que queda, en `_firmado`, y vale para **todo el módulo**:
+
+```
+abs(importe) con el signo que dice `tipo`   ·   NUNCA `importe` crudo para sumar
+```
+
+No es "sacar la negación de más": es la única fórmula que da bien **tanto si el
+banco firma el importe como si no**, y eso importa porque son nueve bancos
+distintos y no hay ninguna garantía de que todos hagan lo mismo. Congelado por
+test con los importes reales del caso.
+
+De paso arregla dos cosas que se veían y nadie había levantado: los débitos se
+dibujaban con **dos menos** (`--86,73`), porque la pantalla agregaba el signo a
+un número que ya lo tenía; y la columna **GASTOS BANCARIOS salía en negativo**,
+cuando la pregunta que contesta es *cuánto se llevó el banco*. Por eso el importe
+se **publica en valor absoluto** y el signo lo dice `tipo`: un solo lugar decide.
+
 ### Decisiones que evitan diferencias falsas
 
 - **Se reconcilia contra el BANCO, no contra la pantalla.** Los movimientos
@@ -710,6 +738,15 @@ La pantalla arranca mostrando **solo las cuentas con diferencia**, con un
 Respeta el filtro por banco de la vista.
 
 ## Changelog
+
+- **2026-08-19 (2)** — ⚠️ **El importe viene FIRMADO del banco** y el código le
+  aplicaba el signo otra vez: las sumas devolvían los valores absolutos. Lo
+  destapó DIFERENCIAS acusando 1.600 millones en una cuenta que cerraba perfecto.
+  Se arregla en la raíz (`_firmado` = `abs(importe)` + `tipo`, una sola regla para
+  todo el módulo) y de paso caen dos síntomas viejos: los débitos se dibujaban
+  con dos menos y GASTOS BANCARIOS salía en negativo. **La columna de gastos
+  cambia de signo**: ahora un cobro del banco suma positivo, que es lo que la
+  pregunta pide.
 
 - **2026-08-19** — **DIFERENCIAS** (ver la sección de arriba): botón nuevo y
   `GET /diferencias`. Es de solo lectura y no persiste nada — se calcula sobre lo

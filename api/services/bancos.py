@@ -369,7 +369,11 @@ def _ajuste_manual(fecha: date) -> dict[int, dict]:
     return {r["cuenta_id"]: {"ajuste": _f(r["ajuste"]) or 0.0, "movimientos": r["n"]}
             for r in _q(
                 """SELECT cuenta_id,
-                          sum(CASE WHEN tipo = 'C' THEN importe ELSE -importe END) AS ajuste,
+                          -- Los manuales los guardamos nosotros en valor
+                          -- absoluto, pero se usa la MISMA fórmula que con los
+                          -- del banco: una sola regla de signo en todo el módulo.
+                          sum(CASE WHEN tipo = 'C' THEN abs(importe)
+                                   ELSE -abs(importe) END) AS ajuste,
                           count(*) AS n
                      FROM bancos.movimientos_manuales
                     WHERE fecha = %s
@@ -418,8 +422,9 @@ def _gastos_bancarios(fecha: date, baldes: list[dict]) -> dict[int, dict]:
         # (tachado): lo que cambia es que no suma.
         if m.get("ignorado") or not marcas[m["mov_hash"]]["es_gasto"]:
             continue
-        imp = _f(m.get("importe")) or 0.0
-        firmado = imp if m.get("tipo") == "D" else -imp
+        # Un gasto es un DÉBITO, así que suma con signo positivo: la columna
+        # contesta "cuánto se llevó el banco", no "cuánto se movió el saldo".
+        firmado = -_firmado(m)
         celda = out[m["cuenta_id"]]
         celda["total"] += firmado
         celda[desglosar(m, baldes)] += firmado
@@ -464,6 +469,24 @@ def _cuit_enmascarado(v: str | None) -> str | None:
     return f"{s[:2]}-…-{s[-1:]}" if len(s) >= 8 else None
 
 
+# ⚠️ **EL SIGNO DEL IMPORTE — la trampa que rompió el control de DIFERENCIAS.**
+#
+# `bancos.movimientos.importe` viene **YA FIRMADO** de Interbanking: un débito
+# llega NEGATIVO. Yo asumí que llegaba en valor absoluto y que el signo lo ponía
+# `tipo` (C/D), así que le aplicaba el signo **por segunda vez** — y una suma que
+# tenía que dar `−500,53` daba `1.612.340.349,01`, o sea la suma de los VALORES
+# ABSOLUTOS. Verificado al centavo contra los movimientos reales de una cuenta.
+#
+# La regla que queda: **`abs(importe)` con el signo que dice `tipo`.** No es
+# "sacar la negación de más" — es la única fórmula que da bien tanto si el banco
+# firma el importe como si no, y hay bancos de los dos tipos entre los 9. Nunca
+# usar `importe` crudo para sumar.
+def _firmado(r: dict) -> float:
+    """El importe con el signo correcto: + si el banco acreditó, − si debitó."""
+    imp = abs(_f(r.get("importe")) or 0.0)
+    return -imp if (r.get("tipo") or "").upper() == "D" else imp
+
+
 def _movimiento_publico(r: dict) -> dict:
     return {
         # El hash es la IDENTIDAD del movimiento: sin él la pantalla no puede
@@ -472,7 +495,11 @@ def _movimiento_publico(r: dict) -> dict:
         "mov_hash": r.get("mov_hash"),
         "fecha": r["fecha"].isoformat() if r.get("fecha") else None,
         "hora": r["fecha_proceso"].strftime("%H:%M:%S") if r.get("fecha_proceso") else None,
-        "importe": _f(r.get("importe")),
+        # ⚠️ El importe se publica en VALOR ABSOLUTO y el signo lo dice `tipo`.
+        # Crudo viene ya firmado del banco, y la pantalla —que dibuja el signo a
+        # partir de `tipo`— mostraba «--86,73» con dos menos. Un solo lugar
+        # decide el signo: `_firmado` acá, `tipo` en la pantalla.
+        "importe": abs(_f(r.get("importe")) or 0.0) if r.get("importe") is not None else None,
         "tipo": r.get("tipo"),
         "descripcion": (r.get("descripcion_banco") or r.get("descripcion_ib") or "").strip(),
         "concepto": (r.get("descripcion_ib") or "").strip(),
@@ -507,7 +534,8 @@ def _manual_publico(r: dict) -> dict:
         "manual": True,
         "fecha": r["fecha"].isoformat() if r.get("fecha") else None,
         "hora": r["creado_at"].strftime("%H:%M") if r.get("creado_at") else None,
-        "importe": _f(r.get("importe")),
+        # Misma convención que los del banco: valor absoluto + `tipo`.
+        "importe": abs(_f(r.get("importe")) or 0.0),
         "tipo": r.get("tipo"),
         "descripcion": (r.get("descripcion") or "").strip(),
         "por": r.get("creado_por"),
@@ -634,8 +662,7 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
             # desglose — y un total que no se puede abrir es un total en el que
             # hay que creer.
             m["gasto_balde"] = balde
-            imp = m["importe"] or 0
-            desglose[balde] += imp if m["tipo"] == "D" else -imp
+            desglose[balde] += -_firmado(m)
         desglose = {k: round(v, 2) for k, v in desglose.items()}
 
     if cuenta_id is not None:
@@ -645,10 +672,9 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
     # manuales no entran. Si entraran, la vista dejaría de poder compararse con
     # lo que informa el banco, que es para lo que existe la conciliación. Lo que
     # los manuales mueven —el saldo— viaja aparte, en `ajuste_manual`.
-    creditos = sum(m["importe"] or 0 for m in movimientos if m["tipo"] == "C")
-    debitos = sum(m["importe"] or 0 for m in movimientos if m["tipo"] == "D")
-    ajuste_manual = round(sum((m["importe"] or 0) * (1 if m["tipo"] == "C" else -1)
-                              for m in manuales), 2)
+    creditos = sum(abs(m["importe"] or 0) for m in movimientos if m["tipo"] == "C")
+    debitos = sum(abs(m["importe"] or 0) for m in movimientos if m["tipo"] == "D")
+    ajuste_manual = round(sum(_firmado(m) for m in manuales), 2)
 
     resumen = {
         "dias": len(dias),
@@ -665,7 +691,7 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
         "ajuste_manual": ajuste_manual,
         "movimientos_manuales": len(manuales),
         "gastos": round(sum(
-            (m["importe"] or 0) * (1 if m["tipo"] == "D" else -1)
+            -_firmado(m)
             for m in movimientos if m.get("es_gasto") and not m.get("ignorado")), 2),
         "gastos_desglose": desglose,
     }
@@ -759,7 +785,11 @@ def diferencias(email: str, fecha: date) -> dict:
 
     movs = {r["cuenta_id"]: (_f(r["neto"]) or 0.0, r["n"]) for r in _q(
         """SELECT cuenta_id,
-                  sum(CASE WHEN tipo = 'C' THEN importe ELSE -importe END) AS neto,
+                  -- abs() + `tipo`: el importe viene YA FIRMADO del banco, así
+                  -- que aplicarle el signo otra vez devolvía la suma de los
+                  -- valores absolutos. Ver `_firmado`.
+                  sum(CASE WHEN tipo = 'C' THEN abs(importe) ELSE -abs(importe) END)
+                    AS neto,
                   count(*) AS n
              FROM bancos.movimientos WHERE fecha = %s GROUP BY cuenta_id""", (fecha,))}
     manuales = _ajuste_manual(fecha)
@@ -1256,7 +1286,8 @@ def listar_manuales(fecha: date) -> list[dict]:
                   f"{r['account_number']}".strip(),
         "fecha": r["fecha"].isoformat() if r.get("fecha") else None,
         "descripcion": (r.get("descripcion") or "").strip(),
-        "importe": _f(r.get("importe")),
+        # Valor absoluto + `tipo`, la misma convención que los del banco.
+        "importe": abs(_f(r.get("importe")) or 0.0),
         "tipo": r.get("tipo"),
         "por": r.get("creado_por"),
         "hora": r["creado_at"].strftime("%H:%M") if r.get("creado_at") else None,

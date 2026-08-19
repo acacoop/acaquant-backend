@@ -11,6 +11,8 @@ Las dos capas y su orden de precedencia son el modelo entero:
 """
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from api.services.bancos import (
@@ -447,3 +449,66 @@ def test_reordenar_exige_la_lista_COMPLETA(monkeypatch):
         svc.reordenar_baldes("x@y", ["iva"])
     with pytest.raises(ValueError, match="TODAS las columnas"):
         svc.reordenar_baldes("x@y", ["iva", "iva"])
+
+
+# --------------------------------------------------------------------------- #
+# EL SIGNO DEL IMPORTE — la trampa que rompió el control de DIFERENCIAS
+# --------------------------------------------------------------------------- #
+# `bancos.movimientos.importe` viene YA FIRMADO de Interbanking: un débito llega
+# NEGATIVO. El código asumía valor absoluto + `tipo`, así que le aplicaba el
+# signo por SEGUNDA vez y la suma daba los VALORES ABSOLUTOS. Medido: una cuenta
+# cuyos movimientos suman −500,53 devolvía 1.612.340.349,01.
+#
+# La regla que queda: `abs(importe)` con el signo de `tipo`. No es "sacar la
+# negación de más" — es la única fórmula que da bien tanto si el banco firma el
+# importe como si no, y eso importa porque son 9 bancos distintos.
+def test_el_signo_sale_de_tipo_y_no_del_importe():
+    from api.services.bancos import _firmado
+
+    # El banco firma el importe (el caso que rompía).
+    assert _firmado({"importe": -445_278_617.28, "tipo": "D"}) == -445_278_617.28
+    # Y si mandara el mismo débito SIN firmar, tiene que dar lo mismo.
+    assert _firmado({"importe": 445_278_617.28, "tipo": "D"}) == -445_278_617.28
+    # Los créditos, en positivo en los dos casos.
+    assert _firmado({"importe": 3_632_319.77, "tipo": "C"}) == 3_632_319.77
+    assert _firmado({"importe": -3_632_319.77, "tipo": "C"}) == 3_632_319.77
+
+
+def test_la_suma_del_dia_da_la_variacion_del_saldo():
+    """El caso REAL que lo destapó, con los importes tal como los manda el banco:
+    la suma tiene que dar −500,53 (la variación del saldo), no 1.612.340.349,01
+    (la suma de los valores absolutos)."""
+    from api.services.bancos import _firmado
+
+    reales = [
+        {"importe": 3_632_319.77, "tipo": "C"},
+        {"importe": 360_891_307.00, "tipo": "C"},
+        {"importe": 441_646_297.47, "tipo": "C"},
+        {"importe": -86.73, "tipo": "D"},
+        {"importe": -413.00, "tipo": "D"},
+        {"importe": -360_891_307.76, "tipo": "D"},
+        {"importe": -445_278_617.28, "tipo": "D"},
+    ]
+    assert round(sum(_firmado(m) for m in reales), 2) == -500.53
+
+
+def test_un_gasto_suma_en_POSITIVO(monkeypatch):
+    """La columna contesta «cuánto se llevó el banco», no «cuánto se movió el
+    saldo»: un débito de 86,73 son 86,73 de gasto, no −86,73."""
+    from api.services import bancos as svc
+
+    def _q(sql, params=None):
+        t = " ".join(str(sql).split())
+        if "gastos_reglas" in t:
+            return [{"id": 1, "campo": "descripcion_ib", "operador": "igual",
+                     "valor": "IVA", "activa": True}]
+        if "gastos_overrides" in t:
+            return []
+        return [{"mov_hash": "h1", "cuenta_id": 1, "importe": -86.73, "tipo": "D",
+                 "codigo_operacion_ib": "1", "codigo_operacion_banco": "1",
+                 "descripcion_banco": "", "descripcion_ib": "IVA", "ignorado": False}]
+
+    monkeypatch.setattr(svc, "_q", _q)
+    out = svc._gastos_bancarios(date(2026, 8, 18), semilla_catalogo())
+    assert out[1]["total"] == 86.73
+    assert out[1]["iva"] == 86.73

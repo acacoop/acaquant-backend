@@ -57,6 +57,20 @@ DETECTAR, EXPLICAR, RESOLVER = "detectar", "explicar", "resolver"
 # Cuánta IA hay adentro. TRES valores y no un booleano, a propósito (ver arriba).
 SIN_IA, IA_OPCIONAL, CON_IA = "no", "opcional", "si"
 
+# ── LOS DOMINIOS: de qué habla cada habilidad ───────────────────────────────
+#
+# Pedido del user (2026-08-19): *«necesito que en SKILLS haya jerarquías de
+# habilidades: MERCADO, ADMINISTRATIVO, SEGURIDAD, etc.»*
+#
+# Sin esto la tab es una lista plana de 37 filas donde un chequeo de permisos
+# convive con un bono sin cronograma, y **no hay forma de mirar UN área**: para
+# saber qué sabe el agente sobre seguridad hay que leer las 37. El tipo
+# (detectar/explicar/resolver) dice CÓMO trabaja; el dominio dice SOBRE QUÉ, y
+# esa es la pregunta que uno se hace primero.
+MERCADO, SISTEMA, SEGURIDAD, ADMIN, DATOS = (
+    "MERCADO", "SISTEMA", "SEGURIDAD", "ADMINISTRACIÓN", "DATOS")
+DOMINIOS = (MERCADO, SISTEMA, SEGURIDAD, ADMIN, DATOS)
+
 
 @dataclass
 class Skill:
@@ -65,6 +79,7 @@ class Skill:
     nombre: str          # en castellano, como lo diría una persona
     que_hace: str
     usa_ia: str          # no | opcional | si
+    dominio: str = DATOS         # de qué habla: MERCADO | SISTEMA | …
     para_que_la_ia: str = ""     # obligatorio si usa_ia != "no"
     donde: str = ""              # dónde se ve o dónde escribe
     fuente: str = ""             # de qué registro salió (trazabilidad)
@@ -79,7 +94,7 @@ def _de_explicadores() -> list[Skill]:
     return [Skill(
         id=f"explicar.{e.id}", tipo=EXPLICAR, nombre=e.pregunta,
         que_hace=f"reproduce el cálculo paso a paso desde {e.de_donde}",
-        usa_ia=IA_OPCIONAL,
+        usa_ia=IA_OPCIONAL, dominio=_DOMINIO_EXPLICADOR.get(e.id, MERCADO),
         para_que_la_ia="resume el resultado en una frase; los números NO los "
                        "toca el modelo",
         donde="AV Agent → SKILLS", fuente="av_agent_explicar.EXPLICADORES",
@@ -107,6 +122,7 @@ def _de_acciones() -> list[Skill]:
             que_hace=f"resuelve «{a.sobre}» proponiendo {a.campo}; se aplica con "
                      f"tu OK y se verifica releyendo la base",
             usa_ia=IA_OPCIONAL if motivo else SIN_IA,
+            dominio=_DOMINIO_ACCION.get(a.id, DATOS),
             para_que_la_ia=motivo, donde=a.donde,
             fuente="av_agent_hacer.ACCIONES",
             extra={"control": a.sobre, "campo": a.campo}))
@@ -118,31 +134,97 @@ def _de_acciones() -> list[Skill]:
 # lo único que va a mano. **La LISTA no**: se cruza contra lo que existe de
 # verdad y un test falla si alguien suma un detector y no lo describe acá — que
 # es la forma de que la ley se cumpla sin depender de que alguien se acuerde.
-_QUE_DETECTA: dict[str, str] = {
-    "falta_en_base": "bonos que 1816 lista y nosotros no tenemos en el master",
-    "sin_flujo": "bonos cargados sin cronograma de pagos: no valúan",
-    "tasa_sospechosa": "tasas que se apartan de las de 1816 más de lo tolerable",
-    "hueco_de_curva": "ajustes que existen en el master pero no tienen pill: "
-                      "esos bonos quedan invisibles sin dar ningún error",
-    "salud": "jobs que no corrieron, fallaron o dejaron el dato viejo",
-    "sin_precio": "bonos sin precio, distinguiendo las 4 causas y midiendo en "
-                  "TIEMPO DE MERCADO (sin símbolo cargado · nadie lo suscribió · "
-                  "suscripto sin punta · el precio dejó de moverse en rueda)",
-    "precio_moneda": "bonos de curva USD que muestran pesos, separando el que "
-                     "cotiza así de verdad (contexto) del que suscribe la PATA "
-                     "EQUIVOCADA — cruzando el master contra `mercado.especies`",
-    "db_cambio": "tablas NUEVAS, las que crecieron de golpe y las que "
-                 "desaparecieron, comparando la foto de hoy contra la de ayer",
-    "latencia": "endpoints que se pusieron lentos contra SU PROPIA normalidad "
-                "(no un ranking de los más lentos) y los que devuelven 5xx",
-    "tabla_quieta": "tablas que dejaron de escribir cuando deberían estar "
-                    "escribiendo — la cadencia de cada una se MIDE observándola, "
-                    "no la declara nadie",
-    "motor_caido": "motores, jobs y APIs rotos DENTRO de su ventana horaria "
-                   "(fuera de rueda un motor no está caído, está apagado)",
-    "permiso_flojo": "endpoints sin gate, y —probando de verdad, sin "
-                     "credenciales— los que contestan igual: el permiso que "
-                     "está en los papeles pero el borde no aplica",
+# ⚠️ **DOS TEXTOS Y NO UNO.** Antes esto era un solo string que se usaba de
+# nombre Y de descripción, así que cada fila de la tab mostraba **la misma frase
+# repetida dos veces**, una en negrita y otra abajo. El user lo marcó: *«queda
+# feo, se repiten las cosas»*. Y no era solo estética — un nombre de 20 palabras
+# no se puede escanear, que es lo único que uno hace con una lista de 37.
+#
+#     NOMBRE     corto, se lee de un vistazo
+#     QUÉ HACE   la explicación, con el criterio adentro
+_QUE_DETECTA: dict[str, tuple[str, str]] = {
+    "falta_en_base": (
+        "Bonos que nos faltan",
+        "los que 1816 lista y no están en el master"),
+    "sin_flujo": (
+        "Bonos sin cronograma",
+        "están cargados pero sin flujos de pago: no valúan"),
+    "tasa_sospechosa": (
+        "Tasas que no cierran",
+        "se apartan de las de 1816 más de lo tolerable"),
+    "hueco_de_curva": (
+        "Ajustes sin curva",
+        "existen en el master y no tienen pill: esos bonos quedan invisibles "
+        "sin dar ningún error"),
+    "salud": (
+        "Jobs que fallaron",
+        "no corrieron, salieron con error o dejaron el dato viejo"),
+    "sin_precio": (
+        "Bonos sin precio, en rueda",
+        "distingue las 4 causas y mide en TIEMPO DE MERCADO: sin símbolo "
+        "cargado · nadie lo suscribió · suscripto sin punta · el precio dejó "
+        "de moverse"),
+    "precio_moneda": (
+        "Precios en la moneda equivocada",
+        "bonos de curva USD que muestran pesos, separando el que cotiza así de "
+        "verdad del que suscribe la PATA EQUIVOCADA (cruza el master contra "
+        "`mercado.especies`)"),
+    "db_cambio": (
+        "La base cambió",
+        "tablas nuevas, las que crecieron de golpe y las que desaparecieron, "
+        "comparando la foto de hoy contra la de ayer"),
+    "latencia": (
+        "Endpoints degradados",
+        "los que se pusieron lentos contra SU PROPIA normalidad (no un ranking "
+        "de los más lentos) y los que devuelven 5xx"),
+    "tabla_quieta": (
+        "Tablas que dejaron de escribir",
+        "la cadencia de cada una se MIDE observándola, no la declara nadie, y "
+        "el atraso se cuenta en tiempo de mercado"),
+    "motor_caido": (
+        "Motores y jobs caídos",
+        "solo DENTRO de su ventana horaria: fuera de rueda un motor no está "
+        "caído, está apagado"),
+    "permiso_flojo": (
+        "Permisos que están solo en los papeles",
+        "endpoints sin gate, y —probando de verdad, sin credenciales— los que "
+        "contestan igual: el borde no aplica lo que el código declara"),
+}
+
+# De qué habla cada detector. El TIPO dice cómo trabaja; esto dice sobre qué.
+_DOMINIO_DETECTOR: dict[str, str] = {
+    "falta_en_base": MERCADO, "sin_flujo": MERCADO, "tasa_sospechosa": MERCADO,
+    "hueco_de_curva": MERCADO, "sin_precio": MERCADO, "precio_moneda": MERCADO,
+    "salud": SISTEMA, "db_cambio": SISTEMA, "latencia": SISTEMA,
+    "tabla_quieta": SISTEMA, "motor_caido": SISTEMA,
+    "permiso_flojo": SEGURIDAD,
+}
+
+# Y de las ACCIONES y los EXPLICADORES, que tienen id propio.
+# Los controles de datos: la mayoría son del NEGOCIO, pero varios miran mercado.
+_DOMINIO_CONTROL: dict[str, str] = {
+    "forwards_faltantes": MERCADO, "rf_sin_tasa": MERCADO,
+    "titulos_sin_flujo": MERCADO, "patas_sin_precio": MERCADO,
+    "simbolos_cuarentena": MERCADO, "rf_valuada_x1": MERCADO,
+    "comitentes_sin_nivel1": ADMIN, "contrapartes_pendientes": ADMIN,
+}
+
+_DOMINIO_ACCION: dict[str, str] = {
+    "assets.cartera": DATOS, "assets.fci": DATOS,
+    "contrapartes.alta": ADMIN, "avisar.responsable": ADMIN,
+    "mercado.pedir_pata": MERCADO,
+}
+
+
+# Los EXPLICADORES, por id. Se declara y no se infiere del texto de la pregunta:
+# «¿hay algún endpoint más lento?» contiene la palabra endpoint y caía en
+# SEGURIDAD, cuando habla de rendimiento. Adivinar el dominio leyendo un título
+# es el mismo tipo de heurística frágil que este proyecto ya paga en otros lados.
+_DOMINIO_EXPLICADOR: dict[str, str] = {
+    "rinde": MERCADO, "tna_futuros": MERCADO, "ytm_soberano": MERCADO,
+    "breakeven": MERCADO, "pivots": MERCADO,
+    "base": SISTEMA, "velocidad": SISTEMA, "todo_bien": SISTEMA,
+    "protegidos": SEGURIDAD,
 }
 
 
@@ -193,9 +275,10 @@ def _de_detectores() -> list[Skill]:
     from api.services import av_agent
     return [Skill(
         id=f"detectar.{tipo}", tipo=DETECTAR,
-        nombre=_QUE_DETECTA.get(tipo, tipo).capitalize(),
-        que_hace=_QUE_DETECTA.get(tipo, "sin describir"),
-        usa_ia=SIN_IA, donde="AV Agent → ENCONTRÓ",
+        nombre=_QUE_DETECTA.get(tipo, (tipo, ""))[0],
+        que_hace=_QUE_DETECTA.get(tipo, ("", "sin describir"))[1],
+        usa_ia=SIN_IA, dominio=_DOMINIO_DETECTOR.get(tipo, SISTEMA),
+        donde="AV Agent → ENCONTRÓ",
         fuente="av_agent.ACCION_POR_TIPO",
         extra={"accion": av_agent.ACCION_POR_TIPO.get(tipo),
                # Que el catálogo diga CUÁNDO corre cada cosa es la mitad de la
@@ -219,7 +302,8 @@ def _de_controles() -> list[Skill]:
         id=f"detectar.control.{c.id}", tipo=DETECTAR, nombre=c.titulo,
         que_hace="control de datos: se re-verifica todos los días y lo que se "
                  "resuelve desaparece solo",
-        usa_ia=SIN_IA, donde="AV Agent → ENCONTRÓ",
+        usa_ia=SIN_IA, dominio=_DOMINIO_CONTROL.get(c.id, DATOS),
+        donde="AV Agent → ENCONTRÓ",
         fuente="jobs.controles_datos.CONTROLES",
         extra={"resuelve": hc.POR_CONTROL.get(c.id)},
     ) for c in CONTROLES]
@@ -244,14 +328,23 @@ def vista() -> dict:
     verdad?»* — la pregunta que se hace el user cada vez que mira el programa."""
     skills = catalogo()
     por_tipo: dict[str, list[dict]] = {DETECTAR: [], EXPLICAR: [], RESOLVER: []}
+    por_dominio: dict[str, list[dict]] = {d: [] for d in DOMINIOS}
     for s in skills:
-        por_tipo.setdefault(s.tipo, []).append({
+        fila = {
             "id": s.id, "nombre": s.nombre, "que_hace": s.que_hace,
+            "tipo": s.tipo, "dominio": s.dominio,
             "usa_ia": s.usa_ia, "para_que_la_ia": s.para_que_la_ia,
-            "donde": s.donde, "fuente": s.fuente, "extra": s.extra})
+            "donde": s.donde, "fuente": s.fuente, "extra": s.extra}
+        por_tipo.setdefault(s.tipo, []).append(fila)
+        por_dominio.setdefault(s.dominio, []).append(fila)
+    # Un dominio vacío no se muestra: un título con cero filas es ruido que
+    # además sugiere que falta algo.
+    por_dominio = {d: f for d, f in por_dominio.items() if f}
     return {
         "total": len(skills),
         "por_tipo": por_tipo,
+        "por_dominio": por_dominio,
+        "dominios": [d for d in DOMINIOS if d in por_dominio],
         "ia": {
             "no": sum(1 for s in skills if s.usa_ia == SIN_IA),
             "opcional": sum(1 for s in skills if s.usa_ia == IA_OPCIONAL),

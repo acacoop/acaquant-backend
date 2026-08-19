@@ -208,3 +208,54 @@ def test_el_horario_NO_esta_escrito_a_mano():
     import inspect
     src = inspect.getsource(sk._cada_cuanto)
     assert "schedules_por_modulo" in src
+
+
+# ── JERARQUÍA: de qué habla cada habilidad ────────────────────────────────
+
+def test_el_nombre_y_la_descripcion_NO_son_la_misma_frase(cat):
+    """**Lo que el user marcó como «queda feo, se repiten las cosas».** El
+    catálogo usaba UN solo string de nombre y de descripción, así que cada fila
+    mostraba la misma frase dos veces. Y no era estética: un nombre de veinte
+    palabras no se puede escanear, que es lo único que uno hace con 37 filas."""
+    for s in cat:
+        assert s.nombre.strip().lower() != s.que_hace.strip().lower(), s.id
+
+
+def test_el_nombre_es_CORTO(cat):
+    """Si el nombre vuelve a ser la explicación, la lista deja de escanearse."""
+    largos = [s.id for s in cat if len(s.nombre) > 60]
+    assert not largos, f"nombres que no se leen de un vistazo: {largos}"
+
+
+def test_toda_skill_declara_su_DOMINIO(cat):
+    """El TIPO dice cómo trabaja (detecta / explica / resuelve); el DOMINIO dice
+    SOBRE QUÉ, que es la pregunta que uno se hace primero. Sin él la tab es una
+    lista plana donde un chequeo de permisos convive con un bono sin cronograma
+    y no hay forma de mirar un área sola."""
+    for s in cat:
+        assert s.dominio in sk.DOMINIOS, f"{s.id} → dominio {s.dominio!r}"
+
+
+def test_los_DETECTORES_declaran_dominio_uno_por_uno():
+    """Nada de default silencioso: un detector nuevo sin dominio caería en el
+    cajón genérico y nadie lo notaría."""
+    from api.services import av_agent
+    faltan = set(av_agent.ACCION_POR_TIPO) - set(sk._DOMINIO_DETECTOR)
+    assert not faltan, f"detectores sin dominio: {sorted(faltan)}"
+
+
+def test_el_dominio_NO_se_adivina_del_titulo():
+    """«¿Hay algún endpoint más lento que lo normal?» contiene la palabra
+    endpoint y caía en SEGURIDAD, cuando habla de rendimiento. Adivinar el
+    dominio leyendo un título es la clase de heurística frágil que este proyecto
+    ya paga en otros lados."""
+    assert sk._DOMINIO_EXPLICADOR["velocidad"] == sk.SISTEMA
+    assert sk._DOMINIO_EXPLICADOR["protegidos"] == sk.SEGURIDAD
+
+
+def test_la_vista_agrupa_por_dominio_y_no_muestra_los_vacios():
+    """Un título con cero filas es ruido, y además sugiere que falta algo."""
+    v = sk.vista()
+    assert v["por_dominio"] and all(f for f in v["por_dominio"].values())
+    assert v["dominios"] == [d for d in sk.DOMINIOS if d in v["por_dominio"]]
+    assert sum(len(f) for f in v["por_dominio"].values()) == v["total"]

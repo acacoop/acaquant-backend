@@ -1468,6 +1468,43 @@ La alimenta el control `patas_sin_precio`, cuyo docstring dice explícitamente q
 **no concluye nada sobre liquidez**: señala que hay un símbolo del master que
 nadie está pidiendo, nada más.
 
+### 0.w SKILLS con JERARQUÍA, y el nombre dejó de ser la descripción (2026-08-19)
+
+> *«Necesito que en SKILLS haya jerarquías de habilidades: MERCADO,
+> ADMINISTRATIVO, SEGURIDAD… Además queda feo esto así, nuevamente pasa que se
+> repiten las cosas. Hay que darle forma.»* (user)
+
+**Las dos cosas eran el mismo problema: la tab mostraba datos, no información.**
+
+#### El nombre y la descripción eran la MISMA frase
+
+El catálogo usaba un solo string para las dos cosas
+(`nombre=_QUE_DETECTA[tipo].capitalize()`, `que_hace=_QUE_DETECTA[tipo]`), así
+que cada fila imprimía la misma oración dos veces, una en negrita y otra abajo.
+Y no era solo estética: **un nombre de veinte palabras no se puede escanear**, y
+escanear es lo único que uno hace con una lista de 37.
+
+Ahora son dos textos con trabajos distintos — el nombre se lee de un vistazo
+(«Bonos sin precio, en rueda») y la descripción lleva el criterio adentro («…
+distingue las 4 causas y mide en tiempo de mercado»). Congelado por dos tests:
+uno prohíbe que vuelvan a ser iguales, el otro que el nombre pase de 60 caracteres.
+
+#### El DOMINIO es el nivel 1, el tipo pasa a ser una etiqueta
+
+El tipo (detecta / explica / resuelve) dice **cómo** trabaja el agente. El
+dominio dice **sobre qué** — y esa es la pregunta que uno se hace primero.
+Agrupado por tipo, para saber qué sabe el agente sobre seguridad había que leer
+las 37 filas; un chequeo de permisos convivía con un bono sin cronograma.
+
+    MERCADO 18 · SISTEMA 8 · DATOS 5 · ADMINISTRACIÓN 4 · SEGURIDAD 2
+
+⚠️ **El dominio se DECLARA, no se infiere del título.** La primera versión lo
+adivinaba por palabras y mandó *«¿hay algún endpoint más lento que lo normal?»* a
+SEGURIDAD, cuando habla de rendimiento. Adivinar leyendo un texto es la misma
+heurística frágil que este proyecto ya paga en otros lados. Hay un test que exige
+que **cada detector** tenga dominio declarado: uno nuevo sin él caería en el
+cajón genérico y nadie lo notaría.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

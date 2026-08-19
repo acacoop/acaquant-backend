@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from api.services import av_agent
+from api.services import av_agent, av_agent_evals
 from core import curvas_ejes
 from core.postgres import get_pool
 
@@ -401,6 +401,7 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
                        for r in cur.fetchall()}
         en_curvas = set(docs_curvas)
 
+
     # ⚠️ **Cada tipo caduca por su PROPIA razón, y el campo `ticker` no significa
     # lo mismo en todos.** Acá se aplicaba UN predicado a dos tipos distintos: en
     # un `hueco_de_curva` el `ticker` es el **AJUSTE** (`BADLAR`), no un bono, así
@@ -410,6 +411,16 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     # `ajuste_sin_curva` es la MISMA función que lo detecta y ya lee el catálogo,
     # así que preguntarle de nuevo no puede dar un criterio distinto.
     # El universo de Primary, cacheado 600s → pedirlo por lectura es gratis.
+    # ⚠️ **LA CONFIANZA MEDIDA, y por qué está CACHEADA y no en el SELECT de
+    # arriba.** Hay un test que cuenta las queries de esta función, y tiene
+    # razón: cada una paga ~8,5 ms de distancia aunque ejecute en 0,1 ms, y esta
+    # pantalla se abre muchas veces por día.
+    #
+    # Meterla igual habría sumado un viaje fijo a cada apertura por un dato que
+    # **solo cambia cuando alguien vota**. Cacheado 60s + invalidado en el voto,
+    # el costo real es ~0 y el número que ves después de votar es el nuevo.
+    medicion = av_agent_evals.precision_por_causa()
+
     simbolos = av_agent.simbolos_primary()
     # **El «no me interesa» también se evalúa AL LEER.** Es la regla de E2.r: un
     # criterio que solo corre al relevar tarda una corrida entera (~29 créditos)
@@ -432,6 +443,19 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         # acción: si el front lo dedujera del tipo, tendría una segunda tabla de
         # dominios que se separa de ésta sin dar ningún error.
         h["dominio_eval"] = av_agent.dominio_eval(h.get("tipo") or "")
+        # CUÁNTO ACIERTA ESTA CAUSA. `None` = no se pudo medir (distinto de 0
+        # votos, que sí es un dato: «nunca nadie juzgó esta regla»).
+        if medicion is None:
+            h["confianza"] = None
+        else:
+            nh, okh, tot = medicion.get(h.get("regla") or "", (0, 0, 0))
+            h["confianza"] = {
+                "humanos": nh, "aciertos": okh, "votos": tot,
+                "precision": round(okh / nh, 4) if nh else None,
+                # El mismo umbral que el resumen, leído de la misma constante: si
+                # la pantalla usara otro, diría «medida» sobre lo que el tablero
+                # llama «sin evidencia».
+                "suficiente": nh >= av_agent_evals.MIN_VOTOS}
 
     def _caduco(h: dict) -> bool:
         if (h.get("ticker") or "").strip().upper() in ignorados:

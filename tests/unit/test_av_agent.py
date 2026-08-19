@@ -1904,7 +1904,14 @@ def test_un_sin_flujo_CADUCA_cuando_el_bono_ya_tiene_cronograma():
         "tiene que usar el MISMO predicado que el detector — un bool(flujos) "
         "propio caducaría una LECAP por un motivo distinto del que la marcó")
     # Y sin pagar un viaje más a la base: la columna sale de la query que ya estaba.
-    assert fuente.count("cur.execute") == 3, (
+    # Se cuentan las LLAMADAS, no las menciones: la primera versión contaba el
+    # string en el fuente y un COMENTARIO que explicaba por qué no se agregaba
+    # una query la hacía fallar. Un guardarraíl que se dispara con su propia
+    # documentación enseña a borrar el comentario, que es lo contrario de lo que
+    # queremos.
+    codigo = "\n".join(l for l in fuente.splitlines()
+                       if not l.strip().startswith("#"))
+    assert codigo.count("cur.execute") == 3, (
         "se agregó una query: el peaje de Supabase se paga por VIAJE — el doc "
         "tiene que venir en el mismo SELECT que ya traía el ticker")
     assert "SELECT ticker, data FROM mercado.curvas" in fuente

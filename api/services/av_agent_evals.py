@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 
+from api.cache import cached, invalidate
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -81,10 +82,45 @@ def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
     except Exception as e:
         logger.warning("av_agent_evals: no se pudo guardar el voto", exc_info=True)
         return {"ok": False, "error": str(e)[:200]}
+    # **Se invalida acá.** Sin esto, votar y no ver el número moverse hasta un
+    # minuto después se lee como que el voto no se guardó — y es justo la duda
+    # que hace que la gente deje de votar.
+    invalidate("precision_por_causa")
     if vid is None and ref:
         return {"ok": True, "duplicado": True, "caso": caso.upper(), "causa": causa}
     return {"ok": True, "id": vid, "caso": caso.upper(), "causa": causa,
             "acierta": acierta, "origen": origen}
+
+
+@cached(ttl=60)
+def precision_por_causa() -> dict[str, tuple[int, int, int]] | None:
+    """`causa → (votos_humanos, aciertos_humanos, votos_totales)`.
+
+    Lo que la LISTA de hallazgos necesita para mostrar la confianza en cada fila,
+    que es lo que hace que votar valga la pena: si el voto no cambia nada
+    visible, nadie vota y la medición tarda un mes en servir.
+
+    **Cacheado, y no metido en el SELECT de la vista**: hay un test que cuenta
+    las queries de `_hallazgos_ultima_corrida` porque cada una paga ~8,5 ms de
+    distancia aunque ejecute en 0,1 ms. Este dato **solo cambia cuando alguien
+    vota**, así que un TTL corto + invalidación en `votar()` deja el costo en ~0
+    y el número fresco justo cuando importa.
+
+    `None` = **no se pudo medir**, que es distinto de un dict vacío (eso sí es un
+    dato: nadie votó nunca). El front los muestra distinto.
+    """
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT causa, count(*) FILTER (WHERE origen = 'humano'), "
+                "       count(*) FILTER (WHERE origen = 'humano' AND acierta), "
+                "       count(*) "
+                "FROM mercado.av_agent_evals GROUP BY causa")
+            return {r[0]: (int(r[1] or 0), int(r[2] or 0), int(r[3] or 0))
+                    for r in cur.fetchall()}
+    except Exception as e:
+        logger.warning("av_agent_evals: no se pudo leer la precisión (%s)", e)
+        return None
 
 
 def resumen() -> dict:

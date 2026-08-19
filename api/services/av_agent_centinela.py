@@ -238,9 +238,14 @@ def estado(limite: int = 200) -> dict:
     except Exception as e:
         return {**fuera, "error": str(e)}
 
+    from api.services import av_agent
     for f in abiertos + resueltos:
         for k in ("abierto_at", "ultimo_at", "visto_at", "resuelto_at"):
             f[k] = f[k].isoformat() if f[k] else None
+        # El mismo eje que la vista (`av_agent.de_quien`), derivado de la MISMA
+        # tabla declarada: si el centinela tuviera su propia idea de qué es
+        # iliquidez, AHORA y ENCONTRÓ se contradirían sobre el mismo hallazgo.
+        f["de_quien"] = av_agent.de_quien(f.get("regla") or "")
 
     latido = None
     vivo = False

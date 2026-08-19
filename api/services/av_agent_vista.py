@@ -409,6 +409,12 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     # los hallazgos ya guardados.
     for h in filas:
         h["accion"] = av_agent.ACCION_POR_TIPO.get(h.get("tipo") or "")
+        # **NUESTRO o DEL MERCADO** (2026-08-19). Se deriva acá por el mismo motivo
+        # que la acción —para que un cambio de criterio alcance a lo ya guardado— y
+        # es lo que le permite a la pantalla mostrar por default solo lo que tiene
+        # arreglo. Ojo: esconderlo NO es filtrarlo del conteo; los ilíquidos siguen
+        # contados y a un clic.
+        h["de_quien"] = av_agent.de_quien(h.get("regla") or "")
 
     def _caduco(h: dict) -> bool:
         if (h.get("ticker") or "").strip().upper() in ignorados:

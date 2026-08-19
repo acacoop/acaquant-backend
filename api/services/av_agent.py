@@ -208,7 +208,14 @@ ACCION_POR_TIPO = {
     # arreglan distinto. El user lo pidió mirando AO29: «no hay diagnóstico, no
     # hay aviso». Sigue sin ARREGLAR nada: la puerta es de solo lectura.
     "sin_precio": "sin_precio",
-    "precio_moneda": None,
+    # **Deja de ser `None`** (2026-08-19). El user, mirando los 43
+    # `cotiza_en_pesos`: *«no ofrece una solución o algo, nada. Le falta ahí una
+    # feature que sepa ir a buscar y agregar»*. Tenía razón, y el motivo de fondo
+    # es el pecado que este módulo persigue: el hallazgo cerraba diciendo **«no
+    # encontré una pata en dólares»** después de mirar UNA sola tabla
+    # (`mercado.especies`). Ahora hay una puerta que va a buscarla al catálogo de
+    # Primary y, si está, la siembra y la pide — sin reiniciar nada.
+    "precio_moneda": "pata",
     # ── SALUD entra al agente (2026-08-17) ──────────────────────────────────
     #
     # **`salud` abre una puerta de SOLO LECTURA**, y eso es una decisión, no una
@@ -225,6 +232,53 @@ ACCION_POR_TIPO = {
     # puerta no tiene botón de aplicar, no que la fila sea inaccionable.
     "salud": "salud",
 }
+
+
+# ── ¿ES NUESTRO O ES DEL MERCADO? ───────────────────────────────────────────
+#
+# Pedido del user (2026-08-19), mirando 29 `sin_punta` en ENCONTRÓ: *«los que ya
+# el sistema detecta que no tienen punta son porque no tienen liquidez. No es un
+# problema. Está bien que los marque como ilíquidos, pero por defecto mostremos
+# otra cosa»*.
+#
+# **La lista mezclaba dos cosas que no se trabajan igual.** Un símbolo sin
+# suscribir es trabajo nuestro; un símbolo que suscribimos y al que el mercado no
+# le puso punta es el mercado. Los dos son observaciones ciertas, pero solo una
+# tiene algo que hacer del lado de acá — y apilarlas obliga a filtrar a ojo cada
+# vez que se abre la pantalla.
+#
+# ⚠️ **Se DECLARA, no se infiere del texto.** Es la misma lección que el dominio
+# de las skills (§0.w): adivinar por palabras mandó «¿hay algún endpoint más lento
+# que lo normal?» a SEGURIDAD. Una regla nueva cae en `nuestro` —el default que
+# NO esconde nada— y para mandarla al otro lado hay que escribirla acá.
+#
+# Y una regla que NO está en esta lista no significa «es del mercado»: significa
+# que nadie lo decidió, y ante la duda se muestra.
+DE_QUIEN: dict[str, str] = {
+    # Está suscripto —o sea que **sí estamos escuchando**— y el mercado no le puso
+    # una punta. Esa ausencia sí significa algo (§0.v) y lo que significa es
+    # iliquidez, no un bug. Ojo con el hermano: `no_suscripto` es lo contrario
+    # —nadie pidió el precio— y ahí la ausencia no prueba nada.
+    "sin_punta": "mercado",
+    # Operó antes y hoy todavía no. Con el mercado abierto es una observación
+    # sobre el papel, no sobre el sistema.
+    "sin_actividad_hoy": "mercado",
+    # Nunca hubo un trade: iliquidez pura, ya declarada así en
+    # `av_agent_sin_precio.CAUSAS_SIN_PRECIO` (`nuestro: False`).
+    "nunca_opero": "mercado",
+}
+DE_QUIEN_DEFAULT = "nuestro"
+
+
+def de_quien(regla: str) -> str:
+    """`nuestro` (hay algo que arreglar de este lado) o `mercado` (no lo hay).
+
+    Se deriva en la LECTURA y no se persiste: así una regla que cambie de lado
+    mañana alcanza también a los hallazgos ya guardados. Es el mismo criterio que
+    `ACCION_POR_TIPO`, y por el mismo motivo — la foto se muestra, pero nunca sin
+    cotejarla contra lo que hoy sabemos.
+    """
+    return DE_QUIEN.get((regla or "").strip(), DE_QUIEN_DEFAULT)
 
 
 def _hallazgo(tipo: str, ticker: str, regla: str, severidad: str,
@@ -856,10 +910,19 @@ def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
         except (TypeError, ValueError):
             px = None
         if not px:
+            # **`baja`, y es del MERCADO** (2026-08-19). Estaba en `media` junto a
+            # `precio_viejo`, y con 29 casos en pantalla eso convertía la sección
+            # entera en ruido. La diferencia con `no_suscripto` es la que importa:
+            # acá **sí estamos escuchando**, así que la ausencia de punta es un
+            # dato sobre el papel (iliquidez) y no sobre el sistema. Es la otra
+            # cara de la regla de §0.v — la que dice que no se puede concluir «no
+            # existe» desde una tabla que solo tiene lo que pedimos: cuando SÍ lo
+            # pedimos, la ausencia por fin significa algo.
             out.append(_hallazgo(
-                "sin_precio", tk, "sin_punta", "media",
-                f"«{simbolo}» está suscripto pero sin precio: el mercado todavía "
-                f"no le puso una punta hoy.",
+                "sin_precio", tk, "sin_punta", "baja",
+                f"«{simbolo}» está suscripto y el mercado no le puso punta hoy. "
+                f"Lo estamos pidiendo, así que esto es el papel —iliquidez—, no "
+                f"el sistema.",
                 {**ev, "estado": "sin_punta"}))
             continue
         if not abierto:
@@ -883,7 +946,8 @@ def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
 def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
                                     mep: float | None,
                                     simbolos: set[str] | None = None,
-                                    defaults: dict[str, str] | None = None) -> list[dict]:
+                                    defaults: dict[str, str] | None = None,
+                                    primary: set[str] | None = None) -> list[dict]:
     """Bonos de curva USD cuyo PRECIO llega en pesos — el caso GD46.
 
     ⚠️ **CORREGIDO 2026-08-18, y la corrección es la parte que importa.** La
@@ -996,20 +1060,60 @@ def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
                         "se ve cuando se reinicia el motor FUERA DE RUEDA"}))
             continue
 
-        # La pata en dólares, si existe. Es lo único accionable de este hallazgo.
-        # Se devuelve el SÍMBOLO COMPLETO, no el corto: es lo que se suscribe, y
-        # es lo que hay que poder copiar sin volver a armarlo a mano.
+        # ⚠️ **DOS FUENTES, NO UNA** (2026-08-19). Hasta hoy este hallazgo cerraba
+        # con *«No encontré una pata en dólares para este ticker»* después de
+        # mirar únicamente `mercado.especies` — y ese es exactamente el pecado que
+        # el AO29 dejó escrito en §0.v: **no se puede concluir «no existe» desde
+        # una sola tabla derivada.** `especies` no es tan circular como
+        # `timesales` (sale de Primary, no de lo que suscribimos), pero se siembra
+        # a mano con `scripts.sembrar_especies` y `jobs.validar_instrumentos` le
+        # borra filas: puede estar incompleta, y cuando lo está el hallazgo
+        # afirmaba de más.
+        #
+        # El catálogo de Primary (`manager.pyrofex_instruments`, vía
+        # `simbolos_primary`) es la fuente que NO depende de ninguna decisión
+        # nuestra. Se mira SEGUNDO —si la pata ya está sembrada no hace falta— y
+        # está cacheado 600s, así que preguntarle es gratis.
+        #
+        # Y el desenlace ya no es el mismo en los tres casos: `sembrada` no
+        # necesita nada, `solo_en_primary` se siembra y se pide sin reiniciar
+        # nada, y `sin_pata` recién ahora es una afirmación que se puede sostener.
         pata_d = next((x for cand in (f"{sym}D", f"{sym}C")
                        for x in simbolos if f" - {cand} - " in x), "")
+        origen = "sembrada" if pata_d else ""
+        if not pata_d and primary:
+            pata_d = next((x for cand in (f"{sym}D", f"{sym}C")
+                           for x in primary if f" - {cand} - " in x), "")
+            origen = "solo_en_primary" if pata_d else ""
+        if not pata_d:
+            # `primary` vacío o `None` significa «no pude mirar el catálogo», y
+            # eso JAMÁS puede leerse como «no existe» (§0.u: si un chequeo no
+            # corrió, el job lo dice).
+            origen = "sin_pata" if primary else "no_pude_mirar"
+        cola = {
+            "sembrada": (f" La pata en dólares ya está sembrada: "
+                         f"«{pata_d.split(' - ')[2] if pata_d else ''}» — se puede "
+                         f"pedir sin reiniciar nada."),
+            "solo_en_primary": (f" **La pata en dólares existe y no la teníamos**: "
+                                f"«{pata_d.split(' - ')[2] if pata_d else ''}» está "
+                                f"en el catálogo de Primary pero no en "
+                                f"`mercado.especies`. Se puede sembrar y pedir en "
+                                f"el acto."),
+            "sin_pata": (" Ni `mercado.especies` ni el catálogo de Primary listan "
+                         "una pata en dólares para este ticker: cotiza en pesos y "
+                         "no hay otra a la que apuntar."),
+            "no_pude_mirar": (" No pude leer el catálogo de Primary, así que **no "
+                              "sé** si existe una pata en dólares — no es que no "
+                              "exista."),
+        }[origen]
         out.append(_hallazgo(
             "precio_moneda", tk, "cotiza_en_pesos", "baja",
             f"«{sym}» es de curva USD y cotiza por su pata en PESOS: la grilla "
             f"muestra {px:,.2f} al lado de bonos en dólares. **La valuación está "
             f"bien** — el motor divide por el MEP ({mep:,.2f}) y la paridad real "
             f"es {par_mep:.1f}%. Lo que se ve raro es la columna de precio."
-            + (f" La pata en dólares existe: «{pata_d.split(' - ')[2]}»." if pata_d
-               else " No encontré una pata en dólares para este ticker."),
-            {**ev, "pata_dolar": pata_d}))
+            + cola,
+            {**ev, "pata_dolar": pata_d, "pata_origen": origen}))
     return out
 
 
@@ -1065,8 +1169,13 @@ def relevar_live(*, ahora=None) -> dict:
     # atraso se mide en horas: van en el job nocturno.
     for nombre, fn in (("sin_precio", lambda: detectar_sin_precio(bonos, snap, ahora)),
                        ("precio_moneda",
-                        lambda: detectar_precio_fuera_de_moneda(bonos, snap, mep,
-                                                                simbolos, defaults)),
+                        lambda: detectar_precio_fuera_de_moneda(
+                            bonos, snap, mep, simbolos, defaults,
+                            # El catálogo REAL de Primary, para no volver a decir
+                            # «no existe» mirando una sola tabla. Cacheado 600s
+                            # (`core/instrumentos_validos`): no cuesta una query
+                            # por ciclo del centinela.
+                            simbolos_primary())),
                        ("latencia", detectar_latencia),
                        ("motores", detectar_motores)):
         try:

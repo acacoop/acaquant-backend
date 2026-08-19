@@ -235,6 +235,14 @@ CONTROLES: dict[str, dict] = {
                  "guardan lo suscrito, «sin precio» no significa «no cotiza»",
         "donde": "AV Agent → pedirla (el motor la levanta en 5s, sin reiniciar)",
         "url": "/manager"},
+    "patas_dolar_sin_pedir": {
+        "rompe": "la grilla muestra 156.270 al lado de bonos en dólares. La "
+                 "valuación está bien —el motor divide por el MEP—, pero como "
+                 "nadie escucha la pata en dólares no sabemos si opera, y sin "
+                 "ese dato no se puede decidir apuntar el master ahí",
+        "donde": "AV Agent → pedir la pata (el motor la levanta en 5s, sin "
+                 "reiniciar)",
+        "url": "/manager"},
     "forwards_faltantes": {
         "rompe": "esos bonos no salen en la matriz de forwards de su curva",
         "donde": "Renta Fija → FORWARDS", "url": "/renta-fija"},

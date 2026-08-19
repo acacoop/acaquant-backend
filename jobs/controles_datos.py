@@ -328,6 +328,57 @@ def _chk_patas_sin_precio() -> list[dict]:
                 for r in cur.fetchall()]
 
 
+def _chk_patas_dolar_sin_pedir() -> list[dict]:
+    """Bonos de curva USD que cotizan por su pata en PESOS teniendo una pata en
+    dólares sembrada **que nadie está pidiendo**.
+
+    Es el hermano nocturno del hallazgo `cotiza_en_pesos`, y existe por lo que el
+    user marcó el 2026-08-19: *«no ofrece una solución o algo, nada»*. El hallazgo
+    describía la situación y se terminaba ahí.
+
+    ⚠️ **No propone cambiar el master.** Apuntar `curvas.instrumento` a la otra
+    pata exige reiniciar `motor_rofex`, y eso no se ve hasta la noche (§0.v). Lo
+    que este control habilita es el paso ANTERIOR y el que sí se ve en el acto:
+    **escuchar** esa pata, para saber si opera. Sin ese dato, el reinicio sería a
+    ciegas — y apuntar el master a una pata que tampoco cotiza es cambiar un
+    problema por otro.
+
+    Solo mira las patas **ya sembradas**: las que están únicamente en el catálogo
+    de Primary hay que sembrarlas primero, y eso lo hace la puerta del agente
+    (`av_agent_pata`) con el bono a la vista, no un cron.
+    """
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT c.ticker, e.simbolo, c.curva
+            FROM mercado.curvas c
+            JOIN mercado.especies e
+                 ON upper(e.ticker) = upper(c.ticker) AND upper(e.moneda) = 'USD'
+            -- el símbolo que el master usa hoy TIENE precio (si no, el caso es
+            -- `patas_sin_precio`, que es otro control y otra acción)
+            JOIN mercado.market_snapshot s
+                 ON s.ticker = c.instrumento AND s.last_price > 0
+            LEFT JOIN mercado.market_snapshot sd ON sd.ticker = e.simbolo
+            LEFT JOIN mercado.adhoc_subscriptions a
+                   ON a.ticker = e.simbolo AND a.expires_at > now()
+            WHERE upper(coalesce(c.moneda_eje, '')) = 'USD'
+              AND e.simbolo <> c.instrumento
+              AND (sd.last_price IS NULL OR sd.last_price = 0)
+              AND a.ticker IS NULL          -- ya pedida = no hace falta proponerla
+            ORDER BY c.ticker, e.simbolo
+        """)
+        vistos: set[str] = set()
+        out = []
+        for tk, simbolo, curva in cur.fetchall():
+            if tk in vistos:      # una propuesta por bono: la mesa mira el bono
+                continue
+            vistos.add(tk)
+            out.append({"key": tk, "ticker": tk, "simbolo": simbolo, "curva": curva,
+                        "detalle": (f"«{tk}» cotiza en pesos y su pata en dólares "
+                                    f"«{simbolo}» no se la pide nadie")})
+        return out
+
+
 @dataclass(frozen=True)
 class Control:
     id: str
@@ -339,6 +390,9 @@ class Control:
 CONTROLES: list[Control] = [
     Control("patas_sin_precio", "Símbolos del master que nadie está pidiendo", True,
             _chk_patas_sin_precio),
+    Control("patas_dolar_sin_pedir",
+            "Patas en dólares que nadie pide", True,
+            _chk_patas_dolar_sin_pedir),
     Control("forwards_faltantes", "Bonos ausentes de forwards", True, _chk_forwards_faltantes),
     Control("rf_sin_tasa", "Renta fija cotizando sin TEA/TNA", True, _chk_rf_sin_tasa),
     Control("assets_sin_cartera", "Assets sin cartera", True, _chk_assets_sin_cartera),

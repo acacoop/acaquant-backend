@@ -166,9 +166,10 @@ _QUE_DETECTA: dict[str, tuple[str, str]] = {
         "de moverse"),
     "precio_moneda": (
         "Precios en la moneda equivocada",
-        "bonos de curva USD que muestran pesos, separando el que cotiza así de "
-        "verdad del que suscribe la PATA EQUIVOCADA (cruza el master contra "
-        "`mercado.especies`)"),
+        "bonos de curva USD que muestran pesos, separando el que suscribe la "
+        "PATA EQUIVOCADA del que cotiza así de verdad — y para eso busca la pata "
+        "en dólares en DOS fuentes: `mercado.especies` y, si ahí no está, el "
+        "catálogo de Primary (mirar una sola no alcanza para decir que no existe)"),
     "db_cambio": (
         "La base cambió",
         "tablas nuevas, las que crecieron de golpe y las que desaparecieron, "
@@ -205,6 +206,7 @@ _DOMINIO_DETECTOR: dict[str, str] = {
 _DOMINIO_CONTROL: dict[str, str] = {
     "forwards_faltantes": MERCADO, "rf_sin_tasa": MERCADO,
     "titulos_sin_flujo": MERCADO, "patas_sin_precio": MERCADO,
+    "patas_dolar_sin_pedir": MERCADO,
     "simbolos_cuarentena": MERCADO, "rf_valuada_x1": MERCADO,
     "comitentes_sin_nivel1": ADMIN, "contrapartes_pendientes": ADMIN,
 }
@@ -212,7 +214,7 @@ _DOMINIO_CONTROL: dict[str, str] = {
 _DOMINIO_ACCION: dict[str, str] = {
     "assets.cartera": DATOS, "assets.fci": DATOS,
     "contrapartes.alta": ADMIN, "avisar.responsable": ADMIN,
-    "mercado.pedir_pata": MERCADO,
+    "mercado.pedir_pata": MERCADO, "mercado.pata_dolar": MERCADO,
 }
 
 

@@ -698,6 +698,36 @@ def av_agent_sin_precio(body: DiagnosticoSinPrecio):
     return svc.diagnosticar(body.ticker)
 
 
+class PataDolar(BaseModel):
+    ticker: str = Field(..., min_length=2, max_length=40)
+
+
+@router.post("/av-agent/pata", dependencies=[Depends(require_admin)])
+def av_agent_pata(body: PataDolar):
+    """**Dónde está la pata en dólares de este bono** — SOLO LECTURA.
+
+    Pregunta las tres cosas en orden: si la tenemos sembrada
+    (`mercado.especies`), si existe en el catálogo de Primary —la fuente que no
+    depende de ninguna decisión nuestra— y si la estamos pidiendo. Recién con las
+    tres contestadas «no hay pata en dólares» se puede afirmar.
+
+    Cero red y cero créditos. No escribe nada."""
+    from api.services import av_agent_pata as svc
+    return svc.explicar(body.ticker)
+
+
+@router.post("/av-agent/pata/pedir", dependencies=[Depends(require_admin)])
+def av_agent_pata_pedir(body: PataDolar, email: str = Depends(get_user_email)):
+    """Siembra la especie si falta y **pide la pata**. Se ve en 5 segundos.
+
+    Escribe en `mercado.especies` y `mercado.adhoc_subscriptions`, por las puertas
+    que ya existen. **No toca `mercado.curvas`**: cambiar el símbolo del master
+    exige reiniciar el motor y sigue siendo una decisión manual — se toma después,
+    con el precio a la vista."""
+    from api.services import av_agent_pata as svc
+    return svc.pedir(body.ticker, por=email or "")
+
+
 @router.post("/av-agent/relevar", dependencies=[Depends(require_admin)])
 def av_agent_relevar(alcance: str = "soberanos",
                      email: str = Depends(get_user_email)):

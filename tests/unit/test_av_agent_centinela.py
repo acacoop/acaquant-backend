@@ -173,3 +173,83 @@ def test_sin_catalogo_de_especies_no_se_inventa_una_pata():
     from api.services import av_agent
     h = av_agent.detectar_precio_fuera_de_moneda([_BONO_USD], _SNAP, _MEP, set(), {})
     assert h[0]["regla"] == "cotiza_en_pesos"
+
+
+# ── (2026-08-19) ES NUESTRO O ES DEL MERCADO ────────────────────────────────
+
+def test_sin_punta_es_del_MERCADO_y_baja():
+    """El user, con 29 en pantalla: *«los que ya el sistema detecta que no tienen
+    punta son porque no tienen liquidez. No es un problema»*.
+
+    La diferencia con `no_suscripto` es la que importa: acá **sí estamos
+    escuchando**, así que la ausencia de punta habla del papel, no del sistema.
+    Es la otra cara de la regla del AO29 (§0.v)."""
+    from api.services import av_agent
+    hs = av_agent.detectar_sin_precio(
+        [{"ticker": "MERV - XMEV - BACAO - 24hs", "ticker_corto": "BACAO"}],
+        {"MERV - XMEV - BACAO - 24hs": {"last_price": 0}})
+    assert len(hs) == 1
+    assert hs[0]["regla"] == "sin_punta" and hs[0]["severidad"] == "baja"
+    assert av_agent.de_quien("sin_punta") == "mercado"
+
+
+def test_no_suscripto_sigue_siendo_NUESTRO():
+    """El hermano opuesto: nadie pidió el precio, así que la ausencia no prueba
+    nada sobre el papel. Esconderlo por default sería esconder trabajo."""
+    from api.services import av_agent
+    assert av_agent.de_quien("no_suscripto") == "nuestro"
+    assert av_agent.de_quien("sin_simbolo") == "nuestro"
+
+
+def test_una_regla_NUEVA_cae_del_lado_que_NO_esconde():
+    """El default no puede ser «mercado»: una regla que nadie clasificó se
+    escondería sola de la pantalla y nadie se enteraría."""
+    from api.services import av_agent
+    assert av_agent.de_quien("una_regla_que_no_existe_todavia") == "nuestro"
+    assert av_agent.DE_QUIEN_DEFAULT == "nuestro"
+
+
+# ── (2026-08-19) LA PATA EN DÓLARES SE BUSCA EN DOS FUENTES ─────────────────
+
+def test_si_especies_no_la_tiene_se_busca_en_PRIMARY():
+    """El hallazgo cerraba con «no encontré una pata en dólares» habiendo mirado
+    UNA tabla que se siembra a mano. Es la misma forma del error del AO29: no se
+    puede concluir «no existe» desde una fuente derivada."""
+    from api.services import av_agent
+    h = av_agent.detectar_precio_fuera_de_moneda(
+        [_BONO_USD], _SNAP, _MEP, set(), {},
+        primary={"MERV - XMEV - AO29D - 24hs"})
+    assert len(h) == 1 and h[0]["regla"] == "cotiza_en_pesos"
+    assert h[0]["evidencia"]["pata_origen"] == "solo_en_primary"
+    assert h[0]["evidencia"]["pata_dolar"] == "MERV - XMEV - AO29D - 24hs"
+    assert "no la teníamos" in h[0]["motivo"]
+
+
+def test_recien_con_las_DOS_fuentes_se_puede_decir_que_no_hay_pata():
+    from api.services import av_agent
+    h = av_agent.detectar_precio_fuera_de_moneda(
+        [_BONO_USD], _SNAP, _MEP, set(), {},
+        primary={"MERV - XMEV - OTRACOSA - 24hs"})
+    assert h[0]["evidencia"]["pata_origen"] == "sin_pata"
+    assert "Ni `mercado.especies` ni el catálogo de Primary" in h[0]["motivo"]
+
+
+def test_sin_catalogo_de_primary_NO_se_afirma_que_no_existe():
+    """«No pude mirar» jamás puede convertirse en un veredicto (§0.u). Sin
+    catálogo el hallazgo dice que NO SABE, que es distinto de decir que no hay."""
+    from api.services import av_agent
+    h = av_agent.detectar_precio_fuera_de_moneda(
+        [_BONO_USD], _SNAP, _MEP, set(), {}, primary=None)
+    assert h[0]["evidencia"]["pata_origen"] == "no_pude_mirar"
+    assert "**no sé**" in h[0]["motivo"]
+
+
+def test_la_pata_ya_sembrada_no_manda_a_primary():
+    """Si ya la tenemos, preguntar al catálogo es un viaje al pedo — y el texto
+    tiene que decir que se puede pedir, no que se puede sembrar."""
+    from api.services import av_agent
+    h = av_agent.detectar_precio_fuera_de_moneda(
+        [_BONO_USD], _SNAP, _MEP, {"MERV - XMEV - AO29D - 24hs"}, {},
+        primary=set())
+    assert h[0]["evidencia"]["pata_origen"] == "sembrada"
+    assert "ya está sembrada" in h[0]["motivo"]

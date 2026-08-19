@@ -511,9 +511,73 @@ class AccionPedirPata:
                       "llega, ESA pata no cotiza (antes no se podía afirmar)")
 
 
+class AccionPataDolar:
+    """PEDIR LA PATA EN DÓLARES de un bono que cotiza en pesos.
+
+    Hermana de `AccionPedirPata` y **no la misma**: aquélla pide el símbolo que el
+    master ya usa y que no tiene precio; ésta pide **la OTRA pata**, la que está en
+    dólares, de un bono cuyo símbolo actual sí cotiza —solo que en pesos—.
+
+    La escritura NO vive acá: delega en `av_agent_pata.pedir`, que es la misma
+    función que usa la puerta de la pantalla. Dos caminos a la misma escritura
+    terminan siempre con dos criterios que se contradicen — es el bug del blob y
+    la columna (§0.u), y no se repite.
+
+    ⚠️ **No cambia el master**, a propósito. Eso exige reiniciar `motor_rofex` y
+    no se vería hasta la noche. Esta acción consigue lo anterior y lo verificable:
+    que empecemos a escuchar esa pata, para poder decidir con el precio a la vista.
+    """
+
+    id = "mercado.pata_dolar"
+    titulo = "Pedir la pata en DÓLARES de un bono que cotiza en pesos"
+    sobre = "patas_dolar_sin_pedir"
+    campo = "suscripción"
+    donde = "mercado.adhoc_subscriptions (el motor la levanta en 5s, sin reiniciar)"
+
+    def proponer(self, casos: list[dict]) -> list[Propuesta]:
+        props = []
+        for c in casos:
+            ticker = (c.get("ticker") or c.get("key") or "").strip().upper()
+            simbolo = (c.get("simbolo") or "").strip()
+            if not ticker:
+                continue
+            props.append(Propuesta(
+                sujeto=ticker, campo=self.campo, propuesto="pedir",
+                antes="nadie la pide",
+                porque=(f"«{ticker}» es de curva USD y la grilla lo muestra en "
+                        f"pesos. Su pata en dólares"
+                        + (f" («{simbolo}»)" if simbolo else "")
+                        + " no la escucha nadie, así que **no sabemos si opera** "
+                          "— y sin ese dato no se puede decidir si vale apuntar "
+                          "el master ahí. Pedirla no reinicia nada."),
+                extra={"simbolo": simbolo, "curva": c.get("curva")}))
+        return props
+
+    def aplicar(self, p: Propuesta) -> None:
+        from api.services import av_agent_pata
+        r = av_agent_pata.pedir(p.sujeto)
+        if not r.get("ok"):
+            raise RuntimeError(r.get("error") or "no se pudo pedir la pata")
+
+    def verificar(self, p: Propuesta) -> tuple[bool, str]:
+        """Se exige que quede PEDIDA —lo que la acción controla—; que el precio
+        llegue lo decide el mercado, y el detalle lo dice sin disfrazarlo."""
+        from api.services import av_agent_pata
+        d = av_agent_pata.explicar(p.sujeto)
+        if not d.get("ok"):
+            return False, str(d.get("error") or "no pude releer")
+        if not d.get("pedida"):
+            return False, "no quedó pedida"
+        px = d.get("precio")
+        if px:
+            return True, f"pedida y YA llegó precio: {px:,.2f}"
+        return True, ("pedida; todavía sin precio — si pasa una rueda entera y no "
+                      "llega, ESA pata no cotiza (antes no se podía afirmar)")
+
+
 ACCIONES: dict[str, Accion] = {a.id: a for a in (
     AccionCartera(), AccionFci(), AccionContraparte(), AccionAvisar(),
-    AccionPedirPata())}
+    AccionPedirPata(), AccionPataDolar())}
 # Qué acción resuelve cada control. Sin esto la pantalla tendría que saberlo, y
 # el día que se agregue una acción habría que tocar el front.
 POR_CONTROL: dict[str, str] = {a.sobre: a.id for a in ACCIONES.values()}

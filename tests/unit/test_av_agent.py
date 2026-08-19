@@ -2623,9 +2623,13 @@ def test_un_bono_SIN_PRECIO_si_tiene_diagnostico():
     ellas —iliquidez— no se atiende. La puerta es de SOLO LECTURA."""
     from api.services import av_agent
     assert av_agent.ACCION_POR_TIPO["sin_precio"] == "sin_precio"
-    # `precio_moneda` sí sigue en None: ahí la valuación está bien y lo que se ve
-    # raro es la columna de precio de la grilla — no hay nada que diagnosticar.
-    assert av_agent.ACCION_POR_TIPO["precio_moneda"] is None
+    # **`precio_moneda` DEJA de ser None** (2026-08-19). El comentario que estaba
+    # acá decía «no hay nada que diagnosticar», y el user lo desmintió mirando los
+    # 43 casos: *«no ofrece una solución o algo, nada»*. Sí había qué hacer —ir a
+    # buscar la pata en dólares al catálogo de Primary y pedirla— y sobre todo
+    # había algo que dejar de afirmar: el hallazgo cerraba con «no encontré una
+    # pata en dólares» después de mirar UNA tabla.
+    assert av_agent.ACCION_POR_TIPO["precio_moneda"] == "pata"
 
 
 def test_un_precio_VIEJO_se_detecta_y_no_revienta_por_la_zona_horaria():

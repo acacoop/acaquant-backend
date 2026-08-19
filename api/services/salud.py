@@ -185,7 +185,18 @@ def _chequeo_job(cron: dict, ahora: datetime) -> dict:
     ultimos = [(_iso((r.get("ultimo") or {}).get("started_at")), r) for r in runs]
     ultimos = [(t, r) for t, r in ultimos if t]
     ultimo_t = max((t for t, _ in ultimos), default=None)
-    esperada = ultima_ejecucion_esperada(cron.get("schedule") or "")
+    # ⚠️ **`ahora` SE PASA** (fix 2026-08-19). La función recibía un reloj y
+    # después leía OTRO (el del sistema, vía el default de
+    # `ultima_ejecucion_esperada`). En prod los dos coinciden —`evaluar()` pasa
+    # `_ahora()`— así que el bug estaba dormido; lo que sí rompía era el test
+    # fundacional de este módulo (el job en `ok` sin correr hace dos días), que
+    # congela el reloj y comparaba una esperada de HOY contra un `ahora` de agosto.
+    #
+    # Es la misma forma que el bug del blob y la columna (§0.u): **dos
+    # representaciones del mismo dato sin árbitro**. Mientras coinciden no falla
+    # nada, y el día que se separan cada mitad sigue siendo coherente por su
+    # cuenta. Acá el árbitro es el parámetro: si te pasan un reloj, es ESE.
+    esperada = ultima_ejecucion_esperada(cron.get("schedule") or "", ahora)
 
     # (1) ¿corrió cuando debía? — la resta que nadie hacía.
     atrasado = False

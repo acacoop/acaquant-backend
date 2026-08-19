@@ -234,6 +234,82 @@ def test_toda_escritura_del_service_valida_el_permiso():
             f"{nombre} escribe SIN validar el permiso — un empleado_aca podría editarlo")
 
 
+# ── La tab Manager → ACA la da la ESCRITURA, no el umbrella `manager` ──────
+# Decisión del user 2026-08-19: ya hay gente con permiso de escritura en la mesa
+# que necesita cargar el histórico y NO es admin (ej. `asistente_comercial`).
+# Antes la tab pedía el módulo `manager`, que es todo-o-nada: darlo abría JOBS,
+# LOGS, USUARIOS y ROLES. Ahora el gate efectivo es (acceso a Manager) Y
+# (escritura en ACA) — las dos condiciones, no una.
+
+def test_la_tab_de_manager_la_gatea_la_escritura_y_no_el_modulo_manager():
+    """El sub-router de la tab NO puede volver a colgarse de `require_module`."""
+    import inspect
+
+    from api.routers import manager as pkg
+    fuente = inspect.getsource(pkg)
+    assert "_ACA             = [Depends(verify_api_key), Depends(require_escritura_aca)]" in fuente
+    assert "router.include_router(aca.router,         dependencies=_ACA)" in fuente, (
+        "la tab Manager → ACA volvió al umbrella `manager`: un escritor de la mesa "
+        "que no es admin deja de poder cargar el histórico")
+
+
+def test_el_gate_efectivo_de_la_tab_exige_manager_Y_escritura():
+    """Medido sobre la app montada, no sobre el código: las dos deps tienen que
+    estar en TODAS las rutas de la tab. Sin la de módulo, un escritor de la mesa
+    sin acceso a Manager entraría; sin la de escritura, cualquier admin-de-otra-
+    tab configuraría el informe."""
+    from api.main import app
+    from api.superficie import rutas
+    rs = [r for r in rutas(app) if r.path.startswith("/api/manager/aca/")]
+    assert rs, "no hay rutas de la tab — cambió el prefijo"
+    for r in rs:
+        assert "require_escritura_aca" in r.gates, f"{r.path} sin gate de escritura"
+        assert any(g.startswith("require_any_module_manager") for g in r.gates), (
+            f"{r.path} quedó fuera del gate de acceso a Manager")
+
+
+def test_empleado_aca_no_entra_a_la_tab_de_manager(monkeypatch):
+    """El rol es SOLO LECTURA de la vista: ni escribe ni ve Manager."""
+    from core.roles import DEFAULT_MATRIX
+    modulos = DEFAULT_MATRIX["empleado_aca"]
+    assert not any(m == "manager" or m.startswith("manager_") for m in modulos), (
+        "empleado_aca no puede tener acceso a Manager")
+
+    from api.services import mesa_dinero
+    monkeypatch.setattr("core.roles.get_user_role", lambda e: "empleado_aca")
+    monkeypatch.setattr(mesa_dinero, "_q", lambda *a, **k: [])
+    assert aca.puede_ver_manager(email="gerente@aca.com") is False
+
+
+def test_la_capacidad_del_nav_espeja_al_gate(monkeypatch):
+    """`manager-aca` (lo que publica /api/me) tiene que valer lo mismo que el
+    gate server-side, si no el front esconde una tab que el backend permite (o
+    peor, muestra una que da 403)."""
+    from api.services import mesa_dinero
+    monkeypatch.setattr("core.roles.get_user_role", lambda e: "asistente_comercial")
+    monkeypatch.setattr(mesa_dinero, "_q", lambda *a, **k: [{"?column?": 1}])
+    aca.invalidar_permisos()
+    assert aca.puede_ver_manager(email="asistente@aca.com") is True
+    aca.invalidar_permisos()
+
+
+def test_manager_aca_no_es_un_modulo_del_rbac():
+    """Es una CAPACIDAD por allowlist, igual que `mesa-dinero`. Meterla en
+    MODULES pondría un checkbox en ROLES Y PERMISOS que no controla nada."""
+    from core.roles import MODULES
+    assert "manager-aca" not in MODULES
+
+
+def test_tocar_la_allowlist_de_la_mesa_purga_el_cache_de_aca():
+    """El admin agrega a alguien y la persona recarga: tiene que ver la tab ya,
+    no dentro de 60s (que se lee como 'no funcionó')."""
+    import inspect
+
+    from api.services import mesa_dinero
+    cuerpo = inspect.getsource(mesa_dinero._invalidar_permisos)
+    assert "aca.invalidar_permisos()" in cuerpo
+
+
 # ── El contrato de /vista: `periodos` son OBJETOS, no strings ───────────────
 # Regresión del 2026-08-13: `vista()` hacía `**graficos()` al final, y esa
 # función devuelve su PROPIA clave `periodos` (el eje X de los charts, strings).

@@ -176,6 +176,24 @@ def puede_ver(email: str) -> bool:
     return puede_escribir(email_norm)
 
 
+@cached(_TTL_PERMISO_S)
+def puede_ver_manager(email: str) -> bool:
+    """True si al usuario le corresponde la tab **Manager → ACA**. Default-deny.
+
+    Es `puede_escribir` con cache: esa tab es CONFIGURACIÓN + carga del histórico,
+    así que quien no puede escribir no tiene nada que hacer adentro. Existe aparte
+    y CACHEADA porque la consume `/api/me`, que corre en CADA navegación del front
+    — igual que `puede_ver`. El gate real del router usa `puede_escribir` SIN
+    cache: un permiso de escritura revocado tiene que cortar en el acto, y como
+    mucho el link del nav queda visible 60s más (entrar sin escribir da 403).
+
+    NO chequea el acceso a Manager: eso ya lo hace el gate del paquete
+    (`_MANAGER_BASE` en api/main.py) y la página /manager del front. El gate
+    efectivo de la tab es (acceso a Manager) Y (escritura en ACA).
+    """
+    return puede_escribir(email)
+
+
 def _check_escritura(actor: str) -> str:
     if not puede_escribir(actor):
         raise PermissionError("sin permiso de escritura en ACA")
@@ -1291,5 +1309,6 @@ def del_serie(codigo: str, actor: str) -> dict:
 
 
 def invalidar_permisos() -> None:
-    """Purga el cache de `puede_ver` (post-cambio de allowlist o de rol)."""
+    """Purga los caches de permisos (post-cambio de allowlist o de rol)."""
     invalidate("puede_ver")
+    invalidate("puede_ver_manager")

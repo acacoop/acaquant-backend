@@ -10,6 +10,8 @@ RBAC por sub-router (gate fino para `asistente_comercial`):
     aunesa/assets/valuaciones) → `manager` (umbrella, admin-only).
   - `clientes.router` (GETs + PATCH fila a fila)    → `manager_clientes`
   - `clientes.bulk_router` (POST /bulk + /bulk-fondeo) → `manager_clientes_bulk`
+  - `aca.router` (tab ACA) → NO es un módulo: `require_escritura_aca`
+    (allowlist de Mesa de Dinero ∪ admin). Ver el comentario de `_ACA`.
 
 El gate antes era global en `api/main.py` (`require_module("manager")` para todo
 `/api/manager/*`). Se splittea acá para que `asistente_comercial` (que NO tiene
@@ -22,6 +24,7 @@ from fastapi import APIRouter, Depends
 
 from api.auth import require_any_module, require_module
 from api.deps import verify_api_key
+from api.routers.aca import require_escritura_aca
 from api.routers.manager import (
     aca,
     aca_valores,
@@ -68,8 +71,20 @@ _INSTRUMENTOS    = [Depends(verify_api_key), Depends(require_any_module(("manage
 _CONTRAPARTES    = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_contrapartes")))]
 _AUNESA          = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_aunesa")))]
 
+# Tab ACA: NO la da el umbrella `manager`, la da PODER ESCRIBIR en ACA (allowlist
+# de Mesa de Dinero ∪ admin). Es una tab de CONFIGURACIÓN + carga del histórico:
+# quien no puede escribir no tiene nada que hacer adentro, y quien ya escribe en
+# la vista /aca la necesita aunque su rol no sea admin (caso `asistente_comercial`
+# en la allowlist — decisión del user 2026-08-19). El acceso a Manager sigue
+# siendo condición necesaria: `_MANAGER_BASE` en api/main.py exige alguno de los
+# módulos manager* ANTES de llegar acá, así que el gate efectivo es
+# (acceso a Manager) Y (escritura en ACA). Ver docs/ACA.md §2.
+_ACA             = [Depends(verify_api_key), Depends(require_escritura_aca)]
+
+# Tab ACA (escritura en ACA + acceso a Manager — ver _ACA arriba):
+router.include_router(aca.router,         dependencies=_ACA)
+
 # Tabs admin (umbrella `manager`):
-router.include_router(aca.router,         dependencies=_MGR)
 router.include_router(status.router,      dependencies=_MGR)
 router.include_router(latencia.router,    dependencies=_MGR)
 router.include_router(controles.router, dependencies=_MGR)

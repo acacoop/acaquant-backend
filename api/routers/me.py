@@ -57,6 +57,15 @@ def me(request: Request, email: str = Depends(get_user_email)) -> dict:
     # del backend y NO veía el link en el nav: entraba solo tipeando la URL.
     if "aca" not in modules and aca.puede_ver(email=email):
         modules.append("aca")
+    # Tab Manager → ACA: la habilita PODER ESCRIBIR en ACA, no el umbrella
+    # `manager` (decisión del user 2026-08-19 — hay gente en la allowlist de la
+    # mesa que necesita cargar el histórico y NO es admin). El "y además tiene
+    # acceso a Manager" no se chequea acá a propósito: la página /manager ya es
+    # default-deny por su cuenta (src/app/manager/page.tsx → 404 sin manager*), y
+    # duplicar esa lista acá sería una cuarta copia de lo mismo. Espeja el gate
+    # server-side `_ACA` de api/routers/manager/__init__.py.
+    if aca.puede_ver_manager(email=email):
+        modules.append("manager-aca")
     return {
         "email":    email,
         "role":     role,

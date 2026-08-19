@@ -38,8 +38,9 @@ los inputs que ninguna fuente del sistema tiene.
 
 | | Quién |
 |---|---|
-| **VER** | módulo `aca` (rol **`empleado_aca`**) ∪ **admin** ∪ escritores |
+| **VER la vista `/aca`** | módulo `aca` (rol **`empleado_aca`**) ∪ **admin** ∪ escritores |
 | **ESCRIBIR** | allowlist de Mesa de Dinero (`operaciones.mesa_dinero_escritores`) ∪ admin |
+| **Tab `Manager → ACA`** | **escritura en ACA** Y acceso a Manager (cualquier módulo `manager*`) |
 
 Tres decisiones que conviene no revertir sin pensarlas:
 
@@ -55,6 +56,19 @@ Tres decisiones que conviene no revertir sin pensarlas:
   allowlist. Sin eso, un escritor sin el rol pasaba el gate del backend pero no
   veía el link en el nav: entraba solo tipeando la URL. Por eso `/api/me`
   publica `aca` dentro de `modules` también para los escritores.
+- **La tab de Manager la da la ESCRITURA, no el umbrella `manager`** (2026-08-19).
+  Antes pedía el módulo `manager`, que es todo-o-nada: para que un
+  `asistente_comercial` de la allowlist pudiera cargar el histórico había que
+  darle también JOBS, LOGS, USUARIOS y ROLES. Ahora el gate es la CONJUNCIÓN de
+  las dos condiciones — `_ACA` en `api/routers/manager/__init__.py` monta
+  `require_escritura_aca` sobre el sub-router, y el acceso a Manager ya lo exige
+  `_MANAGER_BASE` en `api/main.py` antes de llegar ahí. El criterio: esa tab es
+  configuración + carga, así que quien no puede escribir no tiene nada que hacer
+  adentro. `empleado_aca` no la ve nunca (no tiene ningún módulo `manager*`).
+  El nav se filtra con la capacidad **`manager-aca`** que publica `/api/me` —
+  **NO es un módulo del RBAC** (igual que `mesa-dinero`): meterla en
+  `core.roles.MODULES` pondría un checkbox en ROLES Y PERMISOS que no controla
+  nada, porque el permiso lo da una allowlist por email y no el rol.
 - **REGLA #8 — jamás al portal invitado.** Es el negocio de la casa.
   `/api/aca` no está en `GUEST_PATH_PREFIXES` ni `aca` en `INVITADO_MODULES`.
   Hay un test que falla si alguien lo agrega.
@@ -291,6 +305,10 @@ Cuatro ayudas de carga en ACTIVOS:
 
 ### `Manager → ACA` — 2 sub-tabs
 
+Entra quien **puede escribir en ACA** y además tiene acceso a Manager (ver §2).
+No es el umbrella `manager`: un admin la ve porque siempre está en la allowlist,
+y un `asistente_comercial` de la allowlist también, sin volverse admin.
+
 - **HISTÓRICO** — carga del rendimiento mensual por serie y período. Se tipea en
   **porcentaje** (2,45) y se guarda como fracción; la columna acumulada es de
   solo lectura porque es un resultado.
@@ -381,6 +399,32 @@ Escritura: la misma allowlist que el resto (mesa + admin). Queda en `aca.audit`.
 ---
 
 ## Changelog
+
+### 2026-08-19 — La tab de Manager la da la ESCRITURA, no `manager`
+
+**Problema.** `Manager → ACA` (histórico + configuración) pedía el módulo
+`manager`. Ese módulo es el umbrella de admin: darlo para que alguien cargue el
+rendimiento del mes abría también JOBS, LOGS, USUARIOS y ROLES Y PERMISOS. Ya
+había gente en la allowlist de escritura de la mesa —que ES el permiso de editar
+ACA— sin forma de llegar a esa pantalla.
+
+**Qué cambió.** El gate del sub-router pasa a `require_escritura_aca`
+(`_ACA` en `api/routers/manager/__init__.py`). Como `_MANAGER_BASE` ya exige
+algún módulo `manager*` sobre todo `/api/manager`, el gate efectivo queda en la
+CONJUNCIÓN: **acceso a Manager Y escritura en ACA**. El nav se filtra con la
+capacidad `manager-aca` de `/api/me` (`aca.puede_ver_manager`, cacheada 60 s
+como `puede_ver`; el gate del router usa `puede_escribir` sin cache para que una
+baja corte en el acto).
+
+De yapa: tocar cualquier allowlist de la mesa ahora purga también los caches de
+permisos de ACA (`mesa_dinero._invalidar_permisos`). Antes el alta tardaba hasta
+60 s en verse, que se lee como "no funcionó" y termina en un alta duplicada.
+
+**Quién gana y quién pierde.** Gana el no-admin de la allowlist (ve la tab sin
+volverse admin). No pierde nadie en la práctica: admin siempre pasa
+`puede_escribir`, y `manager` fuera de admin no lo tiene ningún rol por default.
+`empleado_aca` sigue sin ver Manager y sin poder escribir — congelado por test.
+
 
 ### 2026-08-14 — Fuera el banner de «sin clasificar»
 - Se elimina el cartel ámbar a todo lo ancho arriba del RESUMEN. La información

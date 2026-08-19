@@ -177,8 +177,15 @@ def ve_todo(email: str) -> bool:
 
 def _invalidar_permisos() -> None:
     """Tira el cache de `alcance` tras tocar cualquiera de las allowlists (las
-    tres alimentan la misma respuesta) para que el alta/baja se vea ya."""
+    tres alimentan la misma respuesta) para que el alta/baja se vea ya.
+
+    Purga TAMBIÉN los caches de ACA: esta misma allowlist de escritura es la que
+    da la vista /aca y la tab Manager → ACA (`api/services/aca.py`). Sin esto, el
+    admin agrega a alguien, la persona recarga y no ve nada durante 60s — que se
+    lee como "no funcionó" y termina en un alta duplicada."""
     invalidate("alcance")
+    from api.services import aca
+    aca.invalidar_permisos()
 
 
 # ─────────────────────────────────────────────────────────────

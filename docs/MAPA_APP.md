@@ -200,6 +200,7 @@ páginas.
 | `asistente` | Asistente de Negocio (vista `negocio` del copiloto) | **Sin prefijo propio**: gate fino en `copiloto/derivacion.py::_acceso` (+ `solo_internos`) |
 | `aca` | `/aca` (resumen ejecutivo de la cartera propia) | `/api/aca/*` (14) — gate `require_lectura_aca` sobre TODO el router: módulo ∪ allowlist de la mesa |
 | `manager` | `/manager` umbrella | `/api/manager/*` (~70) + `PUT /api/cotizaciones/opciones/tasa` |
+| `manager-aca` ⚠️ | Manager → ACA. **NO es módulo del RBAC** (como `mesa-dinero`): capacidad publicada por `/api/me` = escritura en ACA. El gate real suma el acceso a Manager | `/api/manager/aca/*` (7) |
 | `manager_clientes` | Manager → CLIENTES / ACA VALORES / CONTROL AUTO | `clientes.router`, `aca_valores`, `control_automatico` (10) |
 | `manager_clientes_bulk` | Manager → cargas masivas | `clientes.bulk_router` (3) |
 | `manager_titulos` | Manager → TÍTULOS (assets, ONs, bonos, breakevens, RV) | 28 rutas |
@@ -389,8 +390,8 @@ propósito, para que el nav y `src/proxy.ts` sigan filtrando con UN solo mecanis
 | `admin` | HOME · OPERAR · TRADING · RESEARCH · **ACA** · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE · MANAGER |
 | `trader` | HOME · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE. **Sin** OPERAR, TRADING, RESEARCH, ACA, MANAGER |
 | `sales` | HOME · MERCADOS (7/7) · BACK OFFICE. **Sin** NEGOCIO, OPERAR, TRADING, RESEARCH, ACA, MANAGER |
-| `empleado_aca` | HOME · **ACA** · MERCADOS (7/7) · BACK OFFICE. Es `sales` + la vista ACA. **Sin** NEGOCIO |
-| `asistente_comercial` | HOME · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE · MANAGER (entra por `manager_clientes`). **Sin** OPERAR, TRADING, RESEARCH, ACA |
+| `empleado_aca` | HOME · **ACA** · MERCADOS (7/7) · BACK OFFICE. Es `sales` + la vista ACA, **SOLO LECTURA**. **Sin** NEGOCIO y **sin MANAGER** (por lo tanto tampoco la tab Manager → ACA) |
+| `asistente_comercial` | HOME · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE · MANAGER (entra por `manager_clientes`). **Sin** OPERAR, TRADING, RESEARCH. **ACA y Manager → ACA aparecen si está en la allowlist de escritura de la mesa** — no las da el rol |
 | `back_office` | HOME · BACK OFFICE. Nada más |
 | `invitado` (www) | HOME · AGRO · DERIVADOS · ESTRATEGIA · ONS · RENTA FIJA · RENTA VARIABLE · RESEARCH · SINTÉTICOS — los 7 items de MERCADOS **aplanados como links top-level** (sin dropdown), todo en MAYÚSCULA y ordenado A→Z con HOME primero (ver abajo) |
 
@@ -444,7 +445,7 @@ Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el brie
 - **OPERACIONES**: PRECIOS · IMPORTAR AUM.
 - **USUARIOS** (`manager.usuarios.sub`): **USUARIOS** · ROLES Y PERMISOS · GRUPOS.
 - **MESA**: panel único con 4 secciones al 25% (traders + 3 allowlists).
-- **ACA** (gestión de la vista `/aca`): **HISTÓRICO** · CONFIGURACIÓN. HISTÓRICO carga el rendimiento mensual por serie (se tipea en % y se guarda como fracción; el acumulado es de solo lectura porque es un derivado). CONFIGURACIÓN tiene 4 cards: regla de moneda, emisores destacados, clases destacadas y catálogo de series.
+- **ACA** (gestión de la vista `/aca`) — ⚠️ **la ÚNICA tab que NO la da el umbrella `manager`**: la habilita **poder ESCRIBIR en ACA** (allowlist `operaciones.mesa_dinero_escritores` ∪ admin) **y** tener acceso a Manager por cualquier módulo `manager*`. Un `asistente_comercial` en la allowlist la ve; un admin sin allowlist no (aunque admin siempre está en la allowlist por definición). Server-side: `_ACA` en `api/routers/manager/__init__.py`; el nav se filtra con la capacidad `manager-aca` que publica `/api/me`. Tabs: **HISTÓRICO** · CONFIGURACIÓN. HISTÓRICO carga el rendimiento mensual por serie (se tipea en % y se guarda como fracción; el acumulado es de solo lectura porque es un derivado). CONFIGURACIÓN tiene 4 cards: regla de moneda, emisores destacados, clases destacadas y catálogo de series.
 ---
 
 ## 4. DOMINIOS

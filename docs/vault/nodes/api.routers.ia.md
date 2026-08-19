@@ -31,6 +31,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.av_agent_relevar]]  ·  _module_
 - [[api.services.av_agent_salud]]  ·  _module_
 - [[api.services.av_agent_sin_precio]]  ·  _module_
+- [[api.services.av_agent_skills]]  ·  _module_
 - [[api.services.av_agent_vista]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
 - [[api.services.ia_obs]]  ·  _module_

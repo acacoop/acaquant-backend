@@ -35,6 +35,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.av_agent_alta]]  ·  _module_
 - [[api.services.av_agent_centinela]]  ·  _module_
 - [[api.services.av_agent_relevar]]  ·  _module_
+- [[api.services.av_agent_skills]]  ·  _module_
 - [[api.services.av_agent_vista]]  ·  _module_
 - [[jobs.av_agent]]  ·  _module_
 - [[jobs.av_agent_live]]  ·  _module_

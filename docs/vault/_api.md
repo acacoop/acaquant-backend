@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-207 notas.
+209 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -20,6 +20,7 @@
 - [[api.routers]]
 - [[api.routers.aca]] — Router ACA — /api/aca (vista /aca, RESUMEN EJECUTIVO de la cartera propia).
 - [[api.routers.analitica]] — Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.
+- [[api.routers.avisos]] — api/routers/avisos.py — LOS PENDIENTES QUE EL AGENTE LE DEJÓ A CADA PERSONA.
 - [[api.routers.back_office]] — Router /api/back-office — sección Back Office.
 - [[api.routers.carteras]] — Router Portfolio — thin wrappers sobre `api.services.portfolio`.
 - [[api.routers.cotizaciones]] — Router Cotizaciones — thin wrappers sobre la capa de servicio.
@@ -118,6 +119,7 @@
 - [[api.services.av_agent_relevar]] — api/services/av_agent_relevar.py — LA RELEVADA, a pedido.
 - [[api.services.av_agent_salud]] — api/services/av_agent_salud.py — SALUD, razonada por el AV AGENT.
 - [[api.services.av_agent_sin_precio]] — api/services/av_agent_sin_precio.py — POR QUÉ un bono no tiene precio.
+- [[api.services.av_agent_skills]] — api/services/av_agent_skills.py — EL REGISTRO ÚNICO DE HABILIDADES.
 - [[api.services.av_agent_vista]] — api/services/av_agent_vista.py — la vista /av-agent en UN request (E1.d).
 - [[api.services.back_office_titulos]] — Service — Títulos / Mercado (Back Office).
 - [[api.services.bancos]] — api/services/bancos.py — lectura de `bancos.*` para la tab INTERBANKING.

@@ -26,5 +26,6 @@ _(pendiente de enriquecimiento)_
 - [[api.services.av_agent_analista]]  ·  _module_
 - [[api.services.av_agent_explicar]]  ·  _module_
 - [[api.services.av_agent_hacer]]  ·  _module_
+- [[api.services.av_agent_skills]]  ·  _module_
 - [[api.services.ia_obs]]  ·  _module_
 - [[jobs.research_mail]]  ·  _module_

@@ -21,6 +21,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.mcp.tools.renta_variable]]  ·  _module_
 - [[api.routers.aca]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
+- [[api.routers.avisos]]  ·  _module_
 - [[api.routers.back_office]]  ·  _module_
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
@@ -76,6 +77,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.av_agent_relevar]]  ·  _module_
 - [[api.services.av_agent_salud]]  ·  _module_
 - [[api.services.av_agent_sin_precio]]  ·  _module_
+- [[api.services.av_agent_skills]]  ·  _module_
 - [[api.services.av_agent_vista]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_

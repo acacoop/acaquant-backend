@@ -606,6 +606,110 @@ es la pantalla, no el dato. Para mirarlas a mano quedó
 > ruido. El disparador es el mismo de siempre — `MIN_VOTOS` (§0.f) —, no una
 > fecha.
 
+### 0.o LA TAB SKILLS — el registro único, y la LEY (2026-08-19)
+
+**LA LEY, en palabras del user:**
+
+> *«Necesito que se vaya centralizando todo: no solo esto, también lo que sabe
+> resolver, lo que va entendiendo cuando encuentra algo… va a haber distintos
+> tipos de habilidad pero POR LEY Y REGLA todo lo nuevo que se agregue de
+> funcionalidad o habilidad tiene que quedar en esta tab, para que se vaya
+> mapeando todo lo que va consolidando. Y a su vez dejar asentado si esa skill
+> usa para algo IA o no, ya que muchas es solamente una función.»*
+
+**Por qué se DERIVA y no se escribe a mano.** Una lista de capacidades mantenida
+a mano se queda vieja **la primera vez que alguien tiene apuro**, y una lista
+desactualizada es peor que no tenerla: dice que el agente sabe algo que no sabe,
+o esconde algo que sí. Este proyecto ya pagó ese error dos veces —por eso §0 de
+`MAPA_APP.md` y `deploy/SISTEMA.md` se autogeneran—. Así que
+`api/services/av_agent_skills.py` **arma el catálogo leyendo los registros que ya
+existen**:
+
+    DETECTAR   av_agent.ACCION_POR_TIPO + jobs.controles_datos.CONTROLES
+    EXPLICAR   av_agent_explicar.EXPLICADORES
+    RESOLVER   av_agent_hacer.ACCIONES
+
+Una skill nueva aparece **sola, por existir**. No hay forma de agregar una
+capacidad y olvidarse de mapearla, porque no hay nada que acordarse de hacer.
+
+**Y donde el catálogo no puede derivar, hay un test que exige la descripción.**
+Los detectores son funciones sueltas sin metadatos, así que su frase va a mano en
+`_QUE_DETECTA` — y `test_todo_detector_nuevo_tiene_que_describirse` falla si
+alguien suma uno y no lo describe. También falla al revés
+(`test_no_se_describen_detectores_que_no_existen`): decir que el agente sabe algo
+que ya no hace es peor que no decir nada. **Esa es la ley: no una convención, un
+test.**
+
+**El orden de las tres secciones es el orden en que crece el agente:**
+
+    darse cuenta solo  →  poder explicarlo  →  saber arreglarlo
+
+**POR QUÉ IMPORTA DECIR SI USA IA — y por qué son TRES valores, no un booleano.**
+Lo pidió el user explícito, y no es una curiosidad técnica: **cambia cuánto hay
+que desconfiar**. Una skill determinista da el mismo resultado siempre y se
+audita leyendo el código una vez; una que pasa por el modelo hay que mirarla caso
+por caso. Y la categoría más común acá es la tercera, la que se suele contar mal
+para los dos lados:
+
+| valor | qué significa |
+|---|---|
+| `no` | es una función. El modelo no participa. |
+| `opcional` | la parte que resuelve es determinista; el modelo solo agrega la frase, o cubre lo que la regla no supo. **Si no está, la skill sigue funcionando.** |
+| `si` | sin modelo no hay resultado. |
+
+Contarlas todas como «IA» infla lo que el modelo hace de verdad; contarlas como
+«no IA» esconde dónde hay que mirar.
+
+**El estado al 2026-08-19: 26 habilidades — 20 sin IA, 6 con IA opcional, 0 que
+dependan del modelo.** Y hay un test que congela dos invariantes de diseño:
+**ninguna skill de DETECCIÓN usa el modelo** (lo que el agente encuentra lo
+encuentra una función que corre sola; el modelo aparece después, para leer
+patrones entre hallazgos) y **la mayoría no lo usa** — si eso se da vuelta,
+alguien está mandando al modelo trabajo que hace una función.
+
+### 0.p EL AGENTE ES ADMIN-ONLY, PERO LO QUE MANDA LE LLEGA A CUALQUIERA (2026-08-19)
+
+> *«El AV AGENT es SOLO para admin, no para el resto. Aunque esto no quiere decir
+> que no tenga el poder para mandar una alerta, notificación, etc. a otro user
+> que no sea admin.»* (user)
+
+**Y ahí había un bug real, introducido el mismo día.** La acción
+`avisar.responsable` (§0.j) deja el aviso en `mercado.av_agent_avisos` con el
+email del destinatario — pero el endpoint para leerlo vivía bajo `/api/ia`, que
+está gateado por el módulo **`ia`, que solo tienen admin e invitado**. O sea que
+el agente le podía escribir a un trader y **el trader no lo veía nunca**: el
+aviso quedaba guardado para nadie. El front lo remataba montando el modal solo
+para admin.
+
+La separación correcta es exactamente la que pidió el user:
+
+    EL AGENTE          admin-only (todo /api/ia/av-agent/*)
+    LO QUE MANDA       cualquiera (/api/avisos, sin gate de módulo)
+
+`api/routers/avisos.py` está **fuera de `/api/ia` a propósito**, y no es un
+agujero:
+
+- devuelve **solo** los avisos cuyo destinatario es el email del que pregunta.
+  **No hay parámetro para pedir los de otro** — un test inspecciona las firmas de
+  las rutas, no el texto del archivo;
+- cerrar un aviso lleva el dueño en el **WHERE del UPDATE**
+  (`AND lower(para) = %s`), no en un `if` previo: así «es mío» no es un permiso
+  que alguien pueda olvidarse de chequear en el próximo endpoint que toque esa
+  tabla — es parte de la escritura. Un id ajeno responde «no existe», que además
+  no confirma que ese aviso exista;
+- un aviso dirigido dice **qué hacer y dónde**, no expone el estado interno del
+  sistema (eso sigue siendo del agente);
+- el **portal invitado queda excluido igual** (REGLA #8): que hoy devolvería una
+  lista vacía es una coincidencia de los datos, no una regla.
+
+En el front es **PARA VOS**, un botón chico en la barra que **solo se dibuja si
+hay algo**. Un indicador permanente en cero enseña a no mirarlo, y el día que
+diga 1 tampoco se va a mirar.
+
+**De yapa, esto apretó `/api/ia`**: al mudarse `mis-avisos`, el ÚNICO endpoint
+sin `require_admin` bajo ese prefijo es el BRIEFING. El test de REGLA #8 lo
+congela así.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta
@@ -3053,6 +3157,22 @@ libro de acciones, los cinco estados, `_paso` y `_veredicto` quedaron **intactos
 realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
+
+- **2026-08-19 — la tab SKILLS y la LEY del registro único; el agente admin-only
+  pero sus avisos llegan a cualquiera** (§0.o y §0.p). *«Por ley y regla, todo lo
+  nuevo que se agregue de funcionalidad o habilidad tiene que quedar en esta
+  tab»* (user). El catálogo **se deriva** de los registros reales —detectores,
+  controles, explicadores, acciones—: una skill aparece por existir, y donde no
+  puede derivar hay un test que exige la descripción (y otro que falla si se
+  describe algo que ya no existe). Cada una declara si usa el modelo con TRES
+  valores y no un booleano, porque `opcional` —la parte que resuelve es una
+  función— es la categoría más común y la que se cuenta mal para los dos lados.
+  **26 habilidades: 20 sin IA, 6 con IA opcional, 0 que dependan del modelo**, y
+  un test congela que ninguna DETECCIÓN use el modelo. Además se arregló un bug
+  del mismo día: el agente podía dejarle un aviso a un trader y el trader no lo
+  veía nunca (el endpoint vivía bajo `/api/ia`, gateado por un módulo que un
+  trader no tiene). Los avisos se mudan a `/api/avisos` sin gate de módulo,
+  filtrando por el email propio, y aparecen como **PARA VOS** en la barra.
 
 - **2026-08-19 — VALIDACIONES entra al agente como LO QUE SABE EXPLICAR, y la tab
   IA de observabilidad se elimina** (§0.m y §0.n). Las ocho pantallas de

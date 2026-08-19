@@ -31,6 +31,7 @@ from api.ratelimit import limiter
 from api.routers import (
     aca,
     analitica,
+    avisos,
     back_office,
     carteras,
     cotizaciones,
@@ -276,6 +277,12 @@ _IA           = [Depends(verify_api_key), Depends(require_module("ia"))]
 
 # Públicos (todos los roles tienen home/renta-fija/derivados/estrategia):
 app.include_router(me.router)                                      # /api/me — sin gate (identidad propia)
+# /api/avisos — sin gate de módulo A PROPÓSITO (2026-08-19). El AV AGENT es
+# admin-only, pero lo que el agente MANDA le tiene que llegar a cualquiera: un
+# trader no tiene el módulo `ia`, así que bajo /api/ia el aviso quedaba guardado
+# para nadie. Devuelve SOLO los del email que pregunta — no hay parámetro para
+# pedir los de otro. Ver api/routers/avisos.py.
+app.include_router(avisos.router)
 app.include_router(ingest.router)                                  # /api/ingest — auth propia (X-Ingest-Token), no _PUBLIC
 app.include_router(analitica.router,         dependencies=_PUBLIC)
 app.include_router(cotizaciones.router,      dependencies=_PUBLIC)

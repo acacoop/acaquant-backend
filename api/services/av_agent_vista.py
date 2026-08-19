@@ -294,6 +294,34 @@ def avisos_de(email: str) -> list[dict]:
     return filas
 
 
+def resolver_aviso_propio(aviso_id: int, *, quien: str) -> dict:
+    """Cierra un aviso **solo si es de esa persona**.
+
+    El `AND lower(para) = %s` va en el WHERE y no en un `if` previo a propósito:
+    así "es mío" no es un permiso que alguien pueda olvidarse de chequear en el
+    próximo endpoint que toque esta tabla — es parte de la escritura. Un id ajeno
+    no falla con "no autorizado" sino con "no existe", que además no confirma que
+    ese aviso exista.
+    """
+    e = (quien or "").strip().lower()
+    if not e:
+        return {"ok": False, "error": "sin identidad"}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE mercado.av_agent_avisos SET resuelto = true, "
+                "resuelto_por = %s, resuelto_at = now() "
+                "WHERE id = %s AND lower(para) = %s AND NOT resuelto "
+                "RETURNING ticker, clave", (e, aviso_id, e))
+            fila = cur.fetchone()
+    except Exception as ex:
+        logger.warning("av_agent: no se pudo cerrar el aviso %s: %s", aviso_id, ex)
+        return {"ok": False, "error": str(ex)[:200]}
+    if not fila:
+        return {"ok": False, "error": "no existe ese aviso"}
+    return {"ok": True, "ticker": fila[0], "clave": fila[1], "resuelto": True}
+
+
 def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     """Los hallazgos de la corrida MÁS RECIENTE + su timestamp.
 

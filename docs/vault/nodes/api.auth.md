@@ -26,6 +26,7 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 - [[api.main]]  ·  _module_
 - [[api.mcp.oauth]]  ·  _module_
 - [[api.routers.aca]]  ·  _module_
+- [[api.routers.avisos]]  ·  _module_
 - [[api.routers.back_office]]  ·  _module_
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_

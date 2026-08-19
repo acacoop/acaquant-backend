@@ -101,8 +101,6 @@ def test_al_invitado_solo_le_queda_el_BRIEFING_bajo_api_ia():
     Es lo que impide que un endpoint nuevo del AV AGENT —que habla del estado
     interno del sistema— nazca alcanzable por el portal www sin que nadie lo note.
     """
-    from pathlib import Path
-
     from api.main import app
     from api.routers import ia as router_ia
 
@@ -112,15 +110,9 @@ def test_al_invitado_solo_le_queda_el_BRIEFING_bajo_api_ia():
         gates = [str(d.dependency) for d in getattr(r, "dependencies", [])]
         if not any("require_admin" in g for g in gates):
             abiertas.append(getattr(r, "path", "?"))
-    # `mis-avisos` no lleva `require_admin` porque el destinatario de un ping
-    # puede no administrar nada — pero rechaza al invitado por su cuenta.
-    assert sorted(abiertas) == ["/api/ia/av-agent/mis-avisos", "/api/ia/briefing"], (
+    assert abiertas == ["/api/ia/briefing"], (
         f"endpoints de /api/ia sin require_admin: {abiertas} — si alguno es "
         "para el invitado, decidilo explícito (REGLA #8: default-deny)")
-    fuente = Path(router_ia.__file__).read_text(encoding="utf-8")
-    i = fuente.index("def av_agent_mis_avisos(")
-    assert "is_guest_portal(request)" in fuente[i:i + 1200], (
-        "mis-avisos tiene que rechazar el portal invitado")
     assert app is not None
 
 
@@ -146,3 +138,55 @@ def test_invitado_research_habilitado():
     assert "research" in roles.INVITADO_MODULES
     for privada in ("operaciones", "portfolios", "back-office", "manager", "trading"):
         assert privada not in roles.INVITADO_MODULES
+
+
+# ── Los AVISOS del agente SÍ llegan a un no-admin (2026-08-19) ─────────────
+
+def test_el_agente_es_admin_only_pero_lo_que_MANDA_llega_a_cualquiera():
+    """Regla del user: *«el AV AGENT es solo para admin, no para el resto —
+    aunque esto no quiere decir que no tenga el poder para mandar una alerta o
+    notificación a otro user que no sea admin»*.
+
+    Y ahí había un bug real: el endpoint para leer los avisos vivía bajo
+    `/api/ia`, gateado por el módulo `ia` **que solo tienen admin e invitado**.
+    O sea que el agente le podía escribir a un trader y el trader no lo veía
+    nunca. Por eso los avisos viven en su propio router SIN gate de módulo.
+    """
+    from api.auth import get_module_for_path
+
+    # El agente, admin-only por su prefijo.
+    assert get_module_for_path("/api/ia/av-agent/skills") == "ia"
+    assert "ia" not in roles.DEFAULT_MATRIX["trader"]
+    # Los avisos, sin módulo: le llegan a cualquiera que esté logueado.
+    assert get_module_for_path("/api/avisos") is None
+
+
+def test_los_avisos_filtran_por_el_email_del_que_pregunta():
+    """No es un permiso que alguien pueda olvidarse de chequear: **no hay
+    parámetro** para pedir los de otro, y el cierre lleva el email en el WHERE
+    del UPDATE. Un id ajeno responde "no existe" — que además no confirma que
+    ese aviso exista."""
+    from pathlib import Path
+
+    from api.routers import avisos
+    from api.services import av_agent_vista
+
+    fuente = Path(avisos.__file__).read_text(encoding="utf-8")
+    assert "is_guest_portal" in fuente, "REGLA #8: el invitado queda afuera"
+
+    # Ninguna ruta acepta una identidad por parámetro: la única que hay sale de
+    # `get_user_email`. Se mira la FIRMA y no el texto del archivo — la palabra
+    # "destinatario" aparece explicándolo en la documentación, y un test que
+    # falla por su propio comentario no prueba nada.
+    import inspect
+    for ruta in avisos.router.routes:
+        params = inspect.signature(ruta.endpoint).parameters
+        assert set(params) <= {"request", "email", "body"}, (
+            f"{ruta.path} acepta {set(params)}: nada que permita pedir los de otro")
+        assert params["email"].default is not inspect.Parameter.empty
+
+    upd = Path(av_agent_vista.__file__).read_text(encoding="utf-8")
+    i = upd.index("def resolver_aviso_propio(")
+    cuerpo = upd[i:i + 1800]
+    assert "lower(para) = %s" in cuerpo, (
+        "el dueño va en el WHERE del UPDATE, no en un `if` previo")

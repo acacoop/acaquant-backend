@@ -61,6 +61,7 @@
 "api.routers",
 "api.routers.aca",
 "api.routers.analitica",
+"api.routers.avisos",
 "api.routers.back_office",
 "api.routers.carteras",
 "api.routers.cotizaciones",
@@ -263,6 +264,19 @@
 ]
 },
 {
+"id": "api.routers.avisos",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/avisos.py",
+"summary": "api/routers/avisos.py — LOS PENDIENTES QUE EL AGENTE LE DEJÓ A CADA PERSONA.",
+"links": [
+"api.auth",
+"api.services",
+"api.services.av_agent_vista"
+]
+},
+{
 "id": "api.routers.back_office",
 "type": "module",
 "layer": "api",
@@ -396,6 +410,7 @@
 "api.services.av_agent_relevar",
 "api.services.av_agent_salud",
 "api.services.av_agent_sin_precio",
+"api.services.av_agent_skills",
 "api.services.av_agent_vista",
 "api.services.briefing",
 "api.services.ia_obs",
@@ -1689,6 +1704,22 @@
 "api.services.av_agent_memoria",
 "core.instrumentos_validos",
 "core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_skills",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_skills.py",
+"summary": "api/services/av_agent_skills.py — EL REGISTRO ÚNICO DE HABILIDADES.",
+"links": [
+"api.services",
+"api.services.av_agent",
+"api.services.av_agent_explicar",
+"api.services.av_agent_hacer",
+"core.ai",
+"jobs.controles_datos"
 ]
 },
 {

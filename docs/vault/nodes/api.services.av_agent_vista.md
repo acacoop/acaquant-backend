@@ -27,6 +27,7 @@ _(pendiente de enriquecimiento)_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.routers.avisos]]  ·  _module_
 - [[api.routers.ia]]  ·  _module_
 - [[api.services.av_agent_alta]]  ·  _module_
 - [[api.services.av_agent_hacer]]  ·  _module_

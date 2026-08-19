@@ -28,4 +28,5 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.services.av_agent_hacer]]  ·  _module_
 - [[api.services.av_agent_salud]]  ·  _module_
+- [[api.services.av_agent_skills]]  ·  _module_
 - [[cron.jobs.controles_datos]]  ·  _cron_

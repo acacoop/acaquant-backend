@@ -6,7 +6,7 @@
 
 ## Qué hay adentro
 
-- **352** module
+- **354** module
 - **52** cron
 - **28** collection
 - **18** service

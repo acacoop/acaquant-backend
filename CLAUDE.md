@@ -58,6 +58,15 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > capas, el estado real de cada etapa y lo descartado. Incluye **SALUD**, que se
 > fusionó adentro del agente (un chequeo y un hallazgo son el mismo objeto), y el
 > **eval set**, que es lo que habilita cada paso de autonomía.
+> **⚠️ LEY DEL AGENTE (2026-08-19, §0.o): toda funcionalidad o habilidad nueva
+> tiene que quedar mapeada en la tab SKILLS, declarando si usa IA o no.** El
+> catálogo se DERIVA de los registros reales (`av_agent_skills.py`), así que una
+> skill aparece por existir; donde no puede derivar (los detectores) hay un test
+> que exige la descripción. Hoy: 26 habilidades, 20 sin IA.
+> **El AGENTE es admin-only, pero lo que MANDA le llega a cualquiera** (§0.p):
+> los avisos dirigidos viven en `/api/avisos`, FUERA de `/api/ia` (un trader no
+> tiene el módulo `ia`), filtrando por el email propio.
+>
 > **2026-08-19 — VALIDACIONES entra al agente** (§0.m): las 8 pantallas de
 > Manager → VALIDACIONES eran preguntas de trader con nombre de programador
 > («Debug TEA Curvas» = *¿por qué este bono rinde esto?*). Cinco son ahora

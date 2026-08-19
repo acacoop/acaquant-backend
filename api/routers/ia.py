@@ -6,10 +6,10 @@ y el prefijo /api/ia ya mapea al módulo en ENDPOINT_MODULE_PREFIXES.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.auth import get_user_email, is_guest_portal, require_admin
+from api.auth import get_user_email, require_admin
 from api.services import briefing, ia_obs
 
 router = APIRouter(prefix="/api/ia", tags=["ia"])
@@ -387,20 +387,21 @@ def av_agent_hacer_rechazar(body: RechazarHacer, email: str = Depends(get_user_e
     return svc.rechazar(body.ids, por=email or "")
 
 
-@router.get("/av-agent/mis-avisos")
-def av_agent_mis_avisos(request: Request, email: str = Depends(get_user_email)):
-    """**Lo que el agente le dejó a ESTA persona.** Sin `require_admin` a
-    propósito: el destinatario de un ping es justamente alguien que no
-    necesariamente administra nada, y filtra por su propio email — no hay forma
-    de pedir los de otro.
+@router.get("/av-agent/skills", dependencies=[Depends(require_admin)])
+def av_agent_skills():
+    """**TODO lo que el agente sabe hacer**, en un solo lugar.
 
-    Pero **jamás el portal invitado** (REGLA #8): un aviso del agente habla del
-    estado interno del sistema. Que hoy devolvería una lista vacía no es una
-    defensa — es una coincidencia de los datos, no una regla."""
-    if is_guest_portal(request):
-        raise HTTPException(403, "no disponible para el portal invitado")
-    from api.services import av_agent_vista as vista
-    return {"avisos": vista.avisos_de(email or "")}
+    Regla del user (2026-08-19): *«por ley y regla, todo lo nuevo que se agregue
+    de funcionalidad o habilidad tiene que quedar en esta tab, para que se vaya
+    mapeando todo lo que va consolidando; y dejar asentado si esa skill usa IA o
+    no»*.
+
+    **El catálogo se DERIVA de los registros reales**, no se escribe a mano: una
+    skill nueva aparece por existir, y no hay forma de agregar una capacidad y
+    olvidarse de mapearla. Cada una declara si usa el modelo —`no` / `opcional`
+    / `si`— porque eso cambia cuánto hay que desconfiar de lo que devuelve."""
+    from api.services import av_agent_skills as svc
+    return svc.vista()
 
 
 # ── LO QUE EL AGENTE SABE EXPLICAR (2026-08-19) ─────────────────────────────

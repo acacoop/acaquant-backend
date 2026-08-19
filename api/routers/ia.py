@@ -236,7 +236,9 @@ class DiagnosticoSalud(BaseModel):
 class VotoEval(BaseModel):
     """El voto humano sobre un diagnóstico. **Es el insumo del eval set.**"""
     caso: str = Field(..., min_length=2, max_length=200)
-    dominio: str = Field("bono", pattern="^(bono|salud)$")
+    # `sistema` se sumó el 2026-08-19: el agente ya mira tablas, motores,
+    # permisos y datos partidos, y esos hallazgos no tenían dónde votarse.
+    dominio: str = Field("bono", pattern="^(bono|salud|sistema)$")
     causa: str = Field(..., min_length=2, max_length=60)
     acierta: bool
     nota: str = Field("", max_length=1000)

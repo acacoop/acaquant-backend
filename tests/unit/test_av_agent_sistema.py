@@ -288,3 +288,39 @@ def test_el_vencimiento_se_aplica_en_SQL_no_en_el_front():
     assert "OBSERVACIONES_DE_MERCADO" in src and "make_interval" in src
     # Y el corte por REGLA tiene que estar en el WHERE, no filtrado después.
     assert "regla = ANY" in src and "regla <> ALL" in src
+
+
+# ── (2026-08-19) EL DOMINIO DEL VOTO ────────────────────────────────────────
+
+def test_todo_tipo_que_emite_un_detector_tiene_DOMINIO_de_voto():
+    """El eval set nació con dos dominios (`bono` | `salud`) porque eran los dos
+    detectores que había. Desde entonces el agente aprendió a mirar el SISTEMA, y
+    esos hallazgos **no tenían dónde votarse**: el payload los rechazaba por el
+    patrón y nadie se enteraba, porque el botón todavía no existía.
+
+    Si mañana entra un tipo nuevo sin dominio, cae en `bono` y su precisión se
+    mezcla con la de los bonos — un error que no da ningún síntoma."""
+    from api.services import av_agent
+    tipos = set(av_agent.ACCION_POR_TIPO)
+    faltan = tipos - set(av_agent.DOMINIO_EVAL)
+    assert not faltan, f"tipos sin dominio de voto declarado: {sorted(faltan)}"
+
+
+def test_los_dominios_declarados_son_los_que_el_endpoint_ACEPTA():
+    """Si `DOMINIO_EVAL` dijera un dominio que el payload rechaza, el voto se
+    perdería con un 422 y el botón parecería roto sin motivo."""
+    from api.services import av_agent
+    assert set(av_agent.DOMINIO_EVAL.values()) <= set(av_agent.DOMINIOS_EVAL)
+    import inspect
+
+    from api.routers import ia
+    src = inspect.getsource(ia.VotoEval)
+    for d in av_agent.DOMINIOS_EVAL:
+        assert d in src, f"el payload no acepta el dominio «{d}»"
+
+
+def test_un_tipo_desconocido_cae_en_bono_y_no_levanta():
+    from api.services import av_agent
+    assert av_agent.dominio_eval("no_existe") == "bono"
+    assert av_agent.dominio_eval("") == "bono"
+    assert av_agent.dominio_eval("dato_partido") == "sistema"

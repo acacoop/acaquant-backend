@@ -428,6 +428,10 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         # arreglo. Ojo: esconderlo NO es filtrarlo del conteo; los ilíquidos siguen
         # contados y a un clic.
         h["de_quien"] = av_agent.de_quien(h.get("regla") or "")
+        # Dónde se anota el voto. Lo decide el backend por el mismo motivo que la
+        # acción: si el front lo dedujera del tipo, tendría una segunda tabla de
+        # dominios que se separa de ésta sin dar ningún error.
+        h["dominio_eval"] = av_agent.dominio_eval(h.get("tipo") or "")
 
     def _caduco(h: dict) -> bool:
         if (h.get("ticker") or "").strip().upper() in ignorados:

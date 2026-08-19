@@ -328,6 +328,34 @@ def de_quien(regla: str) -> str:
     return DE_QUIEN.get((regla or "").strip(), DE_QUIEN_DEFAULT)
 
 
+# ── EL DOMINIO DEL VOTO — dónde se anota que el agente acertó o no ──────────
+#
+# El eval set nació con dos dominios (`bono` | `salud`) porque eran los dos
+# detectores que había. Desde entonces el agente aprendió a mirar el SISTEMA
+# —tablas quietas, motores caídos, permisos flojos, latencia, datos partidos— y
+# esos hallazgos **no tenían dónde votarse**: el voto se rechazaba por el patrón
+# del payload y nadie se enteraba, porque el botón todavía no existía.
+#
+# Se DECLARA por tipo, igual que `ACCION_POR_TIPO` y `DE_QUIEN`. Un tipo nuevo
+# sin declarar cae en `bono`, que es el default histórico — y hay un test que
+# exige que todo tipo que emita un detector esté acá, para que el próximo no se
+# entere el día que quiera medir su precisión.
+DOMINIO_EVAL: dict[str, str] = {
+    "falta_en_base": "bono", "sin_flujo": "bono", "tasa_sospechosa": "bono",
+    "hueco_de_curva": "bono", "sin_precio": "bono", "precio_moneda": "bono",
+    "salud": "salud",
+    "db_cambio": "sistema", "latencia": "sistema", "tabla_quieta": "sistema",
+    "motor_caido": "sistema", "permiso_flojo": "sistema",
+    "dato_partido": "sistema",
+}
+DOMINIOS_EVAL = ("bono", "salud", "sistema")
+
+
+def dominio_eval(tipo: str) -> str:
+    """En qué dominio se anota el voto de este hallazgo."""
+    return DOMINIO_EVAL.get((tipo or "").strip(), "bono")
+
+
 def _hallazgo(tipo: str, ticker: str, regla: str, severidad: str,
               motivo: str, evidencia: dict[str, Any]) -> dict:
     """Un hallazgo es siempre la MISMA forma, venga del detector que venga: así la

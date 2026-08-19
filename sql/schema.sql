@@ -4170,7 +4170,7 @@ CREATE INDEX IF NOT EXISTS ix_av_lecciones_causa ON mercado.av_agent_lecciones (
 CREATE TABLE IF NOT EXISTS mercado.av_agent_evals (
     id              bigserial PRIMARY KEY,
     caso            text NOT NULL,        -- el SUJETO: ticker del bono o id del chequeo
-    dominio         text NOT NULL DEFAULT 'bono',   -- bono | salud
+    dominio         text NOT NULL DEFAULT 'bono',   -- bono | salud | sistema
     causa           text NOT NULL,        -- lo que dijo el agente
     acierta         boolean NOT NULL,
     causa_correcta  text,                 -- si no acierta: cuál era (para aprender)

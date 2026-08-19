@@ -1,0 +1,20 @@
+[0;1;32m●[0m api.service - TradingAV API (FastAPI + uvicorn)
+     Loaded: loaded (]8;;file://valores-trading-server/etc/systemd/system/api.service/etc/systemd/system/api.service]8;;; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;32mactive (running)[0m since Sat 2026-05-23 19:36:33 UTC; 6s ago
+   Main PID: 557938 (uvicorn)
+      Tasks: 20 (limit: 2315)
+     Memory: 126.0M (peak: 126.1M)
+        CPU: 3.238s
+     CGroup: /system.slice/api.service
+             └─[0;38;5;245m557938 /root/TradingAV/venv/bin/python3 /root/TradingAV/venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000[0m
+
+May 23 19:36:35 valores-trading-server uvicorn[557938]: INFO:     Started server process [557938]
+May 23 19:36:35 valores-trading-server uvicorn[557938]: INFO:     Waiting for application startup.
+May 23 19:36:35 valores-trading-server uvicorn[557938]: 2026-05-23 19:36:35,995 auth posture: capas=['API_KEY', 'CF-JWT'] ENV=prod
+May 23 19:36:35 valores-trading-server uvicorn[557938]: /root/TradingAV/venv/lib/python3.12/site-packages/pymongo/common.py:845: UserWarning: Wire protocol compression with zstandard is not available. You must install the backports.zstd module for zstandard support.
+May 23 19:36:35 valores-trading-server uvicorn[557938]:   value = validator(option, value)
+May 23 19:36:36 valores-trading-server uvicorn[557938]: 2026-05-23 19:36:36,271 Mongo pool warmup OK (rw)
+May 23 19:36:36 valores-trading-server uvicorn[557938]: 2026-05-23 19:36:36,443 Mongo pool warmup OK (read)
+May 23 19:36:36 valores-trading-server uvicorn[557938]: 2026-05-23 19:36:36,455 StreamableHTTP session manager started
+May 23 19:36:36 valores-trading-server uvicorn[557938]: INFO:     Application startup complete.
+May 23 19:36:36 valores-trading-server uvicorn[557938]: INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)

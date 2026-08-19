@@ -1,0 +1,83 @@
+[
+  {
+    "id": "comercial/informe-segmento-detalle",
+    "ms_browser": 1527.2,
+    "ms_primera": 1191.1,
+    "ms_servidor": 816.6,
+    "bytes": 12943676,
+    "ms_peaje": 710.6,
+    "pct_servidor": 53.5
+  },
+  {
+    "id": "comercial/operador",
+    "ms_browser": 1428.5,
+    "ms_primera": 298.7,
+    "ms_servidor": 281.8,
+    "bytes": 872857,
+    "ms_peaje": 1146.7,
+    "pct_servidor": 19.7
+  },
+  {
+    "id": "comercial/informe",
+    "ms_browser": 997.9,
+    "ms_primera": 192.9,
+    "ms_servidor": 172.5,
+    "bytes": 4283,
+    "ms_peaje": 825.4,
+    "pct_servidor": 17.3
+  },
+  {
+    "id": "comercial/informe-segmento",
+    "ms_browser": 621.7,
+    "ms_primera": 94.9,
+    "ms_servidor": 94.2,
+    "bytes": 451,
+    "ms_peaje": 527.5,
+    "pct_servidor": 15.1
+  },
+  {
+    "id": "comercial/analisis",
+    "ms_browser": 2297.8,
+    "ms_primera": 2023.1,
+    "ms_servidor": 342.3,
+    "bytes": 700484,
+    "ms_peaje": 1955.5,
+    "pct_servidor": 14.9
+  },
+  {
+    "id": "ops/agro",
+    "ms_browser": 920.2,
+    "ms_primera": 1037.0,
+    "ms_servidor": 1025.1,
+    "bytes": 25697,
+    "ms_peaje": -104.9,
+    "pct_servidor": 111.4
+  },
+  {
+    "id": "ops/resumen",
+    "ms_browser": 520.5,
+    "ms_primera": 393.2,
+    "ms_servidor": 352.9,
+    "bytes": 209475,
+    "ms_peaje": 167.6,
+    "pct_servidor": 67.8
+  },
+  {
+    "id": "ops/serie",
+    "ms_browser": 448.2,
+    "ms_primera": 80.9,
+    "ms_servidor": 64.1,
+    "bytes": 51146,
+    "ms_peaje": 384.1,
+    "pct_servidor": 14.3
+  },
+  {
+    "id": "portfolio/total-serie",
+    "ms_browser": 950.0,
+    "ms_primera": 203.7,
+    "ms_servidor": 205.7,
+    "bytes": 20325,
+    "ms_peaje": 744.3,
+    "pct_servidor": 21.7
+  }
+]

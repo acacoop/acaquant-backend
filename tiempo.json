@@ -1,0 +1,134 @@
+{
+  "agro": [
+    {
+      "query": "serie",
+      "ms": 215.7,
+      "filas": 24,
+      "nota": "con rango de fechas"
+    },
+    {
+      "query": "totales_commodity",
+      "ms": 95.1,
+      "filas": 3,
+      "nota": "con rango de fechas"
+    },
+    {
+      "query": "por_cuenta",
+      "ms": 106.7,
+      "filas": 130,
+      "nota": "con rango de fechas"
+    },
+    {
+      "query": "por_instrumento",
+      "ms": 102.0,
+      "filas": 164,
+      "nota": "con rango de fechas"
+    },
+    {
+      "query": "totales_tipo",
+      "ms": 105.9,
+      "filas": 6,
+      "nota": "con rango de fechas"
+    },
+    {
+      "query": "serie_tipo",
+      "ms": 137.3,
+      "filas": 16,
+      "nota": "con rango de fechas"
+    },
+    {
+      "query": "nuestro_mensual",
+      "ms": 314.5,
+      "filas": 164,
+      "nota": "⚠ SIN rango de fechas — TODO el histórico, en CADA llamada"
+    },
+    {
+      "query": "volumen_mercado_agro",
+      "ms": 25.4,
+      "filas": 13
+    }
+  ],
+  "peaje": [
+    {
+      "endpoint": "/api/operaciones/comercial/informe-segmento-detalle",
+      "ms_browser": 1527.2,
+      "ms_middleware": 482.6,
+      "ms_service": 344.6,
+      "ms_afuera": 1044.6,
+      "ms_adentro": 138.0,
+      "n": 89
+    },
+    {
+      "endpoint": "/api/operaciones/comercial/operador",
+      "ms_browser": 1428.5,
+      "ms_middleware": 200.7,
+      "ms_service": 261.1,
+      "ms_afuera": 1227.8,
+      "ms_adentro": -60.4,
+      "n": 1541
+    },
+    {
+      "endpoint": "/api/operaciones/comercial/informe",
+      "ms_browser": 997.9,
+      "ms_middleware": 232.1,
+      "ms_service": 171.4,
+      "ms_afuera": 765.8,
+      "ms_adentro": 60.7,
+      "n": 107
+    },
+    {
+      "endpoint": "/api/operaciones/comercial/informe-segmento",
+      "ms_browser": 621.7,
+      "ms_middleware": 100.2,
+      "ms_service": 94.8,
+      "ms_afuera": 521.5,
+      "ms_adentro": 5.4,
+      "n": 81
+    },
+    {
+      "endpoint": "/api/operaciones/comercial/analisis",
+      "ms_browser": 2297.8,
+      "ms_middleware": 1172.0,
+      "ms_service": 340.2,
+      "ms_afuera": 1125.8,
+      "ms_adentro": 831.8,
+      "n": 32
+    },
+    {
+      "endpoint": "/api/operaciones/ops/agro",
+      "ms_browser": 920.2,
+      "ms_middleware": 730.3,
+      "ms_service": 1025.9,
+      "ms_afuera": 189.9,
+      "ms_adentro": -295.6,
+      "n": 47
+    },
+    {
+      "endpoint": "/api/operaciones/ops/resumen",
+      "ms_browser": 520.5,
+      "ms_middleware": 201.9,
+      "ms_service": 349.5,
+      "ms_afuera": 318.6,
+      "ms_adentro": -147.6,
+      "n": 121
+    },
+    {
+      "endpoint": "/api/operaciones/ops/serie",
+      "ms_browser": 448.2,
+      "ms_middleware": 155.9,
+      "ms_service": 63.2,
+      "ms_afuera": 292.3,
+      "ms_adentro": 92.7,
+      "n": 107
+    },
+    {
+      "endpoint": "/api/portfolio/total-serie",
+      "ms_browser": 950.0,
+      "ms_middleware": 387.6,
+      "ms_service": 201.4,
+      "ms_afuera": 562.4,
+      "ms_adentro": 186.2,
+      "n": 25
+    }
+  ]
+}

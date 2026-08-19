@@ -1,0 +1,146 @@
+[
+  {
+    "id": "pulso",
+    "titulo": "PULSO por rubro (scanner CEDEARs)",
+    "front": "metricas-panel.tsx",
+    "ms_frio": 1076.1,
+    "ms_tibio": 0.0,
+    "n": 187,
+    "bytes": 165782,
+    "gzip": 41507,
+    "kb_hora_usuario": 72961.5,
+    "verificacion": "cobertura de campos → rubro=187/187  adr_dollar_vol=186/187  adr_vs_1d_pct=187/187  intraday_pct=183/187  vs_1d_pct=183/187",
+    "bytes_despues": 5819,
+    "gzip_despues": 2599,
+    "n_despues": 2,
+    "ahorro_gzip_pct": 93.7,
+    "nota": "El universo YA se baja para la TABLA del scanner. Un endpoint /pulso AGREGA un request, no lo reemplaza: el ahorro de red es 0 salvo que la tabla también se recorte. El valor de portarlo es que el copiloto y la vista dejen de tener dos _wavg."
+  },
+  {
+    "id": "movers",
+    "titulo": "MOVERS ±4% (radar de Trading)",
+    "front": "trading-movers-scanner.tsx",
+    "ms_frio": 0.1,
+    "ms_tibio": 0.0,
+    "n": 187,
+    "bytes": 165782,
+    "gzip": 41507,
+    "kb_hora_usuario": 72961.5,
+    "verificacion": "cobertura de campos → rubro=187/187  adr_dollar_vol=186/187  adr_vs_1d_pct=187/187  intraday_pct=183/187  vs_1d_pct=183/187",
+    "bytes_despues": 3524,
+    "gzip_despues": 1304,
+    "n_despues": 4,
+    "ahorro_gzip_pct": 96.9,
+    "nota": "Acá el universo se baja SOLO para filtrar unas pocas filas: en /trading no hay tabla que consuma el resto. Este sí es un ahorro de red real y se mide en el 'después'."
+  },
+  {
+    "id": "retorno_total",
+    "titulo": "RETORNO TOTAL (3 fetches en paralelo al abrir)",
+    "front": "research-retorno-total.tsx",
+    "ms_frio": 764.5,
+    "ms_tibio": 189.4,
+    "n": 3,
+    "bytes": 631369,
+    "gzip": 86289,
+    "desglose": [
+      {
+        "clave": "cer.rows",
+        "bytes": 242486,
+        "gzip": 33740
+      },
+      {
+        "clave": "soberanos.rows",
+        "bytes": 205811,
+        "gzip": 27613
+      },
+      {
+        "clave": "tasa_fija.rows",
+        "bytes": 158783,
+        "gzip": 19994
+      },
+      {
+        "clave": "soberanos.flujos",
+        "bytes": 15645,
+        "gzip": 1460
+      },
+      {
+        "clave": "tasa_fija.mep",
+        "bytes": 2126,
+        "gzip": 672
+      },
+      {
+        "clave": "cer.mep",
+        "bytes": 2126,
+        "gzip": 672
+      },
+      {
+        "clave": "tasa_fija.oficial",
+        "bytes": 2042,
+        "gzip": 629
+      },
+      {
+        "clave": "cer.oficial",
+        "bytes": 2042,
+        "gzip": 629
+      },
+      {
+        "clave": "cer.flujos",
+        "bytes": 103,
+        "gzip": 90
+      },
+      {
+        "clave": "tasa_fija.curva",
+        "bytes": 11,
+        "gzip": 31
+      },
+      {
+        "clave": "soberanos.curva",
+        "bytes": 11,
+        "gzip": 31
+      },
+      {
+        "clave": "cer.curva",
+        "bytes": 5,
+        "gzip": 25
+      },
+      {
+        "clave": "tasa_fija.flujos",
+        "bytes": 2,
+        "gzip": 22
+      },
+      {
+        "clave": "soberanos.mep",
+        "bytes": 2,
+        "gzip": 22
+      },
+      {
+        "clave": "soberanos.oficial",
+        "bytes": 2,
+        "gzip": 22
+      }
+    ],
+    "nota": "Una sola vez al montar, no se pollea → el peso pega en el TIEMPO DE APERTURA, no en el sostenido. El desglose por clave dice cuánto es rows vs mep/oficial/flujos (las series de dólar van completas y el front las usa como lookup)."
+  },
+  {
+    "id": "hist_forwards",
+    "titulo": "Histórico de forwards (matriz de pares)",
+    "front": "research-forwards.tsx",
+    "ms_frio": 141.6,
+    "ms_tibio": 0.1,
+    "n": 572,
+    "bytes": 3246008,
+    "gzip": 950301,
+    "nota": "Sin filtro trae TODO el histórico. El front ya puede pedir ?curva=&desde= — comparar este número contra el filtrado dice si el problema es el endpoint o cómo lo llama la vista."
+  },
+  {
+    "id": "comercial",
+    "titulo": "Análisis comercial (dump crudo de clientes)",
+    "front": "comercial-*-view.tsx",
+    "ms_frio": 1963.1,
+    "ms_tibio": 361.7,
+    "n": 5,
+    "bytes": 700474,
+    "gzip": 80267,
+    "nota": "Los KPIs (estados, cupos, pivotes) se arman en el cliente sobre este dump. El dump igual hace falta para la tabla, así que portar los KPIs no baja bytes: baja CPU del browser."
+  }
+]

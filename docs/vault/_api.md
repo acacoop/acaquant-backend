@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-209 notas.
+211 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -110,9 +110,11 @@
 - [[api.services.av_agent_analista]] — api/services/av_agent_analista.py — EL ANALISTA del diagnóstico masivo.
 - [[api.services.av_agent_centinela]] — api/services/av_agent_centinela.py — EL AGENTE PRENDIDO, con memoria.
 - [[api.services.av_agent_control]] — api/services/av_agent_control.py — EL TABLERO DE CONTROL del AV Agent.
+- [[api.services.av_agent_db]] — api/services/av_agent_db.py — EL AGENTE ENTIENDE LA BASE DE DATOS.
 - [[api.services.av_agent_evals]] — api/services/av_agent_evals.py — el EVAL SET del AV AGENT.
 - [[api.services.av_agent_explicar]] — api/services/av_agent_explicar.py — LO QUE EL AGENTE SABE EXPLICAR.
 - [[api.services.av_agent_hacer]] — api/services/av_agent_hacer.py — LO QUE EL AGENTE SABE HACER.
+- [[api.services.av_agent_latencia]] — api/services/av_agent_latencia.py — EL AGENTE DETECTA ENDPOINTS QUE SE PUSIERON LENTOS.
 - [[api.services.av_agent_masivo]] — api/services/av_agent_masivo.py — EL DIAGNÓSTICO MASIVO del AV Agent.
 - [[api.services.av_agent_memoria]] — api/services/av_agent_memoria.py — LA MEMORIA DEL AGENTE.
 - [[api.services.av_agent_preguntas]] — api/services/av_agent_preguntas.py — el AV AGENT le PREGUNTA al humano (E1.c).

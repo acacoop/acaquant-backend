@@ -1466,6 +1466,7 @@
 "links": [
 "api.services",
 "api.services.acreencias",
+"api.services.av_agent_latencia",
 "api.services.curvas_vista",
 "api.services.macro",
 "api.services.salud",
@@ -1569,6 +1570,17 @@
 ]
 },
 {
+"id": "api.services.av_agent_db",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_db.py",
+"summary": "api/services/av_agent_db.py — EL AGENTE ENTIENDE LA BASE DE DATOS.",
+"links": [
+"core.postgres"
+]
+},
+{
 "id": "api.services.av_agent_evals",
 "type": "module",
 "layer": "api",
@@ -1588,6 +1600,8 @@
 "summary": "api/services/av_agent_explicar.py — LO QUE EL AGENTE SABE EXPLICAR.",
 "links": [
 "api.services",
+"api.services.av_agent_db",
+"api.services.av_agent_latencia",
 "api.services.debug_curva",
 "api.services.debug_derivados",
 "core",
@@ -1613,6 +1627,17 @@
 "core.ai",
 "core.postgres",
 "jobs.controles_datos"
+]
+},
+{
+"id": "api.services.av_agent_latencia",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_latencia.py",
+"summary": "api/services/av_agent_latencia.py — EL AGENTE DETECTA ENDPOINTS QUE SE PUSIERON LENTOS.",
+"links": [
+"core.postgres"
 ]
 },
 {
@@ -3808,6 +3833,17 @@
 ]
 },
 {
+"id": "cron.jobs.db_tamano",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.db_tamano"
+]
+},
+{
 "id": "cron.jobs.eikon_cierres",
 "type": "cron",
 "layer": "deploy",
@@ -5052,6 +5088,19 @@
 "core.pg_mirror",
 "core.postgres",
 "quant.intraday"
+]
+},
+{
+"id": "jobs.db_tamano",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/db_tamano.py",
+"summary": "jobs/db_tamano.py — LA FOTO DIARIA DE LA BASE.",
+"links": [
+"api.services",
+"api.services.av_agent_db",
+"core.job_runs"
 ]
 },
 {

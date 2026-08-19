@@ -710,6 +710,111 @@ diga 1 tampoco se va a mirar.
 sin `require_admin` bajo ese prefijo es el BRIEFING. El test de REGLA #8 lo
 congela así.
 
+### 0.q EL AGENTE ENTIENDE LA BASE Y LA LATENCIA (2026-08-19)
+
+#### LA BASE DE DATOS — la información es el DELTA, no el tamaño
+
+Pedido del user: *«que entienda qué tablas hay, cuánto pesa cada una (al menos
+una vez por día) y sepa distinguir al día siguiente si se agregó algo nuevo, y
+cuáles aumentaron su tamaño y por cuánto… esto tendrá que persistir para tener
+contexto, pero a su vez no crecer todo el tiempo: con que tenga registro de hoy y
+ayer constantemente alcanza»*.
+
+`pg_total_relation_size` ya dice cuánto pesa cada tabla, y mirarlo una vez no
+sirve de nada: son doscientos números sin escala. **Lo que informa es el
+cambio**, y son tres cosas:
+
+- una tabla **NUEVA** → alguien creó algo, o un job está escribiendo donde no
+  debería. Es lo que uno se entera último y lo que explica el resto;
+- una tabla que **CRECIÓ de golpe** → un job en loop, un backfill que se fue de
+  mano, una tabla sin purga. Eso es lo que se come el plan;
+- una tabla que **DESAPARECIÓ** → alguien dropeó algo.
+
+Por eso hay **foto diaria** (`jobs/db_tamano.py`, 23:30 UTC) y no una consulta en
+vivo: sin el de ayer no hay comparación.
+
+**Dos fechas y nada más**, con la purga **en el mismo INSERT** (mismo patrón que
+`tesoreria_snapshots`). No depende de que alguien se acuerde de correr una
+limpieza: una tabla que vigila el tamaño de la base y crece sin techo es un
+chiste que se cuenta solo. Son ~200 filas × 2 días.
+
+**El corte se AUTO-CALIBRA.** ⚠️ No tengo acceso a prod, así que cualquier umbral
+en MB que ponga a mano es una adivinanza (REGLA #2). Entonces no se pone: un
+crecimiento entra si supera **los dos** filtros —**+25%** sobre su propio tamaño
+**y** el máximo entre **10 MB y el 0,5% de la base**—. Así el aviso significa lo
+mismo con 500 MB que con 50 GB, y nadie recalibra nada cuando la base crezca. Un
+filtro solo no alcanza: el relativo dispara con tablas de 8 KB (crecer 50% son
+4 KB) y el absoluto solo, con tablas grandes que crecen lo normal todos los días.
+
+**La primera foto NO reporta 200 tablas nuevas.** Sin foto previa todo parecería
+nuevo, y arrancar con 200 falsos positivos es la forma más rápida de que nadie
+vuelva a mirar esto. Dice «es la primera, mañana te cuento» y listo.
+
+Tablas: `manager.db_tamano` (por tabla) y `manager.db_tamano_dia` (el total de la
+base, que **no** es la suma de las tablas — incluye catálogo, TOAST y espacio
+libre; se guardan aparte para que las dos cifras no se puedan confundir).
+
+#### LA LATENCIA — por qué la pantalla no servía, y qué la reemplaza
+
+*«La verdad tengo eso en observabilidad, jamás lo usé, me está usando espacio
+innecesario… ni siquiera se actualiza, puede haber cosas nuevas y no se entera.
+Me interesa que el agent pueda detectar en tiempo real endpoints que estén
+lentos, pero tiene que ser algo fiable y verdadero, no tirar por tirar»* (user).
+
+**El diagnóstico es exacto y es el error de diseño que se corrige: un ranking
+muestra lo LENTO, no lo ANORMAL.** Arriba de esa tabla estaban:
+
+    /api/manager/salud/diagnostico   11.724 ms   →  es una llamada al LLM
+    /api/back-office/tesoreria/dia      726 ms   →  son 1,6 s de Aunesa medidos
+
+Los dos **están bien**. Son lentos porque hacen algo caro, y van a seguir siendo
+los más lentos mañana y pasado. Una lista de cosas inherentemente lentas **no
+cambia nunca** — por eso se deja de mirar, y por eso «no se entera» de nada: no
+tiene con qué comparar.
+
+**Lo que sí es información es la DEGRADACIÓN**: un endpoint que hoy tarda mucho
+más que él mismo ayer. Eso no aparece en un ranking (puede seguir estando décimo)
+y es lo único que amerita interrumpir a alguien. Cada endpoint se compara
+**contra sí mismo**, jamás contra otros.
+
+**Las cuatro guardas contra «tirar por tirar»** — la parte difícil, porque un
+detector de latencia que grita seguido no genera desconfianza: genera que se lo
+ignore, que es peor:
+
+1. **Volumen mínimo** (20 requests). La media de 3 es ruido, no una medición.
+2. **Historia mínima** (6 horas). Comparar contra dos puntos es adivinar.
+3. **Relativo Y absoluto, los dos** (2,5× **y** +300 ms). Triplicarse de 10 ms a
+   30 ms no le importa a nadie; empeorar 400 ms sobre 5.000 tampoco.
+4. **MEDIANA y no promedio** en la línea base: un pico previo subiría la vara y
+   taparía justo el problema que se repite. Hay un test que lo demuestra.
+
+Los **5xx no pasan por la comparación**: un endpoint que rompe está roto tarde lo
+que tarde, así que van con su propio umbral y sin línea base.
+
+Corre con los detectores live **cada 5 minutos en rueda** (lo que el user llamó
+«tiempo real»), y cuesta **una sola query** sobre un agregado que ya existía. La
+ventana es de 2 horas y no de minutos porque el agregado es **por hora**: pedirle
+a ese dato una resolución que no tiene sería inventar precisión.
+
+⚠️ **Los cuatro números son hipótesis sin medir** (REGLA #2). Están como
+constantes con nombre para moverlas con un dato real: el primer día que esto
+cante algo obvio o se quede mudo, se ajustan.
+
+#### Qué se eliminó y qué quedó
+
+- **La tab LATENCIA de Manager se eliminó**: el ranking es justamente lo que
+  falló, y dejarlo mantiene lo que enseñó a no mirar. `manager.latencia_endpoints`
+  y el middleware **no se tocaron** — se eliminó la pantalla, no el dato.
+- **La tab BASE queda**: el user no se quejó de esa y es el inventario. Lo que se
+  suma es que el agente ahora la entienda y avise solo.
+- Las dos capacidades entraron a **SKILLS solas, por la ley de §0.o** — no hubo
+  que anotarlas en ningún lado. Y las dos son **`función`, sin IA**: lo que el
+  agente encuentra lo encuentra una función determinista.
+- Además hay **dos explicadores nuevos** (§0.m): *«¿Cuánto pesa la base y qué
+  creció desde ayer?»* y *«¿Hay algún endpoint más lento que lo normal?»* — el
+  segundo separa a propósito **lo degradado** (que es un problema) de **lo que
+  más tiempo consume** (que es el ranking y **no** es una lista de problemas).
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta
@@ -3157,6 +3262,20 @@ libro de acciones, los cinco estados, `_paso` y `_veredicto` quedaron **intactos
 realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
+
+- **2026-08-19 — el agente entiende la BASE DE DATOS y la LATENCIA** (§0.q). Foto
+  diaria del tamaño de cada tabla (`jobs/db_tamano`, 23:30 UTC) que guarda **solo
+  hoy y ayer** y purga en el mismo INSERT: lo que informa no es el tamaño sino el
+  DELTA —qué apareció, qué creció y por cuánto, qué desapareció—. El corte se
+  auto-calibra sobre el tamaño real de la base en vez de un umbral en MB que
+  envejece. Y la LATENCIA: la pantalla no servía porque **un ranking muestra lo
+  LENTO, no lo ANORMAL** (arriba estaban una llamada al LLM y un proveedor
+  externo, las dos bien y las dos ahí mañana también). Ahora cada endpoint se
+  compara **contra sí mismo** con cuatro guardas contra el falso positivo —
+  volumen mínimo, historia mínima, relativo Y absoluto, y mediana en vez de
+  promedio para que un pico previo no tape el problema. La tab LATENCIA se
+  elimina; la tabla y el middleware quedan. Las dos capacidades entraron a SKILLS
+  solas por la ley de §0.o, y las dos son función pura: 30 habilidades, 24 sin IA.
 
 - **2026-08-19 — la tab SKILLS y la LEY del registro único; el agente admin-only
   pero sus avisos llegan a cualquiera** (§0.o y §0.p). *«Por ley y regla, todo lo

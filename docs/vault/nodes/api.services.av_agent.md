@@ -19,6 +19,7 @@ _(pendiente de enriquecimiento)_
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
 - [[api.services.acreencias]]  ·  _module_
+- [[api.services.av_agent_latencia]]  ·  _module_
 - [[api.services.curvas_vista]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.salud]]  ·  _module_

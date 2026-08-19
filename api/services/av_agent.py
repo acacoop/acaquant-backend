@@ -115,6 +115,13 @@ ACCION_POR_TIPO = {
     # un comentario que nadie puede accionar y no da ningún error — exactamente lo
     # que le pasó a `tasa_sospechosa` durante 38 filas.
     "hueco_de_curva": None,
+    # ── EL SISTEMA, no el mercado (2026-08-19) ───────────────────────────────
+    # `None` EXPLÍCITO: son diagnósticos, no cosas que se arreglen tocando
+    # `mercado.curvas`. Una tabla que creció de golpe se resuelve en el job que
+    # la escribe; un endpoint degradado, en su propio código. El agente los VE y
+    # los canta con la evidencia — que es todo lo que se le pidió.
+    "db_cambio": None,
+    "latencia": None,
     # ── EN RUEDA (2026-08-18) ────────────────────────────────────────────────
     # `None` EXPLÍCITO, y por un motivo distinto al resto: no es que falte
     # construirlo, es que **no se arreglan tocando `mercado.curvas`**. Un símbolo
@@ -913,10 +920,15 @@ def relevar_live(*, ahora=None) -> dict:
         simbolos = set()
 
     hallazgos: list[dict] = []
+    # LATENCIA entra acá y no al job nocturno: un endpoint degradado importa
+    # MIENTRAS pasa, y cuesta una query sobre un agregado que ya existe.
+    from api.services.av_agent_latencia import detectar_latencia
+
     for nombre, fn in (("sin_precio", lambda: detectar_sin_precio(bonos, snap, ahora)),
                        ("precio_moneda",
                         lambda: detectar_precio_fuera_de_moneda(bonos, snap, mep,
-                                                                simbolos))):
+                                                                simbolos)),
+                       ("latencia", detectar_latencia)):
         try:
             hallazgos.extend(fn())
         except Exception as e:      # un detector roto no puede tapar al otro

@@ -105,6 +105,7 @@
 | 20:30 · L-V | `jobs.forwards_zscore'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |
 | 22:30 · L-V | `jobs.ficha_1816'` |
+| 23:30 · diario | `jobs.db_tamano'` |
 | 13:30-55/5 · L-V | `jobs.av_agent_live'` |
 | 11:35 · diario | `jobs.news_ingesta'` |
 | 11:35 · diario | `jobs.news_finnhub'` |

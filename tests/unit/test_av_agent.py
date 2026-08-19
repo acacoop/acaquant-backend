@@ -1527,12 +1527,34 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
     # `relevar_live`, que corre cada 5 minutos con el mercado abierto y busca lo
     # que de noche no existe (un símbolo sin suscribir, un precio en la moneda
     # equivocada).
+    # `db_cambio` y `latencia` (2026-08-19) son los del SISTEMA: los emiten
+    # `av_agent_db` y `av_agent_latencia`, que ya no viven en este módulo — los
+    # detectores se repartieron en varios archivos y la lista escrita a mano se
+    # quedaba corta sin avisar, que es el mismo modo de falla que este test caza.
     tipos_reales = {"falta_en_base", "sin_flujo", "tasa_sospechosa",
-                    "hueco_de_curva", "salud", "sin_precio", "precio_moneda"}
+                    "hueco_de_curva", "salud", "sin_precio", "precio_moneda",
+                    "db_cambio", "latencia"}
     assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
         "una clave del mapa no es un TIPO que algún detector emita — "
         "probablemente se escribió la REGLA")
     assert av_agent.ACCION_POR_TIPO["sin_flujo"] == "flujos"
+
+    # Y el otro lado: que cada tipo que un detector EMITE de verdad esté en el
+    # mapa. Sin esto, un detector nuevo produce hallazgos sin acción y sin error
+    # — exactamente lo que le pasó a `tasa_sospechosa` durante 38 filas.
+    import pathlib
+    import re
+
+    from api.services import av_agent_db, av_agent_latencia
+    emitidos = set()
+    for mod in (av_agent, av_agent_db, av_agent_latencia):
+        src = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
+        emitidos |= set(re.findall(r'"tipo":\s*"([a-z_]+)"', src))
+        emitidos |= set(re.findall(r'_hallazgo\(\s*"([a-z_]+)"', src))
+    faltan = emitidos - set(av_agent.ACCION_POR_TIPO)
+    assert not faltan, (
+        f"detectores que emiten un tipo sin entrada en ACCION_POR_TIPO: {faltan}. "
+        "Sin eso el hallazgo sale sin acción y NO da error.")
     assert av_agent.ACCION_POR_TIPO["falta_en_base"] == "alta"
     assert av_agent.ACCION_POR_TIPO["tasa_sospechosa"] == "arreglo"
     # **CADA TIPO DECLARA SU ACCIÓN** (2026-08-17). Congelarlo tiene un

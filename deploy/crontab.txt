@@ -302,6 +302,13 @@
 # dio de baja). Regla del user: una tarea de IA existe solo si alguien lee su
 # salida, y todo lo de IA pasa por el AV AGENT.
 
+# ─── FOTO DIARIA DE LA BASE (jobs/db_tamano.py) — 23:30 UTC todos los días.
+# Congela cuánto pesa cada tabla para que el AV AGENT pueda decir al día
+# siguiente qué apareció, qué creció y por cuánto. Guarda SOLO 2 fechas y purga
+# en la misma transacción. Fuera de rueda: son queries sobre el catálogo de
+# Postgres, baratas, pero no hay razón para pagarlas con el mercado abierto.
+30 23 * * * /root/TradingAV/deploy/run_job.sh db_tamano 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.db_tamano'
+
 # ─── Research diario por mail (QuantAI P6) — ingesta IMAP + destilado LLM → ia.research
 # Cada 30 min a la mañana L-V (el mail llega temprano ART): dedup por Message-ID
 # → re-correr no duplica ni re-gasta tokens; un run sin mail nuevo = 0 tokens.

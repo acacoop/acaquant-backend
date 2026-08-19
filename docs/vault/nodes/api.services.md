@@ -99,6 +99,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[jobs.av_agent]]  ·  _module_
 - [[jobs.av_agent_centinela]]  ·  _module_
 - [[jobs.av_agent_live]]  ·  _module_
+- [[jobs.db_tamano]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_

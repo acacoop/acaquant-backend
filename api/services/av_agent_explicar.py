@@ -392,9 +392,122 @@ class DeDondeSalenLosNiveles:
                 "numeros": {"marcos": len(tfs)}}
 
 
+# ── 6. ¿CUÁNTO PESA LA BASE Y QUÉ CRECIÓ? ───────────────────────────────────
+
+class CuantoPesaLaBase:
+    id = "base"
+    pregunta = "¿Cuánto pesa la base y qué creció desde ayer?"
+    necesita = ""
+    de_donde = "la foto diaria de manager.db_tamano"
+
+    def sugerencias(self) -> list[str]:
+        return []
+
+    def explicar(self, _sujeto: str = "") -> dict:
+        from api.services import av_agent_db as db
+        c = db.comparar()
+        if not c.get("ok"):
+            return {"ok": False, "error": c.get("motivo") or "sin foto"}
+        if c.get("primera"):
+            return {"ok": True, "pasos": [_paso(
+                "primera", "Es la primera foto", INFO,
+                f"la base pesa {db.mb(c['bytes_total'])} en {c['n_tablas']} "
+                f"tablas. **Mañana** te puedo decir qué cambió: el tamaño de hoy "
+                f"solo no dice nada, la información es el delta.")],
+                "discrepancia": "", "numeros": {"bytes": c["bytes_total"]}}
+
+        d = c["delta_total"]
+        pasos = [_paso(
+            "total", "Cuánto pesa", INFO,
+            f"{db.mb(c['bytes_total'])} en {c['n_tablas']} tablas · "
+            f"{'+' if d >= 0 else ''}{db.mb(d)} desde el {c['fecha_previa']}",
+            tabla="manager.db_tamano_dia")]
+
+        if c["nuevas"]:
+            pasos.append(_paso(
+                "nuevas", f"Tablas NUEVAS · {len(c['nuevas'])}", REVISAR,
+                "\n".join(f"  · {t['tabla']} — {db.mb(t['bytes'])}"
+                           for t in c["nuevas"][:20]),
+                tabla="manager.db_tamano"))
+        if c["crecieron"]:
+            pasos.append(_paso(
+                "crecieron", f"Las que crecieron · {len(c['crecieron'])}", REVISAR,
+                "\n".join(f"  · {t['tabla']} — +{db.mb(t['delta'])} "
+                           f"(+{t['pct']}%)" for t in c["crecieron"][:20]),
+                tabla="manager.db_tamano"))
+        if c["desaparecidas"]:
+            pasos.append(_paso(
+                "fueron", f"Ya no están · {len(c['desaparecidas'])}", REVISAR,
+                "\n".join(f"  · {t['tabla']} — pesaba {db.mb(t['bytes'])}"
+                           for t in c["desaparecidas"][:20])))
+        if not (c["nuevas"] or c["crecieron"] or c["desaparecidas"]):
+            pasos.append(_paso("sin_cambios", "Qué cambió", OK,
+                               "nada que amerite mirar desde ayer."))
+        pasos.append(_paso(
+            "corte", "A partir de cuánto aviso", INFO,
+            f"un crecimiento entra si supera **los dos** filtros: +25% sobre su "
+            f"propio tamaño Y {db.mb(c['corte_bytes'])} — que se calcula sobre "
+            f"el tamaño real de la base, no es un número fijo que envejece."))
+        return {"ok": True, "pasos": pasos, "discrepancia": "",
+                "numeros": {"bytes": c["bytes_total"], "delta": d}}
+
+
+# ── 7. ¿CÓMO VIENE LA APP DE VELOCIDAD? ─────────────────────────────────────
+
+class ComoVieneDeVelocidad:
+    """La pregunta que la pantalla de LATENCIA no contestaba: **no es "cuál es
+    el más lento" —esa lista no cambia nunca— sino "hay algo peor que ayer"**."""
+
+    id = "velocidad"
+    pregunta = "¿Hay algún endpoint más lento que lo normal?"
+    necesita = ""
+    de_donde = "manager.latencia_endpoints"
+
+    def sugerencias(self) -> list[str]:
+        return []
+
+    def explicar(self, _sujeto: str = "") -> dict:
+        from api.services import av_agent_latencia as lat
+        d = lat.como_viene()
+        deg = d.get("degradados") or []
+        eps = d.get("endpoints") or []
+        if not eps:
+            return {"ok": False, "error": "no hay tráfico registrado en la ventana"}
+
+        pasos = []
+        if deg:
+            pasos.append(_paso(
+                "degradados", f"Peor que su normal · {len(deg)}", REVISAR,
+                "\n".join(
+                    f"  · {c['endpoint']} — {c['avg_ms']} ms contra "
+                    f"{c['base_ms']} ms habituales ({c['veces']}×)"
+                    + (f" · {c['errores']} errores 5xx" if c["errores"] else "")
+                    for c in deg[:15]),
+                tabla="manager.latencia_endpoints"))
+        else:
+            pasos.append(_paso(
+                "degradados", "Peor que su normal", OK,
+                f"ninguno. Cada endpoint se compara contra la MEDIANA de sus "
+                f"propias {lat.BASE_H} h previas, no contra los otros."))
+
+        pasos.append(_paso(
+            "consumen", "Los que más tiempo consumen", INFO,
+            "\n".join(f"  · {e['endpoint']} — {e['avg_ms']} ms × {e['n']} req"
+                       for e in eps[:10])
+            + "\n\n**Esto NO es una lista de problemas.** Un endpoint puede ser "
+              "lento porque hace algo caro (una llamada al modelo, un proveedor "
+              "externo) y estar perfectamente bien. Es el ranking, y el ranking "
+              "no cambia: por eso solo, no sirve.",
+            tabla="manager.latencia_endpoints"))
+        return {"ok": True, "pasos": pasos, "discrepancia": "",
+                "numeros": {"degradados": len(deg),
+                            "requests": d.get("total_requests")}}
+
+
 EXPLICADORES: dict[str, Explicador] = {
     e.id: e for e in (PorQueRinde(), PorQueEsaTNA(), ComoSeArmaElYTM(),
-                      QueInflacionDescuenta(), DeDondeSalenLosNiveles())
+                      QueInflacionDescuenta(), DeDondeSalenLosNiveles(),
+                      CuantoPesaLaBase(), ComoVieneDeVelocidad())
 }
 
 

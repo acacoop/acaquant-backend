@@ -50,6 +50,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.control_saldos]]  ·  _module_
 - [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
+- [[jobs.db_tamano]]  ·  _module_
 - [[jobs.eikon_cierres]]  ·  _module_
 - [[jobs.estrategia_resolver]]  ·  _module_
 - [[jobs.fair_value]]  ·  _module_

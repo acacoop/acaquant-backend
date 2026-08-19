@@ -129,6 +129,10 @@ _QUE_DETECTA: dict[str, str] = {
                   "fuera de Primary · pata equivocada · nunca operó · sin "
                   "actividad hoy)",
     "precio_moneda": "precios que llegan en la moneda equivocada para su curva",
+    "db_cambio": "tablas NUEVAS, las que crecieron de golpe y las que "
+                 "desaparecieron, comparando la foto de hoy contra la de ayer",
+    "latencia": "endpoints que se pusieron lentos contra SU PROPIA normalidad "
+                "(no un ranking de los más lentos) y los que devuelven 5xx",
 }
 
 

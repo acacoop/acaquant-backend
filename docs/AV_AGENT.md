@@ -917,6 +917,25 @@ sábados, y en dos fines de semana nadie volvería a leerlo. Y `lento` **no** se
 reporta: un motor que tarda el doble sigue produciendo, y mezclarlo con uno muerto
 pierde la diferencia entre las dos cosas.
 
+#### La gracia del arranque — el falso positivo que se cazó ANTES de que pasara
+
+⚠️ **La ventana del árbol abre 20 minutos ANTES de que los motores arranquen:**
+
+    10:00 ART   `_APERTURA["rueda"]` — la ventana del árbol abre
+    10:03-10:06 las piezas empiezan a dar CRÍTICO (umbral × 3, son 60-120 s)
+    10:20 ART   los motores ARRANCAN de verdad (`20 13 * * 1-5` del crontab)
+
+Son **~17 minutos de falsos positivos todos los días**. En la pantalla de
+DIAGNÓSTICO eso ya pasaba y no molestaba —había que ir a mirarla—; como hallazgo
+del agente sería **un aviso en ALTA cada mañana a la misma hora**, que es la
+forma más rápida de que se deje de leer. Se detectó al revisar el primer deploy,
+antes de que el detector llegara a su primera rueda.
+
+`GRACIA_ARRANQUE_MIN = 30` **no es un umbral de tolerancia**: pasado ese rato, un
+motor que no produce SÍ está caído y se canta. Y la gracia vive en el detector, no
+en `_APERTURA`: esa ventana la comparte la pantalla de DIAGNÓSTICO, y moverla para
+arreglar el detector cambiaría el estado de una vista que nadie pidió tocar.
+
 #### La pregunta que nadie contestaba de una
 
 *«No quiero que me muestre todos los endpoints; yo quiero saber que en horario de

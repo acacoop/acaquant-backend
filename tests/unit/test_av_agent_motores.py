@@ -101,3 +101,49 @@ def test_las_dos_capacidades_entraron_a_SKILLS():
     for k in ("detectar.motor_caido", "detectar.tabla_quieta"):
         assert k in ids, f"la ley de §0.o: {k} tiene que estar mapeada"
         assert ids[k].usa_ia == SIN_IA
+
+
+# ── La gracia del arranque (2026-08-20) ────────────────────────────────────
+
+def test_en_los_primeros_minutos_de_rueda_NO_canta_nada(monkeypatch):
+    """**La ventana del árbol abre 20 minutos ANTES de que los motores
+    arranquen** (`_APERTURA["rueda"]` = 10:00 ART; el cron los prende 13:20 UTC).
+    Con umbrales de 60-120 s, entre las 10:03 y las 10:20 los doce motores dan
+    CRÍTICO sin estar caídos — un aviso en ALTA cada mañana a la misma hora, que
+    es la forma más rápida de que se deje de leer."""
+    from datetime import datetime
+
+    from core.tz import AR_TZ
+
+    monkeypatch.setattr("core.tz.ahora_ar",
+                        lambda: datetime(2026, 8, 20, 10, 5, tzinfo=AR_TZ))
+    monkeypatch.setattr("api.services.diagnostico.arbol",
+                        lambda: _arbol(_p("motor_rofex", "critico")))
+    assert mot.detectar_motores() == []
+
+
+def test_pasada_la_gracia_un_motor_muerto_SI_se_canta(monkeypatch):
+    """No es tolerancia: pasado ese rato, no producir sí es estar caído."""
+    from datetime import datetime
+
+    from core.tz import AR_TZ
+
+    monkeypatch.setattr("core.tz.ahora_ar",
+                        lambda: datetime(2026, 8, 20, 11, 30, tzinfo=AR_TZ))
+    monkeypatch.setattr("api.services.diagnostico.arbol",
+                        lambda: _arbol(_p("motor_rofex", "critico")))
+    assert len(mot.detectar_motores()) == 1
+
+
+def test_la_gracia_solo_aplica_EN_rueda(monkeypatch):
+    """Fuera de rueda ya no se reporta nada por la ventana; la gracia no puede
+    ser una segunda razón para callar algo `always` que sí está roto."""
+    assert mot._recien_abrio({"en_rueda": False}) is False
+
+
+def test_la_hora_sale_de_core_tz_y_no_de_datetime_now():
+    """El Droplet corre en UTC. Restar tres horas a mano es el bug que `core/tz`
+    existe para no repetir."""
+    import inspect
+    src = inspect.getsource(mot._recien_abrio)
+    assert "ahora_ar()" in src and "utcnow" not in src

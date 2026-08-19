@@ -42,6 +42,31 @@ _ROTOS = {"critico", "error", "sin_datos"}
 # funcionando como tiene que funcionar.
 _IGNORAR = {"fuera_rueda", "ok", "lento", "error_parse"}
 
+# ── LA GRACIA DEL ARRANQUE ──────────────────────────────────────────────────
+#
+# ⚠️ **La ventana del árbol abre ANTES de que los motores arranquen**, y por eso
+# hay un rato en que «no produjo» no significa «está caído» sino «todavía no
+# prendió»:
+#
+#     10:00 ART   `_APERTURA["rueda"]` — la ventana del árbol abre
+#     10:03-10:06 las piezas empiezan a dar CRÍTICO (umbral × 3, 60-120 s)
+#     10:20 ART   los motores ARRANCAN de verdad (`20 13 * * 1-5` en el crontab)
+#
+# Son ~17 minutos de falsos positivos TODOS LOS DÍAS. En la pantalla de
+# DIAGNÓSTICO eso ya pasaba y no molestaba (había que ir a mirarla); como
+# hallazgo del agente sería un aviso en ALTA cada mañana, y **un detector que
+# grita todos los días a la misma hora es un detector que se ignora** — el
+# problema que este proyecto viene evitando en cada capa.
+#
+# La gracia se declara acá y no se toca `_APERTURA`: esa ventana la comparte la
+# pantalla de DIAGNÓSTICO, y moverla para arreglar el detector cambiaría el
+# estado de una vista que nadie pidió tocar.
+#
+# El número sale del crontab (arranque 13:20 UTC contra ventana 13:00) + un
+# margen para que el motor se conecte y escriba lo primero. **No es un umbral de
+# tolerancia**: pasado ese rato, un motor que no produce SÍ está caído y se canta.
+GRACIA_ARRANQUE_MIN = 30
+
 
 def detectar_motores() -> list[dict]:
     """Los motores, jobs y APIs que están rotos **ahora y en su ventana**."""
@@ -57,6 +82,10 @@ def detectar_motores() -> list[dict]:
         # las devuelve con su estado real y las de rueda como `fuera_rueda`.
         logger.debug("av_agent_motores: fuera de rueda")
 
+    if _recien_abrio(arbol):
+        logger.debug("av_agent_motores: dentro de la gracia de arranque")
+        return []
+
     out = []
     for vista in arbol.get("vistas") or []:
         for grupo in vista.get("grupos") or []:
@@ -71,6 +100,26 @@ def detectar_motores() -> list[dict]:
     out.sort(key=lambda h: (0 if h["severidad"] == "alta" else 1,
                             0 if h["evidencia"]["tipo"] == "motor" else 1))
     return out
+
+
+def _recien_abrio(arbol: dict) -> bool:
+    """¿Estamos en los primeros minutos de la rueda? (ver GRACIA_ARRANQUE_MIN).
+
+    Se mira la hora ARGENTINA que el propio árbol reporta — no `datetime.now()`
+    del proceso: el Droplet corre en UTC y restar tres horas a mano es
+    exactamente el bug que `core/tz` existe para no repetir.
+    """
+    from datetime import time as _t
+
+    from api.services.diagnostico import _APERTURA
+    from core.tz import ahora_ar
+
+    if not arbol.get("en_rueda"):
+        return False
+    ahora = ahora_ar()
+    abre: _t = _APERTURA["rueda"]
+    minutos = (ahora.hour - abre.hour) * 60 + (ahora.minute - abre.minute)
+    return 0 <= minutos < GRACIA_ARRANQUE_MIN
 
 
 def _hallazgo(vista: str, p: dict, estado: str) -> dict:

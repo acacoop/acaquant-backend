@@ -75,6 +75,19 @@ logger = logging.getLogger(__name__)
 # el host equivocado y salir en verde es peor que no probar.
 URL_PUBLICA = os.getenv("AV_AGENT_URL_PUBLICA", "").rstrip("/")
 
+
+def _url() -> str:
+    """La URL, resuelta AL USARLA y no al importar el módulo.
+
+    Este módulo se importa muy temprano (arrastrado por `api.superficie` →
+    `api.main`), y `load_dotenv()` puede correr DESPUÉS. Con la constante leída
+    al import, alguien cargaría la variable en el `.env`, reiniciaría, y el
+    chequeo seguiría diciendo «falta AV_AGENT_URL_PUBLICA» sin ninguna pista de
+    por qué. Un orden de imports no puede ser la razón por la que un chequeo de
+    seguridad no corre.
+    """
+    return (URL_PUBLICA or os.getenv("AV_AGENT_URL_PUBLICA", "")).rstrip("/")
+
 # Lo que se acepta como «me rechazó». 405 entra porque significa que la ruta
 # existe y el método no aplica: tampoco filtró nada.
 RECHAZOS = frozenset({401, 403, 405})
@@ -171,7 +184,8 @@ def probar(*, limite: int = MAX_RUTAS) -> dict:
     seguridad sin decir qué cubrió es una media verdad, y en seguridad una media
     verdad se lee como un sí.
     """
-    if not URL_PUBLICA:
+    base = _url()
+    if not base:
         return {"ok": False,
                 "motivo": "falta AV_AGENT_URL_PUBLICA — no invento la URL: "
                           "probar contra el host equivocado y salir en verde es "
@@ -202,7 +216,7 @@ def probar(*, limite: int = MAX_RUTAS) -> dict:
     filtran, borde_abierto, rechazan, mudos, errores = [], [], 0, 0, 0
     for r in objetivo:
         try:
-            resp = sesion.get(f"{URL_PUBLICA}{r.path}", timeout=TIMEOUT_S,
+            resp = sesion.get(f"{base}{r.path}", timeout=TIMEOUT_S,
                               allow_redirects=False)
         except Exception:
             errores += 1
@@ -223,7 +237,7 @@ def probar(*, limite: int = MAX_RUTAS) -> dict:
         time.sleep(PAUSA_S)
 
     return {
-        "ok": True, "url": URL_PUBLICA,
+        "ok": True, "url": base,
         "probadas": len(objetivo), "rechazan": rechazan,
         "filtran": filtran, "borde_abierto": borde_abierto,
         "mudos": mudos, "errores": errores,

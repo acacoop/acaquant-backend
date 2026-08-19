@@ -333,3 +333,20 @@ def test_una_foto_rota_no_tumba_el_chequeo(monkeypatch):
     monkeypatch.setattr(seg, "comparar", _boom)
     h = seg.detectar_seguridad()
     assert len(h) == 1 and h[0]["regla"] == "sin_gate"
+
+
+def test_la_URL_se_lee_AL_USARLA_no_al_importar(monkeypatch):
+    """Este módulo se importa muy temprano (lo arrastra `api.superficie`), y
+    `load_dotenv()` puede correr después. Con la constante leída al import,
+    alguien carga la variable en el `.env`, reinicia, y el chequeo sigue diciendo
+    «falta AV_AGENT_URL_PUBLICA» sin ninguna pista de por qué. **Un orden de
+    imports no puede ser la razón por la que un chequeo de seguridad no corre.**"""
+    monkeypatch.setattr(seg, "URL_PUBLICA", "")
+    monkeypatch.setenv("AV_AGENT_URL_PUBLICA", "https://api.ejemplo.com/")
+    assert seg._url() == "https://api.ejemplo.com"
+
+
+def test_sin_la_variable_en_NINGUN_lado_no_prueba(monkeypatch):
+    monkeypatch.setattr(seg, "URL_PUBLICA", "")
+    monkeypatch.delenv("AV_AGENT_URL_PUBLICA", raising=False)
+    assert seg._url() == ""

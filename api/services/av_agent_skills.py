@@ -125,9 +125,9 @@ _QUE_DETECTA: dict[str, str] = {
     "hueco_de_curva": "ajustes que existen en el master pero no tienen pill: "
                       "esos bonos quedan invisibles sin dar ningún error",
     "salud": "jobs que no corrieron, fallaron o dejaron el dato viejo",
-    "sin_precio": "bonos sin precio, distinguiendo las 5 causas (sin símbolo · "
-                  "fuera de Primary · pata equivocada · nunca operó · sin "
-                  "actividad hoy)",
+    "sin_precio": "bonos sin precio, distinguiendo las 4 causas y midiendo en "
+                  "TIEMPO DE MERCADO (sin símbolo cargado · nadie lo suscribió · "
+                  "suscripto sin punta · el precio dejó de moverse en rueda)",
     "precio_moneda": "precios que llegan en la moneda equivocada para su curva",
     "db_cambio": "tablas NUEVAS, las que crecieron de golpe y las que "
                  "desaparecieron, comparando la foto de hoy contra la de ayer",

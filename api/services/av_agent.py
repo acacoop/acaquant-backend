@@ -100,6 +100,25 @@ def _es_pata(ticker: str) -> bool:
 # la constante existe para que el próximo alcance de reemplazo no lo repita.
 ALCANCES_VIVOS = ("live", "sistema")
 
+# ⚠️ **UN HALLAZGO DE RUEDA TIENE FECHA DE VENCIMIENTO** (2026-08-19).
+#
+# *«En AVISOS tenía un montón de avisos de precios sin precio, pero eso era
+# porque el MERCADO ESTABA CERRADO. Es obvio que no va a actualizar: si el precio
+# cierra a las 17 y abre a las 10:30.»* (user)
+#
+# El monitor corre 10:30-17 ART y **reemplaza** lo suyo en cada pasada. Pero al
+# cerrar el mercado deja de correr, y su última foto —la de las 16:55— se quedaba
+# en la pantalla toda la noche y todo el fin de semana. O sea que lo que el user
+# veía no era un detector equivocado: era un detector **CORRECTO mostrando una
+# foto vieja**, que para el que mira es lo mismo.
+#
+# Vence en vez de borrarse con un cron al cierre, y eso es a propósito: si el
+# monitor se muere a las 11, sus hallazgos también desaparecen — y está bien,
+# porque ya **no sabemos** si siguen pasando. Un dato que nadie está refrescando
+# no puede seguir afirmándose. Se cura solo y no depende de ningún job.
+VENCEN_EN_S: dict[str, int] = {"live": 15 * 60}      # el monitor pasa cada 5'
+
+
 
 def reemplazar_hallazgos(alcance: str, hallazgos: list[dict]) -> int:
     """Reescribe TODOS los hallazgos de un alcance de reemplazo, en UNA transacción.
@@ -780,11 +799,15 @@ def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
                         ahora=None) -> list[dict]:
     """Bonos del master a los que el motor NO les está dando precio, en rueda.
 
-    Tres estados distintos, y la diferencia importa porque el arreglo es otro:
+    Cuatro estados distintos, y la diferencia importa porque el arreglo es otro:
 
-      · el símbolo **no está en el snapshot**: nadie lo suscribió. Es lo que pasó
-        con AO29 — el bono existe en `mercado.curvas` y el motor nunca pidió su
-        símbolo.
+      · el bono **no tiene símbolo de mercado cargado**: no hay nada que pedir.
+        ⚠️ **Este caso se saltaba en silencio** (un `continue` en la primera
+        línea del loop) hasta el 2026-08-19 — o sea que el bono peor cargado del
+        master era justo el único que el detector no podía ver. Es además el más
+        accionable de los cuatro: el símbolo sale de `mercado.especies`.
+      · el símbolo **no está en el snapshot**: nadie lo suscribió. El bono existe
+        en `mercado.curvas` y el motor nunca pidió su símbolo.
       · está pero **sin precio** (`last_price` nulo o 0): se suscribió y el
         mercado no le puso una punta. **Un 0 no es un precio.**
       · está con precio pero **viejo**: operó y dejó de hacerlo, o se cayó el
@@ -801,7 +824,22 @@ def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
     for b in bonos:
         simbolo = (b.get("ticker") or "").strip()      # el símbolo de mercado
         tk = (b.get("ticker_corto") or "").strip().upper()
-        if not simbolo or not tk:
+        if not tk:
+            continue        # sin ticker no hay a quién adjudicarle el hallazgo
+        if not simbolo:
+            # **No es «no aplica»: es el peor caso.** Un bono del master sin
+            # símbolo de mercado no puede tener precio nunca, y el motor no
+            # falla — ni siquiera lo intenta. Saltearlo dejaba al bono peor
+            # cargado como el único invisible para el monitor.
+            out.append(_hallazgo(
+                "sin_precio", tk, "sin_simbolo", "alta",
+                f"«{tk}» no tiene símbolo de mercado cargado: el motor no puede "
+                f"pedir un precio que nadie nombró. No es que no opere — es que "
+                f"nunca se lo pidió.",
+                {"simbolo": None, "curva": b.get("curva"),
+                 "estado": "sin_simbolo",
+                 "de_donde": "el símbolo sale de `mercado.especies` (la pata del "
+                             "ticker); en el master vive en `curvas.instrumento`"}))
             continue
         d = snap.get(simbolo)
         ev = {"simbolo": simbolo, "curva": b.get("curva")}

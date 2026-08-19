@@ -358,11 +358,27 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
                     "WHERE alcance <> ALL(%s)", (vivos,))
         fila = cur.fetchone()
         corrida = fila[0] if fila else None
+        # **Y los de reemplazo VENCEN.** Un hallazgo de rueda es una foto del
+        # momento: al cerrar el mercado el monitor deja de correr y su última
+        # foto —la de las 16:55— se quedaba en la pantalla toda la noche y todo
+        # el fin de semana. Eso es lo que el user veía como «avisos de sin precio
+        # con el mercado cerrado»: el detector estaba bien, la foto estaba vieja.
+        # El filtro va en SQL y no en Python para que el que consulte por otra
+        # vía tampoco pueda leer una foto vencida.
+        vence = [(a, s_) for a, s_ in av_agent.VENCEN_EN_S.items() if a in vivos]
+        cond_vivos = " OR ".join(
+            ["(alcance = %s AND corrida_at > now() - make_interval(secs => %s))"
+             for _ in vence]
+            + ["alcance = ANY(%s)"])
+        params: list = [corrida, corrida, vivos]
+        for a, s_ in vence:
+            params += [a, s_]
+        # Los que NO vencen: los de reemplazo que no están en `VENCEN_EN_S`.
+        params.append([a for a in vivos if a not in dict(vence)])
         cur.execute(
             f"SELECT {', '.join(_COLS_H)} FROM mercado.av_agent_hallazgos "
-            "WHERE (%s IS NOT NULL AND corrida_at = %s "
-            "       AND alcance <> ALL(%s)) "
-            "   OR alcance = ANY(%s)", (corrida, corrida, vivos, vivos))
+            "WHERE (%s IS NOT NULL AND corrida_at = %s AND alcance <> ALL(%s)) "
+            f"   OR {cond_vivos}", tuple(params))
         filas = [dict(zip(_COLS_H, r, strict=False)) for r in cur.fetchall()]
         # El blob completo, no solo la PK: `sin_flujo` caduca cuando el bono YA
         # tiene cronograma, y eso se lee acá mismo. **Es la misma query** — el

@@ -173,12 +173,57 @@ def medir(schema: str, tabla: str, col: str) -> dict:
 
     p50 = median(difs)
     cadencia = next((n for tope, n in _TRAMOS if p50 <= tope), "eventual")
+
+    # ⚠️ **UNA RÁFAGA NO ES UN RITMO** — el error que produjo 47 falsos positivos
+    # en la primera corrida (2026-08-19). Una tabla de AUDITORÍA o un catálogo se
+    # escribe A LOS SALTOS: alguien edita y entran 15 filas con dos segundos de
+    # diferencia, y después nada por tres semanas. La mediana de los intervalos
+    # mira ADENTRO de la ráfaga y dice «tiempo real», así que `clientes.aca_valores`
+    # —sin escribir hace 43 días— salía clasificada como live y atrasada.
+    #
+    # El arreglo NO es subir la tolerancia (taparía las tablas que sí importan):
+    # es preguntar otra cosa. Una tabla con ritmo rápido escribe **CASI TODOS LOS
+    # DÍAS**; una a ráfagas, no. Se mide con la misma vara de siempre —observando,
+    # sin declarar nada— y la que no llega se degrada a `eventual`, que ya
+    # significa «no se le puede exigir frescura».
+    if cadencia in _EXIGEN_REGULARIDAD:
+        dias = _dias_con_escritura(schema, tabla, col)
+        if dias is not None and dias < DIAS_MINIMOS:
+            return {"cadencia": "eventual", "intervalo_p50_s": int(p50),
+                    "ultimo_dato": ultimo, "dias_con_escritura": dias,
+                    "degradada_de": cadencia}
     # Una "diaria" que solo escribe de lunes a viernes es DISTINTA de una que
     # escribe los siete días: exigirle el sábado a la primera es un falso positivo
     # garantizado todos los fines de semana.
     if cadencia == "diaria" and _solo_habiles(momentos):
         cadencia = "diaria_habil"
     return {"cadencia": cadencia, "intervalo_p50_s": int(p50), "ultimo_dato": ultimo}
+
+
+# Las cadencias que AFIRMAN que la tabla escribe seguido. Son las únicas que hay
+# que verificar contra el calendario: a una `semanal` o una `mensual` no se le
+# puede pedir regularidad diaria sin contradecir su propia definición.
+_EXIGEN_REGULARIDAD = frozenset({"tiempo_real", "intradiaria", "diaria"})
+DIAS_VENTANA = 30       # sobre cuántos días corridos se mira la regularidad
+DIAS_MINIMOS = 10       # ~la mitad de los hábiles de ese mes
+
+
+def _dias_con_escritura(schema: str, tabla: str, col: str) -> int | None:
+    """En cuántos DÍAS DISTINTOS escribió en el último mes.
+
+    Es la pregunta que la mediana no puede contestar: distingue *«escribe seguido»*
+    de *«escribió mucho una vez»*. `None` si la query falla — y ahí NO se degrada
+    nada: no poder medir jamás puede convertirse en un veredicto.
+    """
+    try:
+        sql = (f'SELECT count(DISTINCT "{col}"::date) AS d '
+               f'FROM "{schema}"."{tabla}" '
+               f'WHERE "{col}" > now() - interval \'{DIAS_VENTANA} days\'')
+        r = _q(sql)
+        return int(r[0]["d"]) if r else None
+    except Exception as e:
+        logger.debug("contexto: no pude contar días de %s.%s: %s", schema, tabla, e)
+        return None
 
 
 def _solo_habiles(momentos: list[datetime]) -> bool:
@@ -240,14 +285,71 @@ def frescura(perfil: dict, *, ahora: datetime | None = None) -> dict:
                                        "frescura"}.get(cad, "sin columna de fecha")}
     atraso = (ahora - ult).total_seconds()
     tope = TOLERANCIA_S.get(cad, 3 * 86400)
-    # En una tabla de días hábiles, el fin de semana NO cuenta como atraso.
-    if cad == "diaria_habil":
+    unidad = "de reloj"
+
+    # ⚠️ **UNA TABLA DE RUEDA SE MIDE EN TIEMPO DE MERCADO, NO DE RELOJ.**
+    #
+    # *«El agente tiene que entender el horario de mercado. No puede decir solo
+    # desde cuándo no actualiza algo, porque eso es mentiroso: si el precio cierra
+    # a las 17 y abre a las 10:30, es obvio que no va a actualizar.»* (user)
+    #
+    # `mercado.timesales` a las 20:30 ART lleva 3½ h sin escribir y eso **no es un
+    # atraso**: el mercado está cerrado. Con tiempo de reloj, el job de las 23:30
+    # marcaría todas las tablas de rueda **todas las noches, para siempre** — y un
+    # aviso que aparece siempre a la misma hora se deja de leer en una semana.
+    #
+    # Es el mismo principio que ya aplica el detector de motores («fuera de rueda
+    # no está caído, está apagado») y la MISMA idea que `_segundos_de_finde` para
+    # las diarias hábiles, llevada a su forma general: **el reloj que corre es el
+    # del mercado**. De yapa resuelve el arranque: a las 10:10 ART hace diez
+    # minutos que abrió, así que una tabla que escribió ayer al cierre recién
+    # acumula diez minutos de atraso, no diecisiete horas.
+    if cad in _MIDEN_EN_RUEDA:
+        atraso = _segundos_de_rueda(ult, ahora)
+        unidad = "de rueda"
+    elif cad == "diaria_habil":
+        # En una tabla de días hábiles, el fin de semana NO cuenta como atraso.
         tope += _segundos_de_finde(ult, ahora)
     ok = atraso <= tope
     return {"estado": "ok" if ok else "atrasada", "atraso_s": int(atraso),
             "tope_s": int(tope), "ultimo_dato": ult.isoformat(),
+            "unidad": unidad,
             "motivo": ("al día" if ok else
-                       f"no escribe hace {_humano(atraso)} y es {cad.replace('_', ' ')}")}
+                       f"no escribe hace {_humano(atraso)} {unidad} y es "
+                       f"{cad.replace('_', ' ')}")}
+
+
+# Las cadencias que solo tienen sentido MIENTRAS el mercado opera. Una `diaria`
+# no entra: un job diario corre a la hora que corre, y muchos corren de noche.
+_MIDEN_EN_RUEDA = frozenset({"tiempo_real", "intradiaria"})
+
+
+def _segundos_de_rueda(desde: datetime, hasta: datetime) -> int:
+    """Cuántos segundos de MERCADO ABIERTO hubo entre los dos momentos.
+
+    Cuenta solo lunes a viernes dentro de la ventana de rueda — la misma que usa
+    `av_agent.en_rueda`, importada y no copiada: dos definiciones del horario del
+    mercado se separan el día que cambia una.
+    """
+    from api.services.av_agent import RUEDA_UTC
+
+    abre, cierra = RUEDA_UTC
+    if hasta <= desde:
+        return 0
+    total, d = 0.0, desde
+    while d < hasta:
+        # El final del día de `d`, o el corte, lo que llegue primero.
+        fin_dia = (d + timedelta(days=1)).replace(hour=0, minute=0, second=0,
+                                                  microsecond=0)
+        tramo_fin = min(fin_dia, hasta)
+        if d.weekday() < 5:
+            ini = max(d, d.replace(hour=abre, minute=0, second=0, microsecond=0))
+            fin = min(tramo_fin,
+                      d.replace(hour=cierra, minute=0, second=0, microsecond=0))
+            if fin > ini:
+                total += (fin - ini).total_seconds()
+        d = tramo_fin
+    return int(total)
 
 
 def _segundos_de_finde(desde: datetime, hasta: datetime) -> int:

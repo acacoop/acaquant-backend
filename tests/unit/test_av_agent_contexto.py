@@ -206,3 +206,99 @@ def test_un_error_no_tumba_el_detector(monkeypatch):
     monkeypatch.setattr(ctx, "perfiles",
                         lambda **k: (_ for _ in ()).throw(RuntimeError("x")))
     assert ctx.detectar_tablas() == []
+
+
+# ── El reloj del MERCADO, no el de la pared (2026-08-19) ───────────────────
+
+def test_una_tabla_de_rueda_NO_esta_atrasada_de_noche():
+    """**El caso que produjo 47 falsos positivos.** *«Si el precio cierra a las
+    17 y abre a las 10:30, es obvio que no va a actualizar»* (user). El job corre
+    23:30 UTC —tres horas y media después del cierre— así que con tiempo de reloj
+    marcaría todas las tablas de rueda TODAS las noches, para siempre."""
+    from datetime import UTC, datetime
+    ult = datetime(2026, 8, 19, 19, 58, tzinfo=UTC)      # 16:58 ART, casi el cierre
+    f = ctx.frescura({"cadencia": "tiempo_real", "ultimo_dato": ult},
+                     ahora=datetime(2026, 8, 19, 23, 30, tzinfo=UTC))
+    assert f["estado"] == "ok"
+    assert f["unidad"] == "de rueda"
+
+
+def test_pero_si_NO_escribio_EN_TODA_la_rueda_SI_esta_atrasada():
+    """No es indulgencia: es medir en la unidad correcta. Una tabla de tiempo
+    real que se pasó la rueda entera sin escribir está rota igual."""
+    from datetime import UTC, datetime
+    ult = datetime(2026, 8, 18, 19, 58, tzinfo=UTC)       # el cierre de AYER
+    f = ctx.frescura({"cadencia": "tiempo_real", "ultimo_dato": ult},
+                     ahora=datetime(2026, 8, 19, 23, 30, tzinfo=UTC))
+    assert f["estado"] == "atrasada"
+
+
+def test_recien_abierto_el_mercado_no_hay_atraso_todavia():
+    """A las 10:10 ART hace diez minutos que abrió. Sin esto, cada mañana entre
+    la apertura y el arranque de los motores hay un rato de avisos falsos — el
+    mismo agujero que ya se tapó en el detector de motores."""
+    from datetime import UTC, datetime
+    f = ctx.frescura({"cadencia": "tiempo_real",
+                      "ultimo_dato": datetime(2026, 8, 18, 20, 0, tzinfo=UTC)},
+                     ahora=datetime(2026, 8, 19, 13, 10, tzinfo=UTC))
+    assert f["estado"] == "ok" and f["atraso_s"] == 600
+
+
+def test_el_finde_no_cuenta_para_una_tabla_de_rueda():
+    """El lunes a la mañana no hay 65 horas de atraso: hay media hora."""
+    from datetime import UTC, datetime
+    seg = ctx._segundos_de_rueda(datetime(2026, 8, 14, 20, 0, tzinfo=UTC),
+                                 datetime(2026, 8, 17, 13, 30, tzinfo=UTC))
+    assert seg == 30 * 60
+
+
+def test_una_DIARIA_se_sigue_midiendo_en_tiempo_de_reloj():
+    """Un job diario corre a la hora que corre y muchos corren de noche: medirlo
+    en tiempo de rueda le daría meses de gracia."""
+    from datetime import UTC, datetime
+    f = ctx.frescura({"cadencia": "diaria",
+                      "ultimo_dato": datetime(2026, 8, 10, 3, 0, tzinfo=UTC)},
+                     ahora=datetime(2026, 8, 19, 3, 0, tzinfo=UTC))
+    assert f["estado"] == "atrasada" and f["unidad"] == "de reloj"
+
+
+# ── Una RÁFAGA no es un ritmo ──────────────────────────────────────────────
+
+def test_una_tabla_de_auditoria_NO_es_tiempo_real(monkeypatch):
+    """**El otro origen de los 47.** Una tabla de auditoría se escribe a los
+    saltos: alguien edita y entran 15 filas con dos segundos de diferencia, y
+    después nada por tres semanas. La mediana mira ADENTRO de la ráfaga y dice
+    «tiempo real» — así `clientes.aca_valores`, sin escribir hace 43 días, salía
+    clasificada como live y por lo tanto atrasada."""
+    from datetime import UTC, datetime
+    from datetime import timedelta as _td
+    base = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+    # 20 escrituras en 40 segundos: una ráfaga, un solo día. (DESC, como el SQL.)
+    filas = [{"t": base - _td(seconds=2 * i)} for i in range(20)]
+    monkeypatch.setattr(ctx, "_q", lambda *a, **k: filas)
+    monkeypatch.setattr(ctx, "_dias_con_escritura", lambda *a: 1)
+    r = ctx.medir("clientes", "aca_valores", "actualizado_at")
+    assert r["cadencia"] == "eventual"
+    assert r["degradada_de"] == "tiempo_real"
+
+
+def test_la_que_SI_escribe_todos_los_dias_conserva_su_cadencia(monkeypatch):
+    """La degradación no puede llevarse puestas a las tablas que sí tienen ritmo:
+    esas son justamente las que hay que vigilar."""
+    from datetime import UTC, datetime, timedelta
+    base = datetime(2026, 8, 19, 15, 0, tzinfo=UTC)
+    filas = [{"t": base - timedelta(seconds=30 * i)} for i in range(30)]
+    monkeypatch.setattr(ctx, "_q", lambda *a, **k: filas)
+    monkeypatch.setattr(ctx, "_dias_con_escritura", lambda *a: 22)
+    assert ctx.medir("mercado", "timesales", "ts")["cadencia"] == "tiempo_real"
+
+
+def test_si_NO_SE_PUEDE_MEDIR_la_regularidad_no_se_degrada_nada(monkeypatch):
+    """«No pude mirar» jamás puede convertirse en un veredicto — la misma regla
+    que rige en el resto del agente."""
+    from datetime import UTC, datetime, timedelta
+    base = datetime(2026, 8, 19, 15, 0, tzinfo=UTC)
+    filas = [{"t": base - timedelta(seconds=30 * i)} for i in range(30)]
+    monkeypatch.setattr(ctx, "_q", lambda *a, **k: filas)
+    monkeypatch.setattr(ctx, "_dias_con_escritura", lambda *a: None)
+    assert ctx.medir("x", "y", "ts")["cadencia"] == "tiempo_real"

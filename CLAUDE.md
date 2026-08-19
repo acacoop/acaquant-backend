@@ -78,6 +78,20 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > crontab. Y la superficie tiene MEMORIA (`manager.superficie_dia`, hoy y ayer):
 > detecta el endpoint nuevo sin gate y —lo que ninguna foto ve— el que **PERDIÓ**
 > el gate que tenía.
+> **2026-08-19 — EL RELOJ DEL MERCADO** (§0.u): la primera corrida cantó 58
+> hallazgos y **47 eran del detector, no de la base**. Dos causas: (1) *una
+> RÁFAGA no es un ritmo* — la mediana entre escrituras consecutivas mira ADENTRO
+> de la ráfaga, así una tabla de auditoría (15 filas en 30s, después nada por
+> semanas) salía «tiempo real» y por lo tanto atrasada; ahora se exige que
+> escriba en N días DISTINTOS del último mes o se degrada a `eventual`; (2) *el
+> atraso se medía en tiempo de RELOJ* — una tabla de rueda a las 20:30 ART lleva
+> 3½ h sin escribir y eso NO es un atraso: ahora las cadencias intradía se miden
+> en **segundos de mercado abierto** (`_segundos_de_rueda`), misma idea que
+> `_segundos_de_finde` y que la ventana de los motores. Y los hallazgos de rueda
+> **VENCEN** (`VENCEN_EN_S`, 15 min): el monitor deja de correr al cierre y su
+> última foto se quedaba toda la noche en la pantalla — el detector estaba bien,
+> la foto estaba vieja. Además `detectar_sin_precio` ya no saltea en silencio al
+> bono SIN SÍMBOLO (el caso AO29): era el peor cargado y el único invisible.
 >
 > **2026-08-19 — EL CONTEXTO** (§0.r): el agente conoce la base **sin ninguna
 > lista** — el inventario sale de `pg_catalog`, la columna de fecha de

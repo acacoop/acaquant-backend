@@ -100,3 +100,26 @@ def test_todo_sale_de_UNA_conexion():
     """El peaje a Supabase se paga por VIAJE: cinco lentes con su propia
     conexión serían cinco viajes para una pantalla que tiene que abrir rápido."""
     assert inspect.getsource(sp._fila).count("get_pool()") == 1
+
+
+# ── El bono SIN SÍMBOLO: el que se saltaba en silencio (2026-08-19) ────────
+
+def test_un_bono_SIN_SIMBOLO_de_mercado_es_un_hallazgo():
+    """**El agujero del AO29.** El loop arrancaba con `if not simbolo … continue`,
+    o sea que el bono PEOR cargado del master —el que no puede tener precio
+    nunca— era el único invisible para el monitor. Y es el más accionable de los
+    cuatro casos: el símbolo sale de `mercado.especies`."""
+    from api.services import av_agent
+    h = av_agent.detectar_sin_precio(
+        [{"ticker": "", "ticker_corto": "AO29", "curva": "USD"}], {})
+    assert len(h) == 1
+    assert h[0]["regla"] == "sin_simbolo" and h[0]["severidad"] == "alta"
+    assert h[0]["ticker"] == "AO29"
+
+
+def test_sin_TICKER_no_hay_hallazgo_porque_no_hay_a_quien_adjudicarselo():
+    """Una fila del master sin ticker no es un bono sin símbolo: es una fila
+    rota, y un hallazgo sin sujeto no se puede ni mostrar ni accionar."""
+    from api.services import av_agent
+    assert av_agent.detectar_sin_precio(
+        [{"ticker": "MERV - XMEV - X - 24hs", "ticker_corto": ""}], {}) == []

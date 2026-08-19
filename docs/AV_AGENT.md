@@ -1227,6 +1227,96 @@ admin-only. Tampoco interrumpen todavía: la interrupción vive en las transicio
 de SALUD. Que un `perdio_el_gate` sobre un endpoint de ESCRITURA abra el modal
 solo es el paso siguiente.
 
+### 0.u EL RELOJ DEL MERCADO — la calibración que hizo honesto al monitor (2026-08-19)
+
+> *«El agente tiene que entender el horario de mercado, los motores, los horarios.
+> No puede decir solo desde cuándo no actualiza algo, porque eso es mentiroso. En
+> AVISOS tenía un montón de avisos de precios sin precio, pero eso era porque el
+> MERCADO ESTABA CERRADO: es obvio que no va a actualizar si el precio cierra a
+> las 17 y abre a las 10:30. Ahora es relevante entender por qué uno de los bonos
+> que aparece en la tabla no tiene precio DURANTE LA RUEDA — si es por liquidez o
+> porque no suscribe porque hay algo mal, como es el caso del AO29, que claramente
+> hay algo mal y ni lo está detectando.»* (user)
+
+La primera corrida del monitor del sistema cantó **58 hallazgos**. El diag los
+agrupó y el resultado fue el que hacía falta para no creerle: **47 de 57 tablas
+«quietas» eran de la misma cadencia**, con atrasos de 47 minutos a 43 días. Eso
+no son 47 problemas — **son dos bugs del detector**, y ninguno se arregla subiendo
+una tolerancia.
+
+#### Bug 1 — una RÁFAGA no es un ritmo
+
+La cadencia se medía como la mediana del intervalo entre escrituras consecutivas.
+Una tabla de **auditoría o un catálogo** se escribe a los saltos: alguien edita y
+entran 15 filas con dos segundos de diferencia, y después nada por tres semanas.
+La mediana mira **adentro** de la ráfaga y dice *«tiempo real»*.
+
+Por eso `clientes.aca_valores` —sin escribir hace **43 días**— aparecía
+clasificada como live y por lo tanto atrasada. Lo mismo `senebis_agentes`,
+`contrapartes`, `role_audit`, `ons_ignoradas`: **todas tablas de evento**.
+
+El arreglo no es tocar el umbral: es **preguntar otra cosa**. Una tabla con ritmo
+rápido escribe **casi todos los días**; una a ráfagas, no. Se mide igual que todo
+acá —observando, sin declarar nada— contando en **cuántos días distintos** escribió
+en el último mes; la que no llega se degrada a `eventual`, que ya significa *«no se
+le puede exigir frescura»*. Y si la medición falla, **no se degrada nada**: «no pude
+mirar» jamás puede convertirse en un veredicto.
+
+#### Bug 2 — el atraso se medía en tiempo de RELOJ
+
+`mercado.timesales` a las 20:30 ART lleva 3½ horas sin escribir. Eso **no es un
+atraso**: el mercado cerró a las 17. Con tiempo de reloj, el job de las 23:30
+marcaría todas las tablas de rueda **todas las noches, para siempre** — y un aviso
+que aparece siempre a la misma hora se deja de leer en una semana.
+
+Ahora el atraso de una cadencia intradía se mide en **segundos de mercado
+abierto**. Es la misma idea de `_segundos_de_finde` (que ya existía para las
+diarias hábiles) llevada a su forma general, y el mismo principio que el detector
+de motores: *fuera de rueda no está caído, está apagado*.
+
+    último dato          ahora            atraso de RELOJ    atraso de RUEDA
+    ─────────────────────────────────────────────────────────────────────────
+    ayer 16:58 ART       hoy 20:30 ART         27,5 h              7 h  ← real
+    hoy  16:58 ART       hoy 20:30 ART          3,5 h              0    ← cerrado
+    viernes al cierre    lunes 10:30 ART          65 h             30 min
+
+**Y no es indulgencia**: una tabla de tiempo real que se pasó la rueda ENTERA sin
+escribir sigue saliendo atrasada. De yapa resuelve el arranque — a las 10:10 ART
+hace diez minutos que abrió, así que lo de ayer al cierre acumula diez minutos, no
+diecisiete horas.
+
+#### Lo mismo, del otro lado: los avisos que sobrevivían al cierre
+
+El monitor de rueda corre 10:30-17 y **reemplaza** lo suyo en cada pasada. Pero al
+cerrar deja de correr, y su última foto —la de las 16:55— **se quedaba en la
+pantalla toda la noche y todo el fin de semana**. Eso es lo que el user veía como
+«avisos de sin precio con el mercado cerrado»: *el detector estaba bien, la foto
+estaba vieja*, que para el que mira es lo mismo.
+
+Ahora un hallazgo de rueda **vence** (`av_agent.VENCEN_EN_S`, 15 min). Vence en
+vez de borrarse con un cron al cierre, y eso es a propósito: **si el monitor se
+muere a las 11, sus hallazgos también desaparecen** — y está bien, porque ya no
+sabemos si siguen pasando. Un dato que nadie refresca no puede seguir afirmándose.
+Se cura solo y no depende de que ningún job corra a la hora justa.
+
+#### El AO29: el bono peor cargado era el único invisible
+
+El detector de precios abría su loop así:
+
+    if not simbolo or not tk:
+        continue
+
+O sea que **un bono del master sin símbolo de mercado se salteaba en silencio**.
+No es «no aplica»: es el peor caso posible —no puede tener precio nunca, y el
+motor no falla porque ni siquiera lo intenta— y encima es **el más accionable de
+todos**, porque el símbolo sale de `mercado.especies`. El detector decía distinguir
+las causas del «sin precio» y justo la primera la tiraba a la basura.
+
+Ahora es un hallazgo propio (`sin_simbolo`, alta). Y `scripts/diag_bono_sin_precio`
+recorre la cadena entera de un ticker —master → símbolo → especies → universo de
+Primary → snapshot → precio— y dice **en qué eslabón se corta**, que es la
+diferencia entre *«no opera por liquidez»* y *«hay algo mal cargado»*.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

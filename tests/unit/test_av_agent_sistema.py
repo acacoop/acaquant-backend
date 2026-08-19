@@ -224,3 +224,37 @@ def test_y_ninguna_de_las_dos_usa_el_modelo():
     for s in catalogo():
         if s.id in ("detectar.db_cambio", "detectar.latencia"):
             assert s.usa_ia == SIN_IA
+
+
+# ── Un hallazgo de rueda VENCE (2026-08-19) ────────────────────────────────
+
+def test_los_hallazgos_de_rueda_tienen_fecha_de_vencimiento():
+    """*«En AVISOS tenía un montón de avisos de precios sin precio, pero eso era
+    porque el MERCADO ESTABA CERRADO»* (user).
+
+    El monitor corre 10:30-17 ART y reemplaza lo suyo en cada pasada — pero al
+    cerrar deja de correr, y su última foto se quedaba en la pantalla toda la
+    noche y todo el fin de semana. El detector estaba bien; la foto estaba vieja,
+    que para el que mira es lo mismo."""
+    from api.services import av_agent
+    assert av_agent.VENCEN_EN_S["live"] > 0
+    # Más que el intervalo del monitor (5') para no parpadear entre pasadas.
+    assert av_agent.VENCEN_EN_S["live"] >= 10 * 60
+
+
+def test_el_alcance_SISTEMA_no_vence():
+    """Corre una vez por noche: darle el mismo TTL que al monitor de rueda
+    dejaría la pantalla vacía el 99% del día."""
+    from api.services import av_agent
+    assert "sistema" not in av_agent.VENCEN_EN_S
+    assert "sistema" in av_agent.ALCANCES_VIVOS
+
+
+def test_el_vencimiento_se_aplica_en_SQL_no_en_el_front():
+    """Si el filtro viviera en la pantalla, cualquier otra vía de consulta
+    seguiría leyendo la foto vencida."""
+    import inspect
+
+    from api.services import av_agent_vista
+    src = inspect.getsource(av_agent_vista._hallazgos_ultima_corrida)
+    assert "VENCEN_EN_S" in src and "make_interval" in src

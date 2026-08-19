@@ -219,39 +219,22 @@ def test_el_importe_del_mayor_es_debe_menos_haber():
     assert d["suma"] == -499_999_887.99
 
 
-def test_la_fila_del_SALDO_INICIAL_no_es_un_movimiento():
-    """Tiene Debe cargado pero es el punto de partida: contarla infla el total
-    justo en el arranque, que es donde nadie lo mira."""
+def test_una_fila_SIN_FECHA_no_es_un_movimiento():
+    """El saldo inicial tiene Debe cargado pero no es un movimiento. Se lo
+    reconoce por la FECHA y no tratando de identificarlo por su saldo.
+
+    ⚠️ La versión anterior identificaba el «saldo inicial» y auto-verificaba el
+    parseo (inicial + movimientos = saldo final). Se sacó: el formato del mayor
+    admite hasta 7 decimales (`#,##0.00#####`), así que un `1.515.504,677` es
+    genuinamente ambiguo contra un separador de miles — el saldo inicial se leyó
+    MIL VECES más grande y el aviso salió gritando en un archivo perfecto. Un
+    aviso que grita cuando no pasa nada entrena a ignorar todos los avisos."""
     from api.services.bancos import _movimientos_del_mayor
 
     d = _movimientos_del_mayor(GRILLA)
-    assert d["saldo_inicial"] == 53_464.73
     assert len(d["movimientos"]) == 4, "las 4 filas con fecha, no las 5 con importe"
     assert all("Saldo inicial" not in m["concepto"] for m in d["movimientos"])
-
-
-def test_el_detalle_del_mayor_CIERRA_contra_su_propio_saldo():
-    """La verificación que se hace sola: inicial + movimientos = saldo final. Si
-    diera distinto, o leí mal una columna o al archivo le falta una fila."""
-    from api.services.bancos import _movimientos_del_mayor, _saldo_del_mayor
-
-    d = _movimientos_del_mayor(GRILLA)
-    final = _saldo_del_mayor(GRILLA)["valor"]
-    assert round(d["saldo_inicial"] + d["suma"], 2) == final
-    assert d["cierra"] is True
     assert d["avisos"] == []
-
-
-def test_si_el_mayor_NO_cierra_contra_su_saldo_lo_canta():
-    """Callarlo sería dejar conciliar contra un detalle que no representa lo que
-    dice representar."""
-    from api.services.bancos import _movimientos_del_mayor
-
-    roto = [f[:] for f in GRILLA]
-    del roto[3]                       # se «pierde» una fila del medio
-    d = _movimientos_del_mayor(roto)
-    assert d["cierra"] is False
-    assert any("NO cierra" in a for a in d["avisos"])
 
 
 def test_los_dos_detalles_viajan_en_la_respuesta(monkeypatch):
@@ -262,7 +245,6 @@ def test_los_dos_detalles_viajan_en_la_respuesta(monkeypatch):
     assert out["banco_suma"] == 4887.99
     assert len(out["mayor_movimientos"]) == 4
     assert out["mayor_suma"] == -499_999_887.99
-    assert out["mayor_cierra"] is True
 
 
 # ── Encontrar la explicación cuando no es exacta ────────────────────────────
@@ -324,3 +306,29 @@ def test_una_diferencia_grande_NO_se_explica_con_cualquier_cosa(monkeypatch):
     out = s.conciliar("x@y", 1, FECHA, grilla)
     assert out["candidatos"] == []
     assert any("Ningún movimiento" in a for a in out["avisos"])
+
+
+# ── El margen es PROPORCIONAL, con piso ─────────────────────────────────────
+# Un margen fijo no escala en los dos sentidos: sobre 500 millones, un peso es
+# tan estricto como la igualdad exacta y vuelve a esconder el movimiento; sobre
+# mil pesos, un porcentaje solo tampoco alcanzaría para un centavo. Van los dos.
+@pytest.mark.parametrize("diferencia,esperado", [
+    (100.0, 1.0),               # chicas: manda el piso
+    (1_176_659.79, 11.77),      # el caso real
+    (500_000_000.0, 5_000.0),   # grandes: manda el porcentaje
+])
+def test_el_margen_escala_con_la_diferencia(diferencia, esperado):
+    from api.services.bancos import tolerancia
+    assert tolerancia(diferencia) == esperado
+
+
+def test_el_margen_NO_alcanza_para_hacer_pasar_un_movimiento_por_otro(monkeypatch):
+    """0,001% es un peso cada 100.000: alcanza para un redondeo y no para
+    confundir dos movimientos distintos."""
+    s = _svc(monkeypatch, cierre=166_258.92 + 1_000_000.0,
+             movs=[_mov("h1", 999_950.0, "C", "PARECIDO PERO NO")])
+    grilla = [["Concepto", "Debe", "Haber", "Saldo"],
+              ["Saldo inicial", "", "", "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    assert out["tolerancia"] == 10.0, "±10 sobre un millón"
+    assert out["candidatos"] == [], "50.000 de distancia no es un redondeo"

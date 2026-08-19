@@ -729,14 +729,17 @@ conciliación que miente, y eso no avisa.
   así que mostrarlos invitaría a cruzarlos por donde no se puede. Lo único
   comparable es el **importe**, y por eso las dos columnas de números quedan
   alineadas a la misma altura: el ojo hace la comparación solo.
-- ⚠️ **`importe del mayor = Debe − Haber`**, medido y verificado: el saldo
-  inicial más la suma de los movimientos da **exactamente** el saldo final del
-  archivo. Esa igualdad no es un detalle contable — es lo que permite
-  **auto-verificar el parseo**: si no cierra, o se leyó mal una columna o al
-  archivo le falta una fila, y en los dos casos hay que decirlo antes de que
-  alguien concilie contra un número que no representa nada. La fila del **saldo
-  inicial** no es un movimiento y se excluye por dos señales independientes (no
-  tiene fecha, o su concepto lo dice).
+- ⚠️ **`importe del mayor = Debe − Haber`**, medido y verificado. **Una fila es
+  un movimiento si tiene FECHA** — nada más. Hubo una versión que además
+  identificaba el «saldo inicial» y auto-verificaba el parseo (inicial +
+  movimientos = saldo final), y **el chequeo se sacó**: el formato del mayor
+  admite hasta 7 decimales (`#,##0.00#####`), así que un `1.515.504,677` es
+  genuinamente ambiguo contra un separador de miles — el saldo inicial se leyó
+  **mil veces más grande** y el aviso salió gritando en un archivo perfecto.
+  **Un aviso que grita cuando no pasa nada entrena a ignorar todos los avisos**,
+  incluidos los que sí importan: si el dato que lo alimenta no es confiable, el
+  chequeo no es una ayuda extra, es ruido con cara de hallazgo. La fecha, en
+  cambio, no es ambigua — y es la definición de movimiento.
 - Las **explicaciones** son subconjuntos de movimientos que llegan a la
   diferencia, buscados en **tres pasadas de la más estricta a la más laxa**:
   1. **suma firmada == diferencia** — la explicación limpia;
@@ -744,16 +747,25 @@ conciliación que miente, y eso no avisa.
      cuando el sistema contable lleva la cuenta del otro lado, y el back office
      igual necesita ver ese movimiento: **es** el movimiento, solo que el signo
      cuenta otra historia. Se marca (`signo_invertido`), no se disimula;
-  3. **con TOLERANCIA de $1**, informando cuánto sobra (`resto`).
+  3. **con MARGEN**, informando cuánto sobra (`resto`).
 
-  ⚠️ La tolerancia nace de un caso real: la diferencia daba `1.176.659,79` y el
+  ⚠️ El margen nace de un caso real: la diferencia daba `1.176.659,79` y el
   movimiento que la explicaba era de `1.176.659,78` — **un centavo**. Con
   igualdad exacta el buscador contestaba «ningún movimiento da exactamente esa
   diferencia» y **escondía el movimiento que cualquiera reconoce de un vistazo**.
-  Es **un peso fijo y no un porcentaje**: sobre 500 millones un porcentaje daría
-  miles de pesos de margen y empezaría a "encontrar" coincidencias que no lo son.
-  Y el orden de las pasadas importa: buscando con tolerancia desde el principio,
-  «esto es» y «esto se le parece» valdrían lo mismo. **Lo que sobra se informa
+
+  **Es PROPORCIONAL a la diferencia, con piso**: `max($1, 0,001%)`. Un margen
+  fijo no escala en los dos sentidos — sobre 500 millones, un peso es tan
+  estricto como la igualdad exacta y vuelve a esconder el movimiento; sobre mil
+  pesos, un porcentaje solo tampoco alcanzaría para un centavo. Es el mismo
+  `rtol + atol` con que se comparan flotantes en cualquier lado. El porcentaje es
+  deliberadamente minúsculo (un peso cada 100.000): alcanza para redondeos y no
+  para hacer pasar un movimiento por otro. **El margen usado se muestra en la
+  pantalla** — un criterio que decide qué aparece no puede vivir escondido en el
+  código.
+
+  El orden de las pasadas importa: buscando con margen desde el principio, «esto
+  es» y «esto se le parece» valdrían lo mismo. Y **lo que sobra se informa
   siempre** — una explicación que tapa un resto cierra el caso con plata sin
   justificar adentro.
 
@@ -853,6 +865,12 @@ La pantalla arranca mostrando **solo las cuentas con diferencia**, con un
 Respeta el filtro por banco de la vista.
 
 ## Changelog
+
+- **2026-08-19 (6)** — **Se saca el chequeo de «el mayor no cierra»** (gritaba en
+  un archivo perfecto: el saldo inicial se leía mil veces más grande por la
+  ambigüedad de los 7 decimales del formato), el **margen pasa a ser
+  proporcional** (`max($1, 0,001%)`, mostrado en pantalla) y el modal se
+  **ensancha a 1600px**, que es lo que piden dos tablas lado a lado.
 
 - **2026-08-19 (5)** — **CONCILIAR muestra los dos detalles** (banco y mayor, uno
   de cada lado, solo descripción e importe) y **encuentra la explicación aunque

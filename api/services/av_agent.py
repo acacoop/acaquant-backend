@@ -128,6 +128,8 @@ ACCION_POR_TIPO = {
     # siguiente** (el user: «y a futuro que pueda hacer algo»).
     "tabla_quieta": None,
     "motor_caido": None,
+    # Un permiso flojo se arregla en el router o en el borde, no en la base.
+    "permiso_flojo": None,
     # ── EN RUEDA (2026-08-18) ────────────────────────────────────────────────
     # `None` EXPLÍCITO, y por un motivo distinto al resto: no es que falte
     # construirlo, es que **no se arreglan tocando `mercado.curvas`**. Un símbolo

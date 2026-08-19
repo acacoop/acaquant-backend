@@ -30,8 +30,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 
-from api.main import app
-
 ESCRITURAS = {"POST", "PATCH", "PUT", "DELETE"}
 
 # Gates que NO son de módulo: no se delegan desde la matriz de roles.
@@ -83,41 +81,34 @@ def _deps(route) -> list:
 
 
 def _rutas() -> list[Ruta]:
-    rutas: list[Ruta] = []
-    for r in app.routes:
-        path = getattr(r, "path", None)
-        methods = {m for m in (getattr(r, "methods", None) or set())
-                   if m not in ("HEAD", "OPTIONS")}
-        if path is None or not methods:
-            continue
-        calls = _deps(r)
-        nombres = {getattr(c, "__name__", "") for c in calls}
-        modulos: tuple[str, ...] = ()
-        for c in calls:
-            mods = getattr(c, "rbac_modules", None)
-            if mods:
-                modulos = tuple(mods)
-                break
-        duro = next((n for n in nombres if n in GATES_DUROS), None)
-        # Cualquier otro require_* declarado a mano (allowlists per-usuario).
-        extras = tuple(sorted(
-            n for n in nombres
-            if n.startswith("require_") and n not in GATES_DUROS
-            and not n.startswith(("require_module_", "require_any_module_"))
-            and n != "require_no_invitado"
+    """Delega en `api/superficie.py` — **la única forma de recorrer la superficie**.
+
+    ⚠️ Su versión propia hacía `for r in app.routes` y **veía 37 de 541 rutas**
+    (medido 2026-08-19). No fallaba: devolvía poco, en silencio. Una auditoría de
+    RBAC que mira el 7% de la superficie y sale limpia es peor que ninguna.
+    """
+    from api import superficie
+
+    out: list[Ruta] = []
+    for r in superficie.rutas():
+        gates = set(r.gates)
+        out.append(Ruta(
+            path=r.path,
+            methods=sorted(r.metodos),
+            modulos=r.modulos,
+            gate_duro=r.gate_duro,
+            bearer=r.pide_bearer,
+            token_ingesta="verify_ingest_token" in gates,
+            bloquea_invitado="require_no_invitado" in gates,
+            # Cualquier otro `require_*` declarado a mano (allowlists per-usuario).
+            extras=tuple(sorted(
+                g for g in gates
+                if g.startswith("require_") and g not in GATES_DUROS
+                and not g.startswith(("require_module_", "require_any_module_"))
+                and g != "require_no_invitado")),
         ))
-        ingesta = "verify_ingest_token" in nombres
-        rutas.append(Ruta(
-            path=path,
-            methods=sorted(methods),
-            modulos=modulos,
-            gate_duro=duro,
-            bearer="verify_api_key" in nombres,
-            token_ingesta=ingesta,
-            bloquea_invitado="require_no_invitado" in nombres,
-            extras=extras,
-        ))
-    return sorted(rutas, key=lambda x: x.path)
+    return sorted(out, key=lambda x: x.path)
+
 
 
 def _matriz() -> dict[str, tuple[str, ...]]:

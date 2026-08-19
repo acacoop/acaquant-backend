@@ -1,4 +1,4 @@
-"""jobs/db_tamano.py — LA FOTO DIARIA DE LA BASE + EL PERFIL DE CADA TABLA.
+"""jobs/db_tamano.py — LA FOTO DIARIA DEL SISTEMA: base, perfil de tablas y superficie HTTP.
 
 Congela cuánto pesa cada tabla para que el agente pueda decir MAÑANA qué cambió.
 Sin esta foto no hay delta, y sin delta el tamaño de la base es un número que no
@@ -37,6 +37,18 @@ def main() -> int:
         jr.set_stat("perfiladas", b["tablas"])
         jr.set_stat("con_ritmo", b["con_ritmo"])
         print(f"perfil: {b['tablas']} tablas, {b['con_ritmo']} con un ritmo medible")
+
+        # LA SUPERFICIE HTTP — que los permisos sean reales y no "de los
+        # papeles". Va acá y no en el monitor de rueda porque la prueba activa
+        # hace tráfico contra producción: 400 requests cada 5 minutos molestan,
+        # y una superficie mal gateada no se arregla sola en ese rato.
+        from api.services import av_agent_seguridad as seg
+
+        d = seg.declarado()
+        jr.set_stat("rutas", d["total"])
+        jr.set_stat("sin_gate", len(d["abiertas_inesperadas"]))
+        for h in seg.detectar_seguridad():
+            print(f"  ⚠ SEGURIDAD  {h['ticker']} — {h['motivo']}")
 
         # El delta se calcula acá también para que quede en el LOG del job: si
         # algo creció de golpe, se ve sin abrir nada. El agente lo levanta igual

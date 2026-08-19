@@ -18,3 +18,4 @@ Conecta con: agrupa todos los submódulos de la API; lo arranca uvicorn vía `ap
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
+- [[api.services.av_agent_seguridad]]  ·  _module_

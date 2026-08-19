@@ -26,17 +26,26 @@ que el agente MANDA le llega a cualquiera.**
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.auth import get_user_email, is_guest_portal
+from api.auth import get_user_email, require_no_invitado
 
-router = APIRouter(prefix="/api/avisos", tags=["avisos"])
+# ⚠️ **El rechazo del invitado va como DEPENDENCY del router, no como un `if`
+# adentro de cada handler** (2026-08-19). Vivía adentro y funcionaba igual, pero:
+#
+#   · un endpoint nuevo acá tendría que ACORDARSE de llamarlo, y
+#   · **no era visible desde afuera**: ni el test de superficie ni el propio
+#     agente pueden ver un `if` en el cuerpo de una función, así que este router
+#     figuraba como escritura sin ningún gate. Un permiso que existe pero no se
+#     puede auditar es, para cualquier herramienta, un permiso que no existe.
+router = APIRouter(prefix="/api/avisos", tags=["avisos"],
+                   dependencies=[Depends(require_no_invitado)])
 
 
-def _quien(request: Request, email: str) -> str:
-    if is_guest_portal(request):
-        raise HTTPException(403, "no disponible para el portal invitado")
+def _quien(email: str) -> str:
+    """El invitado ya quedó afuera por la dependency del router; acá solo se
+    resuelve la identidad."""
     quien = (email or "").strip().lower()
     if not quien:
         raise HTTPException(401, "sin identidad")
@@ -44,10 +53,10 @@ def _quien(request: Request, email: str) -> str:
 
 
 @router.get("")
-def mis_avisos(request: Request, email: str = Depends(get_user_email)):
+def mis_avisos(email: str = Depends(get_user_email)):
     """Lo que el agente te dejó a VOS. Filtra por tu propio email."""
     from api.services import av_agent_vista as vista
-    return {"avisos": vista.avisos_de(_quien(request, email))}
+    return {"avisos": vista.avisos_de(_quien(email))}
 
 
 class _Hecho(BaseModel):
@@ -55,13 +64,13 @@ class _Hecho(BaseModel):
 
 
 @router.post("/hecho")
-def marcar_hecho(request: Request, body: _Hecho = Body(...),
+def marcar_hecho(body: _Hecho = Body(...),
                  email: str = Depends(get_user_email)):
     """«Ya lo hice». **Solo sobre un aviso propio**: el service compara el
     destinatario contra quien pide, así que cerrar el de otro no es una decisión
     de permisos que alguien pueda olvidarse de chequear — es imposible."""
     from api.services import av_agent_vista as vista
-    r = vista.resolver_aviso_propio(body.id, quien=_quien(request, email))
+    r = vista.resolver_aviso_propio(body.id, quien=_quien(email))
     if not r.get("ok"):
         raise HTTPException(404, r.get("error") or "no existe ese aviso")
     return r

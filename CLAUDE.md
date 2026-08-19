@@ -58,6 +58,12 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > capas, el estado real de cada etapa y lo descartado. Incluye **SALUD**, que se
 > fusionó adentro del agente (un chequeo y un hallazgo son el mismo objeto), y el
 > **eval set**, que es lo que habilita cada paso de autonomía.
+> **2026-08-19 — LA SUPERFICIE HTTP** (§0.s): el agente sabe qué endpoints hay y
+> con qué gate, y **prueba de verdad** (sin credenciales, contra la URL pública)
+> que nada conteste distinto de 401/403 — el permiso "en los papeles". Solo GET,
+> solo rutas propias, con throttle, jamás una escritura, y declarando qué capa
+> cubrió (**no cubre Vercel**). Necesita `AV_AGENT_URL_PUBLICA` en el `.env`.
+>
 > **2026-08-19 — EL CONTEXTO** (§0.r): el agente conoce la base **sin ninguna
 > lista** — el inventario sale de `pg_catalog`, la columna de fecha de
 > `information_schema` y **la cadencia se MIDE** mirando la distribución de esa
@@ -80,7 +86,7 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > tiene que quedar mapeada en la tab SKILLS, declarando si usa IA o no.** El
 > catálogo se DERIVA de los registros reales (`av_agent_skills.py`), así que una
 > skill aparece por existir; donde no puede derivar (los detectores) hay un test
-> que exige la descripción. Hoy: 33 habilidades, 24 sin IA.
+> que exige la descripción. Hoy: 35 habilidades, 25 sin IA.
 > **El AGENTE es admin-only, pero lo que MANDA le llega a cualquiera** (§0.p):
 > los avisos dirigidos viven en `/api/avisos`, FUERA de `/api/ia` (un trader no
 > tiene el módulo `ia`), filtrando por el email propio.
@@ -375,8 +381,12 @@ empezá por ahí.
 > rutas reales cuelgan de `.original_router.routes`. Un `for r in app.routes` ingenuo
 > ve **5 de 428** y no falla: devuelve poco, en silencio. Lo mismo con los gates: las
 > `dependencies=` del include viven en `route.include_context`, no bajan a cada ruta.
-> `scripts/gen_mapa_app.py` resuelve las dos cosas — copiá de ahí, no reinventes
-> (`scripts/audit_rbac.py` y `tests/unit/test_rbac_superficie.py` están ciegos por esto).
+> **RESUELTO 2026-08-19**: la técnica vive UNA sola vez en **`api/superficie.py`**
+> y las tres herramientas delegan ahí. **No la reimplementes** — al medirlo,
+> `audit_rbac` y `test_rbac_superficie` veían **37 de 541 rutas** y pasaban en
+> verde (auditaban el 7% y afirmaban que estaba todo bien), y `gen_mapa_app`
+> duplicaba el prefijo en **395 de 541 paths** (el `prefix` de un `APIRouter` ya
+> viene aplicado a sus propias rutas). Ver `AV_AGENT.md` §0.s.
 
 ## Plano del sistema — `deploy/SISTEMA.md`
 

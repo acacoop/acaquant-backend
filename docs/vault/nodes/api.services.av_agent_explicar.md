@@ -22,6 +22,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.av_agent_db]]  ·  _module_
 - [[api.services.av_agent_latencia]]  ·  _module_
 - [[api.services.av_agent_motores]]  ·  _module_
+- [[api.services.av_agent_seguridad]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.debug_derivados]]  ·  _module_
 - [[core]]  ·  _module_

@@ -1533,7 +1533,8 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
     # quedaba corta sin avisar, que es el mismo modo de falla que este test caza.
     tipos_reales = {"falta_en_base", "sin_flujo", "tasa_sospechosa",
                     "hueco_de_curva", "salud", "sin_precio", "precio_moneda",
-                    "db_cambio", "latencia", "tabla_quieta", "motor_caido"}
+                    "db_cambio", "latencia", "tabla_quieta", "motor_caido",
+                    "permiso_flojo"}
     assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
         "una clave del mapa no es un TIPO que algún detector emita — "
         "probablemente se escribió la REGLA")

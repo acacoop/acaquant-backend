@@ -36,6 +36,7 @@ Conecta con: lee/escribe `Manager.Users`, `Manager.RoleMatrix`, `Manager.RoleAud
 - [[api.services.pnl_ajustes_sql]]  ·  _module_
 - [[api.services.senebis]]  ·  _module_
 - [[api.services.tesoreria]]  ·  _module_
+- [[api.superficie]]  ·  _module_
 - [[core.ai]]  ·  _module_
 - [[core.grupos]]  ·  _module_
 - [[core.roles_sql]]  ·  _module_

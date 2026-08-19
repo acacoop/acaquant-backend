@@ -32,7 +32,7 @@
 - [[jobs.control_saldos]] — jobs/control_saldos.py — SALDO LIQUIDADO de hoy por cuenta y moneda.
 - [[jobs.controles_datos]] — controles_datos.py — Auto-control de CALIDAD DE DATOS de ACAQuant.
 - [[jobs.day_trading_stats]] — day_trading_stats.py — resumen diario de scalping por CEDEAR.
-- [[jobs.db_tamano]] — jobs/db_tamano.py — LA FOTO DIARIA DE LA BASE + EL PERFIL DE CADA TABLA.
+- [[jobs.db_tamano]] — jobs/db_tamano.py — LA FOTO DIARIA DEL SISTEMA: base, perfil de tablas y superficie HTTP.
 - [[jobs.dias_habiles]] — dias_habiles.py — Carga días hábiles del calendario argentino a SQL (mercado.dias_habiles).
 - [[jobs.eikon_cierres]] — jobs/eikon_cierres.py — persiste el CIERRE diario de los feeds Eikon nuevos
 - [[jobs.estrategia_resolver]] — jobs/estrategia_resolver.py — resuelve el RESULTADO de cada señal ESTRATEGIA QUANT.

@@ -171,8 +171,12 @@ def test_los_avisos_filtran_por_el_email_del_que_pregunta():
     from api.routers import avisos
     from api.services import av_agent_vista
 
-    fuente = Path(avisos.__file__).read_text(encoding="utf-8")
-    assert "is_guest_portal" in fuente, "REGLA #8: el invitado queda afuera"
+    # El invitado queda afuera por una DEPENDENCY del router, no por un `if`
+    # adentro del handler: así lo ve el test de superficie y lo ve el propio
+    # agente. Un permiso que existe pero no se puede auditar es, para cualquier
+    # herramienta, un permiso que no existe.
+    gates = {getattr(d.dependency, "__name__", "") for d in avisos.router.dependencies}
+    assert "require_no_invitado" in gates, "REGLA #8: el invitado queda afuera"
 
     # Ninguna ruta acepta una identidad por parámetro: la única que hay sale de
     # `get_user_email`. Se mira la FIRMA y no el texto del archivo — la palabra

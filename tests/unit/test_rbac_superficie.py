@@ -21,42 +21,49 @@ from __future__ import annotations
 
 import pytest
 
-from api.main import app
+from api import superficie
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-def _dep_names(route) -> set[str]:
-    """Nombres de TODAS las dependencies resueltas para la ruta (recursivo).
+# Las allowlists PER-USUARIO son un gate tan real como un módulo: ACA y Mesa de
+# Dinero se gatean así **a propósito** (ver CLAUDE.md — el criterio es «estos
+# usuarios», y un módulo obligaría a crear un rol por combinación). Ninguna
+# alcanza al portal invitado: son listas de emails internos.
+#
+# Se enumeran EXPLÍCITAS y no con un `startswith("require_")` que trague
+# cualquier cosa: un gate nuevo tiene que pasar por acá y que alguien decida que
+# efectivamente autoriza.
+#
+# Aparecieron al destapar este archivo (2026-08-19): veía **37 de 541 rutas**, y
+# estas 13 escrituras quedaban del otro lado del punto ciego. **No eran
+# agujeros** — pero nadie lo sabía, que es exactamente el problema.
+_ALLOWLISTS = frozenset({
+    "require_escritura_aca", "require_lectura_aca",
+    "require_escritura_mesa", "require_lectura_mesa", "require_vista_completa",
+    "require_escritura_senebis", "require_escritura_tesoreria",
+})
 
-    `require_module("x")` genera funciones con `__name__` = `require_module_x`
-    (ver api/auth.py), así que el nombre alcanza para identificar el gate.
-    """
-    dep = getattr(route, "dependant", None)
-    if dep is None:
-        return set()
-    out: set[str] = set()
-    stack = [dep]
-    while stack:
-        d = stack.pop()
-        call = getattr(d, "call", None)
-        if call is not None:
-            out.add(getattr(call, "__name__", ""))
-        stack.extend(getattr(d, "dependencies", []) or [])
-    return out
+
+def _tiene_allowlist(deps: set[str]) -> bool:
+    return bool(deps & _ALLOWLISTS)
 
 
 def _rutas():
-    """(path, methods, deps) de cada ruta de la app, sin HEAD/OPTIONS."""
-    for r in app.routes:
-        path = getattr(r, "path", None)
-        if path is None:
-            continue
-        methods = {m for m in (getattr(r, "methods", None) or set())
-                   if m not in ("HEAD", "OPTIONS")}
-        if not methods:
-            continue
-        yield path, methods, _dep_names(r)
+    """(path, methods, deps) de cada ruta REAL de la app.
+
+    ⚠️ **Esto recorría `app.routes` a mano y veía 37 de 541 rutas** (medido
+    2026-08-19). FastAPI no devuelve ahí las rutas de los `include_router`:
+    devuelve envoltorios, y las reales cuelgan de `.original_router.routes`. No
+    fallaba — devolvía poco, en silencio, y este archivo pasaba en verde
+    auditando el **7%** de la superficie. Para una herramienta de seguridad ese
+    es el peor modo de falla posible: no avisa que no sabe, afirma que está bien.
+
+    Ahora usa `api/superficie.py`, que es la ÚNICA forma de recorrer la
+    superficie. Mientras la técnica viva en tres archivos, dos van a quedar
+    viejos — ya pasó."""
+    for r in superficie.rutas():
+        yield r.path, set(r.metodos), set(r.gates)
 
 
 def _tiene_gate_modulo(deps: set[str]) -> bool:
@@ -146,7 +153,9 @@ def test_escrituras_sin_gate_de_modulo_estan_declaradas():
         (p, sorted(m & escrituras)) for p, m, deps in _rutas()
         if (m & escrituras) and p.startswith("/api/")
         and not _tiene_gate_modulo(deps)
+        and not _tiene_allowlist(deps)
         and "require_no_invitado" not in deps
+        and "require_admin" not in deps
         and p not in permitidas
         and not p.startswith(_PREFIJO_AUTH_PROPIA)
     ]

@@ -9,7 +9,7 @@ path: jobs/db_tamano.py
 
 # jobs/db_tamano
 
-> jobs/db_tamano.py — LA FOTO DIARIA DE LA BASE + EL PERFIL DE CADA TABLA.
+> jobs/db_tamano.py — LA FOTO DIARIA DEL SISTEMA: base, perfil de tablas y superficie HTTP.
 
 **Archivo:** `jobs/db_tamano.py`
 
@@ -20,6 +20,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services]]  ·  _module_
 - [[api.services.av_agent_contexto]]  ·  _module_
 - [[api.services.av_agent_db]]  ·  _module_
+- [[api.services.av_agent_seguridad]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 
 ## Lo usan (backlinks) ←

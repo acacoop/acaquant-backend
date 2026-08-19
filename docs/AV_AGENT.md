@@ -938,6 +938,110 @@ acción que sigue, y entra por la arquitectura de §0.j (proponer → tu OK → 
 → verificar) — con la diferencia de que ahí el «verificar» es esperar a que el
 motor vuelva a escribir, no releer una fila.
 
+### 0.s ¿LOS PERMISOS SON REALES O ESTÁN EN LOS PAPELES? (2026-08-19)
+
+> *«Que sea capaz de detectar si algún endpoint está mal hecho y se puede
+> consultar a la fuerza por tener solo permisos "en los papeles". Una vez me
+> había pasado que Vercel me dejaba todo sin protección y no me daba cuenta.
+> Todos los endpoints debería ser capaz de controlar que solo los ves si tenés el
+> permiso.»* (user)
+
+#### PRIMERO: el agujero que había, medido
+
+`CLAUDE.md` ya advertía que el tooling de seguridad estaba ciego por la trampa de
+FastAPI. **Al medirlo resultó peor de lo que decía:**
+
+    gen_mapa_app (que la resolvía)              541 rutas
+    audit_rbac · test_rbac_superficie            37 rutas
+
+O sea que el test llamado «RBAC de superficie» auditaba el **7%** de la superficie
+**y pasaba en verde**. Para una herramienta de seguridad ese es el peor modo de
+falla posible: no avisa que no sabe — **afirma que está todo bien**.
+
+Y `gen_mapa_app`, el que se creía correcto, tenía su propio bug: **duplicaba el
+prefijo en 395 de 541 paths** (`/api/ia/api/ia/observabilidad`), porque el
+`prefix` de un `APIRouter` ya viene aplicado a sus propias `APIRoute` y se lo
+volvía a sumar. Los gates estaban bien; los paths publicados en `MAPA_APP.md` §0,
+no. Un path que no existe es **peor** que uno faltante: cualquier herramienta que
+intente PROBARLO recibe un 404 y concluye que está protegido.
+
+**El arreglo no fue copiar la técnica tres veces: fue que haya una sola.**
+`api/superficie.py` es ahora la única forma de recorrer la superficie, y las tres
+herramientas delegan ahí. Mientras la técnica viva en tres archivos, dos van a
+quedar viejos — ya pasó.
+
+**Lo que apareció al destapar el test:** 13 escrituras que figuraban «sin gate».
+Verificadas una por una, **12 no eran agujeros**: ACA y Mesa de Dinero se gatean
+con allowlists per-usuario (`require_escritura_*`), a propósito y documentado, y
+el test solo sabía reconocer `require_module`. Ahora las reconoce, **enumeradas
+explícitas** — no con un `startswith("require_")` que trague cualquier cosa.
+
+**La 13ª sí era real y era nueva**: `/api/avisos` (de §0.p) no pedía bearer. Su
+única protección era CF Access en el borde — justo lo que no se puede dar por
+sentado. Se le agregó, y de paso **el rechazo del invitado dejó de ser un `if`
+adentro del handler y pasó a ser una dependency del router**: un `if` en el
+cuerpo de una función **no lo puede ver ni el test ni el propio agente**, así que
+ese router figuraba como escritura sin ningún gate. *Un permiso que existe pero no
+se puede auditar es, para cualquier herramienta, un permiso que no existe.*
+
+#### SON DOS PREGUNTAS DISTINTAS, y separarlas es todo el diseño
+
+| | qué contesta | cómo |
+|---|---|---|
+| **Lo DECLARADO** | ¿cada endpoint tiene el gate que le corresponde? | se **LEE** del árbol de rutas |
+| **Lo EFECTIVO** | ¿el borde realmente lo aplica? | se **PRUEBA** |
+
+La segunda **no se puede leer de ninguna manera**: el backend puede estar
+impecable y el borde abierto, que es exactamente lo que le pasó al user con
+Vercel. La única forma de saberlo es **pedir sin credenciales y ver qué
+contesta**.
+
+Es la primera vez que el agente hace una **prueba activa** en vez de observar. Y
+es la idea de **recompensa verificable** de §0.j aplicada a seguridad: no *«creo
+que está protegido»* sino *«pedí y me dio 401»*.
+
+**El invariante**, binario y sin listas que mantener:
+
+> **Ningún endpoint puede contestar algo distinto de 401/403 sin credencial.**
+
+#### TRES LÍMITES, y hay que decirlos
+
+1. **Un agente que prueba endpoints sin credenciales es, técnicamente, un
+   scanner.** Por eso: **solo `GET`**, solo rutas del inventario propio (no
+   adivina URLs), con throttle, y **jamás una escritura** — probar un `POST` «a
+   ver si me deja» puede escribir de verdad. Congelado por test.
+2. **Desde dónde se prueba cambia qué se prueba.** Desde el Droplet, pegarle a la
+   URL pública sale a internet y vuelve por Cloudflare → verifica CF Access y el
+   backend. **NO verifica Vercel**, que es donde el user tuvo el problema. Por eso
+   el resultado **siempre** declara su alcance: en seguridad una media verdad se
+   lee como un sí, y un verde sin alcance da falsa tranquilidad justo en la capa
+   del incidente.
+3. **Solo rutas sin parámetros de path.** Con `{id}` no se puede armar una URL
+   real y un valor inventado devuelve 404, que no dice nada sobre permisos. Esas
+   quedan cubiertas por la lectura.
+
+**Y no se inventa la URL**: sin `AV_AGENT_URL_PUBLICA` el chequeo **no corre**.
+Probar contra el host equivocado y salir en verde es peor que no probar.
+
+Un **404 no es un hallazgo** (no dice nada: puede ser una ruta con parámetros o un
+deploy a medias) y un **405 cuenta como rechazo** (la ruta existe, el método no
+aplica: tampoco filtró nada). Reportar los mudos sería el ruido que enseña a
+ignorar el aviso.
+
+#### Dónde corre
+
+La parte que **lee** es gratis y corre en el job nocturno junto con la foto de la
+base. La que **prueba** hace tráfico real contra producción, así que va ahí
+también y **no** en el monitor de rueda: 400 requests cada cinco minutos molestan,
+y una superficie mal gateada no se arregla sola en ese rato.
+
+Explicador **«¿Están bien protegidos los endpoints?»**, que muestra las dos capas
+por separado — porque una se arregla en el router y la otra en el borde.
+
+**PENDIENTE (REGLA #6, se pide una vez):** `AV_AGENT_URL_PUBLICA` en el `.env` del
+Droplet (`https://api.acaquant.com`). Sin eso, la mitad que PRUEBA queda apagada y
+solo corre la que lee.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta
@@ -3385,6 +3489,21 @@ libro de acciones, los cinco estados, `_paso` y `_veredicto` quedaron **intactos
 realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
+
+- **2026-08-19 — la superficie HTTP deja de ser un punto ciego, y el agente
+  PRUEBA que los permisos sean reales** (§0.s). Medido: el tooling de seguridad
+  veía **37 de 541 rutas** y pasaba en verde — auditaba el 7% y afirmaba que
+  estaba todo bien. Y `gen_mapa_app`, el que se creía correcto, **duplicaba el
+  prefijo en 395 de 541 paths**. Ahora hay **una sola** forma de recorrer la
+  superficie (`api/superficie.py`) y las tres herramientas delegan ahí. Al
+  destaparlo aparecieron 13 escrituras «sin gate»: 12 eran allowlists que el test
+  no sabía reconocer, **la 13ª era real** (`/api/avisos` sin bearer) y se
+  arregló — de paso el rechazo del invitado pasó de ser un `if` adentro del
+  handler a una dependency, porque un `if` no lo puede auditar nadie. Y lo nuevo:
+  el agente **prueba de verdad**, sin credenciales, contra la URL pública, con el
+  invariante «nada contesta distinto de 401/403». Solo GET, solo rutas propias,
+  con throttle, jamás una escritura — y declarando siempre qué capa cubrió (**no
+  cubre Vercel**). 35 habilidades, 25 sin IA.
 
 - **2026-08-19 — EL CONTEXTO: el agente conoce la base sin que nadie se lo
   escriba, y se entera si un motor se cae** (§0.r). *«Que sepa exactamente cada

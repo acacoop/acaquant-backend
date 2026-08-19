@@ -138,6 +138,9 @@ _QUE_DETECTA: dict[str, str] = {
                     "no la declara nadie",
     "motor_caido": "motores, jobs y APIs rotos DENTRO de su ventana horaria "
                    "(fuera de rueda un motor no está caído, está apagado)",
+    "permiso_flojo": "endpoints sin gate, y —probando de verdad, sin "
+                     "credenciales— los que contestan igual: el permiso que "
+                     "está en los papeles pero el borde no aplica",
 }
 
 

@@ -42,8 +42,6 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from fastapi.routing import APIRoute
-
 from api.auth import ENDPOINT_MODULE_PREFIXES, get_module_for_path
 from api.main import app
 from core.roles import DEFAULT_MATRIX, MODULES
@@ -54,43 +52,20 @@ ESCRITURA = {"POST", "PUT", "PATCH", "DELETE"}
 
 # ── Recorrido REAL de la app ─────────────────────────────────────────────────
 
-def _rutas(routes, prefijo: str = "", heredados: tuple[str, ...] = ()) -> list[dict]:
-    """Todas las APIRoute con su path COMPLETO y su gate heredado.
+def _rutas(routes=None) -> list[dict]:
+    """Delega en `api/superficie.py` — **la única forma de recorrer la superficie**.
 
-    ⚠️ Los includes se ANIDAN: los 28 sub-routers de Manager se incluyen en
-    `manager.router` y recién ese va a la app. En esa cadena, `route.path` del
-    sub-router **no trae el prefijo del padre** (dice `/aunesa/boletos`, no
-    `/api/manager/aunesa/boletos`) y las dependencies del padre tampoco bajan.
-    Por eso hay que acumular prefijo y gates AL BAJAR: la primera versión de
-    este script mostraba 126 endpoints de Manager como "sin gate" cuando están
-    gateados por el include del padre — exactamente el tipo de mentira que este
-    generador existe para evitar.
+    Su versión propia tenía DOS bugs que este generador existía para evitar:
+    veía bien las 541 rutas pero **duplicaba el prefijo en 395 de ellas**
+    (`/api/ia/api/ia/observabilidad`), porque el `prefix` de un `APIRouter` ya
+    viene aplicado a sus propias `APIRoute` y se lo volvía a sumar. Los gates
+    estaban bien; los paths publicados en MAPA_APP.md §0, no.
     """
-    out: list[dict] = []
-    for r in routes:
-        if type(r).__name__ == "_IncludedRouter":
-            ctx = r.include_context
-            # SOLO el prefijo propio del router incluido. `ctx.prefix` NO es un
-            # prefijo adicional: en un include anidado reporta el del PADRE (ya
-            # acumulado), y sumarlo daba `/api/manager/api/manager`.
-            sub = r.original_router.prefix or ""
-            gates = tuple(getattr(d.dependency, "__name__", "?")
-                          for d in (getattr(ctx, "dependencies", None) or []))
-            out.extend(_rutas(r.original_router.routes, prefijo + sub,
-                              heredados + gates))
-        elif isinstance(r, APIRoute):
-            out.append({
-                "path": prefijo + r.path,
-                "router": prefijo or "(raíz)",
-                "metodos": r.methods,
-                "gates": list(heredados) + _gates_de_ruta(r),
-            })
-    return out
+    from api import superficie
 
-
-def _gates_de_ruta(route: APIRoute) -> list[str]:
-    """Dependencies que sí bajan a la ruta (las del APIRouter y el decorador)."""
-    return [getattr(d.call, "__name__", "?") for d in route.dependant.dependencies]
+    return [{"path": r.path, "router": r.router, "metodos": set(r.metodos),
+             "gates": list(r.gates)}
+            for r in superficie.rutas(app if routes is None else None)]
 
 
 def _modulo_de_gate(nombre: str) -> str | None:

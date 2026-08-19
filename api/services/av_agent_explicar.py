@@ -589,11 +589,68 @@ class EstaTodoBien:
                 "numeros": {"problemas": problemas}}
 
 
+# ── 9. ¿ESTÁN BIEN PROTEGIDOS LOS ENDPOINTS? ────────────────────────────────
+
+class EstanProtegidos:
+    """*«Todos los endpoints debería ser capaz de controlar que solo los ves si
+    tenés el permiso»* (user). Y separa las dos capas, que es lo que hace útil la
+    respuesta: **el código puede estar impecable y el borde abierto.**"""
+
+    id = "protegidos"
+    pregunta = "¿Están bien protegidos los endpoints?"
+    necesita = ""
+    de_donde = "el árbol de rutas + una prueba real sin credenciales"
+
+    def sugerencias(self) -> list[str]:
+        return []
+
+    def explicar(self, _sujeto: str = "") -> dict:
+        from api.services import av_agent_seguridad as seg
+
+        d = seg.declarado()
+        pasos = [_paso(
+            "declarado", f"Lo que dice el código · {d['total']} rutas",
+            REVISAR if d["abiertas_inesperadas"] else OK,
+            (f"{d['con_modulo']} con gate de módulo · {d['admin_only']} admin-only "
+             f"· {d['escrituras']} escrituras\n"
+             + ("sin ningún gate: "
+                + ", ".join(d["abiertas_inesperadas"]) if d["abiertas_inesperadas"]
+                else "todas las abiertas están declaradas: "
+                     + ", ".join(d["abiertas_declaradas"]))),
+            tabla="api/superficie.py")]
+
+        p = seg.probar()
+        if not p.get("ok"):
+            pasos.append(_paso(
+                "efectivo", "Lo que hace el borde", NO_SE, str(p.get("motivo"))))
+        else:
+            filtran = p["filtran"]
+            pasos.append(_paso(
+                "efectivo", f"Probado de verdad · {p['probadas']} endpoints",
+                REVISAR if filtran else OK,
+                (f"{p['rechazan']} rechazaron sin credencial"
+                 + (f" · {p['mudos']} no dijeron nada (404/503)" if p["mudos"] else "")
+                 + (f" · {p['errores']} no respondieron" if p["errores"] else ""))
+                + ("\n\n**CONTESTARON SIN CREDENCIAL:**\n"
+                   + "\n".join(f"  · {f['path']} → {f['status']} "
+                                f"({f['bytes']} bytes)" for f in filtran[:15])
+                   if filtran else ""),
+                tabla=p["url"]))
+            pasos.append(_paso(
+                "alcance", "Qué se verificó de verdad", INFO, p["alcance"]))
+        return {"ok": True, "pasos": pasos,
+                "discrepancia": ("hay endpoints que contestan sin credencial"
+                                 if (p.get("filtran") or d["abiertas_inesperadas"])
+                                 else ""),
+                "numeros": {"rutas": d["total"],
+                            "filtran": len(p.get("filtran") or [])}}
+
+
 EXPLICADORES: dict[str, Explicador] = {
     e.id: e for e in (PorQueRinde(), PorQueEsaTNA(), ComoSeArmaElYTM(),
                       QueInflacionDescuenta(), DeDondeSalenLosNiveles(),
                       CuantoPesaLaBase(), ComoVieneDeVelocidad(),
-                      EstaTodoBien())
+                      EstaTodoBien(), EstanProtegidos())
 }
 
 

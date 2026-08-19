@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-213 notas.
+215 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -122,6 +122,7 @@
 - [[api.services.av_agent_preguntas]] — api/services/av_agent_preguntas.py — el AV AGENT le PREGUNTA al humano (E1.c).
 - [[api.services.av_agent_relevar]] — api/services/av_agent_relevar.py — LA RELEVADA, a pedido.
 - [[api.services.av_agent_salud]] — api/services/av_agent_salud.py — SALUD, razonada por el AV AGENT.
+- [[api.services.av_agent_seguridad]] — api/services/av_agent_seguridad.py — ¿LOS PERMISOS SON REALES O ESTÁN EN LOS PAPELES?
 - [[api.services.av_agent_sin_precio]] — api/services/av_agent_sin_precio.py — POR QUÉ un bono no tiene precio.
 - [[api.services.av_agent_skills]] — api/services/av_agent_skills.py — EL REGISTRO ÚNICO DE HABILIDADES.
 - [[api.services.av_agent_vista]] — api/services/av_agent_vista.py — la vista /av-agent en UN request (E1.d).
@@ -214,4 +215,5 @@
 - [[api.services.trading_pivots]] — Pivots Floor Trader sobre el activo (ARS) — vista TRADING.
 - [[api.services.valuaciones]] — Valuaciones — performance e historia por cuenta. SQL-only (decomiso Mongo).
 - [[api.services.valuaciones_sql]] — api/services/valuaciones_sql.py — espejo SQL de api/services/valuaciones.py.
+- [[api.superficie]] — api/superficie.py — LA ÚNICA FORMA DE RECORRER LA SUPERFICIE HTTP.
 - [[api.telemetria]] — api/telemetria.py — telemetría de LATENCIA por endpoint (endpoint × hora).

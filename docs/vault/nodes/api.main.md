@@ -64,3 +64,6 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.routers.valuaciones]]  ·  _module_
 - [[api.telemetria]]  ·  _module_
 - [[config]]  ·  _module_
+
+## Lo usan (backlinks) ←
+- [[api.superficie]]  ·  _module_

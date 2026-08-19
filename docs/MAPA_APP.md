@@ -50,8 +50,8 @@
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
 | `/api/analitica` | 14 | 1 | — | — | ⚠️ |
-| `/api/avisos` | 2 | 1 | — | — | ⚠️ |
-| `/api/back-office` | 59 | 35 | `back-office` · 59 rutas con gate extra | `back-office` |  |
+| `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
+| `/api/back-office` | 59 | 35 | `back-office` · 30 rutas con gate extra | `back-office` |  |
 | `/api/back-office/interbanking` | 17 | 12 | `back-office` · 14 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
@@ -84,7 +84,6 @@
 - `(raíz)` (2 de 2 rutas sin gate de módulo)
 - `/api/aca` (declara `aca`, no lo aplica)
 - `/api/analitica` (14 de 14 rutas sin gate de módulo)
-- `/api/avisos` (2 de 2 rutas sin gate de módulo)
 - `/api/cotizaciones` (33 de 34 rutas sin gate de módulo)
 - `/api/derivados` (13 de 18 rutas sin gate de módulo)
 - `/api/market` (4 de 4 rutas sin gate de módulo)

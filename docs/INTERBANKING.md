@@ -679,6 +679,63 @@ preguntarla sería ofrecer la posibilidad de contradecirla). Elegido el banco, e
 selector de cuenta se llena solo con las cuentas de ESE banco, que es lo que evita
 cargarle un movimiento a la cuenta de otro banco con número parecido.
 
+## CONCILIAR contra el mayor contable
+
+Compara **un número contra otro**: nuestro saldo al cierre y el **último saldo**
+del mayor que el usuario sube como Excel. Si no coinciden, busca qué movimientos
+del día explican la diferencia — porque el caso típico es al revés de lo que
+parece: no es que el banco tenga de más, es que **al mayor le falta registrar
+algo que el banco sí informó**.
+
+⚠️ **El frontend existía desde el 2026-08-19 y el backend NO**: la vista llamaba
+a `POST /conciliar`, que no estaba montado, y la pantalla mostraba «Not Found» —
+el `detail` con que FastAPI contesta una ruta inexistente. Media feature
+mergeada es peor que ninguna: parece que anda hasta que alguien la usa.
+
+### El formato del saldo, MEDIDO (no supuesto)
+
+Sobre el export real (`mayor_36.xlsx`, Credicoop, 2026-08-18), dos cosas que
+parecían obvias y no lo eran:
+
+1. **El valor de la celda ya viene FIRMADO** (`-499946423.26`). La `D`/`A` que se
+   ve en Excel **es formato de celda, no texto**: el `numFmt` es
+   `#,##0.00" D";#,##0.00" A"` — dos secciones, y **la segunda es la NEGATIVA y
+   no lleva el menos**. O sea: `A` = acreedor = negativo, con el número al lado
+   en valor absoluto.
+2. El front lee con `raw: false` justamente para no perder esa letra, así que al
+   backend le llega el **texto formateado**, no el número.
+
+Por eso `_num_mayor` acepta **las dos formas** —número crudo o texto— y decide el
+separador decimal **por posición** (gana el último `.` o `,`, salvo que le sigan
+exactamente 3 dígitos y sea el único): `1,234.56`, `1.234,56` y `500.000` se leen
+bien sin preguntarle a nadie de qué país es el archivo. Un saldo mal leído es una
+conciliación que miente, y eso no avisa.
+
+### Decisiones
+
+- **La columna SALDO se busca por ENCABEZADO**, no por posición: el export puede
+  traer títulos arriba o columnas de más. Si no la encuentra, usa la última con
+  números **y lo avisa** — adivinar está bien, adivinar en silencio es cómo un
+  número equivocado pasa por bueno.
+- Se devuelve la **evidencia** (`saldo_excel_texto`, `saldo_excel_fila`): el que
+  concilia tiene que poder verificar de dónde salió el número **sin abrir el
+  Excel al lado**.
+- **Nuestro saldo es el MISMO que muestra el consolidado**, ajuste manual
+  incluido (y avisado). Si acá se usara el saldo pelado del banco, dos pantallas
+  dirían dos números para la misma cuenta y el mismo día.
+- Las **explicaciones** son subconjuntos de movimientos cuya suma firmada da
+  exactamente la diferencia: de a uno, después de a dos, después de a tres con
+  tope. Si se cortó, la respuesta lo dice (`candidatos_truncados`) — «no
+  encontré» y «no busqué todo» son cosas distintas.
+- ⚠️ **Si los dos saldos coinciden al invertir el signo del mayor, se AVISA y no
+  se corrige.** Significa que no falta ningún movimiento: la cuenta está del otro
+  lado (acreedor/deudor). Invertir un signo por nuestra cuenta es exactamente
+  cómo se fabrica una conciliación que miente.
+- Es un `POST` que **no escribe nada** (el archivo va en el cuerpo porque no
+  entra en una query string) y **no persiste nada**. El test de seguridad lo
+  declara en `POST_QUE_NO_ESCRIBEN`, una lista corta y explícita: sumar uno ahí
+  es el momento en que alguien tiene que justificar por qué no escribe.
+
 ## DIFERENCIAS — ¿el saldo se movió solo?
 
 La cuenta que tiene que dar, por cuenta bancaria:
@@ -764,6 +821,12 @@ La pantalla arranca mostrando **solo las cuentas con diferencia**, con un
 Respeta el filtro por banco de la vista.
 
 ## Changelog
+
+- **2026-08-19 (4)** — **CONCILIAR: se escribe el BACKEND que faltaba.** El
+  frontend se había mergeado solo y la vista tiraba «Not Found» (el 404 de
+  FastAPI) — media feature mergeada es peor que ninguna. Ver la sección de
+  arriba: el formato del saldo (`D`/`A` = signo del `numFmt`) quedó **medido**
+  sobre el export real y congelado por 27 tests.
 
 - **2026-08-19 (3)** — **No se puede borrar una columna del desglose con textos
   cargados** (ver arriba). Nació de perder COM.TRANSF y sus tres textos de un

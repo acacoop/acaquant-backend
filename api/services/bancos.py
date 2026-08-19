@@ -24,7 +24,9 @@ agrega uno de esos campos a la proyección pública, el test falla.
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
+from itertools import combinations
 
 from api.services._sql import _f, _q
 from core.calendario import restar_habiles
@@ -712,6 +714,281 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
         "manuales": manuales,
         "resumen": resumen,
         "sync": ultima_sync(),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# CONCILIAR contra el mayor del sistema contable
+# --------------------------------------------------------------------------- #
+# Compara UN número contra otro: nuestro saldo al cierre y el ÚLTIMO saldo del
+# mayor que el usuario sube como Excel. Si no coinciden, busca qué movimientos
+# del día explican la diferencia — porque el caso típico es que al mayor le falte
+# registrar algo que el banco sí tiene.
+#
+# ⚠️ **El navegador no interpreta el archivo**: manda la grilla cruda y todo el
+# criterio vive acá, donde se puede testear. Nada se persiste.
+
+def _num_mayor(celda) -> float | None:
+    """El número de una celda del mayor. Devuelve `None` si no hay número.
+
+    ⚠️ **Medido sobre el export real** (`mayor_36.xlsx`), porque acá había dos
+    hipótesis y las dos importaban:
+
+    1. El valor de la celda **ya viene firmado** (`-499946423.26`). La `D`/`A`
+       que se ve en Excel **es formato de celda**, no texto:
+       `#,##0.00" D";#,##0.00" A"` — dos secciones, la segunda es la NEGATIVA y
+       **no lleva el menos**. O sea: `A` = negativo, y el número al lado sale en
+       valor absoluto.
+    2. El front lee con `raw: false` justamente para no perder esa letra, así que
+       lo que llega acá es el TEXTO formateado (`"499,946,423.26 A"`), no el
+       número. Por eso hay que parsear.
+
+    Se aceptan las dos formas igual —número o texto— porque un CSV, otro export
+    o un `raw: true` futuro cambiarían eso sin avisar, y un conciliador que se
+    rompe en silencio es peor que no tenerlo.
+
+    El separador decimal se decide por POSICIÓN y no por convención: gana el
+    último `.` o `,` que aparezca, salvo que le sigan exactamente 3 dígitos y sea
+    el único (ahí es de miles). Así `1,234.56`, `1.234,56` y `500.000` se leen
+    bien sin preguntarle a nadie de qué país es el archivo.
+    """
+    if celda is None:
+        return None
+    if isinstance(celda, (int, float)) and not isinstance(celda, bool):
+        return float(celda)
+
+    txt = str(celda).strip()
+    if not txt:
+        return None
+
+    # La letra del formato: D deudor (+), A acreedor (−).
+    letra = ""
+    m = re.search(r"([DAdaCc])\s*$", txt)
+    if m:
+        letra = m.group(1).upper()
+        txt = txt[:m.start()].strip()
+
+    negativo = txt.startswith("-") or (txt.startswith("(") and txt.endswith(")"))
+    crudo = re.sub(r"[^0-9.,]", "", txt)
+    if not re.search(r"\d", crudo):
+        return None
+
+    ult_punto, ult_coma = crudo.rfind("."), crudo.rfind(",")
+    corte = max(ult_punto, ult_coma)
+    if corte == -1:
+        entero, dec = crudo, ""
+    else:
+        decimales = len(crudo) - corte - 1
+        solo_uno = crudo.count(crudo[corte]) == 1 and (ult_punto == -1 or ult_coma == -1)
+        if decimales == 3 and solo_uno:
+            entero, dec = crudo.replace(crudo[corte], ""), ""   # separador de miles
+        else:
+            entero, dec = crudo[:corte], crudo[corte + 1:]
+    valor = float(re.sub(r"[.,]", "", entero) + ("." + dec if dec else "") or 0)
+
+    # La letra MANDA sobre el menos: en el formato del mayor el negativo se
+    # imprime sin signo y con la `A`. Si vinieran los dos, decir dos veces lo
+    # mismo no puede dar positivo.
+    if letra == "A" or (not letra and negativo):
+        valor = -abs(valor)
+    elif letra == "D":
+        valor = abs(valor)
+    return valor
+
+
+def _saldo_del_mayor(filas: list) -> dict:
+    """El ÚLTIMO saldo del mayor: qué columna, qué fila y con qué texto.
+
+    Se devuelve la evidencia (`texto`, `fila`) y no solo el número porque el que
+    concilia tiene que poder verificar de dónde salió **sin abrir el Excel al
+    lado**. Un conciliador que muestra un número sin decir de dónde lo sacó
+    obliga a confiar, que es justo lo que no se puede pedir acá.
+    """
+    if not filas:
+        return {"valor": None, "texto": None, "fila": None, "columna": None,
+                "avisos": ["El archivo llegó vacío."]}
+
+    # La columna SALDO se busca por ENCABEZADO y no por posición: el export puede
+    # traer títulos arriba o columnas de más, y contar desde la izquierda se
+    # rompe el día que agreguen una.
+    col = None
+    encabezado = None
+    for i, fila in enumerate(filas[:10]):
+        for j, celda in enumerate(fila or []):
+            if str(celda or "").strip().lower() == "saldo":
+                col, encabezado = j, i
+                break
+        if col is not None:
+            break
+
+    avisos: list[str] = []
+    if col is None:
+        # Último recurso: la última columna que tenga números. Se avisa, porque
+        # adivinar y no decirlo es la forma de que un número equivocado pase por
+        # bueno.
+        anchos = max((len(f or []) for f in filas), default=0)
+        for j in range(anchos - 1, -1, -1):
+            if any(_num_mayor(f[j]) is not None for f in filas if len(f or []) > j):
+                col = j
+                break
+        if col is None:
+            return {"valor": None, "texto": None, "fila": None, "columna": None,
+                    "avisos": ["No encontré ninguna columna con números en el archivo."]}
+        avisos.append(
+            f"El archivo no tiene una columna llamada «Saldo»: se usó la columna "
+            f"{col + 1}, que es la última con números. Verificá que sea la correcta.")
+
+    for i in range(len(filas) - 1, (encabezado or -1), -1):
+        fila = filas[i] or []
+        if len(fila) <= col:
+            continue
+        valor = _num_mayor(fila[col])
+        if valor is not None:
+            return {"valor": valor, "texto": str(fila[col]).strip(), "fila": i + 1,
+                    "columna": col, "avisos": avisos}
+    return {"valor": None, "texto": None, "fila": None, "columna": col,
+            "avisos": [*avisos, "La columna de saldo no tiene ningún número."]}
+
+
+# Cuántos movimientos se combinan buscando la explicación. De a uno y de a dos es
+# instantáneo; de a tres crece rápido y por eso tiene tope. Si se corta, la
+# respuesta lo DICE (`candidatos_truncados`): «no encontré» y «no busqué todo»
+# son cosas distintas.
+MAX_COMBINAR = 3
+MAX_MOVS_COMBINAR = 40
+
+
+def _explicaciones(movs: list[dict], objetivo: float) -> tuple[list[dict], bool]:
+    """Subconjuntos de movimientos cuya suma da EXACTAMENTE la diferencia."""
+    firmados = [(m, round(_firmado(m), 2)) for m in movs]
+    salida: list[dict] = []
+    obj = round(objetivo, 2)
+
+    for m, v in firmados:
+        if v == obj:
+            salida.append({"movimientos": [m], "suma": v, "cantidad": 1})
+    if salida:
+        return salida[:10], False
+
+    truncado = len(firmados) > MAX_MOVS_COMBINAR
+    usables = firmados[:MAX_MOVS_COMBINAR]
+    for n in (2, MAX_COMBINAR):
+        for combo in combinations(usables, n):
+            if round(sum(v for _, v in combo), 2) == obj:
+                salida.append({"movimientos": [m for m, _ in combo],
+                               "suma": obj, "cantidad": n})
+                if len(salida) >= 10:
+                    return salida, truncado
+        if salida:
+            return salida, truncado
+    return salida, truncado
+
+
+def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
+    """Nuestro saldo al cierre contra el último saldo del mayor.
+
+    Qué se compara y por qué así:
+
+    · **Nuestro saldo es el MISMO que muestra el consolidado**, ajuste manual
+      incluido. Si acá se usara el saldo pelado del banco, dos pantallas dirían
+      dos números para la misma cuenta y el mismo día — y el que concilia no
+      tendría forma de saber cuál creer. El ajuste viaja aparte para que se vea
+      cuánto de ese saldo lo puso una persona.
+    · **La diferencia se busca entre los MOVIMIENTOS del día**, porque el caso
+      típico es al revés de lo que parece: no es que el banco tenga de más, es
+      que al mayor le falta registrar algo que el banco sí informó.
+    """
+    cuentas = _q(
+        """SELECT id, bank_number, bank_name, account_number, account_type,
+                  currency, account_label, activa, origen
+             FROM bancos.cuentas WHERE id = %s""", (cuenta_id,))
+    if not cuentas:
+        raise ValueError("Esa cuenta no existe.")
+    cuenta = _cuenta_publica(cuentas[0])
+
+    ext = _q(
+        """SELECT saldo_cierre FROM bancos.extracto_dia
+            WHERE cuenta_id = %s AND fecha = %s""", (cuenta_id, fecha))
+    nuestro = _f(ext[0]["saldo_cierre"]) if ext and ext[0]["saldo_cierre"] is not None else None
+    fuente = "extracto" if nuestro is not None else None
+    if nuestro is None:
+        sal = _q(
+            """SELECT coalesce(saldo_operativo, saldo_dia) AS saldo FROM bancos.saldos
+                WHERE cuenta_id = %s AND fecha = %s""", (cuenta_id, fecha))
+        if sal:
+            nuestro, fuente = _f(sal[0]["saldo"]), "saldo informado por el banco"
+
+    ajuste = (_ajuste_manual(fecha).get(cuenta_id) or {}).get("ajuste") or 0.0
+    if nuestro is not None and ajuste:
+        nuestro = round(nuestro + ajuste, 2)
+        fuente = f"{fuente} + ajuste manual"
+
+    mayor = _saldo_del_mayor(filas)
+    avisos = list(mayor["avisos"])
+    excel = mayor["valor"]
+
+    diferencia = None if nuestro is None or excel is None else round(nuestro - excel, 2)
+    concilia = None if diferencia is None else abs(diferencia) < 0.01
+
+    movs = _q(
+        """SELECT mov_hash, fecha, fecha_proceso, importe, tipo, descripcion_banco,
+                  descripcion_ib, codigo_operacion_ib, comprobante
+             FROM bancos.movimientos
+            WHERE cuenta_id = %s AND fecha = %s
+            ORDER BY numero_extracto, correlativo""", (cuenta_id, fecha))
+
+    candidatos: list[dict] = []
+    truncados = False
+    if diferencia is not None and not concilia:
+        crudos, truncados = _explicaciones(movs, diferencia)
+        candidatos = [{
+            "suma": c["suma"], "cantidad": c["cantidad"],
+            "movimientos": [{**_movimiento_publico(m), "importe_firmado": _firmado(m),
+                             "concepto": (m.get("descripcion_ib") or "").strip()}
+                            for m in c["movimientos"]],
+        } for c in crudos]
+
+        # ⚠️ La pista que ahorra una hora: si los dos saldos coinciden al dar
+        # vuelta el signo del mayor, no falta ningún movimiento — es una
+        # convención contable (la cuenta quedó con saldo acreedor). NO se
+        # corrige solo: se avisa, porque invertir un signo por nuestra cuenta es
+        # exactamente cómo se fabrica una conciliación que miente.
+        if excel and abs(round(nuestro + excel, 2)) < abs(diferencia) / 100:
+            avisos.append(
+                "Los dos saldos coinciden si se invierte el signo del mayor: no "
+                "falta ningún movimiento, la cuenta está con saldo del otro lado "
+                "(acreedor/deudor). Revisá de qué lado la lleva el sistema contable.")
+        if not candidatos:
+            avisos.append(
+                "Ningún movimiento del día —ni combinación de hasta "
+                f"{MAX_COMBINAR}— da exactamente esa diferencia. Puede venir de "
+                "un día anterior, o ser varias cosas a la vez.")
+
+    if ajuste:
+        avisos.append(
+            f"Nuestro saldo incluye {ajuste:,.2f} de movimientos cargados a mano, "
+            "que el banco no informa.")
+
+    _auditar(email, cuenta_id, fecha, fecha, len(movs))
+    return {
+        "fecha": fecha.isoformat(),
+        "cuenta": {"id": cuenta["id"], "banco": cuenta["banco_nombre"],
+                   "numero": cuenta["numero"], "tipo": cuenta["tipo"],
+                   "moneda": cuenta["moneda"], "etiqueta": cuenta["etiqueta"]},
+        "saldo_nuestro": nuestro,
+        "saldo_nuestro_fuente": fuente,
+        "ajuste_manual": round(ajuste, 2) or None,
+        "saldo_excel": excel,
+        "saldo_excel_texto": mayor["texto"],
+        "saldo_excel_letra": (mayor["texto"] or "")[-1:].upper()
+                             if (mayor["texto"] or "")[-1:].upper() in ("D", "A") else None,
+        "saldo_excel_fila": mayor["fila"],
+        "diferencia": diferencia,
+        "concilia": concilia,
+        "movimientos_dia": len(movs),
+        "candidatos": candidatos,
+        "candidatos_truncados": truncados,
+        "avisos": avisos,
     }
 
 

@@ -56,6 +56,9 @@ ESCRITURAS_PERMITIDAS = {
     ("DELETE", "/api/back-office/interbanking/gastos/reglas/{regla_id}"),
     ("PUT", "/api/back-office/interbanking/gastos/movimiento"),
     ("PUT", "/api/back-office/interbanking/gastos/ignorar"),
+    # POST que NO escribe: el Excel del mayor va en el cuerpo porque no entra en
+    # una query string. Igual pasa por el gate, que es lo que este test congela.
+    ("POST", "/api/back-office/interbanking/conciliar"),
     ("POST", "/api/back-office/interbanking/manual/cuentas"),
     ("DELETE", "/api/back-office/interbanking/manual/cuentas/{cuenta_id}"),
     ("POST", "/api/back-office/interbanking/manual/movimientos"),
@@ -85,8 +88,20 @@ def test_el_router_solo_escribe_la_clasificacion_de_gastos():
     )
 
 
+# POST que NO escriben. La lista es CORTA y explícita a propósito: el método
+# HTTP es una buena aproximación de «esto escribe», pero no es la verdad, y la
+# alternativa —pedirle permiso de ESCRITURA a una pantalla de solo lectura—
+# dejaría afuera a alguien que legítimamente necesita mirar. Sumar uno acá es el
+# momento en que alguien tiene que justificar por qué no escribe.
+POST_QUE_NO_ESCRIBEN = {
+    # Compara nuestro saldo contra el Excel del mayor y devuelve el resultado.
+    # Es POST porque el archivo no entra en una query string; no toca la base.
+    "/api/back-office/interbanking/conciliar",
+}
+
+
 def test_toda_escritura_pasa_por_la_allowlist():
-    """Ninguna de las tres puede escribir sin permiso.
+    """Ninguna escritura puede pasar sin permiso.
 
     El gate NO está en el router como dependencia sino adentro de cada handler
     (`_exigir_escritura`), así que un test que mire `dependencies=` no lo vería.
@@ -99,6 +114,13 @@ def test_toda_escritura_pasa_por_la_allowlist():
     for r in interbanking.router.routes:
         metodos = getattr(r, "methods", set())
         if not metodos & {"POST", "PUT", "PATCH", "DELETE"}:
+            continue
+        if r.path in POST_QUE_NO_ESCRIBEN:
+            fuente = inspect.getsource(r.endpoint)
+            assert "_svc.conciliar" in fuente or "no escribe" in fuente, (
+                f"{r.path} está declarado como que no escribe: dejalo dicho en el "
+                "docstring o sacalo de la lista."
+            )
             continue
         fuente = inspect.getsource(r.endpoint)
         assert "_exigir_escritura" in fuente, (

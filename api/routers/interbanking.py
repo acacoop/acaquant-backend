@@ -10,7 +10,7 @@ Lo que SÍ escribe (desde 2026-08-18) va todo a tablas NUESTRAS: la clasificaci�
 de gastos (`gastos_reglas` / `gastos_overrides` / `gastos_baldes` /
 `movimientos_ignorados`), y lo manual
 (`movimientos_manuales` + las cuentas con `origen='manual'`). **Nada de eso toca
-el extracto del banco ni sale a internet.** Son 13 endpoints, todos detrás de
+el extracto del banco ni sale a internet.** Son 14 endpoints, todos detrás de
 `bancos.puede_escribir` (allowlist de Tesorería + admin) y todos auditados. Un
 test enumera exactamente cuáles son, así que uno nuevo no entra sin que alguien
 lo decida.
@@ -66,6 +66,26 @@ def consolidado(
     """CONSOLIDADO BANCOS: una fila por cuenta, agrupada por banco, con la
     apertura y el cierre de ESE día."""
     return _svc.consolidado(email, _fecha(fecha))
+
+
+@router.post("/conciliar")
+def conciliar(
+    cuenta_id: int = Body(..., embed=True),
+    # La grilla CRUDA del Excel: el navegador solo abre el archivo, y qué columna
+    # es el saldo lo decide el service, donde se puede testear.
+    filas: list = Body(..., embed=True),
+    fecha: date | None = Body(None, embed=True),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """Nuestro saldo al cierre contra el último saldo del mayor contable.
+
+    Es un POST pero **no escribe nada**: el archivo va en el cuerpo porque no
+    entra en una query string. Nada se persiste.
+    """
+    try:
+        return _svc.conciliar(email, cuenta_id, _fecha(fecha), filas)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.get("/diferencias")

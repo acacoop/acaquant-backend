@@ -44,6 +44,7 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.copiloto.renta_fija]]  ·  _module_
 - [[api.services.copiloto.renta_variable]]  ·  _module_
 - [[api.services.copiloto.research]]  ·  _module_
+- [[api.services.curvas_vista]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.db_obs]]  ·  _module_
 - [[api.services.derivados]]  ·  _module_

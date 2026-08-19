@@ -439,6 +439,53 @@ def recontrolar(control_id: str) -> dict:
                       + (" · nada cambió" if not (n_res or n_new) else ""))}
 
 
+def _lente_puedo_hacerlo(c: dict, det: dict) -> dict | None:
+    """**LO QUE EL AGENTE SABE HACER CON ESTO.** El paso que faltaba.
+
+    Pedido del user (2026-08-19): *«ya sabés exacto qué campo de qué función hay
+    que modificar… que el mismo agent aprenda a sugerir y que, si le das OK,
+    actualice en el momento y luego controle que lo hizo bien en el mismo
+    proceso»*.
+
+    Este paso NO propone nada por sí solo: **declara la capacidad**. Proponer
+    cuesta (una corrida del control, a veces una llamada al modelo) y no tiene
+    sentido pagarlo cada vez que alguien abre un diagnóstico a mirar. El botón
+    lo aprieta el que quiere hacerlo.
+
+    Si el control no tiene acción, el paso **no se dibuja**. Un renglón que dice
+    «para esto todavía no sé hacer nada» aparece nueve veces y entierra las dos
+    veces que sí hay algo — la regla que ordena todas estas lentes.
+    """
+    if (c.get("familia") or "") != "control":
+        return None
+    cid = str(c.get("id", "")).split(":", 1)[-1]
+    try:
+        from api.services import av_agent_hacer as hacer
+    except Exception:
+        return None
+    accion_id = hacer.POR_CONTROL.get(cid)
+    if not accion_id:
+        return None
+    a = hacer.ACCIONES[accion_id]
+    n = len(det.get("anomalias") or [])
+    try:
+        pend = len(hacer.pendientes(accion_id))
+    except Exception:
+        pend = 0
+    cuerpo = (f"{a.titulo}. Escribe en {a.donde} — la misma puerta que usa la "
+              f"pantalla, con tu OK y verificando después de escribir.")
+    if pend:
+        cuerpo += f"\n\nYa hay {pend} propuesta/s esperando tu OK."
+    paso = _paso("hacer", f"Esto lo sé hacer · {n} caso/s" if n else "Esto lo sé hacer",
+                 INFO, cuerpo, tabla=a.donde)
+    # El front dibuja el botón con esto. Va RESUELTO desde el backend para que la
+    # pantalla no tenga que saber qué control tiene qué acción — el día que se
+    # agregue una acción nueva aparece sola, sin tocar el front.
+    paso["hacer"] = {"accion": accion_id, "titulo": a.titulo, "campo": a.campo,
+                     "casos": n, "pendientes": pend}
+    return paso
+
+
 def _lente_log_si_aplica(c: dict) -> dict | None:
     """El log de `manager.job_runs` es de JOBS. Preguntárselo por un control
     devolvía «no hay corridas registradas para este chequeo… es un punto ciego»
@@ -549,6 +596,7 @@ def diagnosticar(chequeo_id: str, *, con_ia: bool = True) -> dict:
     # transparencia: entierra al que sí la cambia.
     crudos = [
         _lente_casos(c, det),            # los casos, completos (controles)
+        _lente_puedo_hacerlo(c, det),    # solo si el agente sabe arreglarlo
         _lente_salio_bien(c),            # qué falló (jobs)
         _lente_log_si_aplica(c),         # el log real (solo jobs)
         _lente_corrio(c),                # solo si NO corrió

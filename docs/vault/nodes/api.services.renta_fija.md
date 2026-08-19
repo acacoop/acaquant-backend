@@ -33,7 +33,7 @@ Conecta con: lee `Trading.MarketSnapshot`, `Trading.TimeSales` y `Trading.Curvas
 - [[api.routers.titulos]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.comparar_inversion]]  ·  _module_
-- [[api.services.copiloto.ons]]  ·  _module_
 - [[api.services.copiloto.renta_fija]]  ·  _module_
+- [[api.services.curvas_vista]]  ·  _module_
 - [[api.services.descomposicion_retorno]]  ·  _module_
 - [[api.services.renta_fija_sql]]  ·  _module_

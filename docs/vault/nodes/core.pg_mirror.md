@@ -76,4 +76,5 @@ _(pendiente de enriquecimiento)_
 - [[jobs.precios_acciones_daily]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.snapshot_sinteticos]]  ·  _module_
+- [[jobs.tamar_1816]]  ·  _module_
 - [[jobs.volatilidad_ggal]]  ·  _module_

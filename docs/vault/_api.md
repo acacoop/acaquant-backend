@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-209 notas.
+228 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -29,6 +29,7 @@
 - [[api.routers.estrategia]] — Router /api/estrategia — vista TRADING → tab ESTRATEGIA (módulo `trading`,
 - [[api.routers.ia]] — api/routers/ia.py — endpoints del módulo IA (QuantAI, docs/QUANTAI.md).
 - [[api.routers.ingest]] — Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet (PC de oficina).
+- [[api.routers.interbanking]] — api/routers/interbanking.py — tab INTERBANKING del BACK OFFICE.
 - [[api.routers.manager]] — Manager API — paquete con sub-routers por sub-dominio.
 - [[api.routers.manager._common]] — Constantes y helpers compartidos entre los sub-módulos de manager/.
 - [[api.routers.manager.aca]] — Manager sub-router — ACA (gestión de la vista /aca, módulo `manager`).
@@ -44,6 +45,7 @@
 - [[api.routers.manager.controles]] — GET /api/manager/controles — anomalías del auto-control de calidad de datos.
 - [[api.routers.manager.diagnostico]] — GET /api/manager/diagnostico — árbol de salud por vista (motores/jobs/apis).
 - [[api.routers.manager.documentos]] — Manager sub-router — carga de documentos manuales de REPORTES FINANCIEROS.
+- [[api.routers.manager.emisores]] — Manager sub-router — Títulos → Emisores (industria del emisor).
 - [[api.routers.manager.grupos]] — Manager sub-router — grupos de acceso por cuenta.
 - [[api.routers.manager.import_tenencia]] — Manager sub-router — import masivo de tenencia a Valuaciones.AuM (admin).
 - [[api.routers.manager.instrumentos]] — Manager sub-router — Títulos → Instrumentos (solo lectura).
@@ -105,7 +107,23 @@
 - [[api.services.aunesa_aranceles]] — Backfill de aranceles desde Aunesa /operaciones/informes a SQL
 - [[api.services.aunesa_informes]] — api/services/aunesa_informes.py — aranceles por boleto desde Aunesa /operaciones/informes.
 - [[api.services.aunesa_negocio]] — aunesa_negocio.py — service compartido para análisis del endpoint
+- [[api.services.av_agent]] — api/services/av_agent.py — los detectores del AV AGENT (etapa E1).
+- [[api.services.av_agent_acciones]] — api/services/av_agent_acciones.py — el LIBRO DE ACCIONES del AV Agent.
+- [[api.services.av_agent_alta]] — api/services/av_agent_alta.py — E2: SIMULAR un alta antes de escribirla.
+- [[api.services.av_agent_analista]] — api/services/av_agent_analista.py — EL ANALISTA del diagnóstico masivo.
+- [[api.services.av_agent_centinela]] — api/services/av_agent_centinela.py — EL AGENTE PRENDIDO, con memoria.
+- [[api.services.av_agent_control]] — api/services/av_agent_control.py — EL TABLERO DE CONTROL del AV Agent.
+- [[api.services.av_agent_evals]] — api/services/av_agent_evals.py — el EVAL SET del AV AGENT.
+- [[api.services.av_agent_hacer]] — api/services/av_agent_hacer.py — LO QUE EL AGENTE SABE HACER.
+- [[api.services.av_agent_masivo]] — api/services/av_agent_masivo.py — EL DIAGNÓSTICO MASIVO del AV Agent.
+- [[api.services.av_agent_memoria]] — api/services/av_agent_memoria.py — LA MEMORIA DEL AGENTE.
+- [[api.services.av_agent_preguntas]] — api/services/av_agent_preguntas.py — el AV AGENT le PREGUNTA al humano (E1.c).
+- [[api.services.av_agent_relevar]] — api/services/av_agent_relevar.py — LA RELEVADA, a pedido.
+- [[api.services.av_agent_salud]] — api/services/av_agent_salud.py — SALUD, razonada por el AV AGENT.
+- [[api.services.av_agent_sin_precio]] — api/services/av_agent_sin_precio.py — POR QUÉ un bono no tiene precio.
+- [[api.services.av_agent_vista]] — api/services/av_agent_vista.py — la vista /av-agent en UN request (E1.d).
 - [[api.services.back_office_titulos]] — Service — Títulos / Mercado (Back Office).
+- [[api.services.bancos]] — api/services/bancos.py — lectura de `bancos.*` para la tab INTERBANKING.
 - [[api.services.bonos_admin]] — api/services/bonos_admin.py — alta/edición de bonos NO-ON directo en Trading.Curvas.
 - [[api.services.breakevens_admin]] — api/services/breakevens_admin.py — curaduría de pares de breakevens.
 - [[api.services.briefing]] — api/services/briefing.py — Briefing de apertura (QuantAI P1, v1 DETERMINISTA).
@@ -130,7 +148,6 @@
 - [[api.services.copiloto.motor]] — copiloto/motor.py — el orquestador: preguntar() (una pregunta → contexto →
 - [[api.services.copiloto.navegacion]] — copiloto/navegacion.py — NAVEGACIÓN ASISTIDA: el guía te LLEVA (idea del user).
 - [[api.services.copiloto.negocio]] — copiloto/negocio.py — vista NEGOCIO: el asistente de negocio (QuantAI P7)
-- [[api.services.copiloto.ons]] — copiloto/ons.py — vista ONs (deuda corporativa): curva por sector, pagos.
 - [[api.services.copiloto.opciones]] — copiloto/opciones.py — vista OPCIONES (derivados): cadena GGAL, IV, griegas.
 - [[api.services.copiloto.registro]] — copiloto/registro.py — el registro VISTAS: ensambla cada vista (fetch,
 - [[api.services.copiloto.renta_fija]] — copiloto/renta_fija.py — vista RF (bonos ARG): curvas, fair value, forwards,
@@ -140,6 +157,7 @@
 - [[api.services.copiloto.series]] — copiloto/series.py — SERIE HISTÓRICA GENÉRICA: "¿contra qué?".
 - [[api.services.copiloto.trading]] — copiloto/trading.py — vista TRADING (monitor intradía): tarjetas con pivots
 - [[api.services.copiloto.verificacion]] — copiloto/verificacion.py — guardrails estructurales (anti-alucinación).
+- [[api.services.curvas_vista]] — api/services/curvas_vista.py — la tab CURVAS del rediseño, en UN request.
 - [[api.services.day_trading]] — day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).
 - [[api.services.db_obs]] — db_obs.py — observabilidad de espacio/salud de la base (Manager OBSERVABILIDAD → BASE).
 - [[api.services.debug_curva]] — Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
@@ -149,6 +167,7 @@
 - [[api.services.descomposicion_retorno]] — descomposicion_retorno.py — Atribución carry / rolldown / cambio_tasa.
 - [[api.services.diagnostico]] — Motor del Diagnóstico — arma el árbol vista→piezas con status, desde el registro.
 - [[api.services.diagnostico_registry]] — Registro ÚNICO del Diagnóstico: vista → motores / jobs / APIs que la alimentan.
+- [[api.services.emisores]] — api/services/emisores.py — el EMISOR y su INDUSTRIA. Service puro (sin FastAPI).
 - [[api.services.estrategia]] — api/services/estrategia.py — lecturas de la vista ESTRATEGIA (TRADING).
 - [[api.services.fair_value]] — fair_value.py — service del módulo Fair Value relativo intra-curva.
 - [[api.services.financiamiento]] — api/services/financiamiento.py — vista FINANCIAMIENTO (tab de /operaciones).

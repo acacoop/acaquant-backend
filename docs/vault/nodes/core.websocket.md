@@ -19,6 +19,7 @@ path: core/websocket.py
 Conecta con: la plataforma ROFEX vía pyRofex (sesión de `core.rofex_session`); empuja precios al MarketManager de cada `engines/*`; alerta vía `core.notify`. Un bug acá rompe todos los motores a la vez.
 
 ## Usa / conecta con →
+- [[core.instrumentos_validos]]  ·  _module_
 - [[core.simbolos_cuarentena]]  ·  _module_
 - [[core.threads]]  ·  _module_
 

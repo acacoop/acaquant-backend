@@ -21,3 +21,4 @@ _(pendiente de enriquecimiento)_
 - [[core.bcra_api]]  ·  _module_
 - [[core.finnhub]]  ·  _module_
 - [[core.fred_api]]  ·  _module_
+- [[core.interbanking]]  ·  _module_

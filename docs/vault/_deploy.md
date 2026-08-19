@@ -1,6 +1,6 @@
 # 🚀 deploy — servicios + crons
 
-64 notas.
+72 notas.
 
 - [[cron.engines.dolar_mep]] — Tarea programada (cron).
 - [[cron.jobs.acreencias]] — Tarea programada (cron).
@@ -9,6 +9,8 @@
 - [[cron.jobs.archive_options_data]] — Tarea programada (cron).
 - [[cron.jobs.argentina_datos]] — Tarea programada (cron).
 - [[cron.jobs.assets_autofill]] — Tarea programada (cron).
+- [[cron.jobs.av_agent]] — Tarea programada (cron).
+- [[cron.jobs.av_agent_live]] — Tarea programada (cron).
 - [[cron.jobs.bcra]] — Tarea programada (cron).
 - [[cron.jobs.bcra_research]] — Tarea programada (cron).
 - [[cron.jobs.bonos_ohlc_daily]] — Tarea programada (cron).
@@ -26,10 +28,12 @@
 - [[cron.jobs.day_trading_stats]] — Tarea programada (cron).
 - [[cron.jobs.eikon_cierres]] — Tarea programada (cron).
 - [[cron.jobs.estrategia_resolver]] — Tarea programada (cron).
+- [[cron.jobs.ficha_1816]] — Tarea programada (cron).
 - [[cron.jobs.forwards_zscore]] — Tarea programada (cron).
 - [[cron.jobs.fred_research]] — Tarea programada (cron).
 - [[cron.jobs.guardrails]] — Tarea programada (cron).
 - [[cron.jobs.ia_calidad]] — Tarea programada (cron).
+- [[cron.jobs.interbanking_sync]] — Tarea programada (cron).
 - [[cron.jobs.market_anchors]] — Tarea programada (cron).
 - [[cron.jobs.market_quotes]] — Tarea programada (cron).
 - [[cron.jobs.mercado_1816_series]] — Tarea programada (cron).
@@ -46,11 +50,15 @@
 - [[cron.jobs.snapshot_cierre]] — Tarea programada (cron).
 - [[cron.jobs.snapshot_sinteticos]] — Tarea programada (cron).
 - [[cron.jobs.sync_comitentes]] — Tarea programada (cron).
+- [[cron.jobs.tamar_1816]] — Tarea programada (cron).
 - [[cron.jobs.tesoreria_echeq_recibidos]] — Tarea programada (cron).
 - [[cron.jobs.tesoreria_snapshot]] — Tarea programada (cron).
 - [[cron.jobs.triage]] — Tarea programada (cron).
+- [[cron.jobs.validar_instrumentos]] — Tarea programada (cron).
 - [[cron.jobs.volatilidad_ggal]] — Tarea programada (cron).
 - [[svc.api]] — Servicio systemd.
+- [[svc.av_agent_centinela]] — Servicio systemd.
+- [[svc.control_saldos]] — Servicio systemd.
 - [[svc.motor_agro]] — Servicio systemd.
 - [[svc.motor_agro_opciones]] — Servicio systemd.
 - [[svc.motor_breakevens]] — Servicio systemd.

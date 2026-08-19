@@ -24,6 +24,10 @@ _(pendiente de enriquecimiento)_
 - [[core]]  ·  _module_
 - [[core.ai]]  ·  _module_
 - [[core.postgres]]  ·  _module_
+- [[db.Trading.DOLAR]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.salud]]  ·  _module_
+- [[api.services.av_agent]]  ·  _module_
+- [[api.services.av_agent_centinela]]  ·  _module_
+- [[api.services.av_agent_salud]]  ·  _module_

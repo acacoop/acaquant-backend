@@ -24,4 +24,5 @@ Conecta con: lee `CuentasAPI.ContrapartesAPI` y `CashFlow.Contrapartes`; lo usan
 ## Lo usan (backlinks) ←
 - [[api.services.import_tenencia_sql]]  ·  _module_
 - [[api.services.sin_operador]]  ·  _module_
+- [[jobs.control_saldos]]  ·  _module_
 - [[jobs.portafolio_backfill]]  ·  _module_

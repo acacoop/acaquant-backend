@@ -24,6 +24,8 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.services.asistente]]  ·  _module_
+- [[api.services.av_agent_analista]]  ·  _module_
+- [[api.services.av_agent_hacer]]  ·  _module_
 - [[api.services.copiloto.motor]]  ·  _module_
 - [[api.services.ia_obs]]  ·  _module_
 - [[api.services.salud]]  ·  _module_

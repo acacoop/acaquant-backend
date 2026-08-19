@@ -411,6 +411,83 @@ def av_agent_salud(body: DiagnosticoSalud):
     return svc.diagnosticar(body.chequeo_id, con_ia=body.con_ia)
 
 
+# ── LO QUE EL AGENTE SABE HACER (2026-08-19) ────────────────────────────────
+#
+# El ciclo PROPONER → OK → APLICAR → VERIFICAR de `av_agent_hacer`, expuesto en
+# tres endpoints y no en uno por acción: la acción es un PARÁMETRO, así que
+# sumar una acción nueva no toca ni el router ni el front.
+#
+# **Los tres son admin-only y de escritura.** Aplicar escribe en el catálogo de
+# producción (`portafolio.assets`, `clientes.contrapartes`), o sea que el gate
+# es el mismo que el de Manager y no puede ser más flojo.
+
+
+class ProponerHacer(BaseModel):
+    accion: str = Field(..., min_length=3, max_length=60)
+    # Apagar el modelo deja la parte determinista disponible siempre — sin key,
+    # con presupuesto agotado, o cuando simplemente no hace falta pagar.
+    con_ia: bool = True
+
+
+class AplicarHacer(BaseModel):
+    ids: list[int] = Field(..., min_length=1, max_length=200)
+    # El humano puede CORREGIR la sugerencia antes de aplicarla ({id: valor}) en
+    # vez de tener que elegir entre aceptarla tal cual o descartarla. Es también
+    # el único camino para las propuestas que nacen sin valor (a quién avisarle).
+    valores: dict[str, str] = Field(default_factory=dict)
+
+
+class RechazarHacer(BaseModel):
+    ids: list[int] = Field(..., min_length=1, max_length=200)
+
+
+@router.get("/av-agent/hacer", dependencies=[Depends(require_admin)])
+def av_agent_hacer_listar(accion: str = ""):
+    """Qué sabe hacer el agente, qué espera tu OK y cómo viene acertando."""
+    from api.services import av_agent_hacer as svc
+    return {"catalogo": svc.catalogo(), "pendientes": svc.pendientes(accion),
+            "historial": svc.historial(accion, limite=60),
+            "resumen": svc.resumen(accion)}
+
+
+@router.post("/av-agent/hacer/proponer", dependencies=[Depends(require_admin)])
+def av_agent_hacer_proponer(body: ProponerHacer):
+    """**Sugiere, sin tocar nada.** Vuelve a correr el control para trabajar
+    sobre lo que sigue mal AHORA (no sobre la foto del cron) y persiste una
+    propuesta por caso. La regla determinista resuelve lo que puede; el modelo
+    entra solo para lo que quedó afuera."""
+    from api.services import av_agent_hacer as svc
+    return svc.proponer(body.accion, con_ia=body.con_ia)
+
+
+@router.post("/av-agent/hacer/aplicar", dependencies=[Depends(require_admin)])
+def av_agent_hacer_aplicar(body: AplicarHacer, email: str = Depends(get_user_email)):
+    """**El OK.** Escribe por la misma puerta que usa la pantalla y **relee para
+    confirmar, en el mismo request**. Si la verificación no confirma, la
+    propuesta queda `fallida` y no `aplicada`: marcar hecho algo que no se puede
+    comprobar es cómo un tablero termina en verde con el dato roto."""
+    from api.services import av_agent_hacer as svc
+    return svc.aplicar(body.ids, por=email or "", valores=body.valores)
+
+
+@router.post("/av-agent/hacer/rechazar", dependencies=[Depends(require_admin)])
+def av_agent_hacer_rechazar(body: RechazarHacer, email: str = Depends(get_user_email)):
+    """Descartar también se registra: es lo que dice que el agente sugirió algo
+    que un humano no compró, y sin eso parecería tener 100% de acierto."""
+    from api.services import av_agent_hacer as svc
+    return svc.rechazar(body.ids, por=email or "")
+
+
+@router.get("/av-agent/mis-avisos")
+def av_agent_mis_avisos(email: str = Depends(get_user_email)):
+    """**Lo que el agente le dejó a ESTA persona.** Sin `require_admin` a
+    propósito: el destinatario de un ping es justamente alguien que no
+    necesariamente administra nada, y filtra por su propio email — no hay forma
+    de pedir los de otro."""
+    from api.services import av_agent_vista as vista
+    return {"avisos": vista.avisos_de(email or "")}
+
+
 @router.post("/av-agent/eval", dependencies=[Depends(require_admin)])
 def av_agent_eval(body: VotoEval, email: str = Depends(get_user_email)):
     """**El voto humano sobre un diagnóstico**: ¿la causa que dijo el agente es la

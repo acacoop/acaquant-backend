@@ -17,8 +17,10 @@ path: api/services/ons.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services.acreencias]]  ·  _module_
 - [[api.services.assets_sql]]  ·  _module_
 - [[core]]  ·  _module_
+- [[core.curvas_ejes]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_

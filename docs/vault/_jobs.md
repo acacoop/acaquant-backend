@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-60 notas.
+68 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -12,6 +12,9 @@
 - [[jobs.argentina_datos]] — Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en SQL (SQL-only).
 - [[jobs.assets_autofill]] — jobs/assets_autofill.py — autocompletado del catálogo `portafolio.assets`.
 - [[jobs.aum]] — jobs/aum.py — CLIENTE Aunesa (librería, no es un job).
+- [[jobs.av_agent]] — jobs/av_agent.py — el ESPEJO del AV Agent (etapa E1).
+- [[jobs.av_agent_centinela]] — jobs/av_agent_centinela.py — EL CENTINELA, como daemon.
+- [[jobs.av_agent_live]] — jobs/av_agent_live.py — EL AGENTE, PRENDIDO EN RUEDA.
 - [[jobs.backfill_tasas]] — backfill_tasas.py — recalcula TEA/TEM/duration/paridad de TODOS los bonos de
 - [[jobs.bcra]]
 - [[jobs.bcra_research]] — jobs/bcra_research.py — sincroniza las series del BCRA a Postgres (tab BCRA).
@@ -26,6 +29,7 @@
 - [[jobs.cleanup_retencion]] — cleanup_retencion.py — aplica la RETENCIÓN que el schema ya prometía pero nadie ejecutaba.
 - [[jobs.comercial_warm]] — jobs/comercial_warm.py — precalienta la cache in-process de la vista COMERCIAL.
 - [[jobs.consolidado_cuentas]] — consolidado_cuentas.py — precalcula la valuación consolidada por cuenta.
+- [[jobs.control_saldos]] — jobs/control_saldos.py — SALDO LIQUIDADO de hoy por cuenta y moneda.
 - [[jobs.controles_datos]] — controles_datos.py — Auto-control de CALIDAD DE DATOS de ACAQuant.
 - [[jobs.day_trading_stats]] — day_trading_stats.py — resumen diario de scalping por CEDEAR.
 - [[jobs.dias_habiles]] — dias_habiles.py — Carga días hábiles del calendario argentino a SQL (mercado.dias_habiles).
@@ -33,10 +37,12 @@
 - [[jobs.estrategia_resolver]] — jobs/estrategia_resolver.py — resuelve el RESULTADO de cada señal ESTRATEGIA QUANT.
 - [[jobs.fair_value]] — fair_value.py — fit cuadrático + residuos + z-scores diarios.
 - [[jobs.fci_bilateral]] — jobs/fci_bilateral.py — lleva el FCI bilateral de `operaciones.negocio_movimientos`
+- [[jobs.ficha_1816]] — jobs/ficha_1816.py — 1816 es la fuente de verdad del EMISOR. Backfill + mantenimiento.
 - [[jobs.forwards_zscore]] — forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.
 - [[jobs.fred_research]] — jobs/fred_research.py — sincroniza series de FRED a Postgres (tab Datos
 - [[jobs.guardrails]] — jobs/guardrails.py — invariantes de sanidad de datos post-cierre.
 - [[jobs.ia_calidad]] — jobs/ia_calidad.py — control de calidad de las conversaciones de IA.
+- [[jobs.interbanking_sync]] — jobs/interbanking_sync.py — trae los extractos de Interbanking a `bancos.*`.
 - [[jobs.market_anchors]] — market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).
 - [[jobs.market_quotes]] — market_quotes.py — cotizaciones de equity/futuros/índices para el watchlist HOME.
 - [[jobs.mercado_1816_discovery]] — jobs/mercado_1816_discovery.py — arma el universo de la vista RESEARCH desde TUS
@@ -57,8 +63,10 @@
 - [[jobs.snapshot_cierre]] — snapshot_cierre.py — materializa el cierre diario por bono SQL-NATIVE.
 - [[jobs.snapshot_sinteticos]] — snapshot_sinteticos.py — materializa el cierre diario de sintéticos en mercado.snapshots_sinteticos (SQL).
 - [[jobs.sync_comitentes]] — Sync de cuentas comitentes desde Aunesa → master SQL `clientes.comitentes`
+- [[jobs.tamar_1816]] — jobs/tamar_1816.py — la TEA y el MARGEN de los TAMAR (y de cada pata de un dual).
 - [[jobs.tenencia_live]] — jobs/tenencia_live.py — posición T0/T1 del día, refrescada durante la rueda.
 - [[jobs.tesoreria_echeq_recibidos]] — tesoreria_echeq_recibidos.py — espejo automático de los DEPÓSITOS de cheque
 - [[jobs.tesoreria_snapshot]] — jobs/tesoreria_snapshot.py — foto diaria de la grilla BANCOS de Tesorería.
 - [[jobs.triage]] — jobs/triage.py — Triage REACTIVO de incidentes (QuantAI P2, docs/QUANTAI.md).
+- [[jobs.validar_instrumentos]] — jobs/validar_instrumentos.py — vigencia de títulos + marca de validación.
 - [[jobs.volatilidad_ggal]]

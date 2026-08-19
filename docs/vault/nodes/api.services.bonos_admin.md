@@ -20,9 +20,12 @@ _(pendiente de enriquecimiento)_
 - [[api.services]]  ·  _module_
 - [[api.services.ons]]  ·  _module_
 - [[core]]  ·  _module_
+- [[core.curvas_catalogo]]  ·  _module_
+- [[core.curvas_ejes]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.bonos]]  ·  _module_
+- [[api.services.av_agent_alta]]  ·  _module_

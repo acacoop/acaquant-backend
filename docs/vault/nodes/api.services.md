@@ -27,6 +27,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.derivados_agro]]  ·  _module_
 - [[api.routers.estrategia]]  ·  _module_
 - [[api.routers.ia]]  ·  _module_
+- [[api.routers.interbanking]]  ·  _module_
 - [[api.routers.manager.aca]]  ·  _module_
 - [[api.routers.manager.aca_valores]]  ·  _module_
 - [[api.routers.manager.assets]]  ·  _module_
@@ -38,6 +39,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.manager.contrapartes]]  ·  _module_
 - [[api.routers.manager.control_automatico]]  ·  _module_
 - [[api.routers.manager.documentos]]  ·  _module_
+- [[api.routers.manager.emisores]]  ·  _module_
 - [[api.routers.manager.import_tenencia]]  ·  _module_
 - [[api.routers.manager.jobs]]  ·  _module_
 - [[api.routers.manager.latencia]]  ·  _module_
@@ -67,6 +69,17 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.asistente]]  ·  _module_
 - [[api.services.asistente_comercial]]  ·  _module_
 - [[api.services.asistente_tools]]  ·  _module_
+- [[api.services.av_agent]]  ·  _module_
+- [[api.services.av_agent_alta]]  ·  _module_
+- [[api.services.av_agent_centinela]]  ·  _module_
+- [[api.services.av_agent_control]]  ·  _module_
+- [[api.services.av_agent_hacer]]  ·  _module_
+- [[api.services.av_agent_masivo]]  ·  _module_
+- [[api.services.av_agent_preguntas]]  ·  _module_
+- [[api.services.av_agent_relevar]]  ·  _module_
+- [[api.services.av_agent_salud]]  ·  _module_
+- [[api.services.av_agent_sin_precio]]  ·  _module_
+- [[api.services.av_agent_vista]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
@@ -76,7 +89,6 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.copiloto.home]]  ·  _module_
 - [[api.services.copiloto.navegacion]]  ·  _module_
 - [[api.services.copiloto.negocio]]  ·  _module_
-- [[api.services.copiloto.ons]]  ·  _module_
 - [[api.services.copiloto.opciones]]  ·  _module_
 - [[api.services.copiloto.renta_fija]]  ·  _module_
 - [[api.services.copiloto.renta_variable]]  ·  _module_
@@ -95,7 +107,11 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
 - [[api.services.valuaciones_sql]]  ·  _module_
+- [[jobs.av_agent]]  ·  _module_
+- [[jobs.av_agent_centinela]]  ·  _module_
+- [[jobs.av_agent_live]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
+- [[jobs.guardrails]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.tesoreria_snapshot]]  ·  _module_

@@ -32,6 +32,7 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 - [[api.routers.derivados_agro]]  ·  _module_
 - [[api.routers.derivados_sinteticos]]  ·  _module_
 - [[api.routers.ia]]  ·  _module_
+- [[api.routers.interbanking]]  ·  _module_
 - [[api.routers.manager]]  ·  _module_
 - [[api.routers.manager.aca]]  ·  _module_
 - [[api.routers.manager.aca_valores]]  ·  _module_
@@ -43,6 +44,7 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 - [[api.routers.manager.contrapartes]]  ·  _module_
 - [[api.routers.manager.control_automatico]]  ·  _module_
 - [[api.routers.manager.documentos]]  ·  _module_
+- [[api.routers.manager.emisores]]  ·  _module_
 - [[api.routers.manager.grupos]]  ·  _module_
 - [[api.routers.manager.import_tenencia]]  ·  _module_
 - [[api.routers.manager.mesa]]  ·  _module_

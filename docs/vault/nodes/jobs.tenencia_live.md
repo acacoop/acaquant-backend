@@ -26,4 +26,5 @@ _(pendiente de enriquecimiento)_
 - [[jobs.portafolio_backfill]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[jobs.control_saldos]]  ·  _module_
 - [[svc.tenencia_live]]  ·  _service_

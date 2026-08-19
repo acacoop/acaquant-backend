@@ -22,6 +22,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[core.pg_mirror]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.services.av_agent_relevar]]  ·  _module_
 - [[engines.dolar_mep]]  ·  _module_
 - [[jobs.acreencias]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_
@@ -30,6 +31,8 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.archive_options_data]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
 - [[jobs.assets_autofill]]  ·  _module_
+- [[jobs.av_agent]]  ·  _module_
+- [[jobs.av_agent_live]]  ·  _module_
 - [[jobs.backfill_tasas]]  ·  _module_
 - [[jobs.bcra]]  ·  _module_
 - [[jobs.bcra_research]]  ·  _module_
@@ -44,16 +47,19 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.cleanup_retencion]]  ·  _module_
 - [[jobs.comercial_warm]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
+- [[jobs.control_saldos]]  ·  _module_
 - [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.eikon_cierres]]  ·  _module_
 - [[jobs.estrategia_resolver]]  ·  _module_
 - [[jobs.fair_value]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
+- [[jobs.ficha_1816]]  ·  _module_
 - [[jobs.forwards_zscore]]  ·  _module_
 - [[jobs.fred_research]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.ia_calidad]]  ·  _module_
+- [[jobs.interbanking_sync]]  ·  _module_
 - [[jobs.market_anchors]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
 - [[jobs.mercado_1816_series]]  ·  _module_
@@ -71,8 +77,10 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.snapshot_sinteticos]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_
+- [[jobs.tamar_1816]]  ·  _module_
 - [[jobs.tenencia_live]]  ·  _module_
 - [[jobs.tesoreria_echeq_recibidos]]  ·  _module_
 - [[jobs.tesoreria_snapshot]]  ·  _module_
 - [[jobs.triage]]  ·  _module_
+- [[jobs.validar_instrumentos]]  ·  _module_
 - [[jobs.volatilidad_ggal]]  ·  _module_

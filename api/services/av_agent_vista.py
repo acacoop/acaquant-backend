@@ -205,7 +205,8 @@ def avisos(incluir_resueltos: bool = True) -> list[dict]:
             cur.execute(f"""
                 SELECT a.id, a.ticker, a.clave, a.que_hacer, a.por_que, a.donde,
                        a.creado_at, a.resuelto, a.resuelto_por, a.resuelto_at,
-                       c.data->>'cer_emision', c.emisor, (c.ticker IS NOT NULL)
+                       c.data->>'cer_emision', c.emisor, (c.ticker IS NOT NULL),
+                       a.para
                   FROM mercado.av_agent_avisos a
                   LEFT JOIN mercado.curvas c ON c.ticker = a.ticker
                  {'' if incluir_resueltos else 'WHERE NOT a.resuelto'}
@@ -218,7 +219,7 @@ def avisos(incluir_resueltos: bool = True) -> list[dict]:
 
     out: list[dict] = []
     for (aid, ticker, clave, que, porque, donde, creado, resuelto,
-         rpor, rat, cer, emisor, en_curvas) in filas:
+         rpor, rat, cer, emisor, en_curvas, para) in filas:
         cond = _COND_AVISO.get(clave)
         ya = bool(cond({"cer_emision": cer, "emisor": emisor})) if (cond and en_curvas) \
             else None
@@ -226,7 +227,7 @@ def avisos(incluir_resueltos: bool = True) -> list[dict]:
             "id": aid, "ticker": ticker, "clave": clave, "que_hacer": que,
             "por_que": porque, "donde": donde,
             "creado_at": creado.isoformat() if creado else None,
-            "resuelto": resuelto, "resuelto_por": rpor,
+            "resuelto": resuelto, "resuelto_por": rpor, "para": para,
             "resuelto_at": rat.isoformat() if rat else None,
             # Si este aviso se puede completar SIN salir de la lista, viaja acá
             # cómo pedirlo. `None` = hay que ir a Manager.
@@ -239,6 +240,58 @@ def avisos(incluir_resueltos: bool = True) -> list[dict]:
             "ya_cargado": ya,
         })
     return out
+
+
+def avisar_a(*, para: str, ticker: str, clave: str, que_hacer: str,
+             por_que: str = "", donde: str = "", por: str = "") -> int:
+    """**El ping a una persona.** Deja un pendiente con dueño.
+
+    Es la MISMA fila que el resto de los avisos: se cierra igual, se ve igual y
+    se audita igual. Lo único distinto es `para`.
+
+    `ON CONFLICT DO NOTHING` sobre el índice de abiertos: avisar dos veces por
+    lo mismo no genera dos avisos. Un aviso repetido no informa más — informa
+    menos, porque enseña a ignorar la lista. Si la persona ya lo cerró y el
+    problema vuelve a aparecer, el nuevo SÍ entra (el índice es parcial sobre
+    los no resueltos), que es justo cuando avisar de nuevo sí significa algo.
+
+    Devuelve 1 si se creó, 0 si ya estaba abierto.
+    """
+    email = (para or "").strip().lower()
+    if "@" not in email:
+        raise ValueError("hay que elegir a quién avisarle")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO mercado.av_agent_avisos "
+            "(ticker, clave, que_hacer, por_que, donde, creado_por, para) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            (ticker, clave, que_hacer[:500], (por_que or "")[:300],
+             donde or None, por or None, email))
+        return cur.rowcount
+
+
+def avisos_de(email: str) -> list[dict]:
+    """Los pendientes ABIERTOS de una persona. Es lo que verifica que el ping
+    llegó, y lo que la pantalla usa para mostrarle a cada uno lo suyo."""
+    e = (email or "").strip().lower()
+    if not e:
+        return []
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, ticker, clave, que_hacer, por_que, donde, creado_at "
+                "FROM mercado.av_agent_avisos "
+                "WHERE NOT resuelto AND lower(para) = %s ORDER BY creado_at DESC",
+                (e,))
+            cols = [d[0] for d in cur.description]
+            filas = [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
+    except Exception as ex:
+        logger.warning("av_agent: no se pudieron leer los avisos de %s: %s", e, ex)
+        return []
+    for f in filas:
+        c = f.get("creado_at")
+        f["creado_at"] = c.isoformat() if hasattr(c, "isoformat") else None
+    return filas
 
 
 def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:

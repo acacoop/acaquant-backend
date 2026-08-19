@@ -85,6 +85,17 @@ _TAREAS: dict[str, dict] = {
     # como output: el tope tiene que cubrir pensar Y contestar.
     "av_agent_informe": {"tier": "pro", "max_tokens": 12000, "timeout_s": 240,
                          "thinking": "enabled"},
+    # AV AGENT — SUGERIR UN VALOR para un caso que la regla determinista no supo
+    # resolver (api/services/av_agent_hacer.py). tier pro: la sugerencia la va a
+    # aprobar una persona y después se ESCRIBE en el catálogo, así que un error
+    # acá no es una respuesta fea, es un dato mal cargado en producción.
+    #
+    # thinking DISABLED y max_tokens acotado, al revés que `av_agent_informe`:
+    # no es análisis de patrones, es clasificar N nombres contra una lista
+    # CERRADA de opciones. El razonamiento cuenta como output, y acá lo que se
+    # necesita es la lista de items, no la cadena de pensamiento que la produjo.
+    "av_agent_accion": {"tier": "pro", "max_tokens": 4000, "timeout_s": 120,
+                        "thinking": "disabled"},
     # P3 copiloto de mesa (api/services/copiloto.py): Q&A sobre los datos de UNA
     # vista de mercado, provistos en el prompt. thinking DISABLED: los datos ya
     # vienen dados y el razonamiento del v4-flash se derramaba en la respuesta

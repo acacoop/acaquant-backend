@@ -41,6 +41,7 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.routers.estrategia]]  ·  _module_
 - [[api.routers.ia]]  ·  _module_
 - [[api.routers.ingest]]  ·  _module_
+- [[api.routers.interbanking]]  ·  _module_
 - [[api.routers.manager]]  ·  _module_
 - [[api.routers.market]]  ·  _module_
 - [[api.routers.me]]  ·  _module_

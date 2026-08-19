@@ -6,10 +6,10 @@
 
 ## Qué hay adentro
 
-- **344** module
-- **48** cron
+- **377** module
+- **54** cron
 - **28** collection
-- **16** service
+- **18** service
 
 ## Regenerar
 

@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-45 notas.
+51 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
@@ -13,6 +13,8 @@
 - [[core.brackets]] — Brackets — entrada LIMIT + salida automática cuando la entrada se llena.
 - [[core.cafci]] — Parseo de un string `unidad` de FCI.
 - [[core.calendario]] — Calendario hábil argentino — fuente ÚNICA del repo.
+- [[core.curvas_catalogo]] — core/curvas_catalogo.py — las curvas que se crean sin deploy.
+- [[core.curvas_ejes]] — core/curvas_ejes.py — los EJES de una curva de renta fija (rediseño 2026-08-15).
 - [[core.curvas_sql]] — core/curvas_sql.py — lectura del master de renta fija desde SQL.
 - [[core.doc_fiscal]] — Documento fiscal (DNI/CUIT/CUIL) — parseo y claves de cruce. Lógica PURA.
 - [[core.dolar_oficial]] — Fuente única para el "dólar oficial" mayorista.
@@ -22,12 +24,15 @@
 - [[core.eikon_live]] — Feed Eikon/Workspace — quotes LIVE del subyacente US de cada CEDEAR (PRUEBA).
 - [[core.eikon_news]] — Feed Eikon — TITULARES de noticias Reuters para la watchlist del HOME.
 - [[core.eikon_segmentos]] — Ingresos POR SEGMENTO del feed Eikon (familia TR.BGS.*).
+- [[core.especies]] — core/especies.py — LAS PATAS de un bono. Una sola lógica, dos usuarios.
 - [[core.estrategia_sql]] — core/estrategia_sql.py — I/O SQL del modelo ESTRATEGIA QUANT.
 - [[core.finnhub]] — Cliente Finnhub con rate limiting interno.
 - [[core.fred_api]] — core/fred_api.py — cliente de la FRED API (Federal Reserve Bank of St. Louis).
 - [[core.grupos]] — core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).
 - [[core.grupos_sql]] — core/grupos_sql.py — lectura + escritura del scope de cuentas (grupos) desde Postgres.
 - [[core.http_base]] — core/http_base.py — piezas HTTP compartidas por los clientes externos de core/.
+- [[core.instrumentos_validos]] — core/instrumentos_validos.py — LA validación de símbolos. Una sola, para todos.
+- [[core.interbanking]] — core/interbanking.py — cliente único de las APIs de Interbanking.
 - [[core.job_runs]] — Context manager para registrar runs de jobs automáticos en manager.job_runs (SQL).
 - [[core.llm]] — core/llm.py — transporte LLM único y RUTEO de proveedores (QuantAI, docs/QUANTAI.md).
 - [[core.market_snapshot]] — Lectura de mercado.market_snapshot (SQL) — estado live por ticker. SQL-only.
@@ -43,6 +48,7 @@
 - [[core.roles_sql]] — core/roles_sql.py — lecturas + escrituras de AUTH (roles/matriz/usuarios) desde Postgres.
 - [[core.series_macro]] — Series macro (CER, DOLAR, BADLAR, TAMAR, RiesgoPais, Inflación…) — SQL-ONLY.
 - [[core.simbolos_cuarentena]] — core/simbolos_cuarentena.py — cuarentena PERSISTENTE de símbolos que ROFEX rechaza.
+- [[core.tamar_1816_sql]] — core/tamar_1816_sql.py — escritura de `mercado.tamar_1816`. Una sola.
 - [[core.threads]] — threads.py — lanzamiento de hilos VITALES en motores.
 - [[core.tz]] — Zona horaria Argentina — ÚNICO lugar para now / tz / cálculo de frescura.
 - [[core.websocket]] — WebSocketManager — conexión WS a pyRofex para los motores de mercado.

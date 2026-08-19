@@ -4274,6 +4274,17 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_avisos (
 -- vuelve a aparecer en un alta posterior, ese aviso nuevo SÍ debe poder existir.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto
     ON mercado.av_agent_avisos (ticker, clave) WHERE NOT resuelto;
+-- A QUIÉN le toca (2026-08-19). NULL = de todos, que es como funcionó hasta
+-- ahora y sigue siendo el default: la lista de pendientes del alta de bonos no
+-- tiene dueño. Se completa cuando el agente le avisa a una persona puntual
+-- (`av_agent_hacer.AccionAvisar`), y ahí la fila aparece en SU lista.
+--
+-- No se hizo una tabla de notificaciones nueva a propósito: esta ya tiene alta,
+-- cierre por una persona y pantalla. Un segundo buzón daría dos lugares donde
+-- mirar lo que hay para hacer — el problema exacto que SALUD vino a resolver.
+ALTER TABLE mercado.av_agent_avisos ADD COLUMN IF NOT EXISTS para text;
+CREATE INDEX IF NOT EXISTS ix_av_agent_avisos_para
+    ON mercado.av_agent_avisos (lower(para)) WHERE NOT resuelto;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -4426,3 +4437,61 @@ INSERT INTO mercado.av_agent_latido (id) VALUES (true) ON CONFLICT DO NOTHING;
 -- El latido declara su propia cadencia: así el umbral la sigue sola y no puede
 -- volver a desincronizarse cuando se cambie un intervalo.
 ALTER TABLE mercado.av_agent_latido ADD COLUMN IF NOT EXISTS proximo_en_s integer;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- mercado.av_agent_propuestas — LO QUE EL AGENTE SABE HACER (2026-08-19).
+--
+-- Pedido del user: *«que el agente aprenda a sugerir, y que si le das OK
+-- actualice en el momento y luego controle que lo hizo bien en el mismo
+-- proceso… que ya tenga la feature armada pero que se haga con mi permiso»*.
+--
+-- **El ciclo es PROPONER → APROBAR → APLICAR → VERIFICAR**, y es el mismo que
+-- ya usa el alta de un bono (simular → aplicar → verificar). Que sea uno solo
+-- importa: el que aprueba un cambio de cartera no tiene que aprender otro
+-- modelo mental que el que aprueba un alta.
+--
+-- **Por qué se PERSISTE la propuesta y no se aplica de una:**
+--
+--   · el OK del humano es el único gate real, y sin fila no hay a qué darle OK;
+--   · `antes` guarda el valor previo → «revertir» es una función y no una
+--     promesa (misma decisión que el libro de acciones);
+--   · `verificado` separa «lo escribí» de «quedó bien». Son cosas distintas y
+--     confundirlas es como se acumulan arreglos que no arreglaron nada;
+--   · cada propuesta con su resultado ES el eval set de las acciones: sin esto
+--     no hay forma de saber si el agente sugiere bien, y sin eso no se le puede
+--     dar más autonomía sin fe.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_propuestas (
+    id          bigserial PRIMARY KEY,
+    creado_at   timestamptz NOT NULL DEFAULT now(),
+    accion      text NOT NULL,            -- 'assets.cartera'
+    -- Identidad del caso. UNIQUE con la acción: re-proponer sobre lo mismo
+    -- ACTUALIZA la propuesta en vez de acumular diez para el mismo asset.
+    sujeto      text NOT NULL,
+    campo       text NOT NULL,
+    antes       text,
+    propuesto   text NOT NULL,
+    -- De dónde salió: 'regla' (determinista) o 'ia'. **Se guarda porque cambia
+    -- cuánto hay que mirarla**: una regla se audita leyendo el código, una
+    -- sugerencia del modelo hay que mirarla caso por caso.
+    fuente      text NOT NULL DEFAULT 'regla',
+    confianza   numeric,                  -- 0..1
+    porque      text NOT NULL DEFAULT '',
+    -- propuesta | aplicada | rechazada | fallida
+    estado      text NOT NULL DEFAULT 'propuesta',
+    por         text,
+    aplicado_at timestamptz,
+    -- NULL = todavía no se verificó. TRUE/FALSE = se miró después de escribir.
+    verificado  boolean,
+    verificado_detalle text,
+    error       text,
+    -- Lo que la acción necesita para aplicar y que no entra en `propuesto`:
+    -- la denominación y el segmento de una contraparte, el texto del aviso.
+    -- Va acá y no en columnas porque cada acción necesita cosas distintas y
+    -- una columna por acción convertiría la tabla en un formulario.
+    extra       jsonb NOT NULL DEFAULT '{}'::jsonb,
+    UNIQUE (accion, sujeto, campo)
+);
+
+CREATE INDEX IF NOT EXISTS ix_av_prop_pendientes
+    ON mercado.av_agent_propuestas (accion, creado_at DESC) WHERE estado = 'propuesta';

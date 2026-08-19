@@ -26,11 +26,13 @@ _(pendiente de enriquecimiento)_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.anulados]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
+- [[api.services.bancos]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.cashflow_sql]]  ·  _module_
 - [[api.services.clientes_admin_sql]]  ·  _module_
 - [[api.services.comercial_sql]]  ·  _module_
 - [[api.services.contrapartes_seg]]  ·  _module_
+- [[api.services.curvas_vista]]  ·  _module_
 - [[api.services.db_obs]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.latencia_endpoints]]  ·  _module_

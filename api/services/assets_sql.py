@@ -147,3 +147,38 @@ def asset_one_panel(unidad: str) -> dict | None:
         cur.execute(sql, (unidad,))
         row = cur.fetchone()
         return _row_panel(row) if row else None
+
+
+# ── LA PUERTA DE ESCRITURA ───────────────────────────────────────────────────
+
+def set_campos(unidad: str, campos: dict, *, actor: str = "") -> None:
+    """**El único lugar donde se escribe un asset.**
+
+    Vivía dentro de `api/routers/manager/assets.py::_write_sql` — un router, o
+    sea HTTP plumbing. Mientras el único que escribía era el panel de Manager
+    daba igual; desde que el AV Agent también propone cambios, un service que
+    importa de un router es la señal de que la puerta está en el lugar
+    equivocado. Se mueve acá y el router la llama: **una sola puerta, un solo
+    criterio** — el mismo `.strip()`, el mismo `actualizado_por`, la misma
+    invalidación de cache. Dos escritores con dos criterios es como se llega a
+    que la mitad de las carteras tengan un espacio al final.
+
+    `.strip()` en los strings no es cosmético: un `'HD  '` rompe los filtros que
+    comparan exacto (el divisor del AuM, Tenencia Valorizada).
+    """
+    from datetime import UTC, datetime
+
+    cols = {k.lower(): (v.strip() if isinstance(v, str) else v)
+            for k, v in campos.items()}
+    if actor:
+        cols["actualizado_por"] = actor
+    cols.setdefault("actualizado_at", datetime.now(UTC))
+    colnames = ["unidad", *cols.keys()]
+    updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols)
+    sql = (f"INSERT INTO portafolio.assets ({', '.join(colnames)}) "
+           f"VALUES ({', '.join(['%s'] * len(colnames))}) "
+           f"ON CONFLICT (unidad) DO UPDATE SET {updates}")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, [unidad, *cols.values()])
+        conn.commit()
+    invalidar()

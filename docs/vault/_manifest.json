@@ -70,6 +70,7 @@
 "api.routers.estrategia",
 "api.routers.ia",
 "api.routers.ingest",
+"api.routers.interbanking",
 "api.routers.manager",
 "api.routers.market",
 "api.routers.me",
@@ -309,6 +310,7 @@
 "api.auth",
 "api.services",
 "api.services.argy",
+"api.services.curvas_vista",
 "api.services.fair_value",
 "api.services.macro",
 "api.services.macro_sql",
@@ -382,6 +384,18 @@
 "links": [
 "api.auth",
 "api.services",
+"api.services.av_agent_alta",
+"api.services.av_agent_analista",
+"api.services.av_agent_centinela",
+"api.services.av_agent_control",
+"api.services.av_agent_evals",
+"api.services.av_agent_hacer",
+"api.services.av_agent_masivo",
+"api.services.av_agent_preguntas",
+"api.services.av_agent_relevar",
+"api.services.av_agent_salud",
+"api.services.av_agent_sin_precio",
+"api.services.av_agent_vista",
 "api.services.briefing",
 "api.services.copiloto",
 "api.services.ia_obs",
@@ -403,6 +417,19 @@
 "core.eikon_live",
 "core.eikon_news",
 "core.eikon_segmentos"
+]
+},
+{
+"id": "api.routers.interbanking",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/interbanking.py",
+"summary": "api/routers/interbanking.py — tab INTERBANKING del BACK OFFICE.",
+"links": [
+"api.auth",
+"api.services",
+"api.services.bancos"
 ]
 },
 {
@@ -428,6 +455,7 @@
 "api.routers.manager.controles",
 "api.routers.manager.diagnostico",
 "api.routers.manager.documentos",
+"api.routers.manager.emisores",
 "api.routers.manager.grupos",
 "api.routers.manager.import_tenencia",
 "api.routers.manager.instrumentos",
@@ -492,8 +520,7 @@
 "api.auth",
 "api.cache",
 "api.services",
-"api.services.assets_sql",
-"core.postgres"
+"api.services.assets_sql"
 ]
 },
 {
@@ -631,6 +658,19 @@
 "api.auth",
 "api.services",
 "api.services.research_docs_sql"
+]
+},
+{
+"id": "api.routers.manager.emisores",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/emisores.py",
+"summary": "Manager sub-router — Títulos → Emisores (industria del emisor).",
+"links": [
+"api.auth",
+"api.services",
+"api.services.emisores"
 ]
 },
 {
@@ -1479,6 +1519,257 @@
 ]
 },
 {
+"id": "api.services.av_agent",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent.py",
+"summary": "api/services/av_agent.py — los detectores del AV AGENT (etapa E1).",
+"links": [
+"api.services",
+"api.services.acreencias",
+"api.services.curvas_vista",
+"api.services.macro",
+"api.services.salud",
+"core",
+"core.curvas_ejes",
+"core.curvas_sql",
+"core.instrumentos_validos",
+"core.market_snapshot",
+"core.mercado_1816",
+"core.postgres",
+"engines.curvas"
+]
+},
+{
+"id": "api.services.av_agent_acciones",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_acciones.py",
+"summary": "api/services/av_agent_acciones.py — el LIBRO DE ACCIONES del AV Agent.",
+"links": [
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_alta",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_alta.py",
+"summary": "api/services/av_agent_alta.py — E2: SIMULAR un alta antes de escribirla.",
+"links": [
+"api.services",
+"api.services.acreencias",
+"api.services.av_agent",
+"api.services.av_agent_acciones",
+"api.services.av_agent_control",
+"api.services.av_agent_memoria",
+"api.services.av_agent_vista",
+"api.services.bonos_admin",
+"api.services.macro",
+"core",
+"core.calendario",
+"core.curvas_catalogo",
+"core.curvas_ejes",
+"core.curvas_sql",
+"core.especies",
+"core.instrumentos_validos",
+"core.market_snapshot",
+"core.mercado_1816",
+"core.postgres",
+"core.tamar_1816_sql",
+"engines.curvas"
+]
+},
+{
+"id": "api.services.av_agent_analista",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_analista.py",
+"summary": "api/services/av_agent_analista.py — EL ANALISTA del diagnóstico masivo.",
+"links": [
+"api.services.av_agent_alta",
+"api.services.av_agent_masivo",
+"core",
+"core.ai",
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_centinela",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_centinela.py",
+"summary": "api/services/av_agent_centinela.py — EL AGENTE PRENDIDO, con memoria.",
+"links": [
+"api.services",
+"api.services.av_agent",
+"api.services.salud",
+"core",
+"core.curvas_sql",
+"core.market_snapshot",
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_control",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_control.py",
+"summary": "api/services/av_agent_control.py — EL TABLERO DE CONTROL del AV Agent.",
+"links": [
+"api.services",
+"api.services.av_agent_acciones",
+"core",
+"core.mercado_1816",
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_evals",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_evals.py",
+"summary": "api/services/av_agent_evals.py — el EVAL SET del AV AGENT.",
+"links": [
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_hacer",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_hacer.py",
+"summary": "api/services/av_agent_hacer.py — LO QUE EL AGENTE SABE HACER.",
+"links": [
+"api.services",
+"api.services.assets_sql",
+"api.services.av_agent_salud",
+"api.services.av_agent_vista",
+"api.services.contrapartes_seg",
+"core",
+"core.ai",
+"core.postgres",
+"jobs.controles_datos"
+]
+},
+{
+"id": "api.services.av_agent_masivo",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_masivo.py",
+"summary": "api/services/av_agent_masivo.py — EL DIAGNÓSTICO MASIVO del AV Agent.",
+"links": [
+"api.services",
+"api.services.av_agent_alta",
+"api.services.av_agent_salud",
+"core",
+"core.mercado_1816",
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_memoria",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_memoria.py",
+"summary": "api/services/av_agent_memoria.py — LA MEMORIA DEL AGENTE.",
+"links": [
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_preguntas",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_preguntas.py",
+"summary": "api/services/av_agent_preguntas.py — el AV AGENT le PREGUNTA al humano (E1.c).",
+"links": [
+"api.services",
+"api.services.av_agent_acciones",
+"api.services.av_agent_control",
+"core",
+"core.curvas_catalogo",
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_relevar",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_relevar.py",
+"summary": "api/services/av_agent_relevar.py — LA RELEVADA, a pedido.",
+"links": [
+"api.services",
+"api.services.av_agent",
+"api.services.av_agent_preguntas",
+"core",
+"core.job_runs",
+"core.mercado_1816",
+"jobs.av_agent"
+]
+},
+{
+"id": "api.services.av_agent_salud",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_salud.py",
+"summary": "api/services/av_agent_salud.py — SALUD, razonada por el AV AGENT.",
+"links": [
+"api.services",
+"api.services.av_agent_alta",
+"api.services.av_agent_hacer",
+"api.services.av_agent_memoria",
+"api.services.salud",
+"jobs.controles_datos"
+]
+},
+{
+"id": "api.services.av_agent_sin_precio",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_sin_precio.py",
+"summary": "api/services/av_agent_sin_precio.py — POR QUÉ un bono no tiene precio.",
+"links": [
+"api.services",
+"api.services.av_agent_alta",
+"api.services.av_agent_memoria",
+"core.instrumentos_validos",
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_vista",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_vista.py",
+"summary": "api/services/av_agent_vista.py — la vista /av-agent en UN request (E1.d).",
+"links": [
+"api.services",
+"api.services.acreencias",
+"api.services.av_agent",
+"api.services.av_agent_acciones",
+"api.services.av_agent_preguntas",
+"core",
+"core.curvas_ejes",
+"core.postgres"
+]
+},
+{
 "id": "api.services.back_office_titulos",
 "type": "module",
 "layer": "api",
@@ -1488,6 +1779,21 @@
 "links": [
 "api.cache",
 "core.postgres"
+]
+},
+{
+"id": "api.services.bancos",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/bancos.py",
+"summary": "api/services/bancos.py — lectura de `bancos.*` para la tab INTERBANKING.",
+"links": [
+"api.services._sql",
+"core.calendario",
+"core.postgres",
+"core.roles",
+"core.tz"
 ]
 },
 {
@@ -1501,6 +1807,8 @@
 "api.services",
 "api.services.ons",
 "core",
+"core.curvas_catalogo",
+"core.curvas_ejes",
 "core.curvas_sql",
 "core.market_snapshot",
 "core.postgres"
@@ -1831,19 +2139,6 @@
 ]
 },
 {
-"id": "api.services.copiloto.ons",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/copiloto/ons.py",
-"summary": "copiloto/ons.py — vista ONs (deuda corporativa): curva por sector, pagos.",
-"links": [
-"api.services",
-"api.services.renta_fija",
-"api.services.renta_fija_sql"
-]
-},
-{
 "id": "api.services.copiloto.opciones",
 "type": "module",
 "layer": "api",
@@ -1976,6 +2271,23 @@
 "links": []
 },
 {
+"id": "api.services.curvas_vista",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/curvas_vista.py",
+"summary": "api/services/curvas_vista.py — la tab CURVAS del rediseño, en UN request.",
+"links": [
+"api.cache",
+"api.services._sql",
+"api.services.macro",
+"api.services.renta_fija",
+"api.services.renta_fija_sql",
+"core",
+"core.curvas_ejes"
+]
+},
+{
 "id": "api.services.day_trading",
 "type": "module",
 "layer": "api",
@@ -2095,6 +2407,17 @@
 "path": "api/services/diagnostico_registry.py",
 "summary": "Registro ÚNICO del Diagnóstico: vista → motores / jobs / APIs que la alimentan.",
 "links": []
+},
+{
+"id": "api.services.emisores",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/emisores.py",
+"summary": "api/services/emisores.py — el EMISOR y su INDUSTRIA. Service puro (sin FastAPI).",
+"links": [
+"core.postgres"
+]
 },
 {
 "id": "api.services.estrategia",
@@ -2334,8 +2657,10 @@
 "path": "api/services/ons.py",
 "summary": "api/services/ons.py — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).",
 "links": [
+"api.services.acreencias",
 "api.services.assets_sql",
 "core",
+"core.curvas_ejes",
 "core.curvas_sql",
 "core.pg_mirror",
 "core.postgres"
@@ -2590,7 +2915,9 @@
 "api.services._sql",
 "api.services.macro",
 "api.services.renta_fija",
+"core",
 "core.calendario",
+"core.curvas_ejes",
 "engines.curvas"
 ]
 },
@@ -2707,7 +3034,8 @@
 "api.services.jobs_catalogo",
 "core",
 "core.ai",
-"core.postgres"
+"core.postgres",
+"db.Trading.DOLAR"
 ]
 },
 {
@@ -2865,7 +3193,8 @@
 "summary": "api/services/titulos_negativos.py — control de nominales NEGATIVOS en T0 y T1.",
 "links": [
 "api.cache",
-"api.services._sql"
+"api.services._sql",
+"core.postgres"
 ]
 },
 {
@@ -3070,6 +3399,31 @@
 ]
 },
 {
+"id": "core.curvas_catalogo",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/curvas_catalogo.py",
+"summary": "core/curvas_catalogo.py — las curvas que se crean sin deploy.",
+"links": [
+"core",
+"core.curvas_ejes",
+"core.postgres"
+]
+},
+{
+"id": "core.curvas_ejes",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/curvas_ejes.py",
+"summary": "core/curvas_ejes.py — los EJES de una curva de renta fija (rediseño 2026-08-15).",
+"links": [
+"core",
+"core.curvas_catalogo"
+]
+},
+{
 "id": "core.curvas_sql",
 "type": "module",
 "layer": "core",
@@ -3077,6 +3431,8 @@
 "path": "core/curvas_sql.py",
 "summary": "core/curvas_sql.py — lectura del master de renta fija desde SQL.",
 "links": [
+"core",
+"core.curvas_ejes",
 "core.postgres"
 ]
 },
@@ -3173,6 +3529,17 @@
 ]
 },
 {
+"id": "core.especies",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/especies.py",
+"summary": "core/especies.py — LAS PATAS de un bono. Una sola lógica, dos usuarios.",
+"links": [
+"core.postgres"
+]
+},
+{
 "id": "core.estrategia_sql",
 "type": "module",
 "layer": "core",
@@ -3241,6 +3608,29 @@
 "links": []
 },
 {
+"id": "core.instrumentos_validos",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/instrumentos_validos.py",
+"summary": "core/instrumentos_validos.py — LA validación de símbolos. Una sola, para todos.",
+"links": [
+"core.postgres"
+]
+},
+{
+"id": "core.interbanking",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/interbanking.py",
+"summary": "core/interbanking.py — cliente único de las APIs de Interbanking.",
+"links": [
+"config",
+"core.http_base"
+]
+},
+{
 "id": "core.job_runs",
 "type": "module",
 "layer": "core",
@@ -3287,7 +3677,9 @@
 "repo": "backend",
 "path": "core/mercado_1816.py",
 "summary": "core/mercado_1816.py — cliente de la API de Mercado de 1816 (vista RESEARCH).",
-"links": []
+"links": [
+"core.postgres"
+]
 },
 {
 "id": "core.pg_mirror",
@@ -3399,6 +3791,19 @@
 ]
 },
 {
+"id": "core.tamar_1816_sql",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/tamar_1816_sql.py",
+"summary": "core/tamar_1816_sql.py — escritura de `mercado.tamar_1816`. Una sola.",
+"links": [
+"core",
+"core.mercado_1816",
+"core.postgres"
+]
+},
+{
 "id": "core.threads",
 "type": "module",
 "layer": "core",
@@ -3424,6 +3829,7 @@
 "path": "core/websocket.py",
 "summary": "WebSocketManager — conexión WS a pyRofex para los motores de mercado.",
 "links": [
+"core.instrumentos_validos",
 "core.simbolos_cuarentena",
 "core.threads"
 ]
@@ -3512,6 +3918,28 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.assets_autofill"
+]
+},
+{
+"id": "cron.jobs.av_agent",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.av_agent"
+]
+},
+{
+"id": "cron.jobs.av_agent_live",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.av_agent_live"
 ]
 },
 {
@@ -3702,6 +4130,17 @@
 ]
 },
 {
+"id": "cron.jobs.ficha_1816",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.ficha_1816"
+]
+},
+{
 "id": "cron.jobs.forwards_zscore",
 "type": "cron",
 "layer": "deploy",
@@ -3743,6 +4182,17 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.ia_calidad"
+]
+},
+{
+"id": "cron.jobs.interbanking_sync",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.interbanking_sync"
 ]
 },
 {
@@ -3922,6 +4372,17 @@
 ]
 },
 {
+"id": "cron.jobs.tamar_1816",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.tamar_1816"
+]
+},
+{
 "id": "cron.jobs.tesoreria_echeq_recibidos",
 "type": "cron",
 "layer": "deploy",
@@ -3952,6 +4413,17 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.triage"
+]
+},
+{
+"id": "cron.jobs.validar_instrumentos",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.validar_instrumentos"
 ]
 },
 {
@@ -4618,6 +5090,49 @@
 ]
 },
 {
+"id": "jobs.av_agent",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/av_agent.py",
+"summary": "jobs/av_agent.py — el ESPEJO del AV Agent (etapa E1).",
+"links": [
+"api.services",
+"api.services.av_agent",
+"api.services.av_agent_preguntas",
+"core",
+"core.job_runs",
+"core.mercado_1816",
+"core.postgres"
+]
+},
+{
+"id": "jobs.av_agent_centinela",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/av_agent_centinela.py",
+"summary": "jobs/av_agent_centinela.py — EL CENTINELA, como daemon.",
+"links": [
+"api.services",
+"api.services.av_agent_centinela"
+]
+},
+{
+"id": "jobs.av_agent_live",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/av_agent_live.py",
+"summary": "jobs/av_agent_live.py — EL AGENTE, PRENDIDO EN RUEDA.",
+"links": [
+"api.services",
+"api.services.av_agent",
+"core.job_runs",
+"core.postgres"
+]
+},
+{
 "id": "jobs.backfill_tasas",
 "type": "module",
 "layer": "jobs",
@@ -4811,6 +5326,24 @@
 ]
 },
 {
+"id": "jobs.control_saldos",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/control_saldos.py",
+"summary": "jobs/control_saldos.py — SALDO LIQUIDADO de hoy por cuenta y moneda.",
+"links": [
+"core",
+"core.aunesa",
+"core.calendario",
+"core.job_runs",
+"core.postgres",
+"jobs._aum_filters",
+"jobs.aum",
+"jobs.tenencia_live"
+]
+},
+{
 "id": "jobs.controles_datos",
 "type": "module",
 "layer": "jobs",
@@ -4914,6 +5447,18 @@
 ]
 },
 {
+"id": "jobs.ficha_1816",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/ficha_1816.py",
+"summary": "jobs/ficha_1816.py — 1816 es la fuente de verdad del EMISOR. Backfill + mantenimiento.",
+"links": [
+"core.job_runs",
+"core.postgres"
+]
+},
+{
 "id": "jobs.forwards_zscore",
 "type": "module",
 "layer": "jobs",
@@ -4948,6 +5493,8 @@
 "path": "jobs/guardrails.py",
 "summary": "jobs/guardrails.py — invariantes de sanidad de datos post-cierre.",
 "links": [
+"api.services",
+"api.services.emisores",
 "config",
 "core",
 "core.curvas_sql",
@@ -4967,6 +5514,22 @@
 "core.ai",
 "core.job_runs",
 "core.postgres"
+]
+},
+{
+"id": "jobs.interbanking_sync",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/interbanking_sync.py",
+"summary": "jobs/interbanking_sync.py — trae los extractos de Interbanking a `bancos.*`.",
+"links": [
+"core",
+"core.calendario",
+"core.interbanking",
+"core.job_runs",
+"core.postgres",
+"core.tz"
 ]
 },
 {
@@ -5219,8 +5782,7 @@
 "path": "jobs/snapshot_cierre.py",
 "summary": "snapshot_cierre.py — materializa el cierre diario por bono SQL-NATIVE.",
 "links": [
-"core",
-"core.curvas_sql",
+"core.curvas_ejes",
 "core.job_runs",
 "core.market_snapshot",
 "core.pg_mirror",
@@ -5252,6 +5814,23 @@
 "core.doc_fiscal",
 "core.job_runs",
 "core.postgres"
+]
+},
+{
+"id": "jobs.tamar_1816",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/tamar_1816.py",
+"summary": "jobs/tamar_1816.py — la TEA y el MARGEN de los TAMAR (y de cada pata de un dual).",
+"links": [
+"core",
+"core.curvas_catalogo",
+"core.job_runs",
+"core.mercado_1816",
+"core.pg_mirror",
+"core.postgres",
+"core.tamar_1816_sql"
 ]
 },
 {
@@ -5307,6 +5886,19 @@
 "links": [
 "core",
 "core.ai",
+"core.job_runs",
+"core.postgres"
+]
+},
+{
+"id": "jobs.validar_instrumentos",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/validar_instrumentos.py",
+"summary": "jobs/validar_instrumentos.py — vigencia de títulos + marca de validación.",
+"links": [
+"core.instrumentos_validos",
 "core.job_runs",
 "core.postgres"
 ]
@@ -5424,6 +6016,28 @@
 "path": "deploy/systemd/api.service",
 "summary": "Servicio systemd.",
 "links": []
+},
+{
+"id": "svc.av_agent_centinela",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/av_agent_centinela.service",
+"summary": "Servicio systemd.",
+"links": [
+"jobs.av_agent_centinela"
+]
+},
+{
+"id": "svc.control_saldos",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/control_saldos.service",
+"summary": "Servicio systemd.",
+"links": [
+"jobs.control_saldos"
+]
 },
 {
 "id": "svc.motor_agro",

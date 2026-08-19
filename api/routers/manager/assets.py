@@ -29,7 +29,6 @@ from api.services.assets_sql import (
     list_assets_panel,
     values_assets_panel,
 )
-from core.postgres import get_pool
 
 router = APIRouter()
 
@@ -206,22 +205,14 @@ def patch_asset(
 
 
 def _write_sql(unidad: str, set_fields: dict) -> None:
-    """Upsert autoritativo a `portafolio.assets` (UPPERCASE → lowercase, 1:1 con
-    .lower()). `actualizado_por/at` ya vienen en minúscula. Si falla, propaga (el
-    edit no se guardó → el caller devuelve 500)."""
-    # .strip() en los string: un valor con espacios al borde (ej. 'HD  ') rompe los
-    # filtros que comparan exacto (cartera HD/MONEDAS en Tenencia, divisor del AuM, etc.).
-    cols = {k.lower(): (v.strip() if isinstance(v, str) else v) for k, v in set_fields.items()}
-    colnames = ["unidad", *cols.keys()]
-    updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols)
-    sql = (f"INSERT INTO portafolio.assets ({', '.join(colnames)}) "
-           f"VALUES ({', '.join(['%s'] * len(colnames))}) "
-           f"ON CONFLICT (unidad) DO UPDATE SET {updates}")
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, [unidad, *cols.values()])
-        conn.commit()
+    """Delega en `assets_sql.set_campos` — **la única puerta de escritura**.
+
+    El cuerpo vivía acá, en un router. Mientras el único escritor era este panel
+    daba igual; desde que el AV Agent también propone cambios de asset, tener la
+    escritura en HTTP plumbing obligaba a un service a importar de un router.
+    Ahora la puerta está en el service y esto es solo el nombre viejo."""
     from api.services import assets_sql
-    assets_sql.invalidar()   # refrescar el cache del catálogo tras la edición
+    assets_sql.set_campos(unidad, set_fields)
 
 
 # Compat: PATCH /assets/{unidad} sigue funcionando para clientes viejos

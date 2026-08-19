@@ -21,6 +21,9 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.services.agro_sql]]  ·  _module_
+- [[api.services.av_agent]]  ·  _module_
+- [[api.services.av_agent_alta]]  ·  _module_
+- [[api.services.av_agent_centinela]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_

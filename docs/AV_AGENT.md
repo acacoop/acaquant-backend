@@ -218,6 +218,145 @@ Lo que sigue (el orden acordado con el user 2026-08-18): corregir la causa desde
 el modal ⇒ llena el eval set solo · los sliders de autonomía por causa ·
 deshacer + lote · calibración, re-chequeo a 24 h y el DAG de lentes.
 
+### 0.j LO QUE EL AGENTE SABE HACER — las ACCIONES (2026-08-19)
+
+Pedido del user, con los ejemplos puestos por él: *«ya sabés exacto qué campo de
+qué función hay que modificar… que el mismo agent aprenda a sugerir y que, si le
+das OK, actualice en el momento y luego controle que lo hizo bien en el mismo
+proceso. Ej.: OTC TRI DLR son siempre derivados; el X29E7 tiene la palabra CER en
+el nombre… que ya tenga la feature armada pero que se haga con mi permiso, o que
+yo escriba lo que tiene que hacer y él lo haga»*.
+
+Hasta acá el agente **diagnosticaba y mandaba a otra pantalla**. Con 68 casos eso
+no es ayuda: es una lista de tareas con un link al lado. La diferencia entre
+detectar y resolver es esta capa.
+
+**EL CICLO, Y ES UNO SOLO PARA TODO:**
+
+    PROPONER  →  (el humano da OK)  →  APLICAR  →  VERIFICAR
+
+Es el MISMO ciclo del alta de un bono (simular → aplicar → verificar). Que sea
+uno solo no es prolijidad: el que aprueba un cambio de cartera no tiene que
+aprender otro modelo mental que el que aprueba un alta, y el día que se le dé
+autonomía a una acción se le da con el mismo interruptor.
+
+**Las cuatro decisiones que sostienen el diseño:**
+
+1. **La regla determinista SIEMPRE primero; el modelo solo para lo que quedó
+   afuera.** El 80% de estos casos los resuelve una regla de tres líneas
+   (`OTC`/`TRI.`/`DLR`+fecha → DERIVADOS, `CER` → ARS, código CAFCI → FCI), y
+   gastar tokens *y atención humana* en eso es tirar los dos recursos que
+   escasean. Cada propuesta viaja con su `fuente` (`regla` ∣ `ia`) porque
+   **cambia cuánto hay que mirarla**: una regla se audita leyendo el código una
+   vez; una sugerencia del modelo hay que mirarla caso por caso.
+
+2. **El modelo elige de una LISTA CERRADA, nunca escribe libre.** «Derivados» es
+   plausible y está mal escrito, y eso rompe los filtros que comparan exacto —el
+   divisor del AuM, Tenencia Valorizada— **sin dar ningún error**. Lo que no está
+   en la lista se descarta antes de llegar a la base, y el modelo tampoco puede
+   contestar sobre un sujeto que nadie le pasó.
+
+3. **La escritura va por la MISMA puerta que usa la pantalla**
+   (`assets_sql.set_campos`, `contrapartes_seg.add_contraparte`). Un segundo
+   camino de escritura termina con dos criterios distintos para el mismo dato:
+   es así como se llega a que la mitad de las carteras tengan un espacio al
+   final. Por eso `_write_sql` se **movió del router al service** en este mismo
+   cambio — un service importando de un router era la señal de que la puerta
+   estaba en el lugar equivocado.
+
+4. **Aplicar y verificar son UN paso, y `verificado` decide el estado.** Después
+   de escribir se **relee de la base**; si la lectura no confirma, la propuesta
+   queda **`fallida`**, jamás `aplicada`. Marcar hecho algo que no se puede
+   comprobar es exactamente cómo un tablero termina en verde con el dato roto —
+   el incidente que dio origen a SALUD. Y cada propuesta se aplica **sola**: una
+   que falla no arrastra a las otras, porque aprobar diez y que se caigan las
+   diez por la séptima es la forma más rápida de que nadie vuelva a apretar el
+   botón.
+
+**Proponer NO trabaja sobre la foto del cron: vuelve a correr el control.**
+*«Todo lo que figura en encontró tiene que ser porque realmente está y sigue
+pasando»* (user). Sugerir un arreglo para un caso que ya se resolvió es el
+cementerio de avisos viejos que este rediseño vino a eliminar.
+
+**El humano puede CORREGIR el valor antes de aplicar.** Sin eso, ante una
+sugerencia casi buena solo queda descartarla e ir a Manager a mano —todo el
+trabajo del agente a la basura por una letra— y las propuestas que nacen sin
+valor (el ping: a quién avisarle) serían inaplicables.
+
+**Rechazar también se registra.** Una propuesta descartada mide tanto como una
+aplicada: es lo que dice que el agente sugirió algo que un humano no compró. Sin
+eso parecería tener 100% de acierto para siempre. **Cada propuesta con su
+resultado ES el eval set de las acciones** (§0.f), y el `acierto` se calcula
+sobre lo DECIDIDO —no sobre lo pendiente, que todavía no dijo nada—; sin nada
+decidido vale `None` y no `0`, porque «cero acierto» y «todavía no sabemos» son
+cosas distintas y la primera frenaría la autonomía por una medición que nunca se
+hizo.
+
+**Las cuatro acciones de arranque** (`api/services/av_agent_hacer.py`):
+
+| acción | control | qué hace | escribe por |
+|---|---|---|---|
+| `assets.cartera` | `assets_sin_cartera` | la CARTERA por patrón del nombre; lo que la regla no sabe va al modelo con la lista de 8 carteras | `assets_sql.set_campos` |
+| `assets.fci` | `fci_incompletos` | copia el EMISOR de **otra clase del mismo fondo** (mismo código CAFCI) | `assets_sql.set_campos` |
+| `contrapartes.alta` | `contrapartes_pendientes` | da de alta la contraparte **que el conciliador ya sugiere** | `contrapartes_seg.add_contraparte` |
+| `avisar.responsable` | `comitentes_sin_nivel1` | **le avisa a una persona** de la plataforma | `av_agent_vista.avisar_a` |
+
+- **`assets.fci` NO adivina: copia de un hermano.** El código CAFCI es la
+  identidad del fondo y la clase es la variante, así que copiar no es una
+  inferencia, es un hecho (la misma idea de la regla `herencia` de
+  `assets_autofill`). **Si dos hermanos no coinciden, no se propone**: dos
+  emisores distintos para el mismo CAFCI es un dato ROTO, no una ambigüedad que
+  se resuelva eligiendo uno.
+- **`contrapartes.alta` no parsea el texto del control.** El detalle guardado es
+  de la última corrida del cron; se vuelve a llamar a `reconciliar()` —la MISMA
+  función que usa el control y el botón de Manager— y se propone sobre lo que
+  dice HOY. Parsear una frase habría atado el alta al formato de un string.
+- **`avisar.responsable` NO crea una tabla de notificaciones nueva.** Ya existe
+  la lista de pendientes del agente (`mercado.av_agent_avisos`): tiene alta,
+  cierre por una persona y pantalla. Solo le faltaba **a quién** → columna
+  `para` (NULL = de todos, que es como venía funcionando). Un segundo buzón daría
+  dos lugares donde mirar lo que hay para hacer — el problema exacto que SALUD
+  vino a resolver cuando la observabilidad estaba en seis pantallas. Es **UN
+  aviso por control y no uno por caso**: 200 pings de «esta cuenta no tiene
+  nivel_1» no son 200 avisos, son un aviso ignorado. Y el destinatario **lo
+  elige el humano**: a quién le toca un tema interno no es algo que el nombre del
+  caso pueda decir.
+
+**Agregar una acción nueva es una clase con tres métodos y una línea en
+`ACCIONES`.** Ni endpoint, ni tabla, ni UI: la acción es un *parámetro* de los
+tres endpoints, y `POR_CONTROL` se deriva del registro, así que la lente de SALUD
+la ofrece sola. Eso es lo que pidió el user cuando dijo *«la arquitectura tiene
+que ser escalable porque va a ser un montón de cosas»*.
+
+**El interruptor del modelo vive en `_proponer_con_ia` y no adentro de cada
+acción** (un `ContextVar`, para que dos requests en paralelo no se pisen). Si
+cada acción tuviera que acordarse de mirar el flag, la que se olvide gasta tokens
+con el modelo apagado y nadie se entera hasta ver la factura.
+
+**Dónde se ve.** Es una lente más del diagnóstico de SALUD —«Esto lo sé hacer · N
+casos»— y **no se dibuja si el control no tiene acción**: un renglón que dice
+«para esto todavía no sé hacer nada» aparece nueve veces y entierra las dos que
+sí. La lente **declara la capacidad, no propone**: proponer cuesta (una corrida
+del control, a veces una llamada al modelo) y no tiene sentido pagarlo cada vez
+que alguien abre un diagnóstico a mirar.
+
+- Tablas: `mercado.av_agent_propuestas` (UNIQUE `accion+sujeto+campo` → re-proponer
+  ACTUALIZA en vez de acumular diez para el mismo asset) y la columna `para` de
+  `mercado.av_agent_avisos`.
+- Endpoints (admin-only, `api/routers/ia.py`): `GET /av-agent/hacer`,
+  `POST /av-agent/hacer/proponer`, `/aplicar`, `/rechazar`, y
+  `GET /av-agent/mis-avisos` (SIN `require_admin` a propósito: el destinatario de
+  un ping no necesariamente administra nada, y filtra por su propio email — no
+  hay forma de pedir los de otro).
+- Tarea de IA: `av_agent_accion` (tier pro, thinking **disabled** — no es
+  análisis de patrones, es clasificar contra una lista cerrada).
+- 31 tests en `tests/unit/test_av_agent_hacer.py`.
+
+**Lo que queda pendiente de esta capa**: deshacer (el `antes` ya se guarda, falta
+el botón), instrucción en texto libre (*«que yo escriba lo que tiene que hacer y
+él lo haga»*), y la lane automática por acción cuando el acierto medido lo
+habilite — nunca antes, y siempre prendida a mano.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta
@@ -2665,6 +2804,20 @@ libro de acciones, los cinco estados, `_paso` y `_veredicto` quedaron **intactos
 realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
+
+- **2026-08-19 — LO QUE EL AGENTE SABE HACER: PROPONER → OK → APLICAR →
+  VERIFICAR** (§0.j). El agente deja de solo diagnosticar. Cuatro acciones de
+  arranque (la CARTERA de un asset, el EMISOR de un FCI desde su hermano, el
+  alta de una contraparte ya sugerida, y **avisarle a una persona**), un ciclo
+  único para todas, y una arquitectura donde sumar la quinta es una clase con
+  tres métodos y una línea. La regla determinista resuelve lo que puede; el
+  modelo entra solo para lo que quedó afuera y **elige de una lista cerrada**.
+  Aplicar **relee de la base en el mismo request**: si no confirma, la propuesta
+  queda `fallida` y no `aplicada`. `_write_sql` se movió del router al service
+  (`assets_sql.set_campos`) — una sola puerta de escritura, un solo criterio.
+  Rechazar también se registra: sin eso el agente parecería tener 100% de
+  acierto. `mercado.av_agent_propuestas` + `para` en `av_agent_avisos` + 4
+  endpoints + la lente «Esto lo sé hacer» en el diagnóstico de SALUD + 31 tests.
 
 - **2026-08-17 — SALUD deja de estar aislada: el agente LEE EL LOG y propone el
   comando.** El user, mirando el diagnóstico de `mercado_1816_series`: *«sigo

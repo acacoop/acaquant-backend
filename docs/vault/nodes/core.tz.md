@@ -17,4 +17,6 @@ path: core/tz.py
 _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
+- [[api.services.bancos]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_
+- [[jobs.interbanking_sync]]  ·  _module_

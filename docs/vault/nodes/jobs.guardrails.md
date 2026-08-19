@@ -17,6 +17,8 @@ path: jobs/guardrails.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services]]  ·  _module_
+- [[api.services.emisores]]  ·  _module_
 - [[config]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_

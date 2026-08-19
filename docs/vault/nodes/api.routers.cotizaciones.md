@@ -22,6 +22,7 @@ Conecta con: delega en services `macro`, `repo`, `derivados`, `renta_fija`, `opc
 - [[api.auth]]  ·  _module_
 - [[api.services]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
+- [[api.services.curvas_vista]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.macro_sql]]  ·  _module_

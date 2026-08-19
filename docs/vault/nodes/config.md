@@ -36,6 +36,7 @@ Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_sessi
 - [[api.services.estrategia]]  ·  _module_
 - [[core.aunesa]]  ·  _module_
 - [[core.finnhub]]  ·  _module_
+- [[core.interbanking]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
 - [[core.roles]]  ·  _module_
 - [[engines._curvas_loader]]  ·  _module_

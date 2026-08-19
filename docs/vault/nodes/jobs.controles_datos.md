@@ -25,4 +25,6 @@ _(pendiente de enriquecimiento)_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.services.av_agent_hacer]]  ·  _module_
+- [[api.services.av_agent_salud]]  ·  _module_
 - [[cron.jobs.controles_datos]]  ·  _cron_

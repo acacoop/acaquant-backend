@@ -24,5 +24,6 @@ Conecta con: la escribe `jobs/bcra.py`; la leen `api/services/macro.py`, `carry_
 - [[api.services.intraday]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.macro_sql]]  ·  _module_
+- [[api.services.salud]]  ·  _module_
 - [[engines.futuros_dlr]]  ·  _module_
 - [[jobs.bcra]]  ·  _module_

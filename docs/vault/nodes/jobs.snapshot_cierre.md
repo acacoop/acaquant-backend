@@ -19,8 +19,7 @@ Job que materializa el cierre diario por bono (tasa fija + CER) leyendo directo 
 Conecta con: lee `Trading.Curvas` (metadata) + `Trading.MarketSnapshot` (estado live), escribe `Trading.SnapshotsCierre`. Encadena con `jobs.fair_value` (cierre_chain). Esa serie alimenta análisis de renta fija históricos.
 
 ## Usa / conecta con →
-- [[core]]  ·  _module_
-- [[core.curvas_sql]]  ·  _module_
+- [[core.curvas_ejes]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_

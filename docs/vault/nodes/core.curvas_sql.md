@@ -17,6 +17,8 @@ path: core/curvas_sql.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[core]]  ·  _module_
+- [[core.curvas_ejes]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
@@ -25,6 +27,9 @@ _(pendiente de enriquecimiento)_
 - [[api.services.acreencias]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
+- [[api.services.av_agent]]  ·  _module_
+- [[api.services.av_agent_alta]]  ·  _module_
+- [[api.services.av_agent_centinela]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.breakevens_admin]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
@@ -46,4 +51,3 @@ _(pendiente de enriquecimiento)_
 - [[jobs.controles_datos]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.mercado_1816_discovery]]  ·  _module_
-- [[jobs.snapshot_cierre]]  ·  _module_

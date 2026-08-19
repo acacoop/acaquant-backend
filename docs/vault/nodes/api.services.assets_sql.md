@@ -23,5 +23,6 @@ _(pendiente de enriquecimiento)_
 - [[api.routers.manager.assets]]  ·  _module_
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.services.acreencias]]  ·  _module_
+- [[api.services.av_agent_hacer]]  ·  _module_
 - [[api.services.ons]]  ·  _module_
 - [[api.services.portfolio]]  ·  _module_

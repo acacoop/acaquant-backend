@@ -19,6 +19,7 @@ _(pendiente de enriquecimiento)_
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
 - [[api.services._sql]]  ·  _module_
+- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.back_office]]  ·  _module_

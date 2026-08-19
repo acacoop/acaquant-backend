@@ -23,7 +23,6 @@ Conecta con: lee/escribe `Valuaciones.Assets` (read client para GET, rw para PAT
 - [[api.cache]]  ·  _module_
 - [[api.services]]  ·  _module_
 - [[api.services.assets_sql]]  ·  _module_
-- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_

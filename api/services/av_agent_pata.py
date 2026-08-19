@@ -195,7 +195,19 @@ def explicar(ticker: str) -> dict:
             logger.warning("av_agent_pata: sin estado de suscripción (%s)", e)
             pedida, snap = False, None
         px = snap[0] if snap else None
+        # ⚠️ **ESTAR EN EL SNAPSHOT NO ES LO MISMO QUE TENER PRECIO**, y confundirlos
+        # es exactamente el error del AO29 (§0.v). Hay TRES estados y no dos:
+        #
+        #   no está en el snapshot   nadie la suscribe → la ausencia NO prueba nada
+        #   está, sin precio         la escuchamos y el mercado no dio punta → iliquidez
+        #   está, con precio         cotiza, y sabemos a cuánto
+        #
+        # El motor la puede estar suscribiendo desde el master o desde el universo
+        # de portfolio sin que haya ningún adhoc, así que `pedida` sola no alcanza
+        # para saber si estamos escuchando.
+        out["en_snapshot"] = snap is not None
         out["pedida"] = pedida
+        out["escuchando"] = bool(pedida or snap is not None)
         out["precio"] = float(px) if px is not None else None
         if px:
             pasos.append({
@@ -206,25 +218,35 @@ def explicar(ticker: str) -> dict:
                             f"**requiere reiniciar `motor_rofex` fuera de rueda**."),
             })
         else:
+            escuchando = out["escuchando"]
             pasos.append({
-                "clave": "precio", "estado": REVISAR if pedida else NO_SE,
-                "titulo": ("Pedida, todavía sin precio" if pedida
-                           else f"Nadie está pidiendo «{_corto(elegida)}»"),
-                "detalle": ("Si pasa una rueda entera y no llega, ESA pata no cotiza "
-                            "— y recién ahí se puede afirmar." if pedida else
+                "clave": "precio", "estado": REVISAR if escuchando else NO_SE,
+                "titulo": (f"La escuchamos y no dio punta: «{_corto(elegida)}»"
+                           if escuchando
+                           else f"Nadie está escuchando «{_corto(elegida)}»"),
+                "detalle": (("Está en el snapshot, así que el motor la pide y el "
+                             "mercado no le puso precio: eso ES iliquidez. Si pasa "
+                             "una rueda entera igual, la pata no cotiza — y recién "
+                             "ahora se puede afirmar.") if escuchando else
                             "Por eso no tiene precio en nuestras tablas: **no es que "
                             "no cotice, es que no la estamos escuchando**. Pedirla "
                             "la levanta el `adhoc_watcher` en 5s, sin reiniciar."),
             })
-        # Solo es «pedible» si hay algo que la pedida cambie.
-        out["pedible"] = "" if (pedida and px) else elegida
+        # Solo es «pedible» si hay algo que la pedida cambie. Que ya la estemos
+        # escuchando cuenta: pedir de nuevo algo que el motor ya suscribe no
+        # agrega un dato, y ofrecer un botón que no cambia nada es lo que rompe
+        # la confianza en todos los demás.
+        out["pedible"] = "" if out["escuchando"] else elegida
         out["sembrar"] = elegida not in set(sembradas)
 
     out["veredicto"] = (
         "sin_pata" if not elegida and primary is not None else
         "no_pude_mirar" if not elegida else
         "con_precio" if out.get("precio") else
-        "pedida_sin_precio" if out.get("pedida") else "hay_que_pedirla")
+        # «La escuchamos y no vino» — que es iliquidez y NO trabajo nuestro. Se
+        # llama distinto de `hay_que_pedirla` porque se atienden distinto: una
+        # tiene botón y la otra no tiene nada que hacer.
+        "escuchada_sin_punta" if out.get("escuchando") else "hay_que_pedirla")
     return out
 
 
@@ -247,8 +269,11 @@ def pedir(ticker: str, por: str = "") -> dict:
         return {"ok": False, "ticker": d["ticker"], "veredicto": d.get("veredicto"),
                 "error": ("no hay ninguna pata en dólares para pedir"
                           if d.get("veredicto") == "sin_pata"
-                          else "ya está pedida y con precio: no hay nada que hacer"
+                          else "ya la escuchamos y tiene precio: no hay nada que hacer"
                           if d.get("veredicto") == "con_precio"
+                          else "ya la estamos escuchando y el mercado no le pone "
+                               "punta: eso es iliquidez, no algo que pedir de nuevo"
+                          if d.get("veredicto") == "escuchada_sin_punta"
                           else "no pude leer el catálogo de Primary, así que no "
                                "propongo nada")}
 

@@ -985,6 +985,26 @@ def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
     for b in bonos:
         if (b.get("moneda_eje") or "").upper() != "USD":
             continue
+        # ⚠️ **UN DÓLAR LINKED COTIZA EN PESOS POR DEFINICIÓN** (medido 2026-08-19).
+        #
+        # Está denominado en USD —por eso pasa el filtro de arriba— pero **paga en
+        # pesos**: no tiene pata en dólares, no la va a tener nunca, y decirle
+        # «cotiza por su pata en PESOS» es una tautología. Medido con
+        # `scripts.diag_pata_dolar`: **8 de los 44** casos eran esto (D15E7,
+        # D30O6, D30S6, D31G6, D31M7, TZV27, TZV28, TZVD8), o sea el 18% de la
+        # lista era ruido estructural.
+        #
+        # Es la misma lección que ya dejó este detector cuando marcaba `alta` a 46
+        # bonos sanos: *un detector que canta casos correctos enseña a ignorar la
+        # lista*. Y no es «bajarle la severidad» — no hay nada que mirar.
+        #
+        # Se lee `ajuste` (el eje) y, de respaldo, `curva`: los ejes son nullable
+        # a propósito («sin clasificar» es un estado válido), así que exigir solo
+        # `ajuste` dejaría pasar a los que todavía no se clasificaron.
+        if "dolar_linked" in {(b.get("ajuste") or "").strip().lower(),
+                              (b.get("ajuste_alt") or "").strip().lower(),
+                              (b.get("curva") or "").strip().lower()}:
+            continue
         simbolo = (b.get("ticker") or "").strip()
         tk = (b.get("ticker_corto") or "").strip().upper()
         d = snap.get(simbolo) or {}

@@ -1625,6 +1625,63 @@ falso veredicto que este módulo persigue.
 > `tests/unit/test_titulos_negativos.py` (`KeyError: 'latido'`), de la otra
 > sesión (`control-saldos`).
 
+#### LO QUE DIJO LA MEDICIÓN, incluida la parte que me deja mal parado
+
+Corrido `scripts.diag_pata_dolar` contra prod, 44 bonos de curva USD cotizando en
+pesos:
+
+    sembrada           28   63,6%
+    solo_en_primary     0    0,0%   ← el caso que este fix venía a destapar
+    sin_pata           16   36,4%
+
+**`solo_en_primary` dio CERO.** O sea que el fix de las dos fuentes **no destapó
+un solo caso**: hoy `mercado.especies` no le falta ninguna pata que Primary sí
+liste. La hipótesis de que la tabla estaba incompleta era razonable y resultó
+falsa, y queda escrito porque medir para confirmar lo que uno ya creía no es
+medir.
+
+Lo que el cambio sí compra, y no es poco: **las 16 `sin_pata` pasaron de ser una
+afirmación sin respaldo a una verificada contra las dos fuentes**, y el día que
+el catálogo se mueva —que se mueve— el detector no vuelve a mentir solo. Un
+detector correcto por casualidad deja de serlo sin avisar.
+
+#### Y lo que la medición SÍ encontró, que era otra cosa
+
+**Las 28 con pata sembrada tenían las tres columnas iguales: sin pedir y sin
+precio.** El AO29 replicado 28 veces — la pata existe, está validada, y nadie la
+escucha, así que su falta de precio no prueba nada.
+
+Pero al escribirlo apareció que **el propio diag no podía sostener esa frase**:
+filtraba el snapshot por `last_price > 0`, con lo cual «nadie la suscribe» y «la
+suscribimos y el mercado no dio punta» salían idénticos. Es el mismo pecado, un
+nivel más abajo. Ahora son **TRES** estados y no dos, en el diag y en la puerta:
+
+    no_escucha   no está en `market_snapshot` → nadie la pide → no prueba NADA
+    sin_punta    está y sin precio → la escuchamos y no vino → ESO es iliquidez
+    con_precio   cotiza, y sabemos a cuánto
+
+Y `pedible` ahora mira **estar en el snapshot**, no el adhoc: el motor puede
+suscribir una pata desde el master o desde el universo de portfolio sin ningún
+adhoc, así que lo que prueba que la escuchamos es que la fila exista, no cómo se
+pidió. Ofrecer «pedirla» sobre algo que ya se está escuchando sería un botón que
+no cambia nada — justo lo que rompe la confianza en todos los demás.
+
+#### 8 de los 44 no eran casos: los DÓLAR LINKED
+
+D15E7, D30O6, D30S6, D31G6, D31M7, TZV27, TZV28 y TZVD8 salían en la lista y **no
+tienen nada de malo**: un dólar linked se denomina en USD y **paga en pesos**, así
+que cotizar en pesos es su definición, no un síntoma. No tiene pata en dólares ni
+la va a tener.
+
+Es exactamente el error que este mismo detector ya había cometido cuando marcaba
+`alta` a 46 bonos sanos: *un detector que canta casos correctos enseña a ignorar
+la lista*. Se excluyen — no se les baja la severidad, porque no hay nada que
+mirar. Se reconocen por `ajuste`/`ajuste_alt` y, de respaldo, por `curva`: los
+ejes son nullable a propósito y exigir solo el eje dejaría pasar a los que
+todavía no se clasificaron.
+
+**Queda la lista real en 36 casos, de los cuales 28 son accionables en el acto.**
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

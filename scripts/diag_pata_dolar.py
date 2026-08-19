@@ -16,7 +16,19 @@ Contesta, por bono de curva USD que hoy cotiza en pesos:
     sembrada          ya tenemos la pata D/C en `mercado.especies`
     solo_en_primary   existe en Primary y NO la teníamos  ← lo que el fix destapa
     sin_pata          no está en ninguna de las dos: es el instrumento
-    ya_pedida         además, alguien ya la está escuchando (y si llegó precio)
+
+Y para cada una, **si la estamos escuchando**, que son TRES estados y no dos —
+la distinción del AO29 (§0.v):
+
+    NO ESCUCHA   la pata no está en `market_snapshot`: nadie la suscribe, así que
+                 su falta de precio NO prueba nada
+    SIN PUNTA    está en el snapshot y sin precio: la escuchamos y el mercado no
+                 dio punta → eso SÍ es iliquidez
+    <precio>     cotiza, y sabemos a cuánto
+
+⚠️ Los DÓLAR LINKED quedan fuera: cotizan en pesos **por definición** (se
+denominan en USD y pagan en pesos), así que no tienen ni van a tener pata en
+dólares. Contarlos como casos era el 18% de la lista en ruido estructural.
 
 Uso:
     python -m scripts.diag_pata_dolar            # el resumen + las primeras 40
@@ -43,10 +55,11 @@ def main() -> int:
     todos = "--todos" in sys.argv
 
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT ticker, instrumento, curva FROM mercado.curvas "
+        cur.execute("SELECT ticker, instrumento, curva, ajuste, ajuste_alt "
+                    "FROM mercado.curvas "
                     "WHERE upper(coalesce(moneda_eje, '')) = 'USD' "
                     "  AND instrumento IS NOT NULL ORDER BY ticker")
-        bonos = [(r[0], r[1], r[2]) for r in cur.fetchall()]
+        bonos = [(r[0], r[1], r[2], r[3], r[4]) for r in cur.fetchall()]
 
         cur.execute("SELECT upper(ticker), simbolo FROM mercado.especies "
                     "WHERE upper(moneda) = 'USD'")
@@ -54,13 +67,13 @@ def main() -> int:
         for tk, sim in cur.fetchall():
             sembradas.setdefault(tk, []).append(sim)
 
-        cur.execute("SELECT ticker FROM mercado.adhoc_subscriptions "
-                    "WHERE expires_at > now()")
-        pedidas = {r[0] for r in cur.fetchall()}
-
-        cur.execute("SELECT ticker, last_price FROM mercado.market_snapshot "
-                    "WHERE last_price IS NOT NULL AND last_price > 0")
-        precios = {r[0]: float(r[1]) for r in cur.fetchall()}
+        # **TODO el snapshot, con precio o sin él.** Filtrar por `last_price > 0`
+        # era el error de origen: dejaba indistinguibles «nadie la suscribe» y
+        # «la suscribimos y no dio punta», que es justo la diferencia que importa.
+        cur.execute("SELECT ticker, last_price FROM mercado.market_snapshot")
+        snap = {r[0]: (float(r[1]) if r[1] is not None else None)
+                for r in cur.fetchall()}
+        precios = {k: v for k, v in snap.items() if v}
 
     primary = av_agent.simbolos_primary()
     if primary is None:
@@ -71,10 +84,19 @@ def main() -> int:
               "      Refrescarlo: python -m scripts.discovery_pyrofex\n")
         return 1
 
-    filas, resumen = [], {"sembrada": 0, "solo_en_primary": 0, "sin_pata": 0}
-    for tk, simbolo, curva in bonos:
+    filas = []
+    resumen = {"sembrada": 0, "solo_en_primary": 0, "sin_pata": 0}
+    escucha = {"no_escucha": 0, "sin_punta": 0, "con_precio": 0}
+    n_dl = 0
+    for tk, simbolo, curva, ajuste, ajuste_alt in bonos:
         TK = (tk or "").strip().upper()
         if pedidos and TK not in pedidos:
+            continue
+        # Los dólar linked NO son casos: pagan en pesos por definición.
+        if "dolar_linked" in {(ajuste or "").strip().lower(),
+                              (ajuste_alt or "").strip().lower(),
+                              (curva or "").strip().lower()}:
+            n_dl += 1
             continue
         base = _corto(simbolo)
         # ¿Cotiza HOY por una pata que no es de dólares? El precio en pesos es lo
@@ -93,26 +115,46 @@ def main() -> int:
                   "solo_en_primary" if nuevas else "sin_pata")
         resumen[origen] += 1
         cand = (sorted(mias) or sorted(nuevas) or [""])[0]
+        # LOS TRES ESTADOS. `cand in snap` es «está en el snapshot», con precio o
+        # sin él — que es distinto de `cand in precios`.
+        # `cand in snap` = está en el snapshot (con precio o sin él). El adhoc no
+        # hace falta mirarlo: el motor puede estar suscribiendo la pata desde el
+        # master o desde el universo de portfolio sin ningún adhoc, así que lo que
+        # prueba que la escuchamos es que la fila EXISTA, no cómo se pidió.
+        est = ("—" if not cand else
+               "con_precio" if precios.get(cand) else
+               "sin_punta" if cand in snap else "no_escucha")
+        if cand:
+            escucha[est] = escucha.get(est, 0) + 1
         filas.append((TK, base, origen, _corto(cand) if cand else "—",
-                      "sí" if cand in pedidas else "no",
-                      f"{precios[cand]:,.2f}" if cand in precios else "—",
+                      est, f"{precios[cand]:,.2f}" if precios.get(cand) else "—",
                       curva or "—"))
 
     n = len(filas)
     print(f"\n{'=' * 82}\nBONOS DE CURVA USD QUE HOY COTIZAN EN PESOS: {n}\n{'=' * 82}")
+    print(f"  (+{n_dl} dólar linked excluidos: cotizan en pesos POR DEFINICIÓN)\n")
+    print("  ¿EXISTE LA PATA EN DÓLARES?")
     for k, v in resumen.items():
         pct = f"{v / n * 100:5.1f}%" if n else "    —"
-        print(f"  {k:<18} {v:>4}  {pct}")
-    print("\n  → `solo_en_primary` es lo que el fix destapa: casos donde el "
-          "hallazgo\n    decía «no encontré una pata en dólares» y la pata "
-          "EXISTE.\n")
+        print(f"    {k:<18} {v:>4}  {pct}")
+    print("\n  ¿LA ESTAMOS ESCUCHANDO?  (de los que TIENEN pata)")
+    m = sum(escucha.values())
+    for k, v in (("no_escucha", escucha["no_escucha"]),
+                 ("sin_punta", escucha["sin_punta"]),
+                 ("con_precio", escucha["con_precio"])):
+        pct = f"{v / m * 100:5.1f}%" if m else "    —"
+        print(f"    {k:<18} {v:>4}  {pct}")
+    print("\n  → `no_escucha` es lo accionable: la pata existe y nadie la pide, "
+          "así que\n    su falta de precio NO prueba nada. Se arregla en el acto "
+          "(adhoc, 5s).\n  → `sin_punta` NO es trabajo: la pedimos y el mercado "
+          "no dio punta.\n")
 
     if filas:
-        print(f"{'TICKER':<9}{'PIDE HOY':<11}{'VEREDICTO':<18}"
-              f"{'PATA USD':<11}{'PEDIDA':<8}{'PRECIO':<12}CURVA")
+        print(f"{'TICKER':<9}{'PIDE HOY':<11}{'PATA':<18}"
+              f"{'PATA USD':<11}{'ESCUCHA':<12}{'PRECIO':<12}CURVA")
         print("-" * 82)
         for f in (filas if todos else filas[:40]):
-            print(f"{f[0]:<9}{f[1]:<11}{f[2]:<18}{f[3]:<11}{f[4]:<8}{f[5]:<12}{f[6]}")
+            print(f"{f[0]:<9}{f[1]:<11}{f[2]:<18}{f[3]:<11}{f[4]:<12}{f[5]:<12}{f[6]}")
         if not todos and n > 40:
             print(f"\n  … {n - 40} más. Verlas todas: --todos")
     print()

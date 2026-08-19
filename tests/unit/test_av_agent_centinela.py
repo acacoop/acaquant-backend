@@ -253,3 +253,40 @@ def test_la_pata_ya_sembrada_no_manda_a_primary():
         primary=set())
     assert h[0]["evidencia"]["pata_origen"] == "sembrada"
     assert "ya está sembrada" in h[0]["motivo"]
+
+
+# ── (2026-08-19) UN DÓLAR LINKED COTIZA EN PESOS POR DEFINICIÓN ─────────────
+
+_BONO_DL = {"ticker": "MERV - XMEV - TZV27 - 24hs", "ticker_corto": "TZV27",
+            "moneda_eje": "USD", "curva": "dolar_linked", "ajuste": "dolar_linked"}
+_SNAP_DL = {"MERV - XMEV - TZV27 - 24hs": {"last_price": 139300.0}}
+
+
+def test_un_dolar_linked_NO_es_un_hallazgo():
+    """Está denominado en USD —por eso entra al detector— pero **paga en pesos**:
+    no tiene pata en dólares y no la va a tener nunca.
+
+    Medido con `scripts.diag_pata_dolar`: 8 de 44 casos eran esto, o sea el 18%
+    de la lista en ruido estructural. Es la misma lección que cuando el detector
+    marcaba `alta` a 46 bonos sanos — un detector que canta casos correctos
+    enseña a ignorar la lista."""
+    from api.services import av_agent
+    assert av_agent.detectar_precio_fuera_de_moneda(
+        [_BONO_DL], _SNAP_DL, _MEP, set(), {}, primary=set()) == []
+
+
+def test_el_dolar_linked_se_reconoce_aunque_falte_el_EJE():
+    """Los ejes son nullable a propósito («sin clasificar» es un estado válido),
+    así que mirar solo `ajuste` dejaría pasar a los que no se clasificaron."""
+    from api.services import av_agent
+    sin_eje = {**_BONO_DL, "ajuste": None}           # queda solo `curva`
+    assert av_agent.detectar_precio_fuera_de_moneda(
+        [sin_eje], _SNAP_DL, _MEP, set(), {}, primary=set()) == []
+
+
+def test_un_hard_dollar_en_pesos_SIGUE_siendo_hallazgo():
+    """La contracara: el filtro no puede tragarse los que sí importan."""
+    from api.services import av_agent
+    h = av_agent.detectar_precio_fuera_de_moneda(
+        [_BONO_USD], _SNAP, _MEP, set(), {}, primary=set())
+    assert len(h) == 1 and h[0]["regla"] == "cotiza_en_pesos"

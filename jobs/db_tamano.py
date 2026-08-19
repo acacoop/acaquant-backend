@@ -47,8 +47,23 @@ def main() -> int:
         d = seg.declarado()
         jr.set_stat("rutas", d["total"])
         jr.set_stat("sin_gate", len(d["abiertas_inesperadas"]))
-        for h in seg.detectar_seguridad():
+        hall = seg.detectar_seguridad()
+        for h in hall:
             print(f"  ⚠ SEGURIDAD  {h['ticker']} — {h['motivo']}")
+
+        # **Decir SIEMPRE qué se verificó.** Un log que solo habla cuando hay
+        # problema deja al que lo lee sin saber si no hubo hallazgos o si el
+        # chequeo no corrió — y en seguridad esas dos cosas se leen igual.
+        efectivo = next((h for h in hall if h["regla"] == "prueba_no_corrio"),
+                        None)
+        jr.set_stat("borde_probado", 0 if efectivo else 1)
+        if efectivo:
+            print(f"  seguridad: {d['total']} rutas leídas, "
+                  f"{len(d['abiertas_inesperadas'])} sin gate sin declarar. "
+                  f"**El borde NO se probó** — {efectivo['evidencia']['texto']}")
+        else:
+            print(f"  seguridad: {d['total']} rutas leídas + el borde probado "
+                  f"sin credenciales (no cubre Vercel)")
 
         # El delta se calcula acá también para que quede en el LOG del job: si
         # algo creció de golpe, se ve sin abrir nada. El agente lo levanta igual

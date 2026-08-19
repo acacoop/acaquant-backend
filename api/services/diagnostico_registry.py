@@ -103,6 +103,13 @@ PIEZAS: list[Pieza] = [
     Pieza("MERCADOS", "job", "snapshot_cierre", grupo="RENTA FIJA", unidad="jobs.snapshot_cierre",
           cadencia="20:25 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           run_tipo="snapshot_cierre"),
+    # La pata TAMAR de los duales NO la calcula ningún motor: la trae 1816. Sin
+    # esta pieza, el día que el feed se corta la vista muestra la celda vacía y
+    # nadie se entera (la TEA de la otra pata sigue viva y todo «parece bien»).
+    Pieza("MERCADOS", "job", "tamar_1816 (TEA/margen pata TAMAR)", grupo="RENTA FIJA",
+          unidad="jobs.tamar_1816",
+          cadencia="cada 30m · 13-20 UTC L-V", ventana="rueda", umbral_s=70 * 60,
+          run_tipo="tamar_1816"),
     Pieza("MERCADOS", "job", "fair_value (fit)", grupo="RENTA FIJA", unidad="jobs.fair_value",
           cadencia="20:25 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           run_tipo="fair_value"),
@@ -227,6 +234,16 @@ PIEZAS: list[Pieza] = [
     Pieza("BACK_OFFICE", "job", "tesorería · foto BANCOS", unidad="jobs.tesoreria_snapshot",
           cadencia="02:50 UTC Ma-Sá (23:50 ART)", ventana="diario", umbral_s=int(1.5 * _D),
           run_tipo="tesoreria_snapshot"),
+    # El espejo de los DEPÓSITOS de cheque: si se corta, la tab RECIBIDOS deja de
+    # poblarse sola y el equipo lo carga a mano sin saber que el job murió.
+    Pieza("BACK_OFFICE", "job", "tesorería · e-cheq recibidos", unidad="jobs.tesoreria_echeq_recibidos",
+          cadencia="cada 30m · 12-21 UTC L-V", ventana="rueda", umbral_s=60 * 60,
+          run_tipo="tesoreria_echeq_recibidos"),
+    # Extractos bancarios de Interbanking. Es la ÚNICA fuente de esos saldos: si
+    # no corre, la tab no miente — se queda quieta, que es peor de detectar.
+    Pieza("BACK_OFFICE", "job", "interbanking (extractos)", unidad="jobs.interbanking_sync",
+          cadencia="cada 2h · 12-22 UTC L-V", ventana="rueda", umbral_s=int(2.5 * 3600),
+          run_tipo="interbanking_sync"),
 
     # ── PORTFOLIOS / Tenencias (SQL) ───────────────────────
     # AuM Mongo (jobs.aum) eliminado 2026-06-15: el writer de tenencias es el

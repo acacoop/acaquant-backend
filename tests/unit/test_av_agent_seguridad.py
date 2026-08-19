@@ -161,3 +161,99 @@ def test_entro_a_SKILLS_por_la_ley():
     ids = {s.id: s for s in catalogo()}
     assert "detectar.permiso_flojo" in ids
     assert ids["detectar.permiso_flojo"].usa_ia == SIN_IA
+
+
+# ── Las dos listas: público de verdad vs. candado en el borde ──────────────
+
+def test_las_dos_listas_no_se_pisan():
+    """Son categorías distintas y excluyentes: o no hay candado porque no hace
+    falta, o el candado existe y vive afuera del repo. Un path en las dos sería
+    una contradicción que además decide si se prueba o no."""
+    assert not (set(seg.ABIERTOS_OK) & set(seg.PROTEGIDOS_EN_EL_BORDE))
+
+
+def test_cada_declaracion_lleva_su_MOTIVO():
+    """Declarar sin decir por qué es correr el chequeo, no resolverlo: el que
+    audite dentro de seis meses tiene que poder juzgar si sigue valiendo."""
+    for lista in (seg.ABIERTOS_OK, seg.PROTEGIDOS_EN_EL_BORDE):
+        assert all(len(motivo) > 20 for motivo in lista.values())
+
+
+def test_lo_declarado_que_EXISTE_sigue_sin_gate():
+    """Anti-rot. Si alguien le puso gate en el código a algo declarado, la
+    declaración quedó vieja y miente. No se exige que el path exista: `/oauth/*`
+    y `/mcp` se montan solo con las env vars del MCP, así que en un checkout sin
+    configurar no están — y eso no es un error."""
+    reales = {r.path: r for r in superficie.rutas()}
+    for path in {**seg.ABIERTOS_OK, **seg.PROTEGIDOS_EN_EL_BORDE}:
+        r = reales.get(path)
+        assert r is None or r.sin_gate, f"{path} ya tiene gate: sacalo de la lista"
+
+
+def test_el_borde_SIEMPRE_se_prueba_aunque_no_tenga_gate(monkeypatch):
+    """**El caso Vercel.** Son las únicas rutas cuyo veredicto depende 100% de la
+    prueba: el código no las gatea a propósito. El filtro general las descartaría
+    (`not r.sin_gate`), así que se agregan aparte."""
+    pedidos: list[str] = []
+
+    class _R:
+        path, metodos, gates = "/oauth/authorize", frozenset({"GET"}), ()
+        sin_gate = True
+
+    monkeypatch.setattr(seg, "URL_PUBLICA", "https://ejemplo")
+    monkeypatch.setattr(superficie, "rutas", lambda: [_R()])
+
+    class _Resp:
+        status_code, content, headers = 401, b"", {}
+
+    class _S:
+        headers: ClassVar[dict] = {}
+
+        def get(self, url, **k):
+            pedidos.append(url)
+            return _Resp()
+
+    import requests
+    monkeypatch.setattr(requests, "Session", _S)
+    monkeypatch.setattr(seg, "PAUSA_S", 0)
+    r = seg.probar()
+    assert pedidos == ["https://ejemplo/oauth/authorize"]
+    assert r["rechazan"] == 1
+
+
+def test_un_302_al_login_es_RECHAZO_no_filtracion():
+    """Así contesta Cloudflare Access cuando no hay sesión. Contarlo como fuga
+    llenaría el aviso de falsos positivos, que es como se aprende a ignorarlo."""
+    class _Resp:
+        status_code = 302
+        content = b""
+        headers: ClassVar[dict] = {
+            "location": "https://aca.cloudflareaccess.com/cdn-cgi/access/login/x"}
+
+    assert seg._veredicto(_Resp()) == "rechaza"
+
+
+def test_un_200_en_el_borde_es_el_CANDADO_QUE_NO_ESTA(monkeypatch):
+    """El código no lo gatea a propósito; si el borde tampoco, está abierto."""
+    monkeypatch.setattr(seg, "declarado", lambda: {
+        "abiertas_inesperadas": [], "total": 1, "sin_gate": [],
+        "escrituras_sin_gate": [], "abiertas_declaradas": [], "en_el_borde": []})
+    monkeypatch.setattr(seg, "probar", lambda: {"ok": True, "filtran": [],
+        "borde_abierto": [{"path": "/oauth/authorize", "status": 200,
+                           "bytes": 3100, "gates": []}]})
+    h = seg.detectar_seguridad()
+    assert len(h) == 1 and h[0]["regla"] == "borde_sin_candado"
+    assert h[0]["severidad"] == "alta"
+
+
+def test_si_la_prueba_NO_CORRE_lo_dice(monkeypatch):
+    """**El silencio no es un verde.** Sin este aviso, un job que solo probó lo
+    declarado se lee igual que uno que probó todo y no encontró nada — y la
+    diferencia es justo la capa donde estuvo el incidente."""
+    monkeypatch.setattr(seg, "declarado", lambda: {
+        "abiertas_inesperadas": [], "total": 541, "sin_gate": [],
+        "escrituras_sin_gate": [], "abiertas_declaradas": [], "en_el_borde": []})
+    monkeypatch.setattr(seg, "probar", lambda: {"ok": False, "motivo": "falta X"})
+    h = seg.detectar_seguridad()
+    assert [x["regla"] for x in h] == ["prueba_no_corrio"]
+    assert h[0]["evidencia"]["corrio"] is False

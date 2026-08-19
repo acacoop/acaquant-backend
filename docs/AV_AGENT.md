@@ -901,7 +901,7 @@ horarios y dos cosas que pueden fallar.
 *«Con los logs de los motores lo mismo: quiero que si hay alguno caído enterarme
 rápido (y a futuro que pueda hacer algo)»*.
 
-`api/services/diagnostico_registry.py` ya tiene **50 piezas** —15 motores, 30 jobs,
+`api/services/diagnostico_registry.py` ya tiene **53 piezas** —15 motores, 33 jobs,
 5 APIs— **cada una con su cadencia, su ventana horaria, su umbral y de dónde se
 lee la frescura**, y `diagnostico.arbol()` las evalúa. Pero eso vivía SOLO en la
 pantalla de Manager → DIAGNÓSTICO, o sea que había que ir a mirarla.
@@ -916,6 +916,34 @@ Sin mirar la ventana, este detector cantaría quince motores muertos todos los
 sábados, y en dos fines de semana nadie volvería a leerlo. Y `lento` **no** se
 reporta: un motor que tarda el doble sigue produciendo, y mezclarlo con uno muerto
 pierde la diferencia entre las dos cosas.
+
+#### El árbol tenía NUEVE agujeros, y el anti-drift lo decía hace meses
+
+Al revisar el primer deploy apareció que `tests/test_diagnostico_registry.py`
+—el test anti-drift que cruza el registro contra `deploy/crontab.txt`— **estaba en
+rojo**: nueve crons corrían sin estar en el árbol. Como el agente ahora LEE ese
+árbol, cada agujero es una pieza que no vigila nadie.
+
+Se clasificaron uno por uno, y la clasificación importa más que el número:
+
+- **TRES eran piezas de dato de verdad** y entraron al árbol: `tamar_1816` (la
+  TEA/margen de la pata TAMAR — si el feed se corta la celda queda vacía **y la
+  otra pata sigue viva**, así que todo «parece bien»), `tesoreria_echeq_recibidos`
+  (el espejo de los depósitos; si muere, el equipo los carga a mano sin enterarse)
+  e `interbanking_sync` (los extractos: es la única fuente de esos saldos, y al
+  cortarse la tab **no miente, se queda quieta** — que es peor de detectar).
+- **TRES son el agente mirando al sistema** (`av_agent`, `av_agent_live`,
+  `db_tamano`): quedan fuera a propósito. Meterlos al árbol sería pedirle al árbol
+  que se vigile a sí mismo.
+- **TRES son mantenimiento de catálogo** (`assets_autofill`,
+  `validar_instrumentos`, `ficha_1816`): escriben metadata (ticker, emisor,
+  vigencia, símbolos), no el dato que la vista muestra. Si un día no corren, la
+  pantalla sigue mostrando lo mismo.
+
+**Lo que dejó de lección:** el test existía y avisaba; lo que faltaba era que
+alguien pagara el costo de clasificar. Un cron nuevo entra a `_CRONS_IGNORADOS` en
+diez segundos y ahí queda invisible para siempre — por eso ahora cada entrada de
+esa lista lleva **por qué** no es una pieza de dato, no solo el nombre.
 
 #### La gracia del arranque — el falso positivo que se cazó ANTES de que pasara
 
@@ -946,7 +974,7 @@ motores, la frescura de las tablas y la velocidad— y arranca con el veredicto 
 una línea. Las tres existían, en tres pantallas distintas, y por eso había que
 saber de antemano dónde mirar para poder preguntarse si el sistema andaba.
 
-**Qué NO se muestra**: el conteo, no las 50 piezas; solo se detallan las rotas. El
+**Qué NO se muestra**: el conteo, no las 53 piezas; solo se detallan las rotas. El
 user fue explícito con que no hace falta mostrar todo en el modal, **pero que por
 dentro se haga**.
 
@@ -1056,6 +1084,56 @@ y una superficie mal gateada no se arregla sola en ese rato.
 
 Explicador **«¿Están bien protegidos los endpoints?»**, que muestra las dos capas
 por separado — porque una se arregla en el router y la otra en el borde.
+
+#### LO QUE ENCONTRÓ LA PRIMERA CORRIDA (2026-08-19, en prod)
+
+Seis avisos, todos del handshake OAuth del MCP. **Verificados uno por uno contra
+`docs/MCP.md` y `CLAUDE.md`, cinco no eran agujeros y el sexto sí valía la pena
+—pero por otro motivo del que parecía.**
+
+Los cinco son **públicos por protocolo**: el cliente los lee ANTES de tener
+credencial, así que pedirle credencial para averiguar cómo sacar una credencial
+no cierra nunca. Son los tres `.well-known/*` (discovery, RFC 8414 / RFC 9728),
+`/oauth/register` (DCR, RFC 7591 — devuelve credenciales NUEVAS, no ajenas) y
+`/oauth/token` (su **input** ES la credencial: code + PKCE verifier).
+
+**El sexto es `/oauth/authorize`, y es una categoría distinta:** ahí logea el
+usuario, o sea que NO es público — lo que pasa es que **su candado vive en
+Cloudflare Access, no en el repo**. Declararlo como «abierto a propósito» habría
+sido mentir, y peor: lo habría sacado del radar justo donde el user ya se quemó
+(*el código impecable, el borde abierto, cero errores visibles*).
+
+Por eso son **DOS listas y no una**, y la diferencia no es cosmética — cambia qué
+hay que verificar:
+
+| lista | qué significa | qué se prueba |
+|---|---|---|
+| `ABIERTOS_OK` | público de verdad: no devuelve nada de nadie | nada que probar |
+| `PROTEGIDOS_EN_EL_BORDE` | el candado existe, pero vive afuera del repo | **siempre**: es lo único que solo la prueba puede juzgar |
+
+La segunda lista **fuerza** su prueba activa: el filtro general descarta las rutas
+sin gate (`not r.sin_gate`) y justamente estas no tienen gate en el código a
+propósito. Si `/oauth/authorize` contesta **200 sin credencial** en vez de desviar
+al login, la app de CF Access que lo cubre no está, se despublicó o le cambiaron
+el path → hallazgo `borde_sin_candado`, severidad alta.
+
+De paso, un **3xx al login cuenta como RECHAZO**, no como fuga: así contesta CF
+Access sin sesión, y se reconoce por el host del `Location`
+(`cloudflareaccess.com`), no por el código. Contarlo como fuga habría llenado el
+aviso de falsos positivos, que es exactamente como se aprende a ignorarlo.
+
+#### EL SILENCIO NO ES UN VERDE
+
+La primera corrida también mostró un hueco **del reporte, no del chequeo**: el job
+imprimió los seis avisos y nada más, así que un lector razonable concluye que el
+borde se probó y salió bien. **No se probó** — falta `AV_AGENT_URL_PUBLICA`.
+
+Un job que solo habla cuando encuentra algo se lee igual esté sano o esté ciego.
+Ahora el detector emite un hallazgo propio (`prueba_no_corrio`, severidad media) y
+el job **siempre** cierra diciendo qué cubrió: *«N rutas leídas + el borde probado
+(no cubre Vercel)»* o *«N rutas leídas — **el borde NO se probó**, falta X»*.
+Congelado por test, porque es el mismo principio que el `alcance`: **en seguridad
+una media verdad se lee como un sí.**
 
 **PENDIENTE (REGLA #6, se pide una vez):** `AV_AGENT_URL_PUBLICA` en el `.env` del
 Droplet (`https://api.acaquant.com`). Sin eso, la mitad que PRUEBA queda apagada y
@@ -3534,7 +3612,7 @@ realmente lo necesita: traer un cronograma que no tenemos.
   un veredicto de frescura por tabla — cubre las ~190 que eran punto ciego, y las
   8 con contrato declarado las sigue mirando `salud.CONTRATOS`, que es más
   estricto **porque el aprendido se acostumbra al problema si el job lleva días
-  roto**. Los MOTORES: las 50 piezas de `diagnostico_registry` ya tenían cadencia,
+  roto**. Los MOTORES: las 53 piezas de `diagnostico_registry` ya tenían cadencia,
   ventana y umbral y el agente no las leía — ahora las lee y canta las rotas
   **dentro de su ventana** (fuera de rueda un motor no está caído, está apagado).
   Y el explicador **«¿está todo funcionando bien ahora?»**, que junta motores +

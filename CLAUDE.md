@@ -63,6 +63,11 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > que nada conteste distinto de 401/403 — el permiso "en los papeles". Solo GET,
 > solo rutas propias, con throttle, jamás una escritura, y declarando qué capa
 > cubrió (**no cubre Vercel**). Necesita `AV_AGENT_URL_PUBLICA` en el `.env`.
+> **DOS listas de excepción, no una**: `ABIERTOS_OK` (público de verdad — el
+> handshake OAuth del MCP lo es por protocolo) y `PROTEGIDOS_EN_EL_BORDE`
+> (`/oauth/authorize`: el candado vive en Cloudflare, no en el repo → **siempre**
+> se prueba, y un 3xx al login cuenta como rechazo). Y si la prueba activa NO
+> corre, el job lo **dice**: el silencio se lee igual que un verde.
 >
 > **2026-08-19 — EL CONTEXTO** (§0.r): el agente conoce la base **sin ninguna
 > lista** — el inventario sale de `pg_catalog`, la columna de fecha de
@@ -71,7 +76,7 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > veredicto de frescura por tabla → cubre las ~190 que eran punto ciego; las 8 con
 > contrato declarado las sigue mirando `salud.CONTRATOS`, que es más estricto
 > **porque el aprendido se acostumbra al problema**. Memoria en
-> `manager.tabla_perfil`. Y los MOTORES: las 50 piezas de `diagnostico_registry`
+> `manager.tabla_perfil`. Y los MOTORES: las 53 piezas de `diagnostico_registry`
 > ya tenían cadencia/ventana/umbral y el agente no las leía — ahora canta las
 > rotas DENTRO de su ventana (fuera de rueda no está caído, está apagado).
 >

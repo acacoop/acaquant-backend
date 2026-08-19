@@ -47,6 +47,18 @@ EL INVARIANTE
 
 Es binario, no depende de que nadie mantenga una lista, y sirve igual el día que
 se agregue una ruta: entra sola al inventario.
+
+DOS EXCEPCIONES, Y SON CATEGORÍAS DISTINTAS
+============================================
+
+    ABIERTOS_OK               público de verdad — no devuelve nada de nadie
+    PROTEGIDOS_EN_EL_BORDE    el candado existe, pero vive en Cloudflare
+
+La segunda NO es «abierto a propósito». Es *«el código no lo gatea y está bien,
+porque lo gatea el borde»*, que es precisamente la situación en la que el user se
+quemó con Vercel: repo impecable, borde abierto, cero errores visibles. Meterlas
+en la misma bolsa las haría desaparecer del radar justo donde más hay que mirar,
+así que se declaran aparte y **la prueba activa las incluye siempre**.
 """
 from __future__ import annotations
 
@@ -67,12 +79,53 @@ URL_PUBLICA = os.getenv("AV_AGENT_URL_PUBLICA", "").rstrip("/")
 RECHAZOS = frozenset({401, 403, 405})
 # Lo que NO dice nada en un sentido ni en el otro y por eso no se reporta.
 MUDOS = frozenset({404, 502, 503, 504})
+# Un 3xx que manda a loguearse ES un rechazo (así contesta CF Access cuando no
+# hay sesión). Se reconoce por el host del `Location`, no por el código.
+LOGIN_HOSTS = ("cloudflareaccess.com", "/cdn-cgi/access/login")
 
-# Abiertos A PROPÓSITO. Se enumeran acá para que agregar uno sea una decisión
-# explícita y no un olvido que el chequeo deja pasar en silencio.
+# ---------------------------------------------------------------------------
+# LAS DOS LISTAS. La diferencia entre ellas no es cosmética: cambia qué hay que
+# verificar. Meter todo en una sola («abiertos a propósito») es exactamente la
+# media verdad que este módulo existe para no decir.
+# ---------------------------------------------------------------------------
+
+# (1) ABIERTOS DE VERDAD. No tienen gate en el código, no lo tienen en el borde,
+# y está bien así porque no devuelven nada de nadie. Agregar uno acá es una
+# decisión explícita, no un olvido que el chequeo deja pasar en silencio.
 ABIERTOS_OK: dict[str, str] = {
     "/api/health": "liveness probe — no devuelve ningún dato",
     "/api/me": "la identidad del que pregunta; sin credencial no dice nada de nadie",
+    # El handshake de OAuth 2.1 del MCP. Son públicos POR PROTOCOLO: el cliente
+    # los lee ANTES de tener credencial — pedirle credencial para averiguar cómo
+    # sacar una credencial no cierra nunca. Están en la app de CF Access
+    # `acaquant-mcp-bypass` (BYPASS + Everyone) justamente para eso.
+    "/.well-known/oauth-authorization-server":
+        "discovery del server OAuth (RFC 8414) — metadata pública por diseño",
+    "/.well-known/oauth-protected-resource":
+        "discovery del recurso protegido (RFC 9728) — metadata pública por diseño",
+    "/.well-known/oauth-protected-resource/mcp":
+        "la misma metadata, scopeada a /mcp (RFC 9728)",
+    "/oauth/register":
+        "Dynamic Client Registration (RFC 7591) — el cliente se da de alta antes "
+        "de tener nada; devuelve credenciales NUEVAS, no ajenas",
+    "/oauth/token":
+        "canje de code por token — su INPUT es la credencial (code + PKCE "
+        "verifier); un GET sin nada no puede sacar un token",
+}
+
+# (2) PROTEGIDOS EN EL BORDE, NO EN EL CÓDIGO. Acá el backend no tiene gate y
+# **eso es correcto**, pero quien protege es Cloudflare Access. Declararlos como
+# «abiertos OK» sería mentir: no son públicos, es que su candado vive afuera del
+# repo — o sea, exactamente el escenario Vercel del user (el código impecable y
+# el borde abierto, sin ningún error visible).
+#
+# Por eso NO se saltean la prueba: son los ÚNICOS cuyo veredicto depende 100% de
+# la prueba activa. Si contestan 200 sin credencial, el candado no está.
+PROTEGIDOS_EN_EL_BORDE: dict[str, str] = {
+    "/oauth/authorize":
+        "acá logea el usuario — lo protege Cloudflare Access, NO el código. "
+        "Sin sesión tiene que desviar al login; si contesta 200, el candado "
+        "del borde no está puesto",
 }
 
 PAUSA_S = 0.15          # throttle: esto es tráfico contra producción
@@ -81,13 +134,33 @@ MAX_RUTAS = 400
 
 
 def declarado() -> dict:
-    """**Lo que dice el código.** Qué rutas no tienen ningún gate."""
+    """**Lo que dice el código.** Qué rutas no tienen ningún gate.
+
+    Separa en tres: las que están abiertas a propósito, las que dependen del
+    borde (y por lo tanto SOLO las puede juzgar la prueba activa) y las que no
+    están declaradas en ninguna de las dos — esas son el hallazgo.
+    """
     from api import superficie
 
     r = superficie.resumen()
-    inesperadas = [p for p in r["sin_gate"] if p not in ABIERTOS_OK]
+    inesperadas = [p for p in r["sin_gate"]
+                   if p not in ABIERTOS_OK and p not in PROTEGIDOS_EN_EL_BORDE]
     return {**r, "abiertas_inesperadas": inesperadas,
-            "abiertas_declaradas": sorted(ABIERTOS_OK)}
+            "abiertas_declaradas": sorted(ABIERTOS_OK),
+            "en_el_borde": sorted(PROTEGIDOS_EN_EL_BORDE)}
+
+
+def _veredicto(resp) -> str:
+    """`rechaza` | `filtra` | `mudo`. Un 3xx al login es un rechazo, no un pase."""
+    code = resp.status_code
+    if code in RECHAZOS:
+        return "rechaza"
+    if 300 <= code < 400:
+        destino = (resp.headers.get("location") or "").lower()
+        return "rechaza" if any(h in destino for h in LOGIN_HOSTS) else "mudo"
+    if code in MUDOS:
+        return "mudo"
+    return "filtra" if 200 <= code < 300 else "mudo"
 
 
 def probar(*, limite: int = MAX_RUTAS) -> dict:
@@ -111,42 +184,48 @@ def probar(*, limite: int = MAX_RUTAS) -> dict:
     from api import superficie
 
     # Solo GET, sin path params, del inventario propio. Nada de adivinar URLs.
-    objetivo = [r for r in superficie.rutas()
+    todas = superficie.rutas()
+    objetivo = [r for r in todas
                 if "GET" in r.metodos and "{" not in r.path
                 and r.path.startswith("/api/") and not r.sin_gate][:limite]
+    # Y las del borde SIEMPRE, aunque no arranquen con `/api/` y aunque el código
+    # no las gatee: son las únicas que solo la prueba puede juzgar.
+    objetivo += [r for r in todas
+                 if r.path in PROTEGIDOS_EN_EL_BORDE and "GET" in r.metodos]
 
     sesion = requests.Session()
     # Sin ninguna credencial: ni bearer, ni cookie de CF Access, ni el header del
     # portal. Es el punto entero del chequeo.
     sesion.headers.update({"User-Agent": "av-agent/seguridad (chequeo propio)"})
 
-    filtran, rechazan, mudos, errores = [], 0, 0, 0
+    filtran, borde_abierto, rechazan, mudos, errores = [], [], 0, 0, 0
     for r in objetivo:
         try:
             resp = sesion.get(f"{URL_PUBLICA}{r.path}", timeout=TIMEOUT_S,
                               allow_redirects=False)
-            code = resp.status_code
         except Exception:
             errores += 1
             time.sleep(PAUSA_S)
             continue
-        if code in RECHAZOS:
+        v = _veredicto(resp)
+        if v == "rechaza":
             rechazan += 1
-        elif code in MUDOS:
+        elif v == "mudo":
             mudos += 1
-        elif 200 <= code < 400:
-            # **El hallazgo.** Contestó algo sin que nadie se identificara.
-            filtran.append({"path": r.path, "status": code,
-                            "bytes": len(resp.content or b""),
-                            "gates": sorted(set(r.gates))})
         else:
-            mudos += 1
+            # **El hallazgo.** Contestó algo sin que nadie se identificara.
+            caso = {"path": r.path, "status": resp.status_code,
+                    "bytes": len(resp.content or b""),
+                    "gates": sorted(set(r.gates))}
+            (borde_abierto if r.path in PROTEGIDOS_EN_EL_BORDE
+             else filtran).append(caso)
         time.sleep(PAUSA_S)
 
     return {
         "ok": True, "url": URL_PUBLICA,
         "probadas": len(objetivo), "rechazan": rechazan,
-        "filtran": filtran, "mudos": mudos, "errores": errores,
+        "filtran": filtran, "borde_abierto": borde_abierto,
+        "mudos": mudos, "errores": errores,
         # Qué se verificó DE VERDAD. Ver el límite 2 del encabezado.
         "alcance": ("Cloudflare Access + el backend. **NO cubre el front de "
                     "Vercel**: esta prueba pega a la API, no a la app."),
@@ -173,12 +252,29 @@ def detectar_seguridad() -> list[dict]:
                       "endpoint sin NINGÚN gate y no está declarado como abierto",
                       {"texto": "no pide bearer, ni módulo, ni allowlist. Si es "
                                 "a propósito hay que declararlo en "
-                                "`ABIERTOS_OK` con el motivo; si no, le falta el "
+                                "`ABIERTOS_OK` con el motivo; si el candado vive "
+                                "en Cloudflare va a `PROTEGIDOS_EN_EL_BORDE`, "
+                                "que además lo hace probar; si no, le falta el "
                                 "gate. Esto sale de LEER el árbol de rutas, así "
                                 "que vale aunque el borde esté bien.",
                        "capa": "declarado"}))
 
-    for f in (probar().get("filtran") or []):
+    p = probar()
+
+    # **El silencio no es un verde.** Si la mitad efectiva no corrió hay que
+    # decirlo: lo declarado no puede afirmar nada sobre el borde, y el incidente
+    # que originó este módulo fue exactamente un borde abierto con el código bien.
+    if not p.get("ok"):
+        out.append(_h("prueba_no_corrio", "(la prueba activa)", "media",
+                      "solo se verificó lo DECLARADO: el borde no se probó",
+                      {"texto": f"{p.get('motivo')}. O sea que de estos "
+                                f"endpoints sabemos que el CÓDIGO los gatea, "
+                                f"pero no que el borde lo aplique — que es "
+                                f"justo lo que falló con Vercel.",
+                       "capa": "efectivo", "corrio": False}))
+        return out
+
+    for f in p.get("filtran") or []:
         out.append(_h("responde_sin_credencial", f["path"], "alta",
                       f"contestó {f['status']} sin ninguna credencial",
                       {"texto": f"se le pidió desde afuera, sin bearer ni sesión, "
@@ -188,6 +284,17 @@ def detectar_seguridad() -> list[dict]:
                                 f"lo aplica.",
                        "capa": "efectivo", "status": f["status"],
                        "bytes": f["bytes"], "gates": f["gates"]}))
+
+    for f in p.get("borde_abierto") or []:
+        out.append(_h("borde_sin_candado", f["path"], "alta",
+                      f"lo protege Cloudflare, no el código — y contestó "
+                      f"{f['status']} sin credencial",
+                      {"texto": f"{PROTEGIDOS_EN_EL_BORDE.get(f['path'], '')}. "
+                                f"Devolvió {f['bytes']} bytes en vez de desviar "
+                                f"al login: la app de CF Access que lo cubre no "
+                                f"está, se despublicó o le cambiaron el path.",
+                       "capa": "efectivo", "status": f["status"],
+                       "bytes": f["bytes"]}))
     return out
 
 

@@ -19,8 +19,12 @@ CRONTAB = ROOT / "deploy" / "crontab.txt"
 # Crons que NO representan una pieza de dato de una vista (infra / copias /
 # sub-pasos de enriquecimiento). Se excluyen a propósito del árbol del Diagnóstico.
 _CRONS_IGNORADOS = {
-    "jobs.triage",              # triage IA de fallas de jobs (P2 QuantAI) — observa al sistema
-    "jobs.ia_calidad",          # control de calidad de conversaciones IA — observa al sistema
+    # EL AGENTE Y LO QUE MIRA AL SISTEMA. No son una pieza de dato de una vista:
+    # son el que avisa cuando una pieza se rompe. Meterlos al árbol sería pedirle
+    # al árbol que se vigile a sí mismo.
+    "jobs.av_agent",            # la relevada del AV AGENT (cada 2h)
+    "jobs.av_agent_live",       # el agente prendido en rueda
+    "jobs.db_tamano",           # foto del peso de la base + superficie HTTP
     "jobs.eikon_cierres",       # cierres diarios de los feeds Eikon (anchors OFF, sin vista propia)
     "jobs.research_mail",       # ingesta del research diario → ia.research (P6 QuantAI)
     "jobs.mercado_1816_series", # series históricas de 1816 → research.mkt_1816_* (vista RESEARCH)
@@ -38,6 +42,12 @@ _CRONS_IGNORADOS = {
     "jobs.comercial_warm",      # cache-warming
     "jobs.options_rollup",      # rollup histórico opciones
     "jobs.cleanup_cedears_timesales",  # limpieza (vacía el tape al cierre)
+    # MANTENIMIENTO DE CATÁLOGO. Escriben metadata de `portafolio.assets` /
+    # `mercado.curvas` (ticker, emisor, vigencia, símbolos), no el dato que la
+    # vista muestra: si un día no corren, la pantalla sigue mostrando lo mismo.
+    "jobs.assets_autofill",     # completa lo derivable del catálogo de assets
+    "jobs.validar_instrumentos",  # vigencia de títulos + símbolos contra Primary
+    "jobs.ficha_1816",          # estandariza el EMISOR desde 1816
 }
 
 

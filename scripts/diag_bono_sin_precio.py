@@ -79,16 +79,55 @@ def revisar(tk: str) -> list[str]:
     except Exception as e:
         out.append(_fila(None, f"no pude leer el universo de Primary ({e})"))
 
+    # ── LOS EJES DEL MASTER ────────────────────────────────────────────────
+    # Sin los TRES el bono no se ubica en ninguna curva (`curvas_vista` línea
+    # 141) y el motor puede no calcularle nada: la fila sale entera en «--».
+    ejes = {k: doc.get(k) for k in ("emisor_tipo", "moneda_eje", "ajuste")}
+    faltan = [k for k, v in ejes.items() if not v]
+    out.append(_fila(not faltan,
+                     f"ejes: emisor_tipo={ejes['emisor_tipo']!r} · "
+                     f"moneda_eje={ejes['moneda_eje']!r} · ajuste={ejes['ajuste']!r}"
+                     + (f"  ← **FALTA {', '.join(faltan)}**" if faltan else "")))
+    out.append(_fila(None, f"valor_nominal={doc.get('valor_nominal')} · "
+                           f"tipo={doc.get('tipo')} · "
+                           f"flujos={len(doc.get('flujos') or [])} filas"))
+
+    # ── EL SNAPSHOT, con TODAS las métricas ────────────────────────────────
+    _METRICAS = ["last_price", "tea", "tem", "paridad", "duration",
+                 "mod_duration", "updated_at"]
     if simbolo:
-        snap = market_snapshot.cols_map([simbolo],
-                                        ["last_price", "updated_at"]) or {}
+        snap = market_snapshot.cols_map([simbolo], _METRICAS) or {}
         d = snap.get(simbolo)
         if d is None:
             out.append(_fila(False, "NO está en `market_snapshot` → nadie lo "
                                     "suscribió (o el motor nunca recibió nada)"))
         else:
-            px, upd = d.get("last_price"), d.get("updated_at")
-            out.append(_fila(bool(px), f"snapshot: last_price={px} · updated_at={upd}"))
+            px = d.get("last_price")
+            out.append(_fila(bool(px), f"snapshot: last_price={px} · "
+                                       f"updated_at={d.get('updated_at')}"))
+            metricas = {k: d.get(k) for k in _METRICAS
+                        if k not in ("last_price", "updated_at")}
+            vacias = [k for k, v in metricas.items() if v in (None, 0)]
+            # **El caso que ningún detector mira hoy**: el motor RECIBIÓ el precio
+            # y no pudo valuar. Eso no es liquidez — es configuración.
+            out.append(_fila(len(vacias) < len(metricas),
+                             "métricas: "
+                             + " · ".join(f"{k}={v}" for k, v in metricas.items())
+                             + (" ← **TIENE PRECIO Y NINGUNA MÉTRICA**: el motor "
+                                "recibió el precio y no pudo valuarlo. Eso NO es "
+                                "falta de liquidez."
+                                if px and len(vacias) == len(metricas) else "")))
+
+    # ── LAS OTRAS PATAS: ¿alguna tiene precio? ─────────────────────────────
+    if patas:
+        otras = market_snapshot.cols_map([p[0] for p in patas],
+                                         ["last_price", "updated_at"]) or {}
+        out.append("")
+        out.append("  precio POR PATA (la vista lee la del master, no la default):")
+        for p in patas:
+            e = otras.get(p[0]) or {}
+            out.append(f"        {p[0]:44} {e.get('last_price') or '—'!s:>14}"
+                       f"  {e.get('updated_at') or ''}")
 
     # Y lo que DICE EL DETECTOR sobre este bono, ahora mismo.
     from core import market_snapshot as ms
@@ -131,6 +170,28 @@ def main() -> int:
     print(f"  con símbolo pero SIN SNAPSHOT : {len(sin_snap)}")
     for b in sin_snap[:40]:
         print(f"      {(b.get('ticker_corto') or '?'):10} {b.get('ticker')}")
+
+    # **CON PRECIO Y SIN NINGUNA MÉTRICA.** El motor recibió el precio y no pudo
+    # valuar: la fila sale entera en «--» y hoy no lo mira ningún detector.
+    # Se cuenta ANTES de escribir la regla (REGLA #2): si son cinco es un bug
+    # puntual, si son ochenta es una decisión de arquitectura mal leída.
+    full = market_snapshot.cols_map(
+        simbolos, ["last_price", "tea", "paridad", "duration"]) or {}
+    mudos = []
+    for b in bonos:
+        sim = (b.get("ticker") or "").strip()
+        d = full.get(sim) or {}
+        if not d.get("last_price"):
+            continue
+        if any(d.get(k) for k in ("tea", "paridad", "duration")):
+            continue
+        mudos.append(b)
+    print(f"  CON PRECIO y sin NINGUNA métrica : {len(mudos)}")
+    for b in mudos[:40]:
+        print(f"      {(b.get('ticker_corto') or '?'):10} "
+              f"px={full[(b.get('ticker') or '').strip()].get('last_price')!s:>12}  "
+              f"eje={b.get('moneda_eje')}/{b.get('ajuste')} "
+              f"tipo={b.get('tipo')} curva={b.get('curva')}")
     print("\n  detalle de uno: python -m scripts.diag_bono_sin_precio <TICKER>\n")
     return 0
 

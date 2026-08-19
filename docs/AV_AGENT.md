@@ -1771,6 +1771,45 @@ medirlo antes** (REGLA #2): si el join exacto cubre todo, meter un modelo es pur
 costo y un riesgo nuevo. Por eso el diag cuenta `por_ficha` aparte — el número
 decide, no la intuición.
 
+#### Y el número decidió: **`sin_pata` pasó de 8 a CERO**
+
+    sembrada          12   60,0%
+    solo_en_primary    0    0,0%
+    por_ficha          8   40,0%   ← los que ninguna regla de nombre encuentra
+    sin_pata           0    0,0%
+
+**El join exacto cubrió el 100%.** Los 8 que el sistema daba por «no tiene pata en
+dólares» la tenían: los 6 BOPREAL más NDT25 (→ `NDT5C`) y SFD34 (→ `SFD4C`), que
+tampoco siguen ninguna convención de sufijo.
+
+Y con eso queda contestada la pregunta del LLM **con un número y no con una
+opinión**: no hay una sola ficha que no empareje exacto, así que un modelo no
+tendría ningún caso que resolver. Si algún día aparece uno, el diag lo va a
+mostrar como `sin_pata` — y recién ahí se discute.
+
+#### El bug de esa misma corrida: emparejar bien y elegir mal
+
+Los 8 emparejaron perfecto y **los 8 devolvieron la pata en CABLE** (`BPA7C` en
+vez de `BPA7D`). `hermanas_por_ficha` ordenaba por plazo y después alfabético, y
+`BPA7C` < `BPA7D`. El abecedario no es un criterio de mercado.
+
+Peor: el criterio bueno ya existía —`preferencia`, MEP antes que cable porque es
+la que mira la mesa— y estaba escrito **tres veces**: ahí, una copia en la puerta
+del agente y otra en el diag, estas dos con un `sorted()` alfabético. O sea que
+el diag mostraba una pata y el agente iba a pedir otra.
+
+Ahora hay UNA: `core.especies.mejor`, y las tres la usan. *Emparejar bien y
+elegir mal no se ve distinto de emparejar mal* — y cable y MEP son cosas
+distintas, cosa que `CLAUDE.md` ya advertía.
+
+#### Lo que la ficha empareja se puede VERIFICAR A OJO
+
+El join es exacto, pero es una **identidad nueva**, y `NDT25 → NDT5C` no se parece
+a nada. Antes de escribir una sola fila en base a eso, el diag imprime la
+evidencia completa —ticker, pata propuesta, vencimiento y el `underlying`
+textual— para que una persona la mire. Un emparejamiento que nadie confirmó no es
+mejor que una corazonada solo porque lo hizo un `JOIN`.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

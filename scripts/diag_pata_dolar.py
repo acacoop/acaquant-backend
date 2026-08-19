@@ -134,7 +134,11 @@ def main() -> int:
                   "solo_en_primary" if nuevas else
                   "por_ficha" if por_ficha else "sin_pata")
         resumen[origen] += 1
-        cand = (sorted(mias) or sorted(nuevas) or por_ficha or [""])[0]
+        # **El MISMO criterio que la puerta** (`especies.mejor`): MEP antes que
+        # cable. Acá había un `sorted()` alfabético y por eso la primera corrida
+        # mostró los 8 BOPREALes apuntando a su pata en CABLE — el diag decía una
+        # cosa y el agente iba a hacer otra.
+        cand = E.mejor(mias or nuevas or por_ficha)
         # LOS TRES ESTADOS. `cand in snap` es «está en el snapshot», con precio o
         # sin él — que es distinto de `cand in precios`.
         # `cand in snap` = está en el snapshot (con precio o sin él). El adhoc no
@@ -182,6 +186,22 @@ def main() -> int:
             print(f"{f[0]:<9}{f[1]:<11}{f[2]:<18}{f[3]:<11}{f[4]:<12}{f[5]:<12}{f[6]}")
         if not todos and n > 40:
             print(f"\n  … {n - 40} más. Verlas todas: --todos")
+
+    # LA VERIFICACIÓN A OJO de lo que emparejó la ficha. El join es exacto, pero
+    # es una identidad NUEVA y conviene que una persona la mire antes de que se
+    # escriba nada en base a ella — sobre todo los que no se parecen en nada
+    # (NDT25 → NDT5C). Se imprime la ficha completa, que es la evidencia.
+    porf = [f for f in filas if f[2] == "por_ficha"]
+    if porf:
+        print(f"\n{'=' * 82}\nLO QUE EMPAREJÓ LA FICHA — verificalo a ojo "
+              f"({len(porf)})\n{'=' * 82}")
+        idx = E.fichas(instrumentos)
+        for f in porf:
+            clave = next((k for k, v in idx.items()
+                          if any(x["ticker_especie"] == f[1] for x in v)), None)
+            und, mat = clave if clave else ("?", "?")
+            print(f"  {f[1]:<8} → {f[3]:<8}  vto {mat}  ·  {und}")
+        print()
     print()
     return 0
 

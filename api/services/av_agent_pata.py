@@ -71,12 +71,16 @@ def _corto(simbolo: str) -> str:
 
 
 def _elegir(candidatos: list[str]) -> str:
-    """Entre varias patas en dólares, la que la mesa mira: MEP sobre cable y
-    24hs sobre CI — ahí está la liquidez, y por lo tanto el precio."""
-    def orden(s: str) -> tuple:
-        c = _corto(s)
-        return (0 if c.endswith("D") else 1, 0 if s.rstrip().endswith("24hs") else 1, s)
-    return sorted(candidatos, key=orden)[0] if candidatos else ""
+    """Entre varias patas en dólares, la que la mesa mira.
+
+    **Delega en `core.especies.mejor`**: el criterio (MEP sobre cable, 24hs sobre
+    CI) es del dominio y vive una sola vez. Acá había una copia y en el diag
+    había otra —un `sorted()` alfabético— y por eso los dos elegían **cable**:
+    `BPA7C` < `BPA7D`. Dos versiones del mismo criterio siempre terminan
+    contradiciéndose; es el bug del blob y la columna otra vez.
+    """
+    from core import especies
+    return especies.mejor(candidatos)
 
 
 def explicar(ticker: str) -> dict:

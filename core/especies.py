@@ -150,12 +150,39 @@ def fichas(filas: list[dict]) -> dict[tuple[str, str], list[dict]]:
         mat = str(f.get("maturity") or "").strip()
         if not sim or not und or not mat or not _es_merv(sim):
             continue
+        pedazos = segs(sim) or ["", "", "", ""]
+        te = pedazos[2].upper()
         out.setdefault((und.upper(), mat), []).append({
-            "simbolo": sim, "ticker_especie": (segs(sim) or ["", "", "", ""])[2].upper(),
+            "simbolo": sim, "ticker_especie": te,
             "moneda": (f.get("currency") or "").strip().upper(),
-            "plazo": (segs(sim) or ["", "", "", ""])[3],
+            # La ESPECIE sale del sufijo, igual que en todo el módulo. Hace falta
+            # para poder ordenar con `preferencia` — sin ella, MEP y cable quedan
+            # a merced del alfabeto y **cable gana siempre** (`BPA7C` < `BPA7D`).
+            # Fue exactamente el bug de la primera corrida: los 8 BOPREALes
+            # emparejaron bien y eligieron la pata equivocada.
+            "especie": ESPECIE.get(te[-1:] if te[-1:] in ("D", "C") else "",
+                                   ("pesos", "ARS"))[0],
+            "plazo": pedazos[3],
             "underlying": und, "maturity": mat})
     return out
+
+
+def mejor(simbolos: list[str]) -> str:
+    """El símbolo que la mesa mira, entre varios del mismo bono: **MEP antes que
+    cable**, 24hs antes que CI.
+
+    EL criterio, uno solo. Lo escribían por su cuenta la puerta del agente y el
+    diag —los dos con un `sorted()` alfabético— y por eso los dos elegían cable:
+    el orden del abecedario no es un criterio de mercado. Cable y MEP son cosas
+    distintas y mezclarlas es de lo que ya advierte `CLAUDE.md`.
+    """
+    def clave(sim: str) -> tuple:
+        te = ((segs(sim) or ["", "", "", ""])[2] or "").upper()
+        suf = te[-1:] if te[-1:] in ("D", "C") else ""
+        return preferencia({"especie": ESPECIE.get(suf, ("pesos", "ARS"))[0],
+                            "plazo": (segs(sim) or ["", "", "", ""])[3],
+                            "simbolo": sim})
+    return sorted([s for s in (simbolos or []) if s], key=clave)[0] if simbolos else ""
 
 
 def hermanas_por_ficha(ticker_especie: str, filas: list[dict],
@@ -186,10 +213,10 @@ def hermanas_por_ficha(ticker_especie: str, filas: list[dict],
                        "empareja por ficha", clave, len(grupo), MAX_POR_FICHA)
         return []
     hs = [x for x in grupo if x["moneda"] == mon and x["ticker_especie"] != tk]
-    # 24hs antes que CI: ahí está la liquidez, y por lo tanto el precio. Mismo
-    # criterio que `preferencia`, que acá no se puede usar tal cual porque estas
-    # filas todavía no tienen `especie` clasificada.
-    return sorted(hs, key=lambda x: (x["plazo"] != "24hs", x["simbolo"]))
+    # `preferencia`, EL criterio del módulo: MEP antes que cable y 24hs antes que
+    # CI. Acá había un orden propio que solo miraba el plazo, y por eso los 8
+    # BOPREALes emparejaron bien y devolvieron la pata en CABLE.
+    return sorted(hs, key=preferencia)
 
 
 def preferencia(p: dict) -> tuple:

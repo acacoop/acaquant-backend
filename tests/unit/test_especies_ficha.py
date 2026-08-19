@@ -154,3 +154,36 @@ def test_una_extra_repetida_no_duplica_la_pata():
     con = E.patas_de("BPOA7", ["MERV - XMEV - BPOA7 - 24hs"], moneda_bono="USD",
                      extra=("MERV - XMEV - BPOA7 - 24hs",))
     assert len(con) == 1
+
+
+# ── (2026-08-19) EL ALFABETO NO ES UN CRITERIO DE MERCADO ───────────────────
+
+def test_la_ficha_devuelve_MEP_antes_que_CABLE():
+    """**El bug de la primera corrida**: los 8 BOPREALes emparejaron BIEN y
+    devolvieron la pata en CABLE. `hermanas_por_ficha` ordenaba solo por plazo y
+    después alfabético, y `BPA7C` < `BPA7D`.
+
+    Cable y MEP son cosas distintas —`CLAUDE.md` lo advierte explícito— y la que
+    mira la mesa es MEP. Emparejar bien y elegir mal no se ve distinto de
+    emparejar mal."""
+    hs = E.hermanas_por_ficha("BPOA7", _UNIVERSO)
+    assert hs[0]["ticker_especie"] == "BPA7D"        # MEP, no BPA7C
+    assert hs[0]["plazo"] == "24hs"
+
+
+def test_mejor_es_EL_criterio_y_no_el_abecedario():
+    """La puerta del agente y el diag tenían cada uno su copia, las dos con un
+    `sorted()` alfabético. Ahora las dos delegan acá."""
+    assert E.mejor(["MERV - XMEV - BPA7C - 24hs",
+                    "MERV - XMEV - BPA7D - 24hs"]).endswith("BPA7D - 24hs")
+    # El plazo desempata DESPUÉS de la moneda, no antes.
+    assert E.mejor(["MERV - XMEV - BPA7C - 24hs",
+                    "MERV - XMEV - BPA7D - CI"]).endswith("BPA7D - CI")
+    assert E.mejor([]) == ""
+
+
+def test_la_puerta_del_agente_usa_el_MISMO_criterio():
+    """Si vuelven a divergir, el diag muestra una pata y el agente pide otra."""
+    from api.services import av_agent_pata
+    cands = ["MERV - XMEV - BPA7C - 24hs", "MERV - XMEV - BPA7D - 24hs"]
+    assert av_agent_pata._elegir(cands) == E.mejor(cands)

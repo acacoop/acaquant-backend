@@ -39,10 +39,38 @@ _lock = threading.Lock()
 _COLS_FUERA_DEL_BLOB = ("emisor_tipo", "moneda_eje", "ajuste", "ajuste_alt",
                         "ley", "emisor", "sector")
 
+# ⚠️ **LOS DOS CAMPOS DE SÍMBOLO, QUE HABÍAN QUEDADO SIN ÁRBITRO** (2026-08-19).
+#
+# El renombre del 2026-08-15 migró las COLUMNAS y dejó el blob intacto a
+# propósito (lo leen ~500 lugares) — pero con el significado **INVERTIDO**:
+#
+#     COLUMNA   ticker = «AL30»            instrumento  = «MERV - XMEV - AL30 - 24hs»
+#     BLOB      ticker = «MERV - XMEV - …» ticker_corto = «AL30»
+#
+# Mientras los dos digan lo mismo no pasa nada, y por eso durante cuatro días no
+# pasó. **Pero nadie los estaba manteniendo iguales**, y el día que divergieron
+# el sistema se partió en dos mitades que no se hablan:
+#
+#     el MOTOR escribe el precio leyendo el BLOB   (`engines/curvas.py`)
+#     la VISTA busca el precio por la COLUMNA      (`LEFT JOIN … = c.instrumento`)
+#
+# Medido en prod: **2 de 229** (AO29 y CO32). En los dos la columna ya tenía la
+# pata correcta —la en dólares— y el blob la vieja en pesos, así que el motor
+# suscribía una pata y la pantalla buscaba la otra: la fila salía **entera en
+# «--»** con el precio existiendo, y ningún detector lo veía porque el agente
+# también lee por el blob. Nada fallaba. Simplemente no se encontraban.
+#
+# Se resuelve con la MISMA regla que el resto —**la columna gana**— pero con
+# ALIAS, porque los nombres están cruzados. Sin el alias, `doc["ticker"]` pasaría
+# a valer «AL30» y los ~500 lugares que lo usan como símbolo de mercado se
+# romperían todos juntos.
+_ALIAS_DEL_BLOB = {"instrumento": "ticker",      # símbolo de mercado
+                   "ticker": "ticker_corto"}     # el corto, AL30
+
 
 def _load_all() -> list[dict]:
     try:
-        cols = ", ".join(_COLS_FUERA_DEL_BLOB)
+        cols = ", ".join(list(_COLS_FUERA_DEL_BLOB) + list(_ALIAS_DEL_BLOB))
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(f"SELECT data, {cols} FROM mercado.curvas")
             nombres = [d[0] for d in cur.description][1:]
@@ -53,7 +81,8 @@ def _load_all() -> list[dict]:
                     continue
                 # Solo los NO nulos: una columna vacía no puede borrar lo que el
                 # blob sí tenga. Completar sí, pisar con nada no.
-                doc.update({k: v for k, v in zip(nombres, fila[1:], strict=False)
+                doc.update({_ALIAS_DEL_BLOB.get(k, k): v
+                            for k, v in zip(nombres, fila[1:], strict=False)
                             if v is not None})
                 out.append(doc)
             return out

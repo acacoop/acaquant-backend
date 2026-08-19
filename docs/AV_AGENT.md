@@ -1337,6 +1337,44 @@ reinicio** — y reiniciar en rueda corta el feed de la mesa. Por eso mismo esto
 releyendo la fila, diría «aplicada» y la pantalla seguiría igual hasta la noche.
 *Una acción que se aplica y no se ve destruye la confianza en todas las demás.*
 
+#### Y el final: el motor y la pantalla no se estaban hablando
+
+Nada de lo anterior explicaba **por qué la fila salía en `--`** teniendo el precio
+y las métricas cargadas. El agente decía «está todo bien» y tenía razón sobre lo
+que él miraba; la pantalla mostraba vacío y también tenía razón. **Las dos cosas
+pueden ser ciertas si cada uno está mirando un símbolo distinto** — y era eso:
+
+    el MOTOR escribe el precio leyendo el BLOB   `engines/curvas.py`
+    la VISTA lo busca por la COLUMNA             `… ON s.ticker = c.instrumento`
+
+Viene del renombre del 2026-08-15, que migró las columnas y dejó el blob intacto
+a propósito (lo leen ~500 lugares) **con el significado invertido**:
+
+    COLUMNA   ticker = «AL30»              instrumento  = «MERV - XMEV - AL30 - 24hs»
+    BLOB      ticker = «MERV - XMEV - …»   ticker_corto = «AL30»
+
+Mientras los dos digan lo mismo no pasa nada, y por eso durante cuatro días no
+pasó. **El problema es que nadie los estaba manteniendo iguales.** Existía el
+mecanismo —`_COLS_FUERA_DEL_BLOB`, donde *la columna gana*— y cubría el emisor y
+los tres ejes, pero **no los dos campos de símbolo**: eran los únicos sin árbitro.
+
+Medido: **2 de 229** — AO29 y CO32. En los dos la columna ya tenía la pata
+correcta (la D, en dólares) y el blob la vieja en pesos. O sea que el dato estaba
+bien; lo que estaba mal era **quién lo leía**.
+
+Se arregló con la misma regla, sumando los dos campos al merge **con ALIAS**
+(sin él, `doc["ticker"]` pasaría a valer `AO29` y los ~500 lugares que lo usan
+como símbolo de mercado se romperían todos juntos — peor que el bug original).
+
+⚠️ **Y el efecto no es inmediato**: el motor arma su universo al arrancar, así que
+hasta reiniciarlo **fuera de rueda** esos dos bonos quedan sin suscribir. Ahora el
+agente los canta como `no_suscripto` — que es exactamente la señal que faltaba, y
+la prueba de que la mitad que él mira y la que mira la pantalla por fin coinciden.
+
+**La lección, que vale más que el bug:** dos representaciones del mismo dato sin
+un árbitro declarado no conviven — se separan. Y cuando se separan no falla nada:
+cada mitad sigue siendo internamente coherente y el sistema miente en silencio.
+
 #### Y un error del diag, que es el mismo pecado que este módulo persigue
 
 La primera versión corría **un solo detector** (`sin_precio`) y después imprimía

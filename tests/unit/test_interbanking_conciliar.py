@@ -265,7 +265,10 @@ def test_encuentra_el_movimiento_aunque_falte_UN_CENTAVO(monkeypatch):
     c = out["candidatos"][0]
     assert c["movimientos"][0]["descripcion"] == "CREDITO POR DATANET"
     assert c["resto"] == 0.01, "y dice cuánto sobra: no se hace pasar por exacta"
-    assert any("no es exacta" in a for a in out["avisos"])
+    # El resto viaja EN EL CANDIDATO y no como párrafo aparte: la pantalla lo
+    # marca al lado del movimiento al que le pasa. Un aviso arriba hablaba de
+    # todas las opciones para algo que le pasa a una.
+    assert not any("no es exacta" in a for a in out["avisos"])
 
 
 def test_una_coincidencia_EXACTA_gana_sobre_una_aproximada(monkeypatch):
@@ -292,7 +295,9 @@ def test_encuentra_el_movimiento_con_el_SIGNO_al_reves(monkeypatch):
     out = s.conciliar("x@y", 1, FECHA, grilla)
     assert out["diferencia"] == -900.0
     assert out["candidatos"][0]["signo_invertido"] is True
-    assert any("signo AL REVÉS" in a for a in out["avisos"])
+    # Se marca EN EL CANDIDATO (la pantalla le pone la etiqueta al lado), no en
+    # un aviso de texto suelto.
+    assert not any("signo AL REVÉS" in a for a in out["avisos"])
 
 
 def test_una_diferencia_grande_NO_se_explica_con_cualquier_cosa(monkeypatch):

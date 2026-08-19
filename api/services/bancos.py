@@ -1110,14 +1110,12 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
                 "Ningún movimiento —ni del banco ni del mayor, ni combinación de "
                 f"hasta {MAX_COMBINAR} del MISMO lado— llega a esa diferencia. "
                 "Puede venir de un día anterior, o ser varias cosas a la vez.")
-        elif any(c["signo_invertido"] for c in candidatos):
-            avisos.append(
-                "El movimiento que explica la diferencia tiene el signo AL REVÉS: "
-                "el importe es el mismo pero de la otra mano.")
-        elif any(c["resto"] for c in candidatos):
-            avisos.append(
-                "La explicación no es exacta: queda un resto (se muestra al lado "
-                "de cada opción). Suele ser un redondeo o un movimiento chico más.")
+        # ⚠️ El signo invertido y el resto NO llevan aviso de texto: cada
+        # candidato ya los publica en su propio campo (`signo_invertido`,
+        # `resto`) y la pantalla los muestra como marca al lado del movimiento
+        # EXACTO al que le pasan. Repetirlo arriba en un párrafo agregaba un
+        # cartel genérico sobre TODAS las opciones para algo que le pasa a UNA,
+        # que es justo lo que hace dudar de si el problema es este o el otro.
 
     if ajuste:
         avisos.append(

@@ -723,6 +723,14 @@ conciliación que miente, y eso no avisa.
 - **Nuestro saldo es el MISMO que muestra el consolidado**, ajuste manual
   incluido (y avisado). Si acá se usara el saldo pelado del banco, dos pantallas
   dirían dos números para la misma cuenta y el mismo día.
+- **Los dos detalles, uno de cada lado — pero NO al 50%.** El concepto del mayor
+  es larguísimo (`[Op. 1131651] Pago c/retención ganancias RG 830 - …`) y la
+  descripción del banco entra en un renglón: partir la pantalla por la mitad
+  dejaba aire de sobra a la izquierda y cortaba justo lo que hay que leer a la
+  derecha. La grilla reparte **4fr / 6fr** con `minmax(0, …)` —sin eso una
+  columna de grilla nunca baja del ancho de su contenido y la tabla se desborda
+  igual—, las filas van apretadas (10px, `leading` corto) y la descripción
+  **rompe de renglón** en vez de empujar al importe fuera de la vista.
 - **Los dos detalles, uno de cada lado.** Solo descripción e importe: los
   movimientos del banco y los del mayor **no tienen nada en común** en fechas ni
   comprobantes (`[Op. 1130699] bco a bco` contra `TRANSF.O/BANCOS MISMO TIT`),
@@ -769,6 +777,14 @@ conciliación que miente, y eso no avisa.
   siempre** — una explicación que tapa un resto cierra el caso con plata sin
   justificar adentro.
 
+  ⚠️ **Pero se informa EN EL CANDIDATO, no como párrafo de aviso.** El signo
+  invertido y el resto son campos de cada explicación (`signo_invertido`,
+  `resto`) y la pantalla los marca al lado del movimiento EXACTO al que le pasan.
+  Los dos avisos de texto que decían lo mismo arriba **se eliminaron**: eran un
+  cartel genérico sobre TODAS las opciones para algo que le pasa a UNA, y lo que
+  lograban era hacer dudar de si el problema era ese candidato o el otro. La
+  marca puntual dice más y ocupa menos.
+
   Si la búsqueda se cortó, la respuesta lo dice (`candidatos_truncados`): «no
   encontré» y «no busqué todo» son cosas distintas.
 - ⚠️ **Si los dos saldos coinciden al invertir el signo del mayor, se AVISA y no
@@ -796,6 +812,9 @@ conciliación que miente, y eso no avisa.
   Por eso se busca en **los dos lados** y cada explicación dice de cuál salió: no
   es lo mismo «cargá esto en HYGIRUS» que «sacá esto de HYGIRUS», y una pantalla
   que solo dice «hay una diferencia de X» no le sirve a nadie.
+  **Y va escrito arriba, al lado del número DIFERENCIA**, no solo abajo en cada
+  opción: leer el signo obliga a acordarse de la convención, y el que abre el
+  modal tiene que saber de una si el movimiento se carga o se saca.
 - ⚠️ **Nunca se cruzan movimientos de los dos lados.** Una explicación que mezcla
   uno del banco con uno del mayor no es una explicación: **es una coincidencia
   aritmética**. Lo que se busca es concreto —«a este mayor le falta ESTE

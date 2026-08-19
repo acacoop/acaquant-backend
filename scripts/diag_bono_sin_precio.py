@@ -129,20 +129,47 @@ def revisar(tk: str) -> list[str]:
             out.append(f"        {p[0]:44} {e.get('last_price') or '—'!s:>14}"
                        f"  {e.get('updated_at') or ''}")
 
-    # Y lo que DICE EL DETECTOR sobre este bono, ahora mismo.
+    # ── LA PATA QUE EL MASTER ELIGIÓ vs. LA QUE `especies` DICE ────────────
+    # `mercado.curvas.instrumento` se carga A MANO; la pata default vive en
+    # `mercado.especies`. Cuando no coinciden, el motor suscribe una pata y la
+    # tabla muestra el precio de la otra moneda al lado de sus pares.
+    default = next((p[0] for p in patas if p[3]), None)
+    if default and simbolo and default != simbolo:
+        out.append("")
+        out.append(_fila(False,
+                         f"**EL MASTER Y `especies` NO COINCIDEN**\n"
+                         f"        curvas.instrumento (lo que se suscribe): {simbolo}\n"
+                         f"        especies.es_default (lo que debería):    {default}"))
+
+    # ── QUÉ DICEN **TODOS** LOS DETECTORES DE RUEDA ────────────────────────
+    # ⚠️ La primera versión corría SOLO `detectar_sin_precio` y después escribía
+    # «el agente NO reporta nada de este bono». Era falso y de la peor manera:
+    # una afirmación sobre EL AGENTE hecha mirando un solo detector. Un diag que
+    # exagera su propio alcance es el mismo error que este módulo persigue.
     from core import market_snapshot as ms
     simbolos = [(b.get("ticker") or "").strip()
                 for b in (curvas_sql.cargar_todos() or []) if b.get("ticker")]
-    hall = av_agent.detectar_sin_precio(
-        [doc], ms.cols_map(simbolos, ["last_price", "updated_at"]) or {})
+    snap_all = ms.cols_map(simbolos, ["last_price", "updated_at"]) or {}
+    try:
+        from api.services.macro import get_ultimo_mep
+        mep = float((get_ultimo_mep() or {}).get("mep") or 0) or None
+    except Exception:
+        mep = None
+    try:
+        universo = av_agent.simbolos_primary() or set()
+    except Exception:
+        universo = set()
+
+    hall = list(av_agent.detectar_sin_precio([doc], snap_all))
+    hall += av_agent.detectar_precio_fuera_de_moneda([doc], snap_all, mep, universo)
     out.append("")
     out.append(f"  EN RUEDA: {'SÍ' if av_agent.en_rueda() else 'NO'} "
-               f"(fuera de rueda, «precio viejo» no se reporta)")
+               f"· MEP={mep} (fuera de rueda, «precio viejo» no se reporta)")
     if hall:
         for h in hall:
-            out.append(f"  → EL AGENTE DICE [{h['regla']}] {h['motivo']}")
+            out.append(f"  → [{h['severidad']}] {h['tipo']}/{h['regla']}: {h['motivo']}")
     else:
-        out.append("  → el agente NO reporta nada de este bono")
+        out.append("  → los detectores de RUEDA no reportan nada de este bono")
     return out
 
 
@@ -192,6 +219,25 @@ def main() -> int:
               f"px={full[(b.get('ticker') or '').strip()].get('last_price')!s:>12}  "
               f"eje={b.get('moneda_eje')}/{b.get('ajuste')} "
               f"tipo={b.get('tipo')} curva={b.get('curva')}")
+    # ¿CUÁNTOS bonos suscriben una pata distinta de la que `especies` marca como
+    # default? Es la comparación entre las DOS fuentes de símbolos que hoy nadie
+    # cruza: el master se carga a mano, `especies` se deriva de Primary.
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ticker, simbolo FROM mercado.especies WHERE es_default")
+        defaults = {(r[0] or "").strip().upper(): r[1] for r in cur.fetchall()}
+    difieren = []
+    for b in bonos:
+        tk = (b.get("ticker_corto") or "").strip().upper()
+        sim = (b.get("ticker") or "").strip()
+        d = defaults.get(tk)
+        if d and sim and d != sim:
+            difieren.append((tk, sim, d, b.get("moneda_eje"), b.get("curva")))
+    print(f"  el MASTER suscribe una pata != default de especies : {len(difieren)}")
+    for tk, sim, d, mon, curva in difieren[:40]:
+        print(f"      {tk:10} {mon}/{curva}")
+        print(f"          master   : {sim}")
+        print(f"          especies : {d}")
+
     print("\n  detalle de uno: python -m scripts.diag_bono_sin_precio <TICKER>\n")
     return 0
 

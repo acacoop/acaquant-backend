@@ -24,6 +24,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.av_agent_centinela]]  ·  _module_
 - [[api.services.av_agent_control]]  ·  _module_
 - [[api.services.av_agent_evals]]  ·  _module_
+- [[api.services.av_agent_explicar]]  ·  _module_
 - [[api.services.av_agent_hacer]]  ·  _module_
 - [[api.services.av_agent_masivo]]  ·  _module_
 - [[api.services.av_agent_preguntas]]  ·  _module_

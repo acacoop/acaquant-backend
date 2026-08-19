@@ -175,6 +175,33 @@ def _chk_fci_incompletos() -> list[dict]:
     return out
 
 
+def _chk_titulos_sin_flujo() -> list[dict]:
+    """Bonos que la casa TIENE HOY y que no tienen cronograma de flujos cargado.
+
+    Esto existía como un botón en Manager → VALIDACIONES («Títulos sin flujo»),
+    o sea que solo se enteraba el que se acordaba de apretarlo. Pasa a control
+    (2026-08-19, pedido del user: *«que ni haga falta decirle que hay algo
+    mal»*): así se re-verifica solo todos los días, entra al agente con su
+    historial, y lo que se resuelve desaparece de la lista sin que nadie lo
+    marque.
+
+    **Solo los que están EN CARTERA.** El conciliador completo trae también los
+    que no tenemos, y eso convierte la lista en un catálogo — 300 filas que
+    nadie mira. Un bono sin flujo que no tenemos no cuesta nada hoy; uno que
+    tenemos **no valúa**, y eso sí es plata mal contada.
+
+    Import de api/services permitido: misma excepción documentada que los jobs
+    de precompute (jobs/CLAUDE.md).
+    """
+    from api.services.acreencias import titulos_sin_flujo
+    return [{
+        "key": str(t.get("unidad") or t.get("ticker")),
+        "detalle": (f"{t.get('ticker') or t.get('unidad')}: sin flujo en "
+                    f"{t.get('fuente') or 'ninguna fuente'} — {t.get('motivo') or ''}"
+                    f" (cartera {t.get('cartera') or '?'})").strip(),
+    } for t in titulos_sin_flujo() if t.get("en_cartera")]
+
+
 def _chk_rf_valuada_x1() -> list[dict]:
     """Renta fija (cartera HD/DL/ARS) cuya valuación en el ÚLTIMO snapshot de
     tenencia quedó SIN dividir por 100 (cociente valuacion/(precio×cantidad)≈1).
@@ -279,6 +306,8 @@ CONTROLES: list[Control] = [
     Control("rf_sin_tasa", "Renta fija cotizando sin TEA/TNA", True, _chk_rf_sin_tasa),
     Control("assets_sin_cartera", "Assets sin cartera", True, _chk_assets_sin_cartera),
     Control("fci_incompletos", "Assets FCI sin ticker/emisor", True, _chk_fci_incompletos),
+    Control("titulos_sin_flujo", "Bonos en cartera sin cronograma de flujos", True,
+            _chk_titulos_sin_flujo),
     Control("rf_valuada_x1", "Renta fija valuada sin ÷100 (¿tipo nuevo de Aunesa?)", True,
             _chk_rf_valuada_x1),
     Control("simbolos_cuarentena", "Símbolos rechazados por ROFEX (cuarentena)", True,

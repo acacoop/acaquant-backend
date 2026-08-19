@@ -34,3 +34,4 @@ _(pendiente de enriquecimiento)_
 - [[api.services.briefing]]  ·  _module_
 - [[api.services.ons]]  ·  _module_
 - [[jobs.acreencias]]  ·  _module_
+- [[jobs.controles_datos]]  ·  _module_

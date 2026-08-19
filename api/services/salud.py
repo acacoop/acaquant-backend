@@ -293,6 +293,67 @@ def _chequeo_dato(c: dict, ahora: datetime) -> dict:
 # resto: hoy hay controles accionables (una cuenta sin segmentar) mezclados con
 # ruido que nadie va a mirar, y el contador único los tapaba a todos.
 
+def _chequeo_ia() -> dict | None:
+    """**LO ÚNICO DE LA OBSERVABILIDAD DE IA QUE VALE LA PENA MIRAR** — y por eso
+    es un chequeo y no una pantalla.
+
+    El user, mirando el panel de Manager → OBSERVABILIDAD → IA (2026-08-19):
+    *«¿qué sentido tiene toda esta parte de IA ahora? Más allá de saber el
+    crédito disponible —que tampoco es relevante— el resto ocupa espacio nada
+    más… estoy haciendo limpieza de cosas que no servían para absolutamente nada
+    y no tenían uso alguno»*. Tenía razón: el historial de 874 llamadas no lo
+    abrió nunca, y un tablero que hay que ir a abrir es un tablero que no se abre
+    — el MISMO argumento que fundó SALUD.
+
+    Pero de todo ese panel hay DOS números que sí importan, y no porque sean
+    lindos de ver: porque si se rompen, **nadie se entera**.
+
+      · el GASTO — un bug que llame al modelo en loop quema el presupuesto de un
+        día en minutos, y el síntoma es que la IA deja de contestar «sin razón»;
+      · los ERRORES — llamadas que fallan calladas dejan al agente mudo con la
+        pantalla en verde, que es exactamente el modo de falla que SALUD existe
+        para cazar.
+
+    Así que se invierte: en vez de una pantalla que hay que visitar, **un chequeo
+    que te busca**. Verde mientras el gasto y los errores estén en rango; si no,
+    aparece solo en el agente como cualquier otro problema.
+
+    Umbral del gasto en **80%** y no en 100: avisar cuando ya no queda
+    presupuesto no sirve de nada — para entonces la IA ya está caída.
+    """
+    try:
+        from api.services import ia_obs
+        d = ia_obs.observabilidad(dias=1, limit=1)
+    except Exception:
+        _log.warning("salud: no pude leer la observabilidad de IA", exc_info=True)
+        return None
+    hoy = d.get("hoy") or {}
+    usados = int(hoy.get("tokens_total") or 0)
+    tope = int(hoy.get("presupuesto_dia") or 0)
+    errores = int(hoy.get("errores") or 0)
+    llamadas = int(hoy.get("llamadas") or 0)
+    pct = round(100 * usados / tope, 1) if tope else 0.0
+
+    if tope and pct >= 80:
+        estado, motivo = ERROR, f"{pct}% del presupuesto de IA consumido hoy"
+    elif errores and llamadas and errores / llamadas >= 0.5:
+        estado, motivo = ERROR, f"{errores} de {llamadas} llamadas de IA fallaron hoy"
+    elif errores:
+        estado, motivo = WARN, f"{errores} llamada/s de IA fallaron hoy"
+    else:
+        estado, motivo = OK, (f"{llamadas} llamada/s, {pct}% del presupuesto"
+                              if llamadas else "sin llamadas hoy")
+    return {
+        "id": "ia:gateway", "familia": "dato", "titulo": "Gateway de IA",
+        "estado": estado, "motivo": motivo,
+        "evidencia": f"{usados:,} tokens de {tope:,} · {llamadas} llamadas · "
+                     f"{errores} errores".replace(",", "."),
+        "detalle": "si se agota el presupuesto o fallan las llamadas, el agente "
+                   "se queda mudo sin avisar",
+        "tabla": "ia.trazas",
+    }
+
+
 def _chequeos_controles() -> list[dict]:
     try:
         from api.services.controles_sql import listar_controles
@@ -366,6 +427,9 @@ def evaluar() -> list[dict]:
             out.append(_chequeo_dato(c, ahora))
         except Exception:
             _log.warning("salud: no pude evaluar %s", c["id"], exc_info=True)
+    ia = _chequeo_ia()
+    if ia:
+        out.append(ia)
     out.extend(_chequeos_controles())
     out.sort(key=lambda c: (_PESO.get(c["estado"], 3), c["titulo"]))
     return out

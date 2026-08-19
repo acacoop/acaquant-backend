@@ -243,6 +243,10 @@ CONTROLES: dict[str, dict] = {
         "rompe": "salen SIN NOMBRE y se fusionan entre sí en /aum → FCI",
         "donde": "Manager → TÍTULOS · ASSETS (ticker y emisor del FCI)",
         "url": "/manager?tab=assets"},
+    "titulos_sin_flujo": {
+        "rompe": "esos bonos NO valúan: la posición queda sin precio en el AuM",
+        "donde": "AV Agent → dar de alta la curva, o Manager → TÍTULOS",
+        "url": "/manager?tab=titulos"},
     "rf_valuada_x1": {
         "rompe": "renta fija valuada SIN ÷100: la tenencia queda 100 veces inflada",
         "donde": "es un tipoTitulo nuevo de Aunesa fuera de TIPOS_DIVISOR_100",

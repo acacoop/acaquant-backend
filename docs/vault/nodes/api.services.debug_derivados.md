@@ -25,3 +25,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.checks]]  ·  _module_
+- [[api.services.av_agent_explicar]]  ·  _module_

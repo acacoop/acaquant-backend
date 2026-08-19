@@ -69,6 +69,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.av_agent_alta]]  ·  _module_
 - [[api.services.av_agent_centinela]]  ·  _module_
 - [[api.services.av_agent_control]]  ·  _module_
+- [[api.services.av_agent_explicar]]  ·  _module_
 - [[api.services.av_agent_hacer]]  ·  _module_
 - [[api.services.av_agent_masivo]]  ·  _module_
 - [[api.services.av_agent_preguntas]]  ·  _module_
@@ -89,6 +90,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.pnl_sql]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.repo]]  ·  _module_
+- [[api.services.salud]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
 - [[api.services.valuaciones_sql]]  ·  _module_

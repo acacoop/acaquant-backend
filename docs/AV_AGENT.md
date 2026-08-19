@@ -490,6 +490,122 @@ note.
 > dólar oficial (MAE live + A3500) y cierres MEP/CCL con sus variaciones, todo
 > calculado. Nunca gastó un token.
 
+### 0.m LO QUE SABE EXPLICAR — VALIDACIONES entra al agente (2026-08-19)
+
+**Pedido del user**, mirando Manager → VALIDACIONES:
+
+> *«Cada una de las validaciones que hay acá tiene que ser funcionalidades que el
+> agent domine a la perfección, porque son cosas que sabría hacer un trader o
+> alguien de finanzas… sacándole la palabra DEBUG. Es decir: che, saber por qué
+> esta TEA rinde tanto, por qué la TNA de futuros es tanto, saber las breakevens,
+> saber tasa fija… quiero ir migrando funciones útiles al agent para que el día
+> de mañana le hable y se lo pida.»*
+
+**EL HALLAZGO, y es lo que vale de todo esto:** esas ocho pantallas **nunca
+fueron herramientas de debug**. Son las preguntas que se hace alguien de finanzas
+todos los días, escritas con nombre de programador. Lo único que las hacía
+parecer internas era el nombre y el lugar:
+
+| se llamaba | es |
+|---|---|
+| Debug TEA Curvas | **¿Por qué este bono rinde lo que rinde?** |
+| Debug TNA Futuros DLR | **¿Por qué el futuro de dólar paga esa tasa?** |
+| Debug Soberano | **¿Cómo se arma el rendimiento de un soberano?** |
+| Debug Breakevens | **¿Qué inflación está descontando el mercado?** |
+| Debug Pivot Points | **¿De dónde salen los niveles de soporte y resistencia?** |
+
+Viven en `api/services/av_agent_explicar.py`, se ven en la tab **SABE** del modal,
+y **Manager → VALIDACIONES queda donde está** (el user: *«no digo que lo borres
+de acá, pero sí migrarlo»*).
+
+**POR QUÉ ESTO ES EL PASO PREVIO A «QUE SE DÉ CUENTA SOLO»**
+
+El user también dijo hacia dónde va: *«que en algún momento ya ni sea necesario,
+que sea un sistema entero que se dé cuenta al toque que algo raro pasa… que ni
+haga falta decirle que hay algo mal»*.
+
+**El que sabe EXPLICAR un número sabe JUZGARLO.** Un explicador que reproduce el
+cálculo paso a paso termina con el número recalculado al lado del persistido; si
+no coinciden, eso ya no es un detalle de la explicación: **es un hallazgo**. Por
+eso cada explicador devuelve un campo **`discrepancia`** aparte de los pasos, y
+ese campo es el puente entre «me preguntaste» y «te aviso». Hoy lo usa
+`¿por qué rinde?` (recalculado vs. lo que muestra la app, umbral 50 bps); el
+camino es que cada explicador que se sume traiga el suyo.
+
+**LAS CUATRO DECISIONES**
+
+1. **No se reimplementa ningún cálculo.** Cada explicador **envuelve** la MISMA
+   función que ya usa la pantalla (`debug_curva.debug_calculo_tea`,
+   `debug_derivados.debug_soberano`/`breakevens_debug`/`debug_tna_futuros`,
+   `quant.pivot_points.debug_4_timeframes`). Es la misma regla que gobierna las
+   ACCIONES: una sola puerta. Dos implementaciones del mismo cálculo terminan
+   dando dos respuestas a la misma pregunta, y la pantalla y el agente
+   contradiciéndose. **Congelado por test.**
+2. **El cálculo determinista produce los NÚMEROS; el modelo produce la FRASE.**
+   Nunca al revés. El modelo no calcula una TEA ni infiere un flujo: recibe los
+   números que ya salieron y los convierte en la línea que el humano quería leer.
+   El prompt se lo prohíbe explícito (*«usá SOLO los números que te paso, no
+   calcules ni infieras»*) y hay un test que exige esa instrucción — sin ella, un
+   modelo servicial completa el dato que falta.
+3. **Sin modelo, la explicación sale igual.** La frase es lo último y lo más
+   chico. Una respuesta que depende del modelo para existir es una respuesta que
+   un día no está (sin credencial, sin presupuesto, proveedor caído).
+4. **La frase NO puede tapar la discrepancia.** Viajan en campos distintos y se
+   dibujan separadas — la frase como texto, la discrepancia en rojo. Una es una
+   explicación; la otra es un aviso.
+
+**LOS QUE NO ERAN PREGUNTAS SINO PROBLEMAS.** Dos de las ocho no explicaban nada:
+avisaban. Esos no van a la tab SABE — **van a donde no haga falta apretar un
+botón**:
+
+- **«Títulos sin flujo»** pasa a ser el control `titulos_sin_flujo`
+  (`jobs/controles_datos.py`). Así se re-verifica solo todos los días, entra al
+  agente con su historial, y lo que se resuelve desaparece sin que nadie lo
+  marque. **Solo los que están EN CARTERA**: un bono sin flujo que no tenemos no
+  cuesta nada hoy; uno que tenemos **no valúa**, y eso sí es plata mal contada.
+  Filtrar es lo que separa un aviso de un catálogo de 300 filas que nadie mira.
+- **«Check Tasa Fija»** y **«Backfill Tasas»** quedan pendientes: el primero es
+  otro control, el segundo una ACCIÓN de §0.j (escribe TEA/TEM).
+
+### 0.n LA TAB IA DE OBSERVABILIDAD SE ELIMINA (2026-08-19)
+
+*«¿Qué sentido tiene toda esta parte de IA ahora? Más allá de saber el crédito
+disponible —que tampoco es relevante— el resto ocupa espacio nada más… estoy
+haciendo limpieza de cosas que no servían para absolutamente nada y no tenían uso
+alguno»* (user).
+
+Tenía razón, y el argumento es el mismo que fundó SALUD: **el historial de 874
+llamadas no se abrió nunca, y un tablero que hay que ir a abrir es un tablero que
+no se abre.**
+
+Pero de ese panel había DOS números que sí importan — no porque sean lindos de
+ver, sino porque **si se rompen nadie se entera**:
+
+- el **GASTO**: un bug que llame al modelo en loop quema el presupuesto del día
+  en minutos, y el síntoma es que la IA deja de contestar «sin razón»;
+- los **ERRORES**: llamadas que fallan calladas dejan al agente mudo con la
+  pantalla en verde — el modo de falla exacto que SALUD existe para cazar.
+
+Así que se invierte: en vez de una pantalla que hay que visitar, **un chequeo que
+te busca**. `salud._chequeo_ia` → `ia:gateway`, verde mientras el gasto y los
+errores estén en rango. Umbral del gasto en **80% y no en 100**: avisar cuando ya
+no queda presupuesto no sirve — para entonces la IA ya está caída.
+
+`ia.trazas` **se sigue escribiendo**: es el registro auditable de toda llamada al
+modelo y el insumo del día que el agente aprenda de sí mismo. Lo que se eliminó
+es la pantalla, no el dato. Para mirarlas a mano quedó
+`python -m scripts.diag_ia_trazas`.
+
+> **Sobre «que se retroalimente solo»** (user: *«todo acá en AV AGENT se tiene que
+> retroalimentar de manera automática por el propio LLM, tiene que aprender de sí
+> mismo»*): la materia prima ya se está juntando y son TRES ledgers, no uno —
+> `mercado.av_agent_evals` (el ✔/✖ humano por diagnóstico),
+> `mercado.av_agent_propuestas` (cada sugerencia con si se aplicó, se rechazó o
+> falló) y `ia.trazas`. **Todavía no se cierra el loop a propósito**: con la
+> cantidad de votos de hoy, cualquier ajuste automático estaría calibrando sobre
+> ruido. El disparador es el mismo de siempre — `MIN_VOTOS` (§0.f) —, no una
+> fecha.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta
@@ -2937,6 +3053,20 @@ libro de acciones, los cinco estados, `_paso` y `_veredicto` quedaron **intactos
 realmente lo necesita: traer un cronograma que no tenemos.
 
 ## Changelog
+
+- **2026-08-19 — VALIDACIONES entra al agente como LO QUE SABE EXPLICAR, y la tab
+  IA de observabilidad se elimina** (§0.m y §0.n). Las ocho pantallas de
+  Manager → VALIDACIONES nunca fueron debug: son las preguntas de un trader con
+  nombre de programador. Cinco pasan a ser capacidades del agente (tab **SABE**),
+  **envolviendo** las funciones que ya existen — no se reimplementa un solo
+  cálculo, y hay un test que lo exige. El determinista produce los números, el
+  modelo produce UNA frase, y si el número recalculado no coincide con el que
+  muestra la app eso viaja aparte como `discrepancia`: **es el puente entre "me
+  preguntaste" y "te aviso"**. Las dos que no eran preguntas sino problemas se
+  van a donde no haga falta apretar un botón: «Títulos sin flujo» pasa a control
+  diario. Y la tab IA se elimina entera: lo único que importaba de ahí —que el
+  gasto no se dispare y que las llamadas no fallen— es ahora el chequeo
+  `ia:gateway`, una señal que te busca en vez de un tablero que hay que abrir.
 
 - **2026-08-19 — SE DA DE BAJA EL COPILOTO, y SALUD queda solo adentro del
   agente** (§0.k y §0.l). *«Sirvió como inicial pero no cumplió con la necesidad;

@@ -58,6 +58,15 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > capas, el estado real de cada etapa y lo descartado. Incluye **SALUD**, que se
 > fusionó adentro del agente (un chequeo y un hallazgo son el mismo objeto), y el
 > **eval set**, que es lo que habilita cada paso de autonomía.
+> **2026-08-19 — VALIDACIONES entra al agente** (§0.m): las 8 pantallas de
+> Manager → VALIDACIONES eran preguntas de trader con nombre de programador
+> («Debug TEA Curvas» = *¿por qué este bono rinde esto?*). Cinco son ahora
+> capacidades del agente (tab SABE, `api/services/av_agent_explicar.py`)
+> **envolviendo** las funciones que ya existen; las dos que eran problemas y no
+> preguntas pasaron a control diario. **La tab IA de OBSERVABILIDAD se eliminó**
+> (§0.n): lo único que importaba de ahí es el chequeo `ia:gateway` (gasto +
+> errores), una señal que te busca.
+>
 > **2026-08-19 — el COPILOTO se dio de baja** (botón CONSULTALE A LA IA, asistente
 > de negocio, guía, vigía) y con él `COPILOTO.md`, `TOOLS_IA.md` y `QUANTAI.md`:
 > lo que había que recordar quedó en `AV_AGENT.md` §0.k. **SALUD también salió del

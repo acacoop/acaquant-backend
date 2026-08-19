@@ -18,8 +18,10 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
+- [[api.services]]  ·  _module_
 - [[api.services._sql]]  ·  _module_
 - [[api.services.controles_sql]]  ·  _module_
+- [[api.services.ia_obs]]  ·  _module_
 - [[api.services.jobs_catalogo]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[db.Trading.DOLAR]]  ·  _collection_

@@ -403,6 +403,47 @@ def av_agent_mis_avisos(request: Request, email: str = Depends(get_user_email)):
     return {"avisos": vista.avisos_de(email or "")}
 
 
+# ── LO QUE EL AGENTE SABE EXPLICAR (2026-08-19) ─────────────────────────────
+#
+# Las ocho pantallas de Manager → VALIDACIONES **nunca fueron debug**: son las
+# preguntas que se hace alguien de finanzas todos los días, con nombre de
+# programador. El user: *«che, saber por qué esta TEA rinde tanto, por qué la TNA
+# de futuros es tanto… quiero ir migrando funciones útiles al agent para que el
+# día de mañana le hable y se lo pida»*.
+#
+# **No se reimplementa ningún cálculo**: cada explicador envuelve la MISMA
+# función que ya usa la pantalla. Manager → VALIDACIONES queda donde está.
+
+
+class Explicar(BaseModel):
+    explicador: str = Field(..., min_length=2, max_length=40)
+    sujeto: str = Field("", max_length=80)
+    # La frase del modelo es lo ÚLTIMO y lo más chico. Apagarla deja la
+    # explicación entera disponible: los pasos son deterministas.
+    con_ia: bool = True
+
+
+@router.get("/av-agent/explicar", dependencies=[Depends(require_admin)])
+def av_agent_explicar_catalogo(explicador: str = ""):
+    """Qué sabe contestar el agente. **Este catálogo es, además, el menú del día
+    que se le pueda hablar**: lo que está acá es lo que va a entender."""
+    from api.services import av_agent_explicar as svc
+    return {"catalogo": svc.catalogo(),
+            "sugerencias": svc.sugerencias(explicador) if explicador else []}
+
+
+@router.post("/av-agent/explicar", dependencies=[Depends(require_admin)])
+def av_agent_explicar(body: Explicar):
+    """La respuesta: los pasos del cálculo + UNA frase.
+
+    **El cálculo determinista produce los números; el modelo produce la frase** —
+    nunca al revés. Y si al reproducir el cálculo el número no coincide con el
+    que muestra la app, eso viaja aparte en `discrepancia`: deja de ser una
+    explicación y pasa a ser un aviso."""
+    from api.services import av_agent_explicar as svc
+    return svc.explicar(body.explicador, body.sujeto, con_ia=body.con_ia)
+
+
 # ── SALUD, SOLO por el agente (2026-08-19) ──────────────────────────────────
 #
 # El panel de Manager → OBSERVABILIDAD → SALUD, el botón de la barra y el modal

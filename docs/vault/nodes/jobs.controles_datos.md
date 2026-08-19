@@ -17,6 +17,7 @@ path: jobs/controles_datos.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services.acreencias]]  ·  _module_
 - [[api.services.contrapartes_seg]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_

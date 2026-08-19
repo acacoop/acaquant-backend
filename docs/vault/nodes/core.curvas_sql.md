@@ -30,6 +30,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.av_agent]]  ·  _module_
 - [[api.services.av_agent_alta]]  ·  _module_
 - [[api.services.av_agent_centinela]]  ·  _module_
+- [[api.services.av_agent_explicar]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.breakevens_admin]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_

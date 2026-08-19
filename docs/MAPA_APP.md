@@ -2066,7 +2066,7 @@ cobertura **CERO**).
 |---|---|---|---|
 | **RESUMEN** (def.) | Fila de 6 datos (informe al · MEP · A3500 · Valuación ARS/A3500/USD MEP), torta de composición por cartera y los **dos cuadros comparativos** (mes actual y mes anterior) con monto y ponderación por cartera + Total Dolarizado / Total Pesos | `/vista` | `POST /periodos` (+ PERÍODO, EDITAR MEP/A3500), `DELETE /periodos/{p}` |
 | **CARTERAS** | Los 3 gráficos de rendimiento **ACUMULADO** vs benchmarks: `total_ars`, `total_usd`, `pesos`. Series de grupo `cartera` sólidas, `benchmark` punteadas | `/vista` (`graficos`) | Ninguna |
-| **ACTIVOS** | Detalle por cartera (ARS/DL/HD/FCI) con total y % share. **Acá se carga lo manual**: VN y PX por fila | `/vista`, `/titulos`, `/precios-sugeridos` | `POST /activos`, `DELETE /activos`, `POST /clonar` |
+| **ACTIVOS** | Detalle por cartera (las 4 canónicas + cualquier otra que aparezca cargada) con total y % share. **Acá se carga lo manual**: VN y PX por fila | `/vista`, `/titulos`, `/precios-sugeridos` | `POST /activos`, `DELETE /activos`, `POST /clonar` |
 | **MÉTRICAS** | Apertura por clase de activo (CARTERA FCI, CARTERA ARS) y por emisor (CARTERA HD, CARTERA DL, CRÉDITOS PRIVADOS MÁS REPRESENTATIVOS) | `/vista` | Ninguna |
 | **HISTÓRICO** | La planilla mensual completa: mensual + acumulado por serie. **Solo lectura** | `/historico` | Ninguna — se carga en Manager → ACA |
 
@@ -2111,7 +2111,12 @@ explica sola en vez de tirar error.
 - **La ficha del título NO se guarda acá**: cartera, emisor, calificación, clase de activo,
   vencimiento y ticker se resuelven en cada lectura contra `portafolio.assets`. Un asset borrado del
   maestro deja la fila viva marcada `sin_ficha` (el monto ya contado no se evapora); un asset con
-  cartera fuera de ARS/DL/HD/FCI cae en `huerfanos` y la vista lo avisa.
+  asset SIN FICHA cae en `huerfanos`, que es el ÚNICO caso que queda ahí.
+- **La cartera del asset abre su propio cuadro, sea cual sea** (2026-08-19): las 4 canónicas
+  siempre (aunque cierren en cero) y cualquier otra que aparezca cargada —DEUDORES,
+  FINANCIAMIENTO…— detrás, alfabética. Antes era una constante de 4: una cartera nueva sumaba al
+  total pero no entraba a ningún cuadro y NO se podía agregar desde la aplicación. El divisor NO
+  se adivina: fuera de ARS/DL/HD vale `vn × px` (ver `_DIVISOR_PARIDAD`).
 - **Métricas**: dos denominadores distintos — clases y emisores de una cartera van sobre el total de
   ESA cartera; **créditos privados va sobre la valuación TOTAL**. Los catálogos hacen que una fila
   aparezca aunque cierre en cero, y lo que aparece sin estar catalogado se muestra marcado

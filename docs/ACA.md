@@ -108,8 +108,11 @@ Consecuencias visibles:
   en **todos** los períodos, incluidos los ya cerrados.
 - Si alguien borra un asset del maestro, la fila del informe **no desaparece**
   (el monto ya contado no puede evaporarse): sale marcada `sin_ficha` con un ⚠.
-- Si la cartera del asset no es ARS/DL/HD/FCI, la fila cae en `huerfanos` y la
-  vista lo canta. Suma al total pero no entra a ningún cuadro por cartera.
+- **La cartera del asset abre su propio cuadro, sea cual sea.** Las 4 canónicas
+  (ARS/DL/HD/FCI) se muestran siempre, aunque cierren en cero, y cualquier otra
+  que aparezca cargada (DEUDORES, FINANCIAMIENTO, …) se agrega detrás en orden
+  alfabético. `huerfanos` quedó para lo único que de verdad no se puede ubicar:
+  el título **sin ficha** en el maestro, que no tiene cartera ninguna.
 
 ---
 
@@ -414,6 +417,31 @@ Escritura: la misma allowlist que el resto (mesa + admin). Queda en `aca.audit`.
 ---
 
 ## Changelog
+
+### 2026-08-19 — El informe abre cuadro para CUALQUIER cartera cargada
+
+**Problema.** Tres títulos con cartera **DEUDORES** —que existe en el maestro de
+`Manager → Títulos`— sumaban al total pero no aparecían en ningún cuadro: la
+vista los cantaba como huérfanos y no había forma de arreglarlo desde la
+aplicación. Ni creando la cartera, ni dándole regla de moneda (esa regla decide
+Dolarizado/Pesos, no los cuadros). La lista de carteras era la constante
+`CARTERAS = ("ARS","DL","HD","FCI")`: agregar una era editar el código.
+
+**Qué cambió.** La lista se **deriva de lo cargado** (`_carteras_de`): las 4
+canónicas primero, siempre y en su orden, y detrás cualquier otra cartera
+presente en el período, alfabética y con rótulo `Cartera {X}`. Aplica al
+DETALLE y a la composición del RESUMEN. `huerfanos` pasa a ser **solo el título
+sin ficha** — el único que de verdad no tiene cartera. El desplegable de REGLA
+DE MONEDA ahora ofrece las carteras reales del maestro en vez de las 4 fijas.
+
+**Ningún monto cambia.** Esos títulos ya sumaban al total con el mismo divisor;
+lo que cambia es dónde se muestran.
+
+**⚠️ El divisor sigue sin adivinarse.** Una cartera fuera de ARS/DL/HD vale
+`vn × px` (por unidad). Si DEUDORES cotizara en **paridad**, hay que sumarla a
+`_DIVISOR_PARIDAD` — errarle es un factor 100 y no se ve como un error, se ve
+como un monto. Congelado por test.
+
 
 ### 2026-08-19 — Fuera toda la automatización: ACA es 100% carga manual
 

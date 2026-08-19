@@ -65,8 +65,11 @@ from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
-# Las 4 carteras del informe, EN EL ORDEN en que se leen en pantalla, con el
-# rótulo que usa la planilla (la cartera 'ARS' se titula "Cartera Pesos").
+# Carteras CANÓNICAS del informe: las 4 que la planilla siempre muestra, EN EL
+# ORDEN en que se leen en pantalla y con su rótulo propio. NO son el universo:
+# el informe arma un cuadro para CUALQUIER cartera que aparezca cargada (ver
+# `_carteras_de`). Estas 4 se muestran siempre, aunque cierren en cero — que una
+# cartera valga 0 es información; que la fila desaparezca no dice nada.
 CARTERAS: tuple[str, ...] = ("ARS", "DL", "HD", "FCI")
 CARTERA_LABEL: dict[str, str] = {
     "ARS": "Cartera Pesos",
@@ -75,11 +78,38 @@ CARTERA_LABEL: dict[str, str] = {
     "FCI": "Cartera FCI",
 }
 
+
+def _cartera_de(a: dict) -> str:
+    """La cartera de una fila, normalizada. '' = el título no tiene ficha en
+    `portafolio.assets` (ese sí es un huérfano de verdad)."""
+    return (a.get("cartera") or "").strip().upper()
+
+
+def _carteras_de(filas: list[dict]) -> list[str]:
+    """Las carteras que el informe abre en cuadro, en orden de pantalla.
+
+    Las 4 canónicas SIEMPRE, después cualquier otra que aparezca en el período,
+    alfabética. Hasta el 2026-08-19 esto era la constante `CARTERAS` y punto: un
+    título cuya ficha decía DEUDORES (o cualquier cartera que el maestro tenga y
+    esta lista no) sumaba al total pero no entraba a ningún cuadro, y la única
+    salida era editar el código. Derivarlo de los datos hace que una cartera
+    nueva en Manager → Títulos aparezca sola.
+    """
+    extra = sorted({_cartera_de(a) for a in filas if _cartera_de(a)} - set(CARTERAS))
+    return [*CARTERAS, *extra]
+
+
+def _label_cartera(cartera: str) -> str:
+    return CARTERA_LABEL.get(cartera, f"Cartera {cartera}")
+
 # Divisor del monto por cartera — MISMA regla que la valuación del AuM
 # (jobs/portafolio_backfill y pnl.py::_aplicar_normalizer): la renta fija cotiza
 # en paridad (precio por cada 100 de nominal) y el resto cotiza por unidad.
 # Verificado contra la planilla: FCI IAM Performance Americas, 84.903 × 1,16 =
 # 98.487, que es exactamente el monto del informe.
+# ⚠️ Una cartera que NO esté acá cotiza por unidad (vn × px). Si aparece una
+# nueva que cotiza en paridad, sumarla — el error es de factor 100 y no se ve
+# como error, se ve como un monto.
 _DIVISOR_PARIDAD = frozenset({"ARS", "DL", "HD"})
 
 # Bloques de emisores de MÉTRICAS GENERALES. `privados` es una selección curada
@@ -427,22 +457,23 @@ def detalle(periodo: str) -> dict:
     p = _norm_periodo(periodo)
     filas = _activos_periodo(p)
     bloques = []
-    for cartera in CARTERAS:
-        propias = [a for a in filas if a["cartera"] == cartera]
+    for cartera in _carteras_de(filas):
+        propias = [a for a in filas if _cartera_de(a) == cartera]
         total = sum(a["monto"] or 0.0 for a in propias)
         for a in propias:
             a["share"] = ((a["monto"] or 0.0) / total) if total else None
         bloques.append({
             "cartera": cartera,
-            "label":   CARTERA_LABEL.get(cartera, cartera),
+            "label":   _label_cartera(cartera),
             "total":   total,
             "filas":   propias,
         })
-    # Activos cargados cuya ficha los manda a una cartera que el informe no tiene
-    # (o que quedaron sin ficha). No se descartan en silencio: sin este bloque, un
-    # título mal clasificado en Manager → Títulos desaparecería de la pantalla
-    # pero seguiría existiendo en la base.
-    huerfanos = [a for a in filas if a["cartera"] not in CARTERAS]
+    # Huérfano es SOLO el título SIN FICHA en `portafolio.assets`: no tiene
+    # cartera que lo ubique en ningún lado. Una cartera que el informe no
+    # conocía ya NO cae acá — abre su propio cuadro. No se descartan en
+    # silencio: sin este bloque, un título sin ficha desaparecería de la
+    # pantalla pero seguiría sumando al total.
+    huerfanos = [a for a in filas if not _cartera_de(a)]
     return {
         "periodo": p,
         "bloques": bloques,
@@ -767,16 +798,17 @@ def _resumen_de(periodo: str, reglas: dict[str, dict[str, str]]) -> dict:
     filas = _activos_periodo(periodo)
     total = sum(a["monto"] or 0.0 for a in filas)
 
-    por_cartera = {c: 0.0 for c in CARTERAS}
+    orden = _carteras_de(filas)
+    por_cartera = {c: 0.0 for c in orden}
     otras = 0.0
     por_moneda = {"usd": 0.0, "ars": 0.0, "sin_clasificar": 0.0}
     clases_sin_regla: set[str] = set()
     for a in filas:
         monto = a["monto"] or 0.0
-        if a["cartera"] in por_cartera:
-            por_cartera[a["cartera"]] += monto
+        if _cartera_de(a) in por_cartera:
+            por_cartera[_cartera_de(a)] += monto
         else:
-            otras += monto
+            otras += monto   # sin ficha → sin cartera
         moneda = _moneda_de(a["cartera"], a["clase_activo"], reglas)
         if moneda:
             por_moneda[moneda] += monto
@@ -800,9 +832,9 @@ def _resumen_de(periodo: str, reglas: dict[str, dict[str, str]]) -> dict:
         "valuacion_a3500":   (total / a3500) if a3500 else None,
         "valuacion_usd_mep": (total / mep) if mep else None,
         "carteras": [{
-            "cartera": c, "label": CARTERA_LABEL.get(c, c),
+            "cartera": c, "label": _label_cartera(c),
             "monto": por_cartera[c], "ponderacion": _pond(por_cartera[c]),
-        } for c in CARTERAS],
+        } for c in orden],
         "otras_carteras": {"monto": otras, "ponderacion": _pond(otras)} if otras else None,
         "total_dolarizado": {"monto": por_moneda["usd"], "ponderacion": _pond(por_moneda["usd"])},
         "total_pesos":      {"monto": por_moneda["ars"], "ponderacion": _pond(por_moneda["ars"])},
@@ -1129,7 +1161,16 @@ def catalogos() -> dict:
         "clases": [dict(r) for r in clases],
         "series": _series_catalogo(incluir_inactivas=True),
         "bloques_emisor": [{"bloque": b, "label": l} for b, l in BLOQUES_EMISOR.items()],
-        "carteras": [{"cartera": c, "label": CARTERA_LABEL[c]} for c in CARTERAS],
+        # Las 4 canónicas MÁS lo que exista de verdad en el maestro de títulos:
+        # el desplegable de REGLA DE MONEDA tiene que ofrecer la cartera que el
+        # informe ya está mostrando (ej. DEUDORES), no obligar a tipearla de
+        # memoria — que era lo que pasaba cuando esta lista era la constante.
+        "carteras": [{"cartera": c, "label": _label_cartera(c)}
+                     for c in [*CARTERAS, *sorted({
+                         r["cartera"].strip().upper() for r in _q(
+                             "SELECT DISTINCT cartera FROM portafolio.assets "
+                             "WHERE cartera IS NOT NULL AND cartera <> ''")
+                         if r["cartera"] and r["cartera"].strip()} - set(CARTERAS))]],
         "carteras_por_clase": list(CARTERAS_POR_CLASE),
         "graficos": list(GRAFICOS),
         # Valores que YA existen en el catálogo de títulos: sirve para que el

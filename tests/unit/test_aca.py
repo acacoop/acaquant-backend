@@ -234,6 +234,58 @@ def test_toda_escritura_del_service_valida_el_permiso():
             f"{nombre} escribe SIN validar el permiso — un empleado_aca podría editarlo")
 
 
+# ── El informe abre cuadro para CUALQUIER cartera cargada ──────────────────
+# Incidente 2026-08-19: 3 títulos con cartera DEUDORES (que existe en el maestro
+# de Manager → Títulos) sumaban al total pero no aparecían en ningún cuadro, y
+# la vista los cantaba como huérfanos. La lista de carteras era una constante
+# cerrada de 4, así que la única forma de agregar una era tocar el código —
+# ni creando la cartera ni dándole regla de moneda se resolvía.
+
+def _fila(cartera, monto=100.0):
+    return {"cartera": cartera, "monto": monto}
+
+
+def test_una_cartera_nueva_abre_su_propio_cuadro():
+    filas = [_fila("ARS"), _fila("DEUDORES")]
+    assert "DEUDORES" in aca._carteras_de(filas)
+
+
+def test_las_cuatro_canonicas_van_siempre_y_primero():
+    """Aunque cierren en cero: que una cartera valga 0 es información."""
+    orden = aca._carteras_de([_fila("DEUDORES")])
+    assert orden[:4] == list(aca.CARTERAS)
+    assert orden == ["ARS", "DL", "HD", "FCI", "DEUDORES"]
+
+
+def test_las_carteras_extra_van_ordenadas_y_sin_repetir():
+    orden = aca._carteras_de([_fila("ZZZ"), _fila("DEUDORES"), _fila("DEUDORES")])
+    assert orden[4:] == ["DEUDORES", "ZZZ"]
+
+
+def test_la_cartera_se_normaliza():
+    """El maestro puede tener ' deudores ' y el informe 'DEUDORES': una sola."""
+    assert aca._carteras_de([_fila(" deudores "), _fila("DEUDORES")])[4:] == ["DEUDORES"]
+
+
+def test_sin_ficha_no_inventa_una_cartera():
+    """Un título que no existe en portafolio.assets no abre cuadro — es el
+    único huérfano de verdad."""
+    assert aca._carteras_de([_fila(None), _fila("")]) == list(aca.CARTERAS)
+
+
+def test_el_label_de_una_cartera_nueva_no_queda_pelado():
+    assert aca._label_cartera("ARS") == "Cartera Pesos"
+    assert aca._label_cartera("DEUDORES") == "Cartera DEUDORES"
+
+
+def test_una_cartera_nueva_NO_cotiza_en_paridad():
+    """Congela la decisión: el divisor no se adivina. Una cartera fuera de
+    ARS/DL/HD vale vn × px. Si alguna nueva cotiza en paridad hay que sumarla a
+    _DIVISOR_PARIDAD a mano — errarle es un factor 100."""
+    assert aca._monto_fila("DEUDORES", 1000, 80, None) == 80_000
+    assert aca._monto_fila("ARS", 1000, 80, None) == 800
+
+
 # ── NADA se completa solo desde otra fuente (2026-08-19) ───────────────────
 # Decisión del user, textual: "nada de ACA tiene que ser automático… en el
 # sentido de cargar datos solos de otras fuentes". El histórico tenía series con

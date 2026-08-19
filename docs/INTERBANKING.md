@@ -408,6 +408,32 @@ poll, sin recomputar nada y sin poder contradecir al catálogo. Y borrar un bald
 no rompe nada: sus movimientos pasan a MOVIMIENTOS RESTANTES y **ningún total
 cambia**.
 
+### Borrar: solo una columna VACÍA
+
+**Incidente 2026-08-19.** Alguien borró COM.TRANSF **con sus tres textos** de un
+clic, y **no se pudieron recuperar**: la baja auditaba la clave y el nombre de la
+columna, y los matchers se iban por `ON DELETE CASCADE` **sin quedar registrados
+en ningún lado**. Dos errores en uno — un botón demasiado fácil de apretar y una
+auditoría que guardaba la mitad — y el que los cometió fui yo al escribirlo.
+
+Las dos cosas quedaron arregladas:
+
+- **No se puede borrar una columna con textos cargados** (lo exige el backend, y
+  la pantalla directamente no muestra el ✕). Primero hay que sacarlos de a uno, y
+  **cada uno queda auditado por separado** con su campo, operador y valor. Así el
+  gesto destructivo se vuelve deliberado en vez de instantáneo, y siempre queda
+  de dónde reconstruir. Una columna **vacía** sí se borra: no hay conocimiento
+  que perder, y es el caso real de «me equivoqué al crearla».
+- **La auditoría guarda el balde completo, con sus textos.** Aunque hoy no se
+  pueda borrar uno cargado, si mañana alguien afloja la regla el rastro ya está.
+  Cuesta una línea; que el dato no se evapore no tiene precio.
+- Sacar un texto pide **confirmación** y dice qué se lleva puesto.
+
+> El patrón general, que vale para cualquier ABM de este repo: **una baja tiene
+> que auditar lo que se lleva, no lo que se ve.** Auditar el padre y dejar que
+> los hijos se vayan por cascada es exactamente la forma de perder datos sin
+> enterarse.
+
 ⚠️ **Las dos trampas están explicadas DENTRO de la pantalla**, no solo acá:
 `contiene` vs `es igual` (con `contiene`, «IVA» se come «IVAPERCEP» — el total
 sigue dando bien y dos columnas quedan mal) y qué significa el orden. Un ABM que
@@ -738,6 +764,12 @@ La pantalla arranca mostrando **solo las cuentas con diferencia**, con un
 Respeta el filtro por banco de la vista.
 
 ## Changelog
+
+- **2026-08-19 (3)** — **No se puede borrar una columna del desglose con textos
+  cargados** (ver arriba). Nació de perder COM.TRANSF y sus tres textos de un
+  clic, sin poder recuperarlos porque la auditoría de la baja guardaba la mitad.
+  Ahora la baja audita el balde COMPLETO y la columna cargada se desarma texto
+  por texto, cada uno con su registro y su confirmación.
 
 - **2026-08-19 (2)** — ⚠️ **El importe viene FIRMADO del banco** y el código le
   aplicaba el signo otra vez: las sumas devolvían los valores absolutos. Lo

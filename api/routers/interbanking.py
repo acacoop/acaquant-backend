@@ -241,8 +241,13 @@ def reordenar_baldes(
 
 @router.delete("/gastos/desglose/{clave}")
 def borrar_balde(clave: str, email: str = Depends(get_user_email)) -> dict:
-    if not _svc.borrar_balde(_exigir_escritura(email), clave):
-        raise HTTPException(404, "Ese balde no existe.")
+    """Baja de una columna. **Solo si no tiene textos cargados** — ver
+    `bancos.borrar_balde`."""
+    try:
+        if not _svc.borrar_balde(_exigir_escritura(email), clave):
+            raise HTTPException(404, "Ese balde no existe.")
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     return {"ok": True}
 
 

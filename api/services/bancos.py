@@ -1214,15 +1214,38 @@ def reordenar_baldes(email: str, claves: list[str]) -> list[dict]:
 
 
 def borrar_balde(email: str, clave: str) -> bool:
-    """Baja FÍSICA — con sus matchers por CASCADE. No hay histórico que huerfanar:
-    el desglose se deriva en la lectura, así que borrar un balde simplemente hace
-    que sus movimientos pasen a MOVIMIENTOS RESTANTES. Ningún total cambia."""
-    filas = _q("SELECT clave, etiqueta FROM bancos.gastos_baldes WHERE clave = %s",
+    """Baja de una columna. **Solo si NO tiene textos cargados.**
+
+    ⚠️ Esta regla nació de un incidente (2026-08-19): alguien borró COM.TRANSF con
+    sus tres textos de un clic, y **no se pudieron recuperar** — la baja auditaba
+    la clave y el nombre, pero los matchers se iban por CASCADE sin quedar
+    registrados en ningún lado. Dos errores en uno: un botón demasiado fácil de
+    apretar, y una auditoría que guardaba la mitad.
+
+    Las dos cosas se arreglaron:
+
+    · **No se puede borrar una columna con textos.** Primero hay que sacarlos de
+      a uno, y cada uno queda auditado por separado. Así el gesto destructivo se
+      vuelve deliberado en vez de instantáneo, y siempre hay de dónde
+      reconstruir. Una columna VACÍA sí se borra: no hay conocimiento que perder,
+      y es el caso real de «me equivoqué al crearla».
+    · **La auditoría guarda el balde COMPLETO**, con sus textos. Aunque hoy no se
+      pueda borrar uno cargado, si mañana alguien afloja la regla el rastro ya
+      está — el costo es una línea y el beneficio es que el dato no se evapora.
+    """
+    filas = _q("SELECT clave, etiqueta, grupo, orden FROM bancos.gastos_baldes WHERE clave = %s",
                (clave,))
     if not filas:
         return False
+    textos = _q("""SELECT id, campo, operador, valor FROM bancos.gastos_balde_matchers
+                    WHERE balde = %s ORDER BY id""", (clave,))
+    if textos:
+        raise ValueError(
+            f"«{filas[0]['etiqueta']}» tiene {len(textos)} texto(s) cargado(s). "
+            "Sacalos primero, de a uno: así no se pierde de un clic lo que costó "
+            "descubrir banco por banco.")
     _exec("DELETE FROM bancos.gastos_baldes WHERE clave = %s", (clave,))
-    _audit(email, "balde_baja", filas[0])
+    _audit(email, "balde_baja", {**filas[0], "textos": textos})
     return True
 
 

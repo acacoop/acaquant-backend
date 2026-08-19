@@ -512,3 +512,47 @@ def test_un_gasto_suma_en_POSITIVO(monkeypatch):
     out = svc._gastos_bancarios(date(2026, 8, 18), semilla_catalogo())
     assert out[1]["total"] == 86.73
     assert out[1]["iva"] == 86.73
+
+
+# --------------------------------------------------------------------------- #
+# BORRAR una columna: solo si está VACÍA
+# --------------------------------------------------------------------------- #
+# Incidente 2026-08-19: alguien borró COM.TRANSF con sus tres textos de un clic y
+# no se pudieron recuperar — la baja auditaba la clave y el nombre, y los
+# matchers se iban por CASCADE sin quedar registrados. Dos errores en uno: un
+# botón demasiado fácil de apretar y una auditoría que guardaba la mitad.
+def test_no_se_borra_una_columna_CON_textos(monkeypatch):
+    """El gesto destructivo tiene que ser deliberado: primero se sacan los textos
+    de a uno —cada uno queda auditado— y recién ahí se puede borrar la columna."""
+    from api.services import bancos as svc
+
+    def _q(sql, params=None):
+        t = " ".join(str(sql).split())
+        if "gastos_balde_matchers" in t:
+            return [{"id": 1, "campo": "descripcion_ib", "operador": "contiene",
+                     "valor": "COM.TRANSF"}]
+        return [{"clave": "comtransf", "etiqueta": "COM.TRANSF",
+                 "grupo": "concepto", "orden": 40}]
+
+    monkeypatch.setattr(svc, "_q", _q)
+    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: 1)
+    with pytest.raises(ValueError, match="texto"):
+        svc.borrar_balde("x@y", "comtransf")
+
+
+def test_una_columna_VACIA_si_se_borra(monkeypatch):
+    """El caso real de «me equivoqué al crearla»: sin textos no hay conocimiento
+    que perder, y prohibirlo dejaría basura para siempre."""
+    from api.services import bancos as svc
+
+    borrados: list = []
+
+    def _q(sql, params=None):
+        if "gastos_balde_matchers" in " ".join(str(sql).split()):
+            return []
+        return [{"clave": "x", "etiqueta": "X", "grupo": "otros", "orden": 90}]
+
+    monkeypatch.setattr(svc, "_q", _q)
+    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: borrados.append(sql) or 1)
+    assert svc.borrar_balde("x@y", "x") is True
+    assert any("DELETE" in str(x) for x in borrados)

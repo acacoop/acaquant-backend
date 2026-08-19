@@ -37,9 +37,9 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **535 endpoints** montados en `api.main.app`, en **30 routers**.
-- **202 escriben** (POST/PUT/PATCH/DELETE); 333 son de solo lectura.
-- **23 módulos** canónicos y **7 roles** en `core/roles.py`.
+- **542 endpoints** montados en `api.main.app`, en **31 routers**.
+- **208 escriben** (POST/PUT/PATCH/DELETE); 334 son de solo lectura.
+- **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
 ### 0.1 Endpoints y gate efectivo, por router
@@ -50,16 +50,17 @@
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
 | `/api/analitica` | 14 | 1 | — | — | ⚠️ |
-| `/api/back-office` | 59 | 35 | `back-office` · 59 rutas con gate extra | `back-office` |  |
+| `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
+| `/api/back-office` | 59 | 35 | `back-office` · 30 rutas con gate extra | `back-office` |  |
 | `/api/back-office/interbanking` | 18 | 13 | `back-office` · 15 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
 | `/api/estrategia` | 4 | 0 | `trading` | — |  |
-| `/api/ia` | 33 | 22 | `ia` · 32 rutas con gate extra | `ia` |  |
+| `/api/ia` | 44 | 29 | `ia` · 43 rutas con gate extra | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 150 | 71 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
+| `/api/manager` | 144 | 69 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 4 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 9 | 4 | — · 8 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
@@ -120,7 +121,6 @@ No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtim
 | `back-office` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | `research` | ✓ | · | · | · | · | · | ✓ |
 | `ia` | ✓ | · | · | · | · | · | ✓ |
-| `asistente` | ✓ | · | · | · | · | · | · |
 | `aca` | ✓ | · | · | ✓ | · | · | · |
 | `manager` | ✓ | · | · | · | · | · | · |
 | `manager_clientes` | ✓ | · | · | · | ✓ | · | · |

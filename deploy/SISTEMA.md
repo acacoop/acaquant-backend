@@ -75,6 +75,7 @@
 | 12,14,16,18,20,22:0 · L-V | `jobs.interbanking_sync'` |
 | 12,16,20,23:0 · L-V | `jobs.fred_research'` |
 | 12,16,20,23:0 · 1-6 | `jobs.bcra_research'` |
+| 13,15,17,19:0 · L-V | `jobs.av_agent'` |
 | 14:00 · L-V | `jobs.sync_comitentes'` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
 | 17:00 · L-V | `jobs.sync_comitentes'` |

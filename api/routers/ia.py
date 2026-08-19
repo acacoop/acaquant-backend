@@ -610,3 +610,23 @@ def av_agent_sin_precio(body: DiagnosticoSinPrecio):
     Cero red y cero créditos. No escribe nada."""
     from api.services import av_agent_sin_precio as svc
     return svc.diagnosticar(body.ticker)
+
+
+@router.post("/av-agent/relevar", dependencies=[Depends(require_admin)])
+def av_agent_relevar(alcance: str = "soberanos",
+                     email: str = Depends(get_user_email)):
+    """**Volver a mirar AHORA**, desde la pantalla.
+
+    Censa 1816 (~29 créditos) y reescribe los hallazgos. Corre en background: son
+    ~29 llamadas a 1 por segundo, y ningún request HTTP debería esperar eso.
+    Un lock evita que dos clicks gasten el doble para escribir lo mismo."""
+    from api.services import av_agent_relevar as svc
+    return svc.arrancar(alcance=alcance, por=email or "")
+
+
+@router.get("/av-agent/relevar", dependencies=[Depends(require_admin)])
+def av_agent_relevar_estado():
+    """¿Hay una relevada en curso? El modal lo usa para no ofrecer el botón dos
+    veces y para poder decir «ya está corriendo» en vez de no hacer nada."""
+    from api.services import av_agent_relevar as svc
+    return svc.corriendo()

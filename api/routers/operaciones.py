@@ -99,6 +99,33 @@ def flujos_resumen(
     return _cf_sql.flujos_resumen(desde=desde, hasta=hasta, scope=scope)
 
 
+@router.get("/flujos/serie")
+@cached(ttl=300)
+def flujos_serie(
+    ventana_desde: str | None = Query(None, description="Inicio de la ventana LEÍDA (YYYY-MM-DD)"),
+    ventana_hasta: str | None = Query(None, description="Fin de la ventana LEÍDA (YYYY-MM-DD)"),
+    desde: str | None = Query(None, description="Recorte del calendario, solo afecta lo graficado"),
+    hasta: str | None = Query(None, description="Recorte del calendario, solo afecta lo graficado"),
+    agg: str = Query("DIARIO", description="DIARIO | MENSUAL"),
+    filtro: str = Query("todas", description="todas | sin_accionistas | solo_accionistas | solo_cooperativas"),
+    seleccion: str | None = Query(None, description="Cuenta o grupo elegido en el 2do selector"),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+):
+    """Lo que la tab DEPÓSITOS & EXTRACCIONES dibuja, ya agregado server-side:
+    serie por periodo × moneda, totales, opciones del selector y bounds del
+    calendario.
+
+    Reemplaza a `/flujos/resumen` como fuente de esa vista. El grano bajaba
+    20.559 filas / 2.512 KB en cada apertura (medido `scripts/diag_peso_operaciones`)
+    para que el browser filtrara y agrupara; acá viaja solo lo que se grafica.
+    `/flujos/resumen` queda vivo por si algo más lo consume."""
+    if filtro not in _cf_sql.FLUJOS_FILTROS:
+        raise HTTPException(status_code=400, detail=f"filtro inválido: {filtro!r}")
+    return _cf_sql.flujos_serie(ventana_desde=ventana_desde, ventana_hasta=ventana_hasta,
+                                desde=desde, hasta=hasta, agg=agg, filtro=filtro,
+                                seleccion=seleccion, scope=scope)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # OPERACIONES (vista MOVIMIENTOS) — lee operaciones.operaciones (fuente: API
 # informes), enriquecida con moneda/mercado/operacion en la ingesta

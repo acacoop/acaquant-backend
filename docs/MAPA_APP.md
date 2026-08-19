@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **548 endpoints** montados en `api.main.app`, en **31 routers**.
-- **212 escriben** (POST/PUT/PATCH/DELETE); 336 son de solo lectura.
+- **549 endpoints** montados en `api.main.app`, en **31 routers**.
+- **212 escriben** (POST/PUT/PATCH/DELETE); 337 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -64,7 +64,7 @@
 | `/api/market` | 4 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 9 | 4 | — · 8 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
-| `/api/operaciones` | 50 | 8 | `operaciones` · 23 rutas con gate extra | `operaciones` |  |
+| `/api/operaciones` | 51 | 8 | `operaciones` · 24 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
@@ -1160,7 +1160,7 @@ Shell **keep-alive** (cada tab se monta una vez y luego se oculta con CSS), tab 
 | **AGRO** | Toneladas de futuros+opciones agro: serie por periodo, serie de la cuenta elegida, share nuestro/mercado por commodity (solo futuros), totales por commodity/cuenta/instrumento, desglose FUTURO/OPCIÓN | `/ops/agro`, `/ops/fechas`, `/ops/niveles5` | `desde`/`hasta` (acotado a bounds reales; def YTD del último año con datos), `agg=DIARIO`, **select nivel 5**, **select tipo** FUTURO/OPCION/ambos, cross-filter commodity + cuenta. Tabs internos del chart: volumen / por tipo / share | Ninguna |
 | **DÓLAR FUTURO** | Nocional USD de DLR (1 contrato = USD 1.000), arancel ARS y boletos: `por_tipo` (Compra/Venta), `por_cuenta`, `por_instrumento`, serie split | `/ops/dolar-futuro`, `/ops/fechas`, `/ops/niveles5` | Modo de rango (def `MES`), `agg=DIARIO`, select nivel 5, cross-filter 3-way tipo/cuenta/instrumento | Ninguna |
 | **DIFERENCIAS DIARIAS** | Liquidación mark-to-market de futuros desde `negocio_movimientos`: por producto/cuenta/instrumento + serie Σ importe por día | `/ops/diferencias-diarias`, `/ops/diferencias-fechas`, `/ops/niveles5` | **Moneda `USDL`/`ARS`** (nunca se suman juntas; cambiarla limpia los cross-filters), modo de rango (def MES) anclado a **fechas propias** de esta vista, select nivel 5, cross-filter 3-way, agg del chart DIA/SEM/MES (client-side) | Ninguna |
-| **DEPÓSITOS & EXTRACCIONES** | Entradas/salidas por (día, cuenta, moneda) de `operaciones.negocio_movimientos` (categorías depósito/transferencia/extracción, sin anulados) **+ complemento** de `operaciones.movimientos` (solo los comprobantes que la principal no trae) | `GET /api/cashflow` (proxy que compone `/operaciones/flujos/resumen` + `/cuentas/accionistas`) | Rango desde/hasta (def todo el universo), toggles **ARS** y **USD** independientes, granularidad Diario/Mensual, **filtro de cuenta** Todas / Solo accionistas / Sin accionistas (**client-side en React**) + selector de accionista/cuenta | Ninguna |
+| **DEPÓSITOS & EXTRACCIONES** | Entradas/salidas por (día, cuenta, moneda) de `operaciones.negocio_movimientos` (categorías depósito/transferencia/extracción, sin anulados) **+ complemento** de `operaciones.movimientos` (solo los comprobantes que la principal no trae) | `GET /api/cashflow` (proxy de `/operaciones/flujos/serie`) | Rango desde/hasta (def todo el universo), toggles **ARS** y **USD** independientes, granularidad Diario/Mensual, **filtro de cuenta** Todas / Solo accionistas / Sin accionistas / Solo cooperativas + selector de accionista/cuenta — **todo server-side desde 2026-08-19**: antes bajaba el grano (día × cuenta × unidad) de 2 años y React filtraba y agrupaba en el browser, 20.559 filas y 2.512 KB por apertura (medido `scripts/diag_peso_operaciones`); ahora viaja la serie ya agregada, ~28 KB en diario y ~10 KB en mensual. El toggle de monedas NO refetchea (la serie trae las dos) | Ninguna |
 | **FINANCIAMIENTO** (`financiamiento-view.tsx`) | Libro VIVO de pagarés/cheques: `portafolio.assets` con `cartera='FINANCIAMIENTO'` y **vencimiento HOY o posterior**, cruzado con la tenencia del último snapshot. 2×2 al 50%: **①** Σ cantidad por cuenta comitente · **②** cantidad + **tasa** por instrumento · **③** barras Σ cantidad por fecha de vencimiento · **④** **CALCULADORA DE DESCUENTO** (`financiamiento-descuento.tsx`, 2 tabs) — reemplaza la planilla Excel con la que la mesa cotizaba el descuento de un cheque/pagaré. **No cruza con los otros tres**: cotiza una operación hipotética, no lee el libro, así que los filtros de la barra no lo tocan. **Se mira NOMINAL y TASA, nunca bruto** (se compran con descuento y la mayoría son dólar-linked liquidados en pesos → el importe pagado no compara entre filas) | `/financiamiento` (un solo GET: manda el grano cuenta × instrumento y el cruce lo hace el front sin refetch) | **CLASE `HD` / `DL` / `SIN CLASIFICAR`** (con su conteo) — la vista muestra **UNA clase por vez y nunca suma dos**: son escalas distintas y un HD de 500.000 junto a un DL de 27.000.000 deja al HD invisible. Sale de `assets.clase_activo`, NO de `tenencia.moneda` (que viaja como columna informativa). Default = primera con datos en el orden fijo HD→DL→sin clasificar. Además: buscador (cliente/cuenta/ticker/emisor), agg del chart DIA/SEM/MES. **Cross-filter 3-way** cuenta ↔ instrumento ↔ barra de vencimiento: cada panel agrega sobre lo filtrado por los otros dos (el panel ④ queda afuera del cruce). Dentro de ④: tab **CALCULADORA** (monto · tasa · días · instrumento CHEQUE\|PAGARÉ · aval SGR) y tab **DATOS** | **Sí, solo en el panel ④ → tab DATOS**: catálogo de SGRs (costo cheque/pagaré + observación) y arancel ACA + derecho de mercado. Lo puede editar cualquiera que entre a FINANCIAMIENTO (módulo `operaciones`) — decisión explícita del user: son parámetros comerciales, no info sensible. **La calculadora en sí NO persiste nada** |
 
 #### Endpoints — `operaciones.py` (`/api/operaciones`), bloque no-comercial
@@ -1169,7 +1169,8 @@ Shell **keep-alive** (cada tab se monta una vez y luego se oculta con CSS), tab 
 | GET | `/flujo` | Flujo de contrapartes — operaciones individuales de un día. Match por `id_cuenta` contra `clientes.contrapartes`. **Excluye Futuros/Opciones y caución colocadora** (vienen en pares y duplicarían) | `contraparte`, `moneda`, `segmento`, `desde`, `hasta` | No |
 | GET | `/flujo/resumen` | Agregado por (día, contraparte, moneda) + `grupos` + `monedas`. `@cached(300)` | `desde`, `hasta` | No |
 | GET | `/flujos` | Movimientos crudos (depósitos/extracciones). `@cached(300)` | `cuenta` (`[N] NOMBRE`), `unidad`, `desde`, `hasta` + `scope` | No |
-| GET | `/flujos/resumen` | Resumen por (día, cuenta, unidad) con entradas y salidas separadas | `desde`, `hasta` + `scope` | No |
+| GET | `/flujos/resumen` | Resumen por (día, cuenta, unidad) con entradas y salidas separadas. **Ya no lo consume la vista** (lo usa `/flujos/serie` por dentro); queda expuesto por si algo más lo necesita | `desde`, `hasta` + `scope` | No |
+| GET | `/flujos/serie` | Lo que DEPÓSITOS & EXTRACCIONES dibuja, ya agregado: serie por periodo × moneda, totales, opciones del selector y bounds del calendario. **Dos rangos distintos**: `ventana_*` es lo que se LEE y `desde`/`hasta` el recorte que se GRAFICA — el desplegable y los topes del calendario salen de la ventana, si salieran del recorte se irían vaciando solos | `ventana_desde`, `ventana_hasta`, `desde`, `hasta`, `agg`, `filtro`, `seleccion` + `scope` | No |
 | GET | `/ops/mercados` · `/ops/carteras` · `/ops/segmentos` · `/ops/niveles3` · `/ops/niveles5` | Valores distintos para los selectores (`@cached` 300/600) | — | No |
 | GET | `/ops/fechas` | Fechas con operaciones (desc) + count. `@cached(120)` | — | No |
 | GET | `/ops/meta` | Metadata del día: nº boletos, última ingesta, nº mercados | `fecha` (**req**) | No |
@@ -1366,7 +1367,7 @@ el nombre del fondo se limpia en el front (`"[1004] CAFCI632-1004 - Balanz Retor
 de catálogo de referidos**: se deriva de `/comercial/dimensiones` sumando `n_cuentas`.
 
 ### Filtros de cuenta transversales de este dominio
-1. **`scope_cuentas` (grupos)** — el único que es de SEGURIDAD. Lo reciben `/flujos`, `/flujos/resumen`,
+1. **`scope_cuentas` (grupos)** — el único que es de SEGURIDAD. Lo reciben `/flujos`, `/flujos/resumen`, `/flujos/serie`,
    `/ops/serie`, `/ops/resumen`, `/ops/agro`, `/ops/dolar-futuro`, `/ops/diferencias-diarias`,
    `/ops/aranceles`, `/ops/cuentas-list`. Verificación puntual por cuenta en `/comercial/portafolio`,
    `/operaciones`, `/analisis/detalle`, `/cobros-futuros/cliente` (403) y `/comercial/serie` (opcional).

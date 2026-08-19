@@ -264,6 +264,163 @@ def flujos_resumen(
     return {"filas": filas}
 
 
+# ── DEPÓSITOS & EXTRACCIONES — la vista agregada, lista para graficar ────────
+# POR QUÉ EXISTE, sobre `flujos_resumen` que ya estaba:
+#
+# `flujos_resumen` devuelve el GRANO (día × cuenta × unidad) y la vista hacía
+# TODO en el browser: filtrar por rango, por moneda, por accionista, elegir una
+# cuenta, agrupar a día o mes y sumar los totales. Medido en el Droplet
+# (`scripts/diag_peso_operaciones`, 2026-08-19) eso son **20.559 filas y 2.512 KB
+# en cada apertura de la tab** — 4,3× más que el peor caso de todos los otros
+# tabs de la vista JUNTOS, y sin selector de rango que lo acote: baja 2 años
+# siempre.
+#
+# Lo que el gráfico realmente dibuja son ~500 barras (una por día) o 24 (una por
+# mes) con dos números cada una. Todo lo demás viajaba para que el browser lo
+# descartara.
+#
+# Qué NO arregla esto, para no venderlo de más: el trabajo de la BASE es el
+# mismo (se leen las mismas filas). Lo que baja ~55× es el payload y el trabajo
+# del browser, que es de donde venía la lentitud percibida.
+#
+# La semántica de los filtros es un ESPEJO EXACTO de la que tenía el front —
+# misma clave de accionista (el string completo `[N] NOMBRE`, no el id) y la
+# misma regla de cooperativa. Si divergen, la vista muestra otros números sin
+# dar ningún error.
+#
+# El \b NO es decorativo: es el mismo que tenía el front (/\bcoop/i) y hace que
+# 'coop' tenga que ARRANCAR palabra. Sin él, una cuenta como 'AGROCOOP' pasaría
+# a contar como cooperativa y se movería de categoría en silencio.
+_COOP_RE = re.compile(r"\bcoop", re.I)
+
+# Los cuatro valores del selector "Cuentas" de la vista.
+FLUJOS_FILTROS = ("todas", "sin_accionistas", "solo_accionistas", "solo_cooperativas")
+
+
+def _accionistas_map() -> dict[str, str]:
+    """`{cuenta '[N] NOMBRE': grupo}` — el mismo mapa que el front armaba con
+    `/api/cuentas/accionistas`. La clave es la cuenta COMPLETA porque así viene
+    en `movimientos.cuenta`, que es contra lo que se compara."""
+    rows = _q("SELECT cuenta, accionista FROM accionistas "
+              "WHERE cuenta IS NOT NULL AND cuenta <> ''")
+    return {str(r["cuenta"]).strip(): (r["accionista"] or "") for r in rows}
+
+
+def _pasa_filtro(cuenta: str, grupo: str | None, filtro: str,
+                 seleccion: str | None) -> bool:
+    """El mismo predicado que corría en el browser, escrito UNA vez."""
+    sel = seleccion if seleccion not in (None, "", "__TODAS__") else None
+    if filtro == "sin_accionistas":
+        if grupo:
+            return False
+        return sel is None or cuenta == sel
+    if filtro == "solo_accionistas":
+        if not grupo:
+            return False
+        return sel is None or grupo == sel
+    if filtro == "solo_cooperativas":
+        if grupo or not _COOP_RE.search(cuenta or ""):
+            return False
+        return sel is None or cuenta == sel
+    return sel is None or cuenta == sel
+
+
+@cached(ttl=300)
+def flujos_serie(
+    ventana_desde: str | None = None, ventana_hasta: str | None = None,
+    desde: str | None = None, hasta: str | None = None, agg: str = "DIARIO",
+    filtro: str = "todas", seleccion: str | None = None,
+    scope: tuple[str, ...] | None = None,
+) -> dict:
+    """Lo que la tab DEPÓSITOS & EXTRACCIONES dibuja, ya agregado.
+
+    **Dos rangos, y no son lo mismo.** `ventana_*` es lo que se LEE (la ventana
+    fija de la vista, hoy 2 años); `desde`/`hasta` es el recorte que el usuario
+    eligió con el calendario y solo afecta a lo que se GRAFICA. Están separados
+    porque el desplegable de cuentas y los topes del calendario se calculaban en
+    el browser sobre las filas de la ventana entera, no sobre el recorte: si se
+    calcularan sobre el recorte, achicar el rango iría vaciando el desplegable y
+    encerraría al calendario en el rango ya elegido, sin forma de volver.
+
+    De yapa, leer siempre la misma ventana hace que la lectura pesada (`flujos_resumen`)
+    tenga UNA sola entrada de cache compartida por todos los usuarios y todos los
+    filtros, en vez de una por combinación.
+
+    Devuelve:
+      * `serie`    — una fila por periodo (día o mes) con el NETO de ARS y USD.
+      * `totales`  — entradas y salidas por moneda, del recorte pedido.
+      * `opciones` — los valores del segundo desplegable, que dependen del
+                     primero (cuentas, o grupos de accionistas). Sobre la
+                     ventana entera y SIN aplicar la selección: si se recortaran
+                     a la cuenta elegida, elegir una dejaría el desplegable con
+                     una sola opción y no se podría volver.
+      * `bounds`   — primer y último día con movimientos de la ventana.
+
+    `agg` MENSUAL agrupa por 'YYYY-MM'; cualquier otro valor es diario. El neto
+    de una barra es `entradas + salidas` (las salidas ya vienen negativas).
+    """
+    mensual = str(agg).upper() == "MENSUAL"
+    filtro = filtro if filtro in FLUJOS_FILTROS else "todas"
+    acc = _accionistas_map()
+    filas = flujos_resumen(desde=ventana_desde, hasta=ventana_hasta,
+                           scope=scope)["filas"]
+
+    serie: dict[str, dict] = {}
+    totales = {"ARS": {"entradas": 0.0, "salidas": 0.0},
+               "USD": {"entradas": 0.0, "salidas": 0.0}}
+    cuentas: set[str] = set()
+    grupos: set[str] = set()
+    coops: set[str] = set()
+    sin_acc: set[str] = set()
+    dia_min: str | None = None
+    dia_max: str | None = None
+
+    for r in filas:
+        dia, cuenta, unidad = r["dia"], r["cuenta"] or "", r["unidad"] or ""
+        if dia:
+            dia_min = dia if dia_min is None or dia < dia_min else dia_min
+            dia_max = dia if dia_max is None or dia > dia_max else dia_max
+        # El universo de los desplegables se arma con TODAS las filas del rango
+        # (antes del filtro), que es lo que hacía el front.
+        grupo = acc.get(cuenta)
+        if cuenta:
+            cuentas.add(cuenta)
+            if grupo:
+                grupos.add(grupo)
+            else:
+                sin_acc.add(cuenta)
+                if _COOP_RE.search(cuenta):
+                    coops.add(cuenta)
+        # Recorte del calendario: filtra lo GRAFICADO, no lo leído (ver docstring).
+        if (desde and dia < desde) or (hasta and dia > hasta):
+            continue
+        if not _pasa_filtro(cuenta, grupo, filtro, seleccion):
+            continue
+        if unidad not in totales:
+            continue
+        clave = dia[:7] if mensual else dia
+        d = serie.setdefault(clave, {"periodo": clave, "ARS": 0.0, "USD": 0.0})
+        d[unidad] += (r["entradas"] or 0.0) + (r["salidas"] or 0.0)
+        totales[unidad]["entradas"] += r["entradas"] or 0.0
+        totales[unidad]["salidas"] += r["salidas"] or 0.0
+
+    opciones = {
+        "solo_accionistas": sorted(grupos),
+        "sin_accionistas": sorted(sin_acc),
+        "solo_cooperativas": sorted(coops),
+    }.get(filtro, sorted(cuentas))
+
+    return {
+        "agg": "MENSUAL" if mensual else "DIARIO",
+        "filtro": filtro,
+        "serie": [{"periodo": k, "ARS": round(v["ARS"], 2), "USD": round(v["USD"], 2)}
+                  for k, v in sorted(serie.items())],
+        "totales": {m: {k: round(x, 2) for k, x in v.items()} for m, v in totales.items()},
+        "opciones": opciones,
+        "bounds": {"min": dia_min or "", "max": dia_max or ""},
+    }
+
+
 # ── ACREENCIAS (cobros futuros) — espejo de acreencias.py (por_dia/del_dia/del_cliente) ──
 def por_dia(desde: str | None = None, hasta: str | None = None) -> list[dict]:
     """Agregado por fecha de pago: total por moneda + #clientes + #pagos. Mismo shape

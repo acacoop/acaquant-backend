@@ -137,8 +137,8 @@ def test_el_TOP_5_por_cuadrante_y_lo_que_queda_afuera_SE_DICE():
     filas = [{"id_cuenta": str(i), "cuenta": f"C{i}",
               "moneda": "ARS" if i % 2 else "USD", "saldo": (i - 10) * 100.0}
              for i in range(1, 25)]
-    _asunto, tabla, afuera = _armar(filas)
-    assert len(tabla) == 20 and afuera == 4
+    _asunto, tabla, afuera, otras = _armar(filas)
+    assert len(tabla) == 20 and afuera == 4 and otras == 0
     from collections import Counter
     c = Counter((x["datos"]["grupo"], x["datos"]["signo"]) for x in tabla)
     assert c[("ARS", "positivo")] == 5 and c[("ARS", "negativo")] == 5
@@ -149,12 +149,44 @@ def test_el_TOP_5_por_cuadrante_y_lo_que_queda_afuera_SE_DICE():
     assert negs[0]["datos"]["saldo"] < negs[-1]["datos"]["saldo"]
 
 
-def test_USDL_y_USDC_no_desaparecen():
-    """Son dólares (cable y billete). Si solo se agrupara `USD`, se caerían de la
-    vista en silencio — y la fila igual muestra la moneda exacta."""
-    from jobs.saldos_a_operadores import _grupo
-    assert _grupo("USD") == _grupo("USDL") == _grupo("USDC") == "USD"
-    assert _grupo("ARS") == "ARS"
+def test_el_aviso_es_SOLO_ARS_y_USD():
+    """Pedido del user: el aviso muestra ARS y USD. USDL (link) y USDC (cable) son
+    otra cosa — meterlos adentro de la columna USD sumaría peras con manzanas en
+    una tabla que el operador usa para actuar."""
+    from jobs.saldos_a_operadores import MONEDAS_AVISO, _armar
+    assert MONEDAS_AVISO == ("ARS", "USD")
+    filas = [{"id_cuenta": "1", "cuenta": "A", "moneda": "ARS", "saldo": 10.0},
+             {"id_cuenta": "2", "cuenta": "B", "moneda": "USD", "saldo": -5.0},
+             {"id_cuenta": "3", "cuenta": "C", "moneda": "USDL", "saldo": 99.0},
+             {"id_cuenta": "4", "cuenta": "D", "moneda": "USDC", "saldo": -7.0}]
+    _asunto, tabla, _afuera, otras = _armar(filas)
+    assert {x["datos"]["grupo"] for x in tabla} == {"ARS", "USD"}
+    assert otras == 2, "USDL y USDC no van en la tabla"
+
+
+def test_las_de_OTRA_moneda_se_cuentan_APARTE_de_las_del_top():
+    """Dos motivos distintos para no estar en la tabla: no entrar en el top 5, o
+    no ser ARS/USD. Si se sumaran en un solo número, el operador no sabría si
+    tiene que pedir el detalle o si eso directamente no le corresponde."""
+    from jobs.saldos_a_operadores import _armar
+    filas = [{"id_cuenta": str(i), "cuenta": f"C{i}", "moneda": "ARS",
+              "saldo": float(i)} for i in range(1, 9)]
+    filas += [{"id_cuenta": "x", "cuenta": "X", "moneda": "USDL", "saldo": 1.0}]
+    _asunto, tabla, afuera, otras = _armar(filas)
+    assert len(tabla) == 5 and afuera == 3 and otras == 1
+
+
+def test_el_ASUNTO_cuenta_lo_que_el_aviso_MUESTRA():
+    """El asunto decía «46 en descubierto» arriba de una tabla de 5 filas porque
+    contaba TODO lo que llegó, incluidas las monedas que el aviso no muestra. Un
+    título que no cierra con lo que se ve abajo hace dudar de los dos."""
+    from jobs.saldos_a_operadores import _armar
+    filas = [{"id_cuenta": "1", "cuenta": "A", "moneda": "ARS", "saldo": -1.0},
+             {"id_cuenta": "2", "cuenta": "B", "moneda": "USDC", "saldo": -1.0},
+             {"id_cuenta": "3", "cuenta": "C", "moneda": "USDL", "saldo": -1.0}]
+    asunto, tabla, _afuera, _otras = _armar(filas)
+    assert len(tabla) == 1
+    assert "1" in asunto and "3" not in asunto
 
 
 def test_el_job_ARRANCA():

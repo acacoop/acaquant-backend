@@ -1992,6 +1992,92 @@ si tiene arreglo **mecánico** y, si no, por qué:
 detección, idempotente) aplica solo los mecánicos y **releé al final**: «apliqué»
 no es «pasó». Los otros los nombra y no los toca.
 
+### 0.ab EL AGENTE MANDA MENSAJES — y después chequea si sirvió (2026-08-19/20)
+
+Dos pedidos del user que resultaron ser el mismo: *«necesito que el agente mejore
+lo de enviar mensajes al resto de usuarios… debería ser una feature de
+ENVIAR_MENSAJE»* y *«necesito que este agente entienda cuándo hizo algo bien no
+solamente porque yo le puse acertó, si no porque al otro día puede detectar que
+los cambios realmente tuvieron consistencia»*.
+
+Son la misma cosa porque las dos preguntan lo mismo: **¿llegó de verdad?** Un
+mensaje que nadie ve y un arreglo que se deshace solo fallan igual de callados.
+
+#### (1) MANDAR es una capacidad, no un pedazo de otra cosa
+
+Estaba metido adentro del control de carteras sin nivel 1: para avisar de otra
+cosa había que copiar el código. Ahora vive solo en
+**`api/services/av_agent_mensajes.py`** y cualquier detector o job lo usa:
+
+    directorio()   quién puede recibir            enviar()        uno
+    de_quien_es()  a qué operador le toca         enviar_tabla()  con grilla
+    existe()       ¿ese mail está dado de alta?   enviar_muchos() en lote
+
+`MAX_DESTINATARIOS = 60` es un freno a propósito: un lote más grande no es un
+aviso, es un incidente.
+
+**Y no llegaba por TRES bugs encadenados**, que es la parte que vale la pena
+recordar:
+
+  1. el índice único ignoraba a **quién** iba dirigido → el segundo destinatario
+     pisaba al primero en silencio;
+  2. la escritura devolvía «0 filas» y nadie miraba ese 0;
+  3. **la ruta `/api/avisos` no existía en el frontend.** Ese era el de verdad:
+     `MisAvisos` nunca había funcionado y el `catch` se comía el 404.
+
+La lección no es «había bugs». Es que **los tres eran mudos**: cada capa daba OK
+por su cuenta. Por eso ahora la escritura mira lo que devuelve y hay un test que
+exige que la ruta exista.
+
+#### (2) El aviso de SALDOS — la primera cosa que sabe contar
+
+Todos los días hábiles 16:45, cada operador recibe los saldos de SUS comitentes
+(`jobs/saldos_a_operadores.py`). Cuatro decisiones:
+
+  · **La fuente es la MISMA que la pantalla.** El job no tiene una sola query
+    propia: llama a `titulos_negativos.saldos_del_dia()`, que es lo que sirve la
+    vista SALDOS DE CUENTAS — con sus cuentas ocultas, sus excluidas y su último
+    día real. La primera versión sí tenía query propia y ya divergía en tres
+    cosas (usaba `current_date` en vez del último día cargado, no sacaba CDC/OTC,
+    tenía su propio mínimo). *Un aviso que contradice a la pantalla no avisa: abre
+    una discusión sobre cuál de los dos miente.* Hay un test que falla si al job
+    le vuelve a aparecer un `cur.execute`.
+  · **Cuatro cuadrantes, top 5 cada uno**: ARS a la izquierda, USD a la derecha,
+    positivos arriba y descubiertos abajo. Es un aviso para actuar, no un reporte:
+    lo que importa son las puntas.
+  · **ARS y USD, nada más.** USDL (link) y USDC (cable) son otra cosa y sumarlos
+    adentro de la columna USD mezclaría peras con manzanas. **No desaparecen**: se
+    cuentan aparte y el aviso lo dice, igual que dice cuántas quedaron fuera del
+    top. Truncar en silencio se lee como «esto es todo lo que hay».
+  · **El título cuenta lo que la tabla MUESTRA.** Decía «46 en descubierto» arriba
+    de cinco filas porque contaba todo lo que había llegado. Un título que no
+    cierra con lo de abajo hace dudar de los dos.
+
+El operador **tilda fila por fila** y eso persiste con su hora. Vale un día: al
+abrir el mercado siguiente los saldos son otros y el tilde de ayer no significa
+nada.
+
+#### (3) SEGUIMIENTO — el tiempo como evidencia
+
+`api/services/av_agent_seguimiento.py`. Cuando algo se marca como hecho, se
+**anota**; y durante `DIAS_DE_PRUEBA = 5` se vuelve a mirar si el hallazgo
+reapareció. Si no volvió, el voto se emite solo con origen `verificado`.
+
+Eso agrega un tercer origen al eval set, y **el origen importa**:
+
+    humano      alguien miró y dijo si la causa era la correcta
+    derivado    alguien aplicó la acción propuesta (aprobación, no verificación)
+    verificado  pasaron los días y el problema no volvió
+
+La compuerta de autonomía cuenta **`humano` + `verificado`** y deja afuera a
+`derivado`: aprobar una acción es decir «probemos», no «funcionó». Meterlos en la
+misma bolsa haría subir el número justo cuando menos evidencia hay.
+
+Dos guardas: `revisar(None)` —«no pude mirar»— devuelve error y **nunca** cambia
+un veredicto (§0.v: no se concluye «no existe» desde una consulta que no corrió),
+y la recurrencia queda anotada, así que si el mismo error vuelve el agente lo
+sabe en vez de descubrirlo de nuevo.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

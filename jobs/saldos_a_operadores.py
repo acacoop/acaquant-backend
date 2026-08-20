@@ -117,11 +117,17 @@ def _saldos_de_hoy() -> tuple[list[dict], int, int]:
 # proyecto persigue en todos lados.
 TOP = 5
 
-# ARS a la izquierda, DÓLARES a la derecha. `USDL` y `USDC` son dólares también
-# (cable y billete): agruparlos con USD evita que desaparezcan de la vista, y la
-# fila muestra igual la moneda exacta para que nadie los confunda.
-def _grupo(moneda: str) -> str:
-    return "ARS" if (moneda or "").upper() == "ARS" else "USD"
+# ⚠️ **SOLO ARS Y USD** (user, 2026-08-19: *«es ARS y USD, no USDC o USDL»*).
+#
+# `control_saldos` guarda cuatro monedas (`MONEDAS` = ARS/USD/USDL/USDC). Mi
+# primera versión metió USDL y USDC adentro de la columna USD para «que no
+# desaparezcan» — y eso estaba mal por dos razones: no son lo mismo (uno es
+# cable, otro billete) y sumarlos en una columna que dice USD hace que el
+# operador lea un número que no existe.
+#
+# Este aviso es de las dos monedas que se operan todos los días. Las otras dos NO
+# se mezclan y NO se esconden: quedan fuera y **el detalle dice cuántas son**.
+MONEDAS_AVISO: tuple[str, ...] = ("ARS", "USD")
 
 
 def _armar(filas: list[dict]) -> tuple[str, list[dict], int]:
@@ -131,15 +137,18 @@ def _armar(filas: list[dict]) -> tuple[str, list[dict], int]:
     tamaño. El más negativo primero abajo y el más positivo primero arriba — en
     los dos casos, lo que más pesa arriba de su bloque.
     """
-    negativos = [f for f in filas if f["saldo"] < 0]
-    cuentas = len({f["id_cuenta"] for f in filas})
+    # El ASUNTO cuenta lo que el aviso MUESTRA, no todo lo que existe. Decir «46
+    # en descubierto» arriba de una tabla con 5 hace dudar de las dos cifras.
+    delaviso = [f for f in filas if (f["moneda"] or "").upper() in MONEDAS_AVISO]
+    negativos = [f for f in delaviso if f["saldo"] < 0]
+    cuentas = len({f["id_cuenta"] for f in delaviso})
     asunto = (f"{len(negativos)} cuenta(s) tuyas EN DESCUBIERTO"
               if negativos else
               f"{cuentas} cuenta(s) tuyas con saldo para revisar")
 
     tabla: list[dict] = []
-    for grupo in ("ARS", "USD"):
-        delg = [f for f in filas if _grupo(f["moneda"]) == grupo]
+    for grupo in MONEDAS_AVISO:
+        delg = [f for f in filas if (f["moneda"] or "").upper() == grupo]
         for signo in ("positivo", "negativo"):
             cuadrante = [f for f in delg
                          if (f["saldo"] > 0) == (signo == "positivo")]
@@ -158,7 +167,13 @@ def _armar(filas: list[dict]) -> tuple[str, list[dict], int]:
                               "saldo": round(f["saldo"], 2),
                               "grupo": grupo, "signo": signo},
                 })
-    return asunto, tabla, len(filas) - len(tabla)
+    # Lo que queda afuera tiene DOS motivos y se cuentan aparte: las que no
+    # entraron al top 5 (están en SALDOS) y las de OTRA moneda (no salen en este
+    # aviso). Meterlas en un solo número diría «hay 543 más» sobre cosas que se
+    # miran en lugares distintos.
+    de_moneda = [f for f in filas
+                 if (f["moneda"] or "").upper() not in MONEDAS_AVISO]
+    return asunto, tabla, len(filas) - len(tabla) - len(de_moneda), len(de_moneda)
 
 
 def main() -> int:
@@ -203,7 +218,7 @@ def main() -> int:
 
         enviados = fallaron = 0
         for email, suyas in por_operador.items():
-            asunto, tabla, afuera = _armar(suyas)
+            asunto, tabla, afuera, otras_monedas = _armar(suyas)
             # **Va como TABLA y con `interrumpe`**: el user lo pidió explícito —
             # «tiene que ser como el modal de briefing, aparece en la pantalla y
             # te hace hacer algo para continuar, no que aparezca en el cuerpo del
@@ -219,8 +234,12 @@ def main() -> int:
                 # como «esto es todo lo que hay».
                 detalle=("Las 5 más grandes de cada bloque. Marcá cada una a "
                          "medida que la resolvés — vale por hoy."
-                         + (f" Hay {afuera} cuenta(s) más con saldo: están en "
-                            f"SALDOS DE CUENTAS." if afuera > 0 else "")),
+                         + (f" Hay {afuera} más en SALDOS DE CUENTAS."
+                            if afuera > 0 else "")
+                         # Las de otra moneda se dicen APARTE: no es que no
+                         # entraron al top, es que este aviso no las cubre.
+                         + (f" ({otras_monedas} en USDL/USDC, que no entran acá.)"
+                            if otras_monedas > 0 else "")),
                 donde="SALDOS DE CUENTAS", por="jobs.saldos_a_operadores",
                 interrumpe=True)
             if r.get("ok"):

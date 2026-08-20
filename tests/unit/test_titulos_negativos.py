@@ -29,9 +29,13 @@ def _fake_q(por_horizonte: dict[str, list], capturadas: list):
         p = params or {}
         capturadas.append((sql, p))
         if "count(" in sql:
+            # `latido` lo agregó la query del meta como subconsulta escalar: si
+            # el falso no lo devuelve, el service revienta con KeyError y el test
+            # falla por el andamio, no por la lógica que quiere fijar.
             return [{"fecha": date(2026, 8, 12),
                      "ult": datetime(2026, 8, 12, 15, 30),
-                     "cuentas": 97}]
+                     "cuentas": 97,
+                     "latido": datetime(2026, 8, 12, 15, 30)}]
         return por_horizonte.get(p.get("h"), [])
     return _q
 

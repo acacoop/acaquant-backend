@@ -213,8 +213,15 @@ def main() -> int:
         # El tema lleva LA FECHA: el mensaje de hoy es uno nuevo aunque el de
         # ayer siga abierto. Sin eso, un operador que no cierra el suyo dejaría
         # de recibir — y el que más los acumula es justo el que más los necesita.
-        from datetime import date
-        tema = f"{TEMA}:{date.today().isoformat()}"
+        from datetime import datetime
+        tema = f"{TEMA}:{datetime.now().date().isoformat()}"
+        if prueba:
+            # ⚠️ En PRUEBA el tema lleva LA HORA, no solo el día. El tema es la
+            # identidad del mensaje: con uno por día, correr el job dos veces
+            # para ver un cambio en el modal devuelve «ya existía» y la pantalla
+            # no se mueve — que se lee igual que «el arreglo no funcionó». Es el
+            # mismo motivo por el que `scripts/probar_mensaje` estampa la hora.
+            tema = f"{tema}:prueba:{datetime.now().strftime('%H%M%S')}"
 
         enviados = fallaron = 0
         for email, suyas in por_operador.items():
@@ -228,7 +235,7 @@ def main() -> int:
             # mañana el mercado abre con otros números y pedir acción sobre la
             # foto de ayer es peor que no avisar.
             r = msg.enviar_tabla(
-                para=email, tema=f"{tema}:prueba" if prueba else tema,
+                para=email, tema=tema,
                 asunto=f"[PRUEBA] {asunto}" if prueba else asunto, filas=tabla,
                 # **Lo que queda afuera se DICE.** Truncar en silencio se lee
                 # como «esto es todo lo que hay».
@@ -259,6 +266,9 @@ def main() -> int:
         if huerfanas:
             print(f"\n⚠ {huerfanas} cuenta(s) con saldo NO tienen operador "
                   f"asignado: a ésas no le llegan a nadie.")
+        if not prueba:
+            print("\n  Para verlo vos mismo (sin escribirle a nadie más):"
+                  "\n    python -m jobs.saldos_a_operadores --a TU@MAIL")
         if ocultas:
             # Las mismas que la pantalla esconde (nivel_5 CDC/OTC + las que
             # alguien ocultó a mano). Se DICE cuántas son: el aviso y la vista

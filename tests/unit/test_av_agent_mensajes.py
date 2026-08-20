@@ -281,3 +281,22 @@ def test_no_se_CREA_y_se_DROPEA_el_mismo_indice_en_el_mismo_schema():
     assert not chocan, (
         f"estos índices se crean Y se dropean en el mismo schema: {sorted(chocan)}. "
         f"El próximo `apply_schema` va a recrear lo que acaba de borrar.")
+
+
+def test_el_MODO_PRUEBA_se_puede_correr_DOS_VECES_el_mismo_dia():
+    """El `tema` es la identidad del mensaje. El aviso real lleva UN tema por día
+    a propósito (que no se dupliquen), pero en prueba eso vuelve inútil el modo:
+    corrés el job para ver un arreglo en el modal, el backend dice «ya existía» y
+    la pantalla no se mueve — indistinguible de que el arreglo no sirvió."""
+    src = pathlib.Path("jobs/saldos_a_operadores.py").read_text(encoding="utf-8")
+    # En prueba el tema estampa la hora; en la corrida real, solo el día.
+    assert "if prueba:" in src and "%H%M%S" in src
+    assert 'tema = f"{TEMA}:{datetime.now().date().isoformat()}"' in src
+
+
+def test_la_corrida_REAL_dice_como_probarlo():
+    """El flag vivía solo en el docstring del módulo: el user corrió el job, no le
+    llegó nada (correcto, no es operador) y no tenía cómo saber que existía una
+    forma de verlo. Lo que no está en el camino no se usa."""
+    src = pathlib.Path("jobs/saldos_a_operadores.py").read_text(encoding="utf-8")
+    assert "--a TU@MAIL" in src

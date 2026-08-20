@@ -88,8 +88,12 @@ def _leer_frescura(p: Pieza) -> tuple[datetime | None, str | None]:
 
 def _estado(p: Pieza, ts: datetime | None, run_status: str | None,
             ahora_a: datetime) -> dict:
+    # `ventana` viaja con la pieza (2026-08-20): sin ella, quien lea el árbol no
+    # puede decir DESDE y HASTA qué hora el problema es real, y un motor apagado
+    # a las 3 AM se lee igual que uno caído. Pedido del user: *«es fundamental
+    # entender desde qué hora hasta qué hora el error es real para cada motor»*.
     base = {"label": p.label, "tipo": p.tipo, "cadencia": p.cadencia,
-            "umbral_s": p.umbral_s}
+            "umbral_s": p.umbral_s, "ventana": p.ventana}
     if run_status == "error":
         return {**base, "estado": "error", "ultima": _fmt_ultima(ts),
                 "hace": _hace(ts), "run_status": run_status}

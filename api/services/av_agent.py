@@ -239,6 +239,10 @@ ACCION_POR_TIPO = {
     # `mercado.curvas`: una config vencida o un REST que no parsea se arreglan en
     # el motor. El agente lo ve y lo canta con el patrón y la cuenta.
     "motor_ruidoso": None,
+    # Un proveedor externo caído tampoco se arregla desde acá — se arregla del
+    # otro lado, o llamándolos. Lo que el agente aporta es ENTERARSE: hasta hoy
+    # la única señal era un cartel que solo existe con la pantalla abierta.
+    "proveedor_caido": None,
     # Un permiso flojo se arregla en el router o en el borde, no en la base.
     "permiso_flojo": None,
     # `None` EXPLÍCITO: NO se automatiza, y es una decisión. Cuando dos copias
@@ -350,6 +354,7 @@ DOMINIO_EVAL: dict[str, str] = {
     "salud": "salud",
     "db_cambio": "sistema", "latencia": "sistema", "tabla_quieta": "sistema",
     "motor_caido": "sistema", "motor_ruidoso": "sistema",
+    "proveedor_caido": "sistema",
     "permiso_flojo": "sistema",
     "dato_partido": "sistema",
 }
@@ -1320,6 +1325,7 @@ def relevar_live(*, ahora=None) -> dict:
     # MIENTRAS pasa, y cuesta una query sobre un agregado que ya existe.
     from api.services.av_agent_latencia import detectar_latencia
     from api.services.av_agent_motores import detectar_logs, detectar_motores
+    from api.services.av_agent_proveedores import detectar_proveedores
 
     # LATENCIA y MOTORES entran al monitor de rueda: los dos importan MIENTRAS
     # pasan. Las TABLAS no — barrer 200 tablas cada 5 minutos sería absurdo, y su
@@ -1339,7 +1345,11 @@ def relevar_live(*, ahora=None) -> dict:
                        # importa MIENTRAS pasa. La ventana es de 24 h igual —
                        # el que machaca todo el día no se ve en una hora — y
                        # como el alcance `live` REEMPLAZA, no se acumula.
-                       ("logs", detectar_logs)):
+                       ("logs", detectar_logs),
+                       # Los de AFUERA. Va en el monitor de rueda porque una
+                       # caída importa mientras pasa: media hora sin los
+                       # movimientos del día es media hora de saldos mal.
+                       ("proveedores", detectar_proveedores)):
         try:
             hallazgos.extend(fn())
         except Exception as e:      # un detector roto no puede tapar al otro

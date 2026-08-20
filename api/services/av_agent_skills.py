@@ -250,6 +250,14 @@ _QUE_DETECTA: dict[str, tuple[str, str]] = {
         "de lo que MACHACA todo el día, que es una config rota que nadie mira: "
         "la cuenta sola no las separa, 76 veces en 3 minutos y 91 en 7 horas "
         "son dos problemas distintos"),
+    "proveedor_caido": (
+        "Proveedores de afuera que no responden",
+        "Aunesa, 1816, Interbanking, BCRA. El aviso dice QUÉ deja de andar y el "
+        "MOTIVO EXACTO (el error textual), que es lo que distingue «se cayó "
+        "ellos» de «se nos vencieron las credenciales». No pregunta: lee el "
+        "rastro que dejan las llamadas reales, así no gasta créditos de 1816 ni "
+        "se cree un health check que contesta bien mientras el endpoint que "
+        "usamos devuelve 500"),
     "permiso_flojo": (
         "Permisos que están solo en los papeles",
         "endpoints sin gate, y —probando de verdad, sin credenciales— los que "
@@ -287,6 +295,7 @@ _REGLAS_DETECTOR: dict[str, tuple[str, ...]] = {
     # causa acertó. Lo destapó el escáner nuevo del test (por AST).
     "tabla_quieta": ("sin_escribir",),
     "motor_ruidoso": ("rafaga", "machaca", "error_de_motor", "no_pude_leer"),
+    "proveedor_caido": ("no_responde",),
     "permiso_flojo": (),
 }
 
@@ -297,7 +306,7 @@ _DOMINIO_DETECTOR: dict[str, str] = {
     "hueco_de_curva": MERCADO, "sin_precio": MERCADO, "precio_moneda": MERCADO,
     "salud": SISTEMA, "db_cambio": SISTEMA, "latencia": SISTEMA,
     "tabla_quieta": SISTEMA, "motor_caido": SISTEMA,
-    "motor_ruidoso": SISTEMA,
+    "motor_ruidoso": SISTEMA, "proveedor_caido": SISTEMA,
     "dato_partido": DATOS,
     "permiso_flojo": SEGURIDAD,
 }
@@ -356,6 +365,7 @@ _DONDE_CORRE: dict[str, str] = {
     "latencia": "jobs.av_agent_live",
     "motor_caido": "jobs.av_agent_live",
     "motor_ruidoso": "jobs.av_agent_live",
+    "proveedor_caido": "jobs.av_agent_live",
     # El monitor del SISTEMA, de noche (reemplaza lo suyo cada pasada).
     "db_cambio": "jobs.db_tamano",
     "tabla_quieta": "jobs.db_tamano",

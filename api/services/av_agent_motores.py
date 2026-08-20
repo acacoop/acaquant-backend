@@ -86,6 +86,7 @@ def detectar_motores() -> list[dict]:
         logger.debug("av_agent_motores: dentro de la gracia de arranque")
         return []
 
+    ahora = _hora_del_arbol(arbol)
     out = []
     for vista in arbol.get("vistas") or []:
         for grupo in vista.get("grupos") or []:
@@ -93,7 +94,20 @@ def detectar_motores() -> list[dict]:
                 estado = (p.get("estado") or "").strip()
                 if estado in _IGNORAR or estado not in _ROTOS:
                     continue
-                out.append(_hallazgo(vista.get("vista") or "?", p, estado))
+                # ⚠️ **`sin_datos` se decide ANTES de mirar la ventana.** En
+                # `diagnostico._estado`, una pieza sin ningún dato devuelve
+                # `sin_datos` sin pasar por `_en_ventana` — así que un motor de
+                # mercado que nunca escribió salía en ALTA a las 3 de la mañana y
+                # los sábados. El user lo marcó: *«es fundamental entender desde
+                # qué hora hasta qué hora el error es real para cada motor»*.
+                #
+                # Se arregla ACÁ y no en `diagnostico`: ese estado lo comparte la
+                # pantalla de DIAGNÓSTICO, y cambiarlo movería una vista que
+                # nadie pidió tocar. `fuera_rueda` ya no llega hasta acá; esto
+                # cubre el hueco que quedaba.
+                if estado == "sin_datos" and not _en_su_ventana(p, ahora):
+                    continue
+                out.append(_hallazgo(vista.get("vista") or "?", p, estado, ahora))
     # Lo más grave primero, y dentro de eso los motores antes que los jobs: un
     # motor caído deja a la mesa sin precios AHORA; un job se recupera en la
     # corrida siguiente.
@@ -105,24 +119,76 @@ def detectar_motores() -> list[dict]:
 def _recien_abrio(arbol: dict) -> bool:
     """¿Estamos en los primeros minutos de la rueda? (ver GRACIA_ARRANQUE_MIN).
 
-    Se mira la hora ARGENTINA que el propio árbol reporta — no `datetime.now()`
-    del proceso: el Droplet corre en UTC y restar tres horas a mano es
-    exactamente el bug que `core/tz` existe para no repetir.
+    ⚠️ **La hora sale del ÁRBOL, no del reloj del proceso.** Eso ya lo decía este
+    docstring y el código hacía otra cosa: llamaba a `ahora_ar()`. Son DOS
+    relojes para juzgar UNA foto, y con eso el veredicto sobre el árbol podía no
+    corresponder al momento en que el árbol se armó.
+
+    Se descubrió por los tests: entre las 10:00 y las 10:30 ART, tres tests que
+    pasan un árbol con hora fija fallaban — el detector les aplicaba la gracia de
+    arranque leyendo el reloj de verdad. Fallaban media hora por día, o sea que
+    en CI aparecían como un rojo intermitente sin causa aparente. Es el mismo bug
+    que ya había en `salud._chequeo_job` y por el mismo motivo: cuando algo se
+    evalúa contra una foto, el tiempo tiene que salir de la foto.
     """
     from datetime import time as _t
 
     from api.services.diagnostico import _APERTURA
-    from core.tz import ahora_ar
 
     if not arbol.get("en_rueda"):
         return False
-    ahora = ahora_ar()
+    ahora = _hora_del_arbol(arbol)
+    if ahora is None:
+        return False        # sin hora no se puede afirmar que esté en gracia
     abre: _t = _APERTURA["rueda"]
     minutos = (ahora.hour - abre.hour) * 60 + (ahora.minute - abre.minute)
     return 0 <= minutos < GRACIA_ARRANQUE_MIN
 
 
-def _hallazgo(vista: str, p: dict, estado: str) -> dict:
+def _hora_del_arbol(arbol: dict):
+    """La hora argentina que el árbol reporta. `None` si no la trae o no parsea.
+
+    Devolver `None` y no el reloj del proceso es a propósito: caer al reloj
+    silenciosamente sería volver a tener dos relojes, solo que a veces.
+    """
+    from datetime import datetime
+
+    crudo = str(arbol.get("ahora_ar") or "").strip()
+    for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(crudo, formato)
+        except ValueError:
+            continue
+    return None
+
+
+# En palabras, porque el aviso lo lee una persona. `_APERTURA`/`_CIERRE` viven en
+# `diagnostico` y se leen de ahí: escribir «10 a 17:05» a mano acá sería una
+# segunda verdad que se desactualiza el día que muevan el horario (REGLA #9).
+def ventana_en_palabras(ventana: str) -> str:
+    from api.services.diagnostico import _APERTURA, _CIERRE
+
+    abre = _APERTURA.get(ventana)
+    if abre:
+        return (f"corre de {abre.strftime('%H:%M')} a "
+                f"{_CIERRE.strftime('%H:%M')} ART, de lunes a viernes")
+    return {"always": "corre todo el día, todos los días",
+            "diario": "corre una vez por día"}.get(ventana, "sin ventana declarada")
+
+
+def _en_su_ventana(p: dict, ahora) -> bool:
+    """¿La pieza debería estar produciendo AHORA?
+
+    Sin hora del árbol devuelve True: *no poder saberlo no es lo mismo que estar
+    fuera de horario*, y suprimir un aviso por una duda es peor que darlo.
+    """
+    if ahora is None:
+        return True
+    from api.services.diagnostico import _en_ventana
+    return _en_ventana(ahora, p.get("ventana") or "rueda")
+
+
+def _hallazgo(vista: str, p: dict, estado: str, ahora=None) -> dict:
     tipo = p.get("tipo") or "pieza"
     label = str(p.get("label") or "?")
     # Un MOTOR caído es alta siempre: es el feed de precios de la mesa. Un job
@@ -143,10 +209,18 @@ def _hallazgo(vista: str, p: dict, estado: str) -> dict:
                       f"último dato {p.get('hace') or 'nunca'}"
                       + (f", último run {p.get('run_status')}"
                          if p.get("run_status") else "")
-                      + f". El umbral de esta pieza es {p.get('umbral_s')} s y "
-                        f"está DENTRO de su ventana horaria: no es que esté "
-                        f"apagado."),
+                      + f". El umbral de esta pieza es {p.get('umbral_s')} s.\n\n"
+                      # DESDE Y HASTA QUÉ HORA el problema es real. Sin esto, el
+                      # que lee no puede decidir si tiene que actuar ahora o si
+                      # la pieza directamente no debería estar corriendo.
+                      + f"CUÁNDO ES REAL: {ventana_en_palabras(p.get('ventana') or 'rueda')}"
+                      + (f"; ahora son las {ahora.strftime('%H:%M')} ART y está "
+                         "DENTRO de su ventana: no es que esté apagado."
+                         if ahora else ". No pude leer la hora del árbol.")),
             "tipo": tipo, "vista": vista, "estado": estado,
+            "ventana": p.get("ventana"),
+            "ventana_texto": ventana_en_palabras(p.get("ventana") or "rueda"),
+            "ahora_ar": ahora.strftime("%H:%M") if ahora else None,
             "cadencia": p.get("cadencia"), "ultima": p.get("ultima"),
             "hace": p.get("hace"), "umbral_s": p.get("umbral_s"),
             "run_status": p.get("run_status")}}

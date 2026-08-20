@@ -4680,6 +4680,35 @@ CREATE TABLE IF NOT EXISTS manager.db_tamano (
 -- se puedan confundir — que una suma de tablas no cierre contra el total del
 -- plan es normal, y descubrirlo mirando un número que decía ser el total es
 -- exactamente cómo se pierde una tarde.
+-- manager.proveedor_estado — CÓMO VIENE CONTESTANDO CADA PROVEEDOR EXTERNO
+-- (2026-08-20). Doc: AV_AGENT.md §0.ad.
+--
+-- Nace de una caída de Aunesa (HTTP 500 en su login) que el user vio «de
+-- milagro» al abrir Tesorería. La vista YA la detecta y la muestra bien — pero
+-- solo mientras alguien tiene la pantalla abierta. Si nadie entra, nadie sabe, y
+-- el back office puede pasar la mañana creyendo que el saldo del día está
+-- completo cuando le falta la mitad.
+--
+-- UNA FILA POR PROVEEDOR, sin histórico: lo que importa es cómo está AHORA. El
+-- histórico de caídas, si algún día hace falta, es otra tabla — mezclarlos haría
+-- crecer sin techo justo a la que se consulta cada 5 minutos.
+--
+-- Se escribe SOLO cuando algo falla (y como mucho una vez por minuto y por
+-- proceso): un proveedor sano no cuesta ni una escritura. Por eso mismo el
+-- detector exige que el último fallo sea RECIENTE — si el proveedor se recupera
+-- los fallos dejan de anotarse y nadie apaga el registro, así que un 500 de la
+-- semana pasada seguiría en pantalla para siempre (la lección de §0.u).
+CREATE TABLE IF NOT EXISTS manager.proveedor_estado (
+    proveedor       text PRIMARY KEY,
+    ok              boolean NOT NULL DEFAULT true,
+    ultimo_error    text,
+    ultimo_error_at timestamptz,
+    ultimo_ok_at    timestamptz,
+    fallos_seguidos integer NOT NULL DEFAULT 0,
+    donde           text,
+    actualizado_at  timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS manager.db_tamano_dia (
     fecha        date   PRIMARY KEY,
     bytes_total  bigint NOT NULL,

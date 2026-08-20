@@ -26,6 +26,7 @@ from typing import Any
 import requests
 
 import config
+from core import proveedores
 
 logger = logging.getLogger(__name__)
 
@@ -37,21 +38,35 @@ _token: str | None = None
 
 
 def _login() -> str:
-    """POST /login con las credenciales de config. Devuelve el token."""
-    resp = requests.post(
-        AUTH_URL,
-        json={
-            "clientId": config.AUNESA_CLIENT_ID,
-            "username": config.AUNESA_USERNAME,
-            "password": config.AUNESA_PASSWORD,
-        },
-        headers={"Content-Type": "application/json"},
-        timeout=15,
-    )
-    resp.raise_for_status()
+    """POST /login con las credenciales de config. Devuelve el token.
+
+    Deja constancia de cómo contestó (`core/proveedores`). **Acá es donde se
+    entera el agente de que Aunesa se cayó**, sin una sola llamada extra: los
+    daemons le pegan todo el tiempo, así que un 500 en el login queda anotado en
+    segundos y con el mensaje exacto. Ver AV_AGENT.md §0.ad.
+    """
+    try:
+        resp = requests.post(
+            AUTH_URL,
+            json={
+                "clientId": config.AUNESA_CLIENT_ID,
+                "username": config.AUNESA_USERNAME,
+                "password": config.AUNESA_PASSWORD,
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        proveedores.anotar("aunesa", ok=False, donde="login",
+                           error=f"{type(e).__name__}: {e}")
+        raise
     tok = resp.json().get("token")
     if not tok:
+        proveedores.anotar("aunesa", ok=False, donde="login",
+                           error="contestó 200 pero sin token")
         raise RuntimeError("Aunesa /login no devolvió token")
+    proveedores.anotar("aunesa", ok=True, donde="login")
     return tok
 
 
@@ -89,9 +104,23 @@ def get(
                 resp = requests.get(
                     url, params=params, headers=auth_headers(force_refresh=True), timeout=timeout,
                 )
+            # El estado se anota acá y no en cada caller: el status ≥400 no
+            # levanta excepción (el caller decide qué tolerar), así que un 500
+            # repetido pasaría entero sin dejar rastro en ningún lado.
+            proveedores.anotar(
+                "aunesa", ok=resp.status_code < 400, donde=f"GET {path}"[:120],
+                error=f"HTTP {resp.status_code} en {path}")
             return resp
         except requests.exceptions.Timeout as e:
             last_err = e
             logger.warning("aunesa GET timeout %s intento %d/%d", path, intento, retries)
             continue
+        except Exception as e:
+            # Conexión rechazada, DNS, TLS: también es el proveedor caído, y sin
+            # esto la única señal sería el traceback de quien haya llamado.
+            proveedores.anotar("aunesa", ok=False, donde=f"GET {path}"[:120],
+                               error=f"{type(e).__name__}: {e}")
+            raise
+    proveedores.anotar("aunesa", ok=False, donde=f"GET {path}"[:120],
+                       error=f"timeout tras {retries} intentos")
     raise requests.exceptions.Timeout(f"aunesa GET {path}: timeout tras {retries} intentos: {last_err}")

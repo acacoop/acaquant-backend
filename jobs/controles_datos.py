@@ -379,6 +379,27 @@ def _chk_patas_dolar_sin_pedir() -> list[dict]:
         return out
 
 
+def _chk_dia_sin_dato() -> list[dict]:
+    """**EL DÍA QUE EL JOB TENÍA QUE ESCRIBIR Y NO ESTÁ.**
+
+    Nace del 2026-08-20: Aunesa contestó HTTP 500 a las 11:00, `jobs/aum` murió
+    y `portafolio.tenencia` se quedó sin el día. El AuM, la Tenencia Valorizada
+    y Títulos en Alquiler mostraron el día anterior **sin ningún cartel**.
+
+    ⚠️ **Mira el RESULTADO, no el proceso.** SALUD ya avisa cuando un job falla,
+    y eso no alcanza por los dos lados: un job puede reventar al final habiendo
+    escrito todo (nada que rehacer) y puede salir en verde sin escribir una fila
+    (todo por rehacer). La única pregunta que importa es si la fecha está en la
+    tabla, y por eso este control consulta la tabla.
+
+    La lista de jobs y el día que le toca a cada uno viven en
+    `av_agent_rehacer.REHACIBLES` — el mismo lugar del que sale el arreglo, así
+    el control y la acción no pueden discrepar sobre qué día falta.
+    """
+    from api.services import av_agent_rehacer as reh
+    return reh.faltantes()
+
+
 def _chk_patas_equivocadas() -> list[dict]:
     """**El master suscribe una pata y la correcta es OTRA.** El caso BOPREAL.
 
@@ -437,6 +458,9 @@ CONTROLES: list[Control] = [
     Control("patas_dolar_sin_pedir",
             "Patas en dólares que nadie pide", True,
             _chk_patas_dolar_sin_pedir),
+    Control("dia_sin_dato",
+            "El día que un job tenía que escribir y no está", True,
+            _chk_dia_sin_dato),
     Control("patas_equivocadas",
             "El master apunta a una pata que no es la default", True,
             _chk_patas_equivocadas),

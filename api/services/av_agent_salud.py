@@ -243,6 +243,14 @@ CONTROLES: dict[str, dict] = {
         "donde": "AV Agent → pedir la pata (el motor la levanta en 5s, sin "
                  "reiniciar)",
         "url": "/manager"},
+    "dia_sin_dato": {
+        "rompe": "el job de ese día no dejó el dato: las vistas que lo leen "
+                 "muestran el día anterior SIN avisar, que es exactamente lo "
+                 "que pasó el 2026-08-20 con el AuM (Aunesa devolvió 500 y "
+                 "nadie se enteró)",
+        "donde": "AV Agent → rehacer el día (corre el mismo job del cron, con "
+                 "su lock, y verifica releyendo la tabla)",
+        "url": "/manager"},
     "patas_equivocadas": {
         "rompe": "el master apunta a la pata en PESOS teniendo la de dólares: la "
                  "grilla muestra 156.270 al lado de bonos en dólares. La "

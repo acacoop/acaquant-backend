@@ -3163,6 +3163,82 @@ adivinado. Es justo lo que la puerta va a necesitar el día que exista.
 > avisar es el mismo bug que el `for r in app.routes` que veía 5 de 428 (§0.s).
 > Con las dos formas: **de 47 a 158 tablas mapeadas**.
 
+### 0.ar REHACER EL DÍA — con la prueba mirada, no con el error (2026-08-20)
+
+El AuM del 2026-08-20 **no se escribió**: Aunesa devolvió HTTP 500 a las 11:00 y
+`jobs/portafolio_backfill --diario` murió. El AuM, la Tenencia Valorizada y
+Títulos en Alquiler mostraron el día anterior **sin ningún cartel**. Lo vimos de
+casualidad, mirando otra cosa.
+
+El user pidió las dos mitades, y la segunda es el diseño entero:
+
+> *«que mismo tenga la skill o que lo pueda hacer (o sea, ejecutar fecha de hoy
+> por haber detectado un error **y haber verificado 100% en la base que no hay
+> fecha realmente** con lo que iba de hoy)»*
+
+    el job falló     → una señal del PROCESO. Puede fallar y haber escrito.
+    el dato no está  → un hecho sobre el RESULTADO. Es lo único que importa.
+
+Un job que revienta al final después de escribir todo no necesita relanzarse;
+uno que sale en verde sin escribir una fila, sí. Por eso **la precondición se
+consulta contra la tabla y manda sobre el estado del job** — la misma ley que los
+CONTRATOS de SALUD: se chequea el resultado, no el proceso.
+
+**Las cuatro guardas** (`api/services/av_agent_rehacer.py`):
+
+1. **Sin evidencia no corre.** Si la fecha ya está, no se ejecuta nada.
+2. **Por `run_job.sh`**: lock + timeout, el mismo que usa el cron (REGLA #4). Si
+   la corrida anterior sigue viva, esta se saltea sola en vez de apilarse — el
+   incidente de CPU del 2026-06-03.
+3. **Solo jobs declarados** (`REHACIBLES`), cada uno con su tabla y su columna
+   de fecha. Un `subprocess` con el comando abierto sería una consola remota.
+4. **Se verifica releyendo la tabla.** Que el proceso salga 0 no prueba nada.
+
+⚠️ **NO relanza motores.** Un motor en rueda le corta el feed de precios a la
+mesa (regla del user, 2026-08-18) y eso no se decide desde un botón.
+
+⚠️ **Y EL DÍA QUE LE TOCA NO ES HOY.** `--diario` snapshotea el hábil ANTERIOR.
+Exigirle el día de hoy lo daría por faltante **todas las noches**, y un detector
+que grita siempre enseña a ignorar la lista entera — la enfermedad que el agente
+vino a curar. El día lo declara el job (`"dia": "habil_anterior"`) y lo resuelve
+`fecha_objetivo()` **con el mismo reloj que usa el job**: si el que pregunta
+calculara su propia fecha, entre las 00 y las 03 UTC diferirían un día y las dos
+mitades seguirían siendo coherentes consigo mismas (REGLA #9).
+
+Enchufado: control diario **`dia_sin_dato`** (16:30 UTC, cinco horas y media
+después del job) → acción **`sistema.rehacer_dia`**. El control lee la MISMA
+lista que el arreglo, así no puede cantar un faltante que la acción no sabe
+rehacer. A mano: `python -m scripts.diag_rehacer` (solo mira) y `--rehacer`.
+
+#### Y LO QUE LO HIZO INVISIBLE: cuatro módulos mudos
+
+`jobs/aum`, `jobs/cashflow`, `jobs/sync_comitentes` y `api/services/aunesa_negocio`
+le pegan a Aunesa con su propio `requests`, por fuera de `core/aunesa`. El
+detector de caídas (§0.ad) mira `manager.proveedor_estado`, que se llena desde
+adentro del cliente: **un módulo que no pasa por el cliente es invisible**, aunque
+sea el que rompe el dato más importante del sistema.
+
+Migrarlos enteros es otro trabajo y toca cuatro flujos. Lo que cierra la ceguera
+hoy con **una línea por módulo** es `proveedores.sesion_vigilada()`: una
+`requests.Session` con un hook de respuesta, que se dispara en CADA llamada de
+ese archivo — así una función nueva ahí queda cubierta sin que nadie se acuerde.
+De yapa reusa la conexión TCP, que en un job de cientos de llamadas no es poco.
+
+> ⚠️⚠️ **Y ESO MISMO CASI INVENTA UNA CAÍDA.** El hook quedó al lado de `mirar()`,
+> que ya existía y hacía lo mismo, **con otro umbral**: `mirar` marcaba caída
+> desde 400 y el hook desde 500. Con los dos enganchados a la misma llamada, un
+> **400 escribía «AUNESA CAÍDO» y enseguida «recuperado»** — una caída inventada,
+> prendiéndose y apagándose sola. Y `jobs/cashflow` maneja el 400 de Aunesa
+> explícitamente, o sea que no era hipotético. Es REGLA #9(B) en vivo: dos copias
+> del mismo criterio, sin árbitro, cada una coherente consigo misma.
+>
+> **RESUELTO**: el umbral vive UNA vez en `proveedores.es_caida()` (solo 5xx — un
+> 4xx es problema NUESTRO, y el 401 es el token vencido que los jobs resuelven
+> re-autenticando), `rastrear` pasó a ser `vigilar`, y `vigilar` es idempotente
+> (`jobs/aum` tenía los dos hooks sobre la MISMA sesión). Tres tests lo congelan,
+> incluido uno que exige que los dos caminos deriven del mismo `es_caida`.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

@@ -95,6 +95,25 @@ def de_url(url: str) -> str | None:
     return None
 
 
+def es_caida(codigo: int) -> bool:
+    """¿Ese código HTTP significa que **el proveedor** está caído?
+
+    ⚠️ **UNA sola definición, y por eso vive acá.** Había dos caminos para dejar
+    rastro (`mirar` suelto y el hook de la sesión) y cada uno decidía con su
+    propio umbral: `< 400` uno, `< 500` el otro. Con los dos enganchados a la
+    misma llamada, **un 400 escribía «AUNESA CAÍDO» y acto seguido
+    «recuperado»** — una caída inventada, prendiéndose y apagándose sola. Es
+    REGLA #9 en vivo: dos copias del mismo criterio, sin árbitro, cada una
+    coherente consigo misma. `jobs/cashflow` maneja el 400 de Aunesa
+    explícitamente, así que no era hipotético.
+
+    **Solo 5xx.** Un 400 o un 404 son un problema NUESTRO (pedimos mal) y
+    mandarían a la mesa a llamar al proveedor por un bug propio. El 401 tampoco:
+    es el token vencido, y los jobs lo resuelven re-autenticando.
+    """
+    return codigo >= 500
+
+
 def mirar(resp, proveedor: str = "aunesa", donde: str = "") -> None:
     """Deja el rastro a partir de una respuesta de `requests`. **Nunca levanta.**
 
@@ -116,30 +135,90 @@ def mirar(resp, proveedor: str = "aunesa", donde: str = "") -> None:
         return
     if not codigo:
         return
-    anotar(proveedor, ok=codigo < 400, error=f"HTTP {codigo}",
+    anotar(proveedor, ok=not es_caida(codigo), error=f"HTTP {codigo}",
            donde=donde or _ruta(getattr(resp, "url", "")))
 
 
 def rastrear(session, proveedor: str = "aunesa") -> None:
-    """Engancha `mirar` a TODAS las respuestas de una `requests.Session`.
+    """Engancha el rastro a TODAS las respuestas de una `requests.Session`.
 
-    Preferible a llamar `mirar` en cada lugar: una función nueva en ese módulo
-    queda cubierta sin que nadie se acuerde de nada.
+    **Es `vigilar` con otro nombre**, y se deja porque hay llamadores. Tenía su
+    propia implementación —y su propio umbral— hasta que las dos se engancharon
+    a la misma sesión e inventaron una caída: ver `es_caida`.
     """
-    def _hook(resp, *_a, **_k):
-        mirar(resp, proveedor)
-        return None                 # devolver algo REEMPLAZARÍA la respuesta
-
-    try:
-        session.hooks.setdefault("response", []).append(_hook)
-    except Exception as e:                      # una Session rara no rompe el job
-        logger.debug("proveedores: no pude enganchar el rastro (%s)", e)
+    vigilar(session, proveedor)
 
 
 def _ruta(url: str) -> str:
     """`https://aca.aunesa.com/Irmo/api/login?x=1` → `/Irmo/api/login`."""
     u = (url or "").split("://", 1)[-1]
     return ("/" + u.split("/", 1)[1].split("?")[0]) if "/" in u else ""
+
+
+def sesion_vigilada(proveedor: str, donde: str = ""):
+    """Una `requests.Session` que **deja rastro sola** en cada respuesta.
+
+    ⚠️ **POR QUÉ EXISTE, y es la deuda que se hizo visible el 2026-08-20.** Cuatro
+    módulos le pegan a Aunesa con su propio `requests`, por fuera de
+    `core/aunesa`: `jobs/aum`, `jobs/cashflow`, `jobs/sync_comitentes` y
+    `api/services/aunesa_negocio`. Ese día Aunesa devolvió **HTTP 500 a las 11:00**,
+    `jobs/aum` murió y **el AuM del día no se escribió** — y el agente no pudo
+    decir que era por Aunesa, porque esa falla no dejó ninguna huella.
+
+    El detector de caídas (§0.ad) mira `manager.proveedor_estado`, que se llena
+    desde adentro del cliente. Un módulo que no pasa por el cliente es invisible
+    para él, aunque sea el que rompe el dato más importante del sistema.
+
+    Migrarlos al cliente entero es otro trabajo y toca cuatro flujos distintos.
+    **Esto es lo que arregla el 100% de la ceguera con una línea por módulo**: un
+    hook de `requests` se dispara en CADA respuesta de esa sesión, así que una
+    llamada nueva en ese archivo queda cubierta sin que nadie se acuerde.
+
+    De yapa una `Session` reusa la conexión TCP, que en un job que hace cientos
+    de llamadas seguidas no es poco.
+    """
+    import requests
+
+    s = requests.Session()
+    vigilar(s, proveedor, donde)
+    return s
+
+
+def vigilar(session, proveedor: str, donde: str = "") -> None:
+    """Le engancha el rastro a una sesión que ya existe. Idempotente.
+
+    **Nunca levanta y nunca cambia la respuesta**: el hook devuelve `None`, que
+    para `requests` significa «dejala como está». Un instrumento que altera lo
+    que mide no es un instrumento.
+    """
+    hooks = getattr(session, "hooks", None)
+    if not isinstance(hooks, dict):
+        return
+    previos = hooks.setdefault("response", [])
+    if any(getattr(h, "_av_agent", False) for h in previos):
+        return                                   # ya está vigilada
+
+    def _rastro(resp, *a, **k):
+        try:
+            codigo = int(getattr(resp, "status_code", 0) or 0)
+            if not codigo:
+                return None
+            anotar(proveedor, ok=not es_caida(codigo), error=f"HTTP {codigo}",
+                   donde=donde or _de_donde(resp))
+        except Exception:                        # el instrumento nunca rompe
+            logger.debug("proveedores: el rastro falló", exc_info=True)
+        return None
+
+    _rastro._av_agent = True
+    previos.append(_rastro)
+
+
+def _de_donde(resp) -> str:
+    """El último tramo de la URL, para que el aviso diga QUÉ endpoint falló."""
+    try:
+        return (getattr(resp, "url", "") or "").split("?")[0].rstrip("/").split("/")[-1]
+    except Exception:
+        return ""
 
 
 def anotar(proveedor: str, *, ok: bool, error: str = "", donde: str = "") -> None:

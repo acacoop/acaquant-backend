@@ -789,9 +789,90 @@ def _sym(simbolo: str) -> str:
     return partes[2].strip() if len(partes) >= 3 else (simbolo or "")
 
 
+class AccionRehacerDia(Seguible):
+    """**REHACER EL DÍA DE UN JOB — con la prueba mirada, no con el error.**
+
+    Pedido del user (2026-08-20), después de que el AuM del día no se escribiera
+    por un HTTP 500 de Aunesa: *«que lo pueda hacer, o sea ejecutar fecha de hoy
+    por haber detectado un error Y haber verificado 100% en la base que no hay
+    fecha realmente con lo que iba de hoy»*.
+
+    **La segunda mitad es el diseño.** No se relanza porque el job falló — se
+    relanza porque **el dato no está en la tabla**. Un job puede salir con error
+    después de escribir todo, y puede salir en verde sin escribir nada: lo único
+    que importa es el resultado. Misma ley que los CONTRATOS de SALUD.
+
+    Es la PRIMERA acción con efecto fuera de `mercado.curvas`, y por eso lleva
+    las cuatro guardas de `av_agent_rehacer`: sin evidencia no corre, va por
+    `run_job.sh` (lock + timeout), solo jobs declarados, y **se verifica
+    releyendo la tabla**.
+
+    ⚠️ **No relanza motores.** Un motor en rueda le corta el feed a la mesa y eso
+    no se decide desde un botón.
+    """
+
+    id = "sistema.rehacer_dia"
+    titulo = "Rehacer el día de un job cuyo dato falta"
+    sobre = "dia_sin_dato"
+    campo = "corrida"
+    donde = "run_job.sh (lock + timeout, el mismo que usa el cron)"
+
+    # El dato tarda: el job pega a Aunesa cuenta por cuenta. Se verifica que la
+    # fila esté, y eso es inmediato — pero la CONSECUENCIA (que las vistas se
+    # actualicen) la mira el seguimiento.
+    espera_s = 45 * 60
+
+    def proponer(self, casos: list[dict]) -> list[Propuesta]:
+        from api.services import av_agent_rehacer as reh
+
+        props = []
+        for c in casos:
+            job = (c.get("job") or c.get("key") or "").strip()
+            fecha = (c.get("fecha") or "").strip()
+            cfg = reh.REHACIBLES.get(job)
+            if not cfg or not fecha:
+                continue
+            props.append(Propuesta(
+                sujeto=job, campo=self.campo, propuesto=fecha,
+                antes=f"{cfg['tabla']} sin {fecha}",
+                porque=(f"**{cfg['titulo']}**: se miró `{cfg['tabla']}` y el "
+                        f"{fecha} NO ESTÁ. {cfg['rompe'].capitalize()}. El job es "
+                        f"idempotente y corre por `run_job.sh`, con el mismo lock "
+                        f"que el cron: si ya está corriendo, esto se saltea solo."),
+                extra={"fecha": fecha, "tabla": cfg["tabla"]}))
+        return props
+
+    def aplicar(self, p: Propuesta) -> None:
+        from api.services import av_agent_rehacer as reh
+
+        r = reh.rehacer(p.sujeto, p.propuesto)
+        if not r.get("ok"):
+            raise RuntimeError(r.get("error") or "no se pudo rehacer")
+        # `ya_estaba` NO es un fallo: es la guarda haciendo su trabajo. Que el
+        # dato apareciera solo entre la propuesta y el OK es el mejor final.
+
+    def verificar(self, p: Propuesta) -> tuple[bool, str]:
+        """**Se mira la TABLA**, no el código de salida del proceso."""
+        from api.services import av_agent_rehacer as reh
+
+        hay = reh.hay_dato(p.sujeto, p.propuesto)
+        if hay is None:
+            return False, "no pude releer la tabla para verificar"
+        if not hay:
+            return False, f"la tabla SIGUE sin {p.propuesto}"
+        return True, f"la tabla ya tiene {p.propuesto}"
+
+    def veredicto(self, p: Propuesta) -> tuple[bool | None, str]:
+        """Acá `verificar` ya es concluyente —el dato está o no está— así que el
+        veredicto no espera nada: se contesta con lo mismo."""
+        ok, detalle = self.verificar(p)
+        return (True, detalle) if ok else (False, detalle)
+
+
 ACCIONES: dict[str, Accion] = {a.id: a for a in (
     AccionCartera(), AccionFci(), AccionContraparte(), AccionAvisar(),
-    AccionPedirPata(), AccionPataDolar(), AccionApuntarPata())}
+    AccionPedirPata(), AccionPataDolar(), AccionApuntarPata(),
+    AccionRehacerDia())}
 # Qué acción resuelve cada control. Sin esto la pantalla tendría que saberlo, y
 # el día que se agregue una acción habría que tocar el front.
 POR_CONTROL: dict[str, str] = {a.sobre: a.id for a in ACCIONES.values()}

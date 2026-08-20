@@ -30,13 +30,19 @@ from __future__ import annotations
 import argparse
 from datetime import UTC, datetime
 
-import requests
-
 import config
 from core import proveedores
 from core.doc_fiscal import parse_titular
 from core.job_runs import JobRunLogger
 from core.postgres import get_job_pool
+
+# ⚠️ **DEJA RASTRO** (2026-08-20). Este módulo le pega a Aunesa por FUERA
+# de `core/aunesa`, así que sus fallas eran invisibles para el detector de
+# caídas: el 2026-08-20 Aunesa devolvió 500, el AuM del día no se escribió y
+# el agente no pudo decir por qué. El hook anota cada respuesta sola, así que
+# una llamada nueva en este archivo queda cubierta sin acordarse de nada.
+_SES = proveedores.sesion_vigilada("aunesa", "comitentes")
+
 
 AUTH_URL = "https://aca.aunesa.com/Irmo/api/login"
 LISTADO_URL = "https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas"
@@ -71,7 +77,7 @@ INSERT_ONLY_FIELDS = ("operador_email", "operador_nombre")
 
 
 def _auth() -> dict[str, str]:
-    r = requests.post(
+    r = _SES.post(
         AUTH_URL,
         json={
             "clientId": config.AUNESA_CLIENT_ID,
@@ -83,7 +89,6 @@ def _auth() -> dict[str, str]:
     )
     # El rastro para el detector de caídas (§0.an): este módulo NO pasa por
     # `core/aunesa`, así que sin esto su fallo es invisible para el agente.
-    proveedores.mirar(r)
     r.raise_for_status()
     return {"Content-Type": "application/json", "Authorization": f"Bearer {r.json().get('token')}"}
 
@@ -159,8 +164,7 @@ def _sync_propia(headers: dict) -> list[tuple]:
     (id+denominación, el FK target), NUNCA a `comitentes` (no contaminan el Tablero
     Comercial). operaciones_informes las suma a su universo para ingestar sus boletos.
     Devuelve [(id_cuenta, denominacion)]."""
-    r = requests.get(LISTADO_URL, headers=headers, params={"tipoCuenta": "Propia"}, timeout=180)
-    proveedores.mirar(r)
+    r = _SES.get(LISTADO_URL, headers=headers, params={"tipoCuenta": "Propia"}, timeout=180)
     r.raise_for_status()
     data = r.json()
     if isinstance(data, dict):
@@ -181,8 +185,7 @@ def run(*, include_all: bool = False, dry_run: bool = False) -> None:
     with JobRunLogger("sync_comitentes") as jr:
         headers = _auth()
         params = {} if include_all else {"tipoCuenta": "Comitente"}
-        r = requests.get(LISTADO_URL, headers=headers, params=params, timeout=180)
-        proveedores.mirar(r)
+        r = _SES.get(LISTADO_URL, headers=headers, params=params, timeout=180)
         r.raise_for_status()
         data = r.json()
         if isinstance(data, dict):

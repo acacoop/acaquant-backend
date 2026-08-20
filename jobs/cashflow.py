@@ -4,12 +4,18 @@ import sys
 import unicodedata
 from datetime import UTC, date, datetime, timedelta
 
-import requests
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import config
 from core import proveedores
+
+# ⚠️ **DEJA RASTRO** (2026-08-20). Este módulo le pega a Aunesa por FUERA
+# de `core/aunesa`, así que sus fallas eran invisibles para el detector de
+# caídas: el 2026-08-20 Aunesa devolvió 500, el AuM del día no se escribió y
+# el agente no pudo decir por qué. El hook anota cada respuesta sola, así que
+# una llamada nueva en este archivo queda cubierta sin acordarse de nada.
+_SES = proveedores.sesion_vigilada("aunesa", "cashflow")
+
 
 AUTH_URL = "https://aca.aunesa.com/Irmo/api/login"
 OPS_URL  = "https://aca.aunesa.com/Irmo/api/operaciones/consolidadosGenerales"
@@ -18,7 +24,7 @@ PALABRAS_CLAVE = ["deposito", "transferencia", "extraccion"]
 
 
 def autenticar():
-    resp = requests.post(
+    resp = _SES.post(
         AUTH_URL,
         json={
             "clientId": config.AUNESA_CLIENT_ID,
@@ -30,7 +36,6 @@ def autenticar():
     )
     # El rastro para el detector de caídas (§0.an): este módulo NO pasa por
     # `core/aunesa`, así que sin esto su fallo es invisible para el agente.
-    proveedores.mirar(resp)
     resp.raise_for_status()
     token = resp.json().get("token")
     return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
@@ -56,12 +61,11 @@ def fetch_dia(dia_str, headers):
         "concertacionDesde": dia_str,
         "concertacionHasta": dia_str,
     }
-    resp = requests.get(OPS_URL, params=params, headers=headers, timeout=30)
+    resp = _SES.get(OPS_URL, params=params, headers=headers, timeout=30)
     if resp.status_code == 401:
         print("⚠️  Token expirado, re-autenticando...", flush=True)
         headers = autenticar()
-        resp = requests.get(OPS_URL, params=params, headers=headers, timeout=30)
-    proveedores.mirar(resp)
+        resp = _SES.get(OPS_URL, params=params, headers=headers, timeout=30)
     if resp.status_code == 400:
         print(f"\n🔍 Respuesta 400 para {dia_str}: {resp.text[:500]}", flush=True)
     resp.raise_for_status()

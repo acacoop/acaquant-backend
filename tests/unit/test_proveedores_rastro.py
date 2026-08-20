@@ -94,15 +94,21 @@ def _modulos_que_le_hablan_a(host: str) -> list[pathlib.Path]:
     return out
 
 
+# Las formas VÁLIDAS de dejar rastro. `sesion_vigilada`/`vigilar` enganchan un
+# hook a la sesión y cubren TODA llamada de ese archivo, presente y futura — son
+# mejores que `mirar` suelto, que hay que acordarse de poner en cada respuesta.
+_FORMAS = ("sesion_vigilada", "vigilar", "mirar", "rastrear", "anotar")
+
+
 def _deja_rastro(f: pathlib.Path) -> bool:
-    """O pasa por el cliente único, o llama a `mirar`/`rastrear` explícito."""
+    """O pasa por el cliente único, o engancha el rastro de alguna de `_FORMAS`."""
     t = f.read_text(encoding="utf-8")
     if "core.aunesa" in t or "from core import aunesa" in t:
         return True
     arbol = ast.parse(t)
     for n in ast.walk(arbol):
         if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                and n.func.attr in ("mirar", "rastrear", "anotar")):
+                and n.func.attr in _FORMAS):
             return True
     return False
 
@@ -122,7 +128,7 @@ def test_todo_modulo_que_le_pega_a_AUNESA_deja_rastro(f):
     assert _deja_rastro(f), (
         f"{f.relative_to(_RAIZ)} le habla a Aunesa y no deja rastro: su fallo "
         f"va a ser invisible para el detector de caídas. Usá `core/aunesa` o "
-        f"llamá a `proveedores.mirar(resp)`.")
+        f"pedile la sesión a `proveedores.sesion_vigilada(...)`.")
 
 
 def test_la_guarda_encuentra_a_los_CUATRO_sueltos():
@@ -131,3 +137,49 @@ def test_la_guarda_encuentra_a_los_CUATRO_sueltos():
     nombres = {f.name for f in _modulos_que_le_hablan_a("aca.aunesa.com")}
     assert {"aum.py", "cashflow.py", "sync_comitentes.py",
             "aunesa_negocio.py"} <= nombres, nombres
+
+
+# ── UN solo criterio de «está caído» (REGLA #9) ──────────────────────────────
+
+def test_un_400_NO_es_una_caida_del_proveedor():
+    """**El bug que esto congela.** Hubo dos caminos para dejar rastro y cada
+    uno tenía su umbral: `mirar` marcaba caída desde 400 y el hook de la sesión
+    desde 500. Enganchados los dos a la misma llamada, un 400 escribía «AUNESA
+    CAÍDO» y enseguida «recuperado»: una caída inventada, prendiéndose y
+    apagándose sola. `jobs/cashflow` maneja el 400 de Aunesa explícitamente, o
+    sea que no era hipotético.
+
+    Un 4xx es un problema NUESTRO: pedimos mal, o el token venció.
+    """
+    for c in (400, 401, 404, 422):
+        assert pr.es_caida(c) is False, c
+    for c in (500, 502, 503):
+        assert pr.es_caida(c) is True, c
+
+
+def test_los_dos_caminos_deciden_IGUAL():
+    """No alcanza con que el umbral esté bien: tiene que estar escrito UNA vez.
+    Si mañana alguien cambia uno solo, el sistema vuelve a inventar caídas y
+    nada falla — las dos mitades siguen siendo coherentes consigo mismas."""
+    import inspect
+    for fn in (pr.mirar, pr.vigilar):
+        assert "es_caida" in inspect.getsource(fn), (
+            f"{fn.__name__} decide con su propio umbral en vez de `es_caida`")
+
+
+def test_rastrear_es_vigilar_y_no_una_segunda_implementacion():
+    import inspect
+    assert "vigilar(" in inspect.getsource(pr.rastrear)
+
+
+def test_la_sesion_no_se_engancha_DOS_veces():
+    """`jobs/aum` tenía `rastrear` y `vigilar` sobre la MISMA sesión: dos hooks,
+    dos anotaciones por respuesta."""
+    class _S:
+        def __init__(self):
+            self.hooks = {}
+    s = _S()
+    pr.vigilar(s, "aunesa")
+    pr.rastrear(s, "aunesa")
+    pr.vigilar(s, "aunesa", "otro")
+    assert len(s.hooks["response"]) == 1

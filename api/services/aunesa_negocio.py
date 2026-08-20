@@ -40,6 +40,14 @@ import config
 from api.services._negocio_informacion_filter import es_excluido as _es_info_excluida
 from core import proveedores
 
+# ⚠️ **DEJA RASTRO** (2026-08-20). Este módulo le pega a Aunesa por FUERA
+# de `core/aunesa`, así que sus fallas eran invisibles para el detector de
+# caídas: el 2026-08-20 Aunesa devolvió 500, el AuM del día no se escribió y
+# el agente no pudo decir por qué. El hook anota cada respuesta sola, así que
+# una llamada nueva en este archivo queda cubierta sin acordarse de nada.
+_SES = proveedores.sesion_vigilada("aunesa", "negocio")
+
+
 logger = logging.getLogger("api.services.aunesa_negocio")
 
 AUTH_URL = "https://aca.aunesa.com/Irmo/api/login"
@@ -127,7 +135,7 @@ PATTERN_ACREENCIA_TICKER = re.compile(r"\bs/(?P<ticker>[\w./-]+)", re.IGNORECASE
 
 
 def _autenticar() -> dict[str, str]:
-    resp = requests.post(
+    resp = _SES.post(
         AUTH_URL,
         json={
             "clientId": config.AUNESA_CLIENT_ID,
@@ -139,7 +147,6 @@ def _autenticar() -> dict[str, str]:
     )
     # El rastro para el detector de caídas (§0.an): este módulo NO pasa por
     # `core/aunesa`, así que sin esto su fallo es invisible para el agente.
-    proveedores.mirar(resp)
     resp.raise_for_status()
     token = resp.json().get("token")
     return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
@@ -529,8 +536,7 @@ def fetch_y_consolidar(
     last_err: Exception | None = None
     for intento in range(1, retries + 1):
         try:
-            resp = requests.get(OPS_URL, params=params, headers=headers, timeout=timeout_s)
-            proveedores.mirar(resp)
+            resp = _SES.get(OPS_URL, params=params, headers=headers, timeout=timeout_s)
             break
         except requests.exceptions.Timeout as e:
             last_err = e

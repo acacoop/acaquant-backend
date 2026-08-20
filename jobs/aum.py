@@ -31,15 +31,14 @@ POSICION_URL = "https://aca.aunesa.com/Irmo/api/cuentas/{}/posicionValuada"
 # HTTP keep-alive. Quita ~200-400ms de latencia por call después del
 # primer request. requests.Session es thread-safe (docs). Compartido
 # entre el ThreadPoolExecutor de 4 workers sin issues.
-_SESSION = requests.Session()
-
 # ⚠️ **EL RASTRO DE CÓMO CONTESTA AUNESA** (2026-08-20). Este módulo NO pasa por
 # `core/aunesa`, así que sus fallos eran invisibles para el detector de caídas:
 # el 2026-08-20 el AuM no se escribió por un `500` y el agente no supo decir por
 # qué. Va en la SESSION y no en cada llamada — una función nueva acá queda
 # cubierta sin que nadie se acuerde. `anotar` viene con throttle adentro, así
 # que las ~1800 requests del backfill no escriben ~1800 filas.
-proveedores.rastrear(_SESSION, "aunesa")
+_SESSION = requests.Session()
+proveedores.vigilar(_SESSION, "aunesa", "aum")
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────

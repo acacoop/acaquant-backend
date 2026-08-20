@@ -141,3 +141,98 @@ def test_la_PANTALLA_de_logs_sigue_devolviendo_los_MISMOS_campos():
     src = inspect.getsource(router._fetch_logs_cached)
     for campo in ("ts_epoch", "priority", "servicio", "message"):
         assert f'"{campo}"' in src
+
+
+# ── el nivel sale del TEXTO (el bug de la primera corrida) ───────────────────
+
+def test_el_nivel_se_lee_del_TEXTO_porque_journald_dice_info_a_todo():
+    """**El bug que devolvió CERO en 24 horas con 14 motores andando.** Ninguna
+    unit declara `SyslogLevelPrefix`, así que journald marca TODAS las líneas
+    como `info` — también las de `logger.error`. Pedirle `-p warning` devuelve
+    vacío siempre, y ese vacío se lee igual que «no hay errores»."""
+    assert ls.nivel_de_texto("2026-08-20 11:02 ERROR no pude suscribir") == 3
+    assert ls.nivel_de_texto("Traceback (most recent call last):") == 3
+    assert ls.nivel_de_texto("WARNING reconectando") == 4
+    assert ls.nivel_de_texto("CRITICAL se cayó todo") == 2
+
+
+def test_una_linea_que_HABLA_de_errores_no_es_un_error():
+    """En MAYÚSCULAS a propósito: es lo que imprime `%(levelname)s` de Python.
+    Si se buscara sin distinguir, «0 errores» y «sin warnings» —que son
+    justamente las líneas que dicen que todo salió bien— entrarían como
+    problemas, y el detector nacería gritando."""
+    assert ls.nivel_de_texto("0 errores encontrados") is None
+    assert ls.nivel_de_texto("sin warnings hoy") is None
+    assert ls.nivel_de_texto("proceso terminado ok") is None
+
+
+def test_gana_LO_PEOR_entre_journald_y_el_texto(monkeypatch):
+    """Hay servicios que sí mandan el nivel de verdad (cloudflared, systemd). Si
+    se le creyera solo al texto, se cambiaría un punto ciego por otro."""
+    import json
+    salida = "\n".join(json.dumps(d) for d in [
+        # journald dice info, el texto dice ERROR → gana ERROR
+        {"__REALTIME_TIMESTAMP": "1000000", "PRIORITY": "6",
+         "_SYSTEMD_UNIT": "motor_rofex.service", "MESSAGE": "ERROR feo"},
+        # journald dice crit, el texto no dice nada → gana crit
+        {"__REALTIME_TIMESTAMP": "2000000", "PRIORITY": "2",
+         "_SYSTEMD_UNIT": "cloudflared.service", "MESSAGE": "se cayó"},
+    ])
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: type(
+        "P", (), {"returncode": 0, "stdout": salida, "stderr": ""})())
+    lineas = ls.leer(["x"])["lineas"]
+    assert lineas[0]["nivel"] == "error" and lineas[0]["lo_dice_el_texto"]
+    assert lineas[1]["nivel"] == "crit" and not lineas[1]["lo_dice_el_texto"]
+
+
+def test_se_filtra_EN_EL_SERVIDOR_con_grep():
+    """Sin `--grep` habría que traerse 24 h de logs de 14 motores para descartar
+    el 99%. El patrón es el mismo criterio que la clasificación, escrito una vez."""
+    assert "--grep" in ls._cmd(["x"], "-24h", 7, 100, ls.PATRON_NIVEL)
+    for palabra in ("ERROR", "WARNING", "CRITICAL", "Traceback"):
+        assert palabra in ls.PATRON_NIVEL
+
+
+def test_si_journalctl_no_soporta_grep_se_reintenta_SIN_el(monkeypatch):
+    """`--grep` no existe en journalctl viejo. Traer de más y filtrar en Python
+    es peor, pero es mucho mejor que no mirar — y que la única señal sea un
+    vacío indistinguible de «no hay errores»."""
+    intentos = []
+
+    def _run(cmd, **k):
+        intentos.append(cmd)
+        ok = "--grep" not in cmd
+        return type("P", (), {"returncode": 0 if ok else 1,
+                              "stdout": "", "stderr": "unknown option"})()
+    monkeypatch.setattr(subprocess, "run", _run)
+    r = ls.leer(["x"], grep=ls.PATRON_NIVEL)
+    assert r["disponible"] is True
+    assert len(intentos) == 2 and "--grep" not in intentos[1]
+
+
+# ── el formato de log ────────────────────────────────────────────────────────
+
+def test_TODOS_los_motores_escriben_el_nivel():
+    """El invariante que hace encontrable un error. 9 de 13 motores formateaban
+    con `"%(asctime)s %(message)s"` —sin el nombre del nivel— y `engines/valores`
+    (motor_rofex, el feed de precios de la mesa) no configuraba logging en
+    absoluto: sus `logger.info` se descartaban y sus `logger.error` salían a
+    stderr sin fecha. Un log donde no se puede encontrar un error no es un log."""
+    import pathlib
+
+    from core.logs import FORMATO
+    assert "%(levelname)s" in FORMATO
+
+    malos = []
+    for f in sorted(pathlib.Path("engines").glob("*.py")):
+        src = f.read_text(encoding="utf-8")
+        if "logging.getLogger" not in src and "configurar(" not in src:
+            continue            # no loguea: no aplica
+        if f.name.startswith("_") or f.name == "__init__.py":
+            continue            # librerías: las configura su entrypoint
+        if "configurar(" in src:
+            continue            # usa el formato único
+        if "basicConfig" in src and "%(levelname)s" not in src:
+            malos.append(f.name)
+    assert not malos, (f"estos motores loguean sin el NIVEL: {malos} — un error "
+                       "suyo es indistinguible de una línea normal")

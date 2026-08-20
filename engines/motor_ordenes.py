@@ -53,12 +53,14 @@ from dotenv import load_dotenv
 # Cargar .env antes que core/rofex_orders_session lea ROFEX_ORDERS_ENV y demás.
 load_dotenv()
 
+from core.logs import configurar  # noqa: E402
 from core.rofex_orders_session import (  # noqa: E402
     cerrar_ws,
     inicializar_para_motor,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+configurar()
 logger = logging.getLogger("MotorOrdenes")
 
 # Estados que consideramos terminales — no hace falta re-fetchearlos.

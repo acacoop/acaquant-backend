@@ -2171,6 +2171,53 @@ Es el mismo modo de falla de §0.s y el que más caro sale: la vigilancia diría
 verde para siempre. `disponible: False` con el motivo, y el diag lo imprime como
 lo que es — «no sé», no «está todo bien».
 
+#### LA PRIMERA CORRIDA DIO CERO — y el cero era el detector (2026-08-20)
+
+14 motores, 24 horas, **ninguna línea de warn o peor**. Sospechoso, y al medirlo
+—en el repo, sin tocar el Droplet— eran **tres capas tapando lo mismo**:
+
+  1. **Ninguna unit de systemd declara nivel** (`SyslogLevelPrefix`), así que
+     **journald marca TODAS las líneas como `info`**, también las de
+     `logger.error`. Pedirle `-p warning` devuelve vacío *siempre*.
+  2. **9 de 13 motores formateaban con `"%(asctime)s %(message)s"`** — sin el
+     nombre del nivel. El texto tampoco lo decía.
+  3. **`engines/valores.py` (motor_rofex) no configuraba logging en absoluto.**
+     Sin `basicConfig` el logger raíz queda sin handlers y en WARNING: sus
+     `logger.info` se **descartaban** y sus `logger.error` salían por el handler
+     de último recurso, a stderr y sin fecha. Es el feed de precios de la mesa.
+
+Juntando las tres, **un error de un motor era indistinguible de una línea
+normal** — para el agente y para una persona leyendo `journalctl`. No es que
+faltara un detector: *no había forma de encontrar un error aunque lo buscaras a
+mano*. Y como un log ilegible no falla, esto podía durar para siempre.
+
+**Las dos mitades del arreglo:**
+
+  · **El nivel viaja EN EL TEXTO** (`core/logs.py`, formato único con
+    `%(levelname)s` y `force=True`). Es lo único que sobrevive a journald, a
+    `tail`, a un `grep` y a un copiar-pegar en un chat.
+  · **El lector no le cree a journald**: saca el nivel del texto y se queda con
+    **lo peor** entre ese y el de journald — hay servicios que sí mandan el nivel
+    de verdad, y creerle solo al texto sería cambiar un punto ciego por otro. El
+    filtro va como `--grep` del lado del servidor: sin eso habría que traerse 24 h
+    de logs de 14 motores para descartar el 99%.
+
+Dos detalles que hacen que esto no vuelva a esconderse:
+
+  · Las palabras se buscan **en MAYÚSCULAS**, que es lo que imprime
+    `%(levelname)s`. Sin eso, «0 errores» y «sin warnings» —las líneas que dicen
+    que todo salió bien— entrarían como problemas y el detector nacería gritando.
+  · El diag arranca con una **muestra de las últimas líneas de cualquier nivel** y
+    dice cuánto tiempo cubren y cuántas declaran su nivel. Eso separa de una las
+    dos lecturas posibles de un cero: *«están tranquilos»* de *«no se puede
+    encontrar nada»*. **Un cero sin esa muestra no prueba nada.**
+
+⚠️ **El formato nuevo NO se ve hasta reiniciar los motores**, y el deploy no los
+toca a propósito. El cron los prende y apaga de lunes a viernes, así que entra
+solo en el próximo arranque. Hasta entonces el diag lo canta: *«ninguna línea
+dice su nivel: este cero no prueba que no haya errores, prueba que no se pueden
+encontrar»*.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

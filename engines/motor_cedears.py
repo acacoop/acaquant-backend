@@ -32,15 +32,14 @@ from typing import ClassVar
 
 import pyRofex
 
+from core.logs import configurar
 from core.rofex_session import inicializar_sesion
 from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+configurar()
 
 
 def _to_float(v) -> float:

@@ -55,6 +55,8 @@ def main() -> int:
     ap.add_argument("--horas", type=int, default=24)
     ap.add_argument("--unidad", default="", help="una sola (default: todos los motores)")
     ap.add_argument("--todo", action="store_true", help="incluir notice/info")
+    ap.add_argument("--ver", type=int, default=0,
+                    help="imprimir las últimas N líneas crudas, sin filtrar")
     ap.add_argument("--top", type=int, default=25)
     a = ap.parse_args()
 
@@ -65,8 +67,37 @@ def main() -> int:
     print(f"\n  {len(unidades)} unidad(es), últimas {a.horas} h, "
           f"nivel {'todo' if a.todo else 'warn o peor'}\n")
 
-    r = ls.leer(unidades, desde=f"-{a.horas}h",
-                prioridad=7 if a.todo else ls.ATENCION)
+    # ── PASO 0: ¿ESCRIBEN ALGO? ─────────────────────────────────────────────
+    # La primera corrida devolvió CERO en 24 h y la pregunta era cuál de dos
+    # cosas: los motores están tranquilos, o el filtro no encuentra nada. Esta
+    # muestra lo decide de una: si 400 líneas cubren tres minutos son
+    # conversadores y el cero es del filtro; si cubren un día, están tranquilos.
+    m = ls.leer(unidades, desde=f"-{a.horas}h", prioridad=7, lineas=400)
+    if not m["disponible"]:
+        print(f"  ⚠ NO PUDE LEER LOS LOGS: {m['motivo']}")
+        print("    (no es «no hay errores» — es «no sé»)\n")
+        return 1
+    muestra = m["lineas"]
+    if not muestra:
+        print(f"  ⚠ Los motores NO ESCRIBIERON NADA en {a.horas} h, de ningún "
+              "nivel.\n    Eso no es silencio sano: son 14 procesos que "
+              "deberían contar lo que hacen.\n")
+        return 0
+    span = max(x["ts"] for x in muestra) - min(x["ts"] for x in muestra)
+    con_nivel = sum(1 for x in muestra if x["lo_dice_el_texto"])
+    print(f"  MUESTRA: las últimas {len(muestra)} líneas cubren "
+          f"{_ventana({'veces': 2, 'primera': 0, 'ultima': span})}")
+    print(f"    {con_nivel} de {len(muestra)} dicen su nivel en el texto")
+    if con_nivel == 0:
+        # Sin el nivel escrito no hay forma de encontrar un error, ni para el
+        # agente ni para una persona. Ver AV_AGENT.md §0.ac.
+        print("    ⚠ NINGUNA lo dice: ese motor está corriendo con el formato "
+              "viejo.\n      Se arregla al reiniciarlo (el deploy no toca "
+              "motores).")
+    print()
+
+    r = ls.leer(unidades, desde=f"-{a.horas}h", prioridad=7) if a.todo \
+        else ls.atencion(unidades, desde=f"-{a.horas}h")
     if not r["disponible"]:
         # **El silencio se lee igual que un verde**: si no se pudo leer hay que
         # decirlo, no devolver una lista vacía y que parezca que está todo bien.
@@ -76,7 +107,13 @@ def main() -> int:
 
     lineas = r["lineas"]
     if not lineas:
-        print(f"  Ningún motor escribió nada de ese nivel en {a.horas} h.\n")
+        print(f"  Ningún motor escribió un ERROR ni un WARNING en {a.horas} h.")
+        if con_nivel:
+            print("  Y el nivel SÍ se está escribiendo, así que el cero es real.\n")
+        else:
+            print("  ⚠ Pero ninguna línea dice su nivel: este cero NO prueba "
+                  "que no haya errores,\n    prueba que no se pueden "
+                  "encontrar. Reiniciá los motores fuera de rueda.\n")
         return 0
 
     print(f"  {len(lineas)} línea(s)\n")
@@ -106,6 +143,13 @@ def main() -> int:
     for g in sorted(grupos, key=lambda x: -x["veces"])[: a.top]:
         print(f"    ×{g['veces']:<6} [{g['nivel']}] {g['unidad']} — en {_ventana(g)}")
         print(f"        {g['patron']}")
+
+    if a.ver:
+        # Para leerlas con los ojos cuando el resumen no alcanza.
+        print(f"\n  ÚLTIMAS {a.ver} LÍNEAS (crudas)")
+        for x in muestra[-a.ver:]:
+            print(f"    {_cuando(x['ts'])} [{x['nivel']}] {x['unidad']}: "
+                  f"{x['mensaje'].splitlines()[0][:140]}")
 
     print("\n  Con estos números se eligen los umbrales del detector.\n")
     return 0

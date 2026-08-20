@@ -37,6 +37,7 @@ from config import (
     ESTRATEGIA_TICKERS,
 )
 from core import estrategia_sql as db
+from core.logs import configurar
 from quant.estrategia import (
     factor_alineacion,
     factor_confluencia,
@@ -48,7 +49,8 @@ from quant.estrategia import (
 from quant.pivot_points import calcular
 from quant.rolling_stats import correlation, returns_from_prices
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+configurar()
 logger = logging.getLogger("MotorEstrategia")
 
 INTERVALO = 60  # segundos entre ciclos

@@ -28,10 +28,12 @@ from datetime import date, datetime, timedelta
 import numpy as np
 
 from core import market_snapshot, pg_mirror
+from core.logs import configurar
 from engines._curvas_loader import cargar_indexado_por_ticker
 from quant.xirr import xirr as _xirr_quant
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+configurar()
 logger = logging.getLogger("MotorCurvas")
 
 INTERVALO_SEGUNDOS = 2          # bajado de 5 a 2: sin escrituras a TimeSales,

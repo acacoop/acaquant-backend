@@ -44,6 +44,7 @@ from datetime import UTC, date, datetime
 
 import pyRofex
 
+from core.logs import configurar
 from engines._motor_base import (
     SnapshotEngine,
     correr_motor,
@@ -52,7 +53,8 @@ from engines._motor_base import (
     ticker_de,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+configurar()
 logger = logging.getLogger("MotorFuturosDLR")
 
 INTERVALO_SNAPSHOT_S = 5

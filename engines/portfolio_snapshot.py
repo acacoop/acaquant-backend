@@ -35,13 +35,15 @@ from datetime import UTC, datetime
 
 import pyRofex
 
+from core.logs import configurar
 from core.pg_mirror import append_native, write_snapshot
 from core.rofex_session import inicializar_sesion
 from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
 from engines._universo_portfolio import tickers_de_tenencia
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+configurar()
 logger = logging.getLogger("MotorPortfolioSnapshot")
 
 SNAPSHOT_INTERVAL_S = 1.0

@@ -27,9 +27,11 @@ import logging
 import time
 from datetime import UTC, date, datetime
 
+from core.logs import configurar
 from engines._motor_base import SnapshotEngine, correr_motor
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+configurar()
 logger = logging.getLogger("MotorCaucion")
 
 INTERVALO_SNAPSHOT_S = 5

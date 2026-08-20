@@ -1,4 +1,3 @@
-import logging
 import os
 import queue
 import threading
@@ -10,6 +9,7 @@ from zoneinfo import ZoneInfo
 import pyRofex
 
 from core import pg_mirror
+from core.logs import configurar
 
 # --- TUS MANAGERS DE INFRAESTRUCTURA ---
 from core.rofex_session import inicializar_sesion
@@ -17,7 +17,15 @@ from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
 from engines._curvas_loader import cargar_tickers_ordenados
 
-logger = logging.getLogger("MotorValores")
+# ⚠️ **ESTE MOTOR NO CONFIGURABA LOGGING** (medido 2026-08-20). Sin `basicConfig`
+# el logger raíz queda SIN handlers y en WARNING, así que sus `logger.info` se
+# DESCARTABAN y sus `logger.error` salían por el handler de último recurso: a
+# stderr, sin fecha y sin nivel.
+#
+# Es el feed de precios de la mesa, el motor más importante de la plataforma, y
+# durante meses estuvo escribiendo a un lugar donde nadie podía leerlo. No fallaba
+# nada — por eso nadie lo vio. Ver AV_AGENT.md §0.ac.
+logger = configurar("MotorValores")
 
 ART = ZoneInfo("America/Argentina/Buenos_Aires")
 

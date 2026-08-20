@@ -28,10 +28,12 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
+from core.logs import configurar
 from core.pg_mirror import write_snapshot
 from engines._motor_base import SnapshotEngine, correr_motor
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+configurar()
 logger = logging.getLogger("MotorDolares")
 
 INTERVALO_SNAPSHOT_S = 5

@@ -1556,6 +1556,11 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
                     # que su única frase posible era «todavía sin precio» — un
                     # chequeo con una sola respuesta posible es un cartel.
                     "respuesta",
+                    # `cron_desalineado` (2026-08-20): el crontab del repo
+                    # contra el de la máquina. `deploy.sh` no instala el
+                    # archivo, así que un cron nuevo puede no correr NUNCA sin
+                    # que falle nada — REGLA #9(B), dos copias sin árbitro.
+                    "cron_desalineado",
                     "permiso_flojo", "dato_partido"}
     assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
         "una clave del mapa no es un TIPO que algún detector emita — "

@@ -242,6 +242,15 @@ _QUE_DETECTA: dict[str, tuple[str, str]] = {
         "PATA EQUIVOCADA del que cotiza así de verdad — y para eso busca la pata "
         "en dólares en DOS fuentes: `mercado.especies` y, si ahí no está, el "
         "catálogo de Primary (mirar una sola no alcanza para decir que no existe)"),
+    "cron_desalineado": (
+        "Crons del repo que no corren",
+        "compara `deploy/crontab.txt` —que TODO el sistema trata como la fuente "
+        "de verdad— contra el crontab REAL de la máquina. `deploy.sh` no lo "
+        "instala, así que un cron nuevo puede vivir en el repo y no ejecutarse "
+        "nunca: no falla nada, el catálogo lo muestra igual y el job no corrió. "
+        "Mira las dos direcciones (lo que falta instalar y lo que corre sin "
+        "estar declarado) y si no puede leer el crontab lo DICE en vez de "
+        "callarse"),
     "respuesta": (
         "La respuesta a lo que se pidió",
         "cierra el círculo de una acción cuyo efecto NO es inmediato. Cuando se "
@@ -350,6 +359,7 @@ _DOMINIO_DETECTOR: dict[str, str] = {
     # De MERCADO y no de sistema: lo que contesta es si un bono cotiza.
     "respuesta": MERCADO,
     "dato_partido": DATOS,
+    "cron_desalineado": SISTEMA,
     "permiso_flojo": SEGURIDAD,
 }
 
@@ -415,6 +425,7 @@ _DONDE_CORRE: dict[str, str] = {
     "tabla_quieta": "jobs.db_tamano",
     "permiso_flojo": "jobs.db_tamano",
     "dato_partido": "jobs.db_tamano",
+    "cron_desalineado": "jobs.db_tamano",
 }
 
 

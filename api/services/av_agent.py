@@ -259,6 +259,10 @@ ACCION_POR_TIPO = {
     "respuesta": None,
     # Un permiso flojo se arregla en el router o en el borde, no en la base.
     "permiso_flojo": None,
+    # `None`, y **es una decisión**: instalar el crontab desde el agente sería
+    # darle la llave de todo lo que corre en la máquina. Además el arreglo es UN
+    # comando; lo que faltaba no era ejecutarlo, era enterarse.
+    "cron_desalineado": None,
     # `None` EXPLÍCITO: NO se automatiza, y es una decisión. Cuando dos copias
     # difieren, elegir la del árbitro y pisar la otra parece obvio y **no lo es**:
     # puede que la que esté mal sea la del árbitro, y pisar borra la evidencia de
@@ -371,6 +375,7 @@ DOMINIO_EVAL: dict[str, str] = {
     "proveedor_caido": "sistema", "recuperado": "sistema",
     "respuesta": "bono",
     "permiso_flojo": "sistema",
+    "cron_desalineado": "sistema",
     "dato_partido": "sistema",
 }
 DOMINIOS_EVAL = ("bono", "salud", "sistema")

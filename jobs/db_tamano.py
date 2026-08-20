@@ -137,7 +137,20 @@ def main() -> int:
         else:
             print("\n✔ los datos duplicados coinciden en todos sus lugares")
 
-        sistema = hall + ctx.detectar_tablas() + db.detectar_db() + partido
+        # ⚠️ **EL CRON DEL REPO vs EL QUE CORRE DE VERDAD** (§0.al). `deploy.sh`
+        # NO instala el crontab, así que una línea nueva en el archivo puede no
+        # existir en la máquina — y ahí el job no corre, no falla nada, y el
+        # catálogo lo muestra igual. Es REGLA #9(B): dos copias sin árbitro.
+        from api.services import av_agent_crontab as cron
+        cr = cron.detectar_crontab()
+        for h in cr:
+            print(f"\n⚠ crontab: {h['motivo']}")
+            for j in (h.get("evidencia") or {}).get("jobs") or []:
+                print(f"   · {j}")
+        if not cr:
+            print("\n✔ el crontab de la máquina es el del repo")
+
+        sistema = hall + ctx.detectar_tablas() + db.detectar_db() + partido + cr
         n = av_agent.reemplazar_hallazgos("sistema", sistema)
         jr.set_stat("hallazgos", n)
         print(f"\n✔ {n} hallazgos del sistema en mercado.av_agent_hallazgos "

@@ -2794,6 +2794,71 @@ hace dudar de todo lo demás que dice la pantalla, que es lo caro.
 > conceptos son distintos de verdad (aquél mide DÍAS y la persistencia del
 > arreglo; éste mide MINUTOS de rueda y la respuesta del mercado).
 
+### 0.al ¿EL CRON DEL REPO ES EL QUE CORRE? (2026-08-20)
+
+Salió de una pregunta del user que parecía trivial: *«¿ya está ok el aviso de
+saldos a operadores de las 16:30, el automático?»*. Buscando la respuesta
+aparecieron dos cosas.
+
+**La chica**: está a las **16:45 ART** (`45 19 * * 1-5` UTC), no a las 16:30.
+
+**La grande**: no había forma de contestar si corrió — y hay una razón concreta
+por la que podría no haber corrido nunca.
+
+#### El agujero
+
+`deploy/crontab.txt` dice en su encabezado que es la **fuente de verdad**, y todo
+el sistema le cree:
+
+| quién | qué hace con el archivo |
+|---|---|
+| `jobs_catalogo` | lo parsea: es el catálogo de jobs |
+| `salud` | arma un chequeo por línea (¿corrió cuando debía?) |
+| `diagnostico_registry` | valida el inventario contra él |
+| tab SKILLS | de ahí saca el horario de cada detector |
+
+**Y nadie lo compara nunca con el crontab real de la máquina.** `deploy.sh` hace
+`git pull`, `apply_schema` y reinicia la API — **no instala el crontab**. O sea
+que agregar un cron al repo no lo pone a correr: hay que instalarlo a mano, y si
+alguien se olvida, el job no existe.
+
+> Es **REGLA #9(B) textual**: el mismo dato en dos lugares, sin árbitro y sin
+> chequeo. Y falla del modo que este proyecto ya conoce de memoria: **no falla
+> nada**. El archivo está bien, el código está bien, los tests pasan, el catálogo
+> muestra el job, la pantalla del agente lo lista con su horario… y no corrió.
+> Se descubre cuando alguien pregunta «¿esto funcionó?», que es literalmente
+> cómo apareció.
+
+#### Qué mira, y en las dos direcciones
+
+    en el archivo y NO en la máquina  → el job NO CORRE y todos creen que sí
+    en la máquina y NO en el archivo  → corre algo que el repo no declara: nadie
+                                        lo revisa, y la próxima instalación del
+                                        archivo se lo lleva puesto sin avisar
+
+Corre con los detectores del sistema (`jobs/db_tamano`, de noche) y emite
+`cron_desalineado`. **Si no puede leer el crontab lo DICE** en vez de callarse:
+sin eso, un `crontab` que no está en el PATH devolvería «ninguno instalado» y el
+detector cantaría los 40 jobs como caídos — o peor, se quedaría mudo. Es la regla
+de §0.v otra vez: *no se concluye «no existe» desde una lectura que falló*.
+
+Se compara la ORDEN, no el archivo: comentarios, `MAILTO=` y `PATH=` quedan
+afuera, y los espacios se colapsan — pero **cambiar el horario sí es una
+diferencia** y hay un test que lo exige, porque colapsar de más taparía justo lo
+que hay que ver.
+
+#### Y para contestarlo hoy: `scripts/diag_crontab`
+
+Dos preguntas distintas, las dos en una pasada: **¿está instalado?** (repo vs
+máquina) y **¿corrió?** (`manager.job_runs`, con las últimas corridas y su
+error). Estar instalado y haber corrido no son lo mismo: puede fallar el lock del
+`run_job.sh`, el venv o el propio job.
+
+> ⚠️ **La primera versión del diag se inventó las columnas** (`job`,
+> `duration_ms`, `error`). La tabla real es `tipo`/`status`/`started_at` + un
+> `data` jsonb — REGLA #2 en vivo: lo cazó mirar `sql/schema.sql` antes de
+> pushear, no un test.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

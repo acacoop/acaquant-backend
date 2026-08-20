@@ -107,14 +107,18 @@ def confirmar_pendiente(
     fecha: date | None = Body(None, embed=True),
     diferencia: float | None = Body(None, embed=True),
     nota: str = Body("", embed=True),
+    mov_ref: str = Body("", embed=True),
     email: str = Depends(get_user_email),
 ) -> dict:
     """Confirma un movimiento a conciliar. `accion` dice qué hay que hacer:
-    `falta_en_el_mayor` (cargarlo) o `sobra_en_el_mayor` (sacarlo)."""
+    `falta_en_el_mayor` (cargarlo) o `sobra_en_el_mayor` (sacarlo).
+
+    `mov_ref` identifica al MOVIMIENTO (`mov_hash` del banco, `mayor:<fila>` del
+    mayor): sin él, dos movimientos que se escriben igual se pisan entre sí."""
     try:
         return _svc.confirmar_pendiente(
             _exigir_escritura(email), cuenta_id, _fecha(fecha), accion,
-            descripcion, importe, diferencia, nota)
+            descripcion, importe, diferencia, nota, mov_ref)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 

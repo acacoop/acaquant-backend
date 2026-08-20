@@ -4016,10 +4016,50 @@ CREATE TABLE IF NOT EXISTS bancos.conciliacion_pendientes (
     -- NO se borra: es la traza de qué se corrigió y quién lo corrigió.
     resuelto     boolean NOT NULL DEFAULT false,
     resuelto_por text,
-    resuelto_at  timestamptz,
-    -- El mismo movimiento confirmado dos veces es el mismo pendiente.
-    UNIQUE (cuenta_id, fecha, accion, descripcion, importe)
+    resuelto_at  timestamptz
 );
+
+-- ⚠️ IDENTIDAD DEL MOVIMIENTO, y la razón por la que la clave única cambió.
+--
+-- La versión original era `UNIQUE (cuenta_id, fecha, accion, descripcion,
+-- importe)`, o sea: la unicidad definida sobre el TEXTO. Dos movimientos
+-- DISTINTOS que se escriben igual eran, para esta tabla, el mismo — y el caso
+-- se dio (2026-08-19, Banco Valores): dos `N/C - CRED REVERSO PASE E` de
+-- $50.000,00 el mismo día. El segundo cayó en el `ON CONFLICT DO UPDATE` y pisó
+-- al primero, así que quedó UN pendiente de 50.000 para una diferencia de
+-- 100.000,55. Peor que perder una fila: la anotación miente por la mitad y la
+-- conciliación de mañana no cierra igual.
+--
+-- `mov_ref` es la identidad REAL: `mov_hash` del lado del banco, `mayor:<fila>`
+-- del lado del mayor (el Excel no trae ningún ID, la fila es lo mejor que hay).
+-- Las filas viejas quedan en NULL y no colisionan entre sí (en Postgres los NULL
+-- son distintos), que es exactamente lo que se quiere: no se inventa una
+-- identidad para algo que se anotó sin ella.
+ALTER TABLE bancos.conciliacion_pendientes ADD COLUMN IF NOT EXISTS mov_ref text;
+
+DO $$
+DECLARE r record;
+BEGIN
+    -- Se busca por COLUMNAS y no por nombre: el nombre que genera Postgres para
+    -- esa constraint pasa los 63 caracteres y queda truncado, así que escribirlo
+    -- a mano es una bomba de tiempo.
+    FOR r IN
+        SELECT conname FROM pg_constraint
+         WHERE conrelid = 'bancos.conciliacion_pendientes'::regclass
+           AND contype = 'u'
+           AND conkey @> ARRAY[(SELECT attnum FROM pg_attribute
+                                 WHERE attrelid = 'bancos.conciliacion_pendientes'::regclass
+                                   AND attname = 'descripcion')]
+    LOOP
+        EXECUTE format('ALTER TABLE bancos.conciliacion_pendientes DROP CONSTRAINT %I',
+                       r.conname);
+    END LOOP;
+END $$;
+
+-- El mismo MOVIMIENTO confirmado dos veces es el mismo pendiente. Dos
+-- movimientos distintos son dos pendientes, aunque digan lo mismo.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_bancos_pendientes_mov
+    ON bancos.conciliacion_pendientes (cuenta_id, fecha, accion, mov_ref);
 
 CREATE INDEX IF NOT EXISTS ix_bancos_pendientes_abiertos
     ON bancos.conciliacion_pendientes (resuelto, fecha DESC);

@@ -973,6 +973,16 @@ def _buscar(items: list[tuple[dict, float]], objetivo: float) -> tuple[list[dict
     coincidencia aritmética. Lo que se busca es concreto —«a este mayor le falta
     ESTE movimiento»— y eso vive entero de un lado.
 
+    ⚠️ **Y de un solo SIGNO.** Una combinación no puede mezclar un egreso con un
+    ingreso. No es una restricción de prolijidad: `−999.999,99 + 1.100.000,00 =
+    100.000,01` no describe ningún error contable, describe dos movimientos que
+    no tienen nada que ver y que por casualidad restan parecido a la diferencia.
+    Los errores del mayor son «faltan estos movimientos» o «sobran estos», y en
+    los dos casos van todos para el mismo lado. Está resuelto SEPARANDO los
+    items por signo antes de combinar —o sea que las combinaciones mixtas ni
+    siquiera se generan— y no filtrándolas después: una regla que decide qué es
+    una explicación tiene que estar en la estructura, no en un `if` al final.
+
     Tres pasadas, de la más estricta a la más laxa: exacto → mismo importe con el
     signo al revés → con margen. El orden importa: buscando con margen desde el
     principio, «esto es» y «esto se le parece» valdrían lo mismo.
@@ -980,6 +990,9 @@ def _buscar(items: list[tuple[dict, float]], objetivo: float) -> tuple[list[dict
     obj = round(objetivo, 2)
     truncado = len(items) > MAX_MOVS_COMBINAR
     usables = items[:MAX_MOVS_COMBINAR]
+    # Los dos universos que SÍ se pueden combinar. El cero no entra en ninguno:
+    # no cambia ninguna suma y solo agrandaría el espacio de búsqueda.
+    lados = ([m for m in usables if m[1] > 0], [m for m in usables if m[1] < 0])
 
     def _armar(combo, suma):
         return {"movimientos": [m for m, _ in combo], "suma": round(suma, 2),
@@ -1001,12 +1014,13 @@ def _buscar(items: list[tuple[dict, float]], objetivo: float) -> tuple[list[dict
         if salida:
             return salida[:10], False
         for n in (2, MAX_COMBINAR):
-            for combo in combinations(usables, n):
-                suma = round(sum(v for _, v in combo), 2)
-                if _da(suma):
-                    salida.append(_armar(combo, suma))
-                    if len(salida) >= 10:
-                        return salida, truncado
+            for lado in lados:
+                for combo in combinations(lado, n):
+                    suma = round(sum(v for _, v in combo), 2)
+                    if _da(suma):
+                        salida.append(_armar(combo, suma))
+                        if len(salida) >= 10:
+                            return salida, truncado
             if salida:
                 return salida, truncado
     return [], truncado
@@ -1215,13 +1229,22 @@ ACCIONES = ("falta_en_el_mayor", "sobra_en_el_mayor")
 
 def confirmar_pendiente(email: str, cuenta_id: int, fecha: date, accion: str,
                         descripcion: str, importe: float,
-                        diferencia: float | None = None, nota: str = "") -> dict:
+                        diferencia: float | None = None, nota: str = "",
+                        mov_ref: str = "") -> dict:
     """Anota un movimiento que hay que arreglar en el sistema contable.
 
     ⚠️ Encontrar el movimiento no alcanza: **el arreglo se hace en OTRO sistema y
     en otro momento**. Sin anotarlo, la próxima conciliación vuelve a encontrar
     lo mismo y nadie sabe si ya se corrigió — que es exactamente cómo un hallazgo
     se convierte en trabajo repetido.
+
+    ⚠️ **`mov_ref` es lo que identifica al movimiento**, y sin él esta función
+    perdía filas en silencio: dos `N/C - CRED REVERSO PASE E` de $50.000 el mismo
+    día se pisaban entre sí y quedaba UN pendiente de 50.000 para una diferencia
+    de 100.000,55. Es `mov_hash` del lado del banco y `mayor:<fila>` del lado del
+    mayor. Si el que llama no lo manda se deriva del texto —que es la conducta
+    vieja, y la única honesta cuando no hay identidad— pero se deriva EXPLÍCITO y
+    no por omisión de una constraint.
     """
     accion = (accion or "").strip()
     descripcion = (descripcion or "").strip()
@@ -1232,21 +1255,24 @@ def confirmar_pendiente(email: str, cuenta_id: int, fecha: date, accion: str,
     if not _q("SELECT 1 FROM bancos.cuentas WHERE id = %s", (cuenta_id,)):
         raise ValueError("Esa cuenta no existe.")
 
+    importe = round(float(importe), 2)
+    ref = (mov_ref or "").strip() or f"txt:{descripcion}|{importe}"
+
     filas = _q(
         """INSERT INTO bancos.conciliacion_pendientes
              (cuenta_id, fecha, accion, descripcion, importe, diferencia, nota,
-              confirmado_por)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-           ON CONFLICT (cuenta_id, fecha, accion, descripcion, importe)
+              confirmado_por, mov_ref)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (cuenta_id, fecha, accion, mov_ref)
            DO UPDATE SET confirmado_at = now(), confirmado_por = EXCLUDED.confirmado_por,
                          nota = EXCLUDED.nota, resuelto = false,
                          resuelto_por = NULL, resuelto_at = NULL
            RETURNING id""",
-        (cuenta_id, fecha, accion, descripcion, round(float(importe), 2),
-         diferencia, (nota or "").strip() or None, email))
+        (cuenta_id, fecha, accion, descripcion, importe,
+         diferencia, (nota or "").strip() or None, email, ref))
     _audit(email, "conciliar_confirmar",
            {"cuenta_id": cuenta_id, "fecha": fecha.isoformat(), "accion": accion,
-            "descripcion": descripcion, "importe": importe})
+            "descripcion": descripcion, "importe": importe, "mov_ref": ref})
     return {"id": filas[0]["id"], "ok": True}
 
 

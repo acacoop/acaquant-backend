@@ -448,6 +448,90 @@ def test_una_diferencia_grande_NO_se_explica_con_cualquier_cosa(monkeypatch):
     assert any("Ningún movimiento" in a for a in out["avisos"])
 
 
+# ── Una combinación NO mezcla ingresos con egresos ──────────────────────────
+# ⚠️ Caso real (2026-08-19, Banco Valores). Con la diferencia en 100.000,55 el
+# conciliador ofrecía DOS opciones:
+#   · un egreso de −999.999,99 con un ingreso de +1.100.000,00 → 100.000,01
+#   · dos ingresos de +50.000,00 → 100.000,00
+# La primera no describe ningún error contable: son dos movimientos que no tienen
+# nada que ver y que por casualidad restan parecido. Los errores del mayor son
+# «faltan estos» o «sobran estos», y en los dos casos van todos para el mismo
+# lado. Ofrecer la mixta no es dar una opción de más, es hacer dudar de la buena.
+GRILLA_166 = [["Concepto", "Debe", "Haber", "Saldo"],
+              ["Saldo inicial", "", "", "166,258.92 D"]]
+
+
+def test_NO_combina_un_egreso_con_un_ingreso(monkeypatch):
+    s = _svc(monkeypatch, cierre=166_258.92 + 100_000.55,
+             movs=[_mov("h1", 999_999.99, "D", "N/D - BV-TRANSF. A BANCOS"),
+                   _mov("h2", 1_100_000.00, "C", "N/C - TR. RECIB POR DATAN"),
+                   _mov("h3", 50_000.0, "C", "N/C - CRED REVERSO PASE E"),
+                   _mov("h4", 50_000.0, "C", "N/C - CRED REVERSO PASE E")])
+    out = s.conciliar("x@y", 1, FECHA, GRILLA_166)
+    assert out["diferencia"] == 100_000.55
+
+    hashes = [{m["mov_hash"] for m in c["movimientos"]} for c in out["candidatos"]]
+    assert {"h1", "h2"} not in hashes, "peras con manzanas: egreso + ingreso"
+    assert {"h3", "h4"} in hashes, "la explicación real sigue estando"
+
+
+def test_la_regla_de_signo_no_esconde_una_combinacion_de_EGRESOS(monkeypatch):
+    """No es «solo ingresos»: dos egresos que faltan cargar también son una
+    explicación legítima. Lo que no se permite es MEZCLAR."""
+    s = _svc(monkeypatch, cierre=166_258.92 - 300.0,
+             movs=[_mov("h1", 100.0, "D", "COMISION"),
+                   _mov("h2", 200.0, "D", "IVA"),
+                   _mov("h3", 500.0, "C", "UN CREDITO CUALQUIERA")])
+    out = s.conciliar("x@y", 1, FECHA, GRILLA_166)
+    assert out["diferencia"] == -300.0
+    assert {m["mov_hash"] for m in out["candidatos"][0]["movimientos"]} == {"h1", "h2"}
+
+
+# ── La identidad del movimiento en los pendientes ───────────────────────────
+# ⚠️ Caso real (2026-08-19): dos `N/C - CRED REVERSO PASE E` de $50.000,00 el
+# mismo día. La clave única era `(cuenta_id, fecha, accion, descripcion,
+# importe)` —o sea, sobre el TEXTO— así que el segundo cayó en el ON CONFLICT y
+# PISÓ al primero: quedó UN pendiente de 50.000 para una diferencia de
+# 100.000,55. Peor que perder una fila: la anotación miente por la mitad.
+def _svc_pendientes(monkeypatch):
+    from api.services import bancos as svc
+
+    guardado: list[tuple] = []
+
+    def _q(sql, params=None):
+        t = " ".join(str(sql).split())
+        if "FROM bancos.cuentas" in t:
+            return [{"id": 1}]
+        if "INSERT INTO bancos.conciliacion_pendientes" in t:
+            guardado.append((t, params))
+            return [{"id": len(guardado)}]
+        return []
+
+    monkeypatch.setattr(svc, "_q", _q)
+    monkeypatch.setattr(svc, "_audit", lambda *a, **k: None)
+    return svc, guardado
+
+
+def test_dos_movimientos_iguales_son_DOS_pendientes(monkeypatch):
+    s, guardado = _svc_pendientes(monkeypatch)
+    for h in ("hash-a", "hash-b"):
+        s.confirmar_pendiente("x@y", 1, FECHA, "falta_en_el_mayor",
+                              "N/C - CRED REVERSO PASE E", 50_000.0, mov_ref=h)
+    refs = [p[-1] for _, p in guardado]
+    assert refs == ["hash-a", "hash-b"], (
+        "la identidad es el MOVIMIENTO, no el texto: dos movimientos distintos "
+        "que se escriben igual son dos pendientes")
+    assert "ON CONFLICT (cuenta_id, fecha, accion, mov_ref)" in guardado[0][0]
+
+
+def test_sin_mov_ref_la_identidad_se_deriva_EXPLICITA(monkeypatch):
+    """Cuando de verdad no hay identidad se cae al texto —que es la conducta
+    vieja— pero escrito, no por omisión de una constraint."""
+    s, guardado = _svc_pendientes(monkeypatch)
+    s.confirmar_pendiente("x@y", 1, FECHA, "sobra_en_el_mayor", "ALGO", 12.5)
+    assert guardado[0][1][-1] == "txt:ALGO|12.5"
+
+
 # ── El margen es PROPORCIONAL, con piso ─────────────────────────────────────
 # Un margen fijo no escala en los dos sentidos: sobre 500 millones, un peso es
 # tan estricto como la igualdad exacta y vuelve a esconder el movimiento; sobre

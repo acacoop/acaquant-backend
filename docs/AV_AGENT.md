@@ -2445,6 +2445,79 @@ minutos y el 84º mensaje idéntico informa menos que el primero. El análisis
 general va PRIMERO en el cuerpo — «fallan las cinco» es lo accionable; el
 traceback es el respaldo.
 
+### 0.af QUIÉN DEPENDE DE QUIÉN — tres avisos, un solo problema (2026-08-20)
+
+*«Los jobs, ¿a dónde apuntan? Ej: a Aunesa… ¿Aunesa está caído? Listo, avisar que
+dio error PORQUE está caído Aunesa. Adelantarte: no solamente avisar, sino que el
+aviso sea con más contexto»* (user).
+
+**El agente ya veía las dos cosas y no las relacionaba.** En la misma pantalla:
+
+    proveedor_caido   Aunesa no responde
+    salud_job         portafolio_diario: la última corrida falló   ×80
+    salud_job         tenencia (snapshot SQL): la última corrida falló
+
+Tres avisos y un solo problema. Para atar el cabo hay que saberse de memoria que
+`portafolio_diario` le pega a Aunesa — y el que no lo sabe sale a buscar un bug
+que no existe, en la peor hora.
+
+**Cómo se llama esto**: correlación por dependencias (*root-cause correlation*).
+En criollo: **el agente sabe de qué depende cada cosa, así que cuando algo se cae
+agrupa todo lo que se cayó por eso y avisa una vez, con la causa.**
+
+#### La dependencia SALE DEL CÓDIGO, no de una lista
+
+Un job que le pega a Aunesa lo dice **en su `import`**. Esa dependencia ya está
+escrita: `core/dependencias` lee el árbol de sintaxis y la deriva. Misma ley que
+el resto del contexto del agente (§0.r) — *una lista a mano se queda vieja el día
+que alguien agrega un job y no se acuerda, **y no avisa***.
+
+Dos cosas aparecieron al estrenarlo, y las dos eran reales:
+
+  · **`core.bcra` no existe** (es `bcra_api`), así que la dependencia del BCRA no
+    se detectaba **nunca**. Un catálogo que nombra un módulo inexistente no da
+    error: **da silencio**. Hay un test que lo cruza contra el repo.
+  · **Cuatro módulos le hablan a Aunesa por fuera del cliente único** (`jobs/aum`,
+    `jobs/cashflow`, `jobs/sync_comitentes`, `api/services/aunesa_negocio`), con
+    su propio `requests`. Sus fallas **no dejan rastro** (§0.ad) y por el import
+    no se los puede relacionar. Migrarlos es otro trabajo; mientras tanto la
+    dependencia se detecta **por el host que mencionan**: el import es una pista,
+    la URL es otra, y las dos están escritas.
+
+Se sigue **un solo salto** de indirección. Con dos, todo depende de todo
+(cualquier módulo llega a `core.postgres`) y la correlación empieza a inventar.
+
+#### Qué cambia un hallazgo que es CONSECUENCIA
+
+| | qué pasa | por qué |
+|---|---|---|
+| el motivo | «…**porque Aunesa no responde**» | es lo único que se pidió, y ahorra la búsqueda inútil |
+| la severidad | baja un escalón, **no se apaga** | apagarlo sería mentir (el dato falta igual); dejarlo en ALTA junto a la causa muestra tres incendios donde hay uno |
+| la causa | «y por esto fallaron **otras 4** piezas» | ese número **es** el impacto, y decide si se llama al custodio ahora o se espera |
+
+⚠️ **Y NO SE INVENTA UNA CAUSA.** Solo se relaciona cuando la dependencia está
+escrita **y** el proveedor está caído en la misma ventana; los hallazgos de bonos
+nunca son consecuencia de un proveedor. **Atribuir de más es peor que no
+atribuir**: un job que falla por su propio bug, archivado como «culpa de Aunesa»,
+es un bug que nadie va a arreglar nunca. Congelado por test — `job:bcra` con
+Aunesa caído tiene que quedar intacto.
+
+#### Y de paso: 14 casos explotaban, y un TEST EXIGÍA EL BUG
+
+El masivo #6 reportó `TypeError: diagnosticar() got an unexpected keyword
+argument 'con_ia'` en **14 casos** — todos los chequeos de SALUD y todos los
+controles, la categoría entera. El parámetro se había ido al dar de baja la lente
+con IA y la llamada quedó pasándolo.
+
+Lo que lo mantuvo vivo es lo interesante: **había un test que lo exigía.**
+`test_la_lente_con_IA_va_apagada_en_masivo` hacía `assert "con_ia=False" in src`
+— congelaba una intención mirando un STRING. Cuando el parámetro desapareció de
+la firma, el test siguió pidiendo que la llamada lo pasara, y siguió en verde.
+
+> **Un test que verifica un texto puede sobrevivir a la cosa que verificaba.**
+> Ahora chequea lo estructural (que la función no tenga por dónde gastar un
+> token), que es lo que se quería decir y no se puede cumplir de mentira.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

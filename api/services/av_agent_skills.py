@@ -147,6 +147,17 @@ _CAPACIDADES: tuple[dict, ...] = (
                  "entero o un endpoint",
      "dominio": SISTEMA, "modulo": "api.services.av_agent_proveedores",
      "donde": "python -m scripts.diag_aunesa"},
+    {"id": "causas.correlacionar",
+     "nombre": "Saber que un problema explica a los otros",
+     "que_hace": "cruza los hallazgos entre sí: si un job falló y el proveedor "
+                 "del que depende está caído, el aviso pasa a decir POR QUÉ "
+                 "falló y baja de severidad, y la causa dice a cuántos explica "
+                 "— ese número es el impacto. La dependencia sale del CÓDIGO "
+                 "(el import o la URL, las dos están escritas), no de una lista "
+                 "que alguien tiene que acordarse de actualizar. Y no inventa: "
+                 "si la dependencia no está escrita, no relaciona",
+     "dominio": SISTEMA, "modulo": "api.services.av_agent_causas",
+     "donde": "AV Agent → ENCONTRÓ"},
 )
 
 

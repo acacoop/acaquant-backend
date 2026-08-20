@@ -100,5 +100,57 @@ def test_no_se_reimplementa_ningun_diagnostico():
 
 def test_la_lente_con_IA_va_apagada_en_masivo():
     """68 lecturas de log con LLM en una corrida es gasto que nadie pidió — y el
-    análisis determinista sale igual."""
-    assert "con_ia=False" in inspect.getsource(m._diagnosticar_uno)
+    análisis determinista sale igual.
+
+    ⚠️⚠️ **ESTE TEST EXIGÍA EL BUG.** Antes decía `assert "con_ia=False" in src`,
+    o sea que congelaba la INTENCIÓN mirando un STRING. Cuando la lente con IA se
+    dio de baja y el parámetro desapareció de la firma, el test siguió pidiendo
+    que la llamada lo pasara — y la llamada lo pasaba, contra una función que ya
+    no lo aceptaba. **14 casos explotaron con TypeError en el masivo #6 y este
+    test estaba en verde**, porque el string seguía ahí.
+
+    La lección, que vale para todo el repo: **un test que verifica un texto puede
+    sobrevivir a la cosa que verificaba.** Ahora se chequea lo estructural —que
+    la función NO tenga por dónde gastar un token— que es lo que se quería decir
+    y no se puede cumplir de mentira."""
+    import inspect as _i
+
+    from api.services import av_agent_salud
+
+    # (a) No hay ningún interruptor de IA que prender: no existe el parámetro.
+    assert "con_ia" not in _i.signature(av_agent_salud.diagnosticar).parameters
+    # (b) Y el diagnóstico no llama al gateway. Si mañana alguien le suma una
+    #     lente con LLM, este test lo frena antes de que corra sobre 155 casos.
+    src = _i.getsource(av_agent_salud.diagnosticar)
+    for gasto in ("core.ai", "generar(", "completar("):
+        assert gasto not in src, f"el diagnóstico de SALUD gasta tokens: «{gasto}»"
+
+
+def test_cada_ACCION_llama_a_su_funcion_con_una_firma_QUE_EXISTE():
+    """**14 casos explotaron por esto** (masivo #6): el masivo llamaba a
+    `av_agent_salud.diagnosticar(sujeto, con_ia=False)` y ese parámetro se había
+    ido al dar de baja la lente con IA. Todos los chequeos de SALUD y todos los
+    controles —la categoría entera— morían con TypeError.
+
+    Lo grave no es el argumento de más: es que **la corrida terminaba diciendo
+    «terminado»**. El masivo separa bien los que explotan, pero un
+    `TypeError` de firma no es un caso raro que analizar, es código roto — y
+    ninguna herramienta lo iba a ver, porque ruff no sigue una llamada entre
+    módulos y el `except` la convertía en una fila más del informe.
+
+    Este test ata la llamada a la firma real. Si mañana alguien cambia una de las
+    dos, falla acá y no en una corrida de 430 segundos y 552 créditos."""
+    import inspect
+
+    from api.services import av_agent_alta, av_agent_salud
+
+    # (función, args posicionales, kwargs) — lo mismo que hace `_un_caso`.
+    llamadas = [
+        (av_agent_salud.diagnosticar, ("job:x",), {}),
+        (av_agent_alta.simular_flujos, ("AL30",), {}),
+        (av_agent_alta.simular, ("AL30",), {"curva_1816": ""}),
+        (av_agent_alta.simular_arreglo, ("AL30",), {}),
+    ]
+    for fn, args, kw in llamadas:
+        # `bind` levanta TypeError si la llamada no encaja — sin ejecutar nada.
+        inspect.signature(fn).bind(*args, **kw)

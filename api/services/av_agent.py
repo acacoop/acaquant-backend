@@ -1355,6 +1355,13 @@ def relevar_live(*, ahora=None) -> dict:
         except Exception as e:      # un detector roto no puede tapar al otro
             logger.exception("av_agent live: detector %s falló: %s", nombre, e)
 
+    # ⚠️ **AL FINAL, CUANDO YA ESTÁN TODOS.** La correlación necesita ver el
+    # conjunto: un job que falla y el proveedor del que depende son dos
+    # detectores distintos, y hasta acá nadie los cruzaba. Sin esto la pantalla
+    # muestra tres incendios donde hay uno. Ver AV_AGENT.md §0.af.
+    from api.services.av_agent_causas import correlacionar
+    hallazgos = correlacionar(hallazgos)
+
     return {"alcance": "live", "hallazgos": hallazgos, "mep": mep,
             "bonos": len(bonos), "con_snapshot": len(snap)}
 

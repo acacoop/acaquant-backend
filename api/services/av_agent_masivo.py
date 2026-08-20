@@ -140,7 +140,13 @@ def _diagnosticar_uno(caso: dict, sin_red: bool) -> dict:
     try:
         if accion == "salud":
             from api.services import av_agent_salud
-            r = av_agent_salud.diagnosticar(sujeto, con_ia=False)
+            # ⚠️ Sin `con_ia`: ese parámetro se fue cuando se dio de baja la
+            # lente con IA (2026-08-19) y esta llamada quedó pasándolo. Resultado:
+            # **14 casos EXPLOTARON con TypeError** en el masivo #6 — todos los
+            # chequeos de SALUD y todos los controles, o sea la categoría entera.
+            # El masivo los separa bien («esto es un bug, no un bono mal
+            # cargado») pero nadie los miraba: la corrida terminaba «OK».
+            r = av_agent_salud.diagnosticar(sujeto)
         elif accion == "flujos":
             from api.services import av_agent_alta
             r = av_agent_alta.simular_flujos(sujeto)

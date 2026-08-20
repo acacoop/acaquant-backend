@@ -180,3 +180,128 @@ def resumen() -> dict:
              "estado": p.get("estado"), "hace": p.get("hace")}
             for p in piezas if (p.get("estado") or "") in _ROTOS],
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LO QUE DICEN LOS LOGS — calibrado con producción, no con umbrales inventados
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# `detectar_motores` (arriba) pregunta si el motor PRODUCE. Esto pregunta si el
+# motor se está ROMPIENDO mientras produce — reconexiones, respuestas que no
+# parsean, configuración vencida. Nada de eso llega a una tabla: vive en el log.
+#
+# ⚠️ **LOS NÚMEROS SALEN DE UNA MEDICIÓN REAL** (24 h, 14 motores, 2026-08-20).
+# Elegirlos a ojo era la forma segura de que el detector gritara todos los días
+# hasta que alguien lo silenciara. Lo que había:
+#
+#     ×76 en 3 min    motor_cedears     REST exception JSONDecodeError
+#     ×91 en 6.7 h    motor_options     Expiries configuradas ya vencidas
+#     ×1              motor_portfolio   ERROR símbolo inexistente, purgo y sigo
+#     ×1 ×1 ×1        varios            warn sueltos, todos auto-resueltos
+#
+# Y ahí se ve que **la cuenta sola no alcanza**: 76 y 91 son parecidos y son dos
+# problemas distintos. 76 en tres minutos es algo rompiéndose AHORA en loop; 91
+# repartidas en siete horas es una configuración rota que nadie mira hace días.
+# Por eso son dos reglas con nombres distintos y no un umbral con dos valores.
+VENTANA_H = 24
+
+# RÁFAGA: muchas repeticiones en poco tiempo. Con los datos, 30/15min deja pasar
+# la de cedears (76 en 3') y NO la de options (91 en 6.7 h).
+RAFAGA_VECES, RAFAGA_S = 30, 15 * 60
+# MACHACA: se repite todo el día a ritmo lento. 20 deja pasar la de options y
+# descarta los tres warn sueltos, que además eran auto-resueltos.
+MACHACA_VECES = 20
+
+
+def _dur(seg: float) -> str:
+    if seg < 120:
+        return f"{int(seg)} s"
+    if seg < 7200:
+        return f"{int(seg / 60)} min"
+    return f"{seg / 3600:.1f} h"
+
+
+def detectar_logs(*, horas: int = VENTANA_H) -> list[dict]:
+    """Lo que los motores vienen diciendo y nadie lee.
+
+    **Nunca levanta**: corre adentro del monitor de rueda y una excepción acá
+    apagaría los otros detectores del mismo ciclo.
+    """
+    try:
+        from api.services import logs_sistema as ls
+        from api.services.diagnostico_registry import unidades_motores
+
+        unidades = sorted(unidades_motores())
+        r = ls.atencion(unidades, desde=f"-{horas}h")
+    except Exception as e:
+        logger.warning("av_agent_motores: no pude leer los logs: %s", e)
+        return []
+
+    if not r["disponible"]:
+        # **«No pude leer» NO es «no hay errores».** Si esto devolviera lista
+        # vacía, un host sin journal daría verde para siempre. Se canta como
+        # hallazgo propio: el que mira tiene que saber que está mirando nada.
+        return [{
+            "tipo": "motor_ruidoso", "ticker": "logs", "regla": "no_pude_leer",
+            "severidad": "media",
+            "motivo": "no pude leer los logs de los motores",
+            "evidencia": {"texto": (f"{r['motivo']}. Esto NO significa que los "
+                                    "motores estén bien: significa que no sé "
+                                    "cómo están."),
+                          "motivo": r["motivo"]}}]
+
+    out = []
+    for g in ls.agrupar(r["lineas"]):
+        h = _hallazgo_log(g)
+        if h:
+            out.append(h)
+    out.sort(key=lambda h: (0 if h["severidad"] == "alta" else 1,
+                            -h["evidencia"]["veces"]))
+    return out
+
+
+def _hallazgo_log(g: dict) -> dict | None:
+    """Un patrón agrupado → hallazgo, o None si no llega a ser un problema.
+
+    **Los warn sueltos se descartan a propósito.** En la medición eran tres, y
+    los tres se anunciaban resolviéndose solos («reconectando (intento 1)»,
+    «purgo y resuscribo sin ellos»). Reportar eso enseña a cerrar la pantalla
+    sin leerla, y con ella se van los avisos que sí importan. El diag los sigue
+    mostrando cuando alguien va a buscarlos.
+    """
+    veces, dur = g["veces"], max(0.0, g["ultima"] - g["primera"])
+    es_error = g["peor"] <= 3
+
+    # ⚠️ **LA FORMA CLASIFICA, EL NIVEL PESA.** La primera versión ponía el
+    # `elif es_error` al final, así que un ERROR repetido 40 veces caía en
+    # `machaca` y BAJABA a severidad media — el que más repite era el que menos
+    # se veía. La forma dice qué está pasando; el nivel, cuánto importa.
+    if veces >= RAFAGA_VECES and dur <= RAFAGA_S:
+        regla, sev = "rafaga", "alta"
+        motivo = f"{g['unidad']}: {veces} veces en {_dur(dur)}"
+        detalle = ("Tantas repeticiones tan juntas no son ruido: es algo que "
+                   "falla y se reintenta en loop.")
+    elif veces >= MACHACA_VECES:
+        regla = "machaca"
+        sev = "alta" if es_error else "media"
+        motivo = f"{g['unidad']}: {veces} veces en {_dur(dur)}"
+        detalle = ("Repartido en el tiempo, así que no es una caída: es algo "
+                   "que está mal desde hace rato y nadie lo mira.")
+    elif es_error:
+        regla, sev = "error_de_motor", "media"
+        motivo = f"{g['unidad']}: {g['nivel']}" + (f" ×{veces}" if veces > 1 else "")
+        detalle = ("Un error suelto puede ser un tropiezo. Queda anotado para "
+                   "ver si vuelve: si empieza a repetirse, sube solo a "
+                   "«machaca» o a «ráfaga».")
+    else:
+        return None
+
+    return {
+        "tipo": "motor_ruidoso", "ticker": g["unidad"], "regla": regla,
+        "severidad": sev, "motivo": motivo,
+        "evidencia": {
+            "texto": (f"{detalle}\n\nPatrón: {g['patron']}\n\n"
+                      f"Ejemplo: {g['muestra'].splitlines()[0][:200]}"),
+            "unidad": g["unidad"], "nivel": g["nivel"], "veces": veces,
+            "ventana_s": round(dur), "ventana": _dur(dur),
+            "patron": g["patron"], "muestra": g["muestra"][:400]}}

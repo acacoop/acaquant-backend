@@ -2218,6 +2218,55 @@ solo en el próximo arranque. Hasta entonces el diag lo canta: *«ninguna línea
 dice su nivel: este cero no prueba que no haya errores, prueba que no se pueden
 encontrar»*.
 
+#### EL DETECTOR, CALIBRADO CON LA MEDICIÓN (2026-08-20)
+
+Con el lector arreglado, 24 h sobre 14 motores dieron **171 líneas en 6 patrones**:
+
+    ×76 en 3 min    motor_cedears     REST exception JSONDecodeError
+    ×91 en 6.7 h    motor_options     Expiries configuradas ya vencidas
+    ×1              motor_portfolio   ERROR símbolo inexistente, purgo y sigo
+    ×1 ×1 ×1        varios            warn sueltos, todos auto-resueltos
+
+Y ahí se ve lo que no se podía saber antes de medir: **la cuenta sola no
+alcanza.** 76 y 91 son números parecidos y son dos problemas distintos — *76 en
+tres minutos es algo rompiéndose ahora en loop; 91 repartidas en siete horas es
+una configuración rota desde hace días que nadie mira*. Por eso son **dos reglas
+con nombres propios** y no un umbral con dos valores:
+
+| regla | cuándo | severidad |
+|---|---|---|
+| `rafaga` | ≥30 veces en ≤15 min | alta |
+| `machaca` | ≥20 veces en la ventana | alta si es error, media si no |
+| `error_de_motor` | nivel error o peor, aunque sea una vez | media |
+| `no_pude_leer` | el journal no se pudo leer | media |
+
+**Los warn sueltos se descartan a propósito.** En la medición eran tres y los
+tres se anunciaban resolviéndose solos («reconectando (intento 1)», «purgo y
+resuscribo sin ellos»). Reportar eso enseña a cerrar la pantalla sin leerla, y
+con ella se van los avisos que sí importan. El diag los sigue mostrando cuando
+alguien va a buscarlos.
+
+Resultado sobre esos mismos datos: **6 patrones → 3 hallazgos.**
+
+Dos cosas que salieron de escribir los tests con los casos reales, y que no se
+habrían visto de otro modo:
+
+  · **`WARNING · … REST status=ERROR` se clasificaba como ERROR.** La palabra
+    estaba en el *cuerpo* del mensaje, no en el nivel. El nivel es un PREFIJO —lo
+    pone `%(levelname)s` después del timestamp— y buscarlo suelto confunde *el
+    nivel del mensaje* con *el tema del mensaje*. Ahora va anclado. Misma familia
+    que «0 errores», encontrada con datos de producción.
+  · **La forma clasifica, el nivel pesa.** La primera versión probaba
+    `rafaga`/`machaca` antes que el nivel, así que un ERROR repetido 40 veces
+    caía en `machaca` con severidad **media**: el que más repetía era el que
+    menos se veía.
+
+Y de yapa, al reescribir el guardián de reglas (pasó de un regex sobre
+`_hallazgo(...)` a recorrer el AST) apareció que **`tabla_quieta` emitía
+`sin_escribir` sin declararla**: sus votos se contaban sin poder decir por qué
+causa acertó. El regex solo veía UNA de las formas de escribir un detector, así
+que los cinco que arman el dict inline pasaban en verde sin haber sido mirados.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

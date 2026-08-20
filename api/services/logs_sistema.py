@@ -63,10 +63,26 @@ ATENCION = 4  # warn
 # Y se combina con lo que diga journald quedándose con **lo peor de los dos**:
 # hay servicios (cloudflared, systemd mismo) que sí mandan el nivel de verdad, y
 # tirarlo para creerle solo al texto sería cambiar un punto ciego por otro.
+#
+# ⚠️ **EL NIVEL VA ANCLADO AL PRINCIPIO, y esto no es un detalle.** La primera
+# versión buscaba la palabra en cualquier parte de la línea y clasificó como
+# ERROR a esto:
+#
+#     2026-08-19 13:21:30,024 WARNING · MERV - XMEV - EA - 24hs: REST status=ERROR
+#
+# que es un WARNING hablando DE un error ajeno (la respuesta del REST). El nivel
+# es un PREFIJO —lo pone `%(levelname)s` justo después del timestamp— y buscarlo
+# suelto confunde el nivel del mensaje con el tema del mensaje. Un detector que
+# sube de categoría solo, por una palabra en el cuerpo, empieza a inventar
+# incendios: es la misma familia que «0 errores», encontrada con datos reales.
+_ANTES = r"^[\d\-/:,.\s]*"       # el timestamp, si lo hay
 _NIVEL_DE_TEXTO: tuple[tuple[re.Pattern, int], ...] = (
-    (re.compile(r"\b(CRITICAL|FATAL|EMERG)\b"), 2),
-    (re.compile(r"\bERROR\b|Traceback \(most recent call last\)"), 3),
-    (re.compile(r"\b(WARNING|WARN)\b"), 4),
+    (re.compile(_ANTES + r"(CRITICAL|FATAL|EMERG)\b"), 2),
+    (re.compile(_ANTES + r"ERROR\b"), 3),
+    # El traceback NO va anclado: es su propia línea y aparece adentro de un
+    # mensaje multilínea, sin timestamp adelante.
+    (re.compile(r"^Traceback \(most recent call last\)", re.M), 3),
+    (re.compile(_ANTES + r"(WARNING|WARN)\b"), 4),
 )
 # El mismo criterio, para que `journalctl --grep` filtre EN EL SERVIDOR. Sin
 # esto habría que traerse 24 h de logs de 14 motores para descartar el 99%.

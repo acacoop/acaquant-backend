@@ -236,3 +236,106 @@ def test_TODOS_los_motores_escriben_el_nivel():
             malos.append(f.name)
     assert not malos, (f"estos motores loguean sin el NIVEL: {malos} — un error "
                        "suyo es indistinguible de una línea normal")
+
+
+# ── EL DETECTOR, calibrado con la corrida real del 2026-08-20 ────────────────
+#
+# Los casos NO son inventados: son los seis patrones que aparecieron en 24 h
+# sobre 14 motores. Un detector calibrado a ojo es un detector que grita todos
+# los días hasta que alguien lo silencia, y con él se van los avisos que sí
+# importan.
+
+def _grupo(unidad, patron, veces, dur_s, prio=4, muestra=""):
+    return {"unidad": unidad, "patron": patron, "veces": veces,
+            "primera": 0.0, "ultima": float(dur_s), "peor": prio,
+            "nivel": ls.NIVEL[prio], "muestra": muestra or patron}
+
+
+def test_una_RAFAGA_y_algo_que_MACHACA_no_son_lo_mismo():
+    """**Lo que la cuenta sola no separa.** En la medición había 76 repeticiones
+    en 3 minutos y 91 en 6.7 horas: números parecidos, problemas distintos. La
+    primera es algo rompiéndose AHORA en loop; la segunda es una configuración
+    rota desde hace días que nadie mira. Un solo umbral los mezcla y entonces o
+    se pierde la urgencia de una, o se ignora la otra."""
+    from api.services.av_agent_motores import _hallazgo_log
+
+    rafaga = _hallazgo_log(_grupo("motor_cedears", "REST exception JSONDecodeError",
+                                  76, 3 * 60))
+    machaca = _hallazgo_log(_grupo("motor_options", "Expiries ya vencidas",
+                                   91, int(6.7 * 3600)))
+    assert rafaga["regla"] == "rafaga" and rafaga["severidad"] == "alta"
+    assert machaca["regla"] == "machaca" and machaca["severidad"] == "media"
+
+
+def test_un_WARN_suelto_NO_es_un_hallazgo():
+    """Los tres warn sueltos de la medición se anunciaban resolviéndose solos
+    («reconectando (intento 1)», «purgo y resuscribo sin ellos»). Reportarlos
+    enseña a cerrar la pantalla sin leerla — y con ella se van los que importan.
+    El diag los sigue mostrando cuando alguien va a buscarlos."""
+    from api.services.av_agent_motores import _hallazgo_log
+    assert _hallazgo_log(_grupo("motor_ordenes", "Recovery: UNKNOWN_LOCAL", 1, 0)) is None
+    assert _hallazgo_log(_grupo("motor_portfolio_snapshot", "reconectando", 1, 0)) is None
+
+
+def test_un_ERROR_suelto_SI_es_un_hallazgo():
+    """Un warn que se repite una vez es ruido; un ERROR una sola vez no. La
+    asimetría es a propósito: el nivel ya es el juicio de quien escribió el
+    motor sobre su propia línea."""
+    from api.services.av_agent_motores import _hallazgo_log
+    h = _hallazgo_log(_grupo("motor_portfolio_snapshot", "símbolo inexistente",
+                             1, 0, prio=3))
+    assert h["regla"] == "error_de_motor" and h["severidad"] == "media"
+    # ⚠️ Y repetido NO puede bajar de categoría. La primera versión probaba la
+    # forma antes que el nivel, así que un ERROR 40 veces caía en «machaca» con
+    # severidad MEDIA: el que más repite era el que menos se veía. Lo encontró
+    # este test antes de que llegara a producción.
+    muchos = _hallazgo_log(_grupo("motor_x", "boom", 40, 3600, prio=3))
+    assert muchos["regla"] == "machaca" and muchos["severidad"] == "alta"
+    # El mismo volumen en warn sí es media: lo que cambia es el nivel.
+    igual_pero_warn = _hallazgo_log(_grupo("motor_x", "boom", 40, 3600, prio=4))
+    assert igual_pero_warn["severidad"] == "media"
+
+
+def test_los_hallazgos_llevan_la_CUENTA_y_la_VENTANA():
+    """Sin las dos, el que lee no puede decidir: «×76» sin «en 3 minutos» no
+    distingue una caída de un goteo."""
+    from api.services.av_agent_motores import _hallazgo_log
+    h = _hallazgo_log(_grupo("motor_cedears", "x", 76, 180))
+    assert h["evidencia"]["veces"] == 76
+    assert "min" in h["evidencia"]["ventana"] or "s" in h["evidencia"]["ventana"]
+    assert "76" in h["motivo"]
+
+
+def test_si_NO_SE_PUEDEN_LEER_los_logs_eso_ES_el_hallazgo(monkeypatch):
+    """El caso que decide si esta vigilancia sirve o miente. Sin este hallazgo,
+    un host sin journal daría verde para siempre — y nadie tendría forma de
+    notar que hace meses no se está mirando nada."""
+    from api.services import av_agent_motores as m
+    monkeypatch.setattr(ls, "atencion",
+                        lambda *a, **k: {"disponible": False, "lineas": [],
+                                         "motivo": "no hay journalctl"})
+    h = m.detectar_logs()
+    assert len(h) == 1 and h[0]["regla"] == "no_pude_leer"
+    assert "no sé cómo están" in h[0]["evidencia"]["texto"]
+
+
+def test_un_fallo_leyendo_logs_NO_apaga_los_otros_detectores(monkeypatch):
+    """Corre adentro del monitor de rueda, junto a los de precio. Una excepción
+    acá no puede llevarse puesto el ciclo entero."""
+    from api.services import av_agent_motores as m
+
+    def _boom(*a, **k):
+        raise RuntimeError("journal corrupto")
+    monkeypatch.setattr(ls, "atencion", _boom)
+    assert m.detectar_logs() == []
+
+
+def test_el_monitor_de_rueda_CORRE_este_detector():
+    """La skill dice que se ve en ENCONTRÓ. Si el job no lo llamara, la promesa
+    del catálogo sería falsa y nadie se enteraría — ya pasó con tres detectores
+    que solo imprimían en el log (AV_AGENT.md §0.t)."""
+    import inspect
+
+    from api.services import av_agent
+    src = inspect.getsource(av_agent.relevar_live)
+    assert "detectar_logs" in src

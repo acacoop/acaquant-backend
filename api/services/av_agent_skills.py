@@ -243,6 +243,13 @@ _QUE_DETECTA: dict[str, tuple[str, str]] = {
         "Motores y jobs caídos",
         "solo DENTRO de su ventana horaria: fuera de rueda un motor no está "
         "caído, está apagado"),
+    "motor_ruidoso": (
+        "Lo que los motores vienen diciendo",
+        "no si PRODUCEN (eso es el de arriba) sino si se están rompiendo "
+        "mientras producen. Distingue la RÁFAGA —algo fallando en loop ahora— "
+        "de lo que MACHACA todo el día, que es una config rota que nadie mira: "
+        "la cuenta sola no las separa, 76 veces en 3 minutos y 91 en 7 horas "
+        "son dos problemas distintos"),
     "permiso_flojo": (
         "Permisos que están solo en los papeles",
         "endpoints sin gate, y —probando de verdad, sin credenciales— los que "
@@ -275,7 +282,11 @@ _REGLAS_DETECTOR: dict[str, tuple[str, ...]] = {
     # cruza mal.
     "salud": (),
     # Los del SISTEMA: cada uno emite una sola regla, con su mismo nombre.
-    "db_cambio": (), "latencia": (), "tabla_quieta": (), "motor_caido": (),
+    "db_cambio": (), "latencia": (), "motor_caido": (),
+    # La emitía y no la declaraba: sus votos se contaban sin poder decir POR QUÉ
+    # causa acertó. Lo destapó el escáner nuevo del test (por AST).
+    "tabla_quieta": ("sin_escribir",),
+    "motor_ruidoso": ("rafaga", "machaca", "error_de_motor", "no_pude_leer"),
     "permiso_flojo": (),
 }
 
@@ -286,6 +297,7 @@ _DOMINIO_DETECTOR: dict[str, str] = {
     "hueco_de_curva": MERCADO, "sin_precio": MERCADO, "precio_moneda": MERCADO,
     "salud": SISTEMA, "db_cambio": SISTEMA, "latencia": SISTEMA,
     "tabla_quieta": SISTEMA, "motor_caido": SISTEMA,
+    "motor_ruidoso": SISTEMA,
     "dato_partido": DATOS,
     "permiso_flojo": SEGURIDAD,
 }
@@ -343,6 +355,7 @@ _DONDE_CORRE: dict[str, str] = {
     "precio_moneda": "jobs.av_agent_live",
     "latencia": "jobs.av_agent_live",
     "motor_caido": "jobs.av_agent_live",
+    "motor_ruidoso": "jobs.av_agent_live",
     # El monitor del SISTEMA, de noche (reemplaza lo suyo cada pasada).
     "db_cambio": "jobs.db_tamano",
     "tabla_quieta": "jobs.db_tamano",

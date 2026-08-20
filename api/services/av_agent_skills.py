@@ -126,6 +126,16 @@ _CAPACIDADES: tuple[dict, ...] = (
                  "!= 0 de SUS comitentes, descubiertos primero. Las cuentas sin "
                  "operador se cantan aparte: a ésas no le llegan a nadie",
      "dominio": ADMIN, "modulo": "jobs.saldos_a_operadores"},
+    {"id": "logs.motores",
+     "nombre": "Leer los logs de los motores",
+     "que_hace": "junta lo que escribieron los motores en systemd y lo RESUME: "
+                 "borra lo que cambia en cada repetición (fecha, símbolo, "
+                 "número) y cuenta cuántas veces salió cada error y en qué "
+                 "ventana. Sin eso, mil reconexiones son mil renglones y se lee "
+                 "el último. Todavía no avisa solo: primero hay que medir cómo "
+                 "es un día normal para no gritar todos los días",
+     "dominio": SISTEMA, "modulo": "api.services.logs_sistema",
+     "donde": "python -m scripts.diag_logs_motores"},
 )
 
 
@@ -133,7 +143,10 @@ def _de_capacidades() -> list[Skill]:
     return [Skill(
         id=c["id"], tipo=RESOLVER, nombre=c["nombre"], que_hace=c["que_hace"],
         usa_ia=SIN_IA, dominio=c["dominio"], para_que_la_ia="",
-        donde="la barra de la persona (MIS AVISOS)",
+        # El default es la barra porque las dos primeras capacidades mandan
+        # mensajes; una que no lo hace declara su propio `donde`. Sin esto, el
+        # catálogo mandaba a mirar MIS AVISOS por algo que sale en la consola.
+        donde=c.get("donde", "la barra de la persona (MIS AVISOS)"),
         fuente="av_agent_skills._CAPACIDADES",
         extra={"modulo": c["modulo"], "reglas": []},
     ) for c in _CAPACIDADES]

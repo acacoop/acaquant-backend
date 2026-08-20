@@ -9,12 +9,10 @@ bounded a [1, 500].
 """
 from __future__ import annotations
 
-import json
-import subprocess
-
 from fastapi import APIRouter, HTTPException, Query
 
 from api.cache import cached
+from api.services import logs_sistema
 from api.services.diagnostico_registry import unidades_motores
 
 router = APIRouter()
@@ -28,11 +26,6 @@ router = APIRouter()
 _INFRA_SERVICES: set[str] = {"api", "cloudflared"}
 _ALLOWED_SERVICES: set[str] = unidades_motores() | _INFRA_SERVICES
 
-# PRIORITY de syslog → label human-friendly
-_PRIO_LABEL: dict[int, str] = {
-    0: "emerg", 1: "alert", 2: "crit", 3: "error",
-    4: "warn",  5: "notice", 6: "info", 7: "debug",
-}
 
 
 @router.get("/logs/services")
@@ -51,41 +44,26 @@ _TODOS = "__todos__"
 
 @cached(ttl=2)
 def _fetch_logs_cached(servicio: str, lines: int) -> list[dict]:
-    """Parsea el output JSON de journalctl. TTL 2s para absorber refresh agresivo.
-    servicio=__todos__ → un journalctl con -u por cada servicio permitido
-    (mezcla cronológica; _SYSTEMD_UNIT identifica de quién es cada línea)."""
-    unidades = sorted(_ALLOWED_SERVICES) if servicio == _TODOS else [servicio]
-    cmd = ["journalctl"]
-    for u in unidades:
-        cmd += ["-u", f"{u}.service"]
-    cmd += ["-n", str(lines), "--output=json", "--no-pager"]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or "journalctl error")
+    """Las últimas N líneas, con TTL 2s para absorber el refresh de la pantalla.
 
-    out: list[dict] = []
-    for raw in proc.stdout.strip().splitlines():
-        try:
-            doc = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        # __REALTIME_TIMESTAMP viene en microsegundos desde epoch (string).
-        try:
-            ts_us = int(doc.get("__REALTIME_TIMESTAMP", "0"))
-        except (TypeError, ValueError):
-            ts_us = 0
-        try:
-            prio = int(doc.get("PRIORITY", 6))
-        except (TypeError, ValueError):
-            prio = 6
-        unit = str(doc.get("_SYSTEMD_UNIT", "")).removesuffix(".service")
-        out.append({
-            "ts_epoch":  ts_us / 1_000_000,
-            "priority":  _PRIO_LABEL.get(prio, "info"),
-            "servicio":  unit or servicio,
-            "message":   doc.get("MESSAGE", ""),
-        })
-    return out
+    ⚠️ **La lectura NO vive acá**: la hace `api/services/logs_sistema`, que
+    también usa el AV AGENT para vigilar los motores. Cuando estaba adentro de
+    este router el agente no podía llegar (un service no importa un router) y la
+    única alternativa era copiar el `subprocess` — dos formas de leer lo mismo
+    que se separan solas (REGLA #9).
+
+    `desde=None` y `prioridad=7` mantienen EXACTAMENTE lo que hacía antes: el
+    final del archivo, sin filtro de tiempo ni de nivel. La pantalla muestra
+    todo; el que filtra es el agente.
+    """
+    unidades = sorted(_ALLOWED_SERVICES) if servicio == _TODOS else [servicio]
+    r = logs_sistema.leer(unidades, desde=None, prioridad=7, lineas=lines)
+    if not r["disponible"]:
+        raise RuntimeError(r["motivo"] or "journalctl error")
+    # Se mantienen los nombres de campo que ya consume el front.
+    return [{"ts_epoch": x["ts"], "priority": x["nivel"],
+             "servicio": x["unidad"] or servicio, "message": x["mensaje"]}
+            for x in r["lineas"]]
 
 
 @router.get("/logs")
@@ -104,10 +82,6 @@ def get_service_logs(
         # kwargs — si se invoca posicionalmente tira TypeError y el handler
         # responde 500 genérico.
         logs = _fetch_logs_cached(servicio=servicio, lines=lines)
-    except subprocess.TimeoutExpired as e:
-        raise HTTPException(status_code=504, detail="journalctl timeout (10s)") from e
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=500, detail="journalctl no disponible en el host") from e
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

@@ -2111,6 +2111,66 @@ un veredicto (§0.v: no se concluye «no existe» desde una consulta que no corr
 y la recurrencia queda anotada, así que si el mismo error vuelve el agente lo
 sabe en vez de descubrirlo de nuevo.
 
+### 0.ac LOS LOGS DE LOS MOTORES (2026-08-20)
+
+*«Es fundamental que el agente tenga presente los logs de los motores
+constantemente»* (user, 2026-08-19).
+
+**Lo que el agente ya sabía y lo que no.** `motor_caido` (§0.r) mira si el motor
+PRODUCE: si su tabla de salida dejó de escribir dentro de su ventana, lo canta.
+Eso deja afuera al motor que **produce y a la vez se está rompiendo** —
+reconexiones, suscripciones rechazadas, excepciones que alguien atrapó y siguió.
+Nada de eso llega a la base: vive en el log y nadie lo lee.
+
+#### La lectura estaba escrita, en el lugar donde nadie podía usarla
+
+`journalctl` ya se leía… **adentro de `api/routers/manager/logs.py`**, o sea que
+la única forma de mirar era que una persona abriera la pantalla. Un service no
+importa un router (regla de capas), así que para el agente la única salida
+habría sido copiar el `subprocess` — dos formas de leer lo mismo, que se separan
+solas (REGLA #9).
+
+Ahora la lectura vive en **`api/services/logs_sistema.py`** y el router es un
+cliente más. Lo que el router devuelve **no cambió un nombre de campo**: la
+pantalla de LOGS lee `ts_epoch`/`priority`/`servicio`/`message` y renombrarlos la
+habría dejado en blanco sin que fallara nada. Hay un test que los congela.
+
+#### Los últimos N renglones no sirven para vigilar
+
+Un motor que se reconecta mil veces deja mil líneas casi iguales; las últimas 20
+son la misma. La pregunta útil no es «¿qué dijo recién?» sino **«¿qué viene
+diciendo, y cuántas veces?»**.
+
+Por eso se **normaliza**: se le sacan al mensaje la fecha, la hora, el símbolo,
+el id y los números — lo que cambia en cada repetición y no ayuda a identificar
+el problema — y queda la FORMA de la frase, que es su identidad real. Mil líneas
+colapsan en un patrón con su cuenta. Un traceback se agrupa por su **última**
+línea (la que nombra la excepción): agrupar por la primera daría un grupo por
+traceback y el resumen tendría el mismo largo que el log.
+
+Y cada grupo guarda **la ventana**, no solo la cuenta: *300 repeticiones en dos
+minutos es un motor peleando contra algo; las mismas 300 repartidas en un día son
+ruido de fondo* — y no se responden igual.
+
+#### Todavía NO avisa solo, y eso es la decisión, no un pendiente
+
+Para que el agente cante un problema hay que fijar umbrales: cuántas veces, de
+qué nivel, en cuánto tiempo. **Ninguno de esos números se puede elegir sin haber
+mirado nunca los logs de producción** (REGLA #2), y un detector mal calibrado
+grita todos los días hasta que alguien lo silencia — peor que no tenerlo, porque
+además enseña a ignorar la pantalla donde vive.
+
+Así que primero se mide: `python -m scripts.diag_logs_motores` imprime el reparto
+por motor, lo grave aparte (aunque haya salido una sola vez) y los patrones más
+repetidos con su ventana. Con esos números se elige el umbral, y recién ahí el
+detector.
+
+**Y si no se puede leer, se dice.** En un host sin systemd, o sin permiso sobre
+el journal, devolver lista vacía se lee EXACTAMENTE igual que «no hay errores».
+Es el mismo modo de falla de §0.s y el que más caro sale: la vigilancia diría
+verde para siempre. `disponible: False` con el motivo, y el diag lo imprime como
+lo que es — «no sé», no «está todo bien».
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

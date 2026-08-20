@@ -206,7 +206,12 @@ def test_el_hallazgo_explica_de_donde_sale_la_cadencia(monkeypatch):
     monkeypatch.setattr(ctx, "_ya_tienen_contrato", set)
     monkeypatch.setattr(ctx, "perfiles", lambda solo_con_ritmo=False: [
         {"schema": "s", "tabla": "t", "cadencia": "tiempo_real",
-         "ultimo_dato": _hace(hours=8), "col_fecha": "updated_at",
+         # 30 días y no 8 horas: las cadencias intradía se miden en SEGUNDOS
+         # DE MERCADO ABIERTO, así que «hace 8 horas» corriendo el test de
+         # madrugada son CERO segundos de rueda y la tabla sale al día. Fallaba
+         # según la hora — y una suite que falla por el reloj enseña a
+         # re-correrla en vez de leerla.
+         "ultimo_dato": _hace(days=30), "col_fecha": "updated_at",
          "intervalo_p50_s": 30, "filas": 100}])
     h = ctx.detectar_tablas()[0]
     assert h["severidad"] == "alta"

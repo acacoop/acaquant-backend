@@ -134,13 +134,25 @@ def test_se_mide_sobre_las_ULTIMAS_escrituras(monkeypatch):
 # ── La pregunta del user: ¿hay datos o no? ─────────────────────────────────
 
 def test_una_tabla_al_dia_esta_ok():
-    p = {"cadencia": "diaria", "ultimo_dato": _hace(hours=6)}
-    assert ctx.frescura(p)["estado"] == "ok"
+    # Reloj fijo por el mismo motivo que el de abajo: el veredicto no puede
+    # depender de a qué hora corra la suite.
+    ahora = datetime(2026, 8, 19, 19, tzinfo=UTC)
+    p = {"cadencia": "diaria", "ultimo_dato": datetime(2026, 8, 19, 13, tzinfo=UTC)}
+    assert ctx.frescura(p, ahora=ahora)["estado"] == "ok"
 
 
 def test_una_tabla_que_dejo_de_escribir_esta_atrasada():
-    p = {"cadencia": "tiempo_real", "ultimo_dato": _hace(hours=5)}
-    f = ctx.frescura(p)
+    """⚠️ EL RELOJ VA FIJO. Las cadencias intradía se miden en segundos de MERCADO
+    ABIERTO (§0.u), así que «hace 5 horas» vale distinto según la hora en que
+    corra el test: a las 21 ART esas 5 horas son ~35 minutos de rueda y la tabla
+    está OK. Sin fijar el reloj, el test pasa de día y falla de noche — y una
+    suite que falla por la hora enseña a re-correrla en vez de leerla.
+
+    Miércoles 19:00 UTC (rueda 13-20) con el último dato a las 14:00: cinco horas
+    de mercado abierto, sin ambigüedad."""
+    ahora = datetime(2026, 8, 19, 19, tzinfo=UTC)
+    p = {"cadencia": "tiempo_real", "ultimo_dato": datetime(2026, 8, 19, 14, tzinfo=UTC)}
+    f = ctx.frescura(p, ahora=ahora)
     assert f["estado"] == "atrasada" and "tiempo real" in f["motivo"]
 
 

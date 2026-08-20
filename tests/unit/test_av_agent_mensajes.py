@@ -137,8 +137,9 @@ def test_el_TOP_5_por_cuadrante_y_lo_que_queda_afuera_SE_DICE():
     filas = [{"id_cuenta": str(i), "cuenta": f"C{i}",
               "moneda": "ARS" if i % 2 else "USD", "saldo": (i - 10) * 100.0}
              for i in range(1, 25)]
-    _asunto, tabla, afuera, otras = _armar(filas)
-    assert len(tabla) == 20 and afuera == 4 and otras == 0
+    m = _armar(filas)
+    assert len(m["tabla"]) == 20 and m["afuera"] == 4 and m["otras_monedas"] == 0
+    tabla = m["tabla"]
     from collections import Counter
     c = Counter((x["datos"]["grupo"], x["datos"]["signo"]) for x in tabla)
     assert c[("ARS", "positivo")] == 5 and c[("ARS", "negativo")] == 5
@@ -159,9 +160,9 @@ def test_el_aviso_es_SOLO_ARS_y_USD():
              {"id_cuenta": "2", "cuenta": "B", "moneda": "USD", "saldo": -5.0},
              {"id_cuenta": "3", "cuenta": "C", "moneda": "USDL", "saldo": 99.0},
              {"id_cuenta": "4", "cuenta": "D", "moneda": "USDC", "saldo": -7.0}]
-    _asunto, tabla, _afuera, otras = _armar(filas)
-    assert {x["datos"]["grupo"] for x in tabla} == {"ARS", "USD"}
-    assert otras == 2, "USDL y USDC no van en la tabla"
+    m = _armar(filas)
+    assert {x["datos"]["grupo"] for x in m["tabla"]} == {"ARS", "USD"}
+    assert m["otras_monedas"] == 2, "USDL y USDC no van en la tabla"
 
 
 def test_las_de_OTRA_moneda_se_cuentan_APARTE_de_las_del_top():
@@ -172,21 +173,37 @@ def test_las_de_OTRA_moneda_se_cuentan_APARTE_de_las_del_top():
     filas = [{"id_cuenta": str(i), "cuenta": f"C{i}", "moneda": "ARS",
               "saldo": float(i)} for i in range(1, 9)]
     filas += [{"id_cuenta": "x", "cuenta": "X", "moneda": "USDL", "saldo": 1.0}]
-    _asunto, tabla, afuera, otras = _armar(filas)
-    assert len(tabla) == 5 and afuera == 3 and otras == 1
+    m = _armar(filas)
+    assert len(m["tabla"]) == 5 and m["afuera"] == 3 and m["otras_monedas"] == 1
 
 
-def test_el_ASUNTO_cuenta_lo_que_el_aviso_MUESTRA():
-    """El asunto decía «46 en descubierto» arriba de una tabla de 5 filas porque
-    contaba TODO lo que llegó, incluidas las monedas que el aviso no muestra. Un
-    título que no cierra con lo que se ve abajo hace dudar de los dos."""
+def test_el_TITULO_es_FIJO_y_corto():
+    """User (2026-08-20): *«AV AGENT — tenés un mensaje nuevo! Tenés estos saldos
+    y el mercado ya cierra. Nada más y después de eso las tablas»*. El modal se
+    abre para actuar: contar en el título obliga a leer antes de mirar la grilla,
+    que es lo único que hay que mirar."""
+    from jobs.saldos_a_operadores import ASUNTO, _armar
+    filas = [{"id_cuenta": "1", "cuenta": "A", "moneda": "ARS", "saldo": -1.0}]
+    assert _armar(filas)["asunto"] == ASUNTO
+    # Un título que cuenta vuelve a poner números arriba de la tabla.
+    assert not any(c.isdigit() for c in ASUNTO)
+
+
+def test_el_DETALLE_cuenta_lo_que_el_aviso_MUESTRA():
+    """La cuenta NO se perdió al sacarla del título: bajó al detalle, que el modal
+    muestra al pie. Y sigue contando lo que la TABLA muestra — decía «46 en
+    descubierto» arriba de cinco filas porque contaba todo lo que había llegado,
+    monedas que el aviso no cubre incluidas."""
     from jobs.saldos_a_operadores import _armar
     filas = [{"id_cuenta": "1", "cuenta": "A", "moneda": "ARS", "saldo": -1.0},
              {"id_cuenta": "2", "cuenta": "B", "moneda": "USDC", "saldo": -1.0},
              {"id_cuenta": "3", "cuenta": "C", "moneda": "USDL", "saldo": -1.0}]
-    asunto, tabla, _afuera, _otras = _armar(filas)
-    assert len(tabla) == 1
-    assert "1" in asunto and "3" not in asunto
+    m = _armar(filas)
+    assert len(m["tabla"]) == 1
+    assert "1 en descubierto" in m["detalle"]
+    assert "3 en descubierto" not in m["detalle"]
+    # Y las de otra moneda se dicen, no se esconden.
+    assert "2 en USDL/USDC" in m["detalle"]
 
 
 def test_el_job_ARRANCA():

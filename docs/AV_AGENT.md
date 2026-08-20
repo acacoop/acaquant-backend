@@ -2057,6 +2057,19 @@ El operador **tilda fila por fila** y eso persiste con su hora. Vale un día: al
 abrir el mercado siguiente los saldos son otros y el tilde de ayer no significa
 nada.
 
+**El modal se abre para ACTUAR, no para leer** (user, 2026-08-20). Arriba van dos
+líneas y nada más —quién manda y qué pasa— y abajo, directo, las tablas:
+
+    AV AGENT — TENÉS UN MENSAJE NUEVO!
+    Tenés estos saldos y el mercado ya cierra.
+
+Antes había tres bloques de texto antes de la grilla: un título que contaba («46
+cuenta(s) tuyas EN DESCUBIERTO»), el contador de pendientes y un párrafo
+explicando cómo usar la tabla. **Los números no se borraron: bajaron al pie**,
+que es donde se miran cuando ya se decidió algo. Lo que se sacó es el texto de
+arriba, no la información — el detalle sigue diciendo cuántas quedaron afuera y
+por cuál de los dos motivos.
+
 #### (3) SEGUIMIENTO — el tiempo como evidencia
 
 `api/services/av_agent_seguimiento.py`. Cuando algo se marca como hecho, se

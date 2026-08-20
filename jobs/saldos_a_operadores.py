@@ -129,23 +129,29 @@ TOP = 5
 # se mezclan y NO se esconden: quedan fuera y **el detalle dice cuántas son**.
 MONEDAS_AVISO: tuple[str, ...] = ("ARS", "USD")
 
+# ⚠️ **EL TEXTO ES FIJO Y CORTO** (user, 2026-08-20: *«ahí hay que poner AV AGENT
+# — tenés un mensaje nuevo! Tenés estos saldos y el mercado ya cierra. Nada más y
+# después de eso las tablas»*).
+#
+# Antes el título contaba («46 cuenta(s) tuyas EN DESCUBIERTO») y arriba de la
+# grilla había otro párrafo explicando cómo usarla. Dos bloques de texto antes de
+# lo único que hay que mirar: **el modal se abre para actuar, no para leer.**
+#
+# La cuenta NO se pierde: baja al DETALLE, que el modal muestra al pie. Lo que se
+# sacó es el texto de arriba, no la información.
+ASUNTO = "Tenés estos saldos y el mercado ya cierra."
 
-def _armar(filas: list[dict]) -> tuple[str, list[dict], int]:
-    """(asunto, las 20 filas del modal, cuántas quedaron afuera).
+
+def _armar(filas: list[dict]) -> dict:
+    """El mensaje entero: `asunto`, `detalle`, `tabla`, `afuera`, `otras_monedas`.
+
+    Devuelve un dict y no una tupla porque ya son cinco cosas: una tupla de cinco
+    se desarma mal en silencio el día que se agrega la sexta.
 
     Cuatro cuadrantes: ARS/USD × positivos/negativos, top 5 de cada uno por
     tamaño. El más negativo primero abajo y el más positivo primero arriba — en
     los dos casos, lo que más pesa arriba de su bloque.
     """
-    # El ASUNTO cuenta lo que el aviso MUESTRA, no todo lo que existe. Decir «46
-    # en descubierto» arriba de una tabla con 5 hace dudar de las dos cifras.
-    delaviso = [f for f in filas if (f["moneda"] or "").upper() in MONEDAS_AVISO]
-    negativos = [f for f in delaviso if f["saldo"] < 0]
-    cuentas = len({f["id_cuenta"] for f in delaviso})
-    asunto = (f"{len(negativos)} cuenta(s) tuyas EN DESCUBIERTO"
-              if negativos else
-              f"{cuentas} cuenta(s) tuyas con saldo para revisar")
-
     tabla: list[dict] = []
     for grupo in MONEDAS_AVISO:
         delg = [f for f in filas if (f["moneda"] or "").upper() == grupo]
@@ -167,13 +173,25 @@ def _armar(filas: list[dict]) -> tuple[str, list[dict], int]:
                               "saldo": round(f["saldo"], 2),
                               "grupo": grupo, "signo": signo},
                 })
-    # Lo que queda afuera tiene DOS motivos y se cuentan aparte: las que no
-    # entraron al top 5 (están en SALDOS) y las de OTRA moneda (no salen en este
-    # aviso). Meterlas en un solo número diría «hay 543 más» sobre cosas que se
-    # miran en lugares distintos.
     de_moneda = [f for f in filas
                  if (f["moneda"] or "").upper() not in MONEDAS_AVISO]
-    return asunto, tabla, len(filas) - len(tabla) - len(de_moneda), len(de_moneda)
+    afuera = len(filas) - len(tabla) - len(de_moneda)
+
+    # EL DETALLE CUENTA LO QUE LA TABLA MUESTRA, no todo lo que existe. Decía «46
+    # en descubierto» arriba de cinco filas porque contaba lo que había llegado;
+    # un número que no cierra con lo de abajo hace dudar de los dos.
+    negativos = sum(1 for f in tabla if f["datos"]["saldo"] < 0)
+    partes = [f"{negativos} en descubierto" if negativos
+              else f"{len(tabla)} para revisar"]
+    # Lo que queda afuera tiene DOS motivos y se dicen aparte: las que no
+    # entraron al top 5 (están en SALDOS) y las de otra moneda (este aviso no las
+    # cubre). En un solo número no se distinguen, y se miran en lugares distintos.
+    if afuera > 0:
+        partes.append(f"hay {afuera} más en SALDOS DE CUENTAS")
+    if de_moneda:
+        partes.append(f"{len(de_moneda)} en USDL/USDC no entran acá")
+    return {"asunto": ASUNTO, "detalle": " · ".join(partes) + ".",
+            "tabla": tabla, "afuera": afuera, "otras_monedas": len(de_moneda)}
 
 
 def main() -> int:
@@ -225,7 +243,7 @@ def main() -> int:
 
         enviados = fallaron = 0
         for email, suyas in por_operador.items():
-            asunto, tabla, afuera, otras_monedas = _armar(suyas)
+            m = _armar(suyas)
             # **Va como TABLA y con `interrumpe`**: el user lo pidió explícito —
             # «tiene que ser como el modal de briefing, aparece en la pantalla y
             # te hace hacer algo para continuar, no que aparezca en el cuerpo del
@@ -235,18 +253,11 @@ def main() -> int:
             # mañana el mercado abre con otros números y pedir acción sobre la
             # foto de ayer es peor que no avisar.
             r = msg.enviar_tabla(
-                para=email, tema=tema,
-                asunto=f"[PRUEBA] {asunto}" if prueba else asunto, filas=tabla,
-                # **Lo que queda afuera se DICE.** Truncar en silencio se lee
-                # como «esto es todo lo que hay».
-                detalle=("Las 5 más grandes de cada bloque. Marcá cada una a "
-                         "medida que la resolvés — vale por hoy."
-                         + (f" Hay {afuera} más en SALDOS DE CUENTAS."
-                            if afuera > 0 else "")
-                         # Las de otra moneda se dicen APARTE: no es que no
-                         # entraron al top, es que este aviso no las cubre.
-                         + (f" ({otras_monedas} en USDL/USDC, que no entran acá.)"
-                            if otras_monedas > 0 else "")),
+                para=email, tema=tema, filas=m["tabla"],
+                asunto=f"[PRUEBA] {m['asunto']}" if prueba else m["asunto"],
+                # **Lo que queda afuera se DICE** — al pie, no arriba. Truncar en
+                # silencio se lee como «esto es todo lo que hay».
+                detalle=m["detalle"],
                 donde="SALDOS DE CUENTAS", por="jobs.saldos_a_operadores",
                 interrumpe=True)
             if r.get("ok"):

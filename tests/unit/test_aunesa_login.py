@@ -155,3 +155,36 @@ def test_el_login_bueno_anota_el_ok(monkeypatch):
     _postea(monkeypatch, [_Resp(200, {"token": "T"})])
     aunesa.auth_headers()
     assert ANOTADO == [(True, "")]
+
+
+# ── EL CLIENT_ID VA VACÍO, Y SIEMPRE FUE ASÍ (2026-08-20) ────────────────────
+
+def test_sin_CLIENT_ID_el_login_SI_se_intenta(monkeypatch):
+    """**Exigirlo dejó a Aunesa muerto de NUESTRO lado.** El login cortaba antes
+    de tocar la red y se caía todo lo que depende del custodio —Tesorería, saldos
+    liquidados, tenencia del día, informes— con «faltan credenciales», apuntando
+    al lugar equivocado.
+
+    Y el modo de falla es el peor de todos: **no fallaba nada nuevo**. Aunesa ya
+    devolvía 500, así que la vista ya decía CAÍDO; el cambio solo reemplazó una
+    causa ajena por una propia sin que se notara la diferencia.
+
+    La lección vale para cualquier credencial: **una validación de config que
+    nunca se probó contra la config REAL es una hipótesis, no una guarda**
+    (REGLA #2). Que el campo se llame `clientId` no significa que el proveedor lo
+    pida, y meses de logins exitosos con el campo vacío son la medición que
+    manda."""
+    monkeypatch.setattr(aunesa.config, "AUNESA_CLIENT_ID", None)
+    llamadas = _postea(monkeypatch, [_Resp(200, {"token": "T"})])
+    aunesa.reset_estado()
+    assert aunesa.auth_headers()["Authorization"] == "Bearer T"
+    assert len(llamadas) == 1, "con client_id vacío el login TIENE que intentarse"
+
+
+def test_el_client_id_viaja_TAL_CUAL_esta(monkeypatch):
+    """No se lo reemplaza por `""` ni por nada: el payload que funcionó durante
+    meses es el que se sigue mandando. Cambiarlo «por prolijidad» es tocar lo
+    único que no se puede probar desde acá."""
+    import inspect
+    src = inspect.getsource(aunesa._login)
+    assert '"clientId": config.AUNESA_CLIENT_ID,' in src

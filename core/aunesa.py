@@ -84,8 +84,23 @@ def _login() -> str:
     por minuto y nunca levanta, así que llamarlo por intento es gratis. Ver
     AV_AGENT.md §0.ad.
     """
-    faltan = [n for n, v in (("AUNESA_CLIENT_ID", config.AUNESA_CLIENT_ID),
-                             ("AUNESA_USERNAME", config.AUNESA_USERNAME),
+    # ⚠️⚠️ **`AUNESA_CLIENT_ID` VA VACÍO Y SIEMPRE FUE ASÍ** (user, 2026-08-20).
+    #
+    # Exigirlo acá dejó a Aunesa muerto de NUESTRO lado: el login cortaba antes de
+    # tocar la red y todo lo que depende del custodio —Tesorería, los saldos
+    # liquidados, la tenencia del día, los informes de operaciones— se caía con
+    # «faltan credenciales», que además apuntaba al lugar equivocado.
+    #
+    # Y el modo de falla es el peor: **no fallaba nada nuevo**. Aunesa ya estaba
+    # devolviendo 500, así que la vista ya decía CAÍDO; el cambio solo reemplazó
+    # una causa ajena por una propia sin que se notara la diferencia.
+    #
+    # La lección, que vale para cualquier credencial: **una validación de config
+    # que nunca se probó contra la config REAL es una hipótesis, no una guarda**
+    # (REGLA #2). Que un campo se llame `clientId` no significa que este proveedor
+    # lo pida — y meses de logins exitosos con el campo vacío son la medición que
+    # cualquier razonamiento sobre el nombre tenía que respetar.
+    faltan = [n for n, v in (("AUNESA_USERNAME", config.AUNESA_USERNAME),
                              ("AUNESA_PASSWORD", config.AUNESA_PASSWORD)) if not v]
     if faltan:
         # Se corta ANTES de la red: sin credenciales no hay nada que probar, y el

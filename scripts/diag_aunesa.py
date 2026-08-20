@@ -64,24 +64,38 @@ def _mostrar_headers(resp: requests.Response) -> None:
             print(f"      {h}: {v}")
 
 
+# ⚠️ **`AUNESA_CLIENT_ID` VA VACÍO Y SIEMPRE FUE ASÍ** (user, 2026-08-20). Este
+# diag lo listaba como FALTANTE y con eso cantaba «es NUESTRO» — señalando como
+# causa la configuración normal del sistema. Solo `username` y `password` son
+# obligatorias; que un campo se llame `clientId` no significa que el proveedor lo
+# pida, y meses de logins exitosos con el campo vacío son la medición que manda.
+OBLIGATORIAS = ("AUNESA_USERNAME", "AUNESA_PASSWORD")
+
+
 def paso_credenciales() -> bool:
     print("\n1) CREDENCIALES en el .env")
     faltan = []
     for nombre, valor, ver in (("AUNESA_CLIENT_ID", config.AUNESA_CLIENT_ID, 4),
                                ("AUNESA_USERNAME", config.AUNESA_USERNAME, 4),
                                ("AUNESA_PASSWORD", config.AUNESA_PASSWORD, 0)):
-        print(f"   {nombre:18} {_tapado(valor, ver=ver)}")
-        if not valor:
+        opcional = nombre not in OBLIGATORIAS
+        marca = "  (opcional — va vacía siempre)" if opcional and not valor else ""
+        print(f"   {nombre:18} {_tapado(valor, ver=ver)}{marca}")
+        if not valor and not opcional:
             faltan.append(nombre)
     if faltan:
-        print(f"   ❌ FALTAN: {', '.join(faltan)} → el problema es NUESTRO, no de Aunesa.")
+        print(f"   ❌ FALTAN: {', '.join(faltan)}")
         return False
-    print("   ✔ las tres están cargadas (que sean las CORRECTAS lo dice el paso 3)")
+    print("   ✔ están cargadas (que sean las CORRECTAS lo dice el paso 3)")
     return True
 
 
-def paso_alcance() -> None:
-    """POST sin credenciales: separa "el host está vivo" de "su servidor está roto"."""
+def paso_alcance() -> int | None:
+    """POST sin credenciales: separa "el host está vivo" de "su servidor está roto".
+
+    Devuelve el status (o None si ni contesta) **porque el veredicto lo necesita**:
+    ver abajo por qué esta evidencia le gana a cualquier revisión de config.
+    """
     print("\n2) ¿EL HOST CONTESTA? (POST con body vacío, sin credenciales)")
     t0 = time.monotonic()
     try:
@@ -91,7 +105,7 @@ def paso_alcance() -> None:
     except requests.exceptions.RequestException as e:
         print(f"   ❌ ni siquiera contesta: {type(e).__name__}: {e}")
         print("      (DNS, red del Droplet o el servicio entero abajo)")
-        return
+        return None
     ms = (time.monotonic() - t0) * 1000
     print(f"   HTTP {resp.status_code} en {ms:.0f} ms")
     _mostrar_headers(resp)
@@ -101,6 +115,32 @@ def paso_alcance() -> None:
     else:
         print("   ❌ 5xx con el body VACÍO: se rompe antes de mirar las credenciales →")
         print("      es su servidor. Nada que tocar de este lado.")
+    return resp.status_code
+
+
+def paso_barrido() -> None:
+    """LAS CINCO APIS que el sistema usa de verdad, y el análisis del conjunto.
+
+    Pedido del user (2026-08-20): *«que intente conectarse a todas las APIs que
+    usamos, a ver si todas dan el mismo error, ya que esto impacta en muchos
+    lados, y darme un análisis general»*. Una sola prueba no contesta eso, y la
+    diferencia importa: con las cinco caídas no hay nada que hacer de este lado;
+    con una sola, el resto de los datos sigue entrando.
+    """
+    from core.proveedores import barrer_aunesa
+
+    print("\n2b) LAS 5 APIS QUE USAMOS")
+    r = barrer_aunesa()
+    for f in r.get("endpoints") or []:
+        marca = "✔" if f["ok"] else "❌"
+        estado = f["status"] if f["status"] is not None else "sin respuesta"
+        print(f"   {marca} {estado!s:>13}  {f['ms']:>5} ms  {f['path']}")
+        print(f"                        ({f['para_que']})")
+        if f["detalle"]:
+            print(f"                        {f['detalle'][:120]}")
+    if not r.get("endpoints"):
+        print("   (no se probaron: ver el análisis)")
+    print(f"\n   ANÁLISIS: {r.get('analisis', '')}")
 
 
 def paso_login(intentos: int, pausa: float) -> tuple[str | None, list[str]]:
@@ -183,9 +223,28 @@ def paso_punta_a_punta(token: str, dia: date) -> None:
     print(f"   ✔ {n} filas ({del_dia} del día pedido — la vista descarta el resto)")
 
 
-def veredicto(cred_ok: bool, token: str | None, resultados: list[str]) -> None:
+def veredicto(cred_ok: bool, token: str | None, resultados: list[str],
+              status_sin_credenciales: int | None = None) -> None:
     print("\n" + "=" * 70)
-    if not cred_ok:
+    # ⚠️⚠️ **LA EVIDENCIA LE GANA AL CHECKLIST, y esto ya se equivocó una vez.**
+    #
+    # En la corrida del 2026-08-20 el paso 2 dijo *«5xx con el body VACÍO: es su
+    # servidor, nada que tocar de este lado»* y tres líneas después el veredicto
+    # dijo *«es NUESTRO»*. **El mismo informe afirmando las dos cosas.** Y no es
+    # un detalle de redacción: mandó a buscar el problema al lugar equivocado,
+    # señalando como causa una configuración que siempre fue así.
+    #
+    # La regla es de lógica, no de estilo: si el host devuelve 5xx a una request
+    # SIN credenciales, se rompió ANTES de leerlas. Ninguna revisión de nuestro
+    # `.env` puede explicar eso, así que la evidencia manda sobre el checklist.
+    # Un chequeo de config solo puede ser la causa si el host contesta 4xx.
+    if status_sin_credenciales and status_sin_credenciales >= 500:
+        print("VEREDICTO: es de ELLOS — su servidor devuelve 5xx a una request")
+        print("  SIN credenciales, o sea que se rompe ANTES de mirarlas.")
+        if not cred_ok:
+            print("  (Falta algo en el .env, y hay que arreglarlo igual — pero NO")
+            print("   es la causa de esto: el 5xx pasa sin mandar credencial alguna.)")
+    elif not cred_ok:
         print("VEREDICTO: es NUESTRO — faltan credenciales en el .env del Droplet.")
     elif token and all("+token" in r for r in resultados):
         print("VEREDICTO: Aunesa responde BIEN en todos los intentos.")
@@ -227,13 +286,14 @@ def main() -> None:
     print("=" * 70)
 
     cred_ok = paso_credenciales()
-    paso_alcance()
+    status_sc = paso_alcance()
+    paso_barrido()
     token, resultados = (None, []) if not cred_ok else paso_login(args.intentos, args.pausa)
     if token and not args.sin_punta_a_punta:
         dia = (datetime.strptime(args.fecha, "%Y-%m-%d").date() if args.fecha
                else _hoy_art().date())
         paso_punta_a_punta(token, dia)
-    veredicto(cred_ok, token, resultados)
+    veredicto(cred_ok, token, resultados, status_sc)
 
 
 if __name__ == "__main__":

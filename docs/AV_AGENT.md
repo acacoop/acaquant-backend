@@ -2349,6 +2349,102 @@ de rojo intermitente sin causa aparente. Es el mismo bug que tenía
 sola: **cuando algo se evalúa contra una foto, el tiempo tiene que salir de la
 foto**.
 
+### 0.ae LLAMAR, BARRER Y AVISAR — y el veredicto que se contradecía (2026-08-20)
+
+Tres pedidos del user en la misma caída de Aunesa, y un bug propio en el medio.
+
+#### (0) EL BUG QUE NOS DEJÓ A NOSOTROS SIN AUNESA
+
+Una guarda nueva exigía `AUNESA_CLIENT_ID` antes de hacer el login. **Esa
+credencial va vacía y siempre fue así.** El login cortaba antes de tocar la red y
+se caía todo lo que depende del custodio —Tesorería, saldos liquidados, tenencia
+del día, informes— con «faltan credenciales», apuntando al lugar equivocado.
+
+Y el modo de falla es el peor de todos: **no fallaba nada nuevo.** Aunesa ya
+devolvía 500, así que la vista ya decía CAÍDO; el cambio solo reemplazó una causa
+ajena por una propia sin que se notara la diferencia.
+
+> **La lección, y vale para cualquier credencial: una validación de config que
+> nunca se probó contra la config REAL es una hipótesis, no una guarda** (REGLA
+> #2). Que un campo se llame `clientId` no significa que el proveedor lo pida, y
+> meses de logins exitosos con el campo vacío son la medición que manda.
+
+#### (1) EL VEREDICTO SE CONTRADECÍA A SÍ MISMO
+
+En la misma corrida, el diag imprimió:
+
+    paso 2   →  «5xx con el body VACÍO: es su servidor. Nada que tocar de este lado.»
+    VEREDICTO →  «es NUESTRO — faltan credenciales en el .env del Droplet.»
+
+**El mismo informe afirmando las dos cosas**, y mandando a revisar una
+configuración que siempre había sido así. Es exactamente el bug de OLC3O (§0.g),
+que es la familia más cara: no da error, se lee con seguridad, y quema el tiempo
+de quien lo sigue.
+
+La regla que quedó es de lógica pura: **si el host devuelve 5xx a una request SIN
+credenciales, se rompió ANTES de leerlas.** Ninguna revisión de nuestro `.env`
+puede explicar eso. La evidencia le gana al checklist, y un chequeo de config
+solo puede ser la causa si el host contesta 4xx.
+
+#### (2) LLAMAR: «si el error es 500 es porque está caído»
+
+*«El agente sí o sí tiene que poder llamar a Aunesa para ver la conexión y
+entender el error»* (user). No contradice al rastro pasivo (§0.ad), lo completa:
+el rastro dice QUE falló, con el error de una llamada real; la prueba contesta la
+pregunta que sigue, **¿es de ellos o es nuestro?**
+
+Tres reglas, las tres para no hacer daño: **nunca manda credenciales** (un login
+fallido repetido bloquea la cuenta — y justamente porque no las manda, un 5xx
+prueba que se rompió antes de leerlas), **un solo intento** (es un diagnóstico,
+no un reintento) y **solo cuando ya hay una falla anotada** — nunca en el camino
+feliz, porque 1816 cobra por llamada.
+
+El código se interpreta con **el contrato que publica el custodio** (200/204
+anda · 400/401/403 anda y rechaza, que es lo correcto sin credenciales · 500 es
+error interno suyo). Sin eso, un 403 y un 500 se leen igual: «no anda».
+
+Y un detalle que resultó ser diagnóstico puro: Aunesa documenta que un 500 vuelve
+como `{"errors":[{title,detail}]}`. **Cuando en vez de eso llega el HTML de
+Tomcat, se rompió antes de llegar a su propio manejador de errores** — no es una
+condición prevista por su aplicación, es su aplicación caída. Es la diferencia
+entre «me rechazaron» y «se les cayó».
+
+#### (3) BARRER: ¿le pasa a las cinco APIs o a una sola?
+
+*«Que intente conectarse a todas las APIs que usamos, ya que esto impacta en
+muchos lados, y darme un análisis general»*. Una sola prueba no contesta eso, y
+la diferencia decide qué hacer:
+
+| resultado | qué significa |
+|---|---|
+| falla el LOGIN | **todo Aunesa bloqueado** — sin token no entra un dato de ninguna. No hace falta probar las cinco |
+| fallan las 5 | su **servicio entero**. No hay nada que arreglar de este lado |
+| falla 1 de 5 | un endpoint suyo. **El resto sigue entrando** — y hay que decirlo, o el equipo da por perdido el día |
+
+Las cinco son las que el sistema usa de verdad (padrón, movimientos del día,
+tenencia, boletos, saldos liquidados), con un test que lo exige: si falta una, el
+análisis diría «anda todo» sobre algo que nadie probó. Y el barrido tiene freno
+(15 min): son 6 requests y el monitor corre cada 5 minutos — sin freno, una caída
+de una hora son 72 requests contra un servicio que ya está mal.
+
+#### (4) AVISAR DIRECTO, no solo «encontrar»
+
+*«Esto lo tiene que avisar directamente además de encontrar»*. Y la razón es
+concreta: **ENCONTRÓ es admin-only**, y el que sufre que Aunesa esté caído es el
+back office, que ni ve esa pantalla.
+
+Va a los que escriben en Tesorería (`operaciones.tesoreria_escritores`) **más los
+admin** — no una lista nueva: es la gente ya habilitada a operar justo lo que se
+rompe, así que se mantiene sola cuando cambia el equipo. Los admin siempre, para
+que una allowlist vacía no deje el aviso sin destinatario justo cuando más
+importa; y si aun así no hay a quién, **se dice** (un «enviados: 0» silencioso se
+lee igual que «no hacía falta avisar»).
+
+**Un aviso por día y por proveedor**, no por corrida: el monitor corre cada 5
+minutos y el 84º mensaje idéntico informa menos que el primero. El análisis
+general va PRIMERO en el cuerpo — «fallan las cinco» es lo accionable; el
+traceback es el respaldo.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

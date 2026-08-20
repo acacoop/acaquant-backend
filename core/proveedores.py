@@ -172,3 +172,233 @@ def estado() -> list[dict]:
              "ultimo_error_at": f[3], "ultimo_ok_at": f[4],
              "fallos_seguidos": f[5], "donde": f[6], "actualizado_at": f[7]}
             for f in filas]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PROBARLO A PROPÓSITO — «si el error es 500 es porque está caído»
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Pedido del user (2026-08-20): *«el agente sí o sí tiene que usar como función
+# el poder llamar a Aunesa para ver la conexión y entender el error»*.
+#
+# **No contradice al rastro pasivo, lo completa.** El rastro dice QUE falló, con
+# el error real de una llamada real. Esto contesta la pregunta que sigue y que el
+# rastro no puede: **¿es de ellos o es nuestro?** Y la contesta de la única forma
+# que no admite discusión: mandando una request **SIN credenciales**.
+#
+#     5xx sin credenciales  →  se rompió ANTES de leerlas: es de ELLOS.
+#     4xx sin credenciales  →  su app está viva y rechaza, que es lo correcto.
+#                              Si NUESTROS logins también fallan, ahí sí mirá el .env.
+#
+# Ese razonamiento ya se equivocó una vez en la dirección contraria: un diag dijo
+# «es su servidor» en un paso y «es NUESTRO» tres líneas después, y mandó a
+# revisar una configuración que siempre había sido así.
+#
+# TRES REGLAS DE LA PRUEBA, y las tres son para no hacer daño:
+#   · **Nunca manda credenciales.** Un login fallido repetido bloquea la cuenta,
+#     y para saber si el host está vivo no hacen falta.
+#   · **Un solo intento.** Es un diagnóstico, no un reintento.
+#   · **Solo se prueba a pedido**, o cuando el rastro YA marcó una falla. Nunca
+#     en el camino feliz: 1816 cobra por llamada.
+
+TIMEOUT_PRUEBA_S = 10
+
+# El contrato que publica Aunesa (doc del custodio, 2026-08-20). Lo que importa
+# no es el número sino QUÉ SIGNIFICA cada uno para decidir de quién es el
+# problema — sin esto, un 403 y un 500 se leen igual: «no anda».
+SIGNIFICADO: dict[int, tuple[str, str]] = {
+    200: ("anda", "contestó bien"),
+    204: ("anda", "contestó vacío, pero contestó"),
+    400: ("anda", "rechazó el pedido (esperable sin credenciales)"),
+    401: ("anda", "pidió autenticación (esperable sin credenciales)"),
+    403: ("anda", "rechazó por permisos (esperable sin credenciales)"),
+    500: ("caido", "error interno de su servidor"),
+}
+
+
+def probar(proveedor: str = "aunesa") -> dict:
+    """Le pega al proveedor SIN credenciales y dice de quién es el problema.
+
+    Devuelve `{proveedor, alcanzable, veredicto, status, detalle, ms, cuerpo}`.
+    **Nunca levanta**: es un diagnóstico y tiene que poder contestar «no pude».
+    """
+    import time as _t
+
+    import requests
+
+    p = PROVEEDORES.get(proveedor)
+    if p is None or proveedor != "aunesa":
+        # Solo Aunesa por ahora: es el único con un endpoint que se puede tocar
+        # sin credenciales y sin costo. 1816 COBRA por llamada — probarlo sería
+        # gastar cuota para saber algo que su propio uso ya cuenta.
+        return {"proveedor": proveedor, "alcanzable": None,
+                "veredicto": "no_se_puede_probar", "status": None,
+                "detalle": ("no hay una prueba segura para este proveedor "
+                            "(o cobra por llamada): lo que se sabe de él sale "
+                            "del rastro de las llamadas reales"),
+                "ms": None, "cuerpo": None}
+
+    url = "https://aca.aunesa.com/Irmo/api/login"
+    t0 = _t.monotonic()
+    try:
+        resp = requests.post(url, json={},
+                             headers={"Content-Type": "application/json"},
+                             timeout=TIMEOUT_PRUEBA_S)
+    except Exception as e:
+        return {"proveedor": proveedor, "alcanzable": False,
+                "veredicto": "caido", "status": None,
+                "detalle": (f"ni siquiera contesta: {type(e).__name__}: {e}. "
+                            "Puede ser su servicio entero abajo, o la red del "
+                            "Droplet"),
+                "ms": round((_t.monotonic() - t0) * 1000), "cuerpo": None}
+
+    ms = round((_t.monotonic() - t0) * 1000)
+    estado, que_es = SIGNIFICADO.get(
+        resp.status_code,
+        ("caido" if resp.status_code >= 500 else "anda",
+         f"HTTP {resp.status_code}, fuera de su contrato documentado"))
+    return {"proveedor": proveedor, "alcanzable": True, "veredicto": estado,
+            "status": resp.status_code, "ms": ms,
+            "detalle": f"HTTP {resp.status_code} en {ms} ms — {que_es}. "
+                       + _leer_error(resp),
+            "cuerpo": (resp.text or "")[:300]}
+
+
+def _leer_error(resp) -> str:
+    """Lo que el proveedor dice de su propio error, en sus palabras.
+
+    ⚠️ **Y si NO viene en su formato, eso también es información.** Aunesa
+    documenta que un 500 vuelve como `{"errors":[{"title","detail"}]}`. Cuando en
+    vez de eso llega el HTML de error de Tomcat, significa que **se rompió antes
+    de llegar a su propio manejador de errores** — o sea que no es una condición
+    prevista por su aplicación, es su aplicación caída. Distinguirlo es la
+    diferencia entre «me rechazaron» y «se les cayó».
+    """
+    tipo = (resp.headers.get("content-type") or "").lower()
+    if "json" in tipo:
+        try:
+            errores = (resp.json() or {}).get("errors") or []
+            if errores:
+                e = errores[0]
+                return (f"Ellos dicen: «{e.get('title') or ''} — "
+                        f"{e.get('detail') or ''}».")
+        except Exception:
+            pass
+        return "Contestó JSON pero sin el bloque `errors` que documentan."
+    if "html" in tipo:
+        return ("Contestó una página HTML de error, NO el JSON de error que "
+                "documentan: se rompió antes de llegar a su propio manejador. "
+                "Eso es su aplicación caída, no una respuesta prevista.")
+    return "Sin cuerpo interpretable."
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL BARRIDO — ¿le pasa a TODAS las APIs de Aunesa o a una sola?
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Pedido del user (2026-08-20): *«que el agente intente conectarse a todas las
+# APIs que usamos de Aunesa, a ver si todas le dan el mismo error, ya que esto
+# impacta en muchos lados, y darme un análisis general»*.
+#
+# **Es la pregunta correcta y una sola prueba no la contesta.** Un 500 en el
+# login puede ser su servicio entero abajo o el login solo; y son dos situaciones
+# muy distintas para el back office: en la primera no hay nada que hacer, en la
+# segunda el resto de los datos podría estar entrando igual. Sin barrer, la única
+# forma de saberlo es que alguien abra las cinco pantallas.
+#
+# ⚠️ **El orden importa y no es un detalle**: sin token no se puede probar NADA
+# más, así que si el login está caído el barrido se corta y ESO ya es el
+# diagnóstico completo — «todo Aunesa está bloqueado porque no se puede entrar».
+# Seguir pegándole a los cinco endpoints para juntar cinco 401 sería ruido.
+
+# Las cinco APIs que el sistema usa DE VERDAD, cada una con qué alimenta. Están
+# acá y no desperdigadas porque la pregunta «¿qué se rompe si Aunesa se cae?»
+# tiene que poder contestarse leyendo un solo lugar.
+ENDPOINTS_AUNESA: tuple[tuple[str, str, dict], ...] = (
+    ("cuentas/listadoCuentas", "el padrón de cuentas", {}),
+    ("cuentas/consultaMovDocsSolicitados",
+     "los movimientos del día de Tesorería", {"fechaDesde": "", "fechaHasta": ""}),
+    ("operaciones/consolidadosGenerales",
+     "la tenencia del día y el cost-basis", {}),
+    ("operaciones/informes", "los boletos de operaciones", {"cuenta": "805"}),
+    ("cuentas/805/posiciones", "los saldos liquidados por cuenta", {}),
+)
+
+TIMEOUT_BARRIDO_S = 20
+
+
+def barrer_aunesa() -> dict:
+    """Prueba las CINCO APIs que usamos y devuelve un análisis general.
+
+    Devuelve `{login, endpoints: [...], analisis, veredicto}`. **Nunca levanta.**
+    """
+    import time as _t
+
+    import requests
+
+    prueba = probar("aunesa")
+    if prueba["veredicto"] != "anda":
+        # Sin login no hay token, y sin token no se puede probar nada más. Eso
+        # NO es una limitación del barrido: es el diagnóstico.
+        return {"login": prueba, "endpoints": [], "veredicto": "todo_caido",
+                "analisis": (
+                    "El LOGIN no responde, así que **todo Aunesa está "
+                    "bloqueado**: sin token no entra un solo dato de ninguna de "
+                    "las cinco APIs que usamos. No hace falta probarlas una por "
+                    "una — ninguna puede andar.\n\n" + prueba["detalle"])}
+
+    from core import aunesa
+    try:
+        cabeceras = aunesa.auth_headers()
+    except Exception as e:
+        return {"login": prueba, "endpoints": [], "veredicto": "sin_token",
+                "analisis": (f"El host contesta pero no pudimos autenticarnos: "
+                             f"{type(e).__name__}: {e}. Eso apunta a las "
+                             f"credenciales, no a su servicio.")}
+
+    filas = []
+    for path, para_que, params in ENDPOINTS_AUNESA:
+        t0 = _t.monotonic()
+        try:
+            r = requests.get(f"{aunesa.BASE_URL}/{path}", params=params,
+                             headers=cabeceras, timeout=TIMEOUT_BARRIDO_S)
+            filas.append({"path": path, "para_que": para_que,
+                          "status": r.status_code,
+                          "ms": round((_t.monotonic() - t0) * 1000),
+                          "ok": r.status_code < 500,
+                          "detalle": _leer_error(r) if r.status_code >= 400 else ""})
+        except Exception as e:
+            filas.append({"path": path, "para_que": para_que, "status": None,
+                          "ms": round((_t.monotonic() - t0) * 1000), "ok": False,
+                          "detalle": f"{type(e).__name__}: {e}"})
+    return {"login": prueba, "endpoints": filas, **_analizar(filas)}
+
+
+def _analizar(filas: list[dict]) -> dict:
+    """El ANÁLISIS GENERAL: qué significa el conjunto, no cada fila.
+
+    Es lo que el user pidió y lo que una lista de cinco status no dice sola. Que
+    fallen las cinco y que falle una son dos problemas distintos, y se responden
+    distinto: en el primero no hay nada que hacer de este lado; en el segundo el
+    resto de los datos sigue entrando y conviene decirlo, porque si no el equipo
+    da por perdido todo.
+    """
+    rotos = [f for f in filas if not f["ok"]]
+    if not rotos:
+        return {"veredicto": "anda",
+                "analisis": ("Las cinco APIs contestan. Si una pantalla sigue "
+                             "diciendo AUNESA CAÍDO, es el cortacircuito de "
+                             "nuestro proceso, que se abre 45 s tras un fallo.")}
+    if len(rotos) == len(filas):
+        return {"veredicto": "todo_caido",
+                "analisis": ("Fallan **las cinco**: es su servicio entero, no un "
+                             "endpoint. No hay nada que arreglar de este lado — "
+                             "hay que avisarle al custodio. Todo lo cargado a "
+                             "mano sigue disponible.")}
+    nombres = ", ".join(f["para_que"] for f in rotos)
+    return {"veredicto": "parcial",
+            "analisis": (f"Fallan {len(rotos)} de {len(filas)}: {nombres}. **El "
+                         "resto de Aunesa está entrando bien**, así que no se "
+                         "perdió todo — conviene decirlo, o el equipo da por "
+                         "perdido el día entero. Que sea parcial apunta a un "
+                         "endpoint suyo y no a su servicio.")}

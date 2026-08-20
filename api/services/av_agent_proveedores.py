@@ -73,6 +73,26 @@ def detectar_proveedores(*, ahora: datetime | None = None) -> list[dict]:
         if hace > VENTANA_S or (f.get("fallos_seguidos") or 0) < MINIMO_FALLOS:
             continue
 
+        # ⚠️ **LA PRUEBA SOLO CORRE SI YA HAY UNA FALLA.** Nunca en el camino
+        # feliz: 1816 cobra por llamada y un chequeo cada 5 minutos se come la
+        # cuota. Acá el rastro ya dijo que algo falló, así que UNA request más
+        # —sin credenciales— es barata y contesta la pregunta que sigue: **¿es de
+        # ellos o es nuestro?** Es lo que pidió el user: *«el agente sí o sí
+        # tiene que poder llamar a Aunesa para ver la conexión y entender el
+        # error»*.
+        prueba = _probar(f["proveedor"])
+        # EL BARRIDO COMPLETO: ¿le pasa a las cinco APIs o a una sola? Es la
+        # pregunta que pidió el user y la que decide qué hacer — con las cinco
+        # caídas no hay nada que hacer de este lado; con una, el resto de los
+        # datos sigue entrando y hay que decirlo o el equipo da por perdido el
+        # día entero.
+        #
+        # ⚠️ Con FRENO (`_toca_barrer`): el monitor corre cada 5 minutos y el
+        # barrido son 6 requests. Sin freno, una caída de una hora son 72
+        # requests contra un proveedor que ya sabemos que está mal — que además
+        # es la peor hora para agregarle carga.
+        barrido = _barrer_si_toca(f["proveedor"])
+
         p = PROVEEDORES.get(f["proveedor"])
         nombre = p.nombre if p else f["proveedor"]
         rompe = p.rompe if p else "no sé qué depende de él"
@@ -87,19 +107,100 @@ def detectar_proveedores(*, ahora: datetime | None = None) -> list[dict]:
             "evidencia": {
                 "texto": (f"QUÉ DEJA DE ANDAR: {rompe}.\n\n"
                           f"MOTIVO EXACTO: {f.get('ultimo_error') or 'sin detalle'}\n\n"
-                          f"Falló en «{f.get('donde') or '?'}», "
+                          + (f"\n\nANÁLISIS: {barrido['analisis']}"
+                             if barrido else "")
+                          + (f"\n\nDE QUIÉN ES: {prueba['detalle']}"
+                             if prueba else "")
+                          + f"\n\nFalló en «{f.get('donde') or '?'}», "
                           f"hace {_hace(hace)}"
                           + (f", {veces} veces seguidas" if veces > 1 else "")
                           + (f". El último OK fue {_fecha(f.get('ultimo_ok_at'))}"
                              if f.get("ultimo_ok_at") else
                              ". No hay registro de que haya contestado bien.")),
                 "proveedor": f["proveedor"], "rompe": rompe,
+                "prueba": prueba, "barrido": barrido,
                 "error": f.get("ultimo_error"), "donde": f.get("donde"),
                 "fallos_seguidos": veces, "hace_s": round(hace),
                 "ultimo_ok_at": _fecha(f.get("ultimo_ok_at"))}})
     # El que más viene fallando, primero.
     out.sort(key=lambda h: -h["evidencia"]["fallos_seguidos"])
+    # **Y SE AVISA DIRECTO**, no solo se deja en ENCONTRÓ: esa pantalla es
+    # admin-only y el que sufre esto es el back office. El envío se auto-frena
+    # por `tema` (uno por día y por proveedor), así que llamarlo en cada ciclo
+    # no genera 84 mensajes.
+    for h in out:
+        h["evidencia"]["aviso"] = avisar_caida(
+            h, barrido=h["evidencia"].get("barrido"))
     return out
+
+
+def _probar(proveedor: str) -> dict | None:
+    """La prueba activa, sin dejar que su fallo se lleve puesto el hallazgo.
+
+    Si la prueba no se puede hacer, el aviso sale igual **sin** la línea de «de
+    quién es»: media respuesta sirve, ninguna no.
+    """
+    try:
+        from core.proveedores import probar
+        r = probar(proveedor)
+        return r if r.get("veredicto") != "no_se_puede_probar" else None
+    except Exception as e:                                  # nunca hacia arriba
+        logger.warning("av_agent_proveedores: la prueba falló (%s)", e)
+        return None
+
+
+# Cada cuánto se barren las cinco APIs mientras la caída sigue. El monitor corre
+# cada 5 minutos; barrer cada 15 da tres fotos por hora, que alcanza de sobra
+# para ver si algo se recupera, sin castigar a un servicio que ya está mal.
+BARRER_CADA_S = 15 * 60
+_ultimo_barrido: dict[str, tuple[float, dict]] = {}
+
+
+def _barrer_si_toca(proveedor: str) -> dict | None:
+    """El barrido completo, como mucho cada `BARRER_CADA_S`.
+
+    Entre barridos se reusa el último: el aviso sigue diciendo el análisis, con
+    la foto de hace unos minutos, que para «fallan las cinco» no cambia nada.
+    """
+    if proveedor != "aunesa":
+        return None
+    import time as _t
+    cuando, previo = _ultimo_barrido.get(proveedor, (0.0, None))
+    if previo is not None and _t.monotonic() - cuando < BARRER_CADA_S:
+        return previo
+    try:
+        from core.proveedores import barrer_aunesa
+        r = barrer_aunesa()
+    except Exception as e:                                  # nunca hacia arriba
+        logger.warning("av_agent_proveedores: el barrido falló (%s)", e)
+        return previo
+    _ultimo_barrido[proveedor] = (_t.monotonic(), r)
+    return r
+
+
+def barrer_ahora(proveedor: str = "aunesa") -> dict:
+    """**A pedido**: probar las cinco APIs y devolver el análisis general."""
+    from core.proveedores import barrer_aunesa
+    if proveedor != "aunesa":
+        return {"veredicto": "no_se_puede_probar",
+                "analisis": "solo Aunesa tiene un barrido definido"}
+    return barrer_aunesa()
+
+
+def probar_ahora(proveedor: str = "aunesa") -> dict:
+    """**A pedido**: probar la conexión y decir de quién es el problema.
+
+    Lo usa el explicador del agente. A diferencia del detector, contesta también
+    cuando el proveedor está sano — «¿anda Aunesa?» tiene que poder responderse
+    que sí.
+    """
+    from core.proveedores import PROVEEDORES, probar
+
+    r = probar(proveedor)
+    p = PROVEEDORES.get(proveedor)
+    return {**r,
+            "nombre": p.nombre if p else proveedor,
+            "rompe": p.rompe if p else None}
 
 
 def _hace(seg: float) -> str:
@@ -135,3 +236,91 @@ def resumen() -> dict:
          "ultimo_error": (filas.get(k) or {}).get("ultimo_error"),
          "ultimo_error_at": _fecha((filas.get(k) or {}).get("ultimo_error_at"))}
         for k, p in PROVEEDORES.items()]}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AVISAR DIRECTO — «además de encontrar, lo tiene que avisar»
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Pedido del user (2026-08-20): *«esto lo tiene que avisar directamente además de
+# encontrar»*. Y tiene razón por una diferencia concreta: **ENCONTRÓ es
+# admin-only**. El que sufre que Aunesa esté caído es el back office, que ni
+# siquiera ve la pantalla del agente. Un hallazgo que solo ve un admin no es un
+# aviso para quien tiene que actuar.
+#
+# A QUIÉN: los que escriben en Tesorería (`operaciones.tesoreria_escritores`) más
+# los admin. No es una lista nueva — es la gente que ya está habilitada a operar
+# justo lo que se rompe, así que se mantiene sola cuando cambia el equipo.
+#
+# CUÁNDO: **una vez por día y por caída**, no por corrida. El monitor corre cada
+# 5 minutos: avisar en cada ciclo serían 84 mensajes idénticos en una jornada, y
+# el 84º informa menos que el primero. El `tema` lleva la fecha, así que el
+# segundo envío del día no se apila mientras el primero siga abierto.
+
+TEMA_AVISO = "proveedor_caido"
+
+
+def avisar_caida(hallazgo: dict, *, barrido: dict | None = None) -> dict:
+    """Le manda el aviso a quien lo sufre. Devuelve `{enviados, a, error}`.
+
+    **Nunca levanta**: si el aviso falla, el hallazgo tiene que quedar igual.
+    """
+    try:
+        from datetime import date
+
+        from api.services import av_agent_mensajes as msg
+        ev = hallazgo.get("evidencia") or {}
+        texto = ev.get("texto") or ""
+        if barrido and barrido.get("analisis"):
+            # El ANÁLISIS GENERAL va PRIMERO: «fallan las cinco» o «falla una» es
+            # lo que decide qué hacer, y el detalle técnico es el respaldo.
+            texto = f"{barrido['analisis']}\n\n{texto}"
+        a = _a_quien()
+        if not a:
+            # Sin destinatario el aviso no existe, y hay que DECIRLO: un
+            # «enviados: 0» silencioso se lee igual que «no hacía falta avisar».
+            return {"enviados": 0, "a": [],
+                    "error": "nadie a quien avisar: ni allowlist de Tesorería "
+                             "ni admins"}
+        tema = f"{TEMA_AVISO}:{hallazgo.get('ticker')}:{date.today().isoformat()}"
+        asunto = hallazgo.get("motivo") or "Un proveedor externo no responde"
+        r = msg.enviar_muchos(
+            [{"para": e, "tema": tema, "asunto": asunto, "detalle": texto,
+              "donde": "BACK OFFICE · TESORERÍA"} for e in a],
+            por="av_agent_proveedores")
+        return {"enviados": r.get("enviados", 0), "a": a,
+                "error": r.get("error")}
+    except Exception as e:                                  # nunca hacia arriba
+        logger.warning("av_agent_proveedores: no pude avisar (%s)", e)
+        return {"enviados": 0, "a": [], "error": str(e)[:200]}
+
+
+def _a_quien() -> list[str]:
+    """Los que escriben en Tesorería + los admin, sin repetidos.
+
+    Las dos listas en UNA query: son dos tablas pero un solo viaje a Supabase, y
+    lo que se paga por consulta es el peaje, no el plan.
+    """
+    from core.postgres import get_pool
+
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT email FROM operaciones.tesoreria_escritores "
+                "UNION "
+                # Los admin SIEMPRE: si la allowlist está vacía o la tabla no
+                # existe, el aviso no puede quedarse sin destinatario — es
+                # justo el caso en que más importa que llegue.
+                "SELECT email FROM manager.manager_users "
+                "WHERE role = 'admin' AND coalesce(enabled, true)")
+            emails = [r[0] for r in cur.fetchall() if r[0]]
+    except Exception as e:
+        logger.warning("av_agent_proveedores: sin destinatarios (%s)", e)
+        return []
+    vistos, out = set(), []
+    for e in emails:
+        k = (e or "").strip().lower()
+        if k and k not in vistos:
+            vistos.add(k)
+            out.append(k)
+    return out

@@ -136,6 +136,17 @@ _CAPACIDADES: tuple[dict, ...] = (
                  "es un día normal para no gritar todos los días",
      "dominio": SISTEMA, "modulo": "api.services.logs_sistema",
      "donde": "python -m scripts.diag_logs_motores"},
+    {"id": "proveedores.probar",
+     "nombre": "Llamar a Aunesa y entender el error",
+     "que_hace": "prueba la conexión SIN mandar credenciales (un 5xx así prueba "
+                 "que se rompió antes de leerlas: es de ellos) e interpreta el "
+                 "código según el contrato que publica el custodio. Si contesta "
+                 "en su formato de error cita sus palabras; si contesta el HTML "
+                 "de Tomcat, dice que se rompió antes de su propio manejador. "
+                 "Y barre las 5 APIs que usamos para decir si es el servicio "
+                 "entero o un endpoint",
+     "dominio": SISTEMA, "modulo": "api.services.av_agent_proveedores",
+     "donde": "python -m scripts.diag_aunesa"},
 )
 
 
@@ -252,12 +263,14 @@ _QUE_DETECTA: dict[str, tuple[str, str]] = {
         "son dos problemas distintos"),
     "proveedor_caido": (
         "Proveedores de afuera que no responden",
-        "Aunesa, 1816, Interbanking, BCRA. El aviso dice QUÉ deja de andar y el "
-        "MOTIVO EXACTO (el error textual), que es lo que distingue «se cayó "
-        "ellos» de «se nos vencieron las credenciales». No pregunta: lee el "
-        "rastro que dejan las llamadas reales, así no gasta créditos de 1816 ni "
-        "se cree un health check que contesta bien mientras el endpoint que "
-        "usamos devuelve 500"),
+        "Aunesa, 1816, Interbanking, BCRA. Se entera por el rastro de las "
+        "llamadas REALES (no gasta créditos de 1816 ni se cree un health check "
+        "que contesta bien mientras el endpoint que usamos devuelve 500) y, "
+        "cuando ya hay una falla, LLAMA: prueba sin credenciales para separar "
+        "«se cayeron ellos» de «se nos venció una clave», y barre las 5 APIs de "
+        "Aunesa para decir si es su servicio entero o un endpoint. Avisa "
+        "DIRECTO al back office, que es quien lo sufre y no ve la pantalla del "
+        "agente"),
     "permiso_flojo": (
         "Permisos que están solo en los papeles",
         "endpoints sin gate, y —probando de verdad, sin credenciales— los que "

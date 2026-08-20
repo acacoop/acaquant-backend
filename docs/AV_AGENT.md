@@ -2070,6 +2070,26 @@ que es donde se miran cuando ya se decidió algo. Lo que se sacó es el texto de
 arriba, no la información — el detalle sigue diciendo cuántas quedaron afuera y
 por cuál de los dos motivos.
 
+#### Y TIENE QUE APARECER SOLO — el reloj no alcanza (2026-08-20)
+
+*«Hay que actualizar la página, es decir inviable… hay gente que deja esto de
+fondo.»* Había un poll de 5 minutos y aun así el aviso no salía hasta recargar.
+
+**El motivo no es la app: el navegador frena los timers de una pestaña que está
+en segundo plano.** Chrome los baja a uno por minuto y, pasado un rato sin
+mirarla, puede congelarlos del todo. O sea que **justo en el caso que importa**
+—la app abierta atrás toda la tarde— el reloj es lo primero que deja de andar.
+
+Regla que queda, y no es solo de este componente: **para algo que tiene que
+llegar, el reloj es el respaldo, no el mecanismo.** Se despierta por EVENTO —
+volver a la pestaña, volver a la ventana, recuperar internet, el atrás del
+navegador— y mientras está oculta no pide nada: el timer no iba a correr igual,
+así que en vez de pelearle al navegador se apaga y se recupera al volver. Sale
+más barato en requests que el poll de antes **y llega antes**.
+
+Y con la app de fondo lo único que se ve de una pestaña es su TÍTULO: ahí va una
+marca `(!)` mientras haya algo esperando, que se saca sola al volver.
+
 #### (3) SEGUIMIENTO — el tiempo como evidencia
 
 `api/services/av_agent_seguimiento.py`. Cuando algo se marca como hecho, se

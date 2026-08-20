@@ -853,6 +853,28 @@ def _columna(filas: list, *nombres: str) -> tuple[int | None, int | None]:
     return None, None
 
 
+# El `[Op. NNNN]` con que el mayor prefija TODOS sus conceptos. Es el número de
+# asiento: cambia en cada fila y es justo lo que impide agruparlos.
+_RE_OP = re.compile(r"^\[\s*op\.?\s*\d+\s*\]\s*", re.I)
+
+
+def _grupo_mayor(concepto: str) -> str:
+    """El TIPO de movimiento del mayor, para poder consolidarlo.
+
+    ⚠️ El concepto crudo es **único fila por fila** y por eso no sirve como clave:
+    `[Op. 1133481] Extracción - Extracción CE 2026005064- Cta. 1687/GRAL` lleva el
+    número de asiento Y el del comprobante. Agrupar por él daría tantos grupos
+    como movimientos, o sea la misma lista otra vez.
+
+    Dos cortes, los mínimos, medidos sobre exports reales de Valores y Credicoop:
+    se saca el `[Op. NNNN]` y se corta en el primer ` - `. Las tres extracciones
+    del ejemplo colapsan en `Extracción`; en el mayor de Credicoop no hay ` - `
+    y `bco a bco` / `Recibir fondos` quedan enteros.
+    """
+    txt = _RE_OP.sub("", (concepto or "").strip()).split(" - ", 1)[0]
+    return " ".join(txt.split()) or "(sin concepto)"
+
+
 def _movimientos_del_mayor(filas: list) -> dict:
     """Los movimientos del mayor: concepto e importe FIRMADO.
 
@@ -904,6 +926,7 @@ def _movimientos_del_mayor(filas: list) -> dict:
         elif "saldo" in concepto.lower():
             continue
         movimientos.append({"concepto": concepto or "(sin concepto)",
+                            "grupo": _grupo_mayor(concepto),
                             "importe": round(debe - haber, 2), "fila": i + 1})
 
     return {"movimientos": movimientos,
@@ -1128,9 +1151,17 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
     # esos campos (`[Op. 1130699] bco a bco` contra `TRANSF.O/BANCOS MISMO TIT`),
     # así que ponerlos al lado invitaría a cruzarlos por donde no se puede. Lo
     # único que se compara de verdad es el IMPORTE.
-    nuestros = [{"descripcion": (m.get("descripcion_banco")
-                                 or m.get("descripcion_ib") or "").strip()
-                             or "(sin descripción)",
+    # ⚠️ El `grupo` es la clave del CONSOLIDADO y viaja calculada desde acá, no
+    # desde el navegador: qué se considera «el mismo movimiento» es un criterio
+    # de negocio, y si vive en el front no hay una sola prueba que lo respalde.
+    # Del lado del banco la descripción YA agrupa (viene truncada a ~25 chars y
+    # se repite literal); el `N/D -` / `N/C -` se deja a propósito, es lo que
+    # separa débitos de créditos y sacarlo los netearía dentro de un mismo grupo.
+    nuestros = [{"descripcion": (d := (m.get("descripcion_banco")
+                                       or m.get("descripcion_ib") or "").strip()
+                                 or "(sin descripción)"),
+                 "grupo": d,
+                 "concepto": (m.get("descripcion_ib") or "").strip(),
                  "importe": round(_firmado(m), 2)} for m in movs]
     return {
         "fecha": fecha.isoformat(),

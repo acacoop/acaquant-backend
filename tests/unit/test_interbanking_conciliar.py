@@ -247,6 +247,93 @@ def test_los_dos_detalles_viajan_en_la_respuesta(monkeypatch):
     assert out["mayor_suma"] == -499_999_887.99
 
 
+# ── CONSOLIDADO: agrupar por tipo de movimiento ─────────────────────────────
+# El mayor de Banco Valores (19/08/2026), tal cual lo exporta el sistema
+# contable. Es el que muestra el problema: el concepto crudo lleva el número de
+# asiento Y el del comprobante, así que las cinco extracciones son cinco textos
+# distintos y agrupar por él daría cinco grupos de uno.
+GRILLA_VALORES = [
+    ["Fecha", "Comprobante", "Concepto", "Auxiliar", "Asiento", "Debe", "Haber", "Saldo"],
+    ["", "", "Saldo inicial", "", "", "590.708,12", "", "590.708,12 D"],
+    ["19/08/2026 11:45:33", "CD 2026004421",
+     "[Op. 1133462] Depósito - Depósito CD 2026004421- Cta. 243/GRAL",
+     "GEN", "-4891422", "53.061.500,00", "", "53.652.208,12 D"],
+    ["19/08/2026 11:57:33", "CE 2026005064",
+     "[Op. 1133481] Extracción - Extracción CE 2026005064- Cta. 1687/GRAL",
+     "GEN", "-4891444", "", "70.226.054,13", "16.573.846,01 A"],
+    ["19/08/2026 12:11:31", "CE 2026005066",
+     "[Op. 1133560] Extracción - Extracción CE 2026005066- Cta. 841/GRAL",
+     "GEN", "-4891526", "", "1.263.639.839,12", "1.280.213.685,13 A"],
+    ["19/08/2026 12:14:47", "CE 2026005067",
+     "[Op. 1133561] Extracción - Extracción CE 2026005067- Cta. 194/GRAL",
+     "GEN", "-4891527", "", "1.200.000.000,00", "2.480.213.685,13 A"],
+    ["19/08/2026 12:42:58", "CE 2026005074",
+     "[Op. 1133675] Extracción - Extracción CE 2026005074- Cta. 187/GRAL",
+     "GEN", "-4891650", "", "500.000.000,00", "2.980.213.685,13 A"],
+    ["19/08/2026 12:43:06", "CE 2026005075",
+     "[Op. 1133676] Extracción - Extracción CE 2026005075- Cta. 1886/GRAL",
+     "GEN", "-4891651", "", "999.999,99", "2.981.213.685,12 A"],
+]
+
+
+def test_el_grupo_del_mayor_colapsa_asiento_y_comprobante():
+    """Los dos cortes, sobre el archivo real: sin ellos hay 6 grupos de 1 y el
+    consolidado es la misma lista otra vez."""
+    from api.services.bancos import _movimientos_del_mayor
+
+    d = _movimientos_del_mayor(GRILLA_VALORES)
+    assert [m["grupo"] for m in d["movimientos"]] == [
+        "Depósito", "Extracción", "Extracción", "Extracción", "Extracción", "Extracción"]
+    assert len({m["concepto"] for m in d["movimientos"]}) == 6, (
+        "el concepto CRUDO sigue siendo único fila por fila — por eso hace falta "
+        "el grupo, y por eso el crudo no se pisa")
+
+
+def test_el_grupo_NO_recorta_los_conceptos_que_ya_agrupan():
+    """El mayor de Credicoop no usa ` - `: si el corte fuera más agresivo, se
+    comería la mitad del concepto de un archivo que estaba bien."""
+    from api.services.bancos import _movimientos_del_mayor
+
+    d = _movimientos_del_mayor(GRILLA)
+    assert [m["grupo"] for m in d["movimientos"]] == [
+        "bco a bco", "Recibir fondos", "Enviar fondos", "bco a bco"]
+
+
+def test_consolidar_da_EL_MISMO_total_que_los_movimientos(monkeypatch):
+    """⚠️ El invariante de la vista: cambiar de pestaña no puede cambiar el
+    total. Si la suma por grupo no da lo mismo, el agrupador perdió filas — y un
+    consolidado que no cuadra con su detalle es peor que no tenerlo."""
+    from collections import defaultdict
+
+    s = _svc(monkeypatch, cierre=590_708.12,
+             movs=[_mov("h1", 112.01, "D", "N/D - COMISION"),
+                   _mov("h2", 5000.0, "C", "N/C - RESC CUOTAPARTE E"),
+                   _mov("h3", 900.0, "C", "N/C - RESC CUOTAPARTE E")])
+    out = s.conciliar("x@y", 1, FECHA, GRILLA_VALORES)
+
+    for movs, suma in ((out["banco_movimientos"], out["banco_suma"]),
+                       (out["mayor_movimientos"], out["mayor_suma"])):
+        por_grupo: dict[str, float] = defaultdict(float)
+        for m in movs:
+            por_grupo[m["grupo"]] += m["importe"]
+        assert round(sum(por_grupo.values()), 2) == suma
+
+    assert out["mayor_suma"] == -2_981_804_393.24
+    # El banco agrupa por su DESCRIPCIÓN: los dos rescates son un solo renglón.
+    assert len({m["grupo"] for m in out["banco_movimientos"]}) == 2
+
+
+def test_el_banco_NO_mezcla_debitos_y_creditos_del_mismo_concepto(monkeypatch):
+    """El `N/D -` / `N/C -` se deja adrede en la clave. Sacarlo netearía un
+    débito contra un crédito dentro de un mismo renglón y el consolidado
+    mostraría cero donde hubo plata para los dos lados."""
+    s = _svc(monkeypatch, cierre=590_708.12,
+             movs=[_mov("h1", 1000.0, "D", "N/D - TRANSF. A BANCOS"),
+                   _mov("h2", 1000.0, "C", "N/C - TRANSF. A BANCOS")])
+    out = s.conciliar("x@y", 1, FECHA, GRILLA_VALORES)
+    assert len({m["grupo"] for m in out["banco_movimientos"]}) == 2
+
+
 # ── Encontrar la explicación cuando no es exacta ────────────────────────────
 # ⚠️ Caso real (2026-08-19): la diferencia daba 1.176.659,79 y el movimiento que
 # la explicaba era de 1.176.659,78. UN CENTAVO. Con igualdad exacta el buscador

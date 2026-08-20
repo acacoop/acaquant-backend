@@ -24,6 +24,7 @@ from __future__ import annotations
 def main() -> int:
     from api.services import av_agent
     from api.services.av_agent_vista import _hallazgos_ultima_corrida
+    from core import escribe
 
     hallazgos, corrida = _hallazgos_ultima_corrida()
     c = av_agent.cobertura(hallazgos)
@@ -51,6 +52,17 @@ def main() -> int:
             print(f"     falta: {x['que_falta']}")
             if ej:
                 print(f"     ej: {ej}")
+            # Para `tabla_quieta`, QUÉ relanzar — o que no hay nada que
+            # relanzar, que es la mitad que evita construir una puerta a
+            # ninguna parte (§0.aq).
+            if x["tipo"] == "tabla_quieta":
+                for e in x["ejemplos"]:
+                    if not e:
+                        continue
+                    mod = escribe.que_relanzar(e)
+                    quien = escribe.la_dispara(e)
+                    print(f"       {e:<28} {quien:<7} "
+                          + (f"→ {mod}" if mod else "(nada que relanzar)"))
     else:
         print("\n  ✔ Ninguna pared con deuda: todo lo sin puerta es por decisión.")
 

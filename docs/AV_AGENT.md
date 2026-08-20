@@ -3112,6 +3112,57 @@ tiene su propia condición, ya escrita en `ACCION_POR_TIPO`: relanzar tiene
 efectos afuera de `mercado.curvas`, así que **se habilita cuando el eval set diga
 que el diagnóstico acierta** — primero ver, después simular, después escribir.
 
+### 0.aq UNA TABLA DE EVENTOS NO TIENE CADENCIA: TIENE OCASIONES (2026-08-20)
+
+La medición de §0.ap contra prod dio **105 hallazgos · 84 con puerta (80%) · 20 de
+deuda**, y la pared #1 fue clarísima:
+
+    1. sin_escribir  ×8   [tabla_quieta]   falta: relanzar el job de esa tabla
+       ej: ia.trazas, manager.role_audit, manager.salud_eventos
+
+**Y las tres de ejemplo no tienen ningún job atrás.**
+
+    ia.trazas             ← `core/ai.py`, una fila por CADA llamada al LLM
+    manager.role_audit    ← `core/roles.py`, cuando alguien CAMBIA un rol
+    manager.salud_eventos ← cuando un chequeo TRANSICIONA
+
+Están quietas **porque no pasó nada**, no porque algo esté roto. Y no hay nada
+que relanzar: el job no existe.
+
+> **Casi construyo un botón «relanzar» para esa pared.** Habría sido una puerta a
+> ninguna parte — peor que no tener puerta, porque encima promete. La medición
+> sirvió para lo contrario de lo que uno espera: no me dijo qué construir, me
+> dijo **que la pared más grande no era una pared**.
+
+Es la otra mitad de §0.u. Allá una RÁFAGA se leía como ritmo; acá **un ritmo REAL
+se lee como una obligación**: `ia.trazas` escribe casi todos los días porque se
+usa IA casi todos los días — hasta el día que no, y ese día no hay nada roto.
+
+#### Cómo se sabe, sin ninguna lista
+
+Igual que `core/dependencias`: **la respuesta ya está en el código**. Quién le
+hace el `INSERT` vive en un archivo, y la carpeta dice quién lo dispara.
+
+| escritor | lo dispara | ¿se le exige? |
+|---|---|---|
+| `jobs/` · `engines/` | un RELOJ (cron, loop de motor) | **sí** |
+| `core/` · `api/` | un EVENTO (una request, una acción) | no |
+
+⚠️ **`no sé` NO es `evento`**: si no se encuentra el escritor, la tabla se sigue
+exigiendo. Dejar de mirar algo porque no lo entendimos es cómo se pierde una
+señal de verdad — sería el bug contrario, y peor. Y `scripts/` no cuenta: un
+one-shot corrido a mano no es el escritor habitual de nada.
+
+De yapa el hallazgo ahora trae **`relanzar`**: el módulo exacto, derivado y no
+adivinado. Es justo lo que la puerta va a necesitar el día que exista.
+
+> ⚠️ **El bug que casi lo deja midiendo la mitad, y lo cazó su test.** El mapa
+> saltaba los archivos con `if "INSERT" not in texto` — y `motor_cedears`, que
+> escribe solo por `pg_mirror`, no tiene esa palabra en ninguna parte: quedaba
+> afuera **en silencio**. Un filtro de performance que achica lo medido sin
+> avisar es el mismo bug que el `for r in app.routes` que veía 5 de 428 (§0.s).
+> Con las dos formas: **de 47 a 158 tablas mapeadas**.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

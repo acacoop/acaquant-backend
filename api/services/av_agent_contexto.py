@@ -447,6 +447,8 @@ def detectar_tablas() -> list[dict]:
     Cubre las ~190 que hoy son un punto ciego total: las 8 críticas las sigue
     mirando `salud.CONTRATOS`, que es más estricto y no se acostumbra al problema.
     """
+    from core import escribe
+
     try:
         con_contrato = _ya_tienen_contrato()
         out = []
@@ -457,6 +459,26 @@ def detectar_tablas() -> list[dict]:
             f = frescura(p)
             if f["estado"] != "atrasada":
                 continue
+
+            # ⚠️ **UNA TABLA DE EVENTOS NO TIENE CADENCIA: TIENE OCASIONES**
+            # (§0.aq). La primera medición de cobertura puso a `sin_escribir`
+            # como la pared más cara —8 casos— y sus tres ejemplos fueron
+            # `ia.trazas`, `manager.role_audit` y `manager.salud_eventos`:
+            # ninguna tiene un job atrás. Están quietas porque **no pasó nada**,
+            # no porque algo esté roto, y no hay nada que relanzar.
+            #
+            # Es la otra mitad de §0.u: allá una ráfaga se leía como ritmo, acá
+            # un ritmo REAL (los eventos vienen seguido) se leía como una
+            # obligación. `ia.trazas` escribe casi todos los días porque se usa
+            # IA casi todos los días — hasta el día que no.
+            #
+            # `no_se` NO se saltea: ante la duda se sigue exigiendo, porque
+            # dejar de mirar algo que no entendimos es cómo se pierde una señal.
+            if escribe.la_dispara(nombre) == escribe.EVENTO:
+                continue
+            # Y lo que la puerta va a necesitar el día que exista: QUÉ relanzar,
+            # derivado del código y no adivinado.
+            relanzar = escribe.que_relanzar(nombre)
             out.append({
                 "tipo": "tabla_quieta", "ticker": nombre, "regla": "sin_escribir",
                 "severidad": "alta" if p["cadencia"] == "tiempo_real" else "media",
@@ -471,7 +493,9 @@ def detectar_tablas() -> list[dict]:
                               f"cadencia: sale de cómo se comporta la tabla."),
                     "cadencia": p["cadencia"], "col_fecha": p["col_fecha"],
                     "atraso_s": f["atraso_s"], "tope_s": f["tope_s"],
-                    "ultimo_dato": f["ultimo_dato"], "filas": p["filas"]}})
+                    "ultimo_dato": f["ultimo_dato"], "filas": p["filas"],
+                    "la_escribe": escribe.quien_escribe(nombre),
+                    "relanzar": relanzar}})
         return out
     except Exception as e:
         logger.warning("av_agent_contexto: no pude evaluar las tablas: %s", e)

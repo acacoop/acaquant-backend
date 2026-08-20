@@ -156,3 +156,80 @@ def test_y_la_HORA_esta():
     h = _hallazgos_de_ejemplo()[0]
     texto = h["evidencia"]["texto"]
     assert "hace" in texto and re.search(r"\d{1,2}:\d{2}", texto), texto
+
+
+# ── EL MOTIVO TIENE QUE SER VOTABLE (2026-08-20) ─────────────────────────────
+#
+# *«No le pone hora ni nada… si vas a decir eso, para acertar me tenés que
+# mostrar que falló en horarios donde debería funcionar; si no, no tiene
+# validez»* (user).
+#
+# Y el detalle de pantalla que lo explica: **el botón ¿ACERTÓ? SÍ/NO está en la
+# FILA**, y la fila muestra solo el motivo. Toda la evidencia vivía una pantalla
+# más abajo, así que se pedía un voto sobre una frase sin datos — «hace rato que
+# no produce» no se puede votar. Un eval set alimentado así mide la paciencia
+# del que vota, no la puntería del agente.
+
+# Los tipos donde el voto decide si el agente acertó. Un hallazgo de BONO trae su
+# ticker y sus números por otro lado; estos son los del sistema, que sin la
+# medición al lado son una opinión.
+CON_EVIDENCIA = ("motor_caido", "tabla_quieta", "motor_ruidoso",
+                 "proveedor_caido", "latencia")
+
+
+def _motivos_del_sistema():
+    from datetime import UTC, datetime
+    from unittest.mock import patch
+
+    from api.services import av_agent_contexto as ctx
+    from api.services import av_agent_motores as mot
+
+    arbol = {"en_rueda": True, "ahora_ar": "2026-08-20 14:22:00", "vistas": [
+        {"vista": "MERCADOS", "grupos": [{"grupo": None, "piezas": [
+            {"label": "motor_rofex (trades)", "tipo": "motor", "estado": "critico",
+             "cadencia": "live", "hace": "hace 40 min", "umbral_s": 120,
+             "ultima": None, "ventana": "rueda"},
+            {"label": "motor_cedears", "tipo": "motor", "estado": "sin_datos",
+             "cadencia": "cada 1m · 13-21 UTC L-V", "hace": "—", "umbral_s": 600,
+             "ultima": None, "ventana": "rueda"},
+            {"label": "tenencia (snapshot SQL)", "tipo": "job", "estado": "error",
+             "cadencia": "diario 11:00 UTC", "hace": "hace 3 h",
+             "umbral_s": 129600, "ultima": None, "ventana": "diario",
+             "run_status": "error"}]}]}]}
+    with patch("api.services.diagnostico.arbol", lambda: arbol), \
+         patch.object(mot, "_prueba_del_log", lambda t, l: ""):
+        out = [(h["tipo"], h["motivo"]) for h in mot.detectar_motores()]
+
+    # Y una tabla quieta, que arma su motivo por otro camino.
+    ahora = datetime(2026, 8, 20, 19, 22, tzinfo=UTC)
+    f = ctx.frescura({"cadencia": "tiempo_real", "intervalo_p50_s": 30,
+                      "ultimo_dato": datetime(2026, 8, 20, 14, 0, tzinfo=UTC)},
+                     ahora=ahora)
+    out.append(("tabla_quieta", f["motivo"]))
+    return out
+
+
+def test_ningun_motivo_del_SISTEMA_se_vota_sin_evidencia():
+    """La regla, en una línea: **si se pide un voto, en la misma línea tiene que
+    estar el número.** Cuánto hace, qué se esperaba, y la hora."""
+    import re
+    for tipo, motivo in _motivos_del_sistema():
+        assert tipo in CON_EVIDENCIA, tipo
+        assert any(c.isdigit() for c in motivo), (
+            f"«{motivo}» no trae un solo número: no se puede votar")
+        assert re.search(r"\d{1,2}:\d{2}", motivo), (
+            f"«{motivo}» no dice la HORA — sin eso no se sabe si el problema "
+            "es real ahora o si la pieza ni debería estar corriendo")
+
+
+def test_y_dice_QUE_SE_ESPERABA():
+    """Sin el «debía», el que vota tiene que saberse de memoria la cadencia de
+    cada pieza — y entonces el voto lo emite quien ya conoce el sistema, que es
+    justo al revés de para qué existe el aviso."""
+    for _tipo, motivo in _motivos_del_sistema():
+        assert ("esperado" in motivo or "es " in motivo), motivo
+
+
+def test_los_motivos_del_sistema_ENTRAN_en_un_renglon():
+    for _tipo, motivo in _motivos_del_sistema():
+        assert len(motivo) <= TOPE_MOTIVO, f"{len(motivo)}: «{motivo}»"

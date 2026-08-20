@@ -188,6 +188,73 @@ def _en_su_ventana(p: dict, ahora) -> bool:
     return _en_ventana(ahora, p.get("ventana") or "rueda")
 
 
+# Lo que pasó, en dos o tres palabras. El detalle va en el resto del motivo.
+_QUE_PASO = {"critico": "sin producir", "error": "la corrida falló",
+             "sin_datos": "nunca escribió"}
+
+
+def _motivo(estado: str, p: dict, ahora) -> str:
+    """`sin producir hace 40 min · esperado live · 14:22, en ventana`.
+
+    Sin la VISTA (MERCADOS/PORTFOLIOS): el nombre de la pieza ya está en su
+    columna y repetirlo gasta los caracteres que necesita la prueba.
+    """
+    partes = [_QUE_PASO.get(estado, estado)]
+    hace = (p.get("hace") or "").strip()
+    if hace and hace != "—" and estado != "sin_datos":
+        partes[0] += f" {hace}"
+    if p.get("cadencia"):
+        # `cada 1m · 13-21 UTC L-V` → `cada 1m`: el horario ya va abajo.
+        partes.append(f"esperado {str(p['cadencia']).split(' · ')[0]}")
+    partes.append(f"{ahora.strftime('%H:%M')}, en ventana" if ahora
+                  else "sin hora")
+    return " · ".join(partes)
+
+
+# Cuánto se espera antes de volver a leer el log de la misma unidad. El monitor
+# corre cada 5 minutos y esto es un subprocess por motor caído: sin freno, seis
+# motores rotos son 72 lecturas por hora para mostrar la misma línea.
+_LOG_CADA_S = 10 * 60
+_ultimo_log: dict[str, tuple[float, str]] = {}
+
+
+def _prueba_del_log(tipo: str, label: str) -> str:
+    """La última línea que escribió ese motor. **La prueba de que falló.**
+
+    *«Si tenés los logs de todo, o sea, es clarito»* (user). Un motor que no
+    produce y cuyo log dice «WebSocket desconectado 13:48» ya no necesita que
+    nadie investigue: el voto se puede emitir mirando la fila.
+
+    Solo para MOTORES: un job no tiene unidad de systemd propia. Devuelve texto
+    vacío si no se puede leer — media evidencia sirve, ninguna no.
+    """
+    if tipo != "motor":
+        return ""
+    unidad = label.split(" ")[0].strip()      # «motor_rofex (trades)» → unidad
+    if not unidad.startswith("motor_"):
+        return ""
+    import time as _t
+    cuando, previo = _ultimo_log.get(unidad, (0.0, None))
+    if previo is not None and _t.monotonic() - cuando < _LOG_CADA_S:
+        return previo
+    try:
+        from api.services import logs_sistema as ls
+        r = ls.leer([unidad], desde="-6h", prioridad=7, lineas=1)
+        lineas = r.get("lineas") or []
+        if not r.get("disponible") or not lineas:
+            texto = ""
+        else:
+            x = lineas[-1]
+            from datetime import datetime
+            hora = datetime.fromtimestamp(x["ts"]).strftime("%H:%M")
+            texto = f"\nÚltimo log {hora}: {x['mensaje'].splitlines()[0][:110]}"
+    except Exception as e:                                  # nunca hacia arriba
+        logger.debug("av_agent_motores: sin log de %s (%s)", unidad, e)
+        texto = ""
+    _ultimo_log[unidad] = (_t.monotonic(), texto)
+    return texto
+
+
 def _hallazgo(vista: str, p: dict, estado: str, ahora=None) -> dict:
     tipo = p.get("tipo") or "pieza"
     label = str(p.get("label") or "?")
@@ -200,23 +267,32 @@ def _hallazgo(vista: str, p: dict, estado: str, ahora=None) -> dict:
         "regla": {"critico": "sin_producir", "error": "fallo",
                   "sin_datos": "sin_datos"}.get(estado, estado),
         "severidad": severidad,
-        "motivo": (f"{tipo} de {vista}: "
-                   + {"critico": "hace rato que no produce",
-                      "error": "la última corrida falló",
-                      "sin_datos": "nunca escribió nada"}.get(estado, estado)),
+        # ⚠️ **LA PRUEBA VA EN EL MOTIVO, NO ADENTRO DEL MODAL.** El user
+        # (2026-08-20): *«no le pone hora ni nada… si vas a decir eso, para
+        # acertar me tenés que mostrar que falló en horarios donde debería
+        # funcionar; si no, no tiene validez»*.
+        #
+        # Y tiene razón por un detalle de la pantalla que yo no había mirado:
+        # **el botón ¿ACERTÓ? SÍ/NO está en la FILA**, y la fila muestra solo el
+        # motivo. Toda la evidencia estaba una pantalla más abajo, así que se
+        # pedía un voto sobre una frase sin datos — «hace rato que no produce»
+        # no se puede votar. Un eval set alimentado así mide la paciencia del
+        # que vota, no la puntería del agente.
+        #
+        # Entra: qué pasó · hace cuánto · qué se esperaba · la hora, y que está
+        # DENTRO de su ventana. Corto igual (§0.ag).
+        "motivo": _motivo(estado, p, ahora),
         "evidencia": {
-            "texto": (f"{label} — cadencia esperada {p.get('cadencia') or '—'}, "
-                      f"último dato {p.get('hace') or 'nunca'}"
-                      + (f", último run {p.get('run_status')}"
-                         if p.get("run_status") else "")
-                      + f", umbral {p.get('umbral_s')} s.\n"
-                      # DESDE Y HASTA QUÉ HORA el problema es real, en un
-                      # renglón: sin eso no se sabe si hay que actuar ahora o si
-                      # la pieza ni debería estar corriendo.
+            "texto": (f"Esperado: {p.get('cadencia') or '—'} · umbral "
+                      f"{p.get('umbral_s')} s · último dato "
+                      f"{p.get('hace') or 'nunca'}"
+                      + (f" · último run {p.get('run_status')}"
+                         if p.get("run_status") else "") + "\n"
                       + f"{ventana_en_palabras(p.get('ventana') or 'rueda')}"
                       + (f" · son las {ahora.strftime('%H:%M')}, está en su "
                          "ventana (no está apagado)."
-                         if ahora else " · sin hora del árbol.")),
+                         if ahora else " · sin hora del árbol.")
+                      + _prueba_del_log(tipo, label)),
             "tipo": tipo, "vista": vista, "estado": estado,
             "ventana": p.get("ventana"),
             "ventana_texto": ventana_en_palabras(p.get("ventana") or "rueda"),

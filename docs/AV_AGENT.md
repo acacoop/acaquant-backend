@@ -2613,6 +2613,58 @@ que vuelve, en cambio, NO le escribe al back office: es del sistema y no les
 toca. Mandarles lo que no es suyo es exactamente cómo se logra que dejen de leer
 los mensajes.
 
+### 0.ai UN AVISO QUE NO SE PUEDE VOTAR NO SIRVE (2026-08-20)
+
+*«No le pone hora ni nada… si vas a decir eso, para acertar me tenés que mostrar
+que falló en horarios donde debería funcionar; si no, no tiene validez. Si tenés
+los logs de todo, o sea, es clarito»* (user).
+
+Antes, la fila de ENCONTRÓ decía:
+
+    motor_rofex (trades)   SIN PRODUCIR   motor de MERCADOS: hace rato que no produce
+                                          ¿ACERTÓ?  ✔ SÍ   ✖ NO
+
+Ahora:
+
+    motor_rofex (trades)   SIN PRODUCIR   sin producir hace 40 min · esperado live
+                                          · 14:22, en ventana
+
+**El detalle de pantalla que lo explica todo, y que yo no había mirado: el botón
+¿ACERTÓ? está en la FILA, y la fila muestra solo el `motivo`.** Toda la evidencia
+—la ventana, la hora, la cadencia esperada— estaba en la evidencia, una pantalla
+más abajo. O sea que se pedía un voto sobre una frase sin un solo número.
+
+> **Un eval set alimentado así no mide la puntería del agente: mide la paciencia
+> del que vota.** Y como el eval set es lo que habilita cada paso de autonomía
+> (§0.f), una medición sucia acá contamina todo el roadmap.
+
+Lo que entra en el motivo, y por qué cada cosa:
+
+| | por qué |
+|---|---|
+| **cuánto hace** | sin eso no se distingue un tropiezo de algo roto desde ayer |
+| **qué se esperaba** | sin el «debía», el voto lo emite solo quien ya se sabe la cadencia de memoria — al revés de para qué existe el aviso |
+| **la hora + en ventana** | es literalmente lo que el user pidió: *mostrame que falló cuando debería estar funcionando* |
+
+Y la VISTA (`MERCADOS`, `PORTFOLIOS`) salió del motivo: el nombre de la pieza ya
+está en su columna y repetirlo gastaba los caracteres que necesita la prueba.
+
+#### La prueba del log, adentro del aviso
+
+*«Si tenés los logs de todo, es clarito.»* Un motor caído ahora trae **su última
+línea de log** en la evidencia: `Último log 13:48: WebSocket desconectado`. Con
+eso el voto se emite mirando, sin ir a `journalctl`. Solo para motores (un job no
+tiene unidad de systemd propia) y **con freno de 10 minutos por unidad**: es un
+subprocess por motor caído y el monitor corre cada 5 minutos.
+
+#### La regla, congelada
+
+`test_avisos_cortos.py` exige que **todo motivo de un hallazgo del sistema traiga
+un número y una hora**. Es la versión chequeable de «si se pide un voto, en la
+misma línea tiene que estar la evidencia». También se arregló `_humano`, que
+mostraba «cada 0 min» para una tabla que escribe cada 30 s — justo el número que
+hacía votable el hallazgo.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

@@ -314,9 +314,15 @@ def frescura(perfil: dict, *, ahora: datetime | None = None) -> dict:
     return {"estado": "ok" if ok else "atrasada", "atraso_s": int(atraso),
             "tope_s": int(tope), "ultimo_dato": ult.isoformat(),
             "unidad": unidad,
+            # El motivo lleva la PRUEBA, porque el voto ¿ACERTÓ? está en la
+            # fila y la fila muestra solo esto (§0.ai): cuánto hace, cada cuánto
+            # se esperaba, y la hora. Sin los tres, no se puede votar.
             "motivo": ("al día" if ok else
-                       f"no escribe hace {_humano(atraso)} {unidad} y es "
-                       f"{cad.replace('_', ' ')}")}
+                       f"no escribe hace {_humano(atraso)} {unidad} · es "
+                       f"{cad.replace('_', ' ')}"
+                       + (f" (cada {_humano(p50)})" if (p50 := perfil.get(
+                           "intervalo_p50_s")) else "")
+                       + f" · {ahora.strftime('%H:%M')}")}
 
 
 # Las cadencias que solo tienen sentido MIENTRAS el mercado opera. Una `diaria`
@@ -364,6 +370,11 @@ def _segundos_de_finde(desde: datetime, hasta: datetime) -> int:
 
 
 def _humano(seg: float) -> str:
+    # Los segundos importan: una tabla de tiempo real escribe cada 30 s y
+    # redondear a minutos la mostraba «cada 0 min», que no dice nada — y es
+    # justo el número que hace votable el hallazgo (§0.ai).
+    if seg < 60:
+        return f"{int(seg)} s"
     if seg < 3600:
         return f"{int(seg // 60)} min"
     if seg < 86400:

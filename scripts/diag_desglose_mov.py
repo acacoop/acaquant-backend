@@ -41,7 +41,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime
+from datetime import datetime
 
 from api.services import bancos as svc
 
@@ -141,7 +141,7 @@ def diagnosticar(mov: dict, marca: dict, baldes: list[dict], reglas: list[dict],
         ganador = next(b for b in baldes if b["clave"] == cayo)
         print(f"     → cae en «{ganador['etiqueta']}» ({cayo}, orden {ganador['orden']})")
     else:
-        print(f"     → cae en RESTO (MOVIMIENTOS RESTANTES): ningún balde lo agarró")
+        print("     → cae en RESTO (MOVIMIENTOS RESTANTES): ningún balde lo agarró")
 
     if balde_esperado and cayo != balde_esperado:
         print(f"     ⚠️ SE ESPERABA «{balde_esperado}». Matcher por matcher:")

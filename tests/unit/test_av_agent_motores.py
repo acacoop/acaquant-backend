@@ -45,7 +45,7 @@ def test_un_motor_que_no_produce_EN_RUEDA_si(monkeypatch):
                         lambda: _arbol(_p("motor_curvas", "critico")))
     h = mot.detectar_motores()
     assert len(h) == 1 and h[0]["severidad"] == "alta"
-    assert "no es que esté apagado" in h[0]["evidencia"]["texto"]
+    assert "no está apagado" in h[0]["evidencia"]["texto"]
 
 
 def test_LENTO_no_es_lo_mismo_que_CAIDO(monkeypatch):

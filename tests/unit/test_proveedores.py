@@ -36,10 +36,10 @@ def test_el_aviso_dice_QUIEN_QUE_SE_ROMPE_y_EL_MOTIVO_EXACTO(monkeypatch):
     monkeypatch.setattr(pr, "estado", lambda: [_fila()])
     h = det.detectar_proveedores()[0]
     assert h["severidad"] == "alta"
-    assert "Aunesa" in h["motivo"]                                   # QUIÉN
+    assert h["motivo"].startswith("AUNESA CAÍDO")                    # QUIÉN
     assert "Tesorería" in h["evidencia"]["texto"]                    # QUÉ ROMPE
-    assert "500 Server Error" in h["evidencia"]["texto"]             # EL MOTIVO
-    assert "login" in h["evidencia"]["texto"]                        # DÓNDE
+    assert "500 Server Error" in h["motivo"]                         # EL MOTIVO
+    assert h["evidencia"]["donde"] == "login"                        # DÓNDE
 
 
 def test_una_caida_VIEJA_no_sigue_en_pantalla(monkeypatch):
@@ -97,10 +97,13 @@ def test_cuando_YA_FALLO_si_se_prueba_y_se_dice_de_quien_es(monkeypatch):
     venció una credencial», que se arreglan en lugares distintos."""
     monkeypatch.setattr(det, "_probar", lambda p: {
         "veredicto": "caido", "status": 500,
-        "detalle": "HTTP 500 en 136 ms — error interno de su servidor."})
+        "detalle": "HTTP 500 · error interno de su servidor"})
+    # Sin barrido, para que se vea la línea de la PRUEBA: el barrido, cuando
+    # está, la reemplaza porque dice lo mismo y además cuántas APIs caen.
+    monkeypatch.setattr(det, "_barrer_si_toca", lambda p: None)
     monkeypatch.setattr(pr, "estado", lambda: [_fila()])
     h = det.detectar_proveedores()[0]
-    assert "DE QUIÉN ES" in h["evidencia"]["texto"]
+    assert "error interno de su servidor" in h["evidencia"]["texto"]
     assert h["evidencia"]["prueba"]["status"] == 500
 
 
@@ -157,7 +160,7 @@ def test_un_500_en_HTML_dice_que_se_rompio_ANTES_de_su_manejador(monkeypatch):
     import requests
     monkeypatch.setattr(requests, "post", lambda *a, **k: _R())
     d = pr.probar("aunesa")["detalle"]
-    assert "HTML" in d and "manejador" in d
+    assert "página de error" in d and "rompió" in d
 
 
 def test_si_contesta_en_SU_formato_se_citan_SUS_palabras(monkeypatch):
@@ -288,14 +291,14 @@ def test_si_el_LOGIN_esta_caido_NO_se_prueba_nada_mas(monkeypatch):
                                             "detalle": "HTTP 500"})
     r = pr.barrer_aunesa()
     assert r["veredicto"] == "todo_caido" and r["endpoints"] == []
-    assert "todo Aunesa está bloqueado" in r["analisis"]
+    assert "no entra nada" in r["analisis"]
 
 
 def test_si_fallan_TODAS_es_su_servicio_entero(monkeypatch):
     filas = [{"path": p, "para_que": q, "ok": False, "status": 500}
              for p, q, _ in pr.ENDPOINTS_AUNESA]
     a = pr._analizar(filas)
-    assert a["veredicto"] == "todo_caido" and "las cinco" in a["analisis"]
+    assert a["veredicto"] == "todo_caido" and "las 5" in a["analisis"]
 
 
 def test_si_falla_UNA_se_dice_que_el_RESTO_anda(monkeypatch):
@@ -305,7 +308,7 @@ def test_si_falla_UNA_se_dice_que_el_RESTO_anda(monkeypatch):
              for i, (p, q, _) in enumerate(pr.ENDPOINTS_AUNESA)]
     a = pr._analizar(filas)
     assert a["veredicto"] == "parcial"
-    assert "resto de Aunesa está entrando bien" in a["analisis"]
+    assert "El resto entra bien" in a["analisis"]
     assert "padrón de cuentas" in a["analisis"], "nombra QUÉ se rompió"
 
 

@@ -99,20 +99,19 @@ def _correlacionar(hallazgos: list[dict]) -> list[dict]:
 
 def _marcar(h: dict, causa: dict, prov: str) -> None:
     """El hijo: lo dice en el motivo y baja un escalón."""
-    nombre = causa.get("motivo") or f"{prov} no responde"
     h["por_culpa_de"] = prov
-    h["motivo"] = f"{h.get('motivo') or ''} — porque {nombre}".strip(" —")
+    # CORTO: «— porque AUNESA está caído» y listo. El detalle de la caída ya
+    # está en su propio aviso; repetirlo acá es el texto que el user no quiere.
+    h["motivo"] = f"{h.get('motivo') or ''} — porque {prov.upper()} está caído".strip(" —")
     # Baja, no se apaga: el dato falta igual y alguien tiene que saberlo.
     h["severidad"] = {"alta": "media", "media": "baja"}.get(
         h.get("severidad"), "baja")
     ev = h.setdefault("evidencia", {})
     if isinstance(ev, dict):
         ev["por_culpa_de"] = prov
-        ev["texto"] = (
-            f"NO ES UN PROBLEMA DE ESTA PIEZA: depende de {prov}, que está "
-            f"caído ahora. Se arregla solo cuando el proveedor vuelva; si no "
-            f"vuelve solo, el que hay que mirar es el otro aviso.\n\n"
-            + str(ev.get("texto") or ""))
+        ev["texto"] = (f"No es de esta pieza: depende de {prov.upper()}. "
+                       f"Vuelve solo cuando vuelva {prov.upper()}.\n"
+                       + str(ev.get("texto") or ""))
 
 
 def _sumar_impacto(causa: dict, hijos: list[str]) -> None:
@@ -120,10 +119,7 @@ def _sumar_impacto(causa: dict, hijos: list[str]) -> None:
     ev = causa.setdefault("evidencia", {})
     if isinstance(ev, dict):
         ev["explica"] = hijos
-        ev["texto"] = (
-            f"IMPACTO MEDIDO: por esto están fallando {len(hijos)} pieza(s) más "
-            f"— {', '.join(hijos[:8])}"
-            + (f" y {len(hijos) - 8} más" if len(hijos) > 8 else "") + ".\n\n"
-            + str(ev.get("texto") or ""))
-    causa["motivo"] = (f"{causa.get('motivo') or ''} · y por esto fallaron "
-                       f"{len(hijos)} pieza(s) más")
+        ev["texto"] = (f"Arrastra {len(hijos)}: {', '.join(hijos[:6])}"
+                       + (f" +{len(hijos) - 6}" if len(hijos) > 6 else "") + "\n"
+                       + str(ev.get("texto") or ""))
+    causa["motivo"] = f"{causa.get('motivo') or ''} · arrastra {len(hijos)}"

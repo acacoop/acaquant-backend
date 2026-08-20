@@ -209,14 +209,14 @@ def _hallazgo(vista: str, p: dict, estado: str, ahora=None) -> dict:
                       f"último dato {p.get('hace') or 'nunca'}"
                       + (f", último run {p.get('run_status')}"
                          if p.get("run_status") else "")
-                      + f". El umbral de esta pieza es {p.get('umbral_s')} s.\n\n"
-                      # DESDE Y HASTA QUÉ HORA el problema es real. Sin esto, el
-                      # que lee no puede decidir si tiene que actuar ahora o si
-                      # la pieza directamente no debería estar corriendo.
-                      + f"CUÁNDO ES REAL: {ventana_en_palabras(p.get('ventana') or 'rueda')}"
-                      + (f"; ahora son las {ahora.strftime('%H:%M')} ART y está "
-                         "DENTRO de su ventana: no es que esté apagado."
-                         if ahora else ". No pude leer la hora del árbol.")),
+                      + f", umbral {p.get('umbral_s')} s.\n"
+                      # DESDE Y HASTA QUÉ HORA el problema es real, en un
+                      # renglón: sin eso no se sabe si hay que actuar ahora o si
+                      # la pieza ni debería estar corriendo.
+                      + f"{ventana_en_palabras(p.get('ventana') or 'rueda')}"
+                      + (f" · son las {ahora.strftime('%H:%M')}, está en su "
+                         "ventana (no está apagado)."
+                         if ahora else " · sin hora del árbol.")),
             "tipo": tipo, "vista": vista, "estado": estado,
             "ventana": p.get("ventana"),
             "ventana_texto": ventana_en_palabras(p.get("ventana") or "rueda"),
@@ -318,10 +318,9 @@ def detectar_logs(*, horas: int = VENTANA_H) -> list[dict]:
         return [{
             "tipo": "motor_ruidoso", "ticker": "logs", "regla": "no_pude_leer",
             "severidad": "media",
-            "motivo": "no pude leer los logs de los motores",
-            "evidencia": {"texto": (f"{r['motivo']}. Esto NO significa que los "
-                                    "motores estén bien: significa que no sé "
-                                    "cómo están."),
+            "motivo": "No pude leer los logs de los motores",
+            "evidencia": {"texto": (f"{r['motivo']}.\nNo es que estén bien: "
+                                    "es que no sé cómo están."),
                           "motivo": r["motivo"]}}]
 
     out = []
@@ -353,20 +352,16 @@ def _hallazgo_log(g: dict) -> dict | None:
     if veces >= RAFAGA_VECES and dur <= RAFAGA_S:
         regla, sev = "rafaga", "alta"
         motivo = f"{g['unidad']}: {veces} veces en {_dur(dur)}"
-        detalle = ("Tantas repeticiones tan juntas no son ruido: es algo que "
-                   "falla y se reintenta en loop.")
+        detalle = "Falla y reintenta en loop."
     elif veces >= MACHACA_VECES:
         regla = "machaca"
         sev = "alta" if es_error else "media"
         motivo = f"{g['unidad']}: {veces} veces en {_dur(dur)}"
-        detalle = ("Repartido en el tiempo, así que no es una caída: es algo "
-                   "que está mal desde hace rato y nadie lo mira.")
+        detalle = "No es una caída: está mal hace rato y nadie lo mira."
     elif es_error:
         regla, sev = "error_de_motor", "media"
         motivo = f"{g['unidad']}: {g['nivel']}" + (f" ×{veces}" if veces > 1 else "")
-        detalle = ("Un error suelto puede ser un tropiezo. Queda anotado para "
-                   "ver si vuelve: si empieza a repetirse, sube solo a "
-                   "«machaca» o a «ráfaga».")
+        detalle = "Salió una vez. Si se repite sube solo de categoría."
     else:
         return None
 
@@ -374,8 +369,8 @@ def _hallazgo_log(g: dict) -> dict | None:
         "tipo": "motor_ruidoso", "ticker": g["unidad"], "regla": regla,
         "severidad": sev, "motivo": motivo,
         "evidencia": {
-            "texto": (f"{detalle}\n\nPatrón: {g['patron']}\n\n"
-                      f"Ejemplo: {g['muestra'].splitlines()[0][:200]}"),
+            "texto": (f"{detalle}\n{g['patron']}\n"
+                      f"{g['muestra'].splitlines()[0][:160]}"),
             "unidad": g["unidad"], "nivel": g["nivel"], "veces": veces,
             "ventana_s": round(dur), "ventana": _dur(dur),
             "patron": g["patron"], "muestra": g["muestra"][:400]}}

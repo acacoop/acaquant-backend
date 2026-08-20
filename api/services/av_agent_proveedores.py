@@ -94,29 +94,34 @@ def detectar_proveedores(*, ahora: datetime | None = None) -> list[dict]:
         barrido = _barrer_si_toca(f["proveedor"])
 
         p = PROVEEDORES.get(f["proveedor"])
-        nombre = p.nombre if p else f["proveedor"]
+        nombre = p.nombre if p else (f["proveedor"] or "").upper()
         rompe = p.rompe if p else "no sé qué depende de él"
         veces = f.get("fallos_seguidos") or 1
+
+        # ── EL AVISO VA CORTO ────────────────────────────────────────────
+        # Regla del user (2026-08-20): *«decí AUNESA CAÍDO + motivo simple y
+        # listo, nada de palabras raras ni tanto texto, con la hora»*. El
+        # título entra de un vistazo; el cuerpo son renglones sueltos. El que
+        # lo lee está por decidir algo, no por leer un informe.
+        motivo = f"{nombre} CAÍDO · {_corto(f.get('ultimo_error'))}"
+        lineas_ev = [f"Se cae: {rompe}."]
+        if barrido and barrido.get("analisis"):
+            lineas_ev.append(barrido["analisis"])
+        elif prueba and prueba.get("detalle"):
+            lineas_ev.append(prueba["detalle"])
+        lineas_ev.append(
+            f"Falló hace {_hace(hace)}"
+            + (f", {veces} veces" if veces > 1 else "")
+            + (f" · último OK {_fecha(f.get('ultimo_ok_at'))}"
+               if f.get("ultimo_ok_at") else " · nunca contestó bien"))
         out.append({
             "tipo": "proveedor_caido", "ticker": f["proveedor"],
             "regla": "no_responde",
             # ALTA sin matices: no es un dato feo, es media aplicación andando a
             # ciegas. Y el que la usa no tiene forma de darse cuenta solo.
-            "severidad": "alta",
-            "motivo": f"{nombre} no responde" + (f" ({veces} intentos)" if veces > 1 else ""),
+            "severidad": "alta", "motivo": motivo,
             "evidencia": {
-                "texto": (f"QUÉ DEJA DE ANDAR: {rompe}.\n\n"
-                          f"MOTIVO EXACTO: {f.get('ultimo_error') or 'sin detalle'}\n\n"
-                          + (f"\n\nANÁLISIS: {barrido['analisis']}"
-                             if barrido else "")
-                          + (f"\n\nDE QUIÉN ES: {prueba['detalle']}"
-                             if prueba else "")
-                          + f"\n\nFalló en «{f.get('donde') or '?'}», "
-                          f"hace {_hace(hace)}"
-                          + (f", {veces} veces seguidas" if veces > 1 else "")
-                          + (f". El último OK fue {_fecha(f.get('ultimo_ok_at'))}"
-                             if f.get("ultimo_ok_at") else
-                             ". No hay registro de que haya contestado bien.")),
+                "texto": "\n".join(lineas_ev),
                 "proveedor": f["proveedor"], "rompe": rompe,
                 "prueba": prueba, "barrido": barrido,
                 "error": f.get("ultimo_error"), "donde": f.get("donde"),
@@ -201,6 +206,27 @@ def probar_ahora(proveedor: str = "aunesa") -> dict:
     return {**r,
             "nombre": p.nombre if p else proveedor,
             "rompe": p.rompe if p else None}
+
+
+# El error de una excepción de Python trae el módulo, la URL entera y a veces un
+# traceback. En el título entra solo la parte que dice QUÉ pasó.
+def _corto(error: str | None, tope: int = 60) -> str:
+    """La parte del error que dice QUÉ pasó, sin el tipo ni la URL.
+
+    ⚠️ La primera versión partía por «:» y elegía el primer pedazo «que no
+    hablara de una url» — y con `500 Server Error for url: https://…` (sin dos
+    puntos después de «Error») elegía **`https`**. Demasiado ingenioso para algo
+    que se resuelve cortando por delante y por detrás.
+    """
+    e = (error or "sin detalle").strip().splitlines()[0]
+    # Por delante: el tipo de excepción, que no le dice nada a nadie.
+    if ": " in e:
+        e = e.split(": ", 1)[1]
+    # Por detrás: la URL, que ocupa todo el renglón y ya se sabe cuál es.
+    for corte in (" for url", " http", " en https"):
+        if corte in e:
+            e = e.split(corte, 1)[0]
+    return e.strip(" :.")[:tope] or "sin detalle"
 
 
 def _hace(seg: float) -> str:

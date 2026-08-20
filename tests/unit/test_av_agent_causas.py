@@ -29,7 +29,7 @@ def test_el_job_que_DEPENDE_del_caido_dice_por_que_fallo():
     """Es todo el pedido: el aviso con la causa adentro, para no salir a buscar
     un bug que no existe."""
     hs = correlacionar([_caido(), _job("job:control_saldos")])
-    assert "porque aunesa no responde" in hs[1]["motivo"]
+    assert "porque AUNESA está caído" in hs[1]["motivo"]
     assert hs[1]["por_culpa_de"] == "aunesa"
 
 
@@ -53,7 +53,7 @@ def test_la_CAUSA_dice_a_cuantos_explica():
     o se espera."""
     hs = correlacionar([_caido(), _job("job:control_saldos"),
                         _job("job:portafolio_backfill")])
-    assert "2 pieza(s) más" in hs[0]["motivo"]
+    assert "arrastra 2" in hs[0]["motivo"]
     assert set(hs[0]["evidencia"]["explica"]) == {
         "job:control_saldos", "job:portafolio_backfill"}
 

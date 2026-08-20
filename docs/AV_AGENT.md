@@ -2518,6 +2518,51 @@ la firma, el test siguió pidiendo que la llamada lo pasara, y siguió en verde.
 > Ahora chequea lo estructural (que la función no tenga por dónde gastar un
 > token), que es lo que se quería decir y no se puede cumplir de mentira.
 
+### 0.ag EL AVISO VA CORTO — y ahora hay un test (2026-08-20)
+
+El user, por segunda vez: *«Te recuerdo lo del texto y las palabras raras
+—“custodio”—. Si está caído Aunesa decí **AUNESA CAÍDO + motivo simple** y listo.
+Nada de palabras ni tanto texto, con la hora de actualización. Lo mismo para
+todo»*.
+
+Antes:
+
+    Aunesa (el custodio) no responde (7 intentos)
+    QUÉ DEJA DE ANDAR: Tesorería se queda sin los movimientos del día (ingresos,
+    egresos y saldo final incompletos), y no se actualizan los saldos…
+    MOTIVO EXACTO: HTTPError: 500 Server Error:  for url: https://aca.aunesa…
+    ANÁLISIS: Fallan las cinco: es su servicio entero, no un endpoint. No hay…
+
+Ahora:
+
+    AUNESA CAÍDO · 500 Server Error
+    Se cae: Tesorería, saldos, tenencia e informes. Lo cargado a mano sí está.
+    Fallan las 5: es su servicio entero. Hay que avisarles.
+    Falló hace 3 minutos, 7 veces · último OK 20/08 11:58
+
+**Se convirtió en test porque se pidió DOS veces.** Una preferencia que se
+repite dejó de ser una preferencia: es un requisito, y los requisitos que solo
+viven en un chat se pierden en el commit siguiente. `test_avisos_cortos.py` mide
+las dos cosas que arruinan un aviso y **sí se pueden contar** —el largo (título
+≤90, sin párrafos en el cuerpo) y las palabras raras— sobre hallazgos armados con
+datos reales de producción, no de ejemplo.
+
+Tres detalles del camino:
+
+  · **`_corto` era demasiado ingenioso.** Partía el error por «:» y elegía «el
+    primer pedazo que no hablara de una url»; con `500 Server Error for url:
+    https://…` elegía **`https`**. Se resolvió cortando por delante (el tipo de
+    excepción) y por detrás (la URL), que es lo que un humano hace al leerlo.
+  · **Los tests viejos fijaban el texto largo** y había que re-apuntarlos. Vale
+    la pena decirlo: un test que congela una frase se rompe cada vez que se
+    mejora la redacción — por eso los nuevos miden LARGO y PALABRAS, no frases.
+  · **El buscador de palabras raras se comía su propia documentación.** Un regex
+    sobre el archivo entero matcheaba los docstrings, donde la palabra aparece
+    justamente para explicar por qué no se usa. Ahora se recorre el AST y los
+    docstrings se descartan **por identidad del nodo**, no por su texto:
+    `ast.get_docstring` devuelve la versión ya limpiada y comparar por valor no
+    encuentra el original. Tercera vez que este repo tropieza con lo mismo.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

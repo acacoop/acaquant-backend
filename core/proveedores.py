@@ -59,24 +59,22 @@ class Proveedor:
 # El catálogo. Sumar uno es UNA línea, y lo que importa de cada entrada es
 # `rompe`: sin eso el aviso dice «se cayó X» y el que lo lee tiene que adivinar
 # si eso le arruina el día o no le toca en nada.
+# ⚠️ **CORTO.** Regla del user (2026-08-20): *«si está caído Aunesa decí AUNESA
+# CAÍDO + motivo simple y listo. Nada de palabras raras ni tanto texto, con la
+# hora de actualización. Lo mismo para todo»*. `rompe` se lee de un vistazo: es
+# para decidir en dos segundos, no para explicar el sistema. Test que lo limita.
 PROVEEDORES: dict[str, Proveedor] = {
     "aunesa": Proveedor(
-        "Aunesa (el custodio)", "aca.aunesa.com",
-        "Tesorería se queda sin los movimientos del día (ingresos, egresos y "
-        "saldo final incompletos), y no se actualizan los saldos liquidados, "
-        "la tenencia del día ni los informes de operaciones. Lo cargado a mano "
-        "—saldos, cheques, mercados, banco a banco, registros y VEPs— sí está"),
+        "AUNESA", "aca.aunesa.com",
+        "Tesorería, saldos, tenencia e informes. Lo cargado a mano sí está"),
     "1816": Proveedor(
-        "1816 (market data)", "api.1816.com.ar",
-        "no entran precios de referencia, la ficha de emisores ni la tasa TAMAR "
-        "de los duales; las curvas siguen andando con Primary"),
+        "1816", "api.1816.com.ar",
+        "precios de referencia, emisores y TAMAR. Las curvas siguen"),
     "interbanking": Proveedor(
-        "Interbanking", "interbanking.com.ar",
-        "no se actualizan saldos ni extractos bancarios"),
+        "INTERBANKING", "interbanking.com.ar", "saldos y extractos de bancos"),
     "bcra": Proveedor(
         "BCRA", "api.bcra.gob.ar",
-        "no entra el CER del día (y sin CER forward, los bonos CER quedan con "
-        "el ajuste de ayer)"),
+        "el CER del día. Los bonos CER quedan con el de ayer"),
 }
 
 # No se escribe más seguido que esto por proveedor y por proceso. Un daemon
@@ -259,8 +257,8 @@ def probar(proveedor: str = "aunesa") -> dict:
          f"HTTP {resp.status_code}, fuera de su contrato documentado"))
     return {"proveedor": proveedor, "alcanzable": True, "veredicto": estado,
             "status": resp.status_code, "ms": ms,
-            "detalle": f"HTTP {resp.status_code} en {ms} ms — {que_es}. "
-                       + _leer_error(resp),
+            "detalle": (f"HTTP {resp.status_code} · {que_es}"
+                        + (f" · {x}" if (x := _leer_error(resp)) else "")),
             "cuerpo": (resp.text or "")[:300]}
 
 
@@ -275,21 +273,22 @@ def _leer_error(resp) -> str:
     diferencia entre «me rechazaron» y «se les cayó».
     """
     tipo = (resp.headers.get("content-type") or "").lower()
+    if resp.status_code < 400:
+        return ""
     if "json" in tipo:
         try:
             errores = (resp.json() or {}).get("errors") or []
             if errores:
                 e = errores[0]
-                return (f"Ellos dicen: «{e.get('title') or ''} — "
-                        f"{e.get('detail') or ''}».")
+                return " ".join(x for x in (e.get("title"), e.get("detail")) if x)
         except Exception:
             pass
-        return "Contestó JSON pero sin el bloque `errors` que documentan."
+        return "sin detalle"
     if "html" in tipo:
-        return ("Contestó una página HTML de error, NO el JSON de error que "
-                "documentan: se rompió antes de llegar a su propio manejador. "
-                "Eso es su aplicación caída, no una respuesta prevista.")
-    return "Sin cuerpo interpretable."
+        # Corto, pero sin perder el dato: contestar HTML en vez de su JSON de
+        # error significa que se rompió antes de su propio manejador.
+        return "página de error, no su JSON: se les rompió antes"
+    return "sin detalle"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -341,20 +340,16 @@ def barrer_aunesa() -> dict:
         # Sin login no hay token, y sin token no se puede probar nada más. Eso
         # NO es una limitación del barrido: es el diagnóstico.
         return {"login": prueba, "endpoints": [], "veredicto": "todo_caido",
-                "analisis": (
-                    "El LOGIN no responde, así que **todo Aunesa está "
-                    "bloqueado**: sin token no entra un solo dato de ninguna de "
-                    "las cinco APIs que usamos. No hace falta probarlas una por "
-                    "una — ninguna puede andar.\n\n" + prueba["detalle"])}
+                "analisis": ("Falla el login: no entra nada de ninguna de "
+                             "las 5 APIs. " + prueba["detalle"])}
 
     from core import aunesa
     try:
         cabeceras = aunesa.auth_headers()
     except Exception as e:
         return {"login": prueba, "endpoints": [], "veredicto": "sin_token",
-                "analisis": (f"El host contesta pero no pudimos autenticarnos: "
-                             f"{type(e).__name__}: {e}. Eso apunta a las "
-                             f"credenciales, no a su servicio.")}
+                "analisis": (f"Contesta pero no entramos: {type(e).__name__}. "
+                             "Son las credenciales, no su servicio.")}
 
     filas = []
     for path, para_que, params in ENDPOINTS_AUNESA:
@@ -386,19 +381,13 @@ def _analizar(filas: list[dict]) -> dict:
     rotos = [f for f in filas if not f["ok"]]
     if not rotos:
         return {"veredicto": "anda",
-                "analisis": ("Las cinco APIs contestan. Si una pantalla sigue "
-                             "diciendo AUNESA CAÍDO, es el cortacircuito de "
-                             "nuestro proceso, que se abre 45 s tras un fallo.")}
+                "analisis": ("Las 5 APIs contestan. Si una pantalla sigue "
+                             "diciendo caído, esperá 45 s.")}
     if len(rotos) == len(filas):
         return {"veredicto": "todo_caido",
-                "analisis": ("Fallan **las cinco**: es su servicio entero, no un "
-                             "endpoint. No hay nada que arreglar de este lado — "
-                             "hay que avisarle al custodio. Todo lo cargado a "
-                             "mano sigue disponible.")}
+                "analisis": ("Fallan las 5: es su servicio entero. Hay que "
+                             "avisarles. Nada que arreglar de este lado.")}
     nombres = ", ".join(f["para_que"] for f in rotos)
     return {"veredicto": "parcial",
-            "analisis": (f"Fallan {len(rotos)} de {len(filas)}: {nombres}. **El "
-                         "resto de Aunesa está entrando bien**, así que no se "
-                         "perdió todo — conviene decirlo, o el equipo da por "
-                         "perdido el día entero. Que sea parcial apunta a un "
-                         "endpoint suyo y no a su servicio.")}
+            "analisis": (f"Fallan {len(rotos)} de {len(filas)}: {nombres}. "
+                         "El resto entra bien.")}

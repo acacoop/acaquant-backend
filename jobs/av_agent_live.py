@@ -65,6 +65,16 @@ def main() -> None:
 
     with JobRunLogger("av_agent_live") as jr:
         r = av_agent.relevar_live()
+
+        # ⚠️ **ANTES de pisar**: la corrida anterior sigue en la tabla hasta que
+        # `reemplazar_hallazgos` haga su DELETE, así que este es el único momento
+        # en que se puede saber QUÉ SE ARREGLÓ. Sin esto, una recuperación es una
+        # fila que deja de escribirse — o sea, silencio (§0.ah).
+        from api.services.av_agent_recuperados import detectar_recuperados
+        volvieron = detectar_recuperados(r["hallazgos"])
+        if volvieron:
+            r["hallazgos"] = list(r["hallazgos"]) + volvieron
+
         n = _guardar(r["hallazgos"])
         por_regla: dict[str, int] = {}
         for h in r["hallazgos"]:
@@ -73,8 +83,11 @@ def main() -> None:
         jr.set_stat("bonos", r["bonos"])
         for regla, c in por_regla.items():
             jr.set_stat(regla, c)
+        if volvieron:
+            jr.set_stat("recuperados", len(volvieron))
         jr.log(f"{n} hallazgos live · {r['bonos']} bonos · MEP {r['mep']} · "
-               + (", ".join(f"{k}={v}" for k, v in por_regla.items()) or "nada"))
+               + (", ".join(f"{k}={v}" for k, v in por_regla.items()) or "nada")
+               + (f" · VOLVIERON {len(volvieron)}" if volvieron else ""))
 
 
 if __name__ == "__main__":

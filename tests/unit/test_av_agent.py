@@ -1546,6 +1546,10 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
                     # cayó y la única señal era un cartel en Tesorería que solo
                     # existe con la pantalla abierta.
                     "proveedor_caido",
+                    # `recuperado` (2026-08-20) es el único que NO es un
+                    # problema: avisa que algo volvió. Sin él, una recuperación
+                    # es una fila que deja de escribirse, o sea silencio.
+                    "recuperado",
                     "permiso_flojo", "dato_partido"}
     assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
         "una clave del mapa no es un TIPO que algún detector emita — "

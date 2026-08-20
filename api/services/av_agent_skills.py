@@ -272,6 +272,12 @@ _QUE_DETECTA: dict[str, tuple[str, str]] = {
         "de lo que MACHACA todo el día, que es una config rota que nadie mira: "
         "la cuenta sola no las separa, 76 veces en 3 minutos y 91 en 7 horas "
         "son dos problemas distintos"),
+    "recuperado": (
+        "Avisa también cuando algo VUELVE",
+        "hasta ahora, si un motor caído volvía, su aviso simplemente dejaba de "
+        "escribirse: el que estaba esperando no se enteraba nunca. Compara la "
+        "corrida de ahora con la anterior y canta lo que se arregló. Dura 30 "
+        "minutos: una buena noticia envejece más rápido que una mala"),
     "proveedor_caido": (
         "Proveedores de afuera que no responden",
         "Aunesa, 1816, Interbanking, BCRA. Se entera por el rastro de las "
@@ -320,6 +326,7 @@ _REGLAS_DETECTOR: dict[str, tuple[str, ...]] = {
     "tabla_quieta": ("sin_escribir",),
     "motor_ruidoso": ("rafaga", "machaca", "error_de_motor", "no_pude_leer"),
     "proveedor_caido": ("no_responde",),
+    "recuperado": ("volvio",),
     "permiso_flojo": (),
 }
 
@@ -331,6 +338,7 @@ _DOMINIO_DETECTOR: dict[str, str] = {
     "salud": SISTEMA, "db_cambio": SISTEMA, "latencia": SISTEMA,
     "tabla_quieta": SISTEMA, "motor_caido": SISTEMA,
     "motor_ruidoso": SISTEMA, "proveedor_caido": SISTEMA,
+    "recuperado": SISTEMA,
     "dato_partido": DATOS,
     "permiso_flojo": SEGURIDAD,
 }
@@ -390,6 +398,7 @@ _DONDE_CORRE: dict[str, str] = {
     "motor_caido": "jobs.av_agent_live",
     "motor_ruidoso": "jobs.av_agent_live",
     "proveedor_caido": "jobs.av_agent_live",
+    "recuperado": "jobs.av_agent_live",
     # El monitor del SISTEMA, de noche (reemplaza lo suyo cada pasada).
     "db_cambio": "jobs.db_tamano",
     "tabla_quieta": "jobs.db_tamano",

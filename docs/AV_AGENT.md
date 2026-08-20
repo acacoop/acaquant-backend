@@ -2563,6 +2563,56 @@ Tres detalles del camino:
     `ast.get_docstring` devuelve la versión ya limpiada y comparar por valor no
     encuentra el original. Tercera vez que este repo tropieza con lo mismo.
 
+### 0.ah CUANDO ALGO VUELVE, TAMBIÉN SE AVISA (2026-08-20)
+
+*«Quiero que el agente sepa avisar cuando un motor que estaba caído vuelve a
+funcionar»* (user).
+
+**Hasta acá se arreglaba y desaparecía en silencio.** Los hallazgos de rueda se
+REEMPLAZAN en cada corrida (§0.u): si el motor vuelve, su fila simplemente no se
+escribe. El que estaba esperando no se entera nunca y termina entrando a la
+pantalla cada diez minutos a ver si sigue el problema. Peor cuando el aviso salió
+por mensaje al back office: **quedan con la mala noticia y sin la buena**, así
+que siguen operando a mano pensando que falta media jornada.
+
+#### Sin tabla nueva
+
+La corrida anterior **todavía está en la tabla** cuando arranca la nueva —
+`reemplazar_hallazgos` borra e inserta en la misma transacción, así que hasta ese
+momento lo viejo sigue ahí. Se lee antes de pisar y se resta:
+
+    lo que estaba mal antes  −  lo que está mal ahora  =  lo que se arregló
+
+Sin estado que mantener y sin nada que se pueda desincronizar. Hay un test que
+verifica el ORDEN de las dos llamadas: si se comparara después del `DELETE` no
+habría con qué comparar y el detector diría siempre «no volvió nada» **sin dar un
+solo error**.
+
+#### Qué se anuncia, y por cuánto tiempo
+
+  · **Solo el sistema** (motores, jobs, proveedores, tablas). *Un bono que
+    consiguió punta no es una noticia*: pasa cien veces por día y anunciarlo
+    llenaría la pantalla de confeti hasta que nadie mire ninguna — y ahí se
+    pierden también las que importan.
+  · **En severidad BAJA.** Que una buena noticia aparezca arriba de un problema
+    real sería justo al revés de lo que la pantalla tiene que hacer.
+  · **Vence a los 30 minutos**, contra las horas de un problema: *una buena
+    noticia envejece más rápido que una mala*. «Volvió hace tres horas» no le
+    sirve a nadie y ocupa el lugar de lo que sí está pasando ahora. Es el tercer
+    plazo de vencimiento de la vista, junto al de las observaciones de mercado y
+    el «no vence» de los problemas de configuración.
+  · **Dice QUÉ estaba pasando** (`Estaba: AUNESA CAÍDO · 500 Server Error`).
+    «Volvió» a secas es una frase sin información: el que lo lee tiene que poder
+    atarlo al aviso que vio ayer.
+
+#### Y por el mismo canal
+
+Si la caída se avisó por mensaje, la vuelta también — a la misma gente
+(`_a_quien`, la allowlist de Tesorería + admin) y **una vez por día**. Un motor
+que vuelve, en cambio, NO le escribe al back office: es del sistema y no les
+toca. Mandarles lo que no es suyo es exactamente cómo se logra que dejen de leer
+los mensajes.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

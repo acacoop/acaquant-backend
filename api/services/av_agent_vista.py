@@ -453,18 +453,27 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         # Ahora vence solo lo que es una foto del momento
         # (`av_agent.OBSERVACIONES_DE_MERCADO`); lo demás se sostiene hasta que la
         # próxima corrida lo reemplace o alguien lo arregle.
+        # Y hay un TERCER caso, más corto todavía: **las buenas noticias**
+        # (§0.ah). «MOTOR_X VOLVIÓ» informa por media hora; a las tres horas
+        # ocupa el lugar de lo que sí está pasando ahora. Una buena noticia
+        # envejece más rápido que una mala.
         obs = list(av_agent.OBSERVACIONES_DE_MERCADO)
+        rapido = list(av_agent.VENCE_RAPIDO)
         cur.execute(
             f"SELECT {', '.join(_COLS_H)} FROM mercado.av_agent_hallazgos "
             "WHERE (%s IS NOT NULL AND corrida_at = %s AND alcance <> ALL(%s)) "
             "   OR (alcance = ANY(%s) AND ("
-            #     una observación de mercado: solo vale si es reciente
+            #     una buena noticia: dura poco
             "         (regla = ANY(%s) AND corrida_at > now() - "
             "             make_interval(secs => %s))"
+            #     una observación de mercado: solo vale si es reciente
+            "      OR (regla = ANY(%s) AND corrida_at > now() - "
+            "             make_interval(secs => %s))"
             #     un problema nuestro: sigue siendo cierto con el mercado cerrado
-            "      OR regla <> ALL(%s)))",
-            (corrida, corrida, vivos, vivos, obs,
-             av_agent.VENCE_OBSERVACION_S, obs))
+            "      OR (regla <> ALL(%s) AND regla <> ALL(%s))))",
+            (corrida, corrida, vivos, vivos,
+             rapido, av_agent.VENCE_RAPIDO_S,
+             obs, av_agent.VENCE_OBSERVACION_S, obs, rapido))
         filas = [dict(zip(_COLS_H, r, strict=False)) for r in cur.fetchall()]
         # El blob completo, no solo la PK: `sin_flujo` caduca cuando el bono YA
         # tiene cronograma, y eso se lee acá mismo. **Es la misma query** — el

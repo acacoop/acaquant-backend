@@ -12,10 +12,31 @@ Lo que imprime, de menos a más:
   1. PEDIDO    — endpoint y parámetros exactos que se mandan.
   2. RESPUESTA — status, tiempo, y las claves de primer nivel que llegaron
                  (para contrastar contra lo que promete la doc).
-  3. RESUMEN   — asientos, movimientos, y el ranking de cuentas por cantidad.
-  4. CUENTA    — el detalle de la cuenta buscada (por defecto la de Patagonia).
-  5. CRUDO     — un asiento entero tal cual vino: los tipos y los nombres de
+  3. FECHAS    — sobre qué campo filtra el rango (ver «MEDIDO» abajo).
+  4. RESUMEN   — asientos, movimientos, y el ranking de cuentas por cantidad.
+  5. CUENTA    — el detalle de la cuenta buscada (por defecto la de Patagonia).
+  6. CRUDO     — un asiento entero tal cual vino: los tipos y los nombres de
                  campo de la doc son "string" para todo y hay que verificarlos.
+
+MEDIDO en la primera corrida real (19/08/2026, `inclNC=true`):
+  · **El rango filtra por `fechaConciliacion`, NO por `fechaAlta`.** Pidiendo un
+    solo día volvieron asientos con `fechaAlta` del 20/08 y `fechaConciliacion`
+    del 19/08. Asumir `fechaAlta` deja todo corrido un día — y un día corrido en
+    contabilidad no se lee como un bug, se lee como una diferencia de conciliación.
+  · **Es el mayor de HYGIRUS por API.** El `referencia` del asiento es
+    TEXTUALMENTE el `Concepto` del Excel que hoy se sube a mano en INTERBANKING →
+    CONCILIAR (`[Op. 1135703] Concurrencia Contado - Compra - BOL … - Cta. 1873`),
+    `numero` es la columna `Asiento` (negativa, igual que en los fixtures) y
+    `valuacion` ya viene firmada = `Debe − Haber`. `api.services.bancos._grupo_mayor`
+    lo parsea sin cambios. **Lo que NO viene es `Saldo`**, que es acumulado corrido
+    y alimenta el cierre (`_saldo_del_mayor`): hay que reconstruirlo o buscarlo aparte.
+  · **Pesa.** 92,8 s y 9,6 MB para UN día (1.840 asientos, 23.405 movimientos), de
+    los cuales 5 eran de la cuenta buscada. No hay filtro por cuenta en la API: se
+    baja todo y se filtra acá. Contra el poll de 20 s de la vista no entra — esto
+    es job + persistencia, nunca on-demand.
+  · Los importes vienen con punto decimal (`"16929080.00"`), `codigoUnidad` es la
+    MONEDA (ARS) y `cuentaID` es constante `"CTB"` (no identifica la cuenta:
+    la cuenta es `codigoCuenta`).
 
 Uso (desde la raíz, en el Droplet):
     python -m scripts.diag_registros_contables
@@ -24,6 +45,7 @@ Uso (desde la raíz, en el Droplet):
     python -m scripts.diag_registros_contables --cuenta "Patagonia" --max 50
     python -m scripts.diag_registros_contables --todas          # sin filtro de cuenta
     python -m scripts.diag_registros_contables --guardar /tmp/registros.json
+    python -m scripts.diag_registros_contables --archivo /tmp/registros.json  # sin red
 
 NO escribe nada en la base ni imprime credenciales.
 """
@@ -92,9 +114,11 @@ def _movimientos(registros: list[dict]) -> list[tuple[dict, dict]]:
 
 
 def _matchea(mov: dict, aguja: str) -> bool:
+    # `cuentaID` NO entra: en la corrida real es la constante "CTB" para todos los
+    # movimientos, así que buscar por ahí matchea el archivo entero.
     aguja = aguja.casefold()
     return any(aguja in str(mov.get(campo) or "").casefold()
-               for campo in ("codigoCuenta", "nombreCuenta", "cuentaID", "codigoExp"))
+               for campo in ("codigoCuenta", "nombreCuenta", "codigoExp"))
 
 
 def paso_pedido(params: dict) -> None:
@@ -137,8 +161,40 @@ def paso_respuesta(params: dict) -> dict | list | None:
     return data
 
 
+def paso_fechas(registros: list[dict], pedida: str) -> None:
+    """¿Sobre qué campo filtran `fechaDesde/fechaHasta`? La medición que más caro
+    sale equivocarse.
+
+    En la corrida del 19/08/2026 se pidió un solo día y volvieron asientos con
+    `fechaAlta` del **20/08**: si el filtro fuera por `fechaAlta` no habría venido
+    ninguno. La `fechaConciliacion` de esos mismos asientos era 19/08 — o sea que
+    el parámetro mira la CONCILIACIÓN, no el alta. Una integración que asuma
+    `fechaAlta` queda corrida un día, y un día corrido en contabilidad no se ve
+    como un bug: se ve como una diferencia de conciliación.
+
+    Esto lo cuenta en vez de suponerlo, porque arriba está inferido de UNA muestra.
+    """
+    print(f"\n3) FECHAS — ¿qué campo filtra el parámetro? (se pidió {pedida})")
+    altas = Counter(str(r.get("fechaAlta") or "?")[:10] for r in registros)
+    concs = Counter(str(r.get("fechaConciliacion") or "?")[:10] for r in registros)
+    for etiqueta, cont in (("fechaAlta", altas), ("fechaConciliacion", concs)):
+        dentro = cont.get(pedida, 0)
+        pct = 100.0 * dentro / len(registros) if registros else 0.0
+        print(f"   {etiqueta:<18} {dentro}/{len(registros)} asientos en el rango ({pct:.0f}%)")
+        for fecha, n in cont.most_common(5):
+            print(f"      {fecha}  {n}")
+    # El campo que da ~100% es el que gobierna el filtro.
+    if registros:
+        gana = max(("fechaAlta", altas.get(pedida, 0)),
+                   ("fechaConciliacion", concs.get(pedida, 0)), key=lambda kv: kv[1])
+        if gana[1] >= 0.9 * len(registros):
+            print(f"   → el rango se aplica sobre **{gana[0]}**")
+        else:
+            print("   → ninguno de los dos explica el rango: mirar el detalle de arriba")
+
+
 def paso_resumen(registros: list[dict], pares: list[tuple[dict, dict]]) -> None:
-    print("\n3) RESUMEN")
+    print("\n4) RESUMEN")
     print(f"   asientos: {len(registros)}   movimientos: {len(pares)}")
     if not pares:
         return
@@ -164,33 +220,38 @@ def paso_resumen(registros: list[dict], pares: list[tuple[dict, dict]]) -> None:
 
 
 def paso_cuenta(pares: list[tuple[dict, dict]], aguja: str, maximo: int) -> None:
-    print(f"\n4) CUENTA BUSCADA — subcadena {aguja!r}")
+    print(f"\n5) CUENTA BUSCADA — subcadena {aguja!r}")
     encontrados = [(a, m) for a, m in pares if _matchea(m, aguja)]
     if not encontrados:
         print("   (ninguna) — el rango no la tiene o viene escrita distinto.")
-        print("   Mirar el ranking del paso 3 y reintentar con --cuenta <otro texto>.")
+        print("   Mirar el ranking del paso 4 y reintentar con --cuenta <otro texto>.")
         return
     total = sum(v for _, m in encontrados if (v := _num(m.get("valuacion"))) is not None)
     print(f"   {len(encontrados)} movimientos   Σ valuación {_plata(total)}")
+    print(f"   {'alta':>10} {'concil':>10}  {'asiento':>10}  {'valuación':>16}  comprobante        referencia")
     for asiento, mov in encontrados[:maximo]:
+        # Las DOS fechas: la primera versión mostraba solo `fechaAlta` y daba a
+        # entender que el endpoint había devuelto otro día que el pedido.
         print(f"      {str(asiento.get('fechaAlta') or '')[:10]:>10} "
+              f"{str(asiento.get('fechaConciliacion') or '')[:10]:>10} "
               f"as.{str(asiento.get('numero') or '?'):>10}  "
               f"{_plata(_num(mov.get('valuacion')) or 0.0):>16}  "
-              f"cant={mov.get('cantidad')} factor={mov.get('factor')}  "
-              f"{str(mov.get('comprobante') or '')[:18]:<18} "
-              f"{str(mov.get('referencia') or asiento.get('referencia') or '')[:50]}")
+              f"{str(mov.get('comprobante') or '—')[:18]:<18} "
+              f"{str(mov.get('referencia') or asiento.get('referencia') or '')[:60]}")
     if len(encontrados) > maximo:
         print(f"      … {len(encontrados) - maximo} más (subir --max para verlos)")
 
 
 def paso_crudo(registros: list[dict]) -> None:
-    print("\n5) UN ASIENTO CRUDO (para verificar nombres y tipos reales)")
+    print("\n6) UN ASIENTO CRUDO (para verificar nombres y tipos reales)")
     if not registros:
         print("   (no hay)")
         return
-    # El primero que tenga movimientos: un asiento vacío no muestra nada útil.
-    muestra = next((r for r in registros if r.get("movimientos")), registros[0])
-    print(json.dumps(muestra, ensure_ascii=False, indent=2)[:4000])
+    # El asiento con MENOS movimientos entre los que tienen: el primero de la
+    # lista traía 20 y el corte lo dejaba cortado a la mitad de un campo.
+    conmovs = [r for r in registros if r.get("movimientos")]
+    muestra = min(conmovs, key=lambda r: len(r["movimientos"])) if conmovs else registros[0]
+    print(json.dumps(muestra, ensure_ascii=False, indent=2)[:6000])
 
 
 def main() -> None:
@@ -205,6 +266,10 @@ def main() -> None:
     p.add_argument("--todas", action="store_true", help="no filtrar por cuenta")
     p.add_argument("--max", type=int, default=25, help="movimientos a listar en el paso 4")
     p.add_argument("--guardar", default=None, help="ruta donde volcar el JSON completo")
+    # Una corrida cuesta ~93 s y 9,6 MB: volver a pedirla solo para mirar el mismo
+    # día con otro filtro es regalarle carga al custodio.
+    p.add_argument("--archivo", default=None,
+                   help="releer un JSON ya guardado en vez de pegarle a la API")
     args = p.parse_args()
 
     desde = args.desde or _fecha_ar(ayer)
@@ -218,8 +283,13 @@ def main() -> None:
     print("=" * 78)
     print("DIAG · Aunesa · registros contables")
     print("=" * 78)
-    paso_pedido(params)
-    data = paso_respuesta(params)
+    if args.archivo:
+        print(f"\n1-2) DESDE ARCHIVO {args.archivo} (no se tocó la API)")
+        with open(args.archivo, encoding="utf-8") as f:
+            data = json.load(f)
+    else:
+        paso_pedido(params)
+        data = paso_respuesta(params)
     if data is None:
         return
 
@@ -231,6 +301,7 @@ def main() -> None:
         return
 
     pares = _movimientos(registros)
+    paso_fechas(registros, params["fechaDesde"])
     paso_resumen(registros, pares)
     if not args.todas:
         paso_cuenta(pares, args.cuenta, args.max)
@@ -240,7 +311,6 @@ def main() -> None:
         with open(args.guardar, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         print(f"\n💾 JSON completo en {args.guardar}")
-
 
 if __name__ == "__main__":
     main()

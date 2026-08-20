@@ -270,6 +270,25 @@ def _negativos_de(horizonte: str, incluir_todo: bool) -> list[dict]:
     } for f in filas]
 
 
+def saldos_del_dia() -> dict:
+    """**Los saldos tal como los ve la pantalla SALDOS DE CUENTAS.** Público.
+
+    Existe para que nadie escriba una segunda query sobre `control_saldos`. Ya
+    pasó (`jobs/saldos_a_operadores`, 2026-08-19): la suya usaba `current_date`
+    en vez de `MAX(fecha)`, no excluía los `nivel_5` CDC/OTC y tenía un mínimo
+    propio — o sea que **el aviso mostraba cuentas que la vista esconde**.
+
+    El user: *«tiene que trabajar con los datos reales, no puede haber algo
+    distinto que en la vista»*. Y tiene razón por algo más que la prolijidad: si
+    el aviso y la pantalla no coinciden, el operador no sabe cuál creer y deja de
+    creerle a las dos.
+
+    Es REGLA #9 (B) — el mismo dato en dos lugares necesita un árbitro. Acá el
+    árbitro es que haya UN solo lugar.
+    """
+    return _saldos()
+
+
 def _saldos() -> dict:
     """Saldos de EFECTIVO del día, desde `portafolio.control_saldos`.
 
@@ -386,6 +405,11 @@ def _saldos() -> dict:
             # oculta porque falte la segmentación — al revés, que no tenga dueño
             # es información.
             "operador": f["operador_nombre"] or f["operador_email"] or "",
+            # El EMAIL además del nombre: es lo que necesita cualquiera que le
+            # quiera MANDAR algo al operador (hoy `jobs/saldos_a_operadores`).
+            # Sin esto, quien avise tendría que resolverlo con su propia query —
+            # y ahí empieza a haber dos ideas de «quién atiende esta cuenta».
+            "operador_email": (f["operador_email"] or "").strip().lower(),
             "nivel_5": f["nivel_5"] or "",
             "actualizado_at": (f["actualizado_at"].isoformat()
                                if f["actualizado_at"] else None),

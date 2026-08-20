@@ -54,7 +54,6 @@ from __future__ import annotations
 import logging
 
 from core.job_runs import JobRunLogger
-from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -63,69 +62,103 @@ TEMA = "saldos_comitentes"
 MINIMO = 1.0
 
 
-def _saldos_de_hoy() -> list[dict]:
-    """Los saldos != 0 de hoy, con su operador ya resuelto. UNA query.
+def _saldos_de_hoy() -> tuple[list[dict], int, int]:
+    """Los saldos != 0 con su operador, **tal cual los ve la pantalla**.
 
-    Las cuentas OCULTAS quedan afuera —el equipo las apagó a propósito— y las
-    contrapartes también: no son clientes de un operador.
+    ⚠️ **NO se escribe una query propia sobre `control_saldos`.** La primera
+    versión de este job lo hizo y salió distinto de la vista en tres cosas:
+    usaba `current_date` en vez de `MAX(fecha)` (así que un día sin corrida del
+    daemon devolvía vacío en vez de la última foto), no excluía los `nivel_5`
+    CDC/OTC, y tenía un mínimo propio.
+
+    El user lo marcó: *«tiene que trabajar con los datos reales, no puede haber
+    algo distinto que en la vista»*. Y el motivo de fondo es más que prolijidad:
+    si el aviso y la pantalla no coinciden, el operador no sabe cuál creer y deja
+    de creerle a las dos.
+
+    Devuelve (filas con operador, cuántas sin operador, cuántas se ocultaron).
     """
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            SELECT lower(c.operador_email), s.id_cuenta, s.cuenta, s.ticker,
-                   s.cantidad
-            FROM portafolio.control_saldos s
-            JOIN clientes.comitentes c ON c.id_cuenta = s.id_cuenta
-            LEFT JOIN portafolio.control_saldos_ocultas o
-                   ON o.id_cuenta = s.id_cuenta
-            WHERE s.fecha = current_date
-              AND abs(coalesce(s.cantidad, 0)) >= %s
-              AND o.id_cuenta IS NULL
-              AND c.operador_email IS NOT NULL
-            ORDER BY lower(c.operador_email), s.id_cuenta, s.ticker
-        """, (MINIMO,))
-        return [{"operador": r[0], "id_cuenta": r[1], "cuenta": r[2],
-                 "moneda": r[3], "saldo": float(r[4] or 0)}
-                for r in cur.fetchall()]
+    from api.services import titulos_negativos as tn
+
+    d = tn.saldos_del_dia()
+    if not d.get("disponible"):
+        return [], 0, 0
+    ocultas = int(d.get("ocultas", 0)) + int(d.get("ocultas_manual", 0))
+    con, sin = [], set()
+    for f in d.get("filas") or []:
+        saldo = float(f.get("cantidad") or 0)
+        if abs(saldo) < MINIMO:
+            continue
+        email = (f.get("operador_email") or "").strip().lower()
+        if not email:
+            # **No desaparecen**: a éstas no le llegan a nadie, y esconderlas
+            # sería el mismo silencio que este job persigue.
+            sin.add(f["id_cuenta"])
+            continue
+        con.append({"operador": email, "id_cuenta": f["id_cuenta"],
+                    "cuenta": f.get("cuenta") or f["id_cuenta"],
+                    "moneda": f.get("ticker") or "?", "saldo": saldo})
+    return con, len(sin), ocultas
 
 
-def _sin_operador() -> int:
-    """Cuántas cuentas con saldo quedan sin dueño. **No se esconden.**"""
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            SELECT count(DISTINCT s.id_cuenta)
-            FROM portafolio.control_saldos s
-            LEFT JOIN clientes.comitentes c ON c.id_cuenta = s.id_cuenta
-            WHERE s.fecha = current_date
-              AND abs(coalesce(s.cantidad, 0)) >= %s
-              AND coalesce(c.operador_email, '') = ''
-        """, (MINIMO,))
-        return int((cur.fetchone() or [0])[0] or 0)
+# ⚠️ **EL TOP 5 POR CUADRANTE, Y POR QUÉ CAMBIA LO QUE SE MANDA.**
+#
+# El user pidió la vista en cuatro cuadrantes (ARS/USD × positivos/negativos) con
+# el top 5 de cada uno. Eso **no es solo un cambio de pantalla**: si la tabla
+# mostrara 20 de 435 filas, las otras 415 no se podrían tildar y el aviso no se
+# cerraría nunca — quedaría abierto para siempre pidiendo algo imposible.
+#
+# Así que el aviso LLEVA esas 20 y no las 435. Y está bien que sea así: **435
+# cuentas no son un aviso, son un reporte**, y un aviso que pide 435 acciones se
+# cierra sin leer. Lo que se manda es lo que hay que atender hoy.
+#
+# Lo que queda afuera **se dice** (va en el detalle, con dónde verlo). Truncar en
+# silencio se lee como «esto es todo lo que hay», que es la mentira que este
+# proyecto persigue en todos lados.
+TOP = 5
+
+# ARS a la izquierda, DÓLARES a la derecha. `USDL` y `USDC` son dólares también
+# (cable y billete): agruparlos con USD evita que desaparezcan de la vista, y la
+# fila muestra igual la moneda exacta para que nadie los confunda.
+def _grupo(moneda: str) -> str:
+    return "ARS" if (moneda or "").upper() == "ARS" else "USD"
 
 
-def _armar(filas: list[dict]) -> tuple[str, list[dict]]:
-    """(asunto, filas de la tabla) para un operador.
+def _armar(filas: list[dict]) -> tuple[str, list[dict], int]:
+    """(asunto, las 20 filas del modal, cuántas quedaron afuera).
 
-    El asunto se lee de un vistazo; la tabla es lo que se completa. Los
-    descubiertos van PRIMERO: es lo que hay que atender hoy, y ordenar por cuenta
-    los mezclaría con los sobrantes.
+    Cuatro cuadrantes: ARS/USD × positivos/negativos, top 5 de cada uno por
+    tamaño. El más negativo primero abajo y el más positivo primero arriba — en
+    los dos casos, lo que más pesa arriba de su bloque.
     """
     negativos = [f for f in filas if f["saldo"] < 0]
     cuentas = len({f["id_cuenta"] for f in filas})
     asunto = (f"{len(negativos)} cuenta(s) tuyas EN DESCUBIERTO"
               if negativos else
               f"{cuentas} cuenta(s) tuyas con saldo para revisar")
-    orden = sorted(filas, key=lambda f: (f["saldo"] >= 0, -abs(f["saldo"])))
-    tabla = [{
-        # La CLAVE identifica la fila entre corridas: si el job vuelve a correr,
-        # las que el operador ya tildó NO se pierden.
-        "clave": f"{f['id_cuenta']}:{f['moneda']}",
-        "etiqueta": f["cuenta"] or f["id_cuenta"],
-        "datos": {"cuenta": f["cuenta"] or f["id_cuenta"],
-                  "id_cuenta": f["id_cuenta"], "moneda": f["moneda"],
-                  "saldo": round(f["saldo"], 2),
-                  "signo": "negativo" if f["saldo"] < 0 else "positivo"},
-    } for f in orden]
-    return asunto, tabla
+
+    tabla: list[dict] = []
+    for grupo in ("ARS", "USD"):
+        delg = [f for f in filas if _grupo(f["moneda"]) == grupo]
+        for signo in ("positivo", "negativo"):
+            cuadrante = [f for f in delg
+                         if (f["saldo"] > 0) == (signo == "positivo")]
+            # El que más pesa, primero: entre los positivos el mayor, entre los
+            # negativos el más negativo. `abs` sirve para los dos.
+            cuadrante.sort(key=lambda f: -abs(f["saldo"]))
+            for f in cuadrante[:TOP]:
+                tabla.append({
+                    # La CLAVE identifica la fila entre corridas: si el job
+                    # vuelve a correr, las que ya se tildaron NO se pierden.
+                    "clave": f"{f['id_cuenta']}:{f['moneda']}",
+                    "etiqueta": f["cuenta"] or f["id_cuenta"],
+                    "datos": {"cuenta": f["cuenta"] or f["id_cuenta"],
+                              "id_cuenta": f["id_cuenta"],
+                              "moneda": f["moneda"],
+                              "saldo": round(f["saldo"], 2),
+                              "grupo": grupo, "signo": signo},
+                })
+    return asunto, tabla, len(filas) - len(tabla)
 
 
 def main() -> int:
@@ -145,12 +178,12 @@ def main() -> int:
     with JobRunLogger("saldos_a_operadores") as jr:
         from api.services import av_agent_mensajes as msg
 
-        filas = _saldos_de_hoy()
-        huerfanas = _sin_operador()
+        filas, huerfanas, ocultas = _saldos_de_hoy()
         if not filas:
             print("no hay saldos distintos de cero hoy — no se manda nada")
             jr.set_stat("enviados", 0)
             jr.set_stat("sin_operador", huerfanas)
+            jr.set_stat("ocultas", ocultas)
             return 0
 
         por_operador: dict[str, list[dict]] = {}
@@ -170,7 +203,7 @@ def main() -> int:
 
         enviados = fallaron = 0
         for email, suyas in por_operador.items():
-            asunto, tabla = _armar(suyas)
+            asunto, tabla, afuera = _armar(suyas)
             # **Va como TABLA y con `interrumpe`**: el user lo pidió explícito —
             # «tiene que ser como el modal de briefing, aparece en la pantalla y
             # te hace hacer algo para continuar, no que aparezca en el cuerpo del
@@ -182,7 +215,12 @@ def main() -> int:
             r = msg.enviar_tabla(
                 para=email, tema=f"{tema}:prueba" if prueba else tema,
                 asunto=f"[PRUEBA] {asunto}" if prueba else asunto, filas=tabla,
-                detalle="Marcá cada una a medida que la resolvés. Vale por hoy.",
+                # **Lo que queda afuera se DICE.** Truncar en silencio se lee
+                # como «esto es todo lo que hay».
+                detalle=("Las 5 más grandes de cada bloque. Marcá cada una a "
+                         "medida que la resolvés — vale por hoy."
+                         + (f" Hay {afuera} cuenta(s) más con saldo: están en "
+                            f"SALDOS DE CUENTAS." if afuera > 0 else "")),
                 donde="SALDOS DE CUENTAS", por="jobs.saldos_a_operadores",
                 interrumpe=True)
             if r.get("ok"):
@@ -194,6 +232,7 @@ def main() -> int:
         jr.set_stat("enviados", enviados)
         jr.set_stat("operadores", len(por_operador))
         jr.set_stat("sin_operador", huerfanas)
+        jr.set_stat("ocultas", ocultas)
         if fallaron:
             jr.set_stat("fallaron", fallaron)
         print(f"✔ {enviados} operador(es) avisado(s) sobre "
@@ -201,6 +240,11 @@ def main() -> int:
         if huerfanas:
             print(f"\n⚠ {huerfanas} cuenta(s) con saldo NO tienen operador "
                   f"asignado: a ésas no le llegan a nadie.")
+        if ocultas:
+            # Las mismas que la pantalla esconde (nivel_5 CDC/OTC + las que
+            # alguien ocultó a mano). Se DICE cuántas son: el aviso y la vista
+            # tienen que poder contrastarse.
+            print(f"  ({ocultas} cuenta(s) ocultas, igual que en la vista)")
     return 0
 
 

@@ -89,7 +89,72 @@ def test_las_cuentas_SIN_operador_se_cuentan():
     """No le llegan a nadie por definición. Un envío que solo cuenta lo que mandó
     esconde justo lo que quedó sin dueño."""
     src = pathlib.Path("jobs/saldos_a_operadores.py").read_text(encoding="utf-8")
-    assert "_sin_operador" in src and 'set_stat("sin_operador"' in src
+    assert 'set_stat("sin_operador"' in src
+    # Y las OCULTAS también: son las mismas que esconde la pantalla, y decir
+    # cuántas son es lo que permite contrastar el aviso contra la vista.
+    assert 'set_stat("ocultas"' in src
+
+
+def test_el_job_NO_escribe_su_propia_query_de_saldos():
+    """**El user lo marcó**: *«tiene que trabajar con los datos reales, no puede
+    haber algo distinto que en la vista»*.
+
+    La primera versión tenía su propia query y salió distinta en TRES cosas:
+    `current_date` en vez de `MAX(fecha)` (un día sin corrida del daemon devolvía
+    vacío en vez de la última foto), sin excluir los `nivel_5` CDC/OTC, y con un
+    mínimo propio. O sea que el aviso mostraba cuentas que la vista esconde.
+
+    Si el aviso y la pantalla no coinciden, el operador no sabe cuál creer y deja
+    de creerle a las dos. Es REGLA #9 (B): el árbitro es que haya UN solo lugar."""
+    src = pathlib.Path("jobs/saldos_a_operadores.py").read_text(encoding="utf-8")
+    assert "saldos_del_dia()" in src
+    # Se busca la LLAMADA, no la mención: el docstring del job explica
+    # justamente por qué no hay que escribir una query propia, y un guard que se
+    # dispara con su propia documentación enseña a borrar el comentario. Es la
+    # misma lección que dejó el contador de queries de `_hallazgos_ultima_corrida`.
+    assert "cur.execute" not in src, (
+        "el job volvió a hablarle a la base directo: va a divergir de la vista")
+    assert "get_pool" not in src
+
+
+def test_la_vista_expone_el_EMAIL_del_operador():
+    """Sin el email, quien quiera avisarle al operador tiene que resolverlo con
+    su propia query — y ahí empiezan a haber dos ideas de quién atiende la
+    cuenta."""
+    import inspect
+
+    from api.services import titulos_negativos as tn
+    src = inspect.getsource(tn._saldos)
+    assert '"operador_email"' in src
+
+
+def test_el_TOP_5_por_cuadrante_y_lo_que_queda_afuera_SE_DICE():
+    """Si la tabla mostrara 20 de 435, las otras 415 no se podrían tildar y el
+    aviso no se cerraría nunca. Se manda el top y **se dice cuántas quedaron**:
+    truncar en silencio se lee como «esto es todo lo que hay»."""
+    from jobs.saldos_a_operadores import TOP, _armar
+    assert TOP == 5
+    filas = [{"id_cuenta": str(i), "cuenta": f"C{i}",
+              "moneda": "ARS" if i % 2 else "USD", "saldo": (i - 10) * 100.0}
+             for i in range(1, 25)]
+    _asunto, tabla, afuera = _armar(filas)
+    assert len(tabla) == 20 and afuera == 4
+    from collections import Counter
+    c = Counter((x["datos"]["grupo"], x["datos"]["signo"]) for x in tabla)
+    assert c[("ARS", "positivo")] == 5 and c[("ARS", "negativo")] == 5
+    assert c[("USD", "positivo")] == 5 and c[("USD", "negativo")] == 5
+    # El que más pesa, primero en su bloque.
+    negs = [x for x in tabla if x["datos"]["signo"] == "negativo"
+            and x["datos"]["grupo"] == "ARS"]
+    assert negs[0]["datos"]["saldo"] < negs[-1]["datos"]["saldo"]
+
+
+def test_USDL_y_USDC_no_desaparecen():
+    """Son dólares (cable y billete). Si solo se agrupara `USD`, se caerían de la
+    vista en silencio — y la fila igual muestra la moneda exacta."""
+    from jobs.saldos_a_operadores import _grupo
+    assert _grupo("USD") == _grupo("USDL") == _grupo("USDC") == "USD"
+    assert _grupo("ARS") == "ARS"
 
 
 def test_el_job_ARRANCA():

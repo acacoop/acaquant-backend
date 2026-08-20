@@ -368,6 +368,7 @@ _DOMINIO_DETECTOR: dict[str, str] = {
 _DOMINIO_CONTROL: dict[str, str] = {
     "forwards_faltantes": MERCADO, "rf_sin_tasa": MERCADO,
     "titulos_sin_flujo": MERCADO, "patas_sin_precio": MERCADO,
+    "patas_equivocadas": MERCADO,
     "patas_dolar_sin_pedir": MERCADO,
     "simbolos_cuarentena": MERCADO, "rf_valuada_x1": MERCADO,
     "comitentes_sin_nivel1": ADMIN, "contrapartes_pendientes": ADMIN,

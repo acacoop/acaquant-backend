@@ -639,9 +639,159 @@ class AccionPataDolar(Seguible):
         return None, "todavía sin punta"
 
 
+class AccionApuntarPata(Seguible):
+    """**APUNTAR EL MASTER A LA PATA CORRECTA.** El arreglo de verdad.
+
+    ⚠️ **POR QUÉ EXISTE, y por qué antes no** (user, 2026-08-20, sobre los
+    BOPREALes: *«estos siguen apareciendo, es algo de no creer; necesito de una
+    vez por todas que esto se solucione»*).
+
+    Tenía razón y el problema era estructural: **`pata_equivocada` no tenía
+    ninguna acción que lo arreglara.** La única puerta era `mercado.pata_dolar`,
+    que PIDE la pata en dólares — cosa útil, pero que no toca
+    `mercado.curvas.instrumento`. O sea que el master seguía apuntando a la pata
+    en pesos, el detector lo volvía a ver en la pasada siguiente, y el hallazgo
+    reaparecía **todas las ruedas, para siempre**. Marcar «acertó» no lo cerraba:
+    el agente había acertado, y aun así nadie podía hacer nada.
+
+    > **Un hallazgo sin arreglo posible no es un aviso: es una pared.** Y una
+    > pared que aparece todos los días enseña a ignorar la lista entera — el
+    > mismo daño que hacían los 46 falsos positivos de §0.u, por el camino
+    > contrario.
+
+    LO QUE FRENABA AUTOMATIZARLO, Y CÓMO SE RESUELVE
+    ================================================
+
+    La objeción original (§0.u) era buena: **el motor arma su universo al
+    arrancar**, así que cambiar el campo no se ve hasta reiniciarlo fuera de
+    rueda, y *una acción que se aplica y no se ve destruye la confianza en todas
+    las demás*.
+
+    Se resuelve haciendo **las dos cosas en el mismo paso**:
+
+        1. se corrige el master  → `mercado.curvas.instrumento` = la pata buena
+        2. se PIDE esa pata      → `adhoc_subscriptions`, que el `adhoc_watcher`
+                                    levanta en 5 s, sin reiniciar, en plena rueda
+
+    Con las dos: el precio aparece en el acto (por el adhoc), la grilla lo
+    muestra en dólares (la vista joinea por la columna) y el master ya quedó bien
+    para el próximo arranque. **El hallazgo desaparece en la pasada siguiente**,
+    que es lo único que el user pidió.
+
+    ⚠️ **Se escriben LAS DOS COPIAS del símbolo** (la columna y la clave del blob)
+    en el MISMO `UPDATE`. `curvas_sql` hace ganar a la columna al leer, así que
+    con una alcanzaría — pero dejar el blob diciendo otra cosa es volver a crear
+    la divergencia que costó cuatro días (REGLA #9 B). Se arregla el duplicado,
+    no se confía en el árbitro.
+    """
+
+    id = "mercado.apuntar_pata"
+    titulo = "Apuntar el master a la pata correcta (y pedirla)"
+    sobre = "patas_equivocadas"
+    campo = "mercado.curvas.instrumento"
+    donde = "mercado.curvas + adhoc_subscriptions (se ve en 5s, sin reiniciar)"
+
+    def proponer(self, casos: list[dict]) -> list[Propuesta]:
+        props = []
+        for c in casos:
+            ticker = (c.get("ticker") or c.get("key") or "").strip().upper()
+            actual = (c.get("simbolo") or "").strip()
+            sugerido = (c.get("sugerido") or "").strip()
+            # **Sin la pata sugerida no se propone nada.** Adivinarla por sufijo
+            # es justo lo que REGLA #9(A) prohíbe: `BPOA7 → BPA7D` se come una
+            # letra del medio y ninguna regla de string la saca.
+            if not ticker or not sugerido or sugerido == actual:
+                continue
+            props.append(Propuesta(
+                sujeto=ticker, campo=self.campo, propuesto=sugerido,
+                antes=actual or "—",
+                porque=(f"El master de «{ticker}» suscribe «{_sym(actual)}», que "
+                        f"cotiza en PESOS, y la pata correcta es "
+                        f"«{_sym(sugerido)}» (la que `mercado.especies` marca "
+                        f"por default). Por eso la grilla lo muestra en pesos al "
+                        f"lado de bonos en dólares. Se corrige el campo Y se pide "
+                        f"la pata en el mismo paso: el precio entra en 5 s sin "
+                        f"reiniciar nada."),
+                extra={"actual": actual, "curva": c.get("curva")}))
+        return props
+
+    def aplicar(self, p: Propuesta) -> None:
+        from core import adhoc_subscriptions, curvas_sql
+        from core.postgres import get_pool
+
+        # No se inventa un símbolo: tiene que existir como pata conocida.
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM mercado.especies WHERE simbolo = %s",
+                        (p.propuesto,))
+            if cur.fetchone() is None:
+                raise ValueError(f"«{p.propuesto}» no existe en `mercado.especies`")
+            # LAS DOS COPIAS, en un solo UPDATE. La clave del blob se llama
+            # `ticker` y guarda el SÍMBOLO (el nombre viejo, cruzado) — ver el
+            # renombre de 2026-08-15 en CLAUDE.md.
+            cur.execute(
+                "UPDATE mercado.curvas "
+                "   SET instrumento = %(s)s, "
+                "       data = jsonb_set(COALESCE(data, '{}'::jsonb), "
+                "                        '{ticker}', to_jsonb(%(s)s::text)) "
+                " WHERE upper(ticker) = %(t)s",
+                {"s": p.propuesto, "t": p.sujeto})
+            if cur.rowcount != 1:
+                raise ValueError(f"«{p.sujeto}» no está en `mercado.curvas` "
+                                 f"(filas tocadas: {cur.rowcount})")
+            conn.commit()
+        # El master está cacheado 
+        curvas_sql.invalidar()
+
+        # Y ahora lo que hace que se VEA: el motor no relee su universo, pero el
+        # `adhoc_watcher` sí pollea esta tabla cada 5 s.
+        r = adhoc_subscriptions.subscribe(p.propuesto)
+        if not r.get("ok"):
+            raise RuntimeError(
+                f"el master quedó apuntado a «{_sym(p.propuesto)}» pero no se "
+                f"pudo pedir: {r.get('reason')}. Sin la suscripción el precio no "
+                f"llega hasta el próximo reinicio del motor.")
+
+    def verificar(self, p: Propuesta) -> tuple[bool, str]:
+        """Lo que la acción controla: **el campo quedó escrito y la pata pedida**.
+        Si esa pata da precio lo contesta el mercado — `veredicto()`."""
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT instrumento, data->>'ticker' FROM mercado.curvas "
+                        "WHERE upper(ticker) = %s", (p.sujeto,))
+            r = cur.fetchone()
+            cur.execute("SELECT 1 FROM mercado.adhoc_subscriptions "
+                        "WHERE ticker = %s AND expires_at > now()", (p.propuesto,))
+            pedida = cur.fetchone() is not None
+        if not r or r[0] != p.propuesto:
+            return False, "el master no quedó apuntado a la pata nueva"
+        if r[1] != p.propuesto:
+            # Las dos copias tienen que decir lo mismo o vuelve la divergencia.
+            return False, "la columna quedó bien pero el blob no — quedaron partidos"
+        if not pedida:
+            return False, "el master quedó apuntado pero la pata no quedó pedida"
+        return True, f"master → «{_sym(p.propuesto)}» y pedida"
+
+    def veredicto(self, p: Propuesta) -> tuple[bool | None, str]:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT last_price FROM mercado.market_snapshot "
+                        "WHERE ticker = %s", (p.propuesto,))
+            r = cur.fetchone()
+        px = r[0] if r else None
+        if px:
+            return True, f"la grilla ya muestra USD {float(px):,.2f}"
+        return None, "todavía sin punta"
+
+
+def _sym(simbolo: str) -> str:
+    """`MERV - XMEV - BPA7D - 24hs` → `BPA7D`. En un aviso entra el corto."""
+    partes = (simbolo or "").split(" - ")
+    return partes[2].strip() if len(partes) >= 3 else (simbolo or "")
+
+
 ACCIONES: dict[str, Accion] = {a.id: a for a in (
     AccionCartera(), AccionFci(), AccionContraparte(), AccionAvisar(),
-    AccionPedirPata(), AccionPataDolar())}
+    AccionPedirPata(), AccionPataDolar(), AccionApuntarPata())}
 # Qué acción resuelve cada control. Sin esto la pantalla tendría que saberlo, y
 # el día que se agregue una acción habría que tocar el front.
 POR_CONTROL: dict[str, str] = {a.sobre: a.id for a in ACCIONES.values()}

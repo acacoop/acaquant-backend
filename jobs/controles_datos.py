@@ -379,6 +379,50 @@ def _chk_patas_dolar_sin_pedir() -> list[dict]:
         return out
 
 
+def _chk_patas_equivocadas() -> list[dict]:
+    """**El master suscribe una pata y la correcta es OTRA.** El caso BOPREAL.
+
+    Distinto de `patas_dolar_sin_pedir`, que es su hermano y mira otra cosa: aquél
+    busca una pata en dólares que nadie escucha; **éste busca el CAMPO MAL
+    CARGADO**. `mercado.curvas.instrumento` se llena a mano y `mercado.especies`
+    sabe cuál es la pata que la mesa mira (`es_default`, derivada de Primary):
+    cuando no coinciden, el master está apuntando al lugar equivocado.
+
+    ⚠️ **Se exige `es_default`, no «cualquier pata en dólares»**. Un bono tiene
+    varias (MEP y cable, CI y 24hs) y elegir mal cambia un problema por otro:
+    el cable NO es el MEP. La default es la única que el catálogo afirma.
+
+    Y el arreglo ya no exige reiniciar el motor (que era lo que frenaba
+    automatizarlo): `mercado.apuntar_pata` corrige el campo **y pide la pata** en
+    el mismo paso, así el precio entra por el `adhoc_watcher` en 5 s.
+    """
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT c.ticker, c.instrumento, e.simbolo, c.curva
+            FROM mercado.curvas c
+            JOIN mercado.especies e
+                 ON upper(e.ticker) = upper(c.ticker)
+                AND upper(e.moneda) = 'USD'
+                AND e.es_default
+            WHERE upper(coalesce(c.moneda_eje, '')) = 'USD'
+              AND coalesce(c.instrumento, '') <> ''
+              AND e.simbolo <> c.instrumento
+            ORDER BY c.ticker
+        """)
+        vistos: set[str] = set()
+        out = []
+        for tk, actual, sugerido, curva in cur.fetchall():
+            if tk in vistos:      # una propuesta por bono
+                continue
+            vistos.add(tk)
+            out.append({"key": tk, "ticker": tk, "simbolo": actual,
+                        "sugerido": sugerido, "curva": curva,
+                        "detalle": (f"el master de «{tk}» apunta a «{actual}» y la "
+                                    f"pata por default es «{sugerido}»")})
+        return out
+
+
 @dataclass(frozen=True)
 class Control:
     id: str
@@ -393,6 +437,9 @@ CONTROLES: list[Control] = [
     Control("patas_dolar_sin_pedir",
             "Patas en dólares que nadie pide", True,
             _chk_patas_dolar_sin_pedir),
+    Control("patas_equivocadas",
+            "El master apunta a una pata que no es la default", True,
+            _chk_patas_equivocadas),
     Control("forwards_faltantes", "Bonos ausentes de forwards", True, _chk_forwards_faltantes),
     Control("rf_sin_tasa", "Renta fija cotizando sin TEA/TNA", True, _chk_rf_sin_tasa),
     Control("assets_sin_cartera", "Assets sin cartera", True, _chk_assets_sin_cartera),
@@ -532,14 +579,18 @@ def main() -> int:
         except Exception:
             fallas_jobs = []
 
-        from core.ai_resumen import resumen_ejecutivo
-        lectura = resumen_ejecutivo({
-            "controles": {cid: {**r, "titulo": next(c.titulo for c in CONTROLES if c.id == cid)}
-                          for cid, r in resultados.items()},
-            "controles_con_error": errores,
-            "jobs_fallados_24h": fallas_jobs,
-        })
-        jr.set_stat("lectura_ai", bool(lectura))
+        # ⚠️ **LA LECTURA CON IA SE DIO DE BAJA** (2026-08-20). `core/ai_resumen`
+        # se borró el 2026-08-19 con el copiloto (§0.k) y esta línea quedó
+        # importándolo: el job venía MURIENDO todos los días con
+        # `ModuleNotFoundError` DESPUÉS de correr los 20 controles — así que
+        # calculaba todo y no persistía ni avisaba nada.
+        #
+        # No se reemplaza por otra IA: rige la regla de §0.k — *una tarea de IA
+        # existe solo si alguien lee su salida*, y este resumen no lo leía nadie.
+        # `fallas_jobs` se deja porque va en el texto, que sí se imprime.
+        lectura = (f"{len(fallas_jobs)} job(s) fallaron en las últimas 24 h"
+                   if fallas_jobs else None)
+        jr.set_stat("jobs_fallados_24h", len(fallas_jobs))
 
         msg = render_resumen(resultados, errores, lectura)
         print(msg)

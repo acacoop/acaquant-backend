@@ -70,14 +70,32 @@ def main() -> int:
         if r["sin_instalar"]:
             print("\n  → se instalan con:  crontab /root/TradingAV/deploy/crontab.txt")
 
-    labels = [cron._que_job(x) for x in sorted(cron.del_repo())]
-    labels = sorted({x for x in labels if x and "." not in x and "/" not in x})
+    # ⚠️ **EL NOMBRE DEL CRON NO ES EL NOMBRE CON QUE EL JOB SE REGISTRA.**
+    # `portafolio_diario` (label del cron) loguea como `aum`, y un `*_chain`
+    # corre VARIOS módulos que loguean cada uno con el suyo. La primera versión
+    # de este diag resolvía por label y cantó 4 jobs sanos como «NUNCA corrió» —
+    # un diag que grita en falso enseña a ignorarlo, que es la misma enfermedad
+    # que el agente vino a curar.
+    #
+    # La resolución correcta ya existía en `jobs_catalogo` (por MÓDULO, con un
+    # mapa de alias). Se DELEGA, no se copia: dos implementaciones del mismo
+    # mapeo se separan solas (REGLA #9).
+    from api.services import jobs_catalogo as cat
+
+    tipos: list[str] = []
+    for c in cat._parse_crontab():
+        for mod in c["modules"]:
+            t = cat._tipo_de(mod)
+            if t not in tipos:
+                tipos.append(t)
+    labels = sorted(tipos)
     if uno:
         labels = [x for x in labels if uno in x] or [uno]
 
     print("\n" + "═" * 74)
-    print("  ¿CORRIÓ? (manager.job_runs)")
+    print("  ¿CORRIÓ? (manager.job_runs — por MÓDULO, no por label del cron)")
     print("═" * 74)
+    sin_corridas: list[str] = []
     for lab in labels:
         try:
             filas = _runs(lab, 5 if uno else 1)
@@ -86,6 +104,7 @@ def main() -> int:
             continue
         if not filas:
             print(f"  {lab:<28} ✖ NUNCA corrió")
+            sin_corridas.append(lab)
             continue
         ts, st, fin, data = filas[0]
         marca = "✔" if st == "ok" else "✖"
@@ -97,6 +116,14 @@ def main() -> int:
             e = _falla(data)
             print(f"  {'':<28}   {ts:%d/%m %H:%M} {st}"
                   + (f" · {e[:50]}" if e else ""))
+
+    if sin_corridas:
+        # «No hay corridas con ese nombre» ≠ «el job nunca corrió»: puede estar
+        # logueando con otro `tipo` y faltar el alias en `jobs_catalogo`.
+        print(f"\n  ⚠ {len(sin_corridas)} sin ninguna corrida: "
+              f"{', '.join(sin_corridas)}")
+        print("    Si alguno de esos SÍ corre, es que loguea con otro nombre → "
+              "falta su alias en `jobs_catalogo._ALIAS_TIPO`.")
     print()
     return 0
 

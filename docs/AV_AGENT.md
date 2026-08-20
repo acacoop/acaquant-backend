@@ -2859,6 +2859,76 @@ error). Estar instalado y haber corrido no son lo mismo: puede fallar el lock de
 > `data` jsonb — REGLA #2 en vivo: lo cazó mirar `sql/schema.sql` antes de
 > pushear, no un test.
 
+### 0.am LA PATA EQUIVOCADA POR FIN TIENE ARREGLO (2026-08-20)
+
+El user, viendo los BOPREALes en la pantalla por enésima vez:
+
+    *«estos siguen apareciendo, es algo de no creer. Necesito de una vez por
+    todas que esto se solucione.»*
+
+Y tenía razón por una causa **estructural, no de detección**: el hallazgo estaba
+perfecto —nombraba el bono, la pata mala, la buena— y **no había ninguna acción
+que lo arreglara**. La única puerta era `mercado.pata_dolar`, que PIDE la pata en
+dólares pero **no toca `mercado.curvas.instrumento`**. O sea que el master seguía
+apuntando a la pata en pesos, el detector lo volvía a ver en la pasada siguiente,
+y el aviso reaparecía **todas las ruedas, para siempre**. Marcar «acertó» tampoco
+lo cerraba: el agente había acertado, y aun así nadie podía hacer nada.
+
+> **Un hallazgo sin arreglo posible no es un aviso: es una pared.** Y una pared
+> que aparece todos los días enseña a ignorar la lista entera — el mismo daño que
+> hacían los 46 falsos positivos de §0.u, por el camino contrario.
+
+#### Lo que frenaba automatizarlo, y por qué ahora se puede
+
+La objeción original era buena (§0.u): *el motor arma su universo al arrancar, así
+que cambiar el campo no se ve hasta reiniciarlo fuera de rueda, y una acción que
+se aplica y no se ve destruye la confianza en todas las demás*.
+
+Se resuelve haciendo **las dos cosas en el mismo paso**:
+
+    1. se corrige el master  → `mercado.curvas.instrumento` = la pata buena
+    2. se PIDE esa pata      → `adhoc_subscriptions`, que el `adhoc_watcher` de
+                               `motor_rofex` levanta en 5 s, sin reiniciar, en
+                               plena rueda
+
+Con las dos: el precio entra en el acto, la grilla lo muestra en dólares (la vista
+joinea por la columna) y el master ya quedó bien para el próximo arranque. **El
+hallazgo desaparece en la pasada siguiente**, que es lo único que se pidió.
+
+`mercado.apuntar_pata` + control `patas_equivocadas`. Tres guardas:
+
+  · **la pata sugerida la trae el control, no se adivina** — `BPOA7 → BPA7D` se
+    come una letra del medio y ninguna regla de string la saca (REGLA #9 A);
+  · **se exige `es_default`**, no «cualquier pata en dólares»: el cable NO es el
+    MEP, y elegir mal cambia un problema por otro;
+  · **el `UPDATE` tiene que tocar exactamente UNA fila**, o aborta.
+
+⚠️ **Se escriben LAS DOS COPIAS del símbolo** (la columna y la clave `ticker` del
+blob) en el mismo `UPDATE`. `curvas_sql` hace ganar a la columna al leer, así que
+con una alcanzaría — pero dejar el blob diciendo otra cosa es **recrear la
+divergencia que costó cuatro días**. Se arregla el duplicado, no se confía en el
+árbitro (REGLA #9 B). Y si el campo queda bien pero la suscripción falla, la
+acción **lo dice**: el estado a medias es real y taparlo sería prometer un precio
+que no va a llegar hasta el próximo reinicio.
+
+#### Lo que salió del diag del crontab, de yapa
+
+  · **`seguimiento` no está instalado** — por eso `NUNCA corrió`. Es exactamente
+    lo que §0.al vino a detectar, y apareció en su primera corrida.
+  · **`controles_datos` moría todos los días**: importaba `core/ai_resumen`, que
+    se borró el 2026-08-19 con el copiloto. Corría los 20 controles y explotaba
+    con `ModuleNotFoundError` **al final**, así que calculaba todo y no
+    persistía ni avisaba nada. No se reemplaza por otra IA: rige la regla de
+    §0.k — *una tarea de IA existe solo si alguien lee su salida*.
+  · **Y 4 de los 5 «NUNCA corrió» eran un bug MÍO**: el nombre del cron no es el
+    nombre con que el job se registra (`portafolio_diario` loguea como `aum`; un
+    `*_chain` corre varios módulos que loguean cada uno con el suyo). La
+    resolución correcta ya existía en `jobs_catalogo` —por módulo, con un mapa de
+    alias— y el diag se había hecho una copia propia. **Un diag que grita en
+    falso enseña a ignorarlo**, que es la misma enfermedad que el agente vino a
+    curar. Ahora delega, y cuando no encuentra corridas dice «no hay corridas con
+    ese nombre», no «nunca corrió».
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

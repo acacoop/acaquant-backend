@@ -243,6 +243,15 @@ CONTROLES: dict[str, dict] = {
         "donde": "AV Agent → pedir la pata (el motor la levanta en 5s, sin "
                  "reiniciar)",
         "url": "/manager"},
+    "patas_equivocadas": {
+        "rompe": "el master apunta a la pata en PESOS teniendo la de dólares: la "
+                 "grilla muestra 156.270 al lado de bonos en dólares. La "
+                 "valuación está bien —el motor divide por el MEP— pero el "
+                 "símbolo está mal cargado, y el hallazgo vuelve todas las "
+                 "ruedas hasta que se corrija",
+        "donde": "AV Agent → apuntar el master (corrige el campo Y pide la pata: "
+                 "se ve en 5s, sin reiniciar)",
+        "url": "/manager"},
     "forwards_faltantes": {
         "rompe": "esos bonos no salen en la matriz de forwards de su curva",
         "donde": "Renta Fija → FORWARDS", "url": "/renta-fija"},

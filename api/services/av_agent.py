@@ -31,6 +31,7 @@ import logging
 from typing import Any
 
 from core import curvas_ejes, mercado_1816
+from core.tz import AR_TZ, ahora_ar
 
 logger = logging.getLogger(__name__)
 
@@ -372,6 +373,21 @@ DOMINIOS_EVAL = ("bono", "salud", "sistema")
 def dominio_eval(tipo: str) -> str:
     """En qué dominio se anota el voto de este hallazgo."""
     return DOMINIO_EVAL.get((tipo or "").strip(), "bono")
+
+
+def _hhmm(ahora=None) -> str:
+    """La hora ARGENTINA del hallazgo, para pegar al final del motivo.
+
+    **Por qué va la hora en el motivo** (§0.ai): el motivo es lo que se vota en
+    ¿ACERTÓ?, y sin la hora no se puede decir si el detector acertó — «sin punta»
+    a las 11:00 es un problema y a las 20:30 es que cerró el mercado. El que vota
+    no tiene por qué salir a buscar el reloj.
+
+    Toma el `ahora` del detector (que los tests fijan) y lo pasa a ART: los
+    detectores trabajan en UTC y estampar UTC diría 14:03 cuando en la pantalla
+    de la mesa son las 11:03.
+    """
+    return (ahora.astimezone(AR_TZ) if ahora is not None else ahora_ar()).strftime("%H:%M")
 
 
 def _hallazgo(tipo: str, ticker: str, regla: str, severidad: str,
@@ -1020,12 +1036,17 @@ def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],
             # cara de la regla de §0.v — la que dice que no se puede concluir «no
             # existe» desde una tabla que solo tiene lo que pedimos: cuando SÍ lo
             # pedimos, la ausencia por fin significa algo.
+            # CORTO (§0.ag/§0.ai): el ticker ya está en su columna y el
+            # símbolo completo es detalle. Lo que decide es que SÍ lo estamos
+            # pidiendo — o sea que la ausencia es del papel, no nuestra.
             out.append(_hallazgo(
                 "sin_precio", tk, "sin_punta", "baja",
-                f"«{simbolo}» está suscripto y el mercado no le puso punta hoy. "
-                f"Lo estamos pidiendo, así que esto es el papel —iliquidez—, no "
-                f"el sistema.",
-                {**ev, "estado": "sin_punta"}))
+                f"sin punta hoy · lo pedimos, así que es iliquidez · "
+                f"{_hhmm(ahora)}",
+                {**ev, "estado": "sin_punta", "simbolo": simbolo,
+                 "texto": (f"{simbolo} está suscripto y el mercado no le puso "
+                           "punta. Lo estamos pidiendo, así que la ausencia es "
+                           "del papel y no del sistema.")}))
             continue
         if not abierto:
             continue     # fuera de rueda, «viejo» es lo normal — ver `en_rueda`
@@ -1188,11 +1209,14 @@ def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
         if es_dolar:
             out.append(_hallazgo(
                 "precio_moneda", tk, "precio_fuera_de_escala", "alta",
-                f"«{sym}» termina en {sym[-1].upper()}, así que el motor lo toma "
-                f"como dólares TAL CUAL — y aun así la paridad da {par_cruda:,.0f}%. "
-                f"Dividido por el MEP daría {par_mep:.1f}%, o sea que el precio "
-                f"viene en pesos con un símbolo que dice dólares.",
-                {**ev, "sufijo": sym[-1].upper()}))
+                f"precio en pesos con símbolo en dólares · paridad "
+                f"{par_cruda:,.0f}% (÷MEP daría {par_mep:.1f}%) · {_hhmm()}",
+                {**ev, "sufijo": sym[-1].upper(),
+                 "texto": (f"«{sym}» termina en {sym[-1].upper()}, así que el "
+                           f"motor lo toma como dólares tal cual — y aun así la "
+                           f"paridad da {par_cruda:,.0f}%. Dividido por el MEP "
+                           f"daría {par_mep:.1f}%: el precio viene en pesos con "
+                           f"un símbolo que dice dólares.")}))
             continue
 
         # ⚠️ **¿O ES QUE EL MASTER SUSCRIBE LA PATA EQUIVOCADA?** (2026-08-19)
@@ -1213,12 +1237,16 @@ def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
         if default and default != simbolo:
             out.append(_hallazgo(
                 "precio_moneda", tk, "pata_equivocada", "media",
-                f"el master suscribe «{sym}» (pesos) pero la pata correcta es "
-                f"«{default.split(' - ')[2] if ' - ' in default else default}»: "
-                f"por eso la grilla muestra {px:,.2f} al lado de bonos en dólares. "
-                f"La valuación está bien (paridad {par_mep:.1f}%), lo mal cargado "
-                f"es el símbolo.",
+                f"suscribe «{sym}» (pesos), la pata correcta es "
+                f"«{default.split(' - ')[2] if ' - ' in default else default}» · "
+                f"símbolo mal cargado · {_hhmm()}",
                 {**ev, "sugerido": default,
+                 "texto": (f"El master suscribe «{sym}», que cotiza en pesos, "
+                           f"pero la pata correcta es "
+                           f"«{default.split(' - ')[2] if ' - ' in default else default}». "
+                           f"Por eso la grilla muestra {px:,.2f} al lado de bonos "
+                           f"en dólares. La valuación está bien (paridad "
+                           f"{par_mep:.1f}%): lo mal cargado es el símbolo."),
                  "arreglo": "cambiar `mercado.curvas.instrumento` por el símbolo "
                             "sugerido — es el que `mercado.especies` marca como "
                             "`es_default` para este ticker",
@@ -1278,12 +1306,16 @@ def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
         }[origen]
         out.append(_hallazgo(
             "precio_moneda", tk, "cotiza_en_pesos", "baja",
-            f"«{sym}» es de curva USD y cotiza por su pata en PESOS: la grilla "
-            f"muestra {px:,.2f} al lado de bonos en dólares. **La valuación está "
-            f"bien** — el motor divide por el MEP ({mep:,.2f}) y la paridad real "
-            f"es {par_mep:.1f}%. Lo que se ve raro es la columna de precio."
-            + cola,
-            {**ev, "pata_dolar": pata_d, "pata_origen": origen}))
+            # CORTO y VOTABLE: el precio que se ve raro, la paridad que prueba
+            # que la valuación está bien, y la hora.
+            f"cotiza en pesos {px:,.0f} · paridad real {par_mep:.1f}% · "
+            f"valuación OK · {_hhmm()}",
+            {**ev, "pata_dolar": pata_d, "pata_origen": origen,
+             "texto": (f"{sym} es de curva USD y cotiza por su pata en pesos, "
+                       f"así que la grilla lo muestra al lado de bonos en "
+                       f"dólares. El motor divide por el MEP ({mep:,.2f}): la "
+                       f"valuación está bien, lo que se ve raro es la columna "
+                       f"de precio." + cola)}))
     return out
 
 

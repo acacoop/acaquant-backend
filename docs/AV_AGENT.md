@@ -2665,6 +2665,70 @@ misma línea tiene que estar la evidencia». También se arregló `_humano`, que
 mostraba «cada 0 min» para una tabla que escribe cada 30 s — justo el número que
 hacía votable el hallazgo.
 
+### 0.aj EL MISMO PROBLEMA, CONTADO UNA VEZ (2026-08-20)
+
+Tres cosas que saltaron de la corrida de 59 hallazgos, y las tres son la misma
+enfermedad: **el agente muestra su plomería en vez de mostrar el problema.**
+
+#### 1) 48 de 59 seguían con el texto largo
+
+La tijera de §0.ag se había aplicado a los avisos NUEVOS (proveedores, logs,
+motores) y no a los detectores viejos, que son la mayoría de la pantalla. Cuatro
+reglas pasaron por el mismo corte — `sin_punta`, `cotiza_en_pesos`,
+`precio_fuera_de_escala`, `pata_equivocada`:
+
+    antes  GD46 es de curva USD y cotiza por su pata en pesos, así que la
+           grilla lo muestra al lado de bonos en dólares. El motor divide por
+           el MEP (1.520,44): la valuación está bien, lo que se ve raro es la
+           columna de precio. La pata en dólares ya está sembrada: «GD46D» —
+           se puede pedir sin reiniciar nada.
+
+    ahora  cotiza en pesos 102.700 · paridad real 91.4% · valuación OK · 12:51
+
+**El párrafo no se borró: se mudó** a `evidencia.texto`, que es donde vive el
+detalle. Lo que cambia es qué se lee sin abrir nada.
+
+Y con eso entró la hora en las cuatro (`_hhmm`), que es el requisito de §0.ai
+para que el ✔/✖ signifique algo. Ojo con el detalle que casi se me pasa: los
+detectores trabajan en **UTC** y estampar UTC diría 15:51 cuando en la pantalla
+de la mesa son las 12:51 — `_hhmm` convierte a ART siempre.
+
+#### 2) `motor_options` aparecía DOS VECES con el mismo título
+
+    motor_options: 91 veces en 6.7 h
+    motor_options: 91 veces en 6.7 h
+
+Eran **dos patrones distintos** de log. El título no decía cuál, así que en la
+pantalla se leía como el agente repitiendo un aviso — y el que cierra el
+duplicado se lleva puesto un problema real sin enterarse. Ahora el patrón entra
+en el título, recortado a lo que quede de renglón, y va la hora de la última vez:
+
+    motor_options: Expiries configuradas ya vencidas · 91 veces en 6.7 h · 20:12
+    motor_options: WS reconectando sin respuesta · 44 veces en 6.7 h · 20:12
+
+Congelado: un test falla si dos avisos del mismo motor comparten título.
+
+#### 3) `motor_cedears` salía dos veces siendo un solo problema
+
+Uno del árbol (`motor_caido · sin_datos`) y otro de los logs (`motor_ruidoso ·
+ráfaga`). Dos detectores mirando la misma pieza, y en la lista dos motores rotos
+donde hay uno.
+
+**Y lo que se perdía partiéndolo es justo lo que sirve: el árbol dice QUE está
+roto, el log dice POR QUÉ.** Juntos son accionable; separados, uno es una queja y
+el otro un dato suelto. `av_agent_causas` ahora los junta —el mismo lugar donde
+ya se relacionaba «el job falló porque Aunesa está caído»—: el caído suma el
+motivo del log a su título y el del log baja a segundo plano marcado
+`mismo_problema_que`, sin borrarse (es la prueba).
+
+> ⚠️ **El bug que me comí escribiéndolo, y que vale más que el arreglo:**
+> `_correlacionar` cortaba con un `return` temprano cuando no había ningún
+> proveedor caído, así que puse la función nueva DESPUÉS de ese corte. Andaba en
+> el test y no habría corrido nunca en producción — porque el caso normal, el
+> 99% de los días, es que no haya ningún proveedor caído. **Una función que solo
+> se ejecuta cuando además pasa otra cosa mala no está integrada: está de
+> adorno.**
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

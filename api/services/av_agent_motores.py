@@ -409,6 +409,32 @@ def detectar_logs(*, horas: int = VENTANA_H) -> list[dict]:
     return out
 
 
+# El título entra en un renglón de la pantalla (mismo tope que
+# `tests/unit/test_avisos_cortos.py`). Lo que se recorta es el patrón, porque el
+# resto —cuántas veces, en cuánto, a qué hora— es lo que se vota.
+TOPE_TITULO = 88
+
+
+def _hora_de(ts: float) -> str:
+    """La hora ARGENTINA de la última vez que apareció el patrón."""
+    from datetime import UTC, datetime
+
+    from core.tz import AR_TZ
+    return datetime.fromtimestamp(ts, UTC).astimezone(AR_TZ).strftime("%H:%M")
+
+
+def _titulo(unidad: str, patron: str, cola: str, hora: str) -> str:
+    """`motor_options: Expiries ya vencidas · 91 veces en 6.7 h · 20:12`."""
+    fijo = f"{unidad}: " + f" · {cola} · {hora}"
+    hueco = TOPE_TITULO - len(fijo)
+    pat = " ".join((patron or "").split())
+    if hueco < 12:                       # unidad larguísima: el patrón no entra
+        return f"{unidad}: {cola} · {hora}"[:TOPE_TITULO]
+    if len(pat) > hueco:
+        pat = pat[:hueco - 1].rstrip() + "…"
+    return f"{unidad}: {pat} · {cola} · {hora}"
+
+
 def _hallazgo_log(g: dict) -> dict | None:
     """Un patrón agrupado → hallazgo, o None si no llega a ser un problema.
 
@@ -427,19 +453,27 @@ def _hallazgo_log(g: dict) -> dict | None:
     # se veía. La forma dice qué está pasando; el nivel, cuánto importa.
     if veces >= RAFAGA_VECES and dur <= RAFAGA_S:
         regla, sev = "rafaga", "alta"
-        motivo = f"{g['unidad']}: {veces} veces en {_dur(dur)}"
+        cola = f"{veces} veces en {_dur(dur)}"
         detalle = "Falla y reintenta en loop."
     elif veces >= MACHACA_VECES:
         regla = "machaca"
         sev = "alta" if es_error else "media"
-        motivo = f"{g['unidad']}: {veces} veces en {_dur(dur)}"
+        cola = f"{veces} veces en {_dur(dur)}"
         detalle = "No es una caída: está mal hace rato y nadie lo mira."
     elif es_error:
         regla, sev = "error_de_motor", "media"
-        motivo = f"{g['unidad']}: {g['nivel']}" + (f" ×{veces}" if veces > 1 else "")
+        cola = g["nivel"] + (f" ×{veces}" if veces > 1 else "")
         detalle = "Salió una vez. Si se repite sube solo de categoría."
     else:
         return None
+
+    # ⚠️ **EL MOTIVO TIENE QUE DECIR CUÁL ES EL PROBLEMA Y CUÁNDO.** En la corrida
+    # del 2026-08-20 `motor_options` salió DOS VECES con el mismo título
+    # (`motor_options: 91 veces en 6.7 h`) y no había forma de saber que eran dos
+    # patrones distintos: el que ve la lista cree que el agente repitió el aviso.
+    # Y sin la hora no se puede votar —que es el pedido del user—: «96 veces en
+    # 4 min» no dice si fue recién o a las 3 de la mañana.
+    motivo = _titulo(g["unidad"], g["patron"], cola, _hora_de(g["ultima"]))
 
     return {
         "tipo": "motor_ruidoso", "ticker": g["unidad"], "regla": regla,

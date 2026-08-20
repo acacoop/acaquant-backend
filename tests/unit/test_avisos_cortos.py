@@ -206,7 +206,27 @@ def _motivos_del_sistema():
                       "ultimo_dato": datetime(2026, 8, 20, 14, 0, tzinfo=UTC)},
                      ahora=ahora)
     out.append(("tabla_quieta", f["motivo"]))
+
+    # Y los tres patrones de log de la corrida real. `motor_options` aparecía
+    # DOS veces con el MISMO título (`motor_options: 91 veces en 6.7 h`): dos
+    # patrones distintos que en la pantalla se leían como el aviso repetido.
+    for u, pat, v, d, prio in (
+            ("motor_cedears", "REST exception JSONDecodeError", 76, 180, 4),
+            ("motor_options", "Expiries configuradas ya vencidas", 91, 24120, 4),
+            ("motor_options", "WS reconectando sin respuesta", 44, 24120, 4)):
+        out.append(("motor_ruidoso", mot._hallazgo_log(
+            {"unidad": u, "patron": pat, "veces": v, "primera": 0.0,
+             "ultima": float(d), "peor": prio, "nivel": "warn",
+             "muestra": pat})["motivo"]))
     return out
+
+
+def test_dos_patrones_del_MISMO_motor_no_se_leen_igual():
+    """Si dos avisos del mismo motor tienen el mismo título, el que mira la
+    lista cree que el agente repitió el aviso — y uno de los dos problemas
+    desaparece sin que nadie lo decida."""
+    titulos = [m for t, m in _motivos_del_sistema() if t == "motor_ruidoso"]
+    assert len(titulos) == len(set(titulos)), titulos
 
 
 def test_ningun_motivo_del_SISTEMA_se_vota_sin_evidencia():
@@ -226,7 +246,11 @@ def test_y_dice_QUE_SE_ESPERABA():
     """Sin el «debía», el que vota tiene que saberse de memoria la cadencia de
     cada pieza — y entonces el voto lo emite quien ya conoce el sistema, que es
     justo al revés de para qué existe el aviso."""
-    for _tipo, motivo in _motivos_del_sistema():
+    for tipo, motivo in _motivos_del_sistema():
+        if tipo == "motor_ruidoso":
+            # Acá el «debía» no hace falta: lo esperado de un motor es que NO
+            # escriba errores, y el motivo ya dice cuál escribió y cuántas veces.
+            continue
         assert ("esperado" in motivo or "es " in motivo), motivo
 
 

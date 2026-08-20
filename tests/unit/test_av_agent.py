@@ -2599,7 +2599,9 @@ def test_un_bono_que_cotiza_en_PESOS_no_es_un_error_sino_CONTEXTO():
         {"MERV - XMEV - GD46D - 24hs"})
     assert len(hs) == 1
     assert hs[0]["regla"] == "cotiza_en_pesos" and hs[0]["severidad"] == "baja"
-    assert "La valuación está bien" in hs[0]["motivo"]
+    # El detalle vive en el CUERPO; el título va corto y con la hora (§0.ag).
+    assert "valuación OK" in hs[0]["motivo"] and len(hs[0]["motivo"]) <= 90
+    assert "valuación está bien" in hs[0]["evidencia"]["texto"]
     # Lo ÚNICO accionable: cuál es la pata que mostraría dólares.
     assert hs[0]["evidencia"]["pata_dolar"] == "MERV - XMEV - GD46D - 24hs"
 

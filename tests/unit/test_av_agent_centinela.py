@@ -222,7 +222,7 @@ def test_si_especies_no_la_tiene_se_busca_en_PRIMARY():
     assert len(h) == 1 and h[0]["regla"] == "cotiza_en_pesos"
     assert h[0]["evidencia"]["pata_origen"] == "solo_en_primary"
     assert h[0]["evidencia"]["pata_dolar"] == "MERV - XMEV - AO29D - 24hs"
-    assert "no la teníamos" in h[0]["motivo"]
+    assert "no la teníamos" in h[0]["evidencia"]["texto"]
 
 
 def test_recien_con_las_DOS_fuentes_se_puede_decir_que_no_hay_pata():
@@ -231,7 +231,8 @@ def test_recien_con_las_DOS_fuentes_se_puede_decir_que_no_hay_pata():
         [_BONO_USD], _SNAP, _MEP, set(), {},
         primary={"MERV - XMEV - OTRACOSA - 24hs"})
     assert h[0]["evidencia"]["pata_origen"] == "sin_pata"
-    assert "Ni `mercado.especies` ni el catálogo de Primary" in h[0]["motivo"]
+    assert ("Ni `mercado.especies` ni el catálogo de Primary"
+            in h[0]["evidencia"]["texto"])
 
 
 def test_sin_catalogo_de_primary_NO_se_afirma_que_no_existe():
@@ -241,7 +242,7 @@ def test_sin_catalogo_de_primary_NO_se_afirma_que_no_existe():
     h = av_agent.detectar_precio_fuera_de_moneda(
         [_BONO_USD], _SNAP, _MEP, set(), {}, primary=None)
     assert h[0]["evidencia"]["pata_origen"] == "no_pude_mirar"
-    assert "**no sé**" in h[0]["motivo"]
+    assert "**no sé**" in h[0]["evidencia"]["texto"]
 
 
 def test_la_pata_ya_sembrada_no_manda_a_primary():
@@ -252,7 +253,7 @@ def test_la_pata_ya_sembrada_no_manda_a_primary():
         [_BONO_USD], _SNAP, _MEP, {"MERV - XMEV - AO29D - 24hs"}, {},
         primary=set())
     assert h[0]["evidencia"]["pata_origen"] == "sembrada"
-    assert "ya está sembrada" in h[0]["motivo"]
+    assert "ya está sembrada" in h[0]["evidencia"]["texto"]
 
 
 # ── (2026-08-19) UN DÓLAR LINKED COTIZA EN PESOS POR DEFINICIÓN ─────────────

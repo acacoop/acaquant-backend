@@ -35,7 +35,7 @@ cruza con lo que está caído AHORA:
     tres incendios donde hay uno.
   · **la CAUSA sube y dice a cuántos explica**: «y por esto fallaron otros 4».
     Ese número es la medida real del impacto, y es lo que decide si se llama al
-    custodio ahora o se espera.
+    proveedor ahora o se espera.
 
 ⚠️ **NO SE INVENTA UNA CAUSA.** Se relaciona solo cuando la dependencia está
 escrita en el código y el proveedor está caído **en la misma ventana**. Atribuir
@@ -51,11 +51,14 @@ logger = logging.getLogger(__name__)
 # Qué tipos de hallazgo pueden ser CONSECUENCIA de un proveedor caído. Los de
 # bonos no: que a un bono le falte el eje no lo causa Aunesa, y relacionarlos
 # sería exactamente la atribución de más que arruina la confianza.
-PUEDEN_SER_CONSECUENCIA = ("salud", "motor_caido", "tabla_quieta")
+PUEDEN_SER_CONSECUENCIA = ("salud", "motor_caido", "tabla_quieta",
+                           "motor_ruidoso")
 
-# El tipo que actúa de CAUSA. Hoy uno solo; la estructura admite más (un motor
-# caído explica una tabla quieta) y ese es el paso siguiente.
+# El tipo que actúa de CAUSA.
 CAUSAS = ("proveedor_caido",)
+
+# El título entra en un renglón (mismo tope que `tests/unit/test_avisos_cortos`).
+TOPE_MOTIVO = 88
 
 
 def correlacionar(hallazgos: list[dict]) -> list[dict]:
@@ -72,6 +75,11 @@ def correlacionar(hallazgos: list[dict]) -> list[dict]:
 
 
 def _correlacionar(hallazgos: list[dict]) -> list[dict]:
+    # ⚠️ Va PRIMERO y fuera del `if`: juntar el motor con su log no depende de
+    # que haya un proveedor caído, y el corte de abajo se lo salteaba justo en el
+    # caso normal — que es el 99% de los días.
+    _juntar_el_motor_con_su_log(hallazgos)
+
     caidos = {(h.get("ticker") or "").strip().lower(): h
               for h in hallazgos if h.get("tipo") in CAUSAS}
     if not caidos:
@@ -95,6 +103,69 @@ def _correlacionar(hallazgos: list[dict]) -> list[dict]:
         if hijos:
             _sumar_impacto(caidos[prov], hijos)
     return hallazgos
+
+
+# ── EL MOTOR CAÍDO Y SU LOG SON EL MISMO PROBLEMA ────────────────────────────
+#
+# En la corrida del 2026-08-20 `motor_cedears` salió DOS veces: una desde el
+# árbol (`motor_caido · sin_datos`) y otra desde los logs (`motor_ruidoso ·
+# ráfaga`). Son dos detectores mirando la misma pieza, y el que lee la lista
+# cuenta dos motores rotos donde hay uno.
+#
+# Y lo que se pierde partiéndolo es justo lo que sirve: **el árbol dice QUE está
+# roto, el log dice POR QUÉ**. Juntos son un aviso accionable; separados, uno es
+# una queja y el otro un dato suelto.
+
+
+def _pieza(nombre: str) -> str:
+    """`motor_rofex (trades)` → `motor_rofex`. El árbol rotula la pieza, los logs
+    nombran la unidad de systemd: para cruzarlos hay que sacar el paréntesis."""
+    return (nombre or "").split("(")[0].strip().lower()
+
+
+def _juntar_el_motor_con_su_log(hallazgos: list[dict]) -> None:
+    caidos: dict[str, dict] = {}
+    for h in hallazgos:
+        if h.get("tipo") == "motor_caido":
+            caidos.setdefault(_pieza(str(h.get("ticker") or "")), h)
+    if not caidos:
+        return
+
+    for h in hallazgos:
+        if h.get("tipo") != "motor_ruidoso":
+            continue
+        padre = caidos.get(_pieza(str(h.get("ticker") or "")))
+        if padre is None or padre is h:
+            continue
+        _explica_al_caido(padre, h)
+        _pasa_a_segundo_plano(h, padre)
+
+
+def _explica_al_caido(padre: dict, log: dict) -> None:
+    """El aviso que se ve suma el POR QUÉ, si entra en el renglón."""
+    pat = " ".join(str((log.get("evidencia") or {}).get("patron") or "").split())
+    if not pat:
+        return
+    motivo = str(padre.get("motivo") or "")
+    hueco = TOPE_MOTIVO - len(motivo) - len(" · log: ")
+    if hueco >= 12:
+        corto = pat if len(pat) <= hueco else pat[:hueco - 1].rstrip() + "…"
+        padre["motivo"] = f"{motivo} · log: {corto}"
+    ev = padre.setdefault("evidencia", {})
+    if isinstance(ev, dict):
+        ev["log"] = pat
+        ev["texto"] = (f"El log dice: {pat}\n" + str(ev.get("texto") or ""))
+
+
+def _pasa_a_segundo_plano(h: dict, padre: dict) -> None:
+    """El del log no se borra —es la prueba— pero deja de contar como otro roto."""
+    h["mismo_problema_que"] = padre.get("ticker")
+    h["severidad"] = {"alta": "media", "media": "baja"}.get(h.get("severidad"), "baja")
+    ev = h.setdefault("evidencia", {})
+    if isinstance(ev, dict):
+        ev["mismo_problema_que"] = padre.get("ticker")
+        ev["texto"] = (f"Es el log de «{padre.get('ticker')}», que ya está "
+                       f"avisado como caído.\n" + str(ev.get("texto") or ""))
 
 
 def _marcar(h: dict, causa: dict, prov: str) -> None:

@@ -242,6 +242,14 @@ _QUE_DETECTA: dict[str, tuple[str, str]] = {
         "PATA EQUIVOCADA del que cotiza así de verdad — y para eso busca la pata "
         "en dólares en DOS fuentes: `mercado.especies` y, si ahí no está, el "
         "catálogo de Primary (mirar una sola no alcanza para decir que no existe)"),
+    "respuesta": (
+        "La respuesta a lo que se pidió",
+        "cierra el círculo de una acción cuyo efecto NO es inmediato. Cuando se "
+        "pide la pata en dólares de un bono, si esa pata cotiza o no lo contesta "
+        "el mercado y no nosotros: acá se relee en cada pasada de rueda y se "
+        "canta el veredicto, incluido el «no cotiza» — que es el que cierra el "
+        "tema. La espera se mide en tiempo de mercado abierto, así que un «no» "
+        "nunca es impaciencia"),
     "dato_partido": (
         "Copias del mismo dato que no coinciden",
         "los datos que viven en más de un lugar y dejaron de decir lo mismo. "
@@ -339,6 +347,8 @@ _DOMINIO_DETECTOR: dict[str, str] = {
     "tabla_quieta": SISTEMA, "motor_caido": SISTEMA,
     "motor_ruidoso": SISTEMA, "proveedor_caido": SISTEMA,
     "recuperado": SISTEMA,
+    # De MERCADO y no de sistema: lo que contesta es si un bono cotiza.
+    "respuesta": MERCADO,
     "dato_partido": DATOS,
     "permiso_flojo": SEGURIDAD,
 }
@@ -399,6 +409,7 @@ _DONDE_CORRE: dict[str, str] = {
     "motor_ruidoso": "jobs.av_agent_live",
     "proveedor_caido": "jobs.av_agent_live",
     "recuperado": "jobs.av_agent_live",
+    "respuesta": "jobs.av_agent_live",
     # El monitor del SISTEMA, de noche (reemplaza lo suyo cada pasada).
     "db_cambio": "jobs.db_tamano",
     "tabla_quieta": "jobs.db_tamano",

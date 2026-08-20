@@ -75,6 +75,19 @@ def main() -> None:
         if volvieron:
             r["hallazgos"] = list(r["hallazgos"]) + volvieron
 
+        # ⚠️ **LO QUE SE PIDIÓ Y TODAVÍA NO CONTESTÓ** (§0.ak). Una pata recién
+        # suscripta no puede tener precio: el motor la levanta a los 5 s y la
+        # punta la pone el mercado cuando quiere. Acá se releen las propuestas
+        # que quedaron `esperando` y se cierran las que ya tienen respuesta —
+        # incluida la respuesta «no cotiza», que es la que le saca el tema de
+        # encima al que mira la pantalla. Va en este job porque la espera se
+        # mide en tiempo de RUEDA, y este es el único que corre con el mercado
+        # abierto.
+        from api.services.av_agent_respuesta import revisar
+        respuestas = revisar()
+        if respuestas:
+            r["hallazgos"] = list(r["hallazgos"]) + respuestas
+
         n = _guardar(r["hallazgos"])
         por_regla: dict[str, int] = {}
         for h in r["hallazgos"]:

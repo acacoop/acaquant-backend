@@ -358,16 +358,25 @@ def test_aplicar_NO_inventa_un_simbolo():
     assert "mercado.especies" in inspect.getsource(_pedir().aplicar)
 
 
-def test_verificar_distingue_PEDIDA_de_YA_LLEGO_EL_PRECIO():
-    """Que el precio llegue lo decide el mercado, no la acción. Se exige lo que
-    la acción controla —que quede pedida— y el detalle dice en cuál de los dos
-    estados quedó. Marcar «verificada» solo con precio la haría fallar siempre
-    que el símbolo opere más tarde; marcarla sin distinguir escondería que
-    todavía no se sabe nada."""
+def test_verificar_mira_LA_SUSCRIPCION_y_veredicto_mira_EL_PRECIO():
+    """**Reescrito 2026-08-20 — antes este test congelaba el bug.** Exigía que
+    `verificar()` leyera las DOS tablas, y esa era justamente la confusión: la
+    verificación corre cero segundos después de aplicar y el motor levanta la
+    suscripción a los 5 s, así que mirar el precio ahí no podía devolver otra
+    cosa que «todavía sin precio», siempre. El user lo vio en la pantalla: *«es
+    super inmediato, no es ni 1 seg»*.
+
+    Ahora son dos funciones porque son dos preguntas: `verificar` mira lo que la
+    acción controla (quedó pedida) y `veredicto` mira lo que contesta el mercado
+    (llegó punta), releído más tarde por `av_agent_respuesta`."""
     import inspect
-    src = inspect.getsource(_pedir().verificar)
-    assert "adhoc_subscriptions" in src and "market_snapshot" in src
-    assert "no quedó pedida" in src
+    a = _pedir()
+    ver = inspect.getsource(a.verificar)
+    assert "adhoc_subscriptions" in inspect.getsource(a._pedida)
+    assert "no quedó pedida" in ver
+    assert "market_snapshot" not in ver, (
+        "verificar() no puede opinar del precio: en ese instante no hay ninguno")
+    assert "market_snapshot" in inspect.getsource(a.veredicto)
 
 
 def test_esta_ACCION_se_puede_ver_en_el_acto_y_por_eso_existe():

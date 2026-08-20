@@ -2729,6 +2729,71 @@ motivo del log a su título y el del log baja a segundo plano marcado
 > se ejecuta cuando además pasa otra cosa mala no está integrada: está de
 > adorno.**
 
+### 0.ak LA RESPUESTA QUE LLEGA DESPUÉS (2026-08-20)
+
+El user, mirando la pantalla:
+
+    BUSCAR LA PATA USD ✔ pedida · pedida; todavía sin precio — si pasa una
+                        rueda entera y no llega, ESA pata no cotiza
+
+    *«no termino de entender si lo cambio o qué… eso es SUPER INMEDIATO, no es
+    ni 1 seg y ya sabe si da o no da punta. Me resulta raro. Acá le falta un
+    pasito más: está bien, sí, pero no terminás de entender ni te quedás
+    tranquilo.»*
+
+Y tenía razón por una causa que no era el texto. **`verificar()` corría cero
+segundos después de `aplicar()`**, y el `adhoc_watcher` del motor levanta la
+suscripción recién a los 5 s. Esa frase era la ÚNICA que la función podía
+devolver — siempre, para todos los casos, pasara lo que pasara.
+
+> **Un chequeo que solo tiene una respuesta posible no es un chequeo: es un
+> cartel.** Y engaña más que no verificar, porque parece que verificó.
+
+#### Eran dos preguntas y se contestaban como una
+
+| | quién la contesta | cuándo |
+|---|---|---|
+| ¿la acción hizo lo suyo? (¿quedó pedida?) | nosotros | al instante — `verificar()` |
+| ¿y la que abre? (¿esa pata cotiza?) | **el mercado** | cuando quiera — `veredicto()` |
+
+La propuesta ya no se sella `aplicada` fingiendo que sabe: queda en estado
+**`esperando`**, y `av_agent_respuesta` la relee en cada pasada del monitor de
+rueda hasta poder cerrarla. Dos finales, y **los dos se cantan**:
+
+    llegó precio        → la pata SÍ cotiza · y recién ahí hay un paso siguiente
+                          real (apuntar el master, que pide reiniciar el motor
+                          fuera de rueda — sigue sin automatizarse, §0.u)
+    se agotó la espera  → la pata NO cotiza · confirmado, deja de ser un tema
+
+**El «no» es la mitad que importa** y es lo que el user estaba pidiendo con *«no
+te quedás tranquilo»*: un no medido cierra el tema; el silencio lo deja abierto
+para siempre. Por eso se cierra en OK y no en `fallida` — la acción anduvo, lo
+que se confirmó es que del otro lado no hay nada.
+
+⚠️ **La espera se mide en segundos de MERCADO ABIERTO** (`espera_s`, 45 min),
+misma regla de §0.u: una pata pedida a las 16:50 no estuvo «3 horas sin punta» a
+las 20:00 — estuvo 40 minutos y después cerró el mercado. Y si dejamos de
+escucharla, el «no vino punta» vuelve a no probar nada (§0.v): ahí sigue
+esperando en vez de cerrar.
+
+#### Y las «4 patas» que eran 2
+
+    Sembrada: 4 pata(s) en dólares
+    BPB7C, BPB7C, BPB7D, BPB7D
+
+No era un duplicado: son **dos patas en dos plazos** (CI y 24hs) y `_corto()`
+borra justo el plazo que las distingue. Ahora se agrupan por nombre y el plazo va
+al lado (`BPB7D (24hs/CI) · BPB7C (24hs/CI)`). Un nombre repetido sin explicación
+hace dudar de todo lo demás que dice la pantalla, que es lo caro.
+
+> ⚠️ **Y el error que casi cuesta caro escribiendo esto**: el módulo nuevo se
+> llamó primero `av_agent_seguimiento` y **ese archivo ya existía** (§0.ac, *«el
+> arreglo, ¿aguantó cinco días?»*) — se pisó entero con un `Write`. Lo cazaron
+> sus propios tests en la corrida siguiente y se recuperó de git intacto, pero la
+> lección queda: **antes de crear un archivo hay que mirar si está**, y los dos
+> conceptos son distintos de verdad (aquél mide DÍAS y la persistencia del
+> arreglo; éste mide MINUTOS de rueda y la respuesta del mercado).
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

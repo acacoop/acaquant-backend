@@ -149,7 +149,7 @@ ALCANCES_VIVOS = ("live", "sistema")
 # esconde (no vence), igual que `DE_QUIEN`.
 # Una buena noticia envejece más rápido que una mala: «volvió hace tres horas»
 # no le sirve a nadie y ocupa el lugar de lo que sí está pasando ahora.
-VENCE_RAPIDO: tuple[str, ...] = ("volvio",)
+VENCE_RAPIDO: tuple[str, ...] = ("volvio", "cotiza", "no_cotiza")
 VENCE_RAPIDO_S = 30 * 60
 
 OBSERVACIONES_DE_MERCADO: tuple[str, ...] = (
@@ -252,6 +252,11 @@ ACCION_POR_TIPO = {
     # Una BUENA noticia. `None` igual: no hay nada que aplicar — el sistema ya
     # se arregló solo. Existe para que la recuperación no sea silencio.
     "recuperado": None,
+    # LA RESPUESTA a una acción que ya se aplicó (§0.ak). `None` porque no hay
+    # nada que aplicar: es el cierre de un tema, no uno nuevo. El caso «SÍ
+    # cotiza» abre un paso siguiente —apuntar el master ahí— que sigue sin
+    # automatizarse a propósito: requiere reiniciar el motor fuera de rueda.
+    "respuesta": None,
     # Un permiso flojo se arregla en el router o en el borde, no en la base.
     "permiso_flojo": None,
     # `None` EXPLÍCITO: NO se automatiza, y es una decisión. Cuando dos copias
@@ -364,6 +369,7 @@ DOMINIO_EVAL: dict[str, str] = {
     "db_cambio": "sistema", "latencia": "sistema", "tabla_quieta": "sistema",
     "motor_caido": "sistema", "motor_ruidoso": "sistema",
     "proveedor_caido": "sistema", "recuperado": "sistema",
+    "respuesta": "bono",
     "permiso_flojo": "sistema",
     "dato_partido": "sistema",
 }

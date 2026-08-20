@@ -415,7 +415,43 @@ def _usuario_existe(email: str) -> bool:
         return cur.fetchone() is not None
 
 
-class AccionPedirPata:
+class Seguible:
+    """Acciones cuyo EFECTO no se puede medir en el acto.
+
+    ⚠️ **El bug que esto arregla, y que vale más que el arreglo** (user,
+    2026-08-20): *«eso es SUPER INMEDIATO, no es ni 1 seg… me resulta raro»*.
+    `verificar()` corría cero segundos después de `aplicar()` y el motor levanta
+    la suscripción a los 5 s, así que «todavía sin precio» era la única frase que
+    la función podía devolver — siempre, para todos los casos. **Un chequeo con
+    una sola respuesta posible no es un chequeo: es un cartel**, y engaña más que
+    no verificar porque parece que verificó.
+
+    Son DOS preguntas y se contestaban como una:
+
+        ¿la acción hizo lo suyo?   ¿quedó pedida?     → al instante (`verificar`)
+        ¿y lo que abría?           ¿esa pata cotiza?  → lo dice el mercado (`veredicto`)
+
+    `espera_s` es cuánto **mercado abierto** hace falta para que un «no» sea una
+    respuesta y no una impaciencia. Lo relee `av_agent_respuesta` desde el
+    monitor de rueda.
+    """
+
+    # Una rueda arranca 13 UTC y la mesa mira estos bonos todo el día. 45 minutos
+    # de mercado abierto sin una sola punta, estando suscriptos, ya es iliquidez
+    # y no un hueco: son nueve pasadas del monitor.
+    espera_s = 45 * 60
+
+    def veredicto(self, p: Propuesta) -> tuple[bool | None, str]:
+        """`True` cotiza · `False` no puede cotizar · `None` todavía no se sabe.
+
+        **`None` no es un error**: es la respuesta honesta mientras el mercado no
+        contestó. Quien decide cuándo se agotó la espera es el seguimiento, no la
+        acción — la acción dice lo que ve, no cuánto hay que aguantar.
+        """
+        raise NotImplementedError
+
+
+class AccionPedirPata(Seguible):
     """**PEDIRLE A PRIMARY UN SÍMBOLO QUE NADIE ESTÁ ESCUCHANDO** (2026-08-19).
 
     Nace del incidente del AO29, y es la acción que mejor cierra el ciclo de todo
@@ -502,26 +538,33 @@ class AccionPedirPata:
             raise RuntimeError(f"no se pudo pedir: {r.get('reason')}")
 
     def verificar(self, p: Propuesta) -> tuple[bool, str]:
-        """Se relee de la base. Lo que se exige es que **quede pedido** — que es
-        lo que esta acción controla; que el precio llegue lo decide el mercado."""
+        """SOLO lo que la acción controla: que quede pedida. **El precio no se
+        mira acá** — se lo pregunta `veredicto()` cuando haya pasado tiempo."""
+        if not self._pedida(p.sujeto):
+            return False, "no quedó pedida"
+        return True, "pedida — el motor la levanta en 5 s"
+
+    def veredicto(self, p: Propuesta) -> tuple[bool | None, str]:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT last_price, updated_at FROM mercado.market_snapshot "
+                        "WHERE ticker = %s", (p.sujeto,))
+            r = cur.fetchone()
+        px = r[0] if r else None
+        if px:
+            return True, f"llegó precio {float(px):,.2f}"
+        return None, "todavía sin punta"
+
+    @staticmethod
+    def _pedida(simbolo: str) -> bool:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT 1 FROM mercado.adhoc_subscriptions "
-                        "WHERE ticker = %s AND expires_at > now()", (p.sujeto,))
-            pedida = cur.fetchone() is not None
-            cur.execute("SELECT last_price FROM mercado.market_snapshot "
-                        "WHERE ticker = %s", (p.sujeto,))
-            r = cur.fetchone()
-            px = r[0] if r else None
-        if not pedida:
-            return False, "no quedó pedida"
-        if px:
-            return True, f"pedida y YA llegó precio: {px}"
-        return True, ("pedida; todavía sin precio — si pasa una rueda entera y no "
-                      "llega, ESA pata no cotiza (antes no se podía afirmar)")
+                        "WHERE ticker = %s AND expires_at > now()", (simbolo,))
+            return cur.fetchone() is not None
 
 
-class AccionPataDolar:
+class AccionPataDolar(Seguible):
     """PEDIR LA PATA EN DÓLARES de un bono que cotiza en pesos.
 
     Hermana de `AccionPedirPata` y **no la misma**: aquélla pide el símbolo que el
@@ -570,19 +613,30 @@ class AccionPataDolar:
             raise RuntimeError(r.get("error") or "no se pudo pedir la pata")
 
     def verificar(self, p: Propuesta) -> tuple[bool, str]:
-        """Se exige que quede PEDIDA —lo que la acción controla—; que el precio
-        llegue lo decide el mercado, y el detalle lo dice sin disfrazarlo."""
+        """SOLO que quede PEDIDA, que es lo que la acción controla. Si esa pata
+        cotiza o no lo contesta `veredicto()`, con el mercado abierto y tiempo."""
         from api.services import av_agent_pata
         d = av_agent_pata.explicar(p.sujeto)
         if not d.get("ok"):
             return False, str(d.get("error") or "no pude releer")
         if not d.get("pedida"):
             return False, "no quedó pedida"
+        return True, "pedida — el motor la levanta en 5 s"
+
+    def veredicto(self, p: Propuesta) -> tuple[bool | None, str]:
+        from api.services import av_agent_pata
+        d = av_agent_pata.explicar(p.sujeto)
+        if not d.get("ok"):
+            return None, "no pude releer"
         px = d.get("precio")
         if px:
-            return True, f"pedida y YA llegó precio: {px:,.2f}"
-        return True, ("pedida; todavía sin precio — si pasa una rueda entera y no "
-                      "llega, ESA pata no cotiza (antes no se podía afirmar)")
+            return True, f"llegó precio {float(px):,.2f}"
+        # ⚠️ Si dejamos de escucharla, el «no vino punta» no prueba nada: es el
+        # error del AO29 otra vez (§0.v). Mejor seguir esperando que contar una
+        # ausencia que nadie estaba midiendo.
+        if not d.get("escuchando"):
+            return None, "dejamos de escucharla"
+        return None, "todavía sin punta"
 
 
 ACCIONES: dict[str, Accion] = {a.id: a for a in (
@@ -830,17 +884,22 @@ def aplicar(ids: list[int], *, por: str = "", valores: dict | None = None) -> di
     for f in filas:
         res.append(_aplicar_una(f, por=por, valores=valores or {}))
     hechas = sum(1 for r in res if r["ok"])
+    esperando = sum(1 for r in res if r.get("esperando"))
     return {"ok": True, "aplicadas": hechas, "fallidas": len(res) - hechas,
-            "resultados": res,
-            "texto": _texto_resultado(hechas, len(res) - hechas)}
+            "esperando": esperando, "resultados": res,
+            "texto": _texto_resultado(hechas, len(res) - hechas, esperando)}
 
 
-def _texto_resultado(hechas: int, fallidas: int) -> str:
+def _texto_resultado(hechas: int, fallidas: int, esperando: int = 0) -> str:
+    # **«Esperando» se dice**, no se esconde adentro de «aplicada». Si el que
+    # aprieta el botón no sabe que falta una respuesta, no la va a ir a buscar —
+    # y ahí vuelve el problema que esto vino a resolver.
+    cola = (f" · {esperando} esperando respuesta del mercado" if esperando else "")
     if not fallidas:
-        return f"{hechas} aplicada/s y verificada/s."
+        return f"{hechas} aplicada/s y verificada/s.{cola}"
     if not hechas:
-        return f"ninguna se pudo aplicar ({fallidas} con error)."
-    return f"{hechas} aplicada/s y verificada/s · {fallidas} con error."
+        return f"ninguna se pudo aplicar ({fallidas} con error).{cola}"
+    return f"{hechas} aplicada/s y verificada/s · {fallidas} con error.{cola}"
 
 
 def _aplicar_una(f: dict, *, por: str, valores: dict) -> dict:
@@ -869,13 +928,33 @@ def _aplicar_una(f: dict, *, por: str, valores: dict) -> dict:
         quedo, detalle = a.verificar(p)
     except Exception as e:
         quedo, detalle = False, f"no se pudo verificar: {type(e).__name__}: {e}"
-    _sellar(f["id"], estado="aplicada" if quedo else "fallida", por=por,
-            verificado=quedo, detalle=detalle,
+
+    # ⚠️ **SI EL EFECTO TARDA, NO SE SELLA COMO SI SE SUPIERA** (2026-08-20). Una
+    # acción `Seguible` hizo lo suyo —quedó pedida— pero la pregunta que abre la
+    # contesta el mercado, y acá pasaron cero segundos. Queda `esperando` y la
+    # cierra `av_agent_respuesta` desde el monitor de rueda. Antes se sellaba
+    # `aplicada` con un detalle que era la única frase posible, y nadie volvía a
+    # mirar: el user lo leyó como «está bien, sí, pero no te quedás tranquilo».
+    espera = False
+    if quedo and isinstance(a, Seguible):
+        try:
+            v, det = a.veredicto(p)
+        except Exception as e:
+            v, det = None, f"no se pudo mirar: {type(e).__name__}"
+        if v is True:
+            detalle = det
+        elif v is None:
+            espera, detalle = True, f"{detalle}; la respuesta llega en la rueda"
+
+    from api.services.av_agent_respuesta import ESPERANDO
+    _sellar(f["id"],
+            estado=ESPERANDO if espera else ("aplicada" if quedo else "fallida"),
+            por=por, verificado=None if espera else quedo, detalle=detalle,
             propuesto=p.propuesto if p.propuesto != f["propuesto"] else None,
             error=None if quedo else "aplicado pero la verificación no lo confirma")
     return {"id": f["id"], "sujeto": p.sujeto, "campo": p.campo,
             "valor": p.propuesto, "ok": quedo, "verificado": quedo,
-            "detalle": detalle}
+            "esperando": espera, "detalle": detalle}
 
 
 def _sellar(pid: int, *, estado: str, por: str = "", verificado=None,

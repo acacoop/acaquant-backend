@@ -70,6 +70,25 @@ def _corto(simbolo: str) -> str:
     return partes[2].strip().upper() if len(partes) >= 3 else (simbolo or "").strip()
 
 
+def _plazo(simbolo: str) -> str:
+    """`MERV - XMEV - BPB7D - 24hs` → `24hs`. Es la parte que `_corto` tira."""
+    partes = (simbolo or "").split(" - ")
+    return partes[3].strip() if len(partes) >= 4 else ""
+
+
+def _por_pata(simbolos: list[str]) -> dict[str, list[str]]:
+    """`{BPB7D: [24hs, CI], BPB7C: [24hs, CI]}` — el nombre una sola vez."""
+    out: dict[str, list[str]] = {}
+    for x in simbolos:
+        pl = out.setdefault(_corto(x), [])
+        p = _plazo(x)
+        if p and p not in pl:
+            pl.append(p)
+    for pl in out.values():
+        pl.sort()
+    return out
+
+
 def _elegir(candidatos: list[str]) -> str:
     """Entre varias patas en dólares, la que la mesa mira.
 
@@ -182,10 +201,19 @@ def explicar(ticker: str) -> dict:
 
     nuevas = [x for x in en_primary if x not in set(sembradas)]
     if sembradas:
+        # ⚠️ **NO se cuentan FILAS, se cuentan PATAS** (user, 2026-08-20). La
+        # pantalla decía «4 pata(s) en dólares: BPB7C, BPB7C, BPB7D, BPB7D» y
+        # eso se lee como un bug: son DOS patas, cada una en CI y en 24hs, y
+        # `_corto()` borra justo el plazo que las distingue. Repetir un nombre
+        # sin decir por qué hace dudar de todo lo demás que dice la pantalla.
+        agrupadas = _por_pata(sembradas)
         pasos.append({
             "clave": "especies", "estado": OK,
-            "titulo": f"Sembrada: {len(sembradas)} pata(s) en dólares",
-            "detalle": ", ".join(sorted(_corto(x) for x in sembradas)),
+            "titulo": (f"Sembrada{'s' if len(agrupadas) > 1 else ''}: "
+                       f"{len(agrupadas)} pata(s) en dólares"),
+            "detalle": " · ".join(
+                f"{n} ({'/'.join(pl)})" if pl else n
+                for n, pl in sorted(agrupadas.items())),
         })
     else:
         pasos.append({

@@ -1550,6 +1550,12 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
                     # problema: avisa que algo volvió. Sin él, una recuperación
                     # es una fila que deja de escribirse, o sea silencio.
                     "recuperado",
+                    # `respuesta` (2026-08-20) tampoco es un problema: es el
+                    # CIERRE de una acción cuyo efecto no era inmediato. La
+                    # verificación corría cero segundos después de aplicar, así
+                    # que su única frase posible era «todavía sin precio» — un
+                    # chequeo con una sola respuesta posible es un cartel.
+                    "respuesta",
                     "permiso_flojo", "dato_partido"}
     assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
         "una clave del mapa no es un TIPO que algún detector emita — "

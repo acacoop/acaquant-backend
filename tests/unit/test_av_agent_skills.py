@@ -263,16 +263,77 @@ def test_la_vista_agrupa_por_dominio_y_no_muestra_los_vacios():
 
 # ── (2026-08-19) EL PUENTE ENTRE EL CATÁLOGO Y LA MEDICIÓN ──────────────────
 
+def _literales(nodo, clave: str) -> set[str]:
+    """Los strings que en ESTA función se usan como valor de `clave`.
+
+    Cubre las tres formas en que un detector escribe una regla: la clave de un
+    dict (`"regla": "rafaga"`), una asignación simple (`regla = "rafaga"`) y una
+    desempaquetada (`regla, sev = "rafaga", "alta"`).
+    """
+    import ast
+    out: set[str] = set()
+    for n in ast.walk(nodo):
+        if isinstance(n, ast.Dict):
+            for k, v in zip(n.keys, n.values):
+                if (isinstance(k, ast.Constant) and k.value == clave
+                        and isinstance(v, ast.Constant)
+                        and isinstance(v.value, str)):
+                    out.add(v.value)
+        if not isinstance(n, ast.Assign) or not n.targets:
+            continue
+        destino = n.targets[0]
+        if (isinstance(destino, ast.Name) and destino.id == clave
+                and isinstance(n.value, ast.Constant)
+                and isinstance(n.value.value, str)):
+            out.add(n.value.value)
+        if isinstance(destino, ast.Tuple) and isinstance(n.value, ast.Tuple):
+            for t, v in zip(destino.elts, n.value.elts):
+                if (isinstance(t, ast.Name) and t.id == clave
+                        and isinstance(v, ast.Constant)
+                        and isinstance(v.value, str)):
+                    out.add(v.value)
+    return out
+
+
 def _reglas_emitidas() -> dict[str, set[str]]:
-    """Lo que los detectores emiten DE VERDAD, leído del código."""
+    """Lo que los detectores emiten DE VERDAD, leído del código.
+
+    ⚠️ **Antes esto era un regex sobre `_hallazgo("tipo", …, "regla")`**, o sea
+    que solo veía UNA de las formas de escribir un detector: los que arman el
+    dict inline eran invisibles, y por eso cinco declaraban `()` — el guardián
+    los daba por buenos sin haber mirado nada. Ahora se recorre el AST y se
+    emparejan por FUNCIÓN: si una función menciona un solo `tipo`, las reglas
+    que escribe son de ese tipo.
+
+    Al estrenarlo apareció la primera: `tabla_quieta` emitía `sin_escribir` sin
+    declararla.
+    """
+    import ast
     import pathlib
     import re
     from collections import defaultdict
     out = defaultdict(set)
-    for f in pathlib.Path("api/services").glob("*.py"):
+    for f in sorted(pathlib.Path("api/services").glob("*.py")):
+        src = f.read_text(encoding="utf-8")
+        # (a) La forma POSICIONAL: `_hallazgo("tipo", …, "regla")`. Es la que
+        #     usan los detectores de bonos y el AST no la puede emparejar — los
+        #     dos argumentos son posiciones, no claves. Las dos pasadas se SUMAN:
+        #     al reemplazar una por la otra se perdieron seis reglas de golpe.
         for m in re.finditer(r'_hallazgo\(\s*"([a-z_]+)"\s*,\s*[^,]+,\s*"([a-z_]+)"',
-                             f.read_text(encoding="utf-8")):
+                             src):
             out[m.group(1)].add(m.group(2))
+        # (b) La forma DICT, que el regex no veía.
+        try:
+            arbol = ast.parse(src)
+        except SyntaxError:                             # pragma: no cover
+            continue
+        for fn in [n for n in ast.walk(arbol)
+                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+            tipos = _literales(fn, "tipo")
+            # Con dos tipos en la misma función no se puede saber cuál regla es
+            # de cuál, y adivinar sería peor que no mirar.
+            if len(tipos) == 1:
+                out[next(iter(tipos))] |= _literales(fn, "regla")
     return out
 
 

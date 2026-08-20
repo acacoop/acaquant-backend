@@ -36,6 +36,7 @@ from typing import Any
 import requests
 
 import config
+from core import proveedores
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,13 @@ def _login() -> str:
     Reintenta ante 5xx y ante corte de red, NO ante 4xx: un 400/401/403 es un
     problema NUESTRO (credenciales o payload) y machacarles el login con las
     mismas credenciales no lo arregla — puede bloquear la cuenta.
+
+    Cada intento deja constancia de cómo contestó (`core/proveedores`). **Acá es
+    donde se entera el agente de que Aunesa se cayó**, sin una sola llamada extra:
+    los daemons le pegan todo el tiempo, así que un 500 en el login queda anotado
+    en segundos y con el mensaje exacto. `anotar` se auto-limita a una escritura
+    por minuto y nunca levanta, así que llamarlo por intento es gratis. Ver
+    AV_AGENT.md §0.ad.
     """
     faltan = [n for n, v in (("AUNESA_CLIENT_ID", config.AUNESA_CLIENT_ID),
                              ("AUNESA_USERNAME", config.AUNESA_USERNAME),
@@ -82,7 +90,11 @@ def _login() -> str:
     if faltan:
         # Se corta ANTES de la red: sin credenciales no hay nada que probar, y el
         # error tiene que nombrar lo que falta en vez de disfrazarse de caída ajena.
-        raise RuntimeError(f"faltan credenciales de Aunesa en el .env: {', '.join(faltan)}")
+        # Igual se anota: para el agente, "no tenemos la clave" y "se cayó el
+        # proveedor" son dos avisos distintos y los dos hay que darlos.
+        msg = f"faltan credenciales de Aunesa en el .env: {', '.join(faltan)}"
+        proveedores.anotar("aunesa", ok=False, donde="login", error=msg)
+        raise RuntimeError(msg)
 
     ultimo = ""
     for intento in range(1, LOGIN_INTENTOS + 1):
@@ -98,7 +110,7 @@ def _login() -> str:
                 timeout=LOGIN_TIMEOUT_S,
             )
         except requests.exceptions.RequestException as e:
-            ultimo = f"no pude conectarme ({type(e).__name__})"
+            ultimo = f"no pude conectarme ({type(e).__name__}: {e})"
         else:
             if resp.status_code < 400:
                 try:
@@ -106,15 +118,20 @@ def _login() -> str:
                 except ValueError:
                     tok = None
                 if tok:
+                    proveedores.anotar("aunesa", ok=True, donde="login")
                     return tok
                 # 200 sin token = gateway degradado; se reintenta como un 5xx.
-                ultimo = f"HTTP {resp.status_code} sin token"
+                ultimo = f"HTTP {resp.status_code} pero sin token"
             elif resp.status_code < 500:
-                raise RuntimeError(
-                    f"Aunesa /login rechazó las credenciales [{resp.status_code}]: "
-                    f"{resp.text[:200]}")
+                # Credencial nuestra: no se reintenta, pero SÍ se anota — sin el
+                # error textual no se distingue de una caída del proveedor.
+                msg = (f"Aunesa /login rechazó las credenciales "
+                       f"[{resp.status_code}]: {resp.text[:200]}")
+                proveedores.anotar("aunesa", ok=False, donde="login", error=msg)
+                raise RuntimeError(msg)
             else:
                 ultimo = f"HTTP {resp.status_code}"
+        proveedores.anotar("aunesa", ok=False, donde="login", error=ultimo)
         logger.warning("aunesa login falló (%s) intento %d/%d", ultimo, intento, LOGIN_INTENTOS)
         if intento < LOGIN_INTENTOS:
             time.sleep(LOGIN_ESPERAS_S[intento - 1])
@@ -183,9 +200,23 @@ def get(
                 resp = requests.get(
                     url, params=params, headers=auth_headers(force_refresh=True), timeout=timeout,
                 )
+            # El estado se anota acá y no en cada caller: el status ≥400 no
+            # levanta excepción (el caller decide qué tolerar), así que un 500
+            # repetido pasaría entero sin dejar rastro en ningún lado.
+            proveedores.anotar(
+                "aunesa", ok=resp.status_code < 400, donde=f"GET {path}"[:120],
+                error=f"HTTP {resp.status_code} en {path}")
             return resp
         except requests.exceptions.Timeout as e:
             last_err = e
             logger.warning("aunesa GET timeout %s intento %d/%d", path, intento, retries)
             continue
+        except Exception as e:
+            # Conexión rechazada, DNS, TLS: también es el proveedor caído, y sin
+            # esto la única señal sería el traceback de quien haya llamado.
+            proveedores.anotar("aunesa", ok=False, donde=f"GET {path}"[:120],
+                               error=f"{type(e).__name__}: {e}")
+            raise
+    proveedores.anotar("aunesa", ok=False, donde=f"GET {path}"[:120],
+                       error=f"timeout tras {retries} intentos")
     raise requests.exceptions.Timeout(f"aunesa GET {path}: timeout tras {retries} intentos: {last_err}")

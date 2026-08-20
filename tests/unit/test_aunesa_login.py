@@ -29,14 +29,24 @@ class _Resp:
         return self._body
 
 
+ANOTADO: list[tuple[bool, str]] = []
+
+
 @pytest.fixture(autouse=True)
 def _limpio(monkeypatch):
-    """Cada test arranca sin token, sin cortacircuito y sin dormir de verdad."""
+    """Cada test arranca sin token, sin cortacircuito y sin dormir de verdad.
+
+    `proveedores.anotar` se reemplaza por un espía: el de verdad escribe en
+    Postgres, y lo que importa acá es QUÉ se anota, no que se persista.
+    """
     aunesa.reset_estado()
+    ANOTADO.clear()
     monkeypatch.setattr(aunesa.config, "AUNESA_CLIENT_ID", "cid")
     monkeypatch.setattr(aunesa.config, "AUNESA_USERNAME", "user")
     monkeypatch.setattr(aunesa.config, "AUNESA_PASSWORD", "secreta")
     monkeypatch.setattr(aunesa.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(aunesa.proveedores, "anotar",
+                        lambda prov, *, ok, error="", donde="": ANOTADO.append((ok, error)))
     yield
     aunesa.reset_estado()
 
@@ -122,3 +132,26 @@ def test_un_200_sin_token_no_pasa_por_bueno(monkeypatch):
     with pytest.raises(aunesa.AunesaCaido):
         aunesa.auth_headers()
     assert len(llamadas) == aunesa.LOGIN_INTENTOS
+
+
+def test_la_caida_queda_anotada_para_el_agente(monkeypatch):
+    """El aviso del AV AGENT sale de acá (AV_AGENT.md §0.ad): si el login no
+    anota, el back office se entera solo si alguien abre la pantalla."""
+    _postea(monkeypatch, [_Resp(500, texto="Internal Server Error")])
+    with pytest.raises(aunesa.AunesaCaido):
+        aunesa.auth_headers()
+    assert ANOTADO and all(not ok for ok, _ in ANOTADO)
+    assert any("500" in err for _, err in ANOTADO), "el motivo EXACTO, no 'falló'"
+
+
+def test_la_credencial_vencida_se_anota_distinto_de_una_caida(monkeypatch):
+    _postea(monkeypatch, [_Resp(401, texto="unauthorized")])
+    with pytest.raises(RuntimeError):
+        aunesa.auth_headers()
+    assert any("rechazó las credenciales" in err for _, err in ANOTADO)
+
+
+def test_el_login_bueno_anota_el_ok(monkeypatch):
+    _postea(monkeypatch, [_Resp(200, {"token": "T"})])
+    aunesa.auth_headers()
+    assert ANOTADO == [(True, "")]

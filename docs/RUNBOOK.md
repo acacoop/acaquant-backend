@@ -133,7 +133,10 @@ Da un veredicto de cuatro salidas:
 también fallan `jobs.negocio_movimientos`, `jobs.operaciones_informes`,
 `jobs.tenencia_live`, `jobs.control_saldos`, `jobs.portafolio_backfill` y
 `jobs.tesoreria_echeq_recibidos`. Mirar `manager.job_runs` / el AV AGENT antes de
-diagnosticar cada uno por separado: es UNA sola causa.
+diagnosticar cada uno por separado: es UNA sola causa. El agente ya lo canta solo
+(`detectar.proveedor_caido`, `AV_AGENT.md` §0.ad): el registro sale de `_login`, así
+que la caída queda anotada en segundos con el motivo exacto, sin esperar a que
+alguien abra la pantalla.
 
 **Cómo aguanta el código** (`core/aunesa.py`): el login reintenta `LOGIN_INTENTOS`
 veces ante 5xx y corte de red; ante 4xx corta en el primer intento (credencial

@@ -1537,6 +1537,15 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
     tipos_reales = {"falta_en_base", "sin_flujo", "tasa_sospechosa",
                     "hueco_de_curva", "salud", "sin_precio", "precio_moneda",
                     "db_cambio", "latencia", "tabla_quieta", "motor_caido",
+                    # `motor_ruidoso` (2026-08-20) es el hermano de `motor_caido`:
+                    # aquél pregunta si el motor PRODUCE, éste si se está
+                    # rompiendo mientras produce. Lee los logs, que hasta ahora
+                    # no los miraba nadie.
+                    "motor_ruidoso",
+                    # `proveedor_caido` (2026-08-20): los de AFUERA. Aunesa se
+                    # cayó y la única señal era un cartel en Tesorería que solo
+                    # existe con la pantalla abierta.
+                    "proveedor_caido",
                     "permiso_flojo", "dato_partido"}
     assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
         "una clave del mapa no es un TIPO que algún detector emita — "

@@ -2218,6 +2218,137 @@ solo en el próximo arranque. Hasta entonces el diag lo canta: *«ninguna línea
 dice su nivel: este cero no prueba que no haya errores, prueba que no se pueden
 encontrar»*.
 
+#### EL DETECTOR, CALIBRADO CON LA MEDICIÓN (2026-08-20)
+
+Con el lector arreglado, 24 h sobre 14 motores dieron **171 líneas en 6 patrones**:
+
+    ×76 en 3 min    motor_cedears     REST exception JSONDecodeError
+    ×91 en 6.7 h    motor_options     Expiries configuradas ya vencidas
+    ×1              motor_portfolio   ERROR símbolo inexistente, purgo y sigo
+    ×1 ×1 ×1        varios            warn sueltos, todos auto-resueltos
+
+Y ahí se ve lo que no se podía saber antes de medir: **la cuenta sola no
+alcanza.** 76 y 91 son números parecidos y son dos problemas distintos — *76 en
+tres minutos es algo rompiéndose ahora en loop; 91 repartidas en siete horas es
+una configuración rota desde hace días que nadie mira*. Por eso son **dos reglas
+con nombres propios** y no un umbral con dos valores:
+
+| regla | cuándo | severidad |
+|---|---|---|
+| `rafaga` | ≥30 veces en ≤15 min | alta |
+| `machaca` | ≥20 veces en la ventana | alta si es error, media si no |
+| `error_de_motor` | nivel error o peor, aunque sea una vez | media |
+| `no_pude_leer` | el journal no se pudo leer | media |
+
+**Los warn sueltos se descartan a propósito.** En la medición eran tres y los
+tres se anunciaban resolviéndose solos («reconectando (intento 1)», «purgo y
+resuscribo sin ellos»). Reportar eso enseña a cerrar la pantalla sin leerla, y
+con ella se van los avisos que sí importan. El diag los sigue mostrando cuando
+alguien va a buscarlos.
+
+Resultado sobre esos mismos datos: **6 patrones → 3 hallazgos.**
+
+Dos cosas que salieron de escribir los tests con los casos reales, y que no se
+habrían visto de otro modo:
+
+  · **`WARNING · … REST status=ERROR` se clasificaba como ERROR.** La palabra
+    estaba en el *cuerpo* del mensaje, no en el nivel. El nivel es un PREFIJO —lo
+    pone `%(levelname)s` después del timestamp— y buscarlo suelto confunde *el
+    nivel del mensaje* con *el tema del mensaje*. Ahora va anclado. Misma familia
+    que «0 errores», encontrada con datos de producción.
+  · **La forma clasifica, el nivel pesa.** La primera versión probaba
+    `rafaga`/`machaca` antes que el nivel, así que un ERROR repetido 40 veces
+    caía en `machaca` con severidad **media**: el que más repetía era el que
+    menos se veía.
+
+Y de yapa, al reescribir el guardián de reglas (pasó de un regex sobre
+`_hallazgo(...)` a recorrer el AST) apareció que **`tabla_quieta` emitía
+`sin_escribir` sin declararla**: sus votos se contaban sin poder decir por qué
+causa acertó. El regex solo veía UNA de las formas de escribir un detector, así
+que los cinco que arman el dict inline pasaban en verde sin haber sido mirados.
+
+### 0.ad LOS DE AFUERA SE CAEN (2026-08-20)
+
+*«Esto es una funcionalidad que la vi de milagro… sí o sí el agente tiene que
+detectar cuándo esto está caído, avisar y dar el motivo exacto»* (user, con
+Aunesa devolviendo HTTP 500 en su login mientras lo escribía).
+
+**Lo que fallaba no era la detección.** La vista de Tesorería ya captura el error
+de Aunesa, degrada bien —arma la vista con lo que hay y dice qué falta— y muestra
+el mensaje exacto en un cartel rojo. Está bien hecho. Lo que falla es **cuándo**:
+ese cartel existe *solo mientras alguien tiene la pantalla abierta*. Si nadie
+entra, el back office puede pasar la mañana entera creyendo que el saldo del día
+está completo cuando le falta la mitad.
+
+Es el mismo patrón que ya se corrigió con SALUD (§0.l), con la latencia (§0.q) y
+con los detectores que solo imprimían en el log (§0.t): **una señal que te espera
+no es un aviso**.
+
+#### No se pregunta: se deja rastro
+
+La tentación es pegarle cada 5 minutos a cada proveedor. No, por dos razones:
+
+  · **1816 cobra por llamada.** Un health check cada 5 minutos se come la cuota
+    del día antes del mediodía.
+  · **Un health check puede mentir.** Un proveedor que contesta el ping y
+    devuelve 500 en el endpoint que usamos de verdad sale VERDE.
+
+Así que al revés: **cada llamada real deja su rastro** (`core/proveedores.anotar`,
+llamado desde adentro del cliente HTTP). Los daemons ya le pegan a Aunesa todo el
+tiempo, así que una caída queda registrada en segundos, sin una sola llamada
+extra y con el error del endpoint que importa.
+
+Se escribe **solo cuando falla**, y como mucho una vez por minuto por proceso: un
+proveedor sano no cuesta ni una escritura, y una caída de una hora no son miles
+de filas diciendo lo mismo. La recuperación sí se escribe — es lo que apaga el
+aviso rápido en vez de esperar a que venza.
+
+⚠️ Y **el hallazgo VENCE** (20 min). Nadie apaga el registro cuando el proveedor
+se recupera: simplemente dejan de anotarse fallos. Sin ventana, un 500 de la
+semana pasada seguiría en pantalla para siempre (la lección de §0.u).
+
+#### El aviso dice TRES cosas, y las tres hacen falta
+
+    1. QUIÉN se cayó       Aunesa (el custodio)
+    2. QUÉ deja de andar   Tesorería sin los movimientos del día…
+    3. EL MOTIVO EXACTO    HTTPError: 500 Server Error for url: …/login
+
+La 3 es la que lo hace accionable: sin el error textual no se distingue *«se cayó
+el proveedor»* de *«se nos vencieron las credenciales»*, que se resuelven en
+lugares distintos y por personas distintas. La 2 es la que evita que el que lo
+lee tenga que averiguar si eso le arruina el día — por eso cada proveedor declara
+su `rompe` en el catálogo, y hay un test que lo exige.
+
+#### DESDE Y HASTA QUÉ HORA el problema es real
+
+Pedido del user en la misma corrida: *«es fundamental entender desde qué hora
+hasta qué hora el error es real para cada motor»*. Y al mirarlo apareció un
+hueco: **`diagnostico._estado` devuelve `sin_datos` ANTES de mirar la ventana**,
+así que un motor de mercado que nunca escribió salía en ALTA a las 3 de la mañana
+y los sábados. `fuera_rueda` ya estaba cubierto; éste no, porque nunca llegaba a
+compararse contra un umbral.
+
+Ahora cada pieza viaja con su `ventana` y **el hallazgo lo dice en palabras**:
+
+    CUÁNDO ES REAL: corre de 10:00 a 17:05 ART, de lunes a viernes;
+                    ahora son las 14:32 ART y está DENTRO de su ventana:
+                    no es que esté apagado.
+
+El horario se **lee** de `diagnostico._APERTURA`/`_CIERRE`, no se escribe a mano:
+un «10 a 17:05» tipeado en el texto es una segunda verdad que se desactualiza
+sola el día que muevan el horario del mercado (REGLA #9), y hay un test que lo
+impide.
+
+#### Y otro reloj doble, encontrado por los tests
+
+`_recien_abrio` **decía en su docstring** que la hora sale del árbol y el código
+llamaba a `ahora_ar()`. Dos relojes para juzgar UNA foto. Se descubrió porque
+tres tests fallaban **solo entre las 10:00 y las 10:30 ART** — media hora por día
+de rojo intermitente sin causa aparente. Es el mismo bug que tenía
+`salud._chequeo_job` y por el mismo motivo, así que la regla ya se puede escribir
+sola: **cuando algo se evalúa contra una foto, el tiempo tiene que salir de la
+foto**.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

@@ -57,7 +57,10 @@ COLUMNAS = (
     ("Referencia del movimiento", 70),
 )
 
-FMT_NUM = '#,##0.00;[Red]-#,##0.00'
+# Una sola sección, sin sección negativa propia: `'#,##0.00;[Red]-#,##0.00'`
+# imprimía **doble menos** (`--1.915,78`), porque el visor ya antepone el signo al
+# formatear la sección negativa y el formato lo agregaba de nuevo.
+FMT_NUM = "#,##0.00"
 FMT_FECHA = "DD/MM/YYYY"
 
 

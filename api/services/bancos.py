@@ -1074,6 +1074,19 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
             WHERE cuenta_id = %s AND fecha = %s
             ORDER BY numero_extracto, correlativo""", (cuenta_id, fecha))
 
+    # Los gastos bancarios del día, con la MISMA función que la columna del
+    # consolidado y el modal de MOVIMIENTOS. Están acá porque son el caso típico
+    # de «falta en el mayor»: el banco cobra la comisión y el IVA el mismo día y
+    # el sistema contable los registra después, o no los registra.
+    #
+    # ⚠️ El signo es POSITIVO = lo que se llevó el banco, al revés que los
+    # movimientos de la lista (donde un débito va en negativo). Se deja así a
+    # propósito: el número tiene que poder compararse de un vistazo con el de las
+    # otras pantallas, y ahí la pregunta es «cuánto cobró», no «cuánto se movió
+    # el saldo». Sin una sola regla cargada viene vacío y la vista dice «—»: «no
+    # sabemos» y «no hubo gastos» son cosas distintas.
+    gastos = _gastos_bancarios(fecha, _baldes()).get(cuenta_id) or {}
+
     candidatos: list[dict] = []
     truncados = False
     if diferencia is not None and not concilia:
@@ -1183,6 +1196,8 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
         "diferencia": diferencia,
         "concilia": concilia,
         "movimientos_dia": len(movs),
+        "gastos": gastos.get("total"),
+        "gastos_desglose": gastos or None,
         "candidatos": candidatos,
         "candidatos_truncados": truncados,
         # El margen con que se buscó. Un criterio que decide qué se muestra tiene

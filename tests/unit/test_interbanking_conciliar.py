@@ -334,6 +334,54 @@ def test_el_banco_NO_mezcla_debitos_y_creditos_del_mismo_concepto(monkeypatch):
     assert len({m["grupo"] for m in out["banco_movimientos"]}) == 2
 
 
+# ── Los gastos bancarios del día ────────────────────────────────────────────
+# ⚠️ Están en CONCILIAR porque son el caso típico de «falta en el mayor»: el
+# banco cobra comisión + IVA el mismo día y el sistema contable los registra
+# después. Salen de la MISMA función que la columna del consolidado.
+def test_los_gastos_salen_de_la_misma_funcion_que_la_grilla(monkeypatch):
+    s = _svc(monkeypatch, cierre=590_708.12)
+    llamadas: list = []
+
+    def _fake(fecha, baldes):
+        llamadas.append(fecha)
+        return {1: {"total": 18_714.49, "iva": 3_482.49, "com_transf": 15_232.0,
+                    "resto": 0.0}}
+
+    monkeypatch.setattr(s, "_gastos_bancarios", _fake)
+    monkeypatch.setattr(s, "_baldes", lambda: [])
+    out = s.conciliar("x@y", 1, FECHA, GRILLA_VALORES)
+    assert llamadas == [FECHA]
+    assert out["gastos"] == 18_714.49
+    assert out["gastos_desglose"]["iva"] == 3_482.49
+
+
+def test_sin_criterio_cargado_los_gastos_son_NULL_y_no_cero(monkeypatch):
+    """Cero diría «el banco no cobró nada», que es una conclusión que nadie
+    sacó. Sin una sola regla, la vista tiene que decir «—»."""
+    s = _svc(monkeypatch, cierre=590_708.12)
+    monkeypatch.setattr(s, "_gastos_bancarios", lambda fecha, baldes: {})
+    monkeypatch.setattr(s, "_baldes", lambda: [])
+    out = s.conciliar("x@y", 1, FECHA, GRILLA_VALORES)
+    assert out["gastos"] is None
+    assert out["gastos_desglose"] is None
+
+
+def test_los_gastos_NO_tocan_el_total_del_lado_del_banco(monkeypatch):
+    """El desglose es un CORTE TRANSVERSAL de los mismos movimientos, no una
+    parte más que se suma. Si moviera el total, la tabla dejaría de cuadrar con
+    el extracto — que es contra lo que se concilia."""
+    s = _svc(monkeypatch, cierre=590_708.12,
+             movs=[_mov("h1", 3_482.49, "D", "IVA"),
+                   _mov("h2", 1_000_000.0, "C", "N/C - TRANSF")])
+    monkeypatch.setattr(
+        s, "_gastos_bancarios",
+        lambda fecha, baldes: {1: {"total": 3_482.49, "iva": 3_482.49}})
+    monkeypatch.setattr(s, "_baldes", lambda: [])
+    out = s.conciliar("x@y", 1, FECHA, GRILLA_VALORES)
+    assert out["banco_suma"] == 996_517.51
+    assert out["gastos"] == 3_482.49, "el gasto va en POSITIVO: es lo que cobró"
+
+
 # ── Encontrar la explicación cuando no es exacta ────────────────────────────
 # ⚠️ Caso real (2026-08-19): la diferencia daba 1.176.659,79 y el movimiento que
 # la explicaba era de 1.176.659,78. UN CENTAVO. Con igualdad exacta el buscador

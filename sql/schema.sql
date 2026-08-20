@@ -3635,6 +3635,29 @@ CREATE TABLE IF NOT EXISTS bancos.cuentas (
     UNIQUE (bank_number, account_number, account_type, currency)
 );
 
+-- El código de la cuenta en el MAYOR contable (Aunesa
+-- `contabilidad/registrosContables` → `codigoCuenta`, ej. '101010100002').
+--
+-- Va ACÁ y no en una tabla de mapeo aparte porque es otra IDENTIDAD de la misma
+-- cuenta bancaria, no una relación entre dos cosas: una fila = una cuenta real,
+-- con el nombre que le pone Interbanking y el que le pone Contabilidad.
+--
+-- ⚠️ **Se carga a mano y no se puede deducir del nombre.** El mayor la llama
+-- distinto que Interbanking, y de las ~20 cuentas bancarias solo un par traen el
+-- número de cuenta en el nombre (`Banco Patagonia CC 304-100753595-000`); el
+-- resto son `Banco de Valores ARS`, `Banco Patagonia ACDI`, `CVU AL2 ALICUOTA
+-- GENERAL`. Adivinar por nombre mezclaría cuentas del mismo banco —Patagonia
+-- tiene cuatro— y el error recién se vería en el cierre.
+--
+-- ⚠️ El UPSERT de `jobs/interbanking_sync` NO la toca (enumera columnas, igual
+-- que con `origen`): el descubrimiento automático de cuentas no puede borrar un
+-- dato que puso una persona.
+ALTER TABLE bancos.cuentas ADD COLUMN IF NOT EXISTS codigo_contable text;
+-- Parcial: muchas cuentas no tienen mayor asociado y NULL no puede colisionar,
+-- pero dos cuentas con el MISMO código contable sí sería un error de carga.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_bancos_cuentas_codigo_contable
+    ON bancos.cuentas (codigo_contable) WHERE codigo_contable IS NOT NULL;
+
 -- El día del extracto: lo que el BANCO dice que pasó. Es la fila contra la que
 -- se concilia.
 --
@@ -3700,6 +3723,70 @@ CREATE TABLE IF NOT EXISTS bancos.movimientos (
 
 CREATE INDEX IF NOT EXISTS ix_bancos_mov_cuenta_fecha
     ON bancos.movimientos (cuenta_id, fecha);
+
+-- El OTRO lado de la conciliación: lo que el MAYOR contable dice que pasó.
+-- Origen: Aunesa `GET contabilidad/registrosContables` (ver docs/ y
+-- `scripts/diag_registros_contables.py`). Reemplaza al .xlsx que hoy se exporta
+-- a mano de HYGIRUS y se sube en INTERBANKING → CONCILIAR; el archivo sigue
+-- funcionando como origen alternativo del mismo formato interno.
+--
+-- Vive en el schema `bancos` y no en uno de contabilidad porque **solo guarda
+-- cuentas BANCARIAS**: de los ~23.600 movimientos diarios del mayor (101 cuentas
+-- contables) las bancarias son ~20 cuentas y un puñado de movimientos. El resto
+-- —comitentes, IVA, aranceles, regularizadoras— no se guarda.
+--
+-- ⚠️ **`fecha_conciliacion`, NO `fecha_alta`.** Medido el 2026-08-20: el rango
+-- `fechaDesde`/`fechaHasta` de la API filtra por la fecha de CONCILIACIÓN, y
+-- pidiendo el 19/08 vuelven asientos con `fecha_alta` del 20/08 (se cargan al día
+-- siguiente). Usar `fecha_alta` correría todo un día — y un día corrido acá no se
+-- lee como un bug, se lee como una diferencia de conciliación.
+--
+-- ⚠️ **El día NO está cerrado: se REEMPLAZA entero en cada corrida.** Medido: el
+-- 19/08 pasó de 1.840 a 1.847 asientos (23.405 → 23.600 movimientos) entre dos
+-- consultas del mismo día siguiente. Siguen cargando asientos, y también anulan.
+-- Por eso el refresco es `DELETE WHERE fecha_conciliacion = $1` + insert, y NO un
+-- UPSERT: con upsert, un asiento anulado durante la rueda quedaría de fantasma y
+-- el saldo del mayor saldría inflado sin que nada lo delate.
+--
+-- No hay tabla de saldos del mayor a propósito: el saldo de apertura sale del
+-- cierre del día anterior que ya persiste `bancos.extracto_dia`, y el cierre del
+-- mayor se calcula al vuelo (apertura + suma de estos movimientos). Guardarlo
+-- sería una segunda verdad para el mismo número.
+CREATE TABLE IF NOT EXISTS bancos.mayor_movimientos (
+    movimiento_id       text PRIMARY KEY,      -- `movimientoID` de Aunesa
+    asiento_id          text,
+    asiento_numero      text,                  -- columna «Asiento» del mayor (negativa)
+    fecha_conciliacion  date NOT NULL,
+    fecha_alta          date,
+    codigo_cuenta       text NOT NULL,         -- `codigoCuenta`, ej. '101010100002'
+    cuenta_id           bigint NOT NULL REFERENCES bancos.cuentas(id),
+    moneda              text,                  -- `codigoUnidad`, ej. 'ARS'
+    importe             numeric NOT NULL,      -- `valuacion` FIRMADA = Debe − Haber
+    concepto            text,                  -- referencia del ASIENTO: la que agrupa `_grupo_mayor`
+    comprobante         text,
+    numero_operacion    text,
+    referencia_mov      text,
+    actualizado_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_bancos_mayor_fecha_cuenta
+    ON bancos.mayor_movimientos (fecha_conciliacion, cuenta_id);
+
+-- Cada corrida del refresco del mayor. Mismo motivo que `bancos.sync_log`: sin
+-- esto no se puede contestar «¿se actualizó?», y una vista que muestra el mayor
+-- de anteayer como si fuera el de hoy es peor que una vista vacía.
+CREATE TABLE IF NOT EXISTS bancos.mayor_sync_log (
+    id                 bigserial PRIMARY KEY,
+    corrida_at         timestamptz NOT NULL DEFAULT now(),
+    fecha_conciliacion date NOT NULL,
+    asientos_api       integer,   -- lo que devolvió la API (todas las cuentas)
+    movimientos_api    integer,
+    movimientos_banco  integer,   -- los que quedaron guardados (solo mapeadas)
+    cuentas_sin_mapear integer,   -- códigos sin `codigo_contable` en bancos.cuentas
+    segundos           numeric,
+    ok                 boolean NOT NULL DEFAULT true,
+    error              text
+);
 
 -- Cada corrida del job, cuenta por cuenta. Sin esto no hay forma de saber que
 -- un día NO se sincronizó — que es exactamente el agujero del incidente del

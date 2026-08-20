@@ -631,7 +631,6 @@ def vista() -> dict:
     # rueda. El voto mide al AGENTE, no al día — repetirlo no agrega un dato y
     # convierte la pantalla en un formulario que hay que llenar de nuevo todas
     # las mañanas. UNA query para toda la lista.
-    from api.services import av_agent_evals
     votados = av_agent_evals.ya_votados()
 
     por_tipo: dict[str, int] = {}
@@ -646,6 +645,13 @@ def vista() -> dict:
         if voto is not None:
             h["ya_votado"] = True
             h["voto"] = voto
+        # ⚠️ **POR QUÉ NO HAY BOTÓN** (§0.ap). Una fila sin acción y sin
+        # explicación se lee como que el agente no sabe qué hacer con lo que él
+        # mismo encontró. Se DERIVA en la lectura: el día que un tipo consiga su
+        # puerta, los hallazgos ya guardados la heredan solos.
+        pu = av_agent.puerta(h.get("tipo") or "")
+        if not pu["hay"]:
+            h["sin_puerta"] = pu
 
     return {
         "corrida_at": corrida_at,
@@ -664,6 +670,11 @@ def vista() -> dict:
         "hallazgos": hallazgos,
         "por_tipo": por_tipo,
         "por_regla": por_regla,
+        # **CUÁNTO DE LO QUE VE, PUEDE RESOLVER** — y qué pared conviene romper
+        # primero, ordenada por cuántas veces aparece. Es la medición que le
+        # faltaba al agente sobre sí mismo: sin ella, la única forma de saber
+        # cuál era la peor era que alguien se hartara de verla (§0.ap).
+        "cobertura": av_agent.cobertura(hallazgos),
         "preguntas": [p for p in abiertas if p["tipo"] != "decision"],
         "decisiones": [p for p in abiertas if p["tipo"] == "decision"],
         "decididas": _decididas(),

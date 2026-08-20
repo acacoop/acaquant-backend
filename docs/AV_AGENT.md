@@ -3054,6 +3054,64 @@ Tres cosas mal en cuatro renglones:
 El «qué se rompe» y el detalle de la prueba siguen en la evidencia para el que
 abra el detalle — lo que salió es el renglón, no el dato.
 
+### 0.ap LAS PUERTAS: cuánto de lo que ve, puede resolver (2026-08-20)
+
+**El paso de arquitectura que dictó el caso BOPREAL** (§0.am). Un hallazgo sin
+arreglo posible no es un aviso: es una **pared**, y una pared que aparece todas
+las ruedas enseña a ignorar la lista entera.
+
+Pero para atacar paredes hay que poder **contarlas**, y no se podía:
+`ACCION_POR_TIPO` decía `None` para **12 de 18 tipos**, mezclando cuatro cosas
+que no se parecen en nada.
+
+| se veía igual | pero es | ¿deuda? |
+|---|---|---|
+| `hueco_de_curva` | se acciona por OTRA vía (ME PREGUNTA) | no |
+| `recuperado` · `respuesta` | una BUENA NOTICIA: no hay qué arreglar | no |
+| `dato_partido` · `permiso_flojo` | se decidió NO automatizar, a propósito | no |
+| `motor_caido` · `tabla_quieta` · `cron_desalineado` | se arregla AFUERA y **se podría cerrar** | **SÍ** |
+
+Los cuatro eran la misma fila sin botón. Por eso **la única forma de saber que
+`pata_equivocada` era la pared más cara fue que alguien se hartara de verla** —
+después de 17 votos.
+
+#### Qué cambia al declarar el motivo
+
+  1. **La pantalla dice por qué no hay botón.** Una fila muda se lee como que el
+     agente no sabe qué hacer con lo que él mismo encontró; una que dice «se
+     arregla relanzando el job» es información.
+  2. **El agente mide su propia cobertura** y ordena la deuda **por volumen** —
+     cuánto ruido hace cada pared. Arreglar la que sale 48 veces vale más que la
+     que sale una, y eso es un número, no una corazonada.
+
+`SIN_PUERTA` se DECLARA (igual que `DE_QUIEN` y `DOMINIO_EVAL`) y **un test exige
+que todo tipo sin acción esté ahí**: un tipo nuevo no puede volverse otra fila
+muerta en silencio. Un tipo desconocido cae **del lado de la deuda** a propósito
+— asumir «no se puede» escondería el hueco justo cuando nadie lo declaró.
+
+⚠️ **La deuda NO es «todo lo sin puerta»**, y mezclarlos daba una cobertura
+falsamente mala: nadie sabría cuál de los dos números mirar. Se agrupa por
+**REGLA** y no por tipo, porque la regla es la unidad que se convierte en acción
+(fue `pata_equivocada`, no `precio_moneda`).
+
+    python -m scripts.diag_puertas
+
+#### Lo que la medición ya sugiere
+
+Con una mezcla parecida a la de la pantalla de hoy (**simulada, no medida contra
+prod**): ~89% con puerta, y **toda la deuda restante es la misma capacidad** —
+`sin_escribir`, `machaca` y `sin_producir` piden las tres *relanzar algo*.
+
+> O sea que la próxima puerta no es de bonos: es **una sola capacidad —relanzar
+> un job o un motor— que cierra la deuda entera de una**. Eso es exactamente lo
+> que esta medición existe para decir, y es lo contrario de lo que uno elegiría
+> mirando la pantalla, donde lo que abunda son los bonos.
+
+El número real sale de correr el diag contra la corrida de prod. Y esa puerta
+tiene su propia condición, ya escrita en `ACCION_POR_TIPO`: relanzar tiene
+efectos afuera de `mercado.curvas`, así que **se habilita cuando el eval set diga
+que el diagnóstico acierta** — primero ver, después simular, después escribir.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

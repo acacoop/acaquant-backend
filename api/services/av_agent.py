@@ -210,6 +210,122 @@ def reemplazar_hallazgos(alcance: str, hallazgos: list[dict]) -> int:
 #
 # **NO se persiste, se deriva en la lectura**: el día que un tipo se vuelva
 # accionable, los hallazgos ya guardados lo heredan solos.
+# ── POR QUÉ UN TIPO NO TIENE PUERTA — y cuál de esos es DEUDA ───────────────
+#
+# **El paso que faltaba, y lo dictó el caso BOPREAL** (§0.am). Un hallazgo sin
+# arreglo posible no es un aviso: es una pared, y una pared que aparece todos los
+# días enseña a ignorar la lista entera. Pero para atacar las paredes hay que
+# poder CONTARLAS, y `ACCION_POR_TIPO` decía `None` para doce tipos mezclando
+# cosas que no se parecen en nada:
+#
+#     hueco_de_curva   se acciona por OTRA vía (ME PREGUNTA)     → no es deuda
+#     recuperado       es una BUENA NOTICIA, no hay qué arreglar → no es deuda
+#     dato_partido     se decidió NO automatizar, a propósito    → no es deuda
+#     motor_caido      se arregla AFUERA (el job, el motor)      → **DEUDA**
+#
+# Los cuatro se veían igual: una fila sin botón. Así, la única forma de saber que
+# `pata_equivocada` era la pared más cara era que alguien se hartara de verla —
+# que es exactamente cómo nos enteramos, después de 17 votos.
+#
+# Declarar el MOTIVO convierte eso en dos cosas que antes no existían:
+#
+#   1. la pantalla puede decir **por qué** no hay botón, en vez de dejar una fila
+#      muerta que se lee como «el agente no sabe qué hacer»;
+#   2. el agente puede **medir su propia cobertura** y ordenar la deuda por
+#      VOLUMEN — cuánto ruido hace cada pared en la pantalla. Arreglar la que
+#      sale 48 veces vale más que la que sale una, y eso es un número, no una
+#      corazonada.
+#
+# Igual que `ACCION_POR_TIPO` y `DE_QUIEN`: se DECLARA, y un test exige que todo
+# tipo sin acción esté acá. Un tipo nuevo no puede volverse otra fila muerta en
+# silencio.
+OTRA_VIA, BUENA_NOTICIA, AFUERA, A_PROPOSITO = (
+    "otra_via", "buena_noticia", "afuera", "a_proposito")
+
+# Solo UNA de las cuatro clases es deuda: la que se podría cerrar y no está.
+CLASE_ES_DEUDA = {OTRA_VIA: False, BUENA_NOTICIA: False,
+                  AFUERA: True, A_PROPOSITO: False}
+
+SIN_PUERTA: dict[str, tuple[str, str]] = {
+    "hueco_de_curva": (OTRA_VIA,
+                       "se crea desde ME PREGUNTA, no con un botón acá"),
+    "recuperado": (BUENA_NOTICIA, "algo volvió: no hay nada que arreglar"),
+    "respuesta": (BUENA_NOTICIA, "es el cierre de una acción ya aplicada"),
+    "db_cambio": (OTRA_VIA, "es contexto de la base: se mira, no se acciona"),
+    # ⚠️ Estos CUATRO son la deuda real: tienen un arreglo concreto que el agente
+    # todavía no puede ejecutar. Nombrarlo es lo que los pone en la fila para
+    # construirse, en vez de ser «cosas que el agente no arregla».
+    "motor_caido": (AFUERA, "relanzar el motor o su job"),
+    "motor_ruidoso": (AFUERA, "arreglar la config o el código del motor"),
+    "tabla_quieta": (AFUERA, "relanzar el job que escribe esa tabla"),
+    "cron_desalineado": (AFUERA, "instalar el crontab del repo en la máquina"),
+    "latencia": (AFUERA, "el endpoint se optimiza en su código"),
+    "proveedor_caido": (A_PROPOSITO,
+                        "se arregla del otro lado: no hay nada que apretar acá"),
+    "permiso_flojo": (A_PROPOSITO,
+                      "un gate se cambia en el router, con revisión humana"),
+    "dato_partido": (A_PROPOSITO,
+                     "pisar una copia borra la prueba de que hubo divergencia"),
+}
+
+
+def puerta(tipo: str) -> dict:
+    """Qué se puede hacer con este tipo, y si no se puede, POR QUÉ.
+
+    Lo consume la pantalla: una fila sin botón y sin explicación se lee como que
+    el agente no sabe qué hacer con lo que él mismo encontró.
+    """
+    t = (tipo or "").strip()
+    accion = ACCION_POR_TIPO.get(t)
+    if accion:
+        return {"hay": True, "accion": accion}
+    clase, porque = SIN_PUERTA.get(t, (AFUERA, "todavía no tiene puerta"))
+    return {"hay": False, "clase": clase, "porque": porque,
+            "es_deuda": CLASE_ES_DEUDA.get(clase, True)}
+
+
+def cobertura(hallazgos: list[dict]) -> dict:
+    """**Cuánto de lo que el agente ve, el agente puede resolver.**
+
+    Y sobre todo: **qué pared conviene romper primero**, ordenada por cuántas
+    veces aparece. Ese ranking es el que habría cantado `pata_equivocada` semanas
+    antes — no hacía falta que alguien se hartara, hacía falta contarlo.
+
+    Función PURA: recibe los hallazgos y no toca la base.
+    """
+    con, sin, deuda = 0, 0, 0
+    por_regla: dict[str, dict] = {}
+    for h in hallazgos or []:
+        p = puerta(h.get("tipo") or "")
+        if p["hay"]:
+            con += 1
+            continue
+        sin += 1
+        if not p["es_deuda"]:
+            continue
+        deuda += 1
+        # Se agrupa por REGLA y no por tipo: la regla es la unidad que después se
+        # convierte en una acción (fue `pata_equivocada`, no `precio_moneda`).
+        k = (h.get("regla") or h.get("tipo") or "?").strip()
+        d = por_regla.setdefault(k, {"regla": k, "tipo": h.get("tipo"),
+                                     "veces": 0, "que_falta": p["porque"],
+                                     "ejemplos": []})
+        d["veces"] += 1
+        if len(d["ejemplos"]) < 3:
+            d["ejemplos"].append(h.get("ticker"))
+    total = con + sin
+    return {
+        "total": total, "con_puerta": con, "sin_puerta": sin,
+        # Lo que se PODRÍA cerrar. El resto de los «sin puerta» no es deuda:
+        # contarlos juntos daría una cobertura falsamente mala y nadie sabría
+        # cuál de los dos números mirar.
+        "deuda": deuda,
+        "pct": round(100 * con / total) if total else None,
+        # El ranking: la pared más cara primero.
+        "paredes": sorted(por_regla.values(), key=lambda x: -x["veces"]),
+    }
+
+
 ACCION_POR_TIPO = {
     "falta_en_base": "alta",    # el bono no existe → se crea entero
     "sin_flujo": "flujos",      # el bono existe → se completa el cronograma

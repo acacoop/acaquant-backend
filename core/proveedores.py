@@ -95,6 +95,53 @@ def de_url(url: str) -> str | None:
     return None
 
 
+def mirar(resp, proveedor: str = "aunesa", donde: str = "") -> None:
+    """Deja el rastro a partir de una respuesta de `requests`. **Nunca levanta.**
+
+    ⚠️ **POR QUÉ HACE FALTA, y lo que costó no tenerlo** (2026-08-20): el AuM no
+    se escribió ese día — `jobs/portafolio_backfill` murió con un `500` de Aunesa
+    a las 11:00. Y el detector de caídas **no vio nada**, porque ese job le pega
+    a Aunesa con su propio `requests` en vez del cliente único, así que su fallo
+    no dejaba rastro en esta tabla. Sin rastro no hay `proveedor_caido`, y sin
+    eso el aviso decía «la última corrida falló» sin decir por qué.
+
+    Migrar los cuatro clientes sueltos a `core/aunesa` es lo correcto y es otro
+    trabajo. Esto es la parte que se puede hacer hoy sin tocar su lógica: una
+    línea por llamada, y un test que exige que ningún módulo que le hable a un
+    proveedor se quede mudo.
+    """
+    try:
+        codigo = int(getattr(resp, "status_code", 0) or 0)
+    except (TypeError, ValueError):
+        return
+    if not codigo:
+        return
+    anotar(proveedor, ok=codigo < 400, error=f"HTTP {codigo}",
+           donde=donde or _ruta(getattr(resp, "url", "")))
+
+
+def rastrear(session, proveedor: str = "aunesa") -> None:
+    """Engancha `mirar` a TODAS las respuestas de una `requests.Session`.
+
+    Preferible a llamar `mirar` en cada lugar: una función nueva en ese módulo
+    queda cubierta sin que nadie se acuerde de nada.
+    """
+    def _hook(resp, *_a, **_k):
+        mirar(resp, proveedor)
+        return None                 # devolver algo REEMPLAZARÍA la respuesta
+
+    try:
+        session.hooks.setdefault("response", []).append(_hook)
+    except Exception as e:                      # una Session rara no rompe el job
+        logger.debug("proveedores: no pude enganchar el rastro (%s)", e)
+
+
+def _ruta(url: str) -> str:
+    """`https://aca.aunesa.com/Irmo/api/login?x=1` → `/Irmo/api/login`."""
+    u = (url or "").split("://", 1)[-1]
+    return ("/" + u.split("/", 1)[1].split("?")[0]) if "/" in u else ""
+
+
 def anotar(proveedor: str, *, ok: bool, error: str = "", donde: str = "") -> None:
     """Deja constancia de cómo contestó. **Nunca levanta.**
 

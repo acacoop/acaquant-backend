@@ -9,6 +9,7 @@ import requests
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import config
+from core import proveedores
 
 AUTH_URL = "https://aca.aunesa.com/Irmo/api/login"
 OPS_URL  = "https://aca.aunesa.com/Irmo/api/operaciones/consolidadosGenerales"
@@ -27,6 +28,9 @@ def autenticar():
         headers={"Content-Type": "application/json"},
         timeout=10,
     )
+    # El rastro para el detector de caídas (§0.an): este módulo NO pasa por
+    # `core/aunesa`, así que sin esto su fallo es invisible para el agente.
+    proveedores.mirar(resp)
     resp.raise_for_status()
     token = resp.json().get("token")
     return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
@@ -57,6 +61,7 @@ def fetch_dia(dia_str, headers):
         print("⚠️  Token expirado, re-autenticando...", flush=True)
         headers = autenticar()
         resp = requests.get(OPS_URL, params=params, headers=headers, timeout=30)
+    proveedores.mirar(resp)
     if resp.status_code == 400:
         print(f"\n🔍 Respuesta 400 para {dia_str}: {resp.text[:500]}", flush=True)
     resp.raise_for_status()

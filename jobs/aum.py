@@ -20,6 +20,7 @@ import requests
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import config
+from core import proveedores
 
 AUTH_URL     = "https://aca.aunesa.com/Irmo/api/login"
 LISTADO_URL  = "https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas"
@@ -31,6 +32,14 @@ POSICION_URL = "https://aca.aunesa.com/Irmo/api/cuentas/{}/posicionValuada"
 # primer request. requests.Session es thread-safe (docs). Compartido
 # entre el ThreadPoolExecutor de 4 workers sin issues.
 _SESSION = requests.Session()
+
+# ⚠️ **EL RASTRO DE CÓMO CONTESTA AUNESA** (2026-08-20). Este módulo NO pasa por
+# `core/aunesa`, así que sus fallos eran invisibles para el detector de caídas:
+# el 2026-08-20 el AuM no se escribió por un `500` y el agente no supo decir por
+# qué. Va en la SESSION y no en cada llamada — una función nueva acá queda
+# cubierta sin que nadie se acuerde. `anotar` viene con throttle adentro, así
+# que las ~1800 requests del backfill no escriben ~1800 filas.
+proveedores.rastrear(_SESSION, "aunesa")
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────

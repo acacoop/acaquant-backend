@@ -153,4 +153,38 @@ def de_quien_depende(nombre: str) -> frozenset[str]:
                       limpio):
         if candidato in grafo:
             return proveedores_de(candidato)
-    return frozenset()
+
+    # ⚠️ **EL LABEL DEL CRON NO ES EL NOMBRE DEL MÓDULO** (2026-08-20). SALUD
+    # nombra sus chequeos `job:<label del crontab>`, y ese label es libre:
+    # `portafolio_diario` corre `jobs.portafolio_backfill`, y un `*_chain` corre
+    # VARIOS módulos. Por eso `de_quien_depende("job:portafolio_diario")` daba
+    # vacío y la correlación no ataba el cabo — justo el caso que la motivó:
+    #
+    #     proveedor_caido   Aunesa no responde
+    #     salud_job         portafolio_diario: la última corrida falló
+    #
+    # El AuM no se escribió el 2026-08-20 por un 500 de Aunesa y el aviso no
+    # decía por qué. La traducción label → módulos ya existe en `jobs_catalogo`
+    # (que parsea el crontab): se DELEGA, no se copia.
+    return _por_el_crontab(limpio)
+
+
+def _por_el_crontab(label: str) -> frozenset[str]:
+    """Un label del crontab → de qué dependen TODOS los módulos que corre.
+
+    Un `*_chain` es una sola línea con varios `-m jobs.x`: si cualquiera de ellos
+    le pega a un proveedor, la corrida entera depende de ese proveedor.
+    """
+    try:
+        from api.services import jobs_catalogo
+        crons = jobs_catalogo._parse_crontab()
+    except Exception as e:                      # el catálogo no puede tumbar esto
+        logger.debug("dependencias: sin crontab (%s)", e)
+        return frozenset()
+    out: set[str] = set()
+    for c in crons:
+        if (c.get("label") or "").strip() != label:
+            continue
+        for mod in c.get("modules") or []:
+            out |= proveedores_de(mod)
+    return frozenset(out)

@@ -2929,6 +2929,72 @@ que no va a llegar hasta el próximo reinicio.
     curar. Ahora delega, y cuando no encuentra corridas dice «no hay corridas con
     ese nombre», no «nunca corrió».
 
+### 0.an EL AuM NO SE ESCRIBIÓ Y EL AGENTE NO SUPO DECIR POR QUÉ (2026-08-20)
+
+El diag del crontab (§0.al), en su segunda corrida, trajo esto:
+
+    aum   ✖ 20/08 11:00 error · HTTPError: 500 Server Error for url: https://aca.aunesa.co…
+
+**`aum` es `jobs/portafolio_backfill --diario`: el writer de `portafolio.tenencia`,
+la fuente única del AuM.** Ese día no escribió. Es el incidente del 2026-08-07
+otra vez —el backfill falla y nadie se entera— salvo que ahora se vio.
+
+Y lo que importa es **por qué el agente no lo cantó con su causa**, porque las
+dos piezas para hacerlo ya existían. Había DOS eslabones rotos, cada uno
+suficiente para romper la cadena solo.
+
+#### 1) El fallo no dejaba rastro
+
+`jobs/aum.py` le pega a Aunesa con **su propio `requests.Session()`** — nunca
+pasa por `core/aunesa`, que es donde vive el `proveedores.anotar()`. O sea que
+para el detector de caídas ese 500 **no ocurrió**: sin rastro no hay
+`proveedor_caido`, y sin eso no hay nada que correlacionar.
+
+Son cuatro los clientes sueltos y estaban declarados en el propio comentario de
+`core/dependencias` como deuda conocida. Migrarlos a `core/aunesa` sigue siendo
+lo correcto y es otro trabajo; lo que se hizo hoy es que **dejen el rastro**:
+
+  · **`jobs/aum.py`** engancha `proveedores.rastrear(_SESSION)` — el hook va en
+    la SESSION, no en cada llamada, así una función nueva en ese módulo queda
+    cubierta sin que nadie se acuerde. El throttle de `anotar` ya evita que las
+    ~1800 requests del backfill escriban 1800 filas.
+  · Los otros tres usan `requests` suelto → una línea `proveedores.mirar(resp)`
+    en el login y en la llamada principal.
+
+⚠️ **Y la guarda, que es lo que hace que no vuelva**: un test escanea el repo
+buscando quién menciona `aca.aunesa.com` y **exige** que ese módulo pase por
+`core/aunesa` o llame a `mirar`. Un cliente suelto más, mañana, deja de ser un
+punto ciego silencioso y pasa a ser un test rojo. (Con su propio test de que el
+escaneo sigue encontrando los cuatro — un parametrizado sobre una lista vacía
+pasa en verde sin mirar nada.)
+
+#### 2) La correlación no reconocía el nombre
+
+SALUD nombra sus chequeos **`job:<label del crontab>`**, y ese label es libre:
+`portafolio_diario` corre `jobs.portafolio_backfill`. El grafo de dependencias
+se arma con nombres de MÓDULO, así que `de_quien_depende("job:portafolio_diario")`
+devolvía **vacío** — y la pantalla seguía mostrando exactamente lo que §0.af vino
+a arreglar:
+
+    proveedor_caido   Aunesa no responde
+    salud_job         portafolio_diario: la última corrida falló
+
+La traducción label → módulos ya existía en `jobs_catalogo` (parsea el crontab).
+Se **delega**, no se copia. Ahora resuelve también las cadenas: `negocio_chain`
+es una línea con varios `-m jobs.x`, y si cualquiera le pega a un proveedor, la
+corrida entera depende de ese proveedor.
+
+> Las dos mitades del arreglo tienen la misma forma: **el dato ya estaba y nadie
+> lo cruzaba.** El 500 lo vio `requests`, el mapeo lo tenía `jobs_catalogo`. Lo
+> que faltaba era que cada uno se lo contara al otro.
+
+#### Y `controles_datos`, que moría todas las noches
+
+Importaba `core/ai_resumen`, borrado el 2026-08-19 con el copiloto. Corría los 20
+controles y explotaba con `ModuleNotFoundError` **al final**: calculaba todo y no
+persistía ni avisaba nada. No se reemplaza por otra IA — rige §0.k: *una tarea de
+IA existe solo si alguien lee su salida*.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

@@ -116,3 +116,38 @@ def test_una_pieza_DESCONOCIDA_no_inventa_dependencias():
     caída al job equivocado."""
     assert dep.de_quien_depende("job:no_existe_este") == frozenset()
     assert dep.de_quien_depende("") == frozenset()
+
+
+# ── EL LABEL DEL CRON, que era el eslabón roto (2026-08-20) ──────────────────
+
+def test_el_hallazgo_de_SALUD_llega_con_el_LABEL_y_igual_se_resuelve():
+    """**El caso que motivó toda la correlación, y que no funcionaba.**
+
+    SALUD nombra sus chequeos `job:<label del crontab>`, y ese label es libre:
+    `portafolio_diario` corre `jobs.portafolio_backfill`. Como el grafo se arma
+    con nombres de MÓDULO, `de_quien_depende("job:portafolio_diario")` daba vacío
+    y la pantalla seguía mostrando las dos cosas sueltas:
+
+        proveedor_caido   Aunesa no responde
+        salud_job         portafolio_diario: la última corrida falló
+
+    El 2026-08-20 el AuM no se escribió por un 500 de Aunesa y el aviso no lo
+    decía. La traducción label → módulos ya existía en `jobs_catalogo`.
+    """
+    from core.dependencias import de_quien_depende
+    assert "aunesa" in de_quien_depende("job:portafolio_diario")
+    assert "aunesa" in de_quien_depende("portafolio_diario")
+
+
+def test_una_CADENA_hereda_la_dependencia_de_cualquiera_de_sus_modulos():
+    """`negocio_chain` es UNA línea de cron con varios `-m jobs.x`. Si cualquiera
+    le pega a un proveedor, la corrida entera depende de ese proveedor."""
+    from core.dependencias import de_quien_depende
+    assert "aunesa" in de_quien_depende("job:negocio_chain")
+
+
+def test_un_label_INVENTADO_no_devuelve_nada():
+    """Sin candidato NO se inventa: atribuir la caída al job equivocado es peor
+    que no correlacionar."""
+    from core.dependencias import de_quien_depende
+    assert de_quien_depende("job:esto_no_existe_en_ningun_lado") == frozenset()

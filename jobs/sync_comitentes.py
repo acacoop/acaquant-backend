@@ -33,6 +33,7 @@ from datetime import UTC, datetime
 import requests
 
 import config
+from core import proveedores
 from core.doc_fiscal import parse_titular
 from core.job_runs import JobRunLogger
 from core.postgres import get_job_pool
@@ -80,6 +81,9 @@ def _auth() -> dict[str, str]:
         headers={"Content-Type": "application/json"},
         timeout=15,
     )
+    # El rastro para el detector de caídas (§0.an): este módulo NO pasa por
+    # `core/aunesa`, así que sin esto su fallo es invisible para el agente.
+    proveedores.mirar(r)
     r.raise_for_status()
     return {"Content-Type": "application/json", "Authorization": f"Bearer {r.json().get('token')}"}
 
@@ -156,6 +160,7 @@ def _sync_propia(headers: dict) -> list[tuple]:
     Comercial). operaciones_informes las suma a su universo para ingestar sus boletos.
     Devuelve [(id_cuenta, denominacion)]."""
     r = requests.get(LISTADO_URL, headers=headers, params={"tipoCuenta": "Propia"}, timeout=180)
+    proveedores.mirar(r)
     r.raise_for_status()
     data = r.json()
     if isinstance(data, dict):
@@ -177,6 +182,7 @@ def run(*, include_all: bool = False, dry_run: bool = False) -> None:
         headers = _auth()
         params = {} if include_all else {"tipoCuenta": "Comitente"}
         r = requests.get(LISTADO_URL, headers=headers, params=params, timeout=180)
+        proveedores.mirar(r)
         r.raise_for_status()
         data = r.json()
         if isinstance(data, dict):

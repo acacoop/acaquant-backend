@@ -409,7 +409,12 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado",
     try:
         crudas = traer_crudas(dia, TODOS_ESTADOS)
     except Exception as e:
-        aunesa_error = f"{type(e).__name__}: {e}"[:300]
+        # `AunesaCaido` ya viene escrito en criollo y DICE de quién es la culpa; el
+        # resto se muestra con su tipo, que ahí sí puede ser un problema nuestro.
+        # Sin esta distinción el tooltip mostraba `HTTPError: 500 Server Error…` y el
+        # back office reportaba "Tesorería tira 500" por un 500 que devuelve Aunesa.
+        aunesa_error = (str(e) if isinstance(e, aunesa.AunesaCaido)
+                        else f"{type(e).__name__}: {e}")[:300]
         _log.warning("tesoreria: Aunesa no responde, sirvo la vista sin sus movimientos",
                      exc_info=True)
         crudas = []

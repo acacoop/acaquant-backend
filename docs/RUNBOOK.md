@@ -103,6 +103,46 @@ Jobs que mueven plata / críticos: `portafolio_backfill --diario` (11 UTC, tenen
 
 ---
 
+## 🟠 Tesorería dice "AUNESA CAÍDO" / error 500 del custodio
+
+**Síntoma:** Back Office → Tesorería muestra el punto en ROJO con **AUNESA
+CAÍDO**, y el tooltip trae algo como `500 Server Error … /Irmo/api/login`. Los
+ingresos, los egresos y el saldo final quedan incompletos; todo lo cargado a mano
+(saldos, cheques, mercados, banco a banco, registros, VEPs) sigue estando.
+
+**Lo primero: ese 500 NO es nuestro.** Lo devuelve `POST /login` de Aunesa, o sea
+el servidor del custodio. Nuestra API contesta 200 y degrada a propósito
+(`aunesa_ok: false`) — si nuestra API estuviera rota la vista diría "sin conexión"
+o tiraría 502, que es otro cartel. Ya pasó dos veces: 2026-08-07/09 y 2026-08-20.
+
+**Paso 1 — medir de quién es** (read-only, no escribe nada, no imprime la clave):
+```
+python -m scripts.diag_aunesa
+```
+Da un veredicto de cuatro salidas:
+- **es de ELLOS** (5xx en todos los intentos) → no hay nada que tocar acá. Avisarle
+  al custodio y esperar; la vista se recupera sola.
+- **INTERMITENTE** (algunos entran) → `core/aunesa.py` ya reintenta; se recupera solo.
+- **es NUESTRO / credenciales** (400/401/403, o falta una `AUNESA_*` en el `.env`) →
+  pedir la credencial nueva y actualizar el `.env`. **No reintentar en loop:
+  bloquean la cuenta.**
+- **Aunesa responde BIEN** y la vista igual dice caído → es el cortacircuito del
+  proceso (dura 45s). Esperá un refresh; si sigue, `systemctl restart api.service`.
+
+**Paso 2 — qué más se ve afectado.** Aunesa es el custodio: si su login está abajo,
+también fallan `jobs.negocio_movimientos`, `jobs.operaciones_informes`,
+`jobs.tenencia_live`, `jobs.control_saldos`, `jobs.portafolio_backfill` y
+`jobs.tesoreria_echeq_recibidos`. Mirar `manager.job_runs` / el AV AGENT antes de
+diagnosticar cada uno por separado: es UNA sola causa.
+
+**Cómo aguanta el código** (`core/aunesa.py`): el login reintenta `LOGIN_INTENTOS`
+veces ante 5xx y corte de red; ante 4xx corta en el primer intento (credencial
+nuestra); y detrás hay un cortacircuito de `FALLO_TTL_S` para que cada poll de la
+vista no vuelva a pagar la tanda entera. El error que sube es `AunesaCaido`, con el
+motivo escrito en criollo — es lo que muestra el tooltip.
+
+---
+
 ## 🔴 La base de datos (Postgres/Supabase) no responde
 
 **Síntoma:** todo lo que toca DB falla; en logs errores de conexión a Postgres

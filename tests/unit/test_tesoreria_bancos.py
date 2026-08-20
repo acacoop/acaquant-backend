@@ -1,6 +1,7 @@
 from datetime import date
 
 from api.services import tesoreria as tes
+from core import aunesa
 
 
 def _patch_base(monkeypatch):
@@ -200,6 +201,31 @@ def test_si_aunesa_se_cae_la_vista_igual_responde(monkeypatch):
     # Lo que NO depende de Aunesa sigue estando: sin esto el back office se queda sin
     # nada de lo que cargó a mano, que es lo que más duele.
     assert out["cuentas"][0]["egresos_echeq"] == 80.0
+
+
+def test_una_caida_del_custodio_se_explica_en_criollo(monkeypatch):
+    """El tooltip lo lee el BACK OFFICE, no un dev.
+
+    Con `HTTPError: 500 Server Error for url: .../login` en pantalla, el equipo
+    reporta "Tesorería tira 500" — y ese 500 lo devuelve Aunesa. `AunesaCaido` ya
+    trae el mensaje escrito y diciendo de quién es la culpa: se muestra tal cual,
+    sin el nombre de la clase de Python adelante.
+    """
+    _patch_base(monkeypatch)
+
+    def _explota(dia, estado):
+        raise aunesa.AunesaCaido("el login de Aunesa falló 3 veces seguidas (HTTP 500). "
+                                 "Es el servidor del custodio, no la app.")
+
+    monkeypatch.setattr(tes, "traer_crudas", _explota)
+    monkeypatch.setattr(tes, "_cheques_emitidos_vencidos_rows", lambda dia, movs: [])
+
+    out = tes.ingresos_egresos_dia(fecha="2026-08-06", email="")
+
+    assert out["aunesa_ok"] is False
+    assert out["aunesa_error"].startswith("el login de Aunesa"), (
+        "el mensaje va tal cual, sin 'AunesaCaido:' adelante")
+    assert "no la app" in out["aunesa_error"]
 
 
 def test_con_aunesa_sano_la_marca_dice_que_esta_todo(monkeypatch):

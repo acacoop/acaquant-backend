@@ -151,11 +151,17 @@ def test_el_aviso_de_un_PROVEEDOR_dice_QUIEN_CAIDO_y_el_MOTIVO():
 
 
 def test_y_la_HORA_esta():
-    """*«Con la hora de actualización y listo»*. Sin cuándo, un aviso no se puede
-    ni creer ni descartar."""
+    """*«Con la hora de actualización y listo»*.
+
+    **Segunda pasada (2026-08-20)**: decía «falló hace 6 segundos», y el user lo
+    marcó — *«no tiene timestamp de cuándo se cayó y volvió»*. Un «hace X» a los
+    diez minutos ya miente y no se puede cruzar con el job que falló. Ahora va el
+    RELOJ: cuándo cayó y cuándo fue el último OK."""
     h = _hallazgos_de_ejemplo()[0]
     texto = h["evidencia"]["texto"]
-    assert "hace" in texto and re.search(r"\d{1,2}:\d{2}", texto), texto
+    assert "Cayó" in texto, texto
+    assert len(re.findall(r"\d{1,2}:\d{2}", texto)) >= 2, (
+        "hacen falta las DOS horas: cuándo cayó y cuándo fue el último OK")
 
 
 # ── EL MOTIVO TIENE QUE SER VOTABLE (2026-08-20) ─────────────────────────────

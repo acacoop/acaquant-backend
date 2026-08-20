@@ -43,6 +43,40 @@ logger = logging.getLogger(__name__)
 MIN_VOTOS = 10
 
 
+def _voto_previo(caso: str, causa: str) -> bool | None:
+    """El último voto HUMANO sobre ese par, o `None` si nunca se votó."""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT acierta FROM mercado.av_agent_evals "
+                " WHERE caso = %s AND causa = %s AND origen = 'humano' "
+                " ORDER BY creado_at DESC LIMIT 1", (caso, causa))
+            r = cur.fetchone()
+        return bool(r[0]) if r else None
+    except Exception as e:
+        # Ante la duda NO se bloquea el voto: perder uno es peor que repetirlo.
+        logger.warning("evals: no pude mirar el voto previo (%s)", e)
+        return None
+
+
+def ya_votados() -> dict[tuple[str, str], bool]:
+    """`(caso, causa) → acertó`, para los votos HUMANOS.
+
+    Lo usa la pantalla para **no volver a pedir un voto ya emitido**. Es UNA
+    query para toda la lista: preguntarlo por hallazgo serían 100 viajes.
+    """
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT ON (caso, causa) caso, causa, acierta "
+                "  FROM mercado.av_agent_evals WHERE origen = 'humano' "
+                " ORDER BY caso, causa, creado_at DESC")
+            return {(c, ca): bool(a) for c, ca, a in cur.fetchall()}
+    except Exception as e:
+        logger.warning("evals: no pude leer los votados (%s)", e)
+        return {}
+
+
 def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
           nota: str = "", causa_correcta: str = "", por: str = "",
           origen: str = "humano", ref: str = "") -> dict:
@@ -60,6 +94,25 @@ def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
     caso, causa = (caso or "").strip(), (causa or "").strip()
     if not caso or not causa:
         return {"ok": False, "error": "falta el caso o la causa"}
+
+    # ⚠️ **NO SE VOTA DOS VECES LO MISMO** (user, 2026-08-20: *«otra vez lo mismo,
+    # ya lo completé 40 veces y sigue apareciendo»*). Los BOPREALes llegaron a
+    # 17/17: el mismo bono, la misma causa, votado en cada rueda.
+    #
+    # El docstring de abajo decía que re-votar es información porque el agente
+    # puede cambiar de opinión — y es cierto, pero solo si **cambia la CAUSA**.
+    # Repetir el MISMO juicio sobre el MISMO par no agrega un dato: infla el
+    # denominador, y sobre todo convierte la pantalla en un formulario que hay
+    # que volver a llenar todos los días. Eso no mide al agente, mide la
+    # paciencia del que vota (§0.ai).
+    #
+    # Cambiar de opinión SÍ entra: si el `acierta` es distinto, es una
+    # corrección y se guarda.
+    if origen == "humano" and not ref:
+        previo = _voto_previo(caso, causa)
+        if previo is not None and previo == bool(acierta):
+            return {"ok": True, "duplicado": True,
+                    "error": "ya votaste esta causa para este caso"}
     if not acierta and not (causa_correcta or nota).strip():
         # Un ✖ sin motivo no es un dato: no se puede aprender de «está mal».
         return {"ok": False,

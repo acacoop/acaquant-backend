@@ -103,15 +103,23 @@ def detectar_proveedores(*, ahora: datetime | None = None) -> list[dict]:
         # listo, nada de palabras raras ni tanto texto, con la hora»*. El
         # título entra de un vistazo; el cuerpo son renglones sueltos. El que
         # lo lee está por decidir algo, no por leer un informe.
+        # ⚠️ **SEGUNDA PASADA (2026-08-20)**: el user vio el aviso real y marcó
+        # dos cosas. (1) *«el texto del medio no me interesa, es sencillito:
+        # decir solo los que fallan y punto»* — se iban tres renglones de
+        # contexto («se cae X», «el resto entra bien», «lo cargado a mano sí
+        # está») que no cambian ninguna decisión. (2) **NO TENÍA LA HORA**:
+        # decía «falló hace 6 segundos», que a los diez minutos ya miente y no
+        # se puede cruzar con nada.
+        #
+        # Queda: QUÉ falla · CUÁNDO empezó · CUÁNDO fue el último OK. Nada más.
         motivo = f"{nombre} CAÍDO · {_corto(f.get('ultimo_error'))}"
-        lineas_ev = [f"Se cae: {rompe}."]
-        if barrido and barrido.get("analisis"):
-            lineas_ev.append(barrido["analisis"])
-        elif prueba and prueba.get("detalle"):
-            lineas_ev.append(prueba["detalle"])
+        lineas_ev = []
+        rotos = _los_que_fallan(barrido)
+        if rotos:
+            lineas_ev.append("Falla: " + " · ".join(rotos))
         lineas_ev.append(
-            f"Falló hace {_hace(hace)}"
-            + (f", {veces} veces" if veces > 1 else "")
+            f"Cayó {_fecha(f.get('ultimo_error_at')) or _hace(hace) + ' atrás'}"
+            + (f" ({veces} veces)" if veces > 1 else "")
             + (f" · último OK {_fecha(f.get('ultimo_ok_at'))}"
                if f.get("ultimo_ok_at") else " · nunca contestó bien"))
         out.append({
@@ -137,6 +145,21 @@ def detectar_proveedores(*, ahora: datetime | None = None) -> list[dict]:
         h["evidencia"]["aviso"] = avisar_caida(
             h, barrido=h["evidencia"].get("barrido"))
     return out
+
+
+def _los_que_fallan(barrido: dict | None) -> list[str]:
+    """Los endpoints rotos, cortos. Lo ÚNICO del barrido que entra al aviso.
+
+    El análisis en prosa («fallan 2 de 5, el resto entra bien») se dio de baja:
+    la cuenta ya se ve en la lista y la frase ocupaba dos renglones para no
+    cambiar ninguna decisión.
+    """
+    return [f"{x.get('para_que') or x.get('path') or '?'}"
+            # `status` es None cuando ni siquiera hubo respuesta (timeout, DNS):
+            # ahí no se inventa un código, se dice que no contestó.
+            + (f" (HTTP {x['status']})" if x.get("status") else " (no contestó)")
+            for x in ((barrido or {}).get("endpoints") or [])
+            if not x.get("ok")]
 
 
 def _probar(proveedor: str) -> dict | None:
@@ -296,11 +319,11 @@ def avisar_caida(hallazgo: dict, *, barrido: dict | None = None) -> dict:
 
         from api.services import av_agent_mensajes as msg
         ev = hallazgo.get("evidencia") or {}
+        # ⚠️ **NO se le antepone el análisis**: ya está adentro de `texto`, y
+        # anteponerlo imprimía la MISMA frase dos veces — se vio en el aviso
+        # real del 2026-08-20. Dos copias de la misma línea en un aviso corto
+        # es lo que hace que se deje de leer.
         texto = ev.get("texto") or ""
-        if barrido and barrido.get("analisis"):
-            # El ANÁLISIS GENERAL va PRIMERO: «fallan las cinco» o «falla una» es
-            # lo que decide qué hacer, y el detalle técnico es el respaldo.
-            texto = f"{barrido['analisis']}\n\n{texto}"
         a = _a_quien()
         if not a:
             # Sin destinatario el aviso no existe, y hay que DECIRLO: un

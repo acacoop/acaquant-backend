@@ -2995,6 +2995,65 @@ controles y explotaba con `ModuleNotFoundError` **al final**: calculaba todo y n
 persistía ni avisaba nada. No se reemplaza por otra IA — rige §0.k: *una tarea de
 IA existe solo si alguien lee su salida*.
 
+### 0.ao «YA LO COMPLETÉ 40 VECES» — el voto no se vuelve a pedir (2026-08-20)
+
+    *«¡Otra vez lo mismo, ya lo completé 40 veces y sigue apareciendo! No puede
+    ser que no haya un detector o algo de lo que ya hice.»*
+
+Los BOPREALes marcaban **17/17** y los botones ¿ACERTÓ? seguían ahí, intactos, en
+cada rueda. Tenía razón y el error de diseño era mío, escrito con todas las letras
+en el docstring del componente:
+
+> *«Se puede votar el mismo caso muchas veces y todas quedan. Si el agente cambia
+> de opinión sobre LOC6O dentro de un mes, la historia de los dos juicios es
+> justamente lo que dice si mejoró.»*
+
+El razonamiento sirve **solo si cambia la CAUSA**. Repetir el MISMO juicio sobre
+el MISMO par no agrega un dato: infla el denominador y, sobre todo, convierte la
+pantalla en un formulario que hay que volver a llenar todas las mañanas.
+
+> **El HALLAZGO reaparece cada rueda y está bien** —el problema sigue existiendo—
+> **pero el VOTO mide al AGENTE, no al día.** Confundir las dos cosas es lo que
+> hacía que un problema abierto pareciera una tarea pendiente.
+
+Ahora el par que se vota es **(caso, causa)** y se pide una sola vez:
+
+  · `votar()` frena el voto humano repetido y devuelve `duplicado` — el freno
+    está en el BACKEND, así que aunque la pantalla se equivoque la base no
+    acumula 40 filas idénticas;
+  · **cambiar de opinión SÍ entra**: si el `acierta` es distinto es una
+    corrección, y esa es la información que sí sirve;
+  · si el agente cambia de CAUSA para ese bono, es un par nuevo y se pregunta;
+  · la vista manda `ya_votado`/`voto` (UNA query para toda la lista) y el front
+    muestra «✔ ya votaste: acertó» con un **cambiar** al lado — un voto que no se
+    puede corregir se vota mal una vez y queda mal para siempre.
+
+#### Y el aviso del proveedor, que se vio en producción
+
+    AUNESA CAÍDO · HTTP 400 en operaciones/informes
+    Fallan 2 de 5: el padrón de cuentas, la tenencia del día y el cost-basis. El
+    resto entra bien. Se cae: Tesorería, saldos, tenencia e informes. Lo cargado
+    a mano sí está. Fallan 2 de 5: el padrón de cuentas, la tenencia del día y
+    el cost-basis. El resto entra bien. Falló hace 6 segundos · último OK
+
+Tres cosas mal en cuatro renglones:
+
+  1. **La misma frase DOS VECES.** `avisar_caida` anteponía el análisis del
+     barrido… y el cuerpo ya lo traía adentro. Dos copias de la misma línea en
+     un aviso corto es lo que hace que se deje de leer.
+  2. **Sin hora.** *«Falló hace 6 segundos»* a los diez minutos ya miente, y no
+     se puede cruzar con el job que falló ni con lo que vio la mesa. Ahora va el
+     reloj: **cuándo cayó** y **cuándo fue el último OK**. Lo mismo en la vuelta:
+     «Volvió 16:51 · cayó 16:38 (13 min caído)».
+  3. **Texto del medio que no decide nada** (*«el resto entra bien»*, *«lo
+     cargado a mano sí está»*). Fuera. Queda **qué falla y cuándo**:
+
+         Falla: informes (HTTP 400) · padrón de cuentas (HTTP 400)
+         Cayó 20/08 16:44 · último OK 20/08 16:38
+
+El «qué se rompe» y el detalle de la prueba siguen en la evidencia para el que
+abra el detalle — lo que salió es el renglón, no el dato.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

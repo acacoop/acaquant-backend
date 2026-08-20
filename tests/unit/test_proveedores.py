@@ -37,9 +37,14 @@ def test_el_aviso_dice_QUIEN_QUE_SE_ROMPE_y_EL_MOTIVO_EXACTO(monkeypatch):
     h = det.detectar_proveedores()[0]
     assert h["severidad"] == "alta"
     assert h["motivo"].startswith("AUNESA CAÍDO")                    # QUIÉN
-    assert "Tesorería" in h["evidencia"]["texto"]                    # QUÉ ROMPE
     assert "500 Server Error" in h["motivo"]                         # EL MOTIVO
     assert h["evidencia"]["donde"] == "login"                        # DÓNDE
+    # ⚠️ **«Se cae: Tesorería, saldos…» SALIÓ del cuerpo (2026-08-20)**. El user
+    # vio el aviso real: *«el texto del medio no me interesa, es sencillito:
+    # decir solo los que fallan y punto»*. Qué se rompe sigue en la evidencia
+    # (`rompe`) para el que abra el detalle, pero no ocupa un renglón del aviso.
+    assert h["evidencia"]["rompe"], "el «qué rompe» sigue disponible en el dato"
+    assert "Se cae:" not in h["evidencia"]["texto"]
 
 
 def test_una_caida_VIEJA_no_sigue_en_pantalla(monkeypatch):
@@ -103,8 +108,11 @@ def test_cuando_YA_FALLO_si_se_prueba_y_se_dice_de_quien_es(monkeypatch):
     monkeypatch.setattr(det, "_barrer_si_toca", lambda p: None)
     monkeypatch.setattr(pr, "estado", lambda: [_fila()])
     h = det.detectar_proveedores()[0]
-    assert "error interno de su servidor" in h["evidencia"]["texto"]
+    # El resultado de la prueba se GUARDA (es lo que separa «se cayeron ellos»
+    # de «se nos venció una credencial»), pero desde el 2026-08-20 no ocupa un
+    # renglón del aviso: el cuerpo dice solo qué falla y cuándo.
     assert h["evidencia"]["prueba"]["status"] == 500
+    assert "error interno de su servidor" in h["evidencia"]["prueba"]["detalle"]
 
 
 def test_la_prueba_NUNCA_manda_credenciales():
@@ -352,20 +360,28 @@ def test_el_aviso_le_llega_A_QUIEN_LO_SUFRE_no_solo_al_admin(monkeypatch):
     assert "role = 'admin'" in src, "si la allowlist está vacía, nadie se entera"
 
 
-def test_el_ANALISIS_GENERAL_va_PRIMERO_en_el_aviso(monkeypatch):
-    """«Fallan las cinco» o «falla una» es lo que decide qué hacer; el detalle
-    técnico es el respaldo. Al revés, el que lo lee tiene que atravesar un
-    traceback para llegar a lo único accionable."""
+def test_el_analisis_NO_se_imprime_DOS_VECES(monkeypatch):
+    """**El bug que el user vio en el aviso real (2026-08-20).**
+
+    El análisis se anteponía al cuerpo… y el cuerpo YA lo tenía adentro, así que
+    la misma frase salía repetida:
+
+        Fallan 2 de 5: el padrón… El resto entra bien. Se cae: Tesorería…
+        Fallan 2 de 5: el padrón… El resto entra bien. Falló hace 6 segundos
+
+    Dos copias de la misma línea en un aviso corto es lo que hace que se deje de
+    leer. El cuerpo se manda TAL CUAL viene de la evidencia."""
     enviados = []
     import api.services.av_agent_mensajes as msg
     monkeypatch.setattr(det, "_a_quien", lambda: ["x@y.com"])
     monkeypatch.setattr(msg, "enviar_muchos",
                         lambda m, **k: enviados.append(m) or {"enviados": len(m)})
     h = {"ticker": "aunesa", "motivo": "Aunesa no responde",
-         "evidencia": {"texto": "MOTIVO EXACTO: 500"}}
+         "evidencia": {"texto": "Falla: informes (HTTP 400)\nCayó 20/08 16:44"}}
     det.avisar_caida(h, barrido={"analisis": "Fallan las cinco"})
     cuerpo = enviados[0][0]["detalle"]
-    assert cuerpo.startswith("Fallan las cinco")
+    assert cuerpo == h["evidencia"]["texto"]
+    assert cuerpo.count("Falla: informes") == 1
 
 
 def test_sin_destinatarios_el_aviso_lo_DICE(monkeypatch):

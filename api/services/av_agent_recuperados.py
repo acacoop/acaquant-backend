@@ -98,10 +98,26 @@ def _avisar_vuelta(viejo: dict) -> dict:
             return {"enviados": 0, "error": "nadie a quien avisar"}
         nombre = (viejo.get("ticker") or "?").upper()
         tema = f"proveedor_volvio:{viejo.get('ticker')}:{date.today().isoformat()}"
+        # ⚠️ **CON LA HORA** (user, 2026-08-20: *«no tiene timestamp de cuándo
+        # se cayó y volvió»*). Un «ya funciona» sin hora no se puede cruzar con
+        # nada: ni con el job que falló, ni con lo que vio la mesa. Y cuánto
+        # duró es lo que decide si hay que recargar algo o no.
+        from core.tz import AR_TZ, ahora_ar
+        desde = viejo.get("desde")
+        vuelta = ahora_ar()
+        detalle = f"Volvió {vuelta:%d/%m %H:%M}"
+        if desde is not None:
+            try:
+                mins = int((vuelta - desde.astimezone(AR_TZ)).total_seconds() // 60)
+                if mins >= 0:
+                    detalle += (f" · cayó {desde.astimezone(AR_TZ):%H:%M}"
+                                f" ({mins} min caído)")
+            except (AttributeError, TypeError, ValueError):
+                pass
         r = msg.enviar_muchos(
             [{"para": e, "tema": tema,
               "asunto": f"{nombre} VOLVIÓ · ya funciona",
-              "detalle": "Los datos del día vuelven solos en la próxima carga.",
+              "detalle": detalle,
               "donde": "BACK OFFICE · TESORERÍA"} for e in a],
             por="av_agent_recuperados")
         return {"enviados": r.get("enviados", 0), "a": a}

@@ -625,11 +625,27 @@ def vista() -> dict:
     hallazgos, corrida_at = _hallazgos_ultima_corrida()
     abiertas = preg.abiertas()
 
+    # ⚠️ **LO YA VOTADO NO SE VUELVE A PREGUNTAR** (user, 2026-08-20: *«otra vez
+    # lo mismo, ya lo completé 40 veces»*). Los BOPREALes llegaron a 17/17: el
+    # mismo bono con la misma causa, con los botones ¿ACERTÓ? intactos en cada
+    # rueda. El voto mide al AGENTE, no al día — repetirlo no agrega un dato y
+    # convierte la pantalla en un formulario que hay que llenar de nuevo todas
+    # las mañanas. UNA query para toda la lista.
+    from api.services import av_agent_evals
+    votados = av_agent_evals.ya_votados()
+
     por_tipo: dict[str, int] = {}
     por_regla: dict[str, int] = {}
     for h in hallazgos:
         por_tipo[h["tipo"]] = por_tipo.get(h["tipo"], 0) + 1
         por_regla[h["regla"]] = por_regla.get(h["regla"], 0) + 1
+        # El par que se vota es (SUJETO, CAUSA) — el mismo que usa `votar`. Si el
+        # agente cambia de causa para ese bono, es un par nuevo y sí se pregunta.
+        voto = votados.get(((h.get("ticker") or "").strip(),
+                            (h.get("regla") or "").strip()))
+        if voto is not None:
+            h["ya_votado"] = True
+            h["voto"] = voto
 
     return {
         "corrida_at": corrida_at,

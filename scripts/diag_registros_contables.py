@@ -234,7 +234,7 @@ def paso_cuenta(pares: list[tuple[dict, dict]], aguja: str, maximo: int) -> None
         # entender que el endpoint había devuelto otro día que el pedido.
         print(f"      {str(asiento.get('fechaAlta') or '')[:10]:>10} "
               f"{str(asiento.get('fechaConciliacion') or '')[:10]:>10} "
-              f"as.{str(asiento.get('numero') or '?'):>10}  "
+              f"as.{asiento.get('numero') or '?'!s:>10}  "
               f"{_plata(_num(mov.get('valuacion')) or 0.0):>16}  "
               f"{str(mov.get('comprobante') or '—')[:18]:<18} "
               f"{str(mov.get('referencia') or asiento.get('referencia') or '')[:60]}")

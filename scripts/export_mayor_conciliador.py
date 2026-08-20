@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from scripts.export_registros_contables import ENDPOINT, _fecha, _num
 

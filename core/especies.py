@@ -241,6 +241,51 @@ def preferencia(p: dict) -> tuple:
     return (p["especie"] != "mep", p["plazo"] != "24hs", p["simbolo"])
 
 
+# ⚠️⚠️ **QUÉ PATA LE CORRESPONDE A UNA CURVA — Y POR QUÉ NO ES `es_default`.**
+#
+# `mercado.especies.es_default` se marca así, en `scripts/sembrar_especies`:
+#
+#     filas.append({**p, "es_default": p["simbolo"] == actual})
+#
+# donde `actual` es **`curvas.instrumento`, o sea lo que el master ya
+# suscribe**. Es una COPIA del master, no una opinión independiente sobre cuál
+# pata corresponde. Y el detector de `pata_equivocada` la usaba como si lo
+# fuera: comparaba `es_default` contra `curvas.instrumento` — el mismo dato
+# contra sí mismo.
+#
+# **La comparación era vacía por construcción**, y por eso solo cantaba cuando
+# el seeder había quedado viejo respecto del master (los 6 BPO). Los 11 que
+# faltaban tenían pata en dólares, existente y validada, y el detector se
+# quedaba callado. Medido con `scripts/diag_pesos_no_detectados`: 11 de 11.
+#
+# El criterio independiente ya lo tenía el seeder —la lista `cruzadas`— pero
+# **solo lo imprimía por consola**. Acá vive una vez y lo usan los dos.
+ESPERADA_POR_EJE = {"USD": {"mep", "cable"}, "EUR": {"mep", "cable"},
+                    "ARS": {"pesos"}}
+
+
+def esperada_del_eje(moneda_eje: str | None) -> set[str] | None:
+    """Qué ESPECIES admite una curva según su eje. `None` = eje no declarado,
+    y ahí no se opina: no saber la moneda no es lo mismo que saber que está
+    mal."""
+    return ESPERADA_POR_EJE.get((moneda_eje or "").strip().upper())
+
+
+def pata_para_el_eje(patas: list[dict], moneda_eje: str | None) -> dict | None:
+    """La pata que le corresponde a esa curva, o `None` si no hay ninguna.
+
+    ⚠️ **`None` significa «no existe», no «está bien».** Una ON hard dollar que
+    cotiza en su única especie NO está cruzada: no hay a dónde apuntar. Esa
+    guarda es la que evitó 137 falsos positivos cuando se escribió en el
+    seeder, y por eso se muda entera en vez de reescribirse.
+    """
+    esperada = esperada_del_eje(moneda_eje)
+    if not esperada:
+        return None
+    candidatas = [p for p in patas or [] if p.get("especie") in esperada]
+    return sorted(candidatas, key=preferencia)[0] if candidatas else None
+
+
 def simbolos_primary() -> list[str]:
     """Los símbolos crudos de Primary (`manager.pyrofex_instruments`).
 

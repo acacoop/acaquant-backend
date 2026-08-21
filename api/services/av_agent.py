@@ -31,6 +31,7 @@ import logging
 from typing import Any
 
 from core import curvas_ejes, mercado_1816
+from core import especies as _esp
 from core.tz import AR_TZ, ahora_ar
 
 logger = logging.getLogger(__name__)
@@ -1401,7 +1402,9 @@ def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
                                     mep: float | None,
                                     simbolos: set[str] | None = None,
                                     defaults: dict[str, str] | None = None,
-                                    primary: set[str] | None = None) -> list[dict]:
+                                    primary: set[str] | None = None,
+                                    patas: dict[str, list[dict]] | None = None
+                                    ) -> list[dict]:
     """Bonos de curva USD cuyo PRECIO llega en pesos — el caso GD46.
 
     ⚠️ **CORREGIDO 2026-08-18, y la corrección es la parte que importa.** La
@@ -1502,21 +1505,41 @@ def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
                            f"un símbolo que dice dólares.")}))
             continue
 
-        # ⚠️ **¿O ES QUE EL MASTER SUSCRIBE LA PATA EQUIVOCADA?** (2026-08-19)
+        # ⚠️⚠️ **EL MASTER SUSCRIBE LA PATA EQUIVOCADA — Y LA COMPARACIÓN ERA
+        # CIRCULAR** (2026-08-19, corregido 2026-08-22 · §0.bu).
         #
-        # Hay DOS fuentes de símbolos y nadie las cruzaba: `curvas.instrumento`
-        # —lo que el motor suscribe— se carga **a mano**, y `mercado.especies`
-        # sabe cuál es la pata correcta (`es_default`), derivada de Primary.
+        # Esto comparaba `curvas.instrumento` contra `especies.es_default` como
+        # si fueran dos fuentes independientes. **No lo son.** `es_default` se
+        # marca así, en `scripts/sembrar_especies`:
         #
-        # Medido en prod: de 229 bonos, **3** suscriben una pata distinta de la
-        # default (AO29, GD46, CO32) y los tres son justo los que muestran pesos
-        # en una curva en dólares. O sea que esto NO era «el bono cotiza así y no
-        # hay nada que hacer»: es un dato mal cargado, con la pata correcta ya
-        # existente y validada, y con un arreglo de un campo.
+        #     filas.append({**p, "es_default": p["simbolo"] == actual})
         #
-        # Por eso deja de ser `baja` (contexto) y pasa a `media` (accionable). No
-        # `alta`: la valuación está bien, no hay plata mal contada.
-        default = (defaults or {}).get(tk, "")
+        # donde `actual` ES `curvas.instrumento`. O sea que el detector
+        # comparaba el master contra **una copia del master**: la comparación
+        # era vacía por construcción, y solo se disparaba cuando el seeder había
+        # quedado viejo respecto de un cambio manual.
+        #
+        # Medido con `scripts/diag_pesos_no_detectados`: **11 bonos** con precio
+        # en pesos en curva USD, con pata en dólares EXISTENTE y validada, y el
+        # detector callado en los once. Todos con la misma forma:
+        #
+        #     ★ VSCYO  ARS 24hs   ← es_default (= lo que el master usa)
+        #       VSCYD  USD 24hs   ← la que le corresponde a una curva en dólares
+        #
+        # **El criterio correcto no es «cuál es la default» sino «cuál pata
+        # corresponde a la MONEDA DEL EJE»**, que sí es independiente: sale de
+        # `especies.moneda` (Primary) cruzada con `curvas.moneda_eje`. Vive en
+        # `core.especies.pata_para_el_eje` — la lógica ya existía en el seeder
+        # (su lista `cruzadas`) y **solo se imprimía por consola**.
+        #
+        # `defaults` queda de respaldo para cuando no hay patas cargadas: es
+        # peor criterio, pero sigue siendo mejor que no decir nada.
+        sugerida = ""
+        mejor = _esp.pata_para_el_eje((patas or {}).get(tk) or [],
+                                      b.get("moneda_eje"))
+        if mejor:
+            sugerida = mejor.get("simbolo") or ""
+        default = sugerida or (defaults or {}).get(tk, "")
         if default and default != simbolo:
             out.append(_hallazgo(
                 "precio_moneda", tk, "pata_equivocada", "media",
@@ -1531,8 +1554,8 @@ def detectar_precio_fuera_de_moneda(bonos: list[dict], snap: dict[str, dict],
                            f"en dólares. La valuación está bien (paridad "
                            f"{par_mep:.1f}%): lo mal cargado es el símbolo."),
                  "arreglo": "cambiar `mercado.curvas.instrumento` por el símbolo "
-                            "sugerido — es el que `mercado.especies` marca como "
-                            "`es_default` para este ticker",
+                            "sugerido — es la pata de `mercado.especies` cuya "
+                            "MONEDA coincide con el eje de la curva",
                  # **Esto NO se puede omitir**: el universo del motor se arma al
                  # arrancar, así que cambiar el campo no surte efecto hasta el
                  # próximo reinicio — y reiniciar en rueda corta el feed de la
@@ -1631,14 +1654,24 @@ def relevar_live(*, ahora=None) -> dict:
     # `mercado.especies` es la fuente única de las patas, y la default es la que
     # el master debería estar suscribiendo: cruzar las dos es lo que destapa la
     # pata equivocada (AO29/GD46/CO32). Una sola query para las dos cosas.
+    # ⚠️ Se traen **también `especie` y `plazo`**: sin ellos no se puede decir
+    # qué pata le corresponde a una curva en dólares, y el detector caía en
+    # `es_default` — que es una COPIA del master (§0.bu) y por lo tanto una
+    # comparación vacía. Mismo viaje a Supabase, dos columnas más.
     defaults: dict[str, str] = {}
+    patas: dict[str, list[dict]] = {}
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT simbolo, ticker, es_default FROM mercado.especies")
+            cur.execute("SELECT simbolo, ticker, es_default, especie, plazo "
+                        "FROM mercado.especies")
             filas = cur.fetchall()
         simbolos = {r[0] for r in filas if r[0]}
         defaults = {(r[1] or "").strip().upper(): r[0]
                     for r in filas if r[2] and r[0] and r[1]}
+        for sim, tk_, _d, esp, plazo in filas:
+            if sim and tk_:
+                patas.setdefault((tk_ or "").strip().upper(), []).append(
+                    {"simbolo": sim, "especie": esp, "plazo": plazo})
     except Exception as e:
         logger.warning("av_agent live: sin catálogo de especies (%s)", e)
         simbolos = set()
@@ -1661,7 +1694,7 @@ def relevar_live(*, ahora=None) -> dict:
                             # «no existe» mirando una sola tabla. Cacheado 600s
                             # (`core/instrumentos_validos`): no cuesta una query
                             # por ciclo del centinela.
-                            simbolos_primary())),
+                            simbolos_primary(), patas)),
                        ("latencia", detectar_latencia),
                        ("motores", detectar_motores),
                        # Los LOGS también entran acá: una ráfaga de errores

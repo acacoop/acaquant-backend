@@ -136,3 +136,77 @@ def test_la_vista_manda_abierto_at_y_no_lo_tira():
     src = codigo(_hallazgos_ultima_corrida)
     assert 'h["abierto_at"]' in src and "isoformat()" in src
     assert 'h.pop("abierto_at", None)' not in src
+
+
+# ── LA COMPARACIÓN ERA CIRCULAR (§0.bu) ──────────────────────────────────────
+
+_MEP = 1525.0
+
+
+def _bono_usd(tk: str, simbolo: str) -> dict:
+    return {"ticker_corto": tk, "ticker": simbolo, "moneda_eje": "USD",
+            "valor_nominal": 100, "curva": "corporativos"}
+
+
+def test_canta_la_pata_del_EJE_aunque_es_default_sea_la_que_ya_usa():
+    """⚠️⚠️ **EL CASO QUE NO DETECTABA, medido en prod: 11 de 11.**
+
+    `especies.es_default` se marca con `p["simbolo"] == curvas.instrumento`, o
+    sea que **es una COPIA del master**. El detector la comparaba contra el
+    master: la comparación era vacía por construcción y solo se disparaba
+    cuando el seeder había quedado viejo.
+
+    Acá VSCYO tiene su pata en dólares existente y validada, `es_default`
+    apunta a la de pesos (porque es la que el master usa) y el detector tiene
+    que cantar igual.
+    """
+    from api.services.av_agent import detectar_precio_fuera_de_moneda
+    sim_ars = "MERV - XMEV - VSCYO - 24hs"
+    hs = detectar_precio_fuera_de_moneda(
+        [_bono_usd("VSCYO", sim_ars)],
+        {sim_ars: {"last_price": 152_500.0}},   # pesos: ÷MEP da paridad 100
+        _MEP,
+        set(),
+        {"VSCYO": sim_ars},                     # es_default == lo que ya usa
+        None,
+        {"VSCYO": [
+            {"simbolo": sim_ars, "especie": "pesos", "plazo": "24hs"},
+            {"simbolo": "MERV - XMEV - VSCYD - 24hs", "especie": "mep", "plazo": "24hs"},
+            {"simbolo": "MERV - XMEV - VSCYD - CI", "especie": "mep", "plazo": "CI"},
+        ]})
+    assert [h["regla"] for h in hs] == ["pata_equivocada"]
+    # Y nombra la pata correcta: 24hs sobre CI, que es donde hay liquidez.
+    assert hs[0]["evidencia"]["sugerido"] == "MERV - XMEV - VSCYD - 24hs"
+
+
+def test_una_ON_sin_pata_en_dolares_NO_se_canta():
+    """La guarda que evitó 137 falsos positivos en el seeder: un hard dollar
+    corporativo que cotiza en su ÚNICA especie no está cruzado — no hay a dónde
+    apuntar. «No existe» no es «está mal»."""
+    from api.services.av_agent import detectar_precio_fuera_de_moneda
+    sim = "MERV - XMEV - SOLO1 - 24hs"
+    hs = detectar_precio_fuera_de_moneda(
+        [_bono_usd("SOLO1", sim)], {sim: {"last_price": 152_500.0}}, _MEP,
+        set(), {"SOLO1": sim}, None,
+        {"SOLO1": [{"simbolo": sim, "especie": "pesos", "plazo": "24hs"}]})
+    assert [h["regla"] for h in hs] == ["cotiza_en_pesos"], (
+        "sin pata a la que apuntar, es contexto y no un dato mal cargado")
+
+
+def test_sin_patas_cargadas_cae_a_es_default_y_no_se_queda_mudo():
+    """Peor criterio, pero mejor que no decir nada: si `especies` no tiene las
+    patas de ese ticker, el respaldo sigue siendo el default."""
+    from api.services.av_agent import detectar_precio_fuera_de_moneda
+    sim = "MERV - XMEV - AL30 - 24hs"
+    hs = detectar_precio_fuera_de_moneda(
+        [_bono_usd("AL30", sim)], {sim: {"last_price": 152_500.0}}, _MEP,
+        set(), {"AL30": "MERV - XMEV - AL30D - 24hs"}, None, {})
+    assert [h["regla"] for h in hs] == ["pata_equivocada"]
+
+
+def test_el_criterio_del_eje_vive_UNA_vez():
+    """La lógica ya existía en `scripts/sembrar_especies` (su lista `cruzadas`)
+    y **solo se imprimía por consola**. Reescribirla en el detector habría sido
+    la tercera opinión sobre qué pata corresponde."""
+    from api.services import av_agent
+    assert "pata_para_el_eje" in codigo(av_agent.detectar_precio_fuera_de_moneda)

@@ -4601,6 +4601,67 @@ plazo y cuál es la default, y los parte en los dos grupos.
 
 
 
+### 0.bu LA COMPARACIÓN ERA CIRCULAR: `es_default` es una COPIA DEL MASTER (2026-08-22)
+
+El detector de `pata_equivocada` cruzaba dos fuentes que **no son dos**:
+
+    curvas.instrumento          ← lo que el master suscribe
+    especies.es_default         ← ¿de dónde sale?
+
+De acá, en `scripts/sembrar_especies`:
+
+```python
+filas.append({**p, "es_default": p["simbolo"] == actual})   # actual = curvas.instrumento
+```
+
+**`es_default` no se deriva de Primary: es una copia de lo que el master ya
+usa.** El detector comparaba el master contra sí mismo. La comparación era
+**vacía por construcción** y solo se disparaba cuando el seeder había quedado
+viejo respecto de un cambio manual — que es exactamente lo que pasó con los 6
+BOPREAL, y por eso parecía que funcionaba.
+
+> Y el `CLAUDE.md` decía *«`mercado.especies.es_default` se deriva de
+> Primary»*. **El doc y el código se contradecían**, que es la mitad de por qué
+> esto duró: yo mismo escribí el detector creyéndole al doc.
+
+#### Lo que la medición mostró
+
+`scripts/diag_pesos_no_detectados`, en prod: **11 bonos** con precio en pesos
+en curva USD, con pata en dólares existente y validada, y el detector callado
+en los once. Los once con la misma forma:
+
+    ★ VSCYO   ARS  24hs   ← es_default (o sea: lo que el master usa)
+      VSCYD   USD  24hs   ← la que le corresponde a una curva en dólares
+      VSCYD   USD  CI
+      VSCYO   ARS  CI
+
+#### El criterio correcto, que ya estaba escrito
+
+No es *«cuál es la default»* — eso es circular. Es **«cuál pata corresponde a
+la MONEDA DEL EJE»**, y eso sí es independiente: sale de `especies.moneda`
+(Primary) cruzada con `curvas.moneda_eje`.
+
+Esa lógica **ya existía** en el seeder (su lista `cruzadas`, con
+`preferencia`: MEP antes que cable, 24hs antes que CI) y **solo se imprimía por
+consola**. Nadie la persistía y el agente no la leía. Se muda a
+`core.especies.pata_para_el_eje` — una vez, para los dos.
+
+⚠️ Se muda **entera, con su guarda**: `None` significa «no existe», no «está
+bien». Una ON hard dollar que cotiza en su única especie NO está cruzada — no
+hay a dónde apuntar. Esa condición es la que evitó 137 falsos positivos cuando
+se escribió, y reescribirla desde cero habría sido volver a pagarlos.
+
+`es_default` queda de **respaldo** para el ticker sin patas cargadas: peor
+criterio, pero mejor que quedarse mudo.
+
+> **La lección, y es REGLA #9 otra vez:** dos fuentes que se comparan tienen que
+> ser INDEPENDIENTES. Cuando una es copia de la otra, la comparación no falla —
+> **da siempre que está todo bien**, que es la peor forma de fallar. Acá el
+> síntoma fue un detector que parecía andar porque acertaba en los casos donde
+> la copia había quedado desactualizada.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

@@ -70,9 +70,19 @@ def _accion_registrada(h: dict) -> str:
     """
     from api.services.av_agent_hacer import ACCIONES, POR_CONTROL
 
+    # ⚠️ **Y LOS MODOS TAMBIÉN SE APLICAN EN LOTE.** `Accion` no es el único
+    # mecanismo: el modo `arreglo` tiene su propio par simular/aplicar y
+    # `agente_aplicar` lo sabe correr. Se importa DE ALLÁ y no se copia la
+    # lista: dos ideas de «¿qué se puede aplicar en lote?» volverían a mandar
+    # al usuario a correr un comando que no hace nada.
+    from scripts.agente_aplicar import _MODOS
+
     sujeto = (h.get("ticker") or "").strip()
     if sujeto.startswith("control:"):
         return POR_CONTROL.get(sujeto.split(":", 1)[1], "")
+    modo = (h.get("accion") or "").strip()
+    if modo in _MODOS:
+        return modo
     regla = (h.get("regla") or "").strip()
     for aid, a in ACCIONES.items():
         if getattr(a, "causa", "") == regla:

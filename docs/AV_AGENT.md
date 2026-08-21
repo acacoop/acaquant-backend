@@ -5433,6 +5433,29 @@ Se **deriva del registro real** (`ACCIONES` + `POR_CONTROL`), no de una lista a
 mano: el día que alguien escriba la acción de `sin_ejes`, esos 9 se mueven de
 pila solos.
 
+#### Y la otra mitad: `Accion` NO era el único mecanismo de lote
+
+Al separar las pilas quedó que **53 hallazgos eran «uno por uno»**. Falso, y por
+poco se manda ese mapa: el modo `arreglo` tiene **su propio par simular/aplicar**
+(`av_agent_alta.simular_arreglo` / `aplicar_arreglo`) —lo que aprieta el botón de
+la pantalla— y encadenarlo en lote es perfectamente legítimo. `agente_aplicar`
+solo conocía `ACCIONES` y por eso no los veía.
+
+Lo que hace que el lote sea SEGURO ya estaba escrito: **`aplicar_arreglo` vuelve
+a simular adentro** y se niega si `puede_aplicar` es falso, con la guarda en un
+solo lado. El script no re-decide nada — un gate propio acá sería el cuarto
+criterio contradiciéndose con los otros tres.
+
+Es la única puerta que **PISA un dato existente** y toca ejes y moneda (errarle a
+`moneda_eje` es plata mal contada), así que el dry-run no muestra «se puede»:
+muestra **de qué a qué** cambia cada eje, y **los trabados se imprimen** — un
+lote que dice «apliqué 4» y calla los otros 41 es el mismo silencio que hizo
+perder tres rondas.
+
+La lista de modos aplicables vive **una sola vez**, en el script que los ejecuta,
+y el censo la importa de ahí. Copiarla habría vuelto a mandar a correr un comando
+que no hace nada.
+
 #### La regla que queda
 
 **Una lista de trabajo tiene que decir CON QUÉ se hace cada cosa, no solo que se

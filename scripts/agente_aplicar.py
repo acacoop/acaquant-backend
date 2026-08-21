@@ -59,6 +59,106 @@ def _corto(v) -> str:
     return s if len(s) <= 46 else s[:44] + "…"
 
 
+# ── EL MODO `arreglo`, QUE NO ES UNA `Accion` Y SE PODÍA APLICAR IGUAL ───────
+#
+# ⚠️⚠️ **POR QUÉ ESTO EXISTE.** El censo mostró **53 hallazgos «uno por uno»**
+# —21 `moneda_flujo_contradice`, 9 `sin_ejes`, 8 `paridad_fuera_de_rango`…—
+# diciendo que había que abrirlos en la pantalla de a uno porque no hay una
+# `Accion` registrada que los cubra. Y era verdad a medias: **`Accion` no es el
+# único mecanismo de arreglo**. El modo `arreglo` tiene su propio par
+# simular/aplicar (`av_agent_alta.simular_arreglo` / `aplicar_arreglo`), que es
+# lo que aprieta el botón de la pantalla, y encadenarlo en lote es legítimo.
+#
+# Lo que hacía falta para que fuera SEGURO ya estaba escrito: `aplicar_arreglo`
+# **vuelve a simular adentro** y se niega si `puede_aplicar` es falso, con la
+# guarda en un solo lado. Acá no se re-decide nada — si este script tuviera su
+# propio criterio, sería el cuarto gate contradiciéndose con los otros tres.
+#
+# ⚠️ Es la única puerta del agente que **PISA un dato existente**, y toca ejes y
+# moneda: errarle a `moneda_eje` es plata mal contada. Por eso el dry-run no
+# muestra solo «se puede», muestra **de qué a qué** cambia cada eje.
+_MODOS = {"arreglo": "⚠️⚠️ PISA ejes/escala de un bono que YA existe"}
+
+
+def _casos_del_modo(modo: str) -> list[str]:
+    """Los sujetos que hoy declaran ese modo, **leídos de la vista**.
+
+    De la misma lista que dibuja el modal y con la `accion` ya resuelta por
+    `accion_de()` — no de un conjunto de reglas escrito acá, que es justo el
+    error que hizo que el censo contara 408 donde la pantalla mostraba 98.
+    """
+    from api.services import av_agent_vista
+    vistos: list[str] = []
+    for h in (av_agent_vista.vista().get("hallazgos") or []):
+        if (h.get("accion") or "") != modo:
+            continue
+        tk = (h.get("ticker") or "").strip()
+        if tk and not tk.startswith(("control:", "job:")) and tk not in vistos:
+            vistos.append(tk)
+    return vistos
+
+
+def _correr_modo(modo: str, *, aplicar: bool, tope: int) -> None:
+    from api.services import av_agent_alta
+
+    print(f"\n{'=' * 74}\nmodo «{modo}»  —  arreglar el INSUMO de un bono ya cargado"
+          f"\n{'=' * 74}")
+    print(f"  riesgo : {_MODOS.get(modo, '⚠️ SIN DECLARAR')}")
+    sujetos = _casos_del_modo(modo)
+    print(f"  casos  : {len(sujetos)}")
+    if tope:
+        sujetos = sujetos[:tope]
+
+    listos, trabados = [], []
+    for tk in sujetos:
+        try:
+            sim = av_agent_alta.simular_arreglo(tk)
+        except Exception as e:
+            trabados.append((tk, f"{type(e).__name__}: {e}"))
+            continue
+        if not sim.get("ok"):
+            trabados.append((tk, str(sim.get("error") or "no se pudo simular")))
+            continue
+        ver = sim.get("veredicto") or {}
+        if not ver.get("puede_aplicar"):
+            # La constante, no el string: `BLOQUEA` vale «bloquea» hoy y si
+            # mañana cambia, una copia acá dejaría de encontrar los bloqueos y
+            # el lote diría «trabado, motivo desconocido» sin fallar.
+            bloqueos = [c["titulo"] for c in (sim.get("chequeos") or [])
+                        if c.get("estado") == av_agent_alta.BLOQUEA]
+            trabados.append((tk, "; ".join(bloqueos) or "el pre-flight no pasa"))
+            continue
+        listos.append((tk, sim.get("ejes_hoy"), sim.get("ejes_propuestos")))
+
+    print(f"  listos : {len(listos)} · trabados: {len(trabados)}")
+    for tk, hoy, prop in listos[:12]:
+        print(f"    · {tk:<10} {_corto(hoy)}")
+        print(f"      {'':<10} → {_corto(prop)}")
+    if len(listos) > 12:
+        print(f"    … y {len(listos) - 12} más")
+    # **Los trabados se MUESTRAN.** Un lote que dice «apliqué 4» y calla los
+    # otros 41 es el mismo silencio que hizo perder tres rondas.
+    for tk, porque in trabados[:10]:
+        print(f"    ✘ {tk}: {_corto(porque)}")
+    if len(trabados) > 10:
+        print(f"    ✘ … y {len(trabados) - 10} más trabados")
+
+    if not aplicar or not listos:
+        return
+    ok = 0
+    for tk, _, _ in listos:
+        try:
+            r = av_agent_alta.aplicar_arreglo(tk, actor="script:agente_aplicar")
+        except Exception as e:
+            print(f"    ✘ {tk}: {type(e).__name__}: {e}")
+            continue
+        if r.get("aplicado"):
+            ok += 1
+        else:
+            print(f"    ✘ {tk}: {_corto(r.get('error'))}")
+    print(f"  ⇒ aplicados {ok}/{len(listos)}")
+
+
 def main() -> None:
     from api.services import av_agent_hacer as hacer
 
@@ -71,13 +171,18 @@ def main() -> None:
     if "--tope" in args:
         tope = int(args[args.index("--tope") + 1])
 
-    acciones = [accion_id] if accion_id else sorted(hacer.ACCIONES)
-    if accion_id and accion_id not in hacer.ACCIONES:
-        print(f"«{accion_id}» no existe. Disponibles: {sorted(hacer.ACCIONES)}")
-        return
-
     if not aplicar:
         print("\n*** DRY-RUN — no se escribe nada. Agregá --aplicar para hacerlo. ***")
+
+    if accion_id in _MODOS:
+        _correr_modo(accion_id, aplicar=aplicar, tope=tope)
+        return
+
+    acciones = [accion_id] if accion_id else sorted(hacer.ACCIONES)
+    if accion_id and accion_id not in hacer.ACCIONES:
+        print(f"«{accion_id}» no existe. Disponibles: "
+              f"{sorted(hacer.ACCIONES) + sorted(_MODOS)}")
+        return
 
     for aid in acciones:
         a = hacer.ACCIONES[aid]
@@ -131,6 +236,13 @@ def main() -> None:
         # la corrida de la noche. Es EL número que contesta «¿sirvió?».
         for cid, txt in (res.get("recontrol") or {}).items():
             print(f"    ↻ {cid}: {txt}")
+
+    if not accion_id:
+        # Sin `--accion` se recorre TODO, y los modos son parte de «todo». Que
+        # el barrido completo se saltee 45 casos sin decirlo es exactamente el
+        # agujero que este cambio vino a tapar.
+        for m in sorted(_MODOS):
+            _correr_modo(m, aplicar=aplicar, tope=tope)
 
     print("\nDespués de aplicar, correr `python -m scripts.diag_encontro` "
           "para ver qué quedó.")

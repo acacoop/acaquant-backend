@@ -126,6 +126,35 @@ class TestElCensoNoPuedeDecirQueHayBotonSiNoLoHay:
             "tiene que salir del registro real: si mañana alguien escribe la "
             "acción de sin_ejes, esos 9 se mueven de pila solos")
 
+    def test_los_MODOS_aplicables_los_conoce_el_censo_desde_UNA_lista(self):
+        """⚠️ Segunda mitad del mismo bug: `Accion` NO es el único mecanismo de
+        lote. El modo `arreglo` tiene su propio par simular/aplicar y
+        `agente_aplicar` lo corre — así que los 45 hallazgos que el censo mandó
+        a «abrir de a uno en la pantalla» sí se pueden aplicar en lote.
+
+        La lista vive UNA vez, en el script que los ejecuta. Copiarla al censo
+        volvería a mandar al usuario a correr un comando que no hace nada."""
+        import inspect
+
+        from scripts import agente_aplicar, diag_encontro
+        assert "arreglo" in agente_aplicar._MODOS
+        src = inspect.getsource(diag_encontro._accion_registrada)
+        assert "from scripts.agente_aplicar import _MODOS" in src, (
+            "el censo tiene que leer la lista del que ejecuta, no tener la suya")
+
+    def test_el_lote_de_arreglo_no_re_decide_si_puede_aplicar(self):
+        """`aplicar_arreglo` vuelve a simular adentro y se niega solo. Si el
+        script tuviera su propio gate sería el cuarto criterio contradiciéndose
+        con los otros tres — el patrón que costó toda esta sesión."""
+        import inspect
+
+        from scripts import agente_aplicar
+        src = inspect.getsource(agente_aplicar._correr_modo)
+        assert "aplicar_arreglo" in src
+        assert "av_agent_alta.BLOQUEA" in src, (
+            "la constante, no el string: una copia dejaría de encontrar los "
+            "bloqueos sin fallar")
+
     def test_las_dos_pilas_existen_y_no_se_confunden(self):
         import inspect
 

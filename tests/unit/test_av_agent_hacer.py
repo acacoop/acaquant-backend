@@ -138,9 +138,20 @@ def test_una_respuesta_que_no_es_json_no_rompe_nada(monkeypatch):
 # ── El FCI: copiar de un hermano es un hecho, no una inferencia ─────────────
 
 def test_el_fci_se_completa_desde_su_hermano(monkeypatch):
+    # ⚠️⚠️ **LAS CLAVES VAN EN MAYÚSCULA — y este mock las tenía en minúscula.**
+    #
+    # `assets_rows` proyecta con claves UPPERCASE (shape heredado de Mongo). El
+    # mock devolvía `emisor` y la acción leía `emisor`, así que **el test pasaba
+    # en verde mientras en prod la acción explotaba** con `KeyError: 'cartera'`.
+    # Se descubrió recién al correrla desde `scripts/agente_aplicar`, porque por
+    # la pantalla nadie la había apretado nunca.
+    #
+    # Un mock con la forma equivocada no es media garantía: es CERO garantía y
+    # además tapa el bug — el test afirma que la acción anda contra un contrato
+    # que no existe. Por eso el mock replica la proyección real.
     monkeypatch.setattr("api.services.assets_sql.assets_rows", lambda f: [
-        {"unidad": "[1] CAFCI1781-6039 - Fondo - Clase A", "emisor": "BAVSA"},
-        {"unidad": "[2] CAFCI1781-6040 - Fondo - Clase B", "emisor": ""},
+        {"unidad": "[1] CAFCI1781-6039 - Fondo - Clase A", "EMISOR": "BAVSA"},
+        {"unidad": "[2] CAFCI1781-6040 - Fondo - Clase B", "EMISOR": ""},
     ])
     props = hacer.AccionFci().proponer(
         _casos("[2] CAFCI1781-6040 - Fondo - Clase B"))
@@ -150,10 +161,14 @@ def test_el_fci_se_completa_desde_su_hermano(monkeypatch):
 def test_si_los_hermanos_no_coinciden_no_se_propone(monkeypatch):
     """Dos emisores distintos para el mismo código CAFCI es un dato ROTO, no una
     ambigüedad que se resuelva eligiendo uno. Elegir taparía el problema."""
+    # Claves en MAYÚSCULA: es la proyección real de `assets_rows`. Con el mock
+    # en minúscula este test **también pasaba, pero por el motivo equivocado**
+    # —ningún hermano tenía emisor, así que no había nada que proponer— en vez
+    # de por la razón que dice el nombre: que los hermanos se contradicen.
     monkeypatch.setattr("api.services.assets_sql.assets_rows", lambda f: [
-        {"unidad": "[1] CAFCI1781-1 - A", "emisor": "BAVSA"},
-        {"unidad": "[2] CAFCI1781-2 - B", "emisor": "OTRO SA"},
-        {"unidad": "[3] CAFCI1781-3 - C", "emisor": ""},
+        {"unidad": "[1] CAFCI1781-1 - A", "EMISOR": "BAVSA"},
+        {"unidad": "[2] CAFCI1781-2 - B", "EMISOR": "OTRO SA"},
+        {"unidad": "[3] CAFCI1781-3 - C", "EMISOR": ""},
     ])
     assert hacer.AccionFci().proponer(_casos("[3] CAFCI1781-3 - C")) == []
 
@@ -403,3 +418,33 @@ def test_el_control_que_la_alimenta_NO_concluye_sobre_liquidez():
     from jobs.controles_datos import _chk_patas_sin_precio
     doc = inspect.getdoc(_chk_patas_sin_precio) or ""
     assert "no concluye nada sobre liquidez" in doc.lower()
+
+
+def test_ningun_mock_de_assets_rows_usa_claves_en_minuscula():
+    """⚠️ **UN MOCK CON LA FORMA EQUIVOCADA ES PEOR QUE NO TENER TEST.**
+
+    `assets_rows` proyecta con claves UPPERCASE. Un mock que devuelve `emisor`
+    en vez de `EMISOR` hace que el test afirme que la acción anda **contra un
+    contrato que no existe**: pasa en verde y la acción explota en prod con
+    `KeyError`. Es exactamente lo que le pasó a `assets.fci`, y no lo cazó nadie
+    porque esa acción no se aprieta desde la pantalla.
+
+    Se mira el TEXTO de los tests y no el comportamiento: el bug no está en lo
+    que el mock hace, está en lo que el mock DICE que devuelve la base.
+    """
+    import pathlib
+    import re
+
+    tests = pathlib.Path(__file__).parent
+    reales = {"unidad", "vigencia_motivo", "actualizado_por", "actualizado_at"}
+    malos: list[str] = []
+    for f in tests.glob("test_*.py"):
+        txt = f.read_text(encoding="utf-8")
+        if "assets_rows" not in txt:
+            continue
+        # Las claves de los dicts que aparecen cerca de un mock de assets_rows.
+        for bloque in re.findall(r"assets_rows[^\n]*\n(?:[^\n]*\n){0,8}", txt):
+            for clave in re.findall(r'"([a-z_]+)"\s*:', bloque):
+                if clave not in reales:
+                    malos.append(f"{f.name}: «{clave}» debería ir en MAYÚSCULA")
+    assert not malos, "\n".join(malos)

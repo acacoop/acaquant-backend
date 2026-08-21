@@ -67,6 +67,17 @@ def assets_rows(fields: Iterable[str]) -> list[dict]:
     del catálogo cacheado. `fields`: campos UPPERCASE (sin 'unidad', que va siempre).
     Strings NULL → '' ; FEE_ADMIN NULL → None."""
     fields = list(fields)
+    # ⚠️ **SE VALIDA ACÁ, en el borde.** Un campo en minúscula reventaba con
+    # `KeyError: 'cartera'` adentro de la comprehension — el mensaje no nombra
+    # la función, no dice qué claves hay, y quien llama solo ve «no pude
+    # proponer». Le costó a `assets.fci` estar rota sin que nadie lo notara,
+    # porque esa acción no se apretaba desde la pantalla.
+    validos = set(_PANEL_KEYS)
+    malos = [f for f in fields if f not in validos]
+    if malos:
+        raise KeyError(
+            f"assets_rows: {malos} no son campos válidos (van en MAYÚSCULA). "
+            f"Disponibles: {sorted(validos)}")
     return [{"unidad": r["unidad"], **{f: r[f] for f in fields}} for r in _all_rows()]
 
 

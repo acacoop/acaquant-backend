@@ -249,12 +249,18 @@ class AccionFci:
 
     def proponer(self, casos: list[dict]) -> list[Propuesta]:
         from api.services.assets_sql import assets_rows
-        filas = assets_rows(["unidad", "cartera", "emisor", "ticker"]) or []
+        # ⚠️ **EN MAYÚSCULA.** `assets_rows` proyecta con claves UPPERCASE (shape
+        # heredado de Mongo) y acá se pedían en minúscula: `KeyError: 'cartera'`
+        # adentro de una comprehension, o sea que **la acción entera explotaba**
+        # y el informe decía «no pude proponer» sin más. Se descubrió recién al
+        # correrla desde `scripts/agente_aplicar` — por la pantalla nadie la
+        # había apretado nunca. `unidad` va sola, no se pide.
+        filas = assets_rows(["EMISOR"]) or []
         # Índice por código CAFCI → los emisores que YA tiene cargados.
         por_cafci: dict[str, set[str]] = {}
         for f in filas:
             cod = _cafci(str(f.get("unidad") or ""))
-            em = str(f.get("emisor") or "").strip()
+            em = str(f.get("EMISOR") or "").strip()
             if cod and em:
                 por_cafci.setdefault(cod, set()).add(em)
 

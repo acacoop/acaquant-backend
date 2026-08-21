@@ -133,17 +133,32 @@ DUPLICADOS: tuple[Duplicado, ...] = (
         # ⚠️ El WHERE compara contra el código de la UNIDAD, no contra la curva:
         # así se listan también los assets cuyo ticker está mal aunque su curva no
         # exista todavía. El `substring` espeja `acreencias._RE_CODIGO`.
+        # ⚠️⚠️ **ACOTADO A LOS QUE SON UN BONO, y la primera versión no lo
+        # estaba: devolvía 303 divergencias de las cuales 2 eran reales.**
+        #
+        # El código de la unidad solo ES un ticker cuando el asset es un bono.
+        # En un FCI la unidad dice `[2598] cafc1103- 2598 - IEB Renta Fija`
+        # → «cafc1103», que no es el ticker de nada; en un OTC dice
+        # `[OTC - DLR052027]`. Compararlos contra `assets.ticker` da 301
+        # «divergencias» que no significan nada — y un chequeo que grita 303
+        # veces por 2 problemas reales enseña a ignorarlo, que es el daño que
+        # este módulo existe para evitar.
+        #
+        # El `JOIN` con `mercado.curvas` es la misma guarda 1 de la acción
+        # `assets.ticker`: si el código de la unidad no es una curva, no
+        # sabemos cuál de los dos nombres es el bueno, así que no hay
+        # divergencia que declarar.
         sql=r"""
-            SELECT a.unidad,
-                   substring(a.unidad from '^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)'),
-                   coalesce(a.ticker, '')
+            SELECT a.unidad, cod.c, coalesce(a.ticker, '')
             FROM portafolio.assets a
-            WHERE substring(a.unidad from '^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)')
-                  IS NOT NULL
+            CROSS JOIN LATERAL (
+                SELECT upper(substring(a.unidad
+                       from '^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)')) AS c
+            ) cod
+            JOIN mercado.curvas k ON upper(btrim(k.ticker)) = cod.c
+            WHERE cod.c IS NOT NULL
               AND coalesce(a.ticker, '') <> ''
-              AND upper(btrim(a.ticker))
-                  <> upper(substring(a.unidad
-                           from '^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)'))
+              AND upper(btrim(a.ticker)) <> cod.c
             ORDER BY a.unidad
         """,
         # **SIN `arreglo_sql` a propósito.** El UPDATE «obvio» —pisar

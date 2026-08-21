@@ -5314,6 +5314,71 @@ la noche, sin que nadie mire el resultado hasta el lunes, es exactamente la clas
 de cambio que este proyecto no hace.
 
 
+### 0.cc EL CENSO REAL, y dos bugs que solo aparecieron al correr las acciones (2026-08-22)
+
+Con el diag arreglado, los **98 de ENCONTRÓ** quedan así:
+
+| clase | n | qué significa |
+|---|---|---|
+| **TIENE PUERTA** | **79** | hay un botón escrito |
+| RUIDO ESTRUCTURAL | 10 | el detector no puede dejar de gritarlos |
+| HUMANO | 8 | motores y proveedores: se miran |
+| FALTA ACCIÓN | **1** | deuda de código de verdad |
+| AUTO-CERRABLE | 0 | — |
+
+⚠️ **«Tiene puerta» NO quiere decir «se puede aplicar hoy».** Quiere decir que
+existe un botón; si la cadena lo bloquea es otra pregunta, y esa la contesta el
+masivo (en el #14: 49 bloqueados contra 4 listos). Son dos cosas distintas y
+mezclarlas sería exactamente el error que este doc viene corrigiendo.
+
+**La deuda de código real es UNA.** No 406, como decía la primera versión del
+diag: `moneda_flujo_contradice` es la única regla grande sin arreglo escrito, y
+sigue esperando el OK del user porque **escribe una valuación**.
+
+#### Los 10 de ruido estructural son un DETECTOR, no 10 problemas
+
+7 `sin_escribir` sobre tablas que por diseño no se escriben solas
+(`realtime.schema_migrations` es interna de Supabase) + 3 `tabla_nueva`, que
+informa **una vez** y queda abierta para siempre. Se arreglan en el detector.
+
+#### Correr la acción encontró lo que la pantalla nunca iba a encontrar
+
+**`assets.fci` estaba ROTA y nadie lo sabía.** `assets_rows` proyecta con claves
+UPPERCASE y la acción las pedía en minúscula: `KeyError: 'cartera'` adentro de
+una comprehension. La acción entera explotaba y el informe decía «no pude
+proponer» sin más.
+
+Y **el test la cubría… con un mock que mentía**: devolvía `emisor` en minúscula,
+o sea que afirmaba que la acción andaba **contra un contrato que no existe**.
+
+    Un mock con la forma equivocada no es media garantía: es CERO garantía, y
+    encima TAPA el bug.
+
+Tres arreglos, no uno: la llamada, el mock, y **`assets_rows` valida en el
+borde** — un campo desconocido ahora dice qué claves hay en vez de reventar seis
+frames más abajo. Más un test que barre los tests buscando mocks de esa función
+con claves en minúscula: cazó **otros dos** en el mismo archivo, uno de los
+cuales hacía pasar a `test_si_los_hermanos_no_coinciden_no_se_propone` **por el
+motivo equivocado** (no proponía porque el mock estaba vacío, no porque los
+hermanos se contradijeran).
+
+**Esto solo se descubre EJECUTANDO.** Esa acción no se aprieta desde la pantalla,
+así que llevaba rota vaya a saber cuánto — y `scripts/agente_aplicar` la corrió
+por primera vez.
+
+#### El duplicado que declaré ayer gritaba 303 veces por 2 problemas
+
+`ticker_curva_vs_assets` comparaba `assets.ticker` contra el código de la unidad
+**para TODOS los assets**. Pero ese código solo ES un ticker cuando el asset es
+un bono: en un FCI la unidad dice `[2598] cafc1103- 2598 - IEB Renta Fija` y en
+un OTC `[OTC - DLR052027]`. **301 de 303 no significaban nada.**
+
+Un chequeo que grita 303 veces por 2 problemas reales enseña a ignorarlo — que
+es el daño exacto que `core/duplicados` existe para evitar. Ahora el SQL joinea
+contra `mercado.curvas`: la misma guarda 1 que ya tenía la acción. Si el código
+de la unidad no es una curva, no sabemos cuál de los dos nombres es el bueno, así
+que **no hay divergencia que declarar**.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

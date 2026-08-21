@@ -399,6 +399,15 @@ def estado(limite: int = 200) -> dict:
         # tabla declarada: si el centinela tuviera su propia idea de qué es
         # iliquidez, AHORA y ENCONTRÓ se contradirían sobre el mismo hallazgo.
         f["de_quien"] = av_agent.de_quien(f.get("regla") or "")
+        # ⚠️ **EL NOMBRE LEGIBLE, igual que en ENCONTRÓ.** El user, viendo
+        # `control:patas_equiv…` cortado en AHORA: *«los títulos no pueden estar
+        # así cortados, no se entiende nada»*. Y el nombre humano ya existía —
+        # ENCONTRÓ lo publica desde §0.bq y esta pantalla no.
+        #
+        # Se deriva ACÁ y no en el front por la razón de siempre: dos pantallas
+        # que muestran el mismo hallazgo tienen que llamarlo igual, y un segundo
+        # criterio del lado del navegador se separa del primero sin dar error.
+        f["nombre"] = _nombre_legible(f.get("sujeto") or "", f.get("tipo") or "")
 
     latido = None
     vivo = False
@@ -463,6 +472,28 @@ def _hoy(iso: str | None, desde: datetime) -> bool:
         return datetime.fromisoformat(iso) >= desde
     except ValueError:
         return False
+
+
+def _nombre_legible(sujeto: str, tipo: str) -> str:
+    """`control:patas_equivocadas` → `patas equivocadas`.
+
+    Los sujetos de SALUD llevan el prefijo de su familia (`control:` · `job:`)
+    porque **la clave lo necesita**: un job y un control pueden llamarse igual y
+    son cosas distintas. Pero en la pantalla ese prefijo se come el ancho de la
+    columna y deja el nombre cortado — que es justo lo que el user no puede leer.
+    La familia YA se ve en la columna de al lado («SALUD CONTROL»), así que acá
+    es redundante.
+
+    El sujeto crudo sigue viajando: la fila lo pone en el `title`, porque para
+    buscarlo en la base hace falta el nombre exacto.
+    """
+    s = (sujeto or "").strip()
+    for pref in ("control:", "job:", "tabla:", "motor:"):
+        if s.lower().startswith(pref):
+            s = s[len(pref):]
+            break
+    # Los tickers NO se tocan: `AL30` en minúsculas se lee peor, no mejor.
+    return s.replace("_", " ") if ("_" in s or " " in s) else s
 
 
 def _por_hora(filas: list[dict]) -> list[dict]:

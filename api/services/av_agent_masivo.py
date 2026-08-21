@@ -125,6 +125,103 @@ def _saldo() -> int | None:
         return None
 
 
+# ── LAS PUERTAS: qué función diagnostica cada modo ──────────────────────────
+#
+# ⚠️⚠️ **ERA LA CUARTA COPIA DE LA MISMA TABLA DE RUTEO, y se había separado.**
+# Acá vivía un `if/elif` con CUATRO modos (`salud · flujos · alta · arreglo`)
+# mientras `av_agent.accion_de()` ya devolvía OCHO. Los otros cuatro caían al
+# `else` y el informe los declaraba **«SIN PUERTA — el agente los ve y todavía
+# no sabe tocarlos»**.
+#
+# Medido en el masivo #14 (2026-08-22): de 26 «sin puerta», **13 tenían acción
+# desde hacía días** — 11 `pata_equivocada` (que se arreglan con
+# `mercado.apuntar_pata`, escrita justamente porque el user se hartó de verlos
+# 17 veces) y 2 `sin_espejo_en_assets`. El agente decía que no sabía hacer algo
+# que sabía hacer, y por eso el informe pedía construir lo que ya estaba
+# construido.
+#
+# Es el MISMO bug que los BOPREALes, en su tercera reencarnación: una tabla de
+# ruteo copiada. Ahora hay UNA sola y un test exige que todo modo que
+# `accion_de()` pueda devolver esté acá — un modo nuevo no puede volver a
+# aparecer como deuda inexistente.
+def _p_salud(sujeto: str, _caso: dict) -> dict:
+    # ⚠️ Sin `con_ia`: ese parámetro se fue cuando se dio de baja la lente con
+    # IA (2026-08-19) y esta llamada quedó pasándolo. Resultado: **14 casos
+    # EXPLOTARON con TypeError** en el masivo #6 — todos los chequeos de SALUD y
+    # todos los controles, o sea la categoría entera. El masivo los separa bien
+    # («esto es un bug, no un bono mal cargado») pero nadie los miraba: la
+    # corrida terminaba «OK».
+    from api.services import av_agent_salud
+    return av_agent_salud.diagnosticar(sujeto)
+
+
+def _p_flujos(sujeto: str, _caso: dict) -> dict:
+    from api.services import av_agent_alta
+    return av_agent_alta.simular_flujos(sujeto)
+
+
+def _p_alta(sujeto: str, caso: dict) -> dict:
+    from api.services import av_agent_alta
+    return av_agent_alta.simular(
+        sujeto, curva_1816=str((caso.get("evidencia") or {}).get("curva_1816") or ""))
+
+
+def _p_arreglo(sujeto: str, _caso: dict) -> dict:
+    from api.services import av_agent_alta
+    return av_agent_alta.simular_arreglo(sujeto)
+
+
+def _p_sin_precio(sujeto: str, _caso: dict) -> dict:
+    from api.services import av_agent_sin_precio
+    return av_agent_sin_precio.diagnosticar(sujeto)
+
+
+def _p_espejo(sujeto: str, _caso: dict) -> dict:
+    from api.services import av_agent_espejo
+    return av_agent_espejo.diagnosticar(sujeto)
+
+
+def _p_pata(sujeto: str, _caso: dict) -> dict:
+    from api.services import av_agent_pata
+    return av_agent_pata.explicar(sujeto)
+
+
+def _p_apuntar(sujeto: str, _caso: dict) -> dict:
+    # ⚠️ **SIMULA, no aplica.** `uno(..., aplicar_ya=False)` arma el caso
+    # volviendo a correr el control y devuelve QUÉ HARÍA. El masivo diagnostica
+    # 92 bonos de una: si alguna puerta escribiera, una corrida de rutina se
+    # convertiría en 92 escrituras que nadie aprobó.
+    from api.services import av_agent_hacer
+    return av_agent_hacer.uno("mercado.apuntar_pata", sujeto, aplicar_ya=False)
+
+
+PUERTAS = {
+    "salud": _p_salud, "flujos": _p_flujos, "alta": _p_alta,
+    "arreglo": _p_arreglo, "sin_precio": _p_sin_precio, "espejo": _p_espejo,
+    "pata": _p_pata, "apuntar": _p_apuntar,
+}
+
+
+def _cerrar_viejo(caso: dict, sujeto: str, causa: str) -> str:
+    """Cierra el item cuyo diagnóstico probó que ya no aplica. Nunca levanta.
+
+    Devuelve la frase que va al informe. Si no se pudo cerrar **lo dice**: un
+    «cerrado» que no cerró nada es peor que no intentarlo, porque la fila
+    reaparece mañana y nadie sabe por qué.
+    """
+    from api.services import av_agent_items
+    from core import ciclo
+    clave = av_agent_items.clave_de_problema(
+        sujeto, str(caso.get("regla") or ""), str(caso.get("origen") or ""))
+    r = av_agent_items.marcar(clave, ciclo.RESUELTO, por="av-agent:masivo")
+    if r.get("ok"):
+        return (f"se comprobó que ya no aplica ({causa or 'sin causa'}) → "
+                f"cerrado. Si vuelve a aparecer entra como «volvió», que informa "
+                f"más que uno nuevo.")
+    return (f"la cadena probó que ya no aplica, pero **no pude cerrarlo**: "
+            f"{r.get('error') or 'sin motivo'}. Va a seguir en la lista.")
+
+
 def _diagnosticar_uno(caso: dict, sin_red: bool) -> dict:
     """UN caso, por la misma puerta que el modal. Devuelve la fila del informe.
 
@@ -138,25 +235,9 @@ def _diagnosticar_uno(caso: dict, sin_red: bool) -> dict:
             "accion": accion, "motivo_hallazgo": caso.get("motivo")}
     t0 = time.perf_counter()
     try:
-        if accion == "salud":
-            from api.services import av_agent_salud
-            # ⚠️ Sin `con_ia`: ese parámetro se fue cuando se dio de baja la
-            # lente con IA (2026-08-19) y esta llamada quedó pasándolo. Resultado:
-            # **14 casos EXPLOTARON con TypeError** en el masivo #6 — todos los
-            # chequeos de SALUD y todos los controles, o sea la categoría entera.
-            # El masivo los separa bien («esto es un bug, no un bono mal
-            # cargado») pero nadie los miraba: la corrida terminaba «OK».
-            r = av_agent_salud.diagnosticar(sujeto)
-        elif accion == "flujos":
-            from api.services import av_agent_alta
-            r = av_agent_alta.simular_flujos(sujeto)
-        elif accion == "alta":
-            from api.services import av_agent_alta
-            r = av_agent_alta.simular(
-                sujeto, curva_1816=str((caso.get("evidencia") or {}).get("curva_1816") or ""))
-        elif accion == "arreglo":
-            from api.services import av_agent_alta
-            r = av_agent_alta.simular_arreglo(sujeto)
+        puerta = PUERTAS.get(accion)
+        if puerta is not None:
+            r = puerta(sujeto, caso)
         else:
             # Un hallazgo sin acción no es un fallo: es que el agente lo ve y
             # todavía no sabe tocarlo. Decirlo es más útil que omitirlo — es
@@ -177,6 +258,32 @@ def _diagnosticar_uno(caso: dict, sin_red: bool) -> dict:
     pasos = r.get("chequeos") or []
     # La CAUSA es lo que agrupa el informe: 68 casos se vuelven 4 líneas.
     causa = r.get("causa") or (r.get("diagnostico") or {}).get("causa") or ""
+
+    # ── SE COMPROBÓ QUE YA NO APLICA → SE CIERRA ────────────────────────────
+    #
+    # ⚠️⚠️ El user (2026-08-22): *«si dio error y no pudo encontrar el error que
+    # dio, CHAU DESAPARECE… ya no sé cómo explicar que no quiero basura acá»*.
+    #
+    # Tiene razón y el caso es concreto: SFD34 y BPOD7 salían como
+    # `sin_tea_con_precio` y la cadena terminaba en **«se comprobó que el bono
+    # está bien, este hallazgo quedó viejo»** — con la TEA coincidiendo con 1816
+    # a 0 bps. El agente lo PROBÓ y la fila se quedaba igual, para siempre,
+    # obligando a leerla de nuevo cada mañana.
+    #
+    # **Por qué acá y no al abrir el modal**: mirar no puede escribir. El masivo
+    # es una pasada deliberada que ya diagnosticó todo, así que cerrar es su
+    # conclusión, no un efecto secundario de haber abierto una pantalla. Y se
+    # CUENTA en el informe: cerrar en silencio sería otra forma de esconder.
+    #
+    # El estado `resuelto` NO es destructivo — el objeto guarda su historia y si
+    # el problema vuelve reaparece como `volvio`, que informa más que uno nuevo.
+    desenlace = (ver.get("desenlace") or {}).get("clase") or ""
+    if desenlace == "viejo":
+        cerrado = _cerrar_viejo(caso, sujeto, causa)
+        return {**fila, "estado": "cerrado", "causa": causa,
+                "veredicto": ver.get("texto") or "",
+                "detalle": cerrado, "segundos": seg}
+
     return {
         **fila,
         # `listo` = el agente sabe qué hacer y la cadena lo habilita. Es la
@@ -340,7 +447,7 @@ def _resumen(informe: list[dict]) -> dict:
 # persona o un modelo) tiene que ver exactamente lo mismo que la pantalla — dos
 # renderizados del mismo informe se desincronizan al primer cambio.
 
-_ORDEN_ESTADO = ["error", "no_pudo", "bloqueado", "sin_puerta", "listo"]
+_ORDEN_ESTADO = ["error", "no_pudo", "bloqueado", "sin_puerta", "listo", "cerrado"]
 
 _QUE_ES = {
     "error": "EXPLOTARON (excepción — esto es un bug, no un bono mal cargado)",
@@ -348,6 +455,10 @@ _QUE_ES = {
     "bloqueado": "DIAGNOSTICADOS pero la cadena NO habilita aplicar",
     "sin_puerta": "SIN PUERTA (el agente los ve y todavía no sabe tocarlos)",
     "listo": "LISTOS PARA APLICAR",
+    # Va ÚLTIMO en `_ORDEN_ESTADO` a propósito: es la única categoría donde no
+    # queda nada por hacer, así que no puede competir por la atención con las
+    # que sí piden algo.
+    "cerrado": "CERRADOS: se comprobó que ya no aplican (salieron de la lista)",
 }
 
 

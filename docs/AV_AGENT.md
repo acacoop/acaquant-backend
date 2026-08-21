@@ -5160,6 +5160,111 @@ chico: si una copia se separa, el control marca un caso que la acción no propon
 (o al revés) sin que nada falle.
 
 
+### 0.cb «ES CLICKEAR AL PEDO» — cuatro bugs, una misma firma (2026-08-22)
+
+> *«NO HACE NADA, es clickear al pedo, otra vez. Ya es un chiste que haya que
+> hablar de esto miles de veces. Y encima que si no pudo encontrar el error algo
+> tiene que hacer, listo, **DESAPARECER**. Ya no sé cómo explicar que no quiero
+> basura acá… y si encima estoy marcando que me interesa escuchar estas cosas,
+> ¿sigue siendo un botón que no hace nada?»* — user
+
+Cuatro cosas distintas, todas con la misma firma: **nada falla, y lo que el user
+hace no deja huella.**
+
+#### (1) El voto se guardaba y la pantalla no se enteraba
+
+El `✔ SIRVE` / `✖ ES RUIDO` **sí escribía** en `mercado.av_agent_evals`. Lo que
+faltaba era **una línea**: `await recargar()`. El «✔ te sirve» vivía en un
+`useState` del componente; al cambiar de tab React lo desmonta, al volver lee el
+`data` viejo —donde `ya_votado` sigue en `false`— y dibuja los botones otra vez.
+
+El user lo describió con precisión quirúrgica: *«me voy de ENCONTRÓ a AHORA,
+vuelvo, y están los botones igual»*. Literal.
+
+Y de yapa es lo que hace que **`✖ es ruido` SAQUE la fila**: el backend ya la
+marca y la vista ya la filtra — pero solo cuando los datos se vuelven a leer.
+
+#### (2) El informe masivo desaparecía al cambiar de tab
+
+> *«Literal: estás en una vista, hacés algo, te vas a otra y desaparece todo.
+> Estaba haciendo el diagnóstico, me pasé a AVISOS, volví y se borró.»*
+
+No se borraba nada: el informe vive en el backend y `GET /masivo` devuelve la
+última corrida. Lo que se perdía era el `useState`. **Una corrida de 4 minutos y
+92 casos desaparecía de la pantalla por tocar otra solapa**, y la única forma de
+recuperarla era volver a correrla. Ahora se lee al montar.
+
+#### (3) «SIN PUERTA» era mentira en 13 de 26 — la CUARTA copia del ruteo
+
+`av_agent_masivo` tenía su propio `if/elif` con **cuatro** modos
+(`salud · flujos · alta · arreglo`) mientras `accion_de()` ya devolvía **ocho**.
+Los otros cuatro caían al `else` y el informe los declaraba *«SIN PUERTA — el
+agente los ve y todavía no sabe tocarlos»*.
+
+Medido en el masivo #14: de 26 «sin puerta», **13 tenían acción desde hacía
+días** — 11 `pata_equivocada` (que arregla `mercado.apuntar_pata`, escrita
+justamente porque el user se hartó de verlos 17 veces) y 2
+`sin_espejo_en_assets` (escrita ayer).
+
+    El agente decía que no sabía hacer algo que sabía hacer,
+    y el informe pedía construir lo que ya estaba construido.
+
+Es el bug de los BOPREALes en su **tercera reencarnación**: una tabla de ruteo
+copiada. Ahora hay UNA (`PUERTAS`) y un test exige que cubra todo lo que
+`accion_de()` puede devolver. Otro test exige que **ninguna puerta escriba**: el
+masivo diagnostica 92 bonos de una, y una puerta que aplicara convertiría una
+corrida de rutina en 92 escrituras que nadie aprobó.
+
+#### (4) Lo probado-sano no se cerraba
+
+SFD34 y BPOD7 salían como `sin_tea_con_precio` y la cadena terminaba en *«se
+comprobó que el bono está bien, este hallazgo quedó viejo»* — con la TEA
+coincidiendo con 1816 **a 0 bps**. El agente lo PROBÓ y la fila seguía ahí.
+
+Ahora el masivo los **cierra** y lo cuenta en una categoría propia
+(`CERRADOS: se comprobó que ya no aplican`).
+
+⚠️ **Por qué lo cierra el masivo y no el modal**: *mirar no puede escribir*. El
+masivo es una pasada deliberada que ya diagnosticó todo, así que cerrar es su
+conclusión y no un efecto secundario de haber abierto una pantalla. Y si no
+puede cerrar, **lo dice** — un «cerrado» que no cerró nada es peor que no
+intentarlo, porque la fila reaparece mañana sin explicación.
+
+#### (5) Los títulos cortados
+
+`control:patas_equiv…` no dice nada. El prefijo de familia (`control:` / `job:`)
+existe porque **la clave lo necesita** —un job y un control pueden llamarse
+igual— pero en la pantalla se come el ancho y deja el nombre cortado, y la
+familia ya se lee en la columna de al lado. El backend publica `nombre` sin
+prefijo (`patas equivocadas`) y la columna dejó de tener ancho fijo. El sujeto
+crudo queda en el `title`: para buscarlo en la base hace falta el exacto.
+
+#### El censo: `scripts/diag_encontro`
+
+Para poder vaciar ENCONTRÓ hay que contestar algo que la pantalla no contesta:
+**de los N abiertos, ¿cuántos son de cada clase?** Las cinco clases no son
+severidad — son **qué trabajo hace falta**, que es lo único que decide el orden:
+
+    AUTO_CERRABLE      el agente ya probó que no aplica → dejar de mostrarlo
+    RUIDO_ESTRUCTURAL  no puede dejar de aparecer nunca → se arregla el DETECTOR
+    TIENE_PUERTA       hay acción; si sale «sin puerta» es un bug de RUTEO
+    FALTA_ACCION       deuda real, **ordenada por volumen**
+    HUMANO             criterio de la mesa — el único resto legítimo
+
+#### La deuda que queda medida, y por qué NO la toqué todavía
+
+**`moneda_flujo_contradice`: 21 casos, el pico del informe.** Todos dicen lo
+mismo — `moneda_flujo`=ARS y los ejes piden USD/DL — y la cadena remata *«con
+`moneda_flujo` bien, el motor la resuelve solo»*. El valor correcto ya lo calcula
+el propio detector (`moneda_flujo_esperada`), así que la acción es derivable.
+
+**No se escribió en esta pasada a propósito**: ese campo decide **cómo el motor
+convierte el precio**, o sea que tocarlo *cambia una valuación*. Todo lo de hoy
+fue pantalla y ruteo, sin mover un número. Escribir 21 valuaciones un viernes a
+la noche, sin que nadie mire el resultado hasta el lunes, es exactamente la clase
+de cambio que este proyecto no hace.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

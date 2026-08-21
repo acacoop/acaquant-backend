@@ -258,3 +258,39 @@ def test_RESUELTO_tambien_cuenta_como_atendido():
     h = _h("BPOA7", "precio_moneda", "pata_equivocada", "apuntar")
     h["estado_item"] = ciclo.RESUELTO
     assert _vista([h])["hallazgos"][0]["atendido"] == "aplicado"
+
+
+def test_el_masivo_conoce_TODAS_las_puertas_que_accion_de_devuelve():
+    """⚠️⚠️ **LA CUARTA COPIA DE LA TABLA DE RUTEO** (§0.cb).
+
+    `av_agent_masivo` tenía su propio `if/elif` con CUATRO modos mientras
+    `accion_de()` ya devolvía OCHO. Los otros cuatro caían al `else` y el
+    informe los declaraba «SIN PUERTA — el agente los ve y todavía no sabe
+    tocarlos». Medido en el masivo #14: **13 de 26 «sin puerta» tenían acción
+    desde hacía días** (11 `pata_equivocada` + 2 `sin_espejo_en_assets`).
+
+    O sea: el agente decía que no sabía hacer algo que sabía hacer, y el
+    informe pedía construir lo que ya estaba construido. No falla nada — es la
+    firma de siempre.
+    """
+    from api.services.av_agent_masivo import PUERTAS
+    modos = set(av_agent.ACCION_POR_TIPO.values()) | set(av_agent.ACCION_POR_REGLA.values())
+    modos.discard(None)
+    faltan = modos - set(PUERTAS)
+    assert not faltan, (
+        f"modos que el hallazgo puede pedir y el masivo no sabe abrir: {faltan} "
+        f"— van a salir como «sin puerta» siendo mentira")
+
+
+def test_ninguna_puerta_del_masivo_escribe():
+    """El masivo diagnostica 92 bonos de una: si una puerta aplicara, una
+    corrida de rutina serían 92 escrituras que nadie aprobó."""
+    import inspect
+
+    from api.services.av_agent_masivo import PUERTAS
+    for modo, fn in PUERTAS.items():
+        src = inspect.getsource(fn)
+        assert "aplicar_ya=True" not in src, f"«{modo}» aplicaría"
+        assert "aplicar=True" not in src, f"«{modo}» aplicaría"
+        # `pedir()` siembra la especie y suscribe — es escritura.
+        assert ".pedir(" not in src, f"«{modo}» llama a pedir(), que escribe"

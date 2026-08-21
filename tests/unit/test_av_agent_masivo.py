@@ -91,11 +91,26 @@ def test_demasiados_casos_se_rechazan_con_el_motivo_en_TIEMPO():
 
 def test_no_se_reimplementa_ningun_diagnostico():
     """Cada caso pasa por la MISMA puerta que el modal: dos caminos al mismo
-    diagnóstico terminan contradiciéndose."""
-    src = inspect.getsource(m._diagnosticar_uno)
+    diagnóstico terminan contradiciéndose.
+
+    Se mira el registro `PUERTAS` y no el `if/elif` que había adentro de
+    `_diagnosticar_uno`: ese `if/elif` ERA el problema (§0.cb) — una cuarta copia
+    de la tabla de ruteo, con 4 modos de 8, que declaraba «sin puerta» a 13
+    hallazgos que sí la tenían.
+    """
+    # Las cuatro originales siguen cubiertas…
+    src_todas = "\n".join(inspect.getsource(f) for f in m.PUERTAS.values())
     for puerta in ("simular_arreglo", "simular_flujos", "simular(",
                    "av_agent_salud.diagnosticar"):
-        assert puerta in src
+        assert puerta in src_todas, f"se perdió la puerta «{puerta}»"
+
+    # …y NINGUNA calcula por su cuenta: cada una delega en un service. Una
+    # puerta con lógica propia es la segunda implementación que este test evita.
+    for modo, fn in m.PUERTAS.items():
+        cuerpo = inspect.getsource(fn)
+        assert "from api.services import" in cuerpo, f"«{modo}» no delega"
+        assert cuerpo.count("return") == 1, (
+            f"«{modo}» tiene más de una salida: eso ya es lógica, no ruteo")
 
 
 def test_la_lente_con_IA_va_apagada_en_masivo():

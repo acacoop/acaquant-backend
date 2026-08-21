@@ -366,6 +366,88 @@ def abiertos(tipo: str = "", limite: int = 400) -> list[ciclo.Item]:
         return []
 
 
+def que_importa(limite: int = 400) -> dict:
+    """**DE TODO LO ABIERTO, QUÉ PIDE ALGO HOY.**
+
+    ⚠️⚠️ Esto es lo que faltaba para que el modelo sirva de algo. La historia se
+    guardaba desde §0.bd y la pantalla seguía ordenando por severidad — o sea,
+    igual que ANTES de tener memoria. Sesenta y cuatro cosas abiertas, todas
+    iguales, para siempre: literalmente *«las cosas en ENCONTRÓ siguen
+    figurando»*.
+
+    Devuelve las mismas filas, **agrupadas por banda y ordenadas por
+    prioridad**, más el conteo por banda — que es el número que convierte una
+    lista en una decisión: *de 64 abiertos, 3 piden algo hoy*.
+
+    UNA query: el peaje de Supabase se paga por viaje y el ordenamiento se hace
+    en Python porque el criterio (`ciclo.prioridad`) tiene que ser el mismo que
+    usa cualquier otro lector. Un `ORDER BY` en SQL sería una segunda copia de
+    la regla, y ya sabemos cómo termina eso (REGLA #9).
+    """
+    items = abiertos(limite=limite)
+    ahora = datetime.now(UTC)
+    items.sort(key=lambda it: ciclo.prioridad(it, ahora))
+    por_banda: dict[str, int] = {}
+    filas = []
+    for it in items:
+        b = ciclo.banda(it, ahora)
+        por_banda[b] = por_banda.get(b, 0) + 1
+        filas.append({
+            "clave": it.clave, "tipo": it.tipo, "origen": it.origen,
+            "sujeto": it.sujeto, "regla": it.regla, "titulo": it.titulo,
+            "afecta": it.afecta, "severidad": it.severidad,
+            "estado": it.estado, "veces": it.veces,
+            "dias_abierto": round(it.dias_abierto(ahora), 1),
+            "banda": b,
+        })
+    # ⚠️ «Pide algo» son las tres primeras bandas. `nuevo` NO entra: apareció
+    # hoy y todavía no probó que sea algo — meterlo acá haría que el número
+    # suba y baje solo, y un contador que se mueve sin que pase nada deja de
+    # mirarse.
+    piden = sum(por_banda.get(b, 0) for b in ("volvio", "estancado", "arrastra"))
+    return {"ok": True, "abiertos": len(filas), "piden_algo": piden,
+            "por_banda": por_banda, "filas": filas,
+            "sin_mirar": _sin_mirar(items, ahora)}
+
+
+def _sin_mirar(items: list[ciclo.Item], ahora) -> list[dict]:
+    """**LO QUE SIGUE ABIERTO PORQUE NADIE LO VOLVIÓ A EVALUAR.**
+
+    No es lo mismo «sigue roto» que «nadie lo miró de nuevo», y hasta acá se
+    veían idénticos: los dos son una fila abierta.
+
+    La diferencia se puede DERIVAR con lo que ya está guardado. Si el origen
+    volvió a correr —hay otro objeto suyo con `ultimo_at` más fresco— y a éste
+    no lo refrescó, entonces el detector pasó y **no lo evaluó**. Es el punto
+    ciego que la guarda `evaluados` evita cerrar por las malas (§0.be), acá
+    mostrado en vez de simplemente no-cerrado.
+
+    Es exacto y no estima nada: compara dos marcas de tiempo que existen.
+    """
+    ultimo_del_origen: dict[str, object] = {}
+    for it in items:
+        u = it.ultimo_at
+        if not u:
+            continue
+        prev = ultimo_del_origen.get(it.origen)
+        if prev is None or u > prev:
+            ultimo_del_origen[it.origen] = u
+    out = []
+    for it in items:
+        ref = ultimo_del_origen.get(it.origen)
+        if not ref or not it.ultimo_at:
+            continue
+        atraso = (ref - it.ultimo_at).total_seconds() / 3600
+        # Una hora de margen: dos objetos de la MISMA corrida se escriben con
+        # segundos de diferencia y eso no es que uno quedó sin evaluar.
+        if atraso >= 1:
+            out.append({"clave": it.clave, "sujeto": it.sujeto,
+                        "regla": it.regla, "origen": it.origen,
+                        "horas_sin_reevaluar": round(atraso, 1)})
+    out.sort(key=lambda x: -x["horas_sin_reevaluar"])
+    return out[:50]
+
+
 def en_seguimiento() -> list[dict]:
     """Los arreglos que se están mirando, **con cuántos hitos llevan**.
 

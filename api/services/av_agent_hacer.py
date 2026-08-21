@@ -143,7 +143,11 @@ _PATRONES: tuple[tuple[str, str, str], ...] = (
 
 
 def _nombre(unidad: str) -> str:
-    """El nombre del papel, sin los corchetes de Aunesa. **Hay DOS formas.**
+    # ⚠️ r-string: el docstring CITA una regex (`\bDLR\s*\d`) para explicar por
+    # qué ese patrón matcheaba de casualidad. Sin la `r`, Python 3.12 lo canta
+    # como `SyntaxWarning: invalid escape sequence` en CADA arranque de la API
+    # y en cada job — ruido permanente en los logs por un comentario.
+    r"""El nombre del papel, sin los corchetes de Aunesa. **Hay DOS formas.**
 
         [42932] OTC SOJ.        el corchete es un PREFIJO: el id de especie
         [OTC - MAI.ROS/ENE27]   el corchete ENVUELVE al nombre entero

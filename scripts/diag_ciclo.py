@@ -54,7 +54,7 @@ def main() -> int:
           f"1 canónica · {len(espejan)} con objeto · {len(crudas)} crudas")
     print("                        █ es la canónica   "
           "▓ ya tiene objeto con historia (le queda sacar su columna)   "
-          "░ todavía dice lo suyo")
+          "░ todavía dice lo suyo   · no es un problema, no se migra")
     print(f"\n  y {len(otros)} que NO son problemas y por lo tanto NO se migran:")
     for t in otros:
         f = next(x for x in ciclo.REGISTRO if x.tabla == t)
@@ -65,7 +65,11 @@ def main() -> int:
     print("─" * 74)
     for t in ciclo.sin_migrar():
         f = next(x for x in ciclo.REGISTRO if x.tabla == t)
-        print(f"\n  {'▓' if f.espeja else '░'} {t}")
+        # El marcador tiene que decir lo MISMO que el resumen de arriba: un
+        # `sensor` o un `acuse` con `░` («todavía dice lo suyo») contradice al
+        # renglón que acaba de explicar que esos no se migran.
+        marca = "▓" if f.espeja else ("·" if f.clase != "problema" else "░")
+        print(f"\n  {marca} {t}   [{f.clase}]")
         print(f"      hoy dice:  {f.como}")
         print(f"      columnas:  {', '.join(f.campos) or '—'}")
 

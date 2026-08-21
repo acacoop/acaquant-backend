@@ -4136,6 +4136,79 @@ identidad. Éste es una semántica real: el sujeto entero deja de interesar.
 
 
 
+### 0.bm DE 64 ABIERTOS, ¿CUÁLES PIDEN ALGO HOY? (2026-08-21)
+
+El modelo guardaba `veces`, `abierto_at` y `vuelto_at` desde §0.bd… **y la
+pantalla seguía ordenando por severidad**, o sea igual que antes de tener
+memoria. Sesenta y cuatro cosas abiertas, todas iguales, para siempre — que es
+literalmente la queja: *«las cosas en ENCONTRÓ siguen figurando»*.
+
+> **Un tablero que no prioriza no es un tablero, es un depósito.** Toda la
+> migración de §0.bd a §0.bl construyó la memoria; esto es lo primero que la
+> LEE para decidir.
+
+#### Las cuatro bandas, y el número que decide
+
+    volvio      el arreglo FALLÓ — alguien ya lo dio por resuelto y volvió igual
+    estancado   lo viste, sigue abierto, y hace días que no pasa nada
+    arrastra    lleva días abierto y NADIE lo miró todavía
+    nuevo       apareció hoy
+
+    → de 64 abiertos, 3 PIDEN ALGO
+
+`nuevo` **no** cuenta en ese número: apareció hoy y todavía no probó que sea
+algo. Si entrara, el contador subiría y bajaría solo — y un número que se mueve
+sin que pase nada deja de mirarse, que es cómo murieron los tableros anteriores.
+
+`volvio` gana sobre todo, incluso sobre una severidad alta de hace un mes: nada
+informa más que un arreglo que falló. Y se detecta por `vuelto_at` y no solo por
+el estado, así no se pierde justo cuando alguien lo marcó visto.
+
+La prioridad es una **tupla**, no un puntaje. Un «87 puntos» no se puede
+discutir ni auditar y esconde cuál de los criterios lo puso ahí.
+
+#### La banda que NO está, y por qué
+
+Estaba servida: comparar `veces` contra las corridas transcurridas y separar
+*estructural* de *intermitente*. **No se puede desde acá**: el centinela corre
+cada 5 minutos y el control una vez por noche, así que 18 veces significa cosas
+opuestas según quién lo vio. Inventar ese denominador habría dado un cartel con
+pinta de medición y sin medición atrás (REGLA #2). Si volvió, `volvio` ya lo
+dice con certeza. Hay un test que lo congela.
+
+#### «Sigue roto» y «nadie lo miró» no son lo mismo
+
+Y hasta acá se veían idénticos: los dos son una fila abierta. La diferencia se
+DERIVA de lo que ya está guardado — si el origen volvió a correr (hay otro
+objeto suyo con `ultimo_at` más fresco) y a éste no lo refrescó, el detector
+pasó y **no lo evaluó**. Es el punto ciego que la guarda `evaluados` (§0.be)
+evita cerrar por las malas, ahora mostrado en vez de simplemente no-cerrado.
+
+Se compara contra **su propio origen**: medir al control nocturno con la vara
+del centinela lo marcaría como abandonado todas las mañanas.
+
+#### Dónde se ve
+
+Tab AHORA, arriba del seguimiento — primero qué hay que hacer, después si lo que
+ya se hizo aguantó. Y `scripts/diag_importa` lo imprime en el Droplet: la
+primera pregunta después de una migración es siempre *«¿y esto qué muestra
+ahora?»*, y contestarla mirando la app mezcla dos cosas que fallan por separado
+(el dato y el render).
+
+#### De yapa, dos cosas que la corrida en prod dejó a la vista
+
+- **`SyntaxWarning: invalid escape sequence '\s'`** en `av_agent_hacer.py`, en
+  cada arranque de la API y en cada job. El docstring de `_nombre` **cita** una
+  regex para explicar por qué ese patrón matcheaba de casualidad; sin `r"""`,
+  Python lo canta como error de sintaxis. Ruido permanente en los logs por un
+  comentario. Barrido: era el único del repo.
+- **El marcador de `diag_ciclo` se contradecía con su propio resumen**:
+  `salud_vistos` y `proveedor_estado` salían con `░` («todavía dice lo suyo»)
+  tres renglones debajo de haber explicado que ésas no se migran. Ahora llevan
+  `·` y su clase al lado.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

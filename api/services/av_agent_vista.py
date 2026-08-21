@@ -783,6 +783,20 @@ def _seguimiento_corto(limite: int = 12) -> dict:
     }
 
 
+def _que_importa_corto(limite: int = 25) -> dict:
+    """Las bandas + las primeras filas. **Nunca levanta**: si la memoria no se
+    puede leer, la pantalla tiene que dibujarse igual con la foto de siempre."""
+    try:
+        from api.services import av_agent_items
+        r = av_agent_items.que_importa()
+    except Exception as e:
+        logger.warning("av_agent: no pude leer qué importa (%s)", e)
+        return {"ok": False, "abiertos": 0, "piden_algo": 0,
+                "por_banda": {}, "filas": [], "sin_mirar": []}
+    return {**r, "filas": r.get("filas", [])[:limite],
+            "sin_mirar": r.get("sin_mirar", [])[:10]}
+
+
 def vista() -> dict:
     """Todo lo que la pantalla necesita, en un request."""
     from api.services import av_agent_acciones as acciones
@@ -895,6 +909,13 @@ def vista() -> dict:
         # el escalonado estuvo construido sin que nadie lo llamara, que es la
         # misma enfermedad de siempre.
         "seguimiento": _seguimiento_corto(),
+        # ── QUÉ PIDE ALGO HOY (§0.bm) ──────────────────────────────────────
+        #
+        # La historia se guardaba desde §0.bd y la pantalla seguía ordenando
+        # por severidad — o sea igual que ANTES de tener memoria. Esto la lee:
+        # bandas (volvió · estancado · arrastra · nuevo) y el número que
+        # convierte una lista en una decisión: *de N abiertos, M piden algo*.
+        "que_importa": _que_importa_corto(),
         "preguntas": [p for p in abiertas if p["tipo"] != "decision"],
         "decisiones": [p for p in abiertas if p["tipo"] == "decision"],
         "decididas": _decididas(),

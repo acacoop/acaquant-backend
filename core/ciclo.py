@@ -293,6 +293,65 @@ def _dias(desde, ahora=None) -> float:
         return 0.0
 
 
+# ── QUÉ MERECE ATENCIÓN HOY ─────────────────────────────────────────────────
+#
+# ⚠️⚠️ **EL MODELO GUARDABA LA HISTORIA Y NADIE LA LEÍA.** `veces`,
+# `abierto_at`, `vuelto_at` y los hitos existen desde §0.bd… y la pantalla
+# seguía ordenando por severidad, que es lo mismo que ordenaba ANTES de tener
+# memoria. Sesenta y cuatro cosas abiertas, todas iguales, para siempre — que
+# es literalmente la queja del user («las cosas en ENCONTRÓ siguen figurando»).
+#
+# **Un tablero que no prioriza no es un tablero, es un depósito.**
+#
+# Las bandas de abajo se derivan SOLO de campos guardados, sin estimar nada.
+# Estuve tentado de agregar una banda «estructural vs intermitente» comparando
+# `veces` contra las corridas transcurridas — y no está, porque **la cadencia
+# de cada origen no se puede saber desde acá**: el centinela corre cada 5
+# minutos y el control una vez por noche, así que 18 veces significa cosas
+# opuestas según quién lo vio. Inventar ese denominador habría dado un cartel
+# con pinta de medición y sin medición atrás (REGLA #2). Lo que sí es exacto es
+# si VOLVIÓ, y eso ya dice lo mismo con certeza.
+BANDAS = ("volvio", "estancado", "arrastra", "nuevo", "mirando")
+
+# Cuántos días sin que nadie haga nada convierten un pendiente en un estancado.
+# Dos, y no una semana: el user, sobre el seguimiento — *«5 días es mucho… es el
+# día siguiente para ver si vuelve»*. La misma vara para el otro lado.
+DIAS_ESTANCADO = 2.0
+
+
+def banda(it: Item, ahora=None) -> str:
+    """En qué grupo cae este objeto HOY. Uno solo, y el orden es la prioridad.
+
+        volvio     el arreglo FALLÓ. Nada informa más: alguien ya lo dio por
+                   resuelto y volvió igual.
+        estancado  lo viste, sigue abierto y hace días que no pasa nada.
+        arrastra   lleva días abierto y NADIE lo miró todavía.
+        nuevo      apareció hoy.
+        mirando    resuelto, en período de prueba (los hitos de §0.bi).
+    """
+    if it.estado == VOLVIO or it.vuelto_at:
+        return "volvio"
+    if it.estado in (RESUELTO, IGNORADO):
+        return "mirando"
+    d = it.dias_abierto(ahora)
+    if d < 1:
+        return "nuevo"
+    return "estancado" if it.visto_at else "arrastra"
+
+
+def prioridad(it: Item, ahora=None) -> tuple:
+    """La clave de orden. Se devuelve una TUPLA y no un puntaje a propósito: un
+    número inventado («87 puntos») no se puede discutir ni auditar, y esconde
+    cuál de los criterios lo puso ahí. Una tupla dice el porqué en orden."""
+    b = banda(it, ahora)
+    sev = {"alta": 0, "media": 1, "baja": 2}.get(it.severidad, 3)
+    # Dentro de la banda manda la severidad y después la ANTIGÜEDAD: lo que
+    # lleva más tiempo abierto va primero, porque es lo que más tiempo estuvo
+    # sin que a nadie le importara.
+    return (BANDAS.index(b) if b in BANDAS else len(BANDAS), sev,
+            -it.dias_abierto(ahora), -int(it.veces or 0))
+
+
 def identidad(sujeto: str, causa: str, respaldo: str = "") -> str:
     """**LA IDENTIDAD DE UN PROBLEMA: qué está mal, en qué cosa.**
 

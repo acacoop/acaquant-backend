@@ -3454,6 +3454,68 @@ uno con su botón. Se calcula en el backend porque el navegador no puede mirar e
 reloj mientras dibuja — y porque el criterio tiene que ser uno solo.
 
 
+### 0.ba EL ERROR, EN CASTELLANO — qué pasó, a qué afecta, si sigue (2026-08-21)
+
+> *«Es imposible entender qué es el error, qué está pasando o qué pasó, si sigue
+> pasando. Está el mensaje cortado, aparte todo súper técnico, no se entiende a
+> qué está afectando de la app. **Poner una línea de código y decir que no anda
+> es inentendible.**»*
+
+Lo que se veía:
+
+    motor_curvas: <fecha>,<n> ERROR pg_mirror pg_mirror market_snapshot: de…
+    controles_datos: la corrida de 20/08 16:30 UTC falló          [ANALIZAR]
+
+Y la frase que define el diseño:
+
+> *«Los motores y los jobs hacen cosas **LINEALES**, no son a interpretación.
+> Siempre tienen que estar analizados.»*
+
+De un error de NUESTRO sistema hay que poder contestar tres cosas **sin apretar
+nada**: **QUÉ PASÓ** (en castellano) · **A QUÉ AFECTA** (qué pantalla queda mal)
+· **SI SIGUE** (terminó, o está pasando ahora).
+
+    motor_curvas: no pudo guardar en la base lo que calculó · error ×3 · 16:49
+      No pudo guardar en la base lo que calculó. El dato se calculó bien y se
+      perdió en la escritura.
+      AFECTA: la TEA, la paridad y la duration de cada bono → la tabla de RENTA FIJA.
+      Log: 2026-08-21 16:49 ERROR pg_mirror deadlock detected
+
+**LA REGLA PRIMERO, LA IA DESPUÉS.** `av_agent_errores.FIRMAS` traduce lo
+conocido gratis y sin poder alucinar — son piezas nuestras, fallan de un
+conjunto finito de formas, y un `ModuleNotFoundError` significa siempre lo
+mismo. El modelo entra **solo donde la regla no supo** (pedido del user: *«acá
+es donde hay que meter un LLM que explique qué es el error»*), con tres guardas:
+
+  1. **Se explica el PATRÓN, no la fila.** El mismo error sale 90 veces en 6 h;
+     una llamada por aparición sería absurdo. Una explicación por
+     `(unidad, patrón)`, persistida en `mercado.av_agent_errores` — misma idea
+     que agrupar el log. Por eso la tarea es `flash`/300 tokens y no `pro`.
+  2. **La IA NO decide a qué afecta.** Eso sale de la ficha declarada
+     (`salud.JOBS[…]['alimenta']`, `QUE_HACE`), que es un hecho del sistema.
+     Inventar consecuencias es lo que haría desconfiar de todo lo demás.
+  3. **Sin IA se muestra la línea cruda**, marcada `fuente='crudo'`: un texto
+     feo es mejor que ninguno, y ese contador es la lista de lo que falta cubrir.
+
+Tres cosas más que salieron de esto:
+
+- **La severidad la decide la CONSECUENCIA, no el nivel del log.** Un WARNING
+  repetido 90 veces por contratos vencidos disparaba `machaca` en severidad
+  ALTA; un ERROR de escritura es plata que no se guardó. Ahora las firmas que no
+  son urgentes bajan la fila a media.
+- **`salud` pasó a OBSERVACIÓN.** Que una corrida falló lo dice `job_runs`:
+  preguntar «¿el agente acertó?» no tiene respuesta posible — acertó por
+  construcción (§0.ax).
+- **El `pasa` de cada firma es CORTO a propósito** y hay un test que falla si el
+  título se corta: el título tiene 88 caracteres contando el motor, la cuenta y
+  la hora, así que una frase de 110 vuelve al «…» que originó todo esto. El
+  matiz va al cuerpo, donde sí hay lugar.
+
+⚠️ **Los hallazgos se PERSISTEN**, así que las filas viejas siguen mostrando el
+texto con que se detectaron: el título nuevo aparece cuando el detector vuelve a
+correr (el monitor, cada 5 min en rueda; los de SALUD se evalúan en vivo).
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

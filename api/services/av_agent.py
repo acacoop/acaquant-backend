@@ -468,7 +468,11 @@ PREGUNTA_POR_TIPO: dict[str, str] = {
     "tabla_quieta": JUICIO,        # APRENDE la cadencia y decide que hay atraso
     "latencia": JUICIO,            # compara contra su propia mediana
     "permiso_flojo": JUICIO,
-    "salud": JUICIO,               # «no corrió cuando debía» es una resta suya
+    # ⚠️ Era JUICIO y el user lo corrigió: *«los motores y los jobs hacen cosas
+    # LINEALES, no son a interpretación»*. Que una corrida falló lo dice
+    # `job_runs`; que no corrió es una resta contra el crontab. En las dos, «¿el
+    # agente acertó?» no tiene respuesta posible — acertó por construcción.
+    "salud": OBSERVACION,
     # ── OBSERVACIONES: lo copió de algún lado ───────────────────────────────
     # El log lo escribió el motor. Que el patrón esté bien agrupado es un
     # detalle de implementación, no una causa que se pueda acertar.
@@ -604,6 +608,39 @@ DOMINIOS_EVAL = ("bono", "salud", "sistema")
 def dominio_eval(tipo: str) -> str:
     """En qué dominio se anota el voto de este hallazgo."""
     return DOMINIO_EVAL.get((tipo or "").strip(), "bono")
+
+
+def _motivo_salud(c: dict) -> str:
+    """`<qué pasó, en castellano> · <a qué afecta>` para un chequeo en rojo.
+
+    El título y el motivo de SALUD dicen QUE algo falló; lo que hacía falta es
+    QUÉ falló y a quién le pega. Los dos datos ya estaban —el error en
+    `job_runs`, el impacto en la ficha del job— y ninguno llegaba a la fila.
+    """
+    from api.services import av_agent_errores as trad
+
+    base = f"{c.get('titulo')}: {c.get('motivo')}"
+    err = _primer_error(c)
+    if not err:
+        return base
+    exp = trad.explicar(str(c.get("id") or "").split(":")[-1], err, err)
+    cola = f" · afecta {exp['afecta']}" if exp["afecta"] else ""
+    return f"{c.get('titulo')}: {exp['pasa']}{cola}"
+
+
+def _primer_error(c: dict) -> str:
+    """El primer error REAL de la última corrida. Vacío si no lo hay.
+
+    Los errores viven adentro de `corridas[0]` y no en el chequeo — por eso el
+    motivo podía decir «falló» sin poder decir por qué."""
+    corridas = c.get("corridas")
+    if not isinstance(corridas, list) or not corridas:
+        return ""
+    d = corridas[0] if isinstance(corridas[0], dict) else {}
+    errs = d.get("errors") or d.get("error") or []
+    if isinstance(errs, str):
+        return errs
+    return str(errs[0]) if errs else ""
 
 
 def _hhmm(ahora=None) -> str:
@@ -1136,7 +1173,13 @@ def detectar_salud(chequeos: list[dict]) -> list[dict]:
             # detector; renombrarlo tocaría la tabla, el front y los tres
             # detectores que ya andan, y no cambia lo que significa.
             "salud", c.get("id") or "?", f"salud_{familia}", sev[estado],
-            f"{c.get('titulo')}: {c.get('motivo')}",
+            # ⚠️ **QUÉ PASÓ Y A QUÉ AFECTA, YA TRADUCIDO** (§0.ba). El motivo
+            # decía «la corrida de 20/08 16:30 UTC falló» y el error de verdad
+            # —`ModuleNotFoundError: No module named 'core.ai_resumen'`— vivía
+            # tres clics adentro, atrás del botón ANALIZAR. El user: *«ya
+            # deberían venir analizados… los motores y los jobs hacen cosas
+            # LINEALES, no son a interpretación»*.
+            _motivo_salud(c),
             {"chequeo_id": c.get("id"), "familia": familia,
              "titulo": c.get("titulo"), "estado": estado,
              "evidencia_salud": c.get("evidencia"),

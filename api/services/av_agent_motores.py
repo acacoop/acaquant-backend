@@ -473,14 +473,41 @@ def _hallazgo_log(g: dict) -> dict | None:
     # patrones distintos: el que ve la lista cree que el agente repitió el aviso.
     # Y sin la hora no se puede votar —que es el pedido del user—: «96 veces en
     # 4 min» no dice si fue recién o a las 3 de la mañana.
-    motivo = _titulo(g["unidad"], g["patron"], cola, _hora_de(g["ultima"]))
+    # ⚠️ **EL TÍTULO DICE QUÉ PASÓ, NO LA LÍNEA DEL LOG.** El user, mirando
+    # `motor_curvas: <fecha>,<n> ERROR pg_mirror pg_mirror market_snapshot: de…`:
+    # *«es imposible entender qué es el error, qué está pasando, si sigue
+    # pasando. Poner una línea de código y decir que no anda es inentendible.»*
+    #
+    # Y tenía razón también en el porqué: **los motores hacen cosas LINEALES**.
+    # Son piezas NUESTRAS y fallan de un conjunto finito de formas, así que casi
+    # siempre se puede traducir con una regla, gratis y sin poder alucinar. Lo
+    # que la regla no sabe lo traduce el modelo UNA vez por patrón (§0.ba).
+    from api.services import av_agent_errores as trad
+    exp = trad.explicar(g["unidad"], g["patron"], g.get("muestra") or "")
+    motivo = _titulo(g["unidad"], exp["pasa"], cola, _hora_de(g["ultima"]))
+    # Un WARNING repetido 90 veces por contratos vencidos es ruido; un ERROR de
+    # escritura es plata que no se guardó. Lo que decide es la CONSECUENCIA, y
+    # eso lo sabe la traducción — no el nivel con que se escribió el log.
+    if not exp["urgente"] and sev == "alta":
+        sev = "media"
 
     return {
         "tipo": "motor_ruidoso", "ticker": g["unidad"], "regla": regla,
         "severidad": sev, "motivo": motivo,
         "evidencia": {
-            "texto": (f"{detalle}\n{g['patron']}\n"
-                      f"{g['muestra'].splitlines()[0][:160]}"),
+            # QUÉ PASÓ · A QUÉ AFECTA · SI SIGUE. Las tres preguntas que el user
+            # pidió poder contestar sin apretar nada, en ese orden.
+            "pasa": exp["pasa"], "afecta": exp["afecta"],
+            "sigue": cola, "fuente_texto": exp["fuente"],
+            # Renglones SUELTOS, sin línea en blanco: es la ley del texto corto
+            # (§0.ag) y hay un test que la exige. Un párrafo en un aviso se
+            # saltea; tres renglones se leen.
+            "texto": ("\n".join(x for x in (
+                f"**{exp['pasa'].capitalize()}.** {exp.get('mas') or ''}".strip(),
+                f"AFECTA: {exp['afecta']}." if exp["afecta"] else "",
+                f"{detalle} {cola}.",
+                f"Log: {(g.get('muestra') or '').splitlines()[0][:160]}",
+            ) if x)),
             "unidad": g["unidad"], "nivel": g["nivel"], "veces": veces,
             "ventana_s": round(dur), "ventana": _dur(dur),
             "patron": g["patron"], "muestra": g["muestra"][:400]}}

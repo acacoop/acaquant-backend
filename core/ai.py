@@ -90,6 +90,21 @@ _TAREAS: dict[str, dict] = {
     # produce se lee en pantalla todos los días.
     "research_destilar": {"tier": "flash", "max_tokens": 2000, "timeout_s": 90,
                           "thinking": "disabled"},
+    # AV AGENT — TRADUCIR UNA LÍNEA DE LOG a castellano llano
+    # (api/services/av_agent_errores.py). Pedido del user 2026-08-21: *«acá es
+    # donde hay que meter un LLM que explique qué es el error… poner una línea
+    # de código y decir que no anda es inentendible»*.
+    #
+    # **`flash` y no `pro`, y max_tokens chico**: no decide nada. Traduce UNA
+    # oración y no puede tocar un dato — a qué afecta sale de la ficha
+    # declarada, no del modelo. Es la tarea más barata que puede tener valor.
+    #
+    # Y sobre todo: se llama **una vez por PATRÓN**, no por fila. El mismo error
+    # sale 90 veces en 6 horas y la explicación se persiste en
+    # `mercado.av_agent_errores` — si no, esta tarea sería la más cara de todas
+    # por lejos.
+    "av_agent_error": {"tier": "flash", "max_tokens": 300, "timeout_s": 45,
+                       "thinking": "disabled"},
 }
 
 _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60, "thinking": "disabled"}

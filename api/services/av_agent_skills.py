@@ -126,6 +126,17 @@ _CAPACIDADES: tuple[dict, ...] = (
                  "!= 0 de SUS comitentes, descubiertos primero. Las cuentas sin "
                  "operador se cantan aparte: a ésas no le llegan a nadie",
      "dominio": ADMIN, "modulo": "jobs.saldos_a_operadores"},
+    {"id": "errores.traducir",
+     "nombre": "Traducir un error a castellano",
+     "que_hace": "de una línea de log dice QUÉ PASÓ (sin nombres de clases ni "
+                 "de archivos), A QUÉ AFECTA de la app y SI SIGUE pasando. Lo "
+                 "conocido lo traduce una tabla de firmas —son motores nuestros, "
+                 "fallan de un conjunto finito de formas— y solo lo que la regla "
+                 "no supo va al modelo, UNA vez por patrón y no por fila. **A "
+                 "qué afecta NO lo decide el modelo**: sale de la ficha declarada "
+                 "del job o del motor",
+     "dominio": SISTEMA, "modulo": "api.services.av_agent_errores",
+     "donde": "el título de cada fila de MOTOR_RUIDOSO y de SALUD"},
     {"id": "logs.motores",
      "nombre": "Leer los logs de los motores",
      "que_hace": "junta lo que escribieron los motores en systemd y lo RESUME: "
@@ -162,9 +173,18 @@ _CAPACIDADES: tuple[dict, ...] = (
 
 
 def _de_capacidades() -> list[Skill]:
+    # Qué capacidad llama al modelo, y PARA QUÉ. Se declara (no se adivina
+    # leyendo el código): una skill que dice «no usa IA» y la usa es la clase de
+    # afirmación que no puede ser una inferencia frágil.
+    con_modelo = {
+        "errores.traducir": "solo cuando ninguna firma conocida matchea: "
+                            "traduce esa línea de log a una oración, UNA vez por "
+                            "patrón (se persiste), y sin decidir a qué afecta",
+    }
     return [Skill(
         id=c["id"], tipo=RESOLVER, nombre=c["nombre"], que_hace=c["que_hace"],
-        usa_ia=SIN_IA, dominio=c["dominio"], para_que_la_ia="",
+        usa_ia=IA_OPCIONAL if con_modelo.get(c["id"]) else SIN_IA,
+        dominio=c["dominio"], para_que_la_ia=con_modelo.get(c["id"], ""),
         # El default es la barra porque las dos primeras capacidades mandan
         # mensajes; una que no lo hace declara su propio `donde`. Sin esto, el
         # catálogo mandaba a mirar MIS AVISOS por algo que sale en la consola.

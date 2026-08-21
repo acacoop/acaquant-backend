@@ -4294,6 +4294,18 @@ CREATE INDEX IF NOT EXISTS ix_av_lecciones_causa ON mercado.av_agent_lecciones (
 -- El mismo caso se puede votar N veces y todas quedan (append-only): si el agente
 -- cambia de opinión sobre un bono dentro de un mes, la historia de los dos juicios
 -- es justamente lo que dice si mejoró.
+-- LA MEMORIA DEL TRADUCTOR DE ERRORES (docs/AV_AGENT.md §0.ba).
+-- Una explicación por (unidad, patrón) — NO por fila: el mismo error aparece 90
+-- veces en 6 horas y pagarle una llamada al modelo a cada aparición sería
+-- absurdo. Se explica una vez y la segunda sale de acá.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_errores (
+    clave       text PRIMARY KEY,          -- sha256(unidad|patron), 32 chars
+    unidad      text NOT NULL,
+    patron      text NOT NULL,
+    explicacion text NOT NULL,
+    creado_at   timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS mercado.av_agent_evals (
     id              bigserial PRIMARY KEY,
     caso            text NOT NULL,        -- el SUJETO: ticker del bono o id del chequeo

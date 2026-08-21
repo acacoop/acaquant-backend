@@ -98,6 +98,35 @@ JOBS: dict[str, dict] = {
     "research_mail": {
         "alimenta": "`ia.research` → el mail diario de 1816 en la vista RESEARCH.",
         "depende_de": ["IMAP"], "reintentable": True},
+    # Los que salían con «afecta: escribe manager.…» — el respaldo derivado de
+    # `core/escribe`, que dice la TABLA pero no la PANTALLA. Acá va el criterio.
+    "controles_datos": {
+        "alimenta": "los CONTROLES de datos del agente (tab ENCONTRÓ). Sin esta "
+                    "corrida no se re-verifica ninguna anomalía: lo que se "
+                    "arregló sigue apareciendo y lo nuevo no aparece.",
+        "depende_de": [], "reintentable": True},
+    "cierre_canje": {
+        "alimenta": "`mercado.canje_cierre` → el canje del día en ANALÍTICA. Sin "
+                    "esto la pantalla muestra el canje de la rueda anterior.",
+        "depende_de": ["Primary"], "reintentable": True},
+    "forwards_zscore": {
+        "alimenta": "`mercado.forwards_zscore` → el z-score de la matriz de "
+                    "FORWARDS: sin esto no se puede decir si un forward está "
+                    "caro o barato contra su propia historia.",
+        "depende_de": [], "reintentable": True},
+    "precios_acciones_daily": {
+        "alimenta": "`mercado.precios_acciones` → el Scanner de RENTA VARIABLE "
+                    "(retornos y estadística del subyacente).",
+        "depende_de": ["Yahoo"], "reintentable": True},
+    "seguimiento": {
+        "alimenta": "la verificación de que los arreglos del agente AGUANTARON "
+                    "(§0.ac). Sin esta corrida el eval set nunca recibe la "
+                    "señal más fuerte que tiene: que el problema no volvió.",
+        "depende_de": [], "reintentable": True},
+    "guardrails": {
+        "alimenta": "los invariantes de sanidad post-cierre. No alimenta una "
+                    "pantalla: es el chequeo que avisa si algo quedó inconsistente.",
+        "depende_de": [], "reintentable": True},
     "portafolio_backfill": {
         "alimenta": "`portafolio.tenencia` → **el AuM entero**, Portfolios y el "
                     "motor de PnL. Es el job más caro de perder.",

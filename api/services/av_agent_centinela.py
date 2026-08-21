@@ -294,7 +294,12 @@ def estado(limite: int = 200) -> dict:
             # El JOIN va por la clave canónica —(sujeto, causa)— y en la MISMA
             # query: el peaje de Supabase se paga por viaje.
             cur.execute(
-                f"SELECT {', '.join('c.' + x for x in _COLS)}, i.abierto_at "
+                # ⚠️ `vuelto_at` viene del OBJETO y no de esta tabla: el
+                # centinela no lo tiene (tiene `reaperturas`, un contador sin
+                # fecha, que no sirve para decir si volvió HOY). Sale del mismo
+                # JOIN — un viaje más a Supabase por un dato que ya viaja.
+                f"SELECT {', '.join('c.' + x for x in _COLS)}, i.abierto_at, "
+                "       i.vuelto_at "
                 "  FROM mercado.av_agent_centinela c "
                 "  LEFT JOIN mercado.av_agent_items i "
                 "    ON i.clave = lower(c.sujeto) || '|' || lower(c.regla) "
@@ -303,7 +308,8 @@ def estado(limite: int = 200) -> dict:
                 " ORDER BY (c.visto_at IS NULL) DESC, "
                 "  CASE c.severidad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END, "
                 "  c.abierto_at DESC LIMIT %s", (limite,))
-            abiertos = [dict(zip(_COLS + ["abierto_canonico"], r, strict=True))
+            abiertos = [dict(zip(_COLS + ["abierto_canonico", "vuelto_at"],
+                                 r, strict=True))
                         for r in cur.fetchall()]
             # Lo que se arregló SOLO en las últimas horas. Sirve para dos cosas:
             # confirmar que algo que estabas por atender ya no está, y ver los
@@ -338,8 +344,10 @@ def estado(limite: int = 200) -> dict:
         # Y se publica, para que la fila pueda decir «11d» igual que ENCONTRÓ.
         if desde:
             f["dias_abierto"] = round((ahora - desde).total_seconds() / 86400, 1)
-        for k in ("abierto_at", "ultimo_at", "visto_at", "resuelto_at"):
-            f[k] = f[k].isoformat() if f[k] else None
+        for k in ("abierto_at", "ultimo_at", "visto_at", "resuelto_at",
+                  "vuelto_at"):
+            if k in f:
+                f[k] = f[k].isoformat() if f[k] else None
         # El mismo eje que la vista (`av_agent.de_quien`), derivado de la MISMA
         # tabla declarada: si el centinela tuviera su propia idea de qué es
         # iliquidez, AHORA y ENCONTRÓ se contradirían sobre el mismo hallazgo.
@@ -369,7 +377,71 @@ def estado(limite: int = 200) -> dict:
 
     return {"ok": True, "vivo": vivo, "latido": latido,
             "abiertos": abiertos, "resueltos": resueltos,
-            "sin_ver": sum(1 for f in abiertos if not f["visto_at"])}
+            "sin_ver": sum(1 for f in abiertos if not f["visto_at"]),
+            # ── LO DE HOY, SEPARADO DEL ARRASTRE (§0.bo) ────────────────────
+            "hoy": _lo_de_hoy(abiertos, resueltos)}
+
+
+# ⚠️⚠️ **AHORA ES EL DÍA DE HOY, NO EL ACUMULADO.** El user, 2026-08-22:
+# *«AHORA es para lo que está pasando EXCLUSIVAMENTE en el día de hoy…
+# ENCONTRÓ es donde está toda la cocina para solucionar cosas»*.
+#
+# La tab decía **AHORA 1** y abajo mostraba un control abierto hacía 21 horas,
+# con 131 plegados y 40 resueltos. O sea: dos backlogs con nombres distintos,
+# que es exactamente por qué nadie podía decir en qué se diferencian.
+#
+# El corte va acá y no en la pantalla por lo de siempre: el navegador no puede
+# mirar el reloj mientras dibuja, y el criterio tiene que ser UNO.
+_ART = "America/Argentina/Buenos_Aires"
+
+
+def _arranco_el_dia() -> datetime:
+    """Medianoche de HOY en hora argentina, en UTC.
+
+    ⚠️ **En ART y no en UTC.** El día UTC arranca a las 21:00 de acá: con el
+    corte en UTC, algo que pasó a las 21:30 de anoche saldría como «de hoy» y
+    lo de esta mañana temprano también — dos días distintos mezclados bajo el
+    mismo rótulo, justo en la tab que no puede fallar.
+    """
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(_ART)
+    hoy = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    return hoy.astimezone(UTC)
+
+
+def _hoy(iso: str | None, desde: datetime) -> bool:
+    if not iso:
+        return False
+    try:
+        return datetime.fromisoformat(iso) >= desde
+    except ValueError:
+        return False
+
+
+def _lo_de_hoy(abiertos: list[dict], resueltos: list[dict]) -> dict:
+    """Las TRES novedades del día. Nada más, y por eso sirve.
+
+        apareció   algo que no estaba ayer
+        volvió     un arreglo que falló — lo que más informa de todo
+        se arregló cerró hoy, solo
+
+    Lo que sigue abierto de antes **no es una novedad**: es trabajo pendiente y
+    vive en ENCONTRÓ, con sus botones. Meterlo acá es lo que convertía a AHORA
+    en un segundo depósito.
+    """
+    desde = _arranco_el_dia()
+    aparecio = [f for f in abiertos
+                if _hoy(f.get("abierto_at"), desde) and not f.get("vuelto_at")]
+    volvio = [f for f in abiertos if _hoy(f.get("vuelto_at"), desde)]
+    cerro = [f for f in resueltos if _hoy(f.get("resuelto_at"), desde)]
+    return {
+        "desde": desde.isoformat(),
+        "aparecio": aparecio, "volvio": volvio, "se_arreglo": cerro,
+        # El total que decide si la tab dice «hoy no pasó nada» o muestra algo.
+        # `se_arreglo` NO suma: es una buena noticia, no una novedad que pida
+        # atención — contarla haría subir el número cuando algo MEJORA.
+        "novedades": len(aparecio) + len(volvio),
+    }
 
 
 def marcar_visto(claves: list[str], por: str = "") -> dict:

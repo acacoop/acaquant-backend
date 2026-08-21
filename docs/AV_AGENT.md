@@ -4269,6 +4269,85 @@ de tocarla se viera idéntica.
 
 
 
+### 0.bo AHORA ES EL DÍA DE HOY. ENCONTRÓ ES LA COCINA. (2026-08-22)
+
+La tab decía **AHORA 1** y abajo mostraba un control abierto hacía 21 horas,
+con 131 filas plegadas, 40 resueltas y el seguimiento de arreglos viejos. El
+user: *«no entiendo cuál es la diferencia entre AHORA y ENCONTRÓ si está todo
+mezclado»*.
+
+**No la había.** Las dos tabs eran el mismo backlog acumulado con nombres
+distintos — una lo juntaba desde el centinela y la otra desde el censo. Por eso
+la pregunta no tenía respuesta.
+
+> **AHORA** informa. Lo que pasó HOY y el latido. Cero botones de trabajo,
+> cero listas plegadas, cero acumulado. *«Es solamente informativo y JUSTAMENTE
+> NO PUEDE FALLAR.»*
+>
+> **ENCONTRÓ** es la cocina: todo lo abierto, con sus herramientas.
+
+#### Las tres novedades, y nada más
+
+    VOLVIÓ         se había arreglado y volvió — lo que más informa de todo
+    APARECIÓ HOY   no estaba ayer
+    SE ARREGLÓ     cerró solo. No pide nada: está para que lo sepas
+
+Tres decisiones que no son obvias:
+
+**`se_arregló` NO suma al contador.** Es una buena noticia, no algo que pida
+atención — si sumara, el número de la tab subiría cuando el sistema *mejora*.
+
+**Lo que volvió no se cuenta dos veces.** Nació hace tres días y volvió hoy: es
+UNA novedad («volvió»), no también «apareció».
+
+**El corte es en hora ARGENTINA.** El día UTC arranca a las 21:00 de acá: con
+el corte en UTC, algo de las 21:30 de anoche saldría como «de hoy» junto con lo
+de esta mañana. Dos días mezclados bajo el mismo rótulo, justo en la tab que no
+puede fallar.
+
+Y lo hace el BACKEND, no la pantalla: el navegador no puede mirar el reloj
+mientras dibuja, y el criterio tiene que ser uno solo para las dos tabs.
+
+#### Lo que se mudó, y por qué no se borró
+
+`qué pide algo hoy` · `¿los arreglos aguantan?` · `viene de antes sin ver` ·
+`ya vistos` · `se arreglaron solos` → **todo a ENCONTRÓ**, plegado y arriba de
+la lista.
+
+Ninguna era del día: todas eran el acumulado con otro nombre. Pero borrarlas
+habría dejado **131 cosas abiertas sin ninguna pantalla**, que es peor que el
+desorden — por eso el backlog del centinela vive ahora en `VigilanciaAbierta`,
+con su botón de marcar visto intacto.
+
+#### El latido, en una línea
+
+El título **REVISANDO** + la cadencia ocupaban más que las novedades que tenían
+que anunciar, y repetían lo que ya dice la barra de arriba (`censo hace 52 min ·
+vigilando cada 30s`). Queda el punto verde y nada más: la cadencia, los ciclos y
+el «se apaga en N s» son datos del MECANISMO y viven en el `title`.
+
+Lo único que sube a la línea es lo que sí cambia algo: **que esté apagado**,
+porque entonces el silencio de abajo no vale nada.
+
+#### Dos guardas para que esta tab no mienta
+
+- **Sin el corte del día no se inventa un día.** Si el backend viene viejo
+  (deploy desparejo), la tab dice que no puede separar lo de hoy y manda a
+  ENCONTRÓ. Decir «hoy no pasó nada» sin haber podido mirar es exactamente la
+  falla que esta tab no puede tener.
+- **Una fecha rota no cuenta como de hoy.** Ante la duda, afuera: meter basura
+  en la lista del día es peor que no mostrarla, porque acá se lee como «esto es
+  lo que pasa».
+
+#### Y el contador contaba otra cosa que la lista
+
+`nAhora` sumaba `cent.sin_ver` —el backlog sin ver— mientras la tab dibujaba
+otra cosa. De ahí el «AHORA 1» con una fila de 21 horas abajo: **el número y la
+lista hablaban de conjuntos distintos.** Ahora cuenta las novedades del día, que
+es lo único que la tab muestra.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

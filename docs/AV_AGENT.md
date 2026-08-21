@@ -5379,6 +5379,55 @@ contra `mercado.curvas`: la misma guarda 1 que ya tenía la acción. Si el códi
 de la unidad no es una curva, no sabemos cuál de los dos nombres es el bueno, así
 que **no hay divergencia que declarar**.
 
+### 0.cg EL TIPO NO DECIDE SI ALGO SE PUEDE REVERIFICAR — LA REGLA SÍ (2026-08-22)
+
+Se corrigieron los dos tickers (`PLC50→PLC5O`, `S13B6→S13N6`), el control
+`assets_ticker_partido` quedó en **0**… y **PLC5O y S13N6 seguían en ENCONTRÓ**.
+Dos partes del sistema afirmando lo contrario en la misma pantalla.
+
+Es el mismo patrón por **quinta** vez (TZXM8, BADLAR, IGNORAR, DICP y ahora
+esto), pero con una variante nueva y por eso se escapó: el cotejo no faltaba por
+olvido ni estaba descartado por escrito — **estaba descartado para el TIPO
+equivocado**.
+
+`_caduco` decidía «¿esto se puede reverificar barato?» mirando el **tipo**, y
+`sin_espejo_en_assets` viaja bajo `tasa_sospechosa`. El comentario decía, con
+razón, que una tasa depende del precio del día y no se puede reverificar sin
+volver a cotejar contra 1816. Cierto para `paridad_fuera_de_rango`,
+`sin_tea_con_precio` y `tea_fuera_de_rango`. **Falso para
+`sin_espejo_en_assets`**, que no es una tasa: es *«¿existe este ticker en
+`portafolio.assets`?»*, y eso es UNA query.
+
+El tipo agrupa por **de dónde salió** el hallazgo; lo que decide si se puede
+reverificar es **qué afirma**. Usar el primero como proxy del segundo funciona
+hasta que un detector emite dos clases de afirmación, y ahí falla en silencio.
+
+#### Cómo se arregló, y lo que se cuidó de no romper
+
+La query de los tickers con ficha vivía **inline dentro de `relevar()`**.
+Copiarla al cotejo habría creado la divergencia de siempre —la pantalla podría
+afirmar que falta la ficha con un criterio y que sobra con el otro— así que se
+extrajo a **`av_agent.tickers_con_ficha()`** y la usan los dos. `None` sigue
+significando «no pude mirar» y **no caduca nada**: un huérfano que desaparece
+porque se cayó una query es la mentira más cara que puede decir esto.
+
+Y el test que protegía este archivo **hizo su trabajo dos veces**: cazó el
+cambio de semántica y además que se había agregado **un viaje más a Supabase por
+lectura de pantalla**. Ese peaje es real (~8,5 ms de pura distancia, y la
+pantalla se abre muchas veces por día), así que la lectura va por un wrapper
+`@cached(ttl=45)` en la vista mientras el detector —que corre una vez por
+noche— sigue leyendo fresco.
+
+#### La deuda queda NOMBRADA, no olvidada
+
+Tres reglas más son hechos de base y todavía no tienen cotejo en la lectura:
+**`pata_equivocada`** (17), **`sin_ejes`** (9) y **`moneda_flujo_contradice`**
+(21). Si se arreglan hoy, van a quedarse en pantalla igual que estos dos.
+
+Están listadas en `test_av_agent_cotejo.py` con un `assert` sobre el largo de la
+lista: **sacar una obliga a editar el test, y sumar una también.** Es la
+diferencia entre una decisión y un olvido — que es exactamente lo que falló acá.
+
 ### 0.cf EL CONTROL DECÍA 133 Y EL BOTÓN ARREGLÓ 16 (2026-08-22)
 
 Con el contador ya arreglado (§0.ce), la primera corrida de verdad destapó algo

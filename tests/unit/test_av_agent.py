@@ -1944,8 +1944,15 @@ def test_un_sin_flujo_CADUCA_cuando_el_bono_ya_tiene_cronograma():
         "tiene que venir en el mismo SELECT que ya traía el ticker")
     assert "SELECT ticker, data FROM mercado.curvas" in fuente
 
-    # `tasa_sospechosa` NO caduca, y es a propósito: depende del precio del día.
-    assert "tasa_sospechosa` habla de la TASA" in fuente
+    # ⚠️ `tasa_sospechosa` NO caduca **por sus reglas de TASA**, que dependen del
+    # precio del día. Pero el TIPO no es el criterio: `sin_espejo_en_assets`
+    # viaja bajo ese tipo y NO es una tasa —es «¿existe este ticker en assets?»,
+    # una query— y quedó sin cotejo hasta que el user corrigió los dos tickers,
+    # vio el control en 0 y los hallazgos seguían en pantalla (2026-08-22).
+    assert "sí habla de la TASA" in fuente, (
+        "las reglas de tasa siguen sin caducar, y eso es a propósito")
+    assert '"sin_espejo_en_assets"' in fuente, (
+        "un hecho de base bajo un tipo «de tasa» igual tiene que poder caducar")
 
 
 def test_ARREGLAR_solo_pisa_si_la_propuesta_coincide_Y_lo_de_hoy_NO():

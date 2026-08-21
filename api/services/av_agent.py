@@ -990,6 +990,29 @@ def detectar_sin_flujo(docs: list[dict],
 # ── 3) ¿Qué tasa está dando mal? ─────────────────────────────────────────────
 
 
+def tickers_con_ficha() -> set[str] | None:
+    """Los tickers que HOY tienen ficha en `portafolio.assets`. `None` = no pude.
+
+    ⚠️ **Vive acá y no inline en `relevar()` porque la usan DOS lados**: el
+    detector (`sin_espejo_en_assets`) y el cotejo de la lectura que decide si ese
+    hallazgo ya caducó. Escrita dos veces, la pantalla podría afirmar que falta
+    la ficha con un criterio y que sobra con el otro — el bug de siempre.
+
+    ⚠️ `None` NO es un conjunto vacío: significa «no pude mirar», y quien la use
+    tiene que tratarlo como «no sé», nunca como «no está». Un huérfano inventado
+    porque se cayó una query es el peor falso positivo posible.
+    """
+    from core.postgres import get_pool
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT upper(btrim(ticker)) FROM portafolio.assets "
+                        "WHERE ticker IS NOT NULL AND ticker <> ''")
+            return {r[0] for r in cur.fetchall()}
+    except Exception:
+        logger.warning("av_agent: no pude leer los tickers de assets", exc_info=True)
+        return None
+
+
 def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
                                tickers_en_assets: set[str] | None = None,
                                en_cartera: set[str] | None = None,
@@ -1834,13 +1857,7 @@ def relevar(*, alcance: str = "soberanos",
     en_assets: set[str] | None = None
     en_cartera: set[str] | None = None
     ignorados: set[str] = set()
-    try:
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT DISTINCT upper(btrim(ticker)) FROM portafolio.assets "
-                        "WHERE ticker IS NOT NULL AND ticker <> ''")
-            en_assets = {r[0] for r in cur.fetchall()}
-    except Exception:
-        en_assets = None
+    en_assets = tickers_con_ficha()
 
     try:
         from api.services.acreencias import codigo_de_unidad

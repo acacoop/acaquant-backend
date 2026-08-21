@@ -146,3 +146,56 @@ class TestElAvanceParcialSeVE:
              "severidad": "alta", "evidencia": {}}
         v._refrescar_salud(h, {"AL30": {"estado": "ok", "n": 0}})
         assert h["motivo"] == "m" and "n_casos" not in h
+
+
+class TestNoTodoTasaSospechosaHablaDeLaTASA:
+    """⚠️ **Tercer caso del mismo patrón** (2026-08-22). El user corrigió los dos
+    tickers, el control `assets_ticker_partido` se puso en **0**… y PLC5O y
+    S13N6 seguían en ENCONTRÓ. Dos partes del sistema afirmando lo contrario en
+    la misma pantalla.
+
+    La causa: `_caduco` decidía «¿esto se puede reverificar?» por el TIPO, y
+    `sin_espejo_en_assets` viaja bajo `tasa_sospechosa` sin ser una tasa — es
+    *«¿existe este ticker en assets?»*, que se contesta con UNA query."""
+
+    def test_sin_espejo_en_assets_tiene_cotejo(self):
+        src = _caduco_src()
+        assert '"sin_espejo_en_assets"' in src, (
+            "es un hecho de base, no una tasa: tiene que poder caducar al leer")
+
+    def test_el_predicado_sale_de_la_MISMA_funcion_que_el_detector(self):
+        """Escrito dos veces, la pantalla podría afirmar que falta la ficha con
+        un criterio y que sobra con el otro."""
+        assert "tickers_con_ficha" in _caduco_src() or \
+               "con_ficha" in _caduco_src()
+        src_rel = inspect.getsource(av.relevar) if hasattr(av := __import__(
+            "api.services.av_agent", fromlist=["x"]), "relevar") else ""
+        assert "tickers_con_ficha" in src_rel, (
+            "el detector tiene que usar la misma función, no su propia query")
+
+    def test_no_pude_leer_assets_NO_caduca(self):
+        """`None` = no pude mirar. Un huérfano que desaparece porque se cayó una
+        query es la mentira más cara de una herramienta de integridad."""
+        def caduca(con_ficha, ticker):
+            return con_ficha is not None and ticker.strip().upper() in con_ficha
+        assert caduca(None, "PLC5O") is False
+        assert caduca(set(), "PLC5O") is False
+        assert caduca({"PLC5O"}, "plc5o ") is True
+
+    def test_las_reglas_QUE_SIGUEN_SIN_COTEJO_estan_declaradas(self):
+        """Las que dependen del PRECIO del día no se pueden reverificar barato y
+        está bien que no caduquen. Las que son hechos de base y todavía no lo
+        tienen quedan ACÁ nombradas — que es la diferencia entre una decisión y
+        un olvido. Cuando alguna consiga su cotejo, se saca de esta lista."""
+        sin_cotejo_por_precio = {
+            "paridad_fuera_de_rango", "sin_tea_con_precio", "tea_fuera_de_rango",
+        }
+        deuda_hechos_de_base = {
+            "pata_equivocada",           # curvas.instrumento vs la pata default
+            "sin_ejes",                  # el bono tiene o no tiene ejes cargados
+            "moneda_flujo_contradice",   # moneda_flujo vs moneda_eje
+        }
+        assert sin_cotejo_por_precio & deuda_hechos_de_base == set()
+        assert len(deuda_hechos_de_base) == 3, (
+            "si arreglaste una, sacala de acá; si sumaste otra, agregala — esta "
+            "lista es lo que impide que la próxima se pierda en silencio")

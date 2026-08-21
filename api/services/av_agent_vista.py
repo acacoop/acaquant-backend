@@ -517,6 +517,20 @@ def _salud_por_id() -> dict[str, dict]:
         return {}
 
 
+@cached(ttl=45)
+def _con_ficha() -> set[str] | None:
+    """Los tickers con ficha en `assets`, cacheados para la PANTALLA.
+
+    El predicado es `av_agent.tickers_con_ficha` —el mismo del detector— y lo
+    único que agrega esto es la cache. Va acá y no en `av_agent` a propósito: el
+    detector corre una vez por noche y tiene que leer fresco; la pantalla se abre
+    muchas veces por día y cada viaje a Supabase cuesta ~8,5 ms de pura
+    distancia. 45 s es menos que el poll, así que lo que se corrige se ve en la
+    lectura siguiente.
+    """
+    return av_agent.tickers_con_ficha()
+
+
 def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     """Los hallazgos de la corrida MÁS RECIENTE + su timestamp.
 
@@ -642,6 +656,9 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     # y cachearla es lo que hace que el cotejo salga gratis: la pantalla se abre
     # muchas veces por día y cada viaje a Supabase cuesta ~8,5 ms de distancia.
     salud_viva = _salud_por_id()
+    # Los tickers que HOY tienen ficha. Sale de `av_agent.tickers_con_ficha`, la
+    # MISMA función que usa el detector — no una copia de su query.
+    con_ficha = _con_ficha()
 
     simbolos = av_agent.simbolos_primary()
     # **El «no me interesa» también se evalúa AL LEER.** Es la regla de E2.r: un
@@ -787,8 +804,29 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
             # confundirlos vaciaría la pantalla justo el día que SALUD falla.
             vivo = salud_viva.get((h.get("ticker") or "").strip())
             return bool(vivo) and (vivo.get("estado") or "") == "ok"
-        # `tasa_sospechosa` habla de la TASA, que depende del precio del día: no
-        # se puede afirmar que se arregló sin volver a cotejar contra 1816.
+        if h.get("regla") == "sin_espejo_en_assets":
+            # ⚠️⚠️ **NO TODO `tasa_sospechosa` HABLA DE LA TASA.** Este tipo
+            # quedaba entero sin cotejo con el argumento de abajo —una tasa
+            # depende del precio del día y no se puede reverificar barato— y es
+            # cierto para sus reglas de tasa. Pero `sin_espejo_en_assets` no es
+            # una tasa: es *«¿existe este ticker en `portafolio.assets`?»*, un
+            # hecho de base que se contesta con UNA query.
+            #
+            # El costo se vio en vivo (2026-08-22): el user corrigió los dos
+            # tickers, el control `assets_ticker_partido` se puso en **0**… y
+            # PLC5O y S13N6 seguían en ENCONTRÓ. Dos partes del sistema
+            # afirmando lo contrario en la misma pantalla.
+            #
+            # Es el error de siempre: usar el TIPO como proxy de «¿esto se puede
+            # reverificar?» cuando lo que lo decide es la REGLA.
+            #
+            # `None` = no pude leer assets → NO caduca. «No sé» nunca es
+            # «se arregló».
+            return (con_ficha is not None
+                    and (h.get("ticker") or "").strip().upper() in con_ficha)
+        # El resto de `tasa_sospechosa` sí habla de la TASA, que depende del
+        # precio del día: no se puede afirmar que se arregló sin volver a
+        # cotejar contra 1816.
         return False
 
     filas = [h for h in filas if not _caduco(h)]

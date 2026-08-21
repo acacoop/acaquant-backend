@@ -567,17 +567,61 @@ def _lente_puedo_hacerlo(c: dict, det: dict) -> dict | None:
         pend = len(hacer.pendientes(accion_id))
     except Exception:
         pend = 0
+    # ── LO QUE YA SE HIZO, ANTES DE OFRECER HACERLO OTRA VEZ ────────────────
+    #
+    # ⚠️ El user (2026-08-22): *«yo antes ya le mandé el mail pero no me dice
+    # AVISADO A LA PERSONA, y además no detecta bien qué avisó y qué no… dice IR
+    # A ARREGLARLO, esperando… no es claro»*.
+    #
+    # La tarjeta ofrecía «avisarle a la persona» con el aviso YA en la bandeja
+    # del destinatario. No estaba rota — **nunca miraba para atrás**. Y una
+    # pantalla que no distingue «todavía no lo hice» de «ya está hecho y espero
+    # respuesta» obliga a decidir a ciegas: o se manda dos veces lo mismo, o no
+    # se manda nunca. Es el mismo modo de falla de siempre: nada falla, la
+    # pantalla contesta con seguridad usando media verdad.
+    avisado: list[dict] = []
+    try:
+        from api.services import av_agent_mensajes as msg
+        avisado = msg.enviados_sobre(f"control:{cid}")
+    except Exception as e:
+        logger.warning("salud: no pude leer lo ya avisado de %s (%s)", cid, e)
+    abiertos = [x for x in avisado if not x.get("resuelto")]
+
     cuerpo = (f"{a.titulo}. Escribe en {a.donde} — la misma puerta que usa la "
               f"pantalla, con tu OK y verificando después de escribir.")
-    if pend:
-        cuerpo += f"\n\nYa hay {pend} propuesta/s esperando tu OK."
-    paso = _paso("hacer", f"Esto lo sé hacer · {n} caso/s" if n else "Esto lo sé hacer",
-                 INFO, cuerpo, tabla=a.donde)
+    if abiertos:
+        quienes = ", ".join(sorted({x["para"] for x in abiertos}))
+        cuerpo = (f"YA AVISADO a {quienes} — el mensaje está en su bandeja y "
+                  f"todavía no lo cerró. No hace falta volver a mandarlo: "
+                  f"repetirlo no informa más.\n\n{cuerpo}")
+    elif avisado:
+        quienes = ", ".join(sorted({x["para"] for x in avisado}))
+        cuerpo = (f"Ya se le avisó a {quienes} y lo dio por cerrado, pero el "
+                  f"control SIGUE marcando casos.\n\n{cuerpo}")
+    # ⚠️ **«Propuesta esperando tu OK» solo si NO hay un aviso abierto.** Con el
+    # mensaje ya mandado, esa frase le pedía al user una decisión sobre algo que
+    # él mismo ya había hecho — que es exactamente la confusión que reportó.
+    if pend and not abiertos:
+        cuerpo += (f"\n\nHay {pend} propuesta/s preparada/s: el agente ya sabe "
+                   f"qué escribir y espera tu OK para hacerlo.")
+
+    # El TÍTULO dice el estado, no la capacidad. «Esto lo sé hacer» con el
+    # mensaje ya mandado se lee como que no se hizo nada.
+    if abiertos:
+        titulo = f"Ya avisado · esperando a {len(abiertos)} persona/s"
+        nivel = OK
+    else:
+        titulo = f"Esto lo sé hacer · {n} caso/s" if n else "Esto lo sé hacer"
+        nivel = INFO
+    paso = _paso("hacer", titulo, nivel, cuerpo, tabla=a.donde)
     # El front dibuja el botón con esto. Va RESUELTO desde el backend para que la
     # pantalla no tenga que saber qué control tiene qué acción — el día que se
     # agregue una acción nueva aparece sola, sin tocar el front.
     paso["hacer"] = {"accion": accion_id, "titulo": a.titulo, "campo": a.campo,
-                     "casos": n, "pendientes": pend}
+                     "casos": n, "pendientes": (0 if abiertos else pend),
+                     # Con esto el botón deja de decir «IR A ARREGLARLO» y pasa
+                     # a decir «volver a avisar», que es lo que de verdad haría.
+                     "avisado": abiertos, "avisado_cerrado": len(avisado) - len(abiertos)}
     return paso
 
 

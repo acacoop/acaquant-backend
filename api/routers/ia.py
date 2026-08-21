@@ -395,6 +395,18 @@ def av_agent_hacer_rechazar(body: RechazarHacer, email: str = Depends(get_user_e
     return svc.rechazar(body.ids, por=email or "")
 
 
+@router.get("/av-agent/agenda", dependencies=[Depends(require_admin)])
+def av_agent_agenda():
+    """**QUÉ ESTÁ HACIENDO EL AGENTE HOY** — la tab CONTROL (§0.bv).
+
+    SKILLS contesta *qué sé hacer*; esto contesta *¿lo estoy haciendo?*, que
+    solo se responde cruzando el catálogo con las corridas reales. Una
+    capacidad que nadie ejecuta se ve idéntica a una que corre cada 5 minutos.
+    """
+    from api.services import av_agent_agenda
+    return av_agent_agenda.vista()
+
+
 @router.get("/av-agent/skills", dependencies=[Depends(require_admin)])
 def av_agent_skills():
     """**TODO lo que el agente sabe hacer**, en un solo lugar.

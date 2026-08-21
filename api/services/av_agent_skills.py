@@ -126,6 +126,17 @@ _CAPACIDADES: tuple[dict, ...] = (
                  "!= 0 de SUS comitentes, descubiertos primero. Las cuentas sin "
                  "operador se cantan aparte: a ésas no le llegan a nadie",
      "dominio": ADMIN, "modulo": "jobs.saldos_a_operadores"},
+    {"id": "agenda.que_estoy_haciendo",
+     "nombre": "Decir qué está haciendo, y qué NO",
+     "que_hace": "cruza el catálogo de habilidades con el crontab real y con las "
+                 "corridas de job_runs para contestar la otra pregunta: no «qué "
+                 "sé hacer» sino «¿lo estoy haciendo?». Por cada rutina dice cada "
+                 "cuánto debería correr, cuándo corrió, cómo salió y qué dejó "
+                 "abierto. **Distingue tres estados y no dos**: al día, atrasada "
+                 "y SIN PODER JUZGAR — pintar de verde lo que no se pudo medir "
+                 "sería justo la mentira que esto vino a impedir",
+     "dominio": SISTEMA, "modulo": "api.services.av_agent_agenda",
+     "donde": "AV Agent → CONTROL"},
     {"id": "errores.traducir",
      "nombre": "Traducir un error a castellano",
      "que_hace": "de una línea de log dice QUÉ PASÓ (sin nombres de clases ni "

@@ -110,6 +110,45 @@ def existe(email: str) -> bool:
         return True
 
 
+def enviados_sobre(ticker: str, limite: int = 20) -> list[dict]:
+    """**LA MEMORIA DE LO QUE YA SE AVISÓ.** Todo lo mandado sobre un tema, esté
+    abierto o cerrado: `[{para, creado_at, resuelto, resuelto_at, resuelto_por}]`.
+
+    ⚠️ Por qué existe (user, 2026-08-22, sobre `comitentes_sin_nivel1`): *«yo
+    antes ya le mandé el mail pero no me dice AVISADO A LA PERSONA, y además no
+    detecta bien qué avisó y qué no… dice IR A ARREGLARLO, esperando… no es
+    claro»*.
+
+    La tarjeta ofrecía «avisarle a la persona» **con el aviso ya mandado y
+    esperando en su bandeja**. No estaba rota: nunca miraba para atrás. Y sin
+    esa mirada las dos únicas salidas eran igual de malas — o volvés a mandar lo
+    mismo (un mensaje repetido informa MENOS), o no lo mandás por las dudas.
+
+    Se lee de la MISMA tabla que la campanita de la persona (`av_agent_avisos`):
+    no hay un registro nuevo de «qué avisé», así que no puede contradecir a lo
+    que el destinatario efectivamente tiene.
+    """
+    t = (ticker or "").strip()
+    if not t:
+        return []
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT lower(coalesce(para, '')), creado_at::text, resuelto, "
+                "       resuelto_at::text, coalesce(resuelto_por, '') "
+                "FROM mercado.av_agent_avisos WHERE ticker = %s "
+                "ORDER BY creado_at DESC LIMIT %s", (t, limite))
+            return [{"para": a, "creado_at": b, "resuelto": c,
+                     "resuelto_at": d, "resuelto_por": e}
+                    for a, b, c, d, e in cur.fetchall() if a]
+    except Exception as e:
+        logger.warning("av_agent_mensajes: no pude leer lo avisado de %s (%s)", t, e)
+        # ⚠️ Lista VACÍA por no haber podido mirar se leería como «no avisé
+        # nunca». Quien llama distingue el caso mirando el log; acá no se
+        # inventa un `[]` silencioso con otro significado.
+        return []
+
+
 def enviar(*, para: str, asunto: str, detalle: str = "", tema: str = "mensaje",
            donde: str = "", por: str = "av-agent") -> dict:
     """UN mensaje a UNA persona. Devuelve `{ok, creado, error}`.

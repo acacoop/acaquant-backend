@@ -4698,6 +4698,122 @@ arrancar (§0.u).
 
 
 
+### 0.bv LA TAB CONTROL: «¿qué estás haciendo?» (2026-08-22)
+
+> *«Estaría bueno que acá mismo, así como está SKILLS en una punta, ahí al lado
+> haya una tab que se llame CONTROL y figure todo lo que el agente está
+> monitoreando durante el día, actualización de la última vez y eso… Es como si
+> viniera mi jefe y me diga qué estás haciendo y vea desglosado todo lo que
+> hago. **De esa manera alguien puede ver fácil si hay algo que NO está
+> haciendo.** No lo hagas cortado con alambre, hacelo bien. Y prolijo: poco
+> texto, timestamps bien, las funcionalidades.»* — user
+
+**La última frase es la que define el diseño.** El catálogo ya existía: SKILLS
+contesta *qué sé hacer*. Lo que no había forma de contestar es *¿lo estoy
+haciendo?* — y son dos preguntas distintas, porque **en una pantalla una
+capacidad que nadie ejecuta se ve idéntica a una que corre cada cinco minutos**.
+Ese es exactamente el hueco.
+
+    SKILLS    qué sé hacer            catálogo
+    CONTROL   qué estoy haciendo HOY  catálogo × crontab × job_runs × hallazgos
+
+#### El eje es la RUTINA, no el dominio
+
+Se agrupa por **job**, porque el job es la unidad que responde «¿corrió?». Un
+detector no corre solo: corre adentro de un job, y **si ese job está caído, las
+doce piezas que viven ahí están ciegas al mismo tiempo**. Agrupado por dominio
+se verían doce filas rojas sin decir que son una sola causa — el mismo error de
+lectura que SALUD arregló cuando la observabilidad vivía en seis pantallas.
+
+#### Todo derivado. Ninguna lista nueva.
+
+Que un detector nuevo **no** apareciera acá sería volver al problema: la
+pantalla diría que el agente hace 30 cosas mientras hace 31, y nadie lo notaría.
+Las cuatro fuentes ya existen y ya se mantienen solas:
+
+| fuente | qué aporta |
+|---|---|
+| `av_agent_skills.catalogo()` | qué mira cada pieza y **en qué job corre** (`extra.corre_en`) |
+| `jobs_catalogo` | el schedule REAL, leído de `deploy/crontab.txt` |
+| `manager.job_runs` | cuándo corrió de verdad y cómo salió |
+| `mercado.av_agent_items` | qué encontró y sigue abierto, por origen |
+
+#### TRES estados, no dos: `atrasado` puede ser `None`
+
+`atrasado` es `True` / `False` / **`None`**, y el `None` es el punto del diseño:
+sin schedule legible o sin ninguna corrida registrada, decir «está al día» sería
+inventar calma y decir «se atrasó» sería inventar una alarma. Se declara **sin
+poder juzgar** y se pinta ámbar. Por eso el encabezado publica `sin_juzgar`
+**siempre, aunque sea 0**: sin ese número, «0 atrasadas» se lee como «todo al
+día» cuando puede ser «no pude mirar tres».
+
+La tolerancia sale de **la cadencia del propio job** (`TOLERANCIA = 2.5 ×`), no
+de una constante: un cron de 5 minutos y uno diario no se juzgan con la misma
+vara.
+
+#### Se cae con elegancia, y eso importa acá más que en otras pantallas
+
+`catalogo_jobs()` joinea el crontab con `job_runs`, así que si Postgres no
+contesta levanta entero — y **el día que la base está caída, la tab que existe
+para decir «algo no está corriendo» sería la que menos dice**. Ahora cae al
+crontab pelado (viaja con el deploy, se parsea sin tocar la base) y cada rutina
+sale con `atrasado=None`: *sé qué debería correr, no sé si corrió*. Es la verdad
+exacta y es útil; una pantalla en blanco no es ninguna de las dos.
+
+#### Dos números que cierran la pantalla
+
+- **`encontrados`** por rutina — lo que separa *corrió* de *sirvió*. Un job
+  verde que hace un mes no encuentra nada puede estar mirando una tabla vacía.
+- **`a_pedido`** — las habilidades que existen pero **no corren solas**
+  (explicar un cálculo, mandar un mensaje). Va declarado porque si no, el que
+  viene de SKILLS ve 56 allá y 32 acá y no sabe si faltan 24 o si 24 no corren.
+
+El daemon del centinela se inserta a mano y primero: no está en el crontab y es
+la pieza que más corre de todas, así que no aparecería nunca.
+
+**Dónde**: `api/services/av_agent_agenda.py` · `GET /api/ia/av-agent/agenda`
+(admin) · tab **CONTROL** del modal, pegada a SKILLS. El ⚙ de la derecha
+(parada de emergencia + fuentes) conserva su lugar y pierde el nombre.
+
+**Ley del agente (§0.o) cumplida**: la capacidad quedó registrada como
+`agenda.que_estoy_haciendo`, sin IA.
+
+
+### 0.bw «YA MANDÉ EL MAIL» — la tarjeta que no miraba para atrás (2026-08-22)
+
+> *«En lo de SALUD también queda poco claro: “Comitentes activos sin nivel 1 —
+> ya hay 1 propuesta esperando tu OK — IR A ARREGLARLO”. **Yo antes ya le mandé
+> el mail pero no me dice AVISADO A LA PERSONA, y además no detecta bien qué
+> avisó y qué no.** ¿Me seguís a lo que voy? No es claro.»* — user
+
+La lente «esto lo sé hacer» de SALUD ofrecía *avisarle a la persona que se
+encarga* **con el aviso ya esperando en la bandeja de esa persona**. No estaba
+rota: **nunca miraba para atrás**. Es el modo de falla de siempre — nada falla,
+la pantalla contesta con seguridad usando media verdad.
+
+Y sin esa mirada las dos salidas posibles son igual de malas: o se manda de
+nuevo exactamente lo mismo (*un mensaje repetido informa MENOS*, que es la razón
+por la que `enviar()` desduplica), o no se manda nunca por las dudas.
+
+**Lo que se agregó** es memoria, no un registro nuevo:
+`av_agent_mensajes.enviados_sobre("control:<id>")` lee **la misma tabla que la
+campanita del destinatario** (`mercado.av_agent_avisos`, por `ticker`). Un
+registro aparte de «qué avisé» podría contradecir lo que el otro efectivamente
+tiene — el patrón de la REGLA #9(B).
+
+Con eso, la tarjeta cambia de estado y no solo de texto:
+
+| situación | título | cuerpo | botón |
+|---|---|---|---|
+| nunca se avisó | «Esto lo sé hacer · N caso/s» | la propuesta | **qué proponés** |
+| aviso abierto | «Ya avisado · esperando a N persona/s» | a quién y desde cuándo | *volver a avisar* (secundario) |
+| avisado y cerrado, control sigue rojo | «Esto lo sé hacer» | «lo dieron por cerrado y sigue marcando casos» | **qué proponés** |
+
+Y **«hay N propuesta/s esperando tu OK» dejó de mostrarse cuando hay un aviso
+abierto**: con el mensaje ya mandado, esa frase le pedía al user una decisión
+sobre algo que él mismo ya había hecho. Esa era, literalmente, la confusión.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

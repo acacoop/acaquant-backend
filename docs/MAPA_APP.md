@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **555 endpoints** montados en `api.main.app`, en **31 routers**.
-- **216 escriben** (POST/PUT/PATCH/DELETE); 339 son de solo lectura.
+- **556 endpoints** montados en `api.main.app`, en **31 routers**.
+- **216 escriben** (POST/PUT/PATCH/DELETE); 340 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -58,7 +58,7 @@
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
 | `/api/estrategia` | 4 | 0 | `trading` | — |  |
-| `/api/ia` | 47 | 32 | `ia` · 46 rutas con gate extra | `ia` |  |
+| `/api/ia` | 48 | 32 | `ia` · 47 rutas con gate extra | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
 | `/api/manager` | 144 | 69 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 4 | 0 | — | — | ⚠️ |

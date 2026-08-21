@@ -495,12 +495,43 @@ def recontrolar(control_id: str) -> dict:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
     n_res = len(r.get("resueltos") or [])
     n_new = len(r.get("nuevos") or [])
-    return {"ok": True, "control_id": cid, "activos": r.get("activos", 0),
-            "resueltos": n_res, "nuevos": n_new,
-            "texto": (f"{r.get('activos', 0)} siguen"
-                      + (f" · {n_res} se resolvieron" if n_res else "")
-                      + (f" · {n_new} nuevos" if n_new else "")
-                      + (" · nada cambió" if not (n_res or n_new) else ""))}
+    activos = r.get("activos", 0)
+
+    # ⚠️⚠️ **EL RE-CHEQUEO DEVOLVÍA SOLO EL CONTEO, Y ESO SE LEÍA COMO QUE EL
+    # AGENTE NO TIENE MEMORIA.** El user (2026-08-21), después de dar de alta las
+    # 4 contrapartes y apretar el botón:
+    #
+    #     ↻ CHEQUEAR AHORA    →  «0 siguen · 4 se resolvieron»
+    #     ...y abajo seguían los 4 casos listados, con «hace 7 d»
+    #
+    # > *«Ya los marqué como hechos y sigue figurando. El volver a chequear dice
+    # > que sí pero no corta el resto del mensaje ni nada, mantiene todo en vez
+    # > de decir que ya está resuelto. No tiene memoria de los cambios.»*
+    #
+    # **Y sí tenía memoria**: `_diff_y_persistir` los cerró correctamente en
+    # `manager.controles_datos`. Lo que faltaba era DEVOLVER el diagnóstico
+    # recalculado, así que la pantalla pintaba el conteo nuevo arriba de la
+    # cadena vieja. Dos verdades contradiciéndose en la misma tarjeta se leen
+    # como que el sistema no se enteró — que es peor que no haber puesto el
+    # botón.
+    #
+    # Se recalcula acá y no en el front por la razón de siempre: el que sabe si
+    # quedó resuelto es el que acaba de correr el control.
+    salida = {"ok": True, "control_id": cid, "activos": activos,
+              "resueltos": n_res, "nuevos": n_new,
+              "resuelto": activos == 0,
+              "texto": (f"{activos} siguen"
+                        + (f" · {n_res} se resolvieron" if n_res else "")
+                        + (f" · {n_new} nuevos" if n_new else "")
+                        + (" · nada cambió" if not (n_res or n_new) else ""))}
+    if activos == 0:
+        salida["texto"] = ("✔ resuelto: no queda ninguno"
+                           + (f" ({n_res} se cerraron recién)" if n_res else ""))
+    try:
+        salida["diagnostico"] = diagnosticar(f"control:{cid}")
+    except Exception as e:                  # el conteo ya es útil por sí solo
+        logger.warning("salud: no pude rehacer el diagnóstico de %s (%s)", cid, e)
+    return salida
 
 
 def _lente_puedo_hacerlo(c: dict, det: dict) -> dict | None:

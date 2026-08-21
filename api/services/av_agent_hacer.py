@@ -143,13 +143,35 @@ _PATRONES: tuple[tuple[str, str, str], ...] = (
 
 
 def _nombre(unidad: str) -> str:
-    """La unidad SIN el id de especie de Aunesa (`[42932] OTC SOJ.` → `OTC SOJ.`).
+    """El nombre del papel, sin los corchetes de Aunesa. **Hay DOS formas.**
 
-    Sacarlo no es cosmético: los patrones que valen solo al principio del nombre
-    (los contratos de cámara) nunca matchearían con `[42932] ` adelante, y el
-    número de especie no dice nada sobre qué es el papel — de hecho **cambia**
-    cuando Aunesa rebautiza el instrumento."""
-    return re.sub(r"^\s*\[\s*\d+\s*\]\s*", "", unidad or "").strip().upper()
+        [42932] OTC SOJ.        el corchete es un PREFIJO: el id de especie
+        [OTC - MAI.ROS/ENE27]   el corchete ENVUELVE al nombre entero
+
+    ⚠️ **Esto solo sacaba la primera, y por eso el agente clasificaba UN caso de
+    19.** El user, mirando la propuesta (2026-08-21): *«no entiendo cómo
+    clasifica a uno solo como OTC si hay un montón así, y las commodities
+    también, que eran derivados»*.
+
+    La causa, medida: los patrones de contrato de cámara están anclados con `^`
+    —a propósito, para que un «GIR.» adentro de una razón social no convierta un
+    bono en derivado— y con el `[` adelante **ninguno puede matchear**. El único
+    que salió fue `[OTC - DLR052027]`, y **de casualidad**: pegó con
+    `\bDLR\s*\d`, que es el único patrón sin ancla.
+
+    Medido sobre los 19 casos reales: 1 clasificado, 8 contratos de cámara
+    perdidos. No fallaba nada — simplemente el `^` nunca llegaba a la letra.
+    """
+    u = (unidad or "").strip()
+    # (1) el corchete que envuelve TODO
+    if u.startswith("[") and u.endswith("]") and u.count("[") == 1:
+        u = u[1:-1]
+    # (2) el corchete de PREFIJO con el id de especie
+    u = re.sub(r"^\s*\[\s*\d+\s*\]\s*", "", u)
+    # (3) y el corchete de prefijo con el nombre adentro
+    #     (`[OTC - MAI.ROS/ENE27] algo más`)
+    u = re.sub(r"^\s*\[\s*([^\]]{1,60})\s*\]\s*", r"\1 ", u)
+    return u.strip().upper()
 
 
 class AccionCartera:
@@ -304,31 +326,81 @@ class AccionContraparte:
             seg = str(c.get("segmento_sugerido") or "").strip()
             if not cp:
                 continue
+            # ⚠️ **SIN SEGMENTO NO SE DA DE ALTA SOLA.** El user (2026-08-21):
+            # *«no toma en cuenta todos los casilleros de clasificar una
+            # contraparte, no pidió si es fondo, ALYC o qué — le falta
+            # contexto»*. Y tenía razón: `BCO CREDICOOP TERCEROS` vino con
+            # `segmento=None` y se dio de alta igual, **sin clasificar**.
+            #
+            # Una contraparte sin segmento no está dada de alta: está a medias.
+            # No rompe nada hoy y es exactamente el hallazgo de mañana — o peor,
+            # cuenta mal en cualquier reporte que agrupe por segmento y nadie se
+            # entera, que es REGLA #9 otra vez.
+            #
+            # El caso NO desaparece: se propone **con el valor vacío**, así sale
+            # en la lista pidiendo que una persona lo complete. Esconderlo sería
+            # peor que darlo de alta mal.
             props.append(Propuesta(
-                sujeto=cuenta, campo=self.campo, propuesto=cp,
-                porque=f"la denominación «{c.get('denominacion', '')}» contiene "
-                       f"el nombre de la contraparte {cp}",
+                sujeto=cuenta, campo=self.campo,
+                propuesto=f"{cp} · {seg}" if seg else "",
+                porque=(f"la denominación «{c.get('denominacion', '')}» dice que "
+                        f"es **{cp}**"
+                        + (f", del segmento **{seg}**." if seg else
+                           ". ⚠️ **Falta el SEGMENTO** (Fondos · ALYC · Bancos · "
+                           "Aseguradoras): el conciliador no lo pudo deducir y "
+                           "sin eso la contraparte queda sin clasificar. "
+                           "Completalo y aplicá.")
+                        + " El código MAE no se puede adivinar —lo asigna el "
+                          "MAE— y se carga después en Manager → CONTRAPARTES."),
                 extra={"denominacion": c.get("denominacion") or "",
-                       "segmento": seg}))
+                       "contraparte": cp, "segmento": seg}))
         return props
 
     def aplicar(self, p: Propuesta) -> None:
         from api.services.contrapartes_seg import add_contraparte
+
+        # El valor viaja como `Nombre · Segmento` — un solo campo editable, para
+        # que el humano pueda corregir LOS DOS antes de aplicar. Si lo dejó
+        # vacío o sin segmento, no se escribe: dar de alta a medias es crear el
+        # hallazgo de mañana.
+        cp, seg = self._partir(p.propuesto)
+        if not cp:
+            raise RuntimeError("falta el nombre de la contraparte")
+        if not seg:
+            raise RuntimeError(
+                "falta el SEGMENTO (Fondos · ALYC · Bancos · Aseguradoras): "
+                "escribilo como «Credicoop · Bancos» y aplicá de nuevo")
         r = add_contraparte(cuenta=p.sujeto,
                             denominacion=p.extra.get("denominacion"),
-                            contraparte=p.propuesto,
-                            segmento=p.extra.get("segmento") or None,
-                            actor="av-agent")
+                            contraparte=cp, segmento=seg, actor="av-agent")
         if not r.get("added"):
             raise RuntimeError(r.get("reason") or "el alta no se hizo")
 
+    @staticmethod
+    def _partir(valor: str) -> tuple[str, str]:
+        """`«Credicoop · Bancos»` → `("Credicoop", "Bancos")`. Acepta `·`, `|`
+        y `-` porque el que corrige a mano no tiene por qué acertar el separador."""
+        for sep in ("·", "|", " - "):
+            if sep in (valor or ""):
+                a, _, b = (valor or "").partition(sep)
+                return a.strip(), b.strip()
+        return (valor or "").strip(), ""
+
     def verificar(self, p: Propuesta) -> tuple[bool, str]:
         from api.services.contrapartes_seg import listar_contrapartes
-        # Se relee del padrón: la contraparte está de alta o no está.
+
+        # ⚠️ **Se verifica el NOMBRE Y EL SEGMENTO.** Antes solo miraba el
+        # nombre, así que un alta sin clasificar salía «verificado» — el libro
+        # decía «contraparte = Credicoop» y la contraparte estaba a medias.
+        cp, seg = self._partir(p.propuesto)
         for r in (listar_contrapartes(q=p.sujeto) or {}).get("contrapartes", []):
             if str(r.get("cuenta")) == p.sujeto:
                 val = str(r.get("contraparte") or "").strip()
-                return val == p.propuesto, f"contraparte = {val or '(vacía)'}"
+                vseg = str(r.get("segmento") or "").strip()
+                if not vseg:
+                    return False, (f"quedó «{val}» pero SIN SEGMENTO: la "
+                                   f"contraparte está a medias")
+                return (val == cp and vseg == seg), f"{val} · {vseg}"
         return False, "la cuenta no quedó en el padrón de contrapartes"
 
 

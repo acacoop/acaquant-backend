@@ -3516,6 +3516,63 @@ texto con que se detectaron: el título nuevo aparece cuando el detector vuelve 
 correr (el monitor, cada 5 min en rueda; los de SALUD se evalúan en vivo).
 
 
+### 0.bb TRES BUGS QUE SE VEÍAN COMO «EL AGENTE NO TIENE MEMORIA» (2026-08-21)
+
+> *«No entiendo cómo estás solucionando las cosas. El 50% de esta conversación
+> debe ser por los mismos temas y sigue pasando como si nada.»*
+
+Tres cosas distintas que **se veían igual**: que el agente no se entera de nada.
+Ninguna era de memoria; las tres eran bugs concretos y medibles.
+
+#### 1. Clasificaba UNO de 19 · el `[` que rompía todos los anclajes
+
+Sobre 19 assets sin cartera proponía **una** sugerencia. La tabla de patrones
+estaba bien: el problema es que las unidades de Aunesa vienen en DOS formas de
+corchete y `_nombre()` solo sacaba una.
+
+    [42932] OTC SOJ.        el corchete es un PREFIJO (el id de especie)   ✔ se sacaba
+    [OTC - MAI.ROS/ENE27]   el corchete ENVUELVE al nombre entero          ✖ quedaba
+
+Los patrones de contrato de cámara están anclados con `^` —a propósito, para que
+un «GIR.» adentro de una razón social no convierta un bono en derivado— y **con
+el `[` adelante ninguno podía matchear**. El único que salía, `[OTC - DLR052027]`,
+salía **de casualidad**: pegaba con `\bDLR\s*\d`, el único patrón sin ancla.
+
+Medido: **de 1 a 9** contratos de cámara clasificados, con un test que congela la
+guarda del `^` (un «GIRO» en el medio de una razón social sigue sin ser derivado).
+
+#### 2. El re-chequeo decía «resuelto» y abajo listaba lo viejo
+
+    ↻ CHEQUEAR AHORA  →  «0 siguen · 4 se resolvieron»
+    ...y abajo seguían los 4 casos, con «hace 7 d»
+
+**El agente SÍ tenía memoria**: `_diff_y_persistir` había cerrado los 4 en
+`manager.controles_datos`. Lo que faltaba era que `recontrolar` **devolviera el
+diagnóstico recalculado** — pintaba el conteo nuevo arriba de la cadena vieja.
+
+> Dos verdades contradiciéndose en la misma tarjeta se leen como que el sistema
+> no se enteró. Es peor que no haber puesto el botón.
+
+Ahora devuelve `diagnostico` + `resuelto`, la pantalla pisa la cadena y canta
+«ya no queda ninguno».
+
+#### 3. Daba de alta contrapartes SIN CLASIFICAR
+
+> *«No toma en cuenta todos los casilleros de clasificar una contraparte, no
+> pidió si es fondo, ALYC o qué. Le falta contexto.»*
+
+`BCO CREDICOOP TERCEROS` vino con `segmento=None` y **se dio de alta igual**. El
+libro decía «contraparte = Credicoop» y `verificar` daba OK porque solo miraba el
+nombre. Una contraparte sin segmento no está dada de alta: está a medias, no
+rompe nada hoy, y cuenta mal en todo lo que agrupe por segmento sin que nadie se
+entere — REGLA #9 otra vez.
+
+Ahora el valor propuesto es **`Nombre · Segmento`** (un campo editable, los dos
+corregibles), sin segmento **no escribe**, `verificar` exige los dos, y el
+`codigo_mae` —que no se puede adivinar, lo asigna el MAE— se **declara
+pendiente** en vez de quedar en silencio.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

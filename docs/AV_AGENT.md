@@ -5428,6 +5428,27 @@ Costo **medido, no estimado**: la corrida llamó a `explicar()` 133 veces en
 `aplicar` y terminó sin problema; Primary está cacheado con TTL, así que son ~4
 queries por bono. Es un cron nocturno.
 
+#### Medido después de aplicarlo: 133 → **0**
+
+No los ~13 que se habían anticipado, y los números cierran exacto: **117 ya
+tenían precio** en la pata correcta (el bug de la elección alfabética) y **16**
+son las que se pidieron en esa corrida, que al quedar suscriptas dejan de tener
+trabajo. `TIENE_PUERTA` pasó de **252 casos a 123**.
+
+#### Y por eso mismo el verde ahora se audita
+
+**Un control que pasa de 133 a 0 tiene exactamente la misma forma que un
+detector que se quedó ciego.** Los dos son un tilde verde y desde la pantalla no
+se distinguen. Es la regla de §0.s aplicada acá: *si el chequeo no pudo mirar,
+lo tiene que decir — el silencio se lee como un verde*.
+
+El control loguea el desglose por veredicto (`0 con trabajo, de 133 evaluados ·
+con_precio=117 · escuchada_sin_punta=16`), así el cero queda auditable sin
+volver a consultar nada. Y si algún día no hubiera **ni un candidato** —un
+`WHERE` que dejó de matchear, una columna renombrada— eso sale como `warning`
+explícito: cero candidatos produce cero hallazgos con el mismo verde que «está
+todo bien», y es el único caso en que el control no está diciendo nada.
+
 #### La regla que queda
 
 **Un control tiene que contar lo que su acción puede arreglar.** Si cuenta más,

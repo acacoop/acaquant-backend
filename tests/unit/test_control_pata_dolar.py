@@ -58,3 +58,26 @@ class TestLaEleccionDeLaPataViveUnaSolaVez:
         from api.services import av_agent_pata
         src = inspect.getsource(av_agent_pata._elegir)
         assert "especies.mejor" in src
+
+
+class TestUnVerdeTieneQuePoderAuditarse:
+    """⚠️ El control pasó de 133 a **0** en una corrida. *«0 porque no hay nada
+    que hacer»* y *«0 porque me quedé ciego»* se ven idénticos en la pantalla:
+    los dos son un tilde verde.
+
+    Misma regla que la prueba de permisos (§0.s): **si el chequeo no pudo mirar,
+    lo tiene que decir — el silencio se lee como un verde.**"""
+
+    def test_deja_el_desglose_por_veredicto_en_el_log(self):
+        src = inspect.getsource(cd._chk_patas_dolar_sin_pedir)
+        assert "conteo" in src, (
+            "sin desglose, un 0 no se puede distinguir de una ceguera")
+        assert "logger.info" in src
+
+    def test_avisa_fuerte_si_no_hubo_NI_UN_candidato(self):
+        """Cero candidatos = el `WHERE` dejó de matchear (columna renombrada,
+        join roto). Produce cero hallazgos con el mismo verde que «está todo
+        bien», y es el único caso en que este control no dice nada."""
+        src = inspect.getsource(cd._chk_patas_dolar_sin_pedir)
+        assert "if not vistos:" in src
+        assert "logger.warning" in src.split("if not vistos:")[1]

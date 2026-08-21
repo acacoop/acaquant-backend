@@ -402,6 +402,17 @@ def _chk_patas_dolar_sin_pedir() -> list[dict]:
 
     vistos: set[str] = set()
     out = []
+    # ⚠️⚠️ **POR QUÉ SE CUENTA EL DESGLOSE Y NO SOLO EL RESULTADO.** Este control
+    # pasó de 133 a **0** en una corrida, y *«0 porque no hay nada que hacer»* y
+    # *«0 porque me quedé ciego»* se ven EXACTAMENTE IGUAL en la pantalla: los
+    # dos son un tilde verde. Es la misma regla que ya rige para la prueba de
+    # permisos (§0.s): **si el chequeo no pudo mirar, lo tiene que DECIR — el
+    # silencio se lee como un verde.**
+    #
+    # Con el desglose, el verde queda auditable sin volver a consultar nada:
+    # «0 de 133 · 117 ya tienen precio · 16 ya escuchadas». Si mañana dijera
+    # «0 de 0», eso es otra cosa completamente distinta y se ve de una.
+    conteo: dict[str, int] = {}
     for tk, simbolo, curva in candidatos:
         if tk in vistos:      # una propuesta por bono: la mesa mira el bono
             continue
@@ -414,8 +425,11 @@ def _chk_patas_dolar_sin_pedir() -> list[dict]:
             d = av_agent_pata.explicar(tk)
         except Exception:
             logger.warning("patas_dolar: no pude evaluar %s", tk, exc_info=True)
+            conteo["no_pude"] = conteo.get("no_pude", 0) + 1
             continue
-        if (d.get("veredicto") or "") != "hay_que_pedirla":
+        v = (d.get("veredicto") or "?")
+        conteo[v] = conteo.get(v, 0) + 1
+        if v != "hay_que_pedirla":
             continue
         # El SÍMBOLO también sale de la acción: si el detector siguiera
         # nombrando el suyo, la fila diría un símbolo y el botón pediría otro.
@@ -423,6 +437,17 @@ def _chk_patas_dolar_sin_pedir() -> list[dict]:
         out.append({"key": tk, "ticker": tk, "simbolo": simbolo, "curva": curva,
                     "detalle": (f"«{tk}» cotiza en pesos y su pata en dólares "
                                 f"«{simbolo}» no se la pide nadie")})
+    logger.info("patas_dolar: %d con trabajo, de %d bonos evaluados · %s",
+                len(out), len(vistos),
+                " · ".join(f"{k}={n}" for k, n in sorted(conteo.items())) or "sin datos")
+    # **Si no hubo NI UN candidato, el verde no vale.** Un `WHERE` que dejó de
+    # matchear —una columna renombrada, un join que se rompió— produce cero
+    # candidatos y por lo tanto cero hallazgos, con el mismo tilde verde que
+    # «está todo bien». Se avisa fuerte porque es el único caso en que este
+    # control no está diciendo nada.
+    if not vistos:
+        logger.warning("patas_dolar: CERO candidatos — el verde de este control "
+                       "no significa nada. ¿Cambió el esquema de curvas/especies?")
     return out
 
 

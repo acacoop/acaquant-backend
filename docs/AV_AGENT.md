@@ -4394,6 +4394,66 @@ por la pantalla principal; ahora que cada uno tiene su lugar, sobra.
 
 
 
+### 0.bq EL NOMBRE LEGIBLE YA ESTABA ESCRITO (2026-08-22)
+
+Tres quejas del user, y las tres eran la misma enfermedad de siempre.
+
+#### 1. «control:comitentes_sin_nive…» — el título existía hace meses
+
+La fila mostraba el **ID** del control, cortado a la mitad en una columna
+angosta. El user pidió *«un LLM que asigne títulos más sencillos»*.
+
+**No hace falta.** Cada control declara su nombre humano desde que se dio de
+alta:
+
+    control:patas_dolar_sin_ped…   →   Patas en dólares que nadie pide
+    control:comitentes_sin_nive…   →   Comitentes activos sin nivel 1
+    control:fci_incompletos        →   Assets FCI sin ticker/emisor
+
+`salud._chequeos_controles` armaba el título con `cid.replace("_", " ")` —
+fabricaba uno feo teniendo el bueno al lado, en `CONTROLES[].titulo`. Y para los
+chequeos de SALUD el título **ya viajaba en la evidencia** y la pantalla no lo
+leía.
+
+> Es la misma falla que este proyecto ya se comió con el eval set, con el
+> seguimiento y con los votos de utilidad: **el dato existe, se guarda, y nadie
+> lo lee.** Antes de agregar un modelo, buscar el campo.
+
+El nombre para pantalla lo resuelve el BACKEND (`h["nombre"]`), no el
+navegador: si lo decidiera cada vista, dos pantallas nombrarían distinto al
+mismo hallazgo.
+
+#### 2. Lo YA HECHO se va de la lista de trabajo
+
+*«Si algo ya está hecho tiene que salir de acá y en todo caso pasar a esto de
+que se controla si se volvió a romper.»* Exactamente: lo que atendiste **no es
+trabajo pendiente**, es un arreglo esperando confirmación — que es literalmente
+lo que mide ¿AGUANTAN?.
+
+Antes era un toggle (`17 YA HECHOS`) y las filas seguían en la lista, en gris.
+Ahora salen y aparecen en ¿AGUANTAN? con la distinción que importa:
+
+    ✔ arreglado   se aplicó: el dato cambió
+    votado        lo miraste, pero el dato sigue igual
+
+Mezclarlas haría que «17 hechos» incluya diecisiete cosas que siguen rotas.
+
+**La búsqueda igual los encuentra**: tipear el ticker de algo que arreglaste y
+que no aparezca sería esconderlo, no ordenarlo.
+
+Y **el número de LA LISTA pasa a ser lo que falta hacer**, no el total: decía
+132 con 17 ya hechos adentro, o sea prometía más trabajo del que había.
+
+#### 3. El cuadro de texto que repetía el menú
+
+    132 hallazgos  115 por resolver · 17 ya hechos    acá se arregla — lo de hoy está en AHORA
+
+Un renglón entero diciendo lo que el menú de abajo dice dos centímetros más
+abajo, con sus cuatro números. Se fue. La frase que explica la pantalla se
+aprende una vez; no hace falta todos los días.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

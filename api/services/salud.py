@@ -387,6 +387,23 @@ def _chequeo_ia() -> dict | None:
     }
 
 
+def _titulo_control(cid: str) -> str:
+    """El nombre humano del control, del catálogo que ya lo declara.
+
+    Cae al id con guiones bajos convertidos SOLO si el control no está en el
+    catálogo — que puede pasar con uno viejo cuya fila todavía vive en la tabla.
+    Es la degradación correcta: un nombre feo es mejor que una fila sin nombre.
+    """
+    try:
+        from jobs.controles_datos import CONTROLES
+        for c in CONTROLES:
+            if c.id == cid:
+                return c.titulo
+    except Exception:      # pragma: no cover - la pantalla no se cae por esto
+        _log.warning("salud: no pude leer el catálogo de controles", exc_info=True)
+    return cid.replace("_", " ")
+
+
 def _chequeos_controles() -> list[dict]:
     try:
         from api.services.controles_sql import listar_controles
@@ -406,7 +423,16 @@ def _chequeos_controles() -> list[dict]:
         out.append({
             "id": f"control:{cid}",
             "familia": "control",
-            "titulo": cid.replace("_", " "),
+            # ⚠️⚠️ **EL NOMBRE LEGIBLE YA EXISTÍA Y NADIE LO LEÍA** (§0.bq).
+            # Acá decía `cid.replace("_", " ")`, o sea que la pantalla mostraba
+            # el ID del control («comitentes sin nivel1») cuando el catálogo
+            # tiene, desde siempre, «Comitentes activos sin nivel 1». En una
+            # columna angosta el ID se cortaba —`control:comitentes_sin_nive…`—
+            # y la fila dejaba de decir qué es.
+            #
+            # No hace falta un LLM para esto: el texto ya está escrito por quien
+            # dio de alta el control. Se lee del catálogo, que es la fuente.
+            "titulo": _titulo_control(cid),
             "estado": WARN,
             "motivo": f"{len(activos)} anomalía{'s' if len(activos) != 1 else ''} sin resolver",
             "evidencia": ejemplos or "(sin detalle)",

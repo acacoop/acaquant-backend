@@ -229,3 +229,32 @@ def test_TODO_lo_que_es_un_problema_ya_tiene_objeto():
     from core import ciclo
     crudas = [t for t in ciclo.deuda_de_problemas() if t not in ciclo.espejan()]
     assert crudas == [], f"sin objeto todavía: {crudas}"
+
+
+# ── el nombre legible, que ya estaba escrito (§0.bq) ─────────────────────────
+
+def test_el_titulo_del_control_sale_del_CATALOGO_y_no_del_id():
+    """⚠️ `salud._chequeos_controles` armaba el título con
+    `cid.replace("_", " ")` — fabricaba uno feo teniendo el bueno al lado. En
+    una columna angosta el ID se cortaba (`control:comitentes_sin_nive…`) y la
+    fila dejaba de decir qué es. **No hacía falta un LLM: hacía falta leer el
+    campo.**"""
+    from api.services.salud import _titulo_control
+    assert _titulo_control("patas_dolar_sin_pedir") == "Patas en dólares que nadie pide"
+    assert _titulo_control("comitentes_sin_nivel1") == "Comitentes activos sin nivel 1"
+
+
+def test_un_control_que_no_esta_en_el_catalogo_NO_rompe_la_pantalla():
+    """Puede pasar con uno viejo cuya fila sigue en la tabla. Un nombre feo es
+    mejor que una fila sin nombre."""
+    from api.services.salud import _titulo_control
+    assert _titulo_control("no_existe_este") == "no existe este"
+
+
+def test_el_nombre_para_la_PANTALLA_lo_decide_el_backend():
+    """Si lo resolviera cada vista, dos pantallas nombrarían distinto al mismo
+    hallazgo — que es REGLA #9 aplicada a un texto."""
+    from api.services.av_agent_vista import vista
+    src = codigo(vista)
+    assert 'h["nombre"]' in src
+    assert '"titulo"' in src

@@ -867,6 +867,17 @@ def vista() -> dict:
         #   en_curso  → apretaste el arreglo y falta que el detector confirme
         #   resuelto  → el detector volvió a mirar y ya no está
         #   votado    → no había botón (o no lo apretaste) pero lo juzgaste
+        # ── EL NOMBRE PARA LA PANTALLA (§0.bq) ──────────────────────────────
+        #
+        # ⚠️ Para un bono el sujeto ES el nombre (`AL30`). Para un chequeo es un
+        # ID —`control:comitentes_sin_nivel1`— que en una columna angosta se
+        # corta y deja la fila sin decir qué es. **El nombre legible ya venía
+        # en la evidencia** (`titulo`) y nadie lo leía.
+        #
+        # Se resuelve ACÁ y no en el navegador para que las dos pantallas que
+        # muestran hallazgos digan lo mismo.
+        h["nombre"] = str((h.get("evidencia") or {}).get("titulo")
+                          or h.get("ticker") or "")
         h["atendido"] = ""
         est = h.pop("estado_item", None)
         if est in (ciclo.EN_CURSO, ciclo.RESUELTO):

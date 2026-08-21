@@ -105,3 +105,34 @@ def test_el_espejo_no_puede_tumbar_la_pasada():
     """La pasada del centinela es lo que la mesa mira en rueda."""
     cola = codigo(c.ciclo).split("av_agent_items.sincronizar")[1][:400]
     assert "except Exception" in cola
+
+
+# ── UN SOLO RELOJ PARA LAS DOS PANTALLAS ────────────────────────────────────
+
+def test_la_antiguedad_sale_del_OBJETO_y_no_de_la_tabla_del_centinela():
+    """⚠️ El centinela tenía su `abierto_at` y el censo el suyo, y nadie los
+    unía: **AHORA podía decir «recién» y ENCONTRÓ «11 días» del MISMO
+    problema**. Dos relojes para un hecho es la definición de la contradicción
+    que esta migración vino a terminar."""
+    src = codigo(c.estado)
+    assert "LEFT JOIN mercado.av_agent_items" in src
+    assert "abierto_canonico" in src
+
+
+def test_el_JOIN_va_en_la_MISMA_query():
+    """El peaje de Supabase se paga por viaje (~8,5 ms)."""
+    src = codigo(c.estado)
+    # Tres execute: el latido, los abiertos (con JOIN) y los resueltos.
+    assert src.count("cur.execute") == 3
+
+
+def test_si_el_objeto_no_existe_todavia_se_usa_el_reloj_LOCAL():
+    """Un hallazgo de este mismo ciclo, antes de espejarse, no puede quedar sin
+    antigüedad: en ese instante los dos relojes dicen lo mismo."""
+    src = codigo(c.estado)
+    assert 'f.pop("abierto_canonico", None) or f.get("abierto_at")' in src
+
+
+def test_y_se_publica_para_que_la_fila_pueda_decirlo():
+    src = codigo(c.estado)
+    assert '"dias_abierto"' in src

@@ -1408,34 +1408,22 @@ def _aplicar_una(f: dict, *, por: str, valores: dict) -> dict:
 def _mover_item(a, p: Propuesta) -> None:
     """El objeto que esta acción arregla, a `en_curso`.
 
-    La `clave` se arma con la MISMA fórmula que usó quien lo creó — para las
-    acciones que nacen de un control, `jobs/controles_datos._espejar_items`.
-    Si la calculáramos distinto, moveríamos un objeto que no existe y el
-    hallazgo seguiría igual **sin dar ningún error**: exactamente el síntoma
-    que esto viene a arreglar.
+    ⚠️ **Antes había que mover DOS** — el del control y el del detector — porque
+    el mismo bono roto producía dos objetos con claves distintas. Ya no:
+    la identidad es **(sujeto, causa)** con la causa normalizada (§0.bj), así
+    que el detector de rueda y el control nocturno escriben en el MISMO objeto.
+    El puente que hacía falta ayer sobra hoy, y eso es lo que tenía que pasar.
+
+    `en_curso` y no `resuelto`: escribir el dato no es lo mismo que el problema
+    haya desaparecido. Quien lo cierra es el DETECTOR, cuando vuelve a mirar y
+    ya no lo encuentra — si lo cerrara la acción, el agente estaría calificando
+    su propio trabajo.
     """
     from api.services import av_agent_items
     from core import ciclo
 
-    # (1) el objeto del CONTROL, que es de donde salió el caso
-    clave = ciclo.clave_de("control", f"control:{a.sobre}", p.sujeto, a.sobre)
+    clave = av_agent_items.clave_de_problema(p.sujeto, _causa_de(a), a.sobre)
     av_agent_items.marcar(clave, ciclo.EN_CURSO, por="accion")
-    # (2) ⚠️ **y el del DETECTOR, que es OTRO objeto para el MISMO problema.**
-    #
-    #     detector →  precio_moneda|live|bpoa7|pata_equivocada
-    #     control  →  control|control:patas_equivocadas|bpoa7|patas_equivocadas
-    #
-    # Un bono con la pata mal cargada, dos objetos, porque lo miran dos cosas
-    # distintas. Mover solo el del control dejaría el del detector colgado y el
-    # hallazgo seguiría figurando **igual que antes de toda la migración**: el
-    # mismo síntoma, adentro del modelo nuevo.
-    #
-    # Se juntan por (SUJETO, CAUSA) porque la causa es la misma de los dos lados
-    # — `Accion.causa` es la regla del detector, declarada para el eval set.
-    causa = _causa_de(a)
-    if causa and causa != a.sobre:
-        av_agent_items.marcar_por(sujeto=p.sujeto, regla=causa,
-                                  estado=ciclo.EN_CURSO, por="accion")
 
 
 def _causa_de(a) -> str:

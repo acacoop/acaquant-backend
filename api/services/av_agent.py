@@ -486,20 +486,13 @@ PREGUNTA_POR_TIPO: dict[str, str] = {
 }
 
 
-def clave_de_hallazgo(h: dict) -> str:
-    """La identidad de un hallazgo como OBJETO (§0.bd).
-
-    Vive acá —y no en cada lector— porque tiene que dar EXACTAMENTE lo mismo
-    que la clave con que lo escribió el detector: si el que lee y el que
-    escribe la calcularan distinto, la memoria existiría y nadie la
-    encontraría. Es el mismo modo de falla que el símbolo columna-vs-blob.
-
-    El `origen` es el ALCANCE de la corrida (`soberanos` · `live` · `sistema`),
-    que es lo que usa `jobs/av_agent._espejar_en_items`.
-    """
-    from core import ciclo
-    return ciclo.clave_de(h.get("tipo") or "", h.get("alcance") or "",
-                          h.get("ticker") or "", h.get("regla") or "")
+# ⚠️ Acá vivía `clave_de_hallazgo(h)`, que armaba la identidad con
+# `(tipo, alcance, ticker, regla)`. **Se borra**: desde §0.bj la identidad es
+# `(sujeto, causa)` y la arma UNA sola función,
+# `av_agent_items.clave_de_problema`. Dejar ésta viva —aunque no la llame
+# nadie— es dejar una SEGUNDA opinión sobre quién es quién esperando a que
+# alguien la use: el problema quedaría partido en dos objetos otra vez y, como
+# siempre en REGLA #9, sin un solo error.
 
 
 def pregunta_de(tipo: str) -> str:

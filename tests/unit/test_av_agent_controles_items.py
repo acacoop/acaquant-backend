@@ -80,26 +80,19 @@ def test_pasa_a_EN_CURSO_y_no_a_RESUELTO():
     assert "ciclo.EN_CURSO" in src and "RESUELTO" not in src
 
 
-def test_la_clave_se_arma_IGUAL_que_en_el_control():
-    """Si se calculara distinto, movería un objeto que no existe y el hallazgo
-    seguiría igual **sin dar ningún error** — el síntoma exacto que esto viene
-    a arreglar."""
+def test_la_clave_se_arma_EN_UN_SOLO_LUGAR():
+    """El control, la acción, el detector y el backfill piden la clave a la
+    MISMA función. Si cada uno la armara, moverían objetos distintos y el
+    hallazgo seguiría igual **sin dar ningún error** — el síntoma exacto que
+    esto vino a arreglar (REGLA #9)."""
+    import jobs.av_agent as job
     from api.services.av_agent_hacer import _mover_item
-    from core import ciclo
     from jobs.controles_datos import _espejar_items
 
-    # Lo que escribe el control…
-    vistos = codigo(_espejar_items)
-    assert '"tipo": "control"' in vistos and '"regla": control_id' in vistos
-    # …y lo que busca la acción: mismas cuatro partes, mismo orden.
-    assert 'ciclo.clave_de("control", f"control:{a.sobre}", p.sujeto, a.sobre)' \
-        in codigo(_mover_item)
-    # Y la fórmula da lo mismo desde los dos lados.
-    del_control = ciclo.clave_de("control", "control:assets_sin_cartera",
-                                 "[42932] PBJ26", "assets_sin_cartera")
-    de_la_accion = ciclo.clave_de("control", "control:assets_sin_cartera",
-                                  "[42932] PBJ26", "assets_sin_cartera")
-    assert del_control == de_la_accion
+    for fn in (_mover_item, _espejar_items):
+        assert "clave" in codigo(fn) or "sincronizar" in codigo(fn)
+    assert "clave_de_problema" in codigo(job.persistir)
+    assert "clave_de_problema" in codigo(_mover_item)
 
 
 def test_mover_el_item_no_puede_tumbar_la_accion():
@@ -118,55 +111,81 @@ def test_el_ciclo_PERMITE_ese_salto():
     assert ciclo.puede_pasar(ciclo.EN_CURSO, ciclo.RESUELTO)
 
 
-# ── UN problema, DOS objetos: el puente ─────────────────────────────────────
-
-def test_el_mismo_problema_lo_ven_DOS_caminos():
-    """Medido antes de tocar nada, y por eso hubo que construir el puente:
-
-        detector →  precio_moneda|live|bpoa7|pata_equivocada
-        control  →  control|control:patas_equivocadas|bpoa7|patas_equivocadas
-
-    Un bono con la pata mal cargada, DOS objetos, porque lo miran dos cosas
-    distintas. Si la acción moviera solo uno, el hallazgo seguiría figurando
-    **igual que antes de toda la migración** — el mismo síntoma, adentro del
-    modelo nuevo."""
-    from core import ciclo
-    det = ciclo.clave_de("precio_moneda", "live", "BPOA7", "pata_equivocada")
-    ctl = ciclo.clave_de("control", "control:patas_equivocadas", "BPOA7",
-                         "patas_equivocadas")
-    assert det != ctl
+# ── UN problema, UN objeto ──────────────────────────────────────────────────
+#
+# Ayer el mismo bono roto producía DOS objetos, porque el tipo y el origen
+# entraban en la clave:
+#
+#     detector →  precio_moneda|live|bpoa7|pata_equivocada
+#     control  →  control|control:patas_equivocadas|bpoa7|patas_equivocadas
+#
+# Hubo que construir un puente para moverlos juntos. Hoy el puente **sobra**:
+# la identidad es (SUJETO, CAUSA) y quién lo vio es un atributo (§0.bj).
 
 
-def test_la_accion_mueve_LOS_DOS():
+def test_el_detector_y_el_control_escriben_EL_MISMO_objeto():
+    """El test que ayer probaba que eran distintos, hoy prueba que son uno.
+    Ése era el objetivo — el puente era el parche, no la solución."""
+    from api.services.av_agent_items import clave_de_problema
+    det = clave_de_problema("BPOA7", "pata_equivocada", "live")
+    ctl = clave_de_problema("BPOA7", "patas_equivocadas", "control:patas_equivocadas")
+    assert det == ctl == "bpoa7|pata_equivocada"
+
+
+def test_el_TIPO_y_el_ORIGEN_no_son_identidad():
+    """Son QUIÉN LO VIO. Que dos cosas miren el mismo problema no lo convierte
+    en dos problemas."""
+    from api.services.av_agent_items import clave_de_problema
+    a = clave_de_problema("AL30", "sin_punta", "live")
+    b = clave_de_problema("AL30", "sin_punta", "soberanos")
+    c = clave_de_problema("AL30", "sin_punta", "")
+    assert a == b == c
+
+
+def test_problemas_DISTINTOS_del_mismo_bono_NO_se_fusionan():
+    """La otra mitad: si la causa cambia, es otro problema y otra historia."""
+    from api.services.av_agent_items import clave_de_problema
+    assert (clave_de_problema("AL30", "sin_punta")
+            != clave_de_problema("AL30", "pata_equivocada"))
+
+
+def test_lo_que_NO_tiene_sujeto_no_colapsa_en_uno_solo():
+    """Un `db_cambio` habla de la base entera. Sin respaldo, todos los
+    sin-sujeto de una misma causa serían UN objeto y se taparían entre ellos."""
+    from api.services.av_agent_items import clave_de_problema
+    a = clave_de_problema("", "sin_escribir", "sistema")
+    b = clave_de_problema("", "sin_escribir", "live")
+    assert a and b and a != b
+
+
+def test_la_equivalencia_de_causas_se_DERIVA_de_las_acciones():
+    """`patas_equivocadas` → `pata_equivocada` sale de `ACCIONES`, donde cada
+    acción ya declara sus dos puntas (`sobre` y `causa`). Una tabla aparte diría
+    una cosa y el eval set otra, sin fallar nunca."""
+    from api.services.av_agent_items import _equivalencias, causa_canonica
+    eq = _equivalencias()
+    assert eq.get("patas_equivocadas") == "pata_equivocada"
+    assert causa_canonica("patas_equivocadas") == "pata_equivocada"
+    # Una causa que no tiene acción se queda como está: no se inventa nada.
+    assert causa_canonica("sin_ejes") == "sin_ejes"
+
+
+def test_el_PUENTE_se_borro():
+    """Un puente a ninguna parte que sigue exportado es una función que alguien
+    va a usar creyendo que hace falta — y ahí vuelven los dos objetos por otro
+    camino (REGLA #5)."""
+    from api.services import av_agent_items
+    assert not hasattr(av_agent_items, "marcar_por")
+
+
+def test_la_accion_mueve_UN_solo_objeto():
     from api.services.av_agent_hacer import _mover_item
     src = codigo(_mover_item)
-    assert "av_agent_items.marcar(clave" in src      # el del control
-    assert "marcar_por(sujeto=" in src               # el del detector
+    assert "clave_de_problema(p.sujeto, _causa_de(a), a.sobre)" in src
+    assert "marcar_por" not in src
 
 
-def test_se_juntan_por_SUJETO_y_CAUSA_que_es_lo_unico_que_comparten():
-    """La causa es la misma de los dos lados: `Accion.causa` ES la regla del
-    detector, declarada para el eval set (§0.av). Sin eso haría falta una tabla
-    de equivalencias, que es otra cosa que se desincroniza sola."""
-    from api.services.av_agent_hacer import ACCIONES, _causa_de
-    a = ACCIONES["mercado.apuntar_pata"]
-    assert _causa_de(a) == "pata_equivocada"       # lo que emite el detector
-    assert a.sobre == "patas_equivocadas"          # lo que emite el control
-    assert _causa_de(a) != a.sobre, "si fueran iguales, el puente sobraría"
-
-
-def test_marcar_por_NO_hace_saltos_imposibles():
-    """Mover un `resuelto` a `en_curso` borraría su seguimiento: el vocabulario
-    lo rechaza y `marcar_por` respeta esa lista en vez de actualizar a ciegas."""
-    from api.services.av_agent_items import marcar_por
-    src = codigo(marcar_por)
-    assert "puede_pasar(e, estado)" in src and "estado = ANY(%s)" in src
-
-
-def test_marcar_por_exige_las_DOS_claves():
-    """Mover «todo lo de este sujeto» sin la causa tocaría hallazgos de otros
-    problemas del mismo bono."""
-    from api.services.av_agent_items import marcar_por
-    from core import ciclo
-    assert marcar_por(sujeto="AL30", regla="", estado=ciclo.EN_CURSO)["ok"] is False
-    assert marcar_por(sujeto="", regla="x", estado=ciclo.EN_CURSO)["ok"] is False
+def test_sigue_pasando_a_EN_CURSO_y_no_a_RESUELTO():
+    from api.services.av_agent_hacer import _mover_item
+    src = codigo(_mover_item)
+    assert "ciclo.EN_CURSO" in src and "RESUELTO" not in src

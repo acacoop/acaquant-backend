@@ -25,9 +25,9 @@ from core.postgres import get_pool
 logger = logging.getLogger(__name__)
 
 # ⚠️ `alcance` entra a la lista porque es parte de la IDENTIDAD del hallazgo
-# como objeto (`clave_de_hallazgo`): sin él, el que lee calcula una clave
-# distinta de la que escribió el detector y la memoria queda inalcanzable —
-# existiendo. Es el mismo modo de falla que el símbolo columna-vs-blob.
+# como objeto (`av_agent_items.clave_de_problema`): sin él, el que lee calcula
+# una clave distinta de la que escribió el detector y la memoria queda
+# inalcanzable, existiendo. Mismo modo de falla que el símbolo columna-vs-blob.
 _COLS_H = ["tipo", "ticker", "regla", "severidad", "motivo", "evidencia"]
 
 # ── LA MEMORIA, EN LA MISMA QUERY ───────────────────────────────────────────

@@ -42,17 +42,22 @@ import sys
 #
 # Tiene que dar EXACTAMENTE lo mismo que `core.ciclo.clave_de`: minúsculas,
 # unidas por `|`, salteando las partes vacías.
+# ⚠️ **(SUJETO, CAUSA)** — ni el tipo ni el alcance entran: son QUIÉN lo vio, no
+# qué problema es (§0.bj). Si el ticker viene vacío, el alcance vuelve como
+# respaldo para que los sin-sujeto no colapsen todos en uno.
+#
+# La normalización de la causa (`patas_equivocadas` → `pata_equivocada`) NO se
+# hace acá: se compara contra Python fila por fila y las que difieren abortan la
+# corrida. Un backfill no puede tener su propia opinión sobre la identidad.
 _CLAVE_SQL = """array_to_string(array_remove(ARRAY[
-    nullif(lower(btrim(tipo)), ''),
-    nullif(lower(btrim(coalesce(alcance, ''))), ''),
-    nullif(lower(btrim(coalesce(ticker, ''))), ''),
+    coalesce(nullif(lower(btrim(coalesce(ticker, ''))), ''),
+             nullif(lower(btrim(coalesce(alcance, ''))), '')),
     nullif(lower(btrim(coalesce(regla, ''))), '')
 ], NULL), '|')"""
 
 
 def main() -> int:
     aplicar = "--aplicar" in sys.argv
-    from core import ciclo
     from core.postgres import get_pool
 
     print("═" * 74)
@@ -61,15 +66,34 @@ def main() -> int:
     print("═" * 74)
 
     with get_pool().connection() as conn, conn.cursor() as cur:
-        # 1) la clave que falta en las filas viejas
-        cur.execute("SELECT count(*) FROM mercado.av_agent_hallazgos "
-                    "WHERE clave IS NULL")
+        # 0) ⚠️ **LOS ITEMS QUE YA EXISTEN, RE-IDENTIFICADOS.**
+        #
+        # La primera corrida de este backfill creó los items con la identidad
+        # VIEJA (`tipo|origen|sujeto|regla`). Al pasar a `(sujeto, causa)`
+        # (§0.bj) esas filas quedan con una clave **que nadie va a buscar
+        # nunca**: la memoria sigue en la base y es inalcanzable — el modo de
+        # falla que este mismo script se cuida de no provocar.
+        #
+        # No se BORRAN (ahí sí se perdería la antigüedad real, que es lo único
+        # que este script vino a rescatar): se les recalcula la clave desde sus
+        # PROPIAS columnas. Si al hacerlo dos filas caen en la misma identidad
+        # —que es justo lo que la migración busca: el del detector y el del
+        # control eran el mismo problema— se FUSIONAN quedando la fecha más
+        # vieja y la suma de las veces.
+        _reidentificar(cur, aplicar)
+
+        # 1) la clave de los hallazgos, recalculada TAMBIÉN cuando está vieja
+        # (no solo cuando falta): las filas que escribió el detector antes del
+        # cambio tienen la clave anterior y el `LEFT JOIN` de la pantalla no
+        # las encontraría.
+        cur.execute(f"SELECT count(*) FROM mercado.av_agent_hallazgos "
+                    f"WHERE clave IS NULL OR clave <> {_CLAVE_SQL}")
         sin_clave = cur.fetchone()[0]
-        print(f"\n  filas sin clave       {sin_clave}")
+        print(f"\n  hallazgos con clave vieja o sin clave   {sin_clave}")
         if sin_clave and aplicar:
             cur.execute(f"UPDATE mercado.av_agent_hallazgos SET clave = {_CLAVE_SQL} "
-                        " WHERE clave IS NULL")
-            print(f"  → completadas         {cur.rowcount}")
+                        f" WHERE clave IS NULL OR clave <> {_CLAVE_SQL}")
+            print(f"  → reescritas          {cur.rowcount}")
 
         # La corrida vigente (misma regla que la vista: sin los de reemplazo)
         # Los alcances de REEMPLAZO salen de la constante del agente, no de una
@@ -132,9 +156,10 @@ def main() -> int:
     # sin un solo error. Es REGLA #9 en su forma más cara, y por eso no alcanza
     # con "tener cuidado": se comparan las dos, fila por fila, y si una sola no
     # coincide **no se escribe nada**.
-    distintas = [(f[0], ciclo.clave_de(f[1], f[2] or "", f[3], f[4]))
+    from api.services.av_agent_items import clave_de_problema
+    distintas = [(f[0], clave_de_problema(f[3], f[4], f[2] or ""))
                  for f in filas
-                 if ciclo.clave_de(f[1], f[2] or "", f[3], f[4]) != f[0]]
+                 if clave_de_problema(f[3], f[4], f[2] or "") != f[0]]
     if distintas:
         print(f"\n  ✖ ABORTADO: {len(distintas)} claves no coinciden entre SQL y "
               f"Python. Escribirlas dejaría la memoria inalcanzable.")
@@ -165,7 +190,8 @@ def main() -> int:
             # No pisa lo que ya vive: si la corrida real ya creó el item, ese
             # tiene la verdad más fresca.
             "ON CONFLICT (clave) DO NOTHING",
-            [(f[0], f[1], f[2] or "censo", f[3], f[4], f[5], f[9], f[8],
+            [(clave_de_problema(f[3], f[4], f[2] or ""), f[1], f[2] or "censo",
+              f[3], f[4], f[5], f[9], f[8],
               corrida, f[6] or "",
               json.dumps(f[7] or {}, ensure_ascii=False, default=str))
              for f in filas])
@@ -173,6 +199,65 @@ def main() -> int:
     print(f"\n  ✔ {len(filas)} procesados · {n} items creados "
           f"(el resto ya existía y NO se pisó)\n")
     return 0
+
+
+def _reidentificar(cur, aplicar: bool) -> None:
+    """Los items existentes, a la identidad canónica — fusionando los repetidos.
+
+    Es idempotente: una fila que ya tiene la clave buena no aparece en el
+    conteo y no se toca.
+    """
+    from api.services.av_agent_items import clave_de_problema
+
+    cur.execute("SELECT clave, sujeto, regla, origen FROM mercado.av_agent_items")
+    filas = cur.fetchall()
+    cambios = [(vieja, clave_de_problema(suj, reg, org or ""))
+               for vieja, suj, reg, org in filas]
+    cambios = [(v, n) for v, n in cambios if n and n != v]
+    print(f"\n  items con identidad vieja   {len(cambios)} de {len(filas)}")
+    if not cambios:
+        return
+    for v, n in cambios[:5]:
+        print(f"      {v}\n         →  {n}")
+    if not aplicar:
+        return
+
+    # El UPDATE puede chocar con una fila que YA tiene la clave nueva (los dos
+    # objetos del mismo problema). Ese choque es el ÉXITO de la migración, no
+    # un error: se fusiona a mano quedándose con lo más conservador de cada uno
+    # —la fecha de apertura más VIEJA (la antigüedad real) y la SUMA de veces— y
+    # recién ahí se borra el duplicado.
+    movidos = fusionados = 0
+    for vieja, nueva in cambios:
+        cur.execute("SELECT 1 FROM mercado.av_agent_items WHERE clave = %s",
+                    (nueva,))
+        if cur.fetchone():
+            cur.execute(
+                "UPDATE mercado.av_agent_items d SET "
+                "  abierto_at = LEAST(d.abierto_at, o.abierto_at), "
+                "  ultimo_at  = GREATEST(d.ultimo_at, o.ultimo_at), "
+                "  veces      = d.veces + o.veces, "
+                "  visto_at   = LEAST(d.visto_at, o.visto_at), "
+                # ⚠️ **GANA EL MÁS ABIERTO.** Si uno de los dos lo daba por
+                # resuelto y el otro no, el problema NO está resuelto: cerrarlo
+                # acá sería hacer desaparecer de la pantalla algo que sigue
+                # pasando, en silencio y por una migración.
+                "  estado = CASE WHEN o.estado NOT IN ('resuelto','ignorado') "
+                "                 AND d.estado IN ('resuelto','ignorado') "
+                "                THEN o.estado ELSE d.estado END, "
+                "  resuelto_at = CASE WHEN o.estado NOT IN ('resuelto','ignorado') "
+                "                THEN NULL ELSE d.resuelto_at END "
+                "FROM mercado.av_agent_items o "
+                "WHERE d.clave = %s AND o.clave = %s", (nueva, vieja))
+            cur.execute("DELETE FROM mercado.av_agent_items WHERE clave = %s",
+                        (vieja,))
+            fusionados += 1
+        else:
+            cur.execute("UPDATE mercado.av_agent_items SET clave = %s "
+                        " WHERE clave = %s", (nueva, vieja))
+            movidos += 1
+    print(f"  → {movidos} re-identificados · {fusionados} FUSIONADOS "
+          f"(eran dos objetos del mismo problema)")
 
 
 def _dias(ts) -> float:

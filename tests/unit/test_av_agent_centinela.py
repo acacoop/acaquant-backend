@@ -115,7 +115,9 @@ def test_el_centinela_no_escribe_en_ninguna_otra_tabla():
 
 def test_lo_nuevo_y_sin_ver_sale_primero():
     """Es lo único de la lista que pide una decisión."""
-    assert "(visto_at IS NULL) DESC" in inspect.getsource(c.estado)
+    # Con alias desde que la query hace JOIN con el objeto (§0.bj): lo que el
+    # test congela es el CRITERIO —lo nuevo y sin ver primero—, no la grafía.
+    assert "visto_at IS NULL) DESC" in inspect.getsource(c.estado)
 
 
 # ── La PATA EQUIVOCADA (2026-08-19) ───────────────────────────────────────

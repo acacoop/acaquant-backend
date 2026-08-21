@@ -4325,7 +4325,12 @@ CREATE INDEX IF NOT EXISTS ix_av_lecciones_causa ON mercado.av_agent_lecciones (
 -- pase a `volvio` en vez de nacer «nuevo» otra vez — que es exactamente lo que
 -- venía pasando y se leía como que el agente no se acuerda de nada.
 CREATE TABLE IF NOT EXISTS mercado.av_agent_items (
-    clave       text PRIMARY KEY,   -- tipo|origen|sujeto|regla — SIN fecha
+    -- ⚠️ **sujeto|causa — SIN fecha, SIN tipo y SIN origen** (§0.bj). Tipo y
+    -- origen son QUIÉN LO VIO: meterlos en la identidad hacía que el mismo
+    -- bono roto fuera DOS objetos (el del detector y el del control), y
+    -- arreglarlo movía uno y dejaba el otro colgado. La arma una sola
+    -- función: `av_agent_items.clave_de_problema`.
+    clave       text PRIMARY KEY,
     tipo        text NOT NULL,      -- hallazgo · chequeo · log · aviso · pregunta
     origen      text NOT NULL DEFAULT '',   -- qué detector/control lo produjo
     sujeto      text NOT NULL DEFAULT '',   -- el bono, el job, la cuenta

@@ -50,7 +50,7 @@ import logging
 
 from api.services import av_agent
 from api.services import av_agent_preguntas as preg
-from core import ciclo, mercado_1816
+from core import mercado_1816
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -77,11 +77,12 @@ def persistir(res: dict) -> int:
     # que lee la recalculara —en Python o en SQL— tendríamos dos
     # implementaciones de la misma identidad, que es exactamente cómo la
     # memoria termina existiendo pero inalcanzable (REGLA #9).
+    from api.services import av_agent_items
     alcance = res.get("alcance") or ""
     filas = [(alcance, h["tipo"], h["ticker"], h["regla"],
               h["severidad"], h["motivo"], json.dumps(h.get("evidencia") or {},
                                                       ensure_ascii=False, default=str),
-              ciclo.clave_de(h["tipo"], alcance, h["ticker"], h["regla"]))
+              av_agent_items.clave_de_problema(h["ticker"], h["regla"], alcance))
              for h in hallazgos]
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(

@@ -3958,6 +3958,77 @@ Lo que volvió va primero: es lo único accionable de esa lista.
 > su cuenta**, si el arreglo sirvió.
 
 
+### 0.bj LA IDENTIDAD DE UN PROBLEMA: (qué cosa, qué le pasa) (2026-08-21)
+
+El puente de §0.bh —mover los dos objetos que el mismo bono roto generaba—
+funcionaba, y era **la respuesta a un problema que no había que resolver sino
+eliminar**. La causa estaba una capa más arriba: la clave de un item incluía
+`tipo` y `origen`.
+
+    detector →  precio_moneda|live|bpoa7|pata_equivocada
+    control  →  control|control:patas_equivocadas|bpoa7|patas_equivocadas
+
+Un bono con la pata mal cargada. **Dos objetos, porque lo miran dos cosas
+distintas.**
+
+> **`tipo` y `origen` no son la identidad: son QUIÉN LO VIO.** Que un problema
+> lo vean dos no lo convierte en dos problemas. Un problema es
+> **(QUÉ COSA, QUÉ LE PASA)** — el resto son atributos.
+
+`core.ciclo.identidad(sujeto, causa)` es ahora el único lugar donde se arma, y
+`av_agent_items.clave_de_problema()` la envuelve normalizando la causa.
+
+#### Las dos guardas que no son obvias
+
+**El sinónimo se DERIVA, no se lista.** El control se llama
+`patas_equivocadas` y el detector emite `pata_equivocada`: la misma causa con
+dos nombres. El mapa sale de `ACCIONES` —donde cada acción ya declara `sobre`
+(el control) y `causa` (la regla del detector con la que vota al eval set)— y no
+de una tabla aparte. Una tabla aparte sería una segunda opinión sobre quién es
+quién: el día que difiriera del voto, ni la pantalla ni el eval set fallarían,
+simplemente contarían distinto (REGLA #9).
+
+**El que no tiene sujeto.** Un `db_cambio` habla de la base entera, no de un
+bono. Sin sujeto, todos los sin-sujeto de una misma causa colapsarían en UN
+objeto y se taparían entre ellos, así que ahí —y solo ahí— el origen vuelve a la
+clave como respaldo.
+
+#### Lo que se BORRÓ, que es la mitad del trabajo
+
+- `av_agent_items.marcar_por()` — el puente de §0.bh. Sobra: los dos escriben en
+  el mismo objeto.
+- `av_agent.clave_de_hallazgo()` — no la llamaba nadie y guardaba la fórmula
+  vieja. Una segunda opinión sobre la identidad esperando a que alguien la use.
+
+Dejarlas "por las dudas" es cómo vuelven los dos objetos por otro camino.
+
+#### UN SOLO RELOJ para las dos pantallas
+
+Mientras el objeto estaba partido, **AHORA podía decir «recién» y ENCONTRÓ «11
+días» del mismo problema.** El centinela tenía su `abierto_at` y el censo el
+suyo. Ahora `estado()` lee la antigüedad del objeto por `LEFT JOIN` —en la MISMA
+query, que el peaje de Supabase se paga por viaje— y publica `dias_abierto`, así
+las dos pantallas no pueden contradecirse. Si el objeto todavía no existe (un
+hallazgo de este mismo ciclo, antes de espejarse) cae a la local: en ese instante
+es lo mismo.
+
+#### La migración de lo que ya estaba escrito
+
+Los 64 items del backfill y la columna `hallazgos.clave` quedaron con la
+identidad vieja — memoria **existiendo e inalcanzable**, el modo de falla que
+este mismo script se cuida de no provocar. `scripts/backfill_items` los
+re-identifica desde sus propias columnas en vez de borrarlos (borrar tiraría la
+antigüedad real, que es lo único que ese script vino a rescatar), y cuando dos
+caen en la misma clave los **fusiona**: fecha de apertura más vieja, suma de
+veces y **gana el estado más ABIERTO** — si uno lo daba por resuelto y el otro
+no, el problema no está resuelto, y cerrarlo por una migración lo haría
+desaparecer de la pantalla en silencio.
+
+> El choque de claves durante la fusión **es el éxito de la migración**, no un
+> error: son los dos objetos del mismo problema encontrándose por fin.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

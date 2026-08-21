@@ -284,14 +284,27 @@ def estado(limite: int = 200) -> dict:
                         "       duracion_ms, error, proximo_en_s "
                         "FROM mercado.av_agent_latido WHERE id")
             lat = cur.fetchone()
+            # ⚠️ **LA ANTIGÜEDAD SALE DEL OBJETO, NO DE ESTA TABLA** (§0.bj).
+            #
+            # El centinela tenía su `abierto_at` y el censo el suyo, y nadie los
+            # unía: **AHORA podía decir «recién» y ENCONTRÓ «11 días» del MISMO
+            # problema**. Dos relojes para un hecho es la definición de la
+            # contradicción que esta migración vino a terminar.
+            #
+            # El JOIN va por la clave canónica —(sujeto, causa)— y en la MISMA
+            # query: el peaje de Supabase se paga por viaje.
             cur.execute(
-                f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_centinela "
-                "WHERE resuelto_at IS NULL "
+                f"SELECT {', '.join('c.' + x for x in _COLS)}, i.abierto_at "
+                "  FROM mercado.av_agent_centinela c "
+                "  LEFT JOIN mercado.av_agent_items i "
+                "    ON i.clave = lower(c.sujeto) || '|' || lower(c.regla) "
+                " WHERE c.resuelto_at IS NULL "
                 # Lo NUEVO y sin ver primero: es lo único que pide una decisión.
-                "ORDER BY (visto_at IS NULL) DESC, "
-                "  CASE severidad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END, "
-                "  abierto_at DESC LIMIT %s", (limite,))
-            abiertos = [dict(zip(_COLS, r, strict=True)) for r in cur.fetchall()]
+                " ORDER BY (c.visto_at IS NULL) DESC, "
+                "  CASE c.severidad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END, "
+                "  c.abierto_at DESC LIMIT %s", (limite,))
+            abiertos = [dict(zip(_COLS + ["abierto_canonico"], r, strict=True))
+                        for r in cur.fetchall()]
             # Lo que se arregló SOLO en las últimas horas. Sirve para dos cosas:
             # confirmar que algo que estabas por atender ya no está, y ver los
             # intermitentes (los que se resuelven y vuelven).
@@ -317,9 +330,14 @@ def estado(limite: int = 200) -> dict:
         # Se calcula acá y no en la pantalla porque el navegador no puede mirar
         # el reloj mientras dibuja (y porque el criterio es uno solo, igual que
         # `de_quien`).
-        f["recien"] = bool(
-            f.get("abierto_at")
-            and (ahora - f["abierto_at"]).total_seconds() < RECIEN_S)
+        # La canónica gana: es la que ve ENCONTRÓ. Si el objeto todavía no
+        # existe (un hallazgo de este mismo ciclo, antes de espejarse) se usa la
+        # local — es lo mismo en ese instante y evita un hueco en la pantalla.
+        desde = f.pop("abierto_canonico", None) or f.get("abierto_at")
+        f["recien"] = bool(desde and (ahora - desde).total_seconds() < RECIEN_S)
+        # Y se publica, para que la fila pueda decir «11d» igual que ENCONTRÓ.
+        if desde:
+            f["dias_abierto"] = round((ahora - desde).total_seconds() / 86400, 1)
         for k in ("abierto_at", "ultimo_at", "visto_at", "resuelto_at"):
             f[k] = f[k].isoformat() if f[k] else None
         # El mismo eje que la vista (`av_agent.de_quien`), derivado de la MISMA

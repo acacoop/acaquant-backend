@@ -34,6 +34,7 @@ cuando le toca. Migrar de un saque es cómo se rompe un sistema que funciona.
 """
 from __future__ import annotations
 
+import functools
 import json
 import logging
 from datetime import UTC, datetime
@@ -52,6 +53,46 @@ def _fila(r) -> ciclo.Item:
     d = dict(zip(_COLS, r, strict=False))
     d["datos"] = d.get("datos") or {}
     return ciclo.Item(**d)
+
+
+@functools.lru_cache(maxsize=1)
+def _equivalencias() -> dict[str, str]:
+    """`patas_equivocadas` (el control) → `pata_equivocada` (el detector).
+
+    **DERIVADO de `ACCIONES`, no una segunda lista.** Cada acción ya declara las
+    dos puntas: `sobre` es el control del que saca los casos y `causa` es la
+    regla del detector con la que vota al eval set (§0.av). Que el mapa salga de
+    ahí es lo que garantiza que no pueda contradecir al voto — si fuera una
+    tabla aparte, un día diría una cosa y el eval set otra, sin fallar nunca.
+    """
+    try:
+        from api.services.av_agent_hacer import ACCIONES, _causa_de
+    except Exception:                       # nunca rompe por esto
+        return {}
+    out = {}
+    for a in ACCIONES.values():
+        causa = _causa_de(a)
+        if causa and a.sobre and causa != a.sobre:
+            out[a.sobre.strip().lower()] = causa.strip().lower()
+    return out
+
+
+def causa_canonica(regla: str) -> str:
+    """La causa con UN solo nombre, sea quien sea el que la vio.
+
+    El control se llama `patas_equivocadas` y el detector emite
+    `pata_equivocada`: son **la misma causa** y sin normalizar producirían dos
+    objetos para el mismo bono roto.
+    """
+    r = (regla or "").strip().lower()
+    return _equivalencias().get(r, r)
+
+
+def clave_de_problema(sujeto: str, regla: str, origen: str = "") -> str:
+    """La identidad canónica: **(qué cosa, qué le pasa)**, con la causa
+    normalizada. Es el ÚNICO lugar donde se arma — el detector, el control, la
+    acción y el backfill la piden acá."""
+    return ciclo.identidad(sujeto, causa_canonica(regla), origen)
 
 
 def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
@@ -75,9 +116,9 @@ def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
     puede mejorar (una firma nueva, una traducción del modelo): guardar la
     primera para siempre sería congelar el peor texto.
     """
-    clave = ciclo.clave_de(tipo, origen, sujeto, regla)
+    clave = clave_de_problema(sujeto, regla, origen)
     if not clave:
-        return {"ok": False, "error": "un item sin tipo ni sujeto no es nada"}
+        return {"ok": False, "error": "un item sin causa no es nada"}
     ahora = datetime.now(UTC)
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
@@ -257,57 +298,14 @@ def _tipos_abiertos(origen: str) -> set[str]:
         return set()
 
 
-def marcar_por(*, sujeto: str, regla: str, estado: str,
-               por: str = "") -> dict:
-    """Mueve TODOS los objetos abiertos de un sujeto con esa causa.
-
-    ⚠️⚠️ **EXISTE PORQUE EL MISMO PROBLEMA SE VE POR DOS CAMINOS.** Medido:
-
-        detector →  precio_moneda|live|bpoa7|pata_equivocada
-        control  →  control|control:patas_equivocadas|bpoa7|patas_equivocadas
-
-    Es UN bono con la pata mal cargada y son DOS objetos, porque lo miran dos
-    cosas distintas: el detector de rueda y el control nocturno. Mover solo uno
-    dejaría el otro colgado y el hallazgo seguiría figurando **exactamente igual
-    que antes de toda esta migración** — el mismo síntoma, adentro del modelo
-    nuevo.
-
-    Por eso la acción mueve por (SUJETO, CAUSA) y no por clave: la causa es la
-    misma de los dos lados (`Accion.causa`, la que ya usa el eval set), así que
-    alcanza para juntarlos sin inventar una tabla de equivalencias.
-
-    > La solución de fondo es que los dos caminos acuerden identidad. Esto es el
-    > puente honesto mientras tanto, y **no esconde el problema**: los dos
-    > objetos siguen existiendo y `diag_ciclo` los cuenta.
-    """
-    if estado not in ciclo.ESTADOS:
-        return {"ok": False, "error": f"«{estado}» no es un estado"}
-    sujeto, regla = (sujeto or "").strip(), (regla or "").strip()
-    if not sujeto or not regla:
-        return {"ok": False, "error": "hace falta sujeto y causa"}
-    # Solo desde los estados que PUEDEN pasar a ése: mover un `resuelto` a
-    # `en_curso` sería un salto que el vocabulario rechaza (y borraría su
-    # seguimiento).
-    desde = [e for e in ciclo.ESTADOS if ciclo.puede_pasar(e, estado)]
-    if not desde:
-        return {"ok": True, "movidos": 0}
-    try:
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                "UPDATE mercado.av_agent_items SET estado = %s, "
-                "  visto_at = COALESCE(visto_at, now()), "
-                "  resuelto_at = CASE WHEN %s = 'resuelto' THEN now() "
-                "                     ELSE resuelto_at END, "
-                "  datos = datos || %s::jsonb "
-                " WHERE lower(sujeto) = lower(%s) AND lower(regla) = lower(%s) "
-                "   AND estado = ANY(%s)",
-                (estado, estado, json.dumps({"por": por} if por else {}),
-                 sujeto, regla, desde))
-            return {"ok": True, "movidos": cur.rowcount or 0}
-    except Exception as e:
-        logger.warning("av_agent_items: no pude mover %s/%s (%s)",
-                       sujeto, regla, e)
-        return {"ok": False, "error": str(e)[:200]}
+# ⚠️ Acá vivía `marcar_por(sujeto, regla, estado)`: el PUENTE entre los dos
+# objetos que el mismo problema generaba (uno del detector y otro del control).
+# **Sobra desde que la identidad es (sujeto, causa)** (§0.bj): ahora los dos
+# escriben en el mismo objeto y no hay nada que puentear.
+#
+# Se BORRA en vez de dejarse "por las dudas" (REGLA #5): un puente a ninguna
+# parte que sigue exportado es una función que alguien va a usar creyendo que
+# hace falta, y ahí vuelven los dos objetos por otro camino.
 
 
 def abiertos(tipo: str = "", limite: int = 400) -> list[ciclo.Item]:

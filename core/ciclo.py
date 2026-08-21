@@ -266,6 +266,40 @@ def _dias(desde, ahora=None) -> float:
         return 0.0
 
 
+def identidad(sujeto: str, causa: str, respaldo: str = "") -> str:
+    """**LA IDENTIDAD DE UN PROBLEMA: qué está mal, en qué cosa.**
+
+    ⚠️ **`tipo` y `origen` NO son identidad: son QUIÉN LO VIO.** La primera
+    versión los metía en la clave y el resultado fue que el mismo problema real
+    producía DOS objetos:
+
+        detector →  precio_moneda|live|bpoa7|pata_equivocada
+        control  →  control|control:patas_equivocadas|bpoa7|patas_equivocadas
+
+    Un bono con la pata mal cargada, mirado por el detector de rueda y por el
+    control nocturno. Que lo vean dos no lo convierte en dos problemas — y con
+    dos objetos, arreglarlo movía uno y dejaba el otro colgado, o sea el mismo
+    síntoma de siempre adentro del modelo nuevo.
+
+    **Un problema es (QUÉ COSA, QUÉ LE PASA).** Quién lo vio y cuándo son
+    atributos, no parte del nombre.
+
+    ⚠️ **El `respaldo` es para lo que NO tiene sujeto.** Un `db_cambio` habla de
+    la base entera y no de un bono: sin respaldo, todos los sin-sujeto de una
+    misma causa colapsarían en UN objeto y taparían al resto. Ahí el origen
+    vuelve a la clave — es menos preciso, pero es preferible a fusionar cosas
+    distintas.
+    """
+    s = (sujeto or "").strip().lower()
+    c = (causa or "").strip().lower()
+    if not c:
+        return ""
+    if not s:
+        r = (respaldo or "").strip().lower()
+        return f"{r}|{c}" if r else c
+    return f"{s}|{c}"
+
+
 def clave_de(tipo: str, origen: str, sujeto: str, regla: str = "") -> str:
     """La IDENTIDAD del objeto, estable entre corridas.
 

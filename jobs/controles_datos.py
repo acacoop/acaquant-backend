@@ -346,6 +346,34 @@ def _chk_patas_dolar_sin_pedir() -> list[dict]:
     Solo mira las patas **ya sembradas**: las que están únicamente en el catálogo
     de Primary hay que sembrarlas primero, y eso lo hace la puerta del agente
     (`av_agent_pata`) con el bono a la vista, no un cron.
+
+    ⚠️⚠️ **EL SQL SOLO PRESELECCIONA. QUIÉN DECIDE ES `av_agent_pata.explicar`**
+    (2026-08-22, §0.cf). Este control decía **133** y el botón arregló **16**: los
+    otros 117 contestaron *«ya la escuchamos»*. No era el botón — era que la
+    misma pregunta («¿alguien pide la pata en dólares de este bono?») estaba
+    contestada en DOS lugares con criterios distintos:
+
+      · **Qué pata es.** Acá se elegía por `ORDER BY e.simbolo`, o sea
+        ALFABÉTICO, que devuelve el **cable** (`BPA7C` < `BPA7D`). La acción usa
+        `core.especies.mejor` (MEP sobre cable, 24hs sobre CI). Miraban dos
+        símbolos distintos del mismo bono. Ese bug ya se había arreglado en la
+        puerta y en el diag —está escrito en `_elegir`— y **este control era el
+        tercer lugar que nadie tocó**.
+      · **Qué es «que nadie la pida».** Acá era `adhoc_subscriptions IS NULL`.
+        Pero el motor la puede estar suscribiendo desde el master o desde el
+        universo de portfolio **sin ningún adhoc**, así que estar en
+        `market_snapshot` también cuenta como escucharla. Además el `LEFT JOIN`
+        no distinguía «no está en el snapshot» de «está con precio 0» — que son
+        los dos estados que el AO29 enseñó a separar (§0.v).
+
+    Un control que cuenta 133 y arregla 16 es peor que no tener el control: el
+    número no dice cuánto trabajo hay. Ahora el SQL trae los CANDIDATOS y el
+    veredicto lo da `explicar()`, la misma función que corre al apretar el
+    botón — así el control no puede volver a contar algo que la acción no toca.
+
+    El costo está MEDIDO, no estimado: la corrida del 2026-08-22 llamó a
+    `explicar()` 133 veces en `aplicar` y terminó sin problema. Es un cron
+    nocturno.
     """
     from core.postgres import get_pool
     with get_pool().connection() as conn, conn.cursor() as cur:
@@ -367,16 +395,35 @@ def _chk_patas_dolar_sin_pedir() -> list[dict]:
               AND a.ticker IS NULL          -- ya pedida = no hace falta proponerla
             ORDER BY c.ticker, e.simbolo
         """)
-        vistos: set[str] = set()
-        out = []
-        for tk, simbolo, curva in cur.fetchall():
-            if tk in vistos:      # una propuesta por bono: la mesa mira el bono
-                continue
-            vistos.add(tk)
-            out.append({"key": tk, "ticker": tk, "simbolo": simbolo, "curva": curva,
-                        "detalle": (f"«{tk}» cotiza en pesos y su pata en dólares "
-                                    f"«{simbolo}» no se la pide nadie")})
-        return out
+        candidatos = cur.fetchall()
+
+    # ── EL VEREDICTO LO DA LA ACCIÓN, NO ESTE SQL ────────────────────────────
+    from api.services import av_agent_pata
+
+    vistos: set[str] = set()
+    out = []
+    for tk, simbolo, curva in candidatos:
+        if tk in vistos:      # una propuesta por bono: la mesa mira el bono
+            continue
+        vistos.add(tk)
+        # `hay_que_pedirla` es el ÚNICO veredicto con trabajo. Los otros son
+        # estados legítimos que no tienen botón: ya tiene precio, ya la
+        # escuchamos y el mercado no da punta, o el mercado está cerrado y no
+        # se puede afirmar nada todavía.
+        try:
+            d = av_agent_pata.explicar(tk)
+        except Exception:
+            logger.warning("patas_dolar: no pude evaluar %s", tk, exc_info=True)
+            continue
+        if (d.get("veredicto") or "") != "hay_que_pedirla":
+            continue
+        # El SÍMBOLO también sale de la acción: si el detector siguiera
+        # nombrando el suyo, la fila diría un símbolo y el botón pediría otro.
+        simbolo = d.get("pedible") or simbolo
+        out.append({"key": tk, "ticker": tk, "simbolo": simbolo, "curva": curva,
+                    "detalle": (f"«{tk}» cotiza en pesos y su pata en dólares "
+                                f"«{simbolo}» no se la pide nadie")})
+    return out
 
 
 def _chk_dia_sin_dato() -> list[dict]:

@@ -5379,6 +5379,64 @@ contra `mercado.curvas`: la misma guarda 1 que ya tenía la acción. Si el códi
 de la unidad no es una curva, no sabemos cuál de los dos nombres es el bueno, así
 que **no hay divergencia que declarar**.
 
+### 0.cf EL CONTROL DECÍA 133 Y EL BOTÓN ARREGLÓ 16 (2026-08-22)
+
+Con el contador ya arreglado (§0.ce), la primera corrida de verdad destapó algo
+peor: `patas_dolar_sin_pedir` cantaba **133 casos**, se apretó el botón y se
+arreglaron **16**. Los otros 117 contestaron, cada uno, *«ya la escuchamos y
+tiene precio: no hay nada que hacer»*.
+
+El botón estaba bien. **El control estaba contando cosas que la acción no
+toca.**
+
+#### La misma pregunta, contestada en dos lugares
+
+*¿Alguien pide la pata en dólares de este bono?* vivía escrita dos veces, y las
+dos versiones diferían en dos cosas:
+
+| | el CONTROL (`_chk_patas_dolar_sin_pedir`) | la ACCIÓN (`av_agent_pata.explicar`) |
+|---|---|---|
+| **qué pata** | `ORDER BY e.simbolo` → alfabético → el **CABLE** (`BPA7C` < `BPA7D`) | `core.especies.mejor` → **MEP** sobre cable, 24hs sobre CI |
+| **«nadie la pide»** | `adhoc_subscriptions IS NULL` | adhoc **∪** estar en `market_snapshot` |
+
+O sea que **miraban dos símbolos distintos del mismo bono**. El control evaluaba
+el cable —que efectivamente no tiene precio— y el botón iba a pedir el MEP, que
+sí lo tenía. Los dos eran internamente coherentes y los dos contestaban con
+seguridad. Nada falló.
+
+**Y la elección alfabética ya se había arreglado DOS veces.** Está escrito
+textual en `_elegir`: *«acá había una copia y en el diag había otra —un
+`sorted()` alfabético— y por eso los dos elegían cable»*. Este control era el
+**tercer** lugar, y nadie lo tocó porque nada fallaba: el número simplemente
+estaba inflado, y un número inflado no se queja.
+
+Lo segundo es el error del AO29 otra vez (§0.v): el `LEFT JOIN` no distinguía
+«no está en el snapshot» de «está con precio 0». Son tres estados, no dos, y el
+motor puede estar suscribiendo la pata desde el master o desde el universo de
+portfolio **sin ningún adhoc**.
+
+#### El arreglo: el control le pregunta al botón
+
+El SQL pasa a ser una **preselección** y el veredicto lo da `explicar()` — la
+misma función que corre al apretar el botón. Se queda solo con
+`hay_que_pedirla`, que es el único veredicto con trabajo; `con_precio`,
+`escuchada_sin_punta` y `cerrado_sin_saber` son estados legítimos sin botón. El
+símbolo que reporta la fila también sale de ahí (`pedible`): si la fila nombrara
+uno y el botón pidiera otro, no habría forma de verificar lo que uno hizo.
+
+Costo **medido, no estimado**: la corrida llamó a `explicar()` 133 veces en
+`aplicar` y terminó sin problema; Primary está cacheado con TTL, así que son ~4
+queries por bono. Es un cron nocturno.
+
+#### La regla que queda
+
+**Un control tiene que contar lo que su acción puede arreglar.** Si cuenta más,
+el número no mide trabajo: mide una consulta que nadie va a ejecutar. Y la forma
+de garantizarlo no es escribir bien el mismo criterio en los dos lados —eso ya
+se intentó tres veces con este mismo criterio— sino que **haya un solo lado**:
+el control deriva de la acción, o la acción del control, pero no coexisten dos
+definiciones. Congelado en `tests/unit/test_control_pata_dolar.py`.
+
 ### 0.ce EL AVANCE PARCIAL ERA INVISIBLE: se contaban CONTROLES, no CASOS (2026-08-22)
 
 Continuación directa de §0.cd, y la parte que ese diagnóstico **no** alcanzó.

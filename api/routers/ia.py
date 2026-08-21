@@ -727,6 +727,20 @@ def av_agent_sin_precio(body: DiagnosticoSinPrecio):
     return svc.diagnosticar(body.ticker)
 
 
+@router.post("/av-agent/espejo", dependencies=[Depends(require_admin)])
+def av_agent_espejo(body: DiagnosticoSinPrecio):
+    """**Por qué este bono sale como «sin espejo en assets».** Tres causas que se
+    arreglan distinto: falta la ficha · la ficha existe sin TICKER · la ficha
+    tiene otro TICKER.
+
+    La segunda es la que más importa distinguir: mandar a dar de alta un título
+    que ya está dado de alta crea un duplicado.
+
+    Cero red y cero créditos — 1816 no tiene nada que ver con esto. No escribe."""
+    from api.services import av_agent_espejo as svc
+    return svc.diagnosticar(body.ticker)
+
+
 class PataDolar(BaseModel):
     ticker: str = Field(..., min_length=2, max_length=40)
 

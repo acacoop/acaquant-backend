@@ -529,7 +529,51 @@ def pregunta_de(tipo: str) -> str:
 # lado de la pantalla se separa de esta sin dar ningún error.
 ACCION_POR_REGLA = {
     "pata_equivocada": "apuntar",
+    # ⚠️ **EL MISMO BUG, OTRA VEZ** (2026-08-22). `sin_espejo_en_assets` se emite
+    # con tipo `tasa_sospechosa` —porque el detector de tasas es el que lo
+    # encuentra— y por eso heredaba la acción `arreglo`: DIAGNOSTICAR abría la
+    # cadena de curvas y le mostraba al user veinte pasos de 1816, paridad,
+    # cronograma y XIRR sobre un bono cuyo problema es **una fila de catálogo**.
+    # El user: *«¿qué tiene que ver la paridad y la valuación? Si es solamente
+    # meter un asset en un lugar donde hoy no figura… justamente no tiene nada
+    # que ver con 1816»*. Tenía razón.
+    #
+    # El mecanismo para arreglarlo ya existía (esta misma tabla) desde los
+    # BOPREALes; a esta regla nadie se lo había puesto.
+    "sin_espejo_en_assets": "espejo",
 }
+
+
+# ── LO QUE VA A «AHORA» AUNQUE NO SEA NOVEDAD ───────────────────────────────
+#
+# ⚠️⚠️ **GRAVÍSIMO** (user, 2026-08-22, viendo los 5 motores en ENCONTRÓ y AHORA
+# vacío de ellos): *«¿que estas alertas no estén en el AHORA?? ¿Cómo no me va a
+# avisar justo de los motores en el AHORA?»*.
+#
+# AHORA mostraba **solo las novedades del día**: apareció / volvió / se arregló.
+# Un motor que se rompió hoy entra; uno que está roto desde hace tres días **no
+# entra**, porque su `abierto_at` no es de hoy. O sea:
+#
+#     cuanto MÁS tiempo lleva roto, MENOS visible es.
+#
+# Al revés de lo que tiene que ser, y en la única familia que le corta el feed
+# de precios a la mesa. La novedad es un buen criterio para un hallazgo de
+# catálogo, que espera; es el peor para la infraestructura que está corriendo.
+#
+# **Se DECLARA, no se infiere.** Misma ley que `DE_QUIEN` y que el dominio de las
+# skills: adivinar por el nombre del tipo es cómo se mandan cosas al cajón
+# equivocado. Un tipo nuevo NO entra acá salvo que alguien lo escriba, y eso es
+# a propósito — AHORA deja de ser AHORA si se llena.
+EN_AHORA_SIEMPRE = (
+    "motor_caido",       # el motor no está corriendo → no hay precios
+    "motor_ruidoso",     # está corriendo y falla → hay precios, y son dudosos
+    "proveedor_caido",   # la fuente de afuera no contesta
+)
+
+
+def va_en_ahora(tipo: str) -> bool:
+    """¿Este tipo se muestra en AHORA mientras esté abierto, sea o no de hoy?"""
+    return (tipo or "").strip() in EN_AHORA_SIEMPRE
 
 
 def accion_de(tipo: str, regla: str) -> str | None:
@@ -1050,10 +1094,26 @@ def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
 
         if (tickers_en_assets is not None and tc not in tickers_en_assets
                 and en_cartera is not None and tc in en_cartera):
+            # ⚠️⚠️ **EL TEXTO AFIRMABA ALGO FALSO** (2026-08-22). Decía «no entra
+            # al AuM ni a Portfolios», y el user contestó lo obvio: *«además LO
+            # VEO EN TENENCIAS (AuM), los dos están»*.
+            #
+            # Verificado en el código, no supuesto: el AuM sale de
+            # `portafolio.tenencia` (fuente única) y el join de Portfolios va por
+            # **unidad** (`portfolio_sql`: `JOIN portafolio.assets a ON a.unidad
+            # = v.unidad`). Lo que esta regla mide es OTRA columna de esa misma
+            # tabla: `assets.ticker`. Un bono puede tener su ficha —y verse
+            # perfecto en AuM— con el `ticker` vacío o escrito distinto.
+            #
+            # Es REGLA #9: se mide una cosa y se afirma otra. No falla nada; la
+            # pantalla contesta con seguridad usando el dato equivocado, y quien
+            # la lee sale a buscar un problema que no es el que hay.
             out.append(_hallazgo(
                 "tasa_sospechosa", tc, "sin_espejo_en_assets", "alta",
-                "La casa TIENE este bono y no está en portafolio.assets: no entra "
-                "al AuM ni a Portfolios (falla del join de valuación).",
+                "La casa TIENE este bono y `portafolio.assets.ticker` no dice "
+                f"«{tc}»: no se puede unir la tenencia con su curva (flujos, "
+                "acreencias, renta fija). **Sigue sumando al AuM** — ese join va "
+                "por unidad. Puede faltar la ficha o solo el campo TICKER.",
                 base))
 
         ruidosa = es_tasa_ruido(m, emisor_tipo)

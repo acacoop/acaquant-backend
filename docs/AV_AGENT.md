@@ -4934,6 +4934,140 @@ Plegarlos lo hace tolerable, no lo arregla: es REGLA #9(B) — dos copias sin
 a mostrar las dos, con la misma cara. Unificarlas es el paso siguiente.
 
 
+### 0.by «LOS BONOS SÍ ESTÁN» — se medía una cosa y se afirmaba otra (2026-08-22)
+
+> *«El problema es que no está en tenencias… ¿qué tiene que ver la paridad y la
+> valuación? Si es solamente meter un asset en un lugar donde hoy no figura.
+> **Además LO VEO EN TENENCIAS (AuM), los dos están.** Claramente está bugueada
+> esta feature porque los bonos SÍ están. Justamente no tiene nada que ver con
+> 1816 agregar algo en AuM. Pero me encantaría entender a nivel código qué tiene
+> que hacer eso supuestamente.»* — user, sobre PLC5O y S13N6
+
+Tenía razón, y eran **dos bugs distintos** en la misma fila.
+
+#### (1) El texto afirmaba algo falso
+
+El hallazgo decía *«no entra al AuM ni a Portfolios»*. Verificado en el código,
+no supuesto:
+
+| quién | por qué campo joinea |
+|---|---|
+| AuM | sale de `portafolio.tenencia` — fuente única, no pasa por assets |
+| Portfolios | `portfolio_sql`: `JOIN portafolio.assets a ON a.unidad = v.unidad` |
+| **el detector** | `SELECT DISTINCT upper(btrim(ticker)) FROM portafolio.assets` |
+
+**Son dos columnas distintas de la misma tabla.** Un bono puede tener su ficha
+—y verse perfecto en AuM, que es exactamente lo que él ve— con `assets.ticker`
+vacío o escrito distinto. REGLA #9 otra vez: *se mide una cosa y se afirma
+otra*, y no falla nada — la pantalla contesta con seguridad usando el dato
+equivocado y manda a buscar un problema que no es el que hay.
+
+Lo que `assets.ticker` **sí** gobierna es el otro join, el de la cadena del AuM
+(`mercado.curvas.ticker → assets.ticker → unidad`): atribuir la tenencia a su
+CURVA. Sin eso el bono queda afuera de flujos, acreencias y las vistas de renta
+fija. Grave, pero no lo que decía.
+
+#### (2) El botón corría la cadena equivocada
+
+`sin_espejo_en_assets` se emite con tipo `tasa_sospechosa` —porque el detector de
+tasas es el que lo encuentra— y la acción salía del TIPO. Así, DIAGNOSTICAR
+abría el arreglo de curvas: **veinte pasos de 1816, paridad, cronograma y XIRR
+sobre un bono cuyo problema es una fila de catálogo.**
+
+Es literalmente el bug de los BOPREALes (`ACCION_POR_REGLA`), que ya nos costó 17
+votos: *un botón que no arregla el problema de esa fila es peor que no tenerlo*.
+El mecanismo para evitarlo existía desde entonces; a esta regla nadie se lo había
+puesto.
+
+#### La cadena propia: `api/services/av_agent_espejo.py`
+
+Cinco pasos, **cero red y cero créditos** — 1816 no tiene nada que ver:
+
+1. ¿La casa lo tiene? (si no, el hallazgo no debería existir → `nada_que_hacer`)
+2. **Qué mira el detector**: el predicado exacto, `assets.ticker = 'X'`, con su
+   resultado. Era lo que prendía la fila y no se podía ver desde ninguna pantalla.
+3. ¿Existe la ficha, aunque el ticker no coincida? (por `unidad`)
+4. Qué se rompe **de verdad** — acá vivía la afirmación falsa
+5. La causa y el arreglo
+
+Tres causas que se arreglan distinto y hasta hoy se veían iguales:
+
+    sin_fila     no hay ficha → falta el alta
+    sin_ticker   la ficha EXISTE y `ticker` está vacío → falta UN campo
+    otro_ticker  la ficha existe con otra grafía → el join no los encuentra
+
+**`sin_ticker` es la que más importa distinguir**: mandar a dar de alta un título
+que ya está dado de alta crea un duplicado.
+
+Para medir cuál de las tres es en prod: `python -m scripts.diag_espejo_assets`
+(sin argumentos lista los que disparan hoy con el predicado exacto del detector).
+
+#### Lo que quedó como ley
+
+El test que exigía `ACCION_POR_REGLA.values() == {"apuntar"}` ahora **deriva**:
+un modo vale si lo implementa una acción que escribe (`av_agent_hacer.ACCIONES`)
+o una cadena de solo lectura (`api/services/av_agent_<modo>.py` con
+`diagnosticar()`). Enumerar los modos válidos a mano habría hecho que el tercero
+naciera sin cobertura.
+
+
+### 0.bz AHORA NO MOSTRABA LOS MOTORES (2026-08-22)
+
+> *«**GRAVÍSIMO**: ¿que estas alertas no estén en el AHORA?? ¿Cómo no me va a
+> avisar justo de los motores en el AHORA? Además sin información, sin
+> contexto… si tenemos los logs tenemos los datos. **No me está avisando
+> nada.**»* — user, con 5 motores en ENCONTRÓ y AHORA sin ninguno
+
+#### La novedad es el peor criterio para la infraestructura
+
+AHORA mostraba **solo las novedades del día**: apareció · volvió · se arregló. Un
+motor que se rompe hoy entra; uno roto desde hace tres días **no**, porque su
+`abierto_at` no es de hoy. O sea:
+
+    cuanto MÁS tiempo lleva roto, MENOS visible es.
+
+Al revés de lo que tiene que ser, y en la única familia que le corta el feed de
+precios a la mesa. La novedad sirve para un hallazgo de catálogo, que espera; no
+para lo que está corriendo ahora.
+
+Bloque nuevo **ROTO AHORA**, primero de todo y sin filtro de día. Los tipos se
+DECLARAN en `av_agent.EN_AHORA_SIEMPRE` (`motor_caido`, `motor_ruidoso`,
+`proveedor_caido`) — misma ley que `DE_QUIEN`: adivinar por el nombre es cómo se
+manda algo al cajón equivocado, y un tipo nuevo NO entra salvo que alguien lo
+escriba, porque AHORA deja de ser AHORA si se llena. Suma a `novedades`: con un
+motor caído, *«hoy no pasó nada»* es mentira.
+
+#### Y no estaban ahí porque viven en OTRA TABLA
+
+`mercado.av_agent_centinela` guarda lo que mira el DAEMON (precios · tasas ·
+salud, ver `_CUBRE`); los motores los encuentra el cron `jobs.av_agent_live` y
+quedan en `mercado.av_agent_items`. **Dos tablas para dos productores del mismo
+objeto, y la pantalla leía una sola.** Ahora `estado()` trae los dos en la misma
+conexión (4 queries, con un test AST que falla si alguna cae adentro de un
+bucle).
+
+#### El contexto ya venía; no se dibujaba
+
+La evidencia de un motor trae `texto` (QUÉ PASÓ · A QUÉ AFECTA · SI SIGUE) y
+`muestra` (la línea de log cruda) **desde siempre**. La fila mostraba solo el
+título recortado. Ahora el detalle va debajo del motivo y el log crudo en una
+línea con el resto en el `title`.
+
+#### Dos cosas más de la misma pantalla
+
+**El orden.** *«No está ordenado por hora, fijate el horario»* — y era cierto:
+salían 05:10 p.m. · 12:32 · 12:32 · 12:32 · 01:30 p.m., en el orden de la query
+(severidad y clave). Se ordena en el BACKEND (`_por_hora`) y por el **mismo
+campo** que imprime la columna: dos criterios para lo mismo es cómo nacieron las
+contradicciones que este agente ya se comió tres veces.
+
+**El texto repetido.** Tres filas de `sin_tea_con_precio` escribían las mismas
+dos líneas. El motivo es de la REGLA, no del bono: ocupa tres renglones para
+decir una cosa y esconde lo único que cambia, que es el ticker. Se escribe una
+vez y las siguientes dicen «↑ mismo motivo». Es la otra cara del punto anterior:
+**mostrar lo que esta fila agrega**.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

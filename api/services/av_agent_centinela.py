@@ -266,6 +266,14 @@ def _latir(abierto: bool, abiertos: int, nuevos: int, ms: int, err: str,
 # anunciándose como novedad a la tarde.
 RECIEN_S = 2 * 60 * 60
 
+# Los tipos que van a AHORA estén o no de hoy. Se declara UNA vez en
+# `av_agent.EN_AHORA_SIEMPRE` y se lee de ahí: una segunda lista acá se separaría
+# de la primera sin dar ningún error.
+def _en_ahora() -> tuple[str, ...]:
+    from api.services.av_agent import EN_AHORA_SIEMPRE
+    return EN_AHORA_SIEMPRE
+
+
 _COLS = ["id", "clave", "tipo", "sujeto", "regla", "severidad", "motivo",
          "evidencia", "abierto_at", "ultimo_at", "veces", "visto_at",
          "resuelto_at", "resuelto_como", "reaperturas"]
@@ -319,8 +327,47 @@ def estado(limite: int = 200) -> dict:
                 "WHERE resuelto_at > now() - interval '8 hours' "
                 "ORDER BY resuelto_at DESC LIMIT 40")
             resueltos = [dict(zip(_COLS, r, strict=True)) for r in cur.fetchall()]
+
+            # ⚠️ **LOS MOTORES NO VIVEN EN ESTA TABLA** y por eso AHORA nunca los
+            # mostró. `mercado.av_agent_centinela` guarda lo que el DAEMON mira
+            # (precios · tasas · salud, ver `_CUBRE`); los motores los encuentra
+            # el cron `jobs.av_agent_live` y quedan en `mercado.av_agent_items`.
+            # Dos tablas para dos productores del mismo objeto, y la pantalla
+            # leía una sola.
+            #
+            # Se traen acá —un viaje más, en la MISMA conexión— y no con otra
+            # llamada desde el front: el peaje de Supabase se paga por viaje, y
+            # dos requests podrían mostrar dos fotos distintas del mismo momento.
+            cur.execute(
+                "SELECT clave, tipo, sujeto, regla, severidad, titulo, veces, "
+                "       abierto_at, ultimo_at, visto_at, datos "
+                "  FROM mercado.av_agent_items "
+                " WHERE estado NOT IN ('resuelto', 'ignorado') "
+                "   AND tipo = ANY(%s) "
+                " ORDER BY ultimo_at DESC LIMIT 40",
+                (list(_en_ahora()),))
+            rotos_items = cur.fetchall()
     except Exception as e:
         return {**fuera, "error": str(e)}
+
+    # A la MISMA forma que el resto: la pantalla dibuja una fila, no dos.
+    for (clave, tipo, suj, regla, sev, titulo, veces, ab, ult, vis,
+         datos) in rotos_items:
+        d = datos or {}
+        abiertos.append({
+            "id": None, "clave": clave, "tipo": tipo, "sujeto": suj,
+            "regla": regla, "severidad": sev,
+            # El motivo LARGO si el hallazgo lo trae. La evidencia de un motor
+            # ya viene con QUÉ PASÓ · A QUÉ AFECTA · SI SIGUE (`evidencia.texto`)
+            # y la pantalla mostraba solo el título recortado — el user: *«sin
+            # información, sin contexto… si tenemos los logs tenemos los datos»*.
+            # Los datos estaban; no se dibujaban.
+            "motivo": titulo, "detalle": str(d.get("texto") or ""),
+            "muestra": str(d.get("muestra") or "")[:400],
+            "veces": veces, "abierto_at": ab, "ultimo_at": ult,
+            "visto_at": vis, "resuelto_at": None, "resuelto_como": None,
+            "abierto_canonico": ab, "vuelto_at": None,
+        })
 
     from api.services import av_agent
     ahora = datetime.now(UTC)
@@ -418,6 +465,23 @@ def _hoy(iso: str | None, desde: datetime) -> bool:
         return False
 
 
+def _por_hora(filas: list[dict]) -> list[dict]:
+    """De lo MÁS RECIENTE a lo más viejo, por la MISMA fecha que muestra la fila.
+
+    ⚠️ El user: *«no está ordenado por hora, fijate el horario»* — y era cierto:
+    la lista salía en el orden en que la devolvía la query (por severidad y
+    clave), así que se leían 05:10 p.m. · 12:32 · 12:32 · 12:32 · 01:30 p.m.
+    Ordenar en el backend y no en el front es lo que garantiza que el orden y el
+    horario impreso salgan del MISMO campo: dos criterios para lo mismo es cómo
+    nacieron las contradicciones que este agente ya se comió tres veces.
+    """
+    def _cuando(f: dict) -> str:
+        # El mismo `coalesce` que usa la columna de la hora en la pantalla.
+        return str(f.get("vuelto_at") or f.get("resuelto_at")
+                   or f.get("abierto_at") or f.get("ultimo_at") or "")
+    return sorted(filas, key=_cuando, reverse=True)
+
+
 def _lo_de_hoy(abiertos: list[dict], resueltos: list[dict]) -> dict:
     """Las TRES novedades del día. Nada más, y por eso sirve.
 
@@ -429,18 +493,38 @@ def _lo_de_hoy(abiertos: list[dict], resueltos: list[dict]) -> dict:
     vive en ENCONTRÓ, con sus botones. Meterlo acá es lo que convertía a AHORA
     en un segundo depósito.
     """
+    from api.services.av_agent import va_en_ahora
+
     desde = _arranco_el_dia()
+
+    # ⚠️ **LO QUE ESTÁ ROTO AHORA, sea o no novedad** (§0.bz). El user:
+    # *«¿que estas alertas no estén en el AHORA?? ¿Cómo no me va a avisar justo
+    # de los motores en el AHORA?»*. Tenía razón: con el corte por día, un motor
+    # roto desde hace tres días NO entraba — **cuanto más tiempo llevaba roto,
+    # menos visible era**. La novedad sirve para un hallazgo de catálogo, que
+    # espera; es el peor criterio para la infraestructura que está corriendo.
+    #
+    # Sale PRIMERO y se excluye de los otros tres bloques: la misma fila en dos
+    # lugares de la misma pantalla se lee como dos problemas.
+    roto = [f for f in abiertos if va_en_ahora(f.get("tipo") or "")]
+    claves_roto = {f.get("clave") for f in roto}
+
     aparecio = [f for f in abiertos
-                if _hoy(f.get("abierto_at"), desde) and not f.get("vuelto_at")]
-    volvio = [f for f in abiertos if _hoy(f.get("vuelto_at"), desde)]
+                if _hoy(f.get("abierto_at"), desde) and not f.get("vuelto_at")
+                and f.get("clave") not in claves_roto]
+    volvio = [f for f in abiertos if _hoy(f.get("vuelto_at"), desde)
+              and f.get("clave") not in claves_roto]
     cerro = [f for f in resueltos if _hoy(f.get("resuelto_at"), desde)]
     return {
         "desde": desde.isoformat(),
-        "aparecio": aparecio, "volvio": volvio, "se_arreglo": cerro,
+        "roto": _por_hora(roto),
+        "aparecio": _por_hora(aparecio), "volvio": _por_hora(volvio),
+        "se_arreglo": _por_hora(cerro),
         # El total que decide si la tab dice «hoy no pasó nada» o muestra algo.
         # `se_arreglo` NO suma: es una buena noticia, no una novedad que pida
         # atención — contarla haría subir el número cuando algo MEJORA.
-        "novedades": len(aparecio) + len(volvio),
+        # `roto` SÍ suma: si hay un motor caído, «hoy no pasó nada» es mentira.
+        "novedades": len(aparecio) + len(volvio) + len(roto),
     }
 
 

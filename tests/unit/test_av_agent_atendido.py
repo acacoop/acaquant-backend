@@ -41,13 +41,34 @@ def test_un_tipo_sin_accion_sigue_sin_accion():
 
 
 def test_toda_regla_con_accion_PROPIA_tiene_su_accion_registrada():
-    """Si el override apunta a un modo que ninguna acción implementa, el front
-    dibuja un botón que no existe del otro lado — el mismo modo de falla que
-    esto vino a arreglar, con otro disfraz."""
+    """Si el override apunta a un modo que NADIE implementa, el front dibuja un
+    botón que no existe del otro lado — el mismo modo de falla que esto vino a
+    arreglar, con otro disfraz.
+
+    Un modo vale de DOS maneras, y las dos se verifican DERIVANDO en vez de
+    listar: o lo implementa una acción que escribe (`av_agent_hacer.ACCIONES`),
+    o lo implementa una cadena de SOLO LECTURA (`api/services/av_agent_<modo>.py`
+    con su `diagnosticar()`). Enumerar los modos válidos a mano haría que el
+    tercero nazca sin cobertura, que es justo lo que este test evita.
+    """
+    import importlib
+
     from api.services.av_agent_hacer import ACCIONES
     modos = {a.id.split(".")[-1] for a in ACCIONES.values()}
     assert "apuntar_pata" in modos
-    assert set(av_agent.ACCION_POR_REGLA.values()) == {"apuntar"}
+
+    for regla, modo in av_agent.ACCION_POR_REGLA.items():
+        if any(m.startswith(modo) for m in modos):
+            continue                      # lo implementa una acción que escribe
+        try:
+            mod = importlib.import_module(f"api.services.av_agent_{modo}")
+        except ImportError:                                  # pragma: no cover
+            raise AssertionError(
+                f"«{regla}» apunta al modo «{modo}» y no existe ni una acción "
+                f"ni api/services/av_agent_{modo}.py — el botón no lleva a "
+                f"ningún lado") from None
+        assert callable(getattr(mod, "diagnosticar", None)), (
+            f"av_agent_{modo}.py existe pero no expone `diagnosticar()`")
 
 
 # ── una acción, un sujeto: la puerta de la FILA ──────────────────────────────

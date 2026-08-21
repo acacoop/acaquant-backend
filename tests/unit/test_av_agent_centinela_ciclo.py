@@ -120,10 +120,36 @@ def test_la_antiguedad_sale_del_OBJETO_y_no_de_la_tabla_del_centinela():
 
 
 def test_el_JOIN_va_en_la_MISMA_query():
-    """El peaje de Supabase se paga por viaje (~8,5 ms)."""
+    """El peaje de Supabase se paga por VIAJE (~8,5 ms), no por plan.
+
+    Cuatro `execute`, todos en la misma conexión: el latido · los abiertos (con
+    el JOIN al objeto) · los resueltos · los tipos que van a AHORA siempre
+    (motores y proveedor, que viven en `av_agent_items` y no en la tabla del
+    centinela). Lo que este test protege es que el número sea **constante**: si
+    sube con la cantidad de filas es un N+1, y ahí la pantalla pasa de 34 ms a
+    varios segundos sin que nadie lo note en local.
+    """
+    import ast
+    import inspect
+    import textwrap
+
     src = codigo(c.estado)
-    # Tres execute: el latido, los abiertos (con JOIN) y los resueltos.
-    assert src.count("cur.execute") == 3
+    assert src.count("cur.execute") == 4
+
+    # Y ninguno adentro de un bucle: eso es lo que convierte 4 en 400. Se mira
+    # con el AST y no buscando texto — «hay un `for` más arriba» no dice nada
+    # sobre si el execute está ADENTRO.
+    arbol = ast.parse(textwrap.dedent(inspect.getsource(c.estado)))
+
+    def _executes(nodo) -> int:
+        return sum(1 for n in ast.walk(nodo)
+                   if isinstance(n, ast.Call)
+                   and isinstance(n.func, ast.Attribute)
+                   and n.func.attr == "execute")
+
+    for n in ast.walk(arbol):
+        if isinstance(n, (ast.For, ast.While, ast.AsyncFor)):
+            assert _executes(n) == 0, "una query adentro de un bucle es un N+1"
 
 
 def test_si_el_objeto_no_existe_todavia_se_usa_el_reloj_LOCAL():

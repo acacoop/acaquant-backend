@@ -3374,6 +3374,78 @@ es justo la señal de que el agente empeoró.
 > «funcionó».
 
 
+### 0.ax ¿ACERTÓ QUÉ? — no todo hallazgo es un juicio (2026-08-21)
+
+El user, mirando tres filas de `motor_ruidoso`:
+
+> *«Es inentendible si acertó o no. O sea, ¿acertó QUÉ? Si ni se entiende cuál
+> fue el error. Algunos son siempre SÍ claramente, si detecta solo que hay algo
+> que está pasando. Pero **¿qué hacemos con eso?**»*
+
+Hay dos cosas distintas mezcladas en la misma lista, y la pantalla las trataba
+igual:
+
+    JUICIO       el agente DEDUJO una causa y puede errarle. «el master apunta
+                 a la pata equivocada». Ahí ¿ACERTÓ? es LA pregunta.
+
+    OBSERVACIÓN  el agente COPIÓ un hecho. «el motor escribió esta línea de
+                 ERROR», «el proveedor devolvió 500». No hay nada que acertar:
+                 preguntarlo es preguntar si el log existe.
+
+**Y el daño no era solo la confusión.** Esas filas se votan SIEMPRE que sí,
+llegan a 10/10, la causa se marca `candidata_a_auto` y el tablero afirma que el
+agente es infalible en algo donde **nunca emitió un juicio**. La compuerta de la
+autonomía se habría abierto con evidencia que no mide nada.
+
+A una observación se le pregunta lo único contestable y que además sirve:
+**¿te sirve verla?** — un «no» es «dejá de mostrármela», que es exactamente el
+*«¿qué hacemos con eso?»*. Vota con `origen='utilidad'`, y como
+`precision_por_causa` y `resumen` ya contaban `origen IN ('humano','verificado')`,
+queda afuera de la compuerta **sin tocar una sola query**.
+
+Dos decisiones que lo sostienen: se declara por TIPO en `av_agent.PREGUNTA_POR_TIPO`
+con un test que exige que ningún tipo caiga en el default (**ante la duda,
+JUICIO**: pedir un voto de más molesta, dar por observación una deducción deja al
+agente sin medición donde puede errarle); y **el `origen` NO viaja en el body** —
+lo decide el backend leyendo el tipo, porque si el front pudiera mandarlo, una
+pantalla vieja o un `curl` moverían la compuerta.
+
+### 0.ay EL PRÓLOGO DEL LOG SE COMÍA EL MENSAJE (2026-08-21)
+
+    motor_curvas: <fecha>,<n> ERROR pg_mirror pg_mirror market_snapshot: de…
+
+Los primeros **38 caracteres son andamiaje**: la fecha (que ya se muestra como
+hora al final), el nivel (que ya se muestra como «· error») y el nombre del
+logger **repetido**, que es cómo lo formatea `logging`. Lo único que interesaba
+—qué le pasó a `market_snapshot`— quedaba cortado por el «…».
+
+`logs_sistema.sin_prologo()` lo saca. **No cambia el agrupamiento** (el prólogo
+es idéntico en todas las líneas de la misma unidad) y le devuelve ~40 caracteres
+al mensaje real. Ahora:
+
+    motor_curvas: pg_mirror market_snapshot: deadlock al escribir <n> filas · error · 16:49
+
+⚠️ El test `test_la_FECHA_y_la_HORA_no_hacen_dos_problemas` **exigía** que la
+fecha quedara en el patrón. Congelaba la implementación, no la intención: lo que
+tenía que garantizar es que dos horas distintas sean UN problema, y eso no
+cambió.
+
+### 0.az «NUEVO» NO SE LE DICE A ALGO DE HACE 10 HORAS (2026-08-21)
+
+> *«No termino de entender por qué muestra esto ahora.»*
+
+Un `control:patas_dolar_sin_pedir` bajo el título **NUEVO, SIN VER**, con
+«desde hace 10 h · ×474» al lado. Y no pasó nada ahora: lo único «nuevo» era que
+nadie había apretado el botón de visto.
+
+**Sin ver y recién aparecido son dos cosas distintas**, y llamarlas igual quema
+el rótulo: si lo que dice NUEVO tiene medio día, ninguno de los otros carteles se
+lee en serio tampoco. Ahora el centinela publica `recien` (`RECIEN_S` = 2 h) y la
+pantalla abre dos grupos: **NUEVO, SIN VER** y **VIENE DE ANTES, SIN VER**, cada
+uno con su botón. Se calcula en el backend porque el navegador no puede mirar el
+reloj mientras dibuja — y porque el criterio tiene que ser uno solo.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

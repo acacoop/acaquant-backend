@@ -224,6 +224,49 @@ _LIMPIEZAS: tuple[tuple[re.Pattern, str], ...] = (
 LARGO_PATRON = 160
 
 
+# ⚠️ **EL PRÓLOGO DEL LOG NO ES EL MENSAJE, y se estaba comiendo el título.**
+#
+# El user, mirando tres filas de motores (2026-08-21):
+#
+#     motor_curvas: <fecha>,<n> ERROR pg_mirror pg_mirror market_snapshot: de…
+#
+# > *«Es inentendible. No se entiende cuál fue el error ni qué.»*
+#
+# Y no se entendía porque **los primeros 38 caracteres son puro andamiaje**: la
+# fecha (que ya se muestra como hora al final), el nivel (que ya se muestra como
+# «· error») y el nombre del logger REPETIDO, que es cómo lo formatea logging.
+# Lo único que interesaba —qué le pasó a `market_snapshot`— quedaba cortado por
+# el «…».
+#
+# Sacarlo no cambia el agrupamiento (el prólogo es idéntico en todas las líneas
+# de la misma unidad) y le devuelve ~40 caracteres al mensaje real.
+_PROLOGO = re.compile(
+    r"^\s*<fecha>[,.]?(<n>)?\s*"                    # la fecha ya normalizada
+    r"(?:\[[^\]]*\]\s*)?"                           # [PID] opcional
+    r"(?:(?:DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\b[\s:-]*)?"   # el nivel
+    r"((?:[\w.]+)\s+)(?=\1)"                        # el logger, REPETIDO
+    r"|^\s*<fecha>[,.]?(<n>)?\s*"
+    r"(?:\[[^\]]*\]\s*)?"
+    r"(?:(?:DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\b[\s:-]*)?")
+
+
+_REPETIDO = re.compile(r"^([\w.]+) \1\b")
+
+
+def sin_prologo(texto: str) -> str:
+    """Le saca a un patrón ya normalizado la fecha, el nivel y el logger.
+
+    Lo que queda es EL MENSAJE. Si por algún formato raro no quedara nada, se
+    devuelve el original: **es preferible un título feo a un título vacío.**
+    """
+    limpio = _PROLOGO.sub("", texto or "", count=1)
+    # El formateador de logging escribe el nombre del logger DOS VECES seguidas
+    # (`pg_mirror pg_mirror market_snapshot: …`). Una sirve —dice qué módulo
+    # habló—; la segunda es puro ruido en un título de 88 caracteres.
+    limpio = _REPETIDO.sub(r"\1", limpio, count=1)
+    return limpio.strip() or (texto or "").strip()
+
+
 def patron(mensaje: str) -> str:
     """La FORMA del mensaje, sin lo que cambia en cada repetición."""
     # Un traceback son 20 renglones para UN error: se agrupa por el último, que
@@ -232,7 +275,7 @@ def patron(mensaje: str) -> str:
     texto = lineas[-1] if len(lineas) > 1 else (lineas[0] if lineas else "")
     for rx, con in _LIMPIEZAS:
         texto = rx.sub(con, texto)
-    return texto.strip()[:LARGO_PATRON]
+    return sin_prologo(texto)[:LARGO_PATRON]
 
 
 def agrupar(lineas: list[dict]) -> list[dict]:

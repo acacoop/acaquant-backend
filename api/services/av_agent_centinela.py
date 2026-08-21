@@ -208,6 +208,11 @@ def _latir(abierto: bool, abiertos: int, nuevos: int, ms: int, err: str,
 
 # ── Lo que lee la pantalla ──────────────────────────────────────────────────
 
+# Cuánto dura la palabra «nuevo». Dos horas: más que un par de corridas del
+# monitor (5 min) y menos que una jornada — lo de la mañana no puede seguir
+# anunciándose como novedad a la tarde.
+RECIEN_S = 2 * 60 * 60
+
 _COLS = ["id", "clave", "tipo", "sujeto", "regla", "severidad", "motivo",
          "evidencia", "abierto_at", "ultimo_at", "veces", "visto_at",
          "resuelto_at", "resuelto_como", "reaperturas"]
@@ -246,7 +251,22 @@ def estado(limite: int = 200) -> dict:
         return {**fuera, "error": str(e)}
 
     from api.services import av_agent
+    ahora = datetime.now(UTC)
     for f in abiertos + resueltos:
+        # ⚠️ **«NUEVO» NO SE LE PUEDE DECIR A ALGO DE HACE 10 HORAS.** El user,
+        # viendo un control bajo el título NUEVO, SIN VER con «desde hace 10 h ·
+        # ×474» al lado: *«no termino de entender por qué muestra esto ahora»*.
+        # Y no pasó nada ahora: lo único «nuevo» era que no había apretado el
+        # botón de visto. **Sin ver y RECIÉN APARECIDO son dos cosas distintas**,
+        # y llamarlas igual quema el rótulo: si lo que dice NUEVO tiene medio
+        # día, ninguno de los otros carteles se lee en serio tampoco.
+        #
+        # Se calcula acá y no en la pantalla porque el navegador no puede mirar
+        # el reloj mientras dibuja (y porque el criterio es uno solo, igual que
+        # `de_quien`).
+        f["recien"] = bool(
+            f.get("abierto_at")
+            and (ahora - f["abierto_at"]).total_seconds() < RECIEN_S)
         for k in ("abierto_at", "ultimo_at", "visto_at", "resuelto_at"):
             f[k] = f[k].isoformat() if f[k] else None
         # El mismo eje que la vista (`av_agent.de_quien`), derivado de la MISMA

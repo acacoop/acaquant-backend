@@ -423,6 +423,72 @@ ACCION_POR_TIPO = {
 }
 
 
+# ── ¿QUÉ SE LE PREGUNTA AL QUE MIRA LA FILA? ────────────────────────────────
+#
+# ⚠️ **NO TODO HALLAZGO ES UN JUICIO, y preguntarle «¿acertó?» a los que no lo
+# son rompe la única compuerta que habilita autonomía.** El user, mirando tres
+# filas de `motor_ruidoso` (2026-08-21):
+#
+# > *«Es inentendible si acertó o no. O sea, ¿acertó QUÉ? Algunos son siempre SÍ
+# > claramente, si detecta solo que hay algo que está pasando. Pero ¿qué hacemos
+# > con eso?»*
+#
+# Tiene razón, y el daño va más allá de la confusión. Hay dos cosas distintas
+# mezcladas en la misma lista:
+#
+#     JUICIO       el agente DEDUJO una causa y puede estar equivocado.
+#                  «el master apunta a la pata equivocada», «la moneda del flujo
+#                  contradice a los ejes». Ahí ¿ACERTÓ? es LA pregunta.
+#
+#     OBSERVACIÓN  el agente COPIÓ un hecho. «el motor escribió esta línea de
+#                  ERROR», «el proveedor devolvió 500», «esta tabla creció».
+#                  No hay nada que acertar: preguntarlo es preguntar si el log
+#                  existe, y la respuesta es SIEMPRE que sí.
+#
+# **Y ese «siempre sí» envenena el eval set.** Esas filas llegan a 10/10, la
+# causa se marca `candidata_a_auto` y el tablero afirma que el agente es
+# infalible en algo donde nunca emitió un juicio. La compuerta se abriría con
+# evidencia que no mide nada.
+#
+# A una observación se le pregunta lo ÚNICO que uno puede contestar y que además
+# sirve: **¿te sirve verla?**. Un «no» es «dejá de mostrármela», que es
+# exactamente el *«¿qué hacemos con eso?»* del user. Se guarda con
+# `origen='utilidad'`, que los filtros de la compuerta ya dejan afuera.
+JUICIO, OBSERVACION = "juicio", "observacion"
+
+PREGUNTA_POR_TIPO: dict[str, str] = {
+    # ── JUICIOS: el agente dedujo algo y puede errarle ──────────────────────
+    "falta_en_base": JUICIO,       # ¿de verdad no está, o lo buscó mal?
+    "sin_flujo": JUICIO,
+    "tasa_sospechosa": JUICIO,     # la causa de las 6 reglas es una deducción
+    "hueco_de_curva": JUICIO,
+    "sin_precio": JUICIO,          # elige entre 5 causas: puede elegir mal
+    "precio_moneda": JUICIO,
+    "dato_partido": JUICIO,        # decide QUIÉN manda entre dos copias
+    "tabla_quieta": JUICIO,        # APRENDE la cadencia y decide que hay atraso
+    "latencia": JUICIO,            # compara contra su propia mediana
+    "permiso_flojo": JUICIO,
+    "salud": JUICIO,               # «no corrió cuando debía» es una resta suya
+    # ── OBSERVACIONES: lo copió de algún lado ───────────────────────────────
+    # El log lo escribió el motor. Que el patrón esté bien agrupado es un
+    # detalle de implementación, no una causa que se pueda acertar.
+    "motor_ruidoso": OBSERVACION,
+    "motor_caido": OBSERVACION,    # el servicio está o no está corriendo
+    "proveedor_caido": OBSERVACION,  # Aunesa contestó 500: es un hecho
+    "db_cambio": OBSERVACION,      # la tabla pesa lo que pesa
+    "recuperado": OBSERVACION,     # algo volvió: no hay nada que acertar
+    "respuesta": OBSERVACION,      # el cierre de una acción ya aplicada
+    "cron_desalineado": OBSERVACION,  # es un diff entre dos archivos
+}
+
+
+def pregunta_de(tipo: str) -> str:
+    """`juicio` o `observacion`. **Ante la duda, JUICIO**: pedir un voto de más
+    molesta; dar por observación algo que sí era una deducción deja al agente
+    sin medición justo donde puede equivocarse."""
+    return PREGUNTA_POR_TIPO.get((tipo or "").strip(), JUICIO)
+
+
 # ── LA REGLA GANA SOBRE EL TIPO ─────────────────────────────────────────────
 #
 # ⚠️ **EL BOTÓN QUE NO ARREGLABA NADA, Y NADIE PODÍA VERLO.** Los BOPREALes

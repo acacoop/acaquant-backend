@@ -530,6 +530,13 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         # acción: si el front lo dedujera del tipo, tendría una segunda tabla de
         # dominios que se separa de ésta sin dar ningún error.
         h["dominio_eval"] = av_agent.dominio_eval(h.get("tipo") or "")
+        # ⚠️ **QUÉ SE LE PREGUNTA A ESTA FILA.** No todo hallazgo es un juicio:
+        # a un ERROR copiado del log del motor no se le puede preguntar «¿acertó?»
+        # —la respuesta es siempre que sí— y esos «siempre sí» llegaban a 10/10 y
+        # marcaban la causa como `candidata_a_auto`, o sea abrían la compuerta de
+        # autonomía con evidencia que no mide nada. Lo decide el backend, como
+        # todo lo demás de la fila.
+        h["pregunta"] = av_agent.pregunta_de(h.get("tipo") or "")
         # CUÁNTO ACIERTA ESTA CAUSA. `None` = no se pudo medir (distinto de 0
         # votos, que sí es un dato: «nunca nadie juzgó esta regla»).
         if medicion is None:

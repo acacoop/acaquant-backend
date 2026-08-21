@@ -29,9 +29,15 @@ def test_dos_lineas_que_solo_cambian_en_el_simbolo_son_EL_MISMO_problema():
 
 
 def test_la_FECHA_y_la_HORA_no_hacen_dos_problemas():
+    """⚠️ Este test PEDÍA que la fecha quedara en el patrón (`"<fecha>" in a`) y
+    esa era justo la parte que hacía ilegible el título: los primeros 38
+    caracteres eran andamiaje y el mensaje real se cortaba con «…». Lo que el
+    test tenía que congelar es que dos horas distintas sean UN problema — eso no
+    cambió; lo otro era la implementación."""
     a = ls.patron("2026-08-20 11:02:03 conexión caída")
     b = ls.patron("2026-08-19 23:59:00 conexión caída")
-    assert a == b and "<fecha>" in a
+    assert a == b
+    assert a == "conexión caída", "la fecha se saca, no se muestra"
 
 
 def test_un_TRACEBACK_se_agrupa_por_la_EXCEPCION_y_no_por_el_archivo():

@@ -108,12 +108,18 @@ def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
     #
     # Cambiar de opinión SÍ entra: si el `acierta` es distinto, es una
     # corrección y se guarda.
-    if origen == "humano" and not ref:
+    # `utilidad` es el voto de una OBSERVACIÓN («¿te sirve verla?»). Dedup igual
+    # que el humano: repetir «no me sirve» todos los días es el mismo formulario.
+    if origen in ("humano", "utilidad") and not ref:
         previo = _voto_previo(caso, causa)
         if previo is not None and previo == bool(acierta):
             return {"ok": True, "duplicado": True,
                     "error": "ya votaste esta causa para este caso"}
-    if not acierta and not (causa_correcta or nota).strip():
+    # ⚠️ **El «no» de una OBSERVACIÓN no necesita explicación**: «no me sirve
+    # verla» ES la explicación entera. Exigirle una nota sería fricción sobre la
+    # única respuesta que el usuario puede dar sin investigar nada — y esa
+    # fricción es justo lo que hace que nadie conteste.
+    if not acierta and origen != "utilidad" and not (causa_correcta or nota).strip():
         # Un ✖ sin motivo no es un dato: no se puede aprender de «está mal».
         return {"ok": False,
                 "error": "un voto negativo necesita la causa correcta o una nota "

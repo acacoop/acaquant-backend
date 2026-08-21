@@ -243,6 +243,12 @@ class VotoEval(BaseModel):
     acierta: bool
     nota: str = Field("", max_length=1000)
     causa_correcta: str = Field("", max_length=60)
+    # EL TIPO del hallazgo, para que el BACKEND decida qué clase de voto es. El
+    # front NO manda el `origen`: si lo mandara, una pantalla vieja o un `curl`
+    # podrían anotar un «¿te sirve?» como si fuera un juicio y eso mueve la
+    # compuerta de autonomía. Quién puede abrir esa compuerta se decide de este
+    # lado.
+    tipo: str = Field("", max_length=40)
 
 
 class FlujosAvAgent(BaseModel):
@@ -506,11 +512,20 @@ def av_agent_eval(body: VotoEval, email: str = Depends(get_user_email)):
 
     Es el insumo del EVAL SET, y sin él no hay forma de saber si el agente acierta
     — o sea que no hay forma de darle más autonomía sin fe. Un ✔/✖ por
-    diagnóstico, con el motivo cuando falla."""
-    from api.services import av_agent_evals
+    diagnóstico, con el motivo cuando falla.
+
+    ⚠️ **Dos clases de voto, y el backend elige cuál es.** A una OBSERVACIÓN (un
+    ERROR copiado del log del motor) no se le puede preguntar «¿acertó?»: la
+    respuesta es siempre que sí, y esos «siempre sí» llegan a 10/10 y marcan la
+    causa como candidata a automatizarse con evidencia que no mide nada. Esas
+    votan como `utilidad` («¿te sirve verla?»), que la compuerta ya deja afuera.
+    El `origen` NO viaja en el body a propósito — ver el comentario del modelo."""
+    from api.services import av_agent, av_agent_evals
+    observacion = av_agent.pregunta_de(body.tipo) == av_agent.OBSERVACION
     return av_agent_evals.votar(
         caso=body.caso, dominio=body.dominio, causa=body.causa,
         acierta=body.acierta, nota=body.nota,
+        origen="utilidad" if observacion else "humano",
         causa_correcta=body.causa_correcta, por=email or "")
 
 

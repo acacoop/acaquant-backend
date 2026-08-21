@@ -3914,6 +3914,50 @@ de verdad menos.**
     MIGRACIÓN             █████░░░░░░░  5/12
 
 
+### 0.bi EL RELOJ NO TENÍA CUERDA (2026-08-21)
+
+`en_seguimiento()`, `Item.confianza_del_arreglo` y el escalonado 1·2·3·7·14·30
+quedaron construidos ayer… y **no los llamaba nadie**. Cero apariciones fuera de
+su propio módulo.
+
+Es la enfermedad que este proyecto ya tiene bautizada —*una tarea existe solo si
+alguien lee su salida* (§0.l)— y me la volví a comer construyendo justo la pieza
+que más importa. Un reloj sin cuerda es un adorno.
+
+**Enchufado en los dos extremos:**
+
+    jobs/seguimiento (23:50, diario)  →  le da cuerda
+    la vista del agente               →  lo muestra
+
+#### Qué vota, y sobre todo qué NO
+
+    pasó los 30 días sin volver   → ✔ `verificado`
+    VOLVIÓ                        → ✖ `verificado`, con el motivo real
+
+Los dos van con `origen='verificado'`, que la compuerta de autonomía cuenta **a
+la par de un voto humano** (§0.f). Y con razón: un ✔ tuyo es una opinión; que un
+problema no haya vuelto en 30 días no lo es. El agente no controla eso.
+
+⚠️ **«Todavía no volvió» NO es «aguantó».** Solo vota el que pasó el ÚLTIMO
+hito; los del medio siguen en prueba. Premiar a los tres días sería exactamente
+lo que el escalonado vino a evitar.
+
+⚠️ **Idempotente por `ref`.** El job corre todos los días y lo que aguantó sigue
+aguantando: sin eso, en un mes un solo arreglo tendría 30 votos que son uno.
+
+#### Y en la pantalla
+
+    EN PRUEBA   AL30  pata_equivocada   2/6 hitos · próximo a los 3d
+    VOLVIÓ      GD46  sin_ejes          ← el arreglo no era el bueno
+
+Lo que volvió va primero: es lo único accionable de esa lista.
+
+> Con esto el ciclo cierra por primera vez de punta a punta: el control
+> encuentra → apretás el arreglo → pasa a `en_curso` → el detector no lo ve más
+> → `resuelto` y arranca el reloj → al día siguiente el agente puede decir, **por
+> su cuenta**, si el arreglo sirvió.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

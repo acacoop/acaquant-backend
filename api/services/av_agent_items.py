@@ -365,6 +365,72 @@ def en_seguimiento() -> list[dict]:
     return out
 
 
+def cerrar_hitos() -> dict:
+    """**El tiempo, convertido en evidencia.** Corre una vez por día.
+
+    Es la pasada que le pone número a *«¿el arreglo sirvió?»*, y es la señal más
+    fuerte que tiene el sistema porque **no es la opinión de nadie**: el problema
+    volvió o no volvió, y el agente no controla eso.
+
+        pasó TODOS los hitos (30 días sin volver)  → ✔ `verificado`
+        VOLVIÓ                                     → ✖ `verificado`, con la fecha
+
+    Los dos votan al eval set con `origen='verificado'`, que la compuerta de
+    autonomía cuenta a la par de un voto humano (§0.f) — a diferencia de
+    `derivado`, que es alguien diciendo «dale» y no el mundo diciendo «funcionó».
+
+    ⚠️ **Idempotente por `ref`.** El job corre todos los días y los que
+    aguantaron siguen aguantando: sin el `ref`, el mismo arreglo votaría una vez
+    por día y en un mes tendría 30 votos que son uno solo. El índice único de
+    `av_agent_evals` lo rechaza y acá se cuenta como duplicado.
+
+    ⚠️ **Y «todavía no volvió» NO es «aguantó».** Solo vota el que pasó el
+    ÚLTIMO hito. Los del medio siguen en prueba — premiar a los tres días sería
+    justo lo que el escalonado vino a evitar.
+    """
+    from api.services import av_agent_evals
+
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_items "
+                " WHERE (estado = %s AND resuelto_at IS NOT NULL) OR estado = %s "
+                " LIMIT 1000", (ciclo.RESUELTO, ciclo.VOLVIO))
+            items = [_fila(r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.warning("av_agent_items: no pude leer el seguimiento (%s)", e)
+        return {"ok": False, "error": str(e)[:200]}
+
+    aguantaron: list[dict] = []
+    volvieron: list[dict] = []
+    votos = 0
+    tope = max(ciclo.HITOS_DIAS)
+    for it in items:
+        if it.estado == ciclo.VOLVIO:
+            r = av_agent_evals.votar(
+                caso=it.sujeto or it.clave, dominio="bono", causa=it.regla,
+                acierta=False, origen="verificado", ref=f"volvio:{it.clave}",
+                nota="el arreglo no aguantó: el problema volvió a aparecer")
+            volvieron.append({"sujeto": it.sujeto, "regla": it.regla,
+                              "titulo": it.titulo})
+            votos += 1 if r.get("ok") and not r.get("duplicado") else 0
+            continue
+        d = it.dias_resuelto()
+        if d < tope:
+            continue                       # sigue en prueba: no se premia
+        r = av_agent_evals.votar(
+            caso=it.sujeto or it.clave, dominio="bono", causa=it.regla,
+            acierta=True, origen="verificado", ref=f"aguanto:{it.clave}",
+            nota=f"aguantó {tope} días sin volver")
+        aguantaron.append({"sujeto": it.sujeto, "regla": it.regla,
+                           "dias": round(d, 1)})
+        votos += 1 if r.get("ok") and not r.get("duplicado") else 0
+
+    return {"ok": True, "mirados": len(items), "aguantaron": aguantaron,
+            "volvieron": volvieron, "votos": votos,
+            "en_prueba": [x for x in en_seguimiento() if not x["aguanto"]]}
+
+
 def resumen() -> dict:
     """Cuántos hay de cada estado y de cada tipo. Una query."""
     try:

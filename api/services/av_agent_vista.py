@@ -693,6 +693,27 @@ def _decididas(limite: int = 40) -> list[dict]:
 # y una fuente de verdad menos.
 
 
+def _seguimiento_corto(limite: int = 12) -> dict:
+    """Cuántos arreglos están en prueba, cuántos aguantaron y cuáles volvieron.
+
+    Lo que está en prueba va topeado: una lista de 200 «todavía no volvió» no
+    informa más que su número.
+    """
+    from api.services import av_agent_items
+    try:
+        filas = av_agent_items.en_seguimiento()
+    except Exception as e:
+        logger.warning("av_agent: no pude leer el seguimiento (%s)", e)
+        return {}
+    en_prueba = [x for x in filas if not x["aguanto"]]
+    return {
+        "en_prueba": len(en_prueba),
+        "aguantaron": sum(1 for x in filas if x["aguanto"]),
+        # Los que llevan MÁS tiempo primero: son los que van a dar novedad antes.
+        "proximos": sorted(en_prueba, key=lambda x: -x["dias"])[:limite],
+    }
+
+
 def vista() -> dict:
     """Todo lo que la pantalla necesita, en un request."""
     from api.services import av_agent_acciones as acciones
@@ -794,6 +815,17 @@ def vista() -> dict:
         # faltaba al agente sobre sí mismo: sin ella, la única forma de saber
         # cuál era la peor era que alguien se hartara de verla (§0.ap).
         "cobertura": av_agent.cobertura(hallazgos),
+        # ── LOS ARREGLOS CON EL RELOJ CORRIENDO (§0.bi) ─────────────────────
+        #
+        # Lo único que el agente sabe de sí mismo **sin que se lo diga nadie**:
+        # de los problemas que dio por resueltos, cuántos aguantaron y cuántos
+        # volvieron. Un ✔ tuyo es una opinión; que algo no haya vuelto en 30
+        # días no lo es.
+        #
+        # Va en la vista porque **una medición que no se ve no existe** (§0.l):
+        # el escalonado estuvo construido sin que nadie lo llamara, que es la
+        # misma enfermedad de siempre.
+        "seguimiento": _seguimiento_corto(),
         "preguntas": [p for p in abiertas if p["tipo"] != "decision"],
         "decisiones": [p for p in abiertas if p["tipo"] == "decision"],
         "decididas": _decididas(),

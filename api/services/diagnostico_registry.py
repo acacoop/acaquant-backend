@@ -259,6 +259,14 @@ PIEZAS: list[Pieza] = [
     Pieza("BACK_OFFICE", "job", "interbanking (extractos)", unidad="jobs.interbanking_sync",
           cadencia="cada 2h · 12-22 UTC L-V", ventana="rueda", umbral_s=int(2.5 * 3600),
           run_tipo="interbanking_sync"),
+    # EL OTRO LADO DE LA CONCILIACIÓN. `interbanking_sync` trae lo que dice el
+    # BANCO; esto trae lo que dice CONTABILIDAD. Sin los dos no hay comparación,
+    # y la falla es de las silenciosas: la tab no miente, se queda quieta.
+    Pieza("BACK_OFFICE", "job", "mayor contable", unidad="jobs.mayor_sync",
+          # Dos líneas de cron: cada 10' entre 13-14 UTC (la ventana en que
+          # contabilidad carga) y cada hora hasta las 21.
+          cadencia="cada 10m 13-14 · cada 1h 15-21 UTC L-V", ventana="rueda",
+          umbral_s=int(1.5 * 3600), run_tipo="mayor_sync"),
 
     # ── PORTFOLIOS / Tenencias (SQL) ───────────────────────
     # AuM Mongo (jobs.aum) eliminado 2026-06-15: el writer de tenencias es el

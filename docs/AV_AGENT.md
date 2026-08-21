@@ -4497,6 +4497,53 @@ pantalla.
 
 
 
+### 0.bs REGLA #1 CUBRÍA `api/` Y DEJABA `scripts/` AFUERA (2026-08-22)
+
+    ImportError: cannot import name 'get_ultimo_mep' from 'core.dolar_sql'
+
+Un `git pull`, un deploy y un traceback — por un símbolo. La función vive en
+`api.services.macro` y yo escribí el import sin resolverlo.
+
+El hook de pre-push valida `from api.main import app`, que es lo que tumba la
+API entera. **Un script se descubre roto cuando el user lo corre en el
+Droplet**, o sea en el peor momento posible: después de pullear y deployar.
+
+Y no lo agarra nada de lo que ya había:
+
+- **`ruff`** es análisis estático de nombres: no resuelve el módulo.
+- **`import scripts.x`** tampoco, porque los scripts importan **adentro de
+  `main()`** a propósito, para no pagar el arranque de la app en un diag.
+
+`tests/unit/test_scripts_imports.py` los resuelve a mano: recorre el AST de
+cada archivo de `scripts/`, importa el módulo y verifica que el símbolo exista.
+**139 scripts** cubiertos, ~12 s.
+
+Tres detalles que lo hacen usable y no ruido:
+
+- **Solo lo NUESTRO** (`api`, `core`, `jobs`, `engines`, `quant`, `scripts`,
+  `config`). Un `openpyxl` ausente en el contenedor de CI no es un import roto
+  — es una dependencia opcional, y fallar por eso convierte al test en algo que
+  alguien va a saltear.
+- **El submódulo no es un atributo.** `from core import curvas_sql` no tiene
+  `hasattr` hasta que alguien lo importa: se reintenta como módulo antes de
+  cantar falla.
+- **Un parametrizado sobre lista vacía pasa en verde sin mirar nada** — el
+  mismo «no pude» disfrazado de «está bien» que el agente persigue en sus
+  detectores. Hay un test que exige que la lista tenga scripts.
+
+Verificado al revés, que es lo único que prueba que sirve: con el import viejo
+puesto, el test **falla nombrando la línea y el símbolo**.
+
+> **De paso, CI estaba ROJA en `main` y no por esto**: `jobs.mayor_sync` entró
+> en `a67f7153` con dos líneas de cron y sin registrarse en el árbol del
+> Diagnóstico, y `test_jobs_registro_matchea_crontab` lo cantaba. Queda
+> registrado — es el otro lado de la conciliación bancaria
+> (`interbanking_sync` trae lo que dice el BANCO, `mayor_sync` lo que dice
+> CONTABILIDAD) y su falla es de las silenciosas: la tab no miente, se queda
+> quieta.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

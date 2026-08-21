@@ -40,8 +40,8 @@ PARIDAD_MIN, PARIDAD_MAX = 20.0, 400.0
 
 
 def main() -> int:
+    from api.services.macro import get_ultimo_mep
     from core import curvas_sql, market_snapshot
-    from core.dolar_sql import get_ultimo_mep
     from core.postgres import get_pool
 
     print("═" * 78)

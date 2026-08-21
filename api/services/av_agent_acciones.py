@@ -58,6 +58,22 @@ DESTINOS = {
 }
 
 
+def _destino(accion: str) -> str:
+    """Dónde escribió. Las 8 acciones de `av_agent_hacer` **no se listan acá**:
+    ya declaran su `campo` y su `donde`, y copiar esa lista a mano es cómo se
+    consigue un libro que dice «?» el día que alguien suma una acción."""
+    if accion in DESTINOS:
+        return DESTINOS[accion]
+    try:
+        from api.services.av_agent_hacer import ACCIONES
+        a = ACCIONES.get(accion)
+        if a is not None:
+            return a.campo or a.donde or "?"
+    except Exception:                       # el libro nunca rompe por esto
+        pass
+    return "?"
+
+
 # ⚠️ **QUÉ REGLA JUZGÓ EL HUMANO al aprobar cada acción** (2026-08-19).
 #
 # El libro registraba QUÉ se hizo (`alta_bono`) y no QUÉ CAUSA lo motivó, así que
@@ -94,7 +110,7 @@ def registrar(*, accion: str, objetivo: str, detalle: dict | None = None,
                 " por, ok, error, regla) "
                 "VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s) "
                 "RETURNING id",
-                (accion, DESTINOS.get(accion, "?"), objetivo,
+                (accion, _destino(accion), objetivo,
                  json.dumps(detalle or {}, ensure_ascii=False, default=str),
                  json.dumps(antes, ensure_ascii=False, default=str) if antes else None,
                  origen, pregunta_id, por or None, ok, (error or None),

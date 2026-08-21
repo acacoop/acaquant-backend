@@ -542,7 +542,24 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
                 # El mismo umbral que el resumen, leído de la misma constante: si
                 # la pantalla usara otro, diría «medida» sobre lo que el tablero
                 # llama «sin evidencia».
-                "suficiente": nh >= av_agent_evals.MIN_VOTOS}
+                "suficiente": nh >= av_agent_evals.MIN_VOTOS,
+                # ⚠️ **UNA CAUSA PROBADA DEJA DE PREGUNTAR.** `ya_votado` corta
+                # la repetición por CASO —el mismo bono con la misma causa— y no
+                # alcanza: con `pata_equivocada` en 17/17, un BOPREAL nuevo
+                # seguía pidiendo el voto 18. Lo que se mide es si el AGENTE
+                # entiende esa CAUSA, y eso ya está contestado: pedir otro voto
+                # no agrega evidencia y es la fatiga que el user viene marcando
+                # («ya lo completé 40 veces»).
+                #
+                # Es el mismo umbral que abre la compuerta de autonomía
+                # (`candidata_a_auto`), leído de la misma cuenta: si la pantalla
+                # usara otro criterio, diría «probada» sobre algo que el tablero
+                # todavía llama «sin evidencia».
+                #
+                # **No es irreversible**: el front deja votar igual, y un ✖ sobre
+                # una causa probada la baja del umbral sola en la próxima lectura
+                # — que es justo la señal de que el agente empeoró.
+                "probada": bool(nh >= av_agent_evals.MIN_VOTOS and okh == nh)}
 
     def _caduco(h: dict) -> bool:
         if (h.get("ticker") or "").strip().upper() in ignorados:

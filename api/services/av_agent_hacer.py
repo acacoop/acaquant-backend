@@ -88,6 +88,19 @@ class Accion(Protocol):
     sobre: str                   # qué control/caso resuelve
     campo: str
     donde: str                   # la pantalla donde se hace a mano
+    # ⚠️ **LA CAUSA DEL EVAL SET**, que NO siempre es `sobre`. `sobre` es el id
+    # del CONTROL (`patas_equivocadas`, plural) y la causa es la REGLA que emite
+    # el detector y sobre la que vota un humano en ENCONTRÓ (`pata_equivocada`,
+    # singular). Si el voto derivado y el humano usaran claves distintas,
+    # medirían la misma cosa por separado y ninguna de las dos llegaría nunca al
+    # mínimo de votos — la divergencia silenciosa de REGLA #9, aplicada a la
+    # única compuerta que habilita autonomía.
+    #
+    # Vacío = se usa `sobre`. Es lo correcto para las acciones que nacen de un
+    # control y NO tienen un detector espejo: ahí el control ES la causa.
+    causa: str
+
+
 
     def proponer(self, casos: list[dict]) -> list[Propuesta]: ...
     def aplicar(self, p: Propuesta) -> None: ...
@@ -497,6 +510,7 @@ class AccionPedirPata(Seguible):
     """
 
     id = "mercado.pedir_pata"
+    causa = "sin_punta"
     titulo = "Pedirle el precio a un símbolo que nadie escucha"
     sobre = "patas_sin_precio"
     campo = "suscripción"
@@ -582,6 +596,7 @@ class AccionPataDolar(Seguible):
     """
 
     id = "mercado.pata_dolar"
+    causa = "cotiza_en_pesos"
     titulo = "Pedir la pata en DÓLARES de un bono que cotiza en pesos"
     sobre = "patas_dolar_sin_pedir"
     campo = "suscripción"
@@ -686,6 +701,11 @@ class AccionApuntarPata(Seguible):
     """
 
     id = "mercado.apuntar_pata"
+    # El control se llama `patas_equivocadas` y el detector emite
+    # `pata_equivocada`. Son los MISMOS bonos: sin esta línea, los 17 votos
+    # humanos de los BOPREALes y los votos derivados de sus arreglos irían a dos
+    # causas distintas y ninguna juntaría evidencia.
+    causa = "pata_equivocada"
     titulo = "Apuntar el master a la pata correcta (y pedirla)"
     sobre = "patas_equivocadas"
     campo = "mercado.curvas.instrumento"
@@ -1253,9 +1273,51 @@ def _aplicar_una(f: dict, *, por: str, valores: dict) -> dict:
             por=por, verificado=None if espera else quedo, detalle=detalle,
             propuesto=p.propuesto if p.propuesto != f["propuesto"] else None,
             error=None if quedo else "aplicado pero la verificación no lo confirma")
+    # ⚠️⚠️ **EL LIBRO, Y EL SEGUIMIENTO — que estaban desconectados de acá.**
+    #
+    # `av_agent_seguimiento` (§0.ac) existe desde el 2026-08-19 para contestar la
+    # pregunta que el user pidió: *«que el agente entienda cuándo hizo algo bien,
+    # no porque yo le puse "acertó", sino porque a los días puede detectar que el
+    # cambio tuvo consistencia»*. Y **nunca recibió un caso de las 8 acciones de
+    # este módulo**: se alimenta desde `av_agent_acciones.registrar`, y este
+    # camino —el que usan TODAS las acciones, incluidos los botones de fila— no
+    # lo llamaba nunca. Medido: cero apariciones de `registrar` en este archivo.
+    #
+    # O sea que el sistema sabía verificar que la escritura ENTRÓ (releer, mismo
+    # segundo) y tenía la máquina para verificar que el arreglo FUNCIONÓ (que el
+    # problema no vuelva en 5 días), y las dos estaban en el mismo repo sin
+    # tocarse. Nada fallaba: simplemente el libro no registraba estas acciones y
+    # el seguimiento se quedaba vacío.
+    #
+    #     Verificar que la escritura entró no dice si el arreglo era el correcto:
+    #     un símbolo mal puesto se escribe igual de bien que uno bien puesto.
+    #
+    # **Va DESPUÉS de sellar y en su propio try**: la escritura real ya pasó y no
+    # se deshace por un problema de auditoría o de medición.
+    #
+    # ⚠️ **Solo si QUEDÓ.** Poner en seguimiento algo que falló mediría un arreglo
+    # que no existe, y a los 5 días lo cantaría como «volvió» — culpando al
+    # diagnóstico de un problema que fue de la escritura.
+    if quedo:
+        try:
+            from api.services import av_agent_acciones as acc
+            acc.registrar(accion=a.id, objetivo=p.sujeto, por=por, ok=True,
+                          origen="hacer", regla=_causa_de(a),
+                          antes={"valor": f["antes"]} if f.get("antes") else None,
+                          detalle={"campo": p.campo, "valor": p.propuesto,
+                                   "esperando": espera, "verificado": detalle})
+        except Exception as e:
+            logger.warning("av_agent_hacer: no pude anotar %s en el libro: %s",
+                           p.sujeto, e)
+
     return {"id": f["id"], "sujeto": p.sujeto, "campo": p.campo,
             "valor": p.propuesto, "ok": quedo, "verificado": quedo,
             "esperando": espera, "detalle": detalle}
+
+
+def _causa_de(a) -> str:
+    """La causa del eval set que resuelve esta acción. `sobre` es el default."""
+    return (getattr(a, "causa", "") or a.sobre or "").strip()
 
 
 def _sellar(pid: int, *, estado: str, por: str = "", verificado=None,

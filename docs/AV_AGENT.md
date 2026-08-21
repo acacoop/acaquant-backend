@@ -3316,6 +3316,64 @@ dudar de si son tres problemas o uno. Ahora la deduplicación va **en el origen*
 no pueden mostrar cosas distintas.
 
 
+### 0.av EL CÍRCULO SE CIERRA: ¿el arreglo FUNCIONÓ? (2026-08-21)
+
+El paso siguiente del eval set no era construir nada nuevo: **era enchufar lo que
+ya estaba.** `av_agent_seguimiento` (§0.ac) contesta desde el 2026-08-19 la
+pregunta que el user pidió —*«que el agente entienda cuándo hizo algo bien, no
+porque yo le puse "acertó", sino porque a los días detecta que el cambio tuvo
+consistencia»*— y **nunca recibió un caso de las 8 acciones**.
+
+Se alimenta desde `av_agent_acciones.registrar`, y `av_agent_hacer._aplicar_una`
+—el camino que usan TODAS las acciones, incluidos los botones de fila— no lo
+llamaba nunca. **Medido: cero apariciones de `registrar` en ese archivo.**
+
+    Verificar que la escritura ENTRÓ no dice si el arreglo era el CORRECTO:
+    un símbolo mal puesto se escribe igual de bien que uno bien puesto.
+
+Las dos mitades estaban en el mismo repo sin tocarse. Nada fallaba: el libro no
+registraba estas acciones (así que tampoco salían en la tab HIZO, contra la regla
+de auditoría de `CLAUDE.md`) y el seguimiento se quedaba vacío.
+
+**Enchufado**, con tres cuidados: va DESPUÉS de sellar y en su propio `try` (la
+escritura real no se deshace por un problema de medición); **solo si quedó**
+—poner en seguimiento algo que falló mediría un arreglo que no existe y a los 5
+días lo cantaría como «volvió», culpando al diagnóstico de un error de
+escritura—; y el `destino` del libro se **deriva del registro** (`campo`/`donde`)
+en vez de copiar los 8 ids a mano, que es cómo se consigue un libro que dice «?».
+
+#### ⚠️ LA CAUSA NO ES EL CONTROL, y ese desalineo trababa la compuerta
+
+El control se llama **`patas_equivocadas`** (plural) y el detector emite
+**`pata_equivocada`** (singular). Son los MISMOS bonos. Con la clave del control,
+los 17 votos humanos de los BOPREALes y los votos derivados de sus arreglos se
+habrían contado **por separado**, y ninguna de las dos mitades habría llegado
+nunca a `MIN_VOTOS`. REGLA #9 aplicada a la única compuerta que habilita
+autonomía: dos copias del mismo criterio, sin árbitro, cada una coherente consigo
+misma. Por eso `Accion.causa` se declara aparte de `sobre`, con un test que exige
+que sea una regla que un detector realmente emite.
+
+### 0.aw UNA CAUSA PROBADA DEJA DE PREGUNTAR (2026-08-21)
+
+`ya_votado` (§0.ao) corta la repetición por **CASO** —el mismo bono con la misma
+causa— y no alcanza: con `pata_equivocada` en **17/17**, un BOPREAL nuevo seguía
+pidiendo el voto 18. Lo que se mide es si el agente entiende esa **CAUSA**, y eso
+ya está contestado; otro voto no agrega evidencia y es exactamente la fatiga que
+el user viene marcando desde hace tres días.
+
+`confianza.probada` usa **el mismo umbral que `candidata_a_auto`**, leído de la
+misma cuenta: si la pantalla usara otro criterio, diría «probada» sobre algo que
+el tablero todavía llama «sin evidencia». **No es irreversible**: se puede votar
+igual desde CAMBIAR, y un ✖ la baja del umbral sola en la próxima lectura — que
+es justo la señal de que el agente empeoró.
+
+> Y la evidencia más fuerte no la pone nadie: el `verificado` que sale del
+> seguimiento **cuenta como un voto humano** para la compuerta, porque el
+> problema volvió o no volvió y el agente no controla eso. El `derivado` (una
+> aprobación) queda afuera: eso es alguien diciendo «dale», no el mundo diciendo
+> «funcionó».
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

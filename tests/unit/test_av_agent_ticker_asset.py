@@ -129,3 +129,17 @@ class TestElRegexNoSePuedeSEPARAR:
         from api.services.acreencias import codigo_de_unidad
         assert codigo_de_unidad(PLC5O) == "PLC5O"   # '[id] CODE - descripción'
         assert codigo_de_unidad(S13N6) == "S13N6"   # '[id] CODE' pelado
+
+
+def test_toda_accion_declara_su_riesgo():
+    """El script de aplicación masiva imprime, por acción, si ESCRIBE PLATA.
+
+    Se DECLARA y no se infiere del nombre: adivinar acá significaría soltar 133
+    escrituras creyendo que no se toca ninguna valuación. Una acción nueva sin
+    riesgo declarado sale como «SIN DECLARAR» en pantalla — este test la caza
+    antes, que es cuando todavía es barato.
+    """
+    from api.services.av_agent_hacer import ACCIONES
+    from scripts.agente_aplicar import _RIESGO
+    faltan = set(ACCIONES) - set(_RIESGO)
+    assert not faltan, f"acciones sin riesgo declarado: {faltan}"

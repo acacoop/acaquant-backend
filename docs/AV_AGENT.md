@@ -5239,6 +5239,55 @@ familia ya se lee en la columna de al lado. El backend publica `nombre` sin
 prefijo (`patas equivocadas`) y la columna dejó de tener ancho fijo. El sujeto
 crudo queda en el `title`: para buscarlo en la base hace falta el exacto.
 
+#### El censo: `scripts/diag_encontro` — y la primera versión estaba mal
+
+⚠️ **Contó 408 donde la pantalla mostraba 98.** Consultaba
+`mercado.av_agent_items` directo —el objeto canónico— y esa tabla guarda TAMBIÉN
+los avisos dirigidos (**142 `saldos_comitentes`**, que son mensajes a operadores
+y no problemas) y los sensores. La pantalla, en cambio, lee la foto de la última
+corrida de `mercado.av_agent_hallazgos`.
+
+Y clasificó **406 de 408 como «falta escribir el arreglo»** cuando las cinco
+pilas más grandes ya tenían acción: armó su propio conjunto de reglas-con-acción
+y se le escaparon las que se resuelven **por CONTROL** (`POR_CONTROL`), que son
+justamente las grandes — 133 `patas_dolar_sin_pedir` salieron como deuda
+teniendo `mercado.pata_dolar` escrita.
+
+    Un diag que contradice a la pantalla que viene a explicar no sirve para
+    decidir nada — y los dos errores son el mismo: **reimplementar en vez de
+    derivar**, que es lo que este archivo viene señalando en todos lados.
+
+Corregido: llama a `av_agent_vista.vista()`, que es literalmente lo que el modal
+dibuja, y cada fila llega con `accion` ya resuelta por `accion_de()`. También
+imprime cuántos abiertos tiene `av_agent_items` por tipo: si el número no se
+dice, el día que alguien mire esa tabla va a ver 400 y va a pensar que la
+pantalla esconde cosas.
+
+#### Aplicar en lote: `scripts/agente_aplicar`
+
+Las pilas grandes no necesitaban que se escribiera el arreglo — necesitaban
+poder aplicarlo sin un click por caso:
+
+| control | casos | acción |
+|---|---|---|
+| `patas_dolar_sin_pedir` | 133 | `mercado.pata_dolar` |
+| `assets_sin_cartera` | 24 | `assets.cartera` |
+| `fci_incompletos` | 8 | `assets.fci` |
+| `patas_equivocadas` | 6 | `mercado.apuntar_pata` |
+| `comitentes_sin_nivel1` | 5 | `avisar.responsable` |
+
+**No es un camino nuevo de escritura**: llama a `hacer.proponer()` y
+`hacer.aplicar()`, las mismas del modal — misma propuesta, misma verificación
+releyendo, mismo libro. **Dry-run por default** e imprime, por propuesta, de qué
+a qué.
+
+Y **el riesgo de cada acción se DECLARA** (`_RIESGO`), con un test que exige que
+ninguna quede sin declarar. No son igual de reversibles: pedir una pata no toca
+ninguna valuación, pero `assets.cartera` **decide el divisor del AuM** — o sea
+que escribe plata. Adivinarlo del nombre sería soltar 24 escrituras creyendo que
+no se toca nada. Por eso también existe `--tope`: probar con 5 y mirar antes de
+soltar 133 es el orden correcto, no una precaución opcional.
+
 #### El censo: `scripts/diag_encontro`
 
 Para poder vaciar ENCONTRÓ hay que contestar algo que la pantalla no contesta:

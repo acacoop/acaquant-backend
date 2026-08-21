@@ -1512,6 +1512,11 @@ def conciliar(email: str, cuenta_id: int, fecha: date,
 
     candidatos: list[dict] = []
     truncados = False
+    sin_calzar_banco = [(m, v) for m, v, c in zip(movs, imp_banco, calce_banco)
+                        if c is None]
+    sin_calzar_mayor = [(m, m["importe"])
+                        for m, c in zip(detalle["movimientos"], calce_mayor)
+                        if c is None]
     if diferencia is not None and not concilia:
         # ⚠️ **Se busca SOLO entre los que NO calzaron.** Un movimiento que tiene
         # su igual del otro lado ya está registrado en los dos sistemas: no puede
@@ -1519,28 +1524,47 @@ def conciliar(email: str, cuenta_id: int, fecha: date,
         # deja el universo chico y hace que aparezcan las combinaciones largas,
         # que antes quedaban tapadas por movimientos que no tenían nada que
         # explicar.
-        del_banco, t1 = _buscar(
-            [(m, v) for m, v, c in zip(movs, imp_banco, calce_banco) if c is None],
-            diferencia)
+        del_banco, t1 = _buscar(sin_calzar_banco, diferencia)
         # Del lado del MAYOR: un movimiento cargado de más hace que el mayor se
         # aleje en sentido contrario, así que se busca por el OPUESTO.
-        del_mayor, t2 = _buscar(
-            [(m, m["importe"])
-             for m, c in zip(detalle["movimientos"], calce_mayor) if c is None],
-            -diferencia)
+        del_mayor, t2 = _buscar(sin_calzar_mayor, -diferencia)
         truncados = t1 or t2
 
-        # Los GASTOS del día, TODOS JUNTOS, como candidato explícito. `_buscar`
-        # no puede encontrarlo: son ~15 movimientos chicos y las combinaciones
-        # llegan hasta `MAX_COMBINAR`. Y es el caso más común de «falta en el
-        # mayor»: el banco cobra comisión, IVA y ley 25.413 el mismo día y el
-        # sistema contable los registra al mes, o no los registra.
+        # ── EXPLICACIONES POR CONSTRUCCIÓN ───────────────────────────────────
+        # ⚠️ **No son búsquedas, y por eso SÍ pueden mezclar signos.** Parece
+        # contradecir la regla de `_buscar` y no la contradice: allá el problema
+        # es ELEGIR un subconjunto que casualmente sume parecido —eso es una
+        # coincidencia aritmética, no una explicación—. Acá no se elige nada: es
+        # el conjunto ENTERO de un lado. Que su suma dé la diferencia no es un
+        # hallazgo, es una IDENTIDAD — si al mayor no le quedó nada sin calzar,
+        # todo lo que le falta es exactamente todo lo que al banco le sobró.
         #
-        # Solo si NINGUNA de las búsquedas dio una explicación EXACTA: si ya hay
-        # una que cierra al centavo, agregar «además, mirá los gastos» es ruido.
-        if not any(c["resto"] == 0 for c in (*del_banco, *del_mayor)):
-            solo_gastos = [(m, v) for m, v, c in zip(movs, imp_banco, calce_banco)
-                           if c is None and gasto_de.get(m["mov_hash"])]
+        # Esto es lo que el buscador NO podía encontrar nunca: el caso real del
+        # 19/08 tenía 4 créditos y 7 débitos sin calzar (los 7 eran los gastos
+        # bancarios), o sea signos mezclados y 11 movimientos contra un tope de
+        # 8. La pantalla decía «ningún movimiento llega a esa diferencia» con la
+        # respuesta entera a la vista.
+        extras: list[tuple[dict, str]] = []
+        for lado, items, meta in (("banco", sin_calzar_banco, diferencia),
+                                  ("mayor", sin_calzar_mayor, -diferencia)):
+            suma = round(sum(v for _, v in items), 2)
+            if len(items) < 2 or abs(round(suma - meta, 2)) > tolerancia(meta):
+                continue
+            c = _armar(items, suma, meta)
+            gastos_n = sum(1 for m, _ in items if gasto_de.get(m.get("mov_hash")))
+            c["motivo"] = (
+                f"todo lo que no calzó del {lado}: {len(items)} movimientos"
+                + (f", {gastos_n} de ellos gastos bancarios" if gastos_n else ""))
+            extras.append((c, lado))
+
+        # Los GASTOS del día, TODOS JUNTOS. Es el caso más común de «falta en el
+        # mayor»: el banco cobra comisión, IVA y ley 25.413 el mismo día y el
+        # sistema contable los registra al mes, o no los registra. Solo si nada
+        # más cerró exacto — si ya hay una explicación al centavo, agregar
+        # «además, mirá los gastos» es ruido.
+        if not extras and not any(c["resto"] == 0 for c in (*del_banco, *del_mayor)):
+            solo_gastos = [(m, v) for m, v in sin_calzar_banco
+                           if gasto_de.get(m["mov_hash"])]
             suma_g = round(sum(v for _, v in solo_gastos), 2)
             if len(solo_gastos) >= 2 and abs(round(suma_g - diferencia, 2)) \
                     <= tolerancia_aproximada(diferencia):
@@ -1552,12 +1576,16 @@ def conciliar(email: str, cuenta_id: int, fecha: date,
         def _pub(c, lado):
             movimientos = [
                 {**_movimiento_publico(m), "importe_firmado": _firmado(m),
-                 "concepto": (m.get("descripcion_ib") or "").strip()}
+                 "concepto": (m.get("descripcion_ib") or "").strip(),
+                 # Qué impuesto es, si lo es: adentro de una explicación de 11
+                 # movimientos, saber cuáles son gastos es lo que la vuelve
+                 # accionable («estos entran solos, estos hay que cargarlos»).
+                 "balde": gasto_de.get(m["mov_hash"])}
                 if lado == "banco" else
                 {"mov_hash": f"mayor:{m['fila']}", "descripcion": m["concepto"],
                  "concepto": "", "hora": None, "codigo": None, "comprobante": None,
                  "importe": abs(m["importe"]), "tipo": "C" if m["importe"] >= 0 else "D",
-                 "importe_firmado": m["importe"]}
+                 "importe_firmado": m["importe"], "balde": None}
                 for m in c["movimientos"]]
             return {"lado": lado,
                     # Qué hay que HACER con esto, dicho en una acción y no en un
@@ -1578,11 +1606,16 @@ def conciliar(email: str, cuenta_id: int, fecha: date,
         # según de qué lado sobra la plata. Las dos se muestran igual, porque
         # matemáticamente las dos pueden ser ciertas y el que decide es el que
         # conoce el circuito.
+        #
+        # Antes que todas van las POR CONSTRUCCIÓN: no compiten con las buscadas,
+        # están en otra categoría. Una dice «estos son TODOS los que faltan», las
+        # otras dicen «con estos también daría».
         primero = del_banco if diferencia > 0 else del_mayor
         segundo = del_mayor if diferencia > 0 else del_banco
         lado1 = "banco" if diferencia > 0 else "mayor"
         lado2 = "mayor" if diferencia > 0 else "banco"
-        candidatos = ([_pub(c, lado1) for c in primero]
+        candidatos = ([_pub(c, l) for c, l in extras]
+                      + [_pub(c, lado1) for c in primero]
                       + [_pub(c, lado2) for c in segundo])[:10]
 
         # ⚠️ La pista que ahorra una hora: si los dos saldos coinciden al dar
@@ -1598,10 +1631,11 @@ def conciliar(email: str, cuenta_id: int, fecha: date,
                 "sistema contable.")
 
         if not candidatos:
-            avisos.append(
-                "Ningún movimiento —ni del banco ni del mayor, ni combinación de "
-                f"hasta {MAX_COMBINAR} del MISMO lado— llega a esa diferencia. "
-                "Puede venir de un día anterior, o ser varias cosas a la vez.")
+            # ⚠️ Corto y accionable. El texto anterior explicaba el algoritmo
+            # («ni combinación de hasta 8 del MISMO lado…»): al que concilia no
+            # le sirve saber cómo buscamos, le sirve saber qué hacer ahora.
+            avisos.append("No encontré movimientos que expliquen la diferencia: "
+                          "hay que revisarlo a mano.")
         # ⚠️ El signo invertido y el resto NO llevan aviso de texto: cada
         # candidato ya los publica en su propio campo (`signo_invertido`,
         # `resto`) y la pantalla los muestra como marca al lado del movimiento
@@ -1681,6 +1715,14 @@ def conciliar(email: str, cuenta_id: int, fecha: date,
                 sum(v for v, c in zip(imp_banco, calce_banco) if c is None), 2),
             "mayor_suma_sin_calzar": round(
                 sum(v for v, c in zip(imp_mayor, calce_mayor) if c is None), 2),
+            # Cuánto de lo que quedó sin calzar son GASTOS. Es la partición que
+            # importa para trabajar: los gastos suelen entrar solos y el resto
+            # hay que cargarlo a mano, así que son dos tareas distintas dentro
+            # de la misma diferencia.
+            "banco_gastos_sin_calzar": round(
+                sum(v for m, v in sin_calzar_banco if gasto_de.get(m["mov_hash"])), 2),
+            "banco_gastos_movimientos": sum(
+                1 for m, _ in sin_calzar_banco if gasto_de.get(m["mov_hash"])),
         },
         # El margen con que se buscó. Un criterio que decide qué se muestra tiene
         # que poder leerse en la pantalla, no vivir escondido en el código.

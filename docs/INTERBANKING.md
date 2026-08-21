@@ -748,6 +748,24 @@ conciliación que miente, y eso no avisa.
   incluidos los que sí importan: si el dato que lo alimenta no es confiable, el
   chequeo no es una ayuda extra, es ruido con cara de hallazgo. La fecha, en
   cambio, no es ambigua — y es la definición de movimiento.
+- ⚠️ **Hay dos categorías de explicación, y no compiten entre sí.**
+  · **Por BÚSQUEDA** (`_buscar`): elige un subconjunto que sume la diferencia.
+    Nunca mezcla signos ni lados — elegir un ingreso y un egreso hasta que dé el
+    número es una coincidencia aritmética, no una explicación.
+  · **Por CONSTRUCCIÓN**: el conjunto ENTERO de lo que no calzó de un lado. **Sí
+    puede mezclar signos**, y no contradice lo anterior: acá no se elige nada. Si
+    al mayor no le quedó nada sin calzar, que todo lo que le falta sea todo lo
+    que al banco le sobró **no es un hallazgo, es una identidad**.
+
+  ⚠️ Nace de un caso real (Patagonia, 19/08/2026): diferencia de `4.256.787,71`
+  que eran los **once** movimientos del banco sin calzar — 4 créditos grandes y 7
+  débitos que eran exactamente los gastos bancarios del día. `_buscar` no podía
+  encontrarlo por **dos motivos a la vez**: signos mezclados (prohibido, y con
+  razón) y once movimientos contra un tope de ocho. La pantalla decía «ningún
+  movimiento llega a esa diferencia» **con la respuesta entera a la vista**.
+  La salida NO fue aflojar `_buscar` —eso habría empezado a inventar
+  explicaciones en todos los demás casos— sino ver que **esto no era una
+  búsqueda**. Congelado por test.
 - Las **explicaciones** son subconjuntos de movimientos que llegan a la
   diferencia, buscados en **cuatro pasadas de la más estricta a la más laxa**:
   1. **suma firmada == diferencia** — la explicación limpia;

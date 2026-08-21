@@ -162,7 +162,7 @@ def test_si_ningun_movimiento_explica_la_diferencia_lo_DICE(monkeypatch):
     s = _svc(monkeypatch, cierre=999.99, movs=[_mov("h1", 5.0, "D")])
     out = s.conciliar("x@y", 1, FECHA, GRILLA[:2])
     assert out["candidatos"] == []
-    assert any("Ningún movimiento" in a for a in out["avisos"])
+    assert any("revisarlo a mano" in a for a in out["avisos"])
 
 
 def test_avisa_cuando_la_diferencia_es_solo_el_SIGNO(monkeypatch):
@@ -310,7 +310,7 @@ def test_una_diferencia_grande_NO_se_explica_con_cualquier_cosa(monkeypatch):
               ["Saldo inicial", "", "", "166,258.92 D"]]
     out = s.conciliar("x@y", 1, FECHA, grilla)
     assert out["candidatos"] == []
-    assert any("Ningún movimiento" in a for a in out["avisos"])
+    assert any("revisarlo a mano" in a for a in out["avisos"])
 
 
 # ── El margen es PROPORCIONAL, con piso ─────────────────────────────────────
@@ -455,6 +455,50 @@ def test_una_explicacion_EXACTA_gana_sobre_una_aproximada_tambien_en_combinacion
     assert c["aproximado"] is False
     assert c["resto"] == 0.0
     assert {m["descripcion"] for m in c["movimientos"]} == {"EXACTO"}
+
+
+# ── Explicaciones POR CONSTRUCCIÓN ──────────────────────────────────────────
+# ⚠️ Caso real (Patagonia, 19/08/2026): al mayor le faltaban los ONCE movimientos
+# del banco que no calzaron — 4 créditos grandes y 7 débitos que eran los gastos
+# bancarios. `_buscar` no podía encontrarlo por DOS motivos a la vez: la
+# combinación mezcla signos (prohibido, y con razón) y son 11 contra un tope de
+# 8. La pantalla decía «ningún movimiento llega a esa diferencia» con la
+# respuesta entera a la vista, y el back office la sumaba a mano.
+#
+# La salida NO fue aflojar `_buscar`: fue ver que esto no es una búsqueda. Si al
+# mayor no le quedó nada sin calzar, que todo lo que le falta sea todo lo que al
+# banco le sobró no es un hallazgo, es una IDENTIDAD. Por eso se AFIRMA en vez de
+# buscarse, y por eso este candidato sí puede mezclar signos: no elige nada.
+def test_si_al_mayor_no_le_queda_nada_sin_calzar_FALTAN_TODOS_los_del_banco(monkeypatch):
+    s = _svc(monkeypatch, cierre=166_308.92 + 1_000.0 - 300.0,
+             movs=[_mov("h1", 100.0, "C", "CALZA"),      # tiene su par en el mayor
+                   _mov("h2", 1_000.0, "C", "TRANSFERENCIA"),
+                   _mov("h3", 300.0, "D", "COMISION"),
+                   _mov("h4", 50.0, "D", "CALZA")])      # tiene su par en el mayor
+    out = s.conciliar("x@y", 1, FECHA, MAYOR_100_Y_50)
+
+    assert out["diferencia"] == 700.0
+    assert out["calce"]["mayor_sin_calzar"] == 0
+    c = out["candidatos"][0]
+    assert c["cantidad"] == 2, "los dos que NO calzaron, con signos mezclados"
+    assert c["suma"] == 700.0
+    assert c["resto"] == 0.0
+    assert c["accion"] == "falta_en_el_mayor"
+    assert "todo lo que no calzó del banco" in (c["motivo"] or "")
+    assert {m["descripcion"] for m in c["movimientos"]} == {"TRANSFERENCIA", "COMISION"}
+
+
+def test_si_los_DOS_lados_tienen_sueltos_no_se_afirma_nada(monkeypatch):
+    """La identidad se rompe: con movimientos sin calzar de los dos lados, el
+    conjunto de uno solo ya no es «todo lo que falta». Ahí no hay nada que
+    afirmar y se vuelve a lo que se pueda buscar."""
+    s = _svc(monkeypatch, cierre=166_308.92 + 1_000.0,
+             movs=[_mov("h1", 100.0, "C", "CALZA"), _mov("h2", 1_000.0, "C", "TRF")])
+    # El mayor tiene su extracción de 50 sin par del lado del banco.
+    out = s.conciliar("x@y", 1, FECHA, MAYOR_100_Y_50)
+    assert out["calce"]["mayor_sin_calzar"] == 1
+    assert not any("todo lo que no calzó" in (c["motivo"] or "")
+                   for c in out["candidatos"])
 
 
 

@@ -1092,21 +1092,30 @@ def tablero(email: str, fecha: date) -> dict:
                     saldo absoluto?».
       debe/haber    movimientos del MAYOR de ese día.
       saldo_final   saldo_inicio + debe + haber (el haber ya es negativo).
-      diferencia    **saldo_final − cierre del BANCO del día.** Los dos arrastres
-                    se cancelan, así que esto equivale a «movimientos del mayor −
-                    movimientos del banco»: qué le falta cargar al mayor.
+      diferencia    **cierre del BANCO del día − saldo final del mayor.** Los dos
+                    arrastres se cancelan, así que equivale a «movimientos del
+                    banco − movimientos del mayor»: qué le falta cargar al mayor.
 
                     ⚠️ NO es `saldo_final − saldo_inicio`: eso se simplifica a
                     `debe + haber` y nunca miraría al banco, así que jamás podría
                     mostrar un descuadre.
+
+                    ⚠️ El ORDEN de la resta es el de `conciliar()` —banco menos
+                    mayor— y no al revés: la misma cuenta se ve acá y en el
+                    drill-down, y con el signo dado vuelta el mismo descuadre
+                    aparecería como `+50.000` en la grilla y `−50.000` al hacer
+                    click. Además es el signo con el que ya están guardados los
+                    pendientes y el que decide `falta_en_el_mayor` /
+                    `sobra_en_el_mayor`.
       gastos        de la vista principal (`_gastos_bancarios`), INFORMATIVO: no
                     entra en ningún total. Se calcula de los movimientos del
                     BANCO, así que existe esté o no cargado en el mayor.
-      dif_sin_gastos  diferencia − gastos, para ver si además de los gastos hay
-                    otra cosa. **`None` cuando no hay diferencia**: una vez que el
-                    equipo carga el gasto en el mayor la diferencia se va a cero,
-                    y seguir restando los gastos publicaría un `−gastos` que no
-                    existe. Si no hay diferencia, no hay nada que explicar.
+      dif_sin_gastos  lo que queda de la diferencia DESPUÉS de los gastos, para
+                    ver si además de ellos hay otra cosa. **`None` cuando no hay
+                    diferencia**: una vez que el equipo carga el gasto en el mayor
+                    la diferencia se va a cero, y seguir aplicándole los gastos
+                    publicaría un número que no existe. Si no hay diferencia, no
+                    hay nada que explicar.
 
     Sin saldo del banco (feriado, extracto que no llegó) la fila va con
     `diferencia: null` y el motivo: **no se cae a cero**, porque «no sé» y «cero»
@@ -1150,13 +1159,16 @@ def tablero(email: str, fecha: date) -> dict:
         elif cierre_banco is None:
             motivo = f"no hay saldo del banco al {fecha.isoformat()}"
         else:
-            diferencia = round(saldo_final - cierre_banco, 2)
+            diferencia = round(cierre_banco - saldo_final, 2)
 
         concilia = None if diferencia is None else abs(diferencia) < SIN_DIFERENCIA
-        # Ver el docstring: sin diferencia no hay nada que explicar, y restar los
-        # gastos igual publicaría un número que no existe.
+        # Ver el docstring: sin diferencia no hay nada que explicar, y aplicarle
+        # los gastos igual publicaría un número que no existe. El signo: los
+        # gastos son lo que se llevó el banco (positivo), y la diferencia va
+        # banco−mayor, así que un gasto no registrado en el mayor la deja
+        # NEGATIVA — sumarlos es lo que la lleva a cero cuando eso es todo.
         dif_sin_gastos = (None if diferencia is None or concilia or g is None
-                          else round(diferencia - g, 2))
+                          else round(diferencia + g, 2))
 
         filas.append({
             **pub,
@@ -1195,7 +1207,55 @@ def tablero(email: str, fecha: date) -> dict:
     }
 
 
-def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
+def _mayor_de_base(cuenta_id: int, fecha: date) -> tuple[dict, dict]:
+    """El mayor de UNA cuenta, con la MISMA forma que sale del .xlsx.
+
+    Devuelve `(saldo, detalle)` idénticos a lo que producen `_saldo_del_mayor` y
+    `_movimientos_del_mayor` sobre el archivo, así `conciliar()` no distingue de
+    dónde vino y toda la comparación —candidatos, gastos, avisos— se reusa tal
+    cual, con los tests que ya tiene.
+
+    ⚠️ **Una diferencia real contra el archivo, y hay que saberla**: el Excel de
+    HYGIRUS trae el saldo de cierre ESCRITO por el sistema contable, que es
+    evidencia independiente. Acá el endpoint solo devuelve MOVIMIENTOS, así que
+    el cierre se DERIVA: apertura del banco + movimientos del mayor. Consecuencia:
+    por este camino un descuadre ARRASTRADO de días anteriores no se puede
+    detectar, porque la apertura se toma por buena. Cada día se juzga aislado.
+    Para el saldo absoluto sigue estando la pestaña POR ARCHIVO.
+
+    `fila` lleva el `movimiento_id` de Aunesa y no un número de renglón: es lo que
+    termina en `mov_ref` (`mayor:<id>`) al confirmar un pendiente, y un id estable
+    identifica el movimiento aunque el día se vuelva a traer y cambie de orden.
+    """
+    movs = _q(
+        """SELECT movimiento_id, concepto, importe
+             FROM bancos.mayor_movimientos
+            WHERE cuenta_id = %s AND fecha_conciliacion = %s
+            ORDER BY asiento_numero, movimiento_id""", (cuenta_id, fecha))
+    movimientos = [{"concepto": (m["concepto"] or "").strip() or "(sin concepto)",
+                    "grupo": _grupo_mayor(m["concepto"] or ""),
+                    "importe": round(_f(m["importe"]) or 0.0, 2),
+                    "fila": m["movimiento_id"]} for m in movs]
+    detalle = {"movimientos": movimientos,
+               "suma": round(sum(m["importe"] for m in movimientos), 2),
+               "avisos": []}
+
+    previo = restar_habiles(fecha, 1)
+    apertura = _saldos_banco(previo).get(cuenta_id)
+    if apertura is None:
+        # Sin apertura no hay cierre que calcular. Se devuelve `None` y NO cero:
+        # un cero acá se compararía contra el saldo real y fabricaría un
+        # descuadre del tamaño de la cuenta entera.
+        return ({"valor": None, "texto": None, "fila": None, "columna": None,
+                 "avisos": [f"No hay saldo del banco al {previo.isoformat()}, que es "
+                            "la apertura del mayor: sin eso no se puede calcular su "
+                            "cierre. Se puede conciliar por archivo."]}, detalle)
+    return ({"valor": round(apertura["valor"] + detalle["suma"], 2),
+             "texto": None, "fila": None, "columna": None, "avisos": []}, detalle)
+
+
+def conciliar(email: str, cuenta_id: int, fecha: date,
+              filas: list | None = None) -> dict:
     """Nuestro saldo al cierre contra el último saldo del mayor.
 
     Qué se compara y por qué así:
@@ -1234,8 +1294,14 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
         nuestro = round(nuestro + ajuste, 2)
         fuente = f"{fuente} + ajuste manual"
 
-    mayor = _saldo_del_mayor(filas)
-    detalle = _movimientos_del_mayor(filas)
+    # Sin `filas` el mayor sale de la base (lo trae `jobs/mayor_sync`); con
+    # `filas`, del .xlsx que subieron. De acá para abajo NO se distingue: la
+    # comparación es una sola y por eso vale para los dos caminos.
+    if filas is None:
+        mayor, detalle = _mayor_de_base(cuenta_id, fecha)
+    else:
+        mayor = _saldo_del_mayor(filas)
+        detalle = _movimientos_del_mayor(filas)
     avisos = [*mayor["avisos"], *detalle["avisos"]]
     excel = mayor["valor"]
 
@@ -1372,6 +1438,11 @@ def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
         "saldo_nuestro_fuente": fuente,
         "ajuste_manual": round(ajuste, 2) or None,
         "saldo_excel": excel,
+        # De dónde salió ese saldo. NO son equivalentes y la pantalla tiene que
+        # poder decirlo: del archivo es el cierre que ESCRIBIÓ el sistema contable
+        # (evidencia independiente); de la base está DERIVADO como apertura del
+        # banco + movimientos, así que no puede delatar un arrastre viejo.
+        "mayor_origen": "archivo" if filas is not None else "base",
         "saldo_excel_texto": mayor["texto"],
         "saldo_excel_letra": (mayor["texto"] or "")[-1:].upper()
                              if (mayor["texto"] or "")[-1:].upper() in ("D", "A") else None,

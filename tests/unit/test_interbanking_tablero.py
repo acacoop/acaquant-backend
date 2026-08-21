@@ -76,8 +76,22 @@ def test_la_diferencia_compara_contra_el_cierre_del_banco(tablero):
                 mayor={CID: {"debe": 300_000.0, "haber": 0.0, "movimientos": 2}})
     # mayor cerró en 1.300.000 y el banco en 1.250.000
     assert f["saldo_final"] == 1_300_000.0
-    assert f["diferencia"] == 50_000.0
+    assert f["diferencia"] == -50_000.0
     assert f["diferencia"] != f["debe"] + f["haber"]
+
+
+def test_el_signo_es_el_mismo_que_el_del_drill_down(tablero):
+    """⚠️ La resta va **banco − mayor**, igual que `conciliar()`.
+
+    Con el orden invertido el MISMO descuadre se vería `+50.000` en la grilla y
+    `−50.000` al hacer click en la fila. Y es además el signo con el que ya
+    están guardados los pendientes y el que decide `falta_en_el_mayor` /
+    `sobra_en_el_mayor`.
+    """
+    f = tablero(previo=1_000_000.0, hoy=1_250_000.0,
+                mayor={CID: {"debe": 300_000.0, "haber": 0.0, "movimientos": 2}})
+    nuestro, excel = f["cierre_banco"], f["saldo_final"]
+    assert f["diferencia"] == round(nuestro - excel, 2)
 
 
 def test_sin_diferencia_concilia(tablero):
@@ -101,11 +115,11 @@ def test_el_ajuste_manual_va_del_lado_del_banco(tablero):
 
 def test_dif_sin_gastos_descuenta_el_gasto_todavia_no_cargado(tablero):
     """El banco cobró la comisión y el mayor todavía no la tiene: la diferencia
-    ES el gasto, y al descontarlo queda 0 = «no hay nada más»."""
+    ES el gasto, y al aplicarlo queda 0 = «no hay nada más»."""
     f = tablero(previo=1_000_000.0, hoy=999_000.0,
                 mayor={CID: {"debe": 0.0, "haber": 0.0, "movimientos": 0}},
                 gastos={CID: {"total": 1_000.0}})
-    assert f["diferencia"] == 1_000.0
+    assert f["diferencia"] == -1_000.0
     assert f["dif_sin_gastos"] == 0.0
 
 
@@ -125,8 +139,8 @@ def test_dif_sin_gastos_muestra_lo_que_sobra_ademas_del_gasto(tablero):
     f = tablero(previo=1_000_000.0, hoy=949_000.0,
                 mayor={CID: {"debe": 0.0, "haber": 0.0, "movimientos": 0}},
                 gastos={CID: {"total": 1_000.0}})
-    assert f["diferencia"] == 51_000.0
-    assert f["dif_sin_gastos"] == 50_000.0
+    assert f["diferencia"] == -51_000.0
+    assert f["dif_sin_gastos"] == -50_000.0
 
 
 def test_los_gastos_no_entran_en_ningun_total(tablero):

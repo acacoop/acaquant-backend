@@ -84,6 +84,24 @@ def tablero(
     return _svc.tablero(email, _fecha(fecha))
 
 
+@router.get("/conciliar/cuenta")
+def conciliar_cuenta(
+    cuenta_id: int = Query(..., description="cuenta de bancos.cuentas"),
+    fecha: date | None = Query(None, description="día a conciliar"),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """El detalle de UNA cuenta usando el mayor que ya está en la base.
+
+    Misma respuesta que el POST `/conciliar` —movimientos de los dos lados,
+    gastos y las combinaciones que podrían explicar la diferencia— pero sin subir
+    nada: es el drill-down de una fila del tablero.
+    """
+    try:
+        return _svc.conciliar(email, cuenta_id, _fecha(fecha))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.post("/conciliar")
 def conciliar(
     cuenta_id: int = Body(..., embed=True),

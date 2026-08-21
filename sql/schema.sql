@@ -4223,6 +4223,15 @@ CREATE INDEX IF NOT EXISTS ix_av_agent_ticker
 -- `incoherencias` es el agente auditándose: dos lentes que afirman cosas
 -- incompatibles sobre el mismo hecho. Una contradicción es un bug DEL AGENTE, no
 -- del bono, y por eso viaja en su propia columna en vez de mezclarse.
+-- ⚠️ **LA IDENTIDAD DEL HALLAZGO, CALCULADA UNA SOLA VEZ** (§0.bd).
+-- La escribe el detector (`core.ciclo.clave_de`) y todos JOINean por acá. Sin
+-- esta columna, el que lee tendría que recalcularla —en Python o en SQL— y ahí
+-- vuelve REGLA #9: dos implementaciones de la misma identidad que se separan
+-- solas, y la memoria queda existiendo pero inalcanzable.
+ALTER TABLE mercado.av_agent_hallazgos ADD COLUMN IF NOT EXISTS clave text;
+CREATE INDEX IF NOT EXISTS ix_av_hallazgos_clave
+    ON mercado.av_agent_hallazgos (clave);
+
 CREATE TABLE IF NOT EXISTS mercado.av_agent_trazas (
     id            bigserial PRIMARY KEY,
     caso          text NOT NULL,          -- ticker del bono o id del chequeo

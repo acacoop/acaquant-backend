@@ -200,3 +200,139 @@ def test_la_tabla_nueva_esta_declarada_en_el_registro_del_ciclo():
     """La guarda de §0.bc aplica también a la que nace hoy."""
     faltan = ciclo.tablas_del_agente() - {f.tabla for f in ciclo.REGISTRO}
     assert not faltan, faltan
+
+
+# ── EL PUENTE: registrar lo que está y CERRAR lo que ya no ──────────────────
+#
+# Acá vive la memoria de verdad. `ver()` sabe que algo SIGUE; lo que nadie sabía
+# es que algo DEJÓ de estar, porque una foto por corrida no puede decir «esto ya
+# no aparece»: simplemente sale una lista más corta.
+
+class _CurFalso:
+    """Cursor de mentira que graba los UPDATE y contesta lo mínimo."""
+
+    def __init__(self):
+        self.sql: list[tuple] = []
+        self.rowcount = 0
+
+    def execute(self, sql, params=None):
+        self.sql.append((" ".join(str(sql).split()), params))
+
+    def fetchone(self):
+        return (True, "nuevo", 1, None)
+
+    def fetchall(self):
+        return []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _con_base(monkeypatch):
+    from api.services import av_agent_items as st
+    cur = _CurFalso()
+
+    class _Conn:
+        def cursor(self):
+            return cur
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(st, "get_pool",
+                        lambda: type("P", (), {"connection": staticmethod(_Conn)})())
+    return st, cur
+
+
+def _updates_de_cierre(cur):
+    return [s for s, _ in cur.sql if s.startswith("UPDATE mercado.av_agent_items")
+            and "resuelto_at = now()" in s]
+
+
+def test_SIN_ORIGEN_no_se_cierra_nada():
+    """Cerrar sin saber de quién son los hallazgos cerraría los de otro
+    detector."""
+    from api.services import av_agent_items as st
+    assert st.sincronizar("", [{"tipo": "x"}])["ok"] is False
+
+
+def test_SIN_declarar_que_se_evaluo_NO_se_cierra_nada(monkeypatch):
+    """⚠️ **La guarda más importante del módulo.** Una corrida puede mirar MENOS
+    de lo que mira siempre: si 1816 no contesta, `falta_en_base` no se evaluó y
+    su lista vacía NO significa que no falte ningún bono.
+
+    Cerrar por ausencia sin saber qué se miró convertiría cada caída de un
+    proveedor en «se arreglaron 40 problemas» — el tablero en verde exactamente
+    el día que está más ciego."""
+    st, cur = _con_base(monkeypatch)
+    r = st.sincronizar("censo", [], evaluados=())
+    assert r["resueltos"] == 0
+    assert not _updates_de_cierre(cur), "cerró sin saber qué se había mirado"
+
+
+def test_solo_se_cierran_LOS_TIPOS_EVALUADOS(monkeypatch):
+    """El tipo que no se pudo mirar se deja como está, aunque no haya aparecido."""
+    st, cur = _con_base(monkeypatch)
+    st.sincronizar("censo", [], evaluados={"sin_precio"})
+    cierres = _updates_de_cierre(cur)
+    assert len(cierres) == 1
+    _sql, params = next((s, p) for s, p in cur.sql if s in cierres)
+    assert ["sin_precio"] in [p for p in params if isinstance(p, list)], params
+
+
+def test_lo_que_SIGUE_apareciendo_no_se_cierra(monkeypatch):
+    """Obvio y por eso hay que probarlo: el cierre excluye lo visto en esta
+    corrida."""
+    st, cur = _con_base(monkeypatch)
+    st.sincronizar("censo", [{"tipo": "sin_precio", "ticker": "AL30",
+                              "regla": "sin_punta"}],
+                   evaluados={"sin_precio"})
+    cierre = next(s for s in _updates_de_cierre(cur))
+    assert "NOT (clave = ANY(" in cierre
+
+
+def test_lo_IGNORADO_no_se_toca_al_cerrar(monkeypatch):
+    """Si el cierre lo tocara, un «no me interesa» se perdería solo y el
+    hallazgo volvería como nuevo la corrida siguiente."""
+    st, cur = _con_base(monkeypatch)
+    st.sincronizar("censo", [], evaluados={"sin_precio"})
+    cierre = next(s for s in _updates_de_cierre(cur))
+    assert "estado NOT IN (%s, %s)" in cierre
+
+
+def test_se_DICE_que_tipos_quedaron_sin_evaluar(monkeypatch):
+    """El silencio se lee igual que un verde: si un tipo no se miró, la corrida
+    lo tiene que decir."""
+    st, _cur = _con_base(monkeypatch)
+    monkeypatch.setattr(st, "_tipos_abiertos", lambda o: {"falta_en_base", "sin_precio"})
+    r = st.sincronizar("censo", [], evaluados={"sin_precio"})
+    assert r["no_evaluados"] == ["falta_en_base"]
+
+
+def test_el_job_declara_que_NO_evaluo_los_faltantes_cuando_1816_no_contesto():
+    """Es el caso real que el job ya imprime («los FALTANTES no se evaluaron en
+    esta corrida») y que la persistencia ignoraba."""
+    import inspect
+
+    from jobs.av_agent import _espejar_en_items
+    src = inspect.getsource(_espejar_en_items)
+    assert 'evaluados.discard("falta_en_base")' in src
+    assert 'u.get("faltantes_evaluados")' in src
+
+
+def test_espejar_NUNCA_tumba_la_corrida():
+    """La foto —que es lo que hoy se ve— ya está escrita y no se deshace por un
+    problema del espejo nuevo."""
+    import inspect
+
+    from jobs import av_agent as job
+    src = inspect.getsource(job.persistir)
+    assert "_espejar_en_items(res)" in src
+    cola = src.split("_espejar_en_items(res)")[1]
+    assert "except Exception" in cola

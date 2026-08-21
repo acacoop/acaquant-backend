@@ -50,7 +50,7 @@ import logging
 
 from api.services import av_agent
 from api.services import av_agent_preguntas as preg
-from core import mercado_1816
+from core import ciclo, mercado_1816
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -72,21 +72,75 @@ def persistir(res: dict) -> int:
     hallazgos = res.get("hallazgos") or []
     if not hallazgos:
         return 0
-    filas = [(res.get("alcance") or "", h["tipo"], h["ticker"], h["regla"],
+    # ⚠️ **LA CLAVE SE CALCULA ACÁ Y SE GUARDA.** Es la identidad del hallazgo
+    # como objeto (§0.bd) y la escribe el que lo produce, una sola vez. Si el
+    # que lee la recalculara —en Python o en SQL— tendríamos dos
+    # implementaciones de la misma identidad, que es exactamente cómo la
+    # memoria termina existiendo pero inalcanzable (REGLA #9).
+    alcance = res.get("alcance") or ""
+    filas = [(alcance, h["tipo"], h["ticker"], h["regla"],
               h["severidad"], h["motivo"], json.dumps(h.get("evidencia") or {},
-                                                      ensure_ascii=False, default=str))
+                                                      ensure_ascii=False, default=str),
+              ciclo.clave_de(h["tipo"], alcance, h["ticker"], h["regla"]))
              for h in hallazgos]
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
             "INSERT INTO mercado.av_agent_hallazgos "
-            "(alcance, tipo, ticker, regla, severidad, motivo, evidencia) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)", filas)
+            "(alcance, tipo, ticker, regla, severidad, motivo, evidencia, clave) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)", filas)
         cur.execute(
             "DELETE FROM mercado.av_agent_hallazgos WHERE corrida_at < ("
             "  SELECT min(c) FROM (SELECT DISTINCT corrida_at AS c "
             "    FROM mercado.av_agent_hallazgos ORDER BY c DESC LIMIT %s) t)",
             (_TTL_CORRIDAS,))
+
+    # ── Y EL MISMO HALLAZGO, COMO OBJETO CON MEMORIA (§0.bd) ────────────────
+    #
+    # La tabla de arriba es una FOTO: cada corrida reescribe todo y nadie puede
+    # decir «esto ya estaba ayer» ni «esto se arregló». Acá abajo va lo mismo a
+    # `mercado.av_agent_items`, donde la identidad es estable — así el hallazgo
+    # que vuelve es el MISMO objeto, acumula antigüedad, y el que deja de
+    # aparecer queda RESUELTO con la fecha en que se arregló.
+    #
+    # **Convive, no reemplaza**: la foto sigue siendo lo que lee la pantalla
+    # hasta que la migración llegue ahí. Escribir las dos un tiempo es lo que
+    # permite comparar y migrar sin apagar nada (§0.bc).
+    #
+    # Y si esto falla, la corrida NO se cae: la foto —que es lo que hoy se ve—
+    # ya está escrita y no se deshace por un problema del espejo nuevo.
+    try:
+        _espejar_en_items(res)
+    except Exception as e:
+        logger.warning("av_agent: no pude espejar en items (%s)", e)
     return len(filas)
+
+
+def _espejar_en_items(res: dict) -> None:
+    """Los hallazgos de esta corrida, como objetos con ciclo de vida.
+
+    ⚠️ **Lo importante es `evaluados`.** Una corrida puede mirar MENOS de lo que
+    mira siempre: si 1816 no contesta, `falta_en_base` no se evaluó y su lista
+    vacía **no significa que no falte ningún bono**. Cerrar por ausencia sin
+    declarar qué se miró convertiría cada caída de un proveedor en «se
+    arreglaron 40 problemas» — el tablero en verde justo el día más ciego.
+    """
+    from api.services import av_agent_items
+
+    u = res.get("universo") or {}
+    hall = res.get("hallazgos") or []
+    # Los tipos que esta corrida SÍ pudo mirar. Los tres condicionales son los
+    # mismos que el job ya imprime como «no se evaluó» — acá deciden si se
+    # puede cerrar por ausencia.
+    vistos_en_la_corrida = {h.get("tipo") for h in hall if h.get("tipo")}
+    evaluados = set(vistos_en_la_corrida)
+    if u.get("faltantes_evaluados"):
+        evaluados.add("falta_en_base")
+    else:
+        evaluados.discard("falta_en_base")
+    if not u.get("assets_leidos"):
+        evaluados.discard("tasa_sospechosa")     # sin assets, `sin_espejo` no corre
+    av_agent_items.sincronizar(res.get("alcance") or "censo", hall,
+                               evaluados=evaluados)
 
 
 def _imprimir(res: dict, detalle: bool) -> None:

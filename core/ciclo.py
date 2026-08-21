@@ -323,8 +323,12 @@ REGISTRO: tuple[Forma, ...] = (
     Forma("mercado.av_agent_acciones", ("ok",),
           "ok bool (append-only: es el LIBRO)", _por_existencia),
     # Append-only: no tienen ciclo y no hay que dárselo.
-    Forma("mercado.av_agent_hallazgos", (), "FOTO por corrida_at — SIN estado "
-          "propio: se deriva cruzando 5 tablas", _por_existencia),
+    # La FOTO. Sigue existiendo (es el histórico por corrida, de donde salió la
+    # antigüedad real del backfill) pero su ESTADO ya no se deriva de cinco
+    # tablas: lo tiene su espejo en `av_agent_items`, unidos por `clave`.
+    Forma("mercado.av_agent_hallazgos", ("clave",),
+          "FOTO por corrida — el estado vive en av_agent_items (JOIN por clave)",
+          _por_existencia),
     Forma("mercado.av_agent_trazas", (), "append-only", _por_existencia),
     Forma("mercado.av_agent_evals", (), "append-only", _por_existencia),
     Forma("mercado.av_agent_lecciones", (), "append-only", _por_existencia),

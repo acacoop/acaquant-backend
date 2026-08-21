@@ -159,6 +159,104 @@ def marcar(clave: str, estado: str, *, por: str = "") -> dict:
         return {"ok": False, "error": str(e)[:200]}
 
 
+def sincronizar(origen: str, vistos: list[dict], *,
+                evaluados: set[str] | tuple[str, ...] = ()) -> dict:
+    """Una corrida entera: **registra lo que está y CIERRA lo que ya no está.**
+
+    Acá vive la memoria de verdad, y es la mitad que faltaba. `ver()` sabe que
+    algo sigue; lo que nadie sabía es que algo **dejó de estar**, porque la foto
+    por corrida no tiene forma de decir «esto ya no aparece»: simplemente sale
+    una lista más corta. Por eso el agente nunca podía afirmar que algo se
+    arregló, y por eso el seguimiento no tenía de dónde arrancar.
+
+        lo que está      → `ver()`: nace, o suma `veces`, o pasa a `volvio`
+        lo que YA NO     → `resuelto`, con `resuelto_at` = ahora
+                           y ahí arranca el conteo de hitos (1·2·3·7·14·30)
+
+    ⚠️⚠️ **`evaluados` NO ES OPCIONAL EN LA PRÁCTICA, Y ES LA GUARDA MÁS
+    IMPORTANTE DE ESTE MÓDULO.** Una corrida puede mirar MENOS de lo que mira
+    siempre: si 1816 no contesta, `falta_en_base` no se evaluó — y su lista
+    vacía **no significa que no falte ningún bono**, significa que no se miró.
+
+    Cerrar por ausencia sin saber qué se miró convertiría cada caída de un
+    proveedor en «se arreglaron 40 problemas», que es la mentira más cara que
+    puede decir una herramienta de integridad: deja el tablero en verde
+    exactamente el día que está más ciego. El propio job ya distingue los dos
+    casos (imprime «los FALTANTES no se evaluaron en esta corrida»); lo que
+    faltaba era que la persistencia también los distinguiera.
+
+    **Solo se cierran los tipos que la corrida declara haber evaluado.** Un tipo
+    fuera de `evaluados` se registra si aparece, y **jamás** se cierra.
+    """
+    origen = (origen or "").strip()
+    if not origen:
+        return {"ok": False, "error": "sin origen no se puede cerrar nada: "
+                                      "cerraría hallazgos de otro detector"}
+    evaluados = {str(x).strip() for x in (evaluados or ()) if str(x).strip()}
+
+    claves_vistas: set[str] = set()
+    nuevos = vueltos = 0
+    for h in vistos or []:
+        tipo = str(h.get("tipo") or "").strip()
+        if not tipo:
+            continue
+        r = ver(tipo=tipo, origen=origen,
+                sujeto=str(h.get("ticker") or h.get("sujeto") or ""),
+                regla=str(h.get("regla") or ""),
+                titulo=str(h.get("motivo") or h.get("titulo") or ""),
+                afecta=str(h.get("afecta") or ""),
+                severidad=str(h.get("severidad") or "media"),
+                datos=h.get("evidencia") or h.get("datos") or {})
+        if not r.get("ok"):
+            continue
+        claves_vistas.add(r["clave"])
+        nuevos += 1 if r.get("nuevo") else 0
+        vueltos += 1 if r.get("estado") == ciclo.VOLVIO else 0
+
+    cerrados = _cerrar_ausentes(origen, claves_vistas, evaluados)
+    return {"ok": True, "origen": origen, "vistos": len(claves_vistas),
+            "nuevos": nuevos, "vueltos": vueltos, "resueltos": cerrados,
+            "no_evaluados": sorted(_tipos_abiertos(origen) - evaluados)}
+
+
+def _cerrar_ausentes(origen: str, vistas: set[str], evaluados: set[str]) -> int:
+    """Cierra lo que este detector dejó de ver. **Solo de los tipos evaluados.**"""
+    if not evaluados:
+        # Sin saber qué se miró no se cierra NADA. Es la degradación correcta:
+        # dejar un problema resuelto en la lista molesta; borrar uno que sigue
+        # roto no se ve nunca.
+        return 0
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE mercado.av_agent_items "
+                "   SET estado = %s, resuelto_at = now() "
+                " WHERE origen = %s "
+                "   AND tipo = ANY(%s) "
+                "   AND estado NOT IN (%s, %s) "
+                "   AND NOT (clave = ANY(%s))",
+                (ciclo.RESUELTO, origen, sorted(evaluados),
+                 ciclo.RESUELTO, ciclo.IGNORADO, sorted(vistas) or [""]))
+            return cur.rowcount or 0
+    except Exception as e:
+        logger.warning("av_agent_items: no pude cerrar los ausentes de %s (%s)",
+                       origen, e)
+        return 0
+
+
+def _tipos_abiertos(origen: str) -> set[str]:
+    """Qué tipos tiene abiertos este detector. Sirve para DECIR cuáles quedaron
+    sin evaluar — el silencio se lee igual que un verde."""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT tipo FROM mercado.av_agent_items "
+                        "WHERE origen = %s AND estado NOT IN (%s, %s)",
+                        (origen, ciclo.RESUELTO, ciclo.IGNORADO))
+            return {r[0] for r in cur.fetchall()}
+    except Exception:
+        return set()
+
+
 def abiertos(tipo: str = "", limite: int = 400) -> list[ciclo.Item]:
     """Lo que sigue vivo. **Incluye `volvio`**: un problema que reapareció está
     abierto, y además merece más atención que uno nuevo."""

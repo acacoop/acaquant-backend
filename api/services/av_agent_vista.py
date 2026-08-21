@@ -19,12 +19,30 @@ import logging
 from datetime import date
 
 from api.services import av_agent, av_agent_evals
-from core import curvas_ejes
+from core import ciclo, curvas_ejes
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
+# ⚠️ `alcance` entra a la lista porque es parte de la IDENTIDAD del hallazgo
+# como objeto (`clave_de_hallazgo`): sin él, el que lee calcula una clave
+# distinta de la que escribió el detector y la memoria queda inalcanzable —
+# existiendo. Es el mismo modo de falla que el símbolo columna-vs-blob.
 _COLS_H = ["tipo", "ticker", "regla", "severidad", "motivo", "evidencia"]
+
+# ── LA MEMORIA, EN LA MISMA QUERY ───────────────────────────────────────────
+#
+# La foto dice QUÉ hay hoy; esto dice **desde cuándo** y **cuántas veces**. Son
+# datos que una foto no puede tener: cada corrida la reescribe entera, así que
+# todo se veía «de hoy» aunque llevara dos semanas.
+#
+# Entra por `LEFT JOIN` y no por una query aparte porque **el peaje de Supabase
+# se paga por VIAJE** (~8,5 ms), y hay un test que cuenta los viajes de esta
+# función. El JOIN es por `h.clave`, que la escribe el detector: nadie
+# recalcula la identidad (REGLA #9).
+_COLS_MEM = ["veces", "abierto_at", "estado_item"]
+_SELECT_H = (", ".join(f"h.{c}" for c in _COLS_H)
+             + ", i.veces, i.abierto_at, i.estado")
 _ORDEN_SEV = {"alta": 0, "media": 1, "baja": 2}
 
 
@@ -460,21 +478,23 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         obs = list(av_agent.OBSERVACIONES_DE_MERCADO)
         rapido = list(av_agent.VENCE_RAPIDO)
         cur.execute(
-            f"SELECT {', '.join(_COLS_H)} FROM mercado.av_agent_hallazgos "
-            "WHERE (%s IS NOT NULL AND corrida_at = %s AND alcance <> ALL(%s)) "
-            "   OR (alcance = ANY(%s) AND ("
+            f"SELECT {_SELECT_H} FROM mercado.av_agent_hallazgos h "
+            "LEFT JOIN mercado.av_agent_items i ON i.clave = h.clave "
+            "WHERE (%s IS NOT NULL AND h.corrida_at = %s AND h.alcance <> ALL(%s)) "
+            "   OR (h.alcance = ANY(%s) AND ("
             #     una buena noticia: dura poco
-            "         (regla = ANY(%s) AND corrida_at > now() - "
+            "         (h.regla = ANY(%s) AND h.corrida_at > now() - "
             "             make_interval(secs => %s))"
             #     una observación de mercado: solo vale si es reciente
-            "      OR (regla = ANY(%s) AND corrida_at > now() - "
+            "      OR (h.regla = ANY(%s) AND h.corrida_at > now() - "
             "             make_interval(secs => %s))"
             #     un problema nuestro: sigue siendo cierto con el mercado cerrado
-            "      OR (regla <> ALL(%s) AND regla <> ALL(%s))))",
+            "      OR (h.regla <> ALL(%s) AND h.regla <> ALL(%s))))",
             (corrida, corrida, vivos, vivos,
              rapido, av_agent.VENCE_RAPIDO_S,
              obs, av_agent.VENCE_OBSERVACION_S, obs, rapido))
-        filas = [dict(zip(_COLS_H, r, strict=False)) for r in cur.fetchall()]
+        filas = [dict(zip(_COLS_H + _COLS_MEM, r, strict=False))
+                 for r in cur.fetchall()]
         # El blob completo, no solo la PK: `sin_flujo` caduca cuando el bono YA
         # tiene cronograma, y eso se lee acá mismo. **Es la misma query** — el
         # peaje de Supabase se paga por viaje, no por columna.
@@ -482,6 +502,7 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         docs_curvas = {(r[0] or "").strip().upper(): (r[1] or {})
                        for r in cur.fetchall()}
         en_curvas = set(docs_curvas)
+
 
 
     # ⚠️ **Cada tipo caduca por su PROPIA razón, y el campo `ticker` no significa
@@ -537,6 +558,25 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         # autonomía con evidencia que no mide nada. Lo decide el backend, como
         # todo lo demás de la fila.
         h["pregunta"] = av_agent.pregunta_de(h.get("tipo") or "")
+        # ── DESDE CUÁNDO Y CUÁNTAS VECES ────────────────────────────────────
+        #
+        # Lo que convierte «apareció hoy» en «lleva 11 días · 47 ruedas». Un
+        # problema crónico y uno de recién se atienden distinto y hasta hoy se
+        # veían idénticos.
+        #
+        # ⚠️ **`volvio` se marca aparte y no se mezcla con la antigüedad.** Un
+        # problema que se arregló y REAPARECIÓ es la señal más fuerte que hay
+        # —dice que el arreglo no sirvió— y contarlo como uno viejo cualquiera
+        # la borra.
+        if h.get("abierto_at"):
+            h["dias_abierto"] = round(ciclo._dias(h["abierto_at"]), 1)
+        # ⚠️ **`volvio` se marca aparte y no se mezcla con la antigüedad.** Un
+        # problema que se arregló y REAPARECIÓ es la señal más fuerte que hay
+        # —dice que el arreglo no sirvió— y contarlo como uno viejo cualquiera
+        # la borra.
+        if h.pop("estado_item", None) == ciclo.VOLVIO:
+            h["volvio"] = True
+        h.pop("abierto_at", None)
         # CUÁNTO ACIERTA ESTA CAUSA. `None` = no se pudo medir (distinto de 0
         # votos, que sí es un dato: «nunca nadie juzgó esta regla»).
         if medicion is None:

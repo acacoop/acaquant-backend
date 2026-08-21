@@ -486,6 +486,22 @@ PREGUNTA_POR_TIPO: dict[str, str] = {
 }
 
 
+def clave_de_hallazgo(h: dict) -> str:
+    """La identidad de un hallazgo como OBJETO (§0.bd).
+
+    Vive acá —y no en cada lector— porque tiene que dar EXACTAMENTE lo mismo
+    que la clave con que lo escribió el detector: si el que lee y el que
+    escribe la calcularan distinto, la memoria existiría y nadie la
+    encontraría. Es el mismo modo de falla que el símbolo columna-vs-blob.
+
+    El `origen` es el ALCANCE de la corrida (`soberanos` · `live` · `sistema`),
+    que es lo que usa `jobs/av_agent._espejar_en_items`.
+    """
+    from core import ciclo
+    return ciclo.clave_de(h.get("tipo") or "", h.get("alcance") or "",
+                          h.get("ticker") or "", h.get("regla") or "")
+
+
 def pregunta_de(tipo: str) -> str:
     """`juicio` o `observacion`. **Ante la duda, JUICIO**: pedir un voto de más
     molesta; dar por observación algo que sí era una deducción deja al agente

@@ -142,10 +142,16 @@ def test_la_deuda_es_un_NUMERO_y_no_una_sensacion():
     assert "mercado.av_agent_centinela" in deuda
 
 
-def test_los_HALLAZGOS_estan_marcados_como_lo_que_son():
-    """`av_agent_hallazgos` es LA tabla de ENCONTRÓ y no tiene estado propio: es
-    una foto. Declararlo es lo que convierte «el agente no tiene memoria» en una
-    línea de deuda concreta."""
+def test_los_HALLAZGOS_ya_tienen_donde_vivir_su_estado():
+    """⚠️ Este test decía `assert "SIN estado" in f.como` — congelaba el
+    PROBLEMA, no la intención. `av_agent_hallazgos` era una foto sin estado y
+    su ciclo se derivaba de cinco tablas; **ese era el bug**, y se migró
+    (§0.be): ahora la foto sigue siendo el histórico por corrida y el estado
+    vive en `av_agent_items`, unidos por `clave`.
+
+    Lo que sí hay que congelar es que la unión exista: sin la `clave`, la
+    memoria queda existiendo pero inalcanzable."""
     f = next(x for x in ciclo.REGISTRO
              if x.tabla == "mercado.av_agent_hallazgos")
-    assert "SIN estado" in f.como
+    assert "clave" in f.campos
+    assert ciclo.CANONICA in f.como or "av_agent_items" in f.como

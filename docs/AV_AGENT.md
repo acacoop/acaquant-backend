@@ -3708,6 +3708,69 @@ derivar su estado desde cinco tablas se lleva la mitad de los bugs de esta
 semana.
 
 
+### 0.be LA PRIMERA MIGRACIÓN: el hallazgo tiene memoria (2026-08-21)
+
+`av_agent_hallazgos` era el candidato #1 y se hizo. Ahora cada hallazgo se
+espeja como objeto (§0.bd) y **la pantalla lee su historia**.
+
+#### Lo que faltaba no era guardar: era CERRAR
+
+`ver()` sabe que algo sigue. Lo que nadie sabía es que algo **dejó de estar** —
+una foto por corrida no puede decir «esto ya no aparece», simplemente sale una
+lista más corta. Por eso el agente nunca pudo afirmar que algo se arregló, y por
+eso el seguimiento no tenía de dónde arrancar.
+
+`sincronizar(origen, vistos, evaluados)` hace las dos mitades:
+
+    lo que está      → nace, o suma `veces`, o pasa a `volvio`
+    lo que YA NO     → `resuelto`, y ahí arranca el conteo de hitos
+
+> ⚠️⚠️ **`evaluados` ES LA GUARDA MÁS IMPORTANTE DE TODA LA MIGRACIÓN.** Una
+> corrida puede mirar MENOS de lo que mira siempre: si 1816 no contesta,
+> `falta_en_base` no se evaluó — y su lista vacía **no significa que no falte
+> ningún bono**, significa que no se miró.
+>
+> Cerrar por ausencia sin saber qué se miró convertiría **cada caída de un
+> proveedor en «se arreglaron 40 problemas»**: el tablero en verde exactamente
+> el día que está más ciego. Es la mentira más cara que puede decir una
+> herramienta de integridad. El job ya distinguía los dos casos al imprimir
+> («los FALTANTES no se evaluaron en esta corrida»); lo que faltaba era que la
+> persistencia también los distinguiera. **Sin `evaluados` no se cierra nada.**
+
+#### La identidad se calcula UNA vez
+
+`av_agent_hallazgos` ganó la columna `clave`, que **escribe el detector**. La
+pantalla no la recalcula: hace `LEFT JOIN` por esa columna. Si el que lee la
+recalculara —en Python o en SQL— habría dos implementaciones de la misma
+identidad, y la memoria terminaría existiendo pero inalcanzable. Es el mismo
+modo de falla que el símbolo columna-vs-blob (REGLA #9).
+
+⚠️ Y entra **en la misma query**: hay un test que cuenta los viajes de
+`_hallazgos_ultima_corrida` porque el peaje de Supabase se paga por viaje
+(~8,5 ms). Ese test cazó el intento de resolverlo con una query aparte — y tenía
+razón, porque la solución con JOIN además es la correcta.
+
+#### Lo que se ve en la fila
+
+    AL30   pata equivocada   ↩ volvió   11d ×47
+
+`↩ volvió` gana sobre todo lo demás: un problema que se arregló y reapareció
+dice que **el arreglo no sirvió**, y es la señal más fuerte que tiene el
+sistema. La antigüedad se muestra recién a partir del día — «hace 4 h» no cambia
+ninguna decisión y ocupa lugar.
+
+#### La antigüedad no se inventó: estaba en la base
+
+Sellar todo con `abierto_at = ahora` habría sido mentir justo en lo que la
+migración vino a arreglar. Pero la tabla conserva **60 corridas**: la primera en
+que aparece cada clave ES desde cuándo está abierta, y en cuántas apareció ES el
+`veces`. `python -m scripts.backfill_items` lo recupera (dry-run por default,
+idempotente, y **no cierra nada** — una clave ausente del último censo pudo
+arreglarse o pudo no evaluarse, y desde un backfill no hay forma de saberlo).
+
+    MIGRACIÓN   ██░░░░░░░░░░  2/12
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

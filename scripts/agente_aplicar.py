@@ -123,6 +123,14 @@ def main() -> None:
         print(f"  ⇒ aplicadas {ok}/{len(elegidas)}")
         for x in mal[:8]:
             print(f"    ✘ {x.get('sujeto')}: {x.get('error')}")
+        # ⚠️ **EL RE-CHEQUEO SE IMPRIME, y no imprimirlo era la mitad del
+        # problema.** `hacer.aplicar()` vuelve a correr el control de cada
+        # acción y devuelve el resultado en `recontrol` — este script lo tiraba
+        # a la basura. Así que la única respuesta que el user veía era
+        # «aplicadas 5/5», y para saber si eso movió algo tenía que esperar a
+        # la corrida de la noche. Es EL número que contesta «¿sirvió?».
+        for cid, txt in (res.get("recontrol") or {}).items():
+            print(f"    ↻ {cid}: {txt}")
 
     print("\nDespués de aplicar, correr `python -m scripts.diag_encontro` "
           "para ver qué quedó.")

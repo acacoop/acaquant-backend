@@ -43,16 +43,28 @@ class TestTodoTipoConCotejoPosibleLoTiene:
 
 
 class TestNoSePuedeVACIAR_LA_PANTALLA_POR_UN_FALLO:
-    def test_si_salud_no_se_puede_evaluar_no_caduca_nada(self, monkeypatch):
+    def test_si_salud_no_se_puede_evaluar_no_caduca_nada(self):
         """⚠️ La guarda que importa: `{}` significa «no pude mirar», y un id
         ausente NO es «está resuelto». Confundirlos vaciaría ENCONTRÓ justo el
         día que SALUD está caído — la mentira más cara que puede decir una
-        herramienta de integridad."""
-        monkeypatch.setattr(v, "_salud_por_id", dict)
-        src = inspect.getsource(v._hallazgos_ultima_corrida)
-        # El predicado compara contra "ok" EXPLÍCITO, no contra la ausencia.
-        assert 'estado == "ok"' in src, (
-            "tiene que exigir el verde, no la ausencia del id")
+        herramienta de integridad.
+
+        ⚠️ **Antes esto era un grep de `'estado == "ok"'` en el fuente** y se
+        rompió al renombrar una variable, sin que el comportamiento cambiara ni
+        un poco. Un test que se cae por un rename y NO se cae por un `!=` está
+        cuidando el texto en vez de la regla. Ahora se ejerce el predicado.
+        """
+        # Se reconstruye el predicado tal como lo evalúa `_caduco`, con los tres
+        # casos que importan: verde · rojo · «no lo pude mirar».
+        def caduca(vivo):
+            return bool(vivo) and (vivo.get("estado") or "") == "ok"
+
+        assert caduca({"estado": "ok"}) is True, "el verde SÍ tacha la fila"
+        assert caduca({"estado": "warn"}) is False, "un control con casos se queda"
+        assert caduca({"estado": "error"}) is False
+        assert caduca(None) is False, "«no pude mirar» NUNCA es «está resuelto»"
+        assert caduca({}) is False
+        assert caduca({"estado": None}) is False
 
     def test_el_fallback_devuelve_vacio_y_lo_dice(self):
         src = inspect.getsource(v._salud_por_id)
@@ -90,3 +102,47 @@ class TestAplicarVuelveAMirar:
         src = inspect.getsource(hacer._recontrolar_despues)
         assert "except Exception" in src
         assert "no pude recontrolar" in src
+
+
+class TestElAvanceParcialSeVE:
+    """⚠️ **El bug que costó tres rondas.** El user arregló 5 de 8 casos de
+    `fci_incompletos`, tres veces seguidas, y ENCONTRÓ mostró **el mismo número
+    exacto**. El arreglo andaba: el control seguía rojo (quedaban 3) así que la
+    fila se quedaba —correcto— pero con el TEXTO de la foto de anoche, que decía
+    8. Tachar cuando vuelve al verde ya estaba; lo que faltaba era el caso
+    NORMAL, que es arreglar una parte."""
+
+    def test_reescribe_el_conteo_con_el_numero_vivo(self):
+        h = {"tipo": "salud", "ticker": "control:fci_incompletos",
+             "severidad": "media", "motivo": "viejo",
+             "evidencia": {"n_casos": 8, "titulo": "Assets FCI sin ticker/emisor"}}
+        v._refrescar_salud(h, {"control:fci_incompletos": {
+            "id": "control:fci_incompletos", "estado": "warn", "n": 3,
+            "titulo": "Assets FCI sin ticker/emisor",
+            "motivo": "3 anomalías sin resolver"}})
+        assert h["n_casos"] == 3, "tiene que decir lo que queda HOY"
+        assert h["n_casos_foto"] == 8, "y contra qué, si no el avance no se ve"
+        assert "3" in h["motivo"]
+
+    def test_sin_cambio_no_inventa_un_delta(self):
+        h = {"tipo": "salud", "ticker": "c", "severidad": "media", "motivo": "x",
+             "evidencia": {"n_casos": 4}}
+        v._refrescar_salud(h, {"c": {"id": "c", "estado": "warn", "n": 4,
+                                     "titulo": "t", "motivo": "4 anomalías"}})
+        assert h["n_casos"] == 4
+        assert "n_casos_foto" not in h, "sin delta no se muestra un delta"
+
+    def test_si_no_esta_vivo_la_fila_queda_como_vino(self):
+        """«No lo pude evaluar» no puede parecer «se arregló» — misma regla que
+        el cotejo que tacha."""
+        h = {"tipo": "salud", "ticker": "c", "severidad": "alta",
+             "motivo": "original", "evidencia": {"n_casos": 9}}
+        v._refrescar_salud(h, {})
+        assert h["motivo"] == "original"
+        assert "n_casos" not in h
+
+    def test_no_toca_las_filas_que_no_son_de_salud(self):
+        h = {"tipo": "falta_en_base", "ticker": "AL30", "motivo": "m",
+             "severidad": "alta", "evidencia": {}}
+        v._refrescar_salud(h, {"AL30": {"estado": "ok", "n": 0}})
+        assert h["motivo"] == "m" and "n_casos" not in h

@@ -49,6 +49,17 @@ _CLASES = ("AUTO_CERRABLE", "RUIDO_ESTRUCTURAL", "TIENE_PUERTA",
            "FALTA_ACCION", "HUMANO")
 
 
+def _etiqueta(h: dict) -> str:
+    """El sujeto + cuántos casos tiene adentro, si son más de uno.
+
+    Un `control:patas_dolar_sin_pedir` con 133 casos y uno con 1 se veían
+    idénticos en esta lista, y son trabajos de tamaño muy distinto.
+    """
+    base = str(h.get("nombre") or h.get("ticker") or "")[:20]
+    n = h.get("n_casos")
+    return f"{base}({n})" if isinstance(n, int) and n > 1 else base
+
+
 def _clasificar(h: dict) -> tuple[str, str]:
     """(clase, por qué). El orden de los `if` ES la prioridad."""
     regla = (h.get("regla") or "").strip()
@@ -103,8 +114,14 @@ def main() -> None:
         for regla, n in Counter(h["regla"] for h, _ in filas).most_common():
             del_grupo = [(h, p) for h, p in filas if h["regla"] == regla]
             porque = del_grupo[0][1]
-            ejemplos = [str(h.get("ticker") or "")[:20] for h, _ in del_grupo][:6]
-            print(f"  {n:>4}  {regla:<26} {porque}")
+            ejemplos = [_etiqueta(h) for h, _ in del_grupo][:6]
+            # **CASOS, no filas.** Un control es UNA fila y puede tener 133
+            # casos adentro; contar filas dice que arreglar 5 de 8 no movió
+            # nada. Solo se muestra si difiere del número de filas, para no
+            # ensuciar las reglas donde una fila ES un caso.
+            casos = sum(int(h.get("n_casos") or 1) for h, _ in del_grupo)
+            cola = f"  [{casos} casos]" if casos != n else ""
+            print(f"  {n:>4}  {regla:<26}{cola} {porque}")
             print(f"        {' · '.join(ejemplos)}" + (" …" if n > 6 else ""))
 
     print(f"\n{'=' * 74}\nQUÉ HACER CON CADA PILA\n{'=' * 74}")
@@ -114,7 +131,10 @@ def main() -> None:
             ("TIENE_PUERTA", "ya tienen acción → apretar el botón"),
             ("FALTA_ACCION", "DEUDA: escribir el arreglo, por volumen"),
             ("HUMANO", "criterio de la mesa — el único resto legítimo")):
-        print(f"  {len(por_clase.get(clase) or []):>4}  {que}")
+        filas_c = por_clase.get(clase) or []
+        casos_c = sum(int(h.get("n_casos") or 1) for h, _ in filas_c)
+        cola = f" ({casos_c} casos)" if casos_c != len(filas_c) else ""
+        print(f"  {len(filas_c):>4}{cola:<14}  {que}")
 
     # ⚠️ **LO QUE LA PANTALLA NO MUESTRA, dicho igual.** `av_agent_items` guarda
     # además avisos y sensores. No son deuda de ENCONTRÓ, pero si el número no

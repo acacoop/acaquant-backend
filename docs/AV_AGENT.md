@@ -5379,6 +5379,68 @@ contra `mercado.curvas`: la misma guarda 1 que ya tenía la acción. Si el códi
 de la unidad no es una curva, no sabemos cuál de los dos nombres es el bueno, así
 que **no hay divergencia que declarar**.
 
+### 0.ce EL AVANCE PARCIAL ERA INVISIBLE: se contaban CONTROLES, no CASOS (2026-08-22)
+
+Continuación directa de §0.cd, y la parte que ese diagnóstico **no** alcanzó.
+Después de aplicar el cotejo vivo de SALUD, el censo volvió **idéntico por
+tercera vez**: 98 hallazgos, dígito por dígito. Mi predicción («`fci_incompletos`
+baja de 8 a ~5-6») falló.
+
+#### Lo medido, leyendo el código y no adivinando
+
+Tres cosas, todas verificables en el fuente:
+
+1. **`detectar_salud` SÍ emite `tipo == "salud"`** (`av_agent.py:1245`, primer
+   argumento de `_hallazgo`) — el cotejo que se había shipeado no era un no-op.
+2. **`salud._chequeos_controles` ya publica `n = len(activos)`** — el número de
+   casos existía y nadie lo leía.
+3. **Un control es UNA fila de ENCONTRÓ, con N casos adentro.** `fci_incompletos`
+   tenía 8 casos: 5 sin emisor (los que se arreglaron) y 3 sin ticker (unidades
+   que no matchean el formato CAFCI, que esa acción no puede tocar).
+
+O sea: **el control siguió rojo, con toda la razón, así que su fila se quedó — y
+el conteo de filas no podía moverse.** El mecanismo funcionaba perfecto y era
+invisible.
+
+#### El error de diseño: tachar estaba resuelto, reescribir no
+
+`_salud_por_id` devolvía `{id: estado}`. Con eso el cotejo sabe contestar UNA
+sola pregunta —¿está en verde?— y por lo tanto sabe hacer UNA sola cosa: tachar
+la fila. Pero **el caso normal no es que algo se arregle entero: es que se
+arregle una parte.** Para ese caso el estado no alcanza y el texto de la fila
+quedaba congelado en el de la foto de anoche.
+
+`_salud_por_id` ahora devuelve **el chequeo entero** y `_refrescar_salud`
+reescribe motivo, severidad y conteo en la lectura. La foto guarda `n_casos`, así
+que la fila puede decir **«3 casos ▼ eran 8»**. Mismo principio de siempre —*la
+foto se muestra, pero nunca sin cotejarla*— aplicado al TEXTO y no solo a la
+existencia de la fila.
+
+#### Lo que además tapaba el resultado
+
+  · **`agente_aplicar` tiraba el re-chequeo a la basura.** `hacer.aplicar()`
+    vuelve a correr el control y devuelve el resultado en `recontrol`; el script
+    imprimía solo «aplicadas 5/5». Ese era EL número que contestaba «¿sirvió?» y
+    no se veía. Ahora se imprime.
+  · **`diag_encontro` contaba filas.** Ahora suma `n_casos` y muestra
+    `[187 casos]` al lado de las 98 filas, y `control:patas_dolar_sin_pedir(133)`
+    deja de verse igual que un control con un solo caso.
+
+#### La regla que queda
+
+**Un contador que no se mueve cuando el trabajo avanza es un contador
+equivocado, aunque cada número que muestra sea cierto.** Los 98 eran correctos
+las tres veces. El problema no era la exactitud, era la granularidad: se estaba
+midiendo en una unidad (el control) que no cambia cuando pasa lo que sí cambia
+(el caso). Si algo se arregló y ningún número lo refleja, el contador no está
+midiendo el trabajo.
+
+Y un test menos: `test_si_salud_no_se_puede_evaluar_no_caduca_nada` era un grep
+de `'estado == "ok"'` sobre el fuente y **se rompió al renombrar una variable,
+sin que el comportamiento cambiara**. Un test que se cae por un rename y no se
+caería por un `!=` cuida el texto, no la regla. Ahora ejerce el predicado con los
+tres casos: verde tacha · rojo se queda · «no pude mirar» nunca es «resuelto».
+
 ### 0.cd APLICAR 5 Y QUE LA PANTALLA MUESTRE LOS MISMOS 98 (2026-08-22)
 
 El user aplicó los 5 emisores de FCI —se escribieron, se verificaron, `5/5`— y

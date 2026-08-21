@@ -1252,6 +1252,11 @@ def detectar_salud(chequeos: list[dict]) -> list[dict]:
             _motivo_salud(c),
             {"chequeo_id": c.get("id"), "familia": familia,
              "titulo": c.get("titulo"), "estado": estado,
+             # **CUÁNTOS CASOS TENÍA AL SACAR LA FOTO.** No se usa para decidir
+             # nada: es el punto de comparación que le permite a la lectura
+             # decir «3 casos · eran 8». Sin guardarlo, arreglar 5 de 8 no deja
+             # ninguna huella visible y el trabajo parece no haber pasado.
+             "n_casos": c.get("n"),
              "evidencia_salud": c.get("evidencia"),
              "schedule": c.get("schedule"), "tabla": c.get("tabla"),
              "ultimo_at": c.get("ultimo_at"), "esperada_at": c.get("esperada_at"),

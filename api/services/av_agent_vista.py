@@ -484,8 +484,8 @@ def resolver_aviso_propio(aviso_id: int, *, quien: str) -> dict:
 
 
 @cached(ttl=45)
-def _salud_por_id() -> dict[str, str]:
-    """`{id del chequeo: estado}` — el estado VIVO, no el de la foto.
+def _salud_por_id() -> dict[str, dict]:
+    """`{id del chequeo: el chequeo VIVO ENTERO}` — no el de la foto.
 
     Cacheado 45s: menos que el poll de la pantalla, así que lo que se arregla se
     ve en la lectura siguiente, y suficiente para que abrir el modal diez veces
@@ -494,10 +494,23 @@ def _salud_por_id() -> dict[str, str]:
     ⚠️ Devuelve `{}` si no se pudo evaluar — y `_caduco` trata el id ausente como
     **no resuelto**. Un fallo de SALUD no puede vaciar la pantalla: sería
     exactamente la mentira que este agente existe para no decir.
+
+    ⚠️⚠️ **DEVUELVE EL CHEQUEO ENTERO Y NO SOLO EL ESTADO, y ese fue el bug.**
+    La primera versión traía `{id: estado}`, con lo cual el cotejo solo sabía
+    contestar UNA pregunta: ¿está en verde? Y un control que pasa de **8 casos a
+    3** no está en verde — sigue rojo, con toda la razón. Así que la fila se
+    quedaba, con su texto congelado diciendo «8 anomalías sin resolver», y el
+    user arreglaba 5 cosas de verdad y la pantalla mostraba **el mismo número,
+    dígito por dígito**.
+
+    El estado sirve para TACHAR la fila; el chequeo entero sirve para
+    **REESCRIBIRLA**. Son dos usos distintos del mismo cotejo y el segundo es el
+    que hace visible el progreso parcial, que es el 90% del trabajo real: casi
+    nada se arregla de una.
     """
     try:
         from api.services import salud
-        return {str(c.get("id") or ""): str(c.get("estado") or "")
+        return {str(c.get("id") or ""): c
                 for c in (salud.evaluar() or []) if c.get("id")}
     except Exception as e:
         logger.warning("vista: no pude leer el estado vivo de SALUD (%s)", e)
@@ -772,15 +785,62 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
             # del catálogo, o no se pudo evaluar). Eso **no** se trata como
             # resuelto: «no lo encontré» y «está bien» no son lo mismo, y
             # confundirlos vaciaría la pantalla justo el día que SALUD falla.
-            estado = salud_viva.get((h.get("ticker") or "").strip())
-            return estado == "ok"
+            vivo = salud_viva.get((h.get("ticker") or "").strip())
+            return bool(vivo) and (vivo.get("estado") or "") == "ok"
         # `tasa_sospechosa` habla de la TASA, que depende del precio del día: no
         # se puede afirmar que se arregló sin volver a cotejar contra 1816.
         return False
 
     filas = [h for h in filas if not _caduco(h)]
+    for h in filas:
+        _refrescar_salud(h, salud_viva)
     filas.sort(key=lambda h: (_ORDEN_SEV.get(h["severidad"], 9), h["ticker"]))
     return filas, corrida.isoformat()
+
+
+def _refrescar_salud(h: dict, salud_viva: dict[str, dict]) -> None:
+    """Reescribe la fila de un chequeo con lo que dice SALUD **ahora**.
+
+    ⚠️⚠️ **POR QUÉ ESTO ES UNA FEATURE Y NO UN DETALLE.** Tacharla cuando vuelve
+    al verde ya estaba (`_caduco`). Lo que faltaba es el caso normal: **arreglar
+    una parte**. El user arregló 5 de los 8 FCI incompletos y ENCONTRÓ siguió
+    diciendo «8 anomalías sin resolver», porque ese texto es de la foto de
+    anoche. Trabajo real hecho, cero señal en la pantalla — y después de tres
+    veces seguidas, la conclusión razonable es que el agente no arregla nada.
+
+    Se refresca **el texto y el conteo**, no la existencia de la fila: el
+    control sigue rojo y tiene que seguir a la vista. Y se guarda `n_casos_foto`
+    para poder decir **«3 casos · eran 8»**, que es la única forma de que el
+    avance se lea de un vistazo sin tener que acordarse del número de ayer.
+
+    `n` lo publica `salud._chequeos_controles` (`len(activos)`) y el motivo lo
+    arma `av_agent._motivo_salud` — las dos son las funciones ORIGINALES, no
+    copias: si mañana cambia cómo se cuenta o cómo se redacta, esto lo hereda.
+
+    Silencioso a propósito cuando el chequeo no está vivo: la fila se queda tal
+    cual vino de la foto. «No lo pude evaluar» nunca puede parecer «se arregló».
+    """
+    if h.get("tipo") != "salud":
+        return
+    vivo = salud_viva.get((h.get("ticker") or "").strip())
+    if not vivo:
+        return
+    try:
+        h["motivo"] = av_agent._motivo_salud(vivo)
+    except Exception as e:                       # pragma: no cover - defensivo
+        logger.warning("vista: no pude rearmar el motivo de %s (%s)",
+                       h.get("ticker"), e)
+    viejo_n = (h.get("evidencia") or {}).get("n_casos")
+    n = vivo.get("n")
+    if isinstance(n, int):
+        h["n_casos"] = n
+        # El número de la FOTO, para poder mostrar el delta. Si la foto no lo
+        # traía (hallazgos viejos, de antes de este campo) no se inventa: sin
+        # `n_casos_foto` el front muestra el número a secas y listo.
+        if isinstance(viejo_n, int) and viejo_n != n:
+            h["n_casos_foto"] = viejo_n
+    h["severidad"] = {"error": "alta", "warn": "media"}.get(
+        (vivo.get("estado") or "").lower(), h.get("severidad") or "media")
 
 
 def _ignorados() -> list[dict]:

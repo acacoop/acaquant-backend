@@ -1012,53 +1012,42 @@ class AccionTickerAsset:
     donde = "Manager → TÍTULOS · ASSETS"
 
     def proponer(self, casos: list[dict]) -> list[Propuesta]:
-        from api.services.acreencias import codigo_de_unidad
         from core.postgres import get_pool
-        tickers = [(_sujeto(c) or "").strip().upper() for c in casos]
-        tickers = [t for t in tickers if t]
-        if not tickers:
+        sujetos = [(_sujeto(c) or "").strip() for c in casos]
+        sujetos = [x for x in sujetos if x]
+        if not sujetos:
             return []
-        props: list[Propuesta] = []
+        arriba = [x.upper() for x in sujetos]
         with get_pool().connection() as conn, conn.cursor() as cur:
-            # Las fichas cuya unidad contiene alguno de los tickers pedidos, y
-            # todas las curvas, en DOS viajes: el peaje se paga por viaje.
+            # ⚠️ **EL SUJETO PUEDE VENIR DE DOS FORMAS Y LAS DOS TIENEN QUE
+            # ANDAR.** El control `assets_ticker_partido` emite la UNIDAD (que es
+            # la PK de la ficha); la fila de ENCONTRÓ, en cambio, habla del
+            # TICKER del bono. Escrito para una sola, la otra propone CERO — sin
+            # error, sin log: el botón aparece, no hace nada y no explica por
+            # qué. Es exactamente la pared que esta acción vino a sacar.
             cur.execute(
                 "SELECT unidad, coalesce(ticker, '') FROM portafolio.assets "
-                "WHERE upper(unidad) LIKE ANY(%s)",
-                ([f"%{t}%" for t in tickers],))
+                " WHERE upper(unidad) = ANY(%(s)s) "
+                r"    OR upper(substring(unidad "
+                r"         from '^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)')) "
+                "       = ANY(%(s)s)", {"s": arriba})
             fichas = cur.fetchall()
             cur.execute("SELECT upper(btrim(ticker)) FROM mercado.curvas "
                         "WHERE ticker IS NOT NULL AND ticker <> ''")
             curvas = {r[0] for r in cur.fetchall()}
+        return [Propuesta(sujeto=u, campo=self.campo, propuesto=nuevo,
+                          antes=actual or "(vacío)",
+                          porque=self._porque(actual, nuevo),
+                          extra={"unidad": u, "actual": actual})
+                for u, actual, nuevo in _elegir_ticker(fichas, curvas)]
 
-        # unidad → sus fichas, para poder exigir que haya UNA sola (guarda 3).
-        por_codigo: dict[str, list[tuple[str, str]]] = {}
-        for unidad, tk in fichas:
-            cod = codigo_de_unidad(unidad).upper()
-            if cod in tickers:
-                por_codigo.setdefault(cod, []).append((unidad, tk))
-
-        for tk in tickers:
-            filas = por_codigo.get(tk) or []
-            if len(filas) != 1:
-                continue                                        # guarda 3
-            unidad, actual = filas[0]
-            if (actual or "").strip().upper() == tk:
-                continue                                # ya está bien
-            if tk not in curvas:
-                continue                                        # guarda 1
-            if (actual or "").strip().upper() in curvas:
-                continue                                        # guarda 2
-            props.append(Propuesta(
-                sujeto=unidad, campo=self.campo, propuesto=tk,
-                antes=actual or "(vacío)",
-                porque=(f"La ficha dice TICKER «{actual or '(vacío)'}» y su propia "
-                        f"unidad dice «{tk}», que además es una curva existente. "
-                        f"Mientras no coincidan, el bono suma al AuM (ese join va "
-                        f"por unidad) pero **no se puede unir a su curva**: queda "
-                        f"afuera de flujos, acreencias y renta fija."),
-                extra={"unidad": unidad, "actual": actual}))
-        return props
+    @staticmethod
+    def _porque(actual: str, nuevo: str) -> str:
+        return (f"La ficha dice TICKER «{actual or '(vacío)'}» y su propia unidad "
+                f"dice «{nuevo}», que además es una curva existente. Mientras no "
+                f"coincidan, el bono **suma al AuM** (ese join va por unidad) pero "
+                f"no se puede unir a su curva: queda afuera de flujos, acreencias "
+                f"y renta fija.")
 
     def aplicar(self, p: Propuesta) -> None:
         from api.services.acreencias import codigo_de_unidad
@@ -1104,6 +1093,46 @@ class AccionTickerAsset:
         if quedo != (p.propuesto or "").strip().upper():
             return False, f"quedó «{quedo}», no «{p.propuesto}»"
         return True, f"la ficha ya dice «{quedo}» — el join con la curva cierra"
+
+
+def _elegir_ticker(fichas: list[tuple[str, str]],
+                   curvas: set[str]) -> list[tuple[str, str, str]]:
+    """Las tres guardas de `assets.ticker`, **puras y testeables**.
+
+    `fichas` = `[(unidad, ticker_actual)]`, `curvas` = los tickers que existen.
+    Devuelve `[(unidad, actual, propuesto)]` solo para lo que se puede corregir
+    con certeza.
+
+    Vive afuera de la clase a propósito: son las tres decisiones que separan
+    esto de un UPDATE peligroso, y una decisión que no se puede testear sin la
+    base es una decisión que nadie va a testear.
+    """
+    from api.services.acreencias import codigo_de_unidad
+
+    # GUARDA 3 — una sola ficha por código. Con dos, cuál es la buena es una
+    # decisión y no una derivación.
+    por_codigo: dict[str, list[tuple[str, str]]] = {}
+    for unidad, tk in fichas:
+        por_codigo.setdefault(codigo_de_unidad(unidad).upper(), []).append(
+            (unidad, (tk or "").strip()))
+
+    out: list[tuple[str, str, str]] = []
+    for cod, filas in sorted(por_codigo.items()):
+        if len(filas) != 1 or not cod:
+            continue
+        unidad, actual = filas[0]
+        if actual.upper() == cod:
+            continue                     # ya coincide: no hay nada que proponer
+        if cod not in curvas:
+            # GUARDA 1 — si el código de la unidad no es una curva, no sabemos
+            # cuál de los dos es el bueno. No se propone.
+            continue
+        if actual.upper() in curvas:
+            # GUARDA 2 — el ticker actual es de OTRO papel real. Pisarlo acá le
+            # rompería el join a ESE. Se mira a mano.
+            continue
+        out.append((unidad, actual, cod))
+    return out
 
 
 ACCIONES: dict[str, Accion] = {a.id: a for a in (

@@ -5132,6 +5132,33 @@ canta esa misma noche y ofrece el arreglo de un click — en vez de que el bono
 desaparezca en silencio de flujos y renta fija hasta que alguien mire la
 pantalla correcta.
 
+#### ⚠️ El botón habría propuesto CERO, y lo cazó un test
+
+Antes de que el user apretara nada: **`proponer()` asumía que el sujeto del caso
+era un TICKER, y el control emite la UNIDAD.** El `_sujeto()` devolvía
+`'[84857] PLC5O - ON PLUSPETROL…'`, el código comparaba eso contra tickers, no
+matcheaba nada y devolvía lista vacía — **sin error y sin log**. Un botón que
+aparece, no hace nada y no explica por qué: exactamente la pared que esta acción
+vino a sacar, reproducida adentro de la acción.
+
+Arreglado aceptando **las dos formas** (el SQL matchea por `unidad` exacta *o*
+por el código extraído de ella), porque las dos existen de verdad: el control
+habla de fichas, la fila de ENCONTRÓ habla de bonos.
+
+Y las tres guardas salieron a `_elegir_ticker()`, **pura y testeable**: una
+decisión que no se puede probar sin la base es una decisión que nadie va a
+probar. Los tests usan los datos REALES del diag — con datos inventados habrían
+pasado igual con el bug adentro.
+
+#### El regex quedó en TRES lugares y hay un test que lo vigila
+
+El patrón que saca el código de la unidad vive en `acreencias._RE_CODIGO`
+(Python), en el SQL del duplicado y en el SQL de la acción. **No se pueden
+unificar** —uno corre en Python y los otros dentro de Postgres— así que lo único
+que queda es exigir que digan lo mismo, y eso es un test. Es REGLA #9(B) en
+chico: si una copia se separa, el control marca un caso que la acción no propone
+(o al revés) sin que nada falle.
+
 
 ### 0.f El eval set (2026-08-17)
 

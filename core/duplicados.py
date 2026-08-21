@@ -133,7 +133,7 @@ DUPLICADOS: tuple[Duplicado, ...] = (
         # ⚠️ El WHERE compara contra el código de la UNIDAD, no contra la curva:
         # así se listan también los assets cuyo ticker está mal aunque su curva no
         # exista todavía. El `substring` espeja `acreencias._RE_CODIGO`.
-        sql="""
+        sql=r"""
             SELECT a.unidad,
                    substring(a.unidad from '^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)'),
                    coalesce(a.ticker, '')

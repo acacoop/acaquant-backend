@@ -4680,6 +4680,22 @@ función real**, y por construcción ya no pueden divergir.
 reimplementarlo.** Si lo reimplementa, no está midiendo el sistema — está
 midiéndose a sí mismo.
 
+#### VERIFICADO en prod (2026-08-22)
+
+    6_CANTA_pata_equivocada   17    BPOA7·BPOA8·BPOB7·BPOB8·BPOC7·GD46
+                                    CP36O·HJCLO·LOC6O·MGCOO·OLC7O·PECNO
+                                    PFC3O·RC1CO·RCCRO·VSCYO·VSCZO
+    6_NO_CANTA                 0
+
+Los 6 que ya cantaba **siguen cantando** —el cambio de criterio no rompió
+nada— y los 11 ciegos entraron con su símbolo exacto. Cero bonos llegan al
+final del detector sin veredicto.
+
+⚠️ **Lo que esto NO significa todavía**: el master sigue apuntando mal en los
+17. El detector los VE; arreglarlos es apretar el botón, y **el efecto no se
+mira hasta reiniciar el motor fuera de rueda** — el universo se arma al
+arrancar (§0.u).
+
 
 
 ### 0.f El eval set (2026-08-17)

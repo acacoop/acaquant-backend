@@ -1427,11 +1427,58 @@ el leaderboard POR CARTERA se cruza con cuenta/asset pero **no consigo mismo**.
 - **Barra superior común**: selector **CUENTA** (tipeable, filtra por id o denominación) + botones ◀/▶ + las 5 pills. La lista viene de `/api/portfolio/cuentas`; el default es la cuenta **`100` (ACA VALORES S.A.)**. Cuenta y sub-tab persisten **en la URL**.
 - **Barra INFERIOR (2026-08-21)**: **AJUSTES** y **TOTALES** se mudaron a la barra de estado del layout, al lado de BRIEFING / PARA VOS / AV AGENT, y **solo aparecen mientras esta vista está abierta**. Es jerarquía: arriba está el informe —tabs que se recorren leyendo— y ahí un botón de escritura de eventos corporativos y una pantalla que ni mira la cuenta elegida competían con lo que la gente entra a hacer. TOTALES **sigue siendo una sub-tab de verdad** (mismo `?sub=totales`, mismo componente, mismo cuerpo): lo único que cambió es por dónde se entra, y el botón funciona como toggle (vuelve a RESUMEN). Ver la sección **Patrones transversales → slot de la barra inferior**.
 
+> **REFACTOR 2026-08-21 — la vista pasó a leerse como el informe de `/aca`.** La tab
+> PORTAFOLIO era un tablero de cuatro paneles apretados (posiciones + auditoría +
+> chart + mensual) donde cada número había que buscarlo. Se partió en las tres tabs
+> con las que la mesa ya lee una cartera —**RESUMEN · ACTIVOS · MÉTRICAS**— más
+> **EVOLUCIÓN**, que es la mitad de abajo del tablero viejo. PNL TÍTULOS y TOTALES
+> quedaron intactas: son otra pregunta.
+>
+> Lo importante no es el layout: **el front dejó de calcular**. Montos,
+> ponderaciones, share, totales por moneda y los espejos en dólares vienen
+> resueltos de `GET /{id}/vista` (`api/services/carteras_informe.py`), igual que en
+> `/aca`. Con la fórmula duplicada del lado del navegador la pantalla podía
+> contradecir al informe y ninguna de las dos versiones era la verdad — y el PDF
+> que viene después habría sido una tercera implementación.
+
 | Tab | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
-| **PORTAFOLIO** (def.) | (1) chart mensual izq 58 % con métrica VALOR o RENDIMIENTO; (2) tabla **MENSUAL** der 42 % (mes, último día, cierre, flujo neto = depósitos−extracciones, Δ valor real, PnL acumulado, TEM del mes, TEA cartera = base100−100) con los **movimientos del mes desplegables inline**; (3) panel **PORTFOLIO** full-width con sub-tabs `Posiciones` / `Variación` | `/{id}/serie`, `/{id}/mensual`, `/{id}/posiciones-actuales[?fecha=]`, `/{id}/movimientos?fecha=`, `/{id}/variacion?fecha=` | métrica VALOR/RENDIMIENTO · rango `3M`/**`6M`**/`1A`/`ALL` + paginado ◀▶ · **MONEDA** ARS/USD (en USD el XIRR usa cashflow con MEP por fecha) · **`input type=date`** para ver la tenencia a cualquier día (sin snapshot exacto el backend resuelve el cierre más cercano anterior, `asof=True`, y la vista muestra la fecha real) · botón **`Hoy ×`** · sub-tabs (Variación **requiere** fecha) | Sólo lectura. **2 exports .xlsx** (evolución mensual; posiciones + flujos del mes en hojas separadas). **Click derecho sobre una posición** abre menú **OPERAR** → navega a `/operar` (módulo `operar`) — no escribe |
+| **RESUMEN** (def.) | 6 KPIs (posición al, valuación ARS, valuación USD, costo, PnL, ganancia %) + torta de composición **por cartera** + dos cuadros comparativos (el snapshot elegido y el **cierre del mes anterior**) con monto, ponderación, **Total Dolarizado / Total Pesos** y la fila `Sin clasificar` | `GET /{id}/vista` | (los de la barra del informe, comunes a las 3 tabs) | Sólo lectura |
+| **ACTIVOS** | Un cuadro **por cartera** (total y ponderación en la cabecera) con ticker, emisor, calificación, clase, vencimiento, cantidad, precio, valuación, **% dentro de la cartera**, PnL y Gan %. A la derecha, el panel **AUDITORÍA** con el PnL, el flujo y los boletos del título elegido | `GET /{id}/vista` | ídem | Sólo lectura. **Click derecho sobre una fila** abre menú **OPERAR** → `/operar` (no se opera efectivo; FCI va a la tab FCI con el buscador prefilleado) |
+| **MÉTRICAS** | Apertura **por clase de activo dentro de cada cartera** (denominador: esa cartera) + **por emisor** y **por calificación** (denominador: el total de la cuenta). Cada fila con monto, share y cuántos títulos la componen | `GET /{id}/vista` | ídem | Sólo lectura |
+| **EVOLUCIÓN** | Chart mensual (métrica VALOR o RENDIMIENTO) + tabla **MENSUAL** (mes, último día, cierre, flujo neto = depósitos−extracciones, Δ valor real, PnL acumulado, TEM del mes, TEA cartera = base100−100) con los **movimientos del mes desplegables inline**; al elegir un mes aparece abajo el panel de **variación** (efecto mercado vs efecto operado) contra el cierre anterior | `/{id}/mensual`, `/{id}/movimientos?fecha=`, `/{id}/variacion?fecha=` | métrica VALOR/RENDIMIENTO · rango `3M`/**`6M`**/`1A`/`ALL` + paginado ◀▶ · **MONEDA** ARS/USD (en USD el XIRR usa cashflow con MEP por fecha) | Sólo lectura. Export .xlsx de la evolución mensual |
 | **PNL TÍTULOS** | Split 50/50: izq posiciones por ticker (cost-basis weighted-average) con KPIs VALOR ACTUAL y PNL NO REALIZADO; der detalle del ticker (KPIs COSTO/VALOR/PNL/NO REAL/COBROS/GAN % + **boletos del stock actual** con compras/ventas/neto y breakdown del PnL pasivo; los pseudo-boletos de ajuste van resaltados en ámbar) | `GET /api/aum-pnl?id_cuenta=` → `/api/portfolio/pnl` | MONEDA · orden por columna · click en fila (toggle) | Sólo lectura. 2 exports .xlsx (`exportarTodo`, `exportarBoletos`). **Botón AJUSTES en la barra del shell** (admin) → modal `pnl-ajustes-modal.tsx` |
 | **TOTALES** — **NO depende de la cuenta seleccionada** | **POR TÍTULO** (def.): 5 KPIs (PNL TOTAL, NO REALIZADO, PASIVO, VALOR ACTUAL, POSICIONES) + tabla por (cuenta, ticker) 60 % + detalle 40 %. **POR CUENTA**: una fila por cuenta con valor, PnL acumulado y **base 100** (mostrada como rendimiento %), en ARS y USD | `GET /api/aum-pnl-todas` → `/portfolio/pnl-todas`; `GET /api/valuaciones/consolidado` | POR TÍTULO: select de filtro de cuenta (5 valores, **único filtro server-side**) · dos buscadores substring · MONEDA — **el botón USD se DESHABILITA si el cache no trae valores USD**, con tooltip "Falta recalcular el cache (jobs.pnl_totales_precompute)" · orden por columna. POR CUENTA: mismo select + buscador + orden + **checkbox "ocultar saldo muerto"** (client-side, `\|valor_ars\| < 100.000`, def ON) | Sólo lectura, sin export |
+
+**Barra del INFORME** (segunda fila, común a RESUMEN / ACTIVOS / MÉTRICAS): `input type=date`
+para ver la tenencia a cualquier día (sin snapshot exacto el backend resuelve el cierre anterior más
+cercano, `asof=True`, y la barra muestra la fecha real) · botón **`HOY ✕`** · **T0 / T1** (solo en modo
+actual) · **ARS / USD** —se **deshabilita** si no hay MEP para esa fecha, y la preferencia no se pierde:
+la moneda efectiva se deriva, así vuelve a valer sola al elegir una fecha que sí lo tiene— · **⬇ EXCEL**
+con las tres tabs en tres hojas, armado con el MISMO payload que la pantalla.
+
+**Cómo se arma cada cosa** (`api/services/carteras_informe.py`):
+- **Las carteras se DERIVAN de la posición**, ordenadas por monto desc. Acá no hay 4 canónicas como en
+  ACA: una cuenta tiene las carteras que tiene (HD, RENTA VARIABLE, MONEDAS, FCI…). Ese orden es el
+  mismo en el cuadro comparativo, en los bloques de ACTIVOS y en los paneles de MÉTRICAS.
+- **El comparativo** es el último snapshot conciliado ANTERIOR al mes del que se está viendo
+  (`portafolio.tenencia`, nunca `tenencia_live`). Se pide **sin** `con_pnl`: el cost-basis del motor es
+  siempre a HOY, colgarlo de una foto vieja daría un GAN % sobre una posición que ya no existe. Una
+  cartera que existía en ese cierre y hoy no, va a la fila **Otras** — si se descartara, el cuadro
+  sumaría menos que su propio total y nadie lo notaría.
+- **Total Dolarizado / Total Pesos** usan la regla de **Manager → ACA** (`aca.moneda_regla`), no una
+  propia: dos tablas de reglas para la misma pregunta es el patrón que prohíbe la REGLA #9 del repo.
+  Lo que ninguna regla ubica NO se reparte a dedo — cae en `Sin clasificar` y la vista lo canta.
+  **Única excepción, y no es una segunda regla: el EFECTIVO.** Una regla por cartera no puede partir
+  `MONEDAS`, que tiene los pesos y los dólares adentro; para el cash el instrumento ES la moneda
+  (`USD`/`USDC`/`USDL` → usd, `ARS` → ars), con las constantes que ya usa `api/services/valuaciones.py`.
+- **Los dos denominadores de MÉTRICAS no son el mismo**, a propósito: la clase de activo responde cómo
+  se compone ESA cartera (denominador: la cartera); el emisor y la calificación responden cuánto pesa
+  ese riesgo en toda la cuenta (denominador: el total).
+- **El espejo USD de los agregados viaja resuelto** (`monto_usd`, al MEP del snapshot) para que el
+  toggle cambie QUÉ CAMPO se muestra y nunca haga una cuenta. La **ponderación NO se duplica**: es la
+  misma en las dos monedas. Ojo: eso es una conversión a UN tipo de cambio — el costo y el PnL de cada
+  título traen su propio `*_usd` del motor, que ancla cada compra a SU MEP, y no se derivan de ahí.
 
 > ⚠️ **EL VALOR DE HOY SALE DE `portafolio.tenencia_live` (2026-08-12).** Esta vista —
 > y SOLO esta — muestra la posición del DÍA en vez de la foto conciliada de ayer:
@@ -1457,16 +1504,19 @@ el leaderboard POR CARTERA se cruza con cuenta/asset pero **no consigo mismo**.
 > mostrar totales distintos. No es un bug: son dos fuentes con distinta fecha base.
 > Si el daemon `tenencia_live` no corrió, todo cae solo a la foto.
 
-**Endpoints (`valuaciones.py` — 7, TODOS GET)**: `_validate_id_cuenta` exige numérico (400); todos los
+**Endpoints (`valuaciones.py` — 8, TODOS GET)**: `_validate_id_cuenta` exige numérico (400); todos los
 `/{id_cuenta}/*` llevan `verificar_id_cuenta` (**403 fuera del scope de grupos**).
 `/consolidado` (una fila por cuenta: valor, base 100, PnL acumulado, TEM, TEA en ARS y USD; **lee
-cache**) · `/{id}/serie` · `/{id}/mensual` (cierre del mes + flujos externos + XIRR ARS/USD + TEM + TWR
+cache**) · **`/{id}/vista`** (el INFORME entero —resumen + activos + métricas— en UN request; es lo que
+sirve RESUMEN/ACTIVOS/MÉTRICAS y de donde va a salir el PDF) · `/{id}/serie` (ya **no** lo consume la
+vista: alimentaba el panel de posiciones del tablero viejo) · `/{id}/mensual` (cierre del mes + flujos externos + XIRR ARS/USD + TEM + TWR
 base 100) · `/{id}/movimientos` (`fecha` **req**, auditoría boleto por boleto) · `/{id}/variacion`
 (`fecha` **req**; separa **efecto mercado (precio)** de **efecto operado (cantidad)**, el efectivo va a
 `otros`) · `/{id}/posiciones-actuales` (`asof=True`) · `/{id}/posiciones` (**LEGACY "Phase 2"**: cost
 basis + PnL realizado y no realizado, con completeness por ticker).
 
-**Fuentes**: `portafolio.tenencia` (+ LEFT JOIN `assets`) · `operaciones.negocio_movimientos` (flujos
+**Fuentes**: `portafolio.tenencia` (+ LEFT JOIN `assets` — desde el 2026-08-21 el SELECT trae también
+`vencimiento`, que hasta entonces volvía `None` y dejaba la columna vacía) · `operaciones.negocio_movimientos` (flujos
 externos y boletos del cost-basis; **cada boleto lleva `mep` snapshot inmutable**, la pesificación es
 `importe × b.mep` con fallback a `_get_mep_for_date()` solo si es null) · `valuaciones.consolidado`
 (cron `jobs.consolidado_cuentas`, `30 12 * * 1-5`) · `valuaciones.pnl_totales_cache` ·

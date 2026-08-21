@@ -35,9 +35,24 @@ from __future__ import annotations
 
 import sys
 
+# ⚠️ **LA CLAVE, EN SQL, ESCRITA UNA SOLA VEZ.** La usan el UPDATE (que la
+# persiste) y el PREVIEW (que la calcula al vuelo para poder mostrar algo sin
+# escribir). Si fueran dos expresiones, el dry-run mostraría una migración y el
+# `--aplicar` haría otra — REGLA #9 adentro de un mismo script.
+#
+# Tiene que dar EXACTAMENTE lo mismo que `core.ciclo.clave_de`: minúsculas,
+# unidas por `|`, salteando las partes vacías.
+_CLAVE_SQL = """array_to_string(array_remove(ARRAY[
+    nullif(lower(btrim(tipo)), ''),
+    nullif(lower(btrim(coalesce(alcance, ''))), ''),
+    nullif(lower(btrim(coalesce(ticker, ''))), ''),
+    nullif(lower(btrim(coalesce(regla, ''))), '')
+], NULL), '|')"""
+
 
 def main() -> int:
     aplicar = "--aplicar" in sys.argv
+    from core import ciclo
     from core.postgres import get_pool
 
     print("═" * 74)
@@ -52,17 +67,8 @@ def main() -> int:
         sin_clave = cur.fetchone()[0]
         print(f"\n  filas sin clave       {sin_clave}")
         if sin_clave and aplicar:
-            # Se calcula en SQL SOLO acá y para lo viejo: es un one-shot y tiene
-            # que dar lo mismo que `ciclo.clave_de` (lower + '|' + sin vacíos).
-            cur.execute("""
-                UPDATE mercado.av_agent_hallazgos
-                   SET clave = array_to_string(array_remove(ARRAY[
-                           nullif(lower(btrim(tipo)), ''),
-                           nullif(lower(btrim(coalesce(alcance, ''))), ''),
-                           nullif(lower(btrim(coalesce(ticker, ''))), ''),
-                           nullif(lower(btrim(coalesce(regla, ''))), '')
-                       ], NULL), '|')
-                 WHERE clave IS NULL""")
+            cur.execute(f"UPDATE mercado.av_agent_hallazgos SET clave = {_CLAVE_SQL} "
+                        " WHERE clave IS NULL")
             print(f"  → completadas         {cur.rowcount}")
 
         # La corrida vigente (misma regla que la vista: sin los de reemplazo)
@@ -79,22 +85,33 @@ def main() -> int:
             return 0
 
         # 2) la antigüedad REAL de cada clave de la última corrida
-        cur.execute("""
-            WITH ultima AS (
-                SELECT DISTINCT clave, tipo, alcance, ticker, regla, severidad,
-                       motivo, evidencia
+        # ⚠️ **LA CLAVE SE CALCULA AL VUELO, no se lee de la columna.**
+        #
+        # La primera versión filtraba por `clave IS NOT NULL` — y como la
+        # columna recién se llena en el paso 1, que solo corre con `--aplicar`,
+        # **el dry-run devolvía 0 hallazgos**. Eso no era «no hay nada que
+        # migrar»: era «no pude mirar», mostrado como un cero.
+        #
+        # Es la misma regla que el agente aplica a sus detectores y que acá me
+        # comí: *«no pude» no es «no existe»*. Un preview que no puede
+        # previsualizar sin escribir primero no es un preview.
+        cur.execute(f"""
+            WITH todo AS (
+                SELECT {_CLAVE_SQL} AS k, corrida_at, tipo, alcance, ticker,
+                       regla, severidad, motivo, evidencia
                   FROM mercado.av_agent_hallazgos
-                 WHERE corrida_at = %s AND clave IS NOT NULL
+            ), ultima AS (
+                SELECT DISTINCT ON (k) k, tipo, alcance, ticker, regla,
+                       severidad, motivo, evidencia
+                  FROM todo WHERE corrida_at = %s
             ), historia AS (
-                SELECT clave, min(corrida_at) AS desde,
+                SELECT k, min(corrida_at) AS desde,
                        count(DISTINCT corrida_at) AS corridas
-                  FROM mercado.av_agent_hallazgos
-                 WHERE clave IS NOT NULL
-                 GROUP BY clave
+                  FROM todo GROUP BY k
             )
-            SELECT u.clave, u.tipo, u.alcance, u.ticker, u.regla, u.severidad,
+            SELECT u.k, u.tipo, u.alcance, u.ticker, u.regla, u.severidad,
                    u.motivo, u.evidencia, h.desde, h.corridas
-              FROM ultima u JOIN historia h USING (clave)
+              FROM ultima u JOIN historia h USING (k)
              ORDER BY h.desde
         """, (corrida,))
         filas = cur.fetchall()
@@ -104,6 +121,27 @@ def main() -> int:
     if not filas:
         print()
         return 0
+
+    # ⚠️⚠️ **LAS DOS CLAVES TIENEN QUE DAR LO MISMO.** Acá conviven dos
+    # implementaciones de la identidad: la de SQL (`_CLAVE_SQL`, que este script
+    # necesita para poder mirar el histórico) y la de Python
+    # (`ciclo.clave_de`, la que usan el detector y la pantalla).
+    #
+    # Si difirieran, el backfill crearía items con una clave que **nadie va a
+    # buscar nunca**: la memoria quedaría escrita y para siempre inalcanzable,
+    # sin un solo error. Es REGLA #9 en su forma más cara, y por eso no alcanza
+    # con "tener cuidado": se comparan las dos, fila por fila, y si una sola no
+    # coincide **no se escribe nada**.
+    distintas = [(f[0], ciclo.clave_de(f[1], f[2] or "", f[3], f[4]))
+                 for f in filas
+                 if ciclo.clave_de(f[1], f[2] or "", f[3], f[4]) != f[0]]
+    if distintas:
+        print(f"\n  ✖ ABORTADO: {len(distintas)} claves no coinciden entre SQL y "
+              f"Python. Escribirlas dejaría la memoria inalcanzable.")
+        for sql_k, py_k in distintas[:5]:
+            print(f"      SQL: {sql_k!r}\n      PY : {py_k!r}")
+        return 1
+    print(f"  ✔ las {len(filas)} claves coinciden entre SQL y Python")
 
     viejos = [f for f in filas if _dias(f[8]) >= 7]
     print(f"  …de esos, con MÁS DE 7 DÍAS abiertos: {len(viejos)}")

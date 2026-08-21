@@ -336,3 +336,58 @@ def test_espejar_NUNCA_tumba_la_corrida():
     assert "_espejar_en_items(res)" in src
     cola = src.split("_espejar_en_items(res)")[1]
     assert "except Exception" in cola
+
+
+# ── EL BACKFILL: un preview que no puede previsualizar no es un preview ─────
+
+def test_el_PREVIEW_no_depende_de_haber_escrito_antes():
+    """⚠️ La primera versión filtraba por `clave IS NOT NULL` — y como esa
+    columna recién se llena en el paso que solo corre con `--aplicar`, **el
+    dry-run devolvía 0 hallazgos**. Eso no era «no hay nada que migrar»: era
+    «no pude mirar», mostrado como un cero.
+
+    Es la misma regla que el agente le exige a sus detectores: *«no pude» no es
+    «no existe»*."""
+    import inspect
+
+    import scripts.backfill_items as b
+    src = inspect.getsource(b.main)
+    preview = src.split("WITH todo AS")[1].split('"""')[0]
+    assert "clave IS NOT NULL" not in preview, (
+        "el preview vuelve a depender de la columna: sin --aplicar mostraría 0")
+    assert "_CLAVE_SQL" in preview, "el preview tiene que calcular la clave al vuelo"
+
+
+def test_la_clave_de_SQL_y_la_de_PYTHON_se_comparan_antes_de_escribir():
+    """Conviven dos implementaciones de la identidad y eso es REGLA #9 en su
+    forma más cara: si difirieran, el backfill escribiría items con una clave
+    que nadie va a buscar nunca — memoria inalcanzable, sin un solo error."""
+    import inspect
+
+    import scripts.backfill_items as b
+    src = inspect.getsource(b.main)
+    assert "ciclo.clave_de" in src and "ABORTADO" in src
+    # Y aborta ANTES de escribir.
+    assert src.index("ABORTADO") < src.index("INSERT INTO mercado.av_agent_items")
+
+
+def test_la_expresion_SQL_de_la_clave_esta_escrita_UNA_vez():
+    """La usan el UPDATE y el preview. Dos expresiones harían que el dry-run
+    muestre una migración y el `--aplicar` haga otra."""
+    import inspect
+
+    import scripts.backfill_items as b
+    src = inspect.getsource(b)
+    assert src.count("array_to_string(array_remove(ARRAY[") == 1
+
+
+def test_el_backfill_NO_cierra_nada():
+    """Una clave que está en el histórico y no en la última corrida pudo
+    arreglarse o pudo no evaluarse, y desde un backfill no hay forma de
+    distinguirlo. Cerrar sería inventar «se arreglaron N»."""
+    import inspect
+
+    import scripts.backfill_items as b
+    src = inspect.getsource(b.main)
+    assert "resuelto" not in src.lower().split("insert into")[1]
+    assert "ON CONFLICT (clave) DO NOTHING" in src

@@ -3768,6 +3768,19 @@ que aparece cada clave ES desde cuándo está abierta, y en cuántas apareció E
 idempotente, y **no cierra nada** — una clave ausente del último censo pudo
 arreglarse o pudo no evaluarse, y desde un backfill no hay forma de saberlo).
 
+> ⚠️ **Y el primer dry-run devolvió `0`, que era un bug MÍO del mismo tipo que
+> vengo persiguiendo.** El preview filtraba por `clave IS NOT NULL` y esa
+> columna recién se llena en el paso que solo corre con `--aplicar`: el
+> resultado decía «0 hallazgos a migrar» cuando la verdad era **«no pude
+> mirar»**. Un preview que no puede previsualizar sin escribir primero no es un
+> preview. Ahora calcula la clave al vuelo.
+>
+> Y como eso obliga a tener la identidad en DOS lenguajes (SQL para leer el
+> histórico, Python para el resto del sistema), el script **compara las dos
+> fila por fila y aborta si una sola no coincide**: escribir items con una clave
+> que nadie va a buscar dejaría la memoria escrita y para siempre inalcanzable,
+> sin un solo error. REGLA #9 en su forma más cara.
+
     MIGRACIÓN   ██░░░░░░░░░░  2/12
 
 

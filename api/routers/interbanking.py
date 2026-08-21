@@ -68,6 +68,22 @@ def consolidado(
     return _svc.consolidado(email, _fecha(fecha))
 
 
+@router.get("/conciliar/tablero")
+def tablero(
+    fecha: date | None = Query(None, description="día a conciliar (default: hábil anterior)"),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """CONCILIAR: una fila por cuenta con saldo inicial, debe/haber del mayor,
+    saldo final y la diferencia contra el cierre del banco.
+
+    Lee el mayor de `bancos.mayor_movimientos` (lo trae `jobs/mayor_sync`), así
+    que no hay que subir ningún archivo. El POST `/conciliar` sigue existiendo
+    para conciliar con el .xlsx de HYGIRUS, que es el único camino para una
+    cuenta todavía sin `codigo_contable`.
+    """
+    return _svc.tablero(email, _fecha(fecha))
+
+
 @router.post("/conciliar")
 def conciliar(
     cuenta_id: int = Body(..., embed=True),

@@ -1026,6 +1026,175 @@ def _buscar(items: list[tuple[dict, float]], objetivo: float) -> tuple[list[dict
     return [], truncado
 
 
+# ─────────────────────────────────────────────────────────────
+# TABLERO DE CONCILIACIÓN — el mayor que trae `jobs/mayor_sync`, sin archivo
+# ─────────────────────────────────────────────────────────────
+# Una fila por cuenta, como la vista principal. Reemplaza al .xlsx que había que
+# exportar de HYGIRUS y subir cuenta por cuenta; el archivo sigue existiendo como
+# camino alternativo (`conciliar()`), que además sirve para una cuenta que todavía
+# no esté mapeada.
+
+def _saldos_banco(fecha: date) -> dict[int, dict]:
+    """{cuenta_id: {"valor", "fuente"}} — lo que el BANCO dice que cerró ese día.
+
+    Misma precedencia que `conciliar()`: primero el extracto (que es el cierre
+    declarado por el banco) y si no hay, el saldo informado. En UNA query para
+    todas las cuentas: la vista muestra ~38 filas y hacerlo de a una eran 76
+    consultas por pantalla.
+    """
+    filas = _q(
+        """SELECT c.id AS cuenta_id, e.saldo_cierre,
+                  coalesce(s.saldo_operativo, s.saldo_dia) AS informado
+             FROM bancos.cuentas c
+             LEFT JOIN bancos.extracto_dia e ON e.cuenta_id = c.id AND e.fecha = %s
+             LEFT JOIN bancos.saldos      s ON s.cuenta_id = c.id AND s.fecha = %s
+            WHERE c.activa""", (fecha, fecha))
+    out: dict[int, dict] = {}
+    for r in filas:
+        if r["saldo_cierre"] is not None:
+            out[r["cuenta_id"]] = {"valor": _f(r["saldo_cierre"]), "fuente": "extracto"}
+        elif r["informado"] is not None:
+            out[r["cuenta_id"]] = {"valor": _f(r["informado"]),
+                                   "fuente": "saldo informado por el banco"}
+    return out
+
+
+def _mayor_del_dia(fecha: date) -> dict[int, dict]:
+    """{cuenta_id: {"debe", "haber", "movimientos"}} de `bancos.mayor_movimientos`.
+
+    `haber` va NEGATIVO (el `importe` guardado ya viene firmado, = Debe − Haber),
+    así el saldo final es una suma y no hay que acordarse de restar en el lugar
+    correcto — que es donde se cuelan los errores de signo.
+    """
+    return {r["cuenta_id"]: {"debe": _f(r["debe"]) or 0.0,
+                             "haber": _f(r["haber"]) or 0.0,
+                             "movimientos": r["movimientos"]}
+            for r in _q(
+                """SELECT cuenta_id,
+                          sum(CASE WHEN importe > 0 THEN importe ELSE 0 END) AS debe,
+                          sum(CASE WHEN importe < 0 THEN importe ELSE 0 END) AS haber,
+                          count(*) AS movimientos
+                     FROM bancos.mayor_movimientos
+                    WHERE fecha_conciliacion = %s
+                    GROUP BY cuenta_id""", (fecha,))}
+
+
+def tablero(email: str, fecha: date) -> dict:
+    """El tablero de conciliación del día: una fila por cuenta.
+
+    Columnas, y de dónde sale cada una:
+
+      saldo_inicio  cierre del BANCO del día hábil ANTERIOR. El mayor no informa
+                    saldos —`registrosContables` devuelve movimientos— así que la
+                    apertura sale de nuestro lado. Consecuencia asumida: **cada
+                    día se juzga aislado y un descuadre arrastrado no se ve**. Es
+                    deliberado; contesta «¿qué pasó ayer?», no «¿está bien el
+                    saldo absoluto?».
+      debe/haber    movimientos del MAYOR de ese día.
+      saldo_final   saldo_inicio + debe + haber (el haber ya es negativo).
+      diferencia    **saldo_final − cierre del BANCO del día.** Los dos arrastres
+                    se cancelan, así que esto equivale a «movimientos del mayor −
+                    movimientos del banco»: qué le falta cargar al mayor.
+
+                    ⚠️ NO es `saldo_final − saldo_inicio`: eso se simplifica a
+                    `debe + haber` y nunca miraría al banco, así que jamás podría
+                    mostrar un descuadre.
+      gastos        de la vista principal (`_gastos_bancarios`), INFORMATIVO: no
+                    entra en ningún total. Se calcula de los movimientos del
+                    BANCO, así que existe esté o no cargado en el mayor.
+      dif_sin_gastos  diferencia − gastos, para ver si además de los gastos hay
+                    otra cosa. **`None` cuando no hay diferencia**: una vez que el
+                    equipo carga el gasto en el mayor la diferencia se va a cero,
+                    y seguir restando los gastos publicaría un `−gastos` que no
+                    existe. Si no hay diferencia, no hay nada que explicar.
+
+    Sin saldo del banco (feriado, extracto que no llegó) la fila va con
+    `diferencia: null` y el motivo: **no se cae a cero**, porque «no sé» y «cero»
+    son cosas distintas y confundirlas acá inventa un descuadre.
+    """
+    dia_previo = restar_habiles(fecha, 1)
+    cuentas = _q(
+        """SELECT id, bank_number, bank_name, account_number, account_type,
+                  currency, account_label, activa, origen, codigo_contable
+             FROM bancos.cuentas WHERE activa
+            ORDER BY bank_name, currency, account_number""")
+
+    previos, hoy = _saldos_banco(dia_previo), _saldos_banco(fecha)
+    mayor = _mayor_del_dia(fecha)
+    gastos = _gastos_bancarios(fecha, _baldes())
+    ajustes = _ajuste_manual(fecha)
+
+    filas = []
+    for c in cuentas:
+        cid = c["id"]
+        pub = _cuenta_publica(c)
+        ini = previos.get(cid)
+        cierre = hoy.get(cid)
+        mov = mayor.get(cid)
+        g = (gastos.get(cid) or {}).get("total")
+
+        saldo_inicio = ini["valor"] if ini else None
+        debe = (mov or {}).get("debe", 0.0)
+        haber = (mov or {}).get("haber", 0.0)
+
+        # El ajuste manual va del lado del BANCO, igual que en `conciliar()`: es
+        # plata que el banco no informó y alguien cargó a mano. Sumarlo del lado
+        # del mayor lo contaría al revés.
+        ajuste = (ajustes.get(cid) or {}).get("ajuste") or 0.0
+        cierre_banco = None if cierre is None else round(cierre["valor"] + ajuste, 2)
+
+        saldo_final = None if saldo_inicio is None else round(saldo_inicio + debe + haber, 2)
+        diferencia = motivo = None
+        if saldo_final is None:
+            motivo = f"no hay saldo del banco al {dia_previo.isoformat()} (la apertura)"
+        elif cierre_banco is None:
+            motivo = f"no hay saldo del banco al {fecha.isoformat()}"
+        else:
+            diferencia = round(saldo_final - cierre_banco, 2)
+
+        concilia = None if diferencia is None else abs(diferencia) < SIN_DIFERENCIA
+        # Ver el docstring: sin diferencia no hay nada que explicar, y restar los
+        # gastos igual publicaría un número que no existe.
+        dif_sin_gastos = (None if diferencia is None or concilia or g is None
+                          else round(diferencia - g, 2))
+
+        filas.append({
+            **pub,
+            "tiene_mayor": bool(c["codigo_contable"]),
+            "codigo_contable": c["codigo_contable"],
+            "saldo_inicio": saldo_inicio,
+            "saldo_inicio_fuente": ini["fuente"] if ini else None,
+            "gastos": g,
+            "debe": round(debe, 2),
+            "haber": round(haber, 2),
+            "movimientos_mayor": (mov or {}).get("movimientos", 0),
+            "saldo_final": saldo_final,
+            "cierre_banco": cierre_banco,
+            "ajuste_manual": round(ajuste, 2) if ajuste else 0.0,
+            "diferencia": diferencia,
+            "concilia": concilia,
+            "dif_sin_gastos": dif_sin_gastos,
+            "motivo": motivo,
+        })
+
+    # Cuándo se trajo el mayor. NO es un detalle: entre dos corridas del mismo día
+    # una cuenta se movió 2.008 millones (medido el 2026-08-20), así que una
+    # diferencia enorme puede ser simplemente que Contabilidad todavía no terminó
+    # de cargar. Sin esta fecha en pantalla, alguien sale a buscar un descuadre
+    # que no existe.
+    log = _q("""SELECT corrida_at, movimientos_banco, ok
+                  FROM bancos.mayor_sync_log
+                 WHERE fecha_conciliacion = %s
+                 ORDER BY id DESC LIMIT 1""", (fecha,))
+    return {
+        "fecha": fecha.isoformat(),
+        "fecha_apertura": dia_previo.isoformat(),
+        "filas": filas,
+        "mayor_sync": (log or [None])[0],
+        "sin_mayor": sum(1 for f in filas if not f["tiene_mayor"]),
+    }
+
+
 def conciliar(email: str, cuenta_id: int, fecha: date, filas: list) -> dict:
     """Nuestro saldo al cierre contra el último saldo del mayor.
 

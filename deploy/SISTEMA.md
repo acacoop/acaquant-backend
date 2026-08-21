@@ -60,6 +60,7 @@
 | cada hora · 0-1h · Mar-Sáb | `jobs.market_quotes'` |
 | cada hora · 10-23h · L-V | `jobs.market_quotes'` |
 | cada 15min · 12-23h · diario | `jobs.news_ingesta'` |
+| cada 15min · 13-15h · L-V | `jobs.mayor_sync'` |
 | cada 15min · 13-20h · L-V | `jobs.adr_live'` |
 | cada 15min · 13-20h · L-V | `engines.dolar_mep'` |
 | cada 30min · 10-14h · L-V | `jobs.research_mail'` |
@@ -78,6 +79,7 @@
 | 14:00 · L-V | `jobs.sync_comitentes'` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
 | 17:00 · L-V | `jobs.sync_comitentes'` |
+| cada hora · 18-21h · L-V | `jobs.mayor_sync'` |
 | 02:00 · Mar-Sáb | `jobs.cashflow` |
 | 20:00 · L-V | `jobs.volatilidad_ggal'` |
 | 20:00 · L-V | `jobs.tamar_1816'` |
@@ -88,6 +90,7 @@
 | 22:00 · L-V | `jobs.mercado_1816_series'` |
 | 23:00 · L-V | `jobs.validar_instrumentos'` |
 | cada hora · 13-19h · L-V | `jobs.tamar_1816'` |
+| cada hora · 16-17h · L-V | `jobs.mayor_sync'` |
 | 20:10 · L-V | `jobs.estrategia_resolver` |
 | 21:10 · L-V | `jobs.eikon_cierres'` |
 | 20:15 · L-V | `jobs.options_rollup'` |

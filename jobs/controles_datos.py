@@ -444,6 +444,37 @@ def _chk_patas_equivocadas() -> list[dict]:
         return out
 
 
+def _chk_assets_ticker_partido() -> list[dict]:
+    """**La ficha del título y su curva se llaman distinto.** El caso PLC5O.
+
+    ⚠️ Medido el 2026-08-22: 2 de 2 eran **un carácter tipeado a mano** —
+    `PLC5O`→`PLC50` (la O es un cero) y `S13N6`→`S13B6`. `portafolio.assets` es
+    catálogo de la mesa, se carga a mano, así que esto va a volver a pasar.
+
+    Lo que rompe **no es el AuM** (ese join va por `unidad` y sigue andando, que
+    es lo que hacía tan confuso el hallazgo viejo): rompe
+    `curvas.ticker → assets.ticker → unidad`, el que atribuye la tenencia a su
+    CURVA. El bono suma plata y desaparece de flujos, acreencias y renta fija.
+
+    ⚠️ **NO reimplementa el predicado.** Sale de `core.duplicados`, donde el par
+    ya está declarado con su árbitro (`ticker_curva_vs_assets`). Escribirlo dos
+    veces sería exactamente el problema que ese módulo existe para evitar — y no
+    es hipotético: es lo que pasó con `preferencia`, escrita tres veces y
+    eligiendo distinto en cada una.
+    """
+    from core import duplicados
+    r = duplicados.una("ticker_curva_vs_assets")
+    if not r.get("ok"):
+        # «No pude mirar» NO es «no hay». Se canta como una anomalía propia para
+        # que el silencio no se lea como un verde.
+        return [{"key": "?", "detalle": f"no pude correr el chequeo: "
+                                        f"{r.get('error') or 'sin motivo'}"}]
+    return [{"key": unidad, "unidad": unidad, "esperado": cod, "actual": tk,
+             "detalle": (f"la ficha dice TICKER «{tk or '(vacío)'}» y su unidad "
+                         f"dice «{cod}»")}
+            for unidad, cod, tk in r.get("filas") or []]
+
+
 @dataclass(frozen=True)
 class Control:
     id: str
@@ -464,6 +495,9 @@ CONTROLES: list[Control] = [
     Control("patas_equivocadas",
             "El master apunta a una pata que no es la default", True,
             _chk_patas_equivocadas),
+    Control("assets_ticker_partido",
+            "La ficha del título y su curva se llaman distinto", True,
+            _chk_assets_ticker_partido),
     Control("forwards_faltantes", "Bonos ausentes de forwards", True, _chk_forwards_faltantes),
     Control("rf_sin_tasa", "Renta fija cotizando sin TEA/TNA", True, _chk_rf_sin_tasa),
     Control("assets_sin_cartera", "Assets sin cartera", True, _chk_assets_sin_cartera),

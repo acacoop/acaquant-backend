@@ -5068,6 +5068,71 @@ vez y las siguientes dicen «↑ mismo motivo». Es la otra cara del punto anter
 **mostrar lo que esta fila agrega**.
 
 
+### 0.ca MEDIDO: eran DOS TYPEOS de un carácter (2026-08-22)
+
+`scripts/diag_espejo_assets` en prod, sobre los 2 que disparan la regla:
+
+| | `mercado.curvas.ticker` | `portafolio.assets.ticker` | la diferencia |
+|---|---|---|---|
+| PLC5O | `PLC5O` | `PLC50` | la **O** es un **cero** |
+| S13N6 | `S13N6` | `S13B6` | la **N** es una **B** |
+
+**Los dos son CASO C** — la ficha existe, con cartera y emisor cargados, y el
+campo TICKER está tipeado mal por un carácter. No falta el alta ni falta el
+campo: está **mal escrito**. Y como `portafolio.assets` es catálogo que carga la
+mesa a mano, esto va a volver a pasar.
+
+#### Por qué se puede arreglar solo, y por qué antes no se podía
+
+Porque **el valor correcto no lo tipea nadie**: viene adentro de la propia
+`unidad`, que es la PK de la fila y la escribe Aunesa —
+`'[84857] PLC5O - ON PLUSPETROL…'` → `PLC5O`, que coincide exacto con la curva.
+No se adivina por parecido ni por distancia de edición (eso es justo lo que
+REGLA #9 A prohíbe): se lee de **la fuente que ninguna de las dos copias
+escribió**.
+
+Acción nueva `assets.ticker`, con tres guardas que son lo que la separa de un
+UPDATE peligroso:
+
+1. **El código de la unidad tiene que ser una curva existente.** Si no, no
+   sabemos cuál es el bueno → no se propone.
+2. **El ticker actual no puede ser el de OTRA curva real.** Si `PLC50` fuera un
+   papel de verdad, pisarlo acá le rompería el join a ESE. Se reporta y no se
+   toca.
+3. **Una sola ficha por unidad.** Con dos, cuál es la buena es una decisión, no
+   una derivación.
+
+Las tres se **vuelven a correr al aplicar**, no solo al proponer: entre las dos
+cosas pueden pasar horas y alguien pudo tocar el catálogo a mano. Escribe por
+`assets_sql.set_campos` —la misma puerta que Manager— y verifica releyendo.
+
+⚠️ `sin_fila` **no** lleva botón: dar de alta un título es cargar cartera,
+emisor, clase y calificación, y nada de eso se deriva de ningún lado.
+
+#### Y lo que faltaba de verdad: nadie los estaba comparando
+
+El par `curvas.ticker` ↔ `assets.ticker` es **el mismo dato en dos lugares sin
+árbitro** — REGLA #9(B) exacta, y nadie lo miraba. Ahora está declarado en
+`core/duplicados.DUPLICADOS` (`ticker_curva_vs_assets`) con el árbitro escrito:
+**gana la UNIDAD**, que no es ninguna de las dos copias.
+
+**Sin `arreglo_sql`, a propósito.** El UPDATE «obvio» es correcto en los dos
+casos medidos y peligroso en general (guarda 2). Va por la acción, que verifica
+caso por caso.
+
+Y el control diario `assets_ticker_partido` **no reimplementa el predicado**:
+lo lee de `core.duplicados` vía la función nueva `una(id)` (un solo par, sin
+truncar, y `{"ok": False}` cuando no pudo mirar — *el silencio no es un verde*).
+Escribirlo dos veces sería exactamente el problema que ese módulo existe para
+evitar, y no es hipotético: es lo que pasó con `preferencia`, escrita tres veces
+y eligiendo distinto en cada una.
+
+**El resultado**: la próxima vez que alguien tipee mal un ticker, el agente lo
+canta esa misma noche y ofrece el arreglo de un click — en vez de que el bono
+desaparezca en silencio de flujos y renta fija hasta que alguien mire la
+pantalla correcta.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

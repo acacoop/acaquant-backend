@@ -116,6 +116,46 @@ DUPLICADOS: tuple[Duplicado, ...] = (
               AND btrim(instrumento) <> btrim(data->>'ticker')
         """),
     Duplicado(
+        id="ticker_curva_vs_assets",
+        que="el TICKER del título — la clave que une la tenencia con su curva",
+        a="mercado.curvas.ticker (la PK de la curva)",
+        b="portafolio.assets.ticker (el catálogo que carga la mesa)",
+        arbitro="la UNIDAD de `portafolio.assets`, que es su PK y la escribe "
+                "Aunesa: trae el código adentro (`[84857] PLC5O - ON …`). No "
+                "gana ninguna de las dos copias — gana el dato que ninguna de "
+                "las dos tipeó",
+        rompe="el join `curvas.ticker → assets.ticker → unidad` es el que atribuye "
+              "una tenencia a su CURVA. Si difieren, el bono **sigue sumando al "
+              "AuM** (eso va por `unidad`) pero desaparece de flujos, acreencias y "
+              "renta fija — y no falla nada: las dos tablas son coherentes consigo "
+              "mismas. Medido el 2026-08-22: 2 casos, los dos por UN carácter "
+              "tipeado a mano (`PLC5O`→`PLC50`, la O es un cero; `S13N6`→`S13B6`)",
+        # ⚠️ El WHERE compara contra el código de la UNIDAD, no contra la curva:
+        # así se listan también los assets cuyo ticker está mal aunque su curva no
+        # exista todavía. El `substring` espeja `acreencias._RE_CODIGO`.
+        sql="""
+            SELECT a.unidad,
+                   substring(a.unidad from '^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)'),
+                   coalesce(a.ticker, '')
+            FROM portafolio.assets a
+            WHERE substring(a.unidad from '^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)')
+                  IS NOT NULL
+              AND coalesce(a.ticker, '') <> ''
+              AND upper(btrim(a.ticker))
+                  <> upper(substring(a.unidad
+                           from '^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)'))
+            ORDER BY a.unidad
+        """,
+        # **SIN `arreglo_sql` a propósito.** El UPDATE «obvio» —pisar
+        # `assets.ticker` con el código de la unidad— es correcto en los dos casos
+        # medidos y peligroso en general: si ese ticker equivocado es el ticker
+        # REAL de otro papel, corregirlo acá le rompe el join a ESE otro. Va por
+        # la acción del agente (`assets.ticker`), que lo verifica caso por caso
+        # antes de escribir y pide OK.
+        arreglo_manual="AV Agent → la fila `sin_espejo_en_assets` → CORREGIR EL "
+                       "TICKER (acción `assets.ticker`), o a mano en Manager → "
+                       "TÍTULOS · ASSETS."),
+    Duplicado(
         id="ticker_corto_columna_vs_blob",
         que="el ticker corto del bono (el que une con `portafolio.assets`)",
         a="mercado.curvas.ticker (columna, la PK)",
@@ -190,6 +230,31 @@ DUPLICADOS: tuple[Duplicado, ...] = (
 # Cuántos sujetos divergentes se listan por duplicado. Si son más, se dice el
 # total igual: **truncar en silencio se lee como «solo hay estos»**.
 TOPE_EJEMPLOS = 8
+
+
+def una(duplicado_id: str) -> dict:
+    """UN duplicado, con **todas** sus filas divergentes.
+
+    `divergencias()` es el barrido: corre los N y trunca los ejemplos en
+    `TOPE_EJEMPLOS`, porque su salida es un resumen para la pantalla. Esto es lo
+    contrario — un solo par, sin truncar — y existe para que un control pueda
+    trabajar sobre la lista completa **sin reimplementar el predicado**.
+
+    Devuelve `{"ok": True, "filas": [(sujeto, valor_a, valor_b), …]}` o
+    `{"ok": False, "error": …}`. ⚠️ Nunca una lista vacía cuando falló: «no pude
+    mirar» y «no hay ninguno» tienen que poder distinguirse, que es la regla que
+    sostiene todo este módulo.
+    """
+    d = next((x for x in DUPLICADOS if x.id == duplicado_id), None)
+    if d is None:
+        return {"ok": False, "error": f"«{duplicado_id}» no está declarado"}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(d.sql)
+            return {"ok": True, "id": d.id, "filas": cur.fetchall()}
+    except Exception as e:
+        logger.warning("duplicados: no pude chequear %s (%s)", d.id, e)
+        return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}
 
 
 def divergencias() -> dict:

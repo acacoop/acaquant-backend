@@ -965,10 +965,151 @@ class AccionRehacerDia(Seguible):
         return (True, detalle) if ok else (False, detalle)
 
 
+# ── ACCIÓN: el TICKER del asset, cuando es un TYPEO ─────────────────────────
+
+class AccionTickerAsset:
+    """**CORREGIR EL TICKER DE LA FICHA.** Un carácter, y rompe un join entero.
+
+    ⚠️ **QUÉ SE MIDIÓ** (2026-08-22, `scripts/diag_espejo_assets`). El user, sobre
+    PLC5O y S13N6 marcados con `sin_espejo_en_assets`: *«claramente está bugueada
+    esta feature porque los bonos SÍ están»*. Los bonos estaban, y el hallazgo
+    también era cierto — las dos cosas a la vez:
+
+        curva  PLC5O   ·  assets  PLC50   ← la «O» es un CERO
+        curva  S13N6   ·  assets  S13B6   ← la «N» es una «B»
+
+    Dos de dos, **tipeados a mano**. No falta la ficha ni falta el campo: el campo
+    está mal escrito por un carácter. Y como `portafolio.assets` es catálogo de la
+    mesa (se carga a mano) esto va a volver a pasar.
+
+    POR QUÉ SE PUEDE PROPONER CON CERTEZA
+    =====================================
+
+    Porque **el valor correcto no lo tipea nadie**: viene adentro de la propia
+    `unidad`, que es la PK de la fila y la escribe Aunesa —
+    `'[84857] PLC5O - ON PLUSPETROL…'` → `PLC5O`. No se adivina por parecido ni
+    por distancia de edición (REGLA #9 A): se lee de la fuente que ninguna de las
+    dos copias escribió.
+
+    LAS TRES GUARDAS, que son lo que separa esto de un UPDATE peligroso
+    ===================================================================
+
+    1. **El código de la unidad tiene que coincidir con una curva.** Si la unidad
+       dice algo que no es ninguna curva, no sabemos cuál es el bueno → no se
+       propone.
+    2. **El ticker actual no puede ser el de OTRA curva real.** Si `PLC50` fuera
+       un papel de verdad, pisarlo acá le rompería el join a ESE — se reporta y
+       no se toca.
+    3. **Una sola ficha por unidad.** Con dos, cuál es la buena es una decisión,
+       no una derivación.
+    """
+
+    id = "assets.ticker"
+    causa = "sin_espejo_en_assets"
+    titulo = "Corregir el TICKER de la ficha"
+    sobre = "assets_ticker_partido"
+    campo = "TICKER"
+    donde = "Manager → TÍTULOS · ASSETS"
+
+    def proponer(self, casos: list[dict]) -> list[Propuesta]:
+        from api.services.acreencias import codigo_de_unidad
+        from core.postgres import get_pool
+        tickers = [(_sujeto(c) or "").strip().upper() for c in casos]
+        tickers = [t for t in tickers if t]
+        if not tickers:
+            return []
+        props: list[Propuesta] = []
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            # Las fichas cuya unidad contiene alguno de los tickers pedidos, y
+            # todas las curvas, en DOS viajes: el peaje se paga por viaje.
+            cur.execute(
+                "SELECT unidad, coalesce(ticker, '') FROM portafolio.assets "
+                "WHERE upper(unidad) LIKE ANY(%s)",
+                ([f"%{t}%" for t in tickers],))
+            fichas = cur.fetchall()
+            cur.execute("SELECT upper(btrim(ticker)) FROM mercado.curvas "
+                        "WHERE ticker IS NOT NULL AND ticker <> ''")
+            curvas = {r[0] for r in cur.fetchall()}
+
+        # unidad → sus fichas, para poder exigir que haya UNA sola (guarda 3).
+        por_codigo: dict[str, list[tuple[str, str]]] = {}
+        for unidad, tk in fichas:
+            cod = codigo_de_unidad(unidad).upper()
+            if cod in tickers:
+                por_codigo.setdefault(cod, []).append((unidad, tk))
+
+        for tk in tickers:
+            filas = por_codigo.get(tk) or []
+            if len(filas) != 1:
+                continue                                        # guarda 3
+            unidad, actual = filas[0]
+            if (actual or "").strip().upper() == tk:
+                continue                                # ya está bien
+            if tk not in curvas:
+                continue                                        # guarda 1
+            if (actual or "").strip().upper() in curvas:
+                continue                                        # guarda 2
+            props.append(Propuesta(
+                sujeto=unidad, campo=self.campo, propuesto=tk,
+                antes=actual or "(vacío)",
+                porque=(f"La ficha dice TICKER «{actual or '(vacío)'}» y su propia "
+                        f"unidad dice «{tk}», que además es una curva existente. "
+                        f"Mientras no coincidan, el bono suma al AuM (ese join va "
+                        f"por unidad) pero **no se puede unir a su curva**: queda "
+                        f"afuera de flujos, acreencias y renta fija."),
+                extra={"unidad": unidad, "actual": actual}))
+        return props
+
+    def aplicar(self, p: Propuesta) -> None:
+        from api.services.acreencias import codigo_de_unidad
+        from api.services.assets_sql import set_campos
+        from core.postgres import get_pool
+
+        nuevo = (p.propuesto or "").strip().upper()
+        # ⚠️ **LAS GUARDAS SE VUELVEN A CORRER ACÁ.** Entre proponer y aplicar
+        # pueden pasar horas y alguien pudo tocar el catálogo a mano; aplicar
+        # confiando en la foto vieja es cómo se pisa un dato que ya estaba bien.
+        if codigo_de_unidad(p.sujeto).upper() != nuevo:
+            raise ValueError(
+                f"la unidad «{p.sujeto}» no dice «{nuevo}» — no se escribe un "
+                f"ticker que no salga de la propia unidad")
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT coalesce(ticker, '') FROM portafolio.assets "
+                        "WHERE unidad = %s", (p.sujeto,))
+            r = cur.fetchone()
+            if r is None:
+                raise ValueError(f"la ficha «{p.sujeto}» ya no existe")
+            actual = (r[0] or "").strip().upper()
+            if actual == nuevo:
+                return                       # alguien lo arregló: no es un error
+            cur.execute("SELECT 1 FROM mercado.curvas "
+                        "WHERE upper(btrim(ticker)) = %s", (actual,))
+            if actual and cur.fetchone():
+                raise ValueError(
+                    f"«{actual}» es el ticker de una curva REAL: pisarlo acá le "
+                    f"rompería el join a ese papel. Hay que mirarlo a mano.")
+        # Por la MISMA puerta que usa Manager: un segundo camino de escritura
+        # termina con dos criterios para el mismo dato.
+        set_campos(p.sujeto, {"TICKER": nuevo}, actor="av-agent")
+
+    def verificar(self, p: Propuesta) -> tuple[bool, str]:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT coalesce(ticker, '') FROM portafolio.assets "
+                        "WHERE unidad = %s", (p.sujeto,))
+            r = cur.fetchone()
+        if not r:
+            return False, "la ficha desapareció"
+        quedo = (r[0] or "").strip().upper()
+        if quedo != (p.propuesto or "").strip().upper():
+            return False, f"quedó «{quedo}», no «{p.propuesto}»"
+        return True, f"la ficha ya dice «{quedo}» — el join con la curva cierra"
+
+
 ACCIONES: dict[str, Accion] = {a.id: a for a in (
     AccionCartera(), AccionFci(), AccionContraparte(), AccionAvisar(),
     AccionPedirPata(), AccionPataDolar(), AccionApuntarPata(),
-    AccionRehacerDia())}
+    AccionTickerAsset(), AccionRehacerDia())}
 # Qué acción resuelve cada control. Sin esto la pantalla tendría que saberlo, y
 # el día que se agregue una acción habría que tocar el front.
 POR_CONTROL: dict[str, str] = {a.sobre: a.id for a in ACCIONES.values()}

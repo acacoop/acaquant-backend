@@ -191,13 +191,34 @@ def diagnosticar(ticker: str) -> dict:
     else:
         causa = "otro_ticker"
     meta = CAUSAS[causa]
-    ps.append(_paso(
+    paso = _paso(
         "causa", "⇒ LA CONCLUSIÓN",
         OK if causa == "ya_esta" else REVISAR,
         f"**{meta['titulo']}**\n\n{meta['arreglo']}",
         tabla="portafolio.assets", capa="veredicto",
         accion="/manager?tab=titulos",
-        nada_que_hacer=(causa == "ya_esta")))
+        nada_que_hacer=(causa == "ya_esta"))
+
+    # ── EL BOTÓN, cuando el arreglo es UN CAMPO y el valor no lo tipea nadie ──
+    #
+    # Medido el 2026-08-22: los 2 casos reales eran un TYPEO de un carácter
+    # (`PLC5O`→`PLC50`, `S13N6`→`S13B6`) y el valor correcto ya estaba adentro de
+    # la propia `unidad`, que la escribe Aunesa. Eso lo hace proponible con
+    # certeza — no se adivina por parecido (REGLA #9 A), se lee de la fuente que
+    # ninguna de las dos copias escribió.
+    #
+    # `sin_fila` NO lleva botón: dar de alta un título es cargar cartera, emisor,
+    # clase y calificación, y nada de eso se deriva. Se hace a mano y está bien.
+    if meta["un_campo"]:
+        try:
+            from api.services import av_agent_hacer as hacer
+            a = hacer.ACCIONES["assets.ticker"]
+            paso["hacer"] = {"accion": a.id, "titulo": a.titulo,
+                             "campo": a.campo, "casos": 1,
+                             "pendientes": len(hacer.pendientes(a.id))}
+        except Exception as e:                       # el diagnóstico ya sirve solo
+            logger.warning("av_agent_espejo: sin acción (%s)", e)
+    ps.append(paso)
 
     for i, p in enumerate(ps, 1):
         p["n"] = i

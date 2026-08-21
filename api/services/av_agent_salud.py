@@ -289,6 +289,16 @@ CONTROLES: dict[str, dict] = {
         "donde": "AV Agent → apuntar el master (corrige el campo Y pide la pata: "
                  "se ve en 5s, sin reiniciar)",
         "url": "/manager"},
+    "assets_ticker_partido": {
+        "rompe": "el bono **sigue sumando al AuM** (ese join va por `unidad`) pero "
+                 "el join `curvas.ticker → assets.ticker` no lo encuentra: "
+                 "desaparece de flujos, acreencias y renta fija. No falla nada — "
+                 "las dos tablas son coherentes consigo mismas, y por eso se "
+                 "descubre mirando una pantalla. Medido: 2 de 2 eran UN carácter "
+                 "tipeado a mano (la «O» escrita como cero, la «N» como «B»)",
+        "donde": "AV Agent → corregir el TICKER (el valor sale de la propia "
+                 "unidad, que la escribe Aunesa)",
+        "url": "/manager"},
     "forwards_faltantes": {
         "rompe": "esos bonos no salen en la matriz de forwards de su curva",
         "donde": "Renta Fija → FORWARDS", "url": "/renta-fija"},

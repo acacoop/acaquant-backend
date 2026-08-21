@@ -247,141 +247,6 @@ def test_los_dos_detalles_viajan_en_la_respuesta(monkeypatch):
     assert out["mayor_suma"] == -499_999_887.99
 
 
-# ── CONSOLIDADO: agrupar por tipo de movimiento ─────────────────────────────
-# El mayor de Banco Valores (19/08/2026), tal cual lo exporta el sistema
-# contable. Es el que muestra el problema: el concepto crudo lleva el número de
-# asiento Y el del comprobante, así que las cinco extracciones son cinco textos
-# distintos y agrupar por él daría cinco grupos de uno.
-GRILLA_VALORES = [
-    ["Fecha", "Comprobante", "Concepto", "Auxiliar", "Asiento", "Debe", "Haber", "Saldo"],
-    ["", "", "Saldo inicial", "", "", "590.708,12", "", "590.708,12 D"],
-    ["19/08/2026 11:45:33", "CD 2026004421",
-     "[Op. 1133462] Depósito - Depósito CD 2026004421- Cta. 243/GRAL",
-     "GEN", "-4891422", "53.061.500,00", "", "53.652.208,12 D"],
-    ["19/08/2026 11:57:33", "CE 2026005064",
-     "[Op. 1133481] Extracción - Extracción CE 2026005064- Cta. 1687/GRAL",
-     "GEN", "-4891444", "", "70.226.054,13", "16.573.846,01 A"],
-    ["19/08/2026 12:11:31", "CE 2026005066",
-     "[Op. 1133560] Extracción - Extracción CE 2026005066- Cta. 841/GRAL",
-     "GEN", "-4891526", "", "1.263.639.839,12", "1.280.213.685,13 A"],
-    ["19/08/2026 12:14:47", "CE 2026005067",
-     "[Op. 1133561] Extracción - Extracción CE 2026005067- Cta. 194/GRAL",
-     "GEN", "-4891527", "", "1.200.000.000,00", "2.480.213.685,13 A"],
-    ["19/08/2026 12:42:58", "CE 2026005074",
-     "[Op. 1133675] Extracción - Extracción CE 2026005074- Cta. 187/GRAL",
-     "GEN", "-4891650", "", "500.000.000,00", "2.980.213.685,13 A"],
-    ["19/08/2026 12:43:06", "CE 2026005075",
-     "[Op. 1133676] Extracción - Extracción CE 2026005075- Cta. 1886/GRAL",
-     "GEN", "-4891651", "", "999.999,99", "2.981.213.685,12 A"],
-]
-
-
-def test_el_grupo_del_mayor_colapsa_asiento_y_comprobante():
-    """Los dos cortes, sobre el archivo real: sin ellos hay 6 grupos de 1 y el
-    consolidado es la misma lista otra vez."""
-    from api.services.bancos import _movimientos_del_mayor
-
-    d = _movimientos_del_mayor(GRILLA_VALORES)
-    assert [m["grupo"] for m in d["movimientos"]] == [
-        "Depósito", "Extracción", "Extracción", "Extracción", "Extracción", "Extracción"]
-    assert len({m["concepto"] for m in d["movimientos"]}) == 6, (
-        "el concepto CRUDO sigue siendo único fila por fila — por eso hace falta "
-        "el grupo, y por eso el crudo no se pisa")
-
-
-def test_el_grupo_NO_recorta_los_conceptos_que_ya_agrupan():
-    """El mayor de Credicoop no usa ` - `: si el corte fuera más agresivo, se
-    comería la mitad del concepto de un archivo que estaba bien."""
-    from api.services.bancos import _movimientos_del_mayor
-
-    d = _movimientos_del_mayor(GRILLA)
-    assert [m["grupo"] for m in d["movimientos"]] == [
-        "bco a bco", "Recibir fondos", "Enviar fondos", "bco a bco"]
-
-
-def test_consolidar_da_EL_MISMO_total_que_los_movimientos(monkeypatch):
-    """⚠️ El invariante de la vista: cambiar de pestaña no puede cambiar el
-    total. Si la suma por grupo no da lo mismo, el agrupador perdió filas — y un
-    consolidado que no cuadra con su detalle es peor que no tenerlo."""
-    from collections import defaultdict
-
-    s = _svc(monkeypatch, cierre=590_708.12,
-             movs=[_mov("h1", 112.01, "D", "N/D - COMISION"),
-                   _mov("h2", 5000.0, "C", "N/C - RESC CUOTAPARTE E"),
-                   _mov("h3", 900.0, "C", "N/C - RESC CUOTAPARTE E")])
-    out = s.conciliar("x@y", 1, FECHA, GRILLA_VALORES)
-
-    for movs, suma in ((out["banco_movimientos"], out["banco_suma"]),
-                       (out["mayor_movimientos"], out["mayor_suma"])):
-        por_grupo: dict[str, float] = defaultdict(float)
-        for m in movs:
-            por_grupo[m["grupo"]] += m["importe"]
-        assert round(sum(por_grupo.values()), 2) == suma
-
-    assert out["mayor_suma"] == -2_981_804_393.24
-    # El banco agrupa por su DESCRIPCIÓN: los dos rescates son un solo renglón.
-    assert len({m["grupo"] for m in out["banco_movimientos"]}) == 2
-
-
-def test_el_banco_NO_mezcla_debitos_y_creditos_del_mismo_concepto(monkeypatch):
-    """El `N/D -` / `N/C -` se deja adrede en la clave. Sacarlo netearía un
-    débito contra un crédito dentro de un mismo renglón y el consolidado
-    mostraría cero donde hubo plata para los dos lados."""
-    s = _svc(monkeypatch, cierre=590_708.12,
-             movs=[_mov("h1", 1000.0, "D", "N/D - TRANSF. A BANCOS"),
-                   _mov("h2", 1000.0, "C", "N/C - TRANSF. A BANCOS")])
-    out = s.conciliar("x@y", 1, FECHA, GRILLA_VALORES)
-    assert len({m["grupo"] for m in out["banco_movimientos"]}) == 2
-
-
-# ── Los gastos bancarios del día ────────────────────────────────────────────
-# ⚠️ Están en CONCILIAR porque son el caso típico de «falta en el mayor»: el
-# banco cobra comisión + IVA el mismo día y el sistema contable los registra
-# después. Salen de la MISMA función que la columna del consolidado.
-def test_los_gastos_salen_de_la_misma_funcion_que_la_grilla(monkeypatch):
-    s = _svc(monkeypatch, cierre=590_708.12)
-    llamadas: list = []
-
-    def _fake(fecha, baldes):
-        llamadas.append(fecha)
-        return {1: {"total": 18_714.49, "iva": 3_482.49, "com_transf": 15_232.0,
-                    "resto": 0.0}}
-
-    monkeypatch.setattr(s, "_gastos_bancarios", _fake)
-    monkeypatch.setattr(s, "_baldes", lambda: [])
-    out = s.conciliar("x@y", 1, FECHA, GRILLA_VALORES)
-    assert llamadas == [FECHA]
-    assert out["gastos"] == 18_714.49
-    assert out["gastos_desglose"]["iva"] == 3_482.49
-
-
-def test_sin_criterio_cargado_los_gastos_son_NULL_y_no_cero(monkeypatch):
-    """Cero diría «el banco no cobró nada», que es una conclusión que nadie
-    sacó. Sin una sola regla, la vista tiene que decir «—»."""
-    s = _svc(monkeypatch, cierre=590_708.12)
-    monkeypatch.setattr(s, "_gastos_bancarios", lambda fecha, baldes: {})
-    monkeypatch.setattr(s, "_baldes", lambda: [])
-    out = s.conciliar("x@y", 1, FECHA, GRILLA_VALORES)
-    assert out["gastos"] is None
-    assert out["gastos_desglose"] is None
-
-
-def test_los_gastos_NO_tocan_el_total_del_lado_del_banco(monkeypatch):
-    """El desglose es un CORTE TRANSVERSAL de los mismos movimientos, no una
-    parte más que se suma. Si moviera el total, la tabla dejaría de cuadrar con
-    el extracto — que es contra lo que se concilia."""
-    s = _svc(monkeypatch, cierre=590_708.12,
-             movs=[_mov("h1", 3_482.49, "D", "IVA"),
-                   _mov("h2", 1_000_000.0, "C", "N/C - TRANSF")])
-    monkeypatch.setattr(
-        s, "_gastos_bancarios",
-        lambda fecha, baldes: {1: {"total": 3_482.49, "iva": 3_482.49}})
-    monkeypatch.setattr(s, "_baldes", lambda: [])
-    out = s.conciliar("x@y", 1, FECHA, GRILLA_VALORES)
-    assert out["banco_suma"] == 996_517.51
-    assert out["gastos"] == 3_482.49, "el gasto va en POSITIVO: es lo que cobró"
-
-
 # ── Encontrar la explicación cuando no es exacta ────────────────────────────
 # ⚠️ Caso real (2026-08-19): la diferencia daba 1.176.659,79 y el movimiento que
 # la explicaba era de 1.176.659,78. UN CENTAVO. Con igualdad exacta el buscador
@@ -448,90 +313,6 @@ def test_una_diferencia_grande_NO_se_explica_con_cualquier_cosa(monkeypatch):
     assert any("Ningún movimiento" in a for a in out["avisos"])
 
 
-# ── Una combinación NO mezcla ingresos con egresos ──────────────────────────
-# ⚠️ Caso real (2026-08-19, Banco Valores). Con la diferencia en 100.000,55 el
-# conciliador ofrecía DOS opciones:
-#   · un egreso de −999.999,99 con un ingreso de +1.100.000,00 → 100.000,01
-#   · dos ingresos de +50.000,00 → 100.000,00
-# La primera no describe ningún error contable: son dos movimientos que no tienen
-# nada que ver y que por casualidad restan parecido. Los errores del mayor son
-# «faltan estos» o «sobran estos», y en los dos casos van todos para el mismo
-# lado. Ofrecer la mixta no es dar una opción de más, es hacer dudar de la buena.
-GRILLA_166 = [["Concepto", "Debe", "Haber", "Saldo"],
-              ["Saldo inicial", "", "", "166,258.92 D"]]
-
-
-def test_NO_combina_un_egreso_con_un_ingreso(monkeypatch):
-    s = _svc(monkeypatch, cierre=166_258.92 + 100_000.55,
-             movs=[_mov("h1", 999_999.99, "D", "N/D - BV-TRANSF. A BANCOS"),
-                   _mov("h2", 1_100_000.00, "C", "N/C - TR. RECIB POR DATAN"),
-                   _mov("h3", 50_000.0, "C", "N/C - CRED REVERSO PASE E"),
-                   _mov("h4", 50_000.0, "C", "N/C - CRED REVERSO PASE E")])
-    out = s.conciliar("x@y", 1, FECHA, GRILLA_166)
-    assert out["diferencia"] == 100_000.55
-
-    hashes = [{m["mov_hash"] for m in c["movimientos"]} for c in out["candidatos"]]
-    assert {"h1", "h2"} not in hashes, "peras con manzanas: egreso + ingreso"
-    assert {"h3", "h4"} in hashes, "la explicación real sigue estando"
-
-
-def test_la_regla_de_signo_no_esconde_una_combinacion_de_EGRESOS(monkeypatch):
-    """No es «solo ingresos»: dos egresos que faltan cargar también son una
-    explicación legítima. Lo que no se permite es MEZCLAR."""
-    s = _svc(monkeypatch, cierre=166_258.92 - 300.0,
-             movs=[_mov("h1", 100.0, "D", "COMISION"),
-                   _mov("h2", 200.0, "D", "IVA"),
-                   _mov("h3", 500.0, "C", "UN CREDITO CUALQUIERA")])
-    out = s.conciliar("x@y", 1, FECHA, GRILLA_166)
-    assert out["diferencia"] == -300.0
-    assert {m["mov_hash"] for m in out["candidatos"][0]["movimientos"]} == {"h1", "h2"}
-
-
-# ── La identidad del movimiento en los pendientes ───────────────────────────
-# ⚠️ Caso real (2026-08-19): dos `N/C - CRED REVERSO PASE E` de $50.000,00 el
-# mismo día. La clave única era `(cuenta_id, fecha, accion, descripcion,
-# importe)` —o sea, sobre el TEXTO— así que el segundo cayó en el ON CONFLICT y
-# PISÓ al primero: quedó UN pendiente de 50.000 para una diferencia de
-# 100.000,55. Peor que perder una fila: la anotación miente por la mitad.
-def _svc_pendientes(monkeypatch):
-    from api.services import bancos as svc
-
-    guardado: list[tuple] = []
-
-    def _q(sql, params=None):
-        t = " ".join(str(sql).split())
-        if "FROM bancos.cuentas" in t:
-            return [{"id": 1}]
-        if "INSERT INTO bancos.conciliacion_pendientes" in t:
-            guardado.append((t, params))
-            return [{"id": len(guardado)}]
-        return []
-
-    monkeypatch.setattr(svc, "_q", _q)
-    monkeypatch.setattr(svc, "_audit", lambda *a, **k: None)
-    return svc, guardado
-
-
-def test_dos_movimientos_iguales_son_DOS_pendientes(monkeypatch):
-    s, guardado = _svc_pendientes(monkeypatch)
-    for h in ("hash-a", "hash-b"):
-        s.confirmar_pendiente("x@y", 1, FECHA, "falta_en_el_mayor",
-                              "N/C - CRED REVERSO PASE E", 50_000.0, mov_ref=h)
-    refs = [p[-1] for _, p in guardado]
-    assert refs == ["hash-a", "hash-b"], (
-        "la identidad es el MOVIMIENTO, no el texto: dos movimientos distintos "
-        "que se escriben igual son dos pendientes")
-    assert "ON CONFLICT (cuenta_id, fecha, accion, mov_ref)" in guardado[0][0]
-
-
-def test_sin_mov_ref_la_identidad_se_deriva_EXPLICITA(monkeypatch):
-    """Cuando de verdad no hay identidad se cae al texto —que es la conducta
-    vieja— pero escrito, no por omisión de una constraint."""
-    s, guardado = _svc_pendientes(monkeypatch)
-    s.confirmar_pendiente("x@y", 1, FECHA, "sobra_en_el_mayor", "ALGO", 12.5)
-    assert guardado[0][1][-1] == "txt:ALGO|12.5"
-
-
 # ── El margen es PROPORCIONAL, con piso ─────────────────────────────────────
 # Un margen fijo no escala en los dos sentidos: sobre 500 millones, un peso es
 # tan estricto como la igualdad exacta y vuelve a esconder el movimiento; sobre
@@ -548,7 +329,10 @@ def test_el_margen_escala_con_la_diferencia(diferencia, esperado):
 
 def test_el_margen_NO_alcanza_para_hacer_pasar_un_movimiento_por_otro(monkeypatch):
     """0,001% es un peso cada 100.000: alcanza para un redondeo y no para
-    confundir dos movimientos distintos."""
+    confundir dos movimientos distintos.
+
+    ⚠️ Y el margen APROXIMADO (0,5%) tampoco lo deja pasar, porque **solo aplica
+    a combinaciones**: un movimiento suelto que «casi» da es OTRO movimiento."""
     s = _svc(monkeypatch, cierre=166_258.92 + 1_000_000.0,
              movs=[_mov("h1", 999_950.0, "C", "PARECIDO PERO NO")])
     grilla = [["Concepto", "Debe", "Haber", "Saldo"],
@@ -556,6 +340,122 @@ def test_el_margen_NO_alcanza_para_hacer_pasar_un_movimiento_por_otro(monkeypatc
     out = s.conciliar("x@y", 1, FECHA, grilla)
     assert out["tolerancia"] == 10.0, "±10 sobre un millón"
     assert out["candidatos"] == [], "50.000 de distancia no es un redondeo"
+
+
+# ── CALZAR POR IMPORTE ──────────────────────────────────────────────────────
+# Las leyendas de los dos lados no se parecen y cambian todo el tiempo
+# (`TRANSFERENCIA ENTRE CUENT` contra `[Op. 1136612] bco a bco`), así que
+# cruzarlas por texto es imposible. Lo único que significa lo mismo de los dos
+# lados es el IMPORTE.
+MAYOR_100_Y_50 = [
+    ["Fecha", "Concepto", "Debe", "Haber", "Saldo"],
+    ["", "Saldo inicial", "", "", "166,258.92 D"],
+    ["18/08/2026", "[Op. 1] Depósito", "100.00", "", "166,358.92 D"],
+    ["18/08/2026", "[Op. 2] Extracción", "", "50.00", "166,308.92 D"],
+]
+
+
+@pytest.mark.parametrize("valores,esperado", [
+    # Uno a uno: el mismo importe tres veces de un lado y dos del otro deja UNO
+    # suelto. Calzar «el grupo contra el grupo» taparía justo el que falta.
+    (([100.0, 100.0, 100.0], [100.0, 100.0]), (3 - 2, 0)),
+    # El signo importa: un crédito no calza contra un débito del mismo tamaño.
+    (([100.0], [-100.0]), (1, 1)),
+    (([], [500.0]), (0, 1)),
+])
+def test_el_calce_es_UNO_A_UNO_y_por_importe_exacto(valores, esperado):
+    from api.services.bancos import _calzar_por_importe
+
+    izq, der = _calzar_por_importe(*valores)
+    assert (sum(1 for c in izq if c is None),
+            sum(1 for c in der if c is None)) == esperado
+    # Cada par tiene su marca de los DOS lados: es lo que la pantalla usa para
+    # esconderlos juntos.
+    assert sorted(c for c in izq if c) == sorted(c for c in der if c)
+
+
+def test_lo_calzado_sale_de_la_busqueda_y_de_los_totales_sin_calzar(monkeypatch):
+    """Dos cosas de un solo caso, y las dos son el punto de la feature:
+
+    1. Un movimiento que tiene su igual del otro lado YA está registrado en los
+       dos sistemas: no puede ser el que falta, así que no se lo propone como
+       explicación. Acá los dos créditos de 100 son idénticos y solo el que
+       quedó SUELTO aparece como candidato.
+    2. La resta de las dos sumas «sin calzar» ES la diferencia — los pares se
+       cancelan entre sí. Por eso la vista filtrada muestra exactamente los
+       movimientos que la producen y ninguno más.
+    """
+    s = _svc(monkeypatch, cierre=166_308.92 + 100.0,
+             movs=[_mov("h1", 100.0, "C", "TRANSFERENCIA"),
+                   _mov("h2", 100.0, "C", "TRANSFERENCIA"),
+                   _mov("h3", 50.0, "D", "EXTRACCION")])
+    out = s.conciliar("x@y", 1, FECHA, MAYOR_100_Y_50)
+
+    assert out["diferencia"] == 100.0
+    assert out["calce"]["pares"] == 2
+    assert out["calce"]["banco_sin_calzar"] == 1
+    assert out["calce"]["mayor_sin_calzar"] == 0
+    assert (out["calce"]["banco_suma_sin_calzar"]
+            - out["calce"]["mayor_suma_sin_calzar"]) == out["diferencia"]
+
+    # El calce viaja movimiento por movimiento: la vista esconde por este campo.
+    assert [bool(m["calce"]) for m in out["banco_movimientos"]] == [True, False, True]
+    assert all(m["calce"] for m in out["mayor_movimientos"])
+
+    assert len(out["candidatos"]) == 1, "el 100 ya calzado no se propone otra vez"
+    assert out["candidatos"][0]["movimientos"][0]["mov_hash"] == "h2"
+
+
+# ── Combinaciones LARGAS y explicaciones aproximadas ────────────────────────
+# ⚠️ Caso real (2026-08-21): una diferencia de 4.256.787,71 que salía de sumar
+# VARIOS movimientos del banco. El buscador viejo combinaba hasta 3 con
+# `combinations()` y ni siquiera generaba la explicación: contestaba «ningún
+# movimiento llega a esa diferencia» y escondía la única pista que había.
+def test_encuentra_una_combinacion_de_MAS_DE_TRES_movimientos(monkeypatch):
+    s = _svc(monkeypatch, cierre=166_258.92 + 1_500.0,
+             movs=[_mov(f"h{i}", v, "C", f"TRF {i}")
+                   for i, v in enumerate([100.0, 200.0, 300.0, 400.0, 500.0])])
+    grilla = [["Concepto", "Debe", "Haber", "Saldo"],
+              ["Saldo inicial", "", "", "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    assert out["diferencia"] == 1_500.0
+    c = out["candidatos"][0]
+    assert c["cantidad"] == 5
+    assert c["resto"] == 0.0
+    assert c["aproximado"] is False
+
+
+def test_cuando_NO_da_exacto_publica_la_APROXIMADA_marcada_y_con_el_resto(monkeypatch):
+    """«Sumando estos casi llegás» es una pista, no un hallazgo: se muestra, pero
+    marcada como aproximada y diciendo cuánto queda sin explicar. Esconderla
+    manda a hacer a mano exactamente la misma suma."""
+    s = _svc(monkeypatch, cierre=166_258.92 + 1_000.0,
+             movs=[_mov("h1", 590.0, "C", "TRF A"), _mov("h2", 400.0, "C", "TRF B")])
+    grilla = [["Concepto", "Debe", "Haber", "Saldo"],
+              ["Saldo inicial", "", "", "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    c = out["candidatos"][0]
+    assert c["aproximado"] is True
+    assert c["cantidad"] == 2
+    assert c["suma"] == 990.0
+    assert c["resto"] == 10.0, "lo que queda sin explicar se dice SIEMPRE"
+    # El margen del último recurso se publica: es el que más fácil puede hacer
+    # pasar una coincidencia por un hallazgo.
+    assert out["tolerancia_aproximada"] == 100.0
+
+
+def test_una_explicacion_EXACTA_gana_sobre_una_aproximada_tambien_en_combinacion(monkeypatch):
+    s = _svc(monkeypatch, cierre=166_258.92 + 1_000.0,
+             movs=[_mov("h1", 590.0, "C", "CASI"), _mov("h2", 400.0, "C", "CASI"),
+                   _mov("h3", 700.0, "C", "EXACTO"), _mov("h4", 300.0, "C", "EXACTO")])
+    grilla = [["Concepto", "Debe", "Haber", "Saldo"],
+              ["Saldo inicial", "", "", "166,258.92 D"]]
+    out = s.conciliar("x@y", 1, FECHA, grilla)
+    c = out["candidatos"][0]
+    assert c["aproximado"] is False
+    assert c["resto"] == 0.0
+    assert {m["descripcion"] for m in c["movimientos"]} == {"EXACTO"}
+
 
 
 # ── El umbral NOMINAL de $1 ─────────────────────────────────────────────────

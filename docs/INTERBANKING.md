@@ -749,13 +749,15 @@ conciliación que miente, y eso no avisa.
   chequeo no es una ayuda extra, es ruido con cara de hallazgo. La fecha, en
   cambio, no es ambigua — y es la definición de movimiento.
 - Las **explicaciones** son subconjuntos de movimientos que llegan a la
-  diferencia, buscados en **tres pasadas de la más estricta a la más laxa**:
+  diferencia, buscados en **cuatro pasadas de la más estricta a la más laxa**:
   1. **suma firmada == diferencia** — la explicación limpia;
   2. **|suma| == |diferencia|** — el mismo importe con el signo al revés. Pasa
      cuando el sistema contable lleva la cuenta del otro lado, y el back office
      igual necesita ver ese movimiento: **es** el movimiento, solo que el signo
      cuenta otra historia. Se marca (`signo_invertido`), no se disimula;
-  3. **con MARGEN**, informando cuánto sobra (`resto`).
+  3. **con MARGEN**, informando cuánto sobra (`resto`);
+  4. **APROXIMADA** (`tolerancia_aproximada`, `max($100, 0,5%)`) — «sumando
+     estos casi llegás». Ver más abajo.
 
   ⚠️ El margen nace de un caso real: la diferencia daba `1.176.659,79` y el
   movimiento que la explicaba era de `1.176.659,78` — **un centavo**. Con
@@ -787,6 +789,67 @@ conciliación que miente, y eso no avisa.
 
   Si la búsqueda se cortó, la respuesta lo dice (`candidatos_truncados`): «no
   encontré» y «no busqué todo» son cosas distintas.
+
+### CALZAR POR IMPORTE (2026-08-21)
+
+Un botón en el detalle, al lado de MOVIMIENTOS/CONSOLIDADO. Empareja los
+movimientos de los dos lados que tienen el **mismo importe** y, prendido, los
+esconde: lo que queda es la lista corta de **lo que no coincidió con nada del
+otro lado**.
+
+⚠️ **Por importe y nada más.** Las leyendas de los dos lados no se parecen y
+cambian todo el tiempo (`TRANSFERENCIA ENTRE CUENT` contra `[Op. 1136612] bco a
+bco`): cruzarlas por texto es imposible. Lo único que significa lo mismo de los
+dos lados es el número — y el signo, que está alineado (plata que entra al banco
+es Debe en el mayor).
+
+⚠️ **Uno a uno.** Si el mismo importe aparece 3 veces de un lado y 2 del otro se
+calzan 2 pares y queda 1 suelto. Calzar «el grupo contra el grupo» taparía justo
+el movimiento que falta.
+
+Consecuencias, y son el punto:
+
+- **Los movimientos calzados salen de la búsqueda de explicaciones.** Uno que
+  tiene su igual del otro lado ya está registrado en los dos sistemas: no puede
+  ser el que falta. No es cosmético — es lo que deja el universo chico y hace
+  que aparezcan las combinaciones largas.
+- **La resta de los dos totales «sin calzar» ES la diferencia de saldos** (los
+  pares se cancelan entre sí). Por eso el total del pie cambia cuando el filtro
+  está prendido, y el rótulo también: dos números distintos no pueden llamarse
+  igual.
+- Los movimientos que son **gasto bancario** se marcan `imp` en la lista, con el
+  mismo criterio y las mismas reglas que la columna GASTOS
+  (`_gastos_de_movimientos`). Un descalce en un impuesto es **esperable** —el
+  banco lo cobra hoy y contabilidad lo registra después— y no vale lo mismo que
+  un descalce en una transferencia. Se marca para poder saltearlo, no se esconde.
+
+### Combinaciones largas y explicaciones APROXIMADAS (2026-08-21)
+
+⚠️ Caso real: una diferencia de `4.256.787,71` que salía de **sumar varios
+movimientos del banco**, y la pantalla contestaba «ningún movimiento llega a esa
+diferencia». Dos causas, las dos arregladas:
+
+1. **`MAX_COMBINAR` era 3 y la explicación tenía más partes**: ni se generaba.
+   Ahora es **8**, y el algoritmo dejó de ser `combinations()` —enumerar C(40,8)
+   son 76 millones de combinaciones— para pasar a un **DFS con poda**
+   (`_combinaciones`): ordenado de mayor a menor, el árbol se corta apenas la
+   suma que queda disponible no alcanza o ya se pasó. `TOPE_NODOS` es el techo de
+   trabajo; si se llega, la respuesta lo dice.
+2. **No había forma de decir «casi»**. La cuarta pasada publica la mejor
+   combinación dentro de `max($100, 0,5%)`, marcada `aproximado` y con el
+   `resto` a la vista. Dos candados para que esto no se convierta en «encontrar
+   cualquier cosa»:
+   - **solo COMBINACIONES** (2 movimientos o más): un movimiento suelto que
+     «casi» da es OTRO movimiento — para el redondeo ya está `tolerancia()`. Sin
+     este candado, `999.950` pasaría por una diferencia de `1.000.000`, que es
+     exactamente lo que se decidió no hacer;
+   - **solo si ninguna pasada anterior encontró nada**.
+
+Además, **el conjunto entero de gastos del día sin calzar** se publica como
+candidato explícito cuando ninguna búsqueda dio una explicación exacta: son ~15
+movimientos chicos, `_buscar` nunca podría combinarlos, y es el caso más común de
+«falta en el mayor» (el banco cobra comisión, IVA y ley 25.413 el mismo día y el
+sistema contable los registra al mes). Viaja con `motivo`.
 - ⚠️ **Si los dos saldos coinciden al invertir el signo del mayor, se AVISA y no
   se corrige.** Significa que no falta ningún movimiento: la cuenta está del otro
   lado (acreedor/deudor). Invertir un signo por nuestra cuenta es exactamente

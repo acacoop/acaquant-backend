@@ -26,7 +26,6 @@ from __future__ import annotations
 import json
 import re
 from datetime import date
-from itertools import combinations
 
 from api.services._sql import _f, _q
 from core.calendario import restar_habiles
@@ -934,12 +933,21 @@ def _movimientos_del_mayor(filas: list) -> dict:
             "avisos": []}
 
 
-# Cuántos movimientos se combinan buscando la explicación. De a uno y de a dos es
-# instantáneo; de a tres crece rápido y por eso tiene tope. Si se corta, la
-# respuesta lo DICE (`candidatos_truncados`): «no encontré» y «no busqué todo»
-# son cosas distintas.
-MAX_COMBINAR = 3
+# Cuántos movimientos se combinan buscando la explicación.
+#
+# ⚠️ Era 3 y con `combinations()`. Se subió a 8 junto con el cambio de algoritmo
+# (`_combinaciones`, DFS con poda) porque el caso real que no encontraba —una
+# diferencia de 4.256.787,71 que salía de sumar VARIOS movimientos de
+# Interbanking— nunca podía aparecer: la explicación tenía más de tres partes y
+# el buscador ni la generaba. Enumerar C(40,8) son 76 millones de combinaciones
+# y no termina nunca; podando por la suma que queda disponible, el árbol se
+# corta apenas el resto no alcanza.
+#
+# `TOPE_NODOS` es el techo de trabajo: si se llega, la respuesta lo DICE
+# (`candidatos_truncados`). «No encontré» y «no busqué todo» son cosas distintas.
+MAX_COMBINAR = 8
 MAX_MOVS_COMBINAR = 40
+TOPE_NODOS = 150_000
 
 # Diferencia por debajo de la cual **no hay diferencia**.
 #
@@ -965,6 +973,99 @@ def tolerancia(diferencia: float) -> float:
     return round(max(TOLERANCIA_PISO, abs(diferencia) * TOLERANCIA_PCT), 2)
 
 
+# Margen del ÚLTIMO recurso: «esto no da, pero le pega cerca».
+#
+# ⚠️ Existe por un caso concreto: una diferencia de 4.256.787,71 que sumando
+# varios movimientos del banco quedaba «prácticamente en el mismo importe», y la
+# pantalla contestaba «ningún movimiento llega a esa diferencia» — o sea,
+# escondía la única pista que había. Media hora de buscar a mano para llegar a lo
+# mismo.
+#
+# Dos candados para que esto NO se convierta en «encontrar cualquier cosa»:
+#   1. **Solo COMBINACIONES** (2 movimientos o más). Un movimiento suelto que
+#      «casi» da es OTRO movimiento, no el que falta — para el redondeo ya está
+#      `tolerancia()`. Sin este candado, 999.950 pasaría por una diferencia de
+#      1.000.000, que es exactamente lo que se decidió no hacer.
+#   2. **Solo si no hubo ninguna explicación exacta.** Se busca de lo más
+#      estricto a lo más laxo y se corta en la primera pasada que encuentra algo.
+# Y siempre viaja marcado (`aproximado`) y con el `resto` a la vista.
+APROX_PISO = 100.0
+APROX_PCT = 0.005
+
+
+def tolerancia_aproximada(diferencia: float) -> float:
+    """El margen del último recurso. También se publica: es el que más fácil
+    puede hacer pasar una coincidencia por un hallazgo."""
+    return round(max(APROX_PISO, abs(diferencia) * APROX_PCT), 2)
+
+
+def _armar(combo: list[tuple[dict, float]], suma: float, objetivo: float,
+           aproximado: bool = False) -> dict:
+    return {"movimientos": [m for m, _ in combo], "suma": round(suma, 2),
+            "cantidad": len(combo), "resto": round(objetivo - suma, 2),
+            "signo_invertido": suma != 0 and round(suma, 2) == round(-objetivo, 2),
+            "aproximado": aproximado, "motivo": None}
+
+
+def _combinaciones(lado: list[tuple[dict, float]], meta: float, margen: float,
+                   objetivo: float, aproximado: bool) -> tuple[list[dict], bool]:
+    """Subconjuntos de UN lado (un solo signo) que suman `meta` ± `margen`.
+
+    DFS con poda en vez de `combinations()`. No es una optimización: es lo que
+    hace posible buscar combinaciones LARGAS, que es donde estaban las
+    explicaciones que el buscador viejo no encontraba. Enumerar de a 8 sobre 40
+    movimientos son 76 millones de combinaciones; ordenando de mayor a menor y
+    podando por la suma que QUEDA disponible (`suf`), el árbol se corta apenas
+    el resto no alcanza o ya se pasó.
+
+    Devuelve `(candidatos, se_agotó_el_presupuesto)`. Lo segundo es la diferencia
+    entre «no hay» y «no terminé de mirar», y sube a la pantalla.
+    """
+    if not lado:
+        return [], False
+    # El lado tiene un solo signo (los separa `_buscar`), así que se trabaja en
+    # ABSOLUTO y toda la poda queda en una sola dirección.
+    signo = 1.0 if lado[0][1] > 0 else -1.0
+    destino = round(meta * signo, 2)
+    if destino <= 0:
+        # Sumar egresos nunca va a dar un ingreso. Ni se empieza.
+        return [], False
+
+    vals = sorted(((m, abs(v)) for m, v in lado), key=lambda t: -t[1])
+    n = len(vals)
+    suf = [0.0] * (n + 1)
+    for i in range(n - 1, -1, -1):
+        suf[i] = round(suf[i + 1] + vals[i][1], 2)
+
+    salida: list[dict] = []
+    nodos = 0
+
+    def dfs(i: int, elegidos: list, suma: float) -> None:
+        nonlocal nodos
+        if len(salida) >= 10 or nodos >= TOPE_NODOS:
+            return
+        if len(elegidos) >= 2 and abs(round(suma - destino, 2)) <= margen:
+            salida.append(_armar([(m, v * signo) for m, v in elegidos],
+                                 suma * signo, objetivo, aproximado))
+            # No se siguen explorando los superconjuntos: con todos los valores
+            # del mismo signo, agregar uno más solo puede alejarse.
+            return
+        if i >= n or len(elegidos) >= MAX_COMBINAR:
+            return
+        if suma - destino > margen:                 # ya se pasó
+            return
+        if suma + suf[i] < destino - margen:        # ni sumando todo lo que queda
+            return
+        nodos += 1
+        elegidos.append(vals[i])
+        dfs(i + 1, elegidos, round(suma + vals[i][1], 2))
+        elegidos.pop()
+        dfs(i + 1, elegidos, suma)
+
+    dfs(0, [], 0.0)
+    return salida, nodos >= TOPE_NODOS
+
+
 def _buscar(items: list[tuple[dict, float]], objetivo: float) -> tuple[list[dict], bool]:
     """Subconjuntos de UN lado cuya suma llega al objetivo.
 
@@ -983,9 +1084,15 @@ def _buscar(items: list[tuple[dict, float]], objetivo: float) -> tuple[list[dict
     siquiera se generan— y no filtrándolas después: una regla que decide qué es
     una explicación tiene que estar en la estructura, no en un `if` al final.
 
-    Tres pasadas, de la más estricta a la más laxa: exacto → mismo importe con el
-    signo al revés → con margen. El orden importa: buscando con margen desde el
+    Cuatro pasadas, de la más estricta a la más laxa, y se corta en la primera
+    que encuentra algo. El orden ES el criterio: buscando con margen desde el
     principio, «esto es» y «esto se le parece» valdrían lo mismo.
+
+      1. exacto
+      2. el mismo importe con el signo al revés
+      3. con el margen de redondeo (`tolerancia`)
+      4. aproximado (`tolerancia_aproximada`) y **solo combinaciones**: ver el
+         comentario de `APROX_PCT`.
     """
     obj = round(objetivo, 2)
     truncado = len(items) > MAX_MOVS_COMBINAR
@@ -994,36 +1101,94 @@ def _buscar(items: list[tuple[dict, float]], objetivo: float) -> tuple[list[dict
     # no cambia ninguna suma y solo agrandaría el espacio de búsqueda.
     lados = ([m for m in usables if m[1] > 0], [m for m in usables if m[1] < 0])
 
-    def _armar(combo, suma):
-        return {"movimientos": [m for m, _ in combo], "suma": round(suma, 2),
-                "cantidad": len(combo), "resto": round(obj - suma, 2),
-                "signo_invertido": suma != 0 and round(suma, 2) == round(-obj, 2)}
+    pasadas = ((obj, 0.0, False), (-obj, 0.0, False),
+               (obj, tolerancia(obj), False),
+               (obj, tolerancia_aproximada(obj), True))
 
-    for criterio in ("exacto", "absoluto", "margen"):
-        def _da(suma: float, criterio=criterio) -> bool:
-            if criterio == "exacto":
-                return round(suma, 2) == obj
-            if criterio == "absoluto":
-                return round(abs(suma), 2) == round(abs(obj), 2)
-            return abs(round(suma - obj, 2)) <= tolerancia(obj)
+    for meta, margen, aprox in pasadas:
+        # De a UNO primero, y sobre TODOS los items (no hay nada que combinar,
+        # así que el corte por signo no aplica). En la pasada aproximada no se
+        # buscan sueltos a propósito: un movimiento que «casi» da es otro
+        # movimiento.
+        if not aprox:
+            sueltos = [_armar([(m, v)], v, obj) for m, v in items
+                       if abs(round(v - meta, 2)) <= margen]
+            if sueltos:
+                return sueltos[:10], False
 
         salida: list[dict] = []
-        for m, v in items:
-            if _da(v):
-                salida.append(_armar([(m, v)], v))
+        agotado = False
+        for lado in lados:
+            hallados, corte = _combinaciones(lado, meta, margen, obj, aprox)
+            salida += hallados
+            agotado = agotado or corte
         if salida:
-            return salida[:10], False
-        for n in (2, MAX_COMBINAR):
-            for lado in lados:
-                for combo in combinations(lado, n):
-                    suma = round(sum(v for _, v in combo), 2)
-                    if _da(suma):
-                        salida.append(_armar(combo, suma))
-                        if len(salida) >= 10:
-                            return salida, truncado
-            if salida:
-                return salida, truncado
+            # Lo que menos deja sin explicar primero, y a igualdad de resto la
+            # explicación más corta: dos movimientos son más creíbles que ocho.
+            salida.sort(key=lambda c: (abs(c["resto"]), c["cantidad"]))
+            return salida[:10], truncado or agotado
+        truncado = truncado or agotado
+
     return [], truncado
+
+
+# --------------------------------------------------------------------------- #
+# CALZAR POR IMPORTE — sacar del medio lo que ya coincide de los dos lados
+# --------------------------------------------------------------------------- #
+def _calzar_por_importe(izq: list[float], der: list[float]) -> tuple[list, list]:
+    """Empareja los movimientos de los dos lados que tienen el MISMO importe.
+
+    ⚠️ **Por importe y nada más.** Las leyendas de los dos lados no se parecen y
+    cambian todo el tiempo (`TRANSFERENCIA ENTRE CUENT` contra `[Op. 1136612]
+    bco a bco`), así que cruzarlas por texto es imposible. Lo único que significa
+    lo mismo de los dos lados es el número — y el signo, que está alineado:
+    plata que entra al banco es Debe en el mayor.
+
+    ⚠️ **Uno a uno.** Si el mismo importe aparece 3 veces del lado del banco y 2
+    del lado del mayor, se calzan 2 pares y queda 1 suelto. Calzar «el grupo
+    contra el grupo» taparía justo el movimiento que falta.
+
+    No decide nada ni cambia ningún total: solo marca. Para qué sirve: con lo
+    coincidente fuera de la vista, lo que queda es la lista corta de lo que hay
+    que mirar de verdad.
+    """
+    pendientes: dict[float, list[int]] = {}
+    for j, v in enumerate(der):
+        pendientes.setdefault(round(v, 2), []).append(j)
+
+    ci: list = [None] * len(izq)
+    cd: list = [None] * len(der)
+    pares = 0
+    for i, v in enumerate(izq):
+        cola = pendientes.get(round(v, 2))
+        if not cola:
+            continue
+        pares += 1
+        j = cola.pop(0)
+        ci[i] = cd[j] = f"c{pares}"
+    return ci, cd
+
+
+def _gastos_de_movimientos(fecha: date, cuenta_id: int,
+                           baldes: list[dict]) -> dict[str, str]:
+    """{mov_hash: balde} — qué movimientos del día de ESA cuenta son gasto.
+
+    Es el MISMO criterio que la columna GASTOS (`_gastos_bancarios`): las mismas
+    reglas, los mismos overrides y el mismo desglose. Acá se necesita movimiento
+    por movimiento y no el total, para poder marcarlos en la lista: un descalce
+    en un impuesto es esperable —el banco lo cobra hoy y contabilidad lo carga
+    después— y no tiene el mismo valor que un descalce en una transferencia.
+    """
+    movs = _movs_para_clasificar(fecha, cuenta_id)
+    if not movs:
+        return {}
+    reglas, overrides = listar_reglas(), _overrides(fecha)
+    if not [r for r in reglas if r.get("activa", True)] and not overrides:
+        return {}
+    marcas = clasificar(movs, reglas, overrides)
+    return {m["mov_hash"]: desglosar(m, baldes) for m in movs
+            if not m.get("ignorado") and marcas[m["mov_hash"]]["es_gasto"]}
+
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1334,20 +1499,55 @@ def conciliar(email: str, cuenta_id: int, fecha: date,
     # otras pantallas, y ahí la pregunta es «cuánto cobró», no «cuánto se movió
     # el saldo». Sin una sola regla cargada viene vacío y la vista dice «—»: «no
     # sabemos» y «no hubo gastos» son cosas distintas.
-    gastos = _gastos_bancarios(fecha, _baldes()).get(cuenta_id) or {}
+    baldes = _baldes()
+    gastos = _gastos_bancarios(fecha, baldes).get(cuenta_id) or {}
+    # El mismo criterio, pero movimiento por movimiento: la lista los marca.
+    gasto_de = _gastos_de_movimientos(fecha, cuenta_id, baldes)
+
+    # ── CALCE POR IMPORTE ────────────────────────────────────────────────────
+    # Qué movimiento de cada lado tiene su igual del otro. Ver `_calzar_por_importe`.
+    imp_banco = [round(_firmado(m), 2) for m in movs]
+    imp_mayor = [m["importe"] for m in detalle["movimientos"]]
+    calce_banco, calce_mayor = _calzar_por_importe(imp_banco, imp_mayor)
 
     candidatos: list[dict] = []
     truncados = False
     if diferencia is not None and not concilia:
-        # Del lado del BANCO: un movimiento que el banco tiene y al mayor le
-        # falta hace que la diferencia valga exactamente ese importe.
+        # ⚠️ **Se busca SOLO entre los que NO calzaron.** Un movimiento que tiene
+        # su igual del otro lado ya está registrado en los dos sistemas: no puede
+        # ser el que falta. Sacarlos no es una optimización cosmética — es lo que
+        # deja el universo chico y hace que aparezcan las combinaciones largas,
+        # que antes quedaban tapadas por movimientos que no tenían nada que
+        # explicar.
         del_banco, t1 = _buscar(
-            [(m, round(_firmado(m), 2)) for m in movs], diferencia)
+            [(m, v) for m, v, c in zip(movs, imp_banco, calce_banco) if c is None],
+            diferencia)
         # Del lado del MAYOR: un movimiento cargado de más hace que el mayor se
         # aleje en sentido contrario, así que se busca por el OPUESTO.
         del_mayor, t2 = _buscar(
-            [(m, m["importe"]) for m in detalle["movimientos"]], -diferencia)
+            [(m, m["importe"])
+             for m, c in zip(detalle["movimientos"], calce_mayor) if c is None],
+            -diferencia)
         truncados = t1 or t2
+
+        # Los GASTOS del día, TODOS JUNTOS, como candidato explícito. `_buscar`
+        # no puede encontrarlo: son ~15 movimientos chicos y las combinaciones
+        # llegan hasta `MAX_COMBINAR`. Y es el caso más común de «falta en el
+        # mayor»: el banco cobra comisión, IVA y ley 25.413 el mismo día y el
+        # sistema contable los registra al mes, o no los registra.
+        #
+        # Solo si NINGUNA de las búsquedas dio una explicación EXACTA: si ya hay
+        # una que cierra al centavo, agregar «además, mirá los gastos» es ruido.
+        if not any(c["resto"] == 0 for c in (*del_banco, *del_mayor)):
+            solo_gastos = [(m, v) for m, v, c in zip(movs, imp_banco, calce_banco)
+                           if c is None and gasto_de.get(m["mov_hash"])]
+            suma_g = round(sum(v for _, v in solo_gastos), 2)
+            if len(solo_gastos) >= 2 and abs(round(suma_g - diferencia, 2)) \
+                    <= tolerancia_aproximada(diferencia):
+                cand = _armar(solo_gastos, suma_g, diferencia,
+                              aproximado=suma_g != round(diferencia, 2))
+                cand["motivo"] = "todos los gastos bancarios del día sin calzar"
+                del_banco = [cand, *del_banco]
 
         def _pub(c, lado):
             movimientos = [
@@ -1365,7 +1565,14 @@ def conciliar(email: str, cuenta_id: int, fecha: date,
                     # traducir nada.
                     "accion": "falta_en_el_mayor" if lado == "banco" else "sobra_en_el_mayor",
                     "suma": c["suma"], "cantidad": c["cantidad"], "resto": c["resto"],
-                    "signo_invertido": c["signo_invertido"], "movimientos": movimientos}
+                    "signo_invertido": c["signo_invertido"],
+                    # `aproximado` = no da exacto ni dentro del margen de
+                    # redondeo, pero le pega cerca. Viaja marcado porque una
+                    # explicación aproximada NO se puede confundir con una que
+                    # cierra; el `resto` dice cuánto falta.
+                    "aproximado": c.get("aproximado", False),
+                    "motivo": c.get("motivo"),
+                    "movimientos": movimientos}
 
         # El signo decide cuál se muestra PRIMERO: es la explicación más probable
         # según de qué lado sobra la plata. Las dos se muestran igual, porque
@@ -1424,7 +1631,15 @@ def conciliar(email: str, cuenta_id: int, fecha: date,
                                  or "(sin descripción)"),
                  "grupo": d,
                  "concepto": (m.get("descripcion_ib") or "").strip(),
-                 "importe": round(_firmado(m), 2)} for m in movs]
+                 # `calce` = con qué movimiento del mayor coincide el importe;
+                 # `balde` = qué impuesto es, si es un gasto. Los dos existen
+                 # para el MISMO fin: poder sacar de la vista lo que ya está
+                 # explicado y lo que descalza por una razón conocida.
+                 "calce": calce_banco[i],
+                 "balde": gasto_de.get(m["mov_hash"]),
+                 "importe": round(_firmado(m), 2)} for i, m in enumerate(movs)]
+    for i, m in enumerate(detalle["movimientos"]):
+        m["calce"] = calce_mayor[i]
     return {
         "fecha": fecha.isoformat(),
         "banco_movimientos": nuestros,
@@ -1454,9 +1669,26 @@ def conciliar(email: str, cuenta_id: int, fecha: date,
         "gastos_desglose": gastos or None,
         "candidatos": candidatos,
         "candidatos_truncados": truncados,
+        # El resumen del CALCE POR IMPORTE. Los dos números que importan son los
+        # `_sin_calzar`: su RESTA es la misma diferencia de arriba (los pares se
+        # cancelan entre sí), así que la vista filtrada muestra exactamente los
+        # movimientos que la producen y ninguno más.
+        "calce": {
+            "pares": sum(1 for c in calce_banco if c is not None),
+            "banco_sin_calzar": sum(1 for c in calce_banco if c is None),
+            "mayor_sin_calzar": sum(1 for c in calce_mayor if c is None),
+            "banco_suma_sin_calzar": round(
+                sum(v for v, c in zip(imp_banco, calce_banco) if c is None), 2),
+            "mayor_suma_sin_calzar": round(
+                sum(v for v, c in zip(imp_mayor, calce_mayor) if c is None), 2),
+        },
         # El margen con que se buscó. Un criterio que decide qué se muestra tiene
         # que poder leerse en la pantalla, no vivir escondido en el código.
         "tolerancia": tolerancia(diferencia) if diferencia is not None else None,
+        # Y el del último recurso, que es el que más fácil puede hacer pasar una
+        # coincidencia por un hallazgo: con más razón tiene que estar a la vista.
+        "tolerancia_aproximada": (tolerancia_aproximada(diferencia)
+                                  if diferencia is not None else None),
         "avisos": avisos,
     }
 

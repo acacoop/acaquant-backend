@@ -10,10 +10,20 @@ guarda **solo lo bancario**: los movimientos cuya cuenta contable está mapeada 
 `bancos.cuentas.codigo_contable`. El resto (comitentes, IVA, aranceles,
 regularizadoras) se descarta.
 
-QUÉ DÍA
-    El MISMO que muestra la vista de INTERBANKING: el día hábil anterior
-    (`restar_habiles(hoy_ar, 1)`), con `fechaDesde == fechaHasta`. Si el job
-    apuntara a otro día, la vista nunca encontraría el mayor de lo que muestra.
+QUÉ IMPORTE SE GUARDA: `cantidad`, NO `valuacion`
+    El movimiento trae los dos, y **`valuacion = cantidad × factor`** donde
+    `factor` es el TIPO DE CAMBIO. En una cuenta en pesos `factor` vale 1 y los
+    dos campos coinciden; en una cuenta en dólares NO:
+
+        cant=  -326432.08   factor= 1515.0000   val= -494544601.20
+
+    Guardar `valuacion` metía PESOS en la cuenta en dólares, contra un extracto
+    que está en dólares. Y el modo de falla es traicionero: las cuentas ARS
+    conciliaban perfecto, así que se leía como «el mayor de esa cuenta está mal
+    cargado» y no como un bug nuestro (incidente 2026-08-21, cuenta VALO USD:
+    una extracción de USD 326.432 figuraba como 494 millones).
+
+    `codigoUnidad` es la unidad de la CANTIDAD, no la de la valuación.
     Hay un test que fija que coincide con `api.services.bancos.fecha_default()`.
 
     ⚠️ El rango de la API filtra por **fecha de CONCILIACIÓN**, no por fecha de
@@ -75,10 +85,15 @@ logger = logging.getLogger(__name__)
 
 ENDPOINT = "contabilidad/registrosContables"
 
-# Los ~9,6 MB tardan entre 75 s y 306 s (medido). El default de `aunesa.get` (180)
-# se quedaba corto y disparaba un reintento que duplicaba la espera.
-TIMEOUT_S = 360
-
+# Los ~10 MB tardan entre 75 s y 327 s (medido; el peor caso sube cada vez que
+# crece el día). 480 deja margen sobre ese techo y sigue entrando en el
+# presupuesto de 9 min que le da el cron.
+TIMEOUT_S = 480
+# Y por eso mismo NO se reintenta adentro: el cron corre cada 10 min, así que el
+# reintento es la próxima corrida. Encadenar tres timeouts de 360 s solo consigue
+# que el wrapper mate el proceso a mitad y que el log diga TIMEOUT en vez del
+# motivo real.
+REINTENTOS = 1
 
 def fecha_objetivo() -> date:
     """El día hábil anterior en hora ARGENTINA.
@@ -162,7 +177,7 @@ def _extraer(registros: list, mapeo: dict[str, int], dia: date) -> dict:
                 mid, str(asiento.get("asientoID") or ""), str(asiento.get("numero") or ""),
                 f_conc, f_alta, codigo, cuenta_id,
                 str(mov.get("codigoUnidad") or ""),
-                _num(mov.get("valuacion")) or 0.0,
+                _num(mov.get("cantidad")) or 0.0,
                 concepto or str(mov.get("referencia") or "").strip(),
                 str(mov.get("comprobante") or ""), str(mov.get("numeroOperacion") or ""),
                 str(mov.get("referencia") or ""),
@@ -227,7 +242,7 @@ def run(fecha: date | None = None, *, dry: bool = False, forzar: bool = False) -
     logger.info("mayor_sync %s — pidiendo a Aunesa (puede tardar varios minutos)", f)
     resp = aunesa.get(ENDPOINT,
                       {"fechaDesde": f, "fechaHasta": f, "inclNC": "true"},
-                      timeout=TIMEOUT_S)
+                      timeout=TIMEOUT_S, retries=REINTENTOS)
     stats["segundos"] = round(time.monotonic() - t0, 1)
 
     if resp.status_code == 204:

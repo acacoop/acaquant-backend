@@ -18,9 +18,11 @@ MAPEO = {CTA_PATA: 7, CTA_VALO: 9}
 DIA = date(2026, 8, 19)
 
 
-def _mov(codigo, valuacion, *, mid="1", nombre="Banco Patagonia CC 304-100753595-000"):
+def _mov(codigo, valuacion, *, mid="1", nombre="Banco Patagonia CC 304-100753595-000",
+         moneda="ARS", cantidad=None, factor="1"):
     return {"movimientoID": mid, "codigoCuenta": codigo, "nombreCuenta": nombre,
-            "codigoUnidad": "ARS", "cantidad": valuacion, "factor": "1",
+            "codigoUnidad": moneda,
+            "cantidad": valuacion if cantidad is None else cantidad, "factor": factor,
             "valuacion": valuacion, "cuentaID": "CTB", "numeroOperacion": "1135703",
             "comprobante": "NT 2026010519", "codigoExp": "", "referencia": "detalle"}
 
@@ -52,6 +54,32 @@ def test_el_importe_conserva_el_signo_de_valuacion():
     registros = [_asiento([_mov(CTA_PATA, "-1100000.00", mid="9")])]
     fila = mayor_sync._extraer(registros, MAPEO, DIA)["filas"][0]
     assert fila[8] == -1100000.00
+
+
+def test_una_cuenta_en_dolares_se_guarda_en_DOLARES_y_no_en_pesos():
+    """El importe sale de `cantidad`, NO de `valuacion` (= cantidad × TC).
+
+    Datos reales de VALO USD el 20/08/2026: una extracción de USD 326.432,08 con
+    factor 1515 quedaba guardada como −494.544.601,20, que es lo mismo en pesos.
+    Contra un extracto en dólares no coincide nada.
+
+    Lo que hace grave al bug es que se esconde: en las cuentas ARS el factor es 1
+    y los dos campos dan igual, así que la mitad de la grilla conciliaba perfecto
+    y el error se leía como un problema de carga del sistema contable.
+    """
+    registros = [_asiento([_mov(CTA_VALO, "-494544601.20", mid="1",
+                                moneda="USD", cantidad="-326432.08", factor="1515.0000")])]
+    fila = mayor_sync._extraer(registros, MAPEO, DIA)["filas"][0]
+    assert fila[7] == "USD"
+    assert fila[8] == -326432.08
+
+
+def test_en_pesos_los_dos_campos_dan_lo_mismo():
+    """Factor 1 → `cantidad == valuacion`. Es por esto que el bug del USD
+    convivió con cuentas que conciliaban bien."""
+    registros = [_asiento([_mov(CTA_PATA, "18711185.35", mid="1")])]
+    fila = mayor_sync._extraer(registros, MAPEO, DIA)["filas"][0]
+    assert fila[8] == 18711185.35
 
 
 def test_el_concepto_es_la_referencia_del_asiento():

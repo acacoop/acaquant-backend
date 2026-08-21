@@ -3761,7 +3761,10 @@ CREATE TABLE IF NOT EXISTS bancos.mayor_movimientos (
     codigo_cuenta       text NOT NULL,         -- `codigoCuenta`, ej. '101010100002'
     cuenta_id           bigint NOT NULL REFERENCES bancos.cuentas(id),
     moneda              text,                  -- `codigoUnidad`, ej. 'ARS'
-    importe             numeric NOT NULL,      -- `valuacion` FIRMADA = Debe − Haber
+    -- `cantidad` FIRMADA (Debe − Haber) y EN LA MONEDA DE LA CUENTA.
+    -- NO es `valuacion`: esa es `cantidad × factor` (el TC), o sea pesos, y en
+    -- las cuentas en dólares no se puede comparar contra el extracto.
+    importe             numeric NOT NULL,
     concepto            text,                  -- referencia del ASIENTO: la que agrupa `_grupo_mayor`
     comprobante         text,
     numero_operacion    text,

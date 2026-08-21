@@ -411,6 +411,26 @@
 # Doc: docs/INTERBANKING.md
 0 12,14,16,18,20,22 * * 1-5 /root/TradingAV/deploy/run_job.sh interbanking_sync 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.interbanking_sync'
 
+# ─── MAYOR CONTABLE (Aunesa) → bancos.mayor_movimientos — el otro lado de la conciliación
+# Pide SIEMPRE el DÍA HÁBIL ANTERIOR, y eso es el punto: el día no está cerrado.
+# El equipo de contabilidad sigue registrando y anulando asientos durante toda la
+# mañana siguiente (medido: 1.840 → 1.847 asientos entre dos consultas), así que
+# refrescar "ayer" es exactamente lo que hace falta. Cada corrida REEMPLAZA el día
+# entero (DELETE + INSERT); nunca upsert, si no un asiento anulado quedaría de
+# fantasma inflando el saldo del mayor.
+#
+# Cadencia pedida por el back office (2026-08-21): cada 10 min mientras se carga
+# de verdad (10-12 ART = 13-14 UTC) y una vez por hora el resto de la tarde
+# (12-18 ART = 15-21 UTC), cuando ya casi no se mueve.
+#
+# Presupuesto 9m, por debajo de la ventana de 10 min: la request pesa 9,6 MB y
+# tarda entre 75 s y 306 s (con picos que disparan el retry). Si la matan, no se
+# pierde nada — el job trae PRIMERO y recién después borra el día.
+# El LOCK de run_job.sh evita que dos corridas se pisen.
+# Doc: jobs/mayor_sync.py · ver estado: SELECT * FROM bancos.mayor_sync_log
+*/10 13-14 * * 1-5 /root/TradingAV/deploy/run_job.sh mayor_sync 9m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mayor_sync'
+0 15-21 * * 1-5 /root/TradingAV/deploy/run_job.sh mayor_sync 9m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mayor_sync'
+
 # ─── AV AGENT EN RUEDA — el monitor que solo tiene sentido con el mercado abierto
 # Pedido del user 2026-08-18: «necesito que esté prendido el agente… al menos de
 # 10:30 a 17».

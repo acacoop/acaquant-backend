@@ -4823,6 +4823,117 @@ abierto**: con el mensaje ya mandado, esa frase le pedía al user una decisión
 sobre algo que él mismo ya había hecho. Esa era, literalmente, la confusión.
 
 
+### 0.bx LA CADENA NO TENÍA CICLO: 20 pasos y el problema en el medio (2026-08-22)
+
+> *«Es demasiado complicado entender qué es lo que pasa, es como que **no tiene
+> un CICLO** este control. Son un montón de pasos que si bien sirven, pero es
+> como que uno debería dar paso a otro y en todo caso **que quede marcado dónde
+> quedó trabado**. Pero tampoco a su vez que el user vea absolutamente todo —
+> o sea, está bien que algunas cosas sirvan de ejemplo para estudiar y aprender,
+> pero **yo que lo estoy entrenando quiero ver más fácil el problema**.»* — user,
+> mirando el diagnóstico de BPOD7
+
+#### Lo que mostraba, y por qué era ilegible
+
+BPOD7 abría con **«✘ BLOQUEADO — 1 paso/s lo bloquean»** y veinte renglones
+abajo. El paso 15 decía *«con los datos de hoy no se detecta nada roto»* y el
+19, el que bloqueaba, decía *«el bono de hoy YA coincide con 1816: no hay nada
+que arreglar y pisarlo sería empeorarlo»*.
+
+O sea: **lo primero que se lee y lo que de verdad pasa, al revés.** El bono está
+sano (TEA 3,62% contra 3,62% de 1816, 0 bps; duration idéntica) y el hallazgo
+`sin_tea_con_precio` quedó viejo — su propia premisa («el XIRR no converge») la
+desmiente el paso 10, que muestra la TEA calculada.
+
+**El problema no era la cantidad de pasos.** Era que cuatro naturalezas
+distintas se dibujaban iguales:
+
+| capa | qué es | ¿puede trabar? |
+|---|---|---|
+| `prueba` | mide algo y puede no pasar — **es lo que decide** | sí |
+| `contexto` | describe estado, no juzga | no |
+| `aprender` | una lección o un caso ANTERIOR; no habla de este bono | no |
+| `veredicto` | la conclusión | — |
+
+Con las cuatro al mismo peso, encontrar el problema pedía leer las veinte.
+
+#### La capa se DERIVA, no se lista
+
+`estado == info` → `contexto`; cualquier otro estado → `prueba` (si puede
+fallar, decide). Solo declaran capa las dos que ninguna regla puede adivinar:
+una lección es `info` igual que un contexto, y eso lo sabe únicamente quien la
+crea. Sin la derivación, cada paso nuevo nacería sin capa y volvería a caer en
+la bolsa común — que es cómo se llegó acá.
+
+#### «BLOQUEA» tenía DOS significados opuestos
+
+El mismo booleano decía dos cosas contrarias:
+
+    probé que está MAL   → hay algo que arreglar
+    probé que está BIEN  → no hay nada que arreglar, y pisarlo lo empeoraría
+
+y las dos salían con la misma ✘ roja. Ahora el paso lleva `nada_que_hacer`, el
+veredicto deja de anunciar *«1 paso lo bloquea»* (sigue sin poder escribirse, y
+está bien) y dice **«se comprobó que el bono está bien: este hallazgo quedó
+viejo»**. Congelado por test.
+
+#### `desenlace`: la otra pregunta
+
+El veredicto contestaba *«¿puedo apretar APLICAR?»* — la pregunta del que va a
+escribir. La que uno se hace primero es **«¿qué le pasa a este bono?»**, y
+responder la primera cuando te preguntan la segunda es exactamente lo que hacía
+ilegible la pantalla. `_desenlace()` la contesta en una línea, con cinco
+salidas:
+
+    roto     una prueba dice que está mal → eso es el problema
+    no_se    no se pudo verificar → **no se sabe**, que no es «está bien»
+    viejo    se probó que está BIEN: el hallazgo ya no aplica
+    mirar    nada probado mal, pero algo no cierra
+    listo    la cadena cierra entera
+
+y con **`traba`**: la PRIMERA prueba que no pasó, en el orden en que se
+corrieron. Las demás pueden ser consecuencia de ésa. Va adentro del veredicto y
+no en un objeto aparte, porque salen de los mismos pasos y separarlos daría dos
+cosas que pueden contradecirse — el error que este agente ya se comió tres
+veces.
+
+⚠️ Los pasos **no** son gates secuenciales que cortan: todos corren. Por eso la
+pantalla dice *«acá se trabó»* y nunca *«no llegué a mirar el resto»*, que sería
+falso.
+
+#### En pantalla
+
+1. **Una línea con el desenlace**, arriba de todo, con su color. `viejo` es
+   VERDE aunque venga de un paso que bloquea.
+2. **El paso donde se trabó, abierto**, sin desplegar nada. Es lo único visible
+   por default: literalmente lo que pidió ver primero.
+3. La conclusión del diagnóstico local.
+4. **Tres solapas plegadas** — `los pasos` · `contexto` · `para aprender` — una
+   por vez, como el menú de SKILLS. Nada se esconde: deja de competir por el
+   lugar. Adentro de la lista, la traba va marcada otra vez («← acá se trabó»):
+   ver la cadena entera y tener que volver arriba a recordar cuál era el paso
+   malo es la mitad del trabajo que esto vino a sacar.
+
+De yapa, los `**` del backend se renderizan en negrita. Venían crudos: la
+pantalla mostraba `= **100.00** en 3 cupón/es`. El backend marca lo importante
+desde siempre y el front lo tiraba como texto plano, así que el énfasis sumaba
+ruido en vez de sacarlo. Sin `dangerouslySetInnerHTML` — se parte por `**` y los
+tramos impares van en negrita, así nada de lo que llega puede volverse markup
+(parte de ese texto son errores y nombres de instrumento).
+
+#### Lo que queda pendiente y NO se tocó
+
+**Hay dos sistemas de lentes midiendo lo mismo.** En la cadena de BPOD7, los
+pasos 2 y 7 dicen los dos *«Σ de las amortizaciones futuras = 100.00 → base
+100»*, y el 3 y el 9 los dos *«paridad = 102,85/100 = 102,85%, en rango»*. Son
+`_diagnostico_local` y el juego de lentes de `analizar()` corriendo en paralelo
+y publicando ambos. **4 de 20 renglones eran el mismo hecho dicho dos veces.**
+
+Plegarlos lo hace tolerable, no lo arregla: es REGLA #9(B) — dos copias sin
+árbitro. Mientras coincidan no pasa nada, y el día que discrepen la pantalla va
+a mostrar las dos, con la misma cara. Unificarlas es el paso siguiente.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

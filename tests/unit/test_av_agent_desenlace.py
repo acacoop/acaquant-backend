@@ -1,0 +1,98 @@
+"""La cadena tiene un CICLO y se marca dónde se trabó (§0.bx).
+
+El caso que lo motivó es BPOD7: 20 pasos, encabezado «✘ BLOQUEADO», y doce
+renglones más abajo la conclusión decía «no se detecta nada roto». Lo que se
+congela acá es que esas dos frases **no puedan volver a contradecirse**.
+"""
+from api.services.av_agent_alta import (
+    APRENDER,
+    BLOQUEA,
+    CONTEXTO,
+    INFO,
+    NO_SE,
+    OK,
+    PRUEBA,
+    REVISAR,
+    VEREDICTO,
+    _desenlace,
+    _paso,
+    _veredicto,
+)
+
+
+class TestCapa:
+    def test_se_deriva_del_estado(self):
+        """Un paso nuevo NACE clasificado. Sin derivación caería en la bolsa
+        común y la pantalla volvería a mezclar pruebas con contexto."""
+        assert _paso("x", "t", OK, "d")["capa"] == PRUEBA
+        assert _paso("x", "t", BLOQUEA, "d")["capa"] == PRUEBA
+        assert _paso("x", "t", REVISAR, "d")["capa"] == PRUEBA
+        assert _paso("x", "t", NO_SE, "d")["capa"] == PRUEBA
+        # `info` no juzga nada: describe.
+        assert _paso("x", "t", INFO, "d")["capa"] == CONTEXTO
+
+    def test_lo_que_no_se_puede_adivinar_se_declara(self):
+        # Una lección es `info` igual que un contexto: la única diferencia la
+        # sabe quien la crea.
+        assert _paso("l", "t", INFO, "d", capa=APRENDER)["capa"] == APRENDER
+        assert _paso("v", "t", OK, "d", capa=VEREDICTO)["capa"] == VEREDICTO
+
+
+class TestDesenlace:
+    def test_la_traba_es_la_PRIMERA_que_no_pasa(self):
+        pasos = [_paso("a", "A", OK, ""), _paso("b", "B", REVISAR, ""),
+                 _paso("c", "C", BLOQUEA, "")]
+        d = _desenlace(pasos)
+        assert d["traba"] == "b", "la primera en el orden de la cadena, no la peor"
+
+    def test_el_contexto_y_las_lecciones_no_traban_nada(self):
+        pasos = [_paso("ctx", "C", INFO, ""),
+                 _paso("lec", "L", INFO, "", capa=APRENDER),
+                 _paso("a", "A", OK, "")]
+        assert _desenlace(pasos)["clase"] == "listo"
+
+    def test_probado_BIEN_gana_sobre_cualquier_ambar(self):
+        """El caso BPOD7. Si se comprobó que el bono está bien, un `revisar`
+        suelto no puede hacer que la pantalla anuncie un problema."""
+        pasos = [_paso("r", "algo", REVISAR, ""),
+                 _paso("cotejo_hoy", "El bono de HOY, contra 1816", BLOQUEA, "",
+                       nada_que_hacer=True)]
+        d = _desenlace(pasos)
+        assert d["clase"] == "viejo"
+        assert "VIEJO" in d["titulo"]
+        assert d["traba"] == "cotejo_hoy"
+
+    def test_no_se_pudo_verificar_NO_es_esta_bien(self):
+        d = _desenlace([_paso("x", "1816", NO_SE, "")])
+        assert d["clase"] == "no_se"
+        assert "no se sabe" in d["que_hacer"]
+
+    def test_roto_de_verdad_dice_donde(self):
+        d = _desenlace([_paso("ok", "A", OK, ""),
+                        _paso("cuadro", "El cuadro", BLOQUEA, "")])
+        assert d["clase"] == "roto"
+        assert "El cuadro" in d["titulo"]
+
+
+class TestVeredictoYDesenlaceNoSeContradicen:
+    def test_bloquea_porque_esta_bien_no_se_anuncia_como_falla(self):
+        """⚠️ El bug exacto de BPOD7: «NO se puede aplicar — 1 paso lo bloquea»
+        arriba de un bono que coincide con 1816 al bps."""
+        v = _veredicto([_paso("cotejo_hoy", "contra 1816", BLOQUEA, "",
+                              nada_que_hacer=True)])
+        assert v["puede_aplicar"] is False, "sigue sin poder escribirse, y está bien"
+        assert "lo bloquean" not in v["texto"]
+        assert "quedó viejo" in v["texto"]
+        assert v["desenlace"]["clase"] == "viejo"
+
+    def test_el_veredicto_siempre_trae_desenlace_y_conteo_por_capa(self):
+        v = _veredicto([_paso("a", "A", OK, ""), _paso("c", "C", INFO, ""),
+                        _paso("l", "L", INFO, "", capa=APRENDER)])
+        assert v["desenlace"]["clase"] == "listo"
+        assert v["conteo"]["prueba"] == 1
+        assert v["conteo"]["contexto"] == 1
+        assert v["conteo"]["aprender"] == 1
+
+    def test_una_cadena_vacia_no_levanta(self):
+        v = _veredicto([])
+        assert v["desenlace"]["clase"] == "listo"

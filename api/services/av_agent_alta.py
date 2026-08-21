@@ -433,9 +433,35 @@ _BPS_COINCIDE, _BPS_MIRAR = 50.0, 150.0          # TEA, señal secundaria
 _DURATION_COINCIDE, _DURATION_MIRAR = 1.0, 5.0   # % de diferencia RELATIVA
 
 
+# ── LAS CUATRO CAPAS DE UNA CADENA ──────────────────────────────────────────
+#
+# Pedido del user (2026-08-22), mirando 20 pasos de BPOD7: *«es demasiado
+# complicado entender qué es lo que pasa, es como que no tiene un CICLO este
+# control… uno debería dar paso a otro y que quede marcado DÓNDE QUEDÓ TRABADO.
+# Pero tampoco que el user vea absolutamente todo — está bien que algunas cosas
+# sirvan de ejemplo para estudiar, pero yo que lo estoy entrenando quiero ver
+# más fácil el problema»*.
+#
+# Tenía razón y el problema no era la cantidad: era que **veinte cosas de cuatro
+# naturalezas distintas se dibujaban iguales**. Una prueba que puede fallar, un
+# dato de contexto, una lección de otro caso y la conclusión final competían por
+# el mismo renglón, así que para encontrar el problema había que leerlas todas.
+#
+#   prueba     puede pasar o no pasar → **es lo que decide**. Acá se traba.
+#   contexto   describe estado, no juzga nada. Nunca traba.
+#   aprender   un caso anterior o una lección. No habla de ESTE bono.
+#   veredicto  la conclusión. Una sola, y va arriba.
+#
+# **La capa se DERIVA del estado** y solo la declaran las dos que no se pueden
+# adivinar (una lección es `info` igual que un contexto). Sin derivación, cada
+# paso nuevo nacería sin capa y volvería a caer en la bolsa común.
+PRUEBA, CONTEXTO, APRENDER, VEREDICTO = "prueba", "contexto", "aprender", "veredicto"
+
+
 def _paso(clave: str, titulo: str, estado: str, detalle: str,
           *, tabla: str = "", accion: str = "", aviso: str = "",
-          pide: dict | None = None) -> dict:
+          pide: dict | None = None, capa: str = "",
+          nada_que_hacer: bool = False) -> dict:
     """Un eslabón. **`clave` es la identidad, `n` es presentación** — el `n` se
     numera al final según los pasos que hayan aplicado (el de CER no siempre
     está, el control cruzado tampoco). Si el orden fuera la identidad, insertar
@@ -458,6 +484,18 @@ def _paso(clave: str, titulo: str, estado: str, detalle: str,
             # simulación con ese dato y si va todo bien ya lo aplique con eso»*.
             # Es la diferencia entre aplicar a ciegas y aplicar VIENDO la tasa.
             "pide": pide or None,
+            # La CAPA: qué clase de cosa es este renglón. Derivada salvo que se
+            # declare — ver el bloque de arriba.
+            "capa": capa or (CONTEXTO if estado == INFO else PRUEBA),
+            # ⚠️ **«NO SE PUEDE APLICAR» TIENE DOS SIGNIFICADOS OPUESTOS** y hasta
+            # hoy se dibujaban con la misma ✘ roja:
+            #   · probé que está MAL   → hay algo que arreglar
+            #   · probé que está BIEN  → no hay nada que arreglar, y pisarlo lo
+            #                            empeoraría; el hallazgo quedó viejo
+            # En BPOD7 el encabezado decía «✘ BLOQUEADO» mientras el paso que
+            # bloqueaba decía, adentro, «el bono YA coincide con 1816». Lo
+            # primero que se lee y lo que de verdad pasa, al revés.
+            "nada_que_hacer": bool(nada_que_hacer),
             "frena": estado in _FRENAN_TODO,
             "frena_auto": estado in _FRENAN_AUTOMATICO}
 
@@ -1200,6 +1238,65 @@ def _memoria_de_calculo(*, doc: dict, ejes, rama: str, conv: dict, out: dict,
     return f
 
 
+def _desenlace(chequeos: list[dict]) -> dict:
+    """**LA RESPUESTA EN UNA LÍNEA, y dónde se trabó.**
+
+    Pedido del user (2026-08-22): *«que quede marcado dónde quedó trabado… yo
+    que lo estoy entrenando quiero ver más fácil el problema»*.
+
+    El veredicto de al lado contesta *«¿puedo apretar APLICAR?»* — que es la
+    pregunta del que va a escribir en la base. Esta contesta la otra, que es la
+    que uno se hace primero: **¿qué le pasa a este bono?** No son la misma, y
+    responder la primera cuando te preguntan la segunda es lo que hacía que
+    BPOD7 arrancara con «✘ BLOQUEADO» arriba de una cadena que, doce renglones
+    más abajo, decía «no se detecta nada roto».
+
+    Cinco desenlaces, y el que importa es el tercero:
+
+        roto     una prueba dice que está mal → eso es el problema
+        no_se    no se pudo verificar → no se sabe, y eso NO es «está bien»
+        viejo    se probó que está BIEN: el hallazgo ya no aplica
+        mirar    nada probado mal, pero algo no cierra del todo
+        listo    la cadena cierra entera
+
+    `traba` es la PRIMERA prueba que no pasó, en el orden en que se corrieron.
+    Las demás pueden ser consecuencia de esa; la primera es la que hay que leer.
+    Solo se miran las de capa `prueba`: un contexto o una lección no traban
+    nada, y meterlas en esta cuenta era la mitad del ruido.
+    """
+    pruebas = [c for c in chequeos if c.get("capa", PRUEBA) == PRUEBA]
+    # ⚠️ El orden es el de la cadena, no una prioridad: «la primera que no pasó»
+    # solo significa algo si se respeta la secuencia en la que se corrieron.
+    fallan = [c for c in pruebas if c["estado"] != OK]
+    traba = fallan[0] if fallan else None
+    sano = next((c for c in pruebas if c.get("nada_que_hacer")), None)
+
+    if sano is not None:
+        # Gana sobre todo lo demás: si se PROBÓ que el bono está bien, cualquier
+        # otro renglón ámbar es ruido al lado de eso.
+        return {"clase": "viejo", "traba": sano["clave"],
+                "titulo": "Este hallazgo quedó VIEJO — el bono está bien",
+                "que_hacer": "No hay nada que arreglar: aplicar acá lo empeoraría. "
+                             "Cerralo o ignoralo."}
+    if traba is None:
+        return {"clase": "listo", "traba": "",
+                "titulo": "La cadena cierra entera",
+                "que_hacer": "Se puede aplicar."}
+    if traba["estado"] == BLOQUEA:
+        return {"clase": "roto", "traba": traba["clave"],
+                "titulo": f"Se trabó en: {traba['titulo']}",
+                "que_hacer": "Eso es el problema. Hasta que se resuelva no se "
+                             "puede escribir nada."}
+    if traba["estado"] == NO_SE:
+        return {"clase": "no_se", "traba": traba["clave"],
+                "titulo": f"No se pudo verificar: {traba['titulo']}",
+                "que_hacer": "**No quiere decir que esté bien**: quiere decir que "
+                             "no se sabe. Reintentá antes de decidir."}
+    return {"clase": "mirar", "traba": traba["clave"],
+            "titulo": f"No cierra del todo: {traba['titulo']}",
+            "que_hacer": "Nada probado mal, pero conviene mirarlo antes de aplicar."}
+
+
 def _veredicto(chequeos: list[dict]) -> dict:
     """**LA DECISIÓN**, derivada de los pasos y de nada más.
 
@@ -1223,9 +1320,29 @@ def _veredicto(chequeos: list[dict]) -> dict:
     conteo = {"ok": sum(1 for c in chequeos if c["estado"] == OK),
               "info": sum(1 for c in chequeos if c["estado"] == INFO),
               "revisar": len(revisar), "bloquea": len(bloqueos), "no_se": len(dudas)}
+    # ⚠️ El conteo por CAPA, para que la pantalla pueda plegar por naturaleza sin
+    # volver a clasificar del lado del front — dos criterios para lo mismo es
+    # cómo nacieron las contradicciones que este diseño viene arreglando.
+    conteo["prueba"] = sum(1 for c in chequeos if c.get("capa", PRUEBA) == PRUEBA)
+    conteo["contexto"] = sum(1 for c in chequeos if c.get("capa") == CONTEXTO)
+    conteo["aprender"] = sum(1 for c in chequeos if c.get("capa") == APRENDER)
     base = {"conteo": conteo, "puede_aplicar": not bloqueos,
-            "puede_auto": not (bloqueos or revisar or dudas)}
+            "puede_auto": not (bloqueos or revisar or dudas),
+            # LA OTRA PREGUNTA. `estado`/`texto` dicen si se puede APLICAR;
+            # `desenlace` dice QUÉ LE PASA AL BONO y dónde se trabó. Van juntos
+            # porque salen de los mismos pasos y separarlos daría dos objetos
+            # que pueden contradecirse.
+            "desenlace": _desenlace(chequeos)}
     if bloqueos:
+        # ⚠️ **«BLOQUEA porque está BIEN» no se anuncia como una falla.** Es el
+        # mismo booleano y el opuesto semántico: en BPOD7 el encabezado decía
+        # «NO se puede aplicar — 1 paso lo bloquea» sobre un bono que coincide
+        # con 1816 al bps. Se puede leer como que el bono está roto, y es
+        # exactamente al revés.
+        if any(c.get("nada_que_hacer") for c in bloqueos):
+            return {**base, "estado": BLOQUEA,
+                    "texto": "no hay nada que aplicar: se comprobó que el bono "
+                             "está bien. Este hallazgo quedó viejo."}
         return {**base, "estado": BLOQUEA,
                 "texto": f"NO se puede aplicar — {len(bloqueos)} paso/s lo bloquean: "
                          + "; ".join(c["titulo"] for c in bloqueos[:2])}
@@ -3066,7 +3183,8 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                         f"**Qué se cambió:** {lec['cambio']}",
                         tabla=(f"commit {lec['commit'][:9]}" if lec.get("commit")
                                else "mercado.av_agent_lecciones")
-                              + f" · lo detectó: {lec.get('detectado_por')}"))
+                              + f" · lo detectó: {lec.get('detectado_por')}",
+                        capa=APRENDER))
 
     # ── CASOS PARECIDOS: exemplar learning sin modelos ni vectores. Contesta la
     # pregunta que una persona haría primero — «¿esto ya lo vimos?» — y un caso
@@ -3082,7 +3200,8 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                         + f"\n\nEl agente ya dijo «{dx['causa']}» en "
                           f"{len(parecidos)} caso/s más. Los votos son del eval "
                           "set: dicen si esa conclusión resultó correcta.",
-                        tabla="mercado.av_agent_trazas + av_agent_evals"))
+                        tabla="mercado.av_agent_trazas + av_agent_evals",
+                        capa=APRENDER))
 
     meta = CAUSAS.get(dx["causa"]) or {}
     ps.append(_paso("causa_local", "⇒ LA CONCLUSIÓN", OK if dx["causa"] == "sano"
@@ -3092,7 +3211,7 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                     + (" **Lo hace el agente**, y se verifica antes de escribir."
                        if meta.get("agente") and dx.get("parche") else
                        " El agente lo VE pero no lo toca."),
-                    tabla="la lente que falla más aguas arriba"))
+                    tabla="la lente que falla más aguas arriba", capa=VEREDICTO))
 
     # LA TRAZA: lo que el agente dijo, guardado entero. Best-effort — si la
     # escritura falla el diagnóstico sigue: un registro que puede tumbar la
@@ -3517,7 +3636,7 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
                        "— revisalo o ignoralo." if ya_estaba_bien else
                        "  → confirmado que lo de hoy NO coincide: hay algo real "
                        "que arreglar."),
-                    tabla="1816 /indicadores"))
+                    tabla="1816 /indicadores", nada_que_hacer=ya_estaba_bien))
 
     campos = []
     if out.get("ejes_propuestos"):

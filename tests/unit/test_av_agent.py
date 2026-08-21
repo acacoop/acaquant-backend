@@ -802,7 +802,11 @@ def test_el_conteo_del_veredicto_separa_las_cinco_categorias():
           _paso("c", "t", INFO, ""), _paso("d", "t", REVISAR, ""),
           _paso("e", "t", NO_SE, ""), _paso("f", "t", BLOQUEA, "")]
     v = _veredicto(ps)
-    assert v["conteo"] == {"ok": 1, "info": 2, "revisar": 1, "bloquea": 1, "no_se": 1}
+    # Por SUBCONJUNTO: el conteo también trae el desglose por CAPA (§0.bx), que
+    # es otro eje. Exigir igualdad exacta haría que agregar un eje nuevo rompa
+    # un test que no habla de eso.
+    for k, n in {"ok": 1, "info": 2, "revisar": 1, "bloquea": 1, "no_se": 1}.items():
+        assert v["conteo"][k] == n, f"{k}: {v['conteo'][k]} != {n}"
     # BLOQUEA gana sobre todo lo demás: el texto tiene que hablar de eso.
     assert v["estado"] == "bloquea" and "NO se puede aplicar" in v["texto"]
 

@@ -4769,7 +4769,16 @@ exacta y es útil; una pantalla en blanco no es ninguna de las dos.
   viene de SKILLS ve 56 allá y 32 acá y no sabe si faltan 24 o si 24 no corren.
 
 El daemon del centinela se inserta a mano y primero: no está en el crontab y es
-la pieza que más corre de todas, así que no aparecería nunca.
+la pieza que más corre de todas, así que no aparecería nunca. **Lo que mira sale
+de `av_agent_centinela._CUBRE`** —la misma lista que el propio `_observar()` usa
+para decidir qué puede dar por cerrado— y no del cron `jobs.av_agent_live`, que
+es otra cosa: al escribirlo con el cron le colgaba 8 piezas que el daemon no
+corre y le faltaban las 2 que sí. Una lista que ya tiene otro dueño que la
+mantiene es la única de la que uno se puede fiar.
+
+Y el titular cuenta piezas **únicas**: un detector puede correr de verdad en dos
+lados (el centinela mira `sin_precio` en rueda y el cron lo vuelve a mirar), así
+que sale en las dos filas —correcto, corre dos veces— pero se cuenta una.
 
 **Dónde**: `api/services/av_agent_agenda.py` · `GET /api/ia/av-agent/agenda`
 (admin) · tab **CONTROL** del modal, pegada a SKILLS. El ⚙ de la derecha

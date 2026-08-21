@@ -81,6 +81,30 @@ def _seg(cron: str) -> float | None:
     return None
 
 
+def _del_daemon(piezas_por_job: dict[str, list[dict]]) -> list[dict]:
+    """Las piezas que el CENTINELA mira en cada pasada.
+
+    Sale de `av_agent_centinela._CUBRE`, que es la lista que el propio daemon
+    usa para decidir qué puede dar por cerrado — o sea que si queda vieja rompe
+    el auto-resuelto antes que a esta pantalla. Es la única clase de lista de la
+    que uno se puede fiar: la que ya tiene otro dueño que la mantiene.
+    """
+    try:
+        from api.services.av_agent_centinela import _CUBRE
+        mira = {t for tipos in _CUBRE.values() for t in tipos}
+    except Exception as e:
+        logger.warning("agenda: no pude leer qué mira el centinela (%s)", e)
+        return []
+    vistos: set[str] = set()
+    out: list[dict] = []
+    for piezas in piezas_por_job.values():
+        for p in piezas:
+            if p.get("tipo") in mira and p["nombre"] not in vistos:
+                vistos.add(p["nombre"])
+                out.append(p)
+    return out
+
+
 def _edad_s(iso: str | None, ahora: datetime) -> float | None:
     if not iso:
         return None
@@ -106,9 +130,14 @@ def vista() -> dict:
                 job = "jobs.controles_datos"      # todos los controles ahí
             if not job:
                 continue                          # no es algo que CORRA solo
-            piezas_por_job.setdefault(job, []).append(
-                {"nombre": s.nombre, "que_hace": s.que_hace,
-                 "dominio": s.dominio, "usa_ia": s.usa_ia})
+            pieza = {"nombre": s.nombre, "que_hace": s.que_hace,
+                     "dominio": s.dominio, "usa_ia": s.usa_ia,
+                     # El TIPO del detector, para poder cruzarlo con lo que el
+                     # daemon declara que mira. `detectar.sin_precio` →
+                     # `sin_precio`; los controles y el resto no matchean y no
+                     # tienen por qué.
+                     "tipo": s.id.split(".", 1)[-1]}
+            piezas_por_job.setdefault(job, []).append(pieza)
     except Exception as e:
         logger.warning("agenda: sin catálogo de skills (%s)", e)
 
@@ -190,14 +219,26 @@ def vista() -> dict:
                             + (" · en rueda" if lat.get("en_rueda") else " · fuera de rueda")),
                 "hace_s": lat.get("hace_s"),
                 "atrasado": not c.get("vivo"),
-                "piezas": sorted(piezas_por_job.get("jobs.av_agent_live") or [],
+                # ⚠️ **LO QUE MIRA EL DAEMON SALE DE `_CUBRE`, NO DEL CRON.**
+                # Acá decía `piezas_por_job["jobs.av_agent_live"]`, que es el
+                # cron de rueda — otra cosa. Le colgaba 8 piezas que el daemon
+                # no corre y le faltaban las 2 que sí (`tasa_sospechosa` y
+                # `salud`, que corren de noche en otro job). `_CUBRE` es la
+                # lista que el propio `_observar()` usa para decidir qué
+                # cerrar, así que no puede quedar vieja sin romper otra cosa
+                # antes — que es la única clase de lista que se puede leer.
+                "piezas": sorted(_del_daemon(piezas_por_job),
                                  key=lambda p: p["nombre"]),
                 "encontrados": abiertos.get("live", 0),
             })
     except Exception as e:
         logger.warning("agenda: sin latido (%s)", e)
 
-    monitoreadas = sum(len(f["piezas"]) for f in filas)
+    # ⚠️ **ÚNICAS, no la suma de las filas.** Un detector puede correr en dos
+    # lados de verdad (el centinela mira `sin_precio` en rueda y el cron lo
+    # vuelve a mirar): mostrarlo en las dos filas es correcto —corre dos veces—
+    # pero contarlo dos veces infla el titular.
+    monitoreadas = len({p["nombre"] for f in filas for p in f["piezas"]})
     return {
         "ok": True,
         "filas": filas,

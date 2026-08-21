@@ -145,7 +145,7 @@ def test_la_identidad_se_PERSISTE_o_responder_no_puede_cerrar_nada():
 
 # ── el avance, contado sin mentir ────────────────────────────────────────────
 
-def test_las_cinco_que_espejan_estan_DECLARADAS_y_no_adivinadas():
+def test_las_que_espejan_estan_DECLARADAS_y_no_adivinadas():
     """El conteo sale de un campo (`Forma.espeja`) y no de buscar la palabra
     «espeja» adentro del texto: una barra de progreso que se calcula leyendo un
     comentario miente el día que alguien reescribe el comentario."""
@@ -153,7 +153,79 @@ def test_las_cinco_que_espejan_estan_DECLARADAS_y_no_adivinadas():
     assert set(ciclo.espejan()) == {
         "mercado.av_agent_centinela", "manager.controles_datos",
         "mercado.av_agent_avisos", "mercado.av_agent_aviso_items",
-        "mercado.av_agent_preguntas",
+        "mercado.av_agent_preguntas", "mercado.av_agent_ignorados",
     }
     assert all(t in ciclo.sin_migrar() for t in ciclo.espejan()), (
         "espejar NO es haber migrado: la columna vieja sigue ahí")
+
+
+# ── el «no me interesa», también en los objetos ──────────────────────────────
+
+def test_ignorar_un_ticker_apaga_TODOS_sus_objetos():
+    """Sin esto, `av_agent_ignorados` sacaba el hallazgo de la pantalla pero el
+    objeto seguía abierto sumando días. La pantalla decía «no hay nada» y el
+    contador «lleva 20 días»: dos verdades sobre lo mismo."""
+    from api.services import av_agent_preguntas as p
+    assert "_ignorar_objetos(" in codigo(p.ignorar)
+    assert "_ignorar_objetos(" in codigo(p.designorar)
+    # También la otra puerta: ignorar contestando la pregunta `falta:<TICKER>`.
+    assert "_ignorar_objetos(" in codigo(p._aplicar_efecto)
+
+
+def test_ignorar_es_por_SUJETO_y_no_por_causa():
+    """Si un papel no interesa, no interesa en ninguna de sus formas: ver que
+    «le faltan los flujos» a un bono que ya descartaste es el mismo ruido con
+    otro nombre. Es la misma regla que ya aplicaba `av_agent_ignorados`."""
+    from api.services.av_agent_items import ignorar_sujeto
+    src = codigo(ignorar_sujeto)
+    assert "lower(sujeto) = lower(%s)" in src
+    assert "regla" not in src
+
+
+def test_ignorar_NO_pisa_los_resueltos():
+    """Ignorar es «no me lo muestres más», no «borrá su historia»: un arreglo en
+    seguimiento tiene que seguir contando sus hitos."""
+    from api.services.av_agent_items import ignorar_sujeto
+    from core import ciclo
+    src = codigo(ignorar_sujeto)
+    assert "ciclo.RESUELTO, ciclo.IGNORADO" in src
+    # Y desandar solo devuelve lo que estaba ignorado, nunca revive otro cierre.
+    assert "[ciclo.IGNORADO] if desandar" in src
+    assert ciclo.puede_pasar(ciclo.IGNORADO, ciclo.NUEVO)
+
+
+# ── lo que NO se migra, y por qué ────────────────────────────────────────────
+
+def test_hay_tablas_con_estado_que_NO_son_problemas():
+    """⚠️ La lista de deuda las metía a todas en la misma bolsa: sobrestimaba el
+    trabajo y, peor, apuntaba a un objetivo equivocado. Un run, una acción, el
+    termómetro de Aunesa y el acuse de recibo de un admin tienen estado y no son
+    problemas — migrarlos convertiría al modelo en un cajón."""
+    from core import ciclo
+    clases = {f.tabla: f.clase for f in ciclo.REGISTRO}
+    assert clases["mercado.av_agent_runs"] == "bitacora"
+    assert clases["mercado.av_agent_propuestas"] == "bitacora"
+    assert clases["mercado.av_agent_seguimiento"] == "meta"
+    assert clases["manager.proveedor_estado"] == "sensor"
+    assert clases["manager.salud_vistos"] == "acuse"
+    for t in ("mercado.av_agent_runs", "manager.proveedor_estado",
+              "manager.salud_vistos"):
+        assert t not in ciclo.deuda_de_problemas()
+
+
+def test_el_acuse_es_POR_PERSONA_y_por_eso_no_entra():
+    """`salud_vistos` es (email, evento). `av_agent_items.visto_at` es uno solo
+    para todos: migrarla haría que el segundo admin no viera nunca el modal que
+    cerró el primero. Perder un permiso o un aviso por una migración de modelo
+    es exactamente lo que no puede pasar."""
+    from api.services import salud
+    assert "_T_VISTOS" in codigo(salud.marcar_vistos)
+    assert "email" in codigo(salud.marcar_vistos)
+
+
+def test_TODO_lo_que_es_un_problema_ya_tiene_objeto():
+    """El hito de esta tanda. No dice «migrado» —las columnas viejas siguen—
+    dice que ya no queda un problema sin memoria."""
+    from core import ciclo
+    crudas = [t for t in ciclo.deuda_de_problemas() if t not in ciclo.espejan()]
+    assert crudas == [], f"sin objeto todavía: {crudas}"

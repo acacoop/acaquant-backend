@@ -28,7 +28,9 @@ def main() -> int:
                     if f.tabla != ciclo.CANONICA and f.tabla not in deuda]
     print(f"\n  tablas del agente     {len(ciclo.REGISTRO)}")
     print(f"  ⭐ canónica            1   ({ciclo.CANONICA})")
-    print(f"  ✖ deuda (a migrar)    {len(deuda)}   dicen «resuelto» a su manera")
+    print(f"  ✖ con ciclo propio    {len(deuda)}   dicen «resuelto» a su manera")
+    print(f"    …de esas, PROBLEMAS  {len(ciclo.deuda_de_problemas())}   "
+          "(las únicas que tienen que terminar en la canónica)")
     print(f"  · append-only/config  {len(solo_lectura)}   (no tienen ciclo)")
     print(f"\n  formas distintas      {len(formas)}"
           f"   → el objetivo es {2}: la canónica y las append-only")
@@ -38,18 +40,28 @@ def main() -> int:
     # sacar la columna vieja, que es riesgo puro y ningún beneficio nuevo.
     # Contarlas como cero pinta un proyecto que no arrancó; contarlas como
     # hechas pinta uno terminado. Se muestran aparte, con su medio bloque.
-    espejan = [t for t in ciclo.espejan() if t != ciclo.CANONICA]
-    crudas = [t for t in deuda if t not in espejan]
-    total = 1 + len(deuda)
+    # ⚠️⚠️ **NO TODO LO QUE TIENE ESTADO ES UN PROBLEMA.** Contar las 11 como
+    # deuda de modelo sobrestimaba el trabajo y apuntaba a un objetivo
+    # equivocado: un `run`, una acción, el termómetro de Aunesa y el acuse de
+    # recibo de un admin tienen estado y NO son problemas. Migrarlos no
+    # arreglaría nada — convertiría al modelo en un cajón.
+    problemas = ciclo.deuda_de_problemas()
+    espejan = [t for t in problemas if t in ciclo.espejan()]
+    crudas = [t for t in problemas if t not in espejan]
+    otros = [t for t in deuda if t not in problemas]
     barra = "█" + "▓" * len(espejan) + "░" * len(crudas)
     print(f"  MIGRACIÓN             {barra}  "
-          f"{1} hecha · {len(espejan)} con objeto · {len(crudas)} crudas "
-          f"(de {total})")
-    print("                        █ canónica  ▓ ya tiene objeto con historia"
-          "  ░ todavía dice lo suyo")
+          f"1 canónica · {len(espejan)} con objeto · {len(crudas)} crudas")
+    print("                        █ es la canónica   "
+          "▓ ya tiene objeto con historia (le queda sacar su columna)   "
+          "░ todavía dice lo suyo")
+    print(f"\n  y {len(otros)} que NO son problemas y por lo tanto NO se migran:")
+    for t in otros:
+        f = next(x for x in ciclo.REGISTRO if x.tabla == t)
+        print(f"      {f.clase:<9} {t}")
 
     print("\n" + "─" * 74)
-    print("  LA DEUDA: las que tienen ciclo y todavía lo dicen a su manera")
+    print("  LAS 11 CON CICLO PROPIO: cómo dice cada una que algo terminó")
     print("─" * 74)
     for t in ciclo.sin_migrar():
         f = next(x for x in ciclo.REGISTRO if x.tabla == t)

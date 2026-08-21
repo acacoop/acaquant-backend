@@ -115,6 +115,24 @@ class Forma:
     # cuenta con esto, y contar leyendo un string es cómo un renombre inocente
     # convierte una barra de progreso en una mentira.
     espeja: bool = False
+    # ⚠️⚠️ **NO TODO LO QUE TIENE ESTADO ES UN PROBLEMA.** La lista de deuda las
+    # metía a todas en la misma bolsa y eso sobrestimaba el trabajo y, peor,
+    # apuntaba a un objetivo equivocado: hay tablas que NO tienen que terminar
+    # siendo `av_agent_items` porque no hablan de un problema.
+    #
+    #   problema  → sí: algo está mal en algo. Termina en la canónica.
+    #   sensor    → una LECTURA cruda (¿contesta Aunesa?). El objeto lo hace el
+    #               detector que la lee, no la tabla: si la migráramos, el
+    #               termómetro pasaría a ser la fiebre.
+    #   bitacora  → el registro de que algo CORRIÓ (un run, una acción). Su
+    #               `estado` describe la corrida, no un problema — y su valor es
+    #               justamente ser append-only.
+    #   meta      → habla DE los items (el seguimiento de un arreglo). Meterla
+    #               adentro sería que el modelo se contenga a sí mismo.
+    #   acuse     → quién LEYÓ qué, por persona. `av_agent_items.visto_at` es
+    #               uno solo para todos: migrarla perdería la distinción y el
+    #               segundo admin no vería nunca el modal que el primero cerró.
+    clase: str = "problema"
 
 
 def _por_resuelto_at(f: dict) -> str:
@@ -372,18 +390,23 @@ REGISTRO: tuple[Forma, ...] = (
           _por_estado_texto, espeja=True),
     Forma("mercado.av_agent_propuestas", ("estado",),
           "estado text: propuesta|aplicada|esperando|fallida|rechazada",
-          _por_estado_texto),
+          _por_estado_texto, clase="bitacora"),
     Forma("mercado.av_agent_runs", ("estado",),
-          "estado text: corriendo|terminado|frenado|error", _por_estado_texto),
+          "estado text: corriendo|terminado|frenado|error", _por_estado_texto, clase="bitacora"),
     Forma("mercado.av_agent_seguimiento", ("estado",),
-          "estado text: mirando|aguanto|volvio", _por_seguimiento),
+          "estado text: mirando|aguanto|volvio", _por_seguimiento, clase="meta"),
+    # Espeja desde 2026-08-21 (§0.bl): ignorar un ticker apaga TODOS sus objetos
+    # (por sujeto, no por causa — si un papel no interesa, no interesa en
+    # ninguna de sus formas). Sin eso, la pantalla decía «no hay nada» y el
+    # contador seguía sumando días de algo que el user ya descartó.
     Forma("mercado.av_agent_ignorados", (),
-          "la EXISTENCIA de la fila = ignorado", lambda f: IGNORADO),
+          "la EXISTENCIA de la fila = ignorado (espeja en av_agent_items)",
+          lambda f: IGNORADO, espeja=True),
     Forma("manager.salud_vistos", ("visto_at",),
           "tabla APARTE de vistos (no una columna)",
-          lambda f: VISTO if f.get("visto_at") else NUEVO),
+          lambda f: VISTO if f.get("visto_at") else NUEVO, clase="acuse"),
     Forma("manager.proveedor_estado", ("ok",),
-          "ok bool", lambda f: RESUELTO if f.get("ok") else NUEVO),
+          "ok bool", lambda f: RESUELTO if f.get("ok") else NUEVO, clase="sensor"),
     Forma("mercado.av_agent_acciones", ("ok",),
           "ok bool (append-only: es el LIBRO)", _por_existencia),
     # Append-only: no tienen ciclo y no hay que dárselo.
@@ -451,8 +474,23 @@ def sin_migrar() -> list[str]:
 
     Es la DEUDA, contada. Que sea un número y no una sensación es la mitad del
     valor de este módulo.
+
+    ⚠️ Incluye las que NO son problemas (`clase != "problema"`): son deuda de
+    *vocabulario* —cada una dice «terminado» a su manera— pero **no** son deuda
+    de *modelo*. Para el avance de la migración usar `deuda_de_problemas()`.
     """
     return list(_CON_CICLO)
+
+
+def deuda_de_problemas() -> list[str]:
+    """Las que SÍ tienen que terminar siendo `av_agent_items`.
+
+    Un run, una acción o el termómetro de Aunesa tienen estado y no son un
+    problema: migrarlos no arreglaría nada y convertiría al modelo en un cajón.
+    """
+    return [f.tabla for f in REGISTRO
+            if f.tabla in _CON_CICLO and f.tabla != CANONICA
+            and f.clase == "problema"]
 
 
 _RE_TABLA = re.compile(

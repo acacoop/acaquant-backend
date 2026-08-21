@@ -4090,6 +4090,52 @@ y se reescribió para probar el árbitro (`f.leer`) en vez de su descripción.
 
 
 
+### 0.bl NO TODO LO QUE TIENE ESTADO ES UN PROBLEMA (2026-08-21)
+
+La barra de deuda decía **11 tablas a migrar** y estaba mal en algo peor que el
+número: apuntaba a un objetivo equivocado. Metía en la misma bolsa cosas que no
+son la misma cosa.
+
+| clase | qué es | por qué NO se migra |
+|---|---|---|
+| `problema` | algo está mal en algo | — sí se migra, es la canónica |
+| `sensor` | una lectura cruda (`proveedor_estado`: ¿contesta Aunesa?) | el objeto lo hace el detector que la lee. Migrarla sería confundir el **termómetro con la fiebre** |
+| `bitacora` | que algo CORRIÓ (`av_agent_runs`, `av_agent_propuestas`) | su `estado` describe la corrida, no un problema, y su valor es ser append-only |
+| `meta` | habla DE los items (`av_agent_seguimiento`) | el modelo se contendría a sí mismo |
+| `acuse` | quién LEYÓ qué, por persona (`salud_vistos`) | `items.visto_at` es **uno solo para todos**: migrarla haría que el segundo admin no viera nunca el modal que cerró el primero |
+
+Cinco de las once. La deuda real de modelo eran **seis**, y con esta tanda las
+seis tienen objeto:
+
+    MIGRACIÓN  █▓▓▓▓▓▓  1 canónica · 6 con objeto · 0 crudas
+
+> Ojo con lo que eso significa y con lo que no: **ya no queda un problema sin
+> memoria.** No dice «migrado» — las columnas viejas siguen ahí, y sacarlas es
+> riesgo puro sin beneficio nuevo, así que se harán de a una cuando toque.
+
+#### El «no me interesa», que estaba a medias
+
+`av_agent_ignorados` sacaba el hallazgo de la pantalla y **el objeto seguía
+abierto**, sumando `veces` y antigüedad de algo que el user ya descartó. La
+pantalla decía «no hay nada» y el contador «lleva 20 días»: dos verdades sobre
+lo mismo, REGLA #9 en su forma más visible.
+
+`ignorar_sujeto()` apaga todos los objetos de ese ticker. **Por sujeto y no por
+causa**, igual que la tabla: si un papel no interesa, no interesa en ninguna de
+sus formas — ver que «le faltan los flujos» a un bono que ya descartaste es el
+mismo ruido con otro nombre.
+
+⚠️ **No toca los RESUELTOS.** Ignorar es «no me lo muestres más», no «borrá su
+historia»: un arreglo en seguimiento tiene que seguir contando sus hitos
+(§0.bi). Y desandar devuelve solo los que están `ignorado`, nunca revive algo
+que se cerró por otro motivo.
+
+⚠️ No confundir `ignorar_sujeto` con el puente borrado en §0.bj. Aquél juntaba
+dos objetos que eran **el mismo problema** y estaba tapando un defecto de
+identidad. Éste es una semántica real: el sujeto entero deja de interesar.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

@@ -378,6 +378,7 @@ def _aplicar_efecto(p: dict, resp: str, *, por: str, nota: str) -> bool:
                 (ticker.upper(), motivo, por or None))
         acc.registrar(accion="ignorar_ticker", objetivo=ticker.upper(),
                       detalle={"motivo": motivo}, pregunta_id=p.get("id"), por=por)
+        _ignorar_objetos(ticker.upper(), por=por)
         return True
 
     if clave.startswith("curva:"):
@@ -423,6 +424,24 @@ def _aplicar_efecto(p: dict, resp: str, *, por: str, nota: str) -> bool:
     return False
 
 
+def _ignorar_objetos(ticker: str, *, por: str = "",
+                     desandar: bool = False) -> None:
+    """El «no me interesa», también en los objetos (§0.bl).
+
+    Sin esto, `av_agent_ignorados` filtraba los hallazgos de la pantalla pero
+    los objetos seguían abiertos, acumulando `veces` y antigüedad de algo que
+    el user ya dijo que no le importa. Dos verdades sobre lo mismo — REGLA #9
+    otra vez, y la que peor se ve: la pantalla dice «no hay nada» y el
+    contador dice «lleva 20 días».
+    """
+    try:
+        from api.services import av_agent_items
+        av_agent_items.ignorar_sujeto(ticker, por=por, desandar=desandar)
+    except Exception as e:                  # pragma: no cover - defensivo
+        logger.warning("av_agent: no pude ignorar los objetos de %s (%s)",
+                       ticker, e)
+
+
 def ignorar(ticker: str, *, motivo: str = "", por: str = "") -> dict:
     """«No me interesa»: el ticker deja de aparecer en TODOS los tipos de hallazgo.
 
@@ -459,6 +478,7 @@ def ignorar(ticker: str, *, motivo: str = "", por: str = "") -> dict:
         nuevo = (cur.rowcount or 0) > 0
     acc.registrar(accion="ignorar_ticker", objetivo=tk, por=por,
                   detalle={"motivo": motivo, "desde": "hallazgo"})
+    _ignorar_objetos(tk, por=por)
     return {"ok": True, "ticker": tk, "ignorado": True, "ya_estaba": not nuevo}
 
 
@@ -495,6 +515,7 @@ def designorar(ticker: str, *, por: str = "") -> dict:
     acc.registrar(accion="designorar", objetivo=tk, por=por,
                   detalle={"pregunta_reabierta": reabierta},
                   antes=({"motivo": prev[0], "por": prev[1]} if prev else None))
+    _ignorar_objetos(tk, por=por, desandar=True)
     return {"ok": True, "ticker": tk, "borrado": borrado > 0, "reabierta": reabierta}
 
 

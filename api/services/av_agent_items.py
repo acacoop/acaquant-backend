@@ -308,6 +308,44 @@ def _tipos_abiertos(origen: str) -> set[str]:
 # hace falta, y ahí vuelven los dos objetos por otro camino.
 
 
+def ignorar_sujeto(sujeto: str, *, por: str = "",
+                   desandar: bool = False) -> dict:
+    """**«Este papel no me interesa» — TODOS sus objetos, de una.**
+
+    ⚠️ No confundir con el puente borrado en §0.bj: aquél juntaba dos objetos
+    que eran EL MISMO problema, y estaba tapando un defecto de identidad. Esto
+    es una semántica de verdad y por sujeto a propósito — si un bono no
+    interesa, no interesa en ninguna de sus formas: ver que «le faltan los
+    flujos» a un papel que ya dijiste que no te importa es el mismo ruido con
+    otro nombre. Es la misma regla que ya aplica `av_agent_ignorados`, ahora
+    también sobre los objetos.
+
+    ⚠️ **No toca los RESUELTOS.** Ignorar es «no me lo muestres más», no «borrá
+    su historia»: un problema que se arregló y está en seguimiento tiene que
+    seguir contando sus hitos. Y `desandar` devuelve solo los que están
+    `ignorado` — nunca revive algo que se cerró por otro motivo.
+    """
+    sujeto = (sujeto or "").strip()
+    if not sujeto:
+        return {"ok": False, "error": "sin sujeto"}
+    destino = ciclo.NUEVO if desandar else ciclo.IGNORADO
+    desde = [ciclo.IGNORADO] if desandar else [
+        e for e in ciclo.ESTADOS
+        if e not in (ciclo.RESUELTO, ciclo.IGNORADO)]
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE mercado.av_agent_items SET estado = %s, "
+                "  datos = datos || %s::jsonb "
+                " WHERE lower(sujeto) = lower(%s) AND estado = ANY(%s)",
+                (destino, json.dumps({"por": por} if por else {}),
+                 sujeto, desde))
+            return {"ok": True, "movidos": cur.rowcount or 0}
+    except Exception as e:
+        logger.warning("av_agent_items: no pude ignorar %s (%s)", sujeto, e)
+        return {"ok": False, "error": str(e)[:200]}
+
+
 def abiertos(tipo: str = "", limite: int = 400) -> list[ciclo.Item]:
     """Lo que sigue vivo. **Incluye `volvio`**: un problema que reapareció está
     abierto, y además merece más atención que uno nuevo."""

@@ -514,7 +514,12 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     # persiste) para que un tipo que se vuelva accionable mañana alcance también a
     # los hallazgos ya guardados.
     for h in filas:
-        h["accion"] = av_agent.ACCION_POR_TIPO.get(h.get("tipo") or "")
+        # ⚠️ **La REGLA gana sobre el TIPO.** `pata_equivocada` y
+        # `cotiza_en_pesos` son el mismo tipo y se arreglan distinto: mientras
+        # esto miraba solo el tipo, los BOPREALes mostraban un botón que pedía
+        # una pata que ya cotizaba y dejaba el master intacto — el hallazgo
+        # volvía todas las ruedas y el user votó 17 veces (§0.as).
+        h["accion"] = av_agent.accion_de(h.get("tipo") or "", h.get("regla") or "")
         # **NUESTRO o DEL MERCADO** (2026-08-19). Se deriva acá por el mismo motivo
         # que la acción —para que un cambio de criterio alcance a lo ya guardado— y
         # es lo que le permite a la pantalla mostrar por default solo lo que tiene
@@ -617,6 +622,31 @@ def _decididas(limite: int = 40) -> list[dict]:
         return out
 
 
+def _aplicados_ok() -> set[str]:
+    """Los sujetos que YA tienen una propuesta aplicada y verificada.
+
+    **`aplicada` y no `fallida`**: una que se intentó y no quedó no está hecha, y
+    marcarla como hecha es cómo un tablero termina en verde con el dato roto.
+
+    Devuelve vacío si no se puede leer — y eso, a propósito, deja todo como
+    PENDIENTE. Ante la duda se muestra de más: una fila de sobra molesta, una
+    fila escondida que estaba rota no se ve nunca.
+    """
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT sujeto FROM mercado.av_agent_propuestas "
+                        "WHERE estado = 'aplicada'")
+            return {(r[0] or "").strip() for r in cur.fetchall()}
+    except Exception as e:
+        logger.warning("av_agent: no pude leer lo aplicado (%s)", e)
+        return set()
+
+
+def _hecho(h: dict, aplicados: set[str]) -> bool:
+    """¿Sobre ESTE hallazgo ya se apretó el botón?"""
+    return (h.get("ticker") or "").strip() in aplicados
+
+
 def vista() -> dict:
     """Todo lo que la pantalla necesita, en un request."""
     from api.services import av_agent_acciones as acciones
@@ -632,6 +662,10 @@ def vista() -> dict:
     # convierte la pantalla en un formulario que hay que llenar de nuevo todas
     # las mañanas. UNA query para toda la lista.
     votados = av_agent_evals.ya_votados()
+
+    # Los sujetos con una acción APLICADA y OK. Es lo que distingue «ya lo
+    # arreglé, espero que surta efecto» de «no lo toqué todavía».
+    aplicados = _aplicados_ok()
 
     por_tipo: dict[str, int] = {}
     por_regla: dict[str, int] = {}
@@ -653,6 +687,34 @@ def vista() -> dict:
         if not pu["hay"]:
             h["sin_puerta"] = pu
 
+        # ── ¿ESTO YA LO ATENDÍ? ──────────────────────────────────────────────
+        #
+        # Pedido del user (2026-08-21): *«que ENCONTRÓ muestre por defecto lo que
+        # NO hice; que estos queden en ENCONTRÓ pero marcados como ya hechos»*.
+        # Con 107 filas de las cuales la mayoría ya pasaron por sus manos, la
+        # lista de trabajo dejó de ser una lista de trabajo.
+        #
+        # ⚠️ **VOTAR NO ES ARREGLAR, y esto no los puede mezclar.** El voto es un
+        # juicio sobre el AGENTE; el arreglo cambia el dato. Si un voto marcara
+        # la fila como hecha, los 17 BOPREALes desaparecerían de la vista
+        # **estando rotos** — que es literalmente peor que el problema que se
+        # está resolviendo.
+        #
+        # Por eso `atendido` distingue según haya o no algo que apretar:
+        #
+        #   con botón   → atendido solo si la acción se APLICÓ (o se ignoró)
+        #   sin botón   → atendido con el voto: no queda nada más que hacer
+        #
+        # Y `atendido` NO saca la fila de la lista: la marca. El filtro por
+        # default esconde, la cuenta sigue estando y un clic la trae de vuelta —
+        # esconder sin decir cuánto es lo mismo que truncar en silencio.
+        h["atendido"] = ""
+        if h.get("accion"):
+            if _hecho(h, aplicados):
+                h["atendido"] = "aplicado"
+        elif h.get("ya_votado"):
+            h["atendido"] = "votado"
+
     return {
         "corrida_at": corrida_at,
         # Lo contestado que TODAVÍA no surtió efecto. Sin esto, el user contesta
@@ -670,6 +732,10 @@ def vista() -> dict:
         "hallazgos": hallazgos,
         "por_tipo": por_tipo,
         "por_regla": por_regla,
+        # Cuánto de la lista ya pasó por tus manos. Va SIEMPRE, aunque esté
+        # escondido: un filtro que oculta sin decir cuánto oculta es lo mismo que
+        # truncar en silencio.
+        "atendidos": sum(1 for h in hallazgos if h.get("atendido")),
         # **CUÁNTO DE LO QUE VE, PUEDE RESOLVER** — y qué pared conviene romper
         # primero, ordenada por cuántas veces aparece. Es la medición que le
         # faltaba al agente sobre sí mismo: sin ella, la única forma de saber

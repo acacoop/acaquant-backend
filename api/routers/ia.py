@@ -730,6 +730,30 @@ def av_agent_pata_pedir(body: PataDolar, email: str = Depends(get_user_email)):
     return svc.pedir(body.ticker, por=email or "")
 
 
+class ApuntarPata(BaseModel):
+    ticker: str = Field(..., min_length=2, max_length=40)
+    # Sin esto NO escribe: devuelve qué haría. Es el paso SIMULAR de la fila.
+    aplicar: bool = False
+
+
+@router.post("/av-agent/pata/apuntar", dependencies=[Depends(require_admin)])
+def av_agent_pata_apuntar(body: ApuntarPata, email: str = Depends(get_user_email)):
+    """**Apunta el master a la pata correcta** — el arreglo de `pata_equivocada`.
+
+    Distinto de `/pata/pedir`, y esa diferencia es la que costó 17 votos: pedir
+    trae una pata que **ya cotizaba** y deja `mercado.curvas` apuntando a la de
+    pesos, así que el hallazgo volvía todas las ruedas. Esto corrige el campo
+    (columna + blob, en un solo UPDATE) **y** pide la pata, así el precio entra
+    por el `adhoc_watcher` en 5 s sin reiniciar el motor.
+
+    Pasa por `av_agent_hacer.uno`, o sea por la MISMA acción y la MISMA
+    verificación que la tab de propuestas — no es un segundo camino a la
+    escritura."""
+    from api.services import av_agent_hacer as svc
+    return svc.uno("mercado.apuntar_pata", body.ticker,
+                   aplicar_ya=body.aplicar, por=email or "")
+
+
 @router.post("/av-agent/relevar", dependencies=[Depends(require_admin)])
 def av_agent_relevar(alcance: str = "soberanos",
                      email: str = Depends(get_user_email)):

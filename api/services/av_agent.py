@@ -423,6 +423,44 @@ ACCION_POR_TIPO = {
 }
 
 
+# ── LA REGLA GANA SOBRE EL TIPO ─────────────────────────────────────────────
+#
+# ⚠️ **EL BOTÓN QUE NO ARREGLABA NADA, Y NADIE PODÍA VERLO.** Los BOPREALes
+# llegaron a **17/17 votos** con el user gritando *«¡ya lo completé 40 veces y
+# sigue apareciendo!»*, y la causa no era el detector: era el BOTÓN.
+#
+# `precio_moneda` agrupa DOS problemas distintos que se arreglan distinto:
+#
+#     cotiza_en_pesos   → no hay pata en dólares → hay que IR A BUSCARLA  (pata)
+#     pata_equivocada   → la pata existe y cotiza; el MASTER apunta mal   (apuntar)
+#
+# Como la acción salía del TIPO, los dos mostraban «BUSCAR LA PATA USD» — que
+# para el segundo pide una pata que ya cotizaba y **deja el master igual**. El
+# user apretaba, salía «✔ pedida», y a la rueda siguiente estaban los 17 de
+# nuevo. La acción que sí lo arregla existía desde el mismo día, pero solo se
+# llegaba por la tab de propuestas, tres pantallas más allá.
+#
+#     Un botón que no arregla el problema de esa fila es PEOR que no tenerlo:
+#     promete, no cumple, y no da un solo error.
+#
+# El tipo es la FAMILIA del problema; la REGLA es la causa, y la causa es lo que
+# decide el arreglo. Por eso la regla gana. Se declara acá —y no con un `if` en
+# el front— por el mismo motivo de siempre: una segunda tabla de acciones del
+# lado de la pantalla se separa de esta sin dar ningún error.
+ACCION_POR_REGLA = {
+    "pata_equivocada": "apuntar",
+}
+
+
+def accion_de(tipo: str, regla: str) -> str | None:
+    """Qué puede hacer el agente con ESTA fila. La regla manda; el tipo es el
+    default."""
+    r = (regla or "").strip()
+    if r in ACCION_POR_REGLA:
+        return ACCION_POR_REGLA[r]
+    return ACCION_POR_TIPO.get((tipo or "").strip())
+
+
 # ── ¿ES NUESTRO O ES DEL MERCADO? ───────────────────────────────────────────
 #
 # Pedido del user (2026-08-19), mirando 29 `sin_punta` en ENCONTRÓ: *«los que ya

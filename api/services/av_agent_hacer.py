@@ -1089,6 +1089,76 @@ def historial(accion_id: str = "", limite: int = 100) -> list[dict]:
         params)]
 
 
+def uno(accion_id: str, sujeto: str, *, aplicar_ya: bool = False,
+        por: str = "") -> dict:
+    """UNA acción sobre UN sujeto, desde la fila de ENCONTRÓ.
+
+    ⚠️ **POR QUÉ EXISTE, y es el bug que hizo que los BOPREALes volvieran 17
+    veces.** El botón de la fila salía de `ACCION_POR_TIPO`, o sea del TIPO del
+    hallazgo — y todo `precio_moneda` mostraba «BUSCAR LA PATA USD». Para
+    `pata_equivocada` **ese botón no arregla nada**: pide la pata en dólares
+    (que ya cotizaba) y deja el master apuntando a la de pesos. El user apretaba,
+    decía «✔ pedida», y a la rueda siguiente estaban los 17 de nuevo.
+
+        Un botón que no arregla el problema de esa fila es peor que no tenerlo:
+        promete, no cumple, y no da ningún error.
+
+    La acción que SÍ lo arregla (`mercado.apuntar_pata`) existía desde el mismo
+    día, pero solo se llegaba a ella por la tab de propuestas — tres pantallas
+    más allá de donde está el problema.
+
+    **No es una segunda implementación**: arma el caso volviendo a correr el
+    control (lo que sigue mal AHORA, no la foto del cron), propone con la MISMA
+    acción y aplica por la MISMA `aplicar()` — así el libro, la verificación y el
+    «esperando respuesta del mercado» funcionan igual que por el otro camino.
+
+    Sin `aplicar_ya` **no toca nada**: devuelve qué haría. Ese es el paso
+    SIMULAR de la fila, y es lo que hace que aprobar no sea a ciegas.
+    """
+    a = ACCIONES.get(accion_id)
+    if a is None:
+        return {"ok": False, "error": f"no existe la acción «{accion_id}»"}
+    sujeto = (sujeto or "").strip()
+    if not sujeto:
+        return {"ok": False, "error": "falta el sujeto"}
+
+    casos, err = _casos_frescos(a.sobre)
+    if err:
+        return {"ok": False, "error": err}
+    # El control devuelve TODOS los casos; acá interesa uno. Se filtra por las
+    # dos claves que usan los controles (`key` y `ticker`) porque no todos traen
+    # las dos, y quedarse con una sola dejaría acciones sin poder dispararse.
+    mios = [c for c in casos
+            if sujeto in {str(c.get("key") or ""), str(c.get("ticker") or "")}]
+    if not mios:
+        # **«Ya no está» NO es un error**: entre la corrida y el click el
+        # problema pudo resolverse solo. Decirlo así evita que el usuario crea
+        # que el botón falló.
+        return {"ok": True, "ya_no_esta": True, "aplicadas": 0,
+                "texto": f"«{sujeto}» ya no aparece en el control: no hay nada que hacer"}
+
+    props = _solo_regla(a, mios)          # una fila no espera a que piense un LLM
+    if not props:
+        return {"ok": True, "sin_propuesta": True, "aplicadas": 0,
+                "texto": ("el agente ve el problema pero no puede proponer un "
+                          "valor seguro para este caso")}
+    p = props[0]
+    vista = {"sujeto": p.sujeto, "campo": p.campo, "antes": p.antes,
+             "propuesto": p.propuesto, "porque": p.porque, "fuente": p.fuente}
+    if not aplicar_ya:
+        return {"ok": True, "simulado": True, "propuesta": vista}
+
+    _guardar(accion_id, [p])
+    filas = _filas("SELECT id FROM mercado.av_agent_propuestas "
+                   "WHERE accion = %s AND sujeto = %s AND campo = %s "
+                   "  AND estado = 'propuesta' ORDER BY id DESC LIMIT 1",
+                   (accion_id, p.sujeto, p.campo))
+    if not filas:
+        return {"ok": False, "error": "no pude guardar la propuesta"}
+    r = aplicar([filas[0]["id"]], por=por)
+    return {**r, "propuesta": vista}
+
+
 def aplicar(ids: list[int], *, por: str = "", valores: dict | None = None) -> dict:
     """**El OK.** Escribe y verifica EN EL MISMO PASO, propuesta por propuesta.
 

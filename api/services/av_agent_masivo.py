@@ -191,9 +191,17 @@ def _diagnosticar_uno(caso: dict, sin_red: bool) -> dict:
         "propuesta": r.get("parche") or r.get("propuesta"),
         # Solo los pasos que NO están en verde: el informe es para leer, y 10
         # pasos × 68 casos son 680 líneas donde lo que importa son las que fallan.
-        "trabas": [{"paso": p.get("titulo"), "estado": p.get("estado"),
-                    "detalle": str(p.get("detalle") or "")[:300]}
-                   for p in pasos if p.get("estado") in ("bloquea", "revisar")],
+        # ⚠️ **SIN REPETIR, Y ACÁ — no solo en la versión para el modelo.** El
+        # user (2026-08-21): *«necesito respuestas más claras, menos texto y más
+        # claro cuál es el problema»*. Un caso salía con la MISMA frase tres
+        # veces bajo tres títulos distintos («La escala del cuadro que YA está
+        # cargado», «El valor técnico: ¿en qué escala está el cronograma?»,
+        # «⇒ LA CONCLUSIÓN»), y esto decía que para una persona esa redundancia
+        # ayudaba. No ayuda: hace dudar de si son tres problemas o uno.
+        "trabas": _sin_repetir(
+            [{"paso": p.get("titulo"), "estado": p.get("estado"),
+              "detalle": str(p.get("detalle") or "")[:300]}
+             for p in pasos if p.get("estado") in ("bloquea", "revisar")])[:3],
         "segundos": seg,
     }
 
@@ -358,6 +366,10 @@ def _sin_repetir(trabas: list[dict]) -> list[dict]:
     """
     out, vistos = [], set()
     for t in trabas:
+        # Se compara por el ARRANQUE del detalle, no por el título: los títulos
+        # son distintos a propósito y el contenido es el que se repite. 80 chars
+        # alcanzan — las tres versiones de la escala empiezan idénticas y recién
+        # se separan en el paréntesis.
         clave = (str(t.get("detalle") or "")[:80]).strip().lower()
         if clave and clave in vistos:
             continue
@@ -417,10 +429,10 @@ def informe_texto(run: dict, *, compacto: bool = False) -> str:
                 L.append(f"      cadena:  {f['veredicto']}")
             if f.get("detalle"):
                 L.append(f"      detalle: {f['detalle']}")
-            trabas = f.get("trabas") or []
-            if compacto:
-                trabas = _sin_repetir(trabas)[:4]
-            for t in trabas[:6]:
+            # Ya vienen sin repetir y topeadas en 3 desde el origen, así que
+            # acá no se vuelve a filtrar: dos criterios de recorte sobre la misma
+            # lista terminan mostrando cosas distintas según por dónde se lea.
+            for t in (f.get("trabas") or []):
                 det = str(t["detalle"])
                 L.append(f"      · [{t['estado']}] {t['paso']}: "
                          f"{det[:180] if compacto else det}")

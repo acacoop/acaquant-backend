@@ -3239,6 +3239,83 @@ De yapa reusa la conexión TCP, que en un job de cientos de llamadas no es poco.
 > incluido uno que exige que los dos caminos deriven del mismo `es_caida`.
 
 
+### 0.as EL BOTÓN QUE NO ARREGLABA NADA — por qué volvían 17 veces (2026-08-21)
+
+El user, con los BOPREALes en **17/17 votos** en la pantalla:
+
+> *«¡otra vez lo mismo, ya lo completé 40 veces y sigue apareciendo! No puede ser
+> que no haya un detector o algo de lo que ya hice.»*
+
+**No era el detector. Era el botón.** `precio_moneda` agrupa dos problemas que se
+arreglan distinto, y la acción de la fila salía del TIPO:
+
+    cotiza_en_pesos   → NO hay pata en dólares → hay que ir a BUSCARLA   (pata)
+    pata_equivocada   → la pata existe y cotiza; el MASTER apunta mal    (apuntar)
+
+Los dos mostraban **«BUSCAR LA PATA USD»**. Para el segundo eso pide una pata que
+ya cotizaba y **deja `mercado.curvas` apuntando a la de pesos**: el user apretaba,
+salía «✔ pedida», y a la rueda siguiente estaban los 17 de nuevo. La acción que sí
+lo arregla (`mercado.apuntar_pata`, §0.am) existía desde el mismo día, pero solo se
+llegaba por la tab de propuestas — tres pantallas más allá del problema.
+
+> Un botón que no arregla el problema de esa fila es PEOR que no tenerlo:
+> promete, no cumple, y no da un solo error.
+
+**El arreglo tiene dos mitades.** (1) `av_agent.ACCION_POR_REGLA` + `accion_de()`:
+**la REGLA gana sobre el TIPO** — el tipo es la familia del problema, la regla es
+la causa, y la causa es lo que decide el arreglo. Se declara en el backend, no con
+un `if` en el front, porque una segunda tabla de acciones del lado de la pantalla
+se separa de esta sin dar ningún error. (2) `av_agent_hacer.uno(accion, sujeto)`:
+una acción sobre UN sujeto desde la fila — arma el caso volviendo a correr el
+control, propone con la MISMA acción y aplica por la MISMA `aplicar()`, así el
+libro, la verificación y el «esperando respuesta del mercado» funcionan igual que
+por el otro camino. Endpoint `POST /av-agent/pata/apuntar`, con `aplicar=false`
+por default (sin eso **no escribe**: devuelve qué haría).
+
+### 0.at ENCONTRÓ MUESTRA LO QUE FALTA, NO TODO (2026-08-21)
+
+> *«¿Podemos que ENCONTRÓ muestre por defecto lo que NO hice? Que estos queden en
+> ENCONTRÓ pero marcados como ya hechos.»*
+
+Con 107 filas de las que la mayoría ya habían pasado por sus manos, la lista de
+trabajo dejó de ser una lista de trabajo: para saber qué faltaba había que ir
+leyendo cuál tenía el ✔ y cuál no, fila por fila.
+
+⚠️ **VOTAR NO ES ARREGLAR, y mezclarlos habría sido peor que el problema.** El
+voto es un juicio sobre el AGENTE; el arreglo cambia el dato. Si un voto marcara
+la fila como hecha, los 17 BOPREALes **desaparecían de la vista estando rotos**.
+Por eso `atendido` mira si hay algo que apretar:
+
+    con botón   → atendido solo si la acción se APLICÓ (estado `aplicada`)
+    sin botón   → atendido con el voto: no queda nada más que hacer con esa fila
+
+Se deriva en la lectura (`av_agent_vista`), como `accion` y `de_quien`, así el día
+que un tipo consiga su puerta los hallazgos ya guardados se re-evalúan solos. Y
+**no saca la fila de la lista**: la marca y la apaga. El filtro esconde con el
+número a la vista (`{n} ya hechos`) y un clic lo destapa — misma regla que el
+corte del mercado, *esconder sin decir cuánto es truncar en silencio*.
+
+Si no se puede leer lo aplicado, **todo queda pendiente**: una fila de sobra
+molesta, una fila escondida que estaba rota no se ve nunca.
+
+### 0.au MENOS TEXTO: la misma frase tres veces (2026-08-21)
+
+> *«Necesito respuestas más claras cuando encuentra algo, menos texto y más claro
+> cuál es el problema.»*
+
+Un caso del informe salía así — tres títulos distintos, **una sola frase**:
+
+    · La escala del cuadro que YA está cargado:  Σ = 149.250,00 … 1.492× más grande
+    · Dónde está el problema, por división:      paridad = 137.280 / 149.250
+    · El valor técnico: ¿en qué escala está…?:   Σ = 149.250,00 … 1.492× más grande
+
+`_sin_repetir` ya existía y **solo corría para el LLM**: el comentario decía que
+«para una persona esa redundancia ayuda, cada lente se lee sola». No ayuda — hace
+dudar de si son tres problemas o uno. Ahora la deduplicación va **en el origen**
+(`_diagnosticar_uno`), topeada en 3 trabas, así la pantalla y el texto para copiar
+no pueden mostrar cosas distintas.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

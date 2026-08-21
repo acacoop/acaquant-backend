@@ -56,7 +56,7 @@ herida. La migración va tabla por tabla, y `sin_migrar()` dice cuántas faltan.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # ── LOS ESTADOS. Son SEIS y no se agregan a la ligera ───────────────────────
 #
@@ -146,11 +146,154 @@ def _por_seguimiento(f: dict) -> str:
             "volvio": VOLVIO}.get(str(f.get("estado") or ""), EN_CURSO)
 
 
+# ── EL OBJETO. Uno solo, y el TIPO es un campo ──────────────────────────────
+#
+# El user (2026-08-21), y es la decomposición correcta:
+#
+#     *«Que todo lo del AV Agent esté como objeto. Va a ser SIEMPRE EL MISMO
+#     ESTILO, solo que va a cambiar el TIPO DE PROBLEMA —log, aviso, etc.—
+#     pero CÓMO VAN A ESTAR es lo mismo. Después cambiará la solución, el
+#     análisis, etc.»*
+#
+# Tres cosas que varían por separado, y hoy estaban mezcladas en 22 tablas:
+#
+#     LA FORMA      cómo se guarda y cómo vive        → UNA. Es esto.
+#     EL TIPO       de qué habla (bono · job · log)   → un CAMPO
+#     LA SOLUCIÓN   qué se hace y cómo se explica     → enchufable, por tipo
+#
+# ⚠️ **`clave` ES LO QUE DA MEMORIA, y es lo que faltaba.** Hoy los hallazgos se
+# reescriben enteros en cada corrida sin identidad estable: por eso el mismo
+# problema aparece «nuevo» todas las ruedas, por eso perdió que ya lo habías
+# votado, y por eso el user viene diciendo hace días que *el agente no tiene
+# memoria*. Con una clave estable, el hallazgo que vuelve **es el mismo objeto**:
+# conserva desde cuándo está abierto, cuántas veces se vio, y si ya estaba
+# resuelto pasa a `volvio` en vez de a `nuevo`.
+
+# Cuánto se espera antes de creerle a un arreglo. **NO es un plazo, son HITOS.**
+#
+# El user: *«5 días es mucho — es el día siguiente para ver si vuelve. Pero a su
+# vez tiene que tener memoria y recursos para que siga con el paso del tiempo:
+# puede ser 2 días, 3 días…»*.
+#
+# Exacto, y son dos necesidades distintas que un plazo único no cubre:
+#
+#   · **la señal RÁPIDA**: si vuelve mañana, el arreglo no sirvió y hay que
+#     saberlo mañana, no el viernes;
+#   · **la CONFIANZA que se acumula**: aguantar un día no es lo mismo que
+#     aguantar un mes, y esa diferencia es justo lo que habilita autonomía.
+#
+# Cada hito que pasa sin que vuelva SUMA confianza. Si vuelve en cualquiera, el
+# seguimiento se corta ahí: **volver una vez borra los hitos anteriores**, porque
+# un arreglo que falla al día 8 no es «7 días bueno», es un arreglo que falla.
+HITOS_DIAS: tuple[int, ...] = (1, 2, 3, 7, 14, 30)
+
+
+def hitos_cumplidos(dias: float) -> int:
+    """Cuántos hitos aguantó. `0` = todavía no pasó ni el primer día."""
+    return sum(1 for d in HITOS_DIAS if dias >= d)
+
+
+def confianza(dias: float) -> float:
+    """De 0 a 1, según cuántos hitos aguantó. Es una ESCALERA y no una recta:
+    el salto grande es sobrevivir el primer día; de ahí en más suma despacio."""
+    return round(hitos_cumplidos(dias) / len(HITOS_DIAS), 4)
+
+
+def proximo_hito(dias: float) -> int | None:
+    """El día del próximo hito, o `None` si ya los pasó todos."""
+    return next((d for d in HITOS_DIAS if dias < d), None)
+
+
+@dataclass
+class Item:
+    """**LO QUE EL AGENTE ENCONTRÓ O DIJO.** Uno solo para todo.
+
+    Un bono mal cargado, un job que falló, una línea de ERROR de un motor, un
+    aviso dirigido a una persona y una pregunta abierta **son la misma cosa**
+    desde el punto de vista del ciclo de vida: aparecen, se ven, se actúan, se
+    resuelven, y a veces vuelven. Lo único que cambia es de qué hablan y qué se
+    hace con ellos — y las dos cosas son datos, no clases distintas.
+    """
+
+    # ── IDENTIDAD: esto es la memoria ───────────────────────────────────────
+    clave: str                    # estable entre corridas. Ver `clave_de`.
+    tipo: str                     # hallazgo · chequeo · log · aviso · pregunta
+    origen: str = ""              # QUÉ lo produjo (el detector, el control)
+    sujeto: str = ""              # el bono, el job, la cuenta
+    regla: str = ""               # la causa, que es lo que se mide y se automatiza
+
+    # ── CICLO ───────────────────────────────────────────────────────────────
+    estado: str = NUEVO
+    severidad: str = "media"
+    veces: int = 1                # cuántas veces se volvió a ver ESTE objeto
+    abierto_at: object = None     # desde cuándo — NO se pisa al re-verlo
+    ultimo_at: object = None
+    visto_at: object = None
+    resuelto_at: object = None
+    vuelto_at: object = None      # la última vez que volvió después de resuelto
+
+    # ── LO QUE VARÍA POR TIPO ───────────────────────────────────────────────
+    titulo: str = ""              # QUÉ PASÓ, en castellano
+    afecta: str = ""              # a qué le pega en la app
+    datos: dict = field(default_factory=dict)   # lo específico del tipo
+
+    def dias_abierto(self, ahora=None) -> float:
+        return _dias(self.abierto_at, ahora)
+
+    def dias_resuelto(self, ahora=None) -> float:
+        return _dias(self.resuelto_at, ahora)
+
+    @property
+    def confianza_del_arreglo(self) -> float:
+        """Cuánto se le puede creer a que esto quedó arreglado. **0 si volvió**:
+        no importa cuánto había aguantado antes."""
+        if self.estado == VOLVIO or not self.resuelto_at:
+            return 0.0
+        return confianza(self.dias_resuelto())
+
+
+def _dias(desde, ahora=None) -> float:
+    from datetime import UTC, datetime
+    if not desde:
+        return 0.0
+    try:
+        ahora = ahora or datetime.now(UTC)
+        d = desde if hasattr(desde, "timestamp") else datetime.fromisoformat(str(desde))
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=UTC)
+        return max(0.0, (ahora - d).total_seconds() / 86400)
+    except Exception:
+        return 0.0
+
+
+def clave_de(tipo: str, origen: str, sujeto: str, regla: str = "") -> str:
+    """La IDENTIDAD del objeto, estable entre corridas.
+
+    ⚠️ **No lleva fecha ni hora a propósito.** Es lo que hace que el mismo
+    problema, visto mañana, sea el MISMO objeto y no uno nuevo — que es toda la
+    diferencia entre tener memoria y no tenerla.
+
+    Y **sí lleva la REGLA**: si el agente cambia de causa sobre el mismo bono,
+    es un diagnóstico distinto y merece su propia historia. Ese es justo el par
+    que ya usa el eval set, así que las dos cosas se cuentan igual.
+    """
+    partes = [(x or "").strip().lower() for x in (tipo, origen, sujeto, regla)]
+    return "|".join(p for p in partes if p)
+
+
 # ── EL REGISTRO: cada tabla, y cómo lo dice HOY ─────────────────────────────
 #
 # El orden es el de la migración sugerida: primero las que tienen ciclo de
 # verdad, al final las append-only (que no lo necesitan).
 REGISTRO: tuple[Forma, ...] = (
+    # ⭐ **LA CANÓNICA.** Es la única que ya habla el vocabulario común: su
+    # columna `estado` ES uno de los seis, sin traducción. Las de abajo son la
+    # deuda — se migran hacia ésta, no al revés.
+    Forma("mercado.av_agent_items", ("estado",),
+          "⭐ estado CANÓNICO (no necesita traducción)",
+          lambda f: (str(f.get("estado") or "").strip().lower()
+                     if str(f.get("estado") or "").strip().lower() in ESTADOS
+                     else NUEVO)),
     Forma("mercado.av_agent_centinela", ("resuelto_at", "visto_at"),
           "resuelto_at NULL + visto_at", _por_resuelto_at),
     Forma("manager.controles_datos", ("resuelto_at",),
@@ -198,8 +341,13 @@ _POR_TABLA = {f.tabla: f for f in REGISTRO}
 
 # Las que TIENEN un ciclo de verdad y todavía lo dicen a su manera. Es la deuda,
 # y es contable: `sin_migrar()` la devuelve.
+# ⚠️ La canónica NO es deuda: ya habla el vocabulario. Contarla ahí haría que
+# la migración nunca pudiera llegar a cero — y un contador que no puede cerrar
+# deja de mirarse.
+CANONICA = "mercado.av_agent_items"
+
 _CON_CICLO = tuple(f.tabla for f in REGISTRO
-                   if f.leer not in (_por_existencia,))
+                   if f.leer is not _por_existencia and f.tabla != CANONICA)
 
 
 def estado_de(tabla: str, fila: dict) -> str:

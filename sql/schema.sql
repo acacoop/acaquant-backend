@@ -4298,6 +4298,54 @@ CREATE INDEX IF NOT EXISTS ix_av_lecciones_causa ON mercado.av_agent_lecciones (
 -- Una explicación por (unidad, patrón) — NO por fila: el mismo error aparece 90
 -- veces en 6 horas y pagarle una llamada al modelo a cada aparición sería
 -- absurdo. Se explica una vez y la segunda sale de acá.
+-- ════════════════════════════════════════════════════════════════════════
+-- LA COSA QUE EL AGENTE ENCONTRÓ O DIJO — UNA sola forma (docs/AV_AGENT.md §0.bd)
+-- ════════════════════════════════════════════════════════════════════════
+--
+-- Pedido del user (2026-08-21): *«que todo lo del AV Agent esté como objeto; va
+-- a ser siempre el mismo estilo, solo que va a cambiar el TIPO de problema»*.
+--
+-- Un bono mal cargado, un job que falló, una línea de ERROR de un motor y un
+-- aviso a una persona son la MISMA cosa para el ciclo de vida: aparecen, se
+-- ven, se actúan, se resuelven y a veces vuelven. Lo que cambia es de qué
+-- hablan (`tipo`) y qué se hace con ellos — dos datos, no dos tablas.
+--
+-- ⚠️ **`clave` ES LA MEMORIA.** Es la PK y no lleva fecha: el mismo problema,
+-- visto mañana, es el MISMO objeto. Eso es lo que hace que `abierto_at` mida
+-- antigüedad de verdad, que `veces` cuente, y que un problema que reaparece
+-- pase a `volvio` en vez de nacer «nuevo» otra vez — que es exactamente lo que
+-- venía pasando y se leía como que el agente no se acuerda de nada.
+CREATE TABLE IF NOT EXISTS mercado.av_agent_items (
+    clave       text PRIMARY KEY,   -- tipo|origen|sujeto|regla — SIN fecha
+    tipo        text NOT NULL,      -- hallazgo · chequeo · log · aviso · pregunta
+    origen      text NOT NULL DEFAULT '',   -- qué detector/control lo produjo
+    sujeto      text NOT NULL DEFAULT '',   -- el bono, el job, la cuenta
+    regla       text NOT NULL DEFAULT '',   -- la causa (lo que mide el eval set)
+    -- El ciclo ÚNICO de core/ciclo.py. No hay `resuelto boolean` ni `hecho`
+    -- ni `visto_at` como fuente: las marcas de tiempo acompañan, el estado manda.
+    estado      text NOT NULL DEFAULT 'nuevo',
+    severidad   text NOT NULL DEFAULT 'media',
+    veces       integer NOT NULL DEFAULT 1,
+    abierto_at  timestamptz NOT NULL DEFAULT now(),   -- NUNCA se pisa
+    ultimo_at   timestamptz NOT NULL DEFAULT now(),
+    visto_at    timestamptz,
+    resuelto_at timestamptz,
+    vuelto_at   timestamptz,        -- la última vez que volvió después de resuelto
+    -- Lo que varía por TIPO. `titulo` y `afecta` ya traducidos (§0.ba): la
+    -- pantalla no tiene que interpretar nada.
+    titulo      text NOT NULL DEFAULT '',
+    afecta      text NOT NULL DEFAULT '',
+    datos       jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_av_items_abiertos
+    ON mercado.av_agent_items (tipo, severidad, ultimo_at DESC)
+    WHERE estado <> 'resuelto' AND estado <> 'ignorado';
+CREATE INDEX IF NOT EXISTS ix_av_items_sujeto
+    ON mercado.av_agent_items (sujeto, regla);
+-- Para el SEGUIMIENTO escalonado: los resueltos que todavía se están mirando.
+CREATE INDEX IF NOT EXISTS ix_av_items_resueltos
+    ON mercado.av_agent_items (resuelto_at) WHERE estado = 'resuelto';
+
 CREATE TABLE IF NOT EXISTS mercado.av_agent_errores (
     clave       text PRIMARY KEY,          -- sha256(unidad|patron), 32 chars
     unidad      text NOT NULL,

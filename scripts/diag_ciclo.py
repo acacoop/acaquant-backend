@@ -23,11 +23,19 @@ def main() -> int:
     for f in ciclo.REGISTRO:
         formas.setdefault(f.como, []).append(f.tabla)
 
+    deuda = ciclo.sin_migrar()
+    solo_lectura = [f.tabla for f in ciclo.REGISTRO
+                    if f.tabla != ciclo.CANONICA and f.tabla not in deuda]
     print(f"\n  tablas del agente     {len(ciclo.REGISTRO)}")
-    print(f"  formas distintas      {len(formas)}")
-    print(f"  CON ciclo de verdad   {len(ciclo.sin_migrar())}   ← la deuda")
-    print(f"  append-only / config  {len(ciclo.REGISTRO) - len(ciclo.sin_migrar())}"
-          "   (no necesitan ciclo)")
+    print(f"  ⭐ canónica            1   ({ciclo.CANONICA})")
+    print(f"  ✖ deuda (a migrar)    {len(deuda)}   dicen «resuelto» a su manera")
+    print(f"  · append-only/config  {len(solo_lectura)}   (no tienen ciclo)")
+    print(f"\n  formas distintas      {len(formas)}"
+          f"   → el objetivo es {2}: la canónica y las append-only")
+    hechas = 1
+    total = 1 + len(deuda)
+    barra = "█" * hechas + "░" * len(deuda)
+    print(f"  MIGRACIÓN             {barra}  {hechas}/{total}")
 
     print("\n" + "─" * 74)
     print("  LA DEUDA: las que tienen ciclo y todavía lo dicen a su manera")

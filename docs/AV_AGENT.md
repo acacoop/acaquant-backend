@@ -3636,6 +3636,78 @@ y se rompe todas las semanas — lo que pasó con los BOPREALes durante 17 rueda
 > estados» es una intención y no una tarea.
 
 
+### 0.bd EL OBJETO: uno solo, y el tipo es un campo (2026-08-21)
+
+> *«Que todo lo del AV Agent esté como objeto. Va a ser **siempre el mismo
+> estilo**, solo que va a cambiar el TIPO de problema —log, aviso, etc.— pero
+> **cómo van a estar es lo mismo**. Después cambiará la solución, el análisis.»*
+
+Es la descomposición correcta, y nombra tres cosas que varían por separado y
+estaban mezcladas en 22 tablas:
+
+    LA FORMA      cómo se guarda y cómo vive        → UNA
+    EL TIPO       de qué habla (bono · job · log)   → un CAMPO
+    LA SOLUCIÓN   qué se hace y cómo se explica     → enchufable, por tipo
+
+`mercado.av_agent_items` + `core.ciclo.Item`. Un bono mal cargado, un job caído,
+una línea de ERROR de un motor, un aviso a una persona y una pregunta abierta
+**son la misma cosa** para el ciclo de vida: aparecen, se ven, se actúan, se
+resuelven, y a veces vuelven.
+
+#### `clave` ES LA MEMORIA, y es lo que faltaba
+
+La PK es `tipo|origen|sujeto|regla` y **no lleva fecha**. Eso es todo el
+arreglo: `av_agent_hallazgos` guarda una FOTO por corrida, así que el mismo
+problema se reescribía entero cada vez, sin identidad. Por eso aparecía «nuevo»
+todas las ruedas, por eso perdía que ya lo habías votado, y por eso el agente
+parecía no acordarse de nada.
+
+Con clave estable, ver el mismo problema mañana **no crea una fila**: actualiza
+la que hay. Tres cosas que antes no existían:
+
+  · **`abierto_at` no se pisa nunca** → «apareció hoy» pasa a ser «lleva 11
+    días». Sin eso, un problema de hace dos semanas se ve igual de urgente que
+    uno de recién y nada acumula antigüedad.
+  · **`veces`** cuenta cuántas ruedas lleva sin resolverse.
+  · si estaba RESUELTO y reaparece → **`volvio`**, que no es lo mismo que nuevo.
+
+El `titulo` **sí** se refresca: el problema es el mismo pero su explicación puede
+mejorar (una firma nueva, una traducción del modelo). Congelar el primer texto
+sería quedarse con el peor. Y el estado se decide **en el `ON CONFLICT`**, no
+leyendo primero: dos detectores corriendo a la vez no se pueden pisar.
+
+#### El SEGUIMIENTO son HITOS, no un plazo
+
+> *«5 días es mucho. Es el día siguiente para ver si vuelve. Pero a su vez tiene
+> que tener memoria y recursos para que siga con el paso del tiempo: puede ser 2
+> días, 3 días…»*
+
+Son dos necesidades distintas que un plazo único no cubre, y tenía razón:
+
+    la señal RÁPIDA        si vuelve mañana, el arreglo no sirvió → hito a 1 DÍA
+    la CONFIANZA que suma  aguantar un día ≠ aguantar un mes → 1·2·3·7·14·30
+
+Cada hito que pasa sin volver suma confianza (`Item.confianza_del_arreglo`, de 0
+a 1). **Volver una vez borra todo lo acumulado**: un arreglo que falla al día 8
+no es «7 días bueno», es un arreglo que falla — y si la confianza sobreviviera a
+la vuelta, el número mentiría justo en el caso que importa.
+
+#### Convive con lo viejo, y la migración se puede contar
+
+No se migró ninguna tabla: las 22 siguen ahí. Ésta es **el destino**, y el
+registro de §0.bc la marca con ⭐ como la única que ya habla el vocabulario sin
+traducción. `python -m scripts.diag_ciclo` muestra la barra:
+
+    ⭐ canónica            1
+    ✖ deuda (a migrar)    11
+    MIGRACIÓN             █░░░░░░░░░░░  1/12
+
+Migrar 22 de un saque es cómo se rompe un sistema que funciona. **El primer
+candidato es `av_agent_hallazgos`** — darle identidad al hallazgo en vez de
+derivar su estado desde cinco tablas se lleva la mitad de los bugs de esta
+semana.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

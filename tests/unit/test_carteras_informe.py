@@ -193,3 +193,22 @@ def test_la_ponderacion_no_depende_de_la_moneda():
     hd = b["carteras"][0]
     assert hd["ponderacion"] == pytest.approx(0.75)
     assert hd["monto_usd"] == pytest.approx(hd["monto"] / 1000.0)
+
+
+# ── El segundo tipo de cambio ───────────────────────────────────────────────
+
+def test_la_valuacion_al_oficial_sale_del_mismo_total():
+    """MEP y A3500 son la MISMA plata a dos cambios. Si alguna vez salieran de
+    dos totales distintos, el informe mostraría dos patrimonios."""
+    pos = _resp([_pos("AL30", "HD", 1_000_000.0)], mep=1250.0)
+    b = ci._bloque(pos, ["HD"], REGLAS, a3500=1000.0)
+    assert b["valuacion_ars"] == 1_000_000.0
+    assert b["valuacion_a3500"] == 1_000.0
+    assert b["a3500"] == 1000.0
+
+
+def test_sin_a3500_la_card_queda_vacia_y_no_en_cero():
+    pos = _resp([_pos("AL30", "HD", 1_000.0)], mep=1000.0)
+    b = ci._bloque(pos, ["HD"], REGLAS, a3500=None)
+    assert b["valuacion_a3500"] is None
+    assert b["valuacion_ars"] == 1_000.0

@@ -1443,9 +1443,9 @@ el leaderboard POR CARTERA se cruza con cuenta/asset pero **no consigo mismo**.
 
 | Tab | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
-| **RESUMEN** (def.) | 6 KPIs (posición al, valuación ARS, valuación USD, costo, PnL, ganancia %) + torta de composición **por cartera** + dos cuadros comparativos (el snapshot elegido y el **cierre del mes anterior**) con monto, ponderación, **Total Dolarizado / Total Pesos** y la fila `Sin clasificar` | `GET /{id}/vista` | (los de la barra del informe, comunes a las 3 tabs) | Sólo lectura |
+| **RESUMEN** (def.) | **La CINTA** — una sola pieza continua (no cards con aire entre medio) con 4 datos: posición al, valuación ARS, valuación USD (con el MEP) y **valuación oficial (con el A3500)**. COSTO / PNL / GANANCIA **se sacaron** (2026-08-21): la primera línea contesta cuánto VALE, no cuánto se ganó — el PnL está título por título en ACTIVOS y mes a mes en EVOLUCIÓN. Debajo, torta de composición **por cartera** + dos cuadros comparativos (el snapshot elegido y el **cierre del mes anterior**) con monto, ponderación, **Total Dolarizado / Total Pesos** y la fila `Sin clasificar` | `GET /{id}/vista` | (los de la barra del informe, comunes a las 3 tabs) | Sólo lectura |
 | **ACTIVOS** | Un cuadro **por cartera** (total y ponderación en la cabecera) con ticker, emisor, calificación, clase, vencimiento, cantidad, precio, valuación, **% dentro de la cartera**, PnL y Gan %. A la derecha, el panel **AUDITORÍA** con el PnL, el flujo y los boletos del título elegido | `GET /{id}/vista` | ídem | Sólo lectura. **Click derecho sobre una fila** abre menú **OPERAR** → `/operar` (no se opera efectivo; FCI va a la tab FCI con el buscador prefilleado) |
-| **MÉTRICAS** | Apertura **por clase de activo dentro de cada cartera** (denominador: esa cartera) + **por emisor** y **por calificación** (denominador: el total de la cuenta). Cada fila con monto, share y cuántos títulos la componen | `GET /{id}/vista` | ídem | Sólo lectura |
+| **MÉTRICAS** | **3 columnas, una por EJE** (clase de activo · emisor · calificación), cada una una lista continua con una **barra proporcional detrás de cada fila**. En clase de activo la cartera es un renglón de título, no un panel propio. Rediseñada el 2026-08-21: antes era una grilla de paneles de UNA fila cada uno y el 80% de la pantalla era aire. ⚠️ La barra se escala contra la fila más grande del bloque, **no contra 100%** — con efectivo en descubierto hay filas negativas y los shares no suman 100 | `GET /{id}/vista` | ídem | Sólo lectura |
 | **EVOLUCIÓN** | Chart mensual (métrica VALOR o RENDIMIENTO) + tabla **MENSUAL** (mes, último día, cierre, flujo neto = depósitos−extracciones, Δ valor real, PnL acumulado, TEM del mes, TEA cartera = base100−100) con los **movimientos del mes desplegables inline**; al elegir un mes aparece abajo el panel de **variación** (efecto mercado vs efecto operado) contra el cierre anterior | `/{id}/mensual`, `/{id}/movimientos?fecha=`, `/{id}/variacion?fecha=` | métrica VALOR/RENDIMIENTO · rango `3M`/**`6M`**/`1A`/`ALL` + paginado ◀▶ · **MONEDA** ARS/USD (en USD el XIRR usa cashflow con MEP por fecha) | Sólo lectura. Export .xlsx de la evolución mensual |
 | **PNL TÍTULOS** | Split 50/50: izq posiciones por ticker (cost-basis weighted-average) con KPIs VALOR ACTUAL y PNL NO REALIZADO; der detalle del ticker (KPIs COSTO/VALOR/PNL/NO REAL/COBROS/GAN % + **boletos del stock actual** con compras/ventas/neto y breakdown del PnL pasivo; los pseudo-boletos de ajuste van resaltados en ámbar) | `GET /api/aum-pnl?id_cuenta=` → `/api/portfolio/pnl` | MONEDA · orden por columna · click en fila (toggle) | Sólo lectura. 2 exports .xlsx (`exportarTodo`, `exportarBoletos`). **Botón AJUSTES en la barra del shell** (admin) → modal `pnl-ajustes-modal.tsx` |
 | **TOTALES** — **NO depende de la cuenta seleccionada** | **POR TÍTULO** (def.): 5 KPIs (PNL TOTAL, NO REALIZADO, PASIVO, VALOR ACTUAL, POSICIONES) + tabla por (cuenta, ticker) 60 % + detalle 40 %. **POR CUENTA**: una fila por cuenta con valor, PnL acumulado y **base 100** (mostrada como rendimiento %), en ARS y USD | `GET /api/aum-pnl-todas` → `/portfolio/pnl-todas`; `GET /api/valuaciones/consolidado` | POR TÍTULO: select de filtro de cuenta (5 valores, **único filtro server-side**) · dos buscadores substring · MONEDA — **el botón USD se DESHABILITA si el cache no trae valores USD**, con tooltip "Falta recalcular el cache (jobs.pnl_totales_precompute)" · orden por columna. POR CUENTA: mismo select + buscador + orden + **checkbox "ocultar saldo muerto"** (client-side, `\|valor_ars\| < 100.000`, def ON) | Sólo lectura, sin export |
@@ -1455,7 +1455,30 @@ para ver la tenencia a cualquier día (sin snapshot exacto el backend resuelve e
 cercano, `asof=True`, y la barra muestra la fecha real) · botón **`HOY ✕`** · **T0 / T1** (solo en modo
 actual) · **ARS / USD** —se **deshabilita** si no hay MEP para esa fecha, y la preferencia no se pierde:
 la moneda efectiva se deriva, así vuelve a valer sola al elegir una fecha que sí lo tiene— · **⬇ EXCEL**
-con las tres tabs en tres hojas, armado con el MISMO payload que la pantalla.
+con las tres tabs en tres hojas, armado con el MISMO payload que la pantalla · **REPORTE**
+(ver abajo).
+
+**REPORTE (modal, `carteras-reporte-modal.tsx`, 2026-08-21)** — el informe como DOCUMENTO, hoja por
+hoja, con el mismo formato que el REPORTE FIN DE DÍA de Interbanking: azul de la casa `#094293` y logo
+arriba de CADA hoja, A4 apaisado. Las hojas son: **Resumen ejecutivo** · **una por cartera** de
+ACTIVOS · **Métricas** · **Evolución**. Sale del MISMO payload de `/vista` (no recalcula ni vuelve a
+consultar); lo único que pide aparte es `/{id}/mensual` para la hoja de evolución. El PDF es
+`window.print()` con reglas `@media print` que viven DENTRO del componente (solo existen mientras el
+modal está abierto) — no hay librería de PDF: ninguna reproduce el CSS de la app sin sorpresas y el
+resultado de imprimir ES lo que se ve, porque es el mismo DOM.
+
+⚠️ **Tres cosas que rompieron el PDF y quedaron resueltas** (medidas, no supuestas):
+- **El modal va por PORTAL a `<body>`.** Renderizado dentro de la vista, su ancestro
+  `<main class="overflow-hidden">` recorta todo lo que pase de la primera pantalla al imprimir: 6
+  hojas en el modal salían como **1 página**.
+- **`visibility: hidden` sobre la app NO alcanza** para esconderla: el elemento sigue ocupando y
+  recortando. Lo que pagina es sacarla del flujo (`display: none` a los hermanos del overlay, que con
+  el portal son hermanos de verdad).
+- **`.reporte-overlay > *` con `display: block` le pegaba también al `<style>`** de las propias reglas
+  → un bloque vacío al final = una hoja en blanco de más (6 hojas → 7 páginas). Se apunta al
+  contenedor por id.
+- **El alto de hoja es `min-height: 205mm`, no 210**: el útil de un A4 apaisado es 210 justos, así que
+  pedir 210 hace que cualquier redondeo empuje unos píxeles a una página siguiente.
 
 **Cómo se arma cada cosa** (`api/services/carteras_informe.py`):
 - **Las carteras se DERIVAN de la posición**, ordenadas por monto desc. Acá no hay 4 canónicas como en
@@ -1475,6 +1498,11 @@ con las tres tabs en tres hojas, armado con el MISMO payload que la pantalla.
 - **Los dos denominadores de MÉTRICAS no son el mismo**, a propósito: la clase de activo responde cómo
   se compone ESA cartera (denominador: la cartera); el emisor y la calificación responden cuánto pesa
   ese riesgo en toda la cuenta (denominador: el total).
+- **Hay DOS tipos de cambio, y los dos vienen del backend**: el MEP (al que se puede salir hoy) y el
+  **A3500** del BCRA (el oficial con el que se reporta hacia afuera), que sale de `macro.series_macro`
+  clave DOLAR con `punto_asof` — la MISMA fuente que el briefing, y tomando el último cierre con fecha
+  <= la pedida porque un sábado no tiene fixing. El comparativo se cuenta al TC de SU día, no al de
+  hoy: si no, la variación en dólares sería en parte el movimiento del tipo de cambio.
 - **El espejo USD de los agregados viaja resuelto** (`monto_usd`, al MEP del snapshot) para que el
   toggle cambie QUÉ CAMPO se muestra y nunca haga una cuenta. La **ponderación NO se duplica**: es la
   misma en las dos monedas. Ojo: eso es una conversión a UN tipo de cambio — el costo y el PnL de cada

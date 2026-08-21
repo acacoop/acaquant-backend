@@ -117,7 +117,8 @@ def _moneda_de(p: dict, reglas: dict[str, dict[str, str]]) -> str | None:
 # RESUMEN — el cuadro por cartera de un snapshot
 # ─────────────────────────────────────────────────────────────
 
-def _bloque(pos: dict, orden: list[str], reglas: dict[str, dict[str, str]]) -> dict:
+def _bloque(pos: dict, orden: list[str], reglas: dict[str, dict[str, str]],
+            a3500: float | None = None) -> dict:
     """Un cuadro del resumen: valuaciones + monto/ponderación por cartera + los
     totales por moneda. `orden` fija las filas para que los dos cuadros del
     comparativo se lean uno al lado del otro."""
@@ -155,8 +156,12 @@ def _bloque(pos: dict, orden: list[str], reglas: dict[str, dict[str, str]]) -> d
     return {
         "fecha": pos.get("fecha"),
         "mep": mep,
+        "a3500": a3500,
         "valuacion_ars": round(total, 2),
         "valuacion_usd": pos.get("total_usd"),
+        # La misma plata al oficial. None (no 0) si falta el TC: dividir por un
+        # dato que no existe es inventar el número más visible del informe.
+        "valuacion_a3500": round(total / a3500, 2) if a3500 else None,
         "carteras": [{"cartera": c, "label": _label(c), **_fila(por_cartera[c])}
                      for c in orden],
         "otras_carteras": _fila(fuera) if fuera else None,
@@ -166,6 +171,32 @@ def _bloque(pos: dict, orden: list[str], reglas: dict[str, dict[str, str]]) -> d
                            "claves": sorted(sin_regla)},
         "n_activos": len(filas),
     }
+
+
+def _a3500(fecha: str | None) -> float | None:
+    """El A3500 (mayorista BCRA) vigente al día del snapshot, o None.
+
+    Es el OTRO tipo de cambio del informe: el MEP es al que se puede salir hoy y
+    el A3500 es el oficial con el que se reporta hacia afuera. La misma plata
+    contada a dos cambios, que es lo que ya hace el informe de ACA.
+
+    Sale de `macro.series_macro` clave DOLAR (el fixing diario del BCRA), la
+    MISMA fuente que usa el briefing — no una consulta propia que pueda dar otro
+    número. `punto_asof` toma el último cierre con fecha <= la pedida: un sábado
+    o un feriado no tienen fixing y ahí corresponde el del último hábil, no un
+    hueco.
+    """
+    if not fecha:
+        return None
+    try:
+        from core.series_macro import punto_asof
+        p = punto_asof("DOLAR", fecha, positivo=True)
+        return float(p["valor"]) if p else None
+    except Exception:
+        # El tipo de cambio es CONTEXTO del informe, no el informe: si la serie
+        # no está, la card queda vacía y el resto sale igual.
+        logger.exception("carteras_informe: A3500 falló para %s", fecha)
+        return None
 
 
 def _cierre_mes_anterior(id_cuenta: str, fecha: str) -> str | None:
@@ -314,6 +345,7 @@ def vista(id_cuenta: str, fecha: str | None = None, horizonte: str = "t1",
 
     from api.services.aca import _reglas_moneda
     reglas = _reglas_moneda()
+    tc_oficial = _a3500(pos.get("fecha"))
 
     anterior = None
     f_anterior = _cierre_mes_anterior(id_cuenta, pos["fecha"]) if pos.get("fecha") else None
@@ -321,7 +353,9 @@ def vista(id_cuenta: str, fecha: str | None = None, horizonte: str = "t1",
         try:
             prev = svc_sql.posiciones_actuales(id_cuenta=id_cuenta, fecha=f_anterior,
                                                asof=False, con_pnl=False)
-            anterior = _bloque(prev, orden, reglas)
+            # El comparativo se cuenta al TC de SU día, no al de hoy: si no, la
+            # variación en dólares sería en parte el movimiento del tipo de cambio.
+            anterior = _bloque(prev, orden, reglas, _a3500(f_anterior))
         except Exception:
             # El comparativo es contexto, no el informe: si la foto vieja falla,
             # la vista sale igual sin el segundo cuadro.
@@ -333,9 +367,10 @@ def vista(id_cuenta: str, fecha: str | None = None, horizonte: str = "t1",
         "fecha": pos.get("fecha"),
         "fecha_anterior": f_anterior,
         "mep": pos.get("mep"),
+        "a3500": tc_oficial,
         "horizonte": horizonte if not fecha else None,
         "historico": bool(fecha),
-        "resumen": {"actual": _bloque(pos, orden, reglas), "anterior": anterior},
+        "resumen": {"actual": _bloque(pos, orden, reglas, tc_oficial), "anterior": anterior},
         "detalle": _detalle(pos, orden),
         "metricas": _metricas(pos, orden),
         # Cost-basis y PnL de la cuenta — los mismos números que la tab PNL

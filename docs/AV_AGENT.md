@@ -4348,6 +4348,52 @@ es lo único que la tab muestra.
 
 
 
+### 0.bp ENCONTRÓ, CON EL MENÚ DE SKILLS (2026-08-22)
+
+Al mudar la cocina a ENCONTRÓ (§0.bo) quedaron **tres cajas colapsables
+apiladas** arriba de la lista, todas plegadas: la pantalla mostraba tres
+títulos y ningún contenido. El user: *«queda horrible… quiero que quede como lo
+de SKILLS, las mains horizontales y las opciones abajo. Es fundamental la UX/UI
+porque si no es inentendible»*.
+
+Es **el mismo error que SKILLS ya había resuelto** con su menú de dominios:
+apilar secciones obliga a scrollear para saber qué hay.
+
+    131 hallazgos   85 por resolver · 17 ya hechos    acá se arregla — lo de hoy está en AHORA
+
+    LA LISTA 131    QUÉ PIDE ALGO 59   ¿AGUANTAN? 4   VIGILANCIA 0
+    85 por resolver   de 61 abiertos      en prueba      todo visto
+    ───────────────
+
+Mismo formato que SKILLS y por las mismas razones:
+
+- **La submétrica debajo de cada entrada no es decoración**: es lo que deja
+  elegir a dónde ir *sin entrar*. Un menú con solo el número obliga a probar las
+  cuatro.
+- **Se mira UNA por vez.** La lista, la priorización, el seguimiento y el
+  backlog del centinela no compiten por el mismo scroll.
+- **El número dice por qué entrarías, no cuántas filas hay.** En LA LISTA la
+  submétrica es `por resolver` (ni atendido ni descartado), no el total.
+
+#### Dos cosas que se rompen si no se miran
+
+**La barra de filtros ahora cuelga de su sub-tab.** Sin ese corte quedaba a la
+vista mientras mirabas el seguimiento — filtrando algo que no estaba en
+pantalla.
+
+**Y perdió el `-mt-4`.** Ese tirón existía para pegarla al borde del panel
+cuando era el PRIMER elemento de la tab; abajo del menú, la montaba encima de
+las sub-tabs. Sigue *sticky*, porque con 130 filas que la barra se vaya de
+pantalla es peor.
+
+#### Y los tres paneles dejaron de plegarse
+
+Adentro de una sub-tab, un panel que además hay que desplegar son **dos clics
+para ver lo que ya elegiste ver**. El pliegue tenía sentido cuando competían
+por la pantalla principal; ahora que cada uno tiene su lugar, sobra.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

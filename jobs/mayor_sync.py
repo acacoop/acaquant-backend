@@ -37,11 +37,21 @@ TRES GUARDAS
        trae cero, el job NO aplica y avisa. Puede ser legítimo (anularon todo)
        pero también puede ser la API contestando mal, y las dos se ven igual desde
        acá. Se destraba con `--forzar`.
-    2. **Cuentas sin mapear.** Un movimiento bancario de una cuenta sin
-       `codigo_contable` se descarta, y esa plata desaparecería del lado del mayor
-       apareciendo como diferencia de conciliación. Se cuentan y se nombran.
+    2. **Si no hay ninguna cuenta mapeada, no corre.** Guardaría cero y el día
+       quedaría indistinguible de «no hubo movimientos».
     3. **`movimiento_id` duplicado.** Es la PK. Si la API repitiera uno, el insert
        moriría a mitad; se deduplica y se reporta.
+
+    ⚠️ **NO se adivina qué cuenta contable «parece» un banco.** Hubo una versión que
+    avisaba de cuentas sin mapear cuyo nombre contenía «banco»/«cvu», y en la
+    primera corrida real marcó siete: seis eran falsos positivos
+    (`CCL BANCO DE VALORES A3 MERCADOS — Posiciones en garantía`, `… Recuperos`,
+    `… Conciliación contra ACSA`) — nombran un banco sin ser cuentas bancarias.
+    **Un aviso que grita cuando no pasa nada entrena a ignorar todos los avisos.**
+    Qué cuenta es un banco lo define `codigo_contable`, que se carga a mano, y no
+    hay forma de deducirlo del nombre. Queda el conteo en `cuentas_sin_mapear`
+    (códigos distintos que vinieron y no están mapeados) como dato del log, sin
+    interpretarlo ni listarlo.
 
 Uso:
     python -m jobs.mayor_sync                      # el día hábil anterior (cron)
@@ -68,11 +78,6 @@ ENDPOINT = "contabilidad/registrosContables"
 # Los ~9,6 MB tardan entre 75 s y 306 s (medido). El default de `aunesa.get` (180)
 # se quedaba corto y disparaba un reintento que duplicaba la espera.
 TIMEOUT_S = 360
-
-# Para AVISAR de cuentas bancarias sin mapear. No decide qué se guarda —eso lo
-# decide `codigo_contable`—, solo de qué vale la pena avisar: sin este filtro el
-# aviso listaría las ~80 cuentas contables que no son bancos y sería ruido.
-PISTAS_BANCO = ("banco", "bco", "bank", "cvu")
 
 
 def fecha_objetivo() -> date:
@@ -123,7 +128,7 @@ def _extraer(registros: list, mapeo: dict[str, int], dia: date) -> dict:
     """Aplana asientos→movimientos y se queda con los bancarios mapeados."""
     filas: dict[str, tuple] = {}
     duplicados = 0
-    sin_mapear: dict[str, str] = {}
+    sin_mapear: set[str] = set()
     vistos = 0
 
     for asiento in registros:
@@ -144,9 +149,7 @@ def _extraer(registros: list, mapeo: dict[str, int], dia: date) -> dict:
             codigo = str(mov.get("codigoCuenta") or "").strip()
             cuenta_id = mapeo.get(codigo)
             if cuenta_id is None:
-                nombre = str(mov.get("nombreCuenta") or "")
-                if any(p in nombre.casefold() for p in PISTAS_BANCO):
-                    sin_mapear[codigo] = nombre
+                sin_mapear.add(codigo)
                 continue
 
             mid = str(mov.get("movimientoID") or "").strip()
@@ -242,7 +245,6 @@ def run(fecha: date | None = None, *, dry: bool = False, forzar: bool = False) -
     stats["movimientos_banco"] = len(ext["filas"])
     stats["duplicados"] = ext["duplicados"]
     stats["cuentas_sin_mapear"] = len(ext["sin_mapear"])
-    stats["sin_mapear"] = ext["sin_mapear"]
 
     previos = _guardados(dia)
     stats["guardados_antes"] = previos
@@ -287,21 +289,9 @@ def main() -> None:
             _anotar(dia or fecha_objetivo(), {}, ok=False, error=str(e)[:500])
             raise
 
-        sin_mapear = stats.pop("sin_mapear", {})
-        run_log.stats.update({k: v for k, v in stats.items() if not isinstance(v, dict)})
+        run_log.stats.update(stats)
         for k, v in stats.items():
             print(f"  {k:<20} {v}")
-
-        if sin_mapear:
-            print(f"\n  ⚠️  {len(sin_mapear)} cuenta(s) que parecen bancarias SIN "
-                  "`codigo_contable` — sus movimientos NO se guardaron:")
-            for cod, nombre in sorted(sin_mapear.items()):
-                print(f"       {cod}  {nombre}")
-            print("     Mapearlas: UPDATE bancos.cuentas SET codigo_contable = '<cod>' "
-                  "WHERE id = <id>;")
-            run_log.errors.append(
-                f"{len(sin_mapear)} cuentas bancarias sin mapear: "
-                f"{', '.join(sorted(sin_mapear))}")
 
         if stats.get("duplicados"):
             run_log.errors.append(f"{stats['duplicados']} movimientoID duplicados")

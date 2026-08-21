@@ -73,26 +73,25 @@ def test_guarda_las_dos_fechas_y_no_las_confunde():
 
 # ── las tres guardas ─────────────────────────────────────────────────────────
 
-def test_avisa_de_cuentas_bancarias_sin_mapear():
-    """Sus movimientos se descartan, y esa plata aparecería como diferencia de
-    conciliación. Tiene que quedar dicho, no tragarse en silencio."""
+def test_no_adivina_que_cuenta_es_un_banco():
+    """Hubo una versión que avisaba de cuentas sin mapear cuyo nombre decía
+    «banco», y en la primera corrida real marcó siete: **seis eran falsos
+    positivos** — `CCL BANCO DE VALORES A3 MERCADOS - Posiciones en garantía`,
+    `… Recuperos`, `… Conciliación contra ACSA` nombran un banco sin ser cuentas
+    bancarias. Un aviso que grita cuando no pasa nada entrena a ignorar todos.
+
+    `cuentas_sin_mapear` cuenta códigos distintos, sin interpretar ninguno.
+    """
     registros = [_asiento([
         _mov(CTA_PATA, "100.00", mid="1"),
-        _mov("101010200099", "500.00", mid="2", nombre="BANCO GALICIA ACDI ARS"),
+        _mov("602010000028", "5.00", mid="2",
+             nombre="CCL BANCO DE VALORES A3 MERCADOS S.A. CCL - GRAL.C (Concil. ACSA)"),
+        _mov("201050000002", "7.00", mid="3", nombre="Comitente - (GRAL) Operaciones"),
     ])]
     r = mayor_sync._extraer(registros, MAPEO, DIA)
-    assert r["sin_mapear"] == {"101010200099": "BANCO GALICIA ACDI ARS"}
     assert len(r["filas"]) == 1
-
-
-def test_no_avisa_por_cuentas_que_no_son_bancos():
-    """Sin este filtro el aviso listaría las ~80 cuentas contables que no son
-    bancos y nadie lo leería."""
-    registros = [_asiento([
-        _mov("201050000002", "1.00", mid="2", nombre="Comitente - (GRAL) Operaciones"),
-        _mov("101010100004", "2.00", mid="3", nombre="Asignación a inversiones (Regularizadora)"),
-    ])]
-    assert mayor_sync._extraer(registros, MAPEO, DIA)["sin_mapear"] == {}
+    # Un conteo, no una lista de sospechosos.
+    assert r["sin_mapear"] == {"602010000028", "201050000002"}
 
 
 def test_deduplica_movimiento_id_repetido():

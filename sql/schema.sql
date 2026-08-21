@@ -3782,7 +3782,7 @@ CREATE TABLE IF NOT EXISTS bancos.mayor_sync_log (
     asientos_api       integer,   -- lo que devolvió la API (todas las cuentas)
     movimientos_api    integer,
     movimientos_banco  integer,   -- los que quedaron guardados (solo mapeadas)
-    cuentas_sin_mapear integer,   -- códigos sin `codigo_contable` en bancos.cuentas
+    cuentas_sin_mapear integer,   -- códigos distintos que vinieron sin `codigo_contable`
     segundos           numeric,
     ok                 boolean NOT NULL DEFAULT true,
     error              text

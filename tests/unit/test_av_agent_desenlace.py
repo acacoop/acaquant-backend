@@ -96,3 +96,43 @@ class TestVeredictoYDesenlaceNoSeContradicen:
     def test_una_cadena_vacia_no_levanta(self):
         v = _veredicto([])
         assert v["desenlace"]["clase"] == "listo"
+
+
+class TestElCensoNoPuedeDecirQueHayBotonSiNoLoHay:
+    """⚠️ **La mentira más cara del censo** (2026-08-22). Decía «79 ya tienen
+    acción → apretar el botón» cuando solo ~30 tenían un arreglo aplicable en
+    lote. Los otros 47 declaran `accion="arreglo"`, que **no es una acción**:
+    es el MODO del panel con IA, caso por caso.
+
+    El user corrió `agente_aplicar` tres veces, no bajó nada, y no había forma
+    de saber por qué — el script solo conoce las 9 de `ACCIONES`.
+
+    Tres vocabularios para la misma pregunta: `accion_de()` devuelve un MODO,
+    `ACCIONES` tiene ARREGLOS ejecutables, y el censo trataba al primero como
+    si fuera el segundo."""
+
+    def test_arreglo_es_un_modo_y_NO_una_accion_registrada(self):
+        from api.services.av_agent_hacer import ACCIONES
+        assert "arreglo" not in ACCIONES, (
+            "si «arreglo» se vuelve una acción registrada, revisá el censo: "
+            "47 hallazgos se mueven de pila")
+
+    def test_el_censo_deriva_del_registro_y_no_de_una_lista(self):
+        import inspect
+
+        from scripts import diag_encontro
+        src = inspect.getsource(diag_encontro._accion_registrada)
+        assert "ACCIONES" in src and "POR_CONTROL" in src, (
+            "tiene que salir del registro real: si mañana alguien escribe la "
+            "acción de sin_ejes, esos 9 se mueven de pila solos")
+
+    def test_las_dos_pilas_existen_y_no_se_confunden(self):
+        import inspect
+
+        from scripts import diag_encontro
+        src = inspect.getsource(diag_encontro._clasificar)
+        assert "APLICABLE_EN_LOTE" in src
+        assert "UNO_POR_UNO" in src
+        assert "TIENE_PUERTA" not in src, (
+            "esa pila mezclaba las dos preguntas: «¿hay modo de pantalla?» y "
+            "«¿se puede aplicar en lote?»")

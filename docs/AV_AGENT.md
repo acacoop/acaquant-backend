@@ -5379,6 +5379,67 @@ contra `mercado.curvas`: la misma guarda 1 que ya tenía la acción. Si el códi
 de la unidad no es una curva, no sabemos cuál de los dos nombres es el bueno, así
 que **no hay divergencia que declarar**.
 
+### 0.ch «NO CAMBIA CASI NADA»: el censo decía botón donde no había botón (2026-08-22)
+
+Tres rondas de trabajo y ENCONTRÓ pasó de **98 a 95**. El user, textual: *«te
+juro que ya estoy perdido… no cambia casi nada»*. Tenía razón, y la culpa no era
+del sistema: **se estuvo arreglando la plomería (contadores, cotejos, controles)
+en vez de aplicar los arreglos**, porque el censo estaba señalando el lugar
+equivocado.
+
+#### Lo medido
+
+Hay **9 acciones registradas** en `av_agent_hacer.ACCIONES`. De los 77 hallazgos
+que el censo clasificaba como *«TIENE_PUERTA → apretar el botón»*:
+
+| regla | n | ¿acción de lote? |
+|---|---|---|
+| `pata_equivocada` | 17 | ✔ `mercado.apuntar_pata` |
+| `salud_control` / `salud_job` | 13 | ✔ parcial, vía `POR_CONTROL` |
+| `moneda_flujo_contradice` | 21 | ✖ modo `arreglo` |
+| `sin_ejes` | 9 | ✖ modo `arreglo` |
+| `paridad_fuera_de_rango` | 8 | ✖ modo `arreglo` |
+| `sin_tea_con_precio` | 7 | ✖ modo `arreglo` |
+| `tea_fuera_de_rango` | 2 | ✖ modo `arreglo` |
+
+**47 de 77 no tienen arreglo de lote escrito.** `"arreglo"` NO es una acción: es
+el **modo del panel con IA**, que se usa caso por caso mirando el bono. El censo
+mandaba a correr `agente_aplicar` sobre 47 casos que ese script no puede tocar
+—solo conoce las 9 de `ACCIONES`— y el comando salía sin errores y sin efecto.
+
+#### La causa: tres vocabularios para la misma pregunta
+
+  · **`accion_de()`** devuelve un **MODO de pantalla** (`arreglo`, `alta`,
+    `flujos`, `apuntar`, `espejo`, `salud`…).
+  · **`ACCIONES`** tiene los **ARREGLOS EJECUTABLES**, con `proponer` /
+    `aplicar` / `verificar`.
+  · El **censo** trataba al primero como si fuera el segundo.
+
+Es exactamente el defecto que esta sesión viene persiguiendo —dos definiciones
+de lo mismo que no se hablan— y esta vez el costo no fue un dato mal contado
+sino **tres rondas de trabajo apuntadas al lugar equivocado**.
+
+#### El arreglo
+
+El censo parte `TIENE_PUERTA` en dos pilas que responden preguntas distintas:
+
+  · **`APLICABLE_EN_LOTE`** — hay una `Accion` registrada que lo cubre, y el
+    censo imprime **el comando exacto** (`agente_aplicar --accion <id>`).
+  · **`UNO_POR_UNO`** — hay modo de pantalla pero no arreglo de lote: se abre en
+    el modal de a uno, **o se escribe su acción**, que es justamente lo que lo
+    volvería masivo.
+
+Se **deriva del registro real** (`ACCIONES` + `POR_CONTROL`), no de una lista a
+mano: el día que alguien escriba la acción de `sin_ejes`, esos 9 se mueven de
+pila solos.
+
+#### La regla que queda
+
+**Una lista de trabajo tiene que decir CON QUÉ se hace cada cosa, no solo que se
+puede hacer.** «Tiene puerta» sin decir cuál es la puerta manda a buscarla, y si
+esa puerta no existe la búsqueda no termina nunca — que es literalmente lo que
+pasó tres veces seguidas.
+
 ### 0.cg EL TIPO NO DECIDE SI ALGO SE PUEDE REVERIFICAR — LA REGLA SÍ (2026-08-22)
 
 Se corrigieron los dos tickers (`PLC50→PLC5O`, `S13B6→S13N6`), el control

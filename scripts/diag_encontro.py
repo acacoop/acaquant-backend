@@ -45,8 +45,39 @@ _QUIETAS_ESPERADAS = (
     "mercado.camara_cereales_audit",
 )
 
-_CLASES = ("AUTO_CERRABLE", "RUIDO_ESTRUCTURAL", "TIENE_PUERTA",
-           "FALTA_ACCION", "HUMANO")
+_CLASES = ("AUTO_CERRABLE", "RUIDO_ESTRUCTURAL", "APLICABLE_EN_LOTE",
+           "UNO_POR_UNO", "FALTA_ACCION", "HUMANO")
+
+
+def _accion_registrada(h: dict) -> str:
+    """El id de la ACCIÓN DETERMINISTA que cubre este hallazgo, o `""`.
+
+    ⚠️⚠️ **ACÁ ESTABA LA MENTIRA MÁS CARA DEL CENSO** (2026-08-22). La primera
+    versión decía «TIENE_PUERTA → apretar el botón» para **79 hallazgos** cuando
+    solo 30 tenían un botón que se pudiera apretar en lote. El resto declaraba
+    `accion="arreglo"`, y `arreglo` **no es una acción**: es el MODO del panel
+    con IA, que se usa caso por caso mirando el bono.
+
+    O sea que el censo mandaba a correr `agente_aplicar` sobre 47 casos que ese
+    script no puede tocar —porque solo conoce las 9 de `ACCIONES`— y el usuario
+    corría el comando, no bajaba nada y no había forma de saber por qué.
+
+    Es el mismo defecto de siempre con una cara nueva: **tres vocabularios para
+    la misma pregunta.** `accion_de()` devuelve un MODO de pantalla, `ACCIONES`
+    tiene ARREGLOS ejecutables, y este script trataba al primero como si fuera
+    el segundo. Ahora se deriva del registro real — si mañana alguien escribe
+    la acción de `sin_ejes`, esos 9 se mueven de pila solos.
+    """
+    from api.services.av_agent_hacer import ACCIONES, POR_CONTROL
+
+    sujeto = (h.get("ticker") or "").strip()
+    if sujeto.startswith("control:"):
+        return POR_CONTROL.get(sujeto.split(":", 1)[1], "")
+    regla = (h.get("regla") or "").strip()
+    for aid, a in ACCIONES.items():
+        if getattr(a, "causa", "") == regla:
+            return aid
+    return ""
 
 
 def _etiqueta(h: dict) -> str:
@@ -74,9 +105,16 @@ def _clasificar(h: dict) -> tuple[str, str]:
                                      "abierto para siempre es ruido")
     if regla in ("sin_escribir", "tabla_quieta") and sujeto in _QUIETAS_ESPERADAS:
         return "RUIDO_ESTRUCTURAL", "por diseño esa tabla no se escribe sola"
-    # ⚠️ La PUERTA la resuelve el backend (`accion_de`), no este script.
+    # ⚠️ **DOS PREGUNTAS DISTINTAS, y confundirlas es lo que hizo que el censo
+    # mintiera durante tres rondas.** «¿Tiene modo de pantalla?» la contesta
+    # `accion_de()`; «¿se puede aplicar en lote?» la contesta el registro
+    # `ACCIONES`. Solo la segunda habilita el `agente_aplicar`.
+    aid = _accion_registrada(h)
+    if aid:
+        return "APLICABLE_EN_LOTE", f"`agente_aplicar --accion {aid}`"
     if h.get("accion"):
-        return "TIENE_PUERTA", f"acción «{h['accion']}» — si sale «sin puerta» es RUTEO"
+        return "UNO_POR_UNO", (f"modo «{h['accion']}» — se resuelve en la PANTALLA, "
+                               f"caso por caso. NO hay arreglo de lote escrito")
     if (h.get("tipo") or "") in ("motor_ruidoso", "motor_caido", "proveedor_caido"):
         return "HUMANO", "infraestructura: se mira, no se arregla desde acá"
     if h.get("puerta"):          # el backend explica POR QUÉ no hay botón
@@ -128,7 +166,9 @@ def main() -> None:
     for clase, que in (
             ("AUTO_CERRABLE", "cerrarlos: el agente ya probó que no hay nada que hacer"),
             ("RUIDO_ESTRUCTURAL", "arreglar el DETECTOR, no el caso"),
-            ("TIENE_PUERTA", "ya tienen acción → apretar el botón"),
+            ("APLICABLE_EN_LOTE", "`agente_aplicar` los resuelve HOY, sin escribir código"),
+            ("UNO_POR_UNO", "hay que abrirlos en la PANTALLA de a uno — o escribir "
+                            "su acción de lote, que es lo que los volvería masivos"),
             ("FALTA_ACCION", "DEUDA: escribir el arreglo, por volumen"),
             ("HUMANO", "criterio de la mesa — el único resto legítimo")):
         filas_c = por_clase.get(clase) or []

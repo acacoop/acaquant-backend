@@ -95,3 +95,44 @@ def test_la_pantalla_recibe_el_corte_hecho():
     """El navegador no puede mirar el reloj mientras dibuja, y el criterio de
     «hoy» tiene que ser uno solo para las dos tabs."""
     assert '"hoy": _lo_de_hoy(' in codigo(c.estado)
+
+
+# ── hora argentina en los mensajes (§0.br) ───────────────────────────────────
+
+def test_los_mensajes_de_SALUD_no_dicen_UTC():
+    """⚠️ Decían «la corrida de 20/08 16:30 UTC falló» sobre un datetime en UTC:
+    la mesa leía 16:30 cuando acá eran las 13:30. No es solo la etiqueta —
+    pedirle a alguien que reste tres horas para ubicar un hecho garantiza que
+    lo ubique mal."""
+    import inspect
+
+    from api.services import salud
+    src = inspect.getsource(salud._chequeo_job) if hasattr(salud, "_chequeo_job") \
+        else inspect.getsource(salud)
+    assert "UTC falló" not in src
+    assert "UTC y la última fue" not in src
+
+
+def test_el_formateo_de_hora_vive_UNA_vez():
+    """`core.tz` existía desde siempre y esta capa no lo usaba: escribía su
+    propio `strftime`. Dos formateadores de la misma fecha es cómo un día dicen
+    distinto."""
+    import inspect
+
+    from api.services import salud
+    from core.tz import hora_ar
+    assert "hora_ar" in inspect.getsource(salud)
+    from datetime import UTC, datetime
+    # Naive → se asume UTC (así los guarda Postgres acá) y se pasa a ART.
+    assert hora_ar(datetime(2026, 8, 20, 16, 30)) == "20/08 13:30"
+    assert hora_ar(datetime(2026, 8, 20, 16, 30, tzinfo=UTC)) == "20/08 13:30"
+    assert hora_ar(None) == "nunca"
+
+
+def test_la_vista_manda_abierto_at_y_no_lo_tira():
+    """Se leía del JOIN, se usaba para `dias_abierto` y se descartaba. Va en ISO
+    y no formateado: ya escrito no se podría ordenar sin re-parsear el texto."""
+    from api.services.av_agent_vista import _hallazgos_ultima_corrida
+    src = codigo(_hallazgos_ultima_corrida)
+    assert 'h["abierto_at"]' in src and "isoformat()" in src
+    assert 'h.pop("abierto_at", None)' not in src

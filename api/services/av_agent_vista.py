@@ -639,13 +639,24 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         # la borra.
         if h.get("abierto_at"):
             h["dias_abierto"] = round(ciclo._dias(h["abierto_at"]), 1)
+            # ⚠️ **DESDE CUÁNDO, COMO FECHA Y NO SOLO COMO «hace N días»**
+            # (§0.br). El user: *«necesito que haya una columna con la hora y
+            # expresar todo en hora argentina»*. `dias_abierto` sirve para
+            # ordenar y para el color, pero no ubica el hecho: «4d» no dice si
+            # empezó el lunes a la mañana o el jueves a la noche.
+            #
+            # Se manda el ISO y la pantalla lo escribe en ART. La ALTERNATIVA
+            # —mandarlo ya formateado— parece más simple y es peor: el mismo
+            # dato no se podría ordenar sin volver a parsear el texto.
+            h["abierto_at"] = (h["abierto_at"].isoformat()
+                               if hasattr(h["abierto_at"], "isoformat")
+                               else str(h["abierto_at"]))
         # ⚠️ **`volvio` se marca aparte y no se mezcla con la antigüedad.** Un
         # problema que se arregló y REAPARECIÓ es la señal más fuerte que hay
         # —dice que el arreglo no sirvió— y contarlo como uno viejo cualquiera
         # la borra.
         if h.get("estado_item") == ciclo.VOLVIO:
             h["volvio"] = True
-        h.pop("abierto_at", None)
         # CUÁNTO ACIERTA ESTA CAUSA. `None` = no se pudo medir (distinto de 0
         # votos, que sí es un dato: «nunca nadie juzgó esta regla»).
         if medicion is None:

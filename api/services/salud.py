@@ -31,6 +31,7 @@ from typing import Any
 from api.cache import cached, invalidate
 from api.services._sql import _q
 from api.services.jobs_catalogo import catalogo_jobs
+from core.tz import hora_ar
 
 _log = logging.getLogger(__name__)
 
@@ -225,19 +226,24 @@ def _chequeo_job(cron: dict, ahora: datetime) -> dict:
     # Ahora el motivo lleva la HORA de la corrida que lo justifica, así el que
     # mira puede decidir sin abrir nada si el aviso es de hoy o quedó viejo. Y
     # `corrio_despues` deja explícito lo que antes había que deducir.
-    ult_txt = ultimo_t.strftime("%d/%m %H:%M") if ultimo_t else "nunca"
+    # ⚠️ **HORA ARGENTINA, y sin la etiqueta «UTC»** (§0.br). Esto decía
+    # `ultimo_t.strftime(...)` sobre un datetime en UTC y el mensaje agregaba
+    # «UTC» al final: la mesa leía «16:30» cuando acá eran las 13:30. Pedirle a
+    # alguien que reste tres horas para ubicar un hecho es garantizar que lo
+    # ubique mal. El formateo vive UNA vez, en `core.tz.hora_ar`.
+    ult_txt = hora_ar(ultimo_t)
     corrio_despues = bool(ultimo_t and esperada and ultimo_t >= esperada)
     if not cron.get("instrumentado") and ultimo_t is None:
         # Sin JobRunLogger no se puede saber nada. No es rojo, pero tampoco verde:
         # es un punto ciego y tiene que verse como tal.
         estado, motivo = WARN, "sin instrumentar: no registra corridas"
     elif fallo:
-        estado, motivo = ERROR, f"la corrida de {ult_txt} UTC falló"
+        estado, motivo = ERROR, f"la corrida de {ult_txt} falló"
     elif atrasado:
-        esp = esperada.strftime("%d/%m %H:%M") if esperada else "?"
-        estado, motivo = ERROR, f"debía correr {esp} UTC y la última fue {ult_txt}"
+        esp = hora_ar(esperada, vacio="?")
+        estado, motivo = ERROR, f"debía correr {esp} y la última fue {ult_txt}"
     elif parcial:
-        estado, motivo = WARN, (f"la corrida de {ult_txt} UTC terminó con errores "
+        estado, motivo = WARN, (f"la corrida de {ult_txt} terminó con errores "
                                 f"parciales")
     else:
         estado, motivo = OK, "al día"

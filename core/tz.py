@@ -49,3 +49,21 @@ def segundos_desde(dt: datetime, assume: tzinfo = UTC,
     """
     ref = asegurar_aware(ahora) if ahora is not None else ahora_utc()
     return (ref.astimezone(UTC) - asegurar_aware(dt, assume).astimezone(UTC)).total_seconds()
+
+
+def hora_ar(dt: datetime | None, formato: str = "%d/%m %H:%M",
+            vacio: str = "nunca") -> str:
+    """**Un timestamp, escrito para una persona de la mesa: en hora ARGENTINA.**
+
+    ⚠️⚠️ Existe porque el repo venía imprimiendo `dt.strftime(...)` sobre
+    datetimes en UTC y encima **etiquetándolos «UTC»** en pantallas que mira la
+    mesa: «la corrida de 20/08 16:30 UTC falló». El user, harto: *«basta de UTC
+    y esas cosas… horario argentino mostrar»*. Y tiene razón dos veces — no es
+    solo la etiqueta: pedirle a alguien que reste tres horas mentalmente para
+    ubicar un hecho es garantizar que lo ubique mal.
+
+    Naive → se asume UTC, que es como los guarda Postgres acá.
+    """
+    if dt is None:
+        return vacio
+    return asegurar_aware(dt).astimezone(AR_TZ).strftime(formato)

@@ -4454,6 +4454,49 @@ aprende una vez; no hace falta todos los días.
 
 
 
+### 0.br HORA ARGENTINA, ORDEN Y UNA COLUMNA DE CUÁNDO (2026-08-22)
+
+*«Basta de UTC y esas cosas… horario argentino mostrar.»* Tenía razón en dos
+lugares, y uno era peor que el otro.
+
+**El mensaje que decía la hora equivocada.** `salud` imprimía
+`ultimo_t.strftime(...)` sobre un datetime en UTC **y le pegaba la etiqueta
+«UTC»**: «la corrida de 20/08 16:30 UTC falló», cuando acá eran las 13:30. No
+es solo la etiqueta — pedirle a alguien que reste tres horas mentalmente para
+ubicar un hecho es garantizar que lo ubique mal. El formateo pasa a vivir UNA
+vez, en **`core.tz.hora_ar`**, que ya existía y esa capa no usaba.
+
+**Y la pantalla heredaba la zona del navegador.** `hora()` llamaba a
+`toLocaleTimeString("es-AR")` **sin `timeZone`**: en la oficina coincide con ART
+*por casualidad*, y desde un teléfono en otra zona la pantalla miente sin
+avisar. La zona se declara, siempre.
+
+#### La columna de CUÁNDO
+
+El motivo ya traía un `· 12:25` pegado al final del texto. Ahí no se puede
+barrer ni ordenar: hay que leer la frase entera de cada fila para ubicarla.
+Como columna, el ojo la recorre de una.
+
+De HOY muestra la hora; de otro día, la fecha — repetir «22/08» ciento treinta
+veces gasta ancho sin informar. El `title` siempre trae las dos.
+
+Para eso `abierto_at` **deja de descartarse** en la vista (se leía del JOIN,
+se usaba para `dias_abierto` y se tiraba). Va en ISO y no formateado: mandarlo
+ya escrito parece más simple y es peor — el mismo dato no se podría ordenar sin
+volver a parsear el texto.
+
+#### Orden y densidad
+
+Las filas venían **en el orden que devolvía la query**, o sea ninguno: lo que
+apareció recién quedaba enterrado entre lo de la semana pasada. Ahora es más
+reciente primero, y lo que no tiene `abierto_at` va al final — no se le inventa
+una fecha para poder ordenarlo.
+
+El alto de fila baja de `py-1` a `py-0.5`: con 130 filas, cada 4px son media
+pantalla.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

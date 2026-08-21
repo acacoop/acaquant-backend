@@ -143,16 +143,35 @@ def _h(ticker, tipo, regla, accion):
             "motivo": "", "de_quien": "nuestro"}
 
 
-def test_VOTAR_NO_marca_como_hecho_lo_que_tiene_boton():
-    """⚠️ **La confusión que habría sido peor que el problema.** El voto juzga al
-    AGENTE; el arreglo cambia el dato. Si el voto marcara la fila como hecha, los
-    17 BOPREALes desaparecían de la vista **estando rotos**."""
+def test_VOTAR_TAMBIEN_cuenta_como_atendido():
+    """⚠️ **Esta regla estaba al revés y trababa la pantalla.** La primera versión
+    NO contaba el voto cuando la fila tenía botón, con el argumento de que votar
+    no arregla nada y esconder un bono votado y roto sería peor.
+
+    El razonamiento es correcto sobre el DATO y equivocado sobre la PANTALLA. El
+    user lo pidió dos veces: *«que ENCONTRÓ muestre por defecto lo que NO hice…
+    si no es imposible avanzar»*. Si votó, lo miró. Lo que impide esconder algo
+    roto no es este filtro — la fila sigue en la lista, contada y a un clic.
+    """
     d = _vista([_h("BPOA7", "precio_moneda", "pata_equivocada", "apuntar")],
                votados={("BPOA7", "pata_equivocada"): True})
     h = d["hallazgos"][0]
     assert h["ya_votado"] is True
-    assert h["atendido"] == "", "votar no arregla nada"
-    assert d["atendidos"] == 0
+    assert h["atendido"] == "votado"
+    assert d["atendidos"] == 1
+
+
+def test_la_MARCA_distingue_votado_de_aplicado():
+    """Que además falte apretar el arreglo se dice con la marca, no dejando la
+    fila arriba de todo como si no la hubiera mirado nunca."""
+    votado = _vista([_h("BPOA7", "precio_moneda", "pata_equivocada", "apuntar")],
+                    votados={("BPOA7", "pata_equivocada"): True})
+    aplicado = _vista([_h("BPOA7", "precio_moneda", "pata_equivocada", "apuntar")],
+                      votados={("BPOA7", "pata_equivocada"): True},
+                      aplicados={"BPOA7"})
+    assert votado["hallazgos"][0]["atendido"] == "votado"
+    # APLICADO gana: es el estado más fuerte de los dos.
+    assert aplicado["hallazgos"][0]["atendido"] == "aplicado"
 
 
 def test_APLICAR_si_lo_marca():
@@ -162,7 +181,7 @@ def test_APLICAR_si_lo_marca():
     assert d["atendidos"] == 1
 
 
-def test_SIN_BOTON_el_voto_ALCANZA():
+def test_SIN_BOTON_el_voto_TAMBIEN_ALCANZA():
     """Si no hay nada que apretar, votar es lo único que se puede hacer con esa
     fila — dejarla arriba después es pedirle al user que la mire de nuevo para
     nada."""

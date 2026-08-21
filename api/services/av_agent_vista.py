@@ -718,24 +718,25 @@ def vista() -> dict:
         # Con 107 filas de las cuales la mayoría ya pasaron por sus manos, la
         # lista de trabajo dejó de ser una lista de trabajo.
         #
-        # ⚠️ **VOTAR NO ES ARREGLAR, y esto no los puede mezclar.** El voto es un
-        # juicio sobre el AGENTE; el arreglo cambia el dato. Si un voto marcara
-        # la fila como hecha, los 17 BOPREALes desaparecerían de la vista
-        # **estando rotos** — que es literalmente peor que el problema que se
-        # está resolviendo.
+        # **ATENDIDO = ya pasó por tus manos.** Aplicaste su arreglo, o lo
+        # votaste. Las dos cosas cuentan, y la MARCA dice cuál fue.
         #
-        # Por eso `atendido` distingue según haya o no algo que apretar:
+        # ⚠️ **La primera versión NO contaba el voto cuando la fila tenía botón**,
+        # con este argumento: votar no arregla nada, así que esconder un bono
+        # votado y roto sería peor. El razonamiento es correcto sobre el DATO y
+        # equivocado sobre la PANTALLA, y el user lo dijo dos veces: *«que
+        # ENCONTRÓ muestre por defecto lo que NO hice… si no es imposible
+        # avanzar»*. Si votó, lo hizo. Que además falte apretar el arreglo se
+        # dice con la marca (`votado` ≠ `aplicado`), no dejándolo arriba de todo
+        # como si no lo hubiera mirado nunca.
         #
-        #   con botón   → atendido solo si la acción se APLICÓ (o se ignoró)
-        #   sin botón   → atendido con el voto: no queda nada más que hacer
-        #
-        # Y `atendido` NO saca la fila de la lista: la marca. El filtro por
-        # default esconde, la cuenta sigue estando y un clic la trae de vuelta —
-        # esconder sin decir cuánto es lo mismo que truncar en silencio.
+        # Lo que impide esconder algo roto no es este filtro: la fila **sigue en
+        # la lista**, contada arriba y a un clic. Esconder con el número a la
+        # vista no es truncar; dejar 107 filas donde 90 ya se miraron, sí es
+        # perder la lista de trabajo.
         h["atendido"] = ""
-        if h.get("accion"):
-            if _hecho(h, aplicados):
-                h["atendido"] = "aplicado"
+        if _hecho(h, aplicados):
+            h["atendido"] = "aplicado"
         elif h.get("ya_votado"):
             h["atendido"] = "votado"
 

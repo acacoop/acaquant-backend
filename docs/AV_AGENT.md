@@ -3281,13 +3281,21 @@ Con 107 filas de las que la mayoría ya habían pasado por sus manos, la lista d
 trabajo dejó de ser una lista de trabajo: para saber qué faltaba había que ir
 leyendo cuál tenía el ✔ y cuál no, fila por fila.
 
-⚠️ **VOTAR NO ES ARREGLAR, y mezclarlos habría sido peor que el problema.** El
-voto es un juicio sobre el AGENTE; el arreglo cambia el dato. Si un voto marcara
-la fila como hecha, los 17 BOPREALes **desaparecían de la vista estando rotos**.
-Por eso `atendido` mira si hay algo que apretar:
+**ATENDIDO = ya pasó por tus manos**: aplicaste su arreglo (`aplicado`) o lo
+votaste (`votado`). La marca dice cuál de las dos fue.
 
-    con botón   → atendido solo si la acción se APLICÓ (estado `aplicada`)
-    sin botón   → atendido con el voto: no queda nada más que hacer con esa fila
+> ⚠️ **La primera versión de esta regla estaba al revés y hubo que corregirla al
+> día siguiente.** No contaba el voto cuando la fila tenía botón, con este
+> argumento: *votar no arregla nada, así que esconder un bono votado y roto sería
+> peor que el problema*. Eso es correcto sobre el DATO y equivocado sobre la
+> PANTALLA — y el user tuvo que pedirlo dos veces: *«que ENCONTRÓ muestre por
+> defecto lo que NO hice… si no es imposible avanzar»*.
+>
+> Si votó, lo miró. Que además falte apretar el arreglo se dice **con la marca**,
+> no dejando la fila arriba de todo como si nunca la hubiera visto. Y lo que
+> impide esconder algo roto no es este filtro: la fila sigue en la lista, contada
+> arriba y a un clic. Esconder con el número a la vista no es truncar; dejar 107
+> filas donde 90 ya se miraron **sí** es perder la lista de trabajo.
 
 Se deriva en la lectura (`av_agent_vista`), como `accion` y `de_quien`, así el día
 que un tipo consiga su puerta los hallazgos ya guardados se re-evalúan solos. Y

@@ -122,11 +122,18 @@ def test_uno_aplica_por_la_MISMA_puerta_que_la_tab():
 # ── lo ATENDIDO se marca, no se borra ────────────────────────────────────────
 
 def _vista(hallazgos, *, votados=None, aplicados=frozenset()):
+    """⚠️ **El estado ya NO se consulta aparte.** Antes había un
+    `_aplicados_ok()` que leía `av_agent_propuestas` — una de las cinco
+    derivaciones ad-hoc que se contradecían (§0.bc). Ahora viene con el
+    hallazgo, en el mismo JOIN, así que el harness lo inyecta ahí."""
     from unittest.mock import patch
 
     from api.services import av_agent_vista as v
+    from core import ciclo
+    for h in hallazgos:
+        if h["ticker"] in aplicados:
+            h["estado_item"] = ciclo.EN_CURSO
     with patch.object(v, "_hallazgos_ultima_corrida", lambda: (hallazgos, "hoy")), \
-         patch.object(v, "_aplicados_ok", lambda: set(aplicados)), \
          patch.object(v.av_agent_evals, "ya_votados", lambda: dict(votados or {})), \
          patch.object(v, "avisos", lambda: []), \
          patch.object(v, "mensajes", lambda: []), \
@@ -203,10 +210,30 @@ def test_lo_atendido_SIGUE_EN_LA_LISTA():
     assert len(d["hallazgos"]) == 1
 
 
-def test_si_no_se_puede_leer_lo_aplicado_TODO_queda_pendiente(monkeypatch):
+def test_sin_estado_el_hallazgo_queda_PENDIENTE():
     """Ante la duda se muestra de más: una fila de sobra molesta, una fila
-    escondida que estaba rota no se ve nunca."""
+    escondida que estaba rota no se ve nunca. Si el JOIN no encontró item
+    (todavía no se espejó, o la base no contestó), `estado_item` viene `None` y
+    el hallazgo sigue siendo trabajo."""
+    d = _vista([_h("BPOA7", "precio_moneda", "pata_equivocada", "apuntar")])
+    assert d["hallazgos"][0]["atendido"] == ""
+
+
+def test_el_estado_YA_NO_se_consulta_aparte():
+    """La derivación se fue: una query menos y una fuente de verdad menos."""
     from api.services import av_agent_vista as v
-    monkeypatch.setattr(v, "get_pool",
-                        lambda: (_ for _ in ()).throw(RuntimeError("sin base")))
-    assert v._aplicados_ok() == set()
+
+    from ._fuente import codigo
+    assert not hasattr(v, "_aplicados_ok")
+    # `codigo()` saca comentarios y docstring: los comentarios NOMBRAN la tabla
+    # justo para decir que ya no se consulta, y sin eso el test se caza solo.
+    assert "av_agent_propuestas" not in codigo(v.vista)
+    assert "av_agent_propuestas" not in codigo(v._hallazgos_ultima_corrida)
+
+
+def test_RESUELTO_tambien_cuenta_como_atendido():
+    """El detector volvió a mirar y ya no está: no hay nada más que hacer."""
+    from core import ciclo
+    h = _h("BPOA7", "precio_moneda", "pata_equivocada", "apuntar")
+    h["estado_item"] = ciclo.RESUELTO
+    assert _vista([h])["hallazgos"][0]["atendido"] == "aplicado"

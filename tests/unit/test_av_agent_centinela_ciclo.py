@@ -24,17 +24,7 @@ import inspect
 
 from api.services import av_agent_centinela as c
 
-
-def _codigo(fn) -> str:
-    """El código SIN comentarios.
-
-    ⚠️ Es la tercera vez esta semana que un test de este tipo se caza a sí mismo
-    con el comentario que explica el bug (el comentario nombra `if hallazgos:`
-    justo para decir que ya no está). Un test que lee el fuente tiene que leer
-    lo que se EJECUTA."""
-    return "\n".join(l.split("#")[0].rstrip()
-                      for l in inspect.getsource(fn).splitlines())
-
+from ._fuente import codigo
 
 # ── _observar declara QUÉ ALCANZÓ A MIRAR ───────────────────────────────────
 
@@ -97,7 +87,7 @@ def test_si_se_cae_TODO_no_se_evalua_nada(monkeypatch):
 # ── el auto-resuelto usa esa declaración, no «si trajo algo» ────────────────
 
 def test_el_auto_resuelto_se_limita_a_los_tipos_EVALUADOS():
-    src = _codigo(c.ciclo)
+    src = codigo(c.ciclo)
     assert "if evaluados:" in src, "volvió a cerrar por «si trajo algo»"
     assert "AND tipo = ANY(%s)" in src
     assert "if hallazgos:" not in src
@@ -107,11 +97,11 @@ def test_el_espejo_en_items_usa_LA_MISMA_guarda():
     """Si el centinela y su espejo cerraran con criterios distintos, AHORA y
     ENCONTRÓ volverían a contar historias diferentes del mismo problema — que
     es justo lo que la migración vino a terminar."""
-    src = _codigo(c.ciclo)
+    src = codigo(c.ciclo)
     assert "sincronizar(\"live\"" in src and "evaluados=evaluados" in src
 
 
 def test_el_espejo_no_puede_tumbar_la_pasada():
     """La pasada del centinela es lo que la mesa mira en rueda."""
-    cola = _codigo(c.ciclo).split("av_agent_items.sincronizar")[1][:400]
+    cola = codigo(c.ciclo).split("av_agent_items.sincronizar")[1][:400]
     assert "except Exception" in cola

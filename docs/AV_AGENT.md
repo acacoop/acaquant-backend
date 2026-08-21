@@ -3874,6 +3874,46 @@ distinto, la acción movería un objeto que no existe y el hallazgo seguiría ig
     MIGRACIÓN   █████░░░░░░░  5/12
 
 
+### 0.bh UN PROBLEMA, DOS OBJETOS — y la primera derivación que se va (2026-08-21)
+
+#### El puente que hubo que construir antes de seguir
+
+Al enchufar las acciones al modelo apareció esto, medido antes de tocar nada:
+
+    detector →  precio_moneda|live|bpoa7|pata_equivocada
+    control  →  control|control:patas_equivocadas|bpoa7|patas_equivocadas
+
+**Un bono con la pata mal cargada, DOS objetos**, porque lo miran dos cosas
+distintas: el detector de rueda y el control nocturno. Si la acción moviera solo
+uno, el hallazgo seguiría figurando **igual que antes de toda la migración** —
+el mismo síntoma de siempre, ahora adentro del modelo nuevo.
+
+Se juntan por **(SUJETO, CAUSA)**, que es lo único que comparten de verdad:
+`Accion.causa` **ES** la regla del detector, declarada para el eval set (§0.av).
+Sin eso haría falta una tabla de equivalencias, que es otra cosa que se
+desincroniza sola.
+
+> La solución de fondo es que los dos caminos acuerden identidad. Esto es el
+> puente honesto mientras tanto, y **no esconde el problema**: los dos objetos
+> siguen existiendo y se pueden contar.
+
+#### Y se va la primera de las cinco derivaciones
+
+`atendido` consultaba `av_agent_propuestas` por su cuenta (`_aplicados_ok`).
+Era **una de las cinco derivaciones ad-hoc** que motivaron toda la migración
+(§0.bc) — las que se contradecían entre sí sin fallar nunca.
+
+Ahora sale del objeto y viene en el mismo JOIN: **una query menos y una fuente
+de verdad menos.**
+
+    en_curso · resuelto  → «aplicado»
+    visto · ya_votado    → «votado»
+    sin item             → pendiente (ante la duda, es trabajo)
+
+    DERIVACIONES AD-HOC   ████░  4 quedan (recien · ya_votado · sin_puerta · vencido)
+    MIGRACIÓN             █████░░░░░░░  5/12
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

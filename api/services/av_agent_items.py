@@ -257,6 +257,59 @@ def _tipos_abiertos(origen: str) -> set[str]:
         return set()
 
 
+def marcar_por(*, sujeto: str, regla: str, estado: str,
+               por: str = "") -> dict:
+    """Mueve TODOS los objetos abiertos de un sujeto con esa causa.
+
+    ⚠️⚠️ **EXISTE PORQUE EL MISMO PROBLEMA SE VE POR DOS CAMINOS.** Medido:
+
+        detector →  precio_moneda|live|bpoa7|pata_equivocada
+        control  →  control|control:patas_equivocadas|bpoa7|patas_equivocadas
+
+    Es UN bono con la pata mal cargada y son DOS objetos, porque lo miran dos
+    cosas distintas: el detector de rueda y el control nocturno. Mover solo uno
+    dejaría el otro colgado y el hallazgo seguiría figurando **exactamente igual
+    que antes de toda esta migración** — el mismo síntoma, adentro del modelo
+    nuevo.
+
+    Por eso la acción mueve por (SUJETO, CAUSA) y no por clave: la causa es la
+    misma de los dos lados (`Accion.causa`, la que ya usa el eval set), así que
+    alcanza para juntarlos sin inventar una tabla de equivalencias.
+
+    > La solución de fondo es que los dos caminos acuerden identidad. Esto es el
+    > puente honesto mientras tanto, y **no esconde el problema**: los dos
+    > objetos siguen existiendo y `diag_ciclo` los cuenta.
+    """
+    if estado not in ciclo.ESTADOS:
+        return {"ok": False, "error": f"«{estado}» no es un estado"}
+    sujeto, regla = (sujeto or "").strip(), (regla or "").strip()
+    if not sujeto or not regla:
+        return {"ok": False, "error": "hace falta sujeto y causa"}
+    # Solo desde los estados que PUEDEN pasar a ése: mover un `resuelto` a
+    # `en_curso` sería un salto que el vocabulario rechaza (y borraría su
+    # seguimiento).
+    desde = [e for e in ciclo.ESTADOS if ciclo.puede_pasar(e, estado)]
+    if not desde:
+        return {"ok": True, "movidos": 0}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE mercado.av_agent_items SET estado = %s, "
+                "  visto_at = COALESCE(visto_at, now()), "
+                "  resuelto_at = CASE WHEN %s = 'resuelto' THEN now() "
+                "                     ELSE resuelto_at END, "
+                "  datos = datos || %s::jsonb "
+                " WHERE lower(sujeto) = lower(%s) AND lower(regla) = lower(%s) "
+                "   AND estado = ANY(%s)",
+                (estado, estado, json.dumps({"por": por} if por else {}),
+                 sujeto, regla, desde))
+            return {"ok": True, "movidos": cur.rowcount or 0}
+    except Exception as e:
+        logger.warning("av_agent_items: no pude mover %s/%s (%s)",
+                       sujeto, regla, e)
+        return {"ok": False, "error": str(e)[:200]}
+
+
 def abiertos(tipo: str = "", limite: int = 400) -> list[ciclo.Item]:
     """Lo que sigue vivo. **Incluye `volvio`**: un problema que reapareció está
     abierto, y además merece más atención que uno nuevo."""

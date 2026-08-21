@@ -574,7 +574,7 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         # problema que se arregló y REAPARECIÓ es la señal más fuerte que hay
         # —dice que el arreglo no sirvió— y contarlo como uno viejo cualquiera
         # la borra.
-        if h.pop("estado_item", None) == ciclo.VOLVIO:
+        if h.get("estado_item") == ciclo.VOLVIO:
             h["volvio"] = True
         h.pop("abierto_at", None)
         # CUÁNTO ACIERTA ESTA CAUSA. `None` = no se pudo medir (distinto de 0
@@ -686,29 +686,11 @@ def _decididas(limite: int = 40) -> list[dict]:
         return out
 
 
-def _aplicados_ok() -> set[str]:
-    """Los sujetos que YA tienen una propuesta aplicada y verificada.
-
-    **`aplicada` y no `fallida`**: una que se intentó y no quedó no está hecha, y
-    marcarla como hecha es cómo un tablero termina en verde con el dato roto.
-
-    Devuelve vacío si no se puede leer — y eso, a propósito, deja todo como
-    PENDIENTE. Ante la duda se muestra de más: una fila de sobra molesta, una
-    fila escondida que estaba rota no se ve nunca.
-    """
-    try:
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT DISTINCT sujeto FROM mercado.av_agent_propuestas "
-                        "WHERE estado = 'aplicada'")
-            return {(r[0] or "").strip() for r in cur.fetchall()}
-    except Exception as e:
-        logger.warning("av_agent: no pude leer lo aplicado (%s)", e)
-        return set()
-
-
-def _hecho(h: dict, aplicados: set[str]) -> bool:
-    """¿Sobre ESTE hallazgo ya se apretó el botón?"""
-    return (h.get("ticker") or "").strip() in aplicados
+# ⚠️ Acá vivían `_aplicados_ok()` y `_hecho()`: consultaban
+# `av_agent_propuestas` para deducir si un hallazgo ya se había atendido. Eran
+# **una de las cinco derivaciones ad-hoc** que se contradecían entre sí (§0.bc).
+# Ahora el estado lo tiene el objeto y viene en el mismo JOIN — una query menos
+# y una fuente de verdad menos.
 
 
 def vista() -> dict:
@@ -726,10 +708,6 @@ def vista() -> dict:
     # convierte la pantalla en un formulario que hay que llenar de nuevo todas
     # las mañanas. UNA query para toda la lista.
     votados = av_agent_evals.ya_votados()
-
-    # Los sujetos con una acción APLICADA y OK. Es lo que distingue «ya lo
-    # arreglé, espero que surta efecto» de «no lo toqué todavía».
-    aplicados = _aplicados_ok()
 
     por_tipo: dict[str, int] = {}
     por_regla: dict[str, int] = {}
@@ -774,10 +752,20 @@ def vista() -> dict:
         # la lista**, contada arriba y a un clic. Esconder con el número a la
         # vista no es truncar; dejar 107 filas donde 90 ya se miraron, sí es
         # perder la lista de trabajo.
+        # ⚠️ **AHORA SALE DEL OBJETO.** Antes esto consultaba
+        # `av_agent_propuestas` por su cuenta (`_aplicados_ok`): era **una de
+        # las cinco derivaciones ad-hoc** que se contradecían entre sí y que
+        # motivaron toda la migración (§0.bc). El estado del hallazgo lo tiene
+        # el hallazgo — la pantalla lo lee, no lo deduce.
+        #
+        #   en_curso  → apretaste el arreglo y falta que el detector confirme
+        #   resuelto  → el detector volvió a mirar y ya no está
+        #   votado    → no había botón (o no lo apretaste) pero lo juzgaste
         h["atendido"] = ""
-        if _hecho(h, aplicados):
+        est = h.pop("estado_item", None)
+        if est in (ciclo.EN_CURSO, ciclo.RESUELTO):
             h["atendido"] = "aplicado"
-        elif h.get("ya_votado"):
+        elif est == ciclo.VISTO or h.get("ya_votado"):
             h["atendido"] = "votado"
 
     return {

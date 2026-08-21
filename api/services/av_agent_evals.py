@@ -43,14 +43,21 @@ logger = logging.getLogger(__name__)
 MIN_VOTOS = 10
 
 
-def _voto_previo(caso: str, causa: str) -> bool | None:
-    """El último voto HUMANO sobre ese par, o `None` si nunca se votó."""
+def _voto_previo(caso: str, causa: str, origen: str = "humano") -> bool | None:
+    """El último voto de esa CLASE sobre ese par, o `None` si nunca se votó.
+
+    ⚠️ **El `origen` es un parámetro y antes estaba clavado en `'humano'`** — el
+    mismo bug que `ya_votados`, un nivel más abajo. `votar()` llama a esto para
+    no guardar dos veces la misma respuesta, y como la observación se guarda
+    como `utilidad`, el previo NUNCA aparecía: cada «✔ sirve» escribía una fila
+    nueva. La dedup existía y no dedupeaba nada.
+    """
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT acierta FROM mercado.av_agent_evals "
-                " WHERE caso = %s AND causa = %s AND origen = 'humano' "
-                " ORDER BY creado_at DESC LIMIT 1", (caso, causa))
+                " WHERE caso = %s AND causa = %s AND origen = %s "
+                " ORDER BY creado_at DESC LIMIT 1", (caso, causa, origen))
             r = cur.fetchone()
         return bool(r[0]) if r else None
     except Exception as e:
@@ -59,22 +66,69 @@ def _voto_previo(caso: str, causa: str) -> bool | None:
         return None
 
 
+# ⚠️⚠️ **UN FILTRO NO PUEDE SERVIR A DOS PREGUNTAS.** Acá vivía el bug que hizo
+# que el user votara «✔ sirve» decenas de veces sobre la misma fila y los
+# botones volvieran intactos en cada recarga:
+#
+#     ya_votados()  →  WHERE origen = 'humano'
+#     la observación se guarda con  origen = 'utilidad'
+#
+# El voto SE GUARDABA —`votar()` hasta lo deduplica— y **la pantalla no podía
+# verlo nunca**. Cero errores, cero logs: la fila volvía igual, para siempre.
+#
+# La causa de fondo: `utilidad` se separó de `humano` para que las
+# observaciones no inflen la compuerta de autonomía (§0.f), y eso está BIEN.
+# Pero «¿esto cuenta para dar autonomía?» y «¿ya me contestaste?» son dos
+# preguntas distintas, y quedaron compartiendo un `WHERE`. La compuerta tiene
+# que ser estricta; la pantalla tiene que acordarse de TODO lo que contestaste.
+VOTOS_DE_PERSONA = ("humano", "utilidad")
+
+
 def ya_votados() -> dict[tuple[str, str], bool]:
-    """`(caso, causa) → acertó`, para los votos HUMANOS.
+    """`(caso, causa) → qué contestaste`, para **todo lo que contestó una
+    persona** — el «¿acertó?» y el «¿te sirve verlo?».
 
     Lo usa la pantalla para **no volver a pedir un voto ya emitido**. Es UNA
     query para toda la lista: preguntarlo por hallazgo serían 100 viajes.
+
+    ⚠️ Incluye `utilidad` a propósito. Para la COMPUERTA de autonomía sigue
+    contando solo `humano` — eso no se toca y tiene su propio filtro.
+    """
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT ON (caso, causa) caso, causa, acierta, origen "
+                "  FROM mercado.av_agent_evals WHERE origen = ANY(%s) "
+                " ORDER BY caso, causa, creado_at DESC",
+                (list(VOTOS_DE_PERSONA),))
+            return {(c, ca): bool(a) for c, ca, a, _ in cur.fetchall()}
+    except Exception as e:
+        logger.warning("evals: no pude leer los votados (%s)", e)
+        return {}
+
+
+def es_ruido() -> set[tuple[str, str]]:
+    """Los `(caso, causa)` que una persona marcó **«✖ es ruido»**.
+
+    ⚠️⚠️ **Estos votos se escribían y NO LOS LEÍA NADIE.** Medido: cero
+    consultas en todo el repo. O sea que «es ruido» era un botón que guardaba
+    una opinión en una tabla y dejaba la fila exactamente donde estaba — que es
+    la peor versión posible de un botón, porque parece que hizo algo.
+
+    Se lee del ÚLTIMO voto: destildar («cambiar» en la pantalla) lo devuelve.
+    Que sea reversible no es un detalle — si esconder algo fuera para siempre,
+    la respuesta segura pasaría a ser no marcar nada.
     """
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT DISTINCT ON (caso, causa) caso, causa, acierta "
-                "  FROM mercado.av_agent_evals WHERE origen = 'humano' "
+                "  FROM mercado.av_agent_evals WHERE origen = 'utilidad' "
                 " ORDER BY caso, causa, creado_at DESC")
-            return {(c, ca): bool(a) for c, ca, a in cur.fetchall()}
+            return {(c, ca) for c, ca, a in cur.fetchall() if not a}
     except Exception as e:
-        logger.warning("evals: no pude leer los votados (%s)", e)
-        return {}
+        logger.warning("evals: no pude leer lo marcado como ruido (%s)", e)
+        return set()
 
 
 def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
@@ -111,7 +165,7 @@ def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
     # `utilidad` es el voto de una OBSERVACIÓN («¿te sirve verla?»). Dedup igual
     # que el humano: repetir «no me sirve» todos los días es el mismo formulario.
     if origen in ("humano", "utilidad") and not ref:
-        previo = _voto_previo(caso, causa)
+        previo = _voto_previo(caso, causa, origen)
         if previo is not None and previo == bool(acierta):
             return {"ok": True, "duplicado": True,
                     "error": "ya votaste esta causa para este caso"}

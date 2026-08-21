@@ -812,6 +812,8 @@ def vista() -> dict:
     # convierte la pantalla en un formulario que hay que llenar de nuevo todas
     # las mañanas. UNA query para toda la lista.
     votados = av_agent_evals.ya_votados()
+    # Lo que una persona marcó «✖ es ruido». Una query para toda la lista.
+    ruido = av_agent_evals.es_ruido()
 
     por_tipo: dict[str, int] = {}
     por_regla: dict[str, int] = {}
@@ -871,6 +873,18 @@ def vista() -> dict:
             h["atendido"] = "aplicado"
         elif est == ciclo.VISTO or h.get("ya_votado"):
             h["atendido"] = "votado"
+        # ⚠️ **«ES RUIDO» AHORA HACE ALGO** (§0.bn). Esos votos se escribían y
+        # no los leía nadie: la fila quedaba exactamente donde estaba, que es
+        # la peor versión posible de un botón porque parece que hizo algo.
+        if ((h.get("ticker") or "").strip(),
+                (h.get("regla") or "").strip()) in ruido:
+            h["es_ruido"] = True
+
+    # Se marca y NO se filtra acá: el corte lo hace la pantalla, que ya sabe
+    # esconder y contar lo escondido. Sacarlo del payload lo volvería
+    # irrecuperable desde la app — y esconder sin poder volver atrás es cómo se
+    # consigue que nadie marque nada.
+    n_ruido = sum(1 for h in hallazgos if h.get("es_ruido"))
 
     return {
         "corrida_at": corrida_at,
@@ -893,6 +907,10 @@ def vista() -> dict:
         # escondido: un filtro que oculta sin decir cuánto oculta es lo mismo que
         # truncar en silencio.
         "atendidos": sum(1 for h in hallazgos if h.get("atendido")),
+        # Cuántas dijiste que no querías ver. Va SIEMPRE, aunque estén
+        # escondidas: un filtro que oculta sin decir cuánto oculta es lo mismo
+        # que truncar en silencio.
+        "es_ruido": n_ruido,
         # **CUÁNTO DE LO QUE VE, PUEDE RESOLVER** — y qué pared conviene romper
         # primero, ordenada por cuántas veces aparece. Es la medición que le
         # faltaba al agente sobre sí mismo: sin ella, la única forma de saber

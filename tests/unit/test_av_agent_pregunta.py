@@ -98,7 +98,7 @@ def test_un_NO_de_observacion_no_exige_explicacion(monkeypatch):
     única respuesta que se puede dar sin investigar es lo que hace que nadie
     conteste."""
     from api.services import av_agent_evals as ev
-    monkeypatch.setattr(ev, "_voto_previo", lambda c, x: None)
+    monkeypatch.setattr(ev, "_voto_previo", lambda c, x, o="humano": None)
     monkeypatch.setattr(ev, "invalidate", lambda *a, **k: None)
 
     class _Cur:

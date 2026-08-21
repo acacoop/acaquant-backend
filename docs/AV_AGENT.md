@@ -4209,6 +4209,66 @@ ahora?»*, y contestarla mirando la app mezcla dos cosas que fallan por separado
 
 
 
+### 0.bn «YA LE MARQUÉ MIL VECES Y NO HACE NADA» (2026-08-21)
+
+El user, sobre `job:controles_datos` en SALUD: *«ya le marqué mil veces que sí
+sirve verlo pero no hace nada… sigue estando estático ahí como si nada»*.
+
+Tenía razón, y **eran tres cosas distintas que se ven como una sola**.
+
+#### 1. El voto se guardaba y la pantalla no podía verlo. NUNCA.
+
+    ya_votados()   →  WHERE origen = 'humano'
+    la observación →  se guarda con  origen = 'utilidad'
+
+Cero errores, cero logs. Los botones volvían intactos en cada recarga, para
+siempre, hubiera votado una vez o cincuenta.
+
+La causa de fondo ya tiene nombre en este repo: **un filtro sirviendo a dos
+preguntas.** `utilidad` se separó de `humano` para que las observaciones no
+inflen la compuerta de autonomía (§0.f) —y eso está bien—, pero *«¿esto cuenta
+para dar autonomía?»* y *«¿ya me contestaste?»* no son la misma pregunta, y
+quedaron compartiendo un `WHERE`. La compuerta tiene que ser estricta; la
+pantalla tiene que acordarse de TODO lo que contestaste.
+
+**El mismo bug otra vez, un nivel más abajo**: `_voto_previo` —el que evita
+guardar dos veces la misma respuesta— también tenía el origen clavado en
+`'humano'`. Para una observación el previo nunca aparecía, así que cada
+«✔ sirve» escribía una fila nueva. La dedup existía y no dedupeaba nada.
+
+#### 2. «✖ ES RUIDO» era un botón que no hacía nada
+
+Medido: **cero consultas** en todo el repo leían esos votos. Se escribían y la
+fila quedaba exactamente donde estaba.
+
+> Un botón que guarda una opinión y no cambia nada es **peor** que no tenerlo,
+> porque parece que hizo algo. Eso es lo que enseña a desconfiar de la pantalla
+> entera.
+
+Ahora la fila se marca y la tab la esconde, con las tres guardas de siempre: el
+número **siempre a la vista** (`N dijiste que es ruido`), un clic la destapa, y
+la búsqueda la encuentra aunque esté oculta. La fila **viaja igual** en el
+payload — sacarla la volvería irrecuperable desde la app, y esconder sin poder
+volver atrás es cómo se consigue que nadie marque nada.
+
+#### 3. Y en esa fila NO HAY ningún botón de «hecho»
+
+Los tres que tiene son ANALIZAR (diagnóstico), ¿TE SIRVE VERLO? (una encuesta
+sobre el AGENTE) e IGNORAR. Lo que se lee como «marcar hecho» es literalmente
+una pregunta de opinión — el propio tooltip dice *«tu voto no cambia nada del
+sistema: mide al agente»*.
+
+Y la fila **está bien que esté**: `controles_datos` falló el 20/08 16:30 y sigue
+fallando (2d ×8). El detector no se equivoca. Lo que estaba mal es que después
+de tocarla se viera idéntica.
+
+> **La lección, que es la misma de §0.bj y §0.bl:** cuando un filtro empieza a
+> servir a dos preguntas, se parte en dos. No falla nada el día que se
+> desalinean — simplemente una de las dos empieza a contestar mal, con total
+> seguridad, y solo se descubre cuando alguien se harta de la pantalla.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

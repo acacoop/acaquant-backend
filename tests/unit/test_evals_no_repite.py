@@ -55,7 +55,7 @@ def _sin_base(previo):
             return _Conn()
 
     return escrito, patch.multiple(
-        ev, _voto_previo=lambda c, ca: previo, get_pool=lambda: _Pool())
+        ev, _voto_previo=lambda c, ca, o="humano": previo, get_pool=lambda: _Pool())
 
 
 def test_el_MISMO_voto_sobre_el_MISMO_par_no_se_guarda_de_nuevo():

@@ -419,17 +419,22 @@
 # entero (DELETE + INSERT); nunca upsert, si no un asiento anulado quedaría de
 # fantasma inflando el saldo del mayor.
 #
-# Cadencia pedida por el back office (2026-08-21): cada 10 min mientras se carga
-# de verdad (10-12 ART = 13-14 UTC) y una vez por hora el resto de la tarde
-# (12-18 ART = 15-21 UTC), cuando ya casi no se mueve.
+# Cadencia pedida por el back office (2026-08-21). Sigue la curva real de carga
+# de contabilidad: fuerte a la mañana, cada vez menos a la tarde.
+#   10:00–13:00 ART  cada 15 min  = 13:00–15:45 UTC
+#   13:00–15:00 ART  cada 30 min  = 16:00–17:30 UTC
+#   15:00–18:00 ART  cada 60 min  = 18:00–21:00 UTC
+# Son 20 corridas por día. Cada banda ARRANCA en su hora y la anterior termina
+# antes: 13:00 ART lo toma la de 30 min, no la de 15.
 #
-# Presupuesto 9m, por debajo de la ventana de 10 min: la request pesa 9,6 MB y
-# tarda entre 75 s y 306 s (con picos que disparan el retry). Si la matan, no se
-# pierde nada — el job trae PRIMERO y recién después borra el día.
+# Presupuesto 9m, por debajo de la ventana más chica (15 min): la request pesa
+# 9,6 MB y tarda entre 75 s y 330 s. Si la matan, no se pierde nada — el job trae
+# PRIMERO y recién después borra el día.
 # El LOCK de run_job.sh evita que dos corridas se pisen.
-# Doc: jobs/mayor_sync.py · ver estado: SELECT * FROM bancos.mayor_sync_log
-*/10 13-14 * * 1-5 /root/TradingAV/deploy/run_job.sh mayor_sync 9m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mayor_sync'
-0 15-21 * * 1-5 /root/TradingAV/deploy/run_job.sh mayor_sync 9m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mayor_sync'
+# Doc: jobs/mayor_sync.py · ver estado: python -m scripts.diag_mayor_estado
+*/15 13-15 * * 1-5 /root/TradingAV/deploy/run_job.sh mayor_sync 9m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mayor_sync'
+0,30 16-17 * * 1-5 /root/TradingAV/deploy/run_job.sh mayor_sync 9m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mayor_sync'
+0 18-21 * * 1-5 /root/TradingAV/deploy/run_job.sh mayor_sync 9m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mayor_sync'
 
 # ─── AV AGENT EN RUEDA — el monitor que solo tiene sentido con el mercado abierto
 # Pedido del user 2026-08-18: «necesito que esté prendido el agente… al menos de

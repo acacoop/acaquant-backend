@@ -219,8 +219,63 @@ def enviar_tabla(*, para: str, asunto: str, filas: list[dict], tema: str,
     except Exception as ex:
         logger.exception("av_agent_mensajes: no se pudo mandar la tabla")
         return {"ok": False, "error": f"{type(ex).__name__}: {str(ex)[:160]}"}
+    _espejar_filas(tema, filas, e)
     return {"ok": True, "creado": creado, "aviso_id": aviso_id, "para": e,
             "filas": len(filas), "vence_at": vence.isoformat()}
+
+
+# ── CADA FILA DE UN AVISO TAMBIÉN ES UN OBJETO (§0.bk) ──────────────────────
+#
+# «La cuenta 805 está descubierta en ARS» es **(qué cosa, qué le pasa)**: la
+# misma identidad que un hallazgo. Espejar fila por fila —y no el aviso entero—
+# es lo que permite la frase que hoy no se puede decir: *esta cuenta lleva
+# CUATRO DÍAS descubierta*, o *volvió a estarlo después de que la cerraste*. El
+# aviso agrupado no puede saberlo: cada vez que el job corre lo rearma.
+#
+# ⚠️ La tabla `av_agent_aviso_items` no se toca: sigue siendo la que guarda la
+# tilde auditable (quién y cuándo). El objeto acompaña, y si el espejo falla el
+# mensaje se manda igual.
+
+
+def _espejar_filas(tema: str, filas: list[dict], para: str) -> None:
+    """Las filas de un mensaje, como objetos. Nunca levanta."""
+    try:
+        from api.services import av_agent_items
+        for f in filas or []:
+            sujeto = str(f.get("clave") or "").strip()
+            if not sujeto:
+                continue
+            av_agent_items.ver(
+                tipo="aviso_fila", origen="mensaje", sujeto=sujeto, regla=tema,
+                titulo=str(f.get("etiqueta") or "")[:300],
+                afecta=f"le toca a {para}", severidad="media",
+                datos=f.get("datos") or {})
+    except Exception as e:                  # pragma: no cover - defensivo
+        logger.warning("av_agent_mensajes: no pude espejar las filas de %s (%s)",
+                       tema, e)
+
+
+def _cerrar_fila(item_id: int, *, por: str, hecho: bool) -> None:
+    """La tilde, en el objeto. **Destildar es `volvio`**: el vocabulario solo
+    deja salir de `resuelto` por ahí, y además es lo que pasó — alguien lo
+    había dado por hecho y sigue pendiente."""
+    try:
+        from api.services import av_agent_items
+        from core import ciclo
+        from core.postgres import get_pool as _pool
+        with _pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT i.clave, a.clave FROM mercado.av_agent_aviso_items i "
+                        "JOIN mercado.av_agent_avisos a ON a.id = i.aviso_id "
+                        "WHERE i.id = %s", (item_id,))
+            r = cur.fetchone()
+        if not r:
+            return
+        k = av_agent_items.clave_de_problema(r[0], r[1], "mensaje")
+        av_agent_items.marcar(k, ciclo.RESUELTO if hecho else ciclo.VOLVIO,
+                              por=por or "persona")
+    except Exception as e:                  # pragma: no cover - defensivo
+        logger.warning("av_agent_mensajes: no pude cerrar la fila %s (%s)",
+                       item_id, e)
 
 
 def marcar_item(item_id: int, *, quien: str, hecho: bool = True) -> dict:
@@ -256,6 +311,7 @@ def marcar_item(item_id: int, *, quien: str, hecho: bool = True) -> dict:
                 "  WHERE aviso_id = %s AND NOT hecho)", (q, r[0], r[0]))
             cerrado = cur.rowcount > 0
             conn.commit()
+        _cerrar_fila(item_id, por=q, hecho=hecho)
         return {"ok": True, "hecho": hecho, "aviso_cerrado": cerrado}
     except Exception as ex:
         return {"ok": False, "error": f"{type(ex).__name__}: {str(ex)[:160]}"}

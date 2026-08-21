@@ -4443,6 +4443,15 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_preguntas (
 CREATE INDEX IF NOT EXISTS ix_av_agent_preg_abiertas
     ON mercado.av_agent_preguntas (estado, creada_at);
 
+-- ⚠️ **LA IDENTIDAD, EN COLUMNAS Y NO ADENTRO DE LA `clave`** (2026-08-21, §0.bk).
+-- La `clave` es `falta:TZXD8`: causa y sujeto pegados con dos puntos. Alcanza
+-- para la idempotencia, pero para espejar la pregunta como objeto hay que
+-- separarlos, y hacerlo con un `split(':')` ataría la identidad a una convención
+-- de texto — el día que un sujeto traiga `:` adentro partiría mal y en silencio
+-- (REGLA #9). Se guardan aparte, escritos por quien arma la pregunta.
+ALTER TABLE mercado.av_agent_preguntas ADD COLUMN IF NOT EXISTS sujeto text;
+ALTER TABLE mercado.av_agent_preguntas ADD COLUMN IF NOT EXISTS causa text;
+
 -- AV AGENT — CATÁLOGO DE CURVAS (2026-08-17). La curva deja de ser código.
 --
 -- `curvas_ejes._pill_de_ajuste` era una función con ocho `if` que devolvían un

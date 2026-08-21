@@ -4029,6 +4029,67 @@ desaparecer de la pantalla en silencio.
 
 
 
+### 0.bk LO QUE EL AGENTE MANDA TAMBIÉN ES UN OBJETO (2026-08-21)
+
+El modelo cubría lo que el agente **encuentra** (hallazgos, controles,
+centinela). Lo que **manda** seguía crudo: `av_agent_avisos` con su `resuelto
+bool`, `av_agent_aviso_items` con su `hecho bool`, `av_agent_preguntas` con su
+`estado text`. Tres formas más de decir lo mismo, y ninguna con memoria.
+
+Y no son otra cosa. *«A este bono le falta el CER de emisión»* es
+**(qué cosa, qué le pasa)**: la misma identidad de §0.bj. Tanto, que cuando el
+detector nocturno encuentra ese mismo dato faltando **los dos escriben en el
+MISMO objeto** — que es exactamente lo correcto: es un problema visto dos veces,
+no dos problemas.
+
+#### Fila por fila, no el aviso entero
+
+El aviso de saldos se rearma en cada corrida, así que agrupado nunca podría
+decir lo único que importa:
+
+    la cuenta 805 lleva CUATRO DÍAS descubierta en ARS
+    …y volvió a estarlo tres días después de que la cerraste
+
+Por eso el espejo es de `av_agent_aviso_items`: cada fila con su antigüedad y su
+`veces`.
+
+#### Tres decisiones que no son obvias
+
+**Reabrir es `volvio`, no «nuevo».** Destildar una fila o deshacer un aviso
+significa que alguien lo había dado por hecho y el pendiente sigue. Marcarlo
+`nuevo` borraría esa vuelta, que es justo lo que el seguimiento escalonado tiene
+que contar (§0.bi): volver una vez borra la confianza acumulada.
+
+**La identidad NO sale de partir la clave.** La clave de una pregunta es
+`falta:TZXD8` — causa y sujeto pegados con dos puntos, un `split(':')` de
+distancia. Se agregaron **columnas** `sujeto` y `causa`: atar la identidad a una
+convención de texto es REGLA #9, y el día que un sujeto traiga `:` adentro
+partiría mal y en silencio. Una pregunta sin esos campos **no se espeja**:
+prefiero que le falte la memoria a que la tenga mal — un objeto con el sujeto
+equivocado es peor que ninguno, porque se lee como cierto.
+
+**El espejo nunca puede tumbar la lista.** Las tablas originales no se tocaron:
+siguen siendo las que dibujan la pantalla con su campo para tipear, su
+vencimiento y su dueño. Si el objeto no se puede escribir, el aviso se manda
+igual. Cambiar una funcionalidad que anda por una que estamos estrenando sería
+al revés de todo.
+
+#### La barra de progreso decía 1/12 y era mentira hacia abajo
+
+Cinco tablas ya tienen su objeto con historia y solo les falta sacar la columna
+vieja — que es riesgo puro y ningún beneficio nuevo. Contarlas como cero pinta
+un proyecto que no arrancó; como hechas, uno terminado. Ahora son tres estados:
+
+    MIGRACIÓN  █▓▓▓▓▓░░░░░░  1 hecha · 5 con objeto · 6 crudas (de 12)
+
+Y el conteo sale de un **campo** (`Forma.espeja`), no de buscar la palabra
+«espeja» adentro del texto que la describe: una barra que se calcula leyendo un
+comentario miente el día que alguien reescribe el comentario. El mismo día un
+test de `test_ciclo` se cayó por eso mismo —afirmaba `"redundante" in f.como`—
+y se reescribió para probar el árbitro (`f.leer`) en vez de su descripción.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

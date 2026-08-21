@@ -53,6 +53,69 @@ def _num(v) -> float | None:
         return None
 
 
+# ── EL AVISO TAMBIÉN ES UN OBJETO (§0.bk) ───────────────────────────────────
+#
+# Un aviso es *«a este bono le falta el CER de emisión»*: exactamente
+# **(qué cosa, qué le pasa)**, o sea la misma identidad que un hallazgo. Que lo
+# haya visto el alta y no el detector nocturno no lo convierte en otra cosa
+# (§0.bj) — y de hecho, cuando el detector encuentra ese mismo dato faltando,
+# los dos escriben en el MISMO objeto. Que se junten es lo correcto: es un solo
+# problema.
+#
+# Lo que gana con esto es lo que la tabla no puede dar: **desde cuándo** está
+# pendiente, **cuántas veces** volvió a hacer falta avisar, y el seguimiento
+# escalonado cuando se cierra.
+#
+# ⚠️ La tabla `av_agent_avisos` NO se toca. Sigue siendo la que arma la lista
+# con su campo para tipear, su vencimiento y su dueño. El objeto acompaña: si el
+# espejo falla, el aviso existe igual — un problema de memoria no puede tumbar
+# la pantalla de pendientes.
+
+
+def _sujeto_aviso(ticker: str, para: str = "") -> str:
+    """Un aviso de bono habla del BONO; un mensaje a una persona, de esa
+    persona. Sin esto, los mensajes sin ticker caerían todos en un mismo objeto
+    y se taparían entre ellos."""
+    return (ticker or "").strip() or (para or "").strip().lower()
+
+
+def _espejar_aviso(*, ticker: str, clave: str, que_hacer: str,
+                   para: str = "", severidad: str = "media") -> None:
+    """El aviso, como objeto. Nunca levanta: es memoria, no es la lista."""
+    try:
+        from api.services import av_agent_items
+        av_agent_items.ver(
+            tipo="aviso", origen="aviso",
+            sujeto=_sujeto_aviso(ticker, para), regla=clave,
+            titulo=(que_hacer or "")[:300],
+            afecta=("Manager → Títulos" if not para else f"le toca a {para}"),
+            severidad=severidad, datos={"para": para} if para else {})
+    except Exception as e:                  # pragma: no cover - defensivo
+        logger.warning("av_agent: no pude espejar el aviso %s/%s (%s)",
+                       ticker, clave, e)
+
+
+def _cerrar_aviso(ticker: str, clave: str, *, por: str = "",
+                  para: str = "", reabrir: bool = False) -> None:
+    """El cierre humano, en el objeto.
+
+    ⚠️ **Reabrir es `volvio`, no «nuevo».** El vocabulario solo deja salir de
+    `resuelto` por ahí, y además es lo que pasó de verdad: alguien lo había
+    dado por hecho y el pendiente sigue. Borrar esa vuelta sería regalarle
+    confianza a un arreglo que no fue (el seguimiento la cuenta).
+    """
+    try:
+        from api.services import av_agent_items
+        from core import ciclo
+        k = av_agent_items.clave_de_problema(_sujeto_aviso(ticker, para),
+                                             clave, "aviso")
+        av_agent_items.marcar(k, ciclo.VOLVIO if reabrir else ciclo.RESUELTO,
+                              por=por or "persona")
+    except Exception as e:                  # pragma: no cover - defensivo
+        logger.warning("av_agent: no pude cerrar el objeto del aviso %s/%s (%s)",
+                       ticker, clave, e)
+
+
 def crear_avisos(ticker: str, pasos: list[dict], por: str = "") -> int:
     """Anota los avisos que dejó un alta. Se llama al APLICAR, no al simular.
 
@@ -70,6 +133,8 @@ def crear_avisos(ticker: str, pasos: list[dict], por: str = "") -> int:
                 "INSERT INTO mercado.av_agent_avisos "
                 "(ticker, clave, que_hacer, por_que, donde, creado_por) "
                 "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING", filas)
+        for f in filas:
+            _espejar_aviso(ticker=f[0], clave=f[1], que_hacer=f[2])
         return len(filas)
     except Exception as e:
         logger.warning("av_agent: no se pudieron anotar los avisos de %s: %s", ticker, e)
@@ -90,6 +155,7 @@ def resolver_aviso(aviso_id: int, por: str = "", deshacer: bool = False) -> dict
             fila = cur.fetchone()
         if not fila:
             return {"ok": False, "error": "no existe ese aviso"}
+        _cerrar_aviso(fila[0], fila[1], por=por, reabrir=deshacer)
         return {"ok": True, "ticker": fila[0], "clave": fila[1],
                 "resuelto": not deshacer}
     except Exception as e:
@@ -297,7 +363,9 @@ def avisar_a(*, para: str, ticker: str, clave: str, que_hacer: str,
             "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
             (ticker, clave, que_hacer[:500], (por_que or "")[:300],
              donde or None, por or None, email))
-        return cur.rowcount
+        n = cur.rowcount
+    _espejar_aviso(ticker=ticker, clave=clave, que_hacer=que_hacer, para=email)
+    return n
 
 
 def mensajes(limite: int = 40) -> list[dict]:
@@ -410,6 +478,7 @@ def resolver_aviso_propio(aviso_id: int, *, quien: str) -> dict:
         return {"ok": False, "error": str(ex)[:200]}
     if not fila:
         return {"ok": False, "error": "no existe ese aviso"}
+    _cerrar_aviso(fila[0], fila[1], por=e, para=e)
     return {"ok": True, "ticker": fila[0], "clave": fila[1], "resuelto": True}
 
 

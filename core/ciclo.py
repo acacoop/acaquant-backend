@@ -106,6 +106,15 @@ class Forma:
     campos: tuple[str, ...]
     como: str                    # en una línea, para el diag
     leer: object                 # (fila: dict) -> str
+    # ⚠️ **MEDIO CAMINO, DECLARADO.** `espeja=True` = su tabla sigue teniendo su
+    # propia columna de estado, PERO cada fila es además un objeto en
+    # `av_agent_items` con la clave canónica: tiene historia, antigüedad y
+    # seguimiento. No está migrada (la columna sigue ahí) y tampoco es cruda.
+    #
+    # Es un campo y no una palabra adentro de `como` a propósito: el avance se
+    # cuenta con esto, y contar leyendo un string es cómo un renombre inocente
+    # convierte una barra de progreso en una mentira.
+    espeja: bool = False
 
 
 def _por_resuelto_at(f: dict) -> str:
@@ -333,20 +342,34 @@ REGISTRO: tuple[Forma, ...] = (
     # es la misma que ve ENCONTRÓ. Migrar la tabla entera es el paso siguiente.
     Forma("mercado.av_agent_centinela", ("resuelto_at", "visto_at"),
           "resuelto_at NULL + visto_at (espeja en av_agent_items)",
-          _por_resuelto_at),
+          _por_resuelto_at, espeja=True),
     # Espeja en `av_agent_items` (§0.bg): su tabla sigue siendo la que arma el
     # resumen del job, pero cada anomalía es además un objeto con historia.
     Forma("manager.controles_datos", ("resuelto_at",),
           "resuelto_at NULL = vigente (espeja en av_agent_items)",
-          _por_resuelto_at),
+          _por_resuelto_at, espeja=True),
+    # ── LO QUE EL AGENTE MANDA (§0.bk) ──────────────────────────────────────
+    # Las tres espejan en `av_agent_items` desde 2026-08-21. Un aviso es
+    # *«a este bono le falta el CER»* y una pregunta es *«falta decidir sobre
+    # este bono»*: los dos son **(qué cosa, qué le pasa)**, la misma identidad
+    # que un hallazgo — así que cuando el detector encuentra ese mismo dato
+    # faltando, los dos escriben en el MISMO objeto. Sus tablas siguen siendo
+    # las que dibujan la lista (con su campo para tipear, su vencimiento y su
+    # dueño); el objeto aporta lo que la lista no tiene: desde cuándo, cuántas
+    # veces y el seguimiento del arreglo.
+    #
     # ⚠️ Tiene LAS DOS: `resuelto boolean` y `resuelto_at`. Gana el booleano,
     # que es el que filtran sus queries — el `_at` es la marca de tiempo.
     Forma("mercado.av_agent_avisos", ("resuelto", "resuelto_at"),
-          "resuelto bool (+ resuelto_at redundante)", _por_bool_resuelto),
+          "resuelto bool (espeja en av_agent_items)", _por_bool_resuelto, espeja=True),
+    # Fila por fila y no el aviso entero: es lo que permite decir «esta cuenta
+    # lleva CUATRO DÍAS descubierta», que el aviso agrupado no puede saber
+    # porque cada corrida lo rearma.
     Forma("mercado.av_agent_aviso_items", ("hecho",),
-          "hecho bool", _por_hecho),
+          "hecho bool (espeja en av_agent_items)", _por_hecho, espeja=True),
     Forma("mercado.av_agent_preguntas", ("estado", "aplicada_at"),
-          "estado text: abierta|respondida", _por_estado_texto),
+          "estado text: abierta|respondida (espeja en av_agent_items)",
+          _por_estado_texto, espeja=True),
     Forma("mercado.av_agent_propuestas", ("estado",),
           "estado text: propuesta|aplicada|esperando|fallida|rechazada",
           _por_estado_texto),
@@ -410,6 +433,17 @@ def estado_de(tabla: str, fila: dict) -> str:
         return f.leer(fila or {})            # type: ignore[operator]
     except Exception:
         return NUEVO
+
+
+def espejan() -> list[str]:
+    """Las que ya tienen objeto con historia aunque conserven su columna.
+
+    Es el avance REAL de la migración: lo que se ganaba con migrar —memoria,
+    antigüedad, seguimiento— ya está; lo que falta es sacar la columna vieja,
+    que es riesgo puro y ningún beneficio nuevo. Contarlas como cero sería
+    subestimar el estado igual que contarlas como hechas sería inflarlo.
+    """
+    return [f.tabla for f in REGISTRO if f.espeja]
 
 
 def sin_migrar() -> list[str]:

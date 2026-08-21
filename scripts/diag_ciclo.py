@@ -32,17 +32,28 @@ def main() -> int:
     print(f"  · append-only/config  {len(solo_lectura)}   (no tienen ciclo)")
     print(f"\n  formas distintas      {len(formas)}"
           f"   → el objetivo es {2}: la canónica y las append-only")
-    hechas = 1
+    # ⚠️ **TRES ESTADOS, NO DOS.** La barra decía 1/12 y era engañosa hacia
+    # abajo: cinco tablas ya tienen su objeto con historia en `av_agent_items`
+    # —o sea que ya ganaron lo que la migración venía a dar— y solo les falta
+    # sacar la columna vieja, que es riesgo puro y ningún beneficio nuevo.
+    # Contarlas como cero pinta un proyecto que no arrancó; contarlas como
+    # hechas pinta uno terminado. Se muestran aparte, con su medio bloque.
+    espejan = [t for t in ciclo.espejan() if t != ciclo.CANONICA]
+    crudas = [t for t in deuda if t not in espejan]
     total = 1 + len(deuda)
-    barra = "█" * hechas + "░" * len(deuda)
-    print(f"  MIGRACIÓN             {barra}  {hechas}/{total}")
+    barra = "█" + "▓" * len(espejan) + "░" * len(crudas)
+    print(f"  MIGRACIÓN             {barra}  "
+          f"{1} hecha · {len(espejan)} con objeto · {len(crudas)} crudas "
+          f"(de {total})")
+    print("                        █ canónica  ▓ ya tiene objeto con historia"
+          "  ░ todavía dice lo suyo")
 
     print("\n" + "─" * 74)
     print("  LA DEUDA: las que tienen ciclo y todavía lo dicen a su manera")
     print("─" * 74)
     for t in ciclo.sin_migrar():
         f = next(x for x in ciclo.REGISTRO if x.tabla == t)
-        print(f"\n  {t}")
+        print(f"\n  {'▓' if f.espeja else '░'} {t}")
         print(f"      hoy dice:  {f.como}")
         print(f"      columnas:  {', '.join(f.campos) or '—'}")
 

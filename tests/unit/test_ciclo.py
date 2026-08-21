@@ -126,7 +126,12 @@ def test_avisos_tiene_LAS_DOS_formas_y_se_declara_cual_gana():
     cuál manda, dos lectores eligen distinto — REGLA #9 adentro de UNA tabla."""
     f = next(x for x in ciclo.REGISTRO if x.tabla == "mercado.av_agent_avisos")
     assert "resuelto" in f.campos and "resuelto_at" in f.campos
-    assert "redundante" in f.como
+    # ⚠️ Se prueba el ÁRBITRO, no el texto que lo describe: la versión anterior
+    # buscaba la palabra «redundante» en `como` y se rompió con un reword que no
+    # cambiaba una sola decisión. Lo que importa es que gane el BOOLEANO, que es
+    # el que filtran las queries de esa tabla.
+    assert f.leer({"resuelto": False, "resuelto_at": "2026-01-01"}) == ciclo.NUEVO
+    assert f.leer({"resuelto": True, "resuelto_at": None}) == ciclo.RESUELTO
     # Gana el booleano: es el que filtran sus queries.
     assert ciclo.estado_de(f.tabla, {"resuelto": False, "resuelto_at": "x"}) \
         == ciclo.NUEVO

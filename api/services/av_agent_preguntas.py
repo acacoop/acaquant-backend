@@ -80,6 +80,7 @@ def preguntas_de_hallazgos(hallazgos: list[dict]) -> list[dict]:
         if tipo == "falta_en_base":
             out.append({
                 "clave": f"falta:{h['ticker']}",
+                "sujeto": h["ticker"], "causa": "falta_en_base",
                 "tipo": "hallazgo",
                 "pregunta": _texto_falta(h["ticker"], ev),
                 "opciones": list(RESPUESTAS_FALTA),
@@ -91,6 +92,7 @@ def preguntas_de_hallazgos(hallazgos: list[dict]) -> list[dict]:
             muestra = ", ".join(tks[:5]) + (f" (+{len(tks) - 5})" if len(tks) > 5 else "")
             out.append({
                 "clave": f"curva:{aj}",
+                "sujeto": aj, "causa": "curva_sin_ajuste",
                 "tipo": "hallazgo",
                 # La pregunta NO es "¿creo la curva?" — eso ya está decidido por el
                 # hecho de que hay bonos invisibles. Lo único que falta es de dónde
@@ -149,6 +151,55 @@ def _texto_falta(tk: str, ev: dict) -> str:
     return f"{tk} — " + " · ".join(partes) + ". ¿Lo damos de alta o no nos interesa?"
 
 
+# ── LA PREGUNTA TAMBIÉN ES UN OBJETO (§0.bk) ────────────────────────────────
+#
+# Una pregunta abierta es un pendiente con la misma forma que todo lo demás:
+# algo (un bono, una curva) sobre lo que falta una decisión. Espejarla en
+# `mercado.av_agent_items` le da lo que su tabla no tiene — **desde cuándo**
+# está sin responder y cuántas veces volvió a hacerse necesaria.
+#
+# ⚠️ **La identidad sale de campos declarados, NO de partir la `clave`.** La
+# clave es `falta:AL30`, o sea causa y sujeto pegados con dos puntos, y sería
+# facilísimo separarla con un `split`. Pero ahí la identidad pasaría a depender
+# de una convención de texto —justo lo que REGLA #9 prohíbe— y el día que una
+# pregunta traiga un sujeto con `:` adentro partiría mal, en silencio. Una
+# pregunta sin `sujeto`/`causa` **no se espeja**: prefiero que le falte la
+# memoria a que la tenga mal.
+
+
+def _espejar_pregunta(q: dict) -> None:
+    """La pregunta, como objeto. Nunca levanta: es memoria, no es la lista."""
+    sujeto, causa = (q.get("sujeto") or "").strip(), (q.get("causa") or "").strip()
+    if not sujeto or not causa:
+        return
+    try:
+        from api.services import av_agent_items
+        av_agent_items.ver(
+            tipo="pregunta", origen="pregunta", sujeto=sujeto, regla=causa,
+            titulo=(q.get("pregunta") or "")[:300],
+            afecta="hace falta una decisión", severidad="media")
+    except Exception as e:                  # pragma: no cover - defensivo
+        logger.warning("av_agent: no pude espejar la pregunta %s (%s)",
+                       q.get("clave"), e)
+
+
+def _cerrar_pregunta(q: dict, *, por: str = "") -> None:
+    """Respondida = el pendiente se cierra. Lo cerró una PERSONA, así que va
+    `resuelto` y arranca el seguimiento escalonado: si el mismo caso vuelve a
+    aparecer, `ver()` lo pasa a `volvio` y eso es información."""
+    sujeto, causa = (q.get("sujeto") or "").strip(), (q.get("causa") or "").strip()
+    if not sujeto or not causa:
+        return
+    try:
+        from api.services import av_agent_items
+        from core import ciclo
+        k = av_agent_items.clave_de_problema(sujeto, causa, "pregunta")
+        av_agent_items.marcar(k, ciclo.RESUELTO, por=por or "persona")
+    except Exception as e:                  # pragma: no cover - defensivo
+        logger.warning("av_agent: no pude cerrar la pregunta %s (%s)",
+                       q.get("clave"), e)
+
+
 def registrar(preguntas: list[dict]) -> int:
     """Inserta las nuevas y REFRESCA el texto de las que siguen abiertas.
     → cuántas filas se tocaron.
@@ -171,19 +222,29 @@ def registrar(preguntas: list[dict]) -> int:
         return 0
     filas = [(p["clave"], p["tipo"], p["pregunta"],
               json.dumps(p["opciones"], ensure_ascii=False),
-              json.dumps(p.get("contexto") or {}, ensure_ascii=False, default=str))
+              json.dumps(p.get("contexto") or {}, ensure_ascii=False, default=str),
+              (p.get("sujeto") or "").strip() or None,
+              (p.get("causa") or "").strip() or None)
              for p in preguntas]
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
             "INSERT INTO mercado.av_agent_preguntas "
-            "(clave, tipo, pregunta, opciones, contexto) "
-            "VALUES (%s, %s, %s, %s::jsonb, %s::jsonb) "
+            "(clave, tipo, pregunta, opciones, contexto, sujeto, causa) "
+            "VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s) "
             "ON CONFLICT (clave) DO UPDATE SET "
             "  pregunta = EXCLUDED.pregunta, opciones = EXCLUDED.opciones, "
-            "  contexto = EXCLUDED.contexto "
+            "  contexto = EXCLUDED.contexto, "
+            # Las viejas nacieron sin identidad (la columna es nueva): se
+            # completa cuando vuelven a registrarse, pero NUNCA se borra con un
+            # NULL de una pregunta que no la trae.
+            "  sujeto = COALESCE(EXCLUDED.sujeto, mercado.av_agent_preguntas.sujeto), "
+            "  causa  = COALESCE(EXCLUDED.causa,  mercado.av_agent_preguntas.causa) "
             "WHERE mercado.av_agent_preguntas.estado = 'abierta'",
             filas)
-        return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    for q in preguntas:
+        _espejar_pregunta(q)
+    return n
 
 
 def registrar_decisiones(decisiones: list[dict]) -> int:
@@ -199,7 +260,10 @@ def registrar_decisiones(decisiones: list[dict]) -> int:
 
 
 _COLS = ["id", "clave", "tipo", "pregunta", "opciones", "contexto", "estado",
-         "respuesta", "nota", "respondida_por", "respondida_at", "aplicada_at"]
+         "respuesta", "nota", "respondida_por", "respondida_at", "aplicada_at",
+         # Para poder cerrar el objeto al responder: sin esto `responder()` no
+         # sabría de qué problema habla la pregunta que acaba de contestar.
+         "sujeto", "causa"]
 
 
 def abiertas(limite: int = 200) -> list[dict]:
@@ -284,6 +348,7 @@ def responder(id_pregunta: int, respuesta: str, *, por: str = "",
             "respuesta = %s, nota = %s, respondida_por = %s, respondida_at = now(), "
             "aplicada_at = CASE WHEN %s THEN now() ELSE NULL END WHERE id = %s",
             (resp, nota or None, por or None, aplicada, id_pregunta))
+    _cerrar_pregunta(p, por=por)
     return {**p, "estado": "respondida", "respuesta": resp, "aplicada": aplicada}
 
 

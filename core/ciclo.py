@@ -300,8 +300,11 @@ REGISTRO: tuple[Forma, ...] = (
     Forma("mercado.av_agent_centinela", ("resuelto_at", "visto_at"),
           "resuelto_at NULL + visto_at (espeja en av_agent_items)",
           _por_resuelto_at),
+    # Espeja en `av_agent_items` (§0.bg): su tabla sigue siendo la que arma el
+    # resumen del job, pero cada anomalía es además un objeto con historia.
     Forma("manager.controles_datos", ("resuelto_at",),
-          "resuelto_at NULL = vigente", _por_resuelto_at),
+          "resuelto_at NULL = vigente (espeja en av_agent_items)",
+          _por_resuelto_at),
     # ⚠️ Tiene LAS DOS: `resuelto boolean` y `resuelto_at`. Gana el booleano,
     # que es el que filtran sus queries — el `_at` es la marca de tiempo.
     Forma("mercado.av_agent_avisos", ("resuelto", "resuelto_at"),

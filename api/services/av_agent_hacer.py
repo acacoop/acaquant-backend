@@ -1382,9 +1382,43 @@ def _aplicar_una(f: dict, *, por: str, valores: dict) -> dict:
             logger.warning("av_agent_hacer: no pude anotar %s en el libro: %s",
                            p.sujeto, e)
 
+        # ── Y EL OBJETO PASA A «EN CURSO» ───────────────────────────────────
+        #
+        # Éste es el eslabón que faltaba, y es literalmente la queja del user:
+        # *«ya lo marqué como hecho y sigue figurando»*. Apretaba el arreglo, se
+        # escribía, se verificaba… y el hallazgo seguía exactamente igual,
+        # porque **nada conectaba la acción con el objeto**.
+        #
+        # `en_curso` y no `resuelto`, y la diferencia importa: escribir el dato
+        # no es lo mismo que el problema haya desaparecido. Quien lo declara
+        # resuelto es el DETECTOR, cuando vuelve a mirar y ya no lo encuentra
+        # (`sincronizar`) — y recién ahí arrancan los hitos. Si lo cerráramos
+        # nosotros, estaríamos calificando nuestro propio trabajo.
+        try:
+            _mover_item(a, p)
+        except Exception as e:
+            logger.warning("av_agent_hacer: no pude mover el item de %s (%s)",
+                           p.sujeto, e)
+
     return {"id": f["id"], "sujeto": p.sujeto, "campo": p.campo,
             "valor": p.propuesto, "ok": quedo, "verificado": quedo,
             "esperando": espera, "detalle": detalle}
+
+
+def _mover_item(a, p: Propuesta) -> None:
+    """El objeto que esta acción arregla, a `en_curso`.
+
+    La `clave` se arma con la MISMA fórmula que usó quien lo creó — para las
+    acciones que nacen de un control, `jobs/controles_datos._espejar_items`.
+    Si la calculáramos distinto, moveríamos un objeto que no existe y el
+    hallazgo seguiría igual **sin dar ningún error**: exactamente el síntoma
+    que esto viene a arreglar.
+    """
+    from api.services import av_agent_items
+    from core import ciclo
+
+    clave = ciclo.clave_de("control", f"control:{a.sobre}", p.sujeto, a.sobre)
+    av_agent_items.marcar(clave, ciclo.EN_CURSO, por="accion")
 
 
 def _causa_de(a) -> str:

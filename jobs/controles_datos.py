@@ -517,6 +517,24 @@ def _diff_y_persistir(control_id: str, items: list[dict]) -> dict:
                 (now, control_id, resueltos))
         conn.commit()
 
+    # ── Y COMO OBJETOS, con el ciclo común (§0.bg) ──────────────────────────
+    #
+    # Acá el cierre por ausencia es el caso LIMPIO, y conviene decir por qué:
+    # a esta función **solo se llega si `c.fn()` no levantó** (en `main()` está
+    # adentro del `try`, y si el control explota se anota en `errores` y no se
+    # persiste nada). O sea que una lista vacía significa de verdad «no hay
+    # anomalías», y no «no pude mirar» — que es la distinción que costó los dos
+    # bugs anteriores (§0.be, §0.bf).
+    #
+    # Un `origen` por control: cada uno concilia SU universo y no toca el de al
+    # lado. Y `_diff_y_persistir` es el único camino de escritura, así que el
+    # cron y el botón ↻ CHEQUEAR AHORA dejan exactamente el mismo estado.
+    try:
+        _espejar_items(control_id, por_key, resueltos)
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "controles_datos: no pude espejar %s en items (%s)", control_id, e)
+
     # Antigüedad del activo más viejo (para que el mensaje diga "roto hace N días").
     viejo = _q("SELECT min(first_seen) AS f FROM manager.controles_datos "
                "WHERE control_id = %s AND resuelto_at IS NULL", (control_id,))
@@ -526,6 +544,28 @@ def _diff_y_persistir(control_id: str, items: list[dict]) -> dict:
         "detalles_nuevos": [por_key[k] for k in nuevos[:20]],
         "dias_mas_viejo": (now - mas_viejo).days if mas_viejo else 0,
     }
+
+
+def _espejar_items(control_id: str, por_key: dict, resueltos: list[str]) -> None:
+    """Las anomalías de un control, como objetos con ciclo de vida.
+
+    El `titulo` es el detalle que ya arma el control; el `afecta` sale de la
+    ficha declarada (`av_agent_salud.CONTROLES[...]["rompe"]`), que es donde
+    vive el criterio de QUÉ se rompe por esto — no se inventa acá.
+    """
+    from api.services import av_agent_items
+
+    try:
+        from api.services.av_agent_salud import CONTROLES as FICHA
+        afecta = (FICHA.get(control_id) or {}).get("rompe") or ""
+    except Exception:
+        afecta = ""
+
+    vistos = [{"tipo": "control", "ticker": k, "regla": control_id,
+               "motivo": str(d)[:300], "afecta": afecta, "severidad": "media"}
+              for k, d in por_key.items()]
+    av_agent_items.sincronizar(f"control:{control_id}", vistos,
+                               evaluados={"control"})
 
 
 # ── Render resumen (stdout / log del job) ────────────────────────────────────

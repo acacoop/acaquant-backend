@@ -3825,6 +3825,55 @@ pantalla; migrarla del todo es el paso siguiente.
     MIGRACIÓN   ███░░░░░░░░░  3/12
 
 
+### 0.bg LOS CONTROLES, Y EL ESLABÓN QUE FALTABA (2026-08-21)
+
+Tercera y cuarta migración. Las dos cierran el mismo agujero desde puntas
+distintas — el que el user viene marcando hace días:
+
+> *«Ya lo marqué como hecho y sigue figurando. No tiene memoria de los cambios.»*
+
+    el control corre     → sabía qué había y qué se había resuelto…
+    apretás el arreglo   → se escribía, se verificaba…
+    ...y el hallazgo seguía exactamente igual en la pantalla.
+
+**Las dos mitades funcionaban y no se hablaban.** Nada conectaba la ACCIÓN con
+el OBJETO.
+
+#### Los controles: acá SÍ se puede cerrar por ausencia
+
+`_diff_y_persistir` ya calculaba bien `nuevos` y `resueltos`; solo faltaba que
+eso viviera en el objeto. Y conviene dejar escrito **por qué acá el cierre es el
+caso limpio**: a esa función *solo se llega si el control no levantó* (en
+`main()` está adentro del `try`; si explota se anota en `errores` y no se
+persiste nada). Una lista vacía significa de verdad «no hay anomalías» y no «no
+pude mirar» — la distinción que costó los dos bugs anteriores (§0.be, §0.bf), y
+que acá está resuelta por construcción. Hay un test que verifica esa premisa en
+el código en vez de asumirla.
+
+Un `origen` por control (`control:assets_sin_cartera`): si compartieran uno,
+correr un control cerraría las anomalías del de al lado por no haberlas visto. Y
+como `_diff_y_persistir` es el único camino de escritura, **el cron y el botón
+↻ CHEQUEAR AHORA dejan exactamente el mismo estado.**
+
+#### Aplicar un arreglo mueve el objeto — a `en_curso`, no a `resuelto`
+
+⚠️ **La distinción que hace honesto al sistema.** Escribir el dato no es lo
+mismo que el problema haya desaparecido:
+
+    la ACCIÓN dice     «escribí lo que había que escribir»      → en_curso
+    el DETECTOR dice   «volví a mirar y ya no está»             → resuelto
+
+Y recién ahí arrancan los hitos. Si la acción se cerrara sola, **el agente
+estaría calificando su propio trabajo** — que es exactamente lo que el eval set
+existe para evitar.
+
+La `clave` se arma con la misma fórmula desde los dos lados. Si se calculara
+distinto, la acción movería un objeto que no existe y el hallazgo seguiría igual
+**sin dar ningún error**: el síntoma exacto que esto vino a arreglar (REGLA #9).
+
+    MIGRACIÓN   █████░░░░░░░  5/12
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

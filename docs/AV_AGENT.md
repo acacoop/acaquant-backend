@@ -3573,6 +3573,69 @@ corregibles), sin segmento **no escribe**, `verificar` exige los dos, y el
 pendiente** en vez de quedar en silencio.
 
 
+### 0.bc UN SOLO VOCABULARIO PARA EL CICLO DE VIDA (2026-08-21)
+
+> *«Los avisos, lo que encuentra, los mensajes… deberían estar codeados como
+> **objetos con sus estados**. Porque si no, esto va a escalar mal y siempre se
+> va a solucionar sobre la marcha.»*
+
+Tenía razón, y el número lo dice: **22 tablas del agente, 8 formas distintas de
+decir las mismas tres cosas** (está abierto · lo vi · se resolvió).
+
+    resuelto_at IS NULL     controles_datos · av_agent_avisos · av_agent_centinela
+    resuelto boolean        av_agent_avisos            ← ¡las DOS en la misma tabla!
+    estado text             av_agent_preguntas · av_agent_runs · av_agent_propuestas
+    hecho boolean           av_agent_aviso_items
+    visto_at                salud_vistos · av_agent_centinela
+    ok boolean              av_agent_acciones · manager.proveedor_estado
+    aplicada_at             av_agent_preguntas · av_agent_propuestas
+    la EXISTENCIA de la fila   av_agent_ignorados y 11 más
+
+⚠️ **Y la más importante no tiene estado.** `mercado.av_agent_hallazgos` —la que
+llena ENCONTRÓ— es una **FOTO** con `corrida_at`. Todo su ciclo (atendido ·
+visto · ignorado · vencido · ya votado) se **deriva en la lectura**, cruzando
+otras cinco tablas, en funciones distintas.
+
+**De ahí salieron los bugs de esta semana, y son todos el mismo bug**: dos
+pantallas derivando el mismo estado con criterios distintos. `atendido`,
+`recien`, `ya_votado`, `sin_puerta`, `resuelto` — cinco derivaciones escritas en
+cinco lugares en cinco días. Ninguna falla sola; se contradicen entre ellas, que
+es el modo de falla de REGLA #9 y por eso siempre se descubren mirando la
+pantalla.
+
+#### Lo que se hizo, y lo que NO
+
+`core/ciclo.py` **no migra ninguna tabla** — migrar 22 de un saque es cómo se
+rompe un sistema que funciona. Hace lo que ya funcionó tres veces acá
+(`api/superficie.py`, `core/duplicados`, `core/escribe`):
+
+1. **Declara el ciclo UNA vez**: `nuevo · visto · en_curso · resuelto ·
+   ignorado · volvio`, con sus transiciones válidas. Seis, y cada uno existe
+   porque **se atiende distinto** — un estado de más es una rama de más en cada
+   pantalla, para siempre.
+2. **Declara cómo lo dice hoy cada tabla**, con su traducción. Se declara y no
+   se adivina: `resuelto_at IS NULL` y `resuelto = false` parecen lo mismo y
+   `av_agent_avisos` **tiene las dos** (gana el booleano, que es el que filtran
+   sus queries).
+3. **Un test que FALLA** cuando aparece una tabla nueva sin declarar. Es la
+   guarda que impide que las 8 formas se hagan 9.
+
+`estado_de(tabla, fila)` es el árbitro: la pantalla pregunta ahí en vez de mirar
+la columna, así dos pantallas no pueden discrepar. Una tabla desconocida cae en
+`nuevo` —el estado más ruidoso, a propósito: ante la duda se muestra de más.
+
+**`VOLVIO` es el estado que más importa.** Un problema que reaparece **no es
+nuevo**, y contarlo como nuevo es exactamente cómo se pierde que algo se arregla
+y se rompe todas las semanas — lo que pasó con los BOPREALes durante 17 ruedas.
+
+> ⚠️ **Esto frena la sangría; no cura la herida.** Las derivaciones que ya
+> existen siguen donde están hasta que cada superficie se mueva acá. La
+> migración va tabla por tabla y **la deuda es un número**: `sin_migrar()` →
+> **11**, y `python -m scripts.diag_ciclo` la lista con qué dice cada una hoy.
+> Que se pueda contar es la mitad del valor: sin eso, «hay que unificar los
+> estados» es una intención y no una tarea.
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

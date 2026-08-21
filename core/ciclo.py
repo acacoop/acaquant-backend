@@ -294,8 +294,12 @@ REGISTRO: tuple[Forma, ...] = (
           lambda f: (str(f.get("estado") or "").strip().lower()
                      if str(f.get("estado") or "").strip().lower() in ESTADOS
                      else NUEVO)),
+    # Espeja en `av_agent_items` con la misma clave desde 2026-08-21 (§0.bf):
+    # su tabla sigue siendo la que dibuja AHORA, pero la HISTORIA del problema
+    # es la misma que ve ENCONTRÓ. Migrar la tabla entera es el paso siguiente.
     Forma("mercado.av_agent_centinela", ("resuelto_at", "visto_at"),
-          "resuelto_at NULL + visto_at", _por_resuelto_at),
+          "resuelto_at NULL + visto_at (espeja en av_agent_items)",
+          _por_resuelto_at),
     Forma("manager.controles_datos", ("resuelto_at",),
           "resuelto_at NULL = vigente", _por_resuelto_at),
     # ⚠️ Tiene LAS DOS: `resuelto boolean` y `resuelto_at`. Gana el booleano,

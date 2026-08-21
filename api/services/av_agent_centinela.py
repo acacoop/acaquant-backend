@@ -78,18 +78,42 @@ def _clave(h: dict) -> str:
 
 # ── El ciclo ────────────────────────────────────────────────────────────────
 
-def _observar() -> list[dict]:
-    """UNA pasada de observación. Función de LECTURA: no escribe nada.
+# QUÉ TIPOS cubre cada pasada. Se declara —y no se deduce de lo que devolvió—
+# porque **una pasada que no encontró nada y una que EXPLOTÓ devuelven lo
+# mismo: nada**. Sin esta lista, la única forma de distinguirlas sería que el
+# detector encontrara algo, que es justo lo que no se puede exigir.
+_CUBRE = {
+    "precios": ("sin_precio", "precio_moneda", "recuperado"),
+    "tasas": ("tasa_sospechosa",),
+    "salud": ("salud",),
+}
+
+
+def _observar() -> tuple[list[dict], set[str]]:
+    """UNA pasada. Devuelve lo que vio **y QUÉ ALCANZÓ A MIRAR**.
 
     Cada bloque en su propio `try`: que SALUD se caiga no puede dejar al
     centinela sin mirar los precios, que es lo que la mesa necesita en rueda.
+
+    ⚠️⚠️ **Y POR ESO HAY QUE DEVOLVER LO SEGUNDO.** Los tres `try` se tragan la
+    excepción y devuelven una lista más corta — con lo cual el que llama no
+    puede distinguir *«no encontró nada»* de *«explotó»*. El auto-resuelto de
+    abajo cerraba TODO lo que no apareciera, así que **una caída del bloque de
+    tasas marcaba todos los `tasa_sospechosa` como "se arregló solo"**: en
+    silencio, y del lado optimista.
+
+    Es el mismo modo de falla que se tapó en el censo con `evaluados` (§0.be), y
+    acá estaba igual de abierto. Ahora una pasada que falla **no cierra lo
+    suyo**: se queda como estaba, que es lo honesto.
     """
     from api.services import av_agent
 
     hallazgos: list[dict] = []
+    evaluados: set[str] = set()
     try:
         r = av_agent.relevar_live()
         hallazgos.extend(r.get("hallazgos") or [])
+        evaluados.update(_CUBRE["precios"])
     except Exception as e:
         logger.exception("centinela: la pasada de precios falló: %s", e)
 
@@ -103,16 +127,18 @@ def _observar() -> list[dict]:
         met = market_snapshot.cols_map(
             simbolos, ["tea", "paridad", "duration", "last_price"]) or {}
         hallazgos.extend(av_agent.detectar_tasas_sospechosas(docs, met))
+        evaluados.update(_CUBRE["tasas"])
     except Exception as e:
         logger.exception("centinela: la pasada de tasas falló: %s", e)
 
     try:
         from api.services import salud
         hallazgos.extend(av_agent.detectar_salud(salud.evaluar()))
+        evaluados.update(_CUBRE["salud"])
     except Exception as e:
         logger.exception("centinela: la pasada de salud falló: %s", e)
 
-    return hallazgos
+    return hallazgos, evaluados
 
 
 def ciclo() -> dict:
@@ -123,7 +149,7 @@ def ciclo() -> dict:
     err = ""
     nuevos = abiertos = 0
     try:
-        hallazgos = _observar()
+        hallazgos, evaluados = _observar()
         # Dedup por clave DENTRO de la pasada: dos detectores pueden ver el mismo
         # problema (un bono sin precio también sale sin TEA) y eso es una fila,
         # no dos.
@@ -163,18 +189,45 @@ def ciclo() -> dict:
                     nuevos += 1
 
             # AUTO-RESUELTOS: los que no aparecieron en ESTA pasada.
-            # ⚠️ Solo cuando la pasada fue COMPLETA. Si un detector explotó, los
-            # suyos faltan por el error y no porque se hayan arreglado — darlos
-            # por resueltos sería el peor tipo de mentira: silenciosa y optimista.
-            if hallazgos:
+            #
+            # ⚠️⚠️ **SOLO DE LOS TIPOS QUE SE ALCANZARON A MIRAR.** Antes la
+            # condición era `if hallazgos:` — o sea, «si algo trajo, cerrá todo
+            # lo demás». El comentario decía «solo cuando la pasada fue
+            # COMPLETA» y **eso no era lo que el código chequeaba**: los tres
+            # bloques de `_observar` se tragan su excepción, así que una caída
+            # del bloque de tasas dejaba pasar la condición igual (los precios
+            # sí habían traído algo) y marcaba **todos los `tasa_sospechosa`
+            # como "se arregló solo"**.
+            #
+            # Silenciosa y del lado optimista, que es la peor combinación. Ahora
+            # `_observar` declara qué alcanzó a mirar y solo eso se cierra.
+            if evaluados:
                 cur.execute(
                     "UPDATE mercado.av_agent_centinela SET resuelto_at = now(), "
                     "  resuelto_como = 'solo' "
-                    "WHERE resuelto_at IS NULL AND ultimo_at < %s", (marca,))
+                    "WHERE resuelto_at IS NULL AND ultimo_at < %s "
+                    "  AND tipo = ANY(%s)", (marca, sorted(evaluados)))
             cur.execute("SELECT count(*) FROM mercado.av_agent_centinela "
                         "WHERE resuelto_at IS NULL")
             abiertos = cur.fetchone()[0]
             conn.commit()
+
+        # ── Y COMO OBJETO, para que AHORA y ENCONTRÓ hablen de lo mismo ─────
+        #
+        # Las dos pantallas mostraban el mismo problema con historias
+        # distintas: el centinela tenía su `veces` y su `abierto_at`, la
+        # relevada nocturna tenía otros, y nadie los unía. Con la misma clave
+        # es UN objeto — y la antigüedad que ves en ENCONTRÓ es la misma que ve
+        # el monitor.
+        #
+        # Va FUERA de la transacción y en su propio `try`: la pasada del
+        # centinela es lo que la mesa mira en rueda y no se cae por el espejo.
+        try:
+            from api.services import av_agent_items
+            av_agent_items.sincronizar("live", list(por_clave.values()),
+                                       evaluados=evaluados)
+        except Exception as e:
+            logger.warning("centinela: no pude espejar en items (%s)", e)
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
         logger.exception("centinela: el ciclo falló")

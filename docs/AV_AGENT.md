@@ -3784,6 +3784,47 @@ arreglarse o pudo no evaluarse, y desde un backfill no hay forma de saberlo).
     MIGRACIÓN   ██░░░░░░░░░░  2/12
 
 
+### 0.bf EL CENTINELA — y un «se arregló solo» que era mentira (2026-08-21)
+
+Segunda migración. Al enchufar el monitor de rueda al modelo de objetos apareció
+un bug que llevaba meses ahí y **nadie podía ver**.
+
+`_observar()` mira tres cosas —precios, tasas y salud— **cada una en su propio
+`try`**, para que la caída de una no deje al centinela sin mirar las otras. Eso
+está bien. El problema era lo que venía después:
+
+    if hallazgos:      # ← «si algo trajo, cerrá todo lo demás»
+        UPDATE ... SET resuelto_como = 'solo' WHERE ultimo_at < marca
+
+El comentario decía *«solo cuando la pasada fue COMPLETA»* y **eso no era lo que
+el código chequeaba**. Los tres `try` se tragan la excepción y devuelven una
+lista más corta, así que el que llama no puede distinguir «no encontró nada» de
+«explotó». Con el bloque de tasas caído, los precios igual traían algo, la
+condición pasaba, y **todos los `tasa_sospechosa` quedaban marcados como
+"se arregló solo"** — en silencio y del lado optimista, que es la peor
+combinación posible en una herramienta de integridad.
+
+Es **el mismo modo de falla** que `evaluados` tapó en el censo (§0.be), abierto
+en otro lado. Ahora `_observar` devuelve también QUÉ ALCANZÓ A MIRAR, declarado
+por bloque en `_CUBRE` — se declara y no se deduce de lo que trajo, porque *una
+pasada que no encontró nada y una que explotó devuelven lo mismo: nada*.
+
+#### Y las dos pantallas dejan de contar historias distintas
+
+El centinela tenía su `veces` y su `abierto_at`; la relevada nocturna tenía los
+suyos; nadie los unía. Con la misma `clave` es **un solo objeto**: la antigüedad
+que ves en ENCONTRÓ es la misma que ve AHORA. Su tabla sigue dibujando la
+pantalla; migrarla del todo es el paso siguiente.
+
+> ⚠️ **Y otra vez un test se cazó a sí mismo con su propio comentario** (el
+> tercero de la semana): el comentario nombra `if hallazgos:` justo para decir
+> que ya no está, y el `assert` lo encontró ahí. Los tests que leen el fuente
+> ahora usan un helper que **saca los comentarios**: un test tiene que leer lo
+> que se EJECUTA.
+
+    MIGRACIÓN   ███░░░░░░░░░  3/12
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

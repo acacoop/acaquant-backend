@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 
+from api.cache import cached
 from api.services import av_agent, av_agent_evals
 from core import ciclo, curvas_ejes
 from core.postgres import get_pool
@@ -482,6 +483,27 @@ def resolver_aviso_propio(aviso_id: int, *, quien: str) -> dict:
     return {"ok": True, "ticker": fila[0], "clave": fila[1], "resuelto": True}
 
 
+@cached(ttl=45)
+def _salud_por_id() -> dict[str, str]:
+    """`{id del chequeo: estado}` — el estado VIVO, no el de la foto.
+
+    Cacheado 45s: menos que el poll de la pantalla, así que lo que se arregla se
+    ve en la lectura siguiente, y suficiente para que abrir el modal diez veces
+    no pague diez veces la evaluación entera.
+
+    ⚠️ Devuelve `{}` si no se pudo evaluar — y `_caduco` trata el id ausente como
+    **no resuelto**. Un fallo de SALUD no puede vaciar la pantalla: sería
+    exactamente la mentira que este agente existe para no decir.
+    """
+    try:
+        from api.services import salud
+        return {str(c.get("id") or ""): str(c.get("estado") or "")
+                for c in (salud.evaluar() or []) if c.get("id")}
+    except Exception as e:
+        logger.warning("vista: no pude leer el estado vivo de SALUD (%s)", e)
+        return {}
+
+
 def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     """Los hallazgos de la corrida MÁS RECIENTE + su timestamp.
 
@@ -592,6 +614,21 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     # **solo cambia cuando alguien vota**. Cacheado 60s + invalidado en el voto,
     # el costo real es ~0 y el número que ves después de votar es el nuevo.
     medicion = av_agent_evals.precision_por_causa()
+
+    # ⚠️⚠️ **EL ESTADO VIVO DE SALUD, y por qué faltaba.** El user aplicó 5
+    # arreglos de FCI y ENCONTRÓ mostró **los mismos 98 hallazgos, número por
+    # número**. El arreglo estaba bien; entre el dato y la pantalla hay cuatro
+    # capas de foto y ninguna se refrescaba.
+    #
+    # La regla para esto ya está escrita seis renglones más abajo —*todo
+    # criterio que decida si algo se MUESTRA tiene que poder evaluarse en la
+    # LECTURA*— y se venía aplicando a `falta_en_base`, `hueco_de_curva`,
+    # `sin_flujo` e `ignorados`. **A SALUD no.** Y es el tipo con más filas.
+    #
+    # `salud.evaluar()` es la ÚNICA función que arma ese estado (no una copia),
+    # y cachearla es lo que hace que el cotejo salga gratis: la pantalla se abre
+    # muchas veces por día y cada viaje a Supabase cuesta ~8,5 ms de distancia.
+    salud_viva = _salud_por_id()
 
     simbolos = av_agent.simbolos_primary()
     # **El «no me interesa» también se evalúa AL LEER.** Es la regla de E2.r: un
@@ -725,6 +762,18 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
             from api.services.acreencias import tiene_flujo_def
             doc = docs_curvas.get((h.get("ticker") or "").strip().upper())
             return bool(doc) and tiene_flujo_def(doc, date.today())
+        if h["tipo"] == "salud":
+            # **Un chequeo de SALUD caduca cuando vuelve a estar en verde.** El
+            # `ticker` del hallazgo transporta el id del chequeo
+            # (`control:patas_equivocadas`, `job:cierre_canje`) — así lo emite
+            # `detectar_salud`.
+            #
+            # `None` = el chequeo ya NO EXISTE en la evaluación de hoy (se sacó
+            # del catálogo, o no se pudo evaluar). Eso **no** se trata como
+            # resuelto: «no lo encontré» y «está bien» no son lo mismo, y
+            # confundirlos vaciaría la pantalla justo el día que SALUD falla.
+            estado = salud_viva.get((h.get("ticker") or "").strip())
+            return estado == "ok"
         # `tasa_sospechosa` habla de la TASA, que depende del precio del día: no
         # se puede afirmar que se arregló sin volver a cotejar contra 1816.
         return False

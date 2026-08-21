@@ -5379,6 +5379,62 @@ contra `mercado.curvas`: la misma guarda 1 que ya tenía la acción. Si el códi
 de la unidad no es una curva, no sabemos cuál de los dos nombres es el bueno, así
 que **no hay divergencia que declarar**.
 
+### 0.cd APLICAR 5 Y QUE LA PANTALLA MUESTRE LOS MISMOS 98 (2026-08-22)
+
+El user aplicó los 5 emisores de FCI —se escribieron, se verificaron, `5/5`— y
+`diag_encontro` devolvió **exactamente los mismos 98 hallazgos, número por
+número**. Para el que mira, eso es indistinguible de que el botón no haga nada.
+
+Y el arreglo estaba bien. **Entre el dato y la pantalla hay CUATRO capas de
+foto, y arreglar el dato no tocaba ninguna:**
+
+    jobs.controles_datos (16:30 UTC)  →  manager.controles_datos
+    salud.evaluar()                   →  lee esa tabla
+    jobs.av_agent (de noche)          →  escribe av_agent_hallazgos
+    la pantalla                       →  lee esa foto
+
+#### La regla ya estaba escrita. A SALUD no se le había aplicado.
+
+Textual, en `_hallazgos_ultima_corrida`, desde el incidente del DICP:
+
+> *Todo criterio que decida si algo se MUESTRA tiene que poder evaluarse en la
+> LECTURA.*
+
+Y se venía cumpliendo para `falta_en_base` (¿ya está en `mercado.curvas`?),
+`hueco_de_curva` (¿ya existe la curva del ajuste?), `sin_flujo` (¿ya tiene
+cronograma?) e `ignorados`. **Para `salud` no** — que es el tipo con más filas
+de la pantalla (10 controles + 3 jobs, y detrás de cada control hay hasta 133
+casos).
+
+Es la QUINTA vez que aparece el mismo síntoma: TZXM8, BADLAR, el IGNORAR, el
+DICP con «✔ cronograma escrito» y el hallazgo intacto, y ahora éste.
+
+#### Dos cambios, los dos GENERALES
+
+**(1) Aplicar vuelve a mirar.** `hacer.aplicar()` re-corre el control de cada
+acción aplicada, **derivado de `a.sobre`** — no hay lista que mantener y una
+acción nueva lo hereda sola. Por la MISMA puerta que el cron
+(`_diff_y_persistir`), así que un arreglo a mano y la corrida nocturna dejan
+idéntico estado. Si el re-chequeo falla, **el arreglo no se deshace**: el dato ya
+se escribió y se verificó; no poder refrescar la pantalla es peor información, no
+un arreglo fallido, y se dice.
+
+**(2) La pantalla coteja SALUD contra el estado vivo.** `salud.evaluar()` —la
+única función que arma ese estado, no una copia— cacheada 45s: menos que el poll,
+así que lo que se arregla se ve en la lectura siguiente, y suficiente para que
+abrir el modal diez veces no pague diez evaluaciones.
+
+⚠️ **La guarda que importa**: el predicado exige `estado == "ok"`, **no la
+ausencia del id**. Si `evaluar()` falla devuelve `{}`, y un id ausente se trata
+como NO resuelto. Tratarlo al revés vaciaría ENCONTRÓ justo el día que SALUD está
+caído — dejar el tablero en verde el día que está más ciego es la mentira más cara
+que puede decir una herramienta de integridad, y es literalmente el mismo error
+que ya se corrigió en `sincronizar(evaluados=…)`.
+
+Congelado por `tests/unit/test_av_agent_cotejo.py`: los cinco cotejos, que SALUD
+use la función real y no una copia, que un fallo no vacíe la pantalla, y que el
+re-control se derive de la acción.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

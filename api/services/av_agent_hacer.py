@@ -1431,6 +1431,46 @@ def uno(accion_id: str, sujeto: str, *, aplicar_ya: bool = False,
     return {**r, "propuesta": vista}
 
 
+def _recontrolar_despues(accion_ids: set[str]) -> dict[str, str]:
+    """**Vuelve a correr el control de cada acción aplicada.** Nunca levanta.
+
+    ⚠️⚠️ **POR QUÉ, y es lo que hacía que aplicar «no hiciera nada».** El user
+    (2026-08-22) aplicó 5 emisores de FCI, volvió a mirar y ENCONTRÓ mostraba
+    **los mismos 98 hallazgos, número por número**. Y no era un bug del arreglo
+    —los 5 se escribieron y se verificaron— era que entre el dato y la pantalla
+    hay CUATRO capas de foto:
+
+        jobs.controles_datos (16:30)  →  manager.controles_datos
+        salud.evaluar()               →  lee esa tabla
+        jobs.av_agent (de noche)      →  escribe av_agent_hallazgos
+        la pantalla                   →  lee esa foto
+
+    Arreglar el dato no tocaba **ninguna**. Así que el arreglo funcionaba y la
+    pantalla seguía diciendo lo mismo hasta la noche siguiente — que para quien
+    mira es idéntico a que el botón no haga nada.
+
+    Se re-corre el control por su `sobre`, **derivado de la acción**: no hay
+    lista que mantener y una acción nueva lo hereda sola. Y por la MISMA puerta
+    que el cron (`_diff_y_persistir`), así que un re-chequeo a mano y la corrida
+    nocturna dejan exactamente el mismo estado.
+    """
+    out: dict[str, str] = {}
+    for aid in sorted(accion_ids):
+        a = ACCIONES.get(aid)
+        sobre = getattr(a, "sobre", "") if a else ""
+        if not sobre:
+            continue
+        try:
+            from api.services.av_agent_salud import recontrolar
+            r = recontrolar(sobre)
+            out[sobre] = (r.get("texto") or "recontrolado") if r.get("ok") \
+                else f"no pude recontrolar: {r.get('error')}"
+        except Exception as e:                      # el arreglo ya se escribió
+            logger.warning("hacer: no pude recontrolar %s (%s)", sobre, e)
+            out[sobre] = f"no pude recontrolar: {type(e).__name__}"
+    return out
+
+
 def aplicar(ids: list[int], *, por: str = "", valores: dict | None = None) -> dict:
     """**El OK.** Escribe y verifica EN EL MISMO PASO, propuesta por propuesta.
 
@@ -1458,8 +1498,14 @@ def aplicar(ids: list[int], *, por: str = "", valores: dict | None = None) -> di
         res.append(_aplicar_una(f, por=por, valores=valores or {}))
     hechas = sum(1 for r in res if r["ok"])
     esperando = sum(1 for r in res if r.get("esperando"))
+    # ⚠️ **Y AHORA SE VUELVE A MIRAR.** Sin esto el arreglo se escribía, se
+    # verificaba… y la pantalla seguía mostrando el problema hasta la corrida de
+    # la noche siguiente. Ver `_recontrolar_despues`.
+    recontrol = _recontrolar_despues(
+        {str(f["accion"]) for f in filas if hechas}) if hechas else {}
     return {"ok": True, "aplicadas": hechas, "fallidas": len(res) - hechas,
             "esperando": esperando, "resultados": res,
+            "recontrol": recontrol,
             "texto": _texto_resultado(hechas, len(res) - hechas, esperando)}
 
 

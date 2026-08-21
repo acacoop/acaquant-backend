@@ -4660,6 +4660,26 @@ criterio, pero mejor que quedarse mudo.
 > síntoma fue un detector que parecía andar porque acertaba en los casos donde
 > la copia había quedado desactualizada.
 
+#### Y el diag tenía el mismo bicho adentro
+
+Después de arreglar el detector, la corrida en prod devolvió **exactamente los
+mismos números**. No era que el fix no sirviera: **`diag_pesos_no_detectados`
+reimplementaba las seis puertas, incluida la que decide.** Arreglé el detector
+y el diag siguió midiendo su copia vieja.
+
+> La herramienta que existe para cazar REGLA #9 **tenía REGLA #9 adentro**, y de
+> la peor forma: no falló, contestó con seguridad usando el dato equivocado —
+> y encima habría «confirmado» que el arreglo no servía.
+
+Ahora el veredicto sale de `detectar_precio_fuera_de_moneda`. La caminata por
+las puertas queda solo para EXPLICAR dónde cae cada bono, que es lo que un `for`
+sobre los hallazgos no puede decir; pero **quién canta y quién no lo dice la
+función real**, y por construcción ya no pueden divergir.
+
+**La regla que queda: un diag que mide un comportamiento no puede
+reimplementarlo.** Si lo reimplementa, no está midiendo el sistema — está
+midiéndose a sí mismo.
+
 
 
 ### 0.f El eval set (2026-08-17)

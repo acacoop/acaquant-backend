@@ -23,7 +23,18 @@ LAS PUERTAS, EN ORDEN
   3. sin precio               lo canta otro detector
   4. paridad cruda en rango   el precio YA viene en dólares → está bien
   5. ÷MEP no lo arregla       entonces no es un tema de moneda
-  6. sin pata default         **acá es donde se cae el que buscamos**
+  6. el DETECTOR decide       **y acá se pregunta, no se reimplementa**
+
+⚠️⚠️ **LA PUERTA 6 NO SE COPIA — SE LE PREGUNTA AL DETECTOR.** La primera
+versión de este script reimplementaba las seis, incluida la que decide. Cuando
+el detector se arregló (§0.bu), el diag **siguió midiendo su propia copia
+vieja** y siguió diciendo «11 no se cantan» cuando ya se cantaban.
+
+O sea: la herramienta que existe para cazar REGLA #9 **tenía REGLA #9
+adentro**, y de la peor forma posible — no falló, contestó con seguridad usando
+el dato equivocado. Ahora el veredicto sale de `detectar_precio_fuera_de_moneda`
+y la caminata por las puertas queda solo para EXPLICAR dónde cae cada bono, que
+es lo que un `for` sobre los hallazgos no puede decir.
 
 MEDIDO EN PROD (2026-08-22) — Y LA HIPÓTESIS ERA EQUIVOCADA
 ============================================================
@@ -45,8 +56,12 @@ pata en dólares para estos once?**
 
   · NO existe → el bono cotiza en pesos y punto. No hay nada que arreglar; lo
     discutible es por qué está en una curva USD.
-  · SÍ existe → `es_default` elige mal (Primary marca la más OPERADA, que no es
-    la que necesita una curva en dólares). Ese sí es un dato mal cargado.
+  · SÍ existe → hay un dato mal cargado, y hay arreglo.
+
+**Contestado (2026-08-22): 11 de 11 TIENEN pata en dólares**, todos con la misma
+forma —`★ VSCYO ARS 24hs` como default y `VSCYD USD 24hs` al lado—. Eso destapó
+que `es_default` es una COPIA de `curvas.instrumento` y que la comparación del
+detector era circular (§0.bu). El criterio pasó a ser la MONEDA DEL EJE.
 """
 from __future__ import annotations
 
@@ -66,6 +81,7 @@ def _sym(simbolo: str) -> str:
 def main() -> int:
     from api.services.macro import get_ultimo_mep
     from core import curvas_sql, market_snapshot
+    from core import especies as _esp
     from core.postgres import get_pool
 
     print("═" * 78)
@@ -88,10 +104,34 @@ def main() -> int:
     simbolos_master = {(b.get("ticker") or "").strip() for b in bonos}
     snap = market_snapshot.cols_map(simbolos_master, ["last_price"]) or {}
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT simbolo, ticker, es_default FROM mercado.especies")
+        cur.execute("SELECT simbolo, ticker, es_default, especie, plazo "
+                    "FROM mercado.especies")
         filas = cur.fetchall()
     defaults = {(r[1] or "").strip().upper(): r[0]
                 for r in filas if r[2] and r[0] and r[1]}
+    patas: dict[str, list[dict]] = {}
+    for sim, tk_, _d, esp, plazo in filas:
+        if sim and tk_:
+            patas.setdefault((tk_ or "").strip().upper(), []).append(
+                {"simbolo": sim, "especie": esp, "plazo": plazo})
+
+    # ⚠️⚠️ **EL VEREDICTO LO DA EL DETECTOR DE VERDAD, NO UNA COPIA.**
+    #
+    # La primera versión de este script reimplementaba las seis puertas —
+    # incluida la 6, que es la que decide. Cuando el detector se arregló
+    # (§0.bu), **el diag siguió midiendo su propia copia vieja** y siguió
+    # diciendo «11 no se cantan» cuando ya se cantaban.
+    #
+    # O sea que la herramienta que existe para cazar REGLA #9 tenía REGLA #9
+    # adentro, y de la peor forma: no falló, contestó con seguridad usando el
+    # dato equivocado. La única defensa es que el veredicto salga de la función
+    # REAL — la caminata por las puertas queda solo para EXPLICAR dónde cae
+    # cada bono, que es lo que un `for` sobre los hallazgos no puede decir.
+    from api.services.av_agent import detectar_precio_fuera_de_moneda
+    reales: dict[str, str] = {}
+    for h in detectar_precio_fuera_de_moneda(
+            bonos, snap, mep, set(), defaults, None, patas):
+        reales[(h.get("ticker") or "").strip().upper()] = h.get("regla") or ""
     print(f"  bonos en el master    {len(bonos)}")
     print(f"  con pata default      {len(defaults)}")
 
@@ -135,19 +175,14 @@ def main() -> int:
 
         partes = simbolo.split(" - ")
         sym = partes[2] if len(partes) >= 3 else simbolo
-        if sym[-1:].upper() in ("D", "C"):
-            anota("6a_CANTA_precio_fuera_de_escala", f"{tk} ({sym})")
-            continue
-        default = defaults.get(tk, "")
-        if default and default != simbolo:
-            anota("6b_CANTA_pata_equivocada", f"{tk} → {default.split(' - ')[2]}")
-        elif default:
-            # Ya apunta a la default y AUN ASÍ el precio viene en pesos: la
-            # default de `especies` puede estar mal, o Primary lista la pata en
-            # pesos como la que más opera. Es un caso distinto y no está cubierto.
-            anota("6c_APUNTA_A_LA_DEFAULT_Y_ES_EN_PESOS", f"{tk} ({sym})")
+        # Acá NO se decide: se PREGUNTA. `reales` sale de correr el detector.
+        regla = reales.get(tk)
+        if regla:
+            mejor = _esp.pata_para_el_eje(patas.get(tk) or [], b.get("moneda_eje"))
+            sug = _sym(mejor["simbolo"]) if mejor else ""
+            anota(f"6_CANTA_{regla}", f"{tk} ({sym})" + (f" → {sug}" if sug else ""))
         else:
-            anota("6d_SIN_PATA_DEFAULT_no_puede_nombrarla", f"{tk} ({sym})")
+            anota("6_NO_CANTA", f"{tk} ({sym})")
 
     print("\n" + "─" * 78)
     print("  DÓNDE SE CAE CADA BONO (en el orden real del detector)")
@@ -157,7 +192,7 @@ def main() -> int:
         print(f"\n  {k}   {len(v)}")
         # Las puertas 1-4 son masivas y correctas: alcanza el conteo. Las de la
         # 5 en adelante son las que hay que leer una por una.
-        if k[0] in "56":
+        if k.startswith(("5", "6")):
             for x in sorted(v)[:40]:
                 print(f"      {x}")
             if len(v) > 40:
@@ -166,15 +201,13 @@ def main() -> int:
     print("\n" + "─" * 78)
     print("  LA RESPUESTA")
     print("─" * 78)
-    canta = len(motivos.get("6a_CANTA_precio_fuera_de_escala", [])) \
-        + len(motivos.get("6b_CANTA_pata_equivocada", []))
-    ciegos = len(motivos.get("6c_APUNTA_A_LA_DEFAULT_Y_ES_EN_PESOS", [])) \
-        + len(motivos.get("6d_SIN_PATA_DEFAULT_no_puede_nombrarla", []))
+    canta = sum(len(v) for k, v in motivos.items() if k.startswith("6_CANTA_"))
+    ciegos = len(motivos.get("6_NO_CANTA", []))
     print(f"\n  el detector CANTA          {canta}")
     print(f"  llega al final y NO canta  {ciegos}   ← estos son los que faltan")
     if ciegos:
-        print("\n  Los 6c/6d pasaron TODAS las puertas —o sea: cotizan en pesos de")
-        print("  verdad— y el detector se queda callado.")
+        print("\n  Los de `6_NO_CANTA` pasaron TODAS las puertas —o sea: cotizan")
+        print("  en pesos de verdad— y el detector se queda callado.")
 
     # ⚠️⚠️ **LA PRIMERA CORRIDA DESMINTIÓ LA HIPÓTESIS DE ESTE SCRIPT.**
     #
@@ -194,8 +227,7 @@ def main() -> int:
     #   · si SÍ existe  → `es_default` está eligiendo mal (Primary marca la más
     #                     operada, que no es la que necesita una curva en USD).
     #                     ESE sí es un dato mal cargado, y con arreglo.
-    faltan = [x.split(" ")[0] for x in
-              motivos.get("6c_APUNTA_A_LA_DEFAULT_Y_ES_EN_PESOS", [])]
+    faltan = [x.split(" ")[0] for x in motivos.get("6_NO_CANTA", [])]
     if faltan:
         print("\n" + "─" * 78)
         print("  ¿TIENEN PATA EN DÓLARES? — la pregunta que decide el arreglo")

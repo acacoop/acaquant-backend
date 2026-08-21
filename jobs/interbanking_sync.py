@@ -144,6 +144,24 @@ def sincronizar_cuentas(*, dry: bool = False) -> list[dict]:
                 # justo la información que hace falta para decidir qué hacer con
                 # sus movimientos manuales. Al revés —blanquearla— la perdería en
                 # silencio.
+                #
+                # ⚠️⚠️ **`account_label` TAMPOCO se toca, y esto ya rompió una vez**
+                # (2026-08-20): la etiqueta es el nombre OPERATIVO que le pone el
+                # back office («PATA ACDI», «VALO CERA ARS»), y estaba en el
+                # `DO UPDATE`, así que **cada corrida del job la pisaba** con la
+                # denominación del titular que manda Interbanking —la misma para
+                # todas las cuentas de ACA—. El trabajo de nombrar 38 cuentas se
+                # perdía en la sincronización siguiente, sin ningún error.
+                #
+                # Peor: como el usuario usaba esas etiquetas para relacionar cada
+                # cuenta con su cuenta del mayor, lo que se borraba no era una
+                # decoración sino un MAPEO.
+                #
+                # Se sigue tomando en el INSERT (una cuenta nueva estrena el
+                # nombre del proveedor, mejor que nada) y el valor original queda
+                # siempre en `raw`. La regla es la de `origen`: **el
+                # descubrimiento automático no puede pisar lo que escribió una
+                # persona.**
                 """INSERT INTO bancos.cuentas
                      (bank_number, bank_name, account_number, account_type, currency,
                       account_cbu, account_cuit, account_label, primera_vez, ultima_vez,
@@ -153,7 +171,6 @@ def sincronizar_cuentas(*, dry: bool = False) -> list[dict]:
                    DO UPDATE SET bank_name      = EXCLUDED.bank_name,
                                  account_cbu    = EXCLUDED.account_cbu,
                                  account_cuit   = EXCLUDED.account_cuit,
-                                 account_label  = EXCLUDED.account_label,
                                  ultima_vez     = EXCLUDED.ultima_vez,
                                  activa         = true,
                                  raw            = EXCLUDED.raw,

@@ -380,8 +380,10 @@ def vista(id_cuenta: str, fecha: str | None = None, horizonte: str = "t1",
         "pnl_total": pos.get("pnl_total"),
         "costo_total_usd": pos.get("costo_total_usd"),
         "pnl_total_usd": pos.get("pnl_total_usd"),
-        # Indexado por `unidad` — alimenta el panel de AUDITORÍA por título sin
-        # obligar a una segunda corrida del motor de PnL.
-        "pnl_detalle": pos.get("pnl_detalle") or {},
+        # `pnl_detalle` (los BOLETOS de cada título, indexados por unidad) NO
+        # viaja: alimentaba un panel de auditoría que esta vista ya no tiene, y
+        # es lo más pesado que devolvía el endpoint. El PnL por título sigue
+        # viniendo en cada fila (costo/pnl/gan%), que es lo que se muestra; el
+        # detalle boleto por boleto vive en PNL TÍTULOS, con su propio endpoint.
         "n": pos.get("n", 0),
     }

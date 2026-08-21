@@ -187,8 +187,9 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
                         con_pnl: bool = False, horizonte: str = "t1") -> dict:
     """Posiciones de un fecha_snapshot dado — SQL. Mismo shape que valuaciones.py.
 
-    `tipo` (tipoTitulo) no existe en tenencia → None. `vencimiento` no está en la tabla
-    assets SQL → None. El resto (ticker/emisor/clase/cartera/calificación) sale del JOIN.
+    `tipo` (tipoTitulo) no existe en tenencia → None. El resto
+    (ticker/emisor/clase/cartera/calificación/vencimiento) sale del JOIN con
+    `portafolio.assets`.
 
     `con_pnl` adjunta el cost-basis por título (ver `_enriquecer_con_pnl`). Cuesta una
     corrida del motor de PnL, así que va apagado por defecto.
@@ -219,7 +220,8 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
         cart = " AND a.cartera = %(cart)s"
         p["cart"] = cartera
     _SEL = ("SELECT v.unidad, v.cantidad, v.precio, v.valuacion, "
-            "a.cartera, a.clase_activo, a.ticker, a.emisor, a.calificacion "
+            "a.cartera, a.clase_activo, a.ticker, a.emisor, a.calificacion, "
+            "a.vencimiento "
             "FROM {tabla} v LEFT JOIN portafolio.assets a ON a.unidad = v.unidad "
             "WHERE v.id_cuenta = %(c)s AND v.aum = 'si'{extra}" + cart)
     rows: list[dict] = []
@@ -256,6 +258,7 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
             "unidad": unidad, "cantidad": 0.0, "precio": _f(r["precio"]), "valuacion": 0.0,
             "cartera": r["cartera"], "clase_activo": r["clase_activo"],
             "ticker": r["ticker"], "emisor": r["emisor"], "calificacion": r["calificacion"],
+            "vencimiento": r.get("vencimiento"),
         })
         st["cantidad"] += _f(r["cantidad"])
         st["valuacion"] += _f(r["valuacion"])
@@ -294,7 +297,7 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
                 "clase_activo": x["clase_activo"] or "-",
                 "cartera":      x["cartera"] or "",
                 "calificacion": x["calificacion"] or "-",
-                "vencimiento":  None,
+                "vencimiento":  x.get("vencimiento") or None,
                 "tipo":         None,
                 "cantidad":     round(x["cantidad"], 4),
                 "precio":       round(x["precio"], 4),

@@ -1,6 +1,7 @@
 """Router /api/valuaciones — performance e historia por cuenta.
 
 Endpoints principales (AUM-based, vista actual):
+- GET /{id_cuenta}/vista    — el INFORME completo (resumen + activos + métricas).
 - GET /{id_cuenta}/serie    — daily portfolio total (Valuaciones.AuM).
 - GET /{id_cuenta}/mensual  — cierre mensual + flujos externos.
 
@@ -129,6 +130,45 @@ def get_variacion(
             "valuaciones variacion failed: id_cuenta=%s fecha=%s",
             id_cuenta, fecha,
         )
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/{id_cuenta}/vista", dependencies=[Depends(verificar_id_cuenta)])
+def get_vista(
+    id_cuenta: str,
+    fecha: str | None = Query(
+        None,
+        description="YYYY-MM-DD. Si se omite, la posición de HOY.",
+    ),
+    horizonte: str = Query(
+        "t1",
+        description="Solo SIN `fecha`: t1 (default) = con lo concertado hoy adentro · "
+                    "t0 = liquidada a hoy.",
+    ),
+):
+    """El INFORME de la cuenta en UN request: RESUMEN + ACTIVOS + MÉTRICAS.
+
+    Es lo que sirve la vista NEGOCIO → CARTERAS. Antes eran cuatro llamadas y los
+    totales se armaban en el navegador; con la fórmula duplicada del lado del
+    front la pantalla podía contradecir al informe. Además el PDF sale de ESTE
+    payload, así que no puede decir algo distinto de lo que se ve en pantalla.
+
+    Ver `api/services/carteras_informe.py`.
+    """
+    _validate_id_cuenta(id_cuenta)
+    if fecha:
+        try:
+            from datetime import datetime
+            datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError as e:
+            raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
+    try:
+        from api.services import carteras_informe
+        return carteras_informe.vista(id_cuenta=id_cuenta, fecha=fecha,
+                                      horizonte=horizonte)
+    except Exception as e:
+        logger.exception("valuaciones vista failed: id_cuenta=%s fecha=%s",
+                         id_cuenta, fecha)
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

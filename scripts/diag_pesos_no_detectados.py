@@ -25,18 +25,42 @@ LAS PUERTAS, EN ORDEN
   5. ÷MEP no lo arregla       entonces no es un tema de moneda
   6. sin pata default         **acá es donde se cae el que buscamos**
 
-La puerta 6 es la sospechosa (hipótesis, sin medir): `defaults` sale de
-`mercado.especies.es_default`, y si un ticker no tiene fila ahí el detector
-**no puede nombrar la pata correcta** y por eso no emite `pata_equivocada`.
-`BPOA7 → BPA7D` pierde una letra del medio, que es exactamente el caso que
-REGLA #9 dice que rompe cualquier regla de string.
+MEDIDO EN PROD (2026-08-22) — Y LA HIPÓTESIS ERA EQUIVOCADA
+============================================================
 
-Si la medición confirma eso, el arreglo NO es tocar el detector: es completar
-`mercado.especies` (o emparejar con `core/pareo.hermanas`).
+Apostaba a la puerta **6d** (el ticker sin pata default en `mercado.especies`,
+porque `BPOA7 → BPA7D` pierde una letra del medio y rompe cualquier regla de
+string). La corrida dio **6d = 0**.
+
+    el detector CANTA          6    (los 5 BPO + GD46)
+    llega al final y NO canta  11   ← todos 6c
+
+Los 11 son **`6c`**: el master **ya apunta a la pata que `especies` marca como
+default**, y esa pata igual cotiza en pesos. Así que «completar `especies`» —lo
+que este script decía en su primera versión— **no arregla nada**: habría mandado
+a corregir lo que no está roto.
+
+La pregunta que queda, y que el script ahora también contesta: **¿existe una
+pata en dólares para estos once?**
+
+  · NO existe → el bono cotiza en pesos y punto. No hay nada que arreglar; lo
+    discutible es por qué está en una curva USD.
+  · SÍ existe → `es_default` elige mal (Primary marca la más OPERADA, que no es
+    la que necesita una curva en dólares). Ese sí es un dato mal cargado.
 """
 from __future__ import annotations
 
 PARIDAD_MIN, PARIDAD_MAX = 20.0, 400.0
+
+
+def _sym(simbolo: str) -> str:
+    """El símbolo pelado (`AL30D`) del completo (`MERV - XMEV - AL30D - 24hs`).
+
+    Vive acá y no adentro del loop porque la pata en dólares se decide por el
+    SUFIJO del símbolo — el mismo criterio que usa el detector. Escribirlo dos
+    veces es cómo un día opinan distinto.
+    """
+    return simbolo.split(" - ")[2] if " - " in simbolo else simbolo
 
 
 def main() -> int:
@@ -150,9 +174,56 @@ def main() -> int:
     print(f"  llega al final y NO canta  {ciegos}   ← estos son los que faltan")
     if ciegos:
         print("\n  Los 6c/6d pasaron TODAS las puertas —o sea: cotizan en pesos de")
-        print("  verdad— y el detector se queda callado porque no sabe qué pata")
-        print("  nombrar. Ese es el agujero, y NO se arregla en el detector: se")
-        print("  arregla completando `mercado.especies` para esos tickers.")
+        print("  verdad— y el detector se queda callado.")
+
+    # ⚠️⚠️ **LA PRIMERA CORRIDA DESMINTIÓ LA HIPÓTESIS DE ESTE SCRIPT.**
+    #
+    # El docstring apostaba a `6d` (el ticker sin pata default en
+    # `mercado.especies`) y la medición dio **6d = 0**: los 11 que faltan son
+    # TODOS `6c`, o sea que el master **ya apunta a la pata que `especies` marca
+    # como default** y esa pata igual cotiza en pesos.
+    #
+    # Entonces «completar `especies`» —lo que este mismo script decía en su
+    # primera versión— **no arregla nada acá**, y dejarlo escrito habría mandado
+    # a arreglar lo que no está roto. La pregunta que queda es otra y es la de
+    # abajo: **¿existe siquiera una pata en dólares para estos?**
+    #
+    #   · si NO existe  → el bono cotiza en pesos y punto. No hay nada que
+    #                     arreglar: lo que hay que revisar es por qué está en
+    #                     una curva USD, o aceptar que es contexto y no error.
+    #   · si SÍ existe  → `es_default` está eligiendo mal (Primary marca la más
+    #                     operada, que no es la que necesita una curva en USD).
+    #                     ESE sí es un dato mal cargado, y con arreglo.
+    faltan = [x.split(" ")[0] for x in
+              motivos.get("6c_APUNTA_A_LA_DEFAULT_Y_ES_EN_PESOS", [])]
+    if faltan:
+        print("\n" + "─" * 78)
+        print("  ¿TIENEN PATA EN DÓLARES? — la pregunta que decide el arreglo")
+        print("─" * 78)
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT upper(ticker), simbolo, moneda, plazo, es_default "
+                "  FROM mercado.especies WHERE upper(ticker) = ANY(%s) "
+                " ORDER BY ticker, es_default DESC, simbolo", (faltan,))
+            patas = cur.fetchall()
+        por_tk: dict[str, list[tuple]] = {}
+        for tk, sim, mon, plazo, dflt in patas:
+            por_tk.setdefault(tk, []).append((sim, mon, plazo, dflt))
+        con_d, sin_d = [], []
+        for tk in sorted(faltan):
+            filas = por_tk.get(tk, [])
+            dolares = [f for f in filas if _sym(f[0])[-1:].upper() == "D"]
+            (con_d if dolares else sin_d).append(tk)
+            print(f"\n  {tk}   {len(filas)} pata(s)"
+                  f"{'   ← TIENE pata D' if dolares else '   ← sin pata D'}")
+            for sim, mon, plazo, dflt in filas:
+                print(f"      {'★' if dflt else ' '} {_sym(sim):<16} "
+                      f"{(mon or '?'):<5} {(plazo or '?')}")
+        print("\n" + "─" * 78)
+        print(f"  CON pata D (es_default elige mal → hay arreglo)   {len(con_d)}"
+              f"   {', '.join(con_d) or '—'}")
+        print(f"  SIN pata D (cotiza en pesos y punto)              {len(sin_d)}"
+              f"   {', '.join(sin_d) or '—'}")
     print()
     return 0
 

@@ -4544,6 +4544,63 @@ puesto, el test **falla nombrando la línea y el símbolo**.
 
 
 
+### 0.bt «ME DICE DE UNO SOLO» — medido, y la hipótesis era equivocada (2026-08-22)
+
+El user, viendo la grilla de los BPO toda en pesos y el agente cantando tres:
+*«están literalmente todos cotizando en pesos y me dice de uno solo… acá hay
+algo desconectado de lo que pasa de verdad»*.
+
+`detectar_precio_fuera_de_moneda` tiene **seis puertas en fila** y cualquiera
+puede estar dejando pasar al bono por motivos **opuestos** — una sería un bug y
+otra el comportamiento correcto. Desde el código no se puede decir cuál.
+`scripts/diag_pesos_no_detectados` las recorre en el mismo orden y dice, bono
+por bono, cuál lo frenó.
+
+    1_no_es_curva_usd          69
+    2_dolar_linked             31
+    3_sin_precio                9
+    4_ya_viene_en_dolares     101
+    6b_CANTA_pata_equivocada    6   ← BPOA7 BPOA8 BPOB7 BPOB8 BPOC7 GD46
+    6c_NO_CANTA                11
+
+#### Dos cosas, y las dos importan
+
+**El detector SÍ agarra a los BPO.** Los cinco están en la lista. La foto de la
+pantalla tenía tres y otros — entre medio se aplicó el arreglo a esos tres, y
+`3_sin_precio` recuerda que **el detector solo ve lo que tiene precio en ese
+instante**, así que la lista crece durante la rueda. La queja apuntaba a un
+detector ciego y el detector no lo es.
+
+**Pero hay un agujero real de 11, y no es el que yo apostaba.** El docstring de
+mi propio diag decía que la causa sería `6d` —el ticker sin pata default en
+`mercado.especies`, porque `BPOA7 → BPA7D` pierde una letra del medio y rompe
+cualquier regla de string (REGLA #9)— y la medición dio **`6d` = 0**.
+
+Los once son **`6c`**: el master **ya apunta a la pata que `especies` marca como
+default**, y esa pata igual cotiza en pesos. Son todas ONs corporativas
+(`CP36O`, `LOC6O`, `PECNO`, `VSCYO`…).
+
+> Y el script decía, en su primera versión, *«se arregla completando
+> `mercado.especies`»*. **La medición lo desmintió y esa frase se borró**, no se
+> matizó: dejarla escrita mandaba a corregir lo que no está roto. Un diag que
+> conserva su hipótesis después de refutarla es peor que no tenerlo — se lee
+> como conclusión.
+
+#### La pregunta que decide el arreglo
+
+    ¿existe una pata en dólares para estos once?
+
+      NO existe  → el bono cotiza en pesos y punto. No hay nada que arreglar;
+                   lo discutible es por qué está en una curva USD.
+      SÍ existe  → `es_default` elige mal. Primary marca la más OPERADA, que no
+                   es la que necesita una curva en dólares. Ese sí es un dato
+                   mal cargado, y con arreglo.
+
+El diag ahora la contesta: lista todas las patas de cada uno con su moneda, su
+plazo y cuál es la default, y los parte en los dos grupos.
+
+
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

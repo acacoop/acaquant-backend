@@ -196,6 +196,32 @@ def _por_seguimiento(f: dict) -> str:
 # conserva desde cuándo está abierto, cuántas veces se vio, y si ya estaba
 # resuelto pasa a `volvio` en vez de a `nuevo`.
 
+# ── QUÉ ES UN PROBLEMA Y QUÉ ES UNA COMUNICACIÓN ────────────────────────────
+#
+# ⚠️⚠️ **NO TODO OBJETO CON CICLO ES ALGO ROTO.** Un aviso dirigido («cargá el
+# saldo inicial»), una fila de aviso («esta cuenta está descubierta, le toca a
+# X») y una pregunta abierta («¿este bono te sirve?») son cosas que el agente
+# DIJO: tienen ciclo (se atienden o no) y por eso son items — pero no son un
+# problema de la base, y cada una ya tiene su propia pantalla (AHORA, la
+# cabecera de ENCONTRÓ, HISTORIAL).
+#
+# Meterlas en la misma bolsa que los problemas es lo que hizo que QUÉ PIDE ALGO
+# dijera *«58 de 256 abiertos»* — 142 de esos 256 eran filas de aviso, y el
+# user, con razón: *«¿256 QUÉ??? no se entiende»*. Peor: sus «resueltos»
+# entraban al seguimiento como si fueran arreglos en observación, y
+# `cerrar_hitos` podía llegar a VOTARLOS al eval set con `origen='verificado'`
+# — un aviso atendido contando como «arreglo de bono que aguantó».
+#
+# La lista vive ACÁ (el modelo) y no en cada lector: tres lectores con tres
+# copias es exactamente el modo de falla de REGLA #9.
+TIPOS_COMUNICACION: tuple[str, ...] = ("aviso", "aviso_fila", "pregunta")
+
+
+def es_comunicacion(tipo: str) -> bool:
+    """¿Este item es algo que el agente DIJO, y no algo roto?"""
+    return (tipo or "").strip().lower() in TIPOS_COMUNICACION
+
+
 # Cuánto se espera antes de creerle a un arreglo. **NO es un plazo, son HITOS.**
 #
 # El user: *«5 días es mucho — es el día siguiente para ver si vuelve. Pero a su

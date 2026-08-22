@@ -6099,6 +6099,70 @@ HISTORIAL → YA DECIDIDO abre con **VOTASTE**: caso, causa, qué contestaste
   votado/aplicado hasta que el detector confirme. Lo confirmado desaparece
   solo; lo que VUELVE salta primero en AHORA.
 
+### 0.cm LOS CUATRO NÚMEROS DE ENCONTRÓ CONCILIAN — comunicaciones ≠ problemas (2026-08-22)
+
+> *«LA LISTA dice 58, pero en el filtro tiene 89… ¿58 de 256? ¿¿256 QUÉ???
+> ¿AGUANTAN 199?? En VIGILANCIA no se entiende tampoco por qué 130. No tienen
+> lógica, no hay relación — esto es un desastre.»* — user, con las cuatro
+> sub-tabs de ENCONTRÓ abiertas
+
+Tenía razón, y el análisis exhaustivo dio que **los cuatro números eran cuatro
+universos distintos sin declarar**, más un bug de conteo de fondo:
+
+- **LA LISTA (58) vs el desplegable «Todo (89)»** — el menú contaba «por
+  resolver» y el desplegable contaba TODO (atendidos y descartados incluidos).
+  Dos números para la misma lista, sin decir por qué difieren. Ahora el
+  desplegable cuenta el MISMO universo que el menú («Todo (58 por resolver)»,
+  y cada tipo su pendiente): lo atendido vive en ¿AGUANTAN? y lo descartado
+  tiene su contador propio.
+
+- **«QUÉ PIDE ALGO — 58 de 256 abiertos»: el 256 era mentira útil para nadie.**
+  `av_agent_items` guarda TODO objeto con ciclo, y eso incluye lo que el agente
+  **DIJO**: 142 `aviso_fila` (avisos dirigidos a personas), más `aviso` y
+  `pregunta`. Son objetos con ciclo (se atienden o no) pero **no son problemas
+  de la base**, y cada uno ya tiene su pantalla (AHORA, la cabecera). La regla
+  quedó EN EL MODELO — **`core/ciclo.TIPOS_COMUNICACION`** + `es_comunicacion()`
+  — y no en cada lector (REGLA #9: tres lectores con tres copias). `que_importa`
+  cuenta problemas y devuelve `comunicaciones` aparte: **el corte que no dice
+  cuánto cortó es truncar en silencio**. De paso se explica el universo en la
+  propia sub-tab: cuenta la MEMORIA completa del agente (relevada + controles +
+  monitor en vivo), por eso es más grande que LA LISTA, que es solo la última
+  relevada. El «198 apareció hoy» era esto mismo: las comunicaciones en banda
+  `nuevo`.
+
+- **¿AGUANTAN? (199, «168 en prueba») — el seguimiento contaba avisos y
+  listaba caso por caso.** Dos arreglos: (1) `en_seguimiento()` y
+  `cerrar_hitos()` excluyen comunicaciones — un aviso atendido no es un
+  «arreglo en observación», y lo GRAVE es que `cerrar_hitos` podía llegar a
+  votarlos al eval set con `origen='verificado'` (los que cuentan como humanos
+  para la autonomía): un aviso contando como «arreglo de bono que aguantó 30
+  días». `scripts/fix_evals_comunicaciones` (dry-run por default) mide y
+  limpia los que hayan entrado antes del fix. (2) **UNA fila por causa, no una
+  por caso**: el lote que arregló 133 patas es UN arreglo con un solo reloj —
+  `_seguimiento_corto` agrupa (`por_causa`: regla, ×n, rango de días, próximo
+  hito) y la pantalla muestra eso; el detalle individual sigue en
+  `en_seguimiento()`.
+
+- **VIGILANCIA (130) se explica sola**: es el backlog ACUMULADO del monitor en
+  vivo (late cada 30s: precios · tasas · salud), otra fuente y otro reloj que
+  LA LISTA — los números no coinciden ni tienen por qué, y ahora la sub-tab lo
+  dice arriba de todo.
+
+- **«El botón de cerrar tampoco hace algo» tenía DOS causas encadenadas**: el
+  deploy anterior se indicó con `--sin-schema` y la columna
+  `av_agent_runs.visto_at` (de §0.ck) **nunca se aplicó en prod** — el endpoint
+  moría — y el `catch` del front era silencioso, así que el error no dejaba ni
+  una pista. Regla que queda: **un catch sin salida visible convierte cualquier
+  falla de deploy en "el botón no anda"** — `cerrarInforme` ahora muestra el
+  error (y el `ok:false` con HTTP 200 también). El deploy de esta entrega va
+  SIN `--sin-schema` a propósito.
+
+Deuda declarada (no de esta ronda): fusionar de verdad los cuatro stores en la
+canónica — LA LISTA sigue siendo la foto de `av_agent_hallazgos` y VIGILANCIA
+la tabla del centinela; la unificación tabla por tabla es la migración de
+§0.bc/§0.bd y este parche hace que, mientras tanto, cada número diga de qué
+universo habla.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

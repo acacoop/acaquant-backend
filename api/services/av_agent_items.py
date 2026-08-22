@@ -346,14 +346,23 @@ def ignorar_sujeto(sujeto: str, *, por: str = "",
         return {"ok": False, "error": str(e)[:200]}
 
 
-def abiertos(tipo: str = "", limite: int = 400) -> list[ciclo.Item]:
+def abiertos(tipo: str = "", limite: int = 400,
+             con_comunicaciones: bool = True) -> list[ciclo.Item]:
     """Lo que sigue vivo. **Incluye `volvio`**: un problema que reapareció está
-    abierto, y además merece más atención que uno nuevo."""
+    abierto, y además merece más atención que uno nuevo.
+
+    `con_comunicaciones=False` deja fuera los tipos de `TIPOS_COMUNICACION`
+    (avisos, preguntas): tienen ciclo pero no son problemas, y cada pantalla
+    que cuenta "abiertos" tiene que decidir qué universo cuenta — el default
+    trae todo para no esconder nada por omisión."""
     where = "estado NOT IN ('resuelto', 'ignorado')"
     params: list = []
     if tipo:
         where += " AND tipo = %s"
         params.append(tipo)
+    elif not con_comunicaciones:
+        where += " AND tipo <> ALL(%s)"
+        params.append(list(ciclo.TIPOS_COMUNICACION))
     params.append(max(1, min(int(limite), 2000)))
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
@@ -383,8 +392,18 @@ def que_importa(limite: int = 400) -> dict:
     en Python porque el criterio (`ciclo.prioridad`) tiene que ser el mismo que
     usa cualquier otro lector. Un `ORDER BY` en SQL sería una segunda copia de
     la regla, y ya sabemos cómo termina eso (REGLA #9).
+
+    ⚠️⚠️ **CUENTA PROBLEMAS, no comunicaciones.** La primera versión contaba
+    todo lo abierto y la pantalla decía *«58 de 256 abiertos»* — 142 eran filas
+    de aviso y varias más preguntas, cosas que el agente DIJO y que viven en
+    sus propias pantallas. El user: *«¿256 QUÉ??? no se entiende»*. Se traen en
+    el MISMO viaje y se separan en Python (no una query más), y el conteo de lo
+    excluido VIAJA (`comunicaciones`): un corte que no dice cuánto cortó es
+    truncar en silencio.
     """
-    items = abiertos(limite=limite)
+    todos = abiertos(limite=limite)
+    items = [it for it in todos if not ciclo.es_comunicacion(it.tipo)]
+    n_comunicaciones = len(todos) - len(items)
     ahora = datetime.now(UTC)
     items.sort(key=lambda it: ciclo.prioridad(it, ahora))
     por_banda: dict[str, int] = {}
@@ -406,6 +425,7 @@ def que_importa(limite: int = 400) -> dict:
     # mirarse.
     piden = sum(por_banda.get(b, 0) for b in ("volvio", "estancado", "arrastra"))
     return {"ok": True, "abiertos": len(filas), "piden_algo": piden,
+            "comunicaciones": n_comunicaciones,
             "por_banda": por_banda, "filas": filas,
             "sin_mirar": _sin_mirar(items, ahora)}
 
@@ -459,13 +479,19 @@ def en_seguimiento() -> list[dict]:
     rápida —si vuelve mañana, el arreglo no sirvió— y los siguientes acumulan
     confianza, que es lo que después habilita autonomía. **Volver una vez borra
     todo lo acumulado**: un arreglo que falla al día 8 no es «7 días bueno».
+
+    ⚠️ **Solo PROBLEMAS.** Un aviso atendido o una pregunta contestada quedan
+    `resuelto` en la tabla, pero no son «arreglos en observación»: contarlos
+    acá infló ¿AGUANTAN? con filas que nadie está vigilando.
     """
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_items "
                 "WHERE estado = 'resuelto' AND resuelto_at IS NOT NULL "
-                "ORDER BY resuelto_at DESC LIMIT 500")
+                "  AND tipo <> ALL(%s) "
+                "ORDER BY resuelto_at DESC LIMIT 500",
+                (list(ciclo.TIPOS_COMUNICACION),))
             items = [_fila(r) for r in cur.fetchall()]
     except Exception as e:
         logger.warning("av_agent_items: no pude leer el seguimiento (%s)", e)
@@ -505,6 +531,12 @@ def cerrar_hitos() -> dict:
     ⚠️ **Y «todavía no volvió» NO es «aguantó».** Solo vota el que pasó el
     ÚLTIMO hito. Los del medio siguen en prueba — premiar a los tres días sería
     justo lo que el escalonado vino a evitar.
+
+    ⚠️⚠️ **Las COMUNICACIONES no votan.** Un `aviso_fila` resuelto es «lo
+    atendieron», no «el arreglo aguantó»: dejarlo entrar acá habría metido al
+    eval set votos `verificado` (los que cuentan como humanos para la
+    autonomía) por cosas que no son arreglos de nada.
+    `scripts/fix_evals_comunicaciones` limpia los que hayan entrado antes.
     """
     from api.services import av_agent_evals
 
@@ -512,8 +544,10 @@ def cerrar_hitos() -> dict:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_items "
-                " WHERE (estado = %s AND resuelto_at IS NOT NULL) OR estado = %s "
-                " LIMIT 1000", (ciclo.RESUELTO, ciclo.VOLVIO))
+                " WHERE ((estado = %s AND resuelto_at IS NOT NULL) OR estado = %s) "
+                "   AND tipo <> ALL(%s) "
+                " LIMIT 1000", (ciclo.RESUELTO, ciclo.VOLVIO,
+                                list(ciclo.TIPOS_COMUNICACION)))
             items = [_fila(r) for r in cur.fetchall()]
     except Exception as e:
         logger.warning("av_agent_items: no pude leer el seguimiento (%s)", e)

@@ -1011,6 +1011,13 @@ def _seguimiento_corto(limite: int = 12) -> dict:
 
     Lo que está en prueba va topeado: una lista de 200 «todavía no volvió» no
     informa más que su número.
+
+    ⚠️ **AGRUPADO POR CAUSA** (user, 2026-08-22: *«¿AGUANTAN? 199?? no tiene
+    lógica»*). Un lote que arregló 133 patas mete 133 seguimientos idénticos:
+    mismo arreglo, mismo día, mismo reloj. Mostrarlos uno por uno es ruido que
+    tapa a los distintos — la fila útil es *«pata_equivocada ×133 · día 2 ·
+    próximo control al día 3»*. El detalle individual no se pierde: se agrupa
+    en la lectura, y `en_seguimiento()` sigue devolviendo todo.
     """
     from api.services import av_agent_items
     try:
@@ -1019,9 +1026,30 @@ def _seguimiento_corto(limite: int = 12) -> dict:
         logger.warning("av_agent: no pude leer el seguimiento (%s)", e)
         return {}
     en_prueba = [x for x in filas if not x["aguanto"]]
+    grupos: dict[str, list[dict]] = {}
+    for x in en_prueba:
+        grupos.setdefault(x.get("regla") or "?", []).append(x)
+    por_causa = []
+    for regla, xs in grupos.items():
+        xs.sort(key=lambda x: -x["dias"])
+        viejo = xs[0]
+        por_causa.append({
+            "regla": regla, "n": len(xs),
+            # El rango de días: un grupo puede tener arreglos de distintas
+            # fechas y «día 2» a secas mentiría sobre la mitad.
+            "dias_min": xs[-1]["dias"], "dias_max": viejo["dias"],
+            "hitos": viejo["hitos"], "de": viejo["de"],
+            "proximo_hito_en_dias": min(
+                (x["proximo_hito_en_dias"] for x in xs
+                 if x["proximo_hito_en_dias"] is not None), default=None),
+            # Con pocos casos, los nombres dicen más que el número.
+            "sujetos": [x["sujeto"] for x in xs[:5]],
+        })
+    por_causa.sort(key=lambda g: -g["n"])
     return {
         "en_prueba": len(en_prueba),
         "aguantaron": sum(1 for x in filas if x["aguanto"]),
+        "por_causa": por_causa[:limite],
         # Los que llevan MÁS tiempo primero: son los que van a dar novedad antes.
         "proximos": sorted(en_prueba, key=lambda x: -x["dias"])[:limite],
     }

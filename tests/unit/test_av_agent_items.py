@@ -179,6 +179,45 @@ def test_el_seguimiento_dice_CUANTOS_hitos_y_cuando_es_el_proximo():
         assert f'"{campo}"' in src
 
 
+# ── COMUNICACIONES ≠ PROBLEMAS (2026-08-22) ─────────────────────────────────
+#
+# El user, mirando «QUÉ PIDE ALGO — 58 de 256 abiertos»: *«¿256 QUÉ??? no se
+# entiende»*. 142 de esos 256 eran filas de aviso: cosas que el agente DIJO,
+# con su propia pantalla, contadas como si fueran problemas de la base.
+
+def test_un_aviso_o_una_pregunta_NO_son_un_problema():
+    for t in ("aviso", "aviso_fila", "pregunta", " AVISO "):
+        assert ciclo.es_comunicacion(t)
+    for t in ("hallazgo", "control", "salud", "tasa_sospechosa", ""):
+        assert not ciclo.es_comunicacion(t)
+
+
+def test_que_importa_cuenta_problemas_y_DICE_cuantas_comunicaciones_dejo_afuera(
+        monkeypatch):
+    """El corte no esconde: lo excluido viaja contado (`comunicaciones`) —
+    un filtro que oculta sin decir cuánto oculta es truncar en silencio."""
+    from api.services import av_agent_items as st
+    items = [ciclo.Item(clave=f"x{i}", tipo=t, sujeto=f"s{i}", regla="r")
+             for i, t in enumerate(
+                 ["hallazgo", "aviso_fila", "aviso", "pregunta", "control"])]
+    monkeypatch.setattr(st, "abiertos", lambda limite=400, **kw: items)
+    r = st.que_importa()
+    assert r["abiertos"] == 2
+    assert r["comunicaciones"] == 3
+    assert all(not ciclo.es_comunicacion(f["tipo"]) for f in r["filas"])
+
+
+def test_el_seguimiento_y_los_hitos_EXCLUYEN_comunicaciones():
+    """Un aviso atendido no es un «arreglo en observación», y sobre todo NO
+    puede votar al eval set como `verificado`: sería el agente contando como
+    arreglo de bono algo que nunca fue un arreglo."""
+    import inspect
+
+    from api.services import av_agent_items as st
+    for fn in (st.en_seguimiento, st.cerrar_hitos):
+        assert "TIPOS_COMUNICACION" in inspect.getsource(fn), fn.__name__
+
+
 # ── la tabla existe y es UNA ────────────────────────────────────────────────
 
 def test_la_tabla_esta_en_el_schema_con_la_clave_como_PK():

@@ -443,43 +443,40 @@ def _ignorar_objetos(ticker: str, *, por: str = "",
 
 
 def ignorar(ticker: str, *, motivo: str = "", por: str = "") -> dict:
-    """«No me interesa»: el ticker deja de aparecer en TODOS los tipos de hallazgo.
+    """**«Sacalo de la lista por HOY» — un snooze, NO una blacklist** (§0.cv).
 
-    Hasta el 2026-08-17 ignorar solo se podía hacer **contestando una pregunta**
-    del agente (`falta:<TICKER>`), y solo surtía efecto en el detector de
-    faltantes. O sea: para el resto de la lista no había forma de decir que algo
-    no interesa, y la única salida era mirarlo pasar en cada corrida. El user:
-    *«¿cómo podríamos hacer para ignorar algunos, tipo decir "no me interesan",
-    así no vuelven a aparecer?»*
+    ⚠️⚠️ **CAMBIO DE SEMÁNTICA (2026-08-22).** La primera versión escribía
+    `av_agent_ignorados` (permanente, por ticker, todas las causas) y el user
+    lo usó creyendo que descartaba EL AVISO del día: *«si yo lo ignoro quiero
+    que salga de ENCONTRAR — NO que entre en una blacklist de cosas que nunca
+    más me van a interesar. Si el agente funciona bien y algo se rompe hoy,
+    mañana lo va a volver a detectar, y TIENE que volver a aparecer»*.
 
-    **Por TICKER y no por (ticker, tipo)**: si un papel no interesa, no interesa
-    en ninguna de sus formas — ver que «le faltan los flujos» a un bono que ya
-    dijiste que no te importa es el mismo ruido con otro nombre.
+    Ahora el botón IGNORAR de un hallazgo:
 
-    ⚠️ En un `hueco_de_curva` el `ticker` del hallazgo es el **AJUSTE**
-    (`BADLAR`), no un bono. Se ignora igual y está bien: esta tabla es la lista de
-    *cosas que no quiero ver*, y la identidad de un hallazgo es su `ticker`, sea
-    lo que sea que ese campo signifique para su tipo.
+    - **NO escribe `av_agent_ignorados`** (esa tabla queda SOLO para la
+      respuesta «no nos interesa» de las preguntas de alta — ahí sí es un
+      juicio durable sobre el PAPEL, y sigue siendo reversible en DECIDIDO).
+    - Mueve los OBJETOS del sujeto a `ignorado` → la fila sale de LA LISTA ya.
+    - Y el snooze **vence solo**: cuando un detector vuelve a ver el problema
+      en un día ART POSTERIOR, `av_agent_items.ver()` lo reabre como `nuevo`.
+      Si el detector no lo ve más, no vuelve — que es exactamente lo que
+      distingue «lo ignoré y se arregló» de «lo ignoré y sigue roto».
 
-    Reversible con `designorar`, por la misma razón de siempre: si marcar algo
-    fuera irreversible, la respuesta segura pasaría a ser no marcar nada.
+    Sigue siendo por SUJETO (todas sus causas): con vencimiento diario el
+    alcance amplio dejó de ser peligroso, y el gesto típico es sacar el bono
+    entero de la vista de hoy.
     """
     from api.services import av_agent_acciones as acc
 
     tk = (ticker or "").strip().upper()
     if not tk:
         raise ValueError("ticker vacío")
-    motivo = (motivo or "").strip() or "el user lo marcó como «no nos interesa»"
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO agente.av_agent_ignorados (ticker, motivo, por) "
-            "VALUES (%s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
-            (tk, motivo, por or None))
-        nuevo = (cur.rowcount or 0) > 0
-    acc.registrar(accion="ignorar_ticker", objetivo=tk, por=por,
+    motivo = (motivo or "").strip() or "lo sacó de la lista por hoy"
+    acc.registrar(accion="ignorar_hoy", objetivo=tk, por=por,
                   detalle={"motivo": motivo, "desde": "hallazgo"})
     _ignorar_objetos(tk, por=por)
-    return {"ok": True, "ticker": tk, "ignorado": True, "ya_estaba": not nuevo}
+    return {"ok": True, "ticker": tk, "ignorado": True, "hasta": "hoy"}
 
 
 def designorar(ticker: str, *, por: str = "") -> dict:

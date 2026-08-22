@@ -1194,9 +1194,19 @@ def vista() -> dict:
                           or h.get("ticker") or "")
         h["atendido"] = ""
         est = h.pop("estado_item", None)
+        # ── IGNORADO = SNOOZE DEL DÍA (§0.cv) ────────────────────────────────
+        # El user apretó IGNORAR hoy: la fila se esconde HOY y nada más. El
+        # vencimiento no vive acá: `av_agent_items.ver()` reabre el objeto como
+        # `nuevo` la primera vez que un detector lo re-ve en un día posterior.
+        # Se marca y NO se filtra (mismo contrato que `es_ruido`): el corte lo
+        # hace la pantalla, que sabe contar lo que esconde.
+        if est == ciclo.IGNORADO:
+            h["ignorado"] = True
         if est in (ciclo.EN_CURSO, ciclo.RESUELTO):
             h["atendido"] = "aplicado"
-        elif est == ciclo.VISTO or h.get("ya_votado"):
+        # (el guard de `ignorado`: una fila snoozeada no es «atendida» — no
+        # tiene que aparecer en YA LO ATENDISTE mientras está escondida)
+        elif not h.get("ignorado") and (est == ciclo.VISTO or h.get("ya_votado")):
             # ⚠️⚠️ **VOTAR NO ES ARREGLAR** (user, 2026-08-22: *«toqué que SÍ y
             # desapareció — no me dejó arreglarlo. Tienen que ser dos checks
             # distintos: el acertó persiste, pero si en arreglar tardo un par
@@ -1251,6 +1261,9 @@ def vista() -> dict:
         # escondidas: un filtro que oculta sin decir cuánto oculta es lo mismo
         # que truncar en silencio.
         "es_ruido": n_ruido,
+        # Cuántas sacaste de la vista POR HOY (§0.cv). Mismo contrato: se
+        # esconden pero se cuentan; mañana, si el detector las re-ve, vuelven.
+        "ignorados_hoy": sum(1 for h in hallazgos if h.get("ignorado")),
         # **CUÁNTO DE LO QUE VE, PUEDE RESOLVER** — y qué pared conviene romper
         # primero, ordenada por cuántas veces aparece. Es la medición que le
         # faltaba al agente sobre sí mismo: sin ella, la única forma de saber

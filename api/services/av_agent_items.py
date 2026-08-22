@@ -95,6 +95,19 @@ def clave_de_problema(sujeto: str, regla: str, origen: str = "") -> str:
     return ciclo.identidad(sujeto, causa_canonica(regla), origen)
 
 
+def _inicio_hoy_art() -> datetime:
+    """El comienzo del día ART, en UTC — la frontera del snooze de IGNORAR.
+
+    El día del user es el día ART, no el UTC: ignorar algo a las 22:00 de un
+    viernes tiene que aguantar hasta el sábado ARGENTINO, no hasta la 21:00
+    (que es la medianoche UTC).
+    """
+    from zoneinfo import ZoneInfo
+
+    hoy = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
+    return hoy.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+
+
 def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
         titulo: str = "", afecta: str = "", severidad: str = "media",
         datos: dict | None = None) -> dict:
@@ -131,8 +144,18 @@ def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
                 # El estado: si estaba resuelto y volvió a aparecer, VOLVIÓ.
                 # Se resuelve en SQL —y no leyendo primero— para que dos
                 # detectores corriendo a la vez no se pisen.
+                # ⚠️ Y si estaba IGNORADO, el snooze VENCE SOLO (§0.cv): ignorar
+                # es «sacalo de la vista por hoy», así que la primera vez que un
+                # detector lo re-ve en un día ART POSTERIOR reabre como `nuevo`
+                # (no `volvio`: nadie lo dio por arreglado). La frontera es
+                # `ultimo_at < inicio de hoy` — dentro del mismo día el snooze
+                # aguanta aunque el centinela pase cada 5 minutos.
                 "  estado = CASE WHEN agente.av_agent_items.estado = %s "
-                "                THEN %s ELSE agente.av_agent_items.estado END, "
+                "                THEN %s "
+                "                WHEN agente.av_agent_items.estado = %s "
+                "                 AND agente.av_agent_items.ultimo_at < %s "
+                "                THEN %s "
+                "                ELSE agente.av_agent_items.estado END, "
                 "  vuelto_at = CASE WHEN agente.av_agent_items.estado = %s "
                 "                   THEN %s ELSE agente.av_agent_items.vuelto_at END, "
                 # Y si volvió, deja de estar resuelto: si no, el seguimiento
@@ -150,6 +173,7 @@ def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
                  titulo, afecta, json.dumps(datos or {}, ensure_ascii=False,
                                             default=str), ahora, ahora,
                  ciclo.RESUELTO, ciclo.VOLVIO,
+                 ciclo.IGNORADO, _inicio_hoy_art(), ciclo.NUEVO,
                  ciclo.RESUELTO, ahora,
                  ciclo.RESUELTO))
             nacio, estado, veces, abierto = cur.fetchone()
@@ -306,6 +330,40 @@ def _tipos_abiertos(origen: str) -> set[str]:
 # Se BORRA en vez de dejarse "por las dudas" (REGLA #5): un puente a ninguna
 # parte que sigue exportado es una función que alguien va a usar creyendo que
 # hace falta, y ahí vuelven los dos objetos por otro camino.
+
+
+def resolver_sujeto(sujeto: str, *, motivo: str = "", por: str = "") -> dict:
+    """**El diagnóstico PROBÓ que está bien → los objetos del sujeto se cierran
+    solos** (§0.cv). Nace del caso GD46: el diagnóstico decía «con los datos de
+    hoy no se detecta nada roto» y la fila seguía en LA LISTA hasta la próxima
+    corrida — el user: *«tiene que figurar SOLAMENTE lo que no está
+    solucionado; para algo está el HISTORIAL»*. Si las lentes re-corrieron la
+    detección y dio limpia, es el MISMO criterio con el que el detector cierra:
+    no hay razón para esperar a la noche.
+
+    Cierra los abiertos (nuevo/visto/en_curso/volvio) del sujeto; NO toca los
+    ignorados (snooze aparte) ni los ya resueltos. Si el diagnóstico se
+    equivocó, la red de siempre lo agarra: el detector lo re-ve y es `volvio`.
+    """
+    sujeto = (sujeto or "").strip()
+    if not sujeto:
+        return {"ok": False, "error": "sin sujeto"}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE agente.av_agent_items SET estado = %s, "
+                "  resuelto_at = now(), "
+                "  datos = datos || %s::jsonb "
+                " WHERE lower(sujeto) = lower(%s) "
+                "   AND estado NOT IN (%s, %s)",
+                (ciclo.RESUELTO,
+                 json.dumps({"cerrado_por": motivo or "diagnostico",
+                             **({"por": por} if por else {})}),
+                 sujeto, ciclo.RESUELTO, ciclo.IGNORADO))
+            return {"ok": True, "movidos": cur.rowcount or 0}
+    except Exception as e:
+        logger.warning("av_agent_items: no pude resolver %s (%s)", sujeto, e)
+        return {"ok": False, "error": str(e)[:200]}
 
 
 def ignorar_sujeto(sujeto: str, *, por: str = "",

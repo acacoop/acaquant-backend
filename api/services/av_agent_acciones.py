@@ -46,6 +46,9 @@ _COLS = ["id", "ts", "accion", "destino", "objetivo", "detalle", "antes",
 DESTINOS = {
     "ignorar_ticker": "agente.av_agent_ignorados",
     "designorar": "agente.av_agent_ignorados",
+    # El snooze del día (§0.cv): NO toca la tabla durable — mueve los objetos
+    # del sujeto a `ignorado`, y el vencimiento lo aplica `ver()` al re-verlos.
+    "ignorar_hoy": "agente.av_agent_items",
     "crear_curva": "mercado.curvas_catalogo",
     "alta_bono": "mercado.curvas",
     # El nombre en PLURAL es el que usa `aplicar_flujos` — acá figuraba en

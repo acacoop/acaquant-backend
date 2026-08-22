@@ -1269,7 +1269,13 @@ def _desenlace(chequeos: list[dict]) -> dict:
     # solo significa algo si se respeta la secuencia en la que se corrieron.
     fallan = [c for c in pruebas if c["estado"] != OK]
     traba = fallan[0] if fallan else None
-    sano = next((c for c in pruebas if c.get("nada_que_hacer")), None)
+    # ⚠️ `nada_que_hacer` se busca en TODAS las capas, no solo en `prueba`
+    # (§0.cv): la conclusión de las ocho lentes («causa: sano») viaja en capa
+    # `veredicto`, y mirarla solo entre las pruebas era por qué GD46 decía
+    # «no se detecta nada roto» doce renglones abajo de un «LEÉ LA TRABA» —
+    # el cotejo con 1816 quedaba en ámbar por una diferencia de DEFINICIÓN
+    # (paridad clean vs precio operado) y le ganaba al veredicto sano.
+    sano = next((c for c in chequeos if c.get("nada_que_hacer")), None)
 
     if sano is not None:
         # Gana sobre todo lo demás: si se PROBÓ que el bono está bien, cualquier
@@ -1295,6 +1301,28 @@ def _desenlace(chequeos: list[dict]) -> dict:
     return {"clase": "mirar", "traba": traba["clave"],
             "titulo": f"No cierra del todo: {traba['titulo']}",
             "que_hacer": "Nada probado mal, pero conviene mirarlo antes de aplicar."}
+
+
+def _cerrar_si_viejo(ticker: str, out: dict) -> None:
+    """**Un desenlace «viejo» CIERRA el hallazgo en el acto** (§0.cv).
+
+    El caso que lo parió es GD46: el diagnóstico probaba «con los datos de hoy
+    no se detecta nada roto» y la fila seguía en LA LISTA hasta la corrida
+    siguiente — el user: *«dice arreglado hoy pero sigue figurando… acá tiene
+    que figurar SOLAMENTE lo que no está solucionado»*. Las lentes re-corren la
+    MISMA detección que el detector nocturno: si dan limpio, esperar a la noche
+    para cerrar es burocracia. Best-effort a propósito — que el cierre falle no
+    puede tumbar el diagnóstico que lo produjo.
+    """
+    try:
+        if ((out.get("veredicto") or {}).get("desenlace") or {}).get("clase") != "viejo":
+            return
+        from api.services import av_agent_items
+        r = av_agent_items.resolver_sujeto(ticker, motivo="diagnostico_probo_sano")
+        out["cerrado_por_viejo"] = int(r.get("movidos") or 0)
+    except Exception:
+        logger.warning("av_agent: no pude cerrar %s tras el desenlace viejo",
+                       ticker, exc_info=True)
 
 
 def _veredicto(chequeos: list[dict]) -> dict:
@@ -1977,6 +2005,7 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None,
         ficha_curvas=out.get("ficha_curvas") or {},
         duration=out.get("duration"), cupones=cupones)
     out["veredicto"] = _veredicto(out["chequeos"])
+    _cerrar_si_viejo(tk, out)
     # QUÉ cuenta se hizo y con qué números. Una tasa sin su memoria de cálculo no
     # se puede auditar: solo se puede creer o no creer.
     out["calculo"] = _memoria_de_calculo(
@@ -2427,6 +2456,7 @@ def simular_flujos(ticker: str, *, cer_emision: float | None = None) -> dict:
         ticker=tk, doc=doc_sim, rama=rama, conv=conv, vencimiento=vencimiento,
         out=out, cupones=cupones, futuros=len(futuros))
     out["veredicto"] = _veredicto(out["chequeos"])
+    _cerrar_si_viejo(tk, out)
     # `_memoria_de_calculo` espera el objeto de ejes que devuelve `curvas_ejes`.
     # Acá los ejes vienen del DOC (los cargó la mesa), así que se arma el mismo
     # shape en vez de reescribir el cuadro: el que lo lee tiene que ver lo mismo
@@ -3211,7 +3241,10 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                     + (" **Lo hace el agente**, y se verifica antes de escribir."
                        if meta.get("agente") and dx.get("parche") else
                        " El agente lo VE pero no lo toca."),
-                    tabla="la lente que falla más aguas arriba", capa=VEREDICTO))
+                    tabla="la lente que falla más aguas arriba", capa=VEREDICTO,
+                    # «sano» ES la prueba de que no hay nada que hacer: sin este
+                    # flag el desenlace nunca llegaba a «viejo» por esta vía.
+                    nada_que_hacer=(dx["causa"] == "sano")))
 
     # LA TRAZA: lo que el agente dijo, guardado entero. Best-effort — si la
     # escritura falla el diagnóstico sigue: un registro que puede tumbar la
@@ -3355,6 +3388,7 @@ def _arreglo_local(*, doc: dict, tk: str, simbolo: str, rama: str, dx: dict,
         p["n"] = i
     out["chequeos"] = ps
     out["veredicto"] = _veredicto(ps)
+    _cerrar_si_viejo(tk, out)
     return out
 
 
@@ -3509,6 +3543,7 @@ def simular_arreglo(ticker: str, *, cer_emision: float | None = None) -> dict:
     out["chequeos"] = _chequeos_arreglo(ticker=tk, doc=doc, out=out, rama=rama,
                                         conv=conv, cupones_1816=cupones)
     out["veredicto"] = _veredicto(out["chequeos"])
+    _cerrar_si_viejo(tk, out)
     return out
 
 

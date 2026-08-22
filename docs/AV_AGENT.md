@@ -6497,6 +6497,75 @@ muestra menos, los datos están partidos, nada es accionable»*):
   saber cuándo llega el próximo control); lo que no puede es truncar sin
   dejar ver.
 
+### 0.cv IGNORAR es un SNOOZE del día, «viejo» cierra solo, y el diagnóstico da UNA respuesta (2026-08-22)
+
+El round de correcciones más grande de la semana, todo del mismo mensaje del
+user. Cinco decisiones que quedan:
+
+**1. El modelo mental canónico de las pantallas.** AHORA es el **noticiero**:
+el primer lugar donde aparece lo que se detectó, sin accionables. ENCONTRÓ →
+LA LISTA es el **banco de trabajo**: el mismo aviso pero con el toolkit, y
+SOLO para lo que tiene algo que hacer de nuestro lado. Lo que no se arregla
+desde acá (AUNESA caído, un motor ajeno) NO ensucia LA LISTA: es un objeto con
+estado en VIGILANCIA que se cierra solo cuando el monitor deja de verlo — y su
+aparición/cierre se cuenta en AHORA. Esto YA era así (verificado: el centinela
+escribe en `av_agent_centinela`, no en la foto de la relevada) y queda escrito
+como contrato.
+
+**2. IGNORAR = «sacalo de la lista por HOY», no una blacklist.** El user:
+*«si lo ignoro quiero que salga de ENCONTRAR — NO que entre en una blacklist
+de cosas que nunca más me van a interesar. Si el agente funciona bien, mañana
+lo vuelve a detectar y TIENE que volver a aparecer»*. El botón de un hallazgo
+ya NO escribe `agente.av_agent_ignorados`: mueve los objetos del sujeto a
+`ignorado` (acción `ignorar_hoy`) y **el snooze vence solo** —
+`av_agent_items.ver()` reabre como `nuevo` (no `volvio`: nadie lo dio por
+arreglado) la primera vez que un detector lo re-ve en un día ART posterior.
+La vista lo marca (`ignorado`, contador `ignorados_hoy`) y la pantalla lo
+esconde contándolo — nunca en silencio. **La tabla durable queda SOLO para la
+respuesta «no nos interesa» de las preguntas de alta**: ese sí es un juicio
+sobre el PAPEL, sigue siendo reversible en DECIDIDO, y son dos gestos
+distintos a propósito. Congelado por `test_av_agent_ignorar_hoy`.
+⚠️ Lo ignorado ANTES de este cambio quedó en la blacklist vieja: se ve y se
+deshace en DECIDIDO → NO TE INTERESAN.
+
+**3. El voto «¿te sirve verlo?» se eliminó de la UI.** El user: *«no le
+encuentro el sentido — todo me sirve ver, el agente ya muestra en función de
+lo que le pido»*. Tenía razón: en una observación no hay diagnóstico que
+juzgar y el voto de utilidad generaba métricas que no miden nada. Para sacar
+una fila está IGNORAR (por hoy); los votos viejos siguen valiendo como dato.
+**El «¿acertó el diagnóstico?» se queda**: ese sí entrena la compuerta.
+
+**4. Un desenlace «viejo» CIERRA el hallazgo en el acto** (caso GD46: «dice
+arreglado hoy pero sigue figurando»). Dos fixes encadenados: (a) la conclusión
+de las ocho lentes («causa: sano») viaja en capa `veredicto` y `_desenlace`
+solo buscaba `nada_que_hacer` entre las `prueba` — por eso un cotejo ámbar por
+diferencia de DEFINICIÓN (paridad clean vs precio operado) le ganaba al «no se
+detecta nada roto» y el título decía «LEÉ LA TRABA» sobre un bono sano; ahora
+el flag se busca en todas las capas y viejo gana. (b) `_cerrar_si_viejo` corre
+tras CADA `out["veredicto"]` (4 puntos, contados por test): marca los objetos
+del sujeto `resuelto` (motivo `diagnostico_probo_sano`) — las lentes re-corren
+la MISMA detección que el detector nocturno, así que esperar a la noche para
+cerrar era burocracia. El front esconde ARREGLAR y dice «quedó VIEJO — se
+cerró solo». Si el diagnóstico se equivocó, el detector lo re-ve → VOLVIÓ.
+
+**5. El diagnóstico da UNA respuesta; el razonamiento es del agente.** El
+user: *«¿para qué LOS PASOS, CONTEXTO, PARA APRENDER? Eso es interno del
+agente. Yo quiero: ¿está ok? → arreglar; ¿no está ok? → el motivo exacto»*.
+La pantalla queda: ORDEN imperativa → la traba UNA sola vez (el título del
+desenlace ya no se repite arriba del bloque que dice lo mismo) → y TODO lo
+demás (pasos, contexto, lecciones, contadores, cómo se calculó) detrás de
+«▸ detalle interno del agente», cerrado por default. No hizo falta el LLM que
+el user ofreció: los textos ya eran prosa razonable — el problema era la
+repetición y la jerarquía, que se arreglan en la estructura y no gastan un
+token por diagnóstico. Si con esto todavía no alcanza, el paso siguiente es
+una redacción LLM de la conclusión (tarea nueva → pasa por la ley de §0.o).
+
+**Y DECIDIDO se rediseñó** (§0.cr aplicado acá): una sola columna en el orden
+en que uno pregunta — CONTESTADAS SIN EJECUTAR TODAVÍA (dice explícito que se
+mueve sola cuando el agente gane la habilidad), NO TE INTERESAN (lo único con
+botón: deshacer), REGISTRO DE RESPUESTAS (ex «HISTORIAL», que era un historial
+adentro del historial), VOTASTE. Cada bloque dice qué es y si se actualiza.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

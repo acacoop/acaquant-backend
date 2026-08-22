@@ -5883,11 +5883,40 @@ acá a ciegas). Tres cosas quedaron hechas:
      en los paquetes clave y dice en qué mundo cae `app.routes`. Correrlo en
      el Droplet contesta qué versión manda. De paso ya midió algo acá:
      `psycopg` está **sin pinear** en requirements.
-  3. **La decisión queda ABIERTA y es del user** (pendiente, se pide una vez —
-     REGLA #6): alinear el pin a la versión real del Droplet (CI reproduce los
-     envoltorios y el mapa cierra solo), o enseñarle a `superficie` el mundo
-     plano. Lo primero es una línea; lo segundo es código nuevo en la pieza de
-     seguridad. Recomendación: lo primero, después de correr el diag.
+  3. ~~La decisión queda abierta~~ → **RESUELTA CON LA MEDICIÓN** (mismo día,
+     abajo).
+
+#### La medición REFUTÓ la hipótesis: el Droplet es PLANO
+
+`diag_entorno` corrido en prod: **FastAPI 0.136.1 == pin, `app.routes`
+PLANO.** O sea que prod, CI y el sandbox son el MISMO mundo — el entorno
+anómalo con envoltorios es la **máquina local de Windows** (donde se generó el
+mapa de 31 routers y donde se midió el 37/541 de §0.s). La hipótesis «prod
+tiene los envoltorios» era razonable y estaba equivocada, y decidir el pin
+sobre ella habría alineado CI contra el entorno equivocado. REGLA #2: la
+medición antes que la decisión.
+
+Con eso el arreglo cambió de forma:
+
+- **`superficie` aprendió el mundo plano** (`_bajar_plano`): la atribución de
+  routers se reconstruye por **IDENTIDAD DE ENDPOINT** — la función declarada
+  es el mismo objeto en la ruta copiada al tope y en el router que la declaró
+  (REGLA #9A: identidad por ficha, no por string) — y la etiqueta sale de
+  restarle al path completo el tramo declarado. Verificado: reproduce los
+  **31 routers exactos** de la tabla. Los gates ya eran world-independientes
+  (FastAPI plano fusiona las dependencies del include en cada ruta, así que
+  `_gates_propios` ve la misma unión que el otro mundo arma a mano).
+- **El mapa PLANO pasa a ser el canónico** (regenerado: 4 filas cambiaron solo
+  en el conteo de «gates extra» — cada mundo expande sub-dependencias con
+  distinta profundidad). CI y prod lo reproducen; el `--check` de CI queda
+  verde.
+- **`psycopg` quedó pineado a 3.3.4** — la versión medida en el Droplet; era
+  el único drift real que mostró el diag. `psycopg-pool` entra a la lista del
+  diag para medirse en la próxima corrida antes de pinearse (REGLA #2).
+- **Pendiente para el user, una sola vez (REGLA #6)**: reinstalar el venv
+  LOCAL de Windows desde `requirements.txt`, así el mapa regenerado ahí vuelve
+  a coincidir con el canónico. Mientras tanto, regenerarlo desde la máquina
+  local va a mover esas 4 filas — no está roto, es el mundo viejo.
 
 ### 0.cj EL FRONT TAMBIÉN TIENE CAPA: la red se toca desde UN lugar (2026-08-22)
 

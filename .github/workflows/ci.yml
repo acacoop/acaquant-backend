@@ -53,11 +53,8 @@ jobs:
       # se generan desde la app montada. Si alguien agrega un router y no
       # regenera, el doc miente → esto lo frena. Bloqueante a propósito:
       # el arreglo es una línea (`python -m scripts.gen_mapa_app`).
-      # ⚠️ PENDIENTE (2026-08-22): este check es dependiente del ENTORNO — la
-      # FastAPI pineada (0.136.x) aplana `app.routes` y el mapa se genera
-      # distinto que en el entorno real (que tiene los envoltorios
-      # `_IncludedRouter`). Hasta alinear el pin con prod (diag:
-      # `python -m scripts.diag_entorno` en el Droplet) este paso puede fallar
-      # en CI aunque el doc esté bien generado. Ver AV_AGENT.md §0.ci.
+      # (2026-08-22: `superficie` cubre los dos mundos de FastAPI — con
+      # envoltorios y plano — así que este check da lo mismo acá, en el
+      # Droplet y en el sandbox. Ver AV_AGENT.md §0.ci.)
       - name: Mapa de la app sincronizado
         run: python -m scripts.gen_mapa_app --check

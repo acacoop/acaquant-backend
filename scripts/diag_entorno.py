@@ -21,7 +21,8 @@ import re
 import sys
 from pathlib import Path
 
-PAQUETES = ["fastapi", "starlette", "pydantic", "psycopg", "uvicorn", "httpx"]
+PAQUETES = ["fastapi", "starlette", "pydantic", "psycopg", "psycopg-pool",
+            "uvicorn", "httpx"]
 
 
 def _pineadas() -> dict[str, str]:

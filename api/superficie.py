@@ -86,11 +86,81 @@ def rutas(app=None) -> list[Ruta]:
 
     Es la función que las tres herramientas tienen que usar. Si alguien vuelve a
     escribir `for r in app.routes` para auditar algo, va a ver el 7%.
+
+    ⚠️ **HAY DOS MUNDOS y esta función cubre los dos** (2026-08-22, §0.ci del
+    doc). Si `app.routes` trae envoltorios `_IncludedRouter` (FastAPI lazy), se
+    baja la cadena de includes; si viene PLANO —que es lo que hace la 0.136.x
+    pineada, medido en el Droplet, en CI y en el sandbox— las rutas ya están
+    todas al tope con sus dependencies fusionadas, y lo único que se pierde es
+    QUÉ ROUTER declaró cada una: eso se reconstruye por IDENTIDAD DE ENDPOINT
+    (`_bajar_plano`). El resultado tiene que ser EL MISMO en los dos mundos, o
+    `gen_mapa_app --check` pasa o falla según en qué máquina se corra — que es
+    exactamente lo que pasó.
     """
     if app is None:
         from api.main import app as _app
         app = _app
-    return sorted(_bajar(app.routes), key=lambda r: (r.path, sorted(r.metodos)))
+    plano = not any(type(r).__name__ == "_IncludedRouter" for r in app.routes)
+    filas = _bajar_plano(app.routes) if plano else _bajar(app.routes)
+    return sorted(filas, key=lambda r: (r.path, sorted(r.metodos)))
+
+
+def _bajar_plano(routes) -> list[Ruta]:
+    """El mundo PLANO: FastAPI ya copió cada ruta al tope, con el prefijo
+    aplicado y las dependencies del include fusionadas en la ruta (por eso
+    `_gates_propios` ve la MISMA unión que el otro mundo arma a mano).
+
+    Lo único que la copia no trae es el router que la declaró. Se reconstruye
+    por **identidad de endpoint** —la función es el mismo objeto en la copia y
+    en el router original (REGLA #9A: identidad por ficha, no por string)— y la
+    etiqueta sale de restarle al path completo el tramo que declaró el router:
+    lo que queda es exactamente `prefijos de los padres + prefijo propio`, el
+    mismo string que arma `_bajar_router` en el otro mundo.
+    """
+    idx = _indice_declaraciones()
+    out: list[Ruta] = []
+    for r in routes:
+        if not isinstance(r, APIRoute):
+            continue
+        etiqueta = "(raíz)"
+        m = idx.get(r.endpoint)
+        if m is not None:
+            q, p_own = m                      # path declarado, prefijo propio
+            sufijo = q[len(p_own):]           # lo declarado SIN el prefijo
+            if not sufijo or r.path.endswith(sufijo):
+                etiqueta = r.path[: len(r.path) - len(sufijo)] or "(raíz)"
+        out.append(_ruta(r, "", (), etiqueta))
+    return [x for x in out if x.metodos]
+
+
+def _indice_declaraciones() -> dict:
+    """endpoint → (path declarado, prefijo propio) del router que lo DECLARÓ.
+
+    Los routers viven como objetos de módulo bajo `api.*` y ya están importados
+    (api.main los montó todos). Un endpoint aparece también en las COPIAS que
+    `include_router` mete en los padres — se queda la de path más CORTO, que es
+    la declaración original (cada include le suma prefijo, nunca se lo saca).
+    """
+    import sys
+
+    from fastapi import APIRouter
+
+    idx: dict = {}
+    vistos: set[int] = set()
+    for nombre, mod in list(sys.modules.items()):
+        if not nombre.startswith("api.") or mod is None:
+            continue
+        for obj in vars(mod).values():
+            if not isinstance(obj, APIRouter) or id(obj) in vistos:
+                continue
+            vistos.add(id(obj))
+            for ruta in obj.routes:
+                if not isinstance(ruta, APIRoute):
+                    continue
+                previa = idx.get(ruta.endpoint)
+                if previa is None or len(ruta.path) < len(previa[0]):
+                    idx[ruta.endpoint] = (ruta.path, obj.prefix or "")
+    return idx
 
 
 def _bajar(routes, prefijo: str = "", heredados: tuple[str, ...] = (),

@@ -6345,6 +6345,40 @@ La lección que se repite y ya tiene nombre: **las dos pantallas del mismo
 hecho tienen que leer EL MISMO predicado** — es REGLA #9 y es la tercera vez
 esta semana (voto, símbolo, pata).
 
+### 0.cr CADA SUB-TAB DECLARA SU CICLO — y QUÉ PIDE ALGO se vuelve el puente (2026-08-22)
+
+> *«No entiendo cómo funciona, qué tiene que pasar acá, qué esperar de esto,
+> cómo hacer para que salga algo. QUÉ PIDE ALGO es la peor: un número
+> altísimo, no se puede hacer nada y figuran unas pares nada más. Hay que
+> darle un sentido a este modal — no hay conexiones entre las cosas.»* — user
+
+El diagnóstico es justo: cada sub-tab mostraba DATOS sin declarar su CICLO
+(qué la llena, qué la vacía, qué hace uno ahí). El sentido que queda, escrito
+en cada pantalla y congelado acá:
+
+    LA LISTA        el BANCO DE TRABAJO: acá están los botones. Se vacía
+                    arreglando, votando o descartando.
+    QUÉ PIDE ALGO   la PRIORIZACIÓN sobre la memoria completa. No tiene
+                    botones A PROPÓSITO: **resume por CAUSA y cada causa es
+                    un CLIC que te deja en LA LISTA filtrada** (y cada sujeto,
+                    buscado). Se vacía sola cuando los detectores dejan de ver
+                    las filas. Lo truncado se dice («las 25 más urgentes de
+                    54 — el resumen por causa sí está completo»).
+    ¿AGUANTAN?      un RELOJ, no una lista de trabajo: nada que apretar. El
+                    número del menú son CAUSAS en prueba (no 213 casos — el
+                    lote de 133 patas es UN arreglo con un solo reloj); los
+                    casos van al pie. Sale solo: 30 días hábiles sin volver →
+                    voto «verificado» y desaparece; si vuelve → AHORA.
+    VIGILANCIA      el backlog del monitor en vivo. Se cierra solo cuando el
+                    monitor deja de verlo en una pasada que evaluó su tipo;
+                    «visto» solo lo saca de "sin ver".
+
+Y para poder verlo sin pantalla: **`scripts/diag_modal`** imprime las tres
+sub-tabs (QUÉ PIDE ALGO con sus grupos, ¿AGUANTAN? por causa, VIGILANCIA por
+regla) desde las MISMAS funciones que dibuja el navegador, cada una con su
+«cómo sale algo de acá» — la familia queda: `diag_ahora` (AHORA) ·
+`diag_encontro` (el censo de LA LISTA) · `diag_modal` (las otras tres).
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

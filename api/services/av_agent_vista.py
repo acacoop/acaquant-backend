@@ -1056,16 +1056,45 @@ def _seguimiento_corto(limite: int = 12) -> dict:
 
 
 def _que_importa_corto(limite: int = 25) -> dict:
-    """Las bandas + las primeras filas. **Nunca levanta**: si la memoria no se
-    puede leer, la pantalla tiene que dibujarse igual con la foto de siempre."""
+    """Las bandas + los GRUPOS por causa + las primeras filas. **Nunca
+    levanta**: si la memoria no se puede leer, la pantalla se dibuja igual.
+
+    ⚠️ **EL RESUMEN ES POR CAUSA, no fila por fila** (user, 2026-08-22: *«QUÉ
+    PIDE ALGO es la peor de todas: un número altísimo, no se puede hacer nada
+    y encima figuran unas pares nada más»*). 54 filas donde 30 son la misma
+    causa no son 54 decisiones: son un puñado de causas con su tamaño. El
+    grupo además es el PUENTE al banco de trabajo — la pantalla lo hace
+    clickeable y te deja en LA LISTA filtrada por esa causa, que es donde
+    están los botones. Y lo truncado SE DICE (`filas` va topeado; el total
+    viaja en `piden_algo`/`abiertos`): mostrar 25 de 54 sin decirlo es
+    truncar en silencio.
+    """
     try:
         from api.services import av_agent_items
         r = av_agent_items.que_importa()
     except Exception as e:
         logger.warning("av_agent: no pude leer qué importa (%s)", e)
         return {"ok": False, "abiertos": 0, "piden_algo": 0,
-                "por_banda": {}, "filas": [], "sin_mirar": []}
+                "por_banda": {}, "filas": [], "sin_mirar": [], "por_causa": []}
+    grupos: dict[str, dict] = {}
+    orden_banda = {b: i for i, b in enumerate(ciclo.BANDAS)}
+    for f in r.get("filas") or []:
+        g = grupos.setdefault(f.get("regla") or "?", {
+            "regla": f.get("regla") or "?", "tipo": f.get("tipo") or "",
+            "n": 0, "piden": 0, "peor_banda": "nuevo", "dias_max": 0.0,
+            "sujetos": []})
+        g["n"] += 1
+        if f.get("banda") in ("volvio", "estancado", "arrastra"):
+            g["piden"] += 1
+        if orden_banda.get(f.get("banda"), 9) < orden_banda.get(g["peor_banda"], 9):
+            g["peor_banda"] = f.get("banda")
+        g["dias_max"] = max(g["dias_max"], float(f.get("dias_abierto") or 0))
+        if len(g["sujetos"]) < 4:
+            g["sujetos"].append(f.get("sujeto") or "")
+    por_causa = sorted(grupos.values(),
+                       key=lambda g: (-g["piden"], -g["n"]))
     return {**r, "filas": r.get("filas", [])[:limite],
+            "por_causa": por_causa[:40],
             "sin_mirar": r.get("sin_mirar", [])[:10]}
 
 

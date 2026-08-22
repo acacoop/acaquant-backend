@@ -6379,6 +6379,34 @@ regla) desde las MISMAS funciones que dibuja el navegador, cada una con su
 «cómo sale algo de acá» — la familia queda: `diag_ahora` (AHORA) ·
 `diag_encontro` (el censo de LA LISTA) · `diag_modal` (las otras tres).
 
+### 0.cs EL DIAGNÓSTICO DA UNA ORDEN, no un informe (2026-08-22)
+
+> *«No entiendo si tocar ARREGLAR o qué. Es demasiada información — eso es
+> para que el modelo aprenda; si mostrás todo visualmente no se termina de
+> entender. Pensá la solución en general.»* — user, con dos diagnósticos
+> completos pegados
+
+El backend ya calculaba el desenlace (§ anterior: roto · no_se · viejo ·
+mirar · listo) — lo que faltaba era HABLARLE a la persona. Cuatro cambios de
+presentación, generales para todos los diagnósticos:
+
+- **La ORDEN va primera, en imperativo**, derivada del desenlace que ya viaja:
+  `listo → «TOCÁ ARREGLAR»` · `viejo → «NO HAGAS NADA — cerralo o ignoralo»` ·
+  `roto → «NO APRIETES ARREGLAR — esto es el problema»` · `no_se → «TODAVÍA
+  NADA — reintentá»` · `mirar → «LEÉ LA TRABA — después decidí»`. El análisis
+  es para entrenar al agente; la orden es para la persona.
+- **La prosa larga se ACOTA a tres renglones** con «ver todo» (`Prosa`), y la
+  conclusión **no se muestra si repite la traba** — en GD46 el mismo párrafo
+  de 1816 salía dos veces seguidas.
+- **¿ACERTÓ? se explica** («¿acertó el diagnóstico? — entrena al agente, no
+  toca el bono») y **el voto duplicado SE DICE**: el backend deduplica el
+  mismo juicio sobre el mismo caso (por eso el 17/17 no se movía — esos casos
+  ya estaban votados) pero lo devolvía en silencio y parecía un voto perdido.
+  Ahora la pantalla contesta «ya lo habías votado igual — el contador no suma
+  de nuevo». El contador solo se mueve con casos nuevos o correcciones.
+- **El contador de HISTORIAL suma los votos** (mostraba VOTASTE adentro y el
+  número afuera no los contaba — quedaba clavado en 128).
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

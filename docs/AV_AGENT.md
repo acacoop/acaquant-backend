@@ -5479,6 +5479,54 @@ se traban por falta de un insumo real (1816, un precio, un CER), no por un bug.
 `arreglo` no es un botón masivo — es un botón por caso con una cola larga de
 casos que todavía no tienen con qué resolverse.
 
+#### El hallazgo grande: el DETECTOR juzga por DEFECTO y el ARREGLO por SÍNTOMA
+
+Con la salida ya legible, el desglose de los 38 trabados cuenta algo que ninguna
+pantalla decía. El gate del arreglo es, literal:
+
+```python
+OK if (en_rango and estaba_mal) else BLOQUEA
+```
+
+  · `estaba_mal` → la paridad de HOY estaba fuera de rango;
+  · `en_rango`   → después del arreglo vuelve adentro.
+
+O sea que **el arreglo solo se habilita si el SÍNTOMA es visible en la métrica**.
+Y `moneda_flujo_contradice` fue extendido, a propósito, para cazar **el DEFECTO
+sin el síntoma** — está escrito en su propio comentario: *«30 de 140 bonos tienen
+`moneda_flujo` contradiciendo a sus ejes y solo 8 habían disparado algún
+hallazgo; los otros 22 están igual de mal valuados y no aparecían en ninguna
+pantalla»*.
+
+**Las dos mitades se construyeron con criterios opuestos y no pueden ponerse de
+acuerdo nunca para esta clase.** Medido en el dry-run de los 42:
+
+| traba | n | qué significa |
+|---|---|---|
+| «lo de hoy YA estaba en rango» | 9 | el defecto es real y la métrica no lo puede juzgar |
+| paridad `— → —` (sin valor) | 12 | ni siquiera hay métrica con qué juzgar |
+| 1816 no tiene el bono | 9 | `sin_ejes` **no** se puede resolver desde 1816 |
+| nuestra paridad vs la de 1816 | 3+2 | discrepancia real, hay que mirarla |
+| falta CER de emisión | 2 | insumo que no tenemos |
+| sin precio | 1 | nada con qué cotejar |
+
+Es REGLA #9 en otro nivel: no son dos copias de un dato, son **dos definiciones
+de «está mejor»**. Y el costo es que 21 defectos de integridad reales quedan sin
+puerta, con un botón que los mira y siempre dice que no.
+
+**No se cambió el gate.** Para un defecto de auto-contradicción «mejor» no se
+mide con la paridad, se mide con *«la contradicción desapareció»* — y eso es un
+segundo criterio de aceptación que escribe valuaciones. Es una decisión de
+diseño, no una derivación, y va con el user a la vista.
+
+#### Y una de performance, de yapa
+
+`simular_arreglo` levanta un `MotorCurvas` **por bono**: 42 bonos recargaron
+«Días hábiles» ~60 veces y el CER ~10, tardaron **4,5 minutos** y taparon la
+salida entera con su propio log. El log se calla en el lote (sube el nivel de
+esos loggers, sin tocar el motor: es ruido solo en ESTE contexto). La recarga
+por bono queda anotada como deuda.
+
 #### La regla que queda
 
 **Una lista de trabajo tiene que decir CON QUÉ se hace cada cosa, no solo que se

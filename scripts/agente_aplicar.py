@@ -134,8 +134,26 @@ def _casos_del_modo(modo: str) -> list[str]:
     return vistos
 
 
+def _callar_motores() -> None:
+    """Bajar el ruido de los motores durante el lote.
+
+    ⚠️ `simular_arreglo` levanta un `MotorCurvas` por bono, y cada uno anuncia
+    «Días hábiles cargados: 243» y «TC dolar-linked». Con 42 bonos son ~60
+    líneas que **tapan la salida entera** — el dry-run existe para poder leerlo
+    y quedaba sepultado bajo su propio log.
+
+    Se sube el nivel de esos loggers, no se toca el código del motor: es ruido
+    solo EN ESTE CONTEXTO. Corriendo de verdad, esas líneas son útiles.
+    """
+    import logging
+    for nombre in ("MotorCurvas", "core.mercado_1816"):
+        logging.getLogger(nombre).setLevel(logging.WARNING)
+
+
 def _correr_modo(modo: str, *, aplicar: bool, tope: int) -> None:
     from api.services import av_agent_alta
+
+    _callar_motores()
 
     print(f"\n{'=' * 74}\nmodo «{modo}»  —  arreglar el INSUMO de un bono ya cargado"
           f"\n{'=' * 74}")

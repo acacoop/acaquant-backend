@@ -153,6 +153,27 @@ def _chk_assets_sin_cartera() -> list[dict]:
             for r in rows if r.get("unidad")]
 
 
+def _chk_unidades_gemelas() -> list[dict]:
+    """Assets cuya `unidad` colisiona con otra al sacarle los espacios de los
+    bordes: son LA MISMA cosa dos veces (REGLA #9). Es el caso OTC del
+    2026-08-22 — una escritura con la identidad stripeada + el upsert de
+    `set_campos` fabricó una fila FANTASMA trimmeada, y tres pantallas quedaron
+    coherentes entre sí contando mentiras (verificado ✔, control cantando,
+    propuesta infinita). El código ya no puede repetirlo (la identidad no se
+    stripea y el agente escribe con `crear=False`); este control existe para
+    que si entra por CUALQUIER otra vía (un import, un tipeo, Aunesa), dure
+    horas y no días. Se repara con `scripts/diag_unidades_fantasma`."""
+    rows = _q(
+        "SELECT btrim(unidad) AS base, count(*) AS n "
+        "FROM portafolio.assets GROUP BY btrim(unidad) HAVING count(*) > 1 "
+        "ORDER BY base")
+    return [{"key": r["base"],
+             "detalle": (f"{r['base']}: {r['n']} filas que son la misma unidad "
+                         "con distintos espacios — reparar con "
+                         "scripts/diag_unidades_fantasma")}
+            for r in rows if r.get("base")]
+
+
 def _chk_fci_incompletos() -> list[dict]:
     """Assets con cartera FCI sin `ticker` y/o sin `emisor`: salen SIN NOMBRE en el
     detalle de /aum → FCI y, si comparten "vacío", se fusionan en un renglón mudo.
@@ -593,6 +614,8 @@ CONTROLES: list[Control] = [
     Control("forwards_faltantes", "Bonos ausentes de forwards", True, _chk_forwards_faltantes),
     Control("rf_sin_tasa", "Renta fija cotizando sin TEA/TNA", True, _chk_rf_sin_tasa),
     Control("assets_sin_cartera", "Assets sin cartera", True, _chk_assets_sin_cartera),
+    Control("unidades_gemelas", "Assets duplicados por espacios en la unidad", True,
+            _chk_unidades_gemelas),
     Control("fci_incompletos", "Assets FCI sin ticker/emisor", True, _chk_fci_incompletos),
     Control("titulos_sin_flujo", "Bonos en cartera sin cronograma de flujos", True,
             _chk_titulos_sin_flujo),

@@ -309,6 +309,11 @@ CONTROLES: dict[str, dict] = {
         "rompe": "rompen el divisor de valuación: quedan SIN CLASIFICAR en el AuM",
         "donde": "Manager → TÍTULOS · ASSETS (columna CARTERA)",
         "url": "/manager?tab=assets"},
+    "unidades_gemelas": {
+        "rompe": "la misma unidad dos veces (espacios): la ficha se escribe en "
+                 "una fila y la tenencia referencia la otra — REGLA #9",
+        "donde": "scripts/diag_unidades_fantasma (--reparar con guardas)",
+        "url": ""},
     "fci_incompletos": {
         "rompe": "salen SIN NOMBRE y se fusionan entre sí en /aum → FCI",
         "donde": "Manager → TÍTULOS · ASSETS (ticker y emisor del FCI)",

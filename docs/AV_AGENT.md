@@ -6620,6 +6620,14 @@ acción (`hacer`) se muestran SIEMPRE fuera del pliegue «detalle interno» — 
 que se pliega es el razonamiento, jamás la acción. Congelado por
 `test_av_agent_dni`.
 
+**Medido en prod (diag del user, 2026-08-23): la hipótesis dio exacta.** Dos
+fantasmas — `'[OTC - DLR052027]'` y `'[OTC - MAI.ROS/ENE27]'` trimmeadas,
+escritas por `av-agent` el 22/08 con cartera y cero tenencias — al lado de las
+reales con espacio final (de `job:assets_autofill`, con 6 y 16 tenencias, sin
+cartera). Reparado con `--reparar`. Y quedó la PREVENCIÓN: el control nocturno
+**`unidades_gemelas`** canta cualquier colisión futura de unidades por btrim,
+venga de donde venga — la próxima dura horas, no días.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

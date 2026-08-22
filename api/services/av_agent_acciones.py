@@ -1,6 +1,6 @@
 """api/services/av_agent_acciones.py — el LIBRO DE ACCIONES del AV Agent.
 
-Doc madre: **`docs/AV_AGENT.md`**. Escribe `mercado.av_agent_acciones`.
+Doc madre: **`docs/AV_AGENT.md`**. Escribe `agente.av_agent_acciones`.
 
 **Qué contesta.** *"¿Qué tocó el agente, cuándo, en qué tabla, por pedido de
 quién, y qué había antes?"* — en un solo lugar y en una sola línea por acción.
@@ -44,8 +44,8 @@ _COLS = ["id", "ts", "accion", "destino", "objetivo", "detalle", "antes",
 # caller— evita que la misma acción se anote con dos nombres distintos según
 # quién la llame, que es como un libro de auditoría deja de ser consultable.
 DESTINOS = {
-    "ignorar_ticker": "mercado.av_agent_ignorados",
-    "designorar": "mercado.av_agent_ignorados",
+    "ignorar_ticker": "agente.av_agent_ignorados",
+    "designorar": "agente.av_agent_ignorados",
     "crear_curva": "mercado.curvas_catalogo",
     "alta_bono": "mercado.curvas",
     # El nombre en PLURAL es el que usa `aplicar_flujos` — acá figuraba en
@@ -105,7 +105,7 @@ def registrar(*, accion: str, objetivo: str, detalle: dict | None = None,
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO mercado.av_agent_acciones "
+                "INSERT INTO agente.av_agent_acciones "
                 "(accion, destino, objetivo, detalle, antes, origen, pregunta_id, "
                 " por, ok, error, regla) "
                 "VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s) "
@@ -167,7 +167,7 @@ def listar(limite: int = 100) -> list[dict]:
     """Las últimas acciones, la más reciente primero."""
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_acciones "
+            cur.execute(f"SELECT {', '.join(_COLS)} FROM agente.av_agent_acciones "
                         "ORDER BY ts DESC LIMIT %s", (limite,))
             out = []
             for r in cur.fetchall():

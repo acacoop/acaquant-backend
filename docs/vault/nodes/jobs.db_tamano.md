@@ -18,7 +18,9 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
+- [[api.services.av_agent]]  ·  _module_
 - [[api.services.av_agent_contexto]]  ·  _module_
+- [[api.services.av_agent_crontab]]  ·  _module_
 - [[api.services.av_agent_db]]  ·  _module_
 - [[api.services.av_agent_seguridad]]  ·  _module_
 - [[core.job_runs]]  ·  _module_

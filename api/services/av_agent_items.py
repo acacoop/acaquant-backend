@@ -123,7 +123,7 @@ def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO mercado.av_agent_items "
+                "INSERT INTO agente.av_agent_items "
                 "(clave, tipo, origen, sujeto, regla, estado, severidad, "
                 " titulo, afecta, datos, abierto_at, ultimo_at) "
                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s) "
@@ -131,15 +131,15 @@ def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
                 # El estado: si estaba resuelto y volvió a aparecer, VOLVIÓ.
                 # Se resuelve en SQL —y no leyendo primero— para que dos
                 # detectores corriendo a la vez no se pisen.
-                "  estado = CASE WHEN mercado.av_agent_items.estado = %s "
-                "                THEN %s ELSE mercado.av_agent_items.estado END, "
-                "  vuelto_at = CASE WHEN mercado.av_agent_items.estado = %s "
-                "                   THEN %s ELSE mercado.av_agent_items.vuelto_at END, "
+                "  estado = CASE WHEN agente.av_agent_items.estado = %s "
+                "                THEN %s ELSE agente.av_agent_items.estado END, "
+                "  vuelto_at = CASE WHEN agente.av_agent_items.estado = %s "
+                "                   THEN %s ELSE agente.av_agent_items.vuelto_at END, "
                 # Y si volvió, deja de estar resuelto: si no, el seguimiento
                 # seguiría contándole hitos a un arreglo que ya falló.
-                "  resuelto_at = CASE WHEN mercado.av_agent_items.estado = %s "
-                "                     THEN NULL ELSE mercado.av_agent_items.resuelto_at END, "
-                "  veces = mercado.av_agent_items.veces + 1, "
+                "  resuelto_at = CASE WHEN agente.av_agent_items.estado = %s "
+                "                     THEN NULL ELSE agente.av_agent_items.resuelto_at END, "
+                "  veces = agente.av_agent_items.veces + 1, "
                 "  ultimo_at = EXCLUDED.ultimo_at, "
                 "  severidad = EXCLUDED.severidad, "
                 "  titulo = EXCLUDED.titulo, "
@@ -173,7 +173,7 @@ def marcar(clave: str, estado: str, *, por: str = "") -> dict:
         return {"ok": False, "error": f"«{estado}» no es un estado"}
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT estado FROM mercado.av_agent_items "
+            cur.execute("SELECT estado FROM agente.av_agent_items "
                         "WHERE clave = %s", (clave,))
             f = cur.fetchone()
             if not f:
@@ -186,7 +186,7 @@ def marcar(clave: str, estado: str, *, por: str = "") -> dict:
                     f"de «{actual}» no se puede pasar a «{estado}»")}
             ahora = datetime.now(UTC)
             cur.execute(
-                "UPDATE mercado.av_agent_items SET estado = %s, "
+                "UPDATE agente.av_agent_items SET estado = %s, "
                 "  visto_at    = COALESCE(visto_at, %s), "
                 "  resuelto_at = CASE WHEN %s = 'resuelto' THEN %s ELSE resuelto_at END, "
                 "  vuelto_at   = CASE WHEN %s = 'volvio'   THEN %s ELSE vuelto_at END, "
@@ -270,7 +270,7 @@ def _cerrar_ausentes(origen: str, vistas: set[str], evaluados: set[str]) -> int:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE mercado.av_agent_items "
+                "UPDATE agente.av_agent_items "
                 "   SET estado = %s, resuelto_at = now() "
                 " WHERE origen = %s "
                 "   AND tipo = ANY(%s) "
@@ -290,7 +290,7 @@ def _tipos_abiertos(origen: str) -> set[str]:
     sin evaluar — el silencio se lee igual que un verde."""
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT DISTINCT tipo FROM mercado.av_agent_items "
+            cur.execute("SELECT DISTINCT tipo FROM agente.av_agent_items "
                         "WHERE origen = %s AND estado NOT IN (%s, %s)",
                         (origen, ciclo.RESUELTO, ciclo.IGNORADO))
             return {r[0] for r in cur.fetchall()}
@@ -335,7 +335,7 @@ def ignorar_sujeto(sujeto: str, *, por: str = "",
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE mercado.av_agent_items SET estado = %s, "
+                "UPDATE agente.av_agent_items SET estado = %s, "
                 "  datos = datos || %s::jsonb "
                 " WHERE lower(sujeto) = lower(%s) AND estado = ANY(%s)",
                 (destino, json.dumps({"por": por} if por else {}),
@@ -366,7 +366,7 @@ def abiertos(tipo: str = "", limite: int = 400,
     params.append(max(1, min(int(limite), 2000)))
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_items "
+            cur.execute(f"SELECT {', '.join(_COLS)} FROM agente.av_agent_items "
                         f"WHERE {where} ORDER BY ultimo_at DESC LIMIT %s",
                         tuple(params))
             return [_fila(r) for r in cur.fetchall()]
@@ -487,7 +487,7 @@ def en_seguimiento() -> list[dict]:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_items "
+                f"SELECT {', '.join(_COLS)} FROM agente.av_agent_items "
                 "WHERE estado = 'resuelto' AND resuelto_at IS NOT NULL "
                 "  AND tipo <> ALL(%s) "
                 "ORDER BY resuelto_at DESC LIMIT 500",
@@ -543,7 +543,7 @@ def cerrar_hitos() -> dict:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_items "
+                f"SELECT {', '.join(_COLS)} FROM agente.av_agent_items "
                 " WHERE ((estado = %s AND resuelto_at IS NOT NULL) OR estado = %s) "
                 "   AND tipo <> ALL(%s) "
                 " LIMIT 1000", (ciclo.RESUELTO, ciclo.VOLVIO,
@@ -588,7 +588,7 @@ def resumen() -> dict:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT tipo, estado, count(*) "
-                        "FROM mercado.av_agent_items GROUP BY tipo, estado")
+                        "FROM agente.av_agent_items GROUP BY tipo, estado")
             filas = cur.fetchall()
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}

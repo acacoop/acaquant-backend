@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-215 notas.
+230 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -106,22 +106,35 @@
 - [[api.services.aunesa_negocio]] — aunesa_negocio.py — service compartido para análisis del endpoint
 - [[api.services.av_agent]] — api/services/av_agent.py — los detectores del AV AGENT (etapa E1).
 - [[api.services.av_agent_acciones]] — api/services/av_agent_acciones.py — el LIBRO DE ACCIONES del AV Agent.
+- [[api.services.av_agent_agenda]] — api/services/av_agent_agenda.py — QUÉ ESTÁ HACIENDO EL AGENTE, HOY.
 - [[api.services.av_agent_alta]] — api/services/av_agent_alta.py — E2: SIMULAR un alta antes de escribirla.
 - [[api.services.av_agent_analista]] — api/services/av_agent_analista.py — EL ANALISTA del diagnóstico masivo.
+- [[api.services.av_agent_causas]] — api/services/av_agent_causas.py — TRES AVISOS, UN SOLO PROBLEMA.
 - [[api.services.av_agent_centinela]] — api/services/av_agent_centinela.py — EL AGENTE PRENDIDO, con memoria.
 - [[api.services.av_agent_contexto]] — api/services/av_agent_contexto.py — LO QUE EL AGENTE SABE DE LA BASE, SIN QUE NADIE SE LO ESCRIBA.
 - [[api.services.av_agent_control]] — api/services/av_agent_control.py — EL TABLERO DE CONTROL del AV Agent.
+- [[api.services.av_agent_crontab]] — api/services/av_agent_crontab.py — ¿EL CRON DEL REPO ES EL QUE CORRE?
 - [[api.services.av_agent_db]] — api/services/av_agent_db.py — EL AGENTE ENTIENDE LA BASE DE DATOS.
+- [[api.services.av_agent_errores]] — api/services/av_agent_errores.py — TRADUCIR UN ERROR A CASTELLANO.
+- [[api.services.av_agent_espejo]] — api/services/av_agent_espejo.py — POR QUÉ un bono «no está en assets».
 - [[api.services.av_agent_evals]] — api/services/av_agent_evals.py — el EVAL SET del AV AGENT.
 - [[api.services.av_agent_explicar]] — api/services/av_agent_explicar.py — LO QUE EL AGENTE SABE EXPLICAR.
 - [[api.services.av_agent_hacer]] — api/services/av_agent_hacer.py — LO QUE EL AGENTE SABE HACER.
+- [[api.services.av_agent_items]] — api/services/av_agent_items.py — EL STORE DE LOS OBJETOS DEL AGENTE.
 - [[api.services.av_agent_latencia]] — api/services/av_agent_latencia.py — EL AGENTE DETECTA ENDPOINTS QUE SE PUSIERON LENTOS.
 - [[api.services.av_agent_masivo]] — api/services/av_agent_masivo.py — EL DIAGNÓSTICO MASIVO del AV Agent.
 - [[api.services.av_agent_memoria]] — api/services/av_agent_memoria.py — LA MEMORIA DEL AGENTE.
+- [[api.services.av_agent_mensajes]] — api/services/av_agent_mensajes.py — EL AGENTE SABE MANDAR UN MENSAJE.
 - [[api.services.av_agent_motores]] — api/services/av_agent_motores.py — SI UN MOTOR SE CAYÓ, EL AGENTE SE ENTERA.
+- [[api.services.av_agent_pata]] — api/services/av_agent_pata.py — IR A BUSCAR LA PATA EN DÓLARES, Y AGREGARLA.
 - [[api.services.av_agent_preguntas]] — api/services/av_agent_preguntas.py — el AV AGENT le PREGUNTA al humano (E1.c).
+- [[api.services.av_agent_proveedores]] — api/services/av_agent_proveedores.py — SI SE CAYÓ UNO DE AFUERA, EL AGENTE AVISA.
+- [[api.services.av_agent_recuperados]] — api/services/av_agent_recuperados.py — CUANDO ALGO VUELVE, TAMBIÉN SE AVISA.
+- [[api.services.av_agent_rehacer]] — api/services/av_agent_rehacer.py — RELANZAR UN JOB, PERO CON LA PRUEBA EN LA MANO.
 - [[api.services.av_agent_relevar]] — api/services/av_agent_relevar.py — LA RELEVADA, a pedido.
+- [[api.services.av_agent_respuesta]] — api/services/av_agent_respuesta.py — LA RESPUESTA QUE LLEGA DESPUÉS.
 - [[api.services.av_agent_salud]] — api/services/av_agent_salud.py — SALUD, razonada por el AV AGENT.
+- [[api.services.av_agent_seguimiento]] — api/services/av_agent_seguimiento.py — ¿LO QUE SE ARREGLÓ, SIGUIÓ ARREGLADO?
 - [[api.services.av_agent_seguridad]] — api/services/av_agent_seguridad.py — ¿LOS PERMISOS SON REALES O ESTÁN EN LOS PAPELES?
 - [[api.services.av_agent_sin_precio]] — api/services/av_agent_sin_precio.py — POR QUÉ un bono no tiene precio.
 - [[api.services.av_agent_skills]] — api/services/av_agent_skills.py — EL REGISTRO ÚNICO DE HABILIDADES.
@@ -134,6 +147,7 @@
 - [[api.services.camara_cereales]] — Service — Cámara Arbitral de Cereales de Rosario.
 - [[api.services.canje]] — Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).
 - [[api.services.carry_trade]] — Serie de carry trade en USD para una curva (tasa_fija / cer).
+- [[api.services.carteras_informe]] — api/services/carteras_informe.py — el INFORME de una cuenta, en un request.
 - [[api.services.cashflow_sql]] — api/services/cashflow_sql.py — lecturas SQL (Supabase) de tres dominios:
 - [[api.services.clientes_admin_sql]] — api/services/clientes_admin_sql.py — edición del master `clientes.comitentes`.
 - [[api.services.comercial]] — api/services/comercial.py — Tablero Comercial: funciones SQL-native vivas.
@@ -164,6 +178,7 @@
 - [[api.services.intraday]] — api/services/intraday.py — monitor intradía de renta variable (FIFO).
 - [[api.services.jobs_catalogo]] — api/services/jobs_catalogo.py — catálogo COMPLETO de jobs agendados.
 - [[api.services.latencia_endpoints]] — api/services/latencia_endpoints.py — lectura de la telemetría de latencia.
+- [[api.services.logs_sistema]] — api/services/logs_sistema.py — LEER LOS LOGS DE SYSTEMD, UNA SOLA VEZ.
 - [[api.services.macro]] — Capa de servicio — series macro y clasificación.
 - [[api.services.macro_sql]] — api/services/macro_sql.py — Series macro 100% SQL (decomiso Mongo).
 - [[api.services.manager_infra_sql]] — api/services/manager_infra_sql.py — lecturas SQL de la infra de Manager.

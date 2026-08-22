@@ -21,8 +21,10 @@ _(pendiente de enriquecimiento)_
 - [[api.services.av_agent]]  ·  _module_
 - [[api.services.av_agent_explicar]]  ·  _module_
 - [[api.services.av_agent_hacer]]  ·  _module_
+- [[api.services.jobs_catalogo]]  ·  _module_
 - [[core.ai]]  ·  _module_
 - [[jobs.controles_datos]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.ia]]  ·  _module_
+- [[api.services.av_agent_agenda]]  ·  _module_

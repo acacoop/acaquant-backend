@@ -273,6 +273,7 @@
 "links": [
 "api.auth",
 "api.services",
+"api.services.av_agent_mensajes",
 "api.services.av_agent_vista"
 ]
 },
@@ -398,14 +399,18 @@
 "links": [
 "api.auth",
 "api.services",
+"api.services.av_agent",
+"api.services.av_agent_agenda",
 "api.services.av_agent_alta",
 "api.services.av_agent_analista",
 "api.services.av_agent_centinela",
 "api.services.av_agent_control",
+"api.services.av_agent_espejo",
 "api.services.av_agent_evals",
 "api.services.av_agent_explicar",
 "api.services.av_agent_hacer",
 "api.services.av_agent_masivo",
+"api.services.av_agent_pata",
 "api.services.av_agent_preguntas",
 "api.services.av_agent_relevar",
 "api.services.av_agent_salud",
@@ -457,6 +462,7 @@
 "links": [
 "api.auth",
 "api.deps",
+"api.routers.aca",
 "api.routers.manager.aca",
 "api.routers.manager.aca_valores",
 "api.routers.manager.assets",
@@ -760,7 +766,9 @@
 "summary": "GET /api/manager/logs — últimos N logs de un servicio systemd.",
 "links": [
 "api.cache",
-"api.services.diagnostico_registry"
+"api.services",
+"api.services.diagnostico_registry",
+"api.services.logs_sistema"
 ]
 },
 {
@@ -1144,6 +1152,7 @@
 "links": [
 "api.services",
 "api.services._grupos_scope",
+"api.services.carteras_informe",
 "api.services.valuaciones",
 "api.services.valuaciones_sql"
 ]
@@ -1453,7 +1462,9 @@
 "summary": "aunesa_negocio.py — service compartido para análisis del endpoint",
 "links": [
 "api.services._negocio_informacion_filter",
-"config"
+"config",
+"core",
+"core.proveedores"
 ]
 },
 {
@@ -1466,18 +1477,24 @@
 "links": [
 "api.services",
 "api.services.acreencias",
+"api.services.av_agent_causas",
+"api.services.av_agent_errores",
 "api.services.av_agent_latencia",
 "api.services.av_agent_motores",
+"api.services.av_agent_proveedores",
 "api.services.curvas_vista",
 "api.services.macro",
 "api.services.salud",
 "core",
 "core.curvas_ejes",
 "core.curvas_sql",
+"core.duplicados",
+"core.especies",
 "core.instrumentos_validos",
 "core.market_snapshot",
 "core.mercado_1816",
 "core.postgres",
+"core.tz",
 "engines.curvas"
 ]
 },
@@ -1489,6 +1506,25 @@
 "path": "api/services/av_agent_acciones.py",
 "summary": "api/services/av_agent_acciones.py — el LIBRO DE ACCIONES del AV Agent.",
 "links": [
+"api.services",
+"api.services.av_agent_evals",
+"api.services.av_agent_hacer",
+"api.services.av_agent_seguimiento",
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_agenda",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_agenda.py",
+"summary": "api/services/av_agent_agenda.py — QUÉ ESTÁ HACIENDO EL AGENTE, HOY.",
+"links": [
+"api.services",
+"api.services.av_agent_centinela",
+"api.services.av_agent_skills",
+"api.services.jobs_catalogo",
 "core.postgres"
 ]
 },
@@ -1539,6 +1575,17 @@
 ]
 },
 {
+"id": "api.services.av_agent_causas",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_causas.py",
+"summary": "api/services/av_agent_causas.py — TRES AVISOS, UN SOLO PROBLEMA.",
+"links": [
+"core.dependencias"
+]
+},
+{
 "id": "api.services.av_agent_centinela",
 "type": "module",
 "layer": "api",
@@ -1548,6 +1595,7 @@
 "links": [
 "api.services",
 "api.services.av_agent",
+"api.services.av_agent_items",
 "api.services.salud",
 "core",
 "core.curvas_sql",
@@ -1563,8 +1611,12 @@
 "path": "api/services/av_agent_contexto.py",
 "summary": "api/services/av_agent_contexto.py — LO QUE EL AGENTE SABE DE LA BASE, SIN QUE NADIE SE LO ESCRIBA.",
 "links": [
+"api.services.av_agent",
 "api.services.salud",
-"core.postgres"
+"core",
+"core.escribe",
+"core.postgres",
+"core.tz"
 ]
 },
 {
@@ -1583,6 +1635,17 @@
 ]
 },
 {
+"id": "api.services.av_agent_crontab",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_crontab.py",
+"summary": "api/services/av_agent_crontab.py — ¿EL CRON DEL REPO ES EL QUE CORRE?",
+"links": [
+"api.services.av_agent"
+]
+},
+{
 "id": "api.services.av_agent_db",
 "type": "module",
 "layer": "api",
@@ -1594,6 +1657,37 @@
 ]
 },
 {
+"id": "api.services.av_agent_errores",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_errores.py",
+"summary": "api/services/av_agent_errores.py — TRADUCIR UN ERROR A CASTELLANO.",
+"links": [
+"api.services",
+"api.services.av_agent_salud",
+"api.services.jobs_catalogo",
+"core",
+"core.ai",
+"core.escribe",
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_espejo",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_espejo.py",
+"summary": "api/services/av_agent_espejo.py — POR QUÉ un bono «no está en assets».",
+"links": [
+"api.services",
+"api.services.av_agent_alta",
+"api.services.av_agent_hacer",
+"core.postgres"
+]
+},
+{
 "id": "api.services.av_agent_evals",
 "type": "module",
 "layer": "api",
@@ -1601,6 +1695,7 @@
 "path": "api/services/av_agent_evals.py",
 "summary": "api/services/av_agent_evals.py — el EVAL SET del AV AGENT.",
 "links": [
+"api.cache",
 "core.postgres"
 ]
 },
@@ -1635,14 +1730,39 @@
 "summary": "api/services/av_agent_hacer.py — LO QUE EL AGENTE SABE HACER.",
 "links": [
 "api.services",
+"api.services.acreencias",
 "api.services.assets_sql",
+"api.services.av_agent_acciones",
+"api.services.av_agent_items",
+"api.services.av_agent_pata",
+"api.services.av_agent_rehacer",
+"api.services.av_agent_respuesta",
 "api.services.av_agent_salud",
 "api.services.av_agent_vista",
 "api.services.contrapartes_seg",
 "core",
+"core.adhoc_subscriptions",
 "core.ai",
+"core.ciclo",
+"core.curvas_sql",
 "core.postgres",
 "jobs.controles_datos"
+]
+},
+{
+"id": "api.services.av_agent_items",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_items.py",
+"summary": "api/services/av_agent_items.py — EL STORE DE LOS OBJETOS DEL AGENTE.",
+"links": [
+"api.services",
+"api.services.av_agent_evals",
+"api.services.av_agent_hacer",
+"core",
+"core.ciclo",
+"core.postgres"
 ]
 },
 {
@@ -1666,8 +1786,14 @@
 "links": [
 "api.services",
 "api.services.av_agent_alta",
+"api.services.av_agent_espejo",
+"api.services.av_agent_hacer",
+"api.services.av_agent_items",
+"api.services.av_agent_pata",
 "api.services.av_agent_salud",
+"api.services.av_agent_sin_precio",
 "core",
+"core.ciclo",
 "core.mercado_1816",
 "core.postgres"
 ]
@@ -1684,6 +1810,22 @@
 ]
 },
 {
+"id": "api.services.av_agent_mensajes",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_mensajes.py",
+"summary": "api/services/av_agent_mensajes.py — EL AGENTE SABE MANDAR UN MENSAJE.",
+"links": [
+"api.services",
+"api.services.av_agent_items",
+"api.services.av_agent_vista",
+"core",
+"core.ciclo",
+"core.postgres"
+]
+},
+{
 "id": "api.services.av_agent_motores",
 "type": "module",
 "layer": "api",
@@ -1692,7 +1834,28 @@
 "summary": "api/services/av_agent_motores.py — SI UN MOTOR SE CAYÓ, EL AGENTE SE ENTERA.",
 "links": [
 "api.services",
-"api.services.diagnostico"
+"api.services.av_agent_errores",
+"api.services.diagnostico",
+"api.services.diagnostico_registry",
+"api.services.logs_sistema",
+"core.tz"
+]
+},
+{
+"id": "api.services.av_agent_pata",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_pata.py",
+"summary": "api/services/av_agent_pata.py — IR A BUSCAR LA PATA EN DÓLARES, Y AGREGARLA.",
+"links": [
+"api.services",
+"api.services.av_agent",
+"api.services.av_agent_alta",
+"core",
+"core.adhoc_subscriptions",
+"core.especies",
+"core.postgres"
 ]
 },
 {
@@ -1706,8 +1869,51 @@
 "api.services",
 "api.services.av_agent_acciones",
 "api.services.av_agent_control",
+"api.services.av_agent_items",
 "core",
+"core.ciclo",
 "core.curvas_catalogo",
+"core.postgres"
+]
+},
+{
+"id": "api.services.av_agent_proveedores",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_proveedores.py",
+"summary": "api/services/av_agent_proveedores.py — SI SE CAYÓ UNO DE AFUERA, EL AGENTE AVISA.",
+"links": [
+"api.services",
+"api.services.av_agent_mensajes",
+"core.postgres",
+"core.proveedores"
+]
+},
+{
+"id": "api.services.av_agent_recuperados",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_recuperados.py",
+"summary": "api/services/av_agent_recuperados.py — CUANDO ALGO VUELVE, TAMBIÉN SE AVISA.",
+"links": [
+"api.services",
+"api.services.av_agent_mensajes",
+"api.services.av_agent_proveedores",
+"core.postgres",
+"core.tz"
+]
+},
+{
+"id": "api.services.av_agent_rehacer",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_rehacer.py",
+"summary": "api/services/av_agent_rehacer.py — RELANZAR UN JOB, PERO CON LA PRUEBA EN LA MANO.",
+"links": [
+"core.calendario",
 "core.postgres"
 ]
 },
@@ -1729,6 +1935,21 @@
 ]
 },
 {
+"id": "api.services.av_agent_respuesta",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_respuesta.py",
+"summary": "api/services/av_agent_respuesta.py — LA RESPUESTA QUE LLEGA DESPUÉS.",
+"links": [
+"api.services.av_agent",
+"api.services.av_agent_contexto",
+"api.services.av_agent_hacer",
+"core.postgres",
+"core.tz"
+]
+},
+{
 "id": "api.services.av_agent_salud",
 "type": "module",
 "layer": "api",
@@ -1740,8 +1961,22 @@
 "api.services.av_agent_alta",
 "api.services.av_agent_hacer",
 "api.services.av_agent_memoria",
+"api.services.av_agent_mensajes",
 "api.services.salud",
 "jobs.controles_datos"
+]
+},
+{
+"id": "api.services.av_agent_seguimiento",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/av_agent_seguimiento.py",
+"summary": "api/services/av_agent_seguimiento.py — ¿LO QUE SE ARREGLÓ, SIGUIÓ ARREGLADO?",
+"links": [
+"api.services",
+"api.services.av_agent_evals",
+"core.postgres"
 ]
 },
 {
@@ -1753,7 +1988,8 @@
 "summary": "api/services/av_agent_seguridad.py — ¿LOS PERMISOS SON REALES O ESTÁN EN LOS PAPELES?",
 "links": [
 "api",
-"api.superficie"
+"api.superficie",
+"core.postgres"
 ]
 },
 {
@@ -1783,6 +2019,7 @@
 "api.services.av_agent",
 "api.services.av_agent_explicar",
 "api.services.av_agent_hacer",
+"api.services.jobs_catalogo",
 "core.ai",
 "jobs.controles_datos"
 ]
@@ -1795,14 +2032,22 @@
 "path": "api/services/av_agent_vista.py",
 "summary": "api/services/av_agent_vista.py — la vista /av-agent en UN request (E1.d).",
 "links": [
+"api.cache",
 "api.services",
 "api.services.acreencias",
 "api.services.av_agent",
 "api.services.av_agent_acciones",
+"api.services.av_agent_evals",
+"api.services.av_agent_hacer",
+"api.services.av_agent_items",
 "api.services.av_agent_preguntas",
+"api.services.controles_sql",
+"api.services.salud",
 "core",
+"core.ciclo",
 "core.curvas_ejes",
-"core.postgres"
+"core.postgres",
+"engines.curvas"
 ]
 },
 {
@@ -1926,6 +2171,23 @@
 "core.curvas_sql",
 "core.dolar_sql",
 "core.market_snapshot",
+"core.series_macro",
+"db.Trading.DOLAR"
+]
+},
+{
+"id": "api.services.carteras_informe",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/carteras_informe.py",
+"summary": "api/services/carteras_informe.py — el INFORME de una cuenta, en un request.",
+"links": [
+"api.services",
+"api.services._sql",
+"api.services.aca",
+"api.services.valuaciones",
+"api.services.valuaciones_sql",
 "core.series_macro",
 "db.Trading.DOLAR"
 ]
@@ -2316,6 +2578,7 @@
 "summary": "api/services/jobs_catalogo.py — catálogo COMPLETO de jobs agendados.",
 "links": [
 "api.cache",
+"core.crontab",
 "core.postgres"
 ]
 },
@@ -2329,6 +2592,15 @@
 "links": [
 "api.services._sql"
 ]
+},
+{
+"id": "api.services.logs_sistema",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/logs_sistema.py",
+"summary": "api/services/logs_sistema.py — LEER LOS LOGS DE SYSTEMD, UNA SOLA VEZ.",
+"links": []
 },
 {
 "id": "api.services.macro",
@@ -2420,7 +2692,9 @@
 "summary": "api/services/mesa_dinero.py — MESA DE DINERO (vista NEGOCIO → /mesa-dinero).",
 "links": [
 "api.cache",
+"api.services",
 "api.services._sql",
+"api.services.aca",
 "core.postgres",
 "core.roles"
 ]
@@ -2822,7 +3096,9 @@
 "api.services.ia_obs",
 "api.services.jobs_catalogo",
 "core.postgres",
-"db.Trading.DOLAR"
+"core.tz",
+"db.Trading.DOLAR",
+"jobs.controles_datos"
 ]
 },
 {
@@ -3127,7 +3403,9 @@
 "path": "core/aunesa.py",
 "summary": "core/aunesa.py — cliente único de la API del custodio Aunesa.",
 "links": [
-"config"
+"config",
+"core",
+"core.proveedores"
 ]
 },
 {
@@ -3187,6 +3465,24 @@
 ]
 },
 {
+"id": "core.ciclo",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/ciclo.py",
+"summary": "core/ciclo.py — EL CICLO DE VIDA DE UNA COSA QUE EL AGENTE ENCONTRÓ O DIJO.",
+"links": []
+},
+{
+"id": "core.crontab",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/crontab.py",
+"summary": "core/crontab.py — el parser del crontab, UNA sola vez y sin dependencias.",
+"links": []
+},
+{
 "id": "core.curvas_catalogo",
 "type": "module",
 "layer": "core",
@@ -3225,6 +3521,17 @@
 ]
 },
 {
+"id": "core.dependencias",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/dependencias.py",
+"summary": "core/dependencias.py — DE QUÉ DEPENDE CADA PIEZA, sin escribir una lista.",
+"links": [
+"core.crontab"
+]
+},
+{
 "id": "core.doc_fiscal",
 "type": "module",
 "layer": "core",
@@ -3252,6 +3559,17 @@
 "repo": "backend",
 "path": "core/dolar_sql.py",
 "summary": "core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje.",
+"links": [
+"core.postgres"
+]
+},
+{
+"id": "core.duplicados",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/duplicados.py",
+"summary": "core/duplicados.py — DÓNDE VIVE EL MISMO DATO DOS VECES, Y QUIÉN MANDA.",
 "links": [
 "core.postgres"
 ]
@@ -3317,6 +3635,15 @@
 ]
 },
 {
+"id": "core.escribe",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/escribe.py",
+"summary": "core/escribe.py — ¿QUIÉN ESCRIBE ESTA TABLA, Y LA DISPARA UN RELOJ O UN EVENTO?",
+"links": []
+},
+{
 "id": "core.especies",
 "type": "module",
 "layer": "core",
@@ -3324,6 +3651,8 @@
 "path": "core/especies.py",
 "summary": "core/especies.py — LAS PATAS de un bono. Una sola lógica, dos usuarios.",
 "links": [
+"core",
+"core.pareo",
 "core.postgres"
 ]
 },
@@ -3439,6 +3768,15 @@
 "links": []
 },
 {
+"id": "core.logs",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/logs.py",
+"summary": "core/logs.py — UN SOLO FORMATO DE LOG, con el NIVEL adentro.",
+"links": []
+},
+{
 "id": "core.market_snapshot",
 "type": "module",
 "layer": "core",
@@ -3470,6 +3808,15 @@
 ]
 },
 {
+"id": "core.pareo",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/pareo.py",
+"summary": "core/pareo.py — EMPAREJAR POR FICHA. La identidad no es el nombre.",
+"links": []
+},
+{
 "id": "core.pg_mirror",
 "type": "module",
 "layer": "core",
@@ -3497,6 +3844,19 @@
 "path": "core/profiler.py",
 "summary": "Stopwatch mínimo para instrumentar pasos dentro de una función.",
 "links": []
+},
+{
+"id": "core.proveedores",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/proveedores.py",
+"summary": "core/proveedores.py — LOS DE AFUERA SE CAEN, Y HAY QUE ENTERARSE.",
+"links": [
+"core",
+"core.aunesa",
+"core.postgres"
+]
 },
 {
 "id": "core.rofex_orders_session",
@@ -3995,6 +4355,17 @@
 ]
 },
 {
+"id": "cron.jobs.mayor_sync",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.mayor_sync"
+]
+},
+{
 "id": "cron.jobs.mercado_1816_series",
 "type": "cron",
 "layer": "deploy",
@@ -4113,6 +4484,28 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.research_mail"
+]
+},
+{
+"id": "cron.jobs.saldos_a_operadores",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.saldos_a_operadores"
+]
+},
+{
+"id": "cron.jobs.seguimiento",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.seguimiento"
 ]
 },
 {
@@ -4512,6 +4905,7 @@
 "summary": "main_breakevens.py — Motor de breakevens CER/Lecap en tiempo real.",
 "links": [
 "core.calendario",
+"core.logs",
 "core.market_snapshot",
 "core.pg_mirror",
 "core.series_macro",
@@ -4529,6 +4923,7 @@
 "links": [
 "core",
 "core.calendario",
+"core.logs",
 "core.pg_mirror",
 "engines._motor_base"
 ]
@@ -4545,6 +4940,7 @@
 "core.calendario",
 "core.dolar_oficial",
 "core.dolar_sql",
+"core.logs",
 "core.market_snapshot",
 "core.pg_mirror",
 "core.series_macro",
@@ -4573,6 +4969,7 @@
 "path": "engines/dolares.py",
 "summary": "Motor de dólares MEP/CCL/canje en tiempo real (WebSocket).",
 "links": [
+"core.logs",
 "core.pg_mirror",
 "engines._motor_base"
 ]
@@ -4588,6 +4985,7 @@
 "config",
 "core",
 "core.estrategia_sql",
+"core.logs",
 "quant.estrategia",
 "quant.pivot_points",
 "quant.rolling_stats"
@@ -4601,6 +4999,7 @@
 "path": "engines/forwards.py",
 "summary": "main_forwards.py — Motor de tasas forward en tiempo real.",
 "links": [
+"core.logs",
 "core.market_snapshot",
 "core.pg_mirror",
 "engines._curvas_loader"
@@ -4617,6 +5016,7 @@
 "core",
 "core.dolar_oficial",
 "core.dolar_sql",
+"core.logs",
 "core.pg_mirror",
 "core.series_macro",
 "db.Trading.DOLAR",
@@ -4632,6 +5032,7 @@
 "summary": "Motor de Futuros Agro Rosario — Trigo / Maíz / Soja.",
 "links": [
 "core",
+"core.logs",
 "core.pg_mirror",
 "engines._motor_base"
 ]
@@ -4645,6 +5046,7 @@
 "summary": "Motor de Opciones Agro Rosario — Trigo / Maíz / Soja.",
 "links": [
 "core",
+"core.logs",
 "core.pg_mirror",
 "engines._motor_base"
 ]
@@ -4658,6 +5060,7 @@
 "summary": "motor_cedears.py — feed live de CEDEARs vía pyRofex WS.",
 "links": [
 "core",
+"core.logs",
 "core.pg_mirror",
 "core.postgres",
 "core.rofex_session",
@@ -4675,6 +5078,7 @@
 "links": [
 "core",
 "core.brackets",
+"core.logs",
 "core.pg_mirror",
 "core.postgres",
 "core.rofex_orders_session"
@@ -4689,6 +5093,7 @@
 "summary": "Motor de Opciones GGAL - Servicio Headless",
 "links": [
 "core",
+"core.logs",
 "core.pg_mirror",
 "core.postgres",
 "core.rofex_session",
@@ -4705,6 +5110,7 @@
 "path": "engines/portfolio_snapshot.py",
 "summary": "Motor dedicado a captura del último precio para tickers de tenencia.",
 "links": [
+"core.logs",
 "core.pg_mirror",
 "core.rofex_session",
 "core.threads",
@@ -4722,6 +5128,7 @@
 "links": [
 "core",
 "core.adhoc_subscriptions",
+"core.logs",
 "core.pg_mirror",
 "core.postgres",
 "core.rofex_session",
@@ -4852,7 +5259,9 @@
 "path": "jobs/aum.py",
 "summary": "jobs/aum.py — CLIENTE Aunesa (librería, no es un job).",
 "links": [
-"config"
+"config",
+"core",
+"core.proveedores"
 ]
 },
 {
@@ -4865,6 +5274,7 @@
 "links": [
 "api.services",
 "api.services.av_agent",
+"api.services.av_agent_items",
 "api.services.av_agent_preguntas",
 "core",
 "core.job_runs",
@@ -4894,8 +5304,9 @@
 "links": [
 "api.services",
 "api.services.av_agent",
-"core.job_runs",
-"core.postgres"
+"api.services.av_agent_recuperados",
+"api.services.av_agent_respuesta",
+"core.job_runs"
 ]
 },
 {
@@ -4967,9 +5378,11 @@
 "summary": "",
 "links": [
 "config",
+"core",
 "core.calendario",
 "core.job_runs",
-"core.pg_mirror"
+"core.pg_mirror",
+"core.proveedores"
 ]
 },
 {
@@ -5117,10 +5530,16 @@
 "path": "jobs/controles_datos.py",
 "summary": "controles_datos.py — Auto-control de CALIDAD DE DATOS de ACAQuant.",
 "links": [
+"api.services",
 "api.services.acreencias",
+"api.services.av_agent_items",
+"api.services.av_agent_pata",
+"api.services.av_agent_rehacer",
+"api.services.av_agent_salud",
 "api.services.contrapartes_seg",
 "core",
 "core.curvas_sql",
+"core.duplicados",
 "core.job_runs",
 "core.market_snapshot",
 "core.postgres"
@@ -5151,7 +5570,9 @@
 "summary": "jobs/db_tamano.py — LA FOTO DIARIA DEL SISTEMA: base, perfil de tablas y superficie HTTP.",
 "links": [
 "api.services",
+"api.services.av_agent",
 "api.services.av_agent_contexto",
+"api.services.av_agent_crontab",
 "api.services.av_agent_db",
 "api.services.av_agent_seguridad",
 "core.job_runs"
@@ -5328,6 +5749,22 @@
 "core.pg_mirror",
 "core.postgres",
 "core.yahoo"
+]
+},
+{
+"id": "jobs.mayor_sync",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/mayor_sync.py",
+"summary": "jobs/mayor_sync.py — trae el MAYOR contable de Aunesa a `bancos.mayor_movimientos`.",
+"links": [
+"core",
+"core.aunesa",
+"core.calendario",
+"core.job_runs",
+"core.postgres",
+"core.tz"
 ]
 },
 {
@@ -5530,6 +5967,20 @@
 ]
 },
 {
+"id": "jobs.saldos_a_operadores",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/saldos_a_operadores.py",
+"summary": "jobs/saldos_a_operadores.py — a cada operador, los saldos de SUS comitentes.",
+"links": [
+"api.services",
+"api.services.av_agent_mensajes",
+"api.services.titulos_negativos",
+"core.job_runs"
+]
+},
+{
 "id": "jobs.segmentar_patrimonial",
 "type": "module",
 "layer": "jobs",
@@ -5539,6 +5990,22 @@
 "links": [
 "api.services.macro",
 "api.services.segmentacion",
+"core.postgres"
+]
+},
+{
+"id": "jobs.seguimiento",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/seguimiento.py",
+"summary": "jobs/seguimiento.py — de lo que se dio por arreglado, ¿qué aguantó y qué volvió?",
+"links": [
+"api.services",
+"api.services.av_agent_items",
+"api.services.av_agent_seguimiento",
+"core.ciclo",
+"core.job_runs",
 "core.postgres"
 ]
 },
@@ -5579,9 +6046,11 @@
 "summary": "Sync de cuentas comitentes desde Aunesa → master SQL `clientes.comitentes`",
 "links": [
 "config",
+"core",
 "core.doc_fiscal",
 "core.job_runs",
-"core.postgres"
+"core.postgres",
+"core.proveedores"
 ]
 },
 {

@@ -89,7 +89,7 @@ def _es_pata(ticker: str) -> bool:
     return "@" in (ticker or "")
 
 
-# ── DOS CICLOS CONVIVEN EN `mercado.av_agent_hallazgos` ──────────────────────
+# ── DOS CICLOS CONVIVEN EN `agente.av_agent_hallazgos` ──────────────────────
 #
 # La RELEVADA nocturna deja una CORRIDA: una foto con su `corrida_at`, y la
 # vigente es la última. Los monitores (rueda y sistema) no tienen corrida que
@@ -186,11 +186,11 @@ def reemplazar_hallazgos(alcance: str, hallazgos: list[dict]) -> int:
         raise ValueError(f"{alcance!r} no es un alcance de reemplazo: borrar una "
                          f"CORRIDA entera no es lo que esta función hace")
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM mercado.av_agent_hallazgos WHERE alcance = %s",
+        cur.execute("DELETE FROM agente.av_agent_hallazgos WHERE alcance = %s",
                     (alcance,))
         for h in hallazgos:
             cur.execute(
-                "INSERT INTO mercado.av_agent_hallazgos "
+                "INSERT INTO agente.av_agent_hallazgos "
                 "(alcance, tipo, ticker, regla, severidad, motivo, evidencia) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)",
                 (alcance, h["tipo"], h["ticker"], h["regla"], h["severidad"],
@@ -838,7 +838,7 @@ def tickers_ignorados() -> set[str]:
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT upper(btrim(ticker)) FROM mercado.av_agent_ignorados")
+            cur.execute("SELECT upper(btrim(ticker)) FROM agente.av_agent_ignorados")
             return {r[0] for r in cur.fetchall() if r[0]}
     except Exception:
         logger.warning("av_agent: no se pudo leer la lista de ignorados", exc_info=True)
@@ -1878,7 +1878,7 @@ def relevar(*, alcance: str = "soberanos",
 
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT upper(btrim(ticker)) FROM mercado.av_agent_ignorados")
+            cur.execute("SELECT upper(btrim(ticker)) FROM agente.av_agent_ignorados")
             ignorados = {r[0] for r in cur.fetchall() if r[0]}
     except Exception:
         # Acá el default seguro es el CONTRARIO: sin la lista se reporta de más,

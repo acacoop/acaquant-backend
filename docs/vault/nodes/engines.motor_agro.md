@@ -20,6 +20,7 @@ Conecta con: escribe a `Trading.AgroSnapshot` (ReplaceOne cada 5s); usa `core.ro
 
 ## Usa / conecta con →
 - [[core]]  ·  _module_
+- [[core.logs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[engines._motor_base]]  ·  _module_
 

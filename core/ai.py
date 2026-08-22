@@ -101,7 +101,7 @@ _TAREAS: dict[str, dict] = {
     #
     # Y sobre todo: se llama **una vez por PATRÓN**, no por fila. El mismo error
     # sale 90 veces en 6 horas y la explicación se persiste en
-    # `mercado.av_agent_errores` — si no, esta tarea sería la más cara de todas
+    # `agente.av_agent_errores` — si no, esta tarea sería la más cara de todas
     # por lejos.
     "av_agent_error": {"tier": "flash", "max_tokens": 300, "timeout_s": 45,
                        "thinking": "disabled"},

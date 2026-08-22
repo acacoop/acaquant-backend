@@ -20,6 +20,8 @@ Conecta con: pega a Aunesa, escribe `Valuaciones.AuM`; sincroniza `Valuaciones.A
 
 ## Usa / conecta con →
 - [[config]]  ·  _module_
+- [[core]]  ·  _module_
+- [[core.proveedores]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.aunesa]]  ·  _module_

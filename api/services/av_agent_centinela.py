@@ -161,7 +161,7 @@ def ciclo() -> dict:
         with get_pool().connection() as conn, conn.cursor() as cur:
             for clave, h in por_clave.items():
                 cur.execute(
-                    "INSERT INTO mercado.av_agent_centinela "
+                    "INSERT INTO agente.av_agent_centinela "
                     "(clave, tipo, sujeto, regla, severidad, motivo, evidencia) "
                     "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb) "
                     "ON CONFLICT (clave) DO UPDATE SET "
@@ -169,15 +169,15 @@ def ciclo() -> dict:
                     # AHORA. Lo que nunca se pisa es `abierto_at` ni `visto_at`.
                     "  motivo = EXCLUDED.motivo, evidencia = EXCLUDED.evidencia, "
                     "  severidad = EXCLUDED.severidad, ultimo_at = now(), "
-                    "  veces = mercado.av_agent_centinela.veces + 1, "
+                    "  veces = agente.av_agent_centinela.veces + 1, "
                     # Si volvió, REABRE la misma fila. Un problema que va y viene
                     # es UN problema intermitente, no cinco problemas distintos.
                     # Y se CUENTA la reapertura: «esto ya lo arreglamos tres
                     # veces y vuelve» es un dato distinto de «pasa hace tres
                     # días», y hasta hoy los dos se veían igual. Un problema que
                     # reaparece no es el de siempre — es uno que no entendimos.
-                    "  reaperturas = mercado.av_agent_centinela.reaperturas + "
-                    "    CASE WHEN mercado.av_agent_centinela.resuelto_at "
+                    "  reaperturas = agente.av_agent_centinela.reaperturas + "
+                    "    CASE WHEN agente.av_agent_centinela.resuelto_at "
                     "         IS NOT NULL THEN 1 ELSE 0 END, "
                     "  resuelto_at = NULL, resuelto_como = NULL "
                     "RETURNING (xmax = 0) AS es_nuevo",
@@ -203,11 +203,11 @@ def ciclo() -> dict:
             # `_observar` declara qué alcanzó a mirar y solo eso se cierra.
             if evaluados:
                 cur.execute(
-                    "UPDATE mercado.av_agent_centinela SET resuelto_at = now(), "
+                    "UPDATE agente.av_agent_centinela SET resuelto_at = now(), "
                     "  resuelto_como = 'solo' "
                     "WHERE resuelto_at IS NULL AND ultimo_at < %s "
                     "  AND tipo = ANY(%s)", (marca, sorted(evaluados)))
-            cur.execute("SELECT count(*) FROM mercado.av_agent_centinela "
+            cur.execute("SELECT count(*) FROM agente.av_agent_centinela "
                         "WHERE resuelto_at IS NULL")
             abiertos = cur.fetchone()[0]
             conn.commit()
@@ -250,7 +250,7 @@ def _latir(abierto: bool, abiertos: int, nuevos: int, ms: int, err: str,
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE mercado.av_agent_latido SET at = now(), ciclo = ciclo + 1, "
+                "UPDATE agente.av_agent_latido SET at = now(), ciclo = ciclo + 1, "
                 "  en_rueda = %s, abiertos = %s, nuevos = %s, duracion_ms = %s, "
                 "  error = %s, proximo_en_s = %s WHERE id",
                 (abierto, abiertos, nuevos, ms, err or None, proximo_en_s))
@@ -290,7 +290,7 @@ def estado(limite: int = 200) -> dict:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT at, ciclo, en_rueda, abiertos, nuevos, "
                         "       duracion_ms, error, proximo_en_s "
-                        "FROM mercado.av_agent_latido WHERE id")
+                        "FROM agente.av_agent_latido WHERE id")
             lat = cur.fetchone()
             # ⚠️ **LA ANTIGÜEDAD SALE DEL OBJETO, NO DE ESTA TABLA** (§0.bj).
             #
@@ -308,8 +308,8 @@ def estado(limite: int = 200) -> dict:
                 # JOIN — un viaje más a Supabase por un dato que ya viaja.
                 f"SELECT {', '.join('c.' + x for x in _COLS)}, i.abierto_at, "
                 "       i.vuelto_at "
-                "  FROM mercado.av_agent_centinela c "
-                "  LEFT JOIN mercado.av_agent_items i "
+                "  FROM agente.av_agent_centinela c "
+                "  LEFT JOIN agente.av_agent_items i "
                 "    ON i.clave = lower(c.sujeto) || '|' || lower(c.regla) "
                 " WHERE c.resuelto_at IS NULL "
                 # Lo NUEVO y sin ver primero: es lo único que pide una decisión.
@@ -323,15 +323,15 @@ def estado(limite: int = 200) -> dict:
             # confirmar que algo que estabas por atender ya no está, y ver los
             # intermitentes (los que se resuelven y vuelven).
             cur.execute(
-                f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_centinela "
+                f"SELECT {', '.join(_COLS)} FROM agente.av_agent_centinela "
                 "WHERE resuelto_at > now() - interval '8 hours' "
                 "ORDER BY resuelto_at DESC LIMIT 40")
             resueltos = [dict(zip(_COLS, r, strict=True)) for r in cur.fetchall()]
 
             # ⚠️ **LOS MOTORES NO VIVEN EN ESTA TABLA** y por eso AHORA nunca los
-            # mostró. `mercado.av_agent_centinela` guarda lo que el DAEMON mira
+            # mostró. `agente.av_agent_centinela` guarda lo que el DAEMON mira
             # (precios · tasas · salud, ver `_CUBRE`); los motores los encuentra
-            # el cron `jobs.av_agent_live` y quedan en `mercado.av_agent_items`.
+            # el cron `jobs.av_agent_live` y quedan en `agente.av_agent_items`.
             # Dos tablas para dos productores del mismo objeto, y la pantalla
             # leía una sola.
             #
@@ -341,7 +341,7 @@ def estado(limite: int = 200) -> dict:
             cur.execute(
                 "SELECT clave, tipo, sujeto, regla, severidad, titulo, veces, "
                 "       abierto_at, ultimo_at, visto_at, datos "
-                "  FROM mercado.av_agent_items "
+                "  FROM agente.av_agent_items "
                 " WHERE estado NOT IN ('resuelto', 'ignorado') "
                 "   AND tipo = ANY(%s) "
                 " ORDER BY ultimo_at DESC LIMIT 40",
@@ -571,7 +571,7 @@ def marcar_visto(claves: list[str], por: str = "") -> dict:
         return {"ok": False, "error": "no hay nada que marcar"}
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE mercado.av_agent_centinela SET visto_at = now(), "
+            cur.execute("UPDATE agente.av_agent_centinela SET visto_at = now(), "
                         "visto_por = %s WHERE clave = ANY(%s) AND visto_at IS NULL",
                         (por or None, claves))
             n = cur.rowcount

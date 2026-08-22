@@ -17,10 +17,16 @@ path: jobs/controles_datos.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services]]  ·  _module_
 - [[api.services.acreencias]]  ·  _module_
+- [[api.services.av_agent_items]]  ·  _module_
+- [[api.services.av_agent_pata]]  ·  _module_
+- [[api.services.av_agent_rehacer]]  ·  _module_
+- [[api.services.av_agent_salud]]  ·  _module_
 - [[api.services.contrapartes_seg]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
+- [[core.duplicados]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.postgres]]  ·  _module_
@@ -29,4 +35,5 @@ _(pendiente de enriquecimiento)_
 - [[api.services.av_agent_hacer]]  ·  _module_
 - [[api.services.av_agent_salud]]  ·  _module_
 - [[api.services.av_agent_skills]]  ·  _module_
+- [[api.services.salud]]  ·  _module_
 - [[cron.jobs.controles_datos]]  ·  _cron_

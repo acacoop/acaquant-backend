@@ -17,9 +17,14 @@ path: api/services/av_agent_contexto.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services.av_agent]]  ·  _module_
 - [[api.services.salud]]  ·  _module_
+- [[core]]  ·  _module_
+- [[core.escribe]]  ·  _module_
 - [[core.postgres]]  ·  _module_
+- [[core.tz]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.services.av_agent_explicar]]  ·  _module_
+- [[api.services.av_agent_respuesta]]  ·  _module_
 - [[jobs.db_tamano]]  ·  _module_

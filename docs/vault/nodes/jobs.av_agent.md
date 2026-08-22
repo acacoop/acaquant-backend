@@ -19,6 +19,7 @@ _(pendiente de enriquecimiento)_
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
 - [[api.services.av_agent]]  ·  _module_
+- [[api.services.av_agent_items]]  ·  _module_
 - [[api.services.av_agent_preguntas]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.job_runs]]  ·  _module_

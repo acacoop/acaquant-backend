@@ -64,8 +64,8 @@ def main() -> int:
         # no anduvo, que es otra cosa.
         cur.execute(
             "SELECT a.id, a.accion, a.objetivo, a.por, a.ts "
-            "FROM mercado.av_agent_acciones a "
-            "LEFT JOIN mercado.av_agent_evals e ON e.ref = 'accion:' || a.id "
+            "FROM agente.av_agent_acciones a "
+            "LEFT JOIN agente.av_agent_evals e ON e.ref = 'accion:' || a.id "
             "WHERE a.ok AND a.por IS NOT NULL AND a.accion = ANY(%s) "
             "  AND e.id IS NULL "
             "ORDER BY a.ts",
@@ -75,7 +75,7 @@ def main() -> int:
         # Lo que NO se deriva, contado. **Decir cuánto se deja afuera es parte del
         # resultado**: sin esto, «sembré 12» se lee como «había 12».
         cur.execute(
-            "SELECT accion, count(*) FROM mercado.av_agent_acciones "
+            "SELECT accion, count(*) FROM agente.av_agent_acciones "
             "WHERE ok AND por IS NOT NULL AND accion <> ALL(%s) "
             "GROUP BY accion ORDER BY count(*) DESC",
             (list(REGLA_DE_ACCION),))

@@ -21,10 +21,13 @@ _(pendiente de enriquecimiento)_
 - [[api.services.av_agent_alta]]  ·  _module_
 - [[api.services.av_agent_hacer]]  ·  _module_
 - [[api.services.av_agent_memoria]]  ·  _module_
+- [[api.services.av_agent_mensajes]]  ·  _module_
 - [[api.services.salud]]  ·  _module_
 - [[jobs.controles_datos]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.ia]]  ·  _module_
+- [[api.services.av_agent_errores]]  ·  _module_
 - [[api.services.av_agent_hacer]]  ·  _module_
 - [[api.services.av_agent_masivo]]  ·  _module_
+- [[jobs.controles_datos]]  ·  _module_

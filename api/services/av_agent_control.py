@@ -63,7 +63,7 @@ def _leer_parada() -> dict:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT parada, motivo, por, cambiado_at "
-                        "FROM mercado.av_agent_control WHERE id")
+                        "FROM agente.av_agent_control WHERE id")
             r = cur.fetchone()
         est = ({"parada": bool(r[0]), "motivo": r[1] or "", "por": r[2] or "",
                 "cambiado_at": r[3].isoformat() if r[3] else None, "leido": True}
@@ -113,11 +113,11 @@ def set_parada(*, activa: bool, motivo: str = "", por: str = "") -> dict:
                                       "puede reanudarlo."}
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE mercado.av_agent_control SET parada = %s, motivo = %s, "
+            cur.execute("UPDATE agente.av_agent_control SET parada = %s, motivo = %s, "
                         "por = %s, cambiado_at = now() WHERE id",
                         (activa, motivo, por or ""))
             if cur.rowcount == 0:      # la fila semilla del schema no está
-                cur.execute("INSERT INTO mercado.av_agent_control (id, parada, motivo, por) "
+                cur.execute("INSERT INTO agente.av_agent_control (id, parada, motivo, por) "
                             "VALUES (true, %s, %s, %s)", (activa, motivo, por or ""))
             conn.commit()
     except Exception as e:
@@ -227,7 +227,7 @@ def _fuente_corrida() -> dict:
     """Cuándo relevó el agente por última vez. Una foto sin fecha miente en
     silencio — el mismo criterio que la cabecera del modal."""
     try:
-        r = _una("SELECT max(corrida_at) FROM mercado.av_agent_hallazgos")
+        r = _una("SELECT max(corrida_at) FROM agente.av_agent_hallazgos")
         ult = r[0] if r else None
         if not ult:
             return _fuente("corrida", "Última relevada", "revisar", "nunca corrió")

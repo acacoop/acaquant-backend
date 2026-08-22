@@ -20,6 +20,7 @@ Conecta con: lee TEM de Lecap y paridad de CER vía `engines._curvas_loader` (`T
 
 ## Usa / conecta con →
 - [[core.calendario]]  ·  _module_
+- [[core.logs]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.series_macro]]  ·  _module_

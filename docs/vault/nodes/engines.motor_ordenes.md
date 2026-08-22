@@ -21,6 +21,7 @@ Conecta con: upsert a `Operaciones.OrdenesLive` (estado vivo por cl_ord_id) y ap
 ## Usa / conecta con →
 - [[core]]  ·  _module_
 - [[core.brackets]]  ·  _module_
+- [[core.logs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[core.rofex_orders_session]]  ·  _module_

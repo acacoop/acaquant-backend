@@ -20,7 +20,9 @@ _(pendiente de enriquecimiento)_
 - [[api.services]]  ·  _module_
 - [[api.services.av_agent_acciones]]  ·  _module_
 - [[api.services.av_agent_control]]  ·  _module_
+- [[api.services.av_agent_items]]  ·  _module_
 - [[core]]  ·  _module_
+- [[core.ciclo]]  ·  _module_
 - [[core.curvas_catalogo]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 

@@ -62,6 +62,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.interbanking_sync]]  ·  _module_
 - [[jobs.market_anchors]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
+- [[jobs.mayor_sync]]  ·  _module_
 - [[jobs.mercado_1816_series]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.news_finnhub]]  ·  _module_
@@ -74,6 +75,8 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.portafolio_backfill]]  ·  _module_
 - [[jobs.precios_acciones_daily]]  ·  _module_
 - [[jobs.research_mail]]  ·  _module_
+- [[jobs.saldos_a_operadores]]  ·  _module_
+- [[jobs.seguimiento]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.snapshot_sinteticos]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_

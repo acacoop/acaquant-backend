@@ -83,8 +83,8 @@ def _hallazgos(tipos: tuple[str, ...], tickers: list[str]) -> tuple[list[dict], 
     mirando, no otras parecidas.
     """
     sql = ("SELECT tipo, ticker, regla, severidad, motivo, evidencia, corrida_at "
-           "FROM mercado.av_agent_hallazgos WHERE corrida_at = "
-           "(SELECT max(corrida_at) FROM mercado.av_agent_hallazgos) "
+           "FROM agente.av_agent_hallazgos WHERE corrida_at = "
+           "(SELECT max(corrida_at) FROM agente.av_agent_hallazgos) "
            "AND tipo = ANY(%s)")
     params: list = [list(tipos)]
     if tickers:

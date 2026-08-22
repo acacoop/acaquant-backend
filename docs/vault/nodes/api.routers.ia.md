@@ -19,14 +19,18 @@ _(pendiente de enriquecimiento)_
 ## Usa / conecta con →
 - [[api.auth]]  ·  _module_
 - [[api.services]]  ·  _module_
+- [[api.services.av_agent]]  ·  _module_
+- [[api.services.av_agent_agenda]]  ·  _module_
 - [[api.services.av_agent_alta]]  ·  _module_
 - [[api.services.av_agent_analista]]  ·  _module_
 - [[api.services.av_agent_centinela]]  ·  _module_
 - [[api.services.av_agent_control]]  ·  _module_
+- [[api.services.av_agent_espejo]]  ·  _module_
 - [[api.services.av_agent_evals]]  ·  _module_
 - [[api.services.av_agent_explicar]]  ·  _module_
 - [[api.services.av_agent_hacer]]  ·  _module_
 - [[api.services.av_agent_masivo]]  ·  _module_
+- [[api.services.av_agent_pata]]  ·  _module_
 - [[api.services.av_agent_preguntas]]  ·  _module_
 - [[api.services.av_agent_relevar]]  ·  _module_
 - [[api.services.av_agent_salud]]  ·  _module_

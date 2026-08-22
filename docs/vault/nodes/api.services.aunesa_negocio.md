@@ -21,6 +21,8 @@ Conecta con: pega a Aunesa (login + consolidadosGenerales); aplica `api.services
 ## Usa / conecta con →
 - [[api.services._negocio_informacion_filter]]  ·  _module_
 - [[config]]  ·  _module_
+- [[core]]  ·  _module_
+- [[core.proveedores]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.aunesa]]  ·  _module_

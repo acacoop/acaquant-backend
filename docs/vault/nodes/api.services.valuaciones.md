@@ -35,5 +35,6 @@ Conecta con: lee `Valuaciones.AuM`, `CashFlow.NegocioMovimientos` (flujos) y `Tr
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.valuaciones]]  ·  _module_
 - [[api.routers.valuaciones]]  ·  _module_
+- [[api.services.carteras_informe]]  ·  _module_
 - [[api.services.valuaciones_sql]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_

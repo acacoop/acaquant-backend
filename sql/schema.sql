@@ -52,6 +52,12 @@ CREATE SCHEMA IF NOT EXISTS partner;
 CREATE SCHEMA IF NOT EXISTS mcp;
 CREATE SCHEMA IF NOT EXISTS research;
 CREATE SCHEMA IF NOT EXISTS ia;
+-- El AV AGENT tiene schema PROPIO (2026-08-22). Sus 15+ tablas nacieron en
+-- `mercado` por inercia del primer detector — y `mercado` es DATOS DE MERCADO,
+-- no la memoria del agente. La mudanza vive en un bloque DO más abajo (antes
+-- del primer CREATE TABLE del agente): ALTER TABLE ... SET SCHEMA es un cambio
+-- de metadata instantáneo, los datos no se copian ni se pierden.
+CREATE SCHEMA IF NOT EXISTS agente;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- MIGRACIÓN idempotente public/portafolio → schemas de dominio (v1 → v2).
@@ -4180,7 +4186,31 @@ CREATE TABLE IF NOT EXISTS bancos.presencia (
 -- son hallazgos de una corrida, se regeneran corriendo el job de nuevo.
 DROP TABLE IF EXISTS mercado.curador_hallazgos;
 
-CREATE TABLE IF NOT EXISTS mercado.av_agent_hallazgos (
+-- ── LA MUDANZA: mercado.av_agent_* → agente.* (2026-08-22) ──────────────────
+-- Corre ANTES de los CREATE TABLE de abajo a propósito: si la tabla existe en
+-- `mercado` se MUDA (con sus datos, índices y PKs — SET SCHEMA es metadata),
+-- y el CREATE IF NOT EXISTS de abajo la encuentra ya en `agente` y no hace
+-- nada. Si el orden fuera el inverso, el CREATE crearía una tabla VACÍA en
+-- `agente` y la historia quedaría varada en `mercado` — dos verdades.
+-- Idempotente: en la segunda pasada no queda nada en `mercado` que mudar.
+DO $mudanza_agente$
+DECLARE t text;
+BEGIN
+  FOR t IN SELECT tablename FROM pg_tables
+            WHERE schemaname = 'mercado' AND tablename LIKE 'av\_agent%'
+  LOOP
+    IF EXISTS (SELECT 1 FROM pg_tables
+                WHERE schemaname = 'agente' AND tablename = t) THEN
+      -- Las dos existen (un deploy a medias creó la nueva vacía): no se pisa
+      -- nada solo — se canta para resolver a mano.
+      RAISE WARNING 'av_agent: % existe en mercado Y en agente — resolver a mano', t;
+    ELSE
+      EXECUTE format('ALTER TABLE mercado.%I SET SCHEMA agente', t);
+    END IF;
+  END LOOP;
+END $mudanza_agente$;
+
+CREATE TABLE IF NOT EXISTS agente.av_agent_hallazgos (
     id          bigserial PRIMARY KEY,
     corrida_at  timestamptz NOT NULL DEFAULT now(),
     alcance     text NOT NULL,        -- soberanos | no_corporativos | todo
@@ -4196,9 +4226,9 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_hallazgos (
 
 -- El acceso natural es "la última corrida" y "la historia de este ticker".
 CREATE INDEX IF NOT EXISTS ix_av_agent_corrida
-    ON mercado.av_agent_hallazgos (corrida_at DESC);
+    ON agente.av_agent_hallazgos (corrida_at DESC);
 CREATE INDEX IF NOT EXISTS ix_av_agent_ticker
-    ON mercado.av_agent_hallazgos (ticker, corrida_at DESC);
+    ON agente.av_agent_hallazgos (ticker, corrida_at DESC);
 
 -- AV AGENT — lo que el user decidió NO mirar (2026-08-16, calibración de E1).
 --
@@ -4213,7 +4243,7 @@ CREATE INDEX IF NOT EXISTS ix_av_agent_ticker
 -- `motivo` es obligatorio a propósito — dentro de seis meses, "por qué ignoramos
 -- este bono" es la única pregunta que importa, y es la que E7 va a usar como
 -- ejemplo para dejar de proponerlo.
--- mercado.av_agent_trazas — LO QUE EL AGENTE DIJO, guardado (2026-08-17).
+-- agente.av_agent_trazas — LO QUE EL AGENTE DIJO, guardado (2026-08-17).
 --
 -- Cada diagnóstico se calculaba entero y se tiraba al cerrar el modal. Es la
 -- materia prima de todo el aprendizaje: **sin el registro de lo que el agente dijo
@@ -4231,11 +4261,11 @@ CREATE INDEX IF NOT EXISTS ix_av_agent_ticker
 -- esta columna, el que lee tendría que recalcularla —en Python o en SQL— y ahí
 -- vuelve REGLA #9: dos implementaciones de la misma identidad que se separan
 -- solas, y la memoria queda existiendo pero inalcanzable.
-ALTER TABLE mercado.av_agent_hallazgos ADD COLUMN IF NOT EXISTS clave text;
+ALTER TABLE agente.av_agent_hallazgos ADD COLUMN IF NOT EXISTS clave text;
 CREATE INDEX IF NOT EXISTS ix_av_hallazgos_clave
-    ON mercado.av_agent_hallazgos (clave);
+    ON agente.av_agent_hallazgos (clave);
 
-CREATE TABLE IF NOT EXISTS mercado.av_agent_trazas (
+CREATE TABLE IF NOT EXISTS agente.av_agent_trazas (
     id            bigserial PRIMARY KEY,
     caso          text NOT NULL,          -- ticker del bono o id del chequeo
     dominio       text NOT NULL DEFAULT 'bono',
@@ -4247,10 +4277,10 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_trazas (
     por           text,
     creado_at     timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS ix_av_trazas_caso  ON mercado.av_agent_trazas (caso, creado_at DESC);
-CREATE INDEX IF NOT EXISTS ix_av_trazas_causa ON mercado.av_agent_trazas (causa, creado_at DESC);
+CREATE INDEX IF NOT EXISTS ix_av_trazas_caso  ON agente.av_agent_trazas (caso, creado_at DESC);
+CREATE INDEX IF NOT EXISTS ix_av_trazas_causa ON agente.av_agent_trazas (causa, creado_at DESC);
 
--- mercado.av_agent_lecciones — EL PATRÓN DURABLE (2026-08-17).
+-- agente.av_agent_lecciones — EL PATRÓN DURABLE (2026-08-17).
 --
 -- Pedido del user: *«no puede quedar nada desperdiciado: tiene que quedar todo,
 -- cómo se va construyendo la solución, los errores que detecto, cómo se fue
@@ -4271,7 +4301,7 @@ CREATE INDEX IF NOT EXISTS ix_av_trazas_causa ON mercado.av_agent_trazas (causa,
 --
 -- `slug` es la identidad: re-anotar la misma lección la ACTUALIZA en vez de
 -- duplicarla, porque una lección se refina con el tiempo.
-CREATE TABLE IF NOT EXISTS mercado.av_agent_lecciones (
+CREATE TABLE IF NOT EXISTS agente.av_agent_lecciones (
     id            bigserial PRIMARY KEY,
     slug          text NOT NULL UNIQUE,
     dominio       text NOT NULL DEFAULT '',   -- '' = aplica a todos
@@ -4285,9 +4315,9 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_lecciones (
     activa        boolean NOT NULL DEFAULT true,
     creado_at     timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS ix_av_lecciones_causa ON mercado.av_agent_lecciones (causa) WHERE activa;
+CREATE INDEX IF NOT EXISTS ix_av_lecciones_causa ON agente.av_agent_lecciones (causa) WHERE activa;
 
--- mercado.av_agent_evals — EL EVAL SET del agente (2026-08-17).
+-- agente.av_agent_evals — EL EVAL SET del agente (2026-08-17).
 --
 -- **La medición es la piedra angular, y no existía.** El agente diagnostica y
 -- arregla, pero nadie podía decir con un número cuánto ACIERTA — y sin eso cada
@@ -4327,7 +4357,7 @@ CREATE INDEX IF NOT EXISTS ix_av_lecciones_causa ON mercado.av_agent_lecciones (
 -- antigüedad de verdad, que `veces` cuente, y que un problema que reaparece
 -- pase a `volvio` en vez de nacer «nuevo» otra vez — que es exactamente lo que
 -- venía pasando y se leía como que el agente no se acuerda de nada.
-CREATE TABLE IF NOT EXISTS mercado.av_agent_items (
+CREATE TABLE IF NOT EXISTS agente.av_agent_items (
     -- ⚠️ **sujeto|causa — SIN fecha, SIN tipo y SIN origen** (§0.bj). Tipo y
     -- origen son QUIÉN LO VIO: meterlos en la identidad hacía que el mismo
     -- bono roto fuera DOS objetos (el del detector y el del control), y
@@ -4355,15 +4385,15 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_items (
     datos       jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS ix_av_items_abiertos
-    ON mercado.av_agent_items (tipo, severidad, ultimo_at DESC)
+    ON agente.av_agent_items (tipo, severidad, ultimo_at DESC)
     WHERE estado <> 'resuelto' AND estado <> 'ignorado';
 CREATE INDEX IF NOT EXISTS ix_av_items_sujeto
-    ON mercado.av_agent_items (sujeto, regla);
+    ON agente.av_agent_items (sujeto, regla);
 -- Para el SEGUIMIENTO escalonado: los resueltos que todavía se están mirando.
 CREATE INDEX IF NOT EXISTS ix_av_items_resueltos
-    ON mercado.av_agent_items (resuelto_at) WHERE estado = 'resuelto';
+    ON agente.av_agent_items (resuelto_at) WHERE estado = 'resuelto';
 
-CREATE TABLE IF NOT EXISTS mercado.av_agent_errores (
+CREATE TABLE IF NOT EXISTS agente.av_agent_errores (
     clave       text PRIMARY KEY,          -- sha256(unidad|patron), 32 chars
     unidad      text NOT NULL,
     patron      text NOT NULL,
@@ -4371,7 +4401,7 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_errores (
     creado_at   timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS mercado.av_agent_evals (
+CREATE TABLE IF NOT EXISTS agente.av_agent_evals (
     id              bigserial PRIMARY KEY,
     caso            text NOT NULL,        -- el SUJETO: ticker del bono o id del chequeo
     dominio         text NOT NULL DEFAULT 'bono',   -- bono | salud | sistema
@@ -4393,15 +4423,15 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_evals (
     ref             text,
     creado_at       timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE mercado.av_agent_evals ADD COLUMN IF NOT EXISTS origen text NOT NULL DEFAULT 'humano';
-ALTER TABLE mercado.av_agent_evals ADD COLUMN IF NOT EXISTS ref text;
+ALTER TABLE agente.av_agent_evals ADD COLUMN IF NOT EXISTS origen text NOT NULL DEFAULT 'humano';
+ALTER TABLE agente.av_agent_evals ADD COLUMN IF NOT EXISTS ref text;
 -- Un voto derivado por origen: re-sembrar es idempotente y no infla el número.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_evals_ref
-    ON mercado.av_agent_evals (ref) WHERE ref IS NOT NULL;
-CREATE INDEX IF NOT EXISTS ix_av_evals_causa ON mercado.av_agent_evals (dominio, causa);
-CREATE INDEX IF NOT EXISTS ix_av_evals_caso  ON mercado.av_agent_evals (caso, creado_at DESC);
+    ON agente.av_agent_evals (ref) WHERE ref IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_av_evals_causa ON agente.av_agent_evals (dominio, causa);
+CREATE INDEX IF NOT EXISTS ix_av_evals_caso  ON agente.av_agent_evals (caso, creado_at DESC);
 
-CREATE TABLE IF NOT EXISTS mercado.av_agent_ignorados (
+CREATE TABLE IF NOT EXISTS agente.av_agent_ignorados (
     ticker      text PRIMARY KEY,     -- ticker CORTO normalizado (sin especie D/C)
     motivo      text NOT NULL,
     por         text,                 -- email de quien lo ignoró
@@ -4427,7 +4457,7 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_ignorados (
 -- alcance mirar, quién gana ante un conflicto). Su efecto no es automático: lo
 -- aplica el desarrollo siguiente. Se guardan igual para que la decisión no se
 -- pierda en un chat.
-CREATE TABLE IF NOT EXISTS mercado.av_agent_preguntas (
+CREATE TABLE IF NOT EXISTS agente.av_agent_preguntas (
     id             bigserial PRIMARY KEY,
     clave          text NOT NULL UNIQUE,   -- idempotencia: 'falta:TZXD8', 'decision:alcance'
     tipo           text NOT NULL,          -- hallazgo | decision
@@ -4444,7 +4474,7 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_preguntas (
 );
 
 CREATE INDEX IF NOT EXISTS ix_av_agent_preg_abiertas
-    ON mercado.av_agent_preguntas (estado, creada_at);
+    ON agente.av_agent_preguntas (estado, creada_at);
 
 -- ⚠️ **LA IDENTIDAD, EN COLUMNAS Y NO ADENTRO DE LA `clave`** (2026-08-21, §0.bk).
 -- La `clave` es `falta:TZXD8`: causa y sujeto pegados con dos puntos. Alcanza
@@ -4452,8 +4482,8 @@ CREATE INDEX IF NOT EXISTS ix_av_agent_preg_abiertas
 -- separarlos, y hacerlo con un `split(':')` ataría la identidad a una convención
 -- de texto — el día que un sujeto traiga `:` adentro partiría mal y en silencio
 -- (REGLA #9). Se guardan aparte, escritos por quien arma la pregunta.
-ALTER TABLE mercado.av_agent_preguntas ADD COLUMN IF NOT EXISTS sujeto text;
-ALTER TABLE mercado.av_agent_preguntas ADD COLUMN IF NOT EXISTS causa text;
+ALTER TABLE agente.av_agent_preguntas ADD COLUMN IF NOT EXISTS sujeto text;
+ALTER TABLE agente.av_agent_preguntas ADD COLUMN IF NOT EXISTS causa text;
 
 -- AV AGENT — CATÁLOGO DE CURVAS (2026-08-17). La curva deja de ser código.
 --
@@ -4497,7 +4527,7 @@ CREATE TABLE IF NOT EXISTS mercado.curvas_catalogo (
 -- `antes` guarda el estado previo: sin eso, "revertir" es una promesa y no una
 -- función. `ok`/`error` registran también los INTENTOS FALLIDOS — un libro que
 -- solo anota los éxitos hace parecer que el agente nunca se equivoca.
-CREATE TABLE IF NOT EXISTS mercado.av_agent_acciones (
+CREATE TABLE IF NOT EXISTS agente.av_agent_acciones (
     id          bigserial PRIMARY KEY,
     ts          timestamptz NOT NULL DEFAULT now(),
     accion      text NOT NULL,     -- ignorar_ticker | designorar | crear_curva | alta_bono …
@@ -4518,11 +4548,11 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_acciones (
     error       text
 );
 
-ALTER TABLE mercado.av_agent_acciones ADD COLUMN IF NOT EXISTS regla text;
+ALTER TABLE agente.av_agent_acciones ADD COLUMN IF NOT EXISTS regla text;
 CREATE INDEX IF NOT EXISTS ix_av_agent_acciones_ts
-    ON mercado.av_agent_acciones (ts DESC);
+    ON agente.av_agent_acciones (ts DESC);
 CREATE INDEX IF NOT EXISTS ix_av_agent_acciones_obj
-    ON mercado.av_agent_acciones (objetivo, ts DESC);
+    ON agente.av_agent_acciones (objetivo, ts DESC);
 
 
 -- AVISOS del AV AGENT: trabajo MANUAL pendiente que dejó un alta.
@@ -4536,7 +4566,7 @@ CREATE INDEX IF NOT EXISTS ix_av_agent_acciones_obj
 -- La lectura igual CRUZA contra el master (`ya_cargado`), así que un aviso
 -- marcado como hecho sobre un dato que sigue faltando se canta en la pantalla en
 -- vez de mentir en silencio. Ese cruce es lo que hace seguro el cierre manual.
-CREATE TABLE IF NOT EXISTS mercado.av_agent_avisos (
+CREATE TABLE IF NOT EXISTS agente.av_agent_avisos (
     id           bigserial PRIMARY KEY,
     ticker       text NOT NULL,
     clave        text NOT NULL,     -- cer_emision | emisor | …
@@ -4583,9 +4613,9 @@ DROP INDEX IF EXISTS mercado.ux_av_agent_avisos_abierto;
 --   · `vence_at`   — un aviso de saldos vale HOY; mañana el mercado abre y ya no
 --                    dice nada. Sin vencimiento sería una foto vieja pidiendo
 --                    acción, que es peor que no avisar.
-ALTER TABLE mercado.av_agent_avisos ADD COLUMN IF NOT EXISTS datos jsonb;
-ALTER TABLE mercado.av_agent_avisos ADD COLUMN IF NOT EXISTS interrumpe boolean NOT NULL DEFAULT false;
-ALTER TABLE mercado.av_agent_avisos ADD COLUMN IF NOT EXISTS vence_at timestamptz;
+ALTER TABLE agente.av_agent_avisos ADD COLUMN IF NOT EXISTS datos jsonb;
+ALTER TABLE agente.av_agent_avisos ADD COLUMN IF NOT EXISTS interrumpe boolean NOT NULL DEFAULT false;
+ALTER TABLE agente.av_agent_avisos ADD COLUMN IF NOT EXISTS vence_at timestamptz;
 
 -- Las FILAS de un aviso, cada una con su tilde y su hora. El user pidió que el
 -- operador marque completado uno por uno y que eso persista con timestamp.
@@ -4593,9 +4623,9 @@ ALTER TABLE mercado.av_agent_avisos ADD COLUMN IF NOT EXISTS vence_at timestampt
 -- Van en su propia tabla y no adentro del jsonb porque **cada tilde es un hecho
 -- auditable**: quién y cuándo. Un jsonb pisado en cada click deja el último
 -- estado y borra el camino.
-CREATE TABLE IF NOT EXISTS mercado.av_agent_aviso_items (
+CREATE TABLE IF NOT EXISTS agente.av_agent_aviso_items (
     id        bigserial PRIMARY KEY,
-    aviso_id  bigint NOT NULL REFERENCES mercado.av_agent_avisos(id) ON DELETE CASCADE,
+    aviso_id  bigint NOT NULL REFERENCES agente.av_agent_avisos(id) ON DELETE CASCADE,
     orden     integer NOT NULL DEFAULT 0,
     clave     text NOT NULL,          -- identidad de la fila (ej. '805:ARS')
     etiqueta  text NOT NULL,          -- lo que se lee
@@ -4606,10 +4636,10 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_aviso_items (
     UNIQUE (aviso_id, clave)
 );
 CREATE INDEX IF NOT EXISTS ix_av_aviso_items
-    ON mercado.av_agent_aviso_items (aviso_id, orden);
+    ON agente.av_agent_aviso_items (aviso_id, orden);
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto_para
-    ON mercado.av_agent_avisos (ticker, clave, coalesce(lower(para), ''))
+    ON agente.av_agent_avisos (ticker, clave, coalesce(lower(para), ''))
     WHERE NOT resuelto;
 -- A QUIÉN le toca (2026-08-19). NULL = de todos, que es como funcionó hasta
 -- ahora y sigue siendo el default: la lista de pendientes del alta de bonos no
@@ -4619,13 +4649,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto_para
 -- No se hizo una tabla de notificaciones nueva a propósito: esta ya tiene alta,
 -- cierre por una persona y pantalla. Un segundo buzón daría dos lugares donde
 -- mirar lo que hay para hacer — el problema exacto que SALUD vino a resolver.
-ALTER TABLE mercado.av_agent_avisos ADD COLUMN IF NOT EXISTS para text;
+ALTER TABLE agente.av_agent_avisos ADD COLUMN IF NOT EXISTS para text;
 CREATE INDEX IF NOT EXISTS ix_av_agent_avisos_para
-    ON mercado.av_agent_avisos (lower(para)) WHERE NOT resuelto;
+    ON agente.av_agent_avisos (lower(para)) WHERE NOT resuelto;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- mercado.av_agent_control — LA PARADA DE EMERGENCIA del AV Agent (2026-08-18).
+-- agente.av_agent_control — LA PARADA DE EMERGENCIA del AV Agent (2026-08-18).
 --
 -- Pedido del user: *«quiero control total del agente desde el modal por las
 -- dudas»*. Hasta acá el agente tenía 15 endpoints y los 15 actuaban sobre UN
@@ -4643,7 +4673,7 @@ CREATE INDEX IF NOT EXISTS ix_av_agent_avisos_para
 -- aprueba cada escritura. Esto es un INTERRUPTOR — corta las escrituras del
 -- agente sin tocar la lectura, así se puede seguir diagnosticando con la mano
 -- frenada, que es justo lo que uno quiere mientras investiga.
-CREATE TABLE IF NOT EXISTS mercado.av_agent_control (
+CREATE TABLE IF NOT EXISTS agente.av_agent_control (
     id          boolean PRIMARY KEY DEFAULT true CHECK (id),
     parada      boolean NOT NULL DEFAULT false,
     motivo      text NOT NULL DEFAULT '',
@@ -4651,11 +4681,11 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_control (
     cambiado_at timestamptz NOT NULL DEFAULT now()
 );
 
-INSERT INTO mercado.av_agent_control (id) VALUES (true) ON CONFLICT DO NOTHING;
+INSERT INTO agente.av_agent_control (id) VALUES (true) ON CONFLICT DO NOTHING;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- mercado.av_agent_runs — EL DIAGNÓSTICO MASIVO (2026-08-18).
+-- agente.av_agent_runs — EL DIAGNÓSTICO MASIVO (2026-08-18).
 --
 -- Pedido del user: *«un botón que haga un estado de situación con los que dieron
 -- error, los que dieron bien, etc., bien completo, que quede para copiar y pegar
@@ -4672,7 +4702,7 @@ INSERT INTO mercado.av_agent_control (id) VALUES (true) ON CONFLICT DO NOTHING;
 -- `informe` guarda el resultado de CADA caso, no un resumen: el agregado se
 -- deriva en la lectura. Un resumen persistido se contradice con su propio
 -- detalle en cuanto cambia la forma de agrupar.
-CREATE TABLE IF NOT EXISTS mercado.av_agent_runs (
+CREATE TABLE IF NOT EXISTS agente.av_agent_runs (
     id          bigserial PRIMARY KEY,
     creado_at   timestamptz NOT NULL DEFAULT now(),
     fin_at      timestamptz,
@@ -4692,19 +4722,19 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_runs (
     informe     jsonb NOT NULL DEFAULT '[]'::jsonb
 );
 
-CREATE INDEX IF NOT EXISTS ix_av_runs_creado ON mercado.av_agent_runs (creado_at DESC);
+CREATE INDEX IF NOT EXISTS ix_av_runs_creado ON agente.av_agent_runs (creado_at DESC);
 
 -- CERRAR el informe (2026-08-22): el run quedaba pegado en la pantalla para
 -- siempre — un «interrumpido» de ayer sin forma de sacarlo. `visto_at` lo
 -- cierra SIN borrarlo (la corrida es historia); el front lo muestra plegado.
-ALTER TABLE mercado.av_agent_runs ADD COLUMN IF NOT EXISTS visto_at timestamptz;
+ALTER TABLE agente.av_agent_runs ADD COLUMN IF NOT EXISTS visto_at timestamptz;
 
 -- El ANÁLISIS con IA del informe masivo (2026-08-18, ver av_agent_analista.py).
 -- Pegado a SU corrida: sin esto habría que volver a pagarlo cada vez que se
 -- reabre el informe — y peor, dos lecturas del mismo informe podrían decir
 -- cosas distintas.
-ALTER TABLE mercado.av_agent_runs ADD COLUMN IF NOT EXISTS analisis    text;
-ALTER TABLE mercado.av_agent_runs ADD COLUMN IF NOT EXISTS analisis_at timestamptz;
+ALTER TABLE agente.av_agent_runs ADD COLUMN IF NOT EXISTS analisis    text;
+ALTER TABLE agente.av_agent_runs ADD COLUMN IF NOT EXISTS analisis_at timestamptz;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -4734,7 +4764,7 @@ ALTER TABLE mercado.av_agent_runs ADD COLUMN IF NOT EXISTS analisis_at timestamp
 -- Un hallazgo que vuelve REABRE el mismo (resuelto_at → NULL): no nace otro.
 -- Uno que deja de verse se marca `resuelto_como='solo'` — **no se borra**: «se
 -- arregló solo» es información, y borrarlo dejaría la misma amnesia de antes.
-CREATE TABLE IF NOT EXISTS mercado.av_agent_centinela (
+CREATE TABLE IF NOT EXISTS agente.av_agent_centinela (
     id           bigserial PRIMARY KEY,
     -- La IDENTIDAD. Estable entre ciclos: mismo problema = misma fila.
     clave        text NOT NULL UNIQUE,
@@ -4754,13 +4784,13 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_centinela (
 );
 
 CREATE INDEX IF NOT EXISTS ix_av_centinela_abiertos
-    ON mercado.av_agent_centinela (severidad, abierto_at DESC) WHERE resuelto_at IS NULL;
+    ON agente.av_agent_centinela (severidad, abierto_at DESC) WHERE resuelto_at IS NULL;
 CREATE INDEX IF NOT EXISTS ix_av_centinela_ultimo
-    ON mercado.av_agent_centinela (ultimo_at DESC);
+    ON agente.av_agent_centinela (ultimo_at DESC);
 
 -- EL LATIDO — una sola fila. Es lo que hace que el círculo verde no mienta:
 -- sin un latido reciente, «prendido» sería una afirmación sobre el pasado.
--- mercado.av_agent_seguimiento — ¿LO QUE SE ARREGLÓ, SIGUIÓ ARREGLADO? (2026-08-19)
+-- agente.av_agent_seguimiento — ¿LO QUE SE ARREGLÓ, SIGUIÓ ARREGLADO? (2026-08-19)
 --
 -- Pedido del user: *«necesito que este agente entienda cuándo hizo algo bien, no
 -- solamente porque yo le puse "acertó", sino porque queda registrado y al otro
@@ -4780,7 +4810,7 @@ CREATE INDEX IF NOT EXISTS ix_av_centinela_ultimo
 --
 -- Alimenta el eval set con la evidencia MÁS FUERTE que existe, porque no es la
 -- opinión de nadie: el problema volvió o no volvió.
-CREATE TABLE IF NOT EXISTS mercado.av_agent_seguimiento (
+CREATE TABLE IF NOT EXISTS agente.av_agent_seguimiento (
     clave         text PRIMARY KEY,   -- la MISMA identidad estable del hallazgo
     tipo          text,
     sujeto        text NOT NULL,      -- el bono, el job, la cuenta…
@@ -4801,16 +4831,16 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_seguimiento (
     votado        boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS ix_av_seguimiento_mirando
-    ON mercado.av_agent_seguimiento (mirar_hasta) WHERE veredicto = 'mirando';
+    ON agente.av_agent_seguimiento (mirar_hasta) WHERE veredicto = 'mirando';
 
 -- ¿CUÁNTAS VECES VOLVIÓ? El centinela ya contaba `veces` (cuántos ciclos se vio)
 -- pero no cuántas veces pasó de RESUELTO a abierto de nuevo — y ésa es la que
 -- dice «esto ya lo arreglamos tres veces y vuelve». Un problema que reaparece no
 -- es el mismo problema de siempre: es uno que no estamos entendiendo.
-ALTER TABLE mercado.av_agent_centinela
+ALTER TABLE agente.av_agent_centinela
     ADD COLUMN IF NOT EXISTS reaperturas integer NOT NULL DEFAULT 0;
 
-CREATE TABLE IF NOT EXISTS mercado.av_agent_latido (
+CREATE TABLE IF NOT EXISTS agente.av_agent_latido (
     id         boolean PRIMARY KEY DEFAULT true CHECK (id),
     at         timestamptz NOT NULL DEFAULT now(),
     ciclo      bigint      NOT NULL DEFAULT 0,
@@ -4821,14 +4851,14 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_latido (
     error      text
 );
 
-INSERT INTO mercado.av_agent_latido (id) VALUES (true) ON CONFLICT DO NOTHING;
+INSERT INTO agente.av_agent_latido (id) VALUES (true) ON CONFLICT DO NOTHING;
 
 -- Cada cuánto PROMETE latir el centinela (2026-08-18). Sin esto el umbral de
 -- «vivo» estaba clavado en el ritmo de rueda (30s) y fuera de rueda —donde late
 -- cada 5 minutos— el círculo salía GRIS con el proceso perfectamente vivo.
 -- El latido declara su propia cadencia: así el umbral la sigue sola y no puede
 -- volver a desincronizarse cuando se cambie un intervalo.
-ALTER TABLE mercado.av_agent_latido ADD COLUMN IF NOT EXISTS proximo_en_s integer;
+ALTER TABLE agente.av_agent_latido ADD COLUMN IF NOT EXISTS proximo_en_s integer;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -4957,7 +4987,7 @@ CREATE TABLE IF NOT EXISTS manager.superficie_dia (
     PRIMARY KEY (fecha, path, metodos)
 );
 
--- mercado.av_agent_propuestas — LO QUE EL AGENTE SABE HACER (2026-08-19).
+-- agente.av_agent_propuestas — LO QUE EL AGENTE SABE HACER (2026-08-19).
 --
 -- Pedido del user: *«que el agente aprenda a sugerir, y que si le das OK
 -- actualice en el momento y luego controle que lo hizo bien en el mismo
@@ -4978,7 +5008,7 @@ CREATE TABLE IF NOT EXISTS manager.superficie_dia (
 --   · cada propuesta con su resultado ES el eval set de las acciones: sin esto
 --     no hay forma de saber si el agente sugiere bien, y sin eso no se le puede
 --     dar más autonomía sin fe.
-CREATE TABLE IF NOT EXISTS mercado.av_agent_propuestas (
+CREATE TABLE IF NOT EXISTS agente.av_agent_propuestas (
     id          bigserial PRIMARY KEY,
     creado_at   timestamptz NOT NULL DEFAULT now(),
     accion      text NOT NULL,            -- 'assets.cartera'
@@ -5011,4 +5041,4 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_propuestas (
 );
 
 CREATE INDEX IF NOT EXISTS ix_av_prop_pendientes
-    ON mercado.av_agent_propuestas (accion, creado_at DESC) WHERE estado = 'propuesta';
+    ON agente.av_agent_propuestas (accion, creado_at DESC) WHERE estado = 'propuesta';

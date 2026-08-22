@@ -188,7 +188,7 @@ def main(argv: list[str]) -> int:
         estado = "✔" if r.get("ok") else f"✖ {r.get('error')}"
         print(f"  {estado}  {lec['slug']}  —  {lec['titulo']}")
         ok += bool(r.get("ok"))
-    print(f"\n{ok}/{len(LECCIONES)} lecciones en mercado.av_agent_lecciones.")
+    print(f"\n{ok}/{len(LECCIONES)} lecciones en agente.av_agent_lecciones.")
     print("El agente las muestra dentro del diagnóstico cuando aplican a la causa.\n")
     return 0 if ok == len(LECCIONES) else 1
 

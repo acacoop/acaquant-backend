@@ -71,7 +71,7 @@ def anotar(*, clave: str, sujeto: str, regla: str, tipo: str = "",
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO mercado.av_agent_seguimiento "
+                "INSERT INTO agente.av_agent_seguimiento "
                 "(clave, tipo, sujeto, regla, dominio, arreglado_por, "
                 " que_se_hizo, mirar_hasta) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
@@ -104,14 +104,14 @@ def revisar(claves_abiertas: set[str] | None) -> dict:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT clave, sujeto, regla, dominio, arreglado_at, mirar_hasta "
-                "FROM mercado.av_agent_seguimiento WHERE veredicto = %s",
+                "FROM agente.av_agent_seguimiento WHERE veredicto = %s",
                 (MIRANDO,))
             filas = cur.fetchall()
             ahora = datetime.now(UTC)
             for clave, sujeto, regla, dominio, arreglado, hasta in filas:
                 if clave in claves_abiertas:
                     cur.execute(
-                        "UPDATE mercado.av_agent_seguimiento "
+                        "UPDATE agente.av_agent_seguimiento "
                         "SET veredicto = %s, volvio_at = now(), "
                         "    revisiones = revisiones + 1, ultima_revision_at = now() "
                         "WHERE clave = %s", (VOLVIO, clave))
@@ -120,7 +120,7 @@ def revisar(claves_abiertas: set[str] | None) -> dict:
                                       "arreglado_at": arreglado})
                 elif ahora >= hasta:
                     cur.execute(
-                        "UPDATE mercado.av_agent_seguimiento "
+                        "UPDATE agente.av_agent_seguimiento "
                         "SET veredicto = %s, revisiones = revisiones + 1, "
                         "    ultima_revision_at = now() WHERE clave = %s",
                         (AGUANTO, clave))
@@ -131,7 +131,7 @@ def revisar(claves_abiertas: set[str] | None) -> dict:
                     # Sigue en prueba. **No se afirma nada todavía**: «no volvió
                     # aún» no es «aguantó».
                     cur.execute(
-                        "UPDATE mercado.av_agent_seguimiento "
+                        "UPDATE agente.av_agent_seguimiento "
                         "SET revisiones = revisiones + 1, ultima_revision_at = now() "
                         "WHERE clave = %s", (clave,))
             conn.commit()
@@ -180,7 +180,7 @@ def _marcar_votados(claves: list[str]) -> None:
         return
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE mercado.av_agent_seguimiento SET votado = true "
+            cur.execute("UPDATE agente.av_agent_seguimiento SET votado = true "
                         "WHERE clave = ANY(%s)", (claves,))
     except Exception as e:
         logger.warning("seguimiento: no pude marcar los votados (%s)", e)
@@ -192,13 +192,13 @@ def estado(limite: int = 60) -> dict:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT veredicto, count(*) FROM mercado.av_agent_seguimiento "
+                "SELECT veredicto, count(*) FROM agente.av_agent_seguimiento "
                 "GROUP BY veredicto")
             conteo = {a: int(b) for a, b in cur.fetchall()}
             cur.execute(
                 "SELECT clave, sujeto, regla, veredicto, arreglado_at, "
                 "       arreglado_por, mirar_hasta, volvio_at, que_se_hizo "
-                "FROM mercado.av_agent_seguimiento "
+                "FROM agente.av_agent_seguimiento "
                 # Lo que VOLVIÓ primero: es lo único accionable de esta lista.
                 "ORDER BY (veredicto = 'volvio') DESC, arreglado_at DESC LIMIT %s",
                 (limite,))

@@ -23,3 +23,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
+- [[api.routers.manager]]  ·  _module_

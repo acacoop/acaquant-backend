@@ -144,7 +144,7 @@ JOBS: dict[str, dict] = {
                     "CER.",
         "depende_de": ["BCRA"], "reintentable": True},
     "av_agent": {
-        "alimenta": "`mercado.av_agent_hallazgos` → esta misma pantalla.",
+        "alimenta": "`agente.av_agent_hallazgos` → esta misma pantalla.",
         "depende_de": ["1816"], "reintentable": True},
 }
 
@@ -249,7 +249,7 @@ def _lente_firma(c: dict, lecciones_por_slug: dict) -> dict | None:
     if not hits:
         return None
     return _paso("firma", "Ya nos pasó", REVISAR, "\n".join(hits),
-                 tabla="mercado.av_agent_lecciones")
+                 tabla="agente.av_agent_lecciones")
 
 
 

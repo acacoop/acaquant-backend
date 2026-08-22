@@ -422,7 +422,7 @@ class AccionAvisar:
     sobre los comitentes sin nivel_1).
 
     **No se hace una tabla de notificaciones nueva.** Ya existe la lista de
-    pendientes del agente (`mercado.av_agent_avisos`): tiene alta, cierre por
+    pendientes del agente (`agente.av_agent_avisos`): tiene alta, cierre por
     una persona, y ya se dibuja. Lo único que le faltaba era **a quién** —
     columna `para`. Inventar un segundo buzón habría dado dos lugares donde
     mirar lo que hay para hacer, que es exactamente el problema que SALUD vino
@@ -1327,7 +1327,7 @@ def _guardar(accion_id: str, props: list[Propuesta]) -> int:
              for p in props]
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
-            "INSERT INTO mercado.av_agent_propuestas "
+            "INSERT INTO agente.av_agent_propuestas "
             "(accion, sujeto, campo, antes, propuesto, fuente, confianza, "
             " porque, extra) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb) "
@@ -1346,7 +1346,7 @@ def pendientes(accion_id: str = "", limite: int = 300) -> list[dict]:
     where = "estado = 'propuesta'" + (" AND accion = %s" if accion_id else "")
     params = (accion_id, limite) if accion_id else (limite,)
     return [_serializar(f) for f in _filas(
-        f"SELECT {', '.join(_COLS)}, extra FROM mercado.av_agent_propuestas "
+        f"SELECT {', '.join(_COLS)}, extra FROM agente.av_agent_propuestas "
         f"WHERE {where} ORDER BY fuente, sujeto LIMIT %s", params)]
 
 
@@ -1356,7 +1356,7 @@ def historial(accion_id: str = "", limite: int = 100) -> list[dict]:
     where = "estado <> 'propuesta'" + (" AND accion = %s" if accion_id else "")
     params = (accion_id, limite) if accion_id else (limite,)
     return [_serializar(f) for f in _filas(
-        f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_propuestas "
+        f"SELECT {', '.join(_COLS)} FROM agente.av_agent_propuestas "
         f"WHERE {where} ORDER BY aplicado_at DESC NULLS LAST, id DESC LIMIT %s",
         params)]
 
@@ -1421,7 +1421,7 @@ def uno(accion_id: str, sujeto: str, *, aplicar_ya: bool = False,
         return {"ok": True, "simulado": True, "propuesta": vista}
 
     _guardar(accion_id, [p])
-    filas = _filas("SELECT id FROM mercado.av_agent_propuestas "
+    filas = _filas("SELECT id FROM agente.av_agent_propuestas "
                    "WHERE accion = %s AND sujeto = %s AND campo = %s "
                    "  AND estado = 'propuesta' ORDER BY id DESC LIMIT 1",
                    (accion_id, p.sujeto, p.campo))
@@ -1489,7 +1489,7 @@ def aplicar(ids: list[int], *, por: str = "", valores: dict | None = None) -> di
     if not ids:
         return {"ok": False, "error": "no se pasó ninguna propuesta"}
     filas = _filas(
-        f"SELECT {', '.join(_COLS)}, extra FROM mercado.av_agent_propuestas "
+        f"SELECT {', '.join(_COLS)}, extra FROM agente.av_agent_propuestas "
         "WHERE id = ANY(%s)", (list(ids),))
     if not filas:
         return {"ok": False, "error": "esas propuestas ya no existen"}
@@ -1662,7 +1662,7 @@ def _sellar(pid: int, *, estado: str, por: str = "", verificado=None,
             propuesto: str | None = None) -> None:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "UPDATE mercado.av_agent_propuestas SET estado = %s, por = %s, "
+            "UPDATE agente.av_agent_propuestas SET estado = %s, por = %s, "
             "aplicado_at = now(), verificado = %s, verificado_detalle = %s, "
             "error = %s, propuesto = COALESCE(%s, propuesto) WHERE id = %s",
             (estado, por or None, verificado, (detalle or "")[:500], error,
@@ -1678,7 +1678,7 @@ def rechazar(ids: list[int], *, por: str = "") -> dict:
         return {"ok": False, "error": "no se pasó ninguna propuesta"}
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "UPDATE mercado.av_agent_propuestas SET estado = 'rechazada', "
+            "UPDATE agente.av_agent_propuestas SET estado = 'rechazada', "
             "por = %s, aplicado_at = now() WHERE id = ANY(%s) "
             "AND estado = 'propuesta'", (por or None, list(ids)))
         n = cur.rowcount
@@ -1696,7 +1696,7 @@ def resumen(accion_id: str = "") -> dict:
         "       count(*) FILTER (WHERE estado = 'rechazada')  AS rechazadas, "
         "       count(*) FILTER (WHERE estado = 'fallida')    AS fallidas, "
         "       count(*) FILTER (WHERE fuente = 'ia')         AS de_ia "
-        f"FROM mercado.av_agent_propuestas {where[0]}", where[1])
+        f"FROM agente.av_agent_propuestas {where[0]}", where[1])
     r = {k: int(v or 0) for k, v in (f[0] if f else {}).items()}
     decididas = r.get("aplicadas", 0) + r.get("rechazadas", 0)
     r["acierto"] = (round(r.get("aplicadas", 0) / decididas, 3)

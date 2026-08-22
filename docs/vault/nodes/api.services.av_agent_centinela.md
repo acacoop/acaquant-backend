@@ -19,6 +19,7 @@ _(pendiente de enriquecimiento)_
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
 - [[api.services.av_agent]]  ·  _module_
+- [[api.services.av_agent_items]]  ·  _module_
 - [[api.services.salud]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
@@ -27,4 +28,5 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.ia]]  ·  _module_
+- [[api.services.av_agent_agenda]]  ·  _module_
 - [[jobs.av_agent_centinela]]  ·  _module_

@@ -14,7 +14,7 @@ contesta cuando puede — no cuando el agente corre.
    herramienta que vuelve a preguntar lo mismo todas las noches se deja de leer,
    igual que una lista que repite lo descartado.
 2. **Responder DISPARA un efecto**, no anota una opinión: `ignorar` escribe en
-   `mercado.av_agent_ignorados` y ese ticker no vuelve a salir nunca. Por eso
+   `agente.av_agent_ignorados` y ese ticker no vuelve a salir nunca. Por eso
    `aplicada_at` es distinto de `respondida_at` — una respuesta cuyo efecto falló
    no puede quedar como si hubiera surtido.
 3. **La pregunta se entiende sola.** Se lee semanas después de escrita, sin el
@@ -155,7 +155,7 @@ def _texto_falta(tk: str, ev: dict) -> str:
 #
 # Una pregunta abierta es un pendiente con la misma forma que todo lo demás:
 # algo (un bono, una curva) sobre lo que falta una decisión. Espejarla en
-# `mercado.av_agent_items` le da lo que su tabla no tiene — **desde cuándo**
+# `agente.av_agent_items` le da lo que su tabla no tiene — **desde cuándo**
 # está sin responder y cuántas veces volvió a hacerse necesaria.
 #
 # ⚠️ **La identidad sale de campos declarados, NO de partir la `clave`.** La
@@ -228,7 +228,7 @@ def registrar(preguntas: list[dict]) -> int:
              for p in preguntas]
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
-            "INSERT INTO mercado.av_agent_preguntas "
+            "INSERT INTO agente.av_agent_preguntas "
             "(clave, tipo, pregunta, opciones, contexto, sujeto, causa) "
             "VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s) "
             "ON CONFLICT (clave) DO UPDATE SET "
@@ -237,9 +237,9 @@ def registrar(preguntas: list[dict]) -> int:
             # Las viejas nacieron sin identidad (la columna es nueva): se
             # completa cuando vuelven a registrarse, pero NUNCA se borra con un
             # NULL de una pregunta que no la trae.
-            "  sujeto = COALESCE(EXCLUDED.sujeto, mercado.av_agent_preguntas.sujeto), "
-            "  causa  = COALESCE(EXCLUDED.causa,  mercado.av_agent_preguntas.causa) "
-            "WHERE mercado.av_agent_preguntas.estado = 'abierta'",
+            "  sujeto = COALESCE(EXCLUDED.sujeto, agente.av_agent_preguntas.sujeto), "
+            "  causa  = COALESCE(EXCLUDED.causa,  agente.av_agent_preguntas.causa) "
+            "WHERE agente.av_agent_preguntas.estado = 'abierta'",
             filas)
         n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
     for q in preguntas:
@@ -268,7 +268,7 @@ _COLS = ["id", "clave", "tipo", "pregunta", "opciones", "contexto", "estado",
 
 def abiertas(limite: int = 200) -> list[dict]:
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_preguntas "
+        cur.execute(f"SELECT {', '.join(_COLS)} FROM agente.av_agent_preguntas "
                     "WHERE estado = 'abierta' ORDER BY tipo DESC, id LIMIT %s", (limite,))
         return [_row(r, _COLS) for r in cur.fetchall()]
 
@@ -287,7 +287,7 @@ def pendientes_de_aplicar() -> list[dict]:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT id, clave, respuesta, nota, respondida_por, respondida_at "
-            "FROM mercado.av_agent_preguntas "
+            "FROM agente.av_agent_preguntas "
             "WHERE estado = 'respondida' AND aplicada_at IS NULL "
             "  AND respuesta IS DISTINCT FROM 'despues' "
             "ORDER BY respondida_at", ())
@@ -303,7 +303,7 @@ def pendientes_de_aplicar() -> list[dict]:
 
 def resumen() -> dict:
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT estado, count(*) FROM mercado.av_agent_preguntas "
+        cur.execute("SELECT estado, count(*) FROM agente.av_agent_preguntas "
                     "GROUP BY estado")
         d = dict(cur.fetchall())
     return {"abiertas": d.get("abierta", 0), "respondidas": d.get("respondida", 0)}
@@ -328,7 +328,7 @@ def responder(id_pregunta: int, respuesta: str, *, por: str = "",
     """
     resp = (respuesta or "").strip().lower()
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(f"SELECT {', '.join(_COLS)} FROM mercado.av_agent_preguntas "
+        cur.execute(f"SELECT {', '.join(_COLS)} FROM agente.av_agent_preguntas "
                     "WHERE id = %s", (id_pregunta,))
         fila = cur.fetchone()
     if not fila:
@@ -344,7 +344,7 @@ def responder(id_pregunta: int, respuesta: str, *, por: str = "",
 
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "UPDATE mercado.av_agent_preguntas SET estado = 'respondida', "
+            "UPDATE agente.av_agent_preguntas SET estado = 'respondida', "
             "respuesta = %s, nota = %s, respondida_por = %s, respondida_at = now(), "
             "aplicada_at = CASE WHEN %s THEN now() ELSE NULL END WHERE id = %s",
             (resp, nota or None, por or None, aplicada, id_pregunta))
@@ -373,7 +373,7 @@ def _aplicar_efecto(p: dict, resp: str, *, por: str, nota: str) -> bool:
         motivo = nota or "el user lo marcó como «no nos interesa» desde el AV Agent"
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO mercado.av_agent_ignorados (ticker, motivo, por) "
+                "INSERT INTO agente.av_agent_ignorados (ticker, motivo, por) "
                 "VALUES (%s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
                 (ticker.upper(), motivo, por or None))
         acc.registrar(accion="ignorar_ticker", objetivo=ticker.upper(),
@@ -472,7 +472,7 @@ def ignorar(ticker: str, *, motivo: str = "", por: str = "") -> dict:
     motivo = (motivo or "").strip() or "el user lo marcó como «no nos interesa»"
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO mercado.av_agent_ignorados (ticker, motivo, por) "
+            "INSERT INTO agente.av_agent_ignorados (ticker, motivo, por) "
             "VALUES (%s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
             (tk, motivo, por or None))
         nuevo = (cur.rowcount or 0) > 0
@@ -501,13 +501,13 @@ def designorar(ticker: str, *, por: str = "") -> dict:
     with get_pool().connection() as conn, conn.cursor() as cur:
         # El motivo se lee ANTES de borrar: es el `antes` del libro, y es lo único
         # que permite reconstruir por qué se había ignorado.
-        cur.execute("SELECT motivo, por FROM mercado.av_agent_ignorados "
+        cur.execute("SELECT motivo, por FROM agente.av_agent_ignorados "
                     "WHERE ticker = %s", (tk,))
         prev = cur.fetchone()
-        cur.execute("DELETE FROM mercado.av_agent_ignorados WHERE ticker = %s", (tk,))
+        cur.execute("DELETE FROM agente.av_agent_ignorados WHERE ticker = %s", (tk,))
         borrado = cur.rowcount or 0
         cur.execute(
-            "UPDATE mercado.av_agent_preguntas SET estado = 'abierta', "
+            "UPDATE agente.av_agent_preguntas SET estado = 'abierta', "
             "respuesta = NULL, respondida_at = NULL, aplicada_at = NULL, "
             "nota = NULL, respondida_por = %s WHERE clave = %s",
             (por or None, f"falta:{tk}"))

@@ -28,3 +28,5 @@ _(pendiente de enriquecimiento)_
 - [[api.routers.aca]]  ·  _module_
 - [[api.routers.manager.aca]]  ·  _module_
 - [[api.routers.me]]  ·  _module_
+- [[api.services.carteras_informe]]  ·  _module_
+- [[api.services.mesa_dinero]]  ·  _module_

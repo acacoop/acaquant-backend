@@ -21,6 +21,7 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.services.av_agent_alta]]  ·  _module_
+- [[api.services.av_agent_rehacer]]  ·  _module_
 - [[api.services.bancos]]  ·  _module_
 - [[api.services.renta_fija_sql]]  ·  _module_
 - [[api.services.senebis]]  ·  _module_
@@ -33,6 +34,7 @@ _(pendiente de enriquecimiento)_
 - [[jobs.control_saldos]]  ·  _module_
 - [[jobs.interbanking_sync]]  ·  _module_
 - [[jobs.market_anchors]]  ·  _module_
+- [[jobs.mayor_sync]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.portafolio_backfill]]  ·  _module_
 - [[jobs.tenencia_live]]  ·  _module_

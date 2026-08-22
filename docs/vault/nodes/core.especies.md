@@ -17,7 +17,11 @@ path: core/especies.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[core]]  ·  _module_
+- [[core.pareo]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.services.av_agent]]  ·  _module_
 - [[api.services.av_agent_alta]]  ·  _module_
+- [[api.services.av_agent_pata]]  ·  _module_

@@ -19,6 +19,7 @@ Motor live de dólar MEP/CCL/canje. Suscribe por WS los 3 tramos de AL30 (AL30 p
 Conecta con: escribe `Valuaciones.DolarSnapshot` (1 doc, replaced cada 5s); usa `core.rofex_session` + `core.websocket`. Lo invoca systemd `motor_dolares.service`. El endpoint `/api/cotizaciones/mep` lee de este snapshot primero (live), con fallback a `Valuaciones.Dolar`.
 
 ## Usa / conecta con →
+- [[core.logs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[engines._motor_base]]  ·  _module_
 

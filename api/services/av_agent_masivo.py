@@ -74,7 +74,7 @@ def _crear(*, por: str, filtro: dict, total: int, sin_red: bool,
            tope: int | None) -> int:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO mercado.av_agent_runs (por, filtro, total, sin_red, "
+            "INSERT INTO agente.av_agent_runs (por, filtro, total, sin_red, "
             " tope_creditos, latido_at) VALUES (%s, %s::jsonb, %s, %s, %s, now()) "
             "RETURNING id",
             (por or None, json.dumps(filtro, ensure_ascii=False, default=str),
@@ -91,7 +91,7 @@ def _latir(run_id: int, hechos: int, informe: list[dict]) -> None:
     mal, que es justo cuando uno quiere abortarla."""
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE mercado.av_agent_runs SET hechos = %s, "
+            cur.execute("UPDATE agente.av_agent_runs SET hechos = %s, "
                         "latido_at = now(), informe = %s::jsonb WHERE id = %s",
                         (hechos, json.dumps(informe, ensure_ascii=False, default=str),
                          run_id))
@@ -104,7 +104,7 @@ def _cerrar(run_id: int, estado: str, *, creditos: int | None = None,
             error: str = "") -> None:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE mercado.av_agent_runs SET estado = %s, fin_at = now(), "
+            cur.execute("UPDATE agente.av_agent_runs SET estado = %s, fin_at = now(), "
                         "latido_at = now(), creditos = %s, error = %s WHERE id = %s",
                         (estado, creditos, (error or None)[:2000] if error else None,
                          run_id))
@@ -418,11 +418,23 @@ def marcar_visto(run_id: int) -> dict:
     borrado: la corrida es historia y `GET /masivo` la sigue devolviendo; el
     front la muestra plegada en una línea, reabrible. Una corrida EN CURSO no
     se puede cerrar — primero se frena.
+
+    ⚠️ **«En curso» es el latido, no la columna** (user, 2026-08-22: *«da
+    error y no deja cerrar tampoco»*). Un run que murió con la API (reinicio a
+    mitad de corrida) queda `corriendo` en la base PARA SIEMPRE — la pantalla
+    ya lo deduce como «interrumpido» por el latido viejo, pero este UPDATE
+    miraba solo la columna y rechazaba cerrarlo: el único informe imposible de
+    cerrar era justamente el que quedó pegado. El criterio es EL MISMO
+    `_LATIDO_MUERTO_S` que usa `estado()` — dos umbrales para «está vivo» es
+    cómo la pantalla dice una cosa y el botón otra.
     """
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("UPDATE mercado.av_agent_runs SET visto_at = now() "
-                    " WHERE id = %s AND estado <> 'corriendo' RETURNING id",
-                    (int(run_id),))
+        cur.execute("UPDATE agente.av_agent_runs SET visto_at = now() "
+                    " WHERE id = %s AND (estado <> 'corriendo' "
+                    "    OR latido_at IS NULL "
+                    "    OR latido_at < now() - make_interval(secs => %s)) "
+                    "RETURNING id",
+                    (int(run_id), _LATIDO_MUERTO_S))
         fila = cur.fetchone()
         conn.commit()
     if not fila:
@@ -434,7 +446,7 @@ def marcar_visto(run_id: int) -> dict:
 def _fila(run_id: int | None) -> dict | None:
     sql = ("SELECT id, creado_at, fin_at, estado, por, filtro, total, hechos, "
            "latido_at, sin_red, tope_creditos, creditos, error, informe, visto_at "
-           "FROM mercado.av_agent_runs ")
+           "FROM agente.av_agent_runs ")
     with get_pool().connection() as conn, conn.cursor() as cur:
         if run_id:
             cur.execute(sql + "WHERE id = %s", (run_id,))
@@ -605,7 +617,7 @@ def historial(limite: int = 15) -> list[dict]:
     empeoró»* es la pregunta que un informe suelto no contesta."""
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT id, creado_at, estado, total, hechos, sin_red, creditos "
-                    "FROM mercado.av_agent_runs ORDER BY creado_at DESC LIMIT %s",
+                    "FROM agente.av_agent_runs ORDER BY creado_at DESC LIMIT %s",
                     (max(1, min(50, limite)),))
         rows = cur.fetchall()
     return [{"id": r[0], "creado_at": r[1].isoformat() if r[1] else None,

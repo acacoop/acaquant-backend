@@ -22,6 +22,7 @@ Conecta con: escribe `Trading.FuturosDLRSnapshot` (live, replaced cada 15s) y `T
 - [[core]]  ·  _module_
 - [[core.dolar_oficial]]  ·  _module_
 - [[core.dolar_sql]]  ·  _module_
+- [[core.logs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.series_macro]]  ·  _module_
 - [[db.Trading.DOLAR]]  ·  _collection_

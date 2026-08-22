@@ -17,6 +17,13 @@ path: core/tz.py
 _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
+- [[api.services.av_agent]]  ·  _module_
+- [[api.services.av_agent_contexto]]  ·  _module_
+- [[api.services.av_agent_motores]]  ·  _module_
+- [[api.services.av_agent_recuperados]]  ·  _module_
+- [[api.services.av_agent_respuesta]]  ·  _module_
 - [[api.services.bancos]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_
+- [[api.services.salud]]  ·  _module_
 - [[jobs.interbanking_sync]]  ·  _module_
+- [[jobs.mayor_sync]]  ·  _module_

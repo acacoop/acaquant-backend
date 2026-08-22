@@ -39,7 +39,7 @@ que la hacen barata y segura:
 
   1. **Se explica el PATRÓN, no la fila.** El mismo error aparece 90 veces en
      6 horas; pagar una llamada por aparición sería absurdo. Se explica una vez
-     por `(unidad, patrón)` y se **persiste** en `mercado.av_agent_errores`: la
+     por `(unidad, patrón)` y se **persiste** en `agente.av_agent_errores`: la
      segunda vez sale de la base. Es la misma idea que agrupar el log.
   2. **La IA NO decide a qué afecta.** Eso sale de la ficha declarada
      (`salud.JOBS[...]['alimenta']`, `QUE_HACE`), que es un hecho del sistema.
@@ -211,7 +211,7 @@ def _guardada(clave: str) -> str:
     from core.postgres import get_pool
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT explicacion FROM mercado.av_agent_errores "
+            cur.execute("SELECT explicacion FROM agente.av_agent_errores "
                         "WHERE clave = %s", (clave,))
             f = cur.fetchone()
             return (f[0] or "") if f else ""
@@ -225,7 +225,7 @@ def _guardar(clave: str, unidad: str, patron: str, explicacion: str) -> None:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO mercado.av_agent_errores "
+                "INSERT INTO agente.av_agent_errores "
                 "(clave, unidad, patron, explicacion, creado_at) "
                 "VALUES (%s, %s, %s, %s, now()) "
                 "ON CONFLICT (clave) DO UPDATE SET explicacion = EXCLUDED.explicacion",

@@ -20,11 +20,15 @@ Conecta con: lee credenciales de `config` (AUNESA_*); pega a `aca.aunesa.com/Irm
 
 ## Usa / conecta con →
 - [[config]]  ·  _module_
+- [[core]]  ·  _module_
+- [[core.proveedores]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.services.aunesa_informes]]  ·  _module_
 - [[api.services.contrapartes_seg]]  ·  _module_
 - [[api.services.tesoreria]]  ·  _module_
+- [[core.proveedores]]  ·  _module_
 - [[jobs.control_saldos]]  ·  _module_
+- [[jobs.mayor_sync]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.tenencia_live]]  ·  _module_

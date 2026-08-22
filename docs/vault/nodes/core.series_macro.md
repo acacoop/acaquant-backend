@@ -23,6 +23,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
+- [[api.services.carteras_informe]]  ·  _module_
 - [[api.services.descomposicion_retorno]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[engines.breakevens]]  ·  _module_

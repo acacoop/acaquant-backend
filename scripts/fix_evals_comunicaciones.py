@@ -6,7 +6,7 @@ QUÉ MIDE Y QUÉ ARREGLA
 Hasta el fix de `core/ciclo.TIPOS_COMUNICACION` (2026-08-22), `cerrar_hitos`
 miraba TODOS los items resueltos/vueltos — incluidos los avisos y preguntas,
 que no son arreglos de nada. Cada uno de esos podía dejar en
-`mercado.av_agent_evals` un voto con `origen='verificado'` (los que la
+`agente.av_agent_evals` un voto con `origen='verificado'` (los que la
 compuerta de autonomía cuenta a la par de un voto humano) y
 `ref = 'aguanto:<clave>'` o `'volvio:<clave>'`.
 
@@ -29,8 +29,8 @@ from core.postgres import get_pool
 
 _SQL_LISTAR = """
 SELECT e.id, e.caso, e.causa, e.origen, e.ref, i.tipo
-  FROM mercado.av_agent_evals e
-  JOIN mercado.av_agent_items i
+  FROM agente.av_agent_evals e
+  JOIN agente.av_agent_items i
     ON e.ref IN ('aguanto:' || i.clave, 'volvio:' || i.clave)
  WHERE e.origen = 'verificado'
    AND i.tipo = ANY(%s)
@@ -54,7 +54,7 @@ def main() -> None:
         if not aplicar:
             print("\nDRY-RUN: no se borró nada. Para borrar: --aplicar")
             return
-        cur.execute("DELETE FROM mercado.av_agent_evals WHERE id = ANY(%s)",
+        cur.execute("DELETE FROM agente.av_agent_evals WHERE id = ANY(%s)",
                     ([f[0] for f in filas],))
         conn.commit()
         print(f"borrados: {cur.rowcount}")

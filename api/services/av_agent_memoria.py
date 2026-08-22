@@ -128,7 +128,7 @@ def registrar_traza(*, caso: str, dominio: str, causa: str, veredicto: str,
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO mercado.av_agent_trazas "
+                "INSERT INTO agente.av_agent_trazas "
                 "(caso, dominio, causa, veredicto, observaciones, contexto, "
                 " incoherencias, por) VALUES (%s,%s,%s,%s,%s::jsonb,%s::jsonb,"
                 " %s::jsonb,%s) RETURNING id",
@@ -157,8 +157,8 @@ def casos_parecidos(causa: str, *, excluir: str = "", limite: int = 5) -> list[d
                 "SELECT t.caso, max(t.creado_at) AS visto, "
                 "       count(*) FILTER (WHERE e.acierta) AS ok, "
                 "       count(e.id) AS votos "
-                "FROM mercado.av_agent_trazas t "
-                "LEFT JOIN mercado.av_agent_evals e "
+                "FROM agente.av_agent_trazas t "
+                "LEFT JOIN agente.av_agent_evals e "
                 "       ON e.caso = t.caso AND e.causa = t.causa "
                 "WHERE t.causa = %s AND t.caso <> %s "
                 "GROUP BY t.caso ORDER BY max(t.creado_at) DESC LIMIT %s",
@@ -184,7 +184,7 @@ def lecciones_de(causa: str, dominio: str = "") -> list[dict]:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT slug, titulo, sintoma, causa_raiz, cambio, commit_sha, "
-                "       detectado_por, creado_at FROM mercado.av_agent_lecciones "
+                "       detectado_por, creado_at FROM agente.av_agent_lecciones "
                 "WHERE activa AND (causa = %s OR causa = '') "
                 "  AND (%s = '' OR dominio = %s OR dominio = '') "
                 "ORDER BY creado_at DESC",
@@ -208,7 +208,7 @@ def guardar_leccion(*, slug: str, titulo: str, sintoma: str, causa_raiz: str,
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO mercado.av_agent_lecciones "
+                "INSERT INTO agente.av_agent_lecciones "
                 "(slug, dominio, causa, titulo, sintoma, causa_raiz, cambio, "
                 " commit_sha, detectado_por) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
                 "ON CONFLICT (slug) DO UPDATE SET titulo=EXCLUDED.titulo, "

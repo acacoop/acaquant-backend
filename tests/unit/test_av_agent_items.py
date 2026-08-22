@@ -223,7 +223,7 @@ def test_el_seguimiento_y_los_hitos_EXCLUYEN_comunicaciones():
 def test_la_tabla_esta_en_el_schema_con_la_clave_como_PK():
     import pathlib
     sql = pathlib.Path("sql/schema.sql").read_text(encoding="utf-8")
-    i = sql.index("CREATE TABLE IF NOT EXISTS mercado.av_agent_items")
+    i = sql.index("CREATE TABLE IF NOT EXISTS agente.av_agent_items")
     cuerpo = sql[i:sql.index(");", i)]
     # Solo las DECLARACIONES: los comentarios nombran las formas viejas justo
     # para decir que no están, y el test se cazaba a sí mismo con eso.
@@ -290,7 +290,7 @@ def _con_base(monkeypatch):
 
 
 def _updates_de_cierre(cur):
-    return [s for s, _ in cur.sql if s.startswith("UPDATE mercado.av_agent_items")
+    return [s for s, _ in cur.sql if s.startswith("UPDATE agente.av_agent_items")
             and "resuelto_at = now()" in s]
 
 
@@ -407,7 +407,7 @@ def test_la_clave_de_SQL_y_la_de_PYTHON_se_comparan_antes_de_escribir():
     src = inspect.getsource(b.main)
     assert "ciclo.clave_de" in src and "ABORTADO" in src
     # Y aborta ANTES de escribir.
-    assert src.index("ABORTADO") < src.index("INSERT INTO mercado.av_agent_items")
+    assert src.index("ABORTADO") < src.index("INSERT INTO agente.av_agent_items")
 
 
 def test_la_expresion_SQL_de_la_clave_esta_escrita_UNA_vez():

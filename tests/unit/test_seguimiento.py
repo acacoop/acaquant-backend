@@ -86,4 +86,4 @@ def test_se_cuentan_las_REAPERTURAS():
     sql = pathlib.Path("sql/schema.sql").read_text(encoding="utf-8")
     assert "reaperturas" in sql
     cent = pathlib.Path("api/services/av_agent_centinela.py").read_text(encoding="utf-8")
-    assert "reaperturas = mercado.av_agent_centinela.reaperturas + " in cent
+    assert "reaperturas = agente.av_agent_centinela.reaperturas + " in cent

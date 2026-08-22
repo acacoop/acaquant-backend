@@ -18,7 +18,11 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
+- [[api.services.av_agent_errores]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_
+- [[api.services.diagnostico_registry]]  ·  _module_
+- [[api.services.logs_sistema]]  ·  _module_
+- [[core.tz]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.services.av_agent]]  ·  _module_

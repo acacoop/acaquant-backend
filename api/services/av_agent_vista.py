@@ -131,7 +131,7 @@ def crear_avisos(ticker: str, pasos: list[dict], por: str = "") -> int:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.executemany(
-                "INSERT INTO mercado.av_agent_avisos "
+                "INSERT INTO agente.av_agent_avisos "
                 "(ticker, clave, que_hacer, por_que, donde, creado_por) "
                 "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING", filas)
         for f in filas:
@@ -148,7 +148,7 @@ def resolver_aviso(aviso_id: int, por: str = "", deshacer: bool = False) -> dict
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE mercado.av_agent_avisos SET resuelto = %s, "
+                "UPDATE agente.av_agent_avisos SET resuelto = %s, "
                 "resuelto_por = %s, resuelto_at = CASE WHEN %s THEN NULL ELSE now() END "
                 "WHERE id = %s RETURNING ticker, clave",
                 (not deshacer, (por or None) if not deshacer else None,
@@ -218,7 +218,7 @@ def completar_aviso(aviso_id: int, valor, por: str = "") -> dict:
     """
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT ticker, clave, resuelto FROM mercado.av_agent_avisos "
+            cur.execute("SELECT ticker, clave, resuelto FROM agente.av_agent_avisos "
                         "WHERE id = %s", (aviso_id,))
             fila = cur.fetchone()
             if not fila:
@@ -253,7 +253,7 @@ def completar_aviso(aviso_id: int, valor, por: str = "") -> dict:
             if not quedo:
                 return {"ok": False, "error": "el UPDATE corrió pero el dato no "
                                               "quedó cargado — no se cierra el aviso"}
-            cur.execute("UPDATE mercado.av_agent_avisos SET resuelto = true, "
+            cur.execute("UPDATE agente.av_agent_avisos SET resuelto = true, "
                         "resuelto_por = %s, resuelto_at = now() WHERE id = %s",
                         ((por or None), aviso_id))
         return {"ok": True, "ticker": ticker, "clave": clave, "valor": v,
@@ -292,7 +292,7 @@ def avisos(incluir_resueltos: bool = True) -> list[dict]:
                        a.creado_at, a.resuelto, a.resuelto_por, a.resuelto_at,
                        c.data->>'cer_emision', c.emisor, (c.ticker IS NOT NULL),
                        a.para
-                  FROM mercado.av_agent_avisos a
+                  FROM agente.av_agent_avisos a
                   LEFT JOIN mercado.curvas c ON c.ticker = a.ticker
                  -- ⚠️ **SOLO LOS AVISOS DE BONOS.** Esta sección se construyó
                  -- para una cosa: «di de alta el bono y le falta un dato,
@@ -359,7 +359,7 @@ def avisar_a(*, para: str, ticker: str, clave: str, que_hacer: str,
         raise ValueError("hay que elegir a quién avisarle")
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO mercado.av_agent_avisos "
+            "INSERT INTO agente.av_agent_avisos "
             "(ticker, clave, que_hacer, por_que, donde, creado_por, para) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
             (ticker, clave, que_hacer[:500], (por_que or "")[:300],
@@ -388,8 +388,8 @@ def mensajes(limite: int = 40) -> list[dict]:
                 "SELECT a.id, a.para, a.clave, a.que_hacer, a.creado_at, "
                 "       a.resuelto, a.resuelto_at, a.vence_at, "
                 "       count(i.id), count(i.id) FILTER (WHERE i.hecho) "
-                "FROM mercado.av_agent_avisos a "
-                "LEFT JOIN mercado.av_agent_aviso_items i ON i.aviso_id = a.id "
+                "FROM agente.av_agent_avisos a "
+                "LEFT JOIN agente.av_agent_aviso_items i ON i.aviso_id = a.id "
                 "WHERE a.clave <> ALL(%s) AND a.para IS NOT NULL "
                 "GROUP BY a.id ORDER BY a.creado_at DESC LIMIT %s",
                 (list(_CAMPO_AVISO), limite))
@@ -416,7 +416,7 @@ def avisos_de(email: str) -> list[dict]:
             cur.execute(
                 "SELECT id, ticker, clave, que_hacer, por_que, donde, creado_at, "
                 "       interrumpe, vence_at "
-                "FROM mercado.av_agent_avisos "
+                "FROM agente.av_agent_avisos "
                 "WHERE NOT resuelto AND lower(para) = %s "
                 # ⚠️ **UN AVISO VENCIDO NO SE MUESTRA.** El de saldos vale HOY;
                 # mañana el mercado abre con otros números y pedir acción sobre
@@ -434,7 +434,7 @@ def avisos_de(email: str) -> list[dict]:
             if ids:
                 cur.execute(
                     "SELECT id, aviso_id, etiqueta, datos, hecho, hecho_at "
-                    "FROM mercado.av_agent_aviso_items "
+                    "FROM agente.av_agent_aviso_items "
                     "WHERE aviso_id = ANY(%s) ORDER BY aviso_id, orden", (ids,))
                 for i, av, etq, datos, hecho, hat in cur.fetchall():
                     items.setdefault(av, []).append({
@@ -469,7 +469,7 @@ def resolver_aviso_propio(aviso_id: int, *, quien: str) -> dict:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE mercado.av_agent_avisos SET resuelto = true, "
+                "UPDATE agente.av_agent_avisos SET resuelto = true, "
                 "resuelto_por = %s, resuelto_at = now() "
                 "WHERE id = %s AND lower(para) = %s AND NOT resuelto "
                 "RETURNING ticker, clave", (e, aviso_id, e))
@@ -606,7 +606,7 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         # en la misma tabla: el nocturno tiene UNA corrida vigente, el live es
         # un reemplazo permanente y no tiene corrida que elegir.
         vivos = list(av_agent.ALCANCES_VIVOS)
-        cur.execute("SELECT max(corrida_at) FROM mercado.av_agent_hallazgos "
+        cur.execute("SELECT max(corrida_at) FROM agente.av_agent_hallazgos "
                     "WHERE alcance <> ALL(%s)", (vivos,))
         fila = cur.fetchone()
         corrida = fila[0] if fila else None
@@ -639,8 +639,8 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         obs = list(av_agent.OBSERVACIONES_DE_MERCADO)
         rapido = list(av_agent.VENCE_RAPIDO)
         cur.execute(
-            f"SELECT {_SELECT_H} FROM mercado.av_agent_hallazgos h "
-            "LEFT JOIN mercado.av_agent_items i ON i.clave = h.clave "
+            f"SELECT {_SELECT_H} FROM agente.av_agent_hallazgos h "
+            "LEFT JOIN agente.av_agent_items i ON i.clave = h.clave "
             "WHERE (%s IS NOT NULL AND h.corrida_at = %s AND h.alcance <> ALL(%s)) "
             "   OR (h.alcance = ANY(%s) AND ("
             #     una buena noticia: dura poco
@@ -970,7 +970,7 @@ def _refrescar_salud(h: dict, salud_viva: dict[str, dict]) -> None:
 def _ignorados() -> list[dict]:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT ticker, motivo, por, creado_at "
-                    "FROM mercado.av_agent_ignorados ORDER BY creado_at DESC")
+                    "FROM agente.av_agent_ignorados ORDER BY creado_at DESC")
         return [{"ticker": r[0], "motivo": r[1], "por": r[2],
                  "creado_at": r[3].isoformat() if r[3] else None}
                 for r in cur.fetchall()]
@@ -985,7 +985,7 @@ def _decididas(limite: int = 40) -> list[dict]:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT id, clave, tipo, pregunta, respuesta, nota, respondida_por, "
-            "respondida_at, aplicada_at FROM mercado.av_agent_preguntas "
+            "respondida_at, aplicada_at FROM agente.av_agent_preguntas "
             "WHERE estado = 'respondida' ORDER BY respondida_at DESC NULLS LAST "
             "LIMIT %s", (limite,))
         cols = ["id", "clave", "tipo", "pregunta", "respuesta", "nota",

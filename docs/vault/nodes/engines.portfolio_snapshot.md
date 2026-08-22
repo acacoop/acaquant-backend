@@ -19,6 +19,7 @@ Motor dedicado a tener el `last_price`/`closing_price` live de SOLO los tickers 
 Conecta con: escribe a `Trading.PortfolioSnapshot` (last/closing por ticker) y audita cada refresh en `Manager.PortfolioSnapshotLog`; arma su universo vía `engines._universo_portfolio` (lee `Valuaciones.AuM` + `CashFlow.NegocioMovimientos`). Lo invoca systemd `motor_portfolio_snapshot.service`. Alimenta la valuación live de carteras (`api.services.portfolio`).
 
 ## Usa / conecta con →
+- [[core.logs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
 - [[core.threads]]  ·  _module_

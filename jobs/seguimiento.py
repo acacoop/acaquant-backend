@@ -35,7 +35,7 @@ def _claves_abiertas() -> set[str] | None:
     """
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT clave FROM mercado.av_agent_centinela "
+            cur.execute("SELECT clave FROM agente.av_agent_centinela "
                         "WHERE resuelto_at IS NULL")
             claves = {r[0] for r in cur.fetchall() if r[0]}
             # Y los hallazgos vigentes, con la MISMA forma de clave que usa el
@@ -43,7 +43,7 @@ def _claves_abiertas() -> set[str] | None:
             # arreglo se daría por bueno mirando la lista equivocada.
             cur.execute(
                 "SELECT DISTINCT tipo || ':' || ticker || ':' || regla "
-                "FROM mercado.av_agent_hallazgos")
+                "FROM agente.av_agent_hallazgos")
             claves |= {r[0] for r in cur.fetchall() if r[0]}
         return claves
     except Exception as e:

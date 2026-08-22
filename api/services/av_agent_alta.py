@@ -3182,7 +3182,7 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                         f"**Lo que pasaba:** {lec.get('causa_raiz') or '—'}\n\n"
                         f"**Qué se cambió:** {lec['cambio']}",
                         tabla=(f"commit {lec['commit'][:9]}" if lec.get("commit")
-                               else "mercado.av_agent_lecciones")
+                               else "agente.av_agent_lecciones")
                               + f" · lo detectó: {lec.get('detectado_por')}",
                         capa=APRENDER))
 
@@ -3200,7 +3200,7 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                         + f"\n\nEl agente ya dijo «{dx['causa']}» en "
                           f"{len(parecidos)} caso/s más. Los votos son del eval "
                           "set: dicen si esa conclusión resultó correcta.",
-                        tabla="mercado.av_agent_trazas + av_agent_evals",
+                        tabla="agente.av_agent_trazas + av_agent_evals",
                         capa=APRENDER))
 
     meta = CAUSAS.get(dx["causa"]) or {}

@@ -435,7 +435,7 @@ REGISTRO: tuple[Forma, ...] = (
     # ⭐ **LA CANÓNICA.** Es la única que ya habla el vocabulario común: su
     # columna `estado` ES uno de los seis, sin traducción. Las de abajo son la
     # deuda — se migran hacia ésta, no al revés.
-    Forma("mercado.av_agent_items", ("estado",),
+    Forma("agente.av_agent_items", ("estado",),
           "⭐ estado CANÓNICO (no necesita traducción)",
           lambda f: (str(f.get("estado") or "").strip().lower()
                      if str(f.get("estado") or "").strip().lower() in ESTADOS
@@ -443,7 +443,7 @@ REGISTRO: tuple[Forma, ...] = (
     # Espeja en `av_agent_items` con la misma clave desde 2026-08-21 (§0.bf):
     # su tabla sigue siendo la que dibuja AHORA, pero la HISTORIA del problema
     # es la misma que ve ENCONTRÓ. Migrar la tabla entera es el paso siguiente.
-    Forma("mercado.av_agent_centinela", ("resuelto_at", "visto_at"),
+    Forma("agente.av_agent_centinela", ("resuelto_at", "visto_at"),
           "resuelto_at NULL + visto_at (espeja en av_agent_items)",
           _por_resuelto_at, espeja=True),
     # Espeja en `av_agent_items` (§0.bg): su tabla sigue siendo la que arma el
@@ -463,28 +463,28 @@ REGISTRO: tuple[Forma, ...] = (
     #
     # ⚠️ Tiene LAS DOS: `resuelto boolean` y `resuelto_at`. Gana el booleano,
     # que es el que filtran sus queries — el `_at` es la marca de tiempo.
-    Forma("mercado.av_agent_avisos", ("resuelto", "resuelto_at"),
+    Forma("agente.av_agent_avisos", ("resuelto", "resuelto_at"),
           "resuelto bool (espeja en av_agent_items)", _por_bool_resuelto, espeja=True),
     # Fila por fila y no el aviso entero: es lo que permite decir «esta cuenta
     # lleva CUATRO DÍAS descubierta», que el aviso agrupado no puede saber
     # porque cada corrida lo rearma.
-    Forma("mercado.av_agent_aviso_items", ("hecho",),
+    Forma("agente.av_agent_aviso_items", ("hecho",),
           "hecho bool (espeja en av_agent_items)", _por_hecho, espeja=True),
-    Forma("mercado.av_agent_preguntas", ("estado", "aplicada_at"),
+    Forma("agente.av_agent_preguntas", ("estado", "aplicada_at"),
           "estado text: abierta|respondida (espeja en av_agent_items)",
           _por_estado_texto, espeja=True),
-    Forma("mercado.av_agent_propuestas", ("estado",),
+    Forma("agente.av_agent_propuestas", ("estado",),
           "estado text: propuesta|aplicada|esperando|fallida|rechazada",
           _por_estado_texto, clase="bitacora"),
-    Forma("mercado.av_agent_runs", ("estado",),
+    Forma("agente.av_agent_runs", ("estado",),
           "estado text: corriendo|terminado|frenado|error", _por_estado_texto, clase="bitacora"),
-    Forma("mercado.av_agent_seguimiento", ("estado",),
+    Forma("agente.av_agent_seguimiento", ("estado",),
           "estado text: mirando|aguanto|volvio", _por_seguimiento, clase="meta"),
     # Espeja desde 2026-08-21 (§0.bl): ignorar un ticker apaga TODOS sus objetos
     # (por sujeto, no por causa — si un papel no interesa, no interesa en
     # ninguna de sus formas). Sin eso, la pantalla decía «no hay nada» y el
     # contador seguía sumando días de algo que el user ya descartó.
-    Forma("mercado.av_agent_ignorados", (),
+    Forma("agente.av_agent_ignorados", (),
           "la EXISTENCIA de la fila = ignorado (espeja en av_agent_items)",
           lambda f: IGNORADO, espeja=True),
     Forma("manager.salud_vistos", ("visto_at",),
@@ -492,21 +492,21 @@ REGISTRO: tuple[Forma, ...] = (
           lambda f: VISTO if f.get("visto_at") else NUEVO, clase="acuse"),
     Forma("manager.proveedor_estado", ("ok",),
           "ok bool", lambda f: RESUELTO if f.get("ok") else NUEVO, clase="sensor"),
-    Forma("mercado.av_agent_acciones", ("ok",),
+    Forma("agente.av_agent_acciones", ("ok",),
           "ok bool (append-only: es el LIBRO)", _por_existencia),
     # Append-only: no tienen ciclo y no hay que dárselo.
     # La FOTO. Sigue existiendo (es el histórico por corrida, de donde salió la
     # antigüedad real del backfill) pero su ESTADO ya no se deriva de cinco
     # tablas: lo tiene su espejo en `av_agent_items`, unidos por `clave`.
-    Forma("mercado.av_agent_hallazgos", ("clave",),
+    Forma("agente.av_agent_hallazgos", ("clave",),
           "FOTO por corrida — el estado vive en av_agent_items (JOIN por clave)",
           _por_existencia),
-    Forma("mercado.av_agent_trazas", (), "append-only", _por_existencia),
-    Forma("mercado.av_agent_evals", (), "append-only", _por_existencia),
-    Forma("mercado.av_agent_lecciones", (), "append-only", _por_existencia),
-    Forma("mercado.av_agent_errores", (), "memoria por patrón", _por_existencia),
-    Forma("mercado.av_agent_control", (), "config", _por_existencia),
-    Forma("mercado.av_agent_latido", (), "heartbeat", _por_existencia),
+    Forma("agente.av_agent_trazas", (), "append-only", _por_existencia),
+    Forma("agente.av_agent_evals", (), "append-only", _por_existencia),
+    Forma("agente.av_agent_lecciones", (), "append-only", _por_existencia),
+    Forma("agente.av_agent_errores", (), "memoria por patrón", _por_existencia),
+    Forma("agente.av_agent_control", (), "config", _por_existencia),
+    Forma("agente.av_agent_latido", (), "heartbeat", _por_existencia),
     Forma("manager.salud_eventos", (), "append-only: las TRANSICIONES",
           _por_existencia),
     Forma("manager.salud_config", (), "config", _por_existencia),
@@ -520,7 +520,7 @@ _POR_TABLA = {f.tabla: f for f in REGISTRO}
 # ⚠️ La canónica NO es deuda: ya habla el vocabulario. Contarla ahí haría que
 # la migración nunca pudiera llegar a cero — y un contador que no puede cerrar
 # deja de mirarse.
-CANONICA = "mercado.av_agent_items"
+CANONICA = "agente.av_agent_items"
 
 _CON_CICLO = tuple(f.tabla for f in REGISTRO
                    if f.leer is not _por_existencia and f.tabla != CANONICA)
@@ -580,7 +580,7 @@ def deuda_de_problemas() -> list[str]:
 
 _RE_TABLA = re.compile(
     r"CREATE TABLE IF NOT EXISTS "
-    r"((?:mercado\.av_agent|manager\.salud|manager\.controles_datos|"
+    r"((?:agente\.av_agent|manager\.salud|manager\.controles_datos|"
     r"manager\.proveedor_estado)[a-z_]*)", re.I)
 
 

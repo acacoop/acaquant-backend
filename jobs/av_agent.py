@@ -1,6 +1,6 @@
 """jobs/av_agent.py — el ESPEJO del AV Agent (etapa E1).
 
-Doc madre: **`docs/AV_AGENT.md`**. Escribe `mercado.av_agent_hallazgos`.
+Doc madre: **`docs/AV_AGENT.md`**. Escribe `agente.av_agent_hallazgos`.
 
 **Qué hace.** Barre el universo de 1816, lo cruza contra `mercado.curvas` y
 persiste los hallazgos de las tres preguntas del agente: qué bono existe en 1816
@@ -86,20 +86,20 @@ def persistir(res: dict) -> int:
              for h in hallazgos]
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
-            "INSERT INTO mercado.av_agent_hallazgos "
+            "INSERT INTO agente.av_agent_hallazgos "
             "(alcance, tipo, ticker, regla, severidad, motivo, evidencia, clave) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)", filas)
         cur.execute(
-            "DELETE FROM mercado.av_agent_hallazgos WHERE corrida_at < ("
+            "DELETE FROM agente.av_agent_hallazgos WHERE corrida_at < ("
             "  SELECT min(c) FROM (SELECT DISTINCT corrida_at AS c "
-            "    FROM mercado.av_agent_hallazgos ORDER BY c DESC LIMIT %s) t)",
+            "    FROM agente.av_agent_hallazgos ORDER BY c DESC LIMIT %s) t)",
             (_TTL_CORRIDAS,))
 
     # ── Y EL MISMO HALLAZGO, COMO OBJETO CON MEMORIA (§0.bd) ────────────────
     #
     # La tabla de arriba es una FOTO: cada corrida reescribe todo y nadie puede
     # decir «esto ya estaba ayer» ni «esto se arregló». Acá abajo va lo mismo a
-    # `mercado.av_agent_items`, donde la identidad es estable — así el hallazgo
+    # `agente.av_agent_items`, donde la identidad es estable — así el hallazgo
     # que vuelve es el MISMO objeto, acumula antigüedad, y el que deja de
     # aparecer queda RESUELTO con la fecha en que se arregló.
     #
@@ -373,7 +373,7 @@ def main() -> None:
         else:
             n = persistir(res)
             jr.set_stat("filas_persistidas", n)
-            print(f"\n✔ {n} hallazgos persistidos en mercado.av_agent_hallazgos "
+            print(f"\n✔ {n} hallazgos persistidos en agente.av_agent_hallazgos "
                   f"(se conservan las últimas {_TTL_CORRIDAS} corridas)")
 
         # Las PREGUNTAS se registran SIEMPRE, incluso en dry-run: no son un

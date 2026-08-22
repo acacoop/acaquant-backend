@@ -36,7 +36,7 @@ def main() -> int:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT tipo, ticker, regla, severidad, motivo, evidencia "
-            "FROM mercado.av_agent_hallazgos WHERE alcance = 'sistema' "
+            "FROM agente.av_agent_hallazgos WHERE alcance = 'sistema' "
             "ORDER BY tipo, ticker")
         hall = [dict(zip(["tipo", "ticker", "regla", "severidad", "motivo",
                           "evidencia"], r, strict=True)) for r in cur.fetchall()]

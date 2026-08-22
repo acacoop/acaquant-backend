@@ -115,7 +115,7 @@ def test_la_antiguedad_sale_del_OBJETO_y_no_de_la_tabla_del_centinela():
     problema**. Dos relojes para un hecho es la definición de la contradicción
     que esta migración vino a terminar."""
     src = codigo(c.estado)
-    assert "LEFT JOIN mercado.av_agent_items" in src
+    assert "LEFT JOIN agente.av_agent_items" in src
     assert "abierto_canonico" in src
 
 

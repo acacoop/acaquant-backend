@@ -28,6 +28,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.bancos]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
+- [[api.services.carteras_informe]]  ·  _module_
 - [[api.services.cashflow_sql]]  ·  _module_
 - [[api.services.clientes_admin_sql]]  ·  _module_
 - [[api.services.comercial_sql]]  ·  _module_

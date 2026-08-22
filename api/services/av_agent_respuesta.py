@@ -141,7 +141,7 @@ def pendientes() -> list[dict]:
         cur.execute(
             "SELECT id, accion, sujeto, campo, antes, propuesto, porque, fuente, "
             "       extra, aplicado_at, por "
-            "  FROM mercado.av_agent_propuestas "
+            "  FROM agente.av_agent_propuestas "
             " WHERE estado = %s AND aplicado_at IS NOT NULL "
             " ORDER BY aplicado_at LIMIT %s", (ESPERANDO, TOPE))
         cols = [c.name for c in cur.description]
@@ -153,7 +153,7 @@ def _cerrar(pid: int, ok: bool, detalle: str) -> None:
 
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "UPDATE mercado.av_agent_propuestas "
+            "UPDATE agente.av_agent_propuestas "
             "   SET estado = %s, verificado = %s, verificado_detalle = %s "
             " WHERE id = %s",
             ("aplicada" if ok else "fallida", ok, (detalle or "")[:500], pid))

@@ -153,7 +153,7 @@ def main() -> int:
         sistema = hall + ctx.detectar_tablas() + db.detectar_db() + partido + cr
         n = av_agent.reemplazar_hallazgos("sistema", sistema)
         jr.set_stat("hallazgos", n)
-        print(f"\n✔ {n} hallazgos del sistema en mercado.av_agent_hallazgos "
+        print(f"\n✔ {n} hallazgos del sistema en agente.av_agent_hallazgos "
               f"(alcance 'sistema') → se ven en AV Agent → ENCONTRÓ")
     return 0
 

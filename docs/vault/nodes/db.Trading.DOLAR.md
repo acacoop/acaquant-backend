@@ -21,6 +21,7 @@ Conecta con: la escribe `jobs/bcra.py`; la leen `api/services/macro.py`, `carry_
 - [[api.services.briefing]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
+- [[api.services.carteras_informe]]  ·  _module_
 - [[api.services.intraday]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.macro_sql]]  ·  _module_

@@ -75,7 +75,7 @@ def _voto_previo(caso: str, causa: str, origen: str = "humano") -> bool | None:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT acierta FROM mercado.av_agent_evals "
+                "SELECT acierta FROM agente.av_agent_evals "
                 " WHERE caso = %s AND causa = %s AND origen = %s "
                 " ORDER BY creado_at DESC LIMIT 1", (caso, causa, origen))
             r = cur.fetchone()
@@ -118,7 +118,7 @@ def ya_votados() -> dict[tuple[str, str], bool]:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT DISTINCT ON (caso, causa) caso, causa, acierta, origen "
-                "  FROM mercado.av_agent_evals WHERE origen = ANY(%s) "
+                "  FROM agente.av_agent_evals WHERE origen = ANY(%s) "
                 " ORDER BY caso, causa, creado_at DESC",
                 (list(VOTOS_DE_PERSONA),))
             # clave_caso también al LEER: la base ya viene en mayúscula, pero
@@ -146,7 +146,7 @@ def es_ruido() -> set[tuple[str, str]]:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT DISTINCT ON (caso, causa) caso, causa, acierta "
-                "  FROM mercado.av_agent_evals WHERE origen = 'utilidad' "
+                "  FROM agente.av_agent_evals WHERE origen = 'utilidad' "
                 " ORDER BY caso, causa, creado_at DESC")
             return {(clave_caso(c), ca) for c, ca, a in cur.fetchall() if not a}
     except Exception as e:
@@ -168,7 +168,7 @@ def ultimos(n: int = 80) -> list[dict]:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT caso, causa, acierta, origen, nota, creado_at "
-                "  FROM mercado.av_agent_evals WHERE origen = ANY(%s) "
+                "  FROM agente.av_agent_evals WHERE origen = ANY(%s) "
                 " ORDER BY creado_at DESC LIMIT %s",
                 (list(VOTOS_DE_PERSONA), int(n)))
             return [{"caso": clave_caso(c), "causa": ca, "acierta": bool(a),
@@ -233,7 +233,7 @@ def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO mercado.av_agent_evals "
+                "INSERT INTO agente.av_agent_evals "
                 "(caso, dominio, causa, acierta, causa_correcta, nota, por, "
                 " origen, ref) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
@@ -285,7 +285,7 @@ def precision_por_causa() -> dict[str, tuple[int, int, int]] | None:
                 "       count(*) FILTER (WHERE origen IN ('humano','verificado') "
                 "                        AND acierta), "
                 "       count(*) "
-                "FROM mercado.av_agent_evals GROUP BY causa")
+                "FROM agente.av_agent_evals GROUP BY causa")
             return {r[0]: (int(r[1] or 0), int(r[2] or 0), int(r[3] or 0))
                     for r in cur.fetchall()}
     except Exception as e:
@@ -318,12 +318,12 @@ def resumen() -> dict:
                 "       count(*) FILTER (WHERE origen IN ('humano','verificado') "
                 "                        AND acierta), "
                 "       count(*) FILTER (WHERE origen = 'verificado') "
-                "FROM mercado.av_agent_evals GROUP BY dominio, causa "
+                "FROM agente.av_agent_evals GROUP BY dominio, causa "
                 "ORDER BY count(*) DESC")
             filas = cur.fetchall()
             cur.execute(
                 "SELECT caso, causa, causa_correcta, nota, por, creado_at "
-                "FROM mercado.av_agent_evals WHERE NOT acierta "
+                "FROM agente.av_agent_evals WHERE NOT acierta "
                 "ORDER BY creado_at DESC LIMIT 20")
             fallos = cur.fetchall()
     except Exception as e:

@@ -169,3 +169,20 @@ def test_cada_ACCION_llama_a_su_funcion_con_una_firma_QUE_EXISTE():
     for fn, args, kw in llamadas:
         # `bind` levanta TypeError si la llamada no encaja — sin ejecutar nada.
         inspect.signature(fn).bind(*args, **kw)
+
+
+def test_cerrar_acepta_un_run_MUERTO_aunque_diga_corriendo():
+    """El run que murió con la API queda `corriendo` en la base para siempre
+    (nadie pudo escribir otra cosa). La pantalla ya lo deduce «interrumpido»
+    por el latido viejo — y el cierre tiene que usar EL MISMO criterio, o el
+    único informe imposible de cerrar es justo el que quedó pegado (user:
+    *«da error y no deja cerrar tampoco»*)."""
+    import inspect
+
+    from api.services import av_agent_masivo as svc
+
+    src = inspect.getsource(svc.marcar_visto)
+    # El WHERE del UPDATE no puede mirar solo la columna: también el latido.
+    assert "latido_at" in src, "cerrar mira solo `estado`: un run muerto queda incerrable"
+    # Y el umbral es el MISMO que usa estado() para decir «interrumpido».
+    assert "_LATIDO_MUERTO_S" in src

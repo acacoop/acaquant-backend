@@ -151,9 +151,9 @@ def test_las_que_espejan_estan_DECLARADAS_y_no_adivinadas():
     comentario miente el día que alguien reescribe el comentario."""
     from core import ciclo
     assert set(ciclo.espejan()) == {
-        "mercado.av_agent_centinela", "manager.controles_datos",
-        "mercado.av_agent_avisos", "mercado.av_agent_aviso_items",
-        "mercado.av_agent_preguntas", "mercado.av_agent_ignorados",
+        "agente.av_agent_centinela", "manager.controles_datos",
+        "agente.av_agent_avisos", "agente.av_agent_aviso_items",
+        "agente.av_agent_preguntas", "agente.av_agent_ignorados",
     }
     assert all(t in ciclo.sin_migrar() for t in ciclo.espejan()), (
         "espejar NO es haber migrado: la columna vieja sigue ahí")
@@ -203,12 +203,12 @@ def test_hay_tablas_con_estado_que_NO_son_problemas():
     problemas — migrarlos convertiría al modelo en un cajón."""
     from core import ciclo
     clases = {f.tabla: f.clase for f in ciclo.REGISTRO}
-    assert clases["mercado.av_agent_runs"] == "bitacora"
-    assert clases["mercado.av_agent_propuestas"] == "bitacora"
-    assert clases["mercado.av_agent_seguimiento"] == "meta"
+    assert clases["agente.av_agent_runs"] == "bitacora"
+    assert clases["agente.av_agent_propuestas"] == "bitacora"
+    assert clases["agente.av_agent_seguimiento"] == "meta"
     assert clases["manager.proveedor_estado"] == "sensor"
     assert clases["manager.salud_vistos"] == "acuse"
-    for t in ("mercado.av_agent_runs", "manager.proveedor_estado",
+    for t in ("agente.av_agent_runs", "manager.proveedor_estado",
               "manager.salud_vistos"):
         assert t not in ciclo.deuda_de_problemas()
 

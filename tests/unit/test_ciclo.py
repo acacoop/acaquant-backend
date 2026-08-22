@@ -86,17 +86,17 @@ def test_las_OCHO_formas_dan_todas_el_mismo_vocabulario():
     """El punto entero: la pantalla pregunta acá y no mira la columna, así dos
     pantallas no pueden discrepar sobre si algo está resuelto."""
     casos = [
-        ("mercado.av_agent_centinela", {"resuelto_at": "2026-08-21"}, ciclo.RESUELTO),
-        ("mercado.av_agent_centinela", {"visto_at": "2026-08-21"}, ciclo.VISTO),
-        ("mercado.av_agent_centinela", {}, ciclo.NUEVO),
+        ("agente.av_agent_centinela", {"resuelto_at": "2026-08-21"}, ciclo.RESUELTO),
+        ("agente.av_agent_centinela", {"visto_at": "2026-08-21"}, ciclo.VISTO),
+        ("agente.av_agent_centinela", {}, ciclo.NUEVO),
         ("manager.controles_datos", {"resuelto_at": "x"}, ciclo.RESUELTO),
-        ("mercado.av_agent_avisos", {"resuelto": True}, ciclo.RESUELTO),
-        ("mercado.av_agent_aviso_items", {"hecho": True}, ciclo.RESUELTO),
-        ("mercado.av_agent_preguntas", {"estado": "respondida"}, ciclo.RESUELTO),
-        ("mercado.av_agent_propuestas", {"estado": "esperando"}, ciclo.EN_CURSO),
-        ("mercado.av_agent_propuestas", {"estado": "rechazada"}, ciclo.IGNORADO),
-        ("mercado.av_agent_seguimiento", {"estado": "volvio"}, ciclo.VOLVIO),
-        ("mercado.av_agent_ignorados", {}, ciclo.IGNORADO),
+        ("agente.av_agent_avisos", {"resuelto": True}, ciclo.RESUELTO),
+        ("agente.av_agent_aviso_items", {"hecho": True}, ciclo.RESUELTO),
+        ("agente.av_agent_preguntas", {"estado": "respondida"}, ciclo.RESUELTO),
+        ("agente.av_agent_propuestas", {"estado": "esperando"}, ciclo.EN_CURSO),
+        ("agente.av_agent_propuestas", {"estado": "rechazada"}, ciclo.IGNORADO),
+        ("agente.av_agent_seguimiento", {"estado": "volvio"}, ciclo.VOLVIO),
+        ("agente.av_agent_ignorados", {}, ciclo.IGNORADO),
         ("manager.proveedor_estado", {"ok": False}, ciclo.NUEVO),
     ]
     for tabla, fila, esperado in casos:
@@ -118,13 +118,13 @@ def test_una_tabla_desconocida_cae_en_NUEVO_y_no_en_RESUELTO():
 
 
 def test_una_fila_rota_no_hace_explotar_al_arbitro():
-    assert ciclo.estado_de("mercado.av_agent_propuestas", None) in ciclo.ESTADOS
+    assert ciclo.estado_de("agente.av_agent_propuestas", None) in ciclo.ESTADOS
 
 
 def test_avisos_tiene_LAS_DOS_formas_y_se_declara_cual_gana():
     """`av_agent_avisos` tiene `resuelto boolean` Y `resuelto_at`. Sin declarar
     cuál manda, dos lectores eligen distinto — REGLA #9 adentro de UNA tabla."""
-    f = next(x for x in ciclo.REGISTRO if x.tabla == "mercado.av_agent_avisos")
+    f = next(x for x in ciclo.REGISTRO if x.tabla == "agente.av_agent_avisos")
     assert "resuelto" in f.campos and "resuelto_at" in f.campos
     # ⚠️ Se prueba el ÁRBITRO, no el texto que lo describe: la versión anterior
     # buscaba la palabra «redundante» en `como` y se rompió con un reword que no
@@ -144,7 +144,7 @@ def test_la_deuda_es_un_NUMERO_y_no_una_sensacion():
     los estados» es una intención y no una tarea."""
     deuda = ciclo.sin_migrar()
     assert deuda, "si esto queda vacío, la migración terminó (o se rompió el conteo)"
-    assert "mercado.av_agent_centinela" in deuda
+    assert "agente.av_agent_centinela" in deuda
 
 
 def test_los_HALLAZGOS_ya_tienen_donde_vivir_su_estado():
@@ -157,6 +157,6 @@ def test_los_HALLAZGOS_ya_tienen_donde_vivir_su_estado():
     Lo que sí hay que congelar es que la unión exista: sin la `clave`, la
     memoria queda existiendo pero inalcanzable."""
     f = next(x for x in ciclo.REGISTRO
-             if x.tabla == "mercado.av_agent_hallazgos")
+             if x.tabla == "agente.av_agent_hallazgos")
     assert "clave" in f.campos
     assert ciclo.CANONICA in f.como or "av_agent_items" in f.como

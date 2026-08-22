@@ -23,6 +23,7 @@ Conecta con: escribe SOLO los campos `metrics.{TEA,TEM,duration,...}` a `Trading
 - [[core.calendario]]  ·  _module_
 - [[core.dolar_oficial]]  ·  _module_
 - [[core.dolar_sql]]  ·  _module_
+- [[core.logs]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.series_macro]]  ·  _module_
@@ -33,6 +34,7 @@ Conecta con: escribe SOLO los campos `metrics.{TEA,TEM,duration,...}` a `Trading
 - [[api.services.acreencias]]  ·  _module_
 - [[api.services.av_agent]]  ·  _module_
 - [[api.services.av_agent_alta]]  ·  _module_
+- [[api.services.av_agent_vista]]  ·  _module_
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.debug_derivados]]  ·  _module_

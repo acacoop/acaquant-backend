@@ -23,3 +23,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.back_office]]  ·  _module_
+- [[jobs.saldos_a_operadores]]  ·  _module_

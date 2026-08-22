@@ -42,6 +42,8 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.routers.ia]]  ·  _module_
 - [[api.services.av_agent_analista]]  ·  _module_
+- [[api.services.av_agent_espejo]]  ·  _module_
 - [[api.services.av_agent_masivo]]  ·  _module_
+- [[api.services.av_agent_pata]]  ·  _module_
 - [[api.services.av_agent_salud]]  ·  _module_
 - [[api.services.av_agent_sin_precio]]  ·  _module_

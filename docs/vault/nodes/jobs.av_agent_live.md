@@ -19,8 +19,9 @@ _(pendiente de enriquecimiento)_
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
 - [[api.services.av_agent]]  ·  _module_
+- [[api.services.av_agent_recuperados]]  ·  _module_
+- [[api.services.av_agent_respuesta]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
-- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[cron.jobs.av_agent_live]]  ·  _cron_

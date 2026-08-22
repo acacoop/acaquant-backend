@@ -20,6 +20,7 @@ _(pendiente de enriquecimiento)_
 - [[config]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.estrategia_sql]]  ·  _module_
+- [[core.logs]]  ·  _module_
 - [[quant.estrategia]]  ·  _module_
 - [[quant.pivot_points]]  ·  _module_
 - [[quant.rolling_stats]]  ·  _module_

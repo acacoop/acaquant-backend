@@ -26,7 +26,7 @@ volver al problema: la pantalla diría que el agente hace 30 cosas mientras hace
     av_agent_skills.catalogo()   qué mira cada pieza y en qué job corre
     jobs_catalogo                el schedule REAL, leído del crontab
     manager.job_runs             cuándo corrió de verdad y cómo salió
-    mercado.av_agent_items       qué encontró, por origen
+    agente.av_agent_items       qué encontró, por origen
 
 ## Agrupado por RITMO, no por dominio
 
@@ -148,7 +148,7 @@ def vista() -> dict:
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT origen, count(*) FROM mercado.av_agent_items "
+            cur.execute("SELECT origen, count(*) FROM agente.av_agent_items "
                         "WHERE estado NOT IN ('resuelto','ignorado') "
                         "GROUP BY origen")
             abiertos = {(r[0] or ""): r[1] for r in cur.fetchall()}

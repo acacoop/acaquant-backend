@@ -4,7 +4,7 @@
     python -m scripts.backfill_items --aplicar
 
 Los hallazgos vivían como FOTO: una fila por corrida, sin identidad. Al pasarlos
-a objetos (`mercado.av_agent_items`, §0.bd) la tentación es sellar todo con
+a objetos (`agente.av_agent_items`, §0.bd) la tentación es sellar todo con
 `abierto_at = ahora` — y sería **mentira**: un problema que lleva tres semanas
 aparecería como recién nacido, que es exactamente el defecto que la migración
 vino a arreglar.
@@ -86,12 +86,12 @@ def main() -> int:
         # (no solo cuando falta): las filas que escribió el detector antes del
         # cambio tienen la clave anterior y el `LEFT JOIN` de la pantalla no
         # las encontraría.
-        cur.execute(f"SELECT count(*) FROM mercado.av_agent_hallazgos "
+        cur.execute(f"SELECT count(*) FROM agente.av_agent_hallazgos "
                     f"WHERE clave IS NULL OR clave <> {_CLAVE_SQL}")
         sin_clave = cur.fetchone()[0]
         print(f"\n  hallazgos con clave vieja o sin clave   {sin_clave}")
         if sin_clave and aplicar:
-            cur.execute(f"UPDATE mercado.av_agent_hallazgos SET clave = {_CLAVE_SQL} "
+            cur.execute(f"UPDATE agente.av_agent_hallazgos SET clave = {_CLAVE_SQL} "
                         f" WHERE clave IS NULL OR clave <> {_CLAVE_SQL}")
             print(f"  → reescritas          {cur.rowcount}")
 
@@ -101,7 +101,7 @@ def main() -> int:
         # pantalla.
         from api.services.av_agent import ALCANCES_VIVOS
         vivos = list(ALCANCES_VIVOS)
-        cur.execute("SELECT max(corrida_at) FROM mercado.av_agent_hallazgos "
+        cur.execute("SELECT max(corrida_at) FROM agente.av_agent_hallazgos "
                     "WHERE alcance <> ALL(%s)", (vivos,))
         corrida = (cur.fetchone() or [None])[0]
         if corrida is None:
@@ -123,7 +123,7 @@ def main() -> int:
             WITH todo AS (
                 SELECT {_CLAVE_SQL} AS k, corrida_at, tipo, alcance, ticker,
                        regla, severidad, motivo, evidencia
-                  FROM mercado.av_agent_hallazgos
+                  FROM agente.av_agent_hallazgos
             ), ultima AS (
                 SELECT DISTINCT ON (k) k, tipo, alcance, ticker, regla,
                        severidad, motivo, evidencia
@@ -183,7 +183,7 @@ def main() -> int:
     import json
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
-            "INSERT INTO mercado.av_agent_items "
+            "INSERT INTO agente.av_agent_items "
             "(clave, tipo, origen, sujeto, regla, estado, severidad, veces, "
             " abierto_at, ultimo_at, titulo, datos) "
             "VALUES (%s,%s,%s,%s,%s,'nuevo',%s,%s,%s,%s,%s,%s::jsonb) "
@@ -209,7 +209,7 @@ def _reidentificar(cur, aplicar: bool) -> None:
     """
     from api.services.av_agent_items import clave_de_problema
 
-    cur.execute("SELECT clave, sujeto, regla, origen FROM mercado.av_agent_items")
+    cur.execute("SELECT clave, sujeto, regla, origen FROM agente.av_agent_items")
     filas = cur.fetchall()
     cambios = [(vieja, clave_de_problema(suj, reg, org or ""))
                for vieja, suj, reg, org in filas]
@@ -229,11 +229,11 @@ def _reidentificar(cur, aplicar: bool) -> None:
     # recién ahí se borra el duplicado.
     movidos = fusionados = 0
     for vieja, nueva in cambios:
-        cur.execute("SELECT 1 FROM mercado.av_agent_items WHERE clave = %s",
+        cur.execute("SELECT 1 FROM agente.av_agent_items WHERE clave = %s",
                     (nueva,))
         if cur.fetchone():
             cur.execute(
-                "UPDATE mercado.av_agent_items d SET "
+                "UPDATE agente.av_agent_items d SET "
                 "  abierto_at = LEAST(d.abierto_at, o.abierto_at), "
                 "  ultimo_at  = GREATEST(d.ultimo_at, o.ultimo_at), "
                 "  veces      = d.veces + o.veces, "
@@ -247,13 +247,13 @@ def _reidentificar(cur, aplicar: bool) -> None:
                 "                THEN o.estado ELSE d.estado END, "
                 "  resuelto_at = CASE WHEN o.estado NOT IN ('resuelto','ignorado') "
                 "                THEN NULL ELSE d.resuelto_at END "
-                "FROM mercado.av_agent_items o "
+                "FROM agente.av_agent_items o "
                 "WHERE d.clave = %s AND o.clave = %s", (nueva, vieja))
-            cur.execute("DELETE FROM mercado.av_agent_items WHERE clave = %s",
+            cur.execute("DELETE FROM agente.av_agent_items WHERE clave = %s",
                         (vieja,))
             fusionados += 1
         else:
-            cur.execute("UPDATE mercado.av_agent_items SET clave = %s "
+            cur.execute("UPDATE agente.av_agent_items SET clave = %s "
                         " WHERE clave = %s", (nueva, vieja))
             movidos += 1
     print(f"  → {movidos} re-identificados · {fusionados} FUSIONADOS "

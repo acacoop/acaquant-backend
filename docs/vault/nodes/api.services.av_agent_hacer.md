@@ -18,16 +18,31 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
+- [[api.services.acreencias]]  ·  _module_
 - [[api.services.assets_sql]]  ·  _module_
+- [[api.services.av_agent_acciones]]  ·  _module_
+- [[api.services.av_agent_items]]  ·  _module_
+- [[api.services.av_agent_pata]]  ·  _module_
+- [[api.services.av_agent_rehacer]]  ·  _module_
+- [[api.services.av_agent_respuesta]]  ·  _module_
 - [[api.services.av_agent_salud]]  ·  _module_
 - [[api.services.av_agent_vista]]  ·  _module_
 - [[api.services.contrapartes_seg]]  ·  _module_
 - [[core]]  ·  _module_
+- [[core.adhoc_subscriptions]]  ·  _module_
 - [[core.ai]]  ·  _module_
+- [[core.ciclo]]  ·  _module_
+- [[core.curvas_sql]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[jobs.controles_datos]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.ia]]  ·  _module_
+- [[api.services.av_agent_acciones]]  ·  _module_
+- [[api.services.av_agent_espejo]]  ·  _module_
+- [[api.services.av_agent_items]]  ·  _module_
+- [[api.services.av_agent_masivo]]  ·  _module_
+- [[api.services.av_agent_respuesta]]  ·  _module_
 - [[api.services.av_agent_salud]]  ·  _module_
 - [[api.services.av_agent_skills]]  ·  _module_
+- [[api.services.av_agent_vista]]  ·  _module_

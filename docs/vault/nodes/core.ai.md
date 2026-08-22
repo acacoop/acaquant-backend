@@ -24,6 +24,7 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.services.av_agent_analista]]  ·  _module_
+- [[api.services.av_agent_errores]]  ·  _module_
 - [[api.services.av_agent_explicar]]  ·  _module_
 - [[api.services.av_agent_hacer]]  ·  _module_
 - [[api.services.av_agent_skills]]  ·  _module_

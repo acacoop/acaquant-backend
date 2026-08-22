@@ -25,5 +25,7 @@ Conecta con: escribe/lee `Trading.AdhocSubscriptions`; lo invocan el endpoint de
 
 ## Lo usan (backlinks) ←
 - [[api.routers.operar]]  ·  _module_
+- [[api.services.av_agent_hacer]]  ·  _module_
+- [[api.services.av_agent_pata]]  ·  _module_
 - [[engines._curvas_loader]]  ·  _module_
 - [[engines.valores]]  ·  _module_

@@ -48,7 +48,7 @@ def test_un_hallazgo_que_vuelve_REABRE_la_misma_fila():
     src = inspect.getsource(c.ciclo)
     do_update = src[src.index("DO UPDATE"):src.index("RETURNING")]
     assert "resuelto_at = NULL" in do_update
-    assert "veces = mercado.av_agent_centinela.veces + 1" in do_update
+    assert "veces = agente.av_agent_centinela.veces + 1" in do_update
 
 
 def test_una_pasada_VACIA_no_resuelve_nada():

@@ -19,6 +19,7 @@ _(pendiente de enriquecimiento)_
 ## Usa / conecta con →
 - [[api]]  ·  _module_
 - [[api.superficie]]  ·  _module_
+- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.services.av_agent_explicar]]  ·  _module_

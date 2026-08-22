@@ -132,7 +132,7 @@ def _lo_de_antes(alcance: str) -> dict[str, dict]:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT tipo, ticker, motivo, severidad, corrida_at "
-            "FROM mercado.av_agent_hallazgos WHERE alcance = %s", (alcance,))
+            "FROM agente.av_agent_hallazgos WHERE alcance = %s", (alcance,))
         filas = cur.fetchall()
     return {f"{r[0]}:{r[1]}": {"tipo": r[0], "ticker": r[1], "motivo": r[2],
                                "severidad": r[3], "desde": r[4]}

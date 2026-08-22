@@ -158,7 +158,7 @@ def _confianza(regla, medicion):
             return (datetime.now(UTC),) if "max(corrida_at)" in self.q else None
 
         def fetchall(self):
-            if "FROM mercado.av_agent_hallazgos" in self.q:
+            if "FROM agente.av_agent_hallazgos" in self.q:
                 return [("precio_moneda", "BPOA7", regla, "media", "x", {})]
             return []
 

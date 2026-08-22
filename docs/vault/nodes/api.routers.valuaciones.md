@@ -21,6 +21,7 @@ Conecta con: delega en `api.services.valuaciones` (lee `Valuaciones.AuM`, `Conso
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
 - [[api.services._grupos_scope]]  ·  _module_
+- [[api.services.carteras_informe]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
 - [[api.services.valuaciones_sql]]  ·  _module_
 

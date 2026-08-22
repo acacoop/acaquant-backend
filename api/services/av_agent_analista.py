@@ -126,7 +126,7 @@ def _lecciones() -> str:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT sintoma, causa_raiz, cambio FROM "
-                        "mercado.av_agent_lecciones WHERE activa ORDER BY creado_at")
+                        "agente.av_agent_lecciones WHERE activa ORDER BY creado_at")
             rows = cur.fetchall()
     except Exception as e:
         logger.warning("av_agent_analista: sin lecciones (%s)", e)
@@ -199,7 +199,7 @@ def _guardar(run_id: int | None, analisis: str) -> None:
         return
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE mercado.av_agent_runs SET analisis = %s, "
+            cur.execute("UPDATE agente.av_agent_runs SET analisis = %s, "
                         "analisis_at = now() WHERE id = %s", (analisis, run_id))
             conn.commit()
     except Exception as e:

@@ -11,7 +11,7 @@ de acá al lunes»*. Para eso hay que contestar algo que la pantalla no contesta
 una lista de 98 filas y no un plan.
 
 ⚠️⚠️ **LEE LA MISMA FUENTE QUE LA PANTALLA, y la primera versión no.**
-Consultaba `mercado.av_agent_items` directo —el objeto canónico— y contó **408
+Consultaba `agente.av_agent_items` directo —el objeto canónico— y contó **408
 donde la pantalla mostraba 98**: esa tabla guarda TAMBIÉN los avisos dirigidos
 (142 `saldos_comitentes`, que son mensajes a operadores y no problemas) y los
 sensores. Un diag que contradice a la pantalla que viene a explicar no sirve
@@ -193,7 +193,7 @@ def main() -> None:
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT tipo, count(*) FROM mercado.av_agent_items "
+            cur.execute("SELECT tipo, count(*) FROM agente.av_agent_items "
                         "WHERE estado NOT IN ('resuelto','ignorado') "
                         "GROUP BY tipo ORDER BY 2 DESC LIMIT 8")
             filas = cur.fetchall()

@@ -21,6 +21,7 @@ Conecta con: `api.auth::require_module` / `require_any_module` + `api.deps::veri
 ## Usa / conecta con →
 - [[api.auth]]  ·  _module_
 - [[api.deps]]  ·  _module_
+- [[api.routers.aca]]  ·  _module_
 - [[api.routers.manager.aca]]  ·  _module_
 - [[api.routers.manager.aca_valores]]  ·  _module_
 - [[api.routers.manager.assets]]  ·  _module_

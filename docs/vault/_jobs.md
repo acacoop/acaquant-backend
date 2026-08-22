@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-67 notas.
+70 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -45,6 +45,7 @@
 - [[jobs.interbanking_sync]] — jobs/interbanking_sync.py — trae los extractos de Interbanking a `bancos.*`.
 - [[jobs.market_anchors]] — market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).
 - [[jobs.market_quotes]] — market_quotes.py — cotizaciones de equity/futuros/índices para el watchlist HOME.
+- [[jobs.mayor_sync]] — jobs/mayor_sync.py — trae el MAYOR contable de Aunesa a `bancos.mayor_movimientos`.
 - [[jobs.mercado_1816_discovery]] — jobs/mercado_1816_discovery.py — arma el universo de la vista RESEARCH desde TUS
 - [[jobs.mercado_1816_series]] — jobs/mercado_1816_series.py — baja las series históricas de 1816 a Postgres.
 - [[jobs.negocio_movimientos]] — negocio_movimientos.py — pega a Aunesa, consolida y persiste boletos
@@ -59,7 +60,9 @@
 - [[jobs.portafolio_reparar_timeouts]] — jobs/portafolio_reparar_timeouts.py — recupera los TIMEOUT/ERROR del backfill.
 - [[jobs.precios_acciones_daily]] — precios_acciones_daily.py — agrega 1 vela daily por activo a
 - [[jobs.research_mail]] — jobs/research_mail.py — Ingesta automática del research diario por mail (QuantAI P6).
+- [[jobs.saldos_a_operadores]] — jobs/saldos_a_operadores.py — a cada operador, los saldos de SUS comitentes.
 - [[jobs.segmentar_patrimonial]] — segmentar_patrimonial.py — re-clasifica `nivel_3` de todas las Comitentes activas.
+- [[jobs.seguimiento]] — jobs/seguimiento.py — de lo que se dio por arreglado, ¿qué aguantó y qué volvió?
 - [[jobs.snapshot_cierre]] — snapshot_cierre.py — materializa el cierre diario por bono SQL-NATIVE.
 - [[jobs.snapshot_sinteticos]] — snapshot_sinteticos.py — materializa el cierre diario de sintéticos en mercado.snapshots_sinteticos (SQL).
 - [[jobs.sync_comitentes]] — Sync de cuentas comitentes desde Aunesa → master SQL `clientes.comitentes`

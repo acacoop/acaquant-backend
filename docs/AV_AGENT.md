@@ -44,7 +44,7 @@ tiene sentido, no al revés.
    en cambio, es exactamente lo que una regla no puede.
 2. **Sin medición no hay autonomía.** *«Un agente que diagnostica sin poder medir
    si acertó no es un agente, es un generador de opiniones.»* La precisión por
-   causa (`mercado.av_agent_evals`) es lo que habilita cada paso de autonomía —
+   causa (`agente.av_agent_evals`) es lo que habilita cada paso de autonomía —
    nunca la sensación de que anda bien.
 3. **Recompensa VERIFICABLE antes que opinión.** Un arreglo se aplica solo si la
    métrica que disparó el hallazgo vuelve al rango al simularlo. Es un control
@@ -75,7 +75,7 @@ agente **ya implementa sin haberlo llamado así**:
 | Recompensas verificables | la verificación local del arreglo | ✅ |
 | Human-in-the-loop | el humano aprueba toda escritura | ✅ |
 | Data provenance / accountability | evidencia congelada + libro de acciones | ✅ |
-| Evaluation sets | `mercado.av_agent_evals` | 🟡 tabla + endpoints, **sin UI de voto** |
+| Evaluation sets | `agente.av_agent_evals` | 🟡 tabla + endpoints, **sin UI de voto** |
 | Exemplar learning | `av_agent_ignorados` con motivo | 🟡 semilla |
 | Memoria / RAG / vector stores | — | ❌ no hace falta todavía |
 | Multiagente, swarms, actor frameworks | — | ❌ **no aplica a esta escala** |
@@ -145,7 +145,7 @@ actuaban sobre UN hallazgo.** Ninguno actuaba sobre EL AGENTE — si empezaba a
 escribir algo mal, la única forma de frenarlo era no apretar el botón, o apagar
 la API entera.
 
-**La parada** (`mercado.av_agent_control`) corta las escrituras de datos de
+**La parada** (`agente.av_agent_control`) corta las escrituras de datos de
 mercado —alta, flujos, arreglo, crear curva— y **deja intacta la lectura**.
 Frenar diagnosticando es lo que uno quiere mientras investiga: si la parada
 apagara todo, el primer reflejo ante una duda sería quedarse sin la herramienta.
@@ -312,7 +312,7 @@ hizo.
   función que usa el control y el botón de Manager— y se propone sobre lo que
   dice HOY. Parsear una frase habría atado el alta al formato de un string.
 - **`avisar.responsable` NO crea una tabla de notificaciones nueva.** Ya existe
-  la lista de pendientes del agente (`mercado.av_agent_avisos`): tiene alta,
+  la lista de pendientes del agente (`agente.av_agent_avisos`): tiene alta,
   cierre por una persona y pantalla. Solo le faltaba **a quién** → columna
   `para` (NULL = de todos, que es como venía funcionando). Un segundo buzón daría
   dos lugares donde mirar lo que hay para hacer — el problema exacto que SALUD
@@ -340,9 +340,9 @@ sí. La lente **declara la capacidad, no propone**: proponer cuesta (una corrida
 del control, a veces una llamada al modelo) y no tiene sentido pagarlo cada vez
 que alguien abre un diagnóstico a mirar.
 
-- Tablas: `mercado.av_agent_propuestas` (UNIQUE `accion+sujeto+campo` → re-proponer
+- Tablas: `agente.av_agent_propuestas` (UNIQUE `accion+sujeto+campo` → re-proponer
   ACTUALIZA en vez de acumular diez para el mismo asset) y la columna `para` de
-  `mercado.av_agent_avisos`.
+  `agente.av_agent_avisos`.
 - Endpoints (admin-only, `api/routers/ia.py`): `GET /av-agent/hacer`,
   `POST /av-agent/hacer/proponer`, `/aplicar`, `/rechazar`, y
   `GET /av-agent/mis-avisos` (SIN `require_admin` a propósito: el destinatario de
@@ -599,8 +599,8 @@ es la pantalla, no el dato. Para mirarlas a mano quedó
 > **Sobre «que se retroalimente solo»** (user: *«todo acá en AV AGENT se tiene que
 > retroalimentar de manera automática por el propio LLM, tiene que aprender de sí
 > mismo»*): la materia prima ya se está juntando y son TRES ledgers, no uno —
-> `mercado.av_agent_evals` (el ✔/✖ humano por diagnóstico),
-> `mercado.av_agent_propuestas` (cada sugerencia con si se aplicó, se rechazó o
+> `agente.av_agent_evals` (el ✔/✖ humano por diagnóstico),
+> `agente.av_agent_propuestas` (cada sugerencia con si se aplicó, se rechazó o
 > falló) y `ia.trazas`. **Todavía no se cierra el loop a propósito**: con la
 > cantidad de votos de hoy, cualquier ajuste automático estaría calibrando sobre
 > ruido. El disparador es el mismo de siempre — `MIN_VOTOS` (§0.f) —, no una
@@ -674,7 +674,7 @@ alguien está mandando al modelo trabajo que hace una función.
 > que no sea admin.»* (user)
 
 **Y ahí había un bug real, introducido el mismo día.** La acción
-`avisar.responsable` (§0.j) deja el aviso en `mercado.av_agent_avisos` con el
+`avisar.responsable` (§0.j) deja el aviso en `agente.av_agent_avisos` con el
 email del destinatario — pero el endpoint para leerlo vivía bajo `/api/ia`, que
 está gateado por el módulo **`ia`, que solo tienen admin e invitado**. O sea que
 el agente le podía escribir a un trader y **el trader no lo veía nunca**: el
@@ -1158,7 +1158,7 @@ ENCONTRÓ»*.
 catálogo*: manda a buscar a un lugar donde no está. Eran capacidades reales,
 funcionando, invisibles.
 
-**Ahora se persisten** (`jobs/db_tamano` → `mercado.av_agent_hallazgos` con
+**Ahora se persisten** (`jobs/db_tamano` → `agente.av_agent_hallazgos` con
 `alcance='sistema'`) y aparecen en ENCONTRÓ como cualquier otro hallazgo. Dos
 detalles que no son detalles:
 
@@ -3489,7 +3489,7 @@ es donde hay que meter un LLM que explique qué es el error»*), con tres guarda
 
   1. **Se explica el PATRÓN, no la fila.** El mismo error sale 90 veces en 6 h;
      una llamada por aparición sería absurdo. Una explicación por
-     `(unidad, patrón)`, persistida en `mercado.av_agent_errores` — misma idea
+     `(unidad, patrón)`, persistida en `agente.av_agent_errores` — misma idea
      que agrupar el log. Por eso la tarea es `flash`/300 tokens y no `pro`.
   2. **La IA NO decide a qué afecta.** Eso sale de la ficha declarada
      (`salud.JOBS[…]['alimenta']`, `QUE_HACE`), que es un hecho del sistema.
@@ -3591,7 +3591,7 @@ decir las mismas tres cosas** (está abierto · lo vi · se resolvió).
     aplicada_at             av_agent_preguntas · av_agent_propuestas
     la EXISTENCIA de la fila   av_agent_ignorados y 11 más
 
-⚠️ **Y la más importante no tiene estado.** `mercado.av_agent_hallazgos` —la que
+⚠️ **Y la más importante no tiene estado.** `agente.av_agent_hallazgos` —la que
 llena ENCONTRÓ— es una **FOTO** con `corrida_at`. Todo su ciclo (atendido ·
 visto · ignorado · vencido · ya votado) se **deriva en la lectura**, cruzando
 otras cinco tablas, en funciones distintas.
@@ -3649,7 +3649,7 @@ estaban mezcladas en 22 tablas:
     EL TIPO       de qué habla (bono · job · log)   → un CAMPO
     LA SOLUCIÓN   qué se hace y cómo se explica     → enchufable, por tipo
 
-`mercado.av_agent_items` + `core.ciclo.Item`. Un bono mal cargado, un job caído,
+`agente.av_agent_items` + `core.ciclo.Item`. Un bono mal cargado, un job caído,
 una línea de ERROR de un motor, un aviso a una persona y una pregunta abierta
 **son la misma cosa** para el ciclo de vida: aparecen, se ven, se actúan, se
 resuelven, y a veces vuelven.
@@ -4736,7 +4736,7 @@ Las cuatro fuentes ya existen y ya se mantienen solas:
 | `av_agent_skills.catalogo()` | qué mira cada pieza y **en qué job corre** (`extra.corre_en`) |
 | `jobs_catalogo` | el schedule REAL, leído de `deploy/crontab.txt` |
 | `manager.job_runs` | cuándo corrió de verdad y cómo salió |
-| `mercado.av_agent_items` | qué encontró y sigue abierto, por origen |
+| `agente.av_agent_items` | qué encontró y sigue abierto, por origen |
 
 #### TRES estados, no dos: `atrasado` puede ser `None`
 
@@ -4806,7 +4806,7 @@ por la que `enviar()` desduplica), o no se manda nunca por las dudas.
 
 **Lo que se agregó** es memoria, no un registro nuevo:
 `av_agent_mensajes.enviados_sobre("control:<id>")` lee **la misma tabla que la
-campanita del destinatario** (`mercado.av_agent_avisos`, por `ticker`). Un
+campanita del destinatario** (`agente.av_agent_avisos`, por `ticker`). Un
 registro aparte de «qué avisé» podría contradecir lo que el otro efectivamente
 tiene — el patrón de la REGLA #9(B).
 
@@ -5039,9 +5039,9 @@ motor caído, *«hoy no pasó nada»* es mentira.
 
 #### Y no estaban ahí porque viven en OTRA TABLA
 
-`mercado.av_agent_centinela` guarda lo que mira el DAEMON (precios · tasas ·
+`agente.av_agent_centinela` guarda lo que mira el DAEMON (precios · tasas ·
 salud, ver `_CUBRE`); los motores los encuentra el cron `jobs.av_agent_live` y
-quedan en `mercado.av_agent_items`. **Dos tablas para dos productores del mismo
+quedan en `agente.av_agent_items`. **Dos tablas para dos productores del mismo
 objeto, y la pantalla leía una sola.** Ahora `estado()` trae los dos en la misma
 conexión (4 queries, con un test AST que falla si alguna cae adentro de un
 bucle).
@@ -5173,7 +5173,7 @@ hace no deja huella.**
 
 #### (1) El voto se guardaba y la pantalla no se enteraba
 
-El `✔ SIRVE` / `✖ ES RUIDO` **sí escribía** en `mercado.av_agent_evals`. Lo que
+El `✔ SIRVE` / `✖ ES RUIDO` **sí escribía** en `agente.av_agent_evals`. Lo que
 faltaba era **una línea**: `await recargar()`. El «✔ te sirve» vivía en un
 `useState` del componente; al cambiar de tab React lo desmonta, al volver lee el
 `data` viejo —donde `ya_votado` sigue en `false`— y dibuja los botones otra vez.
@@ -5242,10 +5242,10 @@ crudo queda en el `title`: para buscarlo en la base hace falta el exacto.
 #### El censo: `scripts/diag_encontro` — y la primera versión estaba mal
 
 ⚠️ **Contó 408 donde la pantalla mostraba 98.** Consultaba
-`mercado.av_agent_items` directo —el objeto canónico— y esa tabla guarda TAMBIÉN
+`agente.av_agent_items` directo —el objeto canónico— y esa tabla guarda TAMBIÉN
 los avisos dirigidos (**142 `saldos_comitentes`**, que son mensajes a operadores
 y no problemas) y los sensores. La pantalla, en cambio, lee la foto de la última
-corrida de `mercado.av_agent_hallazgos`.
+corrida de `agente.av_agent_hallazgos`.
 
 Y clasificó **406 de 408 como «falta escribir el arreglo»** cuando las cinco
 pilas más grandes ya tenían acción: armó su propio conjunto de reglas-con-acción
@@ -6163,9 +6163,52 @@ la tabla del centinela; la unificación tabla por tabla es la migración de
 §0.bc/§0.bd y este parche hace que, mientras tanto, cada número diga de qué
 universo habla.
 
+### 0.cn EL AGENTE TIENE SCHEMA PROPIO — `agente`, no `mercado` (2026-08-22)
+
+> *«¿Qué tiene que ver la tabla de mercado con esto? Ya de por sí es cualquier
+> cosa que esto esté en mercado, que es para datos de mercado. Una locura.»*
+> — user, al enterarse de dónde vivían las tablas
+
+Tenía razón. Las 15+ tablas `av_agent_*` nacieron en el schema `mercado` por
+inercia (el primer detector miraba curvas y escribió al lado) y nadie las mudó
+al crecer. `mercado` es DATOS DE MERCADO; la memoria del agente es otra cosa,
+y tenerlas mezcladas hacía además que el propio inventario del agente
+perfilara sus tablas como si fueran tablas de mercado.
+
+**La mudanza, y por qué es segura:**
+
+- `ALTER TABLE ... SET SCHEMA` es un **cambio de metadata instantáneo**: la
+  tabla cambia de carpeta con sus datos, índices y PKs — no se copia ni se
+  pierde una fila.
+- Vive en un bloque `DO $mudanza_agente$` de `sql/schema.sql` que corre
+  **ANTES** de los `CREATE TABLE`: si la tabla está en `mercado` se muda; el
+  `CREATE IF NOT EXISTS` de abajo la encuentra ya en `agente` y no hace nada.
+  El orden inverso habría creado tablas VACÍAS en `agente` con la historia
+  varada en `mercado` — dos verdades. Si por un deploy a medias existieran
+  las dos, el bloque **avisa y no pisa nada**.
+- Idempotente: en la segunda pasada no queda nada que mudar.
+- Código: sed mecánico de `mercado.av_agent` → `agente.av_agent` (220
+  referencias en 39 archivos + schema + docs), más la regex de
+  `ciclo.tablas_del_agente()` que el sed no alcanza (va escapada).
+- El inventario del contexto (§0.r) no filtra por lista de schemas
+  (`NOT IN (pg_catalog, …)`) → ve `agente` solo, sin tocar nada.
+
+⚠️ **El daemon del centinela corre código viejo hasta reiniciarlo**: deploy =
+`apply_schema` (muda las tablas) + restart de la API, pero
+`av_agent_centinela.service` no se reinicia solo y quedaría escribiendo a
+`mercado.av_agent_centinela`, que ya no existe. NO es un motor de mercado
+(no alimenta precios): reiniciarlo en rueda no corta nada — el bloque de
+entrega lo incluye. Los cron jobs levantan código nuevo solos en su próxima
+corrida.
+
+Los nombres de tabla conservan el prefijo `av_agent_` aunque ahora sea
+redundante (`agente.av_agent_items`): renombrar tablas además de mudarlas
+habría duplicado el riesgo del paso por cero beneficio — se puede hacer más
+adelante, tabla por tabla, si molesta.
+
 ### 0.f El eval set (2026-08-17)
 
-`mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta
+`agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta
 cuando falla. **El dataset ya existía y se estaba tirando**: cada vez que alguien
 abre un diagnóstico y decide, emite un juicio sobre si la causa era la correcta.
 
@@ -6448,8 +6491,8 @@ explícitas. **Validación:** el user lo lee y confirma que es el sistema que qu
 |---|---|
 | `core/mercado_1816.py::censar()` | el censo de las 28 curvas, **promovido** desde `scripts/diag_1816_cashflow` (un job de prod no puede depender de un diag, que por la REGLA #5 se borra al cumplir). El diag quedó con un alias. |
 | `api/services/av_agent.py` | los **tres detectores**, lógica PURA (sin base, sin red, sin FastAPI) + `relevar()` que orquesta |
-| `jobs/av_agent.py` | el job: censo → detectores → `mercado.av_agent_hallazgos`. `--dry-run`, `--alcance`, `--detalle` |
-| `mercado.av_agent_hallazgos` (`sql/schema.sql`) | append-only **por corrida**, con la evidencia congelada y TTL de 60 corridas |
+| `jobs/av_agent.py` | el job: censo → detectores → `agente.av_agent_hallazgos`. `--dry-run`, `--alcance`, `--detalle` |
+| `agente.av_agent_hallazgos` (`sql/schema.sql`) | append-only **por corrida**, con la evidencia congelada y TTL de 60 corridas |
 | `tests/unit/test_av_agent.py` | 15 tests — **9 de ellos afirman que algo NO se reporta** |
 
 **El ALCANCE es un parámetro, no una constante** (`--alcance soberanos` por
@@ -6514,7 +6557,7 @@ que el sistema ya tenía.**
 **2. Lo que se puede expresar como REGLA no va como lista.** Los 6 Globales en
 EUR salen por `MONEDAS_SEGUIDAS`, no anotando seis tickers: una regla estructural
 sigue valiendo cuando emitan el séptimo. Para lo que sí es caso por caso está
-`mercado.av_agent_ignorados` (con **motivo obligatorio** — dentro de seis meses,
+`agente.av_agent_ignorados` (con **motivo obligatorio** — dentro de seis meses,
 *por qué* se ignoró es la única pregunta que importa, y es lo que E7 va a usar
 para dejar de proponerlo).
 
@@ -6557,7 +6600,7 @@ contesta cuando puede — no cuando el agente corre. En el plan de estudios esto
 
 | Pieza | Qué es |
 |---|---|
-| `mercado.av_agent_preguntas` | `clave` ÚNICA (idempotencia), pregunta, opciones, contexto congelado, respuesta, nota, `aplicada_at` |
+| `agente.av_agent_preguntas` | `clave` ÚNICA (idempotencia), pregunta, opciones, contexto congelado, respuesta, nota, `aplicada_at` |
 | `api/services/av_agent_preguntas.py` | generación desde hallazgos, respuesta + **efecto**, parser del comando |
 | `jobs/av_agent.py --preguntas / --responder` | el canal, sin UI todavía (la bandeja es E5) |
 
@@ -6933,7 +6976,7 @@ buscar. **En cuanto el agente escriba en `mercado.curvas` (E2), una escritura
 automática sin libro es una escritura que nadie puede auditar ni revertir** — y el
 momento de construirlo es ANTES de esa etapa, no después del primer susto.
 
-`mercado.av_agent_acciones` (append-only) + `api/services/av_agent_acciones.py` +
+`agente.av_agent_acciones` (append-only) + `api/services/av_agent_acciones.py` +
 la tab **HIZO** del modal: cuándo (hora ART), qué hizo, sobre qué, **en qué tabla
 escribió**, quién lo pidió, de qué pregunta salió, y el detalle.
 
@@ -7643,7 +7686,7 @@ reporte de estado: una lista que se borra sola no deja ver qué había pendiente
 qué se hizo. Y derivarlo confunde dos cosas distintas — *«el dato está»* y *«yo
 ya me ocupé de esto»*.
 
-Ahora se persiste en `mercado.av_agent_avisos`, nace al APLICAR y lo cierra el
+Ahora se persiste en `agente.av_agent_avisos`, nace al APLICAR y lo cierra el
 user (`POST /api/ia/av-agent/aviso`, reversible como `designorar`).
 
 **Pero el cierre manual solo es seguro si algo lo contrasta.** Un aviso marcado
@@ -8756,7 +8799,7 @@ realmente lo necesita: traer un cronograma que no tenemos.
   queda `fallida` y no `aplicada`. `_write_sql` se movió del router al service
   (`assets_sql.set_campos`) — una sola puerta de escritura, un solo criterio.
   Rechazar también se registra: sin eso el agente parecería tener 100% de
-  acierto. `mercado.av_agent_propuestas` + `para` en `av_agent_avisos` + 4
+  acierto. `agente.av_agent_propuestas` + `para` en `av_agent_avisos` + 4
   endpoints + la lente «Esto lo sé hacer» en el diagnóstico de SALUD + 31 tests.
 
 - **2026-08-17 — SALUD deja de estar aislada: el agente LEE EL LOG y propone el
@@ -8812,7 +8855,7 @@ realmente lo necesita: traer un cronograma que no tenemos.
   veredicto se **importan** de la puerta de bonos: que las dos cosas se vean igual
   en el modal es lo que permite que una sola cabeza lea las dos. **No escribe nada
   del lado de SALUD** y `ACCION_POR_TIPO["salud"] = None` es explícito — ve y
-  razona, todavía no arregla. Y nace el **EVAL SET** (`mercado.av_agent_evals`): un
+  razona, todavía no arregla. Y nace el **EVAL SET** (`agente.av_agent_evals`): un
   ✔/✖ humano por diagnóstico, que rechaza un ✖ sin motivo y distingue un
   porcentaje con respaldo de uno con tres votos. Es lo que convierte cada paso de
   autonomía en una decisión con número en vez de fe. 4 tests (112 en el módulo).
@@ -9145,7 +9188,7 @@ realmente lo necesita: traer un cronograma que no tenemos.
   dos gates para una decisión no se contradicen si alguien se equivoca, se
   contradicen SIEMPRE. 1 test que falla si vuelve a aparecer un segundo gate.
 - **2026-08-17 — E2.m, cierre manual del aviso + la foto se coteja.** Los avisos
-  se **PERSISTEN** (`mercado.av_agent_avisos`) y **los cierra el user**, no el
+  se **PERSISTEN** (`agente.av_agent_avisos`) y **los cierra el user**, no el
   sistema: derivarlos (mi diseño de E2.l) confundía «el dato está» con «yo ya me
   ocupé», y borraba la lista de tareas sola. El cierre manual se hace seguro con
   **`ya_cargado`** —cruce contra el master en la misma query— que canta un aviso
@@ -9243,7 +9286,7 @@ realmente lo necesita: traer un cronograma que no tenemos.
   calcula la TEA en seco y da de alta el bono por `upsert_bono` con un click.
   Solo las ramas donde la conversión es inequívoca (`tasa_fija`, `soberanos`);
   `cer` y `tamar` se simulan pero las carga un humano.
-- **2026-08-17 — E1.i, el LIBRO DE ACCIONES.** `mercado.av_agent_acciones` + tab
+- **2026-08-17 — E1.i, el LIBRO DE ACCIONES.** `agente.av_agent_acciones` + tab
   **HIZO**: qué escribió, cuándo, en qué tabla, por pedido de quién y qué había
   antes. Anota también los intentos fallidos. Obligatorio antes de E2.
 - **2026-08-17 — E1.h, el agente CREA la curva.** `mercado.curvas_catalogo` +
@@ -9278,7 +9321,7 @@ realmente lo necesita: traer un cronograma que no tenemos.
   link en el header. Las preguntas son el tab default; el agente habla en primera
   persona y dice lo que todavía no puede hacer. Bug atajado antes de prod: el
   deshacer nació DELETE y el proxy de `/api/ia` solo expone GET/POST.
-- **2026-08-16 — E1.c, el agente PREGUNTA.** `mercado.av_agent_preguntas` +
+- **2026-08-16 — E1.c, el agente PREGUNTA.** `agente.av_agent_preguntas` +
   `api/services/av_agent_preguntas.py` + `--preguntas`/`--responder` en el job.
   Responder dispara un efecto (`ignorar` → `av_agent_ignorados`), no repregunta
   (clave única), acepta rangos, y las 3 decisiones abiertas del §4 pasan a ser
@@ -9289,13 +9332,13 @@ realmente lo necesita: traer un cronograma que no tenemos.
 - **2026-08-16 — E1.b, primera calibración contra prod.** 107 hallazgos, 29
   créditos. Tres falsos positivos corregidos (LECAP zero-coupon, ONs fuera de
   cartera, patas `@` de 1816) + los Globales en EUR excluidos por regla de moneda
-  + `mercado.av_agent_ignorados`. Los tres tenían la MISMA causa: un predicado
+  + `agente.av_agent_ignorados`. Los tres tenían la MISMA causa: un predicado
   que el sistema ya tenía y que se reescribió peor. El detector de tasas acertó
   (12 bonos con la falla #4) y `sin_ejes` dio 9/9 exactos contra `RENTA_FIJA` §14.
   6 tests nuevos congelan cada falso positivo.
 - **2026-08-16 — E1 codeado.** `core/mercado_1816.censar()` (promovido del diag),
   `api/services/av_agent.py` (3 detectores puros), `jobs/av_agent.py`,
-  `mercado.av_agent_hallazgos` y 15 tests. `curvas_vista._es_ruido` pasó a pública
+  `agente.av_agent_hallazgos` y 15 tests. `curvas_vista._es_ruido` pasó a pública
   (`es_tasa_ruido`) para que el criterio de "tasa ruidosa" exista UNA sola vez.
   Read-only sobre `mercado.curvas` y sin una línea de IA. **Pendiente: calibrar en
   prod** — hasta entonces, sin cron.

@@ -20,6 +20,7 @@ Conecta con: lee el universo de `Trading.Cedears` (activo=True) y escribe a `Tra
 
 ## Usa / conecta con →
 - [[core]]  ·  _module_
+- [[core.logs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_

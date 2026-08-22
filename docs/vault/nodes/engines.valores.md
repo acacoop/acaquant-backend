@@ -19,6 +19,7 @@ Conecta con: escribe `book.bids/offers` y `metrics.{last_price,open,high,low,clo
 ## Usa / conecta con →
 - [[core]]  ·  _module_
 - [[core.adhoc_subscriptions]]  ·  _module_
+- [[core.logs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_

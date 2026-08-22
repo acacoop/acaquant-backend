@@ -21,6 +21,7 @@ Conecta con: escribe `Trading.CaucionSnapshot` (live, ReplaceOne cada 15s) y `Tr
 ## Usa / conecta con →
 - [[core]]  ·  _module_
 - [[core.calendario]]  ·  _module_
+- [[core.logs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
 - [[engines._motor_base]]  ·  _module_
 

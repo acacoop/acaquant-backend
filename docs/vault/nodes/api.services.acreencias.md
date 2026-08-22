@@ -30,6 +30,7 @@ _(pendiente de enriquecimiento)_
 - [[api.routers.manager.bonos]]  ·  _module_
 - [[api.services.av_agent]]  ·  _module_
 - [[api.services.av_agent_alta]]  ·  _module_
+- [[api.services.av_agent_hacer]]  ·  _module_
 - [[api.services.av_agent_vista]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
 - [[api.services.ons]]  ·  _module_

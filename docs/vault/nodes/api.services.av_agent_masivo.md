@@ -19,8 +19,14 @@ _(pendiente de enriquecimiento)_
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
 - [[api.services.av_agent_alta]]  ·  _module_
+- [[api.services.av_agent_espejo]]  ·  _module_
+- [[api.services.av_agent_hacer]]  ·  _module_
+- [[api.services.av_agent_items]]  ·  _module_
+- [[api.services.av_agent_pata]]  ·  _module_
 - [[api.services.av_agent_salud]]  ·  _module_
+- [[api.services.av_agent_sin_precio]]  ·  _module_
 - [[core]]  ·  _module_
+- [[core.ciclo]]  ·  _module_
 - [[core.mercado_1816]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 

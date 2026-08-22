@@ -22,7 +22,7 @@ o acción manda uno sin saber nada del buzón.
 DOS COSAS QUE HACEN QUE SIRVA, Y NO SON OBVIAS
 ===============================================
 
-1. **NO se crea un buzón nuevo.** Es la misma `mercado.av_agent_avisos` que la
+1. **NO se crea un buzón nuevo.** Es la misma `agente.av_agent_avisos` que la
    persona ya ve en su barra (`MisAvisos`), se cierra igual y se audita igual. Un
    segundo lugar donde mirar lo que hay para hacer es exactamente el problema que
    SALUD vino a resolver cuando la observabilidad estaba en seis pantallas.
@@ -136,7 +136,7 @@ def enviados_sobre(ticker: str, limite: int = 20) -> list[dict]:
             cur.execute(
                 "SELECT lower(coalesce(para, '')), creado_at::text, resuelto, "
                 "       resuelto_at::text, coalesce(resuelto_por, '') "
-                "FROM mercado.av_agent_avisos WHERE ticker = %s "
+                "FROM agente.av_agent_avisos WHERE ticker = %s "
                 "ORDER BY creado_at DESC LIMIT %s", (t, limite))
             return [{"para": a, "creado_at": b, "resuelto": c,
                      "resuelto_at": d, "resuelto_por": e}
@@ -219,7 +219,7 @@ def enviar_tabla(*, para: str, asunto: str, filas: list[dict], tema: str,
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO mercado.av_agent_avisos "
+                "INSERT INTO agente.av_agent_avisos "
                 "(ticker, clave, que_hacer, por_que, donde, creado_por, para, "
                 " interrumpe, vence_at) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
@@ -233,7 +233,7 @@ def enviar_tabla(*, para: str, asunto: str, filas: list[dict], tema: str,
                 # Ya existía abierto: se REUSA y se actualizan las filas nuevas
                 # sin tocar las que ya están tildadas.
                 cur.execute(
-                    "SELECT id FROM mercado.av_agent_avisos "
+                    "SELECT id FROM agente.av_agent_avisos "
                     "WHERE NOT resuelto AND lower(para) = %s AND clave = %s "
                     "  AND ticker = %s", (e, tema, f"tema:{tema}"))
                 r = cur.fetchone()
@@ -242,7 +242,7 @@ def enviar_tabla(*, para: str, asunto: str, filas: list[dict], tema: str,
                                                   "el aviso"}
                 aviso_id, creado = r[0], False
             cur.executemany(
-                "INSERT INTO mercado.av_agent_aviso_items "
+                "INSERT INTO agente.av_agent_aviso_items "
                 "(aviso_id, orden, clave, etiqueta, datos) "
                 "VALUES (%s, %s, %s, %s, %s::jsonb) "
                 # **NO se pisa `hecho`.** El operador que ya marcó tres no las
@@ -303,8 +303,8 @@ def _cerrar_fila(item_id: int, *, por: str, hecho: bool) -> None:
         from core import ciclo
         from core.postgres import get_pool as _pool
         with _pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT i.clave, a.clave FROM mercado.av_agent_aviso_items i "
-                        "JOIN mercado.av_agent_avisos a ON a.id = i.aviso_id "
+            cur.execute("SELECT i.clave, a.clave FROM agente.av_agent_aviso_items i "
+                        "JOIN agente.av_agent_avisos a ON a.id = i.aviso_id "
                         "WHERE i.id = %s", (item_id,))
             r = cur.fetchone()
         if not r:
@@ -330,10 +330,10 @@ def marcar_item(item_id: int, *, quien: str, hecho: bool = True) -> dict:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE mercado.av_agent_aviso_items i "
+                "UPDATE agente.av_agent_aviso_items i "
                 "SET hecho = %s, hecho_at = CASE WHEN %s THEN now() END, "
                 "    hecho_por = CASE WHEN %s THEN %s END "
-                "FROM mercado.av_agent_avisos a "
+                "FROM agente.av_agent_avisos a "
                 "WHERE i.id = %s AND a.id = i.aviso_id AND lower(a.para) = %s "
                 "RETURNING i.aviso_id",
                 (hecho, hecho, hecho, q, item_id, q))
@@ -343,10 +343,10 @@ def marcar_item(item_id: int, *, quien: str, hecho: bool = True) -> dict:
             # Si NO queda ninguna pendiente, el aviso se cierra solo: pedirle
             # además que apriete «listo» sería un paso que no agrega nada.
             cur.execute(
-                "UPDATE mercado.av_agent_avisos SET resuelto = true, "
+                "UPDATE agente.av_agent_avisos SET resuelto = true, "
                 "  resuelto_por = %s, resuelto_at = now() "
                 "WHERE id = %s AND NOT resuelto AND NOT EXISTS ("
-                "  SELECT 1 FROM mercado.av_agent_aviso_items "
+                "  SELECT 1 FROM agente.av_agent_aviso_items "
                 "  WHERE aviso_id = %s AND NOT hecho)", (q, r[0], r[0]))
             cerrado = cur.rowcount > 0
             conn.commit()

@@ -1,4 +1,9 @@
-"""scripts/diag_modal.py — imprime lo que muestran QUÉ PIDE ALGO · ¿AGUANTAN? · VIGILANCIA.
+"""scripts/diag_modal.py — imprime lo que muestran ¿AGUANTAN? · VIGILANCIA.
+
+⚠️ La sub-tab QUÉ PIDE ALGO se ELIMINÓ el 2026-08-22 (`AV_AGENT.md` §0.cu):
+era LA LISTA contada con otro universo y sin botones. Su sustrato
+(`que_importa`) sigue vivo en el payload — acá se imprime RESUMIDO al final,
+marcado como «no es una pantalla», porque sirve para auditar los hitos.
 
 Read-only, MISMAS funciones que la pantalla (`av_agent_vista.vista()` y
 `av_agent_centinela.estado()`): lo que sale acá es lo que ve el navegador, y si
@@ -20,25 +25,6 @@ def main() -> None:
     v = av_agent_vista.vista()
 
     print("═" * 68)
-    print("QUÉ PIDE ALGO — la memoria completa, priorizada")
-    print("═" * 68)
-    q = v.get("que_importa") or {}
-    print(f"abiertos={q.get('abiertos')} · piden_algo={q.get('piden_algo')} "
-          f"· comunicaciones aparte={q.get('comunicaciones')}")
-    print(f"por banda: {q.get('por_banda')}")
-    print("\nPOR CAUSA (el resumen que manda):")
-    for g in q.get("por_causa") or []:
-        print(f"  {g['regla']:<28} ×{g['n']:<4} piden={g['piden']:<3} "
-              f"peor={g['peor_banda']:<9} max {g['dias_max']:.0f}d  "
-              f"ej: {', '.join(g['sujetos'][:3])}")
-    print(f"\nfilas individuales en el payload: {len(q.get('filas') or [])} "
-          f"(topeadas — el resumen por causa es el que está completo)")
-    print("CÓMO SALE ALGO DE ACÁ: el detector deja de verlo (pasa a resuelto y")
-    print("a ¿AGUANTAN?), o lo ignorás / lo votás ruido. No tiene botones")
-    print("propios A PROPÓSITO: el grupo te lleva a LA LISTA, que es el banco")
-    print("de trabajo con los botones.")
-
-    print("\n" + "═" * 68)
     print("¿AGUANTAN? — la sala de espera de lo ya tocado")
     print("═" * 68)
     s = v.get("seguimiento") or {}
@@ -71,6 +57,18 @@ def main() -> None:
     print("\nCÓMO SALE ALGO DE ACÁ: se cierra SOLO cuando el monitor deja de")
     print("verlo en una pasada que sí evaluó su tipo (los de rueda, recién en")
     print("rueda). «Marcar visto» no lo cierra: solo lo saca de 'sin ver'.")
+
+    print("\n" + "═" * 68)
+    print("APÉNDICE: que_importa — YA NO ES UNA PANTALLA (§0.cu)")
+    print("═" * 68)
+    q = v.get("que_importa") or {}
+    print(f"abiertos={q.get('abiertos')} · piden_algo={q.get('piden_algo')} "
+          f"· comunicaciones aparte={q.get('comunicaciones')}")
+    print(f"por banda: {q.get('por_banda')}")
+    print("Es la MEMORIA completa del agente (relevada + controles + monitor),")
+    print("por eso 'abiertos' es más grande que LA LISTA. Alimenta los hitos y")
+    print("las bandas que se ven EN cada fila de LA LISTA; como pantalla se")
+    print("eliminó porque repetía LA LISTA sin un solo botón.")
 
 
 if __name__ == "__main__":

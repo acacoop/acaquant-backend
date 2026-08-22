@@ -6443,6 +6443,60 @@ de «el agente cambió su vara». Se acepta como costo del estreno — pasa una
 sola vez por cambio de criterio — y el arreglo real es aplicar las patas: con
 el control en 0, se resuelve de verdad.
 
+### 0.cu QUÉ PIDE ALGO se ELIMINÓ — una pantalla existe si se puede actuar o decidir en ella (2026-08-22)
+
+> *«¿ADÓNDE hay 179 problemas abiertos? No estoy viendo ningún lugar donde los
+> pueda solucionar… tampoco coincide con LA LISTA… NO ENTIENDO QUÉ CAMBIA ESTO
+> DE LA LISTA… acá es solo texto, nada es clickeable. Esta vista es un desastre
+> al 100% en UI/UX.»* — user, mirando QUÉ PIDE ALGO
+
+Tenía razón en el diagnóstico de fondo, no solo en el de forma. QUÉ PIDE ALGO
+mostraba la MEMORIA completa del agente (relevada + controles + monitor en
+vivo) priorizada por causa — pero contra la pantalla de al lado eso se leía
+así: **otro universo de conteo** («179 abiertos» que no coinciden con los 115
+de LA LISTA, porque cuentan fuentes que la relevada no ve), **cero botones**
+(la prioridad se miraba acá y se trabajaba allá), y **la misma información**:
+la banda (VOLVIÓ/estancado), los días abierto y el ×veces ya viajan EN cada
+fila de LA LISTA desde §0.bm. O sea: era LA LISTA contada de nuevo con otros
+números y sin poder tocar nada. Dos intentos de arreglarla (resumen por causa
+clickeable, puente a LA LISTA filtrada) no cambiaron lo esencial.
+
+**Se eliminó la pantalla, no el sustrato.** El menú de ENCONTRÓ queda en tres
+cosas que SÍ son distintas entre sí: **LA LISTA** (el banco de trabajo, con
+los botones) · **¿AGUANTAN?** (el reloj de lo ya tocado) · **VIGILANCIA** (el
+monitor en vivo acumulado). `que_importa` sigue en el payload de `vista()` —
+alimenta las bandas y los hitos de LA LISTA y lo imprime `diag_modal` como
+apéndice, marcado «no es una pantalla».
+
+**La ley que queda** (es la misma de §0.l y de la tab LATENCIA): *una pantalla
+existe solo si en ella se puede **actuar** (botones) o **decidir** (elegir a
+dónde ir). Una pantalla que solo informa lo que otra ya muestra se elimina —
+no se le agregan puentes.* El puente fue el intento intermedio y no alcanzó:
+si para usar una vista hay que saltar a otra, la información tiene que vivir
+directamente en la otra.
+
+**¿AGUANTAN? se quedó, pero se arregló con el mismo criterio** (el user, en el
+mismo round: *«en AGUANTAN se repite lo mismo — dice que hay un total pero
+muestra menos, los datos están partidos, nada es accionable»*):
+
+- **Los números concilian en una frase.** El menú dice `N arreglos + M
+  atendidos` (los DOS sumandos = las DOS tablas de adentro) y el encabezado
+  de la primera dice «N arreglos en prueba, cubren X casos». Antes convivían
+  un 51 en el menú, un «176 casos en prueba» en el pie y 12 filas visibles —
+  tres números sin puente entre sí. Dos topes del backend alimentaban la
+  mentira y se sacaron: `por_causa` iba `[:12]` (el menú contaba causas… de
+  una lista recortada) y `sujetos` iba `[:5]` (el «…» no se podía abrir
+  porque el resto no viajaba).
+- **Nada en columnas fijas.** Las grillas `190px_150px_1fr_auto` cortaban la
+  regla a la mitad y tiraban la última columna fuera del borde del modal.
+  Ahora cada fila envuelve (`flex-wrap`) y el motivo de YA LO ATENDISTE va
+  ENTERO en su propio renglón.
+- **Lo accionable que corresponde a un reloj**: cada causa se DESPLIEGA al
+  clic y muestra TODOS sus casos. No hay más botones a propósito — esta
+  sub-tab pasa la ley porque en ella se *decide* (ver qué cubre cada arreglo,
+  saber cuándo llega el próximo control); lo que no puede es truncar sin
+  dejar ver.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

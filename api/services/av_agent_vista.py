@@ -1042,14 +1042,21 @@ def _seguimiento_corto(limite: int = 12) -> dict:
             "proximo_hito_en_dias": min(
                 (x["proximo_hito_en_dias"] for x in xs
                  if x["proximo_hito_en_dias"] is not None), default=None),
-            # Con pocos casos, los nombres dicen más que el número.
-            "sujetos": [x["sujeto"] for x in xs[:5]],
+            # TODOS los sujetos, no 5 (user, 2026-08-22: «dice que hay un
+            # total pero muestra menos»): la pantalla trunca VISUALMENTE y
+            # despliega al clic — pero solo puede desplegar lo que viaja.
+            # Son strings cortos; el lote más grande (133 patas) pesa ~3KB.
+            "sujetos": [x["sujeto"] for x in xs],
         })
     por_causa.sort(key=lambda g: -g["n"])
     return {
         "en_prueba": len(en_prueba),
         "aguantaron": sum(1 for x in filas if x["aguanto"]),
-        "por_causa": por_causa[:limite],
+        # SIN topear: una causa es una REGLA distinta, y reglas hay decenas,
+        # no miles. Toparlo hacía que el número del menú (que cuenta esto)
+        # dijera menos arreglos de los que había — el mismo defecto que las
+        # filas truncadas, pero en el contador.
+        "por_causa": por_causa,
         # Los que llevan MÁS tiempo primero: son los que van a dar novedad antes.
         "proximos": sorted(en_prueba, key=lambda x: -x["dias"])[:limite],
     }

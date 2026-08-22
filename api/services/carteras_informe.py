@@ -220,9 +220,15 @@ def _cierre_mes_anterior(id_cuenta: str, fecha: str) -> str | None:
 def _detalle(pos: dict, orden: list[str]) -> dict:
     """Un bloque por cartera con sus títulos ordenados por valuación.
 
-    `share` (peso sobre la cuenta) ya viene resuelto de `posiciones_actuales`;
-    acá se agrega `share_cartera`, que es la pregunta que se hace mirando un
-    cuadro: cuánto pesa este título DENTRO de su cartera.
+    ⚠️ **`share` se re-expresa como FRACCIÓN.** `posiciones_actuales` lo devuelve
+    en PORCENTAJE (0-100) y todo el resto de este payload —ponderaciones, shares
+    de métricas— viaja en fracción (0-1). Dos unidades para el mismo concepto
+    dentro de la misma respuesta es la clase de detalle que se paga con un
+    número cien veces más grande en pantalla, así que acá se unifica.
+
+    Es el peso del título sobre la CUENTA, que es la única comparación que sirve
+    en una tabla donde conviven todas las carteras: un 100% dentro de una
+    cartera de dos títulos no dice nada al lado de un 30% de otra.
     """
     filas = pos.get("posiciones") or []
     total = float(pos.get("total") or 0.0)
@@ -240,7 +246,7 @@ def _detalle(pos: dict, orden: list[str]) -> dict:
             "total_usd": _usd(tot, mep),
             "ponderacion": _pond(tot, total),
             "filas": [
-                {**p, "share_cartera": _pond(float(p.get("valuacion") or 0.0), tot)}
+                {**p, "share": _pond(float(p.get("valuacion") or 0.0), total)}
                 for p in sorted(propias, key=lambda x: -float(x.get("valuacion") or 0.0))
             ],
         })

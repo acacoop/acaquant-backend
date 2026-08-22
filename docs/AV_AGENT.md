@@ -6407,6 +6407,42 @@ presentación, generales para todos los diagnósticos:
 - **El contador de HISTORIAL suma los votos** (mostraba VOTASTE adentro y el
   número afuera no los contaba — quedaba clavado en 128).
 
+### 0.ct VOTAR NO ES ARREGLAR — los dos checks (2026-08-22)
+
+> *«Toqué que SÍ y desapareció — NO ME DEJÓ ARREGLARLO. Tienen que ser dos
+> checks distintos: si pongo que acertó es porque acertó; ahora si en arreglar
+> tardo un par de horas, no me tiene que volver a pedir si acertó — pero así
+> queda como acierto y SIGUE ROTO.»* — user, con NDT25 votado y sin arreglar
+
+Esta regla ya estuvo DOS veces al revés, y la síntesis del user es la
+correcta. Historia completa, para no darla vuelta una tercera vez:
+
+  v1  votar no contaba como atendido → 17 BOPREALes votados tapaban la lista
+      (§0.bq la dio vuelta: «si votó, lo hizo» — cierto CUANDO no había botón)
+  v2  votar contaba siempre → con ARREGLAR ya cableado, el voto escondía el
+      botón justo cuando confirmaste que el diagnóstico es correcto
+
+**La regla que queda — DOS checks independientes:**
+
+  check 1  ¿ACERTÓ?   persiste (`ya_votado`), no se re-pregunta nunca
+  check 2  ¿ARREGLADO? la fila sale de LA LISTA recién cuando el arreglo se
+           APLICA o el detector confirma que ya no está
+
+El contexto que decide es si la fila TIENE acción pendiente: votada y CON
+arreglo disponible → se queda, marcada **«✔ votado · falta arreglar»** (sin
+volver a preguntar); votada y SIN botón → sale (ahí votar es todo lo que hay,
+el caso BOPREAL original). Congelado por test con la historia adentro.
+
+**Y el VOLVIÓ de «patas equivocadas» a la 1:48 PM del sábado NO fue un
+arreglo que falló**: fue el control estrenando el árbitro nuevo (§0.cq) — al
+correr con `pata_para_el_eje` vio por primera vez los 22 casos que
+`es_default` le escondía. El item del chequeo estaba `resuelto` (cuando el
+control era ciego decía 0) y al re-verse pasó a `volvio`, que es la mecánica
+correcta con una lectura incómoda: el modelo no distingue «el arreglo falló»
+de «el agente cambió su vara». Se acepta como costo del estreno — pasa una
+sola vez por cambio de criterio — y el arreglo real es aplicar las patas: con
+el control en 0, se resuelve de verdad.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

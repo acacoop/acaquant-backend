@@ -1190,7 +1190,22 @@ def vista() -> dict:
         if est in (ciclo.EN_CURSO, ciclo.RESUELTO):
             h["atendido"] = "aplicado"
         elif est == ciclo.VISTO or h.get("ya_votado"):
-            h["atendido"] = "votado"
+            # ⚠️⚠️ **VOTAR NO ES ARREGLAR** (user, 2026-08-22: *«toqué que SÍ y
+            # desapareció — no me dejó arreglarlo. Tienen que ser dos checks
+            # distintos: el acertó persiste, pero si en arreglar tardo un par
+            # de horas la fila tiene que seguir»*). La regla de §0.bq («si
+            # votó, lo hizo») nació cuando las filas NO tenían botón: votar era
+            # lo único que se podía hacer. Con ARREGLAR en la fila, sacar la
+            # fila al votar esconde el botón justo cuando confirmaste que el
+            # diagnóstico es correcto — lo contrario de lo que el voto dice.
+            #
+            # Quedan DOS checks, como pidió: el VOTO persiste (no se vuelve a
+            # preguntar — eso ya lo hace `ya_votado`) y la fila sale de la
+            # lista recién cuando el arreglo se APLICA o el detector confirma.
+            # Sin acción disponible, votar sigue sacándola: ahí votar ES todo
+            # lo que hay para hacer (el caso BOPREAL original).
+            if not h.get("accion"):
+                h["atendido"] = "votado"
         # ⚠️ **«ES RUIDO» AHORA HACE ALGO** (§0.bn). Esos votos se escribían y
         # no los leía nadie: la fila quedaba exactamente donde estaba, que es
         # la peor versión posible de un botón porque parece que hizo algo.

@@ -171,34 +171,35 @@ def _h(ticker, tipo, regla, accion):
             "motivo": "", "de_quien": "nuestro"}
 
 
-def test_VOTAR_TAMBIEN_cuenta_como_atendido():
-    """⚠️ **Esta regla estaba al revés y trababa la pantalla.** La primera versión
-    NO contaba el voto cuando la fila tenía botón, con el argumento de que votar
-    no arregla nada y esconder un bono votado y roto sería peor.
+def test_VOTAR_con_arreglo_pendiente_NO_saca_la_fila():
+    """⚠️⚠️ **VOTAR NO ES ARREGLAR — esta regla ya estuvo dos veces al revés.**
 
-    El razonamiento es correcto sobre el DATO y equivocado sobre la PANTALLA. El
-    user lo pidió dos veces: *«que ENCONTRÓ muestre por defecto lo que NO hice…
-    si no es imposible avanzar»*. Si votó, lo miró. Lo que impide esconder algo
-    roto no es este filtro — la fila sigue en la lista, contada y a un clic.
+    Primera versión: el voto no contaba como atendido (con botón), y 17
+    BOPREALes votados taparon la lista → §0.bq la dio vuelta («si votó, lo
+    hizo»). Segunda versión: con los botones ARREGLAR ya cableados, votar SÍ
+    sacaba la fila — y el user (2026-08-22): *«toqué que SÍ y desapareció, NO
+    ME DEJÓ ARREGLARLO. Tienen que ser dos checks distintos: el acertó
+    persiste, pero la fila tiene que seguir hasta que se arregle»*.
+
+    La síntesis que queda: son DOS checks. El voto persiste y no se
+    re-pregunta (`ya_votado`); la fila sale de la lista recién cuando el
+    arreglo se APLICA o el detector confirma. El contexto que decide es si la
+    fila TIENE una acción pendiente.
     """
-    d = _vista([_h("BPOA7", "precio_moneda", "pata_equivocada", "apuntar")],
-               votados={("BPOA7", "pata_equivocada"): True})
+    d = _vista([_h("NDT25", "tasa_sospechosa", "sin_tea_con_precio", "arreglo")],
+               votados={("NDT25", "sin_tea_con_precio"): True})
     h = d["hallazgos"][0]
-    assert h["ya_votado"] is True
-    assert h["atendido"] == "votado"
-    assert d["atendidos"] == 1
+    assert h["ya_votado"] is True, "el voto PERSISTE: no se vuelve a preguntar"
+    assert h["atendido"] == "", "con arreglo pendiente, votar NO la saca"
+    assert d["atendidos"] == 0
 
 
-def test_la_MARCA_distingue_votado_de_aplicado():
-    """Que además falte apretar el arreglo se dice con la marca, no dejando la
-    fila arriba de todo como si no la hubiera mirado nunca."""
-    votado = _vista([_h("BPOA7", "precio_moneda", "pata_equivocada", "apuntar")],
-                    votados={("BPOA7", "pata_equivocada"): True})
+def test_APLICAR_es_lo_que_la_saca_aunque_ya_este_votada():
+    """El segundo check: la fila votada sale recién cuando el arreglo se
+    aplica — APLICADO es el estado que manda."""
     aplicado = _vista([_h("BPOA7", "precio_moneda", "pata_equivocada", "apuntar")],
                       votados={("BPOA7", "pata_equivocada"): True},
                       aplicados={"BPOA7"})
-    assert votado["hallazgos"][0]["atendido"] == "votado"
-    # APLICADO gana: es el estado más fuerte de los dos.
     assert aplicado["hallazgos"][0]["atendido"] == "aplicado"
 
 

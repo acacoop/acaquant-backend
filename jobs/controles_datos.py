@@ -477,43 +477,63 @@ def _chk_patas_equivocadas() -> list[dict]:
 
     Distinto de `patas_dolar_sin_pedir`, que es su hermano y mira otra cosa: aquél
     busca una pata en dólares que nadie escucha; **éste busca el CAMPO MAL
-    CARGADO**. `mercado.curvas.instrumento` se llena a mano y `mercado.especies`
-    sabe cuál es la pata que la mesa mira (`es_default`, derivada de Primary):
-    cuando no coinciden, el master está apuntando al lugar equivocado.
+    CARGADO**. `mercado.curvas.instrumento` se llena a mano; la pata que le
+    corresponde la decide **la moneda del EJE de la curva**.
 
-    ⚠️ **Se exige `es_default`, no «cualquier pata en dólares»**. Un bono tiene
-    varias (MEP y cable, CI y 24hs) y elegir mal cambia un problema por otro:
-    el cable NO es el MEP. La default es la única que el catálogo afirma.
+    ⚠️⚠️ **EL ÁRBITRO ES `core.especies.pata_para_el_eje` — el MISMO que usa el
+    detector — y NO `es_default`** (§0.cq). `es_default` es una COPIA del
+    master (`sembrar_especies`: `es_default = simbolo == curvas.instrumento`),
+    así que compararla contra el master es comparar el dato consigo mismo. El
+    costo se midió el 2026-08-22: **11 bonos** de curva USD suscribiendo su
+    pata en PESOS eran INVISIBLES para este control (Primary tenía la default
+    en ARS → el JOIN no devolvía fila) mientras el detector del monitor los
+    cantaba — dos árbitros para la misma pregunta, y la acción
+    `mercado.apuntar_pata` decía «ya no aparece en el control: se resolvió
+    solo» sobre bonos que seguían rotos. REGLA #9 de manual.
+
+    `pata_para_el_eje` ya trae el criterio fino adentro: MEP antes que cable
+    (el cable NO es el MEP) y 24hs antes que CI; y `None` = «no hay pata para
+    ese eje», que no es un problema — una ON hard dollar con una sola especie
+    no está cruzada.
 
     Y el arreglo ya no exige reiniciar el motor (que era lo que frenaba
     automatizarlo): `mercado.apuntar_pata` corrige el campo **y pide la pata** en
     el mismo paso, así el precio entra por el `adhoc_watcher` en 5 s.
     """
+    from core import especies as _esp
     from core.postgres import get_pool
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("""
-            SELECT c.ticker, c.instrumento, e.simbolo, c.curva
+            SELECT c.ticker, c.instrumento, c.curva, c.moneda_eje
             FROM mercado.curvas c
-            JOIN mercado.especies e
-                 ON upper(e.ticker) = upper(c.ticker)
-                AND upper(e.moneda) = 'USD'
-                AND e.es_default
-            WHERE upper(coalesce(c.moneda_eje, '')) = 'USD'
+            WHERE coalesce(c.moneda_eje, '') <> ''
               AND coalesce(c.instrumento, '') <> ''
-              AND e.simbolo <> c.instrumento
             ORDER BY c.ticker
         """)
-        vistos: set[str] = set()
-        out = []
-        for tk, actual, sugerido, curva in cur.fetchall():
-            if tk in vistos:      # una propuesta por bono
-                continue
-            vistos.add(tk)
-            out.append({"key": tk, "ticker": tk, "simbolo": actual,
-                        "sugerido": sugerido, "curva": curva,
-                        "detalle": (f"el master de «{tk}» apunta a «{actual}» y la "
-                                    f"pata por default es «{sugerido}»")})
-        return out
+        bonos = cur.fetchall()
+        cur.execute("SELECT upper(ticker), simbolo, especie, plazo "
+                    "FROM mercado.especies WHERE coalesce(activa, true)")
+        patas: dict[str, list[dict]] = {}
+        for tk, sim, esp, plazo in cur.fetchall():
+            patas.setdefault(tk or "", []).append(
+                {"simbolo": sim, "especie": esp, "plazo": plazo})
+    vistos: set[str] = set()
+    out = []
+    for tk, actual, curva, eje in bonos:
+        tku = (tk or "").strip().upper()
+        if not tku or tku in vistos:      # una propuesta por bono
+            continue
+        mejor = _esp.pata_para_el_eje(patas.get(tku) or [], eje)
+        sugerido = (mejor or {}).get("simbolo") or ""
+        if not sugerido or sugerido == actual:
+            continue
+        vistos.add(tku)
+        out.append({"key": tku, "ticker": tku, "simbolo": actual,
+                    "sugerido": sugerido, "curva": curva,
+                    "detalle": (f"el master de «{tku}» apunta a «{actual}» y a "
+                                f"su eje {str(eje).upper()} le corresponde "
+                                f"«{sugerido}»")})
+    return out
 
 
 def _chk_assets_ticker_partido() -> list[dict]:

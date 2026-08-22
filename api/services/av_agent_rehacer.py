@@ -77,13 +77,17 @@ REHACIBLES: dict[str, dict] = {
         # a ignorar la lista entera, que es la enfermedad que el agente vino a
         # curar. El dato vive con el job, no con el que pregunta.
         "dia": "habil_anterior",
+        # A qué hora UTC corre su cron (deploy/crontab.txt). Es lo que deja
+        # calcular la ÚLTIMA CORRIDA ESPERADA — sin esto, el control le exigía
+        # el viernes a un sábado en que el job ni corre (§0.cq).
+        "corre_utc": 11,
         "rompe": ("sin esto el AuM, la Tenencia Valorizada y Títulos en Alquiler "
                   "se quedan con el día anterior"),
     },
 }
 
 
-def fecha_objetivo(job: str) -> str:
+def fecha_objetivo(job: str, ahora: datetime | None = None) -> str:
     """El día que ESE job tenía que haber escrito. Vacío si no se sabe.
 
     Se calcula con el MISMO reloj que usa el job (`datetime.now()`, el del
@@ -91,13 +95,37 @@ def fecha_objetivo(job: str) -> str:
     la fecha de distinta forma podrían diferir un día entre las 00 y las 03 UTC
     y nadie se enteraría — las dos mitades serían coherentes consigo mismas
     (REGLA #9).
+
+    ⚠️⚠️ **La fecha esperada depende de CUÁNDO CORRIÓ el job por última vez,
+    no de qué día es hoy** (§0.cq — el sábado que alertó por el viernes). El
+    razonamiento en dos pasos, cada uno con el calendario:
+
+        1. ¿cuál fue la ÚLTIMA CORRIDA esperada?  hoy, solo si hoy es hábil y
+           su hora de cron ya pasó (con una hora de gracia); si no, el hábil
+           anterior — el cron es L-V: un sábado la última corrida fue el
+           viernes, y un lunes a las 9 UTC también.
+        2. esa corrida escribe el hábil ANTERIOR a sí misma (T-1).
+
+    Antes solo existía el paso 2 aplicado a HOY: un sábado exigía el viernes,
+    que recién se escribe el lunes — y la alerta era falsa. Medido
+    (`diag_tenencia_fechas`, 2026-08-22): todos los viernes históricos están
+    (14/08, 07/08); el máximo en sábado es el jueves, que es EXACTAMENTE lo
+    que este cálculo espera.
     """
     from core.calendario import es_habil
 
     cfg = REHACIBLES.get(job)
     if not cfg or cfg.get("dia") != "habil_anterior":
         return ""
-    d = datetime.now().date() - timedelta(days=1)
+    ahora = ahora or datetime.now()
+    d = ahora.date()
+    # 1. la última corrida esperada
+    if not es_habil(d) or ahora.hour < int(cfg.get("corre_utc", 11)) + 1:
+        d -= timedelta(days=1)
+        while not es_habil(d):
+            d -= timedelta(days=1)
+    # 2. esa corrida escribe el hábil anterior a sí misma
+    d -= timedelta(days=1)
     while not es_habil(d):
         d -= timedelta(days=1)
     return d.isoformat()

@@ -36,7 +36,7 @@ def main() -> None:
         cur.execute(
             "SELECT started_at, status, coalesce(data::text, '') "
             "  FROM manager.job_runs "
-            " WHERE tipo LIKE '%%portafolio%%' "
+            " WHERE tipo = 'aum' "
             " ORDER BY started_at DESC LIMIT 6")
         for at, st, data in cur.fetchall():
             print(f"  {at:%d/%m %H:%M} UTC  {st:<8} {str(data)[:140]}")

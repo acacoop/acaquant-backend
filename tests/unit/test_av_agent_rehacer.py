@@ -14,7 +14,7 @@ La condición que hace seguro al botón la puso el user:
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from unittest.mock import patch
 
 import pytest
@@ -61,15 +61,24 @@ def test_el_dia_objetivo_es_el_habil_ANTERIOR_no_hoy():
     assert (hoy - f).days <= 5, "no puede irse cinco días para atrás"
 
 
-def test_el_dia_objetivo_coincide_con_el_que_el_JOB_escribe():
-    """El job resuelve su fecha con `datetime.now()` y un `while not es_habil`.
-    Si acá se calculara distinto, las dos mitades serían coherentes consigo
-    mismas y discreparían un día sin que nada falle (REGLA #9)."""
-    from core.calendario import es_habil
-    d = date.today() - timedelta(days=1)
-    while not es_habil(d):
-        d -= timedelta(days=1)
-    assert reh.fecha_objetivo(_JOB) == d.isoformat()
+def test_la_fecha_esperada_depende_de_CUANDO_corrio_el_job_no_de_hoy():
+    """§0.cq — la alerta falsa del sábado. El cron es L-V a las 11 UTC y cada
+    corrida escribe el hábil ANTERIOR a sí misma. Medido en prod
+    (`diag_tenencia_fechas`): el máximo un sábado es el JUEVES — el viernes
+    recién se escribe el lunes, y exigirlo el sábado era gritar en falso."""
+    from datetime import datetime
+
+    # Sábado 22/08/2026 → última corrida: viernes 21 → escribió el jueves 20.
+    assert reh.fecha_objetivo(_JOB, datetime(2026, 8, 22, 15, 0)) == "2026-08-20"
+    # Lunes 24/08 a las 9 UTC (el cron de hoy TODAVÍA no corrió) → ídem.
+    assert reh.fecha_objetivo(_JOB, datetime(2026, 8, 24, 9, 0)) == "2026-08-20"
+    # Lunes 24/08 a las 13 UTC (ya corrió) → escribió el viernes 21.
+    assert reh.fecha_objetivo(_JOB, datetime(2026, 8, 24, 13, 0)) == "2026-08-21"
+    # Martes hábil de noche (el caso de siempre): el hábil anterior a hoy.
+    assert reh.fecha_objetivo(_JOB, datetime(2026, 8, 25, 23, 0)) == "2026-08-24"
+    # Feriado entre semana (9 de julio 2026, jueves): última corrida fue el
+    # miércoles 8 → escribió el martes 7.
+    assert reh.fecha_objetivo(_JOB, datetime(2026, 7, 9, 15, 0)) == "2026-07-07"
 
 
 def test_un_job_que_no_existe_no_tiene_dia():

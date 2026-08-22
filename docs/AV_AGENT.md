@@ -6307,6 +6307,44 @@ Del mismo barrido, tres coherencias más de pantalla:
   contrato del control (qué fecha exacta debe existir según día y hora) en la
   próxima ronda — sin adivinar.
 
+### 0.cq LOS DOS DIAGNÓSTICOS HABLARON — un árbitro para la pata, y el contrato real del control (2026-08-22)
+
+La ronda anterior dejó dos preguntas medibles; los diags las contestaron y las
+dos respuestas eran DISTINTAS de lo que parecía en pantalla:
+
+**1. Los 11 «resueltos solos» NO estaban resueltos.** `diag_patas_master`:
+columna Y blob siguen apuntando a la pata en PESOS, y no hay ninguna acción de
+lote sobre ellos (el lote de las 00:26 cubrió los 6 BOPREALes + GD46, que sí
+caducan bien). El «ya no aparece en el control: se resolvió solo» era el
+control mintiendo por su criterio: usaba `es_default` — que es una **copia del
+master** (`sembrar_especies`: `es_default = simbolo == curvas.instrumento`) —
+y para estos 11 Primary tiene la default en ARS, así que el JOIN no devolvía
+fila y eran INVISIBLES, no resueltos. El detector (§0.bu) ya usaba el árbitro
+correcto: **la moneda del EJE** vía `core.especies.pata_para_el_eje`.
+RESUELTO: `_chk_patas_equivocadas` usa el MISMO árbitro (congelado por test:
+`es_default` no puede volver al predicado). Al deployar, los 11 reaparecen en
+el control —que es la verdad— y la acción `mercado.apuntar_pata` se
+desbloquea: se aplican desde la pantalla y ahí sí caducan de LA LISTA.
+De paso el control cubre TODOS los ejes declarados (una curva ARS suscribiendo
+la pata D también es un campo mal cargado).
+
+**2. La alerta del sábado por las tenencias era FALSA, y el user tenía razón
+en el porqué.** `diag_tenencia_fechas`: todos los viernes históricos están
+(14/08, 07/08) y el máximo un sábado es el JUEVES — el job corre L-V a las 11
+UTC y **escribe el hábil anterior a su corrida** (T-1). `fecha_objetivo`
+calculaba «hábil anterior a HOY», que un sábado exige el viernes… que recién
+se escribe el lunes. RESUELTO en dos pasos con el calendario: (1) ¿cuál fue la
+última corrida esperada? (hoy solo si es hábil y su `corre_utc` ya pasó, con
+una hora de gracia; si no, el hábil anterior); (2) esa corrida escribe el
+hábil anterior a sí misma. La hora del cron se declara en `REHACIBLES`
+(`corre_utc`), al lado del job — el dato vive con el job, no con el que
+pregunta. Bonus del diag: **06/08 también falta** (un hueco histórico real,
+nadie lo rehizo) y `job_runs` registra este job como tipo `aum`.
+
+La lección que se repite y ya tiene nombre: **las dos pantallas del mismo
+hecho tienen que leer EL MISMO predicado** — es REGLA #9 y es la tercera vez
+esta semana (voto, símbolo, pata).
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

@@ -161,3 +161,22 @@ def test_en_dia_habil_TODO_puede_pasar():
     for f in ({"tipo": "tasa_sospechosa"}, {"tipo": "motor_ruidoso"},
               {"tipo": "motor_caido", "ventana": "rueda"}, {"tipo": "salud"}):
         assert c._puede_pasar_hoy(f, habil=True)
+
+
+# ── 5. UN solo árbitro para la pata (§0.cq) ─────────────────────────────────
+
+def test_el_control_de_patas_usa_EL_MISMO_arbitro_que_el_detector():
+    """`es_default` es una copia del master (`sembrar_especies` la marca con
+    `simbolo == curvas.instrumento`): compararla contra el master es comparar
+    el dato consigo mismo. Con ese criterio, 11 bonos de curva USD suscribiendo
+    pesos eran INVISIBLES para el control mientras el detector los cantaba — y
+    la acción decía «se resolvió solo» sobre bonos rotos (2026-08-22)."""
+    import inspect
+
+    from jobs import controles_datos as cd
+    src = inspect.getsource(cd._chk_patas_equivocadas)
+    assert "pata_para_el_eje" in src, "el control dejó de usar el árbitro único"
+    # El criterio circular no puede volver a entrar al predicado (puede quedar
+    # nombrado en el docstring, que justamente cuenta por qué no se usa).
+    cuerpo = src.split('"""')[-1]
+    assert "es_default" not in cuerpo, "volvió el criterio circular (REGLA #9)"

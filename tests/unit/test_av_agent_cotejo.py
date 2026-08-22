@@ -213,13 +213,27 @@ class TestNoTodoTasaSospechosaHablaDeLaTASA:
         sin_cotejo_por_precio = {
             "paridad_fuera_de_rango", "sin_tea_con_precio", "tea_fuera_de_rango",
         }
-        deuda_hechos_de_base = {
-            # `pata_equivocada` SALIÓ de esta lista: lo cubre el cotejo general
-            # por control en cero (`_controles_en_verde`).
-            "sin_ejes",                  # el bono tiene o no tiene ejes cargados
-            "moneda_flujo_contradice",   # moneda_flujo vs moneda_eje
-        }
+        # VACÍA (2026-08-22) — y que siga así. Las tres que vivieron acá ya
+        # tienen su cotejo en `_caduco`: `pata_equivocada` (el master ya apunta
+        # al símbolo sugerido — además del cotejo general por control en cero),
+        # `sin_ejes` (`ejes_de_doc` sobre el doc que la misma query trae) y
+        # `moneda_flujo_contradice` (`moneda_flujo_esperada` del detector). El
+        # costo de no tenerlos se pagó en vivo: 11 filas con la cadena diciendo
+        # «ya no aparece: se resolvió solo» clavadas en ENCONTRÓ.
+        deuda_hechos_de_base: set[str] = set()
         assert sin_cotejo_por_precio & deuda_hechos_de_base == set()
-        assert len(deuda_hechos_de_base) == 2, (
+        assert len(deuda_hechos_de_base) == 0, (
             "si arreglaste una, sacala de acá; si sumaste otra, agregala — esta "
             "lista es lo que impide que la próxima se pierda en silencio")
+
+    def test_los_tres_cotejos_de_hechos_de_base_EXISTEN_en_la_lectura(self):
+        """Los que salieron de la deuda tienen que estar de verdad en `_caduco`
+        — sacar el nombre de la lista sin escribir el cotejo sería el olvido
+        con papeles en regla."""
+        src = inspect.getsource(v._hallazgos_ultima_corrida)
+        for regla in ("pata_equivocada", "sin_ejes", "moneda_flujo_contradice"):
+            assert f'h.get("regla") == "{regla}"' in src, (
+                f"{regla} salió de la deuda pero no tiene cotejo en _caduco")
+        # Y el de la pata compara contra la COLUMNA (la que gana — §0.y), no
+        # contra el blob.
+        assert "simbolo_master" in src

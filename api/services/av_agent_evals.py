@@ -154,6 +154,32 @@ def es_ruido() -> set[tuple[str, str]]:
         return set()
 
 
+@cached(ttl=45)
+def ultimos(n: int = 80) -> list[dict]:
+    """Los últimos votos de una PERSONA, para el HISTORIAL del modal.
+
+    Existe porque lo decidido no se veía en NINGÚN lado (user, 2026-08-22:
+    «voy tachando cosas y nada pasa a historial… ni siquiera queda registrado
+    esto en ningún lado»): el voto se guardaba, la fila se apagaba, y el rastro
+    de QUÉ contestaste desaparecía de la pantalla. Una decisión que no deja
+    huella visible se re-decide — o peor, se deja de decidir.
+    """
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT caso, causa, acierta, origen, nota, creado_at "
+                "  FROM mercado.av_agent_evals WHERE origen = ANY(%s) "
+                " ORDER BY creado_at DESC LIMIT %s",
+                (list(VOTOS_DE_PERSONA), int(n)))
+            return [{"caso": clave_caso(c), "causa": ca, "acierta": bool(a),
+                     "origen": o, "nota": no or "",
+                     "creado_at": t.isoformat() if t else None}
+                    for c, ca, a, o, no, t in cur.fetchall()]
+    except Exception as e:
+        logger.warning("evals: no pude leer los últimos votos (%s)", e)
+        return []
+
+
 def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
           nota: str = "", causa_correcta: str = "", por: str = "",
           origen: str = "humano", ref: str = "") -> dict:
@@ -227,6 +253,7 @@ def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
     # minuto después se lee como que el voto no se guardó — y es justo la duda
     # que hace que la gente deje de votar.
     invalidate("precision_por_causa")
+    invalidate("ultimos")
     if vid is None and ref:
         return {"ok": True, "duplicado": True, "caso": caso, "causa": causa}
     return {"ok": True, "id": vid, "caso": caso, "causa": causa,

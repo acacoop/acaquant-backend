@@ -659,9 +659,15 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
         # El blob completo, no solo la PK: `sin_flujo` caduca cuando el bono YA
         # tiene cronograma, y eso se lee acá mismo. **Es la misma query** — el
         # peaje de Supabase se paga por viaje, no por columna.
-        cur.execute("SELECT ticker, data FROM mercado.curvas")
+        # `instrumento` (la COLUMNA, la que gana sobre el blob — §0.y) viaja en
+        # la misma query: el cotejo de `pata_equivocada` compara el símbolo que
+        # el master usa HOY contra el sugerido del hallazgo.
+        cur.execute("SELECT ticker, data, instrumento FROM mercado.curvas")
+        _filas_curvas = cur.fetchall()
         docs_curvas = {(r[0] or "").strip().upper(): (r[1] or {})
-                       for r in cur.fetchall()}
+                       for r in _filas_curvas}
+        simbolo_master = {(r[0] or "").strip().upper(): (r[2] or "").strip()
+                          for r in _filas_curvas}
         en_curvas = set(docs_curvas)
 
 
@@ -874,6 +880,36 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
             # «se arregló».
             return (con_ficha is not None
                     and (h.get("ticker") or "").strip().upper() in con_ficha)
+        # ── Los TRES cotejos que §0.cg dejó NOMBRADOS como deuda ──────────
+        # («si se arreglan hoy, van a quedarse en pantalla igual») — y pasó
+        # textual: el user aplicó los arreglos, la cadena decía «ya no aparece:
+        # se resolvió solo» y las 11 filas seguían en ENCONTRÓ (2026-08-22).
+        # Son hechos de BASE: se cotejan con lo que esta misma query ya trajo.
+        if h.get("regla") == "pata_equivocada":
+            # Resuelto ⟺ el master YA apunta al símbolo sugerido (la pata de la
+            # moneda del eje). Se compara contra la COLUMNA `instrumento` — la
+            # que gana (§0.y) — y con el símbolo COMPLETO, no el ticker corto.
+            # Sin `sugerido` en la evidencia (hallazgo viejo) no se caduca:
+            # «no sé» nunca es «se arregló».
+            sug = ((h.get("evidencia") or {}).get("sugerido") or "").strip()
+            actual = simbolo_master.get((h.get("ticker") or "").strip().upper())
+            return bool(sug) and bool(actual) and actual == sug
+        if h.get("regla") == "sin_ejes":
+            # Resuelto ⟺ el doc YA cae en una curva. El predicado es el del
+            # detector (`curvas_ejes.ejes_de_doc`), no una copia.
+            doc = docs_curvas.get((h.get("ticker") or "").strip().upper())
+            return bool(doc) and curvas_ejes.ejes_de_doc(doc) is not None
+        if h.get("regla") == "moneda_flujo_contradice":
+            # Resuelto ⟺ `moneda_flujo` ya coincide con lo que los ejes esperan.
+            # MISMAS funciones que el detector. Si `esperada` no se puede
+            # calcular, NO caduca: la contradicción no se pudo evaluar.
+            doc = docs_curvas.get((h.get("ticker") or "").strip().upper())
+            if not doc:
+                return False
+            from engines.curvas import moneda_flujo_esperada
+            esperada = moneda_flujo_esperada(doc)
+            actual = (doc.get("moneda_flujo") or "").strip().upper()
+            return bool(esperada) and actual == esperada
         # El resto de `tasa_sospechosa` sí habla de la TASA, que depende del
         # precio del día: no se puede afirmar que se arregló sin volver a
         # cotejar contra 1816.
@@ -1162,6 +1198,10 @@ def vista() -> dict:
         "preguntas": [p for p in abiertas if p["tipo"] != "decision"],
         "decisiones": [p for p in abiertas if p["tipo"] == "decision"],
         "decididas": _decididas(),
+        # Lo VOTADO, para el HISTORIAL: «voy tachando cosas y nada pasa a
+        # historial» (user, 2026-08-22). El voto apaga la fila en ENCONTRÓ y
+        # sin esto el rastro de qué contestaste no vivía en ninguna pantalla.
+        "votos": av_agent_evals.ultimos(),
         "ignorados": _ignorados(),
         # Lo que el agente TODAVÍA no sabe hacer, dicho por él mismo. Comunicar
         # las capacidades es parte del contrato con el usuario: sin esto, un

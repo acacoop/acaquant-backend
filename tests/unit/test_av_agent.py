@@ -920,11 +920,11 @@ def test_un_hallazgo_YA_RESUELTO_no_se_sigue_mostrando(monkeypatch):
         def fetchall(self):
             if "FROM mercado.curvas" in self.sql:
                 return [
-                    ("TZXM8", {}),                      # existe, sin cronograma
-                    ("TZXD8", {}),                      # ídem
+                    ("TZXM8", {}, ""),                  # existe, sin cronograma
+                    ("TZXD8", {}, ""),                  # ídem
                     # DICP: el user acaba de completarlo → el hallazgo caducó.
                     ("DICP", {"flujos": [{"fecha": "2033-12-31",
-                                          "amortizacion_pct": 5.0}]}),
+                                          "amortizacion_pct": 5.0}]}, ""),
                 ]
             return [("falta_en_base", "TZXM8", "r", "media", "m", None),
                     ("falta_en_base", "TZXA7", "r", "media", "m", None),
@@ -1041,7 +1041,7 @@ def test_un_HUECO_DE_CURVA_caduca_por_la_CURVA_no_por_el_ticker(monkeypatch):
         def fetchone(self): return (_dt.datetime(2026, 8, 17, 3, 0),)
         def fetchall(self):
             if "FROM mercado.curvas" in self.sql:
-                return [("TZXM8", {})]
+                return [("TZXM8", {}, "")]
             return [("hueco_de_curva", "BADLAR", "ajuste_sin_curva", "alta", "m", None),
                     ("hueco_de_curva", "TPM", "ajuste_sin_curva", "alta", "m", None)]
 
@@ -1942,7 +1942,7 @@ def test_un_sin_flujo_CADUCA_cuando_el_bono_ya_tiene_cronograma():
     assert codigo.count("cur.execute") == 3, (
         "se agregó una query: el peaje de Supabase se paga por VIAJE — el doc "
         "tiene que venir en el mismo SELECT que ya traía el ticker")
-    assert "SELECT ticker, data FROM mercado.curvas" in fuente
+    assert "SELECT ticker, data, instrumento FROM mercado.curvas" in fuente
 
     # ⚠️ `tasa_sospechosa` NO caduca **por sus reglas de TASA**, que dependen del
     # precio del día. Pero el TIPO no es el criterio: `sin_espejo_en_assets`

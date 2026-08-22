@@ -6052,6 +6052,53 @@ el dedup vuelve a dedupear.
   ruido» la esconde* (que ahora funciona); y solo el resto queda como puerta
   que falta construir.
 
+### 0.cl LA DEUDA DE §0.cg SE PAGÓ EN VIVO — y lo decidido deja huella (2026-08-22)
+
+> *«Si ya están resueltos, ¿por qué siguen apareciendo? ENCONTRÓ tiene que ser
+> para lo pendiente. Voy tachando cosas y nada pasa a historial.»* — user, con
+> 11 filas de `pata_equivocada` cuya propia cadena decía «ya no aparece: se
+> resolvió solo»
+
+Pasó TEXTUAL lo que §0.cg dejó escrito: *«tres reglas más son hechos de base y
+todavía no tienen cotejo en la lectura — si se arreglan hoy, van a quedarse en
+pantalla igual»*. Se arreglaron hoy y se quedaron en pantalla. La lista de
+deuda hizo su trabajo (la falla estaba NOMBRADA, no olvidada) y ahora quedó
+**vacía**:
+
+- **`pata_equivocada`** caduca cuando el master YA apunta al símbolo sugerido.
+  Se compara contra la **columna** `instrumento` (la que gana — §0.y), que
+  entra en la MISMA query que la vista ya hacía. Sin `sugerido` en la
+  evidencia no se caduca: «no sé» nunca es «se arregló».
+- **`sin_ejes`** caduca con `ejes_de_doc` (el predicado del detector) sobre el
+  doc que la misma query trae.
+- **`moneda_flujo_contradice`** caduca con `moneda_flujo_esperada` (ídem). Si
+  la esperada no se puede calcular, NO caduca.
+
+El test de la deuda pasó de listar 3 a exigir **cero** — y uno nuevo exige que
+los tres cotejos EXISTAN en `_caduco`: sacar el nombre de la lista sin
+escribir el cotejo sería el olvido con papeles en regla.
+
+#### Lo decidido deja huella: VOTASTE en HISTORIAL
+
+El voto apagaba la fila y el rastro no vivía en NINGUNA pantalla — «ni
+siquiera queda registrado en ningún lado». Ahora `vista()` publica los últimos
+votos (`av_agent_evals.ultimos()`, cacheado 45s e invalidado al votar) y
+HISTORIAL → YA DECIDIDO abre con **VOTASTE**: caso, causa, qué contestaste
+(✔ acertó / ✖ es ruido / …), la nota y cuándo.
+
+#### Y dos de pantalla
+
+- **El filtro vacío dice la verdad**: filtrar un tipo cuyos casos ya
+  atendiste todos mostraba el vacío pelado. Ahora distingue tres casos: todo
+  atendido en general · «los N de ESTE filtro ya pasaron por tus manos, están
+  en ¿AGUANTAN?» · el filtro de verdad no matchea nada.
+- **¿AGUANTAN? se explica sola** («no está claro para qué es esta vista»):
+  arriba de todo dice qué es — la sala de espera de lo que ya se tocó. EN
+  PRUEBA = arreglos aplicados vigilados por hitos (1·2·3·7·14·30 días; aguantar
+  30 cuenta como acierto verificado en el eval set); YA LO ATENDISTE = lo
+  votado/aplicado hasta que el detector confirme. Lo confirmado desaparece
+  solo; lo que VUELVE salta primero en AHORA.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

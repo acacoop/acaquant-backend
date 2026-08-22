@@ -5855,6 +5855,59 @@ acá a ciegas). Tres cosas quedaron hechas:
      plano. Lo primero es una línea; lo segundo es código nuevo en la pieza de
      seguridad. Recomendación: lo primero, después de correr el diag.
 
+### 0.cj EL FRONT TAMBIÉN TIENE CAPA: la red se toca desde UN lugar (2026-08-22)
+
+Dos sesiones de Claude discutieron el refactor del modal y **las dos midieron
+antes de opinar** — vale dejar el veredicto porque fija la arquitectura del
+front del agente:
+
+- La hipótesis «67 useState con su propia copia de los datos» era EXAGERADA:
+  medido, el modal tiene 46 componentes y ~1,5 estados por componente, casi
+  todos de PANTALLA (qué tab, qué filtro, qué está abierto) — eso está bien y
+  se queda donde está.
+- Los dos bugs shippeados de esa familia («voté y los botones volvieron», «el
+  informe desapareció al cambiar de tab») no eran localidad de estado: eran
+  **relecturas que faltaban**. Se habían arreglado punto por punto.
+- Lo real eran **15 llamadas a la red adentro de componentes que se desmontan**
+  y, más de fondo, que el buen patrón (escribir → releer) era una CONVENCIÓN:
+  cada botón nuevo podía olvidarla, y dos ya la habían olvidado.
+
+**Lo que quedó construido** (`src/components/av-agent/datos.tsx`): la capa de
+datos del modal, con TRES verbos que significan cosas — la misma idea que
+separa `simular` de `aplicar` en el backend:
+
+    leer(url)                   GET — no cambia nada
+    llamar(url, body)           POST que CALCULA (explicar, simular, lanzar el
+                                masivo) — no relee nada
+    escribir(url, body, relee)  POST que MUTA — declara QUÉ recursos invalida
+                                y los relee al confirmar. La relectura es el
+                                CONTRATO del verbo, no una convención del que
+                                llama: el bug del voto sin huella deja de poder
+                                escribirse.
+
+Los recursos (vista · control · centinela · agenda · skills · evaluación ·
+sabe) tienen UN dueño, sobreviven al cambio de tab y «no pude leer» conserva
+el dato viejo con el error aparte — nunca un `null` silencioso que se dibuje
+como «no hay nada» (§0.be, del lado del navegador).
+
+**Y la regla es MECÁNICA, no un comentario**: `eslint.config.mjs` prohíbe
+importar `fetch-json` en el modal fuera de la capa — el import-linter del
+front, el mismo día que el del backend volvió a verde (§0.ci). El próximo
+fetch suelto no pasa el lint.
+
+Dos cosas que se decidieron NO hacer, con el porqué:
+
+- **Partir el archivo de 5.400 líneas NO es la cura y no se hizo en esta
+  pasada.** La advertencia de la otra sesión es correcta y es REGLA #9: veinte
+  archivos sin regla son veinte lugares donde puede nacer una segunda
+  definición. Primero la capa y su regla (hecho); el corte por tab es higiene
+  y va después, tab por tab — el mismo playbook que la migración de las 22
+  tablas (§0.bc).
+- **El front sigue sin derivar NADA**: acción, estado, atendido, nombre — todo
+  viene resuelto del backend en cada recurso. La capa lee, escribe y relee;
+  jamás «actualiza a mano» una copia local con lo que el cliente cree que
+  quedó.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

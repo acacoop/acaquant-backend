@@ -110,9 +110,21 @@ def test_detalle_agrupa_por_cartera_y_pesa_dentro_del_bloque():
     d = ci._detalle(pos, ["HD", "RENTA VARIABLE"])
     hd = d["bloques"][0]
     assert hd["cartera"] == "HD" and hd["total"] == 800.0
-    # share_cartera es sobre la CARTERA (600/800), no sobre la cuenta (600/1000).
-    assert hd["filas"][0]["share_cartera"] == pytest.approx(0.75)
+    # El share del título es sobre la CUENTA (600/1000) y no sobre su cartera:
+    # en una tabla donde conviven todas las carteras, un 100% adentro de una
+    # cartera de dos títulos no se puede comparar con un 30% de otra.
+    assert hd["filas"][0]["share"] == pytest.approx(0.6)
     assert hd["ponderacion"] == pytest.approx(0.8)
+
+
+def test_el_share_del_titulo_viaja_en_FRACCION():
+    """`posiciones_actuales` lo devuelve en PORCENTAJE (0-100) y el resto de este
+    payload en fracción. Si no se unificara, la pantalla mostraría un número cien
+    veces más grande en esa sola columna."""
+    pos = _resp([_pos("AL30", "HD", 250.0), _pos("GD30", "HD", 750.0)])
+    pos["posiciones"][0]["share"] = 25.0     # como lo manda posiciones_actuales
+    d = ci._detalle(pos, ["HD"])
+    assert d["bloques"][0]["filas"][1]["share"] == pytest.approx(0.25)
 
 
 def test_el_titulo_sin_ficha_tiene_su_bloque_y_va_ultimo():

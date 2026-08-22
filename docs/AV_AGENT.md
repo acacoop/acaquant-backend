@@ -5456,6 +5456,29 @@ La lista de modos aplicables vive **una sola vez**, en el script que los ejecuta
 y el censo la importa de ahí. Copiarla habría vuelto a mandar a correr un comando
 que no hace nada.
 
+#### El primer dry-run salió inservible, y las dos fallas eran de PRESENTACIÓN
+
+`--accion arreglo` sobre 42 casos: **4 listos, 38 trabados**. Y no se podía
+decidir nada con esa salida:
+
+  · los 4 aplicables mostraban **`→ —`**. Sus ejes ya estaban bien y lo que el
+    arreglo corrige es **otra cosa** (la escala del cuadro, el CER de emisión),
+    que el dry-run no imprimía. Una fila vacía justo donde SÍ se va a escribir
+    invita a aplicar a ciegas — en la única puerta que pisa datos existentes.
+  · los 38 trabados mostraban el **título** del chequeo: *«BVCVO: La métrica
+    vuelve al rango»*, que **se lee como que pasó**. El título dice qué se
+    EXIGE; el `detalle` dice qué se ENCONTRÓ. Poner el requisito en el lugar del
+    motivo deja al que mira sin nada.
+
+Arreglado: el motivo sale del `detalle`, y los trabados se **agrupan**
+normalizando los números (`TEA 41,2%` y `TEA 38,9%` son la misma traba). Veinte
+bonos esperando lo mismo es UN problema; contados de a uno parecen veinte.
+
+**El dato que importa igual: el pre-flight está haciendo su trabajo.** 38 de 42
+se traban por falta de un insumo real (1816, un precio, un CER), no por un bug.
+`arreglo` no es un botón masivo — es un botón por caso con una cola larga de
+casos que todavía no tienen con qué resolverse.
+
 #### La regla que queda
 
 **Una lista de trabajo tiene que decir CON QUÉ se hace cada cosa, no solo que se

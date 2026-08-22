@@ -165,3 +165,45 @@ class TestElCensoNoPuedeDecirQueHayBotonSiNoLoHay:
         assert "TIENE_PUERTA" not in src, (
             "esa pila mezclaba las dos preguntas: «¿hay modo de pantalla?» y "
             "«¿se puede aplicar en lote?»")
+
+
+class TestElDryRunTieneQuePoderDECIDIRSE:
+    """⚠️ El primer dry-run de `--accion arreglo` salió inservible de dos formas
+    a la vez, y las dos eran de presentación:
+
+      · los 4 aplicables mostraban **`→ —`** (sus ejes ya estaban bien; lo que
+        el arreglo corrige es la escala o el CER, que no se mostraban);
+      · los 38 trabados mostraban el **título** del chequeo — «La métrica vuelve
+        al rango»— que se lee como que PASÓ.
+
+    Un dry-run que no deja decidir es peor que no tenerlo: invita a aplicar a
+    ciegas justo en la única puerta que pisa datos existentes."""
+
+    def test_el_motivo_sale_del_detalle_y_no_del_titulo(self):
+        import inspect
+
+        from scripts import agente_aplicar
+        src = inspect.getsource(agente_aplicar._correr_modo)
+        assert "c.get('detalle')" in src or 'c.get("detalle")' in src, (
+            "el título dice qué se EXIGE; el detalle dice qué se ENCONTRÓ")
+
+    def test_los_motivos_se_agrupan_normalizando_los_numeros(self):
+        """20 bonos esperando lo mismo es UN problema; contados de a uno
+        parecen veinte."""
+        from scripts.agente_aplicar import _motivo_corto
+        a = _motivo_corto("TEA 41,2% fuera del rango 3%-15%")
+        b = _motivo_corto("TEA 38,9% fuera del rango 3%-15%")
+        assert a == b, "dos casos de la misma traba tienen que agrupar juntos"
+        assert _motivo_corto("sin precio") != a
+
+    def test_que_cambia_nunca_miente_por_omision(self):
+        """Si el simulador no declara ningún cambio, el dry-run lo dice — no
+        muestra una línea vacía que parece «no pasa nada»."""
+        from scripts.agente_aplicar import _que_cambia
+        assert "NO aplicar" in _que_cambia({})
+        assert "SIN EJES" in _que_cambia(
+            {"ejes_hoy": None, "ejes_propuestos": {"emisor_tipo": "soberano"}})
+        # Ejes iguales no se anuncian como cambio, pero la escala sí.
+        salida = _que_cambia({"ejes_hoy": {"a": 1}, "ejes_propuestos": {"a": 1},
+                              "escala": "pct"})
+        assert "ejes" not in salida and "escala pct" in salida

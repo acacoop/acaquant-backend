@@ -80,6 +80,42 @@ def _corto(v) -> str:
 _MODOS = {"arreglo": "⚠️⚠️ PISA ejes/escala de un bono que YA existe"}
 
 
+def _motivo_corto(txt: str) -> str:
+    """El motivo, sin los números del caso — para poder AGRUPAR.
+
+    Dos bonos trabados por lo mismo tienen detalles distintos («TEA 41,2%» vs
+    «TEA 38,9%») y contados de a uno parecen 38 problemas cuando son cuatro.
+    """
+    import re
+    t = re.sub(r"[-+]?\d[\d.,]*%?", "#", str(txt or ""))
+    t = " ".join(t.split())
+    return t if len(t) <= 96 else t[:94] + "…"
+
+
+def _que_cambia(sim: dict) -> str:
+    """QUÉ va a escribir este arreglo, en una línea.
+
+    ⚠️ La primera versión mostraba solo los ejes y los cuatro aplicables salían
+    con `→ —`: sus ejes ya estaban bien y lo que el arreglo corrige es **otra
+    cosa** (la escala del cuadro, el CER de emisión). Un dry-run que muestra
+    vacío justo en las filas que SÍ se van a escribir es peor que no mostrar
+    nada — invita a aplicar a ciegas.
+    """
+    partes = []
+    hoy, prop = sim.get("ejes_hoy"), sim.get("ejes_propuestos")
+    if prop and prop != hoy:
+        def _ejes(d):
+            return "/".join(str(v or "—") for v in (d or {}).values()) if d else "SIN EJES"
+        partes.append(f"ejes {_ejes(hoy)} → {_ejes(prop)}")
+    if sim.get("escala"):
+        partes.append(f"escala {sim['escala']}")
+    if sim.get("cer_emision") and sim.get("cer_manual"):
+        partes.append(f"cer_emision {sim['cer_emision']}")
+    if sim.get("cupones"):
+        partes.append(f"{sim['cupones']} cupones")
+    return " · ".join(partes) or "(el simulador no declaró qué cambia — NO aplicar)"
+
+
 def _casos_del_modo(modo: str) -> list[str]:
     """Los sujetos que hoy declaran ese modo, **leídos de la vista**.
 
@@ -124,24 +160,38 @@ def _correr_modo(modo: str, *, aplicar: bool, tope: int) -> None:
             # La constante, no el string: `BLOQUEA` vale «bloquea» hoy y si
             # mañana cambia, una copia acá dejaría de encontrar los bloqueos y
             # el lote diría «trabado, motivo desconocido» sin fallar.
-            bloqueos = [c["titulo"] for c in (sim.get("chequeos") or [])
+            #
+            # ⚠️ **EL `detalle`, NO EL `titulo`.** La primera versión imprimía
+            # el título y salía «BVCVO: La métrica vuelve al rango» — que se
+            # LEE COMO QUE PASÓ. El título de un chequeo dice qué se exige; el
+            # `detalle` dice qué encontró. Mostrar el requisito en el lugar del
+            # motivo deja al que mira sin poder decidir nada, que es justo lo
+            # que este script vino a resolver.
+            bloqueos = [c for c in (sim.get("chequeos") or [])
                         if c.get("estado") == av_agent_alta.BLOQUEA]
-            trabados.append((tk, "; ".join(bloqueos) or "el pre-flight no pasa"))
+            porque = "; ".join(
+                f"{c.get('titulo')}: {c.get('detalle') or '(sin detalle)'}"
+                for c in bloqueos) or "el pre-flight no pasa"
+            trabados.append((tk, _motivo_corto(porque)))
             continue
-        listos.append((tk, sim.get("ejes_hoy"), sim.get("ejes_propuestos")))
+        listos.append((tk, sim))
 
     print(f"  listos : {len(listos)} · trabados: {len(trabados)}")
-    for tk, hoy, prop in listos[:12]:
-        print(f"    · {tk:<10} {_corto(hoy)}")
-        print(f"      {'':<10} → {_corto(prop)}")
+    for tk, sim in listos[:12]:
+        print(f"    · {tk:<10} {_que_cambia(sim)}")
     if len(listos) > 12:
         print(f"    … y {len(listos) - 12} más")
-    # **Los trabados se MUESTRAN.** Un lote que dice «apliqué 4» y calla los
-    # otros 41 es el mismo silencio que hizo perder tres rondas.
-    for tk, porque in trabados[:10]:
-        print(f"    ✘ {tk}: {_corto(porque)}")
-    if len(trabados) > 10:
-        print(f"    ✘ … y {len(trabados) - 10} más trabados")
+    # **Los trabados se MUESTRAN, y AGRUPADOS.** Un lote que dice «apliqué 4» y
+    # calla los otros 38 es el mismo silencio que hizo perder tres rondas; y una
+    # lista de 38 líneas distintas tampoco dice qué hacer. Lo accionable es
+    # CUÁNTOS comparten la misma traba: 20 esperando un precio es un problema,
+    # 20 problemas distintos son veinte.
+    from collections import Counter
+    print("  por qué se traban:")
+    for motivo, n in Counter(m for _, m in trabados).most_common(8):
+        ejemplos = [tk for tk, m in trabados if m == motivo][:4]
+        print(f"    {n:>4}  {motivo}")
+        print(f"          {' · '.join(ejemplos)}" + (" …" if n > 4 else ""))
 
     if not aplicar or not listos:
         return

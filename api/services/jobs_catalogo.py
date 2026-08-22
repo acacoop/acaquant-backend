@@ -13,45 +13,21 @@ negocio_movimientos && aranceles && fci_bilateral) → una fila por cron con el
 """
 from __future__ import annotations
 
-import re
-from pathlib import Path
-
 from psycopg.rows import dict_row
 
 from api.cache import cached
-from core.postgres import get_pool
 
-_CRONTAB = Path(__file__).resolve().parents[2] / "deploy" / "crontab.txt"
+# El parser vive en core/ (lo necesita también core.dependencias, y core no
+# puede importar de api). Se importa con el nombre que ya usaban todos los
+# llamadores (`cat._parse_crontab()`), así ninguno se entera de la mudanza.
+from core.crontab import parse_crontab as _parse_crontab
+from core.postgres import get_pool
 
 # label del cron / basename del módulo → tipo con el que loguea JobRunLogger,
 # cuando NO coinciden (excepciones conocidas; el default es el basename).
 _ALIAS_TIPO = {
     "portafolio_backfill": "aum",   # writer diario de tenencias (nombre legacy)
 }
-
-_RE_RUNJOB = re.compile(r"run_job\.sh\s+(\S+)\s+(\S+)\s+'(.+)'\s*$")
-_RE_MODULES = re.compile(r"-m\s+((?:jobs|engines|scripts)\.[\w.]+)")
-
-
-def _parse_crontab() -> list[dict]:
-    """Líneas run_job.sh del crontab → [{label, schedule, timeout, modules}]."""
-    out: list[dict] = []
-    for raw in _CRONTAB.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split(None, 5)
-        if len(parts) < 6:
-            continue
-        schedule, cmd = " ".join(parts[:5]), parts[5]
-        m = _RE_RUNJOB.search(cmd)
-        if not m:
-            continue  # systemctl start/stop de motores → viven en DIAGNÓSTICO
-        label, timeout, inner = m.groups()
-        modules = _RE_MODULES.findall(inner)
-        out.append({"label": label, "schedule": schedule, "timeout": timeout,
-                    "modules": modules})
-    return out
 
 
 def _tipo_de(module: str) -> str:

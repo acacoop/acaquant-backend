@@ -5686,6 +5686,81 @@ Congelado por `tests/unit/test_av_agent_cotejo.py`: los cinco cotejos, que SALUD
 use la función real y no una copia, que un fallo no vacíe la pantalla, y que el
 re-control se derive de la acción.
 
+### 0.ci CI ROJA EN `main`: dos contratos de capas rotos (2026-08-22)
+
+Las últimas 6 corridas de CI en `main` fallaban en `lint-imports` — y con ese
+paso rojo, **Pytest ni corría**: cualquier regresión nueva entraba sin red. Dos
+contratos rotos, y cada uno pedía un arreglo distinto porque las causas eran
+distintas:
+
+- **`core.dependencias → api.services.jobs_catalogo`.** La correlación
+  label→módulos (§0.af) delegaba en el parser del crontab, que vivía en
+  `api/services` — y core no puede importar del proyecto. El parser es parsing
+  PURO de un archivo que viaja con el deploy (ni base ni red), así que su lugar
+  era `core/`: ahora vive en **`core/crontab.py`** y `jobs_catalogo` importa de
+  ahí con el nombre que ya usaban sus llamadores (`_parse_crontab`). Un solo
+  parser (REGLA #9), capa correcta, cero llamadores tocados.
+- **`av_agent_seguridad → api.superficie → fastapi`.** Acá el arreglo NO es
+  mover código: `api/superficie.py` es la ÚNICA implementación de la
+  enumeración de rutas (la regla «no la reimplementes» existe porque la copia
+  veía 37 de 541) y vive pegada a FastAPI por naturaleza — inspecciona la app
+  montada. Se declara la excepción en `.importlinter` con su porqué, igual que
+  la que ya tenía `_grupos_scope`.
+
+La lección es de proceso: los dos imports entraron en commits que CI ya no
+podía frenar porque el paso anterior ya estaba rojo. **Una CI roja no es un
+estado: es una puerta abierta** — todo lo que se pushea mientras tanto entra
+sin que nadie lo mire.
+
+#### Y detrás de la puerta había DOS tests rotos más
+
+Con `lint-imports` verde, Pytest volvió a correr — y cazó dos fallas que
+entraron durante la ventana ciega. Las dos son la misma enfermedad ya
+bautizada en §0.ay y §0.ce: *un test que congela la implementación, no la
+intención*.
+
+- **`test_lo_que_ARRASTRA_no_entra` era flaky por HORA DEL DÍA.** Usaba
+  `AHORA − 21 h` (las 21 horas del incidente real) esperando que cayera
+  «ayer», pero el corte del día es la medianoche ART: entre las 21:00 y las
+  24:00 ART esas 21 horas caen adentro de HOY y el test fallaba — tres horas
+  por día, todos los días. CI de las 20:54 ART lo pasó por seis minutos. Ahora
+  el timestamp se arma contra `_arranco_el_dia()`, el corte real.
+- **`test_se_ven_TODAS_las_rutas` congelaba un detalle de la VERSIÓN de
+  FastAPI.** Afirmaba `rutas() > app.routes × 5`, que presume los envoltorios
+  `_IncludedRouter`; con la 0.136.x pineada `app.routes` viene PLANO (las 562
+  directas) y el test fallaba justo cuando no hay nada escondido. Ahora
+  verifica la intención en los dos mundos: con envoltorios, superficie ve
+  mucho más que el primer nivel; plano, no puede ver ni una APIRoute menos.
+
+#### ⚠️ Y el hallazgo de fondo: EL ENTORNO REAL Y EL PIN NO CORREN LA MISMA FASTAPI
+
+Ese segundo test destapó algo más grande, verificado acá y no supuesto: la
+clase `_IncludedRouter` **no existe** en la FastAPI que pinea
+`requirements.txt` (0.136.x aplana `app.routes` — medido con una app mínima).
+Pero el 37/541 de §0.s se midió EN PROD con envoltorios: **el entorno donde
+corre el sistema y el que instala CI no son la misma FastAPI.** REGLA #9(B) a
+nivel entorno: dos mundos sin árbitro, cada uno coherente consigo mismo.
+
+Consecuencia concreta: `gen_mapa_app` genera un mapa DISTINTO según dónde
+corra — regenerado en el entorno plano, la tabla de 31 routers colapsa a 1
+(`(raíz)`) porque la atribución por router viaja en los envoltorios. Por eso
+el `--check` del mapa no puede dar verde en CI mientras el doc se genere en el
+entorno real (y el mapa regenerado en CI sería PEOR, así que no se regeneró
+acá a ciegas). Tres cosas quedaron hechas:
+
+  1. **CI reordenada: Pytest corre ANTES del check del mapa.** Un doc
+     desincronizado no puede volver a tapar el resultado de los tests — que es
+     literalmente lo que pasó estos dos días.
+  2. **`scripts/diag_entorno`** (read-only): compara instalado contra pineado
+     en los paquetes clave y dice en qué mundo cae `app.routes`. Correrlo en
+     el Droplet contesta qué versión manda. De paso ya midió algo acá:
+     `psycopg` está **sin pinear** en requirements.
+  3. **La decisión queda ABIERTA y es del user** (pendiente, se pide una vez —
+     REGLA #6): alinear el pin a la versión real del Droplet (CI reproduce los
+     envoltorios y el mapa cierra solo), o enseñarle a `superficie` el mundo
+     plano. Lo primero es una línea; lo segundo es código nuevo en la pieza de
+     seguridad. Recomendación: lo primero, después de correr el diag.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

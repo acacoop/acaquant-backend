@@ -164,8 +164,9 @@ def de_quien_depende(nombre: str) -> frozenset[str]:
     #     salud_job         portafolio_diario: la última corrida falló
     #
     # El AuM no se escribió el 2026-08-20 por un 500 de Aunesa y el aviso no
-    # decía por qué. La traducción label → módulos ya existe en `jobs_catalogo`
-    # (que parsea el crontab): se DELEGA, no se copia.
+    # decía por qué. La traducción label → módulos ya existe en el parser del
+    # crontab (`core.crontab`, el mismo que usa `jobs_catalogo`): se DELEGA,
+    # no se copia.
     return _por_el_crontab(limpio)
 
 
@@ -176,9 +177,9 @@ def _por_el_crontab(label: str) -> frozenset[str]:
     le pega a un proveedor, la corrida entera depende de ese proveedor.
     """
     try:
-        from api.services import jobs_catalogo
-        crons = jobs_catalogo._parse_crontab()
-    except Exception as e:                      # el catálogo no puede tumbar esto
+        from core.crontab import parse_crontab
+        crons = parse_crontab()
+    except Exception as e:                      # el crontab no puede tumbar esto
         logger.debug("dependencias: sin crontab (%s)", e)
         return frozenset()
     out: set[str] = set()

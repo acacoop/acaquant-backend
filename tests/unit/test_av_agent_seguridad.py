@@ -18,12 +18,33 @@ from api.services import av_agent_seguridad as seg
 # ── La superficie: ver el 100%, no el 7% ───────────────────────────────────
 
 def test_se_ven_TODAS_las_rutas_no_las_de_primer_nivel():
-    """**El agujero que originó todo esto.** `app.routes` devuelve envoltorios,
-    no rutas: un `for` ingenuo veía 37 de 541 y pasaba en verde."""
+    """**El agujero que originó todo esto.** `app.routes` puede devolver
+    envoltorios (`_IncludedRouter`) en vez de rutas: un `for` ingenuo veía 37
+    de 541 y pasaba en verde.
+
+    ⚠️ Si los envoltorios existen o no lo decide la VERSIÓN de FastAPI (con la
+    pineada, 0.136.x, `app.routes` viene plano y trae las 560+ directas). La
+    primera versión de este test congelaba ese detalle (`rutas() > app.routes
+    × 5`) y fallaba justamente cuando `app.routes` no esconde nada. Lo que se
+    congela es la intención: superficie ve el 100% en CUALQUIERA de los dos
+    mundos."""
+    from fastapi.routing import APIRoute
+
     from api.main import app
 
-    assert len(superficie.rutas()) > 400
-    assert len(superficie.rutas()) > len(list(app.routes)) * 5
+    rutas = superficie.rutas()
+    assert len(rutas) > 400
+
+    envoltorios = [r for r in app.routes if type(r).__name__ == "_IncludedRouter"]
+    if envoltorios:
+        # FastAPI lazy: app.routes esconde las rutas adentro de envoltorios →
+        # superficie tiene que ver MUCHO más que el primer nivel.
+        assert len(rutas) > len(list(app.routes)) * 5
+    else:
+        # FastAPI plano: app.routes ya trae todo → superficie no puede ver
+        # ni UNA menos que las APIRoute reales.
+        planas = [r for r in app.routes if isinstance(r, APIRoute)]
+        assert len(rutas) >= len(planas)
 
 
 def test_ningun_path_repite_su_prefijo():

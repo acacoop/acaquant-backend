@@ -38,9 +38,16 @@ def test_las_tres_novedades_del_dia():
 
 
 def test_lo_que_ARRASTRA_no_entra():
-    """Es la queja entera: un control abierto hace 21 h no es una novedad del
-    día. Es trabajo pendiente y vive en ENCONTRÓ, con sus botones."""
-    viejo = _f(abierto_at=(AHORA - timedelta(hours=21)).isoformat())
+    """Es la queja entera: algo abierto AYER no es una novedad del día — es
+    trabajo pendiente y vive en ENCONTRÓ, con sus botones.
+
+    ⚠️ La primera versión usaba `AHORA − 21 h` (las 21 horas del incidente
+    real) y era flaky por HORA DEL DÍA: entre las 21:00 y las 24:00 ART esas
+    21 horas caen ADENTRO del día de hoy, así que el test fallaba tres horas
+    por día — y CI de las 20:54 ART lo pasaba por seis minutos. Lo que se
+    congela es la intención (abierto ANTES del corte del día → no es novedad),
+    así que el timestamp se arma contra el corte real, no contra el reloj."""
+    viejo = _f(abierto_at=(c._arranco_el_dia() - timedelta(hours=1)).isoformat())
     r = c._lo_de_hoy([viejo], [])
     assert r["aparecio"] == [] and r["volvio"] == []
     assert r["novedades"] == 0

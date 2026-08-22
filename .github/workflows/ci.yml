@@ -40,12 +40,24 @@ jobs:
         run: python -m scripts.audit_jobs_observabilidad
         continue-on-error: true
 
+      # Pytest va ANTES del check del mapa a propósito: un doc desincronizado
+      # no puede tapar el resultado de los tests. CI estuvo roja 30 pushes
+      # seguidos (2026-08-21/22) y como cada paso bloqueante corta el job,
+      # Pytest nunca corría — dos tests rotos y un contrato de capas entraron
+      # sin que nadie los viera (AV_AGENT.md §0.ci). El orden correcto es del
+      # veredicto más informativo al más formal.
+      - name: Pytest
+        run: pytest -ra
+
       # El inventario de endpoints y la matriz de permisos de docs/MAPA_APP.md
       # se generan desde la app montada. Si alguien agrega un router y no
       # regenera, el doc miente → esto lo frena. Bloqueante a propósito:
       # el arreglo es una línea (`python -m scripts.gen_mapa_app`).
+      # ⚠️ PENDIENTE (2026-08-22): este check es dependiente del ENTORNO — la
+      # FastAPI pineada (0.136.x) aplana `app.routes` y el mapa se genera
+      # distinto que en el entorno real (que tiene los envoltorios
+      # `_IncludedRouter`). Hasta alinear el pin con prod (diag:
+      # `python -m scripts.diag_entorno` en el Droplet) este paso puede fallar
+      # en CI aunque el doc esté bien generado. Ver AV_AGENT.md §0.ci.
       - name: Mapa de la app sincronizado
         run: python -m scripts.gen_mapa_app --check
-
-      - name: Pytest
-        run: pytest -ra

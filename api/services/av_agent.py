@@ -709,7 +709,10 @@ def _hhmm(ahora=None) -> str:
     detectores trabajan en UTC y estampar UTC diría 14:03 cuando en la pantalla
     de la mesa son las 11:03.
     """
-    return (ahora.astimezone(AR_TZ) if ahora is not None else ahora_ar()).strftime("%H:%M")
+    # Con FECHA (2026-08-22): el sello se PERSISTE con el hallazgo, así que un
+    # «· 23:31» pelado se lee como de hoy cuando la fila tiene días — «les
+    # falta la fecha» (user). dd/mm alcanza: el año lo dice el contexto.
+    return (ahora.astimezone(AR_TZ) if ahora is not None else ahora_ar()).strftime("%d/%m %H:%M")
 
 
 def _hallazgo(tipo: str, ticker: str, regla: str, severidad: str,

@@ -4694,6 +4694,11 @@ CREATE TABLE IF NOT EXISTS mercado.av_agent_runs (
 
 CREATE INDEX IF NOT EXISTS ix_av_runs_creado ON mercado.av_agent_runs (creado_at DESC);
 
+-- CERRAR el informe (2026-08-22): el run quedaba pegado en la pantalla para
+-- siempre — un «interrumpido» de ayer sin forma de sacarlo. `visto_at` lo
+-- cierra SIN borrarlo (la corrida es historia); el front lo muestra plegado.
+ALTER TABLE mercado.av_agent_runs ADD COLUMN IF NOT EXISTS visto_at timestamptz;
+
 -- El ANÁLISIS con IA del informe masivo (2026-08-18, ver av_agent_analista.py).
 -- Pegado a SU corrida: sin esto habría que volver a pagarlo cada vez que se
 -- reabre el informe — y peor, dos lecturas del mismo informe podrían decir

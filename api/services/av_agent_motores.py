@@ -245,8 +245,14 @@ def _prueba_del_log(tipo: str, label: str) -> str:
             texto = ""
         else:
             x = lineas[-1]
-            from datetime import datetime
-            hora = datetime.fromtimestamp(x["ts"]).strftime("%H:%M")
+            from datetime import UTC, datetime
+
+            from core.tz import AR_TZ
+            # fromtimestamp SIN tz usaba la zona del server (UTC) y la
+            # imprimía como si fuera local; y sin fecha, un log de ayer se
+            # leía como de hoy (2026-08-22).
+            hora = (datetime.fromtimestamp(x["ts"], UTC).astimezone(AR_TZ)
+                    .strftime("%d/%m %H:%M"))
             texto = f"\nÚltimo log {hora}: {x['mensaje'].splitlines()[0][:110]}"
     except Exception as e:                                  # nunca hacia arriba
         logger.debug("av_agent_motores: sin log de %s (%s)", unidad, e)
@@ -420,7 +426,8 @@ def _hora_de(ts: float) -> str:
     from datetime import UTC, datetime
 
     from core.tz import AR_TZ
-    return datetime.fromtimestamp(ts, UTC).astimezone(AR_TZ).strftime("%H:%M")
+    # Con FECHA: este sello viaja en motivos que se persisten (2026-08-22).
+    return datetime.fromtimestamp(ts, UTC).astimezone(AR_TZ).strftime("%d/%m %H:%M")
 
 
 def _titulo(unidad: str, patron: str, cola: str, hora: str) -> str:

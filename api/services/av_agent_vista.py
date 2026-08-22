@@ -1030,7 +1030,13 @@ def vista() -> dict:
         por_regla[h["regla"]] = por_regla.get(h["regla"], 0) + 1
         # El par que se vota es (SUJETO, CAUSA) — el mismo que usa `votar`. Si el
         # agente cambia de causa para ese bono, es un par nuevo y sí se pregunta.
-        voto = votados.get(((h.get("ticker") or "").strip(),
+        # ⚠️ El sujeto va por `clave_caso` — LA normalización de evals. Acá se
+        # buscaba con `.strip()` pelado mientras `votar` guardaba `.upper()`:
+        # los bonos matcheaban de casualidad (ya vienen en mayúscula) y los
+        # votos sobre motores/tablas (`manager.salud_eventos`) no se
+        # recordaban NUNCA — el «me voy de tab, vuelvo, y están los botones
+        # otra vez» que el user reportó tres veces.
+        voto = votados.get((av_agent_evals.clave_caso(h.get("ticker")),
                             (h.get("regla") or "").strip()))
         if voto is not None:
             h["ya_votado"] = True
@@ -1095,7 +1101,7 @@ def vista() -> dict:
         # ⚠️ **«ES RUIDO» AHORA HACE ALGO** (§0.bn). Esos votos se escribían y
         # no los leía nadie: la fila quedaba exactamente donde estaba, que es
         # la peor versión posible de un botón porque parece que hizo algo.
-        if ((h.get("ticker") or "").strip(),
+        if (av_agent_evals.clave_caso(h.get("ticker")),
                 (h.get("regla") or "").strip()) in ruido:
             h["es_ruido"] = True
 

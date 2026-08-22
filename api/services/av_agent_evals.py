@@ -43,6 +43,26 @@ logger = logging.getLogger(__name__)
 MIN_VOTOS = 10
 
 
+def clave_caso(s: str | None) -> str:
+    """**LA identidad de un caso en el eval set — la única normalización.**
+
+    ⚠️⚠️ Existe por el bug que hizo que los votos sobre filas de SISTEMA no se
+    recordaran NUNCA (2026-08-22). `votar()` guardaba `caso.upper()` y los dos
+    lectores (`ya_votados`, `es_ruido`) — y la vista al buscar — comparaban el
+    caso SIN upper. Un bono (`BPOA7`) ya viene en mayúscula y matcheaba *de
+    casualidad*; `manager.salud_eventos`, `motor_cedears` o `Finnhub news`
+    quedaban guardados en mayúscula y buscados en minúscula: el voto se escribía
+    (hasta 9 veces — el dedup leía sin upper y tampoco encontraba el previo) y
+    los botones volvían intactos en cada recarga, para siempre.
+
+    Es REGLA #9 en su forma exacta: la misma identidad escrita en dos lugares
+    con dos criterios, cero errores, cero logs. Por eso la normalización vive
+    UNA vez y la usan el que escribe Y todos los que leen — un test exige que
+    ningún acceso por caso quede fuera.
+    """
+    return (s or "").strip().upper()
+
+
 def _voto_previo(caso: str, causa: str, origen: str = "humano") -> bool | None:
     """El último voto de esa CLASE sobre ese par, o `None` si nunca se votó.
 
@@ -101,7 +121,10 @@ def ya_votados() -> dict[tuple[str, str], bool]:
                 "  FROM mercado.av_agent_evals WHERE origen = ANY(%s) "
                 " ORDER BY caso, causa, creado_at DESC",
                 (list(VOTOS_DE_PERSONA),))
-            return {(c, ca): bool(a) for c, ca, a, _ in cur.fetchall()}
+            # clave_caso también al LEER: la base ya viene en mayúscula, pero
+            # normalizar solo al escribir es tener el criterio en un lado y la
+            # fe en el otro.
+            return {(clave_caso(c), ca): bool(a) for c, ca, a, _ in cur.fetchall()}
     except Exception as e:
         logger.warning("evals: no pude leer los votados (%s)", e)
         return {}
@@ -125,7 +148,7 @@ def es_ruido() -> set[tuple[str, str]]:
                 "SELECT DISTINCT ON (caso, causa) caso, causa, acierta "
                 "  FROM mercado.av_agent_evals WHERE origen = 'utilidad' "
                 " ORDER BY caso, causa, creado_at DESC")
-            return {(c, ca) for c, ca, a in cur.fetchall() if not a}
+            return {(clave_caso(c), ca) for c, ca, a in cur.fetchall() if not a}
     except Exception as e:
         logger.warning("evals: no pude leer lo marcado como ruido (%s)", e)
         return set()
@@ -145,7 +168,10 @@ def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
     deducción de una acción aprobada. Con `ref`, sembrar dos veces no duplica:
     el índice único lo rechaza y acá se devuelve `duplicado`.
     """
-    caso, causa = (caso or "").strip(), (causa or "").strip()
+    # La identidad se fija ACÁ, antes de todo: el dedup de abajo y el INSERT
+    # tienen que hablar del mismo caso (clave_caso — ver su docstring: el bug
+    # de los votos de sistema que no se recordaban nunca).
+    caso, causa = clave_caso(caso), (causa or "").strip()
     if not caso or not causa:
         return {"ok": False, "error": "falta el caso o la causa"}
 
@@ -187,7 +213,9 @@ def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 # Sembrar es idempotente: el mismo origen no vota dos veces.
                 "ON CONFLICT (ref) WHERE ref IS NOT NULL DO NOTHING RETURNING id",
-                (caso.upper(), dominio, causa, acierta,
+                # `caso` ya está normalizado por clave_caso arriba — un .upper()
+                # suelto acá es exactamente el bug que clave_caso vino a matar.
+                (caso, dominio, causa, acierta,
                  (causa_correcta or "").strip() or None, (nota or "").strip() or None,
                  por or None, origen, (ref or "").strip() or None))
             fila = cur.fetchone()
@@ -200,8 +228,8 @@ def votar(*, caso: str, dominio: str, causa: str, acierta: bool,
     # que hace que la gente deje de votar.
     invalidate("precision_por_causa")
     if vid is None and ref:
-        return {"ok": True, "duplicado": True, "caso": caso.upper(), "causa": causa}
-    return {"ok": True, "id": vid, "caso": caso.upper(), "causa": causa,
+        return {"ok": True, "duplicado": True, "caso": caso, "causa": causa}
+    return {"ok": True, "id": vid, "caso": caso, "causa": causa,
             "acierta": acierta, "origen": origen}
 
 

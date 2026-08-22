@@ -659,6 +659,14 @@ def av_agent_masivo_frenar(run_id: int):
     return svc.frenar(run_id)
 
 
+@router.post("/av-agent/masivo/visto", dependencies=[Depends(require_admin)])
+def av_agent_masivo_visto(run_id: int):
+    """CIERRA el informe en la pantalla, sin borrarlo (2026-08-22): el run
+    quedaba pegado para siempre y no había forma de sacarlo de la vista."""
+    from api.services import av_agent_masivo as svc
+    return svc.marcar_visto(run_id)
+
+
 @router.get("/av-agent/masivo/historial", dependencies=[Depends(require_admin)])
 def av_agent_masivo_historial(limite: int = 15):
     """Las corridas anteriores — «esto mejoró, esto empeoró» es la pregunta que

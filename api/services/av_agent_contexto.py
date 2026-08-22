@@ -58,6 +58,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from core.postgres import get_pool
+from core.tz import hora_ar
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +323,11 @@ def frescura(perfil: dict, *, ahora: datetime | None = None) -> dict:
                        f"{cad.replace('_', ' ')}"
                        + (f" (cada {_humano(p50)})" if (p50 := perfil.get(
                            "intervalo_p50_s")) else "")
-                       + f" · {ahora.strftime('%H:%M')}")}
+                       # hora_ar y no strftime pelado: `ahora` viene en UTC
+                       # y el sello decía 23:31 cuando en la mesa eran las
+                       # 20:31 — y sin fecha, un hallazgo persistido de ayer
+                       # se leía como de hoy (2026-08-22).
+                       + f" · {hora_ar(ahora)}")}
 
 
 # Las cadencias que solo tienen sentido MIENTRAS el mercado opera. Una `diaria`

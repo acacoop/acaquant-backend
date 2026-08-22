@@ -222,6 +222,23 @@ def _cerrar_viejo(caso: dict, sujeto: str, causa: str) -> str:
             f"{r.get('error') or 'sin motivo'}. Va a seguir en la lista.")
 
 
+# Por qué NO hay botón, dicho por TIPO — la frase genérica («no tiene qué
+# hacer») se leía como un defecto en filas donde la respuesta correcta es otra.
+_SIN_PUERTA_POR_TIPO = {
+    "motor_caido": "es infraestructura: se mira y se decide afuera — reiniciar "
+                   "un motor no es un botón del agente",
+    "motor_ruidoso": "es infraestructura: el agente la vigila y te la muestra; "
+                     "arreglarla es una decisión de la mesa, no un botón",
+    "proveedor_caido": "es un proveedor externo: el agente lo vigila y avisa "
+                       "cuando vuelve — no hay nada que aplicar de este lado",
+    "tabla_quieta": "es una observación de la base: se contesta en la fila con "
+                    "¿TE SIRVE VERLO? — «✖ es ruido» la esconde",
+    "db_cambio": "es una observación de la base (tabla nueva/crecida): se "
+                 "contesta en la fila con ¿TE SIRVE VERLO? — «✖ es ruido» la "
+                 "esconde",
+}
+
+
 def _diagnosticar_uno(caso: dict, sin_red: bool) -> dict:
     """UN caso, por la misma puerta que el modal. Devuelve la fila del informe.
 
@@ -239,12 +256,21 @@ def _diagnosticar_uno(caso: dict, sin_red: bool) -> dict:
         if puerta is not None:
             r = puerta(sujeto, caso)
         else:
-            # Un hallazgo sin acción no es un fallo: es que el agente lo ve y
-            # todavía no sabe tocarlo. Decirlo es más útil que omitirlo — es
-            # exactamente la lista de lo que falta construir.
+            # Un hallazgo sin acción no siempre es «falta construir la puerta»
+            # (user, 2026-08-22: «no termino de entender por qué no tiene que
+            # hacer nada»). Hay TRES casos y decían la misma frase:
+            #   · infraestructura (motores, proveedores): se MIRA y se decide
+            #     afuera — reiniciar un motor en rueda no es un botón del agente;
+            #   · observaciones de la base (tabla nueva, tabla quieta): la
+            #     respuesta es el voto ¿TE SIRVE VERLO? de la fila — «✖ es
+            #     ruido» la esconde; no hay nada que aplicar;
+            #   · el resto: la puerta de verdad falta, y nombrarlo es la lista
+            #     de lo que hay que construir.
+            detalle = _SIN_PUERTA_POR_TIPO.get(
+                caso.get("tipo") or "",
+                "el agente lo ve pero todavía no tiene qué hacer con esto")
             return {**fila, "estado": "sin_puerta",
-                    "detalle": "el agente lo ve pero todavía no tiene qué hacer con esto",
-                    "segundos": 0.0}
+                    "detalle": detalle, "segundos": 0.0}
     except Exception as e:
         return {**fila, "estado": "error", "detalle": f"{type(e).__name__}: {e}",
                 "segundos": round(time.perf_counter() - t0, 2)}
@@ -383,9 +409,31 @@ def frenar(run_id: int) -> dict:
     return {"ok": True, "run_id": int(run_id)}
 
 
+def marcar_visto(run_id: int) -> dict:
+    """CIERRA el informe en la pantalla — sin borrar nada (2026-08-22).
+
+    El run quedaba pegado para siempre: un «interrumpido · sin señales hace
+    107 min» de ayer sin ninguna forma de sacarlo de la vista («el informe no
+    se puede cerrar, está 100% estático» — user). Cerrar es una marca, no un
+    borrado: la corrida es historia y `GET /masivo` la sigue devolviendo; el
+    front la muestra plegada en una línea, reabrible. Una corrida EN CURSO no
+    se puede cerrar — primero se frena.
+    """
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE mercado.av_agent_runs SET visto_at = now() "
+                    " WHERE id = %s AND estado <> 'corriendo' RETURNING id",
+                    (int(run_id),))
+        fila = cur.fetchone()
+        conn.commit()
+    if not fila:
+        return {"ok": False,
+                "error": "no existe, o sigue corriendo (frenala primero)"}
+    return {"ok": True, "run_id": int(run_id)}
+
+
 def _fila(run_id: int | None) -> dict | None:
     sql = ("SELECT id, creado_at, fin_at, estado, por, filtro, total, hechos, "
-           "latido_at, sin_red, tope_creditos, creditos, error, informe "
+           "latido_at, sin_red, tope_creditos, creditos, error, informe, visto_at "
            "FROM mercado.av_agent_runs ")
     with get_pool().connection() as conn, conn.cursor() as cur:
         if run_id:
@@ -396,9 +444,10 @@ def _fila(run_id: int | None) -> dict | None:
     if not r:
         return None
     cols = ["id", "creado_at", "fin_at", "estado", "por", "filtro", "total", "hechos",
-            "latido_at", "sin_red", "tope_creditos", "creditos", "error", "informe"]
+            "latido_at", "sin_red", "tope_creditos", "creditos", "error", "informe",
+            "visto_at"]
     d = dict(zip(cols, r, strict=True))
-    for k in ("creado_at", "fin_at", "latido_at"):
+    for k in ("creado_at", "fin_at", "latido_at", "visto_at"):
         d[k] = d[k].isoformat() if d[k] else None
     return d
 

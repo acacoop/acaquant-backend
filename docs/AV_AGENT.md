@@ -5997,6 +5997,61 @@ fetchear ni derivar por su cuenta, el lint no la deja. Verificado: `tsc`
 limpio, build de Next OK, y el lint quedó con UN solo error — el mismo
 preexistente de antes del corte.
 
+### 0.ck EL VOTO QUE NO SE RECORDABA NUNCA — la identidad del caso (2026-08-22)
+
+> *«Me voy de la tab, vuelvo, y otra vez me aparecen como si no se marcó nada.
+> Ya me gasté miles de tokens y sigue pasando. Hace que no tenga valor
+> prácticamente nada.»* — user, con los votos de motores y tablas volviendo
+> intactos en cada recarga
+
+Tenía razón y esta vez el bug estaba en el BACKEND, un nivel más abajo de los
+dos que ya se habían arreglado (§0.bn, §0.cb). **La identidad del caso estaba
+escrita con dos criterios**:
+
+    votar()               guarda  caso.upper()      → «MANAGER.SALUD_EVENTOS»
+    ya_votados()/es_ruido devuelven lo guardado
+    la vista busca        (ticker).strip()          → «manager.salud_eventos»
+
+Un BONO matcheaba **de casualidad** (ya viene en mayúscula) — por eso los
+votos de bonos sí se recordaban y los de sistema jamás. Y el dedup
+(`_voto_previo`) leía SIN upper → tampoco encontraba el previo → cada click
+escribía una fila nueva (el «0/9» que se veía en pantalla: nueve votos
+guardados del mismo caso). REGLA #9 en su forma más pura: cero errores, cero
+logs, cada mitad coherente consigo misma.
+
+**El arreglo es UNA normalización con dueño**: `av_agent_evals.clave_caso()`
+— la usan el que escribe y TODOS los que leen. Congelado por
+`test_evals_clave_caso`: un `.upper()` suelto sobre el caso vuelve a fallar el
+build (el test lee el fuente ejecutable, sin comentarios NI docstrings — que
+citan el bug por nombre).
+
+Con esto, tres quejas se resuelven de una: el voto persiste al cambiar de tab,
+«✖ es ruido» SACA la fila de verdad (el filtro ya existía y no matcheaba), y
+el dedup vuelve a dedupear.
+
+#### De la misma tanda, tres arreglos más
+
+- **El badge de la barra cuenta lo que la tab muestra** («abajo marca 7 y
+  entrás y son 10»): había DOS badges con otros números (`cent.sin_ver` y las
+  preguntas). Ahora es UNO = `nAhora`, el mismo número de la pestaña AHORA —
+  §0.bo aplicado un nivel más arriba.
+- **Los sellos de hora llevan FECHA y zona correcta** («les falta la fecha»):
+  los motivos persisten `· 23:31` y días después se leen como de hoy — y el
+  de `sin_escribir` encima estampaba la hora UTC sin convertir (23:31 que en
+  la mesa eran 20:31). Los tres selladores emiten `dd/mm HH:MM` en ART; las
+  filas viejas se re-estampan cuando el detector vuelve a correr (§0.ba).
+- **El informe masivo se puede CERRAR** («no se puede cerrar, está 100%
+  estático»): `visto_at` en `av_agent_runs` + `POST /masivo/visto`. Cerrado
+  queda en UNA línea reabrible — no se borra: una corrida de minutos no puede
+  ser irrecuperable. La marca vive en el backend: recargar no lo revive. Un
+  run corriendo no se cierra (se frena primero).
+- **«SIN PUERTA» deja de decir lo mismo para tres cosas distintas** («no
+  termino de entender por qué no tiene que hacer nada»): infraestructura
+  (motores/proveedores) dice *se mira y se decide afuera*; observaciones de la
+  base (tabla nueva/quieta) dicen *se contesta con ¿TE SIRVE VERLO? — «✖ es
+  ruido» la esconde* (que ahora funciona); y solo el resto queda como puerta
+  que falta construir.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

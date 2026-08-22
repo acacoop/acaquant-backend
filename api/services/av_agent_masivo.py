@@ -203,22 +203,28 @@ PUERTAS = {
 
 
 def _cerrar_viejo(caso: dict, sujeto: str, causa: str) -> str:
-    """Cierra el item cuyo diagnóstico probó que ya no aplica. Nunca levanta.
+    """El diagnóstico probó que ya no aplica → el item pasa a `en_curso`.
 
-    Devuelve la frase que va al informe. Si no se pudo cerrar **lo dice**: un
-    «cerrado» que no cerró nada es peor que no intentarlo, porque la fila
-    reaparece mañana y nadie sabe por qué.
+    ⚠️⚠️ **`en_curso` y NO `resuelto` (caso GD46, 2026-08-22).** Marcar
+    `resuelto` generaba VOLVIÓ espurio: el diagnóstico prueba «sano» sobre
+    `mercado.curvas`, pero el DETECTOR puede seguir viendo el síntoma en
+    producción (la TEA vive en `market_snapshot` y recién cambia cuando el
+    motor se reinicia) → resuelto + re-avistaje = «volvió», ensuciando la
+    señal más valiosa del modelo. `en_curso` saca la fila de la lista IGUAL
+    (cuenta como atendida) y deja que el DETECTOR sea quien cierre de verdad
+    cuando deje de verlo — el agente no califica su propio trabajo.
+    Nunca levanta, y si no pudo moverlo **lo dice**.
     """
     from api.services import av_agent_items
     from core import ciclo
     clave = av_agent_items.clave_de_problema(
         sujeto, str(caso.get("regla") or ""), str(caso.get("origen") or ""))
-    r = av_agent_items.marcar(clave, ciclo.RESUELTO, por="av-agent:masivo")
-    if r.get("ok"):
+    r = av_agent_items.marcar(clave, ciclo.EN_CURSO, por="av-agent:masivo")
+    if r.get("ok") or r.get("sin_cambio"):
         return (f"se comprobó que ya no aplica ({causa or 'sin causa'}) → "
-                f"cerrado. Si vuelve a aparecer entra como «volvió», que informa "
-                f"más que uno nuevo.")
-    return (f"la cadena probó que ya no aplica, pero **no pude cerrarlo**: "
+                f"queda ATENDIDO; lo cierra el detector cuando deje de verlo. "
+                f"Si en cambio lo re-ve tras un cierre, entra como «volvió».")
+    return (f"la cadena probó que ya no aplica, pero **no pude moverlo**: "
             f"{r.get('error') or 'sin motivo'}. Va a seguir en la lista.")
 
 
@@ -387,8 +393,35 @@ def arrancar(casos: list[dict], *, por: str = "", filtro: dict | None = None,
     background: con 1 petición por segundo, esperar el resultado no es una
     opción."""
     casos = [c for c in (casos or []) if c.get("ticker")]
+    # ⚠️⚠️ **EL MASIVO CONSULTA EL DNI ANTES DE DIAGNOSTICAR** (2026-08-22).
+    # Los casos llegan de la FOTO de la última corrida, que no sabe qué pasó
+    # después: GD46 se arregló a las 19:10 y a las 20:05 la corrida lo volvió
+    # a diagnosticar (y el lote lo volvió a APLICAR — dos `arreglar_bono` en el
+    # libro para el mismo arreglo). El user: *«no se pueden repetir las cosas
+    # ni arreglar cosas que funcionan — puede generar un problemón»*. El objeto
+    # (`av_agent_items`) ya sabe que ese problema está atendido: se saltea y
+    # se DICE cuántos (saltear en silencio se lee como que se perdieron).
+    saltados = 0
+    try:
+        from api.services import av_agent_items
+        from core import ciclo
+        atendidos = {ciclo.EN_CURSO, ciclo.RESUELTO, ciclo.IGNORADO}
+        claves = [av_agent_items.clave_de_problema(
+            str(c.get("ticker") or ""), str(c.get("regla") or ""),
+            str(c.get("origen") or "")) for c in casos]
+        estados = av_agent_items.estados_de(claves)
+        vivos = [c for c, k in zip(casos, claves, strict=True)
+                 if estados.get(k) not in atendidos]
+        saltados = len(casos) - len(vivos)
+        casos = vivos
+    except Exception as e:
+        logger.warning("av_agent_masivo: no pude filtrar atendidos (%s)", e)
     if not casos:
-        return {"ok": False, "error": "no hay casos para diagnosticar"}
+        return {"ok": False,
+                "error": ("no hay casos para diagnosticar"
+                          if not saltados else
+                          f"los {saltados} casos ya están atendidos "
+                          "(aplicados o cerrados) — nada para re-diagnosticar")}
     if len(casos) > 500:
         return {"ok": False, "error": f"son {len(casos)} casos: filtrá primero. "
                                       f"A 1,2s por llamada eso es más de 10 minutos."}
@@ -398,6 +431,8 @@ def arrancar(casos: list[dict], *, por: str = "", filtro: dict | None = None,
                          name=f"av-masivo-{rid}", daemon=True)
     t.start()
     return {"ok": True, "run_id": rid, "total": len(casos),
+            # Lo que se salteó por ya estar atendido — se dice, no se esconde.
+            "saltados_atendidos": saltados,
             # La ESPERA estimada, dicha de entrada. Sin esto el que arranca una
             # corrida de 3 minutos cree que se colgó y la vuelve a arrancar.
             "segundos_estimados": 0 if sin_red else int(len(casos) * 1.4)}

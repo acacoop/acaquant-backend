@@ -162,7 +162,8 @@ def asset_one_panel(unidad: str) -> dict | None:
 
 # ── LA PUERTA DE ESCRITURA ───────────────────────────────────────────────────
 
-def set_campos(unidad: str, campos: dict, *, actor: str = "") -> None:
+def set_campos(unidad: str, campos: dict, *, actor: str = "",
+               crear: bool = True) -> None:
     """**El único lugar donde se escribe un asset.**
 
     Vivía dentro de `api/routers/manager/assets.py::_write_sql` — un router, o
@@ -175,7 +176,21 @@ def set_campos(unidad: str, campos: dict, *, actor: str = "") -> None:
     que la mitad de las carteras tengan un espacio al final.
 
     `.strip()` en los strings no es cosmético: un `'HD  '` rompe los filtros que
-    comparan exacto (el divisor del AuM, Tenencia Valorizada).
+    comparan exacto (el divisor del AuM, Tenencia Valorizada). ⚠️ Nota que el
+    strip es de los VALORES, jamás de la `unidad`: la unidad es la PK y su
+    string EXACTO (espacios incluidos) es la identidad (REGLA #9).
+
+    ⚠️⚠️ **`crear=False` para escritores automáticos (incidente 2026-08-22).**
+    Esto es un UPSERT porque el panel de Manager también da de alta. Pero para
+    el AGENTE, upsert + una identidad rota es la peor combinación posible: el
+    control cantaba `'[OTC - …] '` (unidad real, con espacio al final), el
+    agente proponía sobre el sujeto **stripeado**, y el UPSERT — en vez de
+    fallar — **creaba una fila FANTASMA** trimmeada con la cartera puesta. La
+    verificación releía la fantasma («CARTERA = DERIVADOS» ✔), el control
+    seguía cantando la real, y la propuesta reaparecía infinitamente: tres
+    pantallas coherentes entre sí y ninguna diciendo la verdad. Con
+    `crear=False` la escritura sobre una unidad que no existe EXACTA levanta
+    en vez de inventar un asset.
     """
     from datetime import UTC, datetime
 
@@ -184,6 +199,20 @@ def set_campos(unidad: str, campos: dict, *, actor: str = "") -> None:
     if actor:
         cols["actualizado_por"] = actor
     cols.setdefault("actualizado_at", datetime.now(UTC))
+    if not crear:
+        sets = ", ".join(f"{c} = %s" for c in cols)
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(f"UPDATE portafolio.assets SET {sets} WHERE unidad = %s",
+                        [*cols.values(), unidad])
+            filas = cur.rowcount or 0
+            conn.commit()
+        if filas == 0:
+            raise ValueError(
+                f"la unidad {unidad!r} no existe EXACTA en portafolio.assets — "
+                "no se crea un asset desde un escritor automático (¿identidad "
+                "con espacios? REGLA #9)")
+        invalidar()
+        return
     colnames = ["unidad", *cols.keys()]
     updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols)
     sql = (f"INSERT INTO portafolio.assets ({', '.join(colnames)}) "

@@ -215,7 +215,7 @@ class AccionCartera:
             raise ValueError(f"«{p.propuesto}» no es una cartera válida")
         from api.services import assets_sql
         assets_sql.set_campos(p.sujeto, {"CARTERA": p.propuesto},
-                              actor="av-agent")
+                              actor="av-agent", crear=False)
 
     def verificar(self, p: Propuesta) -> tuple[bool, str]:
         """**Se relee de la base, no se confía en que el UPDATE salió bien.**
@@ -285,7 +285,8 @@ class AccionFci:
 
     def aplicar(self, p: Propuesta) -> None:
         from api.services import assets_sql
-        assets_sql.set_campos(p.sujeto, {"EMISOR": p.propuesto}, actor="av-agent")
+        assets_sql.set_campos(p.sujeto, {"EMISOR": p.propuesto}, actor="av-agent",
+                              crear=False)
 
     def verificar(self, p: Propuesta) -> tuple[bool, str]:
         from api.services.assets_sql import asset_one_panel
@@ -499,8 +500,17 @@ CONTROL_DONDE = _control_donde()
 
 
 def _sujeto(caso: dict) -> str:
-    """La identidad del caso, venga del control (`item`) o de una propuesta."""
-    return str(caso.get("item") or caso.get("sujeto") or caso.get("key") or "").strip()
+    """La identidad del caso, venga del control (`item`) o de una propuesta.
+
+    ⚠️⚠️ **SIN `.strip()` — la identidad es el string EXACTO** (incidente
+    2026-08-22, REGLA #9). El control canta la `unidad` tal cual está en la PK
+    de `portafolio.assets`, y hay unidades reales con espacio al final.
+    Stripear acá hacía que la propuesta naciera con OTRA identidad: el UPSERT
+    de `set_campos` creaba una fila FANTASMA trimmeada, la verificación la
+    releía en verde, y el control seguía cantando la fila real — para siempre.
+    Para MOSTRAR un nombre limpio está `_nombre()`; la identidad no se toca.
+    """
+    return str(caso.get("item") or caso.get("sujeto") or caso.get("key") or "")
 
 
 def _usuario_existe(email: str) -> bool:
@@ -1085,7 +1095,7 @@ class AccionTickerAsset:
                     f"rompería el join a ese papel. Hay que mirarlo a mano.")
         # Por la MISMA puerta que usa Manager: un segundo camino de escritura
         # termina con dos criterios para el mismo dato.
-        set_campos(p.sujeto, {"TICKER": nuevo}, actor="av-agent")
+        set_campos(p.sujeto, {"TICKER": nuevo}, actor="av-agent", crear=False)
 
     def verificar(self, p: Propuesta) -> tuple[bool, str]:
         from core.postgres import get_pool

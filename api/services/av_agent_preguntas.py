@@ -283,7 +283,18 @@ def pendientes_de_aplicar() -> list[dict]:
     ellas.
 
     Se excluye `despues`: eso no es una decisión pendiente de aplicar, es una
-    decisión pospuesta a propósito."""
+    decisión pospuesta a propósito.
+
+    ⚠️⚠️ **LA COLA SE CONCILIA CONTRA LA BASE** (2026-08-22). El user, mirando
+    «ALTA (16): BPO27, BPO28, GD46…» con los bonos YA dados de alta por otra
+    vía: *«claramente hay algo roto acá — parece texto que puede seguir así
+    porque no tiene continuación, no está esperando que pase algo»*. Tenía
+    razón: la fila esperaba a E2 y nadie miraba la REALIDAD. Ahora cada
+    lectura cruza las `alta` pendientes contra `mercado.curvas`: si el ticker
+    ya existe, la pregunta se sella aplicada con nota «ya estaba en la base»
+    y baja al registro — la cola solo muestra lo que de verdad falta hacer.
+    Es read-repair a propósito: derivar el estado de la realidad y no de la
+    promesa es la misma regla que rige todo el agente."""
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT id, clave, respuesta, nota, respondida_por, respondida_at "
@@ -298,7 +309,46 @@ def pendientes_de_aplicar() -> list[dict]:
             d["respondida_at"] = d["respondida_at"].isoformat() if d["respondida_at"] else None
             d["ticker"] = d["clave"].split(":", 1)[1] if ":" in d["clave"] else d["clave"]
             out.append(d)
-        return out
+    return _conciliar_altas_ya_hechas(out)
+
+
+def _conciliar_altas_ya_hechas(filas: list[dict]) -> list[dict]:
+    """Las `alta` cuya realidad ya pasó se sellan aplicadas y salen de la cola.
+
+    Best-effort: si la conciliación falla, la cola se muestra como está — una
+    fila de más molesta; comerse una pendiente de verdad no se ve nunca.
+    """
+    altas = {d["ticker"].strip().upper(): d for d in filas
+             if d.get("respuesta") == "alta" and (d.get("ticker") or "").strip()}
+    if not altas:
+        return filas
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT upper(btrim(ticker)) FROM mercado.curvas "
+                "WHERE upper(btrim(ticker)) = ANY(%s)",
+                (list(altas), ))
+            existentes = {r[0] for r in cur.fetchall() if r[0]}
+            hechas = [altas[t] for t in existentes if t in altas]
+            if hechas:
+                cur.execute(
+                    "UPDATE agente.av_agent_preguntas SET aplicada_at = now(), "
+                    "  nota = trim(coalesce(nota, '') || ' · ya estaba en la "
+                    "base — dado de alta por otra vía') "
+                    " WHERE id = ANY(%s) AND aplicada_at IS NULL",
+                    ([d["id"] for d in hechas],))
+        if hechas:
+            from api.services import av_agent_acciones as acc
+            acc.registrar(
+                accion="conciliar_pregunta",
+                objetivo=",".join(sorted(d["ticker"] for d in hechas))[:200],
+                detalle={"motivo": "alta ya existente en mercado.curvas",
+                         "ids": [d["id"] for d in hechas]})
+            ids = {d["id"] for d in hechas}
+            return [d for d in filas if d["id"] not in ids]
+    except Exception as e:
+        logger.warning("av_agent: no pude conciliar altas pendientes (%s)", e)
+    return filas
 
 
 def resumen() -> dict:

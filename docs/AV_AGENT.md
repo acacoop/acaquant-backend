@@ -6566,6 +6566,60 @@ mueve sola cuando el agente gane la habilidad), NO TE INTERESAN (lo único con
 botón: deshacer), REGISTRO DE RESPUESTAS (ex «HISTORIAL», que era un historial
 adentro del historial), VOTASTE. Cada bloque dice qué es y si se actualiza.
 
+### 0.cw EL DNI SE RESPETA DE PUNTA A PUNTA — tres flujos lo ignoraban (2026-08-22)
+
+> *«Cada cosa que pasa no es un objeto con un ID… no hay un DNI: existe un
+> problema y puede aparecer infinitamente en el día por más que ya lo
+> soluciones. A nivel base y a nivel desarrollo claramente está todo mal.»*
+
+El diagnóstico del user es correcto con una precisión: el DNI **existe**
+(`agente.av_agent_items`, clave = sujeto|causa, §0.bd) — lo roto era que tres
+flujos actuaban sobre fotos o strings sin consultarlo. Los tres, con su caso:
+
+**1. La identidad se stripeaba, y el upsert fabricaba FANTASMAS (caso OTC).**
+La cadena completa del bug, leída en el código: el control `assets_sin_cartera`
+canta la `unidad` EXACTA (`'[OTC - MAI.ROS/ENE27] '` — con espacio final; el
+doble espacio en pantalla era la pista) → `av_agent_hacer._sujeto()` hacía
+`.strip()` → la propuesta nacía con OTRA identidad → `assets_sql.set_campos`
+es un **UPSERT**, así que aplicar no falló: **creó una fila nueva** trimmeada
+con `CARTERA=DERIVADOS` → la verificación releyó esa fila («✔ CARTERA =
+DERIVADOS») → el control siguió cantando la fila real, y QUÉ PROPONÉS volvía a
+proponer lo mismo, infinito. Tres pantallas coherentes, ninguna diciendo la
+verdad — REGLA #9 en su forma más pura. **Arreglos**: `_sujeto()` ya no
+stripea (la identidad es el string exacto; para mostrar está `_nombre()`), y
+las escrituras del agente van con `set_campos(..., crear=False)` — sobre una
+unidad que no existe EXACTA se levanta error en vez de inventar un asset.
+**Lo que quedó en la base se mide y repara con
+`scripts/diag_unidades_fantasma`** (dry-run; `--reparar` copia la cartera a la
+fila real y borra la fantasma, con tres guardas: btrim-colisión, escrita por
+av-agent, sin tenencia).
+
+**2. «Probado sano» marcaba `resuelto` y generaba VOLVIÓ espurio (caso GD46).**
+El arreglo se escribe en `mercado.curvas`, pero el detector lee la TEA de
+`market_snapshot`, que recién cambia cuando `motor_curvas` se reinicia. Cerrar
+como `resuelto` hacía que el siguiente avistaje legítimo lo marque «volvió» —
+ensuciando la señal más valiosa del modelo con falsas reincidencias. Ahora
+`resolver_sujeto` y el `_cerrar_viejo` del masivo marcan **`en_curso`**: la
+fila sale de la lista igual (atendida), un re-avistaje NO la mueve (suma
+`veces`), y la cierra el DETECTOR vía `_cerrar_ausentes` cuando deja de verla
+— el agente no califica su propio trabajo, que es la filosofía que
+`_mover_item` ya tenía escrita.
+
+**3. Los lotes trabajaban sobre la FOTO sin mirar el objeto.** El masivo
+tomaba los casos de la foto de la última corrida y re-diagnosticaba (y el lote
+re-aplicaba: dos `arreglar_bono` GD46 en el libro, 19:10 y 20:05). Ahora
+`arrancar()` consulta `estados_de()` (una query para todo el lote) y saltea
+en_curso/resuelto/ignorado **diciendo cuántos** (`saltados_atendidos`). Y la
+cola de DECIDIDO se concilia contra la BASE: una `alta` contestada cuyo ticker
+ya existe en `mercado.curvas` se sella `aplicada` sola con nota «ya estaba en
+la base» (read-repair en `pendientes_de_aplicar`) — la cola muestra lo que de
+verdad falta, no promesas que la realidad ya cumplió.
+
+**Y el error de UX del round anterior se revierte**: los pasos con panel de
+acción (`hacer`) se muestran SIEMPRE fuera del pliegue «detalle interno» — lo
+que se pliega es el razonamiento, jamás la acción. Congelado por
+`test_av_agent_dni`.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

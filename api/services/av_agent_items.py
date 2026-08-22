@@ -332,18 +332,45 @@ def _tipos_abiertos(origen: str) -> set[str]:
 # hace falta, y ahí vuelven los dos objetos por otro camino.
 
 
-def resolver_sujeto(sujeto: str, *, motivo: str = "", por: str = "") -> dict:
-    """**El diagnóstico PROBÓ que está bien → los objetos del sujeto se cierran
-    solos** (§0.cv). Nace del caso GD46: el diagnóstico decía «con los datos de
-    hoy no se detecta nada roto» y la fila seguía en LA LISTA hasta la próxima
-    corrida — el user: *«tiene que figurar SOLAMENTE lo que no está
-    solucionado; para algo está el HISTORIAL»*. Si las lentes re-corrieron la
-    detección y dio limpia, es el MISMO criterio con el que el detector cierra:
-    no hay razón para esperar a la noche.
+def estados_de(claves: list[str]) -> dict[str, str]:
+    """El estado actual de N objetos, en UNA query. Para que un lote (el
+    masivo) pueda consultar el DNI antes de trabajar sin pagar N viajes.
+    Si la lectura falla devuelve {} — el que llama trata «no sé» como «no
+    filtres», que es la degradación segura."""
+    claves = [c for c in (claves or []) if c]
+    if not claves:
+        return {}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT clave, estado FROM agente.av_agent_items "
+                        "WHERE clave = ANY(%s)", (claves,))
+            return dict(cur.fetchall())
+    except Exception as e:
+        logger.warning("av_agent_items: no pude leer estados (%s)", e)
+        return {}
 
-    Cierra los abiertos (nuevo/visto/en_curso/volvio) del sujeto; NO toca los
-    ignorados (snooze aparte) ni los ya resueltos. Si el diagnóstico se
-    equivocó, la red de siempre lo agarra: el detector lo re-ve y es `volvio`.
+
+def resolver_sujeto(sujeto: str, *, motivo: str = "", por: str = "") -> dict:
+    """**El diagnóstico PROBÓ que está bien → los objetos del sujeto pasan a
+    `en_curso`** (§0.cv, corregido §0.cw). La fila sale de LA LISTA ya, pero
+    quien la CIERRA de verdad es el DETECTOR cuando deja de verla.
+
+    ⚠️⚠️ **Por qué `en_curso` y NO `resuelto` (incidente GD46, 2026-08-22).**
+    La primera versión marcaba `resuelto` y el mismo sábado GD46 apareció como
+    «↩ VOLVIÓ»: el arreglo vive en `mercado.curvas` pero el DETECTOR lee la TEA
+    de `market_snapshot`, que recién cambia cuando `motor_curvas` se reinicia
+    (arma su universo al arrancar — está avisado en el CLAUDE.md). O sea: el
+    diagnóstico prueba «sano en simulación» y el detector sigue viendo el
+    síntoma en producción → `resuelto` + re-avistaje = VOLVIÓ espurio, que
+    ensucia la señal más valiosa del modelo. `en_curso` es el estado que ya
+    existe para exactamente esto («arreglado, esperando que el detector
+    confirme»): un re-avistaje NO lo mueve (suma `veces` y nada más), y cuando
+    el detector deja de verlo `_cerrar_ausentes` lo resuelve y arrancan los
+    hitos. El agente nunca califica su propio trabajo — misma filosofía que
+    `_mover_item`.
+
+    Toca los abiertos (nuevo/visto/volvio); NO toca los ignorados (snooze
+    aparte), los ya resueltos ni los ya en_curso.
     """
     sujeto = (sujeto or "").strip()
     if not sujeto:
@@ -352,17 +379,16 @@ def resolver_sujeto(sujeto: str, *, motivo: str = "", por: str = "") -> dict:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "UPDATE agente.av_agent_items SET estado = %s, "
-                "  resuelto_at = now(), "
                 "  datos = datos || %s::jsonb "
                 " WHERE lower(sujeto) = lower(%s) "
-                "   AND estado NOT IN (%s, %s)",
-                (ciclo.RESUELTO,
-                 json.dumps({"cerrado_por": motivo or "diagnostico",
+                "   AND estado NOT IN (%s, %s, %s)",
+                (ciclo.EN_CURSO,
+                 json.dumps({"atendido_por": motivo or "diagnostico",
                              **({"por": por} if por else {})}),
-                 sujeto, ciclo.RESUELTO, ciclo.IGNORADO))
+                 sujeto, ciclo.RESUELTO, ciclo.IGNORADO, ciclo.EN_CURSO))
             return {"ok": True, "movidos": cur.rowcount or 0}
     except Exception as e:
-        logger.warning("av_agent_items: no pude resolver %s (%s)", sujeto, e)
+        logger.warning("av_agent_items: no pude atender %s (%s)", sujeto, e)
         return {"ok": False, "error": str(e)[:200]}
 
 

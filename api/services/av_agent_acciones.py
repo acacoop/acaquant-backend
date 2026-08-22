@@ -49,6 +49,9 @@ DESTINOS = {
     # El snooze del día (§0.cv): NO toca la tabla durable — mueve los objetos
     # del sujeto a `ignorado`, y el vencimiento lo aplica `ver()` al re-verlos.
     "ignorar_hoy": "agente.av_agent_items",
+    # La conciliación contra la base (§0.cw): un «alta» contestada cuyo bono
+    # ya existe en mercado.curvas se sella aplicada sola.
+    "conciliar_pregunta": "agente.av_agent_preguntas",
     "crear_curva": "mercado.curvas_catalogo",
     "alta_bono": "mercado.curvas",
     # El nombre en PLURAL es el que usa `aplicar_flujos` — acá figuraba en

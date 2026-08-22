@@ -212,3 +212,17 @@ def test_sin_a3500_la_card_queda_vacia_y_no_en_cero():
     b = ci._bloque(pos, ["HD"], REGLAS, a3500=None)
     assert b["valuacion_a3500"] is None
     assert b["valuacion_ars"] == 1_000.0
+
+
+def test_cada_bloque_de_clase_dice_cuanto_pesa_en_la_cuenta():
+    """El panel muestra dos porcentajes distintos y hay que no confundirlos: la
+    clase pesa sobre SU cartera, y la cartera sobre la cuenta. El segundo lo
+    manda el backend para que la pantalla no lo derive por su cuenta."""
+    pos = _resp([
+        _pos("AL30", "HD", 750.0, clase="SOBERANO"),
+        _pos("GGAL", "RENTA VARIABLE", 250.0, clase="ACCION"),
+    ])
+    m = ci._metricas(pos, ["HD", "RENTA VARIABLE"])
+    hd = next(b for b in m["por_clase"] if b["cartera"] == "HD")
+    assert hd["ponderacion"] == pytest.approx(0.75)     # sobre la cuenta
+    assert hd["filas"][0]["share"] == pytest.approx(1.0)  # sobre la cartera

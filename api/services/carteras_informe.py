@@ -300,6 +300,11 @@ def _metricas(pos: dict, orden: list[str]) -> dict:
         tot = sum(float(p.get("valuacion") or 0.0) for p in propias)
         por_clase.append({"cartera": c, "label": _label(c), "total": round(tot, 2),
                           "total_usd": _usd(tot, mep),
+                          # Cuánto pesa la cartera EN LA CUENTA. Va acá y no se
+                          # deriva en la pantalla por la misma razón que todo lo
+                          # demás: es el mismo número que muestra el cuadro del
+                          # resumen, y calculado en dos lugares un día difiere.
+                          "ponderacion": _pond(tot, total),
                           "filas": _agrupar(propias, "clase_activo", tot, mep)})
     return {
         "total": round(total, 2),

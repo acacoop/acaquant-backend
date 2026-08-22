@@ -5379,6 +5379,40 @@ contra `mercado.curvas`: la misma guarda 1 que ya tenía la acción. Si el códi
 de la unidad no es una curva, no sabemos cuál de los dos nombres es el bueno, así
 que **no hay divergencia que declarar**.
 
+### 0.ci EL COTEJO GENERAL, y una acción que creó 6 anomalías (2026-08-22)
+
+Se aplicaron los 6 `pata_equivocada` (BPOA7/8, BPOB7/8, BPOC7, GD46), el control
+`patas_equivocadas` quedó en **0** y ENCONTRÓ siguió mostrando **17**. Tercera
+vez en la misma sesión con la misma forma: **control verde, hallazgo vivo**.
+
+Las dos anteriores se taparon de a una regla por vez. **Así se llega a la
+cuarta.** Ahora hay un cotejo general: *un hallazgo cuya regla espeja un control
+caduca cuando ese control queda en cero*. Y la relación regla → control **ya
+existía y no hubo que escribirla** — cada `Accion` declara `causa` (la regla) y
+`sobre` (el control), así que una acción nueva trae su cotejo puesto.
+
+⚠️ **Solo cuenta el control en CERO, a propósito.** Con casos activos se podría
+matchear sujeto por sujeto, pero las claves no son el mismo string
+(`assets_ticker_partido` guarda la UNIDAD y el hallazgo habla del TICKER) y un
+match fallido se leería como «resuelto». Cero activos no tiene esa ambigüedad.
+`pata_equivocada` sale de la lista de deuda del test; quedan dos.
+
+#### Y la acción creó 6 anomalías nuevas: faltó reiniciar el OTRO motor
+
+Junto al verde apareció `Renta fija cotizando sin TEA/TNA: 16 (▲6 nuevos)` — y
+los 6 nuevos son **exactamente** los 6 que se acababan de apuntar.
+
+La causa es la trampa que este mismo doc describe: **son DOS motores.**
+`motor_rofex` PIDE el precio y `motor_curvas` CALCULA la TEA, y **los dos arman
+su universo al arrancar**. Se reinició solo el primero, así que el bono quedó con
+precio de la pata D y la TEA escrita bajo el símbolo viejo. El bono no está roto:
+está partido entre un motor nuevo y uno viejo.
+
+**Regla que queda: una acción que cambia `mercado.curvas.instrumento` toca a los
+DOS motores, y el que la aplica tiene que decir los dos reinicios.** Decir uno es
+peor que no decir ninguno — deja el sistema en un estado mixto que ningún
+detector distingue de un bono realmente sin tasa.
+
 ### 0.ch «NO CAMBIA CASI NADA»: el censo decía botón donde no había botón (2026-08-22)
 
 Tres rondas de trabajo y ENCONTRÓ pasó de **98 a 95**. El user, textual: *«te

@@ -182,6 +182,29 @@ class TestNoTodoTasaSospechosaHablaDeLaTASA:
         assert caduca(set(), "PLC5O") is False
         assert caduca({"PLC5O"}, "plc5o ") is True
 
+    def test_el_cotejo_GENERAL_mata_la_familia_entera(self):
+        """⚠️ Tercera vez con la misma forma: control verde, hallazgo vivo. Se
+        aplicaron los 6 `pata_equivocada`, `patas_equivocadas` quedó en 0 y
+        ENCONTRÓ siguió mostrando 17.
+
+        Taparlo de a una regla por vez es cómo se llega a la cuarta. La relación
+        regla → control ya existe en el registro de acciones (`causa` → `sobre`)
+        y no hace falta escribirla."""
+        assert v._control_de_la_regla("pata_equivocada") == "patas_equivocadas"
+        assert v._control_de_la_regla("sin_espejo_en_assets") == "assets_ticker_partido"
+        assert v._control_de_la_regla("no_existe_esta_regla") == ""
+        assert '_control_de_la_regla' in _caduco_src()
+
+    def test_solo_el_control_en_CERO_tacha(self):
+        """Con casos activos no se matchea sujeto por sujeto: las claves no son
+        el mismo string (`assets_ticker_partido` guarda la UNIDAD, el hallazgo
+        habla del TICKER) y un match fallido se leería como «resuelto»."""
+        import inspect
+        src = inspect.getsource(v._controles_en_verde)
+        assert 'not (g.get("activos") or [])' in src
+        assert "return set()" in src, (
+            "si no se pudo leer, no caduca nada: «no pude mirar» no es «resuelto»")
+
     def test_las_reglas_QUE_SIGUEN_SIN_COTEJO_estan_declaradas(self):
         """Las que dependen del PRECIO del día no se pueden reverificar barato y
         está bien que no caduquen. Las que son hechos de base y todavía no lo
@@ -191,11 +214,12 @@ class TestNoTodoTasaSospechosaHablaDeLaTASA:
             "paridad_fuera_de_rango", "sin_tea_con_precio", "tea_fuera_de_rango",
         }
         deuda_hechos_de_base = {
-            "pata_equivocada",           # curvas.instrumento vs la pata default
+            # `pata_equivocada` SALIÓ de esta lista: lo cubre el cotejo general
+            # por control en cero (`_controles_en_verde`).
             "sin_ejes",                  # el bono tiene o no tiene ejes cargados
             "moneda_flujo_contradice",   # moneda_flujo vs moneda_eje
         }
         assert sin_cotejo_por_precio & deuda_hechos_de_base == set()
-        assert len(deuda_hechos_de_base) == 3, (
+        assert len(deuda_hechos_de_base) == 2, (
             "si arreglaste una, sacala de acá; si sumaste otra, agregala — esta "
             "lista es lo que impide que la próxima se pierda en silencio")

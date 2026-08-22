@@ -401,6 +401,9 @@ def estado(limite: int = 200) -> dict:
             # Los datos estaban; no se dibujaban.
             "motivo": titulo, "detalle": str(d.get("texto") or ""),
             "muestra": str(d.get("muestra") or "")[:400],
+            # La VENTANA que la pieza declaró (`rueda`, `12-23 UTC`, …): es lo
+            # que deja decidir si esto puede estar roto HOY (§0.cp).
+            "ventana": d.get("ventana"),
             "veces": veces, "abierto_at": ab, "ultimo_at": ult,
             "visto_at": vis, "resuelto_at": None, "resuelto_como": None,
             "abierto_canonico": ab, "vuelto_at": None,
@@ -424,6 +427,12 @@ def estado(limite: int = 200) -> dict:
         # existe (un hallazgo de este mismo ciclo, antes de espejarse) se usa la
         # local — es lo mismo en ese instante y evita un hueco en la pantalla.
         desde = f.pop("abierto_canonico", None) or f.get("abierto_at")
+        # La ventana declarada también para las filas de la tabla propia (las
+        # de items la traen puesta): sin esto el filtro de no-hábil no puede
+        # distinguir la pieza de rueda de la que corre todos los días.
+        if "ventana" not in f:
+            ev = f.get("evidencia")
+            f["ventana"] = (ev or {}).get("ventana") if isinstance(ev, dict) else None
         f["recien"] = bool(desde and (ahora - desde).total_seconds() < RECIEN_S)
         # Y se publica, para que la fila pueda decir «11d» igual que ENCONTRÓ.
         if desde:
@@ -478,7 +487,8 @@ def estado(limite: int = 200) -> dict:
             "abiertos": abiertos, "resueltos": resueltos,
             "sin_ver": sum(1 for f in abiertos if not f["visto_at"]),
             # ── LO DE HOY, SEPARADO DEL ARRASTRE (§0.bo) ────────────────────
-            "hoy": _lo_de_hoy(abiertos, resueltos)}
+            "hoy": _lo_de_hoy(abiertos, resueltos,
+                              habil=av_agent.dia_habil())}
 
 
 # ⚠️⚠️ **AHORA ES EL DÍA DE HOY, NO EL ACUMULADO.** El user, 2026-08-22:
@@ -556,7 +566,36 @@ def _por_hora(filas: list[dict]) -> list[dict]:
     return sorted(filas, key=_cuando, reverse=True)
 
 
-def _lo_de_hoy(abiertos: list[dict], resueltos: list[dict]) -> dict:
+def _puede_pasar_hoy(f: dict, habil: bool) -> bool:
+    """¿Esta fila puede ser una NOVEDAD hoy? (§0.cp)
+
+    En día hábil, todo. En día NO hábil el universo se achica, y el user lo
+    dijo con todas las letras un sábado con la pantalla llena: *«AHORA es
+    AHORA — son problemas que tienen que estar PASANDO ahora mismo»*.
+
+      · lo de dominio BONO no puede ser novedad: ningún detector de mercado
+        corre (una marca de hoy es residuo de antes del gating, no un hecho)
+      · un motor de RUEDA no puede estar «roto ahora»: está APAGADO a
+        propósito (§0.r: fuera de rueda no está caído, está apagado). La
+        pieza que declara ventana propia (Finnhub corre todos los días) SÍ
+        puede — la ventana la declara la pieza, no la adivina esta función
+      · los logs de motores (`motor_ruidoso`) son de procesos de rueda: hoy
+        no producen líneas nuevas
+      · `actividad`, `proveedor_caido` y SALUD pueden romperse cualquier día
+    """
+    if habil:
+        return True
+    from api.services import av_agent
+    t = (f.get("tipo") or "").strip()
+    if t == "motor_ruidoso":
+        return False
+    if t == "motor_caido":
+        return (f.get("ventana") or "rueda") not in ("rueda", "rueda_agro")
+    return av_agent.dominio_eval(t) != "bono"
+
+
+def _lo_de_hoy(abiertos: list[dict], resueltos: list[dict],
+               habil: bool = True) -> dict:
     """Las TRES novedades del día. Nada más, y por eso sirve.
 
         apareció   algo que no estaba ayer
@@ -580,15 +619,23 @@ def _lo_de_hoy(abiertos: list[dict], resueltos: list[dict]) -> dict:
     #
     # Sale PRIMERO y se excluye de los otros tres bloques: la misma fila en dos
     # lugares de la misma pantalla se lee como dos problemas.
-    roto = [f for f in abiertos if va_en_ahora(f.get("tipo") or "")]
+    #
+    # ⚠️⚠️ Y **solo lo que puede estar roto HOY** (§0.cp): un deadlock del
+    # viernes al mediodía no es «roto ahora» un sábado con el motor apagado —
+    # es trabajo pendiente, y vive en ENCONTRÓ hasta el próximo hábil.
+    roto = [f for f in abiertos
+            if va_en_ahora(f.get("tipo") or "") and _puede_pasar_hoy(f, habil)]
     claves_roto = {f.get("clave") for f in roto}
 
     aparecio = [f for f in abiertos
                 if _hoy(f.get("abierto_at"), desde) and not f.get("vuelto_at")
-                and f.get("clave") not in claves_roto]
+                and f.get("clave") not in claves_roto
+                and _puede_pasar_hoy(f, habil)]
     volvio = [f for f in abiertos if _hoy(f.get("vuelto_at"), desde)
-              and f.get("clave") not in claves_roto]
-    cerro = [f for f in resueltos if _hoy(f.get("resuelto_at"), desde)]
+              and f.get("clave") not in claves_roto
+              and _puede_pasar_hoy(f, habil)]
+    cerro = [f for f in resueltos if _hoy(f.get("resuelto_at"), desde)
+             and _puede_pasar_hoy(f, habil)]
     return {
         "desde": desde.isoformat(),
         "roto": _por_hora(roto),

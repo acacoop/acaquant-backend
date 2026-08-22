@@ -6258,6 +6258,55 @@ arregló el **duplicado de ROTO AHORA** (8 filas que eran 4): el mismo problema
 llegaba por la tabla del centinela Y por el espejo en items con claves de
 formato distinto — el dedup va por (sujeto, causa), la identidad real.
 
+### 0.cp AHORA SOLO MUESTRA LO QUE PUEDE PASAR HOY — y el residuo se deshace (2026-08-22)
+
+> *«SIGUEN apareciendo cosas que no son de ahora por más que lo aclaramos.
+> AHORA ES AHORA: son problemas que tienen que estar PASANDO ahora mismo.»*
+> — user, el mismo sábado, después del deploy de §0.co
+
+Tenía razón otra vez, por dos motivos distintos que se veían iguales:
+
+1. **El residuo.** El gating de §0.co impide el churn NUEVO, pero las marcas
+   que el churn de esa mañana YA escribió (`vuelto_at`/`abierto_at` del
+   sábado 11:14) quedaron en la base — y el corte "de hoy" las seguía
+   mostrando todo el día como VOLVIÓ/APARECIÓ. Dos respuestas:
+   - **`_puede_pasar_hoy(f, habil)`** en `_lo_de_hoy`: en día no hábil, una
+     novedad de dominio BONO **no puede ser un hecho** (ningún detector de
+     mercado corre — una marca de hoy es residuo por construcción) y no se
+     muestra. SALUD, `proveedor_caido` y `actividad` sí pasan cualquier día.
+   - **`scripts/fix_churn_no_habil`** (dry-run) deshace los `volvio` falsos:
+     vuelven a `resuelto` con el reloj re-arrancado — cada `volvio` falso
+     borraba la confianza de un arreglo que sigue bien.
+
+2. **"ROTO AHORA" con los motores apagados.** El deadlock del viernes 12:07
+   se mostraba como «roto en este momento» un sábado — con el motor APAGADO
+   a propósito (§0.r: fuera de rueda no está caído, está apagado). El filtro
+   usa la **ventana que la propia pieza declara**: `motor_caido` con ventana
+   `rueda` no puede estar roto hoy (es trabajo pendiente → ENCONTRÓ);
+   Finnhub, que declara correr todos los días, SÍ puede — la ventana la
+   declara la pieza, no la adivina el filtro. `motor_ruidoso` (logs) queda
+   fuera en no hábil: los motores de rueda no producen líneas nuevas hoy.
+
+Del mismo barrido, tres coherencias más de pantalla:
+- **El tab ENCONTRÓ cuenta lo mismo que LA LISTA** («por resolver»): decía 94
+  afuera y 67 adentro — un contador de tab promete trabajo, cuenta trabajo.
+- **Los sujetos largos no se truncan más por lista a mano**: `dato_partido`
+  mostraba «simbolo_m…» porque su tipo no estaba en `SUJETO_LARGO`. El ancho
+  ahora se DERIVA del dato (ticker corto vs nombre con separadores) — un tipo
+  nuevo no puede volver a caer en la columna angosta.
+- Dos diags para lo que no se puede afirmar sin medir (REGLA #2):
+  **`diag_patas_master`** — los 11 `pata_equivocada` con la acción BLOQUEADA
+  («ya no aparece: se resolvió solo») que SIGUEN en LA LISTA: imprime las
+  cuatro copias del símbolo (columna · blob · especies · sugerido de la foto)
+  para ver cuál quedó vieja y por qué `_caduco` no dispara — dos lectores que
+  disienten es REGLA #9, y la copia culpable se decide midiendo.
+  **`diag_tenencia_fechas`** — el control `portafolio_diario` alertó en sábado
+  que «el viernes no está», y el user: *«si está bien que los datos estén en
+  T-1, la alerta está desconectada de cómo funciona eso»*. El diag imprime las
+  fechas reales que deja el job y sus corridas; con eso se re-modela el
+  contrato del control (qué fecha exacta debe existir según día y hora) en la
+  próxima ronda — sin adivinar.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

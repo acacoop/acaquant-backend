@@ -124,3 +124,40 @@ def test_dias_resuelto_usa_el_reloj_HABIL_y_dias_abierto_el_CALENDARIO():
 def test_una_fecha_rota_devuelve_cero_tambien_en_el_reloj_habil():
     assert ciclo.dias_de_prueba("no-es-una-fecha") == 0.0
     assert ciclo.dias_de_prueba(None) == 0.0
+
+
+# ── 4. AHORA solo muestra lo que puede pasar HOY (§0.cp) ────────────────────
+
+def test_en_no_habil_una_novedad_de_BONO_es_residuo_y_no_se_muestra():
+    """Un sábado la pantalla mostró 7 «volvió» y 11 «apareció» de bonos con
+    sello de esa mañana: ningún detector de mercado corre en no hábil, así que
+    una marca de hoy es residuo — mostrarla es afirmar un hecho que no pasó."""
+    from api.services import av_agent_centinela as c
+    assert not c._puede_pasar_hoy({"tipo": "tasa_sospechosa"}, habil=False)
+    assert not c._puede_pasar_hoy({"tipo": "precio_moneda"}, habil=False)
+    # SALUD y la actividad indebida SÍ pueden pasar cualquier día.
+    assert c._puede_pasar_hoy({"tipo": "salud"}, habil=False)
+    assert c._puede_pasar_hoy({"tipo": "actividad"}, habil=False)
+    assert c._puede_pasar_hoy({"tipo": "proveedor_caido"}, habil=False)
+
+
+def test_un_motor_de_RUEDA_no_esta_roto_un_sabado_esta_APAGADO():
+    """§0.r aplicado a AHORA: el deadlock del viernes es trabajo pendiente (vive
+    en ENCONTRÓ), no «roto ahora» con el motor apagado. La pieza que declara
+    ventana propia (Finnhub corre todos los días) SÍ puede estar rota hoy —
+    la ventana la declara la pieza, no la adivina el filtro."""
+    from api.services import av_agent_centinela as c
+    assert not c._puede_pasar_hoy({"tipo": "motor_caido", "ventana": "rueda"},
+                                  habil=False)
+    assert not c._puede_pasar_hoy({"tipo": "motor_caido"}, habil=False)
+    assert c._puede_pasar_hoy({"tipo": "motor_caido", "ventana": "12-23 UTC"},
+                              habil=False)
+    # Los logs son de motores de rueda: hoy no producen líneas nuevas.
+    assert not c._puede_pasar_hoy({"tipo": "motor_ruidoso"}, habil=False)
+
+
+def test_en_dia_habil_TODO_puede_pasar():
+    from api.services import av_agent_centinela as c
+    for f in ({"tipo": "tasa_sospechosa"}, {"tipo": "motor_ruidoso"},
+              {"tipo": "motor_caido", "ventana": "rueda"}, {"tipo": "salud"}):
+        assert c._puede_pasar_hoy(f, habil=True)

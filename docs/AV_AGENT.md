@@ -6206,6 +6206,58 @@ redundante (`agente.av_agent_items`): renombrar tablas además de mudarlas
 habría duplicado el riesgo del paso por cero beneficio — se puede hacer más
 adelante, tabla por tabla, si molesta.
 
+### 0.co EL AGENTE CONOCE EL CALENDARIO — el día no hábil invierte el universo (2026-08-22)
+
+> *«Hoy es SÁBADO. El mercado no abre. No puede pasar que un día no hábil se
+> rompa algo, ni que se cuente para los días de si volvió o no algo. El agente
+> tiene que saber que es un día no hábil: hay un universo de cosas que NO
+> pueden pasar — y si pasan, es porque hay algo mal configurado (un motor que
+> quedó prendido, un cron mal puesto).»* — user, mirando AHORA un sábado
+
+Y el diag de ese sábado le dio la razón con números: **7 «volvió» (los
+BOPREALes), 11 «apareció hoy» (patas) y 35 «se arregló»** — todos con sello de
+las 11:14 de un día en que no corrió nada. El mecanismo: el centinela corre
+24/7 y fuera de rueda seguía pasando los detectores de PRECIOS y TASAS sobre
+la **foto vieja del viernes** — cualquier cambio que viera ahí era churn del
+detector, no de la base (la lección de §0.u, que la pantalla ya había
+aprendido y el espejo en items no). Encima `en_rueda()` miraba solo
+`weekday < 5`: un **feriado** entre semana era el mismo churn con disfraz de
+miércoles. Cuatro piezas:
+
+- **`en_rueda()` sabe de feriados**: usa `core/calendario.es_habil` (L-V +
+  feriados AR, el calendario ÚNICO del repo) sobre la fecha en ART, y nace
+  `av_agent.dia_habil()` — la pregunta que define el universo del día.
+- **Los detectores de mercado solo corren con el mercado abierto**:
+  `_observar()` gatea precios+tasas por `en_rueda()`. Al no correr, sus tipos
+  quedan fuera de `evaluados`: no se cierra, no se reabre y no nace nada
+  desde una foto que no puede haber cambiado. SALUD sigue corriendo siempre
+  (un cron puede fallar a las 22 de un domingo).
+- **El detector `actividad` / `actividad_en_no_habil`** — el razonamiento
+  invertido que pidió el user: en día no hábil no se mira si el dato está
+  bien, se mira **que no haya dato nuevo**. Escrituras de hoy en
+  `mercado.market_snapshot` o el heartbeat del motor de órdenes latiendo =
+  hallazgo ALTA («un motor quedó prendido o un cron corre cuando no debe»),
+  en ROTO AHORA. Corre en el DAEMON (el único proceso despierto un sábado);
+  la ley del agente se extendió para eso: «agendado» ahora también es un
+  servicio systemd (`_es_daemon`), y la fila del centinela en CONTROL existe
+  aunque el latido no se pueda leer (antes desaparecía con la base caída).
+  Sus hallazgos se cierran recién el próximo no hábil limpio — que la
+  actividad vuelva a ser legal el lunes no es que se arregló.
+- **El reloj de la prueba corre en días HÁBILES** (`ciclo.dias_de_prueba`):
+  resuelto viernes al mediodía → el lunes al mediodía lleva 1.0, no 3.0. La
+  asimetría es a propósito y es el lado seguro: VOLVER cuenta siempre (lo
+  decide `estado`); solo la ACUMULACIÓN de confianza corre en hábiles.
+  `dias_abierto` sigue en calendario — un problema abierto molesta también
+  el sábado. Bonus del test: el primer borrador asumió que la semana del
+  17/08 sumaba 5 hábiles y el reloj lo corrigió — **San Martín cae ese
+  lunes**; el test quedó como el test del feriado.
+
+Además: `estado()` publica **`habil`** y AHORA muestra el banner del día no
+hábil (sin él, un sábado tranquilo y un lunes roto se dibujan igual); y se
+arregló el **duplicado de ROTO AHORA** (8 filas que eran 4): el mismo problema
+llegaba por la tabla del centinela Y por el espejo en items con claves de
+formato distinto — el dedup va por (sujeto, causa), la identidad real.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

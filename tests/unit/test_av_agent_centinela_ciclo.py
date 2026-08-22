@@ -35,7 +35,7 @@ def test_observar_devuelve_tambien_lo_que_evaluo():
 def test_cada_pasada_declara_sus_TIPOS():
     """Se declara y no se deduce de lo que devolvió: una pasada que no encontró
     nada y una que explotó devuelven lo mismo — nada."""
-    assert set(c._CUBRE) == {"precios", "tasas", "salud"}
+    assert set(c._CUBRE) == {"precios", "tasas", "salud", "actividad"}
     for bloque, tipos in c._CUBRE.items():
         assert tipos, bloque
 
@@ -53,7 +53,7 @@ def test_cada_bloque_marca_lo_suyo_DESPUES_de_correr():
     """`evaluados.update()` va DENTRO del `try` y después de la llamada: si
     fuera antes, una excepción dejaría el tipo marcado como evaluado."""
     src = inspect.getsource(c._observar)
-    for bloque in ("precios", "tasas", "salud"):
+    for bloque in ("precios", "tasas", "salud", "actividad"):
         i = src.index(f'_CUBRE["{bloque}"]')
         # entre el update y el `except` de su bloque no puede haber otro `try`
         assert "except Exception" in src[i:i + 300], bloque
@@ -63,6 +63,9 @@ def test_una_pasada_CAIDA_no_marca_su_tipo(monkeypatch):
     """El caso real: si el bloque de tasas explota, `tasa_sospechosa` NO puede
     quedar en `evaluados` — si no, se cierran todos."""
     from api.services import av_agent
+    # El reloj se PINA: el test no puede depender de qué día lo corre CI.
+    monkeypatch.setattr(av_agent, "en_rueda", lambda ahora=None: True)
+    monkeypatch.setattr(av_agent, "dia_habil", lambda ahora=None: True)
     monkeypatch.setattr(av_agent, "relevar_live", lambda: {"hallazgos": []})
     monkeypatch.setattr(av_agent, "detectar_tasas_sospechosas",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
@@ -77,11 +80,55 @@ def test_si_se_cae_TODO_no_se_evalua_nada(monkeypatch):
     """Y con `evaluados` vacío no se cierra una sola fila."""
     from api.services import av_agent
     boom = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # noqa: E731
+    monkeypatch.setattr(av_agent, "en_rueda", lambda ahora=None: True)
+    monkeypatch.setattr(av_agent, "dia_habil", lambda ahora=None: True)
     monkeypatch.setattr(av_agent, "relevar_live", boom)
     monkeypatch.setattr(av_agent, "detectar_tasas_sospechosas", boom)
     monkeypatch.setattr("api.services.salud.evaluar", boom)
     _h, evaluados = c._observar()
     assert evaluados == set()
+
+
+# ── EL CALENDARIO: fuera de rueda, la foto vieja no opina (§0.co) ───────────
+
+def test_FUERA_de_rueda_los_detectores_de_mercado_NO_corren(monkeypatch):
+    """Un sábado el centinela vio «volver» 7 tasas y «aparecer» 11 patas desde
+    una foto del viernes: churn del detector, no de la base. Fuera de rueda los
+    bloques de precios y tasas no corren — y al no correr no cierran, no
+    reabren y no hacen nacer nada."""
+    from api.services import av_agent
+    llamado = {"precios": 0, "tasas": 0}
+    monkeypatch.setattr(av_agent, "en_rueda", lambda ahora=None: False)
+    monkeypatch.setattr(av_agent, "dia_habil", lambda ahora=None: True)
+    monkeypatch.setattr(av_agent, "relevar_live",
+                        lambda: llamado.__setitem__("precios", 1))
+    monkeypatch.setattr(av_agent, "detectar_tasas_sospechosas",
+                        lambda *a, **k: llamado.__setitem__("tasas", 1))
+    monkeypatch.setattr(av_agent, "detectar_salud", lambda *a: [])
+    monkeypatch.setattr("api.services.salud.evaluar", lambda: [])
+    _h, evaluados = c._observar()
+    assert llamado == {"precios": 0, "tasas": 0}
+    assert "sin_precio" not in evaluados and "tasa_sospechosa" not in evaluados
+    assert "salud" in evaluados, "SALUD sí corre siempre"
+
+
+def test_en_dia_NO_habil_corre_la_pasada_de_actividad(monkeypatch):
+    """El razonamiento invertido: en no hábil no se mira si el dato está bien —
+    se mira que no haya dato nuevo."""
+    from api.services import av_agent
+    monkeypatch.setattr(av_agent, "en_rueda", lambda ahora=None: False)
+    monkeypatch.setattr(av_agent, "dia_habil", lambda ahora=None: False)
+    monkeypatch.setattr(av_agent, "detectar_actividad_no_habil",
+                        lambda ahora=None: [{"tipo": "actividad",
+                                             "ticker": "market_snapshot",
+                                             "regla": "actividad_en_no_habil",
+                                             "severidad": "alta",
+                                             "motivo": "x"}])
+    monkeypatch.setattr(av_agent, "detectar_salud", lambda *a: [])
+    monkeypatch.setattr("api.services.salud.evaluar", lambda: [])
+    h, evaluados = c._observar()
+    assert any(x["tipo"] == "actividad" for x in h)
+    assert "actividad" in evaluados
 
 
 # ── el auto-resuelto usa esa declaración, no «si trajo algo» ────────────────

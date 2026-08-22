@@ -206,33 +206,46 @@ def vista() -> dict:
         logger.warning("agenda: sin catálogo de jobs (%s)", e)
 
     # EL DAEMON, aparte: no está en el crontab y es el que más corre.
+    #
+    # ⚠️ **La fila existe AUNQUE el latido no se pueda leer** (2026-08-22). Con
+    # el `try` alrededor de todo, una base caída hacía DESAPARECER la fila del
+    # centinela — y con ella sus piezas, incluida `actividad`, que no corre en
+    # ningún cron: la pantalla decía que el agente hace 30 cosas cuando hace
+    # 31, sin fallar. La fila se arma SIEMPRE; lo que se degrada es el estado
+    # («sin datos», `atrasado=None` — no pude juzgar ≠ está bien).
+    fila_daemon = {
+        "job": _DAEMON, "cada": "", "ultima": None, "estado": None,
+        "resumen": "sin datos del latido", "hace_s": None, "atrasado": None,
+        # ⚠️ **LO QUE MIRA EL DAEMON SALE DE `_CUBRE`, NO DEL CRON.**
+        # Acá decía `piezas_por_job["jobs.av_agent_live"]`, que es el
+        # cron de rueda — otra cosa. Le colgaba 8 piezas que el daemon
+        # no corre y le faltaban las 2 que sí (`tasa_sospechosa` y
+        # `salud`, que corren de noche en otro job). `_CUBRE` es la
+        # lista que el propio `_observar()` usa para decidir qué
+        # cerrar, así que no puede quedar vieja sin romper otra cosa
+        # antes — que es la única clase de lista que se puede leer.
+        "piezas": sorted(_del_daemon(piezas_por_job),
+                         key=lambda p: p["nombre"]),
+        "encontrados": abiertos.get("live", 0),
+    }
     try:
         from api.services.av_agent_centinela import estado as cent_estado
         c = cent_estado(limite=1)
         lat = c.get("latido") or {}
         if lat:
-            filas.insert(0, {
-                "job": _DAEMON,
+            fila_daemon.update({
                 "cada": f"cada {lat.get('cadencia_s')}s",
-                "ultima": lat.get("at"), "estado": "ok" if c.get("vivo") else "error",
+                "ultima": lat.get("at"),
+                "estado": "ok" if c.get("vivo") else "error",
                 "resumen": (f"ciclo {lat.get('ciclo')}"
-                            + (" · en rueda" if lat.get("en_rueda") else " · fuera de rueda")),
+                            + (" · en rueda" if lat.get("en_rueda")
+                               else " · fuera de rueda")),
                 "hace_s": lat.get("hace_s"),
                 "atrasado": not c.get("vivo"),
-                # ⚠️ **LO QUE MIRA EL DAEMON SALE DE `_CUBRE`, NO DEL CRON.**
-                # Acá decía `piezas_por_job["jobs.av_agent_live"]`, que es el
-                # cron de rueda — otra cosa. Le colgaba 8 piezas que el daemon
-                # no corre y le faltaban las 2 que sí (`tasa_sospechosa` y
-                # `salud`, que corren de noche en otro job). `_CUBRE` es la
-                # lista que el propio `_observar()` usa para decidir qué
-                # cerrar, así que no puede quedar vieja sin romper otra cosa
-                # antes — que es la única clase de lista que se puede leer.
-                "piezas": sorted(_del_daemon(piezas_por_job),
-                                 key=lambda p: p["nombre"]),
-                "encontrados": abiertos.get("live", 0),
             })
     except Exception as e:
         logger.warning("agenda: sin latido (%s)", e)
+    filas.insert(0, fila_daemon)
 
     # ⚠️ **ÚNICAS, no la suma de las filas.** Un detector puede correr en dos
     # lados de verdad (el centinela mira `sin_precio` en rueda y el cron lo

@@ -1565,6 +1565,11 @@ def test_la_ACCION_se_mapea_por_TIPO_y_no_por_REGLA():
                     # archivo, así que un cron nuevo puede no correr NUNCA sin
                     # que falle nada — REGLA #9(B), dos copias sin árbitro.
                     "cron_desalineado",
+                    # `actividad` (2026-08-22, §0.co): en día NO hábil la
+                    # actividad de mercado ES el hallazgo — un motor que quedó
+                    # prendido o un cron que corre cuando no debe. Lo emite
+                    # `detectar_actividad_no_habil`.
+                    "actividad",
                     "permiso_flojo", "dato_partido"}
     assert set(av_agent.ACCION_POR_TIPO) <= tipos_reales, (
         "una clave del mapa no es un TIPO que algún detector emita — "

@@ -273,6 +273,12 @@ _QUE_DETECTA: dict[str, tuple[str, str]] = {
         "PATA EQUIVOCADA del que cotiza así de verdad — y para eso busca la pata "
         "en dólares en DOS fuentes: `mercado.especies` y, si ahí no está, el "
         "catálogo de Primary (mirar una sola no alcanza para decir que no existe)"),
+    "actividad": (
+        "Actividad en día no hábil",
+        "sábado, domingo o feriado el mercado no abre y NADA debería escribir "
+        "precios: si `market_snapshot` recibe escrituras o el motor de órdenes "
+        "late, algo quedó prendido o un cron corre cuando no debe — acá el "
+        "hallazgo es la actividad misma, no lo que el dato diga"),
     "cron_desalineado": (
         "Crons del repo que no corren",
         "compara `deploy/crontab.txt` —que TODO el sistema trata como la fuente "
@@ -392,6 +398,9 @@ _DOMINIO_DETECTOR: dict[str, str] = {
     "dato_partido": DATOS,
     "cron_desalineado": SISTEMA,
     "permiso_flojo": SEGURIDAD,
+    # De SISTEMA: lo que canta es un proceso prendido cuando no debe, no un
+    # dato de mercado — aunque la evidencia viva en una tabla de mercado.
+    "actividad": SISTEMA,
 }
 
 # Y de las ACCIONES y los EXPLICADORES, que tienen id propio.
@@ -458,16 +467,42 @@ _DONDE_CORRE: dict[str, str] = {
     "permiso_flojo": "jobs.db_tamano",
     "dato_partido": "jobs.db_tamano",
     "cron_desalineado": "jobs.db_tamano",
+    # El DAEMON (systemd, siempre prendido) — no un cron. Es el único proceso
+    # despierto un sábado, que es justo cuando este detector tiene sentido.
+    "actividad": "jobs.av_agent_centinela",
 }
 
 
 def _cada_cuanto(modulo: str) -> str:
-    """El schedule REAL del crontab. No se escribe a mano a propósito."""
+    """El schedule REAL del crontab. No se escribe a mano a propósito.
+
+    Un módulo que no está en el crontab pero SÍ en un unit de systemd es un
+    DAEMON: corre siempre. Decirlo (en vez de dejar la celda vacía) es la
+    diferencia entre «no sé cuándo corre» y «no para nunca»."""
     try:
         from api.services import jobs_catalogo
-        return " · ".join(jobs_catalogo.schedules_por_modulo().get(modulo) or [])
+        cron = " · ".join(jobs_catalogo.schedules_por_modulo().get(modulo) or [])
+        if cron:
+            return cron
+        if _es_daemon(modulo):
+            return "siempre (daemon systemd)"
+        return ""
     except Exception:
         return ""
+
+
+def _es_daemon(modulo: str) -> bool:
+    """¿Este módulo corre como servicio systemd (siempre prendido)?
+
+    Se lee de `deploy/systemd/*.service` — la fuente real, igual que el
+    crontab: una lista a mano diría «daemon» de algo que ya nadie corre."""
+    import pathlib
+    d = pathlib.Path(__file__).resolve().parents[2] / "deploy" / "systemd"
+    try:
+        return any(f"-m {modulo}" in u.read_text(encoding="utf-8")
+                   for u in d.glob("*.service"))
+    except OSError:
+        return False
 
 
 def _de_detectores() -> list[Skill]:

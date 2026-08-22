@@ -73,6 +73,11 @@ def main() -> None:
              f" · en_rueda={lat.get('en_rueda')}" if lat else " · sin latido"))
     if lat.get("error"):
         print(f"último error del ciclo: {lat['error']}")
+    if est.get("habil") is not None:
+        print("hoy es día " + ("HÁBIL" if est["habil"] else
+              "NO HÁBIL — mercado cerrado: motores apagados a propósito, "
+              "nada de rueda se re-evalúa; solo vale SALUD y el detector "
+              "de actividad indebida"))
 
     hoy = est.get("hoy")
     if not hoy:

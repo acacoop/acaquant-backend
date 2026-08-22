@@ -267,6 +267,8 @@ SIN_PUERTA: dict[str, tuple[str, str]] = {
                       "un gate se cambia en el router, con revisión humana"),
     "dato_partido": (A_PROPOSITO,
                      "pisar una copia borra la prueba de que hubo divergencia"),
+    "actividad": (AFUERA,
+                  "apagar el motor que quedó prendido o corregir su cron"),
 }
 
 
@@ -366,6 +368,11 @@ ACCION_POR_TIPO = {
     # otro lado, o llamándolos. Lo que el agente aporta es ENTERARSE: hasta hoy
     # la única señal era un cartel que solo existe con la pantalla abierta.
     "proveedor_caido": None,
+    # Actividad de mercado en día NO hábil (§0.co): un motor que quedó prendido
+    # o un cron que corre cuando no debe. Se arregla apagando el proceso o
+    # corrigiendo el cron — nunca desde `mercado.curvas`. El agente lo canta
+    # con la hora y el conteo, que es lo que hoy no veía nadie.
+    "actividad": None,
     # Una BUENA noticia. `None` igual: no hay nada que aplicar — el sistema ya
     # se arregló solo. Existe para que la recuperación no sea silencio.
     "recuperado": None,
@@ -483,6 +490,9 @@ PREGUNTA_POR_TIPO: dict[str, str] = {
     "db_cambio": OBSERVACION,      # la tabla pesa lo que pesa
     "recuperado": OBSERVACION,     # algo volvió: no hay nada que acertar
     "respuesta": OBSERVACION,      # el cierre de una acción ya aplicada
+    # Que algo escribió un sábado lo dicen los timestamps: es un hecho, no
+    # una deducción — no hay «¿acertó?» posible.
+    "actividad": OBSERVACION,
     "cron_desalineado": OBSERVACION,  # es un diff entre dos archivos
 }
 
@@ -568,6 +578,9 @@ EN_AHORA_SIEMPRE = (
     "motor_caido",       # el motor no está corriendo → no hay precios
     "motor_ruidoso",     # está corriendo y falla → hay precios, y son dudosos
     "proveedor_caido",   # la fuente de afuera no contesta
+    # En día NO hábil, actividad de mercado = algo quedó prendido o un cron
+    # corre cuando no debe. Es la definición de «roto en este momento».
+    "actividad",
 )
 
 
@@ -655,6 +668,7 @@ DOMINIO_EVAL: dict[str, str] = {
     "permiso_flojo": "sistema",
     "cron_desalineado": "sistema",
     "dato_partido": "sistema",
+    "actividad": "sistema",
 }
 DOMINIOS_EVAL = ("bono", "salud", "sistema")
 
@@ -1336,10 +1350,102 @@ def en_rueda(ahora=None) -> bool:
     centinela signifique algo.** Un precio sin actualizar hace 282 minutos es un
     problema a las 11 de la mañana y es lo normal a las 18 — la primera corrida
     real marcó los 230 bonos del universo justo después del cierre, que es la
-    prueba de que sin esta pregunta el detector no dice nada."""
+    prueba de que sin esta pregunta el detector no dice nada.
+
+    ⚠️ **Feriados incluidos** (2026-08-22). Miraba solo `weekday < 5`, así que
+    un feriado entre semana contaba como rueda: los detectores de mercado
+    corrían sobre una foto vieja y producían churn — el mismo del sábado, con
+    el disfraz de un miércoles. El calendario es UNO (`core/calendario`, L-V +
+    feriados AR) y la fecha se evalúa en ART: la rueda es un hecho argentino.
+    """
     from datetime import UTC, datetime
+
+    from core import calendario
     ahora = ahora or datetime.now(UTC)
-    return ahora.weekday() < 5 and RUEDA_UTC[0] <= ahora.hour < RUEDA_UTC[1]
+    return (calendario.es_habil(ahora.astimezone(AR_TZ).date())
+            and RUEDA_UTC[0] <= ahora.hour < RUEDA_UTC[1])
+
+
+def dia_habil(ahora=None) -> bool:
+    """¿HOY (en ART) es un día hábil de mercado? L-V y no feriado argentino.
+
+    Es la pregunta que define el UNIVERSO del día: en un día no hábil hay
+    cosas que NO PUEDEN pasar (motores escribiendo, precios moviéndose) — y si
+    pasan, el hallazgo es la actividad misma, no lo que el dato diga."""
+    from datetime import UTC, datetime
+
+    from core import calendario
+    ahora = ahora or datetime.now(UTC)
+    return calendario.es_habil(ahora.astimezone(AR_TZ).date())
+
+
+def detectar_actividad_no_habil(ahora=None) -> list[dict]:
+    """**LO QUE NO PUEDE PASAR EN UN DÍA NO HÁBIL** (user, 2026-08-22: *«el
+    agente tiene que saber que es un día no hábil: hay un universo de cosas que
+    no pueden pasar, y si pasan es porque hay algo mal configurado»*).
+
+    Sábado, domingo o feriado: el mercado no abre, los motores están apagados
+    por cron y NADIE debería escribir precios. Acá el razonamiento se invierte
+    — no se mira si el dato está bien, se mira que no haya dato nuevo:
+
+      · `mercado.market_snapshot` con escrituras de HOY  → un motor quedó
+        prendido o un cron corre cuando no debe
+      · `operaciones.motor_heartbeat` latiendo HOY       → el motor de órdenes
+        está corriendo con el mercado cerrado
+
+    En día hábil devuelve `[]` SIN tocar la base: el universo prohibido no
+    existe.
+
+    ⚠️ **Si la base no contesta, LEVANTA** — igual que las otras pasadas del
+    centinela. Tragarse el error acá devolvería `[]`, la pasada quedaría como
+    «evaluada» y cerraría hallazgos que nadie volvió a mirar: la mentira
+    optimista de siempre (§0.be). El `try` vive en el centinela, que es quien
+    decide que una pasada caída no marca su tipo.
+    """
+    from datetime import UTC, datetime
+    from datetime import time as dtime
+
+    from core.postgres import get_pool
+    ahora = ahora or datetime.now(UTC)
+    if dia_habil(ahora):
+        return []
+    hoy_art = ahora.astimezone(AR_TZ).date()
+    desde = datetime.combine(hoy_art, dtime.min, tzinfo=AR_TZ).astimezone(UTC)
+    dia = {5: "sábado", 6: "domingo"}.get(hoy_art.weekday(), "feriado")
+    out: list[dict] = []
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*), max(updated_at) "
+                    "FROM mercado.market_snapshot WHERE updated_at >= %s",
+                    (desde,))
+        n, ultimo = cur.fetchone() or (0, None)
+        if n:
+            out.append({
+                "tipo": "actividad", "ticker": "market_snapshot",
+                "regla": "actividad_en_no_habil", "severidad": "alta",
+                "motivo": (f"hoy es {dia} (no hábil) y "
+                           f"mercado.market_snapshot recibió {n} "
+                           f"escrituras (última "
+                           f"{ultimo.astimezone(AR_TZ).strftime('%H:%M')})"
+                           " — un motor quedó prendido o un cron corre "
+                           "cuando no debe"),
+                "evidencia": {"escrituras_hoy": n,
+                              "ultima": ultimo.isoformat() if ultimo else None,
+                              "dia": dia},
+            })
+        cur.execute("SELECT updated_at FROM operaciones.motor_heartbeat "
+                    "WHERE id = 'current'")
+        f = cur.fetchone()
+        if f and f[0] and f[0] >= desde:
+            out.append({
+                "tipo": "actividad", "ticker": "motor_ordenes",
+                "regla": "actividad_en_no_habil", "severidad": "alta",
+                "motivo": (f"hoy es {dia} (no hábil) y el heartbeat del "
+                           "motor de órdenes late "
+                           f"({f[0].astimezone(AR_TZ).strftime('%H:%M')})"
+                           " — está corriendo con el mercado cerrado"),
+                "evidencia": {"latido": f[0].isoformat(), "dia": dia},
+            })
+    return out
 
 
 def detectar_sin_precio(bonos: list[dict], snap: dict[str, dict],

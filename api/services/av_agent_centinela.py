@@ -86,6 +86,10 @@ _CUBRE = {
     "precios": ("sin_precio", "precio_moneda", "recuperado"),
     "tasas": ("tasa_sospechosa",),
     "salud": ("salud",),
+    # Solo se evalúa los días NO hábiles (es cuando el universo prohibido
+    # existe): sus hallazgos se cierran recién el próximo día no hábil limpio,
+    # no el lunes — que la actividad vuelva a ser legal no es que se arregló.
+    "actividad": ("actividad",),
 }
 
 
@@ -110,26 +114,49 @@ def _observar() -> tuple[list[dict], set[str]]:
 
     hallazgos: list[dict] = []
     evaluados: set[str] = set()
-    try:
-        r = av_agent.relevar_live()
-        hallazgos.extend(r.get("hallazgos") or [])
-        evaluados.update(_CUBRE["precios"])
-    except Exception as e:
-        logger.exception("centinela: la pasada de precios falló: %s", e)
 
-    # TASAS sobre el snapshot LIVE. El detector es el mismo que corre de noche
-    # sobre el cierre — reusarlo es lo que garantiza que el centinela y la
-    # relevada nocturna no puedan discrepar sobre qué es una tasa sospechosa.
-    try:
-        from core import curvas_sql, market_snapshot
-        docs = curvas_sql.cargar_todos() or []
-        simbolos = [(d.get("ticker") or "").strip() for d in docs if d.get("ticker")]
-        met = market_snapshot.cols_map(
-            simbolos, ["tea", "paridad", "duration", "last_price"]) or {}
-        hallazgos.extend(av_agent.detectar_tasas_sospechosas(docs, met))
-        evaluados.update(_CUBRE["tasas"])
-    except Exception as e:
-        logger.exception("centinela: la pasada de tasas falló: %s", e)
+    # ⚠️⚠️ **LOS DETECTORES DE MERCADO SOLO CORREN CON EL MERCADO ABIERTO**
+    # (user, 2026-08-22, un sábado con 7 «volvió», 11 «apareció» y 35 «se
+    # arregló»: *«hoy es SÁBADO, el mercado no abre — no puede pasar que un
+    # día no hábil se rompa algo»*). Fuera de rueda el snapshot es una FOTO
+    # VIEJA: cualquier cambio que el detector vea ahí es churn del detector,
+    # no de la base — la misma lección de §0.u, ahora aplicada al espejo en
+    # items. Al no correr, los tipos quedan FUERA de `evaluados`: no se cierra,
+    # no se reabre y no nace nada desde una foto que no puede haber cambiado.
+    # `en_rueda()` además ya sabe de feriados (mismo commit).
+    if av_agent.en_rueda():
+        try:
+            r = av_agent.relevar_live()
+            hallazgos.extend(r.get("hallazgos") or [])
+            evaluados.update(_CUBRE["precios"])
+        except Exception as e:
+            logger.exception("centinela: la pasada de precios falló: %s", e)
+
+        # TASAS sobre el snapshot LIVE. El detector es el mismo que corre de
+        # noche sobre el cierre — reusarlo es lo que garantiza que el centinela
+        # y la relevada nocturna no puedan discrepar sobre qué es una tasa
+        # sospechosa.
+        try:
+            from core import curvas_sql, market_snapshot
+            docs = curvas_sql.cargar_todos() or []
+            simbolos = [(d.get("ticker") or "").strip()
+                        for d in docs if d.get("ticker")]
+            met = market_snapshot.cols_map(
+                simbolos, ["tea", "paridad", "duration", "last_price"]) or {}
+            hallazgos.extend(av_agent.detectar_tasas_sospechosas(docs, met))
+            evaluados.update(_CUBRE["tasas"])
+        except Exception as e:
+            logger.exception("centinela: la pasada de tasas falló: %s", e)
+
+    # En día NO hábil el razonamiento se INVIERTE: no se mira si el dato está
+    # bien — se mira que no haya dato nuevo. Motores escribiendo un sábado =
+    # algo quedó prendido o un cron corre cuando no debe (§0.co).
+    if not av_agent.dia_habil():
+        try:
+            hallazgos.extend(av_agent.detectar_actividad_no_habil())
+            evaluados.update(_CUBRE["actividad"])
+        except Exception as e:
+            logger.exception("centinela: la pasada de actividad falló: %s", e)
 
     try:
         from api.services import salud
@@ -351,8 +378,18 @@ def estado(limite: int = 200) -> dict:
         return {**fuera, "error": str(e)}
 
     # A la MISMA forma que el resto: la pantalla dibuja una fila, no dos.
+    #
+    # ⚠️ **SIN DUPLICAR EL MISMO PROBLEMA** (2026-08-22): el error de un motor
+    # puede estar en LAS DOS tablas (el daemon lo vio vía salud y el cron lo
+    # escribió como item) con claves de formato distinto — así «ROTO AHORA»
+    # mostró 8 filas que eran 4, cada una dos veces. La identidad del problema
+    # es (sujeto, causa), no la clave de cada tabla: si ya está, no se anexa.
+    ya = {((f.get("sujeto") or "").strip().lower(),
+           (f.get("regla") or "").strip().lower()) for f in abiertos}
     for (clave, tipo, suj, regla, sev, titulo, veces, ab, ult, vis,
          datos) in rotos_items:
+        if ((suj or "").strip().lower(), (regla or "").strip().lower()) in ya:
+            continue
         d = datos or {}
         abiertos.append({
             "id": None, "clave": clave, "tipo": tipo, "sujeto": suj,
@@ -432,6 +469,12 @@ def estado(limite: int = 200) -> dict:
                   "muere_en_s": max(0, int(cadencia * CICLOS_PERDIDOS - edad))}
 
     return {"ok": True, "vivo": vivo, "latido": latido,
+            # ¿HOY es día hábil? Define el UNIVERSO del día: en no hábil los
+            # motores están apagados a propósito, nada de rueda se re-evalúa,
+            # y lo único que NO puede pasar es actividad de mercado. La
+            # pantalla lo dice con esto — sin el dato, un sábado tranquilo y
+            # un lunes roto se dibujan igual.
+            "habil": av_agent.dia_habil(),
             "abiertos": abiertos, "resueltos": resueltos,
             "sin_ver": sum(1 for f in abiertos if not f["visto_at"]),
             # ── LO DE HOY, SEPARADO DEL ARRASTRE (§0.bo) ────────────────────

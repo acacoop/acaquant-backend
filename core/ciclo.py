@@ -291,10 +291,14 @@ class Item:
     datos: dict = field(default_factory=dict)   # lo específico del tipo
 
     def dias_abierto(self, ahora=None) -> float:
+        # CALENDARIO a propósito: un problema abierto molesta también el
+        # sábado — «lleva 11 días roto» incluye el finde porque estuvo roto
+        # el finde.
         return _dias(self.abierto_at, ahora)
 
     def dias_resuelto(self, ahora=None) -> float:
-        return _dias(self.resuelto_at, ahora)
+        # HÁBILES a propósito: el finde no PRUEBA nada (ver `dias_de_prueba`).
+        return dias_de_prueba(self.resuelto_at, ahora)
 
     @property
     def confianza_del_arreglo(self) -> float:
@@ -315,6 +319,54 @@ def _dias(desde, ahora=None) -> float:
         if d.tzinfo is None:
             d = d.replace(tzinfo=UTC)
         return max(0.0, (ahora - d).total_seconds() / 86400)
+    except Exception:
+        return 0.0
+
+
+def dias_de_prueba(desde, ahora=None) -> float:
+    """**Días HÁBILES transcurridos — el reloj de los hitos.**
+
+    ⚠️ El finde no prueba nada (user, 2026-08-22: *«hoy es SÁBADO, el mercado
+    no abre — no puede contarse para los días de si volvió o no algo»*). Un
+    arreglo resuelto el viernes llegaba al hito 1 el sábado a la tarde, con
+    los motores apagados y los detectores sin correr: dos días de «aguantó»
+    sin una sola oportunidad de fallar. Evidencia que no pudo contradecirse
+    no es evidencia.
+
+    Cuenta la fracción de cada día HÁBIL (L-V sin feriados AR, el calendario
+    único de `core/calendario`) cubierta por [desde, ahora], con los límites
+    del día en hora ARGENTINA — el día de mercado es un hecho argentino.
+    Resuelto viernes al mediodía → el lunes al mediodía lleva 1.0, no 3.0.
+
+    La asimetría es a propósito y es el lado seguro: **VOLVER cuenta siempre**
+    (un problema que reaparece un sábado igual borra la confianza — eso lo
+    decide `estado`, no este reloj); lo único que corre en hábiles es la
+    ACUMULACIÓN de confianza.
+    """
+    from datetime import UTC, datetime, time, timedelta
+    from zoneinfo import ZoneInfo
+
+    from core import calendario
+    if not desde:
+        return 0.0
+    try:
+        tz = ZoneInfo("America/Argentina/Buenos_Aires")
+        ahora = ahora or datetime.now(UTC)
+        d = desde if hasattr(desde, "timestamp") else datetime.fromisoformat(str(desde))
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=UTC)
+        a, b = d.astimezone(tz), ahora.astimezone(tz)
+        if b <= a:
+            return 0.0
+        total, dia = 0.0, a.date()
+        while dia <= b.date():
+            if calendario.es_habil(dia):
+                ini = datetime.combine(dia, time.min, tzinfo=tz)
+                lo, hi = max(a, ini), min(b, ini + timedelta(days=1))
+                if hi > lo:
+                    total += (hi - lo).total_seconds() / 86400
+            dia += timedelta(days=1)
+        return round(total, 4)
     except Exception:
         return 0.0
 

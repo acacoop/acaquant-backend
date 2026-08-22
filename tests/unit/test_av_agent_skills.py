@@ -189,7 +189,11 @@ def test_el_job_de_cada_detector_ESCRIBE_hallazgos():
         f = raiz / (modulo.replace(".", "/") + ".py")
         assert f.exists(), f"{tipo} dice correr en {modulo}, que no existe"
         src = f.read_text(encoding="utf-8")
-        assert ("reemplazar_hallazgos" in src or "av_agent_hallazgos" in src), (
+        # El daemon del centinela persiste por su SERVICE (tabla propia +
+        # espejo en `av_agent_items`), no por la foto de hallazgos: su rastro
+        # en el módulo es el import del service que escribe.
+        assert ("reemplazar_hallazgos" in src or "av_agent_hallazgos" in src
+                or "av_agent_centinela" in src), (
             f"{modulo} no escribe hallazgos: {tipo} no llegaría a ENCONTRÓ")
 
 
@@ -199,7 +203,10 @@ def test_el_job_de_cada_detector_ESTA_EN_EL_CRONTAB():
     from api.services import jobs_catalogo
     agendados = jobs_catalogo.schedules_por_modulo()
     for tipo, modulo in sk._DONDE_CORRE.items():
-        assert agendados.get(modulo), f"{tipo} corre en {modulo}, que no está agendado"
+        # «Agendado» también es un DAEMON de systemd (siempre prendido): el
+        # centinela no está en el crontab porque no para nunca.
+        assert agendados.get(modulo) or sk._es_daemon(modulo), (
+            f"{tipo} corre en {modulo}, que no está agendado ni es un daemon")
 
 
 def test_el_horario_NO_esta_escrito_a_mano():

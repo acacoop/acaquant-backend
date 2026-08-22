@@ -5433,6 +5433,100 @@ Se **deriva del registro real** (`ACCIONES` + `POR_CONTROL`), no de una lista a
 mano: el día que alguien escriba la acción de `sin_ejes`, esos 9 se mueven de
 pila solos.
 
+#### Y la otra mitad: `Accion` NO era el único mecanismo de lote
+
+Al separar las pilas quedó que **53 hallazgos eran «uno por uno»**. Falso, y por
+poco se manda ese mapa: el modo `arreglo` tiene **su propio par simular/aplicar**
+(`av_agent_alta.simular_arreglo` / `aplicar_arreglo`) —lo que aprieta el botón de
+la pantalla— y encadenarlo en lote es perfectamente legítimo. `agente_aplicar`
+solo conocía `ACCIONES` y por eso no los veía.
+
+Lo que hace que el lote sea SEGURO ya estaba escrito: **`aplicar_arreglo` vuelve
+a simular adentro** y se niega si `puede_aplicar` es falso, con la guarda en un
+solo lado. El script no re-decide nada — un gate propio acá sería el cuarto
+criterio contradiciéndose con los otros tres.
+
+Es la única puerta que **PISA un dato existente** y toca ejes y moneda (errarle a
+`moneda_eje` es plata mal contada), así que el dry-run no muestra «se puede»:
+muestra **de qué a qué** cambia cada eje, y **los trabados se imprimen** — un
+lote que dice «apliqué 4» y calla los otros 41 es el mismo silencio que hizo
+perder tres rondas.
+
+La lista de modos aplicables vive **una sola vez**, en el script que los ejecuta,
+y el censo la importa de ahí. Copiarla habría vuelto a mandar a correr un comando
+que no hace nada.
+
+#### El primer dry-run salió inservible, y las dos fallas eran de PRESENTACIÓN
+
+`--accion arreglo` sobre 42 casos: **4 listos, 38 trabados**. Y no se podía
+decidir nada con esa salida:
+
+  · los 4 aplicables mostraban **`→ —`**. Sus ejes ya estaban bien y lo que el
+    arreglo corrige es **otra cosa** (la escala del cuadro, el CER de emisión),
+    que el dry-run no imprimía. Una fila vacía justo donde SÍ se va a escribir
+    invita a aplicar a ciegas — en la única puerta que pisa datos existentes.
+  · los 38 trabados mostraban el **título** del chequeo: *«BVCVO: La métrica
+    vuelve al rango»*, que **se lee como que pasó**. El título dice qué se
+    EXIGE; el `detalle` dice qué se ENCONTRÓ. Poner el requisito en el lugar del
+    motivo deja al que mira sin nada.
+
+Arreglado: el motivo sale del `detalle`, y los trabados se **agrupan**
+normalizando los números (`TEA 41,2%` y `TEA 38,9%` son la misma traba). Veinte
+bonos esperando lo mismo es UN problema; contados de a uno parecen veinte.
+
+**El dato que importa igual: el pre-flight está haciendo su trabajo.** 38 de 42
+se traban por falta de un insumo real (1816, un precio, un CER), no por un bug.
+`arreglo` no es un botón masivo — es un botón por caso con una cola larga de
+casos que todavía no tienen con qué resolverse.
+
+#### El hallazgo grande: el DETECTOR juzga por DEFECTO y el ARREGLO por SÍNTOMA
+
+Con la salida ya legible, el desglose de los 38 trabados cuenta algo que ninguna
+pantalla decía. El gate del arreglo es, literal:
+
+```python
+OK if (en_rango and estaba_mal) else BLOQUEA
+```
+
+  · `estaba_mal` → la paridad de HOY estaba fuera de rango;
+  · `en_rango`   → después del arreglo vuelve adentro.
+
+O sea que **el arreglo solo se habilita si el SÍNTOMA es visible en la métrica**.
+Y `moneda_flujo_contradice` fue extendido, a propósito, para cazar **el DEFECTO
+sin el síntoma** — está escrito en su propio comentario: *«30 de 140 bonos tienen
+`moneda_flujo` contradiciendo a sus ejes y solo 8 habían disparado algún
+hallazgo; los otros 22 están igual de mal valuados y no aparecían en ninguna
+pantalla»*.
+
+**Las dos mitades se construyeron con criterios opuestos y no pueden ponerse de
+acuerdo nunca para esta clase.** Medido en el dry-run de los 42:
+
+| traba | n | qué significa |
+|---|---|---|
+| «lo de hoy YA estaba en rango» | 9 | el defecto es real y la métrica no lo puede juzgar |
+| paridad `— → —` (sin valor) | 12 | ni siquiera hay métrica con qué juzgar |
+| 1816 no tiene el bono | 9 | `sin_ejes` **no** se puede resolver desde 1816 |
+| nuestra paridad vs la de 1816 | 3+2 | discrepancia real, hay que mirarla |
+| falta CER de emisión | 2 | insumo que no tenemos |
+| sin precio | 1 | nada con qué cotejar |
+
+Es REGLA #9 en otro nivel: no son dos copias de un dato, son **dos definiciones
+de «está mejor»**. Y el costo es que 21 defectos de integridad reales quedan sin
+puerta, con un botón que los mira y siempre dice que no.
+
+**No se cambió el gate.** Para un defecto de auto-contradicción «mejor» no se
+mide con la paridad, se mide con *«la contradicción desapareció»* — y eso es un
+segundo criterio de aceptación que escribe valuaciones. Es una decisión de
+diseño, no una derivación, y va con el user a la vista.
+
+#### Y una de performance, de yapa
+
+`simular_arreglo` levanta un `MotorCurvas` **por bono**: 42 bonos recargaron
+«Días hábiles» ~60 veces y el CER ~10, tardaron **4,5 minutos** y taparon la
+salida entera con su propio log. El log se calla en el lote (sube el nivel de
+esos loggers, sin tocar el motor: es ruido solo en ESTE contexto). La recarga
+por bono queda anotada como deuda.
+
 #### La regla que queda
 
 **Una lista de trabajo tiene que decir CON QUÉ se hace cada cosa, no solo que se

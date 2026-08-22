@@ -126,6 +126,35 @@ class TestElCensoNoPuedeDecirQueHayBotonSiNoLoHay:
             "tiene que salir del registro real: si mañana alguien escribe la "
             "acción de sin_ejes, esos 9 se mueven de pila solos")
 
+    def test_los_MODOS_aplicables_los_conoce_el_censo_desde_UNA_lista(self):
+        """⚠️ Segunda mitad del mismo bug: `Accion` NO es el único mecanismo de
+        lote. El modo `arreglo` tiene su propio par simular/aplicar y
+        `agente_aplicar` lo corre — así que los 45 hallazgos que el censo mandó
+        a «abrir de a uno en la pantalla» sí se pueden aplicar en lote.
+
+        La lista vive UNA vez, en el script que los ejecuta. Copiarla al censo
+        volvería a mandar al usuario a correr un comando que no hace nada."""
+        import inspect
+
+        from scripts import agente_aplicar, diag_encontro
+        assert "arreglo" in agente_aplicar._MODOS
+        src = inspect.getsource(diag_encontro._accion_registrada)
+        assert "from scripts.agente_aplicar import _MODOS" in src, (
+            "el censo tiene que leer la lista del que ejecuta, no tener la suya")
+
+    def test_el_lote_de_arreglo_no_re_decide_si_puede_aplicar(self):
+        """`aplicar_arreglo` vuelve a simular adentro y se niega solo. Si el
+        script tuviera su propio gate sería el cuarto criterio contradiciéndose
+        con los otros tres — el patrón que costó toda esta sesión."""
+        import inspect
+
+        from scripts import agente_aplicar
+        src = inspect.getsource(agente_aplicar._correr_modo)
+        assert "aplicar_arreglo" in src
+        assert "av_agent_alta.BLOQUEA" in src, (
+            "la constante, no el string: una copia dejaría de encontrar los "
+            "bloqueos sin fallar")
+
     def test_las_dos_pilas_existen_y_no_se_confunden(self):
         import inspect
 
@@ -136,3 +165,45 @@ class TestElCensoNoPuedeDecirQueHayBotonSiNoLoHay:
         assert "TIENE_PUERTA" not in src, (
             "esa pila mezclaba las dos preguntas: «¿hay modo de pantalla?» y "
             "«¿se puede aplicar en lote?»")
+
+
+class TestElDryRunTieneQuePoderDECIDIRSE:
+    """⚠️ El primer dry-run de `--accion arreglo` salió inservible de dos formas
+    a la vez, y las dos eran de presentación:
+
+      · los 4 aplicables mostraban **`→ —`** (sus ejes ya estaban bien; lo que
+        el arreglo corrige es la escala o el CER, que no se mostraban);
+      · los 38 trabados mostraban el **título** del chequeo — «La métrica vuelve
+        al rango»— que se lee como que PASÓ.
+
+    Un dry-run que no deja decidir es peor que no tenerlo: invita a aplicar a
+    ciegas justo en la única puerta que pisa datos existentes."""
+
+    def test_el_motivo_sale_del_detalle_y_no_del_titulo(self):
+        import inspect
+
+        from scripts import agente_aplicar
+        src = inspect.getsource(agente_aplicar._correr_modo)
+        assert "c.get('detalle')" in src or 'c.get("detalle")' in src, (
+            "el título dice qué se EXIGE; el detalle dice qué se ENCONTRÓ")
+
+    def test_los_motivos_se_agrupan_normalizando_los_numeros(self):
+        """20 bonos esperando lo mismo es UN problema; contados de a uno
+        parecen veinte."""
+        from scripts.agente_aplicar import _motivo_corto
+        a = _motivo_corto("TEA 41,2% fuera del rango 3%-15%")
+        b = _motivo_corto("TEA 38,9% fuera del rango 3%-15%")
+        assert a == b, "dos casos de la misma traba tienen que agrupar juntos"
+        assert _motivo_corto("sin precio") != a
+
+    def test_que_cambia_nunca_miente_por_omision(self):
+        """Si el simulador no declara ningún cambio, el dry-run lo dice — no
+        muestra una línea vacía que parece «no pasa nada»."""
+        from scripts.agente_aplicar import _que_cambia
+        assert "NO aplicar" in _que_cambia({})
+        assert "SIN EJES" in _que_cambia(
+            {"ejes_hoy": None, "ejes_propuestos": {"emisor_tipo": "soberano"}})
+        # Ejes iguales no se anuncian como cambio, pero la escala sí.
+        salida = _que_cambia({"ejes_hoy": {"a": 1}, "ejes_propuestos": {"a": 1},
+                              "escala": "pct"})
+        assert "ejes" not in salida and "escala pct" in salida

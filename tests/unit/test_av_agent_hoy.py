@@ -38,16 +38,19 @@ def test_las_tres_novedades_del_dia():
 
 
 def test_lo_que_ARRASTRA_no_entra():
-    """Es la queja entera: algo abierto AYER no es una novedad del día — es
-    trabajo pendiente y vive en ENCONTRÓ, con sus botones.
+    """Es la queja entera: un control abierto AYER no es una novedad del día.
+    Es trabajo pendiente y vive en ENCONTRÓ, con sus botones.
 
-    ⚠️ La primera versión usaba `AHORA − 21 h` (las 21 horas del incidente
-    real) y era flaky por HORA DEL DÍA: entre las 21:00 y las 24:00 ART esas
-    21 horas caen ADENTRO del día de hoy, así que el test fallaba tres horas
-    por día — y CI de las 20:54 ART lo pasaba por seis minutos. Lo que se
-    congela es la intención (abierto ANTES del corte del día → no es novedad),
-    así que el timestamp se arma contra el corte real, no contra el reloj."""
-    viejo = _f(abierto_at=(c._arranco_el_dia() - timedelta(hours=1)).isoformat())
+    ⚠️ **Decía «hace 21 h» y era un test que fallaba según la hora.** El corte
+    es el arranque del día EN ART (`_arranco_el_dia`), así que 21 h atrás cae en
+    el día anterior sólo si son menos de las 21:00 — a las 21:08 del 2026-08-21
+    el caso «viejo» era del MISMO día y el test se cayó. No fallaba por el
+    código: fallaba por el reloj, que es la peor clase de test rojo (aparece
+    sin que nadie haya tocado nada y enseña a ignorarlo).
+
+    Ahora se ancla al MISMO corte que usa la función, un segundo antes: eso es
+    «ayer» a cualquier hora."""
+    viejo = _f(abierto_at=(c._arranco_el_dia() - timedelta(seconds=1)).isoformat())
     r = c._lo_de_hoy([viejo], [])
     assert r["aparecio"] == [] and r["volvio"] == []
     assert r["novedades"] == 0

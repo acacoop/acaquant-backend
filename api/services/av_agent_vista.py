@@ -518,6 +518,49 @@ def _salud_por_id() -> dict[str, dict]:
 
 
 @cached(ttl=45)
+def _controles_en_verde() -> set[str]:
+    """Los controles que HOY no tienen ni un caso activo.
+
+    ⚠️⚠️ **EL COTEJO GENERAL, en vez de un `if` por regla.** Se aplicaron los 6
+    `pata_equivocada`, el control `patas_equivocadas` quedó en **0** y ENCONTRÓ
+    siguió mostrando 17. Es la tercera vez en la sesión con la misma forma
+    —control verde, hallazgo vivo— y hasta ahora se venía tapando de a una
+    regla por vez (`sin_espejo_en_assets`), que es cómo se llega a la cuarta.
+
+    La relación regla → control **ya existe** y no hace falta escribirla: cada
+    `Accion` declara `causa` (la regla del hallazgo) y `sobre` (el control que
+    resuelve). Se deriva de ahí, así una acción nueva trae su cotejo puesto.
+
+    ⚠️ **Solo cuenta el control en CERO, a propósito.** Con casos activos se
+    podría intentar matchear sujeto por sujeto, pero las claves no siempre son
+    el mismo string —`assets_ticker_partido` guarda la UNIDAD y el hallazgo
+    habla del TICKER— y un match fallido se leería como «resuelto». Cero activos
+    no tiene esa ambigüedad: si el control no encuentra nada, ninguno de sus
+    hallazgos puede seguir siendo cierto.
+    """
+    try:
+        from api.services.controles_sql import listar_controles
+        data = listar_controles(incluir_resueltos_dias=0)
+    except Exception as e:
+        logger.warning("vista: no pude leer los controles (%s)", e)
+        return set()          # «no pude mirar» nunca es «está resuelto»
+    return {cid for cid, g in (data.get("controles") or {}).items()
+            if not (g.get("activos") or [])}
+
+
+def _control_de_la_regla(regla: str) -> str:
+    """El control que resuelve esa regla, según el registro de acciones."""
+    try:
+        from api.services.av_agent_hacer import ACCIONES
+        for a in ACCIONES.values():
+            if getattr(a, "causa", "") == regla:
+                return getattr(a, "sobre", "") or ""
+    except Exception:         # pragma: no cover - la pantalla no se cae por esto
+        logger.warning("vista: no pude leer el registro de acciones", exc_info=True)
+    return ""
+
+
+@cached(ttl=45)
 def _con_ficha() -> set[str] | None:
     """Los tickers con ficha en `assets`, cacheados para la PANTALLA.
 
@@ -659,6 +702,7 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     # Los tickers que HOY tienen ficha. Sale de `av_agent.tickers_con_ficha`, la
     # MISMA función que usa el detector — no una copia de su query.
     con_ficha = _con_ficha()
+    verdes = _controles_en_verde()
 
     simbolos = av_agent.simbolos_primary()
     # **El «no me interesa» también se evalúa AL LEER.** Es la regla de E2.r: un
@@ -757,6 +801,12 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
 
     def _caduco(h: dict) -> bool:
         if (h.get("ticker") or "").strip().upper() in ignorados:
+            return True
+        # **Su control quedó en cero → el hallazgo ya no puede ser cierto.**
+        # Va PRIMERO y vale para cualquier regla que tenga acción: es el cotejo
+        # que evita seguir tapando esto de a un `if` por vez.
+        ctl = _control_de_la_regla((h.get("regla") or "").strip())
+        if ctl and ctl in verdes:
             return True
         if h["tipo"] == "falta_en_base":
             if h["ticker"] in en_curvas:             # el bono ya está cargado

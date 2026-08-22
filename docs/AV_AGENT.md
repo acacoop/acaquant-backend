@@ -5908,6 +5908,32 @@ Dos cosas que se decidieron NO hacer, con el porqué:
   jamás «actualiza a mano» una copia local con lo que el cliente cree que
   quedó.
 
+#### El corte por tab (mismo día, con OK del user)
+
+Con la capa puesta y la regla de lint vigilando, el archivo de 5.400 líneas
+**se partió** — mecánicamente, sin tocar una letra adentro de ningún
+componente (un script movió cada bloque top-level entero, con sus comentarios,
+y `tsc` dictó los imports):
+
+    av-agent-modal.tsx   690   la cáscara: botón, header, wiring de tabs
+    av-agent/
+      datos.tsx          150   la capa (§ arriba) — el único que toca la red
+      tipos.ts           726   types + labels + helpers puros, el contrato UNA vez
+      piezas.tsx         478   lo compartido entre tabs (Chequeos, PanelHacer,
+                               Marcado — Chequeos lo usan SKILLS y ENCONTRÓ)
+      tab-ahora.tsx      686   lo del día + la interrupción + preguntas y avisos
+      tab-hallazgos.tsx 1933   la cocina (lista, prioridad, seguimiento, masivo)
+      tab-historial.tsx  231 · tab-agenda.tsx 181 · tab-skills.tsx 336 ·
+      tab-control.tsx    156
+
+Qué compra: un cambio en ENCONTRÓ toca SOLO su archivo y no puede romper las
+otras tabs; el que edita lee 300 líneas y no 5.400. Y el riesgo que la otra
+sesión marcó con razón —veinte archivos son veinte lugares donde nace una
+segunda definición— lo neutraliza la capa: una tab partida **no puede**
+fetchear ni derivar por su cuenta, el lint no la deja. Verificado: `tsc`
+limpio, build de Next OK, y el lint quedó con UN solo error — el mismo
+preexistente de antes del corte.
+
 ### 0.f El eval set (2026-08-17)
 
 `mercado.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

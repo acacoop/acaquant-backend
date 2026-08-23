@@ -387,9 +387,13 @@ def _lente_casos(c: dict, det: dict) -> dict | None:
     # nuevo hoy**. Sin decirlo, el agente parecía un cementerio de avisos viejos.
     visto = max((str(a.get("visto") or "") for a in an), default="")
     dv = _dias(visto)
+    # ⚠️ «el control no está corriendo» era FALSO y alarmista (2026-08-23): el
+    # control corre por cron — que la comprobación tenga un día es su cadencia,
+    # no una falla. Se dice la edad y CÓMO refrescar, sin inventar un incidente.
     cab = ("comprobados HOY" if dv == 0 else
-           f"⚠️ la última comprobación fue hace {dv} días — el control no está "
-           f"corriendo" if dv else "sin fecha de comprobación")
+           f"comprobados por última vez hace {dv} día{'s' if dv != 1 else ''} — "
+           f"se re-verifican en la próxima corrida del control o con "
+           f"↻ CHEQUEAR AHORA" if dv else "sin fecha de comprobación")
     return _paso("casos", f"Los {len(an)} casos · {cab}",
                  REVISAR, "\n".join(lineas) + mas,
                  tabla="manager.controles_datos")

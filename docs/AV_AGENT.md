@@ -6663,6 +6663,38 @@ hora, sumando al contador de la tab.
   acumulándose acá. El pasado no se pierde: las escrituras que dispararon
   esos mensajes están en el REGISTRO.
 
+### 0.cy La guarda universal de proponer, y el agente más fresco (2026-08-23)
+
+Del round «el FCI me re-propuso lo que apliqué hace dos horas». Cinco piezas:
+
+**1. NO SE PROPONE LO QUE LA BASE YA TIENE — guarda en el PIPELINE.** El gate
+del FCI proponía EMISOR sin mirar el valor vivo; el user lo había aplicado a
+las 19:06 (verificado ✔, en el libro) y a las 21 se lo ofrecían de nuevo. La
+guarda vive en `hacer.proponer()` y no en cada gate a propósito: toda
+propuesta pasa por `a.verificar(p)` — el MISMO juez que corre después de
+aplicar — y si ya da verde se filtra y se CUENTA (`ya_estaban`). El gate que
+se olvide de chequear ya no puede repetir la oferta.
+
+**2. El gate del FCI respeta QUÉ FALTA.** El control distingue «FCI sin
+ticker» de «FCI sin emisor» y el gate lo ignoraba: le ofrecía EMISOR a un caso
+cuyo problema era el ticker. Ahora solo propone para los casos que piden
+emisor; a los demás no les miente un arreglo.
+
+**3. «El control no está corriendo» era FALSO.** El control corre por cron —
+una comprobación de ayer es su cadencia, no una falla. El texto pasa a decir
+la edad y cómo refrescar (próxima corrida o ↻ CHEQUEAR AHORA).
+
+**4. Los controles corren CADA HORA HÁBIL** (`30 12-21 * * 1-5`, era 1×/día a
+las 16:30). Son queries SQL contra la base propia — baratas. Con esto + el
+recontrol automático post-APLICAR que ya existía (`_recontrolar_despues`) el
+tablero deja de mostrar anomalías de ayer durante toda la jornada. ⚠️ Requiere
+re-instalar el crontab en el Droplet (`crontab deploy/crontab.txt`).
+
+**5. El masivo dedupea por (sujeto, acción).** VSCYO/OLC3O/PECKO/CO3D7 salían
+DOS veces en el informe #18 — dos reglas de detección sobre el mismo bono son
+dos filas de la foto, pero el diagnóstico corre POR BONO: correrlo dos veces
+duplica créditos de 1816 y llena el informe de párrafos idénticos.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

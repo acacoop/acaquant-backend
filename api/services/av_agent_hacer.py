@@ -267,6 +267,14 @@ class AccionFci:
         props = []
         for c in casos:
             unidad = _sujeto(c)
+            # ⚠️ **EL CONTROL YA DICE QUÉ FALTA, y este gate lo ignoraba**
+            # (incidente 2026-08-23): a un caso «FCI sin ticker» le proponía
+            # EMISOR — un campo que esa fila ya tenía cargado. El detalle del
+            # control nombra el campo faltante; este gate solo sabe completar
+            # EMISOR, así que a los casos que no piden emisor no les ofrece
+            # nada (mentirles un arreglo es peor que decir «esto no lo sé»).
+            if "emisor" not in str(c.get("detalle") or "").lower():
+                continue
             cod = _cafci(unidad)
             if not cod:
                 continue
@@ -1287,10 +1295,35 @@ def proponer(accion_id: str, *, casos: list[dict] | None = None,
     except Exception as e:
         logger.warning("av_agent_hacer: %s no pudo proponer: %s", accion_id, e)
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    # ── LA GUARDA UNIVERSAL: NO SE PROPONE LO QUE LA BASE YA TIENE ──────────
+    #
+    # ⚠️⚠️ REGLA #10.4, y nació de un incidente (2026-08-23): el user aplicó
+    # EMISOR=IEB y EMISOR=BALANZ a las 19:06 (verificado ✔, en el libro) y dos
+    # horas después QUÉ PROPONÉS le ofrecía EXACTAMENTE eso otra vez — el gate
+    # del FCI proponía sin mirar el valor VIVO. La guarda va ACÁ y no en cada
+    # gate a propósito: el gate que se olvide de chequear ya no puede repetir
+    # la oferta, porque el único camino a la pantalla pasa por esta función.
+    # `verificar(p)` es el MISMO juez que corre después de aplicar: si ya da
+    # verde, no hay nada que proponer. Best-effort: si verificar explota, la
+    # propuesta pasa — ofrecer de más se ve y se descarta; filtrar de más no.
+    vivas, ya_estaban = [], 0
+    for p in props:
+        try:
+            listo, _detalle = a.verificar(p)
+        except Exception:
+            listo = False
+        if listo:
+            ya_estaban += 1
+            continue
+        vivas.append(p)
+    props = vivas
     n = _guardar(accion_id, props)
     con_ia_n = sum(1 for p in props if p.fuente == "ia")
     return {"ok": True, "accion": accion_id, "propuestas": n,
             "casos": len(casos), "por_regla": n - con_ia_n, "por_ia": con_ia_n,
+            # Lo filtrado SE DICE: «2 ya estaban» explica por qué hay menos
+            # propuestas que casos sin que parezca que la acción falló.
+            "ya_estaban": ya_estaban,
             "pendientes": pendientes(accion_id)}
 
 

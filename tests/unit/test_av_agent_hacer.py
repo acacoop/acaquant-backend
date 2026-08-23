@@ -154,8 +154,25 @@ def test_el_fci_se_completa_desde_su_hermano(monkeypatch):
         {"unidad": "[2] CAFCI1781-6040 - Fondo - Clase B", "EMISOR": ""},
     ])
     props = hacer.AccionFci().proponer(
-        _casos("[2] CAFCI1781-6040 - Fondo - Clase B"))
+        [{"item": "[2] CAFCI1781-6040 - Fondo - Clase B",
+          "detalle": "[2] …: FCI sin emisor"}])
     assert [(p.campo, p.propuesto) for p in props] == [("EMISOR", "BAVSA")]
+
+
+def test_a_un_caso_SIN_TICKER_no_le_ofrece_emisor(monkeypatch):
+    """El incidente 2026-08-23: el control cantaba «FCI sin ticker» y el gate
+    ofrecía EMISOR — un campo que esa fila YA tenía cargado (el user lo había
+    aplicado dos horas antes, con el libro como testigo). Este gate solo sabe
+    completar emisores: al caso que no pide emisor no le ofrece nada — mentir
+    un arreglo es peor que decir «esto no lo sé hacer»."""
+    monkeypatch.setattr("api.services.assets_sql.assets_rows", lambda f: [
+        {"unidad": "[1] CAFCI1781-6039 - Fondo - Clase A", "EMISOR": "BAVSA"},
+        {"unidad": "[2] CAFCI1781-6040 - Fondo - Clase B", "EMISOR": ""},
+    ])
+    props = hacer.AccionFci().proponer(
+        [{"item": "[2] CAFCI1781-6040 - Fondo - Clase B",
+          "detalle": "[2] …: FCI sin ticker"}])
+    assert props == []
 
 
 def test_si_los_hermanos_no_coinciden_no_se_propone(monkeypatch):
@@ -436,7 +453,10 @@ def test_ningun_mock_de_assets_rows_usa_claves_en_minuscula():
     import re
 
     tests = pathlib.Path(__file__).parent
-    reales = {"unidad", "vigencia_motivo", "actualizado_por", "actualizado_at"}
+    # `item`/`detalle` son claves del CASO del control (no de la proyección
+    # de assets_rows) y van en minúscula a propósito.
+    reales = {"unidad", "vigencia_motivo", "actualizado_por",
+              "actualizado_at", "item", "detalle"}
     malos: list[str] = []
     for f in tests.glob("test_*.py"):
         txt = f.read_text(encoding="utf-8")

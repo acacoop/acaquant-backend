@@ -6,12 +6,16 @@
 # Esto previene el incidente de CPU del 2026-06-03 (jobs colgados/duplicados).
 # El redirect al log lo hace run_job.sh → el comando interno NO lleva >> log 2>&1.
 
-# ─── Auto-control de CALIDAD DE DATOS (media rueda, L-V)
+# ─── Auto-control de CALIDAD DE DATOS (cada hora hábil, L-V — §0.cy)
 # Controles de CONTENIDO: bonos fuera de forwards, RF sin tasa, assets sin
 # cartera, comitentes sin nivel_1, contrapartes sin alta (conciliador Aunesa).
 # Diffea contra manager.controles_datos → marca SOLO lo nuevo/resuelto (detalle
 # en Manager → controles). Con ANTHROPIC_API_KEY agrega lectura ejecutiva AI.
-30 16 * * 1-5 /root/TradingAV/deploy/run_job.sh controles_datos 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.controles_datos'
+# ⚠️ Era 1×/día (16:30) y el agente mostraba anomalías «de ayer» toda la
+# jornada (user 2026-08-23: «necesito ver todo actualizado — el agente tiene
+# que rechequear solo»). Son queries SQL baratas contra la base propia: correr
+# cada hora de 12 a 21 UTC (9-18 ART) las mantiene frescas sin costo real.
+30 12-21 * * 1-5 /root/TradingAV/deploy/run_job.sh controles_datos 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.controles_datos'
 
 # ─── Retención de tablas de log/auditoría (03:20 UTC = 00:20 ART, todos los días)
 # Postgres no tiene TTL nativo: `sql/schema.sql` prometía retención (job_runs 60d,

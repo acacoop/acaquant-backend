@@ -416,6 +416,21 @@ def arrancar(casos: list[dict], *, por: str = "", filtro: dict | None = None,
         casos = vivos
     except Exception as e:
         logger.warning("av_agent_masivo: no pude filtrar atendidos (%s)", e)
+    # ⚠️ **UN BONO, UN DIAGNÓSTICO** (informe #18, 2026-08-23): VSCYO, OLC3O,
+    # PECKO y CO3D7 salían DOS veces cada uno — dos reglas de detección sobre
+    # el mismo papel son dos filas de la foto, pero el diagnóstico corre POR
+    # BONO (las mismas ocho lentes, la misma llamada a 1816): correrlo dos
+    # veces duplica créditos y llena el informe con párrafos idénticos. Se
+    # dedupea por (sujeto, acción) quedándose el primero.
+    vistos_dedup: set[tuple[str, str]] = set()
+    unicos = []
+    for c in casos:
+        k = (str(c.get("ticker") or ""), str(c.get("accion") or ""))
+        if k in vistos_dedup:
+            continue
+        vistos_dedup.add(k)
+        unicos.append(c)
+    casos = unicos
     if not casos:
         return {"ok": False,
                 "error": ("no hay casos para diagnosticar"

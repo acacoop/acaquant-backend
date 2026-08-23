@@ -39,11 +39,21 @@ class TestCapa:
 
 
 class TestDesenlace:
-    def test_la_traba_es_la_PRIMERA_que_no_pasa(self):
+    def test_un_BLOQUEA_le_gana_a_cualquier_ambar_anterior(self):
+        """El caso VSCYO (2026-08-23): la primera que no pasaba era un ámbar (el
+        SÍNTOMA, que la propuesta ya explica) y doce renglones abajo había un
+        ✘ probado — el encabezado destacaba el ámbar y decía «Nada probado
+        mal» sobre una cadena con un rojo. Lo PROBADO mal gana; el orden de la
+        cadena decide solo entre pares del mismo peso."""
         pasos = [_paso("a", "A", OK, ""), _paso("b", "B", REVISAR, ""),
                  _paso("c", "C", BLOQUEA, "")]
         d = _desenlace(pasos)
-        assert d["traba"] == "b", "la primera en el orden de la cadena, no la peor"
+        assert d["traba"] == "c" and d["clase"] == "roto"
+
+    def test_entre_pares_del_mismo_peso_gana_la_primera_de_la_cadena(self):
+        pasos = [_paso("a", "A", OK, ""), _paso("b", "B", REVISAR, ""),
+                 _paso("c", "C", REVISAR, "")]
+        assert _desenlace(pasos)["traba"] == "b"
 
     def test_el_contexto_y_las_lecciones_no_traban_nada(self):
         pasos = [_paso("ctx", "C", INFO, ""),

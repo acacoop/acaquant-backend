@@ -733,6 +733,35 @@ def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "", paridad=None,
     # veces —GD46 dio 99,94%— lo que hay no es una alarma difusa, es una
     # DEMOSTRACIÓN de que el cronograma es otro. Escribir eso en el master es
     # meter un bono mal valuado y que nadie lo note: la TEA sale plausible.
+    #
+    # ⚠️ **PERO: con la duration CLAVADA no puede ser «otro cronograma»** (caso
+    # VSCYO, 2026-08-23: duration 0,00% de diferencia y este paso afirmaba «otro
+    # valor técnico» con la paridad de 1816 en 0,06% y su TEA en 499.839%). La
+    # duration depende SOLO del cronograma y las fechas — si coincide, el
+    # cronograma ES el mismo, y lo que está roto es LA REFERENCIA de 1816 para
+    # este bono (su indicador, o la escala en que lo publica). Lo mismo si su
+    # paridad es directamente inverosímil (fuera del rango sano del sistema):
+    # un juez con un número absurdo no absuelve ni condena — no juzga. En los
+    # dos casos el paso lo DICE y marca `ref_inutil`, y la cadena del arreglo
+    # pasa a juzgar con el JUEZ LOCAL (el mismo de `_arreglo_local`).
+    from api.services.av_agent import PARIDAD_MAX, PARIDAD_MIN
+
+    ref_absurda = not (PARIDAD_MIN <= suya_par <= PARIDAD_MAX)
+    if dur_ok or ref_absurda:
+        p = _paso("cotejo_1816", "El cuadro coincide con el de 1816", NO_SE,
+                  linea + (". **La duration coincide → el cronograma ES el "
+                           "mismo** — y entonces la paridad/TEA que publica "
+                           "1816 para este bono no está en una escala "
+                           "comparable o su indicador vino roto."
+                           if dur_ok else
+                           f". **La paridad de 1816 ({suya_par:.2f}%) es "
+                           "inverosímil** — fuera de cualquier rango sano.")
+                  + " Su referencia NO sirve de juez acá: no absuelve ni "
+                    "condena. El veredicto pasa al juez local (rango de "
+                    "paridad).",
+                  tabla="1816 /indicadores")
+        p["ref_inutil"] = True
+        return p
     return _paso("cotejo_1816", "El cuadro coincide con el de 1816", BLOQUEA,
                  linea + ". **Se contradicen** → otro valor técnico, o sea otro "
                          "cronograma. Aplicar así escribe un bono con una TEA "
@@ -1268,7 +1297,14 @@ def _desenlace(chequeos: list[dict]) -> dict:
     # ⚠️ El orden es el de la cadena, no una prioridad: «la primera que no pasó»
     # solo significa algo si se respeta la secuencia en la que se corrieron.
     fallan = [c for c in pruebas if c["estado"] != OK]
-    traba = fallan[0] if fallan else None
+    # ⚠️ **Un ✘ PROBADO le gana a cualquier ámbar anterior** (caso VSCYO,
+    # 2026-08-23): la primera que no pasaba era la lente de moneda (ámbar — el
+    # SÍNTOMA, que la propuesta ya explica) y doce renglones abajo había un
+    # BLOQUEA de verdad. El encabezado destacaba la moneda y decía «Nada
+    # probado mal» sobre una cadena con un rojo — la pantalla contradiciéndose.
+    # El orden de la cadena decide solo entre pares del MISMO peso.
+    bloqueadas = [c for c in fallan if c["estado"] == BLOQUEA]
+    traba = (bloqueadas or fallan)[0] if fallan else None
     # ⚠️ `nada_que_hacer` se busca en TODAS las capas, no solo en `prueba`
     # (§0.cv): la conclusión de las ocho lentes («causa: sano») viaja en capa
     # `veredicto`, y mirarla solo entre las pruebas era por qué GD46 decía
@@ -1296,6 +1332,20 @@ def _desenlace(chequeos: list[dict]) -> dict:
                 "que_hacer": "Eso es el problema. Hasta que se resuelva no se "
                              "puede escribir nada."}
     if traba["estado"] == NO_SE:
+        # ⚠️ Si el cotejo no se pudo hacer PORQUE la referencia de 1816 vino
+        # rota, «reintentá» es un mal consejo (no va a cambiar) — y si el JUEZ
+        # LOCAL ya pasó, el arreglo está verificado por otra vía y el
+        # encabezado tiene que decir eso, no un «no se sabe» genérico.
+        if traba.get("ref_inutil") and any(
+                c.get("clave") == "juez_local" and c["estado"] == OK
+                for c in pruebas):
+            return {"clase": "mirar", "traba": "juez_local",
+                    "titulo": "La referencia de 1816 no sirve para este bono — "
+                              "juzgó el JUEZ LOCAL y el arreglo se sostiene",
+                    "que_hacer": "El indicador de 1816 para este bono viene roto "
+                                 "(reintentar no lo cambia). El juez local probó "
+                                 "que la métrica vuelve al rango: se puede "
+                                 "aplicar a mano; automático no."}
         return {"clase": "no_se", "traba": traba["clave"],
                 "titulo": f"No se pudo verificar: {traba['titulo']}",
                 "que_hacer": "**No quiere decir que esté bien**: quiere decir que "
@@ -3150,7 +3200,7 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
     escala_mal = bool(residual) and not (_RESIDUAL_MIN <= residual <= _RESIDUAL_MAX)
 
     ps.append(_paso("escala_local", "La escala del cuadro que YA está cargado",
-                    REVISAR if escala_mal else OK,
+                    REVISAR if escala_mal else (INFO if not residual else OK),
                     (f"Σ de las amortizaciones futuras = **{residual:,.2f}** en "
                      f"{n_fut} cupón/es. Un cuadro sano ronda **100** (el bono "
                      f"cotiza por 100 de VN), así que este está **{residual / 100:,.0f}× "
@@ -3161,6 +3211,15 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                      f"{n_fut} cupón/es, muy por debajo de 100: el cuadro está en "
                      "una escala más chica que el precio."
                      if escala_mal else
+                     # ⚠️ Σ = 0 NO es «base 100» (caso VSCYO): el campo que lee
+                     # esta rama está VACÍO — o el cuadro vive en el campo de la
+                     # otra rama, o ya amortizó todo. Quién de los dos lo dice
+                     # la lente «El valor técnico»; desde acá no se puede juzgar.
+                     f"Σ de las amortizaciones futuras = **0** en {n_fut} "
+                     "cupón/es: el campo que lee esta rama está **vacío** — la "
+                     "escala no se puede juzgar desde acá; la lente «El valor "
+                     "técnico» dice dónde quedó cargado el cuadro."
+                     if not residual else
                      f"Σ de las amortizaciones futuras = **{residual:,.2f}** en "
                      f"{n_fut} cupón/es → está en base 100, como corresponde."),
                     tabla="mercado.curvas (el cuadro guardado, sin consultar a 1816)"))
@@ -3387,7 +3446,13 @@ def _arreglo_local(*, doc: dict, tk: str, simbolo: str, rama: str, dx: dict,
                     f"{_pct_o(px_local, dec=4)}"
                     + (f" ({px_fuente})" if px_fuente else " — sin precio"),
                     tabla="mercado.curvas + mercado.market_snapshot"))
-    ps.extend(_diagnostico_local(doc, rama, hoy_est))
+    # Mismo criterio que en `_chequeos_arreglo`: en un ARREGLO las lentes son
+    # contexto (el porqué), no pruebas — la prueba acá es «la métrica vuelve».
+    diag = _diagnostico_local(doc, rama, hoy_est)
+    for p in diag:
+        if p.get("capa", PRUEBA) == PRUEBA:
+            p["capa"] = CONTEXTO
+    ps.extend(diag)
 
     campos = " · ".join(f"`{k}` = {v}" for k, v in dx["parche"].items())
     ps.append(_paso("escritura", "Qué se va a PISAR", INFO,
@@ -3634,7 +3699,17 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
     # contradicciones solo (ver `av_agent_memoria.contradicciones`).
     est_lentes = {**antes, "precio": out.get("precio"),
                   "precio_fuente": out.get("precio_fuente")}
-    ps.extend(_diagnostico_local(doc, rama, est_lentes))
+    # ⚠️ En la cadena del ARREGLO las lentes son el PORQUÉ de la propuesta, no
+    # pruebas del arreglo: un síntoma en ámbar acá es lo ESPERADO (por eso hay
+    # propuesta) y contarlo como prueba hacía que el encabezado destacara la
+    # lente de moneda como «LA TRABA» con el cotejo en rojo doce renglones más
+    # abajo (caso VSCYO). Van como contexto — visibles, plegadas —; las PRUEBAS
+    # del arreglo son el cuadro, el precio, los cotejos y el juez.
+    diag = _diagnostico_local(doc, rama, est_lentes)
+    for p in diag:
+        if p.get("capa", PRUEBA) == PRUEBA:
+            p["capa"] = CONTEXTO
+    ps.extend(diag)
 
     if out.get("compuesto"):
         campos_p = " · ".join(f"`{k}` = {v}"
@@ -3704,6 +3779,36 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
         "La PROPUESTA coincide con 1816"
     ps.append(cot_prop)
 
+    # ── EL JUEZ LOCAL, cuando la referencia de 1816 no sirve (caso VSCYO,
+    # 2026-08-23). Sin esto, un bono cuya referencia 1816 viene rota quedaba
+    # BLOQUEADO para siempre — la ley del user: nada puede quedar sin salida.
+    # Es EL MISMO juez de `_arreglo_local` (paridad afuera del rango → con la
+    # propuesta vuelve adentro): igual de duro, cero créditos, y no depende de
+    # que el indicador de ellos esté sano.
+    if cot_prop.get("ref_inutil"):
+        from api.services.av_agent import PARIDAD_MAX, PARIDAD_MIN
+        par_antes, par_desp = antes.get("paridad"), out.get("paridad")
+        en_rango = (isinstance(par_desp, int | float)
+                    and PARIDAD_MIN <= float(par_desp) <= PARIDAD_MAX)
+        estaba_mal = (not isinstance(par_antes, int | float)
+                      or not (PARIDAD_MIN <= float(par_antes) <= PARIDAD_MAX))
+        ps.append(_paso("juez_local", "La métrica vuelve al rango (juez local)",
+                        OK if (en_rango and estaba_mal) else BLOQUEA,
+                        f"paridad **{_pct_o(par_antes)} → {_pct_o(par_desp)}** "
+                        f"(rango sano [{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}]). "
+                        + ("La referencia de 1816 no sirve para este bono, así "
+                           "que juzga el motor propio: hoy la métrica está mal "
+                           "(o no existe) y con la propuesta vuelve al rango — "
+                           "el arreglo se sostiene."
+                           if en_rango and estaba_mal else
+                           "**Lo de hoy YA estaba en rango**: no hay nada que "
+                           "arreglar y pisarlo sería empeorarlo."
+                           if not estaba_mal else
+                           "**NO vuelve al rango** → el diagnóstico no se "
+                           "sostiene y no se escribe nada."),
+                        tabla="engines/curvas.py (el MISMO motor que valúa en "
+                              "producción)"))
+
     cot_hoy = _cotejo_de(antes.get("tea"), antes.get("paridad"),
                          antes.get("duration"), ref, out.get("precio"), cota)
     ya_estaba_bien = cot_hoy["estado"] == OK
@@ -3718,13 +3823,23 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
     # estados y no dos — coincide / no coincide / no se pudo saber — y el tercero
     # tiene que frenar, porque sin cotejo no se pisa nada.
     no_se_pudo = cot_hoy["estado"] == NO_SE
+    # ⚠️ **Decir POR QUÉ no se pudo, no asumir que fue la red** (caso VSCYO):
+    # este apéndice afirmaba «no se pudo consultar a 1816» cuando 1816 SÍ había
+    # contestado (el cotejo de la propuesta usó su respuesta, dos renglones
+    # arriba) — lo que faltaba era NUESTRA paridad de hoy, que es el síntoma.
+    sin_red = bool(ref.get("error")) or not ref
     ps.append(_paso("cotejo_hoy", "El bono de HOY, contra 1816",
                     NO_SE if no_se_pudo else (BLOQUEA if ya_estaba_bien else OK),
                     cot_hoy["detalle"]
                     + ("  ⚠️ **No se pudo consultar a 1816**, así que de este bono "
                        "no se sabe nada todavía — ni que está mal ni que está "
                        "bien. Reintentá en unos minutos: esto NO dice nada del "
-                       "instrumento." if no_se_pudo else
+                       "instrumento." if no_se_pudo and sin_red else
+                       "  ⚠️ Lo que falta acá es **NUESTRA paridad de HOY**: el "
+                       "motor salió por una puerta de emergencia sin calcularla "
+                       "— que es justamente el síntoma del hallazgo, no un "
+                       "problema de red. Al arreglo lo juzga el cotejo de la "
+                       "PROPUESTA, más arriba." if no_se_pudo else
                        "  ⚠️ **El bono de hoy YA coincide con 1816**: no hay nada "
                        "que arreglar y pisarlo sería empeorarlo. El hallazgo "
                        "quedó viejo o el umbral es angosto para este instrumento "

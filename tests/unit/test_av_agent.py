@@ -2158,9 +2158,13 @@ def test_el_diagnostico_LOCAL_va_PRIMERO_en_la_cadena():
     from api.services import av_agent_alta
 
     ch = inspect.getsource(av_agent_alta._chequeos_arreglo)
-    assert "ps.extend(_diagnostico_local(" in ch
+    assert "_diagnostico_local(doc, rama, est_lentes)" in ch
     assert ch.index("_diagnostico_local(") < ch.index('_paso("cuadro"')
     assert ch.index("_diagnostico_local(") < ch.index("cot_prop")
+    # Y en la cadena del ARREGLO las lentes viajan como CONTEXTO (§0.db): son
+    # el porqué de la propuesta, no pruebas del arreglo — un síntoma en ámbar
+    # acá es lo esperado y no puede ser «LA TRABA» destacada.
+    assert 'p["capa"] = CONTEXTO' in ch
 
 
 # ── `moneda_flujo`: el vocabulario que la migración a ejes dejó atrás ────────

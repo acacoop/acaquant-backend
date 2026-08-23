@@ -6777,6 +6777,49 @@ front agrupa por FIRMA del texto (causa + detalle + trabas) — el diagnóstico
 UNA vez y abajo los casos, cada uno con su botón APLICAR propio; un caso con
 texto propio sigue siendo fila suelta.
 
+### 0.db La pantalla se contradecía sola, y la referencia rota no juzga (2026-08-23)
+
+El user probó VSCYO (sin TEA con precio) recién deployado el compuesto y la
+pantalla lo contradijo **cuatro veces en un solo caso** — *«cada vez más
+confuso… estos casos no van a funcionar jamás»*. Tenía razón en las cuatro, y
+la quinta era la de fondo:
+
+1. **«✘ BLOQUEADO» arriba, «Nada probado mal» abajo.** `_desenlace` elegía
+   como traba *la primera prueba que no pasó en orden de cadena* — un ámbar de
+   la lente de moneda — ignorando el BLOQUEA real doce renglones más abajo.
+   Ahora **lo PROBADO mal gana**: la traba es el primer BLOQUEA si existe; el
+   orden decide solo entre pares del mismo peso.
+2. **«Σ = 0.00 → está en base 100, como corresponde».** Un campo vacío no es
+   una escala sana: el template solo sabía decir «bien» o «fuera de escala».
+   Ahora Σ=0 dice que el campo de esa rama está vacío y apunta a la lente que
+   sabe dónde quedó cargado el cuadro.
+3. **«Se contradicen → otro cronograma» con la duration clavada al 0,00%.**
+   Aritméticamente imposible: la duration depende SOLO del cronograma y las
+   fechas — si coincide, el cronograma ES el mismo y lo roto es **la
+   referencia de 1816** (paridad 0,06%, TEA 499.839%). Regla nueva en
+   `_cotejo_tea`: duration coincidente o paridad de 1816 fuera del rango sano
+   del propio sistema → la referencia **no juzga** (`NO_SE` + `ref_inutil`),
+   nunca condena. Una contradicción con referencia sana sigue bloqueando.
+4. **«No se pudo consultar a 1816» con 1816 contestando dos renglones
+   arriba.** El NO_SE del cotejo de HOY venía de que falta NUESTRA paridad
+   (el motor salió por la puerta de emergencia — el síntoma), no de la red.
+   El apéndice ahora distingue los dos casos.
+
+**Y la de fondo — el JUEZ LOCAL toma la posta.** El cotejo con 1816 era el
+único juez del arreglo: referencia rota = bloqueado para siempre, contra la
+ley «nada sin salida». Con `ref_inutil`, la cadena suma el paso **juez local**
+— el MISMO de `_arreglo_local`: la métrica estaba fuera del rango (o no
+existía) y con la propuesta vuelve adentro. Igual de duro, cero créditos, no
+depende del indicador de ellos. Si pasa, `puede_aplicar` (a mano; automático
+no — hay un NO_SE en la cadena) y el desenlace lo DICE («juzgó el JUEZ LOCAL
+y el arreglo se sostiene») en vez del «reintentá» que no iba a cambiar nada.
+
+**Y menos pasos a la vista**: en la cadena del ARREGLO las 8 lentes son el
+PORQUÉ de la propuesta, no pruebas del arreglo — un síntoma en ámbar ahí es lo
+esperado (por eso hay propuesta). Pasan a capa CONTEXTO (visibles, plegadas)
+en los dos caminos; las pruebas visibles quedan en ~5: cuadro, precio,
+cotejos y juez. Congelado por `tests/unit/test_av_agent_juez_local.py`.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

@@ -1202,6 +1202,11 @@ def vista() -> dict:
         # hace la pantalla, que sabe contar lo que esconde.
         if est == ciclo.IGNORADO:
             h["ignorado"] = True
+        # ── NOTICIA = observación sin accionable (REGLA #10) ────────────────
+        # Su casa es AHORA (el noticiero, con fecha y hora); LA LISTA la
+        # esconde contándola. Marca, no filtro — el contrato de siempre.
+        if av_agent.es_noticia(h.get("tipo") or ""):
+            h["noticia"] = True
         if est in (ciclo.EN_CURSO, ciclo.RESUELTO):
             h["atendido"] = "aplicado"
         # (el guard de `ignorado`: una fila snoozeada no es «atendida» — no

@@ -77,6 +77,20 @@ def test_el_masivo_saltea_lo_ya_atendido():
     assert "saltados_atendidos" in src
 
 
+def test_las_noticias_se_declaran_y_no_ensucian_la_lista():
+    """REGLA #10.2 — una casa por naturaleza: «LA BASE CAMBIÓ» es una
+    observación sin accionable → su casa es AHORA, no ENCONTRÓ. Se DECLARA
+    (nunca se infiere del nombre) y la vista la marca para que la pantalla
+    la esconda contándola."""
+    from api.services import av_agent
+    from api.services import av_agent_vista as v
+    assert "db_cambio" in av_agent.TIPOS_NOTICIA
+    assert "tabla_quieta" in av_agent.TIPOS_NOTICIA
+    assert av_agent.es_noticia("db_cambio")
+    assert not av_agent.es_noticia("tasa")
+    assert 'h["noticia"] = True' in codigo(v.vista)
+
+
 def test_la_cola_de_respuestas_se_concilia_contra_la_base():
     """«ALTA (16): …» con los bonos ya dados de alta por otra vía era texto
     sin continuación. La cola cruza contra mercado.curvas y sella aplicadas

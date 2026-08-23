@@ -589,6 +589,27 @@ def va_en_ahora(tipo: str) -> bool:
     return (tipo or "").strip() in EN_AHORA_SIEMPRE
 
 
+# ── NOTICIAS: observaciones de la base SIN accionable (REGLA #10, §0.cx) ────
+#
+# El user, mirando «LA BASE CAMBIÓ: 34» ocupando ENCONTRÓ: *«este tipo de
+# cosas son AVISOS — no tienen que estar en ENCONTRÓ, que es accionable»*.
+# Tiene razón por definición: una tabla que pesa lo que pesa o que dejó de
+# escribir es un HECHO que se mira, no un problema con botón. Su casa es
+# AHORA (el noticiero del día), con fecha y hora; en LA LISTA solo estorban.
+# **Se DECLARA, no se infiere** — misma ley que EN_AHORA_SIEMPRE: un tipo
+# nuevo sin accionable se suma acá a mano, y el default (no estar) lo deja
+# en LA LISTA, que es donde un olvido se ve y se corrige.
+TIPOS_NOTICIA = (
+    "db_cambio",       # la base cambió: tabla nueva / creció / desapareció
+    "tabla_quieta",    # una tabla dejó de escribir a su ritmo
+)
+
+
+def es_noticia(tipo: str) -> bool:
+    """¿Es una observación sin accionable? → vive en AHORA, no en LA LISTA."""
+    return (tipo or "").strip() in TIPOS_NOTICIA
+
+
 def accion_de(tipo: str, regla: str) -> str | None:
     """Qué puede hacer el agente con ESTA fila. La regla manda; el tipo es el
     default."""

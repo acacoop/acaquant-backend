@@ -337,6 +337,33 @@ en `--` teniendo el precio), el `ticker_corto` invertido por el renombre, y
 `preferencia` escrita tres veces eligiendo distinto en cada una. Ver
 `docs/AV_AGENT.md` §0.y y §0.aa.
 
+## ⚠️ REGLA #10 — LEY DE CONEXIÓN del AV AGENT: nada nuevo queda suelto
+
+**Irrompible (pedido del user, 2026-08-23: *«todo lo nuevo que se desarrolle no
+tiene que estar suelto como si nada — acá todo se tiene que conectar»*).** El
+agente se rompió cuatro veces en una semana por piezas que funcionaban solas y
+no hablaban con el resto (la foto que no miraba al objeto, la identidad
+stripeada, el «mandó» eterno, las noticias en la lista de trabajo). Toda
+funcionalidad nueva del AV AGENT cumple **las cinco**, en el MISMO commit:
+
+1. **Es un objeto con DNI** — vive en `agente.av_agent_items` (clave
+   sujeto|causa) o es una comunicación tipada (`core/ciclo.TIPOS_COMUNICACION`).
+   Nada de tablas o flags paralelos que digan «resuelto» por su cuenta.
+2. **Tiene UNA casa, por su naturaleza** — noticia → AHORA · accionable → LA
+   LISTA · arreglo esperando → ¿AGUANTAN? · monitor en vivo → VIGILANCIA ·
+   pasado → HISTORIAL/REGISTRO · comunicación → COMUNICACIONES (solo HOY).
+   Si aparece en dos, una es la casa y la otra un puntero; si no encaja en
+   ninguna, la naturaleza está mal pensada — no se inventa una pantalla.
+3. **Lleva fecha y hora visibles** en todo lo que se muestra.
+4. **Consulta el DNI antes de actuar** — un lote, un diagnóstico o una acción
+   jamás trabaja desde una foto sin cruzar el estado del objeto
+   (`estados_de`), y jamás re-aplica lo atendido.
+5. **Se declara** — skill en la tab SKILLS (ley §0.o), acción en
+   `av_agent_acciones.DESTINOS`, tipo en los registros de `av_agent.py`
+   (ACCION/PREGUNTA/DOMINIO/`TIPOS_NOTICIA`/`EN_AHORA_SIEMPRE` según toque).
+
+Historia completa y ejemplos: `docs/AV_AGENT.md` §0.cw–§0.cx.
+
 ## ⚠️ REGLA #8 — Portal INVITADO (www.acaquant.com): SOLO mercado/research, nunca filtrar datos del negocio
 
 **Bloqueante.** Conviven dos portales:

@@ -6628,6 +6628,41 @@ cartera). Reparado con `--reparar`. Y quedó la PREVENCIÓN: el control nocturno
 **`unidades_gemelas`** canta cualquier colisión futura de unidades por btrim,
 venga de donde venga — la próxima dura horas, no días.
 
+### 0.cx LA LEY DE CONEXIÓN — y el HISTORIAL que la estrena (2026-08-23)
+
+> *«Si hay que hacer una nueva regla general del proyecto que sea una ley
+> irrompible: todo lo nuevo que se desarrolle en el AV AGENT no tiene que
+> estar suelto como si nada — acá todo se tiene que conectar.»*
+
+Quedó como **REGLA #10 en CLAUDE.md** (las cinco: objeto con DNI · una casa
+por naturaleza · fecha y hora visibles · consultar el DNI antes de actuar ·
+declararse en los registros). Lo que la estrena, todo del mismo mensaje:
+
+**Las NOTICIAS salen de ENCONTRÓ.** «LA BASE CAMBIÓ: 34» ocupaba LA LISTA sin
+un solo botón y sin hora — y ENCONTRÓ es accionable por definición. Nace
+`av_agent.TIPOS_NOTICIA` (`db_cambio`, `tabla_quieta` — observaciones de la
+base sin accionable, DECLARADO como `EN_AHORA_SIEMPRE`, nunca inferido): la
+vista las marca `noticia`, LA LISTA las esconde contándolas (la búsqueda las
+encuentra), y su casa es **AHORA → NOTICIAS DE LA BASE**, cada una con fecha y
+hora, sumando al contador de la tab.
+
+**HISTORIAL queda en DOS cosas con el menú horizontal de ENCONTRÓ:**
+
+- **REGISTRO** — «¿por qué DECIDIDO no está en YA HIZO?» No había razón: lo
+  que escribió el agente y lo que decidiste vos (respuestas, votos) son
+  eventos del MISMO sistema, y separarlos obligaba a mirar dos tablas para
+  reconstruir una historia. Ahora es UNA línea de tiempo ordenada, cada
+  evento con fecha+hora, quién y sobre qué. Arriba, lo único vivo:
+  CONTESTADAS SIN EJECUTAR (que se concilia contra la base, §0.cw) y NO TE
+  INTERESAN (el único botón: deshacer). Y **sin grillas de columnas fijas**
+  — la `grid-cols-[110px_170px_90px_1fr]` que montaba «JOB:CIERRE_CANJE»
+  sobre la columna de al lado se fue: dos renglones que envuelven.
+- **COMUNICACIONES** — ex «MANDÓ», que no es una palabra de nadie. **Solo las
+  de HOY** (día ART), con fecha y hora por fila: una comunicación es del día;
+  el efecto pendiente vive en la bandeja del destinatario (/api/avisos), no
+  acumulándose acá. El pasado no se pierde: las escrituras que dispararon
+  esos mensajes están en el REGISTRO.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

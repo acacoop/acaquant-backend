@@ -65,7 +65,10 @@ def _titulo(n: int, t: str) -> None:
 def _filas(cur, sql: str, args: tuple = ()) -> list[tuple]:
     """Nunca tumba el diag: si una tabla no está, se dice y se sigue."""
     try:
-        cur.execute(sql, args)
+        # ⚠️ `args or None` y NO `args`: con una tupla VACÍA psycopg igual parsea
+        # placeholders, y entonces el `%` de un `LIKE 'volvio:%'` revienta con
+        # «only '%s', '%b', '%t' are allowed». Sin args, el SQL va literal.
+        cur.execute(sql, args or None)
         return cur.fetchall()
     except Exception as e:                      # es un diag: nunca aborta
         cur.connection.rollback()
@@ -239,6 +242,28 @@ def main() -> int:
         print(f"\n   → {n_it} arreglos con reloj de hitos, {n_seg} en la tabla vieja.")
         print("     Los dos escriben `verificado` al MISMO eval set y ninguno")
         print("     está declarado en `core/duplicados.DUPLICADOS`.")
+
+        # ── 7. EL ✖ CRUDO, FILA POR FILA ────────────────────────────────────
+        #
+        # ⚠️ Los objetos en estado `volvio` son 2, pero los ✖ son muchos más: un
+        # item que volvió, votó ✖ y después se re-resolvió vuelve a `resuelto` —
+        # y el ✖ queda para siempre en el eval set. Acá se ve cuándo se emitió
+        # cada uno y con qué `ref`, que es lo que dice QUIÉN lo escribió.
+        _titulo(7, "EL ✖ CRUDO — cuándo se emitió cada uno y quién lo escribió")
+        filas = _filas(cur, """
+            SELECT causa, caso, ref, creado_at,
+                   coalesce(nullif(left(nota, 46), ''), '(sin nota)')
+              FROM agente.av_agent_evals
+             WHERE origen = 'verificado' AND NOT acierta
+             ORDER BY creado_at DESC LIMIT 30
+        """)
+        if filas:
+            print(f"{'CAUSA':<26}{'CASO':<13}{'REF':<26}{'CUÁNDO':<14}NOTA")
+            for ca, cs, rf, at, nt in filas:
+                print(f"{(ca or '—'):<26}{(cs or '—'):<13}{(rf or '—'):<26}"
+                      f"{at:%d/%m %H:%M}  {nt}")
+        else:
+            print("   (no hay ✖ de origen `verificado`)")
 
     print(f"\n{LINEA}\nFIN — copiá la salida entera.\n{LINEA}")
     return 0

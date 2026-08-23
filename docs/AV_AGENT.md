@@ -6768,6 +6768,15 @@ como siempre; cuadro solo → rama de red, como siempre. Congelado por
 `test_dos_fallas_juntas_se_arreglan_compuestas_no_de_a_una` y
 `test_el_parche_compuesto_se_escribe_en_la_misma_pasada_y_con_columna`.
 
+**Dos limados del mismo informe #18 (mismo día):** (1) la lente de moneda
+decía *«cuando debería convierte el precio a dólares»* — el dict `puerta`
+está conjugado y después de «debería» va infinitivo (`puerta_inf`); un
+template que se lee roto desacredita al diagnóstico entero. (2) El detalle
+del informe masivo repetía el MISMO texto 25 veces, una por caso: ahora el
+front agrupa por FIRMA del texto (causa + detalle + trabas) — el diagnóstico
+UNA vez y abajo los casos, cada uno con su botón APLICAR propio; un caso con
+texto propio sigue siendo fila suelta.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

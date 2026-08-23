@@ -2916,6 +2916,13 @@ def _lente_moneda(c: dict) -> dict:
                      "en D/C)",
               "DL": "divide el precio por el A3500 si viene en escala peso",
               "ARS": "usa el precio tal cual, peso nativo"}
+    # La misma puerta en INFINITIVO: va después de «cuando debería …». Con el
+    # dict conjugado salía «cuando debería convierte el precio», que se lee
+    # como template roto y desacredita al diagnóstico entero.
+    puerta_inf = {"USD": "convertir el precio a dólares (÷MEP si el símbolo no "
+                         "termina en D/C)",
+                  "DL": "dividir el precio por el A3500 si viene en escala peso",
+                  "ARS": "usar el precio tal cual, peso nativo"}
     if mf == esperada:
         return _ob("moneda", OK,
                    f"`moneda_flujo`={mf} coincide con los ejes → el motor "
@@ -2930,7 +2937,7 @@ def _lente_moneda(c: dict) -> dict:
                   "error**. Es el vocabulario de la CARTERA, no el del motor."
                   if desconocida else
                   f" → el motor {puerta.get(mf or 'ARS', 'usa el precio tal cual')} "
-                  f"cuando debería {puerta.get(esperada, '?')}.")
+                  f"cuando debería {puerta_inf.get(esperada, '?')}.")
                + f" El símbolo termina en «{c['sufijo']}», así que la PATA no es el "
                  "problema: con `moneda_flujo` bien, el motor la resuelve solo.",
                causa="moneda_flujo_contradice", parche={"moneda_flujo": esperada})

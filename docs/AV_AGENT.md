@@ -6730,15 +6730,43 @@ volvió neutral («hoy no hay nada que arreglar») porque ya cubre dos casos.
 JobRunLogger` levantaba SystemExit y el run quedaba «error» (caso
 `market_anchors` del informe #18): una salida con código 0/None es sana.
 
-**Pendiente con GO (próximo round): el ARREGLO COMPUESTO.** Los 25
-`moneda_flujo_contradice` del informe están bloqueados por diseño: tienen DOS
-fallas (moneda + cuadro en nominales de emisión) y la cadena simula arreglar
-UNA — la métrica no vuelve al rango. El plan: cuando la lente de escala
-también falla, la propuesta compone moneda_flujo + cuadro de 1816 y se simula
-JUNTA; solo si la cadena cierra entera se escribe (los escritores ya existen:
-`aplicar_arreglo` + `aplicar_flujos` — falta la simulación conjunta). Se hace
-aparte y con calma porque escribe cronogramas: la clase de cambio donde
-apurarse cuesta plata.
+**Pendiente con GO (próximo round): el ARREGLO COMPUESTO.** → hecho, §0.da.
+
+### 0.da El ARREGLO COMPUESTO: dos fallas juntas no se arreglan de a una (2026-08-23)
+
+Los **25 `moneda_flujo_contradice`** del informe masivo #18 estaban bloqueados
+**por diseño**, todos con el mismo texto: *«la métrica NO vuelve al rango»*. No
+era un bug de la simulación — era que el bono tenía DOS fallas simultáneas
+(`moneda_flujo` contradiciendo a los ejes **y** el cronograma en nominales de
+la emisión) y el arreglo local parcheaba SOLO la moneda, simulaba con el
+cuadro roto, la paridad seguía afuera y la cadena bloqueaba. Correctamente,
+además: escribir la moneda sola no arregla nada. El resultado era una lista
+que ofrecía ARREGLAR y bloqueaba en el 100% de los intentos, para siempre.
+
+**El desvío** (`simular_arreglo`): la causa parcheable sigue yendo al arreglo
+local **salvo** que la lente del cuadro también falle (`_cuadro_tambien_roto`:
+alguna observación con causa en `_CAUSAS_CUADRO` = `escala_del_cuadro` /
+`campo_de_amortizacion` — se miran TODAS las observaciones, no solo la
+culpable, porque la culpable es la más aguas arriba y el cuadro suele ser la
+segunda). En ese caso la simulación sigue por la rama de RED —que YA reemplaza
+el cronograma por el de 1816— **con el parche local puesto en `doc_prop`**:
+la propuesta se simula ENTERA (moneda nueva + cuadro nuevo) y se juzga con la
+misma vara de siempre (cotejo doble contra 1816). Un paso INFO nuevo
+(«ARREGLO COMPUESTO») explica en pantalla por qué el paquete son dos cambios.
+
+**La escritura es UNA** (`aplicar_arreglo`): el parche viaja en la simulación
+(`compuesto` + `parche` + `_antes_campos`) y entra al MISMO `UPDATE` que el
+cuadro — dos escrituras dejarían una ventana con una falla arreglada y la otra
+no. Y `moneda_flujo` se escribe en el blob **y en la columna**, el mismo
+criterio de `_aplicar_parche_local`: escribir uno solo recrea la contradicción
+que el arreglo viene a curar (REGLA #9). El ANTES de los campos parcheados va
+al libro de acciones junto con `causa` y `compuesto`, así revertir es un dato
+y el REGISTRO dice qué clase de arreglo fue.
+
+Nada cambia para los casos de UNA falla: moneda sola → arreglo local sin red,
+como siempre; cuadro solo → rama de red, como siempre. Congelado por
+`test_dos_fallas_juntas_se_arreglan_compuestas_no_de_a_una` y
+`test_el_parche_compuesto_se_escribe_en_la_misma_pasada_y_con_columna`.
 
 ### 0.f El eval set (2026-08-17)
 

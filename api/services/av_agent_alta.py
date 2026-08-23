@@ -3311,6 +3311,22 @@ def _aplicar_parche_local(sim: dict, *, actor: str = "") -> dict:
                      "motor_curvas para que la métrica nueva llegue a la vista"}
 
 
+_CAUSAS_CUADRO = ("escala_del_cuadro", "campo_de_amortizacion")
+
+
+def _cuadro_tambien_roto(dx: dict) -> bool:
+    """¿Además de la causa culpable, la lente del CUADRO también falla?
+
+    El caso medido (informe #18, 2026-08-23): **25 bonos** con
+    `moneda_flujo_contradice` como causa Y el cronograma en nominales de la
+    emisión. El arreglo local parchea SOLO la moneda y simula con el cuadro
+    roto → la paridad no vuelve al rango → BLOQUEA, todas las veces, para
+    siempre. Dos fallas simultáneas no se arreglan de a una: se componen.
+    """
+    return any(o.get("causa") in _CAUSAS_CUADRO
+               for o in (dx.get("observaciones") or []))
+
+
 def _arreglo_local(*, doc: dict, tk: str, simbolo: str, rama: str, dx: dict,
                    hoy_est: dict, px_local: float | None, px_fuente: str,
                    curva_1816: str) -> dict:
@@ -3460,10 +3476,21 @@ def simular_arreglo(ticker: str, *, cer_emision: float | None = None) -> dict:
     if px_fuente:
         hoy_local["precio_fuente"] = px_fuente
     dx = diagnosticar_local(doc, rama_hoy, hoy_local)
-    if dx.get("parche") and (CAUSAS.get(dx["causa"]) or {}).get("agente"):
+    parcheable = bool(dx.get("parche") and (CAUSAS.get(dx["causa"]) or {}).get("agente"))
+    # ⚠️ **DOS FALLAS JUNTAS NO SE ARREGLAN DE A UNA** (§0.da, 2026-08-23). Si
+    # además del insumo parcheable el CUADRO también está roto, el arreglo local
+    # simularía la moneda nueva sobre el cronograma en nominales de emisión: la
+    # paridad no vuelve al rango y la cadena BLOQUEA para siempre (25 bonos del
+    # informe #18, todos clavados ahí). En ese caso se sigue por la rama de RED,
+    # que YA reemplaza el cuadro por el de 1816 — y el parche viaja con ella
+    # para que la propuesta se simule ENTERA: moneda nueva + cuadro nuevo.
+    compuesto = parcheable and _cuadro_tambien_roto(dx)
+    if parcheable and not compuesto:
         return _arreglo_local(doc=doc, tk=tk, simbolo=simbolo, rama=rama_hoy,
                               dx=dx, hoy_est=hoy_local, px_local=px_local,
                               px_fuente=px_fuente, curva_1816=curva_1816)
+    if compuesto:
+        doc_prop.update(dx["parche"])
 
     # ⚠️ **UNA SOLA CONSULTA A 1816 PARA LOS DOS ESTADOS** (2026-08-17).
     #
@@ -3547,6 +3574,11 @@ def simular_arreglo(ticker: str, *, cer_emision: float | None = None) -> dict:
                   "duration": hoy_est.get("duration")},
     }
     out.update(prop_est)          # tea/paridad/duration/precio del PROPUESTO
+    if compuesto:
+        # El parche local viaja CON la propuesta: `aplicar_arreglo` lo escribe
+        # junto al cuadro, y el ANTES congelado es lo que hace reversible al libro.
+        out.update({"compuesto": True, "causa": dx["causa"], "parche": dx["parche"],
+                    "_antes_campos": {k: doc.get(k) for k in dx["parche"]}})
     out["chequeos"] = _chequeos_arreglo(ticker=tk, doc=doc, out=out, rama=rama,
                                         conv=conv, cupones_1816=cupones)
     out["veredicto"] = _veredicto(out["chequeos"])
@@ -3596,6 +3628,20 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
     est_lentes = {**antes, "precio": out.get("precio"),
                   "precio_fuente": out.get("precio_fuente")}
     ps.extend(_diagnostico_local(doc, rama, est_lentes))
+
+    if out.get("compuesto"):
+        campos_p = " · ".join(f"`{k}` = {v}"
+                              for k, v in (out.get("parche") or {}).items())
+        ps.append(_paso("compuesto", "ARREGLO COMPUESTO: dos fallas, un paquete",
+                        INFO,
+                        f"Este bono tiene DOS fallas a la vez: {campos_p} está "
+                        "mal **y** el cronograma también (fuera de base 100). "
+                        "Arreglar una sola no alcanza — la simulación seguiría "
+                        "fallando por la otra. La propuesta corrige el insumo Y "
+                        "reemplaza el cuadro por el de 1816, y se juzga ENTERA: "
+                        "solo si la cadena cierra con los dos cambios juntos se "
+                        "escribe (los dos en la misma escritura).",
+                        tabla="mercado.curvas + 1816 /cashflow"))
 
     # EJES. Solo aparece si faltan: los que cargó la mesa no se discuten.
     if out.get("ejes_hoy") is None:
@@ -3681,6 +3727,8 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
                     tabla="1816 /indicadores", nada_que_hacer=ya_estaba_bien))
 
     campos = []
+    if out.get("compuesto") and out.get("parche"):
+        campos.append(" · ".join(f"`{k}` = {v}" for k, v in out["parche"].items()))
     if out.get("ejes_propuestos"):
         campos.append("los ejes (emisor_tipo · moneda_eje · ajuste · ley)")
     if conv:
@@ -3758,11 +3806,18 @@ def aplicar_arreglo(ticker: str, *, actor: str = "",
             parche["fecha_vencimiento"] = sim["vencimiento"]
     if sim.get("cer_manual") and sim.get("cer_emision"):
         parche["cer_emision"] = sim["cer_emision"]
+    # El ARREGLO COMPUESTO (§0.da): el parche local viajó con la simulación de
+    # red y se escribe EN LA MISMA pasada que el cuadro — dos escrituras serían
+    # una ventana en la que el bono queda con una falla arreglada y la otra no.
+    if sim.get("compuesto") and sim.get("parche"):
+        parche.update(sim["parche"])
     if not parche and not ejes:
         return {**sim, "aplicado": False, "error": "no hay nada que aplicar"}
 
     # El ANTES, congelado para el libro. Sin esto «revertir» es una promesa.
     antes = {"ejes": sim.get("ejes_hoy"), **(sim.get("antes") or {})}
+    if sim.get("_antes_campos"):
+        antes["campos"] = sim["_antes_campos"]
     try:
         import json
 
@@ -3772,6 +3827,12 @@ def aplicar_arreglo(ticker: str, *, actor: str = "",
             for col in ("emisor_tipo", "moneda_eje", "ajuste", "ajuste_alt", "ley"):
                 sets.append(f"{col} = %s")
                 vals.append(ejes.get(col) or None)
+        # Mismo criterio que `_aplicar_parche_local`: lo que además es COLUMNA
+        # se escribe en los dos lados, o el merge de lectura los contradice.
+        for col in ("moneda_flujo",):
+            if col in parche:
+                sets.append(f"{col} = %s")
+                vals.append(parche[col])
         if parche:
             sets.append("data = COALESCE(data, '{}'::jsonb) || %s::jsonb")
             vals.append(json.dumps(parche))
@@ -3789,6 +3850,8 @@ def aplicar_arreglo(ticker: str, *, actor: str = "",
     acc.registrar(accion="arreglar_bono", objetivo=sim["ticker"], por=actor,
                   antes=antes,
                   detalle={"ejes": ejes, "campos": list(parche),
+                           "causa": sim.get("causa"),
+                           "compuesto": bool(sim.get("compuesto")),
                            "tea_antes": (sim.get("antes") or {}).get("tea"),
                            "tea_despues": sim.get("tea")})
     return {**sim, "aplicado": True,

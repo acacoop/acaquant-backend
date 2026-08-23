@@ -126,6 +126,40 @@ def test_las_noticias_se_declaran_y_no_ensucian_la_lista():
     assert 'h["noticia"] = True' in codigo(v.vista)
 
 
+def test_dos_fallas_juntas_se_arreglan_compuestas_no_de_a_una():
+    """§0.da — el ARREGLO COMPUESTO. 25 bonos del informe #18 tenían
+    `moneda_flujo_contradice` Y el cuadro en nominales de emisión: el arreglo
+    local parcheaba solo la moneda, simulaba con el cuadro roto y BLOQUEABA
+    para siempre. Cuando la lente del cuadro también falla, la propuesta va
+    por la rama de RED (que trae el cronograma de 1816) con el parche a bordo,
+    se juzga ENTERA, y se escribe todo en UNA pasada."""
+    import api.services.av_agent_alta as alta
+
+    src = inspect.getsource(alta)
+    # El desvío existe y consulta las DOS condiciones.
+    assert "compuesto = parcheable and _cuadro_tambien_roto(dx)" in src
+    assert "if parcheable and not compuesto:" in src
+    # La propuesta se simula con el parche puesto (no solo con el cuadro).
+    assert 'doc_prop.update(dx["parche"])' in src
+    # Las causas de cuadro que disparan la composición están declaradas.
+    assert alta._CAUSAS_CUADRO == ("escala_del_cuadro", "campo_de_amortizacion")
+    # La detección mira TODAS las observaciones, no solo la culpable.
+    assert "observaciones" in codigo(alta._cuadro_tambien_roto)
+
+
+def test_el_parche_compuesto_se_escribe_en_la_misma_pasada_y_con_columna():
+    """Dos escrituras dejarían una ventana con una falla arreglada y la otra
+    no. Y `moneda_flujo` es columna ADEMÁS de vivir en el blob: escribir uno
+    solo recrea la contradicción que el arreglo viene a curar (mismo criterio
+    que `_aplicar_parche_local`)."""
+    from api.services import av_agent_alta as alta
+
+    src = codigo(alta.aplicar_arreglo)
+    assert 'parche.update(sim["parche"])' in src        # entra al mismo UPDATE
+    assert 'for col in ("moneda_flujo",):' in src       # espejo en la columna
+    assert 'antes["campos"] = sim["_antes_campos"]' in src  # el ANTES, al libro
+
+
 def test_la_cola_de_respuestas_se_concilia_contra_la_base():
     """«ALTA (16): …» con los bonos ya dados de alta por otra vía era texto
     sin continuación. La cola cruza contra mercado.curvas y sella aplicadas

@@ -69,11 +69,40 @@ def test_con_ref_inutil_aparece_el_juez_local():
 
 
 def test_el_desenlace_cuenta_que_juzgo_el_juez_local():
-    """Con la referencia rota y el juez local en verde, el encabezado no puede
-    decir «reintentá» — reintentar contra 1816 no cambia nada."""
+    """Con el cotejo imposible (referencia rota o papel sin precio) y un juez
+    local en verde, el encabezado no puede decir «reintentá» — reintentar
+    contra 1816 no cambia nada. Se cubren los DOS jueces."""
     src = codigo(alta._desenlace)
-    assert 'traba.get("ref_inutil")' in src
-    assert '"juez_local"' in src
+    assert '("juez_local", "juez_falla")' in src
+    assert "juzgó el JUEZ" in src
+
+
+def test_sin_precio_juzga_la_falla_medida():
+    """«No se resuelven nada» (user, 2026-08-23): casi todos los bloqueados
+    eran papeles SIN precio y todos los jueces juzgaban por precio. Sus fallas
+    se miden sin precio: la Σ del cuadro vuelve a base 100 y `moneda_flujo`
+    pasa a coincidir con la regla del motor. Si la falla medida desaparece,
+    el arreglo está verificado — sin precio no hay TEA que pueda salir mal."""
+    src = codigo(alta._chequeos_arreglo)
+    assert '"juez_falla"' in src
+    assert '_residual_vivo({"flujos": conv["flujos"]}, rama)' in src
+    # Y el arreglo simple (moneda sola, sin precio) también tiene su salida.
+    assert '"juez_falla"' in codigo(alta._arreglo_local)
+
+
+def test_el_informe_masivo_habla_corto():
+    """«El informe es un tablero, no un testamento»: por fila queda el HECHO
+    en una frase — la explicación vive en el modal del bono."""
+    from api.services import av_agent_masivo as m
+    assert m._titulo_corto(
+        "La moneda: ¿en qué unidad entra el precio al motor?") == "La moneda"
+    assert m._frase_corta(
+        "`moneda_flujo`=**ARS** pero los ejes piden **DL** → el motor usa el "
+        "precio tal cual") == "`moneda_flujo`=ARS pero los ejes piden DL"
+    src = codigo(m._diagnosticar_uno)
+    # La conclusión y las dos cuentas espejo no se repiten en las trabas.
+    for clave in ('"causa_local"', '"escala_local"', '"division_local"'):
+        assert clave in src
 
 
 # ── 3. las otras contradicciones de la misma pantalla ───────────────────────

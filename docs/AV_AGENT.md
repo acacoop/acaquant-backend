@@ -6820,6 +6820,32 @@ esperado (por eso hay propuesta). Pasan a capa CONTEXTO (visibles, plegadas)
 en los dos caminos; las pruebas visibles quedan en ~5: cuadro, precio,
 cotejos y juez. Congelado por `tests/unit/test_av_agent_juez_local.py`.
 
+### 0.dc Sin precio también hay juez, y el informe es un tablero (2026-08-23)
+
+*«No se resuelven nada»* — y era cierto: casi todos los bloqueados del informe
+eran papeles **sin precio en ninguna fuente** («papel que no operó»), y TODOS
+los jueces del arreglo juzgaban por precio (cotejo 1816, paridad en rango).
+Sin precio ningún juez corría → bloqueado para siempre. Error de diseño: **las
+fallas de esos bonos se miden SIN precio** — el cuadro fuera de base 100 se
+mide con la Σ (144.600 → tiene que volver a ~100) y `moneda_flujo` contra los
+ejes es la regla del propio motor. Entra el **juez de la falla medida**
+(`juez_falla`): si la propuesta hace desaparecer la falla que disparó el
+hallazgo, está verificada — y sin precio **no hay TEA que pueda salir mal**;
+cuando el papel vuelva a operar, el detector re-mide. Aplica en la cadena de
+red (compuesto sin precio: Σ después en rango + moneda alineada) y en el
+arreglo simple (moneda sola sin precio: por construcción). Los dos cotejos
+por precio se OMITEN en ese camino (eran dos NO_SE de puro ruido) y el
+desenlace dice quién juzgó. El caso especial `ref_inutil` de §0.db se
+generalizó: cualquier juez local OK gana al NO_SE del cotejo.
+
+**Y el informe masivo habla corto** (*«quiero ver dónde está el error, si se
+soluciona, y punto»*): por fila quedan la causa + hasta 3 renglones de UNA
+frase — `_titulo_corto` corta el título-pregunta («La moneda»), `_frase_corta`
+corta en el primer «→» o punto (queda el HECHO, la explicación vive en el
+modal), y se excluyen los pasos que repiten a las lentes con otras palabras
+(`causa_local`, `escala_local`, `division_local` — la duplicación literal del
+paste del user). Congelado en `test_av_agent_juez_local.py`.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

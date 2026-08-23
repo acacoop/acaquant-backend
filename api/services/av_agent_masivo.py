@@ -328,19 +328,20 @@ def _diagnosticar_uno(caso: dict, sin_red: bool) -> dict:
         "tea": r.get("tea"),
         "antes": r.get("antes"),
         "propuesta": r.get("parche") or r.get("propuesta"),
-        # Solo los pasos que NO están en verde: el informe es para leer, y 10
-        # pasos × 68 casos son 680 líneas donde lo que importa son las que fallan.
-        # ⚠️ **SIN REPETIR, Y ACÁ — no solo en la versión para el modelo.** El
-        # user (2026-08-21): *«necesito respuestas más claras, menos texto y más
-        # claro cuál es el problema»*. Un caso salía con la MISMA frase tres
-        # veces bajo tres títulos distintos («La escala del cuadro que YA está
-        # cargado», «El valor técnico: ¿en qué escala está el cronograma?»,
-        # «⇒ LA CONCLUSIÓN»), y esto decía que para una persona esa redundancia
-        # ayudaba. No ayuda: hace dudar de si son tres problemas o uno.
+        # ⚠️ **EL INFORME ES UN TABLERO, NO UN TESTAMENTO** (user, 2026-08-23:
+        # *«quiero ver dónde está el error, si se soluciona, y punto»*). Por
+        # fila: la causa (viaja aparte) + hasta 3 renglones de UNA frase — el
+        # HECHO, sin la explicación (esa vive en el modal del bono). Se
+        # excluyen los pasos que REPITEN a las lentes con otras palabras: la
+        # conclusión, la escala local y la división son la misma aritmética
+        # contada dos veces.
         "trabas": _sin_repetir(
-            [{"paso": p.get("titulo"), "estado": p.get("estado"),
-              "detalle": str(p.get("detalle") or "")[:300]}
-             for p in pasos if p.get("estado") in ("bloquea", "revisar")])[:3],
+            [{"paso": _titulo_corto(p.get("titulo")), "estado": p.get("estado"),
+              "detalle": _frase_corta(p.get("detalle"))}
+             for p in pasos
+             if p.get("estado") in ("bloquea", "revisar")
+             and p.get("clave") not in ("causa_local", "escala_local",
+                                        "division_local")])[:3],
         "segundos": seg,
     }
 
@@ -571,6 +572,26 @@ _QUE_ES = {
     # que sí piden algo.
     "cerrado": "CERRADOS: se comprobó que ya no aplican (salieron de la lista)",
 }
+
+
+def _titulo_corto(t) -> str:
+    """«La moneda: ¿en qué unidad entra el precio al motor?» → «La moneda».
+    El título-pregunta es didáctico en el modal; en un tablero de 60 filas es
+    relleno."""
+    return str(t or "").split(":", 1)[0].strip()
+
+
+def _frase_corta(d) -> str:
+    """El HECHO, sin la explicación: se corta en el primer «→» o punto.
+    «`moneda_flujo`=ARS pero los ejes piden DL → el motor usa el precio…»
+    queda en la mitad izquierda — la derecha es la clase teórica, y vive en
+    el modal del bono para el que la quiera."""
+    s = str(d or "").replace("**", "")
+    for corte in (" → ", ". "):
+        if corte in s:
+            s = s.split(corte, 1)[0]
+            break
+    return s.strip()[:140]
 
 
 def _sin_repetir(trabas: list[dict]) -> list[dict]:

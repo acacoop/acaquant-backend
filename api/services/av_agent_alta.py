@@ -1332,20 +1332,22 @@ def _desenlace(chequeos: list[dict]) -> dict:
                 "que_hacer": "Eso es el problema. Hasta que se resuelva no se "
                              "puede escribir nada."}
     if traba["estado"] == NO_SE:
-        # ⚠️ Si el cotejo no se pudo hacer PORQUE la referencia de 1816 vino
-        # rota, «reintentá» es un mal consejo (no va a cambiar) — y si el JUEZ
-        # LOCAL ya pasó, el arreglo está verificado por otra vía y el
-        # encabezado tiene que decir eso, no un «no se sabe» genérico.
-        if traba.get("ref_inutil") and any(
-                c.get("clave") == "juez_local" and c["estado"] == OK
-                for c in pruebas):
-            return {"clase": "mirar", "traba": "juez_local",
-                    "titulo": "La referencia de 1816 no sirve para este bono — "
-                              "juzgó el JUEZ LOCAL y el arreglo se sostiene",
-                    "que_hacer": "El indicador de 1816 para este bono viene roto "
-                                 "(reintentar no lo cambia). El juez local probó "
-                                 "que la métrica vuelve al rango: se puede "
-                                 "aplicar a mano; automático no."}
+        # ⚠️ Si el cotejo por precio no pudo correr (referencia de 1816 rota,
+        # o papel sin precio en ninguna fuente), «reintentá» es un mal consejo
+        # — no va a cambiar. Y si un JUEZ LOCAL ya dio OK, el arreglo está
+        # verificado por otra vía y el encabezado tiene que decir ESO.
+        juez = next((c for c in pruebas
+                     if c.get("clave") in ("juez_local", "juez_falla")
+                     and c["estado"] == OK), None)
+        if juez is not None:
+            return {"clase": "mirar", "traba": juez["clave"],
+                    "titulo": "El cotejo con 1816 no corre acá — juzgó el JUEZ "
+                              "LOCAL y el arreglo se sostiene",
+                    "que_hacer": "El cotejo por precio no se puede hacer "
+                                 "(referencia rota o papel sin precio) y "
+                                 "reintentar no lo cambia. El juez local probó "
+                                 "que la falla desaparece: se puede aplicar a "
+                                 "mano; automático no."}
         return {"clase": "no_se", "traba": traba["clave"],
                 "titulo": f"No se pudo verificar: {traba['titulo']}",
                 "que_hacer": "**No quiere decir que esté bien**: quiere decir que "
@@ -3461,17 +3463,35 @@ def _arreglo_local(*, doc: dict, tk: str, simbolo: str, rama: str, dx: dict,
                     tabla="mercado.curvas"))
 
     # EL JUEZ, y es LOCAL.
-    ps.append(_paso("verificacion", "La métrica vuelve al rango", OK if
-                    (en_rango and estaba_mal) else BLOQUEA,
-                    f"paridad **{_pct_o(par_antes)} → {_pct_o(par_desp)}** "
-                    f"(rango sano [{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}])"
-                    + (". El arreglo la devuelve adentro: el diagnóstico se sostiene."
-                       if en_rango and estaba_mal else
-                       ". **Lo de hoy YA estaba en rango**: no hay nada que arreglar "
-                       "y pisarlo sería empeorarlo." if not estaba_mal else
-                       ". **NO vuelve al rango** → el diagnóstico no se sostiene y "
-                       "no se escribe nada. Hay otra causa además de esta."),
-                    tabla="engines/curvas.py (el MISMO motor que valúa en producción)"))
+    # ⚠️ SIN PRECIO no hay paridad que medir — pero la falla de `moneda_flujo`
+    # se verifica SIN precio: la propuesta la alinea con la regla del propio
+    # motor sobre los ejes cargados (§0.dc). Antes, un papel que no operaba
+    # quedaba BLOQUEADO para siempre por «no vuelve al rango» — sin nada que
+    # pudiera volver a ningún lado.
+    if (px_local is None and par_desp is None
+            and dx["causa"] == "moneda_flujo_contradice"):
+        ps.append(_paso("juez_falla", "La falla medida desaparece (juez local)", OK,
+                        f"`moneda_flujo` → **{dx['parche'].get('moneda_flujo')}** "
+                        "— es la regla del propio motor sobre los ejes cargados, "
+                        "no una opinión. Sin precio no hay TEA que pueda salir "
+                        "mal; cuando el papel vuelva a operar, el detector "
+                        "re-mide.",
+                        tabla="engines/curvas.py::moneda_flujo_esperada"))
+    else:
+        ps.append(_paso("verificacion", "La métrica vuelve al rango", OK if
+                        (en_rango and estaba_mal) else BLOQUEA,
+                        f"paridad **{_pct_o(par_antes)} → {_pct_o(par_desp)}** "
+                        f"(rango sano [{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}])"
+                        + (". El arreglo la devuelve adentro: el diagnóstico se "
+                           "sostiene." if en_rango and estaba_mal else
+                           ". **Lo de hoy YA estaba en rango**: no hay nada que "
+                           "arreglar y pisarlo sería empeorarlo."
+                           if not estaba_mal else
+                           ". **NO vuelve al rango** → el diagnóstico no se "
+                           "sostiene y no se escribe nada. Hay otra causa además "
+                           "de esta."),
+                        tabla="engines/curvas.py (el MISMO motor que valúa en "
+                              "producción)"))
 
     ps.append(_paso("sin_1816", "¿Hace falta preguntarle a 1816?", INFO,
                     f"**No.** La causa es «{meta.get('titulo', dx['causa'])}» y se "
@@ -3762,13 +3782,61 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
                             "ayuda": "el índice CER del día de emisión (prospecto "
                                      "o BCRA)."}))
 
-    ps.append(_paso("precio", "Hay precio para comparar", OK if out.get("precio")
-                    else BLOQUEA,
+    # ── SIN PRECIO EN NINGUNA FUENTE → EL JUEZ DE LA FALLA MEDIDA (§0.dc).
+    # Un papel que no opera no tiene precio ni acá ni en 1816, así que ningún
+    # juez por precio puede correr — y estos bonos quedaban BLOQUEADOS para
+    # siempre («no se resuelven nada», user 2026-08-23). Pero SUS fallas se
+    # miden sin precio: el cuadro fuera de base 100 se mide con la Σ, y
+    # `moneda_flujo` contra los ejes es la regla del propio motor. Si la
+    # propuesta hace desaparecer la falla medida, el arreglo está verificado —
+    # y sin precio no hay TEA que pueda salir mal. Cuando vuelva a operar, el
+    # detector re-mide.
+    sin_precio = not out.get("precio")
+    juez_falla = None
+    if sin_precio and conv:
+        antes_res, _ = _residual_vivo(doc, rama)
+        desp_res, _ = _residual_vivo({"flujos": conv["flujos"]}, rama)
+        cuadro_sana = _RESIDUAL_MIN <= (desp_res or 0) <= _RESIDUAL_MAX
+        cuadro_estaba_mal = not (_RESIDUAL_MIN <= (antes_res or 0) <= _RESIDUAL_MAX)
+        moneda = (out.get("parche") or {}).get("moneda_flujo")
+        partes = [f"Σ del cuadro: {antes_res:,.0f} → {desp_res:,.2f}"
+                  + (" — vuelve a base 100" if cuadro_sana
+                     else " — SIGUE fuera de escala")]
+        if moneda:
+            partes.append(f"`moneda_flujo` → {moneda} (la regla del propio motor)")
+        ok_falla = cuadro_sana and (cuadro_estaba_mal or bool(moneda))
+        juez_falla = _paso("juez_falla", "La falla medida desaparece (juez local)",
+                           OK if ok_falla else BLOQUEA,
+                           " · ".join(partes) + ". "
+                           + ("La falla que disparó el hallazgo desaparece con "
+                              "la propuesta; sin precio no hay TEA que pueda "
+                              "salir mal." if ok_falla else
+                              "La propuesta NO elimina la falla medida — no se "
+                              "escribe."),
+                           tabla="mercado.curvas + 1816 /cashflow (sin precio)")
+
+    ps.append(_paso("precio",
+                    "El cotejo por precio" if juez_falla is not None
+                    else "Hay precio para comparar",
+                    OK if not sin_precio
+                    else (NO_SE if juez_falla is not None else BLOQUEA),
                     f"precio {out['precio']:,.4f} ({out.get('precio_fuente')})"
-                    if out.get("precio") else
-                    "sin precio no se puede cotejar contra 1816 — y sin cotejo "
-                    "no se pisa nada.",
+                    if not sin_precio else
+                    ("sin precio en ninguna fuente (papel sin operaciones): el "
+                     "cotejo por precio no corre — juzga LA FALLA MEDIDA, en el "
+                     "paso siguiente." if juez_falla is not None else
+                     "sin precio no se puede cotejar contra 1816 — y sin cotejo "
+                     "no se pisa nada."),
                     tabla="mercado.market_snapshot · 1816"))
+    if juez_falla is not None:
+        ps.append(juez_falla)
+        # Los dos cotejos por precio no corren sin precio: agregarlos como
+        # NO_SE sería puro ruido — el juez de arriba ya dice quién juzgó.
+        campos = _campos_a_pisar(out, conv, ticker)
+        ps.append(campos)
+        for i, p in enumerate(ps, 1):
+            p["n"] = i
+        return ps
 
     # ── EL JUEZ. Dos cotejos con la MISMA vara: el propuesto tiene que coincidir
     # y el actual NO. Las dos mitades hacen falta — ver el comentario del bloque.
@@ -3848,6 +3916,15 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
                        "que arreglar."),
                     tabla="1816 /indicadores", nada_que_hacer=ya_estaba_bien))
 
+    ps.append(_campos_a_pisar(out, conv, ticker))
+    for i, p in enumerate(ps, 1):
+        p["n"] = i
+    return ps
+
+
+def _campos_a_pisar(out: dict, conv: dict | None, ticker: str) -> dict:
+    """El paso «Qué se va a PISAR» — compartido por los dos finales de la
+    cadena del arreglo (con precio y sin precio), así no pueden divergir."""
     campos = []
     if out.get("compuesto") and out.get("parche"):
         campos.append(" · ".join(f"`{k}` = {v}" for k, v in out["parche"].items()))
@@ -3858,14 +3935,11 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
                                   if conv["flujo_vencimiento"] is not None else ""))
     if out.get("cer_manual"):
         campos.append("cer_emision (lo escribiste vos)")
-    ps.append(_paso("escritura", "Qué se va a PISAR", INFO,
-                    ("solo " + " · ".join(campos) + f" en {ticker}. El emisor, la "
-                     "curva y el símbolo quedan intactos."
-                     if campos else "nada: no hay propuesta que aplicar"),
-                    tabla="mercado.curvas"))
-    for i, p in enumerate(ps, 1):
-        p["n"] = i
-    return ps
+    return _paso("escritura", "Qué se va a PISAR", INFO,
+                 ("solo " + " · ".join(campos) + f" en {ticker}. El emisor, la "
+                  "curva y el símbolo quedan intactos."
+                  if campos else "nada: no hay propuesta que aplicar"),
+                 tabla="mercado.curvas")
 
 
 def _pct_o(v, *, pct: bool = False, dec: int = 2) -> str:

@@ -1159,13 +1159,140 @@ def _elegir_ticker(fichas: list[tuple[str, str]],
     return out
 
 
+class AccionAltaFlujos:
+    """**El bono en TENENCIA sin cronograma → su TICKER va a 1816** (§0.cz).
+
+    El user (2026-08-23): *«la tenencia es para saber el BONO; ese ticker se
+    usa para ir a 1816 y encontrar el cash flow. Y si no está en 1816, ESE es
+    el error en todo caso — pero no que no haga nada»*. El control
+    `titulos_sin_flujo` y la cadena de alta E2 eran dos mundos que nunca se
+    habían conectado: el control canta unidades de Aunesa, el alta habla
+    tickers del universo 1816 — este gate hace el puente unidad → TICKER →
+    curva de 1816.
+
+    Tres desenlaces, y NINGUNO es silencio:
+      · 1816 lo tiene   → propuesta real; aplicar corre LA MISMA alta E2 del
+                          modal (`av_agent_alta.aplicar`: baja el cuadro,
+                          simula la TEA, coteja, y SOLO escribe si la cadena
+                          cierra — si bloquea, el error se ve en el resultado).
+      · 1816 NO lo tiene → se dice como hallazgo («modelar a mano») en una
+                          fila propia, no aplicable.
+      · sin TICKER       → primero hay que completar el asset; también se dice.
+    """
+    id = "mercado.alta_flujos"
+    titulo = "Dar de alta el cronograma desde 1816"
+    sobre = "titulos_sin_flujo"
+    campo = "FLUJOS"
+    donde = "mercado.curvas — la misma alta E2 del modal"
+    causa = "sin_flujo"
+
+    _NO_1816 = "NO ESTÁ EN 1816 — modelar a mano"
+    _SIN_TICKER = "SIN TICKER — completar el asset primero"
+
+    def proponer(self, casos: list[dict]) -> list[Propuesta]:
+        from api.services import av_agent_alta
+        from api.services.assets_sql import assets_rows
+
+        # unidad → TICKER, por identidad EXACTA (REGLA #9: sin strip).
+        ticker_de = {str(f.get("unidad") or ""): str(f.get("TICKER") or "").strip()
+                     for f in (assets_rows(["TICKER"]) or [])}
+        props: list[Propuesta] = []
+        for c in casos:
+            unidad = _sujeto(c)
+            if not unidad:
+                continue
+            tk = ticker_de.get(unidad, "")
+            if not tk:
+                props.append(Propuesta(
+                    sujeto=unidad, campo=self.campo, propuesto=self._SIN_TICKER,
+                    porque="el asset no tiene TICKER: sin él no hay con qué "
+                           "buscar en 1816 — cargarlo en Manager → TÍTULOS y "
+                           "reintentar",
+                    extra={"manual": True}))
+                continue
+            # Catálogo YA persistido (research.mkt_1816_instrumentos): 0 créditos.
+            curva = str((av_agent_alta._ficha_1816(tk) or {})
+                        .get("curva_1816") or "").strip()
+            if curva:
+                props.append(Propuesta(
+                    sujeto=tk, campo=self.campo, propuesto=curva,
+                    porque=f"1816 lo tiene en «{curva}»: al aplicar bajo el "
+                           "cuadro, simulo la TEA y SOLO escribo si la cadena "
+                           "cierra — la misma alta E2 del modal",
+                    extra={"unidad": unidad}))
+            else:
+                props.append(Propuesta(
+                    sujeto=tk, campo=self.campo, propuesto=self._NO_1816,
+                    porque="1816 NO lo tiene en ninguna curva — ese ES el "
+                           "hallazgo: el cuadro se modela a mano (Manager → "
+                           "TÍTULOS); aplicar acá no puede hacerlo",
+                    extra={"manual": True, "unidad": unidad}))
+        return props
+
+    def aplicar(self, p: Propuesta) -> None:
+        if (p.extra or {}).get("manual"):
+            raise ValueError(f"no aplicable desde acá: {p.porque}")
+        from api.services import av_agent_alta
+        r = av_agent_alta.aplicar(p.sujeto, curva_1816=p.propuesto,
+                                  actor="av-agent")
+        if not r.get("aplicado"):
+            raise ValueError(str(r.get("error")
+                                 or "la cadena E2 no habilitó el alta")[:300])
+
+    def verificar(self, p: Propuesta) -> tuple[bool, str]:
+        """¿El bono quedó con cronograma? Se relee de `mercado.curvas`. Vale
+        también para los casos «manuales»: si alguien lo modeló a mano, la
+        guarda universal del pipeline los filtra como «ya estaban»."""
+        try:
+            from core.postgres import get_pool
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT jsonb_array_length(COALESCE(data->'flujos', "
+                    "'[]'::jsonb)) FROM mercado.curvas WHERE ticker = %s",
+                    (p.sujeto,))
+                f = cur.fetchone()
+            n = int(f[0]) if f and f[0] is not None else 0
+        except Exception:
+            n = 0
+        return n > 0, (f"{n} flujos cargados" if n else "sigue sin cronograma")
+
+
 ACCIONES: dict[str, Accion] = {a.id: a for a in (
     AccionCartera(), AccionFci(), AccionContraparte(), AccionAvisar(),
     AccionPedirPata(), AccionPataDolar(), AccionApuntarPata(),
-    AccionTickerAsset(), AccionRehacerDia())}
+    AccionTickerAsset(), AccionRehacerDia(), AccionAltaFlujos())}
 # Qué acción resuelve cada control. Sin esto la pantalla tendría que saberlo, y
 # el día que se agregue una acción habría que tocar el front.
 POR_CONTROL: dict[str, str] = {a.sobre: a.id for a in ACCIONES.values()}
+
+# ── LA LEY DEL USER (2026-08-23): en ENCONTRÓ nada queda sin salida ─────────
+#
+# *«No es aceptable que haya cosas en ENCONTRÓ que no tengan solución… hay que
+# hacer un mecanismo para que lo que no se sabe solucionar me obligue a
+# encontrarlo»*. El mecanismo: **todo control tiene una ACCIÓN en POR_CONTROL
+# o su motivo DECLARADO acá** — un test lo exige, así que un control nuevo sin
+# ninguna de las dos no llega a mergearse. El motivo no es una excusa: dice
+# exactamente POR DÓNDE se arregla, y la pantalla lo muestra en el diagnóstico.
+SIN_ACCION: dict[str, str] = {
+    "forwards_faltantes": (
+        "cada caso se arregla en el BONO (flujos/CER/tasa) — el camino es el "
+        "hallazgo de ese bono en LA LISTA, no un botón del control"),
+    "rf_sin_tasa": (
+        "cada caso se diagnostica en su fila (sin_tea_con_precio) — la acción "
+        "es el arreglo del bono, no un botón del control"),
+    "unidades_gemelas": (
+        "borra filas de assets: se repara con scripts/diag_unidades_fantasma "
+        "--reparar (dry-run y guardas obligatorios — no es un botón)"),
+    "rf_valuada_x1": (
+        "es un tipoTitulo nuevo de Aunesa: la corrección es CÓDIGO "
+        "(TIPOS_DIVISOR_100), no un dato que se pueda escribir desde acá"),
+    "simbolos_cuarentena": (
+        "Primary rechaza el símbolo: la salida es elegir otra pata "
+        "(mercado.especies) o esperar el catálogo — decisión de la mesa"),
+    "ops_sin_tc": (
+        "el TC lo carga la mesa en Mesa de Dinero → TC del día — es una carga "
+        "de negocio, no un dato derivable"),
+}
 
 
 # ── El LLM, solo para lo que la regla no supo ───────────────────────────────

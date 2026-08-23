@@ -77,6 +77,41 @@ def test_el_masivo_saltea_lo_ya_atendido():
     assert "saltados_atendidos" in src
 
 
+def test_todo_control_tiene_accion_o_motivo_declarado():
+    """LEY DEL USER (2026-08-23): *«no es aceptable que haya cosas en ENCONTRÓ
+    sin solución… un mecanismo que me obligue a encontrarlo»*. El mecanismo:
+    un control o tiene su ACCIÓN (POR_CONTROL) o su motivo DECLARADO
+    (SIN_ACCION, que dice por dónde se arregla). Un control nuevo sin ninguna
+    de las dos rompe este test y no llega a prod."""
+    from api.services.av_agent_hacer import POR_CONTROL, SIN_ACCION
+    from jobs.controles_datos import CONTROLES
+    for c in CONTROLES:
+        assert c.id in POR_CONTROL or c.id in SIN_ACCION, (
+            f"el control «{c.id}» no tiene acción NI motivo declarado — "
+            "en ENCONTRÓ nada queda sin salida")
+    # Y nadie está en los dos: sería una contradicción con cara de dato.
+    assert not set(SIN_ACCION) & set(POR_CONTROL)
+
+
+def test_titulos_sin_flujo_va_a_1816_y_el_faltante_SE_DICE():
+    """El puente tenencia → TICKER → 1816. Y los dos «no puedo» (sin ticker /
+    no está en 1816) generan una fila que LO DICE — nunca silencio."""
+    from api.services import av_agent_hacer as h
+    assert h.POR_CONTROL["titulos_sin_flujo"] == "mercado.alta_flujos"
+    src = codigo(h.AccionAltaFlujos)
+    assert "_ficha_1816" in src            # el catálogo 1816, 0 créditos
+    assert "av_agent_alta.aplicar" in src  # la MISMA cadena E2 del modal
+    assert "NO ESTÁ EN 1816" in src and "SIN TICKER" in src
+
+
+def test_sin_precio_no_se_rediagnostica_cada_corrida():
+    """Un papel que hoy no opera no es un dato roto: el hallazgo vino de un
+    precio viejo. Cuenta como «nada que hacer hoy» → desenlace viejo →
+    atendido; si vuelve a operar, el detector lo re-ve."""
+    import api.services.av_agent_alta as alta
+    assert 'dx["causa"] in ("sano", "sin_precio")' in inspect.getsource(alta)
+
+
 def test_las_noticias_se_declaran_y_no_ensucian_la_lista():
     """REGLA #10.2 — una casa por naturaleza: «LA BASE CAMBIÓ» es una
     observación sin accionable → su casa es AHORA, no ENCONTRÓ. Se DECLARA

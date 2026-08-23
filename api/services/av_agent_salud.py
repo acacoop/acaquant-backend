@@ -407,8 +407,19 @@ def _lente_que_rompe(c: dict) -> dict | None:
         f = CONTROLES.get(cid)
         if not f:
             return None
+        # LA SALIDA, siempre dicha (ley del user 2026-08-23: «nada en ENCONTRÓ
+        # sin solución»): si el control no tiene botón, el motivo declarado en
+        # `hacer.SIN_ACCION` dice por dónde se arregla — un diagnóstico que
+        # termina en «alguien lo mira» no es un diagnóstico.
+        extra = ""
+        try:
+            from api.services.av_agent_hacer import SIN_ACCION
+            if cid in SIN_ACCION:
+                extra = f"\n\nPor qué no hay botón acá: {SIN_ACCION[cid]}."
+        except Exception:
+            pass
         return _paso("rompe", "Qué queda mal", REVISAR,
-                     f"{f['rompe']}.", accion=f.get("url") or "",
+                     f"{f['rompe']}.{extra}", accion=f.get("url") or "",
                      tabla=f["donde"])
     ficha = JOBS.get(_job_id(c)) or {}
     if ficha.get("alimenta"):

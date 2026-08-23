@@ -1278,12 +1278,14 @@ def _desenlace(chequeos: list[dict]) -> dict:
     sano = next((c for c in chequeos if c.get("nada_que_hacer")), None)
 
     if sano is not None:
-        # Gana sobre todo lo demás: si se PROBÓ que el bono está bien, cualquier
-        # otro renglón ámbar es ruido al lado de eso.
+        # Gana sobre todo lo demás: si se PROBÓ que no hay nada que hacer HOY
+        # (el bono está bien, o el papel no operó y el hallazgo vino de un
+        # precio viejo), cualquier otro renglón ámbar es ruido al lado de eso.
         return {"clase": "viejo", "traba": sano["clave"],
-                "titulo": "Este hallazgo quedó VIEJO — el bono está bien",
-                "que_hacer": "No hay nada que arreglar: aplicar acá lo empeoraría. "
-                             "Cerralo o ignoralo."}
+                "titulo": "Este hallazgo quedó VIEJO — hoy no hay nada que arreglar",
+                "que_hacer": "No hay nada que arreglar hoy: aplicar acá lo "
+                             "empeoraría. Queda atendido; si reaparece, el "
+                             "detector lo trae de vuelta."}
     if traba is None:
         return {"clase": "listo", "traba": "",
                 "titulo": "La cadena cierra entera",
@@ -3244,7 +3246,12 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                     tabla="la lente que falla más aguas arriba", capa=VEREDICTO,
                     # «sano» ES la prueba de que no hay nada que hacer: sin este
                     # flag el desenlace nunca llegaba a «viejo» por esta vía.
-                    nada_que_hacer=(dx["causa"] == "sano")))
+                    # Y «sin_precio» también (§0.cz): un papel que HOY no opera
+                    # no es un dato roto — el hallazgo lo disparó un precio
+                    # viejo. Re-diagnosticarlo cada corrida (8 casos en el
+                    # informe #18) es trabajo sobre nada: queda atendido y si
+                    # vuelve a operar, el detector lo re-ve.
+                    nada_que_hacer=(dx["causa"] in ("sano", "sin_precio"))))
 
     # LA TRAZA: lo que el agente dijo, guardado entero. Best-effort — si la
     # escritura falla el diagnóstico sigue: un registro que puede tumbar la

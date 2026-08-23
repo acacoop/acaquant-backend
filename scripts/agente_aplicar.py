@@ -51,6 +51,9 @@ _RIESGO = {
     "avisar.responsable": "manda un MENSAJE a una persona",
     "contrapartes.alta": "da de alta una contraparte",
     "sistema.rehacer_dia": "relanza un job para un día",
+    "mercado.alta_flujos": "⚠️ ESCRIBE PLATA: da de alta el bono en "
+                           "mercado.curvas (cuadro 1816, cadena E2 con "
+                           "simulación y cotejo antes de escribir)",
 }
 
 

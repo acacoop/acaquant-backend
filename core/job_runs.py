@@ -60,7 +60,13 @@ class JobRunLogger:
         finished = datetime.now(UTC)
         elapsed = time.perf_counter() - self._start_perf
 
-        if exc_type is not None:
+        # ⚠️ `sys.exit(0)` ADENTRO del with levanta SystemExit(0) y esto lo
+        # contaba como "error: SystemExit: 0" (caso market_anchors, informe
+        # #18 del agente): el job salía LIMPIO y el tablero lo mostraba caído.
+        # Un SystemExit con código 0/None es una salida sana, no una falla.
+        salida_sana = (exc_type is SystemExit
+                       and getattr(exc_val, "code", None) in (0, None))
+        if exc_type is not None and not salida_sana:
             status = "error"
             self.errors.append(f"{exc_type.__name__}: {exc_val}")
         elif self.errors:

@@ -87,8 +87,10 @@ def test_desenlace_viejo_gana_aunque_un_cotejo_quede_ambar():
 def test_la_conclusion_sana_declara_nada_que_hacer():
     import api.services.av_agent_alta as alta
 
-    # El paso «⇒ LA CONCLUSIÓN» lleva el flag cuando la causa es «sano»…
-    assert 'nada_que_hacer=(dx["causa"] == "sano")' in inspect.getsource(alta)
+    # El paso «⇒ LA CONCLUSIÓN» lleva el flag cuando no hay nada que hacer hoy
+    # («sano», y desde §0.cz también «sin_precio»: papel que no operó)…
+    assert 'nada_que_hacer=(dx["causa"] in ("sano", "sin_precio"))' \
+        in inspect.getsource(alta)
     # …y `_desenlace` lo busca en TODAS las capas, no solo en `prueba`.
     assert 'c for c in chequeos if c.get("nada_que_hacer")' in codigo(alta._desenlace)
 

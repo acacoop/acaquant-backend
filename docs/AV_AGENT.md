@@ -6695,6 +6695,51 @@ DOS veces en el informe #18 — dos reglas de detección sobre el mismo bono son
 dos filas de la foto, pero el diagnóstico corre POR BONO: correrlo dos veces
 duplica créditos de 1816 y llena el informe de párrafos idénticos.
 
+### 0.cz Tenencia → TICKER → 1816, y en ENCONTRÓ nada queda sin salida (2026-08-23)
+
+> *«La tenencia es para saber el BONO; ese ticker se usa para ir a 1816 y
+> encontrar el cash flow. Y si no está en 1816, ESE es el error en todo caso —
+> pero no que no haga nada.»* · *«No es aceptable que haya cosas en ENCONTRÓ
+> sin solución: un mecanismo que me obligue a encontrarlo.»*
+
+**1. El puente que faltaba: `mercado.alta_flujos`.** El control
+`titulos_sin_flujo` (unidades de la tenencia) y la cadena de alta E2 (tickers
+del universo 1816) eran dos mundos sin conexión — por eso «dar de alta» era un
+link genérico a Manager. El gate nuevo hace unidad → TICKER (identidad exacta,
+REGLA #9) → `_ficha_1816` (catálogo persistido, 0 créditos) y produce TRES
+desenlaces, ninguno silencio: 1816 lo tiene → propuesta real cuyo APLICAR
+corre **la misma alta E2 del modal** (`av_agent_alta.aplicar`: baja el cuadro,
+simula la TEA, coteja, solo escribe si la cadena cierra — un bloqueo se ve en
+el resultado de esa propuesta); 1816 no lo tiene → fila que LO DICE («modelar
+a mano»); sin TICKER → fila que dice completar el asset primero. Riesgo
+declarado en `agente_aplicar._RIESGO` (escribe plata, con cadena).
+
+**2. La ley «nada sin salida», mecanizada.** `hacer.SIN_ACCION`: todo control
+tiene o su acción en `POR_CONTROL` o su motivo declarado (que dice POR DÓNDE
+se arregla: el bono, un script con guardas, código, una decisión de la mesa).
+Un test lo exige — un control nuevo sin ninguna de las dos no mergea. Y el
+diagnóstico del control MUESTRA ese motivo («Por qué no hay botón acá: …»).
+
+**3. `sin_precio` deja de re-diagnosticarse.** Un papel que hoy no opera no es
+un dato roto: el hallazgo lo disparó un precio viejo. Pasa a contar como «nada
+que hacer hoy» → desenlace viejo → atendido; si vuelve a operar, el detector
+lo re-ve. (Eran 8 casos girando en cada informe.) El título del desenlace se
+volvió neutral («hoy no hay nada que arreglar») porque ya cubre dos casos.
+
+**4. `SystemExit: 0` ya no es un error.** `sys.exit(0)` adentro del `with
+JobRunLogger` levantaba SystemExit y el run quedaba «error» (caso
+`market_anchors` del informe #18): una salida con código 0/None es sana.
+
+**Pendiente con GO (próximo round): el ARREGLO COMPUESTO.** Los 25
+`moneda_flujo_contradice` del informe están bloqueados por diseño: tienen DOS
+fallas (moneda + cuadro en nominales de emisión) y la cadena simula arreglar
+UNA — la métrica no vuelve al rango. El plan: cuando la lente de escala
+también falla, la propuesta compone moneda_flujo + cuadro de 1816 y se simula
+JUNTA; solo si la cadena cierra entera se escribe (los escritores ya existen:
+`aplicar_arreglo` + `aplicar_flujos` — falta la simulación conjunta). Se hace
+aparte y con calma porque escribe cronogramas: la clase de cambio donde
+apurarse cuesta plata.
+
 ### 0.f El eval set (2026-08-17)
 
 `agente.av_agent_evals` — un ✔/✖ humano por diagnóstico, con la causa correcta

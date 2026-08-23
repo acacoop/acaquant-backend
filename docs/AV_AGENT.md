@@ -6959,6 +6959,62 @@ encuentra los errores** dice dónde está el punto ciego.
 
 ---
 
+### 0.dd EL CONTADOR SE CALCULA UNA SOLA VEZ — la tercera vez del mismo bug (2026-08-23)
+
+El user, mirando el modal:
+
+    tab ENCONTRÓ .............. 95
+    sub-tab LA LISTA .......... 60      ← un centímetro más abajo
+
+Los dos afirman lo mismo —*cuánto tenés para hacer*— y no podían estar los dos
+bien. **El criterio estaba escrito DOS VECES en el front:**
+
+    tab padre   !atendido && !es_ruido
+    sub-tab     !atendido && !es_ruido && !ignorado && !noticia
+
+Al sumar `ignorado` (§0.cv) y `noticia` (§0.cx) se actualizó una copia y no la
+otra. Los 35 de diferencia eran exactamente eso: lo snoozeado del día más las
+noticias, que ya no son trabajo pendiente de esa pantalla.
+
+**Y es la TERCERA vez que pasa lo mismo en este mismo modal.** El badge decía 7
+con 10 adentro; el tab decía 94 con 67 adentro. Las dos veces anteriores se
+arregló *copiando el criterio corregido a la otra copia* — y una copia se
+desincroniza sola en cuanto aparece un corte nuevo. Que la lección quedara
+escrita en un comentario **al lado del contador roto** (*«un contador de tab
+promete trabajo: cuenta trabajo»*) es la prueba de que el problema nunca fue no
+saberlo: era el modelo de datos.
+
+> Un contador de tab promete trabajo. Si dos contadores de la misma lista
+> prometen distinto, no hay forma de saber cuál creerle — y se dejan de mirar
+> los dos.
+
+**El arreglo no es sincronizar los filtros: es que el front no tenga filtros.**
+`av_agent_vista.pide_trabajo()` es el único criterio, y `vista()` publica
+`por_resolver` (el total) y `por_resolver_tipo` (el desglose, que era una
+TERCERA copia en el desplegable de LA LISTA — un desglose que no suma el total
+es la misma contradicción en chico). Las tres pantallas ahora LEEN.
+
+Es el principio 6 aplicado donde faltaba: *un solo lugar decide cada cosa*. Y
+es REGLA #9 en su forma más barata — el backend ya era el único que sabía
+distinguir «voté» de «apliqué», así que también tenía que ser el que cuenta.
+
+Tres detalles del cómo:
+
+  · **Las marcas se marcan y NO se filtran del payload.** Las filas siguen
+    viajando para que la pantalla pueda destaparlas y contarlas. Lo que se
+    define en `pide_trabajo` es qué entra en el NÚMERO, que es cosa distinta de
+    qué se dibuja — el corte de filas conserva sus toggles y su búsqueda.
+  · **El `??` del front es el puente de un deploy desparejo**, no una segunda
+    verdad: los campos son opcionales, así que un front nuevo contra una API
+    vieja sigue andando con el criterio completo (los cuatro cortes, no los
+    dos). Se saca cuando prod esté estable.
+  · **Un test congela el criterio** (`test_av_agent_por_resolver.py`): los
+    cuatro cortes, que la vista publique los dos campos, que el desglose se
+    arme recorriendo la misma lista, y que el predicado aparezca **una sola
+    vez** en el módulo. El próximo corte entra en un lugar o falla ahí.
+
+---
+
 ## 1. Qué es y qué no es
 
 El **AV Agent** es un agente de **integridad de datos**: compara nuestra verdad

@@ -1105,6 +1105,27 @@ def _que_importa_corto(limite: int = 25) -> dict:
             "sin_mirar": r.get("sin_mirar", [])[:10]}
 
 
+# ── EL CRITERIO DE «ESTO TODAVÍA PIDE TRABAJO», EN UN SOLO LUGAR ────────────
+#
+# Cuatro cortes, y cada uno responde a una decisión distinta que ya tomó
+# alguien — por eso ninguno se puede omitir sin cambiar lo que el número
+# significa:
+#
+#     atendido   lo aplicaste o lo votaste     → vive en ¿AGUANTAN?
+#     es_ruido   dijiste «esto no me sirve»    → tiene su propio contador
+#     ignorado   lo sacaste de la vista HOY    → vuelve mañana si se re-detecta
+#     noticia    no es accionable              → su casa es AHORA
+#
+# **Se marca y NO se filtra del payload**: las filas siguen viajando para que
+# la pantalla pueda destaparlas y contarlas. Lo que se define acá es qué entra
+# en el NÚMERO, que es cosa distinta de qué se dibuja.
+
+def pide_trabajo(h: dict) -> bool:
+    """¿Este hallazgo cuenta como trabajo pendiente? El único criterio."""
+    return not (h.get("atendido") or h.get("es_ruido")
+                or h.get("ignorado") or h.get("noticia"))
+
+
 def vista() -> dict:
     """Todo lo que la pantalla necesita, en un request."""
     from api.services import av_agent_acciones as acciones
@@ -1241,6 +1262,36 @@ def vista() -> dict:
     # consigue que nadie marque nada.
     n_ruido = sum(1 for h in hallazgos if h.get("es_ruido"))
 
+    # ── EL NÚMERO QUE PROMETE TRABAJO, CALCULADO UNA SOLA VEZ (§0.dd) ───────
+    #
+    # El contador de la tab ENCONTRÓ decía **95** y la sub-tab LA LISTA, un
+    # centímetro más abajo, **60**. Los dos afirman lo mismo («cuánto tenés
+    # para hacer») y ninguno de los dos podía estar bien, porque el criterio
+    # estaba escrito DOS VECES en el front:
+    #
+    #     tab padre   !atendido && !es_ruido
+    #     sub-tab     !atendido && !es_ruido && !ignorado && !noticia
+    #
+    # Al sumar `ignorado` (§0.cv) y `noticia` (§0.cx) se actualizó una copia y
+    # no la otra. Es EXACTAMENTE el bug que ya se arregló dos veces en este
+    # modal (el badge que decía 7 con 10 adentro; el tab que decía 94 con 67):
+    # volvió porque las dos veces se arregló la COPIA y no la causa.
+    #
+    # Por eso no se corrige el filtro del front: **se elimina el filtro del
+    # front**. El número lo calcula el backend, que ya es el único que sabe
+    # distinguir «voté» de «apliqué», y las dos pantallas lo LEEN. El próximo
+    # criterio que alguien agregue no puede desincronizar nada porque no hay
+    # dos lugares que mantener (REGLA #9 y principio 6 del agente: un solo
+    # lugar decide cada cosa).
+    #
+    # Va el TOTAL y el desglose POR TIPO: el desplegable de LA LISTA también
+    # contaba por su cuenta (una tercera copia del mismo predicado), y un
+    # desglose que no sume el total es la misma contradicción en chico.
+    por_resolver = [h for h in hallazgos if pide_trabajo(h)]
+    por_resolver_tipo: dict[str, int] = {}
+    for h in por_resolver:
+        por_resolver_tipo[h["tipo"]] = por_resolver_tipo.get(h["tipo"], 0) + 1
+
     return {
         "corrida_at": corrida_at,
         # Lo contestado que TODAVÍA no surtió efecto. Sin esto, el user contesta
@@ -1258,6 +1309,12 @@ def vista() -> dict:
         "hallazgos": hallazgos,
         "por_tipo": por_tipo,
         "por_regla": por_regla,
+        # ⚠️ **LO QUE TODAVÍA PIDE TRABAJO.** Es el número que muestran la tab
+        # ENCONTRÓ y la sub-tab LA LISTA, y por eso viaja calculado: dos
+        # pantallas que prometen el mismo trabajo no pueden contarlo cada una
+        # por su cuenta (ver el bloque de arriba).
+        "por_resolver": len(por_resolver),
+        "por_resolver_tipo": por_resolver_tipo,
         # Cuánto de la lista ya pasó por tus manos. Va SIEMPRE, aunque esté
         # escondido: un filtro que oculta sin decir cuánto oculta es lo mismo que
         # truncar en silencio.

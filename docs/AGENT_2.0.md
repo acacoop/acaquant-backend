@@ -1047,8 +1047,23 @@ habilidades, editable sin deploy.
 
 ## 9. Migración
 
-Las 18 tablas `av_agent_*` **no se dropean**. Borrar código se revierte; borrar
-datos no. Se dejan de escribir y se decide después.
+Las 18 tablas `av_agent_*` **no se dropean con el deploy**. Borrar código se
+revierte; borrar datos no. Se dejan de escribir, y se borran DESPUÉS —cuando el
+agente nuevo ya demostró que anda— con:
+
+```bash
+python -m scripts.limpiar_agente_viejo            # SOLO MIRA (default)
+python -m scripts.limpiar_agente_viejo --aplicar  # dropea, es IRREVERSIBLE
+```
+
+⚠️ **El script no dropea a ciegas**, que sería el anti-patrón que este agente
+existe para evitar. Antes verifica que el reemplazo esté funcionando —las 4
+tablas nuevas existen, el agente latió hace poco, hay habilidades corriendo en
+`ok`— y **aborta si no**. Dropear el viejo mientras el nuevo no mira deja al
+sistema sin ninguno de los dos y sin cómo volver.
+
+Y muestra cuánto pesa y cuántas filas tiene cada tabla antes de borrarla: el que
+aprieta tiene que saber qué se lleva.
 
 Lo que sí se apaga desde el primer día: los cuatro relojes, reemplazados por el
 agente único.

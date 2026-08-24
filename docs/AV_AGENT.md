@@ -21,7 +21,7 @@
 > - **«CÓMO FUNCIONA HOY — el mapa del código»** (arriba de todo, secciones
 >   `M.0`–`M.12`): **el ESTADO**. Dónde vive cada pieza, qué invariante rige,
 >   qué deuda hay abierta. Es lo primero que se lee y lo que se mantiene al día.
-> - **`## 0` en adelante (§0.a → §0.dj): el DIARIO.** Las decisiones en orden
+> - **`## 0` en adelante (§0.a → §0.dk): el DIARIO.** Las decisiones en orden
 >   cronológico, con su porqué. Sirve para no re-proponer lo descartado — **no
 >   para saber cómo funciona algo hoy.**
 >
@@ -43,7 +43,7 @@
 > El user (2026-08-24): *«no puedo tener sesiones en Claude sin que cada sesión
 > vea cosas distintas, que se contradiga constantemente»*.
 >
-> La causa es este documento. De acá para abajo (§0.a → §0.dj) hay un **DIARIO**:
+> La causa es este documento. De acá para abajo (§0.a → §0.dk) hay un **DIARIO**:
 > registra DECISIONES en orden cronológico, y está bien que así sea — es lo que
 > evita re-proponer lo descartado. Pero un diario **no puede contestar «¿cómo
 > funciona hoy?»**: una sesión lee §0.bd y cree que el modelo de objetos está
@@ -93,6 +93,8 @@ no hay que rehacerlo. Lo que pasa es otra cosa, y es medible:
 | Familias de hallazgo SIN objeto | **5** | **0** ✅ | 0 |
 | Tablas con ciclo de vida propio | **5** | **2** | 1 |
 | Comentarios «convive» / «hasta que se apague lo viejo» | **11** | **2** | 0 |
+| Bloques de la pantalla que afirman sin confirmar | **1** | **0** ✅ | 0 |
+| Cada cuánto se contesta «¿esta tabla está al día?» | **24 h** | **10 min** ✅ | 10 min |
 
 Esos 11 comentarios **son** el diagnóstico. Cada uno fue una decisión diferida
 razonable (*«migrar de un saque es cómo se rompe un sistema que funciona»* es
@@ -453,6 +455,7 @@ tabla de estado · una lectura.*
 | **2 · Apagar lo viejo** | se borra el segundo medidor de «¿aguantó?» · el objeto registra CÓMO se cerró y el voto vuelve · el detector declara qué miró · muere el tercer formato de identidad · el daemon absorbe el cron de rueda · los topes silenciosos | ✅ 2026-08-24 (§0.di) |
 | **1 · La puerta única** | `av_agent_registro.guardar()` — la FOTO y el OBJETO juntos, nadie más escribe · tests que prohíben el `INSERT` fuera de ahí, armar la clave a mano y registrar sin declarar qué se miró | ✅ 2026-08-24 (§0.dj) |
 | **3 · La lectura única** | todas las pantallas leen `av_agent_items`; el centinela deja de tener tabla propia y la foto queda solo para la evidencia | ⬜ **la que sigue** |
+| **La frescura** *(fuera de plan — lo pidió la pantalla)* | AHORA solo afirma lo confirmado recién (`av_agent_evaluado`) · el atraso de las tablas se MIDE al leer, no se recuerda · lo barato del sistema pasa a cada 10 min | ✅ 2026-08-24 (§0.dk) |
 
 **El orden va 0 → 2 → 1 → 3 a propósito:** borrar lo viejo primero achica el
 problema; poner la puerta única sobre cuatro pipelines es más trabajo que
@@ -8015,6 +8018,112 @@ productor no declara qué miró, o si la puerta deja de escribir las dos cosas.
 **Lo que NO cambia:** el centinela sigue teniendo su tabla con ciclo propio y
 las pantallas siguen leyendo de varios lados. Eso es la Fase 3 — **la lectura
 única** — ver `M.8`.
+
+
+### 0.dk AHORA DICE LO QUE PASA AHORA (2026-08-24)
+
+El user, mirando la tab AHORA: cuatro motores bajo **ROTO AHORA** con evidencia
+fechada `21/08`, y debajo cinco NOTICIAS DE LA BASE todas selladas `23/08
+20:31`, a las once de la mañana del 24.
+
+    *«lo de los jobs de noche no tiene sentido, esto necesito que sea
+    prácticamente real time o cada 10 minutos, y que cada corrida no
+    superponga cosas ya arregladas. Es inaceptable que AHORA muestre cosas
+    que no sean del día actual.»*
+
+Son **dos causas distintas** con el mismo síntoma, y ninguna es un bug: las dos
+son decisiones correctas aplicadas donde no correspondía.
+
+---
+
+**1 · EL GUARD ERA HONESTO AL ESCRIBIR Y SE VOLVÍA MENTIRA AL LEER.**
+
+`evaluados` (§0.be) impide cerrar por ausencia lo que un detector no alcanzó a
+mirar. Es correcto y deliberado: cerrar sin haber mirado convierte una lista más
+corta en «se arreglaron 40 problemas» y deja el tablero en verde justo el día
+que está más ciego.
+
+Pero la fila queda abierta con su motivo congelado, y la pantalla la publica
+afirmando **«está roto AHORA»**. No lo sabe: sabe que estaba roto la última vez
+que alguien pudo mirar. El guard evita el falso verde y produce un **falso rojo
+eterno** — con el latido en verde al lado, porque el daemon sí está corriendo.
+Vivo y ciego a la vez, que es la combinación que ninguna pantalla distingue.
+
+Las dos mitades son la misma ley y solo estaba escrita una:
+
+    al ESCRIBIR   «no miré» ≠ «no hay nada»      → no cerrar    (ya estaba)
+    al LEER       «no miré» ≠ «sigue pasando»    → no afirmar   (esto)
+
+→ `agente.av_agent_evaluado` (tipo → `ultimo_ok_at`) la escribe **la puerta**,
+porque `evaluados` ya es un parámetro obligatorio suyo: cualquier otro lugar
+sería la séptima puerta. La ventana se DERIVA (`CONFIRMACION_S = 3 ×
+SEGUNDOS_ENTRE_FOTOS`), igual que `CICLOS_PERDIDOS` para el latido — un umbral
+clavado es cómo el semáforo y el reloj se desincronizan.
+
+**Y no se esconde**: eso sería el silencio que se lee como verde (§0.s). Lo que
+no se pudo confirmar baja al bloque **NO LO PUDE VERIFICAR**, plegado, diciendo
+hace cuánto que nadie lo mira. No suma a `novedades`: es una advertencia sobre
+el AGENTE, no sobre el sistema.
+
+De yapa, esto **convierte un punto ciego en una señal**: hasta hoy, un detector
+que dejaba de correr no se notaba en ningún lado. Ahora se canta solo.
+
+---
+
+**2 · EL VEREDICTO ERA DE ANOCHE Y LA PREGUNTA ES DE AHORA.**
+
+`detectar_tablas` sacaba la frescura de `manager.tabla_perfil`, o sea contra el
+`ultimo_dato` que **congeló el barrido de las 23:30 UTC**. Una tabla que volvía
+a escribir a las 9 AM seguía anunciada como quieta hasta la noche siguiente. El
+aviso no envejecía: esperaba a otro job de 24 horas para levantarlo.
+
+Lo que lo resuelve sin correr el barrido entero cada diez minutos es que **las
+dos mitades del perfil no envejecen igual**:
+
+    LA CADENCIA   «escribe cada 4 s» — propiedad del sistema, medida sobre sus
+                  últimas 500 escrituras. Cambia cuando cambia un job. Cuesta
+                  UNA QUERY POR TABLA (~200 viajes) → sigue siendo nocturna.
+    EL ATRASO     «hace 6 h que no escribe» — cambia minuto a minuto y es LA
+                  pregunta. Cuesta un `max(col)`, y todas entran en UNA query.
+
+Mismo HOT/COLD que `ops_agregado_diario`. Si la lectura viva falla se usa la
+guardada y **se dice** (`ultimo_vivo` en la evidencia): un veredicto viejo
+sirve, uno viejo disfrazado de nuevo no.
+
+---
+
+**3 · Y ENTONCES YA NO HAY NADA QUE LOS ATE A LA NOCHE.**
+
+Cuatro detectores vivían en `jobs/db_tamano` (23:30 UTC) porque cuando nacieron
+correrlos más seguido daba la misma respuesta. Con (2) arreglado eso dejó de ser
+cierto. Se mudaron a **`jobs/av_agent_sistema`, cada 10 minutos, todos los días
+y a toda hora** — nada de esto depende del mercado: una tabla nocturna que no
+escribió es un problema a las 3 AM igual que a las 3 PM.
+
+    ACÁ (10 min)   tabla_quieta · db_cambio · dato_partido · cron_desalineado
+    DE NOCHE       la foto de tamaños · el perfil de las ~200 tablas · la
+                   prueba activa de permisos (~400 requests contra producción)
+
+⚠️ **Y por eso `superficie` es un alcance NUEVO** (`ALCANCES_VIVOS`). Los dos
+son de REEMPLAZO, o sea que cada pasada pisa TODO lo de su alcance: si los dos
+jobs escribieran `sistema`, el de 10 minutos borraría los hallazgos del nocturno
+apenas corriera — sin error, sin log, con la pantalla mostrando menos de lo que
+hay. Hay un test que lo congela.
+
+---
+
+**Lo que NO se puede afirmar desde acá.** Por qué exactamente esos cuatro
+motores dejaron de confirmarse (¿`relevar_live` levanta antes de llegar a los
+detectores? ¿`journalctl` no se puede leer?) **no se puede saber sin la
+máquina** (REGLA #2) — y el fix de arriba es correcto para cualquiera de las
+causas, porque ataca la afirmación y no el síntoma. Para la causa concreta va
+`scripts/diag_agente_frescura` (read-only), que además mide el costo real de la
+lectura viva de frescura antes de que el cron de 10 minutos lo dé por barato.
+
+**Un bug que salió al ejecutar y no al leer:** `_anotar_evaluados` filtraba con
+`if str(t).strip()`, y `str(None)` es `"None"` — perfectamente truthy. Habría
+creado una fila llamada `None` en el registro de confirmaciones. Lo cazó correr
+la función contra un cursor falso; leerla no lo mostraba.
 
 
 ## 1. Qué es y qué no es

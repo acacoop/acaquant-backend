@@ -189,12 +189,17 @@ def test_el_job_de_cada_detector_ESCRIBE_hallazgos():
         f = raiz / (modulo.replace(".", "/") + ".py")
         assert f.exists(), f"{tipo} dice correr en {modulo}, que no existe"
         src = f.read_text(encoding="utf-8")
-        # El daemon del centinela persiste por su SERVICE (tabla propia +
-        # espejo en `av_agent_items`), no por la foto de hallazgos: su rastro
-        # en el módulo es el import del service que escribe.
-        assert ("reemplazar_hallazgos" in src or "av_agent_hallazgos" in src
+        # ⚠️ **Desde la Fase 1 el rastro es LA PUERTA** y no cualquier mención
+        # de la tabla: `av_agent_registro.guardar` es la única función que
+        # escribe un hallazgo, así que exigirla es más fuerte que lo que había
+        # acá (buscaba `reemplazar_hallazgos`, que ya no existe).
+        #
+        # El daemon del centinela persiste por su SERVICE (tabla propia + el
+        # espejo), así que su rastro en el módulo es el import de ese service.
+        assert ("av_agent_registro" in src or "registro.guardar" in src
                 or "av_agent_centinela" in src), (
-            f"{modulo} no escribe hallazgos: {tipo} no llegaría a ENCONTRÓ")
+            f"{modulo} no escribe hallazgos por la puerta única: {tipo} no "
+            f"llegaría a ENCONTRÓ")
 
 
 def test_el_job_de_cada_detector_ESTA_EN_EL_CRONTAB():

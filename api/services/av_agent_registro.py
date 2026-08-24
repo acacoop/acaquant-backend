@@ -121,8 +121,13 @@ def guardar(alcance: str, hallazgos: list[dict], *,
         logger.warning("av_agent_registro: no pude espejar %s (%s)", alcance, e)
         espejo = {"ok": False, "error": str(e)[:200]}
 
+    # ⚠️ **Y QUÉ SE PUDO MIRAR, sellado.** Es la otra mitad del guard: sin
+    # esto, la pantalla no tiene forma de distinguir un hallazgo que sigue
+    # pasando de uno que nadie confirma hace tres días. Ver el bloque de abajo.
+    conf = _anotar_evaluados(evaluados)
+
     return {"ok": True, "alcance": alcance, "modo": "reemplazo" if de_reemplazo
-            else "corrida", "foto": n, "espejo": espejo}
+            else "corrida", "foto": n, "espejo": espejo, "confirmados": conf}
 
 
 def _fila(alcance: str, h: dict) -> tuple:
@@ -181,3 +186,108 @@ def _reemplazar(alcance: str, hallazgos: list[dict]) -> int:
             cur.execute(_INSERT, _fila(alcance, h))
         conn.commit()
     return len(hallazgos)
+
+
+# ── QUIÉN CONFIRMÓ QUÉ, Y CUÁNDO — el reverso del guard de `evaluados` ──────
+#
+# ⚠️⚠️ **EL GUARD ERA HONESTO AL ESCRIBIR Y SE VOLVÍA MENTIRA AL LEER.**
+#
+# El user (2026-08-24), mirando ROTO AHORA con cuatro motores fechados tres días
+# antes: *«es inaceptable que AHORA muestre cosas que no sean del día actual»*.
+#
+# La cadena que lo produce no tiene ningún bug — ese es el punto. Un detector
+# levanta (o no corre: fuera de rueda `relevar_live` ni se llama), su tipo NO
+# entra en `evaluados`, y por lo tanto **nada suyo se cierra por ausencia**. Eso
+# está bien y es deliberado (§0.be): cerrar sin haber mirado es la mentira
+# optimista que deja el tablero en verde el día que está más ciego.
+#
+# Pero la pantalla lee esa misma fila y afirma **«está roto AHORA»**. Y no lo
+# sabe: sabe que estaba roto la última vez que alguien pudo mirar, que fue hace
+# tres días. El guard evita el falso verde y produce un **falso rojo eterno**,
+# que envejece igual de mal — con el agravante de que el latido sigue en verde,
+# porque el daemon SÍ está corriendo. Está vivo y ciego a la vez.
+#
+# Las dos mitades son la misma ley y hasta hoy solo estaba escrita una:
+#
+#     al ESCRIBIR   «no miré» ≠ «no hay nada»      → no cerrar  (ya estaba)
+#     al LEER       «no miré» ≠ «sigue pasando»    → no afirmar (esto)
+#
+# Y la salida NO es esconder la fila: es la regla de §0.s —*si la prueba activa
+# no corre, el job lo DICE*—. El silencio se lee igual que un verde, así que lo
+# que no se pudo confirmar sale de ROTO AHORA y entra a su propio bloque, con el
+# nombre del detector y desde cuándo no da señales.
+#
+# Se anota ACÁ y no en cada productor porque `evaluados` ya es un parámetro
+# OBLIGATORIO de esta función: la única puerta que escribe hallazgos es también
+# la única que sabe qué se alcanzó a mirar. Un registro aparte sería la séptima
+# puerta.
+
+# Cuánto vale una confirmación. Tres veces la cadencia de la foto del daemon
+# (`av_agent_centinela.SEGUNDOS_ENTRE_FOTOS` = 5 min): dos pasadas perdidas
+# pueden ser una query lenta, tres seguidas es que ese detector no está
+# corriendo. Es el mismo criterio que `CICLOS_PERDIDOS` usa para el latido.
+CONFIRMACION_S = 15 * 60
+
+
+def _anotar_evaluados(evaluados) -> int:
+    """Sella «este tipo se pudo mirar recién». Nunca levanta: es telemetría de
+    la pasada, y perderla no puede tumbar la escritura del hallazgo."""
+    # ⚠️ El `if t` va ANTES del `str()`: `str(None)` es `"None"`, que es
+    # perfectamente truthy y crearía una fila con ese nombre. Lo cazó ejecutar
+    # esta función contra un cursor falso, no leerla.
+    tipos = sorted({str(t).strip() for t in (evaluados or ()) if t and str(t).strip()})
+    if not tipos:
+        return 0
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO agente.av_agent_evaluado (tipo, ultimo_ok_at, veces) "
+                "VALUES (%s, now(), 1) "
+                "ON CONFLICT (tipo) DO UPDATE SET ultimo_ok_at = now(), "
+                "  veces = agente.av_agent_evaluado.veces + 1",
+                [(t,) for t in tipos])
+            conn.commit()
+        return len(tipos)
+    except Exception as e:
+        logger.warning("av_agent_registro: no pude anotar los evaluados (%s)", e)
+        return 0
+
+
+def confirmados() -> dict[str, object]:
+    """Cuándo se pudo mirar cada tipo por última vez.
+
+    Devuelve `{tipo: ultimo_ok_at}`. **Un tipo que no está en el dict nunca se
+    confirmó**, que es distinto de haberse confirmado hace mucho — y las dos
+    cosas se muestran distinto en la pantalla.
+    """
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT tipo, ultimo_ok_at FROM agente.av_agent_evaluado")
+            return {r[0]: r[1] for r in cur.fetchall()}
+    except Exception as e:
+        logger.warning("av_agent_registro: no pude leer los evaluados (%s)", e)
+        # ⚠️ **Vacío, no None.** Si no se puede leer el registro, ningún tipo
+        # está confirmado y por lo tanto nada afirma «roto AHORA»: la pantalla
+        # va a decir que no pudo verificar, que es exactamente la verdad.
+        return {}
+
+
+def sin_confirmar(tipo: str, conf: dict | None = None,
+                  *, ahora=None) -> float | None:
+    """Hace cuántos segundos que NADIE pudo mirar este tipo.
+
+    `None` = está confirmado y fresco (se puede afirmar que sigue pasando).
+    Un número = hace tanto que no se confirma; `inf` = nunca se confirmó.
+    """
+    from datetime import UTC, datetime
+
+    conf = confirmados() if conf is None else conf
+    ult = conf.get((tipo or "").strip())
+    if ult is None:
+        return float("inf")
+    ahora = ahora or datetime.now(UTC)
+    try:
+        edad = (ahora - ult).total_seconds()
+    except TypeError:      # naive vs aware: no se puede comparar, no se afirma
+        return float("inf")
+    return None if edad <= CONFIRMACION_S else edad

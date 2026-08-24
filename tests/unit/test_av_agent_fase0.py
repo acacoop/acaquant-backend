@@ -11,37 +11,23 @@ import inspect
 
 from api.services import av_agent
 
-# ── 1 · LA FOTO DE REEMPLAZO GUARDA SU IDENTIDAD ────────────────────────────
+# ── 1 · LA FOTO GUARDA SU IDENTIDAD ────────────────────────────────────────
 #
 # Sin `clave`, el `LEFT JOIN` de la vista contra `av_agent_items` no matchea
 # NUNCA (en SQL, NULL ≠ NULL) y las ~13 familias del monitor pierden antigüedad,
 # «volvió», «ya lo atendiste» e IGNORAR.
+#
+# ⚠️ Los tres tests que vivían acá miraban `av_agent.reemplazar_hallazgos`, que
+# **se mudó a la puerta única** en la Fase 1. El invariante no cambió, cambió de
+# dueño: lo cubre `test_av_agent_puerta.py`, que además prohíbe escribir la foto
+# desde cualquier otro módulo — o sea que ya no hay «las dos puertas» que
+# mantener de acuerdo. Hay una.
 
-def test_reemplazar_hallazgos_escribe_la_clave():
-    src = inspect.getsource(av_agent.reemplazar_hallazgos)
-    cols = src[src.index("INSERT INTO agente.av_agent_hallazgos"):]
-    cols = cols[cols.index("("):cols.index(")")]
-    assert "clave" in cols, (
-        "el INSERT de los alcances de REEMPLAZO no incluye la columna `clave`: "
-        "la memoria queda existiendo pero inalcanzable")
-    # y un placeholder por columna, o el INSERT revienta en runtime
-    vals = src[src.index('"VALUES ('):]
-    assert vals[:vals.index(")")].count("%s") == cols.count(",") + 1
-
-
-def test_la_clave_NO_se_arma_a_mano():
-    """La arma `clave_de_problema`, igual que `persistir` y que el detector.
-    Dos implementaciones de la identidad es cómo se llegó hasta acá."""
-    src = inspect.getsource(av_agent.reemplazar_hallazgos)
-    assert "clave_de_problema(" in src
-    assert "'|'" not in src and '"|"' not in src
-
-
-def test_las_dos_puertas_de_persistencia_usan_LA_MISMA_identidad():
-    from jobs.av_agent import persistir
-    for fn in (av_agent.reemplazar_hallazgos, persistir):
-        assert "clave_de_problema(" in inspect.getsource(fn), (
-            f"{fn.__name__} arma la clave por su cuenta")
+def test_la_foto_SIEMPRE_guarda_la_clave():
+    from api.services import av_agent_registro as registro
+    cols = registro._INSERT[registro._INSERT.index("("):registro._INSERT.index(")")]
+    assert "clave" in cols
+    assert "clave_de_problema(" in inspect.getsource(registro._fila)
 
 
 # ── 2 · CADA DETECTOR DECLARA QUÉ MIRÓ, Y SOLO SI CORRIÓ ────────────────────

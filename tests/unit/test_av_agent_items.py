@@ -377,10 +377,9 @@ def test_el_job_NO_deriva_evaluados_de_lo_que_ENCONTRO():
     sea que el último arreglo, el que sí funcionó, no arrancaba su reloj."""
     import inspect
 
-    from jobs.av_agent import _espejar_en_items
-    # Solo el CÓDIGO: el comentario que explica el bug lo nombra a propósito,
-    # y ese texto es justamente lo que hay que conservar.
-    codigo = "\n".join(l for l in inspect.getsource(_espejar_en_items).splitlines()
+    from jobs import av_agent as job
+    # Solo el CÓDIGO: el comentario que explica el bug lo nombra a propósito.
+    codigo = "\n".join(l for l in inspect.getsource(job.persistir).splitlines()
                        if not l.lstrip().startswith("#"))
     assert 'res.get("evaluados")' in codigo
     assert "for h in hall" not in codigo, "volvió a derivarlo de lo encontrado"
@@ -388,28 +387,27 @@ def test_el_job_NO_deriva_evaluados_de_lo_que_ENCONTRO():
 
 def test_una_corrida_SIN_HALLAZGOS_igual_cierra():
     """El día que todo está bien es justo el día en que hay más para cerrar. Y
-    `persistir` cortaba con `return 0` antes de espejar."""
+    `persistir` cortaba con `return 0` antes de espejar.
+
+    ⚠️ Desde la Fase 1 el invariante vive en la PUERTA: `guardar()` sincroniza
+    siempre, tenga o no hallazgos."""
     import inspect
 
-    from jobs import av_agent as job
-    src = inspect.getsource(job.persistir)
-    antes = src[:src.index("return 0")]
-    assert "_espejar_en_items(res)" in antes
+    from api.services import av_agent_registro as registro
+    src = inspect.getsource(registro.guardar)
+    cuerpo = src[src.index("hallazgos = list("):src.index("sincronizar(")]
+    assert "if not hallazgos" not in cuerpo
 
 
-def test_espejar_NUNCA_tumba_la_corrida():
+def test_el_espejo_NUNCA_tumba_la_corrida():
     """La foto —que es lo que hoy se ve— ya está escrita y no se deshace por un
-    problema del espejo nuevo."""
+    problema del espejo."""
     import inspect
 
-    from jobs import av_agent as job
-    src = inspect.getsource(job.persistir)
-    assert "_espejar_en_items(res)" in src
-    cola = src.split("_espejar_en_items(res)")[1]
+    from api.services import av_agent_registro as registro
+    src = inspect.getsource(registro.guardar)
+    cola = src.split("sincronizar(")[1]
     assert "except Exception" in cola
-
-
-# ── EL BACKFILL: un preview que no puede previsualizar no es un preview ─────
 
 def test_el_PREVIEW_no_depende_de_haber_escrito_antes():
     """⚠️ La primera versión filtraba por `clave IS NOT NULL` — y como esa

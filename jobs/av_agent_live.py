@@ -26,6 +26,12 @@ transiciones es de SALUD; esto contesta «¿qué está mal AHORA?».
 
     python -m jobs.av_agent_live          # una pasada
     python -m jobs.av_agent_live --ver    # sin escribir, imprime lo que ve
+
+⚠️ **YA NO ES UN CRON** (2026-08-24, Fase 2). Corría cada 5 minutos llamando a
+la MISMA `relevar_live()` que el daemon `av_agent_centinela` llamaba cada 30
+segundos — dos procesos, el mismo trabajo, tablas distintas. El daemon absorbió
+la foto (throttleada a los mismos 5 minutos) y esto quedó **para correrlo a
+mano**, que es como se debuggea un detector: `--ver` imprime sin escribir.
 """
 from __future__ import annotations
 
@@ -37,13 +43,15 @@ from core.job_runs import JobRunLogger
 logger = logging.getLogger(__name__)
 
 
-def _guardar(hallazgos: list[dict]) -> int:
-    """Reemplaza los hallazgos live. El INSERT vive en `av_agent` porque el
-    monitor de sistema escribe igual: dos copias de la misma transacción se
-    separan el día que una cambia."""
-    from api.services import av_agent
+def _guardar(hallazgos: list[dict], evaluados: set[str],
+             objetos: list[dict]) -> int:
+    """Por la puerta única (`av_agent_registro`), igual que el daemon: la FOTO y
+    el OBJETO juntos, con la misma identidad y la misma guarda."""
+    from api.services import av_agent_registro as registro
 
-    return av_agent.reemplazar_hallazgos("live", hallazgos)
+    r = registro.guardar("live", hallazgos, evaluados=evaluados,
+                           objetos=objetos)
+    return int(r.get("foto") or 0)
 
 
 def main() -> None:
@@ -71,6 +79,7 @@ def main() -> None:
         # en que se puede saber QUÉ SE ARREGLÓ. Sin esto, una recuperación es una
         # fila que deja de escribirse — o sea, silencio (§0.ah).
         from api.services.av_agent_recuperados import detectar_recuperados
+        objetos = list(r["hallazgos"])      # lo que SÍ tiene ciclo de vida
         volvieron = detectar_recuperados(r["hallazgos"])
         if volvieron:
             r["hallazgos"] = list(r["hallazgos"]) + volvieron
@@ -88,7 +97,10 @@ def main() -> None:
         if respuestas:
             r["hallazgos"] = list(r["hallazgos"]) + respuestas
 
-        n = _guardar(r["hallazgos"])
+        # `recuperado` y `respuesta` van a la foto pero NO son objetos: vencen
+        # en minutos y darles ciclo de vida llenaría la memoria de cosas que
+        # nacen y se cierran solas. Ver `av_agent_registro.guardar`.
+        n = _guardar(r["hallazgos"], set(r.get("evaluados") or ()), objetos)
         por_regla: dict[str, int] = {}
         for h in r["hallazgos"]:
             por_regla[h["regla"]] = por_regla.get(h["regla"], 0) + 1

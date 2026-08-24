@@ -320,7 +320,7 @@ CREATE TABLE IF NOT EXISTS agente.habilidades (
     ventana             text NOT NULL DEFAULT 'siempre',  -- rueda | habil | siempre
     activa              boolean NOT NULL DEFAULT true,
 
-    -- SUS PROPIOS UMBRALES (§6). Editable sin deploy.
+    -- SUS PROPIOS UMBRALES (§7). Editable sin deploy.
     umbrales            jsonb NOT NULL DEFAULT '{}'::jsonb,
 
     -- EL ARREGLO. Vacío es una declaración explícita: "esto hoy nadie lo
@@ -381,6 +381,12 @@ CREATE TABLE IF NOT EXISTS agente.hallazgos (
     visto_ultima_vez    timestamptz NOT NULL DEFAULT now(),
     veces               integer NOT NULL DEFAULT 1,
 
+    -- LEÍDO ≠ RESUELTO (§6.1). `leido_at` lo saca de AHORA y NADA MÁS: el
+    -- hallazgo sigue abierto, sigue en LA LISTA y sigue con su botón. Son dos
+    -- ejes independientes y por eso son dos columnas y no un estado.
+    leido_at            timestamptz,
+    leido_por           text NOT NULL DEFAULT '',
+
     estado              text NOT NULL DEFAULT 'nuevo',
     cerrado_at          timestamptz,
     -- accion | ausencia. SOLO `accion` habilita reincidencia (§1.3).
@@ -415,6 +421,11 @@ CREATE INDEX IF NOT EXISTS hallazgos_abiertos
     ON agente.hallazgos (estado, severidad, detectado_at DESC);
 CREATE INDEX IF NOT EXISTS hallazgos_por_habilidad
     ON agente.hallazgos (habilidad, detectado_at DESC);
+-- AHORA: lo de hoy sin leer. Parcial, así el índice pesa lo que la tab muestra
+-- y no lo que la tabla acumula.
+CREATE INDEX IF NOT EXISTS hallazgos_ahora
+    ON agente.hallazgos (detectado_at DESC)
+    WHERE leido_at IS NULL;
 ```
 
 ### 4.3 `agente.reincidencias` — la que debe estar vacía
@@ -489,6 +500,19 @@ SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia,
   LEFT JOIN LATERAL (
         SELECT count(*) AS n
           FROM agente.reincidencias WHERE habilidad = h.nombre) r ON true;
+
+-- AHORA (§6.1): lo de HOY sin leer. Una condición, un COUNT, sin sumas en el
+-- navegador. El día es ART, no UTC: el día UTC arranca a las 21:00 de acá y
+-- mezclaría dos días bajo el mismo rótulo.
+CREATE OR REPLACE VIEW agente.v_ahora AS
+SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
+       f.problema, f.que_hacer, f.detectado_at, hab.dominio
+  FROM agente.hallazgos f
+  JOIN agente.habilidades hab ON hab.nombre = f.habilidad
+ WHERE f.leido_at IS NULL
+   AND (f.detectado_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+       = (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+ ORDER BY f.detectado_at DESC;
 
 -- LO QUE PIDE TRABAJO. Un hallazgo ignorado o resuelto no está acá.
 CREATE OR REPLACE VIEW agente.v_abiertos AS
@@ -692,7 +716,107 @@ warnings, no.
 
 ---
 
-## 6. Los umbrales salen del código
+## 6. Las pantallas
+
+### 6.1 AHORA — el noticiero del día
+
+> *«Tiene que leer HALLAZGOS = fecha IGUAL A HOY. Y es simple: es la sumatoria
+> de hallazgos con fecha == HOY. Y tiene que tener la posibilidad de marcar como
+> leídos los mensajes. Si los marcás como leídos, desaparecen. Es solo
+> informativo.»* — user, 2026-08-24.
+
+**La regla, entera:**
+
+```
+AHORA = hallazgos WHERE detectado_at::date = HOY (ART) AND leido_at IS NULL
+```
+
+Nada más. **Un COUNT sobre una condición.** El badge y la lista salen de la
+misma query, así que no pueden decir cosas distintas.
+
+#### Qué cambia respecto de hoy
+
+Medido sobre el código actual, el badge «AHORA 92» **lo suma el navegador**
+juntando cuatro cosas de **dos endpoints con frescuras distintas**:
+
+```
+nAhora = cent.hoy.novedades            ← /centinela, se refresca cada 20 s
+       + preguntas + decisiones        ← /vista, se carga UNA VEZ al abrir
+       + avisos abiertos               ← /vista
+       + hallazgos marcados "noticia"  ← /vista
+```
+
+Y `novedades` es a su vez tres cosas (`roto` + `apareció` + `volvió`) contadas
+sobre una lista **cortada en 200 filas**, leída de `av_agent_items` —una tabla
+distinta de la que dibuja LA LISTA—, con un filtro extra por día hábil.
+
+De ahí salen cinco defectos que la regla nueva elimina de una:
+
+| Defecto de hoy | Por qué desaparece |
+|---|---|
+| AHORA y LA LISTA leen tablas distintas | hay una sola tabla (§1) |
+| El badge mezcla dos frescuras (20 s y "cuando abriste") | un solo endpoint, una sola query |
+| Los `LIMIT 200 / 40` truncan el conteo **para abajo**, en silencio | el conteo es un `COUNT(*)`, no un `len()` sobre una lista paginada |
+| El «92» no se puede descomponer | cada fila trae su habilidad: el número se abre solo |
+| El corte del día se peleó tres veces en el código | una condición, escrita una vez, en el backend |
+
+#### LEÍDO no es RESUELTO
+
+Son **dos ejes independientes**, y por eso son dos columnas y no un estado más:
+
+- **`leido_at`** — *"ya me enteré"*. Lo saca de AHORA y **de ningún otro lado**.
+- **`estado`** — *"el problema sigue o no sigue"*. Vive su ciclo aparte.
+
+Un hallazgo marcado como leído **sigue abierto, sigue en LA LISTA y sigue con su
+botón de arreglo**. Marcar leído es bajar el ruido del día, no cerrar nada.
+
+Es la distinción que hoy no existe: el agente viejo tiene `marcar_visto`, y su
+propio comentario aclara que *«no lo resuelve ni lo esconde»* — pero está
+mezclado adentro del mismo campo de estado que todo lo demás.
+
+#### AHORA se vacía sola
+
+Un hallazgo nace con la fecha del día en que se detectó. **Al día siguiente sale
+de AHORA aunque nadie lo haya leído**, porque su fecha ya no es hoy.
+
+Eso funciona gracias al índice único de §4.2: un problema que persiste **no crea
+una fila nueva** —sube `veces` y `visto_ultima_vez`— así que su `detectado_at`
+sigue siendo el del día que apareció. AHORA no puede acumular.
+
+#### La consecuencia que hay que aceptar a propósito
+
+**Un motor caído hace tres días NO está en AHORA.** Apareció el lunes, hoy es
+jueves.
+
+Hoy el código hace lo contrario: mete lo `roto` **sin corte de fecha**, después
+de que el user reclamara *«¿cómo no me va a avisar justo de los motores en el
+AHORA?»*. Con la regla nueva eso se cae — y está bien que se caiga, porque
+**AHORA es informativo**: un motor caído hace tres días no es una novedad, es
+trabajo pendiente, y su casa es LA LISTA, donde tiene botón.
+
+Si más adelante hace falta que lo viejo y roto grite, **no se arregla
+ensuciando AHORA**: se arregla con severidad en LA LISTA.
+
+#### Lo único que se escribe desde AHORA
+
+```
+POST /api/ia/av-agent/ahora/leidos   { ids: [...] }
+    → UPDATE agente.hallazgos
+         SET leido_at = now(), leido_por = <email>
+       WHERE id = ANY(%s) AND leido_at IS NULL
+    → releer AHORA
+```
+
+Idempotente (`AND leido_at IS NULL`: marcar dos veces no pisa quién fue el
+primero) y reversible desde la misma pantalla.
+
+**Y nada más.** AHORA no aprueba, no arregla, no ignora, no vota. Un botón de
+acción acá volvería a mezclar el noticiero con la lista de trabajo, que es de lo
+que el user viene escapando.
+
+---
+
+## 7. Los umbrales salen del código
 
 Hoy están desparramados en 6 archivos y ninguno se puede tocar sin deploy:
 
@@ -713,7 +837,7 @@ habilidades, editable sin deploy.
 
 ---
 
-## 7. Invariantes — lo que no se puede romper
+## 8. Invariantes — lo que no se puede romper
 
 1. **Una habilidad que no corrió no cierra nada.** Nunca.
 2. **Un hallazgo sin `que_hacer` no se guarda.** Si no se puede decir qué hacer,
@@ -729,7 +853,7 @@ habilidades, editable sin deploy.
 
 ---
 
-## 8. Migración
+## 9. Migración
 
 Las 18 tablas `av_agent_*` **no se dropean**. Borrar código se revierte; borrar
 datos no. Se dejan de escribir y se decide después.
@@ -739,7 +863,7 @@ agente único.
 
 ---
 
-## 9. Estado
+## 10. Estado
 
 | Etapa | Estado |
 |---|---|
@@ -750,12 +874,19 @@ agente único.
 | Familia 3 (arreglar) | conservada sin cambios |
 | Familia 2 (explicar) | congelada, fuera de alcance |
 | Esquema SQL de las 3 tablas | ✅ §4 |
+| Pantalla AHORA | ✅ §6.1 |
+| Resto de las pantallas | ⬜ pendiente |
 | Implementación | ⬜ pendiente |
 
 ---
 
 ## Changelog
 
+- **2026-08-24** — AHORA queda definida (§6.1): sumatoria de hallazgos con
+  fecha de HOY sin leer, un solo COUNT sobre una condición, con `leido_at`
+  separado de `estado` — leer no resuelve. Se documenta cómo funciona hoy (el
+  badge lo suma el navegador de dos endpoints con frescuras distintas) y qué
+  defecto elimina cada cambio.
 - **2026-08-24** — Se suma el esquema SQL (§4): las tres tablas, sus
   constraints, el índice único que reemplaza al «modo reemplazo», las dos
   vistas derivadas y lo que a propósito NO tiene tabla. Discovery de

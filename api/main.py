@@ -32,6 +32,7 @@ from api.routers import (
     aca,
     agente,
     analitica,
+    ap5,
     back_office,
     carteras,
     cotizaciones,
@@ -324,6 +325,10 @@ app.include_router(risk.router,              dependencies=_OPERAR)
 # Mesa / flujo / contrapartes: solo trader y admin
 app.include_router(operaciones.router,       dependencies=_OPERACIONES)
 app.include_router(cuentas.router,           dependencies=_OPERACIONES)
+# AP5 — POSICIONES Y DIFERENCIAS: la posición de futuros que informa la CÁMARA
+# (A3/ACyRSA). Router aparte de `operaciones` porque la fuente es otra: aquel lee
+# nuestro registro de boletos y este lo que la cámara liquidó. Ver docs/POSTRADE.md.
+app.include_router(ap5.router,               dependencies=_OPERACIONES)
 # Mesa de Dinero (vista NEGOCIO): acceso por allowlist per-usuario (NO por el
 # módulo `operaciones`); la escritura suma su propia allowlist adentro del router.
 app.include_router(mesa_dinero.router,       dependencies=_MESA_DINERO)

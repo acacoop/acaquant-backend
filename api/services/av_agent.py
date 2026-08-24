@@ -185,18 +185,38 @@ def reemplazar_hallazgos(alcance: str, hallazgos: list[dict]) -> int:
     if alcance not in ALCANCES_VIVOS:
         raise ValueError(f"{alcance!r} no es un alcance de reemplazo: borrar una "
                          f"CORRIDA entera no es lo que esta función hace")
+    # ⚠️⚠️ **LA CLAVE VA ACÁ TAMBIÉN** (2026-08-24). Esta función NO la escribía
+    # y `persistir()` sí, así que los hallazgos de los alcances de REEMPLAZO
+    # —`live` y `sistema`, o sea ~13 de las 19 familias— quedaban con
+    # `clave = NULL`. La vista une la foto con la memoria por
+    # `LEFT JOIN av_agent_items i ON i.clave = h.clave`, y en SQL **NULL nunca
+    # es igual a NULL**: el JOIN no matcheaba una sola fila.
+    #
+    # El costo era invisible y enorme: en esas familias no había antigüedad, no
+    # había «volvió», no había «ya lo atendiste» e IGNORAR no las escondía. Todo
+    # se veía recién aparecido, siempre. El comentario del propio `schema.sql`
+    # ya lo había predicho textual: *«sin esta columna… la memoria queda
+    # existiendo pero inalcanzable»*.
+    #
+    # La arma `clave_de_problema`, la MISMA función que usa `persistir` y que el
+    # detector — nunca a mano: dos implementaciones de la identidad es cómo se
+    # llegó hasta acá (REGLA #9).
+    from api.services import av_agent_items
+
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM agente.av_agent_hallazgos WHERE alcance = %s",
                     (alcance,))
         for h in hallazgos:
             cur.execute(
                 "INSERT INTO agente.av_agent_hallazgos "
-                "(alcance, tipo, ticker, regla, severidad, motivo, evidencia) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)",
+                "(alcance, tipo, ticker, regla, severidad, motivo, evidencia, clave) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)",
                 (alcance, h["tipo"], h["ticker"], h["regla"], h["severidad"],
                  h["motivo"],
                  json.dumps(h.get("evidencia") or {}, ensure_ascii=False,
-                            default=str)))
+                            default=str),
+                 av_agent_items.clave_de_problema(h["ticker"], h["regla"],
+                                                  alcance)))
         conn.commit()
     return len(hallazgos)
 
@@ -1903,8 +1923,30 @@ def relevar_live(*, ahora=None) -> dict:
     # LATENCIA y MOTORES entran al monitor de rueda: los dos importan MIENTRAS
     # pasan. Las TABLAS no — barrer 200 tablas cada 5 minutos sería absurdo, y su
     # atraso se mide en horas: van en el job nocturno.
-    for nombre, fn in (("sin_precio", lambda: detectar_sin_precio(bonos, snap, ahora)),
-                       ("precio_moneda",
+    # ⚠️⚠️ **CADA DETECTOR DECLARA QUÉ TIPOS CUBRE, y solo cuenta si CORRIÓ**
+    # (2026-08-24). El `try` de abajo se traga la excepción, así que un detector
+    # que explota devuelve lo mismo que uno que no encontró nada: una lista más
+    # corta. El centinela usaba una lista FIJA (`_CUBRE["precios"]`) que además
+    # nombraba solo 3 de los 6 tipos que este loop produce, y de ahí salían dos
+    # errores opuestos:
+    #
+    #   · `motor_caido`, `motor_ruidoso`, `proveedor_caido` y `latencia` no
+    #     estaban declarados → **nunca se cerraban**. Un motor que volvía seguía
+    #     en AHORA y en VIGILANCIA para siempre.
+    #   · y si se los agregaba a la lista fija, un detector caído los habría
+    #     cerrado a todos por ausencia — la mentira optimista de §0.be.
+    #
+    # La única forma correcta es que lo declare el que sabe: se marca el tipo
+    # DESPUÉS de que su detector terminó bien.
+    evaluados: set[str] = set()
+    for nombre, tipos, fn in (
+                      ("sin_precio",
+                       # `recuperado` lo produce el CRON (`detectar_recuperados`),
+                       # no este loop. Se declara igual para que una buena noticia
+                       # que haya quedado abierta pueda cerrarse por ausencia.
+                       ("sin_precio", "recuperado"),
+                       lambda: detectar_sin_precio(bonos, snap, ahora)),
+                      ("precio_moneda", ("precio_moneda",),
                         lambda: detectar_precio_fuera_de_moneda(
                             bonos, snap, mep, simbolos, defaults,
                             # El catálogo REAL de Primary, para no volver a decir
@@ -1912,19 +1954,23 @@ def relevar_live(*, ahora=None) -> dict:
                             # (`core/instrumentos_validos`): no cuesta una query
                             # por ciclo del centinela.
                             simbolos_primary(), patas)),
-                       ("latencia", detectar_latencia),
-                       ("motores", detectar_motores),
+                      ("latencia", ("latencia",), detectar_latencia),
+                      ("motores", ("motor_caido",), detectar_motores),
                        # Los LOGS también entran acá: una ráfaga de errores
                        # importa MIENTRAS pasa. La ventana es de 24 h igual —
                        # el que machaca todo el día no se ve en una hora — y
                        # como el alcance `live` REEMPLAZA, no se acumula.
-                       ("logs", detectar_logs),
+                      ("logs", ("motor_ruidoso",), detectar_logs),
                        # Los de AFUERA. Va en el monitor de rueda porque una
                        # caída importa mientras pasa: media hora sin los
                        # movimientos del día es media hora de saldos mal.
-                       ("proveedores", detectar_proveedores)):
+                      ("proveedores", ("proveedor_caido",),
+                       detectar_proveedores)):
         try:
             hallazgos.extend(fn())
+            # Solo acá: si levantó, su tipo NO se declara evaluado y por lo
+            # tanto nada suyo se cierra por ausencia.
+            evaluados.update(tipos)
         except Exception as e:      # un detector roto no puede tapar al otro
             logger.exception("av_agent live: detector %s falló: %s", nombre, e)
 
@@ -1936,7 +1982,10 @@ def relevar_live(*, ahora=None) -> dict:
     hallazgos = correlacionar(hallazgos)
 
     return {"alcance": "live", "hallazgos": hallazgos, "mep": mep,
-            "bonos": len(bonos), "con_snapshot": len(snap)}
+            "bonos": len(bonos), "con_snapshot": len(snap),
+            # QUÉ SE ALCANZÓ A MIRAR. Lo lee el centinela para decidir qué
+            # puede cerrar por ausencia — ver el bloque de arriba.
+            "evaluados": sorted(evaluados)}
 
 
 # ── Orquestación (el único que lee de la base / la red) ──────────────────────

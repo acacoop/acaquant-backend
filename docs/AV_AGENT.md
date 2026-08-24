@@ -7194,6 +7194,112 @@ la tabla: perder el estado empeora la pantalla, caerse la borra.
 
 ---
 
+### 0.dh FASE 0 — los cuatro que frenaban la sangría (2026-08-24)
+
+Auditoría línea por línea del subsistema (34 servicios · 18.870 líneas · 3 jobs
++ 1 daemon · 44 endpoints · 47 archivos de test). El diagnóstico de fondo NO es
+que la arquitectura esté mal diseñada —`core/ciclo.py` es correcto— sino que
+**hay dos arquitecturas conviviendo y la vieja nunca se apagó**. Medido:
+
+| | Hoy | Debería |
+|---|---|---|
+| Puertas que escriben estado | **6** | 1 |
+| Formatos de identidad | **3** | 1 |
+| Tablas con ciclo propio | **5** | 1 |
+| Comentarios «convive» / «hasta que se apague lo viejo» | **11** | 0 |
+
+Esta sección cierra los **cuatro que hacían daño mientras tanto**. Los cuatro son
+la misma enfermedad (REGLA #9) y los cuatro fallaban **sin un solo error**.
+
+**1 · LA PARADA FRENABA UNA DE CADA CUATRO ESCRITURAS.** `guardia()` se
+describe como *«el portero de TODA escritura del agente»* y lo llamaban **4
+lugares, todos en `av_agent_alta` y `av_agent_preguntas`**. Las 10 acciones de
+`av_agent_hacer` —las del botón ARREGLAR de cada fila, que escriben
+`portafolio.assets`, `mercado.curvas`, `mercado.especies`,
+`clientes.contrapartes` y `mercado.adhoc_subscriptions`— **no lo consultaban**:
+con el agente FRENADO seguían escribiendo en producción. Tampoco
+`av_agent_pata.pedir`.
+
+El test que debía impedirlo escaneaba **solo `av_agent_alta`**, el módulo donde
+nació, y su propio docstring describía lo que pasó: *«una puerta nueva que no
+llame al guardia no rompe ningún test obvio»*.
+
+→ `guardia()` en `av_agent_hacer.aplicar()` (el ÚNICO camino de las 10 acciones,
+también desde `uno(aplicar_ya=True)`) y en `av_agent_pata.pedir()`. El test
+ahora **barre los 34 módulos por AST**, detecta escrituras (SQL contra un schema
+de negocio o llamada a una puerta conocida) y exige `guardia()` **o** una entrada
+DECLARADA en `av_agent_control.SIN_GUARDIA` con su motivo. La regla que ordena
+esa lista: **la parada corta las escrituras de DATO, no el triaje ni la
+comunicación** — frenar al agente no puede dejarte sin enterarte de que Aunesa
+se cayó.
+
+**2 · LA FOTO DE REEMPLAZO SE GUARDABA SIN IDENTIDAD.** `persistir()` escribía
+la `clave`; `reemplazar_hallazgos()` —o sea los alcances `live` y `sistema`, **13
+de las 19 familias**— no. La vista une la foto con la memoria por
+`LEFT JOIN av_agent_items i ON i.clave = h.clave`, y en SQL **NULL nunca es
+igual a NULL**: el JOIN no matcheaba una sola fila.
+
+En esas familias no había antigüedad, ni «volvió», ni «ya lo atendiste», e
+IGNORAR no las escondía: todo se veía recién aparecido, siempre. El comentario
+del propio `schema.sql` lo había predicho textual — *«sin esta columna… la
+memoria queda existiendo pero inalcanzable»*.
+
+→ La escribe con `clave_de_problema`, la MISMA función que `persistir` y que el
+detector. Un test exige que las dos puertas usen esa función y que ninguna arme
+la clave a mano.
+
+**3 · EL SEGUIMIENTO VIEJO SOLO PODÍA DECIR «AGUANTÓ».** El veredicto sale de
+`clave in claves_abiertas` y las dos mitades arman la clave distinto:
+
+    se anota    `av_agent_acciones` →  accion:objetivo:regla
+    se compara  `jobs/seguimiento`  →  tipo:sujeto:regla
+
+Los ids de acción están namespaceados (`mercado.*`, `assets.*`, `sistema.*`) y
+**ninguno coincide jamás con un tipo de hallazgo**: la intersección es vacía por
+construcción, `volvio` no puede pasar nunca y todo lo que cumple la ventana se
+sella `aguanto` → un ✔ `verificado` fabricado, que la compuerta cuenta igual que
+un click humano. Y desde §0.de era el **ÚNICO** emisor de `verificado` que
+quedaba: la compuerta dependía entera de una fuente que no puede decir que no.
+
+⚠️ El test `test_las_claves_se_arman_IGUAL_que_en_el_centinela` **predijo este
+bug con todas las letras** (*«si cada uno armara la suya… el veredicto sería
+siempre aguantó»*) y comparaba las DOS puntas que sí coinciden, no la tercera.
+
+→ `_votar` devuelve 0 y el módulo no puede importar `av_agent_evals`. Misma
+decisión que §0.de y por la misma regla: **no inventar una señal es mejor que
+fabricar una**. Un test congela el motivo y **falla el día que las claves se
+unifiquen** — ahí sí vuelve el voto. Eso es Fase 2.
+
+**4 · MOTORES, PROVEEDORES Y LATENCIA NO SE CERRABAN NUNCA.** `_CUBRE["precios"]`
+nombraba 3 tipos y la pasada produce **6**: `motor_caido`, `motor_ruidoso`,
+`proveedor_caido` y `latencia` quedaban fuera de `evaluados`, y el auto-resuelto
+filtra por ahí. Un motor que volvía **seguía en AHORA y en VIGILANCIA para
+siempre**, que es cómo una alarma deja de mirarse.
+
+Y agregarlos a la lista fija habría sido peor: los seis detectores corren cada
+uno en su `try`, así que uno caído los habría cerrado a todos por ausencia — la
+mentira optimista de §0.be.
+
+⚠️ **`_CUBRE` tenía DOS consumidores y hacía dos cosas distintas.** También lo
+lee la tab AGENDA (`av_agent_agenda._del_daemon`) para contestar *«¿qué vigila el
+daemon?»* — así que la lista incompleta hacía además que **la AGENDA dijera que
+el agente no vigila los motores**, mientras los mira cada 30 segundos. La
+pantalla que existe para contestar *«¿hay algo que NO estoy haciendo?»*
+contestaba mal.
+
+→ Son dos preguntas y ahora tienen dos fuentes: `_CUBRE` queda **completo** (y
+arregla la agenda) como catálogo de *qué vigilo*; y *qué pude mirar recién* lo
+declara `relevar_live()` **detector por detector, después de que cada uno
+terminó bien**. Un test exige que el `evaluados.update` vaya entre la llamada y
+el `except`, y otro cubre el caso que faltaba: un detector caído DENTRO de la
+pasada de precios no marca lo suyo aunque los otros cinco anden.
+
+**Qué NO cambia esta fase.** Los seis productores, los tres formatos de
+identidad y las cinco tablas con ciclo siguen ahí. Esto frena el daño; la
+arquitectura se cierra en las fases siguientes: **una puerta para escribir, una
+identidad, una tabla de estado, una lectura.**
+
+
 ## 1. Qué es y qué no es
 
 El **AV Agent** es un agente de **integridad de datos**: compara nuestra verdad

@@ -101,6 +101,50 @@ def guardia(accion: str) -> dict | None:
                      f"Se puede diagnosticar, pero no escribir."}
 
 
+# ── QUÉ **NO** FRENA LA PARADA, y es una decisión ───────────────────────────
+#
+# Un test barre TODOS los módulos `av_agent_*` buscando escrituras y exige que
+# la función que las hace llame a `guardia()` **o esté declarada acá con su
+# motivo**. Es el mismo mecanismo que `av_agent_hacer.SIN_ACCION`: no se puede
+# agregar una puerta sin decidir, y la decisión queda escrita.
+#
+# La regla que ordena la lista: **la parada corta las escrituras de DATO, no el
+# triaje ni la comunicación.** Frenar al agente tiene que dejarte seguir
+# trabajando —mirar, descartar, enterarte de que un proveedor se cayó—; si te
+# deja sin la herramienta, el primer reflejo ante una duda es no frenarlo.
+SIN_GUARDIA: dict[str, str] = {
+    # ── MEMORIA PROPIA del agente. No es dato de negocio: es lo que el agente
+    # sabe de sí mismo, y frenarlo no puede dejarlo ciego (además el delta de
+    # mañana necesita la foto de hoy — saltear una noche rompe la medición).
+    "av_agent_db.sacar_foto":
+        "foto del tamaño de la base (manager.db_tamano) — memoria del agente",
+    "av_agent_contexto.barrer":
+        "perfil de cadencia por tabla (manager.tabla_perfil) — memoria del agente",
+    "av_agent_seguridad.sacar_foto":
+        "foto de la superficie HTTP (manager.superficie_dia) — memoria del agente",
+    # ── COMUNICACIÓN. Avisar que Aunesa se cayó no es escribir un dato: es la
+    # señal que hace que alguien reaccione. Callarla mientras el agente está
+    # frenado es justo al revés de lo que uno quiere de un freno.
+    "av_agent_mensajes.enviar_muchos":
+        "manda un aviso a una persona — la parada corta datos, no avisos",
+    "av_agent_proveedores.avisar_caida":
+        "avisa que un proveedor se cayó — enterarse no puede depender del freno",
+    "av_agent_recuperados._avisar_vuelta":
+        "avisa que un proveedor volvió — si salió la mala, sale la buena",
+    # ── CUBIERTA POR SU LLAMADOR. Rama interna de `aplicar_arreglo`, que sí
+    # consulta la parada antes de simular.
+    "av_agent_alta._aplicar_parche_local":
+        "la cubre `aplicar_arreglo`, que llama a guardia() antes de simular",
+    # ── CUBIERTAS POR `av_agent_hacer.aplicar()`, el único camino a la
+    # escritura de las 10 acciones (también desde `uno(aplicar_ya=True)`).
+    "av_agent_hacer.AccionCartera.aplicar": "la cubre av_agent_hacer.aplicar()",
+    "av_agent_hacer.AccionFci.aplicar": "la cubre av_agent_hacer.aplicar()",
+    "av_agent_hacer.AccionPedirPata.aplicar": "la cubre av_agent_hacer.aplicar()",
+    "av_agent_hacer.AccionApuntarPata.aplicar": "la cubre av_agent_hacer.aplicar()",
+    "av_agent_hacer.AccionTickerAsset.aplicar": "la cubre av_agent_hacer.aplicar()",
+}
+
+
 def set_parada(*, activa: bool, motivo: str = "", por: str = "") -> dict:
     """Prende o apaga la parada. Queda en el LIBRO DE ACCIONES: frenar al agente
     es una acción sobre el sistema como cualquier otra, y sin registro no se

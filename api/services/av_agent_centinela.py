@@ -82,8 +82,34 @@ def _clave(h: dict) -> str:
 # porque **una pasada que no encontró nada y una que EXPLOTÓ devuelven lo
 # mismo: nada**. Sin esta lista, la única forma de distinguirlas sería que el
 # detector encontrara algo, que es justo lo que no se puede exigir.
+# ⚠️⚠️ **ESTA LISTA TIENE DOS CONSUMIDORES Y HACÍA DOS COSAS DISTINTAS**
+# (2026-08-24). Es el catálogo de QUÉ VIGILA el centinela, y lo leen:
+#
+#   · la tab AGENDA (`av_agent_agenda._del_daemon`) → «¿qué mira el daemon?»
+#   · el auto-resuelto de `ciclo()`                 → «¿qué puedo dar por cerrado?»
+#
+# Y para la segunda pregunta **estaba mal por construcción**: la pasada de
+# precios corre SEIS detectores y acá se nombraban tres. `motor_caido`,
+# `motor_ruidoso`, `proveedor_caido` y `latencia` quedaban afuera, con dos
+# efectos que nadie cruzó:
+#
+#   · **no se cerraban nunca** → un motor que volvía seguía en AHORA y en
+#     VIGILANCIA para siempre, que es cómo una alarma deja de mirarse;
+#   · y la AGENDA decía que el daemon **no vigila los motores** — la pantalla
+#     que existe para contestar *«¿hay algo que NO estoy haciendo?»* contestaba
+#     que no los mira, mientras los mira cada 30 segundos.
+#
+# Ahora la lista está COMPLETA (arregla la agenda) y **el auto-resuelto ya no la
+# usa**: qué se alcanzó a mirar EN ESTA PASADA lo declara cada detector cuando
+# termina bien (`relevar_live()["evaluados"]`). Son dos preguntas distintas —
+# *qué vigilo* y *qué pude mirar recién*— y una sola lista no puede contestar
+# las dos: si se la completa, un detector caído cierra todo lo suyo por
+# ausencia; si se la recorta, la agenda miente.
 _CUBRE = {
-    "precios": ("sin_precio", "precio_moneda", "recuperado"),
+    # La pasada de precios de `relevar_live()`, COMPLETA. `recuperado` lo
+    # produce el cron y no el daemon, pero el daemon puede cerrarlo.
+    "precios": ("sin_precio", "precio_moneda", "recuperado", "latencia",
+                "motor_caido", "motor_ruidoso", "proveedor_caido"),
     "tasas": ("tasa_sospechosa",),
     "salud": ("salud",),
     # Solo se evalúa los días NO hábiles (es cuando el universo prohibido
@@ -128,7 +154,12 @@ def _observar() -> tuple[list[dict], set[str]]:
         try:
             r = av_agent.relevar_live()
             hallazgos.extend(r.get("hallazgos") or [])
-            evaluados.update(_CUBRE["precios"])
+            # ⚠️ **Lo que la pasada DECLARÓ haber mirado, detector por
+            # detector** — NO `_CUBRE["precios"]`. Los seis detectores corren
+            # cada uno en su `try`: usar el catálogo daría por evaluado lo que
+            # explotó, y eso cierra por ausencia lo que sigue roto (§0.be). El
+            # catálogo dice qué VIGILA; esto dice qué pudo MIRAR recién.
+            evaluados.update(r.get("evaluados") or ())
         except Exception as e:
             logger.exception("centinela: la pasada de precios falló: %s", e)
 

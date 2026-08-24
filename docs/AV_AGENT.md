@@ -7013,6 +7013,185 @@ Tres detalles del cómo:
     arme recorriendo la misma lista, y que el predicado aparezca **una sola
     vez** en el módulo. El próximo corte entra en un lugar o falla ahí.
 
+### 0.de EL EVAL SET SE BORRA ENTERO — el juez estaba juzgando el aire (2026-08-24)
+
+El user, después de mirar el badge `3/12` de una fila: *«hay que borrar
+absolutamente todos los valores de votos… no es fiable nada absolutamente nada,
+está muy verde esto»*. Tiene razón, y la medición lo confirma con una cadena que
+se puede seguir de punta a punta.
+
+**Los dos estados no significaban lo que decían.**
+
+    resuelto   ← `_cerrar_ausentes` (av_agent_items.py:298) cierra lo que la
+                 corrida NO VIO. Un bono que no operó esa noche desaparece de la
+                 lista y se auto-resuelve. NO es «alguien lo arregló».
+    volvio     ← el detector lo ve otra vez (`ver`, :152-158).
+                 NO es «el arreglo falló».
+
+Y encima, en esa transición **se borra `resuelto_at`** (`:162-164`), así que
+después ni se puede reconstruir cuánto había durado — que es justo el dato con
+el que se mediría.
+
+Sobre esas dos confusiones, `cerrar_hitos` dictaba sentencia: un ✖ `verificado`
+con la nota *«el arreglo no aguantó: el problema volvió a aparecer»*, **sobre un
+arreglo que nadie había hecho**.
+
+**Lo medido (2026-08-23, `scripts/diag_agente_veredicto`):**
+
+  · **11 votos ✖, TODOS emitidos en la misma corrida** (22/08 23:50, el cron
+    `jobs.seguimiento`). No fue un goteo: fue un lote.
+  · 9 son `sin_tea_con_precio` —6 de ellos la familia BOPREAL— e incluyen
+    **GD46**, el caso que `resolver_sujeto` ya documenta como VOLVIÓ espurio.
+  · 1 es `salud_control`, donde «alguien lo arregló» ni siquiera aplica.
+  · El bug de fondo ya estaba tapado: `c0486a6` (22/08 **23:33**) cambió
+    `resolver_sujeto` de `resuelto` a `en_curso` — 17 minutos antes de que la
+    corrida barriera lo que el código viejo había ensuciado.
+  · **Ningún objeto llegó a los 30 días** (el más viejo: 2,8 días; la tabla
+    nació el 16/08). O sea que el mecanismo **no podía emitir un solo ✔**: su
+    0% era aritmética, no calidad.
+
+**Por qué eso envenena todo y no solo una fila.** `candidata_a_auto` exige
+`okh == nh` (`av_agent_evals.py:354`): **cero negativos**. Un único ✖ descalifica
+a esa causa para siempre. Tres causas quedaron fuera de la autonomía por votos
+fabricados, y el ✔ que las compensaría no podía existir hasta mediados de
+septiembre.
+
+**Qué se hizo.**
+
+1. **`cerrar_hitos` DEJA DE VOTAR** (las dos direcciones). El reloj sigue —la
+   pantalla ¿AGUANTAN? lo necesita— pero no emite juicio. El ✔ tenía el mismo
+   defecto por el otro lado: «aguantó 30 días» sobre un cierre por AUSENCIA
+   tampoco prueba que alguien haya arreglado algo. `votos` sale siempre en 0, a
+   propósito, y tres tests lo congelan (`test_av_agent_hitos.py`).
+2. **`scripts/reset_evals.py`** borra la tabla entera. No una cirugía sobre los
+   11: una tabla mitad limpia y mitad no es peor que una vacía, porque obliga a
+   aclarar caso por caso cuál vale. Dry-run por default y **respaldo a CSV
+   bloqueante** antes de borrar (borrar datos no se revierte).
+3. **El «valor neutro» ya estaba codeado**: el badge se esconde sin votos
+   humanos (`tab-hallazgos.tsx:1085`). No hubo que tocar el front.
+
+**Cuándo vuelve a votar.** El día que el objeto registre **CÓMO se cerró** (por
+acción vs por ausencia) y deje de borrar `resuelto_at` al volver. Ahí el voto
+sabrá sobre qué opina. Eso además es la mitad de la TRAZABILIDAD que pidió el
+user el 2026-08-23 (*«cada objeto tiene que tener cuándo se descubrió, cuándo se
+diagnosticó, cuándo se arregló»*): cuatro de los cinco sellos ya existen en la
+tabla — falta `diagnosticado_at` y que el cierre diga su motivo.
+
+> **La regla que queda:** no inventar una señal es mejor que fabricar una. Es la
+> misma que ya regía en `_cerrar_ausentes` («sin saber qué se miró no se cierra
+> NADA»), aplicada al juez en vez de al detector.
+
+**Y la MISMA falla estaba por el otro lado: `_votar_derivado`.** El dry-run del
+reset mostró la tabla entera:
+
+    derivado     106 votos   106 ✔      ← acierta=True FIJO
+    humano        52 votos    40 ✔      ← los clicks reales
+    utilidad      43 votos    43 ✔      ← «¿te sirve verlo?», fuera de la compuerta
+    verificado    12 votos     0 ✔      ← los fabricados de arriba
+    TOTAL        213
+
+**106 de 106.** No es que el agente acertara 106 veces: `_votar_derivado`
+escribía `acierta=True` hardcodeado en cada acción aprobada, así que ese número
+no podía bajar. Más de la mitad de la tabla. El argumento original era que
+aprobar una propuesta ES decir que la causa estaba bien; no lo es — aprobar es
+decir «dale», y eso ya queda anotado en `av_agent_acciones`, que es su lugar.
+**La función se borró.** Lo que se queda es `seg.anotar`, que dentro de unos
+días dice si *funcionó*, que es otra cosa y es la que vale.
+
+Orden importante: se saca ANTES de borrar la tabla. Si no, la primera acción
+aprobada después del reset vuelve a sembrar el ✔ automático.
+
+### 0.df LA TARJETA DEJA DE ADIVINAR Y DE HABLAR EN JERGA (2026-08-24)
+
+El user, mirando la fila de CP360 · SIN TEA CON PRECIO: *«es demasiado texto a
+simple vista y no es CLARO… ES INENTENDIBLE DE ESA PARTE EL 100%, PALABRAS COMO
+COTEJO (MALÍSIMO)»*. Tres defectos concretos, los tres arreglados.
+
+**1. La «Sospecha» era una corazonada compitiendo con el diagnóstico real.**
+El motivo del hallazgo venía hardcodeado con *«Sospecha: pata equivocada o
+escala del flujo distinta de la del precio (fallas #2 y #4 del catálogo)»* —
+escrito ANTES de diagnosticar nada, y con jerga interna («fallas #2 y #4») que
+no le dice nada a quien lee. Tres renglones más abajo, el diagnóstico REAL
+—ése sí calculado— decía otra cosa (`moneda_flujo` contradice a los ejes).
+**Dos causas en la misma tarjeta, una adivinada y otra medida.** Se sacó la
+corazonada de los tres motivos (`sin_tea_con_precio`, `paridad_fuera_de_rango`,
+`tea_fuera_de_rango`): el hallazgo dice el SÍNTOMA y manda a DIAGNOSTICAR, que
+es el que sabe.
+
+**2. «Cotejo» y «juez local» no son castellano.** Decían la verdad en un idioma
+que no es el de nadie. Ahora: *«No se pudo comparar contra 1816, pero lo
+probamos con nuestro motor y da bien»*, y el paso pasa a llamarse *«Probado con
+nuestro motor: la paridad vuelve al rango»*. ⚠️ El test que lo cubría exigía la
+frase literal `"juzgó el JUEZ"` — **un test que congela la jerga impide
+reescribirla, que era justo el arreglo**. Se reescribió para congelar el
+SENTIDO: que diga con qué se probó y que no mande a reintentar.
+
+**3. La flecha colgada.** La línea de estado terminaba en `→ ` y lo que venía
+inmediatamente después no era el resultado: era «6 cupones». Se leía
+**«paridad — → 6 cupones»**, que no significa nada — el DESPUÉS estaba seis
+chips más adelante, con la ficha del bono en el medio. Ahora el par va junto y
+nombrado:
+
+    antes:   HOY: TEA sin TEA · paridad — → 6 cupones · vence … · TEA simulada 6,81%
+    ahora:   HOY: sin TEA · paridad — · CON EL ARREGLO: TEA 6,81% · 6 cupones · vence …
+
+(De paso: `TEA sin TEA` decía TEA dos veces, y el separador de los cupones pasó
+a ser condicional para que en el ALTA —donde no hay «antes»— la línea no
+arranque con un `·` suelto.)
+
+### 0.dg EL REGISTRO PASA A SER UNA TABLA, Y EL MODELO QUE FALTABA (2026-08-24)
+
+El user, mirando HISTORIAL → TODO LO QUE PASÓ: *«es horrible ver eso así uno
+apilado abajo del otro… quiero ver tipo lo de si se arregló o no, los aciertos
+—acá es donde me falta contexto, es lo de la parte del objeto que queremos
+modelar, ayudame— tipo el cómo se arregló. Acá tiene que ser la tabla donde
+quede bien todo trazable»*.
+
+**EL MODELO, que es lo que faltaba entender y por eso nunca cerraba.**
+
+> Cada fila del registro es un **EVENTO**. Pero *«¿quedó arreglado?»* **no es
+> una propiedad del evento**: es del **OBJETO** que el evento tocó.
+
+Un bono acumula muchos eventos sobre el mismo problema —se descubrió, se
+diagnosticó, se arregló, volvió, se arregló otra vez— así que la respuesta nunca
+podía estar en la fila: hay que ir a buscarla al objeto (`av_agent_items`, con
+su ciclo). Por eso el registro solo sabía decir si la ESCRITURA había entrado.
+
+**Y son TRES preguntas distintas que se leían como una sola:**
+
+| columna | pregunta | quién la contesta |
+|---|---|---|
+| **SALIÓ** | ¿la escritura entró? | la acción misma, en el acto (`ok`) |
+| **HOY** | ¿el problema se fue? | el OBJETO, con el tiempo (`estado`) |
+| *(falta)* | ¿el diagnóstico era el correcto? | el eval set — vaciado en §0.de |
+
+**La tabla.** Siete columnas: CUÁNDO · QUÉ HIZO (+ quién y en qué tabla escribió)
+· SOBRE QUÉ · POR QUÉ (la causa) · QUÉ CAMBIÓ · SALIÓ · HOY. Con filtro de texto
+—que mira también los campos que cambiaron— y un toggle de «solo las que
+fallaron». Scroll propio, encabezado sticky.
+
+**Tres cosas que el backend ahora manda y antes no:**
+
+  · **`cambios`** — el antes/después comparado campo por campo
+    (`moneda_flujo: ARS → USD`). Se mostraba el JSON entero pegoteado
+    (`{"ejes":null,"causa":null,"campo"…`) y no se leía nada: **un campo que no
+    cambió no es información, es ruido que tapa a los tres que sí**.
+  · **`estado_objeto`** — el estado HOY del problema que la acción arregló.
+  · **`regla`** — la columna existe en la tabla desde §0.aj y **la proyección
+    del registro no la leía**: el dato estaba guardado y la pantalla no podía
+    decir POR QUÉ se hizo cada cosa.
+
+**⚠️ Y DONDE NO SE SABE, LO DICE.** La mayoría de las acciones (`arreglar_bono`
+y compañía) no guardan qué regla las motivó — su tipo emite varias y elegir una
+sería inventarla (REGLA #9; medido: **49 de 122 sujetos** tienen más de una
+regla abierta). En esas filas la columna HOY no afirma nada: muestra *«N
+problemas · no sé cuál»* con el detalle al pasar el mouse. **Es el hueco real,
+dicho en voz alta en vez de tapado con una adivinanza** — y es exactamente el
+que se cierra el día que la acción viaje con la identidad del objeto.
+
+El cruce es **UN solo viaje** (`lower(sujeto) = ANY(...)`) y degrada sin tumbar
+la tabla: perder el estado empeora la pantalla, caerse la borra.
+
 ---
 
 ## 1. Qué es y qué no es

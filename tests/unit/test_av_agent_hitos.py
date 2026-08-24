@@ -53,31 +53,41 @@ def test_TODAVIA_NO_VOLVIO_no_es_AGUANTO():
     assert "d < tope" in src and "max(ciclo.HITOS_DIAS)" in src
 
 
-def test_vota_como_VERIFICADO_que_pesa_como_un_humano():
-    """`verificado` cuenta a la par de un voto humano para la compuerta de
-    autonomía; `derivado` (alguien diciendo «dale») no. La diferencia es que
-    esto no lo dice nadie: lo dice el mundo."""
+def test_el_reloj_NO_ESCRIBE_EN_EL_EVAL_SET():
+    """⚠️ **El invariante nuevo** (2026-08-24). Esta pasada votaba ✔/✖ como
+    `verificado`, que pesa igual que un click humano en la compuerta de
+    autonomía. Pero juzgaba sobre dos estados que no significan lo que dicen:
+    `resuelto` es «el detector no lo vio» (no «lo arreglaron») y `volvio` es
+    «lo volvió a ver» (no «el arreglo falló»). Resultado medido: 11 ✖ en una
+    sola corrida contra arreglos que nadie hizo, y como la compuerta no tolera
+    un solo negativo, esas causas quedaban descalificadas para siempre.
+
+    Vuelve a votar el día que el objeto registre CÓMO se cerró. Hasta entonces
+    no inventa señal — y este test es lo que impide que vuelva por descuido."""
     from api.services.av_agent_items import cerrar_hitos
     src = codigo(cerrar_hitos)
-    assert src.count('origen="verificado"') == 2      # el ✔ y el ✖
-    from api.services import av_agent_evals
-    assert "'humano','verificado'" in codigo(av_agent_evals.precision_por_causa)
+    assert "votar(" not in src
+    assert 'origen="verificado"' not in src
+    assert "av_agent_evals" not in src.split('"""')[-1]
 
 
-def test_es_IDEMPOTENTE_o_en_un_mes_hay_30_votos_del_mismo_arreglo():
-    """El job corre todos los días y los que aguantaron siguen aguantando."""
+def test_el_reloj_SIGUE_contando_hitos():
+    """No votar no es dejar de mirar: la pantalla ¿AGUANTAN? se dibuja con
+    esto. Lo que se apagó es el JUICIO, no la medición."""
     from api.services.av_agent_items import cerrar_hitos
     src = codigo(cerrar_hitos)
-    assert 'ref=f"aguanto:{it.clave}"' in src
-    assert 'ref=f"volvio:{it.clave}"' in src
+    assert "aguantaron.append" in src and "volvieron.append" in src
+    assert "max(ciclo.HITOS_DIAS)" in src
 
 
-def test_lo_que_VOLVIO_vota_NEGATIVO_con_motivo():
-    """Un ✖ del eval set necesita motivo (si no se rechaza), y acá el motivo es
-    un hecho: «se arregló y volvió a pasar»."""
+def test_votos_sale_en_CERO_a_proposito():
+    """El campo se mantiene para no romper a quien lo lee (`jobs/seguimiento`),
+    pero vale 0 siempre. Un 0 explicado es honesto; sacar la clave rompería al
+    que la consume sin avisar."""
     from api.services.av_agent_items import cerrar_hitos
     src = codigo(cerrar_hitos)
-    assert "acierta=False" in src and "nota=" in src
+    assert "votos = 0" in src
+    assert "votos +=" not in src
 
 
 def test_si_no_se_puede_LEER_no_se_vota_nada():

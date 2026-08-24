@@ -5132,6 +5132,70 @@ CREATE TABLE IF NOT EXISTS manager.postrade_token (
     actualizado_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- SCHEMA ap5 — POSICIÓN DE FUTUROS de la cámara (A3 Mercados / ACyRSA)
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- Lo que informa la CÁMARA sobre nuestra posición abierta de futuros, traído de
+-- `PosTrade/PositionReport` de la API Postrade por `jobs/ap5_portfolio.py`
+-- (9:00 ART, todos los días, siempre por el último día hábil).
+--
+-- Schema propio y no una tabla suelta en `mercado` porque es una FUENTE
+-- distinta: no es nuestro cálculo ni nuestro registro, es lo que dice la
+-- cámara. Mezclarlo con lo propio haría que en un incidente nadie sepa cuál de
+-- los dos números manda.
+CREATE SCHEMA IF NOT EXISTS ap5;
+
+-- ap5.portfolio — una fila por (día, cuenta, símbolo, tipo de posición).
+--
+-- El grano NO es el que devuelve la API: la respuesta trae `PositionQty` como
+-- ARRAY anidado, y un mismo instrumento puede venir con varios tipos de
+-- posición. Se expande a una fila por elemento (pedido explícito), porque una
+-- posición guardada como blob no se puede sumar, filtrar ni comparar sin
+-- volver a parsearla en cada consulta.
+--
+-- `long_qty`/`short_qty` son NOT NULL con default 0 a propósito: la API OMITE
+-- el campo cuando vale cero (no manda 0), así que dejarlos NULL confundiría
+-- "no tengo posición larga" con "no sé si tengo posición larga". Son cosas
+-- distintas y solo una es cierta acá.
+--
+-- Solo entran `SecurityType = 'Futuro'`. Opciones y PAF G quedan afuera.
+CREATE TABLE IF NOT EXISTS ap5.portfolio (
+    business_date       date    NOT NULL,
+    account             text    NOT NULL,
+    symbol              text    NOT NULL,
+    position_type       text    NOT NULL,   -- PositionQty[].PosType, ej. 'FIN'
+    cfi_code            text,
+    unit_of_measure     text,
+    daily_settlement    numeric,
+    settlement_price    numeric,
+    settlement_currency text,
+    long_qty            numeric NOT NULL DEFAULT 0,
+    short_qty           numeric NOT NULL DEFAULT 0,
+    actualizado_at      timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (business_date, account, symbol, position_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ap5_portfolio_fecha ON ap5.portfolio (business_date DESC);
+CREATE INDEX IF NOT EXISTS idx_ap5_portfolio_cuenta ON ap5.portfolio (account, business_date DESC);
+
+-- ap5.cuentas — el listado ÚNICO de cuentas, con su nombre puesto A MANO.
+--
+-- La cámara identifica las cuentas por NÚMERO y no manda ninguna denominación.
+-- Un número no le dice nada a nadie, así que esta tabla es el único lugar donde
+-- esa cuenta tiene nombre — y ese nombre lo escribe una persona.
+--
+-- El job da de alta las cuentas nuevas que vea, con `name` en NULL, y **nunca
+-- pisa un nombre ya cargado** (mismo invariante que `jobs/assets_autofill`: lo
+-- automático completa, lo humano manda). Si se pisara, cada corrida borraría el
+-- trabajo del día anterior sin que nadie se entere.
+CREATE TABLE IF NOT EXISTS ap5.cuentas (
+    account     text PRIMARY KEY,
+    name        text,                       -- carga MANUAL; el job jamás lo toca
+    visto_at    timestamptz NOT NULL DEFAULT now(),  -- última vez con posición
+    creado_at   timestamptz NOT NULL DEFAULT now()
+);
+
 -- agente.av_agent_propuestas — LO QUE EL AGENTE SABE HACER (2026-08-19).
 --
 -- Pedido del user: *«que el agente aprenda a sugerir, y que si le das OK

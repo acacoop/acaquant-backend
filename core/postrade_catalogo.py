@@ -68,7 +68,8 @@ LECTURAS: tuple[Metodo, ...] = (
 
     # --- Nuestra posición y nuestra plata ---
     _l("AccountBalance", "PosTrade/AccountBalance", "balance de saldos"),
-    _l("PositionReport", "PosTrade/PositionReport", "reporte de posición"),
+    _l("PositionReport", "PosTrade/PositionReport",
+       "reporte de posición", ("clearingBusinessDate",)),
     _l("MT940", "PosTrade/MT940", "mayor contable"),
     _l("Invoices", "PosTrade/Invoices", "comprobantes"),
     _l("AccruedFees", "PosTrade/AccruedFees", "tarifas devengadas"),

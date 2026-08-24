@@ -72,6 +72,7 @@
 | cada 5min · 13-20h · L-V | `jobs.estrategia_resolver'` |
 | 11:00 · L-V | `jobs.portafolio_backfill` |
 | 12:00 · diario | `jobs.argentina_datos'` |
+| 12:00 · diario | `jobs.ap5_portfolio'` |
 | 12,14,16,18,20,22:0 · L-V | `jobs.interbanking_sync'` |
 | 12,16,20,23:0 · L-V | `jobs.fred_research'` |
 | 12,16,20,23:0 · 1-6 | `jobs.bcra_research'` |
@@ -145,6 +146,7 @@
 | 13:20 · L-V | `systemctl restart motor_portfolio_snapshot.service` |
 | 13:20 · L-V | `systemctl restart motor_estrategia.service` |
 | 13:30 · L-V | `systemctl restart motor_ordenes.service` |
+| Crontab:﻿# · — | `TradingAV` |
 <!-- /AUTOGEN:otros -->
 
 > Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs

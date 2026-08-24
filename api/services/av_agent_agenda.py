@@ -84,10 +84,16 @@ def _seg(cron: str) -> float | None:
 def _del_daemon(piezas_por_job: dict[str, list[dict]]) -> list[dict]:
     """Las piezas que el CENTINELA mira en cada pasada.
 
-    Sale de `av_agent_centinela._CUBRE`, que es la lista que el propio daemon
-    usa para decidir qué puede dar por cerrado — o sea que si queda vieja rompe
-    el auto-resuelto antes que a esta pantalla. Es la única clase de lista de la
-    que uno se puede fiar: la que ya tiene otro dueño que la mantiene.
+    Sale de `av_agent_centinela._CUBRE`, que es el catálogo de QUÉ VIGILA el
+    daemon. Es la única clase de lista de la que uno se puede fiar: la que ya
+    tiene otro dueño que la mantiene — el mismo `_CUBRE` decide qué tipos lee
+    la pantalla AHORA y qué cuenta el semáforo, así que si queda vieja se nota
+    en el tablero antes que acá.
+
+    ⚠️ **Ya NO decide qué se puede dar por cerrado** (§0.dh): eso lo declara
+    cada detector al terminar bien (`evaluados`). Son dos preguntas distintas
+    —*qué vigilo* y *qué pude mirar recién*— y una sola lista no puede
+    contestar las dos sin mentir en una.
     """
     try:
         from api.services.av_agent_centinela import _CUBRE

@@ -25,12 +25,21 @@ existían:
     · `veces` cuenta cuántas ruedas lleva sin resolverse
     · si estaba RESUELTO y reaparece → `volvio`, que **no es lo mismo que nuevo**
 
-CONVIVE CON LO VIEJO
-====================
+ES LA ÚNICA TABLA CON CICLO DEL AGENTE (Fase 3, 2026-08-24)
+==========================================================
 
-No se migró ninguna tabla: las 22 siguen ahí y `core.ciclo.sin_migrar()` cuenta
-las 11 que tienen ciclo propio. Esto es el destino, y cada superficie se mueve
-cuando le toca. Migrar de un saque es cómo se rompe un sistema que funciona.
+Hasta hoy convivía con `agente.av_agent_centinela`, que guardaba lo mismo en
+paralelo con su propio `abierto_at`, su propio `visto_at` y su propia
+identidad. **De esa costura salieron cuatro bugs que son el mismo**: «AHORA
+dice recién y ENCONTRÓ 11 días», «ROTO AHORA muestra 8 filas que son 4»,
+«marqué visto y sigue sin ver», y el JOIN que reimplementaba la identidad en
+SQL. Cada mitad era correcta por su cuenta — por eso ninguno fallaba.
+
+La tabla vieja quedó (borrar código se revierte, borrar datos no) pero **nadie
+la escribe ni la lee**, y un test lo congela. Fuera del agente siguen habiendo
+superficies con ciclo propio: `core.ciclo.sin_migrar()` las cuenta y cada una
+se mueve cuando le toca. Migrar de un saque es cómo se rompe un sistema que
+funciona; dejar dos a medias es cómo se rompió éste.
 """
 from __future__ import annotations
 
@@ -257,6 +266,39 @@ def marcar(clave: str, estado: str, *, por: str = "") -> dict:
         return {"ok": False, "error": str(e)[:200]}
 
 
+def marcar_vistos(claves: list[str], *, por: str = "") -> dict:
+    """«Ya los miré», **de a muchos y en UNA query**.
+
+    ⚠️ Nace de mudar `av_agent_centinela.marcar_visto` a la tabla canónica
+    (Fase 3). Se podría haber llamado a `marcar()` en un bucle, pero son hasta
+    500 claves y cada viaje a Supabase paga ~8,5 ms de distancia aunque la
+    query ejecute en 0,1: 4 segundos para apretar un botón.
+
+    **La transición se respeta igual**, en el WHERE: solo pasan a `visto` los
+    que están en un estado desde el que eso es legal (`nuevo` y `volvio`). Un
+    `resuelto`, un `ignorado` o un `en_curso` no se tocan — marcar visto no
+    puede deshacer un cierre ni sacar algo de la bandeja de trabajo.
+    """
+    claves = [c for c in (claves or []) if c][:500]
+    if not claves:
+        return {"ok": False, "error": "no hay nada que marcar"}
+    desde = [e for e in ciclo.ESTADOS if ciclo.puede_pasar(e, ciclo.VISTO)]
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE agente.av_agent_items "
+                "   SET estado = %s, visto_at = COALESCE(visto_at, now()), "
+                "       visto_por = COALESCE(visto_por, NULLIF(%s, '')) "
+                " WHERE clave = ANY(%s) AND estado = ANY(%s)",
+                (ciclo.VISTO, por or "", claves, desde))
+            n = cur.rowcount
+            conn.commit()
+        return {"ok": True, "marcados": n}
+    except Exception as e:
+        logger.warning("av_agent_items: no pude marcar vistos (%s)", e)
+        return {"ok": False, "error": str(e)[:200]}
+
+
 def sincronizar(origen: str, vistos: list[dict], *,
                 evaluados: set[str] | tuple[str, ...] = ()) -> dict:
     """Una corrida entera: **registra lo que está y CIERRA lo que ya no está.**
@@ -290,7 +332,10 @@ def sincronizar(origen: str, vistos: list[dict], *,
     if not origen:
         return {"ok": False, "error": "sin origen no se puede cerrar nada: "
                                       "cerraría hallazgos de otro detector"}
-    evaluados = {str(x).strip() for x in (evaluados or ()) if str(x).strip()}
+    # ⚠️ El `if x` va ANTES del `str()`: `str(None)` es `"None"`, perfectamente
+    # truthy, y declararía evaluado un tipo llamado así. Mismo bug que tenía la
+    # puerta; se arregla en los dos porque es el mismo descuido, no dos.
+    evaluados = {str(x).strip() for x in (evaluados or ()) if x and str(x).strip()}
 
     claves_vistas: set[str] = set()
     nuevos = vueltos = 0

@@ -28,37 +28,59 @@ def test_dos_problemas_distintos_del_mismo_bono_son_dos_claves():
         c._clave({**base, "regla": "sin_punta"})
 
 
+# ⚠️ **LAS TRES LEYES DE ABAJO NO CAMBIARON: SE MUDARON** (Fase 3, 2026-08-24).
+#
+# Vivían en el `UPSERT` que `ciclo()` hacía contra su tabla propia. Al no haber
+# tabla propia, las cumple `av_agent_items.ver()` — el mismo camino de entrada
+# que usa la relevada nocturna. Se testean donde viven ahora, y acá queda lo
+# único que este módulo todavía puede romper: **volver a escribir por su lado.**
+
 def test_el_upsert_NO_pisa_abierto_at_ni_visto_at():
     """Son los dos campos que contestan «¿desde cuándo?» y «¿ya lo miré?».
     Refrescarlos en cada ciclo borraría exactamente lo que el user pidió que no
     se pierda."""
-    src = inspect.getsource(c.ciclo)
-    do_update = src[src.index("DO UPDATE"):src.index("RETURNING")]
-    # Se busca la ASIGNACIÓN, no la palabra: el comentario de al lado los nombra
+    from api.services import av_agent_items
+
+    src = inspect.getsource(av_agent_items.ver)
+    # `ver()` es un INSERT ... ON CONFLICT: el UPDATE llega hasta el final del
+    # SQL. Se corta desde `DO UPDATE` para no leer el docstring, que nombra los
+    # dos campos justamente para explicar por qué NO se tocan.
+    do_update = src[src.index("DO UPDATE"):]
+    # Se busca la ASIGNACIÓN, no la palabra: los comentarios los nombran
     # justamente para explicar por qué NO se tocan.
     assert "abierto_at =" not in do_update
     assert "visto_at =" not in do_update
     # Lo que SÍ se refresca es el estado de ahora.
-    assert "motivo = EXCLUDED.motivo" in do_update and "ultimo_at = now()" in do_update
+    assert "titulo = " in do_update and "ultimo_at = " in do_update
 
 
 def test_un_hallazgo_que_vuelve_REABRE_la_misma_fila():
     """Un problema intermitente es UN problema intermitente, no cinco problemas
     distintos — y `veces` es lo que lo delata."""
-    src = inspect.getsource(c.ciclo)
-    do_update = src[src.index("DO UPDATE"):src.index("RETURNING")]
-    assert "resuelto_at = NULL" in do_update
-    assert "veces = agente.av_agent_centinela.veces + 1" in do_update
+    from api.services import av_agent_items
+
+    src = inspect.getsource(av_agent_items.ver)
+    # `ver()` es un INSERT ... ON CONFLICT: el UPDATE llega hasta el final del
+    # SQL. Se corta desde `DO UPDATE` para no leer el docstring, que nombra los
+    # dos campos justamente para explicar por qué NO se tocan.
+    do_update = src[src.index("DO UPDATE"):]
+    assert "vuelto_at" in do_update
+    assert "veces = agente.av_agent_items.veces + 1" in do_update
 
 
 def test_una_pasada_VACIA_no_resuelve_nada():
     """Si todos los detectores fallan, sus hallazgos faltan por el ERROR y no
     porque se hayan arreglado. Darlos por resueltos sería el peor tipo de
-    mentira: silenciosa y optimista."""
-    src = inspect.getsource(c.ciclo)
-    i_auto = src.index("resuelto_como = 'solo'")
-    assert "if hallazgos:" in src[:i_auto], (
-        "el auto-resuelto tiene que estar guardado por una pasada no vacía")
+    mentira: silenciosa y optimista.
+
+    ⚠️ La guarda dejó de ser «¿trajo algo?» y pasó a ser «¿qué declaró haber
+    mirado?» (§0.be): un detector caído devuelve lo mismo que uno que no
+    encontró nada, así que la lista vacía nunca puede autorizar un cierre."""
+    from api.services import av_agent_items
+
+    src = inspect.getsource(av_agent_items._cerrar_ausentes)
+    assert "evaluados" in src and "tipo = ANY(%s)" in src
+    assert "if hallazgos:" not in inspect.getsource(c.ciclo)
 
 
 def test_el_latido_se_escribe_TAMBIEN_cuando_el_ciclo_falla():
@@ -70,10 +92,29 @@ def test_el_latido_se_escribe_TAMBIEN_cuando_el_ciclo_falla():
 
 def test_marcar_visto_no_resuelve_ni_esconde():
     """Son dos cosas distintas. Si marcar visto ocultara el hallazgo, nadie lo
-    marcaría por miedo a perderlo de vista."""
-    src = inspect.getsource(c.marcar_visto)
-    assert "visto_at = now()" in src
+    marcaría por miedo a perderlo de vista.
+
+    ⚠️ Desde la Fase 3 escribe en la tabla CANÓNICA. Antes marcaba visto en la
+    tabla propia y el objeto no se enteraba: la misma fila salía de NUEVO en
+    AHORA y seguía contada como «sin ver» en ENCONTRÓ."""
+    from api.services import av_agent_items
+
+    assert "av_agent_items.marcar_vistos" in inspect.getsource(c.marcar_visto)
+    src = inspect.getsource(av_agent_items.marcar_vistos)
+    assert "visto_at = COALESCE(visto_at, now())" in src
     assert "resuelto_at" not in src
+
+
+def test_marcar_visto_RESPETA_la_transicion():
+    """No puede resucitar un `resuelto` ni sacar de la bandeja un `en_curso`:
+    el WHERE se arma desde `ciclo.TRANSICIONES`, no a mano."""
+    from api.services import av_agent_items
+    from core import ciclo as cc
+
+    src = inspect.getsource(av_agent_items.marcar_vistos)
+    assert "ciclo.puede_pasar(e, ciclo.VISTO)" in src
+    desde = [e for e in cc.ESTADOS if cc.puede_pasar(e, cc.VISTO)]
+    assert set(desde) == {cc.NUEVO, cc.VOLVIO, cc.EN_CURSO}
 
 
 def test_VIVO_es_una_afirmacion_sobre_ahora():

@@ -36,7 +36,6 @@ automático. Escribe en su propia tabla y en ninguna otra.
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 from datetime import UTC, datetime
@@ -231,7 +230,7 @@ def _toca_la_foto() -> bool:
     return (time.monotonic() - _ultima_foto) >= SEGUNDOS_ENTRE_FOTOS
 
 
-def _escribir_la_foto(hallazgos: list[dict], evaluados: set[str]) -> int:
+def _escribir_la_foto(hallazgos: list[dict], evaluados: set[str]) -> dict:
     """La foto `live` + lo que el cron hacía justo antes de pisarla.
 
     **El orden importa**: `detectar_recuperados` lee la foto ANTERIOR (todavía
@@ -267,112 +266,71 @@ def _escribir_la_foto(hallazgos: list[dict], evaluados: set[str]) -> int:
     r = registro.guardar("live", list(hallazgos) + extra,
                            evaluados=evaluados, objetos=list(hallazgos))
     _ultima_foto = time.monotonic()
-    return int(r.get("foto") or 0)
+    esp = r.get("espejo") or {}
+    return {"foto": int(r.get("foto") or 0), "nuevos": int(esp.get("nuevos") or 0)}
+
+
+def _contar_abiertos() -> int:
+    """Cuántos problemas del daemon siguen abiertos. UNA query.
+
+    Va contra `av_agent_items` —la tabla ÚNICA desde la Fase 3— y se cuenta en
+    CADA latido, aunque esa vuelta no haya observado: el número del semáforo
+    tiene que ser de ahora, no del último censo.
+    """
+    from api.services.av_agent import EN_AHORA_SIEMPRE
+
+    tipos = sorted({t for ts in _CUBRE.values() for t in ts}
+                   | set(EN_AHORA_SIEMPRE))
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM agente.av_agent_items "
+                    "WHERE estado NOT IN ('resuelto', 'ignorado') "
+                    "  AND tipo = ANY(%s)", (tipos,))
+        return int((cur.fetchone() or [0])[0])
 
 
 def ciclo() -> dict:
-    """Observa, concilia contra lo que ya estaba, y late. Nunca levanta."""
+    """Observa, escribe por la puerta, y late. Nunca levanta.
+
+    ⚠️⚠️ **FASE 3 — YA NO HAY TABLA PROPIA** (2026-08-24). Hasta hoy esta
+    función hacía un `UPSERT` en `agente.av_agent_centinela` con su propio ciclo
+    de vida, su propio `abierto_at` y su propio `resuelto_como`, **en paralelo
+    al objeto**. Dos tablas para el mismo hecho, y por eso `estado()` tenía que
+    leer las dos, deduplicarlas por (sujeto, regla) y elegir cuál `abierto_at`
+    mostrar — de ahí salieron «AHORA dice recién y ENCONTRÓ 11 días» y «ROTO
+    AHORA muestra 8 filas que son 4».
+    
+    Ahora escribe por la MISMA puerta que todo lo demás (`registro.guardar`),
+    que persiste la foto y el objeto juntos. La tabla vieja no se dropea
+    —borrar código se revierte, borrar datos no— pero un test prohíbe escribirla.
+
+    ⚠️ **Y OBSERVAR PASÓ A IR CON LA ESCRITURA.** El daemon late cada 30 s y
+    corría `_observar()` (medido en prod: **1218 ms**, el barrido completo)
+    en cada vuelta, para después persistir una de cada diez: la foto ya estaba
+    throttleada a 5 minutos y la tabla propia era lo único que justificaba el
+    resto. Al no haber tabla propia, nueve de cada diez pasadas eran trabajo que
+    se tiraba. Ahora se observa cuando se escribe; el LATIDO sigue a 30 s,
+    porque su trabajo es decir «estoy vivo» y eso sí tiene que ser de ahora.
+    """
     t0 = time.perf_counter()
     from api.services import av_agent
     abierto = av_agent.en_rueda()
     err = ""
     nuevos = abiertos = fotos = 0
+    observo = _toca_la_foto()
     try:
-        hallazgos, evaluados = _observar()
-        # Dedup por clave DENTRO de la pasada: dos detectores pueden ver el mismo
-        # problema (un bono sin precio también sale sin TEA) y eso es una fila,
-        # no dos.
-        por_clave: dict[str, dict] = {}
-        for h in hallazgos:
-            por_clave.setdefault(_clave(h), h)
-
-        from api.services import av_agent_items
-
-        marca = datetime.now(UTC)
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            for clave, h in por_clave.items():
-                cur.execute(
-                    "INSERT INTO agente.av_agent_centinela "
-                    "(clave, tipo, sujeto, regla, severidad, motivo, evidencia, "
-                    " clave_item) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s) "
-                    "ON CONFLICT (clave) DO UPDATE SET "
-                    # El motivo y la evidencia SÍ se refrescan: son el estado de
-                    # AHORA. Lo que nunca se pisa es `abierto_at` ni `visto_at`.
-                    "  motivo = EXCLUDED.motivo, evidencia = EXCLUDED.evidencia, "
-                    "  severidad = EXCLUDED.severidad, ultimo_at = now(), "
-                    "  veces = agente.av_agent_centinela.veces + 1, "
-                    # Si volvió, REABRE la misma fila. Un problema que va y viene
-                    # es UN problema intermitente, no cinco problemas distintos.
-                    # Y se CUENTA la reapertura: «esto ya lo arreglamos tres
-                    # veces y vuelve» es un dato distinto de «pasa hace tres
-                    # días», y hasta hoy los dos se veían igual. Un problema que
-                    # reaparece no es el de siempre — es uno que no entendimos.
-                    "  reaperturas = agente.av_agent_centinela.reaperturas + "
-                    "    CASE WHEN agente.av_agent_centinela.resuelto_at "
-                    "         IS NOT NULL THEN 1 ELSE 0 END, "
-                    "  resuelto_at = NULL, resuelto_como = NULL, "
-                    # Se refresca por si la fila es vieja (nació antes de que
-                    # existiera la columna) o si `causa_canonica` cambió.
-                    "  clave_item = EXCLUDED.clave_item "
-                    "RETURNING (xmax = 0) AS es_nuevo",
-                    (clave, h.get("tipo"), h.get("ticker") or "?", h.get("regla"),
-                     h.get("severidad"), h.get("motivo"),
-                     json.dumps(h.get("evidencia") or {}, ensure_ascii=False,
-                                default=str),
-                     # LA MISMA función que usan el detector, el job y la
-                     # acción. Nunca a mano: tres implementaciones de la
-                     # identidad es cómo se llegó hasta acá (REGLA #9).
-                     av_agent_items.clave_de_problema(
-                         h.get("ticker") or "", h.get("regla") or "")))
-                if (r := cur.fetchone()) and r[0]:
-                    nuevos += 1
-
-            # AUTO-RESUELTOS: los que no aparecieron en ESTA pasada.
-            #
-            # ⚠️⚠️ **SOLO DE LOS TIPOS QUE SE ALCANZARON A MIRAR.** Antes la
-            # condición era `if hallazgos:` — o sea, «si algo trajo, cerrá todo
-            # lo demás». El comentario decía «solo cuando la pasada fue
-            # COMPLETA» y **eso no era lo que el código chequeaba**: los tres
-            # bloques de `_observar` se tragan su excepción, así que una caída
-            # del bloque de tasas dejaba pasar la condición igual (los precios
-            # sí habían traído algo) y marcaba **todos los `tasa_sospechosa`
-            # como "se arregló solo"**.
-            #
-            # Silenciosa y del lado optimista, que es la peor combinación. Ahora
-            # `_observar` declara qué alcanzó a mirar y solo eso se cierra.
-            if evaluados:
-                cur.execute(
-                    "UPDATE agente.av_agent_centinela SET resuelto_at = now(), "
-                    "  resuelto_como = 'solo' "
-                    "WHERE resuelto_at IS NULL AND ultimo_at < %s "
-                    "  AND tipo = ANY(%s)", (marca, sorted(evaluados)))
-            cur.execute("SELECT count(*) FROM agente.av_agent_centinela "
-                        "WHERE resuelto_at IS NULL")
-            abiertos = cur.fetchone()[0]
-            conn.commit()
-
-        # ── Y LA FOTO, que es lo que lee LA LISTA ───────────────────────────
-        # Throttleada: el daemon late cada 30 s y la foto se reescribe entera.
-        # Va DESPUÉS de la transacción de arriba y en su propio try.
-        if _toca_la_foto():
-            try:
-                fotos = _escribir_la_foto(list(por_clave.values()), evaluados)
-            except Exception as e:
-                logger.warning("centinela: no pude escribir la foto live (%s)", e)
-
-        # ⚠️ **EL ESPEJO EN `av_agent_items` YA NO SE LLAMA ACÁ** (Fase 1).
-        #
-        # Lo hace `av_agent_registro.guardar`, junto con la foto: eran dos
-        # escrituras del MISMO hecho, hechas por separado, y por eso podían —y
-        # podían en serio— quedar desincronizadas. AHORA y ENCONTRÓ hablan de lo
-        # mismo porque salen de la misma llamada, no porque alguien se acuerde
-        # de hacer las dos.
-        #
-        # ⚠️ Ojo con el THROTTLE: el espejo se escribe cuando se escribe la
-        # foto, o sea cada 5 minutos y no cada 30 segundos. Es lo correcto —
-        # `av_agent_centinela` (la tabla de arriba) es la que tiene que estar al
-        # instante para el semáforo; la memoria se mide en días.
+        if observo:
+            hallazgos, evaluados = _observar()
+            # Dedup por clave DENTRO de la pasada: dos detectores pueden ver el
+            # mismo problema (un bono sin precio también sale sin TEA) y eso es
+            # una fila, no dos.
+            por_clave: dict[str, dict] = {}
+            for h in hallazgos:
+                por_clave.setdefault(_clave(h), h)
+            r = _escribir_la_foto(list(por_clave.values()), evaluados)
+            fotos, nuevos = r["foto"], r["nuevos"]
+        # El conteo va SIEMPRE, haya observado o no: es lo que dibuja el número
+        # del semáforo y no puede quedarse en el del último censo.
+        abiertos = _contar_abiertos()
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
         logger.exception("centinela: el ciclo falló")
@@ -384,7 +342,10 @@ def ciclo() -> dict:
     proximo = INTERVALO_RUEDA_S if abierto else INTERVALO_CERRADO_S
     _latir(abierto, abiertos, nuevos, ms, err, proximo)
     return {"ok": not err, "en_rueda": abierto, "abiertos": abiertos,
-            "nuevos": nuevos, "ms": ms, "error": err, "foto": fotos}
+            "nuevos": nuevos, "ms": ms, "error": err, "foto": fotos,
+            # ¿Esta vuelta miró, o solo latió? Sin esto, un ciclo de 4 ms y uno
+            # de 1200 se leen igual en el log.
+            "observo": observo}
 
 
 def _latir(abierto: bool, abiertos: int, nuevos: int, ms: int, err: str,
@@ -419,9 +380,53 @@ def _en_ahora() -> tuple[str, ...]:
     return EN_AHORA_SIEMPRE
 
 
-_COLS = ["id", "clave", "tipo", "sujeto", "regla", "severidad", "motivo",
-         "evidencia", "abierto_at", "ultimo_at", "veces", "visto_at",
-         "resuelto_at", "resuelto_como", "reaperturas"]
+# ⚠️⚠️ **FASE 3 — UNA SOLA TABLA** (2026-08-24). Acá había DOS lecturas y un
+# reconciliador: `agente.av_agent_centinela` (lo que veía el daemon) y
+# `agente.av_agent_items` (todo lo demás), pegadas con un LEFT JOIN, después
+# deduplicadas a mano por (sujeto, regla) y con dos `abierto_at` de los que
+# había que elegir uno. Cada una de esas costuras produjo un bug con nombre:
+#
+#   · «AHORA dice *recién* y ENCONTRÓ *11 días*» — dos relojes para un hecho
+#   · «ROTO AHORA muestra 8 filas que son 4» — el mismo motor en las dos tablas
+#   · el JOIN por `lower(sujeto) || '|' || lower(regla)` — la tercera
+#     implementación de la identidad, que fallaba en silencio
+#
+# Ninguno se arregló entendiendo mejor la costura: se arreglaron sacando la
+# costura. La tabla vieja NO se dropea (borrar código se revierte, borrar datos
+# no) y un test prohíbe volver a escribirla.
+_COLS = ["clave", "tipo", "sujeto", "regla", "severidad", "titulo",
+         "datos", "abierto_at", "ultimo_at", "veces", "visto_at",
+         "resuelto_at", "resuelto_como", "reaperturas", "vuelto_at", "estado"]
+
+# Qué tipos son «del daemon» a los ojos de esta pantalla. Sale de `_CUBRE` (lo
+# que el daemon declara vigilar) más `EN_AHORA_SIEMPRE` (lo que va a AHORA sea
+# de quien sea): las dos listas ya existían y se leen de donde están, porque una
+# tercera acá se separaría de las otras sin dar ningún error.
+def _tipos_de_la_pantalla() -> list[str]:
+    from api.services.av_agent import EN_AHORA_SIEMPRE
+    return sorted({t for ts in _CUBRE.values() for t in ts} | set(EN_AHORA_SIEMPRE))
+
+
+def _fila(r) -> dict:
+    """Una fila de `av_agent_items` con la forma que la pantalla ya dibuja.
+
+    El renombre vive ACÁ y en un solo lugar: la tabla canónica llama `titulo` a
+    lo que el centinela llamaba `motivo` y `datos` a lo que llamaba `evidencia`.
+    """
+    f = dict(zip(_COLS, r, strict=True))
+    d = f.pop("datos", None) or {}
+    f["motivo"] = f.pop("titulo", "")
+    f["evidencia"] = d
+    # El texto LARGO (qué pasó · a qué afecta · si sigue) y la VENTANA que la
+    # pieza declaró. Los motores los traen desde siempre; la pantalla mostraba
+    # solo el título recortado — el user: *«sin información, sin contexto»*.
+    f["detalle"] = str(d.get("texto") or "")
+    f["muestra"] = str(d.get("muestra") or "")[:400]
+    f["ventana"] = d.get("ventana")
+    # `estado` no viaja a la pantalla: lo que dibuja son las marcas de tiempo,
+    # y publicar los dos invitaría a que el front derive el suyo (REGLA #9).
+    f.pop("estado", None)
+    return f
 
 
 def estado(limite: int = 200) -> dict:
@@ -431,107 +436,34 @@ def estado(limite: int = 200) -> dict:
     """
     fuera = {"ok": False, "vivo": False, "abiertos": [], "resueltos": [],
              "latido": None}
+    cols = ", ".join(_COLS)
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT at, ciclo, en_rueda, abiertos, nuevos, "
                         "       duracion_ms, error, proximo_en_s "
                         "FROM agente.av_agent_latido WHERE id")
             lat = cur.fetchone()
-            # ⚠️ **LA ANTIGÜEDAD SALE DEL OBJETO, NO DE ESTA TABLA** (§0.bj).
-            #
-            # El centinela tenía su `abierto_at` y el censo el suyo, y nadie los
-            # unía: **AHORA podía decir «recién» y ENCONTRÓ «11 días» del MISMO
-            # problema**. Dos relojes para un hecho es la definición de la
-            # contradicción que esta migración vino a terminar.
-            #
-            # El JOIN va por la clave canónica —(sujeto, causa)— y en la MISMA
-            # query: el peaje de Supabase se paga por viaje.
+            tipos = _tipos_de_la_pantalla()
             cur.execute(
-                # ⚠️ `vuelto_at` viene del OBJETO y no de esta tabla: el
-                # centinela no lo tiene (tiene `reaperturas`, un contador sin
-                # fecha, que no sirve para decir si volvió HOY). Sale del mismo
-                # JOIN — un viaje más a Supabase por un dato que ya viaja.
-                f"SELECT {', '.join('c.' + x for x in _COLS)}, i.abierto_at, "
-                "       i.vuelto_at "
-                "  FROM agente.av_agent_centinela c "
-                # ⚠️ **Por la clave GUARDADA, no recalculada.** Acá vivía
-                # `ON i.clave = lower(c.sujeto) || '|' || lower(c.regla)`: una
-                # TERCERA implementación de `clave_de_problema`, en SQL, sin
-                # `causa_canonica()` (los sinónimos control↔detector no
-                # matcheaban) y sin el caso del sujeto vacío. Fallaba en
-                # silencio: AHORA decía «recién» y ENCONTRÓ «11 días» del mismo
-                # problema, que es justo lo que este JOIN vino a arreglar.
-                "  LEFT JOIN agente.av_agent_items i ON i.clave = c.clave_item "
-                " WHERE c.resuelto_at IS NULL "
+                f"SELECT {cols} FROM agente.av_agent_items "
+                " WHERE estado NOT IN ('resuelto', 'ignorado') "
+                "   AND tipo = ANY(%s) "
                 # Lo NUEVO y sin ver primero: es lo único que pide una decisión.
-                " ORDER BY (c.visto_at IS NULL) DESC, "
-                "  CASE c.severidad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END, "
-                "  c.abierto_at DESC LIMIT %s", (limite,))
-            abiertos = [dict(zip(_COLS + ["abierto_canonico", "vuelto_at"],
-                                 r, strict=True))
-                        for r in cur.fetchall()]
+                " ORDER BY (visto_at IS NULL) DESC, "
+                "  CASE severidad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END, "
+                "  abierto_at DESC LIMIT %s", (tipos, limite))
+            abiertos = [_fila(r) for r in cur.fetchall()]
             # Lo que se arregló SOLO en las últimas horas. Sirve para dos cosas:
             # confirmar que algo que estabas por atender ya no está, y ver los
             # intermitentes (los que se resuelven y vuelven).
             cur.execute(
-                f"SELECT {', '.join(_COLS)} FROM agente.av_agent_centinela "
-                "WHERE resuelto_at > now() - interval '8 hours' "
-                "ORDER BY resuelto_at DESC LIMIT 40")
-            resueltos = [dict(zip(_COLS, r, strict=True)) for r in cur.fetchall()]
-
-            # ⚠️ **LOS MOTORES NO VIVEN EN ESTA TABLA** y por eso AHORA nunca los
-            # mostró. `agente.av_agent_centinela` guarda lo que el DAEMON mira
-            # (precios · tasas · salud, ver `_CUBRE`); los motores los encuentra
-            # el cron `jobs.av_agent_live` y quedan en `agente.av_agent_items`.
-            # Dos tablas para dos productores del mismo objeto, y la pantalla
-            # leía una sola.
-            #
-            # Se traen acá —un viaje más, en la MISMA conexión— y no con otra
-            # llamada desde el front: el peaje de Supabase se paga por viaje, y
-            # dos requests podrían mostrar dos fotos distintas del mismo momento.
-            cur.execute(
-                "SELECT clave, tipo, sujeto, regla, severidad, titulo, veces, "
-                "       abierto_at, ultimo_at, visto_at, datos "
-                "  FROM agente.av_agent_items "
-                " WHERE estado NOT IN ('resuelto', 'ignorado') "
-                "   AND tipo = ANY(%s) "
-                " ORDER BY ultimo_at DESC LIMIT 40",
-                (list(_en_ahora()),))
-            rotos_items = cur.fetchall()
+                f"SELECT {cols} FROM agente.av_agent_items "
+                " WHERE estado = 'resuelto' AND tipo = ANY(%s) "
+                "   AND resuelto_at > now() - interval '8 hours' "
+                " ORDER BY resuelto_at DESC LIMIT 40", (tipos,))
+            resueltos = [_fila(r) for r in cur.fetchall()]
     except Exception as e:
         return {**fuera, "error": str(e)}
-
-    # A la MISMA forma que el resto: la pantalla dibuja una fila, no dos.
-    #
-    # ⚠️ **SIN DUPLICAR EL MISMO PROBLEMA** (2026-08-22): el error de un motor
-    # puede estar en LAS DOS tablas (el daemon lo vio vía salud y el cron lo
-    # escribió como item) con claves de formato distinto — así «ROTO AHORA»
-    # mostró 8 filas que eran 4, cada una dos veces. La identidad del problema
-    # es (sujeto, causa), no la clave de cada tabla: si ya está, no se anexa.
-    ya = {((f.get("sujeto") or "").strip().lower(),
-           (f.get("regla") or "").strip().lower()) for f in abiertos}
-    for (clave, tipo, suj, regla, sev, titulo, veces, ab, ult, vis,
-         datos) in rotos_items:
-        if ((suj or "").strip().lower(), (regla or "").strip().lower()) in ya:
-            continue
-        d = datos or {}
-        abiertos.append({
-            "id": None, "clave": clave, "tipo": tipo, "sujeto": suj,
-            "regla": regla, "severidad": sev,
-            # El motivo LARGO si el hallazgo lo trae. La evidencia de un motor
-            # ya viene con QUÉ PASÓ · A QUÉ AFECTA · SI SIGUE (`evidencia.texto`)
-            # y la pantalla mostraba solo el título recortado — el user: *«sin
-            # información, sin contexto… si tenemos los logs tenemos los datos»*.
-            # Los datos estaban; no se dibujaban.
-            "motivo": titulo, "detalle": str(d.get("texto") or ""),
-            "muestra": str(d.get("muestra") or "")[:400],
-            # La VENTANA que la pieza declaró (`rueda`, `12-23 UTC`, …): es lo
-            # que deja decidir si esto puede estar roto HOY (§0.cp).
-            "ventana": d.get("ventana"),
-            "veces": veces, "abierto_at": ab, "ultimo_at": ult,
-            "visto_at": vis, "resuelto_at": None, "resuelto_como": None,
-            "abierto_canonico": ab, "vuelto_at": None,
-        })
 
     from api.services import av_agent
     ahora = datetime.now(UTC)
@@ -545,18 +477,12 @@ def estado(limite: int = 200) -> dict:
         # día, ninguno de los otros carteles se lee en serio tampoco.
         #
         # Se calcula acá y no en la pantalla porque el navegador no puede mirar
-        # el reloj mientras dibuja (y porque el criterio es uno solo, igual que
-        # `de_quien`).
-        # La canónica gana: es la que ve ENCONTRÓ. Si el objeto todavía no
-        # existe (un hallazgo de este mismo ciclo, antes de espejarse) se usa la
-        # local — es lo mismo en ese instante y evita un hueco en la pantalla.
-        desde = f.pop("abierto_canonico", None) or f.get("abierto_at")
-        # La ventana declarada también para las filas de la tabla propia (las
-        # de items la traen puesta): sin esto el filtro de no-hábil no puede
-        # distinguir la pieza de rueda de la que corre todos los días.
-        if "ventana" not in f:
-            ev = f.get("evidencia")
-            f["ventana"] = (ev or {}).get("ventana") if isinstance(ev, dict) else None
+        # el reloj mientras dibuja (y porque el criterio es uno solo).
+        #
+        # ⚠️ Y ahora `abierto_at` es **el canónico y el único**: era la fecha del
+        # objeto vs la de la tabla propia, con un `coalesce` en el medio para
+        # decidir cuál mostrar. No hay cuál elegir.
+        desde = f.get("abierto_at")
         f["recien"] = bool(desde and (ahora - desde).total_seconds() < RECIEN_S)
         # Y se publica, para que la fila pueda decir «11d» igual que ENCONTRÓ.
         if desde:
@@ -571,12 +497,7 @@ def estado(limite: int = 200) -> dict:
         f["de_quien"] = av_agent.de_quien(f.get("regla") or "")
         # ⚠️ **EL NOMBRE LEGIBLE, igual que en ENCONTRÓ.** El user, viendo
         # `control:patas_equiv…` cortado en AHORA: *«los títulos no pueden estar
-        # así cortados, no se entiende nada»*. Y el nombre humano ya existía —
-        # ENCONTRÓ lo publica desde §0.bq y esta pantalla no.
-        #
-        # Se deriva ACÁ y no en el front por la razón de siempre: dos pantallas
-        # que muestran el mismo hallazgo tienen que llamarlo igual, y un segundo
-        # criterio del lado del navegador se separa del primero sin dar error.
+        # así cortados, no se entiende nada»*.
         f["nombre"] = _nombre_legible(f.get("sujeto") or "", f.get("tipo") or "")
 
     latido = None
@@ -820,17 +741,12 @@ def marcar_visto(claves: list[str], por: str = "") -> dict:
     Son dos cosas distintas y mezclarlas es lo que hace que la gente deje de
     tocar el botón: si marcar visto ocultara el hallazgo, nadie lo marcaría por
     miedo a perderlo de vista.
+
+    ⚠️ **Desde la Fase 3 escribe en la tabla CANÓNICA.** Antes marcaba visto en
+    la tabla propia del centinela y el objeto no se enteraba: la misma fila
+    salía de NUEVO en AHORA y seguía contada como «sin ver» en ENCONTRÓ. Dos
+    tablas, dos respuestas a «¿ya lo miré?», y ninguna de las dos equivocada
+    por su cuenta — que es cómo se ven todos los bugs de este subsistema.
     """
-    claves = [c for c in (claves or []) if c][:500]
-    if not claves:
-        return {"ok": False, "error": "no hay nada que marcar"}
-    try:
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE agente.av_agent_centinela SET visto_at = now(), "
-                        "visto_por = %s WHERE clave = ANY(%s) AND visto_at IS NULL",
-                        (por or None, claves))
-            n = cur.rowcount
-            conn.commit()
-        return {"ok": True, "marcados": n}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    from api.services import av_agent_items
+    return av_agent_items.marcar_vistos(claves, por=por)

@@ -4803,6 +4803,23 @@ ALTER TABLE agente.av_agent_runs ADD COLUMN IF NOT EXISTS analisis_at timestampt
 -- Un hallazgo que vuelve REABRE el mismo (resuelto_at → NULL): no nace otro.
 -- Uno que deja de verse se marca `resuelto_como='solo'` — **no se borra**: «se
 -- arregló solo» es información, y borrarlo dejaría la misma amnesia de antes.
+-- ⚠️⚠️ **RETIRADA — FASE 3 (2026-08-24). NADIE LA ESCRIBE NI LA LEE.**
+--
+-- Fue la segunda tabla con ciclo de vida: el daemon guardaba acá lo que veía,
+-- en paralelo al objeto de `av_agent_items`, con su propio `abierto_at`, su
+-- propio `visto_at` y su propio `resuelto_como`. De esa costura salieron, uno
+-- por uno, los bugs que el user reportó como «cada sesión ve cosas distintas»:
+--
+--   · «AHORA dice *recién* y ENCONTRÓ *11 días*»  → dos relojes para un hecho
+--   · «ROTO AHORA muestra 8 filas que son 4»      → el mismo motor en las dos
+--   · marcar visto en AHORA y seguir «sin ver» en ENCONTRÓ
+--   · el JOIN `lower(sujeto) || '|' || lower(regla)`, tercera implementación
+--     de la identidad, que fallaba en silencio
+--
+-- **No se dropea**: borrar código se revierte, borrar datos no, y acá vive el
+-- historial de lo que el daemon vio hasta hoy. Se deja para consultarla a mano
+-- si alguna vez hace falta. Un test (`test_av_agent_centinela_ciclo`) falla si
+-- algún módulo vuelve a nombrarla en SQL — escribirla o LEERLA.
 CREATE TABLE IF NOT EXISTS agente.av_agent_centinela (
     id           bigserial PRIMARY KEY,
     -- La IDENTIDAD. Estable entre ciclos: mismo problema = misma fila.

@@ -94,11 +94,15 @@ def test_una_fecha_rota_NO_cuenta_como_de_hoy():
 
 
 def test_VOLVIO_sale_del_OBJETO_y_no_de_reaperturas():
-    """`av_agent_centinela` no tiene `vuelto_at`: tiene `reaperturas`, un
-    contador SIN fecha que no puede decir si volvió HOY. Sale del mismo JOIN
-    que la antigüedad canónica — un dato más en un viaje que ya se paga."""
+    """`av_agent_centinela` no tenía `vuelto_at`: tenía `reaperturas`, un
+    contador SIN fecha que no puede decir si volvió HOY. Se traía con un JOIN
+    (Fase 2) y desde la Fase 3 es una columna de la única tabla que se lee.
+
+    Lo que el test congela es que la fecha viaje: sin ella, «volvió hoy» y
+    «volvió tres veces alguna vez» se dibujan igual."""
     src = codigo(c.estado)
-    assert "i.vuelto_at" in src
+    assert '"vuelto_at"' in src
+    assert "FROM agente.av_agent_items" in src
 
 
 def test_la_pantalla_recibe_el_corte_hecho():

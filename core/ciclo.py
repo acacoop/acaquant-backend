@@ -534,6 +534,10 @@ REGISTRO: tuple[Forma, ...] = (
     # Espeja en `av_agent_items` con la misma clave desde 2026-08-21 (§0.bf):
     # su tabla sigue siendo la que dibuja AHORA, pero la HISTORIA del problema
     # es la misma que ve ENCONTRÓ. Migrar la tabla entera es el paso siguiente.
+    # ⚠️ **RETIRADA en la Fase 3 (2026-08-24)**: nadie la escribe ni la lee. Se
+    # deja declarada —y no se dropea— porque los datos siguen ahí y el registro
+    # tiene que poder decir cómo los interpretaba. Una tabla que existe y no
+    # está en el registro es exactamente el punto ciego que esto vino a cerrar.
     Forma("agente.av_agent_centinela", ("resuelto_at", "visto_at"),
           "resuelto_at NULL + visto_at (espeja en av_agent_items)",
           _por_resuelto_at, espeja=True),

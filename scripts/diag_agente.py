@@ -124,6 +124,41 @@ def main() -> int:
             print(f"  #{r[0]} [{r[4]}] {r[1]}/{r[3]} · {r[2]} · ×{r[5]} · "
                   f"{str(r[6])[:16]}\n      {str(r[7])[:150]}")
 
+    # ── 3.b LA TASA DE RESPALDO ────────────────────────────────────────────
+    #
+    # El círculo completo de `bono_sin_tasa`: qué bonos operan sin que el motor
+    # les calcule la TEA, cuáles quedaron TAPADOS con la tasa de 1816, y cuáles
+    # son un agujero real. Sin esto no hay forma de ver si la mitad útil del
+    # rediseño está haciendo algo.
+    _titulo("LA TASA DE RESPALDO (1816) — el círculo de `bono_sin_tasa`")
+    tapados = _filas(
+        "SELECT t.ticker, t.tea, t.duration, t.precio, t.fecha_1816, t.pedido_at "
+        "  FROM agente.tasa_1816 t WHERE t.tea IS NOT NULL "
+        " ORDER BY t.ticker")
+    print(f"  {len(tapados)} bono(s) TAPADOS: el motor no les calcula la TEA y "
+          f"1816 sí la tiene\n")
+    if tapados:
+        print(f"  {'TICKER':10} {'TEA':>9} {'DURATION':>9} {'PRECIO':>12}  "
+              f"RUEDA 1816       PEDIDA")
+        for tk, tea, dur, px, fecha, ped in tapados:
+            print(f"  {tk:10} {(float(tea) * 100 if tea is not None else 0):>8.2f}% "
+                  f"{(float(dur) if dur is not None else 0):>9.2f} "
+                  f"{(float(px) if px is not None else 0):>12,.2f}  "
+                  f"{str(fecha)[:10]:16} {str(ped)[:16]}")
+        print("\n  → estos ya NO salen en «--»: la vista de curvas los muestra "
+              "con `tea_fuente = 1816`.")
+
+    agujeros = _filas(
+        "SELECT sujeto FROM agente.hallazgos "
+        " WHERE habilidad = 'tasas_al_cierre' AND regla = 'sin_tasa_ni_en_1816' "
+        "   AND estado IN ('nuevo','en_curso') ORDER BY sujeto")
+    if agujeros:
+        print(f"\n  ⚠ {len(agujeros)} AGUJERO(S) REAL(ES) — operan, el motor no "
+              f"los calcula y 1816 tampoco los publica:")
+        print(f"      {', '.join(a[0] for a in agujeros)}")
+        print("      No es un atraso: hay que ver por qué el motor no los "
+              "calcula (ejes, moneda del flujo, cronograma).")
+
     # ── 4. ¿VOLVIÓ ALGO? ───────────────────────────────────────────────────
     _titulo("REINCIDENCIAS — esta tabla DEBE estar vacía")
     filas = _filas("SELECT sujeto, regla, arreglo_aplicado, "

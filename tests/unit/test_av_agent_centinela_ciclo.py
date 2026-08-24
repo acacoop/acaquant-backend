@@ -51,12 +51,34 @@ def test_los_tipos_declarados_EXISTEN():
 
 def test_cada_bloque_marca_lo_suyo_DESPUES_de_correr():
     """`evaluados.update()` va DENTRO del `try` y después de la llamada: si
-    fuera antes, una excepción dejaría el tipo marcado como evaluado."""
+    fuera antes, una excepción dejaría el tipo marcado como evaluado.
+
+    ⚠️ **PRECIOS no usa `_CUBRE`** (2026-08-24): esa pasada corre SEIS
+    detectores en seis `try` distintos, así que un catálogo fijo daría por
+    evaluado lo que explotó. Lo declara `relevar_live()` detector por detector
+    y acá se lee de ahí — ver el comentario de `_CUBRE`.
+    """
     src = inspect.getsource(c._observar)
-    for bloque in ("precios", "tasas", "salud", "actividad"):
+    for bloque in ("tasas", "salud", "actividad"):
         i = src.index(f'_CUBRE["{bloque}"]')
         # entre el update y el `except` de su bloque no puede haber otro `try`
         assert "except Exception" in src[i:i + 300], bloque
+    i = src.index('r.get("evaluados")')
+    assert "except Exception" in src[i:i + 300], "precios"
+
+
+def test_PRECIOS_no_puede_volver_a_usar_el_catalogo_fijo():
+    """El catálogo dice qué VIGILA el daemon (lo lee la tab AGENDA); `evaluados`
+    dice qué pudo MIRAR en esta pasada. Son dos preguntas distintas y una sola
+    lista no puede contestar las dos: completa, un detector caído cierra todo lo
+    suyo; recortada, la agenda miente sobre qué se está vigilando."""
+    # Se miran solo las líneas de CÓDIGO: el comentario que explica por qué no
+    # se usa lo nombra a propósito, y ese texto es justamente lo que hay que
+    # conservar para que el próximo no lo vuelva a poner.
+    codigo = "\n".join(l for l in inspect.getsource(c._observar).splitlines()
+                       if not l.lstrip().startswith("#"))
+    assert '_CUBRE["precios"]' not in codigo
+    assert 'r.get("evaluados")' in codigo
 
 
 def test_una_pasada_CAIDA_no_marca_su_tipo(monkeypatch):
@@ -66,7 +88,10 @@ def test_una_pasada_CAIDA_no_marca_su_tipo(monkeypatch):
     # El reloj se PINA: el test no puede depender de qué día lo corre CI.
     monkeypatch.setattr(av_agent, "en_rueda", lambda ahora=None: True)
     monkeypatch.setattr(av_agent, "dia_habil", lambda ahora=None: True)
-    monkeypatch.setattr(av_agent, "relevar_live", lambda: {"hallazgos": []})
+    # La pasada de precios declara lo que SUS detectores alcanzaron a mirar.
+    monkeypatch.setattr(av_agent, "relevar_live",
+                        lambda: {"hallazgos": [],
+                                 "evaluados": ["sin_precio", "precio_moneda"]})
     monkeypatch.setattr(av_agent, "detectar_tasas_sospechosas",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     monkeypatch.setattr(av_agent, "detectar_salud", lambda *a: [])
@@ -74,6 +99,26 @@ def test_una_pasada_CAIDA_no_marca_su_tipo(monkeypatch):
     _h, evaluados = c._observar()
     assert "tasa_sospechosa" not in evaluados
     assert "sin_precio" in evaluados, "la pasada que SÍ corrió tiene que contar"
+
+
+def test_un_detector_CAIDO_dentro_de_precios_tampoco_marca_lo_suyo(monkeypatch):
+    """El caso que faltaba, y el que dejaba a los motores sin cerrarse nunca:
+    dentro de la pasada de precios hay SEIS detectores. Si `detectar_motores`
+    explota, `motor_caido` no puede quedar evaluado — aunque los otros cinco
+    hayan andado."""
+    from api.services import av_agent
+    monkeypatch.setattr(av_agent, "en_rueda", lambda ahora=None: True)
+    monkeypatch.setattr(av_agent, "dia_habil", lambda ahora=None: True)
+    monkeypatch.setattr(av_agent, "relevar_live",
+                        lambda: {"hallazgos": [],
+                                 # `motor_caido` NO viene: su detector se cayó.
+                                 "evaluados": ["sin_precio", "proveedor_caido"]})
+    monkeypatch.setattr(av_agent, "detectar_tasas_sospechosas", lambda *a, **k: [])
+    monkeypatch.setattr(av_agent, "detectar_salud", lambda *a: [])
+    monkeypatch.setattr("api.services.salud.evaluar", lambda: [])
+    _h, evaluados = c._observar()
+    assert "motor_caido" not in evaluados
+    assert {"sin_precio", "proveedor_caido"} <= evaluados
 
 
 def test_si_se_cae_TODO_no_se_evalua_nada(monkeypatch):

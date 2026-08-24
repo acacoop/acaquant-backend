@@ -139,51 +139,45 @@ def revisar(claves_abiertas: set[str] | None) -> dict:
         logger.exception("seguimiento: la revisión falló")
         return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}
 
+    # ⚠️ `votos` sale SIEMPRE en 0 desde 2026-08-24 — ver `_votar`. Se sigue
+    # devolviendo (el job lo imprime) para que el 0 se VEA: sacar el campo haría
+    # que «no vota» se lea igual que «no pasó nada».
     votos = _votar(volvieron, aguantaron)
     return {"ok": True, "mirados": len(filas), "volvieron": volvieron,
             "aguantaron": aguantaron, "votos": votos}
 
 
 def _votar(volvieron: list[dict], aguantaron: list[dict]) -> int:
-    """El resultado del tiempo entra al eval set como `verificado`.
+    """**YA NO VOTA AL EVAL SET** (2026-08-24). Devuelve siempre 0, a propósito.
 
-    **Es la evidencia más fuerte que hay**, y por eso cuenta para la compuerta:
-    no es la opinión de nadie, el problema volvió o no volvió — y el agente no
-    controla eso.
+    ⚠️⚠️ **El motivo: este mecanismo solo podía decir «aguantó».** El veredicto
+    sale de `clave in claves_abiertas`, y las dos mitades arman la clave con
+    formatos DISTINTOS:
+
+        lo que se anota   `av_agent_acciones` →  accion:objetivo:regla
+                                                 `mercado.apuntar_pata:AO29:pata_equivocada`
+        contra qué compara `jobs/seguimiento`  →  tipo:sujeto:regla
+                                                 `precio_moneda:AO29:pata_equivocada`
+
+    Los ids de acción están namespaceados (`mercado.*`, `assets.*`, `sistema.*`)
+    y **ninguno coincide jamás con un tipo de hallazgo**: la intersección es
+    vacía por construcción. Entonces `revisar()` nunca puede marcar `volvio`, y
+    todo lo que pasa la ventana se sella `aguanto` → un ✔ `verificado` al eval
+    set, que la compuerta de autonomía cuenta **igual que un click humano**.
+
+    Y desde §0.de esto quedó siendo el ÚNICO emisor de `verificado` (a
+    `cerrar_hitos` se le sacó el voto por la razón espejo: sus dos veredictos
+    tampoco significaban lo que decían). O sea: la única fuente que le queda a la
+    compuerta es una que **estructuralmente no puede emitir un negativo**.
+
+    Misma decisión que allá, y por la misma regla: **no inventar una señal es
+    mejor que fabricar una.** El seguimiento sigue corriendo —`estado()` alimenta
+    la pantalla y el veredicto sirve para mirarlo— pero no emite juicio.
+
+    Vuelve a votar cuando la clave sea UNA sola (`clave_de_problema`) en las dos
+    puntas. Eso es la Fase 2 del plan: apagar el camino viejo o unificarlo.
     """
-    from api.services import av_agent_evals
-    n = 0
-    for x in aguantaron:
-        r = av_agent_evals.votar(
-            caso=x["sujeto"], dominio=x["dominio"], causa=x["regla"],
-            acierta=True, origen="verificado", ref=f"seguimiento:{x['clave']}",
-            por="verificado por el tiempo",
-            nota=f"se arregló el {x['arreglado_at']:%d/%m} y no volvió a pasar")
-        n += 1 if r.get("ok") and not r.get("duplicado") else 0
-    for x in volvieron:
-        r = av_agent_evals.votar(
-            caso=x["sujeto"], dominio=x["dominio"], causa=x["regla"],
-            acierta=False, origen="verificado", ref=f"seguimiento:{x['clave']}",
-            por="verificado por el tiempo",
-            # Un ✖ necesita motivo, y acá lo hay y es del mejor tipo: no es una
-            # impresión, es que el problema reapareció.
-            nota=f"se dio por arreglado el {x['arreglado_at']:%d/%m} y volvió a "
-                 f"pasar: el arreglo no alcanzó o la causa era otra")
-        n += 1 if r.get("ok") and not r.get("duplicado") else 0
-    if n:
-        _marcar_votados([x["clave"] for x in volvieron + aguantaron])
-    return n
-
-
-def _marcar_votados(claves: list[str]) -> None:
-    if not claves:
-        return
-    try:
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE agente.av_agent_seguimiento SET votado = true "
-                        "WHERE clave = ANY(%s)", (claves,))
-    except Exception as e:
-        logger.warning("seguimiento: no pude marcar los votados (%s)", e)
+    return 0
 
 
 def estado(limite: int = 60) -> dict:

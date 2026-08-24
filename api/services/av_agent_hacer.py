@@ -1656,6 +1656,27 @@ def aplicar(ids: list[int], *, por: str = "", valores: dict | None = None) -> di
     es lo que hace que el humano pueda **corregir** la sugerencia en vez de
     tener que elegir entre aceptarla tal cual o descartarla.
     """
+    # ⚠️⚠️ **LA PARADA, y por qué faltaba acá** (2026-08-24). `guardia()` se
+    # describe como *«el portero de TODA escritura del agente»* y hasta hoy lo
+    # llamaban **4 lugares, todos en `av_agent_alta` y `av_agent_preguntas`**.
+    # Las 10 acciones de este módulo —que escriben `portafolio.assets`,
+    # `mercado.curvas`, `mercado.especies`, `clientes.contrapartes` y
+    # `mercado.adhoc_subscriptions`— no lo consultaban: con el agente FRENADO,
+    # el botón ARREGLAR de cualquier fila seguía escribiendo en producción, sin
+    # error y sin aviso.
+    #
+    # El test que debía impedirlo (`test_toda_puerta_de_escritura_llama_al_
+    # guardia`) escaneaba **solo `av_agent_alta`**, el módulo donde nació. Su
+    # propio docstring describe lo que pasó: *«una puerta nueva que no llame al
+    # guardia no rompe ningún test obvio»*. Ahora el test barre TODOS los
+    # módulos del agente.
+    #
+    # Va acá y no en cada `Accion.aplicar`: éste es el ÚNICO camino a la
+    # escritura (`uno(aplicar_ya=True)` también pasa por acá), y un `if` copiado
+    # diez veces se olvida en la número once.
+    from api.services import av_agent_control
+    if (frenado := av_agent_control.guardia("hacer:aplicar")):
+        return frenado
     if not ids:
         return {"ok": False, "error": "no se pasó ninguna propuesta"}
     filas = _filas(

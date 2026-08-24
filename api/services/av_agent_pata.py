@@ -342,6 +342,13 @@ def pedir(ticker: str, por: str = "") -> dict:
     **No toca `mercado.curvas`.** Cambiar el símbolo del master es la acción
     hermana, sigue siendo manual, y se decide DESPUÉS —con el precio a la vista—.
     """
+    # LA PARADA: esta puerta escribe en `mercado.especies` y en
+    # `mercado.adhoc_subscriptions`, o sea catálogo de mercado. Va ANTES de
+    # `explicar()` para no gastar el diagnóstico en algo que se va a rechazar.
+    from api.services import av_agent_control
+    if (frenado := av_agent_control.guardia("pedir_pata")):
+        return frenado
+
     d = explicar(ticker)
     if not d.get("ok"):
         return d

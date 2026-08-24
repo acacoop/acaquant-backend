@@ -32,26 +32,43 @@ def test_si_no_se_puede_MIRAR_no_se_cambia_ningun_veredicto():
     assert r["ok"] is False and "no se cambia" in r["error"]
 
 
-def test_lo_que_VOLVIO_es_un_voto_negativo_CON_MOTIVO():
-    """Un ✖ necesita motivo, y acá lo hay y es del mejor tipo: no es una
-    impresión, es que el problema reapareció."""
-    src = inspect.getsource(seg._votar)
-    assert "acierta=False" in src
-    assert "volvió a" in src
+def test_el_seguimiento_viejo_NO_VOTA():
+    """**Devuelve 0 siempre, y es una decisión** (2026-08-24).
+
+    Este mecanismo solo podía emitir ✔. El veredicto sale de
+    `clave in claves_abiertas` y las dos mitades arman la clave distinto:
+
+        se anota     `av_agent_acciones` →  accion:objetivo:regla
+        se compara   `jobs/seguimiento`  →  tipo:sujeto:regla
+
+    Los ids de acción están namespaceados (`mercado.*`, `assets.*`) y ninguno
+    coincide jamás con un tipo de hallazgo: la intersección es vacía por
+    construcción, `volvio` no puede pasar nunca y todo lo que cumple la ventana
+    se sella `aguanto` → un ✔ `verificado` fabricado, que la compuerta de
+    autonomía cuenta igual que un click humano.
+
+    Y desde §0.de es el ÚNICO emisor de `verificado` que quedaba: la compuerta
+    dependía entera de una fuente que no puede decir que no.
+    """
+    assert seg._votar([{"clave": "x"}], [{"clave": "y"}]) == 0
 
 
-def test_el_voto_del_tiempo_es_VERIFICADO_y_no_humano():
-    """No se puede disfrazar de click: es otra clase de evidencia y se cuenta
-    aparte."""
-    src = inspect.getsource(seg._votar)
-    assert 'origen="verificado"' in src
-    assert 'origen="humano"' not in src
+def test_no_queda_NINGUN_camino_al_eval_set_desde_el_seguimiento_viejo():
+    """No alcanza con que `_votar` devuelva 0: mientras el módulo pueda escribir
+    en `av_agent_evals`, alguien vuelve a enchufarlo sin ver el porqué."""
+    src = inspect.getsource(seg)
+    assert "av_agent_evals" not in src
 
 
-def test_no_se_vota_dos_veces_el_mismo_seguimiento():
-    """`ref` es único: la revisión diaria vuelve a pasar y no infla el número."""
-    src = inspect.getsource(seg._votar)
-    assert 'ref=f"seguimiento:' in src
+def test_se_congela_el_MOTIVO_por_el_que_no_vota():
+    """El día que las dos puntas armen la clave igual, este test FALLA — y ahí
+    sí hay que volver a habilitar el voto. Es un recordatorio que se dispara
+    solo, en vez de una nota en un doc que nadie relee."""
+    anota = pathlib.Path(
+        "api/services/av_agent_acciones.py").read_text(encoding="utf-8")
+    compara = pathlib.Path("jobs/seguimiento.py").read_text(encoding="utf-8")
+    assert '{accion}:{objetivo}:{regla}' in anota
+    assert "tipo || ':' || ticker || ':' || regla" in compara
 
 
 def test_re_arreglar_REINICIA_la_prueba():

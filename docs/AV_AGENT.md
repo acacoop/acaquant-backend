@@ -16,8 +16,575 @@
 > el MISMO commit, cada decisión se asienta, cada cosa descartada se borra con una
 > línea de porqué. Si el doc no refleja el estado real, el trabajo está INCOMPLETO.
 >
+> **⚠️ ESTE DOC TIENE DOS PARTES Y NO SE LEEN IGUAL.**
+>
+> - **«CÓMO FUNCIONA HOY — el mapa del código»** (arriba de todo, secciones
+>   `M.0`–`M.12`): **el ESTADO**. Dónde vive cada pieza, qué invariante rige,
+>   qué deuda hay abierta. Es lo primero que se lee y lo que se mantiene al día.
+> - **`## 0` en adelante (§0.a → §0.dh): el DIARIO.** Las decisiones en orden
+>   cronológico, con su porqué. Sirve para no re-proponer lo descartado — **no
+>   para saber cómo funciona algo hoy.**
+>
+> Si las dos se contradicen, **manda el mapa** y el diario quedó viejo: se
+> corrige en el mismo commit. Esta separación existe porque el diario solo no
+> alcanzaba — cada sesión leía un tramo distinto y sacaba una conclusión
+> distinta (2026-08-24).
+>
 > Docs que hay que leer antes de tocar esto: `SALUD_CURVAS.md` (el catálogo de
 > fallas que el agente reconoce), `RENTA_FIJA.md` §0 (los EJES y el motor).
+
+
+---
+
+# ⭐ CÓMO FUNCIONA HOY — el mapa del código  ⟨LEER PRIMERO⟩
+
+> **Por qué esta sección existe, y por qué va ARRIBA de todo.**
+>
+> El user (2026-08-24): *«no puedo tener sesiones en Claude sin que cada sesión
+> vea cosas distintas, que se contradiga constantemente»*.
+>
+> La causa es este documento. De acá para abajo (§0.a → §0.dh) hay un **DIARIO**:
+> registra DECISIONES en orden cronológico, y está bien que así sea — es lo que
+> evita re-proponer lo descartado. Pero un diario **no puede contestar «¿cómo
+> funciona hoy?»**: una sesión lee §0.bd y cree que el modelo de objetos está
+> terminado; otra lee §0.u y cree que los hallazgos son fotos. Las dos leyeron el
+> documento correcto y las dos sacaron media verdad.
+>
+> **Esta sección es el ESTADO. El resto es la HISTORIA.** Si se contradicen,
+> manda esta sección y el diario está viejo — arreglalo en el mismo commit.
+>
+> Nada de acá reemplaza leer el header del módulo que vas a tocar: los headers de
+> este subsistema son la documentación real y están al día.
+
+---
+
+## M.0 El tamaño real, medido
+
+| Pieza | Cuánto |
+|---|---|
+| Servicios `api/services/av_agent_*.py` | **34 archivos, ~18.900 líneas** |
+| El modelo | `core/ciclo.py` (650) + `api/services/salud.py` |
+| Jobs | `jobs/av_agent.py` · `jobs/av_agent_live.py` · `jobs/av_agent_centinela.py` (daemon systemd) |
+| Endpoints HTTP | **44**, todos `/api/ia/av-agent/*` y todos `require_admin` |
+| Tablas | **17** en el schema `agente` + 6 en `manager` (salud/controles/superficie/perfiles) |
+| Tests | **47 archivos**, y buena parte son LEYES que bloquean el merge |
+| Frontend | `src/components/av-agent/` (~6.100 líneas, 9 archivos) |
+
+**No usa IA para detectar nada.** De las 5 tareas de `core/ai._TAREAS`, tres son
+del agente (`av_agent_informe`, `av_agent_accion`, `av_agent_error`) y ninguna
+detecta: leen patrones, sugieren un valor que aprueba una persona, o traducen
+una línea de log. La detección entera es determinista.
+
+---
+
+## M.1 ⚠️ EL ESTADO ARQUITECTÓNICO, dicho sin maquillaje
+
+**No es que la arquitectura esté mal diseñada** — `core/ciclo.py` es correcto y
+no hay que rehacerlo. Lo que pasa es otra cosa, y es medible:
+
+> **Hay DOS arquitecturas conviviendo y la vieja nunca se apagó.**
+
+| | Hoy | Debería |
+|---|---|---|
+| Puertas que escriben estado | **6** | 1 |
+| Formatos de identidad | **3** | 1 |
+| Tablas con ciclo de vida propio | **5** | 1 |
+| Lugares que las leen | **14** | los que sean, de UNA |
+| Comentarios «convive» / «hasta que se apague lo viejo» | **11** | 0 |
+
+Esos 11 comentarios **son** el diagnóstico. Cada uno fue una decisión diferida
+razonable (*«migrar de un saque es cómo se rompe un sistema que funciona»* es
+verdad), pero once decisiones diferidas dejaron de ser prudencia y pasaron a ser
+la arquitectura.
+
+**Los tres formatos de identidad, uno al lado del otro:**
+
+| Dónde | Formato | Ejemplo |
+|---|---|---|
+| ⭐ canónico (`ciclo.identidad`) | `sujeto\|causa` | `al30\|pata_equivocada` |
+| centinela (`_clave`, y el JOIN en SQL de `estado()`) | `tipo:sujeto:regla` | `precio_moneda:AO29:pata_equivocada` |
+| seguimiento viejo (`av_agent_acciones:153`) | `accion:objetivo:regla` | `mercado.apuntar_pata:AO29:pata_equivocada` |
+
+**El destino, en cuatro frases:** *una puerta para escribir · una identidad · una
+tabla de estado · una lectura.* El plan por fases está en **M.8**.
+
+---
+
+## M.2 El modelo — `core/ciclo.py`
+
+Todo lo demás cuelga de acá. **Leelo antes que nada.**
+
+### Los seis estados
+
+```
+nuevo → visto → en_curso → resuelto → volvio
+                             ignorado (reversible → nuevo)
+```
+
+`TRANSICIONES` declara qué saltos existen; `puede_pasar()` devuelve `False` ante
+lo desconocido. **`RESUELTO → VOLVIO` es la única vuelta atrás y es la más
+importante**: un problema que reaparece no es nuevo, y contarlo como nuevo es
+cómo se pierde que algo se rompe todas las semanas.
+
+### La identidad = `(sujeto, causa)` — y NADA más
+
+```python
+ciclo.identidad(sujeto, causa, respaldo="")   # el modelo
+av_agent_items.clave_de_problema(...)         # LA única puerta de entrada
+```
+
+`tipo` y `origen` **NO son identidad: son quién lo vio.** Cuando estaban en la
+clave, el mismo bono roto producía dos objetos (el del detector de rueda y el
+del control nocturno) y arreglarlo movía uno dejando el otro colgado.
+`causa_canonica()` normaliza los sinónimos (`patas_equivocadas` del control →
+`pata_equivocada` del detector) **derivándolos de `ACCIONES`**, no de una
+segunda lista.
+
+`respaldo` es para lo que no tiene sujeto (un `db_cambio` habla de la base
+entera): sin él, todos los sin-sujeto de una causa colapsarían en un objeto.
+
+### Los hitos, y por qué el reloj es hábil
+
+`HITOS_DIAS = (1, 2, 3, 7, 14, 30)`. Cada hito que pasa sin volver suma
+confianza; **volver una vez borra los anteriores** (un arreglo que falla al día 8
+no es «7 días bueno»).
+
+Dos relojes distintos, y la asimetría es deliberada:
+
+- `dias_abierto()` → **calendario**. Un problema abierto molesta también el sábado.
+- `dias_de_prueba()` → **días hábiles AR** (`core/calendario`, límites en hora
+  argentina). Un arreglo del viernes llegaba al hito 1 el sábado con los motores
+  apagados: *evidencia que no pudo contradecirse no es evidencia*. **Volver, en
+  cambio, cuenta siempre** — eso lo decide `estado`, no este reloj.
+
+### Las bandas — qué merece atención HOY
+
+`volvio` › `estancado` › `arrastra` › `nuevo` › `mirando`. `prioridad()` devuelve
+una **tupla y no un puntaje**: un «87 puntos» no se puede discutir ni auditar y
+esconde cuál criterio lo puso ahí.
+
+### El REGISTRO — 23 tablas y cómo dice cada una su estado
+
+`estado_de(tabla, fila)` es **el árbitro**: la pantalla pregunta acá en vez de
+mirar la columna, así dos pantallas no pueden discrepar. Cada `Forma` declara
+además su `clase`, y esto importa porque **no todo lo que tiene estado es un
+problema**:
+
+| clase | qué es | ¿va a `av_agent_items`? |
+|---|---|---|
+| `problema` | algo está mal en algo | **sí** |
+| `sensor` | una lectura cruda (¿contesta Aunesa?) | no — sería el termómetro como fiebre |
+| `bitacora` | que algo CORRIÓ (un run, una acción) | no — su valor es ser append-only |
+| `meta` | habla DE los items (el seguimiento) | no — el modelo conteniéndose |
+| `acuse` | quién LEYÓ qué, por persona | no — se perdería el por-persona |
+
+`sin_migrar()` cuenta la deuda de vocabulario; `deuda_de_problemas()` la de
+modelo; `espejan()` las que ya tienen objeto con historia aunque conserven su
+columna vieja. **La deuda es un número, y ésa es la mitad del valor del módulo.**
+
+`tablas_del_agente()` deriva del `sql/schema.sql` por regex → una tabla nueva sin
+declarar **rompe un test**.
+
+### Comunicación ≠ problema
+
+`TIPOS_COMUNICACION = ("aviso", "aviso_fila", "pregunta")`. Son cosas que el
+agente **dijo**: tienen ciclo pero no son algo roto. Mezclarlas hizo que la
+pantalla dijera *«58 de 256 abiertos»* con 142 filas de aviso adentro, y peor:
+sus «resueltos» entraban al seguimiento y podían llegar a **votar al eval set**
+como si fueran arreglos que aguantaron.
+
+---
+
+## M.3 El flujo, de punta a punta
+
+```
+        ┌── jobs.av_agent          (0 13,15,17,19 UTC L-V) — censa 1816, ~29 créditos
+DETECTAR├── jobs.av_agent_live     (cada 5' 13:30-19:55)   — rueda, CERO créditos
+        ├── jobs.db_tamano         (23:30 UTC)             — el SISTEMA de noche
+        └── av_agent_centinela     (daemon systemd, 30s en rueda / 300s fuera)
+                    │
+                    ▼
+PERSISTIR   av_agent_items.sincronizar(origen, vistos, evaluados=…)
+            ├─ ver()            → nace · suma `veces` · o pasa a `volvio`
+            └─ _cerrar_ausentes → lo que ya no está pasa a `resuelto`
+                    │            (⚠ SOLO de los tipos que la corrida declaró evaluar)
+                    ▼
+MOSTRAR     av_agent_vista.vista()  → UN request, GET /api/ia/av-agent/vista
+                    │
+                    ▼
+ACTUAR      av_agent_hacer:  PROPONER → (OK humano) → APLICAR → VERIFICAR
+            Seguible:        + veredicto() cuando el efecto no es inmediato
+                    │
+                    ▼
+MEDIR       av_agent_evals   (voto humano · voto de utilidad)
+```
+
+### La guarda más importante de todo el subsistema
+
+`sincronizar(..., evaluados=…)`. Una corrida puede mirar **menos** de lo que mira
+siempre: si 1816 no contesta, la lista vacía de `falta_en_base` no significa que
+no falte ningún bono — significa que no se miró. Cerrar por ausencia sin saber
+qué se evaluó convertiría cada caída de un proveedor en «se arreglaron 40
+problemas»: **el tablero en verde justo el día más ciego.**
+
+Sin `evaluados`, `_cerrar_ausentes` devuelve **0 y no cierra nada**. Es la
+degradación correcta: dejar un problema resuelto en la lista molesta; borrar uno
+que sigue roto no se ve nunca.
+
+⚠️ **Deuda conocida:** en `jobs/av_agent.py` los `evaluados` se derivan de los
+tipos que PRODUJERON hallazgos. O sea que un tipo que llega a CERO no se declara
+evaluado y **sus objetos no se cierran** — justamente el caso del último arreglo.
+Pendiente para la Fase 2.
+
+### Dos ciclos conviven en `av_agent_hallazgos`
+
+- **La relevada** deja una CORRIDA (foto con `corrida_at`; vigente = la última).
+- **Los monitores** (`ALCANCES_VIVOS = ("live", "sistema")`) **reemplazan** lo
+  suyo en cada pasada — acumular dejaría 84 avisos del mismo problema.
+
+⚠️ Por eso hay que **excluirlos del `max(corrida_at)`**: un máximo a secas
+devuelve siempre el del monitor y la relevada entera desaparece de la pantalla
+en silencio. Ya pasó con `live`; la constante existe para que no se repita.
+
+Las **dos** puertas de persistencia (`persistir` y `reemplazar_hallazgos`)
+escriben la `clave` con `clave_de_problema` — es lo que permite el
+`LEFT JOIN av_agent_items i ON i.clave = h.clave` de la vista. Hasta el
+2026-08-24 la segunda no la escribía y **13 de las 19 familias no tenían
+memoria alcanzable** (§0.dh).
+
+### Los hallazgos de rueda VENCEN
+
+`VENCE_RAPIDO_S` (30') y `VENCE_OBSERVACION_S` (15'). El monitor deja de correr
+al cierre y su última foto de las 16:55 se quedaba toda la noche: *un detector
+correcto mostrando una foto vieja*, que para el que mira es lo mismo. **Vence en
+vez de borrarse con un cron**: si el monitor se muere a las 11 sus hallazgos
+desaparecen también, y está bien, porque ya no sabemos si siguen pasando.
+
+---
+
+## M.4 Los registros declarativos — la constitución
+
+**Nada de esto se infiere.** Todos viven en `api/services/av_agent.py` (salvo
+donde se indica), todos tienen un test que exige la declaración, y el default de
+cada uno es el lado ruidoso (mostrar de más, pedir voto de más).
+
+| Registro | Qué decide | Default |
+|---|---|---|
+| `ACCION_POR_TIPO` | qué puerta abre cada tipo | — (todo tipo debe estar) |
+| `ACCION_POR_REGLA` | **gana sobre el tipo** | cae al tipo |
+| `SIN_PUERTA` | por qué NO hay botón, y si es deuda | `afuera` = es deuda |
+| `PREGUNTA_POR_TIPO` | `juicio` vs `observacion` | **`juicio`** |
+| `DOMINIO_EVAL` | dónde se anota el voto | `bono` |
+| `DE_QUIEN` | `nuestro` vs `mercado` | **`nuestro`** |
+| `EN_AHORA_SIEMPRE` | se muestra en AHORA aunque no sea de hoy | no |
+| `TIPOS_NOTICIA` | observación sin accionable → vive en AHORA | no |
+| `ACCIONES` (`av_agent_hacer`) | qué sabe arreglar (10 clases) | — |
+| `SIN_ACCION` (`av_agent_hacer`) | por dónde se arregla lo que no tiene botón | — (test lo exige) |
+| `SIN_GUARDIA` (`av_agent_control`) | **qué NO frena la parada, y por qué** | — (test lo exige) |
+| `DESTINOS` (`av_agent_acciones`) | dónde escribió cada acción | `?` |
+| `_CUBRE` (`av_agent_centinela`) | **qué VIGILA el daemon** (lo lee la tab AGENDA) | — |
+| `_DONDE_CORRE` (`av_agent_skills`) | en qué job corre cada detector | — (test lo exige) |
+| `_TAREAS` (`core/ai.py`) | modelo, tokens, thinking por tarea | flash/800/disabled |
+
+### Los cuatro que más fácil se rompen
+
+**`ACCION_POR_REGLA` gana sobre `ACCION_POR_TIPO`.** El tipo es la FAMILIA; la
+regla es la causa, y la causa decide el arreglo. `precio_moneda` agrupa dos
+problemas que se arreglan distinto: `cotiza_en_pesos` (buscar la pata) y
+`pata_equivocada` (apuntar el master). Como la acción salía del tipo, los dos
+mostraban «BUSCAR LA PATA USD» — que para el segundo pide una pata que ya cotiza
+y deja el master igual. 17/17 votos con el user gritando que ya lo había
+completado 40 veces. **Un botón que no arregla el problema de esa fila es peor
+que no tenerlo: promete, no cumple, y no da un solo error.**
+
+**`PREGUNTA_POR_TIPO` protege el eval set.** A una OBSERVACIÓN («el motor
+escribió esta línea de ERROR») preguntarle «¿acertó?» es preguntar si el log
+existe: la respuesta es siempre sí, la causa llega a 10/10, se marca
+`candidata_a_auto` y **la compuerta de autonomía se abre con evidencia que no
+mide nada**. A una observación se le pregunta *¿te sirve verla?* y se guarda con
+`origen='utilidad'`, que los filtros de la compuerta descartan.
+
+**`SIN_PUERTA` convierte paredes en deuda contable.** `cobertura()` agrupa por
+REGLA (no por tipo — la regla es la unidad que se vuelve acción) y ordena por
+volumen: *qué pared conviene romper primero*. Ese ranking habría cantado
+`pata_equivocada` semanas antes; sin él, la única forma de saber cuál era la peor
+era que alguien se hartara de verla.
+
+**`_CUBRE` tiene DOS consumidores y contesta UNA sola pregunta.** Es el catálogo
+de *qué vigila el daemon* y lo lee la tab AGENDA. **No** sirve para decidir qué
+cerrar por ausencia: los seis detectores de la pasada de precios corren cada uno
+en su `try`, así que un catálogo fijo daría por evaluado lo que explotó. *Qué se
+pudo mirar recién* lo declara `relevar_live()` detector por detector (§0.dh).
+
+---
+
+## M.5 Los 34 servicios, por función
+
+### Núcleo
+| Archivo | Qué es |
+|---|---|
+| `av_agent.py` (2.100) | los 9 detectores puros + **todos los registros declarativos** |
+| `av_agent_items.py` (685) | el STORE de los objetos — `ver` · `sincronizar` · `marcar` · `que_importa` |
+| `av_agent_vista.py` (1.380) | la pantalla entera en UN request |
+| `av_agent_hacer.py` (1.900) | las 10 acciones, el ciclo PROPONER→APLICAR→VERIFICAR |
+| `av_agent_alta.py` (4.055) | dar de alta un bono entero desde 1816: simular → aplicar |
+
+### Detectores especializados (todos escriben hallazgos con la misma forma)
+`av_agent_contexto` (la base sin listas: cadencia MEDIDA + frescura) ·
+`av_agent_db` (peso de tablas, delta diario) · `av_agent_motores` (caídos y
+ruidosos) · `av_agent_seguridad` (la superficie HTTP, probada de verdad) ·
+`av_agent_latencia` (cada endpoint contra SU propia mediana) ·
+`av_agent_proveedores` (Aunesa y compañía) · `av_agent_crontab` (repo vs
+máquina) · `av_agent_sin_precio` (5 causas) · `av_agent_recuperados` (la buena
+noticia) · `av_agent_respuesta` (¿el mercado contestó?) · `av_agent_causas`
+(tres avisos, un problema).
+
+### Puertas de arreglo
+`av_agent_pata` (buscar/pedir/apuntar la pata) · `av_agent_espejo` (asset
+faltante) · `av_agent_rehacer` (re-correr un día) · `av_agent_salud` (SOLO
+LECTURA, a propósito).
+
+### Medición y memoria
+`av_agent_evals` (la compuerta) · `av_agent_seguimiento` (el reloj; **no vota**
+desde §0.dh) · `av_agent_memoria` · `av_agent_errores` (traduce un log, **una vez
+por PATRÓN** y persistido) · `av_agent_acciones` (EL LIBRO).
+
+### Comunicación y superficie
+`av_agent_preguntas` · `av_agent_mensajes` · `av_agent_agenda` (¿qué estoy
+haciendo hoy?) · `av_agent_skills` (el catálogo DERIVADO) · `av_agent_explicar`
+(9 explicadores) · `av_agent_control` (la parada) · `av_agent_masivo` +
+`av_agent_analista` (el informe con IA) · `av_agent_relevar`.
+
+---
+
+## M.6 Las cinco leyes de conexión (REGLA #10) — dónde se cumplen
+
+Toda funcionalidad nueva del agente cumple **las cinco en el mismo commit**:
+
+1. **Es un objeto con DNI** → `agente.av_agent_items` (clave `sujeto|causa`) o es
+   una comunicación tipada (`ciclo.TIPOS_COMUNICACION`).
+2. **Tiene UNA casa, por su naturaleza** →
+   noticia → **AHORA** · accionable → **LA LISTA** · arreglo en prueba →
+   **¿AGUANTAN?** · monitor en vivo → **VIGILANCIA** · pasado →
+   **HISTORIAL/REGISTRO** · comunicación → **COMUNICACIONES** (solo hoy).
+   Si aparece en dos, una es la casa y la otra un puntero.
+3. **Lleva fecha y hora visibles.**
+4. **Consulta el DNI antes de actuar** (`estados_de`) — un lote jamás trabaja
+   desde una foto sin cruzar el estado, ni re-aplica lo atendido.
+5. **Se declara** — skill en SKILLS, acción en `DESTINOS`, tipo en los registros
+   de M.4.
+
+⚠️ **Incumplimiento conocido:** los 5 tipos que produce `jobs/db_tamano`
+(`db_cambio`, `tabla_quieta`, `permiso_flojo`, `dato_partido`,
+`cron_desalineado`) **no crean objetos** — nadie llama a `sincronizar()` por
+ellos. Violan la ley 1. Pendiente para la Fase 2.
+
+### Y la que las precede: REGLA #9
+
+Dos copias del mismo criterio se desincronizan **sin dar un solo error**. En este
+subsistema pasó ocho veces documentadas — entre ellas:
+
+- Las cinco derivaciones de `atendido` en cinco lugares en cinco días → nació
+  `core/ciclo.py`.
+- El contador de ENCONTRÓ decía **95** y LA LISTA **60**: el mismo predicado
+  escrito dos veces en el front. Se arregló **eliminando el filtro del front**.
+- `clave_caso()` en evals: se guardaba con `.upper()` y se leía sin él. Los bonos
+  matcheaban *de casualidad*; los votos sobre motores **no se recordaban nunca**.
+- El voto del tiempo comparaba dos listas con formatos de clave incompatibles y
+  por eso **solo podía decir «aguantó»** (§0.dh).
+
+**La lección operativa: cuando dos lugares tienen que estar de acuerdo, borrá
+uno.**
+
+---
+
+## M.7 El frontend — `src/components/av-agent/`
+
+Tres tabs (eran siete y era un menú, no una jerarquía), agrupadas por lo que hay
+que HACER: **AHORA** (algo espera una decisión) · **ENCONTRÓ** (la lista de
+trabajo) · **HISTORIAL** (lo que ya pasó). CONTROL, AGENDA y SKILLS pasan a
+íconos a la derecha.
+
+**La red se toca desde UN archivo** — `av-agent/datos.tsx` — y el
+`no-restricted-imports` de `eslint.config.mjs` lo hace estructural. Tres verbos:
+
+- `leer(url)` — GET, no cambia nada.
+- `llamar(url, body)` — POST que CALCULA. No muta lo que la pantalla dibuja → no relee.
+- `escribir(url, body, relee)` — POST que MUTA. **Declara qué invalida y lo relee
+  al volver, también si el backend contestó `ok: false`** — la pantalla tiene que
+  mostrar la verdad del servidor, salga bien o mal. Solo un fallo de red saltea
+  la relectura: no hay a quién preguntarle.
+
+Y **«no pude leer» nunca borra lo que había**: el recurso conserva el dato
+anterior y expone el error aparte. `null` silencioso dibujado como «no hay nada»
+es la mentira que el agente persigue en el backend; el front no la reintroduce.
+
+**El front NO DERIVA**: acción, estado, atendido, nombre y los contadores vienen
+resueltos del backend.
+
+Es **admin-only decidido en el server** (`layout.tsx`): sin el módulo el
+componente no existe en el HTML, no pollea y no puede mostrar nada. El gate real
+es `require_admin` en los 44 endpoints. Y por **REGLA #8** hay un test
+(`test_rbac`) que falla si un endpoint nuevo de `/api/ia` queda sin
+`require_admin`.
+
+---
+
+## M.8 El plan: cerrar la migración, no reescribir
+
+**Objetivo, en cuatro frases:** *una puerta para escribir · una identidad · una
+tabla de estado · una lectura.*
+
+| Fase | Qué | Estado |
+|---|---|---|
+| **0 · Parar la sangría** | la parada cubre todas las puertas · la foto de reemplazo guarda su clave · el seguimiento viejo deja de votar · lo del monitor se cierra cuando vuelve | ✅ 2026-08-24 (§0.dh) |
+| **2 · Apagar lo viejo** | `av_agent_seguimiento` se borra · el centinela pierde su ciclo propio (pasa a vista de items) · se fusionan el cron `av_agent_live` y el daemon · quedan 1 formato de identidad y 1 tabla de estado | ⬜ **la que más rinde** |
+| **1 · La puerta única** | `registrar(origen, hallazgos, evaluados)` — nadie más escribe · un test prohíbe `INSERT` fuera de ahí y armar la clave a mano | ⬜ |
+| **3 · La lectura única** | todas las pantallas leen `av_agent_items`; la foto queda solo para la evidencia | ⬜ |
+
+**El orden va 0 → 2 → 1 → 3 a propósito:** borrar lo viejo primero achica el
+problema; poner la puerta única sobre cuatro pipelines es más trabajo que
+ponerla sobre dos.
+
+### La deuda conocida, en una lista
+
+1. `jobs/db_tamano` no crea objetos (5 tipos sin DNI) — viola REGLA #10.1.
+2. `evaluados` se deriva de lo que se ENCONTRÓ → un tipo que llega a cero nunca
+   cierra sus objetos.
+3. El centinela recalcula la identidad en SQL crudo (`av_agent_centinela:340`),
+   sin `causa_canonica`.
+4. Topes silenciosos: `abiertos()` 400 (y ordena por lo MÁS reciente, al revés de
+   lo que la pantalla prioriza), `en_seguimiento()` 500, `cerrar_hitos()` 1000.
+5. `_hallazgos_ultima_corrida()` hace `corrida.isoformat()` sin guarda: si nunca
+   hubo una corrida no-live, la pantalla devuelve 500.
+6. Dos relojes para «aguantó»: `DIAS_DE_PRUEBA=5` corridos vs los 6 hitos hábiles.
+7. `av_agent_alta.py` son 4.055 líneas con tres responsabilidades; los registros
+   declarativos viven mezclados con los detectores en `av_agent.py`.
+8. El cron `av_agent_live` y el daemon corren el MISMO `relevar_live()`.
+9. `av_agent_proveedores.probar_ahora` / `barrer_ahora` no las llama nadie.
+10. `av_agent_contexto.barrer()` ordena las ~200 tablas enteras cada noche —
+    **sin medir** si eso pesa.
+
+---
+
+## M.9 Cómo agregar cosas
+
+### Un detector nuevo
+1. La función pura en `av_agent.py` (o su módulo especializado). **No toca la base
+   ni la red** — se testea sin Postgres.
+2. Declarar el tipo en **`ACCION_POR_TIPO`** (con `None` explícito si no hay
+   puerta) + **`SIN_PUERTA`** + **`PREGUNTA_POR_TIPO`** + **`DOMINIO_EVAL`**.
+3. Si es observación sin accionable → **`TIPOS_NOTICIA`**. Si es infraestructura
+   que hay que ver esté rota desde cuando sea → **`EN_AHORA_SIEMPRE`**.
+4. Describirlo en `av_agent_skills._QUE_DETECTA` + `_DOMINIO_DETECTOR` +
+   **`_DONDE_CORRE`** (y el job tiene que **escribir** hallazgos de ese tipo — hay
+   un test que lo exige; el horario se lee del crontab, no se escribe).
+5. El job lo suma a `evaluados` en `sincronizar()`, y **solo si su detector
+   terminó bien**.
+
+**El enemigo es el FALSO POSITIVO, no el falso negativo.** Si la lista trae
+ruido, a las tres semanas no la mira nadie y el agente muere aunque funcione.
+
+### Una acción nueva
+Una clase con `proponer` / `aplicar` / `verificar` y una línea en `ACCIONES`. Ni
+endpoint, ni tabla, ni UI. Si su efecto no es inmediato hereda de `Seguible` y
+suma `veredicto()` + `espera_s` (en **segundos de mercado abierto**).
+
+- **La escritura va SIEMPRE por la misma puerta que usa la pantalla** (ej.
+  `assets_sql.set_campos`). Un segundo camino termina con dos criterios distintos.
+- No hace falta llamar a `guardia()`: lo hace `av_agent_hacer.aplicar()`, que es
+  el único camino. **Una puerta de escritura FUERA de ese camino sí tiene que
+  llamarlo**, o declararse en `av_agent_control.SIN_GUARDIA` con su motivo — hay
+  un test que barre los 34 módulos y lo exige.
+- `causa` es la regla que vota un humano, que **no siempre es `sobre`** (el
+  control se llama `patas_equivocadas`, el detector emite `pata_equivocada`): si
+  divergen, el voto humano y el derivado miden por separado y **ninguno llega
+  nunca al mínimo de la compuerta**.
+- Si no tiene acción posible, va a `SIN_ACCION` **diciendo por dónde se arregla**.
+
+### Regla de oro para el LLM
+La regla determinista SIEMPRE primero; el modelo **solo para lo que la regla no
+pudo**, y entra por el mismo `Propuesta` con `fuente="ia"`. No es desconfianza:
+el 80% lo resuelve una regla de tres líneas, y gastar tokens y atención humana
+en eso es tirar los dos recursos que escasean. Toda llamada pasa por
+`core/ai.py`, que **nunca propaga excepción** y deja traza en `ia.trazas`.
+
+---
+
+## M.10 Los invariantes que los tests hacen cumplir
+
+No son verificaciones: son leyes que bloquean el merge. **Los nombres de los
+tests son la mejor documentación del subsistema** — leelos como índice.
+
+- **`test_ciclo`** — toda tabla del agente declara cómo dice su estado; ninguna se
+  declara dos veces; no se declaran tablas fantasma; una desconocida cae en
+  `NUEVO` y **no en `RESUELTO`**; una fila rota no hace explotar al árbitro.
+- **`test_av_agent_skills`** — todo explicador/acción/detector/control está en el
+  catálogo; toda skill declara si usa IA y **para qué**; **ningún detector usa el
+  modelo**; el job de cada detector escribe hallazgos y está en el crontab.
+- **`test_av_agent_control`** — **ninguna escritura del agente se saltea la
+  parada**, en los 34 módulos, y lo exento está declarado con motivo.
+- **`test_av_agent_fase0`** — las dos puertas de persistencia usan la MISMA
+  identidad; el monitor declara qué evaluó y solo si corrió.
+- **`test_av_agent_circulo`** — toda acción declara una causa resoluble; «todavía
+  no volvió» **no es** «aguantó»; una causa 17/17 queda probada y **un solo error
+  la saca**.
+- **`test_av_agent_dni`** — el sujeto no se stripea; `resolver_sujeto` marca
+  `en_curso` **y no `resuelto`**; el masivo saltea lo ya atendido.
+- **`test_av_agent_seguridad`** — se ven **todas** las rutas (no las de primer
+  nivel), ninguna escritura queda sin gate, y **jamás se prueba una escritura**.
+- **`test_seguimiento`** — el seguimiento viejo **no vota**, y un test **falla el
+  día que las claves se unifiquen** (ahí vuelve el voto).
+
+### La trampa de FastAPI, ya pagada
+`app.routes` **no** trae las rutas de los `include_router` y las `dependencies=`
+del include no bajan a cada ruta. `audit_rbac` y `test_rbac_superficie` veían
+**37 de 541 rutas** y pasaban en verde. La técnica vive UNA vez en
+`api/superficie.py` — **no la reimplementes**.
+
+---
+
+## M.11 Comandos
+
+```bash
+# la relevada (censa 1816, ~29 créditos)
+python -m jobs.av_agent --dry-run              # imprime todo, no escribe una fila
+python -m jobs.av_agent --alcance todo         # los 887 de 1816, no solo soberanos
+python -m jobs.av_agent --preguntas
+python -m jobs.av_agent --responder "3=alta,5-9=ignorar" --por vos@acaquant.com
+
+# el monitor de rueda (cero créditos) y el daemon
+python -m jobs.av_agent_live --ver             # sin escribir
+python -m jobs.av_agent_centinela              # en prod es systemd, Restart=always
+
+# medición y diagnóstico
+python -m jobs.seguimiento                     # el reloj de los arreglos
+python -m scripts.diag_ciclo                   # la deuda de vocabulario, contada
+python -m scripts.diag_agente_conexion         # ¿quedó algo suelto? (REGLA #10)
+python -m scripts.reset_evals                  # borra el eval set (dry-run por default)
+
+pytest tests/unit/test_av_agent*.py tests/unit/test_ciclo.py -q
+```
+
+---
+
+## M.12 Errores que ya se cometieron (no los repitas)
+
+| El error | Qué produjo |
+|---|---|
+| Meter `tipo`/`origen` en la identidad | el mismo bono roto como DOS objetos; arreglarlo movía uno |
+| Guardar la foto sin la `clave` | 13 de 19 familias sin antigüedad, sin «volvió» y sin IGNORAR |
+| Derivar el estado en la pantalla | cinco derivaciones contradiciéndose en cinco días |
+| Cerrar por ausencia sin `evaluados` | «se arreglaron 40 problemas» el día que el proveedor está caído |
+| Declarar evaluado un detector que explotó | cierra en silencio lo que sigue roto |
+| Un `None` por olvido en vez de explícito | 38 filas sin botón que se leen como que el agente no sabe qué hacer |
+| Preguntar «¿acertó?» a una observación | la compuerta abriéndose con 10/10 que no mide nada |
+| Votar con dos claves que no coinciden | un ✔ que no puede ser ✖ — señal fabricada |
+| Contar el mismo trabajo en dos lugares | la tab decía 95 y la sub-tab 60 |
+| Verificar un efecto que tarda 5s, 0s después | un chequeo con una sola respuesta posible: un cartel |
+| Dejar la foto del monitor sin vencimiento | avisos de «sin precio» todo el finde con el mercado cerrado |
+| Una lista con dos consumidores y dos preguntas | los motores sin cerrarse Y la agenda diciendo que no los vigila |
+| Normalizar la clave al escribir y no al leer | votos que no se recuerdan nunca, cero errores, cero logs |
 
 ---
 
@@ -7193,6 +7760,112 @@ El cruce es **UN solo viaje** (`lower(sujeto) = ANY(...)`) y degrada sin tumbar
 la tabla: perder el estado empeora la pantalla, caerse la borra.
 
 ---
+
+### 0.dh FASE 0 — los cuatro que frenaban la sangría (2026-08-24)
+
+Auditoría línea por línea del subsistema (34 servicios · 18.870 líneas · 3 jobs
++ 1 daemon · 44 endpoints · 47 archivos de test). El diagnóstico de fondo NO es
+que la arquitectura esté mal diseñada —`core/ciclo.py` es correcto— sino que
+**hay dos arquitecturas conviviendo y la vieja nunca se apagó**. Medido:
+
+| | Hoy | Debería |
+|---|---|---|
+| Puertas que escriben estado | **6** | 1 |
+| Formatos de identidad | **3** | 1 |
+| Tablas con ciclo propio | **5** | 1 |
+| Comentarios «convive» / «hasta que se apague lo viejo» | **11** | 0 |
+
+Esta sección cierra los **cuatro que hacían daño mientras tanto**. Los cuatro son
+la misma enfermedad (REGLA #9) y los cuatro fallaban **sin un solo error**.
+
+**1 · LA PARADA FRENABA UNA DE CADA CUATRO ESCRITURAS.** `guardia()` se
+describe como *«el portero de TODA escritura del agente»* y lo llamaban **4
+lugares, todos en `av_agent_alta` y `av_agent_preguntas`**. Las 10 acciones de
+`av_agent_hacer` —las del botón ARREGLAR de cada fila, que escriben
+`portafolio.assets`, `mercado.curvas`, `mercado.especies`,
+`clientes.contrapartes` y `mercado.adhoc_subscriptions`— **no lo consultaban**:
+con el agente FRENADO seguían escribiendo en producción. Tampoco
+`av_agent_pata.pedir`.
+
+El test que debía impedirlo escaneaba **solo `av_agent_alta`**, el módulo donde
+nació, y su propio docstring describía lo que pasó: *«una puerta nueva que no
+llame al guardia no rompe ningún test obvio»*.
+
+→ `guardia()` en `av_agent_hacer.aplicar()` (el ÚNICO camino de las 10 acciones,
+también desde `uno(aplicar_ya=True)`) y en `av_agent_pata.pedir()`. El test
+ahora **barre los 34 módulos por AST**, detecta escrituras (SQL contra un schema
+de negocio o llamada a una puerta conocida) y exige `guardia()` **o** una entrada
+DECLARADA en `av_agent_control.SIN_GUARDIA` con su motivo. La regla que ordena
+esa lista: **la parada corta las escrituras de DATO, no el triaje ni la
+comunicación** — frenar al agente no puede dejarte sin enterarte de que Aunesa
+se cayó.
+
+**2 · LA FOTO DE REEMPLAZO SE GUARDABA SIN IDENTIDAD.** `persistir()` escribía
+la `clave`; `reemplazar_hallazgos()` —o sea los alcances `live` y `sistema`, **13
+de las 19 familias**— no. La vista une la foto con la memoria por
+`LEFT JOIN av_agent_items i ON i.clave = h.clave`, y en SQL **NULL nunca es
+igual a NULL**: el JOIN no matcheaba una sola fila.
+
+En esas familias no había antigüedad, ni «volvió», ni «ya lo atendiste», e
+IGNORAR no las escondía: todo se veía recién aparecido, siempre. El comentario
+del propio `schema.sql` lo había predicho textual — *«sin esta columna… la
+memoria queda existiendo pero inalcanzable»*.
+
+→ La escribe con `clave_de_problema`, la MISMA función que `persistir` y que el
+detector. Un test exige que las dos puertas usen esa función y que ninguna arme
+la clave a mano.
+
+**3 · EL SEGUIMIENTO VIEJO SOLO PODÍA DECIR «AGUANTÓ».** El veredicto sale de
+`clave in claves_abiertas` y las dos mitades arman la clave distinto:
+
+    se anota    `av_agent_acciones` →  accion:objetivo:regla
+    se compara  `jobs/seguimiento`  →  tipo:sujeto:regla
+
+Los ids de acción están namespaceados (`mercado.*`, `assets.*`, `sistema.*`) y
+**ninguno coincide jamás con un tipo de hallazgo**: la intersección es vacía por
+construcción, `volvio` no puede pasar nunca y todo lo que cumple la ventana se
+sella `aguanto` → un ✔ `verificado` fabricado, que la compuerta cuenta igual que
+un click humano. Y desde §0.de era el **ÚNICO** emisor de `verificado` que
+quedaba: la compuerta dependía entera de una fuente que no puede decir que no.
+
+⚠️ El test `test_las_claves_se_arman_IGUAL_que_en_el_centinela` **predijo este
+bug con todas las letras** (*«si cada uno armara la suya… el veredicto sería
+siempre aguantó»*) y comparaba las DOS puntas que sí coinciden, no la tercera.
+
+→ `_votar` devuelve 0 y el módulo no puede importar `av_agent_evals`. Misma
+decisión que §0.de y por la misma regla: **no inventar una señal es mejor que
+fabricar una**. Un test congela el motivo y **falla el día que las claves se
+unifiquen** — ahí sí vuelve el voto. Eso es Fase 2.
+
+**4 · MOTORES, PROVEEDORES Y LATENCIA NO SE CERRABAN NUNCA.** `_CUBRE["precios"]`
+nombraba 3 tipos y la pasada produce **6**: `motor_caido`, `motor_ruidoso`,
+`proveedor_caido` y `latencia` quedaban fuera de `evaluados`, y el auto-resuelto
+filtra por ahí. Un motor que volvía **seguía en AHORA y en VIGILANCIA para
+siempre**, que es cómo una alarma deja de mirarse.
+
+Y agregarlos a la lista fija habría sido peor: los seis detectores corren cada
+uno en su `try`, así que uno caído los habría cerrado a todos por ausencia — la
+mentira optimista de §0.be.
+
+⚠️ **`_CUBRE` tenía DOS consumidores y hacía dos cosas distintas.** También lo
+lee la tab AGENDA (`av_agent_agenda._del_daemon`) para contestar *«¿qué vigila el
+daemon?»* — así que la lista incompleta hacía además que **la AGENDA dijera que
+el agente no vigila los motores**, mientras los mira cada 30 segundos. La
+pantalla que existe para contestar *«¿hay algo que NO estoy haciendo?»*
+contestaba mal.
+
+→ Son dos preguntas y ahora tienen dos fuentes: `_CUBRE` queda **completo** (y
+arregla la agenda) como catálogo de *qué vigilo*; y *qué pude mirar recién* lo
+declara `relevar_live()` **detector por detector, después de que cada uno
+terminó bien**. Un test exige que el `evaluados.update` vaya entre la llamada y
+el `except`, y otro cubre el caso que faltaba: un detector caído DENTRO de la
+pasada de precios no marca lo suyo aunque los otros cinco anden.
+
+**Qué NO cambia esta fase.** Los seis productores, los tres formatos de
+identidad y las cinco tablas con ciclo siguen ahí. Esto frena el daño; la
+arquitectura se cierra en las fases siguientes: **una puerta para escribir, una
+identidad, una tabla de estado, una lectura.**
+
 
 ## 1. Qué es y qué no es
 

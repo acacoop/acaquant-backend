@@ -437,7 +437,7 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Arquitectura, datos, roadmap | `ARQUITECTURA.md` (madre) |
 | Qué vistas/tabs/endpoints/permisos hay (superficie completa) | `MAPA_APP.md` **[VIVO]** |
 | Modelo SQL / schema | `SQL.md` + `SQL_MODELO.md` + `sql/schema.sql` |
-| **PROGRAMA DE IA — doc único** (agente + SALUD + evals + roadmap) | `AV_AGENT.md` **[VIVO]** |
+| **PROGRAMA DE IA — doc único** (agente + SALUD + evals + roadmap) | `AV_AGENT.md` **[VIVO]** — arranca con el **mapa del código** (`M.0`–`M.12`: arquitectura, piezas, invariantes, deuda); `§0.a` en adelante es el diario |
 | Vista `/research` (1816, mail diario) | `VISTA_RESEARCH.md` **[VIVO]** |
 | Research → tab BCRA / FRED | `RESEARCH_BCRA.md` · `RESEARCH_FRED.md` |
 | Feed Eikon live / tab REUTERS (`eikon_*`) | `INTEGRACION_REUTERS.md` **[VIVO]** |

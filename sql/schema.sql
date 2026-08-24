@@ -5243,6 +5243,119 @@ CREATE TABLE IF NOT EXISTS ap5.cuentas (
     creado_at   timestamptz NOT NULL DEFAULT now()
 );
 
+-- `denominacion` — el nombre que da LA CÁMARA (`AccountDetails.Account`).
+--
+-- Medido 2026-08-24: los 98 números de la cámara NO son comitentes nuestros
+-- (0 de 98 matchean contra `clientes.cuentas` y `clientes.comitentes`), así que
+-- el nombre no salía de casa. Pero la API sí lo publica: `AccountDetails` pide
+-- `accountCode` y devuelve `149667 → ASOCIACION DE COOPERATIVAS ARGENTINAS`.
+--
+-- Va en columna SEPARADA de `name` a propósito, y esa es toda la gracia: `name`
+-- es lo que escribió una persona y **manda**; `denominacion` se refresca desde
+-- la fuente en cada corrida. Si compartieran columna, el job pisaría la
+-- corrección humana o el humano congelaría un nombre que la cámara cambió — y
+-- no habría forma de saber cuál de los dos se está mirando. El nombre a mostrar
+-- es `COALESCE(name, denominacion, account)`.
+--
+-- `cuit` (`PartyId`) y `netting` (`NettingAccountCode`) vienen del mismo lugar y
+-- no cuestan una llamada extra: son lo que permite ver que N cuentas son del
+-- MISMO titular sin depender de cómo esté escrito el nombre (REGLA #9 — la
+-- identidad no es el string).
+ALTER TABLE ap5.cuentas ADD COLUMN IF NOT EXISTS denominacion text;
+ALTER TABLE ap5.cuentas ADD COLUMN IF NOT EXISTS cuit text;
+ALTER TABLE ap5.cuentas ADD COLUMN IF NOT EXISTS netting text;
+ALTER TABLE ap5.cuentas ADD COLUMN IF NOT EXISTS denominacion_at timestamptz;
+
+-- `grupo` — CARGA MANUAL. Es lo que parte el reporte en sus dos rankings
+-- («Cooperativas» y «MUNDO ACA»). No se deduce del nombre: hoy hay cuentas que
+-- se llaman "ACA EXPORTACIÓN" y otras "OTC COOPERATIVA …", pero inferir un
+-- grupo de un prefijo es exactamente el error de la REGLA #9 — el día que una
+-- cuenta se llame distinto cambiaría de ranking sin que nadie se entere.
+ALTER TABLE ap5.cuentas ADD COLUMN IF NOT EXISTS grupo text;
+ALTER TABLE ap5.cuentas ADD COLUMN IF NOT EXISTS grupo_por text;
+ALTER TABLE ap5.cuentas ADD COLUMN IF NOT EXISTS grupo_at timestamptz;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ap5.contratos — CUÁNTO representa UN contrato de cada símbolo.
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- ⚠️ **`long_qty`/`short_qty` vienen en CONTRATOS, no en toneladas ni en
+-- dólares**, y el reporte que la mesa manda por mail habla de "Posición Tn
+-- Neta". Sin multiplicar, el número sale 100 veces más chico — y no falla nada,
+-- porque las cantidades igual suman bien entre sí. Es el modo de falla más caro:
+-- un total plausible y equivocado.
+--
+-- **El multiplicador NO se hardcodea: se DERIVA de los propios datos.** La
+-- cámara manda a la vez el precio promedio, el de ajuste y el settlement, y
+-- entre ellos hay una identidad exacta:
+--
+--     daily_settlement = (settlement_price − avg_px) × (long_qty − short_qty) × mult
+--
+-- Medido el 2026-08-24 sobre las 438 filas del día: el multiplicador es
+-- CONSTANTE por símbolo (mismo valor en las 59 filas de SOJ.ROS/NOV26) y vale
+-- 100 para `.ROS`, **10 para `.MIN`** (los minis), 5 para `.CME`, 1000 para
+-- `DLR` y 10 para `WTI`.
+--
+-- Por qué derivarlo y no escribir una tabla a mano: **la unidad de medida NO
+-- alcanza**. Dentro de `unit_of_measure = 'Tn'` conviven 3 multiplicadores
+-- distintos (100, 10 y 5), así que una regla por unidad daría 10× de error en
+-- los minis. Y un contrato nuevo aparece sin que nadie tenga que darlo de alta.
+--
+-- `manual` existe para el caso que la derivación NO puede resolver: un símbolo
+-- cuyo settlement sea 0 o cuya posición esté plana no tiene identidad de dónde
+-- despejar. Ahí lo carga una persona y **el job no lo vuelve a tocar** (mismo
+-- invariante que `ap5.cuentas.name`).
+CREATE TABLE IF NOT EXISTS ap5.contratos (
+    symbol          text PRIMARY KEY,
+    multiplicador   numeric NOT NULL,
+    unit_of_measure text,
+    -- 'derivado' (despejado de la identidad) | 'manual' (lo cargó una persona)
+    fuente          text    NOT NULL DEFAULT 'derivado',
+    -- Sobre cuántas filas se despejó y cuánto se dispersó. Un multiplicador
+    -- derivado de UNA fila no es lo mismo que uno derivado de 59, y la
+    -- dispersión es lo que delata que el símbolo cambió de tamaño.
+    filas_base      integer NOT NULL DEFAULT 0,
+    dispersion      numeric,
+    actualizado_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ap5.acumulado — la SEMILLA del acumulado por cuenta.
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- El reporte muestra "Diferencias Acum. al Día", que es el arrastre histórico
+-- de la cuenta. La cámara solo manda la diferencia DEL DÍA, y nuestra serie
+-- arranca el día que empezamos a guardarla — así que el arrastre anterior no
+-- existe en ningún lado salvo en la planilla de la mesa. Ese primer número se
+-- carga A MANO, una vez, y de ahí en adelante el acumulado se mueve solo.
+--
+-- ⚠️ **La clave lleva la MONEDA, y eso se midió (2026-08-24).** Cuatro cuentas
+-- (221369, 222812, 229540, 229664) tienen a la vez posición agro en Dólar MtR y
+-- dólar futuro en Pesos. Con PK solo `account`, el acumulado sumaría pesos con
+-- dólares: daría un número, no fallaría nada, y estaría mal. Son dos plata
+-- distintas y nunca se suman — la misma regla que ARS/USDL en toda la app.
+--
+-- **El acumulado NO se persiste: se DERIVA en la lectura** como
+-- `semilla + Σ daily_settlement` desde `desde_fecha`. Misma decisión que el
+-- acumulado del histórico de `/aca`: un total guardado puede contradecir a sus
+-- propios insumos, y cuando eso pasa no hay forma de saber cuál de los dos está
+-- bien. Derivándolo, corregir un día corrige el acumulado solo.
+--
+-- `desde_fecha` es EXCLUSIVA: se suman los días POSTERIORES. La semilla ya
+-- contiene el arrastre hasta ese día inclusive, así que incluirlo lo contaría
+-- dos veces.
+CREATE TABLE IF NOT EXISTS ap5.acumulado (
+    account      text    NOT NULL,
+    currency     text    NOT NULL,
+    semilla      numeric NOT NULL DEFAULT 0,
+    -- Hasta acá llega la semilla (inclusive). Se suman los días POSTERIORES.
+    desde_fecha  date    NOT NULL,
+    nota         text,
+    cargado_por  text,
+    actualizado_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (account, currency)
+);
+
 -- agente.av_agent_propuestas — LO QUE EL AGENTE SABE HACER (2026-08-19).
 --
 -- Pedido del user: *«que el agente aprenda a sugerir, y que si le das OK

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from core.postrade_posicion import aplanar, lado
+from core.postrade_posicion import aplanar, familia_de_contrato, lado, multiplicadores
 from jobs.ap5_portfolio import deduplicar, ultimo_dia_habil
 
 # La respuesta real de producción, tal cual la devuelve la cámara.
@@ -242,3 +242,105 @@ def test_saltea_feriados_no_solo_findes():
     El repo ya se comió una vez el bug de contar solo `weekday < 5`.
     """
     assert ultimo_dia_habil(date(2026, 5, 26)) == "20260522"
+
+
+# --------------------------------------------------------------------------- #
+# El MULTIPLICADOR de contrato — sin esto la posición sale 100 veces más chica
+#
+# Este bloque congela el modo de falla más caro de la vista: `long_qty` viene en
+# CONTRATOS y el reporte habla de toneladas. Si se muestra la cantidad cruda, el
+# total es plausible y está mal — las cantidades igual suman bien entre sí.
+# --------------------------------------------------------------------------- #
+def _pos(symbol, long_qty, short_qty, avg, px, settl, unidad="Tn"):
+    return {"symbol": symbol, "unit_of_measure": unidad, "long_qty": long_qty,
+            "short_qty": short_qty, "avg_px": avg, "settlement_price": px,
+            "daily_settlement": settl}
+
+
+def test_multiplicador_se_despeja_de_los_propios_datos():
+    """MEDIDO en producción: MAI.ROS/SEP26, 1889 contratos comprados a 188,028321
+    con ajuste 197 dieron un settlement de 1.694.750 → 100 Tn por contrato."""
+    m, sin = multiplicadores([_pos("MAI.ROS/SEP26", 1889, 0, 188.028321, 197.0, 1694750)])
+    assert m["MAI.ROS/SEP26"]["multiplicador"] == 100.0
+    assert m["MAI.ROS/SEP26"]["fuente"] == "derivado"
+    assert sin == []
+
+
+def test_la_unidad_de_medida_NO_alcanza_para_adivinarlo():
+    """La razón por la que esto se deriva y no se escribe a mano.
+
+    Los tres son `Tn` y valen distinto: el `.ROS` 100, el `.MIN` (mini) 10 y el
+    `.CME` 5. Una regla por unidad erraría 10× en los minis — y el total saldría
+    igual, sin fallar nada.
+    """
+    m, _ = multiplicadores([
+        _pos("SOJ.ROS/NOV26", 572, 0, 345.702097, 359.3, 777800),
+        _pos("SOJ.MIN/NOV26", 100, 0, 345.0, 359.3, 14300),
+        _pos("SOY.CME/OCT26", 100, 0, 345.0, 359.3, 7150),
+    ])
+    assert m["SOJ.ROS/NOV26"]["multiplicador"] == 100.0
+    assert m["SOJ.MIN/NOV26"]["multiplicador"] == 10.0
+    assert m["SOY.CME/OCT26"]["multiplicador"] == 5.0
+
+
+def test_el_short_tambien_despeja_bien():
+    """La pata corta tiene settlement negativo: el signo se cancela y el
+    multiplicador sale positivo igual."""
+    m, _ = multiplicadores([_pos("MAI.ROS/DIC26", 0, 599, 190.475292, 203.2, -762210)])
+    assert m["MAI.ROS/DIC26"]["multiplicador"] == 100.0
+
+
+def test_vencimiento_sin_settlement_HEREDA_del_hermano():
+    """El caso real: `MAI.ROS/MAR27` entró con settlement 0 y sin él su posición
+    no se podía expresar en toneladas — quedaba fuera del total sin que nada
+    falle. El tamaño es del CONTRATO, no del mes."""
+    m, sin = multiplicadores([
+        _pos("MAI.ROS/SEP26", 1889, 0, 188.028321, 197.0, 1694750),
+        _pos("MAI.ROS/MAR27", 5, 0, 200.0, 200.0, 0),
+    ])
+    assert m["MAI.ROS/MAR27"]["multiplicador"] == 100.0
+    assert m["MAI.ROS/MAR27"]["fuente"] == "hermano"
+    assert sin == []
+
+
+def test_hermanos_que_NO_coinciden_no_heredan():
+    """Dos tamaños bajo el mismo contrato no es un dato, es una pregunta: el
+    contrato cambió de tamaño y eso lo tiene que mirar una persona."""
+    m, sin = multiplicadores([
+        _pos("XX.ROS/SEP26", 10, 0, 100.0, 110.0, 10000),    # mult 100
+        _pos("XX.ROS/DIC26", 10, 0, 100.0, 110.0, 1000),     # mult 10
+        _pos("XX.ROS/MAR27", 5, 0, 100.0, 100.0, 0),         # sin settlement
+    ])
+    assert "XX.ROS/MAR27" not in m
+    assert sin == ["XX.ROS/MAR27"]
+
+
+def test_lo_que_no_se_resuelve_NO_recibe_un_1_por_default():
+    """Inventar un 1 sería peor que no tenerlo: el total saldría igual de
+    plausible y nadie podría notar que falta."""
+    m, sin = multiplicadores([_pos("ZZZ012027", 5, 0, 100.0, 100.0, 0, unidad="USD")])
+    assert m == {}
+    assert sin == ["ZZZ012027"]
+
+
+def test_la_dispersion_delata_un_contrato_que_cambio_de_tamano():
+    """Hoy da < 0,002 en producción. Si un día se dispara, es lo único que avisa."""
+    m, _ = multiplicadores([
+        _pos("MAI.ROS/SEP26", 1889, 0, 188.028321, 197.0, 1694750),
+        _pos("MAI.ROS/SEP26", 100, 0, 188.0, 197.0, 90000),
+    ])
+    assert m["MAI.ROS/SEP26"]["dispersion"] > 0
+
+
+def test_familia_de_contrato_saca_el_vencimiento():
+    assert familia_de_contrato("MAI.ROS/MAR27") == "MAI.ROS"
+    assert familia_de_contrato("SOJ.MIN/NOV26") == "SOJ.MIN"
+    assert familia_de_contrato("DLR102026") == "DLR"
+    assert familia_de_contrato("WTI092026") == "WTI"
+
+
+def test_multiplicadores_con_entrada_vacia_o_incompleta_no_revienta():
+    m, sin = multiplicadores([])
+    assert (m, sin) == ({}, [])
+    m, sin = multiplicadores([{"symbol": "X", "long_qty": 1, "short_qty": 0}])
+    assert m == {} and sin == ["X"]

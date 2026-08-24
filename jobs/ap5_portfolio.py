@@ -12,8 +12,8 @@ existe. Y por qué "hábil" y no "ayer": un lunes, ayer es domingo. El cálculo 
 `core.calendario.restar_habiles`, que además de findes saltea **feriados** — el
 repo ya se comió una vez el bug de contar solo `weekday < 5`.
 
-Idempotente: la PK es (business_date, account, symbol, position_type) y se hace
-UPSERT. Re-correrlo el mismo día no duplica ni acumula; corregir una corrida
+Idempotente: la PK es (business_date, account, symbol, position_type, side) y se
+hace UPSERT. Re-correrlo el mismo día no duplica ni acumula; corregir una corrida
 parcial es volver a correrlo.
 
 Uso:
@@ -26,7 +26,7 @@ from __future__ import annotations
 import argparse
 from datetime import date
 
-from core import postrade, postrade_posicion
+from core import postrade, postrade_cuentas, postrade_posicion
 from core.calendario import restar_habiles
 from core.job_runs import JobRunLogger
 from core.postgres import get_pool
@@ -134,7 +134,72 @@ def deduplicar(filas: list[dict]) -> tuple[list[dict], list[str]]:
     return salida, divergencias
 
 
-def run(fecha: str | None = None, *, dry: bool = False) -> None:
+def _guardar_multiplicadores(mults: dict[str, dict]) -> int:
+    """UPSERT en `ap5.contratos`, SIN pisar lo cargado a mano.
+
+    El `WHERE fuente <> 'manual'` es el mismo invariante de `ap5.cuentas.name`:
+    lo automático completa, lo humano manda. Un símbolo cuyo multiplicador no se
+    pudo resolver se carga a mano una vez, y el job no vuelve a opinar.
+
+    `fuente` distingue `derivado` (despejado de la identidad del settlement) de
+    `hermano` (heredado de otro vencimiento del mismo contrato). Son distintos
+    grados de evidencia y por eso no se guardan iguales: el heredado es correcto
+    hasta que un contrato cambie de tamaño, y ahí lo único que lo delata es
+    saber que nunca se midió.
+    """
+    if not mults:
+        return 0
+    sql = """
+        INSERT INTO ap5.contratos (
+            symbol, multiplicador, unit_of_measure, fuente, filas_base,
+            dispersion, actualizado_at
+        ) VALUES (
+            %(symbol)s, %(multiplicador)s, %(unit_of_measure)s, %(fuente)s,
+            %(filas_base)s, %(dispersion)s, now()
+        )
+        ON CONFLICT (symbol) DO UPDATE SET
+            multiplicador   = EXCLUDED.multiplicador,
+            unit_of_measure = EXCLUDED.unit_of_measure,
+            fuente          = EXCLUDED.fuente,
+            filas_base      = EXCLUDED.filas_base,
+            dispersion      = EXCLUDED.dispersion,
+            actualizado_at  = now()
+        WHERE ap5.contratos.fuente <> 'manual'
+    """
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(sql, list(mults.values()))
+    return len(mults)
+
+
+def _cuentas_sin_nombre() -> list[str]:
+    """Las que todavía no tienen denominación de la cámara.
+
+    Se piden SOLO esas: `AccountDetails` es de a una cuenta por llamada y no hay
+    listado (probado: `AccountList` y `PartyDetails` dan 404). Refrescar las 98
+    todos los días serían 98 llamadas para un dato que no cambia; pedir solo las
+    nuevas son cero llamadas en un día normal.
+    """
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT account FROM ap5.cuentas WHERE denominacion IS NULL "
+                    "ORDER BY account")
+        return [str(r[0]) for r in cur.fetchall()]
+
+
+def _guardar_denominaciones(detalles: list[dict]) -> int:
+    """El nombre que da la CÁMARA. Nunca toca `name` (que es el humano)."""
+    if not detalles:
+        return 0
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(
+            "UPDATE ap5.cuentas SET denominacion = %(denominacion)s, "
+            "cuit = %(cuit)s, netting = %(netting)s, denominacion_at = now() "
+            "WHERE account = %(account)s",
+            detalles,
+        )
+    return len(detalles)
+
+
+def run(fecha: str | None = None, *, dry: bool = False, refrescar_nombres: bool = False) -> None:
     with JobRunLogger(TIPO) as run_log:
         f = postrade.fecha_api(fecha) if fecha else ultimo_dia_habil()
         run_log.set_stat("fecha", f)
@@ -180,25 +245,63 @@ def run(fecha: str | None = None, *, dry: bool = False) -> None:
         run_log.set_stat("short_qty_total", corto)
         run_log.log(f"  {len(cuentas)} cuentas | long={largo:,.0f} short={corto:,.0f}")
 
+        # El tamaño del contrato, despejado de la identidad del settlement. Sin
+        # esto la posición se muestra en contratos y el reporte pide toneladas.
+        mults, sin_mult = postrade_posicion.multiplicadores(a_escribir)
+        heredados = sum(1 for m in mults.values() if m["fuente"] == "hermano")
+        run_log.set_stat("multiplicadores", len(mults))
+        run_log.set_stat("multiplicadores_heredados", heredados)
+        run_log.set_stat("simbolos_sin_multiplicador", len(sin_mult))
+        if heredados:
+            run_log.log(f"  {heredados} multiplicadores heredados de un hermano del "
+                        f"mismo contrato (vencimiento sin settlement propio)")
+        if sin_mult:
+            # No es un error: un símbolo con settlement 0 y sin hermanos no tiene
+            # de dónde salir. Pero SÍ hay que verlo, porque hasta que alguien lo
+            # cargue esa posición no se puede expresar en su unidad.
+            run_log.log(f"  ⚠ {len(sin_mult)} símbolos sin multiplicador: "
+                        + ", ".join(sin_mult[:8]))
+
         if dry:
             run_log.log("  --dry: no se escribe nada")
             for f_ in a_escribir[:10]:
                 run_log.log(f"    {f_}")
+            for m in list(mults.values())[:10]:
+                run_log.log(f"    mult {m['symbol']} = {m['multiplicador']:g} "
+                            f"({m['unit_of_measure']}, {m['filas_base']} filas)")
             return
 
         escritas = _guardar_posiciones(a_escribir)
         altas = _altas_de_cuentas(cuentas)
+        contratos = _guardar_multiplicadores(mults)
         run_log.set_stat("filas_escritas", escritas)
         run_log.set_stat("cuentas_vistas", altas)
-        run_log.log(f"  ✓ {escritas} filas en ap5.portfolio · {altas} cuentas en ap5.cuentas")
+        run_log.set_stat("contratos_escritos", contratos)
+        run_log.log(f"  ✓ {escritas} filas en ap5.portfolio · {altas} cuentas en "
+                    f"ap5.cuentas · {contratos} en ap5.contratos")
+
+        # El nombre de la cuenta lo publica la cámara (`AccountDetails`), así que
+        # no se tipea. Se piden solo las que no lo tienen: en un día normal son
+        # cero llamadas, y el día que aparece una cuenta nueva viene con nombre.
+        pendientes = _cuentas_sin_nombre() if not refrescar_nombres else sorted(cuentas)
+        if pendientes:
+            detalles, fallidas = postrade_cuentas.traer(pendientes)
+            nombradas = _guardar_denominaciones(detalles)
+            run_log.set_stat("nombres_resueltos", nombradas)
+            run_log.set_stat("nombres_sin_resolver", len(fallidas))
+            run_log.log(f"  ✓ {nombradas} nombres desde AccountDetails"
+                        + (f" · {len(fallidas)} sin resolver" if fallidas else ""))
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Posición de futuros de la cámara → ap5.")
     ap.add_argument("--fecha", help="AAAAMMDD (default: último día hábil)")
     ap.add_argument("--dry", action="store_true", help="no escribe en la base")
+    ap.add_argument("--refrescar-nombres", action="store_true",
+                    help="vuelve a pedir el nombre de TODAS las cuentas del día "
+                         "(por default solo el de las que no lo tienen)")
     args = ap.parse_args()
-    run(args.fecha, dry=args.dry)
+    run(args.fecha, dry=args.dry, refrescar_nombres=args.refrescar_nombres)
 
 
 if __name__ == "__main__":

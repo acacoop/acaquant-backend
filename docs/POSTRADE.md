@@ -218,14 +218,71 @@ datos, o falta un filtro) · **NO HABILITADO** (reclamo al proveedor) ·
 **ERROR**. Distinguir "vacío" de "denegado" es el punto: son problemas
 distintos y se resuelven con gente distinta.
 
+## POSICIONES Y DIFERENCIAS — la primera vista sobre esta API (2026-08-24)
+
+Lo que la mesa manda por mail todos los días ("RESUMEN POSICIONES AGRO Y DÓLAR
+FUTURO"), calculado server-side desde lo que dice **la cámara**.
+
+| Pieza | Qué hace |
+|---|---|
+| `core/postrade_posicion.py` | `PositionReport` → filas planas. **Puro**: sin red ni base, por eso se testea de verdad |
+| `core/postrade_cuentas.py` | `AccountDetails` → cómo se LLAMA cada cuenta |
+| `jobs/ap5_portfolio.py` | el job diario (9:00 ART) que persiste todo |
+| `ap5.portfolio` · `ap5.cuentas` · `ap5.contratos` · `ap5.acumulado` | las cuatro tablas |
+| `api/services/ap5_posiciones.py` | TODA la lógica de la vista |
+| `api/routers/ap5.py` | `/api/ap5/*`, gate módulo `operaciones` |
+
+**Reemplaza a la vieja tab DIFERENCIAS DIARIAS**, que leía el TEXTO de
+`operaciones.negocio_movimientos` (`"Diferencias diarias - [SOJ.ROS/MAY26] …"`).
+Eran los mismos pesos contados por otro camino: ahí la diferencia aparecía
+porque alguien la había registrado como movimiento, acá porque la cámara la
+liquidó. Cuando los dos no coincidían, **no había forma de saber cuál mandaba**.
+
+### Las cuatro cosas que no son obvias
+
+**1. Las cantidades vienen en CONTRATOS.** El reporte habla de "Posición Tn
+Neta". Sin multiplicar, el número sale 100 veces más chico **y no falla nada**,
+porque las cantidades igual suman bien entre sí: un total plausible y
+equivocado. El multiplicador **no se hardcodea, se DESPEJA** de la identidad
+`daily_settlement = (settlement_price − avg_px) × (long − short) × mult`. Y la
+unidad de medida NO alcanza para adivinarlo: dentro de `Tn` conviven 100
+(`.ROS`), **10 (`.MIN`, los minis)** y 5 (`.CME`) — una regla por unidad erraría
+10× en los minis.
+
+**2. Las monedas NO se suman.** El agro liquida en Dólar MtR y el dólar futuro
+en Pesos. Todo total viaja partido por moneda; no existe un "total general". Por
+eso `ap5.acumulado` tiene PK `(account, currency)`: medido, cuatro cuentas
+(221369, 222812, 229540, 229664) tienen las dos monedas a la vez.
+
+**3. El acumulado NO se persiste: se DERIVA** (semilla + Σ de los días
+posteriores). Misma decisión que el histórico de `/aca` — un acumulado guardado
+puede contradecir a sus propios insumos y ahí no hay forma de saber cuál está
+bien.
+
+**4. Lo que no encaja NO se esconde.** Un símbolo sin multiplicador, una cuenta
+sin nombre o una unidad nueva salen declarados en `faltantes`. La alternativa
+—omitirlos— da un total plausible al que le falta algo.
+
+### Lo que se carga A MANO (y por qué no se puede deducir)
+
+- **`ap5.cuentas.grupo`** (Cooperativas / MUNDO ACA) — es lo que parte el
+  reporte en sus dos rankings y la cámara no lo sabe. Deducirlo de un prefijo
+  del nombre sería la REGLA #9: el día que una cuenta se llame distinto
+  cambiaría de ranking sin que nadie se entere.
+- **`ap5.acumulado.semilla`** — la cámara manda la diferencia DEL DÍA, no el
+  arrastre. Lo anterior a nuestra serie solo existe en la planilla de la mesa.
+
+El **nombre**, en cambio, NO se tipea: lo publica `AccountDetails`. Va en
+`denominacion`, columna separada de `name` (el override humano) justamente para
+que la corrección de una persona y el dato de la fuente puedan convivir sin que
+uno pise al otro.
+
 ## Etapas
 
 1. ~~Acceso, token y cliente único~~ ✅
-2. **Relevar qué métodos nos habilitaron de verdad** ← acá estamos.
-   El manual documenta ~40 métodos de lectura; qué contesta *nuestro* usuario es
-   otra cosa y no se puede inferir de ningún papel.
-3. Recién con eso: decidir qué se persiste, dónde y **para qué pregunta de
-   negocio**. Sin el paso 2, cualquier decisión acá sería una apuesta.
+2. ~~Relevar qué métodos nos habilitaron de verdad~~ ✅
+3. ~~Posición de futuros persistida + la vista POSICIONES Y DIFERENCIAS~~ ✅
+4. **La tab en el front (vista NEGOCIO)** ← acá estamos.
 
 **No se asume ningún cruce con lo que ya existe** (`portafolio.tenencia`,
 `operaciones.*`, Interbanking). Si aparece la propuesta de cruzar, primero hay

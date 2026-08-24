@@ -38,7 +38,7 @@ from core.postgres import get_pool
 logger = logging.getLogger(__name__)
 
 _COLS = ["id", "ts", "accion", "destino", "objetivo", "detalle", "antes",
-         "origen", "pregunta_id", "por", "ok", "error"]
+         "origen", "pregunta_id", "por", "ok", "error", "regla"]
 
 # Qué escribe cada acción y DÓNDE. Tenerlo acá —y no como string suelto en cada
 # caller— evita que la misma acción se anote con dos nombres distintos según
@@ -159,18 +159,104 @@ def registrar(*, accion: str, objetivo: str, detalle: dict | None = None,
                            objetivo, e)
 
 
+def _cambios(antes: dict | None, despues: dict | None) -> list[dict]:
+    """**QUÉ CAMBIÓ, campo por campo** — el «cómo se arregló» de la pantalla.
+
+    El libro ya guardaba el antes y el después, pero la vista los tiraba juntos
+    como JSON crudo (`{"ejes":null,"causa":null,"campo"…`) y no se podía leer
+    nada. Acá se comparan y sale la lista de lo que REALMENTE se movió: un campo
+    que no cambió no es información, es ruido que tapa a los tres que sí.
+
+    Se comparan por REPRESENTACIÓN (`str`), no por valor: los jsonb vuelven con
+    tipos que no siempre son comparables entre sí y un `!=` sobre dicts anidados
+    diría que todo cambió.
+    """
+    a, d = antes or {}, despues or {}
+    if not isinstance(a, dict) or not isinstance(d, dict):
+        return []
+    out = []
+    for k in sorted(set(a) | set(d)):
+        va, vd = a.get(k), d.get(k)
+        if str(va) == str(vd):
+            continue
+        out.append({"campo": k,
+                    "antes": "" if va is None else str(va)[:80],
+                    "despues": "" if vd is None else str(vd)[:80]})
+    return out
+
+
+def _estados_de_los_sujetos(sujetos: list[str]) -> dict[str, list[dict]]:
+    """Los OBJETOS abiertos o cerrados de cada sujeto, en UNA query.
+
+    ⚠️ **Acá está la pieza que faltaba para que el registro sea trazable.** Una
+    acción es un EVENTO («el 23/08 a las 02:38 se arregló PN4OO»); *«¿quedó
+    arreglado?»* NO es una propiedad del evento sino del OBJETO que tocó, y el
+    objeto vive en `av_agent_items` con su ciclo (nuevo → en_curso → resuelto →
+    volvió). Sin este cruce el registro solo podía decir si la ESCRITURA salió
+    bien, que es otra pregunta y mucho más chica.
+
+    Un viaje solo (`= ANY`), no uno por fila: el peaje a Supabase se paga por
+    viaje (~8,5 ms) y este registro trae 100 acciones.
+    """
+    claves = sorted({(s or "").strip().lower() for s in sujetos if (s or "").strip()})
+    if not claves:
+        return {}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT lower(sujeto), regla, estado, resuelto_at, vuelto_at, veces "
+                "  FROM agente.av_agent_items "
+                " WHERE lower(sujeto) = ANY(%s)", (claves,))
+            out: dict[str, list[dict]] = {}
+            for suj, regla, estado, res, vue, veces in cur.fetchall():
+                out.setdefault(suj, []).append({
+                    "regla": regla, "estado": estado, "veces": veces,
+                    "resuelto_at": res.isoformat() if res else None,
+                    "vuelto_at": vue.isoformat() if vue else None})
+            return out
+    except Exception as e:
+        logger.warning("av_agent: no pude cruzar el libro con los objetos: %s", e)
+        return {}
+
+
 def listar(limite: int = 100) -> list[dict]:
-    """Las últimas acciones, la más reciente primero."""
+    """Las últimas acciones, la más reciente primero — **con el estado de lo que
+    tocaron**.
+
+    Cada fila lleva tres cosas que antes no tenía y son las que la hacen
+    auditable:
+
+        `cambios`         qué campo se movió y de qué a qué (el «cómo»)
+        `estado_objeto`   el estado HOY del problema que la acción arregló,
+                          cuando se sabe CUÁL era (la acción trajo `regla`)
+        `objetos`         todos los problemas de ese sujeto con su estado —
+                          el respaldo honesto cuando la acción NO dice cuál
+
+    ⚠️ **Y cuándo NO se sabe.** La mayoría de las acciones (`arreglar_bono` y
+    compañía) no guardan la `regla` que las motivó, así que no se puede decir
+    QUÉ problema arreglaron: su tipo emite varias reglas y elegir una sería
+    inventarla (REGLA #9 — medido: 49 de 122 sujetos tienen más de una regla
+    abierta). En ese caso `estado_objeto` va en `None` y la pantalla muestra los
+    problemas del sujeto SIN afirmar cuál se tocó. Es el hueco real, dicho en
+    voz alta en vez de tapado con una adivinanza.
+    """
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(f"SELECT {', '.join(_COLS)} FROM agente.av_agent_acciones "
                         "ORDER BY ts DESC LIMIT %s", (limite,))
-            out = []
-            for r in cur.fetchall():
-                d = dict(zip(_COLS, r, strict=False))
-                d["ts"] = d["ts"].isoformat() if d["ts"] else None
-                out.append(d)
-            return out
+            filas = [dict(zip(_COLS, r, strict=False)) for r in cur.fetchall()]
     except Exception as e:
         logger.warning("av_agent: no se pudo leer el libro de acciones: %s", e)
         return []
+
+    estados = _estados_de_los_sujetos([f.get("objetivo") or "" for f in filas])
+    for d in filas:
+        d["ts"] = d["ts"].isoformat() if d["ts"] else None
+        d["cambios"] = _cambios(d.get("antes"), d.get("detalle"))
+        objs = estados.get((d.get("objetivo") or "").strip().lower(), [])
+        d["objetos"] = objs
+        regla = (d.get("regla") or "").strip()
+        d["estado_objeto"] = next(
+            (o["estado"] for o in objs if (o["regla"] or "") == regla),
+            None) if regla else None
+    return filas

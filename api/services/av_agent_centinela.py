@@ -108,8 +108,11 @@ def _clave(h: dict) -> str:
 _CUBRE = {
     # La pasada de precios de `relevar_live()`, COMPLETA. `recuperado` lo
     # produce el cron y no el daemon, pero el daemon puede cerrarlo.
-    "precios": ("sin_precio", "precio_moneda", "recuperado", "latencia",
-                "motor_caido", "motor_ruidoso", "proveedor_caido"),
+    # `recuperado` y `respuesta` los produce `_escribir_la_foto` (lo que hacía el
+    # cron antes de que el daemon lo absorbiera): van a la FOTO y no a esta
+    # tabla, pero el daemon **sí los vigila** y la tab AGENDA lee de acá.
+    "precios": ("sin_precio", "precio_moneda", "recuperado", "respuesta",
+                "latencia", "motor_caido", "motor_ruidoso", "proveedor_caido"),
     "tasas": ("tasa_sospechosa",),
     "salud": ("salud",),
     # Solo se evalúa los días NO hábiles (es cuando el universo prohibido
@@ -199,13 +202,75 @@ def _observar() -> tuple[list[dict], set[str]]:
     return hallazgos, evaluados
 
 
+# ── LA FOTO DE LA RUEDA, escrita por acá (Fase 2, 2026-08-24) ──────────────
+#
+# ⚠️⚠️ **HABÍA DOS PROCESOS CORRIENDO EL MISMO DETECTOR.** El cron
+# `jobs.av_agent_live` (cada 5 min) y este daemon (cada 30 s) llamaban los dos a
+# `relevar_live()` —el barrido completo: master, snapshot, especies, latencia,
+# motores, logs, proveedores— y escribían en tablas distintas: el cron la FOTO
+# que lee LA LISTA, el daemon los OBJETOS que leen AHORA y VIGILANCIA.
+#
+# No era una transición: nunca se decidió. Dos procesos, el doble de trabajo, y
+# dos cosas que pueden fallar por separado sobre el mismo dato.
+#
+# Ahora el daemon escribe las dos. Y la foto va **throttleada a la cadencia que
+# tenía el cron**: el daemon late cada 30 s y reescribir la foto entera
+# (DELETE + INSERT) ocho veces por minuto sería diez veces el churn de hoy para
+# un dato que la pantalla mira cada tanto.
+SEGUNDOS_ENTRE_FOTOS = 5 * 60
+_ultima_foto: float = 0.0
+
+
+def _toca_la_foto() -> bool:
+    """¿Pasaron los 5 minutos? Arranca en `True` (la primera pasada la escribe).
+
+    Es tiempo de RELOJ y no de mercado a propósito: la foto tiene que
+    refrescarse igual fuera de rueda, porque ahí es cuando los hallazgos de
+    mercado VENCEN y hay que dejar de mostrarlos.
+    """
+    return (time.monotonic() - _ultima_foto) >= SEGUNDOS_ENTRE_FOTOS
+
+
+def _escribir_la_foto(hallazgos: list[dict]) -> int:
+    """La foto `live` + lo que el cron hacía justo antes de pisarla.
+
+    **El orden importa**: `detectar_recuperados` lee la foto ANTERIOR (todavía
+    está en la tabla hasta que `reemplazar_hallazgos` haga su DELETE) y la resta
+    contra la nueva. Es el único momento en que se puede saber qué se arregló;
+    después, una recuperación es una fila que deja de escribirse, o sea silencio.
+
+    Nunca levanta: la foto es importante pero los objetos son la memoria, y esta
+    pasada corre después de que ya se escribieron.
+    """
+    global _ultima_foto
+    from api.services import av_agent
+    from api.services.av_agent_recuperados import detectar_recuperados
+    from api.services.av_agent_respuesta import revisar
+
+    extra: list[dict] = []
+    try:
+        extra += detectar_recuperados(hallazgos)
+    except Exception as e:
+        logger.warning("centinela: no pude detectar recuperados (%s)", e)
+    try:
+        # Lo que se le pidió al mercado y ya contestó. La espera se mide en
+        # tiempo de RUEDA, así que solo tiene sentido con el mercado abierto.
+        extra += revisar()
+    except Exception as e:
+        logger.warning("centinela: no pude revisar las respuestas (%s)", e)
+
+    n = av_agent.reemplazar_hallazgos("live", list(hallazgos) + extra)
+    _ultima_foto = time.monotonic()
+    return n
+
+
 def ciclo() -> dict:
     """Observa, concilia contra lo que ya estaba, y late. Nunca levanta."""
     t0 = time.perf_counter()
     from api.services import av_agent
     abierto = av_agent.en_rueda()
     err = ""
-    nuevos = abiertos = 0
+    nuevos = abiertos = fotos = 0
     try:
         hallazgos, evaluados = _observar()
         # Dedup por clave DENTRO de la pasada: dos detectores pueden ver el mismo
@@ -281,6 +346,15 @@ def ciclo() -> dict:
             abiertos = cur.fetchone()[0]
             conn.commit()
 
+        # ── Y LA FOTO, que es lo que lee LA LISTA ───────────────────────────
+        # Throttleada: el daemon late cada 30 s y la foto se reescribe entera.
+        # Va DESPUÉS de la transacción de arriba y en su propio try.
+        if _toca_la_foto():
+            try:
+                fotos = _escribir_la_foto(list(por_clave.values()))
+            except Exception as e:
+                logger.warning("centinela: no pude escribir la foto live (%s)", e)
+
         # ── Y COMO OBJETO, para que AHORA y ENCONTRÓ hablen de lo mismo ─────
         #
         # Las dos pantallas mostraban el mismo problema con historias
@@ -308,7 +382,7 @@ def ciclo() -> dict:
     proximo = INTERVALO_RUEDA_S if abierto else INTERVALO_CERRADO_S
     _latir(abierto, abiertos, nuevos, ms, err, proximo)
     return {"ok": not err, "en_rueda": abierto, "abiertos": abiertos,
-            "nuevos": nuevos, "ms": ms, "error": err}
+            "nuevos": nuevos, "ms": ms, "error": err, "foto": fotos}
 
 
 def _latir(abierto: bool, abiertos: int, nuevos: int, ms: int, err: str,

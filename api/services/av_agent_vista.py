@@ -919,7 +919,11 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     for h in filas:
         _refrescar_salud(h, salud_viva)
     filas.sort(key=lambda h: (_ORDEN_SEV.get(h["severidad"], 9), h["ticker"]))
-    return filas, corrida.isoformat()
+    # ⚠️ **`corrida` PUEDE ser None** y la firma lo dice (`str | None`): pasa
+    # cuando nunca hubo una corrida que no sea de reemplazo (base nueva, o las
+    # corridas purgadas). Sin la guarda, `None.isoformat()` reventaba y la
+    # pantalla entera devolvía 500 — un error de arranque disfrazado de caída.
+    return filas, (corrida.isoformat() if corrida is not None else None)
 
 
 def _refrescar_salud(h: dict, salud_viva: dict[str, dict]) -> None:

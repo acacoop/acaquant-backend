@@ -487,8 +487,17 @@ def abiertos(tipo: str = "", limite: int = 400,
     params.append(max(1, min(int(limite), 2000)))
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
+            # ⚠️⚠️ **EL ORDEN DEL TOPE IBA AL REVÉS DE LA PANTALLA** (Fase 2).
+            #
+            # Era `ORDER BY ultimo_at DESC`, o sea que al pasar el límite se
+            # descartaba **lo más viejo** — y `que_importa` prioriza justamente
+            # eso: `arrastra` y `estancado` son «lleva días abierto y nadie lo
+            # miró». El tope tiraba primero lo que la pantalla pone arriba.
+            #
+            # Ahora ordena por ANTIGÜEDAD: si hay que cortar, se corta lo
+            # recién aparecido, que es lo que menos urge.
             cur.execute(f"SELECT {', '.join(_COLS)} FROM agente.av_agent_items "
-                        f"WHERE {where} ORDER BY ultimo_at DESC LIMIT %s",
+                        f"WHERE {where} ORDER BY abierto_at ASC LIMIT %s",
                         tuple(params))
             return [_fila(r) for r in cur.fetchall()]
     except Exception as e:
@@ -525,6 +534,9 @@ def que_importa(limite: int = 400) -> dict:
     todos = abiertos(limite=limite)
     items = [it for it in todos if not ciclo.es_comunicacion(it.tipo)]
     n_comunicaciones = len(todos) - len(items)
+    # ⚠️ **Si el tope cortó, se DICE.** Un contador que promete «de N abiertos,
+    # M piden algo» y está topeado en silencio miente sobre las dos mitades.
+    topeado = len(todos) >= limite
     ahora = datetime.now(UTC)
     items.sort(key=lambda it: ciclo.prioridad(it, ahora))
     por_banda: dict[str, int] = {}
@@ -547,6 +559,9 @@ def que_importa(limite: int = 400) -> dict:
     piden = sum(por_banda.get(b, 0) for b in ("volvio", "estancado", "arrastra"))
     return {"ok": True, "abiertos": len(filas), "piden_algo": piden,
             "comunicaciones": n_comunicaciones,
+            # `True` = hay más de los que entraron. La pantalla lo tiene que
+            # decir en vez de mostrar un total que no es el total.
+            "topeado": topeado, "tope": limite,
             "por_banda": por_banda, "filas": filas,
             "sin_mirar": _sin_mirar(items, ahora)}
 
@@ -607,9 +622,18 @@ def en_seguimiento() -> list[dict]:
     """
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
+            # ⚠️ **Solo los que TODAVÍA se están mirando.** Antes traía los 500
+            # resueltos más recientes, sin importar hace cuánto: como los
+            # resueltos no se purgan, el contador de ¿AGUANTAN? se congelaba al
+            # llegar a 500 y los que seguían en prueba se caían de la lista.
+            #
+            # El corte es el último hito (30 días hábiles ≈ 45 corridos, con
+            # margen): pasado eso el arreglo ya se juzgó y no hay nada que
+            # vigilar. Los que aguantaron se cuentan aparte, en el eval set.
             cur.execute(
                 f"SELECT {', '.join(_COLS)} FROM agente.av_agent_items "
                 "WHERE estado = 'resuelto' AND resuelto_at IS NOT NULL "
+                "  AND resuelto_at > now() - interval '60 days' "
                 "  AND tipo <> ALL(%s) "
                 "ORDER BY resuelto_at DESC LIMIT 500",
                 (list(ciclo.TIPOS_COMUNICACION),))
@@ -680,6 +704,12 @@ def cerrar_hitos() -> dict:
                 f"SELECT {', '.join(_COLS)} FROM agente.av_agent_items "
                 " WHERE ((estado = %s AND resuelto_at IS NOT NULL) OR estado = %s) "
                 "   AND tipo <> ALL(%s) "
+                # ⚠️ El tope estaba SIN ORDEN: al pasar los 1000 resueltos —que
+                # no se purgan nunca— el reloj dejaba de correr para un
+                # subconjunto arbitrario. Los más viejos primero: son los que
+                # están por cumplir el último hito, o sea los que hay que juzgar
+                # HOY. Un resuelto de hace meses ya se votó (el `ref` dedupea).
+                " ORDER BY resuelto_at ASC NULLS LAST"
                 " LIMIT 1000", (ciclo.RESUELTO, ciclo.VOLVIO,
                                 list(ciclo.TIPOS_COMUNICACION)))
             items = [_fila(r) for r in cur.fetchall()]

@@ -84,26 +84,31 @@ no hay que rehacerlo. Lo que pasa es otra cosa, y es medible:
 
 > **Hay DOS arquitecturas conviviendo y la vieja nunca se apagó.**
 
-| | Hoy | Debería |
-|---|---|---|
-| Puertas que escriben estado | **6** | 1 |
-| Formatos de identidad | **3** | 1 |
-| Tablas con ciclo de vida propio | **5** | 1 |
-| Lugares que las leen | **14** | los que sean, de UNA |
-| Comentarios «convive» / «hasta que se apague lo viejo» | **11** | 0 |
+| | Antes de la Fase 2 | Hoy | Debería |
+|---|---|---|---|
+| Procesos que corren el detector de rueda | **2** | **1** ✅ | 1 |
+| Formatos de identidad | **3** | **1** ✅ | 1 |
+| Tablas con ciclo de vida propio | **5** | **3** | 1 |
+| Puertas que escriben estado | **6** | **4** | 1 |
+| Medidores de «¿el arreglo aguantó?» | **2** | **1** ✅ | 1 |
+| Comentarios «convive» / «hasta que se apague lo viejo» | **11** | **3** | 0 |
 
 Esos 11 comentarios **son** el diagnóstico. Cada uno fue una decisión diferida
 razonable (*«migrar de un saque es cómo se rompe un sistema que funciona»* es
 verdad), pero once decisiones diferidas dejaron de ser prudencia y pasaron a ser
 la arquitectura.
 
-**Los tres formatos de identidad, uno al lado del otro:**
+**Queda UNA identidad** (Fase 2). Las otras dos se apagaron:
 
-| Dónde | Formato | Ejemplo |
-|---|---|---|
-| ⭐ canónico (`ciclo.identidad`) | `sujeto\|causa` | `al30\|pata_equivocada` |
-| centinela (`_clave`, y el JOIN en SQL de `estado()`) | `tipo:sujeto:regla` | `precio_moneda:AO29:pata_equivocada` |
-| seguimiento viejo (`av_agent_acciones:153`) | `accion:objetivo:regla` | `mercado.apuntar_pata:AO29:pata_equivocada` |
+| Dónde | Qué pasó |
+|---|---|
+| ⭐ `ciclo.identidad` → `sujeto\|causa` | **la única.** La arma `clave_de_problema` y nadie más |
+| ~~el JOIN en SQL de `estado()`~~ | recalculaba la clave a mano, sin `causa_canonica` → ahora `av_agent_centinela.clave_item`, escrita con la función real |
+| ~~seguimiento viejo~~ | `accion:objetivo:regla`, incompatible con todo → el service se borró entero |
+
+`av_agent_centinela.clave` (`tipo:sujeto:regla`) sobrevive como **PK de la
+fila** — dedupea dos detectores dentro de una pasada. Eso es un id de fila, no
+una identidad de problema, y ahora están separados.
 
 **El destino, en cuatro frases:** *una puerta para escribir · una identidad · una
 tabla de estado · una lectura.* El plan por fases está en **M.8**.
@@ -438,34 +443,42 @@ tabla de estado · una lectura.*
 | Fase | Qué | Estado |
 |---|---|---|
 | **0 · Parar la sangría** | la parada cubre todas las puertas · la foto de reemplazo guarda su clave · el seguimiento viejo deja de votar · lo del monitor se cierra cuando vuelve | ✅ 2026-08-24 (§0.dh) |
-| **2 · Apagar lo viejo** | `av_agent_seguimiento` se borra · el centinela pierde su ciclo propio (pasa a vista de items) · se fusionan el cron `av_agent_live` y el daemon · quedan 1 formato de identidad y 1 tabla de estado | ⬜ **la que más rinde** |
-| **1 · La puerta única** | `registrar(origen, hallazgos, evaluados)` — nadie más escribe · un test prohíbe `INSERT` fuera de ahí y armar la clave a mano | ⬜ |
-| **3 · La lectura única** | todas las pantallas leen `av_agent_items`; la foto queda solo para la evidencia | ⬜ |
+| **2 · Apagar lo viejo** | se borra el segundo medidor de «¿aguantó?» · el objeto registra CÓMO se cerró y el voto vuelve · el detector declara qué miró · muere el tercer formato de identidad · el daemon absorbe el cron de rueda · los topes silenciosos | ✅ 2026-08-24 (§0.di) |
+| **1 · La puerta única** | `registrar(origen, hallazgos, evaluados)` — nadie más escribe · un test prohíbe `INSERT` fuera de ahí y armar la clave a mano | ⬜ **la que sigue** |
+| **3 · La lectura única** | todas las pantallas leen `av_agent_items`; el centinela deja de tener tabla propia y la foto queda solo para la evidencia | ⬜ |
 
 **El orden va 0 → 2 → 1 → 3 a propósito:** borrar lo viejo primero achica el
 problema; poner la puerta única sobre cuatro pipelines es más trabajo que
 ponerla sobre dos.
 
-### La deuda conocida, en una lista
+### La deuda conocida, y qué queda
 
-1. `jobs/db_tamano` no crea objetos (5 tipos sin DNI) — viola REGLA #10.1.
-2. `evaluados` se deriva de lo que se ENCONTRÓ → un tipo que llega a cero nunca
-   cierra sus objetos.
-3. El centinela recalcula la identidad en SQL crudo (`av_agent_centinela:340`),
-   sin `causa_canonica`.
-4. Topes silenciosos: `abiertos()` 400 (y ordena por lo MÁS reciente, al revés de
-   lo que la pantalla prioriza), `en_seguimiento()` 500, `cerrar_hitos()` 1000.
-5. `_hallazgos_ultima_corrida()` hace `corrida.isoformat()` sin guarda: si nunca
-   hubo una corrida no-live, la pantalla devuelve 500.
-6. Dos relojes para «aguantó»: `DIAS_DE_PRUEBA=5` corridos vs los 6 hitos hábiles.
-7. `av_agent_alta.py` son 4.055 líneas con tres responsabilidades; los registros
-   declarativos viven mezclados con los detectores en `av_agent.py`.
-8. El cron `av_agent_live` y el daemon corren el MISMO `relevar_live()`.
-9. `av_agent_proveedores.probar_ahora` / `barrer_ahora` no las llama nadie.
-10. `av_agent_contexto.barrer()` ordena las ~200 tablas enteras cada noche —
-    **sin medir** si eso pesa.
+**Cerrada en la Fase 2 (2026-08-24):**
 
----
+| # | Qué era |
+|---|---|
+| ~~1~~ | `jobs/db_tamano` no creaba objetos → **sigue abierta**, ver abajo |
+| ~~2~~ | `evaluados` se derivaba de lo ENCONTRADO → un tipo que llegaba a cero no cerraba nunca. Ahora lo declara cada detector al terminar bien |
+| ~~3~~ | el centinela recalculaba la identidad en SQL crudo → `clave_item`, escrita con `clave_de_problema` |
+| ~~4~~ | topes silenciosos: `abiertos()` cortaba por lo MÁS RECIENTE (al revés de lo que prioriza), `en_seguimiento()` se congelaba en 500, `cerrar_hitos()` truncaba sin orden. Los tres arreglados, y el corte **se dice** (`topeado`) |
+| ~~5~~ | `_hallazgos_ultima_corrida()` reventaba con la tabla vacía |
+| ~~6~~ | dos relojes para «aguantó» (5 días corridos vs 6 hitos hábiles) — murió con el medidor viejo |
+| ~~8~~ | el cron `av_agent_live` y el daemon corrían el MISMO `relevar_live()` |
+| ~~9~~ | `av_agent_proveedores.probar_ahora` / `barrer_ahora` no las llamaba nadie (y una mentía en su docstring) |
+
+**Lo que sigue abierto:**
+
+1. **`jobs/db_tamano` no crea objetos.** Sus 5 tipos (`db_cambio`,
+   `tabla_quieta`, `permiso_flojo`, `dato_partido`, `cron_desalineado`) escriben
+   la foto y nunca `sincronizar()` → viola REGLA #10.1: sin DNI, sin antigüedad,
+   sin «volvió», sin IGNORAR. **Se cierra con la puerta única (Fase 1)**, que es
+   justamente el mecanismo que lo haría imposible de olvidar.
+2. **`av_agent_alta.py` son 4.055 líneas** con tres responsabilidades, y los
+   registros declarativos viven mezclados con los detectores en `av_agent.py`.
+   Es el refactor de mayor retorno que queda.
+3. **`av_agent_contexto.barrer()` ordena las ~200 tablas enteras cada noche** —
+   sin medir si eso pesa. Necesita un diag antes de tocarlo (REGLA #2).
+4. **El centinela todavía tiene tabla propia con ciclo.** Es la Fase 3.
 
 ## M.9 Cómo agregar cosas
 
@@ -7865,6 +7878,71 @@ pasada de precios no marca lo suyo aunque los otros cinco anden.
 identidad y las cinco tablas con ciclo siguen ahí. Esto frena el daño; la
 arquitectura se cierra en las fases siguientes: **una puerta para escribir, una
 identidad, una tabla de estado, una lectura.**
+
+
+### 0.di FASE 2 — apagar lo viejo (2026-08-24)
+
+La Fase 0 (§0.dh) frenó el daño. Ésta cierra la migración que llevaba once
+comentarios «convive» sin terminar. **Seis cambios, ningún rewrite**, y el
+resultado se mide: de 3 identidades a 1, de 2 procesos a 1, de 2 medidores a 1.
+
+**1 · SE BORRA EL SEGUNDO MEDIDOR.** `av_agent_seguimiento` medía «¿el arreglo
+aguantó?» en paralelo a los HITOS, con su tabla y su ventana de 5 días
+corridos, **y no podía funcionar**: anotaba `accion:objetivo:regla` y comparaba
+contra `tipo:sujeto:regla`. Intersección vacía por construcción → `volvio` nunca
+pasaba y todo se sellaba `aguanto`. Se borró el service entero, el job quedó en
+90 líneas y `diag_agente_veredicto` (que existía para decidir cuál apagar) se
+fue con él. La tabla NO se dropea; un test exige que nadie vuelva a escribirla.
+
+**2 · EL OBJETO REGISTRA CÓMO SE CERRÓ — y el voto vuelve.** §0.de había dejado
+la condición escrita. `av_agent_items` suma `resuelto_como` (`accion` |
+`ausencia`), `reaperturas`, `visto_por` y `aguanto_hasta`. `ciclo.vota()` es la
+única puerta y ante un cierre sin declarar contesta NO.
+
+    cerrado por ACCIÓN + pasó los 30 días hábiles   → ✔ verificado
+    cerrado por ACCIÓN + VOLVIÓ                     → ✖ verificado
+    cerrado por AUSENCIA                            → NO VOTA
+
+El tercer renglón es todo el arreglo: el 100% de los votos falsos venían de ahí.
+Y de paso — `cerrar_hitos` votaba con `dominio="bono"` HARDCODEADO, así que los
+votos del tiempo sobre un motor caían en `bono` mientras el humano de la misma
+causa caía en `sistema`: **dos filas y ninguna llegaba a los 10** de la
+compuerta. Ahora usa `av_agent.dominio_eval`, la misma función que el voto
+humano.
+
+**3 · EL DETECTOR DECLARA QUÉ MIRÓ.** En la relevada nocturna `evaluados` se
+derivaba de **los tipos que habían producido hallazgos** — la guarda que existe
+para distinguir «miré y no había nada» de «no miré», derivando lo primero de lo
+segundo. Un tipo que llegaba a cero no cerraba nunca sus objetos: el último
+arreglo, el que sí funcionó, no salía del contador. Y `persistir()` cortaba con
+`return 0` sin hallazgos, así que **el día que todo está bien no se cerraba
+nada**.
+
+**4 · MUERE EL TERCER FORMATO DE IDENTIDAD.** `estado()` unía con
+`ON i.clave = lower(c.sujeto) || '|' || lower(c.regla)`: una reimplementación de
+`clave_de_problema` en SQL, sin `causa_canonica()` y sin el caso del sujeto
+vacío. Fallaba en silencio — AHORA decía «recién» de algo que ENCONTRÓ marcaba
+con 11 días. Ahora hay `clave_item`, escrita con la función real.
+
+**5 · UN SOLO PROCESO EN RUEDA.** El cron `jobs.av_agent_live` (cada 5') y el
+daemon (cada 30") llamaban a **la misma** `relevar_live()` y escribían en tablas
+distintas. Nunca se decidió: se acumuló. El daemon absorbió la foto —throttleada
+a los mismos 5 minutos— junto con `detectar_recuperados` y `revisar()`, y el
+cron se retiró del crontab. El job queda para correrlo a mano con `--ver`.
+
+**6 · LOS TOPES SILENCIOSOS.** `abiertos()` cortaba por lo MÁS RECIENTE, o sea
+descartando lo más viejo — exactamente lo que `que_importa` pone arriba;
+`en_seguimiento()` se congelaba al llegar a 500 resueltos (que no se purgan);
+`cerrar_hitos()` truncaba en 1000 sin ORDER BY. Los tres arreglados, y cuando el
+tope corta **se dice** (`topeado`).
+
+**Y dos que salieron al pasar:** `probar_ahora`/`barrer_ahora` no las llamaba
+nadie y una afirmaba en su docstring que la usaba el explicador (no la usa), y
+el CLAUDE.md decía 4 tareas de IA vivas cuando son 5.
+
+**Lo que NO cambia:** el centinela sigue teniendo tabla propia con ciclo, y
+`jobs/db_tamano` sigue sin crear objetos. Las dos se cierran con la puerta
+única (Fase 1) y la lectura única (Fase 3) — ver `M.8`.
 
 
 ## 1. Qué es y qué no es

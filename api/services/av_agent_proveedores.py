@@ -206,29 +206,13 @@ def _barrer_si_toca(proveedor: str) -> dict | None:
     return r
 
 
-def barrer_ahora(proveedor: str = "aunesa") -> dict:
-    """**A pedido**: probar las cinco APIs y devolver el análisis general."""
-    from core.proveedores import barrer_aunesa
-    if proveedor != "aunesa":
-        return {"veredicto": "no_se_puede_probar",
-                "analisis": "solo Aunesa tiene un barrido definido"}
-    return barrer_aunesa()
-
-
-def probar_ahora(proveedor: str = "aunesa") -> dict:
-    """**A pedido**: probar la conexión y decir de quién es el problema.
-
-    Lo usa el explicador del agente. A diferencia del detector, contesta también
-    cuando el proveedor está sano — «¿anda Aunesa?» tiene que poder responderse
-    que sí.
-    """
-    from core.proveedores import PROVEEDORES, probar
-
-    r = probar(proveedor)
-    p = PROVEEDORES.get(proveedor)
-    return {**r,
-            "nombre": p.nombre if p else proveedor,
-            "rompe": p.rompe if p else None}
+# ⚠️ Acá vivían `barrer_ahora()` y `probar_ahora()` — **no las llamaba nadie**
+# (2026-08-24). La segunda afirmaba en su docstring *«lo usa el explicador del
+# agente»* y el explicador no menciona proveedores: una promesa que el código no
+# cumplía, que es peor que no tener la función. REGLA #5.
+#
+# Si vuelve a hacer falta probar un proveedor a pedido, la lógica está entera en
+# `core.proveedores.probar` / `barrer_aunesa` — que es de donde salían.
 
 
 # El error de una excepción de Python trae el módulo, la URL entera y a veces un

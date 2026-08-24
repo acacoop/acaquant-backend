@@ -29,7 +29,11 @@ logger = logging.getLogger(__name__)
 # como objeto (`av_agent_items.clave_de_problema`): sin él, el que lee calcula
 # una clave distinta de la que escribió el detector y la memoria queda
 # inalcanzable, existiendo. Mismo modo de falla que el símbolo columna-vs-blob.
-_COLS_H = ["tipo", "ticker", "regla", "severidad", "motivo", "evidencia"]
+_COLS_H = ["tipo", "ticker", "regla", "severidad", "motivo", "evidencia",
+           # ⚠️ **LA IDENTIDAD VIAJA** (2026-08-24). Sin ella la pantalla no
+           # podía saber que dos filas eran EL MISMO PROBLEMA, y por eso el
+           # user veía todo dos veces. Ver `_una_fila_por_problema`.
+           "clave"]
 
 # ── LA MEMORIA, EN LA MISMA QUERY ───────────────────────────────────────────
 #
@@ -41,9 +45,15 @@ _COLS_H = ["tipo", "ticker", "regla", "severidad", "motivo", "evidencia"]
 # se paga por VIAJE** (~8,5 ms), y hay un test que cuenta los viajes de esta
 # función. El JOIN es por `h.clave`, que la escribe el detector: nadie
 # recalcula la identidad (REGLA #9).
-_COLS_MEM = ["veces", "abierto_at", "estado_item"]
+# ⚠️ **EL DIAGNÓSTICO VIAJA CON LA FILA** (2026-08-24). Antes había que
+# apretar DIAGNOSTICAR, esperar, y la conclusión moría al cerrar el modal. Se
+# corre solo (`av_agent_masivo.diagnosticar_pendientes`), se guarda en el
+# objeto y llega acá por el JOIN que ya existía — cero queries nuevas.
+_COLS_MEM = ["veces", "abierto_at", "estado_item", "diagnostico",
+             "diagnostico_at"]
 _SELECT_H = (", ".join(f"h.{c}" for c in _COLS_H)
-             + ", i.veces, i.abierto_at, i.estado")
+             + ", i.veces, i.abierto_at, i.estado, i.diagnostico, "
+               "i.diagnostico_at")
 _ORDEN_SEV = {"alta": 0, "media": 1, "baja": 2}
 
 
@@ -574,6 +584,70 @@ def _con_ficha() -> set[str] | None:
     return av_agent.tickers_con_ficha()
 
 
+# ── UN PROBLEMA, UNA FILA (REGLA #10.1 — aplicada en la LECTURA) ────────────
+#
+# ⚠️⚠️ **EL USER VEÍA TODO DOS VECES** (2026-08-24): *«en ENCONTRÓ ahora todo se
+# duplica… figura un aviso y después figura para diagnosticar, es tremendo»*.
+# PECKO/paridad dos veces, PECKO/sin_tea dos veces, PECMO/moneda_flujo dos
+# veces — misma hora, mismo texto, y **la de arriba con botón y la de abajo
+# sin**, que es lo que lo volvía incomprensible: parecían dos cosas distintas.
+#
+# No eran dos cosas: era **la misma fila renderizada dos veces**. La pantalla
+# solo esconde la acción en la SEGUNDA aparición de un mismo ticker (para no
+# dibujar la cadena de simulación dos veces), así que un duplicado exacto se ve
+# como «un aviso + un diagnosticable».
+#
+# **Por qué se resuelve acá y no en el productor.** La foto puede tener el
+# mismo problema visto por DOS caminos y eso no es necesariamente un bug: el
+# monitor de rueda y la relevada nocturna miran cosas que se pisan, y cada uno
+# escribe con su `alcance`. Lo que SÍ es un bug es que la pantalla lo muestre
+# dos veces, porque **un problema es (qué cosa, qué le pasa) y nada más** — es
+# la definición de `ciclo.identidad`, la misma que ya usa `av_agent_items` como
+# PK. Si el objeto es uno, la fila tiene que ser una.
+#
+# Es exactamente la lección de §0.di aplicada del otro lado: ahí se sacó a
+# SALUD de la relevada porque lo emitían dos productores; acá se cierra la
+# puerta para que **ningún productor futuro pueda volver a duplicar la
+# pantalla**. Arreglar el caso no arregla la clase.
+#
+# Qué fila gana: la MÁS SEVERA, y a igual severidad la que trae memoria (el
+# objeto con su `abierto_at` y su `veces`) — perder la antigüedad al colapsar
+# sería cambiar un bug por otro. Lo colapsado no se tira en silencio: viaja en
+# `visto_por`, así el que mire sabe que dos caminos vieron lo mismo.
+
+def _una_fila_por_problema(filas: list[dict]) -> list[dict]:
+    """Colapsa por `clave`. Preserva el orden de llegada del primero de cada una."""
+    orden: list[str] = []
+    mejor: dict[str, dict] = {}
+    veces_vista: dict[str, int] = {}
+    for f in filas:
+        # Sin `clave` (filas viejas, anteriores a la columna) no se puede
+        # afirmar identidad: pasan derecho. Inventarles una acá sería la
+        # segunda implementación de `clave_de_problema` que REGLA #9 prohíbe.
+        k = (f.get("clave") or "").strip()
+        if not k:
+            orden.append(f"\x00{len(orden)}")
+            mejor[orden[-1]] = f
+            continue
+        if k not in mejor:
+            orden.append(k)
+            mejor[k] = f
+            veces_vista[k] = 1
+            continue
+        veces_vista[k] += 1
+        actual = mejor[k]
+        rank = (_ORDEN_SEV.get(f.get("severidad") or "", 9),
+                0 if f.get("abierto_at") else 1)
+        rank_actual = (_ORDEN_SEV.get(actual.get("severidad") or "", 9),
+                       0 if actual.get("abierto_at") else 1)
+        if rank < rank_actual:
+            mejor[k] = f
+    for k, n in veces_vista.items():
+        if n > 1:
+            mejor[k]["visto_por"] = n
+    return [mejor[k] for k in orden]
+
+
 def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
     """Los hallazgos de la corrida MÁS RECIENTE + su timestamp.
 
@@ -654,8 +728,9 @@ def _hallazgos_ultima_corrida() -> tuple[list[dict], str | None]:
             (corrida, corrida, vivos, vivos,
              rapido, av_agent.VENCE_RAPIDO_S,
              obs, av_agent.VENCE_OBSERVACION_S, obs, rapido))
-        filas = [dict(zip(_COLS_H + _COLS_MEM, r, strict=False))
-                 for r in cur.fetchall()]
+        filas = _una_fila_por_problema(
+            [dict(zip(_COLS_H + _COLS_MEM, r, strict=False))
+             for r in cur.fetchall()])
         # El blob completo, no solo la PK: `sin_flujo` caduca cuando el bono YA
         # tiene cronograma, y eso se lee acá mismo. **Es la misma query** — el
         # peaje de Supabase se paga por viaje, no por columna.
@@ -1230,7 +1305,7 @@ def vista() -> dict:
         # ── NOTICIA = observación sin accionable (REGLA #10) ────────────────
         # Su casa es AHORA (el noticiero, con fecha y hora); LA LISTA la
         # esconde contándola. Marca, no filtro — el contrato de siempre.
-        if av_agent.es_noticia(h.get("tipo") or ""):
+        if av_agent.es_noticia(h.get("tipo") or "", h.get("regla") or ""):
             h["noticia"] = True
         if est in (ciclo.EN_CURSO, ciclo.RESUELTO):
             h["atendido"] = "aplicado"

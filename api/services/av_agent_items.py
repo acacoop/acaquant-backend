@@ -191,6 +191,16 @@ def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
                 "                       THEN NULL ELSE agente.av_agent_items.resuelto_como END, "
                 "  resuelto_at = CASE WHEN agente.av_agent_items.estado = %s "
                 "                     THEN NULL ELSE agente.av_agent_items.resuelto_at END, "
+                # ⚠️ **UN PROBLEMA QUE VUELVE NO TRAE SU DIAGNÓSTICO VIEJO.**
+                # Se dio por arreglado y reapareció: la explicación de la vez
+                # pasada es justo la que se demostró incompleta. Dejarla
+                # pegada sería mostrar con seguridad una conclusión que ya
+                # falló una vez — el peor caso posible para una pantalla que
+                # se lee para decidir.
+                "  diagnostico = CASE WHEN agente.av_agent_items.estado = %s "
+                "                     THEN NULL ELSE agente.av_agent_items.diagnostico END, "
+                "  diagnostico_at = CASE WHEN agente.av_agent_items.estado = %s "
+                "                        THEN NULL ELSE agente.av_agent_items.diagnostico_at END, "
                 "  veces = agente.av_agent_items.veces + 1, "
                 "  ultimo_at = EXCLUDED.ultimo_at, "
                 "  severidad = EXCLUDED.severidad, "
@@ -204,10 +214,11 @@ def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
                  ciclo.RESUELTO, ciclo.VOLVIO,
                  ciclo.IGNORADO, _inicio_hoy_art(), ciclo.NUEVO,
                  ciclo.RESUELTO, ahora,
-                 # los CUATRO CASE que se disparan al VOLVER, en el orden del
-                 # SQL: aguanto_hasta · reaperturas · resuelto_como · resuelto_at
+                 # los SEIS CASE que se disparan al VOLVER, en el orden del
+                 # SQL: aguanto_hasta · reaperturas · resuelto_como ·
+                 # resuelto_at · diagnostico · diagnostico_at
                  ciclo.RESUELTO, ciclo.RESUELTO, ciclo.RESUELTO,
-                 ciclo.RESUELTO))
+                 ciclo.RESUELTO, ciclo.RESUELTO, ciclo.RESUELTO))
             nacio, estado, veces, abierto = cur.fetchone()
         return {"ok": True, "clave": clave, "nuevo": bool(nacio),
                 "estado": estado, "veces": veces,
@@ -215,6 +226,57 @@ def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
     except Exception as e:
         logger.warning("av_agent_items: no pude registrar %s (%s)", clave, e)
         return {"ok": False, "error": str(e)[:200]}
+
+
+def con_diagnostico(claves: list[str]) -> set[str]:
+    """De esas claves, cuáles YA tienen diagnóstico. UNA query.
+
+    Es lo que hace que la corrida automática sea barata: la primera paga el
+    censo entero y las siguientes solo los problemas nuevos.
+
+    Ante un fallo devuelve el conjunto VACÍO — o sea «no sé, diagnosticá todo».
+    Es la degradación correcta: re-diagnosticar de más cuesta créditos y
+    tiempo; darlo por hecho dejaría filas sin explicación para siempre, que es
+    justo el problema que esto vino a resolver.
+    """
+    claves = [c for c in (claves or []) if c]
+    if not claves:
+        return set()
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT clave FROM agente.av_agent_items "
+                        "WHERE clave = ANY(%s) AND diagnostico IS NOT NULL",
+                        (claves,))
+            return {r[0] for r in cur.fetchall()}
+    except Exception as e:
+        logger.warning("av_agent_items: no pude leer los diagnósticos (%s)", e)
+        return set()
+
+
+def guardar_diagnostico(clave: str, dx: dict) -> bool:
+    """**Pega la conclusión del agente al problema.** Idempotente: re-diagnosticar
+    pisa lo anterior, que es lo correcto — la última mirada es la que vale.
+
+    Nunca levanta: un diagnóstico que no se pudo guardar no puede tumbar la
+    corrida que lo produjo. Devuelve si se escribió, para poder contarlo.
+    """
+    clave = (clave or "").strip()
+    if not clave or not dx:
+        return False
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE agente.av_agent_items "
+                "SET diagnostico = %s::jsonb, diagnostico_at = now() "
+                "WHERE clave = %s",
+                (json.dumps(dx, ensure_ascii=False, default=str), clave))
+            n = cur.rowcount
+            conn.commit()
+        return bool(n)
+    except Exception as e:
+        logger.warning("av_agent_items: no pude guardar el diagnóstico de %s "
+                       "(%s)", clave, e)
+        return False
 
 
 def marcar(clave: str, estado: str, *, por: str = "") -> dict:

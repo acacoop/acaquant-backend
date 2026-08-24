@@ -483,8 +483,29 @@ def va_en_ahora(tipo: str) -> bool:
 TIPOS_NOTICIA = av_agent_tipos.tipos_noticia()
 
 
-def es_noticia(tipo: str) -> bool:
+# ⚠️⚠️ **HAY NOTICIAS QUE NO SON UN TIPO ENTERO, SON UNA REGLA** (2026-08-24).
+#
+# SALUD emite UN tipo (`salud`) para dos cosas que no se trabajan igual: un job
+# que **falló** (hay que arreglarlo) y un job que **terminó bien dejando
+# apuntes** (`partial` — no hay nada que arreglar). Marcar el tipo entero como
+# noticia sacaría de la lista también a los que sí fallaron; no marcar nada
+# metía a `partial` en el trabajo pendiente, que es lo que el user vio el lunes
+# con cuatro jobs del viernes que estaban funcionando.
+#
+# Se resuelve con el MISMO patrón que ya rige para las acciones —*la regla
+# manda, el tipo es el default*— en vez de inventar un tipo nuevo solo para
+# cambiar de casilla. Un tipo nuevo habría arrastrado registro, skills, evals y
+# el catálogo entero por una distinción que es de la regla.
+REGLAS_NOTICIA: frozenset[str] = frozenset({
+    # El job corrió, terminó y anotó algo no fatal. Informa; no pide trabajo.
+    "salud_job_ok_con_avisos",
+})
+
+
+def es_noticia(tipo: str, regla: str = "") -> bool:
     """¿Es una observación sin accionable? → vive en AHORA, no en LA LISTA."""
+    if (regla or "").strip() in REGLAS_NOTICIA:
+        return True
     return (tipo or "").strip() in TIPOS_NOTICIA
 
 
@@ -1060,8 +1081,8 @@ def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
         if tea is None and precio and ajuste not in _MOTIVOS_SIN_TASA_LEGITIMOS:
             out.append(_hallazgo(
                 "tasa_sospechosa", tc, "sin_tea_con_precio", "alta",
-                "Tiene precio y flujo, pero el motor no llega a calcular la TEA. "
-                "Tocá DIAGNOSTICAR para saber por qué.",
+                "Tiene precio y flujo, pero el motor no llega a calcular la "
+                "TEA.",
                 base))
 
         if paridad is not None and not (PARIDAD_MIN <= paridad <= PARIDAD_MAX):
@@ -1069,16 +1090,14 @@ def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
                 "tasa_sospechosa", tc, "paridad_fuera_de_rango",
                 "alta" if paridad > 300 or paridad < 10 else "media",
                 f"Paridad {paridad:,.1f}%, fuera del rango sano "
-f"[{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}]. Tocá DIAGNOSTICAR para "
-                "saber por qué.",
+                f"[{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}].",
                 base))
 
         if tea is not None and not (TEA_MIN <= tea <= TEA_MAX) and not ruidosa:
             out.append(_hallazgo(
                 "tasa_sospechosa", tc, "tea_fuera_de_rango", "media",
                 f"TEA {tea:.2%}, fuera de [{TEA_MIN:.0%}, {TEA_MAX:.0%}], y la "
-                "duration no la explica. Tocá DIAGNOSTICAR para saber por "
-                "qué.",
+                "duration no la explica.",
                 base))
 
     return out
@@ -1175,12 +1194,19 @@ def detectar_salud(chequeos: list[dict]) -> list[dict]:
         if estado not in sev:            # verde → no es un hallazgo
             continue
         familia = c.get("familia") or "chequeo"
+        # ⚠️ **EL JOB QUE TERMINÓ BIEN TIENE SU PROPIA CAUSA** (2026-08-24). Sin
+        # esto, «falló» y «corrió y anotó algo» compartían la regla
+        # `salud_job`, y por lo tanto la misma casilla de la pantalla, el mismo
+        # voto en el eval set y el mismo lugar en la lista de trabajo. Son dos
+        # cosas distintas y una sola pide trabajo — ver `REGLAS_NOTICIA`.
+        regla = ("salud_job_ok_con_avisos" if c.get("parcial")
+                 else f"salud_{familia}")
         out.append(_hallazgo(
             # El `ticker` es EL SUJETO del hallazgo — para un bono es el ticker y
             # para un chequeo es su id. El nombre del campo quedó del primer
             # detector; renombrarlo tocaría la tabla, el front y los tres
             # detectores que ya andan, y no cambia lo que significa.
-            "salud", c.get("id") or "?", f"salud_{familia}", sev[estado],
+            "salud", c.get("id") or "?", regla, sev[estado],
             # ⚠️ **QUÉ PASÓ Y A QUÉ AFECTA, YA TRADUCIDO** (§0.ba). El motivo
             # decía «la corrida de 20/08 16:30 UTC falló» y el error de verdad
             # —`ModuleNotFoundError: No module named 'core.ai_resumen'`— vivía

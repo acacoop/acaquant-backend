@@ -81,6 +81,24 @@ def persistir(res: dict) -> int:
     return int(r.get("foto") or 0)
 
 
+def _casos_para_diagnosticar(hallazgos: list[dict]) -> list[dict]:
+    """Los hallazgos que el agente SABE diagnosticar, con su acción resuelta.
+
+    La acción sale de `av_agent.accion_de` —el mismo lugar del que la saca la
+    pantalla— y no de una lista acá: dos criterios sobre qué es diagnosticable
+    terminarían discrepando, y ahí el user ve un botón que el cron nunca tocó.
+    """
+    from api.services import av_agent
+
+    casos = []
+    for h in hallazgos or []:
+        accion = av_agent.accion_de(h.get("tipo") or "", h.get("regla") or "")
+        if not accion:
+            continue
+        casos.append({**h, "accion": accion})
+    return casos
+
+
 def _imprimir(res: dict, detalle: bool) -> None:
     u, resumen = res["universo"], res["resumen"]
     print(f"\n{'=' * 72}")
@@ -233,6 +251,10 @@ def main() -> None:
                     help="el POR QUÉ de la respuesta (queda guardado; es lo que "
                          "el agente va a usar para no volver a proponerlo)")
     ap.add_argument("--por", default="", help="tu email, para la trazabilidad")
+    # La válvula: si el diagnóstico automático se pone caro o molesta en una
+    # corrida puntual, se apaga sin tocar el crontab ni el código.
+    ap.add_argument("--sin-diagnostico", action="store_true",
+                    help="releva y persiste, pero NO diagnostica")
     ap.add_argument("--preguntas", action="store_true",
                     help="solo muestra las preguntas abiertas (0 créditos)")
     ap.add_argument("--estado", action="store_true",
@@ -313,6 +335,39 @@ def main() -> None:
             jr.set_stat("filas_persistidas", n)
             print(f"\n✔ {n} hallazgos persistidos en agente.av_agent_hallazgos "
                   f"(se conservan las últimas {registro.TTL_CORRIDAS} corridas)")
+
+        # ── Y SE DIAGNOSTICA SOLO ──────────────────────────────────────
+        #
+        # ⚠️⚠️ **«YA TIENE QUE VENIR TODO DIAGNOSTICADO»** (user, 2026-08-24).
+        # El motor de diagnóstico existía completo y **nadie lo corría sin que
+        # se lo pidieran**: la fila decía «Tocá DIAGNOSTICAR para saber por
+        # qué» y había que apretar bono por bono, todas las mañanas, para leer
+        # lo mismo. Un agente que sabe diagnosticar y espera a que le toquen un
+        # botón no tiene vida.
+        #
+        # Va DESPUÉS de persistir a propósito: diagnostica contra los objetos
+        # que la corrida acaba de registrar, y así lo atendido ya está marcado
+        # y se saltea (REGLA #10.4 — consultar el DNI antes de actuar).
+        #
+        # Y va adentro de su propio `try`: la relevada ya está guardada y vale
+        # por sí sola. Que 1816 corte a la mitad del diagnóstico no puede
+        # convertir una corrida buena en una corrida fallada.
+        if not args.dry_run and not args.sin_diagnostico:
+            try:
+                from api.services import av_agent_masivo
+                dx = av_agent_masivo.diagnosticar_pendientes(
+                    _casos_para_diagnosticar(res["hallazgos"]))
+                for k in ("diagnosticados", "guardados", "ya_tenian",
+                          "saltados_atendidos"):
+                    jr.set_stat(f"dx_{k}", dx.get(k))
+                print(f"\n✔ diagnóstico automático: {dx.get('diagnosticados')} "
+                      f"nuevos · {dx.get('ya_tenian')} ya lo tenían · "
+                      f"{dx.get('saltados_atendidos')} ya atendidos"
+                      + (f" · {dx['creditos']} créditos"
+                         if dx.get("creditos") is not None else ""))
+            except Exception as e:
+                jr.error(f"el diagnóstico automático falló: "
+                         f"{type(e).__name__}: {e}")
 
         # Las PREGUNTAS se registran SIEMPRE, incluso en dry-run: no son un
         # resultado del relevamiento sino una conversación pendiente, y perderlas

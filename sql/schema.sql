@@ -4432,6 +4432,29 @@ ALTER TABLE agente.av_agent_items
 ALTER TABLE agente.av_agent_items
     ADD COLUMN IF NOT EXISTS aguanto_hasta timestamptz;
 
+-- ⚠️⚠️ **EL DIAGNÓSTICO VIVE EN EL PROBLEMA, NO EN LA PANTALLA** (2026-08-24).
+--
+-- El user, harto: *«nada más de DIAGNOSTICAR. Esto del agente tiene que
+-- funcionar LIVE 100%. Ya tiene que venir todo diagnosticado y dejar el arreglo
+-- para hacer manual. El agente tiene que tener VIDA»*.
+--
+-- Y el motor de diagnóstico ya existía entero (`av_agent_masivo`): lo que no
+-- existía era que alguien lo corriera SOLO y que el resultado quedara en algún
+-- lado. Se diagnosticaba a pedido, con un botón, y la conclusión se perdía al
+-- cerrar el modal — así que cada mañana había que volver a apretarlo bono por
+-- bono para leer lo mismo.
+--
+-- Va acá y no en la foto (`av_agent_hallazgos`) porque **el diagnóstico es del
+-- PROBLEMA, y el problema es este objeto** (REGLA #10.1): la foto se reescribe
+-- entera en cada corrida y se llevaría puesta la conclusión cada dos horas.
+-- Acá sobrevive mientras el problema siga siendo el mismo, que es exactamente
+-- lo que significa compartir la `clave`.
+--
+-- `datos` no servía: `ver()` lo pisa con la evidencia en cada corrida.
+ALTER TABLE agente.av_agent_items
+    ADD COLUMN IF NOT EXISTS diagnostico    jsonb,
+    ADD COLUMN IF NOT EXISTS diagnostico_at timestamptz;
+
 CREATE TABLE IF NOT EXISTS agente.av_agent_errores (
     clave       text PRIMARY KEY,          -- sha256(unidad|patron), 32 chars
     unidad      text NOT NULL,

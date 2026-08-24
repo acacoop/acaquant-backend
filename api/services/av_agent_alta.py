@@ -568,7 +568,7 @@ def cota_devengado(cupones: list[dict], desde: str = "") -> float | None:
 
 def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "", paridad=None,
                 duration=None, cota_ic: float | None = None,
-                precio: float | None = None) -> dict:
+                precio: float | None = None, de_quien: str = "nuestra") -> dict:
     """La segunda opinión sobre el MISMO bono. Un cuadro mal convertido no tira
     error: da un número plausible y equivocado.
 
@@ -622,7 +622,20 @@ def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "", paridad=None,
                      tabla="1816 /indicadores")
 
     dif_rel = abs(nuestra_par - suya_par) / suya_par * 100 if suya_par else 999.0
-    linea = (f"paridad nuestra {nuestra_par:.2f}% vs 1816 {suya_par:.2f}% "
+    # ⚠️⚠️ **«NUESTRA» ERA AMBIGUO Y HACÍA QUE LA TARJETA SE CONTRADIJERA**
+    # (user, 2026-08-24, mirando PECMO). La misma tarjeta mostraba arriba
+    # «HOY: paridad 60.3%» y acá «paridad nuestra 0.04%», y las dos eran
+    # correctas: la de arriba es el bono COMO ESTÁ y la de acá es el bono **CON
+    # EL PARCHE APLICADO**. Pero las dos se llamaban «nuestra», así que se leían
+    # como dos respuestas distintas a la misma pregunta — y una tarjeta que se
+    # contradice destruye la confianza en todo lo demás que dice, incluido lo
+    # que está bien.
+    #
+    # Y en este caso concreto **la diferencia ERA el diagnóstico**: la propuesta
+    # llevaba la paridad de 60,3% a 0,04%, o sea que empeoraba el bono. Por eso
+    # la cadena bloqueó, que es lo correcto — pero eso solo se podía deducir
+    # comparando dos números que parecían el mismo.
+    linea = (f"paridad {de_quien} {nuestra_par:.2f}% vs 1816 {suya_par:.2f}% "
              f"→ {dif_rel:.2f}% de diferencia ({base}){apoyo}")
 
     # SEGUNDO TESTIGO: la duration. Mide otra cosa que la paridad y las dos hacen
@@ -3309,7 +3322,21 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
                     else REVISAR,
                     f"**{meta.get('titulo') or dx['causa']}** — {dx['detalle']}"
                     + f"\n\nArreglo: {meta.get('arreglo', '—')}."
-                    + (" **Lo hace el agente**, y se verifica antes de escribir."
+                    # ⚠️⚠️ **NO PROMETER LO QUE LA CADENA TODAVÍA PUEDE
+                    # FRENAR** (user, 2026-08-24, mirando PECMO): la tarjeta
+                    # decía arriba **«✘ Bloqueado — NO APRIETES ARREGLAR»** y
+                    # abajo *«Arreglo: … Lo hace el agente, y se verifica antes
+                    # de escribir»*. El user: *«está bloqueado pero después dice
+                    # que hay que hacer lo que dice el agente»*.
+                    #
+                    # Las dos frases eran ciertas y juntas mentían. Esta la
+                    # escribe LA CONCLUSIÓN, que corre ANTES de que el juez
+                    # decida: no puede saber el desenlace, así que no puede
+                    # hablar en futuro. Lo que sí sabe es de qué CLASE es el
+                    # arreglo, y eso es lo que dice ahora — el permiso lo da la
+                    # cadena, y se lee ahí.
+                    + (" Es un arreglo de los que el agente sabe escribir; si "
+                       "lo escribe o no lo decide la cadena de abajo."
                        if meta.get("agente") and dx.get("parche") else
                        " El agente lo VE pero no lo toca."),
                     tabla="la lente que falla más aguas arriba", capa=VEREDICTO,
@@ -3679,11 +3706,16 @@ def simular_arreglo(ticker: str, *, cer_emision: float | None = None) -> dict:
     return out
 
 
-def _cotejo_de(tea, paridad, duration, ref: dict, precio, cota_ic) -> dict:
+def _cotejo_de(tea, paridad, duration, ref: dict, precio, cota_ic,
+               de_quien: str = "nuestra") -> dict:
     """El cotejo contra 1816 de UN estado (el de hoy o el propuesto). Es el MISMO
-    `_cotejo_tea` — así el ANTES y el DESPUÉS no se pueden juzgar con dos varas."""
+    `_cotejo_tea` — así el ANTES y el DESPUÉS no se pueden juzgar con dos varas.
+
+    `de_quien` es lo único que los distingue en el texto, y hace falta: los dos
+    dicen «paridad X% vs 1816 Y%» y sin la etiqueta se leen como el mismo bono
+    contestando dos cosas distintas."""
     return _cotejo_tea(tea, ref, paridad=paridad, duration=duration,
-                       cota_ic=cota_ic, precio=precio)
+                       cota_ic=cota_ic, precio=precio, de_quien=de_quien)
 
 
 def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
@@ -3843,7 +3875,8 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
     # y el actual NO. Las dos mitades hacen falta — ver el comentario del bloque.
     cota = cota_devengado(cupones_1816 or [])
     cot_prop = _cotejo_de(out.get("tea"), out.get("paridad"), out.get("duration"),
-                          ref, out.get("precio"), cota)
+                          ref, out.get("precio"), cota,
+                          "CON EL ARREGLO")
     cot_prop["clave"], cot_prop["titulo"] = "cotejo_propuesto", \
         "La PROPUESTA coincide con 1816"
     ps.append(cot_prop)
@@ -3879,7 +3912,8 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
                               "producción)"))
 
     cot_hoy = _cotejo_de(antes.get("tea"), antes.get("paridad"),
-                         antes.get("duration"), ref, out.get("precio"), cota)
+                         antes.get("duration"), ref, out.get("precio"), cota,
+                         "HOY")
     ya_estaba_bien = cot_hoy["estado"] == OK
     # ⚠️ **UN ERROR DE RED NO ES UNA CONCLUSIÓN SOBRE EL BONO** (2026-08-17).
     # Acá había `BLOQUEA if ya_estaba_bien else OK`, o sea que **cualquier cosa

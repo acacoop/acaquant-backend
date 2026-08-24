@@ -454,6 +454,130 @@ def arrancar(casos: list[dict], *, por: str = "", filtro: dict | None = None,
             "segundos_estimados": 0 if sin_red else int(len(casos) * 1.4)}
 
 
+# ── EL AGENTE SE DIAGNOSTICA SOLO ───────────────────────────────────────────
+#
+# ⚠️⚠️ **NADA MÁS DE «TOCÁ DIAGNOSTICAR»** (user, 2026-08-24):
+#
+#     *«Esto del agente tiene que funcionar LIVE 100%. Basta de este modelo,
+#     está roto, no funciona. Ya tiene que venir todo diagnosticado y dejar el
+#     arreglo para hacer manual. El agente tiene que tener VIDA, se entiende:
+#     tiene que diagnosticar por sí solo.»*
+#
+# Y el motor entero ya estaba escrito, acá arriba. Lo que faltaba eran dos
+# cosas chicas y decisivas: **que alguien lo corriera sin que se lo pidan**, y
+# **que la conclusión quedara pegada al problema** en vez de morir al cerrar el
+# modal. Sin esas dos, un motor de diagnóstico completo se comportaba como si no
+# existiera: la fila decía «Tocá DIAGNOSTICAR para saber por qué» y había que
+# apretar, bono por bono, todas las mañanas, para volver a leer lo mismo.
+#
+# **Por qué es barato, y por qué se puede correr en cada pasada.** Las tres
+# guardas que ya tenía `arrancar` lo vuelven casi gratis a partir de la segunda
+# vez, y ninguna es nueva:
+#
+#     · el DNI     — lo atendido (`en_curso` · `resuelto` · `ignorado`) se saltea
+#     · un bono,
+#       un diagnóstico — se dedupea por (sujeto, acción): ocho lentes, una vez
+#     · el tope    — se corta en `TOPE_CREDITOS_DEFAULT` medido contra 1816
+#
+# A eso se suma la de acá: **lo que ya está diagnosticado y no cambió no se
+# vuelve a diagnosticar**. Así la primera corrida paga el censo entero y las
+# siguientes pagan solamente los problemas NUEVOS, que es lo que uno esperaría
+# de algo que tiene memoria.
+#
+# Corre SINCRÓNICO (no en un thread como el botón) porque el que llama es un
+# cron: ahí no hay a quién devolverle un id, y el job tiene que poder contar en
+# su propio `job_runs` cuántos diagnosticó. Reusa `_diagnosticar_uno`, o sea la
+# MISMA puerta que el modal — dos caminos al mismo diagnóstico terminan
+# contradiciéndose, y este subsistema ya se comió ese bug tres veces.
+
+def _clave(c: dict) -> str:
+    from api.services import av_agent_items
+    return av_agent_items.clave_de_problema(
+        str(c.get("ticker") or ""), str(c.get("regla") or ""),
+        str(c.get("origen") or ""))
+
+
+def diagnosticar_pendientes(casos: list[dict], *, sin_red: bool = False,
+                            tope_creditos: int | None = TOPE_CREDITOS_DEFAULT,
+                            rediagnosticar: bool = False) -> dict:
+    """Diagnostica lo que todavía no tiene diagnóstico y **lo persiste**.
+
+    Devuelve el conteo, para que el job lo pueda anotar. No levanta nunca: el
+    diagnóstico es un extra sobre una relevada que ya está guardada, y hacerlo
+    fallar entero perdería el trabajo bueno por el opcional.
+    """
+    from api.services import av_agent_items
+    from core import ciclo
+
+    casos = [c for c in (casos or []) if c.get("ticker") and c.get("accion")]
+    fuera = {ciclo.EN_CURSO, ciclo.RESUELTO, ciclo.IGNORADO}
+    saltados_atendidos = ya_tenian = 0
+    try:
+        claves = [_clave(c) for c in casos]
+        estados = av_agent_items.estados_de(claves)
+        con_dx = set() if rediagnosticar else av_agent_items.con_diagnostico(claves)
+        vivos = []
+        for c, k in zip(casos, claves, strict=True):
+            if estados.get(k) in fuera:
+                saltados_atendidos += 1
+            elif k in con_dx:
+                ya_tenian += 1
+            else:
+                vivos.append((c, k))
+    except Exception as e:
+        logger.warning("av_agent_masivo: no pude filtrar pendientes (%s)", e)
+        vivos = [(c, _clave(c)) for c in casos]
+
+    # ⚠️ **UN BONO, UN DIAGNÓSTICO — Y LA CONCLUSIÓN SE ESCRIBE EN TODAS SUS
+    # FILAS.** Un mismo papel dispara varias reglas (PECKO sale por
+    # `paridad_fuera_de_rango` Y por `sin_tea_con_precio`), y el diagnóstico es
+    # POR BONO: las mismas ocho lentes, la misma llamada a 1816. Correrlo dos
+    # veces duplicaría créditos para llegar al mismo párrafo.
+    #
+    # Pero guardarlo en una sola de las claves dejaría a la otra fila diciendo
+    # «tocá DIAGNOSTICAR» — o sea el bug original, sobreviviendo en la mitad de
+    # la pantalla. Se corre UNA vez y se escribe en TODAS las claves de ese
+    # (sujeto, acción). Mismo criterio de dedup que `arrancar`.
+    grupos: dict[tuple[str, str], list[str]] = {}
+    unicos: list[tuple[dict, tuple[str, str]]] = []
+    for c, k in vivos:
+        par = (str(c.get("ticker") or ""), str(c.get("accion") or ""))
+        if par not in grupos:
+            grupos[par] = []
+            unicos.append((c, par))
+        grupos[par].append(k)
+
+    saldo_ini = None if sin_red else _saldo()
+    hechos = guardados = 0
+    por_estado: dict[str, int] = {}
+    for i, (caso, par) in enumerate(unicos, 1):
+        try:
+            fila = _diagnosticar_uno(caso, sin_red)
+        except Exception as e:                       # defensa de última línea
+            logger.warning("av_agent_masivo: %s reventó (%s)", par, e)
+            continue
+        hechos += 1
+        por_estado[fila.get("estado") or "?"] = (
+            por_estado.get(fila.get("estado") or "?", 0) + 1)
+        for k in grupos[par]:
+            guardados += 1 if av_agent_items.guardar_diagnostico(k, fila) else 0
+        if (tope_creditos and saldo_ini is not None and not sin_red
+                and i % _CADA_CUANTO_SALDO == 0):
+            sal = _saldo()
+            if sal is not None and (sal - saldo_ini) >= tope_creditos:
+                logger.warning("av_agent_masivo: tope de %s créditos en el caso "
+                               "%s de %s", tope_creditos, i, len(unicos))
+                break
+    creditos = None
+    if saldo_ini is not None:
+        sal = _saldo()
+        creditos = None if sal is None else sal - saldo_ini
+    return {"ok": True, "candidatos": len(casos), "diagnosticados": hechos,
+            "guardados": guardados, "ya_tenian": ya_tenian,
+            "saltados_atendidos": saltados_atendidos,
+            "por_estado": por_estado, "creditos": creditos}
+
+
 def frenar(run_id: int) -> dict:
     """Corta la corrida en el próximo caso. Lo ya diagnosticado queda."""
     _frenar.add(int(run_id))

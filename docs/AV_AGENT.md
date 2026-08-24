@@ -21,7 +21,7 @@
 > - **«CÓMO FUNCIONA HOY — el mapa del código»** (arriba de todo, secciones
 >   `M.0`–`M.12`): **el ESTADO**. Dónde vive cada pieza, qué invariante rige,
 >   qué deuda hay abierta. Es lo primero que se lee y lo que se mantiene al día.
-> - **`## 0` en adelante (§0.a → §0.dn): el DIARIO.** Las decisiones en orden
+> - **`## 0` en adelante (§0.a → §0.do): el DIARIO.** Las decisiones en orden
 >   cronológico, con su porqué. Sirve para no re-proponer lo descartado — **no
 >   para saber cómo funciona algo hoy.**
 >
@@ -43,7 +43,7 @@
 > El user (2026-08-24): *«no puedo tener sesiones en Claude sin que cada sesión
 > vea cosas distintas, que se contradiga constantemente»*.
 >
-> La causa es este documento. De acá para abajo (§0.a → §0.dn) hay un **DIARIO**:
+> La causa es este documento. De acá para abajo (§0.a → §0.do) hay un **DIARIO**:
 > registra DECISIONES en orden cronológico, y está bien que así sea — es lo que
 > evita re-proponer lo descartado. Pero un diario **no puede contestar «¿cómo
 > funciona hoy?»**: una sesión lee §0.bd y cree que el modelo de objetos está
@@ -8306,6 +8306,181 @@ se verificó como conjunto: solo se lee con `in`.)
 El módulo **no importa nada del proyecto**: lo leen `av_agent` y
 `av_agent_skills`, y el segundo importa al primero, así que cualquier import
 abriría un ciclo. Hay un test que lo congela.
+
+
+### 0.do CUATRO SÍNTOMAS, CUATRO CAUSAS: EL DUPLICADO, LO VIEJO, EL BOTÓN Y LA CONTRADICCIÓN (2026-08-24)
+
+El user, el mismo lunes, unas horas después de §0.dn y con la pantalla abierta:
+
+    *«en ENCONTRÓ ahora TODO se duplica… figura un aviso y después figura para
+    diagnosticar, es tremendo»*
+
+    *«cosas del 21/08, DIOS MÍO… te vengo diciendo hace horas que no quiero ver
+    cosas viejas. Cuando por ejemplo cierre_canje ESTÁ FUNCIONANDO, el otro
+    también»*
+
+    *«nada más de DIAGNOSTICAR. Esto del agente tiene que funcionar LIVE 100%,
+    basta de este modelo, está roto, no funciona. Ya tiene que venir todo
+    diagnosticado y dejar el arreglo para hacer manual. El agente tiene que
+    tener VIDA, se entiende: tiene que diagnosticar por sí solo y el mensaje del
+    diagnóstico tiene que ser claro, ya no sé cómo más pedirlo»*
+
+    *«está bloqueado pero después dice que hay que hacer lo que dice el agente,
+    y el diagnóstico es inentendible»*
+
+Cuatro reclamos, cuatro causas **distintas**. Ninguna era la que parecía.
+
+#### 1. El duplicado: la pantalla mostraba dos veces UN objeto
+
+PECKO/paridad dos veces, PECKO/sin_tea dos veces, PECMO/moneda_flujo dos veces
+— **misma hora, mismo texto, la de arriba con botón y la de abajo sin**. Eso
+último es lo que lo volvía incomprensible: parecían dos cosas distintas.
+
+No eran dos cosas. La pantalla esconde la acción en la SEGUNDA aparición de un
+mismo ticker (para no dibujar la cadena de simulación dos veces), así que **un
+duplicado exacto se ve como «un aviso + un diagnosticable»**.
+
+El arreglo de §0.di sacó a SALUD de la relevada porque lo emitían DOS
+productores. Correcto, y no alcanzaba: arreglaba el caso, no la clase. Cualquier
+productor futuro podía volver a duplicar la pantalla, y nada lo impedía.
+
+Ahora se cierra del lado de la LECTURA: `_una_fila_por_problema` colapsa por
+`clave`, que es la identidad canónica (`ciclo.identidad`, sujeto|causa) y ya es
+la PK de `av_agent_items`. **Si el objeto es uno, la fila es una** — REGLA #10.1
+aplicada donde se dibuja. Gana la más severa y, a igual severidad, la que trae
+memoria (perder el `abierto_at` al colapsar sería cambiar un bug por otro); lo
+colapsado viaja en `visto_por`, así dos caminos viendo lo mismo se puede
+auditar en vez de desaparecer.
+
+> Una fila SIN `clave` (anterior a la columna) no se colapsa: sin identidad no
+> se puede afirmar que dos filas son la misma cosa, y fundir dos problemas
+> distintos es peor que mostrar un duplicado.
+
+#### 2. Lo viejo: un `partial` no es un job roto, y la fecha no estaba
+
+Cuatro avisos fechados el **viernes 21/08**, leídos el lunes al mediodía. Y el
+user tenía razón en las dos mitades:
+
+- **`cierre_canje` funciona.** `partial` es el status que pone `JobRunLogger`
+  cuando el job **terminó** y en el camino llamó a `run.error()`. O sea: corrió,
+  hizo su trabajo, dejó anotado algo no fatal. Tratarlo como problema convertía
+  un apunte del propio job en trabajo pendiente para una persona — y encima uno
+  que no se puede cerrar, porque no hay nada que arreglar. Ahora es **noticia**
+  (se ve, se cuenta, no pide trabajo), vía `REGLAS_NOTICIA`, con el mismo patrón
+  que ya regía para las acciones: *la regla manda, el tipo es el default*. Un
+  tipo nuevo habría arrastrado registro, skills, evals y catálogo por una
+  distinción que es de la regla.
+- **La fecha no estaba donde hace falta.** El motivo decía «la corrida de 21/08
+  19:00 falló» y al lado la pantalla ponía la hora en que el AGENTE miró (12:04
+  de hoy). Las dos son ciertas y juntas mienten. Ahora la frase lleva **« · hace
+  3 días»**, en días de calendario ART y no en horas de reloj (20 horas puede
+  ser hoy o ayer; lo que se quiere saber es si es de hoy). No se esconde: se
+  FECHA — esconderla sería la mentira opuesta, porque `market_anchors` falló el
+  viernes y va a volver a fallar esta noche.
+
+Y un tercero que nadie había pedido pero explica el *«es todo muy mecánico»*:
+**la traducción del error nunca corría para un job.** `_motivo_salud` busca el
+error real en `c["corridas"]` para pasarlo por `av_agent_errores.explicar`, y
+`_chequeo_job` **no traía ese campo** — así que caía siempre al texto genérico.
+El dato estaba a un campo de distancia (`jobs_catalogo` ya guarda el primer
+error en `ultimo.resumen`). Ahora se pasa con la forma que el lector ya sabía
+leer: ninguna de las dos puntas cambió.
+
+#### 3. El botón DIAGNOSTICAR **era** el problema
+
+El motor de diagnóstico estaba entero desde hacía días (`av_agent_masivo`, ocho
+lentes, cotejo contra 1816, `PUERTAS` por acción). Lo que faltaba eran dos cosas
+chicas y decisivas:
+
+    nadie lo corría solo          → había que apretar un botón, bono por bono
+    la conclusión no se guardaba  → moría al cerrar el modal
+
+Con esas dos, un motor de diagnóstico completo **se comportaba como si no
+existiera**: la fila decía «Tocá DIAGNOSTICAR para saber por qué» y al día
+siguiente había que apretar de nuevo para leer lo mismo.
+
+Ahora `jobs.av_agent` lo corre **después de persistir** (así diagnostica contra
+los objetos recién registrados y lo atendido ya está marcado — REGLA #10.4) y el
+resultado se guarda en **`av_agent_items.diagnostico`**: el diagnóstico es del
+PROBLEMA, y el problema es ese objeto. En la foto no podía ir — se reescribe
+entera cada dos horas y se llevaría puesta la conclusión.
+
+**Por qué es barato correrlo en cada pasada.** Cuatro guardas, tres ya existían:
+
+    el DNI          lo atendido (en_curso · resuelto · ignorado) se saltea
+    un bono, un dx  se dedupea por (sujeto, acción): ocho lentes, una vez
+    el tope         se corta en 5.000 créditos, medido contra 1816
+    la memoria      lo ya diagnosticado no se re-diagnostica   ← nueva
+
+La primera corrida paga el censo entero; las siguientes pagan solo los problemas
+NUEVOS. Que es lo que uno espera de algo que tiene memoria.
+
+Dos detalles que costaron un bug cada uno en el diseño:
+
+- **La conclusión se escribe en TODAS las claves del bono.** Un papel dispara
+  varias reglas y el diagnóstico es por PAPEL. Guardarlo en una sola clave
+  dejaba la otra fila diciendo «tocá DIAGNOSTICAR» — el bug original
+  sobreviviendo en la mitad de la pantalla.
+- **Un problema que VUELVE pierde su diagnóstico viejo.** Se dio por arreglado y
+  reapareció: la explicación de la vez pasada es justo la que se demostró
+  incompleta. Dejarla pegada sería mostrar con seguridad una conclusión que ya
+  falló una vez.
+
+En la fila: una línea con la causa, qué se puede hacer y cuándo se diagnosticó.
+Las ocho lentes y la cadena de pasos siguen atrás de SIMULAR, donde se necesitan
+para decidir. Lo que sube a la lista es la CONCLUSIÓN, no el razonamiento — el
+user ya dijo dos veces que hay demasiado texto por aviso. Y cuando no hay
+diagnóstico **se dice**: un renglón vacío se lee como «acá no pasa nada», y lo
+que pasa es que el cron todavía no lo miró.
+
+#### 4. La tarjeta se contradecía consigo misma, dos veces
+
+En PECMO, la misma tarjeta:
+
+    ✘ Bloqueado — NO APRIETES ARREGLAR
+    …
+    Arreglo: alinear `moneda_flujo`. **Lo hace el agente**, y se verifica…
+
+Las dos frases eran ciertas. La segunda la escribe LA CONCLUSIÓN, que corre
+**antes** de que el juez decida: no puede saber el desenlace, así que no puede
+hablar en futuro. Lo que sí sabe es de qué CLASE es el arreglo, y eso es lo que
+dice ahora — *«es un arreglo de los que el agente sabe escribir; si lo escribe o
+no lo decide la cadena de abajo»*.
+
+Y la otra, peor:
+
+    HOY: TEA 16.25% · paridad 60.3%
+    …
+    paridad nuestra 0.04% vs 1816 57.31%
+
+También las dos ciertas: la primera es el bono **como está** y la segunda es el
+bono **con el parche aplicado**. Pero las dos se llamaban «nuestra». Y acá la
+diferencia **ERA el diagnóstico**: la propuesta llevaba la paridad de 60,3% a
+0,04%, o sea que empeoraba el bono, y por eso la cadena bloqueó — correctamente.
+Eso solo se podía deducir comparando dos números que parecían el mismo. Ahora
+cada cotejo dice de quién es: **HOY** y **CON EL ARREGLO**.
+
+> **La lección de las cuatro juntas.** Ninguna era un cálculo mal hecho: las
+> cuatro eran cosas ciertas presentadas de forma que se leían al revés. Un
+> duplicado exacto que parece dos problemas, una fecha correcta al lado de otra
+> fecha correcta, un motor completo que espera un botón, dos números buenos con
+> el mismo nombre. **El agente no estaba equivocado — era ilegible**, y para el
+> que lo lee eso es peor, porque no hay forma de saber cuál mitad creer.
+
+**Congelado en `tests/unit/test_av_agent_vida.py`** (20 tests): que el colapso
+exista Y se use, que la vista le pase la regla a `es_noticia`, que ningún motivo
+mande a apretar DIAGNOSTICAR, que el job diagnostique DESPUÉS de persistir, que
+`con_diagnostico` degrade a vacío ante un fallo (*«no sé»* = diagnosticá todo,
+nunca *«ya está hecho»*), y que las dos contradicciones de texto no puedan
+volver.
+
+**Lo que NO se tocó, y hace falta decirlo:** el user reportó también que
+`motor_rofex` figura roto **estando vivo** (los logs muestran el `adhoc_watcher`
+suscribiendo tickers), y su hipótesis es que el detector lee el árbol de
+DIAGNÓSTICO en vez de los logs. Es correcta como descripción —`detectar_motores`
+lee `diagnostico.arbol()`, que juzga por frescura del dato y no por vida del
+proceso— pero **no alcanza para decidir el arreglo sin ver qué hallazgo fue**:
+un motor vivo que no escribe también es un problema real. Queda abierto.
 
 
 ### 0.dn LOS AVISOS NO TENÍAN VIDA (2026-08-24)

@@ -31,7 +31,7 @@ from typing import Any
 from api.cache import cached, invalidate
 from api.services._sql import _q
 from api.services.jobs_catalogo import catalogo_jobs
-from core.tz import hora_ar
+from core.tz import AR_TZ, hora_ar
 
 _log = logging.getLogger(__name__)
 
@@ -179,6 +179,23 @@ def _iso(v: Any) -> datetime | None:
         return None
 
 
+def _edad(cuando: datetime | None, ahora: datetime) -> str:
+    """« · hace 3 días» cuando el hecho NO es de hoy. Vacío si es de hoy.
+
+    Se calcula en DÍAS DE CALENDARIO ARGENTINO y no en horas de reloj: lo que el
+    que mira quiere saber es «¿esto es de hoy o de otro día?», y 20 horas puede
+    ser cualquiera de las dos. Un job de anoche a las 23 y uno de esta mañana a
+    las 7 distan 8 horas y son días distintos; uno de ayer a las 8 y uno de hoy
+    a las 4 distan 20 y también.
+    """
+    if cuando is None:
+        return ""
+    d = (ahora.astimezone(AR_TZ).date() - cuando.astimezone(AR_TZ).date()).days
+    if d <= 0:
+        return ""
+    return " · hace 1 día" if d == 1 else f" · hace {d} días"
+
+
 def _chequeo_job(cron: dict, ahora: datetime) -> dict:
     """Un cron del crontab → un chequeo. El estado sale de las dos preguntas."""
     label = cron.get("label") or ",".join(cron.get("modules") or []) or "?"
@@ -233,24 +250,68 @@ def _chequeo_job(cron: dict, ahora: datetime) -> dict:
     # ubique mal. El formateo vive UNA vez, en `core.tz.hora_ar`.
     ult_txt = hora_ar(ultimo_t)
     corrio_despues = bool(ultimo_t and esperada and ultimo_t >= esperada)
+    # ⚠️⚠️ **«HACE CUÁNTO» VA EN LA FRASE** (user, 2026-08-24, un lunes al
+    # mediodía viendo cuatro avisos fechados el viernes 21/08): *«cosas del
+    # 21/08, dios mío… te vengo diciendo hace horas que no quiero ver cosas
+    # viejas»*.
+    #
+    # La frase decía «la corrida de 21/08 19:00 falló» y al lado la pantalla
+    # ponía la hora en que el AGENTE miró (12:04 de hoy). Las dos son ciertas y
+    # juntas mienten: se leen como un problema de recién. Y el dato que faltaba
+    # es el que decide si hay que hacer algo AHORA — **un job L-V que falló el
+    # viernes y todavía no le tocó correr de nuevo no es un incendio de hoy**,
+    # es una falla que sigue pendiente y que se va a repetir esta noche.
+    #
+    # No se esconde: se FECHA. Esconderla sería la mentira opuesta.
+    edad = _edad(ultimo_t, ahora)
     if not cron.get("instrumentado") and ultimo_t is None:
         # Sin JobRunLogger no se puede saber nada. No es rojo, pero tampoco verde:
         # es un punto ciego y tiene que verse como tal.
         estado, motivo = WARN, "sin instrumentar: no registra corridas"
     elif fallo:
-        estado, motivo = ERROR, f"la corrida de {ult_txt} falló"
+        estado, motivo = ERROR, f"la corrida de {ult_txt} falló{edad}"
     elif atrasado:
         esp = hora_ar(esperada, vacio="?")
         estado, motivo = ERROR, f"debía correr {esp} y la última fue {ult_txt}"
     elif parcial:
-        estado, motivo = WARN, (f"la corrida de {ult_txt} terminó con errores "
-                                f"parciales")
+        # ⚠️⚠️ **UN `partial` NO ES UN JOB ROTO** (mismo reporte del user:
+        # *«cuando por ejemplo cierre_canje ESTÁ FUNCIONANDO, el otro también»*).
+        #
+        # Y tenía razón, literalmente: `partial` es el status que pone
+        # `JobRunLogger` cuando el job **terminó** y en el camino llamó a
+        # `run.error()` una o más veces. O sea que corrió, hizo su trabajo y
+        # dejó anotado algo no fatal. Tratarlo como problema convertía un
+        # apunte del propio job en trabajo pendiente para una persona — y
+        # encima uno que no se puede cerrar, porque no hay nada que arreglar.
+        #
+        # Pasa a ser **AVISO**: se sigue viendo (con la fecha), se sigue
+        # contando, y deja de pedir trabajo. La diferencia la hace `parcial`,
+        # que viaja en el chequeo para que el detector no tenga que adivinarlo
+        # leyendo el texto del motivo — que es como ya se rompió esto antes.
+        estado, motivo = WARN, (f"la corrida de {ult_txt} terminó bien pero "
+                                f"dejó errores anotados{edad}")
     else:
         estado, motivo = OK, "al día"
 
     resumen = next((( r.get("ultimo") or {}).get("resumen") for _, r in ultimos
                     if (r.get("ultimo") or {}).get("resumen")), "")
     return {
+        # ⚠️⚠️ **LOS ERRORES DE VERDAD, EN EL CHEQUEO** (2026-08-24). El agente
+        # ya sabía traducir un error de log a castellano (`_motivo_salud` →
+        # `av_agent_errores.explicar`) y **nunca lo hacía para un job**: esa
+        # función busca los errores en `c["corridas"]` y este chequeo no traía
+        # ninguna. O sea que la fila decía siempre la misma frase mecánica —
+        # «terminó con errores parciales»— sin decir CUÁL, que es lo único que
+        # sirve. El user: *«es todo muy mecánico, no va»*.
+        #
+        # El dato ya estaba a un campo de distancia: `jobs_catalogo` guarda el
+        # primer error en `ultimo.resumen`. Se pasa con la forma que
+        # `_primer_error` ya sabe leer, así ninguna de las dos puntas cambia.
+        "corridas": [{"errors": [resumen]}] if resumen and (fallo or parcial) else [],
+        # **Terminó, pero dejó apuntes.** Lo lee el detector para no meterlo en
+        # la lista de trabajo. Va como campo y no como texto en el motivo:
+        # decidir mirando una frase es cómo se rompen estas cosas (REGLA #9).
+        "parcial": bool(parcial and not fallo and not atrasado),
         "id": f"job:{label}",
         "familia": "job",
         "titulo": label,

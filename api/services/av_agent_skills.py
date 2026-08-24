@@ -48,6 +48,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from api.services import av_agent_tipos as tipos
+
 logger = logging.getLogger(__name__)
 
 # Los tres tipos de habilidad, en el orden en que crece el agente:
@@ -245,108 +247,7 @@ def _de_acciones() -> list[Skill]:
 #
 #     NOMBRE     corto, se lee de un vistazo
 #     QUÉ HACE   la explicación, con el criterio adentro
-_QUE_DETECTA: dict[str, tuple[str, str]] = {
-    "falta_en_base": (
-        "Bonos que nos faltan",
-        "los que 1816 lista y no están en el master"),
-    "sin_flujo": (
-        "Bonos sin cronograma",
-        "están cargados pero sin flujos de pago: no valúan"),
-    "tasa_sospechosa": (
-        "Tasas que no cierran",
-        "se apartan de las de 1816 más de lo tolerable"),
-    "hueco_de_curva": (
-        "Ajustes sin curva",
-        "existen en el master y no tienen pill: esos bonos quedan invisibles "
-        "sin dar ningún error"),
-    "salud": (
-        "Jobs que fallaron",
-        "no corrieron, salieron con error o dejaron el dato viejo"),
-    "sin_precio": (
-        "Bonos sin precio, en rueda",
-        "distingue las 4 causas y mide en TIEMPO DE MERCADO: sin símbolo "
-        "cargado · nadie lo suscribió · suscripto sin punta · el precio dejó "
-        "de moverse"),
-    "precio_moneda": (
-        "Precios en la moneda equivocada",
-        "bonos de curva USD que muestran pesos, separando el que suscribe la "
-        "PATA EQUIVOCADA del que cotiza así de verdad — y para eso busca la pata "
-        "en dólares en DOS fuentes: `mercado.especies` y, si ahí no está, el "
-        "catálogo de Primary (mirar una sola no alcanza para decir que no existe)"),
-    "actividad": (
-        "Actividad en día no hábil",
-        "sábado, domingo o feriado el mercado no abre y NADA debería escribir "
-        "precios: si `market_snapshot` recibe escrituras o el motor de órdenes "
-        "late, algo quedó prendido o un cron corre cuando no debe — acá el "
-        "hallazgo es la actividad misma, no lo que el dato diga"),
-    "cron_desalineado": (
-        "Crons del repo que no corren",
-        "compara `deploy/crontab.txt` —que TODO el sistema trata como la fuente "
-        "de verdad— contra el crontab REAL de la máquina. `deploy.sh` no lo "
-        "instala, así que un cron nuevo puede vivir en el repo y no ejecutarse "
-        "nunca: no falla nada, el catálogo lo muestra igual y el job no corrió. "
-        "Mira las dos direcciones (lo que falta instalar y lo que corre sin "
-        "estar declarado) y si no puede leer el crontab lo DICE en vez de "
-        "callarse"),
-    "respuesta": (
-        "La respuesta a lo que se pidió",
-        "cierra el círculo de una acción cuyo efecto NO es inmediato. Cuando se "
-        "pide la pata en dólares de un bono, si esa pata cotiza o no lo contesta "
-        "el mercado y no nosotros: acá se relee en cada pasada de rueda y se "
-        "canta el veredicto, incluido el «no cotiza» — que es el que cierra el "
-        "tema. La espera se mide en tiempo de mercado abierto, así que un «no» "
-        "nunca es impaciencia"),
-    "dato_partido": (
-        "Copias del mismo dato que no coinciden",
-        "los datos que viven en más de un lugar y dejaron de decir lo mismo. "
-        "Detecta la CLASE de bug, no el caso: cuando dos copias se separan NO "
-        "falla nada —cada mitad sigue coherente— y el sistema contesta con "
-        "seguridad usando la equivocada. El registro de qué está duplicado y "
-        "quién manda se DECLARA en `core/duplicados`"),
-    "db_cambio": (
-        "La base cambió",
-        "tablas nuevas, las que crecieron de golpe y las que desaparecieron, "
-        "comparando la foto de hoy contra la de ayer"),
-    "latencia": (
-        "Endpoints degradados",
-        "los que se pusieron lentos contra SU PROPIA normalidad (no un ranking "
-        "de los más lentos) y los que devuelven 5xx"),
-    "tabla_quieta": (
-        "Tablas que dejaron de escribir",
-        "la cadencia de cada una se MIDE observándola, no la declara nadie, y "
-        "el atraso se cuenta en tiempo de mercado"),
-    "motor_caido": (
-        "Motores y jobs caídos",
-        "solo DENTRO de su ventana horaria: fuera de rueda un motor no está "
-        "caído, está apagado"),
-    "motor_ruidoso": (
-        "Lo que los motores vienen diciendo",
-        "no si PRODUCEN (eso es el de arriba) sino si se están rompiendo "
-        "mientras producen. Distingue la RÁFAGA —algo fallando en loop ahora— "
-        "de lo que MACHACA todo el día, que es una config rota que nadie mira: "
-        "la cuenta sola no las separa, 76 veces en 3 minutos y 91 en 7 horas "
-        "son dos problemas distintos"),
-    "recuperado": (
-        "Avisa también cuando algo VUELVE",
-        "hasta ahora, si un motor caído volvía, su aviso simplemente dejaba de "
-        "escribirse: el que estaba esperando no se enteraba nunca. Compara la "
-        "corrida de ahora con la anterior y canta lo que se arregló. Dura 30 "
-        "minutos: una buena noticia envejece más rápido que una mala"),
-    "proveedor_caido": (
-        "Proveedores de afuera que no responden",
-        "Aunesa, 1816, Interbanking, BCRA. Se entera por el rastro de las "
-        "llamadas REALES (no gasta créditos de 1816 ni se cree un health check "
-        "que contesta bien mientras el endpoint que usamos devuelve 500) y, "
-        "cuando ya hay una falla, LLAMA: prueba sin credenciales para separar "
-        "«se cayeron ellos» de «se nos venció una clave», y barre las 5 APIs de "
-        "Aunesa para decir si es su servicio entero o un endpoint. Avisa "
-        "DIRECTO al back office, que es quien lo sufre y no ve la pantalla del "
-        "agente"),
-    "permiso_flojo": (
-        "Permisos que están solo en los papeles",
-        "endpoints sin gate, y —probando de verdad, sin credenciales— los que "
-        "contestan igual: el borde no aplica lo que el código declara"),
-}
+_QUE_DETECTA = tipos.que_detecta()
 
 # ⚠️ **QUÉ REGLAS EMITE CADA DETECTOR.** Es el puente entre el CATÁLOGO (que
 # lista por tipo) y la MEDICIÓN (que mide por regla, porque la regla es la unidad
@@ -357,51 +258,11 @@ _QUE_DETECTA: dict[str, tuple[str, str]] = {
 # verdad**: si alguien suma una regla y no la lista acá, sus votos no aparecen en
 # ninguna fila y la skill se ve «sin votar» teniendo evidencia. Un error que no
 # da ningún síntoma, que es la clase que este módulo persigue.
-_REGLAS_DETECTOR: dict[str, tuple[str, ...]] = {
-    "falta_en_base": ("no_esta_en_curvas",),
-    "sin_flujo": ("flujos_vacios",),
-    "hueco_de_curva": ("ajuste_sin_curva",),
-    "tasa_sospechosa": ("moneda_flujo_contradice", "paridad_fuera_de_rango",
-                        "sin_ejes", "sin_espejo_en_assets", "sin_tea_con_precio",
-                        "tea_fuera_de_rango"),
-    "sin_precio": ("no_suscripto", "precio_viejo", "sin_punta", "sin_simbolo"),
-    "precio_moneda": ("cotiza_en_pesos", "pata_equivocada",
-                      "precio_fuera_de_escala"),
-    "dato_partido": ("copias_que_no_coinciden", "no_pude_chequear"),
-    # SALUD arma la regla en tiempo de ejecución (`salud_<familia>`), así que la
-    # lista no se puede declarar sin adivinar las familias. Vacío EXPLÍCITO: la
-    # skill se muestra sin medición, que es honesto — mejor que un número que
-    # cruza mal.
-    "salud": (),
-    # Los del SISTEMA: cada uno emite una sola regla, con su mismo nombre.
-    "db_cambio": (), "latencia": (), "motor_caido": (),
-    # La emitía y no la declaraba: sus votos se contaban sin poder decir POR QUÉ
-    # causa acertó. Lo destapó el escáner nuevo del test (por AST).
-    "tabla_quieta": ("sin_escribir",),
-    "motor_ruidoso": ("rafaga", "machaca", "error_de_motor", "no_pude_leer"),
-    "proveedor_caido": ("no_responde",),
-    "recuperado": ("volvio",),
-    "permiso_flojo": (),
-}
+_REGLAS_DETECTOR = tipos.reglas_por_tipo()
 
 
 # De qué habla cada detector. El TIPO dice cómo trabaja; esto dice sobre qué.
-_DOMINIO_DETECTOR: dict[str, str] = {
-    "falta_en_base": MERCADO, "sin_flujo": MERCADO, "tasa_sospechosa": MERCADO,
-    "hueco_de_curva": MERCADO, "sin_precio": MERCADO, "precio_moneda": MERCADO,
-    "salud": SISTEMA, "db_cambio": SISTEMA, "latencia": SISTEMA,
-    "tabla_quieta": SISTEMA, "motor_caido": SISTEMA,
-    "motor_ruidoso": SISTEMA, "proveedor_caido": SISTEMA,
-    "recuperado": SISTEMA,
-    # De MERCADO y no de sistema: lo que contesta es si un bono cotiza.
-    "respuesta": MERCADO,
-    "dato_partido": DATOS,
-    "cron_desalineado": SISTEMA,
-    "permiso_flojo": SEGURIDAD,
-    # De SISTEMA: lo que canta es un proceso prendido cuando no debe, no un
-    # dato de mercado — aunque la evidencia viva en una tabla de mercado.
-    "actividad": SISTEMA,
-}
+_DOMINIO_DETECTOR = tipos.dominio_por_tipo()
 
 # Y de las ACCIONES y los EXPLICADORES, que tienen id propio.
 # Los controles de datos: la mayoría son del NEGOCIO, pero varios miran mercado.
@@ -445,43 +306,7 @@ _DOMINIO_EXPLICADOR: dict[str, str] = {
 # declara EN QUÉ JOB corre, y un test exige que ese job **escriba hallazgos** —
 # no que exista, que escriba. El horario NO se declara: se lee del crontab, que
 # es la fuente real y no se puede desincronizar.
-_DONDE_CORRE: dict[str, str] = {
-    # La relevada nocturna (censa 1816 y deja una CORRIDA).
-    "falta_en_base": "jobs.av_agent",
-    "sin_flujo": "jobs.av_agent",
-    "tasa_sospechosa": "jobs.av_agent",
-    "hueco_de_curva": "jobs.av_agent",
-    "salud": "jobs.av_agent",
-    # ⚠️ El monitor de rueda **es el DAEMON** desde 2026-08-24 (Fase 2). Estos
-    # ocho decían `jobs.av_agent_live`, un cron cada 5 min que llamaba a la MISMA
-    # `relevar_live()` que el daemon llamaba cada 30 s: dos procesos haciendo el
-    # mismo trabajo sobre el mismo dato, escribiendo en tablas distintas. El
-    # daemon absorbió la foto (throttleada a los mismos 5 min) y el cron se
-    # retiró; el job queda para correrlo a mano con `--ver`.
-    "sin_precio": "jobs.av_agent_centinela",
-    "precio_moneda": "jobs.av_agent_centinela",
-    "latencia": "jobs.av_agent_centinela",
-    "motor_caido": "jobs.av_agent_centinela",
-    "motor_ruidoso": "jobs.av_agent_centinela",
-    "proveedor_caido": "jobs.av_agent_centinela",
-    "recuperado": "jobs.av_agent_centinela",
-    "respuesta": "jobs.av_agent_centinela",
-    # El monitor del SISTEMA, de noche (reemplaza lo suyo cada pasada).
-    # Lo BARATO del sistema, cada 10 minutos (2026-08-24). Se separó de
-    # `db_tamano` —que es diario— porque sus respuestas cambian durante el día:
-    # un aviso contestado a las 23:30 quedaba en pantalla hasta la noche
-    # siguiente aunque la tabla hubiera vuelto a escribir a las 9 AM.
-    "db_cambio": "jobs.av_agent_sistema",
-    "tabla_quieta": "jobs.av_agent_sistema",
-    "dato_partido": "jobs.av_agent_sistema",
-    "cron_desalineado": "jobs.av_agent_sistema",
-    # La prueba activa de permisos hace ~400 requests contra producción: sigue
-    # siendo diaria, y por eso escribe en su propio alcance (`superficie`).
-    "permiso_flojo": "jobs.db_tamano",
-    # El DAEMON (systemd, siempre prendido) — no un cron. Es el único proceso
-    # despierto un sábado, que es justo cuando este detector tiene sentido.
-    "actividad": "jobs.av_agent_centinela",
-}
+_DONDE_CORRE = tipos.donde_corre()
 
 
 def _cada_cuanto(modulo: str) -> str:

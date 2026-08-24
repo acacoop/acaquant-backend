@@ -21,7 +21,7 @@
 > - **«CÓMO FUNCIONA HOY — el mapa del código»** (arriba de todo, secciones
 >   `M.0`–`M.12`): **el ESTADO**. Dónde vive cada pieza, qué invariante rige,
 >   qué deuda hay abierta. Es lo primero que se lee y lo que se mantiene al día.
-> - **`## 0` en adelante (§0.a → §0.dl): el DIARIO.** Las decisiones en orden
+> - **`## 0` en adelante (§0.a → §0.dm): el DIARIO.** Las decisiones en orden
 >   cronológico, con su porqué. Sirve para no re-proponer lo descartado — **no
 >   para saber cómo funciona algo hoy.**
 >
@@ -43,7 +43,7 @@
 > El user (2026-08-24): *«no puedo tener sesiones en Claude sin que cada sesión
 > vea cosas distintas, que se contradiga constantemente»*.
 >
-> La causa es este documento. De acá para abajo (§0.a → §0.dl) hay un **DIARIO**:
+> La causa es este documento. De acá para abajo (§0.a → §0.dm) hay un **DIARIO**:
 > registra DECISIONES en orden cronológico, y está bien que así sea — es lo que
 > evita re-proponer lo descartado. Pero un diario **no puede contestar «¿cómo
 > funciona hoy?»**: una sesión lee §0.bd y cree que el modelo de objetos está
@@ -97,6 +97,8 @@ no hay que rehacerlo. Lo que pasa es otra cosa, y es medible:
 | Familias de hallazgo SIN objeto | **5** | **0** ✅ | 0 |
 | Tablas con ciclo de vida propio | **5** | **1** ✅ | 1 |
 | Comentarios «convive» / «hasta que se apague lo viejo» | **11** | **0** ✅ | 0 |
+| Listas a mano para sumar UN detector | **5** (95 celdas) | **1** ✅ | 1 |
+| Reglas de arquitectura sin test que las sostenga | **4** | **0** ✅ | 0 |
 | Bloques de la pantalla que afirman sin confirmar | **1** | **0** ✅ | 0 |
 | Cada cuánto se contesta «¿esta tabla está al día?» | **24 h** | **10 min** ✅ | 10 min |
 
@@ -8192,6 +8194,118 @@ respeta igual, en el `WHERE`: solo pasan a `visto` los estados desde los que eso
 es legal, así marcar visto no puede resucitar un cierre.
 
 **El marcador, cerrado:** tablas con ciclo de vida propio **5 → 1**.
+
+
+### 0.dm LAS CUATRO LEYES QUE FALTABAN (2026-08-24)
+
+Cuatro cosas que se cumplían **de memoria**. Todas comparten el modo de falla
+del subsistema: el día que se rompen **no falla nada**.
+
+---
+
+**1 · LA CLASE DE UNA TABLA DEJA DE SER TEXTO LIBRE.**
+
+`ciclo.Forma.clase` era un `str` con default y se compara EXACTO
+(`f.clase == "problema"`) para decidir qué tablas cuentan como deuda de
+migración. Escribir `"bitácora"` con tilde, o `"problemas"` en plural,
+**sacaba esa tabla de la vista del agente en silencio**: sin error, sin log,
+sin test. Es la REGLA #9 adentro del registro que existe justamente para
+evitarla.
+
+→ `ciclo.CLASES` declara las cinco y `__post_init__` rechaza cualquier otra **al
+construir**, o sea al importar el módulo: el error aparece en el arranque de la
+app y en el primer test, no tres semanas después.
+
+---
+
+**2 · LA REGLA DE CAPAS SE VERIFICA SOLA** (`tests/unit/test_capas.py`).
+
+Estaba escrita en `CLAUDE.md` desde siempre y se cumplía al 100%. Lo que no
+había era nada que la sostuviera: un `core/` que importe un service no falla —
+el import anda, los tests pasan— y lo que se pierde es concreto: **los 2.500
+tests dejan de correr en 25 segundos sin base**, porque arrastran FastAPI y la
+cadena entera.
+
+Cinco leyes: `core/` no importa hacia afuera · `quant/` es cálculo puro · los
+services no saben de HTTP · los routers no hablan SQL · y la lista de
+excepciones no se puede pudrir.
+
+**Encontró dos violaciones preexistentes el primer día:**
+
+  · `quant/pivot_points.py` importa `core.postgres`, con el import ADENTRO de la
+    función y un comentario que dice que es *«para que quant/ no dependa de la
+    infra al import-time»*. La dependencia es real: solo llega más tarde.
+  · **8 routers** abren la base (casi todos un `SELECT DISTINCT` para un combo).
+
+Las dos van como **TRINQUETE**, no arregladas acá. El trabajo del test es frenar
+lo nuevo, y una regla que exige limpiar todo antes de empezar a regir no se
+activa nunca. La lista solo puede achicarse, y hay un test que falla si alguien
+arregla uno y no lo saca — una excepción que nombra algo ya resuelto es peor que
+no tenerla, porque nadie la vuelve a mirar.
+
+---
+
+**3 · NINGUNA ACCIÓN PUEDE MENTIR QUE VERIFICÓ.**
+
+Las diez acciones cumplen el mismo contrato y por eso el orquestador las trata
+igual — eso es lo que hizo que la parada de emergencia cubriera las diez con una
+línea. El mismo desacople abre un agujero: **si una acción nueva implementara
+`verificar()` devolviendo `True, "ok"` sin releer nada, todo compilaría y nada
+fallaría jamás**. El agente empezaría a anotar en el eval set arreglos que nunca
+se comprobaron — y el eval set es la compuerta que habilita cada paso de
+autonomía. Un voto falso ahí no se ve en ninguna pantalla.
+
+Hoy lo protegía una costumbre: las diez releen, y `AccionCartera` hasta lo dice
+en su docstring (*«no se confía en que el UPDATE salió bien»*). Una costumbre no
+sobrevive al apuro.
+
+→ 32 tests parametrizados sobre **TODAS** las acciones —no una lista fija, para
+que la número once nazca cubierta—: que `verificar()` llame a algo, que no
+devuelva `True` por su único camino, que devuelva el par del contrato, y que
+ninguna de las tres quede en `...`. Probado inyectando tres acciones falsas: las
+tres caen, y las diez reales pasan sin un falso positivo.
+
+---
+
+**4 · EL CATÁLOGO DE TIPOS** (`api/services/av_agent_tipos.py`).
+
+Agregar un detector obligaba a tocar **cinco listas paralelas**, a mano, en dos
+archivos: qué detecta · qué reglas emite · de qué dominio es · en qué job corre ·
+qué acción le corresponde. **19 tipos × 5 listas = 95 celdas** mantenidas por
+convención.
+
+Y la evidencia de que dolía ya estaba escrita: había tests que exigían que un
+tipo nuevo declarara descripción, dominio y job. **Un test que existe para
+recordarte algo es la señal de que el diseño no lo garantiza solo.** El contraste
+vivía en el mismo repo: para sumar una ACCIÓN se escribe una clase y se la
+agrega a una tupla — `POR_CONTROL` se deriva sola y ahí nunca hizo falta ningún
+test de «¿está declarado?», porque la clase ES el registro.
+
+→ Una tabla de 19 filas. Los **siete** mapas se derivan de ella y conservan sus
+nombres, así que **ningún consumidor cambió**. Sumar un tipo es una fila.
+
+Tres detalles que el refactor tuvo que respetar y casi se comen:
+
+  · **`reglas` tiene TRES estados, no dos.** `None` = no se declaró (lo caza el
+    test del catálogo); `()` = declarado VACÍO **a propósito**, que significa «la
+    skill se muestra sin medición»; `(…)` = las causas que se votan. Colapsarlo
+    a «vacío o no» borraba la diferencia entre una decisión y un olvido — cinco
+    tipos usan el vacío explícito.
+  · **`ACCION_POR_TIPO` conserva las 19 claves**, con `None` donde no hay acción.
+    Que la clave exista es lo que permite contestar «este tipo no tiene puerta»,
+    distinto de «no sé qué es este tipo».
+  · **`en_ahora` y `noticia` siguen siendo OPT-IN**, con default `False`: un tipo
+    nuevo no entra a AHORA por existir. *AHORA deja de ser AHORA si se llena.*
+
+**Que sea un refactor PURO no se afirmó: se probó.** Se congelaron los siete
+mapas antes de tocar nada y se compararon después, entrada por entrada. La
+primera pasada dio dos diferencias reales —los cinco vacíos explícitos y el
+orden de `EN_AHORA_SIEMPRE`— y las dos se resolvieron antes de seguir. (El orden
+se verificó como conjunto: solo se lee con `in`.)
+
+El módulo **no importa nada del proyecto**: lo leen `av_agent` y
+`av_agent_skills`, y el segundo importa al primero, así que cualquier import
+abriría un ciclo. Hay un test que lo congela.
 
 
 ## 1. Qué es y qué no es

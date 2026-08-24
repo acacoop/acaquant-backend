@@ -38,7 +38,10 @@ OK, SIN_DATOS, ERROR = "ok", "sin_datos", "error"
 
 SEVERIDADES = ("alta", "media", "baja")
 DOMINIOS = ("MERCADO", "SISTEMA", "DATOS", "SEGURIDAD")
-VENTANAS = ("rueda", "habil", "siempre")
+# CUÁNDO tiene sentido mirar. El horario vive en `agente/reloj.py` y acá solo
+# se lo nombra: `cierre` es «una vez, con el día cerrado», y es lo que hace que
+# nada le siga pidiendo al mercado después de las 17.
+VENTANAS = ("rueda", "cierre", "habil", "siempre")
 TIPOS = ("detector", "consulta", "accion")
 
 

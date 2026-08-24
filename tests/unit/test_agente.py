@@ -351,3 +351,85 @@ def test_no_se_adivina_el_ticker_por_sufijo():
     codigo = "\n".join(l for l in src.splitlines()
                        if not l.strip().startswith("#") and "`" not in l)
     assert "rstrip" not in codigo and "strip(\"D" not in codigo
+
+
+# ── El horario de mercado ──────────────────────────────────────────────────
+
+def test_el_horario_de_mercado_vive_en_un_solo_lugar():
+    """User (2026-08-24): *«es fundamental que todo tenga claro el horario de
+    mercado para saber cuándo frenar»*.
+
+    Es la mitad de lo que hace que el agente signifique algo: un precio sin
+    actualizarse hace 282 minutos es un problema a las 11 y es lo NORMAL a las
+    18. Si cada detector tuviera su propia idea de la hora, la mitad de los
+    hallazgos serían falsos y la otra mitad llegaría tarde.
+    """
+    from agente import reloj
+
+    for nombre in ("RUEDA_UTC", "CIERRE_UTC", "CIERRE_DURA_MIN"):
+        assert hasattr(reloj, nombre)
+    # Nadie define su propia ventana: el horario se pregunta, no se recalcula.
+    for f in (RAIZ / "agente").rglob("*.py"):
+        if f.name == "reloj.py":
+            continue
+        t = f.read_text()
+        assert "RUEDA_UTC = " not in t, f"{f.name} redefine el horario"
+
+
+def test_el_cierre_es_una_ventana_y_no_un_quinto_reloj():
+    """Lo que se le pide al mercado deja de pedirse a las 17, y lo que quedó sin
+    resolver se completa UNA vez a las 17:30.
+
+    Esa ventana vive en el catálogo, no en un cron: un cron aparte sería el
+    quinto reloj, y salir de los cuatro relojes fue todo el punto del rediseño.
+    """
+    from agente import reloj, tipos
+
+    assert "cierre" in tipos.VENTANAS
+    assert reloj.CIERRE_UTC == (20, 30), "20:30 UTC = 17:30 ART"
+
+    cierre = [h for h in catalogo.HABILIDADES.values() if h.ventana == "cierre"]
+    assert cierre, "nadie barre lo que quedó sin resolver al cerrar"
+
+    from agente import motor
+    assert "reloj.en_cierre" in inspect.getsource(motor._le_toca)
+
+
+def test_no_se_le_pide_al_mercado_despues_de_las_17():
+    """El cron intradiario para a las 17 ART.
+
+    ⚠️ `13-20` en cron incluye la hora 20 ENTERA (20:00 a 20:59), o sea que
+    seguía pidiéndole precios a 1816 hasta las 17:59 ART con el mercado cerrado
+    desde las 17. Es el error de rango que no se ve leyendo.
+    """
+    import re
+    cron = (RAIZ / "deploy" / "crontab.txt").read_text()
+    for linea in cron.splitlines():
+        if linea.strip().startswith("#") or "agente_tasa" not in linea:
+            continue
+        horas = linea.split()[1]
+        m = re.match(r"^(\d+)-(\d+)$", horas)
+        assert m, f"la hora del cron de agente_tasa no es un rango: {horas}"
+        assert int(m.group(2)) <= 19, (
+            f"«{horas}» llega hasta las {int(m.group(2))}:59 UTC = "
+            f"{int(m.group(2)) - 3}:59 ART, con el mercado ya cerrado")
+
+
+def test_la_tasa_de_1816_no_le_gana_al_motor():
+    """El fallback se aplica SOLO si la TEA quedó vacía.
+
+    Donde el motor calcula, su número es LIVE y el de 1816 tiene atraso:
+    reemplazarlo sería empeorar la vista para ganar consistencia con un
+    proveedor. Y va en la LECTURA, no escribiendo en `market_snapshot` — esa
+    tabla es del motor, y dos fuentes en la misma celda dejan sin forma de
+    saber cuál ganó.
+    """
+    from agente import tasa_1816
+
+    src = (RAIZ / "api" / "services" / "curvas_vista.py").read_text()
+    i = src.index("tasas_agente.get(tc)")
+    ventana = src[max(0, i - 400):i]
+    assert 'm_pill.get("TEA") is None' in ventana, (
+        "el fallback tiene que estar condicionado a que no haya TEA")
+    assert "market_snapshot" not in inspect.getsource(tasa_1816.refrescar), (
+        "la tasa de 1816 NO se escribe en la tabla del motor")

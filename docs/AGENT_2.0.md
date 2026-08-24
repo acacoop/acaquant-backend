@@ -609,13 +609,34 @@ La máquina ya existe: `core/mercado_1816.indicadores_vigentes(tickers, campos)`
 recibe una **lista** y trae los campos de la última rueda con datos, retrocediendo
 día hábil por hábil si hoy todavía no hay. Es lo que usa `jobs/tamar_1816`.
 
+**Y el horario, que es lo de fondo** (user, 2026-08-24: *«es fundamental que
+todo tenga claro el horario de mercado para saber cuándo frenar»*):
+
+| Cuándo | Quién | Qué hace |
+|---|---|---|
+| 10:00–17:00 ART | `bono_sin_tasa` (ventana `rueda`) | detecta, cada 15 min |
+| 10:00–16:45 ART | el cron `agente_tasa` | le pide la tasa a 1816 |
+| **17:30 ART** | **`tasas_al_cierre`** (ventana `cierre`) | barre lo que quedó, UNA vez, y canta lo que ni 1816 tiene |
+| después | nadie | **no se le pide más nada al mercado** |
+
+⚠️ El cron decía `13-20` y en cron eso incluye **la hora 20 entera** (20:00 a
+20:59): le seguía pidiendo precios a 1816 hasta las 17:59 ART, con el mercado
+cerrado desde las 17. Es el error de rango que no se ve leyendo.
+
+⚠️ **`cierre` es una VENTANA del catálogo, no un cron.** Un cron a las 17:30
+sería el quinto reloj, y salir de los cuatro relojes fue todo el punto (§2). El
+horario vive en `agente/reloj.py` —`RUEDA_UTC`, `CIERRE_UTC`— y un test prohíbe
+que nadie más lo redefina.
+
 **Qué se hace con esa tasa — patrón TAMAR, decidido por el user:**
 
 - **NO se escribe en `mercado.market_snapshot`.** Esa tabla es del motor:
   Primary, live, 5 segundos. Esto es 1816, con delay.
 - Va a **tabla propia**.
-- **Se juntan en la LECTURA**, y cada fila viaja diciendo **de dónde salió su
-  tasa** y **de cuándo es**.
+- **Se juntan en la LECTURA** (`api/services/curvas_vista.py`), y cada fila
+  viaja diciendo **de dónde salió su tasa** y **de cuándo es**.
+- **El fallback va ÚLTIMO y solo si la TEA quedó vacía.** No le puede ganar al
+  motor: donde el motor calcula, su número es live y el de 1816 tiene atraso.
 
 Con eso la habilidad deja de ser "te aviso que falta algo" y pasa a **tapar el
 agujero**: la mesa deja de ver `--` y ve la tasa de 1816, marcada como tal.

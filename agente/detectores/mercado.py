@@ -429,3 +429,61 @@ def hueco_de_curva(u: dict) -> list[Hallazgo]:
             evidencia={"ajuste": aj, "n": len(tickers), "tickers": tickers,
                        "lado": lado}))
     return out
+
+
+# ═══ tasas_al_cierre ═══════════════════════════════════════════════════════
+def tasas_al_cierre(u: dict) -> list[Hallazgo]:
+    """**EL BARRIDO DEL CIERRE.** Doc: `AGENT_2.0.md` §5.
+
+    User (2026-08-24): *«todo esto es lo que entra en horario de mercado, no
+    debe seguir pidiéndose después de las 17. A las 17:30 debería haber una
+    skill que busque todos los tickers de curva que no tienen tasa —si es que
+    quedó alguno— y los rellene con 1816. Y listo.»*
+
+    Dos cosas pasan acá, y en este orden:
+
+      1. **RELLENA.** Le pide a 1816 la tasa de todo lo que quedó sin TEA. Es una
+         sola llamada para toda la lista, con el día ya cerrado: los precios de
+         1816 son los definitivos y no hay nada que esperar.
+      2. **CANTA LO QUE NI ASÍ SE PUDO.** Un bono que operó, que el motor no
+         calculó y que 1816 tampoco publica es un agujero REAL — y es el único
+         que vale la pena mirar, porque los otros ya quedaron tapados.
+
+    ⚠️ **Por qué acá y no en el detector de rueda.** `bono_sin_tasa` corre cada
+    15 minutos MIENTRAS el mercado opera, porque un bono puede empezar a cotizar
+    a las 14 y hay que enterarse en el momento. Este corre UNA vez, con el día
+    cerrado, y su respuesta es final. Mezclarlos obligaría a elegir entre
+    enterarse tarde o preguntarle a 1816 toda la noche.
+    """
+    from agente import tasa_1816
+
+    docs = fuentes.master()
+    if docs is None:
+        raise SinDatos("no pude leer mercado.curvas")
+
+    r = tasa_1816.refrescar()
+    if not r.get("ok"):
+        raise SinDatos(f"1816 no contestó el barrido del cierre: {r.get('error')}")
+
+    tapadas = tasa_1816.tasas()
+    snap = fuentes.snapshot()
+    if snap is None:
+        raise SinDatos("no pude leer el snapshot")
+
+    out = []
+    for tk in tasa_1816.pendientes():
+        ta = tapadas.get(tk) or {}
+        if ta.get("tea") is not None:
+            continue                      # tapado: 1816 tenía la tasa
+        out.append(Hallazgo(
+            sujeto=tk, regla="sin_tasa_ni_en_1816", severidad="alta",
+            problema=(f"«{tk}» operó hoy, el motor no le calculó la TEA y 1816 "
+                      f"tampoco la publica: la fila queda en «--» con el papel "
+                      f"cotizando · {reloj.hhmm()}"),
+            que_hacer=("Es un agujero real, no un atraso: hay que ver por qué el "
+                       "motor no lo calcula (ejes, moneda del flujo, cronograma) "
+                       "— 1816 ya se descartó como salida."),
+            evidencia={"pedido_a_1816": True,
+                       "tickers_en_la_lista": r.get("tickers"),
+                       "fecha_1816": r.get("fecha_1816")}))
+    return out

@@ -54,6 +54,14 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=15 * _M, ventana="rueda",
         correr=mercado.bono_sin_tasa),
 
+    # ⚠️ **LA ÚNICA CON VENTANA `cierre`.** Corre UNA vez, 17:30 ART, con la
+    # rueda cerrada: lo que se le pide al mercado deja de pedirse a las 17.
+    Habilidad(
+        nombre="tasas_al_cierre", tipo="detector", dominio="MERCADO",
+        que_mira="rellena con 1816 lo que quedó sin tasa, y canta lo que ni así",
+        cada_segundos=12 * _H, ventana="cierre",
+        correr=mercado.tasas_al_cierre),
+
     Habilidad(
         nombre="bono_sin_precio", tipo="detector", dominio="MERCADO",
         que_mira="bonos sin precio en rueda, separando las cuatro causas",

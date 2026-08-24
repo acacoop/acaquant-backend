@@ -98,6 +98,34 @@ def _bonos_crudos() -> list[dict]:
     )
 
 
+def _tasas_agente() -> dict[str, dict]:
+    """`ticker → tasa de 1816`, para los bonos que **el motor no pudo calcular**.
+
+    La llena `jobs/agente_tasa` a partir de lo que encuentra la habilidad
+    `bono_sin_tasa`: papeles que OPERAN y a los que el motor no les saca la TEA,
+    así que la fila sale en «--» con el bono cotizando.
+
+    ⚠️ **Es el ÚLTIMO recurso y no le gana a nadie.** Se aplica solo si después
+    de todo lo demás la TEA sigue vacía: donde el motor calcula, su número es
+    LIVE y el de 1816 tiene atraso — reemplazarlo sería empeorar la vista para
+    ganar consistencia con un proveedor.
+
+    Mismo patrón que TAMAR: **NO se escribe en `market_snapshot`** (esa tabla es
+    del motor) y las dos se juntan ACÁ, en la lectura, con cada fila diciendo de
+    dónde salió su tasa.
+    """
+    import logging
+    try:
+        from agente import tasa_1816
+        return tasa_1816.tasas()
+    except Exception as e:
+        # Sin esto la vista sigue: una tasa de respaldo que no se pudo leer deja
+        # la celda como estaba, no rompe la tabla.
+        logging.getLogger(__name__).warning(
+            "curvas_vista: sin tasas del agente (%s)", e)
+        return {}
+
+
 def _tamar_1816() -> dict[tuple[str, str], dict]:
     """`(ticker, pata) → fila de 1816`. Lo llena `jobs/tamar_1816` cada 30'.
 
@@ -121,7 +149,8 @@ def _fijados_cortos() -> set[str]:
 
 
 def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
-           tamar: dict[tuple[str, str], dict] | None = None) -> dict:
+           tamar: dict[tuple[str, str], dict] | None = None,
+           tasas_agente: dict[str, dict] | None = None) -> dict:
     """Puro: filas crudas → payload de la vista. Testeable sin base.
 
     `mep` y `tamar` entran COMO PARÁMETROS y no se leen acá adentro a propósito:
@@ -130,6 +159,7 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
     `macro`. Sin MEP el `tc_breakeven` sale None, que es "no se pudo calcular" — no 0.
     """
     tamar = tamar or {}
+    tasas_agente = tasas_agente or {}
     bonos: list[dict] = []
     sin_clasificar: list[str] = []
     n_pill: dict[str, int] = {}
@@ -231,6 +261,22 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
                         m_pill[key] = float(t1816[col])
                 fuente, fecha_1816 = "1816", t1816.get("fecha_operacion")
 
+            # ── ÚLTIMO RECURSO: el bono opera y el motor no le saca la TEA ──
+            #
+            # Si después de todo lo de arriba la celda sigue vacía y el papel
+            # TIENE precio, la fila sale en «--» con el bono cotizando. Ahí entra
+            # lo que `jobs/agente_tasa` le pidió a 1816.
+            #
+            # Va al final y con `is None` a propósito: **no le puede ganar al
+            # motor**. Donde el motor calcula, su número es live.
+            if (m_pill.get("TEA") is None and metrics.get("last_price")
+                    and (ta := tasas_agente.get(tc))
+                    and ta.get("tea") is not None):
+                m_pill["TEA"] = float(ta["tea"])
+                if ta.get("duration") is not None:
+                    m_pill["duration"] = float(ta["duration"])
+                fuente, fecha_1816 = "1816", ta.get("tea_fecha")
+
             # El MARGEN sobre la TAMAR: lo que la mesa mira de un TAMAR. En
             # fracción (0.0973 = 9,73%), la MISMA escala que la TEA. Solo 1816 lo
             # publica, así que no depende de qué pata sea.
@@ -312,4 +358,5 @@ def get_curvas_vista() -> dict:
     doc = get_ultimo_mep()
     raw = doc.get("mep") if doc else None
     mep = float(raw) if raw and raw > 0 else None
-    return _armar(_bonos_crudos(), _fijados_cortos(), mep, _tamar_1816())
+    return _armar(_bonos_crudos(), _fijados_cortos(), mep, _tamar_1816(),
+                  _tasas_agente())

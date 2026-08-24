@@ -66,6 +66,10 @@ def _le_toca(fila: dict, ahora) -> bool:
     ventana = fila.get("ventana") or "siempre"
     if ventana == "rueda" and not reloj.en_rueda(ahora):
         return False
+    # ⚠️ `cierre` corre UNA vez por día hábil, con la rueda ya cerrada. Es la
+    # ventana de lo que no se le puede seguir pidiendo al mercado.
+    if ventana == "cierre" and not reloj.en_cierre(ahora):
+        return False
     if ventana == "habil" and not reloj.dia_habil(ahora):
         return False
     ult = fila.get("ultima_corrida_at")

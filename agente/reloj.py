@@ -14,9 +14,28 @@ from datetime import UTC, datetime, timedelta
 
 from core.tz import AR_TZ
 
-# La rueda en UTC. Los motores corren 13-20 UTC (10-17 ART) por cron: fuera de
-# esa ventana el snapshot está viejo POR DISEÑO y no por un problema.
+# ═══ EL HORARIO DE MERCADO, EN UN SOLO LUGAR ═══════════════════════════════
+#
+# User (2026-08-24): *«es fundamental que todo tenga claro el horario de mercado
+# para saber cuándo frenar»*.
+#
+# Y es la mitad de lo que hace que el agente signifique algo: un precio sin
+# actualizarse hace 282 minutos es un problema a las 11 y es lo NORMAL a las 18.
+# Un detector que no sabe la hora canta 47 falsos positivos por noche.
+#
+# Los motores corren 13-20 UTC (10-17 ART) por cron: fuera de esa ventana el
+# snapshot está viejo POR DISEÑO.
 RUEDA_UTC = (13, 20)
+
+# EL CIERRE. Media hora después de que la rueda para: lo que se le pide al
+# mercado ya no se pide más, y lo que quedó sin resolver se completa una vez,
+# con el día cerrado. En UTC porque todo el agente razona en UTC y convierte al
+# mostrar — 20:30 UTC = 17:30 ART.
+CIERRE_UTC = (20, 30)
+# Cuánto dura la ventana del cierre. No es «a las 20:30 en punto»: el motor
+# pasa cada 30 s en rueda y cada 5 min fuera, así que una ventana de una hora es
+# lo que garantiza que le toque aunque una pasada se demore.
+CIERRE_DURA_MIN = 60
 
 
 def ahora_utc(ahora=None) -> datetime:
@@ -44,6 +63,25 @@ def en_rueda(ahora=None) -> bool:
     """
     a = ahora_utc(ahora)
     return dia_habil(a) and RUEDA_UTC[0] <= a.hour < RUEDA_UTC[1]
+
+
+def en_cierre(ahora=None) -> bool:
+    """¿Estamos en la ventana del CIERRE del día hábil?
+
+    Es la ventana de lo que **no se le puede seguir pidiendo al mercado**: la
+    rueda paró, los precios del día ya son los definitivos, y lo que quedó sin
+    resolver se completa UNA vez y no se toca más hasta mañana.
+
+    Existe como ventana propia y no como «un cron a las 20:30» porque el
+    horario del agente vive en UN lugar. Un cron aparte sería un quinto reloj —
+    y salir de los cuatro relojes fue todo el punto del rediseño.
+    """
+    a = ahora_utc(ahora)
+    if not dia_habil(a):
+        return False
+    desde = a.replace(hour=CIERRE_UTC[0], minute=CIERRE_UTC[1],
+                      second=0, microsecond=0)
+    return desde <= a < desde + timedelta(minutes=CIERRE_DURA_MIN)
 
 
 def arranco_el_dia(ahora=None) -> datetime:

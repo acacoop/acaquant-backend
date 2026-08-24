@@ -509,6 +509,16 @@
 # set, que se dio de baja entero (AGENT_2.0.md §9.1).
 #
 # Lo único que sigue siendo cron es la LISTA DE PRIORIDAD contra 1816: cuesta
-# créditos, corre en rueda, y su ritmo lo pidió el user explícito (cada 15').
-*/15 13-20 * * 1-5 /root/TradingAV/deploy/run_job.sh agente_tasa 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.agente_tasa'
+# créditos, corre EN RUEDA, y su ritmo lo pidió el user explícito (cada 15').
+#
+# ⚠️ **13-19 y no 13-20.** `13-20` incluye la hora 20 ENTERA (20:00 a 20:59), o
+# sea que seguía pidiéndole precios a 1816 hasta las 17:59 ART — con el mercado
+# cerrado desde las 17. User: *«no debe seguir pidiéndose después de las 17hs»*.
+# El último pedido intradiario es 19:45 UTC = 16:45 ART.
+#
+# Lo que quedó sin tasa al cerrar NO lo barre este cron: lo hace la habilidad
+# `tasas_al_cierre`, que corre una sola vez a las 17:30 ART y cuya ventana vive
+# en el catálogo (`agente/reloj.CIERRE_UTC`), no acá. Un cron aparte sería un
+# quinto reloj, y salir de los cuatro relojes fue todo el punto del rediseño.
+*/15 13-19 * * 1-5 /root/TradingAV/deploy/run_job.sh agente_tasa 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.agente_tasa'
 

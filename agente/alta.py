@@ -2357,18 +2357,23 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
                            "advertencias": [c["titulo"] for c in sim.get("chequeos", [])
                                             if c["estado"] != OK]})
 
-    # Los AVISOS: lo que este alta dejó para hacer a mano. Se anotan DESPUÉS de
-    # escribir —solo tienen sentido si el bono entró— y los cierra una persona
-    # desde la tab AVISOS.
-    from agente import vista as _vista
-    n_avisos = _vista.crear_avisos(sim["ticker"], sim.get("chequeos", []), por=actor)
+    # ⚠️ **LO QUE QUEDÓ PARA HACER A MANO.** Antes esto abría filas en una tabla
+    # de AVISOS propia, con su ciclo y su tab. En 2.0 no hay tabla de avisos: lo
+    # que el alta no pudo completar viaja EN EL RESULTADO, se ve en la pantalla
+    # al aplicar y queda en el LIBRO con la acción.
+    #
+    # No se pierde nada que el sistema pueda re-encontrar solo: si el bono quedó
+    # sin flujos, `bono_sin_flujo` lo va a cantar; si quedó sin precio,
+    # `bono_sin_precio`. Lo que SÍ hay que leer en el momento es esto.
+    pendientes = [f"{c['titulo']}: {c['aviso']}"
+                  for c in sim.get("chequeos", []) if c.get("aviso")]
     try:
         from core import curvas_sql
         curvas_sql.invalidar()
     except Exception:
         pass
     return {**sim, "aplicado": True, "upsert": r, "siembra": siembra,
-            "tasa_sembrada": tasa_sembrada, "avisos_creados": n_avisos,
+            "tasa_sembrada": tasa_sembrada, "pendientes": pendientes,
             "aviso": "los motores cargan mercado.curvas AL ARRANCAR: la TEA de este "
                      "bono aparece recién tras reiniciar motor_rofex + motor_curvas"
                      + (f" · especies sembradas: {', '.join(siembra['simbolos'])}"

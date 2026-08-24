@@ -412,17 +412,27 @@ def aplicar(hallazgo_id: int, *, por: str = "") -> dict:
     if a is None:
         return {"ok": False, "error": f"«{h['arreglo']}» no es un arreglo"}
 
-    try:
-        r = a.aplicar(h["sujeto"], h["evidencia"], por=por)
-    except Exception as e:
-        logger.exception("arreglos: %s falló sobre %s", a.id, h["sujeto"])
-        r = Resultado(False, str(e)[:300])
-
-    libro.registrar(accion=a.id, objetivo=h["sujeto"], habilidad=h["habilidad"],
-                    regla=h["regla"], hallazgo_id=hallazgo_id, por=por,
-                    destino=r.donde or a.donde, campo=r.campo or a.campo,
-                    antes=r.antes, despues=r.despues, ok=r.ok,
-                    error="" if r.ok else r.detalle)
+    # Todo lo que la acción anote adentro hereda el trío del hallazgo, así que
+    # las líneas internas de la cadena de alta dejan de salir con «? · ?».
+    with libro.contexto(habilidad=h["habilidad"], sujeto=h["sujeto"],
+                        regla=h["regla"], hallazgo_id=hallazgo_id,
+                        por=por) as cuantas:
+        try:
+            r = a.aplicar(h["sujeto"], h["evidencia"], por=por)
+        except Exception as e:
+            logger.exception("arreglos: %s falló sobre %s", a.id, h["sujeto"])
+            r = Resultado(False, str(e)[:300])
+        # ⚠️ Solo se anota si la acción NO anotó nada. Las que llevan su propio
+        # libro (la cadena de alta escribe una línea por paso) ya dijeron qué
+        # hicieron: agregar una segunda deja DOS filas para UNA acción, y la
+        # segunda es la menos informativa de las dos.
+        if not cuantas():
+            libro.registrar(
+                accion=a.id, objetivo=h["sujeto"], habilidad=h["habilidad"],
+                regla=h["regla"], hallazgo_id=hallazgo_id, por=por,
+                destino=r.donde or a.donde, campo=r.campo or a.campo,
+                antes=r.antes, despues=r.despues, ok=r.ok,
+                error="" if r.ok else r.detalle)
     if not r.ok:
         return {"ok": False, "error": r.detalle}
 

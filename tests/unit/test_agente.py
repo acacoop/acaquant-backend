@@ -509,3 +509,34 @@ def test_se_lee_la_respuesta_de_1816_como_la_lee_el_job_que_anda():
     cuerpo = a[a.index("def refrescar"):a.index("def purgar")]
     assert '"instrumentos"' in cuerpo and '"fechaOperacion"' in cuerpo
     assert '"data"' not in cuerpo
+
+
+def test_ninguna_linea_del_libro_sale_sin_el_trio():
+    """La cadena de alta anota sus propias líneas y no conoce el hallazgo que la
+    disparó, así que salían con `? · ?` — justo el campo que hace que HISTORIAL
+    pueda contestar «¿quedó arreglado?».
+
+    Pasarle el trío a mano a las 14 llamadas de `alta.py` sería pedirle a cada
+    una que se acuerde. Se resuelve donde SÍ se sabe: el arreglo abre el
+    contexto y todo lo que se anote adentro lo hereda.
+    """
+    from agente import arreglos as arr
+    from agente import libro
+
+    assert "libro.contexto" in inspect.getsource(arr.aplicar)
+    # Y no se anota DOS veces la misma acción: la que lleva su propio libro ya
+    # dijo qué hizo, y una segunda fila es la menos informativa de las dos.
+    assert "if not cuantas():" in inspect.getsource(arr.aplicar)
+    assert "ctx.get(\"habilidad\")" in inspect.getsource(libro.registrar)
+
+
+def test_el_alta_no_llama_a_una_tabla_de_avisos_que_ya_no_existe():
+    """`agente/vista` no tiene `crear_avisos`: en 2.0 no hay tabla de avisos.
+
+    Lo que el alta no pudo completar viaja EN EL RESULTADO y queda en el libro
+    con la acción. No se pierde nada que el sistema pueda re-encontrar solo — un
+    bono sin flujos lo canta `bono_sin_flujo`; sin precio, `bono_sin_precio`.
+    """
+    alta = (RAIZ / "agente" / "alta.py").read_text()
+    assert "crear_avisos" not in alta
+    assert '"pendientes": pendientes' in alta

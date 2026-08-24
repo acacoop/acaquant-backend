@@ -47,22 +47,68 @@ def test_TODAVIA_NO_VOLVIO_no_es_AGUANTO():
     assert "d < tope" in src and "max(ciclo.HITOS_DIAS)" in src
 
 
-def test_el_reloj_NO_ESCRIBE_EN_EL_EVAL_SET():
-    """⚠️ **El invariante nuevo** (2026-08-24). Esta pasada votaba ✔/✖ como
-    `verificado`, que pesa igual que un click humano en la compuerta de
-    autonomía. Pero juzgaba sobre dos estados que no significan lo que dicen:
-    `resuelto` es «el detector no lo vio» (no «lo arreglaron») y `volvio` es
-    «lo volvió a ver» (no «el arreglo falló»). Resultado medido: 11 ✖ en una
-    sola corrida contra arreglos que nadie hizo, y como la compuerta no tolera
-    un solo negativo, esas causas quedaban descalificadas para siempre.
+def test_el_reloj_VUELVE_a_votar_pero_SOLO_sobre_cierres_por_ACCION():
+    """⚠️⚠️ **El invariante que reemplaza al de §0.de** (Fase 2, 2026-08-24).
 
-    Vuelve a votar el día que el objeto registre CÓMO se cerró. Hasta entonces
-    no inventa señal — y este test es lo que impide que vuelva por descuido."""
+    El voto se había apagado porque `resuelto` no significaba lo que el voto
+    afirmaba: podía ser «alguien lo arregló» o «el detector no lo vio en esta
+    corrida». Con las dos cosas en el mismo saco, el ✖ acusaba a arreglos que
+    nadie había hecho — 11 negativos en una sola corrida, y como la compuerta no
+    tolera un solo negativo, esas causas quedaban descalificadas para siempre.
+
+    §0.de dejó la condición escrita: *«vuelve a votar cuando el objeto registre
+    CÓMO se cerró»*. `resuelto_como` es ese campo. Ahora vota — **y `ciclo.vota`
+    es la única puerta**: sin cierre declarado, no hay voto."""
     from api.services.av_agent_items import cerrar_hitos
     src = codigo(cerrar_hitos)
-    assert "votar(" not in src
-    assert 'origen="verificado"' not in src
-    assert "av_agent_evals" not in src.split('"""')[-1]
+    assert 'origen="verificado"' in src, "el voto tiene que estar de vuelta"
+    assert "ciclo.vota(it.resuelto_como)" in src, "sin la guarda no puede volver"
+    # y la guarda corta ANTES de cada votar()
+    for tramo in src.split("av_agent_evals.votar(")[:-1]:
+        assert "juzgable" in tramo, "hay un votar() que no pasa por la guarda"
+
+
+def test_un_cierre_POR_AUSENCIA_no_vota_NI_a_favor_NI_en_contra():
+    """El 100% de los votos falsos venían de acá. Y no alcanza con no votar el
+    ✔: un `volvio` sobre algo que se cerró por ausencia tampoco prueba que un
+    arreglo haya fallado — no hubo arreglo."""
+    from core import ciclo
+    assert ciclo.vota(ciclo.POR_ACCION) is True
+    assert ciclo.vota(ciclo.POR_AUSENCIA) is False
+    # Ante la duda, NO se vota: es el lado que no fabrica señal.
+    assert ciclo.vota("") is False and ciclo.vota(None) is False
+    assert ciclo.vota("cualquier_cosa") is False
+
+
+def test_lo_que_NO_se_juzgo_se_CUENTA():
+    """Un cierre por ausencia que no vota es correcto; que no aparezca en ningún
+    lado es truncar en silencio."""
+    from api.services.av_agent_items import cerrar_hitos
+    src = codigo(cerrar_hitos)
+    assert '"sin_juzgar": sin_juzgar' in src
+
+
+def test_el_voto_del_tiempo_usa_EL_MISMO_dominio_que_el_humano():
+    """Estaba clavado en «bono» para todo. El tablero agrupa por
+    (dominio, causa), así que los votos del tiempo sobre un motor caían en
+    `bono` y los humanos de la misma causa en `sistema`: dos filas y ninguna
+    llegaba a los 10 que abren la compuerta."""
+    from api.services import av_agent, av_agent_items
+    src = codigo(av_agent_items.cerrar_hitos)
+    assert 'dominio="bono"' not in src
+    assert "_dominio_de(it)" in src
+    assert "dominio_eval" in codigo(av_agent_items._dominio_de)
+    assert av_agent.dominio_eval("motor_caido") == "sistema"
+
+
+def test_al_VOLVER_no_se_pierde_cuanto_habia_aguantado():
+    """La otra condición de §0.de. `resuelto_at` se limpia al reabrir (si no, el
+    reloj le seguiría contando hitos a un arreglo que falló), y sin guardarlo
+    antes se perdía la diferencia entre fallar al día 1 y fallar al día 20."""
+    from api.services import av_agent_items
+    src = codigo(av_agent_items.ver)
+    assert "aguanto_hasta" in src
+    assert "reaperturas" in src, "volver una vez y volver cinco no es lo mismo"
 
 
 def test_el_reloj_SIGUE_contando_hitos():
@@ -72,16 +118,6 @@ def test_el_reloj_SIGUE_contando_hitos():
     src = codigo(cerrar_hitos)
     assert "aguantaron.append" in src and "volvieron.append" in src
     assert "max(ciclo.HITOS_DIAS)" in src
-
-
-def test_votos_sale_en_CERO_a_proposito():
-    """El campo se mantiene para no romper a quien lo lee (`jobs/seguimiento`),
-    pero vale 0 siempre. Un 0 explicado es honesto; sacar la clave rompería al
-    que la consume sin avisar."""
-    from api.services.av_agent_items import cerrar_hitos
-    src = codigo(cerrar_hitos)
-    assert "votos = 0" in src
-    assert "votos +=" not in src
 
 
 def test_si_no_se_puede_LEER_no_se_vota_nada():

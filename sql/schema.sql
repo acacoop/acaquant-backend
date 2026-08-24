@@ -4393,6 +4393,45 @@ CREATE INDEX IF NOT EXISTS ix_av_items_sujeto
 CREATE INDEX IF NOT EXISTS ix_av_items_resueltos
     ON agente.av_agent_items (resuelto_at) WHERE estado = 'resuelto';
 
+-- ⚠️⚠️ **CÓMO SE CERRÓ — la columna que desbloquea la medición** (2026-08-24).
+--
+-- §0.de apagó el voto del tiempo con una condición escrita: *«vuelve a votar
+-- cuando el objeto registre CÓMO se cerró»*. Éste es ese campo, y el motivo es
+-- que los dos cierres **no significan lo mismo ni por asomo**:
+--
+--   'accion'   alguien apretó ARREGLAR y el detector después dejó de verlo.
+--              Si eso aguanta 30 días, el diagnóstico era correcto. ES un voto.
+--   'ausencia' el detector no lo vio en esta corrida. Un bono que no operó esa
+--              noche se auto-resuelve. NO prueba que nadie arregló nada, y
+--              votarlo es fabricar señal — exactamente lo que se borró en §0.de.
+--
+-- Sin esta distinción los dos entraban al mismo saco y el ✖ acusaba a arreglos
+-- que nadie había hecho (medido: 11 votos ✖, 9 de ellos sobre un mismo caso ya
+-- documentado como VOLVIÓ espurio).
+ALTER TABLE agente.av_agent_items
+    ADD COLUMN IF NOT EXISTS resuelto_como text;
+
+-- Cuántas veces se dio por arreglado y volvió. `vuelto_at` dice CUÁNDO fue la
+-- última; esto dice CUÁNTAS. «Esto ya lo arreglamos tres veces y vuelve» es un
+-- problema distinto de «pasa hace tres días», y sin el contador se ven igual.
+-- La tabla del centinela ya lo tenía y el objeto no: al unificarlos se habría
+-- perdido el dato.
+ALTER TABLE agente.av_agent_items
+    ADD COLUMN IF NOT EXISTS reaperturas integer NOT NULL DEFAULT 0;
+
+-- Quién lo marcó visto. `visto_at` sin `visto_por` no sirve para preguntar.
+ALTER TABLE agente.av_agent_items
+    ADD COLUMN IF NOT EXISTS visto_por text;
+
+-- ⚠️ **CUÁNTO HABÍA AGUANTADO ANTES DE VOLVER** — la otra condición de §0.de
+-- (*«y deje de borrar `resuelto_at`»*). Al pasar a `volvio`, `resuelto_at` se
+-- pone en NULL para que el reloj no le siga contando hitos a un arreglo que ya
+-- falló; el problema es que con eso se pierde **cuánto duró**, que es justo lo
+-- que distingue «falló al día siguiente» de «falló al día 20». Ahora se guarda
+-- acá antes de limpiarlo.
+ALTER TABLE agente.av_agent_items
+    ADD COLUMN IF NOT EXISTS aguanto_hasta timestamptz;
+
 CREATE TABLE IF NOT EXISTS agente.av_agent_errores (
     clave       text PRIMARY KEY,          -- sha256(unidad|patron), 32 chars
     unidad      text NOT NULL,

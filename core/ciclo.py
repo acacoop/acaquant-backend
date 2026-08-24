@@ -69,6 +69,31 @@ RESUELTO = "resuelto"    # ya no está: el problema se fue
 IGNORADO = "ignorado"    # una persona dijo «no me interesa» — reversible
 VOLVIO = "volvio"        # estaba resuelto y reapareció: NO es lo mismo que nuevo
 
+# ── CÓMO se cerró. Son DOS y no significan lo mismo ─────────────────────────
+#
+# ⚠️⚠️ La distinción que faltaba, y que §0.de dejó como condición para volver a
+# medir el tiempo. `resuelto` nunca quiso decir «alguien lo arregló»:
+#
+#   POR_ACCION    alguien apretó ARREGLAR y DESPUÉS el detector dejó de verlo.
+#                 Si eso aguanta los hitos, el diagnóstico era correcto → VOTA.
+#   POR_AUSENCIA  el detector no lo vio en esta corrida y nada más. Un bono que
+#                 no operó esa noche se auto-resuelve. NO prueba nada → NO vota.
+#
+# Meterlos en el mismo saco es lo que hizo que el ✖ acusara a arreglos que nadie
+# había hecho. Un cierre sin declarar cae en `POR_AUSENCIA`: **ante la duda, no
+# se vota** — el lado que no fabrica señal.
+POR_ACCION, POR_AUSENCIA = "accion", "ausencia"
+CIERRES = (POR_ACCION, POR_AUSENCIA)
+
+
+def vota(resuelto_como: str) -> bool:
+    """¿Este cierre es evidencia sobre el DIAGNÓSTICO del agente?
+
+    Solo el cierre por ACCIÓN lo es. Y solo se afirma cuando está declarado:
+    `None`, vacío o desconocido → `False`.
+    """
+    return (resuelto_como or "").strip() == POR_ACCION
+
 ESTADOS = (NUEVO, VISTO, EN_CURSO, RESUELTO, IGNORADO, VOLVIO)
 
 # Qué transiciones tienen sentido. Sirve para dos cosas: que nadie escriba un
@@ -284,6 +309,15 @@ class Item:
     visto_at: object = None
     resuelto_at: object = None
     vuelto_at: object = None      # la última vez que volvió después de resuelto
+    # CÓMO se cerró (`accion` | `ausencia`). Decide si el tiempo que aguantó
+    # cuenta como evidencia. Ver `vota()`.
+    resuelto_como: str = ""
+    reaperturas: int = 0          # cuántas veces se dio por arreglado y volvió
+    visto_por: str = ""
+    # Cuánto había aguantado la última vez que volvió: `resuelto_at` se limpia al
+    # reabrir (si no, el reloj le seguiría contando hitos a un arreglo que falló)
+    # y sin esto se perdía la diferencia entre fallar al día 1 y al día 20.
+    aguanto_hasta: object = None
 
     # ── LO QUE VARÍA POR TIPO ───────────────────────────────────────────────
     titulo: str = ""              # QUÉ PASÓ, en castellano
@@ -305,6 +339,11 @@ class Item:
         """Cuánto se le puede creer a que esto quedó arreglado. **0 si volvió**:
         no importa cuánto había aguantado antes."""
         if self.estado == VOLVIO or not self.resuelto_at:
+            return 0.0
+        # ⚠️ Y **0 si se cerró por AUSENCIA**: que el detector dejara de verlo no
+        # dice que alguien lo haya arreglado, así que el tiempo transcurrido no
+        # es evidencia de nada (§0.de).
+        if not vota(self.resuelto_como):
             return 0.0
         return confianza(self.dias_resuelto())
 

@@ -15,9 +15,23 @@ Correrlo dos veces el mismo día no duplica ni rompe el delta: la PK es por fech
 """
 from __future__ import annotations
 
+import logging
 import sys
 
 from core.job_runs import JobRunLogger
+
+logger = logging.getLogger(__name__)
+
+
+def _seguro(fn, nombre: str) -> list[dict] | None:
+    """Corre un detector. **`None` = levantó**, que NO es lo mismo que «no
+    encontró nada»: el que declara `evaluados` tiene que poder distinguirlos, o
+    un detector caído cierra por ausencia todo lo suyo."""
+    try:
+        return list(fn() or [])
+    except Exception as e:
+        logger.warning("db_tamano: el detector %s falló (%s)", nombre, e)
+        return None
 
 
 def main() -> int:
@@ -150,11 +164,49 @@ def main() -> int:
         if not cr:
             print("\n✔ el crontab de la máquina es el del repo")
 
-        sistema = hall + ctx.detectar_tablas() + db.detectar_db() + partido + cr
-        n = av_agent.reemplazar_hallazgos("sistema", sistema)
+        # ── Y SE REGISTRA, POR LA PUERTA ÚNICA ──────────────────────────────
+        #
+        # ⚠️⚠️ **HASTA HOY ESTOS CINCO TIPOS NO ERAN OBJETOS** (deuda #1, cerrada
+        # el 2026-08-24). El job escribía la foto con `reemplazar_hallazgos` y
+        # **nunca llamaba a `sincronizar`**, así que `db_cambio`, `tabla_quieta`,
+        # `permiso_flojo`, `dato_partido` y `cron_desalineado` no tenían DNI:
+        # sin antigüedad, sin «volvió», sin «ya lo atendiste», y **IGNORAR no
+        # los escondía**. Violaban la REGLA #10.1 en silencio.
+        #
+        # No se arregló acordándose: se arregló porque ahora hay UNA sola puerta
+        # y escribe las dos cosas. Un job nuevo lo hereda sin escribir una línea.
+        #
+        # `evaluados` se arma detector por detector y **solo si corrió**: cada
+        # uno tiene su propio `try`, así que declarar la lista completa haría que
+        # un detector caído cerrara todo lo suyo por ausencia (§0.be).
+        from api.services import av_agent_registro as registro
+
+        sistema: list[dict] = []
+        evaluados: set[str] = set()
+        for tipos, piezas in (
+                (("permiso_flojo",), hall),
+                (("tabla_quieta",), _seguro(ctx.detectar_tablas, "tablas")),
+                (("db_cambio",), _seguro(db.detectar_db, "db")),
+                (("dato_partido",), partido),
+                (("cron_desalineado",), cr),
+        ):
+            if piezas is None:      # el detector levantó: no se declara nada
+                continue
+            sistema += piezas
+            evaluados.update(tipos)
+
+        r = registro.guardar("sistema", sistema, evaluados=evaluados)
+        n = r.get("foto") or 0
         jr.set_stat("hallazgos", n)
-        print(f"\n✔ {n} hallazgos del sistema en agente.av_agent_hallazgos "
-              f"(alcance 'sistema') → se ven en AV Agent → ENCONTRÓ")
+        jr.set_stat("evaluados", len(evaluados))
+        esp = r.get("espejo") or {}
+        if esp.get("ok"):
+            jr.set_stat("objetos_nuevos", esp.get("nuevos", 0))
+            jr.set_stat("objetos_resueltos", esp.get("resueltos", 0))
+        print(f"\n✔ {n} hallazgos del sistema · {len(evaluados)} de 5 detectores "
+              f"declararon haber corrido\n"
+              f"  se ven en AV Agent → ENCONTRÓ, y desde hoy con su antigüedad "
+              f"(antes eran una foto sin memoria)")
     return 0
 
 

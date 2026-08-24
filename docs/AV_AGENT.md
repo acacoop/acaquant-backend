@@ -21,7 +21,7 @@
 > - **«CÓMO FUNCIONA HOY — el mapa del código»** (arriba de todo, secciones
 >   `M.0`–`M.12`): **el ESTADO**. Dónde vive cada pieza, qué invariante rige,
 >   qué deuda hay abierta. Es lo primero que se lee y lo que se mantiene al día.
-> - **`## 0` en adelante (§0.a → §0.dh): el DIARIO.** Las decisiones en orden
+> - **`## 0` en adelante (§0.a → §0.dj): el DIARIO.** Las decisiones en orden
 >   cronológico, con su porqué. Sirve para no re-proponer lo descartado — **no
 >   para saber cómo funciona algo hoy.**
 >
@@ -43,7 +43,7 @@
 > El user (2026-08-24): *«no puedo tener sesiones en Claude sin que cada sesión
 > vea cosas distintas, que se contradiga constantemente»*.
 >
-> La causa es este documento. De acá para abajo (§0.a → §0.dh) hay un **DIARIO**:
+> La causa es este documento. De acá para abajo (§0.a → §0.dj) hay un **DIARIO**:
 > registra DECISIONES en orden cronológico, y está bien que así sea — es lo que
 > evita re-proponer lo descartado. Pero un diario **no puede contestar «¿cómo
 > funciona hoy?»**: una sesión lee §0.bd y cree que el modelo de objetos está
@@ -86,12 +86,13 @@ no hay que rehacerlo. Lo que pasa es otra cosa, y es medible:
 
 | | Antes de la Fase 2 | Hoy | Debería |
 |---|---|---|---|
-| Procesos que corren el detector de rueda | **2** | **1** ✅ | 1 |
+| **Puertas que escriben lo que encontró** | **6** | **1** ✅ | 1 |
 | Formatos de identidad | **3** | **1** ✅ | 1 |
-| Tablas con ciclo de vida propio | **5** | **3** | 1 |
-| Puertas que escriben estado | **6** | **4** | 1 |
+| Procesos que corren el detector de rueda | **2** | **1** ✅ | 1 |
 | Medidores de «¿el arreglo aguantó?» | **2** | **1** ✅ | 1 |
-| Comentarios «convive» / «hasta que se apague lo viejo» | **11** | **3** | 0 |
+| Familias de hallazgo SIN objeto | **5** | **0** ✅ | 0 |
+| Tablas con ciclo de vida propio | **5** | **2** | 1 |
+| Comentarios «convive» / «hasta que se apague lo viejo» | **11** | **2** | 0 |
 
 Esos 11 comentarios **son** el diagnóstico. Cada uno fue una decisión diferida
 razonable (*«migrar de un saque es cómo se rompe un sistema que funciona»* es
@@ -209,10 +210,15 @@ DETECTAR├── jobs.av_agent_live     (cada 5' 13:30-19:55)   — rueda, CERO
         └── av_agent_centinela     (daemon systemd, 30s en rueda / 300s fuera)
                     │
                     ▼
-PERSISTIR   av_agent_items.sincronizar(origen, vistos, evaluados=…)
-            ├─ ver()            → nace · suma `veces` · o pasa a `volvio`
-            └─ _cerrar_ausentes → lo que ya no está pasa a `resuelto`
-                    │            (⚠ SOLO de los tipos que la corrida declaró evaluar)
+        ⭐ LA PUERTA ÚNICA — av_agent_registro.guardar(alcance, hallazgos,
+                                                       evaluados=…)
+GUARDAR     ├─ LA FOTO  (av_agent_hallazgos)  corrida o reemplazo, según alcance
+            └─ EL OBJETO (av_agent_items.sincronizar)
+                 ├─ ver()            → nace · suma `veces` · o pasa a `volvio`
+                 └─ _cerrar_ausentes → lo que ya no está pasa a `resuelto`
+                                       (⚠ SOLO de los tipos DECLARADOS evaluados)
+                    │
+        Nadie más escribe: un test prohíbe el INSERT fuera de ese archivo.
                     ▼
 MOSTRAR     av_agent_vista.vista()  → UN request, GET /api/ia/av-agent/vista
                     │
@@ -288,6 +294,7 @@ cada uno es el lado ruidoso (mostrar de más, pedir voto de más).
 | `SIN_GUARDIA` (`av_agent_control`) | **qué NO frena la parada, y por qué** | — (test lo exige) |
 | `DESTINOS` (`av_agent_acciones`) | dónde escribió cada acción | `?` |
 | `_CUBRE` (`av_agent_centinela`) | **qué VIGILA el daemon** (lo lee la tab AGENDA) | — |
+| `av_agent_registro.guardar` | ⭐ **la ÚNICA puerta de escritura** | — (test lo exige) |
 | `_DONDE_CORRE` (`av_agent_skills`) | en qué job corre cada detector | — (test lo exige) |
 | `_TAREAS` (`core/ai.py`) | modelo, tokens, thinking por tarea | flash/800/disabled |
 
@@ -444,8 +451,8 @@ tabla de estado · una lectura.*
 |---|---|---|
 | **0 · Parar la sangría** | la parada cubre todas las puertas · la foto de reemplazo guarda su clave · el seguimiento viejo deja de votar · lo del monitor se cierra cuando vuelve | ✅ 2026-08-24 (§0.dh) |
 | **2 · Apagar lo viejo** | se borra el segundo medidor de «¿aguantó?» · el objeto registra CÓMO se cerró y el voto vuelve · el detector declara qué miró · muere el tercer formato de identidad · el daemon absorbe el cron de rueda · los topes silenciosos | ✅ 2026-08-24 (§0.di) |
-| **1 · La puerta única** | `registrar(origen, hallazgos, evaluados)` — nadie más escribe · un test prohíbe `INSERT` fuera de ahí y armar la clave a mano | ⬜ **la que sigue** |
-| **3 · La lectura única** | todas las pantallas leen `av_agent_items`; el centinela deja de tener tabla propia y la foto queda solo para la evidencia | ⬜ |
+| **1 · La puerta única** | `av_agent_registro.guardar()` — la FOTO y el OBJETO juntos, nadie más escribe · tests que prohíben el `INSERT` fuera de ahí, armar la clave a mano y registrar sin declarar qué se miró | ✅ 2026-08-24 (§0.dj) |
+| **3 · La lectura única** | todas las pantallas leen `av_agent_items`; el centinela deja de tener tabla propia y la foto queda solo para la evidencia | ⬜ **la que sigue** |
 
 **El orden va 0 → 2 → 1 → 3 a propósito:** borrar lo viejo primero achica el
 problema; poner la puerta única sobre cuatro pipelines es más trabajo que
@@ -457,7 +464,7 @@ ponerla sobre dos.
 
 | # | Qué era |
 |---|---|
-| ~~1~~ | `jobs/db_tamano` no creaba objetos → **sigue abierta**, ver abajo |
+| ~~1~~ | `jobs/db_tamano` no creaba objetos (5 familias sin DNI) → pasa por la puerta única, que escribe las dos cosas |
 | ~~2~~ | `evaluados` se derivaba de lo ENCONTRADO → un tipo que llegaba a cero no cerraba nunca. Ahora lo declara cada detector al terminar bien |
 | ~~3~~ | el centinela recalculaba la identidad en SQL crudo → `clave_item`, escrita con `clave_de_problema` |
 | ~~4~~ | topes silenciosos: `abiertos()` cortaba por lo MÁS RECIENTE (al revés de lo que prioriza), `en_seguimiento()` se congelaba en 500, `cerrar_hitos()` truncaba sin orden. Los tres arreglados, y el corte **se dice** (`topeado`) |
@@ -468,17 +475,13 @@ ponerla sobre dos.
 
 **Lo que sigue abierto:**
 
-1. **`jobs/db_tamano` no crea objetos.** Sus 5 tipos (`db_cambio`,
-   `tabla_quieta`, `permiso_flojo`, `dato_partido`, `cron_desalineado`) escriben
-   la foto y nunca `sincronizar()` → viola REGLA #10.1: sin DNI, sin antigüedad,
-   sin «volvió», sin IGNORAR. **Se cierra con la puerta única (Fase 1)**, que es
-   justamente el mecanismo que lo haría imposible de olvidar.
-2. **`av_agent_alta.py` son 4.055 líneas** con tres responsabilidades, y los
+1. **`av_agent_alta.py` son 4.055 líneas** con tres responsabilidades, y los
    registros declarativos viven mezclados con los detectores en `av_agent.py`.
    Es el refactor de mayor retorno que queda.
-3. **`av_agent_contexto.barrer()` ordena las ~200 tablas enteras cada noche** —
+2. **`av_agent_contexto.barrer()` ordena las ~200 tablas enteras cada noche** —
    sin medir si eso pesa. Necesita un diag antes de tocarlo (REGLA #2).
-4. **El centinela todavía tiene tabla propia con ciclo.** Es la Fase 3.
+3. **El centinela todavía tiene tabla propia con ciclo.** Es la Fase 3, y ahora
+   es lo único que queda entre el estado actual y «una sola tabla de estado».
 
 ## M.9 Cómo agregar cosas
 
@@ -7943,6 +7946,75 @@ el CLAUDE.md decía 4 tareas de IA vivas cuando son 5.
 **Lo que NO cambia:** el centinela sigue teniendo tabla propia con ciclo, y
 `jobs/db_tamano` sigue sin crear objetos. Las dos se cierran con la puerta
 única (Fase 1) y la lectura única (Fase 3) — ver `M.8`.
+
+
+### 0.dj FASE 1 — la puerta única (2026-08-24)
+
+La Fase 0 (§0.dh) frenó el daño y la Fase 2 (§0.di) apagó lo viejo. Ésta cierra
+el hallazgo que estaba arriba de todos: **seis lugares distintos escribían "lo
+que el agente encontró"**, cada uno con su criterio, y ninguno estaba obligado a
+crear el OBJETO. Por eso una familia entera de hallazgos podía existir en la
+pantalla sin tener DNI — que es exactamente lo que la REGLA #10 prohíbe.
+
+**EL PROBLEMA, en una frase.** Registrar un hallazgo eran **dos escrituras que
+nadie ataba**: la FOTO (`agente.av_agent_hallazgos`, lo que se encontró en esta
+corrida) y el OBJETO (`agente.av_agent_items`, el problema con su historia). Un
+productor nuevo copiaba el `INSERT` del anterior, se olvidaba del espejo, y
+nacía un hallazgo sin ciclo: sin estado, sin hitos, sin poder decir «esto ya lo
+vi». No fallaba nada — simplemente ese problema no tenía memoria. Así estaba
+`jobs/db_tamano` desde que existe.
+
+**LA PUERTA.** `api/services/av_agent_registro.guardar(alcance, hallazgos, *,
+evaluados, objetos=None)` es ahora **la única forma de escribir un hallazgo**.
+Hace las dos escrituras, en ese orden, y trae cuatro decisiones adentro:
+
+1. **El modo se DERIVA, no se pasa.** Un alcance de `av_agent.ALCANCES_VIVOS`
+   (`live`, `sistema`) es de REEMPLAZO: borra e inserta, porque es una foto del
+   ahora. Cualquier otro es una CORRIDA: inserta con `corrida_at` y purga por
+   TTL. Era un parámetro y por lo tanto algo que se podía elegir mal; ahora es
+   una propiedad del alcance y no hay dónde equivocarse.
+2. **La clave se arma UNA vez.** `av_agent_items.clave_de_problema(...)` es la
+   única fuente de la identidad `sujeto|causa`, y un test prohíbe el
+   `|| '|' ||` en SQL y el f-string a mano. Era el tercer formato de identidad
+   el que ya nos había costado el «mandó» eterno (§0.di punto 4).
+3. **El espejo corre SIEMPRE, incluso con cero hallazgos.** Cero no significa
+   «no pasó nada»: significa que todo lo que estaba abierto de ese alcance se
+   resolvió, y alguien tiene que cerrarlo. Antes, un productor que salía
+   temprano por lista vacía dejaba los objetos abiertos para siempre.
+4. **El espejo NO puede voltear la foto.** Si `sincronizar` explota, la foto ya
+   está escrita y el error viaja adentro de la respuesta. Al revés no: si la
+   foto falla, no hay nada que espejar y la excepción sube.
+
+**QUÉ SE MIRÓ, otra vez.** `evaluados` es obligatorio en la firma. Es la guarda
+de §0.dh: sin ella, un proveedor caído se lee como «40 problemas resueltos». La
+puerta la exige de los cuatro productores y un test recorre el AST para que
+nadie llame sin pasarla.
+
+**LOS CUATRO PRODUCTORES.** `jobs/av_agent.py::persistir` (la corrida nocturna),
+`av_agent_centinela._escribir_la_foto` (el daemon en rueda), `jobs/db_tamano` y
+`jobs/av_agent_live` migraron a la puerta. `av_agent.reemplazar_hallazgos` se
+borró. `jobs/db_tamano` **ahora crea objetos** — cierra la deuda #1 de `M.8` — y
+de paso ganó `_seguro()`, que distingue «el detector se cayó» (`None`, no
+declara sus tipos) de «miró y no encontró nada» (`[]`).
+
+**SE LLAMA `guardar` Y NO `registrar` A PROPÓSITO.** `av_agent_acciones.
+registrar` es EL LIBRO de acciones y hay un test que cruza toda llamada llamada
+`registrar` contra su firma. Dos verbos iguales para dos libros distintos es
+justo el tipo de ambigüedad que la REGLA #9 dice que no falla nunca hasta que
+falla feo.
+
+**LOS TESTS SON LA PUERTA.** `tests/unit/test_av_agent_puerta.py` (11) no prueba
+que el código ande: prueba que **no haya otra puerta**. Escanea el AST de todos
+los módulos y falla si aparece un `INSERT`/`DELETE`/`UPDATE` sobre
+`av_agent_hallazgos` fuera del registro, si alguien arma la clave a mano, si un
+productor no declara qué miró, o si la puerta deja de escribir las dos cosas.
+
+**Marcador.** Puertas de escritura: 6 → **1**. Familias de hallazgo sin objeto:
+5 → **0**.
+
+**Lo que NO cambia:** el centinela sigue teniendo su tabla con ciclo propio y
+las pantallas siguen leyendo de varios lados. Eso es la Fase 3 — **la lectura
+única** — ver `M.8`.
 
 
 ## 1. Qué es y qué no es

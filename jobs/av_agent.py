@@ -45,123 +45,40 @@ Uso:
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 
 from api.services import av_agent
 from api.services import av_agent_preguntas as preg
 from core import mercado_1816
-from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
-# Cuántas corridas se conservan. El valor de la tabla es la HISTORIA (¿esto apareció
-# hoy o está hace un mes?), pero esa historia se lee en semanas, no en años, y sin
-# purga una corrida diaria de ~50 hallazgos son ~18k filas/año de datos que nadie
-# consulta. Se purga en la misma transacción del insert (patrón de las fotos de
-# Tesorería) para que no haga falta otro cron que se pueda olvidar de correr.
-_TTL_CORRIDAS = 60
-
-
 def persistir(res: dict) -> int:
-    """Inserta los hallazgos de UNA corrida y purga las viejas. → filas escritas.
+    """Los hallazgos de UNA corrida, por la puerta única. → filas escritas.
 
-    Todo en una transacción: si el insert falla, no queda una corrida a medias que
-    parezca "hoy no encontró nada" — que es la peor mentira posible en una
-    herramienta de integridad."""
-    hallazgos = res.get("hallazgos") or []
-    if not hallazgos:
-        # ⚠️ **Sin hallazgos igual hay que espejar** (Fase 2). Antes esto cortaba
-        # acá, así que el día que una corrida no encuentra NADA —el día que todo
-        # está bien— no se cerraba un solo objeto y la lista se quedaba con
-        # problemas que ya no existían.
-        #
-        # En `try`, igual que el otro camino: el espejo no puede tumbar el job.
-        try:
-            _espejar_en_items(res)
-        except Exception as e:
-            logger.warning("av_agent: no pude espejar la corrida vacía (%s)", e)
-        return 0
-    # ⚠️ **LA CLAVE SE CALCULA ACÁ Y SE GUARDA.** Es la identidad del hallazgo
-    # como objeto (§0.bd) y la escribe el que lo produce, una sola vez. Si el
-    # que lee la recalculara —en Python o en SQL— tendríamos dos
-    # implementaciones de la misma identidad, que es exactamente cómo la
-    # memoria termina existiendo pero inalcanzable (REGLA #9).
-    from api.services import av_agent_items
-    alcance = res.get("alcance") or ""
-    filas = [(alcance, h["tipo"], h["ticker"], h["regla"],
-              h["severidad"], h["motivo"], json.dumps(h.get("evidencia") or {},
-                                                      ensure_ascii=False, default=str),
-              av_agent_items.clave_de_problema(h["ticker"], h["regla"], alcance))
-             for h in hallazgos]
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.executemany(
-            "INSERT INTO agente.av_agent_hallazgos "
-            "(alcance, tipo, ticker, regla, severidad, motivo, evidencia, clave) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)", filas)
-        cur.execute(
-            "DELETE FROM agente.av_agent_hallazgos WHERE corrida_at < ("
-            "  SELECT min(c) FROM (SELECT DISTINCT corrida_at AS c "
-            "    FROM agente.av_agent_hallazgos ORDER BY c DESC LIMIT %s) t)",
-            (_TTL_CORRIDAS,))
-
-    # ── Y EL MISMO HALLAZGO, COMO OBJETO CON MEMORIA (§0.bd) ────────────────
-    #
-    # La tabla de arriba es una FOTO: cada corrida reescribe todo y nadie puede
-    # decir «esto ya estaba ayer» ni «esto se arregló». Acá abajo va lo mismo a
-    # `agente.av_agent_items`, donde la identidad es estable — así el hallazgo
-    # que vuelve es el MISMO objeto, acumula antigüedad, y el que deja de
-    # aparecer queda RESUELTO con la fecha en que se arregló.
-    #
-    # **Convive, no reemplaza**: la foto sigue siendo lo que lee la pantalla
-    # hasta que la migración llegue ahí. Escribir las dos un tiempo es lo que
-    # permite comparar y migrar sin apagar nada (§0.bc).
-    #
-    # Y si esto falla, la corrida NO se cae: la foto —que es lo que hoy se ve—
-    # ya está escrita y no se deshace por un problema del espejo nuevo.
-    try:
-        _espejar_en_items(res)
-    except Exception as e:
-        logger.warning("av_agent: no pude espejar en items (%s)", e)
-    return len(filas)
-
-
-def _espejar_en_items(res: dict) -> None:
-    """Los hallazgos de esta corrida, como objetos con ciclo de vida.
-
-    ⚠️ **Lo importante es `evaluados`.** Una corrida puede mirar MENOS de lo que
-    mira siempre: si 1816 no contesta, `falta_en_base` no se evaluó y su lista
-    vacía **no significa que no falte ningún bono**. Cerrar por ausencia sin
-    declarar qué se miró convertiría cada caída de un proveedor en «se
-    arreglaron 40 problemas» — el tablero en verde justo el día más ciego.
+    La FOTO y el OBJETO se escriben juntos, con la misma identidad y con la
+    guarda de `evaluados` — todo eso vive en `av_agent_registro.guardar`,
+    que es el único lugar del sistema que escribe lo que el agente encontró.
     """
-    from api.services import av_agent_items
+    from api.services import av_agent_registro as registro
 
     u = res.get("universo") or {}
-    hall = res.get("hallazgos") or []
-    # ⚠️⚠️ **QUÉ SE MIRÓ LO DICE `relevar()`, NO LO QUE ENCONTRÓ** (Fase 2).
-    #
-    # Acá se derivaba de los tipos que habían PRODUCIDO hallazgos:
-    #
-    #     vistos_en_la_corrida = {h["tipo"] for h in hall}   # ← el bug
-    #
-    # O sea que un tipo que llegaba a CERO no se declaraba evaluado y **sus
-    # objetos no se cerraban nunca**. Arreglabas el último `sin_flujo` y ese
-    # arreglo —el bueno— no arrancaba su reloj ni salía del contador. Es la
-    # misma confusión que la guarda existe para evitar («miré y no había nada»
-    # vs «no miré»), colada por la puerta de atrás.
-    #
-    # Ahora cada detector declara lo suyo al terminar bien, y acá solo se
-    # RESTAN las condiciones que el job ya conocía y el detector no.
+    # ⚠️ **QUÉ SE MIRÓ LO DICE `relevar()`, NO LO QUE ENCONTRÓ.** Antes se
+    # derivaba de los tipos que habían PRODUCIDO hallazgos, así que un tipo que
+    # llegaba a CERO no se declaraba evaluado y sus objetos no se cerraban
+    # nunca: el último arreglo —el bueno— no salía del contador.
     evaluados = set(res.get("evaluados") or ())
+    # Lo único que resta el job, porque el detector no lo sabe:
     # `sin_espejo_en_assets` es una regla de `tasa_sospechosa` y no corre sin
-    # `portafolio.assets`: el detector corrió igual, pero incompleto. Cerrar
-    # `tasa_sospechosa` por ausencia con esa regla apagada borraría hallazgos
-    # que siguen siendo ciertos.
+    # `portafolio.assets`. El detector corrió, pero incompleto — cerrar por
+    # ausencia con esa regla apagada borraría hallazgos que siguen siendo
+    # ciertos.
     if not u.get("assets_leidos"):
         evaluados.discard("tasa_sospechosa")
-    av_agent_items.sincronizar(res.get("alcance") or "censo", hall,
-                               evaluados=evaluados)
+
+    r = registro.guardar(res.get("alcance") or "censo",
+                           res.get("hallazgos") or [], evaluados=evaluados)
+    return int(r.get("foto") or 0)
 
 
 def _imprimir(res: dict, detalle: bool) -> None:
@@ -392,17 +309,18 @@ def main() -> None:
             print("\n(DRY-RUN — no se escribió ninguna fila)")
         else:
             n = persistir(res)
+            from api.services import av_agent_registro as registro
             jr.set_stat("filas_persistidas", n)
             print(f"\n✔ {n} hallazgos persistidos en agente.av_agent_hallazgos "
-                  f"(se conservan las últimas {_TTL_CORRIDAS} corridas)")
+                  f"(se conservan las últimas {registro.TTL_CORRIDAS} corridas)")
 
         # Las PREGUNTAS se registran SIEMPRE, incluso en dry-run: no son un
         # resultado del relevamiento sino una conversación pendiente, y perderlas
         # porque la corrida fue de prueba obligaría a repetir el censo para
         # recuperarlas. `ON CONFLICT (clave)` hace que sea idempotente.
         try:
-            nuevas = preg.registrar(preg.preguntas_de_hallazgos(res["hallazgos"]))
-            nuevas += preg.registrar_decisiones(preg.DECISIONES_ABIERTAS)
+            nuevas = preg.guardar(preg.preguntas_de_hallazgos(res["hallazgos"]))
+            nuevas += preg.guardar_decisiones(preg.DECISIONES_ABIERTAS)
             jr.set_stat("preguntas_nuevas", nuevas)
             estado = preg.resumen()
             jr.set_stat("preguntas_abiertas", estado["abiertas"])

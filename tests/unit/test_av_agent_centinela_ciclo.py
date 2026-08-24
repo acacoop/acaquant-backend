@@ -185,22 +185,6 @@ def test_el_auto_resuelto_se_limita_a_los_tipos_EVALUADOS():
     assert "if hallazgos:" not in src
 
 
-def test_el_espejo_en_items_usa_LA_MISMA_guarda():
-    """Si el centinela y su espejo cerraran con criterios distintos, AHORA y
-    ENCONTRÓ volverían a contar historias diferentes del mismo problema — que
-    es justo lo que la migración vino a terminar."""
-    src = codigo(c.ciclo)
-    assert "sincronizar(\"live\"" in src and "evaluados=evaluados" in src
-
-
-def test_el_espejo_no_puede_tumbar_la_pasada():
-    """La pasada del centinela es lo que la mesa mira en rueda."""
-    cola = codigo(c.ciclo).split("av_agent_items.sincronizar")[1][:400]
-    assert "except Exception" in cola
-
-
-# ── UN SOLO RELOJ PARA LAS DOS PANTALLAS ────────────────────────────────────
-
 def test_la_antiguedad_sale_del_OBJETO_y_no_de_la_tabla_del_centinela():
     """⚠️ El centinela tenía su `abierto_at` y el censo el suyo, y nadie los
     unía: **AHORA podía decir «recién» y ENCONTRÓ «11 días» del MISMO
@@ -290,3 +274,37 @@ def test_la_PK_de_la_fila_y_la_identidad_del_PROBLEMA_son_cosas_distintas():
     from api.services import av_agent_items
     assert c._clave(h) == "sin_precio:AO29:no_suscripto"
     assert av_agent_items.clave_de_problema("AO29", "no_suscripto") == "ao29|no_suscripto"
+
+
+# ── EL ESPEJO SE MUDÓ A LA PUERTA (Fase 1, 2026-08-24) ─────────────────────
+
+def test_el_espejo_lo_hace_LA_PUERTA_y_con_la_misma_guarda():
+    """⚠️ Acá se exigía que `ciclo()` llamara a `sincronizar` por su cuenta.
+    Eran DOS escrituras del mismo hecho —la foto y el objeto— hechas por
+    separado, y por eso podían quedar desincronizadas: AHORA y ENCONTRÓ
+    contando distinto del mismo problema.
+
+    Ahora salen de la misma llamada. Y la guarda viaja con ellas: lo que el
+    daemon no alcanzó a mirar no se cierra por ausencia."""
+    src = inspect.getsource(c._escribir_la_foto)
+    assert "registro.guardar(" in src
+    assert "evaluados=evaluados" in src
+    # y `ciclo()` le pasa lo que DECLARÓ haber mirado, no una lista fija
+    assert "_escribir_la_foto(list(por_clave.values()), evaluados)" in \
+        inspect.getsource(c.ciclo)
+
+
+def test_los_avisos_TRANSITORIOS_no_se_vuelven_objetos():
+    """`recuperado` y `respuesta` vencen en minutos: viajan en la foto porque es
+    lo que hay que mostrar ahora, pero darles ciclo de vida llenaría la memoria
+    de cosas que nacen y se cierran cada cinco minutos sin que nadie las mire.
+    Un problema tiene historia; una buena noticia no."""
+    src = inspect.getsource(c._escribir_la_foto)
+    assert "objetos=list(hallazgos)" in src
+
+
+def test_la_foto_no_puede_tumbar_la_pasada():
+    """La pasada del centinela es lo que la mesa mira en rueda."""
+    src = inspect.getsource(c.ciclo)
+    cola = src.split("_escribir_la_foto(")[1][:400]
+    assert "except Exception" in cola

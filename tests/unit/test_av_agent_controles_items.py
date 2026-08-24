@@ -85,14 +85,18 @@ def test_la_clave_se_arma_EN_UN_SOLO_LUGAR():
     MISMA función. Si cada uno la armara, moverían objetos distintos y el
     hallazgo seguiría igual **sin dar ningún error** — el síntoma exacto que
     esto vino a arreglar (REGLA #9)."""
-    import jobs.av_agent as job
+    from api.services import av_agent_registro as registro
     from api.services.av_agent_hacer import _mover_item
     from jobs.controles_datos import _espejar_items
 
     for fn in (_mover_item, _espejar_items):
         assert "clave" in codigo(fn) or "sincronizar" in codigo(fn)
-    assert "clave_de_problema" in codigo(job.persistir)
     assert "clave_de_problema" in codigo(_mover_item)
+    # ⚠️ `persistir` ya no la arma: la arma LA PUERTA (`av_agent_registro`), que
+    # desde la Fase 1 es el único lugar que escribe lo que el agente encontró.
+    # Un test aparte (`test_av_agent_puerta`) prohíbe armarla en cualquier otro
+    # lado, incluido SQL.
+    assert "clave_de_problema" in codigo(registro._fila)
 
 
 def test_mover_el_item_no_puede_tumbar_la_accion():

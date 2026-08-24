@@ -231,7 +231,7 @@ def _toca_la_foto() -> bool:
     return (time.monotonic() - _ultima_foto) >= SEGUNDOS_ENTRE_FOTOS
 
 
-def _escribir_la_foto(hallazgos: list[dict]) -> int:
+def _escribir_la_foto(hallazgos: list[dict], evaluados: set[str]) -> int:
     """La foto `live` + lo que el cron hacía justo antes de pisarla.
 
     **El orden importa**: `detectar_recuperados` lee la foto ANTERIOR (todavía
@@ -243,7 +243,7 @@ def _escribir_la_foto(hallazgos: list[dict]) -> int:
     pasada corre después de que ya se escribieron.
     """
     global _ultima_foto
-    from api.services import av_agent
+    from api.services import av_agent_registro as registro
     from api.services.av_agent_recuperados import detectar_recuperados
     from api.services.av_agent_respuesta import revisar
 
@@ -259,9 +259,15 @@ def _escribir_la_foto(hallazgos: list[dict]) -> int:
     except Exception as e:
         logger.warning("centinela: no pude revisar las respuestas (%s)", e)
 
-    n = av_agent.reemplazar_hallazgos("live", list(hallazgos) + extra)
+    # ⚠️ **`objetos=hallazgos`, sin el extra.** `recuperado` y `respuesta` son
+    # avisos TRANSITORIOS (vencen en 30 y 15 minutos): viajan en la foto porque
+    # es lo que hay que mostrar ahora, pero darles ciclo de vida llenaría la
+    # memoria de objetos que nacen y se cierran cada cinco minutos sin que nadie
+    # los mire. Un problema tiene historia; una buena noticia no.
+    r = registro.guardar("live", list(hallazgos) + extra,
+                           evaluados=evaluados, objetos=list(hallazgos))
     _ultima_foto = time.monotonic()
-    return n
+    return int(r.get("foto") or 0)
 
 
 def ciclo() -> dict:
@@ -351,26 +357,22 @@ def ciclo() -> dict:
         # Va DESPUÉS de la transacción de arriba y en su propio try.
         if _toca_la_foto():
             try:
-                fotos = _escribir_la_foto(list(por_clave.values()))
+                fotos = _escribir_la_foto(list(por_clave.values()), evaluados)
             except Exception as e:
                 logger.warning("centinela: no pude escribir la foto live (%s)", e)
 
-        # ── Y COMO OBJETO, para que AHORA y ENCONTRÓ hablen de lo mismo ─────
+        # ⚠️ **EL ESPEJO EN `av_agent_items` YA NO SE LLAMA ACÁ** (Fase 1).
         #
-        # Las dos pantallas mostraban el mismo problema con historias
-        # distintas: el centinela tenía su `veces` y su `abierto_at`, la
-        # relevada nocturna tenía otros, y nadie los unía. Con la misma clave
-        # es UN objeto — y la antigüedad que ves en ENCONTRÓ es la misma que ve
-        # el monitor.
+        # Lo hace `av_agent_registro.guardar`, junto con la foto: eran dos
+        # escrituras del MISMO hecho, hechas por separado, y por eso podían —y
+        # podían en serio— quedar desincronizadas. AHORA y ENCONTRÓ hablan de lo
+        # mismo porque salen de la misma llamada, no porque alguien se acuerde
+        # de hacer las dos.
         #
-        # Va FUERA de la transacción y en su propio `try`: la pasada del
-        # centinela es lo que la mesa mira en rueda y no se cae por el espejo.
-        try:
-            from api.services import av_agent_items
-            av_agent_items.sincronizar("live", list(por_clave.values()),
-                                       evaluados=evaluados)
-        except Exception as e:
-            logger.warning("centinela: no pude espejar en items (%s)", e)
+        # ⚠️ Ojo con el THROTTLE: el espejo se escribe cuando se escribe la
+        # foto, o sea cada 5 minutos y no cada 30 segundos. Es lo correcto —
+        # `av_agent_centinela` (la tabla de arriba) es la que tiene que estar al
+        # instante para el semáforo; la memoria se mide en días.
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
         logger.exception("centinela: el ciclo falló")

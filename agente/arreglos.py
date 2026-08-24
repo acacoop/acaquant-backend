@@ -265,9 +265,16 @@ class RehacerJob(Arreglo):
     campo = "corrida"
 
     def _job_fecha(self, sujeto: str, ev: dict):
+        """El nombre con el que el job figura en `REHACIBLES`.
+
+        ⚠️ La normalización es la MISMA que la del detector
+        (`sistema._rehacible`): si difirieran, el detector ofrecería el botón y
+        el botón diría «ese job no se puede rehacer» — la clase de contradicción
+        que hace que la gente deje de creerle a la pantalla.
+        """
         from agente import rehacer
         job = (ev.get("job") or sujeto or "").strip()
-        job = job.split(":")[-1]
+        job = job.split(":")[-1].removeprefix("jobs.")
         return job, rehacer.fecha_objetivo(job)
 
     def preview(self, sujeto: str, ev: dict) -> dict:

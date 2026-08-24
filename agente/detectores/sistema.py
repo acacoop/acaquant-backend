@@ -109,22 +109,40 @@ def motor_caido(u: dict) -> list[Hallazgo]:
                 if _todavia_no_le_toco(p, ahora):
                     continue
                 sev = "alta" if estado in ("critico", "error") else "media"
-                nombre = str(p.get("nombre") or p.get("unidad") or "?")
+                nombre = str(p.get("label") or p.get("unidad") or "?")
+                unidad = str(p.get("unidad") or "")
+                # ⚠️ **LA REGLA DICE SI HAY BOTÓN, Y NO SE INVENTA.** Solo los
+                # jobs declarados en `agente.rehacer.REHACIBLES` se pueden
+                # relanzar; un motor NO —relanzarlo en rueda le corta el feed de
+                # precios a la mesa, y eso no se decide desde un botón—.
+                #
+                # Si las dos cosas compartieran regla, la mitad de las filas
+                # tendría un botón que siempre falla: **un aviso con forma de
+                # trabajo**, que es exactamente lo que hacía `salud` en el
+                # agente viejo y por lo que la lista tenía 96 filas de las que
+                # casi ninguna se podía apretar.
+                regla = ("job_sin_dato" if _rehacible(unidad)
+                         else f"pieza_{estado}")
                 out.append(Hallazgo(
-                    sujeto=str(p.get("unidad") or nombre), regla=f"pieza_{estado}",
+                    sujeto=unidad or nombre, regla=regla,
                     severidad=sev, nombre=nombre,
                     problema=(f"{nombre}: {estado} · última señal "
                               f"{p.get('hace') or '—'} · ventana "
                               f"{p.get('ventana') or 'rueda'} · {reloj.hhmm()}"),
-                    que_hacer=(f"Relanzar `{p.get('unidad') or nombre}` y mirar "
-                               f"su log. Cadencia declarada: "
-                               f"{p.get('cadencia') or '—'}."),
+                    que_hacer=(f"Relanzar `{unidad or nombre}` y mirar su log. "
+                               f"Cadencia declarada: {p.get('cadencia') or '—'}."
+                               + ("" if _rehacible(unidad) else
+                                  " No hay botón: relanzar un motor en rueda le "
+                                  "corta el feed de precios a la mesa.")),
                     evidencia={"vista": vista.get("vista"), "tipo": p.get("tipo"),
                                "estado": estado, "unidad": p.get("unidad"),
                                "tabla": p.get("tabla"),
                                "cadencia": p.get("cadencia"),
                                "ventana": p.get("ventana"),
-                               "ultimo_at": p.get("ultimo_at")}))
+                               "ultima": p.get("ultima"),
+                               # Lo que `rehacer_job` necesita para saber a quién
+                               # relanzar. Va en la evidencia y no se re-deduce.
+                               "job": p.get("unidad")}))
     # Lo más grave primero, y los motores antes que los jobs: un motor caído deja
     # a la mesa sin precios AHORA; un job se recupera en la corrida siguiente.
     out.sort(key=lambda h: (0 if h.severidad == "alta" else 1,
@@ -132,15 +150,30 @@ def motor_caido(u: dict) -> list[Hallazgo]:
     return out
 
 
+def _rehacible(unidad: str) -> bool:
+    """¿Este job está declarado como relanzable? `agente.rehacer.REHACIBLES` es
+    una lista corta de jobs idempotentes con su tabla y su columna de fecha — no
+    un ejecutor de comandos."""
+    if not unidad:
+        return False
+    from agente.rehacer import REHACIBLES
+    corto = unidad.split(":")[-1].removeprefix("jobs.")
+    return corto in REHACIBLES or unidad in REHACIBLES
+
+
 def _hora_del_arbol(arbol: dict):
     from datetime import datetime
 
     from core.tz import AR_TZ
-    v = arbol.get("ahora") or arbol.get("at")
+    # El árbol estampa `ahora_ar` como texto en hora ARGENTINA: se re-lee con
+    # ese tz y no con `fromisoformat` pelado, que lo dejaría naive y compararlo
+    # contra un aware LEVANTA — un monitor que se cae por un detalle de tipos
+    # deja de avisar justo cuando hace falta.
+    v = arbol.get("ahora_ar")
     if not v:
         return None
     try:
-        return datetime.fromisoformat(str(v)).astimezone(AR_TZ)
+        return datetime.strptime(str(v), "%Y-%m-%d %H:%M:%S").replace(tzinfo=AR_TZ)
     except (TypeError, ValueError):
         return None
 

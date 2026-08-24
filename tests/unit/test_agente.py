@@ -242,3 +242,28 @@ def test_el_agente_nunca_es_alcanzable_por_el_invitado():
     sistema, que es exactamente lo que el portal invitado no puede ver."""
     from api.auth import GUEST_PATH_PREFIXES
     assert "/api/agente" not in GUEST_PATH_PREFIXES
+
+
+def test_el_boton_de_rehacer_solo_aparece_donde_puede_funcionar():
+    """El detector y el arreglo **normalizan el nombre del job igual**.
+
+    Si difirieran, el detector ofrecería el botón y el botón contestaría «ese
+    job no se puede rehacer»: la clase de contradicción que hace que la gente
+    deje de creerle a la pantalla. Es el mismo defecto que tenía `salud`, que
+    declaraba una acción con la puerta de solo lectura.
+    """
+    from agente import arreglos as arr
+    from agente.detectores.sistema import _rehacible
+
+    det = inspect.getsource(_rehacible)
+    apl = inspect.getsource(arr.RehacerJob._job_fecha)
+    for frag in ('split(":")[-1]', 'removeprefix("jobs.")'):
+        assert frag in det and frag in apl, (
+            f"«{frag}» tiene que estar en los dos lados o van a discrepar")
+
+
+def test_salud_no_declara_un_arreglo_que_no_tiene():
+    """El bug que el user detectó desde la pantalla, sin ver el código: `salud`
+    caía en la lista de trabajo con un botón que solo volvía a chequear."""
+    assert not catalogo.HABILIDADES["salud"].arreglos, (
+        "salud es un AVISO: mirar no arregla")

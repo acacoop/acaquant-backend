@@ -84,10 +84,13 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         nombre="salud", tipo="detector", dominio="SISTEMA",
         que_mira="jobs que no corrieron, fallaron o dejaron el dato viejo",
         cada_segundos=10 * _M, ventana="siempre",
-        correr=sistema.salud,
-        # Es un AVISO: su único botón vuelve a chequear, y mirar no arregla.
-        # El job que no dejó su dato SÍ tiene arreglo.
-        arreglos={"salud_frescura": "rehacer_job"}),
+        correr=sistema.salud),
+    # ⚠️ **`salud` es un AVISO, y eso es la corrección de un bug real.** En el
+    # agente viejo declaraba una acción —así que sus hallazgos caían en la lista
+    # de trabajo— pero su puerta era de SOLO LECTURA: el botón APLICAR estaba
+    # deshabilitado por diseño y lo único que ofrecía era «↻ chequear ahora».
+    # **Mirar no arregla.** El que SÍ tiene botón es el job que no dejó su dato,
+    # y ese lo canta `motor_caido` con la regla `job_sin_dato`.
 
     Habilidad(
         nombre="motor_caido", tipo="detector", dominio="SISTEMA",
@@ -95,7 +98,10 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=2 * _M, ventana="siempre",
         correr=sistema.motor_caido,
         umbrales={"gracia_arranque_min": 30},
-        arreglos={"pieza_sin_datos": "rehacer_job"}),
+        # Solo el JOB declarado como relanzable tiene botón. Un motor no: la
+        # regla que emite el detector ya distingue los dos casos, así que no
+        # puede quedar una fila con un botón que siempre falla.
+        arreglos={"job_sin_dato": "rehacer_job"}),
 
     Habilidad(
         nombre="tabla_quieta", tipo="detector", dominio="SISTEMA",

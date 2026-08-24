@@ -1155,11 +1155,17 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 2. **`motor_caido` sigue sacando el horario de un regex sobre prosa** (§5.1).
    La fuente buena —`deploy/crontab.txt`— ya la lee `cron_desalineado`; falta
    cruzarlas.
-3. **`respuesta` y `recuperado` no se portaron como detectores.** Su función la
+3. **`motor_caido` distingue el JOB relanzable del MOTOR**, y solo el primero
+   tiene botón (regla `job_sin_dato`). Relanzar un motor en rueda le corta el
+   feed de precios a la mesa y eso no se decide desde un botón — pero el
+   hallazgo lo DICE, en vez de ofrecer un botón que siempre falla.
+4. **`salud` es un AVISO**, no trabajo: su puerta en el agente viejo era de solo
+   lectura. El user lo detectó desde la pantalla sin ver el código.
+5. **`respuesta` y `recuperado` no se portaron como detectores.** Su función la
    absorbe el ciclo: un arreglo aplicado deja el hallazgo `en_curso` y el
    detector lo cierra cuando deja de verlo; ese cierre es la buena noticia y
    queda en HISTORIAL. Si hace falta cantarlo, se decide después.
-4. **`npm run build` y `pytest` no se corrieron acá** (sin dependencias en el
+6. **`npm run build` y `pytest` no se corrieron acá** (sin dependencias en el
    entorno). Sí se verificó: `ruff check .` limpio, el grafo de imports completo
    sin roturas, y los invariantes de §8 comprobados uno por uno sobre el código.
 

@@ -1182,26 +1182,25 @@ def detectar_tasas_sospechosas(docs: list[dict], metricas: dict[str, dict],
         if tea is None and precio and ajuste not in _MOTIVOS_SIN_TASA_LEGITIMOS:
             out.append(_hallazgo(
                 "tasa_sospechosa", tc, "sin_tea_con_precio", "alta",
-                "Tiene precio y flujo pero el motor no persiste TEA: el XIRR no "
-                "converge. Sospecha: pata equivocada o escala del flujo distinta "
-                "de la del precio (fallas #2 y #4 del catálogo).",
+                "Tiene precio y flujo, pero el motor no llega a calcular la TEA. "
+                "Tocá DIAGNOSTICAR para saber por qué.",
                 base))
 
         if paridad is not None and not (PARIDAD_MIN <= paridad <= PARIDAD_MAX):
             out.append(_hallazgo(
                 "tasa_sospechosa", tc, "paridad_fuera_de_rango",
                 "alta" if paridad > 300 or paridad < 10 else "media",
-                f"Paridad {paridad:,.1f}% fuera de [{PARIDAD_MIN:.0f}, "
-                f"{PARIDAD_MAX:.0f}]. Sospecha: escala del flujo o pata "
-                "equivocada (fallas #2, #3 y #4).",
+                f"Paridad {paridad:,.1f}%, fuera del rango sano "
+f"[{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}]. Tocá DIAGNOSTICAR para "
+                "saber por qué.",
                 base))
 
         if tea is not None and not (TEA_MIN <= tea <= TEA_MAX) and not ruidosa:
             out.append(_hallazgo(
                 "tasa_sospechosa", tc, "tea_fuera_de_rango", "media",
-                f"TEA {tea:.2%} fuera de [{TEA_MIN:.0%}, {TEA_MAX:.0%}] y la "
-                "duration no la explica. Sospecha: precio stale/ilíquido o dato "
-                "del bono mal cargado (fallas #4 y #5).",
+                f"TEA {tea:.2%}, fuera de [{TEA_MIN:.0%}, {TEA_MAX:.0%}], y la "
+                "duration no la explica. Tocá DIAGNOSTICAR para saber por "
+                "qué.",
                 base))
 
     return out

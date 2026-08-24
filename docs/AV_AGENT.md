@@ -7081,6 +7081,44 @@ tabla — falta `diagnosticado_at` y que el cierre diga su motivo.
 > misma que ya regía en `_cerrar_ausentes` («sin saber qué se miró no se cierra
 > NADA»), aplicada al juez en vez de al detector.
 
+### 0.df LA TARJETA DEJA DE ADIVINAR Y DE HABLAR EN JERGA (2026-08-24)
+
+El user, mirando la fila de CP360 · SIN TEA CON PRECIO: *«es demasiado texto a
+simple vista y no es CLARO… ES INENTENDIBLE DE ESA PARTE EL 100%, PALABRAS COMO
+COTEJO (MALÍSIMO)»*. Tres defectos concretos, los tres arreglados.
+
+**1. La «Sospecha» era una corazonada compitiendo con el diagnóstico real.**
+El motivo del hallazgo venía hardcodeado con *«Sospecha: pata equivocada o
+escala del flujo distinta de la del precio (fallas #2 y #4 del catálogo)»* —
+escrito ANTES de diagnosticar nada, y con jerga interna («fallas #2 y #4») que
+no le dice nada a quien lee. Tres renglones más abajo, el diagnóstico REAL
+—ése sí calculado— decía otra cosa (`moneda_flujo` contradice a los ejes).
+**Dos causas en la misma tarjeta, una adivinada y otra medida.** Se sacó la
+corazonada de los tres motivos (`sin_tea_con_precio`, `paridad_fuera_de_rango`,
+`tea_fuera_de_rango`): el hallazgo dice el SÍNTOMA y manda a DIAGNOSTICAR, que
+es el que sabe.
+
+**2. «Cotejo» y «juez local» no son castellano.** Decían la verdad en un idioma
+que no es el de nadie. Ahora: *«No se pudo comparar contra 1816, pero lo
+probamos con nuestro motor y da bien»*, y el paso pasa a llamarse *«Probado con
+nuestro motor: la paridad vuelve al rango»*. ⚠️ El test que lo cubría exigía la
+frase literal `"juzgó el JUEZ"` — **un test que congela la jerga impide
+reescribirla, que era justo el arreglo**. Se reescribió para congelar el
+SENTIDO: que diga con qué se probó y que no mande a reintentar.
+
+**3. La flecha colgada.** La línea de estado terminaba en `→ ` y lo que venía
+inmediatamente después no era el resultado: era «6 cupones». Se leía
+**«paridad — → 6 cupones»**, que no significa nada — el DESPUÉS estaba seis
+chips más adelante, con la ficha del bono en el medio. Ahora el par va junto y
+nombrado:
+
+    antes:   HOY: TEA sin TEA · paridad — → 6 cupones · vence … · TEA simulada 6,81%
+    ahora:   HOY: sin TEA · paridad — · CON EL ARREGLO: TEA 6,81% · 6 cupones · vence …
+
+(De paso: `TEA sin TEA` decía TEA dos veces, y el separador de los cupones pasó
+a ser condicional para que en el ALTA —donde no hay «antes»— la línea no
+arranque con un `·` suelto.)
+
 ---
 
 ## 1. Qué es y qué no es

@@ -1341,13 +1341,14 @@ def _desenlace(chequeos: list[dict]) -> dict:
                      and c["estado"] == OK), None)
         if juez is not None:
             return {"clase": "mirar", "traba": juez["clave"],
-                    "titulo": "El cotejo con 1816 no corre acá — juzgó el JUEZ "
-                              "LOCAL y el arreglo se sostiene",
-                    "que_hacer": "El cotejo por precio no se puede hacer "
-                                 "(referencia rota o papel sin precio) y "
-                                 "reintentar no lo cambia. El juez local probó "
-                                 "que la falla desaparece: se puede aplicar a "
-                                 "mano; automático no."}
+                    "titulo": "No se pudo comparar contra 1816, pero lo "
+                              "probamos con nuestro motor y da bien",
+                    "que_hacer": "1816 no tiene un precio de referencia usable "
+                                 "para este bono, así que compararlo contra "
+                                 "ellos no va a andar por más que reintentes. "
+                                 "Se probó con el MISMO motor que valúa en "
+                                 "producción y la falla desaparece. **Se puede "
+                                 "aplicar a mano; automático no.**"}
         return {"clase": "no_se", "traba": traba["clave"],
                 "titulo": f"No se pudo verificar: {traba['titulo']}",
                 "que_hacer": "**No quiere decir que esté bien**: quiere decir que "
@@ -3860,14 +3861,14 @@ def _chequeos_arreglo(*, ticker: str, doc: dict, out: dict, rama: str,
                     and PARIDAD_MIN <= float(par_desp) <= PARIDAD_MAX)
         estaba_mal = (not isinstance(par_antes, int | float)
                       or not (PARIDAD_MIN <= float(par_antes) <= PARIDAD_MAX))
-        ps.append(_paso("juez_local", "La métrica vuelve al rango (juez local)",
+        ps.append(_paso("juez_local", "Probado con nuestro motor: la paridad vuelve al rango",
                         OK if (en_rango and estaba_mal) else BLOQUEA,
                         f"paridad **{_pct_o(par_antes)} → {_pct_o(par_desp)}** "
                         f"(rango sano [{PARIDAD_MIN:.0f}, {PARIDAD_MAX:.0f}]). "
-                        + ("La referencia de 1816 no sirve para este bono, así "
-                           "que juzga el motor propio: hoy la métrica está mal "
-                           "(o no existe) y con la propuesta vuelve al rango — "
-                           "el arreglo se sostiene."
+                        + ("1816 no sirve de referencia para este bono, así "
+                           "que lo juzga nuestro motor: hoy la paridad está "
+                           "mal (o no existe) y con la propuesta queda dentro "
+                           "del rango sano."
                            if en_rango and estaba_mal else
                            "**Lo de hoy YA estaba en rango**: no hay nada que "
                            "arreglar y pisarlo sería empeorarlo."

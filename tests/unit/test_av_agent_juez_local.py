@@ -68,13 +68,21 @@ def test_con_ref_inutil_aparece_el_juez_local():
     assert "en_rango and estaba_mal" in src
 
 
-def test_el_desenlace_cuenta_que_juzgo_el_juez_local():
-    """Con el cotejo imposible (referencia rota o papel sin precio) y un juez
-    local en verde, el encabezado no puede decir «reintentá» — reintentar
-    contra 1816 no cambia nada. Se cubren los DOS jueces."""
+def test_el_desenlace_cuenta_que_juzgo_NUESTRO_MOTOR():
+    """Con el cotejo contra 1816 imposible (referencia rota o papel sin precio)
+    y un juez local en verde, el encabezado no puede decir «reintentá»:
+    reintentar contra 1816 no cambia nada. Se cubren los DOS jueces.
+
+    ⚠️ **Se congela el SENTIDO, no la jerga** (2026-08-23). La versión anterior
+    exigía la frase literal «juzgó el JUEZ LOCAL», que es exactamente el idioma
+    que el user marcó como ilegible (*«palabras como COTEJO, malísimo»*): un
+    test que fija el vocabulario interno impide reescribirlo en castellano, que
+    era el arreglo. Lo que no puede cambiar es que diga QUÉ lo probó y que NO
+    mande a reintentar."""
     src = codigo(alta._desenlace)
     assert '("juez_local", "juez_falla")' in src
-    assert "juzgó el JUEZ" in src
+    assert "nuestro motor" in src            # dice con qué se probó
+    assert "aplicar a mano" in src           # y qué se puede hacer
 
 
 def test_sin_precio_juzga_la_falla_medida():

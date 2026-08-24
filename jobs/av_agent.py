@@ -71,6 +71,16 @@ def persistir(res: dict) -> int:
     herramienta de integridad."""
     hallazgos = res.get("hallazgos") or []
     if not hallazgos:
+        # ⚠️ **Sin hallazgos igual hay que espejar** (Fase 2). Antes esto cortaba
+        # acá, así que el día que una corrida no encuentra NADA —el día que todo
+        # está bien— no se cerraba un solo objeto y la lista se quedaba con
+        # problemas que ya no existían.
+        #
+        # En `try`, igual que el otro camino: el espejo no puede tumbar el job.
+        try:
+            _espejar_en_items(res)
+        except Exception as e:
+            logger.warning("av_agent: no pude espejar la corrida vacía (%s)", e)
         return 0
     # ⚠️ **LA CLAVE SE CALCULA ACÁ Y SE GUARDA.** Es la identidad del hallazgo
     # como objeto (§0.bd) y la escribe el que lo produce, una sola vez. Si el
@@ -129,17 +139,27 @@ def _espejar_en_items(res: dict) -> None:
 
     u = res.get("universo") or {}
     hall = res.get("hallazgos") or []
-    # Los tipos que esta corrida SÍ pudo mirar. Los tres condicionales son los
-    # mismos que el job ya imprime como «no se evaluó» — acá deciden si se
-    # puede cerrar por ausencia.
-    vistos_en_la_corrida = {h.get("tipo") for h in hall if h.get("tipo")}
-    evaluados = set(vistos_en_la_corrida)
-    if u.get("faltantes_evaluados"):
-        evaluados.add("falta_en_base")
-    else:
-        evaluados.discard("falta_en_base")
+    # ⚠️⚠️ **QUÉ SE MIRÓ LO DICE `relevar()`, NO LO QUE ENCONTRÓ** (Fase 2).
+    #
+    # Acá se derivaba de los tipos que habían PRODUCIDO hallazgos:
+    #
+    #     vistos_en_la_corrida = {h["tipo"] for h in hall}   # ← el bug
+    #
+    # O sea que un tipo que llegaba a CERO no se declaraba evaluado y **sus
+    # objetos no se cerraban nunca**. Arreglabas el último `sin_flujo` y ese
+    # arreglo —el bueno— no arrancaba su reloj ni salía del contador. Es la
+    # misma confusión que la guarda existe para evitar («miré y no había nada»
+    # vs «no miré»), colada por la puerta de atrás.
+    #
+    # Ahora cada detector declara lo suyo al terminar bien, y acá solo se
+    # RESTAN las condiciones que el job ya conocía y el detector no.
+    evaluados = set(res.get("evaluados") or ())
+    # `sin_espejo_en_assets` es una regla de `tasa_sospechosa` y no corre sin
+    # `portafolio.assets`: el detector corrió igual, pero incompleto. Cerrar
+    # `tasa_sospechosa` por ausencia con esa regla apagada borraría hallazgos
+    # que siguen siendo ciertos.
     if not u.get("assets_leidos"):
-        evaluados.discard("tasa_sospechosa")     # sin assets, `sin_espejo` no corre
+        evaluados.discard("tasa_sospechosa")
     av_agent_items.sincronizar(res.get("alcance") or "censo", hall,
                                evaluados=evaluados)
 

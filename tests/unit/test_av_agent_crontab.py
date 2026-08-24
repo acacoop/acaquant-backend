@@ -122,4 +122,6 @@ def test_el_crontab_del_repo_se_parsea_y_tiene_los_jobs_conocidos():
     r = cr.del_repo()
     assert len(r) > 20, f"solo {len(r)} crons parseados — ¿se rompió el regex?"
     jobs = {cr._que_job(x) for x in r}
-    assert {"saldos_a_operadores", "av_agent", "av_agent_live"} <= jobs
+    # ⚠️ `av_agent_live` ya NO está: el monitor de rueda pasó a ser el daemon
+    # (Fase 2, 2026-08-24). Se dejan tres que sí son crones de verdad.
+    assert {"saldos_a_operadores", "av_agent", "db_tamano"} <= jobs

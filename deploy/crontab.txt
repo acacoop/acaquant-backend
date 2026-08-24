@@ -440,22 +440,23 @@
 0,30 16-17 * * 1-5 /root/TradingAV/deploy/run_job.sh mayor_sync 9m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mayor_sync'
 0 18-21 * * 1-5 /root/TradingAV/deploy/run_job.sh mayor_sync 9m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mayor_sync'
 
-# ─── AV AGENT EN RUEDA — el monitor que solo tiene sentido con el mercado abierto
-# Pedido del user 2026-08-18: «necesito que esté prendido el agente… al menos de
-# 10:30 a 17».
-# Busca DOS cosas que NO existen de noche: un símbolo del master al que el motor
-# no le está dando precio (el caso AO29 — el bono está en `mercado.curvas` y
-# nadie lo suscribió) y un precio que llega en la moneda equivocada (el caso
-# GD46 — curva USD con precio en pesos; la tasa y la duration salen bien igual,
-# así que solo se ve mirando la escala).
-# CERO créditos de 1816: lee `mercado.curvas` + `mercado.market_snapshot`, que ya
-# están en la base. Por eso puede correr cada 5 minutos — `jobs.av_agent`, que sí
-# censa 1816 (~29 créditos), sigue corriendo una vez por noche y no se toca.
-# Cada corrida REEMPLAZA los hallazgos live: son una foto del momento, y
-# acumularlos dejaría 84 avisos de «AO29 sin precio» al final del día.
-# 13:30-19:55 UTC = 10:30-16:55 ART.
-30-55/5 13 * * 1-5 /root/TradingAV/deploy/run_job.sh av_agent_live 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.av_agent_live'
-*/5 14-19 * * 1-5 /root/TradingAV/deploy/run_job.sh av_agent_live 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.av_agent_live'
+# ─── AV AGENT EN RUEDA — YA NO ES UN CRON, es el DAEMON (2026-08-24, Fase 2)
+# `jobs.av_agent_live` corría cada 5 min y llamaba a `relevar_live()`: el barrido
+# completo (master, snapshot, especies, latencia, motores, logs, proveedores).
+# El daemon `av_agent_centinela.service` llamaba a LA MISMA función cada 30 s.
+# Dos procesos haciendo el mismo trabajo sobre el mismo dato, escribiendo en
+# tablas distintas: el cron la FOTO que lee LA LISTA, el daemon los OBJETOS que
+# leen AHORA y VIGILANCIA. Nunca se decidió — se acumuló.
+#
+# Ahora el daemon escribe las dos, y la foto va throttleada a los mismos 5 min
+# que tenía el cron (`av_agent_centinela.SEGUNDOS_ENTRE_FOTOS`): reescribirla
+# entera ocho veces por minuto sería diez veces el churn de hoy.
+#
+# `jobs/av_agent_live.py` queda en el repo para correrlo A MANO (`--ver` imprime
+# lo que ve sin escribir), que es como se debuggea un detector.
+#
+# ⚠️ Si este crontab no se reinstala en la máquina, el cron viejo sigue vivo y
+# duplica la foto — molesto pero inofensivo, y `cron_desalineado` lo canta.
 
 # ─── AV AGENT — LA RELEVADA contra 1816, cada 2 horas en rueda
 # Hallazgo del user 2026-08-18: este job NO ESTABA EN EL CRONTAB. La relevada se

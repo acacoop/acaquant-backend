@@ -108,8 +108,11 @@ def _clave(h: dict) -> str:
 _CUBRE = {
     # La pasada de precios de `relevar_live()`, COMPLETA. `recuperado` lo
     # produce el cron y no el daemon, pero el daemon puede cerrarlo.
-    "precios": ("sin_precio", "precio_moneda", "recuperado", "latencia",
-                "motor_caido", "motor_ruidoso", "proveedor_caido"),
+    # `recuperado` y `respuesta` los produce `_escribir_la_foto` (lo que hacía el
+    # cron antes de que el daemon lo absorbiera): van a la FOTO y no a esta
+    # tabla, pero el daemon **sí los vigila** y la tab AGENDA lee de acá.
+    "precios": ("sin_precio", "precio_moneda", "recuperado", "respuesta",
+                "latencia", "motor_caido", "motor_ruidoso", "proveedor_caido"),
     "tasas": ("tasa_sospechosa",),
     "salud": ("salud",),
     # Solo se evalúa los días NO hábiles (es cuando el universo prohibido
@@ -199,13 +202,75 @@ def _observar() -> tuple[list[dict], set[str]]:
     return hallazgos, evaluados
 
 
+# ── LA FOTO DE LA RUEDA, escrita por acá (Fase 2, 2026-08-24) ──────────────
+#
+# ⚠️⚠️ **HABÍA DOS PROCESOS CORRIENDO EL MISMO DETECTOR.** El cron
+# `jobs.av_agent_live` (cada 5 min) y este daemon (cada 30 s) llamaban los dos a
+# `relevar_live()` —el barrido completo: master, snapshot, especies, latencia,
+# motores, logs, proveedores— y escribían en tablas distintas: el cron la FOTO
+# que lee LA LISTA, el daemon los OBJETOS que leen AHORA y VIGILANCIA.
+#
+# No era una transición: nunca se decidió. Dos procesos, el doble de trabajo, y
+# dos cosas que pueden fallar por separado sobre el mismo dato.
+#
+# Ahora el daemon escribe las dos. Y la foto va **throttleada a la cadencia que
+# tenía el cron**: el daemon late cada 30 s y reescribir la foto entera
+# (DELETE + INSERT) ocho veces por minuto sería diez veces el churn de hoy para
+# un dato que la pantalla mira cada tanto.
+SEGUNDOS_ENTRE_FOTOS = 5 * 60
+_ultima_foto: float = 0.0
+
+
+def _toca_la_foto() -> bool:
+    """¿Pasaron los 5 minutos? Arranca en `True` (la primera pasada la escribe).
+
+    Es tiempo de RELOJ y no de mercado a propósito: la foto tiene que
+    refrescarse igual fuera de rueda, porque ahí es cuando los hallazgos de
+    mercado VENCEN y hay que dejar de mostrarlos.
+    """
+    return (time.monotonic() - _ultima_foto) >= SEGUNDOS_ENTRE_FOTOS
+
+
+def _escribir_la_foto(hallazgos: list[dict]) -> int:
+    """La foto `live` + lo que el cron hacía justo antes de pisarla.
+
+    **El orden importa**: `detectar_recuperados` lee la foto ANTERIOR (todavía
+    está en la tabla hasta que `reemplazar_hallazgos` haga su DELETE) y la resta
+    contra la nueva. Es el único momento en que se puede saber qué se arregló;
+    después, una recuperación es una fila que deja de escribirse, o sea silencio.
+
+    Nunca levanta: la foto es importante pero los objetos son la memoria, y esta
+    pasada corre después de que ya se escribieron.
+    """
+    global _ultima_foto
+    from api.services import av_agent
+    from api.services.av_agent_recuperados import detectar_recuperados
+    from api.services.av_agent_respuesta import revisar
+
+    extra: list[dict] = []
+    try:
+        extra += detectar_recuperados(hallazgos)
+    except Exception as e:
+        logger.warning("centinela: no pude detectar recuperados (%s)", e)
+    try:
+        # Lo que se le pidió al mercado y ya contestó. La espera se mide en
+        # tiempo de RUEDA, así que solo tiene sentido con el mercado abierto.
+        extra += revisar()
+    except Exception as e:
+        logger.warning("centinela: no pude revisar las respuestas (%s)", e)
+
+    n = av_agent.reemplazar_hallazgos("live", list(hallazgos) + extra)
+    _ultima_foto = time.monotonic()
+    return n
+
+
 def ciclo() -> dict:
     """Observa, concilia contra lo que ya estaba, y late. Nunca levanta."""
     t0 = time.perf_counter()
     from api.services import av_agent
     abierto = av_agent.en_rueda()
     err = ""
-    nuevos = abiertos = 0
+    nuevos = abiertos = fotos = 0
     try:
         hallazgos, evaluados = _observar()
         # Dedup por clave DENTRO de la pasada: dos detectores pueden ver el mismo
@@ -215,13 +280,16 @@ def ciclo() -> dict:
         for h in hallazgos:
             por_clave.setdefault(_clave(h), h)
 
+        from api.services import av_agent_items
+
         marca = datetime.now(UTC)
         with get_pool().connection() as conn, conn.cursor() as cur:
             for clave, h in por_clave.items():
                 cur.execute(
                     "INSERT INTO agente.av_agent_centinela "
-                    "(clave, tipo, sujeto, regla, severidad, motivo, evidencia) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb) "
+                    "(clave, tipo, sujeto, regla, severidad, motivo, evidencia, "
+                    " clave_item) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s) "
                     "ON CONFLICT (clave) DO UPDATE SET "
                     # El motivo y la evidencia SÍ se refrescan: son el estado de
                     # AHORA. Lo que nunca se pisa es `abierto_at` ni `visto_at`.
@@ -237,12 +305,20 @@ def ciclo() -> dict:
                     "  reaperturas = agente.av_agent_centinela.reaperturas + "
                     "    CASE WHEN agente.av_agent_centinela.resuelto_at "
                     "         IS NOT NULL THEN 1 ELSE 0 END, "
-                    "  resuelto_at = NULL, resuelto_como = NULL "
+                    "  resuelto_at = NULL, resuelto_como = NULL, "
+                    # Se refresca por si la fila es vieja (nació antes de que
+                    # existiera la columna) o si `causa_canonica` cambió.
+                    "  clave_item = EXCLUDED.clave_item "
                     "RETURNING (xmax = 0) AS es_nuevo",
                     (clave, h.get("tipo"), h.get("ticker") or "?", h.get("regla"),
                      h.get("severidad"), h.get("motivo"),
                      json.dumps(h.get("evidencia") or {}, ensure_ascii=False,
-                                default=str)))
+                                default=str),
+                     # LA MISMA función que usan el detector, el job y la
+                     # acción. Nunca a mano: tres implementaciones de la
+                     # identidad es cómo se llegó hasta acá (REGLA #9).
+                     av_agent_items.clave_de_problema(
+                         h.get("ticker") or "", h.get("regla") or "")))
                 if (r := cur.fetchone()) and r[0]:
                     nuevos += 1
 
@@ -269,6 +345,15 @@ def ciclo() -> dict:
                         "WHERE resuelto_at IS NULL")
             abiertos = cur.fetchone()[0]
             conn.commit()
+
+        # ── Y LA FOTO, que es lo que lee LA LISTA ───────────────────────────
+        # Throttleada: el daemon late cada 30 s y la foto se reescribe entera.
+        # Va DESPUÉS de la transacción de arriba y en su propio try.
+        if _toca_la_foto():
+            try:
+                fotos = _escribir_la_foto(list(por_clave.values()))
+            except Exception as e:
+                logger.warning("centinela: no pude escribir la foto live (%s)", e)
 
         # ── Y COMO OBJETO, para que AHORA y ENCONTRÓ hablen de lo mismo ─────
         #
@@ -297,7 +382,7 @@ def ciclo() -> dict:
     proximo = INTERVALO_RUEDA_S if abierto else INTERVALO_CERRADO_S
     _latir(abierto, abiertos, nuevos, ms, err, proximo)
     return {"ok": not err, "en_rueda": abierto, "abiertos": abiertos,
-            "nuevos": nuevos, "ms": ms, "error": err}
+            "nuevos": nuevos, "ms": ms, "error": err, "foto": fotos}
 
 
 def _latir(abierto: bool, abiertos: int, nuevos: int, ms: int, err: str,
@@ -367,8 +452,14 @@ def estado(limite: int = 200) -> dict:
                 f"SELECT {', '.join('c.' + x for x in _COLS)}, i.abierto_at, "
                 "       i.vuelto_at "
                 "  FROM agente.av_agent_centinela c "
-                "  LEFT JOIN agente.av_agent_items i "
-                "    ON i.clave = lower(c.sujeto) || '|' || lower(c.regla) "
+                # ⚠️ **Por la clave GUARDADA, no recalculada.** Acá vivía
+                # `ON i.clave = lower(c.sujeto) || '|' || lower(c.regla)`: una
+                # TERCERA implementación de `clave_de_problema`, en SQL, sin
+                # `causa_canonica()` (los sinónimos control↔detector no
+                # matcheaban) y sin el caso del sujeto vacío. Fallaba en
+                # silencio: AHORA decía «recién» y ENCONTRÓ «11 días» del mismo
+                # problema, que es justo lo que este JOIN vino a arreglar.
+                "  LEFT JOIN agente.av_agent_items i ON i.clave = c.clave_item "
                 " WHERE c.resuelto_at IS NULL "
                 # Lo NUEVO y sin ver primero: es lo único que pide una decisión.
                 " ORDER BY (c.visto_at IS NULL) DESC, "

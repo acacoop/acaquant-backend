@@ -49,12 +49,18 @@ def test_registrar_va_DESPUES_de_sellar_y_no_puede_tumbar_la_accion():
     assert "except Exception" in src.split("acc.registrar(")[1][:400]
 
 
-def test_el_libro_llega_al_SEGUIMIENTO():
-    """El eslabón siguiente: `registrar` es quien anota el caso a mirar en 5
-    días. Si dejara de hacerlo, el círculo se abre de nuevo en silencio."""
+def test_el_LIBRO_no_mide_nada_mas_que_el_libro():
+    """⚠️ Acá se exigía lo contrario: que `registrar` anotara en
+    `av_agent_seguimiento`. Se dio vuelta el 2026-08-24 (Fase 2) porque ese
+    segundo medidor **solo podía decir «aguantó»** — armaba la clave
+    `accion:objetivo:regla` y la comparaba contra `tipo:sujeto:regla`.
+
+    El libro registra QUÉ se hizo. Quién dice si FUNCIONÓ es el detector, y
+    después el reloj de los hitos. Un solo camino."""
     from api.services import av_agent_acciones as acc
     src = inspect.getsource(acc.registrar)
-    assert "av_agent_seguimiento" in src and "seg.anotar(" in src
+    assert "seg.anotar(" not in src
+    assert "av_agent_evals" not in src
 
 
 # ── la CAUSA: la clave que tiene que coincidir con el voto humano ────────────
@@ -119,29 +125,36 @@ def test_el_destino_de_apuntar_pata_nombra_la_tabla_real():
 # ── el seguimiento, que es lo que vale ───────────────────────────────────────
 
 def test_una_APROBACION_no_es_un_voto():
-    """⚠️ **El invariante nuevo** (2026-08-24). `_votar_derivado` escribía en el
-    eval set un ✔ con `acierta=True` FIJO cada vez que alguien aprobaba una
-    acción. Medido en prod: **106 votos, 106 ✔ — 100% por construcción**, más de
-    la mitad de la tabla. Un número que no puede bajar no mide nada.
+    """⚠️ **El invariante** (2026-08-24). `_votar_derivado` escribía en el eval
+    set un ✔ con `acierta=True` FIJO cada vez que alguien aprobaba una acción.
+    Medido en prod: **106 votos, 106 ✔ — 100% por construcción**, más de la mitad
+    de la tabla. Un número que no puede bajar no mide nada.
 
     Aprobar es decir «dale», no «tu diagnóstico era correcto», y el «dale» ya
-    queda anotado en el libro de acciones. Lo que SÍ vale es el seguimiento: que
-    el problema no haya vuelto no es la opinión de nadie y el agente no lo puede
-    maquillar."""
+    queda anotado en el libro de acciones."""
     from api.services import av_agent_acciones as acc
-    from api.services import av_agent_seguimiento as seg
-    assert "verificado" in inspect.getsource(seg._votar)
     assert not hasattr(acc, "_votar_derivado")
-    # Y la aprobación sigue poniendo el arreglo EN SEGUIMIENTO, que es el que
-    # va a decir, dentro de unos días, si funcionó.
-    assert "seg.anotar(" in inspect.getsource(acc.registrar)
+    assert "av_agent_evals" not in inspect.getsource(acc)
+
+
+def test_la_APROBACION_pone_el_objeto_EN_CURSO_y_ahi_arranca_el_reloj():
+    """Lo que sí vale es el tiempo, y el camino es UNO: la acción mueve el
+    objeto a `en_curso`, el DETECTOR lo cierra cuando deja de verlo, y recién ahí
+    corren los hitos. La acción no califica su propio trabajo."""
+    from api.services import av_agent_hacer
+    src = inspect.getsource(av_agent_hacer._mover_item)
+    assert "EN_CURSO" in src and "RESUELTO" not in src
 
 
 def test_todavia_no_volvio_NO_es_aguanto():
-    """Sin la espera estaríamos premiando un arreglo de hace una hora."""
-    from api.services import av_agent_seguimiento as seg
-    assert seg.DIAS_DE_PRUEBA >= 5
-    assert {seg.MIRANDO, seg.AGUANTO, seg.VOLVIO} == {"mirando", "aguanto", "volvio"}
+    """Sin la espera estaríamos premiando un arreglo de hace una hora. Solo entra
+    a `aguantaron` el que pasó el ÚLTIMO hito (30 días hábiles)."""
+    from api.services import av_agent_items
+    from core import ciclo
+    src = inspect.getsource(av_agent_items.cerrar_hitos)
+    assert "tope = max(ciclo.HITOS_DIAS)" in src
+    assert "if d < tope:" in src and "continue" in src
+    assert max(ciclo.HITOS_DIAS) == 30
 
 
 # ── una causa PROBADA deja de preguntar ──────────────────────────────────────

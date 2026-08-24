@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import inspect
 
-from api.services import av_agent, av_agent_seguimiento
+from api.services import av_agent
 
 # ── 1 · LA FOTO DE REEMPLAZO GUARDA SU IDENTIDAD ────────────────────────────
 #
@@ -92,30 +92,52 @@ def test_los_tipos_declarados_por_el_monitor_existen_en_el_registro():
     assert not inventados, f"tipos declarados que no existen: {inventados}"
 
 
-# ── 3 · EL SEGUIMIENTO VIEJO NO PUEDE VOTAR ────────────────────────────────
-#
-# Sus dos mitades arman la clave con formatos distintos, así que la
-# intersección es vacía por construcción y el veredicto solo puede ser
-# «aguantó» → un ✔ `verificado` fabricado en la única señal que la compuerta
-# de autonomía cuenta como humana.
-
-def test_el_seguimiento_viejo_NO_vota():
-    assert av_agent_seguimiento._votar([{"x": 1}], [{"y": 2}]) == 0
+# ── 3 · EL SEGUIMIENTO VIEJO SE BORRÓ ENTERO (Fase 2) ──────────────────────
+# El invariante vive ahora en `test_seguimiento.py`: no puede volver a haber dos
+# medidores de «¿el arreglo aguantó?».
 
 
-def test_no_queda_ninguna_llamada_a_votar_en_el_seguimiento_viejo():
-    src = inspect.getsource(av_agent_seguimiento)
-    assert "av_agent_evals" not in src, (
-        "volvió el voto: mientras las dos puntas armen la clave distinto, "
-        "solo puede emitir positivos")
+# ── LOS TOPES SILENCIOSOS Y EL CRASH LATENTE (Fase 2) ──────────────────────
+
+def test_el_tope_de_ABIERTOS_corta_por_lo_MAS_NUEVO_no_por_lo_mas_viejo():
+    """⚠️ Iba al revés de la pantalla: `ORDER BY ultimo_at DESC` descartaba **lo
+    más viejo**, y `que_importa` prioriza justamente eso (`arrastra` y
+    `estancado` son «lleva días abierto y nadie lo miró»). El tope tiraba
+    primero lo que la pantalla pone arriba."""
+    from api.services import av_agent_items
+    codigo = "\n".join(l for l in inspect.getsource(av_agent_items.abiertos).splitlines()
+                       if not l.lstrip().startswith("#"))
+    assert "ORDER BY abierto_at ASC" in codigo
+    assert "ORDER BY ultimo_at DESC" not in codigo
 
 
-def test_las_DOS_puntas_siguen_sin_coincidir_y_por_eso_no_se_vota():
-    """Congela el motivo. El día que las claves se unifiquen, este test falla y
-    ahí SÍ hay que volver a habilitar el voto (Fase 2)."""
-    from api.services import av_agent_acciones
-    anota = inspect.getsource(av_agent_acciones.registrar)
-    assert '{accion}:{objetivo}:{regla}' in anota
-    import jobs.seguimiento as js
-    compara = inspect.getsource(js._claves_abiertas)
-    assert "tipo || ':' || ticker || ':' || regla" in compara
+def test_si_el_tope_CORTO_la_pantalla_se_entera():
+    """Un contador que promete «de N abiertos, M piden algo» y está topeado en
+    silencio miente sobre las dos mitades."""
+    from api.services import av_agent_items
+    src = inspect.getsource(av_agent_items.que_importa)
+    assert '"topeado": topeado' in src and '"tope": limite' in src
+
+
+def test_el_reloj_mira_los_MAS_VIEJOS_primero():
+    """`LIMIT 1000` sin ORDER BY: pasados los 1000 resueltos —que no se purgan
+    nunca— el reloj dejaba de correr para un subconjunto arbitrario."""
+    from api.services import av_agent_items
+    src = inspect.getsource(av_agent_items.cerrar_hitos)
+    assert "ORDER BY resuelto_at ASC" in src
+
+
+def test_AGUANTAN_no_se_congela_al_llegar_a_500():
+    """Traía los 500 resueltos más recientes sin importar hace cuánto, así que
+    el contador se clavaba y los que seguían en prueba se caían de la lista."""
+    from api.services import av_agent_items
+    src = inspect.getsource(av_agent_items.en_seguimiento)
+    assert "interval '60 days'" in src
+
+
+def test_la_vista_NO_revienta_si_nunca_hubo_una_corrida():
+    """La firma promete `str | None` y el código hacía `corrida.isoformat()` sin
+    guarda: con la tabla vacía, la pantalla entera devolvía 500."""
+    from api.services import av_agent_vista
+    src = inspect.getsource(av_agent_vista._hallazgos_ultima_corrida)
+    assert "corrida is not None" in src

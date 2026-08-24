@@ -254,3 +254,39 @@ def test_si_el_objeto_no_existe_todavia_se_usa_el_reloj_LOCAL():
 def test_y_se_publica_para_que_la_fila_pueda_decirlo():
     src = codigo(c.estado)
     assert '"dias_abierto"' in src
+
+
+# ── LA IDENTIDAD SE GUARDA, NO SE RECALCULA (Fase 2, 2026-08-24) ────────────
+
+def test_el_JOIN_no_reimplementa_la_identidad_en_SQL():
+    """⚠️⚠️ Acá vivía `ON i.clave = lower(c.sujeto) || '|' || lower(c.regla)`:
+    una TERCERA implementación de `clave_de_problema`, en SQL, **sin
+    `causa_canonica()`** (los sinónimos control↔detector no matcheaban) y sin el
+    caso del sujeto vacío, que esta tabla guarda como `'?'`.
+
+    Fallaba en silencio, que es el modo de falla de REGLA #9: AHORA decía
+    «recién» de un problema que ENCONTRÓ marcaba con 11 días — justo la
+    contradicción que ese JOIN vino a terminar."""
+    codigo = "\n".join(l for l in inspect.getsource(c.estado).splitlines()
+                       if not l.lstrip().startswith("#"))
+    assert "lower(c.sujeto)" not in codigo
+    assert "i.clave = c.clave_item" in codigo
+
+
+def test_la_clave_del_objeto_la_arma_LA_funcion_de_siempre():
+    src = inspect.getsource(c.ciclo)
+    assert "av_agent_items.clave_de_problema(" in src
+    # y no a mano, en ninguna de sus formas
+    codigo = "\n".join(l for l in src.splitlines()
+                       if not l.lstrip().startswith("#"))
+    assert '"|"' not in codigo and "'|'" not in codigo
+
+
+def test_la_PK_de_la_fila_y_la_identidad_del_PROBLEMA_son_cosas_distintas():
+    """`clave` (tipo:sujeto:regla) dedupea DENTRO de una pasada — dos detectores
+    viendo lo mismo son una fila. `clave_item` (sujeto|causa) es quién es el
+    problema. Confundirlas es lo que hizo falta separar."""
+    h = {"tipo": "sin_precio", "ticker": "AO29", "regla": "no_suscripto"}
+    from api.services import av_agent_items
+    assert c._clave(h) == "sin_precio:AO29:no_suscripto"
+    assert av_agent_items.clave_de_problema("AO29", "no_suscripto") == "ao29|no_suscripto"

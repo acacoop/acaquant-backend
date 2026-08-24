@@ -452,15 +452,20 @@ _DONDE_CORRE: dict[str, str] = {
     "tasa_sospechosa": "jobs.av_agent",
     "hueco_de_curva": "jobs.av_agent",
     "salud": "jobs.av_agent",
-    # El monitor de rueda (reemplaza lo suyo cada pasada).
-    "sin_precio": "jobs.av_agent_live",
-    "precio_moneda": "jobs.av_agent_live",
-    "latencia": "jobs.av_agent_live",
-    "motor_caido": "jobs.av_agent_live",
-    "motor_ruidoso": "jobs.av_agent_live",
-    "proveedor_caido": "jobs.av_agent_live",
-    "recuperado": "jobs.av_agent_live",
-    "respuesta": "jobs.av_agent_live",
+    # ⚠️ El monitor de rueda **es el DAEMON** desde 2026-08-24 (Fase 2). Estos
+    # ocho decían `jobs.av_agent_live`, un cron cada 5 min que llamaba a la MISMA
+    # `relevar_live()` que el daemon llamaba cada 30 s: dos procesos haciendo el
+    # mismo trabajo sobre el mismo dato, escribiendo en tablas distintas. El
+    # daemon absorbió la foto (throttleada a los mismos 5 min) y el cron se
+    # retiró; el job queda para correrlo a mano con `--ver`.
+    "sin_precio": "jobs.av_agent_centinela",
+    "precio_moneda": "jobs.av_agent_centinela",
+    "latencia": "jobs.av_agent_centinela",
+    "motor_caido": "jobs.av_agent_centinela",
+    "motor_ruidoso": "jobs.av_agent_centinela",
+    "proveedor_caido": "jobs.av_agent_centinela",
+    "recuperado": "jobs.av_agent_centinela",
+    "respuesta": "jobs.av_agent_centinela",
     # El monitor del SISTEMA, de noche (reemplaza lo suyo cada pasada).
     "db_cambio": "jobs.db_tamano",
     "tabla_quieta": "jobs.db_tamano",

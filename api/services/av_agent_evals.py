@@ -308,7 +308,7 @@ def resumen() -> dict:
                 # **Los HUMANOS se cuentan aparte.** Son los que abren la
                 # compuerta; los derivados solo dan contexto.
                 # ⚠️ **`verificado` CUENTA COMO UN HUMANO.** Sale de
-                # `av_agent_seguimiento`: el problema volvió o no volvió en los
+                # `av_agent_items.cerrar_hitos`: el problema volvió o no volvió en los
                 # días siguientes. No es la opinión de nadie y el agente no lo
                 # controla — es al menos tan buena evidencia como un click, y
                 # dejarla afuera de la compuerta sería tirar la mejor señal que

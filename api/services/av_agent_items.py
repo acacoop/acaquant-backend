@@ -46,7 +46,12 @@ logger = logging.getLogger(__name__)
 
 _COLS = ("clave", "tipo", "origen", "sujeto", "regla", "estado", "severidad",
          "veces", "abierto_at", "ultimo_at", "visto_at", "resuelto_at",
-         "vuelto_at", "titulo", "afecta", "datos")
+         "vuelto_at", "titulo", "afecta", "datos",
+         # ⚠️ `resuelto_como` decide si el tiempo que aguantó es evidencia
+         # (§0.de). Sin él en esta lista, `cerrar_hitos` no puede distinguir un
+         # arreglo real de un «el detector dejó de verlo» y vuelve a votar
+         # cualquier cosa.
+         "resuelto_como", "reaperturas", "visto_por", "aguanto_hasta")
 
 
 def _fila(r) -> ciclo.Item:
@@ -160,6 +165,21 @@ def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
                 "                   THEN %s ELSE agente.av_agent_items.vuelto_at END, "
                 # Y si volvió, deja de estar resuelto: si no, el seguimiento
                 # seguiría contándole hitos a un arreglo que ya falló.
+                # ⚠️ **Pero antes se guarda CUÁNTO había aguantado** — la otra
+                # condición de §0.de. Sin esto, «falló al día siguiente» y «falló
+                # al día 20» quedaban indistinguibles, y esa diferencia es la que
+                # dice si el arreglo iba por buen camino.
+                "  aguanto_hasta = CASE WHEN agente.av_agent_items.estado = %s "
+                "                       THEN agente.av_agent_items.resuelto_at "
+                "                       ELSE agente.av_agent_items.aguanto_hasta END, "
+                # Cuántas veces ya pasó esto. `vuelto_at` dice cuándo fue la
+                # última; esto dice cuántas — y son preguntas distintas.
+                "  reaperturas = agente.av_agent_items.reaperturas + "
+                "     CASE WHEN agente.av_agent_items.estado = %s THEN 1 ELSE 0 END, "
+                # Y el cierre anterior deja de valer: lo que se está reabriendo
+                # ya no está cerrado de ninguna forma.
+                "  resuelto_como = CASE WHEN agente.av_agent_items.estado = %s "
+                "                       THEN NULL ELSE agente.av_agent_items.resuelto_como END, "
                 "  resuelto_at = CASE WHEN agente.av_agent_items.estado = %s "
                 "                     THEN NULL ELSE agente.av_agent_items.resuelto_at END, "
                 "  veces = agente.av_agent_items.veces + 1, "
@@ -175,6 +195,9 @@ def ver(*, tipo: str, origen: str, sujeto: str, regla: str = "",
                  ciclo.RESUELTO, ciclo.VOLVIO,
                  ciclo.IGNORADO, _inicio_hoy_art(), ciclo.NUEVO,
                  ciclo.RESUELTO, ahora,
+                 # los CUATRO CASE que se disparan al VOLVER, en el orden del
+                 # SQL: aguanto_hasta · reaperturas · resuelto_como · resuelto_at
+                 ciclo.RESUELTO, ciclo.RESUELTO, ciclo.RESUELTO,
                  ciclo.RESUELTO))
             nacio, estado, veces, abierto = cur.fetchone()
         return {"ok": True, "clave": clave, "nuevo": bool(nacio),
@@ -212,11 +235,21 @@ def marcar(clave: str, estado: str, *, por: str = "") -> dict:
             cur.execute(
                 "UPDATE agente.av_agent_items SET estado = %s, "
                 "  visto_at    = COALESCE(visto_at, %s), "
+                # Quién lo miró. `visto_at` sin `visto_por` no sirve para
+                # preguntarle a nadie.
+                "  visto_por   = COALESCE(visto_por, NULLIF(%s, '')), "
                 "  resuelto_at = CASE WHEN %s = 'resuelto' THEN %s ELSE resuelto_at END, "
+                # ⚠️ **Un cierre POR ESTA VÍA es por ACCIÓN.** `marcar` lo llama
+                # una persona o una acción del agente — nunca un detector, que
+                # cierra por ausencia en `_cerrar_ausentes`. Es la distinción que
+                # decide si el tiempo que aguante cuenta como evidencia (§0.de).
+                "  resuelto_como = CASE WHEN %s = 'resuelto' THEN %s "
+                "                       ELSE resuelto_como END, "
                 "  vuelto_at   = CASE WHEN %s = 'volvio'   THEN %s ELSE vuelto_at END, "
                 "  datos = datos || %s::jsonb "
                 "WHERE clave = %s",
-                (estado, ahora, estado, ahora, estado, ahora,
+                (estado, ahora, por or "", estado, ahora,
+                 estado, ciclo.POR_ACCION, estado, ahora,
                  json.dumps({"por": por} if por else {}), clave))
         return {"ok": True, "de": actual, "a": estado}
     except Exception as e:
@@ -295,12 +328,16 @@ def _cerrar_ausentes(origen: str, vistas: set[str], evaluados: set[str]) -> int:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "UPDATE agente.av_agent_items "
-                "   SET estado = %s, resuelto_at = now() "
+                # ⚠️ **`ausencia`, y por eso NO vota.** El detector dejó de verlo
+                # y nada más: un bono que no operó esa noche se auto-resuelve por
+                # acá. Marcarlo distinto de un arreglo real es lo único que
+                # permite volver a medir el tiempo sin fabricar señal (§0.de).
+                "   SET estado = %s, resuelto_at = now(), resuelto_como = %s "
                 " WHERE origen = %s "
                 "   AND tipo = ANY(%s) "
                 "   AND estado NOT IN (%s, %s) "
                 "   AND NOT (clave = ANY(%s))",
-                (ciclo.RESUELTO, origen, sorted(evaluados),
+                (ciclo.RESUELTO, ciclo.POR_AUSENCIA, origen, sorted(evaluados),
                  ciclo.RESUELTO, ciclo.IGNORADO, sorted(vistas) or [""]))
             return cur.rowcount or 0
     except Exception as e:
@@ -450,8 +487,17 @@ def abiertos(tipo: str = "", limite: int = 400,
     params.append(max(1, min(int(limite), 2000)))
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
+            # ⚠️⚠️ **EL ORDEN DEL TOPE IBA AL REVÉS DE LA PANTALLA** (Fase 2).
+            #
+            # Era `ORDER BY ultimo_at DESC`, o sea que al pasar el límite se
+            # descartaba **lo más viejo** — y `que_importa` prioriza justamente
+            # eso: `arrastra` y `estancado` son «lleva días abierto y nadie lo
+            # miró». El tope tiraba primero lo que la pantalla pone arriba.
+            #
+            # Ahora ordena por ANTIGÜEDAD: si hay que cortar, se corta lo
+            # recién aparecido, que es lo que menos urge.
             cur.execute(f"SELECT {', '.join(_COLS)} FROM agente.av_agent_items "
-                        f"WHERE {where} ORDER BY ultimo_at DESC LIMIT %s",
+                        f"WHERE {where} ORDER BY abierto_at ASC LIMIT %s",
                         tuple(params))
             return [_fila(r) for r in cur.fetchall()]
     except Exception as e:
@@ -488,6 +534,9 @@ def que_importa(limite: int = 400) -> dict:
     todos = abiertos(limite=limite)
     items = [it for it in todos if not ciclo.es_comunicacion(it.tipo)]
     n_comunicaciones = len(todos) - len(items)
+    # ⚠️ **Si el tope cortó, se DICE.** Un contador que promete «de N abiertos,
+    # M piden algo» y está topeado en silencio miente sobre las dos mitades.
+    topeado = len(todos) >= limite
     ahora = datetime.now(UTC)
     items.sort(key=lambda it: ciclo.prioridad(it, ahora))
     por_banda: dict[str, int] = {}
@@ -510,6 +559,9 @@ def que_importa(limite: int = 400) -> dict:
     piden = sum(por_banda.get(b, 0) for b in ("volvio", "estancado", "arrastra"))
     return {"ok": True, "abiertos": len(filas), "piden_algo": piden,
             "comunicaciones": n_comunicaciones,
+            # `True` = hay más de los que entraron. La pantalla lo tiene que
+            # decir en vez de mostrar un total que no es el total.
+            "topeado": topeado, "tope": limite,
             "por_banda": por_banda, "filas": filas,
             "sin_mirar": _sin_mirar(items, ahora)}
 
@@ -570,9 +622,18 @@ def en_seguimiento() -> list[dict]:
     """
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
+            # ⚠️ **Solo los que TODAVÍA se están mirando.** Antes traía los 500
+            # resueltos más recientes, sin importar hace cuánto: como los
+            # resueltos no se purgan, el contador de ¿AGUANTAN? se congelaba al
+            # llegar a 500 y los que seguían en prueba se caían de la lista.
+            #
+            # El corte es el último hito (30 días hábiles ≈ 45 corridos, con
+            # margen): pasado eso el arreglo ya se juzgó y no hay nada que
+            # vigilar. Los que aguantaron se cuentan aparte, en el eval set.
             cur.execute(
                 f"SELECT {', '.join(_COLS)} FROM agente.av_agent_items "
                 "WHERE estado = 'resuelto' AND resuelto_at IS NOT NULL "
+                "  AND resuelto_at > now() - interval '60 days' "
                 "  AND tipo <> ALL(%s) "
                 "ORDER BY resuelto_at DESC LIMIT 500",
                 (list(ciclo.TIPOS_COMUNICACION),))
@@ -594,58 +655,61 @@ def en_seguimiento() -> list[dict]:
 
 
 def cerrar_hitos() -> dict:
-    """**El reloj de los arreglos.** Corre una vez por día y dice, de cada
-    problema dado por cerrado, cuántos hitos lleva sin volver (1·2·3·7·14·30).
+    """**El tiempo, convertido en evidencia.** Corre una vez por día.
 
-    ⚠️⚠️ **YA NO VOTA AL EVAL SET, y el motivo importa** (2026-08-24).
+    Dice, de cada problema dado por cerrado, cuántos hitos lleva sin volver
+    (1·2·3·7·14·30 días HÁBILES) — y **vuelve a votar al eval set** desde el
+    2026-08-24, con la guarda que le faltaba.
 
-    Hasta hoy esta pasada escribía dos votos `verificado` —✔ al pasar los 30
-    días, ✖ apenas el objeto pasaba a `volvio`— y esos votos pesaban en la
-    compuerta de autonomía **igual que un click humano**. El problema es que
-    ninguno de los dos significaba lo que decía:
+    ⚠️⚠️ **POR QUÉ SE HABÍA APAGADO, Y QUÉ CAMBIÓ** (§0.de → Fase 2).
 
-        `resuelto`  NO es «alguien lo arregló».
-                    Es «el detector no lo vio en esta corrida» (`_cerrar_ausentes`).
-                    Un bono que no operó esa noche se auto-resuelve.
-        `volvio`    NO es «el arreglo falló».
-                    Es «el detector lo volvió a ver».
+    El voto se sacó porque `resuelto` no significaba lo que el voto afirmaba:
 
-    Con esas dos confusiones adentro, el ✖ acusaba a un arreglo **que nadie
-    había hecho**. Medido el 2026-08-23: 11 votos ✖, todos emitidos en la MISMA
-    corrida (22/08 23:50), 9 de ellos sobre `sin_tea_con_precio` —incluido GD46,
-    el caso que ya está documentado en `resolver_sujeto` como VOLVIÓ espurio— y
-    uno sobre un chequeo de SALUD, donde «alguien lo arregló» ni siquiera
-    aplica. Y como `candidata_a_auto` exige `okh == nh` (**cero negativos**),
-    cada uno de esos ✖ descalificaba a su causa para siempre.
+        `resuelto`  podía ser «alguien lo arregló» **o** «el detector no lo vio
+                    en esta corrida» (`_cerrar_ausentes`). Un bono que no operó
+                    esa noche se auto-resolvía.
+        `volvio`    podía ser «el arreglo falló» **o** «el detector lo volvió a
+                    ver» — y el motor arma su universo al arrancar, así que un
+                    arreglo correcto reaparecía hasta el próximo reinicio.
 
-    El ✔ tenía el mismo defecto por el otro lado: «aguantó 30 días» sobre un
-    cierre por AUSENCIA tampoco prueba que alguien haya arreglado nada.
+    Con esas dos confusiones adentro, el ✖ acusaba a arreglos **que nadie había
+    hecho**: 11 votos negativos, todos de la misma corrida, y como
+    `candidata_a_auto` exige cero negativos, cada uno descalificaba a su causa
+    para siempre.
 
-    **La decisión (user, 2026-08-23):** *«no es fiable nada absolutamente nada,
-    está muy verde esto»*. Entonces el reloj sigue —la pantalla ¿AGUANTAN? lo
-    necesita y es información útil— pero **no emite juicio**. El día que el
-    objeto registre CÓMO se cerró (por acción vs por ausencia) y deje de borrar
-    `resuelto_at` al volver, el voto puede volver: ahí sí sabrá sobre qué opina.
+    §0.de dejó escrita la condición para volver: *«cuando el objeto registre
+    CÓMO se cerró y deje de borrar `resuelto_at`»*. **Las dos están cumplidas.**
+    Ahora:
 
-    Hasta entonces `votos` sale siempre en 0, a propósito. **No inventar una
-    señal es mejor que fabricar una** — es la misma regla que ya rige en
-    `_cerrar_ausentes` («sin saber qué se miró no se cierra NADA»).
+        cerrado por ACCIÓN + pasó los 30 días hábiles   → ✔ `verificado`
+        cerrado por ACCIÓN + VOLVIÓ                     → ✖ `verificado`
+        cerrado por AUSENCIA                            → **NO VOTA**, ni ✔ ni ✖
 
-        pasó TODOS los hitos (30 días sin volver)  → `aguantaron`
-        VOLVIÓ                                     → `volvieron`
+    El tercer renglón es todo el arreglo: el 100% de los votos falsos venían de
+    ahí. `ciclo.vota()` es quien decide, y ante un cierre sin declarar contesta
+    que NO — el lado que no fabrica señal.
 
-    ⚠️ **«Todavía no volvió» NO es «aguantó».** Solo entra a `aguantaron` el que
-    pasó el ÚLTIMO hito; los del medio siguen en prueba.
+    ⚠️ **Idempotente por `ref`.** El job corre todos los días y los que
+    aguantaron siguen aguantando: sin el `ref`, el mismo arreglo votaría una vez
+    por día y en un mes tendría 30 votos que son uno solo.
 
-    ⚠️⚠️ **Las COMUNICACIONES no entran.** Un `aviso_fila` resuelto es «lo
+    ⚠️ **Las COMUNICACIONES no entran.** Un `aviso_fila` resuelto es «lo
     atendieron», no «el arreglo aguantó».
     """
+    from api.services import av_agent_evals
+
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 f"SELECT {', '.join(_COLS)} FROM agente.av_agent_items "
                 " WHERE ((estado = %s AND resuelto_at IS NOT NULL) OR estado = %s) "
                 "   AND tipo <> ALL(%s) "
+                # ⚠️ El tope estaba SIN ORDEN: al pasar los 1000 resueltos —que
+                # no se purgan nunca— el reloj dejaba de correr para un
+                # subconjunto arbitrario. Los más viejos primero: son los que
+                # están por cumplir el último hito, o sea los que hay que juzgar
+                # HOY. Un resuelto de hace meses ya se votó (el `ref` dedupea).
+                " ORDER BY resuelto_at ASC NULLS LAST"
                 " LIMIT 1000", (ciclo.RESUELTO, ciclo.VOLVIO,
                                 list(ciclo.TIPOS_COMUNICACION)))
             items = [_fila(r) for r in cur.fetchall()]
@@ -655,22 +719,73 @@ def cerrar_hitos() -> dict:
 
     aguantaron: list[dict] = []
     volvieron: list[dict] = []
-    votos = 0                              # ver NO VOTA, abajo
+    sin_juzgar = 0
+    votos = 0
     tope = max(ciclo.HITOS_DIAS)
     for it in items:
+        # **LA GUARDA.** Un cierre por ausencia no dice nada sobre el
+        # diagnóstico: se cuenta y se muestra, pero no vota.
+        juzgable = ciclo.vota(it.resuelto_como)
         if it.estado == ciclo.VOLVIO:
             volvieron.append({"sujeto": it.sujeto, "regla": it.regla,
-                              "titulo": it.titulo})
+                              "titulo": it.titulo,
+                              "reaperturas": it.reaperturas,
+                              # Cuánto había durado: distingue «falló al día
+                              # siguiente» de «falló al día 20».
+                              "aguanto_hasta": (it.aguanto_hasta.isoformat()
+                                                if hasattr(it.aguanto_hasta,
+                                                           "isoformat") else None),
+                              "juzgable": juzgable})
+            if not juzgable:
+                sin_juzgar += 1
+                continue
+            r = av_agent_evals.votar(
+                caso=it.sujeto or it.clave,
+                dominio=_dominio_de(it), causa=it.regla,
+                acierta=False, origen="verificado", ref=f"volvio:{it.clave}",
+                nota="se arregló y el problema volvió a aparecer: el arreglo no "
+                     "alcanzó o la causa era otra")
+            votos += 1 if r.get("ok") and not r.get("duplicado") else 0
             continue
         d = it.dias_resuelto()
         if d < tope:
             continue                       # sigue en prueba: no se premia
         aguantaron.append({"sujeto": it.sujeto, "regla": it.regla,
-                           "dias": round(d, 1)})
+                           "dias": round(d, 1), "juzgable": juzgable})
+        if not juzgable:
+            sin_juzgar += 1
+            continue
+        r = av_agent_evals.votar(
+            caso=it.sujeto or it.clave,
+            dominio=_dominio_de(it), causa=it.regla,
+            acierta=True, origen="verificado", ref=f"aguanto:{it.clave}",
+            nota=f"se arregló y aguantó {tope} días hábiles sin volver")
+        votos += 1 if r.get("ok") and not r.get("duplicado") else 0
 
     return {"ok": True, "mirados": len(items), "aguantaron": aguantaron,
             "volvieron": volvieron, "votos": votos,
+            # **Lo que NO se juzgó se dice.** Un cierre por ausencia que no vota
+            # es correcto; que no se cuente sería truncar en silencio.
+            "sin_juzgar": sin_juzgar,
             "en_prueba": [x for x in en_seguimiento() if not x["aguanto"]]}
+
+
+def _dominio_de(it: ciclo.Item) -> str:
+    """En qué dominio del eval set cae este objeto.
+
+    ⚠️ Estaba clavado en `"bono"` para TODO. El tablero agrupa por
+    `(dominio, causa)`, así que los votos del tiempo sobre un motor o una tabla
+    caían en `bono` mientras el voto humano de la misma causa caía en `sistema`:
+    **dos filas separadas, y ninguna llegaba nunca a los 10 votos** que abren la
+    compuerta. Es REGLA #9 aplicada a la columna de al lado.
+
+    Lo decide `av_agent.dominio_eval`, la MISMA función que usa el voto humano.
+    """
+    try:
+        from api.services import av_agent
+        return av_agent.dominio_eval(it.tipo)
+    except Exception:
+        return "bono"
 
 
 def resumen() -> dict:

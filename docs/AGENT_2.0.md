@@ -299,9 +299,225 @@ botón, y la lista nunca baja.
 
 ---
 
-## 4. Las habilidades de familia 1, una por una
+## 4. El esquema SQL
 
-### 4.1 Renombres y rediseños
+Vive en el schema `agente`, al lado de las tablas viejas (que no se dropean,
+§8). Prefijo **sin** `av_agent_`: las nuevas se distinguen solas de las 18 que
+quedan apagadas.
+
+### 4.1 `agente.habilidades` — el catálogo
+
+```sql
+CREATE TABLE IF NOT EXISTS agente.habilidades (
+    nombre              text PRIMARY KEY,
+    tipo                text NOT NULL,          -- detector | consulta | accion
+    que_mira            text NOT NULL,          -- en castellano, para la pantalla
+    dominio             text NOT NULL,          -- MERCADO | SISTEMA | DATOS | SEGURIDAD
+    usa_ia              boolean NOT NULL DEFAULT false,
+
+    -- SU PROPIO RITMO. El agente lee esto para armar la agenda (§2.2).
+    cada_segundos       integer NOT NULL,
+    ventana             text NOT NULL DEFAULT 'siempre',  -- rueda | habil | siempre
+    activa              boolean NOT NULL DEFAULT true,
+
+    -- SUS PROPIOS UMBRALES (§6). Editable sin deploy.
+    umbrales            jsonb NOT NULL DEFAULT '{}'::jsonb,
+
+    -- EL ARREGLO. Vacío es una declaración explícita: "esto hoy nadie lo
+    -- sabe arreglar" — hoy pasa en 5 de 19 y no está dicho en ningún lado.
+    arreglo             text NOT NULL DEFAULT '',
+
+    -- LA ÚLTIMA CORRIDA. Se GUARDA, no se deriva: una corrida que no encontró
+    -- nada no deja rastro en `hallazgos`, y sin esto "corrí y estaba todo bien"
+    -- y "no corrí" se ven idénticos. Es el bug estructural del agente viejo.
+    ultima_corrida_at   timestamptz,
+    ultimo_resultado    text,                   -- ok | sin_datos | error
+    ultimo_error        text NOT NULL DEFAULT '',
+    ultima_duracion_ms  integer,
+    corridas_hoy        integer NOT NULL DEFAULT 0,
+    corridas_dia        date,                   -- de qué día es el contador
+
+    creada_at           timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT habilidades_tipo_ok
+        CHECK (tipo IN ('detector','consulta','accion')),
+    CONSTRAINT habilidades_ventana_ok
+        CHECK (ventana IN ('rueda','habil','siempre')),
+    CONSTRAINT habilidades_resultado_ok
+        CHECK (ultimo_resultado IS NULL
+               OR ultimo_resultado IN ('ok','sin_datos','error'))
+);
+```
+
+⚠️ **`corridas_hoy` va con `corridas_dia`.** Un contador sin la fecha del día
+que cuenta miente en el primer cambio de día: se resetea en la primera corrida
+cuya fecha no coincide, en el mismo UPDATE. Sin cron de limpieza que se pueda
+olvidar.
+
+⚠️ **`hallazgos_total`, `ultimo_hallazgo_at` y `reincidencias` NO son columnas.**
+Se derivan en la lectura de las otras dos tablas. Guardarlos sería una segunda
+verdad que se desincroniza sola — la REGLA #9 del repo.
+
+### 4.2 `agente.hallazgos` — los eventos
+
+```sql
+CREATE TABLE IF NOT EXISTS agente.hallazgos (
+    id                  bigserial PRIMARY KEY,  -- ÚNICO POR EVENTO, nunca se reusa
+
+    -- LA IDENTIDAD DEL PROBLEMA es el trío, no el id (§1.1).
+    habilidad           text NOT NULL REFERENCES agente.habilidades(nombre),
+    sujeto              text NOT NULL,          -- el bono, la tabla, el motor
+    regla               text NOT NULL,          -- la causa concreta
+
+    nombre              text NOT NULL DEFAULT '',  -- legible: "AL30", "motor_curvas"
+    severidad           text NOT NULL,          -- alta | media | baja
+
+    problema            text NOT NULL,          -- qué está mal
+    -- SIN ESTO NO SE GUARDA (invariante 2). Si no se puede decir qué hacer,
+    -- la regla está mal pensada.
+    que_hacer           text NOT NULL,
+    evidencia           jsonb NOT NULL DEFAULT '{}'::jsonb,
+
+    detectado_at        timestamptz NOT NULL DEFAULT now(),
+    visto_ultima_vez    timestamptz NOT NULL DEFAULT now(),
+    veces               integer NOT NULL DEFAULT 1,
+
+    estado              text NOT NULL DEFAULT 'nuevo',
+    cerrado_at          timestamptz,
+    -- accion | ausencia. SOLO `accion` habilita reincidencia (§1.3).
+    cerrado_como        text,
+    cerrado_por         text NOT NULL DEFAULT '',
+    arreglo_aplicado    text NOT NULL DEFAULT '',
+
+    CONSTRAINT hallazgos_severidad_ok
+        CHECK (severidad IN ('alta','media','baja')),
+    CONSTRAINT hallazgos_estado_ok
+        CHECK (estado IN ('nuevo','en_curso','resuelto','ignorado','reincidio')),
+    CONSTRAINT hallazgos_cierre_ok
+        CHECK (cerrado_como IS NULL OR cerrado_como IN ('accion','ausencia')),
+    -- Un cerrado sin fecha, o una fecha sin cierre, no significan nada.
+    CONSTRAINT hallazgos_cierre_completo
+        CHECK ((estado = 'resuelto') = (cerrado_at IS NOT NULL)),
+    CONSTRAINT hallazgos_que_hacer
+        CHECK (btrim(que_hacer) <> '')
+);
+
+-- UN SOLO hallazgo ABIERTO por problema. Es lo que reemplaza al "modo
+-- reemplazo" del agente viejo (§1.3): si el trío ya está abierto se actualiza
+-- `visto_ultima_vez` y `veces`; no nace otro. Sin esto, el monitor de 30
+-- segundos deja 2.880 filas del mismo problema por día.
+CREATE UNIQUE INDEX IF NOT EXISTS hallazgos_abierto_unico
+    ON agente.hallazgos (habilidad, sujeto, regla)
+    WHERE estado IN ('nuevo','en_curso');
+
+CREATE INDEX IF NOT EXISTS hallazgos_problema
+    ON agente.hallazgos (habilidad, sujeto, regla, detectado_at DESC);
+CREATE INDEX IF NOT EXISTS hallazgos_abiertos
+    ON agente.hallazgos (estado, severidad, detectado_at DESC);
+CREATE INDEX IF NOT EXISTS hallazgos_por_habilidad
+    ON agente.hallazgos (habilidad, detectado_at DESC);
+```
+
+### 4.3 `agente.reincidencias` — la que debe estar vacía
+
+```sql
+CREATE TABLE IF NOT EXISTS agente.reincidencias (
+    id                  bigserial PRIMARY KEY,
+    hallazgo_id         bigint NOT NULL REFERENCES agente.hallazgos(id),
+    hallazgo_previo_id  bigint NOT NULL REFERENCES agente.hallazgos(id),
+
+    -- Copiados del par para poder leer la tabla sin joins: es la que se mira
+    -- primero cuando algo salió mal.
+    habilidad           text NOT NULL,
+    sujeto              text NOT NULL,
+    regla               text NOT NULL,
+    arreglo_aplicado    text NOT NULL,
+
+    resuelto_at         timestamptz NOT NULL,   -- cuándo se dio por arreglado
+    volvio_at           timestamptz NOT NULL,   -- cuándo reapareció
+    dias_aguanto        numeric GENERATED ALWAYS AS
+                        (EXTRACT(epoch FROM volvio_at - resuelto_at) / 86400) STORED,
+
+    visto_por           text NOT NULL DEFAULT '',
+    visto_at            timestamptz,
+
+    -- El mismo par no entra dos veces por el mismo regreso.
+    CONSTRAINT reincidencias_par_unico UNIQUE (hallazgo_id, hallazgo_previo_id),
+    -- Volver ANTES de haberse resuelto no es reincidir.
+    CONSTRAINT reincidencias_orden_ok CHECK (volvio_at > resuelto_at)
+);
+
+CREATE INDEX IF NOT EXISTS reincidencias_recientes
+    ON agente.reincidencias (volvio_at DESC);
+```
+
+⚠️ **No hay constraint que impida insertar una reincidencia de un cierre por
+ausencia** — la base no puede expresar "el previo tiene que estar cerrado como
+accion" sin un trigger. **La guarda vive en la única función que inserta**, y un
+test la sostiene. Es el mismo criterio que la puerta única de escritura.
+
+⚠️ **`dias_aguanto` es una columna generada**: se calcula sola de sus dos
+insumos y no puede contradecirlos. Es lo contrario del acumulado de ACA, que se
+deriva en la lectura porque ahí los insumos cambian.
+
+### 4.4 Las dos vistas que se derivan
+
+```sql
+-- La tabla de habilidades como la pide el user: nombre, cuántos hallazgos,
+-- cuándo fue el último, cuándo corrió por última vez.
+CREATE OR REPLACE VIEW agente.v_habilidades AS
+SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia,
+       h.cada_segundos, h.ventana, h.activa, h.arreglo,
+       h.ultima_corrida_at, h.ultimo_resultado, h.ultimo_error,
+       CASE WHEN h.corridas_dia = current_date THEN h.corridas_hoy ELSE 0 END
+           AS corridas_hoy,
+       coalesce(f.total, 0)      AS hallazgos_total,
+       coalesce(f.abiertos, 0)   AS hallazgos_abiertos,
+       f.ultimo_hallazgo_at,
+       coalesce(r.n, 0)          AS reincidencias,
+       -- EL NÚMERO QUE HABILITA AUTONOMÍA (§1.3): de lo que dijo que arregló,
+       -- cuánto volvió.
+       CASE WHEN coalesce(f.cerrados_por_accion, 0) = 0 THEN NULL
+            ELSE round(coalesce(r.n, 0)::numeric
+                       / f.cerrados_por_accion * 100, 1) END AS pct_volvio
+  FROM agente.habilidades h
+  LEFT JOIN LATERAL (
+        SELECT count(*) AS total,
+               count(*) FILTER (WHERE estado IN ('nuevo','en_curso')) AS abiertos,
+               count(*) FILTER (WHERE cerrado_como = 'accion') AS cerrados_por_accion,
+               max(detectado_at) AS ultimo_hallazgo_at
+          FROM agente.hallazgos WHERE habilidad = h.nombre) f ON true
+  LEFT JOIN LATERAL (
+        SELECT count(*) AS n
+          FROM agente.reincidencias WHERE habilidad = h.nombre) r ON true;
+
+-- LO QUE PIDE TRABAJO. Un hallazgo ignorado o resuelto no está acá.
+CREATE OR REPLACE VIEW agente.v_abiertos AS
+SELECT f.*, hab.dominio, hab.tipo, hab.que_mira
+  FROM agente.hallazgos f
+  JOIN agente.habilidades hab ON hab.nombre = f.habilidad
+ WHERE f.estado IN ('nuevo','en_curso')
+ ORDER BY CASE f.severidad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END,
+          f.detectado_at DESC;
+```
+
+### 4.5 Lo que NO tiene tabla
+
+- **La foto por corrida.** El agente viejo guarda 60 corridas de fotos
+  (`TTL_CORRIDAS = 60`). Con un hallazgo abierto que lleva `veces` y
+  `visto_ultima_vez`, la foto no agrega nada que no esté.
+- **Los objetos aparte de los eventos.** Hoy son dos tablas (`hallazgos` +
+  `items`) que se escriben juntas y "no pueden divergir". Acá el hallazgo
+  abierto **es** el objeto: una tabla, una verdad.
+- **El estado de las acciones.** Vive donde vive hoy (familia 3 no se toca); el
+  hallazgo solo guarda `arreglo_aplicado`.
+
+---
+
+---
+
+## 5. Las habilidades de familia 1, una por una
+
+### 5.1 Renombres y rediseños
 
 #### `soberanos_faltantes` (era `falta_en_base`)
 
@@ -432,7 +648,7 @@ por hora (barata, se purga sola) y salen **dos cosas de la misma fuente**:
 - **El peso actual de cada tabla** — información, siempre visible.
 - **Lo que creció fuera de lo suyo en 24h** — eso sí es hallazgo.
 
-### 4.2 Se elimina
+### 5.2 Se elimina
 
 #### `motor_ruidoso`
 
@@ -444,7 +660,7 @@ por hora (barata, se purga sola) y salen **dos cosas de la misma fuente**:
 antes de morir*. Eso vale. Una skill propia que cuenta que un motor sano loguea
 warnings, no.
 
-### 4.3 Se conservan con retoques menores
+### 5.3 Se conservan con retoques menores
 
 | Habilidad | Retoque |
 |---|---|
@@ -462,20 +678,21 @@ warnings, no.
 | `respuesta` | Se conserva. Cierra el círculo de una acción cuyo efecto lo contesta el mercado. |
 | `recuperado` | Se conserva. Avisa cuando algo vuelve, por el mismo canal que avisó la caída. |
 
-### 4.4 Huecos identificados (sin decidir)
+### 5.4 Huecos identificados
 
 1. **Nadie mira que un arreglo aplicado haya quedado** → lo resuelve
    `reincidencias` (§1.3). **Cerrado.**
-2. **Nadie cruza el catálogo de especies contra Primary.** Existe un job que lo
-   hace todas las noches (`jobs.validar_instrumentos`) pero **no es una
-   habilidad del agente**: su resultado no llega a la pantalla ni tiene estado.
-   *Pendiente de decidir.*
 
-> Descartado por el user: vigilar el presupuesto de créditos de 1816.
+**Descartado por el user, no volver sobre esto:**
+
+- Vigilar el presupuesto de créditos de 1816.
+- Cualquier cosa alrededor del discovery de instrumentos
+  (`jobs.validar_instrumentos`, catálogo de especies contra Primary). El agente
+  no toca ese terreno.
 
 ---
 
-## 5. Los umbrales salen del código
+## 6. Los umbrales salen del código
 
 Hoy están desparramados en 6 archivos y ninguno se puede tocar sin deploy:
 
@@ -496,7 +713,7 @@ habilidades, editable sin deploy.
 
 ---
 
-## 6. Invariantes — lo que no se puede romper
+## 7. Invariantes — lo que no se puede romper
 
 1. **Una habilidad que no corrió no cierra nada.** Nunca.
 2. **Un hallazgo sin `que_hacer` no se guarda.** Si no se puede decir qué hacer,
@@ -512,7 +729,7 @@ habilidades, editable sin deploy.
 
 ---
 
-## 7. Migración
+## 8. Migración
 
 Las 18 tablas `av_agent_*` **no se dropean**. Borrar código se revierte; borrar
 datos no. Se dejan de escribir y se decide después.
@@ -522,7 +739,7 @@ agente único.
 
 ---
 
-## 8. Estado
+## 9. Estado
 
 | Etapa | Estado |
 |---|---|
@@ -532,13 +749,17 @@ agente único.
 | Familia 1 redefinida | ✅ acordado |
 | Familia 3 (arreglar) | conservada sin cambios |
 | Familia 2 (explicar) | congelada, fuera de alcance |
-| Esquema SQL | ⬜ pendiente |
+| Esquema SQL de las 3 tablas | ✅ §4 |
 | Implementación | ⬜ pendiente |
 
 ---
 
 ## Changelog
 
+- **2026-08-24** — Se suma el esquema SQL (§4): las tres tablas, sus
+  constraints, el índice único que reemplaza al «modo reemplazo», las dos
+  vistas derivadas y lo que a propósito NO tiene tabla. Discovery de
+  instrumentos queda descartado del alcance.
 - **2026-08-24** — Nace el doc. Diagnóstico medido sobre el repo, modelo de tres
   tablas (hallazgos / habilidades / reincidencias), motor único con agenda, y
   las 19 habilidades de familia 1 redefinidas: 4 renombradas o rediseñadas

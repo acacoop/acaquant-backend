@@ -82,8 +82,8 @@ def main() -> int:
             causas.setdefault("rama «otros» → el motor NO calcula tasa por "
                               "diseño (tamar/badlar/tpm/caución)", []).append(tk)
         if rama == "on" and esperada and mf != esperada:
-            causas.setdefault(f"rama ON con `moneda_flujo` que CONTRADICE a los "
-                              f"ejes → el motor despacha por el campo viejo",
+            causas.setdefault("rama ON con `moneda_flujo` que CONTRADICE a los "
+                              "ejes → el motor despacha por el campo viejo",
                               []).append(tk)
         if rama == "on" and mf and mf not in ("USD", "DL", "ARS"):
             causas.setdefault(f"rama ON con `moneda_flujo`={mf!r}, que NO es del "

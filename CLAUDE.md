@@ -438,6 +438,7 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Qué vistas/tabs/endpoints/permisos hay (superficie completa) | `MAPA_APP.md` **[VIVO]** |
 | Modelo SQL / schema | `SQL.md` + `SQL_MODELO.md` + `sql/schema.sql` |
 | **PROGRAMA DE IA — doc único** (agente + SALUD + evals + roadmap) | `AV_AGENT.md` **[VIVO]** |
+| AV AGENT — **mapa del CÓDIGO** (dónde vive cada pieza, qué invariante rige) | `AGENTE_MAPA.md` |
 | Vista `/research` (1816, mail diario) | `VISTA_RESEARCH.md` **[VIVO]** |
 | Research → tab BCRA / FRED | `RESEARCH_BCRA.md` · `RESEARCH_FRED.md` |
 | Feed Eikon live / tab REUTERS (`eikon_*`) | `INTEGRACION_REUTERS.md` **[VIVO]** |

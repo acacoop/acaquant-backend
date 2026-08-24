@@ -425,7 +425,7 @@ CREATE INDEX IF NOT EXISTS hallazgos_por_habilidad
 -- y no lo que la tabla acumula.
 CREATE INDEX IF NOT EXISTS hallazgos_ahora
     ON agente.hallazgos (detectado_at DESC)
-    WHERE leido_at IS NULL;
+    WHERE leido_at IS NULL AND estado NOT IN ('resuelto','ignorado');
 ```
 
 ### 4.3 `agente.reincidencias` — la que debe estar vacía
@@ -510,6 +510,7 @@ SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
   FROM agente.hallazgos f
   JOIN agente.habilidades hab ON hab.nombre = f.habilidad
  WHERE f.leido_at IS NULL
+   AND f.estado NOT IN ('resuelto','ignorado')
    AND (f.detectado_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
        = (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
  ORDER BY f.detectado_at DESC;
@@ -728,10 +729,15 @@ warnings, no.
 **La regla, entera:**
 
 ```
-AHORA = hallazgos WHERE detectado_at::date = HOY (ART) AND leido_at IS NULL
+AHORA = hallazgos WHERE detectado_at::date = HOY (ART)
+                   AND leido_at IS NULL
+                   AND estado NOT IN ('resuelto', 'ignorado')
 ```
 
-Nada más. **Un COUNT sobre una condición.** El badge y la lista salen de la
+Nada más. **Un COUNT sobre tres condiciones**, las tres sobre la misma tabla.
+
+Lo resuelto no está: es la misma regla que hoy, y es la correcta — un problema
+que se arregló en la mañana no es una novedad de la tarde. El badge y la lista salen de la
 misma query, así que no pueden decir cosas distintas.
 
 #### Qué cambia respecto de hoy
@@ -816,6 +822,125 @@ que el user viene escapando.
 
 ---
 
+### 6.2 ENCONTRÓ — solo lo que tiene arreglo
+
+> *«En ENCONTRÓ deben estar solamente los que tengan un arreglo. Hoy por ejemplo
+> figuraban SALUD JOB, que en sí son avisos: se entiende que tiene que estar en
+> AHORA, no en ENCONTRÓ.»* — user, 2026-08-24.
+
+```
+ENCONTRÓ = hallazgos WHERE estado IN ('nuevo','en_curso')
+                       AND arreglo <> ''
+```
+
+**AHORA y ENCONTRÓ no son dos cajas: son dos EJES.**
+
+| | Pregunta que hace | Filtro |
+|---|---|---|
+| **AHORA** | ¿pasó **hoy** y ya me enteré? | tiempo + leído |
+| **ENCONTRÓ** | ¿puedo **hacer algo**? | tiene arreglo |
+
+Un hallazgo accionable aparece en los dos, y eso **no es duplicarlo**: hoy es una
+novedad, y hasta que se arregle es trabajo. La diferencia es que de AHORA se va
+solo mañana, y de ENCONTRÓ se va únicamente cuando se arregla.
+
+Eso reemplaza la regla vieja de «cada cosa tiene UNA casa», que se peleó cuatro
+veces en el código y nunca cerró — porque no era un problema de casas: eran dos
+preguntas distintas obligadas a compartir un tabique.
+
+### 6.3 El vocabulario
+
+La palabra que faltaba es **CLASE**, y se DERIVA — nadie la escribe:
+
+| Palabra | Qué es |
+|---|---|
+| **HABILIDAD** | lo que el agente sabe hacer (§3) |
+| **REGLA** | una causa concreta que una habilidad sabe distinguir |
+| **HALLAZGO** | un evento: una habilidad vio algo, en un momento (§1.1) |
+| **ARREGLO** | la acción que resuelve ese hallazgo |
+| **DOMINIO** | de qué habla: MERCADO · SISTEMA · DATOS · SEGURIDAD |
+| **CLASE** | **derivada**: `aviso` si no tiene arreglo · `trabajo` si lo tiene |
+
+```
+clase = 'trabajo'  si arreglo <> ''  →  AHORA (hoy) + ENCONTRÓ (hasta arreglarse)
+clase = 'aviso'    si arreglo  = ''  →  AHORA y nada más
+```
+
+⚠️ **El arreglo se declara por REGLA, no por habilidad.** Una habilidad puede
+tener reglas de las dos clases: en `precio_moneda`, `pata_equivocada` se arregla
+con un botón y `cotiza_en_pesos` es contexto. Colgar el arreglo de la habilidad
+obligaría a elegir mal para una de las dos.
+
+La habilidad muestra el resumen (*todas · algunas · ninguna de mis reglas tienen
+arreglo*), pero **quien manda es la regla**, y por eso el hallazgo la lleva.
+
+### 6.4 Qué es un ARREGLO — y qué no
+
+**Un arreglo ESCRIBE en algún lado.** Cambia el sistema. Después de apretarlo,
+el mundo es distinto.
+
+**No son arreglos**, y hoy están mezclados como si lo fueran:
+
+| No es arreglo | Por qué |
+|---|---|
+| «↻ chequear ahora» | vuelve a mirar. **Mirar no arregla.** |
+| «✔ entendido» | es marcar leído — eje AHORA (§6.1) |
+| «✖ es ruido» | es un voto sobre el agente, no sobre el problema |
+| «ignorar» | esconde, no resuelve |
+| explicar / simular | calcula, no muta |
+
+#### El caso que lo motivó, medido
+
+`salud` **declara una acción** en el catálogo, así que sus hallazgos caen en
+ENCONTRÓ. Pero su puerta es **de solo lectura**: en el front, el botón APLICAR
+está deshabilitado por diseño para ese modo, y lo único que ofrece es
+«↻ chequear ahora», que re-corre el control.
+
+**O sea: un aviso con forma de trabajo.** El user lo detectó desde la pantalla,
+sin ver el código, y tenía razón.
+
+#### Cuánto se achica ENCONTRÓ con esta regla
+
+Medido sobre el repo, cruzando los 19 detectores contra las 10 acciones por la
+causa que cada acción declara:
+
+| | |
+|---|---|
+| Detectores con arreglo REAL | **3** — `sin_flujo`, `sin_precio`, `precio_moneda` |
+| Detectores con arreglo PARCIAL | **1** — `tasa_sospechosa`, y solo 1 de sus 6 reglas |
+| Detectores declarados como accionables sin serlo | **2** — `salud`, `falta_en_base` |
+| Detectores sin ninguna puerta | **13** |
+| **Acciones que NO cuelgan de ningún detector** | **5 de 10** |
+
+Las cinco huérfanas —`assets.cartera`, `assets.fci`, `contrapartes.alta`,
+`avisar.responsable`, `sistema.rehacer_dia`— cuelgan de controles de Manager,
+no de habilidades del agente. Funcionan; simplemente **el agente no las conoce
+como suyas**.
+
+**ENCONTRÓ pasa de 19 tipos a 3 o 4.** Eso no es perder cobertura: los otros 15
+nunca tuvieron nada que apretar. Lo único que cambia es que dejan de simular que
+sí, y se van al noticiero, que es su lugar.
+
+Y deja a la vista la lista de trabajo real del programa: **las 5 acciones
+huérfanas** hay que colgarlas de una habilidad, y **los 13 sin puerta** hay que
+decidir uno por uno si merecen una.
+
+### 6.5 Dónde vive cada cosa — el mapa completo
+
+| | AHORA | ENCONTRÓ | LA MEMORIA |
+|---|---|---|---|
+| **Qué muestra** | lo de hoy, sin leer, sin resolver | lo abierto que tiene arreglo | el historial y las reincidencias |
+| **Se vacía** | sola, cada día | solo arreglando | nunca |
+| **Botones** | «leído» y nada más | el arreglo de cada fila | ninguno |
+| **Ordena por** | hora, la última arriba | severidad | fecha |
+| **Si está vacía** | hoy no pasó nada | no hay nada que apretar | — |
+
+**Ninguna pantalla deriva nada.** Las tres leen una vista de la base y dibujan.
+Acción, estado, clase y nombre vienen resueltos del backend — que es la regla
+que el front ya tiene escrita y que el agente viejo rompió por otro lado.
+
+---
+
 ## 7. Los umbrales salen del código
 
 Hoy están desparramados en 6 archivos y ninguno se puede tocar sin deploy:
@@ -850,6 +975,12 @@ habilidades, editable sin deploy.
 7. **Cada habilidad declara su arreglo, o declara que no tiene.**
 8. **Nada del agente vive fuera del agente.** Ningún detector adentro de un job
    ajeno.
+9. **A ENCONTRÓ solo entra lo que tiene arreglo** (§6.2). Un botón que vuelve a
+   mirar no es un arreglo.
+10. **Un arreglo ESCRIBE.** Si después de apretarlo el sistema quedó igual, no
+    era un arreglo.
+11. **Ninguna pantalla deriva nada.** Clase, estado, arreglo y nombre vienen
+    resueltos del backend.
 
 ---
 
@@ -874,14 +1005,19 @@ agente único.
 | Familia 3 (arreglar) | conservada sin cambios |
 | Familia 2 (explicar) | congelada, fuera de alcance |
 | Esquema SQL de las 3 tablas | ✅ §4 |
-| Pantalla AHORA | ✅ §6.1 |
-| Resto de las pantallas | ⬜ pendiente |
+| Pantallas AHORA / ENCONTRÓ | ✅ §6 |
+| Vocabulario (clase: aviso/trabajo) | ✅ §6.3 |
 | Implementación | ⬜ pendiente |
 
 ---
 
 ## Changelog
 
+- **2026-08-24** — ENCONTRÓ queda definida (§6.2): solo lo que tiene arreglo.
+  AHORA y ENCONTRÓ pasan a ser dos EJES (tiempo · capacidad) y no dos cajas.
+  Se nombra la **clase** (`aviso` / `trabajo`), derivada de si la REGLA tiene
+  arreglo, y se define qué es un arreglo de verdad. Medido: ENCONTRÓ pasa de 19
+  tipos a 3-4, y 5 de las 10 acciones no cuelgan de ninguna habilidad.
 - **2026-08-24** — AHORA queda definida (§6.1): sumatoria de hallazgos con
   fecha de HOY sin leer, un solo COUNT sobre una condición, con `leido_at`
   separado de `estado` — leer no resuelve. Se documenta cómo funciona hoy (el

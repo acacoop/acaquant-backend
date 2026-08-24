@@ -2075,17 +2075,44 @@ def relevar(*, alcance: str = "soberanos",
         logger.warning("av_agent: no se pudo evaluar SALUD", exc_info=True)
         chequeos_salud = []
 
-    hallazgos = [
-        *faltantes,
-        *detectar_sin_flujo(docs, universo_1816),
-        *detectar_tasas_sospechosas(docs, metricas, en_assets, en_cartera,
-                                    universo_1816=universo_1816),
-        *detectar_huecos_de_curva(docs),
-        # SALUD entra como un detector más. Su lectura va en `try` propio: que la
-        # observabilidad se caiga NO puede tumbar la relevada de bonos — el mismo
-        # contrato que ya rige el universo de 1816.
-        *detectar_salud(chequeos_salud),
-    ]
+    # ⚠️⚠️ **CADA DETECTOR DECLARA QUÉ CUBRE, Y SOLO CUENTA SI CORRIÓ** (Fase 2).
+    #
+    # Antes esto era una lista por comprensión y `evaluados` se derivaba, allá en
+    # el job, de **los tipos que habían PRODUCIDO hallazgos**. O sea que un tipo
+    # que llegaba a CERO no se declaraba evaluado y **sus objetos no se cerraban
+    # nunca**: justo el caso del último arreglo, el que sí funcionó.
+    #
+    # Es la misma confusión que la guarda `evaluados` existe para evitar —
+    # «miré y no había nada» vs «no miré»— colándose por la puerta de atrás:
+    # se derivaba lo primero de lo segundo.
+    #
+    # Ahora lo declara el que sabe: se marca el tipo DESPUÉS de que su detector
+    # terminó bien. Un detector que levanta no declara nada y por lo tanto no
+    # cierra nada suyo. Mismo patrón que `relevar_live` (§0.dh).
+    hallazgos: list[dict] = []
+    evaluados: set[str] = set()
+    for tipos, fn in (
+            # `faltantes` ya corrió arriba (necesita el universo): entra hecho, y
+            # su «se pudo evaluar» lo sigue diciendo `universo_1816`.
+            (("falta_en_base",) if universo_1816 else (), lambda: faltantes),
+            (("sin_flujo",), lambda: detectar_sin_flujo(docs, universo_1816)),
+            # `tasa_sospechosa` agrupa varias reglas; una de ellas
+            # (`sin_espejo_en_assets`) no corre sin `assets`, y eso lo sigue
+            # declarando el job — acá se marca que el detector pudo correr.
+            (("tasa_sospechosa",),
+             lambda: detectar_tasas_sospechosas(docs, metricas, en_assets,
+                                                en_cartera,
+                                                universo_1816=universo_1816)),
+            (("hueco_de_curva",), lambda: detectar_huecos_de_curva(docs)),
+            # SALUD entra como un detector más: que la observabilidad se caiga NO
+            # puede tumbar la relevada de bonos.
+            (("salud",), lambda: detectar_salud(chequeos_salud)),
+    ):
+        try:
+            hallazgos.extend(fn())
+            evaluados.update(tipos)
+        except Exception as e:      # un detector roto no puede tapar al otro
+            logger.exception("av_agent: detector %s falló: %s", tipos, e)
     # **El «no me interesa» se aplica a los CUATRO tipos, en UN solo lugar.** Antes
     # solo lo respetaba `detectar_faltantes` (recibía `ignorados` por parámetro), y
     # los otros tres seguían reportando un ticker ya descartado. Filtrar al final
@@ -2112,6 +2139,10 @@ def relevar(*, alcance: str = "soberanos",
                      "en_cartera": len(en_cartera or ()),
                      "chequeos_salud": len(chequeos_salud),
                      "ignorados": len(ignorados)},
+        # QUÉ SE ALCANZÓ A MIRAR, detector por detector. Lo lee el job para
+        # decidir qué puede cerrar por ausencia — antes lo DERIVABA de lo que
+        # había encontrado, y por eso un tipo que llegaba a cero no cerraba nunca.
+        "evaluados": sorted(evaluados),
         "hallazgos": hallazgos,
         "resumen": resumen,
     }

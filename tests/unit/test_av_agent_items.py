@@ -354,15 +354,47 @@ def test_se_DICE_que_tipos_quedaron_sin_evaluar(monkeypatch):
     assert r["no_evaluados"] == ["falta_en_base"]
 
 
-def test_el_job_declara_que_NO_evaluo_los_faltantes_cuando_1816_no_contesto():
+def test_el_detector_declara_que_NO_evaluo_los_faltantes_sin_universo():
     """Es el caso real que el job ya imprime («los FALTANTES no se evaluaron en
-    esta corrida») y que la persistencia ignoraba."""
+    esta corrida»).
+
+    ⚠️ **La guarda se MUDÓ** (Fase 2, 2026-08-24). Vivía en el job, que la
+    derivaba de `universo["faltantes_evaluados"]`; ahora la declara `relevar()`,
+    que es quien sabe si el universo existía. Misma condición, en el lugar donde
+    está el conocimiento — y el job dejó de derivar `evaluados` de lo que se
+    ENCONTRÓ, que era el bug de fondo."""
+    import inspect
+
+    from api.services import av_agent
+    src = inspect.getsource(av_agent.relevar)
+    assert '("falta_en_base",) if universo_1816 else ()' in src
+    assert '"evaluados": sorted(evaluados)' in src
+
+
+def test_el_job_NO_deriva_evaluados_de_lo_que_ENCONTRO():
+    """⚠️⚠️ El bug: `evaluados = {h["tipo"] for h in hall}`. Un tipo que llegaba
+    a CERO no se declaraba evaluado y **sus objetos no se cerraban nunca** — o
+    sea que el último arreglo, el que sí funcionó, no arrancaba su reloj."""
     import inspect
 
     from jobs.av_agent import _espejar_en_items
-    src = inspect.getsource(_espejar_en_items)
-    assert 'evaluados.discard("falta_en_base")' in src
-    assert 'u.get("faltantes_evaluados")' in src
+    # Solo el CÓDIGO: el comentario que explica el bug lo nombra a propósito,
+    # y ese texto es justamente lo que hay que conservar.
+    codigo = "\n".join(l for l in inspect.getsource(_espejar_en_items).splitlines()
+                       if not l.lstrip().startswith("#"))
+    assert 'res.get("evaluados")' in codigo
+    assert "for h in hall" not in codigo, "volvió a derivarlo de lo encontrado"
+
+
+def test_una_corrida_SIN_HALLAZGOS_igual_cierra():
+    """El día que todo está bien es justo el día en que hay más para cerrar. Y
+    `persistir` cortaba con `return 0` antes de espejar."""
+    import inspect
+
+    from jobs import av_agent as job
+    src = inspect.getsource(job.persistir)
+    antes = src[:src.index("return 0")]
+    assert "_espejar_en_items(res)" in antes
 
 
 def test_espejar_NUNCA_tumba_la_corrida():

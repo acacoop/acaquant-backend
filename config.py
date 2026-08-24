@@ -63,6 +63,15 @@ POSTRADE_AUTH_STYLE = os.getenv("POSTRADE_AUTH_STYLE", "body")  # body | query
 # letra); si la medición dice otra cosa, se corrige acá sin tocar código.
 POSTRADE_TOKEN_PREFIJO = os.getenv("POSTRADE_TOKEN_PREFIJO", "")
 
+# ⚠️ ESCRITURA CONTRA POSTRADE — default DENY.
+# A diferencia de Interbanking (100% lectura, no podía mover plata ni por error),
+# Postrade tiene métodos con efecto REAL: NewOrderSingle suscribe y rescata FCI,
+# CancelOrder cancela, AccountStatus inactiva una cuenta y ChangePassword nos deja
+# afuera de nuestra propia integración. Prender esto es una decisión de OPERACIÓN,
+# no de desarrollo; y aun prendido, cada llamada tiene que pedirlo explícito
+# (ver core/postrade.escribir). Ver docs/POSTRADE.md.
+POSTRADE_ESCRITURA = os.getenv("POSTRADE_ESCRITURA", "").strip().lower() in ("1", "true", "yes")
+
 # --- API KEY ---
 API_KEY = os.getenv("API_KEY", "")
 

@@ -122,6 +122,13 @@ def paso_token(usuario: str, password: str) -> tuple[str | None, str | None]:
         )
 
     for estilo in ("body", "query"):
+        # Si el body ya trajo token, no se prueba la querystring: medido, ese
+        # camino se cuelga (dos ReadTimeout de 60s) y dejaría al diag dos
+        # minutos parado para confirmar algo que ya no cambia ninguna decisión
+        # — el default del cliente es body. Se prueba solo si el body falló.
+        if ganador is not None:
+            print(f"  – {'credenciales en la QUERYSTRING':<34} → no se prueba (el body ya anduvo)")
+            break
         etiqueta = (
             "credenciales en el BODY (JSON)" if estilo == "body"
             else "credenciales en la QUERYSTRING"
@@ -172,68 +179,87 @@ def paso_token(usuario: str, password: str) -> tuple[str | None, str | None]:
 
 
 def paso_header(tok: str) -> str | None:
-    """Mide si el token va crudo o con `Bearer `. Devuelve el prefijo que anda."""
+    """Mide si el token va crudo o con `Bearer `. Devuelve el prefijo que anda.
+
+    Prueba contra VARIOS métodos, no contra uno: si el único que probáramos
+    resultara no estar habilitado para nuestro usuario, el diag concluiría "el
+    token no sirve" cuando el token está perfecto. Alcanza con que UNO conteste
+    para saber cómo viaja el header.
+    """
     print()
     print(SEP)
     print("3. CÓMO VIAJA EL TOKEN — crudo vs. Bearer (medido, no supuesto)")
     print(SEP)
     fecha = _ultimo_habil()
-    url = f"{config.POSTRADE_BASE_URL.rstrip('/')}/PosTrade/ClosingProcesses"
-    print(f"  GET {url}?EntryDate={fecha}\n")
+    # Referencial primero: no depende de fechas ni de que tengamos posiciones.
+    candidatos = (
+        ("PreTrade/CurrencyList", {}),
+        ("PosTrade/ClosingProcesses", {"EntryDate": fecha}),
+        ("PreTrade/PartyDetails", {}),
+    )
 
-    ganador: str | None = None
-    for prefijo, etiqueta in (("", "Authorization: <token>"), ("Bearer ", "Authorization: Bearer <token>")):
-        try:
-            r = requests.get(
-                url,
-                params={"EntryDate": fecha},
-                headers={"Authorization": f"{prefijo}{tok}", "Accept": "application/json"},
-                timeout=60,
-            )
-        except requests.RequestException as e:
-            print(f"  ✗ {etiqueta:<38} → red: {type(e).__name__}: {e}")
-            continue
-
-        ok = False
-        detalle = f"HTTP {r.status_code}"
-        if r.status_code == 200:
+    for prefijo, etiqueta in (
+        ("", "Authorization: <token>"),
+        ("Bearer ", "Authorization: Bearer <token>"),
+    ):
+        for path, params in candidatos:
             try:
-                postrade.desempaquetar(r.json(), contexto="ClosingProcesses")
-                ok = True
-            except (ValueError, postrade.PostradeError) as e:
-                detalle = f"HTTP 200 pero el sobre dice: {e}"
-        print(f"  {'✓' if ok else '✗'} {etiqueta:<38} → {detalle}")
-        if not ok and r.status_code != 200:
-            print(f"      cuerpo: {_cuerpo(r)}")
-        if ok and ganador is None:
-            ganador = prefijo
+                r = requests.get(
+                    f"{config.POSTRADE_BASE_URL.rstrip('/')}/{path}",
+                    params=params or None,
+                    headers={"Authorization": f"{prefijo}{tok}", "Accept": "application/json"},
+                    timeout=60,
+                )
+            except requests.RequestException as e:
+                print(f"  ✗ {etiqueta:<30} {path:<28} → red: {type(e).__name__}")
+                continue
 
-    if ganador is None:
-        print("\n  ✗ El token no fue aceptado de ninguna de las dos formas.")
-        print("    El token se emitió, así que las credenciales están bien: lo que")
-        print("    falta es el PERMISO sobre el método. Eso también se le reclama a")
-        print("    Argentina Clearing, pero es otro reclamo.")
-    else:
-        print(f"\n  → sirve: {'crudo' if ganador == '' else 'con Bearer'}")
-    return ganador
+            detalle = f"HTTP {r.status_code}"
+            ok = False
+            if r.status_code == 200:
+                try:
+                    postrade.desempaquetar(r.json(), contexto=path)
+                    ok = True
+                    detalle = "OK"
+                except postrade.PostradeAuthError:
+                    detalle = "el sobre dice 401 (header mal)"
+                except (ValueError, postrade.PostradeError) as e:
+                    # No es OK, pero TAMPOCO es un rechazo de auth: el header
+                    # llegó bien y el método contestó otra cosa (falta un
+                    # parámetro, no está habilitado). Eso ya prueba el header.
+                    detalle = f"responde, pero: {str(e)[:90]}"
+            print(f"  {'✓' if ok else '·'} {etiqueta:<30} {path:<28} → {detalle}")
+            if ok:
+                print(f"\n  → sirve: {'crudo' if prefijo == '' else 'con Bearer'}")
+                return prefijo
+
+    print("\n  ✗ El token no fue aceptado de ninguna de las dos formas.")
+    print("    El token se EMITIÓ, así que las credenciales están bien: lo que")
+    print("    falta es el PERMISO sobre los métodos. Es otro reclamo, y otro")
+    print("    interlocutor, que el de las credenciales.")
+    return None
 
 
 def paso_cliente(prefijo: str) -> None:
-    """La prueba que importa: el cliente real de `core/postrade.py`, de punta a punta."""
+    """La prueba que importa: el cliente real de `core/postrade.py`, de punta a punta.
+
+    No repite la llamada a mano: usa `postrade.ping()`. Si el diag probara por
+    su cuenta, podría pasar en verde con un cliente roto — que es exactamente
+    lo que un diagnóstico no puede permitirse.
+    """
     print()
     print(SEP)
     print("4. EL CLIENTE REAL (core/postrade.py) DE PUNTA A PUNTA")
     print(SEP)
     config.POSTRADE_TOKEN_PREFIJO = prefijo
     postrade.reset_token()
-    fecha = _ultimo_habil()
     try:
-        valor = postrade.procesos_de_cierre(fecha)
+        valor = postrade.ping()
     except postrade.PostradeError as e:
         print(f"  ✗ {e}")
         return
     muestra = json.dumps(valor, ensure_ascii=False)[:400]
-    print(f"  ✓ ClosingProcesses({fecha}) contestó: {muestra}")
+    print(f"  ✓ ping() [CurrencyList] contestó: {muestra}")
 
 
 def main() -> None:

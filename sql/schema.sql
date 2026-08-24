@@ -5087,6 +5087,28 @@ CREATE TABLE IF NOT EXISTS manager.superficie_dia (
     PRIMARY KEY (fecha, path, metodos)
 );
 
+-- manager.postrade_token — el TOKEN de Postrade, compartido entre procesos.
+--
+-- El token de la API Postrade (A3 Mercados / ACyRSA) dura **24 horas**, y el
+-- Droplet corre la API más N jobs de cron. Sin esta tabla cada proceso pediría
+-- el suyo: un token de 24hs usado dos segundos, y decenas de logins por día
+-- contra un proveedor que **no publica** límite de logins. Con ella, ~1 por día.
+--
+-- Una sola fila (`id = 1` con CHECK): no es un histórico, es el token vigente.
+-- Guardarlo acá es MENOS sensible que lo que ya existe — el `.env` tiene la
+-- contraseña, que no vence nunca; esto vence solo en 24hs.
+--
+-- Si la tabla no existe o Postgres no responde, `core/postrade.py` sigue
+-- funcionando con su cache en memoria (degradación elegante, mismo criterio que
+-- `core/instrumentos_validos`): un problema de base no puede dejar sin
+-- funcionar a la integración.
+CREATE TABLE IF NOT EXISTS manager.postrade_token (
+    id             smallint    PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    token          text        NOT NULL,
+    vence_at       timestamptz NOT NULL,
+    actualizado_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- agente.av_agent_propuestas — LO QUE EL AGENTE SABE HACER (2026-08-19).
 --
 -- Pedido del user: *«que el agente aprenda a sugerir, y que si le das OK

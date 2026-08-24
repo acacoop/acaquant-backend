@@ -179,20 +179,28 @@ def test_en_dia_NO_habil_corre_la_pasada_de_actividad(monkeypatch):
 # ── el auto-resuelto usa esa declaración, no «si trajo algo» ────────────────
 
 def test_el_auto_resuelto_se_limita_a_los_tipos_EVALUADOS():
-    src = codigo(c.ciclo)
-    assert "if evaluados:" in src, "volvió a cerrar por «si trajo algo»"
-    assert "AND tipo = ANY(%s)" in src
-    assert "if hallazgos:" not in src
+    """⚠️ **La ley no cambió; se mudó** (Fase 3). El cierre por ausencia vivía
+    en `ciclo()`, sobre la tabla propia del centinela. Al no haber tabla propia
+    lo hace `_cerrar_ausentes` —el mismo que usa la relevada nocturna— y por lo
+    tanto ya no hay dos implementaciones que puedan discrepar sobre qué se
+    puede dar por arreglado."""
+    from api.services import av_agent_items
+
+    src = codigo(av_agent_items._cerrar_ausentes)
+    assert "evaluados" in src
+    assert "tipo = ANY(%s)" in src
+    assert "resuelto_at = now()" not in codigo(c.ciclo), "volvió a cerrar solo"
 
 
-def test_la_antiguedad_sale_del_OBJETO_y_no_de_la_tabla_del_centinela():
+def test_la_antiguedad_SALE_DE_LA_UNICA_TABLA():
     """⚠️ El centinela tenía su `abierto_at` y el censo el suyo, y nadie los
     unía: **AHORA podía decir «recién» y ENCONTRÓ «11 días» del MISMO
-    problema**. Dos relojes para un hecho es la definición de la contradicción
-    que esta migración vino a terminar."""
+    problema**. La Fase 2 lo cosió con un JOIN; la Fase 3 sacó la costura: hay
+    UN `abierto_at` y no hay cuál elegir."""
     src = codigo(c.estado)
-    assert "LEFT JOIN agente.av_agent_items" in src
-    assert "abierto_canonico" in src
+    assert "FROM agente.av_agent_items" in src
+    assert "abierto_canonico" not in src, "volvió el segundo reloj"
+    assert "JOIN" not in src, "volvió la costura entre dos tablas"
 
 
 def test_el_JOIN_va_en_la_MISMA_query():
@@ -210,7 +218,7 @@ def test_el_JOIN_va_en_la_MISMA_query():
     import textwrap
 
     src = codigo(c.estado)
-    assert src.count("cur.execute") == 4
+    assert src.count("cur.execute") == 3
 
     # Y ninguno adentro de un bucle: eso es lo que convierte 4 en 400. Se mira
     # con el AST y no buscando texto — «hay un `for` más arriba» no dice nada
@@ -228,11 +236,14 @@ def test_el_JOIN_va_en_la_MISMA_query():
             assert _executes(n) == 0, "una query adentro de un bucle es un N+1"
 
 
-def test_si_el_objeto_no_existe_todavia_se_usa_el_reloj_LOCAL():
-    """Un hallazgo de este mismo ciclo, antes de espejarse, no puede quedar sin
-    antigüedad: en ese instante los dos relojes dicen lo mismo."""
+def test_YA_NO_HAY_reloj_local_que_reconciliar():
+    """Esto existía para el hueco entre que el daemon escribía su tabla y el
+    espejo escribía el objeto: en ese instante había que elegir un reloj. Sin
+    tabla propia no hay hueco — el `coalesce` se fue con la costura que lo
+    necesitaba."""
     src = codigo(c.estado)
-    assert 'f.pop("abierto_canonico", None) or f.get("abierto_at")' in src
+    assert "abierto_canonico" not in src
+    assert 'desde = f.get("abierto_at")' in src
 
 
 def test_y_se_publica_para_que_la_fila_pueda_decirlo():
@@ -242,28 +253,78 @@ def test_y_se_publica_para_que_la_fila_pueda_decirlo():
 
 # ── LA IDENTIDAD SE GUARDA, NO SE RECALCULA (Fase 2, 2026-08-24) ────────────
 
-def test_el_JOIN_no_reimplementa_la_identidad_en_SQL():
-    """⚠️⚠️ Acá vivía `ON i.clave = lower(c.sujeto) || '|' || lower(c.regla)`:
-    una TERCERA implementación de `clave_de_problema`, en SQL, **sin
-    `causa_canonica()`** (los sinónimos control↔detector no matcheaban) y sin el
-    caso del sujeto vacío, que esta tabla guarda como `'?'`.
+def test_NADIE_reimplementa_la_identidad_en_SQL():
+    """En el JOIN vivia `ON i.clave = lower(c.sujeto) || \'|\' || lower(c.regla)`:
+    una TERCERA implementacion de `clave_de_problema`, en SQL, **sin
+    `causa_canonica()`** (los sinonimos control-detector no matcheaban) y sin el
+    caso del sujeto vacio. Fallaba en silencio, que es el modo de falla de la
+    REGLA #9.
 
-    Fallaba en silencio, que es el modo de falla de REGLA #9: AHORA decía
-    «recién» de un problema que ENCONTRÓ marcaba con 11 días — justo la
-    contradicción que ese JOIN vino a terminar."""
-    codigo = "\n".join(l for l in inspect.getsource(c.estado).splitlines()
-                       if not l.lstrip().startswith("#"))
-    assert "lower(c.sujeto)" not in codigo
-    assert "i.clave = c.clave_item" in codigo
+    La Fase 2 lo cambio por una columna guardada; la Fase 3 saco el JOIN
+    entero. Queda congelado lo unico que importa: **en este modulo la identidad
+    no se arma a mano, en ninguna de sus formas.**"""
+    for fn in (c.estado, c.ciclo, c._escribir_la_foto):
+        src = codigo(fn)
+        assert "lower(c.sujeto)" not in src
+        assert "|| " + chr(39) + "|" + chr(39) + " ||" not in src
+        assert chr(34) + "|" + chr(34) not in src
+
+
+def test_el_centinela_YA_NO_ESCRIBE_su_tabla_propia():
+    """**El corazon de la Fase 3.** La tabla no se dropea —borrar codigo se
+    revierte, borrar datos no— pero nadie puede volver a escribirla: seria
+    reabrir la segunda fuente de verdad de la que salieron «AHORA dice recien y
+    ENCONTRO 11 dias» y «ROTO AHORA muestra 8 filas que son 4»."""
+    import re
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parents[2]
+    malos = []
+    for f in list((raiz / "api").rglob("*.py")) + list((raiz / "jobs").rglob("*.py")):
+        txt = chr(10).join(x for x in f.read_text(encoding="utf-8").splitlines()
+                           if not x.lstrip().startswith("#"))
+        if re.search(r"(INSERT INTO|UPDATE|DELETE FROM)\s+agente\.av_agent_centinela",
+                     txt, re.I):
+            malos.append(str(f.relative_to(raiz)))
+    assert not malos, f"volvieron a escribir la tabla paralela: {malos}"
+
+
+def test_UNA_sola_tabla_con_ciclo_para_el_daemon():
+    """Lo que la Fase 3 promete, medido: el daemon lee y escribe
+    `av_agent_items` y nada mas. **Un `SELECT` a la tabla vieja tampoco vale** —
+    leer de la vieja es como se descubre, tres semanas despues, que la pantalla
+    mostraba otra cosa.
+
+    Se mira el SQL de verdad (los literales que no son docstring) y no el texto
+    del archivo: los comentarios de este modulo NOMBRAN la tabla a proposito,
+    para contar por que ya no se usa.
+    """
+    import ast
+    import inspect
+
+    arbol = ast.parse(inspect.getsource(c))
+    # Un docstring es el primer Constant del cuerpo de modulo/clase/funcion.
+    docs = set()
+    for n in ast.walk(arbol):
+        cuerpo = getattr(n, "body", None)
+        if (isinstance(cuerpo, list) and cuerpo
+                and isinstance(cuerpo[0], ast.Expr)
+                and isinstance(cuerpo[0].value, ast.Constant)
+                and isinstance(cuerpo[0].value.value, str)):
+            docs.add(id(cuerpo[0].value))
+    malos = [n.value for n in ast.walk(arbol)
+             if isinstance(n, ast.Constant) and isinstance(n.value, str)
+             and id(n) not in docs and "av_agent_centinela" in n.value]
+    assert not malos, f"todavia toca la tabla paralela en SQL: {malos}"
 
 
 def test_la_clave_del_objeto_la_arma_LA_funcion_de_siempre():
-    src = inspect.getsource(c.ciclo)
-    assert "av_agent_items.clave_de_problema(" in src
-    # y no a mano, en ninguna de sus formas
-    codigo = "\n".join(l for l in src.splitlines()
-                       if not l.lstrip().startswith("#"))
-    assert '"|"' not in codigo and "'|'" not in codigo
+    """Desde la Fase 3 la arma LA PUERTA, que es el unico que escribe: el
+    daemon ya no tiene tabla propia y por lo tanto no tiene identidad propia
+    que calcular."""
+    from api.services import av_agent_registro as registro
+
+    assert "clave_de_problema(" in inspect.getsource(registro._fila)
 
 
 def test_la_PK_de_la_fila_y_la_identidad_del_PROBLEMA_son_cosas_distintas():

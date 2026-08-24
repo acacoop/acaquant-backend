@@ -21,7 +21,7 @@
 > - **«CÓMO FUNCIONA HOY — el mapa del código»** (arriba de todo, secciones
 >   `M.0`–`M.12`): **el ESTADO**. Dónde vive cada pieza, qué invariante rige,
 >   qué deuda hay abierta. Es lo primero que se lee y lo que se mantiene al día.
-> - **`## 0` en adelante (§0.a → §0.dk): el DIARIO.** Las decisiones en orden
+> - **`## 0` en adelante (§0.a → §0.dl): el DIARIO.** Las decisiones en orden
 >   cronológico, con su porqué. Sirve para no re-proponer lo descartado — **no
 >   para saber cómo funciona algo hoy.**
 >
@@ -43,7 +43,7 @@
 > El user (2026-08-24): *«no puedo tener sesiones en Claude sin que cada sesión
 > vea cosas distintas, que se contradiga constantemente»*.
 >
-> La causa es este documento. De acá para abajo (§0.a → §0.dk) hay un **DIARIO**:
+> La causa es este documento. De acá para abajo (§0.a → §0.dl) hay un **DIARIO**:
 > registra DECISIONES en orden cronológico, y está bien que así sea — es lo que
 > evita re-proponer lo descartado. Pero un diario **no puede contestar «¿cómo
 > funciona hoy?»**: una sesión lee §0.bd y cree que el modelo de objetos está
@@ -82,7 +82,11 @@ una línea de log. La detección entera es determinista.
 **No es que la arquitectura esté mal diseñada** — `core/ciclo.py` es correcto y
 no hay que rehacerlo. Lo que pasa es otra cosa, y es medible:
 
-> **Hay DOS arquitecturas conviviendo y la vieja nunca se apagó.**
+> **El diagnóstico fue: hay DOS arquitecturas conviviendo y la vieja nunca se
+> apagó.** Cerrado el 2026-08-24 con las cuatro fases (§0.dh–§0.dl). La
+> tabla queda porque el marcador es la forma de darse cuenta la próxima vez:
+> **ninguno de estos números subió de golpe** — cada uno creció de a uno,
+> con una decisión razonable atrás, hasta que la suma fue la arquitectura.
 
 | | Antes de la Fase 2 | Hoy | Debería |
 |---|---|---|---|
@@ -91,8 +95,8 @@ no hay que rehacerlo. Lo que pasa es otra cosa, y es medible:
 | Procesos que corren el detector de rueda | **2** | **1** ✅ | 1 |
 | Medidores de «¿el arreglo aguantó?» | **2** | **1** ✅ | 1 |
 | Familias de hallazgo SIN objeto | **5** | **0** ✅ | 0 |
-| Tablas con ciclo de vida propio | **5** | **2** | 1 |
-| Comentarios «convive» / «hasta que se apague lo viejo» | **11** | **2** | 0 |
+| Tablas con ciclo de vida propio | **5** | **1** ✅ | 1 |
+| Comentarios «convive» / «hasta que se apague lo viejo» | **11** | **0** ✅ | 0 |
 | Bloques de la pantalla que afirman sin confirmar | **1** | **0** ✅ | 0 |
 | Cada cuánto se contesta «¿esta tabla está al día?» | **24 h** | **10 min** ✅ | 10 min |
 
@@ -454,7 +458,7 @@ tabla de estado · una lectura.*
 | **0 · Parar la sangría** | la parada cubre todas las puertas · la foto de reemplazo guarda su clave · el seguimiento viejo deja de votar · lo del monitor se cierra cuando vuelve | ✅ 2026-08-24 (§0.dh) |
 | **2 · Apagar lo viejo** | se borra el segundo medidor de «¿aguantó?» · el objeto registra CÓMO se cerró y el voto vuelve · el detector declara qué miró · muere el tercer formato de identidad · el daemon absorbe el cron de rueda · los topes silenciosos | ✅ 2026-08-24 (§0.di) |
 | **1 · La puerta única** | `av_agent_registro.guardar()` — la FOTO y el OBJETO juntos, nadie más escribe · tests que prohíben el `INSERT` fuera de ahí, armar la clave a mano y registrar sin declarar qué se miró | ✅ 2026-08-24 (§0.dj) |
-| **3 · La lectura única** | todas las pantallas leen `av_agent_items`; el centinela deja de tener tabla propia y la foto queda solo para la evidencia | ⬜ **la que sigue** |
+| **3 · La lectura única** | todas las pantallas leen `av_agent_items`; el centinela deja de tener tabla propia · se van el JOIN, el segundo reloj y el dedup a mano · un test prohíbe volver a tocar la tabla vieja | ✅ 2026-08-24 (§0.dl) |
 | **La frescura** *(fuera de plan — lo pidió la pantalla)* | AHORA solo afirma lo confirmado recién (`av_agent_evaluado`) · el atraso de las tablas se MIDE al leer, no se recuerda · lo barato del sistema pasa a cada 10 min | ✅ 2026-08-24 (§0.dk) |
 
 **El orden va 0 → 2 → 1 → 3 a propósito:** borrar lo viejo primero achica el
@@ -8124,6 +8128,70 @@ lectura viva de frescura antes de que el cron de 10 minutos lo dé por barato.
 `if str(t).strip()`, y `str(None)` es `"None"` — perfectamente truthy. Habría
 creado una fila llamada `None` en el registro de confirmaciones. Lo cazó correr
 la función contra un cursor falso; leerla no lo mostraba.
+
+
+### 0.dl FASE 3 — la lectura única (2026-08-24)
+
+Última fase del rescate. **Se va la segunda tabla con ciclo de vida**, que era
+lo que quedaba de las dos arquitecturas conviviendo.
+
+**QUÉ ERA.** `agente.av_agent_centinela` guardaba lo que el daemon veía, con su
+propio `abierto_at`, su propio `visto_at`, su propio `resuelto_como` y su propia
+identidad — **en paralelo** al objeto de `av_agent_items`. Nadie decidió tener
+dos: la tabla del centinela nació primero y el objeto llegó después, y la
+migración quedó a mitad de camino con un JOIN en el medio.
+
+Los bugs que salieron de esa costura no son una lista de descuidos: son **la
+misma falla, cuatro veces**, porque cada mitad era correcta por su cuenta.
+
+    «AHORA dice recién y ENCONTRÓ 11 días»    dos relojes para un hecho
+    «ROTO AHORA muestra 8 filas que son 4»    el mismo motor en las dos tablas
+    marcar visto y seguir «sin ver»           dos respuestas a «¿ya lo miré?»
+    el JOIN por lower(sujeto)||'|'||regla     la tercera identidad, en SQL
+
+Los tres primeros se parchearon en su momento; el cuarto se cambió por una
+columna guardada (§0.di). **Ninguno se arregló entendiendo mejor la costura.**
+
+**QUÉ QUEDÓ.** `ciclo()` ya no hace `UPSERT` en ninguna tabla propia: escribe
+por la misma puerta que todo lo demás (`registro.guardar` → foto + objeto), y
+`estado()` lee **una** tabla. Con eso desaparecen, sin reemplazo:
+
+  · el `LEFT JOIN` y su `clave_item`
+  · el `coalesce` entre dos `abierto_at` (`abierto_canonico`)
+  · el dedup a mano por `(sujeto, regla)` de las dos fuentes
+  · la cuarta query, la que iba a buscar los motores a la otra tabla
+  · el `resuelto_como = 'solo'`, un quinto vocabulario para «se cerró»
+
+De 4 queries a 3, y de ~120 líneas de reconciliación a `_fila()`, que solo
+renombra dos columnas (`titulo`→`motivo`, `datos`→`evidencia`).
+
+**Y DE PASO, NUEVE DE CADA DIEZ PASADAS ERAN TRABAJO TIRADO.** El daemon late
+cada 30 s y corría `_observar()` —el barrido completo, **medido en prod: 1218
+ms**— en cada vuelta. La foto ya estaba throttleada a 5 minutos; lo único que
+justificaba el resto era mantener fresca la tabla propia. Sin tabla propia, se
+observa cuando se escribe. **El latido sigue a 30 s**, porque su trabajo es
+decir «estoy vivo» y eso sí tiene que ser de ahora — y el conteo de abiertos se
+recalcula en cada latido para que el número del semáforo no se quede en el del
+último censo.
+
+⚠️ Ojo con la cadencia: la pantalla **ya decía «vigilando cada 5 min»**, así que
+no hay nada que el user vea distinto. Lo que cambia es que ahora es cierto.
+
+**LA TABLA NO SE DROPEA.** Borrar código se revierte, borrar datos no, y ahí
+vive el historial de lo que el daemon vio. Lo que sí hay es un test que falla si
+algún módulo vuelve a nombrarla en SQL — **escribirla o LEERLA**, porque leer de
+la vieja es como se descubre tres semanas después que la pantalla mostraba otra
+cosa. El test mira los literales de SQL y no el texto del archivo: los
+comentarios la nombran a propósito, para contar por qué ya no se usa.
+
+**Y una función nueva, por una razón medible:** `av_agent_items.marcar_vistos`
+marca hasta 500 claves en UNA query. Llamar a `marcar()` en un bucle habría sido
+más corto, pero cada viaje a Supabase paga ~8,5 ms de distancia aunque la query
+ejecute en 0,1 — cuatro segundos para apretar un botón. La transición se
+respeta igual, en el `WHERE`: solo pasan a `visto` los estados desde los que eso
+es legal, así marcar visto no puede resucitar un cierre.
+
+**El marcador, cerrado:** tablas con ciclo de vida propio **5 → 1**.
 
 
 ## 1. Qué es y qué no es

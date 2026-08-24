@@ -1134,6 +1134,19 @@ como única capa de red (lo hace cumplir el lint), y el proxy
 
 Las 18 tablas `av_agent_*` **no se dropearon** (§9): dejan de escribirse.
 
+### Cómo se mira
+
+```bash
+python -m jobs.agente --estado      # el catálogo: CUÁNDO miró cada habilidad
+python -m jobs.agente --forzar      # corre TODAS ahora, sin mirar el ritmo
+python -m scripts.diag_agente       # latido + catálogo + hallazgos + libro
+python -m scripts.diag_agente --hallazgos
+```
+
+⚠️ **`--una` casi siempre muestra `corridas: []`, y eso NO es una falla.** El
+daemon está corriendo y se lleva cada habilidad apenas vence su ritmo, así que
+una pasada a mano encuentra cero pendientes. Para PROBAR está `--forzar`.
+
 ### Cómo se prende
 
 ```bash

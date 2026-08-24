@@ -63,12 +63,41 @@ def _una_pasada() -> dict:
     return r
 
 
+def _imprimir_estado() -> None:
+    """El catálogo, legible. Contesta la pregunta que ninguna pantalla contestaba
+    en el agente viejo: **cuándo miró cada cosa** — que no se puede derivar de
+    los hallazgos, porque una corrida que no encontró nada no deja rastro."""
+    from agente import catalogo
+
+    filas = catalogo.estado()
+    print(f"{'HABILIDAD':22} {'CLASE':8} {'ULT.':6} {'HOY':>4} "
+          f"{'ABIERT':>6} {'TOTAL':>6} {'VOLV':>5}  ÚLTIMA CORRIDA")
+    for f in sorted(filas, key=lambda x: (x["dominio"], x["nombre"])):
+        ult = f["ultima_corrida_at"]
+        print(f"{f['nombre']:22} {f['clase']:8} "
+              f"{(f['ultimo_resultado'] or '—'):6} "
+              f"{f['corridas_hoy']:>4} {f['hallazgos_abiertos']:>6} "
+              f"{f['hallazgos_total']:>6} {f['reincidencias']:>5}  "
+              f"{str(ult)[:19] if ult else 'NUNCA'}"
+              + (f"  ⚠ {f['ultimo_error'][:70]}" if f["ultimo_error"] else ""))
+    malas = [f for f in filas if f["ultimo_resultado"] in ("error", "sin_datos")]
+    if malas:
+        print(f"\n⚠ {len(malas)} habilidad(es) no pudieron mirar — NO cerraron "
+              f"nada, que es lo correcto:")
+        for f in malas:
+            print(f"    {f['nombre']}: {f['ultimo_error'][:120]}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="El AV Agent")
     ap.add_argument("--una", action="store_true", help="una pasada y salgo")
+    ap.add_argument("--forzar", action="store_true",
+                    help="corre TODAS ahora, sin mirar el ritmo (para probar)")
     ap.add_argument("--skill", default="", help="corre UNA habilidad")
     ap.add_argument("--sync", action="store_true",
                     help="solo sincroniza el catálogo con el código")
+    ap.add_argument("--estado", action="store_true",
+                    help="qué sabe hacer el agente y cuándo miró cada cosa")
     a = ap.parse_args()
 
     from agente import catalogo, motor, reloj
@@ -87,8 +116,42 @@ def main() -> int:
         print(out)
         return 0 if out.get("ok", True) else 1
 
+    if a.estado:
+        _imprimir_estado()
+        return 0
+
+    # ⚠️ **`--forzar` existe porque `--una` no sirve para PROBAR.** El daemon
+    # está corriendo y se lleva las habilidades apenas vencen, así que una
+    # pasada a mano casi siempre encuentra cero pendientes y muestra
+    # `corridas: []` — que se lee como «el agente no anda» cuando es lo
+    # contrario: anda tan bien que no dejó nada.
+    if a.forzar:
+        from agente import catalogo as cat
+        fuentes.refrescar()
+        for nombre in cat.HABILIDADES:
+            r = motor.correr_una(nombre)
+            estado = r.get("resultado") or ("error" if not r.get("ok") else "?")
+            print(f"  {estado:9} {nombre:22} "
+                  f"{r.get('abiertos', 0):>4} vistos · "
+                  f"{r.get('nuevos', 0):>3} nuevos · "
+                  f"{r.get('cerrados', 0):>3} cerrados · "
+                  f"{r.get('ms', 0):>6} ms"
+                  + (f"  ⚠ {r.get('error', '')[:90]}" if not r.get("ok", True) else ""))
+        print()
+        _imprimir_estado()
+        return 0
+
     if a.una:
-        print(_una_pasada())
+        r = _una_pasada()
+        if not r["corridas"]:
+            # Decir POR QUÉ no corrió nada. «corridas: []» a secas se lee como
+            # una falla, y casi siempre es el daemon haciendo su trabajo.
+            print("A ninguna le tocaba todavía (el daemon ya se las llevó, o "
+                  "no están en su ventana).\n"
+                  "Para probar de verdad: `python -m jobs.agente --forzar`\n")
+            _imprimir_estado()
+        else:
+            print(r)
         return 0
 
     signal.signal(signal.SIGTERM, _parar)

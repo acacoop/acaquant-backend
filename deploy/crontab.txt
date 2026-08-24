@@ -491,15 +491,24 @@
 # 23:50 UTC = 20:50 ART. Corre DESPUÉS de todos los detectores del día: mira qué
 # arreglos aguantaron y cuáles volvieron, y lo convierte en votos `verificado`
 # del eval set. Es la única evidencia que no es la opinión de nadie.
+# AP5 — posicion de FUTUROS de la camara (A3/ACyRSA). 9:00 ART = 12:00 UTC.
+# Todos los dias: siempre consulta el ULTIMO DIA HABIL (hoy menos 1 habil), que
+# el job resuelve solo salteando findes y feriados. Corre tambien sabado y
+# domingo a proposito: si el viernes fallo, el sabado lo recupera solo.
+0 12 * * * /root/TradingAV/deploy/run_job.sh ap5_portfolio 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ap5_portfolio'
 
 # ─── EL AV AGENT (docs/AGENT_2.0.md)
 # El agente NO es un cron: es el daemon `agente.service`. Su agenda vive en
 # `agente.habilidades` — cada habilidad declara su ritmo y su ventana, así que
-# sumar una habilidad NO toca este archivo. Acá quedaron los tres crons viejos
-# (`av_agent`, `av_agent_sistema`, `db_tamano`) y se fueron los tres: eran
+# sumar una habilidad NO toca este archivo. Acá vivían los tres crons del agente
+# viejo (`av_agent`, `av_agent_sistema`, `db_tamano`) y se fueron los tres: eran
 # cuatro relojes haciendo lo mismo con distinta frecuencia, y si se caía uno la
 # pantalla se veía viva con un cuarto del agente muerto.
+#
+# `seguimiento` también se fue: medía los hitos de los arreglos para el eval
+# set, que se dio de baja entero (AGENT_2.0.md §9.1).
 #
 # Lo único que sigue siendo cron es la LISTA DE PRIORIDAD contra 1816: cuesta
 # créditos, corre en rueda, y su ritmo lo pidió el user explícito (cada 15').
 */15 13-20 * * 1-5 /root/TradingAV/deploy/run_job.sh agente_tasa 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.agente_tasa'
+

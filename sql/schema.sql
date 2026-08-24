@@ -1177,13 +1177,19 @@ CREATE INDEX IF NOT EXISTS ix_tesoreria_mercados_fecha
 
 CREATE INDEX IF NOT EXISTS ix_tesoreria_cheques_fecha_pago
     ON operaciones.tesoreria_cheques (fecha_pago DESC);
-CREATE INDEX IF NOT EXISTS ix_tesoreria_cheques_lado_estado
-    ON operaciones.tesoreria_cheques (lado, estado);
 -- La tabla nació el 2026-08-06 con solo el lado emitido y estados pendiente/pagado.
 -- ALTERs idempotentes para los deploys que ya la tienen creada.
+--
+-- ⚠️ Van ANTES del índice de abajo, que usa `lado` (mismo arreglo que
+-- `av_agent_avisos.para`, 2026-08-24). Acá era LATENTE y no activo: el
+-- `CREATE TABLE` de arriba ya declara `lado`, así que una base nueva nunca
+-- falla. La que fallaría es una VIEJA — ahí el CREATE es no-op, la columna no
+-- está, y el índice corta el deploy antes de llegar al ALTER que la agrega.
 ALTER TABLE operaciones.tesoreria_cheques ADD COLUMN IF NOT EXISTS lado text NOT NULL DEFAULT 'emitido';
 ALTER TABLE operaciones.tesoreria_cheques ADD COLUMN IF NOT EXISTS tipo text;
 ALTER TABLE operaciones.tesoreria_cheques ADD COLUMN IF NOT EXISTS cerrado_at timestamptz;
+CREATE INDEX IF NOT EXISTS ix_tesoreria_cheques_lado_estado
+    ON operaciones.tesoreria_cheques (lado, estado);
 UPDATE operaciones.tesoreria_cheques SET estado = 'completado' WHERE estado = 'pagado';
 
 -- ESPEJO AUTOMÁTICO de los e-cheq EMITIDOS (2026-08-10). Un egreso de Aunesa con
@@ -4700,9 +4706,14 @@ CREATE TABLE IF NOT EXISTS agente.av_agent_aviso_items (
 CREATE INDEX IF NOT EXISTS ix_av_aviso_items
     ON agente.av_agent_aviso_items (aviso_id, orden);
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto_para
-    ON agente.av_agent_avisos (ticker, clave, coalesce(lower(para), ''))
-    WHERE NOT resuelto;
+-- ⚠️ **LA COLUMNA VA ANTES QUE SU ÍNDICE** (arreglado 2026-08-24). El `ALTER`
+-- estaba 11 líneas DESPUÉS del `CREATE UNIQUE INDEX` que la usa. Mientras la
+-- columna existiera de un deploy anterior no pasaba nada — y por eso pasó
+-- meses sin verse. El script que borró las tablas del agente viejo recreó
+-- `av_agent_avisos` desde el `CREATE TABLE` de arriba, que no la trae, y ahí
+-- `apply_schema` cortó con `column "para" does not exist` y **frenó el deploy
+-- entero** (deploy.sh corta al primer fallo, así que la API no se reinicia).
+-- Un archivo idempotente no alcanza: también tiene que ser ORDENADO.
 -- A QUIÉN le toca (2026-08-19). NULL = de todos, que es como funcionó hasta
 -- ahora y sigue siendo el default: la lista de pendientes del alta de bonos no
 -- tiene dueño. Se completa cuando el agente le avisa a una persona puntual
@@ -4712,6 +4723,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto_para
 -- cierre por una persona y pantalla. Un segundo buzón daría dos lugares donde
 -- mirar lo que hay para hacer — el problema exacto que SALUD vino a resolver.
 ALTER TABLE agente.av_agent_avisos ADD COLUMN IF NOT EXISTS para text;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_av_agent_avisos_abierto_para
+    ON agente.av_agent_avisos (ticker, clave, coalesce(lower(para), ''))
+    WHERE NOT resuelto;
 CREATE INDEX IF NOT EXISTS ix_av_agent_avisos_para
     ON agente.av_agent_avisos (lower(para)) WHERE NOT resuelto;
 

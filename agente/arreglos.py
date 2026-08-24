@@ -28,6 +28,47 @@ from core.postgres import get_pool
 logger = logging.getLogger(__name__)
 
 
+def _preview_de_simulacion(r: dict, *, donde: str, que: str) -> dict:
+    """La simulación de la cadena de alta, con la forma que dibuja la pantalla.
+
+    ⚠️ **`alta.simular` devuelve SU forma** —`ejes`, `rama`, `cupones`,
+    `pasos`, `veredicto`— y la pantalla lee `que_escribe` / `porque`. Devolverla
+    cruda dejaba el preview VACÍO (`escribe: —`) con toda la información
+    calculada adentro del dict.
+
+    Un botón que dice «ver qué haría» y muestra un guión es peor que no tenerlo:
+    el que lo aprieta concluye que el agente no sabe, cuando en realidad sabe y
+    no se lo tradujo.
+    """
+    if not r.get("ok"):
+        return {"ok": False, "error": r.get("error") or "la simulación no cerró"}
+    ver = r.get("veredicto") or {}
+    ejes = r.get("ejes") or {}
+    resumen = " · ".join(x for x in (
+        f"rama {r.get('rama')}" if r.get("rama") else "",
+        f"{r.get('cupones')} cupones" if r.get("cupones") else "",
+        f"vence {r.get('vencimiento')}" if r.get("vencimiento") else "",
+        f"símbolo {r.get('simbolo')}" if r.get("simbolo") else "",
+        f"TEA {float(r['tea']):.2%}" if r.get("tea") is not None else "",
+    ) if x)
+    return {
+        "ok": True,
+        "que_escribe": f"{que}: {resumen}" if resumen else que,
+        "donde": donde,
+        "porque": (ver.get("detalle") or ver.get("titulo") or "")
+                  or (f"ejes {ejes.get('emisor_tipo')} · {ejes.get('moneda_eje')} "
+                      f"· {ejes.get('ajuste')}" if ejes else ""),
+        # Los PASOS viajan enteros: es la cadena que `aplicar` va a recorrer, y
+        # ver dónde frena es la mitad del valor de simular.
+        "pasos": [{"titulo": p.get("titulo"), "estado": p.get("estado"),
+                   "detalle": (p.get("detalle") or "")[:400],
+                   "tabla": p.get("tabla")}
+                  for p in (r.get("pasos") or [])],
+        "puede_aplicar": ver.get("puede_aplicar", True),
+        "veredicto": ver.get("titulo") or "",
+    }
+
+
 @dataclass
 class Resultado:
     ok: bool
@@ -208,7 +249,9 @@ class AltaFlujos(Arreglo):
 
     def preview(self, sujeto: str, ev: dict) -> dict:
         from agente import alta
-        return alta.simular_flujos(sujeto)
+        return _preview_de_simulacion(alta.simular_flujos(sujeto),
+                                      donde=self.donde,
+                                      que=f"el cronograma de {sujeto}")
 
     def aplicar(self, sujeto: str, ev: dict, por: str = "") -> Resultado:
         from agente import alta
@@ -236,7 +279,9 @@ class AltaBono(Arreglo):
         from agente import alta
         if not (c := self._curva(ev)):
             return {"ok": False, "error": "el hallazgo no trae la curva de 1816"}
-        return alta.simular(sujeto, curva_1816=c)
+        return _preview_de_simulacion(alta.simular(sujeto, curva_1816=c),
+                                      donde=self.donde,
+                                      que=f"{sujeto} (curva 1816: {c})")
 
     def aplicar(self, sujeto: str, ev: dict, por: str = "") -> Resultado:
         from agente import alta

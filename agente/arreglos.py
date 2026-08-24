@@ -58,14 +58,31 @@ def _preview_de_simulacion(r: dict, *, donde: str, que: str) -> dict:
         "porque": (ver.get("detalle") or ver.get("titulo") or "")
                   or (f"ejes {ejes.get('emisor_tipo')} · {ejes.get('moneda_eje')} "
                       f"· {ejes.get('ajuste')}" if ejes else ""),
-        # Los PASOS viajan enteros: es la cadena que `aplicar` va a recorrer, y
-        # ver dónde frena es la mitad del valor de simular.
-        "pasos": [{"titulo": p.get("titulo"), "estado": p.get("estado"),
-                   "detalle": (p.get("detalle") or "")[:400],
-                   "tabla": p.get("tabla")}
-                  for p in (r.get("pasos") or [])],
+        # ⚠️ La cadena viaja en `chequeos`, no en `pasos`. Leerla del nombre
+        # equivocado no fallaba: devolvía una lista vacía, o sea el mismo guión
+        # de antes con otra cara.
+        "pasos": [{"titulo": c.get("titulo"), "estado": c.get("estado"),
+                   "detalle": (c.get("detalle") or "")[:600],
+                   "tabla": c.get("tabla"), "aviso": c.get("aviso") or ""}
+                  for c in (r.get("chequeos") or [])],
         "puede_aplicar": ver.get("puede_aplicar", True),
-        "veredicto": ver.get("titulo") or "",
+        # El texto del veredicto ya viene armado y dice CUÁLES pasos bloquean:
+        # «NO se puede aplicar — 2 paso/s lo bloquean: …».
+        "veredicto": ver.get("texto") or "",
+        # EL CUADRO. Es lo que el bono va a pagar, y es la mitad del valor de
+        # simular aunque la cadena frene: verlo contesta «¿es este el bono?».
+        "flujos": [{"fecha": f.get("fecha"),
+                    "amortizacion": f.get("amortizacion_pct"),
+                    "cupon": f.get("cupon_sobre_residual"),
+                    "residual": f.get("residual_previo_pct")}
+                   for f in ((r.get("cuadro") or {}).get("flujos") or [])],
+        "escala": (r.get("cuadro") or {}).get("escala"),
+        "rama": r.get("rama"),
+        "vencimiento": r.get("vencimiento"),
+        "simbolo": r.get("simbolo"),
+        "tea": r.get("tea"),
+        "precio": r.get("precio"),
+        "ejes": ejes,
     }
 
 

@@ -215,13 +215,16 @@ def ciclo() -> dict:
         for h in hallazgos:
             por_clave.setdefault(_clave(h), h)
 
+        from api.services import av_agent_items
+
         marca = datetime.now(UTC)
         with get_pool().connection() as conn, conn.cursor() as cur:
             for clave, h in por_clave.items():
                 cur.execute(
                     "INSERT INTO agente.av_agent_centinela "
-                    "(clave, tipo, sujeto, regla, severidad, motivo, evidencia) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb) "
+                    "(clave, tipo, sujeto, regla, severidad, motivo, evidencia, "
+                    " clave_item) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s) "
                     "ON CONFLICT (clave) DO UPDATE SET "
                     # El motivo y la evidencia SÍ se refrescan: son el estado de
                     # AHORA. Lo que nunca se pisa es `abierto_at` ni `visto_at`.
@@ -237,12 +240,20 @@ def ciclo() -> dict:
                     "  reaperturas = agente.av_agent_centinela.reaperturas + "
                     "    CASE WHEN agente.av_agent_centinela.resuelto_at "
                     "         IS NOT NULL THEN 1 ELSE 0 END, "
-                    "  resuelto_at = NULL, resuelto_como = NULL "
+                    "  resuelto_at = NULL, resuelto_como = NULL, "
+                    # Se refresca por si la fila es vieja (nació antes de que
+                    # existiera la columna) o si `causa_canonica` cambió.
+                    "  clave_item = EXCLUDED.clave_item "
                     "RETURNING (xmax = 0) AS es_nuevo",
                     (clave, h.get("tipo"), h.get("ticker") or "?", h.get("regla"),
                      h.get("severidad"), h.get("motivo"),
                      json.dumps(h.get("evidencia") or {}, ensure_ascii=False,
-                                default=str)))
+                                default=str),
+                     # LA MISMA función que usan el detector, el job y la
+                     # acción. Nunca a mano: tres implementaciones de la
+                     # identidad es cómo se llegó hasta acá (REGLA #9).
+                     av_agent_items.clave_de_problema(
+                         h.get("ticker") or "", h.get("regla") or "")))
                 if (r := cur.fetchone()) and r[0]:
                     nuevos += 1
 
@@ -367,8 +378,14 @@ def estado(limite: int = 200) -> dict:
                 f"SELECT {', '.join('c.' + x for x in _COLS)}, i.abierto_at, "
                 "       i.vuelto_at "
                 "  FROM agente.av_agent_centinela c "
-                "  LEFT JOIN agente.av_agent_items i "
-                "    ON i.clave = lower(c.sujeto) || '|' || lower(c.regla) "
+                # ⚠️ **Por la clave GUARDADA, no recalculada.** Acá vivía
+                # `ON i.clave = lower(c.sujeto) || '|' || lower(c.regla)`: una
+                # TERCERA implementación de `clave_de_problema`, en SQL, sin
+                # `causa_canonica()` (los sinónimos control↔detector no
+                # matcheaban) y sin el caso del sujeto vacío. Fallaba en
+                # silencio: AHORA decía «recién» y ENCONTRÓ «11 días» del mismo
+                # problema, que es justo lo que este JOIN vino a arreglar.
+                "  LEFT JOIN agente.av_agent_items i ON i.clave = c.clave_item "
                 " WHERE c.resuelto_at IS NULL "
                 # Lo NUEVO y sin ver primero: es lo único que pide una decisión.
                 " ORDER BY (c.visto_at IS NULL) DESC, "

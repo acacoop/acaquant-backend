@@ -4879,6 +4879,26 @@ CREATE INDEX IF NOT EXISTS ix_av_seguimiento_mirando
 ALTER TABLE agente.av_agent_centinela
     ADD COLUMN IF NOT EXISTS reaperturas integer NOT NULL DEFAULT 0;
 
+-- ⚠️⚠️ **LA CLAVE DEL OBJETO, GUARDADA — no recalculada en SQL** (2026-08-24).
+--
+-- `estado()` unía esta tabla con `av_agent_items` así:
+--
+--     ON i.clave = lower(c.sujeto) || '|' || lower(c.regla)
+--
+-- o sea **reimplementando `clave_de_problema` en SQL**: una TERCERA
+-- implementación de la identidad, sin `causa_canonica()` (los sinónimos
+-- control↔detector no matcheaban) y sin el caso del sujeto vacío (que acá se
+-- guarda como `'?'`). Es REGLA #9 exacta: el JOIN fallaba en silencio y AHORA
+-- mostraba «recién» de un problema que ENCONTRÓ marcaba con 11 días.
+--
+-- Ahora la escribe el que la conoce, con la MISMA función que todos los demás.
+-- `clave` sigue siendo la PK de ESTA fila (`tipo:sujeto:regla`, el dedup de una
+-- pasada); esto es la identidad del PROBLEMA, que es otra cosa.
+ALTER TABLE agente.av_agent_centinela
+    ADD COLUMN IF NOT EXISTS clave_item text;
+CREATE INDEX IF NOT EXISTS ix_av_centinela_clave_item
+    ON agente.av_agent_centinela (clave_item);
+
 CREATE TABLE IF NOT EXISTS agente.av_agent_latido (
     id         boolean PRIMARY KEY DEFAULT true CHECK (id),
     at         timestamptz NOT NULL DEFAULT now(),

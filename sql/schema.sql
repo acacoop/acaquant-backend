@@ -5341,7 +5341,8 @@ CREATE TABLE IF NOT EXISTS agente.habilidades (
 
     creada_at           timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT habilidades_tipo_ok CHECK (tipo IN ('detector','consulta','accion')),
-    CONSTRAINT habilidades_ventana_ok CHECK (ventana IN ('rueda','habil','siempre')),
+    CONSTRAINT habilidades_ventana_ok
+        CHECK (ventana IN ('rueda','cierre','habil','siempre')),
     CONSTRAINT habilidades_resultado_ok
         CHECK (ultimo_resultado IS NULL
                OR ultimo_resultado IN ('ok','sin_datos','error'))
@@ -5557,3 +5558,21 @@ CREATE INDEX IF NOT EXISTS avisos_dirigidos_bandeja
 -- cuánto late, y un umbral fijo daba «detenido» todas las noches: fuera de
 -- rueda el ciclo es de 300 s y el umbral estaba en 180.
 ALTER TABLE agente.latido ADD COLUMN IF NOT EXISTS proximo_en_s integer;
+
+
+-- ⚠️ **UN CHECK YA CREADO NO SE ACTUALIZA SOLO.** `CREATE TABLE IF NOT EXISTS`
+-- no toca la tabla que ya existe, así que agregar un valor al vocabulario de
+-- Python deja a la base rechazándolo — y el agente muere al sincronizar el
+-- catálogo, que es lo primero que hace al arrancar.
+--
+-- Pasó con `cierre` (la ventana del barrido de las 17:30). Es el mismo defecto
+-- de siempre: **el mismo dato en dos lugares y nadie manteniéndolos iguales**
+-- (REGLA #9). Acá el árbitro es Python (`agente/tipos.py`) y esto es la copia;
+-- `tests/unit/test_agente.py` compara las dos y falla si se separan.
+DO $$
+BEGIN
+    ALTER TABLE agente.habilidades DROP CONSTRAINT IF EXISTS habilidades_ventana_ok;
+    ALTER TABLE agente.habilidades ADD CONSTRAINT habilidades_ventana_ok
+        CHECK (ventana IN ('rueda','cierre','habil','siempre'));
+EXCEPTION WHEN undefined_table THEN NULL;
+END $$;

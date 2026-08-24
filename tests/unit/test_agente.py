@@ -433,3 +433,41 @@ def test_la_tasa_de_1816_no_le_gana_al_motor():
         "el fallback tiene que estar condicionado a que no haya TEA")
     assert "market_snapshot" not in inspect.getsource(tasa_1816.refrescar), (
         "la tasa de 1816 NO se escribe en la tabla del motor")
+
+
+def test_el_vocabulario_de_python_y_el_CHECK_de_la_base_dicen_lo_mismo():
+    """**El mismo dato en dos lugares, y nadie manteniéndolos iguales** — la
+    REGLA #9 del repo, adentro del propio agente.
+
+    `CREATE TABLE IF NOT EXISTS` no toca la tabla que ya existe, así que agregar
+    un valor a `tipos.VENTANAS` deja a la base rechazándolo, y el agente muere
+    al sincronizar el catálogo: lo primero que hace al arrancar. Pasó con
+    `cierre`.
+
+    Acá el árbitro es Python; el CHECK es la copia. Este test es lo único que
+    impide que se separen otra vez.
+    """
+    import re
+
+    from agente import tipos
+
+    sql = (RAIZ / "sql" / "schema.sql").read_text()
+
+    def del_check(nombre: str) -> set[str]:
+        # El ÚLTIMO, que es el que gana: el bloque de migración del final del
+        # archivo redefine el del CREATE TABLE.
+        # El `IS NULL OR` de los nullables entra en el patrón: se busca el
+        # `IN (...)` de la columna, venga solo o detrás de la guarda de nulo.
+        trozos = re.findall(
+            rf"CONSTRAINT {nombre}\s*\n?\s*CHECK \([^)]*?[a-z_]+ IN \(([^)]*)\)",
+            sql)
+        assert trozos, f"no encontré el CHECK «{nombre}»"
+        return {v.strip().strip("'") for v in trozos[-1].split(",")}
+
+    assert del_check("habilidades_ventana_ok") == set(tipos.VENTANAS)
+    assert del_check("habilidades_tipo_ok") == set(tipos.TIPOS)
+    assert del_check("habilidades_resultado_ok") == {
+        tipos.OK, tipos.SIN_DATOS, tipos.ERROR}
+    assert del_check("hallazgos_severidad_ok") == set(tipos.SEVERIDADES)
+    assert del_check("hallazgos_estado_ok") == set(tipos.ESTADOS)
+    assert del_check("hallazgos_cierre_ok") == set(tipos.CIERRES)

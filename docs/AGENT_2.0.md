@@ -1080,16 +1080,97 @@ Decidido con el user, 2026-08-24. **No se re-discute salvo pedido explícito.**
 | Familia 1 redefinida | ✅ acordado |
 | Familia 3 (arreglar) | conservada sin cambios |
 | Familia 2 (explicar) | congelada, fuera de alcance |
-| Esquema SQL de las 3 tablas | ✅ §4 |
+| Esquema SQL | ✅ §4 · aplicado en `sql/schema.sql` |
 | Pantallas AHORA / ENCONTRÓ / HISTORIAL | ✅ §6 |
 | Lo que se borra del modal | ✅ §6.7 · §9.1 |
 | Vocabulario (clase: aviso/trabajo) | ✅ §6.3 |
-| Implementación | ⬜ pendiente |
+| **Implementación** | ✅ **hecha** — ver abajo |
+| Regenerar `MAPA_APP.md` / `SISTEMA.md` | ⬜ correr en el Droplet |
+| Las 5 acciones huérfanas | ⬜ colgarlas de una habilidad |
+| Horario real de `motor_caido` desde el crontab | ⬜ hoy sale de un regex sobre prosa |
+
+---
+
+## 11. Lo que quedó construido
+
+### El código
+
+```
+agente/                     EL AGENTE (paquete nuevo, al lado de engines/ y jobs/)
+  tipos.py                  el vocabulario: estados, cierres, Hallazgo, Habilidad
+  catalogo.py               ⭐ LAS HABILIDADES — sumar una es UNA fila
+  registro.py               ⭐ LA PUERTA ÚNICA — lo único que escribe hallazgos
+  motor.py                  ⭐ LA AGENDA — un reloj; qué significa "no pude mirar"
+  reloj.py                  la única definición de «ahora», rueda y día hábil
+  fuentes.py                una pasada lee UNA vez; todos ven la misma foto
+  umbrales.py               los números, en un lugar
+  detectores/               mercado (6) · sistema (8) · datos y seguridad (2)
+  arreglos.py               los 6 que ESCRIBEN, con preview + aplicar
+  vista.py                  el read model: AHORA · ENCONTRÓ · HISTORIAL
+  libro.py                  la puerta única del LIBRO
+  tasa_1816.py              la lista de prioridad (patrón TAMAR)
+  peso.py · tablas.py · crontab.py · latencia.py · seguridad.py   la maquinaria
+  alta.py · pata.py · rehacer.py · mensajes.py                    lo que servía
+jobs/agente.py              el daemon (reemplaza a los 4 relojes)
+jobs/agente_tasa.py         la lista de prioridad, cada 15' en rueda
+api/routers/agente.py       11 endpoints (eran 44)
+```
+
+**Frontend**: `src/components/agente/` — `modal.tsx` con TRES tabs, `datos.tsx`
+como única capa de red (lo hace cumplir el lint), y el proxy
+`/api/agente/[...path]`.
+
+### Lo que se borró
+
+| | |
+|---|---|
+| Services `av_agent_*` | **29 archivos** |
+| Jobs del agente viejo | 4 (+ `db_tamano`, + `seguimiento`) |
+| `core/ciclo.py` | el modelo de estados viejo |
+| Tests del agente viejo | **~60** |
+| Scripts `diag_*` del agente | ~30 |
+| Componentes del modal viejo | 8 + `av-agent-modal.tsx` |
+| Endpoints | de **44** a **11** |
+
+Las 18 tablas `av_agent_*` **no se dropearon** (§9): dejan de escribirse.
+
+### Cómo se prende
+
+```bash
+cd /root/TradingAV && git pull && bash deploy/deploy.sh
+python -m jobs.agente --sync          # crea las habilidades en la base
+cp deploy/systemd/agente.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl disable --now av_agent_centinela.service
+systemctl enable --now agente.service
+crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tasa
+```
+
+### Lo que falta, dicho de frente
+
+1. **Las 5 acciones huérfanas** (`assets.cartera`, `assets.fci`,
+   `contrapartes.alta`, `avisar.responsable`, `sistema.rehacer_dia` sobre
+   controles de Manager) **no se portaron**: colgaban de controles de Manager y
+   de ninguna habilidad. Hay que darles una habilidad que las dispare.
+2. **`motor_caido` sigue sacando el horario de un regex sobre prosa** (§5.1).
+   La fuente buena —`deploy/crontab.txt`— ya la lee `cron_desalineado`; falta
+   cruzarlas.
+3. **`respuesta` y `recuperado` no se portaron como detectores.** Su función la
+   absorbe el ciclo: un arreglo aplicado deja el hallazgo `en_curso` y el
+   detector lo cierra cuando deja de verlo; ese cierre es la buena noticia y
+   queda en HISTORIAL. Si hace falta cantarlo, se decide después.
+4. **`npm run build` y `pytest` no se corrieron acá** (sin dependencias en el
+   entorno). Sí se verificó: `ruff check .` limpio, el grafo de imports completo
+   sin roturas, y los invariantes de §8 comprobados uno por uno sobre el código.
 
 ---
 
 ## Changelog
 
+- **2026-08-24** — **IMPLEMENTADO** (§11). El paquete `agente/`, el daemon
+  único, las cuatro tablas, los 16 detectores, los 6 arreglos, el router de 11
+  endpoints y el modal de tres tabs. Se borraron 29 services, 6 jobs,
+  `core/ciclo.py`, ~60 tests, ~30 scripts y el modal viejo.
 - **2026-08-24** — Se define HISTORIAL (§6.6: se conserva, con una sola fuente
   paginada y la regla guardada en cada acción) y se listan las bajas (§6.7,
   §9.1): **VIGILANCIA, ¿AGUANTAN? y TODO el sistema de votos / eval set /
@@ -1114,3 +1195,5 @@ Decidido con el user, 2026-08-24. **No se re-discute salvo pedido explícito.**
   (`soberanos_faltantes`, `bono_sin_flujo`, `bono_sin_tasa`, `db_cambio`), 1
   nueva (`deteccion_primary`), 1 eliminada (`motor_ruidoso`), 1 con el horario
   rehecho (`motor_caido`), el resto conservadas.
+
+---

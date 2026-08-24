@@ -1,3 +1,14 @@
+> # ⚠️ DOC HISTÓRICO — NO ES LA ESPECIFICACIÓN
+>
+> El agente se rehizo entero el **2026-08-24**. La especificación viva
+> es **`docs/AGENT_2.0.md`**; nada de acá describe el código actual.
+>
+> Este archivo se conserva porque explica **por qué** las cosas quedaron
+> como quedaron: cada §0.x es un bug real y la decisión que lo cerró. Sirve
+> para no repetirlos — no para saber cómo funciona el agente hoy.
+
+---
+
 # AV AGENT — el programa de IA de ACAquant  ⟨DOC ÚNICO · VIVO⟩
 
 > **ESTE ES EL DOC DEL PROGRAMA DE IA. No hay otro roadmap.**

@@ -5187,3 +5187,257 @@ CREATE TABLE IF NOT EXISTS agente.av_agent_propuestas (
 
 CREATE INDEX IF NOT EXISTS ix_av_prop_pendientes
     ON agente.av_agent_propuestas (accion, creado_at DESC) WHERE estado = 'propuesta';
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- AGENT 2.0 — el agente nuevo.  Doc: `docs/AGENT_2.0.md`
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- CUATRO tablas y NINGUNA otra guarda estado de problemas (invariante 5):
+--
+--   habilidades    el catálogo: qué sabe hacer, cada cuánto, y CUÁNDO CORRIÓ
+--   hallazgos      los eventos: qué vio, cuándo, y cómo terminó
+--   reincidencias  la tabla que DEBE ESTAR VACÍA: lo que se arregló y volvió
+--   acciones       el LIBRO: qué escribió el agente, de qué valor a qué valor
+--
+-- Las 18 tablas `av_agent_*` de arriba quedan sin escribirse. No se dropean:
+-- borrar código se revierte, borrar datos no.
+
+-- ── EL CATÁLOGO ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS agente.habilidades (
+    nombre              text PRIMARY KEY,
+    tipo                text NOT NULL,          -- detector | consulta | accion
+    que_mira            text NOT NULL,
+    dominio             text NOT NULL,          -- MERCADO | SISTEMA | DATOS | SEGURIDAD
+    usa_ia              boolean NOT NULL DEFAULT false,
+
+    cada_segundos       integer NOT NULL,
+    ventana             text NOT NULL DEFAULT 'siempre',  -- rueda | habil | siempre
+    activa              boolean NOT NULL DEFAULT true,
+    umbrales            jsonb NOT NULL DEFAULT '{}'::jsonb,
+
+    -- ⚠️ SE GUARDA, NO SE DERIVA. Una corrida que no encontró nada no deja
+    -- rastro en `hallazgos`: sin esto, "corrí y estaba todo bien" y "no corrí"
+    -- se ven idénticos — que es el bug estructural del agente viejo.
+    ultima_corrida_at   timestamptz,
+    ultimo_resultado    text,                   -- ok | sin_datos | error
+    ultimo_error        text NOT NULL DEFAULT '',
+    ultima_duracion_ms  integer,
+    -- El contador va CON la fecha del día que cuenta: sin ella miente en el
+    -- primer cambio de día. Se resetea en el mismo UPDATE, sin cron aparte.
+    corridas_hoy        integer NOT NULL DEFAULT 0,
+    corridas_dia        date,
+
+    creada_at           timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT habilidades_tipo_ok CHECK (tipo IN ('detector','consulta','accion')),
+    CONSTRAINT habilidades_ventana_ok CHECK (ventana IN ('rueda','habil','siempre')),
+    CONSTRAINT habilidades_resultado_ok
+        CHECK (ultimo_resultado IS NULL
+               OR ultimo_resultado IN ('ok','sin_datos','error'))
+);
+
+-- ── LOS EVENTOS ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS agente.hallazgos (
+    id                  bigserial PRIMARY KEY,
+
+    -- La identidad del PROBLEMA es el TRÍO, no el id.
+    habilidad           text NOT NULL,
+    sujeto              text NOT NULL,
+    regla               text NOT NULL,
+
+    nombre              text NOT NULL DEFAULT '',
+    severidad           text NOT NULL,
+    problema            text NOT NULL,
+    -- Sin esto no se guarda: si no se puede decir qué hacer, la regla está
+    -- mal pensada.
+    que_hacer           text NOT NULL,
+    -- Vacío = es un AVISO (clase `aviso`): vive en AHORA y nunca en ENCONTRÓ.
+    arreglo             text NOT NULL DEFAULT '',
+    evidencia           jsonb NOT NULL DEFAULT '{}'::jsonb,
+
+    detectado_at        timestamptz NOT NULL DEFAULT now(),
+    visto_ultima_vez    timestamptz NOT NULL DEFAULT now(),
+    veces               integer NOT NULL DEFAULT 1,
+
+    -- LEÍDO ≠ RESUELTO. `leido_at` lo saca de AHORA y de ningún otro lado.
+    leido_at            timestamptz,
+    leido_por           text NOT NULL DEFAULT '',
+
+    estado              text NOT NULL DEFAULT 'nuevo',
+    cerrado_at          timestamptz,
+    cerrado_como        text,                   -- accion | ausencia
+    cerrado_por         text NOT NULL DEFAULT '',
+    arreglo_aplicado    text NOT NULL DEFAULT '',
+
+    CONSTRAINT hallazgos_severidad_ok CHECK (severidad IN ('alta','media','baja')),
+    CONSTRAINT hallazgos_estado_ok
+        CHECK (estado IN ('nuevo','en_curso','resuelto','ignorado','reincidio')),
+    CONSTRAINT hallazgos_cierre_ok
+        CHECK (cerrado_como IS NULL OR cerrado_como IN ('accion','ausencia')),
+    CONSTRAINT hallazgos_cierre_completo
+        CHECK ((estado = 'resuelto') = (cerrado_at IS NOT NULL)),
+    CONSTRAINT hallazgos_que_hacer CHECK (btrim(que_hacer) <> '')
+);
+
+-- UN SOLO hallazgo ABIERTO por problema. Reemplaza al "modo reemplazo" del
+-- agente viejo: si el trío ya está abierto se actualiza `veces`, no nace otro.
+CREATE UNIQUE INDEX IF NOT EXISTS hallazgos_abierto_unico
+    ON agente.hallazgos (habilidad, sujeto, regla)
+    WHERE estado IN ('nuevo','en_curso');
+CREATE INDEX IF NOT EXISTS hallazgos_problema
+    ON agente.hallazgos (habilidad, sujeto, regla, detectado_at DESC);
+CREATE INDEX IF NOT EXISTS hallazgos_abiertos
+    ON agente.hallazgos (estado, severidad, detectado_at DESC);
+CREATE INDEX IF NOT EXISTS hallazgos_ahora
+    ON agente.hallazgos (detectado_at DESC)
+    WHERE leido_at IS NULL AND estado IN ('nuevo','en_curso');
+
+-- ── LA QUE DEBE ESTAR VACÍA ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS agente.reincidencias (
+    id                  bigserial PRIMARY KEY,
+    hallazgo_id         bigint NOT NULL REFERENCES agente.hallazgos(id),
+    hallazgo_previo_id  bigint NOT NULL REFERENCES agente.hallazgos(id),
+    -- Copiados del par: es la tabla que se mira primero cuando algo salió mal
+    -- y no puede depender de un join para poder leerse.
+    habilidad           text NOT NULL,
+    sujeto              text NOT NULL,
+    regla               text NOT NULL,
+    arreglo_aplicado    text NOT NULL DEFAULT '',
+    resuelto_at         timestamptz NOT NULL,
+    volvio_at           timestamptz NOT NULL,
+    dias_aguanto        numeric GENERATED ALWAYS AS
+                        (EXTRACT(epoch FROM volvio_at - resuelto_at) / 86400) STORED,
+    visto_por           text NOT NULL DEFAULT '',
+    visto_at            timestamptz,
+    CONSTRAINT reincidencias_par_unico UNIQUE (hallazgo_id, hallazgo_previo_id),
+    CONSTRAINT reincidencias_orden_ok CHECK (volvio_at > resuelto_at)
+);
+CREATE INDEX IF NOT EXISTS reincidencias_recientes
+    ON agente.reincidencias (volvio_at DESC);
+
+-- ── EL LIBRO ───────────────────────────────────────────────────────────────
+-- No guarda estado de problemas (por eso no rompe el invariante 5): guarda qué
+-- ESCRIBIÓ el agente. Es lo que dibuja HISTORIAL.
+CREATE TABLE IF NOT EXISTS agente.acciones (
+    id              bigserial PRIMARY KEY,
+    at              timestamptz NOT NULL DEFAULT now(),
+    arreglo         text NOT NULL,              -- qué acción se aplicó
+    -- ⚠️ EL TRÍO, SIEMPRE. Hoy la mayoría de las acciones NO guardan la regla
+    -- que las motivó, y por eso la columna «¿quedó arreglado?» no puede
+    -- contestar. Acá es obligatorio.
+    habilidad       text NOT NULL,
+    sujeto          text NOT NULL,
+    regla           text NOT NULL,
+    hallazgo_id     bigint REFERENCES agente.hallazgos(id),
+    por             text NOT NULL DEFAULT '',
+    donde           text NOT NULL DEFAULT '',   -- en qué tabla escribió
+    campo           text NOT NULL DEFAULT '',
+    antes           text NOT NULL DEFAULT '',
+    despues         text NOT NULL DEFAULT '',
+    ok              boolean NOT NULL DEFAULT true,
+    error           text NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS acciones_linea_de_tiempo ON agente.acciones (at DESC);
+CREATE INDEX IF NOT EXISTS acciones_por_problema
+    ON agente.acciones (habilidad, sujeto, regla, at DESC);
+
+-- ── LAS VISTAS. Las pantallas LEEN, no derivan. ────────────────────────────
+
+-- AHORA: lo de HOY, sin leer, sin resolver. El día es ART: el día UTC arranca
+-- a las 21:00 de acá y mezclaría dos días bajo el mismo rótulo.
+CREATE OR REPLACE VIEW agente.v_ahora AS
+SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
+       f.problema, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
+       f.veces, hab.dominio,
+       (f.arreglo <> '') AS accionable
+  FROM agente.hallazgos f
+  LEFT JOIN agente.habilidades hab ON hab.nombre = f.habilidad
+ WHERE f.leido_at IS NULL
+   AND f.estado IN ('nuevo','en_curso')
+   AND (f.detectado_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+       = (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+ ORDER BY f.detectado_at DESC;
+
+-- ENCONTRÓ: lo abierto que TIENE ARREGLO. Un aviso no entra acá.
+CREATE OR REPLACE VIEW agente.v_encontro AS
+SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
+       f.problema, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
+       f.visto_ultima_vez, f.veces, f.estado, hab.dominio
+  FROM agente.hallazgos f
+  LEFT JOIN agente.habilidades hab ON hab.nombre = f.habilidad
+ WHERE f.estado IN ('nuevo','en_curso')
+   AND f.arreglo <> ''
+ ORDER BY CASE f.severidad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END,
+          f.detectado_at DESC;
+
+-- EL CATÁLOGO como lo pide la pantalla. Los contadores se DERIVAN — guardarlos
+-- sería una segunda verdad que se desincroniza sola.
+CREATE OR REPLACE VIEW agente.v_habilidades AS
+SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia, h.cada_segundos,
+       h.ventana, h.activa, h.umbrales,
+       h.ultima_corrida_at, h.ultimo_resultado, h.ultimo_error,
+       h.ultima_duracion_ms,
+       CASE WHEN h.corridas_dia = current_date THEN h.corridas_hoy ELSE 0 END
+           AS corridas_hoy,
+       coalesce(f.total, 0)    AS hallazgos_total,
+       coalesce(f.abiertos, 0) AS hallazgos_abiertos,
+       f.ultimo_hallazgo_at,
+       coalesce(r.n, 0)        AS reincidencias
+  FROM agente.habilidades h
+  LEFT JOIN LATERAL (
+        SELECT count(*) AS total,
+               count(*) FILTER (WHERE estado IN ('nuevo','en_curso')) AS abiertos,
+               max(detectado_at) AS ultimo_hallazgo_at
+          FROM agente.hallazgos WHERE habilidad = h.nombre) f ON true
+  LEFT JOIN LATERAL (
+        SELECT count(*) AS n
+          FROM agente.reincidencias WHERE habilidad = h.nombre) r ON true
+ ORDER BY h.dominio, h.nombre;
+
+-- El LATIDO: una sola fila que dice que el agente está vivo. Sostiene el
+-- círculo verde — un cron no puede: entre corrida y corrida no hay nadie.
+CREATE TABLE IF NOT EXISTS agente.latido (
+    id      smallint PRIMARY KEY DEFAULT 1,
+    at      timestamptz NOT NULL DEFAULT now(),
+    detalle jsonb NOT NULL DEFAULT '{}'::jsonb,
+    CONSTRAINT latido_una_fila CHECK (id = 1)
+);
+
+-- La serie del peso de la base. Se purga sola a los 3 días: lo que informa es
+-- el DELTA, no el tamaño.
+CREATE TABLE IF NOT EXISTS agente.db_peso (
+    at      timestamptz PRIMARY KEY DEFAULT now(),
+    tablas  jsonb NOT NULL
+);
+
+-- La LISTA DE PRIORIDAD de `bono_sin_tasa`: tickers que operan y no tienen TEA.
+-- Se le piden a 1816 cada 15 min y se purga al día siguiente a las 9.
+CREATE TABLE IF NOT EXISTS agente.tasa_1816 (
+    ticker      text NOT NULL,
+    pata        text NOT NULL DEFAULT '',
+    tea         numeric,
+    duration    numeric,
+    precio      numeric,
+    fecha_1816  date,
+    pedido_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (ticker, pata)
+);
+
+-- LO QUE EL AGENTE LE MANDA A UNA PERSONA. No es un hallazgo: un hallazgo es un
+-- problema del sistema, esto es un mensaje dirigido. Mezclarlos fue una de las
+-- cosas que hizo ilegible al agente viejo.
+CREATE TABLE IF NOT EXISTS agente.avisos_dirigidos (
+    id       bigserial PRIMARY KEY,
+    para     text NOT NULL,
+    -- Idempotente por (para, tema): un job que corre cada hora no puede
+    -- llenarle la bandeja a nadie con el mismo aviso.
+    tema     text NOT NULL,
+    asunto   text NOT NULL,
+    detalle  text NOT NULL DEFAULT '',
+    filas    jsonb NOT NULL DEFAULT '[]'::jsonb,
+    at       timestamptz NOT NULL DEFAULT now(),
+    visto_at timestamptz,
+    UNIQUE (para, tema)
+);
+CREATE INDEX IF NOT EXISTS avisos_dirigidos_bandeja
+    ON agente.avisos_dirigidos (lower(para), at DESC);

@@ -20,7 +20,7 @@ QUÉ SE PIERDE SI SE ROMPE, en concreto y no en abstracto:
     hace que el motor, el cron y la API no tengan tres copias de la regla.
 
 Los tests de acá NO prueban que algo ande: prueban que **no exista la forma de
-hacerlo mal** — el mismo mecanismo de `test_av_agent_puerta.py`.
+hacerlo mal** — el mismo mecanismo del catálogo del agente.
 """
 from __future__ import annotations
 

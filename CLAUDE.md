@@ -442,7 +442,7 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Research → tab BCRA / FRED | `RESEARCH_BCRA.md` · `RESEARCH_FRED.md` |
 | Feed Eikon live / tab REUTERS (`eikon_*`) | `INTEGRACION_REUTERS.md` **[VIVO]** |
 | Interbanking (bancos: cuentas, saldos, extractos, transferencias) | `INTERBANKING.md` **[VIVO]** |
-| Postrade A3/ACyRSA (post-trade: cuentas, posiciones, garantías, márgenes) | `POSTRADE.md` |
+| Postrade A3/ACyRSA (post-trade: cuentas, posiciones, garantías, márgenes) | `POSTRADE.md` **[VIVO]** — ⚠️ esta API PUEDE OPERAR (suscribe/rescata FCI, cancela órdenes): la escritura es default-deny con doble llave |
 | Renta fija / curvas | `RENTA_FIJA.md` · `SALUD_CURVAS.md` |
 | Renta variable / scanner | `RENTA_VARIABLE.md` |
 | Estrategia Quant (señal intradía, tab ESTRATEGIA de Trading) | `ESTRATEGIA_QUANT.md` **[VIVO]** |

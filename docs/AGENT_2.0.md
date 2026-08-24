@@ -174,15 +174,14 @@ La distinción `accion` / `ausencia` **ya existe escrita en `core/ciclo.py`**.
 Lo que no existe es que gobierne una tabla propia: hoy vive como una columna
 más adentro del mismo saco que todo lo demás, y por eso es invisible.
 
-#### El número que habilita autonomía
+#### Es un HECHO, no un puntaje
 
-De cada habilidad:
+La tabla registra que algo volvió. Nada más: no hay confianza acumulada, ni
+hitos, ni escalera de días, ni voto de nadie. Todo eso existió en el agente
+viejo (§9) y es de lo que hay que salir.
 
-> **de los problemas que dijo que se arreglaron, ¿cuántos volvieron?**
-
-Eso mide a la skill, no al día. Una skill con 40 hallazgos y 0 reincidencias es
-confiable. Una con 5 hallazgos y 3 reincidencias diagnostica mal, aunque
-encuentre poco. **Sin ese número, dejar que el agente arregle solo es apostar.**
+Que la fila exista ya dice lo único que importa: **el arreglo que aplicamos no
+sirvió.**
 
 ### 1.4 Los estados de un hallazgo
 
@@ -484,17 +483,13 @@ SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia,
        coalesce(f.total, 0)      AS hallazgos_total,
        coalesce(f.abiertos, 0)   AS hallazgos_abiertos,
        f.ultimo_hallazgo_at,
-       coalesce(r.n, 0)          AS reincidencias,
-       -- EL NÚMERO QUE HABILITA AUTONOMÍA (§1.3): de lo que dijo que arregló,
-       -- cuánto volvió.
-       CASE WHEN coalesce(f.cerrados_por_accion, 0) = 0 THEN NULL
-            ELSE round(coalesce(r.n, 0)::numeric
-                       / f.cerrados_por_accion * 100, 1) END AS pct_volvio
+       -- Cuántas veces algo que esta habilidad dio por arreglado volvió. Es
+       -- un CONTEO, no un puntaje (§1.3).
+       coalesce(r.n, 0)          AS reincidencias
   FROM agente.habilidades h
   LEFT JOIN LATERAL (
         SELECT count(*) AS total,
                count(*) FILTER (WHERE estado IN ('nuevo','en_curso')) AS abiertos,
-               count(*) FILTER (WHERE cerrado_como = 'accion') AS cerrados_por_accion,
                max(detectado_at) AS ultimo_hallazgo_at
           FROM agente.hallazgos WHERE habilidad = h.nombre) f ON true
   LEFT JOIN LATERAL (
@@ -927,7 +922,7 @@ decidir uno por uno si merecen una.
 
 ### 6.5 Dónde vive cada cosa — el mapa completo
 
-| | AHORA | ENCONTRÓ | LA MEMORIA |
+| | AHORA | ENCONTRÓ | HISTORIAL |
 |---|---|---|---|
 | **Qué muestra** | lo de hoy, sin leer, sin resolver | lo abierto que tiene arreglo | el historial y las reincidencias |
 | **Se vacía** | sola, cada día | solo arreglando | nunca |
@@ -938,6 +933,69 @@ decidir uno por uno si merecen una.
 **Ninguna pantalla deriva nada.** Las tres leen una vista de la base y dibujan.
 Acción, estado, clase y nombre vienen resueltos del backend — que es la regla
 que el front ya tiene escrita y que el agente viejo rompió por otro lado.
+
+### 6.6 HISTORIAL — el libro de auditoría
+
+**Se conserva. Es la única pantalla del agente viejo que no tiene el vicio de
+las otras**, porque no opina: dice quién tocó qué, cuándo, de qué valor a qué
+valor, y en qué tabla escribió. Eso es lo que hace confiable a algo que escribe
+en la base.
+
+```
+REGISTRO = una línea de tiempo de EVENTOS, paginada, del backend
+```
+
+Un evento es **una acción del agente**: qué se aplicó, sobre qué sujeto, qué
+campo se movió, de qué a qué, en qué tabla, quién lo apretó, y **la regla que la
+motivó**.
+
+#### Los tres defectos de hoy, y qué los arregla
+
+**1. Tres topes distintos mezclados en una línea de tiempo.**
+Hoy REGISTRO se arma en el navegador juntando acciones (tope 100), respuestas a
+preguntas (40) y votos (80). Cuando el más chico se agota, **la línea de tiempo
+pierde un tipo de evento y no los otros, sin decirlo**: un día aparece como que
+"solo tuvo acciones" cuando en realidad hubo respuestas que se cayeron del tope.
+→ **Una sola fuente, un solo tope, paginado.**
+
+**2. Se arma en el navegador.** No se puede paginar ni buscar hacia atrás: el
+buscador solo mira lo que ya bajó. Un libro de auditoría que no llega más allá
+de las últimas 100 líneas no es un libro.
+→ **La query es del backend y el filtro también.**
+
+**3. La columna HOY —la única que contesta «¿quedó arreglado?»— miente por
+omisión**, y el código lo admite: *«la mayoría de las acciones no guardan la
+regla que las motivó»*, así que no puede decir cuál problema arregló y muestra
+todos los del sujeto.
+→ **Cada acción guarda `habilidad + sujeto + regla`**, el mismo trío del
+hallazgo (§1.1). Es la razón por la que ese trío existe.
+
+#### Lo VIVO se va de HISTORIAL
+
+Hoy arriba del registro conviven dos bloques que no son historial:
+
+- **CONTESTADAS SIN EJECUTAR** — respuestas guardadas que el agente todavía no
+  sabe ejecutar. **Eso es trabajo pendiente** → su casa es ENCONTRÓ.
+- **NO TE INTERESAN** — los descartados. **Eso es un filtro**, no un pasado →
+  vive en el filtro de ENCONTRÓ, con su deshacer.
+
+#### COMUNICACIONES — se conserva tal cual
+
+Lo que el agente mandó **HOY** y a quién. **No acumula**: si el destinatario no
+lo atendió, sigue abierto en SU bandeja, no acá. Está bien pensada y no se toca.
+
+### 6.7 Lo que se BORRA del modal
+
+| Pantalla | Por qué se va |
+|---|---|
+| **VIGILANCIA** | Es un **segundo depósito** de los mismos problemas, con otro reloj y otra tabla. La propia pantalla se lo explica al usuario: *«es OTRA fuente que LA LISTA (…) por eso los números no coinciden ni tienen por qué»*. No es una pantalla: es la cicatriz de tener dos relojes. Con una sola tabla, no existe. Su «92 sin ver» es un contador que **nunca baja**. |
+| **¿AGUANTAN?** | Tablero de vigilancia de arreglos que todavía no volvieron. Su número suma dos cosas que no se tocan (causas en prueba + hallazgos atendidos hoy) y descansa sobre un `resuelto` que significa dos cosas. Lo único que había que saber —**si algo volvió**— lo dice `reincidencias` (§1.3), que está vacía cuando todo va bien. |
+| **Votos ✔/✖ y el eval set** | *«No entra nada de votos y eso: todo eso generó demasiada complejidad en algo que no funcionaba»* — user. Se va **entero**: los botones, la tabla de evals, `ya_votados`, `es_ruido`, la confianza, los hitos 1·2·3·7·14·30 y la escalera de autonomía que colgaba de ahí. |
+
+**Lo que se pierde con eso, dicho de frente:** el agente deja de tener una
+métrica de qué tan bien diagnostica. Se acepta. Un número que nadie usa y que
+cuesta tres tablas y seis botones no es una métrica — es lastre. Si algún día
+hace falta, se reconstruye de `reincidencias`, que es un hecho y no una opinión.
 
 ---
 
@@ -980,7 +1038,10 @@ habilidades, editable sin deploy.
 10. **Un arreglo ESCRIBE.** Si después de apretarlo el sistema quedó igual, no
     era un arreglo.
 11. **Ninguna pantalla deriva nada.** Clase, estado, arreglo y nombre vienen
-    resueltos del backend.
+    resueltos del backend — ningún contador se suma en el navegador.
+12. **El agente no se autoevalúa** (§9.1). Nada de votos, puntajes ni
+    confianza acumulada. Lo único que se registra sobre su desempeño es un
+    hecho: si algo que dio por arreglado volvió.
 
 ---
 
@@ -991,6 +1052,21 @@ datos no. Se dejan de escribir y se decide después.
 
 Lo que sí se apaga desde el primer día: los cuatro relojes, reemplazados por el
 agente único.
+
+### 9.1 Lo que NO entra en 2.0
+
+Decidido con el user, 2026-08-24. **No se re-discute salvo pedido explícito.**
+
+| Qué | Dónde vive hoy |
+|---|---|
+| Votos ✔ acertó / ✖ es ruido | `av_agent_evals`, botones en LA LISTA |
+| El eval set entero | `av_agent_evals`, `evals/` |
+| Hitos, confianza y días de prueba | `core/ciclo.HITOS_DIAS`, `en_seguimiento`, `cerrar_hitos` |
+| La pantalla ¿AGUANTAN? | `av_agent_seguimiento`, `_seguimiento_corto` |
+| La pantalla VIGILANCIA | `av_agent_centinela.estado`, `av_agent_items` |
+| La familia EXPLICAR (9 habilidades) | `av_agent_explicar` — congelada, no borrada |
+| Presupuesto de créditos de 1816 | — nunca existió |
+| Discovery de instrumentos | `jobs.validar_instrumentos` — sigue corriendo, el agente no lo mira |
 
 ---
 
@@ -1005,7 +1081,8 @@ agente único.
 | Familia 3 (arreglar) | conservada sin cambios |
 | Familia 2 (explicar) | congelada, fuera de alcance |
 | Esquema SQL de las 3 tablas | ✅ §4 |
-| Pantallas AHORA / ENCONTRÓ | ✅ §6 |
+| Pantallas AHORA / ENCONTRÓ / HISTORIAL | ✅ §6 |
+| Lo que se borra del modal | ✅ §6.7 · §9.1 |
 | Vocabulario (clase: aviso/trabajo) | ✅ §6.3 |
 | Implementación | ⬜ pendiente |
 
@@ -1013,6 +1090,10 @@ agente único.
 
 ## Changelog
 
+- **2026-08-24** — Se define HISTORIAL (§6.6: se conserva, con una sola fuente
+  paginada y la regla guardada en cada acción) y se listan las bajas (§6.7,
+  §9.1): **VIGILANCIA, ¿AGUANTAN? y TODO el sistema de votos / eval set /
+  hitos / confianza**. La reincidencia queda como un HECHO, no un puntaje.
 - **2026-08-24** — ENCONTRÓ queda definida (§6.2): solo lo que tiene arreglo.
   AHORA y ENCONTRÓ pasan a ser dos EJES (tiempo · capacidad) y no dos cajas.
   Se nombra la **clase** (`aviso` / `trabajo`), derivada de si la REGLA tiene

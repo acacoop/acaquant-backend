@@ -522,7 +522,25 @@ def estado(limite: int = 200) -> dict:
                   # «apagado» se pueda verificar en vez de creerse.
                   "muere_en_s": max(0, int(cadencia * CICLOS_PERDIDOS - edad))}
 
+    # ⚠️⚠️ **«NO PASÓ NADA» Y «TODAVÍA NO MIRÉ» NO SON LO MISMO** (2026-08-24).
+    #
+    # Se vio en el peor momento posible: justo después de vaciar la memoria del
+    # agente (5.560 filas), la pantalla dijo **«hoy no pasó nada nuevo»** con el
+    # círculo en verde. Y no era cierto: el daemon estaba vivo pero la foto se
+    # escribe cada 5 minutos, así que todavía no había mirado NADA.
+    #
+    # Es la misma ley del día aplicada al veredicto en vez de a la fila. La
+    # respuesta sale del registro de confirmaciones —el mismo que decide qué
+    # puede afirmar «roto ahora»—: si ningún tipo se confirmó jamás, el agente
+    # no completó una pasada y no está en condiciones de decir que todo está
+    # bien. Cero hallazgos con cero confirmaciones es silencio, no un verde.
+    from api.services import av_agent_registro as registro
+    miro = bool(registro.confirmados())
+
     return {"ok": True, "vivo": vivo, "latido": latido,
+            # ¿Alcanzó a mirar algo alguna vez? Sin esto, una memoria recién
+            # vaciada se dibuja idéntica a un sistema sano.
+            "miro": miro,
             # ¿HOY es día hábil? Define el UNIVERSO del día: en no hábil los
             # motores están apagados a propósito, nada de rueda se re-evalúa,
             # y lo único que NO puede pasar es actividad de mercado. La

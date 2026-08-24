@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from api.services import av_agent_tipos
 from core import curvas_ejes, mercado_1816
 from core import especies as _esp
 from core.tz import AR_TZ, ahora_ar
@@ -315,106 +316,7 @@ def cobertura(hallazgos: list[dict]) -> dict:
     }
 
 
-ACCION_POR_TIPO = {
-    "falta_en_base": "alta",    # el bono no existe → se crea entero
-    "sin_flujo": "flujos",      # el bono existe → se completa el cronograma
-    # El bono existe Y tiene cuadro, pero un INSUMO está mal (los ejes o la
-    # escala). Es la única acción que PISA un dato, así que su cadena exige las
-    # dos mitades: que la propuesta coincida con 1816 y que lo de hoy NO.
-    "tasa_sospechosa": "arreglo",
-    # **`None` EXPLÍCITO, no ausencia.** Un `hueco_de_curva` sí es accionable,
-    # pero por OTRA vía: el agente lo pregunta en ME PREGUNTA y ahí se crea la
-    # curva (`av_agent_preguntas.crear_curva`). Ponerle botón de fila sería un
-    # segundo camino para lo mismo — y dos caminos a la misma escritura terminan
-    # con criterios distintos, que es el patrón que ya nos costó tres bugs.
-    #
-    # Escribirlo igual, con `None`, es lo que distingue **«se decidió que no»** de
-    # **«nadie lo pensó»**. Un tipo que falta por olvido sale en la pantalla como
-    # un comentario que nadie puede accionar y no da ningún error — exactamente lo
-    # que le pasó a `tasa_sospechosa` durante 38 filas.
-    "hueco_de_curva": None,
-    # ── EL SISTEMA, no el mercado (2026-08-19) ───────────────────────────────
-    # `None` EXPLÍCITO: son diagnósticos, no cosas que se arreglen tocando
-    # `mercado.curvas`. Una tabla que creció de golpe se resuelve en el job que
-    # la escribe; un endpoint degradado, en su propio código. El agente los VE y
-    # los canta con la evidencia — que es todo lo que se le pidió.
-    "db_cambio": None,
-    "latencia": None,
-    # Una tabla que dejó de escribir y un motor caído tampoco se arreglan desde
-    # `mercado.curvas` — se arreglan en el job o el servicio que los produce. El
-    # agente los VE y los canta con la evidencia; **poder relanzarlos es el paso
-    # siguiente** (el user: «y a futuro que pueda hacer algo»).
-    "tabla_quieta": None,
-    "motor_caido": None,
-    # Lo que el motor DICE mientras produce. Tampoco se arregla desde
-    # `mercado.curvas`: una config vencida o un REST que no parsea se arreglan en
-    # el motor. El agente lo ve y lo canta con el patrón y la cuenta.
-    "motor_ruidoso": None,
-    # Un proveedor externo caído tampoco se arregla desde acá — se arregla del
-    # otro lado, o llamándolos. Lo que el agente aporta es ENTERARSE: hasta hoy
-    # la única señal era un cartel que solo existe con la pantalla abierta.
-    "proveedor_caido": None,
-    # Actividad de mercado en día NO hábil (§0.co): un motor que quedó prendido
-    # o un cron que corre cuando no debe. Se arregla apagando el proceso o
-    # corrigiendo el cron — nunca desde `mercado.curvas`. El agente lo canta
-    # con la hora y el conteo, que es lo que hoy no veía nadie.
-    "actividad": None,
-    # Una BUENA noticia. `None` igual: no hay nada que aplicar — el sistema ya
-    # se arregló solo. Existe para que la recuperación no sea silencio.
-    "recuperado": None,
-    # LA RESPUESTA a una acción que ya se aplicó (§0.ak). `None` porque no hay
-    # nada que aplicar: es el cierre de un tema, no uno nuevo. El caso «SÍ
-    # cotiza» abre un paso siguiente —apuntar el master ahí— que sigue sin
-    # automatizarse a propósito: requiere reiniciar el motor fuera de rueda.
-    "respuesta": None,
-    # Un permiso flojo se arregla en el router o en el borde, no en la base.
-    "permiso_flojo": None,
-    # `None`, y **es una decisión**: instalar el crontab desde el agente sería
-    # darle la llave de todo lo que corre en la máquina. Además el arreglo es UN
-    # comando; lo que faltaba no era ejecutarlo, era enterarse.
-    "cron_desalineado": None,
-    # `None` EXPLÍCITO: NO se automatiza, y es una decisión. Cuando dos copias
-    # difieren, elegir la del árbitro y pisar la otra parece obvio y **no lo es**:
-    # puede que la que esté mal sea la del árbitro, y pisar borra la evidencia de
-    # que hubo una divergencia. El agente lo canta con los dos valores a la vista
-    # y decide una persona.
-    "dato_partido": None,
-    # ── EN RUEDA (2026-08-18) ────────────────────────────────────────────────
-    # `None` EXPLÍCITO, y por un motivo distinto al resto: no es que falte
-    # construirlo, es que **no se arreglan tocando `mercado.curvas`**. Un símbolo
-    # sin suscribir se resuelve en el universo del motor, y un precio que llega
-    # en pesos se resuelve en la pata o en el feed. El agente los VE y los canta
-    # en el momento — que es todo lo que se le pidió.
-    # **Deja de ser `None`** (2026-08-18): un bono sin precio SÍ tiene un
-    # diagnóstico local que distingue las cinco causas —sin símbolo, fuera de
-    # Primary, pata equivocada, nunca operó, sin actividad hoy— y esas se
-    # arreglan distinto. El user lo pidió mirando AO29: «no hay diagnóstico, no
-    # hay aviso». Sigue sin ARREGLAR nada: la puerta es de solo lectura.
-    "sin_precio": "sin_precio",
-    # **Deja de ser `None`** (2026-08-19). El user, mirando los 43
-    # `cotiza_en_pesos`: *«no ofrece una solución o algo, nada. Le falta ahí una
-    # feature que sepa ir a buscar y agregar»*. Tenía razón, y el motivo de fondo
-    # es el pecado que este módulo persigue: el hallazgo cerraba diciendo **«no
-    # encontré una pata en dólares»** después de mirar UNA sola tabla
-    # (`mercado.especies`). Ahora hay una puerta que va a buscarla al catálogo de
-    # Primary y, si está, la siembra y la pide — sin reiniciar nada.
-    "precio_moneda": "pata",
-    # ── SALUD entra al agente (2026-08-17) ──────────────────────────────────
-    #
-    # **`salud` abre una puerta de SOLO LECTURA**, y eso es una decisión, no una
-    # limitación temporal mal resuelta: el agente ya razona un chequeo con ocho
-    # lentes —lee el log, reconoce firmas de error conocidas, propone el comando
-    # exacto— pero **no escribe nada del lado de SALUD**. Relanzar un job tiene
-    # efectos afuera de `mercado.curvas` y se habilita cuando el eval set diga que
-    # el diagnóstico acierta. Primero ver, después simular, después escribir — el
-    # mismo camino que hizo la puerta de bonos.
-    #
-    # El valor NO es `None` porque el front usa este campo para elegir qué puerta
-    # abrir, y sin él la fila queda muda: un chequeo en rojo que no se puede ni
-    # mirar es peor que no tenerlo en la lista. Lo que impide escribir es que esa
-    # puerta no tiene botón de aplicar, no que la fila sea inaccionable.
-    "salud": "salud",
-}
+ACCION_POR_TIPO = av_agent_tipos.accion_por_tipo()
 
 
 # ── ¿QUÉ SE LE PREGUNTA AL QUE MIRA LA FILA? ────────────────────────────────
@@ -560,14 +462,7 @@ ACCION_POR_REGLA = {
 # skills: adivinar por el nombre del tipo es cómo se mandan cosas al cajón
 # equivocado. Un tipo nuevo NO entra acá salvo que alguien lo escriba, y eso es
 # a propósito — AHORA deja de ser AHORA si se llena.
-EN_AHORA_SIEMPRE = (
-    "motor_caido",       # el motor no está corriendo → no hay precios
-    "motor_ruidoso",     # está corriendo y falla → hay precios, y son dudosos
-    "proveedor_caido",   # la fuente de afuera no contesta
-    # En día NO hábil, actividad de mercado = algo quedó prendido o un cron
-    # corre cuando no debe. Es la definición de «roto en este momento».
-    "actividad",
-)
+EN_AHORA_SIEMPRE = av_agent_tipos.en_ahora_siempre()
 
 
 def va_en_ahora(tipo: str) -> bool:
@@ -585,10 +480,7 @@ def va_en_ahora(tipo: str) -> bool:
 # **Se DECLARA, no se infiere** — misma ley que EN_AHORA_SIEMPRE: un tipo
 # nuevo sin accionable se suma acá a mano, y el default (no estar) lo deja
 # en LA LISTA, que es donde un olvido se ve y se corrige.
-TIPOS_NOTICIA = (
-    "db_cambio",       # la base cambió: tabla nueva / creció / desapareció
-    "tabla_quieta",    # una tabla dejó de escribir a su ritmo
-)
+TIPOS_NOTICIA = av_agent_tipos.tipos_noticia()
 
 
 def es_noticia(tipo: str) -> bool:

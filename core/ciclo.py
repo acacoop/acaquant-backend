@@ -119,6 +119,21 @@ def puede_pasar(de: str, a: str) -> bool:
     return a in TRANSICIONES.get((de or "").strip(), ())
 
 
+# ⚠️⚠️ **LAS CINCO CLASES, DECLARADAS — Y UN TYPO YA NO PASA** (2026-08-24).
+#
+# `clase` era un `str` con default y se compara EXACTO (`f.clase == "problema"`)
+# para decidir qué tablas cuentan como deuda de migración. O sea que escribir
+# «bitácora» con tilde, o «problemas» en plural, **sacaba esa tabla de la vista
+# en silencio**: sin error, sin log, sin test. El modo de falla de la REGLA #9
+# aplicado al registro que existe justamente para evitarlo.
+#
+# Un `str` libre es una promesa de que nadie se va a equivocar nunca. Esto es la
+# misma promesa, pero verificada al importar el módulo.
+PROBLEMA, SENSOR, BITACORA, META, ACUSE = (
+    "problema", "sensor", "bitacora", "meta", "acuse")
+CLASES: tuple[str, ...] = (PROBLEMA, SENSOR, BITACORA, META, ACUSE)
+
+
 @dataclass(frozen=True)
 class Forma:
     """CÓMO dice su estado una tabla que todavía no migró.
@@ -157,7 +172,20 @@ class Forma:
     #   acuse     → quién LEYÓ qué, por persona. `av_agent_items.visto_at` es
     #               uno solo para todos: migrarla perdería la distinción y el
     #               segundo admin no vería nunca el modal que el primero cerró.
-    clase: str = "problema"
+    clase: str = PROBLEMA
+
+    def __post_init__(self) -> None:
+        """Rechaza la clase inventada **al construir**, no al leerla.
+
+        `REGISTRO` se arma cuando se importa el módulo, así que un typo revienta
+        en el arranque de la app y en el primer test — no tres semanas después,
+        cuando alguien note que una tabla dejó de aparecer.
+        """
+        if self.clase not in CLASES:
+            raise ValueError(
+                f"«{self.tabla}» declara clase «{self.clase}», que no existe. "
+                f"Las válidas son {CLASES} — y la comparación es EXACTA, así "
+                f"que un acento o un plural la sacan de la vista en silencio.")
 
 
 def _por_resuelto_at(f: dict) -> str:
@@ -676,7 +704,7 @@ def deuda_de_problemas() -> list[str]:
     """
     return [f.tabla for f in REGISTRO
             if f.tabla in _CON_CICLO and f.tabla != CANONICA
-            and f.clase == "problema"]
+            and f.clase == PROBLEMA]
 
 
 _RE_TABLA = re.compile(

@@ -318,3 +318,36 @@ def test_las_rutas_del_agente_apuntan_a_la_raiz_del_repo():
     src = inspect.getsource(crontab.del_repo)
     assert "parents[1]" in src
     assert (RAIZ / "deploy" / "crontab.txt").exists()
+
+
+def test_el_agente_no_reimplementa_quien_cotiza():
+    """«¿Este símbolo cotiza?» tiene UN lector: `core/instrumentos_validos`, el
+    mismo que aplica `core/websocket.py` a TODAS las suscripciones de todos los
+    motores.
+
+    El agente escribió su propio `SELECT symbol FROM manager.pyrofex_instruments`
+    y esa columna **no existe** — el catálogo guarda los símbolos adentro de un
+    jsonb. Se degradó honestamente y siguió, así que no rompió nada: corrió
+    CIEGO, que es peor de encontrar.
+
+    Y el nombre de columna era el síntoma. El bug era el SEGUNDO lector: dos
+    respuestas a la misma pregunta terminan siempre igual — una se queda vieja y
+    nadie sabe cuál manda (REGLA #9 del repo).
+    """
+    from agente import fuentes
+    src = inspect.getsource(fuentes.primary)
+    assert "instrumentos_validos" in src
+    assert "pyrofex_instruments" not in src, (
+        "el agente no lee ese catálogo directo: delega en el criterio único")
+
+
+def test_no_se_adivina_el_ticker_por_sufijo():
+    """REGLA #9: la identidad no es el nombre. `.rstrip("DC")` convierte `TXAD`
+    en `TXA` y `PBAC` en `PBA` — dos cosas distintas emparejadas sin que falle
+    nada. Y no hace falta: Primary lista `AL30`, `AL30D` y `AL30C` como símbolos
+    separados, así que el base ya está en el conjunto por derecho propio."""
+    from agente import fuentes
+    src = inspect.getsource(fuentes.tickers_en_primary)
+    codigo = "\n".join(l for l in src.splitlines()
+                       if not l.strip().startswith("#") and "`" not in l)
+    assert "rstrip" not in codigo and "strip(\"D" not in codigo

@@ -106,15 +106,28 @@ def especies() -> dict | None:
 # cuatro detectores y tres arreglos, y en el agente viejo cada uno la resolvía a
 # su manera. Una sola respuesta para todos.
 def primary() -> set[str] | None:
+    """Los símbolos que Primary publica hoy. `None` = no se pudo saber.
+
+    ⚠️ **DELEGA en `core.instrumentos_validos`, no lee la tabla por su cuenta.**
+    La primera versión escribía su propio `SELECT symbol FROM
+    manager.pyrofex_instruments` — y esa columna **no existe**: el catálogo
+    guarda los símbolos adentro de un jsonb (`instruments -> [] -> ticker`),
+    agrupados por CFI. El detector se degradó honestamente («no pude leer
+    primary») y siguió, así que no rompió nada — pero corrió CIEGO.
+
+    Y el nombre de columna era el síntoma, no el bug. El bug era escribir un
+    SEGUNDO lector de la misma pregunta: `core/instrumentos_validos` ya es el
+    criterio único, el mismo que aplica `core/websocket.py` a TODAS las
+    suscripciones de todos los motores. Dos lectores de «¿esto cotiza?»
+    terminan siempre igual — uno se queda viejo y nadie sabe cuál manda.
+
+    La degradación (`None` cuando el catálogo no se puede leer o tiene menos de
+    100 símbolos) también vive allá, y es la correcta: filtrar de más deja
+    papeles sin precio; ante la duda, no se filtra.
+    """
     def _leer():
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT DISTINCT symbol FROM manager.pyrofex_instruments "
-                        "WHERE symbol IS NOT NULL AND symbol <> ''")
-            s = {r[0] for r in cur.fetchall()}
-        # ⚠️ Degradación elegida a propósito: un catálogo con menos de 100
-        # símbolos es un catálogo roto, y creerle haría que todo pareciera
-        # inválido. `None` = «no sé», y el que pregunta tiene que tratarlo así.
-        return s if len(s) >= 100 else None
+        from core import instrumentos_validos
+        return instrumentos_validos.validos()
     return _una_vez("primary", _leer)
 
 
@@ -127,16 +140,26 @@ def cotiza_en_primary(simbolo: str) -> bool | None:
 
 
 def tickers_en_primary() -> set[str] | None:
-    """Los tickers cortos que Primary lista, sacados de sus símbolos."""
+    """Los tickers que Primary lista, sacados del símbolo tal cual.
+
+    ⚠️ **No se le saca ningún sufijo.** La primera versión hacía
+    `.rstrip("DC")` para "conseguir el ticker base", y eso convierte `TXAD` en
+    `TXA` y `PBAC` en `PBA`: la REGLA #9 del repo dice exactamente esto — la
+    identidad no es el nombre, y adivinar por sufijo es cómo se emparejan mal
+    dos cosas distintas sin que falle nada.
+
+    No hace falta: Primary lista `AL30`, `AL30D` y `AL30C` como símbolos
+    SEPARADOS, así que el ticker base ya está en el conjunto por derecho propio.
+    """
     p = primary()
     if p is None:
         return None
     out = set()
     for s in p:
         partes = s.split(" - ")
-        base = partes[2] if len(partes) >= 3 else s
-        out.add(base.strip().upper().rstrip("DC") or base.strip().upper())
-        out.add(base.strip().upper())
+        base = (partes[2] if len(partes) >= 3 else s).strip().upper()
+        if base:
+            out.add(base)
     return out
 
 

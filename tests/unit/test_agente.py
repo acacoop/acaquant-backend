@@ -267,3 +267,54 @@ def test_salud_no_declara_un_arreglo_que_no_tiene():
     caía en la lista de trabajo con un botón que solo volvía a chequear."""
     assert not catalogo.HABILIDADES["salud"].arreglos, (
         "salud es un AVISO: mirar no arregla")
+
+
+def test_no_se_pegan_sujeto_y_regla_en_un_string():
+    """**Cualquier separador es una apuesta a que no aparezca en los datos.**
+
+    La primera versión unía sujeto y regla con `chr(0)` para compararlos como un
+    solo texto, y Postgres rechaza el NUL en un campo `text`: las 12 habilidades
+    que corrieron en la primera pasada real murieron ahí.
+
+    Pero el byte elegido no era el bug. Un sujeto es un ticker, y también
+    `mercado.market_snapshot` o `/api/x/{id}`: con cualquier separador
+    "imposible" el modo de falla siguiente no es un error, es **emparejar mal en
+    silencio**. Se comparan las dos columnas por separado.
+    """
+    src = inspect.getsource(registro._cerrar_ausentes)
+    # Se mira el SQL, no el archivo entero: el comentario que explica el bug
+    # nombra `chr(0)` a propósito, y un test que falla por su propia
+    # documentación no prueba nada.
+    sql = src[src.index("cur.execute("):]
+    assert "chr(0)" not in sql and "||" not in sql, (
+        "sujeto y regla no se concatenan: cualquier separador es una apuesta a "
+        "que no aparezca en los datos")
+    assert "unnest(%s::text[], %s::text[])" in sql
+
+
+def test_una_escritura_fallida_no_deja_la_corrida_en_ok():
+    """El sello va ANTES para que una caída dura deje rastro igual. Pero si la
+    escritura falla hay que VOLVER a sellar: si no, el catálogo dice «miré y
+    estaba todo bien» sobre una pasada que no guardó una fila.
+
+    Pasó en la primera corrida real: 12 habilidades reventaron escribiendo y las
+    12 quedaron marcadas `ok`.
+    """
+    src = inspect.getsource(registro.guardar)
+    i = src.index("except Exception as e:")
+    assert "sellar_corrida" in src[i:], "el fallo de escritura no se re-sella"
+    assert "tipos.ERROR" in src[i:]
+    assert "raise" in src[i:], "y el motor tiene que enterarse"
+
+
+def test_las_rutas_del_agente_apuntan_a_la_raiz_del_repo():
+    """`agente/` está UN nivel más arriba que `api/services/`, de donde vinieron
+    estos módulos. Con `parents[2]` el detector de crons buscaba en
+    `/root/deploy/crontab.txt` y **no fallaba**: decía «no pude leer el
+    crontab», que es una respuesta legítima. Un error de ruta disfrazado de
+    degradación honesta es de los que duran meses.
+    """
+    from agente import crontab
+    src = inspect.getsource(crontab.del_repo)
+    assert "parents[1]" in src
+    assert (RAIZ / "deploy" / "crontab.txt").exists()

@@ -67,13 +67,31 @@ def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
     filas = list(hallazgos or [])
     nuevos = reincidencias = 0
     vistos: list[tuple[str, str]] = []
-    with get_pool().connection() as conn:
-        for h in filas:
-            r = _ver(conn, habilidad, h)
-            vistos.append((h.sujeto, h.regla))
-            nuevos += 1 if r["nacio"] else 0
-            reincidencias += 1 if r["reincidio"] else 0
-        cerrados = _cerrar_ausentes(conn, habilidad, vistos)
+    try:
+        # UNA transacción: o entra todo lo que vio y se cierra lo que no vino, o
+        # no entra nada. Media escritura es peor que ninguna — deja hallazgos
+        # nuevos con los viejos sin cerrar, y nadie sabe de qué pasada es cada
+        # cosa.
+        with get_pool().connection() as conn:
+            for h in filas:
+                r = _ver(conn, habilidad, h)
+                vistos.append((h.sujeto, h.regla))
+                nuevos += 1 if r["nacio"] else 0
+                reincidencias += 1 if r["reincidio"] else 0
+            cerrados = _cerrar_ausentes(conn, habilidad, vistos)
+    except Exception as e:
+        # ⚠️ **LA CORRIDA NO PUEDE QUEDAR EN `ok` SI NO SE ESCRIBIÓ NADA.** El
+        # sello va ANTES para que una caída dura igual deje rastro, pero si la
+        # escritura falla hay que volver a sellar: si no, el catálogo dice
+        # «miré y estaba todo bien» sobre una pasada que no guardó una fila.
+        #
+        # Pasó en la primera corrida real (2026-08-24): 12 habilidades
+        # reventaron escribiendo y las 12 quedaron marcadas `ok`.
+        logger.exception("agente/%s: no pude escribir lo que encontré", habilidad)
+        sellar_corrida(habilidad, resultado=tipos.ERROR,
+                       error=f"escribiendo: {type(e).__name__}: {e}"[:400],
+                       duracion_ms=duracion_ms)
+        raise
     return {"ok": True, "resultado": resultado, "abiertos": len(filas),
             "nuevos": nuevos, "cerrados": cerrados,
             "reincidencias": reincidencias}
@@ -150,16 +168,32 @@ def _cerrar_ausentes(conn, habilidad: str, vistos: list[tuple[str, str]]) -> int
     Cierra POR ACCIÓN si el arreglo se había aplicado (estaba `en_curso`) y por
     AUSENCIA si no. Esa diferencia es la que después decide si puede reincidir.
     """
-    pares = [f"{s}\x00{r}" for s, r in vistos]
+    # ⚠️ **NADA DE PEGAR SUJETO Y REGLA EN UN STRING.** La primera versión los
+    # unía con `chr(0)` y Postgres rechaza el NUL en un campo `text`: las 12
+    # habilidades que corrieron en la primera pasada real murieron acá.
+    #
+    # Y el bug de fondo no era el byte elegido: **cualquier separador es una
+    # apuesta a que no aparezca en los datos**. Un sujeto es un ticker, pero
+    # también `mercado.market_snapshot` o `/api/x/{id}` — elegir un carácter
+    # "imposible" es exactamente cómo nacen los bugs que no fallan, sino que
+    # emparejan mal en silencio.
+    #
+    # Se comparan las DOS columnas por separado, con las dos listas en paralelo.
+    # No hay separador, así que no hay nada que colisione.
+    sujetos = [s for s, _ in vistos]
+    reglas = [r for _, r in vistos]
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE agente.hallazgos SET "
             "  estado = %s, cerrado_at = now(), "
             "  cerrado_como = CASE WHEN estado = %s THEN %s ELSE %s END "
             "WHERE habilidad = %s AND estado = ANY(%s) "
-            "  AND (sujeto || chr(0) || regla) <> ALL(%s)",
+            "  AND NOT EXISTS (SELECT 1 FROM unnest(%s::text[], %s::text[]) "
+            "                    AS v(s, r) "
+            "                  WHERE v.s = sujeto AND v.r = regla)",
             (tipos.RESUELTO, tipos.EN_CURSO, tipos.POR_ACCION,
-             tipos.POR_AUSENCIA, habilidad, list(tipos.ABIERTOS), pares))
+             tipos.POR_AUSENCIA, habilidad, list(tipos.ABIERTOS),
+             sujetos, reglas))
         return cur.rowcount or 0
 
 

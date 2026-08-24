@@ -68,7 +68,12 @@ def _lineas(texto: str) -> set[str]:
 
 def del_repo() -> set[str]:
     import pathlib
-    p = pathlib.Path(__file__).resolve().parents[2] / "deploy" / "crontab.txt"
+    # ⚠️ `parents[1]`, no `[2]`: este módulo vivía en `api/services/` y al
+    # mudarse a `agente/` subió un nivel. Con la ruta vieja buscaba en
+    # `/root/deploy/crontab.txt` y el detector **no fallaba**: decía «no pude
+    # leer el crontab», que es una respuesta legítima. Un error de ruta
+    # disfrazado de degradación honesta es de los que duran meses.
+    p = pathlib.Path(__file__).resolve().parents[1] / "deploy" / "crontab.txt"
     try:
         return _lineas(p.read_text(encoding="utf-8"))
     except Exception as e:

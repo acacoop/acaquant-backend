@@ -730,6 +730,7 @@ def _lo_de_hoy(abiertos: list[dict], resueltos: list[dict],
     vive en ENCONTRÓ, con sus botones. Meterlo acá es lo que convertía a AHORA
     en un segundo depósito.
     """
+    from api.services import av_agent_registro as registro
     from api.services.av_agent import va_en_ahora
 
     desde = _arranco_el_dia()
@@ -747,9 +748,45 @@ def _lo_de_hoy(abiertos: list[dict], resueltos: list[dict],
     # ⚠️⚠️ Y **solo lo que puede estar roto HOY** (§0.cp): un deadlock del
     # viernes al mediodía no es «roto ahora» un sábado con el motor apagado —
     # es trabajo pendiente, y vive en ENCONTRÓ hasta el próximo hábil.
-    roto = [f for f in abiertos
-            if va_en_ahora(f.get("tipo") or "") and _puede_pasar_hoy(f, habil)]
-    claves_roto = {f.get("clave") for f in roto}
+    # ⚠️⚠️ **Y SOLO SI ALGUIEN LO CONFIRMÓ RECIÉN** (2026-08-24). El user, con
+    # cuatro motores en ROTO AHORA fechados tres días antes: *«es inaceptable
+    # que AHORA muestre cosas que no sean del día actual»*.
+    #
+    # No había ningún bug en la cadena, y eso es lo que lo hacía invisible. Un
+    # detector que levanta —o que ni corre, porque `relevar_live` solo se llama
+    # en rueda— no declara su tipo en `evaluados`, y entonces **nada suyo se
+    # cierra por ausencia**. Eso está bien y es deliberado (§0.be): cerrar sin
+    # haber mirado es la mentira optimista que deja el tablero en verde el día
+    # que está más ciego.
+    #
+    # Pero la fila queda abierta con su motivo congelado, y esta función la
+    # publica afirmando **«está roto AHORA»**. No lo sabe: sabe que estaba roto
+    # la última vez que alguien pudo mirar. El guard evita el falso verde y
+    # produce un falso rojo eterno — con el latido en verde al lado, porque el
+    # daemon sí está vivo. Vivo y ciego a la vez.
+    #
+    # Las dos mitades son la misma ley y solo estaba escrita una:
+    #     al ESCRIBIR   «no miré» ≠ «no hay nada»     → no cerrar
+    #     al LEER       «no miré» ≠ «sigue pasando»   → no afirmar
+    #
+    # Y no se ESCONDE: eso sería el silencio que se lee como verde (§0.s). Lo
+    # que no se pudo confirmar sale a su propio bloque, con el detector y desde
+    # cuándo no da señales — un fantasma declarado deja de ser un fantasma.
+    conf = registro.confirmados()
+    roto, sin_confirmar = [], []
+    for f in abiertos:
+        if not (va_en_ahora(f.get("tipo") or "") and _puede_pasar_hoy(f, habil)):
+            continue
+        edad = registro.sin_confirmar(f.get("tipo") or "", conf)
+        if edad is None:
+            roto.append(f)
+        else:
+            sin_confirmar.append({**f, "sin_confirmar_s": (
+                None if edad == float("inf") else int(edad))})
+    # `claves_roto` cubre A LOS DOS: la fila que no se pudo confirmar tampoco
+    # puede reaparecer abajo como «apareció» — sigue siendo la misma fila, y
+    # verla dos veces en la misma pantalla se lee como dos problemas.
+    claves_roto = {f.get("clave") for f in roto + sin_confirmar}
 
     aparecio = [f for f in abiertos
                 if _hoy(f.get("abierto_at"), desde) and not f.get("vuelto_at")
@@ -763,6 +800,10 @@ def _lo_de_hoy(abiertos: list[dict], resueltos: list[dict],
     return {
         "desde": desde.isoformat(),
         "roto": _por_hora(roto),
+        # Lo que SIGUE ABIERTO pero nadie pudo verificar hace rato. No es una
+        # novedad y no suma al contador: es una advertencia sobre el AGENTE, no
+        # sobre el sistema — «esto no lo estoy mirando».
+        "sin_confirmar": _por_hora(sin_confirmar),
         "aparecio": _por_hora(aparecio), "volvio": _por_hora(volvio),
         "se_arreglo": _por_hora(cerro),
         # El total que decide si la tab dice «hoy no pasó nada» o muestra algo.

@@ -59,6 +59,7 @@
 |---|---|
 | cada hora · 0-1h · Mar-Sáb | `jobs.market_quotes'` |
 | cada hora · 10-23h · L-V | `jobs.market_quotes'` |
+| cada 10min · *h · diario | `jobs.av_agent_sistema'` |
 | cada 15min · 12-23h · diario | `jobs.news_ingesta'` |
 | cada 15min · 13-15h · L-V | `jobs.mayor_sync'` |
 | cada 15min · 13-20h · L-V | `jobs.adr_live'` |

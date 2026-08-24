@@ -598,6 +598,12 @@ REGISTRO: tuple[Forma, ...] = (
     Forma("agente.av_agent_errores", (), "memoria por patrón", _por_existencia),
     Forma("agente.av_agent_control", (), "config", _por_existencia),
     Forma("agente.av_agent_latido", (), "heartbeat", _por_existencia),
+    # No dice el estado de NADA: dice cuándo se pudo mirar cada tipo. Es lo que
+    # le permite a la pantalla distinguir «esto sigue pasando» de «hace tres
+    # días que nadie confirma esto» — la mitad de lectura del guard de
+    # `evaluados`, que al escribir impide cerrar sin haber mirado.
+    Forma("agente.av_agent_evaluado", (), "telemetría: última pasada OK por tipo",
+          _por_existencia, clase="meta"),
     Forma("manager.salud_eventos", (), "append-only: las TRANSICIONES",
           _por_existencia),
     Forma("manager.salud_config", (), "config", _por_existencia),

@@ -306,12 +306,26 @@
 # dio de baja). Regla del user: una tarea de IA existe solo si alguien lee su
 # salida, y todo lo de IA pasa por el AV AGENT.
 
-# ─── FOTO DIARIA DE LA BASE (jobs/db_tamano.py) — 23:30 UTC todos los días.
-# Congela cuánto pesa cada tabla para que el AV AGENT pueda decir al día
-# siguiente qué apareció, qué creció y por cuánto. Guarda SOLO 2 fechas y purga
-# en la misma transacción. Fuera de rueda: son queries sobre el catálogo de
-# Postgres, baratas, pero no hay razón para pagarlas con el mercado abierto.
+# ─── FOTO DIARIA DE LA BASE + SUPERFICIE HTTP (jobs/db_tamano.py) — 23:30 UTC.
+# Lo CARO y lo INTRUSIVO del conocimiento del sistema, que cambia despacio:
+#   · la foto de tamaños (delta contra ayer, solo 2 fechas, purga en el INSERT)
+#   · el PERFIL de las ~200 tablas — una query POR TABLA para medirles el ritmo
+#   · la prueba activa de permisos — ~400 requests contra producción
+# Fuera de rueda a propósito. Escribe con alcance `superficie`, no `sistema`:
+# los dos son de REEMPLAZO y compartirlo haría que el job de 10 min de abajo
+# borrara estos hallazgos apenas corriera.
 30 23 * * * /root/TradingAV/deploy/run_job.sh db_tamano 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.db_tamano'
+
+# ─── LO QUE EL AGENTE SABE DEL SISTEMA (jobs/av_agent_sistema.py) — cada 10 min.
+# ⚠️ Los cuatro detectores baratos —tabla quieta, la base cambió, dato partido,
+# crontab desalineado— vivían en el job de las 23:30 y por eso el agente
+# contestaba a las 11 de la mañana con la foto de anoche: una tabla que volvía a
+# escribir a las 9 AM seguía anunciada como quieta hasta la noche siguiente.
+# Todo se lee de la base propia y de archivos (el ATRASO de las tablas es UNA
+# query con todos los `max()`), así que el costo real es de milisegundos.
+# TODOS los días y a toda hora: nada de esto depende del mercado — una tabla
+# nocturna que no escribió es un problema a las 3 AM igual que a las 3 PM.
+*/10 * * * * /root/TradingAV/deploy/run_job.sh av_agent_sistema 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.av_agent_sistema'
 
 # ─── Research diario por mail (QuantAI P6) — ingesta IMAP + destilado LLM → ia.research
 # Cada 30 min a la mañana L-V (el mail llega temprano ART): dedup por Message-ID

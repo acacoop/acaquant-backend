@@ -11,6 +11,19 @@ chiste que se cuenta solo.
 
 Correrlo dos veces el mismo día no duplica ni rompe el delta: la PK es por fecha.
 
+⚠️ **LO BARATO SE MUDÓ** (2026-08-24). Este job se quedó con lo CARO y lo
+INTRUSIVO —la foto de tamaños, el perfil de las ~200 tablas (una query por
+tabla) y la prueba activa de permisos (~400 requests contra producción)—, que
+cambia despacio y por eso puede ser diario. Los cuatro detectores que se leen
+de la base propia (`tabla_quieta`, `db_cambio`, `dato_partido`,
+`cron_desalineado`) viven ahora en **`jobs/av_agent_sistema`, cada 10 minutos**:
+sus respuestas cambian durante el día y contestarlas una vez por noche dejaba
+avisos ya arreglados colgados hasta la noche siguiente.
+
+Escribe con alcance **`superficie`**, no `sistema`: los dos son de REEMPLAZO
+(cada pasada pisa todo lo suyo) y compartirlo haría que el job de 10 minutos
+borrara estos hallazgos apenas corriera.
+
     python -m jobs.db_tamano
 """
 from __future__ import annotations
@@ -21,17 +34,6 @@ import sys
 from core.job_runs import JobRunLogger
 
 logger = logging.getLogger(__name__)
-
-
-def _seguro(fn, nombre: str) -> list[dict] | None:
-    """Corre un detector. **`None` = levantó**, que NO es lo mismo que «no
-    encontró nada»: el que declara `evaluados` tiene que poder distinguirlos, o
-    un detector caído cierra por ausencia todo lo suyo."""
-    try:
-        return list(fn() or [])
-    except Exception as e:
-        logger.warning("db_tamano: el detector %s falló (%s)", nombre, e)
-        return None
 
 
 def main() -> int:
@@ -119,94 +121,33 @@ def main() -> int:
             print(f"primera foto: {r['tablas']} tablas, "
                   f"{db.mb(r['bytes_total'])}. Mañana hay delta.")
 
-        # ⚠️ **Y ACÁ SE PERSISTE.** Hasta el 2026-08-19 estos tres detectores
-        # existían, corrían y solo IMPRIMÍAN: el hallazgo moría en el log del
-        # job. La tab SKILLS decía «se ve en AV Agent → ENCONTRÓ» y no se veía
-        # en ningún lado — el catálogo prometía algo que la pantalla no daba.
-        #
-        # Van con `alcance='sistema'`, que es de REEMPLAZO y no una corrida: la
-        # foto de anoche se pisa entera, así lo que se arregló desaparece solo
-        # sin que nadie tenga que marcarlo.
-        from api.services import av_agent
-
-        # DATO PARTIDO: dos copias del mismo dato que dejaron de coincidir. Va
-        # acá y no en el monitor de rueda porque **no depende del mercado** — es
-        # un hecho sobre nuestros datos y a las 23:30 es tan cierto como a las 11.
-        partido = av_agent.detectar_dato_partido()
-        if partido:
-            # **El log tiene que decir CUÁLES**, no cuántos. La primera versión
-            # cortaba el motivo a 120 caracteres y quedaba «…dice cosas distintas
-            # según dónde se lea. m» — el dato accionable (qué bono y qué dos
-            # valores) es justo lo que se perdía en el corte.
-            print(f"\n⚠ {len(partido)} dato(s) partido(s) — dos copias que no "
-                  f"coinciden:")
-            for h in partido:
-                ev = h.get("evidencia") or {}
-                print(f"   · {h['ticker']}  ({ev.get('n', '?')} caso/s)")
-                print(f"       {ev.get('a', '?')}")
-                print(f"       {ev.get('b', '?')}   → manda: {ev.get('arbitro', '?')}")
-                for x in (ev.get("ejemplos") or [])[:5]:
-                    print(f"       {x['sujeto']:<10} «{x['valor_a']}»  ≠  "
-                          f"«{x['valor_b']}»")
-        else:
-            print("\n✔ los datos duplicados coinciden en todos sus lugares")
-
-        # ⚠️ **EL CRON DEL REPO vs EL QUE CORRE DE VERDAD** (§0.al). `deploy.sh`
-        # NO instala el crontab, así que una línea nueva en el archivo puede no
-        # existir en la máquina — y ahí el job no corre, no falla nada, y el
-        # catálogo lo muestra igual. Es REGLA #9(B): dos copias sin árbitro.
-        from api.services import av_agent_crontab as cron
-        cr = cron.detectar_crontab()
-        for h in cr:
-            print(f"\n⚠ crontab: {h['motivo']}")
-            for j in (h.get("evidencia") or {}).get("jobs") or []:
-                print(f"   · {j}")
-        if not cr:
-            print("\n✔ el crontab de la máquina es el del repo")
-
         # ── Y SE REGISTRA, POR LA PUERTA ÚNICA ──────────────────────────────
         #
-        # ⚠️⚠️ **HASTA HOY ESTOS CINCO TIPOS NO ERAN OBJETOS** (deuda #1, cerrada
-        # el 2026-08-24). El job escribía la foto con `reemplazar_hallazgos` y
-        # **nunca llamaba a `sincronizar`**, así que `db_cambio`, `tabla_quieta`,
-        # `permiso_flojo`, `dato_partido` y `cron_desalineado` no tenían DNI:
-        # sin antigüedad, sin «volvió», sin «ya lo atendiste», y **IGNORAR no
-        # los escondía**. Violaban la REGLA #10.1 en silencio.
+        # ⚠️⚠️ **ACÁ SOLO VA LA SUPERFICIE** (2026-08-24). Los otros cuatro
+        # detectores —`tabla_quieta`, `db_cambio`, `dato_partido`,
+        # `cron_desalineado`— se mudaron a `jobs/av_agent_sistema`, que corre
+        # cada 10 minutos: son baratos y sus respuestas cambian durante el día,
+        # así que contestarlas una vez por noche dejaba avisos ya arreglados
+        # colgados en la pantalla hasta la noche siguiente.
         #
-        # No se arregló acordándose: se arregló porque ahora hay UNA sola puerta
-        # y escribe las dos cosas. Un job nuevo lo hereda sin escribir una línea.
-        #
-        # `evaluados` se arma detector por detector y **solo si corrió**: cada
-        # uno tiene su propio `try`, así que declarar la lista completa haría que
-        # un detector caído cerrara todo lo suyo por ausencia (§0.be).
+        # **Y por eso el alcance es `superficie` y no `sistema`.** Los dos son
+        # de REEMPLAZO: cada pasada pisa TODO lo de su alcance. Compartirlo
+        # haría que el job de 10 minutos borre estos hallazgos apenas corra —
+        # sin error, sin log, y con la pantalla mostrando menos de lo que hay.
         from api.services import av_agent_registro as registro
 
-        sistema: list[dict] = []
-        evaluados: set[str] = set()
-        for tipos, piezas in (
-                (("permiso_flojo",), hall),
-                (("tabla_quieta",), _seguro(ctx.detectar_tablas, "tablas")),
-                (("db_cambio",), _seguro(db.detectar_db, "db")),
-                (("dato_partido",), partido),
-                (("cron_desalineado",), cr),
-        ):
-            if piezas is None:      # el detector levantó: no se declara nada
-                continue
-            sistema += piezas
-            evaluados.update(tipos)
-
-        r = registro.guardar("sistema", sistema, evaluados=evaluados)
+        # `permiso_flojo` se declara evaluado SIEMPRE que `detectar_seguridad`
+        # haya vuelto: adentro ya distingue lo declarado (que siempre se lee)
+        # de la prueba activa (que canta `prueba_no_corrio` si no corrió).
+        r = registro.guardar("superficie", hall, evaluados={"permiso_flojo"})
         n = r.get("foto") or 0
         jr.set_stat("hallazgos", n)
-        jr.set_stat("evaluados", len(evaluados))
         esp = r.get("espejo") or {}
         if esp.get("ok"):
             jr.set_stat("objetos_nuevos", esp.get("nuevos", 0))
             jr.set_stat("objetos_resueltos", esp.get("resueltos", 0))
-        print(f"\n✔ {n} hallazgos del sistema · {len(evaluados)} de 5 detectores "
-              f"declararon haber corrido\n"
-              f"  se ven en AV Agent → ENCONTRÓ, y desde hoy con su antigüedad "
-              f"(antes eran una foto sin memoria)")
+        print(f"\n✔ {n} hallazgos de superficie · lo barato del sistema lo "
+              f"canta `jobs.av_agent_sistema` cada 10 min")
     return 0
 
 

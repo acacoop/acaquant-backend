@@ -446,18 +446,84 @@ def _ya_tienen_contrato() -> set[str]:
         return set()
 
 
+# ── EL ÚLTIMO DATO SE LEE AHORA, NO SE RECUERDA ─────────────────────────────
+#
+# ⚠️⚠️ **EL VEREDICTO ERA DE ANOCHE Y LA PREGUNTA ES DE AHORA** (2026-08-24).
+#
+# El user, mirando NOTICIAS DE LA BASE con cinco filas todas fechadas «23/08
+# 20:31»: *«lo de los jobs de noche no tiene sentido, esto necesito que sea
+# prácticamente real time o cada 10 minutos, y que cada corrida no superponga
+# cosas ya arregladas»*.
+#
+# La causa: este detector leía `perfiles()`, o sea `manager.tabla_perfil`, y
+# sacaba el veredicto de frescura contra el `ultimo_dato` **que congeló el
+# barrido de las 23:30 UTC**. O sea que a las 11 de la mañana el agente seguía
+# contestando con la foto de anoche: una tabla que volvió a escribir a las 9 AM
+# seguía anunciada como quieta, y así hasta la noche siguiente. El aviso no
+# envejecía — se quedaba clavado hasta que otro job de 24 horas lo levantara.
+#
+# **Y las dos mitades del perfil no envejecen igual**, que es lo que permite
+# arreglarlo sin correr el barrido entero cada diez minutos:
+#
+#     LA CADENCIA   «esta tabla escribe cada 4 s» — es una propiedad del
+#                   sistema, medida sobre sus últimas 500 escrituras. Cambia
+#                   cuando cambia un job, o sea casi nunca. Cuesta UNA query
+#                   POR TABLA (~200 viajes) → sigue siendo del barrido nocturno.
+#     EL ATRASO     «hace 6 h que no escribe» — cambia minuto a minuto y es LA
+#                   pregunta. Cuesta un `max(col)`, y los ~N de las tablas con
+#                   ritmo entran en UNA sola query.
+#
+# Es el mismo HOT/COLD de `ops_agregado_diario`: lo caro y lento se precomputa,
+# lo barato y vivo se calcula al leer.
+#
+# **Si la lectura viva falla, se usa la guardada y se DICE** (`ultimo_vivo` en
+# la evidencia): un veredicto viejo sirve, uno viejo disfrazado de nuevo no.
+def _ultimo_dato_vivo(perfiles_: list[dict]) -> dict[int, object]:
+    """`max(col_fecha)` de cada tabla, AHORA. Una query para todas.
+
+    El peaje de Supabase se paga por VIAJE (~8,5 ms), no por fila: 120 `max()`
+    en un `UNION ALL` cuestan un viaje. Nunca levanta — si no se puede leer, el
+    detector se queda con lo que guardó el barrido y lo declara.
+    """
+    if not perfiles_:
+        return {}
+    partes = [f'SELECT {i} AS i, max("{p["col_fecha"]}") AS t '
+              f'FROM "{p["schema"]}"."{p["tabla"]}"'
+              for i, p in enumerate(perfiles_) if p.get("col_fecha")]
+    if not partes:
+        return {}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(" UNION ALL ".join(partes))
+            return {r[0]: r[1] for r in cur.fetchall()}
+    except Exception as e:
+        logger.warning("contexto: no pude leer el último dato en vivo (%s)", e)
+        return {}
+
+
 def detectar_tablas() -> list[dict]:
     """Tablas que **dejaron de escribir cuando deberían estar escribiendo**.
 
     Cubre las ~190 que hoy son un punto ciego total: las 8 críticas las sigue
     mirando `salud.CONTRATOS`, que es más estricto y no se acostumbra al problema.
+
+    El RITMO sale del barrido nocturno (caro, cambia poco); el ATRASO se mide
+    **en esta llamada** (barato, cambia siempre) — ver el bloque de arriba.
     """
     from core import escribe
 
     try:
         con_contrato = _ya_tienen_contrato()
         out = []
-        for p in perfiles(solo_con_ritmo=True):
+        con_ritmo = perfiles(solo_con_ritmo=True)
+        vivo = _ultimo_dato_vivo(con_ritmo)
+        for i, p in enumerate(con_ritmo):
+            # El último dato de AHORA gana sobre el que congeló el barrido. Si
+            # la lectura viva no trajo esta tabla, se usa el guardado y la
+            # evidencia lo dice — nunca se presenta lo viejo como si fuera nuevo.
+            es_vivo = i in vivo
+            if es_vivo:
+                p = {**p, "ultimo_dato": vivo[i]}
             nombre = f"{p['schema']}.{p['tabla']}"
             if nombre in con_contrato:
                 continue
@@ -499,6 +565,9 @@ def detectar_tablas() -> list[dict]:
                     "cadencia": p["cadencia"], "col_fecha": p["col_fecha"],
                     "atraso_s": f["atraso_s"], "tope_s": f["tope_s"],
                     "ultimo_dato": f["ultimo_dato"], "filas": p["filas"],
+                    # ¿El atraso se midió AHORA o salió de la foto del barrido?
+                    # Sin esto, un veredicto viejo se lee igual que uno fresco.
+                    "ultimo_vivo": es_vivo,
                     "la_escribe": escribe.quien_escribe(nombre),
                     "relanzar": relanzar}})
         return out

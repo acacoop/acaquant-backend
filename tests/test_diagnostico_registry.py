@@ -25,6 +25,7 @@ _CRONS_IGNORADOS = {
     "jobs.av_agent",            # la relevada del AV AGENT (cada 2h)
     "jobs.av_agent_live",       # el agente prendido en rueda
     "jobs.db_tamano",           # foto del peso de la base + superficie HTTP
+    "jobs.av_agent_sistema",    # lo barato del sistema, cada 10 min
     "jobs.eikon_cierres",       # cierres diarios de los feeds Eikon (anchors OFF, sin vista propia)
     "jobs.research_mail",       # ingesta del research diario → ia.research (P6 QuantAI)
     "jobs.mercado_1816_series", # series históricas de 1816 → research.mkt_1816_* (vista RESEARCH)

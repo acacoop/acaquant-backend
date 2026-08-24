@@ -467,11 +467,17 @@ _DONDE_CORRE: dict[str, str] = {
     "recuperado": "jobs.av_agent_centinela",
     "respuesta": "jobs.av_agent_centinela",
     # El monitor del SISTEMA, de noche (reemplaza lo suyo cada pasada).
-    "db_cambio": "jobs.db_tamano",
-    "tabla_quieta": "jobs.db_tamano",
+    # Lo BARATO del sistema, cada 10 minutos (2026-08-24). Se separó de
+    # `db_tamano` —que es diario— porque sus respuestas cambian durante el día:
+    # un aviso contestado a las 23:30 quedaba en pantalla hasta la noche
+    # siguiente aunque la tabla hubiera vuelto a escribir a las 9 AM.
+    "db_cambio": "jobs.av_agent_sistema",
+    "tabla_quieta": "jobs.av_agent_sistema",
+    "dato_partido": "jobs.av_agent_sistema",
+    "cron_desalineado": "jobs.av_agent_sistema",
+    # La prueba activa de permisos hace ~400 requests contra producción: sigue
+    # siendo diaria, y por eso escribe en su propio alcance (`superficie`).
     "permiso_flojo": "jobs.db_tamano",
-    "dato_partido": "jobs.db_tamano",
-    "cron_desalineado": "jobs.db_tamano",
     # El DAEMON (systemd, siempre prendido) — no un cron. Es el único proceso
     # despierto un sábado, que es justo cuando este detector tiene sentido.
     "actividad": "jobs.av_agent_centinela",

@@ -4899,6 +4899,30 @@ ALTER TABLE agente.av_agent_centinela
 CREATE INDEX IF NOT EXISTS ix_av_centinela_clave_item
     ON agente.av_agent_centinela (clave_item);
 
+-- agente.av_agent_evaluado — CUÁNDO SE PUDO MIRAR CADA TIPO (2026-08-24)
+--
+-- La otra mitad del guard de `evaluados`. Al ESCRIBIR, un tipo que no se pudo
+-- mirar no se cierra por ausencia (correcto: cerrar sin mirar deja el tablero
+-- en verde el día que está más ciego). Al LEER faltaba la simétrica, y por eso
+-- ROTO AHORA mostraba cuatro motores con evidencia de tres días antes: la fila
+-- seguía abierta —nadie la pudo cerrar— y la pantalla la presentaba como un
+-- hecho del momento. El latido no lo tapa: el daemon SÍ estaba corriendo.
+--
+-- Con esta tabla la pantalla puede distinguir «esto sigue pasando» de «hace
+-- tres días que nadie mira esto», que es la diferencia entre un aviso y un
+-- fantasma. La escribe `av_agent_registro.guardar` —la única puerta— porque
+-- `evaluados` ya es un parámetro obligatorio suyo: cualquier otro lugar sería
+-- la séptima puerta.
+--
+-- UNA fila por tipo, sin historia: lo que importa es la última vez, y guardar
+-- la serie sería una tabla que crece para siempre por un dato que se lee en
+-- minutos.
+CREATE TABLE IF NOT EXISTS agente.av_agent_evaluado (
+    tipo         text PRIMARY KEY,
+    ultimo_ok_at timestamptz NOT NULL DEFAULT now(),
+    veces        bigint      NOT NULL DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS agente.av_agent_latido (
     id         boolean PRIMARY KEY DEFAULT true CHECK (id),
     at         timestamptz NOT NULL DEFAULT now(),

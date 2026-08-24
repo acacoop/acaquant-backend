@@ -100,7 +100,14 @@ def _es_pata(ticker: str) -> bool:
 # pocos minutos, así que un máximo a secas devuelve siempre el del monitor y la
 # relevada entera desaparece de la pantalla **en silencio**. Ya pasó con `live`;
 # la constante existe para que el próximo alcance de reemplazo no lo repita.
-ALCANCES_VIVOS = ("live", "sistema")
+# ⚠️ **`superficie` se separó de `sistema` el 2026-08-24.** Los dos son de
+# REEMPLAZO y los dos hablan del sistema, pero corren a ritmos DISTINTOS y por
+# eso no pueden compartir alcance: reemplazar pisa TODO lo del alcance, así que
+# un job rápido que escribiera `sistema` con cuatro detectores borraría de un
+# saque los del nocturno. `sistema` = lo barato, cada 10 min; `superficie` = la
+# prueba activa de permisos, que hace ~400 requests contra producción y por lo
+# tanto sigue siendo de una vez por día.
+ALCANCES_VIVOS = ("live", "sistema", "superficie")
 
 # ⚠️ **UN HALLAZGO DE RUEDA TIENE FECHA DE VENCIMIENTO** (2026-08-19).
 #

@@ -141,7 +141,8 @@ def test_los_CUATRO_productores_pasan_por_la_puerta():
     esperados = {
         "jobs/av_agent.py",                        # la relevada nocturna
         "jobs/av_agent_live.py",                   # el monitor, a mano
-        "jobs/db_tamano.py",                       # el monitor del sistema
+        "jobs/db_tamano.py",                       # la superficie HTTP (diaria)
+        "jobs/av_agent_sistema.py",                # el monitor del sistema (10 min)
         "api/services/av_agent_centinela.py",      # el daemon
     }
     usan = {a for a, txt in _fuentes("api", "jobs")
@@ -158,16 +159,35 @@ def test_el_monitor_del_SISTEMA_ahora_crea_objetos():
     los escondía. Violaban REGLA #10.1 en silencio.
 
     No se arregló acordándose: se arregló porque ahora hay una sola puerta."""
-    src = (RAIZ / "jobs/db_tamano.py").read_text(encoding="utf-8")
-    assert "registro.guardar(" in src
-    assert "evaluados=evaluados" in src
+    for f in ("jobs/av_agent_sistema.py", "jobs/db_tamano.py"):
+        src = (RAIZ / f).read_text(encoding="utf-8")
+        assert "registro.guardar(" in src, f
+        assert "evaluados=" in src, f
 
 
 def test_un_detector_CAIDO_del_sistema_no_declara_lo_suyo():
     """Cada uno corre en su propio `try`: declarar la lista completa haría que
     un detector caído cerrara todo lo suyo por ausencia (§0.be)."""
-    import jobs.db_tamano as j
+    import jobs.av_agent_sistema as j
     assert j._seguro(lambda: (_ for _ in ()).throw(RuntimeError("boom")), "x") is None
     assert j._seguro(lambda: [{"a": 1}], "x") == [{"a": 1}]
-    src = inspect.getsource(j.main)
+    src = inspect.getsource(j.detectores)
     assert "if piezas is None" in src and "continue" in src
+
+
+def test_los_DOS_alcances_del_sistema_NO_se_pisan():
+    """⚠️ El reemplazo pisa TODO lo de su alcance, así que dos jobs con ritmos
+    distintos no pueden compartirlo: el de 10 minutos borraría los hallazgos
+    del nocturno apenas corriera — sin error y sin log, con la pantalla
+    mostrando menos de lo que hay."""
+    from api.services import av_agent
+
+    rapido = (RAIZ / "jobs/av_agent_sistema.py").read_text(encoding="utf-8")
+    lento = (RAIZ / "jobs/db_tamano.py").read_text(encoding="utf-8")
+    assert 'guardar("sistema"' in rapido and 'guardar("superficie"' not in rapido
+    assert 'guardar("superficie"' in lento and 'guardar("sistema"' not in lento
+    # Y los dos tienen que estar declarados como de REEMPLAZO: si `superficie`
+    # no estuviera, entraría como CORRIDA y se llevaría puesto el `max(
+    # corrida_at)` de la relevada nocturna — el bug que la constante previene.
+    for a in ("sistema", "superficie"):
+        assert a in av_agent.ALCANCES_VIVOS, a

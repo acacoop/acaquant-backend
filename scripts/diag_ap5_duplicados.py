@@ -183,6 +183,33 @@ def main() -> None:
     else:
         print("\n  ⚠️ Esa clave NO aparece en el resumido — no son la misma vista.")
 
+    # ── Las repetidas que quedan EN EL RESUMIDO ──
+    # Son muchas menos, pero no cero: y en el consolidado no hay excusa de
+    # "es el detalle", así que hay que saber qué las distingue.
+    if reps_r:
+        print()
+        print(SEP)
+        print("LAS QUE SIGUEN REPETIDAS EN EL RESUMIDO")
+        print(SEP)
+        peor_r, veces_r = repes_r.most_common(1)[0]
+        print(f"  La más repetida: cuenta={peor_r[0]} símbolo={peor_r[1]} "
+              f"tipo={peor_r[2]} → {veces_r} filas\n")
+        grupo_r = [p for p in resumido if _clave(p) == peor_r]
+        vals_r = defaultdict(set)
+        for p in grupo_r:
+            for k, v in _aplanar_campos(p).items():
+                vals_r[k].add(v)
+        varian_r = {k: v for k, v in vals_r.items() if len(v) > 1}
+        if varian_r:
+            print("  CAMPOS QUE VARÍAN:\n")
+            for k in sorted(varian_r):
+                print(f"    {k:<34} {', '.join(sorted(varian_r[k])[:6])}")
+            print("\n  → Si alguno de estos es parte de la identidad de la posición,")
+            print("    tiene que entrar en la PK de ap5.portfolio.")
+        else:
+            print("  Ningún campo varía: son filas IDÉNTICAS.")
+            print("  → Se pueden colapsar sin perder nada (es lo que hace deduplicar()).")
+
     print()
     print(SEP)
     print("CÓMO SE LEE ESTO")

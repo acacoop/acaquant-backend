@@ -24,7 +24,6 @@ Uso:
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 from datetime import date
 
 from core import postrade, postrade_posicion
@@ -92,17 +91,42 @@ def _altas_de_cuentas(cuentas: set[str]) -> int:
     return len(cuentas)
 
 
-def _colisiones(filas: list[dict]) -> list[str]:
-    """Filas distintas que comparten PK. Si aparecen, el grano está mal pensado.
+def deduplicar(filas: list[dict]) -> tuple[list[dict], list[str]]:
+    """Colapsa filas idénticas y REPORTA las que comparten clave pero difieren.
 
-    No se corrige solo: se REPORTA. Un UPSERT con PK repetida deja la última y
-    pierde la anterior en silencio, que es exactamente el tipo de pérdida que
-    después no se puede reconstruir.
+    Dos cosas muy distintas comparten el síntoma "clave repetida":
+
+    - **Filas idénticas**: guardar una de dos filas iguales no pierde nada. Se
+      colapsan en silencio, porque no hay información que se pueda perder.
+    - **Filas que DIFIEREN**: ahí el UPSERT elegiría una y perdería la otra sin
+      fallar. Eso no se puede resolver solo, así que se devuelve QUÉ CAMPO
+      divergió — con el nombre del campo, no un conteo: un conteo dice que hay
+      un problema, el campo dice cuál es.
+
+    Devuelve `(filas_a_escribir, divergencias)`.
     """
-    c = Counter(
-        (f["business_date"], f["account"], f["symbol"], f["position_type"]) for f in filas
-    )
-    return [f"{k[1]}|{k[2]}|{k[3]} ×{v}" for k, v in c.items() if v > 1]
+    porclave: dict[tuple, list[dict]] = {}
+    for f in filas:
+        k = (f["business_date"], f["account"], f["symbol"], f["position_type"])
+        porclave.setdefault(k, []).append(f)
+
+    salida: list[dict] = []
+    divergencias: list[str] = []
+    for k, grupo in porclave.items():
+        salida.append(grupo[0])
+        if len(grupo) == 1:
+            continue
+        distintos = sorted(
+            campo for campo in grupo[0]
+            if len({str(g.get(campo)) for g in grupo}) > 1
+        )
+        if distintos:
+            detalle = "; ".join(
+                f"{c}=" + "/".join(sorted({str(g.get(c)) for g in grupo})[:3])
+                for c in distintos[:4]
+            )
+            divergencias.append(f"{k[1]}|{k[2]}|{k[3]} ×{len(grupo)} difieren en {detalle}")
+    return salida, divergencias
 
 
 def run(fecha: str | None = None, *, dry: bool = False) -> None:
@@ -120,14 +144,6 @@ def run(fecha: str | None = None, *, dry: bool = False) -> None:
             f"sin_position_qty={stats['sin_position_qty']} → {len(filas)} filas"
         )
 
-        repetidas = _colisiones(filas)
-        if repetidas:
-            run_log.error(
-                f"{len(repetidas)} claves repetidas — el UPSERT deja solo la última: "
-                + "; ".join(repetidas[:10])
-            )
-        run_log.set_stat("claves_repetidas", len(repetidas))
-
         if not filas:
             # Sin filas no se escribe nada, pero tampoco se declara "todo bien":
             # un día sin posición es posible, y un método que dejó de responder
@@ -135,22 +151,37 @@ def run(fecha: str | None = None, *, dry: bool = False) -> None:
             run_log.error(f"PositionReport no devolvió posiciones de futuros para {f}")
             return
 
-        cuentas = {f_["account"] for f_ in filas if f_["account"]}
+        # Las filas idénticas se colapsan (no se pierde nada); las que comparten
+        # clave pero DIFIEREN se cantan con el campo que divergió, porque ahí sí
+        # el UPSERT elegiría una y perdería la otra sin fallar.
+        a_escribir, divergencias = deduplicar(filas)
+        run_log.set_stat("filas_crudas", len(filas))
+        run_log.set_stat("filas_unicas", len(a_escribir))
+        run_log.set_stat("claves_divergentes", len(divergencias))
+        if len(a_escribir) != len(filas):
+            run_log.log(f"  {len(filas)} filas → {len(a_escribir)} claves únicas")
+        if divergencias:
+            run_log.error(
+                f"{len(divergencias)} claves con filas DISTINTAS (se guarda una y se "
+                f"pierde el resto): " + " | ".join(divergencias[:8])
+            )
+
+        cuentas = {f_["account"] for f_ in a_escribir if f_["account"]}
         run_log.set_stat("cuentas", len(cuentas))
 
-        largo = sum(f_["long_qty"] for f_ in filas)
-        corto = sum(f_["short_qty"] for f_ in filas)
+        largo = sum(f_["long_qty"] for f_ in a_escribir)
+        corto = sum(f_["short_qty"] for f_ in a_escribir)
         run_log.set_stat("long_qty_total", largo)
         run_log.set_stat("short_qty_total", corto)
         run_log.log(f"  {len(cuentas)} cuentas | long={largo:,.0f} short={corto:,.0f}")
 
         if dry:
             run_log.log("  --dry: no se escribe nada")
-            for f_ in filas[:10]:
+            for f_ in a_escribir[:10]:
                 run_log.log(f"    {f_}")
             return
 
-        escritas = _guardar_posiciones(filas)
+        escritas = _guardar_posiciones(a_escribir)
         altas = _altas_de_cuentas(cuentas)
         run_log.set_stat("filas_escritas", escritas)
         run_log.set_stat("cuentas_vistas", altas)

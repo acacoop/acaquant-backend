@@ -105,6 +105,8 @@ def aplanar(crudo: Any) -> tuple[list[dict], dict[str, int]]:
                 "position_type": str(q.get("PosType") or "").strip(),
                 "cfi_code": inst.get("CFICode"),
                 "unit_of_measure": inst.get("UnitOfMeasure"),
+                "currency": p.get("Currency"),
+                "avg_px": _opcional(p.get("AvgPX")),
                 "daily_settlement": _opcional(p.get("DailySettlement")),
                 "settlement_price": _opcional(p.get("SettlPrice")),
                 "settlement_currency": p.get("SettlCurrency"),
@@ -118,13 +120,27 @@ def aplanar(crudo: Any) -> tuple[list[dict], dict[str, int]]:
 def traer(fecha: str) -> tuple[list[dict], dict[str, int]]:
     """Pide la posición de `fecha` (AAAAMMDD) y la devuelve aplanada.
 
-    `viewDetails=true` porque el resumido no trae el detalle por instrumento, y
-    **sin `viewPafg`**: ese parámetro cambia el reporte por el de contratos PAF
-    G, que es otra cosa y no es lo que se está pidiendo acá.
+    ⚠️ **`viewDetails=false`, y esto se midió (2026-08-24).** El parámetro no
+    cambia el formato: cambia QUÉ se devuelve.
+
+    - `viewDetails=true` NO es "la posición con más detalle": son las
+      **operaciones individuales**. Cada fila trae su `ExecID`, `TradeNumber` y
+      `PX`. Para una sola posición devolvió **1115 filas** — un trade cada una.
+    - `viewDetails=false` es la **posición consolidada**, y consolida bien:
+      medido contra la suma de esos 1115 trades da idéntico
+      (LongQty 1.889,0 y DailySettlement 1.694.750,0 en las dos).
+
+    Se usa el consolidado en vez de sumar el detalle porque sumarlo sería
+    reimplementar algo que la cámara ya hace: cualquier diferencia futura entre
+    nuestra suma y la de ellos sería un bug nuestro, y encima uno silencioso.
+    De yapa el consolidado trae `AvgPX`, que el detalle no tiene.
+
+    **Sin `viewPafg`**: ese parámetro cambia el reporte por el de contratos PAF
+    G, que es otra cosa y no es lo que se pide acá.
     """
     crudo = postrade.leer(METODO, {
         "clearingBusinessDate": postrade.fecha_api(fecha),
-        "viewDetails": "true",
+        "viewDetails": "false",
     })
     filas, stats = aplanar(crudo)
     logger.info(

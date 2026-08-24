@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 
 from core.postrade_posicion import aplanar
-from jobs.ap5_portfolio import ultimo_dia_habil
+from jobs.ap5_portfolio import deduplicar, ultimo_dia_habil
 
 # La respuesta real de producción, tal cual la devuelve la cámara.
 FUTURO = {
@@ -46,6 +46,8 @@ def test_mapea_los_campos_pedidos():
         "position_type": "FIN",
         "cfi_code": "FXXXSX",
         "unit_of_measure": "Tn",
+        "currency": "Dólar MtR",
+        "avg_px": 228.0,
         "daily_settlement": -320.0,
         "settlement_price": 228.4,
         "settlement_currency": "Dólar MtR",
@@ -133,6 +135,54 @@ def test_respuesta_vacia_o_rara_no_revienta():
     for entrada in ([], None, {}, "texto", [None, 1, "x"]):
         filas, _ = aplanar(entrada)
         assert filas == []
+
+
+# --------------------------------------------------------------------------- #
+# Deduplicación — el UPSERT pierde datos en silencio si esto falla
+# --------------------------------------------------------------------------- #
+def _fila(**kw):
+    base = {
+        "business_date": "2026-08-21", "account": "155235", "symbol": "MAI.ROS/SEP26",
+        "position_type": "FIN", "cfi_code": "FXXXSX", "unit_of_measure": "Tn",
+        "currency": "Dólar MtR", "avg_px": 188.0, "daily_settlement": 1000.0,
+        "settlement_price": 197.0, "settlement_currency": "Dólar MtR",
+        "long_qty": 10.0, "short_qty": 0.0,
+    }
+    return {**base, **kw}
+
+
+def test_filas_identicas_se_colapsan_sin_ruido():
+    """Guardar una de dos filas iguales no pierde nada: no es un problema."""
+    salida, divergencias = deduplicar([_fila(), _fila()])
+    assert len(salida) == 1
+    assert divergencias == []
+
+
+def test_filas_que_difieren_se_reportan_CON_EL_CAMPO():
+    """Un conteo dice que hay un problema; el campo dice cuál es.
+
+    Este es el caso caro: el UPSERT se queda con una y pierde la otra **sin
+    fallar**, así que si esto no se canta el dato queda mal y nadie se entera.
+    """
+    salida, divergencias = deduplicar([_fila(long_qty=10.0), _fila(long_qty=25.0)])
+    assert len(salida) == 1
+    assert len(divergencias) == 1
+    assert "long_qty" in divergencias[0]
+    assert "10.0" in divergencias[0] and "25.0" in divergencias[0]
+
+
+def test_claves_distintas_no_se_tocan():
+    filas = [_fila(), _fila(symbol="TRI.ROS/ENE27"), _fila(account="999")]
+    salida, divergencias = deduplicar(filas)
+    assert len(salida) == 3
+    assert divergencias == []
+
+
+def test_deduplicar_conserva_una_fila_completa():
+    """Lo que sale tiene que ser una fila escribible, no un resumen."""
+    salida, _ = deduplicar([_fila(), _fila()])
+    assert salida[0]["symbol"] == "MAI.ROS/SEP26"
+    assert salida[0]["avg_px"] == 188.0
 
 
 # --------------------------------------------------------------------------- #

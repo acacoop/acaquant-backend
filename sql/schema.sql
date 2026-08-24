@@ -5160,6 +5160,12 @@ CREATE SCHEMA IF NOT EXISTS ap5;
 -- distintas y solo una es cierta acá.
 --
 -- Solo entran `SecurityType = 'Futuro'`. Opciones y PAF G quedan afuera.
+--
+-- ⚠️ El origen es el reporte **CONSOLIDADO** (`viewDetails=false`), no el
+-- detallado. Medido el 2026-08-24: `viewDetails=true` devuelve las OPERACIONES
+-- individuales (1115 filas con su ExecID/TradeNumber para UNA sola posición), y
+-- su suma da exactamente lo que informa el consolidado. Guardar el detalle acá
+-- rompería el grano de la tabla y obligaría a re-sumar en cada consulta.
 CREATE TABLE IF NOT EXISTS ap5.portfolio (
     business_date       date    NOT NULL,
     account             text    NOT NULL,
@@ -5167,6 +5173,8 @@ CREATE TABLE IF NOT EXISTS ap5.portfolio (
     position_type       text    NOT NULL,   -- PositionQty[].PosType, ej. 'FIN'
     cfi_code            text,
     unit_of_measure     text,
+    currency            text,
+    avg_px              numeric,            -- precio promedio de la posición
     daily_settlement    numeric,
     settlement_price    numeric,
     settlement_currency text,
@@ -5175,6 +5183,11 @@ CREATE TABLE IF NOT EXISTS ap5.portfolio (
     actualizado_at      timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (business_date, account, symbol, position_type)
 );
+
+-- Columnas agregadas después del CREATE original (2026-08-24): las trae el
+-- reporte CONSOLIDADO (`viewDetails=false`) y el detallado no.
+ALTER TABLE ap5.portfolio ADD COLUMN IF NOT EXISTS currency text;
+ALTER TABLE ap5.portfolio ADD COLUMN IF NOT EXISTS avg_px numeric;
 
 CREATE INDEX IF NOT EXISTS idx_ap5_portfolio_fecha ON ap5.portfolio (business_date DESC);
 CREATE INDEX IF NOT EXISTS idx_ap5_portfolio_cuenta ON ap5.portfolio (account, business_date DESC);

@@ -594,36 +594,52 @@ def en_seguimiento() -> list[dict]:
 
 
 def cerrar_hitos() -> dict:
-    """**El tiempo, convertido en evidencia.** Corre una vez por día.
+    """**El reloj de los arreglos.** Corre una vez por día y dice, de cada
+    problema dado por cerrado, cuántos hitos lleva sin volver (1·2·3·7·14·30).
 
-    Es la pasada que le pone número a *«¿el arreglo sirvió?»*, y es la señal más
-    fuerte que tiene el sistema porque **no es la opinión de nadie**: el problema
-    volvió o no volvió, y el agente no controla eso.
+    ⚠️⚠️ **YA NO VOTA AL EVAL SET, y el motivo importa** (2026-08-24).
 
-        pasó TODOS los hitos (30 días sin volver)  → ✔ `verificado`
-        VOLVIÓ                                     → ✖ `verificado`, con la fecha
+    Hasta hoy esta pasada escribía dos votos `verificado` —✔ al pasar los 30
+    días, ✖ apenas el objeto pasaba a `volvio`— y esos votos pesaban en la
+    compuerta de autonomía **igual que un click humano**. El problema es que
+    ninguno de los dos significaba lo que decía:
 
-    Los dos votan al eval set con `origen='verificado'`, que la compuerta de
-    autonomía cuenta a la par de un voto humano (§0.f) — a diferencia de
-    `derivado`, que es alguien diciendo «dale» y no el mundo diciendo «funcionó».
+        `resuelto`  NO es «alguien lo arregló».
+                    Es «el detector no lo vio en esta corrida» (`_cerrar_ausentes`).
+                    Un bono que no operó esa noche se auto-resuelve.
+        `volvio`    NO es «el arreglo falló».
+                    Es «el detector lo volvió a ver».
 
-    ⚠️ **Idempotente por `ref`.** El job corre todos los días y los que
-    aguantaron siguen aguantando: sin el `ref`, el mismo arreglo votaría una vez
-    por día y en un mes tendría 30 votos que son uno solo. El índice único de
-    `av_agent_evals` lo rechaza y acá se cuenta como duplicado.
+    Con esas dos confusiones adentro, el ✖ acusaba a un arreglo **que nadie
+    había hecho**. Medido el 2026-08-23: 11 votos ✖, todos emitidos en la MISMA
+    corrida (22/08 23:50), 9 de ellos sobre `sin_tea_con_precio` —incluido GD46,
+    el caso que ya está documentado en `resolver_sujeto` como VOLVIÓ espurio— y
+    uno sobre un chequeo de SALUD, donde «alguien lo arregló» ni siquiera
+    aplica. Y como `candidata_a_auto` exige `okh == nh` (**cero negativos**),
+    cada uno de esos ✖ descalificaba a su causa para siempre.
 
-    ⚠️ **Y «todavía no volvió» NO es «aguantó».** Solo vota el que pasó el
-    ÚLTIMO hito. Los del medio siguen en prueba — premiar a los tres días sería
-    justo lo que el escalonado vino a evitar.
+    El ✔ tenía el mismo defecto por el otro lado: «aguantó 30 días» sobre un
+    cierre por AUSENCIA tampoco prueba que alguien haya arreglado nada.
 
-    ⚠️⚠️ **Las COMUNICACIONES no votan.** Un `aviso_fila` resuelto es «lo
-    atendieron», no «el arreglo aguantó»: dejarlo entrar acá habría metido al
-    eval set votos `verificado` (los que cuentan como humanos para la
-    autonomía) por cosas que no son arreglos de nada.
-    `scripts/fix_evals_comunicaciones` limpia los que hayan entrado antes.
+    **La decisión (user, 2026-08-23):** *«no es fiable nada absolutamente nada,
+    está muy verde esto»*. Entonces el reloj sigue —la pantalla ¿AGUANTAN? lo
+    necesita y es información útil— pero **no emite juicio**. El día que el
+    objeto registre CÓMO se cerró (por acción vs por ausencia) y deje de borrar
+    `resuelto_at` al volver, el voto puede volver: ahí sí sabrá sobre qué opina.
+
+    Hasta entonces `votos` sale siempre en 0, a propósito. **No inventar una
+    señal es mejor que fabricar una** — es la misma regla que ya rige en
+    `_cerrar_ausentes` («sin saber qué se miró no se cierra NADA»).
+
+        pasó TODOS los hitos (30 días sin volver)  → `aguantaron`
+        VOLVIÓ                                     → `volvieron`
+
+    ⚠️ **«Todavía no volvió» NO es «aguantó».** Solo entra a `aguantaron` el que
+    pasó el ÚLTIMO hito; los del medio siguen en prueba.
+
+    ⚠️⚠️ **Las COMUNICACIONES no entran.** Un `aviso_fila` resuelto es «lo
+    atendieron», no «el arreglo aguantó».
     """
-    from api.services import av_agent_evals
-
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -639,28 +655,18 @@ def cerrar_hitos() -> dict:
 
     aguantaron: list[dict] = []
     volvieron: list[dict] = []
-    votos = 0
+    votos = 0                              # ver NO VOTA, abajo
     tope = max(ciclo.HITOS_DIAS)
     for it in items:
         if it.estado == ciclo.VOLVIO:
-            r = av_agent_evals.votar(
-                caso=it.sujeto or it.clave, dominio="bono", causa=it.regla,
-                acierta=False, origen="verificado", ref=f"volvio:{it.clave}",
-                nota="el arreglo no aguantó: el problema volvió a aparecer")
             volvieron.append({"sujeto": it.sujeto, "regla": it.regla,
                               "titulo": it.titulo})
-            votos += 1 if r.get("ok") and not r.get("duplicado") else 0
             continue
         d = it.dias_resuelto()
         if d < tope:
             continue                       # sigue en prueba: no se premia
-        r = av_agent_evals.votar(
-            caso=it.sujeto or it.clave, dominio="bono", causa=it.regla,
-            acierta=True, origen="verificado", ref=f"aguanto:{it.clave}",
-            nota=f"aguantó {tope} días sin volver")
         aguantaron.append({"sujeto": it.sujeto, "regla": it.regla,
                            "dias": round(d, 1)})
-        votos += 1 if r.get("ok") and not r.get("duplicado") else 0
 
     return {"ok": True, "mirados": len(items), "aguantaron": aguantaron,
             "volvieron": volvieron, "votos": votos,

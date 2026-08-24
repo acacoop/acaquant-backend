@@ -7013,6 +7013,74 @@ Tres detalles del cómo:
     arme recorriendo la misma lista, y que el predicado aparezca **una sola
     vez** en el módulo. El próximo corte entra en un lugar o falla ahí.
 
+### 0.de EL EVAL SET SE BORRA ENTERO — el juez estaba juzgando el aire (2026-08-24)
+
+El user, después de mirar el badge `3/12` de una fila: *«hay que borrar
+absolutamente todos los valores de votos… no es fiable nada absolutamente nada,
+está muy verde esto»*. Tiene razón, y la medición lo confirma con una cadena que
+se puede seguir de punta a punta.
+
+**Los dos estados no significaban lo que decían.**
+
+    resuelto   ← `_cerrar_ausentes` (av_agent_items.py:298) cierra lo que la
+                 corrida NO VIO. Un bono que no operó esa noche desaparece de la
+                 lista y se auto-resuelve. NO es «alguien lo arregló».
+    volvio     ← el detector lo ve otra vez (`ver`, :152-158).
+                 NO es «el arreglo falló».
+
+Y encima, en esa transición **se borra `resuelto_at`** (`:162-164`), así que
+después ni se puede reconstruir cuánto había durado — que es justo el dato con
+el que se mediría.
+
+Sobre esas dos confusiones, `cerrar_hitos` dictaba sentencia: un ✖ `verificado`
+con la nota *«el arreglo no aguantó: el problema volvió a aparecer»*, **sobre un
+arreglo que nadie había hecho**.
+
+**Lo medido (2026-08-23, `scripts/diag_agente_veredicto`):**
+
+  · **11 votos ✖, TODOS emitidos en la misma corrida** (22/08 23:50, el cron
+    `jobs.seguimiento`). No fue un goteo: fue un lote.
+  · 9 son `sin_tea_con_precio` —6 de ellos la familia BOPREAL— e incluyen
+    **GD46**, el caso que `resolver_sujeto` ya documenta como VOLVIÓ espurio.
+  · 1 es `salud_control`, donde «alguien lo arregló» ni siquiera aplica.
+  · El bug de fondo ya estaba tapado: `c0486a6` (22/08 **23:33**) cambió
+    `resolver_sujeto` de `resuelto` a `en_curso` — 17 minutos antes de que la
+    corrida barriera lo que el código viejo había ensuciado.
+  · **Ningún objeto llegó a los 30 días** (el más viejo: 2,8 días; la tabla
+    nació el 16/08). O sea que el mecanismo **no podía emitir un solo ✔**: su
+    0% era aritmética, no calidad.
+
+**Por qué eso envenena todo y no solo una fila.** `candidata_a_auto` exige
+`okh == nh` (`av_agent_evals.py:354`): **cero negativos**. Un único ✖ descalifica
+a esa causa para siempre. Tres causas quedaron fuera de la autonomía por votos
+fabricados, y el ✔ que las compensaría no podía existir hasta mediados de
+septiembre.
+
+**Qué se hizo.**
+
+1. **`cerrar_hitos` DEJA DE VOTAR** (las dos direcciones). El reloj sigue —la
+   pantalla ¿AGUANTAN? lo necesita— pero no emite juicio. El ✔ tenía el mismo
+   defecto por el otro lado: «aguantó 30 días» sobre un cierre por AUSENCIA
+   tampoco prueba que alguien haya arreglado algo. `votos` sale siempre en 0, a
+   propósito, y tres tests lo congelan (`test_av_agent_hitos.py`).
+2. **`scripts/reset_evals.py`** borra la tabla entera. No una cirugía sobre los
+   11: una tabla mitad limpia y mitad no es peor que una vacía, porque obliga a
+   aclarar caso por caso cuál vale. Dry-run por default y **respaldo a CSV
+   bloqueante** antes de borrar (borrar datos no se revierte).
+3. **El «valor neutro» ya estaba codeado**: el badge se esconde sin votos
+   humanos (`tab-hallazgos.tsx:1085`). No hubo que tocar el front.
+
+**Cuándo vuelve a votar.** El día que el objeto registre **CÓMO se cerró** (por
+acción vs por ausencia) y deje de borrar `resuelto_at` al volver. Ahí el voto
+sabrá sobre qué opina. Eso además es la mitad de la TRAZABILIDAD que pidió el
+user el 2026-08-23 (*«cada objeto tiene que tener cuándo se descubrió, cuándo se
+diagnosticó, cuándo se arregló»*): cuatro de los cinco sellos ya existen en la
+tabla — falta `diagnosticado_at` y que el cierre diga su motivo.
+
+> **La regla que queda:** no inventar una señal es mejor que fabricar una. Es la
+> misma que ya regía en `_cerrar_ausentes` («sin saber qué se miró no se cierra
+> NADA»), aplicada al juez en vez de al detector.
+
 ---
 
 ## 1. Qué es y qué no es

@@ -56,12 +56,18 @@ POSTRADE_BASE_URL = os.getenv(
 # contraseña escrita en la URL (logs de proxy, access logs, historial).
 POSTRADE_AUTH_STYLE = os.getenv("POSTRADE_AUTH_STYLE", "body")  # body | query
 
-# Prefijo del header Authorization en las llamadas ya autenticadas. El PDF dice
-# "incluir el header Authorization el token obtenido" y lo ilustra con una
-# captura, así que si el token va crudo o con `Bearer ` NO es inferible del
-# texto: lo mide `scripts/diag_postrade_auth`. Default crudo (lo que dice la
-# letra); si la medición dice otra cosa, se corrige acá sin tocar código.
-POSTRADE_TOKEN_PREFIJO = os.getenv("POSTRADE_TOKEN_PREFIJO", "")
+# Prefijo del header Authorization en las llamadas ya autenticadas.
+#
+# **MEDIDO, y el manual escrito NO lo dice**: el texto solo escribe «incluir el
+# header Authorization el token obtenido» y el formato exacto vive en una
+# CAPTURA DE PANTALLA (pág. 6), que dice `Authorization: Token <token>`.
+# Sin el prefijo `Token `, la API responde HTTP 200 con
+# `{"Status":"Unauthorized","Code":"401","ErrorDescription":"Invalid
+# Authorization header."}` — nótese "header": el mensaje habla del FORMATO del
+# header, no de las credenciales, y es lo que distingue este caso del de una
+# contraseña mal puesta (que dice `"Invalid Authorization"`, sin "header").
+# Confundir los dos manda a reclamarle permisos al proveedor por un error nuestro.
+POSTRADE_TOKEN_PREFIJO = os.getenv("POSTRADE_TOKEN_PREFIJO", "Token ")
 
 # ⚠️ ESCRITURA CONTRA POSTRADE — default DENY.
 # A diferencia de Interbanking (100% lectura, no podía mover plata ni por error),

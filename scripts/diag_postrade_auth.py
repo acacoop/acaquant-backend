@@ -188,7 +188,7 @@ def paso_header(tok: str) -> str | None:
     """
     print()
     print(SEP)
-    print("3. CÓMO VIAJA EL TOKEN — crudo vs. Bearer (medido, no supuesto)")
+    print("3. CÓMO VIAJA EL TOKEN — Token / crudo / Bearer (medido, no supuesto)")
     print(SEP)
     fecha = _ultimo_habil()
     # Referencial primero: no depende de fechas ni de que tengamos posiciones.
@@ -199,6 +199,7 @@ def paso_header(tok: str) -> str | None:
     )
 
     for prefijo, etiqueta in (
+        ("Token ", "Authorization: Token <token>"),
         ("", "Authorization: <token>"),
         ("Bearer ", "Authorization: Bearer <token>"),
     ):
@@ -230,13 +231,16 @@ def paso_header(tok: str) -> str | None:
                     detalle = f"responde, pero: {str(e)[:90]}"
             print(f"  {'✓' if ok else '·'} {etiqueta:<30} {path:<28} → {detalle}")
             if ok:
-                print(f"\n  → sirve: {'crudo' if prefijo == '' else 'con Bearer'}")
+                print(f"\n  → sirve: Authorization: {prefijo!r} + token")
                 return prefijo
 
-    print("\n  ✗ El token no fue aceptado de ninguna de las dos formas.")
-    print("    El token se EMITIÓ, así que las credenciales están bien: lo que")
-    print("    falta es el PERMISO sobre los métodos. Es otro reclamo, y otro")
-    print("    interlocutor, que el de las credenciales.")
+    print("\n  ✗ El token no fue aceptado de ninguna de las tres formas.")
+    print("    OJO al mensaje de arriba, porque distingue DOS cosas distintas:")
+    print("      · 'Invalid Authorization header.'  → el FORMATO del header está")
+    print("        mal (le falta el prefijo). NO es un problema de permisos.")
+    print("      · 'Invalid Authorization'          → las credenciales no entran.")
+    print("    Si no es ninguna de las dos, ahí sí puede faltar el PERMISO sobre")
+    print("    los métodos, que es otro reclamo y otro interlocutor.")
     return None
 
 

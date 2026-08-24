@@ -53,6 +53,15 @@ def _bloque(titulo: str, filas: list[dict]) -> None:
             print(f"          log: {str(f['muestra']).splitlines()[0][:160]}")
 
 
+_ROTULOS = {
+    "roto": "ROTO AHORA (confirmado recién: está roto en este momento)",
+    "sin_confirmar": ("NO LO PUDE VERIFICAR (sigue abierto, pero su "
+                      "detector no da señales)"),
+    "volvio": "VOLVIÓ (se había arreglado y volvió)",
+    "aparecio": "APARECIÓ HOY (no estaba ayer)",
+    "se_arreglo": "SE ARREGLÓ (plegado en la pantalla)",
+}
+
 def main() -> None:
     from api.services import av_agent_centinela
 
@@ -88,14 +97,49 @@ def main() -> None:
     print(f"corte del día (ART): desde {_hora(hoy.get('desde'))}"
           f" · novedades = {hoy.get('novedades')}")
 
-    _bloque("ROTO AHORA (no es del día: está roto en este momento)",
-            hoy.get("roto") or [])
-    _bloque("VOLVIÓ (se había arreglado y volvió)", hoy.get("volvio") or [])
-    _bloque("APARECIÓ HOY (no estaba ayer)", hoy.get("aparecio") or [])
-    _bloque("SE ARREGLÓ (plegado en la pantalla)", hoy.get("se_arreglo") or [])
+    # ⚠️ **LOS BLOQUES SE DERIVAN DEL PAYLOAD, NO SE LISTAN A MANO.**
+    #
+    # Este diag existe para que lo que sale acá NO pueda diferir de la pantalla.
+    # Con la lista escrita a mano eso duraba hasta el próximo bloque nuevo: el
+    # 2026-08-24 se agregó `sin_confirmar` (los hallazgos que nadie pudo
+    # verificar) y este script siguió imprimiendo cuatro bloques como si nada —
+    # o sea que mostraba «ROTO AHORA: 0» sin decir que había cuatro motores
+    # colgados al lado. El silencio leyéndose como verde, otra vez, ahora en el
+    # diag que existe para evitarlo.
+    #
+    # `_ROTULOS` pone el título legible; un bloque que aparezca en el payload y
+    # no esté acá igual se imprime con su clave cruda, que es feo y visible —
+    # muy distinto de no imprimirse.
+    listas = {k: v for k, v in hoy.items() if isinstance(v, list)}
+    # Primero los que tienen orden declarado; atrás, cualquiera que aparezca.
+    for k in list(_ROTULOS) + [k for k in listas if k not in _ROTULOS]:
+        if k not in listas:
+            continue
+        _bloque(_ROTULOS.get(k, f"{k.upper()} (bloque NUEVO, sin rótulo acá)"),
+                listas[k])
+
+    # Y lo que no se pudo verificar se explica aparte: no es una novedad, es una
+    # advertencia sobre el AGENTE — «esto no lo estoy mirando».
+    sc = hoy.get("sin_confirmar") or []
+    if sc:
+        print(f"\n⚠ {len(sc)} hallazgo(s) que NADIE pudo confirmar hace rato. "
+              f"No es que estén bien ni que sigan mal: es que el detector no "
+              f"está corriendo. Por tipo:")
+        por_tipo: dict[str, int] = {}
+        for f in sc:
+            por_tipo[f.get("tipo") or "?"] = por_tipo.get(f.get("tipo") or "?", 0) + 1
+        for tipo, n in sorted(por_tipo.items(), key=lambda x: -x[1]):
+            edad = max((f.get("sin_confirmar_s") or 0) for f in sc
+                       if f.get("tipo") == tipo)
+            cuanto = ("nunca se confirmó" if not edad else
+                      f"hace {edad // 3600} h" if edad >= 3600 else
+                      f"hace {edad // 60} min")
+            print(f"    {tipo:20} {n:3}  · {cuanto}")
+        print("  → para saber POR QUÉ dejó de correr: "
+              "python -m scripts.diag_agente_frescura")
 
     nada = (hoy.get("novedades") == 0 and not (hoy.get("se_arreglo") or [])
-            and not (hoy.get("roto") or []))
+            and not (hoy.get("roto") or []) and not sc)
     if nada:
         print("\nveredicto de la tab: «hoy no pasó nada nuevo»"
               + ("" if est.get("vivo") else " — PERO el agente está apagado"))

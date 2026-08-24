@@ -38,6 +38,31 @@ INTERBANKING_TOKEN_URL = os.getenv(
 INTERBANKING_AUTH_STYLE = os.getenv("INTERBANKING_AUTH_STYLE", "basic")  # basic | post
 INTERBANKING_SCOPE = os.getenv("INTERBANKING_SCOPE", "info-financiera")
 
+# --- POSTRADE (A3 Mercados / Argentina Clearing — anywhereportfolio) ---
+# Usuario y contraseña que asigna ACyRSA. NO hay client_id ni secret: la API
+# entrega un token de 24hs a cambio de esas dos cosas (ver docs/POSTRADE.md).
+POSTRADE_USUARIO = os.getenv("POSTRADE_USUARIO", "")
+POSTRADE_PASSWORD = os.getenv("POSTRADE_PASSWORD", "")
+
+# Base URL. Default PRODUCCIÓN; el entorno de pruebas es
+# https://demoapi.anywhereportfolio.com.ar (el PDF documenta los ejemplos con
+# ese host, pero el que nos habilitaron es prod).
+POSTRADE_BASE_URL = os.getenv(
+    "POSTRADE_BASE_URL", "https://api.anywhereportfolio.com.ar"
+).rstrip("/")
+
+# Cómo se mandan las credenciales al pedir el token: `body` (JSON) o `query`
+# (querystring). La API acepta las dos; el default es body para no dejar la
+# contraseña escrita en la URL (logs de proxy, access logs, historial).
+POSTRADE_AUTH_STYLE = os.getenv("POSTRADE_AUTH_STYLE", "body")  # body | query
+
+# Prefijo del header Authorization en las llamadas ya autenticadas. El PDF dice
+# "incluir el header Authorization el token obtenido" y lo ilustra con una
+# captura, así que si el token va crudo o con `Bearer ` NO es inferible del
+# texto: lo mide `scripts/diag_postrade_auth`. Default crudo (lo que dice la
+# letra); si la medición dice otra cosa, se corrige acá sin tocar código.
+POSTRADE_TOKEN_PREFIJO = os.getenv("POSTRADE_TOKEN_PREFIJO", "")
+
 # --- API KEY ---
 API_KEY = os.getenv("API_KEY", "")
 

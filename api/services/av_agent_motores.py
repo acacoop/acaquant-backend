@@ -107,6 +107,13 @@ def detectar_motores() -> list[dict]:
                 # cubre el hueco que quedaba.
                 if estado == "sin_datos" and not _en_su_ventana(p, ahora):
                     continue
+                # ⚠️ **Y TAMPOCO SI TODAVÍA NO LE TOCÓ CORRER HOY.** `ventana`
+                # dice cuándo importa la frescura; la CADENCIA dice desde qué
+                # hora el cron puede haber producido algo. A las 11:13 un job
+                # que arranca 12:00 no está atrasado — no le tocó. Ver
+                # `_todavia_no_le_toco`.
+                if _todavia_no_le_toco(p, ahora):
+                    continue
                 out.append(_hallazgo(vista.get("vista") or "?", p, estado, ahora))
     # Lo más grave primero, y dentro de eso los motores antes que los jobs: un
     # motor caído deja a la mesa sin precios AHORA; un job se recupera en la
@@ -206,8 +213,23 @@ def _motivo(estado: str, p: dict, ahora) -> str:
     if p.get("cadencia"):
         # `cada 1m · 13-21 UTC L-V` → `cada 1m`: el horario ya va abajo.
         partes.append(f"esperado {str(p['cadencia']).split(' · ')[0]}")
-    partes.append(f"{ahora.strftime('%H:%M')}, en ventana" if ahora
-                  else "sin hora")
+    # ⚠️⚠️ **ESTO AFIRMABA «EN VENTANA» SIN CHEQUEAR NADA.** Era un string fijo
+    # que se appendeaba a todos los motivos, siempre. El user lo cazó mirando
+    # `pnl_totales_precompute`: el mensaje decía *«esperado 15-22 UTC · son las
+    # 11:13, está en su ventana»* — y 11:13 ART son las 14:13 UTC, que NO está
+    # en 15-22. Una afirmación falsa impresa con total seguridad.
+    #
+    # Peor: **tapaba la causa de fondo.** El texto y el chequeo salen de DOS
+    # campos distintos de la misma pieza (`cadencia` es prosa, `ventana` es lo
+    # que se evalúa) y estaban en desacuerdo. Mientras el mensaje mintiera igual,
+    # ese desacuerdo no se podía ver. Ahora se pregunta de verdad, y cuando la
+    # respuesta es que no, lo dice — que es cómo la discrepancia sale a la luz.
+    if ahora is None:
+        partes.append("sin hora")
+    else:
+        dentro = _en_su_ventana(p, ahora)
+        partes.append(f"{ahora.strftime('%H:%M')}, "
+                      + ("en ventana" if dentro else "FUERA de su ventana"))
     return " · ".join(partes)
 
 
@@ -261,6 +283,112 @@ def _prueba_del_log(tipo: str, label: str) -> str:
     return texto
 
 
+# ⚠️⚠️ **UN JOB NO PUEDE LLEGAR TARDE ANTES DE QUE LE TOQUE** (2026-08-24).
+#
+# El user, a las 11:13 ART, con `pnl_totales_precompute` en ALTA:
+#
+#   *«están desconectados del tiempo y del espacio. Si escribe cada 60 minutos
+#   y el mercado abre 10:30 es imposible que se rompa tan temprano. Y si encima
+#   hace 2d como dice, fueron días no hábiles: tampoco es un error.»*
+#
+# Tenía razón y la causa es fina. Cada pieza declara DOS horarios que NO son lo
+# mismo, y hasta hoy solo se miraba uno:
+#
+#     `ventana`   cuándo IMPORTA que el dato esté fresco → «rueda» (10:00-17:05 ART)
+#     `cadencia`  cuándo el CRON efectivamente corre     → «15-22 UTC» = 12:00-19:00 ART
+#
+# `pnl_totales_precompute` corre desde las 12:00 ART. A las 11:13 estamos dentro
+# de `rueda` pero **el job todavía no arrancó su día**: se lo estaba juzgando por
+# no haber producido en una hora en la que ni siquiera está programado. No es un
+# atraso, es que no le tocó.
+#
+# Y no alcanza con la hora de arranque: **hay que darle su propia cadencia de
+# gracia**. Un job de 60 minutos que arranca a las 12:00 recién puede estar
+# atrasado a las 13:00 — a las 12:13 no produjo nada porque faltan 47 minutos
+# para su primera corrida, no porque esté roto. Es la misma idea que
+# `GRACIA_ARRANQUE_MIN` para los motores, aplicada al job y con SU número.
+#
+# Esto NO reemplaza al umbral: solo impide que el reloj empiece a correr antes
+# de que el job pudiera haber hecho algo.
+_HORAS_UTC = __import__("re").compile(r"\b(\d{1,2})\s*-\s*\d{1,2}\s*UTC\b")
+
+
+def _arranca_a_las(cadencia: str):
+    """La hora ART a la que el CRON de esta pieza empieza su día, si la declara.
+
+    Sale de la prosa de `cadencia` (`"cada 30m :05,:35 · 15-22 UTC L-V"`), que es
+    donde vive el horario real del cron. `None` = no lo dice, y entonces no se
+    puede afirmar nada: se deja pasar (no poder saberlo no es una excusa para
+    suprimir un aviso).
+    """
+    from datetime import time as _t
+
+    m = _HORAS_UTC.search(cadencia or "")
+    if not m:
+        return None
+    utc = int(m.group(1))
+    if not 0 <= utc <= 23:
+        return None
+    return _t((utc - 3) % 24, 0)      # ART = UTC-3, igual que el resto del repo
+
+
+def _todavia_no_le_toco(p: dict, ahora) -> bool:
+    """¿Estamos ANTES de la primera corrida posible de hoy (+ su cadencia)?
+
+    Devuelve `False` ante cualquier duda: si la pieza no declara su horario, o
+    no hay hora, o el arranque es posterior al cierre (un job nocturno), se
+    prefiere avisar de más antes que callar un motor caído.
+    """
+    from datetime import datetime, timedelta
+
+    if ahora is None:
+        return False
+    arranque = _arranca_a_las(str(p.get("cadencia") or ""))
+    if arranque is None:
+        return False
+    inicio = datetime.combine(ahora.date(), arranque, tzinfo=ahora.tzinfo)
+    if inicio > ahora:
+        # El cron de hoy todavía no empezó: lo de ayer no es un atraso de hoy.
+        # (Un job nocturno cuyo arranque «cae mañana» entra acá y se calla, que
+        #  es lo correcto: su ventana es otra.)
+        return True
+    # Y una vez que arrancó, le corresponde UNA cadencia de gracia antes de que
+    # se le pueda exigir el primer dato del día.
+    gracia = timedelta(seconds=int(p.get("umbral_s") or 0))
+    return ahora < inicio + gracia
+
+
+def _explicacion(p: dict, ahora) -> str:
+    """QUÉ le pasa a esta pieza, en castellano y sin números de máquina.
+
+    Antes decía: *«Esperado: cada 30m :05,:35 · 15-22 UTC L-V · umbral 3600 s ·
+    último dato 2d 15h · último run ok»*. El user: *«hay demasiado texto en cada
+    aviso y no sirve, es todo muy mecánico»*. Y tenía razón — `umbral 3600 s` no
+    le dice nada a nadie, y las dos líneas juntas no contestan la única pregunta
+    que importa: **¿esto debería estar produciendo ahora mismo?**
+    """
+    partes = []
+    # El campo `hace` viene a veces como «40 min» y a veces como «hace 40 min»
+    # según quién lo formatee: se normaliza acá para no escribir «hace hace».
+    hace = str(p.get("hace") or "").strip().removeprefix("hace").strip()
+    partes.append(f"No produce desde hace {hace}." if hace and hace != "—"
+                  else "Nunca produjo nada.")
+
+    if ahora is not None:
+        dentro = _en_su_ventana(p, ahora)
+        partes.append(
+            f"Son las {ahora.strftime('%H:%M')} y {'SÍ' if dentro else 'NO'} "
+            f"es su horario: {ventana_en_palabras(p.get('ventana') or 'rueda')}."
+            + ("" if dentro else " O sea que estar callado ahora es normal."))
+    else:
+        partes.append("No sé qué hora es para esta pieza, así que no puedo "
+                      "decir si debería estar produciendo.")
+
+    if (run := p.get("run_status")) and run != "ok":
+        partes.append(f"Su última corrida terminó en «{run}».")
+    return " ".join(partes)
+
+
 def _hallazgo(vista: str, p: dict, estado: str, ahora=None) -> dict:
     tipo = p.get("tipo") or "pieza"
     label = str(p.get("label") or "?")
@@ -289,16 +417,7 @@ def _hallazgo(vista: str, p: dict, estado: str, ahora=None) -> dict:
         # DENTRO de su ventana. Corto igual (§0.ag).
         "motivo": _motivo(estado, p, ahora),
         "evidencia": {
-            "texto": (f"Esperado: {p.get('cadencia') or '—'} · umbral "
-                      f"{p.get('umbral_s')} s · último dato "
-                      f"{p.get('hace') or 'nunca'}"
-                      + (f" · último run {p.get('run_status')}"
-                         if p.get("run_status") else "") + "\n"
-                      + f"{ventana_en_palabras(p.get('ventana') or 'rueda')}"
-                      + (f" · son las {ahora.strftime('%H:%M')}, está en su "
-                         "ventana (no está apagado)."
-                         if ahora else " · sin hora del árbol.")
-                      + _prueba_del_log(tipo, label)),
+            "texto": _explicacion(p, ahora) + _prueba_del_log(tipo, label),
             "tipo": tipo, "vista": vista, "estado": estado,
             "ventana": p.get("ventana"),
             "ventana_texto": ventana_en_palabras(p.get("ventana") or "rueda"),

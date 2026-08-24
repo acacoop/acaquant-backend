@@ -35,9 +35,12 @@ def _bloques_del_payload() -> set[str]:
     for n in ast.walk(arbol):
         if not (isinstance(n, ast.Return) and isinstance(n.value, ast.Dict)):
             continue
+        # ⚠️ Las listas van envueltas: `_fechar("roto", _por_hora(roto))`.
+        # Se busca `_fechar` —el envoltorio que le pone a cada fila la fecha que
+        # su bloque necesita— porque es el que define que algo ES un bloque.
         return {k.value for k, v in zip(n.value.keys, n.value.values, strict=True)
                 if isinstance(k, ast.Constant) and isinstance(v, ast.Call)
-                and getattr(v.func, "id", "") == "_por_hora"}
+                and getattr(v.func, "id", "") in ("_fechar", "_por_hora")}
     raise AssertionError("`_lo_de_hoy` dejó de devolver un dict literal")
 
 
@@ -76,3 +79,18 @@ def test_lo_SIN_CONFIRMAR_no_cuenta_como_nada_paso():
     i = src.index("nada = (")
     assert "not sc" in src[i:i + 300], (
         "el veredicto «hoy no pasó nada» ignora lo que no se pudo confirmar")
+
+
+def test_TODO_bloque_declara_QUE_FECHA_contesta_su_pregunta():
+    """⚠️ Cada bloque hace una pregunta distinta y hay UNA fecha que la
+    contesta: ROTO AHORA quiere saber si sigue roto (`ultimo_at`), APARECIÓ HOY
+    quiere saber cuándo apareció (`abierto_at`). Un bloque nuevo sin declararlo
+    cae en el default y muestra su fecha de nacimiento — que es exactamente el
+    bug del 24/08: filas de las 10:32 a las 11:18, con el objeto vivo."""
+    faltan = _bloques_del_payload() - set(cen._CUANDO_POR_BLOQUE)
+    assert not faltan, (
+        f"bloques sin declarar qué fecha muestran: {sorted(faltan)}. "
+        f"Agregalos a `_CUANDO_POR_BLOQUE` con el campo y el verbo.")
+    campos = {c for c, _ in cen._CUANDO_POR_BLOQUE.values()}
+    assert campos <= set(cen._COLS), (
+        f"declaran una fecha que la query no trae: {campos - set(cen._COLS)}")

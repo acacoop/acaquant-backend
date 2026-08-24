@@ -21,7 +21,7 @@
 > - **«CÓMO FUNCIONA HOY — el mapa del código»** (arriba de todo, secciones
 >   `M.0`–`M.12`): **el ESTADO**. Dónde vive cada pieza, qué invariante rige,
 >   qué deuda hay abierta. Es lo primero que se lee y lo que se mantiene al día.
-> - **`## 0` en adelante (§0.a → §0.dm): el DIARIO.** Las decisiones en orden
+> - **`## 0` en adelante (§0.a → §0.dn): el DIARIO.** Las decisiones en orden
 >   cronológico, con su porqué. Sirve para no re-proponer lo descartado — **no
 >   para saber cómo funciona algo hoy.**
 >
@@ -43,7 +43,7 @@
 > El user (2026-08-24): *«no puedo tener sesiones en Claude sin que cada sesión
 > vea cosas distintas, que se contradiga constantemente»*.
 >
-> La causa es este documento. De acá para abajo (§0.a → §0.dm) hay un **DIARIO**:
+> La causa es este documento. De acá para abajo (§0.a → §0.dn) hay un **DIARIO**:
 > registra DECISIONES en orden cronológico, y está bien que así sea — es lo que
 > evita re-proponer lo descartado. Pero un diario **no puede contestar «¿cómo
 > funciona hoy?»**: una sesión lee §0.bd y cree que el modelo de objetos está
@@ -8306,6 +8306,121 @@ se verificó como conjunto: solo se lee con `in`.)
 El módulo **no importa nada del proyecto**: lo leen `av_agent` y
 `av_agent_skills`, y el segundo importa al primero, así que cualquier import
 abriría un ciclo. Hay un test que lo congela.
+
+
+### 0.dn LOS AVISOS NO TENÍAN VIDA (2026-08-24)
+
+El user, a las 11:18 con la rueda abierta, mirando ROTO AHORA:
+
+    *«el aviso es de 10:32 sabiendo que son 11:18. O debería haber actualizado
+    el error si siguió estando, o debería haber desaparecido si ya se arregló.
+    Es todo demasiado estático para algo que supuestamente es live. No tienen
+    esa vida, que supuestamente es el estado del objeto.»*
+
+Nueve síntomas, **cuatro causas**. Ninguna era un detector equivocado.
+
+---
+
+**1 · LA FILA MOSTRABA SU FECHA DE NACIMIENTO.**
+
+    cuando = vuelto_at or resuelto_at or abierto_at   ← `ultimo_at` no entraba nunca
+
+El objeto **estaba vivo**: el motivo de esas mismas filas decía «11:13». Lo que
+mostraba la fecha vieja era la columna de la izquierda. Un objeto con ciclo de
+vida presentado por su partida de nacimiento se lee como muerto.
+
+Y el arreglo no era «mostrar `ultimo_at` en todos lados» —sería el mismo error
+al revés: APARECIÓ HOY con la hora de recién no dice cuándo apareció—. **Cada
+bloque hace UNA pregunta y hay UNA fecha que la contesta:**
+
+    ROTO AHORA          ¿sigue roto?           ultimo_at    «confirmado 11:13»
+    NO LO PUDE VERIF.   ¿desde cuándo no sé?   ultimo_at    «última señal …»
+    VOLVIÓ              ¿cuándo volvió?        vuelto_at    «volvió 10:01»
+    APARECIÓ HOY        ¿cuándo apareció?      abierto_at   «apareció 10:21»
+    SE ARREGLÓ          ¿cuándo cerró?         resuelto_at  «cerró 11:08»
+
+Va con el VERBO al lado, porque «11:13» solo significa algo si dice qué es. Lo
+elige el backend (`_CUANDO_POR_BLOQUE`) y hay un test que exige que todo bloque
+nuevo declare su fecha — el default silencioso es justo el bug de hoy.
+
+---
+
+**2 · EL DUPLICADO: DOS PRODUCTORES, DOS ALCANCES.**
+
+*«Se duplican las mismas cosas, es rarísimo, algo mal quedó.»* Y era exacto:
+`detectar_salud` corría en la relevada (alcance `soberanos`, una CORRIDA) **y**
+en el centinela (alcance `live`, de REEMPLAZO), y el `SELECT` de la pantalla
+suma los dos alcances. Cada chequeo salía dos veces, con la misma antigüedad y
+el mismo contador, una con botón y otra sin.
+
+Ninguna de las dos filas estaba mal. Es la **REGLA #10.2** —*tiene UNA casa*—
+rota en el PRODUCTOR, no en la pantalla.
+
+→ El dueño es el centinela, y no por gusto: corre cada 5 minutos contra las 2 h
+de la relevada, y corre **también fuera de rueda**, que es cuando fallan los
+jobs nocturnos. El test nuevo no mira salud: prohíbe que **cualquier** tipo
+tenga dos productores en dos alcances.
+
+---
+
+**3 · UN JOB NO PUEDE LLEGAR TARDE ANTES DE QUE LE TOQUE.**
+
+*«Están desconectados del tiempo y del espacio. Si escribe cada 60 minutos y el
+mercado abre 10:30 es imposible que se rompa tan temprano.»*
+
+Cada pieza declara DOS horarios que **no son lo mismo**, y solo se miraba uno:
+
+    `ventana`    cuándo IMPORTA la frescura  →  «rueda» = 10:00-17:05 ART
+    `cadencia`   cuándo el CRON corre        →  «15-22 UTC» = 12:00-19:00 ART
+
+`pnl_totales_precompute` arranca 12:00 ART. A las 11:13 estamos dentro de
+`rueda` pero **el job no empezó su día**: se lo juzgaba por no producir en una
+hora en la que ni está programado. No es un atraso, es que no le tocó.
+
+Y no alcanza con la hora de arranque: **le corresponde su propia cadencia de
+gracia**. Un job de 60 min que arranca 12:00 recién puede estar atrasado a las
+13:00. Misma idea que `GRACIA_ARRANQUE_MIN` para los motores, con SU número.
+
+Medido con los tres casos reales: `pnl_totales` calla a las 11:13 y a las 12:13,
+avisa a las 14:00. `ops_agregado` calla hasta las 13:00. `motor_rofex` (live, sin
+horario declarado) avisa siempre — no tiene «todavía no le tocó».
+
+⚠️ **Ante la duda, avisa.** Si la pieza no declara horario, o no hay hora, el
+guard devuelve `False`: callar un motor caído es peor que un aviso de más.
+
+---
+
+**4 · «ESTÁ EN SU VENTANA» ERA UN STRING FIJO.**
+
+    partes.append(f"{ahora:%H:%M}, en ventana" if ahora else "sin hora")
+
+**Nunca chequeaba nada.** Se appendeaba a todos los motivos, siempre — y por eso
+afirmaba «está en su ventana» justo cuando no lo estaba. Peor: **tapaba la causa
+3**, porque mientras el mensaje mintiera igual, el desacuerdo entre los dos
+horarios no se podía ver.
+
+Ahora se pregunta de verdad y, cuando la respuesta es que no, lo dice.
+
+---
+
+**Y el texto dejó de ser de máquina.** Era:
+
+    Esperado: cada 30m :05,:35 · 15-22 UTC L-V · umbral 3600 s · último dato
+    2d 15h · último run ok · corre de 10:00 a 17:05 ART… está en su ventana
+
+`umbral 3600 s` no le dice nada a nadie, y las dos líneas juntas no contestan la
+única pregunta que importa. Ahora:
+
+    No produce desde hace 2d 15h. Son las 14:30 y SÍ es su horario: corre de
+    10:00 a 17:05 ART, de lunes a viernes.
+
+---
+
+**Lo que queda abierto.** El atraso se sigue midiendo en tiempo de RELOJ, así
+que «2d 15h» todavía atraviesa un fin de semana en el que el job no debía
+correr. Es §0.u sin aplicar a los jobs, y es el paso siguiente. Y falta decidir
+qué significa «sin datos» para un feed de NOTICIAS: que no haya noticias no es
+una falla, pero que el job no corra sí — hoy el chequeo mezcla las dos.
 
 
 ## 1. Qué es y qué no es

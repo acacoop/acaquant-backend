@@ -2416,17 +2416,41 @@ def test_un_CHEQUEO_de_salud_es_un_HALLAZGO_del_agente():
     assert ACCION_POR_TIPO["salud"] == "salud"
 
 
-def test_SALUD_no_puede_tumbar_la_relevada_de_bonos():
-    """Que la observabilidad se caiga no puede dejar sin correr a los detectores
-    de renta fija — el mismo contrato que ya rige el universo de 1816."""
-    import inspect
+def test_SALUD_tiene_UN_SOLO_productor():
+    """⚠️⚠️ **El duplicado que el user vio antes que ningún test** (2026-08-24):
+    *«se duplican las mismas cosas, es rarísimo, algo mal quedó»*.
 
-    from api.services import av_agent
+    `detectar_salud` corría en DOS lugares —la relevada (alcance `soberanos`,
+    una corrida) y el centinela (alcance `live`, de reemplazo)— y la pantalla
+    suma los dos alcances en el mismo SELECT. Resultado: cada chequeo aparecía
+    dos veces en ENCONTRÓ, con la misma antigüedad y el mismo contador, una fila
+    con botón y otra sin. Nada fallaba: las dos filas eran correctas.
 
-    src = inspect.getsource(av_agent.relevar)
-    assert "chequeos_salud = []" in src, "SALUD se lee en su propio try"
-    assert src.index("try:\n        from api.services import salud") < \
-        src.index("detectar_salud(chequeos_salud)")
+    Es la REGLA #10.2 —*tiene UNA casa*— rota en el productor. El dueño es el
+    centinela: corre cada 5 minutos contra las 2 h de la relevada, y corre
+    TAMBIÉN fuera de rueda, que es cuando fallan los jobs nocturnos.
+
+    Este test vale para cualquier tipo, no solo para salud: **dos productores
+    del mismo tipo en alcances distintos es siempre una fila duplicada.**"""
+    import ast
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parents[2]
+    productores: dict[str, list[str]] = {}
+    for f in list((raiz / "api/services").glob("av_agent*.py")) + \
+            list((raiz / "jobs").glob("av_agent*.py")):
+        txt = "\n".join(x for x in f.read_text(encoding="utf-8").splitlines()
+                         if not x.lstrip().startswith("#"))
+        for n in ast.walk(ast.parse(txt)):
+            if (isinstance(n, ast.Call)
+                    and (getattr(n.func, "id", "") == "detectar_salud"
+                         or getattr(n.func, "attr", "") == "detectar_salud")):
+                productores.setdefault("salud", []).append(f.name)
+    llaman = sorted(set(productores.get("salud", [])))
+    assert llaman == ["av_agent_centinela.py"], (
+        f"«salud» lo emiten {llaman}: dos productores del mismo tipo en dos "
+        f"alcances es una fila duplicada en ENCONTRÓ, y ninguna de las dos "
+        f"está mal por su cuenta.")
 
 
 def test_las_lentes_de_SALUD_hablan_el_MISMO_idioma_que_las_de_un_bono():

@@ -45,7 +45,11 @@ def test_un_motor_que_no_produce_EN_RUEDA_si(monkeypatch):
                         lambda: _arbol(_p("motor_curvas", "critico")))
     h = mot.detectar_motores()
     assert len(h) == 1 and h[0]["severidad"] == "alta"
-    assert "no está apagado" in h[0]["evidencia"]["texto"]
+    # El texto dejó de ser mecánico (2026-08-24): decía «umbral 3600 s · está
+    # en su ventana (no está apagado)» — el user: *«hay demasiado texto y es
+    # todo muy mecánico»*. Lo que el test cuida es lo único que importaba de esa
+    # frase: que se AFIRME si es o no su horario, y ahora se chequea de verdad.
+    assert "SÍ es su horario" in h[0]["evidencia"]["texto"]
 
 
 def test_LENTO_no_es_lo_mismo_que_CAIDO(monkeypatch):

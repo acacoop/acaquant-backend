@@ -594,6 +594,62 @@ def _nombre_legible(sujeto: str, tipo: str) -> str:
     return s.replace("_", " ") if ("_" in s or " " in s) else s
 
 
+# ⚠️⚠️ **CADA BLOQUE PREGUNTA OTRA COSA, Y LA FECHA TIENE QUE CONTESTAR ESA.**
+#
+# El user, a las 11:18 mirando cuatro filas fechadas 10:32 (2026-08-24):
+#
+#   *«el aviso es de 10:32 sabiendo que son 11:18… o debería haber actualizado
+#   el error si siguió estando, o debería haber desaparecido si ya se arregló.
+#   Es todo demasiado estático para algo que supuestamente es live. No tienen
+#   esa vida, que supuestamente es el estado del objeto.»*
+#
+# Y el objeto SÍ estaba vivo: el motivo de esas mismas filas decía «11:13». Lo
+# que estaba mal era la FECHA de la fila, que salía de un `coalesce` fijo —
+# `vuelto_at → resuelto_at → abierto_at`— en el que **`ultimo_at` no entraba
+# nunca**. O sea que una fila re-confirmada hace dos minutos mostraba el día que
+# NACIÓ, y por eso parecía muerta.
+#
+# El arreglo no es «mostrar `ultimo_at` en todos lados»: sería el mismo error al
+# revés (APARECIÓ HOY con la hora de recién no dice cuándo apareció). Cada
+# bloque hace UNA pregunta y hay UNA fecha que la contesta:
+#
+#     ROTO AHORA        ¿sigue roto?          → ultimo_at   (cuándo se confirmó)
+#     NO LO PUDE VERIF. ¿desde cuándo no sé?  → ultimo_at   (la última señal)
+#     VOLVIÓ            ¿cuándo volvió?       → vuelto_at
+#     APARECIÓ HOY      ¿cuándo apareció?     → abierto_at
+#     SE ARREGLÓ        ¿cuándo cerró?        → resuelto_at
+#
+# Se resuelve ACÁ y no en la pantalla por lo de siempre: el navegador no puede
+# mirar el reloj mientras dibuja, y con el criterio del lado del front la
+# consola y la tab se separan sin dar ningún error.
+_CUANDO_POR_BLOQUE: dict[str, tuple[str, str]] = {
+    "roto":          ("ultimo_at", "confirmado"),
+    "sin_confirmar": ("ultimo_at", "última señal"),
+    "volvio":        ("vuelto_at", "volvió"),
+    "aparecio":      ("abierto_at", "apareció"),
+    "se_arreglo":    ("resuelto_at", "cerró"),
+}
+
+
+def _fechar(bloque: str, filas: list[dict]) -> list[dict]:
+    """Le pone a cada fila la fecha que su bloque necesita, ya elegida.
+
+    `cuando` es el instante y `cuando_dice` es el verbo — porque «11:13» solo
+    significa algo si al lado dice si eso es *confirmado* o *apareció*. La
+    pantalla imprime los dos y no elige nada.
+    """
+    campo, verbo = _CUANDO_POR_BLOQUE.get(bloque, ("abierto_at", "desde"))
+    out = []
+    for f in filas:
+        # Respaldo hacia `abierto_at`: una fila sin la fecha de su bloque no
+        # puede quedar sin ninguna — pero el verbo lo DICE, así que no se
+        # confunde una confirmación con un nacimiento.
+        cuando = f.get(campo) or f.get("abierto_at")
+        out.append({**f, "cuando": cuando,
+                    "cuando_dice": verbo if f.get(campo) else "desde"})
+    return out
+
+
 def _por_hora(filas: list[dict]) -> list[dict]:
     """De lo MÁS RECIENTE a lo más viejo, por la MISMA fecha que muestra la fila.
 
@@ -720,13 +776,13 @@ def _lo_de_hoy(abiertos: list[dict], resueltos: list[dict],
              and _puede_pasar_hoy(f, habil)]
     return {
         "desde": desde.isoformat(),
-        "roto": _por_hora(roto),
+        "roto": _fechar("roto", _por_hora(roto)),
         # Lo que SIGUE ABIERTO pero nadie pudo verificar hace rato. No es una
         # novedad y no suma al contador: es una advertencia sobre el AGENTE, no
         # sobre el sistema — «esto no lo estoy mirando».
-        "sin_confirmar": _por_hora(sin_confirmar),
-        "aparecio": _por_hora(aparecio), "volvio": _por_hora(volvio),
-        "se_arreglo": _por_hora(cerro),
+        "sin_confirmar": _fechar("sin_confirmar", _por_hora(sin_confirmar)),
+        "aparecio": _fechar("aparecio", _por_hora(aparecio)), "volvio": _fechar("volvio", _por_hora(volvio)),
+        "se_arreglo": _fechar("se_arreglo", _por_hora(cerro)),
         # El total que decide si la tab dice «hoy no pasó nada» o muestra algo.
         # `se_arreglo` NO suma: es una buena noticia, no una novedad que pida
         # atención — contarla haría subir el número cuando algo MEJORA.

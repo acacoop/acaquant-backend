@@ -40,10 +40,14 @@ def _bloque(titulo: str, filas: list[dict]) -> None:
         print("  (vacío — este bloque no se dibuja)")
         return
     for f in filas:
-        # La MISMA coalescencia de hora que usa la fila del front.
-        cuando = _hora(f.get("vuelto_at") or f.get("resuelto_at")
-                       or f.get("abierto_at"))
-        print(f"  [{f.get('severidad', '?'):5}] {cuando}  "
+        # ⚠️ **LA FECHA YA VIENE ELEGIDA POR EL BACKEND** (`cuando` + el verbo).
+        # Acá vivía un `coalesce` fijo que nunca miraba `ultimo_at`, así que una
+        # fila re-confirmada hace dos minutos imprimía el día que NACIÓ y
+        # parecía muerta. Cada bloque pregunta otra cosa y hay una sola fecha
+        # que la contesta — y quién la elige es el backend, no dos pantallas.
+        cuando = _hora(f.get("cuando") or f.get("abierto_at"))
+        verbo = f.get("cuando_dice") or "desde"
+        print(f"  [{f.get('severidad', '?'):5}] {verbo} {cuando}  "
               f"{f.get('nombre') or f.get('sujeto')}  ·  {f.get('regla')}")
         if f.get("motivo"):
             print(f"          {str(f['motivo'])[:160]}")

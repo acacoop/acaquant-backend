@@ -1926,13 +1926,6 @@ def relevar(*, alcance: str = "soberanos",
                                     ignorados=ignorados, en_cartera=en_cartera,
                                     simbolos_primary=simbolos_primary())
                  if universo_1816 else [])
-    try:
-        from api.services import salud
-        chequeos_salud = salud.evaluar()
-    except Exception:
-        logger.warning("av_agent: no se pudo evaluar SALUD", exc_info=True)
-        chequeos_salud = []
-
     # ⚠️⚠️ **CADA DETECTOR DECLARA QUÉ CUBRE, Y SOLO CUENTA SI CORRIÓ** (Fase 2).
     #
     # Antes esto era una lista por comprensión y `evaluados` se derivaba, allá en
@@ -1962,9 +1955,21 @@ def relevar(*, alcance: str = "soberanos",
                                                 en_cartera,
                                                 universo_1816=universo_1816)),
             (("hueco_de_curva",), lambda: detectar_huecos_de_curva(docs)),
-            # SALUD entra como un detector más: que la observabilidad se caiga NO
-            # puede tumbar la relevada de bonos.
-            (("salud",), lambda: detectar_salud(chequeos_salud)),
+            # ⚠️⚠️ **SALUD YA NO SE EMITE ACÁ** (2026-08-24). Lo emitía este job
+            # (alcance `soberanos`, una CORRIDA) **y** el centinela (alcance
+            # `live`, de REEMPLAZO), y la pantalla suma los dos alcances: el
+            # mismo chequeo aparecía DOS VECES en ENCONTRÓ, con la misma
+            # antigüedad y el mismo contador, una con botón y otra sin.
+            #
+            # El user lo vio antes que cualquier test: *«se duplican las mismas
+            # cosas, es rarísimo, algo mal quedó»*. Y tenía razón: es la REGLA
+            # #10.2 —*tiene UNA casa*— rota en el productor, no en la pantalla.
+            #
+            # El dueño es **el centinela**, y no por gusto: corre cada 5 minutos
+            # contra los 2 h de esto, y corre TAMBIÉN fuera de rueda (SALUD está
+            # afuera de su guarda de mercado), que es justo cuando fallan los
+            # jobs nocturnos. Dejar el que mira menos seguido hubiera sido
+            # elegir la peor mitad.
     ):
         try:
             hallazgos.extend(fn())
@@ -1995,7 +2000,6 @@ def relevar(*, alcance: str = "soberanos",
                      "assets_leidos": en_assets is not None,
                      "cartera_leida": en_cartera is not None,
                      "en_cartera": len(en_cartera or ()),
-                     "chequeos_salud": len(chequeos_salud),
                      "ignorados": len(ignorados)},
         # QUÉ SE ALCANZÓ A MIRAR, detector por detector. Lo lee el job para
         # decidir qué puede cerrar por ausencia — antes lo DERIVABA de lo que

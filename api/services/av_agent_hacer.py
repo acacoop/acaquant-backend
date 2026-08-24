@@ -1762,31 +1762,28 @@ def _aplicar_una(f: dict, *, por: str, valores: dict) -> dict:
             por=por, verificado=None if espera else quedo, detalle=detalle,
             propuesto=p.propuesto if p.propuesto != f["propuesto"] else None,
             error=None if quedo else "aplicado pero la verificación no lo confirma")
-    # ⚠️⚠️ **EL LIBRO, Y EL SEGUIMIENTO — que estaban desconectados de acá.**
-    #
-    # `av_agent_seguimiento` (§0.ac) existe desde el 2026-08-19 para contestar la
-    # pregunta que el user pidió: *«que el agente entienda cuándo hizo algo bien,
-    # no porque yo le puse "acertó", sino porque a los días puede detectar que el
-    # cambio tuvo consistencia»*. Y **nunca recibió un caso de las 8 acciones de
-    # este módulo**: se alimenta desde `av_agent_acciones.registrar`, y este
-    # camino —el que usan TODAS las acciones, incluidos los botones de fila— no
-    # lo llamaba nunca. Medido: cero apariciones de `registrar` en este archivo.
-    #
-    # O sea que el sistema sabía verificar que la escritura ENTRÓ (releer, mismo
-    # segundo) y tenía la máquina para verificar que el arreglo FUNCIONÓ (que el
-    # problema no vuelva en 5 días), y las dos estaban en el mismo repo sin
-    # tocarse. Nada fallaba: simplemente el libro no registraba estas acciones y
-    # el seguimiento se quedaba vacío.
+    # ⚠️⚠️ **EL LIBRO — y por qué acá no se anota ningún seguimiento.**
     #
     #     Verificar que la escritura entró no dice si el arreglo era el correcto:
     #     un símbolo mal puesto se escribe igual de bien que uno bien puesto.
     #
-    # **Va DESPUÉS de sellar y en su propio try**: la escritura real ya pasó y no
-    # se deshace por un problema de auditoría o de medición.
+    # Quién contesta esa pregunta: **el detector**, cuando vuelve a mirar y ya no
+    # ve el problema (`sincronizar` → `resuelto`), y de ahí en más el reloj de
+    # `av_agent_items.cerrar_hitos()` (1·2·3·7·14·30 días HÁBILES).
     #
-    # ⚠️ **Solo si QUEDÓ.** Poner en seguimiento algo que falló mediría un arreglo
-    # que no existe, y a los 5 días lo cantaría como «volvió» — culpando al
-    # diagnóstico de un problema que fue de la escritura.
+    # Hasta el 2026-08-24 había un SEGUNDO medidor —`av_agent_seguimiento`, con
+    # su tabla y su ventana de 5 días corridos— alimentado desde
+    # `av_agent_acciones.registrar`. Se borró (Fase 2): armaba la clave
+    # `accion:objetivo:regla` y la comparaba contra `tipo:sujeto:regla`, o sea
+    # que su intersección era vacía por construcción y **solo podía decir
+    # «aguantó»** (§0.dh). Dos medidores del mismo hecho es REGLA #9; uno de los
+    # dos siempre termina mintiendo.
+    #
+    # **Va DESPUÉS de sellar y en su propio try**: la escritura real ya pasó y no
+    # se deshace por un problema de auditoría.
+    #
+    # ⚠️ **Solo si QUEDÓ.** Registrar algo que falló, y moverle el objeto,
+    # mediría un arreglo que no existe.
     if quedo:
         try:
             from api.services import av_agent_acciones as acc

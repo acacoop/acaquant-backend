@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import inspect
 
-from api.services import av_agent, av_agent_seguimiento
+from api.services import av_agent
 
 # ── 1 · LA FOTO DE REEMPLAZO GUARDA SU IDENTIDAD ────────────────────────────
 #
@@ -92,30 +92,6 @@ def test_los_tipos_declarados_por_el_monitor_existen_en_el_registro():
     assert not inventados, f"tipos declarados que no existen: {inventados}"
 
 
-# ── 3 · EL SEGUIMIENTO VIEJO NO PUEDE VOTAR ────────────────────────────────
-#
-# Sus dos mitades arman la clave con formatos distintos, así que la
-# intersección es vacía por construcción y el veredicto solo puede ser
-# «aguantó» → un ✔ `verificado` fabricado en la única señal que la compuerta
-# de autonomía cuenta como humana.
-
-def test_el_seguimiento_viejo_NO_vota():
-    assert av_agent_seguimiento._votar([{"x": 1}], [{"y": 2}]) == 0
-
-
-def test_no_queda_ninguna_llamada_a_votar_en_el_seguimiento_viejo():
-    src = inspect.getsource(av_agent_seguimiento)
-    assert "av_agent_evals" not in src, (
-        "volvió el voto: mientras las dos puntas armen la clave distinto, "
-        "solo puede emitir positivos")
-
-
-def test_las_DOS_puntas_siguen_sin_coincidir_y_por_eso_no_se_vota():
-    """Congela el motivo. El día que las claves se unifiquen, este test falla y
-    ahí SÍ hay que volver a habilitar el voto (Fase 2)."""
-    from api.services import av_agent_acciones
-    anota = inspect.getsource(av_agent_acciones.registrar)
-    assert '{accion}:{objetivo}:{regla}' in anota
-    import jobs.seguimiento as js
-    compara = inspect.getsource(js._claves_abiertas)
-    assert "tipo || ':' || ticker || ':' || regla" in compara
+# ── 3 · EL SEGUIMIENTO VIEJO SE BORRÓ ENTERO (Fase 2) ──────────────────────
+# El invariante vive ahora en `test_seguimiento.py`: no puede volver a haber dos
+# medidores de «¿el arreglo aguantó?».

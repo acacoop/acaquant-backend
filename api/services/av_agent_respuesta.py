@@ -2,7 +2,7 @@
 
 Doc madre: **`docs/AV_AGENT.md`** §0.ak.
 
-⚠️ **No confundir con `av_agent_seguimiento`**, que es otra cosa y mide otro
+⚠️ **No confundir con los HITOS** (`av_agent_items.cerrar_hitos`), que miden otro
 tiempo: aquél pregunta *«el arreglo que hicimos, ¿aguantó cinco días?»* (§0.ac).
 Éste pregunta *«lo que le pedimos al mercado, ¿contestó?»*, y se responde adentro
 de la misma rueda.

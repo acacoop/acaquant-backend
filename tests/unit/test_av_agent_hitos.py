@@ -17,18 +17,12 @@ from ._fuente import codigo
 # ── ESTÁ ENCHUFADO ──────────────────────────────────────────────────────────
 
 def test_el_JOB_DIARIO_corre_los_hitos():
-    """Lo que faltaba: el cron que le da cuerda al reloj."""
+    """El cron que le da cuerda al reloj. Desde la Fase 2 es lo ÚNICO que hace:
+    el medidor viejo (`av_agent_seguimiento`) se borró."""
     import jobs.seguimiento as j
-    assert "_hitos(jr)" in codigo(j.main)
-    assert "cerrar_hitos()" in codigo(j._hitos)
-
-
-def test_el_job_viejo_y_el_nuevo_CONVIVEN_sin_tumbarse():
-    """Miden lo mismo por caminos distintos hasta que el viejo se apague. Que
-    uno falle no puede dejar al otro sin correr."""
-    import jobs.seguimiento as j
-    cola = codigo(j.main).split("_hitos(jr)")[1][:300]
-    assert "except Exception" in cola
+    src = codigo(j.main)
+    assert "cerrar_hitos()" in src
+    assert "seg.revisar" not in src and "_claves_abiertas" not in src
 
 
 def test_la_PANTALLA_lo_muestra():

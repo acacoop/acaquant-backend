@@ -18,11 +18,13 @@ la arquitectura, que no depende de ellos).
        `regla`, así que los arreglos del modal no generan voto derivado. Acá se
        ve si eso se nota en los datos.
 
-    3. EL HUECO DEL SEGUIMIENTO
-       `av_agent_seguimiento` se alimenta SOLO desde `av_agent_acciones.registrar`
-       con `regla`; la pantalla ¿AGUANTAN?, en cambio, deriva de
-       `av_agent_items`. Son dos formas de contestar la misma pregunta y nadie
-       las cruzó nunca.
+    3. EL SEGUIMIENTO, AHORA CON UN SOLO MEDIDOR
+       Hasta el 2026-08-24 había DOS: `av_agent_seguimiento` (tabla propia,
+       ventana de 5 días corridos) y los HITOS de `av_agent_items`. El viejo se
+       borró en la Fase 2 — armaba la clave `accion:objetivo:regla` y la
+       comparaba contra `tipo:sujeto:regla`, así que solo podía decir «aguantó».
+       Acá se mira que el que quedó tenga casos de verdad: un medidor sin
+       entradas es lo mismo que no tenerlo.
 
 SEGURIDAD (REGLA #4)
 ====================
@@ -153,20 +155,13 @@ def main() -> int:
                 con += cr
                 print(f"{(a or '—'):<28}{n:>7}{cr:>11}{ok:>6}"
                       f"{('sí' if cr else 'NO'):>9}")
-            print(f"\n   {con} de {tot} acciones llevan regla → "
-                  f"solo ésas generan voto derivado y seguimiento")
+            print(f"\n   {con} de {tot} acciones llevan regla → es lo que "
+                  f"permite\n   cruzar el libro con la causa que se juzgó")
 
-        # ── 6. EL HUECO DEL SEGUIMIENTO ─────────────────────────────────────
-        _titulo(6, "SEGUIMIENTO: la tabla dedicada vs lo que dibuja la pantalla")
-        filas = _filas(cur, """
-            SELECT veredicto, count(*) FROM agente.av_agent_seguimiento
-             GROUP BY veredicto ORDER BY count(*) DESC
-        """)
-        n_seg = sum(f[1] for f in filas)
-        for v, n in filas:
-            print(f"   av_agent_seguimiento · {(v or '—'):<12}{n:>6}")
-        print(f"   av_agent_seguimiento · TOTAL          {n_seg:>6}")
-
+        # ── 6. EL SEGUIMIENTO, CON UN SOLO MEDIDOR ──────────────────────────
+        _titulo(6, "SEGUIMIENTO: ¿el único medidor que quedó tiene casos?")
+        print("   `av_agent_seguimiento` se borró el 2026-08-24 (Fase 2): su\n"
+              "   veredicto era siempre «aguantó» por una clave que no cruzaba.\n")
         # Lo que la sub-tab ¿AGUANTAN? cuenta de verdad: items resueltos que no
         # son comunicaciones (la MISMA condición de `items.en_seguimiento`).
         filas = _filas(cur, """
@@ -175,10 +170,10 @@ def main() -> int:
                AND tipo NOT IN ('aviso', 'aviso_fila', 'pregunta')
         """)
         n_items = filas[0][0] if filas else 0
-        print(f"\n   items resueltos (lo que dibuja ¿AGUANTAN?)  {n_items:>6}")
-        print(f"   filas en la tabla de seguimiento             {n_seg:>6}")
-        print(f"   → HUECO: {n_items - n_seg} arreglos que la pantalla cuenta "
-              f"y la tabla no vigila")
+        print(f"   items resueltos = arreglos con el reloj corriendo  {n_items:>6}")
+        if not n_items:
+            print("   ⚠ CERO. El medidor está vivo y no recibe nada: revisar que\n"
+                  "     los detectores estén CERRANDO por ausencia (`sincronizar`).")
 
         # ── 7. LA FOTO vs EL OBJETO ─────────────────────────────────────────
         # Sirve para saber si la migración a `items` está completa: un hallazgo

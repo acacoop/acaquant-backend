@@ -97,9 +97,6 @@ REGLA_DE_ACCION: dict[str, str] = {
     "completar_flujos": "flujos_vacios",    # tipo sin_flujo
     "crear_curva": "ajuste_sin_curva",      # tipo hueco_de_curva
 }
-# En qué dominio del eval set cae cada una.
-_DOMINIO_DE_ACCION = {"alta_bono": "bono", "completar_flujos": "bono",
-                      "crear_curva": "bono"}
 
 
 def registrar(*, accion: str, objetivo: str, detalle: dict | None = None,
@@ -114,49 +111,41 @@ def registrar(*, accion: str, objetivo: str, detalle: dict | None = None,
                 "INSERT INTO agente.av_agent_acciones "
                 "(accion, destino, objetivo, detalle, antes, origen, pregunta_id, "
                 " por, ok, error, regla) "
-                "VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s) "
-                "RETURNING id",
+                # Sin `RETURNING id`: existía solo para pasarle el id al voto
+                # derivado, que se borró. El libro no necesita leer lo que escribe.
+                "VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s)",
                 (accion, _destino(accion), objetivo,
                  json.dumps(detalle or {}, ensure_ascii=False, default=str),
                  json.dumps(antes, ensure_ascii=False, default=str) if antes else None,
                  origen, pregunta_id, por or None, ok, (error or None),
                  regla or None))
-            fila = cur.fetchone()
     except Exception as e:
         logger.warning("av_agent: no se pudo anotar la acción %s/%s: %s",
                        accion, objetivo, e)
         return
-    # EL VOTO DERIVADO. Va DESPUÉS de anotar y en su propio try por el mismo
-    # motivo que el libro entero: la escritura real ya pasó y no se deshace por
-    # un problema de medición.
-    if ok and por and regla and fila:
-        # ⚠️⚠️ **ACÁ VIVÍA `_votar_derivado`, Y SE BORRÓ** (2026-08-24).
-        #
-        # Escribía en el eval set un ✔ con `acierta=True` **FIJO**: nunca podía
-        # decir otra cosa. Medido en prod el 2026-08-24: **106 votos, 106 ✔ —
-        # 100% por construcción**, más de la mitad de la tabla entera (213).
-        # Un número que no puede bajar no mide nada, y encima inflaba el
-        # porcentaje que se muestra por causa.
-        #
-        # El argumento original era que aprobar una propuesta ES decir que la
-        # causa estaba bien. No lo es: aprobar es decir «dale». Eso YA queda
-        # anotado acá, en el libro de acciones, que es su lugar. Duplicarlo como
-        # juicio del diagnóstico era fabricar señal — la misma falla que
-        # `cerrar_hitos` (§0.de), por el otro lado.
-        #
-        # SE QUEDA EL SEGUIMIENTO, que es el honesto: dentro de unos días dice
-        # si **funcionó**, que es otra cosa y es la que vale. Verificar
-        # releyendo la base en el mismo segundo solo prueba que la escritura
-        # entró: un símbolo mal puesto se escribe igual de bien que uno bien.
-        try:
-            from api.services import av_agent_seguimiento as seg
-            seg.anotar(clave=f"{accion}:{objetivo}:{regla}", sujeto=objetivo,
-                       regla=regla, tipo=accion,
-                       dominio=_DOMINIO_DE_ACCION.get(accion, "bono"),
-                       por=por, que_se_hizo=accion)
-        except Exception as e:
-            logger.warning("av_agent: no pude poner %s en seguimiento: %s",
-                           objetivo, e)
+    # ⚠️⚠️ **ACÁ VIVÍAN DOS MEDICIONES Y LAS DOS SE BORRARON.**
+    #
+    # **`_votar_derivado`** (2026-08-24, §0.de) escribía en el eval set un ✔ con
+    # `acierta=True` **FIJO**: nunca podía decir otra cosa. Medido en prod: 106
+    # votos, 106 ✔ — más de la mitad de la tabla entera (213). Aprobar una
+    # propuesta no es decir «tu diagnóstico era correcto», es decir «dale», y
+    # eso ya queda anotado en el libro, que es su lugar.
+    #
+    # **`seg.anotar`** (2026-08-24, Fase 2) alimentaba `av_agent_seguimiento`,
+    # un segundo medidor de «¿el arreglo aguantó?» que corría en paralelo a los
+    # HITOS. **No podía funcionar**: la clave se escribía `accion:objetivo:regla`
+    # y se comparaba contra `tipo:sujeto:regla`, y como los ids de acción están
+    # namespaceados (`mercado.*`, `assets.*`) la intersección era vacía por
+    # construcción — el veredicto solo podía ser «aguantó» (§0.dh).
+    #
+    # Las dos fabricaban señal por caminos distintos, y las dos entraban a la
+    # compuerta de autonomía. **Queda UN solo medidor**:
+    # `av_agent_items.cerrar_hitos()`, con la clave canónica y el escalonado
+    # 1·2·3·7·14·30.
+    #
+    # El eslabón que sí importa está en `av_agent_hacer._mover_item`: la acción
+    # mueve el objeto a `en_curso`, el DETECTOR lo cierra cuando deja de verlo,
+    # y ahí arranca el reloj. Un solo camino, no tres.
 
 
 def _cambios(antes: dict | None, despues: dict | None) -> list[dict]:

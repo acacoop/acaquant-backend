@@ -5146,7 +5146,7 @@ CREATE TABLE IF NOT EXISTS manager.postrade_token (
 -- los dos números manda.
 CREATE SCHEMA IF NOT EXISTS ap5;
 
--- ap5.portfolio — una fila por (día, cuenta, símbolo, tipo de posición).
+-- ap5.portfolio — una fila por (día, cuenta, símbolo, tipo de posición, LADO).
 --
 -- El grano NO es el que devuelve la API: la respuesta trae `PositionQty` como
 -- ARRAY anidado, y un mismo instrumento puede venir con varios tipos de
@@ -5154,10 +5154,20 @@ CREATE SCHEMA IF NOT EXISTS ap5;
 -- posición guardada como blob no se puede sumar, filtrar ni comparar sin
 -- volver a parsearla en cada consulta.
 --
+-- ⚠️ **`side` es parte de la CLAVE, y eso se descubrió midiendo (2026-08-24).**
+-- La cámara devuelve la pata LARGA y la CORTA del mismo instrumento, en la
+-- misma cuenta, como registros SEPARADOS y con su propio precio promedio
+-- (SOJ.ROS/NOV26 en la cuenta 331000: una pata a 346,7 y la otra a 355,4).
+-- Sin `side` en la PK las dos colapsan, el UPSERT se queda con una y se pierde
+-- una posición entera **sin que nada falle**. Netearlas tampoco serviría: en
+-- agro, tener vendida la cosecha nueva y comprada otra posición son dos
+-- decisiones distintas y el promedio de cada una es lo que se mira.
+--
 -- `long_qty`/`short_qty` son NOT NULL con default 0 a propósito: la API OMITE
 -- el campo cuando vale cero (no manda 0), así que dejarlos NULL confundiría
 -- "no tengo posición larga" con "no sé si tengo posición larga". Son cosas
--- distintas y solo una es cierta acá.
+-- distintas y solo una es cierta acá. Los PRECIOS al revés: ausente queda NULL,
+-- porque ahí el cero SÍ es un dato.
 --
 -- Solo entran `SecurityType = 'Futuro'`. Opciones y PAF G quedan afuera.
 --
@@ -5171,23 +5181,47 @@ CREATE TABLE IF NOT EXISTS ap5.portfolio (
     account             text    NOT NULL,
     symbol              text    NOT NULL,
     position_type       text    NOT NULL,   -- PositionQty[].PosType, ej. 'FIN'
+    side                text    NOT NULL DEFAULT 'flat',  -- long | short | flat
     cfi_code            text,
     unit_of_measure     text,
     currency            text,
-    avg_px              numeric,            -- precio promedio de la posición
+    avg_px              numeric,            -- precio promedio de ESA pata
     daily_settlement    numeric,
     settlement_price    numeric,
     settlement_currency text,
     long_qty            numeric NOT NULL DEFAULT 0,
     short_qty           numeric NOT NULL DEFAULT 0,
     actualizado_at      timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (business_date, account, symbol, position_type)
+    PRIMARY KEY (business_date, account, symbol, position_type, side)
 );
 
--- Columnas agregadas después del CREATE original (2026-08-24): las trae el
--- reporte CONSOLIDADO (`viewDetails=false`) y el detallado no.
+-- Columnas y clave agregadas después del CREATE original (2026-08-24).
+-- `currency`/`avg_px`: las trae el reporte CONSOLIDADO y el detallado no.
+-- `side`: ver arriba — sin él se pierde una de las dos patas.
 ALTER TABLE ap5.portfolio ADD COLUMN IF NOT EXISTS currency text;
 ALTER TABLE ap5.portfolio ADD COLUMN IF NOT EXISTS avg_px numeric;
+ALTER TABLE ap5.portfolio ADD COLUMN IF NOT EXISTS side text NOT NULL DEFAULT 'flat';
+
+-- Recrea la PK si todavía es la vieja (sin `side`). Idempotente: si ya tiene
+-- las 5 columnas no hace nada.
+DO $$
+DECLARE
+    cols int;
+BEGIN
+    SELECT count(*) INTO cols
+    FROM information_schema.key_column_usage k
+    JOIN information_schema.table_constraints t
+      ON t.constraint_name = k.constraint_name AND t.table_schema = k.table_schema
+    WHERE t.table_schema = 'ap5' AND t.table_name = 'portfolio'
+      AND t.constraint_type = 'PRIMARY KEY';
+
+    IF cols = 4 THEN
+        ALTER TABLE ap5.portfolio DROP CONSTRAINT portfolio_pkey;
+        ALTER TABLE ap5.portfolio
+            ADD PRIMARY KEY (business_date, account, symbol, position_type, side);
+        RAISE NOTICE 'ap5.portfolio: PK ampliada con side';
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_ap5_portfolio_fecha ON ap5.portfolio (business_date DESC);
 CREATE INDEX IF NOT EXISTS idx_ap5_portfolio_cuenta ON ap5.portfolio (account, business_date DESC);

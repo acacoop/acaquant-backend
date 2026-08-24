@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from core.postrade_posicion import aplanar
+from core.postrade_posicion import aplanar, lado
 from jobs.ap5_portfolio import deduplicar, ultimo_dia_habil
 
 # La respuesta real de producción, tal cual la devuelve la cámara.
@@ -44,6 +44,7 @@ def test_mapea_los_campos_pedidos():
         "account": "156947",
         "symbol": "TRI.ROS/ENE27",
         "position_type": "FIN",
+        "side": "short",
         "cfi_code": "FXXXSX",
         "unit_of_measure": "Tn",
         "currency": "Dólar MtR",
@@ -54,6 +55,44 @@ def test_mapea_los_campos_pedidos():
         "long_qty": 0.0,
         "short_qty": 8.0,
     }]
+
+
+# --------------------------------------------------------------------------- #
+# El LADO — sin esto se pierde una posición entera
+# --------------------------------------------------------------------------- #
+def test_lado_segun_la_pata():
+    assert lado(10, 0) == "long"
+    assert lado(0, 8) == "short"
+    assert lado(0, 0) == "flat"
+
+
+def test_lado_con_las_dos_patas_no_inventa_un_lado():
+    """No se vio en producción. Si aparece hay que MIRARLO, no adivinar."""
+    assert lado(5, 3) == "long+short"
+
+
+def test_las_dos_patas_del_mismo_futuro_son_DOS_posiciones():
+    """MEDIDO en producción: la cámara manda la pata larga y la corta del mismo
+    instrumento, en la misma cuenta, como registros separados y con su PROPIO
+    precio promedio (SOJ.ROS/NOV26 cuenta 331000: 346,7 y 355,4).
+
+    Si colapsaran en una clave, el UPSERT guardaría una y perdería la otra sin
+    que nada falle. Este test es el que impide que eso vuelva a pasar.
+    """
+    corta = {**FUTURO, "AvgPX": 346.7, "PositionQty": [{"PosType": "FIN", "ShortQty": 1}]}
+    larga = {**FUTURO, "AvgPX": 355.4, "PositionQty": [{"PosType": "FIN", "LongQty": 1}]}
+    filas, _ = aplanar([corta, larga])
+
+    assert len(filas) == 2
+    assert {f["side"] for f in filas} == {"long", "short"}
+
+    salida, divergencias = deduplicar(filas)
+    assert len(salida) == 2, "las dos patas colapsaron en una: se pierde una posición"
+    assert divergencias == []
+
+    # Y cada pata conserva SU precio promedio, que es el dato del negocio.
+    por_lado = {f["side"]: f["avg_px"] for f in filas}
+    assert por_lado == {"short": 346.7, "long": 355.4}
 
 
 def test_la_cantidad_ausente_es_CERO_y_no_null():
@@ -143,10 +182,10 @@ def test_respuesta_vacia_o_rara_no_revienta():
 def _fila(**kw):
     base = {
         "business_date": "2026-08-21", "account": "155235", "symbol": "MAI.ROS/SEP26",
-        "position_type": "FIN", "cfi_code": "FXXXSX", "unit_of_measure": "Tn",
-        "currency": "Dólar MtR", "avg_px": 188.0, "daily_settlement": 1000.0,
-        "settlement_price": 197.0, "settlement_currency": "Dólar MtR",
-        "long_qty": 10.0, "short_qty": 0.0,
+        "position_type": "FIN", "side": "long", "cfi_code": "FXXXSX",
+        "unit_of_measure": "Tn", "currency": "Dólar MtR", "avg_px": 188.0,
+        "daily_settlement": 1000.0, "settlement_price": 197.0,
+        "settlement_currency": "Dólar MtR", "long_qty": 10.0, "short_qty": 0.0,
     }
     return {**base, **kw}
 

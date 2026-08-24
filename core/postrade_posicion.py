@@ -37,6 +37,36 @@ logger = logging.getLogger(__name__)
 METODO = "PositionReport"
 SECURITY_TYPE_FUTURO = "Futuro"
 
+LARGO, CORTO, PLANO = "long", "short", "flat"
+
+
+def lado(long_qty: float, short_qty: float) -> str:
+    """El LADO de la posición. Es parte de su identidad, no un atributo.
+
+    ⚠️ MEDIDO contra producción (2026-08-24): la cámara devuelve la pata larga
+    y la corta del mismo instrumento, en la misma cuenta, como **registros
+    separados y con su propio precio promedio** (SOJ.ROS/NOV26 en la cuenta
+    331000: una pata a 346,7 y la otra a 355,4).
+
+    Sin este campo en la clave, las dos patas colapsan en una y el UPSERT se
+    queda con la última — se pierde una posición entera y su precio, **sin que
+    nada falle**. Y netearlas tampoco sirve: en agro tener vendida la cosecha
+    nueva y comprada otra posición son dos decisiones distintas, y el promedio
+    de cada una es justamente lo que se mira.
+
+    `flat` (las dos en cero) existe para no inventar un lado que la cámara no
+    afirmó: una posición cerrada que igual se informa es un dato válido.
+    """
+    if long_qty and not short_qty:
+        return LARGO
+    if short_qty and not long_qty:
+        return CORTO
+    if long_qty and short_qty:
+        # No se vio en producción. Si aparece, es una fila con las dos patas
+        # adentro y hay que mirarla — no adivinar un lado que no existe.
+        return f"{LARGO}+{CORTO}"
+    return PLANO
+
 
 def _num(v: Any) -> float:
     """El número, o 0 si la API omitió el campo (que es como manda los ceros)."""
@@ -98,11 +128,13 @@ def aplanar(crudo: Any) -> tuple[list[dict], dict[str, int]]:
         for q in cantidades:
             if not isinstance(q, dict):
                 continue
+            largo, corto = _num(q.get("LongQty")), _num(q.get("ShortQty"))
             filas.append({
                 "business_date": business_date,
                 "account": str(p.get("Account") or "").strip(),
                 "symbol": str(inst.get("Symbol") or "").strip(),
                 "position_type": str(q.get("PosType") or "").strip(),
+                "side": lado(largo, corto),
                 "cfi_code": inst.get("CFICode"),
                 "unit_of_measure": inst.get("UnitOfMeasure"),
                 "currency": p.get("Currency"),
@@ -110,8 +142,8 @@ def aplanar(crudo: Any) -> tuple[list[dict], dict[str, int]]:
                 "daily_settlement": _opcional(p.get("DailySettlement")),
                 "settlement_price": _opcional(p.get("SettlPrice")),
                 "settlement_currency": p.get("SettlCurrency"),
-                "long_qty": _num(q.get("LongQty")),
-                "short_qty": _num(q.get("ShortQty")),
+                "long_qty": largo,
+                "short_qty": corto,
             })
 
     return filas, stats

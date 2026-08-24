@@ -49,18 +49,21 @@ def _guardar_posiciones(filas: list[dict]) -> int:
         return 0
     sql = """
         INSERT INTO ap5.portfolio (
-            business_date, account, symbol, position_type, cfi_code,
-            unit_of_measure, daily_settlement, settlement_price,
-            settlement_currency, long_qty, short_qty, actualizado_at
+            business_date, account, symbol, position_type, side, cfi_code,
+            unit_of_measure, currency, avg_px, daily_settlement,
+            settlement_price, settlement_currency, long_qty, short_qty,
+            actualizado_at
         ) VALUES (
             %(business_date)s, %(account)s, %(symbol)s, %(position_type)s,
-            %(cfi_code)s, %(unit_of_measure)s, %(daily_settlement)s,
-            %(settlement_price)s, %(settlement_currency)s,
-            %(long_qty)s, %(short_qty)s, now()
+            %(side)s, %(cfi_code)s, %(unit_of_measure)s, %(currency)s,
+            %(avg_px)s, %(daily_settlement)s, %(settlement_price)s,
+            %(settlement_currency)s, %(long_qty)s, %(short_qty)s, now()
         )
-        ON CONFLICT (business_date, account, symbol, position_type) DO UPDATE SET
+        ON CONFLICT (business_date, account, symbol, position_type, side) DO UPDATE SET
             cfi_code            = EXCLUDED.cfi_code,
             unit_of_measure     = EXCLUDED.unit_of_measure,
+            currency            = EXCLUDED.currency,
+            avg_px              = EXCLUDED.avg_px,
             daily_settlement    = EXCLUDED.daily_settlement,
             settlement_price    = EXCLUDED.settlement_price,
             settlement_currency = EXCLUDED.settlement_currency,
@@ -107,7 +110,7 @@ def deduplicar(filas: list[dict]) -> tuple[list[dict], list[str]]:
     """
     porclave: dict[tuple, list[dict]] = {}
     for f in filas:
-        k = (f["business_date"], f["account"], f["symbol"], f["position_type"])
+        k = (f["business_date"], f["account"], f["symbol"], f["position_type"], f["side"])
         porclave.setdefault(k, []).append(f)
 
     salida: list[dict] = []
@@ -125,7 +128,9 @@ def deduplicar(filas: list[dict]) -> tuple[list[dict], list[str]]:
                 f"{c}=" + "/".join(sorted({str(g.get(c)) for g in grupo})[:3])
                 for c in distintos[:4]
             )
-            divergencias.append(f"{k[1]}|{k[2]}|{k[3]} ×{len(grupo)} difieren en {detalle}")
+            divergencias.append(
+                f"{k[1]}|{k[2]}|{k[3]}|{k[4]} ×{len(grupo)} difieren en {detalle}"
+            )
     return salida, divergencias
 
 

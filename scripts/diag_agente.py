@@ -71,13 +71,25 @@ def main() -> int:
         if err:
             print(f"       ⚠ {err[:150]}")
 
+    # ⚠️ **«NUNCA CORRIÓ» NO ES «NO PUDO MIRAR».** Son tres estados y la
+    # confusión entre ellos es exactamente lo que el rediseño existe para
+    # evitar. Una habilidad de ventana `rueda` a las 20:15 no falló: no le tocó.
     ciegas = _filas("SELECT nombre, ultimo_resultado, ultimo_error "
                     "  FROM agente.habilidades "
-                    " WHERE ultimo_resultado IS DISTINCT FROM 'ok'")
+                    " WHERE ultimo_resultado IN ('error', 'sin_datos')")
+    nunca = _filas("SELECT nombre, ventana FROM agente.habilidades "
+                   " WHERE ultima_corrida_at IS NULL")
     if ciegas:
-        print(f"\n  ⚠ {len(ciegas)} habilidad(es) NO pudieron mirar. **No "
+        print(f"\n  ⚠ {len(ciegas)} habilidad(es) NO PUDIERON MIRAR. **No "
               f"cerraron nada**, que es lo correcto: una corrida ciega que "
               f"cierra problemas deja el tablero en verde el día que menos ve.")
+        for n, res, err in ciegas:
+            print(f"      {n} [{res}]: {(err or '')[:120]}")
+    if nunca:
+        print(f"\n  · {len(nunca)} todavía NO CORRIERON — no es lo mismo que "
+              f"haber fallado:")
+        for n, v in nunca:
+            print(f"      {n} (ventana «{v}»: espera su horario)")
 
     # ── 3. ¿QUÉ ENCONTRÓ? ──────────────────────────────────────────────────
     _titulo("LOS HALLAZGOS ABIERTOS")

@@ -31,10 +31,9 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("agente")
 
-# En rueda mira seguido (los precios cambian); fuera de rueda afloja, porque lo
-# único que sigue teniendo sentido de noche son los jobs y las tablas. Bajar el
-# ritmo no es ahorro: es no llenar el log de nada 2.880 veces por noche.
-CICLO_RUEDA_S, CICLO_QUIETO_S = 30, 300
+# El ritmo vive en `agente/motor.py` porque lo necesita el LATIDO para decir
+# cuándo vuelve, y `agente/` no puede importar a `jobs/`.
+from agente.motor import CICLO_QUIETO_S, CICLO_RUEDA_S  # noqa: E402
 
 _seguir = True
 
@@ -100,7 +99,7 @@ def main() -> int:
                     help="qué sabe hacer el agente y cuándo miró cada cosa")
     a = ap.parse_args()
 
-    from agente import catalogo, motor, reloj
+    from agente import catalogo, fuentes, motor, reloj
 
     # El catálogo se sincroniza SIEMPRE al arrancar: el código manda sobre qué
     # sabe hacer el agente, la base manda sobre `activa` y los umbrales.
@@ -110,7 +109,6 @@ def main() -> int:
         return 0
 
     if a.skill:
-        from agente import fuentes
         fuentes.refrescar()
         out = motor.correr_una(a.skill)
         print(out)
@@ -126,9 +124,8 @@ def main() -> int:
     # `corridas: []` — que se lee como «el agente no anda» cuando es lo
     # contrario: anda tan bien que no dejó nada.
     if a.forzar:
-        from agente import catalogo as cat
         fuentes.refrescar()
-        for nombre in cat.HABILIDADES:
+        for nombre in catalogo.HABILIDADES:
             r = motor.correr_una(nombre)
             estado = r.get("resultado") or ("error" if not r.get("ok") else "?")
             print(f"  {estado:9} {nombre:22} "

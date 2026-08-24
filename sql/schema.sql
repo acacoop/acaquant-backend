@@ -5552,3 +5552,8 @@ CREATE TABLE IF NOT EXISTS agente.avisos_dirigidos (
 );
 CREATE INDEX IF NOT EXISTS avisos_dirigidos_bandeja
     ON agente.avisos_dirigidos (lower(para), at DESC);
+
+-- El latido dice CUÁNDO VUELVE. Sin esto, quien lo lee tiene que adivinar cada
+-- cuánto late, y un umbral fijo daba «detenido» todas las noches: fuera de
+-- rueda el ciclo es de 300 s y el umbral estaba en 180.
+ALTER TABLE agente.latido ADD COLUMN IF NOT EXISTS proximo_en_s integer;

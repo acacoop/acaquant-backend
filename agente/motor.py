@@ -50,6 +50,14 @@ logger = logging.getLogger(__name__)
 # pasada VUELVA, no que termine todo.
 PRESUPUESTO_S = 240
 
+# El ritmo del daemon. Vive ACÁ y no en `jobs/agente.py` porque lo necesita el
+# LATIDO para decir cuándo vuelve — y `agente/` no puede importar a `jobs/`.
+#
+# En rueda mira seguido (los precios cambian); fuera de rueda afloja, porque de
+# noche lo único que sigue teniendo sentido son los jobs y las tablas. Bajar el
+# ritmo no es ahorro: es no llenar el log de nada 2.880 veces por noche.
+CICLO_RUEDA_S, CICLO_QUIETO_S = 30, 300
+
 
 def _le_toca(fila: dict, ahora) -> bool:
     """¿Venció su ritmo y estamos en su ventana?"""
@@ -148,12 +156,20 @@ def latir(resultado: dict) -> None:
     frase sobre el pasado.
     """
     import json
+
+    # ⚠️ **EL LATIDO DICE CUÁNDO VUELVE.** Sin eso, quien lo lee tiene que
+    # ADIVINAR cada cuánto late — y el umbral fijo de 180 s daba «detenido»
+    # todas las noches, porque fuera de rueda el ciclo es de 300 s. Un círculo
+    # que está en rojo cuando todo está bien enseña a ignorar el círculo.
+    proximo = CICLO_RUEDA_S if reloj.en_rueda() else CICLO_QUIETO_S
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO agente.latido (id, at, detalle) VALUES (1, now(), %s) "
-                "ON CONFLICT (id) DO UPDATE SET at = now(), detalle = EXCLUDED.detalle",
-                (json.dumps(resultado, default=str),))
+                "INSERT INTO agente.latido (id, at, detalle, proximo_en_s) "
+                "VALUES (1, now(), %s, %s) "
+                "ON CONFLICT (id) DO UPDATE SET at = now(), "
+                "  detalle = EXCLUDED.detalle, proximo_en_s = EXCLUDED.proximo_en_s",
+                (json.dumps(resultado, default=str), proximo))
     except Exception as e:
         logger.warning("agente: no pude latir (%s)", e)
 
@@ -164,13 +180,16 @@ def vivo() -> dict:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT at, detalle, "
-                        "  EXTRACT(epoch FROM now() - at)::int "
+                        "  EXTRACT(epoch FROM now() - at)::int, "
+                        "  coalesce(proximo_en_s, 300) "
                         "FROM agente.latido WHERE id = 1")
             f = cur.fetchone()
     except Exception as e:
         return {"vivo": False, "error": str(e)[:200]}
     if not f:
-        return {"vivo": False, "hace_s": None}
-    hace = int(f[2] or 0)
-    return {"vivo": hace < 180, "at": f[0].isoformat(), "hace_s": hace,
-            "detalle": dict(f[1] or {})}
+        return {"vivo": False, "hace_s": None, "cada_s": None}
+    hace, cada = int(f[2] or 0), int(f[3] or 300)
+    # Tres ciclos de gracia: uno perdido es una pasada larga, tres es que se
+    # murió. El umbral SALE del ritmo declarado, no de un número puesto a mano.
+    return {"vivo": hace < cada * 3, "at": f[0].isoformat(), "hace_s": hace,
+            "cada_s": cada, "detalle": dict(f[1] or {})}

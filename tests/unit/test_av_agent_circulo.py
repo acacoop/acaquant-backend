@@ -118,16 +118,23 @@ def test_el_destino_de_apuntar_pata_nombra_la_tabla_real():
 
 # ── el seguimiento, que es lo que vale ───────────────────────────────────────
 
-def test_el_voto_del_SEGUIMIENTO_pesa_mas_que_el_derivado():
-    """Un ✔ humano y una aprobación son opiniones. Que el problema **no haya
-    vuelto en cinco días** no es la opinión de nadie, y el agente no lo puede
-    maquillar: es lo más parecido a una recompensa verificable que hay acá."""
+def test_una_APROBACION_no_es_un_voto():
+    """⚠️ **El invariante nuevo** (2026-08-24). `_votar_derivado` escribía en el
+    eval set un ✔ con `acierta=True` FIJO cada vez que alguien aprobaba una
+    acción. Medido en prod: **106 votos, 106 ✔ — 100% por construcción**, más de
+    la mitad de la tabla. Un número que no puede bajar no mide nada.
+
+    Aprobar es decir «dale», no «tu diagnóstico era correcto», y el «dale» ya
+    queda anotado en el libro de acciones. Lo que SÍ vale es el seguimiento: que
+    el problema no haya vuelto no es la opinión de nadie y el agente no lo puede
+    maquillar."""
+    from api.services import av_agent_acciones as acc
     from api.services import av_agent_seguimiento as seg
-    src = inspect.getsource(seg._votar)
-    assert "verificado" in src
-    src_der = inspect.getsource(
-        __import__("api.services.av_agent_acciones", fromlist=["x"])._votar_derivado)
-    assert "derivado" in src_der
+    assert "verificado" in inspect.getsource(seg._votar)
+    assert not hasattr(acc, "_votar_derivado")
+    # Y la aprobación sigue poniendo el arreglo EN SEGUIMIENTO, que es el que
+    # va a decir, dentro de unos días, si funcionó.
+    assert "seg.anotar(" in inspect.getsource(acc.registrar)
 
 
 def test_todavia_no_volvio_NO_es_aguanto():

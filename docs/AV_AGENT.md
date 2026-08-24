@@ -7081,6 +7081,26 @@ tabla — falta `diagnosticado_at` y que el cierre diga su motivo.
 > misma que ya regía en `_cerrar_ausentes` («sin saber qué se miró no se cierra
 > NADA»), aplicada al juez en vez de al detector.
 
+**Y la MISMA falla estaba por el otro lado: `_votar_derivado`.** El dry-run del
+reset mostró la tabla entera:
+
+    derivado     106 votos   106 ✔      ← acierta=True FIJO
+    humano        52 votos    40 ✔      ← los clicks reales
+    utilidad      43 votos    43 ✔      ← «¿te sirve verlo?», fuera de la compuerta
+    verificado    12 votos     0 ✔      ← los fabricados de arriba
+    TOTAL        213
+
+**106 de 106.** No es que el agente acertara 106 veces: `_votar_derivado`
+escribía `acierta=True` hardcodeado en cada acción aprobada, así que ese número
+no podía bajar. Más de la mitad de la tabla. El argumento original era que
+aprobar una propuesta ES decir que la causa estaba bien; no lo es — aprobar es
+decir «dale», y eso ya queda anotado en `av_agent_acciones`, que es su lugar.
+**La función se borró.** Lo que se queda es `seg.anotar`, que dentro de unos
+días dice si *funcionó*, que es otra cosa y es la que vale.
+
+Orden importante: se saca ANTES de borrar la tabla. Si no, la primera acción
+aprobada después del reset vuelve a sembrar el ✔ automático.
+
 ### 0.df LA TARJETA DEJA DE ADIVINAR Y DE HABLAR EN JERGA (2026-08-24)
 
 El user, mirando la fila de CP360 · SIN TEA CON PRECIO: *«es demasiado texto a

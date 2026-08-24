@@ -130,13 +130,24 @@ def registrar(*, accion: str, objetivo: str, detalle: dict | None = None,
     # motivo que el libro entero: la escritura real ya pasó y no se deshace por
     # un problema de medición.
     if ok and por and regla and fila:
-        _votar_derivado(accion=accion, objetivo=objetivo, regla=regla,
-                        por=por, accion_id=fila[0])
-        # Y SE PONE EN SEGUIMIENTO. El voto de arriba dice «un humano aprobó
-        # esto»; el seguimiento va a decir, dentro de unos días, si **funcionó**
-        # — que es otra cosa y es la que vale. Verificar releyendo la base en el
-        # mismo segundo solo prueba que la escritura entró: un símbolo mal puesto
-        # se escribe igual de bien que uno bien puesto.
+        # ⚠️⚠️ **ACÁ VIVÍA `_votar_derivado`, Y SE BORRÓ** (2026-08-24).
+        #
+        # Escribía en el eval set un ✔ con `acierta=True` **FIJO**: nunca podía
+        # decir otra cosa. Medido en prod el 2026-08-24: **106 votos, 106 ✔ —
+        # 100% por construcción**, más de la mitad de la tabla entera (213).
+        # Un número que no puede bajar no mide nada, y encima inflaba el
+        # porcentaje que se muestra por causa.
+        #
+        # El argumento original era que aprobar una propuesta ES decir que la
+        # causa estaba bien. No lo es: aprobar es decir «dale». Eso YA queda
+        # anotado acá, en el libro de acciones, que es su lugar. Duplicarlo como
+        # juicio del diagnóstico era fabricar señal — la misma falla que
+        # `cerrar_hitos` (§0.de), por el otro lado.
+        #
+        # SE QUEDA EL SEGUIMIENTO, que es el honesto: dentro de unos días dice
+        # si **funcionó**, que es otra cosa y es la que vale. Verificar
+        # releyendo la base en el mismo segundo solo prueba que la escritura
+        # entró: un símbolo mal puesto se escribe igual de bien que uno bien.
         try:
             from api.services import av_agent_seguimiento as seg
             seg.anotar(clave=f"{accion}:{objetivo}:{regla}", sujeto=objetivo,
@@ -146,27 +157,6 @@ def registrar(*, accion: str, objetivo: str, detalle: dict | None = None,
         except Exception as e:
             logger.warning("av_agent: no pude poner %s en seguimiento: %s",
                            objetivo, e)
-
-
-def _votar_derivado(*, accion: str, objetivo: str, regla: str, por: str,
-                    accion_id: int) -> None:
-    """Una acción APROBADA por un humano y que salió bien **es un juicio**: quien
-    la aprobó estaba diciendo que la causa del agente era la correcta.
-
-    Se anota como `derivado`, nunca como `humano`, y no cuenta para
-    `candidata_a_auto`: es una señal real pero más débil que un click, y
-    mezclarlas dejaría al agente habilitándose solo.
-    """
-    try:
-        from api.services import av_agent_evals
-        av_agent_evals.votar(
-            caso=objetivo, dominio=_DOMINIO_DE_ACCION.get(accion, "bono"),
-            causa=regla, acierta=True, por=por, origen="derivado",
-            ref=f"accion:{accion_id}",
-            nota=f"derivado: {por} aprobó «{accion}» y salió bien")
-    except Exception as e:
-        logger.warning("av_agent: no se pudo derivar el voto de la acción %s: %s",
-                       accion_id, e)
 
 
 def listar(limite: int = 100) -> list[dict]:

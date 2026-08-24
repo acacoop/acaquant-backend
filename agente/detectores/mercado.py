@@ -466,10 +466,6 @@ def tasas_al_cierre(u: dict) -> list[Hallazgo]:
         raise SinDatos(f"1816 no contestó el barrido del cierre: {r.get('error')}")
 
     tapadas = tasa_1816.tasas()
-    snap = fuentes.snapshot()
-    if snap is None:
-        raise SinDatos("no pude leer el snapshot")
-
     out = []
     for tk in tasa_1816.pendientes():
         ta = tapadas.get(tk) or {}
@@ -485,5 +481,6 @@ def tasas_al_cierre(u: dict) -> list[Hallazgo]:
                        "— 1816 ya se descartó como salida."),
             evidencia={"pedido_a_1816": True,
                        "tickers_en_la_lista": r.get("tickers"),
+                       "tapados_por_1816": r.get("escritos"),
                        "fecha_1816": r.get("fecha_1816")}))
     return out

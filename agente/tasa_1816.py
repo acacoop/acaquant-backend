@@ -26,8 +26,15 @@ from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
-# Lo que se le pide a 1816. Son los tres números que la mesa mira de un bono.
-CAMPOS = ("tir", "duration", "precio")
+# ⚠️ **LOS NOMBRES SALEN DE `jobs/tamar_1816`, QUE YA FUNCIONA — no se adivinan.**
+#
+# La API **rechaza la llamada ENTERA con HTTP 400 si UN campo no existe**, así
+# que un nombre inventado no degrada: apaga la habilidad completa. La primera
+# versión pidió `tir` y `precio` y se llevó puesto todo el barrido del cierre.
+#
+# Y cuesta `tickers × campos` créditos, así que se piden los cuatro que la vista
+# usa de verdad y ninguno más: `spread` es de TAMAR y acá no se mira.
+CAMPOS = ("tea", "tna", "duration", "precioClean")
 
 
 def pendientes() -> list[str]:
@@ -68,13 +75,20 @@ def refrescar() -> dict:
         logger.warning("tasa_1816: 1816 no contestó (%s)", e)
         return {"ok": False, "error": str(e)[:300]}
 
+    # La respuesta viene como `{instrumentos: {TICKER: {...}}, fechaOperacion}`.
+    # Es el mismo shape que parsea `jobs/tamar_1816`: se lee de ahí y no se
+    # inventa una forma paralela.
     fecha = d.get("fechaOperacion")
-    filas = d.get("data") or d.get("indicadores") or []
-    escritos = 0
+    inst = d.get("instrumentos") or {}
+    escritos, sin_dato = 0, []
     with get_pool().connection() as conn, conn.cursor() as cur:
-        for f in filas:
-            tk = str(f.get("ticker") or f.get("simbolo") or "").strip().upper()
-            if not tk:
+        for tk in tickers:
+            v = inst.get(tk) or {}
+            if v.get("tea") is None:
+                # **No se escribe una fila de nulls.** Dejar la anterior es más
+                # honesto que pisarla con vacío, y `pedido_at` delata si quedó
+                # vieja. Lo que 1816 no trajo se CUENTA, no se silencia.
+                sin_dato.append(tk)
                 continue
             cur.execute(
                 "INSERT INTO agente.tasa_1816 "
@@ -84,11 +98,11 @@ def refrescar() -> dict:
                 "  tea = EXCLUDED.tea, duration = EXCLUDED.duration, "
                 "  precio = EXCLUDED.precio, fecha_1816 = EXCLUDED.fecha_1816, "
                 "  pedido_at = now()",
-                (tk, _num(f.get("tir")), _num(f.get("duration")),
-                 _num(f.get("precio")), fecha))
+                (tk, _num(v.get("tea")), _num(v.get("duration")),
+                 _num(v.get("precioClean")), fecha))
             escritos += 1
     return {"ok": True, "tickers": len(tickers), "escritos": escritos,
-            "fecha_1816": fecha}
+            "sin_dato": sin_dato, "fecha_1816": fecha}
 
 
 def purgar() -> int:

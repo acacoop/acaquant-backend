@@ -471,3 +471,41 @@ def test_el_vocabulario_de_python_y_el_CHECK_de_la_base_dicen_lo_mismo():
     assert del_check("hallazgos_severidad_ok") == set(tipos.SEVERIDADES)
     assert del_check("hallazgos_estado_ok") == set(tipos.ESTADOS)
     assert del_check("hallazgos_cierre_ok") == set(tipos.CIERRES)
+
+
+def test_los_campos_de_1816_no_se_inventan():
+    """**La API rechaza la llamada ENTERA con HTTP 400 si UN campo no existe.**
+
+    O sea que un nombre inventado no degrada: apaga la habilidad completa. La
+    primera versión pidió `tir` y `precio` —que no existen— y se llevó puesto el
+    barrido del cierre entero.
+
+    Los nombres buenos ya estaban medidos en `jobs/tamar_1816`, que corre todos
+    los días. Este test ata las dos listas: si alguien agrega un campo acá, tiene
+    que ser uno que el otro job ya probó contra la API.
+    """
+    import re
+
+    src = (RAIZ / "jobs" / "tamar_1816.py").read_text()
+    m = re.search(r"_CAMPOS = \[([^\]]*)\]", src)
+    assert m, "no encontré los campos verificados de tamar_1816"
+    probados = {x.strip().strip("\"'") for x in m.group(1).split(",")}
+
+    a = (RAIZ / "agente" / "tasa_1816.py").read_text()
+    m2 = re.search(r"CAMPOS = \(([^)]*)\)", a)
+    usados = {x.strip().strip("\"'") for x in m2.group(1).split(",") if x.strip()}
+    invalidos = usados - probados
+    assert not invalidos, (
+        f"{invalidos} no están en los campos que `jobs/tamar_1816` ya probó "
+        f"contra la API — un campo inventado es un HTTP 400 y la habilidad "
+        f"entera apagada")
+
+
+def test_se_lee_la_respuesta_de_1816_como_la_lee_el_job_que_anda():
+    """`{instrumentos: {TICKER: {...}}, fechaOperacion}`. La primera versión
+    buscaba `data` / `indicadores`, que no existen: habría escrito cero filas en
+    silencio aunque la llamada saliera bien."""
+    a = (RAIZ / "agente" / "tasa_1816.py").read_text()
+    cuerpo = a[a.index("def refrescar"):a.index("def purgar")]
+    assert '"instrumentos"' in cuerpo and '"fechaOperacion"' in cuerpo
+    assert '"data"' not in cuerpo

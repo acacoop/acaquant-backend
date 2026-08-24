@@ -7,7 +7,7 @@ mensajes vía la app a todos los users que tengan saldos positivos o negativos p
 moneda en saldos de cuentas comitentes… que sepa los saldos de las comitentes y a
 qué operador pertenece, que sepa qué es un operador y quiénes son»*.
 
-Es el PRIMER consumidor de `av_agent_mensajes`, y por eso importa: prueba que la
+Es el PRIMER consumidor de `agente.mensajes`, y por eso importa: prueba que la
 capacidad sirve para algo que no se escribió pensando en ella. Cero IA — todo
 sale de la base, que es de lo que el user avisó: *«tampoco termina de ser IA
 esto»*.
@@ -209,7 +209,7 @@ def main() -> int:
             return 1
 
     with JobRunLogger("saldos_a_operadores") as jr:
-        from api.services import av_agent_mensajes as msg
+        from agente import mensajes as msg
 
         filas, huerfanas, ocultas = _saldos_de_hoy()
         if not filas:

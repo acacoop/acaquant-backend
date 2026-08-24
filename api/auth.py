@@ -87,7 +87,12 @@ GUEST_PATH_PREFIXES: tuple[str, ...] = (
     "/api/market", "/api/news", "/api/scanner",
     "/api/research1816", "/api/research-bcra", "/api/research-fred",
     "/api/research-docs",
+    # ⚠️ `/api/ia` está acá SOLO por el briefing, que es dato de mercado.
     "/api/ia",
+    # ⚠️⚠️ **`/api/agente` NO va acá y no puede ir NUNCA** (REGLA #8). El agente
+    # habla del estado interno del sistema —jobs, motores, permisos, la base—,
+    # que es exactamente lo que el portal invitado no puede ver. Está congelado
+    # por `test_rbac`.
 )
 
 
@@ -331,6 +336,9 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     # queda cableado ANTES de que exista el primer endpoint: cualquier router
     # futuro bajo /api/ia nace default-deny (solo roles con el módulo tildado).
     ("/api/ia",          "ia"),
+    # EL AV AGENT: mismo módulo, y ADEMÁS `require_admin` en cada ruta del
+    # router. El módulo `ia` lo tiene la mesa; el estado interno del sistema no.
+    ("/api/agente",      "ia"),
     # /api/aca → módulo `aca` (RESUMEN EJECUTIVO de la cartera propia — docs/ACA.md).
     # La ESCRITURA suma la allowlist de Mesa de Dinero encima de este gate.
     ("/api/aca",         "aca"),

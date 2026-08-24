@@ -1,4 +1,4 @@
-﻿# Crontab de producción — TradingAV
+# Crontab de producción — TradingAV
 # Fuente de verdad. Aplicar con:   crontab /root/TradingAV/deploy/crontab.txt
 #
 # Todos los jobs Python se invocan vía deploy/run_job.sh <nombre> <timeout> '<cmd>'
@@ -314,7 +314,6 @@
 # Fuera de rueda a propósito. Escribe con alcance `superficie`, no `sistema`:
 # los dos son de REEMPLAZO y compartirlo haría que el job de 10 min de abajo
 # borrara estos hallazgos apenas corriera.
-30 23 * * * /root/TradingAV/deploy/run_job.sh db_tamano 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.db_tamano'
 
 # ─── LO QUE EL AGENTE SABE DEL SISTEMA (jobs/av_agent_sistema.py) — cada 10 min.
 # ⚠️ Los cuatro detectores baratos —tabla quieta, la base cambió, dato partido,
@@ -325,7 +324,6 @@
 # query con todos los `max()`), así que el costo real es de milisegundos.
 # TODOS los días y a toda hora: nada de esto depende del mercado — una tabla
 # nocturna que no escribió es un problema a las 3 AM igual que a las 3 PM.
-*/10 * * * * /root/TradingAV/deploy/run_job.sh av_agent_sistema 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.av_agent_sistema'
 
 # ─── Research diario por mail (QuantAI P6) — ingesta IMAP + destilado LLM → ia.research
 # Cada 30 min a la mañana L-V (el mail llega temprano ART): dedup por Message-ID
@@ -481,7 +479,6 @@
 # por segundo, que hace que cada corrida tarde ~1 minuto — irrelevante para un
 # cron. `av_agent_live` (cada 5', cero créditos) sigue aparte: mira otras cosas.
 # 13/15/17/19 UTC = 10/12/14/16 ART.
-0 13,15,17,19 * * 1-5 /root/TradingAV/deploy/run_job.sh av_agent 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.av_agent'
 
 # ── SALDOS A LOS OPERADORES (2026-08-19) ────────────────────────────────────
 # 19:45 UTC = 16:45 ART, días hábiles. Pedido del user: cada operador recibe, en
@@ -494,9 +491,24 @@
 # 23:50 UTC = 20:50 ART. Corre DESPUÉS de todos los detectores del día: mira qué
 # arreglos aguantaron y cuáles volvieron, y lo convierte en votos `verificado`
 # del eval set. Es la única evidencia que no es la opinión de nadie.
-50 23 * * * /root/TradingAV/deploy/run_job.sh seguimiento 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.seguimiento'
 # AP5 — posicion de FUTUROS de la camara (A3/ACyRSA). 9:00 ART = 12:00 UTC.
 # Todos los dias: siempre consulta el ULTIMO DIA HABIL (hoy menos 1 habil), que
 # el job resuelve solo salteando findes y feriados. Corre tambien sabado y
 # domingo a proposito: si el viernes fallo, el sabado lo recupera solo.
 0 12 * * * /root/TradingAV/deploy/run_job.sh ap5_portfolio 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ap5_portfolio'
+
+# ─── EL AV AGENT (docs/AGENT_2.0.md)
+# El agente NO es un cron: es el daemon `agente.service`. Su agenda vive en
+# `agente.habilidades` — cada habilidad declara su ritmo y su ventana, así que
+# sumar una habilidad NO toca este archivo. Acá vivían los tres crons del agente
+# viejo (`av_agent`, `av_agent_sistema`, `db_tamano`) y se fueron los tres: eran
+# cuatro relojes haciendo lo mismo con distinta frecuencia, y si se caía uno la
+# pantalla se veía viva con un cuarto del agente muerto.
+#
+# `seguimiento` también se fue: medía los hitos de los arreglos para el eval
+# set, que se dio de baja entero (AGENT_2.0.md §9.1).
+#
+# Lo único que sigue siendo cron es la LISTA DE PRIORIDAD contra 1816: cuesta
+# créditos, corre en rueda, y su ritmo lo pidió el user explícito (cada 15').
+*/15 13-20 * * 1-5 /root/TradingAV/deploy/run_job.sh agente_tasa 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.agente_tasa'
+

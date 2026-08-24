@@ -366,7 +366,7 @@ def _chk_patas_dolar_sin_pedir() -> list[dict]:
 
     Solo mira las patas **ya sembradas**: las que están únicamente en el catálogo
     de Primary hay que sembrarlas primero, y eso lo hace la puerta del agente
-    (`av_agent_pata`) con el bono a la vista, no un cron.
+    (`agente.pata`) con el bono a la vista, no un cron.
 
     ⚠️⚠️ **EL SQL SOLO PRESELECCIONA. QUIÉN DECIDE ES `av_agent_pata.explicar`**
     (2026-08-22, §0.cf). Este control decía **133** y el botón arregló **16**: los
@@ -419,7 +419,7 @@ def _chk_patas_dolar_sin_pedir() -> list[dict]:
         candidatos = cur.fetchall()
 
     # ── EL VEREDICTO LO DA LA ACCIÓN, NO ESTE SQL ────────────────────────────
-    from api.services import av_agent_pata
+    from agente import pata as av_agent_pata
 
     vistos: set[str] = set()
     out = []
@@ -486,10 +486,10 @@ def _chk_dia_sin_dato() -> list[dict]:
     tabla, y por eso este control consulta la tabla.
 
     La lista de jobs y el día que le toca a cada uno viven en
-    `av_agent_rehacer.REHACIBLES` — el mismo lugar del que sale el arreglo, así
+    `agente.rehacer.REHACIBLES` — el mismo lugar del que sale el arreglo, así
     el control y la acción no pueden discrepar sobre qué día falta.
     """
-    from api.services import av_agent_rehacer as reh
+    from agente import rehacer as reh
     return reh.faltantes()
 
 
@@ -698,23 +698,15 @@ def _diff_y_persistir(control_id: str, items: list[dict]) -> dict:
 def _espejar_items(control_id: str, por_key: dict, resueltos: list[str]) -> None:
     """Las anomalías de un control, como objetos con ciclo de vida.
 
-    El `titulo` es el detalle que ya arma el control; el `afecta` sale de la
-    ficha declarada (`av_agent_salud.CONTROLES[...]["rompe"]`), que es donde
-    vive el criterio de QUÉ se rompe por esto — no se inventa acá.
+    Los controles NO escriben en el agente. Lo hacía el agente viejo y era una
+    de sus SEIS puertas escribiendo estado.
     """
-    from api.services import av_agent_items
+    # ⚠️ **LOS CONTROLES YA NO ESPEJAN HALLAZGOS** (AGENT 2.0). Antes cada
+    # control escribía en la memoria del agente por su cuenta: era una de las
+    # seis puertas que escribían estado. Ahora el agente los LEE a través de la
+    # habilidad `salud`, que es la única que los convierte en hallazgos.
+    return {"ok": True, "espejado": 0}
 
-    try:
-        from api.services.av_agent_salud import CONTROLES as FICHA
-        afecta = (FICHA.get(control_id) or {}).get("rompe") or ""
-    except Exception:
-        afecta = ""
-
-    vistos = [{"tipo": "control", "ticker": k, "regla": control_id,
-               "motivo": str(d)[:300], "afecta": afecta, "severidad": "media"}
-              for k, d in por_key.items()]
-    av_agent_items.sincronizar(f"control:{control_id}", vistos,
-                               evaluados={"control"})
 
 
 # ── Render resumen (stdout / log del job) ────────────────────────────────────

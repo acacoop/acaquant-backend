@@ -30,8 +30,8 @@ from api.profiling import maybe_add_profiler
 from api.ratelimit import limiter
 from api.routers import (
     aca,
+    agente,
     analitica,
-    avisos,
     back_office,
     carteras,
     cotizaciones,
@@ -282,7 +282,6 @@ app.include_router(me.router)                                      # /api/me —
 # trader no tiene el módulo `ia`, así que bajo /api/ia el aviso quedaba guardado
 # para nadie. Devuelve SOLO los del email que pregunta — no hay parámetro para
 # pedir los de otro. Ver api/routers/avisos.py.
-app.include_router(avisos.router, dependencies=[Depends(verify_api_key)])
 app.include_router(ingest.router)                                  # /api/ingest — auth propia (X-Ingest-Token), no _PUBLIC
 app.include_router(analitica.router,         dependencies=_PUBLIC)
 app.include_router(cotizaciones.router,      dependencies=_PUBLIC)
@@ -302,10 +301,11 @@ app.include_router(research_fred.router,      dependencies=_PUBLIC)  # tab Datos
 app.include_router(research_docs.router,      dependencies=_PUBLIC)  # documentos manuales de REPORTES FINANCIEROS (gate módulo `research` en el router)
 app.include_router(trading.router,            dependencies=_TRADING)  # vista TRADING (admin)
 app.include_router(estrategia.router,          dependencies=_TRADING)  # TRADING → tab ESTRATEGIA (docs/ESTRATEGIA_QUANT.md)
-# ia.router incluye el copiloto y su vista `negocio` (ASISTENTE DE NEGOCIO,
-# QuantAI P7): mismo panel para todo; el gate fino de negocio es el módulo
-# `asistente` en el registro del copiloto (admin-only, jamás invitado).
-app.include_router(ia.router,                 dependencies=_IA)       # IA (QuantAI) — gate módulo `ia`
+app.include_router(ia.router,                 dependencies=_IA)       # IA — observabilidad + briefing (gate módulo `ia`)
+# EL AV AGENT (docs/AGENT_2.0.md). Mismo gate de módulo que /api/ia, y
+# ADEMÁS `require_admin` en cada ruta del router: el agente habla del
+# estado interno del sistema y `ia` lo tiene la mesa entera.
+app.include_router(agente.router,             dependencies=_IA)
 
 # Restringidos a roles con el módulo respectivo:
 app.include_router(carteras.router,          dependencies=_PORTFOLIOS)

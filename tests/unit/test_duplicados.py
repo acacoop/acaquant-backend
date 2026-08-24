@@ -10,7 +10,7 @@ mirando una pantalla.
 """
 from __future__ import annotations
 
-from api.services import av_agent
+from agente.detectores import datos as det
 from core import duplicados as D
 
 
@@ -45,7 +45,7 @@ def test_el_hallazgo_es_ALTA_y_lleva_los_DOS_valores():
     """`alta` sin dudar: si dos copias difieren, algo está leyendo el valor
     incorrecto AHORA — lo único que no sabemos es quién. Y tiene que mostrar los
     dos valores, porque decidir cuál está bien es de una persona."""
-    hs = av_agent.detectar_dato_partido({"partidos": [{
+    hs = det.dato_partido({"partidos": [{
         "id": "x", "que": "el símbolo", "a": "columna", "b": "blob",
         "arbitro": "la columna", "rompe": "la fila sale vacía teniendo precio",
         "n": 2, "ejemplos": [{"sujeto": "AO29", "valor_a": "AO29D",
@@ -61,7 +61,7 @@ def test_lo_que_NO_SE_PUDO_MIRAR_se_canta():
     """**El silencio no es un verde.** Un duplicado sin chequear se leería igual
     que uno sano, que es exactamente la forma de mentir que este módulo
     persigue."""
-    hs = av_agent.detectar_dato_partido({"partidos": [], "sin_mirar": [
+    hs = det.dato_partido({"partidos": [], "sin_mirar": [
         {"id": "y", "que": "el emisor", "error": "UndefinedTable: no existe"}]})
     assert len(hs) == 1
     assert hs[0]["regla"] == "no_pude_chequear"
@@ -69,14 +69,15 @@ def test_lo_que_NO_SE_PUDO_MIRAR_se_canta():
 
 
 def test_sin_divergencias_no_hay_hallazgos():
-    assert av_agent.detectar_dato_partido({"partidos": [], "sin_mirar": []}) == []
+    assert det.dato_partido({"partidos": [], "sin_mirar": []}) == []
 
 
 def test_NO_se_automatiza_y_es_una_decision():
     """Elegir la del árbitro y pisar la otra parece obvio y no lo es: puede que
     la equivocada sea la del árbitro, y pisar borra la evidencia de que hubo una
     divergencia."""
-    assert av_agent.ACCION_POR_TIPO["dato_partido"] is None
+    from agente import catalogo
+    assert not catalogo.HABILIDADES["dato_partido"].arreglos
 
 
 def test_el_caso_AO29_esta_cubierto():

@@ -157,40 +157,24 @@ def test_el_agente_es_admin_only_pero_lo_que_MANDA_llega_a_cualquiera():
     # El agente, admin-only por su prefijo.
     assert get_module_for_path("/api/ia/av-agent/skills") == "ia"
     assert "ia" not in roles.DEFAULT_MATRIX["trader"]
-    # Los avisos, sin módulo: le llegan a cualquiera que esté logueado.
-    assert get_module_for_path("/api/avisos") is None
+    # El AGENTE va bajo el módulo `ia` y ADEMÁS admin-only en cada ruta.
+    assert get_module_for_path("/api/agente") == "ia"
 
 
-def test_los_avisos_filtran_por_el_email_del_que_pregunta():
+def test_la_bandeja_filtra_por_el_email_del_que_pregunta():
     """No es un permiso que alguien pueda olvidarse de chequear: **no hay
-    parámetro** para pedir los de otro, y el cierre lleva el email en el WHERE
+    parámetro** para pedir la de otro, y el cierre lleva el email en el WHERE
     del UPDATE. Un id ajeno responde "no existe" — que además no confirma que
-    ese aviso exista."""
-    from pathlib import Path
+    ese aviso exista.
 
-    from api.routers import avisos
-    from api.services import av_agent_vista
-
-    # El invitado queda afuera por una DEPENDENCY del router, no por un `if`
-    # adentro del handler: así lo ve el test de superficie y lo ve el propio
-    # agente. Un permiso que existe pero no se puede auditar es, para cualquier
-    # herramienta, un permiso que no existe.
-    gates = {getattr(d.dependency, "__name__", "") for d in avisos.router.dependencies}
-    assert "require_no_invitado" in gates, "REGLA #8: el invitado queda afuera"
-
-    # Ninguna ruta acepta una identidad por parámetro: la única que hay sale de
-    # `get_user_email`. Se mira la FIRMA y no el texto del archivo — la palabra
-    # "destinatario" aparece explicándolo en la documentación, y un test que
-    # falla por su propio comentario no prueba nada.
+    En 2.0 la bandeja vive en `agente/mensajes`; la afirmación no cambió.
+    """
     import inspect
-    for ruta in avisos.router.routes:
-        params = inspect.signature(ruta.endpoint).parameters
-        assert set(params) <= {"request", "email", "body"}, (
-            f"{ruta.path} acepta {set(params)}: nada que permita pedir los de otro")
-        assert params["email"].default is not inspect.Parameter.empty
 
-    upd = Path(av_agent_vista.__file__).read_text(encoding="utf-8")
-    i = upd.index("def resolver_aviso_propio(")
-    cuerpo = upd[i:i + 1800]
-    assert "lower(para) = %s" in cuerpo, (
-        "el dueño va en el WHERE del UPDATE, no en un `if` previo")
+    from agente import mensajes
+
+    # Se mira la FIRMA y no el texto del archivo: un test que falla por su
+    # propio comentario no prueba nada.
+    assert set(inspect.signature(mensajes.de).parameters) == {"email", "solo_hoy"}
+    assert "lower(para) = %s" in inspect.getsource(mensajes.de)
+    assert "lower(para) = %s" in inspect.getsource(mensajes.marcar_visto)

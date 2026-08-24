@@ -1,0 +1,23 @@
+# EL AV AGENT (docs/AGENT_2.0.md). Reemplaza a av_agent_centinela.service y a
+# los tres crons del agente viejo: la agenda vive en el catálogo, no en el
+# crontab, así que sumar una habilidad no toca este archivo.
+[Unit]
+Description=AV Agent — el agente de TradingAV
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python -m jobs.agente
+Restart=always
+RestartSec=15
+# El daemon atiende SIGTERM: termina la pasada en curso y sale limpio. Sin esto
+# un `systemctl restart` lo mata a mitad de una escritura.
+KillSignal=SIGTERM
+TimeoutStopSec=60
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

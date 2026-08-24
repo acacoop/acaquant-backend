@@ -92,8 +92,13 @@ def _estado(p: Pieza, ts: datetime | None, run_status: str | None,
     # puede decir DESDE y HASTA qué hora el problema es real, y un motor apagado
     # a las 3 AM se lee igual que uno caído. Pedido del user: *«es fundamental
     # entender desde qué hora hasta qué hora el error es real para cada motor»*.
+    # ⚠️ `unidad` y `tabla` viajan en el dict porque **el AV AGENT los necesita
+    # para poder decir QUÉ relanzar** (`agente/detectores/sistema.motor_caido`).
+    # Sin la unidad, el hallazgo tiene sujeto «?» y su `que_hacer` no puede
+    # nombrar nada — que es la diferencia entre un aviso y una instrucción.
     base = {"label": p.label, "tipo": p.tipo, "cadencia": p.cadencia,
-            "umbral_s": p.umbral_s, "ventana": p.ventana}
+            "umbral_s": p.umbral_s, "ventana": p.ventana,
+            "unidad": p.unidad, "tabla": p.tabla}
     if run_status == "error":
         return {**base, "estado": "error", "ultima": _fmt_ultima(ts),
                 "hace": _hace(ts), "run_status": run_status}

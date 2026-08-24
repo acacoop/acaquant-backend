@@ -1,0 +1,197 @@
+"""`agente/fuentes.py` — de dónde saca los datos el agente.
+
+**Existe porque cada reloj del agente viejo leía lo suyo por su cuenta.** Dos
+detectores que necesitaban el master lo pedían dos veces, en momentos distintos,
+y podían estar mirando fotos distintas del mismo instante — y después la
+pantalla mostraba sus dos veredictos uno al lado del otro como si hablaran de lo
+mismo.
+
+Acá una PASADA del motor lee una vez y todos los detectores de esa pasada ven
+**la misma foto**. La caché muere con la pasada: `motor.tick()` llama a
+`refrescar()` al empezar.
+
+⚠️ **`None` NO es un conjunto vacío.** Cuando una fuente no se pudo leer, estas
+funciones devuelven `None` y el detector que la necesita levanta `SinDatos`.
+Tratar «no pude mirar» como «no hay nada» es exactamente cómo se fabrica un
+falso positivo que nadie puede explicar.
+"""
+from __future__ import annotations
+
+import logging
+
+from core.postgres import get_pool
+
+logger = logging.getLogger(__name__)
+
+_cache: dict = {}
+
+
+def refrescar() -> None:
+    """Arranca una pasada nueva. La foto anterior se descarta entera."""
+    _cache.clear()
+
+
+def _una_vez(clave: str, fn):
+    if clave not in _cache:
+        try:
+            _cache[clave] = fn()
+        except Exception as e:
+            logger.warning("agente/fuentes: no pude leer «%s» (%s)", clave, e)
+            _cache[clave] = None
+    return _cache[clave]
+
+
+# ── EL MASTER DE BONOS ─────────────────────────────────────────────────────
+#
+# ⚠️ Los nombres están CRUZADOS y no es un error de tipeo: en el blob de
+# `mercado.curvas`, `ticker_corto` es la PK (`AL30`) y `ticker` es el SÍMBOLO DE
+# MERCADO (`MERV - XMEV - AL30 - 24hs`). El renombre de columnas de 2026-08-15
+# arregló la BASE y dejó el blob como estaba, porque ~500 lugares lo leen así.
+def master() -> list[dict] | None:
+    def _leer():
+        from core import curvas_sql
+        return curvas_sql.cargar_todos() or []
+    return _una_vez("master", _leer)
+
+
+def simbolos_del_master() -> list[str]:
+    return [(b.get("ticker") or "").strip()
+            for b in (master() or []) if b.get("ticker")]
+
+
+# ── LOS PRECIOS ────────────────────────────────────────────────────────────
+def snapshot(cols=("last_price", "updated_at", "tea", "paridad", "duration")
+             ) -> dict[str, dict] | None:
+    def _leer():
+        from core import market_snapshot
+        return market_snapshot.cols_map(simbolos_del_master(), list(cols)) or {}
+    return _una_vez(f"snap:{','.join(cols)}", _leer)
+
+
+def mep() -> float | None:
+    def _leer():
+        from api.services.macro import get_ultimo_mep
+        return float((get_ultimo_mep() or {}).get("mep") or 0) or None
+    return _una_vez("mep", _leer)
+
+
+# ── LAS PATAS ──────────────────────────────────────────────────────────────
+#
+# `mercado.especies` es la fuente ÚNICA de la relación ticker → sus patas. Se
+# traen `especie` y `plazo` porque sin ellos no se puede decir qué pata le
+# corresponde a una curva en dólares, y el detector caía en `es_default` — que
+# es una COPIA del master, o sea una comparación vacía.
+def especies() -> dict | None:
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT simbolo, ticker, es_default, especie, plazo "
+                        "FROM mercado.especies")
+            filas = cur.fetchall()
+        patas: dict[str, list[dict]] = {}
+        for sim, tk, _d, esp, plazo in filas:
+            if sim and tk:
+                patas.setdefault(tk.strip().upper(), []).append(
+                    {"simbolo": sim, "especie": esp, "plazo": plazo})
+        return {
+            "simbolos": {r[0] for r in filas if r[0]},
+            "default": {(r[1] or "").strip().upper(): r[0]
+                        for r in filas if r[2] and r[0] and r[1]},
+            "patas": patas}
+    return _una_vez("especies", _leer)
+
+
+# ── EL CATÁLOGO REAL DE PRIMARY ────────────────────────────────────────────
+#
+# Es la habilidad `deteccion_primary`: la pregunta «¿esto cotiza?» la hacen
+# cuatro detectores y tres arreglos, y en el agente viejo cada uno la resolvía a
+# su manera. Una sola respuesta para todos.
+def primary() -> set[str] | None:
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT symbol FROM manager.pyrofex_instruments "
+                        "WHERE symbol IS NOT NULL AND symbol <> ''")
+            s = {r[0] for r in cur.fetchall()}
+        # ⚠️ Degradación elegida a propósito: un catálogo con menos de 100
+        # símbolos es un catálogo roto, y creerle haría que todo pareciera
+        # inválido. `None` = «no sé», y el que pregunta tiene que tratarlo así.
+        return s if len(s) >= 100 else None
+    return _una_vez("primary", _leer)
+
+
+def cotiza_en_primary(simbolo: str) -> bool | None:
+    """`None` = no pude saberlo. **No es `False`.**"""
+    p = primary()
+    if p is None:
+        return None
+    return simbolo.strip() in p
+
+
+def tickers_en_primary() -> set[str] | None:
+    """Los tickers cortos que Primary lista, sacados de sus símbolos."""
+    p = primary()
+    if p is None:
+        return None
+    out = set()
+    for s in p:
+        partes = s.split(" - ")
+        base = partes[2] if len(partes) >= 3 else s
+        out.add(base.strip().upper().rstrip("DC") or base.strip().upper())
+        out.add(base.strip().upper())
+    return out
+
+
+# ── LO QUE LA CASA TIENE ───────────────────────────────────────────────────
+def en_cartera() -> set[str] | None:
+    """Tickers con tenencia viva. Convierte «¿te interesa?» en una obviedad: un
+    bono que la casa TIENE y no valúa no es una opinión, es un problema."""
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT upper(btrim(a.ticker)) "
+                "  FROM portafolio.tenencia t "
+                "  JOIN portafolio.assets a ON a.unidad = t.unidad "
+                " WHERE t.aum = 'si' AND a.ticker IS NOT NULL AND a.ticker <> ''")
+            return {r[0] for r in cur.fetchall()}
+    return _una_vez("en_cartera", _leer)
+
+
+def tickers_en_assets() -> set[str] | None:
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT upper(btrim(ticker)) "
+                        "FROM portafolio.assets "
+                        "WHERE ticker IS NOT NULL AND ticker <> ''")
+            return {r[0] for r in cur.fetchall()}
+    return _una_vez("tickers_assets", _leer)
+
+
+# ── EL UNIVERSO DE 1816 ────────────────────────────────────────────────────
+def universo_1816() -> dict | None:
+    """El censo. **Cuesta créditos**, así que solo lo pide la habilidad que lo
+    necesita y una vez por pasada.
+
+    Si la API no contesta se cae al catálogo YA persistido
+    (`research.mkt_1816_instrumentos`, que llena el discovery): degradar es
+    distinto de fallar, y lo que se usó se declara en la evidencia.
+    """
+    def _leer():
+        from core import mercado_1816
+        try:
+            u = (mercado_1816.censar() or {}).get("instrumentos") or {}
+            if u:
+                return {"instrumentos": u, "fuente": "1816"}
+        except Exception as e:
+            logger.warning("agente: 1816 no contestó (%s) — voy al catálogo", e)
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT ticker, curva, data "
+                        "FROM research.mkt_1816_instrumentos")
+            filas = cur.fetchall()
+        if not filas:
+            return None
+        inst = {}
+        for tk, curva, data in filas:
+            d = dict(data or {})
+            d["_curva"] = curva
+            inst[tk] = d
+        return {"instrumentos": inst, "fuente": "catalogo_local"}
+    return _una_vez("univ1816", _leer)

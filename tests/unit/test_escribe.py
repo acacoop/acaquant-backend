@@ -79,7 +79,7 @@ def test_scripts_NO_cuenta_como_escritor():
 def test_el_detector_SALTEA_las_de_evento():
     import inspect
 
-    from api.services import av_agent_contexto as ctx
+    from agente import tablas as ctx
     src = inspect.getsource(ctx.detectar_tablas)
     assert "escribe.EVENTO" in src and "continue" in src
     # Y deja lo que la puerta va a necesitar.

@@ -669,6 +669,105 @@ def _perfil(f: str, contables: list[str]) -> None:
                       f"(son el mismo dato duplicado)")
 
 
+def _claves_margenes(f: str, habil: str) -> None:
+    """TODAS las claves de `MarginRequirementReport`, en sus CUATRO niveles.
+
+    ⚠️ **Por qué este sondeo antes de salir a buscar el activo integrado**:
+    `aplanar_margenes` lee tres importes del último nivel (`Margin`,
+    `OptionAmount`, `InterTempAmount`) y **descarta en silencio todo lo demás**.
+    Si la cámara manda el integrado como un campo hermano del margen, ya lo
+    tenemos y no hace falta ningún método nuevo — pero no se puede saber
+    mirando el aplanado, porque el aplanado es justamente lo que lo tiró.
+
+    Es el mismo modo de falla de siempre: no falla nada. El parser anda, los
+    totales cierran, y el campo que necesitábamos nunca llegó a la base.
+
+    Imprime, por nivel, las claves con un valor de ejemplo, y **marca las que el
+    aplanado NO está leyendo**.
+    """
+    print("\n" + "=" * 74)
+    print("8) CLAVES de MarginRequirementReport — los 4 niveles")
+    print("=" * 74)
+
+    crudo = None
+    for fecha in (f, habil):
+        try:
+            r = postrade.leer("MarginRequirementReport", {"date": fecha})
+        except Exception as e:
+            print(f"  ✗ {fecha}: {type(e).__name__}: {str(e)[:150]}")
+            continue
+        if r:
+            crudo, usada = r, fecha
+            break
+        print(f"  ~ {fecha}: contestó VACÍO")
+    if not crudo:
+        print("  Sin datos ni hoy ni el último hábil — no hay qué inventariar.")
+        return
+    print(f"  fecha con datos: {usada}\n")
+
+    # Lo que el aplanado SÍ lee, por nivel. Escrito acá a mano a propósito: si
+    # alguien agrega un campo al parser y no lo suma acá, la próxima corrida lo
+    # marca como «NO se lee» y se nota. Un inventario que se deriva del parser
+    # no puede delatar al parser.
+    leidas = {
+        1: {"Date", "ClearingMember", "ClearingMemberCode", "ProductGroup", "Accounts"},
+        2: {"CompensationAccount", "CompensationAccountCode", "SubAccounts"},
+        3: {"NettingAccountCode", "NettingAccount", "References"},
+        4: {"Reference", "Currency", "Margin", "OptionAmount", "InterTempAmount"},
+    }
+    nombres = {1: "Value[] — agente", 2: "Accounts[] — cta. compensación",
+               3: "SubAccounts[] — cta. de neteo", 4: "References[] — EL IMPORTE"}
+
+    nivel: dict[int, dict[str, object]] = {1: {}, 2: {}, 3: {}, 4: {}}
+
+    def _sumar(n: int, d) -> None:
+        if isinstance(d, dict):
+            for k, v in d.items():
+                if k not in nivel[n] and not isinstance(v, (list, dict)):
+                    nivel[n][k] = v
+                elif k not in nivel[n]:
+                    nivel[n][k] = f"<{type(v).__name__}>"
+
+    for v1 in crudo if isinstance(crudo, list) else []:
+        if not isinstance(v1, dict):
+            continue
+        _sumar(1, v1)
+        for v2 in v1.get("Accounts") or []:
+            if not isinstance(v2, dict):
+                continue
+            _sumar(2, v2)
+            for v3 in v2.get("SubAccounts") or []:
+                if not isinstance(v3, dict):
+                    continue
+                _sumar(3, v3)
+                for v4 in v3.get("References") or []:
+                    _sumar(4, v4)
+
+    huerfanas: list[str] = []
+    for n in (1, 2, 3, 4):
+        print(f"  ── nivel {n}: {nombres[n]} " + "─" * 30)
+        if not nivel[n]:
+            print("     (ninguna — ese nivel no vino)")
+            continue
+        for k, ej in sorted(nivel[n].items()):
+            if k in leidas[n]:
+                print(f"     {k:<28} = {str(ej)[:40]}")
+            else:
+                huerfanas.append(f"nivel {n}: {k}")
+                print(f"  ⚠️ {k:<28} = {str(ej)[:40]}   ← NO se lee")
+        print()
+
+    if huerfanas:
+        print(f"  ⇒ {len(huerfanas)} campo(s) que la cámara manda y el parser TIRA:")
+        for x in huerfanas:
+            print(f"       {x}")
+        print("     Si alguno es el ACTIVO INTEGRADO, ya lo tenemos: es sumarlo a")
+        print("     `aplanar_margenes` y a la tabla, sin ningún método nuevo.")
+    else:
+        print("  ⇒ El parser lee TODO lo que viene. El activo integrado NO está")
+        print("     en esta respuesta — hay que buscarlo en otro método.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Márgenes y activo integrado (read-only).")
     ap.add_argument("--fecha", help="AAAAMMDD (default: HOY)")
@@ -689,6 +788,10 @@ def main() -> None:
     ap.add_argument("--contables", default="11,14,21,22",
                     help="en qué cuentas contables mirar el --crudo "
                          "(default 11,14,21,22).")
+    ap.add_argument("--claves", action="store_true",
+                    help="inventario de TODAS las claves de "
+                         "MarginRequirementReport en sus 4 niveles, marcando "
+                         "las que el parser NO está leyendo.")
     ap.add_argument("--perfil", action="store_true",
                     help="por cada campo, los valores distintos que toma en "
                          "--contables. Es el mapa de qué significa cada clave.")
@@ -716,7 +819,9 @@ def main() -> None:
 
     # `--crudo` es EXCLUYENTE: cuando se pide el volcado, se pide eso y nada
     # más. Mezclarlo con los otros bloques entierra el JSON en 300 líneas.
-    if args.perfil:
+    if args.claves:
+        _claves_margenes(f, habil)
+    elif args.perfil:
         _perfil(f, contables)
     elif args.adentro:
         _adentro(f, args.adentro, contables[0] if contables else "14")
@@ -738,7 +843,7 @@ def main() -> None:
         if args.barrer or args.solo_barrido:
             _barrer(f, cuentas)
 
-    if args.crudo or args.buscar or args.adentro or args.perfil:
+    if args.crudo or args.buscar or args.adentro or args.perfil or args.claves:
         return
     print("\n" + "=" * 74)
     print("Qué mirar:")

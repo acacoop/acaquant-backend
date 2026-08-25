@@ -83,7 +83,7 @@ def _leer(nombre: str, params: dict, etiqueta: str) -> Any | None:
     return r
 
 
-def _margenes(f: str, habil: str) -> None:
+def _margenes(f: str, habil: str, cuentas: list[str]) -> None:
     print("\n" + "=" * 74)
     print("1) REQUERIMIENTO DE MÁRGENES — PosTrade/MarginRequirementReport")
     print("=" * 74)
@@ -135,6 +135,33 @@ def _margenes(f: str, habil: str) -> None:
             print(f"      {t['moneda']:<12} margen={t['margen']:>18,.2f}  "
                   f"primas={t['primas']:>14,.2f}  inter={t['inter_temporal']:>12,.2f}  "
                   f"({t['cuentas']} cuentas)")
+
+    # ── EL DESGLOSE POR CUENTA DE NETEO ───────────────────────────────────
+    # Es LA razón por la que este método importa: `AccountBalance` da un
+    # agregado (un Balance por cuenta de compensación) y se probó que NO se
+    # puede abrir. Acá el desglose viene de fábrica, en el tercer nivel.
+    if filas:
+        print("\n    ── POR CUENTA DE NETEO (el comitente) " + "─" * 30)
+        por: dict[tuple[str, str], dict] = {}
+        for x in filas:
+            k = (str(x["cuenta"]), str(x["moneda"]))
+            d = por.setdefault(k, {"margen": 0.0, "nombre": x.get("cuenta_nombre") or "",
+                                   "comp": x.get("cuenta_compensacion_codigo") or "",
+                                   "n": 0})
+            d["margen"] += float(x.get("margen") or 0)
+            d["n"] += 1
+        pedidas = set(cuentas)
+        print(f"    {'cuenta':<12} {'comp.':<10} {'moneda':<10} {'margen':>18} "
+              f"{'refs':>5}  titular")
+        for (cta, mon), d in sorted(por.items()):
+            marca = "  ← LA QUE PEDISTE" if cta in pedidas else ""
+            print(f"    {cta:<12} {d['comp']:<10} {mon:<10} {d['margen']:>18,.2f} "
+                  f"{d['n']:>5}  {d['nombre'][:26]}{marca}")
+        print(f"\n    ⇒ {len({c for c, _ in por})} cuentas de neteo distintas")
+        if pedidas:
+            hay = {c for c, _ in por} & pedidas
+            print(f"    ⇒ de las que pediste {sorted(pedidas)}: "
+                  f"{sorted(hay) if hay else 'NINGUNA aparece'}")
 
     det = _leer("MarginRequirementReport", {"date": cual, "viewDetails": "true"},
                 "CON desglose por grupo de producto (viewDetails=true)")
@@ -706,7 +733,7 @@ def main() -> None:
                contables)
     else:
         if not args.solo_barrido:
-            _margenes(f, habil)
+            _margenes(f, habil, cuentas)
             _saldos(f, args.cuenta_contable, cuentas)
         if args.barrer or args.solo_barrido:
             _barrer(f, cuentas)

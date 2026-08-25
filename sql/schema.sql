@@ -5703,6 +5703,13 @@ CREATE TABLE IF NOT EXISTS agente.latido (
     detalle jsonb NOT NULL DEFAULT '{}'::jsonb,
     CONSTRAINT latido_una_fila CHECK (id = 1)
 );
+-- Dice CUÁNDO VUELVE. Sin esto, quien lo lee tiene que adivinar cada cuánto
+-- late, y un umbral fijo daba «detenido» todas las noches: fuera de rueda el
+-- ciclo es de 300 s y el umbral estaba en 180.
+--
+-- ⚠️ El ALTER va PEGADO a su tabla, no al final del archivo: `apply_schema`
+-- ejecuta en orden y las vistas de arriba leen estas columnas.
+ALTER TABLE agente.latido ADD COLUMN IF NOT EXISTS proximo_en_s integer;
 
 -- La serie del peso de la base. Se purga sola a los 3 días: lo que informa es
 -- el DELTA, no el tamaño.
@@ -5742,11 +5749,6 @@ CREATE TABLE IF NOT EXISTS agente.avisos_dirigidos (
 );
 CREATE INDEX IF NOT EXISTS avisos_dirigidos_bandeja
     ON agente.avisos_dirigidos (lower(para), at DESC);
-
--- El latido dice CUÁNDO VUELVE. Sin esto, quien lo lee tiene que adivinar cada
--- cuánto late, y un umbral fijo daba «detenido» todas las noches: fuera de
--- rueda el ciclo es de 300 s y el umbral estaba en 180.
-ALTER TABLE agente.latido ADD COLUMN IF NOT EXISTS proximo_en_s integer;
 
 
 -- ⚠️ **UN CHECK YA CREADO NO SE ACTUALIZA SOLO.** `CREATE TABLE IF NOT EXISTS`

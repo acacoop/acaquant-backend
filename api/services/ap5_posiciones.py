@@ -155,51 +155,58 @@ def diferencias_del_dia(fecha: str) -> list[dict]:
     ]
 
 
-def rankings(fecha: str) -> list[dict]:
-    """Top N positivos y negativos por CUENTA, para cada familia × grupo.
+def rankings(filas: list[dict]) -> list[dict]:
+    """Top N por CUENTA para cada familia × grupo, ordenado por **ACUMULADO**.
+
+    ⚠️ **No recibe una fecha: recibe las filas de `acumulado()`.** Es la misma
+    lista que dibuja la tabla de abajo, y eso es a propósito — si el ranking
+    corriera su propia query, el día que las dos difieran (un filtro que se
+    tocó en una y no en la otra) la pantalla se contradiría a sí misma y las dos
+    mitades seguirían siendo coherentes por separado. Es la REGLA #9(B) aplicada
+    adentro de una vista: un solo dato, un solo lugar donde se calcula.
 
     El `grupo` (Cooperativas / MUNDO ACA) es una columna MANUAL de `ap5.cuentas`:
     la cámara no lo sabe y no se deduce del nombre. Deducirlo de un prefijo sería
-    la REGLA #9 otra vez — el día que una cuenta se llame distinto cambiaría de
-    ranking sin que nadie se entere. Lo no clasificado va a `(sin grupo)`, que se
-    ve, en vez de repartirse a dedo.
+    la REGLA #9(A) otra vez — el día que una cuenta se llame distinto cambiaría
+    de ranking sin que nadie se entere. Lo no clasificado va a `(sin grupo)`, que
+    se ve, en vez de repartirse a dedo.
     """
-    filas = _q(
-        f"SELECT {_FAMILIA_SQL} AS familia, COALESCE(NULLIF(c.grupo, ''), %(sin)s) AS grupo, "
-        f"p.account AS cuenta, {_NOMBRE_SQL} AS nombre, p.settlement_currency AS moneda, "
-        "sum(p.daily_settlement) AS importe "
-        "FROM ap5.portfolio p LEFT JOIN ap5.cuentas c ON c.account = p.account "
-        "WHERE p.business_date = %(f)s AND p.daily_settlement IS NOT NULL "
-        "GROUP BY 1, 2, 3, 4, 5 HAVING sum(p.daily_settlement) <> 0 "
-        "ORDER BY 1, 2, sum(p.daily_settlement) DESC",
-        {"f": fecha, "sin": SIN_GRUPO},
-    )
-
     por_bloque: dict[tuple[str, str], list[dict]] = {}
     for r in filas:
+        if not r["acumulado"]:
+            continue
         por_bloque.setdefault((r["familia"], r["grupo"]), []).append({
             "cuenta": r["cuenta"],
             "nombre": r["nombre"],
             "moneda": r["moneda"],
-            "importe": _f0(r["importe"]),
+            # `importe` ES el acumulado. Se llama así y no `acumulado` porque es
+            # lo que el ranking ordena; el nombre del campo lo fija su rol acá.
+            "importe": r["acumulado"],
+            "diaria": r["diaria"],
+            # Un acumulado sin semilla está INCOMPLETO, y en un ranking eso
+            # importa el doble: una cuenta puede estar en el puesto equivocado.
+            # Viaja para que la fila lo pueda decir en vez de mentir callada.
+            "semilla_cargada": r["semilla_cargada"],
         })
 
     salida = []
     for (familia, grupo), items in sorted(por_bloque.items()):
-        positivos = [i for i in items if i["importe"] > 0]
+        positivos = sorted([i for i in items if i["importe"] > 0],
+                           key=lambda x: -x["importe"])
         negativos = sorted([i for i in items if i["importe"] < 0],
                            key=lambda x: x["importe"])
         salida.append({
             "familia": familia,
             "grupo": grupo,
             # `total_*` es de TODAS las cuentas, no solo del top: el ranking
-            # recorta la lista, no la suma. Si el total saliera del top, mostrar
+            # recorta la LISTA, no la suma. Si el total saliera del top, mostrar
             # 10 filas cambiaría el número — y nadie lo notaría.
             "positivos": positivos[:TOP],
             "negativos": negativos[:TOP],
             "total_positivo": round(sum(i["importe"] for i in positivos), 2),
             "total_negativo": round(sum(i["importe"] for i in negativos), 2),
             "cuentas": len(items),
+            "sin_semilla": sum(1 for i in items if not i["semilla_cargada"]),
         })
     return salida
 
@@ -392,14 +399,19 @@ def vista(fecha: str | None = None) -> dict:
             "acumulado": [], "grupos": [], "faltantes": {},
         }
 
+    # UNA sola vez, y de ahí salen las DOS cosas que hablan de lo mismo: la tabla
+    # de acumulado y el ranking que la ordena. Calcularlo dos veces sería abrir
+    # la puerta a que se contradigan.
+    filas_acum = acumulado(hoy)
+
     return {
         "fecha": hoy,
         "fecha_anterior": anterior,
         "fechas": fechas(),
         "diferencias_hoy": diferencias_del_dia(hoy),
-        "rankings": rankings(hoy),
+        "rankings": rankings(filas_acum),
         "por_instrumento": por_instrumento(hoy, anterior),
-        "acumulado": acumulado(hoy),
+        "acumulado": filas_acum,
         "grupos": [
             r["grupo"] for r in _q(
                 "SELECT DISTINCT grupo FROM ap5.cuentas "

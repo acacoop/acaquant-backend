@@ -572,3 +572,27 @@ def test_que_hacer_no_es_la_misma_frase_para_todos():
     assert "p.rompe" in frase or "rompe" in frase, (
         "el `que_hacer` tiene que decir qué rompe ESTE proveedor")
     assert "se arregla del otro lado" not in frase.lower()
+
+
+def test_las_columnas_del_agente_existen_antes_que_sus_vistas():
+    """`apply_schema` ejecuta el archivo EN ORDEN.
+
+    Un `ALTER TABLE ... ADD COLUMN` puesto al final crea la columna **después**
+    de que las vistas intentaron leerla, y el deploy corta con «column f.detalle
+    does not exist». Pasó con `detalle` (2026-08-25): el schema quedó a medias
+    —578 statements OK, 2 en error— y la API no se reinició.
+
+    Falla ruidosamente, que es lo bueno. Este test lo corre antes.
+    """
+    import re
+
+    sql = (RAIZ / "sql" / "schema.sql").read_text()
+    primera_vista = min(
+        sql.index(f"CREATE OR REPLACE VIEW agente.{v}")
+        for v in ("v_ahora", "v_encontro", "v_habilidades"))
+
+    tarde = [m.group(1) for m in
+             re.finditer(r"ALTER TABLE agente\.(\w+) ADD COLUMN", sql[primera_vista:])]
+    assert not tarde, (
+        f"hay ALTER de {set(tarde)} DESPUÉS de las vistas del agente: la vista "
+        f"se crea antes que la columna y `apply_schema` corta")

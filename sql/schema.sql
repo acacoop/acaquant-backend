@@ -5569,6 +5569,17 @@ CREATE TABLE IF NOT EXISTS agente.hallazgos (
     CONSTRAINT hallazgos_que_hacer CHECK (btrim(que_hacer) <> '')
 );
 
+-- ⚠️ **LAS COLUMNAS NUEVAS VAN ACÁ, NO AL FINAL DEL ARCHIVO.**
+-- `apply_schema` ejecuta en ORDEN, y las vistas de más abajo seleccionan estas
+-- columnas: un `ALTER` al final crea la columna DESPUÉS de que la vista intentó
+-- leerla, y el deploy corta con «column f.detalle does not exist».
+--
+-- El error crudo del hallazgo, para mostrar tal cual. Vivía enterrado en
+-- `evidencia` (jsonb) y la pantalla no lo leía: se veía una frase de molde
+-- —idéntica para los cuatro proveedores— en vez del error real, que es lo único
+-- que dice de quién es el problema.
+ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS detalle text NOT NULL DEFAULT '';
+
 -- UN SOLO hallazgo ABIERTO por problema. Reemplaza al "modo reemplazo" del
 -- agente viejo: si el trío ya está abierto se actualiza `veces`, no nace otro.
 CREATE UNIQUE INDEX IF NOT EXISTS hallazgos_abierto_unico
@@ -5754,9 +5765,3 @@ BEGIN
         CHECK (ventana IN ('rueda','cierre','habil','siempre'));
 EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
-
--- EL ERROR CRUDO del hallazgo, para mostrar tal cual. Vivía enterrado en
--- `evidencia` (jsonb) y la pantalla no lo leía: se veía una frase de molde
--- —idéntica para los cuatro proveedores— en vez del error real, que es lo
--- único que dice de quién es el problema.
-ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS detalle text NOT NULL DEFAULT '';

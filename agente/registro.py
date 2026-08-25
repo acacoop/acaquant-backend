@@ -112,11 +112,12 @@ def _ver(conn, habilidad: str, h) -> dict:
             # La evidencia se REFRESCA: son los números de ahora, no los de la
             # primera vez. `detectado_at` NO se toca — es la fecha de nacimiento
             # y es lo que hace que AHORA se vacíe sola al día siguiente.
-            "  evidencia = %s, problema = %s, severidad = %s, arreglo = %s "
+            "  evidencia = %s, problema = %s, detalle = %s, "
+            "  severidad = %s, arreglo = %s "
             "WHERE habilidad = %s AND sujeto = %s AND regla = %s "
             "  AND estado = ANY(%s) RETURNING id",
             (json.dumps(h.evidencia or {}, default=str), h.problema,
-             h.severidad, _arreglo_de(habilidad, h.regla), habilidad,
+             h.detalle, h.severidad, _arreglo_de(habilidad, h.regla), habilidad,
              h.sujeto, h.regla, list(tipos.ABIERTOS)))
         if (f := cur.fetchone()):
             return {"id": f[0], "nacio": False, "reincidio": False}
@@ -132,11 +133,11 @@ def _ver(conn, habilidad: str, h) -> dict:
 
         cur.execute(
             "INSERT INTO agente.hallazgos "
-            " (habilidad, sujeto, regla, nombre, severidad, problema, "
+            " (habilidad, sujeto, regla, nombre, severidad, problema, detalle, "
             "  que_hacer, arreglo, evidencia, estado) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id, detectado_at",
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id, detectado_at",
             (habilidad, h.sujeto, h.regla, h.nombre or h.sujeto, h.severidad,
-             h.problema, h.que_hacer, _arreglo_de(habilidad, h.regla),
+             h.problema, h.detalle, h.que_hacer, _arreglo_de(habilidad, h.regla),
              json.dumps(h.evidencia or {}, default=str), tipos.NUEVO))
         nid, nacido = cur.fetchone()
 

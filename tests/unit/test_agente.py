@@ -540,3 +540,35 @@ def test_el_alta_no_llama_a_una_tabla_de_avisos_que_ya_no_existe():
     alta = (RAIZ / "agente" / "alta.py").read_text()
     assert "crear_avisos" not in alta
     assert '"pendientes": pendientes' in alta
+
+
+def test_el_error_crudo_es_un_campo_y_no_queda_enterrado():
+    """User (2026-08-25): *«debería verse el código del error real; con eso
+    alcanza para darme cuenta de quién es el error»*.
+
+    El error se calculaba y quedaba en `evidencia` (jsonb), que la pantalla no
+    lee. Lo que se veía en su lugar era un `que_hacer` de molde: **la misma
+    frase para AUNESA, 1816, BCRA e Interbanking**, escrita a mano en el
+    detector y sin salir de ningún dato. Un texto que no cambia con el caso no
+    informa: entrena a saltearlo.
+    """
+    assert "detalle" in tipos.Hallazgo.__dataclass_fields__
+
+    sql = (RAIZ / "sql" / "schema.sql").read_text()
+    i = sql.index("CREATE OR REPLACE VIEW agente.v_ahora")
+    assert "f.detalle" in sql[i:i + 1200], "AHORA no publica el error crudo"
+
+    # Y la puerta única lo escribe: sin esto el campo existiría vacío siempre.
+    src = inspect.getsource(registro._ver)
+    assert "h.detalle" in src
+
+
+def test_que_hacer_no_es_la_misma_frase_para_todos():
+    """Un `que_hacer` idéntico para cuatro proveedores distintos no es una
+    instrucción: es relleno para pasar el CHECK de la base."""
+    src = inspect.getsource(sistema.proveedor_caido)
+    i = src.index("que_hacer=")
+    frase = src[i:i + 400]
+    assert "p.rompe" in frase or "rompe" in frase, (
+        "el `que_hacer` tiene que decir qué rompe ESTE proveedor")
+    assert "se arregla del otro lado" not in frase.lower()

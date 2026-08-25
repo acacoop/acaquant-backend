@@ -18,6 +18,17 @@ import logging
 from agente import reloj
 from agente.tipos import Hallazgo, SinDatos
 
+
+def _humano(s: float) -> str:
+    s = int(s or 0)
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60} min"
+    if s < 86400:
+        return f"{s // 3600} h"
+    return f"{s // 86400} d"
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,8 +61,17 @@ def salud(u: dict) -> list[Hallazgo]:
             sujeto=str(c.get("id") or "?"), regla=regla, severidad=sev[estado],
             nombre=str(c.get("titulo") or c.get("id") or ""),
             problema=str(c.get("motivo") or "")[:900] or "no está en verde",
-            que_hacer=("Relanzar el job y mirar su log. Si el problema es el "
-                       "horario, el scheduler; si corrió y salió mal, el código."),
+            # ⚠️ **EL ERROR DEL JOB, QUE YA VENÍA Y SE ENTERRABA.**
+            # `salud._chequeo_job` guarda en `evidencia` el PRIMER error real de
+            # la corrida (lo saca de `jobs_catalogo.ultimo.resumen`), y el agente
+            # lo metía en un jsonb que la pantalla no lee. O sea: la fila decía
+            # «la corrida falló» y el motivo estaba a un campo de distancia.
+            detalle=("" if str(c.get("evidencia") or "") == str(c.get("motivo") or "")
+                     else str(c.get("evidencia") or "")),
+            que_hacer=(("No corrió después de su horario → mirar el scheduler. "
+                        if c.get("corrio_despues") is False else
+                        "Corrió y salió mal → el problema está en el código. ")
+                       + f"Relanzar: `{c.get('id', '')}`."),
             evidencia={
                 "chequeo_id": c.get("id"), "familia": c.get("familia"),
                 "estado": estado, "n_casos": c.get("n"),
@@ -129,6 +149,10 @@ def motor_caido(u: dict) -> list[Hallazgo]:
                     problema=(f"{nombre}: {estado} · última señal "
                               f"{p.get('hace') or '—'} · ventana "
                               f"{p.get('ventana') or 'rueda'} · {reloj.hhmm()}"),
+                    # De dónde sale el veredicto: qué tabla se miró y qué había.
+                    detalle=(f"{p.get('tabla') or 'sin tabla declarada'} · "
+                             f"última escritura {p.get('ultima') or 'NUNCA'} · "
+                             f"tolera {p.get('umbral_s') or '?'}s"),
                     que_hacer=(f"Relanzar `{unidad or nombre}` y mirar su log. "
                                f"Cadencia declarada: {p.get('cadencia') or '—'}."
                                + ("" if _rehacible(unidad) else
@@ -257,6 +281,9 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
             sujeto=nombre, regla="sin_escribir",
             severidad="alta" if p["cadencia"] == "tiempo_real" else "media",
             problema=str(f["motivo"]),
+            detalle=(f"{p['col_fecha']} = {f['ultimo_dato']} · venía cada "
+                     f"{_humano(p.get('intervalo_p50_s') or 0)} · "
+                     f"{p['filas']:,} filas"),
             que_hacer=f"Relanzar {escribe.que_relanzar(nombre) or 'el job que la escribe'}.",
             evidencia={"cadencia": p["cadencia"], "col_fecha": p["col_fecha"],
                        "atraso_s": f["atraso_s"], "tope_s": f["tope_s"],
@@ -331,6 +358,8 @@ def latencia(u: dict) -> list[Hallazgo]:
                 sujeto=c["endpoint"], regla="errores", severidad="alta",
                 problema=f"{c['errores']} de {c['n']} requests fallaron (5xx) "
                          f"en las últimas {maq.VENTANA_H} h",
+                detalle=f"{c['errores']} de {c['n']} requests con 5xx en las "
+                        f"últimas {maq.VENTANA_H} h",
                 que_hacer="Mirar el log del endpoint: un 5xx está roto tarde lo "
                           "que tarde, no pasa por la comparación con su normal.",
                 evidencia={"errores": c["errores"], "requests": c["n"]}))
@@ -378,13 +407,30 @@ def proveedor_caido(u: dict) -> list[Hallazgo]:
             continue
         p = PROVEEDORES.get(f["proveedor"])
         nombre = p.nombre if p else str(f["proveedor"]).upper()
+        veces = f.get("fallos_seguidos") or 1
+        ok_at = f.get("ultimo_ok_at")
+        desde = ""
+        if ok_at is not None:
+            from datetime import UTC
+            o = ok_at.replace(tzinfo=UTC) if ok_at.tzinfo is None else ok_at
+            mins = int((ahora - o).total_seconds() // 60)
+            desde = (f"última respuesta buena hace {mins} min "
+                     f"({reloj.hhmm(o)})")
         out.append(Hallazgo(
             sujeto=str(f["proveedor"]), regla="no_responde", severidad="alta",
             nombre=nombre,
-            problema=f"{nombre} CAÍDO · {str(f.get('ultimo_error') or '')[:120]} "
-                     f"· {reloj.hhmm(ahora)}",
-            que_hacer=("Se arregla del otro lado. Verificar si es de ellos o si "
-                       "se nos venció una credencial, y avisarle al back office."),
+            problema=f"{nombre} no responde · {veces} fallo(s) seguido(s) · "
+                     f"{reloj.hhmm(ahora)}",
+            # ⚠️ **EL ERROR CRUDO, SIN CORTAR NI TRADUCIR.** El código de error es
+            # lo que dice de quién es el problema: un 401 es nuestro (se venció
+            # una credencial), un 500 es de ellos, un timeout es la red. Antes
+            # esto viajaba recortado a 120 caracteres adentro de una frase, con
+            # un `que_hacer` de molde idéntico para los cuatro proveedores.
+            detalle=str(f.get("ultimo_error") or "sin mensaje de error"),
+            que_hacer=((f"Rompe: {p.rompe}. " if p and p.rompe else "")
+                       + (desde + ". " if desde else "")
+                       + "El código del error dice de quién es: 401/403 es una "
+                         "credencial nuestra, 5xx es de ellos, timeout es la red."),
             evidencia={"fallos_seguidos": f.get("fallos_seguidos"),
                        "ultimo_error": f.get("ultimo_error"),
                        "ultimo_error_at": cuando.isoformat(),

@@ -69,6 +69,18 @@ class Hallazgo:
     problema: str
     que_hacer: str
     nombre: str = ""
+    # ⚠️ **EL ERROR CRUDO, TAL CUAL.** User (2026-08-25): *«debería verse el
+    # código del error real; con eso alcanza para darme cuenta de quién es el
+    # error. El `que_hacer` está de más — es mejor mostrar la evidencia»*.
+    #
+    # Y tenía razón: «se arregla del otro lado, verificar si es de ellos o si se
+    # nos venció una credencial» es la MISMA frase para AUNESA, 1816, BCRA e
+    # Interbanking, escrita a mano en el detector. No sale de ningún dato. Un
+    # texto que no cambia con el caso no informa: entrena a saltearlo.
+    #
+    # El error de verdad ya se calculaba y quedaba enterrado en `evidencia`, que
+    # la pantalla ni lee. Acá es un campo propio, y por eso se muestra.
+    detalle: str = ""
     evidencia: dict = field(default_factory=dict)
 
     def __post_init__(self):

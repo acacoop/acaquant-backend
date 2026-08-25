@@ -5637,7 +5637,7 @@ CREATE INDEX IF NOT EXISTS acciones_por_problema
 -- a las 21:00 de acá y mezclaría dos días bajo el mismo rótulo.
 CREATE OR REPLACE VIEW agente.v_ahora AS
 SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
-       f.problema, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
+       f.problema, f.detalle, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
        f.veces, hab.dominio,
        (f.arreglo <> '') AS accionable
   FROM agente.hallazgos f
@@ -5651,7 +5651,7 @@ SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
 -- ENCONTRÓ: lo abierto que TIENE ARREGLO. Un aviso no entra acá.
 CREATE OR REPLACE VIEW agente.v_encontro AS
 SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
-       f.problema, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
+       f.problema, f.detalle, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
        f.visto_ultima_vez, f.veces, f.estado, hab.dominio
   FROM agente.hallazgos f
   LEFT JOIN agente.habilidades hab ON hab.nombre = f.habilidad
@@ -5754,3 +5754,9 @@ BEGIN
         CHECK (ventana IN ('rueda','cierre','habil','siempre'));
 EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
+
+-- EL ERROR CRUDO del hallazgo, para mostrar tal cual. Vivía enterrado en
+-- `evidencia` (jsonb) y la pantalla no lo leía: se veía una frase de molde
+-- —idéntica para los cuatro proveedores— en vez del error real, que es lo
+-- único que dice de quién es el problema.
+ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS detalle text NOT NULL DEFAULT '';

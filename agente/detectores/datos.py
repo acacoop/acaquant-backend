@@ -37,6 +37,7 @@ def dato_partido(u: dict) -> list[Hallazgo]:
             problema=f"{d['n']} caso(s) donde {d['que']} dice cosas distintas "
                      f"según dónde se lea: {d['a']} vs {d['b']}."
                      + (f" Ejemplos — {muestra}." if muestra else ""),
+            detalle=muestra,
             que_hacer=f"Manda {d['arbitro']}. Qué se rompe si no: {d['rompe']}.",
             evidencia={"n": d["n"], "a": d["a"], "b": d["b"],
                        "arbitro": d["arbitro"], "ejemplos": ej}))
@@ -49,6 +50,7 @@ def dato_partido(u: dict) -> list[Hallazgo]:
             problema=f"No pude verificar si {x['que']} sigue coincidiendo en sus "
                      f"dos lugares: {x['error']}. **No es que esté bien — es que "
                      f"no se miró.**",
+            detalle=str(x["error"]),
             que_hacer="Arreglar la lectura del duplicado para volver a cubrirlo.",
             evidencia={"error": x["error"]}))
     return out

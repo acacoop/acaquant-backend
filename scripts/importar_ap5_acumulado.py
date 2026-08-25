@@ -304,6 +304,15 @@ def main() -> None:
     for a in avisos:
         print(f"\n  ⚠️ {a}")
 
+    # ⚠️ En un Excel con filas de título arriba del encabezado, pandas toma la
+    # PRIMERA fila como encabezado y las columnas quedan `Unnamed: 0`, `Unnamed:
+    # 1`… El síntoma es «no encontré ninguna columna», que no dice por qué.
+    if sum(1 for c in cols if normalizar(c).startswith("UNNAMED")) >= len(cols) / 2:
+        print("\n  ⚠️ La mayoría de las columnas se llaman `Unnamed: N`. Eso pasa")
+        print("     cuando el encabezado NO está en la primera fila del Excel")
+        print("     (hay un título o filas en blanco arriba). Borrá esas filas y")
+        print("     dejá los encabezados arriba de todo, o guardá como CSV.")
+
     exacto, flojo, nombres = cuentas_indexadas()
     print(f"  ap5.cuentas: {len(exacto)} nombres indexados")
 

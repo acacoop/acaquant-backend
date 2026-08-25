@@ -334,6 +334,7 @@ def _crudo(f: str, cuentas: list[str], contables: list[str]) -> None:
 
         todas = _filas(r)
         print(f"  {len(todas)} filas en total en esta contable")
+        fallo: set[str] = set()
 
         for cuenta in cuentas:
             mias = []
@@ -345,6 +346,7 @@ def _crudo(f: str, cuentas: list[str], contables: list[str]) -> None:
             print(f"\n  ── cuenta {cuenta}: {len(mias)} fila(s) " + "─" * 40)
             if not mias:
                 print(f"     (no aparece en la contable {cod})")
+                fallo.add(cuenta)
                 continue
 
             campos = sorted({k for _, d, _ in mias for k in d})
@@ -362,6 +364,23 @@ def _crudo(f: str, cuentas: list[str], contables: list[str]) -> None:
                 m = str(x.get("Currency", "") or "(sin moneda)")
                 k = (cuenta, cod, m)
                 resumen[k] = resumen.get(k, 0.0) + float(x.get("Balance") or 0)
+
+        # ⚠️ **«No aparece» sin decir QUÉ hay es un callejón sin salida.** Deja
+        # al que mira sin manera de saber si el código está mal, si la contable
+        # es otra, o si la respuesta vino vacía — tres cosas con el mismo
+        # síntoma. Así que cuando falta una cuenta se vuelca el universo ENTERO
+        # de esa contable, que es chico y contesta las tres de una.
+        if fallo and todas:
+            print(f"\n  ⚠️ falta(n) {sorted(fallo)} — esto es TODO lo que trae "
+                  f"la contable {cod}:")
+            print(f"     {'cta.compens.':<14} {'cta.contable':<14} {'moneda':<10} "
+                  f"{'balance':>18}  titular")
+            for x in todas:
+                print(f"     {x.get('ClearingAccountCode','')!s:<14} "
+                      f"{x.get('AccountingAccountCode','')!s:<14} "
+                      f"{x.get('Currency','')!s:<10} "
+                      f"{float(x.get('Balance') or 0):>18,.2f}  "
+                      f"{str(x.get('AccountOwner',''))[:34]}")
 
     # ── el cuadro que alimenta la cabecera ────────────────────────────────
     print("\n" + "=" * 74)

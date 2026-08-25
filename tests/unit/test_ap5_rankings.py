@@ -6,14 +6,15 @@ de equivocarse que NO grita: el ranking sale ordenado, plausible, y mal.
 """
 from __future__ import annotations
 
-from api.services.ap5_posiciones import rankings
+from api.services.ap5_posiciones import lado_de_grupo, normalizar_grupo, rankings
 
 
 def _f(**kw):
     base = {
-        "familia": "agro", "grupo": "Cooperativas", "cuenta": "1",
+        "familia": "agro", "grupo": "COOPERATIVAS", "cuenta": "1",
         "nombre": "COOP", "moneda": "Dólar MtR", "acumulado": 100.0,
-        "diaria": 1.0, "semilla_cargada": True,
+        "diaria": 1.0, "semilla_cargada": True, "semilla": 0.0,
+        "desde_fecha": None, "nota": None,
     }
     return {**base, **kw}
 
@@ -49,20 +50,73 @@ def test_el_total_es_de_TODAS_las_cuentas_no_solo_del_top():
     assert r["cuentas"] == 25
 
 
-def test_las_familias_y_los_grupos_NO_se_mezclan():
-    """Cada tab (agro / dólar) y cada lado (Cooperativas / MUNDO ACA) es un
-    bloque propio: son plata distinta y monedas distintas."""
+def test_cada_tab_y_cada_lado_es_un_bloque_propio():
+    """Son plata distinta y monedas distintas: no se mezclan nunca."""
     r = rankings([
-        _f(familia="agro", grupo="Cooperativas"),
+        _f(familia="agro", grupo="COOPERATIVAS"),
         _f(familia="agro", grupo="MUNDO ACA"),
-        _f(familia="dolar", grupo="Cooperativas"),
+        _f(familia="dolar", grupo="COOPERATIVAS"),
         _f(familia="dolar", grupo="MUNDO ACA"),
     ])
-    assert {(x["familia"], x["grupo"]) for x in r} == {
-        ("agro", "Cooperativas"), ("agro", "MUNDO ACA"),
-        ("dolar", "Cooperativas"), ("dolar", "MUNDO ACA"),
+    assert {(x["tab"], x["grupo"]) for x in r} == {
+        ("agro", "COOPERATIVAS"), ("agro", "MUNDO ACA"),
+        ("dolar", "COOPERATIVAS"), ("dolar", "MUNDO ACA"),
     }
     assert all(x["cuentas"] == 1 for x in r)
+
+
+# ── Los DOS bugs del 2026-08-25, congelados ────────────────────────────────
+def test_la_familia_otros_NO_duplica_el_bloque_del_grupo():
+    """BUG REAL: se agrupaba por (familia, grupo) y la tab AGRO junta `agro` y
+    `otros` — el mismo grupo salía DOS VECES, con el mismo título, una debajo de
+    la otra. No fallaba nada: dibujaba de más."""
+    r = rankings([
+        _f(familia="agro", grupo="COOPERATIVAS", cuenta="A", acumulado=10.0),
+        _f(familia="otros", grupo="COOPERATIVAS", cuenta="B", acumulado=20.0),
+    ])
+    assert len(r) == 1, "el WTI abrió un segundo panel para el mismo grupo"
+    assert r[0]["tab"] == "agro"
+    assert r[0]["cuentas"] == 2
+
+
+def test_el_grupo_se_compara_NORMALIZADO_no_por_el_string_crudo():
+    """BUG REAL (REGLA #9): la base dice `COOPERATIVAS`, el código buscaba
+    `Cooperativas`. No matcheaba, TODO caía en "sin clasificar" — con los
+    rankings correctos y el título equivocado."""
+    r = rankings([
+        _f(grupo="COOPERATIVAS", cuenta="A", acumulado=10.0),
+        _f(grupo="Cooperativas", cuenta="B", acumulado=20.0),
+        _f(grupo=" cooperativas ", cuenta="C", acumulado=30.0),
+    ])
+    assert len(r) == 1, "la misma cooperativa escrita distinto abrió N paneles"
+    assert r[0]["lado"] == "izq"
+    assert r[0]["cuentas"] == 3
+
+
+def test_el_LADO_lo_decide_el_backend():
+    """Para que la vista no compare strings — que es donde se rompió."""
+    assert lado_de_grupo("COOPERATIVAS") == "izq"
+    assert lado_de_grupo("Mundo Aca") == "der"
+    assert lado_de_grupo("(sin grupo)") == "otro"
+    assert normalizar_grupo(" Coöperativas ") == "COOPERATIVAS"
+
+
+def test_el_orden_es_izquierda_derecha_y_lo_no_clasificado_ULTIMO():
+    """El orden del mail. Lo fija el backend, no el navegador."""
+    r = rankings([
+        _f(grupo="(sin grupo)", cuenta="C"),
+        _f(grupo="MUNDO ACA", cuenta="B"),
+        _f(grupo="COOPERATIVAS", cuenta="A"),
+    ])
+    assert [x["lado"] for x in r] == ["izq", "der", "otro"]
+
+
+def test_la_etiqueta_que_se_muestra_es_la_de_la_BASE():
+    """Se normaliza para COMPARAR, no para dibujar: si la mesa lo escribió
+    `Mundo Aca`, la pantalla dice `Mundo Aca`."""
+    r = rankings([_f(grupo="Mundo Aca")])
+    assert r[0]["grupo"] == "Mundo Aca"
+    assert r[0]["lado"] == "der"
 
 
 def test_el_acumulado_en_CERO_no_entra_a_ningun_lado():

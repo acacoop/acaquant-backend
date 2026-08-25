@@ -31,6 +31,7 @@ sin nombre o una unidad nueva salen declarados en la respuesta. La alternativa
 """
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 from core.postgres import get_pool
@@ -71,6 +72,40 @@ ETIQUETAS = {
 TOP = 10
 
 SIN_GRUPO = "(sin grupo)"
+
+# La familia decide la TAB. `otros` (hoy el WTI, unidad `Bl`) NO tiene tab propia
+# y tampoco desaparece: va con el agro, pero conserva su etiqueta de familia para
+# que se vea que no son toneladas.
+TAB_DE_FAMILIA = {AGRO: "agro", OTROS: "agro", DOLAR: "dolar"}
+
+# Los dos lados del reporte, y de qué lado va cada uno en la pantalla.
+IZQUIERDA, DERECHA, OTRO_LADO = "izq", "der", "otro"
+_LADO_POR_GRUPO = {"COOPERATIVAS": IZQUIERDA, "MUNDO ACA": DERECHA}
+
+
+def normalizar_grupo(g: str) -> str:
+    """La CLAVE del grupo: mayúsculas, sin acentos y sin espacios de más.
+
+    ⚠️ Esto NO es adivinar identidad por el nombre (lo que prohíbe la REGLA #9):
+    `COOPERATIVAS` y `Cooperativas` son el MISMO valor tipeado distinto, y
+    plegar mayúsculas es lo único que se hace acá — no se deduce nada de
+    prefijos ni sufijos.
+
+    Y hace falta: comparar el string crudo contra una lista escrita a mano ya
+    falló (2026-08-25). La base decía `COOPERATIVAS`, la pantalla buscaba
+    `Cooperativas`, no matcheaba, y **todas** las cuentas caían en el bloque de
+    "sin clasificar" — con los dos rankings correctos, uno al lado del otro, y
+    el título equivocado. No falló nada: mostró lo mismo mal etiquetado.
+    """
+    base = unicodedata.normalize("NFKD", (g or "").strip().upper())
+    return "".join(c for c in base if not unicodedata.combining(c))
+
+
+def lado_de_grupo(g: str) -> str:
+    """De qué lado de la pantalla va este grupo. Lo decide el BACKEND para que la
+    vista no tenga que comparar strings — que es justo donde se rompió."""
+    return _LADO_POR_GRUPO.get(normalizar_grupo(g), OTRO_LADO)
+
 
 # El nombre a mostrar: manda lo que escribió una persona, después lo que dice la
 # cámara, y si no hay ninguno el número — que es feo pero no es mentira.
@@ -156,48 +191,68 @@ def diferencias_del_dia(fecha: str) -> list[dict]:
 
 
 def rankings(filas: list[dict]) -> list[dict]:
-    """Top N por CUENTA para cada familia × grupo, ordenado por **ACUMULADO**.
+    """Top N por cuenta, **UN bloque por (tab, grupo)** y ordenado por ACUMULADO.
+
+    ⚠️ **Agrupa por TAB, no por familia.** La tab AGRO junta `agro` y `otros`; si
+    agrupara por familia, un grupo con posiciones en las dos saldría DOS VECES en
+    la misma pantalla, con el mismo título y sin que nada falle (pasó el
+    2026-08-25). El bloque es lo que se dibuja, así que el bloque es la unidad.
+
+    ⚠️ **El grupo se compara NORMALIZADO** (`normalizar_grupo`) y se muestra tal
+    como está en la base. Comparar el string crudo ya mandó todo al bucket de
+    "sin clasificar" porque la base dice `COOPERATIVAS` y el código buscaba
+    `Cooperativas`.
 
     ⚠️ **No recibe una fecha: recibe las filas de `acumulado()`.** Es la misma
-    lista que dibuja la tabla de abajo, y eso es a propósito — si el ranking
-    corriera su propia query, el día que las dos difieran (un filtro que se
-    tocó en una y no en la otra) la pantalla se contradiría a sí misma y las dos
-    mitades seguirían siendo coherentes por separado. Es la REGLA #9(B) aplicada
-    adentro de una vista: un solo dato, un solo lugar donde se calcula.
+    lista que alimenta el resto de la vista, y eso es a propósito — si el ranking
+    corriera su propia query, el día que las dos difieran la pantalla se
+    contradiría a sí misma y las dos mitades seguirían siendo coherentes por
+    separado. Es la REGLA #9(B) adentro de una vista.
 
-    El `grupo` (Cooperativas / MUNDO ACA) es una columna MANUAL de `ap5.cuentas`:
-    la cámara no lo sabe y no se deduce del nombre. Deducirlo de un prefijo sería
-    la REGLA #9(A) otra vez — el día que una cuenta se llame distinto cambiaría
-    de ranking sin que nadie se entere. Lo no clasificado va a `(sin grupo)`, que
-    se ve, en vez de repartirse a dedo.
+    El `grupo` es una columna MANUAL de `ap5.cuentas`: la cámara no lo sabe y no
+    se deduce del nombre. Lo no clasificado va a `(sin grupo)`, que se VE, en vez
+    de repartirse a dedo entre los dos lados — si se escondiera, los totales no
+    cerrarían contra el mail y nadie sabría por qué.
     """
     por_bloque: dict[tuple[str, str], list[dict]] = {}
+    etiqueta: dict[tuple[str, str], str] = {}
+
     for r in filas:
         if not r["acumulado"]:
             continue
-        por_bloque.setdefault((r["familia"], r["grupo"]), []).append({
+        tab = TAB_DE_FAMILIA.get(r["familia"], "agro")
+        clave = (tab, normalizar_grupo(r["grupo"]))
+        # La etiqueta que se muestra es la de la BASE, no la normalizada: el
+        # normalizado es para comparar, no para dibujar.
+        etiqueta.setdefault(clave, r["grupo"])
+        por_bloque.setdefault(clave, []).append({
             "cuenta": r["cuenta"],
             "nombre": r["nombre"],
             "moneda": r["moneda"],
-            # `importe` ES el acumulado. Se llama así y no `acumulado` porque es
-            # lo que el ranking ordena; el nombre del campo lo fija su rol acá.
+            "familia": r["familia"],
+            "grupo": r["grupo"],
+            # `importe` ES el acumulado: es lo que el ranking ordena.
             "importe": r["acumulado"],
             "diaria": r["diaria"],
-            # Un acumulado sin semilla está INCOMPLETO, y en un ranking eso
-            # importa el doble: una cuenta puede estar en el puesto equivocado.
-            # Viaja para que la fila lo pueda decir en vez de mentir callada.
+            # Lo que el modal necesita para editar sin ir a buscarlo aparte.
+            "semilla": r["semilla"],
             "semilla_cargada": r["semilla_cargada"],
+            "desde_fecha": r["desde_fecha"],
+            "nota": r["nota"],
         })
 
     salida = []
-    for (familia, grupo), items in sorted(por_bloque.items()):
+    for clave, items in por_bloque.items():
+        tab, _ = clave
+        grupo = etiqueta[clave]
         positivos = sorted([i for i in items if i["importe"] > 0],
                            key=lambda x: -x["importe"])
         negativos = sorted([i for i in items if i["importe"] < 0],
                            key=lambda x: x["importe"])
         salida.append({
-            "familia": familia,
+            "tab": tab,
             "grupo": grupo,
+            "lado": lado_de_grupo(grupo),
             # `total_*` es de TODAS las cuentas, no solo del top: el ranking
             # recorta la LISTA, no la suma. Si el total saliera del top, mostrar
             # 10 filas cambiaría el número — y nadie lo notaría.
@@ -208,6 +263,10 @@ def rankings(filas: list[dict]) -> list[dict]:
             "cuentas": len(items),
             "sin_semilla": sum(1 for i in items if not i["semilla_cargada"]),
         })
+    # Orden de la PANTALLA, fijado acá: izquierda, derecha, y lo no clasificado
+    # último. Que lo decida el backend es lo que evita que la vista lo deduzca.
+    orden = {IZQUIERDA: 0, DERECHA: 1, OTRO_LADO: 2}
+    salida.sort(key=lambda b: (b["tab"], orden[b["lado"]], b["grupo"]))
     return salida
 
 

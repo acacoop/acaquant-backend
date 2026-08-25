@@ -241,6 +241,10 @@ def main() -> None:
     ap.add_argument("--aplicar", action="store_true",
                     help="escribir de verdad (sin esto sólo muestra)")
     ap.add_argument("--por", default="importar_ap5_acumulado")
+    ap.add_argument("--crear-cuentas", action="store_true",
+                    help="dar de alta en `ap5.cuentas` las que traen ACCOUNT y "
+                         "no existen. Sin número de cuenta no se puede: por eso "
+                         "sólo aplica a las filas que ya lo tienen.")
     for c in ("nombre", "pesos", "mtr", "account"):
         ap.add_argument(f"--col-{c}")
     args = ap.parse_args()
@@ -364,6 +368,37 @@ def main() -> None:
         for x in ambiguas:
             print(f"     {x['nombre'][:44]:<44} → {x['cuentas']}")
 
+    # ⚠️ **EL NÚMERO QUE IMPORTA ES EL DE ACÁ, no el de «sin parear».**
+    # El archivo puede traer 218 filas y nosotros tener 98 cuentas: las 120 de
+    # más NO son un problema —son clientes que no operan futuros con la cámara—
+    # y mirar «139 sin parear» asusta sin motivo. Lo que sí importa es al revés:
+    # **de NUESTRAS cuentas, ¿cuáles se quedaron sin valor?** Ésas son las filas
+    # que la vista va a mostrar vacías.
+    escritas_acc = {x["account"] for x in ok}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT account, COALESCE(NULLIF(name,''), denominacion, account) "
+                    "FROM ap5.cuentas ORDER BY 2")
+        nuestras = [(str(a), str(n or a)) for a, n in cur.fetchall()]
+    huerfanas = [(a, n) for a, n in nuestras if a not in escritas_acc]
+
+    print("\n  ── LO QUE DE VERDAD FALTA: cuentas NUESTRAS sin valor " + "─" * 18)
+    print(f"     {len(nuestras) - len(huerfanas)} de {len(nuestras)} cuentas de "
+          f"`ap5.cuentas` reciben acumulado")
+    if huerfanas:
+        print(f"     {len(huerfanas)} se quedan sin valor — la vista las muestra "
+              f"en cero:")
+        for a, n in huerfanas[:30]:
+            cerca = difflib.get_close_matches(normalizar(n),
+                                              [normalizar(x["nombre"])
+                                               for x in sin_parear], 2, 0.55)
+            pista = f"   ¿será «{cerca[0]}»?" if cerca else ""
+            print(f"       {a:<10} {n[:44]:<44}{pista}")
+        if len(huerfanas) > 30:
+            print(f"       … y {len(huerfanas)-30} más")
+        print("\n     Estas son las que vale la pena resolver a mano. Las del")
+        print("     archivo que no parean, en cambio, pueden ser simplemente")
+        print("     clientes que no operan futuros — no hay nada que arreglar.")
+
     # El CSV de los que faltan, con sugerencias: completás `account` y lo
     # re-importás. Ese camino no puede parear mal — ya viene el número.
     if sin_parear or ambiguas:
@@ -386,6 +421,25 @@ def main() -> None:
         print("\n  DRY: no se escribió nada. Agregá --aplicar cuando el reporte")
         print("  de arriba te convenza.")
         return
+
+    if args.crear_cuentas:
+        # ⚠️ El nombre del archivo va a `name` (la columna MANUAL), nunca a
+        # `denominacion`: esa la publica la cámara y la escribe el job desde
+        # `AccountDetails`. Pisarla con un nombre de planilla rompería el
+        # arbitraje entre las dos — y dejándola NULL, el job la resuelve solo en
+        # la próxima corrida.
+        nuevas = [(x["account"], x["nombre"]) for x in ok
+                  if x["nivel"] == "account" and x["nombre"]]
+        if nuevas:
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.executemany(
+                    "INSERT INTO ap5.cuentas (account, name, visto_at) "
+                    "VALUES (%s, %s, now()) ON CONFLICT (account) DO NOTHING",
+                    nuevas)
+                altas = cur.rowcount
+            print(f"\n  ✓ {altas} cuenta(s) nuevas en ap5.cuentas "
+                  f"(de {len(nuevas)} con account); la denominación de la cámara "
+                  f"la completa el job")
 
     from api.services.ap5_posiciones import guardar_acumulado
     escritas, fallidas = 0, []

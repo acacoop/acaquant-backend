@@ -5572,7 +5572,8 @@ CREATE TABLE IF NOT EXISTS agente.hallazgos (
 -- ⚠️ **LAS COLUMNAS NUEVAS VAN ACÁ, NO AL FINAL DEL ARCHIVO.**
 -- `apply_schema` ejecuta en ORDEN, y las vistas de más abajo seleccionan estas
 -- columnas: un `ALTER` al final crea la columna DESPUÉS de que la vista intentó
--- leerla, y el deploy corta con «column f.detalle does not exist».
+-- leerla, y el deploy corta con «column f.detalle does not exist». Por eso las
+-- tres vistas de `agente` van ÚLTIMAS, después de todas sus tablas y ALTERs.
 --
 -- El error crudo del hallazgo, para mostrar tal cual. Vivía enterrado en
 -- `evidencia` (jsonb) y la pantalla no lo leía: se veía una frase de molde
@@ -5642,6 +5643,62 @@ CREATE INDEX IF NOT EXISTS acciones_linea_de_tiempo ON agente.acciones (at DESC)
 CREATE INDEX IF NOT EXISTS acciones_por_problema
     ON agente.acciones (habilidad, sujeto, regla, at DESC);
 
+
+-- El LATIDO: una sola fila que dice que el agente está vivo. Sostiene el
+-- círculo verde — un cron no puede: entre corrida y corrida no hay nadie.
+CREATE TABLE IF NOT EXISTS agente.latido (
+    id      smallint PRIMARY KEY DEFAULT 1,
+    at      timestamptz NOT NULL DEFAULT now(),
+    detalle jsonb NOT NULL DEFAULT '{}'::jsonb,
+    CONSTRAINT latido_una_fila CHECK (id = 1)
+);
+-- Dice CUÁNDO VUELVE. Sin esto, quien lo lee tiene que adivinar cada cuánto
+-- late, y un umbral fijo daba «detenido» todas las noches: fuera de rueda el
+-- ciclo es de 300 s y el umbral estaba en 180.
+--
+-- ⚠️ El ALTER va PEGADO a su tabla, no al final del archivo: `apply_schema`
+-- ejecuta en ORDEN y las vistas del final leen estas columnas.
+ALTER TABLE agente.latido ADD COLUMN IF NOT EXISTS proximo_en_s integer;
+
+-- La serie del peso de la base. Se purga sola a los 3 días: lo que informa es
+-- el DELTA, no el tamaño.
+CREATE TABLE IF NOT EXISTS agente.db_peso (
+    at      timestamptz PRIMARY KEY DEFAULT now(),
+    tablas  jsonb NOT NULL
+);
+
+-- La LISTA DE PRIORIDAD de `bono_sin_tasa`: tickers que operan y no tienen TEA.
+-- Se le piden a 1816 cada 15 min y se purga al día siguiente a las 9.
+CREATE TABLE IF NOT EXISTS agente.tasa_1816 (
+    ticker      text NOT NULL,
+    pata        text NOT NULL DEFAULT '',
+    tea         numeric,
+    duration    numeric,
+    precio      numeric,
+    fecha_1816  date,
+    pedido_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (ticker, pata)
+);
+
+-- LO QUE EL AGENTE LE MANDA A UNA PERSONA. No es un hallazgo: un hallazgo es un
+-- problema del sistema, esto es un mensaje dirigido. Mezclarlos fue una de las
+-- cosas que hizo ilegible al agente viejo.
+CREATE TABLE IF NOT EXISTS agente.avisos_dirigidos (
+    id       bigserial PRIMARY KEY,
+    para     text NOT NULL,
+    -- Idempotente por (para, tema): un job que corre cada hora no puede
+    -- llenarle la bandeja a nadie con el mismo aviso.
+    tema     text NOT NULL,
+    asunto   text NOT NULL,
+    detalle  text NOT NULL DEFAULT '',
+    filas    jsonb NOT NULL DEFAULT '[]'::jsonb,
+    at       timestamptz NOT NULL DEFAULT now(),
+    visto_at timestamptz,
+    UNIQUE (para, tema)
+);
+CREATE INDEX IF NOT EXISTS avisos_dirigidos_bandeja
+    ON agente.avisos_dirigidos (lower(para), at DESC);
+
 -- ── LAS VISTAS. Las pantallas LEEN, no derivan. ────────────────────────────
 
 -- AHORA: lo de HOY, sin leer, sin resolver. El día es ART: el día UTC arranca
@@ -5694,61 +5751,6 @@ SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia, h.cada_segundos,
         SELECT count(*) AS n
           FROM agente.reincidencias WHERE habilidad = h.nombre) r ON true
  ORDER BY h.dominio, h.nombre;
-
--- El LATIDO: una sola fila que dice que el agente está vivo. Sostiene el
--- círculo verde — un cron no puede: entre corrida y corrida no hay nadie.
-CREATE TABLE IF NOT EXISTS agente.latido (
-    id      smallint PRIMARY KEY DEFAULT 1,
-    at      timestamptz NOT NULL DEFAULT now(),
-    detalle jsonb NOT NULL DEFAULT '{}'::jsonb,
-    CONSTRAINT latido_una_fila CHECK (id = 1)
-);
--- Dice CUÁNDO VUELVE. Sin esto, quien lo lee tiene que adivinar cada cuánto
--- late, y un umbral fijo daba «detenido» todas las noches: fuera de rueda el
--- ciclo es de 300 s y el umbral estaba en 180.
---
--- ⚠️ El ALTER va PEGADO a su tabla, no al final del archivo: `apply_schema`
--- ejecuta en orden y las vistas de arriba leen estas columnas.
-ALTER TABLE agente.latido ADD COLUMN IF NOT EXISTS proximo_en_s integer;
-
--- La serie del peso de la base. Se purga sola a los 3 días: lo que informa es
--- el DELTA, no el tamaño.
-CREATE TABLE IF NOT EXISTS agente.db_peso (
-    at      timestamptz PRIMARY KEY DEFAULT now(),
-    tablas  jsonb NOT NULL
-);
-
--- La LISTA DE PRIORIDAD de `bono_sin_tasa`: tickers que operan y no tienen TEA.
--- Se le piden a 1816 cada 15 min y se purga al día siguiente a las 9.
-CREATE TABLE IF NOT EXISTS agente.tasa_1816 (
-    ticker      text NOT NULL,
-    pata        text NOT NULL DEFAULT '',
-    tea         numeric,
-    duration    numeric,
-    precio      numeric,
-    fecha_1816  date,
-    pedido_at   timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (ticker, pata)
-);
-
--- LO QUE EL AGENTE LE MANDA A UNA PERSONA. No es un hallazgo: un hallazgo es un
--- problema del sistema, esto es un mensaje dirigido. Mezclarlos fue una de las
--- cosas que hizo ilegible al agente viejo.
-CREATE TABLE IF NOT EXISTS agente.avisos_dirigidos (
-    id       bigserial PRIMARY KEY,
-    para     text NOT NULL,
-    -- Idempotente por (para, tema): un job que corre cada hora no puede
-    -- llenarle la bandeja a nadie con el mismo aviso.
-    tema     text NOT NULL,
-    asunto   text NOT NULL,
-    detalle  text NOT NULL DEFAULT '',
-    filas    jsonb NOT NULL DEFAULT '[]'::jsonb,
-    at       timestamptz NOT NULL DEFAULT now(),
-    visto_at timestamptz,
-    UNIQUE (para, tema)
-);
-CREATE INDEX IF NOT EXISTS avisos_dirigidos_bandeja
-    ON agente.avisos_dirigidos (lower(para), at DESC);
 
 
 -- ⚠️ **UN CHECK YA CREADO NO SE ACTUALIZA SOLO.** `CREATE TABLE IF NOT EXISTS`

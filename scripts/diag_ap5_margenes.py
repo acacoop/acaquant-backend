@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import date
 from typing import Any
 
@@ -327,6 +328,67 @@ def _crudo(f: str, cuenta: str, contables: list[str]) -> None:
             print(f"    {m:<14} {v:>18,.2f}")
 
 
+def _buscar(f: str, agujas: list[str], contables: list[str]) -> None:
+    """Buscar un código en **TODOS los campos** de todas las filas.
+
+    ⚠️ **A propósito no se busca solo en `AccountOwner`.** Es REGLA #9 otra vez:
+    la identidad no está donde uno supone. Si buscamos en el campo que creemos y
+    no aparece, la conclusión «no está» es falsa cuando el dato vivía en otra
+    clave — y no falla nada, simplemente da vacío con seguridad. Buscar en todas
+    las claves cuesta lo mismo (las filas ya vinieron) y no puede equivocarse de
+    campo.
+
+    Al final imprime **el universo entero de `AccountOwner` y de
+    `ClearingAccountCode`**, que es lo que contesta la pregunta de fondo: si el
+    código no está en ninguna parte, al menos se ve QUÉ hay, y de ahí se decide
+    si esto es la fuente equivocada.
+    """
+    print("\n" + "=" * 74)
+    print(f"5) BÚSQUEDA de {agujas} en TODOS los campos")
+    print("=" * 74)
+    print(f"   recorriendo {len(contables)} cuenta(s) contable(s)…")
+
+    hits = 0
+    duenos: dict[str, set[str]] = {}
+    codigos: set[str] = set()
+    for cod in contables:
+        nombre = CUENTAS_CONTABLES.get(cod, "(desconocida)")
+        try:
+            r = postrade.leer("AccountBalance", {"date": f, "accountTypeCode": cod})
+        except Exception as e:
+            print(f"   {cod:<5} ✗ {type(e).__name__}")
+            continue
+        for x in _filas(r):
+            cac = str(x.get("ClearingAccountCode", "") or "")
+            own = str(x.get("AccountOwner", "") or "")
+            codigos.add(cac)
+            if own:
+                duenos.setdefault(own, set()).add(cac)
+            # todas las claves, no la que suponemos
+            donde = [k for k, v in x.items()
+                     if v is not None and any(a in str(v) for a in agujas)]
+            if not donde:
+                continue
+            hits += 1
+            print(f"\n   ✔ contable {cod} ({nombre}) · coincide en: {', '.join(donde)}")
+            print("   " + json.dumps(x, ensure_ascii=False, indent=2,
+                                     default=str).replace("\n", "\n   "))
+
+    print("\n" + "-" * 74)
+    print(f"   {hits} fila(s) con {agujas} en algún campo")
+    print(f"\n   ClearingAccountCode existentes ({len(codigos)}):")
+    for c in sorted(codigos):
+        print(f"      {c}")
+    print(f"\n   AccountOwner existentes ({len(duenos)}) — con su cuenta:")
+    for o, cs in sorted(duenos.items()):
+        print(f"      {o[:44]:<44} {','.join(sorted(cs))}")
+    if not hits:
+        print(f"\n   ⚠️ {agujas} NO aparece en NINGÚN campo de NINGUNA fila.")
+        print("      Mirá la lista de arriba: si los AccountOwner son NOMBRES y no")
+        print("      códigos, este método trabaja por cuenta de compensación y la")
+        print("      segunda cuenta que buscás es de otra numeración — no está acá.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Márgenes y activo integrado (read-only).")
     ap.add_argument("--fecha", help="AAAAMMDD (default: HOY)")
@@ -346,6 +408,10 @@ def main() -> None:
     ap.add_argument("--contables", default="11,14,21,22",
                     help="en qué cuentas contables mirar el --crudo "
                          "(default 11,14,21,22).")
+    ap.add_argument("--buscar", default="",
+                    help="buscar este/estos código(s) en TODOS los campos de "
+                         "todas las filas (ej. 149667). Recorre LAS 29 "
+                         "contables salvo que pases --contables.")
     args = ap.parse_args()
 
     hoy = date.today()
@@ -363,7 +429,15 @@ def main() -> None:
 
     # `--crudo` es EXCLUYENTE: cuando se pide el volcado, se pide eso y nada
     # más. Mezclarlo con los otros bloques entierra el JSON en 300 líneas.
-    if args.crudo:
+    if args.buscar:
+        agujas = [a.strip() for a in args.buscar.split(',') if a.strip()]
+        # Sin --contables explícito, buscar es buscar EN TODAS: acotar el
+        # barrido a cuatro y después decir «no está» sería exactamente el error
+        # que este bloque existe para no cometer.
+        todas_cont = (contables if "--contables" in " ".join(sys.argv)
+                      else list(CUENTAS_CONTABLES))
+        _buscar(f, agujas, todas_cont)
+    elif args.crudo:
         _crudo(f, args.crudo, contables)
     else:
         if not args.solo_barrido:
@@ -372,7 +446,7 @@ def main() -> None:
         if args.barrer or args.solo_barrido:
             _barrer(f, cuentas)
 
-    if args.crudo:
+    if args.crudo or args.buscar:
         return
     print("\n" + "=" * 74)
     print("Qué mirar:")

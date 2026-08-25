@@ -8,8 +8,8 @@ incidente nadie sepa cuál de los dos números manda.
 Se monta en `api/main.py` con el gate del módulo `operaciones` (trader + admin),
 que es el mismo que ya protege la vista NEGOCIO donde vive la tab.
 
-⚠️ **La ESCRITURA no suma un gate propio**: el `grupo` de una cuenta y la
-semilla del acumulado los carga la MESA, que es exactamente quien tiene el
+⚠️ **La ESCRITURA no suma un gate propio**: el `grupo` de una cuenta y el
+arrastre del acumulado los carga la MESA, que es exactamente quien tiene el
 módulo `operaciones`. Si mañana hay que angostarlo (allowlist per-usuario, como
 Mesa de Dinero), se cambia `_ESCRIBE` y lo heredan los cinco endpoints — el
 punto de control queda en UN solo lugar y no repartido por handler.
@@ -99,25 +99,26 @@ def guardar_cuenta(body: CuentaIn, actor: str = _ESCRIBE) -> dict:
                name=body.name, grupo=body.grupo, por=actor)
 
 
-class SemillaIn(BaseModel):
+class AcumuladoIn(BaseModel):
     account: str = Field(..., min_length=1)
-    # Sin default a propósito: una semilla sin moneda es exactamente el error
-    # que la PK (account, currency) viene a impedir — hay cuentas con agro en
-    # Dólar MtR y dólar futuro en Pesos a la vez.
-    currency: str = Field(..., min_length=1, description="moneda de liquidación")
-    semilla: float = Field(..., description="el arrastre anterior a nuestra serie")
-    desde_fecha: str = Field(..., description="'YYYY-MM-DD'; EXCLUSIVA (ver el service)")
-    nota: str = ""
+    # Las dos monedas SIEMPRE, en columnas separadas. No hay un campo `moneda`
+    # con un importe: eso permitiría cargar una y dejar la otra sin saber si
+    # está en cero o sin cargar. Y no hay un total: no existe: el agro liquida
+    # en Dólar MtR y el dólar futuro en Pesos, y sumarlos no significa nada.
+    acumulado_pesos: float = 0
+    acumulado_mtr: float = 0
+    # EXCLUSIVA: los importes ya contienen todo hasta ese día inclusive.
+    fecha: str = Field(..., description="'YYYY-MM-DD'; hasta acá llegan los dos importes")
 
 
-@router.post("/semilla")
-def guardar_semilla(body: SemillaIn, actor: str = _ESCRIBE) -> dict:
-    """La semilla del acumulado de una cuenta en UNA moneda.
+@router.post("/acumulado")
+def guardar_acumulado(body: AcumuladoIn, actor: str = _ESCRIBE) -> dict:
+    """El ARRASTRE de una cuenta, en sus dos monedas.
 
     La cámara manda la diferencia DEL DÍA, no el arrastre: lo anterior a nuestra
     serie solo existe en la planilla de la mesa y se carga acá una vez. De ahí en
     adelante el acumulado se mueve solo — **no se persiste, se deriva** en la
     lectura (misma decisión que el histórico de `/aca`).
     """
-    return _ok(_svc.guardar_semilla, body.account, body.currency, body.semilla,
-               body.desde_fecha, nota=body.nota, por=actor)
+    return _ok(_svc.guardar_acumulado, body.account, body.acumulado_pesos,
+               body.acumulado_mtr, body.fecha, por=actor)

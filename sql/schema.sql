@@ -5335,41 +5335,91 @@ CREATE TABLE IF NOT EXISTS ap5.contratos (
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- ap5.acumulado — la SEMILLA del acumulado por cuenta.
+-- ap5.acumulado — el ACUMULADO de cada cuenta, en sus DOS monedas.
 -- ═══════════════════════════════════════════════════════════════════════════
 --
--- El reporte muestra "Diferencias Acum. al Día", que es el arrastre histórico
--- de la cuenta. La cámara solo manda la diferencia DEL DÍA, y nuestra serie
--- arranca el día que empezamos a guardarla — así que el arrastre anterior no
--- existe en ningún lado salvo en la planilla de la mesa. Ese primer número se
--- carga A MANO, una vez, y de ahí en adelante el acumulado se mueve solo.
+-- El reporte muestra "Diferencias Acum. al Día": el arrastre histórico de la
+-- cuenta. La cámara solo manda la diferencia DEL DÍA, y nuestra serie arranca el
+-- día que empezamos a guardarla — así que el arrastre anterior no existe en
+-- ningún lado salvo en la planilla de la mesa. Se carga a mano acá, una vez, y
+-- de ahí en adelante el número se mueve solo.
 --
--- ⚠️ **La clave lleva la MONEDA, y eso se midió (2026-08-24).** Cuatro cuentas
--- (221369, 222812, 229540, 229664) tienen a la vez posición agro en Dólar MtR y
--- dólar futuro en Pesos. Con PK solo `account`, el acumulado sumaría pesos con
--- dólares: daría un número, no fallaría nada, y estaría mal. Son dos plata
--- distintas y nunca se suman — la misma regla que ARS/USDL en toda la app.
+-- **UNA FILA POR CUENTA, con una columna por moneda.** Es el modelo que pidió el
+-- user (2026-08-25) y reemplaza al de una fila por (cuenta, moneda): la cuenta
+-- es lo que uno busca, y las dos monedas se ven juntas sin tener que cruzar dos
+-- filas. Las columnas separadas son lo que impide sumarlas — el agro liquida en
+-- Dólar MtR y el dólar futuro en Pesos, y un total único de las dos no
+-- significa nada. Antes eso lo garantizaba la PK compuesta; ahora lo garantiza
+-- que son dos columnas distintas y no hay dónde escribir la suma.
 --
--- **El acumulado NO se persiste: se DERIVA en la lectura** como
--- `semilla + Σ daily_settlement` desde `desde_fecha`. Misma decisión que el
--- acumulado del histórico de `/aca`: un total guardado puede contradecir a sus
--- propios insumos, y cuando eso pasa no hay forma de saber cuál de los dos está
--- bien. Derivándolo, corregir un día corrige el acumulado solo.
+-- ⚠️ **`fecha` es EXCLUSIVA.** El acumulado de las columnas está calculado HASTA
+-- ese día inclusive; el sistema suma los días POSTERIORES. Incluirlo lo contaría
+-- dos veces. Al revés, poner el primer día de nuestra serie hace que ese día
+-- deje de contar y el número baja sin que nada falle.
 --
--- `desde_fecha` es EXCLUSIVA: se suman los días POSTERIORES. La semilla ya
--- contiene el arrastre hasta ese día inclusive, así que incluirlo lo contaría
--- dos veces.
+-- ⚠️ **`actualizado` en NULL = NADIE lo cargó todavía.** Es lo único que
+-- distingue "el arrastre es cero" de "todavía no lo puse", y hace falta porque
+-- esta vista se imprime como PDF para gerencia: un cero que nadie escribió se
+-- lee igual que un cero verificado. La fila la crea `scripts/sembrar_ap5_acumulado`
+-- con las dos monedas en 0 y esta columna VACÍA; se completa sola cuando una
+-- persona guarda desde la vista.
+--
+-- El total NO se persiste: se DERIVA en la lectura como `acumulado + Σ de las
+-- diferencias posteriores a `fecha``. Misma decisión que el histórico de `/aca`:
+-- un total guardado puede contradecir a sus propios insumos, y cuando eso pasa
+-- no hay forma de saber cuál de los dos está bien.
 CREATE TABLE IF NOT EXISTS ap5.acumulado (
-    account      text    NOT NULL,
-    currency     text    NOT NULL,
-    semilla      numeric NOT NULL DEFAULT 0,
-    -- Hasta acá llega la semilla (inclusive). Se suman los días POSTERIORES.
-    desde_fecha  date    NOT NULL,
-    nota         text,
-    cargado_por  text,
-    actualizado_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (account, currency)
+    account         text    PRIMARY KEY,
+    acumulado_pesos numeric NOT NULL DEFAULT 0,   -- settlement_currency = 'Pesos'
+    acumulado_mtr   numeric NOT NULL DEFAULT 0,   -- settlement_currency = 'Dólar MtR'
+    -- Hasta acá llegan los dos acumulados (inclusive). Se suman los POSTERIORES.
+    fecha           date    NOT NULL,
+    -- NULL = nadie lo cargó. NO tiene DEFAULT now() a propósito (ver arriba).
+    actualizado     timestamptz,
+    cargado_por     text
 );
+
+-- MIGRACIÓN del modelo viejo (una fila por cuenta × moneda, con `semilla`) al
+-- nuevo (una fila por cuenta, dos columnas). Idempotente: solo corre si la tabla
+-- todavía tiene la columna `currency`.
+--
+-- Es un PIVOT, no un borrado: cada moneda va a su columna y el `desde_fecha` más
+-- viejo de la cuenta manda (es el que no se come ningún día). `actualizado` se
+-- conserva solo si la fila vieja tenía `cargado_por` — o sea, si la había puesto
+-- una persona; las que sembró el script vuelven a nacer sin marcar.
+DO $ap5_acum$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'ap5' AND table_name = 'acumulado'
+                 AND column_name = 'currency') THEN
+
+        CREATE TABLE ap5.acumulado_nueva (
+            account         text    PRIMARY KEY,
+            acumulado_pesos numeric NOT NULL DEFAULT 0,
+            acumulado_mtr   numeric NOT NULL DEFAULT 0,
+            fecha           date    NOT NULL,
+            actualizado     timestamptz,
+            cargado_por     text
+        );
+
+        INSERT INTO ap5.acumulado_nueva
+              (account, acumulado_pesos, acumulado_mtr, fecha, actualizado, cargado_por)
+        SELECT a.account,
+               COALESCE(sum(a.semilla) FILTER (WHERE a.currency = 'Pesos'), 0),
+               COALESCE(sum(a.semilla) FILTER (WHERE a.currency = 'Dólar MtR'), 0),
+               min(a.desde_fecha),
+               max(a.actualizado_at) FILTER (
+                   WHERE a.cargado_por IS DISTINCT FROM 'sembrar_ap5_acumulado'),
+               max(a.cargado_por) FILTER (
+                   WHERE a.cargado_por IS DISTINCT FROM 'sembrar_ap5_acumulado')
+        FROM ap5.acumulado a
+        GROUP BY a.account;
+
+        DROP TABLE ap5.acumulado;
+        ALTER TABLE ap5.acumulado_nueva RENAME TO acumulado;
+        RAISE NOTICE 'ap5.acumulado: pivoteada a una fila por cuenta (dos monedas)';
+    END IF;
+END $ap5_acum$;
 
 -- agente.av_agent_propuestas — LO QUE EL AGENTE SABE HACER (2026-08-19).
 --

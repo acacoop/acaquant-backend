@@ -254,8 +254,8 @@ en Pesos. Todo total viaja partido por moneda; no existe un "total general". Por
 eso `ap5.acumulado` tiene PK `(account, currency)`: medido, cuatro cuentas
 (221369, 222812, 229540, 229664) tienen las dos monedas a la vez.
 
-**3. El acumulado NO se persiste: se DERIVA** (semilla + Σ de los días
-posteriores). Misma decisión que el histórico de `/aca` — un acumulado guardado
+**3. El acumulado NO se persiste: se DERIVA** (el arrastre cargado + Σ de los
+días posteriores). Misma decisión que el histórico de `/aca` — un acumulado guardado
 puede contradecir a sus propios insumos y ahí no hay forma de saber cuál está
 bien.
 
@@ -269,8 +269,14 @@ sin nombre o una unidad nueva salen declarados en `faltantes`. La alternativa
   reporte en sus dos rankings y la cámara no lo sabe. Deducirlo de un prefijo
   del nombre sería la REGLA #9: el día que una cuenta se llame distinto
   cambiaría de ranking sin que nadie se entere.
-- **`ap5.acumulado.semilla`** — la cámara manda la diferencia DEL DÍA, no el
-  arrastre. Lo anterior a nuestra serie solo existe en la planilla de la mesa.
+- **`ap5.acumulado`** (`acumulado_pesos` / `acumulado_mtr`) — la cámara manda la
+  diferencia DEL DÍA, no el arrastre. Lo anterior a nuestra serie solo existe en
+  la planilla de la mesa. **Una fila por CUENTA con una columna por moneda**: el
+  agro liquida en Dólar MtR y el dólar futuro en Pesos, y tenerlas en columnas
+  separadas es lo que impide que alguien las sume. `fecha` es EXCLUSIVA (los
+  importes ya contienen todo hasta ese día) y `actualizado` en NULL significa que
+  **nadie lo cargó todavía** — distinto de un arrastre de cero, y la diferencia
+  importa porque la vista se imprime para gerencia.
 
 El **nombre**, en cambio, NO se tipea: lo publica `AccountDetails`. Va en
 `denominacion`, columna separada de `name` (el override humano) justamente para

@@ -13,8 +13,7 @@ def _f(**kw):
     base = {
         "familia": "agro", "grupo": "COOPERATIVAS", "cuenta": "1",
         "nombre": "COOP", "moneda": "Dólar MtR", "acumulado": 100.0,
-        "diaria": 1.0, "semilla_cargada": True, "semilla": 0.0,
-        "desde_fecha": None, "nota": None,
+        "diaria": 1.0, "cargado": True, "arrastre": 0.0, "fecha_arrastre": None,
     }
     return {**base, **kw}
 
@@ -145,16 +144,18 @@ def test_el_acumulado_en_CERO_no_entra_a_ningun_lado():
     assert [i["cuenta"] for i in r["positivos"]] == ["B"]
 
 
-def test_cuenta_SIN_SEMILLA_se_cuenta_y_viaja_marcada():
-    """Un acumulado sin semilla está INCOMPLETO, y en un ranking eso importa el
-    doble: la cuenta puede estar en el puesto equivocado. Tiene que poder
-    decirlo, no quedar indistinguible de una completa."""
+def test_la_cuenta_SIN_ARRASTRE_CARGADO_se_cuenta():
+    """Un acumulado sin arrastre cargado está INCOMPLETO, y en un ranking eso
+    importa el doble: la cuenta puede estar en el puesto equivocado.
+
+    `cargado` es que una PERSONA selló `actualizado`. Una fila con los dos
+    importes en 0 que dejó el sembrador NO cuenta como cargada: un cero que
+    nadie escribió se lee igual que uno verificado, y esto se imprime."""
     r = rankings([
-        _f(cuenta="A", acumulado=50.0, semilla_cargada=True),
-        _f(cuenta="B", acumulado=90.0, semilla_cargada=False),
+        _f(cuenta="A", acumulado=50.0, cargado=True),
+        _f(cuenta="B", acumulado=90.0, cargado=False),
     ])[0]
-    assert r["sin_semilla"] == 1
-    assert r["positivos"][0]["semilla_cargada"] is False
+    assert r["sin_cargar"] == 1
 
 
 def test_sin_filas_no_revienta():

@@ -596,3 +596,22 @@ def test_las_columnas_del_agente_existen_antes_que_sus_vistas():
     assert not tarde, (
         f"hay ALTER de {set(tarde)} DESPUÉS de las vistas del agente: la vista "
         f"se crea antes que la columna y `apply_schema` corta")
+
+
+def test_las_vistas_del_agente_se_dropean_antes_de_recrearse():
+    """`CREATE OR REPLACE VIEW` sólo sabe AGREGAR columnas AL FINAL.
+
+    Una columna nueva metida en el MEDIO de la lista Postgres la lee como un
+    RENOMBRE de la que ocupaba esa posición y rechaza el statement entero:
+    «cannot change name of view column "que_hacer" to "detalle"» (2026-08-25,
+    el deploy cortó dos veces seguidas por esto).
+
+    El `DROP VIEW IF EXISTS` de arriba lo hace un no-problema — pero sólo
+    mientras esté. Este test lo sostiene.
+    """
+    sql = (RAIZ / "sql" / "schema.sql").read_text()
+    for v in ("v_ahora", "v_encontro", "v_habilidades"):
+        crear = f"CREATE OR REPLACE VIEW agente.{v} AS"
+        assert f"DROP VIEW IF EXISTS agente.{v};\n{crear}" in sql, (
+            f"agente.{v} se recrea sin DROP previo: agregarle una columna en "
+            f"el medio corta el deploy con «cannot change name of view column»")

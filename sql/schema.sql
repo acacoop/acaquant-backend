@@ -5700,9 +5700,17 @@ CREATE INDEX IF NOT EXISTS avisos_dirigidos_bandeja
     ON agente.avisos_dirigidos (lower(para), at DESC);
 
 -- ── LAS VISTAS. Las pantallas LEEN, no derivan. ────────────────────────────
+--
+-- ⚠️ **DROP antes de CREATE, siempre.** `CREATE OR REPLACE VIEW` sólo sabe
+-- AGREGAR columnas AL FINAL: si una columna nueva entra en el medio de la
+-- lista, Postgres lo lee como un RENOMBRE de la que estaba en esa posición y
+-- corta el deploy («cannot change name of view column "que_hacer" to
+-- "detalle"»). Nadie depende de estas vistas: dropearlas y rehacerlas es
+-- idempotente y no obliga a acomodar columnas nuevas al final para siempre.
 
 -- AHORA: lo de HOY, sin leer, sin resolver. El día es ART: el día UTC arranca
 -- a las 21:00 de acá y mezclaría dos días bajo el mismo rótulo.
+DROP VIEW IF EXISTS agente.v_ahora;
 CREATE OR REPLACE VIEW agente.v_ahora AS
 SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
        f.problema, f.detalle, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
@@ -5717,6 +5725,7 @@ SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
  ORDER BY f.detectado_at DESC;
 
 -- ENCONTRÓ: lo abierto que TIENE ARREGLO. Un aviso no entra acá.
+DROP VIEW IF EXISTS agente.v_encontro;
 CREATE OR REPLACE VIEW agente.v_encontro AS
 SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
        f.problema, f.detalle, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
@@ -5730,6 +5739,7 @@ SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
 
 -- EL CATÁLOGO como lo pide la pantalla. Los contadores se DERIVAN — guardarlos
 -- sería una segunda verdad que se desincroniza sola.
+DROP VIEW IF EXISTS agente.v_habilidades;
 CREATE OR REPLACE VIEW agente.v_habilidades AS
 SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia, h.cada_segundos,
        h.ventana, h.activa, h.umbrales,

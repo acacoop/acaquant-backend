@@ -35,6 +35,7 @@ cuenta, o una sola ya consolidada para todo el ALyC?) y (b) cuáles son los dos
 códigos, que se leen de la columna `cta.compens.`.
 
 Uso:
+    python -m scripts.diag_ap5_margenes --crudo 218115,149667
     python -m scripts.diag_ap5_margenes --cuentas 149667,218115 --barrer
     python -m scripts.diag_ap5_margenes --solo-barrido --cuentas 149667,218115
     python -m scripts.diag_ap5_margenes --cuenta-contable 14
@@ -280,24 +281,51 @@ def _barrer(f: str, cuentas: list[str]) -> None:
         print("      cuál es el método que abre el integrado por comitente.")
 
 
-def _crudo(f: str, cuenta: str, contables: list[str]) -> None:
-    """El JSON **tal cual lo devuelve la API**, sin aplanar ni interpretar.
+def _campos_que_coinciden(fila: dict, aguja: str) -> tuple[list[str], bool]:
+    """Qué claves de la fila traen la aguja, y si alguna es IGUAL (no contiene).
 
-    Es a propósito que no pase por `_mostrar`: esa función elige cinco campos y
-    los alinea, y elegir campos es ya una interpretación. Acá lo que hace falta
-    es ver la fila ENTERA — el nombre exacto de cada clave, los tipos, los nulos
-    y los campos que ni sabíamos que venían. De ahí sale el modelo de la tabla,
-    y un campo que no se vio nunca es un campo que la tabla no va a tener.
+    La diferencia importa: `'1172' in '211725'` es verdadero y no significa
+    nada. Un match por igualdad es identidad; uno por substring es una pista que
+    hay que mirar con los ojos. Se devuelven las dos cosas para poder avisar.
+    """
+    donde, exacto = [], False
+    for k, v in fila.items():
+        if v is None:
+            continue
+        t = str(v)
+        if aguja in t:
+            donde.append(k)
+            if t.strip() == aguja:
+                exacto = True
+    return donde, exacto
+
+
+def _crudo(f: str, cuentas: list[str], contables: list[str]) -> None:
+    """El JSON **tal cual lo devuelve la API**, para UNA O VARIAS cuentas.
+
+    ⚠️ **No se filtra por `ClearingAccountCode`.** Medido el 2026-08-25: las dos
+    cuentas del reporte se identifican por campos DISTINTOS — `218115` es un
+    `ClearingAccountCode` y `149667` aparece en `AccountOwner` /
+    `AccountingAccountCode`. Un filtro por la clave que suponemos encuentra una
+    y pierde la otra **sin fallar**: devuelve filas, se ven bien, y falta media
+    cabecera. Es REGLA #9(A) — la identidad no es el nombre del campo.
+
+    Por eso se busca en TODOS los campos y se IMPRIME en cuál coincidió, para
+    que el match sea auditable y no un acto de fe.
     """
     print("\n" + "=" * 74)
-    print(f"4) RESPONSE CRUDO — cuenta {cuenta}")
+    print(f"4) RESPONSE CRUDO — cuentas {cuentas}")
     print("=" * 74)
+
+    # (cuenta, contable, moneda) → total. Es lo que termina en las cards.
+    resumen: dict[tuple[str, str, str], float] = {}
+    sospechosas: list[str] = []
 
     for cod in contables:
         nombre = CUENTAS_CONTABLES.get(cod, "(desconocida)")
-        print("\n" + "-" * 74)
-        print(f"  cuenta contable {cod} — {nombre}")
-        print("-" * 74)
+        print("\n" + "=" * 74)
+        print(f"  CUENTA CONTABLE {cod} — {nombre}")
+        print("=" * 74)
         try:
             r = postrade.leer("AccountBalance", {"date": f, "accountTypeCode": cod})
         except Exception as e:
@@ -305,27 +333,52 @@ def _crudo(f: str, cuenta: str, contables: list[str]) -> None:
             continue
 
         todas = _filas(r)
-        mias = [x for x in todas
-                if str(x.get("ClearingAccountCode", "")) == str(cuenta)]
-        print(f"  {len(todas)} filas en total · {len(mias)} de la cuenta {cuenta}")
-        if not mias:
-            print(f"  (la cuenta {cuenta} no aparece en esta contable)")
-            continue
+        print(f"  {len(todas)} filas en total en esta contable")
 
-        for i, x in enumerate(mias, 1):
-            print(f"\n  ── fila {i}/{len(mias)} " + "─" * 50)
-            print(json.dumps(x, ensure_ascii=False, indent=2, default=str))
+        for cuenta in cuentas:
+            mias = []
+            for x in todas:
+                donde, exacto = _campos_que_coinciden(x, cuenta)
+                if donde:
+                    mias.append((x, donde, exacto))
 
-        # El total de la cuenta EN ESTA contable, por moneda. Nunca entre
-        # contables: la 21 son márgenes y la 22 diferencias — sumarlas no es
-        # un número, es dos cosas distintas apiladas.
-        por: dict[str, float] = {}
-        for x in mias:
-            m = str(x.get("Currency", "") or "(sin moneda)")
-            por[m] = por.get(m, 0.0) + float(x.get("Balance") or 0)
-        print(f"\n  TOTAL de {cuenta} en la contable {cod} ({nombre}):")
-        for m, v in sorted(por.items()):
-            print(f"    {m:<14} {v:>18,.2f}")
+            print(f"\n  ── cuenta {cuenta}: {len(mias)} fila(s) " + "─" * 40)
+            if not mias:
+                print(f"     (no aparece en la contable {cod})")
+                continue
+
+            campos = sorted({k for _, d, _ in mias for k in d})
+            print(f"     coincide por: {', '.join(campos)}")
+            if not any(e for _, _, e in mias):
+                aviso = (f"cuenta {cuenta} en contable {cod}: NINGÚN campo es "
+                         f"IGUAL a «{cuenta}», solo lo contienen")
+                sospechosas.append(aviso)
+                print(f"     ⚠️ {aviso} — miralo con los ojos antes de usarlo")
+
+            for i, (x, _, _) in enumerate(mias, 1):
+                print(f"\n     ── fila {i}/{len(mias)} " + "─" * 42)
+                print("     " + json.dumps(x, ensure_ascii=False, indent=2,
+                                           default=str).replace("\n", "\n     "))
+                m = str(x.get("Currency", "") or "(sin moneda)")
+                k = (cuenta, cod, m)
+                resumen[k] = resumen.get(k, 0.0) + float(x.get("Balance") or 0)
+
+    # ── el cuadro que alimenta la cabecera ────────────────────────────────
+    print("\n" + "=" * 74)
+    print("RESUMEN — lo que iría en las cards")
+    print("=" * 74)
+    print("  ⚠️ NO se suma entre cuentas contables: la 21 son márgenes y la 22")
+    print("     diferencias. Tampoco entre monedas. Cada celda es un número.\n")
+    print(f"  {'cuenta':<10} {'cont.':<6} {'concepto':<30} {'moneda':<10} {'saldo':>18}")
+    for (cuenta, cod, mon), v in sorted(resumen.items()):
+        print(f"  {cuenta:<10} {cod:<6} {CUENTAS_CONTABLES.get(cod,'')[:30]:<30} "
+              f"{mon:<10} {v:>18,.2f}")
+    if not resumen:
+        print("  (ninguna de las cuentas apareció en las contables pedidas)")
+    if sospechosas:
+        print("\n  ⚠️ MATCHES SOLO POR SUBSTRING (revisar):")
+        for a in sospechosas:
+            print(f"     · {a}")
 
 
 def _buscar(f: str, agujas: list[str], contables: list[str]) -> None:
@@ -403,8 +456,9 @@ def main() -> None:
     ap.add_argument("--solo-barrido", action="store_true",
                     help="saltea márgenes y el bloque 2: solo el mapa.")
     ap.add_argument("--crudo", default="",
-                    help="volcar el JSON CRUDO de ESTA cuenta de compensación "
-                         "(ej. 218115), fila por fila y sin interpretar.")
+                    help="volcar el JSON CRUDO de estas cuentas, separadas por "
+                         "coma (ej. 218115,149667). Busca en TODOS los campos, "
+                         "porque cada cuenta se identifica por uno distinto.")
     ap.add_argument("--contables", default="11,14,21,22",
                     help="en qué cuentas contables mirar el --crudo "
                          "(default 11,14,21,22).")
@@ -438,7 +492,8 @@ def main() -> None:
                       else list(CUENTAS_CONTABLES))
         _buscar(f, agujas, todas_cont)
     elif args.crudo:
-        _crudo(f, args.crudo, contables)
+        _crudo(f, [c.strip() for c in args.crudo.split(',') if c.strip()],
+               contables)
     else:
         if not args.solo_barrido:
             _margenes(f, habil)

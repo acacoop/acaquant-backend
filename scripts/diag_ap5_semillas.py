@@ -1,0 +1,74 @@
+"""scripts/diag_ap5_semillas.py — ¿el acumulado que va al PDF está completo?
+
+READ-ONLY. No escribe nada.
+
+**El problema que mide.** La cámara manda la diferencia de CADA DÍA, no el
+arrastre. El acumulado que muestra la vista es::
+
+    semilla + Σ diferencias desde `desde_fecha`
+
+y si la cuenta no tiene semilla cargada, esa parte vale CERO — o sea que el
+número no es el acumulado real, es *"lo acumulado desde que nosotros empezamos a
+guardar"*. En una pantalla operativa eso se avisa con un cartel; en un PDF para
+gerencia el cartel no va, así que **hay que saber ANTES si el número cierra**.
+
+Y en un RANKING importa el doble: una cuenta con mucho arrastre viejo y poco
+movimiento reciente aparece más abajo de lo que corresponde. El top puede estar
+en otro orden y no hay forma de notarlo mirando la pantalla.
+
+Uso:
+    python -m scripts.diag_ap5_semillas
+    python -m scripts.diag_ap5_semillas --fecha 2026-08-21
+"""
+from __future__ import annotations
+
+import argparse
+
+from api.services.ap5_posiciones import _fecha_valida, acumulado, fechas
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Cuánto le falta al acumulado de AP5.")
+    ap.add_argument("--fecha", help="YYYY-MM-DD (default: el último día con posición)")
+    args = ap.parse_args()
+
+    dias = fechas()
+    if not dias:
+        print("No hay posición guardada todavía (ap5.portfolio vacía).")
+        return
+
+    hoy, _ = _fecha_valida(args.fecha)
+    filas = acumulado(hoy)
+    primer_dia = dias[-1]["fecha"]
+
+    print(f"AP5 · acumulado al {hoy}")
+    print(f"Nuestra serie arranca el {primer_dia} ({len(dias)} días guardados).")
+    print("Sin semilla, el acumulado de una cuenta cuenta SOLO desde esa fecha.\n")
+
+    sin = [f for f in filas if not f["semilla_cargada"]]
+    con = [f for f in filas if f["semilla_cargada"]]
+    print(f"  con semilla : {len(con):>4}")
+    print(f"  SIN semilla : {len(sin):>4}   ← estas van incompletas al PDF")
+    print(f"  total       : {len(filas):>4} (cuenta × moneda)\n")
+
+    if not sin:
+        print("✅ Todas tienen semilla: el acumulado del PDF es el arrastre completo.")
+        return
+
+    # Las que más pesan primero: son las que pueden mover el top 10.
+    sin.sort(key=lambda f: -abs(f["acumulado"]))
+    print("Las 20 sin semilla que más pesan (son las que pueden mover el ranking):\n")
+    print(f"  {'cuenta':<10} {'grupo':<16} {'moneda':<12} {'familia':<7} {'acum. parcial':>16}  nombre")
+    for f in sin[:20]:
+        print(f"  {f['cuenta']:<10} {f['grupo'][:16]:<16} {f['moneda'][:12]:<12} "
+              f"{f['familia']:<7} {f['acumulado']:>16,.2f}  {f['nombre'][:44]}")
+
+    print("\nQué hacer con esto:")
+    print("  · Cargar la semilla de cada una (click en su fila en la vista, o")
+    print("    INSERT en ap5.acumulado) tomando el arrastre de la planilla de la mesa.")
+    print("  · O, si el informe es 'desde que medimos', decirlo en el título del PDF")
+    print(f"    ('Acumulado desde {primer_dia}') — así el número no afirma de más.")
+
+
+if __name__ == "__main__":
+    main()

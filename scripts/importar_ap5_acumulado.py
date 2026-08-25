@@ -73,13 +73,21 @@ SUFIJOS = {
 # están cargadas**; si una sola está, el pareo daría un match confiado y
 # equivocado.
 
+# Encabezados que reconoce, por CONTENIDO del texto (no por igualdad): un
+# encabezado que CONTENGA la palabra alcanza, así `Acumulado Pesos` y `Pesos`
+# caen las dos en el mismo lugar. Se comparan ya normalizados (sin acentos, sin
+# puntuación), por eso las variantes con tilde no hacen falta acá.
+#
+# ⚠️ El orden de este dict IMPORTA: se detecta de arriba hacia abajo y una
+# columna ya asignada no vuelve a ofrecerse. `account` va PRIMERO porque
+# «cuenta» es ambigua —puede ser el número o el nombre del cliente— y si gana
+# `nombre`, el número se leería como si fuera una denominación.
 CLAVES = {
-    "nombre": ("denominacion", "denominación", "nombre", "cliente", "razon",
-               "razón", "titular", "cuenta"),
-    "pesos": ("pesos", "ars", "peso", "acumulado_pesos", "acum_pesos", "$"),
-    "mtr": ("mtr", "dolar mtr", "dólar mtr", "usd", "acumulado_mtr", "dolar",
-            "dólar"),
-    "account": ("account", "nro", "numero", "número", "comitente", "id_cuenta"),
+    "account": ("account", "nro", "numero", "comitente", "id cuenta", "codigo"),
+    "nombre": ("denominacion", "nombre", "cliente", "razon", "titular",
+               "cuenta"),
+    "pesos": ("pesos", "peso", "ars"),
+    "mtr": ("mtr", "usd", "dolar"),
 }
 
 
@@ -161,16 +169,35 @@ def leer_archivo(ruta: Path) -> list[dict]:
         return list(csv.DictReader(f, dialect=dial))
 
 
-def detectar(cols: list[str], que: str, explicito: str | None) -> str | None:
+def detectar(cols: list[str], que: str, explicito: str | None,
+             tomadas: set[str]) -> str | None:
+    """La columna para `que`, sin repetir una ya asignada.
+
+    `tomadas` evita que una misma columna sirva para dos roles: sin eso,
+    `Acumulado Pesos` puede quedar como pesos Y como nombre (contiene «cuenta»
+    en algunos archivos), y el importe se leería como denominación.
+    """
     if explicito:
         if explicito not in cols:
             raise SystemExit(f"--col-{que}={explicito!r} no está. Hay: {cols}")
         return explicito
     for c in cols:
+        if c in tomadas:
+            continue
         n = normalizar(c).lower()
         if any(k in n for k in CLAVES[que]):
             return c
     return None
+
+
+def _pinta_numero(filas: list[dict], col: str | None) -> float:
+    """Qué proporción de la columna se lee como número. Sirve para desconfiar."""
+    if not col:
+        return 0.0
+    vals = [f.get(col) for f in filas if str(f.get(col) or "").strip()]
+    if not vals:
+        return 0.0
+    return sum(1 for v in vals if _num(v) is not None) / len(vals)
 
 
 def cuentas_indexadas() -> tuple[dict, dict, dict]:
@@ -226,10 +253,20 @@ def main() -> None:
         raise SystemExit("el archivo no tiene filas")
     cols = list(filas[0])
 
-    c_nom = detectar(cols, "nombre", args.col_nombre)
-    c_pes = detectar(cols, "pesos", args.col_pesos)
-    c_mtr = detectar(cols, "mtr", args.col_mtr)
-    c_acc = detectar(cols, "account", args.col_account)
+    # El orden es el de CLAVES: `account` primero, y cada columna asignada sale
+    # del pozo para las siguientes.
+    tomadas: set[str] = set()
+    elegidas: dict[str, str | None] = {}
+    for que, explicito in (("account", args.col_account),
+                           ("nombre", args.col_nombre),
+                           ("pesos", args.col_pesos),
+                           ("mtr", args.col_mtr)):
+        col = detectar(cols, que, explicito, tomadas)
+        elegidas[que] = col
+        if col:
+            tomadas.add(col)
+    c_acc, c_nom = elegidas["account"], elegidas["nombre"]
+    c_pes, c_mtr = elegidas["pesos"], elegidas["mtr"]
 
     print("=" * 78)
     print(f"{ruta.name} · {len(filas)} filas · fecha {args.fecha} "
@@ -246,6 +283,26 @@ def main() -> None:
     if not c_pes and not c_mtr:
         raise SystemExit("\nNo encontré ninguna columna de importe. Pasala con "
                          "--col-pesos / --col-mtr.")
+
+    # ⚠️ Detectar por el ENCABEZADO puede errarle, y errarle en silencio: si la
+    # columna «Cuenta» trae el número y se leyó como nombre, no parea NADA y el
+    # reporte dice «0 pareos» sin explicar por qué. Mirar el CONTENIDO lo delata
+    # antes de que pierdas media hora.
+    avisos = []
+    if c_nom and _pinta_numero(filas, c_nom) > 0.8:
+        avisos.append(f"{c_nom!r} está tomada como NOMBRE y casi todo su "
+                      f"contenido son números. ¿Es el número de cuenta? "
+                      f"→ --col-account {c_nom!r}")
+    if c_acc and _pinta_numero(filas, c_acc) < 0.5:
+        avisos.append(f"{c_acc!r} está tomada como ACCOUNT y su contenido no "
+                      f"parece numérico. ¿Es la denominación? "
+                      f"→ --col-nombre {c_acc!r}")
+    for col, rol in ((c_pes, "pesos"), (c_mtr, "MtR")):
+        if col and _pinta_numero(filas, col) < 0.5:
+            avisos.append(f"{col!r} está tomada como {rol} y casi nada de su "
+                          f"contenido se lee como número.")
+    for a in avisos:
+        print(f"\n  ⚠️ {a}")
 
     exacto, flojo, nombres = cuentas_indexadas()
     print(f"  ap5.cuentas: {len(exacto)} nombres indexados")

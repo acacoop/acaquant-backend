@@ -27,8 +27,8 @@
 <!-- AUTOGEN:servicios -->
 | Servicio | Puerto | Target | Qué hace |
 |---|---|---|---|
+| `agente` | — | `jobs.agente` | AV Agent — el agente de TradingAV |
 | `api` | 8000 | `api.main:app` (uvicorn) | TradingAV API (FastAPI + uvicorn) |
-| `av_agent_centinela` | — | `jobs.av_agent_centinela` | AV Agent Centinela - vigila precios, tasas y salud durante toda la rueda |
 <!-- /AUTOGEN:servicios -->
 
 ## Motores de mercado (cron start/stop L-V)
@@ -59,9 +59,9 @@
 |---|---|
 | cada hora · 0-1h · Mar-Sáb | `jobs.market_quotes'` |
 | cada hora · 10-23h · L-V | `jobs.market_quotes'` |
-| cada 10min · *h · diario | `jobs.av_agent_sistema'` |
 | cada 15min · 12-23h · diario | `jobs.news_ingesta'` |
 | cada 15min · 13-15h · L-V | `jobs.mayor_sync'` |
+| cada 15min · 13-19h · L-V | `jobs.agente_tasa'` |
 | cada 15min · 13-20h · L-V | `jobs.adr_live'` |
 | cada 15min · 13-20h · L-V | `engines.dolar_mep'` |
 | cada 30min · 10-14h · L-V | `jobs.research_mail'` |
@@ -72,11 +72,10 @@
 | cada 5min · 13-20h · L-V | `jobs.estrategia_resolver'` |
 | 11:00 · L-V | `jobs.portafolio_backfill` |
 | 12:00 · diario | `jobs.argentina_datos'` |
-| 12:00 · diario | `jobs.ap5_portfolio'` |
 | 12,14,16,18,20,22:0 · L-V | `jobs.interbanking_sync'` |
 | 12,16,20,23:0 · L-V | `jobs.fred_research'` |
 | 12,16,20,23:0 · 1-6 | `jobs.bcra_research'` |
-| 13,15,17,19:0 · L-V | `jobs.av_agent'` |
+| 13:00 · diario | `jobs.ap5_portfolio'` |
 | 14:00 · L-V | `jobs.sync_comitentes'` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
 | 17:00 · L-V | `jobs.sync_comitentes'` |
@@ -109,7 +108,6 @@
 | 20:30 · L-V | `jobs.forwards_zscore'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |
 | 22:30 · L-V | `jobs.ficha_1816'` |
-| 23:30 · diario | `jobs.db_tamano'` |
 | 11:35 · diario | `jobs.news_ingesta'` |
 | 11:35 · diario | `jobs.news_finnhub'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |
@@ -121,7 +119,6 @@
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
 | 02:50 · Mar-Sáb | `jobs.tesoreria_snapshot'` |
 | 20:50 · L-V | `jobs.archive_options_data` |
-| 23:50 · diario | `jobs.seguimiento'` |
 | 23:50 · L-V | `jobs.cleanup_cedears_timesales'` |
 | 20:06 · L-V | `jobs.day_trading_stats'` |
 <!-- /AUTOGEN:crons -->
@@ -146,7 +143,6 @@
 | 13:20 · L-V | `systemctl restart motor_portfolio_snapshot.service` |
 | 13:20 · L-V | `systemctl restart motor_estrategia.service` |
 | 13:30 · L-V | `systemctl restart motor_ordenes.service` |
-| Crontab:﻿# · — | `TradingAV` |
 <!-- /AUTOGEN:otros -->
 
 > Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs

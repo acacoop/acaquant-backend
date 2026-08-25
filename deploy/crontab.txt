@@ -491,11 +491,14 @@
 # 23:50 UTC = 20:50 ART. Corre DESPUÉS de todos los detectores del día: mira qué
 # arreglos aguantaron y cuáles volvieron, y lo convierte en votos `verificado`
 # del eval set. Es la única evidencia que no es la opinión de nadie.
-# AP5 — posicion de FUTUROS de la camara (A3/ACyRSA). 9:00 ART = 12:00 UTC.
+# AP5 — posicion de FUTUROS de la camara (A3/ACyRSA). 10:00 ART = 13:00 UTC.
 # Todos los dias: siempre consulta el ULTIMO DIA HABIL (hoy menos 1 habil), que
 # el job resuelve solo salteando findes y feriados. Corre tambien sabado y
 # domingo a proposito: si el viernes fallo, el sabado lo recupera solo.
-0 12 * * * /root/TradingAV/deploy/run_job.sh ap5_portfolio 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ap5_portfolio'
+# La HORA no cambia QUE trae (siempre el ultimo habil, ya cerrado): da una hora
+# mas de margen para que la camara termine de publicar el EOD. No pisa la rueda
+# de los motores: son ~3 llamadas HTTP a Postrade, no toca Postgres pesado.
+0 13 * * * /root/TradingAV/deploy/run_job.sh ap5_portfolio 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ap5_portfolio'
 
 # ─── EL AV AGENT (docs/AGENT_2.0.md)
 # El agente NO es un cron: es el daemon `agente.service`. Su agenda vive en

@@ -3,12 +3,11 @@
 Trae `PosTrade/PositionReport` de la API Postrade (A3 Mercados / ACyRSA) y lo
 persiste en `ap5.portfolio`, más el alta de cuentas nuevas en `ap5.cuentas`.
 
-Cron: **9:00 ART** (12:00 UTC), todos los días. Siempre consulta el **último día
-hábil** — o sea hoy menos un día hábil.
+Cron: **10:00 ART** (13:00 UTC), todos los días. Siempre consulta el **último
+día hábil** — o sea hoy menos un día hábil.
 
 Por qué el último día hábil y no hoy: el reporte de posición es de CIERRE
-(`SettlSessID = EOD`), así que a las 9 de la mañana el día de hoy todavía no
-existe. Y por qué "hábil" y no "ayer": un lunes, ayer es domingo. El cálculo usa
+(`SettlSessID = EOD`), así que a la mañana el día de hoy todavía no existe. Y por qué "hábil" y no "ayer": un lunes, ayer es domingo. El cálculo usa
 `core.calendario.restar_habiles`, que además de findes saltea **feriados** — el
 repo ya se comió una vez el bug de contar solo `weekday < 5`.
 
